@@ -131,7 +131,16 @@ They should be treated as **ASDL/phase design work first**, not as backend-only 
 - [ ] keep code-shape-sensitive math/data-parallel work ASDL-first:
   - [x] first-class frontend intrinsic surface for operations like `fma`
   - [x] initial `MoonliftVec` ASDL fact/plan vocabulary for counted-loop add-reduction vectorization detection
-  - [ ] lower vector plans to explicit vector `Back` commands / Cranelift vector IR
+  - [x] initial explicit vector `Back` commands plus LuaJIT FFI replay and Cranelift vector smoke test
+  - [x] coherent `MoonliftVec.VecLoopFacts` / `VecLoopDecision` ASDL replaces the old shallow `VecPlan` ladder for vector add-reduction detection
+  - [x] initial `VecLoopDecision` / `VecModule -> BackProgram` lowering for simple counted reductions with scalar tail
+  - [x] ordinary/unrolled add-reduction path materializes explicit `VecBlock` / `VecCmd` skeletons before `BackProgram`
+  - [x] explicit unrolled add-reduction and bounded chunked `i32x4` decisions/lowerings
+  - [x] bounded chunked `i32x4` path materializes explicit `VecBlock` / `VecCmd` skeletons before `BackProgram`
+  - [x] initial contiguous pointer-backed view loads flow through `VecMemoryAccess` / `VecExprLoad` / `VecCmdLoad` to `BackCmdVecLoad`
+  - [x] initial contiguous pointer-backed view stores flow through `VecStoreFact` / `VecCmdStore` to `BackCmdVecStore`
+  - [x] initial load-store map loop support for same-base/same-lane in-place maps with explicit `VecNoDependence`; unknown alias pairs remain scalar fallback
+  - [ ] broaden vector decision/lowering beyond add-reduction/narrow-bounded reduction shapes
   - [ ] later explicit SIMD/vector source forms if the language wants more than scalar backend recovery
 
 ### F. Complete remaining realism gaps exposed by codegen probing
@@ -365,7 +374,8 @@ This depends on the intended reboot language surface.
 - [ ] complete the frozen slice/view descriptor model for strided/interleaved/windowed kernels end-to-end
 - [ ] support aggregate field addressing and copying uniformly
 - [x] implement storable/passable immutable function values — one-word code pointers, storable in structs/arrays
-- [x] implement closure desugaring to `struct { fn, ctx }` at `Surface -> Elab`
+- [x] implement closure desugaring to `struct { fn, ctx }` before `Surface -> Elab`
+- [x] implement closure invocation sugar for local/param closure values (`f(x)` -> `f.fn(f.ctx, x)`)
 - [x] define view construction primitives — six primitives frozen: `view`, `view_window`, `view_from_ptr`, `view_from_ptr(..., stride)`, `view_strided`, `view_interleaved`
 - [x] implement view construction lowering — `view(xs)`, `view(xs, start, len)`, `view_from_ptr`, `view_from_ptr(ptr, len, stride)`, `view_strided`, and `view_interleaved` now lower through explicit `SemView` variants (`SemViewFromExpr`, `SemViewWindow`, `SemViewContiguous`, `SemViewStrided`, `SemViewRestrided`, `SemViewInterleavedView`)
 - [x] define array-value indexing semantics — copy-out via `base + i*elem_size` load
@@ -410,7 +420,7 @@ Goal:
 - [x] complete `SemExprCastTo` value lowering in the canonical expr path — scalar numeric casts now choose explicit `SemCastOp` results and lower to Back conversion commands
 - [ ] complete non-scalar load lowering where intended
 - [ ] complete non-scalar call result lowering where intended
-- [ ] complete closure invocation sugar / closure-call lowering
+- [x] complete closure invocation sugar / closure-call lowering for local and parameter closure values
 - [ ] complete non-scalar loop expr lowering where intended
 - [ ] complete non-scalar switch/if/block expr lowering where intended
 
@@ -440,14 +450,14 @@ Current design decision state:
   - [x] scalar values by value
   - [x] pointers by value
   - [x] function values by value
-  - [x] slice descriptors by value
-  - [x] view descriptors by value
-  - [x] aggregate values by hidden pointer/materialization path
+  - [x] slice descriptors as materialized descriptor values
+  - [x] view descriptors as materialized descriptor values
+  - [x] aggregate/descriptor values by hidden pointer/materialization path
   - [x] single-result only; multi-result returns are not part of the language
-- [ ] support non-scalar return values through the frozen hidden-pointer result path
-- [ ] support non-scalar call arguments/results coherently under the frozen descriptor/aggregate ABI
-- [ ] define extern ABI rules for aggregates/slices/views/function values
-- [ ] define function-pointer ABI rules for indirect calls
+- [x] support non-scalar return values through the frozen hidden-pointer result path
+- [x] support non-scalar call arguments/results coherently under the frozen descriptor/aggregate ABI
+- [x] define internal extern ABI rules for aggregates/slices/views/function values
+- [x] define function-pointer ABI rules for indirect calls
 
 ## 4.4 Addressability/lvalue model completion
 
@@ -455,7 +465,7 @@ Current design decision state:
 - [x] support address of args if intended
 - [x] support address of immutable locals if intended
 - [x] support address of globals/const data where meaningful
-- [ ] define when temporaries are materialized to stack
+- [x] define when temporaries are materialized to stack for non-scalar call arguments/results
 - [ ] implement the frozen address-taken/materialization trigger for params from pure values to stored values
 - [ ] implement the frozen address-taken/materialization trigger for loop carries/index bindings from pure values to stored values
 - [ ] make `ref`/`deref` semantics coherent across scalar and aggregate cases

@@ -167,10 +167,33 @@ It adds a `MoonliftVec` ASDL vocabulary for:
 - counted range-domain loop facts
 - add-reduction facts
 - explicit reject reasons
-- an initial add-reduction vector plan
+- add-reduction vector plans
+- explicit unrolled reduction plans
+- explicit chunked/narrow `i32x4` reduction plans when a bounded term fact proves that a narrow accumulator is safe within each chunk
 
-This is detection/planning only. It does not yet emit vector `Back` commands.
-The current successful case is a simple range loop:
+The backend also now has an initial explicit vector command slice:
+
+- `BackVec(elem, lanes)`
+- `BackCmdVecSplat`
+- `BackCmdVecIadd`
+- `BackCmdVecImul`
+- `BackCmdVecBand`
+- `BackCmdVecInsertLane`
+- `BackCmdVecExtractLane`
+- `BackCmdAppendVecBlockParam`
+
+`moonlift/test_back_vectors.lua` confirms that these commands replay through the
+LuaJIT FFI bridge and produce Cranelift vector IR such as:
+
+```clif
+v4 = splat.i64x2 v0
+v8 = imul v4, v5
+v9 = iadd v8, v6
+v10 = band v9, v7
+v11 = extractlane v10, 0
+```
+
+The current successful fact-gathering case is a simple range loop:
 
 ```moonlift
 for i in 0..n with acc: index = 0 do
@@ -179,10 +202,74 @@ for i in 0..n with acc: index = 0 do
 end
 ```
 
-That loop now gathers a recursive lane-wise expression fact and an explicit
-`VecAddReductionPlan(lanes=8, ...)`. Arbitrary `while` counted-loop recovery,
-memory access/dependence facts, vector `Back` commands, and Cranelift vector IR
-lowering are still pending.
+That loop now gathers coherent vector ASDL values:
+
+- `VecLoopFacts(...)` with a counted domain, primary induction, expression graph, range facts, and add-reduction fact
+- `VecLoopDecision(... VecLoopVector ...)` for ordinary vector add reductions
+- `VecLoopDecision(... VecLoopChunkedNarrowVector ...)` when the reduction term has a bitand bound such as `& 1023`
+- `VecModule(...)` as the vector-capable middle-IR root
+- initial pointer-backed contiguous view loads as `VecMemoryAccess` / `VecExprLoad` / `VecCmdLoad`
+- initial pointer-backed contiguous view stores as `VecStoreFact` / `VecCmdStore`
+- explicit load-store dependence facts (`VecNoDependence` / `VecDependenceUnknown`) for the first store-loop cases
+
+`moonlift/lua/moonlift/vector_to_back.lua` now lowers these chosen decision/module shapes to complete
+vectorized `BackProgram`s. Both the ordinary/unrolled add-reduction path and the bounded
+chunked path first materialize explicit `VecBlock` / `VecCmd` skeletons.
+The current lowering emits:
+
+- vector loop over the aligned main range
+- vector block-param accumulators
+- explicit unrolled vector accumulators
+- generated ramp vectors from the scalar loop index
+- horizontal lane extraction/reduction
+- scalar tail loop
+- vector loads and stores for the initial contiguous pointer-backed view cases
+- same-base/same-lane in-place map loops such as `p[i] = p[i] + c`, guarded by explicit `VecNoDependence`
+- scalar fallback for unknown aliasing load-store pairs instead of implicit noalias assumptions
+- for bounded terms, a chunked `i32x4` loop decision carrying a narrowing proof that safely narrows within each chunk and widens extracted lane sums back to `index`
+
+Arbitrary `while` counted-loop recovery, noalias/source alias annotations, and fuller memory/dependence facts are
+still pending.
+
+## Vectorization numbers against Terra
+
+Command:
+
+```bash
+moonlift/benchmarks/run_vector_sum_vs_terra.sh
+```
+
+Observed run:
+
+```text
+Moonlift ASDL vector path vs Terra: sum reduction
+Mode: default
+
+kernel                   time  result
+------------------ ----------  ------
+moonlift_scalar     63.235 ms  51150001280
+moonlift_vec2       31.933 ms  51150001280
+moonlift_vec2_u4    19.176 ms  51150001280
+moonlift_i32x4_u4   12.746 ms  51150001280
+terra                5.401 ms  51150001280
+
+vec/scalar: 0.50x
+vec_u4/scalar: 0.30x
+i32x4_u4/scalar: 0.20x
+i32x4_u4/terra : 2.36x
+scalar/terra: 11.71x
+```
+
+This validates and improves the path: explicit ASDL vector facts plus explicit
+vector Back commands cut the Moonlift scalar loop to about 50% for the base
+`i64x2` plan, about 30% for the unrolled `i64x2` plan, and about 21% for the
+bounded chunked `i32x4` plan.
+
+We are still behind Terra because LLVM emits wider AVX-512 vector code on this
+host, while Cranelift's practical vector path here is v128-oriented. The important
+change is that the remaining gap is now much smaller and explained in ASDL terms:
+vector width, unroll shape, bounded narrowing, and chunked reduction are explicit
+facts/plans rather than hidden backend peepholes.
 
 ## Current next targets
 

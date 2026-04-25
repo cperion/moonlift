@@ -99,6 +99,34 @@ impl BackScalar {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct BackVec {
+    pub elem: BackScalar,
+    pub lanes: u32,
+}
+
+impl BackVec {
+    pub fn new(elem: BackScalar, lanes: u32) -> Self {
+        Self { elem, lanes }
+    }
+
+    fn clif_type(self, ptr_ty: Type) -> Result<Type, MoonliftError> {
+        if self.lanes < 2 || !self.lanes.is_power_of_two() {
+            return Err(MoonliftError::new(format!(
+                "vector lane count {} must be a power of two >= 2",
+                self.lanes
+            )));
+        }
+        let elem_ty = self.elem.clif_type(ptr_ty);
+        elem_ty.by(self.lanes).ok_or_else(|| {
+            MoonliftError::new(format!(
+                "Cranelift cannot represent vector type {:?}x{}",
+                self.elem, self.lanes
+            ))
+        })
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BackCmd {
     CreateSig(BackSigId, Vec<BackScalar>, Vec<BackScalar>),
@@ -119,6 +147,7 @@ pub enum BackCmd {
     SealBlock(BackBlockId),
     BindEntryParams(BackBlockId, Vec<BackValId>),
     AppendBlockParam(BackBlockId, BackValId, BackScalar),
+    AppendVecBlockParam(BackBlockId, BackValId, BackVec),
     CreateStackSlot(BackStackSlotId, u32, u32),
     Alias(BackValId, BackValId),
     StackAddr(BackValId, BackStackSlotId),
@@ -191,6 +220,14 @@ pub enum BackCmd {
     Memset(BackValId, BackValId, BackValId),
     Select(BackValId, BackScalar, BackValId, BackValId, BackValId),
     Fma(BackValId, BackScalar, BackValId, BackValId, BackValId),
+    VecSplat(BackValId, BackVec, BackValId),
+    VecIadd(BackValId, BackVec, BackValId, BackValId),
+    VecImul(BackValId, BackVec, BackValId, BackValId),
+    VecBand(BackValId, BackVec, BackValId, BackValId),
+    VecLoad(BackValId, BackVec, BackValId),
+    VecStore(BackVec, BackValId, BackValId),
+    VecInsertLane(BackValId, BackVec, BackValId, BackValId, u32),
+    VecExtractLane(BackValId, BackScalar, BackValId, u32),
     CallValueDirect(BackValId, BackScalar, BackFuncId, BackSigId, Vec<BackValId>),
     CallStmtDirect(BackFuncId, BackSigId, Vec<BackValId>),
     CallValueExtern(BackValId, BackScalar, BackExternId, BackSigId, Vec<BackValId>),
@@ -1026,6 +1063,12 @@ impl<'a, 'b> FunctionLowerer<'a, 'b> {
                 self.bind_value(value_id, value)?;
                 Ok(())
             }
+            BackCmd::AppendVecBlockParam(block_id, value_id, ty) => {
+                let block = self.block(block_id)?;
+                let value = self.builder.append_block_param(block, ty.clif_type(self.ptr_ty)?);
+                self.bind_value(value_id, value)?;
+                Ok(())
+            }
             BackCmd::CreateStackSlot(id, size, align) => {
                 let align_shift = align_to_shift(*align)?;
                 let slot = self.builder.create_sized_stack_slot(StackSlotData::new(
@@ -1312,6 +1355,83 @@ impl<'a, 'b> FunctionLowerer<'a, 'b> {
                 let out = self.builder.ins().fma(a, b, c);
                 self.bind_value(dst, out)
             }
+            BackCmd::VecSplat(dst, ty, value) => {
+                let scalar = self.value(value)?;
+                let scalar_ty = ty.elem.clif_type(self.ptr_ty);
+                self.require_value_type(value, scalar, scalar_ty, "BackCmdVecSplat scalar")?;
+                let out = self.builder.ins().splat(ty.clif_type(self.ptr_ty)?, scalar);
+                self.bind_value(dst, out)
+            }
+            BackCmd::VecIadd(dst, ty, lhs, rhs) => self.bind_vec_binop(dst, *ty, lhs, rhs, |b, l, r| b.ins().iadd(l, r)),
+            BackCmd::VecImul(dst, ty, lhs, rhs) => self.bind_vec_binop(dst, *ty, lhs, rhs, |b, l, r| b.ins().imul(l, r)),
+            BackCmd::VecBand(dst, ty, lhs, rhs) => self.bind_vec_binop(dst, *ty, lhs, rhs, |b, l, r| b.ins().band(l, r)),
+            BackCmd::VecLoad(dst, ty, addr) => {
+                let addr_value = self.value(addr)?;
+                self.require_value_type(addr, addr_value, self.ptr_ty, "BackCmdVecLoad addr")?;
+                let out = self.builder.ins().load(ty.clif_type(self.ptr_ty)?, MemFlags::new(), addr_value, 0);
+                self.bind_value(dst, out)
+            }
+            BackCmd::VecStore(ty, addr, value) => {
+                let addr_value = self.value(addr)?;
+                let store_value = self.value(value)?;
+                self.require_value_type(addr, addr_value, self.ptr_ty, "BackCmdVecStore addr")?;
+                self.require_value_type(value, store_value, ty.clif_type(self.ptr_ty)?, "BackCmdVecStore value")?;
+                self.builder.ins().store(MemFlags::new(), store_value, addr_value, 0);
+                Ok(())
+            }
+            BackCmd::VecInsertLane(dst, ty, value, lane_value, lane) => {
+                let vector = self.value(value)?;
+                let scalar = self.value(lane_value)?;
+                let vector_ty = ty.clif_type(self.ptr_ty)?;
+                self.require_value_type(value, vector, vector_ty, "BackCmdVecInsertLane vector")?;
+                self.require_value_type(lane_value, scalar, ty.elem.clif_type(self.ptr_ty), "BackCmdVecInsertLane lane value")?;
+                if *lane >= ty.lanes {
+                    return Err(MoonliftError::new(format!(
+                        "function '{}' inserts lane {} into vector '{}' with only {} lanes",
+                        self.func_name.as_str(),
+                        lane,
+                        value.as_str(),
+                        ty.lanes
+                    )));
+                }
+                let lane_u8 = u8::try_from(*lane).map_err(|_| MoonliftError::new(format!("lane {} does not fit in u8", lane)))?;
+                let out = self.builder.ins().insertlane(vector, scalar, lane_u8);
+                self.bind_value(dst, out)
+            }
+            BackCmd::VecExtractLane(dst, ty, value, lane) => {
+                let vector = self.value(value)?;
+                let vector_ty = self.builder.func.dfg.value_type(vector);
+                if !vector_ty.is_vector() {
+                    return Err(MoonliftError::new(format!(
+                        "function '{}' uses BackCmdVecExtractLane value '{}' with non-vector CLIF type {:?}",
+                        self.func_name.as_str(),
+                        value.as_str(),
+                        vector_ty
+                    )));
+                }
+                if *lane >= vector_ty.lane_count() {
+                    return Err(MoonliftError::new(format!(
+                        "function '{}' extracts lane {} from '{}' with only {} lanes",
+                        self.func_name.as_str(),
+                        lane,
+                        value.as_str(),
+                        vector_ty.lane_count()
+                    )));
+                }
+                let expected_lane_ty = ty.clif_type(self.ptr_ty);
+                if vector_ty.lane_type() != expected_lane_ty {
+                    return Err(MoonliftError::new(format!(
+                        "function '{}' extracts {:?} lane from '{}' with lane type {:?}",
+                        self.func_name.as_str(),
+                        expected_lane_ty,
+                        value.as_str(),
+                        vector_ty.lane_type()
+                    )));
+                }
+                let lane_u8 = u8::try_from(*lane).map_err(|_| MoonliftError::new(format!("lane {} does not fit in u8", lane)))?;
+                let out = self.builder.ins().extractlane(vector, lane_u8);
+                self.bind_value(dst, out)
+            }
             BackCmd::CallValueDirect(dst, _, func, sig, args) => {
                 let value = self.call_direct(func, sig, args)?;
                 self.bind_value(dst, value)
@@ -1377,6 +1497,19 @@ impl<'a, 'b> FunctionLowerer<'a, 'b> {
         let lhs = self.value(lhs)?;
         let rhs = self.value(rhs)?;
         let out = f(self.builder, lhs, rhs);
+        self.bind_value(dst, out)
+    }
+
+    fn bind_vec_binop<F>(&mut self, dst: &BackValId, ty: BackVec, lhs: &BackValId, rhs: &BackValId, f: F) -> Result<(), MoonliftError>
+    where
+        F: FnOnce(&mut FunctionBuilder<'a>, Value, Value) -> Value,
+    {
+        let expected = ty.clif_type(self.ptr_ty)?;
+        let lhs_value = self.value(lhs)?;
+        let rhs_value = self.value(rhs)?;
+        self.require_value_type(lhs, lhs_value, expected, "vector lhs")?;
+        self.require_value_type(rhs, rhs_value, expected, "vector rhs")?;
+        let out = f(self.builder, lhs_value, rhs_value);
         self.bind_value(dst, out)
     }
 

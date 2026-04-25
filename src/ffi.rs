@@ -1,6 +1,6 @@
 use crate::{
     Artifact, BackBlockId, BackCmd, BackDataId, BackExternId, BackFuncId, BackProgram, BackScalar,
-    BackSigId, BackStackSlotId, BackSwitchCase, BackValId, Jit, MoonliftError,
+    BackSigId, BackStackSlotId, BackSwitchCase, BackValId, BackVec, Jit, MoonliftError,
 };
 use std::cell::RefCell;
 use std::ffi::{CStr, CString, c_char, c_int, c_void};
@@ -468,6 +468,26 @@ pub extern "C" fn moonlift_program_cmd_append_block_param(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn moonlift_program_cmd_append_vec_block_param(
+    program: *mut moonlift_program_t,
+    block: *const c_char,
+    value: *const c_char,
+    elem: u32,
+    lanes: u32,
+) -> c_int {
+    let result: Result<_, MoonliftError> = (|| {
+        let program = require_ptr(program, "moonlift_program_t")?;
+        push_cmd(program, BackCmd::AppendVecBlockParam(
+            BackBlockId::from(read_cstr(block, "block id")?),
+            BackValId::from(read_cstr(value, "value id")?),
+            BackVec::new(read_scalar(elem)?, lanes),
+        ));
+        Ok(())
+    })();
+    match result { Ok(()) => ok_int(), Err(err) => fail_int(err.0) }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn moonlift_program_cmd_create_stack_slot(
     program: *mut moonlift_program_t,
     slot: *const c_char,
@@ -609,6 +629,145 @@ pub extern "C" fn moonlift_program_cmd_unary(
             BackValId::from(read_cstr(value, "input value id")?),
         )?;
         push_cmd(program, cmd);
+        Ok(())
+    })();
+    match result { Ok(()) => ok_int(), Err(err) => fail_int(err.0) }
+}
+
+fn vector_binary_cmd(op: u32, dst: BackValId, vec: BackVec, lhs: BackValId, rhs: BackValId) -> Result<BackCmd, MoonliftError> {
+    match op {
+        1 => Ok(BackCmd::VecIadd(dst, vec, lhs, rhs)),
+        2 => Ok(BackCmd::VecImul(dst, vec, lhs, rhs)),
+        3 => Ok(BackCmd::VecBand(dst, vec, lhs, rhs)),
+        _ => Err(MoonliftError(format!("unknown vector binary opcode {op}"))),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn moonlift_program_cmd_vec_splat(
+    program: *mut moonlift_program_t,
+    dst: *const c_char,
+    elem: u32,
+    lanes: u32,
+    value: *const c_char,
+) -> c_int {
+    let result: Result<_, MoonliftError> = (|| {
+        let program = require_ptr(program, "moonlift_program_t")?;
+        push_cmd(program, BackCmd::VecSplat(
+            BackValId::from(read_cstr(dst, "dst value id")?),
+            BackVec::new(read_scalar(elem)?, lanes),
+            BackValId::from(read_cstr(value, "input value id")?),
+        ));
+        Ok(())
+    })();
+    match result { Ok(()) => ok_int(), Err(err) => fail_int(err.0) }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn moonlift_program_cmd_vec_binary(
+    program: *mut moonlift_program_t,
+    op: u32,
+    dst: *const c_char,
+    elem: u32,
+    lanes: u32,
+    lhs: *const c_char,
+    rhs: *const c_char,
+) -> c_int {
+    let result: Result<_, MoonliftError> = (|| {
+        let program = require_ptr(program, "moonlift_program_t")?;
+        let cmd = vector_binary_cmd(
+            op,
+            BackValId::from(read_cstr(dst, "dst value id")?),
+            BackVec::new(read_scalar(elem)?, lanes),
+            BackValId::from(read_cstr(lhs, "lhs value id")?),
+            BackValId::from(read_cstr(rhs, "rhs value id")?),
+        )?;
+        push_cmd(program, cmd);
+        Ok(())
+    })();
+    match result { Ok(()) => ok_int(), Err(err) => fail_int(err.0) }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn moonlift_program_cmd_vec_load(
+    program: *mut moonlift_program_t,
+    dst: *const c_char,
+    elem: u32,
+    lanes: u32,
+    addr: *const c_char,
+) -> c_int {
+    let result: Result<_, MoonliftError> = (|| {
+        let program = require_ptr(program, "moonlift_program_t")?;
+        push_cmd(program, BackCmd::VecLoad(
+            BackValId::from(read_cstr(dst, "dst value id")?),
+            BackVec::new(read_scalar(elem)?, lanes),
+            BackValId::from(read_cstr(addr, "addr value id")?),
+        ));
+        Ok(())
+    })();
+    match result { Ok(()) => ok_int(), Err(err) => fail_int(err.0) }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn moonlift_program_cmd_vec_store(
+    program: *mut moonlift_program_t,
+    elem: u32,
+    lanes: u32,
+    addr: *const c_char,
+    value: *const c_char,
+) -> c_int {
+    let result: Result<_, MoonliftError> = (|| {
+        let program = require_ptr(program, "moonlift_program_t")?;
+        push_cmd(program, BackCmd::VecStore(
+            BackVec::new(read_scalar(elem)?, lanes),
+            BackValId::from(read_cstr(addr, "addr value id")?),
+            BackValId::from(read_cstr(value, "value id")?),
+        ));
+        Ok(())
+    })();
+    match result { Ok(()) => ok_int(), Err(err) => fail_int(err.0) }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn moonlift_program_cmd_vec_insert_lane(
+    program: *mut moonlift_program_t,
+    dst: *const c_char,
+    elem: u32,
+    lanes: u32,
+    value: *const c_char,
+    lane_value: *const c_char,
+    lane: u32,
+) -> c_int {
+    let result: Result<_, MoonliftError> = (|| {
+        let program = require_ptr(program, "moonlift_program_t")?;
+        push_cmd(program, BackCmd::VecInsertLane(
+            BackValId::from(read_cstr(dst, "dst value id")?),
+            BackVec::new(read_scalar(elem)?, lanes),
+            BackValId::from(read_cstr(value, "input vector value id")?),
+            BackValId::from(read_cstr(lane_value, "lane value id")?),
+            lane,
+        ));
+        Ok(())
+    })();
+    match result { Ok(()) => ok_int(), Err(err) => fail_int(err.0) }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn moonlift_program_cmd_vec_extract_lane(
+    program: *mut moonlift_program_t,
+    dst: *const c_char,
+    elem: u32,
+    value: *const c_char,
+    lane: u32,
+) -> c_int {
+    let result: Result<_, MoonliftError> = (|| {
+        let program = require_ptr(program, "moonlift_program_t")?;
+        push_cmd(program, BackCmd::VecExtractLane(
+            BackValId::from(read_cstr(dst, "dst value id")?),
+            read_scalar(elem)?,
+            BackValId::from(read_cstr(value, "input vector value id")?),
+            lane,
+        ));
         Ok(())
     })();
     match result { Ok(()) => ok_int(), Err(err) => fail_int(err.0) }

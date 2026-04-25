@@ -578,10 +578,15 @@ function M.Define(T, env)
             return pvm.once(lower_scalar_expr_into_addr(self, addr, path, layout_env, break_block, break_args, continue_block, continue_args, one_scalar(self.ty)))
         end,
         [Sem.SemExprCall] = function(self, addr, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
-            if not one_type_is_scalar(self.ty) then
-                error("sem_to_back_expr_into_addr: non-scalar call results are not yet supported")
+            if one_type_is_scalar(self.ty) then
+                return pvm.once(lower_scalar_expr_into_addr(self, addr, path, layout_env, break_block, break_args, continue_block, continue_args, one_scalar(self.ty)))
             end
-            return pvm.once(lower_scalar_expr_into_addr(self, addr, path, layout_env, break_block, break_args, continue_block, continue_args, one_scalar(self.ty)))
+            local cmds, args, flow = env.lower_call_args(self.target.fn_ty, self.args, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan, addr)
+            if flow == Back.BackTerminates then return pvm.once(terminated_addr(cmds)) end
+            local call = env.one_call_into_addr(self.target, addr, path .. ".call", args, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
+            append_addr_cmds(cmds, call)
+            if addr_terminates(call) then return pvm.once(terminated_addr(cmds)) end
+            return pvm.once(addr_writes(cmds))
         end,
         [Sem.SemExprBlock] = function(self, addr, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
             local body_cmds, body_flow = lower_stmt_list(self.stmts, path .. ".stmts", layout_env, break_block, break_args, continue_block, continue_args, residence_plan)

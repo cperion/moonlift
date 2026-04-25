@@ -36,6 +36,7 @@ int moonlift_program_cmd_switch_to_block(moonlift_program_t*, const char* block)
 int moonlift_program_cmd_seal_block(moonlift_program_t*, const char* block);
 int moonlift_program_cmd_bind_entry_params(moonlift_program_t*, const char* block, const char* const* values, size_t values_len);
 int moonlift_program_cmd_append_block_param(moonlift_program_t*, const char* block, const char* value, uint32_t ty);
+int moonlift_program_cmd_append_vec_block_param(moonlift_program_t*, const char* block, const char* value, uint32_t elem, uint32_t lanes);
 int moonlift_program_cmd_create_stack_slot(moonlift_program_t*, const char* slot, uint32_t size, uint32_t align);
 int moonlift_program_cmd_alias(moonlift_program_t*, const char* dst, const char* src);
 int moonlift_program_cmd_stack_addr(moonlift_program_t*, const char* dst, const char* slot);
@@ -49,6 +50,12 @@ int moonlift_program_cmd_const_null(moonlift_program_t*, const char* dst);
 int moonlift_program_cmd_unary(moonlift_program_t*, uint32_t op, const char* dst, uint32_t ty, const char* value);
 int moonlift_program_cmd_binary(moonlift_program_t*, uint32_t op, const char* dst, uint32_t ty, const char* lhs, const char* rhs);
 int moonlift_program_cmd_ternary(moonlift_program_t*, uint32_t op, const char* dst, uint32_t ty, const char* a, const char* b, const char* c);
+int moonlift_program_cmd_vec_splat(moonlift_program_t*, const char* dst, uint32_t elem, uint32_t lanes, const char* value);
+int moonlift_program_cmd_vec_binary(moonlift_program_t*, uint32_t op, const char* dst, uint32_t elem, uint32_t lanes, const char* lhs, const char* rhs);
+int moonlift_program_cmd_vec_load(moonlift_program_t*, const char* dst, uint32_t elem, uint32_t lanes, const char* addr);
+int moonlift_program_cmd_vec_store(moonlift_program_t*, uint32_t elem, uint32_t lanes, const char* addr, const char* value);
+int moonlift_program_cmd_vec_insert_lane(moonlift_program_t*, const char* dst, uint32_t elem, uint32_t lanes, const char* value, const char* lane_value, uint32_t lane);
+int moonlift_program_cmd_vec_extract_lane(moonlift_program_t*, const char* dst, uint32_t elem, const char* value, uint32_t lane);
 int moonlift_program_cmd_cast(moonlift_program_t*, uint32_t op, const char* dst, uint32_t ty, const char* value);
 int moonlift_program_cmd_load(moonlift_program_t*, const char* dst, uint32_t ty, const char* addr);
 int moonlift_program_cmd_store(moonlift_program_t*, uint32_t ty, const char* addr, const char* value);
@@ -142,6 +149,12 @@ local BINARY = {
 
 local TERNARY = {
     FMA = 1,
+}
+
+local VEC_BINARY = {
+    IADD = 1,
+    IMUL = 2,
+    BAND = 3,
 }
 
 local CAST = {
@@ -382,6 +395,25 @@ function M.Define(T, opts)
         end
     end
 
+    local function vec_elem_code(vec)
+        return one_scalar_code(vec.elem)
+    end
+
+    local function handler_vec_binary(op)
+        return function(self, program)
+            check_ok(lib, lib.moonlift_program_cmd_vec_binary(
+                program,
+                op,
+                cstring(id_text(self.dst)),
+                vec_elem_code(self.ty),
+                self.ty.lanes,
+                cstring(id_text(self.lhs)),
+                cstring(id_text(self.rhs))
+            ), "moonlift ffi vec_binary")
+            return pvm.once(true)
+        end
+    end
+
     local replay_handlers = {
         [Back.BackCmdCreateSig] = function(self, program)
             local params = scalar_codes(self.params)
@@ -450,6 +482,10 @@ function M.Define(T, opts)
         end,
         [Back.BackCmdAppendBlockParam] = function(self, program)
             check_ok(lib, lib.moonlift_program_cmd_append_block_param(program, cstring(id_text(self.block)), cstring(id_text(self.value)), one_scalar_code(self.ty)), "moonlift ffi append_block_param")
+            return pvm.once(true)
+        end,
+        [Back.BackCmdAppendVecBlockParam] = function(self, program)
+            check_ok(lib, lib.moonlift_program_cmd_append_vec_block_param(program, cstring(id_text(self.block)), cstring(id_text(self.value)), vec_elem_code(self.ty), self.ty.lanes), "moonlift ffi append_vec_block_param")
             return pvm.once(true)
         end,
         [Back.BackCmdCreateStackSlot] = function(self, program)
@@ -569,6 +605,29 @@ function M.Define(T, opts)
             return pvm.once(true)
         end,
         [Back.BackCmdFma] = handler_ternary(TERNARY.FMA),
+        [Back.BackCmdVecSplat] = function(self, program)
+            check_ok(lib, lib.moonlift_program_cmd_vec_splat(program, cstring(id_text(self.dst)), vec_elem_code(self.ty), self.ty.lanes, cstring(id_text(self.value))), "moonlift ffi vec_splat")
+            return pvm.once(true)
+        end,
+        [Back.BackCmdVecIadd] = handler_vec_binary(VEC_BINARY.IADD),
+        [Back.BackCmdVecImul] = handler_vec_binary(VEC_BINARY.IMUL),
+        [Back.BackCmdVecBand] = handler_vec_binary(VEC_BINARY.BAND),
+        [Back.BackCmdVecLoad] = function(self, program)
+            check_ok(lib, lib.moonlift_program_cmd_vec_load(program, cstring(id_text(self.dst)), vec_elem_code(self.ty), self.ty.lanes, cstring(id_text(self.addr))), "moonlift ffi vec_load")
+            return pvm.once(true)
+        end,
+        [Back.BackCmdVecStore] = function(self, program)
+            check_ok(lib, lib.moonlift_program_cmd_vec_store(program, vec_elem_code(self.ty), self.ty.lanes, cstring(id_text(self.addr)), cstring(id_text(self.value))), "moonlift ffi vec_store")
+            return pvm.once(true)
+        end,
+        [Back.BackCmdVecInsertLane] = function(self, program)
+            check_ok(lib, lib.moonlift_program_cmd_vec_insert_lane(program, cstring(id_text(self.dst)), vec_elem_code(self.ty), self.ty.lanes, cstring(id_text(self.value)), cstring(id_text(self.lane_value)), self.lane), "moonlift ffi vec_insert_lane")
+            return pvm.once(true)
+        end,
+        [Back.BackCmdVecExtractLane] = function(self, program)
+            check_ok(lib, lib.moonlift_program_cmd_vec_extract_lane(program, cstring(id_text(self.dst)), one_scalar_code(self.ty), cstring(id_text(self.value)), self.lane), "moonlift ffi vec_extract_lane")
+            return pvm.once(true)
+        end,
         [Back.BackCmdCallValueDirect] = function(self, program)
             local args = id_texts(self.args)
             local arr, keep = cstring_array(args)

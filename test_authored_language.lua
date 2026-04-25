@@ -1,10 +1,12 @@
 package.path = "./?.lua;./?/init.lua;./moonlift/lua/?.lua;./moonlift/lua/?/init.lua;" .. package.path
 
+local ffi = require("ffi")
 local pvm = require("pvm")
 local A = require("moonlift.asdl")
 local T = pvm.context()
 A.Define(T)
 local S = require("moonlift.source").Define(T)
+local Back = T.MoonliftBack
 
 local authored = [[
 type Color = enum { red, green, blue }
@@ -36,7 +38,23 @@ let bias: i32 = 9
 let f: closure(i32) -> i32 = fn(x: i32) -> i32
 return x + bias
 end
-return 0
+return f(4)
+end
+
+func make_bias() -> closure(i32) -> i32
+let bias: i32 = 11
+return fn(x: i32) -> i32
+return x + bias
+end
+end
+
+export func call_returned_closure() -> i32
+let f: closure(i32) -> i32 = make_bias()
+return f(6)
+end
+
+export func apply_closure(f: closure(i32) -> i32, x: i32) -> i32
+return f(x)
 end
 ]]
 
@@ -71,6 +89,10 @@ assert(saw_func_addr)
 
 local artifact, jit, compile_err = S.try_compile(authored)
 assert(artifact, tostring(compile_err))
+local closure_frontdoor = ffi.cast("int32_t (*)()", artifact:getpointer(Back.BackFuncId("closure_frontdoor")))
+assert(closure_frontdoor() == 13)
+local call_returned_closure = ffi.cast("int32_t (*)()", artifact:getpointer(Back.BackFuncId("call_returned_closure")))
+assert(call_returned_closure() == 17)
 artifact:free()
 jit:free()
 

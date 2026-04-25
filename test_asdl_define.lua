@@ -19,6 +19,9 @@ assert(T.MoonliftMeta.MetaFactSet ~= nil)
 assert(T.MoonliftMeta.MetaValidationReport ~= nil)
 assert(T.MoonliftSem.SemLoop ~= nil)
 assert(T.MoonliftBack.BackProgram ~= nil)
+assert(T.MoonliftBack.BackCmdFuncAddr ~= nil)
+assert(T.MoonliftBack.BackCmdExternAddr ~= nil)
+assert(T.MoonliftBack.BackReturnTarget ~= nil)
 
 local S = T.MoonliftSem
 local i32_ty = S.SemTI32

@@ -19,6 +19,12 @@ Surface source -> Elab -> Sem -> Back -> Cranelift Artifact -> FFI call
 - `bench_moonlift_shapes.lua` — Moonlift-only shape comparison: generic scalar
   formulations vs explicit Moonlift constructs such as range domains, `select`,
   and intrinsics.
+- `bench_vector_sum.lua` — validates the ASDL vector fact/plan path by lowering
+  detected add-reduction, unrolled reduction, and bounded chunked `i32x4`
+  reduction plans to explicit vector `Back` commands.
+- `bench_vector_sum_terra.t` — Terra side for that vectorization-path check.
+- `run_vector_sum_vs_terra.sh` — compares scalar Moonlift, vectorized Moonlift,
+  and Terra for the sum-reduction kernel.
 - `FINDINGS.md` — current observations from shape runs and codegen inspection.
 - `run_vs_terra.sh` — builds the Moonlift Rust shared library, runs both sides,
   and prints a comparison table.
@@ -50,6 +56,13 @@ To inspect one shaped function's machine code:
 ```bash
 luajit moonlift/benchmarks/bench_moonlift_shapes.lua quick disasm popcount_intrinsic_sum
 luajit moonlift/benchmarks/bench_moonlift_shapes.lua quick disasm switch_expr_sum
+```
+
+To validate the current vectorization path against Terra:
+
+```bash
+moonlift/benchmarks/run_vector_sum_vs_terra.sh quick
+moonlift/benchmarks/run_vector_sum_vs_terra.sh
 ```
 
 ## Kernels

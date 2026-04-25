@@ -55,13 +55,13 @@ local desugared = Desugar.desugar(surface, Surf)
 
 -- After desugaring, there should be:
 -- - _closure_ctx_1 struct with field "factor: i32"
--- - _closure_1 struct with fields "fn" and "ctx"
+-- - _closure_sig_i32_to_i32 struct with fields "fn" and "ctx"
 -- - _closure_fn_1 func that takes (ctx, x) and returns x * (*ctx).factor
 -- - The original multiplier returns a closure value
 assert(has_item(desugared.items, "SurfItemType", "_closure_ctx_1"),
     "expected _closure_ctx_1 struct")
-assert(has_item(desugared.items, "SurfItemType", "_closure_1"),
-    "expected _closure_1 struct")
+assert(has_item(desugared.items, "SurfItemType", "_closure_sig_i32_to_i32"),
+    "expected _closure_sig_i32_to_i32 struct")
 assert(has_item(desugared.items, "SurfItemFunc", "_closure_fn_1"),
     "expected _closure_fn_1 func")
 

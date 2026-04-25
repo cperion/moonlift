@@ -365,7 +365,7 @@ Parser target:
 
 - `SurfTClosure(params, result)`
 
-Closures are structurally distinct from `func(T) -> R` — they carry a context pointer.
+Closures are structurally distinct from `func(T) -> R` — they carry a context pointer. Before ordinary `Surface -> Elab`, closure types desugar to generated canonical signature structs with fields `fn` and `ctx`; closure parameters are passed as pointers to those signature structs.
 
 ---
 
@@ -649,7 +649,7 @@ view_interleaved(v, stride, lane) -- interleaved lane
 fn(x, y) expr... end          -- closure expression
 ```
 
-Free variables in the body become context struct fields. Desugars before ordinary `Surface -> Elab` module lowering. The generated closure value has function-pointer and context fields; direct closure-call sugar remains deferred.
+Free variables in the body become context struct fields. Desugars before ordinary `Surface -> Elab` module lowering. The generated closure value has function-pointer and context fields. Calls of local or parameter closure values lower as `f.fn(f.ctx, args...)`.
 
 ---
 

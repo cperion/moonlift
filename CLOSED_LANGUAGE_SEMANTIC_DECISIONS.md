@@ -404,28 +404,36 @@ The intended ABI target for the closed language is:
 
 ## 7.1 By-value categories
 
-These are intended to travel by value:
+These travel directly by value in the current backend ABI:
 
 - scalar ints/floats/bool/index
 - pointers
 - function values (one word)
-- closure descriptors (two words: fn + ctx)
-- slice descriptors (two words: data + len)
-- view descriptors (three words: data + len + stride)
 
-## 7.2 Aggregate categories
+Descriptor-shaped values are ordinary materializable values in the language:
 
-These are intended to lower through hidden-pointer/materialization conventions rather than anonymous tuple-like or multi-result ABIs:
+- closure descriptors (`fn + ctx`)
+- slice descriptors (`data + len`)
+- view descriptors (`data + len + stride`)
 
+At ABI boundaries they currently lower through the same explicit pointer/materialization convention as other non-scalar values. That keeps the Back signature model single-result and avoids anonymous multi-result descriptor ABIs.
+
+## 7.2 Materialized categories
+
+These lower through hidden-pointer/materialization conventions rather than anonymous tuple-like or multi-result ABIs:
+
+- closure descriptors
+- slice descriptors
+- view descriptors
 - named structs
 - arrays
 - other aggregate values in the same family
 
 That means the ABI model is deliberately friendly to a Cranelift-facing lowering path:
 
-- one result
-- descriptor values where appropriate
-- aggregate materialization where appropriate
+- one scalar/pointer result when the result is scalar-like
+- hidden result pointer (`sret`) for non-scalar results
+- explicit materialization/copy for descriptor and aggregate values
 
 ## 7.3 Back / Cranelift-facing command-layer decisions
 
@@ -574,10 +582,9 @@ They do **not** claim every implementation piece is complete today.
 In particular, the implementation still needs to finish work such as:
 
 - adding const intrinsic evaluation via pvm dispatch if const intrinsics become part of the language
-- completing aggregate/non-scalar load/call/return support under the single-result + explicit-struct model
-- completing closure invocation sugar / closure-call lowering on top of the `struct { fn, ctx }` representation
-- completing descriptor-value ABI details for slice/view arguments and results
-- aligning Rust/FFI ABI details with the frozen single-result descriptor/aggregate strategy
+- completing remaining non-scalar direct-load and expression-value forms where needed
+- documenting the public C ABI spelling for hidden result pointers and non-scalar parameters
+- aligning Rust/FFI user-facing helpers with the frozen single-result descriptor/aggregate strategy
 
 Use `moonlift/CURRENT_IMPLEMENTATION_STATUS.md` for what exists today.
 Use `moonlift/COMPLETE_LANGUAGE_CHECKLIST.md` for the remaining implementation work.

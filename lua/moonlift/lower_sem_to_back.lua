@@ -22,10 +22,7 @@ function M.Define(T)
     local lower_type_is_scalar
     local lower_type_is_void
     local lower_type_is_index
-    local lower_type_is_bool
-    local lower_type_is_pointer_like
     local lower_type_is_integral_scalar
-    local lower_type_is_fp_scalar
     local lower_stack_slot_spec
     local lower_binding_value
     local lower_binding_expr
@@ -102,11 +99,11 @@ function M.Define(T)
     end
 
     local function one_type_is_bool(node)
-        return pvm.one(lower_type_is_bool(node))
+        return pvm.one(aux.lower_type_is_bool(node))
     end
 
     local function one_type_is_pointer_like(node)
-        return pvm.one(lower_type_is_pointer_like(node))
+        return pvm.one(aux.lower_type_is_pointer_like(node))
     end
 
     local function one_type_is_integral_scalar(node)
@@ -114,7 +111,7 @@ function M.Define(T)
     end
 
     local function one_type_is_fp_scalar(node)
-        return pvm.one(lower_type_is_fp_scalar(node))
+        return pvm.one(aux.lower_type_is_fp_scalar(node))
     end
 
     local function one_stack_slot_spec(node, layout_env)
@@ -181,8 +178,8 @@ function M.Define(T)
         return one_expr(node, path, layout_env, nil, nil, nil, nil, residence_plan)
     end
 
-    local function one_stmt(node, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
-        return pvm.one(lower_stmt(node, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan))
+    local function one_stmt(node, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan, return_target)
+        return pvm.one(lower_stmt(node, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan, return_target or Back.BackReturnValue))
     end
 
     local function one_expr_stmt(node, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
@@ -271,6 +268,10 @@ function M.Define(T)
 
     local function one_call_value(node, dst, ret_ty, path, args, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
         return pvm.one(lower_call_value(node, dst, ret_ty, path, args, layout_env, break_block, break_args, continue_block, continue_args, residence_plan))
+    end
+
+    local function one_call_into_addr(node, addr, path, args, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
+        return pvm.one(aux.lower_call_into_addr(node, addr, path, args, layout_env, break_block, break_args, continue_block, continue_args, residence_plan))
     end
 
     local function one_bounded_view(node, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
@@ -485,14 +486,14 @@ function M.Define(T)
         copy_cmds(plan.cmds, out)
     end
 
-    local function lower_stmt_list(nodes, base_path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
+    local function lower_stmt_list(nodes, base_path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan, return_target)
         local cmds = {}
         local flow = Back.BackFallsThrough
         for i = 1, #nodes do
             if flow == Back.BackTerminates then
                 break
             end
-            local plan = one_stmt(nodes[i], base_path .. ".stmt." .. i, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
+            local plan = one_stmt(nodes[i], base_path .. ".stmt." .. i, layout_env, break_block, break_args, continue_block, continue_args, residence_plan, return_target)
             append_stmt_cmds(cmds, plan)
             flow = plan.flow
         end
@@ -625,6 +626,12 @@ function M.Define(T)
         one_eq_cmd = one_eq_cmd,
         one_loop_expr_into_addr = one_loop_expr_into_addr,
         one_expr_into_addr = one_expr_into_addr,
+        one_call_into_addr = function(node, addr, path, args, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
+            return one_call_into_addr(node, addr, path, args, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
+        end,
+        lower_call_args = function(fn_ty, arg_exprs, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan, leading_arg)
+            return aux.lower_call_args(fn_ty, arg_exprs, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan, leading_arg)
+        end,
         require_named_layout = require_named_layout,
         find_field_init = find_field_init,
         copy_cmds = copy_cmds,
@@ -860,9 +867,9 @@ function M.Define(T)
         [Sem.SemTFunc] = function() return pvm.once(false) end,
     })
 
-    lower_type_is_bool = pvm.phase("sem_to_back_type_is_bool", {
-        [Sem.SemTVoid] = function() return pvm.once(false) end,
+    aux.lower_type_is_bool = pvm.phase("sem_to_back_type_is_bool", {
         [Sem.SemTBool] = function() return pvm.once(true) end,
+        [Sem.SemTVoid] = function() return pvm.once(false) end,
         [Sem.SemTI8] = function() return pvm.once(false) end,
         [Sem.SemTI16] = function() return pvm.once(false) end,
         [Sem.SemTI32] = function() return pvm.once(false) end,
@@ -879,11 +886,11 @@ function M.Define(T)
         [Sem.SemTArray] = function() return pvm.once(false) end,
         [Sem.SemTSlice] = function() return pvm.once(false) end,
         [Sem.SemTView] = function() return pvm.once(false) end,
-        [Sem.SemTNamed] = function() return pvm.once(false) end,
         [Sem.SemTFunc] = function() return pvm.once(false) end,
+        [Sem.SemTNamed] = function() return pvm.once(false) end,
     })
 
-    lower_type_is_pointer_like = pvm.phase("sem_to_back_type_is_pointer_like", {
+    aux.lower_type_is_pointer_like = pvm.phase("sem_to_back_type_is_pointer_like", {
         [Sem.SemTRawPtr] = function() return pvm.once(true) end,
         [Sem.SemTPtrTo] = function() return pvm.once(true) end,
         [Sem.SemTVoid] = function() return pvm.once(false) end,
@@ -902,8 +909,8 @@ function M.Define(T)
         [Sem.SemTArray] = function() return pvm.once(false) end,
         [Sem.SemTSlice] = function() return pvm.once(false) end,
         [Sem.SemTView] = function() return pvm.once(false) end,
-        [Sem.SemTNamed] = function() return pvm.once(false) end,
         [Sem.SemTFunc] = function() return pvm.once(false) end,
+        [Sem.SemTNamed] = function() return pvm.once(false) end,
     })
 
     lower_type_is_integral_scalar = pvm.phase("sem_to_back_type_is_integral_scalar", {
@@ -929,7 +936,9 @@ function M.Define(T)
         [Sem.SemTFunc] = function() return pvm.once(false) end,
     })
 
-    lower_type_is_fp_scalar = pvm.phase("sem_to_back_type_is_fp_scalar", {
+    aux.lower_type_is_fp_scalar = pvm.phase("sem_to_back_type_is_fp_scalar", {
+        [Sem.SemTF32] = function() return pvm.once(true) end,
+        [Sem.SemTF64] = function() return pvm.once(true) end,
         [Sem.SemTVoid] = function() return pvm.once(false) end,
         [Sem.SemTBool] = function() return pvm.once(false) end,
         [Sem.SemTI8] = function() return pvm.once(false) end,
@@ -940,16 +949,14 @@ function M.Define(T)
         [Sem.SemTU16] = function() return pvm.once(false) end,
         [Sem.SemTU32] = function() return pvm.once(false) end,
         [Sem.SemTU64] = function() return pvm.once(false) end,
-        [Sem.SemTF32] = function() return pvm.once(true) end,
-        [Sem.SemTF64] = function() return pvm.once(true) end,
         [Sem.SemTRawPtr] = function() return pvm.once(false) end,
         [Sem.SemTIndex] = function() return pvm.once(false) end,
         [Sem.SemTPtrTo] = function() return pvm.once(false) end,
         [Sem.SemTArray] = function() return pvm.once(false) end,
         [Sem.SemTSlice] = function() return pvm.once(false) end,
         [Sem.SemTView] = function() return pvm.once(false) end,
-        [Sem.SemTNamed] = function() return pvm.once(false) end,
         [Sem.SemTFunc] = function() return pvm.once(false) end,
+        [Sem.SemTNamed] = function() return pvm.once(false) end,
     })
 
     lower_stack_slot_spec = pvm.phase("sem_to_back_stack_slot_spec", {
@@ -1158,6 +1165,11 @@ function M.Define(T)
         end,
         [Sem.SemBackArgStored] = function(self, path)
             local addr = Back.BackValId(path)
+            if not one_type_is_scalar(self.ty) then
+                return pvm.once(Back.BackExprPlan({
+                    Back.BackCmdAlias(addr, Back.BackValId("arg:" .. self.index .. ":" .. self.name)),
+                }, addr, Back.BackPtr))
+            end
             return pvm.once(Back.BackExprPlan({
                 Back.BackCmdStackAddr(addr, arg_slot_id(self.index, self.name)),
             }, addr, Back.BackPtr))
@@ -1475,10 +1487,13 @@ function M.Define(T)
         [Sem.SemTFunc] = function(self)
             local params = {}
             local results = {}
-            for i = 1, #self.params do
-                params[i] = one_scalar(self.params[i])
+            if not one_type_is_void(self.result) and not one_type_is_scalar(self.result) then
+                params[#params + 1] = Back.BackPtr
             end
-            if not one_type_is_void(self.result) then
+            for i = 1, #self.params do
+                params[#params + 1] = one_type_is_scalar(self.params[i]) and one_scalar(self.params[i]) or Back.BackPtr
+            end
+            if not one_type_is_void(self.result) and one_type_is_scalar(self.result) then
                 results[1] = one_scalar(self.result)
             end
             return pvm.once(Back.BackSigSpec(params, results))
@@ -2136,6 +2151,32 @@ function M.Define(T)
         return terminated_expr(cmds)
     end
 
+    aux.lower_call_args = function(fn_ty, arg_exprs, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan, leading_arg)
+        local cmds = {}
+        local args = {}
+        if leading_arg ~= nil then args[#args + 1] = leading_arg end
+        for i = 1, #arg_exprs do
+            local param_ty = fn_ty.params[i]
+            if one_type_is_scalar(param_ty) then
+                local arg = one_expr(arg_exprs[i], path .. ".arg." .. i, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
+                append_expr_cmds(cmds, arg)
+                if expr_terminates(arg) then return cmds, args, Back.BackTerminates end
+                args[#args + 1] = arg.value
+            else
+                local spec = one_stack_slot_spec(param_ty, layout_env)
+                local slot = temp_slot_id(path .. ".arg." .. i)
+                local addr = Back.BackValId(path .. ".arg." .. i .. ".addr")
+                cmds[#cmds + 1] = Back.BackCmdCreateStackSlot(slot, spec.size, spec.align)
+                cmds[#cmds + 1] = Back.BackCmdStackAddr(addr, slot)
+                local arg = one_expr_into_addr(arg_exprs[i], addr, path .. ".arg." .. i .. ".store", layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
+                append_addr_cmds(cmds, arg)
+                if addr_terminates(arg) then return cmds, args, Back.BackTerminates end
+                args[#args + 1] = addr
+            end
+        end
+        return cmds, args, Back.BackFallsThrough
+    end
+
     lower_call_value = pvm.phase("sem_to_back_call_value", {
         [Sem.SemCallDirect] = function(self, dst, ret_ty, path, args)
             local func_text = func_id_text(self.module_name, self.func_name)
@@ -2159,6 +2200,30 @@ function M.Define(T)
             cmds[#cmds + 1] = Back.BackCmdCreateSig(Back.BackSigId(path .. ":sig"), sig.params, sig.results)
             cmds[#cmds + 1] = Back.BackCmdCallValueIndirect(dst, ret_ty, callee.value, Back.BackSigId(path .. ":sig"), args)
             return pvm.once(Back.BackExprPlan(cmds, dst, ret_ty))
+        end,
+    })
+
+    aux.lower_call_into_addr = pvm.phase("sem_to_back_call_into_addr", {
+        [Sem.SemCallDirect] = function(self, addr, path, args)
+            local func_text = func_id_text(self.module_name, self.func_name)
+            return pvm.once(addr_writes({
+                Back.BackCmdCallStmtDirect(Back.BackFuncId(func_text), Back.BackSigId("sig:" .. func_text), args),
+            }))
+        end,
+        [Sem.SemCallExtern] = function(self, addr, path, args)
+            return pvm.once(addr_writes({
+                Back.BackCmdCallStmtExtern(Back.BackExternId(self.symbol), Back.BackSigId("sig:extern:" .. self.symbol), args),
+            }))
+        end,
+        [Sem.SemCallIndirect] = function(self, addr, path, args, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
+            local callee = one_expr(self.callee, path .. ".callee", layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
+            local sig = one_sig_spec(self.fn_ty)
+            local cmds = {}
+            append_expr_cmds(cmds, callee)
+            if expr_terminates(callee) then return pvm.once(terminated_addr(cmds)) end
+            cmds[#cmds + 1] = Back.BackCmdCreateSig(Back.BackSigId(path .. ":sig"), sig.params, sig.results)
+            cmds[#cmds + 1] = Back.BackCmdCallStmtIndirect(callee.value, Back.BackSigId(path .. ":sig"), args)
+            return pvm.once(addr_writes(cmds))
         end,
     })
 
@@ -2845,16 +2910,9 @@ function M.Define(T)
             end
             local dst = Back.BackValId(path)
             local ret_ty = one_scalar(self.ty)
-            local cmds = {}
-            local args = {}
-            for i = 1, #self.args do
-                local arg = one_expr(self.args[i], path .. ".arg." .. i, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
-                append_expr_cmds(cmds, arg)
-                if expr_terminates(arg) then
-                    return pvm.once(terminated_expr(cmds))
-                end
-                args[i] = arg.value
-            end
+            local fn_ty = self.target.fn_ty
+            local cmds, args, flow = aux.lower_call_args(fn_ty, self.args, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
+            if flow == Back.BackTerminates then return pvm.once(terminated_expr(cmds)) end
             local call_plan = one_call_value(self.target, dst, ret_ty, path, args, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
             append_expr_cmds(cmds, call_plan)
             if expr_terminates(call_plan) then
@@ -4774,6 +4832,33 @@ function M.Define(T)
         end,
     })
 
+    aux.lower_return_value_stmt = pvm.phase("sem_to_back_return_value_stmt", {
+        [Back.BackReturnValue] = function(_, value, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
+            local ret_ty = one_sem_expr_type(value)
+            if not one_type_is_scalar(ret_ty) then
+                error("sem_to_back_stmt: non-scalar return requires an explicit sret ABI target")
+            end
+            local expr = one_expr(value, path .. ".value", layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
+            local cmds = {}
+            append_expr_cmds(cmds, expr)
+            if expr_terminates(expr) then
+                return pvm.once(Back.BackStmtPlan(cmds, Back.BackTerminates))
+            end
+            cmds[#cmds + 1] = Back.BackCmdReturnValue(expr.value)
+            return pvm.once(Back.BackStmtPlan(cmds, Back.BackTerminates))
+        end,
+        [Back.BackReturnSret] = function(self, value, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
+            local value_plan = one_expr_into_addr(value, self.addr, path .. ".sret_store", layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
+            local cmds = {}
+            append_addr_cmds(cmds, value_plan)
+            if addr_terminates(value_plan) then
+                return pvm.once(Back.BackStmtPlan(cmds, Back.BackTerminates))
+            end
+            cmds[#cmds + 1] = Back.BackCmdReturnVoid
+            return pvm.once(Back.BackStmtPlan(cmds, Back.BackTerminates))
+        end,
+    })
+
     lower_stmt = pvm.phase("sem_to_back_stmt", {
         [Sem.SemStmtLet] = function(self, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
             local binding = Sem.SemBindLocalValue(self.id, self.name, self.ty)
@@ -4848,13 +4933,13 @@ function M.Define(T)
         [Sem.SemStmtExpr] = function(self, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
             return pvm.once(one_expr_stmt(self.expr, path .. ".expr", layout_env, break_block, break_args, continue_block, continue_args, residence_plan))
         end,
-        [Sem.SemStmtIf] = function(self, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
+        [Sem.SemStmtIf] = function(self, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan, return_target)
             local cond = one_expr(self.cond, path .. ".cond", layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
             if expr_terminates(cond) then
                 return pvm.once(Back.BackStmtPlan(cond.cmds, Back.BackTerminates))
             end
-            local then_cmds, then_flow = lower_stmt_list(self.then_body, path .. ".then", layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
-            local else_cmds, else_flow = lower_stmt_list(self.else_body, path .. ".else", layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
+            local then_cmds, then_flow = lower_stmt_list(self.then_body, path .. ".then", layout_env, break_block, break_args, continue_block, continue_args, residence_plan, return_target)
+            local else_cmds, else_flow = lower_stmt_list(self.else_body, path .. ".else", layout_env, break_block, break_args, continue_block, continue_args, residence_plan, return_target)
             local then_block = Back.BackBlockId(path .. ".then.block")
             local else_block = Back.BackBlockId(path .. ".else.block")
             local join_block = Back.BackBlockId(path .. ".join.block")
@@ -4886,7 +4971,7 @@ function M.Define(T)
             end
             return pvm.once(Back.BackStmtPlan(cmds, Back.BackTerminates))
         end,
-        [Sem.SemStmtSwitch] = function(self, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
+        [Sem.SemStmtSwitch] = function(self, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan, return_target)
             local value_ty = one_sem_expr_type(self.value)
             if not one_type_is_scalar(value_ty) then
                 error("sem_to_back_stmt: switch value must currently be scalar in Sem->Back")
@@ -4895,13 +4980,13 @@ function M.Define(T)
             if expr_terminates(value) then
                 return pvm.once(Back.BackStmtPlan(value.cmds, Back.BackTerminates))
             end
-            local default_cmds, default_flow = lower_stmt_list(self.default_body, path .. ".default", layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
+            local default_cmds, default_flow = lower_stmt_list(self.default_body, path .. ".default", layout_env, break_block, break_args, continue_block, continue_args, residence_plan, return_target)
             local back_arms = aux.lower_back_switch_stmt_arms(self.arms, value_ty)
             local arm_cmds = {}
             local arm_flows = {}
             local need_join = default_flow == Back.BackFallsThrough
             for i = 1, #back_arms.arms do
-                arm_cmds[i], arm_flows[i] = lower_stmt_list(back_arms.arms[i].body, path .. ".arm." .. i, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
+                arm_cmds[i], arm_flows[i] = lower_stmt_list(back_arms.arms[i].body, path .. ".arm." .. i, layout_env, break_block, break_args, continue_block, continue_args, residence_plan, return_target)
                 if arm_flows[i] == Back.BackFallsThrough then
                     need_join = true
                 end
@@ -5025,19 +5110,8 @@ function M.Define(T)
         [Sem.SemStmtReturnVoid] = function()
             return pvm.once(Back.BackStmtPlan({ Back.BackCmdReturnVoid }, Back.BackTerminates))
         end,
-        [Sem.SemStmtReturnValue] = function(self, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
-            local ret_ty = one_sem_expr_type(self.value)
-            if not one_type_is_scalar(ret_ty) then
-                error("sem_to_back_stmt: non-scalar return values are not yet supported by the current Back ABI")
-            end
-            local expr = one_expr(self.value, path .. ".value", layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
-            local cmds = {}
-            append_expr_cmds(cmds, expr)
-            if expr_terminates(expr) then
-                return pvm.once(Back.BackStmtPlan(cmds, Back.BackTerminates))
-            end
-            cmds[#cmds + 1] = Back.BackCmdReturnValue(expr.value)
-            return pvm.once(Back.BackStmtPlan(cmds, Back.BackTerminates))
+        [Sem.SemStmtReturnValue] = function(self, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan, return_target)
+            return aux.lower_return_value_stmt(return_target or Back.BackReturnValue, self.value, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
         end,
         [Sem.SemStmtBreak] = function(self, path, layout_env, break_block, break_args)
             if break_block == nil then
@@ -5096,14 +5170,20 @@ function M.Define(T)
             local params = {}
             local results = {}
             local entry_vals = {}
-            for i = 1, #self.params do
-                params[i] = one_scalar(self.params[i].ty)
-                entry_vals[i] = Back.BackValId("arg:" .. (i - 1) .. ":" .. self.params[i].name)
+            local return_target = Back.BackReturnValue
+            if not one_type_is_void(self.result) and not one_type_is_scalar(self.result) then
+                params[#params + 1] = Back.BackPtr
+                entry_vals[#entry_vals + 1] = Back.BackValId("arg:sret")
+                return_target = Back.BackReturnSret(Back.BackValId("arg:sret"))
             end
-            if not one_type_is_void(self.result) then
+            for i = 1, #self.params do
+                params[#params + 1] = one_type_is_scalar(self.params[i].ty) and one_scalar(self.params[i].ty) or Back.BackPtr
+                entry_vals[#entry_vals + 1] = Back.BackValId("arg:" .. (i - 1) .. ":" .. self.params[i].name)
+            end
+            if not one_type_is_void(self.result) and one_type_is_scalar(self.result) then
                 results[1] = one_scalar(self.result)
             end
-            local body_cmds = lower_stmt_list(self.body, "func:" .. func_text, layout_env, nil, nil, nil, nil, residence_plan)
+            local body_cmds = lower_stmt_list(self.body, "func:" .. func_text, layout_env, nil, nil, nil, nil, residence_plan, return_target)
             local cmds = {
                 Back.BackCmdCreateSig(sig_id, params, results),
                 Back.BackCmdDeclareFuncLocal(func_id, sig_id),
@@ -5117,7 +5197,7 @@ function M.Define(T)
                     local param = self.params[i]
                     local binding = Sem.SemBindArg(i - 1, param.name, param.ty)
                     local residence = binding_residence(binding, residence_plan)
-                    if residence == Sem.SemResidenceStack then
+                    if residence == Sem.SemResidenceStack and one_type_is_scalar(param.ty) then
                         local slot = arg_slot_id(i - 1, param.name)
                         local addr = Back.BackValId("arg.addr:" .. (i - 1) .. ":" .. param.name)
                         local value = Back.BackValId("arg:" .. (i - 1) .. ":" .. param.name)
@@ -5142,14 +5222,20 @@ function M.Define(T)
             local params = {}
             local results = {}
             local entry_vals = {}
-            for i = 1, #self.params do
-                params[i] = one_scalar(self.params[i].ty)
-                entry_vals[i] = Back.BackValId("arg:" .. (i - 1) .. ":" .. self.params[i].name)
+            local return_target = Back.BackReturnValue
+            if not one_type_is_void(self.result) and not one_type_is_scalar(self.result) then
+                params[#params + 1] = Back.BackPtr
+                entry_vals[#entry_vals + 1] = Back.BackValId("arg:sret")
+                return_target = Back.BackReturnSret(Back.BackValId("arg:sret"))
             end
-            if not one_type_is_void(self.result) then
+            for i = 1, #self.params do
+                params[#params + 1] = one_type_is_scalar(self.params[i].ty) and one_scalar(self.params[i].ty) or Back.BackPtr
+                entry_vals[#entry_vals + 1] = Back.BackValId("arg:" .. (i - 1) .. ":" .. self.params[i].name)
+            end
+            if not one_type_is_void(self.result) and one_type_is_scalar(self.result) then
                 results[1] = one_scalar(self.result)
             end
-            local body_cmds = lower_stmt_list(self.body, "func:" .. func_text, layout_env, nil, nil, nil, nil, residence_plan)
+            local body_cmds = lower_stmt_list(self.body, "func:" .. func_text, layout_env, nil, nil, nil, nil, residence_plan, return_target)
             local cmds = {
                 Back.BackCmdCreateSig(sig_id, params, results),
                 Back.BackCmdDeclareFuncExport(func_id, sig_id),
@@ -5163,7 +5249,7 @@ function M.Define(T)
                     local param = self.params[i]
                     local binding = Sem.SemBindArg(i - 1, param.name, param.ty)
                     local residence = binding_residence(binding, residence_plan)
-                    if residence == Sem.SemResidenceStack then
+                    if residence == Sem.SemResidenceStack and one_type_is_scalar(param.ty) then
                         local slot = arg_slot_id(i - 1, param.name)
                         local addr = Back.BackValId("arg.addr:" .. (i - 1) .. ":" .. param.name)
                         local value = Back.BackValId("arg:" .. (i - 1) .. ":" .. param.name)
@@ -5188,10 +5274,13 @@ function M.Define(T)
         [Sem.SemItemExtern] = function(self)
             local params = {}
             local results = {}
-            for i = 1, #self.func.params do
-                params[i] = one_scalar(self.func.params[i].ty)
+            if not one_type_is_void(self.func.result) and not one_type_is_scalar(self.func.result) then
+                params[#params + 1] = Back.BackPtr
             end
-            if not one_type_is_void(self.func.result) then
+            for i = 1, #self.func.params do
+                params[#params + 1] = one_type_is_scalar(self.func.params[i].ty) and one_scalar(self.func.params[i].ty) or Back.BackPtr
+            end
+            if not one_type_is_void(self.func.result) and one_type_is_scalar(self.func.result) then
                 results[1] = one_scalar(self.func.result)
             end
             local sig_id = Back.BackSigId("sig:extern:" .. self.func.symbol)

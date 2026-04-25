@@ -26,6 +26,11 @@ For the current reboot source-language shape, parser target, and span strategy, 
 - `moonlift/TYPED_LOOP_SIGNATURE_PROPOSAL.md` — frozen typed loop-header/signature design note, now reflected in the canonical parser/front-end syntax
 - `moonlift/SOURCE_SPAN_STRATEGY.md`
 
+For the ASDL-first vectorization direction, see:
+
+- `moonlift/VECTORIZATION_DESIGN.md`
+- `moonlift/VECTORIZATION_ASDL_REDESIGN.md`
+
 For the future open-code / metaprogramming direction, see:
 
 - `moonlift/QUOTING_SYSTEM_DESIGN.md`
@@ -750,19 +755,23 @@ The frozen target is now explicit:
 - aggregates lower through hidden-pointer/materialization conventions
 - function values are intended to be first-class immutable callable values
 
-Missing or restricted:
-- non-scalar load results
-- non-scalar call arguments/results under that frozen aggregate/descriptor ABI
-- non-scalar return values through the hidden-pointer result path
-- closure invocation sugar / full closure-call lowering
-- slice/view descriptor argument/result completion across the current Back/FFI path
-
-Newly implemented:
+Now implemented:
+- non-scalar returns lower through an explicit hidden result pointer (`BackReturnSret`)
+- non-scalar call arguments materialize to stack and pass an address
+- non-scalar call results materialize directly into the destination address
+- non-scalar function and extern signatures add the hidden result pointer as the first backend parameter
+- non-scalar parameters are passed as addresses under the internal Back ABI
 - function values have pointer-sized layout/storage
 - direct function/extern binding reads lower to explicit backend function-address commands
-- closure desugaring can now emit function-valued fields in generated closure structs and compile those structs through the authored front door
+- closure desugaring emits a canonical closure signature struct `{ fn, ctx }` plus per-expression context structs and helper functions
+- closure parameters lower as pointers to canonical closure signature structs
+- closure invocation sugar for local/parameter closure values lowers to `f.fn(f.ctx, args...)` and compiles through the authored front door
 
-So the effective callable ABI today is still mostly scalar/pointer single-result, while the broader frozen aggregate/descriptor/closure-call target is not complete yet.
+Still restricted:
+- direct non-scalar load-as-value forms remain address/materialization-only
+- public C-facing helper documentation for hidden result pointers/non-scalar parameters still needs polish
+
+So the effective callable ABI now supports scalar/pointer direct values and non-scalar descriptor/aggregate values through explicit hidden-pointer/materialization paths.
 
 ---
 
@@ -1120,7 +1129,7 @@ This distinction still matters.
 - their downstream `Sem -> Back` lowering
 
 ### Still missing today
-- closure invocation sugar / full closure call lowering
+- closure-valued returns through the broader aggregate return ABI
 - broader non-scalar ABI completion for aggregate/descriptor values
 
 ---
@@ -1205,7 +1214,7 @@ The biggest missing authored-language area is now:
 - implementing the newly frozen loop syntax (`for ... in` / `while ... with`)
 - implementing `export func` visibility
 - implementing enum/tagged-union/untagged-union desugaring
-- implementing closure desugaring
+- completing closure-valued returns under the aggregate return ABI
 - implementing view construction primitives
 - implementing type-directed integer literal elaboration
 - richer diagnostics / source mapping through later compiler layers
@@ -1244,7 +1253,29 @@ There is also an initial ASDL-backed vectorization fact-gathering prototype in:
 - `moonlift/lua/moonlift/vector_facts.lua`
 - `moonlift/test_vector_facts.lua`
 
-This defines a new `MoonliftVec` ASDL vocabulary for vector expression facts, counted-loop facts, add-reduction facts, reject reasons, and an initial add-reduction vector plan. The current prototype detects simple `for i in range with acc ... next acc = acc + lane_expr` loops recursively through PVM phases. It does **not** yet lower to vector `Back` commands or Cranelift vector IR; it is the first explicit facts/plan layer needed before vector codegen.
+This now defines the coherent `MoonliftVec` vocabulary from `VECTORIZATION_ASDL_REDESIGN.md`: expression ids, loop ids, target facts, expression graphs, range facts, counted domains, inductions, reductions, proofs, explicit loop decisions, scalar/vector/chunked loop shapes, and the `VecModule` root. The current prototype detects simple `for i in range with acc ... next acc = acc + lane_expr` loops recursively through PVM phases, records the term as `VecLoopFacts`, chooses `VecLoopDecision` values instead of old hand-written plan variants, and can prove the initial bounded-narrowing case when the reduction term has an explicit bitand bound such as `& 1023`.
+
+The `MoonliftBack` layer also now has an initial explicit vector command slice:
+
+- `BackVec(elem, lanes)`
+- `BackCmdVecSplat`
+- `BackCmdVecIadd`
+- `BackCmdVecImul`
+- `BackCmdVecBand`
+- `BackCmdVecLoad`
+- `BackCmdVecStore`
+- `BackCmdVecInsertLane`
+- `BackCmdVecExtractLane`
+- `BackCmdAppendVecBlockParam`
+
+Those commands replay through the LuaJIT FFI bridge into Rust and produce Cranelift vector IR in `moonlift/test_back_vectors.lua`.
+
+There is now also an initial `MoonliftVec.VecLoopDecision` / `VecModule -> BackProgram` lowering in:
+
+- `moonlift/lua/moonlift/vector_to_back.lua`
+- `moonlift/test_vector_to_back.lua`
+
+Those lowerings consume the chosen vector loop shape and emit vectorized main loops, vector accumulator block params, explicit unrolled vector accumulators, horizontal lane extraction/reduction, scalar tail loops, and for the bounded-narrow case a chunked `i32x4` accumulator that widens extracted lane sums back to `index`. Both the ordinary/unrolled add-reduction path and the bounded chunked-narrow path now materialize real `VecBlock` / `VecCmd` skeletons before mechanical lowering to `BackProgram`. The ordinary vector skeleton also now carries initial contiguous view-backed memory facts through to backend vector memory commands: `VecMemoryAccess` / `VecExprLoad` / `VecCmdLoad` lower to `BackCmdVecLoad`, and `VecStoreFact` / `VecCmdStore` lower to `BackCmdVecStore`, currently for pointer-backed contiguous views. Store loops now also produce explicit `VecDependenceFact` values: in-place same-base/same-lane load-store maps can be proven with `VecNoDependence`, while unknown alias pairs remain `VecDependenceUnknown` and choose scalar fallback instead of assuming noalias. `moonlift/benchmarks/run_vector_sum_vs_terra.sh` currently validates the arithmetic path with measured speedups over scalar Moonlift: base `i64x2`, unrolled `i64x2`, and chunked bounded `i32x4`. The fastest current path is still slower than Terra/LLVM's wider AVX-512 vectorized code, but the gap is now represented as explicit ASDL facts/proofs/decisions and vector block skeletons rather than hidden backend recovery.
 
 ## 8.4 The biggest missing future-architecture area
 

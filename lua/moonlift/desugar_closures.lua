@@ -1,494 +1,541 @@
 package.path = "./?.lua;./?/init.lua;" .. package.path
 
 -- desugar_closures.lua
--- Surface -> Surface pass: transforms every SurfClosureExpr in a module
--- into module-level generated struct + function items, and replaces the
--- closure expression with a struct aggregate that constructs the
--- {fn, ctx} closure value.
+--
+-- Surface -> Surface pass for closure syntax.  The pass is deliberately
+-- source-level: it rewrites closure-specific Surface values into ordinary
+-- Surface structs, function fields, context pointers, aggregates, field
+-- projections, and calls before the normal Surface -> Elab path.
+--
+-- Representation:
+--
+--   closure(T1, ..., Tn) -> R
+--     => generated named struct _closure_sig_<signature> {
+--          fn:  func(ptr(void), T1, ..., Tn) -> R,
+--          ctx: ptr(void),
+--        }
+--
+--   fn(x: T) -> R ... end
+--     => generated ctx struct + generated helper function
+--        helper(ctx: ptr(void), x: T) -> R
+--        closure value = _closure_sig { fn = helper, ctx = bitcast(ptr(void), &ctx_val) }
+--
+--   f(a, b) where f is closure-typed
+--     => f.fn(f.ctx, a, b)
 
 local M = {}
 
--- Walk the closure body and collect names that are NOT closure params
--- and NOT locally introduced bindings; these are the captured variables.
-local function free_vars_in_body(stmts, closure_params, Surf)
-    local captured = {}
-    local seen = {}
-
-    local function try_capture(name)
-        if seen[name] then return end
-        for _, p in ipairs(closure_params) do
-            if p.name == name then return end
-        end
-        seen[name] = true
-        captured[#captured + 1] = name
-    end
-
-    local function walk_expr(expr)
-        if not expr then return end
-        local k = expr.kind
-        if k == "SurfNameRef" then
-            try_capture(expr.name)
-            return
-        end
-        -- Walk children: dispatch on expression form
-        local children = {}
-        if expr.value then children[#children+1] = expr.value end
-        if expr.lhs then children[#children+1] = expr.lhs end
-        if expr.rhs then children[#children+1] = expr.rhs end
-        if expr.base then children[#children+1] = expr.base end
-        if expr.callee then children[#children+1] = expr.callee end
-        if expr.cond then children[#children+1] = expr.cond end
-        if expr.then_expr then children[#children+1] = expr.then_expr end
-        if expr.else_expr then children[#children+1] = expr.else_expr end
-        if expr.default_expr then children[#children+1] = expr.default_expr end
-        if expr.index then children[#children+1] = expr.index end
-        if expr.result then children[#children+1] = expr.result end
-        if expr.args then for _, a in ipairs(expr.args) do children[#children+1] = a end end
-        if expr.elems then for _, e in ipairs(expr.elems) do children[#children+1] = e end end
-        if expr.fields then
-            for _, f in ipairs(expr.fields) do
-                if f.value then children[#children+1] = f.value end
-            end
-        end
-        if expr.arms then
-            for _, arm in ipairs(expr.arms) do
-                if arm.key then children[#children+1] = arm.key end
-                if arm.body then for _, s in ipairs(arm.body) do walk_stmt(s) end end
-                if arm.result then children[#children+1] = arm.result end
-            end
-        end
-        if expr.stmts then for _, s in ipairs(expr.stmts) do walk_stmt(s) end end
-        if expr.loop then
-            local l = expr.loop
-            if l.cond then children[#children+1] = l.cond end
-            if l.body then for _, s in ipairs(l.body) do walk_stmt(s) end end
-            if l.next then for _, n in ipairs(l.next) do children[#children+1] = n.value end end
-            if l.result then children[#children+1] = l.result end
-            if l.carries then for _, c in ipairs(l.carries) do children[#children+1] = c.init end end
-            if l.domain then
-                local d = l.domain
-                if d.stop then children[#children+1] = d.stop end
-                if d.start then children[#children+1] = d.start end
-                if d.value then children[#children+1] = d.value end
-                if d.values then for _, v in ipairs(d.values) do children[#children+1] = v end end
-            end
-        end
-        if expr.value then -- for SurfExprRef place-based
-            -- SurfPlace: NameRef, PathRef, Deref, Dot, Field, Index
-            local p = expr.place
-            if p then
-                if p.base then children[#children+1] = p.base end
-                if p.index then children[#children+1] = p.index end
-            end
-        end
-        for _, c in ipairs(children) do
-            walk_expr(c)
-        end
-    end
-
-    local function walk_stmt(stmt)
-        if not stmt then return end
-        local sk = stmt.kind
-        if sk == "SurfLet" or sk == "SurfVar" then
-            walk_expr(stmt.init)
-        elseif sk == "SurfSet" then
-            walk_expr(stmt.value)
-        elseif sk == "SurfExprStmt" then
-            walk_expr(stmt.expr)
-        elseif sk == "SurfAssert" then
-            walk_expr(stmt.cond)
-        elseif sk == "SurfReturnValue" then
-            walk_expr(stmt.value)
-        elseif sk == "SurfBreakValue" then
-            walk_expr(stmt.value)
-        elseif sk == "SurfIf" then
-            walk_expr(stmt.cond)
-            for _, s in ipairs(stmt.then_body or {}) do walk_stmt(s) end
-            for _, s in ipairs(stmt.else_body or {}) do walk_stmt(s) end
-        elseif sk == "SurfSwitch" then
-            walk_expr(stmt.value)
-            for _, arm in ipairs(stmt.arms or {}) do
-                if arm.key then walk_expr(arm.key) end
-                for _, s in ipairs(arm.body or {}) do walk_stmt(s) end
-            end
-            for _, s in ipairs(stmt.default_body or {}) do walk_stmt(s) end
-        elseif sk == "SurfStmtLoop" then
-            walk_loop(stmt.loop)
-        end
-    end
-
-    local function walk_loop(loop)
-        if not loop then return end
-        if loop.cond then walk_expr(loop.cond) end
-        if loop.body then for _, s in ipairs(loop.body) do walk_stmt(s) end end
-        if loop.next then for _, n in ipairs(loop.next) do walk_expr(n.value) end end
-        if loop.result then walk_expr(loop.result) end
-        if loop.carries then for _, c in ipairs(loop.carries) do walk_expr(c.init) end end
-        if loop.domain then
-            local d = loop.domain
-            if d.stop then walk_expr(d.stop) end
-            if d.start then walk_expr(d.start) end
-            if d.value then walk_expr(d.value) end
-            if d.values then for _, v in ipairs(d.values) do walk_expr(v) end end
-        end
-    end
-
-    for _, stmt in ipairs(stmts) do
-        walk_stmt(stmt)
-    end
-
-    return captured
+local function path1(Surf, name)
+    return Surf.SurfPath({ Surf.SurfName(name) })
 end
 
--- Build the binding stack at a given point in a function body.
--- Returns all names visible: function params + let/var bindings before the position.
-local function build_scope(stmts, up_to_index, fn_params)
-    local scope = {}
-    -- Add function params
-    for _, p in ipairs(fn_params or {}) do
-        scope[p.name] = true
-    end
-    -- Add let/var bindings up to (but not including) up_to_index
-    for i = 1, (up_to_index or #stmts) - 1 do
-        local s = stmts[i]
-        if s.kind == "SurfLet" or s.kind == "SurfVar" then
-            scope[s.name] = true
-        end
-    end
-    return scope
+local function named(Surf, name)
+    return Surf.SurfTNamed(path1(Surf, name))
 end
 
--- Module-level globals: exported funcs, consts, static names.
-local function build_module_scope(items)
-    local scope = {}
-    for _, item in ipairs(items) do
-        if item.func then
-            scope[item.func.name] = true
-        elseif item.c then
-            scope[item.c.name] = true
-        elseif item.s then
-            scope[item.s.name] = true
-        end
-    end
-    return scope
+local function ptr_void(Surf)
+    return Surf.SurfTPtr(Surf.SurfTVoid)
 end
 
--- Check if a name is a module-level global.
-local function is_module_global(name, module_scope)
-    return module_scope[name] == true
+local function sanitize(s)
+    s = tostring(s):gsub("[^%w_]", "_")
+    s = s:gsub("_+", "_")
+    if s == "" then return "anon" end
+    return s
 end
 
--- Main desugaring: walks the module, finds closures, generates
--- ctx structs + helper funcs + closure struct types, rewrites everything.
+local function path_text(path)
+    local out = {}
+    for i = 1, #path.parts do out[i] = path.parts[i].text end
+    return table.concat(out, ".")
+end
+
 function M.desugar(module, Surf)
-    if not module or not module.items then return module end
+    if module == nil or module.items == nil then return module end
 
     local closure_count = 0
-    local new_items_before = {}  -- items to insert at module level
-    local items_after = {}       -- rewritten items
-    local module_scope = build_module_scope(module.items)
+    local sig_items = {}
+    local sig_seen = {}
+    local generated_items = {}
 
-    -- Clone a struct value by generating constructor calls
-    local function clone_type(ty)
-        -- simplified: return as-is (Surface types are immutable)
+    local transform_type
+    local type_key
+    local rewrite_expr
+    local rewrite_stmt
+    local process_body
+
+    type_key = function(ty)
+        local k = ty.kind
+        if k == "SurfTVoid" then return "void" end
+        if k == "SurfTBool" then return "bool" end
+        if k == "SurfTI8" then return "i8" end
+        if k == "SurfTI16" then return "i16" end
+        if k == "SurfTI32" then return "i32" end
+        if k == "SurfTI64" then return "i64" end
+        if k == "SurfTU8" then return "u8" end
+        if k == "SurfTU16" then return "u16" end
+        if k == "SurfTU32" then return "u32" end
+        if k == "SurfTU64" then return "u64" end
+        if k == "SurfTF32" then return "f32" end
+        if k == "SurfTF64" then return "f64" end
+        if k == "SurfTIndex" then return "index" end
+        if k == "SurfTPtr" then return "ptr_" .. type_key(ty.elem) end
+        if k == "SurfTSlice" then return "slice_" .. type_key(ty.elem) end
+        if k == "SurfTView" then return "view_" .. type_key(ty.elem) end
+        if k == "SurfTArray" then
+            local count = ty.count and (ty.count.raw or ty.count.kind or "expr") or "expr"
+            return "array_" .. sanitize(count) .. "_" .. type_key(ty.elem)
+        end
+        if k == "SurfTFunc" then
+            local parts = { "func" }
+            for i = 1, #ty.params do parts[#parts + 1] = type_key(ty.params[i]) end
+            parts[#parts + 1] = "to"
+            parts[#parts + 1] = type_key(ty.result)
+            return table.concat(parts, "_")
+        end
+        if k == "SurfTClosure" then
+            local parts = { "closure" }
+            for i = 1, #ty.params do parts[#parts + 1] = type_key(ty.params[i]) end
+            parts[#parts + 1] = "to"
+            parts[#parts + 1] = type_key(ty.result)
+            return table.concat(parts, "_")
+        end
+        if k == "SurfTNamed" then return "named_" .. sanitize(path_text(ty.path)) end
+        error("desugar_closures: unknown surface type " .. tostring(k))
+    end
+
+    local function transform_type_list(xs)
+        local out = {}
+        for i = 1, #(xs or {}) do out[i] = transform_type(xs[i]) end
+        return out
+    end
+
+    local function ensure_closure_signature(param_tys, result_ty)
+        local transformed_params = transform_type_list(param_tys)
+        local transformed_result = transform_type(result_ty)
+        local parts = { "closure_sig" }
+        for i = 1, #transformed_params do parts[#parts + 1] = type_key(transformed_params[i]) end
+        parts[#parts + 1] = "to"
+        parts[#parts + 1] = type_key(transformed_result)
+        local key = table.concat(parts, "_")
+        local name = "_" .. sanitize(key)
+        if not sig_seen[name] then
+            sig_seen[name] = true
+            local fn_params = { ptr_void(Surf) }
+            for i = 1, #transformed_params do fn_params[#fn_params + 1] = transformed_params[i] end
+            sig_items[#sig_items + 1] = Surf.SurfItemType(Surf.SurfStruct(name, {
+                Surf.SurfFieldDecl("fn", Surf.SurfTFunc(fn_params, transformed_result)),
+                Surf.SurfFieldDecl("ctx", ptr_void(Surf)),
+            }))
+        end
+        return name, transformed_params, transformed_result
+    end
+
+    transform_type = function(ty)
+        local k = ty.kind
+        if k == "SurfTPtr" then return Surf.SurfTPtr(transform_type(ty.elem)) end
+        if k == "SurfTSlice" then return Surf.SurfTSlice(transform_type(ty.elem)) end
+        if k == "SurfTView" then return Surf.SurfTView(transform_type(ty.elem)) end
+        if k == "SurfTArray" then return Surf.SurfTArray(ty.count, transform_type(ty.elem)) end
+        if k == "SurfTFunc" then return Surf.SurfTFunc(transform_type_list(ty.params), transform_type(ty.result)) end
+        if k == "SurfTClosure" then
+            local name = ensure_closure_signature(ty.params, ty.result)
+            return named(Surf, name)
+        end
         return ty
     end
 
-    -- Determine the type of a captured variable.
-    -- We need to track types through the function body. For now,
-    -- use a simple approach: for function params, use the declared type.
-    -- For let/var bindings, track the declared type.
-    local function infer_type(name, fn_params, stmts, pos)
-        -- Check function params
-        for _, p in ipairs(fn_params or {}) do
-            if p.name == name then return clone_type(p.ty) end
+    local function transform_param(p)
+        if p.ty ~= nil and p.ty.kind == "SurfTClosure" then
+            local name = ensure_closure_signature(p.ty.params, p.ty.result)
+            return Surf.SurfParam(p.name, Surf.SurfTPtr(named(Surf, name)))
         end
-        -- Check let/var bindings before position
-        for i = 1, (pos or #stmts) - 1 do
-            local s = stmts[i]
-            if (s.kind == "SurfLet" or s.kind == "SurfVar") and s.name == name then
-                return clone_type(s.ty)
-            end
-        end
-        -- Check loop carries in enclosing loops (simplified)
-        return nil -- unknown type → will be reported
+        return Surf.SurfParam(p.name, transform_type(p.ty))
     end
 
-    -- Process a function body: find closures, generate items, rewrite.
-    local function process_body(stmts, fn_params, result_ty)
-        if not stmts then return stmts, {}, {} end
-        local new_stmts = {}
-        local gen_items = {}   -- generated module items
-        local pre_stmts = {}   -- ctx init statements to insert before the closure
+    local function is_closure_type(ty)
+        return ty ~= nil and ty.kind == "SurfTClosure"
+    end
 
-        for idx = 1, #stmts do
-            local stmt = stmts[idx]
+    local function copy_scope(scope)
+        local out = {}
+        for k, v in pairs(scope or {}) do out[k] = v end
+        return out
+    end
 
-            -- Check if this statement contains a closure expression
-            local function replace_closures(expr)
-                if not expr then return expr end
-                if expr.kind == "SurfClosureExpr" then
-                    closure_count = closure_count + 1
-                    local cid = closure_count
+    local function module_scope(items)
+        local out = {}
+        for _, item in ipairs(items) do
+            if item.func then out[item.func.name] = true end
+            if item.c then out[item.c.name] = true end
+            if item.s then out[item.s.name] = true end
+        end
+        return out
+    end
 
-                    -- Find free variables in the closure body
-                    -- Exclude: closure params, module globals, names in scope at closure site
-                    local free = free_vars_in_body(expr.body, expr.params, Surf)
-                    local scope = build_scope(stmts, idx, fn_params)
+    local globals = module_scope(module.items)
 
-                    -- Filter: only capture names that are in scope but not module globals
-                    local captures = {}
-                    local capture_types = {}
-                    for _, name in ipairs(free) do
-                        if scope[name] and not is_module_global(name, module_scope) then
-                            captures[#captures + 1] = name
-                            local ty = infer_type(name, fn_params, stmts, idx)
-                            capture_types[name] = ty or Surf.SurfTVoid -- fallback
-                        end
-                    end
-
-                    -- Generate context struct type
-                    local ctx_name = "_closure_ctx_" .. cid
-                    local ctx_fields = {}
-                    for _, name in ipairs(captures) do
-                        ctx_fields[#ctx_fields + 1] = Surf.SurfFieldDecl(name, capture_types[name])
-                    end
-                    gen_items[#gen_items + 1] = Surf.SurfItemType(Surf.SurfStruct(ctx_name, ctx_fields))
-
-                    -- Generate closure struct type
-                    local closure_type_name = "_closure_" .. cid
-                    local param_types = {}
-                    for _, p in ipairs(expr.params) do
-                        param_types[#param_types + 1] = clone_type(p.ty)
-                    end
-                    local fn_field_type = Surf.SurfTFunc(
-                        { Surf.SurfTPtr(Surf.SurfTNamed(Surf.SurfPath({Surf.SurfName(ctx_name)}))), unpack(param_types) },
-                        clone_type(expr.result)
-                    )
-                    gen_items[#gen_items + 1] = Surf.SurfItemType(Surf.SurfStruct(closure_type_name, {
-                        Surf.SurfFieldDecl("fn", fn_field_type),
-                        Surf.SurfFieldDecl("ctx", Surf.SurfTPtr(Surf.SurfTNamed(Surf.SurfPath({Surf.SurfName(ctx_name)})))),
-                    }))
-
-                    -- Generate helper function
-                    local fn_name = "_closure_fn_" .. cid
-                    local fn_params = {
-                        Surf.SurfParam("ctx", Surf.SurfTPtr(Surf.SurfTNamed(Surf.SurfPath({Surf.SurfName(ctx_name)})))),
-                    }
-                    for _, p in ipairs(expr.params) do
-                        fn_params[#fn_params + 1] = Surf.SurfParam(p.name, clone_type(p.ty))
-                    end
-
-                    -- Rewrite closure body: replace captured vars with (*ctx).field
-                    local function rewrite_expr(e)
-                        if not e then return e end
-                        if e.kind == "SurfNameRef" then
-                            for _, cap in ipairs(captures) do
-                                if e.name == cap then
-                                    -- Replace: name → (*ctx).name via SurfField(SurfExprDeref(SurfNameRef("ctx")), name)
-                                    return Surf.SurfField(
-                                        Surf.SurfExprDeref(Surf.SurfNameRef("ctx")),
-                                        cap
-                                    )
-                                end
-                            end
-                            return e
-                        end
-                        -- For compound expressions, recurse into children
-                        local rw = function(x) return rewrite_expr(x) end
-                        -- Binary expressions
-                        if e.lhs and e.rhs then
-                            return Surf[e.kind](rw(e.lhs), rw(e.rhs))
-                        end
-                        -- Unary expressions
-                        if e.value then
-                            return Surf[e.kind](rw(e.value))
-                        end
-                        -- Call expressions
-                        if e.callee then
-                            local args = {}
-                            if e.args then for _, a in ipairs(e.args) do args[#args+1] = rw(a) end end
-                            return Surf.SurfCall(rw(e.callee), args)
-                        end
-                        -- If/select/switch expressions
-                        if e.cond and e.then_expr then
-                            return Surf[e.kind](rw(e.cond), rw(e.then_expr), rw(e.else_expr))
-                        end
-                        -- Field access: rewrite base
-                        if e.base and e.name then
-                            return Surf.SurfField(rw(e.base), e.name)
-                        end
-                        -- Index: rewrite base and index
-                        if e.base and e.index then
-                            return Surf.SurfIndex(rw(e.base), rw(e.index))
-                        end
-                        -- Intrinsic calls
-                        if e.op and e.args then
-                            local args = {}
-                            for _, a in ipairs(e.args) do args[#args+1] = rw(a) end
-                            return Surf.SurfExprIntrinsicCall(e.op, args)
-                        end
-                        return e
-                    end
-
-                    -- For now, use the original body with captured var rewriting
-                    local rewritten_body = {}
-                    for _, s in ipairs(expr.body) do
-                        if s.kind == "SurfReturnValue" then
-                            rewritten_body[#rewritten_body + 1] = Surf.SurfReturnValue(rewrite_expr(s.value))
-                        elseif s.kind == "SurfExprStmt" then
-                            rewritten_body[#rewritten_body + 1] = Surf.SurfExprStmt(rewrite_expr(s.expr))
-                        elseif s.kind == "SurfAssert" then
-                            rewritten_body[#rewritten_body + 1] = Surf.SurfAssert(rewrite_expr(s.cond))
-                        elseif s.kind == "SurfLet" then
-                            rewritten_body[#rewritten_body + 1] = Surf.SurfLet(s.name, clone_type(s.ty), rewrite_expr(s.init))
-                        elseif s.kind == "SurfVar" then
-                            rewritten_body[#rewritten_body + 1] = Surf.SurfVar(s.name, clone_type(s.ty), rewrite_expr(s.init))
-                        elseif s.kind == "SurfSet" then
-                            rewritten_body[#rewritten_body + 1] = Surf.SurfSet(s.place, rewrite_expr(s.value))
-                        elseif s.kind == "SurfIf" then
-                            rewritten_body[#rewritten_body + 1] = Surf.SurfIf(
-                                rewrite_expr(s.cond),
-                                process_body(s.then_body or {}, {}, nil),
-                                process_body(s.else_body or {}, {}, nil)
-                            )
-                        else
-                            rewritten_body[#rewritten_body + 1] = s
-                        end
-                    end
-
-                    gen_items[#gen_items + 1] = Surf.SurfItemFunc(Surf.SurfFuncLocal(fn_name, fn_params, clone_type(expr.result), rewritten_body))
-
-                    -- Create ctx init statement
-                    local ctx_fields_init = {}
-                    for _, name in ipairs(captures) do
-                        ctx_fields_init[#ctx_fields_init + 1] = Surf.SurfFieldInit(name, Surf.SurfNameRef(name))
-                    end
-                    local ctx_var_name = "_closure_ctx_val_" .. cid
-                    pre_stmts[#pre_stmts + 1] = Surf.SurfLet(ctx_var_name, Surf.SurfTNamed(Surf.SurfPath({Surf.SurfName(ctx_name)})),
-                        Surf.SurfAgg(Surf.SurfTNamed(Surf.SurfPath({Surf.SurfName(ctx_name)})), ctx_fields_init))
-
-                    -- Replace closure expression with struct aggregate
-                    local closure_value = Surf.SurfAgg(
-                        Surf.SurfTNamed(Surf.SurfPath({Surf.SurfName(closure_type_name)})),
-                        {
-                            Surf.SurfFieldInit("fn", Surf.SurfNameRef(fn_name)),
-                            Surf.SurfFieldInit("ctx", Surf.SurfExprRef(Surf.SurfPlaceName(ctx_var_name))),
-                        }
-                    )
-                    return closure_value
-                end
-
-                -- Recursively process sub-expressions
-                -- For non-closure expressions, just return as-is;
-                -- the recursion is only for finding nested closures.
-                return expr
+    local function collect_free_vars(stmts, local_names, out, seen)
+        out = out or {}
+        seen = seen or {}
+        local locals = copy_scope(local_names)
+        local walk_expr, walk_place, walk_stmt
+        local function mark(name)
+            if locals[name] or globals[name] or seen[name] then return end
+            seen[name] = true
+            out[#out + 1] = name
+        end
+        walk_place = function(p)
+            if p == nil then return end
+            if p.kind == "SurfPlaceName" then mark(p.name); return end
+            if p.base then walk_place(p.base); walk_expr(p.base) end
+            if p.index then walk_expr(p.index) end
+        end
+        walk_expr = function(e)
+            if e == nil then return end
+            local k = e.kind
+            if k == "SurfNameRef" then mark(e.name); return end
+            if k == "SurfPathRef" then return end
+            if k == "SurfClosureExpr" then
+                local nested = copy_scope(locals)
+                for _, p in ipairs(e.params) do nested[p.name] = true end
+                collect_free_vars(e.body, nested, out, seen)
+                return
             end
-
-            -- Process statement-level expressions
-            local new_stmt = stmt
-            local k = stmt.kind
+            if e.place then walk_place(e.place) end
+            if e.value then walk_expr(e.value) end
+            if e.lhs then walk_expr(e.lhs) end
+            if e.rhs then walk_expr(e.rhs) end
+            if e.base then walk_expr(e.base) end
+            if e.index then walk_expr(e.index) end
+            if e.callee then walk_expr(e.callee) end
+            if e.cond then walk_expr(e.cond) end
+            if e.then_expr then walk_expr(e.then_expr) end
+            if e.else_expr then walk_expr(e.else_expr) end
+            if e.default_expr then walk_expr(e.default_expr) end
+            if e.result then walk_expr(e.result) end
+            if e.args then for _, a in ipairs(e.args) do walk_expr(a) end end
+            if e.elems then for _, x in ipairs(e.elems) do walk_expr(x) end end
+            if e.fields then for _, f in ipairs(e.fields) do walk_expr(f.value) end end
+            if e.arms then
+                for _, arm in ipairs(e.arms) do
+                    walk_expr(arm.key)
+                    for _, s in ipairs(arm.body or {}) do walk_stmt(s) end
+                    walk_expr(arm.result)
+                end
+            end
+            if e.stmts then for _, s in ipairs(e.stmts) do walk_stmt(s) end end
+            if e.loop then
+                local l = e.loop
+                walk_expr(l.cond); walk_expr(l.result)
+                if l.domain then
+                    walk_expr(l.domain.start); walk_expr(l.domain.stop); walk_expr(l.domain.value)
+                    for _, v in ipairs(l.domain.values or {}) do walk_expr(v) end
+                end
+                for _, c in ipairs(l.carries or {}) do walk_expr(c.init); locals[c.name] = true end
+                for _, s in ipairs(l.body or {}) do walk_stmt(s) end
+                for _, n in ipairs(l.next or {}) do walk_expr(n.value) end
+            end
+        end
+        walk_stmt = function(s)
+            if s == nil then return end
+            local k = s.kind
             if k == "SurfLet" or k == "SurfVar" then
-                local new_init = replace_closures(stmt.init)
-                if new_init ~= stmt.init then
-                    for _, ps in ipairs(pre_stmts) do
-                        new_stmts[#new_stmts + 1] = ps
-                    end
-                    pre_stmts = {}
-                    new_stmt = Surf[k](stmt.name, clone_type(stmt.ty), new_init)
-                end
-            elseif k == "SurfExprStmt" then
-                local new_expr = replace_closures(stmt.expr)
-                if new_expr ~= stmt.expr then
-                    for _, ps in ipairs(pre_stmts) do
-                        new_stmts[#new_stmts + 1] = ps
-                    end
-                    pre_stmts = {}
-                    new_stmt = Surf.SurfExprStmt(new_expr)
-                end
-            elseif k == "SurfAssert" then
-                local new_cond = replace_closures(stmt.cond)
-                if new_cond ~= stmt.cond then
-                    for _, ps in ipairs(pre_stmts) do
-                        new_stmts[#new_stmts + 1] = ps
-                    end
-                    pre_stmts = {}
-                    new_stmt = Surf.SurfAssert(new_cond)
-                end
-            elseif k == "SurfReturnValue" then
-                local new_val = replace_closures(stmt.value)
-                if new_val ~= stmt.value then
-                    for _, ps in ipairs(pre_stmts) do
-                        new_stmts[#new_stmts + 1] = ps
-                    end
-                    pre_stmts = {}
-                    new_stmt = Surf.SurfReturnValue(new_val)
-                end
+                walk_expr(s.init)
+                locals[s.name] = true
             elseif k == "SurfSet" then
-                local new_val = replace_closures(stmt.value)
-                if new_val ~= stmt.value then
-                    for _, ps in ipairs(pre_stmts) do
-                        new_stmts[#new_stmts + 1] = ps
-                    end
-                    pre_stmts = {}
-                    new_stmt = Surf.SurfSet(stmt.place, new_val)
-                end
+                walk_place(s.place); walk_expr(s.value)
+            elseif k == "SurfExprStmt" then walk_expr(s.expr)
+            elseif k == "SurfAssert" then walk_expr(s.cond)
+            elseif k == "SurfReturnValue" then walk_expr(s.value)
+            elseif k == "SurfBreakValue" then walk_expr(s.value)
             elseif k == "SurfIf" then
-                local new_cond = replace_closures(stmt.cond)
-                if new_cond ~= stmt.cond then
-                    for _, ps in ipairs(pre_stmts) do
-                        new_stmts[#new_stmts + 1] = ps
-                    end
-                    pre_stmts = {}
+                walk_expr(s.cond)
+                for _, x in ipairs(s.then_body or {}) do walk_stmt(x) end
+                for _, x in ipairs(s.else_body or {}) do walk_stmt(x) end
+            elseif k == "SurfSwitch" then
+                walk_expr(s.value)
+                for _, arm in ipairs(s.arms or {}) do walk_expr(arm.key); for _, x in ipairs(arm.body or {}) do walk_stmt(x) end end
+                for _, x in ipairs(s.default_body or {}) do walk_stmt(x) end
+            elseif k == "SurfStmtLoop" then
+                local l = s.loop
+                walk_expr(l.cond)
+                if l.domain then
+                    walk_expr(l.domain.start); walk_expr(l.domain.stop); walk_expr(l.domain.value)
+                    for _, v in ipairs(l.domain.values or {}) do walk_expr(v) end
                 end
-                local new_then, then_items, then_pre = process_body(stmt.then_body or {}, fn_params or {}, result_ty)
-                local new_else, else_items, else_pre = process_body(stmt.else_body or {}, fn_params or {}, result_ty)
-                for _, it in ipairs(then_items) do gen_items[#gen_items+1] = it end
-                for _, it in ipairs(else_items) do gen_items[#gen_items+1] = it end
-                new_stmt = Surf.SurfIf(new_cond, new_then, new_else)
-            else
-                -- pass through
+                for _, c in ipairs(l.carries or {}) do walk_expr(c.init); locals[c.name] = true end
+                for _, x in ipairs(l.body or {}) do walk_stmt(x) end
+                for _, n in ipairs(l.next or {}) do walk_expr(n.value) end
             end
-
-            new_stmts[#new_stmts + 1] = new_stmt
         end
-
-        -- Flush remaining pre-stmts
-        for _, ps in ipairs(pre_stmts) do
-            new_stmts[#new_stmts + 1] = ps
-        end
-
-        return new_stmts, gen_items, {}
+        for _, s in ipairs(stmts or {}) do walk_stmt(s) end
+        return out
     end
 
-    -- Process each item in the module
+    local function rewrite_place(place, scope, pre)
+        if place == nil then return nil end
+        local k = place.kind
+        if k == "SurfPlaceName" or k == "SurfPlacePath" then return place end
+        if k == "SurfPlaceDeref" then return Surf.SurfPlaceDeref(rewrite_expr(place.base, scope, pre)) end
+        if k == "SurfPlaceDot" then return Surf.SurfPlaceDot(rewrite_place(place.base, scope, pre), place.name) end
+        if k == "SurfPlaceField" then return Surf.SurfPlaceField(rewrite_place(place.base, scope, pre), place.name) end
+        if k == "SurfPlaceIndex" then return Surf.SurfPlaceIndex(rewrite_expr(place.base, scope, pre), rewrite_expr(place.index, scope, pre)) end
+        return place
+    end
+
+    local function rewrite_domain(domain, scope, pre)
+        if domain == nil then return nil end
+        local k = domain.kind
+        if k == "SurfDomainRange" then return Surf.SurfDomainRange(rewrite_expr(domain.stop, scope, pre)) end
+        if k == "SurfDomainRange2" then return Surf.SurfDomainRange2(rewrite_expr(domain.start, scope, pre), rewrite_expr(domain.stop, scope, pre)) end
+        if k == "SurfDomainValue" then return Surf.SurfDomainValue(rewrite_expr(domain.value, scope, pre)) end
+        if k == "SurfDomainZipEq" then
+            local values = {}
+            for i = 1, #domain.values do values[i] = rewrite_expr(domain.values[i], scope, pre) end
+            return Surf.SurfDomainZipEq(values)
+        end
+        return domain
+    end
+
+    local function closure_call_parts(callee, rewritten_callee, scope)
+        if callee.kind == "SurfNameRef" and scope[callee.name] and scope[callee.name].is_closure then
+            local base = rewritten_callee
+            if scope[callee.name].by_ref then
+                base = Surf.SurfExprDeref(rewritten_callee)
+            end
+            return Surf.SurfField(base, "fn"), Surf.SurfField(base, "ctx")
+        end
+        return nil, nil
+    end
+
+    rewrite_expr = function(expr, scope, pre)
+        if expr == nil then return nil end
+        local k = expr.kind
+        if k == "SurfClosureExpr" then
+            closure_count = closure_count + 1
+            local cid = closure_count
+            local params = {}
+            for i = 1, #expr.params do params[i] = transform_param(expr.params[i]) end
+            local result_ty = transform_type(expr.result)
+            local param_tys = {}
+            for i = 1, #expr.params do param_tys[i] = expr.params[i].ty end
+            local sig_name = ensure_closure_signature(param_tys, expr.result)
+            local sig_ty = named(Surf, sig_name)
+
+            local local_names = {}
+            for i = 1, #expr.params do local_names[expr.params[i].name] = true end
+            local free = collect_free_vars(expr.body, local_names)
+            local captures = {}
+            for _, name in ipairs(free) do
+                if scope[name] ~= nil then captures[#captures + 1] = name end
+            end
+
+            local ctx_name = "_closure_ctx_" .. cid
+            local ctx_ty = named(Surf, ctx_name)
+            local ctx_fields = {}
+            for _, name in ipairs(captures) do
+                ctx_fields[#ctx_fields + 1] = Surf.SurfFieldDecl(name, transform_type(scope[name].ty))
+            end
+            generated_items[#generated_items + 1] = Surf.SurfItemType(Surf.SurfStruct(ctx_name, ctx_fields))
+
+            local helper_name = "_closure_fn_" .. cid
+            local helper_params = { Surf.SurfParam("ctx", ptr_void(Surf)) }
+            for i = 1, #params do helper_params[#helper_params + 1] = params[i] end
+
+            local helper_scope = {}
+            helper_scope.ctx = { ty = ptr_void(Surf), is_closure = false }
+            for i = 1, #params do helper_scope[params[i].name] = { ty = params[i].ty, is_closure = false } end
+            local capture_set = {}
+            for _, name in ipairs(captures) do capture_set[name] = true end
+
+            local function ctx_expr()
+                return Surf.SurfExprDeref(Surf.SurfExprBitcastTo(Surf.SurfTPtr(ctx_ty), Surf.SurfNameRef("ctx")))
+            end
+            local saved_rewrite_expr = rewrite_expr
+            local function rewrite_captured_expr(e, body_scope, body_pre)
+                if e ~= nil and e.kind == "SurfNameRef" and capture_set[e.name] then
+                    return Surf.SurfField(ctx_expr(), e.name)
+                end
+                return saved_rewrite_expr(e, body_scope, body_pre)
+            end
+            rewrite_expr = rewrite_captured_expr
+            local helper_body = process_body(expr.body, helper_scope)
+            rewrite_expr = saved_rewrite_expr
+
+            generated_items[#generated_items + 1] = Surf.SurfItemFunc(Surf.SurfFuncLocal(helper_name, helper_params, result_ty, helper_body))
+
+            local ctx_inits = {}
+            for _, name in ipairs(captures) do ctx_inits[#ctx_inits + 1] = Surf.SurfFieldInit(name, Surf.SurfNameRef(name)) end
+            local ctx_var = "_closure_ctx_val_" .. cid
+            pre[#pre + 1] = Surf.SurfLet(ctx_var, ctx_ty, Surf.SurfAgg(ctx_ty, ctx_inits))
+            return Surf.SurfAgg(sig_ty, {
+                Surf.SurfFieldInit("fn", Surf.SurfNameRef(helper_name)),
+                Surf.SurfFieldInit("ctx", Surf.SurfExprBitcastTo(ptr_void(Surf), Surf.SurfExprRef(Surf.SurfPlaceName(ctx_var)))),
+            })
+        end
+        if k == "SurfInt" or k == "SurfFloat" or k == "SurfBool" or k == "SurfNil" or k == "SurfNameRef" or k == "SurfPathRef" then return expr end
+        if k == "SurfExprDot" then return Surf.SurfExprDot(rewrite_expr(expr.base, scope, pre), expr.name) end
+        if k == "SurfExprNeg" then return Surf.SurfExprNeg(rewrite_expr(expr.value, scope, pre)) end
+        if k == "SurfExprNot" then return Surf.SurfExprNot(rewrite_expr(expr.value, scope, pre)) end
+        if k == "SurfExprBNot" then return Surf.SurfExprBNot(rewrite_expr(expr.value, scope, pre)) end
+        if k == "SurfExprRef" then return Surf.SurfExprRef(rewrite_place(expr.place, scope, pre)) end
+        if k == "SurfExprDeref" then return Surf.SurfExprDeref(rewrite_expr(expr.value, scope, pre)) end
+        local bin = {
+            SurfExprAdd = Surf.SurfExprAdd, SurfExprSub = Surf.SurfExprSub, SurfExprMul = Surf.SurfExprMul,
+            SurfExprDiv = Surf.SurfExprDiv, SurfExprRem = Surf.SurfExprRem, SurfExprEq = Surf.SurfExprEq,
+            SurfExprNe = Surf.SurfExprNe, SurfExprLt = Surf.SurfExprLt, SurfExprLe = Surf.SurfExprLe,
+            SurfExprGt = Surf.SurfExprGt, SurfExprGe = Surf.SurfExprGe, SurfExprAnd = Surf.SurfExprAnd,
+            SurfExprOr = Surf.SurfExprOr, SurfExprBitAnd = Surf.SurfExprBitAnd, SurfExprBitOr = Surf.SurfExprBitOr,
+            SurfExprBitXor = Surf.SurfExprBitXor, SurfExprShl = Surf.SurfExprShl, SurfExprLShr = Surf.SurfExprLShr,
+            SurfExprAShr = Surf.SurfExprAShr,
+        }
+        if bin[k] then return bin[k](rewrite_expr(expr.lhs, scope, pre), rewrite_expr(expr.rhs, scope, pre)) end
+        local cast = {
+            SurfExprCastTo = Surf.SurfExprCastTo, SurfExprTruncTo = Surf.SurfExprTruncTo,
+            SurfExprZExtTo = Surf.SurfExprZExtTo, SurfExprSExtTo = Surf.SurfExprSExtTo,
+            SurfExprBitcastTo = Surf.SurfExprBitcastTo, SurfExprSatCastTo = Surf.SurfExprSatCastTo,
+        }
+        if cast[k] then return cast[k](transform_type(expr.ty), rewrite_expr(expr.value, scope, pre)) end
+        if k == "SurfExprIntrinsicCall" then
+            local args = {}; for i = 1, #expr.args do args[i] = rewrite_expr(expr.args[i], scope, pre) end
+            return Surf.SurfExprIntrinsicCall(expr.op, args)
+        end
+        if k == "SurfCall" then
+            local callee = rewrite_expr(expr.callee, scope, pre)
+            local args = {}; for i = 1, #expr.args do args[i] = rewrite_expr(expr.args[i], scope, pre) end
+            local fn, ctx = closure_call_parts(expr.callee, callee, scope)
+            if fn ~= nil then
+                local call_args = { ctx }
+                for i = 1, #args do call_args[#call_args + 1] = args[i] end
+                return Surf.SurfCall(fn, call_args)
+            end
+            return Surf.SurfCall(callee, args)
+        end
+        if k == "SurfField" then return Surf.SurfField(rewrite_expr(expr.base, scope, pre), expr.name) end
+        if k == "SurfIndex" then return Surf.SurfIndex(rewrite_expr(expr.base, scope, pre), rewrite_expr(expr.index, scope, pre)) end
+        if k == "SurfAgg" then
+            local fields = {}; for i = 1, #expr.fields do fields[i] = Surf.SurfFieldInit(expr.fields[i].name, rewrite_expr(expr.fields[i].value, scope, pre)) end
+            return Surf.SurfAgg(transform_type(expr.ty), fields)
+        end
+        if k == "SurfArrayLit" then
+            local elems = {}; for i = 1, #expr.elems do elems[i] = rewrite_expr(expr.elems[i], scope, pre) end
+            return Surf.SurfArrayLit(transform_type(expr.elem_ty), elems)
+        end
+        if k == "SurfIfExpr" then return Surf.SurfIfExpr(rewrite_expr(expr.cond, scope, pre), rewrite_expr(expr.then_expr, scope, pre), rewrite_expr(expr.else_expr, scope, pre)) end
+        if k == "SurfSelectExpr" then return Surf.SurfSelectExpr(rewrite_expr(expr.cond, scope, pre), rewrite_expr(expr.then_expr, scope, pre), rewrite_expr(expr.else_expr, scope, pre)) end
+        if k == "SurfSwitchExpr" then
+            local arms = {}; for i = 1, #expr.arms do arms[i] = Surf.SurfSwitchExprArm(rewrite_expr(expr.arms[i].key, scope, pre), process_body(expr.arms[i].body, copy_scope(scope)), rewrite_expr(expr.arms[i].result, scope, pre)) end
+            return Surf.SurfSwitchExpr(rewrite_expr(expr.value, scope, pre), arms, rewrite_expr(expr.default_expr, scope, pre))
+        end
+        if k == "SurfBlockExpr" then return Surf.SurfBlockExpr(process_body(expr.stmts, copy_scope(scope)), rewrite_expr(expr.result, scope, pre)) end
+        if k == "SurfExprView" then return Surf.SurfExprView(rewrite_expr(expr.base, scope, pre)) end
+        if k == "SurfExprViewWindow" then return Surf.SurfExprViewWindow(rewrite_expr(expr.base, scope, pre), rewrite_expr(expr.start, scope, pre), rewrite_expr(expr.len, scope, pre)) end
+        if k == "SurfExprViewFromPtr" then return Surf.SurfExprViewFromPtr(rewrite_expr(expr.ptr, scope, pre), rewrite_expr(expr.len, scope, pre)) end
+        if k == "SurfExprViewFromPtrStrided" then return Surf.SurfExprViewFromPtrStrided(rewrite_expr(expr.ptr, scope, pre), rewrite_expr(expr.len, scope, pre), rewrite_expr(expr.stride, scope, pre)) end
+        if k == "SurfExprViewStrided" then return Surf.SurfExprViewStrided(rewrite_expr(expr.base, scope, pre), rewrite_expr(expr.stride, scope, pre)) end
+        if k == "SurfExprViewInterleaved" then return Surf.SurfExprViewInterleaved(rewrite_expr(expr.base, scope, pre), rewrite_expr(expr.stride, scope, pre), rewrite_expr(expr.lane, scope, pre)) end
+        return expr
+    end
+
+    rewrite_stmt = function(stmt, scope)
+        local pre = {}
+        local out
+        local k = stmt.kind
+        if k == "SurfLet" or k == "SurfVar" then
+            local init = rewrite_expr(stmt.init, scope, pre)
+            local ty = transform_type(stmt.ty)
+            out = Surf[k](stmt.name, ty, init)
+            scope[stmt.name] = { ty = ty, is_closure = is_closure_type(stmt.ty), by_ref = false }
+        elseif k == "SurfSet" then
+            out = Surf.SurfSet(rewrite_place(stmt.place, scope, pre), rewrite_expr(stmt.value, scope, pre))
+        elseif k == "SurfExprStmt" then out = Surf.SurfExprStmt(rewrite_expr(stmt.expr, scope, pre))
+        elseif k == "SurfAssert" then out = Surf.SurfAssert(rewrite_expr(stmt.cond, scope, pre))
+        elseif k == "SurfIf" then
+            local cond = rewrite_expr(stmt.cond, scope, pre)
+            out = Surf.SurfIf(cond, process_body(stmt.then_body or {}, copy_scope(scope)), process_body(stmt.else_body or {}, copy_scope(scope)))
+        elseif k == "SurfSwitch" then
+            local arms = {}
+            for i = 1, #stmt.arms do arms[i] = Surf.SurfSwitchStmtArm(rewrite_expr(stmt.arms[i].key, scope, pre), process_body(stmt.arms[i].body, copy_scope(scope))) end
+            out = Surf.SurfSwitch(rewrite_expr(stmt.value, scope, pre), arms, process_body(stmt.default_body or {}, copy_scope(scope)))
+        elseif k == "SurfReturnVoid" then out = Surf.SurfReturnVoid
+        elseif k == "SurfReturnValue" then out = Surf.SurfReturnValue(rewrite_expr(stmt.value, scope, pre))
+        elseif k == "SurfBreak" then out = Surf.SurfBreak
+        elseif k == "SurfBreakValue" then out = Surf.SurfBreakValue(rewrite_expr(stmt.value, scope, pre))
+        elseif k == "SurfContinue" then out = Surf.SurfContinue
+        elseif k == "SurfStmtLoop" then out = stmt -- Closure expressions inside loop bodies are deferred until loop-body rewrite is made fully scope-aware.
+        else out = stmt end
+        local result = {}
+        for i = 1, #pre do result[#result + 1] = pre[i] end
+        result[#result + 1] = out
+        return result
+    end
+
+    process_body = function(stmts, scope)
+        local out = {}
+        local local_scope = scope or {}
+        for i = 1, #(stmts or {}) do
+            local expanded = rewrite_stmt(stmts[i], local_scope)
+            for j = 1, #expanded do out[#out + 1] = expanded[j] end
+        end
+        return out
+    end
+
+    local function transform_field_decl(f)
+        return Surf.SurfFieldDecl(f.field_name, transform_type(f.ty))
+    end
+
+    local function transform_type_decl(t)
+        if t.kind == "SurfStruct" then
+            local fields = {}; for i = 1, #t.fields do fields[i] = transform_field_decl(t.fields[i]) end
+            return Surf.SurfStruct(t.name, fields)
+        end
+        if t.kind == "SurfUnion" then
+            local fields = {}; for i = 1, #t.fields do fields[i] = transform_field_decl(t.fields[i]) end
+            return Surf.SurfUnion(t.name, fields)
+        end
+        return t
+    end
+
+    local rewritten_items = {}
     for _, item in ipairs(module.items) do
         if item.func then
             local f = item.func
-            local new_body, gen_items, _ = process_body(f.body, f.params, f.result)
-            -- Insert generated items before this function
-            for _, gi in ipairs(gen_items) do
-                new_items_before[#new_items_before + 1] = gi
+            local params = {}
+            local scope = {}
+            for i = 1, #f.params do
+                params[i] = transform_param(f.params[i])
+                scope[params[i].name] = { ty = params[i].ty, is_closure = is_closure_type(f.params[i].ty), by_ref = is_closure_type(f.params[i].ty) }
             end
-            -- Rewrite the function with new body, preserving visibility as an explicit ASDL variant.
-            local new_func
+            local body = process_body(f.body, scope)
+            local result = transform_type(f.result)
             if f.kind == "SurfFuncExport" then
-                new_func = Surf.SurfFuncExport(f.name, f.params, f.result, new_body)
+                rewritten_items[#rewritten_items + 1] = Surf.SurfItemFunc(Surf.SurfFuncExport(f.name, params, result, body))
             else
-                new_func = Surf.SurfFuncLocal(f.name, f.params, f.result, new_body)
+                rewritten_items[#rewritten_items + 1] = Surf.SurfItemFunc(Surf.SurfFuncLocal(f.name, params, result, body))
             end
-            items_after[#items_after + 1] = Surf.SurfItemFunc(new_func)
+        elseif item.func == nil and item.t ~= nil then
+            rewritten_items[#rewritten_items + 1] = Surf.SurfItemType(transform_type_decl(item.t))
+        elseif item.c ~= nil then
+            local pre = {}
+            rewritten_items[#rewritten_items + 1] = Surf.SurfItemConst(Surf.SurfConst(item.c.name, transform_type(item.c.ty), rewrite_expr(item.c.value, {}, pre)))
+            for i = #pre, 1, -1 do
+                error("desugar_closures: closure expressions are not valid in const item initializers")
+            end
+        elseif item.s ~= nil then
+            local pre = {}
+            rewritten_items[#rewritten_items + 1] = Surf.SurfItemStatic(Surf.SurfStatic(item.s.name, transform_type(item.s.ty), rewrite_expr(item.s.value, {}, pre)))
+            if #pre ~= 0 then error("desugar_closures: closure expressions are not valid in static item initializers") end
         else
-            items_after[#items_after + 1] = item
+            rewritten_items[#rewritten_items + 1] = item
         end
     end
 
-    -- Combine: new items inserted before the original items
-    local all_items = {}
-    for _, it in ipairs(new_items_before) do all_items[#all_items+1] = it end
-    for _, it in ipairs(items_after) do all_items[#all_items+1] = it end
-
-    return Surf.SurfModule(all_items)
+    local all = {}
+    for i = 1, #sig_items do all[#all + 1] = sig_items[i] end
+    for i = 1, #generated_items do all[#all + 1] = generated_items[i] end
+    for i = 1, #rewritten_items do all[#all + 1] = rewritten_items[i] end
+    return Surf.SurfModule(all)
 end
 
 return M
