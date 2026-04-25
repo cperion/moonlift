@@ -247,28 +247,27 @@ assert(for_domain_range == Surf.SurfLoopStmtNode(Surf.SurfLoopOverStmt(
     {}
 )))
 
-local for_domain_range = P.parse_stmt([[for i in 0..n
+local while_with_carry = P.parse_stmt([[
+while i < n with acc: i32 = 0, i: i32 = 0
     let x: i32 = i
+next
+    acc = acc + x
+    i = i + 1
 end
 ]])
-assert(for_domain_range == Surf.SurfLoopStmtNode(Surf.SurfLoopOverStmt(
-    "i",
-    Surf.SurfDomainRange2(Surf.SurfInt("0"), Surf.SurfNameRef("n")),
-    {},
-    { Surf.SurfLet("x", Surf.SurfTI32, Surf.SurfNameRef("i")) },
-    {}
-)))
-
-local for_domain_range = P.parse_stmt([[for i in 0..n
-    let x: i32 = i
-end
-]])
-assert(for_domain_range == Surf.SurfLoopStmtNode(Surf.SurfLoopOverStmt(
-    "i",
-    Surf.SurfDomainRange2(Surf.SurfInt("0"), Surf.SurfNameRef("n")),
-    {},
-    { Surf.SurfLet("x", Surf.SurfTI32, Surf.SurfNameRef("i")) },
-    {}
+assert(while_with_carry == Surf.SurfLoopStmtNode(Surf.SurfLoopWhileStmt(
+    {
+        Surf.SurfLoopCarryInit("acc", Surf.SurfTI32, Surf.SurfInt("0")),
+        Surf.SurfLoopCarryInit("i", Surf.SurfTI32, Surf.SurfInt("0")),
+    },
+    Surf.SurfExprLt(Surf.SurfNameRef("i"), Surf.SurfNameRef("n")),
+    {
+        Surf.SurfLet("x", Surf.SurfTI32, Surf.SurfNameRef("i")),
+    },
+    {
+        Surf.SurfLoopNextAssign("acc", Surf.SurfExprAdd(Surf.SurfNameRef("acc"), Surf.SurfNameRef("x"))),
+        Surf.SurfLoopNextAssign("i", Surf.SurfExprAdd(Surf.SurfNameRef("i"), Surf.SurfInt("1"))),
+    }
 )))
 
 local func_item, func_spans = P.parse_item_with_spans([[
