@@ -40,6 +40,8 @@ int moonlift_program_cmd_create_stack_slot(moonlift_program_t*, const char* slot
 int moonlift_program_cmd_alias(moonlift_program_t*, const char* dst, const char* src);
 int moonlift_program_cmd_stack_addr(moonlift_program_t*, const char* dst, const char* slot);
 int moonlift_program_cmd_data_addr(moonlift_program_t*, const char* dst, const char* data);
+int moonlift_program_cmd_func_addr(moonlift_program_t*, const char* dst, const char* func);
+int moonlift_program_cmd_extern_addr(moonlift_program_t*, const char* dst, const char* func);
 int moonlift_program_cmd_const_int(moonlift_program_t*, const char* dst, uint32_t ty, const char* raw);
 int moonlift_program_cmd_const_float(moonlift_program_t*, const char* dst, uint32_t ty, const char* raw);
 int moonlift_program_cmd_const_bool(moonlift_program_t*, const char* dst, int value);
@@ -464,6 +466,14 @@ function M.Define(T, opts)
         end,
         [Back.BackCmdDataAddr] = function(self, program)
             check_ok(lib, lib.moonlift_program_cmd_data_addr(program, cstring(id_text(self.dst)), cstring(id_text(self.data))), "moonlift ffi data_addr")
+            return pvm.once(true)
+        end,
+        [Back.BackCmdFuncAddr] = function(self, program)
+            check_ok(lib, lib.moonlift_program_cmd_func_addr(program, cstring(id_text(self.dst)), cstring(id_text(self.func))), "moonlift ffi func_addr")
+            return pvm.once(true)
+        end,
+        [Back.BackCmdExternAddr] = function(self, program)
+            check_ok(lib, lib.moonlift_program_cmd_extern_addr(program, cstring(id_text(self.dst)), cstring(id_text(self.func))), "moonlift ffi extern_addr")
             return pvm.once(true)
         end,
         [Back.BackCmdConstInt] = function(self, program)

@@ -513,6 +513,26 @@ pub extern "C" fn moonlift_program_cmd_data_addr(program: *mut moonlift_program_
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn moonlift_program_cmd_func_addr(program: *mut moonlift_program_t, dst: *const c_char, func: *const c_char) -> c_int {
+    let result: Result<_, MoonliftError> = (|| {
+        let program = require_ptr(program, "moonlift_program_t")?;
+        push_cmd(program, BackCmd::FuncAddr(BackValId::from(read_cstr(dst, "dst value id")?), BackFuncId::from(read_cstr(func, "function id")?)));
+        Ok(())
+    })();
+    match result { Ok(()) => ok_int(), Err(err) => fail_int(err.0) }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn moonlift_program_cmd_extern_addr(program: *mut moonlift_program_t, dst: *const c_char, func: *const c_char) -> c_int {
+    let result: Result<_, MoonliftError> = (|| {
+        let program = require_ptr(program, "moonlift_program_t")?;
+        push_cmd(program, BackCmd::ExternAddr(BackValId::from(read_cstr(dst, "dst value id")?), BackExternId::from(read_cstr(func, "extern id")?)));
+        Ok(())
+    })();
+    match result { Ok(()) => ok_int(), Err(err) => fail_int(err.0) }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn moonlift_program_cmd_const_int(program: *mut moonlift_program_t, dst: *const c_char, ty: u32, raw: *const c_char) -> c_int {
     let result: Result<_, MoonliftError> = (|| {
         let program = require_ptr(program, "moonlift_program_t")?;

@@ -122,6 +122,7 @@ module MoonliftSurface {
              | SurfVar(string name, MoonliftSurface.SurfTypeExpr ty, MoonliftSurface.SurfExpr init) unique
              | SurfSet(MoonliftSurface.SurfPlace place, MoonliftSurface.SurfExpr value) unique
              | SurfExprStmt(MoonliftSurface.SurfExpr expr) unique
+             | SurfAssert(MoonliftSurface.SurfExpr cond) unique
              | SurfIf(MoonliftSurface.SurfExpr cond, MoonliftSurface.SurfStmt* then_body, MoonliftSurface.SurfStmt* else_body) unique
              | SurfSwitch(MoonliftSurface.SurfExpr value, MoonliftSurface.SurfSwitchStmtArm* arms, MoonliftSurface.SurfStmt* default_body) unique
              | SurfReturnVoid
@@ -227,6 +228,9 @@ module MoonliftElab {
     ElabExprExit = ElabExprEndOnly
                  | ElabExprEndOrBreakValue
 
+    ElabOperandContext = ElabOperandNeedsExpected
+                       | ElabOperandHasNaturalType
+
     ElabLoop = ElabWhileStmt(string loop_id, MoonliftElab.ElabCarryPort* carries, MoonliftElab.ElabExpr cond, MoonliftElab.ElabStmt* body, MoonliftElab.ElabCarryUpdate* next) unique
              | ElabOverStmt(string loop_id, MoonliftElab.ElabIndexPort index_port, MoonliftElab.ElabDomain domain, MoonliftElab.ElabCarryPort* carries, MoonliftElab.ElabStmt* body, MoonliftElab.ElabCarryUpdate* next) unique
              | ElabWhileExpr(string loop_id, MoonliftElab.ElabCarryPort* carries, MoonliftElab.ElabExpr cond, MoonliftElab.ElabStmt* body, MoonliftElab.ElabCarryUpdate* next, MoonliftElab.ElabExprExit exit, MoonliftElab.ElabExpr result) unique
@@ -289,6 +293,7 @@ module MoonliftElab {
              | ElabVar(string id, string name, MoonliftElab.ElabType ty, MoonliftElab.ElabExpr init) unique
              | ElabSet(MoonliftElab.ElabPlace place, MoonliftElab.ElabExpr value) unique
              | ElabExprStmt(MoonliftElab.ElabExpr expr) unique
+             | ElabAssert(MoonliftElab.ElabExpr cond) unique
              | ElabIf(MoonliftElab.ElabExpr cond, MoonliftElab.ElabStmt* then_body, MoonliftElab.ElabStmt* else_body) unique
              | ElabSwitch(MoonliftElab.ElabExpr value, MoonliftElab.ElabSwitchStmtArm* arms, MoonliftElab.ElabStmt* default_body) unique
              | ElabReturnVoid
@@ -315,6 +320,309 @@ module MoonliftElab {
              | ElabItemType(MoonliftElab.ElabTypeDecl t) unique
 
     ElabModule = (string module_name, MoonliftElab.ElabItem* items) unique
+}
+
+module MoonliftMeta {
+    MetaModuleName = MetaModuleNameOpen
+                   | MetaModuleNameFixed(string module_name) unique
+
+    MetaIntrinsic = MetaPopcount
+                  | MetaClz
+                  | MetaCtz
+                  | MetaRotl
+                  | MetaRotr
+                  | MetaBswap
+                  | MetaFma
+                  | MetaSqrt
+                  | MetaAbs
+                  | MetaFloor
+                  | MetaCeil
+                  | MetaTruncFloat
+                  | MetaRound
+                  | MetaTrap
+                  | MetaAssume
+
+    MetaTypeSym = (string key, string name) unique
+    MetaFuncSym = (string key, string name) unique
+    MetaExternSym = (string key, string name, string symbol) unique
+    MetaConstSym = (string key, string name) unique
+    MetaStaticSym = (string key, string name) unique
+
+    MetaTypeSlot = (string key, string pretty_name) unique
+    MetaExprSlot = (string key, string pretty_name, MoonliftMeta.MetaType ty) unique
+    MetaPlaceSlot = (string key, string pretty_name, MoonliftMeta.MetaType ty) unique
+    MetaDomainSlot = (string key, string pretty_name) unique
+    MetaRegionSlot = (string key, string pretty_name) unique
+    MetaFuncSlot = (string key, string pretty_name, MoonliftMeta.MetaType fn_ty) unique
+    MetaConstSlot = (string key, string pretty_name, MoonliftMeta.MetaType ty) unique
+    MetaStaticSlot = (string key, string pretty_name, MoonliftMeta.MetaType ty) unique
+    MetaTypeDeclSlot = (string key, string pretty_name) unique
+    MetaItemsSlot = (string key, string pretty_name) unique
+    MetaModuleSlot = (string key, string pretty_name) unique
+
+    MetaSlot = MetaSlotType(MoonliftMeta.MetaTypeSlot slot) unique
+             | MetaSlotExpr(MoonliftMeta.MetaExprSlot slot) unique
+             | MetaSlotPlace(MoonliftMeta.MetaPlaceSlot slot) unique
+             | MetaSlotDomain(MoonliftMeta.MetaDomainSlot slot) unique
+             | MetaSlotRegion(MoonliftMeta.MetaRegionSlot slot) unique
+             | MetaSlotFunc(MoonliftMeta.MetaFuncSlot slot) unique
+             | MetaSlotConst(MoonliftMeta.MetaConstSlot slot) unique
+             | MetaSlotStatic(MoonliftMeta.MetaStaticSlot slot) unique
+             | MetaSlotTypeDecl(MoonliftMeta.MetaTypeDeclSlot slot) unique
+             | MetaSlotItems(MoonliftMeta.MetaItemsSlot slot) unique
+             | MetaSlotModule(MoonliftMeta.MetaModuleSlot slot) unique
+
+    MetaParam = (string key, string name, MoonliftMeta.MetaType ty) unique
+
+    MetaValueImport = MetaImportValue(string key, string name, MoonliftMeta.MetaType ty) unique
+                    | MetaImportGlobalFunc(string key, string module_name, string item_name, MoonliftMeta.MetaType ty) unique
+                    | MetaImportGlobalConst(string key, string module_name, string item_name, MoonliftMeta.MetaType ty) unique
+                    | MetaImportGlobalStatic(string key, string module_name, string item_name, MoonliftMeta.MetaType ty) unique
+                    | MetaImportExtern(string key, string symbol, MoonliftMeta.MetaType ty) unique
+
+    MetaTypeImport = (string key, string local_name, MoonliftMeta.MetaType ty) unique
+    MetaFieldType = (string field_name, MoonliftMeta.MetaType ty) unique
+
+    MetaTypeLayout = MetaLayoutNamed(string module_name, string type_name, MoonliftMeta.MetaFieldType* fields) unique
+                   | MetaLayoutLocal(MoonliftMeta.MetaTypeSym sym, MoonliftMeta.MetaFieldType* fields) unique
+
+    MetaOpenSet = (MoonliftMeta.MetaValueImport* value_imports, MoonliftMeta.MetaTypeImport* type_imports, MoonliftMeta.MetaTypeLayout* layouts, MoonliftMeta.MetaSlot* slots) unique
+    MetaSourceBinding = MetaSourceParamBinding(MoonliftMeta.MetaParam param) unique
+                      | MetaSourceValueImportBinding(MoonliftMeta.MetaValueImport import) unique
+                      | MetaSourceExprSlotBinding(MoonliftMeta.MetaExprSlot slot) unique
+                      | MetaSourceFuncSlotBinding(MoonliftMeta.MetaFuncSlot slot) unique
+                      | MetaSourceConstSlotBinding(MoonliftMeta.MetaConstSlot slot) unique
+                      | MetaSourceStaticSlotBinding(MoonliftMeta.MetaStaticSlot slot) unique
+    MetaSourceBindingEntry = (MoonliftElab.ElabBinding binding, MoonliftMeta.MetaSourceBinding source) unique
+    MetaSourceTypeEntry = (MoonliftElab.ElabType ty, MoonliftMeta.MetaType meta_ty) unique
+    MetaSourceEnv = (string module_name, MoonliftMeta.MetaSourceBindingEntry* bindings, MoonliftMeta.MetaSourceTypeEntry* types) unique
+    MetaParamBinding = (MoonliftMeta.MetaParam param, MoonliftMeta.MetaExpr value) unique
+    MetaFillSet = (MoonliftMeta.MetaSlotBinding* bindings) unique
+    MetaExpandEnv = (MoonliftMeta.MetaFillSet fills, MoonliftMeta.MetaParamBinding* params, string rebase_prefix) unique
+    MetaSealParamEntry = (MoonliftMeta.MetaParam param, number index) unique
+    MetaSealEnv = (string module_name, MoonliftMeta.MetaSealParamEntry* params) unique
+
+    MetaType = MetaTVoid
+             | MetaTBool
+             | MetaTI8 | MetaTI16 | MetaTI32 | MetaTI64
+             | MetaTU8 | MetaTU16 | MetaTU32 | MetaTU64
+             | MetaTF32 | MetaTF64
+             | MetaTIndex
+             | MetaTPtr(MoonliftMeta.MetaType elem) unique
+             | MetaTArray(MoonliftMeta.MetaExpr count, MoonliftMeta.MetaType elem) unique
+             | MetaTSlice(MoonliftMeta.MetaType elem) unique
+             | MetaTView(MoonliftMeta.MetaType elem) unique
+             | MetaTFunc(MoonliftMeta.MetaType* params, MoonliftMeta.MetaType result) unique
+             | MetaTNamed(string module_name, string type_name) unique
+             | MetaTLocalNamed(MoonliftMeta.MetaTypeSym sym) unique
+             | MetaTSlot(MoonliftMeta.MetaTypeSlot slot) unique
+
+    MetaBinding = MetaBindParam(MoonliftMeta.MetaParam param) unique
+                | MetaBindLocalValue(string id, string name, MoonliftMeta.MetaType ty) unique
+                | MetaBindLocalCell(string id, string name, MoonliftMeta.MetaType ty) unique
+                | MetaBindLoopCarry(string loop_id, string port_id, string name, MoonliftMeta.MetaType ty) unique
+                | MetaBindLoopIndex(string loop_id, string name, MoonliftMeta.MetaType ty) unique
+                | MetaBindGlobalFunc(string module_name, string item_name, MoonliftMeta.MetaType ty) unique
+                | MetaBindGlobalConst(string module_name, string item_name, MoonliftMeta.MetaType ty) unique
+                | MetaBindGlobalStatic(string module_name, string item_name, MoonliftMeta.MetaType ty) unique
+                | MetaBindExtern(string symbol, MoonliftMeta.MetaType ty) unique
+                | MetaBindImport(MoonliftMeta.MetaValueImport import) unique
+                | MetaBindFuncSym(MoonliftMeta.MetaFuncSym sym, MoonliftMeta.MetaType ty) unique
+                | MetaBindExternSym(MoonliftMeta.MetaExternSym sym, MoonliftMeta.MetaType ty) unique
+                | MetaBindConstSym(MoonliftMeta.MetaConstSym sym, MoonliftMeta.MetaType ty) unique
+                | MetaBindStaticSym(MoonliftMeta.MetaStaticSym sym, MoonliftMeta.MetaType ty) unique
+                | MetaBindFuncSlot(MoonliftMeta.MetaFuncSlot slot) unique
+                | MetaBindConstSlot(MoonliftMeta.MetaConstSlot slot) unique
+                | MetaBindStaticSlot(MoonliftMeta.MetaStaticSlot slot) unique
+
+    MetaFieldInit = (string name, MoonliftMeta.MetaExpr value) unique
+    MetaSwitchStmtArm = (MoonliftMeta.MetaExpr key, MoonliftMeta.MetaStmt* body) unique
+    MetaSwitchExprArm = (MoonliftMeta.MetaExpr key, MoonliftMeta.MetaStmt* body, MoonliftMeta.MetaExpr result) unique
+    MetaCarryPort = (string port_id, string name, MoonliftMeta.MetaType ty, MoonliftMeta.MetaExpr init) unique
+    MetaIndexPort = (string name, MoonliftMeta.MetaType ty) unique
+    MetaCarryUpdate = (string port_id, MoonliftMeta.MetaExpr value) unique
+
+    MetaPlace = MetaPlaceBinding(MoonliftMeta.MetaBinding binding) unique
+              | MetaPlaceDeref(MoonliftMeta.MetaExpr base, MoonliftMeta.MetaType elem) unique
+              | MetaPlaceField(MoonliftMeta.MetaPlace base, string name, MoonliftMeta.MetaType ty) unique
+              | MetaPlaceIndex(MoonliftMeta.MetaIndexBase base, MoonliftMeta.MetaExpr index, MoonliftMeta.MetaType ty) unique
+              | MetaPlaceSlotValue(MoonliftMeta.MetaPlaceSlot slot) unique
+
+    MetaIndexBase = MetaIndexBasePlace(MoonliftMeta.MetaPlace base, MoonliftMeta.MetaType elem) unique
+                  | MetaIndexBaseView(MoonliftMeta.MetaExpr base, MoonliftMeta.MetaType elem) unique
+
+    MetaDomain = MetaDomainRange(MoonliftMeta.MetaExpr stop) unique
+               | MetaDomainRange2(MoonliftMeta.MetaExpr start, MoonliftMeta.MetaExpr stop) unique
+               | MetaDomainZipEq(MoonliftMeta.MetaExpr* values) unique
+               | MetaDomainValue(MoonliftMeta.MetaExpr value) unique
+               | MetaDomainSlotValue(MoonliftMeta.MetaDomainSlot slot) unique
+
+    MetaExprExit = MetaExprEndOnly
+                 | MetaExprEndOrBreakValue
+
+    MetaLoop = MetaWhileStmt(string loop_id, MoonliftMeta.MetaCarryPort* carries, MoonliftMeta.MetaExpr cond, MoonliftMeta.MetaStmt* body, MoonliftMeta.MetaCarryUpdate* next) unique
+             | MetaOverStmt(string loop_id, MoonliftMeta.MetaIndexPort index_port, MoonliftMeta.MetaDomain domain, MoonliftMeta.MetaCarryPort* carries, MoonliftMeta.MetaStmt* body, MoonliftMeta.MetaCarryUpdate* next) unique
+             | MetaWhileExpr(string loop_id, MoonliftMeta.MetaCarryPort* carries, MoonliftMeta.MetaExpr cond, MoonliftMeta.MetaStmt* body, MoonliftMeta.MetaCarryUpdate* next, MoonliftMeta.MetaExprExit exit, MoonliftMeta.MetaExpr result) unique
+             | MetaOverExpr(string loop_id, MoonliftMeta.MetaIndexPort index_port, MoonliftMeta.MetaDomain domain, MoonliftMeta.MetaCarryPort* carries, MoonliftMeta.MetaStmt* body, MoonliftMeta.MetaCarryUpdate* next, MoonliftMeta.MetaExprExit exit, MoonliftMeta.MetaExpr result) unique
+
+    MetaExpr = MetaInt(string raw, MoonliftMeta.MetaType ty) unique
+             | MetaFloat(string raw, MoonliftMeta.MetaType ty) unique
+             | MetaBool(boolean value, MoonliftMeta.MetaType ty) unique
+             | MetaNil(MoonliftMeta.MetaType ty) unique
+             | MetaBindingExpr(MoonliftMeta.MetaBinding binding) unique
+             | MetaExprNeg(MoonliftMeta.MetaType ty, MoonliftMeta.MetaExpr value) unique
+             | MetaExprNot(MoonliftMeta.MetaType ty, MoonliftMeta.MetaExpr value) unique
+             | MetaExprBNot(MoonliftMeta.MetaType ty, MoonliftMeta.MetaExpr value) unique
+             | MetaExprAddrOf(MoonliftMeta.MetaPlace place, MoonliftMeta.MetaType ty) unique
+             | MetaExprDeref(MoonliftMeta.MetaType ty, MoonliftMeta.MetaExpr value) unique
+             | MetaExprAdd(MoonliftMeta.MetaType ty, MoonliftMeta.MetaExpr lhs, MoonliftMeta.MetaExpr rhs) unique
+             | MetaExprSub(MoonliftMeta.MetaType ty, MoonliftMeta.MetaExpr lhs, MoonliftMeta.MetaExpr rhs) unique
+             | MetaExprMul(MoonliftMeta.MetaType ty, MoonliftMeta.MetaExpr lhs, MoonliftMeta.MetaExpr rhs) unique
+             | MetaExprDiv(MoonliftMeta.MetaType ty, MoonliftMeta.MetaExpr lhs, MoonliftMeta.MetaExpr rhs) unique
+             | MetaExprRem(MoonliftMeta.MetaType ty, MoonliftMeta.MetaExpr lhs, MoonliftMeta.MetaExpr rhs) unique
+             | MetaExprEq(MoonliftMeta.MetaType ty, MoonliftMeta.MetaExpr lhs, MoonliftMeta.MetaExpr rhs) unique
+             | MetaExprNe(MoonliftMeta.MetaType ty, MoonliftMeta.MetaExpr lhs, MoonliftMeta.MetaExpr rhs) unique
+             | MetaExprLt(MoonliftMeta.MetaType ty, MoonliftMeta.MetaExpr lhs, MoonliftMeta.MetaExpr rhs) unique
+             | MetaExprLe(MoonliftMeta.MetaType ty, MoonliftMeta.MetaExpr lhs, MoonliftMeta.MetaExpr rhs) unique
+             | MetaExprGt(MoonliftMeta.MetaType ty, MoonliftMeta.MetaExpr lhs, MoonliftMeta.MetaExpr rhs) unique
+             | MetaExprGe(MoonliftMeta.MetaType ty, MoonliftMeta.MetaExpr lhs, MoonliftMeta.MetaExpr rhs) unique
+             | MetaExprAnd(MoonliftMeta.MetaType ty, MoonliftMeta.MetaExpr lhs, MoonliftMeta.MetaExpr rhs) unique
+             | MetaExprOr(MoonliftMeta.MetaType ty, MoonliftMeta.MetaExpr lhs, MoonliftMeta.MetaExpr rhs) unique
+             | MetaExprBitAnd(MoonliftMeta.MetaType ty, MoonliftMeta.MetaExpr lhs, MoonliftMeta.MetaExpr rhs) unique
+             | MetaExprBitOr(MoonliftMeta.MetaType ty, MoonliftMeta.MetaExpr lhs, MoonliftMeta.MetaExpr rhs) unique
+             | MetaExprBitXor(MoonliftMeta.MetaType ty, MoonliftMeta.MetaExpr lhs, MoonliftMeta.MetaExpr rhs) unique
+             | MetaExprShl(MoonliftMeta.MetaType ty, MoonliftMeta.MetaExpr lhs, MoonliftMeta.MetaExpr rhs) unique
+             | MetaExprLShr(MoonliftMeta.MetaType ty, MoonliftMeta.MetaExpr lhs, MoonliftMeta.MetaExpr rhs) unique
+             | MetaExprAShr(MoonliftMeta.MetaType ty, MoonliftMeta.MetaExpr lhs, MoonliftMeta.MetaExpr rhs) unique
+             | MetaExprCastTo(MoonliftMeta.MetaType ty, MoonliftMeta.MetaExpr value) unique
+             | MetaExprTruncTo(MoonliftMeta.MetaType ty, MoonliftMeta.MetaExpr value) unique
+             | MetaExprZExtTo(MoonliftMeta.MetaType ty, MoonliftMeta.MetaExpr value) unique
+             | MetaExprSExtTo(MoonliftMeta.MetaType ty, MoonliftMeta.MetaExpr value) unique
+             | MetaExprBitcastTo(MoonliftMeta.MetaType ty, MoonliftMeta.MetaExpr value) unique
+             | MetaExprSatCastTo(MoonliftMeta.MetaType ty, MoonliftMeta.MetaExpr value) unique
+             | MetaExprIntrinsicCall(MoonliftMeta.MetaIntrinsic op, MoonliftMeta.MetaType ty, MoonliftMeta.MetaExpr* args) unique
+             | MetaCall(MoonliftMeta.MetaExpr callee, MoonliftMeta.MetaType ty, MoonliftMeta.MetaExpr* args) unique
+             | MetaField(MoonliftMeta.MetaExpr base, string name, MoonliftMeta.MetaType ty) unique
+             | MetaIndex(MoonliftMeta.MetaIndexBase base, MoonliftMeta.MetaExpr index, MoonliftMeta.MetaType ty) unique
+             | MetaAgg(MoonliftMeta.MetaType ty, MoonliftMeta.MetaFieldInit* fields) unique
+             | MetaArrayLit(MoonliftMeta.MetaType ty, MoonliftMeta.MetaExpr* elems) unique
+             | MetaIfExpr(MoonliftMeta.MetaExpr cond, MoonliftMeta.MetaExpr then_expr, MoonliftMeta.MetaExpr else_expr, MoonliftMeta.MetaType ty) unique
+             | MetaSelectExpr(MoonliftMeta.MetaExpr cond, MoonliftMeta.MetaExpr then_expr, MoonliftMeta.MetaExpr else_expr, MoonliftMeta.MetaType ty) unique
+             | MetaSwitchExpr(MoonliftMeta.MetaExpr value, MoonliftMeta.MetaSwitchExprArm* arms, MoonliftMeta.MetaExpr default_expr, MoonliftMeta.MetaType ty) unique
+             | MetaExprLoop(MoonliftMeta.MetaLoop loop, MoonliftMeta.MetaType ty) unique
+             | MetaBlockExpr(MoonliftMeta.MetaStmt* stmts, MoonliftMeta.MetaExpr result, MoonliftMeta.MetaType ty) unique
+             | MetaExprView(MoonliftMeta.MetaExpr base, MoonliftMeta.MetaType ty) unique
+             | MetaExprViewWindow(MoonliftMeta.MetaExpr base, MoonliftMeta.MetaExpr start, MoonliftMeta.MetaExpr len, MoonliftMeta.MetaType ty) unique
+             | MetaExprViewFromPtr(MoonliftMeta.MetaExpr ptr, MoonliftMeta.MetaExpr len, MoonliftMeta.MetaType ty) unique
+             | MetaExprViewFromPtrStrided(MoonliftMeta.MetaExpr ptr, MoonliftMeta.MetaExpr len, MoonliftMeta.MetaExpr stride, MoonliftMeta.MetaType ty) unique
+             | MetaExprViewStrided(MoonliftMeta.MetaExpr base, MoonliftMeta.MetaExpr stride, MoonliftMeta.MetaType ty) unique
+             | MetaExprViewInterleaved(MoonliftMeta.MetaExpr base, MoonliftMeta.MetaExpr stride, MoonliftMeta.MetaExpr lane, MoonliftMeta.MetaType ty) unique
+             | MetaExprSlotValue(MoonliftMeta.MetaExprSlot slot, MoonliftMeta.MetaType ty) unique
+             | MetaExprUseExprFrag(string use_id, MoonliftMeta.MetaExprFrag frag, MoonliftMeta.MetaExpr* args, MoonliftMeta.MetaSlotBinding* fills, MoonliftMeta.MetaType ty) unique
+
+    MetaStmt = MetaLet(string id, string name, MoonliftMeta.MetaType ty, MoonliftMeta.MetaExpr init) unique
+             | MetaVar(string id, string name, MoonliftMeta.MetaType ty, MoonliftMeta.MetaExpr init) unique
+             | MetaSet(MoonliftMeta.MetaPlace place, MoonliftMeta.MetaExpr value) unique
+             | MetaExprStmt(MoonliftMeta.MetaExpr expr) unique
+             | MetaAssert(MoonliftMeta.MetaExpr cond) unique
+             | MetaIf(MoonliftMeta.MetaExpr cond, MoonliftMeta.MetaStmt* then_body, MoonliftMeta.MetaStmt* else_body) unique
+             | MetaSwitch(MoonliftMeta.MetaExpr value, MoonliftMeta.MetaSwitchStmtArm* arms, MoonliftMeta.MetaStmt* default_body) unique
+             | MetaReturnVoid
+             | MetaReturnValue(MoonliftMeta.MetaExpr value) unique
+             | MetaBreak
+             | MetaBreakValue(MoonliftMeta.MetaExpr value) unique
+             | MetaContinue
+             | MetaStmtLoop(MoonliftMeta.MetaLoop loop) unique
+             | MetaStmtUseRegionSlot(MoonliftMeta.MetaRegionSlot slot) unique
+             | MetaStmtUseRegionFrag(string use_id, MoonliftMeta.MetaRegionFrag frag, MoonliftMeta.MetaExpr* args, MoonliftMeta.MetaSlotBinding* fills) unique
+
+    MetaExprFrag = (MoonliftMeta.MetaParam* params, MoonliftMeta.MetaOpenSet open, MoonliftMeta.MetaExpr body, MoonliftMeta.MetaType result) unique
+    MetaRegionFrag = (MoonliftMeta.MetaParam* params, MoonliftMeta.MetaOpenSet open, MoonliftMeta.MetaStmt* body) unique
+
+    MetaFunc = MetaFuncLocal(MoonliftMeta.MetaFuncSym sym, MoonliftMeta.MetaParam* params, MoonliftMeta.MetaOpenSet open, MoonliftMeta.MetaType result, MoonliftMeta.MetaStmt* body) unique
+             | MetaFuncExport(MoonliftMeta.MetaFuncSym sym, MoonliftMeta.MetaParam* params, MoonliftMeta.MetaOpenSet open, MoonliftMeta.MetaType result, MoonliftMeta.MetaStmt* body) unique
+
+    MetaExternFunc = (MoonliftMeta.MetaExternSym sym, MoonliftMeta.MetaParam* params, MoonliftMeta.MetaType result) unique
+    MetaConst = (MoonliftMeta.MetaConstSym sym, MoonliftMeta.MetaOpenSet open, MoonliftMeta.MetaType ty, MoonliftMeta.MetaExpr value) unique
+    MetaStatic = (MoonliftMeta.MetaStaticSym sym, MoonliftMeta.MetaOpenSet open, MoonliftMeta.MetaType ty, MoonliftMeta.MetaExpr value) unique
+    MetaImport = (string module_name) unique
+
+    MetaTypeDecl = MetaStruct(MoonliftMeta.MetaTypeSym sym, MoonliftMeta.MetaFieldType* fields) unique
+                 | MetaUnion(MoonliftMeta.MetaTypeSym sym, MoonliftMeta.MetaFieldType* fields) unique
+
+    MetaItem = MetaItemFunc(MoonliftMeta.MetaFunc func) unique
+             | MetaItemExtern(MoonliftMeta.MetaExternFunc func) unique
+             | MetaItemConst(MoonliftMeta.MetaConst c) unique
+             | MetaItemStatic(MoonliftMeta.MetaStatic s) unique
+             | MetaItemImport(MoonliftMeta.MetaImport imp) unique
+             | MetaItemType(MoonliftMeta.MetaTypeDecl t) unique
+             | MetaItemUseTypeDeclSlot(MoonliftMeta.MetaTypeDeclSlot slot) unique
+             | MetaItemUseItemsSlot(MoonliftMeta.MetaItemsSlot slot) unique
+             | MetaItemUseModule(string use_id, MoonliftMeta.MetaModule module, MoonliftMeta.MetaSlotBinding* fills) unique
+             | MetaItemUseModuleSlot(string use_id, MoonliftMeta.MetaModuleSlot slot, MoonliftMeta.MetaSlotBinding* fills) unique
+
+    MetaModule = (MoonliftMeta.MetaModuleName name, MoonliftMeta.MetaOpenSet open, MoonliftMeta.MetaItem* items) unique
+
+    MetaSlotValue = MetaSlotValueType(MoonliftMeta.MetaType ty) unique
+                  | MetaSlotValueExpr(MoonliftMeta.MetaExpr expr) unique
+                  | MetaSlotValuePlace(MoonliftMeta.MetaPlace place) unique
+                  | MetaSlotValueDomain(MoonliftMeta.MetaDomain domain) unique
+                  | MetaSlotValueRegion(MoonliftMeta.MetaStmt* body) unique
+                  | MetaSlotValueFunc(MoonliftMeta.MetaFunc func) unique
+                  | MetaSlotValueConst(MoonliftMeta.MetaConst c) unique
+                  | MetaSlotValueStatic(MoonliftMeta.MetaStatic s) unique
+                  | MetaSlotValueTypeDecl(MoonliftMeta.MetaTypeDecl t) unique
+                  | MetaSlotValueItems(MoonliftMeta.MetaItem* items) unique
+                  | MetaSlotValueModule(MoonliftMeta.MetaModule module) unique
+
+    MetaSlotBinding = (MoonliftMeta.MetaSlot slot, MoonliftMeta.MetaSlotValue value) unique
+
+    MetaRewriteRule = MetaRewriteType(MoonliftMeta.MetaType from, MoonliftMeta.MetaType to) unique
+                    | MetaRewriteBinding(MoonliftMeta.MetaBinding from, MoonliftMeta.MetaBinding to) unique
+                    | MetaRewritePlace(MoonliftMeta.MetaPlace from, MoonliftMeta.MetaPlace to) unique
+                    | MetaRewriteDomain(MoonliftMeta.MetaDomain from, MoonliftMeta.MetaDomain to) unique
+                    | MetaRewriteExpr(MoonliftMeta.MetaExpr from, MoonliftMeta.MetaExpr to) unique
+                    | MetaRewriteStmt(MoonliftMeta.MetaStmt from, MoonliftMeta.MetaStmt* to) unique
+                    | MetaRewriteItem(MoonliftMeta.MetaItem from, MoonliftMeta.MetaItem* to) unique
+    MetaRewriteSet = (MoonliftMeta.MetaRewriteRule* rules) unique
+
+    MetaFact = MetaFactSlot(MoonliftMeta.MetaSlot slot) unique
+             | MetaFactParamUse(MoonliftMeta.MetaParam param) unique
+             | MetaFactValueImportUse(MoonliftMeta.MetaValueImport import) unique
+             | MetaFactLocalValue(string id, string name) unique
+             | MetaFactLocalCell(string id, string name) unique
+             | MetaFactLoopCarry(string loop_id, string port_id, string name) unique
+             | MetaFactLoopIndex(string loop_id, string name) unique
+             | MetaFactGlobalFunc(string module_name, string item_name) unique
+             | MetaFactGlobalConst(string module_name, string item_name) unique
+             | MetaFactGlobalStatic(string module_name, string item_name) unique
+             | MetaFactExtern(string symbol) unique
+             | MetaFactExprFragUse(string use_id) unique
+             | MetaFactRegionFragUse(string use_id) unique
+             | MetaFactModuleUse(string use_id) unique
+             | MetaFactModuleSlotUse(string use_id, MoonliftMeta.MetaModuleSlot slot) unique
+             | MetaFactOpenModuleName
+             | MetaFactLocalType(MoonliftMeta.MetaTypeSym sym) unique
+    MetaFactSet = (MoonliftMeta.MetaFact* facts) unique
+
+    MetaValidationIssue = MetaIssueOpenSlot(MoonliftMeta.MetaSlot slot) unique
+                        | MetaIssueUnfilledTypeSlot(MoonliftMeta.MetaTypeSlot slot) unique
+                        | MetaIssueUnfilledExprSlot(MoonliftMeta.MetaExprSlot slot) unique
+                        | MetaIssueUnfilledPlaceSlot(MoonliftMeta.MetaPlaceSlot slot) unique
+                        | MetaIssueUnfilledDomainSlot(MoonliftMeta.MetaDomainSlot slot) unique
+                        | MetaIssueUnfilledRegionSlot(MoonliftMeta.MetaRegionSlot slot) unique
+                        | MetaIssueUnfilledFuncSlot(MoonliftMeta.MetaFuncSlot slot) unique
+                        | MetaIssueUnfilledConstSlot(MoonliftMeta.MetaConstSlot slot) unique
+                        | MetaIssueUnfilledStaticSlot(MoonliftMeta.MetaStaticSlot slot) unique
+                        | MetaIssueUnfilledTypeDeclSlot(MoonliftMeta.MetaTypeDeclSlot slot) unique
+                        | MetaIssueUnfilledItemsSlot(MoonliftMeta.MetaItemsSlot slot) unique
+                        | MetaIssueUnfilledModuleSlot(MoonliftMeta.MetaModuleSlot slot) unique
+                        | MetaIssueUnexpandedExprFragUse(string use_id) unique
+                        | MetaIssueUnexpandedRegionFragUse(string use_id) unique
+                        | MetaIssueUnexpandedModuleUse(string use_id) unique
+                        | MetaIssueOpenModuleName
+                        | MetaIssueGenericValueImport(MoonliftMeta.MetaValueImport import) unique
+    MetaValidationReport = (MoonliftMeta.MetaValidationIssue* issues) unique
 }
 
 module MoonliftSem {
@@ -495,6 +803,18 @@ module MoonliftSem {
     SemExprExit = SemExprEndOnly
                 | SemExprEndOrBreakValue
 
+    SemCastOp = SemCastIdentity
+              | SemCastBitcast
+              | SemCastIreduce
+              | SemCastSextend
+              | SemCastUextend
+              | SemCastFpromote
+              | SemCastFdemote
+              | SemCastSToF
+              | SemCastUToF
+              | SemCastFToS
+              | SemCastFToU
+
     SemLoop = SemWhileStmt(string loop_id, MoonliftSem.SemCarryPort* carries, MoonliftSem.SemExpr cond, MoonliftSem.SemStmt* body, MoonliftSem.SemCarryUpdate* next) unique
             | SemOverStmt(string loop_id, MoonliftSem.SemIndexPort index_port, MoonliftSem.SemDomain domain, MoonliftSem.SemCarryPort* carries, MoonliftSem.SemStmt* body, MoonliftSem.SemCarryUpdate* next) unique
             | SemWhileExpr(string loop_id, MoonliftSem.SemCarryPort* carries, MoonliftSem.SemExpr cond, MoonliftSem.SemStmt* body, MoonliftSem.SemCarryUpdate* next, MoonliftSem.SemExprExit exit, MoonliftSem.SemExpr result) unique
@@ -531,6 +851,42 @@ module MoonliftSem {
     SemModule = (string module_name, MoonliftSem.SemItem* items) unique
 }
 
+module MoonliftVec {
+    VecBinOp = VecAdd | VecSub | VecMul | VecBitAnd | VecBitOr | VecBitXor | VecShl | VecLShr | VecAShr
+
+    VecReject = VecRejectLoopShape(string reason) unique
+              | VecRejectDomain(string reason) unique
+              | VecRejectStmt(string reason) unique
+              | VecRejectExpr(string reason) unique
+              | VecRejectUpdate(string reason) unique
+              | VecRejectPlan(string reason) unique
+
+    VecExprFact = VecExprInvariant(MoonliftSem.SemExpr expr, MoonliftSem.SemType ty) unique
+                | VecExprLaneIndex(MoonliftSem.SemBinding binding, MoonliftSem.SemType ty) unique
+                | VecExprBin(MoonliftVec.VecBinOp op, MoonliftVec.VecExprFact lhs, MoonliftVec.VecExprFact rhs, MoonliftSem.SemType ty) unique
+                | VecExprRejected(MoonliftVec.VecReject reject) unique
+
+    VecLocalFact = (MoonliftSem.SemBinding binding, MoonliftVec.VecExprFact expr) unique
+    VecEnv = (MoonliftSem.SemBinding index, MoonliftVec.VecLocalFact* locals) unique
+
+    VecReduction = VecReductionAdd(MoonliftSem.SemCarryPort carry, MoonliftVec.VecExprFact value) unique
+
+    VecStmtFact = VecStmtLocal(MoonliftVec.VecLocalFact local) unique
+                | VecStmtIgnored
+                | VecStmtRejected(MoonliftVec.VecReject reject) unique
+
+    VecBodyFacts = (MoonliftVec.VecLocalFact* locals, MoonliftVec.VecReduction* reductions, MoonliftVec.VecReject* rejects) unique
+
+    VecDomainFact = VecCountedDomain(MoonliftSem.SemExpr start, MoonliftSem.SemExpr stop) unique
+                  | VecDomainRejected(MoonliftVec.VecReject reject) unique
+
+    VecLoopFact = VecCountedLoop(string loop_id, MoonliftSem.SemBinding index, MoonliftSem.SemExpr start, MoonliftSem.SemExpr stop, MoonliftVec.VecBodyFacts body) unique
+                | VecLoopRejected(MoonliftVec.VecReject reject) unique
+
+    VecPlan = VecAddReductionPlan(string loop_id, number lanes, MoonliftSem.SemBinding index, MoonliftSem.SemExpr start, MoonliftSem.SemExpr stop, MoonliftSem.SemCarryPort carry, MoonliftVec.VecExprFact value) unique
+            | VecNoPlan(MoonliftVec.VecReject reject) unique
+}
+
 module MoonliftBack {
     BackScalar = BackVoid
                | BackBool
@@ -548,6 +904,7 @@ module MoonliftBack {
     BackValId = (string text) unique
     BackStackSlotId = (string text) unique
     BackSwitchCase = (string raw, MoonliftBack.BackBlockId dest) unique
+    BackVec = (MoonliftBack.BackScalar elem, number lanes) unique
 
     BackCmd = BackCmdCreateSig(MoonliftBack.BackSigId sig, MoonliftBack.BackScalar* params, MoonliftBack.BackScalar* results) unique
             | BackCmdDeclareData(MoonliftBack.BackDataId data, number size, number align) unique
@@ -556,6 +913,8 @@ module MoonliftBack {
             | BackCmdDataInitFloat(MoonliftBack.BackDataId data, number offset, MoonliftBack.BackScalar ty, string raw) unique
             | BackCmdDataInitBool(MoonliftBack.BackDataId data, number offset, boolean value) unique
             | BackCmdDataAddr(MoonliftBack.BackValId dst, MoonliftBack.BackDataId data) unique
+            | BackCmdFuncAddr(MoonliftBack.BackValId dst, MoonliftBack.BackFuncId func) unique
+            | BackCmdExternAddr(MoonliftBack.BackValId dst, MoonliftBack.BackExternId func) unique
             | BackCmdDeclareFuncLocal(MoonliftBack.BackFuncId func, MoonliftBack.BackSigId sig) unique
             | BackCmdDeclareFuncExport(MoonliftBack.BackFuncId func, MoonliftBack.BackSigId sig) unique
             | BackCmdDeclareFuncExtern(MoonliftBack.BackExternId func, string symbol, MoonliftBack.BackSigId sig) unique
@@ -637,6 +996,11 @@ module MoonliftBack {
             | BackCmdMemset(MoonliftBack.BackValId dst, MoonliftBack.BackValId byte, MoonliftBack.BackValId len) unique
             | BackCmdSelect(MoonliftBack.BackValId dst, MoonliftBack.BackScalar ty, MoonliftBack.BackValId cond, MoonliftBack.BackValId then_value, MoonliftBack.BackValId else_value) unique
             | BackCmdFma(MoonliftBack.BackValId dst, MoonliftBack.BackScalar ty, MoonliftBack.BackValId a, MoonliftBack.BackValId b, MoonliftBack.BackValId c) unique
+            | BackCmdVecSplat(MoonliftBack.BackValId dst, MoonliftBack.BackVec ty, MoonliftBack.BackValId value) unique
+            | BackCmdVecIadd(MoonliftBack.BackValId dst, MoonliftBack.BackVec ty, MoonliftBack.BackValId lhs, MoonliftBack.BackValId rhs) unique
+            | BackCmdVecImul(MoonliftBack.BackValId dst, MoonliftBack.BackVec ty, MoonliftBack.BackValId lhs, MoonliftBack.BackValId rhs) unique
+            | BackCmdVecBand(MoonliftBack.BackValId dst, MoonliftBack.BackVec ty, MoonliftBack.BackValId lhs, MoonliftBack.BackValId rhs) unique
+            | BackCmdVecExtractLane(MoonliftBack.BackValId dst, MoonliftBack.BackScalar ty, MoonliftBack.BackValId value, number lane) unique
             | BackCmdCallValueDirect(MoonliftBack.BackValId dst, MoonliftBack.BackScalar ty, MoonliftBack.BackFuncId func, MoonliftBack.BackSigId sig, MoonliftBack.BackValId* args) unique
             | BackCmdCallStmtDirect(MoonliftBack.BackFuncId func, MoonliftBack.BackSigId sig, MoonliftBack.BackValId* args) unique
             | BackCmdCallValueExtern(MoonliftBack.BackValId dst, MoonliftBack.BackScalar ty, MoonliftBack.BackExternId func, MoonliftBack.BackSigId sig, MoonliftBack.BackValId* args) unique

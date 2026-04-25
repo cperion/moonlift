@@ -235,8 +235,8 @@ Desugars at `Surface -> Elab` to integer constant declarations.
 type Result = ok(i32) | err(i32)
 ```
 
-Desugars at `Surface -> Elab` to a discriminant struct + tag constants.
-Pattern matching desugars to `switch` on the tag field.
+Desugars in the parser/module item path to a discriminant struct + tag constants.
+Dedicated pattern-matching syntax is not currently part of the implemented authored surface; use ordinary field access and `switch` on the tag field.
 
 ### 5.9 Untagged union types
 
@@ -649,7 +649,7 @@ view_interleaved(v, stride, lane) -- interleaved lane
 fn(x, y) expr... end          -- closure expression
 ```
 
-Free variables in the body become context struct fields. Desugars at `Surface -> Elab`.
+Free variables in the body become context struct fields. Desugars before ordinary `Surface -> Elab` module lowering. The generated closure value has function-pointer and context fields; direct closure-call sugar remains deferred.
 
 ---
 

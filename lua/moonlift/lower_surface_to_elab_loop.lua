@@ -382,6 +382,9 @@ function M.Define(T)
         [Surf.SurfExprStmt] = function(self)
             return pvm.once(one_loop_expr_exit_expr(self.expr))
         end,
+        [Surf.SurfAssert] = function(self)
+            return pvm.once(one_loop_expr_exit_expr(self.cond))
+        end,
         [Surf.SurfIf] = function(self)
             local exit = combine_exit(one_loop_expr_exit_expr(self.cond), loop_expr_exit_from_stmt_list(self.then_body))
             return pvm.once(combine_exit(exit, loop_expr_exit_from_stmt_list(self.else_body)))
@@ -447,6 +450,7 @@ function M.Define(T)
         end,
         [Elab.ElabSet] = function() return pvm.once(Elab.ElabNoBinding) end,
         [Elab.ElabExprStmt] = function() return pvm.once(Elab.ElabNoBinding) end,
+        [Elab.ElabAssert] = function() return pvm.once(Elab.ElabNoBinding) end,
         [Elab.ElabIf] = function() return pvm.once(Elab.ElabNoBinding) end,
         [Elab.ElabSwitch] = function() return pvm.once(Elab.ElabNoBinding) end,
         [Elab.ElabReturnVoid] = function() return pvm.once(Elab.ElabNoBinding) end,
@@ -716,38 +720,38 @@ function M.Define(T)
         end,
         [Surf.SurfExprViewWindow] = function(self, env, expected_ty)
             local base = one_expr(self.base, env, nil)
-            local start = one_expr(self.start, env, nil)
-            local len = one_expr(self.len, env, nil)
+            local start = one_expr(self.start, env, Elab.ElabTIndex)
+            local len = one_expr(self.len, env, Elab.ElabTIndex)
             local base_ty = pvm.one(expr_api.expr_type(base))
             local elem = elem_of_ptr(base_ty)
             return pvm.once(Elab.ElabExprViewWindow(base, start, len, Elab.ElabTView(elem)))
         end,
         [Surf.SurfExprViewFromPtr] = function(self, env, expected_ty)
             local ptr = one_expr(self.ptr, env, nil)
-            local len = one_expr(self.len, env, nil)
+            local len = one_expr(self.len, env, Elab.ElabTIndex)
             local ptr_ty = pvm.one(expr_api.expr_type(ptr))
             local elem = elem_of_ptr(ptr_ty)
             return pvm.once(Elab.ElabExprViewFromPtr(ptr, len, Elab.ElabTView(elem)))
         end,
         [Surf.SurfExprViewFromPtrStrided] = function(self, env, expected_ty)
             local ptr = one_expr(self.ptr, env, nil)
-            local len = one_expr(self.len, env, nil)
-            local stride = one_expr(self.stride, env, nil)
+            local len = one_expr(self.len, env, Elab.ElabTIndex)
+            local stride = one_expr(self.stride, env, Elab.ElabTIndex)
             local ptr_ty = pvm.one(expr_api.expr_type(ptr))
             local elem = elem_of_ptr(ptr_ty)
             return pvm.once(Elab.ElabExprViewFromPtrStrided(ptr, len, stride, Elab.ElabTView(elem)))
         end,
         [Surf.SurfExprViewStrided] = function(self, env, expected_ty)
             local base = one_expr(self.base, env, nil)
-            local stride = one_expr(self.stride, env, nil)
+            local stride = one_expr(self.stride, env, Elab.ElabTIndex)
             local base_ty = pvm.one(expr_api.expr_type(base))
             local elem = elem_of_ptr(base_ty)
             return pvm.once(Elab.ElabExprViewStrided(base, stride, Elab.ElabTView(elem)))
         end,
         [Surf.SurfExprViewInterleaved] = function(self, env, expected_ty)
             local base = one_expr(self.base, env, nil)
-            local stride = one_expr(self.stride, env, nil)
-            local lane = one_expr(self.lane, env, nil)
+            local stride = one_expr(self.stride, env, Elab.ElabTIndex)
+            local lane = one_expr(self.lane, env, Elab.ElabTIndex)
             local base_ty = pvm.one(expr_api.expr_type(base))
             local elem = elem_of_ptr(base_ty)
             return pvm.once(Elab.ElabExprViewInterleaved(base, stride, lane, Elab.ElabTView(elem)))
@@ -761,10 +765,10 @@ function M.Define(T)
 
     lower_domain = pvm.phase("surface_to_elab_domain", {
         [Surf.SurfDomainRange] = function(self, env)
-            return pvm.once(Elab.ElabDomainRange(one_expr(self.stop, env, nil)))
+            return pvm.once(Elab.ElabDomainRange(one_expr(self.stop, env, Elab.ElabTIndex)))
         end,
         [Surf.SurfDomainRange2] = function(self, env)
-            return pvm.once(Elab.ElabDomainRange2(one_expr(self.start, env, nil), one_expr(self.stop, env, nil)))
+            return pvm.once(Elab.ElabDomainRange2(one_expr(self.start, env, Elab.ElabTIndex), one_expr(self.stop, env, Elab.ElabTIndex)))
         end,
         [Surf.SurfDomainZipEq] = function(self, env)
             local out = {}
@@ -781,6 +785,9 @@ function M.Define(T)
     lower_stmt = pvm.phase("surface_to_elab_stmt", {
         [Surf.SurfExprStmt] = function(self, env, path, allow_bare_break, break_value_ty, return_ty)
             return pvm.once(Elab.ElabExprStmt(one_expr(self.expr, env, nil, allow_bare_break, break_value_ty, return_ty)))
+        end,
+        [Surf.SurfAssert] = function(self, env, path, allow_bare_break, break_value_ty, return_ty)
+            return pvm.once(Elab.ElabAssert(one_expr(self.cond, env, Elab.ElabTBool, allow_bare_break, break_value_ty, return_ty)))
         end,
         [Surf.SurfLet] = function(self, env, path, allow_bare_break, break_value_ty, return_ty)
             local ty = one_type(self.ty, env)

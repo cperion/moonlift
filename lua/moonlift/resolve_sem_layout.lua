@@ -412,7 +412,7 @@ function M.Define(T)
             return pvm.once(Sem.SemMemLayout(24, 8))
         end,
         [Sem.SemTFunc] = function()
-            error("resolve_sem_layout: function-valued fields are not yet supported in named layouts")
+            return pvm.once(Sem.SemMemLayout(8, 8))
         end,
     })
 

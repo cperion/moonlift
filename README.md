@@ -230,3 +230,35 @@ luajit moonlift/examples/peek_codegen.lua switchexpr 192
 That example is machine-code first: by default it prints the final disassembly for a chosen Moonlift shape. If the current lowering still has a bug, it prints the compile/disasm error instead.
 
 `moonlift/lua/moonlift/peek.lua` also still retains the intermediate lowered stages, so when a generated code shape looks wrong you can correlate the final machine code back to the produced `BackProgram`.
+
+## Scalar benchmark comparison against Terra
+
+There is now a small scalar-only benchmark track at:
+
+- `moonlift/benchmarks/README.md`
+- `moonlift/benchmarks/bench_moonlift.lua`
+- `moonlift/benchmarks/bench_terra.t`
+- `moonlift/benchmarks/bench_moonlift_shapes.lua`
+- `moonlift/benchmarks/FINDINGS.md`
+- `moonlift/benchmarks/run_vs_terra.sh`
+
+Run the quick comparison from the repository root with:
+
+```bash
+moonlift/benchmarks/run_vs_terra.sh quick
+```
+
+Or run the Moonlift side alone if Terra is not installed:
+
+```bash
+cargo build --manifest-path moonlift/Cargo.toml --release
+luajit moonlift/benchmarks/bench_moonlift.lua quick
+```
+
+The benchmarks intentionally cover scalar kernels that the current closed path can already compile honestly: integer accumulation, branch-heavy loops, floating-point loops, bitwise loops, GCD/Fibonacci, and scalar switch dispatch. Arrays, slices, views, aggregates, and non-scalar ABI comparisons should be added only after those Moonlift value-model features are implemented end-to-end.
+
+To isolate whether Moonlift-specific source constructs improve generated code, run:
+
+```bash
+luajit moonlift/benchmarks/bench_moonlift_shapes.lua quick
+```

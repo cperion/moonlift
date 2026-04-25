@@ -486,6 +486,19 @@ local for_sum = ffi.cast("intptr_t (*)(intptr_t)", for_sum_ptr)
 assert(for_sum(5) == 10)
 for_in_range_artifact:free()
 
+local literal_range_artifact = source.compile([[
+export func literal_range_sum() -> index
+    for i in 1..5 with acc: index = 0 do
+        next acc = acc + i
+    end
+    return acc
+end
+]], nil, nil, nil, jit)
+local literal_range_sum_ptr = literal_range_artifact:getpointer(Back.BackFuncId("literal_range_sum"))
+local literal_range_sum = ffi.cast("intptr_t (*)()", literal_range_sum_ptr)
+assert(literal_range_sum() == 10)
+literal_range_artifact:free()
+
 -- Enum desugaring test
 local enum_artifact = source.compile([[
 type Color = enum { red, green, blue }
@@ -509,6 +522,34 @@ export func branch_u32(flag: bool) -> u32
         return 0
     end
 end
+export func sum_u32() -> u32
+    assert(true)
+    return 1 + 2
+end
+export func lit_lt_u32(x: u32) -> bool
+    return 1 < x
+end
+export func u32_lt_lit(x: u32) -> bool
+    return x < 10
+end
+export func cast_i32_f64(x: i32) -> f64
+    return cast<f64>(x)
+end
+export func cast_f64_i32(x: f64) -> i32
+    return cast<i32>(x)
+end
+export func trunc_i64_i32(x: i64) -> i32
+    return trunc<i32>(x)
+end
+export func zext_u8_u32(x: u8) -> u32
+    return zext<u32>(x)
+end
+export func sext_i8_i32(x: i8) -> i32
+    return sext<i32>(x)
+end
+export func bitcast_f32_u32(x: f32) -> u32
+    return bitcast<u32>(x)
+end
 ]], nil, nil, nil, jit)
 local zero_u32_ptr = typed_return_artifact:getpointer(Back.BackFuncId("zero_u32"))
 local zero_u32 = ffi.cast("uint32_t (*)()", zero_u32_ptr)
@@ -517,6 +558,35 @@ local branch_u32_ptr = typed_return_artifact:getpointer(Back.BackFuncId("branch_
 local branch_u32 = ffi.cast("uint32_t (*)(bool)", branch_u32_ptr)
 assert(branch_u32(true) == 1)
 assert(branch_u32(false) == 0)
+local sum_u32_ptr = typed_return_artifact:getpointer(Back.BackFuncId("sum_u32"))
+local sum_u32 = ffi.cast("uint32_t (*)()", sum_u32_ptr)
+assert(sum_u32() == 3)
+local lit_lt_u32_ptr = typed_return_artifact:getpointer(Back.BackFuncId("lit_lt_u32"))
+local lit_lt_u32 = ffi.cast("bool (*)(uint32_t)", lit_lt_u32_ptr)
+assert(lit_lt_u32(2) == true)
+assert(lit_lt_u32(1) == false)
+local u32_lt_lit_ptr = typed_return_artifact:getpointer(Back.BackFuncId("u32_lt_lit"))
+local u32_lt_lit = ffi.cast("bool (*)(uint32_t)", u32_lt_lit_ptr)
+assert(u32_lt_lit(9) == true)
+assert(u32_lt_lit(10) == false)
+local cast_i32_f64_ptr = typed_return_artifact:getpointer(Back.BackFuncId("cast_i32_f64"))
+local cast_i32_f64 = ffi.cast("double (*)(int32_t)", cast_i32_f64_ptr)
+assert(cast_i32_f64(-7) == -7)
+local cast_f64_i32_ptr = typed_return_artifact:getpointer(Back.BackFuncId("cast_f64_i32"))
+local cast_f64_i32 = ffi.cast("int32_t (*)(double)", cast_f64_i32_ptr)
+assert(cast_f64_i32(12.75) == 12)
+local trunc_i64_i32_ptr = typed_return_artifact:getpointer(Back.BackFuncId("trunc_i64_i32"))
+local trunc_i64_i32 = ffi.cast("int32_t (*)(int64_t)", trunc_i64_i32_ptr)
+assert(trunc_i64_i32(0x100000001LL) == 1)
+local zext_u8_u32_ptr = typed_return_artifact:getpointer(Back.BackFuncId("zext_u8_u32"))
+local zext_u8_u32 = ffi.cast("uint32_t (*)(uint8_t)", zext_u8_u32_ptr)
+assert(zext_u8_u32(255) == 255)
+local sext_i8_i32_ptr = typed_return_artifact:getpointer(Back.BackFuncId("sext_i8_i32"))
+local sext_i8_i32 = ffi.cast("int32_t (*)(int8_t)", sext_i8_i32_ptr)
+assert(sext_i8_i32(-1) == -1)
+local bitcast_f32_u32_ptr = typed_return_artifact:getpointer(Back.BackFuncId("bitcast_f32_u32"))
+local bitcast_f32_u32 = ffi.cast("uint32_t (*)(float)", bitcast_f32_u32_ptr)
+assert(bitcast_f32_u32(1) == 0x3f800000)
 typed_return_artifact:free()
 
 local while_break_artifact = source.compile([[

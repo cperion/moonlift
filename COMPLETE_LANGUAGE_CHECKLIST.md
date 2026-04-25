@@ -130,15 +130,22 @@ They should be treated as **ASDL/phase design work first**, not as backend-only 
 - [x] add a first-class authored/semantic scalar choose/select form when branchless lowering is intended, instead of expecting generic `if` exprs to imply it
 - [ ] keep code-shape-sensitive math/data-parallel work ASDL-first:
   - [x] first-class frontend intrinsic surface for operations like `fma`
-  - [ ] later explicit SIMD/vector forms if the language wants more than scalar backend recovery
+  - [x] initial `MoonliftVec` ASDL fact/plan vocabulary for counted-loop add-reduction vectorization detection
+  - [ ] lower vector plans to explicit vector `Back` commands / Cranelift vector IR
+  - [ ] later explicit SIMD/vector source forms if the language wants more than scalar backend recovery
 
 ### F. Complete remaining realism gaps exposed by codegen probing
 
 - [ ] strengthen typed literal elaboration and typed const/immediate propagation for unsigned / `index` code (now frozen as a `Surface -> Elab` lowering rule)
   - [x] intrinsic-specific argument elaboration is phase-driven; rotate shift literals and `assume` conditions no longer require authored helper casts
   - [x] `return expr` elaborates `expr` with the function result type, including nested returns in if/switch/loop/block statement bodies
-  - [ ] general assignment/binary literal contextual typing still needs completion
+  - [x] arithmetic/bitwise binary expressions elaborate their left operand from the expected result type, then elaborate the right operand from the left operand type (`return 1 + 2` in `-> u32` is `u32`)
+  - [x] comparisons use an explicit operand-context phase so contextual left operands like `1 < x_u32` / `1 + 2 < x_u32` elaborate against the typed right operand instead of defaulting to `i32`
+  - [x] `for` range bounds elaborate literal bounds as `index` (`for i in 1..5` needs no helper casts/globals)
+  - [x] view-constructor descriptor operands elaborate as `index` (`view_from_ptr(p, 4)`, `view(v, 0, n)`, `view_strided(v, 2)`, `view_interleaved(v, 2, 1)`)
+  - [ ] remaining contextual literal typing gaps and broader inference ergonomics still need completion
 - [ ] fill remaining cast-heavy lowering gaps exposed by realistic kernels
+  - [x] explicit scalar `trunc` / `zext` / `sext` / `bitcast` expressions lower in the canonical `Sem -> Back` value path
 - [x] make expression-in-loop lowering consistent — new `for`/`while` syntax eliminates old loop-expr/stmt split; carries survive naturally
 
 ---
@@ -294,6 +301,7 @@ This depends on the intended reboot language surface.
 - [x] preserve dense switch structure late enough in lowering to allow jump-table-like backend codegen when intended
 - [x] preserve first-class switch structure through hot loop bodies / interpreter-style dispatch instead of collapsing it early into compare CFG
 - [x] preserve authored `select(...)` as choose-shaped semantic lowering rather than expecting generic `if` exprs to imply it
+- [x] surface runtime assertions as `assert(cond)` and lower through explicit `SurfAssert -> ElabAssert -> SemStmtAssert -> BackCmdTrap` rather than expression-statement magic
 - [x] finalize block-expression reachability/termination rules — unreachable branches are suppressed; missing result is a compiler error with source span
 
 ## 3.8 Const system completion
@@ -361,7 +369,7 @@ This depends on the intended reboot language surface.
 - [x] define view construction primitives — six primitives frozen: `view`, `view_window`, `view_from_ptr`, `view_from_ptr(..., stride)`, `view_strided`, `view_interleaved`
 - [x] implement view construction lowering — `view(xs)`, `view(xs, start, len)`, `view_from_ptr`, `view_from_ptr(ptr, len, stride)`, `view_strided`, and `view_interleaved` now lower through explicit `SemView` variants (`SemViewFromExpr`, `SemViewWindow`, `SemViewContiguous`, `SemViewStrided`, `SemViewRestrided`, `SemViewInterleavedView`)
 - [x] define array-value indexing semantics — copy-out via `base + i*elem_size` load
-- [ ] implement array-value indexing in `Sem -> Back`
+- [x] implement scalar array-value indexing in `Sem -> Back`
 
 ## 3.11 Sem layout resolution completion
 
@@ -399,9 +407,10 @@ Goal:
 - [x] keep loop-carried/index values as pure backend/block-param values until an explicit addressability requirement forces materialization to storage
 - [x] keep pure immutable locals/invariants as backend values unless an explicit addressability requirement forces storage
 - [x] fix terminated/block-fill handling for branchy loop bodies and body-local shared values
-- [ ] complete `SemExprCastTo` value lowering in the canonical expr path
+- [x] complete `SemExprCastTo` value lowering in the canonical expr path — scalar numeric casts now choose explicit `SemCastOp` results and lower to Back conversion commands
 - [ ] complete non-scalar load lowering where intended
 - [ ] complete non-scalar call result lowering where intended
+- [ ] complete closure invocation sugar / closure-call lowering
 - [ ] complete non-scalar loop expr lowering where intended
 - [ ] complete non-scalar switch/if/block expr lowering where intended
 
@@ -528,6 +537,7 @@ Current implemented reboot parser/frontend now includes:
   - `var`
   - `set`
   - expr stmt
+  - `assert(cond)`
   - `if`
   - `switch`
   - `return`
@@ -607,75 +617,84 @@ The target is:
 
 ## 6.1 Add `MoonliftMeta` ASDL
 
-- [ ] add `MoonliftMeta` module to the schema
-- [ ] add open type layer
-- [ ] add open domain layer
-- [ ] add open expr layer
-- [ ] add open stmt layer
-- [ ] add open loop layer
-- [ ] add fragment nodes
-- [ ] add function nodes
-- [ ] add const nodes
-- [ ] add item/module nodes
-- [ ] add params/imports/slots/interface nodes
+- [x] add `MoonliftMeta` module to the schema
+- [x] add open type layer
+- [x] add open domain layer
+- [x] add open expr layer
+- [x] add open stmt layer
+- [x] add open loop layer
+- [x] add fragment nodes
+- [x] add function nodes
+- [x] add const nodes
+- [x] add item/module nodes
+- [x] add params/imports/slots/open-set nodes
+
+Current state: the coherent `MoonliftMeta` ASDL vocabulary exists in `moonlift/lua/moonlift/asdl.lua`. Builder/source quote helpers, structural expansion, query/validation/rewrite tooling, and `Meta -> Elab` sealing phases now exist. Hosted parser integration and alpha normalization remain deferred below.
 
 ## 6.2 Interface categories
 
-- [ ] implement runtime params as first-class values
-- [ ] implement imports as first-class values
-- [ ] implement kinded slots as first-class values
-- [ ] define binder/symbol identity rules
+- [x] implement runtime params as first-class values
+- [x] implement imports as first-class values
+- [x] implement kinded slots as first-class values
+- [x] define binder/symbol identity rules
 
 ## 6.3 Builder-side `Meta` construction
 
-- [ ] builder expr fragments
-- [ ] builder region fragments
-- [ ] builder function templates
-- [ ] builder const templates
-- [ ] builder module templates
-- [ ] builder slot constructors
-- [ ] builder import constructors
+- [x] builder expr fragments
+- [x] builder region fragments
+- [x] builder function templates
+- [x] builder const templates
+- [x] builder module templates
+- [x] builder slot constructors
+- [x] builder import constructors
 
 ## 6.4 Source-side quote elaboration
 
-- [ ] source expr quotes -> `MetaExprFrag`
-- [ ] source region quotes -> `MetaRegionFrag`
-- [ ] source func quotes -> `MetaFunction`
-- [ ] source const/module quotes if intended
-- [ ] elaboration against explicit `MetaInterface`
-- [ ] forbid undeclared free names by default
+- [x] source expr quotes -> `MetaExprFrag`
+- [x] source region quotes -> `MetaRegionFrag`
+- [x] source func quotes -> `MetaFunction`
+- [x] source const/static/module quotes if intended
+- [x] elaboration against explicit Meta params/open sets
+- [x] quote-hole `$name` source syntax backed by explicit Meta slots/open values
+- [x] forbid undeclared free names by default
 
 ## 6.5 Structural operations in `Meta`
 
-- [ ] slot filling (`:with`) for all slot kinds
-- [ ] fragment use / inline assembly nodes
-- [ ] item/module splice expansion
-- [ ] deterministic binder rebasing
+- [x] slot filling / expansion for all slot kinds
+- [x] fragment use / inline assembly nodes
+- [x] item/module splice expansion
+- [x] deterministic binder rebasing via explicit `use_id` fields
 - [ ] alpha normalization / canonicalization
-- [ ] closedness validation
+- [x] closedness validation
+  - [x] sealing-time rejection for unfilled slots and unexpanded splices
+  - [x] explicit `MetaValidationReport` for slots, generic imports, open module names, and unexpanded uses
 
 ## 6.6 `Meta -> Elab` closure
 
-- [ ] close expr fragments to `ElabExpr`
-- [ ] close region fragments to `ElabStmt*`
-- [ ] close functions to `ElabFunc`
-- [ ] close consts to `ElabConst`
-- [ ] close modules to `ElabModule`
-- [ ] ensure no open slots/imports survive closure
+- [x] close expr fragments to `ElabExpr`
+- [x] close region fragments to `ElabStmt*`
+- [x] close functions to `ElabFunc`
+- [x] close consts to `ElabConst`
+- [x] close modules to `ElabModule`
+- [x] ensure no open slots/imports survive closure
+  - [x] unfilled slots are rejected during sealing
+  - [x] richer import/open-set closedness validation through `meta_validate.lua`
 
 ## 6.7 Query/rewrite/walk tooling
 
-- [ ] `Meta` walk APIs
-- [ ] `Meta` query APIs
-- [ ] `Meta` rewrite APIs
-- [ ] structural equality / identity guarantees
-- [ ] PVM phases for open-code normalization and closure
+- [x] `Meta` walk APIs
+- [x] `Meta` query APIs
+- [x] `Meta` rewrite APIs
+- [x] structural equality / identity guarantees for ASDL identity-based rewrite rules
+- [x] PVM phases for open-code normalization and closure
+  - [x] structural expansion / slot-filling phases
+  - [x] initial PVM sealing phases for closed `Meta -> Elab`
 
 ## 6.8 Integration with the closed compiler path
 
-- [ ] canonical compile path from `Meta` through `Elab -> Sem -> Back`
-- [ ] function/module sealing integrated with ordinary compile pipeline
-- [ ] no accidental second semantic universe beyond `Meta`
+- [x] canonical compile path from `Meta` through `Elab -> Sem -> Back`
+- [x] function/module sealing integrated with ordinary compile pipeline
+- [x] no accidental second semantic universe beyond `Meta`
 
 ---
 
@@ -850,10 +869,10 @@ Moonlift reaches the intended complete state only when all of these are true:
 
 ## 10.3 Meta/open-code system
 
-- [ ] `MoonliftMeta` exists
+- [x] `MoonliftMeta` exists
 - [ ] fragments/functions/modules as open code exist
 - [ ] structural slot/import system exists
-- [ ] `Meta -> Elab` closure exists
+- [x] initial closed `Meta -> Elab` closure exists
 - [ ] source/builder/hosted syntax all converge at `Meta`
 
 ## 10.4 Hosted integration

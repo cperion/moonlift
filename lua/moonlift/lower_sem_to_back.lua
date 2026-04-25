@@ -16,6 +16,7 @@ function M.Define(T)
     local aux = {}
     aux.residence = require("moonlift.resolve_sem_residence").Define(T)
     aux.ops = require("moonlift.lower_sem_to_back_ops").Define(T)
+    aux.cast = require("moonlift.lower_sem_to_back_cast").Define(T)
 
     local lower_scalar
     local lower_type_is_scalar
@@ -787,6 +788,7 @@ function M.Define(T)
         [Sem.SemTRawPtr] = function() return pvm.once(Back.BackPtr) end,
         [Sem.SemTIndex] = function() return pvm.once(Back.BackIndex) end,
         [Sem.SemTPtrTo] = function() return pvm.once(Back.BackPtr) end,
+        [Sem.SemTFunc] = function() return pvm.once(Back.BackPtr) end,
     })
 
     lower_type_is_scalar = pvm.phase("sem_to_back_type_is_scalar", {
@@ -805,6 +807,7 @@ function M.Define(T)
         [Sem.SemTRawPtr] = function() return pvm.once(true) end,
         [Sem.SemTIndex] = function() return pvm.once(true) end,
         [Sem.SemTPtrTo] = function() return pvm.once(true) end,
+        [Sem.SemTFunc] = function() return pvm.once(true) end,
         [Sem.SemTArray] = function() return pvm.once(false) end,
         [Sem.SemTSlice] = function() return pvm.once(false) end,
         [Sem.SemTView] = function() return pvm.once(false) end,
@@ -831,6 +834,7 @@ function M.Define(T)
         [Sem.SemTSlice] = function() return pvm.once(false) end,
         [Sem.SemTView] = function() return pvm.once(false) end,
         [Sem.SemTNamed] = function() return pvm.once(false) end,
+        [Sem.SemTFunc] = function() return pvm.once(false) end,
     })
 
     lower_type_is_index = pvm.phase("sem_to_back_type_is_index", {
@@ -853,6 +857,7 @@ function M.Define(T)
         [Sem.SemTSlice] = function() return pvm.once(false) end,
         [Sem.SemTView] = function() return pvm.once(false) end,
         [Sem.SemTNamed] = function() return pvm.once(false) end,
+        [Sem.SemTFunc] = function() return pvm.once(false) end,
     })
 
     lower_type_is_bool = pvm.phase("sem_to_back_type_is_bool", {
@@ -875,6 +880,7 @@ function M.Define(T)
         [Sem.SemTSlice] = function() return pvm.once(false) end,
         [Sem.SemTView] = function() return pvm.once(false) end,
         [Sem.SemTNamed] = function() return pvm.once(false) end,
+        [Sem.SemTFunc] = function() return pvm.once(false) end,
     })
 
     lower_type_is_pointer_like = pvm.phase("sem_to_back_type_is_pointer_like", {
@@ -897,6 +903,7 @@ function M.Define(T)
         [Sem.SemTSlice] = function() return pvm.once(false) end,
         [Sem.SemTView] = function() return pvm.once(false) end,
         [Sem.SemTNamed] = function() return pvm.once(false) end,
+        [Sem.SemTFunc] = function() return pvm.once(false) end,
     })
 
     lower_type_is_integral_scalar = pvm.phase("sem_to_back_type_is_integral_scalar", {
@@ -919,6 +926,7 @@ function M.Define(T)
         [Sem.SemTSlice] = function() return pvm.once(false) end,
         [Sem.SemTView] = function() return pvm.once(false) end,
         [Sem.SemTNamed] = function() return pvm.once(false) end,
+        [Sem.SemTFunc] = function() return pvm.once(false) end,
     })
 
     lower_type_is_fp_scalar = pvm.phase("sem_to_back_type_is_fp_scalar", {
@@ -941,6 +949,7 @@ function M.Define(T)
         [Sem.SemTSlice] = function() return pvm.once(false) end,
         [Sem.SemTView] = function() return pvm.once(false) end,
         [Sem.SemTNamed] = function() return pvm.once(false) end,
+        [Sem.SemTFunc] = function() return pvm.once(false) end,
     })
 
     lower_stack_slot_spec = pvm.phase("sem_to_back_stack_slot_spec", {
@@ -958,6 +967,7 @@ function M.Define(T)
         [Sem.SemTRawPtr] = function() return pvm.once(Back.BackStackSlotSpec(8, 8)) end,
         [Sem.SemTIndex] = function() return pvm.once(Back.BackStackSlotSpec(8, 8)) end,
         [Sem.SemTPtrTo] = function() return pvm.once(Back.BackStackSlotSpec(8, 8)) end,
+        [Sem.SemTFunc] = function() return pvm.once(Back.BackStackSlotSpec(8, 8)) end,
         [Sem.SemTSlice] = function() return pvm.once(Back.BackStackSlotSpec(16, 8)) end,
         [Sem.SemTView] = function() return pvm.once(Back.BackStackSlotSpec(24, 8)) end,
         [Sem.SemTArray] = function(self, layout_env)
@@ -998,7 +1008,7 @@ function M.Define(T)
             error("sem_to_back_binding_value: mutable local cell '" .. self.name .. "' has no raw direct value id in Sem->Back")
         end,
         [Sem.SemBackGlobalFunc] = function(self)
-            error("sem_to_back_binding_value: direct function binding reads are not yet supported ('" .. self.item_name .. "')")
+            return pvm.once(Back.BackValId("funcaddr:" .. func_id_text(self.module_name, self.item_name)))
         end,
         [Sem.SemBackGlobalConst] = function(self)
             error("sem_to_back_binding_value: pure const globals should be folded/lowered before direct runtime binding reads ('" .. self.item_name .. "')")
@@ -1113,11 +1123,17 @@ function M.Define(T)
                 Back.BackCmdLoad(dst, ty, addr),
             }, dst, ty))
         end,
-        [Sem.SemBackGlobalFunc] = function(self)
-            error("sem_to_back_binding_expr: direct function binding reads are not yet supported ('" .. self.item_name .. "')")
+        [Sem.SemBackGlobalFunc] = function(self, path)
+            local dst = Back.BackValId(path)
+            return pvm.once(Back.BackExprPlan({
+                Back.BackCmdFuncAddr(dst, Back.BackFuncId(func_id_text(self.module_name, self.item_name))),
+            }, dst, Back.BackPtr))
         end,
-        [Sem.SemBackExtern] = function(self)
-            error("sem_to_back_binding_expr: direct extern binding reads are not yet supported ('" .. self.symbol .. "')")
+        [Sem.SemBackExtern] = function(self, path)
+            local dst = Back.BackValId(path)
+            return pvm.once(Back.BackExprPlan({
+                Back.BackCmdExternAddr(dst, Back.BackExternId(self.symbol)),
+            }, dst, Back.BackPtr))
         end,
     })
 
@@ -1403,7 +1419,7 @@ function M.Define(T)
             return pvm.once(24)
         end,
         [Sem.SemTFunc] = function()
-            error("sem_to_back_type_mem_size: function values have no plain memory size in Sem->Back")
+            return pvm.once(8)
         end,
         [Sem.SemTNamed] = function(self, layout_env)
             return pvm.once(require_named_layout(layout_env, self.module_name, self.type_name).size)
@@ -2716,6 +2732,47 @@ function M.Define(T)
             local ty = one_scalar(self.ty)
             return pvm.once(binary_expr_plan(lhs, rhs, dst, ty, function(l, r)
                 return one_ashr_cmd(self.ty, dst, ty, l, r)
+            end))
+        end,
+        [Sem.SemExprCastTo] = function(self, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
+            local dst = Back.BackValId(path)
+            local value = one_expr(self.value, path .. ".value", layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
+            local ty = one_scalar(self.ty)
+            local op = pvm.one(aux.cast.lower_cast_op(self.ty, one_sem_expr_type(self.value)))
+            return pvm.once(unary_expr_plan(value, dst, ty, function(v)
+                return pvm.one(aux.cast.lower_cast_cmd(op, dst, ty, v))
+            end))
+        end,
+        [Sem.SemExprTruncTo] = function(self, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
+            local dst = Back.BackValId(path)
+            local value = one_expr(self.value, path .. ".value", layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
+            local ty = one_scalar(self.ty)
+            return pvm.once(unary_expr_plan(value, dst, ty, function(v)
+                return pvm.one(aux.cast.lower_cast_cmd(Sem.SemCastIreduce, dst, ty, v))
+            end))
+        end,
+        [Sem.SemExprZExtTo] = function(self, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
+            local dst = Back.BackValId(path)
+            local value = one_expr(self.value, path .. ".value", layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
+            local ty = one_scalar(self.ty)
+            return pvm.once(unary_expr_plan(value, dst, ty, function(v)
+                return pvm.one(aux.cast.lower_cast_cmd(Sem.SemCastUextend, dst, ty, v))
+            end))
+        end,
+        [Sem.SemExprSExtTo] = function(self, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
+            local dst = Back.BackValId(path)
+            local value = one_expr(self.value, path .. ".value", layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
+            local ty = one_scalar(self.ty)
+            return pvm.once(unary_expr_plan(value, dst, ty, function(v)
+                return pvm.one(aux.cast.lower_cast_cmd(Sem.SemCastSextend, dst, ty, v))
+            end))
+        end,
+        [Sem.SemExprBitcastTo] = function(self, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
+            local dst = Back.BackValId(path)
+            local value = one_expr(self.value, path .. ".value", layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
+            local ty = one_scalar(self.ty)
+            return pvm.once(unary_expr_plan(value, dst, ty, function(v)
+                return pvm.one(aux.cast.lower_cast_cmd(Sem.SemCastBitcast, dst, ty, v))
             end))
         end,
         [Sem.SemExprSelect] = function(self, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)

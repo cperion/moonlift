@@ -697,6 +697,8 @@ function M.Define(T, opts)
             local surface
             ctx.stage = "parse"
             surface, ctx.spans = Parse.parse_module_with_spans(text)
+            local Desugar = require("moonlift.desugar_closures")
+            surface = Desugar.desugar(surface, Surf)
             ctx.stage = "lower"
             local elab = pvm.one(SurfaceToElabTop.lower_module(surface, default_elab_env(env, "")))
             ctx.stage = "sem"
@@ -803,6 +805,8 @@ function M.Define(T, opts)
             local ok, res = xpcall(function()
                 local value
                 value, spans = Parse.parse_module_with_spans(text)
+                local Desugar = require("moonlift.desugar_closures")
+                value = Desugar.desugar(value, Surf)
                 return pvm.one(SurfaceToElabTop.lower_module(value, default_elab_env(env, "")))
             end, function(err)
                 return annotate_stage_error("lower", err, spans, "module")
@@ -837,6 +841,8 @@ function M.Define(T, opts)
                 local surface
                 ctx.stage = "parse"
                 surface, ctx.spans = Parse.parse_module_with_spans(text)
+                local Desugar = require("moonlift.desugar_closures")
+                surface = Desugar.desugar(surface, Surf)
                 ctx.stage = "lower"
                 local elab = pvm.one(SurfaceToElabTop.lower_module(surface, default_elab_env(env, "")))
                 ctx.stage = "sem"
@@ -853,6 +859,8 @@ function M.Define(T, opts)
                 local surface
                 ctx.stage = "parse"
                 surface, ctx.spans = Parse.parse_module_with_spans(text)
+                local Desugar = require("moonlift.desugar_closures")
+                surface = Desugar.desugar(surface, Surf)
                 ctx.stage = "lower"
                 local elab = pvm.one(SurfaceToElabTop.lower_module(surface, default_elab_env(env, "")))
                 ctx.stage = "sem"

@@ -39,6 +39,15 @@ assert(r2 == Elab.ElabDomainRange2(
     Elab.ElabBindingExpr(Elab.ElabArg(1, "b", Elab.ElabTI32))
 ))
 
+local literal_range = one(Surf.SurfDomainRange(Surf.SurfInt("5")))
+assert(literal_range == Elab.ElabDomainRange(Elab.ElabInt("5", Elab.ElabTIndex)))
+
+local literal_range2 = one(Surf.SurfDomainRange2(Surf.SurfInt("1"), Surf.SurfInt("5")))
+assert(literal_range2 == Elab.ElabDomainRange2(
+    Elab.ElabInt("1", Elab.ElabTIndex),
+    Elab.ElabInt("5", Elab.ElabTIndex)
+))
+
 local z = one(Surf.SurfDomainZipEq({ path1("dst"), path1("src") }))
 assert(z == Elab.ElabDomainZipEq({
     Elab.ElabBindingExpr(Elab.ElabLocalValue("env.dst", "dst", Elab.ElabTPtr(Elab.ElabTF32))),

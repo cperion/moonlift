@@ -57,6 +57,7 @@ local KEYWORDS = {
     ["return"] = true,
     ["break"] = true,
     ["continue"] = true,
+    ["assert"] = true,
     ["loop"] = true,
     ["next"] = true,
     ["while"] = true,

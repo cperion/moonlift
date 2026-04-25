@@ -22,6 +22,7 @@ function M.Define(T)
     local lower_intrinsic
     local intrinsic_result_type
     local lower_intrinsic_args
+    local operand_context
 
     local function one_type(node, env)
         return pvm.one(type_lower(node, env))
@@ -45,6 +46,10 @@ function M.Define(T)
 
     local function one_intrinsic_args(node, args, env, expected_ty)
         return pvm.one(lower_intrinsic_args(node, args, env, expected_ty))
+    end
+
+    local function one_operand_context(node)
+        return pvm.one(operand_context(node))
     end
 
     local function one_place_type(node)
@@ -279,8 +284,8 @@ function M.Define(T)
     end
 
     local function same_type_binary(ctor)
-        return function(self, env)
-            local lhs = one_expr(self.lhs, env, nil)
+        return function(self, env, expected_ty)
+            local lhs = one_expr(self.lhs, env, expected_ty)
             local lhs_ty = one_expr_type(lhs)
             local rhs = one_expr(self.rhs, env, lhs_ty)
             local rhs_ty = one_expr_type(rhs)
@@ -291,8 +296,22 @@ function M.Define(T)
         end
     end
 
-    local function cmp_binary(ctor)
-        return function(self, env)
+    local cmp_binary = pvm.phase("surface_to_elab_comparison_binary", {
+        [Elab.ElabOperandNeedsExpected] = function(_, self, env, ctor)
+            local rhs = one_expr(self.rhs, env, nil)
+            local rhs_ty = one_expr_type(rhs)
+            local lhs = one_expr(self.lhs, env, rhs_ty)
+            local lhs_ty = one_expr_type(lhs)
+            if lhs_ty ~= rhs_ty then
+                rhs = one_expr(self.rhs, env, lhs_ty)
+                rhs_ty = one_expr_type(rhs)
+            end
+            if lhs_ty ~= rhs_ty then
+                error("surface_to_elab_expr: comparison operands must currently have identical elaborated types")
+            end
+            return pvm.once(ctor(comparison_result_ty(), lhs, rhs))
+        end,
+        [Elab.ElabOperandHasNaturalType] = function(_, self, env, ctor)
             local lhs = one_expr(self.lhs, env, nil)
             local lhs_ty = one_expr_type(lhs)
             local rhs = one_expr(self.rhs, env, lhs_ty)
@@ -301,6 +320,12 @@ function M.Define(T)
                 error("surface_to_elab_expr: comparison operands must currently have identical elaborated types")
             end
             return pvm.once(ctor(comparison_result_ty(), lhs, rhs))
+        end,
+    })
+
+    local function comparison_binary(ctor)
+        return function(self, env)
+            return cmp_binary(one_operand_context(self.lhs), self, env, ctor)
         end
     end
 
@@ -339,6 +364,55 @@ function M.Define(T)
         end
         return pvm.once(self.module_name == module_name and self.item_name == item_name)
     end
+
+    operand_context = pvm.phase("surface_to_elab_operand_context", {
+        [Surf.SurfInt] = function() return pvm.once(Elab.ElabOperandNeedsExpected) end,
+        [Surf.SurfFloat] = function() return pvm.once(Elab.ElabOperandNeedsExpected) end,
+        [Surf.SurfNil] = function() return pvm.once(Elab.ElabOperandNeedsExpected) end,
+        [Surf.SurfExprNeg] = function() return pvm.once(Elab.ElabOperandNeedsExpected) end,
+        [Surf.SurfExprBNot] = function() return pvm.once(Elab.ElabOperandNeedsExpected) end,
+        [Surf.SurfExprAdd] = function() return pvm.once(Elab.ElabOperandNeedsExpected) end,
+        [Surf.SurfExprSub] = function() return pvm.once(Elab.ElabOperandNeedsExpected) end,
+        [Surf.SurfExprMul] = function() return pvm.once(Elab.ElabOperandNeedsExpected) end,
+        [Surf.SurfExprDiv] = function() return pvm.once(Elab.ElabOperandNeedsExpected) end,
+        [Surf.SurfExprRem] = function() return pvm.once(Elab.ElabOperandNeedsExpected) end,
+        [Surf.SurfExprBitAnd] = function() return pvm.once(Elab.ElabOperandNeedsExpected) end,
+        [Surf.SurfExprBitOr] = function() return pvm.once(Elab.ElabOperandNeedsExpected) end,
+        [Surf.SurfExprBitXor] = function() return pvm.once(Elab.ElabOperandNeedsExpected) end,
+        [Surf.SurfExprShl] = function() return pvm.once(Elab.ElabOperandNeedsExpected) end,
+        [Surf.SurfExprLShr] = function() return pvm.once(Elab.ElabOperandNeedsExpected) end,
+        [Surf.SurfExprAShr] = function() return pvm.once(Elab.ElabOperandNeedsExpected) end,
+        [Surf.SurfExprIntrinsicCall] = function() return pvm.once(Elab.ElabOperandNeedsExpected) end,
+        [Surf.SurfIfExpr] = function() return pvm.once(Elab.ElabOperandNeedsExpected) end,
+        [Surf.SurfSelectExpr] = function() return pvm.once(Elab.ElabOperandNeedsExpected) end,
+
+        [Surf.SurfBool] = function() return pvm.once(Elab.ElabOperandHasNaturalType) end,
+        [Surf.SurfNameRef] = function() return pvm.once(Elab.ElabOperandHasNaturalType) end,
+        [Surf.SurfPathRef] = function() return pvm.once(Elab.ElabOperandHasNaturalType) end,
+        [Surf.SurfExprDot] = function() return pvm.once(Elab.ElabOperandHasNaturalType) end,
+        [Surf.SurfExprNot] = function() return pvm.once(Elab.ElabOperandHasNaturalType) end,
+        [Surf.SurfExprRef] = function() return pvm.once(Elab.ElabOperandHasNaturalType) end,
+        [Surf.SurfExprDeref] = function() return pvm.once(Elab.ElabOperandHasNaturalType) end,
+        [Surf.SurfExprEq] = function() return pvm.once(Elab.ElabOperandHasNaturalType) end,
+        [Surf.SurfExprNe] = function() return pvm.once(Elab.ElabOperandHasNaturalType) end,
+        [Surf.SurfExprLt] = function() return pvm.once(Elab.ElabOperandHasNaturalType) end,
+        [Surf.SurfExprLe] = function() return pvm.once(Elab.ElabOperandHasNaturalType) end,
+        [Surf.SurfExprGt] = function() return pvm.once(Elab.ElabOperandHasNaturalType) end,
+        [Surf.SurfExprGe] = function() return pvm.once(Elab.ElabOperandHasNaturalType) end,
+        [Surf.SurfExprAnd] = function() return pvm.once(Elab.ElabOperandHasNaturalType) end,
+        [Surf.SurfExprOr] = function() return pvm.once(Elab.ElabOperandHasNaturalType) end,
+        [Surf.SurfExprCastTo] = function() return pvm.once(Elab.ElabOperandHasNaturalType) end,
+        [Surf.SurfExprTruncTo] = function() return pvm.once(Elab.ElabOperandHasNaturalType) end,
+        [Surf.SurfExprZExtTo] = function() return pvm.once(Elab.ElabOperandHasNaturalType) end,
+        [Surf.SurfExprSExtTo] = function() return pvm.once(Elab.ElabOperandHasNaturalType) end,
+        [Surf.SurfExprBitcastTo] = function() return pvm.once(Elab.ElabOperandHasNaturalType) end,
+        [Surf.SurfExprSatCastTo] = function() return pvm.once(Elab.ElabOperandHasNaturalType) end,
+        [Surf.SurfCall] = function() return pvm.once(Elab.ElabOperandHasNaturalType) end,
+        [Surf.SurfField] = function() return pvm.once(Elab.ElabOperandHasNaturalType) end,
+        [Surf.SurfIndex] = function() return pvm.once(Elab.ElabOperandHasNaturalType) end,
+        [Surf.SurfAgg] = function() return pvm.once(Elab.ElabOperandHasNaturalType) end,
+        [Surf.SurfArrayLit] = function() return pvm.once(Elab.ElabOperandHasNaturalType) end,
+    })
 
     path_binding_matches = pvm.phase("surface_to_elab_path_binding_matches", {
         [Elab.ElabLocalValue] = function(self, entry_name, full_text)
@@ -709,12 +783,12 @@ function M.Define(T)
         [Surf.SurfExprMul] = same_type_binary(Elab.ElabExprMul),
         [Surf.SurfExprDiv] = same_type_binary(Elab.ElabExprDiv),
         [Surf.SurfExprRem] = same_type_binary(Elab.ElabExprRem),
-        [Surf.SurfExprEq] = cmp_binary(Elab.ElabExprEq),
-        [Surf.SurfExprNe] = cmp_binary(Elab.ElabExprNe),
-        [Surf.SurfExprLt] = cmp_binary(Elab.ElabExprLt),
-        [Surf.SurfExprLe] = cmp_binary(Elab.ElabExprLe),
-        [Surf.SurfExprGt] = cmp_binary(Elab.ElabExprGt),
-        [Surf.SurfExprGe] = cmp_binary(Elab.ElabExprGe),
+        [Surf.SurfExprEq] = comparison_binary(Elab.ElabExprEq),
+        [Surf.SurfExprNe] = comparison_binary(Elab.ElabExprNe),
+        [Surf.SurfExprLt] = comparison_binary(Elab.ElabExprLt),
+        [Surf.SurfExprLe] = comparison_binary(Elab.ElabExprLe),
+        [Surf.SurfExprGt] = comparison_binary(Elab.ElabExprGt),
+        [Surf.SurfExprGe] = comparison_binary(Elab.ElabExprGe),
         [Surf.SurfExprAnd] = bool_binary(Elab.ElabExprAnd),
         [Surf.SurfExprOr] = bool_binary(Elab.ElabExprOr),
         [Surf.SurfExprBitAnd] = same_type_binary(Elab.ElabExprBitAnd),

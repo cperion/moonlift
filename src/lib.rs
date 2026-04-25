@@ -108,6 +108,8 @@ pub enum BackCmd {
     DataInitFloat(BackDataId, u32, BackScalar, String),
     DataInitBool(BackDataId, u32, bool),
     DataAddr(BackValId, BackDataId),
+    FuncAddr(BackValId, BackFuncId),
+    ExternAddr(BackValId, BackExternId),
     DeclareFuncLocal(BackFuncId, BackSigId),
     DeclareFuncExport(BackFuncId, BackSigId),
     DeclareFuncExtern(BackExternId, String, BackSigId),
@@ -1054,6 +1056,36 @@ impl<'a, 'b> FunctionLowerer<'a, 'b> {
                 let data = self.data(data_id)?;
                 let gv = self.module.declare_data_in_func(data, &mut self.builder.func);
                 let value = self.builder.ins().global_value(self.ptr_ty, gv);
+                self.bind_value(dst, value)
+            }
+            BackCmd::FuncAddr(dst, func) => {
+                let decl = self.funcs.get(func).ok_or_else(|| {
+                    MoonliftError::new(format!(
+                        "function '{}' takes address of unknown function '{}'",
+                        self.func_name.as_str(),
+                        func.as_str()
+                    ))
+                })?;
+                let func_id = decl.func_id.ok_or_else(|| {
+                    MoonliftError::new(format!("internal error: missing FuncId for function '{}'", func.as_str()))
+                })?;
+                let func_ref = self.module.declare_func_in_func(func_id, self.builder.func);
+                let value = self.builder.ins().func_addr(self.ptr_ty, func_ref);
+                self.bind_value(dst, value)
+            }
+            BackCmd::ExternAddr(dst, extern_id) => {
+                let decl = self.externs.get(extern_id).ok_or_else(|| {
+                    MoonliftError::new(format!(
+                        "function '{}' takes address of unknown extern '{}'",
+                        self.func_name.as_str(),
+                        extern_id.as_str()
+                    ))
+                })?;
+                let func_id = decl.func_id.ok_or_else(|| {
+                    MoonliftError::new(format!("internal error: missing FuncId for extern '{}'", extern_id.as_str()))
+                })?;
+                let func_ref = self.module.declare_func_in_func(func_id, self.builder.func);
+                let value = self.builder.ins().func_addr(self.ptr_ty, func_ref);
                 self.bind_value(dst, value)
             }
             BackCmd::ConstInt(dst, ty, raw) => {

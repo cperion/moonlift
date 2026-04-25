@@ -573,16 +573,10 @@ They do **not** claim every implementation piece is complete today.
 
 In particular, the implementation still needs to finish work such as:
 
-- finishing expression-loop syntax cleanup after implementing the new statement-loop syntax (`for ... in ... do ... end` / `while ... with ... do ... end`)
-- hardening tagged unions, untagged unions, and enum desugaring
-- hardening closure desugaring to `struct { fn, ctx }`
-- maintaining `export func` visibility distinction through all module paths
-- completing view construction primitives
-- adding cross-module const reference support
-- adding const intrinsic evaluation via pvm dispatch
+- adding const intrinsic evaluation via pvm dispatch if const intrinsics become part of the language
 - completing aggregate/non-scalar load/call/return support under the single-result + explicit-struct model
-- completing first-class function-value handling (storable code pointers)
-- completing array-value indexing (copy-out via `base + i*elem_size` load)
+- completing closure invocation sugar / closure-call lowering on top of the `struct { fn, ctx }` representation
+- completing descriptor-value ABI details for slice/view arguments and results
 - aligning Rust/FFI ABI details with the frozen single-result descriptor/aggregate strategy
 
 Use `moonlift/CURRENT_IMPLEMENTATION_STATUS.md` for what exists today.

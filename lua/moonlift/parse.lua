@@ -945,6 +945,12 @@ function Parser:parse_stmt(path)
     elseif kind == "continue" then
         self:bump()
         stmt = self.Surf.SurfContinue
+    elseif kind == "assert" then
+        self:bump()
+        self:expect("(")
+        local cond = self:parse_expr()
+        self:expect(")")
+        stmt = self.Surf.SurfAssert(cond)
     elseif kind == "if" then
         self:bump()
         stmt = self:parse_if_stmt_after_cond(self:parse_expr(), path)

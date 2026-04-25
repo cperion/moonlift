@@ -204,6 +204,7 @@ assert(pvm.one(L.lower_module(import_module)) == Elab.ElabModule("", {
 
 local typed_return_module = Surf.SurfModule({
     Surf.SurfItemFunc(Surf.SurfFuncExport("zero_u32", {}, Surf.SurfTU32, {
+        Surf.SurfAssert(Surf.SurfBool(true)),
         Surf.SurfReturnValue(Surf.SurfInt("0")),
     })),
     Surf.SurfItemFunc(Surf.SurfFuncExport("branch_u32", { Surf.SurfParam("flag", Surf.SurfTBool) }, Surf.SurfTU32, {
@@ -213,10 +214,26 @@ local typed_return_module = Surf.SurfModule({
             Surf.SurfReturnValue(Surf.SurfInt("0")),
         }),
     })),
+    Surf.SurfItemFunc(Surf.SurfFuncExport("sum_u32", {}, Surf.SurfTU32, {
+        Surf.SurfReturnValue(Surf.SurfExprAdd(Surf.SurfInt("1"), Surf.SurfInt("2"))),
+    })),
+    Surf.SurfItemFunc(Surf.SurfFuncExport("mask_u32", {}, Surf.SurfTU32, {
+        Surf.SurfReturnValue(Surf.SurfExprBitOr(Surf.SurfInt("1"), Surf.SurfInt("2"))),
+    })),
+    Surf.SurfItemFunc(Surf.SurfFuncExport("lit_lt_u32", { Surf.SurfParam("x", Surf.SurfTU32) }, Surf.SurfTBool, {
+        Surf.SurfReturnValue(Surf.SurfExprLt(Surf.SurfInt("1"), Surf.SurfNameRef("x"))),
+    })),
+    Surf.SurfItemFunc(Surf.SurfFuncExport("u32_lt_lit", { Surf.SurfParam("x", Surf.SurfTU32) }, Surf.SurfTBool, {
+        Surf.SurfReturnValue(Surf.SurfExprLt(Surf.SurfNameRef("x"), Surf.SurfInt("10"))),
+    })),
+    Surf.SurfItemFunc(Surf.SurfFuncExport("ptr_view4", { Surf.SurfParam("p", Surf.SurfTPtr(Surf.SurfTI32)) }, Surf.SurfTView(Surf.SurfTI32), {
+        Surf.SurfReturnValue(Surf.SurfExprViewFromPtr(Surf.SurfNameRef("p"), Surf.SurfInt("4"))),
+    })),
 })
 
 assert(pvm.one(L.lower_module(typed_return_module)) == Elab.ElabModule("", {
     Elab.ElabItemFunc(Elab.ElabFuncExport("zero_u32", {}, Elab.ElabTU32, {
+        Elab.ElabAssert(Elab.ElabBool(true, Elab.ElabTBool)),
         Elab.ElabReturnValue(Elab.ElabInt("0", Elab.ElabTU32)),
     })),
     Elab.ElabItemFunc(Elab.ElabFuncExport("branch_u32", { Elab.ElabParam("flag", Elab.ElabTBool) }, Elab.ElabTU32, {
@@ -225,6 +242,41 @@ assert(pvm.one(L.lower_module(typed_return_module)) == Elab.ElabModule("", {
             { Elab.ElabReturnValue(Elab.ElabInt("1", Elab.ElabTU32)) },
             { Elab.ElabReturnValue(Elab.ElabInt("0", Elab.ElabTU32)) }
         ),
+    })),
+    Elab.ElabItemFunc(Elab.ElabFuncExport("sum_u32", {}, Elab.ElabTU32, {
+        Elab.ElabReturnValue(Elab.ElabExprAdd(
+            Elab.ElabTU32,
+            Elab.ElabInt("1", Elab.ElabTU32),
+            Elab.ElabInt("2", Elab.ElabTU32)
+        )),
+    })),
+    Elab.ElabItemFunc(Elab.ElabFuncExport("mask_u32", {}, Elab.ElabTU32, {
+        Elab.ElabReturnValue(Elab.ElabExprBitOr(
+            Elab.ElabTU32,
+            Elab.ElabInt("1", Elab.ElabTU32),
+            Elab.ElabInt("2", Elab.ElabTU32)
+        )),
+    })),
+    Elab.ElabItemFunc(Elab.ElabFuncExport("lit_lt_u32", { Elab.ElabParam("x", Elab.ElabTU32) }, Elab.ElabTBool, {
+        Elab.ElabReturnValue(Elab.ElabExprLt(
+            Elab.ElabTBool,
+            Elab.ElabInt("1", Elab.ElabTU32),
+            Elab.ElabBindingExpr(Elab.ElabArg(0, "x", Elab.ElabTU32))
+        )),
+    })),
+    Elab.ElabItemFunc(Elab.ElabFuncExport("u32_lt_lit", { Elab.ElabParam("x", Elab.ElabTU32) }, Elab.ElabTBool, {
+        Elab.ElabReturnValue(Elab.ElabExprLt(
+            Elab.ElabTBool,
+            Elab.ElabBindingExpr(Elab.ElabArg(0, "x", Elab.ElabTU32)),
+            Elab.ElabInt("10", Elab.ElabTU32)
+        )),
+    })),
+    Elab.ElabItemFunc(Elab.ElabFuncExport("ptr_view4", { Elab.ElabParam("p", Elab.ElabTPtr(Elab.ElabTI32)) }, Elab.ElabTView(Elab.ElabTI32), {
+        Elab.ElabReturnValue(Elab.ElabExprViewFromPtr(
+            Elab.ElabBindingExpr(Elab.ElabArg(0, "p", Elab.ElabTPtr(Elab.ElabTI32))),
+            Elab.ElabInt("4", Elab.ElabTIndex),
+            Elab.ElabTView(Elab.ElabTI32)
+        )),
     })),
 }))
 

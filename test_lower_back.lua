@@ -78,6 +78,72 @@ assert(add == Back.BackExprPlan({
     Back.BackCmdIadd(Back.BackValId("expr.add"), Back.BackI32, Back.BackValId("local:lx"), Back.BackValId("expr.add.rhs")),
 }, Back.BackValId("expr.add"), Back.BackI32))
 
+local cast_i32_f64 = one_expr(
+    Sem.SemExprCastTo(
+        Sem.SemTF64,
+        Sem.SemExprBinding(Sem.SemBindLocalValue("lx", "x", Sem.SemTI32))
+    ),
+    "expr.cast_i32_f64"
+)
+assert(cast_i32_f64 == Back.BackExprPlan({
+    Back.BackCmdSToF(Back.BackValId("expr.cast_i32_f64"), Back.BackF64, Back.BackValId("local:lx")),
+}, Back.BackValId("expr.cast_i32_f64"), Back.BackF64))
+
+local cast_i64_i32 = one_expr(
+    Sem.SemExprCastTo(
+        Sem.SemTI32,
+        Sem.SemExprBinding(Sem.SemBindLocalValue("wide", "wide", Sem.SemTI64))
+    ),
+    "expr.cast_i64_i32"
+)
+assert(cast_i64_i32 == Back.BackExprPlan({
+    Back.BackCmdIreduce(Back.BackValId("expr.cast_i64_i32"), Back.BackI32, Back.BackValId("local:wide")),
+}, Back.BackValId("expr.cast_i64_i32"), Back.BackI32))
+
+local trunc_i64_i32 = one_expr(
+    Sem.SemExprTruncTo(
+        Sem.SemTI32,
+        Sem.SemExprBinding(Sem.SemBindLocalValue("wide", "wide", Sem.SemTI64))
+    ),
+    "expr.trunc_i64_i32"
+)
+assert(trunc_i64_i32 == Back.BackExprPlan({
+    Back.BackCmdIreduce(Back.BackValId("expr.trunc_i64_i32"), Back.BackI32, Back.BackValId("local:wide")),
+}, Back.BackValId("expr.trunc_i64_i32"), Back.BackI32))
+
+local zext_u8_u32 = one_expr(
+    Sem.SemExprZExtTo(
+        Sem.SemTU32,
+        Sem.SemExprBinding(Sem.SemBindLocalValue("byte", "byte", Sem.SemTU8))
+    ),
+    "expr.zext_u8_u32"
+)
+assert(zext_u8_u32 == Back.BackExprPlan({
+    Back.BackCmdUextend(Back.BackValId("expr.zext_u8_u32"), Back.BackU32, Back.BackValId("local:byte")),
+}, Back.BackValId("expr.zext_u8_u32"), Back.BackU32))
+
+local sext_i8_i32 = one_expr(
+    Sem.SemExprSExtTo(
+        Sem.SemTI32,
+        Sem.SemExprBinding(Sem.SemBindLocalValue("sbyte", "sbyte", Sem.SemTI8))
+    ),
+    "expr.sext_i8_i32"
+)
+assert(sext_i8_i32 == Back.BackExprPlan({
+    Back.BackCmdSextend(Back.BackValId("expr.sext_i8_i32"), Back.BackI32, Back.BackValId("local:sbyte")),
+}, Back.BackValId("expr.sext_i8_i32"), Back.BackI32))
+
+local bitcast_f32_u32 = one_expr(
+    Sem.SemExprBitcastTo(
+        Sem.SemTU32,
+        Sem.SemExprBinding(Sem.SemBindLocalValue("f", "f", Sem.SemTF32))
+    ),
+    "expr.bitcast_f32_u32"
+)
+assert(bitcast_f32_u32 == Back.BackExprPlan({
+    Back.BackCmdBitcast(Back.BackValId("expr.bitcast_f32_u32"), Back.BackU32, Back.BackValId("local:f")),
+}, Back.BackValId("expr.bitcast_f32_u32"), Back.BackU32))
+
 local cell_read = one_expr(
     Sem.SemExprBinding(Sem.SemBindLocalCell("cx", "x", Sem.SemTI32)),
     "expr.cell"

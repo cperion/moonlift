@@ -1138,6 +1138,9 @@ function M.Define(T)
         [Elab.ElabExprStmt] = function(self, const_env)
             return pvm.once(Sem.SemStmtExpr(one_expr(self.expr, const_env)))
         end,
+        [Elab.ElabAssert] = function(self, const_env)
+            return pvm.once(Sem.SemStmtAssert(one_expr(self.cond, const_env)))
+        end,
         [Elab.ElabIf] = function(self, const_env)
             return pvm.once(Sem.SemStmtIf(one_expr(self.cond, const_env), lower_stmt_list(self.then_body, const_env), lower_stmt_list(self.else_body, const_env)))
         end,

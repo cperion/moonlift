@@ -56,6 +56,7 @@ This inventory was based on the current implementation files:
 - `moonlift/lua/moonlift/lower_elab_to_sem.lua`
 - `moonlift/lua/moonlift/resolve_sem_layout.lua`
 - `moonlift/lua/moonlift/lower_sem_to_back.lua`
+- `moonlift/lua/moonlift/lower_sem_to_back_cast.lua`
 - `moonlift/lua/moonlift/jit.lua`
 - `moonlift/src/lib.rs`
 - `moonlift/src/ffi.rs`
@@ -76,7 +77,11 @@ The current actual ASDL defines a real closed compiler stack:
 - `MoonliftSem`
 - `MoonliftBack`
 
-And the current implementation already contains a real middle/back-end path for significant parts of that stack.
+It also now defines the future open-code layer vocabulary:
+
+- `MoonliftMeta`
+
+The current implementation already contains a real middle/back-end path for significant parts of the closed stack. The `MoonliftMeta` ASDL is present as one coherent open-code vocabulary, but its builder/source frontends, normalization phases, slot-filling phases, and `Meta -> Elab` sealing phases are not implemented yet.
 
 ## High-level summary
 
@@ -117,7 +122,7 @@ And the current implementation already contains a real middle/back-end path for 
 - fuller const evaluation and immediate propagation
 - fuller aggregate / non-scalar ABI support
 - richer diagnostics and source mapping through later layers
-- quote/open-code layer (`Meta`) from the design docs
+- quote/open-code operations over the now-defined `MoonliftMeta` ASDL layer
 
 ---
 
@@ -152,7 +157,7 @@ Implemented in:
 - `SurfNameRef`
 - authored dotted value syntax with later resolution (`SurfExprDot`)
 - unary ops
-- binary ops
+- binary ops, including comparison operand contextual typing for literal/contextual left operands against typed right operands
 - cast forms
 - intrinsic calls
 - calls
@@ -164,12 +169,14 @@ Implemented in:
 - `switch` expr
 - block expr
 - loop expr
+- authored view constructors, with descriptor operands (`start`, `len`, `stride`, `lane`) elaborated as `index`
 
 ### Statements implemented
 - `let`
 - `var`
 - `set`
 - expr stmt
+- authored `assert(cond)` through `SurfAssert -> ElabAssert -> SemStmtAssert`
 - `if`
 - `switch`
 - `return`
@@ -294,7 +301,7 @@ Implemented in:
 - bool lowering
 - comparisons
 - bitwise ops
-- cast / extend / reduce / promote / demote / float-int conversion command emission
+- scalar cast / extend / reduce / promote / demote / float-int conversion command emission, including `SemExprCastTo` through explicit `SemCastOp` selection and explicit `trunc` / `zext` / `sext` / `bitcast` expression lowering
 - select
 - direct / extern / indirect calls
 
@@ -381,7 +388,6 @@ Some semantic forms are real and used downstream, but are still reached mostly t
 
 Important current examples include:
 
-- `SemStmtAssert`
 - `SemExprLoad`
 - resolved field refs like `SemFieldByOffset`
 - lower-level explicit view/index forms such as `SemView*` and `SemIndexBaseView`
@@ -589,13 +595,13 @@ The current frontend now supports an authored top-level path for:
 - using those named types in aggregate literals, field access, and qualified module paths
 - carrying them through `Surface -> Elab -> Sem -> resolve_sem_layout`
 
-Frozen extensions not yet implemented:
+Frozen extensions now implemented on the authored module path:
 
-- enums: `type Color = enum { red, green, blue }` — desugars to const declarations
-- tagged unions: `type Result = ok(i32) | err(i32)` — desugars to discriminant struct
-- untagged unions: `type U = union { x: i32, y: f32 }` — desugars to overlapping struct
+- enums: `type Color = enum { red, green, blue }` desugar to sibling const declarations
+- tagged unions: `type Result = ok(i32) | err(i32)` desugar to a discriminant struct plus tag consts
+- untagged unions: `type U = union { x: i32, y: f32 }` lower through explicit union type/layout items
 
-All three are surface-only desugaring at `Surface -> Elab`.
+Enum and tagged-union expansion happen in the parser/module item path before ordinary `Surface -> Elab`; untagged unions lower through the existing explicit `SurfUnion -> ElabUnion -> SemUnion` path.
 
 ---
 
@@ -642,7 +648,7 @@ The reboot parser and frontend lowering now include intrinsic call parsing/bindi
 
 Intrinsic argument elaboration is phase-driven by `SurfIntrinsic`, so meaningful operand typing is explicit instead of parser-side magic. For example, rotate shift literals are elaborated to the value operand type, and `assume(...)` elaborates its condition as `bool` while remaining a void/control intrinsic.
 
-Return-value elaboration is also now context typed by the function result type. `return 0` in an authored `-> u32` function elaborates as a `u32` integer literal, and that explicit result type is threaded through nested statement bodies such as `if`, `switch`, loops, and block-expression statement lists.
+Return-value elaboration is also now context typed by the function result type. `return 0` in an authored `-> u32` function elaborates as a `u32` integer literal, and that explicit result type is threaded through nested statement bodies such as `if`, `switch`, loops, and block-expression statement lists. Arithmetic/bitwise binary expression elaboration now uses the expected result type for the left operand, then uses the left operand type for the right operand, so `return 1 + 2` in a `-> u32` function elaborates the whole expression as `u32` without authored casts. `for` range bounds elaborate with the `index` type, so literal-bounded ranges such as `for i in 1..5` are naturally index-typed in `Surface -> Elab`.
 
 ### `Sem -> Back` status
 `SemExprIntrinsicCall` lowers in value position for scalar-result intrinsics and in materialization position where that is meaningful.
@@ -658,16 +664,15 @@ Current explicit limitations:
 
 ---
 
-## 5.12 `SemStmtAssert` is only partially integrated
+## 5.12 Authored `assert(...)` is integrated through the closed path
 
-`SemStmtAssert` exists and is lowered in `Sem -> Back`.
+Runtime assertions are now represented across the closed compiler path:
 
-But there is no current:
-- `Surface` assert node
-- `Elab` assert node
-- authored frontend path producing it
+- `SurfAssert(cond)` from authored `assert(cond)` statements
+- `ElabAssert(cond)` with `cond` elaborated as `bool`
+- `SemStmtAssert(cond)` for semantic/backend lowering
 
-So assert exists as an internal/manual semantic feature, not as a fully surfaced language feature.
+`Sem -> Back` lowers assertions to trap-on-false control flow using the existing `BackCmdTrap` path.
 
 ---
 
@@ -722,12 +727,14 @@ What exists:
 - array copy logic
 - array const-data init
 
-What is still missing:
-- true array-value indexing all the way through `Sem -> Back`
+What is now implemented:
+- scalar array-value indexing all the way through `Sem -> Back`
+- authored array literals materialized to memory, then indexed through explicit bounded-view/index address lowering
 
-Current `Sem -> Back` rejects array-value indexing paths that need explicit aggregate layout/value indexing support.
+Current remaining restrictions:
+- non-scalar array element results still require address/materialization context rather than direct value returns
 
-So arrays are partially real, but not fully first-class indexed values all the way down.
+So arrays are first-class for the current scalar indexed-value path, with broader non-scalar element ABI/materialization still part of the aggregate-value work.
 
 ---
 
@@ -747,10 +754,15 @@ Missing or restricted:
 - non-scalar load results
 - non-scalar call arguments/results under that frozen aggregate/descriptor ABI
 - non-scalar return values through the hidden-pointer result path
-- full function-value read/storage/call lowering
+- closure invocation sugar / full closure-call lowering
 - slice/view descriptor argument/result completion across the current Back/FFI path
 
-So the effective callable ABI today is still mostly scalar/pointer single-result, while the broader frozen aggregate/descriptor/function-value target is not complete yet.
+Newly implemented:
+- function values have pointer-sized layout/storage
+- direct function/extern binding reads lower to explicit backend function-address commands
+- closure desugaring can now emit function-valued fields in generated closure structs and compile those structs through the authored front door
+
+So the effective callable ABI today is still mostly scalar/pointer single-result, while the broader frozen aggregate/descriptor/closure-call target is not complete yet.
 
 ---
 
@@ -1032,23 +1044,60 @@ The current frozen direction is now:
 
 This is a design-freeze/status point, not a claim that the missing commands or runtime/value-model work are already implemented.
 
-## 5.25 No `Meta` / quote / open-code implementation yet
+## 5.25 `MoonliftMeta` ASDL exists; quote/open-code operations are not implemented yet
 
 The metaprogramming layer discussed in:
 
 - `moonlift/QUOTING_SYSTEM_DESIGN.md`
 
-does **not** exist in code yet.
+now has a coherent ASDL vocabulary in `moonlift/lua/moonlift/asdl.lua`:
 
-Missing entirely:
 - `MoonliftMeta`
-- fragment values
-- open elaborated templates
-- slot/import machinery
-- `Meta -> Elab` closure phases
-- quote-time walk/query/rewrite over open code
+- open type/domain/expr/stmt/loop families
+- fragment nodes
+- function/const/static/type/item/module nodes
+- params/imports/open-set/slot nodes
+- slot value and slot binding nodes
 
-So the meta side is still design-only.
+There is also an initial builder/helper API in:
+
+- `moonlift/lua/moonlift/meta.lua`
+
+That helper API constructs canonical `MoonliftMeta` ASDL values and installs small convenience methods on Meta slots, symbols, and fragments. It covers the current ASDL nouns, including type/value constructors, slots, imports, params, open sets, bindings, places, domains, loops, exprs, stmts, fragments, funcs, consts, statics, type declarations, items, modules, and slot bindings. These helpers are construction conveniences only.
+
+There is also an initial source quote frontend in:
+
+- `moonlift/lua/moonlift/meta_source.lua`
+
+That API parses ordinary Moonlift source snippets against explicit Meta params/open sets, lowers them through `Surface -> Elab`, and converts them into `MoonliftMeta` through explicit source-environment ASDL mappings. It currently supports expr fragments, single-statement / statement-list region fragments, function items, const items, static items, and modules. It also supports `$name` quote holes as syntax for explicit Meta slots/open-code holes; the hole targets remain ASDL values.
+
+There are also initial query/validation/rewrite APIs in:
+
+- `moonlift/lua/moonlift/meta_query.lua`
+- `moonlift/lua/moonlift/meta_validate.lua`
+- `moonlift/lua/moonlift/rewrite_meta.lua`
+
+Those APIs provide PVM-backed structural walking to flat `MetaFact` values, explicit `MetaValidationReport` closedness checks, and ASDL-visible `MetaRewriteSet` rewrite rules for identity-based type/binding/place/domain/expr/stmt/item rewrites.
+
+There is also an initial structural expansion API in:
+
+- `moonlift/lua/moonlift/expand_meta.lua`
+
+That API provides `pvm.phase(...)` boundaries for slot filling, param substitution, fragment expansion, item/module splice expansion, and deterministic local-id rebasing via explicit `use_id` fields and `MetaExpandEnv`.
+
+There is also an initial closure/sealing API in:
+
+- `moonlift/lua/moonlift/seal_meta_to_elab.lua`
+
+That API provides `pvm.phase(...)` boundaries for sealing closed Meta values into ordinary `MoonliftElab` values across the current Meta families: types, intrinsics, bindings, places, index bases, domains, loops, exprs, stmts, funcs, extern funcs, consts, statics, imports, type declarations, items, modules, and expr/region fragment bodies. It rejects unfilled slots and unexpanded fragment/module splices with explicit errors.
+
+Still missing / intentionally deferred:
+
+- hosted parser/session integration for non-string quote literals
+- richer source-mapped diagnostics for quote holes and rewrites
+- alpha normalization / canonicalization beyond deterministic `use_id` rebasing
+
+So the meta side is now **ASDL plus builder construction helpers plus source quote elaboration plus query/validation/rewrite tooling plus structural expansion plus initial closed Meta -> Elab sealing**.
 
 ---
 
@@ -1071,9 +1120,8 @@ This distinction still matters.
 - their downstream `Sem -> Back` lowering
 
 ### Still missing today
-- `export func` visibility distinction (now frozen, not yet implemented)
-- enum/tagged-union/untagged-union desugaring at `Surface -> Elab` (now frozen)
-- closure desugaring at `Surface -> Elab` (now frozen)
+- closure invocation sugar / full closure call lowering
+- broader non-scalar ABI completion for aggregate/descriptor values
 
 ---
 
@@ -1180,11 +1228,31 @@ The repo now also has a ratcheting semantic-dispatch audit for active semantic/b
 The audited active semantic/backend files are currently at **zero baseline findings**.
 That means the previously-inventoried raw `.kind` / raw helper type-classification debt in those audited files has been paid down, and new sites should now fail as immediate regressions.
 
+There is also now a small scalar-only Terra comparison benchmark track in:
+
+- `moonlift/benchmarks/README.md`
+- `moonlift/benchmarks/bench_moonlift.lua`
+- `moonlift/benchmarks/bench_terra.t`
+- `moonlift/benchmarks/bench_moonlift_shapes.lua`
+- `moonlift/benchmarks/FINDINGS.md`
+- `moonlift/benchmarks/run_vs_terra.sh`
+
+This benchmark path intentionally exercises the current closed `Surface -> Elab -> Sem -> Back -> Artifact` compiler path on scalar kernels only. The separate `bench_moonlift_shapes.lua` track compares generic scalar formulations against explicit Moonlift source/code-shape constructs such as range-domain `for`, `select`, and scalar intrinsics. These benchmarks should not be treated as aggregate/slice/view/value-model coverage until those runtime features are implemented end-to-end.
+
+There is also an initial ASDL-backed vectorization fact-gathering prototype in:
+
+- `moonlift/lua/moonlift/vector_facts.lua`
+- `moonlift/test_vector_facts.lua`
+
+This defines a new `MoonliftVec` ASDL vocabulary for vector expression facts, counted-loop facts, add-reduction facts, reject reasons, and an initial add-reduction vector plan. The current prototype detects simple `for i in range with acc ... next acc = acc + lane_expr` loops recursively through PVM phases. It does **not** yet lower to vector `Back` commands or Cranelift vector IR; it is the first explicit facts/plan layer needed before vector codegen.
+
 ## 8.4 The biggest missing future-architecture area
 
-The biggest planned-but-not-implemented area is the open-code/meta layer described in:
+The biggest planned-but-not-operational area is the open-code/meta layer described in:
 
 - `moonlift/QUOTING_SYSTEM_DESIGN.md`
+
+The `MoonliftMeta` ASDL vocabulary, initial builder construction helpers, source quote elaboration, structural query/validation/rewrite tooling, structural expansion/slot-filling/splice expansion, and initial closed Meta -> Elab sealing exist. Hosted parser/session integration and alpha normalization remain deferred.
 
 And the deferred future host/parser integration strategy described in:
 
@@ -1194,7 +1262,7 @@ And the deferred future host/parser integration strategy described in:
 
 # 9. Short summary
 
-> Moonlift now has a frozen language design with `for ... in` / `while ... with` loops, closures as surface sugar, enum/union desugaring, `export func` visibility, and view construction primitives. The existing implementation has a real parser, real top-level item lowering, qualified module imports, authored struct type/layout synthesis, a layout-resolution pass, canonical compile helpers, new statement-loop syntax with surviving carries, and a substantial scalar backend. Remaining implementation work includes: expression-loop syntax cleanup, full enum/union/closure hardening, view construction completion, array-value indexing, function-value storage, cross-module consts, const intrinsics, and the future `Meta` layer.
+> Moonlift now has a frozen language design with `for ... in` / `while ... with` loops, closures as surface sugar, enum/union desugaring, `export func` visibility, and view construction primitives. The existing implementation has a real parser, real top-level item lowering, qualified module imports, authored struct type/layout synthesis, a layout-resolution pass, canonical compile helpers, new statement-loop syntax with surviving carries, and a substantial scalar backend. Remaining implementation work includes: expression-loop syntax cleanup, full enum/union/closure hardening, view construction completion, array-value indexing, function-value storage, cross-module consts, const intrinsics, and operational `Meta` construction/normalization/sealing over the now-present `MoonliftMeta` ASDL layer.
 
 And if compressed even further:
 
@@ -1202,7 +1270,7 @@ And if compressed even further:
 - **scalar backend:** real
 - **new loop/type/closure syntax:** statement loops are implemented; closure/type syntax exists but still needs hardening
 - **slice/view/value-model:** still incomplete
-- **meta layer:** design-only
+- **meta layer:** ASDL vocabulary, builder helpers, source quote elaboration, structural query/validation/rewrite tooling, structural expansion/slot filling/splice expansion, and initial closed Meta -> Elab sealing exist; hosted parser integration and alpha normalization are still deferred
 
 ---
 

@@ -95,6 +95,8 @@ local function free_vars_in_body(stmts, closure_params, Surf)
             walk_expr(stmt.value)
         elseif sk == "SurfExprStmt" then
             walk_expr(stmt.expr)
+        elseif sk == "SurfAssert" then
+            walk_expr(stmt.cond)
         elseif sk == "SurfReturnValue" then
             walk_expr(stmt.value)
         elseif sk == "SurfBreakValue" then
@@ -336,6 +338,8 @@ function M.desugar(module, Surf)
                             rewritten_body[#rewritten_body + 1] = Surf.SurfReturnValue(rewrite_expr(s.value))
                         elseif s.kind == "SurfExprStmt" then
                             rewritten_body[#rewritten_body + 1] = Surf.SurfExprStmt(rewrite_expr(s.expr))
+                        elseif s.kind == "SurfAssert" then
+                            rewritten_body[#rewritten_body + 1] = Surf.SurfAssert(rewrite_expr(s.cond))
                         elseif s.kind == "SurfLet" then
                             rewritten_body[#rewritten_body + 1] = Surf.SurfLet(s.name, clone_type(s.ty), rewrite_expr(s.init))
                         elseif s.kind == "SurfVar" then
@@ -391,7 +395,7 @@ function M.desugar(module, Surf)
                         new_stmts[#new_stmts + 1] = ps
                     end
                     pre_stmts = {}
-                    new_stmt = Surf[k](stmt.id or stmt.name, stmt.name, clone_type(stmt.ty), new_init)
+                    new_stmt = Surf[k](stmt.name, clone_type(stmt.ty), new_init)
                 end
             elseif k == "SurfExprStmt" then
                 local new_expr = replace_closures(stmt.expr)
@@ -401,6 +405,15 @@ function M.desugar(module, Surf)
                     end
                     pre_stmts = {}
                     new_stmt = Surf.SurfExprStmt(new_expr)
+                end
+            elseif k == "SurfAssert" then
+                local new_cond = replace_closures(stmt.cond)
+                if new_cond ~= stmt.cond then
+                    for _, ps in ipairs(pre_stmts) do
+                        new_stmts[#new_stmts + 1] = ps
+                    end
+                    pre_stmts = {}
+                    new_stmt = Surf.SurfAssert(new_cond)
                 end
             elseif k == "SurfReturnValue" then
                 local new_val = replace_closures(stmt.value)

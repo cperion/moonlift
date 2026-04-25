@@ -62,6 +62,9 @@ assert(dot_set == Surf.SurfSet(
     Surf.SurfInt("1")
 ))
 
+local assert_stmt = P.parse_stmt("assert(x == 1)")
+assert(assert_stmt == Surf.SurfAssert(Surf.SurfExprEq(Surf.SurfNameRef("x"), Surf.SurfInt("1"))))
+
 local stmt = P.parse_stmt("dst[i] = src[i] + 1")
 assert(stmt == Surf.SurfSet(
     Surf.SurfPlaceIndex(Surf.SurfNameRef("dst"), Surf.SurfNameRef("i")),

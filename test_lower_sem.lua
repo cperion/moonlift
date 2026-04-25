@@ -233,6 +233,8 @@ assert(one_stmt(Elab.ElabBreak) == Sem.SemStmtBreak)
 assert(one_stmt(Elab.ElabBreakValue(Elab.ElabInt("5", Elab.ElabTI32))) ==
     Sem.SemStmtBreakValue(Sem.SemExprConstInt(Sem.SemTI32, "5")))
 assert(one_stmt(Elab.ElabContinue) == Sem.SemStmtContinue)
+assert(one_stmt(Elab.ElabAssert(Elab.ElabBool(true, Elab.ElabTBool))) ==
+    Sem.SemStmtAssert(Sem.SemExprConstBool(true)))
 
 local switch_expr = one_expr(Elab.ElabSwitchExpr(
     Elab.ElabBindingExpr(Elab.ElabLocalValue("lx", "x", Elab.ElabTI32)),
