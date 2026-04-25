@@ -10,6 +10,7 @@ function M.Define(T)
     local sem_expr_type
     local sem_place_type
     local resolve_type_mem_layout
+    local synthesize_type_decl_layout
     local resolve_type_layout
     local resolve_layout_field
     local resolve_field_ref_from_base_type
@@ -44,6 +45,10 @@ function M.Define(T)
 
     local function one_type_mem_layout(node, layout_env, module, cache, visiting)
         return pvm.one(resolve_type_mem_layout(node, layout_env, module, cache, visiting))
+    end
+
+    local function one_type_decl_layout(node, module_name, base_layout_env, module, cache, visiting)
+        return pvm.one(synthesize_type_decl_layout(node, module_name, base_layout_env, module, cache, visiting))
     end
 
     local function one_type_layout(node, layout_env)
@@ -232,7 +237,7 @@ function M.Define(T)
         if k == "SemTF32" then return "f32" end
         if k == "SemTF64" then return "f64" end
         if k == "SemTIndex" then return "index" end
-        if k == "SemTPtr" then return "ptr" end
+        if k == "SemTRawPtr" then return "ptr" end
         if k == "SemTPtrTo" then return "ptr(" .. sem_type_text(ty.elem) .. ")" end
         if k == "SemTArray" then return "array(" .. sem_type_text(ty.elem) .. ")" end
         if k == "SemTSlice" then return "slice(" .. sem_type_text(ty.elem) .. ")" end
@@ -286,6 +291,44 @@ function M.Define(T)
         return nil
     end
 
+    synthesize_type_decl_layout = pvm.phase("moonlift_sem_layout_synthesize_type_decl_layout", {
+        [Sem.SemStruct] = function(self, module_name, base_layout_env, module, cache, visiting)
+            local offset = 0
+            local struct_align = 1
+            local fields = {}
+            for i = 1, #self.fields do
+                local field = self.fields[i]
+                local field_layout = one_type_mem_layout(field.ty, base_layout_env, module, cache, visiting)
+                offset = align_up(offset, field_layout.align)
+                fields[i] = Sem.SemFieldLayout(field.field_name, offset, field.ty)
+                offset = offset + field_layout.size
+                if field_layout.align > struct_align then
+                    struct_align = field_layout.align
+                end
+            end
+            local size = align_up(offset, struct_align)
+            return pvm.once(Sem.SemLayoutNamed(module_name, self.name, fields, size, struct_align))
+        end,
+        [Sem.SemUnion] = function(self, module_name, base_layout_env, module, cache, visiting)
+            local union_size = 0
+            local union_align = 1
+            local fields = {}
+            for i = 1, #self.fields do
+                local field = self.fields[i]
+                local field_layout = one_type_mem_layout(field.ty, base_layout_env, module, cache, visiting)
+                fields[i] = Sem.SemFieldLayout(field.field_name, 0, field.ty)
+                if field_layout.size > union_size then
+                    union_size = field_layout.size
+                end
+                if field_layout.align > union_align then
+                    union_align = field_layout.align
+                end
+            end
+            local size = align_up(union_size, union_align)
+            return pvm.once(Sem.SemLayoutNamed(module_name, self.name, fields, size, union_align))
+        end,
+    })
+
     resolve_type_mem_layout = pvm.phase("moonlift_sem_layout_type_mem_layout", {
         [Sem.SemTVoid] = function()
             return pvm.once(Sem.SemMemLayout(0, 1))
@@ -323,7 +366,7 @@ function M.Define(T)
         [Sem.SemTF64] = function()
             return pvm.once(Sem.SemMemLayout(8, 8))
         end,
-        [Sem.SemTPtr] = function()
+        [Sem.SemTRawPtr] = function()
             return pvm.once(Sem.SemMemLayout(8, 8))
         end,
         [Sem.SemTIndex] = function()
@@ -357,21 +400,7 @@ function M.Define(T)
                 error("resolve_sem_layout: missing layout for named type '" .. key .. "'; the current module does not define that type item")
             end
             visiting[key] = true
-            local offset = 0
-            local struct_align = 1
-            local fields = {}
-            for i = 1, #item.fields do
-                local field = item.fields[i]
-                local field_layout = one_type_mem_layout(field.ty, base_layout_env, module, cache, visiting)
-                offset = align_up(offset, field_layout.align)
-                fields[i] = Sem.SemFieldLayout(field.field_name, offset, field.ty)
-                offset = offset + field_layout.size
-                if field_layout.align > struct_align then
-                    struct_align = field_layout.align
-                end
-            end
-            local size = align_up(offset, struct_align)
-            local synthesized = Sem.SemLayoutNamed(current_module_name, item.name, fields, size, struct_align)
+            local synthesized = one_type_decl_layout(item, current_module_name, base_layout_env, module, cache, visiting)
             cache[key] = synthesized
             visiting[key] = nil
             return pvm.once(Sem.SemMemLayout(synthesized.size, synthesized.align))
@@ -484,7 +513,7 @@ function M.Define(T)
         [Sem.SemTU64] = function() error("resolve_sem_layout: u64 has no field layout") end,
         [Sem.SemTF32] = function() error("resolve_sem_layout: f32 has no field layout") end,
         [Sem.SemTF64] = function() error("resolve_sem_layout: f64 has no field layout") end,
-        [Sem.SemTPtr] = function() error("resolve_sem_layout: raw pointers have no named field layout") end,
+        [Sem.SemTRawPtr] = function() error("resolve_sem_layout: raw pointers have no named field layout") end,
         [Sem.SemTIndex] = function() error("resolve_sem_layout: index has no field layout") end,
         [Sem.SemTPtrTo] = function() error("resolve_sem_layout: pointer-to values have no direct field layout; deref before field access") end,
         [Sem.SemTArray] = function() error("resolve_sem_layout: arrays have no named field layout") end,
@@ -524,7 +553,7 @@ function M.Define(T)
         [Sem.SemTU64] = function(self, field_ref) error("resolve_sem_layout: cannot resolve field '" .. field_ref.field_name .. "' on " .. sem_type_text(self)) end,
         [Sem.SemTF32] = function(self, field_ref) error("resolve_sem_layout: cannot resolve field '" .. field_ref.field_name .. "' on " .. sem_type_text(self)) end,
         [Sem.SemTF64] = function(self, field_ref) error("resolve_sem_layout: cannot resolve field '" .. field_ref.field_name .. "' on " .. sem_type_text(self)) end,
-        [Sem.SemTPtr] = function(self, field_ref) error("resolve_sem_layout: cannot resolve field '" .. field_ref.field_name .. "' on " .. sem_type_text(self)) end,
+        [Sem.SemTRawPtr] = function(self, field_ref) error("resolve_sem_layout: cannot resolve field '" .. field_ref.field_name .. "' on " .. sem_type_text(self)) end,
         [Sem.SemTIndex] = function(self, field_ref) error("resolve_sem_layout: cannot resolve field '" .. field_ref.field_name .. "' on " .. sem_type_text(self)) end,
         [Sem.SemTPtrTo] = function(self, field_ref) error("resolve_sem_layout: cannot resolve field '" .. field_ref.field_name .. "' on " .. sem_type_text(self) .. "; deref before field access") end,
         [Sem.SemTArray] = function(self, field_ref) error("resolve_sem_layout: cannot resolve field '" .. field_ref.field_name .. "' on " .. sem_type_text(self) .. "; arrays do not have named fields") end,
@@ -543,8 +572,8 @@ function M.Define(T)
     })
 
     resolve_view = pvm.phase("moonlift_sem_layout_resolve_view", {
-        [Sem.SemViewValue] = function(self, layout_env)
-            return pvm.once(Sem.SemViewValue(one_expr(self.base, layout_env), self.elem))
+        [Sem.SemViewFromExpr] = function(self, layout_env)
+            return pvm.once(Sem.SemViewFromExpr(one_expr(self.base, layout_env), self.elem))
         end,
         [Sem.SemViewContiguous] = function(self, layout_env)
             return pvm.once(Sem.SemViewContiguous(one_expr(self.data, layout_env), self.elem, one_expr(self.len, layout_env)))
@@ -552,11 +581,17 @@ function M.Define(T)
         [Sem.SemViewStrided] = function(self, layout_env)
             return pvm.once(Sem.SemViewStrided(one_expr(self.data, layout_env), self.elem, one_expr(self.len, layout_env), one_expr(self.stride, layout_env)))
         end,
+        [Sem.SemViewRestrided] = function(self, layout_env)
+            return pvm.once(Sem.SemViewRestrided(one_view(self.base, layout_env), self.elem, one_expr(self.stride, layout_env)))
+        end,
         [Sem.SemViewWindow] = function(self, layout_env)
             return pvm.once(Sem.SemViewWindow(one_view(self.base, layout_env), one_expr(self.start, layout_env), one_expr(self.len, layout_env)))
         end,
         [Sem.SemViewInterleaved] = function(self, layout_env)
             return pvm.once(Sem.SemViewInterleaved(one_expr(self.data, layout_env), self.elem, one_expr(self.len, layout_env), one_expr(self.stride, layout_env), one_expr(self.lane, layout_env)))
+        end,
+        [Sem.SemViewInterleavedView] = function(self, layout_env)
+            return pvm.once(Sem.SemViewInterleavedView(one_view(self.base, layout_env), self.elem, one_expr(self.stride, layout_env), one_expr(self.lane, layout_env)))
         end,
     })
 

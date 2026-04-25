@@ -225,7 +225,7 @@ function M.Define(T)
         [Sem.SemTU64] = function() return pvm.once(Sem.SemResidenceValue) end,
         [Sem.SemTF32] = function() return pvm.once(Sem.SemResidenceValue) end,
         [Sem.SemTF64] = function() return pvm.once(Sem.SemResidenceValue) end,
-        [Sem.SemTPtr] = function() return pvm.once(Sem.SemResidenceValue) end,
+        [Sem.SemTRawPtr] = function() return pvm.once(Sem.SemResidenceValue) end,
         [Sem.SemTIndex] = function() return pvm.once(Sem.SemResidenceValue) end,
         [Sem.SemTPtrTo] = function() return pvm.once(Sem.SemResidenceValue) end,
         [Sem.SemTVoid] = function() return pvm.once(Sem.SemResidenceStack) end,
@@ -309,7 +309,7 @@ function M.Define(T)
     })
 
     lower_view_entries = pvm.phase("moonlift_sem_residence_view_entries", {
-        [Sem.SemViewValue] = function(self)
+        [Sem.SemViewFromExpr] = function(self)
             return pvm.once(one_expr_entries(self.base))
         end,
         [Sem.SemViewContiguous] = function(self)
@@ -317,6 +317,9 @@ function M.Define(T)
         end,
         [Sem.SemViewStrided] = function(self)
             return pvm.once(concat_entries(one_expr_entries(self.data), one_expr_entries(self.len), one_expr_entries(self.stride)))
+        end,
+        [Sem.SemViewRestrided] = function(self)
+            return pvm.once(concat_entries(one_view_entries(self.base), one_expr_entries(self.stride)))
         end,
         [Sem.SemViewWindow] = function(self)
             return pvm.once(concat_entries(one_view_entries(self.base), one_expr_entries(self.start), one_expr_entries(self.len)))
@@ -328,6 +331,9 @@ function M.Define(T)
                 one_expr_entries(self.stride),
                 one_expr_entries(self.lane)
             ))
+        end,
+        [Sem.SemViewInterleavedView] = function(self)
+            return pvm.once(concat_entries(one_view_entries(self.base), one_expr_entries(self.stride), one_expr_entries(self.lane)))
         end,
     })
 

@@ -92,11 +92,13 @@ And the current implementation already contains a real middle/back-end path for 
 - authored/source `switch` key support for all currently intended scalar kinds: `bool`, integral scalars, and `index`
 - explicit `Sem -> Sem` const-scalar normalization before backend lowering so typed numeric / `index` const globals and pure derived scalar const expressions become immediate `SemExprConst*` / `SemExprNil` nodes instead of surviving as runtime const reads
 - top-level `Surface -> Elab` lowering for params/funcs/externs/consts/statics/imports/type-items/modules
+- explicit local/export function ASDL variants through `Surface -> Elab -> Sem`; visibility is no longer hidden in boolean fields
+- explicit struct/union ASDL variants through `Elab -> Sem -> layout`; union layout uses overlapping field offsets
 - top-level `Elab -> Sem` lowering for params/funcs/externs/consts/statics/imports/type-items/modules
 - function-arg env synthesis from params
 - sibling-item value env synthesis for funcs/consts/externs/statics
 - explicit named-module package/import synthesis for qualified cross-module value/type lookup
-- module-local type/layout env synthesis from authored `type ... = struct { ... }` items
+- module-local type/layout env synthesis from authored `type ... = struct { ... }` and `type ... = union { ... }` items
 - env-based named-type resolution through `ElabEnv.types`
 - authored intrinsic parsing/lowering through the current closed frontend path
 - semantic layout resolution pass with automatic module layout synthesis
@@ -111,7 +113,7 @@ And the current implementation already contains a real middle/back-end path for 
 - complete reboot parser coverage beyond the current bootstrap subset
 - richer module/package features beyond the current explicit named-module + `import` path
 - richer authored type-definition coverage beyond the current named-struct path
-- full slice/view lowering model
+- full first-class slice/view descriptor value model
 - fuller const evaluation and immediate propagation
 - fuller aggregate / non-scalar ABI support
 - richer diagnostics and source mapping through later layers

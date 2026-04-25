@@ -23,8 +23,7 @@ local module_node = Surf.SurfModule({
         Surf.SurfTI32,
         Surf.SurfInt("7")
     )),
-    Surf.SurfItemFunc(Surf.SurfFunc(
-        "helper", false,
+    Surf.SurfItemFunc(Surf.SurfFuncLocal("helper",
         { Surf.SurfParam("x", Surf.SurfTI32) },
         Surf.SurfTI32,
         {
@@ -34,8 +33,7 @@ local module_node = Surf.SurfModule({
             )),
         }
     )),
-    Surf.SurfItemFunc(Surf.SurfFunc(
-        "main", false,
+    Surf.SurfItemFunc(Surf.SurfFuncLocal("main",
         { Surf.SurfParam("x", Surf.SurfTI32) },
         Surf.SurfTI32,
         {
@@ -69,8 +67,7 @@ assert(lowered == Elab.ElabModule("", {
         Elab.ElabTI32,
         Elab.ElabInt("7", Elab.ElabTI32)
     )),
-    Elab.ElabItemFunc(Elab.ElabFunc(
-        "helper", false,
+    Elab.ElabItemFunc(Elab.ElabFuncLocal("helper",
         { Elab.ElabParam("x", Elab.ElabTI32) },
         Elab.ElabTI32,
         {
@@ -81,8 +78,7 @@ assert(lowered == Elab.ElabModule("", {
             )),
         }
     )),
-    Elab.ElabItemFunc(Elab.ElabFunc(
-        "main", false,
+    Elab.ElabItemFunc(Elab.ElabFuncLocal("main",
         { Elab.ElabParam("x", Elab.ElabTI32) },
         Elab.ElabTI32,
         {
@@ -116,8 +112,7 @@ local count_module = Surf.SurfModule({
         Surf.SurfTIndex,
         Surf.SurfExprAdd(Surf.SurfNameRef("N"), Surf.SurfInt("2"))
     )),
-    Surf.SurfItemFunc(Surf.SurfFunc(
-        "use_count", false,
+    Surf.SurfItemFunc(Surf.SurfFuncLocal("use_count",
         { Surf.SurfParam("xs", Surf.SurfTArray(Surf.SurfNameRef("M"), Surf.SurfTI32)) },
         Surf.SurfTVoid,
         { Surf.SurfReturnVoid }
@@ -139,8 +134,7 @@ assert(pvm.one(L.lower_module(count_module)) == Elab.ElabModule("", {
             Elab.ElabInt("2", Elab.ElabTIndex)
         )
     )),
-    Elab.ElabItemFunc(Elab.ElabFunc(
-        "use_count", false,
+    Elab.ElabItemFunc(Elab.ElabFuncLocal("use_count",
         { Elab.ElabParam("xs", Elab.ElabTArray(Elab.ElabBindingExpr(Elab.ElabGlobalConst("", "M", Elab.ElabTIndex)), Elab.ElabTI32)) },
         Elab.ElabTVoid,
         { Elab.ElabReturnVoid }
@@ -152,8 +146,7 @@ local type_module = Surf.SurfModule({
         Surf.SurfFieldDecl("left", Surf.SurfTI32),
         Surf.SurfFieldDecl("right", Surf.SurfTI32),
     })),
-    Surf.SurfItemFunc(Surf.SurfFunc(
-        "get_left", false,
+    Surf.SurfItemFunc(Surf.SurfFuncLocal("get_left",
         {},
         Surf.SurfTI32,
         {
@@ -172,12 +165,11 @@ local type_module = Surf.SurfModule({
 })
 
 assert(pvm.one(L.lower_module(type_module)) == Elab.ElabModule("", {
-    Elab.ElabItemType(Elab.ElabStruct("Pair", false, {
+    Elab.ElabItemType(Elab.ElabStruct("Pair", {
         Elab.ElabFieldType("left", Elab.ElabTI32),
         Elab.ElabFieldType("right", Elab.ElabTI32),
     })),
-    Elab.ElabItemFunc(Elab.ElabFunc(
-        "get_left", false,
+    Elab.ElabItemFunc(Elab.ElabFuncLocal("get_left",
         {},
         Elab.ElabTI32,
         {
@@ -198,8 +190,7 @@ assert(pvm.one(L.lower_module(type_module)) == Elab.ElabModule("", {
 
 local import_module = Surf.SurfModule({
     Surf.SurfItemImport(Surf.SurfImport(Surf.SurfPath({ Surf.SurfName("Demo") }))),
-    Surf.SurfItemFunc(Surf.SurfFunc(
-        "main", false,
+    Surf.SurfItemFunc(Surf.SurfFuncLocal("main",
         {},
         Surf.SurfTVoid,
         { Surf.SurfReturnVoid }
@@ -208,7 +199,7 @@ local import_module = Surf.SurfModule({
 
 assert(pvm.one(L.lower_module(import_module)) == Elab.ElabModule("", {
     Elab.ElabItemImport(Elab.ElabImport("Demo")),
-    Elab.ElabItemFunc(Elab.ElabFunc("main", false, {}, Elab.ElabTVoid, { Elab.ElabReturnVoid })),
+    Elab.ElabItemFunc(Elab.ElabFuncLocal("main", {}, Elab.ElabTVoid, { Elab.ElabReturnVoid })),
 }))
 
 print("moonlift surface->elab top lowering ok")

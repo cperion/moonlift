@@ -361,7 +361,7 @@ function M.Define(T)
             end
             return pvm.once(combine_exit(exit, one_loop_expr_exit_expr(self.default_expr)))
         end,
-        [Surf.SurfLoopExprNode] = function()
+        [Surf.SurfExprLoop] = function()
             return pvm.once(Elab.ElabLoopExprEndOnly)
         end,
         [Surf.SurfBlockExpr] = function(self)
@@ -409,7 +409,7 @@ function M.Define(T)
         [Surf.SurfContinue] = function()
             return pvm.once(Elab.ElabLoopExprEndOnly)
         end,
-        [Surf.SurfLoopStmtNode] = function()
+        [Surf.SurfStmtLoop] = function()
             return pvm.once(Elab.ElabLoopExprEndOnly)
         end,
     })
@@ -454,7 +454,7 @@ function M.Define(T)
         [Elab.ElabBreak] = function() return pvm.once(Elab.ElabNoBinding) end,
         [Elab.ElabBreakValue] = function() return pvm.once(Elab.ElabNoBinding) end,
         [Elab.ElabContinue] = function() return pvm.once(Elab.ElabNoBinding) end,
-        [Elab.ElabLoopStmtNode] = function(self) return loop_stmt_env_effect(self.loop) end,
+        [Elab.ElabStmtLoop] = function(self) return loop_stmt_env_effect(self.loop) end,
     })
 
     apply_stmt_env_effect = pvm.phase("apply_elab_stmt_env_effect", {
@@ -482,7 +482,7 @@ function M.Define(T)
     })
 
     lower_loop_update = pvm.phase("surface_to_elab_loop_update", {
-        [Surf.SurfLoopNextAssign] = function(self, env, loop_bindings)
+        [Surf.SurfLoopUpdate] = function(self, env, loop_bindings)
             local binding = loop_bindings[self.name]
             if binding == nil then
                 error("surface_to_elab_loop: next assignment for unknown loop binding '" .. self.name .. "'")
@@ -576,7 +576,7 @@ function M.Define(T)
                     return one_update(self.next[i], body_env, loop_bindings)
                 end)
             end
-            return pvm.once(Elab.ElabLoopExprNode(
+            return pvm.once(Elab.ElabExprLoop(
                 Elab.ElabLoopWhileExpr(loop_id, carries, cond, body, next_out, exit, result),
                 result_ty
             ))
@@ -605,7 +605,7 @@ function M.Define(T)
                     return one_update(self.next[i], body_env, loop_bindings)
                 end)
             end
-            return pvm.once(Elab.ElabLoopExprNode(
+            return pvm.once(Elab.ElabExprLoop(
                 Elab.ElabLoopOverExpr(loop_id, index_port, domain, carries, body, next_out, exit, result),
                 result_ty
             ))
@@ -635,7 +635,7 @@ function M.Define(T)
                     return one_update(self.next[i], body_env, loop_bindings)
                 end)
             end
-            return pvm.once(Elab.ElabLoopExprNode(
+            return pvm.once(Elab.ElabExprLoop(
                 Elab.ElabLoopWhileExpr(loop_id, carries, cond, body, next_out, exit, result),
                 declared_ty
             ))
@@ -668,7 +668,7 @@ function M.Define(T)
                     return one_update(self.next[i], body_env, loop_bindings)
                 end)
             end
-            return pvm.once(Elab.ElabLoopExprNode(
+            return pvm.once(Elab.ElabExprLoop(
                 Elab.ElabLoopOverExpr(loop_id, index_port, domain, carries, body, next_out, exit, result),
                 declared_ty
             ))
@@ -751,7 +751,7 @@ function M.Define(T)
             end
             return pvm.once(Elab.ElabSwitchExpr(value, arms, default_expr, result_ty))
         end,
-        [Surf.SurfLoopExprNode] = function(self, env)
+        [Surf.SurfExprLoop] = function(self, env)
             return pvm.once(one_loop_expr(self.loop, env, implicit_path("loop.expr", self)))
         end,
         [Surf.SurfBlockExpr] = function(self, env, expected_ty, allow_bare_break, break_value_ty)
@@ -903,8 +903,8 @@ function M.Define(T)
         [Surf.SurfContinue] = function()
             return pvm.once(Elab.ElabContinue)
         end,
-        [Surf.SurfLoopStmtNode] = function(self, env, path)
-            return pvm.once(Elab.ElabLoopStmtNode(one_loop_stmt(self.loop, env, path_or_implicit("loop.stmt", self, path))))
+        [Surf.SurfStmtLoop] = function(self, env, path)
+            return pvm.once(Elab.ElabStmtLoop(one_loop_stmt(self.loop, env, path_or_implicit("loop.stmt", self, path))))
         end,
     })
 

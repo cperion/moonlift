@@ -226,7 +226,7 @@ This is now implemented in the bootstrap parser.
 When loop parsing is used, it constructs:
 
 - `SurfLoopCarryInit`
-- `SurfLoopNextAssign`
+- `SurfLoopUpdate`
 - `SurfLoopWhile*`
 - `SurfLoopOver*`
 - `SurfDomain*`

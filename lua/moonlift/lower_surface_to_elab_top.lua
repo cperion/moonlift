@@ -199,14 +199,14 @@ function M.Define(T)
             for i = 1, #self.fields do
                 fields[i] = one_field_decl(self.fields[i], env)
             end
-            return pvm.once(Elab.ElabStruct(self.name, false, fields))
+            return pvm.once(Elab.ElabStruct(self.name, fields))
         end,
         [Surf.SurfUnion] = function(self, env)
             local fields = {}
             for i = 1, #self.fields do
                 fields[i] = one_field_decl(self.fields[i], env)
             end
-            return pvm.once(Elab.ElabStruct(self.name, true, fields))
+            return pvm.once(Elab.ElabUnion(self.name, fields))
         end,
     })
 
@@ -277,28 +277,38 @@ function M.Define(T)
         [Surf.SurfTNamed] = function() return pvm.once(false) end,
     })
 
+    local function lower_func_common(self, env, exported)
+        local module_env = ensure_env(env)
+        local params = {}
+        local param_entries = {}
+        for i = 1, #self.params do
+            params[i] = one_param(self.params[i], module_env)
+            param_entries[i] = one_param_entry(self.params[i], module_env, i - 1)
+        end
+        local body_env = extend_env_values(module_env, param_entries)
+        local body = {}
+        local current_env = body_env
+        for i = 1, #self.body do
+            local stmt_path = "func." .. self.name .. ".stmt." .. i
+            local stmt = with_path(stmt_path, function()
+                return one_stmt(self.body[i], current_env, stmt_path)
+            end)
+            body[i] = stmt
+            local effect = pvm.one(api.stmt_env_effect(stmt))
+            current_env = pvm.one(api.apply_stmt_env_effect(effect, current_env))
+        end
+        if exported then
+            return Elab.ElabFuncExport(self.name, params, one_type(self.result, module_env), body)
+        end
+        return Elab.ElabFuncLocal(self.name, params, one_type(self.result, module_env), body)
+    end
+
     lower_func = pvm.phase("surface_to_elab_func", {
-        [Surf.SurfFunc] = function(self, env)
-            local module_env = ensure_env(env)
-            local params = {}
-            local param_entries = {}
-            for i = 1, #self.params do
-                params[i] = one_param(self.params[i], module_env)
-                param_entries[i] = one_param_entry(self.params[i], module_env, i - 1)
-            end
-            local body_env = extend_env_values(module_env, param_entries)
-            local body = {}
-            local current_env = body_env
-            for i = 1, #self.body do
-                local stmt_path = "func." .. self.name .. ".stmt." .. i
-                local stmt = with_path(stmt_path, function()
-                    return one_stmt(self.body[i], current_env, stmt_path)
-                end)
-                body[i] = stmt
-                local effect = pvm.one(api.stmt_env_effect(stmt))
-                current_env = pvm.one(api.apply_stmt_env_effect(effect, current_env))
-            end
-            return pvm.once(Elab.ElabFunc(self.name, self.exported, params, one_type(self.result, module_env), body))
+        [Surf.SurfFuncLocal] = function(self, env)
+            return pvm.once(lower_func_common(self, env, false))
+        end,
+        [Surf.SurfFuncExport] = function(self, env)
+            return pvm.once(lower_func_common(self, env, true))
         end,
     })
 

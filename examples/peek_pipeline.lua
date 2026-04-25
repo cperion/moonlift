@@ -14,7 +14,7 @@ local shapes = {
     add1 = {
         func = "add1",
         module = Surf.SurfModule({
-            Surf.SurfItemFunc(Surf.SurfFunc("add1", false, { Surf.SurfParam("x", Surf.SurfTI32) }, Surf.SurfTI32, {
+            Surf.SurfItemFunc(Surf.SurfFuncLocal("add1", { Surf.SurfParam("x", Surf.SurfTI32) }, Surf.SurfTI32, {
                 Surf.SurfReturnValue(Surf.SurfExprAdd(Surf.SurfNameRef("x"), Surf.SurfInt("1"))),
             })),
         }),
@@ -22,7 +22,7 @@ local shapes = {
     ifexpr = {
         func = "pick",
         module = Surf.SurfModule({
-            Surf.SurfItemFunc(Surf.SurfFunc("pick", false, {
+            Surf.SurfItemFunc(Surf.SurfFuncLocal("pick", {
                 Surf.SurfParam("b", Surf.SurfTBool),
                 Surf.SurfParam("x", Surf.SurfTI32),
                 Surf.SurfParam("y", Surf.SurfTI32),
@@ -34,7 +34,7 @@ local shapes = {
     switchexpr = {
         func = "pick_case",
         module = Surf.SurfModule({
-            Surf.SurfItemFunc(Surf.SurfFunc("pick_case", false, { Surf.SurfParam("x", Surf.SurfTI32) }, Surf.SurfTI32, {
+            Surf.SurfItemFunc(Surf.SurfFuncLocal("pick_case", { Surf.SurfParam("x", Surf.SurfTI32) }, Surf.SurfTI32, {
                 Surf.SurfReturnValue(Surf.SurfSwitchExpr(Surf.SurfNameRef("x"), {
                     Surf.SurfSwitchExprArm(Surf.SurfInt("1"), {}, Surf.SurfInt("11")),
                     Surf.SurfSwitchExprArm(Surf.SurfInt("2"), {}, Surf.SurfInt("22")),
@@ -45,13 +45,13 @@ local shapes = {
     sum_range = {
         func = "sum_range",
         module = Surf.SurfModule({
-            Surf.SurfItemFunc(Surf.SurfFunc("sum_range", false, { Surf.SurfParam("n", Surf.SurfTIndex) }, Surf.SurfTIndex, {
-                Surf.SurfReturnValue(Surf.SurfLoopExprNode(Surf.SurfLoopOverExpr(
+            Surf.SurfItemFunc(Surf.SurfFuncLocal("sum_range", { Surf.SurfParam("n", Surf.SurfTIndex) }, Surf.SurfTIndex, {
+                Surf.SurfReturnValue(Surf.SurfExprLoop(Surf.SurfLoopOverExpr(
                     "i",
                     Surf.SurfDomainRange(Surf.SurfNameRef("n")),
                     { Surf.SurfLoopVarInit("acc", Surf.SurfTIndex, Surf.SurfInt("0")) },
                     {},
-                    { Surf.SurfLoopNextAssign("acc", Surf.SurfExprAdd(Surf.SurfNameRef("acc"), Surf.SurfNameRef("i"))) },
+                    { Surf.SurfLoopUpdate("acc", Surf.SurfExprAdd(Surf.SurfNameRef("acc"), Surf.SurfNameRef("i"))) },
                     Surf.SurfNameRef("acc")
                 ))),
             })),

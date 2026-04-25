@@ -130,7 +130,7 @@ next
     i = i + 1
 end -> acc
 ]])
-assert(typed_loop_expr == Surf.SurfLoopExprNode(Surf.SurfLoopWhileExprTyped(
+assert(typed_loop_expr == Surf.SurfExprLoop(Surf.SurfLoopWhileExprTyped(
     {
         Surf.SurfLoopCarryInit("i", Surf.SurfTIndex, Surf.SurfInt("0")),
         Surf.SurfLoopCarryInit("acc", Surf.SurfTI32, Surf.SurfInt("0")),
@@ -141,8 +141,8 @@ assert(typed_loop_expr == Surf.SurfLoopExprNode(Surf.SurfLoopWhileExprTyped(
         Surf.SurfLet("xi", Surf.SurfTI32, Surf.SurfIndex(Surf.SurfNameRef("xs"), Surf.SurfNameRef("i"))),
     },
     {
-        Surf.SurfLoopNextAssign("acc", Surf.SurfExprAdd(Surf.SurfNameRef("acc"), Surf.SurfNameRef("xi"))),
-        Surf.SurfLoopNextAssign("i", Surf.SurfExprAdd(Surf.SurfNameRef("i"), Surf.SurfInt("1"))),
+        Surf.SurfLoopUpdate("acc", Surf.SurfExprAdd(Surf.SurfNameRef("acc"), Surf.SurfNameRef("xi"))),
+        Surf.SurfLoopUpdate("i", Surf.SurfExprAdd(Surf.SurfNameRef("i"), Surf.SurfInt("1"))),
     },
     Surf.SurfNameRef("acc")
 )))
@@ -154,7 +154,7 @@ next
     acc = acc + 1
 end
 ]])
-assert(typed_over_stmt == Surf.SurfLoopStmtNode(Surf.SurfLoopOverStmt(
+assert(typed_over_stmt == Surf.SurfStmtLoop(Surf.SurfLoopOverStmt(
     "i",
     Surf.SurfDomainRange(Surf.SurfNameRef("n")),
     {
@@ -164,7 +164,7 @@ assert(typed_over_stmt == Surf.SurfLoopStmtNode(Surf.SurfLoopOverStmt(
         Surf.SurfSet(Surf.SurfPlaceName("acc"), Surf.SurfExprAdd(Surf.SurfNameRef("acc"), Surf.SurfInt("1"))),
     },
     {
-        Surf.SurfLoopNextAssign("acc", Surf.SurfExprAdd(Surf.SurfNameRef("acc"), Surf.SurfInt("1"))),
+        Surf.SurfLoopUpdate("acc", Surf.SurfExprAdd(Surf.SurfNameRef("acc"), Surf.SurfInt("1"))),
     }
 )))
 
@@ -175,7 +175,7 @@ next
     y = y + 1
 end
 ]])
-assert(loop_zip == Surf.SurfLoopStmtNode(Surf.SurfLoopOverStmt(
+assert(loop_zip == Surf.SurfStmtLoop(Surf.SurfLoopOverStmt(
     "i",
     Surf.SurfDomainZipEq({ Surf.SurfNameRef("dst"), Surf.SurfNameRef("src") }),
     {
@@ -188,7 +188,7 @@ assert(loop_zip == Surf.SurfLoopStmtNode(Surf.SurfLoopOverStmt(
         ),
     },
     {
-        Surf.SurfLoopNextAssign("y", Surf.SurfExprAdd(Surf.SurfNameRef("y"), Surf.SurfInt("1"))),
+        Surf.SurfLoopUpdate("y", Surf.SurfExprAdd(Surf.SurfNameRef("y"), Surf.SurfInt("1"))),
     }
 )))
 
@@ -239,7 +239,7 @@ local for_domain_range = P.parse_stmt([[for i in 0..n do
     let x: i32 = i
 end
 ]])
-assert(for_domain_range == Surf.SurfLoopStmtNode(Surf.SurfLoopOverStmt(
+assert(for_domain_range == Surf.SurfStmtLoop(Surf.SurfLoopOverStmt(
     "i",
     Surf.SurfDomainRange2(Surf.SurfInt("0"), Surf.SurfNameRef("n")),
     {},
@@ -254,7 +254,7 @@ while i < n with acc: i32 = 0, i: i32 = 0 do
     next i = i + 1
 end
 ]])
-assert(while_with_carry == Surf.SurfLoopStmtNode(Surf.SurfLoopWhileStmt(
+assert(while_with_carry == Surf.SurfStmtLoop(Surf.SurfLoopWhileStmt(
     {
         Surf.SurfLoopCarryInit("acc", Surf.SurfTI32, Surf.SurfInt("0")),
         Surf.SurfLoopCarryInit("i", Surf.SurfTI32, Surf.SurfInt("0")),
@@ -264,8 +264,8 @@ assert(while_with_carry == Surf.SurfLoopStmtNode(Surf.SurfLoopWhileStmt(
         Surf.SurfLet("x", Surf.SurfTI32, Surf.SurfNameRef("i")),
     },
     {
-        Surf.SurfLoopNextAssign("acc", Surf.SurfExprAdd(Surf.SurfNameRef("acc"), Surf.SurfNameRef("x"))),
-        Surf.SurfLoopNextAssign("i", Surf.SurfExprAdd(Surf.SurfNameRef("i"), Surf.SurfInt("1"))),
+        Surf.SurfLoopUpdate("acc", Surf.SurfExprAdd(Surf.SurfNameRef("acc"), Surf.SurfNameRef("x"))),
+        Surf.SurfLoopUpdate("i", Surf.SurfExprAdd(Surf.SurfNameRef("i"), Surf.SurfInt("1"))),
     }
 )))
 
@@ -283,8 +283,7 @@ end
 assert(func_spans:get("func.add") ~= nil)
 assert(func_spans:get("func.add.param.1") ~= nil)
 assert(func_spans:get("func.add.stmt.1") ~= nil)
-assert(func_item == Surf.SurfItemFunc(Surf.SurfFunc(
-    "add", false,
+assert(func_item == Surf.SurfItemFunc(Surf.SurfFuncLocal("add",
     {
         Surf.SurfParam("a", Surf.SurfTI32),
         Surf.SurfParam("b", Surf.SurfTI32),
@@ -339,8 +338,7 @@ assert(mod == Surf.SurfModule({
     )),
     Surf.SurfItemConst(Surf.SurfConst("K", Surf.SurfTI32, Surf.SurfInt("7"))),
     Surf.SurfItemStatic(Surf.SurfStatic("G", Surf.SurfTI32, Surf.SurfInt("9"))),
-    Surf.SurfItemFunc(Surf.SurfFunc(
-        "main", false,
+    Surf.SurfItemFunc(Surf.SurfFuncLocal("main",
         { Surf.SurfParam("x", Surf.SurfTI32) },
         Surf.SurfTI32,
         {

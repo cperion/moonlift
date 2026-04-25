@@ -524,7 +524,7 @@ function M.Define(T)
         [Elab.ElabIfExpr] = function(self) return pvm.once(self.ty) end,
         [Elab.ElabSelectExpr] = function(self) return pvm.once(self.ty) end,
         [Elab.ElabSwitchExpr] = function(self) return pvm.once(self.ty) end,
-        [Elab.ElabLoopExprNode] = function(self) return pvm.once(self.ty) end,
+        [Elab.ElabExprLoop] = function(self) return pvm.once(self.ty) end,
         [Elab.ElabBlockExpr] = function(self) return pvm.once(self.ty) end,
     })
 

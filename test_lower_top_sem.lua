@@ -23,8 +23,7 @@ local module_node = Elab.ElabModule("", {
         Elab.ElabTI32,
         Elab.ElabInt("7", Elab.ElabTI32)
     )),
-    Elab.ElabItemFunc(Elab.ElabFunc(
-        "helper", false,
+    Elab.ElabItemFunc(Elab.ElabFuncLocal("helper",
         { Elab.ElabParam("x", Elab.ElabTI32) },
         Elab.ElabTI32,
         {
@@ -35,8 +34,7 @@ local module_node = Elab.ElabModule("", {
             )),
         }
     )),
-    Elab.ElabItemFunc(Elab.ElabFunc(
-        "main", false,
+    Elab.ElabItemFunc(Elab.ElabFuncLocal("main",
         { Elab.ElabParam("x", Elab.ElabTI32) },
         Elab.ElabTI32,
         {
@@ -124,8 +122,7 @@ local count_module = Elab.ElabModule("", {
             Elab.ElabInt("2", Elab.ElabTIndex)
         )
     )),
-    Elab.ElabItemFunc(Elab.ElabFunc(
-        "use_count", false,
+    Elab.ElabItemFunc(Elab.ElabFuncLocal("use_count",
         { Elab.ElabParam("xs", Elab.ElabTArray(Elab.ElabBindingExpr(Elab.ElabGlobalConst("", "M", Elab.ElabTIndex)), Elab.ElabTI32)) },
         Elab.ElabTVoid,
         { Elab.ElabReturnVoid }
@@ -156,12 +153,11 @@ assert(pvm.one(L.lower_module(count_module)) == Sem.SemModule("", {
 }))
 
 local type_module = Elab.ElabModule("", {
-    Elab.ElabItemType(Elab.ElabStruct("Pair", false, {
+    Elab.ElabItemType(Elab.ElabStruct("Pair", {
         Elab.ElabFieldType("left", Elab.ElabTI32),
         Elab.ElabFieldType("right", Elab.ElabTI32),
     })),
-    Elab.ElabItemFunc(Elab.ElabFunc(
-        "get_left", false,
+    Elab.ElabItemFunc(Elab.ElabFuncLocal("get_left",
         {},
         Elab.ElabTI32,
         {
@@ -181,7 +177,7 @@ local type_module = Elab.ElabModule("", {
 })
 
 assert(pvm.one(L.lower_module(type_module)) == Sem.SemModule("", {
-    Sem.SemItemType(Sem.SemStruct("Pair", false, {
+    Sem.SemItemType(Sem.SemStruct("Pair", {
         Sem.SemFieldType("left", Sem.SemTI32),
         Sem.SemFieldType("right", Sem.SemTI32),
     })),
@@ -206,7 +202,7 @@ assert(pvm.one(L.lower_module(type_module)) == Sem.SemModule("", {
 
 local import_module = Elab.ElabModule("", {
     Elab.ElabItemImport(Elab.ElabImport("Demo")),
-    Elab.ElabItemFunc(Elab.ElabFunc("main", false, {}, Elab.ElabTVoid, { Elab.ElabReturnVoid })),
+    Elab.ElabItemFunc(Elab.ElabFuncLocal("main", {}, Elab.ElabTVoid, { Elab.ElabReturnVoid })),
 })
 
 assert(pvm.one(L.lower_module(import_module)) == Sem.SemModule("", {
@@ -215,8 +211,7 @@ assert(pvm.one(L.lower_module(import_module)) == Sem.SemModule("", {
 }))
 
 local select_module = Elab.ElabModule("", {
-    Elab.ElabItemFunc(Elab.ElabFunc(
-        "choose", false,
+    Elab.ElabItemFunc(Elab.ElabFuncLocal("choose",
         {
             Elab.ElabParam("flag", Elab.ElabTBool),
             Elab.ElabParam("x", Elab.ElabTI32),

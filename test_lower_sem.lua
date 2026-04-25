@@ -165,7 +165,7 @@ local domain_value = one_domain(Elab.ElabDomainValue(
     Elab.ElabBindingExpr(arr_cell_elab)
 ))
 assert(domain_value == Sem.SemDomainView(
-    Sem.SemViewValue(
+    Sem.SemViewFromExpr(
         Sem.SemExprBinding(arr_cell_sem),
         Sem.SemTI32
     )
@@ -176,8 +176,8 @@ local domain_zip = one_domain(Elab.ElabDomainZipEq({
     Elab.ElabBindingExpr(Elab.ElabLocalCell("zip.b", "b", array4_elab)),
 }))
 assert(domain_zip == Sem.SemDomainZipEq({
-    Sem.SemViewValue(Sem.SemExprBinding(Sem.SemBindLocalCell("zip.a", "a", array4_sem)), Sem.SemTI32),
-    Sem.SemViewValue(Sem.SemExprBinding(Sem.SemBindLocalCell("zip.b", "b", array4_sem)), Sem.SemTI32),
+    Sem.SemViewFromExpr(Sem.SemExprBinding(Sem.SemBindLocalCell("zip.a", "a", array4_sem)), Sem.SemTI32),
+    Sem.SemViewFromExpr(Sem.SemExprBinding(Sem.SemBindLocalCell("zip.b", "b", array4_sem)), Sem.SemTI32),
 }))
 
 local set_stmt = one_stmt(Elab.ElabSet(

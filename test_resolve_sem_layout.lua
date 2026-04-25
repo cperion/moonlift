@@ -27,6 +27,20 @@ assert(pvm.one(R.resolve_type_mem_layout(Sem.SemTArray(Sem.SemTI32, 3), layout_e
 assert(pvm.one(R.resolve_type_mem_layout(Sem.SemTSlice(Sem.SemTI32), layout_env, Sem.SemModule("", {}), {}, {})) == Sem.SemMemLayout(16, 8))
 assert(pvm.one(R.resolve_type_mem_layout(Sem.SemTView(Sem.SemTI32), layout_env, Sem.SemModule("", {}), {}, {})) == Sem.SemMemLayout(24, 8))
 
+local union_module = Sem.SemModule("Demo", {
+    Sem.SemItemType(Sem.SemUnion("U", {
+        Sem.SemFieldType("as_i32", Sem.SemTI32),
+        Sem.SemFieldType("as_i64", Sem.SemTI64),
+    })),
+})
+local union_layout_env = pvm.one(R.synthesize_layout_env(union_module, Sem.SemLayoutEnv({})))
+assert(union_layout_env == Sem.SemLayoutEnv({
+    Sem.SemLayoutNamed("Demo", "U", {
+        Sem.SemFieldLayout("as_i32", 0, Sem.SemTI32),
+        Sem.SemFieldLayout("as_i64", 0, Sem.SemTI64),
+    }, 8, 8),
+}))
+
 local pair_ptr = Sem.SemExprBinding(Sem.SemBindArg(0, "p", Sem.SemTPtrTo(Sem.SemTNamed("Demo", "Pair"))))
 local pair_value = Sem.SemExprDeref(Sem.SemTNamed("Demo", "Pair"), pair_ptr)
 local pair_place = Sem.SemPlaceDeref(pair_ptr, Sem.SemTNamed("Demo", "Pair"))

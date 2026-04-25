@@ -550,7 +550,7 @@ function Parser:parse_inline_loop_nexts(next_path, first_index)
         local first = self:peek()
         local name = self:expect("ident", "expected loop next binding name").raw
         self:expect("=")
-        out[#out + 1] = self.Surf.SurfLoopNextAssign(name, self:parse_expr())
+        out[#out + 1] = self.Surf.SurfLoopUpdate(name, self:parse_expr())
         self:record_span(next_path and self:scoped(next_path, tostring(index)) or nil, first)
         index = index + 1
     until not self:consume(",")
@@ -608,7 +608,7 @@ function Parser:parse_for_stmt(path)
     )
     self:expect("end")
     self:record_span(path, first)
-    return self.Surf.SurfLoopStmtNode(
+    return self.Surf.SurfStmtLoop(
         self.Surf.SurfLoopOverStmt(index_name, domain, carries, body, nexts)
     )
 end
@@ -633,7 +633,7 @@ function Parser:parse_while_stmt(path)
     )
     self:expect("end")
     self:record_span(path, first)
-    return self.Surf.SurfLoopStmtNode(
+    return self.Surf.SurfStmtLoop(
         self.Surf.SurfLoopWhileStmt(carries, cond, body, nexts)
     )
 end
@@ -647,7 +647,7 @@ function Parser:parse_loop_next_block(base_path)
         local first = self:peek()
         local name = self:expect("ident", "expected loop next binding name").raw
         self:expect("=")
-        nexts[#nexts + 1] = self.Surf.SurfLoopNextAssign(name, self:parse_expr())
+        nexts[#nexts + 1] = self.Surf.SurfLoopUpdate(name, self:parse_expr())
         self:record_span(base_path and self:scoped(base_path, tostring(i)) or nil, first)
         if self:consume("nl") then
             self:skip_nl()
@@ -685,11 +685,11 @@ function Parser:parse_loop(is_expr, path)
         if is_expr then
             self:expect("->")
             local result = self:parse_expr()
-            return self.Surf.SurfLoopExprNode(
+            return self.Surf.SurfExprLoop(
                 self.Surf.SurfLoopOverExprTyped(index_name, domain, carries, result_ty, body, nexts, result)
             )
         end
-        return self.Surf.SurfLoopStmtNode(
+        return self.Surf.SurfStmtLoop(
             self.Surf.SurfLoopOverStmt(index_name, domain, carries, body, nexts)
         )
     end
@@ -705,11 +705,11 @@ function Parser:parse_loop(is_expr, path)
     if is_expr then
         self:expect("->")
         local result = self:parse_expr()
-        return self.Surf.SurfLoopExprNode(
+        return self.Surf.SurfExprLoop(
             self.Surf.SurfLoopWhileExprTyped(carries, result_ty, cond, body, nexts, result)
         )
     end
-    return self.Surf.SurfLoopStmtNode(
+    return self.Surf.SurfStmtLoop(
         self.Surf.SurfLoopWhileStmt(carries, cond, body, nexts)
     )
 end
@@ -1029,7 +1029,10 @@ function Parser:parse_func_item(item_path, exported)
     self:expect("end")
     self:record_span(item_path, first)
     self:record_span(func_path, first)
-    return self.Surf.SurfItemFunc(self.Surf.SurfFunc(name, exported, params, result, body))
+    if exported then
+        return self.Surf.SurfItemFunc(self.Surf.SurfFuncExport(name, params, result, body))
+    end
+    return self.Surf.SurfItemFunc(self.Surf.SurfFuncLocal(name, params, result, body))
 end
 
 function Parser:parse_extern_item(item_path)

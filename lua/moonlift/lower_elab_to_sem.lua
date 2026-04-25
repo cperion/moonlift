@@ -302,7 +302,7 @@ function M.Define(T)
         [Elab.ElabIfExpr] = function(self, const_env) return pvm.once(self.ty) end,
         [Elab.ElabSelectExpr] = function(self, const_env) return pvm.once(self.ty) end,
         [Elab.ElabSwitchExpr] = function(self, const_env) return pvm.once(self.ty) end,
-        [Elab.ElabLoopExprNode] = function(self, const_env) return pvm.once(self.ty) end,
+        [Elab.ElabExprLoop] = function(self, const_env) return pvm.once(self.ty) end,
         [Elab.ElabBlockExpr] = function(self, const_env) return pvm.once(self.ty) end,
     })
 
@@ -536,7 +536,7 @@ function M.Define(T)
         [Elab.ElabIfExpr] = indirect_call_target_handler(),
         [Elab.ElabSelectExpr] = indirect_call_target_handler(),
         [Elab.ElabSwitchExpr] = indirect_call_target_handler(),
-        [Elab.ElabLoopExprNode] = indirect_call_target_handler(),
+        [Elab.ElabExprLoop] = indirect_call_target_handler(),
         [Elab.ElabBlockExpr] = indirect_call_target_handler(),
     })
 
@@ -643,7 +643,12 @@ function M.Define(T)
     })
 
     local function view_value_expr(node, const_env)
-        return Sem.SemViewValue(one_expr(node, const_env), one_view_value_elem_type(one_elab_expr_type(node), const_env))
+        return Sem.SemViewFromExpr(one_expr(node, const_env), one_view_value_elem_type(one_elab_expr_type(node), const_env))
+    end
+
+    local extract_sem_view_len
+    local function one_view_len(view, const_env)
+        return pvm.one(extract_sem_view_len(view, const_env))
     end
 
     lower_view = pvm.phase("elab_to_sem_view", {
@@ -779,14 +784,14 @@ function M.Define(T)
         [Elab.ElabSwitchExpr] = function(self, const_env)
             return pvm.once(view_value_expr(self, const_env))
         end,
-        [Elab.ElabLoopExprNode] = function(self, const_env)
+        [Elab.ElabExprLoop] = function(self, const_env)
             return pvm.once(view_value_expr(self, const_env))
         end,
         [Elab.ElabBlockExpr] = function(self, const_env)
             return pvm.once(view_value_expr(self, const_env))
         end,
         [Elab.ElabExprView] = function(self, const_env)
-            return pvm.once(Sem.SemViewValue(one_expr(self.base, const_env), one_type(self.ty.elem, const_env)))
+            return pvm.once(Sem.SemViewFromExpr(one_expr(self.base, const_env), one_type(self.ty.elem, const_env)))
         end,
         [Elab.ElabExprViewWindow] = function(self, const_env)
             local base_view = pvm.one(lower_view(self.base, const_env))
@@ -800,23 +805,21 @@ function M.Define(T)
         end,
         [Elab.ElabExprViewStrided] = function(self, const_env)
             local base_view = pvm.one(lower_view(self.base, const_env))
-            local data, len, _ = base_view.data, one_view_len(base_view, const_env), base_view.stride
-            return pvm.once(Sem.SemViewStrided(data, one_type(self.ty.elem, const_env), len, one_expr(self.stride, const_env)))
+            return pvm.once(Sem.SemViewRestrided(base_view, one_type(self.ty.elem, const_env), one_expr(self.stride, const_env)))
         end,
         [Elab.ElabExprViewInterleaved] = function(self, const_env)
             local base_view = pvm.one(lower_view(self.base, const_env))
-            local data, len, _ = base_view.data, one_view_len(base_view, const_env), base_view.stride
-            return pvm.once(Sem.SemViewInterleaved(data, one_type(self.ty.elem, const_env), len, one_expr(self.stride, const_env), one_expr(self.lane, const_env)))
+            return pvm.once(Sem.SemViewInterleavedView(base_view, one_type(self.ty.elem, const_env), one_expr(self.stride, const_env), one_expr(self.lane, const_env)))
         end,
     })
 
-    local extract_sem_view_len = pvm.phase("moonlift_elab_to_sem_extract_view_len", {
-        [Sem.SemViewValue] = function(self, const_env)
+    extract_sem_view_len = pvm.phase("moonlift_elab_to_sem_extract_view_len", {
+        [Sem.SemViewFromExpr] = function(self, const_env)
             local ty = one_sem_expr_type(self.base)
             if ty.count ~= nil then
                 return pvm.once(Sem.SemExprConstInt(Sem.SemTIndex, tostring(ty.count)))
             end
-            error("sem_to_back: cannot determine length for SemViewValue without an array type")
+            error("sem_to_back: cannot determine length for SemViewFromExpr without an array type")
         end,
         [Sem.SemViewContiguous] = function(self)
             return pvm.once(self.len)
@@ -824,17 +827,19 @@ function M.Define(T)
         [Sem.SemViewStrided] = function(self)
             return pvm.once(self.len)
         end,
+        [Sem.SemViewRestrided] = function(self, const_env)
+            return pvm.once(one_view_len(self.base, const_env))
+        end,
         [Sem.SemViewWindow] = function(self)
             return pvm.once(self.len)
         end,
         [Sem.SemViewInterleaved] = function(self)
             return pvm.once(self.len)
         end,
+        [Sem.SemViewInterleavedView] = function(self, const_env)
+            return pvm.once(one_view_len(self.base, const_env))
+        end,
     })
-
-    local function one_view_len(view, const_env)
-        return pvm.one(extract_sem_view_len(view, const_env))
-    end
 
     sem_type_is_index = pvm.phase("moonlift_sem_type_is_index", {
         [Sem.SemTIndex] = function() return pvm.once(true) end,
@@ -850,7 +855,7 @@ function M.Define(T)
         [Sem.SemTU64] = function() return pvm.once(false) end,
         [Sem.SemTF32] = function() return pvm.once(false) end,
         [Sem.SemTF64] = function() return pvm.once(false) end,
-        [Sem.SemTPtr] = function() return pvm.once(false) end,
+        [Sem.SemTRawPtr] = function() return pvm.once(false) end,
         [Sem.SemTPtrTo] = function() return pvm.once(false) end,
         [Sem.SemTArray] = function() return pvm.once(false) end,
         [Sem.SemTSlice] = function() return pvm.once(false) end,
@@ -865,13 +870,20 @@ function M.Define(T)
         end,
     })
 
+    local function lower_type_fields(self, const_env)
+        local fields = {}
+        for i = 1, #self.fields do
+            fields[i] = one_field_type(self.fields[i], const_env)
+        end
+        return fields
+    end
+
     lower_type_decl = pvm.phase("elab_to_sem_type_decl", {
         [Elab.ElabStruct] = function(self, const_env)
-            local fields = {}
-            for i = 1, #self.fields do
-                fields[i] = one_field_type(self.fields[i], const_env)
-            end
-            return pvm.once(Sem.SemStruct(self.name, self.is_union, fields))
+            return pvm.once(Sem.SemStruct(self.name, lower_type_fields(self, const_env)))
+        end,
+        [Elab.ElabUnion] = function(self, const_env)
+            return pvm.once(Sem.SemUnion(self.name, lower_type_fields(self, const_env)))
         end,
     })
 
@@ -1105,7 +1117,7 @@ function M.Define(T)
         [Elab.ElabSwitchExpr] = function(self, const_env)
             return pvm.once(Sem.SemExprSwitch(one_expr(self.value, const_env), lower_switch_expr_arm_list(self.arms, const_env), one_expr(self.default_expr, const_env), one_type(self.ty, const_env)))
         end,
-        [Elab.ElabLoopExprNode] = function(self, const_env)
+        [Elab.ElabExprLoop] = function(self, const_env)
             return pvm.once(Sem.SemExprLoop(one_loop(self.loop, const_env), one_type(self.ty, const_env)))
         end,
         [Elab.ElabBlockExpr] = function(self, const_env)
@@ -1147,24 +1159,27 @@ function M.Define(T)
         [Elab.ElabContinue] = function()
             return pvm.once(Sem.SemStmtContinue)
         end,
-        [Elab.ElabLoopStmtNode] = function(self, const_env)
+        [Elab.ElabStmtLoop] = function(self, const_env)
             return pvm.once(Sem.SemStmtLoop(one_loop(self.loop, const_env)))
         end,
     })
 
+    local function lower_func_parts(self, const_env)
+        local params = {}
+        for i = 1, #self.params do
+            params[i] = one_param(self.params[i], const_env)
+        end
+        return params, one_type(self.result, const_env), lower_stmt_list(self.body, const_env)
+    end
+
     lower_func = pvm.phase("elab_to_sem_func", {
-        [Elab.ElabFunc] = function(self, const_env)
-            local params = {}
-            for i = 1, #self.params do
-                params[i] = one_param(self.params[i], const_env)
-            end
-            local result_ty = one_type(self.result, const_env)
-            local body = lower_stmt_list(self.body, const_env)
-            if self.exported then
-                return pvm.once(Sem.SemFuncExport(self.name, params, result_ty, body))
-            else
-                return pvm.once(Sem.SemFuncLocal(self.name, params, result_ty, body))
-            end
+        [Elab.ElabFuncLocal] = function(self, const_env)
+            local params, result_ty, body = lower_func_parts(self, const_env)
+            return pvm.once(Sem.SemFuncLocal(self.name, params, result_ty, body))
+        end,
+        [Elab.ElabFuncExport] = function(self, const_env)
+            local params, result_ty, body = lower_func_parts(self, const_env)
+            return pvm.once(Sem.SemFuncExport(self.name, params, result_ty, body))
         end,
     })
 

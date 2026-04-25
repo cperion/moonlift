@@ -517,7 +517,7 @@ local bounded_over_expr = one_expr(
             "loop.view",
             Sem.SemLoopIndexPort("i", Sem.SemTIndex),
             Sem.SemDomainView(
-                Sem.SemViewValue(
+                Sem.SemViewFromExpr(
                     Sem.SemExprBinding(Sem.SemBindLocalCell("bounded.arr", "arr", Sem.SemTArray(Sem.SemTI32, 4))),
                     Sem.SemTI32
                 )
@@ -549,7 +549,7 @@ assert(contains_cmd(bounded_over_expr, Back.BackCmdConstInt(Back.BackValId("expr
 local slice_index_expr = one_expr(
     Sem.SemExprIndex(
         Sem.SemIndexBaseView(
-            Sem.SemViewValue(
+            Sem.SemViewFromExpr(
                 Sem.SemExprBinding(Sem.SemBindLocalCell("slice.cell", "s", Sem.SemTSlice(Sem.SemTI32))),
                 Sem.SemTI32
             )
@@ -590,8 +590,8 @@ local zip_over_expr = one_expr(
             "loop.zip",
             Sem.SemLoopIndexPort("i", Sem.SemTIndex),
             Sem.SemDomainZipEq({
-                Sem.SemViewValue(Sem.SemExprBinding(Sem.SemBindLocalCell("zip.a", "a", Sem.SemTArray(Sem.SemTI32, 3))), Sem.SemTI32),
-                Sem.SemViewValue(Sem.SemExprBinding(Sem.SemBindLocalCell("zip.b", "b", Sem.SemTArray(Sem.SemTI32, 3))), Sem.SemTI32),
+                Sem.SemViewFromExpr(Sem.SemExprBinding(Sem.SemBindLocalCell("zip.a", "a", Sem.SemTArray(Sem.SemTI32, 3))), Sem.SemTI32),
+                Sem.SemViewFromExpr(Sem.SemExprBinding(Sem.SemBindLocalCell("zip.b", "b", Sem.SemTArray(Sem.SemTI32, 3))), Sem.SemTI32),
             }),
             {
                 Sem.SemLoopCarryPort("carry.acc", "acc", Sem.SemTI32, Sem.SemExprConstInt(Sem.SemTI32, "0")),
@@ -624,8 +624,8 @@ local slice_zip_over_expr = one_expr(
             "loop.slice.zip",
             Sem.SemLoopIndexPort("i", Sem.SemTIndex),
             Sem.SemDomainZipEq({
-                Sem.SemViewValue(Sem.SemExprBinding(Sem.SemBindLocalCell("slice.a", "a", Sem.SemTSlice(Sem.SemTI32))), Sem.SemTI32),
-                Sem.SemViewValue(Sem.SemExprBinding(Sem.SemBindLocalCell("slice.b", "b", Sem.SemTSlice(Sem.SemTI32))), Sem.SemTI32),
+                Sem.SemViewFromExpr(Sem.SemExprBinding(Sem.SemBindLocalCell("slice.a", "a", Sem.SemTSlice(Sem.SemTI32))), Sem.SemTI32),
+                Sem.SemViewFromExpr(Sem.SemExprBinding(Sem.SemBindLocalCell("slice.b", "b", Sem.SemTSlice(Sem.SemTI32))), Sem.SemTI32),
             }),
             {
                 Sem.SemLoopCarryPort("carry.acc", "acc", Sem.SemTI32, Sem.SemExprConstInt(Sem.SemTI32, "0")),

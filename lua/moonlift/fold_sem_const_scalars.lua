@@ -169,8 +169,8 @@ function M.Define(T, env)
     end
 
     fold_view = pvm.phase("moonlift_sem_fold_const_scalars_view", {
-        [Sem.SemViewValue] = function(self, const_env)
-            return pvm.once(Sem.SemViewValue(one_expr(self.base, const_env), self.elem))
+        [Sem.SemViewFromExpr] = function(self, const_env)
+            return pvm.once(Sem.SemViewFromExpr(one_expr(self.base, const_env), self.elem))
         end,
         [Sem.SemViewContiguous] = function(self, const_env)
             return pvm.once(Sem.SemViewContiguous(one_expr(self.data, const_env), self.elem, one_expr(self.len, const_env)))
@@ -178,11 +178,17 @@ function M.Define(T, env)
         [Sem.SemViewStrided] = function(self, const_env)
             return pvm.once(Sem.SemViewStrided(one_expr(self.data, const_env), self.elem, one_expr(self.len, const_env), one_expr(self.stride, const_env)))
         end,
+        [Sem.SemViewRestrided] = function(self, const_env)
+            return pvm.once(Sem.SemViewRestrided(one_view(self.base, const_env), self.elem, one_expr(self.stride, const_env)))
+        end,
         [Sem.SemViewWindow] = function(self, const_env)
             return pvm.once(Sem.SemViewWindow(one_view(self.base, const_env), one_expr(self.start, const_env), one_expr(self.len, const_env)))
         end,
         [Sem.SemViewInterleaved] = function(self, const_env)
             return pvm.once(Sem.SemViewInterleaved(one_expr(self.data, const_env), self.elem, one_expr(self.len, const_env), one_expr(self.stride, const_env), one_expr(self.lane, const_env)))
+        end,
+        [Sem.SemViewInterleavedView] = function(self, const_env)
+            return pvm.once(Sem.SemViewInterleavedView(one_view(self.base, const_env), self.elem, one_expr(self.stride, const_env), one_expr(self.lane, const_env)))
         end,
     })
 

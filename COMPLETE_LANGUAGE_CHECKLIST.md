@@ -113,12 +113,14 @@ They should be treated as **ASDL/phase design work first**, not as backend-only 
 
 - [x] stop conflating “compile-time value that should inline/fold” with “global addressable data object” in the item/binding story
 - [x] add explicit ASDL distinction between pure const items and addressable static/global data if both are intended
+- [x] remove hidden semantic booleans from the ASDL core: function visibility is variant-shaped, and struct/union type declarations are variant-shaped
 - [x] route typed numeric / `index` constants through the pure-const path so trivial constants do not become data loads by accident
 
 ### D. Strengthen the view/index model so it can represent real kernels
 
 - [x] replace or extend the current simple slice/view story with explicit view forms that can carry at least base + length + stride (and offset/windowing if needed)
 - [x] make bounded/zip loops consume those explicit views rather than rediscovering shape from arbitrary exprs late in `Sem -> Back`
+- [x] make restrided/interleaved views from existing views representable as ASDL values instead of peeling raw variant fields in lowering
 - [ ] make row-base / segment-base / interleaved-base sharing representable in ASDL instead of hoping later lowering rediscovers repeated scalar arithmetic
 
 ### E. Preserve code-shape-sensitive control/math structure explicitly

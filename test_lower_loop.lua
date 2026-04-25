@@ -39,14 +39,14 @@ local while_expr = one_loop_expr(
             Surf.SurfLet("xi", Surf.SurfTI32, Surf.SurfNameRef("i")),
         },
         {
-            Surf.SurfLoopNextAssign("i", Surf.SurfExprAdd(Surf.SurfNameRef("i"), Surf.SurfInt("1"))),
-            Surf.SurfLoopNextAssign("acc", Surf.SurfExprAdd(Surf.SurfNameRef("acc"), Surf.SurfNameRef("xi"))),
+            Surf.SurfLoopUpdate("i", Surf.SurfExprAdd(Surf.SurfNameRef("i"), Surf.SurfInt("1"))),
+            Surf.SurfLoopUpdate("acc", Surf.SurfExprAdd(Surf.SurfNameRef("acc"), Surf.SurfNameRef("xi"))),
         },
         Surf.SurfNameRef("acc")
     ),
     "loop.sum"
 )
-assert(while_expr == Elab.ElabLoopExprNode(
+assert(while_expr == Elab.ElabExprLoop(
     Elab.ElabLoopWhileExpr(
         "loop.sum",
         {
@@ -110,7 +110,7 @@ local break_loop = one_loop_stmt(
         { Surf.SurfLoopCarryInit("i", Surf.SurfTI32, Surf.SurfInt("0")) },
         Surf.SurfBool(true),
         { Surf.SurfBreak },
-        { Surf.SurfLoopNextAssign("i", Surf.SurfExprAdd(Surf.SurfNameRef("i"), Surf.SurfInt("1"))) }
+        { Surf.SurfLoopUpdate("i", Surf.SurfExprAdd(Surf.SurfNameRef("i"), Surf.SurfInt("1"))) }
     ),
     "loop.break"
 )
@@ -138,7 +138,7 @@ local continue_loop = one_loop_stmt(
         { Surf.SurfLoopCarryInit("i", Surf.SurfTI32, Surf.SurfInt("0")) },
         Surf.SurfBool(true),
         { Surf.SurfContinue },
-        { Surf.SurfLoopNextAssign("i", Surf.SurfExprAdd(Surf.SurfNameRef("i"), Surf.SurfInt("1"))) }
+        { Surf.SurfLoopUpdate("i", Surf.SurfExprAdd(Surf.SurfNameRef("i"), Surf.SurfInt("1"))) }
     ),
     "loop.continue"
 )
@@ -166,12 +166,12 @@ local break_value_loop = one_loop_expr(
         { Surf.SurfLoopCarryInit("i", Surf.SurfTI32, Surf.SurfInt("0")) },
         Surf.SurfBool(true),
         { Surf.SurfBreakValue(Surf.SurfInt("7")) },
-        { Surf.SurfLoopNextAssign("i", Surf.SurfExprAdd(Surf.SurfNameRef("i"), Surf.SurfInt("1"))) },
+        { Surf.SurfLoopUpdate("i", Surf.SurfExprAdd(Surf.SurfNameRef("i"), Surf.SurfInt("1"))) },
         Surf.SurfNameRef("i")
     ),
     "loop.break_value"
 )
-assert(break_value_loop == Elab.ElabLoopExprNode(
+assert(break_value_loop == Elab.ElabExprLoop(
     Elab.ElabLoopWhileExpr(
         "loop.break_value",
         {
@@ -206,7 +206,7 @@ local over_stmt = one_loop_stmt(
         },
         {},
         {
-            Surf.SurfLoopNextAssign("acc", Surf.SurfExprAdd(
+            Surf.SurfLoopUpdate("acc", Surf.SurfExprAdd(
                 Surf.SurfNameRef("acc"),
                 Surf.SurfExprCastTo(Surf.SurfTI32, Surf.SurfNameRef("i"))
             )),

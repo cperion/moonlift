@@ -132,7 +132,7 @@ function M.Define(T, env)
         local off = Back.BackValId(path .. ".offset")
         return {
             Back.BackCmdConstInt(off, Back.BackIndex, tostring(offset)),
-            one_add_cmd(Sem.SemTPtr, dst, Back.BackPtr, base_addr, off),
+            one_add_cmd(Sem.SemTRawPtr, dst, Back.BackPtr, base_addr, off),
         }, dst
     end
 
@@ -192,7 +192,7 @@ function M.Define(T, env)
         [Sem.SemTU64] = function() error("sem_to_back_expr_into_addr: aggregate expr requires an aggregate destination type") end,
         [Sem.SemTF32] = function() error("sem_to_back_expr_into_addr: aggregate expr requires an aggregate destination type") end,
         [Sem.SemTF64] = function() error("sem_to_back_expr_into_addr: aggregate expr requires an aggregate destination type") end,
-        [Sem.SemTPtr] = function() error("sem_to_back_expr_into_addr: aggregate expr requires an aggregate destination type") end,
+        [Sem.SemTRawPtr] = function() error("sem_to_back_expr_into_addr: aggregate expr requires an aggregate destination type") end,
         [Sem.SemTIndex] = function() error("sem_to_back_expr_into_addr: aggregate expr requires an aggregate destination type") end,
         [Sem.SemTPtrTo] = function() error("sem_to_back_expr_into_addr: aggregate expr requires an aggregate destination type") end,
         [Sem.SemTArray] = function() error("sem_to_back_expr_into_addr: aggregate expr currently requires a named aggregate type") end,
@@ -245,7 +245,7 @@ function M.Define(T, env)
             local value = Back.BackValId(path .. ".value")
             return pvm.once({ Back.BackCmdLoad(value, one_scalar(self), src_addr), Back.BackCmdStore(one_scalar(self), dst_addr, value) })
         end,
-        [Sem.SemTPtr] = function(self, src_addr, dst_addr, path)
+        [Sem.SemTRawPtr] = function(self, src_addr, dst_addr, path)
             local value = Back.BackValId(path .. ".value")
             return pvm.once({ Back.BackCmdLoad(value, one_scalar(self), src_addr), Back.BackCmdStore(one_scalar(self), dst_addr, value) })
         end,

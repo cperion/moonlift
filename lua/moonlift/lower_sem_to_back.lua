@@ -434,7 +434,7 @@ function M.Define(T)
         local off = Back.BackValId(path .. ".offset")
         return {
             Back.BackCmdConstInt(off, Back.BackIndex, tostring(offset)),
-            one_add_cmd(Sem.SemTPtr, dst, Back.BackPtr, base, off),
+            one_add_cmd(Sem.SemTRawPtr, dst, Back.BackPtr, base, off),
         }, dst
     end
 
@@ -784,7 +784,7 @@ function M.Define(T)
         [Sem.SemTU64] = function() return pvm.once(Back.BackU64) end,
         [Sem.SemTF32] = function() return pvm.once(Back.BackF32) end,
         [Sem.SemTF64] = function() return pvm.once(Back.BackF64) end,
-        [Sem.SemTPtr] = function() return pvm.once(Back.BackPtr) end,
+        [Sem.SemTRawPtr] = function() return pvm.once(Back.BackPtr) end,
         [Sem.SemTIndex] = function() return pvm.once(Back.BackIndex) end,
         [Sem.SemTPtrTo] = function() return pvm.once(Back.BackPtr) end,
     })
@@ -802,7 +802,7 @@ function M.Define(T)
         [Sem.SemTU64] = function() return pvm.once(true) end,
         [Sem.SemTF32] = function() return pvm.once(true) end,
         [Sem.SemTF64] = function() return pvm.once(true) end,
-        [Sem.SemTPtr] = function() return pvm.once(true) end,
+        [Sem.SemTRawPtr] = function() return pvm.once(true) end,
         [Sem.SemTIndex] = function() return pvm.once(true) end,
         [Sem.SemTPtrTo] = function() return pvm.once(true) end,
         [Sem.SemTArray] = function() return pvm.once(false) end,
@@ -824,7 +824,7 @@ function M.Define(T)
         [Sem.SemTU64] = function() return pvm.once(false) end,
         [Sem.SemTF32] = function() return pvm.once(false) end,
         [Sem.SemTF64] = function() return pvm.once(false) end,
-        [Sem.SemTPtr] = function() return pvm.once(false) end,
+        [Sem.SemTRawPtr] = function() return pvm.once(false) end,
         [Sem.SemTIndex] = function() return pvm.once(false) end,
         [Sem.SemTPtrTo] = function() return pvm.once(false) end,
         [Sem.SemTArray] = function() return pvm.once(false) end,
@@ -846,7 +846,7 @@ function M.Define(T)
         [Sem.SemTU64] = function() return pvm.once(false) end,
         [Sem.SemTF32] = function() return pvm.once(false) end,
         [Sem.SemTF64] = function() return pvm.once(false) end,
-        [Sem.SemTPtr] = function() return pvm.once(false) end,
+        [Sem.SemTRawPtr] = function() return pvm.once(false) end,
         [Sem.SemTIndex] = function() return pvm.once(true) end,
         [Sem.SemTPtrTo] = function() return pvm.once(false) end,
         [Sem.SemTArray] = function() return pvm.once(false) end,
@@ -868,7 +868,7 @@ function M.Define(T)
         [Sem.SemTU64] = function() return pvm.once(false) end,
         [Sem.SemTF32] = function() return pvm.once(false) end,
         [Sem.SemTF64] = function() return pvm.once(false) end,
-        [Sem.SemTPtr] = function() return pvm.once(false) end,
+        [Sem.SemTRawPtr] = function() return pvm.once(false) end,
         [Sem.SemTIndex] = function() return pvm.once(false) end,
         [Sem.SemTPtrTo] = function() return pvm.once(false) end,
         [Sem.SemTArray] = function() return pvm.once(false) end,
@@ -878,7 +878,7 @@ function M.Define(T)
     })
 
     lower_type_is_pointer_like = pvm.phase("sem_to_back_type_is_pointer_like", {
-        [Sem.SemTPtr] = function() return pvm.once(true) end,
+        [Sem.SemTRawPtr] = function() return pvm.once(true) end,
         [Sem.SemTPtrTo] = function() return pvm.once(true) end,
         [Sem.SemTVoid] = function() return pvm.once(false) end,
         [Sem.SemTBool] = function() return pvm.once(false) end,
@@ -912,7 +912,7 @@ function M.Define(T)
         [Sem.SemTU64] = function() return pvm.once(true) end,
         [Sem.SemTF32] = function() return pvm.once(false) end,
         [Sem.SemTF64] = function() return pvm.once(false) end,
-        [Sem.SemTPtr] = function() return pvm.once(false) end,
+        [Sem.SemTRawPtr] = function() return pvm.once(false) end,
         [Sem.SemTIndex] = function() return pvm.once(true) end,
         [Sem.SemTPtrTo] = function() return pvm.once(false) end,
         [Sem.SemTArray] = function() return pvm.once(false) end,
@@ -934,7 +934,7 @@ function M.Define(T)
         [Sem.SemTU64] = function() return pvm.once(false) end,
         [Sem.SemTF32] = function() return pvm.once(true) end,
         [Sem.SemTF64] = function() return pvm.once(true) end,
-        [Sem.SemTPtr] = function() return pvm.once(false) end,
+        [Sem.SemTRawPtr] = function() return pvm.once(false) end,
         [Sem.SemTIndex] = function() return pvm.once(false) end,
         [Sem.SemTPtrTo] = function() return pvm.once(false) end,
         [Sem.SemTArray] = function() return pvm.once(false) end,
@@ -955,7 +955,7 @@ function M.Define(T)
         [Sem.SemTI64] = function() return pvm.once(Back.BackStackSlotSpec(8, 8)) end,
         [Sem.SemTU64] = function() return pvm.once(Back.BackStackSlotSpec(8, 8)) end,
         [Sem.SemTF64] = function() return pvm.once(Back.BackStackSlotSpec(8, 8)) end,
-        [Sem.SemTPtr] = function() return pvm.once(Back.BackStackSlotSpec(8, 8)) end,
+        [Sem.SemTRawPtr] = function() return pvm.once(Back.BackStackSlotSpec(8, 8)) end,
         [Sem.SemTIndex] = function() return pvm.once(Back.BackStackSlotSpec(8, 8)) end,
         [Sem.SemTPtrTo] = function() return pvm.once(Back.BackStackSlotSpec(8, 8)) end,
         [Sem.SemTSlice] = function() return pvm.once(Back.BackStackSlotSpec(16, 8)) end,
@@ -1367,7 +1367,7 @@ function M.Define(T)
                 error("sem_to_back_place_store_addr: field layout is not yet resolved for '" .. self.field.field_name .. "'")
             end
             cmds[#cmds + 1] = Back.BackCmdConstInt(offset, Back.BackIndex, tostring(self.field.offset))
-            cmds[#cmds + 1] = one_add_cmd(Sem.SemTPtr, dst, Back.BackPtr, base.value, offset)
+            cmds[#cmds + 1] = one_add_cmd(Sem.SemTRawPtr, dst, Back.BackPtr, base.value, offset)
             return pvm.once(Back.BackExprPlan(cmds, dst, Back.BackPtr))
         end,
         [Sem.SemPlaceIndex] = function(self, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
@@ -1387,7 +1387,7 @@ function M.Define(T)
         [Sem.SemTI64] = function() return pvm.once(8) end,
         [Sem.SemTU64] = function() return pvm.once(8) end,
         [Sem.SemTF64] = function() return pvm.once(8) end,
-        [Sem.SemTPtr] = function() return pvm.once(8) end,
+        [Sem.SemTRawPtr] = function() return pvm.once(8) end,
         [Sem.SemTIndex] = function() return pvm.once(8) end,
         [Sem.SemTPtrTo] = function() return pvm.once(8) end,
         [Sem.SemTVoid] = function()
@@ -1429,7 +1429,7 @@ function M.Define(T)
                 return pvm.once(terminated_expr(cmds))
             end
             cmds[#cmds + 1] = Back.BackCmdConstInt(offset, Back.BackIndex, tostring(self.offset))
-            cmds[#cmds + 1] = one_add_cmd(Sem.SemTPtr, dst, Back.BackPtr, base.value, offset)
+            cmds[#cmds + 1] = one_add_cmd(Sem.SemTRawPtr, dst, Back.BackPtr, base.value, offset)
             return pvm.once(Back.BackExprPlan(cmds, dst, Back.BackPtr))
         end,
     })
@@ -1602,7 +1602,7 @@ function M.Define(T)
                 cmds[#cmds + 1] = one_mul_cmd(Sem.SemTIndex, mul_id, Back.BackIndex, idx.value, size_id)
                 scaled = mul_id
             end
-            cmds[#cmds + 1] = one_add_cmd(Sem.SemTPtr, dst, Back.BackPtr, base.value, scaled)
+            cmds[#cmds + 1] = one_add_cmd(Sem.SemTRawPtr, dst, Back.BackPtr, base.value, scaled)
             return pvm.once(Back.BackExprPlan(cmds, dst, Back.BackPtr))
         end,
         [Sem.SemIndexBaseView] = function(self, index, elem_size, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
@@ -1620,7 +1620,7 @@ function M.Define(T)
                 return pvm.once(terminated_expr(cmds))
             end
             cmds[#cmds + 1] = one_mul_cmd(Sem.SemTIndex, offset, Back.BackIndex, idx.value, view.stride)
-            cmds[#cmds + 1] = one_add_cmd(Sem.SemTPtr, dst, Back.BackPtr, view.data, offset)
+            cmds[#cmds + 1] = one_add_cmd(Sem.SemTRawPtr, dst, Back.BackPtr, view.data, offset)
             return pvm.once(Back.BackExprPlan(cmds, dst, Back.BackPtr))
         end,
     })
@@ -1651,7 +1651,7 @@ function M.Define(T)
                 cmds[#cmds + 1] = one_mul_cmd(Sem.SemTIndex, mul_id, Back.BackIndex, idx.value, size_id)
                 scaled = mul_id
             end
-            cmds[#cmds + 1] = one_add_cmd(Sem.SemTPtr, dst, Back.BackPtr, base.value, scaled)
+            cmds[#cmds + 1] = one_add_cmd(Sem.SemTRawPtr, dst, Back.BackPtr, base.value, scaled)
             return pvm.once(Back.BackExprPlan(cmds, dst, Back.BackPtr))
         end,
         [Sem.SemIndexBaseView] = function(self, index, elem_size, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
@@ -1669,7 +1669,7 @@ function M.Define(T)
                 return pvm.once(terminated_expr(cmds))
             end
             cmds[#cmds + 1] = one_mul_cmd(Sem.SemTIndex, offset, Back.BackIndex, idx.value, view.stride)
-            cmds[#cmds + 1] = one_add_cmd(Sem.SemTPtr, dst, Back.BackPtr, view.data, offset)
+            cmds[#cmds + 1] = one_add_cmd(Sem.SemTRawPtr, dst, Back.BackPtr, view.data, offset)
             return pvm.once(Back.BackExprPlan(cmds, dst, Back.BackPtr))
         end,
     })
@@ -1684,8 +1684,8 @@ function M.Define(T)
         [Sem.SemTArray] = function()
             error("sem_to_back_index_addr_from_base_type: array-value indexing is not yet supported; aggregate storage/layout lowering must be explicit first")
         end,
-        [Sem.SemTPtr] = function()
-            error("sem_to_back_index_addr_from_base_type: raw SemTPtr indexing is not yet supported; use SemTPtrTo(element) so element layout is explicit")
+        [Sem.SemTRawPtr] = function()
+            error("sem_to_back_index_addr_from_base_type: raw SemTRawPtr indexing is not yet supported; use SemTPtrTo(element) so element layout is explicit")
         end,
         [Sem.SemTNamed] = function(self)
             error("sem_to_back_index_addr_from_base_type: named base type indexing is not yet supported ('" .. self.type_name .. "')")
@@ -1728,7 +1728,7 @@ function M.Define(T)
                 error("sem_to_back_place_addr: field layout is not yet resolved for '" .. self.field.field_name .. "'")
             end
             cmds[#cmds + 1] = Back.BackCmdConstInt(offset, Back.BackIndex, tostring(self.field.offset))
-            cmds[#cmds + 1] = one_add_cmd(Sem.SemTPtr, dst, Back.BackPtr, base.value, offset)
+            cmds[#cmds + 1] = one_add_cmd(Sem.SemTRawPtr, dst, Back.BackPtr, base.value, offset)
             return pvm.once(Back.BackExprPlan(cmds, dst, Back.BackPtr))
         end,
         [Sem.SemPlaceIndex] = function(self, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
@@ -2964,7 +2964,7 @@ function M.Define(T)
             copy_cmds(stride_cmds, cmds)
             return pvm.once(Back.BackViewPlan(cmds, data, len, stride))
         end,
-        [Sem.SemTPtr] = function(self, base_expr, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan, context)
+        [Sem.SemTRawPtr] = function(self, base_expr, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan, context)
             error(context .. ": raw pointer values have no bounded length; use an explicit SemViewContiguous/SemViewStrided form")
         end,
         [Sem.SemTPtrTo] = function(self, base_expr, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan, context)
@@ -3018,7 +3018,7 @@ function M.Define(T)
     })
 
     aux.lower_bounded_view = pvm.phase("sem_to_back_bounded_view", {
-        [Sem.SemViewValue] = function(self, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
+        [Sem.SemViewFromExpr] = function(self, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
             return pvm.once(pvm.one(aux.bounded_view_value_from_type(one_sem_expr_type(self.base), self.base, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan, "sem_to_back_bounded_view")))
         end,
         [Sem.SemViewContiguous] = function(self, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
@@ -3060,6 +3060,24 @@ function M.Define(T)
             cmds[#cmds + 1] = one_mul_cmd(Sem.SemTIndex, stride, Back.BackIndex, stride_elems.value, elem_size)
             return pvm.once(Back.BackViewPlan(cmds, data.value, len.value, stride))
         end,
+        [Sem.SemViewRestrided] = function(self, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
+            local base = one_bounded_view(self.base, path .. ".base", layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
+            local stride_elems = require_index_expr(self.stride, path .. ".stride.expr", layout_env, break_block, break_args, continue_block, continue_args, residence_plan, "sem_to_back_bounded_view")
+            local elem_size = Back.BackValId(path .. ".elem_size")
+            local stride = Back.BackValId(path .. ".stride")
+            local cmds = {}
+            append_view_cmds(cmds, base)
+            if view_terminates(base) then
+                return pvm.once(terminated_view(cmds))
+            end
+            append_expr_cmds(cmds, stride_elems)
+            if expr_terminates(stride_elems) then
+                return pvm.once(terminated_view(cmds))
+            end
+            cmds[#cmds + 1] = Back.BackCmdConstInt(elem_size, Back.BackIndex, tostring(one_type_mem_size(self.elem, layout_env)))
+            cmds[#cmds + 1] = one_mul_cmd(Sem.SemTIndex, stride, Back.BackIndex, stride_elems.value, elem_size)
+            return pvm.once(Back.BackViewPlan(cmds, base.data, base.len, stride))
+        end,
         [Sem.SemViewWindow] = function(self, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
             local base = one_bounded_view(self.base, path .. ".base", layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
             local start = require_index_expr(self.start, path .. ".start.expr", layout_env, break_block, break_args, continue_block, continue_args, residence_plan, "sem_to_back_bounded_view")
@@ -3080,7 +3098,7 @@ function M.Define(T)
                 return pvm.once(terminated_view(cmds))
             end
             cmds[#cmds + 1] = one_mul_cmd(Sem.SemTIndex, offset, Back.BackIndex, start.value, base.stride)
-            cmds[#cmds + 1] = one_add_cmd(Sem.SemTPtr, data, Back.BackPtr, base.data, offset)
+            cmds[#cmds + 1] = one_add_cmd(Sem.SemTRawPtr, data, Back.BackPtr, base.data, offset)
             return pvm.once(Back.BackViewPlan(cmds, data, len.value, base.stride))
         end,
         [Sem.SemViewInterleaved] = function(self, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
@@ -3112,8 +3130,35 @@ function M.Define(T)
             cmds[#cmds + 1] = Back.BackCmdConstInt(elem_size, Back.BackIndex, tostring(one_type_mem_size(self.elem, layout_env)))
             cmds[#cmds + 1] = one_mul_cmd(Sem.SemTIndex, lane_offset, Back.BackIndex, lane.value, elem_size)
             cmds[#cmds + 1] = one_mul_cmd(Sem.SemTIndex, stride, Back.BackIndex, stride_elems.value, elem_size)
-            cmds[#cmds + 1] = one_add_cmd(Sem.SemTPtr, data, Back.BackPtr, data_expr.value, lane_offset)
+            cmds[#cmds + 1] = one_add_cmd(Sem.SemTRawPtr, data, Back.BackPtr, data_expr.value, lane_offset)
             return pvm.once(Back.BackViewPlan(cmds, data, len.value, stride))
+        end,
+        [Sem.SemViewInterleavedView] = function(self, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
+            local base = one_bounded_view(self.base, path .. ".base", layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
+            local stride_elems = require_index_expr(self.stride, path .. ".stride.expr", layout_env, break_block, break_args, continue_block, continue_args, residence_plan, "sem_to_back_bounded_view")
+            local lane = require_index_expr(self.lane, path .. ".lane.expr", layout_env, break_block, break_args, continue_block, continue_args, residence_plan, "sem_to_back_bounded_view")
+            local elem_size = Back.BackValId(path .. ".elem_size")
+            local lane_offset = Back.BackValId(path .. ".lane_offset")
+            local stride = Back.BackValId(path .. ".stride")
+            local data = Back.BackValId(path .. ".data")
+            local cmds = {}
+            append_view_cmds(cmds, base)
+            if view_terminates(base) then
+                return pvm.once(terminated_view(cmds))
+            end
+            append_expr_cmds(cmds, stride_elems)
+            if expr_terminates(stride_elems) then
+                return pvm.once(terminated_view(cmds))
+            end
+            append_expr_cmds(cmds, lane)
+            if expr_terminates(lane) then
+                return pvm.once(terminated_view(cmds))
+            end
+            cmds[#cmds + 1] = Back.BackCmdConstInt(elem_size, Back.BackIndex, tostring(one_type_mem_size(self.elem, layout_env)))
+            cmds[#cmds + 1] = one_mul_cmd(Sem.SemTIndex, lane_offset, Back.BackIndex, lane.value, elem_size)
+            cmds[#cmds + 1] = one_mul_cmd(Sem.SemTIndex, stride, Back.BackIndex, stride_elems.value, elem_size)
+            cmds[#cmds + 1] = one_add_cmd(Sem.SemTRawPtr, data, Back.BackPtr, base.data, lane_offset)
+            return pvm.once(Back.BackViewPlan(cmds, data, base.len, stride))
         end,
     })
 
