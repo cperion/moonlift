@@ -250,7 +250,7 @@ assert(func_spans:get("func.add") ~= nil)
 assert(func_spans:get("func.add.param.1") ~= nil)
 assert(func_spans:get("func.add.stmt.1") ~= nil)
 assert(func_item == Surf.SurfItemFunc(Surf.SurfFunc(
-    "add",
+    "add", false,
     {
         Surf.SurfParam("a", Surf.SurfTI32),
         Surf.SurfParam("b", Surf.SurfTI32),
@@ -306,7 +306,7 @@ assert(mod == Surf.SurfModule({
     Surf.SurfItemConst(Surf.SurfConst("K", Surf.SurfTI32, Surf.SurfInt("7"))),
     Surf.SurfItemStatic(Surf.SurfStatic("G", Surf.SurfTI32, Surf.SurfInt("9"))),
     Surf.SurfItemFunc(Surf.SurfFunc(
-        "main",
+        "main", false,
         { Surf.SurfParam("x", Surf.SurfTI32) },
         Surf.SurfTI32,
         {
