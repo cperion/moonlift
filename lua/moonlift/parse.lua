@@ -926,6 +926,10 @@ function Parser:parse_stmt(path)
         stmt = self:parse_if_stmt_after_cond(self:parse_expr(), path)
     elseif kind == "switch" then
         stmt = self:parse_switch_stmt(path)
+    elseif kind == "for" then
+        stmt = self:parse_for_stmt(path)
+    elseif kind == "while" then
+        stmt = self:parse_while_stmt(path)
     elseif kind == "loop" then
         stmt = self:parse_loop(false, path)
     else
