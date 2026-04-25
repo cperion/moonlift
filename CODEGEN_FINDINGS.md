@@ -117,6 +117,71 @@ no longer do.
 
 ---
 
+## Direct Cranelift source facts relevant to Moonlift design
+
+A direct read of the vendored Cranelift sources in `third_party/wasmtime/cranelift/` clarifies several open Moonlift design questions.
+
+### 1. Jump-table / switch structure is a real first-class Cranelift notion
+
+Relevant source points:
+
+- `docs/ir.md`
+- `codegen/src/ir/function.rs`
+- `codegen/meta/src/shared/instructions.rs`
+
+Cranelift has explicit:
+
+- jump tables in the function preamble
+- `br_table` in the IR
+- dedicated creation APIs for jump tables
+
+That supports Moonlift's choice to preserve switch structure explicitly through `Sem`/`Back` instead of collapsing it early into compare chains.
+
+### 2. Explicit stack slots are a real IR/storage primitive
+
+Relevant source points:
+
+- `docs/ir.md`
+- `codegen/src/ir/function.rs`
+- `codegen/src/ir/stackslot.rs`
+- `codegen/src/legalizer/mod.rs`
+
+Cranelift has explicit stack-slot entities plus `stack_load` / `stack_store` / `stack_addr`.
+The legalizer then expands these to ordinary address + load/store forms.
+
+That matches Moonlift's existing explicit stack-slot command family and also reinforces the rule that addressability/storage should stay explicit rather than hidden in helper conventions.
+
+### 3. Bulk memory ops are explicit libcalls in Cranelift
+
+Relevant source points:
+
+- `codegen/src/ir/libcall.rs`
+- `module/src/lib.rs`
+- `codegen/src/isa/aarch64/abi.rs`
+
+Cranelift names explicit libcalls for:
+
+- `Memcpy`
+- `Memset`
+- `Memmove`
+- `Memcmp`
+
+and the module layer maps them to standard runtime names (`memcpy`, `memset`, `memmove`, `memcmp`).
+At least on AArch64, the backend ABI code has an explicit `gen_memcpy(...)` path that emits a call to `LibCall::Memcpy`.
+
+That is strong evidence that Moonlift should eventually expose explicit bulk-copy/fill Back commands instead of forcing aggregate/data movement through ad hoc scalarized sequences.
+
+### 4. Module/session layers are optional layers over the core codegen
+
+Relevant source points:
+
+- `cranelift/module/README.md`
+- `cranelift/jit/README.md`
+
+Cranelift's own `Module` / `JITModule` story is presented as an optional layer on top of core codegen, not the only semantic representation.
+
+That supports Moonlift's choice to keep the current artifact path honest and thin, and—if a richer persistent session model is added later—to treat it as an extension layer rather than a replacement compiler architecture.
+
 ## Successful shapes and what Cranelift emitted
 
 ## A. Simple add

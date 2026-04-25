@@ -199,7 +199,14 @@ function M.Define(T)
             for i = 1, #self.fields do
                 fields[i] = one_field_decl(self.fields[i], env)
             end
-            return pvm.once(Elab.ElabStruct(self.name, fields))
+            return pvm.once(Elab.ElabStruct(self.name, false, fields))
+        end,
+        [Surf.SurfUnion] = function(self, env)
+            local fields = {}
+            for i = 1, #self.fields do
+                fields[i] = one_field_decl(self.fields[i], env)
+            end
+            return pvm.once(Elab.ElabStruct(self.name, true, fields))
         end,
     })
 
@@ -291,7 +298,7 @@ function M.Define(T)
                 local effect = pvm.one(api.stmt_env_effect(stmt))
                 current_env = pvm.one(api.apply_stmt_env_effect(effect, current_env))
             end
-            return pvm.once(Elab.ElabFunc(self.name, params, one_type(self.result, module_env), body))
+            return pvm.once(Elab.ElabFunc(self.name, self.exported, params, one_type(self.result, module_env), body))
         end,
     })
 

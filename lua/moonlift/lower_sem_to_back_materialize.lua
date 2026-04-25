@@ -136,10 +136,34 @@ function M.Define(T, env)
         }, dst
     end
 
+    local function emit_memcpy_cmds(dst_addr, src_addr, size, path)
+        if size == 0 then
+            return {}
+        end
+        local len = Back.BackValId(path .. ".len")
+        return {
+            Back.BackCmdConstInt(len, Back.BackIndex, tostring(size)),
+            Back.BackCmdMemcpy(dst_addr, src_addr, len),
+        }
+    end
+
+    local function emit_memset_cmds(dst_addr, byte_raw, size, path)
+        if size == 0 then
+            return {}
+        end
+        local byte = Back.BackValId(path .. ".byte")
+        local len = Back.BackValId(path .. ".len")
+        return {
+            Back.BackCmdConstInt(byte, Back.BackU8, tostring(byte_raw)),
+            Back.BackCmdConstInt(len, Back.BackIndex, tostring(size)),
+            Back.BackCmdMemset(dst_addr, byte, len),
+        }
+    end
+
     lower_agg_expr_into_addr_from_type = pvm.phase("sem_to_back_agg_expr_into_addr_from_type", {
         [Sem.SemTNamed] = function(self, expr, addr, path, layout_env)
             local layout = require_named_layout(layout_env, self.module_name, self.type_name)
-            local cmds = {}
+            local cmds = emit_memset_cmds(addr, 0, layout.size, path .. ".fill")
             for i = 1, #layout.fields do
                 local field = layout.fields[i]
                 local init = find_field_init(expr.fields, field.field_name)
@@ -234,72 +258,16 @@ function M.Define(T, env)
             return pvm.once({ Back.BackCmdLoad(value, one_scalar(self), src_addr), Back.BackCmdStore(one_scalar(self), dst_addr, value) })
         end,
         [Sem.SemTArray] = function(self, src_addr, dst_addr, path, layout_env)
-            local cmds = {}
-            local elem_size = one_type_mem_size(self.elem, layout_env)
-            for i = 1, self.count do
-                local src_cmds, src_elem = addr_with_offset(src_addr, (i - 1) * elem_size, path .. ".src." .. i)
-                local dst_cmds, dst_elem = addr_with_offset(dst_addr, (i - 1) * elem_size, path .. ".dst." .. i)
-                copy_cmds(src_cmds, cmds)
-                copy_cmds(dst_cmds, cmds)
-                copy_cmds(one_copy_type_addr(self.elem, src_elem, dst_elem, path .. ".elem." .. i, layout_env), cmds)
-            end
-            return pvm.once(cmds)
+            return pvm.once(emit_memcpy_cmds(dst_addr, src_addr, one_type_mem_size(self, layout_env), path .. ".bulk"))
         end,
         [Sem.SemTNamed] = function(self, src_addr, dst_addr, path, layout_env)
-            local layout = require_named_layout(layout_env, self.module_name, self.type_name)
-            local cmds = {}
-            for i = 1, #layout.fields do
-                local field = layout.fields[i]
-                local src_cmds, src_field = addr_with_offset(src_addr, field.offset, path .. ".src." .. field.field_name)
-                local dst_cmds, dst_field = addr_with_offset(dst_addr, field.offset, path .. ".dst." .. field.field_name)
-                copy_cmds(src_cmds, cmds)
-                copy_cmds(dst_cmds, cmds)
-                copy_cmds(one_copy_type_addr(field.ty, src_field, dst_field, path .. ".field." .. field.field_name, layout_env), cmds)
-            end
-            return pvm.once(cmds)
+            return pvm.once(emit_memcpy_cmds(dst_addr, src_addr, one_type_mem_size(self, layout_env), path .. ".bulk"))
         end,
-        [Sem.SemTSlice] = function(self, src_addr, dst_addr, path)
-            local src_data_cmds, src_data = addr_with_offset(src_addr, 0, path .. ".src.data")
-            local dst_data_cmds, dst_data = addr_with_offset(dst_addr, 0, path .. ".dst.data")
-            local src_len_cmds, src_len = addr_with_offset(src_addr, 8, path .. ".src.len")
-            local dst_len_cmds, dst_len = addr_with_offset(dst_addr, 8, path .. ".dst.len")
-            local data = Back.BackValId(path .. ".data")
-            local len = Back.BackValId(path .. ".len")
-            local cmds = {}
-            copy_cmds(src_data_cmds, cmds)
-            copy_cmds(dst_data_cmds, cmds)
-            copy_cmds(src_len_cmds, cmds)
-            copy_cmds(dst_len_cmds, cmds)
-            cmds[#cmds + 1] = Back.BackCmdLoad(data, Back.BackPtr, src_data)
-            cmds[#cmds + 1] = Back.BackCmdStore(Back.BackPtr, dst_data, data)
-            cmds[#cmds + 1] = Back.BackCmdLoad(len, Back.BackIndex, src_len)
-            cmds[#cmds + 1] = Back.BackCmdStore(Back.BackIndex, dst_len, len)
-            return pvm.once(cmds)
+        [Sem.SemTSlice] = function(self, src_addr, dst_addr, path, layout_env)
+            return pvm.once(emit_memcpy_cmds(dst_addr, src_addr, one_type_mem_size(self, layout_env), path .. ".bulk"))
         end,
-        [Sem.SemTView] = function(self, src_addr, dst_addr, path)
-            local src_data_cmds, src_data = addr_with_offset(src_addr, 0, path .. ".src.data")
-            local dst_data_cmds, dst_data = addr_with_offset(dst_addr, 0, path .. ".dst.data")
-            local src_len_cmds, src_len = addr_with_offset(src_addr, 8, path .. ".src.len")
-            local dst_len_cmds, dst_len = addr_with_offset(dst_addr, 8, path .. ".dst.len")
-            local src_stride_cmds, src_stride = addr_with_offset(src_addr, 16, path .. ".src.stride")
-            local dst_stride_cmds, dst_stride = addr_with_offset(dst_addr, 16, path .. ".dst.stride")
-            local data = Back.BackValId(path .. ".data")
-            local len = Back.BackValId(path .. ".len")
-            local stride = Back.BackValId(path .. ".stride")
-            local cmds = {}
-            copy_cmds(src_data_cmds, cmds)
-            copy_cmds(dst_data_cmds, cmds)
-            copy_cmds(src_len_cmds, cmds)
-            copy_cmds(dst_len_cmds, cmds)
-            copy_cmds(src_stride_cmds, cmds)
-            copy_cmds(dst_stride_cmds, cmds)
-            cmds[#cmds + 1] = Back.BackCmdLoad(data, Back.BackPtr, src_data)
-            cmds[#cmds + 1] = Back.BackCmdStore(Back.BackPtr, dst_data, data)
-            cmds[#cmds + 1] = Back.BackCmdLoad(len, Back.BackIndex, src_len)
-            cmds[#cmds + 1] = Back.BackCmdStore(Back.BackIndex, dst_len, len)
-            cmds[#cmds + 1] = Back.BackCmdLoad(stride, Back.BackIndex, src_stride)
-            cmds[#cmds + 1] = Back.BackCmdStore(Back.BackIndex, dst_stride, stride)
-            return pvm.once(cmds)
+        [Sem.SemTView] = function(self, src_addr, dst_addr, path, layout_env)
+            return pvm.once(emit_memcpy_cmds(dst_addr, src_addr, one_type_mem_size(self, layout_env), path .. ".bulk"))
         end,
         [Sem.SemTVoid] = function()
             error("sem_to_back_copy_type_addr: cannot copy void")

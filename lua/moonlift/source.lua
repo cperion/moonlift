@@ -8,6 +8,7 @@ function M.Define(T, opts)
     local Elab = T.MoonliftElab
     local Sem = T.MoonliftSem
     local Back = T.MoonliftBack
+    local Surf = T.MoonliftSurface
 
     local Parse = require("moonlift.parse").Define(T)
     local SurfaceToElabTop = require("moonlift.lower_surface_to_elab_top").Define(T)
@@ -124,6 +125,10 @@ function M.Define(T, opts)
         return module_name .. "." .. item_name
     end
 
+    local function import_path_key(module_name)
+        return "import." .. module_name
+    end
+
     local function collect_surface_imports(surface)
         local imports = {}
         local seen = {}
@@ -132,7 +137,10 @@ function M.Define(T, opts)
             if item.imp ~= nil then
                 local module_name = surf_path_text(item.imp.path)
                 if not seen[module_name] then
-                    imports[#imports + 1] = module_name
+                    imports[#imports + 1] = {
+                        module_name = module_name,
+                        path = import_path_key(module_name),
+                    }
                     seen[module_name] = true
                 end
             end
@@ -254,10 +262,86 @@ function M.Define(T, opts)
         return best_path, best_span
     end
 
-    local function annotate_stage_error(stage, err, spans, fallback_path)
+    local function normalize_diag_message(message, path)
+        if type(message) ~= "string" then
+            return tostring(message)
+        end
+        local out = message
+        while true do
+            local trimmed, n = string.gsub(out, "^.-%.lua:%d+:%s*", "", 1)
+            if n == 0 then break end
+            out = trimmed
+        end
+        while true do
+            local trimmed, n = string.gsub(out, "^surface_to_elab_[%w_]+:%s*", "", 1)
+            if n == 0 then break end
+            out = trimmed
+        end
+        while true do
+            local trimmed, n = string.gsub(out, "^lower_surface_to_elab_[%w_]+:%s*", "", 1)
+            if n == 0 then break end
+            out = trimmed
+        end
+        while true do
+            local trimmed, n = string.gsub(out, "^resolve_sem_layout:%s*", "", 1)
+            if n == 0 then break end
+            out = trimmed
+        end
+        while true do
+            local trimmed, n = string.gsub(out, "^lower_sem_to_back[_%w]*:%s*", "", 1)
+            if n == 0 then break end
+            out = trimmed
+        end
+        while true do
+            local trimmed, n = string.gsub(out, "^lower_elab_to_sem:%s*", "", 1)
+            if n == 0 then break end
+            out = trimmed
+        end
+        if path ~= nil and path ~= "" then
+            local prefix = path .. ": "
+            while string.sub(out, 1, #prefix) == prefix do
+                out = string.sub(out, #prefix + 1)
+            end
+        end
+        return out
+    end
+
+    local function attach_diag_context(diag, stage, spans, fallback_path, module_name)
+        local path, span = best_span_for_message(spans, diag.path or fallback_path, diag.message)
+        if path ~= nil then
+            diag.path = path
+        elseif diag.path == nil then
+            diag.path = fallback_path
+        end
+        if span ~= nil then
+            diag.source_span = span
+            if diag.line == nil or diag.line == 0 then
+                diag.line = span.line
+            end
+            if diag.col == nil or diag.col == 0 then
+                diag.col = span.col
+            end
+            if diag.offset == nil then
+                diag.offset = span.offset
+            end
+            if diag.finish == nil then
+                diag.finish = span.finish
+            end
+        end
+        if stage ~= nil and diag.stage == nil then
+            diag.stage = stage
+        end
+        if module_name ~= nil and module_name ~= "" and diag.module_name == nil then
+            diag.module_name = module_name
+        end
+        diag.message = normalize_diag_message(diag.message, diag.path or fallback_path)
+        return diag
+    end
+
+    local function annotate_stage_error(stage, err, spans, fallback_path, module_name)
         local diag = Parse.as_diag(err)
         if diag ~= nil then
-            return diag
+            return attach_diag_context(diag, stage, spans, fallback_path, module_name)
         end
         local message = tostring(err)
         local path, span = best_span_for_message(spans, fallback_path, message)
@@ -265,8 +349,9 @@ function M.Define(T, opts)
         out.path = path
         out.source_span = span
         out.stage = stage
+        out.module_name = module_name
         out.cause = err
-        return out
+        return attach_diag_context(out, stage, spans, fallback_path, module_name)
     end
 
     local function lower_type_text(text, env)
@@ -275,6 +360,8 @@ function M.Define(T, opts)
 
     local function lower_module_with_spans_text(text, env)
         local surface, spans = Parse.parse_module_with_spans(text)
+        local Desugar = require("moonlift.desugar_closures")
+        surface = Desugar.desugar(surface, Surf)
         local elab = pvm.one(SurfaceToElabTop.lower_module(surface, default_elab_env(env, "")))
         return elab, spans, surface
     end
@@ -312,7 +399,10 @@ function M.Define(T, opts)
     end
 
     local function lower_module_text(text, env)
-        return pvm.one(SurfaceToElabTop.lower_module(Parse.parse_module(text), default_elab_env(env, "")))
+        local module = Parse.parse_module(text)
+        local Desugar = require("moonlift.desugar_closures")
+        module = Desugar.desugar(module, Surf)
+        return pvm.one(SurfaceToElabTop.lower_module(module, default_elab_env(env, "")))
     end
 
     local function sem_module_text(text, env, const_env)
@@ -347,20 +437,22 @@ function M.Define(T, opts)
         return pvm.one(resolve_api().resolve_module(sem, default_layout_env(layout_env))), spans, surface, elab, sem, use_layout_env
     end
 
-    local function back_module_text(text, env, const_env, layout_env)
+    local function back_text(text, env, const_env, layout_env)
         local sem = sem_module_text(text, env, const_env)
         local use_layout_env = pvm.one(resolve_api().synthesize_layout_env(sem, default_layout_env(layout_env)))
         local resolved = pvm.one(resolve_api().resolve_module(sem, default_layout_env(layout_env)))
         return pvm.one(back_api().lower_module(resolved, use_layout_env))
     end
 
-    local function back_module_with_spans_text(text, env, const_env, layout_env)
+    local function back_with_spans_text(text, env, const_env, layout_env)
         local resolved, spans, surface, elab, sem, use_layout_env = resolve_module_with_spans_text(text, env, const_env, layout_env)
         return pvm.one(back_api().lower_module(resolved, use_layout_env)), spans, surface, elab, sem, resolved, use_layout_env
     end
 
-    local function pipeline_module_text(text, env, const_env, layout_env)
+    local function pipeline_text(text, env, const_env, layout_env)
         local surface = Parse.parse_module(text)
+        local Desugar = require("moonlift.desugar_closures")
+        surface = Desugar.desugar(surface, Surf)
         local elab_env = default_elab_env(env, "")
         local use_const_env = default_const_env(const_env)
         local elab = pvm.one(SurfaceToElabTop.lower_module(surface, elab_env))
@@ -374,8 +466,10 @@ function M.Define(T, opts)
         }
     end
 
-    local function pipeline_module_with_spans_text(text, env, const_env, layout_env)
+    local function pipeline_with_spans_text(text, env, const_env, layout_env)
         local surface, spans = Parse.parse_module_with_spans(text)
+        local Desugar = require("moonlift.desugar_closures")
+        surface = Desugar.desugar(surface, Surf)
         local elab_env = default_elab_env(env, "")
         local use_const_env = default_const_env(const_env)
         local elab = pvm.one(SurfaceToElabTop.lower_module(surface, elab_env))
@@ -390,72 +484,113 @@ function M.Define(T, opts)
         }
     end
 
-    local function compile_module_text(text, env, const_env, layout_env, jit)
-        local back = back_module_text(text, env, const_env, layout_env)
+    local function compile_text(text, env, const_env, layout_env, jit)
+        local back = back_text(text, env, const_env, layout_env)
         local use_jit = jit or jit_api().jit()
         local artifact = use_jit:compile(back)
         return artifact, use_jit
     end
 
-    local function build_named_module_stage(module_name, sources, order, cache, visiting, env, const_env, layout_env)
+    local function build_named_module_stage(module_name, sources, order, cache, visiting, env, const_env, layout_env, import_site)
         local cached = cache[module_name]
         if cached ~= nil then return cached end
         if visiting[module_name] then
-            error("source_package: cyclic module import at '" .. module_name .. "'")
+            error(annotate_stage_error(
+                "resolve",
+                "cyclic module import at '" .. module_name .. "'",
+                import_site and import_site.spans or nil,
+                import_site and import_site.path or "module",
+                import_site and import_site.module_name or nil
+            ), 0)
         end
         local text = sources[module_name]
         if text == nil then
-            error("source_package: unknown imported module '" .. module_name .. "'")
+            error(annotate_stage_error(
+                "resolve",
+                "unknown imported module '" .. module_name .. "'",
+                import_site and import_site.spans or nil,
+                import_site and import_site.path or "module",
+                import_site and import_site.module_name or nil
+            ), 0)
         end
 
-        visiting[module_name] = true
-        local surface, spans = Parse.parse_module_with_spans(text)
-        local imports = collect_surface_imports(surface)
-
-        local imported_elab_env = Elab.ElabEnv("", {}, {}, {})
-        local imported_elab_const_env = Elab.ElabConstEnv({})
-        local imported_sem_const_env = Sem.SemConstEnv({})
-        local imported_layout_env = Sem.SemLayoutEnv({})
-
-        for i = 1, #imports do
-            local imported_name = imports[i]
-            local dep = build_named_module_stage(imported_name, sources, order, cache, visiting, env, const_env, layout_env)
-            imported_elab_env = merge_elab_env(imported_elab_env, dep.export_elab_env, "")
-            imported_elab_const_env = merge_elab_const_env(imported_elab_const_env, dep.export_elab_const_env)
-            imported_sem_const_env = merge_sem_const_env(imported_sem_const_env, dep.export_sem_const_env)
-            imported_layout_env = merge_layout_env(imported_layout_env, dep.export_layout_env)
-        end
-
-        local module_elab_env = merge_elab_env(default_elab_env(env, module_name), imported_elab_env, module_name)
-        local module_const_env = merge_elab_const_env(default_const_env(const_env), imported_elab_const_env)
-        local module_layout_base = merge_layout_env(default_layout_env(layout_env), imported_layout_env)
-
-        local elab = pvm.one(SurfaceToElabTop.lower_module(surface, module_elab_env))
-        local sem = pvm.one(ElabToSem.lower_module(elab, module_const_env))
-        local module_layout_env = pvm.one(resolve_api().synthesize_layout_env(sem, module_layout_base))
-        local resolved = pvm.one(resolve_api().resolve_module(sem, module_layout_base))
-
-        local stage = {
-            name = module_name,
-            text = text,
-            spans = spans,
-            imports = imports,
-            surface = surface,
-            elab = elab,
-            sem = sem,
-            resolved = resolved,
-            layout_env = module_layout_env,
-            import_elab_env = imported_elab_env,
-            import_elab_const_env = imported_elab_const_env,
-            import_sem_const_env = imported_sem_const_env,
-            import_layout_env = imported_layout_env,
-            export_elab_env = exported_elab_env(elab),
-            export_elab_const_env = merge_elab_const_env(imported_elab_const_env, exported_elab_const_env(elab)),
-            export_sem_const_env = merge_sem_const_env(imported_sem_const_env, exported_sem_const_env(sem)),
-            export_layout_env = module_layout_env,
+        local ctx = {
+            stage = "parse",
+            spans = nil,
         }
 
+        visiting[module_name] = true
+        local ok, stage = xpcall(function()
+            local surface
+            ctx.stage = "parse"
+            surface, ctx.spans = Parse.parse_module_with_spans(text)
+            local Desugar = require("moonlift.desugar_closures")
+            surface = Desugar.desugar(surface, Surf)
+            local import_specs = collect_surface_imports(surface)
+            local imports = {}
+            for i = 1, #import_specs do
+                imports[i] = import_specs[i].module_name
+            end
+
+            local imported_elab_env = Elab.ElabEnv("", {}, {}, {})
+            local imported_elab_const_env = Elab.ElabConstEnv({})
+            local imported_sem_const_env = Sem.SemConstEnv({})
+            local imported_layout_env = Sem.SemLayoutEnv({})
+
+            ctx.stage = "resolve"
+            for i = 1, #import_specs do
+                local imported = import_specs[i]
+                local dep = build_named_module_stage(imported.module_name, sources, order, cache, visiting, env, const_env, layout_env, {
+                    module_name = module_name,
+                    spans = ctx.spans,
+                    path = imported.path,
+                })
+                imported_elab_env = merge_elab_env(imported_elab_env, dep.export_elab_env, "")
+                imported_elab_const_env = merge_elab_const_env(imported_elab_const_env, dep.export_elab_const_env)
+                imported_sem_const_env = merge_sem_const_env(imported_sem_const_env, dep.export_sem_const_env)
+                imported_layout_env = merge_layout_env(imported_layout_env, dep.export_layout_env)
+            end
+
+            local module_elab_env = merge_elab_env(default_elab_env(env, module_name), imported_elab_env, module_name)
+            local module_const_env = merge_elab_const_env(default_const_env(const_env), imported_elab_const_env)
+            local module_layout_base = merge_layout_env(default_layout_env(layout_env), imported_layout_env)
+
+            ctx.stage = "lower"
+            local elab = pvm.one(SurfaceToElabTop.lower_module(surface, module_elab_env))
+            ctx.stage = "sem"
+            local sem = pvm.one(ElabToSem.lower_module(elab, module_const_env))
+            ctx.stage = "layout"
+            local module_layout_env = pvm.one(resolve_api().synthesize_layout_env(sem, module_layout_base))
+            ctx.stage = "resolve"
+            local resolved = pvm.one(resolve_api().resolve_module(sem, module_layout_base))
+
+            return {
+                name = module_name,
+                text = text,
+                spans = ctx.spans,
+                imports = imports,
+                import_specs = import_specs,
+                surface = surface,
+                elab = elab,
+                sem = sem,
+                resolved = resolved,
+                layout_env = module_layout_env,
+                import_elab_env = imported_elab_env,
+                import_elab_const_env = imported_elab_const_env,
+                import_sem_const_env = imported_sem_const_env,
+                import_layout_env = imported_layout_env,
+                export_elab_env = exported_elab_env(elab),
+                export_elab_const_env = merge_elab_const_env(imported_elab_const_env, exported_elab_const_env(elab)),
+                export_sem_const_env = merge_sem_const_env(imported_sem_const_env, exported_sem_const_env(sem)),
+                export_layout_env = module_layout_env,
+            }
+        end, function(err)
+            return annotate_stage_error(ctx.stage, err, ctx.spans, "module", module_name)
+        end)
         visiting[module_name] = nil
+        if not ok then
+            error(stage, 0)
+        end
         cache[module_name] = stage
         order[#order + 1] = stage
         return stage
@@ -480,7 +615,14 @@ function M.Define(T, opts)
         local cmds = {}
         for i = 1, #stages.modules do
             local stage = stages.modules[i]
-            local plan = pvm.one(back_api().lower_module_plan(stage.resolved, stage.layout_env, stage.import_sem_const_env))
+            local ok, plan = xpcall(function()
+                return pvm.one(back_api().lower_module_plan(stage.resolved, stage.layout_env, stage.import_sem_const_env))
+            end, function(err)
+                return annotate_stage_error("back", err, stage.spans, "module", stage.name)
+            end)
+            if not ok then
+                error(plan, 0)
+            end
             for j = 1, #plan.cmds do
                 cmds[#cmds + 1] = plan.cmds[j]
             end
@@ -494,6 +636,85 @@ function M.Define(T, opts)
         local use_jit = jit or jit_api().jit()
         local artifact = use_jit:compile(back)
         return artifact, use_jit, stages
+    end
+
+    local function try_pipeline_text(text, env, const_env, layout_env)
+        local ctx = { stage = "parse", spans = nil }
+        local ok, res = xpcall(function()
+            local surface
+            ctx.stage = "parse"
+            surface, ctx.spans = Parse.parse_module_with_spans(text)
+            local Desugar = require("moonlift.desugar_closures")
+            surface = Desugar.desugar(surface, Surf)
+            ctx.stage = "lower"
+            local elab = pvm.one(SurfaceToElabTop.lower_module(surface, default_elab_env(env, "")))
+            ctx.stage = "sem"
+            local sem = pvm.one(ElabToSem.lower_module(elab, default_const_env(const_env)))
+            ctx.stage = "layout"
+            local resolved_layout_env = pvm.one(resolve_api().synthesize_layout_env(sem, default_layout_env(layout_env)))
+            return {
+                surface = surface,
+                spans = ctx.spans,
+                elab = elab,
+                sem = sem,
+                layout_env = resolved_layout_env,
+            }
+        end, function(err)
+            return annotate_stage_error(ctx.stage, err, ctx.spans, "module")
+        end)
+        if ok then return res, nil end
+        return nil, res
+    end
+
+    local function try_back_text(text, env, const_env, layout_env)
+        local ctx = { stage = "parse", spans = nil }
+        local ok, res = xpcall(function()
+            local surface
+            ctx.stage = "parse"
+            surface, ctx.spans = Parse.parse_module_with_spans(text)
+            local Desugar = require("moonlift.desugar_closures")
+            surface = Desugar.desugar(surface, Surf)
+            ctx.stage = "lower"
+            local elab = pvm.one(SurfaceToElabTop.lower_module(surface, default_elab_env(env, "")))
+            ctx.stage = "sem"
+            local sem = pvm.one(ElabToSem.lower_module(elab, default_const_env(const_env)))
+            ctx.stage = "layout"
+            local use_layout_env = pvm.one(resolve_api().synthesize_layout_env(sem, default_layout_env(layout_env)))
+            ctx.stage = "resolve"
+            local resolved = pvm.one(resolve_api().resolve_module(sem, default_layout_env(layout_env)))
+            ctx.stage = "back"
+            return pvm.one(back_api().lower_module(resolved, use_layout_env))
+        end, function(err)
+            return annotate_stage_error(ctx.stage, err, ctx.spans, "module")
+        end)
+        if ok then return res, nil end
+        return nil, res
+    end
+
+    local function try_compile_text(text, env, const_env, layout_env, jit)
+        local ctx = { stage = "parse", spans = nil }
+        local ok, artifact, use_jit = xpcall(function()
+            local surface
+            ctx.stage = "parse"
+            surface, ctx.spans = Parse.parse_module_with_spans(text)
+            ctx.stage = "lower"
+            local elab = pvm.one(SurfaceToElabTop.lower_module(surface, default_elab_env(env, "")))
+            ctx.stage = "sem"
+            local sem = pvm.one(ElabToSem.lower_module(elab, default_const_env(const_env)))
+            ctx.stage = "layout"
+            local use_layout_env = pvm.one(resolve_api().synthesize_layout_env(sem, default_layout_env(layout_env)))
+            ctx.stage = "resolve"
+            local resolved = pvm.one(resolve_api().resolve_module(sem, default_layout_env(layout_env)))
+            ctx.stage = "back"
+            local back = pvm.one(back_api().lower_module(resolved, use_layout_env))
+            ctx.stage = "compile"
+            local api = jit or jit_api().jit()
+            return api:compile(back), api
+        end, function(err)
+            return annotate_stage_error(ctx.stage, err, ctx.spans, "module")
+        end)
+        if ok then return artifact, use_jit, nil end
+        return nil, nil, artifact
     end
 
     return {
@@ -529,40 +750,61 @@ function M.Define(T, opts)
         lower_item_with_spans = lower_item_with_spans_text,
         lower_module_with_spans = lower_module_with_spans_text,
         try_lower_type = function(text, env)
-            local value, spans = Parse.parse_type_with_spans(text)
-            local ok, res = xpcall(function() return pvm.one(SurfaceToElabLoop.lower_type(value, default_elab_env(env, ""))) end, function(err)
+            local spans
+            local ok, res = xpcall(function()
+                local value
+                value, spans = Parse.parse_type_with_spans(text)
+                return pvm.one(SurfaceToElabLoop.lower_type(value, default_elab_env(env, "")))
+            end, function(err)
                 return annotate_stage_error("lower", err, spans, "type")
             end)
             if ok then return res, nil end
             return nil, res
         end,
         try_lower_expr = function(text, env, expected_ty)
-            local value, spans = Parse.parse_expr_with_spans(text)
-            local ok, res = xpcall(function() return pvm.one(SurfaceToElabLoop.lower_expr(value, default_elab_env(env, ""), expected_ty)) end, function(err)
+            local spans
+            local ok, res = xpcall(function()
+                local value
+                value, spans = Parse.parse_expr_with_spans(text)
+                return pvm.one(SurfaceToElabLoop.lower_expr(value, default_elab_env(env, ""), expected_ty))
+            end, function(err)
                 return annotate_stage_error("lower", err, spans, "expr")
             end)
             if ok then return res, nil end
             return nil, res
         end,
         try_lower_stmt = function(text, env, path)
-            local value, spans = Parse.parse_stmt_with_spans(text)
-            local ok, res = xpcall(function() return pvm.one(SurfaceToElabLoop.lower_stmt(value, default_elab_env(env, ""), path or "stmt")) end, function(err)
-                return annotate_stage_error("lower", err, spans, path or "stmt")
+            local spans
+            local fallback_path = path or "stmt"
+            local ok, res = xpcall(function()
+                local value
+                value, spans = Parse.parse_stmt_with_spans(text)
+                return pvm.one(SurfaceToElabLoop.lower_stmt(value, default_elab_env(env, ""), fallback_path))
+            end, function(err)
+                return annotate_stage_error("lower", err, spans, fallback_path)
             end)
             if ok then return res, nil end
             return nil, res
         end,
         try_lower_item = function(text, env)
-            local value, spans = Parse.parse_item_with_spans(text)
-            local ok, res = xpcall(function() return pvm.one(SurfaceToElabTop.lower_item(value, default_elab_env(env, ""))) end, function(err)
+            local spans
+            local ok, res = xpcall(function()
+                local value
+                value, spans = Parse.parse_item_with_spans(text)
+                return pvm.one(SurfaceToElabTop.lower_item(value, default_elab_env(env, "")))
+            end, function(err)
                 return annotate_stage_error("lower", err, spans, "item")
             end)
             if ok then return res, nil end
             return nil, res
         end,
         try_lower_module = function(text, env)
-            local value, spans = Parse.parse_module_with_spans(text)
-            local ok, res = xpcall(function() return pvm.one(SurfaceToElabTop.lower_module(value, default_elab_env(env, ""))) end, function(err)
+            local spans
+            local ok, res = xpcall(function()
+                local value
+                value, spans = Parse.parse_module_with_spans(text)
+                return pvm.one(SurfaceToElabTop.lower_module(value, default_elab_env(env, "")))
+            end, function(err)
                 return annotate_stage_error("lower", err, spans, "module")
             end)
             if ok then return res, nil end
@@ -575,63 +817,84 @@ function M.Define(T, opts)
         layout_module_with_spans = layout_module_with_spans_text,
         resolve_module = resolve_module_text,
         resolve_module_with_spans = resolve_module_with_spans_text,
-        back_module = back_module_text,
-        back_module_with_spans = back_module_with_spans_text,
-        pipeline_module = pipeline_module_text,
-        pipeline_module_with_spans = pipeline_module_with_spans_text,
-        compile_module = compile_module_text,
+
+        -- Canonical authored front door for single-module source text.
+        pipeline = pipeline_text,
+        pipeline_with_spans = pipeline_with_spans_text,
+        back = back_text,
+        back_with_spans = back_with_spans_text,
+        compile = compile_text,
+
         pipeline_package = pipeline_package_text,
         back_package = back_package_text,
         compile_package = compile_package_text,
+        try_pipeline = try_pipeline_text,
+        try_back = try_back_text,
+        try_compile = try_compile_text,
         try_sem_module = function(text, env, const_env)
-            local elab, spans = lower_module_with_spans_text(text, env)
-            local ok, res = xpcall(function() return pvm.one(ElabToSem.lower_module(elab, default_const_env(const_env))) end, function(err)
-                return annotate_stage_error("sem", err, spans, "module")
+            local ctx = { stage = "parse", spans = nil }
+            local ok, res = xpcall(function()
+                local surface
+                ctx.stage = "parse"
+                surface, ctx.spans = Parse.parse_module_with_spans(text)
+                ctx.stage = "lower"
+                local elab = pvm.one(SurfaceToElabTop.lower_module(surface, default_elab_env(env, "")))
+                ctx.stage = "sem"
+                return pvm.one(ElabToSem.lower_module(elab, default_const_env(const_env)))
+            end, function(err)
+                return annotate_stage_error(ctx.stage, err, ctx.spans, "module")
             end)
             if ok then return res, nil end
             return nil, res
         end,
         try_resolve_module = function(text, env, const_env, layout_env)
-            local sem, spans = sem_module_with_spans_text(text, env, const_env)
+            local ctx = { stage = "parse", spans = nil }
             local ok, res = xpcall(function()
+                local surface
+                ctx.stage = "parse"
+                surface, ctx.spans = Parse.parse_module_with_spans(text)
+                ctx.stage = "lower"
+                local elab = pvm.one(SurfaceToElabTop.lower_module(surface, default_elab_env(env, "")))
+                ctx.stage = "sem"
+                local sem = pvm.one(ElabToSem.lower_module(elab, default_const_env(const_env)))
+                ctx.stage = "layout"
+                pvm.one(resolve_api().synthesize_layout_env(sem, default_layout_env(layout_env)))
+                ctx.stage = "resolve"
                 return pvm.one(resolve_api().resolve_module(sem, default_layout_env(layout_env)))
             end, function(err)
-                return annotate_stage_error("resolve", err, spans, "module")
+                return annotate_stage_error(ctx.stage, err, ctx.spans, "module")
             end)
             if ok then return res, nil end
             return nil, res
         end,
-        try_back_module = function(text, env, const_env, layout_env)
-            local sem, spans = sem_module_with_spans_text(text, env, const_env)
+        try_pipeline_package = function(modules, env, const_env, layout_env)
             local ok, res = xpcall(function()
-                local use_layout_env = pvm.one(resolve_api().synthesize_layout_env(sem, default_layout_env(layout_env)))
-                local resolved = pvm.one(resolve_api().resolve_module(sem, default_layout_env(layout_env)))
-                return pvm.one(back_api().lower_module(resolved, use_layout_env))
+                return pipeline_package_text(modules, env, const_env, layout_env)
             end, function(err)
-                return annotate_stage_error("back", err, spans, "module")
+                return annotate_stage_error("pipeline", err, nil, "module")
             end)
             if ok then return res, nil end
             return nil, res
         end,
-        try_pipeline_module = function(text, env, const_env, layout_env)
-            local ok, res = xpcall(function() return pipeline_module_with_spans_text(text, env, const_env, layout_env) end, function(err)
-                local diag = Parse.as_diag(err)
-                if diag ~= nil then return diag end
-                return err
+        try_back_package = function(modules, env, const_env, layout_env)
+            local ok, back, stages = xpcall(function()
+                return back_package_text(modules, env, const_env, layout_env)
+            end, function(err)
+                return annotate_stage_error("back", err, nil, "module")
             end)
-            if ok then return res, nil end
-            return nil, res
+            if ok then return back, stages, nil end
+            return nil, nil, back
         end,
-        try_compile_module = function(text, env, const_env, layout_env, jit)
-            local back, spans = back_module_with_spans_text(text, env, const_env, layout_env)
-            local ok, artifact, use_jit = xpcall(function()
+        try_compile_package = function(modules, env, const_env, layout_env, jit)
+            local ok, artifact, use_jit, stages = xpcall(function()
+                local back, built_stages = back_package_text(modules, env, const_env, layout_env)
                 local api = jit or jit_api().jit()
-                return api:compile(back), api
+                return api:compile(back), api, built_stages
             end, function(err)
-                return annotate_stage_error("compile", err, spans, "module")
+                return annotate_stage_error("compile", err, nil, "module")
             end)
-            if ok then return artifact, use_jit, nil end
-            return nil, nil, artifact
+            if ok then return artifact, use_jit, stages, nil end
+            return nil, nil, nil, artifact
         end,
         jit = function() return jit_api().jit() end,
     }

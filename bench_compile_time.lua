@@ -52,7 +52,7 @@ local function bench_one(test)
 
     -- Warm up (fills pvm caches)
     for _ = 1, 5 do
-        local ok, art = pcall(S.compile_module, test.src, nil, nil, nil, jit)
+        local ok, art = pcall(S.compile, test.src, nil, nil, nil, jit)
         if ok and art then art:free() end
     end
 
@@ -73,7 +73,7 @@ local function bench_one(test)
     local resolved = S.resolve_module(test.src, nil, nil)
     local t4 = now()
 
-    local back = S.back_module(test.src, nil, nil, nil)
+    local back = S.back(test.src, nil, nil, nil)
     local t5 = now()
 
     local artifact = jit:compile(back)

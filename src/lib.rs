@@ -149,7 +149,6 @@ pub enum BackCmd {
     Fdiv(BackValId, BackScalar, BackValId, BackValId),
     Srem(BackValId, BackScalar, BackValId, BackValId),
     Urem(BackValId, BackScalar, BackValId, BackValId),
-    Frem(BackValId, BackScalar, BackValId, BackValId),
     Band(BackValId, BackScalar, BackValId, BackValId),
     Bor(BackValId, BackScalar, BackValId, BackValId),
     Bxor(BackValId, BackScalar, BackValId, BackValId),
@@ -186,6 +185,8 @@ pub enum BackCmd {
     FToU(BackValId, BackScalar, BackValId),
     Load(BackValId, BackScalar, BackValId),
     Store(BackScalar, BackValId, BackValId),
+    Memcpy(BackValId, BackValId, BackValId),
+    Memset(BackValId, BackValId, BackValId),
     Select(BackValId, BackScalar, BackValId, BackValId, BackValId),
     Fma(BackValId, BackScalar, BackValId, BackValId, BackValId),
     CallValueDirect(BackValId, BackScalar, BackFuncId, BackSigId, Vec<BackValId>),
@@ -1156,9 +1157,6 @@ impl<'a, 'b> FunctionLowerer<'a, 'b> {
             BackCmd::Fdiv(dst, _, lhs, rhs) => self.bind_binop(dst, lhs, rhs, |b, l, r| b.ins().fdiv(l, r)),
             BackCmd::Srem(dst, _, lhs, rhs) => self.bind_binop(dst, lhs, rhs, |b, l, r| b.ins().srem(l, r)),
             BackCmd::Urem(dst, _, lhs, rhs) => self.bind_binop(dst, lhs, rhs, |b, l, r| b.ins().urem(l, r)),
-            BackCmd::Frem(..) => Err(MoonliftError::new(
-                "BackCmdFrem is not yet supported by the current Cranelift host layer; Cranelift does not expose a direct floating remainder instruction in this subset",
-            )),
             BackCmd::Band(dst, _, lhs, rhs) => self.bind_binop(dst, lhs, rhs, |b, l, r| b.ins().band(l, r)),
             BackCmd::Bor(dst, _, lhs, rhs) => self.bind_binop(dst, lhs, rhs, |b, l, r| b.ins().bor(l, r)),
             BackCmd::Bxor(dst, _, lhs, rhs) => self.bind_binop(dst, lhs, rhs, |b, l, r| b.ins().bxor(l, r)),
@@ -1245,6 +1243,27 @@ impl<'a, 'b> FunctionLowerer<'a, 'b> {
                 let addr = self.value(addr)?;
                 let value = self.value(value)?;
                 self.builder.ins().store(MemFlags::new(), value, addr, 0);
+                Ok(())
+            }
+            BackCmd::Memcpy(dst, src, len) => {
+                let dst_value = self.value(dst)?;
+                let src_value = self.value(src)?;
+                let len_value = self.value(len)?;
+                self.require_value_type(dst, dst_value, self.ptr_ty, "BackCmdMemcpy destination")?;
+                self.require_value_type(src, src_value, self.ptr_ty, "BackCmdMemcpy source")?;
+                self.require_value_type(len, len_value, self.ptr_ty, "BackCmdMemcpy length")?;
+                let config = self.module.target_config();
+                self.builder.call_memcpy(config, dst_value, src_value, len_value);
+                Ok(())
+            }
+            BackCmd::Memset(dst, byte, len) => {
+                let dst_value = self.value(dst)?;
+                let len_value = self.value(len)?;
+                self.require_value_type(dst, dst_value, self.ptr_ty, "BackCmdMemset destination")?;
+                self.require_value_type(len, len_value, self.ptr_ty, "BackCmdMemset length")?;
+                let byte_value = self.byte_fill_value(byte)?;
+                let config = self.module.target_config();
+                self.builder.call_memset(config, dst_value, byte_value, len_value);
                 Ok(())
             }
             BackCmd::Select(dst, _, cond, then_value, else_value) => {
@@ -1514,6 +1533,44 @@ impl<'a, 'b> FunctionLowerer<'a, 'b> {
 
     fn values(&self, ids: &[BackValId]) -> Result<Vec<Value>, MoonliftError> {
         ids.iter().map(|id| self.value(id)).collect()
+    }
+
+    fn require_value_type(
+        &self,
+        id: &BackValId,
+        value: Value,
+        expected: Type,
+        role: &str,
+    ) -> Result<(), MoonliftError> {
+        let actual = self.builder.func.dfg.value_type(value);
+        if actual != expected {
+            return Err(MoonliftError::new(format!(
+                "function '{}' uses {} '{}' with CLIF type {:?}, expected {:?}",
+                self.func_name.as_str(),
+                role,
+                id.as_str(),
+                actual,
+                expected
+            )));
+        }
+        Ok(())
+    }
+
+    fn byte_fill_value(&mut self, id: &BackValId) -> Result<Value, MoonliftError> {
+        let value = self.value(id)?;
+        let actual = self.builder.func.dfg.value_type(value);
+        if !actual.is_int() {
+            return Err(MoonliftError::new(format!(
+                "function '{}' uses BackCmdMemset byte '{}' with non-integer CLIF type {:?}",
+                self.func_name.as_str(),
+                id.as_str(),
+                actual
+            )));
+        }
+        if actual == types::I8 {
+            return Ok(value);
+        }
+        Ok(self.builder.ins().ireduce(types::I8, value))
     }
 
     fn block_args(&self, ids: &[BackValId]) -> Result<Vec<BlockArg>, MoonliftError> {
@@ -1924,5 +1981,84 @@ mod tests {
         let ptr = artifact.getpointer_by_name("count").unwrap();
         let f = unsafe { mem::transmute::<*const c_void, extern "C" fn() -> i32>(ptr) };
         assert_eq!(f(), 4);
+    }
+
+    #[test]
+    fn compiles_memcpy_command() {
+        let jit = Jit::new();
+        let program = BackProgram::new(vec![
+            BackCmd::CreateSig(
+                BackSigId::from("sig:copy_i32"),
+                vec![BackScalar::Ptr, BackScalar::Ptr],
+                vec![BackScalar::I32],
+            ),
+            BackCmd::DeclareFuncExport(BackFuncId::from("copy_i32"), BackSigId::from("sig:copy_i32")),
+            BackCmd::BeginFunc(BackFuncId::from("copy_i32")),
+            BackCmd::CreateBlock(BackBlockId::from("entry.copy_i32")),
+            BackCmd::SwitchToBlock(BackBlockId::from("entry.copy_i32")),
+            BackCmd::BindEntryParams(
+                BackBlockId::from("entry.copy_i32"),
+                vec![BackValId::from("dst"), BackValId::from("src")],
+            ),
+            BackCmd::ConstInt(BackValId::from("len"), BackScalar::Index, "4".to_string()),
+            BackCmd::Memcpy(
+                BackValId::from("dst"),
+                BackValId::from("src"),
+                BackValId::from("len"),
+            ),
+            BackCmd::Load(BackValId::from("value"), BackScalar::I32, BackValId::from("dst")),
+            BackCmd::ReturnValue(BackValId::from("value")),
+            BackCmd::SealBlock(BackBlockId::from("entry.copy_i32")),
+            BackCmd::FinishFunc(BackFuncId::from("copy_i32")),
+            BackCmd::FinalizeModule,
+        ]);
+
+        let artifact = jit.compile(&program).unwrap();
+        let ptr = artifact.getpointer_by_name("copy_i32").unwrap();
+        let f = unsafe {
+            mem::transmute::<*const c_void, extern "C" fn(*mut i32, *const i32) -> i32>(ptr)
+        };
+
+        let src = 42i32;
+        let mut dst = 0i32;
+        assert_eq!(f(&mut dst, &src), 42);
+        assert_eq!(dst, 42);
+    }
+
+    #[test]
+    fn compiles_memset_command() {
+        let jit = Jit::new();
+        let program = BackProgram::new(vec![
+            BackCmd::CreateSig(
+                BackSigId::from("sig:zero_i32"),
+                vec![BackScalar::Ptr],
+                vec![BackScalar::I32],
+            ),
+            BackCmd::DeclareFuncExport(BackFuncId::from("zero_i32"), BackSigId::from("sig:zero_i32")),
+            BackCmd::BeginFunc(BackFuncId::from("zero_i32")),
+            BackCmd::CreateBlock(BackBlockId::from("entry.zero_i32")),
+            BackCmd::SwitchToBlock(BackBlockId::from("entry.zero_i32")),
+            BackCmd::BindEntryParams(BackBlockId::from("entry.zero_i32"), vec![BackValId::from("dst")]),
+            BackCmd::ConstInt(BackValId::from("byte"), BackScalar::U8, "0".to_string()),
+            BackCmd::ConstInt(BackValId::from("len"), BackScalar::Index, "4".to_string()),
+            BackCmd::Memset(
+                BackValId::from("dst"),
+                BackValId::from("byte"),
+                BackValId::from("len"),
+            ),
+            BackCmd::Load(BackValId::from("value"), BackScalar::I32, BackValId::from("dst")),
+            BackCmd::ReturnValue(BackValId::from("value")),
+            BackCmd::SealBlock(BackBlockId::from("entry.zero_i32")),
+            BackCmd::FinishFunc(BackFuncId::from("zero_i32")),
+            BackCmd::FinalizeModule,
+        ]);
+
+        let artifact = jit.compile(&program).unwrap();
+        let ptr = artifact.getpointer_by_name("zero_i32").unwrap();
+        let f = unsafe { mem::transmute::<*const c_void, extern "C" fn(*mut i32) -> i32>(ptr) };
+
+        let mut dst = 0x7f7f7f7fi32;
+        assert_eq!(f(&mut dst), 0);
+        assert_eq!(dst, 0);
     }
 }

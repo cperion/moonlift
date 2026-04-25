@@ -32,10 +32,12 @@ module MoonliftSurface {
                  | SurfTSlice(MoonliftSurface.SurfTypeExpr elem) unique
                  | SurfTView(MoonliftSurface.SurfTypeExpr elem) unique
                  | SurfTFunc(MoonliftSurface.SurfTypeExpr* params, MoonliftSurface.SurfTypeExpr result) unique
+                 | SurfTClosure(MoonliftSurface.SurfTypeExpr* params, MoonliftSurface.SurfTypeExpr result) unique
                  | SurfTNamed(MoonliftSurface.SurfPath path) unique
 
     SurfParam = (string name, MoonliftSurface.SurfTypeExpr ty) unique
     SurfFieldDecl = (string field_name, MoonliftSurface.SurfTypeExpr ty) unique
+    SurfVariant = (string name, MoonliftSurface.SurfTypeExpr payload) unique
     SurfFieldInit = (string name, MoonliftSurface.SurfExpr value) unique
     SurfSwitchStmtArm = (MoonliftSurface.SurfExpr key, MoonliftSurface.SurfStmt* body) unique
     SurfSwitchExprArm = (MoonliftSurface.SurfExpr key, MoonliftSurface.SurfStmt* body, MoonliftSurface.SurfExpr result) unique
@@ -110,6 +112,13 @@ module MoonliftSurface {
              | SurfSwitchExpr(MoonliftSurface.SurfExpr value, MoonliftSurface.SurfSwitchExprArm* arms, MoonliftSurface.SurfExpr default_expr) unique
              | SurfLoopExprNode(MoonliftSurface.SurfLoopExpr loop) unique
              | SurfBlockExpr(MoonliftSurface.SurfStmt* stmts, MoonliftSurface.SurfExpr result) unique
+             | SurfClosureExpr(MoonliftSurface.SurfParam* params, MoonliftSurface.SurfTypeExpr result, MoonliftSurface.SurfStmt* body) unique
+             | SurfExprView(MoonliftSurface.SurfExpr base) unique
+             | SurfExprViewWindow(MoonliftSurface.SurfExpr base, MoonliftSurface.SurfExpr start, MoonliftSurface.SurfExpr len) unique
+             | SurfExprViewFromPtr(MoonliftSurface.SurfExpr ptr, MoonliftSurface.SurfExpr len) unique
+             | SurfExprViewFromPtrStrided(MoonliftSurface.SurfExpr ptr, MoonliftSurface.SurfExpr len, MoonliftSurface.SurfExpr stride) unique
+             | SurfExprViewStrided(MoonliftSurface.SurfExpr base, MoonliftSurface.SurfExpr stride) unique
+             | SurfExprViewInterleaved(MoonliftSurface.SurfExpr base, MoonliftSurface.SurfExpr stride, MoonliftSurface.SurfExpr lane) unique
 
     SurfStmt = SurfLet(string name, MoonliftSurface.SurfTypeExpr ty, MoonliftSurface.SurfExpr init) unique
              | SurfVar(string name, MoonliftSurface.SurfTypeExpr ty, MoonliftSurface.SurfExpr init) unique
@@ -124,12 +133,15 @@ module MoonliftSurface {
              | SurfContinue
              | SurfLoopStmtNode(MoonliftSurface.SurfLoopStmt loop) unique
 
-    SurfFunc = (string name, MoonliftSurface.SurfParam* params, MoonliftSurface.SurfTypeExpr result, MoonliftSurface.SurfStmt* body) unique
+    SurfFunc = (string name, boolean exported, MoonliftSurface.SurfParam* params, MoonliftSurface.SurfTypeExpr result, MoonliftSurface.SurfStmt* body) unique
     SurfExternFunc = (string name, string symbol, MoonliftSurface.SurfParam* params, MoonliftSurface.SurfTypeExpr result) unique
     SurfConst = (string name, MoonliftSurface.SurfTypeExpr ty, MoonliftSurface.SurfExpr value) unique
     SurfStatic = (string name, MoonliftSurface.SurfTypeExpr ty, MoonliftSurface.SurfExpr value) unique
     SurfImport = (MoonliftSurface.SurfPath path) unique
     SurfTypeDecl = SurfStruct(string name, MoonliftSurface.SurfFieldDecl* fields) unique
+                 | SurfEnum(string name, MoonliftSurface.SurfName* variants) unique
+                 | SurfTaggedUnion(string name, MoonliftSurface.SurfVariant* variants) unique
+                 | SurfUnion(string name, MoonliftSurface.SurfFieldDecl* fields) unique
 
     SurfItem = SurfItemFunc(MoonliftSurface.SurfFunc func) unique
              | SurfItemExtern(MoonliftSurface.SurfExternFunc func) unique
@@ -266,6 +278,12 @@ module MoonliftElab {
              | ElabSwitchExpr(MoonliftElab.ElabExpr value, MoonliftElab.ElabSwitchExprArm* arms, MoonliftElab.ElabExpr default_expr, MoonliftElab.ElabType ty) unique
              | ElabLoopExprNode(MoonliftElab.ElabLoop loop, MoonliftElab.ElabType ty) unique
              | ElabBlockExpr(MoonliftElab.ElabStmt* stmts, MoonliftElab.ElabExpr result, MoonliftElab.ElabType ty) unique
+             | ElabExprView(MoonliftElab.ElabExpr base, MoonliftElab.ElabType ty) unique
+             | ElabExprViewWindow(MoonliftElab.ElabExpr base, MoonliftElab.ElabExpr start, MoonliftElab.ElabExpr len, MoonliftElab.ElabType ty) unique
+             | ElabExprViewFromPtr(MoonliftElab.ElabExpr ptr, MoonliftElab.ElabExpr len, MoonliftElab.ElabType ty) unique
+             | ElabExprViewFromPtrStrided(MoonliftElab.ElabExpr ptr, MoonliftElab.ElabExpr len, MoonliftElab.ElabExpr stride, MoonliftElab.ElabType ty) unique
+             | ElabExprViewStrided(MoonliftElab.ElabExpr base, MoonliftElab.ElabExpr stride, MoonliftElab.ElabType ty) unique
+             | ElabExprViewInterleaved(MoonliftElab.ElabExpr base, MoonliftElab.ElabExpr stride, MoonliftElab.ElabExpr lane, MoonliftElab.ElabType ty) unique
 
     ElabStmt = ElabLet(string id, string name, MoonliftElab.ElabType ty, MoonliftElab.ElabExpr init) unique
              | ElabVar(string id, string name, MoonliftElab.ElabType ty, MoonliftElab.ElabExpr init) unique
@@ -280,12 +298,12 @@ module MoonliftElab {
              | ElabContinue
              | ElabLoopStmtNode(MoonliftElab.ElabLoop loop) unique
 
-    ElabFunc = (string name, MoonliftElab.ElabParam* params, MoonliftElab.ElabType result, MoonliftElab.ElabStmt* body) unique
+    ElabFunc = (string name, boolean exported, MoonliftElab.ElabParam* params, MoonliftElab.ElabType result, MoonliftElab.ElabStmt* body) unique
     ElabExternFunc = (string name, string symbol, MoonliftElab.ElabParam* params, MoonliftElab.ElabType result) unique
     ElabConst = (string name, MoonliftElab.ElabType ty, MoonliftElab.ElabExpr value) unique
     ElabStatic = (string name, MoonliftElab.ElabType ty, MoonliftElab.ElabExpr value) unique
     ElabImport = (string module_name) unique
-    ElabTypeDecl = ElabStruct(string name, MoonliftElab.ElabFieldType* fields) unique
+    ElabTypeDecl = ElabStruct(string name, boolean is_union, MoonliftElab.ElabFieldType* fields) unique
 
     ElabItem = ElabItemFunc(MoonliftElab.ElabFunc func) unique
              | ElabItemExtern(MoonliftElab.ElabExternFunc func) unique
@@ -497,7 +515,7 @@ module MoonliftSem {
     SemConst = (string name, MoonliftSem.SemType ty, MoonliftSem.SemExpr value) unique
     SemStatic = (string name, MoonliftSem.SemType ty, MoonliftSem.SemExpr value) unique
     SemImport = (string module_name) unique
-    SemTypeDecl = SemStruct(string name, MoonliftSem.SemFieldType* fields) unique
+    SemTypeDecl = SemStruct(string name, boolean is_union, MoonliftSem.SemFieldType* fields) unique
     SemItem = SemItemFunc(MoonliftSem.SemFunc func) unique
             | SemItemExtern(MoonliftSem.SemExternFunc func) unique
             | SemItemConst(MoonliftSem.SemConst c) unique
@@ -573,7 +591,6 @@ module MoonliftBack {
             | BackCmdFdiv(MoonliftBack.BackValId dst, MoonliftBack.BackScalar ty, MoonliftBack.BackValId lhs, MoonliftBack.BackValId rhs) unique
             | BackCmdSrem(MoonliftBack.BackValId dst, MoonliftBack.BackScalar ty, MoonliftBack.BackValId lhs, MoonliftBack.BackValId rhs) unique
             | BackCmdUrem(MoonliftBack.BackValId dst, MoonliftBack.BackScalar ty, MoonliftBack.BackValId lhs, MoonliftBack.BackValId rhs) unique
-            | BackCmdFrem(MoonliftBack.BackValId dst, MoonliftBack.BackScalar ty, MoonliftBack.BackValId lhs, MoonliftBack.BackValId rhs) unique
             | BackCmdBand(MoonliftBack.BackValId dst, MoonliftBack.BackScalar ty, MoonliftBack.BackValId lhs, MoonliftBack.BackValId rhs) unique
             | BackCmdBor(MoonliftBack.BackValId dst, MoonliftBack.BackScalar ty, MoonliftBack.BackValId lhs, MoonliftBack.BackValId rhs) unique
             | BackCmdBxor(MoonliftBack.BackValId dst, MoonliftBack.BackScalar ty, MoonliftBack.BackValId lhs, MoonliftBack.BackValId rhs) unique
@@ -610,6 +627,8 @@ module MoonliftBack {
             | BackCmdFToU(MoonliftBack.BackValId dst, MoonliftBack.BackScalar ty, MoonliftBack.BackValId value) unique
             | BackCmdLoad(MoonliftBack.BackValId dst, MoonliftBack.BackScalar ty, MoonliftBack.BackValId addr) unique
             | BackCmdStore(MoonliftBack.BackScalar ty, MoonliftBack.BackValId addr, MoonliftBack.BackValId value) unique
+            | BackCmdMemcpy(MoonliftBack.BackValId dst, MoonliftBack.BackValId src, MoonliftBack.BackValId len) unique
+            | BackCmdMemset(MoonliftBack.BackValId dst, MoonliftBack.BackValId byte, MoonliftBack.BackValId len) unique
             | BackCmdSelect(MoonliftBack.BackValId dst, MoonliftBack.BackScalar ty, MoonliftBack.BackValId cond, MoonliftBack.BackValId then_value, MoonliftBack.BackValId else_value) unique
             | BackCmdFma(MoonliftBack.BackValId dst, MoonliftBack.BackScalar ty, MoonliftBack.BackValId a, MoonliftBack.BackValId b, MoonliftBack.BackValId c) unique
             | BackCmdCallValueDirect(MoonliftBack.BackValId dst, MoonliftBack.BackScalar ty, MoonliftBack.BackFuncId func, MoonliftBack.BackSigId sig, MoonliftBack.BackValId* args) unique

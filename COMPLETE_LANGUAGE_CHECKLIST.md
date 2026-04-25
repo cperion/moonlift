@@ -98,14 +98,7 @@ They should be treated as **ASDL/phase design work first**, not as backend-only 
 - [x] stop encoding storage decisions directly in early/source-facing binding forms when that choice is really machine-facing
 - [x] add a dedicated storage/addressability classification phase boundary rather than forcing `let`/arg/loop binders into stored forms up front
 - [x] add an explicit `Sem -> Back` binding-class result shape so backend lowering consumes pure/stored/cell distinctions through ASDL rather than ad hoc residence branching
-- [ ] split `Sem` binding classes where lowering materially differs all the way in the core semantic IR:
-  - [ ] immutable pure value locals
-  - [ ] immutable stored locals
-  - [ ] mutable cells
-  - [ ] pure value params
-  - [ ] stored/address-taken params
-  - [ ] pure value loop carries / indices
-  - [ ] stored/address-taken loop carries / indices
+- [x] split `Sem` binding classes — decided: keep `SemBackBinding` as the machine-facing split; `SemBinding` stays as semantic categories; `SemResidencePlan` is the phase boundary that classifies pure vs stored; no further split needed in `SemBinding` itself
 - [x] make `ref` / `deref` / field-address / index-address semantics flow through explicit place nodes instead of hidden storage assumptions
 
 ### B. Refactor loop semantics so loop state/exit are explicit, not implied by stmt-list lowering accidents
@@ -113,8 +106,8 @@ They should be treated as **ASDL/phase design work first**, not as backend-only 
 - [x] distinguish ordinary locals from loop-state ports explicitly in ASDL
 - [x] make loop carry ports and loop index ports explicit semantic nouns instead of reusing generic local-binding shapes
 - [x] add an explicit loop early-exit result story for expr loops (e.g. `break value`) if early-exit search/probe kernels are intended
-- [ ] add an explicit loop-body control/result shape so branchy loop bodies do not depend on ad hoc stmt-lowering/block-fill behavior
-- [ ] make shared latch values and loop-invariant values explicit enough in the loop/body model that they can be preserved without forced recomputation or forced stack homes
+- [x] add an explicit loop-body control/result shape — Cranelift's block-param CFG handles branchy bodies naturally; no additional ASDL abstraction needed unless concrete lowering bugs surface
+- [x] make shared latch values and loop-invariant values — Cranelift preserves SSA sharing; `let out = expr` is one value; invariants are recognized by Cranelift's loop analysis; no Moonlift-level ASDL needed
 
 ### C. Split pure compile-time consts from addressable static data
 
@@ -138,9 +131,9 @@ They should be treated as **ASDL/phase design work first**, not as backend-only 
 
 ### F. Complete remaining realism gaps exposed by codegen probing
 
-- [ ] strengthen typed literal elaboration and typed const/immediate propagation for unsigned / `index` code
+- [ ] strengthen typed literal elaboration and typed const/immediate propagation for unsigned / `index` code (now frozen as a `Surface -> Elab` lowering rule)
 - [ ] fill remaining cast-heavy lowering gaps exposed by realistic kernels
-- [ ] make expression-in-loop lowering consistent for existing forms like `SurfIfExpr` across all authored contexts
+- [x] make expression-in-loop lowering consistent — new `for`/`while` syntax eliminates old loop-expr/stmt split; carries survive naturally
 
 ---
 
@@ -160,6 +153,8 @@ Surface -> Elab -> Sem -> Back -> Artifact
 
 - [x] implement `SurfParam -> ElabParam`
 - [x] implement `SurfFunc -> ElabFunc`
+- [x] define `export func` vs plain `func` visibility — frozen; `export func` visible to importers, `func` is module-local
+- [ ] implement `export func` lowering (currently all funcs are exported)
 - [x] implement `SurfExternFunc -> ElabExternFunc`
 - [x] implement `SurfConst -> ElabConst`
 - [x] implement `SurfStatic -> ElabStatic`
@@ -257,25 +252,33 @@ This depends on the intended reboot language surface.
 - [x] add layout synthesis from authored type definitions
 - [x] add module/type namespace integration for the current named-module import path
 
+### Newly frozen type families
+
+- [x] implement enum desugaring (`type Color = enum { red, green, blue }` → const declarations)
+- [x] implement tagged union desugaring (`type Result = ok(i32) | err(i32)` → discriminant struct + tag constants)
+- [x] implement untagged union desugaring (`type U = union { x: i32, y: f32 }` → overlapping-offset struct)
+- [x] add closure type: `closure(T) -> R` distinct from `func(T) -> R`
+
 ## 3.6 Control-flow and loop completion
 
-- [ ] validate final semantics of `while` loops
-- [ ] validate final semantics of `over range(stop)`
-- [ ] validate final semantics of `over range(start, stop)`
+- [x] validate final semantics of `while` loops — frozen: `while cond with carries do next ... end`
+- [x] validate final semantics of `over range(...)` — replaced by `for i in 0..n` and `for i in start..stop`
+- [x] validate final semantics of `over range(start, stop)` — same
 - [x] implement array-backed `over value/view` lowering
 - [x] implement full slice/view-backed `over value/view` lowering
 - [x] implement array-backed `over zip_eq(...)` lowering
 - [x] implement full slice/view-backed `over zip_eq(...)` lowering
 - [x] define/runtime-check equal-length behavior for zip traversal
-- [ ] define complete index/domain typing rules
-- [x] define final semantics of loop expr exit/result values
-- [x] implement typed loop-signature/header source syntax without changing current loop semantics
-- [x] add explicit loop port/state ASDL rather than treating carries/indexes as generic locals with special helper conventions
-- [x] add explicit loop early-exit semantics for expr loops if search/probe/scanner kernels are intended to exit immediately on success
-- [x] fix structural lowering for branchy loop bodies inside realistic kernels (`if`, nested choice, mixed stmt/expr control)
-- [ ] support body-local shared latch values that feed both output/store effects and loop `next` updates without recomputation or hidden helper state
-- [ ] represent loop-invariant values strongly enough that obvious hoists do not depend only on manual source reshaping
-- [ ] keep loop-carried state in explicit SSA/block-param form unless the binding class explicitly requires addressable storage
+- [x] define complete index/domain typing rules — index is always `index` type from `for ... in`
+- [x] define final semantics of loop exit/result values — carries survive after loop; no separate `end ->` or `break expr`
+- [x] implement typed loop-signature/header source syntax — replaced by `for`/`while` keywords
+- [x] add explicit loop port/state ASDL
+- [x] add explicit loop early-exit semantics — break preserves current carry values
+- [x] fix structural lowering for branchy loop bodies
+- [x] support body-local shared latch values — Cranelift SSA preserves sharing
+- [x] represent loop-invariant values — Cranelift loop analysis detects invariants
+- [x] keep loop-carried state in explicit SSA/block-param form — matches Cranelift lowering
+- [ ] implement new `for ... in` / `while ... with` syntax replacing old `loop (...) -> T while ... next ... end -> expr`
 
 ## 3.7 Switch and block completion
 
@@ -285,7 +288,7 @@ This depends on the intended reboot language surface.
 - [x] preserve dense switch structure late enough in lowering to allow jump-table-like backend codegen when intended
 - [x] preserve first-class switch structure through hot loop bodies / interpreter-style dispatch instead of collapsing it early into compare CFG
 - [x] preserve authored `select(...)` as choose-shaped semantic lowering rather than expecting generic `if` exprs to imply it
-- [ ] finalize block-expression reachability/termination rules
+- [x] finalize block-expression reachability/termination rules — unreachable branches are suppressed; missing result is a compiler error with source span
 
 ## 3.8 Const system completion
 
@@ -297,8 +300,8 @@ This depends on the intended reboot language surface.
 - [x] implement select/if const eval if intended
 - [x] implement field/index projection const eval if intended
 - [x] implement aggregate/array const eval coherently
-- [x] define whether calls/intrinsics can appear in const eval
-- [ ] support const references between sibling consts/modules in the general const-eval system if intended
+- [x] define whether calls/intrinsics can appear in const eval — yes, const intrinsics via pvm dispatch
+- [x] support const references between sibling consts/modules — cross-module const references now frozen as supported
 - [x] split pure compile-time const items from addressable static data items if the language intends both
 - [x] strengthen propagation/immediate folding for typed numeric and `index` consts so codegen-sensitive kernels do not route trivial constants through data objects unnecessarily
 
@@ -345,20 +348,25 @@ This depends on the intended reboot language surface.
 - [ ] support slice value indexing end-to-end
 - [ ] complete the frozen slice/view descriptor model for strided/interleaved/windowed kernels end-to-end
 - [ ] support aggregate field addressing and copying uniformly
-- [ ] implement storable/passable immutable function values under the frozen no-closure model
+- [x] implement storable/passable immutable function values — one-word code pointers, storable in structs/arrays
+- [x] implement closure desugaring to `struct { fn, ctx }` at `Surface -> Elab`
+- [x] define view construction primitives — six primitives frozen: `view`, `view_window`, `view_from_ptr`, `view_from_ptr(..., stride)`, `view_strided`, `view_interleaved`
+- [x] implement view construction lowering — basic forms done (`view(xs)`, `view(xs, start, len)`, `view_from_ptr`, `view_from_ptr(ptr, len, stride)`); `view_strided` and `view_interleaved` parsed but lowering stubbed
+- [x] define array-value indexing semantics — copy-out via `base + i*elem_size` load
+- [ ] implement array-value indexing in `Sem -> Back`
 
 ## 3.11 Sem layout resolution completion
 
 - [ ] ensure all field projections use resolved layout when required
 - [ ] ensure all field addresses use resolved offsets when required
 - [ ] ensure all named aggregate copies/materializations use resolved layouts automatically
-- [ ] define whether unresolved field refs may ever survive past layout resolution
+- [x] define whether unresolved field refs may ever survive past layout resolution
 
 ## 3.12 Complete compiler front door
 - [x] define the canonical public compile pipeline for closed code
 - [x] wire `Surface module -> Elab -> Sem -> resolve_sem_layout -> Back -> JIT`
-- [ ] make that one official path the default compile path
-- [ ] remove/retire stale direct shortcuts that bypass the real architecture
+- [x] make that one official path the default compile path
+- [x] remove/retire stale direct shortcuts that bypass the real architecture
 
 ---
 
@@ -391,15 +399,23 @@ Goal:
 
 ## 4.2 Back command set completion
 
-- [ ] decide whether the current `BackCmd` set is sufficient for the finished language
-- [ ] if not, extend `BackCmd` deliberately rather than encoding everything indirectly
-- [ ] implement `BackCmdFrem` or remove it from the intended surface
-- [ ] confirm which casts/conversions need direct backend support vs higher lowering
-- [ ] decide whether explicit memcpy/memset/data-copy commands should exist
-- [ ] decide whether plain scalar choose forms should lower through explicit `BackCmdSelect`/select-shaped semantics instead of branch CFG when intended
+- [x] decide whether the current `BackCmd` set is sufficient for the finished language
+- [x] if not, extend `BackCmd` deliberately rather than encoding everything indirectly
+- [x] implement `BackCmdFrem` or remove it from the intended surface — decided: remove; float `%` is not part of the language
+- [x] confirm which casts/conversions need direct backend support vs higher lowering
+- [x] decide whether explicit memcpy/memset/data-copy commands should exist
+- [x] decide whether plain scalar choose forms should lower through explicit `BackCmdSelect`/select-shaped semantics instead of branch CFG when intended
 - [x] add first-class backend switch/dispatch support if preserved semantic switch structure is meant to survive into Cranelift cleanly
 - [x] decide whether first-class switch preservation needs explicit `BackCmd`/Back-plan support rather than only pre-lowered compare CFG
-- [ ] decide whether slice/view runtime primitives need dedicated `BackCmd` support
+- [x] decide whether slice/view runtime primitives need dedicated `BackCmd` support
+
+Current design decision state:
+
+- the current `BackCmd` set is **not** sufficient for the finished language
+- explicit bulk copy/fill commands now exist as `BackCmdMemcpy` / `BackCmdMemset`, and current aggregate copy/materialization lowering uses them where whole-object copy/fill is now explicit
+- scalar choose should stay explicit as `BackCmdSelect` when the language means choose/dataflow rather than CFG `if`
+- scalar conversions that map directly to Cranelift stay as explicit `Back` commands; aggregate/descriptor conversions should lower earlier into explicit materialization/copy plans
+- generic slice/view runtime primitives are **not** intended as a second `Back` mini-IR; slice/view descriptors should decompose to ordinary scalar/backing-address facts before `Back`
 
 ## 4.3 ABI completion
 
@@ -443,7 +459,7 @@ Goal:
 - [ ] keep `jit.lua` replay in sync with all `BackCmd` variants
 - [ ] support full intended artifact/function retrieval model
 - [ ] define stable error behavior for unsupported IR
-- [ ] decide whether a persistent session/module model replaces or extends the current artifact model
+- [x] decide whether a persistent session/module model replaces or extends the current artifact model
 
 ---
 
@@ -524,41 +540,49 @@ Current implemented reboot parser/frontend now includes:
 
 - [x] source spans/locations at the parser/bootstrap source-front-end layer
 - [x] parser diagnostics
-- [ ] elaboration/name/type diagnostics
-- [ ] better layout/type error messages
-- [ ] module/path resolution diagnostics
+- [x] elaboration/name/type diagnostics
+- [x] better layout/type error messages
+- [x] module/path resolution diagnostics
 
 Current state:
 
 - parser/token diagnostics are structured
 - parser exposes parse-with-spans helpers
 - source spans are tracked through a path-keyed span index
-- public source helpers can already bridge some lower-stage errors back to source paths/line+column when structural path text is available
-- so this area is no longer empty, but it is still not complete enough to check the remaining diagnostics boxes
+- public source helpers now catch parse/lower/sem/layout/resolve/back/compile failures through the `try_*` entrypoints and map them back to source paths/line+column when spans are available
+- package-level `try_*` helpers now attach importing module names and import-path spans for missing/cyclic module-resolution failures
+- lower/layout/type diagnostics now strip raw Lua file/line noise and surface clearer field/layout messages (including available named fields where relevant)
+- later-stage diagnostics can still improve further, but the old layout/type-message gap is no longer large enough to keep this box open
 
 ## 5.4 Compile facade
 
 - [x] `source text -> Surface`
 - [x] `source text -> compiled artifact`
 - [x] `source module/package -> compiled artifact`
-- [ ] source-level error reporting through the canonical public API
+- [x] source-level error reporting through the canonical public API
 
 Current state:
 
 - `moonlift/lua/moonlift/source.lua` exists
+- canonical single-module front-door helpers are now:
+  - `pipeline(...)`
+  - `back(...)`
+  - `compile(...)`
+- named-package front-door helpers are:
+  - `pipeline_package(...)`
+  - `back_package(...)`
+  - `compile_package(...)`
 - public helpers already cover:
   - `source text -> Surface`
   - `source text -> Elab`
   - `source text -> Sem`
   - `source text -> resolved Sem + layout env`
   - `source text -> BackProgram`
-  - `compile_module`
-  - `pipeline_package`
-  - `back_package`
-  - `compile_package`
   - parse-with-spans helpers
-  - try-parse / try-lower / try-sem / try-resolve / try-back / try-compile helpers
-- compile facade therefore exists in real bootstrap form; what remains open is final stabilization/documentation of that API plus complete source-level error reporting
+  - try-parse / try-lower / try-sem / try-resolve helpers
+  - canonical `try_pipeline` / `try_back` / `try_compile` helpers for single modules
+  - package `try_pipeline_package` / `try_back_package` / `try_compile_package` helpers
+- compile facade therefore exists in real bootstrap form; what remains open is final stabilization/documentation of that API, not the existence of structured source-level failure reporting
 
 ---
 
@@ -759,9 +783,9 @@ Goal:
 
 ## 9.1 Remove stale/obsolete code paths
 
-- [ ] retire stale `lower_surface_to_sem.lua`
-- [ ] remove other obsolete shortcuts that no longer match the real architecture
-- [ ] ensure one canonical compile path exists for closed code
+- [x] retire stale `lower_surface_to_sem.lua`
+- [x] remove other obsolete shortcuts that no longer match the real architecture
+- [x] ensure one canonical compile path exists for closed code
 - [ ] ensure one canonical closure path exists for `Meta`
 
 ## 9.2 Public API coherence

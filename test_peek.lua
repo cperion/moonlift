@@ -11,7 +11,7 @@ local Surf = T.MoonliftSurface
 local peek = Peek.Define(T)
 
 local module_node = Surf.SurfModule({
-    Surf.SurfItemFunc(Surf.SurfFunc("add1", { Surf.SurfParam("x", Surf.SurfTI32) }, Surf.SurfTI32, {
+    Surf.SurfItemFunc(Surf.SurfFunc("add1", false, { Surf.SurfParam("x", Surf.SurfTI32) }, Surf.SurfTI32, {
         Surf.SurfReturnValue(Surf.SurfExprAdd(Surf.SurfNameRef("x"), Surf.SurfInt("1"))),
     })),
 })

@@ -182,5 +182,6 @@ local ok_missing_field, err_missing_field = pcall(function()
 end)
 assert(not ok_missing_field)
 assert(string.find(err_missing_field, "unknown field 'missing' on type 'Demo.Pair'", 1, true) ~= nil)
+assert(string.find(err_missing_field, "available fields: left, right", 1, true) ~= nil)
 
 print("moonlift sem layout resolve ok")

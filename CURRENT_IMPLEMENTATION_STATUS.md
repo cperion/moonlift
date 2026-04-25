@@ -60,9 +60,10 @@ This inventory was based on the current implementation files:
 - `moonlift/src/lib.rs`
 - `moonlift/src/ffi.rs`
 
-One file appears to be stale / obsolete and should **not** be treated as the current pipeline:
+One legacy compatibility file is now explicitly retired and should **not** be treated as a real pipeline stage:
 
 - `moonlift/lua/moonlift/lower_surface_to_sem.lua`
+  - current behavior: fail fast and direct users to the canonical `Surface -> Elab -> Sem` path
 
 ---
 
@@ -319,6 +320,8 @@ Authored `select(cond, a, b)` is already preserved distinctly through the curren
 - array literal materialization into memory
 - named aggregate const-data initialization
 - array const-data initialization
+- explicit whole-object bulk copy/fill commands now exist in `Back` as `BackCmdMemcpy` / `BackCmdMemset`
+- current `Sem -> Back` aggregate copy/materialization lowering now uses those commands for whole-object copy and zero-fill where appropriate
 
 So `Sem -> Back` is already a serious implementation, especially on the scalar/CFG side.
 
@@ -360,6 +363,7 @@ The Rust host already supports a broad subset of current `BackCmd`, including:
 - scalar ops
 - comparisons
 - loads / stores
+- explicit bulk memory copy/fill (`BackCmdMemcpy` / `BackCmdMemset`) via Cranelift libcalls
 - direct / extern / indirect calls
 - select
 - branches / jumps / returns / trap
@@ -436,7 +440,7 @@ These current ASDL nodes now have real lowering:
 
 Current explicit limitation:
 
-- plain authored `ElabFunc` currently lowers to `SemFuncExport`, because the rebooted authored surface does not yet expose a separate local/export function distinction
+- `export func` vs plain `func` visibility distinction is now frozen but not yet implemented; currently all funcs lower as `SemFuncExport`
 
 ---
 
@@ -583,13 +587,13 @@ The current frontend now supports an authored top-level path for:
 - using those named types in aggregate literals, field access, and qualified module paths
 - carrying them through `Surface -> Elab -> Sem -> resolve_sem_layout`
 
-So named aggregate support is no longer only manual-context support.
+Frozen extensions not yet implemented:
 
-Current explicit limitations:
+- enums: `type Color = enum { red, green, blue }` — desugars to const declarations
+- tagged unions: `type Result = ok(i32) | err(i32)` — desugars to discriminant struct
+- untagged unions: `type U = union { x: i32, y: f32 }` — desugars to overlapping struct
 
-- the authored type-definition story is still basically the named-struct path
-- broader type-definition families / richer layout declarations are still future work
-- the broader namespace/import story can still grow beyond the current qualified named-module path
+All three are surface-only desugaring at `Surface -> Elab`.
 
 ---
 
@@ -864,18 +868,12 @@ So constant evaluation is no longer literal-only, but it is still incomplete.
 
 ---
 
-## 5.20 Floating remainder is not implemented end-to-end
+## 5.20 Floating remainder is removed from the language
 
-Current state:
-- Surface has remainder syntax
-- Sem has `SemExprRem`
-- Back ASDL has `BackCmdFrem`
+`frem` is removed. `%` is integer-only.
 
-But:
-- `Sem -> Back` does not meaningfully complete float rem support
-- Rust explicitly rejects `BackCmdFrem`
-
-So floating remainder is not currently implemented end-to-end.
+- `BackCmdFrem` is removed from the backend ASDL
+- Rust backend `frem` error stub is removed
 
 ---
 
@@ -919,8 +917,7 @@ It already constructs `MoonliftSurface` ASDL values directly for a substantial b
   - block expr
   - canonical loop expr
 - note:
-  - typed loop headers/signatures are now the only accepted authored loop syntax in the current parser/front-end
-  - loop semantics remain the same; only the authored header contract became more explicit
+  - loop syntax is now frozen as `for ... in` / `while ... with`, carries survive after loop, `next` inline; old `loop (...) -> T while ... next ... end -> expr` is removed
 - statements:
   - `let`
   - `var`
@@ -929,27 +926,31 @@ It already constructs `MoonliftSurface` ASDL values directly for a substantial b
   - `if`
   - `switch`
   - `return`
-  - `break`
-  - `break value`
+  - `break` (bare only, no `break expr`)
   - `continue`
-  - canonical loop stmt
+  - `next` (loop carry recurrence)
+  - loop stmt (`for`, `while`)
 - public helper facade:
   - `moonlift/lua/moonlift/source.lua`
   - `moonlift/lua/moonlift/source_spans.lua`
   - parse helpers
   - parse-with-spans helpers
   - try-parse helpers with structured diagnostics
-  - try-lower / try-sem / try-resolve / try-back / try-compile helpers
+  - canonical single-module front-door helpers:
+    - `pipeline(...)`
+    - `back(...)`
+    - `compile(...)`
+  - named-package front-door helpers:
+    - `pipeline_package(...)`
+    - `back_package(...)`
+    - `compile_package(...)`
+  - try-lower / try-sem / try-resolve helpers for single-module source text
+  - canonical `try_pipeline` / `try_back` / `try_compile` helpers for single-module source text
+  - package `try_pipeline_package` / `try_back_package` / `try_compile_package` helpers
   - `parse -> Surface -> Elab`
   - `parse -> Surface -> Elab -> Sem`
-  - `pipeline_module`
-  - `pipeline_package`
-  - `back_module`
-  - `back_package`
-  - `compile_module`
-  - `compile_package`
 - current source spans are stored in a parallel **path-keyed** span index rather than a naive `node -> span` map, because interned `Surface` values do not preserve occurrence identity by object identity alone
-- current public source helpers can already bridge some lower-stage errors back to source paths/line+column when the lower-stage error carries structural path text
+- current public source helpers now catch parse/lower/sem/layout/resolve/back/compile failures across the `try_*` entrypoints, strip raw Lua file/line noise from user-facing messages, and attach structural source paths, source spans, and package module names when that context is available
 
 But it is still a bootstrap/front-door rather than the final frozen authored language.
 
@@ -974,8 +975,8 @@ The pipeline pieces are no longer only manual / semi-manual.
 - `source text -> Sem`
 - `source text -> resolved Sem + synthesized layout env`
 - `source text -> BackProgram`
-- `source text -> compiled artifact` via `compile_module`
-- named source package/module sets -> compiled artifact via `compile_package`
+- `source text -> compiled artifact` via canonical `compile(...)`
+- named source package/module sets -> compiled artifact via `compile_package(...)`
 
 The closed compile path used by those helpers is the real reboot path:
 
@@ -986,7 +987,7 @@ The closed compile path used by those helpers is the real reboot path:
 - `Sem -> Back`
 - JIT compile
 
-What is still missing here is not the existence of a compile facade, but its final stabilization as the single clearly documented public front door, plus richer source-level diagnostics and retirement of stale shortcut paths.
+What is still missing here is not the existence of a compile facade, but any additional later-layer diagnostic polish beyond the now-cleaner canonical front door.
 
 ---
 
@@ -1009,7 +1010,22 @@ One recently-fixed backend-host issue is worth calling out explicitly:
 
 ---
 
-## 5.24 No `Meta` / quote / open-code implementation yet
+## 5.24 Back/Cranelift-facing design decisions are now more explicit even where implementation still lags
+
+Recent direct inspection of the vendored Cranelift sources in `third_party/wasmtime/cranelift/` was used to answer several previously-open Moonlift design questions.
+
+The current frozen direction is now:
+
+- the current `BackCmd` set is **not** considered sufficient for the finished language
+- explicit bulk copy/fill commands should exist eventually rather than forcing all aggregate/data movement through ad hoc scalar sequences
+- pure scalar choose should continue to preserve explicit `BackCmdSelect` structure when the language means choose/dataflow rather than CFG `if`
+- scalar casts/conversions stay as explicit `Back` commands, while aggregate/descriptor conversions should lower earlier into explicit materialization/copy plans
+- generic slice/view runtime primitives are **not** intended as a second `Back` mini-IR; slice/view descriptor operations should mostly decompose before `Back`
+- if a richer persistent session/module model is added later, it should extend the current artifact model rather than replace it
+
+This is a design-freeze/status point, not a claim that the missing commands or runtime/value-model work are already implemented.
+
+## 5.25 No `Meta` / quote / open-code implementation yet
 
 The metaprogramming layer discussed in:
 
@@ -1048,9 +1064,9 @@ This distinction still matters.
 - their downstream `Sem -> Back` lowering
 
 ### Still missing today
-- broader type-definition families beyond named structs
-- broader package/module surface beyond the current named-module path
-- a visibility/export distinction for authored functions
+- `export func` visibility distinction (now frozen, not yet implemented)
+- enum/tagged-union/untagged-union desugaring at `Surface -> Elab` (now frozen)
+- closure desugaring at `Surface -> Elab` (now frozen)
 
 ---
 
@@ -1071,22 +1087,24 @@ But current real missing parts include:
 
 ---
 
-## 6.3 Loops are strong on `while`, `range`, and bounded view/zip domains; broader non-scalar domain/value completion is still open
+## 6.3 Loops are strong on `while`, `range`, and bounded view/zip domains; new syntax frozen
 
 Current real support:
-- while loops
-- `over range(stop)`
-- `over range(start, stop)`
-- array-backed `over value/view`
-- slice/view-backed `over value/view`
-- array-backed `zip_eq(...)`
-- slice/view-backed `zip_eq(...)` with runtime equal-length checks
+- while loops (currently via old `loop (...) while ...` form)
+- `over range(stop)` / `over range(start, stop)`
+- array-backed and slice/view-backed `over value/view`
+- array-backed and slice/view-backed `zip_eq(...)` with runtime equal-length checks
 - loop exprs and stmt loops
 - carry/next machinery
 
-Missing/partial:
-- complete low-level domain model for broader multi-domain traversal
-- broader non-scalar value creation/ABI/materialization around slice/view values
+Frozen new syntax (not yet implemented):
+- `for i in 0..n do ... end` — domain-driven with induction variable
+- `for i in 0..n with acc: i32 = 0 do ... end` — carries survive after loop
+- `while cond with i: i32 = 0 do ... end` — condition-driven iteration
+- `next` inline in body, no separate `next` block
+- `break` (bare only) — preserves current carry values
+- no `end -> expr` projection, no `break expr`
+- carries are the loop's natural "output" per Cranelift's block-param dataflow
 
 ---
 
@@ -1094,9 +1112,9 @@ Missing/partial:
 
 These are concrete backend facts to keep in mind when comparing the frozen semantic target to the current backend layer.
 
-## 7.1 `BackCmdFrem` is not implemented in Rust
+## 7.1 `BackCmdFrem` is removed
 
-Rust explicitly errors on it.
+Floating-point remainder is not part of the closed language.
 
 ## 7.2 Raw pointer API is intentionally single-result
 
@@ -1131,12 +1149,13 @@ That is a real compiler middle and backend.
 
 The biggest missing authored-language area is now:
 
-- finalizing and documenting the bootstrap source front door as the clear public authored entry path
+- implementing the newly frozen loop syntax (`for ... in` / `while ... with`)
+- implementing `export func` visibility
+- implementing enum/tagged-union/untagged-union desugaring
+- implementing closure desugaring
+- implementing view construction primitives
+- implementing type-directed integer literal elaboration
 - richer diagnostics / source mapping through later compiler layers
-- broader package/module surface beyond the current named-module import path
-- finishing currently open authored areas such as the final `view` surface story
-
-So the language now has a real authored front door, but that front door is still incomplete and still visibly in bootstrap form.
 
 ## 8.3 The biggest missing runtime/value-model areas
 
@@ -1170,17 +1189,15 @@ And the deferred future host/parser integration strategy described in:
 
 # 9. Short summary
 
-If compressed to one sentence:
-
-> Moonlift already has a real authored parser/source front door, real top-level item lowering through `Surface -> Elab -> Sem`, qualified module imports, authored struct type/layout synthesis, a layout-resolution pass, bootstrap `compile_module` / `compile_package` helpers, and a substantial backend, but it still needs slices/views, fuller const/value-model/ABI completion, richer diagnostics, and the future `Meta` layer; hosted integration remains deferred until after the language and FFI path are finished.
+> Moonlift now has a frozen language design with `for ... in` / `while ... with` loops, closures as surface sugar, enum/union desugaring, `export func` visibility, and view construction primitives. The existing implementation has a real parser, real top-level item lowering, qualified module imports, authored struct type/layout synthesis, a layout-resolution pass, canonical compile helpers, and a substantial scalar backend. Remaining implementation work includes: new loop syntax, enum/union/closure desugaring, view construction, export visibility, array-value indexing, function-value storage, cross-module consts, const intrinsics, and the future `Meta` layer.
 
 And if compressed even further:
 
-- **expr/stmt/loop core:** real
-- **top-level value/type/module frontend:** real
-- **bootstrap source compile/package facade:** real
+- **language design:** frozen
 - **scalar backend:** real
-- **slice/value-model/meta path:** still incomplete
+- **new loop/type/closure syntax:** not yet implemented
+- **slice/view/value-model:** still incomplete
+- **meta layer:** design-only
 
 ---
 

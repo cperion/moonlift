@@ -24,7 +24,7 @@ local module_node = Elab.ElabModule("", {
         Elab.ElabInt("7", Elab.ElabTI32)
     )),
     Elab.ElabItemFunc(Elab.ElabFunc(
-        "helper",
+        "helper", false,
         { Elab.ElabParam("x", Elab.ElabTI32) },
         Elab.ElabTI32,
         {
@@ -36,7 +36,7 @@ local module_node = Elab.ElabModule("", {
         }
     )),
     Elab.ElabItemFunc(Elab.ElabFunc(
-        "main",
+        "main", false,
         { Elab.ElabParam("x", Elab.ElabTI32) },
         Elab.ElabTI32,
         {
@@ -73,7 +73,7 @@ assert(lowered == Sem.SemModule("", {
         Sem.SemTI32,
         Sem.SemExprConstInt(Sem.SemTI32, "7")
     )),
-    Sem.SemItemFunc(Sem.SemFuncExport(
+    Sem.SemItemFunc(Sem.SemFuncLocal(
         "helper",
         { Sem.SemParam("x", Sem.SemTI32) },
         Sem.SemTI32,
@@ -85,7 +85,7 @@ assert(lowered == Sem.SemModule("", {
             )),
         }
     )),
-    Sem.SemItemFunc(Sem.SemFuncExport(
+    Sem.SemItemFunc(Sem.SemFuncLocal(
         "main",
         { Sem.SemParam("x", Sem.SemTI32) },
         Sem.SemTI32,
@@ -125,7 +125,7 @@ local count_module = Elab.ElabModule("", {
         )
     )),
     Elab.ElabItemFunc(Elab.ElabFunc(
-        "use_count",
+        "use_count", false,
         { Elab.ElabParam("xs", Elab.ElabTArray(Elab.ElabBindingExpr(Elab.ElabGlobalConst("", "M", Elab.ElabTIndex)), Elab.ElabTI32)) },
         Elab.ElabTVoid,
         { Elab.ElabReturnVoid }
@@ -147,7 +147,7 @@ assert(pvm.one(L.lower_module(count_module)) == Sem.SemModule("", {
             Sem.SemExprConstInt(Sem.SemTIndex, "2")
         )
     )),
-    Sem.SemItemFunc(Sem.SemFuncExport(
+    Sem.SemItemFunc(Sem.SemFuncLocal(
         "use_count",
         { Sem.SemParam("xs", Sem.SemTArray(Sem.SemTI32, 6)) },
         Sem.SemTVoid,
@@ -156,12 +156,12 @@ assert(pvm.one(L.lower_module(count_module)) == Sem.SemModule("", {
 }))
 
 local type_module = Elab.ElabModule("", {
-    Elab.ElabItemType(Elab.ElabStruct("Pair", {
+    Elab.ElabItemType(Elab.ElabStruct("Pair", false, {
         Elab.ElabFieldType("left", Elab.ElabTI32),
         Elab.ElabFieldType("right", Elab.ElabTI32),
     })),
     Elab.ElabItemFunc(Elab.ElabFunc(
-        "get_left",
+        "get_left", false,
         {},
         Elab.ElabTI32,
         {
@@ -181,11 +181,11 @@ local type_module = Elab.ElabModule("", {
 })
 
 assert(pvm.one(L.lower_module(type_module)) == Sem.SemModule("", {
-    Sem.SemItemType(Sem.SemStruct("Pair", {
+    Sem.SemItemType(Sem.SemStruct("Pair", false, {
         Sem.SemFieldType("left", Sem.SemTI32),
         Sem.SemFieldType("right", Sem.SemTI32),
     })),
-    Sem.SemItemFunc(Sem.SemFuncExport(
+    Sem.SemItemFunc(Sem.SemFuncLocal(
         "get_left",
         {},
         Sem.SemTI32,
@@ -206,17 +206,17 @@ assert(pvm.one(L.lower_module(type_module)) == Sem.SemModule("", {
 
 local import_module = Elab.ElabModule("", {
     Elab.ElabItemImport(Elab.ElabImport("Demo")),
-    Elab.ElabItemFunc(Elab.ElabFunc("main", {}, Elab.ElabTVoid, { Elab.ElabReturnVoid })),
+    Elab.ElabItemFunc(Elab.ElabFunc("main", false, {}, Elab.ElabTVoid, { Elab.ElabReturnVoid })),
 })
 
 assert(pvm.one(L.lower_module(import_module)) == Sem.SemModule("", {
     Sem.SemItemImport(Sem.SemImport("Demo")),
-    Sem.SemItemFunc(Sem.SemFuncExport("main", {}, Sem.SemTVoid, { Sem.SemStmtReturnVoid })),
+    Sem.SemItemFunc(Sem.SemFuncLocal("main", {}, Sem.SemTVoid, { Sem.SemStmtReturnVoid })),
 }))
 
 local select_module = Elab.ElabModule("", {
     Elab.ElabItemFunc(Elab.ElabFunc(
-        "choose",
+        "choose", false,
         {
             Elab.ElabParam("flag", Elab.ElabTBool),
             Elab.ElabParam("x", Elab.ElabTI32),
@@ -235,7 +235,7 @@ local select_module = Elab.ElabModule("", {
 })
 
 assert(pvm.one(L.lower_module(select_module)) == Sem.SemModule("", {
-    Sem.SemItemFunc(Sem.SemFuncExport(
+    Sem.SemItemFunc(Sem.SemFuncLocal(
         "choose",
         {
             Sem.SemParam("flag", Sem.SemTBool),

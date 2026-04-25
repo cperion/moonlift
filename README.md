@@ -59,10 +59,17 @@ Current parser/source bootstrap support includes:
 - valued `break expr` parsing
 - `view(T)` type parsing
 - direct `parse -> Surface` and `parse -> Elab/Sem` helper APIs
-- named-module package helpers with explicit imports (`pipeline_package`, `back_package`, `compile_package`)
-- `parse_*_with_spans` / `pipeline_*_with_spans` helpers
-- `try_parse_*` / `try_lower_*` style diagnostic helpers
-- lower-stage diagnostics can now be bridged back to source paths/line+column when structural path text is available
+- canonical single-module front-door helpers in `moonlift.source`:
+  - `pipeline(...)`
+  - `back(...)`
+  - `compile(...)`
+- named-module package helpers with explicit imports:
+  - `pipeline_package(...)`
+  - `back_package(...)`
+  - `compile_package(...)`
+- `parse_*_with_spans` / canonical `pipeline_with_spans(...)` helper
+- `try_parse_*` / `try_lower_*` plus canonical `try_pipeline` / `try_back` / `try_compile` helpers
+- lower-stage diagnostics can now be bridged back to source paths/line+column, structural source paths, and package module names when that context is available
 
 Current package/import note:
 

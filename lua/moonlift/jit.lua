@@ -50,6 +50,8 @@ int moonlift_program_cmd_ternary(moonlift_program_t*, uint32_t op, const char* d
 int moonlift_program_cmd_cast(moonlift_program_t*, uint32_t op, const char* dst, uint32_t ty, const char* value);
 int moonlift_program_cmd_load(moonlift_program_t*, const char* dst, uint32_t ty, const char* addr);
 int moonlift_program_cmd_store(moonlift_program_t*, uint32_t ty, const char* addr, const char* value);
+int moonlift_program_cmd_memcpy(moonlift_program_t*, const char* dst, const char* src, const char* len);
+int moonlift_program_cmd_memset(moonlift_program_t*, const char* dst, const char* byte, const char* len);
 int moonlift_program_cmd_select(moonlift_program_t*, const char* dst, uint32_t ty, const char* cond, const char* then_value, const char* else_value);
 int moonlift_program_cmd_call_value(moonlift_program_t*, uint32_t kind, const char* dst, uint32_t ty, const char* target, const char* sig, const char* const* args, size_t args_len);
 int moonlift_program_cmd_call_stmt(moonlift_program_t*, uint32_t kind, const char* target, const char* sig, const char* const* args, size_t args_len);
@@ -110,31 +112,30 @@ local BINARY = {
     FDIV = 9,
     SREM = 10,
     UREM = 11,
-    FREM = 12,
-    BAND = 13,
-    BOR = 14,
-    BXOR = 15,
-    ISHL = 16,
-    USHR = 17,
-    SSHR = 18,
-    ICMPEQ = 19,
-    ICMPNE = 20,
-    SICMPLT = 21,
-    SICMPLE = 22,
-    SICMPGT = 23,
-    SICMPGE = 24,
-    UICMPLT = 25,
-    UICMPLE = 26,
-    UICMPGT = 27,
-    UICMPGE = 28,
-    FCMPEQ = 29,
-    FCMPNE = 30,
-    FCMPLT = 31,
-    FCMPLE = 32,
-    FCMPGT = 33,
-    FCMPGE = 34,
-    ROTL = 35,
-    ROTR = 36,
+    BAND = 12,
+    BOR = 13,
+    BXOR = 14,
+    ISHL = 15,
+    USHR = 16,
+    SSHR = 17,
+    ICMPEQ = 18,
+    ICMPNE = 19,
+    SICMPLT = 20,
+    SICMPLE = 21,
+    SICMPGT = 22,
+    SICMPGE = 23,
+    UICMPLT = 24,
+    UICMPLE = 25,
+    UICMPGT = 26,
+    UICMPGE = 27,
+    FCMPEQ = 28,
+    FCMPNE = 29,
+    FCMPLT = 30,
+    FCMPLE = 31,
+    FCMPGT = 32,
+    FCMPGE = 33,
+    ROTL = 34,
+    ROTR = 35,
 }
 
 local TERNARY = {
@@ -545,6 +546,14 @@ function M.Define(T, opts)
             check_ok(lib, lib.moonlift_program_cmd_store(program, one_scalar_code(self.ty), cstring(id_text(self.addr)), cstring(id_text(self.value))), "moonlift ffi store")
             return pvm.once(true)
         end,
+        [Back.BackCmdMemcpy] = function(self, program)
+            check_ok(lib, lib.moonlift_program_cmd_memcpy(program, cstring(id_text(self.dst)), cstring(id_text(self.src)), cstring(id_text(self.len))), "moonlift ffi memcpy")
+            return pvm.once(true)
+        end,
+        [Back.BackCmdMemset] = function(self, program)
+            check_ok(lib, lib.moonlift_program_cmd_memset(program, cstring(id_text(self.dst)), cstring(id_text(self.byte)), cstring(id_text(self.len))), "moonlift ffi memset")
+            return pvm.once(true)
+        end,
         [Back.BackCmdSelect] = function(self, program)
             check_ok(lib, lib.moonlift_program_cmd_select(program, cstring(id_text(self.dst)), one_scalar_code(self.ty), cstring(id_text(self.cond)), cstring(id_text(self.then_value)), cstring(id_text(self.else_value))), "moonlift ffi select")
             return pvm.once(true)
@@ -646,7 +655,6 @@ function M.Define(T, opts)
         [Back.BackCmdFdiv] = BINARY.FDIV,
         [Back.BackCmdSrem] = BINARY.SREM,
         [Back.BackCmdUrem] = BINARY.UREM,
-        [Back.BackCmdFrem] = BINARY.FREM,
         [Back.BackCmdBand] = BINARY.BAND,
         [Back.BackCmdBor] = BINARY.BOR,
         [Back.BackCmdBxor] = BINARY.BXOR,

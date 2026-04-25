@@ -115,6 +115,27 @@ assert(field_addr == Back.BackExprPlan({
     Back.BackCmdIadd(Back.BackValId("expr.field_addr"), Back.BackPtr, Back.BackValId("expr.field_addr.base"), Back.BackValId("expr.field_addr.offset")),
 }, Back.BackValId("expr.field_addr"), Back.BackPtr))
 
+local var_pair = one_stmt(
+    Sem.SemStmtVar(
+        "pair.cell",
+        "pair",
+        Sem.SemTNamed("Demo", "Pair"),
+        Sem.SemExprAgg(
+            Sem.SemTNamed("Demo", "Pair"),
+            {
+                Sem.SemFieldInit("left", Sem.SemExprConstInt(Sem.SemTI32, "1")),
+                Sem.SemFieldInit("right", Sem.SemExprConstInt(Sem.SemTI32, "2")),
+            }
+        )
+    ),
+    "stmt.var_pair",
+    pair_layout_env
+)
+assert(contains_cmd(var_pair, Back.BackCmdConstInt(Back.BackValId("stmt.var_pair.init_store.fill.byte"), Back.BackU8, "0")))
+assert(contains_cmd(var_pair, Back.BackCmdConstInt(Back.BackValId("stmt.var_pair.init_store.fill.len"), Back.BackIndex, "8")))
+assert(contains_cmd(var_pair, Back.BackCmdMemset(Back.BackValId("stmt.var_pair.addr"), Back.BackValId("stmt.var_pair.init_store.fill.byte"), Back.BackValId("stmt.var_pair.init_store.fill.len"))))
+assert(cmd_index(var_pair, Back.BackCmdMemset(Back.BackValId("stmt.var_pair.addr"), Back.BackValId("stmt.var_pair.init_store.fill.byte"), Back.BackValId("stmt.var_pair.init_store.fill.len"))) < cmd_index(var_pair, Back.BackCmdConstInt(Back.BackValId("stmt.var_pair.init_store.field_init.left.value"), Back.BackI32, "1")))
+
 local bool_and = one_expr(
     Sem.SemExprAnd(
         Sem.SemTBool,
@@ -269,6 +290,17 @@ assert(set_field == Back.BackStmtPlan({
     Back.BackCmdConstInt(Back.BackValId("stmt.set_field.value"), Back.BackI32, "32"),
     Back.BackCmdStore(Back.BackI32, Back.BackValId("stmt.set_field.addr"), Back.BackValId("stmt.set_field.value")),
 }, Back.BackFallsThrough))
+
+local set_pair = one_stmt(
+    Sem.SemStmtSet(
+        Sem.SemPlaceBinding(Sem.SemBindLocalCell("dst.pair", "dst", Sem.SemTNamed("Demo", "Pair"))),
+        Sem.SemExprBinding(Sem.SemBindLocalCell("src.pair", "src", Sem.SemTNamed("Demo", "Pair")))
+    ),
+    "stmt.set_pair",
+    pair_layout_env
+)
+assert(contains_cmd(set_pair, Back.BackCmdConstInt(Back.BackValId("stmt.set_pair.value_store.copy.bulk.len"), Back.BackIndex, "8")))
+assert(contains_cmd(set_pair, Back.BackCmdMemcpy(Back.BackValId("stmt.set_pair.addr"), Back.BackValId("stmt.set_pair.value_store.src"), Back.BackValId("stmt.set_pair.value_store.copy.bulk.len"))))
 
 local switch_expr_dense = one_expr(
     Sem.SemExprSwitch(

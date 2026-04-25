@@ -283,6 +283,9 @@ function M.Define(T)
         [Surf.SurfTFunc] = function(self, env)
             return pvm.once(Elab.ElabTFunc(lower_type_list(self.params, env), one_type(self.result, env)))
         end,
+        [Surf.SurfTClosure] = function(self, env)
+            return pvm.once(Elab.ElabTFunc(lower_type_list(self.params, env), one_type(self.result, env)))
+        end,
         [Surf.SurfTNamed] = function(self, env)
             local parts = collect_name_parts(self.path)
             if #parts == 0 then

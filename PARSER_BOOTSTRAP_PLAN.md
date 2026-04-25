@@ -260,9 +260,10 @@ The public source facade also now exposes:
 - `try_lower_*`
 - `try_sem_module`
 - `try_resolve_module`
-- `try_back_module`
-- `try_pipeline_module`
-- `try_compile_module`
+- canonical single-module front-door helpers:
+  - `try_pipeline`
+  - `try_back`
+  - `try_compile`
 
 ---
 

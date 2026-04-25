@@ -38,6 +38,14 @@ function M.Define(T)
         return pvm.one(lower_expr(node, env, expected_ty, allow_bare_break, break_value_ty))
     end
 
+    local function elem_of_ptr(ty)
+        if ty.kind == "ElabTPtr" then return ty.elem
+        elseif ty.kind == "ElabTSlice" then return ty.elem
+        elseif ty.kind == "ElabTView" then return ty.elem
+        elseif ty.kind == "ElabTArray" then return ty.elem
+        else error("expected pointer, slice, view, or array type, got " .. ty.kind) end
+    end
+
     local function one_domain(node, env)
         return pvm.one(lower_domain(node, env))
     end
@@ -720,6 +728,53 @@ function M.Define(T)
             local stmts, block_env = lower_stmt_list(self.stmts, env, scoped_path(base, "stmts"), allow_bare_break, break_value_ty)
             local result = one_expr(self.result, block_env, expected_ty, allow_bare_break, break_value_ty)
             return pvm.once(Elab.ElabBlockExpr(stmts, result, pvm.one(expr_api.expr_type(result))))
+        end,
+        [Surf.SurfClosureExpr] = function(self)
+            error("surface_to_elab_expr: unexpected SurfClosureExpr — desugar_closures should have expanded it")
+        end,
+        [Surf.SurfExprView] = function(self, env, expected_ty)
+            local base = one_expr(self.base, env, nil)
+            local base_ty = pvm.one(expr_api.expr_type(base))
+            local elem = elem_of_ptr(base_ty)
+            return pvm.once(Elab.ElabExprView(base, Elab.ElabTView(elem)))
+        end,
+        [Surf.SurfExprViewWindow] = function(self, env, expected_ty)
+            local base = one_expr(self.base, env, nil)
+            local start = one_expr(self.start, env, nil)
+            local len = one_expr(self.len, env, nil)
+            local base_ty = pvm.one(expr_api.expr_type(base))
+            local elem = elem_of_ptr(base_ty)
+            return pvm.once(Elab.ElabExprViewWindow(base, start, len, Elab.ElabTView(elem)))
+        end,
+        [Surf.SurfExprViewFromPtr] = function(self, env, expected_ty)
+            local ptr = one_expr(self.ptr, env, nil)
+            local len = one_expr(self.len, env, nil)
+            local ptr_ty = pvm.one(expr_api.expr_type(ptr))
+            local elem = elem_of_ptr(ptr_ty)
+            return pvm.once(Elab.ElabExprViewFromPtr(ptr, len, Elab.ElabTView(elem)))
+        end,
+        [Surf.SurfExprViewFromPtrStrided] = function(self, env, expected_ty)
+            local ptr = one_expr(self.ptr, env, nil)
+            local len = one_expr(self.len, env, nil)
+            local stride = one_expr(self.stride, env, nil)
+            local ptr_ty = pvm.one(expr_api.expr_type(ptr))
+            local elem = elem_of_ptr(ptr_ty)
+            return pvm.once(Elab.ElabExprViewFromPtrStrided(ptr, len, stride, Elab.ElabTView(elem)))
+        end,
+        [Surf.SurfExprViewStrided] = function(self, env, expected_ty)
+            local base = one_expr(self.base, env, nil)
+            local stride = one_expr(self.stride, env, nil)
+            local base_ty = pvm.one(expr_api.expr_type(base))
+            local elem = elem_of_ptr(base_ty)
+            return pvm.once(Elab.ElabExprViewStrided(base, stride, Elab.ElabTView(elem)))
+        end,
+        [Surf.SurfExprViewInterleaved] = function(self, env, expected_ty)
+            local base = one_expr(self.base, env, nil)
+            local stride = one_expr(self.stride, env, nil)
+            local lane = one_expr(self.lane, env, nil)
+            local base_ty = pvm.one(expr_api.expr_type(base))
+            local elem = elem_of_ptr(base_ty)
+            return pvm.once(Elab.ElabExprViewInterleaved(base, stride, lane, Elab.ElabTView(elem)))
         end,
         [Surf.SurfCall] = delegate_base_expr,
         [Surf.SurfField] = delegate_base_expr,

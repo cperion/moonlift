@@ -1,6 +1,13 @@
 # Moonlift Typed Loop Signature Proposal
 
-Status: **frozen typed loop-header/signature design note; implemented as the canonical authored loop syntax in the current parser/front-end**.
+Status: **SUPERSEDED** by the new `for ... in` / `while ... with` loop design frozen in:
+
+- `moonlift/CLOSED_LANGUAGE_SEMANTIC_DECISIONS.md`
+
+The old `loop (...) -> T while ... next ... end -> expr` form has been removed.
+Loops now use `for i in 0..n with acc: i32 = 0 do ... end` and
+`while cond with i: i32 = 0 do ... end`, with carries surviving after the loop
+and `next` inline in the body. No separate `end ->` projection, no `break expr`.
 
 This document describes the typed loop-header spellings now accepted by the reboot parser/front-end.
 The older canonical unparenthesized loop spelling has been removed from the parser:

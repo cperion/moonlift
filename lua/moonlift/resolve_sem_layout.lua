@@ -217,6 +217,42 @@ function M.Define(T)
         return module_name .. "." .. type_name
     end
 
+    local function sem_type_text(ty)
+        local k = ty.kind
+        if k == "SemTVoid" then return "void" end
+        if k == "SemTBool" then return "bool" end
+        if k == "SemTI8" then return "i8" end
+        if k == "SemTI16" then return "i16" end
+        if k == "SemTI32" then return "i32" end
+        if k == "SemTI64" then return "i64" end
+        if k == "SemTU8" then return "u8" end
+        if k == "SemTU16" then return "u16" end
+        if k == "SemTU32" then return "u32" end
+        if k == "SemTU64" then return "u64" end
+        if k == "SemTF32" then return "f32" end
+        if k == "SemTF64" then return "f64" end
+        if k == "SemTIndex" then return "index" end
+        if k == "SemTPtr" then return "ptr" end
+        if k == "SemTPtrTo" then return "ptr(" .. sem_type_text(ty.elem) .. ")" end
+        if k == "SemTArray" then return "array(" .. sem_type_text(ty.elem) .. ")" end
+        if k == "SemTSlice" then return "slice(" .. sem_type_text(ty.elem) .. ")" end
+        if k == "SemTView" then return "view(" .. sem_type_text(ty.elem) .. ")" end
+        if k == "SemTFunc" then return "func" end
+        if k == "SemTNamed" then return named_type_text(ty.module_name, ty.type_name) end
+        return k
+    end
+
+    local function layout_field_names(layout)
+        local out = {}
+        for i = 1, #layout.fields do
+            out[i] = layout.fields[i].field_name
+        end
+        if #out == 0 then
+            return "<none>"
+        end
+        return table.concat(out, ", ")
+    end
+
     local function ensure_layout_env(layout_env)
         if layout_env ~= nil then
             return layout_env
@@ -314,11 +350,11 @@ function M.Define(T)
             end
             local current_module_name = module.module_name or ""
             if self.module_name ~= current_module_name then
-                error("resolve_sem_layout: missing layout for named type '" .. key .. "'")
+                error("resolve_sem_layout: missing layout for named type '" .. key .. "'; import or synthesize that type layout before resolution")
             end
             local item = find_module_type_item(module, self.type_name)
             if item == nil then
-                error("resolve_sem_layout: missing layout for named type '" .. key .. "'")
+                error("resolve_sem_layout: missing layout for named type '" .. key .. "'; the current module does not define that type item")
             end
             visiting[key] = true
             local offset = 0
@@ -432,7 +468,7 @@ function M.Define(T)
         [Sem.SemTNamed] = function(self, layout_env)
             local layout = find_named_layout(layout_env, self.module_name, self.type_name)
             if layout == nil then
-                error("resolve_sem_layout: missing layout for named type '" .. named_type_text(self.module_name, self.type_name) .. "'")
+                error("resolve_sem_layout: missing layout for named type '" .. named_type_text(self.module_name, self.type_name) .. "'; import or synthesize that type layout before field/layout resolution")
             end
             return pvm.once(layout)
         end,
@@ -468,7 +504,7 @@ function M.Define(T)
                     return pvm.once(Sem.SemFieldByOffset(field.field_name, field.offset, field.ty))
                 end
             end
-            error("resolve_sem_layout: unknown field '" .. field_ref.field_name .. "' on type '" .. named_type_text(self.module_name, self.type_name) .. "'")
+            error("resolve_sem_layout: unknown field '" .. field_ref.field_name .. "' on type '" .. named_type_text(self.module_name, self.type_name) .. "' (available fields: " .. layout_field_names(self) .. ")")
         end,
     })
 
@@ -476,25 +512,25 @@ function M.Define(T)
         [Sem.SemTNamed] = function(self, field_ref, layout_env)
             return pvm.once(one_layout_field(one_type_layout(self, layout_env), field_ref))
         end,
-        [Sem.SemTVoid] = function() error("resolve_sem_layout: cannot resolve a field on void") end,
-        [Sem.SemTBool] = function() error("resolve_sem_layout: cannot resolve a field on bool") end,
-        [Sem.SemTI8] = function() error("resolve_sem_layout: cannot resolve a field on i8") end,
-        [Sem.SemTI16] = function() error("resolve_sem_layout: cannot resolve a field on i16") end,
-        [Sem.SemTI32] = function() error("resolve_sem_layout: cannot resolve a field on i32") end,
-        [Sem.SemTI64] = function() error("resolve_sem_layout: cannot resolve a field on i64") end,
-        [Sem.SemTU8] = function() error("resolve_sem_layout: cannot resolve a field on u8") end,
-        [Sem.SemTU16] = function() error("resolve_sem_layout: cannot resolve a field on u16") end,
-        [Sem.SemTU32] = function() error("resolve_sem_layout: cannot resolve a field on u32") end,
-        [Sem.SemTU64] = function() error("resolve_sem_layout: cannot resolve a field on u64") end,
-        [Sem.SemTF32] = function() error("resolve_sem_layout: cannot resolve a field on f32") end,
-        [Sem.SemTF64] = function() error("resolve_sem_layout: cannot resolve a field on f64") end,
-        [Sem.SemTPtr] = function() error("resolve_sem_layout: cannot resolve a field on raw pointer values") end,
-        [Sem.SemTIndex] = function() error("resolve_sem_layout: cannot resolve a field on index") end,
-        [Sem.SemTPtrTo] = function() error("resolve_sem_layout: cannot resolve a field on pointer-to values; deref before field access") end,
-        [Sem.SemTArray] = function() error("resolve_sem_layout: cannot resolve a named field on arrays") end,
-        [Sem.SemTSlice] = function() error("resolve_sem_layout: cannot resolve a named field on slices yet") end,
-        [Sem.SemTView] = function() error("resolve_sem_layout: cannot resolve a named field on views yet") end,
-        [Sem.SemTFunc] = function() error("resolve_sem_layout: cannot resolve a field on function values") end,
+        [Sem.SemTVoid] = function(self, field_ref) error("resolve_sem_layout: cannot resolve field '" .. field_ref.field_name .. "' on " .. sem_type_text(self)) end,
+        [Sem.SemTBool] = function(self, field_ref) error("resolve_sem_layout: cannot resolve field '" .. field_ref.field_name .. "' on " .. sem_type_text(self)) end,
+        [Sem.SemTI8] = function(self, field_ref) error("resolve_sem_layout: cannot resolve field '" .. field_ref.field_name .. "' on " .. sem_type_text(self)) end,
+        [Sem.SemTI16] = function(self, field_ref) error("resolve_sem_layout: cannot resolve field '" .. field_ref.field_name .. "' on " .. sem_type_text(self)) end,
+        [Sem.SemTI32] = function(self, field_ref) error("resolve_sem_layout: cannot resolve field '" .. field_ref.field_name .. "' on " .. sem_type_text(self)) end,
+        [Sem.SemTI64] = function(self, field_ref) error("resolve_sem_layout: cannot resolve field '" .. field_ref.field_name .. "' on " .. sem_type_text(self)) end,
+        [Sem.SemTU8] = function(self, field_ref) error("resolve_sem_layout: cannot resolve field '" .. field_ref.field_name .. "' on " .. sem_type_text(self)) end,
+        [Sem.SemTU16] = function(self, field_ref) error("resolve_sem_layout: cannot resolve field '" .. field_ref.field_name .. "' on " .. sem_type_text(self)) end,
+        [Sem.SemTU32] = function(self, field_ref) error("resolve_sem_layout: cannot resolve field '" .. field_ref.field_name .. "' on " .. sem_type_text(self)) end,
+        [Sem.SemTU64] = function(self, field_ref) error("resolve_sem_layout: cannot resolve field '" .. field_ref.field_name .. "' on " .. sem_type_text(self)) end,
+        [Sem.SemTF32] = function(self, field_ref) error("resolve_sem_layout: cannot resolve field '" .. field_ref.field_name .. "' on " .. sem_type_text(self)) end,
+        [Sem.SemTF64] = function(self, field_ref) error("resolve_sem_layout: cannot resolve field '" .. field_ref.field_name .. "' on " .. sem_type_text(self)) end,
+        [Sem.SemTPtr] = function(self, field_ref) error("resolve_sem_layout: cannot resolve field '" .. field_ref.field_name .. "' on " .. sem_type_text(self)) end,
+        [Sem.SemTIndex] = function(self, field_ref) error("resolve_sem_layout: cannot resolve field '" .. field_ref.field_name .. "' on " .. sem_type_text(self)) end,
+        [Sem.SemTPtrTo] = function(self, field_ref) error("resolve_sem_layout: cannot resolve field '" .. field_ref.field_name .. "' on " .. sem_type_text(self) .. "; deref before field access") end,
+        [Sem.SemTArray] = function(self, field_ref) error("resolve_sem_layout: cannot resolve field '" .. field_ref.field_name .. "' on " .. sem_type_text(self) .. "; arrays do not have named fields") end,
+        [Sem.SemTSlice] = function(self, field_ref) error("resolve_sem_layout: cannot resolve field '" .. field_ref.field_name .. "' on " .. sem_type_text(self) .. "; slices do not have named fields yet") end,
+        [Sem.SemTView] = function(self, field_ref) error("resolve_sem_layout: cannot resolve field '" .. field_ref.field_name .. "' on " .. sem_type_text(self) .. "; views do not have named fields yet") end,
+        [Sem.SemTFunc] = function(self, field_ref) error("resolve_sem_layout: cannot resolve field '" .. field_ref.field_name .. "' on " .. sem_type_text(self)) end,
     })
 
     resolve_field_ref = pvm.phase("moonlift_sem_layout_resolve_field_ref", {

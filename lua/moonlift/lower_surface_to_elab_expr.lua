@@ -180,6 +180,50 @@ function M.Define(T)
         return nil
     end
 
+    local function elab_type_text(ty)
+        local k = ty.kind
+        if k == "ElabTVoid" then return "void" end
+        if k == "ElabTBool" then return "bool" end
+        if k == "ElabTI8" then return "i8" end
+        if k == "ElabTI16" then return "i16" end
+        if k == "ElabTI32" then return "i32" end
+        if k == "ElabTI64" then return "i64" end
+        if k == "ElabTU8" then return "u8" end
+        if k == "ElabTU16" then return "u16" end
+        if k == "ElabTU32" then return "u32" end
+        if k == "ElabTU64" then return "u64" end
+        if k == "ElabTF32" then return "f32" end
+        if k == "ElabTF64" then return "f64" end
+        if k == "ElabTIndex" then return "index" end
+        if k == "ElabTPtr" then return "ptr(" .. elab_type_text(ty.elem) .. ")" end
+        if k == "ElabTArray" then return "array(" .. elab_type_text(ty.elem) .. ")" end
+        if k == "ElabTSlice" then return "slice(" .. elab_type_text(ty.elem) .. ")" end
+        if k == "ElabTView" then return "view(" .. elab_type_text(ty.elem) .. ")" end
+        if k == "ElabTFunc" then return "func" end
+        if k == "ElabTNamed" then
+            if ty.module_name == nil or ty.module_name == "" then
+                return ty.type_name
+            end
+            return ty.module_name .. "." .. ty.type_name
+        end
+        return k
+    end
+
+    local function layout_field_names(layout)
+        local out = {}
+        for i = 1, #layout.fields do
+            out[i] = layout.fields[i].field_name
+        end
+        if #out == 0 then
+            return "<none>"
+        end
+        return table.concat(out, ", ")
+    end
+
+    local function field_base_error(field_name, ty, detail)
+        error("surface_to_elab_expr: cannot select field '" .. field_name .. "' from " .. elab_type_text(ty) .. detail)
+    end
+
     local function is_integral_type(ty)
         return ty == Elab.ElabTI8 or ty == Elab.ElabTI16 or ty == Elab.ElabTI32 or ty == Elab.ElabTI64
             or ty == Elab.ElabTU8 or ty == Elab.ElabTU16 or ty == Elab.ElabTU32 or ty == Elab.ElabTU64
@@ -382,32 +426,32 @@ function M.Define(T)
         [Elab.ElabTNamed] = function(self, env, field_name)
             local layout = find_named_layout(env, self.module_name, self.type_name)
             if layout == nil then
-                error("surface_to_elab_expr: missing field layout for named type '" .. (self.module_name ~= "" and (self.module_name .. ".") or "") .. self.type_name .. "'")
+                error("surface_to_elab_expr: missing field layout for named type '" .. elab_type_text(self) .. "'; declare or import the struct type before selecting field '" .. field_name .. "'")
             end
             local field = find_layout_field(layout, field_name)
             if field == nil then
-                error("surface_to_elab_expr: unknown field '" .. field_name .. "' on named type '" .. (self.module_name ~= "" and (self.module_name .. ".") or "") .. self.type_name .. "'")
+                error("surface_to_elab_expr: unknown field '" .. field_name .. "' on named type '" .. elab_type_text(self) .. "' (available fields: " .. layout_field_names(layout) .. ")")
             end
             return pvm.once(field.ty)
         end,
-        [Elab.ElabTVoid] = function() error("surface_to_elab_expr: cannot select a field from void") end,
-        [Elab.ElabTBool] = function() error("surface_to_elab_expr: cannot select a field from bool") end,
-        [Elab.ElabTI8] = function() error("surface_to_elab_expr: cannot select a field from an integer value") end,
-        [Elab.ElabTI16] = function() error("surface_to_elab_expr: cannot select a field from an integer value") end,
-        [Elab.ElabTI32] = function() error("surface_to_elab_expr: cannot select a field from an integer value") end,
-        [Elab.ElabTI64] = function() error("surface_to_elab_expr: cannot select a field from an integer value") end,
-        [Elab.ElabTU8] = function() error("surface_to_elab_expr: cannot select a field from an integer value") end,
-        [Elab.ElabTU16] = function() error("surface_to_elab_expr: cannot select a field from an integer value") end,
-        [Elab.ElabTU32] = function() error("surface_to_elab_expr: cannot select a field from an integer value") end,
-        [Elab.ElabTU64] = function() error("surface_to_elab_expr: cannot select a field from an integer value") end,
-        [Elab.ElabTF32] = function() error("surface_to_elab_expr: cannot select a field from a float value") end,
-        [Elab.ElabTF64] = function() error("surface_to_elab_expr: cannot select a field from a float value") end,
-        [Elab.ElabTIndex] = function() error("surface_to_elab_expr: cannot select a field from an index value") end,
-        [Elab.ElabTPtr] = function() error("surface_to_elab_expr: cannot select a field from a pointer value; dereference first if the pointee is an aggregate") end,
-        [Elab.ElabTArray] = function() error("surface_to_elab_expr: cannot select a named field from an array value") end,
-        [Elab.ElabTSlice] = function() error("surface_to_elab_expr: cannot select a named field from a slice value") end,
-        [Elab.ElabTView] = function() error("surface_to_elab_expr: cannot select a named field from a view value") end,
-        [Elab.ElabTFunc] = function() error("surface_to_elab_expr: cannot select a field from a function value") end,
+        [Elab.ElabTVoid] = function(self, env, field_name) field_base_error(field_name, self, "") end,
+        [Elab.ElabTBool] = function(self, env, field_name) field_base_error(field_name, self, "") end,
+        [Elab.ElabTI8] = function(self, env, field_name) field_base_error(field_name, self, "") end,
+        [Elab.ElabTI16] = function(self, env, field_name) field_base_error(field_name, self, "") end,
+        [Elab.ElabTI32] = function(self, env, field_name) field_base_error(field_name, self, "") end,
+        [Elab.ElabTI64] = function(self, env, field_name) field_base_error(field_name, self, "") end,
+        [Elab.ElabTU8] = function(self, env, field_name) field_base_error(field_name, self, "") end,
+        [Elab.ElabTU16] = function(self, env, field_name) field_base_error(field_name, self, "") end,
+        [Elab.ElabTU32] = function(self, env, field_name) field_base_error(field_name, self, "") end,
+        [Elab.ElabTU64] = function(self, env, field_name) field_base_error(field_name, self, "") end,
+        [Elab.ElabTF32] = function(self, env, field_name) field_base_error(field_name, self, "") end,
+        [Elab.ElabTF64] = function(self, env, field_name) field_base_error(field_name, self, "") end,
+        [Elab.ElabTIndex] = function(self, env, field_name) field_base_error(field_name, self, "") end,
+        [Elab.ElabTPtr] = function(self, env, field_name) field_base_error(field_name, self, "; dereference first if the pointee is an aggregate") end,
+        [Elab.ElabTArray] = function(self, env, field_name) field_base_error(field_name, self, "; arrays do not have named fields") end,
+        [Elab.ElabTSlice] = function(self, env, field_name) field_base_error(field_name, self, "; slices do not have named fields yet") end,
+        [Elab.ElabTView] = function(self, env, field_name) field_base_error(field_name, self, "; views do not have named fields yet") end,
+        [Elab.ElabTFunc] = function(self, env, field_name) field_base_error(field_name, self, "") end,
     })
 
     lower_intrinsic = pvm.phase("surface_to_elab_intrinsic", {

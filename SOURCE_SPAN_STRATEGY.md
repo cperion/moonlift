@@ -140,7 +140,7 @@ Current public entrypoints include:
 
 and via the public source facade:
 
-- `pipeline_module_with_spans`
+- canonical `pipeline_with_spans`
 - `lower_module_with_spans`
 
 Current bootstrap span coverage is strongest for:
@@ -230,8 +230,14 @@ Current bridge behavior in `moonlift/lua/moonlift/source.lua`:
 - `try_lower_*`
 - `try_sem_module`
 - `try_resolve_module`
-- `try_back_module`
-- `try_compile_module`
+- canonical single-module helpers:
+  - `try_pipeline`
+  - `try_back`
+  - `try_compile`
+- package helpers:
+  - `try_pipeline_package`
+  - `try_back_package`
+  - `try_compile_package`
 
 attempt to:
 

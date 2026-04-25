@@ -128,10 +128,21 @@ Current surface constructors:
 
 A function item carries:
 
+- optional `export` visibility
 - name
 - params
 - result type
 - statement body
+
+```moonlift
+export func public_fn(x: i32) -> i32  -- visible to importing modules
+    ...
+end
+
+func private_fn(x: i32) -> i32       -- module-local only
+    ...
+end
+```
 
 Parser target:
 
@@ -209,6 +220,31 @@ Current reboot note:
 
 - this is the real source of module-local named type/layout information for the closed compiler path
 - later phases synthesize `ElabTypeLayout` and `SemLayoutEnv` from these items
+
+### 5.7 Enum types
+
+```moonlift
+type Color = enum { red, green, blue }
+```
+
+Desugars at `Surface -> Elab` to integer constant declarations.
+
+### 5.8 Tagged union types
+
+```moonlift
+type Result = ok(i32) | err(i32)
+```
+
+Desugars at `Surface -> Elab` to a discriminant struct + tag constants.
+Pattern matching desugars to `switch` on the tag field.
+
+### 5.9 Untagged union types
+
+```moonlift
+type U = union { x: i32, y: f32 }
+```
+
+Desugars at `Surface -> Elab` to a struct with overlapping field offsets.
 
 ---
 
@@ -319,15 +355,17 @@ The current bootstrap reboot parser freezes the following source spelling:
 view(T)
 ```
 
-Example:
+### 6.8 Closure types
 
 ```text
-view(i32)
+closure(T1, T2, ...) -> R
 ```
 
 Parser target:
 
-- `SurfTView(elem)`
+- `SurfTClosure(params, result)`
+
+Closures are structurally distinct from `func(T) -> R` — they carry a context pointer.
 
 ---
 
@@ -405,7 +443,7 @@ Important parser rule:
 
 Current binary expression family includes:
 
-- arithmetic: `+ - * / %`
+- arithmetic: `+ - * / %` (integer only; float `%` is not supported)
 - comparisons: `== ~= < <= > >=`
 - logical: `and or`
 - bitwise: `& | ~ << >> >>>`
@@ -580,19 +618,38 @@ The reboot block expression is best understood as:
 
 This matches the current `Surface` representation directly.
 
-### 7.14 Loop expressions
+### 7.14 Block expressions
 
 Current parser target:
 
-- `SurfLoopExprNode(loop)`
+- `SurfBlockExpr(stmts, result)`
 
-Loop expressions use the canonical loop families described below.
+The reboot block expression is best understood as:
 
-Important current note:
+- zero or more statements
+- then one required result expression
 
-- the implemented reboot parser/front-end now uses the typed-header loop spelling documented in `moonlift/TYPED_LOOP_SIGNATURE_PROPOSAL.md` as the canonical authored loop syntax
-- the older unparenthesized loop spelling has been removed from the parser
-- the core loop semantics stay the same
+This matches the current `Surface` representation directly.
+
+### 7.15 View construction expressions
+
+```moonlift
+view(xs)                        -- from array/slice, stride = elem_size
+view(xs, start, len)            -- window into array/slice
+view_from_ptr(ptr, len)         -- from raw pointer
+view_from_ptr(ptr, len, stride) -- explicit stride
+view_window(v, start, len)      -- sub-range of a view
+view_strided(v, stride)         -- change stride
+view_interleaved(v, stride, lane) -- interleaved lane
+```
+
+### 7.16 Closure expressions
+
+```moonlift
+fn(x, y) expr... end          -- closure expression
+```
+
+Free variables in the body become context struct fields. Desugars at `Surface -> Elab`.
 
 ---
 
@@ -683,78 +740,110 @@ Parser targets:
 Parser targets:
 
 - `SurfBreak`
-- `SurfBreakValue`
 - `SurfContinue`
 
 Current bootstrap reboot parser spelling:
 
 ```text
 break
-break expr
 continue
 ```
 
-This means:
-
-- bare `break` -> `SurfBreak`
-- `break expr` -> `SurfBreakValue(expr)`
+There is **no** `break expr`. Carries survive after the loop — their values at the point of `break` are the result.
 
 ### 8.9 Loop statements
 
+Loops are statements that may introduce carries accessible after the loop.
+
+```moonlift
+for i in 0..n do ... end
+for i in 0..n with acc: i32 = 0 do ... end
+while cond with i: i32 = 0 do ... end
+```
+
 Parser target:
 
-- `SurfLoopStmtNode(loop)`
+- `SurfWhileStmt(carries, cond, body, next)`
+- `SurfForStmt(index_name, domain, carries, body, next)`
+
+There is no separate expr-loop form — carries survive after the loop into the surrounding scope.
 
 ---
 
 ## 9. Canonical reboot loop forms
 
-The reboot `Surface` does **not** currently have separate plain `while` / `for` AST nodes.
-Its loop surface is already centered on canonical loop forms.
+The reboot has two loop families:
 
-That means the reboot parser should primarily target typed canonical `loop` families such as:
+- `for ... in ...` — domain-driven iteration with an induction variable
+- `while ... with ...` — condition-driven iteration with explicit state carries
 
-- `loop (...) while ...`
-- `loop (i: index over domain, ...)`
-- `loop (...) -> T while ... end -> expr`
-- `loop (i: index over domain, ...) -> T ... end -> expr`
+### 9.1 Carries and `next`
 
-not a separate old-style `while_` / `for_` source AST.
+Loop carries are declared in the loop header with `with name: type = init`.
+Carries **survive after the loop** — they are accessible in the surrounding scope after the loop ends.
 
-### 9.1 Loop carries
+`next` is a statement inside the loop body that updates carries for the next iteration.
+It is required on every path through the body.
 
-Current carry node:
+```moonlift
+next carry1 = expr1, carry2 = expr2
+```
 
-- `SurfLoopCarryInit(name, ty, init)`
+### 9.2 `for ... in ...` loops
 
-Carries are explicit in the surface layer.
-They are not inferred from mutation after parsing.
+```moonlift
+-- stmt: index-only iteration
+for i in 0..n do
+    xs[i] = f(i)
+end
 
-### 9.2 Loop next updates
+-- stmt: with carries
+for i in 0..n with acc: i32 = 0 do
+    next acc = acc + xs[i]
+end
+-- acc = sum, alive here
 
-Current update node:
+-- stmt: over a view
+for i in view_of(xs) do
+    ... xs[i] ...
+end
 
-- `SurfLoopNextAssign(name, value)`
+-- stmt: over a slice
+for i in xs do
+    ... xs[i] ...
+end
 
-`next` is explicit structure in the source representation.
+-- stmt: zip
+for i in zip(xs, ys) do
+    ... xs[i] + ys[i] ...
+end
+```
 
-### 9.3 `loop ... while ...`
+### 9.3 `while ... with ...` loops
 
-Current parser targets:
+```moonlift
+-- stmt
+while i < n with i: i32 = 0, acc: i32 = 0 do
+    next i = i + 1, acc = acc + xs[i]
+end
+-- i = n, acc = sum
+```
 
-- `SurfLoopWhileStmt`
-- `SurfLoopWhileExprTyped`
+### 9.4 `break`
 
-This is the reboot phi/state loop form.
+`break` exits the loop preserving the current carry values.
+There is **no** `break expr` — carries speak for themselves.
 
-### 9.4 `loop ... over ...`
-
-Current parser targets:
-
-- `SurfLoopOverStmt`
-- `SurfLoopOverExprTyped`
-
-This is the reboot domain loop form.
+```moonlift
+while i < n with i: i32 = 0, found: i32 = -1 do
+    if xs[i] == target then
+        found = i
+        break
+    end
+    next i = i + 1
+end
+-- found is either -1 or the index where target was found
+```
 
 ### 9.5 Domains
 
@@ -766,6 +855,11 @@ Current domain nodes:
 - `SurfDomainValue(value)`
 
 The parser should preserve these domain distinctions at the `Surface` level.
+
+### 9.6 Cranelift lowering
+
+All loop forms lower to the same three-block Cranelift shape with block params flowing
+to the exit block. There is no separate "output variable."
 
 ---
 
@@ -848,26 +942,20 @@ The target ASDL layer should differ.
 
 ## 13. What is intentionally not specified yet
 
-The reboot source spec intentionally does **not** yet freeze text syntax for everything present in old Moonlift or future Moonlift.
+The reboot source spec intentionally does **not** yet freeze text syntax for:
 
-Not yet frozen here:
-
-- whether the remaining untyped expr-loop `Surface` variants should stay as internal/manual compatibility forms or be removed entirely in a later cleanup
-- full authored type-item syntax:
-  - `type`
-  - `struct`
-  - `union`
-  - `tagged union`
-  - `enum`
-  - `opaque`
 - method / `impl` syntax
-- visibility / attributes / imports
 - quote/meta source syntax
+- hosted/state-aware integration syntax
 
-Those need either:
+Previously-open items now frozen:
 
-- corresponding `Surface` growth first, or
-- explicit reboot design decisions before parser commitment
+- enums, tagged unions, and untagged unions: desugar at `Surface -> Elab`
+- closure syntax: `fn(x) expr end`, distinct `closure(T) -> R` type
+- view construction: six explicit primitives
+- visibility: `export func` vs plain `func`
+- loops: `for ... in` / `while ... with`, carries survive, no `end ->` or `break value`
+- `%` on floats: removed from the language
 
 ---
 

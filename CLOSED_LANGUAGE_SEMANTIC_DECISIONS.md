@@ -84,98 +84,88 @@ This is a deliberate simplification for:
 
 # 3. Loop semantics
 
-Moonlift loops are explicit state-transition forms.
-That is a distinctive language choice and should be preserved.
+Moonlift loops are explicit state-transition forms grounded in Cranelift's block-param / jump-arg CFG model.
+The loop body is the only user-authored section; the header declares state and the recurrence is explicit via `next`.
 
-## 3.1 Loop carries are state, not implicit outputs
+## 3.1 Carries live after the loop
 
 Loop carries represent the evolving loop state.
-They are **not** implicitly the result of the loop.
+After the loop terminates, carry values **survive into the surrounding scope** — they are the loop's natural "output."
 
-So a loop does **not** automatically return:
+There is no separate `end -> result` projection and no `break value`.
 
-- all carries
-- the last carry
-- some hidden output port
+- Carries live after the loop as ordinary local bindings
+- A `break` preserves the current carry values at the point of exit
+- The destination Cranelift block receives all carries as block params
 
-The result is always explicit.
+## 3.2 `next` is the recurrence statement
 
-## 3.2 `next` is fundamental
-
-`next` is not optional sugar.
-It is the explicit recurrence relation for loop state.
-
-That means the intended loop reading is:
+`next` is a statement inside the loop body that explicitly updates carries for the next iteration.
+It is required on every path through the body.
 
 ```text
-initial state
--> body
--> next state
--> final projection
+next carry1 = expr1, carry2 = expr2
 ```
 
-not mutation-driven rediscovery.
+This lowers directly to Cranelift jump arguments.
 
-## 3.3 Loop expressions return one value
+## 3.3 Two loop families
 
-A loop expression returns exactly one value.
+### `for ... in ...` — domain-driven iteration
 
-There are two result paths:
+```moonlift
+for i in 0..n do                        -- index-only, no carries
+    xs[i] = f(i)
+end
 
-### Natural completion
+for i in 0..n with acc: i32 = 0 do      -- carries survive after loop
+    next acc = acc + xs[i]
+end
+-- acc is alive here
+```
 
-If the loop terminates normally, the trailing projection is used:
+The `for` keyword signals an induction variable to Cranelift's loop optimizer.
+Domains include ranges (`0..n`, `start..stop`), views, slices, and `zip(xs, ys)`.
+
+### `while ... with ...` — condition-driven iteration
+
+```moonlift
+while i < n with i: i32 = 0, acc: i32 = 0 do
+    next i = i + 1, acc = acc + xs[i]
+end
+-- i = n, acc = sum
+```
+
+## 3.4 `break`
+
+`break` exits the loop preserving the current carry values.
+Bare `break` has no associated value — carries speak for themselves.
+
+## 3.5 Cranelift lowering
+
+All loop forms lower to the same Cranelift three-block shape:
 
 ```text
-... end -> expr
+block_header(carry0, carry1):    ; block params = loop state
+    cond = check condition        ; or domain exhaustion check
+    brnz cond, body(...)          ; continue
+    jump exit(carry0, carry1)     ; exit — carries flow naturally
+
+block_body(carry0, carry1):
+    ... body + next updates ...
+    jump header(next0, next1)     ; recur with next state
+
+block_exit(carry0, carry1):
+    ... carries live after loop ...
 ```
 
-That `expr` is the loop expression's final value.
+There is no separate "loop output variable" — block params flow to the exit block.
+This matches Cranelift's actual dataflow, not an invented language concept.
 
-### Early completion
+## 3.6 Shared body-local values are one value
 
-If the loop exits early with:
-
-```text
-break expr
-```
-
-then that `expr` is the loop expression's final value.
-
-These two result paths must agree on one result type.
-
-## 3.3a Surface syntax note
-
-The source language may expose expr-loop result types in the loop header so loops read more like typed signatures.
-That remains a **Surface** concern only.
-It does **not** change the meaning frozen here:
-
-- natural completion still uses an explicit final projection
-- early completion still uses `break expr`
-- carries remain state, not hidden outputs
-
-See:
-
-- `moonlift/TYPED_LOOP_SIGNATURE_PROPOSAL.md`
-
-## 3.4 Bare `break`
-
-Bare `break` belongs to statement-loop control.
-It is not the valued early-result form for a non-void loop expression.
-
-## 3.5 Shared body-local values are semantically one value
-
-If a loop body computes a local value and then uses it in multiple places in the same iteration, that is semantically one value, not an invitation for later lowering to rediscover or duplicate it arbitrarily.
-
-Canonical example:
-
-```text
-let out = ...
-set dst[i] = out
-next acc = out
-```
-
-The architecture should preserve that shared value honestly.
+If a loop body computes a local value and uses it in multiple places in the same iteration,
+that is semantically one SSA value. Cranelift preserves sharing naturally.
 
 ---
 
@@ -323,15 +313,85 @@ They are real closed-language value/iteration nouns.
 ## 6.4 Function values
 
 Function values are first-class immutable callable values.
-That includes the semantic direction for:
+They are one-word code pointers, storable in structs, arrays, and passed as arguments.
+
+That includes:
 
 - ordinary function items
 - extern function items
 - direct call targets
 - indirect call targets
 
-The closed language does **not** include closures/captures in this model.
-Function values are code-pointer-like callable values, not closure environments.
+The closed language does **not** include garbage-collected closures.
+
+## 6.5 Closures
+
+Closures are **surface sugar** over a `struct { fn, ctx }` pair.
+
+A `closure(T) -> R` is structurally distinct from `func(T) -> R` because Cranelift requires
+two words (code pointer + context pointer) for a closure but one word for a plain function.
+
+```moonlift
+let f: closure(i32) -> i32 = fn(x) x * factor
+-- desugars to:
+-- type _ctx = struct { factor: i32 }
+-- func _fn(ctx: *_ctx, x: i32) -> i32 = return x * ctx.factor
+-- let f = closure(_ctx { factor = factor }, _fn)
+```
+
+Calling a closure `f(x)` desugars to `f.fn(f.ctx, x)`.
+Free variables in the closure body become fields of the generated context struct.
+The desugaring happens at `Surface -> Elab`.
+
+## 6.6 Enum and union types
+
+### Enums
+
+Enums are named integer constants — pure surface sugar that desugars at `Surface -> Elab`:
+
+```moonlift
+type Color = enum { red, green, blue }
+-- desugars: const red: i32 = 0; const green: i32 = 1; const blue: i32 = 2
+```
+
+### Tagged unions
+
+Tagged unions desugar to a discriminant + payload struct:
+
+```moonlift
+type Result = ok(i32) | err(i32)
+-- desugars: type Result = struct { tag: i32, _0: i32 }
+--          const Result_tag_ok: i32 = 0; const Result_tag_err: i32 = 1
+```
+
+Pattern matching on tagged unions desugars to `switch` on the tag field.
+
+### Untagged unions
+
+Untagged unions desugar to a struct with overlapping field offsets:
+
+```moonlift
+type U = union { x: i32, y: f32 }
+-- desugars: type U = struct { x: i32, y: f32 }  with x at offset 0, y at offset 0
+```
+
+All three forms are surface-only — Cranelift sees ordinary structs and integer constants.
+
+## 6.7 View construction
+
+Views are `(data, len, stride)` descriptor values. The following construction primitives produce them:
+
+```moonlift
+view(xs)                  -- from array/slice, stride = elem_size
+view(xs, start, len)      -- window into array/slice
+view_from_ptr(ptr, len)   -- from raw pointer, stride = elem_size
+view_from_ptr(ptr, len, stride)  -- explicit stride
+view_window(v, start, len)       -- sub-range of an existing view
+view_strided(v, stride)          -- change stride of a view
+view_interleaved(v, stride, lane) -- interleaved lane extraction
+```
+
+All normalize to the three-word descriptor. Cranelift sees scalar values.
 
 ---
 
@@ -348,9 +408,10 @@ These are intended to travel by value:
 
 - scalar ints/floats/bool/index
 - pointers
-- function values
-- slice descriptors
-- view descriptors
+- function values (one word)
+- closure descriptors (two words: fn + ctx)
+- slice descriptors (two words: data + len)
+- view descriptors (three words: data + len + stride)
 
 ## 7.2 Aggregate categories
 
@@ -365,6 +426,87 @@ That means the ABI model is deliberately friendly to a Cranelift-facing lowering
 - one result
 - descriptor values where appropriate
 - aggregate materialization where appropriate
+
+## 7.3 Back / Cranelift-facing command-layer decisions
+
+The `Back` layer remains a small explicit machine-facing command language.
+It should mirror meaningful Cranelift/module primitives where that preserves structure honestly.
+It should **not** become a hidden second compiler IR.
+
+### `BackCmd` sufficiency
+
+The current `BackCmd` set is **not** sufficient for the finished closed language.
+The missing pressure is not generic scalar arithmetic/control-flow; it is mainly:
+
+- aggregate copy/fill/materialization support
+- full descriptor/aggregate ABI support
+- remaining non-scalar value movement
+
+So future completion should add missing machine-facing nouns explicitly instead of encoding them indirectly through helper conventions.
+
+### Copy/fill commands
+
+Explicit bulk-memory/data-movement commands should exist in `Back`.
+
+Concretely, the intended direction is to add explicit command nouns for operations in the family of:
+
+- memcpy / non-overlapping aggregate copy
+- memset / zero-or-byte fill
+
+This matches Cranelift's own explicit libcall vocabulary (`Memcpy`, `Memset`, `Memmove`, `Memcmp`) and avoids forcing `Sem -> Back` to rediscover bulk copy/fill as scalar loops or long store sequences.
+
+### Scalar choose
+
+When the language means a pure scalar choose, the `Back` layer should preserve that as explicit select-shaped structure.
+
+So the intended split remains:
+
+- `if` -> ordinary CFG conditional
+- `select` -> explicit choose/dataflow conditional
+- pure scalar choose at `Back` -> `BackCmdSelect`, not mandatory early collapse into branch CFG
+
+### Cast/conversion boundary
+
+Direct `Back` support is intended for scalar conversions that map naturally to Cranelift scalar ops.
+That includes the current family of commands such as:
+
+- bitcast
+- integer reduce / sign-extend / zero-extend
+- float promote / demote
+- int<->float conversions
+
+Aggregate/descriptor/materialization conversions do **not** belong as generic `Back` casts.
+Those should be resolved earlier into explicit address/materialization/copy plans.
+
+### Slice/view runtime primitives
+
+The closed language keeps slices/views as first-class semantic descriptor values.
+But that does **not** imply a separate family of generic slice/view runtime primitives in `Back`.
+
+The intended `Back` story is:
+
+- descriptor fields (`data`, `len`, `stride`) lower to ordinary scalar values
+- indexing/windowing/zip structure is resolved in `Sem`
+- `Back` only needs explicit extra nouns where there is a real machine/runtime primitive worth naming (such as copy/fill), not a second slice/view mini-IR
+
+So dedicated generic slice/view runtime primitives are **not** part of the intended `BackCmd` design.
+
+### Layout resolution boundary
+
+Unresolved field references must not survive past layout resolution.
+After the explicit `Sem` layout-resolution boundary, downstream lowering should only see resolved field-by-offset forms.
+
+### Artifact vs future session model
+
+If a richer persistent session/module model is added later, it should **extend** the current artifact model, not replace it.
+
+The direct artifact path stays a first-class honest path:
+
+- compile `BackProgram`
+- keep artifact alive
+- use pointers while artifact lives
+
+Any future session/cache layer should be an additional host-side layer over that reality, not a second ownership story.
 
 ---
 
@@ -388,6 +530,40 @@ If mutable global storage exists, it belongs to the `static`/addressable-data st
 
 Extern function items are semantically function values in the same callable family, even if current implementation still supports them incompletely outside call-target position.
 
+## 8.5 Visibility
+
+```moonlift
+export func public_fn(...) -> R ... end   -- visible to importing modules
+func private_fn(...) -> R ... end         -- module-local only
+```
+
+Plain `func` produces a module-local function. `export func` produces an exported function reachable via `import`.
+
+## 8.6 Floating-point remainder
+
+Floating-point remainder (`%` on float types) is not part of the language.
+Integer remainder is supported. The `BackCmdFrem` command is removed from the backend.
+
+## 8.7 Const evaluation
+
+### Cross-module const references
+
+A const in module A may reference a const in module B. The const evaluator has access to the full const environment across all modules being compiled together.
+
+### Const intrinsics
+
+Intrinsics with pure scalar semantics (`abs`, `sqrt`, `clz`, `ctz`, `floor`, `ceil`, `round`, `trunc_float`) are evaluated at compile time when all arguments are const. The evaluator dispatches through `pvm.phase` on the intrinsic kind.
+
+## 8.8 Type-directed integer literal elaboration
+
+Integer literals are elaborated to their expected type at `Surface -> Elab` when context provides one:
+- `let x: u32 = 42` → `42u32`
+- `switch` arm keys acquire the switch-value type
+- function params acquire their declared type
+- array counts acquire index type
+
+No new ASDL. The elaboration is a lowering rule in `Surface -> Elab`.
+
 ---
 
 # 9. What these decisions imply for implementation
@@ -397,11 +573,16 @@ They do **not** claim every implementation piece is complete today.
 
 In particular, the implementation still needs to finish work such as:
 
-- splitting `Sem` binding/storage classes where lowering differs
-- preserving `select` and `switch` honestly through later lowering
-- finishing loop-body control/result lowering for realistic branchy bodies
+- implementing the new loop syntax (`for ... in` / `while ... with`) replacing the old `loop (...) -> T while ... next ... end -> expr` form
+- desugaring tagged unions, untagged unions, and enums at `Surface -> Elab`
+- desugaring closures to `struct { fn, ctx }` at `Surface -> Elab`
+- adding `export func` visibility distinction
+- implementing view construction primitives
+- adding cross-module const reference support
+- adding const intrinsic evaluation via pvm dispatch
 - completing aggregate/non-scalar load/call/return support under the single-result + explicit-struct model
-- completing first-class function-value handling under the no-closure model
+- completing first-class function-value handling (storable code pointers)
+- completing array-value indexing (copy-out via `base + i*elem_size` load)
 - aligning Rust/FFI ABI details with the frozen single-result descriptor/aggregate strategy
 
 Use `moonlift/CURRENT_IMPLEMENTATION_STATUS.md` for what exists today.
@@ -413,15 +594,22 @@ Use `moonlift/COMPLETE_LANGUAGE_CHECKLIST.md` for the remaining implementation w
 
 The closed Moonlift language is now frozen around these core choices:
 
-- one-result language
-- no anonymous tuple/product values
+- one-result language, no anonymous tuple/product values
 - explicit structs for multi-field results
-- loops as explicit state-transition forms with explicit final projection
+- `for ... in ...` and `while ... with ...` loop forms; carries survive after loop; `next` inline in body; no separate `end ->` projection
+- `break` preserves current carry values; no `break value`
 - value-first bindings with later explicit storage classification
-- `if` distinct from `select`
-- `switch` preserved as switch
-- slices/views as real descriptor values
-- function values as first-class immutable callable values
+- `if` distinct from `select`; `switch` preserved as switch
+- slices (`data+len`) and views (`data+len+stride`) as real descriptor values
+- function values as storable one-word code pointers
+- closures as surface sugar over `struct { fn, ctx }`, distinct type from plain functions
+- enums, tagged unions, and untagged unions as surface sugar desugaring to structs and constants
+- view construction through six explicit primitives
+- `export func` for visibility; plain `func` is module-local
+- no floating-point remainder
+- cross-module const references and const intrinsic evaluation
+- type-directed integer literal elaboration at `Surface -> Elab`
 - one-result ABI with aggregates lowered through materialization/hidden-pointer paths
+- explicit select/copy/fill-friendly `Back` design over a thin Cranelift-facing command layer
 
 That is the current closed-language target.

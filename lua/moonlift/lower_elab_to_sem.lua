@@ -785,6 +785,25 @@ function M.Define(T)
         [Elab.ElabBlockExpr] = function(self, const_env)
             return pvm.once(view_value_expr(self, const_env))
         end,
+        [Elab.ElabExprView] = function(self, const_env)
+            return pvm.once(Sem.SemViewValue(one_expr(self.base, const_env), one_type(self.ty.elem, const_env)))
+        end,
+        [Elab.ElabExprViewWindow] = function(self, const_env)
+            local base_view = pvm.one(lower_view(self.base, const_env))
+            return pvm.once(Sem.SemViewWindow(base_view, one_expr(self.start, const_env), one_expr(self.len, const_env)))
+        end,
+        [Elab.ElabExprViewFromPtr] = function(self, const_env)
+            return pvm.once(Sem.SemViewContiguous(one_expr(self.ptr, const_env), one_type(self.ty.elem, const_env), one_expr(self.len, const_env)))
+        end,
+        [Elab.ElabExprViewFromPtrStrided] = function(self, const_env)
+            return pvm.once(Sem.SemViewStrided(one_expr(self.ptr, const_env), one_type(self.ty.elem, const_env), one_expr(self.len, const_env), one_expr(self.stride, const_env)))
+        end,
+        [Elab.ElabExprViewStrided] = function(self, const_env)
+            error("view_strided not yet implemented in lowering")
+        end,
+        [Elab.ElabExprViewInterleaved] = function(self, const_env)
+            error("view_interleaved not yet implemented in lowering")
+        end,
     })
 
     sem_type_is_index = pvm.phase("moonlift_sem_type_is_index", {
@@ -822,7 +841,7 @@ function M.Define(T)
             for i = 1, #self.fields do
                 fields[i] = one_field_type(self.fields[i], const_env)
             end
-            return pvm.once(Sem.SemStruct(self.name, fields))
+            return pvm.once(Sem.SemStruct(self.name, self.is_union, fields))
         end,
     })
 
@@ -1109,7 +1128,13 @@ function M.Define(T)
             for i = 1, #self.params do
                 params[i] = one_param(self.params[i], const_env)
             end
-            return pvm.once(Sem.SemFuncExport(self.name, params, one_type(self.result, const_env), lower_stmt_list(self.body, const_env)))
+            local result_ty = one_type(self.result, const_env)
+            local body = lower_stmt_list(self.body, const_env)
+            if self.exported then
+                return pvm.once(Sem.SemFuncExport(self.name, params, result_ty, body))
+            else
+                return pvm.once(Sem.SemFuncLocal(self.name, params, result_ty, body))
+            end
         end,
     })
 

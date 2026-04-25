@@ -126,9 +126,9 @@ assert(lowered_shadow == Elab.ElabField(
     Elab.ElabTI32
 ))
 
-local stages = S.pipeline_module_with_spans([[
+local stages = S.pipeline_with_spans([[
 const K: i32 = 7
-func main(x: i32) -> i32
+export func main(x: i32) -> i32
     loop (i: index = 0, acc: i32 = 0) while i < 3
     next
         acc = acc + x
@@ -156,7 +156,7 @@ assert(stages.sem.items[2].func.name == "main")
 
 local lowered = S.lower_module([[
 const K: i32 = 7
-func main(x: i32) -> i32
+export func main(x: i32) -> i32
     return x + K
 end
 ]])
@@ -164,7 +164,7 @@ assert(lowered.items[2].func.name == "main")
 
 local sem_mod = S.sem_module([[
 const K: i32 = 7
-func main(x: i32) -> i32
+export func main(x: i32) -> i32
     return x + K
 end
 ]])
@@ -184,7 +184,7 @@ assert(select_sem_mod.items[1].func.body[1] == Sem.SemStmtReturnValue(
     )
 ))
 
-local select_back_mod = S.back_module([[
+local select_back_mod = S.back([[
 func choose(flag: bool, x: i32, y: i32) -> i32
     return select(flag, x, y)
 end
@@ -228,7 +228,7 @@ assert(switch_bool_sem_mod.items[1].func.body[1] == Sem.SemStmtReturnValue(
     )
 ))
 
-local switch_u32_back_mod = S.back_module([[
+local switch_u32_back_mod = S.back([[
 func switch_u32(x: u32) -> i32
     return switch x do
     case 0 then
@@ -256,7 +256,7 @@ for i = 1, #switch_u32_back_mod.cmds do
 end
 assert(saw_switch_u32)
 
-local switch_index_back_mod = S.back_module([[
+local switch_index_back_mod = S.back([[
 func switch_index(i: index) -> i32
     return switch i do
     case 0 then
@@ -284,7 +284,7 @@ for i = 1, #switch_index_back_mod.cmds do
 end
 assert(saw_switch_index)
 
-local const_fold_back_mod = S.back_module([[
+local const_fold_back_mod = S.back([[
 const ONE: index = 1
 const TWO: index = ONE + ONE
 const HALF: f64 = 0.5
@@ -316,7 +316,7 @@ end
 assert(saw_folded_two)
 assert(saw_folded_half)
 
-local typed_stages = S.pipeline_module_with_spans([[
+local typed_stages = S.pipeline_with_spans([[
 type Pair = struct { left: i32, right: i32 }
 func get_left() -> i32
     return Pair { left = 1, right = 2 }.left
@@ -350,7 +350,7 @@ assert(resolved_mod.items[2].func.body[1] == Sem.SemStmtReturnValue(
     )
 ))
 
-local back_mod = S.back_module([[
+local back_mod = S.back([[
 type Pair = struct { left: i32, right: i32 }
 func get_left() -> i32
     return Pair { left = 1, right = 2 }.left
@@ -364,7 +364,7 @@ local package_stages = S.pipeline_package({
         text = [[
 type Pair = struct { left: i32, right: i32 }
 const K: i32 = 7
-func inc(x: i32) -> i32
+export func inc(x: i32) -> i32
     return x + K
 end
 ]],
@@ -376,7 +376,7 @@ import Demo
 func get_demo_left() -> i32
     return Demo.Pair { left = Demo.K, right = 9 }.left
 end
-func main(x: i32) -> i32
+export func main(x: i32) -> i32
     return Demo.inc(x)
 end
 ]],
@@ -402,7 +402,7 @@ local back_package, package_back_stages = S.back_package({
     {
         name = "Demo",
         text = [[
-func inc(x: i32) -> i32
+export func inc(x: i32) -> i32
     return x + 7
 end
 ]],
@@ -411,7 +411,7 @@ end
         name = "Main",
         text = [[
 import Demo
-func main(x: i32) -> i32
+export func main(x: i32) -> i32
     return Demo.inc(x)
 end
 ]],
@@ -432,15 +432,38 @@ end
 assert(saw_demo_inc)
 assert(saw_main)
 
+local bad_parse_lower, bad_parse_lower_diag = S.try_lower_expr("if x then", env)
+assert(bad_parse_lower == nil)
+assert(bad_parse_lower_diag ~= nil)
+assert(bad_parse_lower_diag.kind == "parse")
+assert(bad_parse_lower_diag.path == "expr")
+assert(bad_parse_lower_diag.line == 1)
+
+local bad_field, bad_field_diag = S.try_lower_expr("pair.missing", env)
+assert(bad_field == nil)
+assert(bad_field_diag ~= nil)
+assert(bad_field_diag.kind == "lower")
+assert(bad_field_diag.path == "expr")
+assert(bad_field_diag.message == "unknown field 'missing' on named type 'Pair' (available fields: left, right)")
+assert(bad_field_diag.message:find("%.lua:", 1) == nil)
+
+local env_no_layout = Elab.ElabEnv("", env.values, env.types, {})
+local missing_layout_expr, missing_layout_expr_diag = S.try_lower_expr("pair.left", env_no_layout)
+assert(missing_layout_expr == nil)
+assert(missing_layout_expr_diag ~= nil)
+assert(missing_layout_expr_diag.kind == "lower")
+assert(missing_layout_expr_diag.message == "missing field layout for named type 'Pair'; declare or import the struct type before selecting field 'left'")
+
 local bad_lower, lower_diag = S.try_lower_expr("Pair { left = 1, right = missing }", env)
 assert(bad_lower == nil)
 assert(lower_diag ~= nil)
 assert(lower_diag.kind == "lower")
 assert(lower_diag.path == "expr")
 assert(lower_diag.line == 1)
+assert(lower_diag.message == "unknown binding 'missing'")
 
 local bad_mod, mod_diag = S.try_lower_module([[
-func main(n: index) -> void
+export func main(n: index) -> void
     loop (i: index = 0) while i < n
     next
         j = i
@@ -455,7 +478,7 @@ assert(mod_diag.path == "func.main.stmt.1.next.1")
 assert(mod_diag.line == 4)
 assert(mod_diag.col == 9)
 
-local typed_loop_back = S.back_module([[
+local typed_loop_back = S.back([[
 func sum_typed(n: i32) -> i32
     return loop (i: i32 = 0, acc: i32 = 0) -> i32 while i < n
     next
@@ -465,6 +488,13 @@ func sum_typed(n: i32) -> i32
 end
 ]])
 assert(typed_loop_back.cmds[#typed_loop_back.cmds] == Back.BackCmdFinalizeModule)
+
+local bad_compile_artifact, bad_compile_jit, bad_compile_diag = S.try_compile([[func broken(]], nil, nil, nil)
+assert(bad_compile_artifact == nil)
+assert(bad_compile_jit == nil)
+assert(bad_compile_diag ~= nil)
+assert(bad_compile_diag.kind == "parse")
+assert(bad_compile_diag.path == "module")
 
 local bad_typed_result, bad_typed_result_diag = S.try_lower_module([[
 func bad(flag: bool) -> i32
@@ -490,5 +520,52 @@ assert(bad_typed_break == nil)
 assert(bad_typed_break_diag ~= nil)
 assert(bad_typed_break_diag.kind == "lower")
 assert(bad_typed_break_diag.message:find("valued break must currently have the loop expression result type", 1, true) ~= nil)
+
+local missing_pkg, missing_pkg_diag = S.try_pipeline_package({
+    {
+        name = "Main",
+        text = [[
+import Missing
+export func main() -> i32
+    return 0
+end
+]],
+    },
+})
+assert(missing_pkg == nil)
+assert(missing_pkg_diag ~= nil)
+assert(missing_pkg_diag.kind == "resolve")
+assert(missing_pkg_diag.module_name == "Main")
+assert(missing_pkg_diag.path == "import.Missing")
+assert(missing_pkg_diag.line == 1)
+assert(missing_pkg_diag.col >= 1)
+assert(tostring(missing_pkg_diag):find("Main", 1, true) ~= nil)
+
+local bad_back_pkg, bad_back_pkg_stages, bad_back_pkg_diag = S.try_back_package({
+    {
+        name = "Demo",
+        text = [[
+func broken() -> i32
+    return missing
+end
+]],
+    },
+    {
+        name = "Main",
+        text = [[
+import Demo
+export func main() -> i32
+    return 0
+end
+]],
+    },
+})
+assert(bad_back_pkg == nil)
+assert(bad_back_pkg_stages == nil)
+assert(bad_back_pkg_diag ~= nil)
+assert(bad_back_pkg_diag.kind == "lower")
+assert(bad_back_pkg_diag.module_name == "Demo")
+assert(bad_back_pkg_diag.path == "func.broken.stmt.1")
+assert(bad_back_pkg_diag.line == 2)
 
 print("moonlift source frontend ok")

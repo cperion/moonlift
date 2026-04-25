@@ -607,31 +607,30 @@ fn binary_cmd(op: u32, dst: BackValId, ty: BackScalar, lhs: BackValId, rhs: Back
         9 => Ok(BackCmd::Fdiv(dst, ty, lhs, rhs)),
         10 => Ok(BackCmd::Srem(dst, ty, lhs, rhs)),
         11 => Ok(BackCmd::Urem(dst, ty, lhs, rhs)),
-        12 => Ok(BackCmd::Frem(dst, ty, lhs, rhs)),
-        13 => Ok(BackCmd::Band(dst, ty, lhs, rhs)),
-        14 => Ok(BackCmd::Bor(dst, ty, lhs, rhs)),
-        15 => Ok(BackCmd::Bxor(dst, ty, lhs, rhs)),
-        16 => Ok(BackCmd::Ishl(dst, ty, lhs, rhs)),
-        17 => Ok(BackCmd::Ushr(dst, ty, lhs, rhs)),
-        18 => Ok(BackCmd::Sshr(dst, ty, lhs, rhs)),
-        19 => Ok(BackCmd::IcmpEq(dst, ty, lhs, rhs)),
-        20 => Ok(BackCmd::IcmpNe(dst, ty, lhs, rhs)),
-        21 => Ok(BackCmd::SIcmpLt(dst, ty, lhs, rhs)),
-        22 => Ok(BackCmd::SIcmpLe(dst, ty, lhs, rhs)),
-        23 => Ok(BackCmd::SIcmpGt(dst, ty, lhs, rhs)),
-        24 => Ok(BackCmd::SIcmpGe(dst, ty, lhs, rhs)),
-        25 => Ok(BackCmd::UIcmpLt(dst, ty, lhs, rhs)),
-        26 => Ok(BackCmd::UIcmpLe(dst, ty, lhs, rhs)),
-        27 => Ok(BackCmd::UIcmpGt(dst, ty, lhs, rhs)),
-        28 => Ok(BackCmd::UIcmpGe(dst, ty, lhs, rhs)),
-        29 => Ok(BackCmd::FCmpEq(dst, ty, lhs, rhs)),
-        30 => Ok(BackCmd::FCmpNe(dst, ty, lhs, rhs)),
-        31 => Ok(BackCmd::FCmpLt(dst, ty, lhs, rhs)),
-        32 => Ok(BackCmd::FCmpLe(dst, ty, lhs, rhs)),
-        33 => Ok(BackCmd::FCmpGt(dst, ty, lhs, rhs)),
-        34 => Ok(BackCmd::FCmpGe(dst, ty, lhs, rhs)),
-        35 => Ok(BackCmd::Rotl(dst, ty, lhs, rhs)),
-        36 => Ok(BackCmd::Rotr(dst, ty, lhs, rhs)),
+        12 => Ok(BackCmd::Band(dst, ty, lhs, rhs)),
+        13 => Ok(BackCmd::Bor(dst, ty, lhs, rhs)),
+        14 => Ok(BackCmd::Bxor(dst, ty, lhs, rhs)),
+        15 => Ok(BackCmd::Ishl(dst, ty, lhs, rhs)),
+        16 => Ok(BackCmd::Ushr(dst, ty, lhs, rhs)),
+        17 => Ok(BackCmd::Sshr(dst, ty, lhs, rhs)),
+        18 => Ok(BackCmd::IcmpEq(dst, ty, lhs, rhs)),
+        19 => Ok(BackCmd::IcmpNe(dst, ty, lhs, rhs)),
+        20 => Ok(BackCmd::SIcmpLt(dst, ty, lhs, rhs)),
+        21 => Ok(BackCmd::SIcmpLe(dst, ty, lhs, rhs)),
+        22 => Ok(BackCmd::SIcmpGt(dst, ty, lhs, rhs)),
+        23 => Ok(BackCmd::SIcmpGe(dst, ty, lhs, rhs)),
+        24 => Ok(BackCmd::UIcmpLt(dst, ty, lhs, rhs)),
+        25 => Ok(BackCmd::UIcmpLe(dst, ty, lhs, rhs)),
+        26 => Ok(BackCmd::UIcmpGt(dst, ty, lhs, rhs)),
+        27 => Ok(BackCmd::UIcmpGe(dst, ty, lhs, rhs)),
+        28 => Ok(BackCmd::FCmpEq(dst, ty, lhs, rhs)),
+        29 => Ok(BackCmd::FCmpNe(dst, ty, lhs, rhs)),
+        30 => Ok(BackCmd::FCmpLt(dst, ty, lhs, rhs)),
+        31 => Ok(BackCmd::FCmpLe(dst, ty, lhs, rhs)),
+        32 => Ok(BackCmd::FCmpGt(dst, ty, lhs, rhs)),
+        33 => Ok(BackCmd::FCmpGe(dst, ty, lhs, rhs)),
+        34 => Ok(BackCmd::Rotl(dst, ty, lhs, rhs)),
+        35 => Ok(BackCmd::Rotr(dst, ty, lhs, rhs)),
         _ => Err(MoonliftError(format!("unknown binary opcode {op}"))),
     }
 }
@@ -757,6 +756,44 @@ pub extern "C" fn moonlift_program_cmd_store(
             read_scalar(ty)?,
             BackValId::from(read_cstr(addr, "address value id")?),
             BackValId::from(read_cstr(value, "stored value id")?),
+        ));
+        Ok(())
+    })();
+    match result { Ok(()) => ok_int(), Err(err) => fail_int(err.0) }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn moonlift_program_cmd_memcpy(
+    program: *mut moonlift_program_t,
+    dst: *const c_char,
+    src: *const c_char,
+    len: *const c_char,
+) -> c_int {
+    let result: Result<_, MoonliftError> = (|| {
+        let program = require_ptr(program, "moonlift_program_t")?;
+        push_cmd(program, BackCmd::Memcpy(
+            BackValId::from(read_cstr(dst, "memcpy dst value id")?),
+            BackValId::from(read_cstr(src, "memcpy src value id")?),
+            BackValId::from(read_cstr(len, "memcpy len value id")?),
+        ));
+        Ok(())
+    })();
+    match result { Ok(()) => ok_int(), Err(err) => fail_int(err.0) }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn moonlift_program_cmd_memset(
+    program: *mut moonlift_program_t,
+    dst: *const c_char,
+    byte: *const c_char,
+    len: *const c_char,
+) -> c_int {
+    let result: Result<_, MoonliftError> = (|| {
+        let program = require_ptr(program, "moonlift_program_t")?;
+        push_cmd(program, BackCmd::Memset(
+            BackValId::from(read_cstr(dst, "memset dst value id")?),
+            BackValId::from(read_cstr(byte, "memset byte value id")?),
+            BackValId::from(read_cstr(len, "memset len value id")?),
         ));
         Ok(())
     })();
