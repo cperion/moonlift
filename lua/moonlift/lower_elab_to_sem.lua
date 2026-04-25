@@ -799,12 +799,42 @@ function M.Define(T)
             return pvm.once(Sem.SemViewStrided(one_expr(self.ptr, const_env), one_type(self.ty.elem, const_env), one_expr(self.len, const_env), one_expr(self.stride, const_env)))
         end,
         [Elab.ElabExprViewStrided] = function(self, const_env)
-            error("view_strided not yet implemented in lowering")
+            local base_view = pvm.one(lower_view(self.base, const_env))
+            local data, len, _ = base_view.data, one_view_len(base_view, const_env), base_view.stride
+            return pvm.once(Sem.SemViewStrided(data, one_type(self.ty.elem, const_env), len, one_expr(self.stride, const_env)))
         end,
         [Elab.ElabExprViewInterleaved] = function(self, const_env)
-            error("view_interleaved not yet implemented in lowering")
+            local base_view = pvm.one(lower_view(self.base, const_env))
+            local data, len, _ = base_view.data, one_view_len(base_view, const_env), base_view.stride
+            return pvm.once(Sem.SemViewInterleaved(data, one_type(self.ty.elem, const_env), len, one_expr(self.stride, const_env), one_expr(self.lane, const_env)))
         end,
     })
+
+    local extract_sem_view_len = pvm.phase("moonlift_elab_to_sem_extract_view_len", {
+        [Sem.SemViewValue] = function(self, const_env)
+            local ty = one_sem_expr_type(self.base)
+            if ty.count ~= nil then
+                return pvm.once(Sem.SemExprConstInt(Sem.SemTIndex, tostring(ty.count)))
+            end
+            error("sem_to_back: cannot determine length for SemViewValue without an array type")
+        end,
+        [Sem.SemViewContiguous] = function(self)
+            return pvm.once(self.len)
+        end,
+        [Sem.SemViewStrided] = function(self)
+            return pvm.once(self.len)
+        end,
+        [Sem.SemViewWindow] = function(self)
+            return pvm.once(self.len)
+        end,
+        [Sem.SemViewInterleaved] = function(self)
+            return pvm.once(self.len)
+        end,
+    })
+
+    local function one_view_len(view, const_env)
+        return pvm.one(extract_sem_view_len(view, const_env))
+    end
 
     sem_type_is_index = pvm.phase("moonlift_sem_type_is_index", {
         [Sem.SemTIndex] = function() return pvm.once(true) end,
