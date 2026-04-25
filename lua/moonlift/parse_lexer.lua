@@ -237,21 +237,12 @@ function M.lex(text)
             local c2 = peek_char(2)
             local start = i
 
-            if c0 == "." or c0 == "," or c0 == ":" or c0 == ";"
-                or c0 == "(" or c0 == ")"
-                or c0 == "[" or c0 == "]"
-                or c0 == "{" or c0 == "}"
-                or c0 == "+" or c0 == "*" or c0 == "/" or c0 == "%"
-                or c0 == "&" or c0 == "|" then
-                advance()
-                emit(c0, c0, tok_line, tok_col, start, i - 1)
+            -- Multi‑character punctuation must be checked before single-character punctuation to avoid
+            -- consuming, e.g., '.' before '..' or '-' before '->'.
+            if c0 == "." and c1 == "." then
+                advance(); advance()
+                emit("..", "..", tok_line, tok_col, start, i - 1)
 
-            elseif c0 == "." and c1 == "." then
-                advance(); advance()
-                emit("..", "..", tok_line, tok_col, start, i - 1)
-            elseif c0 == "." and c1 == "." then
-                advance(); advance()
-                emit("..", "..", tok_line, tok_col, start, i - 1)
             elseif c0 == "-" and c1 == ">" then
                 advance(); advance()
                 emit("->", "->", tok_line, tok_col, start, i - 1)
@@ -283,6 +274,16 @@ function M.lex(text)
             elseif c0 == ">" and c1 == ">" then
                 advance(); advance()
                 emit(">>", ">>", tok_line, tok_col, start, i - 1)
+
+            -- Single-character punctuation.
+            elseif c0 == "." or c0 == "," or c0 == ":" or c0 == ";"
+                or c0 == "(" or c0 == ")"
+                or c0 == "[" or c0 == "]"
+                or c0 == "{" or c0 == "}"
+                or c0 == "+" or c0 == "*" or c0 == "/" or c0 == "%"
+                or c0 == "&" or c0 == "|" then
+                advance()
+                emit(c0, c0, tok_line, tok_col, start, i - 1)
 
             elseif c0 == "=" or c0 == "-" or c0 == "~" or c0 == "<" or c0 == ">" then
                 advance()
