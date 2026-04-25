@@ -1259,16 +1259,20 @@ The `MoonliftBack` layer also now has an initial explicit vector command slice:
 
 - `BackVec(elem, lanes)`
 - `BackCmdVecSplat`
+- vector compare/select/mask commands (`BackCmdVecIcmp*`, `BackCmdVecSIcmp*`, `BackCmdVecUIcmp*`, `BackCmdVecSelect`, `BackCmdVecMask*`)
 - `BackCmdVecIadd`
+- `BackCmdVecIsub`
 - `BackCmdVecImul`
 - `BackCmdVecBand`
+- `BackCmdVecBor`
+- `BackCmdVecBxor`
 - `BackCmdVecLoad`
 - `BackCmdVecStore`
 - `BackCmdVecInsertLane`
 - `BackCmdVecExtractLane`
 - `BackCmdAppendVecBlockParam`
 
-Those commands replay through the LuaJIT FFI bridge into Rust and produce Cranelift vector IR in `moonlift/test_back_vectors.lua`.
+Those commands replay through the LuaJIT FFI bridge into Rust and produce Cranelift vector IR in `moonlift/test_back_vectors.lua`; Moonlift2 also covers the compare/select bridge path in `moonlift2/test_back_vector_select_smoke.lua`.
 
 There is now also an initial `MoonliftVec.VecLoopDecision` / `VecModule -> BackProgram` lowering in:
 

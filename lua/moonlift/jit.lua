@@ -52,6 +52,9 @@ int moonlift_program_cmd_binary(moonlift_program_t*, uint32_t op, const char* ds
 int moonlift_program_cmd_ternary(moonlift_program_t*, uint32_t op, const char* dst, uint32_t ty, const char* a, const char* b, const char* c);
 int moonlift_program_cmd_vec_splat(moonlift_program_t*, const char* dst, uint32_t elem, uint32_t lanes, const char* value);
 int moonlift_program_cmd_vec_binary(moonlift_program_t*, uint32_t op, const char* dst, uint32_t elem, uint32_t lanes, const char* lhs, const char* rhs);
+int moonlift_program_cmd_vec_compare(moonlift_program_t*, uint32_t op, const char* dst, uint32_t elem, uint32_t lanes, const char* lhs, const char* rhs);
+int moonlift_program_cmd_vec_select(moonlift_program_t*, const char* dst, uint32_t elem, uint32_t lanes, const char* mask, const char* then_value, const char* else_value);
+int moonlift_program_cmd_vec_mask(moonlift_program_t*, uint32_t op, const char* dst, uint32_t elem, uint32_t lanes, const char* lhs, const char* rhs);
 int moonlift_program_cmd_vec_load(moonlift_program_t*, const char* dst, uint32_t elem, uint32_t lanes, const char* addr);
 int moonlift_program_cmd_vec_store(moonlift_program_t*, uint32_t elem, uint32_t lanes, const char* addr, const char* value);
 int moonlift_program_cmd_vec_insert_lane(moonlift_program_t*, const char* dst, uint32_t elem, uint32_t lanes, const char* value, const char* lane_value, uint32_t lane);
@@ -153,8 +156,30 @@ local TERNARY = {
 
 local VEC_BINARY = {
     IADD = 1,
+    ISUB = 4,
     IMUL = 2,
     BAND = 3,
+    BOR = 5,
+    BXOR = 6,
+}
+
+local VEC_COMPARE = {
+    ICMPEQ = 1,
+    ICMPNE = 2,
+    SICMPLT = 3,
+    SICMPLE = 4,
+    SICMPGT = 5,
+    SICMPGE = 6,
+    UICMPLT = 7,
+    UICMPLE = 8,
+    UICMPGT = 9,
+    UICMPGE = 10,
+}
+
+local VEC_MASK = {
+    NOT = 1,
+    AND = 2,
+    OR = 3,
 }
 
 local CAST = {
@@ -414,6 +439,36 @@ function M.Define(T, opts)
         end
     end
 
+    local function handler_vec_compare(op)
+        return function(self, program)
+            check_ok(lib, lib.moonlift_program_cmd_vec_compare(
+                program,
+                op,
+                cstring(id_text(self.dst)),
+                vec_elem_code(self.ty),
+                self.ty.lanes,
+                cstring(id_text(self.lhs)),
+                cstring(id_text(self.rhs))
+            ), "moonlift ffi vec_compare")
+            return pvm.once(true)
+        end
+    end
+
+    local function handler_vec_mask(op)
+        return function(self, program)
+            check_ok(lib, lib.moonlift_program_cmd_vec_mask(
+                program,
+                op,
+                cstring(id_text(self.dst)),
+                vec_elem_code(self.ty),
+                self.ty.lanes,
+                cstring(id_text(self.lhs or self.value)),
+                cstring(id_text(self.rhs or self.value))
+            ), "moonlift ffi vec_mask")
+            return pvm.once(true)
+        end
+    end
+
     local replay_handlers = {
         [Back.BackCmdCreateSig] = function(self, program)
             local params = scalar_codes(self.params)
@@ -609,9 +664,29 @@ function M.Define(T, opts)
             check_ok(lib, lib.moonlift_program_cmd_vec_splat(program, cstring(id_text(self.dst)), vec_elem_code(self.ty), self.ty.lanes, cstring(id_text(self.value))), "moonlift ffi vec_splat")
             return pvm.once(true)
         end,
+        [Back.BackCmdVecIcmpEq] = handler_vec_compare(VEC_COMPARE.ICMPEQ),
+        [Back.BackCmdVecIcmpNe] = handler_vec_compare(VEC_COMPARE.ICMPNE),
+        [Back.BackCmdVecSIcmpLt] = handler_vec_compare(VEC_COMPARE.SICMPLT),
+        [Back.BackCmdVecSIcmpLe] = handler_vec_compare(VEC_COMPARE.SICMPLE),
+        [Back.BackCmdVecSIcmpGt] = handler_vec_compare(VEC_COMPARE.SICMPGT),
+        [Back.BackCmdVecSIcmpGe] = handler_vec_compare(VEC_COMPARE.SICMPGE),
+        [Back.BackCmdVecUIcmpLt] = handler_vec_compare(VEC_COMPARE.UICMPLT),
+        [Back.BackCmdVecUIcmpLe] = handler_vec_compare(VEC_COMPARE.UICMPLE),
+        [Back.BackCmdVecUIcmpGt] = handler_vec_compare(VEC_COMPARE.UICMPGT),
+        [Back.BackCmdVecUIcmpGe] = handler_vec_compare(VEC_COMPARE.UICMPGE),
+        [Back.BackCmdVecSelect] = function(self, program)
+            check_ok(lib, lib.moonlift_program_cmd_vec_select(program, cstring(id_text(self.dst)), vec_elem_code(self.ty), self.ty.lanes, cstring(id_text(self.mask)), cstring(id_text(self.then_value)), cstring(id_text(self.else_value))), "moonlift ffi vec_select")
+            return pvm.once(true)
+        end,
+        [Back.BackCmdVecMaskNot] = handler_vec_mask(VEC_MASK.NOT),
+        [Back.BackCmdVecMaskAnd] = handler_vec_mask(VEC_MASK.AND),
+        [Back.BackCmdVecMaskOr] = handler_vec_mask(VEC_MASK.OR),
         [Back.BackCmdVecIadd] = handler_vec_binary(VEC_BINARY.IADD),
+        [Back.BackCmdVecIsub] = handler_vec_binary(VEC_BINARY.ISUB),
         [Back.BackCmdVecImul] = handler_vec_binary(VEC_BINARY.IMUL),
         [Back.BackCmdVecBand] = handler_vec_binary(VEC_BINARY.BAND),
+        [Back.BackCmdVecBor] = handler_vec_binary(VEC_BINARY.BOR),
+        [Back.BackCmdVecBxor] = handler_vec_binary(VEC_BINARY.BXOR),
         [Back.BackCmdVecLoad] = function(self, program)
             check_ok(lib, lib.moonlift_program_cmd_vec_load(program, cstring(id_text(self.dst)), vec_elem_code(self.ty), self.ty.lanes, cstring(id_text(self.addr))), "moonlift ffi vec_load")
             return pvm.once(true)

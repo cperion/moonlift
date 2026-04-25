@@ -1160,9 +1160,26 @@ module MoonliftBack {
             | BackCmdSelect(MoonliftBack.BackValId dst, MoonliftBack.BackScalar ty, MoonliftBack.BackValId cond, MoonliftBack.BackValId then_value, MoonliftBack.BackValId else_value) unique
             | BackCmdFma(MoonliftBack.BackValId dst, MoonliftBack.BackScalar ty, MoonliftBack.BackValId a, MoonliftBack.BackValId b, MoonliftBack.BackValId c) unique
             | BackCmdVecSplat(MoonliftBack.BackValId dst, MoonliftBack.BackVec ty, MoonliftBack.BackValId value) unique
+            | BackCmdVecIcmpEq(MoonliftBack.BackValId dst, MoonliftBack.BackVec ty, MoonliftBack.BackValId lhs, MoonliftBack.BackValId rhs) unique
+            | BackCmdVecIcmpNe(MoonliftBack.BackValId dst, MoonliftBack.BackVec ty, MoonliftBack.BackValId lhs, MoonliftBack.BackValId rhs) unique
+            | BackCmdVecSIcmpLt(MoonliftBack.BackValId dst, MoonliftBack.BackVec ty, MoonliftBack.BackValId lhs, MoonliftBack.BackValId rhs) unique
+            | BackCmdVecSIcmpLe(MoonliftBack.BackValId dst, MoonliftBack.BackVec ty, MoonliftBack.BackValId lhs, MoonliftBack.BackValId rhs) unique
+            | BackCmdVecSIcmpGt(MoonliftBack.BackValId dst, MoonliftBack.BackVec ty, MoonliftBack.BackValId lhs, MoonliftBack.BackValId rhs) unique
+            | BackCmdVecSIcmpGe(MoonliftBack.BackValId dst, MoonliftBack.BackVec ty, MoonliftBack.BackValId lhs, MoonliftBack.BackValId rhs) unique
+            | BackCmdVecUIcmpLt(MoonliftBack.BackValId dst, MoonliftBack.BackVec ty, MoonliftBack.BackValId lhs, MoonliftBack.BackValId rhs) unique
+            | BackCmdVecUIcmpLe(MoonliftBack.BackValId dst, MoonliftBack.BackVec ty, MoonliftBack.BackValId lhs, MoonliftBack.BackValId rhs) unique
+            | BackCmdVecUIcmpGt(MoonliftBack.BackValId dst, MoonliftBack.BackVec ty, MoonliftBack.BackValId lhs, MoonliftBack.BackValId rhs) unique
+            | BackCmdVecUIcmpGe(MoonliftBack.BackValId dst, MoonliftBack.BackVec ty, MoonliftBack.BackValId lhs, MoonliftBack.BackValId rhs) unique
+            | BackCmdVecSelect(MoonliftBack.BackValId dst, MoonliftBack.BackVec ty, MoonliftBack.BackValId mask, MoonliftBack.BackValId then_value, MoonliftBack.BackValId else_value) unique
+            | BackCmdVecMaskNot(MoonliftBack.BackValId dst, MoonliftBack.BackVec ty, MoonliftBack.BackValId value) unique
+            | BackCmdVecMaskAnd(MoonliftBack.BackValId dst, MoonliftBack.BackVec ty, MoonliftBack.BackValId lhs, MoonliftBack.BackValId rhs) unique
+            | BackCmdVecMaskOr(MoonliftBack.BackValId dst, MoonliftBack.BackVec ty, MoonliftBack.BackValId lhs, MoonliftBack.BackValId rhs) unique
             | BackCmdVecIadd(MoonliftBack.BackValId dst, MoonliftBack.BackVec ty, MoonliftBack.BackValId lhs, MoonliftBack.BackValId rhs) unique
+            | BackCmdVecIsub(MoonliftBack.BackValId dst, MoonliftBack.BackVec ty, MoonliftBack.BackValId lhs, MoonliftBack.BackValId rhs) unique
             | BackCmdVecImul(MoonliftBack.BackValId dst, MoonliftBack.BackVec ty, MoonliftBack.BackValId lhs, MoonliftBack.BackValId rhs) unique
             | BackCmdVecBand(MoonliftBack.BackValId dst, MoonliftBack.BackVec ty, MoonliftBack.BackValId lhs, MoonliftBack.BackValId rhs) unique
+            | BackCmdVecBor(MoonliftBack.BackValId dst, MoonliftBack.BackVec ty, MoonliftBack.BackValId lhs, MoonliftBack.BackValId rhs) unique
+            | BackCmdVecBxor(MoonliftBack.BackValId dst, MoonliftBack.BackVec ty, MoonliftBack.BackValId lhs, MoonliftBack.BackValId rhs) unique
             | BackCmdVecLoad(MoonliftBack.BackValId dst, MoonliftBack.BackVec ty, MoonliftBack.BackValId addr) unique
             | BackCmdVecStore(MoonliftBack.BackVec ty, MoonliftBack.BackValId addr, MoonliftBack.BackValId value) unique
             | BackCmdVecInsertLane(MoonliftBack.BackValId dst, MoonliftBack.BackVec ty, MoonliftBack.BackValId value, MoonliftBack.BackValId lane_value, number lane) unique

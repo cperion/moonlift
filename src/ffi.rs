@@ -637,9 +637,37 @@ pub extern "C" fn moonlift_program_cmd_unary(
 fn vector_binary_cmd(op: u32, dst: BackValId, vec: BackVec, lhs: BackValId, rhs: BackValId) -> Result<BackCmd, MoonliftError> {
     match op {
         1 => Ok(BackCmd::VecIadd(dst, vec, lhs, rhs)),
+        4 => Ok(BackCmd::VecIsub(dst, vec, lhs, rhs)),
         2 => Ok(BackCmd::VecImul(dst, vec, lhs, rhs)),
         3 => Ok(BackCmd::VecBand(dst, vec, lhs, rhs)),
+        5 => Ok(BackCmd::VecBor(dst, vec, lhs, rhs)),
+        6 => Ok(BackCmd::VecBxor(dst, vec, lhs, rhs)),
         _ => Err(MoonliftError(format!("unknown vector binary opcode {op}"))),
+    }
+}
+
+fn vector_compare_cmd(op: u32, dst: BackValId, vec: BackVec, lhs: BackValId, rhs: BackValId) -> Result<BackCmd, MoonliftError> {
+    match op {
+        1 => Ok(BackCmd::VecIcmpEq(dst, vec, lhs, rhs)),
+        2 => Ok(BackCmd::VecIcmpNe(dst, vec, lhs, rhs)),
+        3 => Ok(BackCmd::VecSIcmpLt(dst, vec, lhs, rhs)),
+        4 => Ok(BackCmd::VecSIcmpLe(dst, vec, lhs, rhs)),
+        5 => Ok(BackCmd::VecSIcmpGt(dst, vec, lhs, rhs)),
+        6 => Ok(BackCmd::VecSIcmpGe(dst, vec, lhs, rhs)),
+        7 => Ok(BackCmd::VecUIcmpLt(dst, vec, lhs, rhs)),
+        8 => Ok(BackCmd::VecUIcmpLe(dst, vec, lhs, rhs)),
+        9 => Ok(BackCmd::VecUIcmpGt(dst, vec, lhs, rhs)),
+        10 => Ok(BackCmd::VecUIcmpGe(dst, vec, lhs, rhs)),
+        _ => Err(MoonliftError(format!("unknown vector compare opcode {op}"))),
+    }
+}
+
+fn vector_mask_cmd(op: u32, dst: BackValId, vec: BackVec, lhs: BackValId, rhs: BackValId) -> Result<BackCmd, MoonliftError> {
+    match op {
+        1 => Ok(BackCmd::VecMaskNot(dst, vec, lhs)),
+        2 => Ok(BackCmd::VecMaskAnd(dst, vec, lhs, rhs)),
+        3 => Ok(BackCmd::VecMaskOr(dst, vec, lhs, rhs)),
+        _ => Err(MoonliftError(format!("unknown vector mask opcode {op}"))),
     }
 }
 
@@ -676,6 +704,80 @@ pub extern "C" fn moonlift_program_cmd_vec_binary(
     let result: Result<_, MoonliftError> = (|| {
         let program = require_ptr(program, "moonlift_program_t")?;
         let cmd = vector_binary_cmd(
+            op,
+            BackValId::from(read_cstr(dst, "dst value id")?),
+            BackVec::new(read_scalar(elem)?, lanes),
+            BackValId::from(read_cstr(lhs, "lhs value id")?),
+            BackValId::from(read_cstr(rhs, "rhs value id")?),
+        )?;
+        push_cmd(program, cmd);
+        Ok(())
+    })();
+    match result { Ok(()) => ok_int(), Err(err) => fail_int(err.0) }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn moonlift_program_cmd_vec_compare(
+    program: *mut moonlift_program_t,
+    op: u32,
+    dst: *const c_char,
+    elem: u32,
+    lanes: u32,
+    lhs: *const c_char,
+    rhs: *const c_char,
+) -> c_int {
+    let result: Result<_, MoonliftError> = (|| {
+        let program = require_ptr(program, "moonlift_program_t")?;
+        let cmd = vector_compare_cmd(
+            op,
+            BackValId::from(read_cstr(dst, "dst value id")?),
+            BackVec::new(read_scalar(elem)?, lanes),
+            BackValId::from(read_cstr(lhs, "lhs value id")?),
+            BackValId::from(read_cstr(rhs, "rhs value id")?),
+        )?;
+        push_cmd(program, cmd);
+        Ok(())
+    })();
+    match result { Ok(()) => ok_int(), Err(err) => fail_int(err.0) }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn moonlift_program_cmd_vec_select(
+    program: *mut moonlift_program_t,
+    dst: *const c_char,
+    elem: u32,
+    lanes: u32,
+    mask: *const c_char,
+    then_value: *const c_char,
+    else_value: *const c_char,
+) -> c_int {
+    let result: Result<_, MoonliftError> = (|| {
+        let program = require_ptr(program, "moonlift_program_t")?;
+        push_cmd(program, BackCmd::VecSelect(
+            BackValId::from(read_cstr(dst, "dst value id")?),
+            BackVec::new(read_scalar(elem)?, lanes),
+            BackValId::from(read_cstr(mask, "mask value id")?),
+            BackValId::from(read_cstr(then_value, "then value id")?),
+            BackValId::from(read_cstr(else_value, "else value id")?),
+        ));
+        Ok(())
+    })();
+    match result { Ok(()) => ok_int(), Err(err) => fail_int(err.0) }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn moonlift_program_cmd_vec_mask(
+    program: *mut moonlift_program_t,
+    op: u32,
+    dst: *const c_char,
+    elem: u32,
+    lanes: u32,
+    lhs: *const c_char,
+    rhs: *const c_char,
+) -> c_int {
+    let result: Result<_, MoonliftError> = (|| {
+        let program = require_ptr(program, "moonlift_program_t")?;
+        let cmd = vector_mask_cmd(
             op,
             BackValId::from(read_cstr(dst, "dst value id")?),
             BackVec::new(read_scalar(elem)?, lanes),

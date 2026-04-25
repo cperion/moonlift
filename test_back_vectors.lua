@@ -30,10 +30,16 @@ local program = Back.BackProgram({
     Back.BackCmdVecImul(Back.BackValId("vmul"), V2I64, Back.BackValId("v23"), Back.BackValId("v3")),
     Back.BackCmdVecIadd(Back.BackValId("vadd"), V2I64, Back.BackValId("vmul"), Back.BackValId("v5")),
     Back.BackCmdVecBand(Back.BackValId("vand"), V2I64, Back.BackValId("vadd"), Back.BackValId("v15")),
+    Back.BackCmdVecSIcmpLt(Back.BackValId("mask"), V2I64, Back.BackValId("v23"), Back.BackValId("v3")),
+    Back.BackCmdVecSelect(Back.BackValId("vsel"), V2I64, Back.BackValId("mask"), Back.BackValId("v23"), Back.BackValId("v3")),
     Back.BackCmdVecExtractLane(Back.BackValId("lane0"), Back.BackI64, Back.BackValId("vand"), 0),
     Back.BackCmdVecExtractLane(Back.BackValId("lane1"), Back.BackI64, Back.BackValId("vand"), 1),
+    Back.BackCmdVecExtractLane(Back.BackValId("sel0"), Back.BackI64, Back.BackValId("vsel"), 0),
+    Back.BackCmdVecExtractLane(Back.BackValId("sel1"), Back.BackI64, Back.BackValId("vsel"), 1),
     Back.BackCmdIadd(Back.BackValId("sum"), Back.BackI64, Back.BackValId("lane0"), Back.BackValId("lane1")),
-    Back.BackCmdReturnValue(Back.BackValId("sum")),
+    Back.BackCmdIadd(Back.BackValId("selsum"), Back.BackI64, Back.BackValId("sel0"), Back.BackValId("sel1")),
+    Back.BackCmdIadd(Back.BackValId("total"), Back.BackI64, Back.BackValId("sum"), Back.BackValId("selsum")),
+    Back.BackCmdReturnValue(Back.BackValId("total")),
     Back.BackCmdSealBlock(Back.BackBlockId("entry")),
     Back.BackCmdFinishFunc(Back.BackFuncId("vec_smoke")),
     Back.BackCmdFinalizeModule,
@@ -42,7 +48,7 @@ local program = Back.BackProgram({
 local artifact = jit:compile(program)
 local ptr = artifact:getpointer(Back.BackFuncId("vec_smoke"))
 local f = ffi.cast("int64_t (*)()", ptr)
-assert(f() == 25)
+assert(f() == 30)
 local disasm = artifact:disasm("vec_smoke", { bytes = 160 })
 assert(disasm:find("xmm", 1, true) or disasm:find("ymm", 1, true) or disasm:find("zmm", 1, true), disasm)
 artifact:free()

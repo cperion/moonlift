@@ -131,7 +131,7 @@ They should be treated as **ASDL/phase design work first**, not as backend-only 
 - [ ] keep code-shape-sensitive math/data-parallel work ASDL-first:
   - [x] first-class frontend intrinsic surface for operations like `fma`
   - [x] initial `MoonliftVec` ASDL fact/plan vocabulary for counted-loop add-reduction vectorization detection
-  - [x] initial explicit vector `Back` commands plus LuaJIT FFI replay and Cranelift vector smoke test
+  - [x] initial explicit vector `Back` commands plus LuaJIT FFI replay and Cranelift vector smoke test, including vector add/sub/mul/bit-and/bit-or/bit-xor
   - [x] coherent `MoonliftVec.VecLoopFacts` / `VecLoopDecision` ASDL replaces the old shallow `VecPlan` ladder for vector add-reduction detection
   - [x] initial `VecLoopDecision` / `VecModule -> BackProgram` lowering for simple counted reductions with scalar tail
   - [x] ordinary/unrolled add-reduction path materializes explicit `VecBlock` / `VecCmd` skeletons before `BackProgram`
@@ -483,7 +483,11 @@ Current design decision state:
 ## 4.6 Rust backend completion
 
 - [ ] implement all intended `BackCmd` variants in `src/lib.rs`
+  - [x] current integer vector arithmetic/load/store lane slice
+  - [x] current integer vector compare/select/mask slice
 - [ ] keep `jit.lua` replay in sync with all `BackCmd` variants
+  - [x] replay current integer vector arithmetic/load/store lane slice
+  - [x] replay current integer vector compare/select/mask slice
 - [ ] support full intended artifact/function retrieval model
 - [ ] define stable error behavior for unsupported IR
 - [x] decide whether a persistent session/module model replaces or extends the current artifact model

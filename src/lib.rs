@@ -221,9 +221,26 @@ pub enum BackCmd {
     Select(BackValId, BackScalar, BackValId, BackValId, BackValId),
     Fma(BackValId, BackScalar, BackValId, BackValId, BackValId),
     VecSplat(BackValId, BackVec, BackValId),
+    VecIcmpEq(BackValId, BackVec, BackValId, BackValId),
+    VecIcmpNe(BackValId, BackVec, BackValId, BackValId),
+    VecSIcmpLt(BackValId, BackVec, BackValId, BackValId),
+    VecSIcmpLe(BackValId, BackVec, BackValId, BackValId),
+    VecSIcmpGt(BackValId, BackVec, BackValId, BackValId),
+    VecSIcmpGe(BackValId, BackVec, BackValId, BackValId),
+    VecUIcmpLt(BackValId, BackVec, BackValId, BackValId),
+    VecUIcmpLe(BackValId, BackVec, BackValId, BackValId),
+    VecUIcmpGt(BackValId, BackVec, BackValId, BackValId),
+    VecUIcmpGe(BackValId, BackVec, BackValId, BackValId),
+    VecSelect(BackValId, BackVec, BackValId, BackValId, BackValId),
+    VecMaskNot(BackValId, BackVec, BackValId),
+    VecMaskAnd(BackValId, BackVec, BackValId, BackValId),
+    VecMaskOr(BackValId, BackVec, BackValId, BackValId),
     VecIadd(BackValId, BackVec, BackValId, BackValId),
+    VecIsub(BackValId, BackVec, BackValId, BackValId),
     VecImul(BackValId, BackVec, BackValId, BackValId),
     VecBand(BackValId, BackVec, BackValId, BackValId),
+    VecBor(BackValId, BackVec, BackValId, BackValId),
+    VecBxor(BackValId, BackVec, BackValId, BackValId),
     VecLoad(BackValId, BackVec, BackValId),
     VecStore(BackVec, BackValId, BackValId),
     VecInsertLane(BackValId, BackVec, BackValId, BackValId, u32),
@@ -1362,9 +1379,26 @@ impl<'a, 'b> FunctionLowerer<'a, 'b> {
                 let out = self.builder.ins().splat(ty.clif_type(self.ptr_ty)?, scalar);
                 self.bind_value(dst, out)
             }
+            BackCmd::VecIcmpEq(dst, ty, lhs, rhs) => self.bind_vec_icmp(dst, *ty, IntCC::Equal, lhs, rhs),
+            BackCmd::VecIcmpNe(dst, ty, lhs, rhs) => self.bind_vec_icmp(dst, *ty, IntCC::NotEqual, lhs, rhs),
+            BackCmd::VecSIcmpLt(dst, ty, lhs, rhs) => self.bind_vec_icmp(dst, *ty, IntCC::SignedLessThan, lhs, rhs),
+            BackCmd::VecSIcmpLe(dst, ty, lhs, rhs) => self.bind_vec_icmp(dst, *ty, IntCC::SignedLessThanOrEqual, lhs, rhs),
+            BackCmd::VecSIcmpGt(dst, ty, lhs, rhs) => self.bind_vec_icmp(dst, *ty, IntCC::SignedGreaterThan, lhs, rhs),
+            BackCmd::VecSIcmpGe(dst, ty, lhs, rhs) => self.bind_vec_icmp(dst, *ty, IntCC::SignedGreaterThanOrEqual, lhs, rhs),
+            BackCmd::VecUIcmpLt(dst, ty, lhs, rhs) => self.bind_vec_icmp(dst, *ty, IntCC::UnsignedLessThan, lhs, rhs),
+            BackCmd::VecUIcmpLe(dst, ty, lhs, rhs) => self.bind_vec_icmp(dst, *ty, IntCC::UnsignedLessThanOrEqual, lhs, rhs),
+            BackCmd::VecUIcmpGt(dst, ty, lhs, rhs) => self.bind_vec_icmp(dst, *ty, IntCC::UnsignedGreaterThan, lhs, rhs),
+            BackCmd::VecUIcmpGe(dst, ty, lhs, rhs) => self.bind_vec_icmp(dst, *ty, IntCC::UnsignedGreaterThanOrEqual, lhs, rhs),
+            BackCmd::VecSelect(dst, ty, mask, then_value, else_value) => self.bind_vec_select(dst, *ty, mask, then_value, else_value),
+            BackCmd::VecMaskNot(dst, ty, value) => self.bind_vec_mask_not(dst, *ty, value),
+            BackCmd::VecMaskAnd(dst, ty, lhs, rhs) => self.bind_vec_binop(dst, *ty, lhs, rhs, |b, l, r| b.ins().band(l, r)),
+            BackCmd::VecMaskOr(dst, ty, lhs, rhs) => self.bind_vec_binop(dst, *ty, lhs, rhs, |b, l, r| b.ins().bor(l, r)),
             BackCmd::VecIadd(dst, ty, lhs, rhs) => self.bind_vec_binop(dst, *ty, lhs, rhs, |b, l, r| b.ins().iadd(l, r)),
+            BackCmd::VecIsub(dst, ty, lhs, rhs) => self.bind_vec_binop(dst, *ty, lhs, rhs, |b, l, r| b.ins().isub(l, r)),
             BackCmd::VecImul(dst, ty, lhs, rhs) => self.bind_vec_binop(dst, *ty, lhs, rhs, |b, l, r| b.ins().imul(l, r)),
             BackCmd::VecBand(dst, ty, lhs, rhs) => self.bind_vec_binop(dst, *ty, lhs, rhs, |b, l, r| b.ins().band(l, r)),
+            BackCmd::VecBor(dst, ty, lhs, rhs) => self.bind_vec_binop(dst, *ty, lhs, rhs, |b, l, r| b.ins().bor(l, r)),
+            BackCmd::VecBxor(dst, ty, lhs, rhs) => self.bind_vec_binop(dst, *ty, lhs, rhs, |b, l, r| b.ins().bxor(l, r)),
             BackCmd::VecLoad(dst, ty, addr) => {
                 let addr_value = self.value(addr)?;
                 self.require_value_type(addr, addr_value, self.ptr_ty, "BackCmdVecLoad addr")?;
@@ -1510,6 +1544,39 @@ impl<'a, 'b> FunctionLowerer<'a, 'b> {
         self.require_value_type(lhs, lhs_value, expected, "vector lhs")?;
         self.require_value_type(rhs, rhs_value, expected, "vector rhs")?;
         let out = f(self.builder, lhs_value, rhs_value);
+        self.bind_value(dst, out)
+    }
+
+    fn bind_vec_icmp(&mut self, dst: &BackValId, ty: BackVec, cc: IntCC, lhs: &BackValId, rhs: &BackValId) -> Result<(), MoonliftError> {
+        let expected = ty.clif_type(self.ptr_ty)?;
+        let lhs_value = self.value(lhs)?;
+        let rhs_value = self.value(rhs)?;
+        self.require_value_type(lhs, lhs_value, expected, "vector compare lhs")?;
+        self.require_value_type(rhs, rhs_value, expected, "vector compare rhs")?;
+        let out = self.builder.ins().icmp(cc, lhs_value, rhs_value);
+        self.bind_value(dst, out)
+    }
+
+    fn bind_vec_select(&mut self, dst: &BackValId, ty: BackVec, mask: &BackValId, then_value: &BackValId, else_value: &BackValId) -> Result<(), MoonliftError> {
+        let expected = ty.clif_type(self.ptr_ty)?;
+        let mask_value = self.value(mask)?;
+        let then_value = self.value(then_value)?;
+        let else_value = self.value(else_value)?;
+        self.require_value_type(mask, mask_value, expected, "vector select mask")?;
+        self.require_value_type(dst, then_value, expected, "vector select then")?;
+        self.require_value_type(dst, else_value, expected, "vector select else")?;
+        let masked_then = self.builder.ins().band(mask_value, then_value);
+        let not_mask = self.builder.ins().bnot(mask_value);
+        let masked_else = self.builder.ins().band(not_mask, else_value);
+        let out = self.builder.ins().bor(masked_then, masked_else);
+        self.bind_value(dst, out)
+    }
+
+    fn bind_vec_mask_not(&mut self, dst: &BackValId, ty: BackVec, value: &BackValId) -> Result<(), MoonliftError> {
+        let expected = ty.clif_type(self.ptr_ty)?;
+        let value = self.value(value)?;
+        self.require_value_type(dst, value, expected, "vector mask not")?;
+        let out = self.builder.ins().bnot(value);
         self.bind_value(dst, out)
     }
 
