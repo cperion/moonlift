@@ -609,7 +609,7 @@ function Parser:parse_for_stmt(path)
     self:expect("end")
     self:record_span(path, first)
     return self.Surf.SurfStmtLoop(
-        self.Surf.SurfLoopOverStmt(index_name, domain, carries, body, nexts)
+        self.Surf.SurfStmtLoopOver(index_name, domain, carries, body, nexts)
     )
 end
 
@@ -634,7 +634,7 @@ function Parser:parse_while_stmt(path)
     self:expect("end")
     self:record_span(path, first)
     return self.Surf.SurfStmtLoop(
-        self.Surf.SurfLoopWhileStmt(carries, cond, body, nexts)
+        self.Surf.SurfStmtLoopWhile(carries, cond, body, nexts)
     )
 end
 

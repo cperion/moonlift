@@ -29,11 +29,12 @@ local function one_stmt(node, path)
 end
 
 local while_expr = one_loop_expr(
-    Surf.SurfLoopWhileExpr(
+    Surf.SurfExprLoopWhile(
         {
             Surf.SurfLoopCarryInit("i", Surf.SurfTI32, Surf.SurfInt("0")),
             Surf.SurfLoopCarryInit("acc", Surf.SurfTI32, Surf.SurfInt("0")),
         },
+        Surf.SurfTI32,
         Surf.SurfExprLt(Surf.SurfNameRef("i"), Surf.SurfNameRef("n")),
         {
             Surf.SurfLet("xi", Surf.SurfTI32, Surf.SurfNameRef("i")),
@@ -106,7 +107,7 @@ assert(set_stmt == Elab.ElabSet(
 ))
 
 local break_loop = one_loop_stmt(
-    Surf.SurfLoopWhileStmt(
+    Surf.SurfStmtLoopWhile(
         { Surf.SurfLoopCarryInit("i", Surf.SurfTI32, Surf.SurfInt("0")) },
         Surf.SurfBool(true),
         { Surf.SurfBreak },
@@ -134,7 +135,7 @@ assert(break_loop == Elab.ElabLoopWhileStmt(
 ))
 
 local continue_loop = one_loop_stmt(
-    Surf.SurfLoopWhileStmt(
+    Surf.SurfStmtLoopWhile(
         { Surf.SurfLoopCarryInit("i", Surf.SurfTI32, Surf.SurfInt("0")) },
         Surf.SurfBool(true),
         { Surf.SurfContinue },
@@ -162,8 +163,9 @@ assert(continue_loop == Elab.ElabLoopWhileStmt(
 ))
 
 local break_value_loop = one_loop_expr(
-    Surf.SurfLoopWhileExpr(
+    Surf.SurfExprLoopWhile(
         { Surf.SurfLoopCarryInit("i", Surf.SurfTI32, Surf.SurfInt("0")) },
+        Surf.SurfTI32,
         Surf.SurfBool(true),
         { Surf.SurfBreakValue(Surf.SurfInt("7")) },
         { Surf.SurfLoopUpdate("i", Surf.SurfExprAdd(Surf.SurfNameRef("i"), Surf.SurfInt("1"))) },
@@ -198,7 +200,7 @@ assert(break_value_loop == Elab.ElabExprLoop(
 ))
 
 local over_stmt = one_loop_stmt(
-    Surf.SurfLoopOverStmt(
+    Surf.SurfStmtLoopOver(
         "i",
         Surf.SurfDomainRange(Surf.SurfNameRef("n")),
         {

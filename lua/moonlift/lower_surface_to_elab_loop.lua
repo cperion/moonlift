@@ -515,7 +515,7 @@ function M.Define(T)
     })
 
     lower_loop_stmt = pvm.phase("surface_to_elab_loop_stmt", {
-        [Surf.SurfLoopWhileStmt] = function(self, env, path)
+        [Surf.SurfStmtLoopWhile] = function(self, env, path)
             local base = path_or_implicit("loop.while.stmt", self, path)
             local loop_id = base
             local carries, loop_env, loop_bindings = lower_carries(self.carries, env, loop_id, scoped_path(base, "carries"))
@@ -533,7 +533,7 @@ function M.Define(T)
             return pvm.once(Elab.ElabLoopWhileStmt(loop_id, carries, cond, body, next_out))
         end,
 
-        [Surf.SurfLoopOverStmt] = function(self, env, path)
+        [Surf.SurfStmtLoopOver] = function(self, env, path)
             local base = path_or_implicit("loop.over.stmt", self, path)
             local loop_id = base
             local carries, loop_env, loop_bindings = lower_carries(self.carries, env, loop_id, scoped_path(base, "carries"))
@@ -556,62 +556,7 @@ function M.Define(T)
     })
 
     lower_loop_expr = pvm.phase("surface_to_elab_loop_expr", {
-        [Surf.SurfLoopWhileExpr] = function(self, env, path)
-            local base = path_or_implicit("loop.while.expr", self, path)
-            local loop_id = base
-            local carries, loop_env, loop_bindings = lower_carries(self.carries, env, loop_id, scoped_path(base, "carries"))
-            local result = with_path(scoped_path(base, "result"), function()
-                return one_expr(self.result, loop_env, nil, false, nil)
-            end)
-            local result_ty = pvm.one(expr_api.expr_type(result))
-            local cond = with_path(scoped_path(base, "cond"), function()
-                return one_expr(self.cond, loop_env, Elab.ElabTBool, false, nil)
-            end)
-            local body, body_env = lower_stmt_list(self.body, loop_env, scoped_path(base, "body"), false, result_ty)
-            local exit = loop_expr_exit_from_stmt_list(self.body)
-            local next_out = {}
-            for i = 1, #self.next do
-                local next_path = scoped_path(base, "next." .. i)
-                next_out[i] = with_path(next_path, function()
-                    return one_update(self.next[i], body_env, loop_bindings)
-                end)
-            end
-            return pvm.once(Elab.ElabExprLoop(
-                Elab.ElabLoopWhileExpr(loop_id, carries, cond, body, next_out, exit, result),
-                result_ty
-            ))
-        end,
-
-        [Surf.SurfLoopOverExpr] = function(self, env, path)
-            local base = path_or_implicit("loop.over.expr", self, path)
-            local loop_id = base
-            local carries, loop_env, loop_bindings = lower_carries(self.carries, env, loop_id, scoped_path(base, "carries"))
-            local domain = with_path(scoped_path(base, "domain"), function()
-                return one_domain(self.domain, loop_env)
-            end)
-            local index_port = Elab.ElabLoopIndexPort(self.index_name, Elab.ElabTIndex)
-            local index_binding = Elab.ElabLoopIndex(loop_id, self.index_name, Elab.ElabTIndex)
-            loop_env = extend_env_value(loop_env, Elab.ElabValueEntry(self.index_name, index_binding))
-            local result = with_path(scoped_path(base, "result"), function()
-                return one_expr(self.result, loop_env, nil, false, nil)
-            end)
-            local result_ty = pvm.one(expr_api.expr_type(result))
-            local body, body_env = lower_stmt_list(self.body, loop_env, scoped_path(base, "body"), false, result_ty)
-            local exit = loop_expr_exit_from_stmt_list(self.body)
-            local next_out = {}
-            for i = 1, #self.next do
-                local next_path = scoped_path(base, "next." .. i)
-                next_out[i] = with_path(next_path, function()
-                    return one_update(self.next[i], body_env, loop_bindings)
-                end)
-            end
-            return pvm.once(Elab.ElabExprLoop(
-                Elab.ElabLoopOverExpr(loop_id, index_port, domain, carries, body, next_out, exit, result),
-                result_ty
-            ))
-        end,
-
-        [Surf.SurfLoopWhileExprTyped] = function(self, env, path)
+        [Surf.SurfExprLoopWhile] = function(self, env, path)
             local base = path_or_implicit("loop.while.expr.typed", self, path)
             local loop_id = base
             local carries, loop_env, loop_bindings = lower_carries(self.carries, env, loop_id, scoped_path(base, "carries"))

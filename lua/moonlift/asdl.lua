@@ -56,13 +56,11 @@ module MoonliftSurface {
                    | SurfDomainZipEq(MoonliftSurface.SurfExpr* values) unique
                    | SurfDomainValue(MoonliftSurface.SurfExpr value) unique
 
-    SurfLoopStmt = SurfLoopWhileStmt(MoonliftSurface.SurfLoopCarryInit* carries, MoonliftSurface.SurfExpr cond, MoonliftSurface.SurfStmt* body, MoonliftSurface.SurfLoopUpdate* next) unique
-                 | SurfLoopOverStmt(string index_name, MoonliftSurface.SurfDomainExpr domain, MoonliftSurface.SurfLoopCarryInit* carries, MoonliftSurface.SurfStmt* body, MoonliftSurface.SurfLoopUpdate* next) unique
+    SurfLoopStmt = SurfStmtLoopWhile(MoonliftSurface.SurfLoopCarryInit* carries, MoonliftSurface.SurfExpr cond, MoonliftSurface.SurfStmt* body, MoonliftSurface.SurfLoopUpdate* next) unique
+                 | SurfStmtLoopOver(string index_name, MoonliftSurface.SurfDomainExpr domain, MoonliftSurface.SurfLoopCarryInit* carries, MoonliftSurface.SurfStmt* body, MoonliftSurface.SurfLoopUpdate* next) unique
 
-    SurfLoopExpr = SurfLoopWhileExpr(MoonliftSurface.SurfLoopCarryInit* carries, MoonliftSurface.SurfExpr cond, MoonliftSurface.SurfStmt* body, MoonliftSurface.SurfLoopUpdate* next, MoonliftSurface.SurfExpr result) unique
-                 | SurfLoopOverExpr(string index_name, MoonliftSurface.SurfDomainExpr domain, MoonliftSurface.SurfLoopCarryInit* carries, MoonliftSurface.SurfStmt* body, MoonliftSurface.SurfLoopUpdate* next, MoonliftSurface.SurfExpr result) unique
-                 | SurfLoopWhileExprTyped(MoonliftSurface.SurfLoopCarryInit* carries, MoonliftSurface.SurfTypeExpr result_ty, MoonliftSurface.SurfExpr cond, MoonliftSurface.SurfStmt* body, MoonliftSurface.SurfLoopUpdate* next, MoonliftSurface.SurfExpr result) unique
-                 | SurfLoopOverExprTyped(string index_name, MoonliftSurface.SurfDomainExpr domain, MoonliftSurface.SurfLoopCarryInit* carries, MoonliftSurface.SurfTypeExpr result_ty, MoonliftSurface.SurfStmt* body, MoonliftSurface.SurfLoopUpdate* next, MoonliftSurface.SurfExpr result) unique
+    SurfLoopExpr = SurfExprLoopWhile(MoonliftSurface.SurfLoopCarryInit* carries, MoonliftSurface.SurfTypeExpr result_ty, MoonliftSurface.SurfExpr cond, MoonliftSurface.SurfStmt* body, MoonliftSurface.SurfLoopUpdate* next, MoonliftSurface.SurfExpr result) unique
+                 | SurfExprLoopOver(string index_name, MoonliftSurface.SurfDomainExpr domain, MoonliftSurface.SurfLoopCarryInit* carries, MoonliftSurface.SurfTypeExpr result_ty, MoonliftSurface.SurfStmt* body, MoonliftSurface.SurfLoopUpdate* next, MoonliftSurface.SurfExpr result) unique
 
     SurfExpr = SurfInt(string raw) unique
              | SurfFloat(string raw) unique
@@ -110,7 +108,7 @@ module MoonliftSurface {
              | SurfIfExpr(MoonliftSurface.SurfExpr cond, MoonliftSurface.SurfExpr then_expr, MoonliftSurface.SurfExpr else_expr) unique
              | SurfSelectExpr(MoonliftSurface.SurfExpr cond, MoonliftSurface.SurfExpr then_expr, MoonliftSurface.SurfExpr else_expr) unique
              | SurfSwitchExpr(MoonliftSurface.SurfExpr value, MoonliftSurface.SurfSwitchExprArm* arms, MoonliftSurface.SurfExpr default_expr) unique
-             | SurfExprLoop(MoonliftSurface.SurfLoopExpr loop) unique
+             | SurfExprLoopNode(MoonliftSurface.SurfLoopExpr loop) unique
              | SurfBlockExpr(MoonliftSurface.SurfStmt* stmts, MoonliftSurface.SurfExpr result) unique
              | SurfClosureExpr(MoonliftSurface.SurfParam* params, MoonliftSurface.SurfTypeExpr result, MoonliftSurface.SurfStmt* body) unique
              | SurfExprView(MoonliftSurface.SurfExpr base) unique

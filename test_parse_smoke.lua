@@ -130,7 +130,7 @@ next
     i = i + 1
 end -> acc
 ]])
-assert(typed_loop_expr == Surf.SurfExprLoop(Surf.SurfLoopWhileExprTyped(
+assert(typed_loop_expr == Surf.SurfExprLoop(Surf.SurfExprLoopWhile(
     {
         Surf.SurfLoopCarryInit("i", Surf.SurfTIndex, Surf.SurfInt("0")),
         Surf.SurfLoopCarryInit("acc", Surf.SurfTI32, Surf.SurfInt("0")),
@@ -154,7 +154,7 @@ next
     acc = acc + 1
 end
 ]])
-assert(typed_over_stmt == Surf.SurfStmtLoop(Surf.SurfLoopOverStmt(
+assert(typed_over_stmt == Surf.SurfStmtLoop(Surf.SurfStmtLoopOver(
     "i",
     Surf.SurfDomainRange(Surf.SurfNameRef("n")),
     {
@@ -175,7 +175,7 @@ next
     y = y + 1
 end
 ]])
-assert(loop_zip == Surf.SurfStmtLoop(Surf.SurfLoopOverStmt(
+assert(loop_zip == Surf.SurfStmtLoop(Surf.SurfStmtLoopOver(
     "i",
     Surf.SurfDomainZipEq({ Surf.SurfNameRef("dst"), Surf.SurfNameRef("src") }),
     {
@@ -239,7 +239,7 @@ local for_domain_range = P.parse_stmt([[for i in 0..n do
     let x: i32 = i
 end
 ]])
-assert(for_domain_range == Surf.SurfStmtLoop(Surf.SurfLoopOverStmt(
+assert(for_domain_range == Surf.SurfStmtLoop(Surf.SurfStmtLoopOver(
     "i",
     Surf.SurfDomainRange2(Surf.SurfInt("0"), Surf.SurfNameRef("n")),
     {},
@@ -254,7 +254,7 @@ while i < n with acc: i32 = 0, i: i32 = 0 do
     next i = i + 1
 end
 ]])
-assert(while_with_carry == Surf.SurfStmtLoop(Surf.SurfLoopWhileStmt(
+assert(while_with_carry == Surf.SurfStmtLoop(Surf.SurfStmtLoopWhile(
     {
         Surf.SurfLoopCarryInit("acc", Surf.SurfTI32, Surf.SurfInt("0")),
         Surf.SurfLoopCarryInit("i", Surf.SurfTI32, Surf.SurfInt("0")),
