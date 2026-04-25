@@ -107,7 +107,7 @@ function M.Define(T)
     end
 
     local function loop_expr_exit_from_stmt_list(stmts)
-        local exit = Elab.ElabLoopExprEndOnly
+        local exit = Elab.ElabExprEndOnly
         for i = 1, #stmts do
             exit = combine_exit(exit, one_loop_expr_exit_stmt(stmts[i]))
         end
@@ -115,7 +115,7 @@ function M.Define(T)
     end
 
     local function loop_expr_exit_from_expr_list(exprs)
-        local exit = Elab.ElabLoopExprEndOnly
+        local exit = Elab.ElabExprEndOnly
         for i = 1, #exprs do
             exit = combine_exit(exit, one_loop_expr_exit_expr(exprs[i]))
         end
@@ -193,11 +193,11 @@ function M.Define(T)
     end
 
     combine_loop_expr_exit = pvm.phase("surface_to_elab_loop_expr_exit_combine", {
-        [Elab.ElabLoopExprEndOnly] = function(self, rhs)
+        [Elab.ElabExprEndOnly] = function(self, rhs)
             return pvm.once(rhs)
         end,
-        [Elab.ElabLoopExprEndOrBreakValue] = function()
-            return pvm.once(Elab.ElabLoopExprEndOrBreakValue)
+        [Elab.ElabExprEndOrBreakValue] = function()
+            return pvm.once(Elab.ElabExprEndOrBreakValue)
         end,
     })
 
@@ -404,7 +404,7 @@ function M.Define(T)
             return pvm.once(Elab.ElabLoopExprEndOnly)
         end,
         [Surf.SurfBreakValue] = function()
-            return pvm.once(Elab.ElabLoopExprEndOrBreakValue)
+            return pvm.once(Elab.ElabExprEndOrBreakValue)
         end,
         [Surf.SurfContinue] = function()
             return pvm.once(Elab.ElabLoopExprEndOnly)
@@ -477,7 +477,7 @@ function M.Define(T)
         [Surf.SurfLoopCarryInit] = function(self, env, loop_id, port_id)
             local ty = one_type(self.ty, env)
             local init = one_expr(self.init, env, ty)
-            return pvm.once(Elab.ElabLoopCarryPort(port_id, self.name, ty, init))
+            return pvm.once(Elab.ElabCarryPort(port_id, self.name, ty, init))
         end,
     })
 
@@ -487,7 +487,7 @@ function M.Define(T)
             if binding == nil then
                 error("surface_to_elab_loop: next assignment for unknown loop binding '" .. self.name .. "'")
             end
-            return pvm.once(Elab.ElabLoopUpdate(binding.port_id, one_expr(self.value, env, binding.ty)))
+            return pvm.once(Elab.ElabCarryUpdate(binding.port_id, one_expr(self.value, env, binding.ty)))
         end,
     })
 
@@ -530,7 +530,7 @@ function M.Define(T)
                     return one_update(self.next[i], body_env, loop_bindings)
                 end)
             end
-            return pvm.once(Elab.ElabLoopWhileStmt(loop_id, carries, cond, body, next_out))
+            return pvm.once(Elab.ElabWhileStmt(loop_id, carries, cond, body, next_out))
         end,
 
         [Surf.SurfStmtLoopOver] = function(self, env, path)
@@ -540,7 +540,7 @@ function M.Define(T)
             local domain = with_path(scoped_path(base, "domain"), function()
                 return one_domain(self.domain, loop_env)
             end)
-            local index_port = Elab.ElabLoopIndexPort(self.index_name, Elab.ElabTIndex)
+            local index_port = Elab.ElabIndexPort(self.index_name, Elab.ElabTIndex)
             local index_binding = Elab.ElabLoopIndex(loop_id, self.index_name, Elab.ElabTIndex)
             loop_env = extend_env_value(loop_env, Elab.ElabValueEntry(self.index_name, index_binding))
             local body, body_env = lower_stmt_list(self.body, loop_env, scoped_path(base, "body"), true, nil)
@@ -551,7 +551,7 @@ function M.Define(T)
                     return one_update(self.next[i], body_env, loop_bindings)
                 end)
             end
-            return pvm.once(Elab.ElabLoopOverStmt(loop_id, index_port, domain, carries, body, next_out))
+            return pvm.once(Elab.ElabOverStmt(loop_id, index_port, domain, carries, body, next_out))
         end,
     })
 
@@ -581,7 +581,7 @@ function M.Define(T)
                 end)
             end
             return pvm.once(Elab.ElabExprLoop(
-                Elab.ElabLoopWhileExpr(loop_id, carries, cond, body, next_out, exit, result),
+                Elab.ElabWhileExpr(loop_id, carries, cond, body, next_out, exit, result),
                 declared_ty
             ))
         end,
@@ -614,7 +614,7 @@ function M.Define(T)
                 end)
             end
             return pvm.once(Elab.ElabExprLoop(
-                Elab.ElabLoopOverExpr(loop_id, index_port, domain, carries, body, next_out, exit, result),
+                Elab.ElabOverExpr(loop_id, index_port, domain, carries, body, next_out, exit, result),
                 declared_ty
             ))
         end,

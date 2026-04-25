@@ -906,23 +906,23 @@ function M.Define(T)
     })
 
     lower_loop_carry = pvm.phase("elab_to_sem_loop_carry", {
-        [Elab.ElabLoopCarryPort] = function(self, const_env)
-            return pvm.once(Sem.SemLoopCarryPort(self.port_id, self.name, one_type(self.ty, const_env), one_expr(self.init, const_env)))
+        [Elab.ElabCarryPort] = function(self, const_env)
+            return pvm.once(Sem.SemCarryPort(self.port_id, self.name, one_type(self.ty, const_env), one_expr(self.init, const_env)))
         end,
     })
 
     lower_loop_update = pvm.phase("elab_to_sem_loop_update", {
-        [Elab.ElabLoopUpdate] = function(self, const_env)
-            return pvm.once(Sem.SemLoopUpdate(self.port_id, one_expr(self.value, const_env)))
+        [Elab.ElabCarryUpdate] = function(self, const_env)
+            return pvm.once(Sem.SemCarryUpdate(self.port_id, one_expr(self.value, const_env)))
         end,
     })
 
     lower_loop_expr_exit = pvm.phase("elab_to_sem_loop_expr_exit", {
-        [Elab.ElabLoopExprEndOnly] = function()
-            return pvm.once(Sem.SemLoopExprEndOnly)
+        [Elab.ElabExprEndOnly] = function()
+            return pvm.once(Sem.SemExprEndOnly)
         end,
-        [Elab.ElabLoopExprEndOrBreakValue] = function()
-            return pvm.once(Sem.SemLoopExprEndOrBreakValue)
+        [Elab.ElabExprEndOrBreakValue] = function()
+            return pvm.once(Sem.SemExprEndOrBreakValue)
         end,
     })
 
@@ -953,33 +953,33 @@ function M.Define(T)
     })
 
     lower_loop = pvm.phase("elab_to_sem_loop", {
-        [Elab.ElabLoopWhileStmt] = function(self, const_env)
+        [Elab.ElabWhileStmt] = function(self, const_env)
             local carries = {}
             local next = {}
             for i = 1, #self.carries do carries[i] = one_loop_carry(self.carries[i], const_env) end
             for i = 1, #self.next do next[i] = one_loop_update(self.next[i], const_env) end
-            return pvm.once(Sem.SemLoopWhileStmt(self.loop_id, carries, one_expr(self.cond, const_env), lower_stmt_list(self.body, const_env), next))
+            return pvm.once(Sem.SemWhileStmt(self.loop_id, carries, one_expr(self.cond, const_env), lower_stmt_list(self.body, const_env), next))
         end,
-        [Elab.ElabLoopOverStmt] = function(self, const_env)
+        [Elab.ElabOverStmt] = function(self, const_env)
             local carries = {}
             local next = {}
             for i = 1, #self.carries do carries[i] = one_loop_carry(self.carries[i], const_env) end
             for i = 1, #self.next do next[i] = one_loop_update(self.next[i], const_env) end
-            return pvm.once(Sem.SemLoopOverStmt(self.loop_id, Sem.SemLoopIndexPort(self.index_port.name, one_type(self.index_port.ty, const_env)), one_domain(self.domain, const_env), carries, lower_stmt_list(self.body, const_env), next))
+            return pvm.once(Sem.SemOverStmt(self.loop_id, Sem.SemIndexPort(self.index_port.name, one_type(self.index_port.ty, const_env)), one_domain(self.domain, const_env), carries, lower_stmt_list(self.body, const_env), next))
         end,
-        [Elab.ElabLoopWhileExpr] = function(self, const_env)
+        [Elab.ElabWhileExpr] = function(self, const_env)
             local carries = {}
             local next = {}
             for i = 1, #self.carries do carries[i] = one_loop_carry(self.carries[i], const_env) end
             for i = 1, #self.next do next[i] = one_loop_update(self.next[i], const_env) end
-            return pvm.once(Sem.SemLoopWhileExpr(self.loop_id, carries, one_expr(self.cond, const_env), lower_stmt_list(self.body, const_env), next, one_loop_expr_exit(self.exit), one_expr(self.result, const_env)))
+            return pvm.once(Sem.SemWhileExpr(self.loop_id, carries, one_expr(self.cond, const_env), lower_stmt_list(self.body, const_env), next, one_loop_expr_exit(self.exit), one_expr(self.result, const_env)))
         end,
-        [Elab.ElabLoopOverExpr] = function(self, const_env)
+        [Elab.ElabOverExpr] = function(self, const_env)
             local carries = {}
             local next = {}
             for i = 1, #self.carries do carries[i] = one_loop_carry(self.carries[i], const_env) end
             for i = 1, #self.next do next[i] = one_loop_update(self.next[i], const_env) end
-            return pvm.once(Sem.SemLoopOverExpr(self.loop_id, Sem.SemLoopIndexPort(self.index_port.name, one_type(self.index_port.ty, const_env)), one_domain(self.domain, const_env), carries, lower_stmt_list(self.body, const_env), next, one_loop_expr_exit(self.exit), one_expr(self.result, const_env)))
+            return pvm.once(Sem.SemOverExpr(self.loop_id, Sem.SemIndexPort(self.index_port.name, one_type(self.index_port.ty, const_env)), one_domain(self.domain, const_env), carries, lower_stmt_list(self.body, const_env), next, one_loop_expr_exit(self.exit), one_expr(self.result, const_env)))
         end,
     })
 

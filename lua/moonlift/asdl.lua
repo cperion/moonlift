@@ -207,9 +207,9 @@ module MoonliftElab {
     ElabFieldInit = (string name, MoonliftElab.ElabExpr value) unique
     ElabSwitchStmtArm = (MoonliftElab.ElabExpr key, MoonliftElab.ElabStmt* body) unique
     ElabSwitchExprArm = (MoonliftElab.ElabExpr key, MoonliftElab.ElabStmt* body, MoonliftElab.ElabExpr result) unique
-    ElabLoopCarryPort = (string port_id, string name, MoonliftElab.ElabType ty, MoonliftElab.ElabExpr init) unique
-    ElabLoopIndexPort = (string name, MoonliftElab.ElabType ty) unique
-    ElabLoopUpdate = (string port_id, MoonliftElab.ElabExpr value) unique
+    ElabCarryPort = (string port_id, string name, MoonliftElab.ElabType ty, MoonliftElab.ElabExpr init) unique
+    ElabIndexPort = (string name, MoonliftElab.ElabType ty) unique
+    ElabCarryUpdate = (string port_id, MoonliftElab.ElabExpr value) unique
 
     ElabPlace = ElabPlaceBinding(MoonliftElab.ElabBinding binding) unique
               | ElabPlaceDeref(MoonliftElab.ElabExpr base, MoonliftElab.ElabType elem) unique
@@ -224,13 +224,13 @@ module MoonliftElab {
                | ElabDomainZipEq(MoonliftElab.ElabExpr* values) unique
                | ElabDomainValue(MoonliftElab.ElabExpr value) unique
 
-    ElabLoopExprExit = ElabLoopExprEndOnly
-                     | ElabLoopExprEndOrBreakValue
+    ElabExprExit = ElabExprEndOnly
+                 | ElabExprEndOrBreakValue
 
-    ElabLoop = ElabLoopWhileStmt(string loop_id, MoonliftElab.ElabLoopCarryPort* carries, MoonliftElab.ElabExpr cond, MoonliftElab.ElabStmt* body, MoonliftElab.ElabLoopUpdate* next) unique
-             | ElabLoopOverStmt(string loop_id, MoonliftElab.ElabLoopIndexPort index_port, MoonliftElab.ElabDomain domain, MoonliftElab.ElabLoopCarryPort* carries, MoonliftElab.ElabStmt* body, MoonliftElab.ElabLoopUpdate* next) unique
-             | ElabLoopWhileExpr(string loop_id, MoonliftElab.ElabLoopCarryPort* carries, MoonliftElab.ElabExpr cond, MoonliftElab.ElabStmt* body, MoonliftElab.ElabLoopUpdate* next, MoonliftElab.ElabLoopExprExit exit, MoonliftElab.ElabExpr result) unique
-             | ElabLoopOverExpr(string loop_id, MoonliftElab.ElabLoopIndexPort index_port, MoonliftElab.ElabDomain domain, MoonliftElab.ElabLoopCarryPort* carries, MoonliftElab.ElabStmt* body, MoonliftElab.ElabLoopUpdate* next, MoonliftElab.ElabLoopExprExit exit, MoonliftElab.ElabExpr result) unique
+    ElabLoop = ElabWhileStmt(string loop_id, MoonliftElab.ElabCarryPort* carries, MoonliftElab.ElabExpr cond, MoonliftElab.ElabStmt* body, MoonliftElab.ElabCarryUpdate* next) unique
+             | ElabOverStmt(string loop_id, MoonliftElab.ElabIndexPort index_port, MoonliftElab.ElabDomain domain, MoonliftElab.ElabCarryPort* carries, MoonliftElab.ElabStmt* body, MoonliftElab.ElabCarryUpdate* next) unique
+             | ElabWhileExpr(string loop_id, MoonliftElab.ElabCarryPort* carries, MoonliftElab.ElabExpr cond, MoonliftElab.ElabStmt* body, MoonliftElab.ElabCarryUpdate* next, MoonliftElab.ElabExprExit exit, MoonliftElab.ElabExpr result) unique
+             | ElabOverExpr(string loop_id, MoonliftElab.ElabIndexPort index_port, MoonliftElab.ElabDomain domain, MoonliftElab.ElabCarryPort* carries, MoonliftElab.ElabStmt* body, MoonliftElab.ElabCarryUpdate* next, MoonliftElab.ElabExprExit exit, MoonliftElab.ElabExpr result) unique
 
     ElabExpr = ElabInt(string raw, MoonliftElab.ElabType ty) unique
              | ElabFloat(string raw, MoonliftElab.ElabType ty) unique
@@ -434,9 +434,9 @@ module MoonliftSem {
                           | SemBackSwitchStmtArmsExpr(MoonliftSem.SemBackSwitchStmtArm* arms) unique
     SemBackSwitchExprArms = SemBackSwitchExprArmsConst(MoonliftSem.SemBackSwitchExprArm* arms) unique
                           | SemBackSwitchExprArmsExpr(MoonliftSem.SemBackSwitchExprArm* arms) unique
-    SemLoopCarryPort = (string port_id, string name, MoonliftSem.SemType ty, MoonliftSem.SemExpr init) unique
-    SemLoopIndexPort = (string name, MoonliftSem.SemType ty) unique
-    SemLoopUpdate = (string port_id, MoonliftSem.SemExpr value) unique
+    SemCarryPort = (string port_id, string name, MoonliftSem.SemType ty, MoonliftSem.SemExpr init) unique
+    SemIndexPort = (string name, MoonliftSem.SemType ty) unique
+    SemCarryUpdate = (string port_id, MoonliftSem.SemExpr value) unique
 
     SemPlace = SemPlaceBinding(MoonliftSem.SemBinding binding) unique
              | SemPlaceDeref(MoonliftSem.SemExpr base, MoonliftSem.SemType elem) unique
@@ -491,13 +491,13 @@ module MoonliftSem {
             | SemExprSwitch(MoonliftSem.SemExpr value, MoonliftSem.SemSwitchExprArm* arms, MoonliftSem.SemExpr default_expr, MoonliftSem.SemType ty) unique
             | SemExprLoop(MoonliftSem.SemLoop loop, MoonliftSem.SemType ty) unique
 
-    SemLoopExprExit = SemLoopExprEndOnly
-                    | SemLoopExprEndOrBreakValue
+    SemExprExit = SemExprEndOnly
+                | SemExprEndOrBreakValue
 
-    SemLoop = SemLoopWhileStmt(string loop_id, MoonliftSem.SemLoopCarryPort* carries, MoonliftSem.SemExpr cond, MoonliftSem.SemStmt* body, MoonliftSem.SemLoopUpdate* next) unique
-            | SemLoopOverStmt(string loop_id, MoonliftSem.SemLoopIndexPort index_port, MoonliftSem.SemDomain domain, MoonliftSem.SemLoopCarryPort* carries, MoonliftSem.SemStmt* body, MoonliftSem.SemLoopUpdate* next) unique
-            | SemLoopWhileExpr(string loop_id, MoonliftSem.SemLoopCarryPort* carries, MoonliftSem.SemExpr cond, MoonliftSem.SemStmt* body, MoonliftSem.SemLoopUpdate* next, MoonliftSem.SemLoopExprExit exit, MoonliftSem.SemExpr result) unique
-            | SemLoopOverExpr(string loop_id, MoonliftSem.SemLoopIndexPort index_port, MoonliftSem.SemDomain domain, MoonliftSem.SemLoopCarryPort* carries, MoonliftSem.SemStmt* body, MoonliftSem.SemLoopUpdate* next, MoonliftSem.SemLoopExprExit exit, MoonliftSem.SemExpr result) unique
+    SemLoop = SemWhileStmt(string loop_id, MoonliftSem.SemCarryPort* carries, MoonliftSem.SemExpr cond, MoonliftSem.SemStmt* body, MoonliftSem.SemCarryUpdate* next) unique
+            | SemOverStmt(string loop_id, MoonliftSem.SemIndexPort index_port, MoonliftSem.SemDomain domain, MoonliftSem.SemCarryPort* carries, MoonliftSem.SemStmt* body, MoonliftSem.SemCarryUpdate* next) unique
+            | SemWhileExpr(string loop_id, MoonliftSem.SemCarryPort* carries, MoonliftSem.SemExpr cond, MoonliftSem.SemStmt* body, MoonliftSem.SemCarryUpdate* next, MoonliftSem.SemExprExit exit, MoonliftSem.SemExpr result) unique
+            | SemOverExpr(string loop_id, MoonliftSem.SemIndexPort index_port, MoonliftSem.SemDomain domain, MoonliftSem.SemCarryPort* carries, MoonliftSem.SemStmt* body, MoonliftSem.SemCarryUpdate* next, MoonliftSem.SemExprExit exit, MoonliftSem.SemExpr result) unique
 
     SemStmt = SemStmtLet(string id, string name, MoonliftSem.SemType ty, MoonliftSem.SemExpr init) unique
             | SemStmtVar(string id, string name, MoonliftSem.SemType ty, MoonliftSem.SemExpr init) unique
