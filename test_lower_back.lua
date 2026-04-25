@@ -439,17 +439,17 @@ assert(contains_cmd(switch_expr_index, Back.BackCmdSwitchInt(
 
 local while_break_value = one_expr(
     Sem.SemExprLoop(
-        Sem.SemLoopWhileExpr(
+        Sem.SemWhileExpr(
             "loop.break",
             {
-                Sem.SemLoopCarryPort("carry.i", "i", Sem.SemTI32, Sem.SemExprConstInt(Sem.SemTI32, "0")),
+                Sem.SemCarryPort("carry.i", "i", Sem.SemTI32, Sem.SemExprConstInt(Sem.SemTI32, "0")),
             },
             Sem.SemExprConstBool(true),
             {
                 Sem.SemStmtBreakValue(Sem.SemExprConstInt(Sem.SemTI32, "5")),
             },
             {
-                Sem.SemLoopUpdate(
+                Sem.SemCarryUpdate(
                     "carry.i",
                     Sem.SemExprAdd(
                         Sem.SemTI32,
@@ -458,7 +458,7 @@ local while_break_value = one_expr(
                     )
                 ),
             },
-            Sem.SemLoopExprEndOrBreakValue,
+            Sem.SemExprEndOrBreakValue,
             Sem.SemExprBinding(Sem.SemBindLoopCarry("loop.break", "carry.i", "i", Sem.SemTI32))
         ),
         Sem.SemTI32
@@ -477,16 +477,16 @@ assert(cmd_index(while_break_value, Back.BackCmdJump(Back.BackBlockId("expr.loop
 
 local over_range_expr = one_expr(
     Sem.SemExprLoop(
-        Sem.SemLoopOverExpr(
+        Sem.SemOverExpr(
             "loop.range",
-            Sem.SemLoopIndexPort("i", Sem.SemTIndex),
+            Sem.SemIndexPort("i", Sem.SemTIndex),
             Sem.SemDomainRange(Sem.SemExprConstInt(Sem.SemTIndex, "3")),
             {
-                Sem.SemLoopCarryPort("carry.acc", "acc", Sem.SemTIndex, Sem.SemExprConstInt(Sem.SemTIndex, "0")),
+                Sem.SemCarryPort("carry.acc", "acc", Sem.SemTIndex, Sem.SemExprConstInt(Sem.SemTIndex, "0")),
             },
             {},
             {
-                Sem.SemLoopUpdate(
+                Sem.SemCarryUpdate(
                     "carry.acc",
                     Sem.SemExprAdd(
                         Sem.SemTIndex,
@@ -495,7 +495,7 @@ local over_range_expr = one_expr(
                     )
                 ),
             },
-            Sem.SemLoopExprEndOnly,
+            Sem.SemExprEndOnly,
             Sem.SemExprBinding(Sem.SemBindLoopCarry("loop.range", "carry.acc", "acc", Sem.SemTIndex))
         ),
         Sem.SemTIndex
@@ -513,9 +513,9 @@ assert(lacks_cmd(over_range_expr, Back.BackCmdCreateStackSlot(Back.BackStackSlot
 
 local bounded_over_expr = one_expr(
     Sem.SemExprLoop(
-        Sem.SemLoopOverExpr(
+        Sem.SemOverExpr(
             "loop.view",
-            Sem.SemLoopIndexPort("i", Sem.SemTIndex),
+            Sem.SemIndexPort("i", Sem.SemTIndex),
             Sem.SemDomainView(
                 Sem.SemViewFromExpr(
                     Sem.SemExprBinding(Sem.SemBindLocalCell("bounded.arr", "arr", Sem.SemTArray(Sem.SemTI32, 4))),
@@ -523,11 +523,11 @@ local bounded_over_expr = one_expr(
                 )
             ),
             {
-                Sem.SemLoopCarryPort("carry.acc", "acc", Sem.SemTIndex, Sem.SemExprConstInt(Sem.SemTIndex, "0")),
+                Sem.SemCarryPort("carry.acc", "acc", Sem.SemTIndex, Sem.SemExprConstInt(Sem.SemTIndex, "0")),
             },
             {},
             {
-                Sem.SemLoopUpdate(
+                Sem.SemCarryUpdate(
                     "carry.acc",
                     Sem.SemExprAdd(
                         Sem.SemTIndex,
@@ -536,7 +536,7 @@ local bounded_over_expr = one_expr(
                     )
                 ),
             },
-            Sem.SemLoopExprEndOnly,
+            Sem.SemExprEndOnly,
             Sem.SemExprBinding(Sem.SemBindLoopCarry("loop.view", "carry.acc", "acc", Sem.SemTIndex))
         ),
         Sem.SemTIndex
@@ -586,19 +586,19 @@ assert(contains_cmd(strided_index_expr, Back.BackCmdImul(Back.BackValId("expr.st
 
 local zip_over_expr = one_expr(
     Sem.SemExprLoop(
-        Sem.SemLoopOverExpr(
+        Sem.SemOverExpr(
             "loop.zip",
-            Sem.SemLoopIndexPort("i", Sem.SemTIndex),
+            Sem.SemIndexPort("i", Sem.SemTIndex),
             Sem.SemDomainZipEq({
                 Sem.SemViewFromExpr(Sem.SemExprBinding(Sem.SemBindLocalCell("zip.a", "a", Sem.SemTArray(Sem.SemTI32, 3))), Sem.SemTI32),
                 Sem.SemViewFromExpr(Sem.SemExprBinding(Sem.SemBindLocalCell("zip.b", "b", Sem.SemTArray(Sem.SemTI32, 3))), Sem.SemTI32),
             }),
             {
-                Sem.SemLoopCarryPort("carry.acc", "acc", Sem.SemTI32, Sem.SemExprConstInt(Sem.SemTI32, "0")),
+                Sem.SemCarryPort("carry.acc", "acc", Sem.SemTI32, Sem.SemExprConstInt(Sem.SemTI32, "0")),
             },
             {},
             {
-                Sem.SemLoopUpdate(
+                Sem.SemCarryUpdate(
                     "carry.acc",
                     Sem.SemExprAdd(
                         Sem.SemTI32,
@@ -607,7 +607,7 @@ local zip_over_expr = one_expr(
                     )
                 ),
             },
-            Sem.SemLoopExprEndOnly,
+            Sem.SemExprEndOnly,
             Sem.SemExprBinding(Sem.SemBindLoopCarry("loop.zip", "carry.acc", "acc", Sem.SemTI32))
         ),
         Sem.SemTI32
@@ -620,19 +620,19 @@ assert(contains_cmd(zip_over_expr, Back.BackCmdConstInt(Back.BackValId("expr.zip
 
 local slice_zip_over_expr = one_expr(
     Sem.SemExprLoop(
-        Sem.SemLoopOverExpr(
+        Sem.SemOverExpr(
             "loop.slice.zip",
-            Sem.SemLoopIndexPort("i", Sem.SemTIndex),
+            Sem.SemIndexPort("i", Sem.SemTIndex),
             Sem.SemDomainZipEq({
                 Sem.SemViewFromExpr(Sem.SemExprBinding(Sem.SemBindLocalCell("slice.a", "a", Sem.SemTSlice(Sem.SemTI32))), Sem.SemTI32),
                 Sem.SemViewFromExpr(Sem.SemExprBinding(Sem.SemBindLocalCell("slice.b", "b", Sem.SemTSlice(Sem.SemTI32))), Sem.SemTI32),
             }),
             {
-                Sem.SemLoopCarryPort("carry.acc", "acc", Sem.SemTI32, Sem.SemExprConstInt(Sem.SemTI32, "0")),
+                Sem.SemCarryPort("carry.acc", "acc", Sem.SemTI32, Sem.SemExprConstInt(Sem.SemTI32, "0")),
             },
             {},
             {
-                Sem.SemLoopUpdate(
+                Sem.SemCarryUpdate(
                     "carry.acc",
                     Sem.SemExprAdd(
                         Sem.SemTI32,
@@ -641,7 +641,7 @@ local slice_zip_over_expr = one_expr(
                     )
                 ),
             },
-            Sem.SemLoopExprEndOnly,
+            Sem.SemExprEndOnly,
             Sem.SemExprBinding(Sem.SemBindLoopCarry("loop.slice.zip", "carry.acc", "acc", Sem.SemTI32))
         ),
         Sem.SemTI32

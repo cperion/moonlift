@@ -121,7 +121,7 @@ function M.Define(T, env)
     local function loop_update_list(nodes, const_env)
         local out = {}
         for i = 1, #nodes do
-            out[i] = Sem.SemLoopUpdate(nodes[i].port_id, one_expr(nodes[i].value, const_env))
+            out[i] = Sem.SemCarryUpdate(nodes[i].port_id, one_expr(nodes[i].value, const_env))
         end
         return out
     end
@@ -130,7 +130,7 @@ function M.Define(T, env)
         local out = {}
         for i = 1, #nodes do
             local carry = nodes[i]
-            out[i] = Sem.SemLoopCarryPort(carry.port_id, carry.name, carry.ty, one_expr(carry.init, const_env))
+            out[i] = Sem.SemCarryPort(carry.port_id, carry.name, carry.ty, one_expr(carry.init, const_env))
         end
         return out
     end
@@ -455,17 +455,17 @@ function M.Define(T, env)
     })
 
     fold_loop = pvm.phase("moonlift_sem_fold_const_scalars_loop", {
-        [Sem.SemLoopWhileStmt] = function(self, const_env)
-            return pvm.once(Sem.SemLoopWhileStmt(self.loop_id, loop_carry_list(self.carries, const_env), one_expr(self.cond, const_env), stmt_list(self.body, const_env), loop_update_list(self.next, const_env)))
+        [Sem.SemWhileStmt] = function(self, const_env)
+            return pvm.once(Sem.SemWhileStmt(self.loop_id, loop_carry_list(self.carries, const_env), one_expr(self.cond, const_env), stmt_list(self.body, const_env), loop_update_list(self.next, const_env)))
         end,
-        [Sem.SemLoopOverStmt] = function(self, const_env)
-            return pvm.once(Sem.SemLoopOverStmt(self.loop_id, self.index_port, one_domain(self.domain, const_env), loop_carry_list(self.carries, const_env), stmt_list(self.body, const_env), loop_update_list(self.next, const_env)))
+        [Sem.SemOverStmt] = function(self, const_env)
+            return pvm.once(Sem.SemOverStmt(self.loop_id, self.index_port, one_domain(self.domain, const_env), loop_carry_list(self.carries, const_env), stmt_list(self.body, const_env), loop_update_list(self.next, const_env)))
         end,
-        [Sem.SemLoopWhileExpr] = function(self, const_env)
-            return pvm.once(Sem.SemLoopWhileExpr(self.loop_id, loop_carry_list(self.carries, const_env), one_expr(self.cond, const_env), stmt_list(self.body, const_env), loop_update_list(self.next, const_env), self.exit, one_expr(self.result, const_env)))
+        [Sem.SemWhileExpr] = function(self, const_env)
+            return pvm.once(Sem.SemWhileExpr(self.loop_id, loop_carry_list(self.carries, const_env), one_expr(self.cond, const_env), stmt_list(self.body, const_env), loop_update_list(self.next, const_env), self.exit, one_expr(self.result, const_env)))
         end,
-        [Sem.SemLoopOverExpr] = function(self, const_env)
-            return pvm.once(Sem.SemLoopOverExpr(self.loop_id, self.index_port, one_domain(self.domain, const_env), loop_carry_list(self.carries, const_env), stmt_list(self.body, const_env), loop_update_list(self.next, const_env), self.exit, one_expr(self.result, const_env)))
+        [Sem.SemOverExpr] = function(self, const_env)
+            return pvm.once(Sem.SemOverExpr(self.loop_id, self.index_port, one_domain(self.domain, const_env), loop_carry_list(self.carries, const_env), stmt_list(self.body, const_env), loop_update_list(self.next, const_env), self.exit, one_expr(self.result, const_env)))
         end,
     })
 

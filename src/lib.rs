@@ -1329,7 +1329,7 @@ impl<'a, 'b> FunctionLowerer<'a, 'b> {
                 Ok(())
             }
             BackCmd::Trap => {
-                self.builder.ins().trap(TrapCode::unwrap_user(0));
+                self.builder.ins().trap(TrapCode::unwrap_user(1));
                 Ok(())
             }
             BackCmd::FinalizeModule => Err(MoonliftError::new(

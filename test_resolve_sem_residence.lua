@@ -63,18 +63,18 @@ local func = Sem.SemFuncExport(
             Sem.SemExprConstInt(Sem.SemTI32, "2")
         ),
         Sem.SemStmtExpr(Sem.SemExprLoop(
-            Sem.SemLoopOverExpr(
+            Sem.SemOverExpr(
                 "loop.sum",
-                Sem.SemLoopIndexPort("i", Sem.SemTIndex),
+                Sem.SemIndexPort("i", Sem.SemTIndex),
                 Sem.SemDomainRange(Sem.SemExprConstInt(Sem.SemTIndex, "4")),
                 {
-                    Sem.SemLoopCarryPort("carry.acc", "acc", Sem.SemTI32, Sem.SemExprConstInt(Sem.SemTI32, "0")),
+                    Sem.SemCarryPort("carry.acc", "acc", Sem.SemTI32, Sem.SemExprConstInt(Sem.SemTI32, "0")),
                 },
                 {
                     Sem.SemStmtBreakValue(Sem.SemExprBinding(Sem.SemBindLoopCarry("loop.sum", "carry.acc", "acc", Sem.SemTI32))),
                 },
                 {
-                    Sem.SemLoopUpdate(
+                    Sem.SemCarryUpdate(
                         "carry.acc",
                         Sem.SemExprAdd(
                             Sem.SemTI32,
@@ -83,7 +83,7 @@ local func = Sem.SemFuncExport(
                         )
                     ),
                 },
-                Sem.SemLoopExprEndOrBreakValue,
+                Sem.SemExprEndOrBreakValue,
                 Sem.SemExprBinding(Sem.SemBindLoopCarry("loop.sum", "carry.acc", "acc", Sem.SemTI32))
             ),
             Sem.SemTI32
@@ -108,12 +108,12 @@ local addr_taken_loop_func = Sem.SemFuncExport(
     {},
     Sem.SemTVoid,
     {
-        Sem.SemStmtLoop(Sem.SemLoopOverStmt(
+        Sem.SemStmtLoop(Sem.SemOverStmt(
             "loop.addr",
-            Sem.SemLoopIndexPort("i", Sem.SemTIndex),
+            Sem.SemIndexPort("i", Sem.SemTIndex),
             Sem.SemDomainRange(Sem.SemExprConstInt(Sem.SemTIndex, "4")),
             {
-                Sem.SemLoopCarryPort("carry.acc", "acc", Sem.SemTI32, Sem.SemExprConstInt(Sem.SemTI32, "0")),
+                Sem.SemCarryPort("carry.acc", "acc", Sem.SemTI32, Sem.SemExprConstInt(Sem.SemTI32, "0")),
             },
             {
                 Sem.SemStmtExpr(Sem.SemExprAddrOf(
@@ -126,7 +126,7 @@ local addr_taken_loop_func = Sem.SemFuncExport(
                 )),
             },
             {
-                Sem.SemLoopUpdate(
+                Sem.SemCarryUpdate(
                     "carry.acc",
                     Sem.SemExprConstInt(Sem.SemTI32, "1")
                 ),

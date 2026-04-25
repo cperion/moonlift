@@ -202,4 +202,30 @@ assert(pvm.one(L.lower_module(import_module)) == Elab.ElabModule("", {
     Elab.ElabItemFunc(Elab.ElabFuncLocal("main", {}, Elab.ElabTVoid, { Elab.ElabReturnVoid })),
 }))
 
+local typed_return_module = Surf.SurfModule({
+    Surf.SurfItemFunc(Surf.SurfFuncExport("zero_u32", {}, Surf.SurfTU32, {
+        Surf.SurfReturnValue(Surf.SurfInt("0")),
+    })),
+    Surf.SurfItemFunc(Surf.SurfFuncExport("branch_u32", { Surf.SurfParam("flag", Surf.SurfTBool) }, Surf.SurfTU32, {
+        Surf.SurfIf(Surf.SurfNameRef("flag"), {
+            Surf.SurfReturnValue(Surf.SurfInt("1")),
+        }, {
+            Surf.SurfReturnValue(Surf.SurfInt("0")),
+        }),
+    })),
+})
+
+assert(pvm.one(L.lower_module(typed_return_module)) == Elab.ElabModule("", {
+    Elab.ElabItemFunc(Elab.ElabFuncExport("zero_u32", {}, Elab.ElabTU32, {
+        Elab.ElabReturnValue(Elab.ElabInt("0", Elab.ElabTU32)),
+    })),
+    Elab.ElabItemFunc(Elab.ElabFuncExport("branch_u32", { Elab.ElabParam("flag", Elab.ElabTBool) }, Elab.ElabTU32, {
+        Elab.ElabIf(
+            Elab.ElabBindingExpr(Elab.ElabArg(0, "flag", Elab.ElabTBool)),
+            { Elab.ElabReturnValue(Elab.ElabInt("1", Elab.ElabTU32)) },
+            { Elab.ElabReturnValue(Elab.ElabInt("0", Elab.ElabTU32)) }
+        ),
+    })),
+}))
+
 print("moonlift surface->elab top lowering ok")

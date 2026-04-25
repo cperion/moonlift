@@ -1038,7 +1038,7 @@ function M.Define(T, aux)
     })
 
     const_ops.sem_const_loop_stmt_eval = pvm.phase("sem_const_loop_stmt_eval", {
-        [Sem.SemLoopWhileStmt] = function(self, const_env, local_env, visiting)
+        [Sem.SemWhileStmt] = function(self, const_env, local_env, visiting)
             local outer_env = const_ops.ensure_local_env(local_env)
             local outer_bindings = const_ops.visible_bindings(outer_env)
             local loop_bindings = {}
@@ -1071,7 +1071,7 @@ function M.Define(T, aux)
                 end
             end
         end,
-        [Sem.SemLoopOverStmt] = function(self, const_env, local_env, visiting)
+        [Sem.SemOverStmt] = function(self, const_env, local_env, visiting)
             local outer_env = const_ops.ensure_local_env(local_env)
             local outer_bindings = const_ops.visible_bindings(outer_env)
             local current_outer = outer_env
@@ -1109,16 +1109,16 @@ function M.Define(T, aux)
                 end
             end
         end,
-        [Sem.SemLoopWhileExpr] = function()
+        [Sem.SemWhileExpr] = function()
             error("sem_const_loop_stmt_eval: expected stmt loop, got expr loop")
         end,
-        [Sem.SemLoopOverExpr] = function()
+        [Sem.SemOverExpr] = function()
             error("sem_const_loop_stmt_eval: expected stmt loop, got expr loop")
         end,
     })
 
     const_ops.sem_const_loop_expr_eval = pvm.phase("sem_const_loop_expr_eval", {
-        [Sem.SemLoopWhileExpr] = function(self, const_env, local_env, visiting)
+        [Sem.SemWhileExpr] = function(self, const_env, local_env, visiting)
             local outer_env = const_ops.ensure_local_env(local_env)
             local outer_bindings = const_ops.visible_bindings(outer_env)
             local loop_bindings = {}
@@ -1153,7 +1153,7 @@ function M.Define(T, aux)
                 end
             end
         end,
-        [Sem.SemLoopOverExpr] = function(self, const_env, local_env, visiting)
+        [Sem.SemOverExpr] = function(self, const_env, local_env, visiting)
             local outer_env = const_ops.ensure_local_env(local_env)
             local outer_bindings = const_ops.visible_bindings(outer_env)
             local current_outer = outer_env
@@ -1194,10 +1194,10 @@ function M.Define(T, aux)
                 end
             end
         end,
-        [Sem.SemLoopWhileStmt] = function()
+        [Sem.SemWhileStmt] = function()
             error("sem_const_loop_expr_eval: expected expr loop, got stmt loop")
         end,
-        [Sem.SemLoopOverStmt] = function()
+        [Sem.SemOverStmt] = function()
             error("sem_const_loop_expr_eval: expected expr loop, got stmt loop")
         end,
     })

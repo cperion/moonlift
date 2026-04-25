@@ -259,11 +259,11 @@ assert(switch_expr == Sem.SemExprSwitch(
     Sem.SemTI32
 ))
 
-local while_loop = one_loop(Elab.ElabLoopWhileExpr(
+local while_loop = one_loop(Elab.ElabWhileExpr(
     "loop.sum",
     {
-        Elab.ElabLoopCarryPort("carry.i", "i", Elab.ElabTI32, Elab.ElabInt("0", Elab.ElabTI32)),
-        Elab.ElabLoopCarryPort("carry.acc", "acc", Elab.ElabTI32, Elab.ElabInt("0", Elab.ElabTI32)),
+        Elab.ElabCarryPort("carry.i", "i", Elab.ElabTI32, Elab.ElabInt("0", Elab.ElabTI32)),
+        Elab.ElabCarryPort("carry.acc", "acc", Elab.ElabTI32, Elab.ElabInt("0", Elab.ElabTI32)),
     },
     Elab.ElabExprLt(
         Elab.ElabTBool,
@@ -274,7 +274,7 @@ local while_loop = one_loop(Elab.ElabLoopWhileExpr(
         Elab.ElabExprStmt(Elab.ElabBindingExpr(Elab.ElabLoopCarry("loop.sum", "carry.acc", "acc", Elab.ElabTI32))),
     },
     {
-        Elab.ElabLoopUpdate(
+        Elab.ElabCarryUpdate(
             "carry.i",
             Elab.ElabExprAdd(
                 Elab.ElabTI32,
@@ -282,7 +282,7 @@ local while_loop = one_loop(Elab.ElabLoopWhileExpr(
                 Elab.ElabInt("1", Elab.ElabTI32)
             )
         ),
-        Elab.ElabLoopUpdate(
+        Elab.ElabCarryUpdate(
             "carry.acc",
             Elab.ElabExprAdd(
                 Elab.ElabTI32,
@@ -291,14 +291,14 @@ local while_loop = one_loop(Elab.ElabLoopWhileExpr(
             )
         ),
     },
-    Elab.ElabLoopExprEndOnly,
+    Elab.ElabExprEndOnly,
     Elab.ElabBindingExpr(Elab.ElabLoopCarry("loop.sum", "carry.acc", "acc", Elab.ElabTI32))
 ))
-assert(while_loop == Sem.SemLoopWhileExpr(
+assert(while_loop == Sem.SemWhileExpr(
     "loop.sum",
     {
-        Sem.SemLoopCarryPort("carry.i", "i", Sem.SemTI32, Sem.SemExprConstInt(Sem.SemTI32, "0")),
-        Sem.SemLoopCarryPort("carry.acc", "acc", Sem.SemTI32, Sem.SemExprConstInt(Sem.SemTI32, "0")),
+        Sem.SemCarryPort("carry.i", "i", Sem.SemTI32, Sem.SemExprConstInt(Sem.SemTI32, "0")),
+        Sem.SemCarryPort("carry.acc", "acc", Sem.SemTI32, Sem.SemExprConstInt(Sem.SemTI32, "0")),
     },
     Sem.SemExprLt(
         Sem.SemTBool,
@@ -309,7 +309,7 @@ assert(while_loop == Sem.SemLoopWhileExpr(
         Sem.SemStmtExpr(Sem.SemExprBinding(Sem.SemBindLoopCarry("loop.sum", "carry.acc", "acc", Sem.SemTI32))),
     },
     {
-        Sem.SemLoopUpdate(
+        Sem.SemCarryUpdate(
             "carry.i",
             Sem.SemExprAdd(
                 Sem.SemTI32,
@@ -317,7 +317,7 @@ assert(while_loop == Sem.SemLoopWhileExpr(
                 Sem.SemExprConstInt(Sem.SemTI32, "1")
             )
         ),
-        Sem.SemLoopUpdate(
+        Sem.SemCarryUpdate(
             "carry.acc",
             Sem.SemExprAdd(
                 Sem.SemTI32,
@@ -326,20 +326,20 @@ assert(while_loop == Sem.SemLoopWhileExpr(
             )
         ),
     },
-    Sem.SemLoopExprEndOnly,
+    Sem.SemExprEndOnly,
     Sem.SemExprBinding(Sem.SemBindLoopCarry("loop.sum", "carry.acc", "acc", Sem.SemTI32))
 ))
 
-local over_loop = one_loop(Elab.ElabLoopOverStmt(
+local over_loop = one_loop(Elab.ElabOverStmt(
     "loop.over",
-    Elab.ElabLoopIndexPort("i", Elab.ElabTIndex),
+    Elab.ElabIndexPort("i", Elab.ElabTIndex),
     Elab.ElabDomainRange(Elab.ElabBindingExpr(Elab.ElabArg(0, "n", Elab.ElabTI32))),
     {
-        Elab.ElabLoopCarryPort("carry.acc", "acc", Elab.ElabTI32, Elab.ElabInt("0", Elab.ElabTI32)),
+        Elab.ElabCarryPort("carry.acc", "acc", Elab.ElabTI32, Elab.ElabInt("0", Elab.ElabTI32)),
     },
     {},
     {
-        Elab.ElabLoopUpdate(
+        Elab.ElabCarryUpdate(
             "carry.acc",
             Elab.ElabExprAdd(
                 Elab.ElabTI32,
@@ -352,18 +352,18 @@ local over_loop = one_loop(Elab.ElabLoopOverStmt(
         ),
     }
 ))
-assert(over_loop == Sem.SemLoopOverStmt(
+assert(over_loop == Sem.SemOverStmt(
     "loop.over",
-    Sem.SemLoopIndexPort("i", Sem.SemTIndex),
+    Sem.SemIndexPort("i", Sem.SemTIndex),
     Sem.SemDomainRange(
         Sem.SemExprCastTo(Sem.SemTIndex, Sem.SemExprBinding(Sem.SemBindArg(0, "n", Sem.SemTI32)))
     ),
     {
-        Sem.SemLoopCarryPort("carry.acc", "acc", Sem.SemTI32, Sem.SemExprConstInt(Sem.SemTI32, "0")),
+        Sem.SemCarryPort("carry.acc", "acc", Sem.SemTI32, Sem.SemExprConstInt(Sem.SemTI32, "0")),
     },
     {},
     {
-        Sem.SemLoopUpdate(
+        Sem.SemCarryUpdate(
             "carry.acc",
             Sem.SemExprAdd(
                 Sem.SemTI32,

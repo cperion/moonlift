@@ -304,11 +304,11 @@ local sum_to_module = lower_sem_module(Sem.SemModule("", {
         {
             Sem.SemStmtReturnValue(
                 Sem.SemExprLoop(
-                    Sem.SemLoopWhileExpr(
+                    Sem.SemWhileExpr(
                         "sum.loop",
                         {
-                            Sem.SemLoopCarryPort("sum.i", "i", Sem.SemTI32, Sem.SemExprConstInt(Sem.SemTI32, "0")),
-                            Sem.SemLoopCarryPort("sum.acc", "acc", Sem.SemTI32, Sem.SemExprConstInt(Sem.SemTI32, "0")),
+                            Sem.SemCarryPort("sum.i", "i", Sem.SemTI32, Sem.SemExprConstInt(Sem.SemTI32, "0")),
+                            Sem.SemCarryPort("sum.acc", "acc", Sem.SemTI32, Sem.SemExprConstInt(Sem.SemTI32, "0")),
                         },
                         Sem.SemExprLt(
                             Sem.SemTBool,
@@ -317,7 +317,7 @@ local sum_to_module = lower_sem_module(Sem.SemModule("", {
                         ),
                         {},
                         {
-                            Sem.SemLoopUpdate(
+                            Sem.SemCarryUpdate(
                                 "sum.i",
                                 Sem.SemExprAdd(
                                     Sem.SemTI32,
@@ -325,7 +325,7 @@ local sum_to_module = lower_sem_module(Sem.SemModule("", {
                                     Sem.SemExprConstInt(Sem.SemTI32, "1")
                                 )
                             ),
-                            Sem.SemLoopUpdate(
+                            Sem.SemCarryUpdate(
                                 "sum.acc",
                                 Sem.SemExprAdd(
                                     Sem.SemTI32,
@@ -334,7 +334,7 @@ local sum_to_module = lower_sem_module(Sem.SemModule("", {
                                 )
                             ),
                         },
-                        Sem.SemLoopExprEndOnly,
+                        Sem.SemExprEndOnly,
                         Sem.SemExprBinding(Sem.SemBindLoopCarry("sum.loop", "sum.acc", "acc", Sem.SemTI32))
                     ),
                     Sem.SemTI32
@@ -360,9 +360,9 @@ local sum_view_module = lower_sem_module(Sem.SemModule("", {
         {
             Sem.SemStmtReturnValue(
                 Sem.SemExprLoop(
-                    Sem.SemLoopOverExpr(
+                    Sem.SemOverExpr(
                         "sum.view.loop",
-                        Sem.SemLoopIndexPort("i", Sem.SemTIndex),
+                        Sem.SemIndexPort("i", Sem.SemTIndex),
                         Sem.SemDomainView(
                             Sem.SemViewContiguous(
                                 Sem.SemExprBinding(Sem.SemBindArg(0, "ptr", Sem.SemTPtrTo(Sem.SemTI32))),
@@ -371,11 +371,11 @@ local sum_view_module = lower_sem_module(Sem.SemModule("", {
                             )
                         ),
                         {
-                            Sem.SemLoopCarryPort("sum.view.acc", "acc", Sem.SemTI32, Sem.SemExprConstInt(Sem.SemTI32, "0")),
+                            Sem.SemCarryPort("sum.view.acc", "acc", Sem.SemTI32, Sem.SemExprConstInt(Sem.SemTI32, "0")),
                         },
                         {},
                         {
-                            Sem.SemLoopUpdate(
+                            Sem.SemCarryUpdate(
                                 "sum.view.acc",
                                 Sem.SemExprAdd(
                                     Sem.SemTI32,
@@ -394,7 +394,7 @@ local sum_view_module = lower_sem_module(Sem.SemModule("", {
                                 )
                             ),
                         },
-                        Sem.SemLoopExprEndOnly,
+                        Sem.SemExprEndOnly,
                         Sem.SemExprBinding(Sem.SemBindLoopCarry("sum.view.loop", "sum.view.acc", "acc", Sem.SemTI32))
                     ),
                     Sem.SemTI32
@@ -497,6 +497,27 @@ local enum_ptr = enum_artifact:getpointer(Back.BackFuncId("use_enum"))
 local use_enum = ffi.cast("int32_t (*)()", enum_ptr)
 assert(use_enum() == 0 + 1 + 2)
 enum_artifact:free()
+
+local typed_return_artifact = source.compile([[
+export func zero_u32() -> u32
+    return 0
+end
+export func branch_u32(flag: bool) -> u32
+    if flag then
+        return 1
+    else
+        return 0
+    end
+end
+]], nil, nil, nil, jit)
+local zero_u32_ptr = typed_return_artifact:getpointer(Back.BackFuncId("zero_u32"))
+local zero_u32 = ffi.cast("uint32_t (*)()", zero_u32_ptr)
+assert(zero_u32() == 0)
+local branch_u32_ptr = typed_return_artifact:getpointer(Back.BackFuncId("branch_u32"))
+local branch_u32 = ffi.cast("uint32_t (*)(bool)", branch_u32_ptr)
+assert(branch_u32(true) == 1)
+assert(branch_u32(false) == 0)
+typed_return_artifact:free()
 
 local while_break_artifact = source.compile([[
 export func while_break_find(n: i32) -> i32

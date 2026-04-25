@@ -85,7 +85,7 @@ And the current implementation already contains a real middle/back-end path for 
 - local statement lowering
 - local loop and domain lowering
 - typed `while`/`over` expr loops with valued early-exit results (`break expr`) through the current backend path
-- explicit `ElabLoopExprExit` / `SemLoopExprExit` classification so breakless expr loops and valued-break expr loops are no longer conflated in backend lowering
+- explicit `ElabExprExit` / `SemExprExit` classification so breakless expr loops and valued-break expr loops are no longer conflated in backend lowering
 - explicit function-scoped storage/addressability planning through `SemResidencePlan`
 - explicit machine-facing `SemBinding -> SemBackBinding` classification before backend lowering
 - explicit machine-facing switch-arm classification (`SemBackSwitchKey`, `SemBackSwitchStmtArms`, `SemBackSwitchExprArms`) before choosing preserved `BackCmdSwitchInt` vs compare fallback lowering
@@ -639,6 +639,10 @@ The reboot parser and frontend lowering now include intrinsic call parsing/bindi
 - `SurfExprIntrinsicCall`
 - `ElabExprIntrinsicCall`
 - `SemExprIntrinsicCall`
+
+Intrinsic argument elaboration is phase-driven by `SurfIntrinsic`, so meaningful operand typing is explicit instead of parser-side magic. For example, rotate shift literals are elaborated to the value operand type, and `assume(...)` elaborates its condition as `bool` while remaining a void/control intrinsic.
+
+Return-value elaboration is also now context typed by the function result type. `return 0` in an authored `-> u32` function elaborates as a `u32` integer literal, and that explicit result type is threaded through nested statement bodies such as `if`, `switch`, loops, and block-expression statement lists.
 
 ### `Sem -> Back` status
 `SemExprIntrinsicCall` lowers in value position for scalar-result intrinsics and in materialization position where that is meaningful.

@@ -48,11 +48,11 @@ local while_expr = one_loop_expr(
     "loop.sum"
 )
 assert(while_expr == Elab.ElabExprLoop(
-    Elab.ElabLoopWhileExpr(
+    Elab.ElabWhileExpr(
         "loop.sum",
         {
-            Elab.ElabLoopCarryPort("loop.sum.carries.carry.1", "i", Elab.ElabTI32, Elab.ElabInt("0", Elab.ElabTI32)),
-            Elab.ElabLoopCarryPort("loop.sum.carries.carry.2", "acc", Elab.ElabTI32, Elab.ElabInt("0", Elab.ElabTI32)),
+            Elab.ElabCarryPort("loop.sum.carries.carry.1", "i", Elab.ElabTI32, Elab.ElabInt("0", Elab.ElabTI32)),
+            Elab.ElabCarryPort("loop.sum.carries.carry.2", "acc", Elab.ElabTI32, Elab.ElabInt("0", Elab.ElabTI32)),
         },
         Elab.ElabExprLt(
             Elab.ElabTBool,
@@ -68,7 +68,7 @@ assert(while_expr == Elab.ElabExprLoop(
             ),
         },
         {
-            Elab.ElabLoopUpdate(
+            Elab.ElabCarryUpdate(
                 "loop.sum.carries.carry.1",
                 Elab.ElabExprAdd(
                     Elab.ElabTI32,
@@ -76,7 +76,7 @@ assert(while_expr == Elab.ElabExprLoop(
                     Elab.ElabInt("1", Elab.ElabTI32)
                 )
             ),
-            Elab.ElabLoopUpdate(
+            Elab.ElabCarryUpdate(
                 "loop.sum.carries.carry.2",
                 Elab.ElabExprAdd(
                     Elab.ElabTI32,
@@ -85,7 +85,7 @@ assert(while_expr == Elab.ElabExprLoop(
                 )
             ),
         },
-        Elab.ElabLoopExprEndOnly,
+        Elab.ElabExprEndOnly,
         Elab.ElabBindingExpr(Elab.ElabLoopCarry("loop.sum", "loop.sum.carries.carry.2", "acc", Elab.ElabTI32))
     ),
     Elab.ElabTI32
@@ -115,15 +115,15 @@ local break_loop = one_loop_stmt(
     ),
     "loop.break"
 )
-assert(break_loop == Elab.ElabLoopWhileStmt(
+assert(break_loop == Elab.ElabWhileStmt(
     "loop.break",
     {
-        Elab.ElabLoopCarryPort("loop.break.carries.carry.1", "i", Elab.ElabTI32, Elab.ElabInt("0", Elab.ElabTI32)),
+        Elab.ElabCarryPort("loop.break.carries.carry.1", "i", Elab.ElabTI32, Elab.ElabInt("0", Elab.ElabTI32)),
     },
     Elab.ElabBool(true, Elab.ElabTBool),
     { Elab.ElabBreak },
     {
-        Elab.ElabLoopUpdate(
+        Elab.ElabCarryUpdate(
             "loop.break.carries.carry.1",
             Elab.ElabExprAdd(
                 Elab.ElabTI32,
@@ -143,15 +143,15 @@ local continue_loop = one_loop_stmt(
     ),
     "loop.continue"
 )
-assert(continue_loop == Elab.ElabLoopWhileStmt(
+assert(continue_loop == Elab.ElabWhileStmt(
     "loop.continue",
     {
-        Elab.ElabLoopCarryPort("loop.continue.carries.carry.1", "i", Elab.ElabTI32, Elab.ElabInt("0", Elab.ElabTI32)),
+        Elab.ElabCarryPort("loop.continue.carries.carry.1", "i", Elab.ElabTI32, Elab.ElabInt("0", Elab.ElabTI32)),
     },
     Elab.ElabBool(true, Elab.ElabTBool),
     { Elab.ElabContinue },
     {
-        Elab.ElabLoopUpdate(
+        Elab.ElabCarryUpdate(
             "loop.continue.carries.carry.1",
             Elab.ElabExprAdd(
                 Elab.ElabTI32,
@@ -174,17 +174,17 @@ local break_value_loop = one_loop_expr(
     "loop.break_value"
 )
 assert(break_value_loop == Elab.ElabExprLoop(
-    Elab.ElabLoopWhileExpr(
+    Elab.ElabWhileExpr(
         "loop.break_value",
         {
-            Elab.ElabLoopCarryPort("loop.break_value.carries.carry.1", "i", Elab.ElabTI32, Elab.ElabInt("0", Elab.ElabTI32)),
+            Elab.ElabCarryPort("loop.break_value.carries.carry.1", "i", Elab.ElabTI32, Elab.ElabInt("0", Elab.ElabTI32)),
         },
         Elab.ElabBool(true, Elab.ElabTBool),
         {
             Elab.ElabBreakValue(Elab.ElabInt("7", Elab.ElabTI32)),
         },
         {
-            Elab.ElabLoopUpdate(
+            Elab.ElabCarryUpdate(
                 "loop.break_value.carries.carry.1",
                 Elab.ElabExprAdd(
                     Elab.ElabTI32,
@@ -193,7 +193,7 @@ assert(break_value_loop == Elab.ElabExprLoop(
                 )
             ),
         },
-        Elab.ElabLoopExprEndOrBreakValue,
+        Elab.ElabExprEndOrBreakValue,
         Elab.ElabBindingExpr(Elab.ElabLoopCarry("loop.break_value", "loop.break_value.carries.carry.1", "i", Elab.ElabTI32))
     ),
     Elab.ElabTI32
@@ -216,18 +216,18 @@ local over_stmt = one_loop_stmt(
     ),
     "loop.over"
 )
-assert(over_stmt == Elab.ElabLoopOverStmt(
+assert(over_stmt == Elab.ElabOverStmt(
     "loop.over",
-    Elab.ElabLoopIndexPort("i", Elab.ElabTIndex),
+    Elab.ElabIndexPort("i", Elab.ElabTIndex),
     Elab.ElabDomainRange(
         Elab.ElabBindingExpr(Elab.ElabLocalValue("env.n", "n", Elab.ElabTI32))
     ),
     {
-        Elab.ElabLoopCarryPort("loop.over.carries.carry.1", "acc", Elab.ElabTI32, Elab.ElabInt("0", Elab.ElabTI32)),
+        Elab.ElabCarryPort("loop.over.carries.carry.1", "acc", Elab.ElabTI32, Elab.ElabInt("0", Elab.ElabTI32)),
     },
     {},
     {
-        Elab.ElabLoopUpdate(
+        Elab.ElabCarryUpdate(
             "loop.over.carries.carry.1",
             Elab.ElabExprAdd(
                 Elab.ElabTI32,

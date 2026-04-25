@@ -3898,13 +3898,13 @@ function M.Define(T)
             local start = Back.BackExprPlan({
                 Back.BackCmdConstInt(Back.BackValId(path .. ".start"), one_scalar(loop.index_port.ty), "0"),
             }, Back.BackValId(path .. ".start"), one_scalar(loop.index_port.ty))
-            if loop.exit == Sem.SemLoopExprEndOnly then
+            if loop.exit == Sem.SemExprEndOnly then
                 return pvm.once(build_over_expr_end_only_plan(loop, path, start, one_plain_expr(self.stop, path .. ".stop", layout_env, residence_plan), layout_env, residence_plan))
             end
             return pvm.once(build_over_expr_plan(loop, path, start, one_plain_expr(self.stop, path .. ".stop", layout_env, residence_plan), layout_env, residence_plan))
         end,
         [Sem.SemDomainRange2] = function(self, loop, path, layout_env, residence_plan)
-            if loop.exit == Sem.SemLoopExprEndOnly then
+            if loop.exit == Sem.SemExprEndOnly then
                 return pvm.once(build_over_expr_end_only_plan(loop, path, one_plain_expr(self.start, path .. ".start", layout_env, residence_plan), one_plain_expr(self.stop, path .. ".stop", layout_env, residence_plan), layout_env, residence_plan))
             end
             return pvm.once(build_over_expr_plan(loop, path, one_plain_expr(self.start, path .. ".start", layout_env, residence_plan), one_plain_expr(self.stop, path .. ".stop", layout_env, residence_plan), layout_env, residence_plan))
@@ -3915,7 +3915,7 @@ function M.Define(T)
                 Back.BackCmdConstInt(Back.BackValId(path .. ".start"), one_scalar(loop.index_port.ty), "0"),
             }, Back.BackValId(path .. ".start"), one_scalar(loop.index_port.ty))
             local stop = Back.BackExprPlan({}, view.len, Back.BackIndex)
-            if loop.exit == Sem.SemLoopExprEndOnly then
+            if loop.exit == Sem.SemExprEndOnly then
                 return pvm.once(prefix_expr_plan_with_view(view, build_over_expr_end_only_plan(loop, path, start, stop, layout_env, residence_plan)))
             end
             return pvm.once(prefix_expr_plan_with_view(view, build_over_expr_plan(loop, path, start, stop, layout_env, residence_plan)))
@@ -3930,7 +3930,7 @@ function M.Define(T)
             }, Back.BackValId(path .. ".start"), one_scalar(loop.index_port.ty))
             local stop = Back.BackExprPlan({}, len, Back.BackIndex)
             local plan
-            if loop.exit == Sem.SemLoopExprEndOnly then
+            if loop.exit == Sem.SemExprEndOnly then
                 plan = build_over_expr_end_only_plan(loop, path, start, stop, layout_env, residence_plan)
             else
                 plan = build_over_expr_plan(loop, path, start, stop, layout_env, residence_plan)
@@ -3945,13 +3945,13 @@ function M.Define(T)
             local start = Back.BackExprPlan({
                 Back.BackCmdConstInt(Back.BackValId(path .. ".start"), one_scalar(loop.index_port.ty), "0"),
             }, Back.BackValId(path .. ".start"), one_scalar(loop.index_port.ty))
-            if loop.exit == Sem.SemLoopExprEndOnly then
+            if loop.exit == Sem.SemExprEndOnly then
                 return pvm.once(build_over_expr_end_only_into_addr(loop, addr, path, start, one_plain_expr(self.stop, path .. ".stop", layout_env, residence_plan), layout_env, residence_plan))
             end
             return pvm.once(build_over_expr_into_addr(loop, addr, path, start, one_plain_expr(self.stop, path .. ".stop", layout_env, residence_plan), layout_env, residence_plan))
         end,
         [Sem.SemDomainRange2] = function(self, loop, addr, path, layout_env, residence_plan)
-            if loop.exit == Sem.SemLoopExprEndOnly then
+            if loop.exit == Sem.SemExprEndOnly then
                 return pvm.once(build_over_expr_end_only_into_addr(loop, addr, path, one_plain_expr(self.start, path .. ".start", layout_env, residence_plan), one_plain_expr(self.stop, path .. ".stop", layout_env, residence_plan), layout_env, residence_plan))
             end
             return pvm.once(build_over_expr_into_addr(loop, addr, path, one_plain_expr(self.start, path .. ".start", layout_env, residence_plan), one_plain_expr(self.stop, path .. ".stop", layout_env, residence_plan), layout_env, residence_plan))
@@ -3962,7 +3962,7 @@ function M.Define(T)
                 Back.BackCmdConstInt(Back.BackValId(path .. ".start"), one_scalar(loop.index_port.ty), "0"),
             }, Back.BackValId(path .. ".start"), one_scalar(loop.index_port.ty))
             local stop = Back.BackExprPlan({}, view.len, Back.BackIndex)
-            if loop.exit == Sem.SemLoopExprEndOnly then
+            if loop.exit == Sem.SemExprEndOnly then
                 return pvm.once(prefix_addr_plan_with_view(view, build_over_expr_end_only_into_addr(loop, addr, path, start, stop, layout_env, residence_plan)))
             end
             return pvm.once(prefix_addr_plan_with_view(view, build_over_expr_into_addr(loop, addr, path, start, stop, layout_env, residence_plan)))
@@ -3977,7 +3977,7 @@ function M.Define(T)
             }, Back.BackValId(path .. ".start"), one_scalar(loop.index_port.ty))
             local stop = Back.BackExprPlan({}, len, Back.BackIndex)
             local plan
-            if loop.exit == Sem.SemLoopExprEndOnly then
+            if loop.exit == Sem.SemExprEndOnly then
                 plan = build_over_expr_end_only_into_addr(loop, addr, path, start, stop, layout_env, residence_plan)
             else
                 plan = build_over_expr_into_addr(loop, addr, path, start, stop, layout_env, residence_plan)
@@ -3991,7 +3991,7 @@ function M.Define(T)
     })
 
     lower_loop_stmt_plan = pvm.phase("sem_to_back_loop_stmt", {
-        [Sem.SemLoopWhileStmt] = function(self, path, layout_env, residence_plan)
+        [Sem.SemWhileStmt] = function(self, path, layout_env, residence_plan)
             local header_block = Back.BackBlockId(path .. ".header.block")
             local body_block = Back.BackBlockId(path .. ".body.block")
             local continue_block = Back.BackBlockId(path .. ".continue.block")
@@ -4065,13 +4065,13 @@ function M.Define(T)
             emit_aliases_for_loop_bindings(cmds, self.carries, exit_params, self.loop_id, residence_plan)
             return pvm.once(Back.BackStmtPlan(cmds, Back.BackFallsThrough))
         end,
-        [Sem.SemLoopOverStmt] = function(self, path, layout_env, residence_plan)
+        [Sem.SemOverStmt] = function(self, path, layout_env, residence_plan)
             return pvm.once(one_over_stmt_domain(self.domain, self, path, layout_env, residence_plan))
         end,
-        [Sem.SemLoopWhileExpr] = function()
+        [Sem.SemWhileExpr] = function()
             error("sem_to_back_loop_stmt: expected stmt loop, got expr loop")
         end,
-        [Sem.SemLoopOverExpr] = function()
+        [Sem.SemOverExpr] = function()
             error("sem_to_back_loop_stmt: expected stmt loop, got expr loop")
         end,
     })
@@ -4241,8 +4241,8 @@ function M.Define(T)
     end
 
     lower_loop_expr_plan = pvm.phase("sem_to_back_loop_expr", {
-        [Sem.SemLoopWhileExpr] = function(self, path, layout_env, residence_plan)
-            if self.exit == Sem.SemLoopExprEndOnly then
+        [Sem.SemWhileExpr] = function(self, path, layout_env, residence_plan)
+            if self.exit == Sem.SemExprEndOnly then
                 return pvm.once(build_while_expr_end_only_plan(self, path, layout_env, residence_plan))
             end
             local result_ty = one_sem_expr_type(self.result)
@@ -4357,20 +4357,20 @@ function M.Define(T)
             cmds[#cmds + 1] = Back.BackCmdSwitchToBlock(join_block)
             return pvm.once(Back.BackExprPlan(cmds, dst, result_back_ty))
         end,
-        [Sem.SemLoopOverExpr] = function(self, path, layout_env, residence_plan)
+        [Sem.SemOverExpr] = function(self, path, layout_env, residence_plan)
             return pvm.once(one_over_expr_domain(self.domain, self, path, layout_env, residence_plan))
         end,
-        [Sem.SemLoopWhileStmt] = function()
+        [Sem.SemWhileStmt] = function()
             error("sem_to_back_loop_expr: expected expr loop, got stmt loop")
         end,
-        [Sem.SemLoopOverStmt] = function()
+        [Sem.SemOverStmt] = function()
             error("sem_to_back_loop_expr: expected expr loop, got stmt loop")
         end,
     })
 
     lower_loop_expr_into_addr = pvm.phase("sem_to_back_loop_expr_into_addr", {
-        [Sem.SemLoopWhileExpr] = function(self, addr, path, layout_env, residence_plan)
-            if self.exit == Sem.SemLoopExprEndOnly then
+        [Sem.SemWhileExpr] = function(self, addr, path, layout_env, residence_plan)
+            if self.exit == Sem.SemExprEndOnly then
                 return pvm.once(build_while_expr_end_only_into_addr(self, addr, path, layout_env, residence_plan))
             end
             local result_ty = one_sem_expr_type(self.result)
@@ -4484,13 +4484,13 @@ function M.Define(T)
             end
             return pvm.once(addr_writes(cmds))
         end,
-        [Sem.SemLoopOverExpr] = function(self, addr, path, layout_env, residence_plan)
+        [Sem.SemOverExpr] = function(self, addr, path, layout_env, residence_plan)
             return pvm.once(one_over_expr_into_addr_domain(self.domain, self, addr, path, layout_env, residence_plan))
         end,
-        [Sem.SemLoopWhileStmt] = function()
+        [Sem.SemWhileStmt] = function()
             error("sem_to_back_loop_expr_into_addr: expected expr loop, got stmt loop")
         end,
-        [Sem.SemLoopOverStmt] = function()
+        [Sem.SemOverStmt] = function()
             error("sem_to_back_loop_expr_into_addr: expected expr loop, got stmt loop")
         end,
     })

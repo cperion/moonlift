@@ -20,6 +20,8 @@ function M.Define(T)
     local deref_result_type
     local path_binding_matches
     local lower_intrinsic
+    local intrinsic_result_type
+    local lower_intrinsic_args
 
     local function one_type(node, env)
         return pvm.one(type_lower(node, env))
@@ -35,6 +37,14 @@ function M.Define(T)
 
     local function one_expr_type(node)
         return pvm.one(expr_type(node))
+    end
+
+    local function one_intrinsic_result_type(node, expected_ty, args)
+        return pvm.one(intrinsic_result_type(node, expected_ty, args))
+    end
+
+    local function one_intrinsic_args(node, args, env, expected_ty)
+        return pvm.one(lower_intrinsic_args(node, args, env, expected_ty))
     end
 
     local function one_place_type(node)
@@ -472,6 +482,78 @@ function M.Define(T)
         [Surf.SurfAssume] = function() return pvm.once(Elab.ElabAssume) end,
     })
 
+    local function first_arg_or_expected_result(_, expected_ty, args)
+        return pvm.once(expected_ty or (args[1] ~= nil and one_expr_type(args[1]) or Elab.ElabTVoid))
+    end
+
+    intrinsic_result_type = pvm.phase("surface_to_elab_intrinsic_result_type", {
+        [Surf.SurfPopcount] = first_arg_or_expected_result,
+        [Surf.SurfClz] = first_arg_or_expected_result,
+        [Surf.SurfCtz] = first_arg_or_expected_result,
+        [Surf.SurfRotl] = first_arg_or_expected_result,
+        [Surf.SurfRotr] = first_arg_or_expected_result,
+        [Surf.SurfBswap] = first_arg_or_expected_result,
+        [Surf.SurfFma] = first_arg_or_expected_result,
+        [Surf.SurfSqrt] = first_arg_or_expected_result,
+        [Surf.SurfAbs] = first_arg_or_expected_result,
+        [Surf.SurfFloor] = first_arg_or_expected_result,
+        [Surf.SurfCeil] = first_arg_or_expected_result,
+        [Surf.SurfTruncFloat] = first_arg_or_expected_result,
+        [Surf.SurfRound] = first_arg_or_expected_result,
+        [Surf.SurfTrap] = function() return pvm.once(Elab.ElabTVoid) end,
+        [Surf.SurfAssume] = function() return pvm.once(Elab.ElabTVoid) end,
+    })
+
+    local function expect_intrinsic_arg_count(args, expected, name)
+        if #args ~= expected then
+            error("surface_to_elab_expr: intrinsic '" .. name .. "' expects " .. expected .. " args, got " .. #args)
+        end
+    end
+
+    local function unary_intrinsic_args(name)
+        return function(_, args, env, expected_ty)
+            expect_intrinsic_arg_count(args, 1, name)
+            return pvm.once({ one_expr(args[1], env, expected_ty) })
+        end
+    end
+
+    local function rotate_intrinsic_args(name)
+        return function(_, args, env, expected_ty)
+            expect_intrinsic_arg_count(args, 2, name)
+            local value = one_expr(args[1], env, expected_ty)
+            return pvm.once({ value, one_expr(args[2], env, one_expr_type(value)) })
+        end
+    end
+
+    lower_intrinsic_args = pvm.phase("surface_to_elab_intrinsic_args", {
+        [Surf.SurfPopcount] = unary_intrinsic_args("popcount"),
+        [Surf.SurfClz] = unary_intrinsic_args("clz"),
+        [Surf.SurfCtz] = unary_intrinsic_args("ctz"),
+        [Surf.SurfRotl] = rotate_intrinsic_args("rotl"),
+        [Surf.SurfRotr] = rotate_intrinsic_args("rotr"),
+        [Surf.SurfBswap] = unary_intrinsic_args("bswap"),
+        [Surf.SurfFma] = function(_, args, env, expected_ty)
+            expect_intrinsic_arg_count(args, 3, "fma")
+            local a = one_expr(args[1], env, expected_ty)
+            local ty = one_expr_type(a)
+            return pvm.once({ a, one_expr(args[2], env, ty), one_expr(args[3], env, ty) })
+        end,
+        [Surf.SurfSqrt] = unary_intrinsic_args("sqrt"),
+        [Surf.SurfAbs] = unary_intrinsic_args("abs"),
+        [Surf.SurfFloor] = unary_intrinsic_args("floor"),
+        [Surf.SurfCeil] = unary_intrinsic_args("ceil"),
+        [Surf.SurfTruncFloat] = unary_intrinsic_args("trunc_float"),
+        [Surf.SurfRound] = unary_intrinsic_args("round"),
+        [Surf.SurfTrap] = function(_, args)
+            expect_intrinsic_arg_count(args, 0, "trap")
+            return pvm.once({})
+        end,
+        [Surf.SurfAssume] = function(_, args, env)
+            expect_intrinsic_arg_count(args, 1, "assume")
+            return pvm.once({ one_expr(args[1], env, Elab.ElabTBool) })
+        end,
+    })
+
     place_type = pvm.phase("elab_place_type", {
         [Elab.ElabPlaceBinding] = function(self) return pvm.once(binding_ty(self.binding)) end,
         [Elab.ElabPlaceDeref] = function(self) return pvm.once(self.elem) end,
@@ -648,11 +730,8 @@ function M.Define(T)
         [Surf.SurfExprBitcastTo] = cast_handler(Elab.ElabExprBitcastTo),
         [Surf.SurfExprSatCastTo] = cast_handler(Elab.ElabExprSatCastTo),
         [Surf.SurfExprIntrinsicCall] = function(self, env, expected_ty)
-            local args = {}
-            for i = 1, #self.args do
-                args[i] = one_expr(self.args[i], env, nil)
-            end
-            local ty = expected_ty or (args[1] ~= nil and one_expr_type(args[1]) or Elab.ElabTVoid)
+            local args = one_intrinsic_args(self.op, self.args, env, expected_ty)
+            local ty = one_intrinsic_result_type(self.op, expected_ty, args)
             return pvm.once(Elab.ElabExprIntrinsicCall(one_intrinsic(self.op), ty, args))
         end,
         [Surf.SurfCall] = function(self, env)

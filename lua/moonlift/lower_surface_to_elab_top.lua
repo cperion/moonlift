@@ -42,8 +42,8 @@ function M.Define(T)
         return pvm.one(lower_expr(node, env, expected_ty))
     end
 
-    local function one_stmt(node, env, path)
-        return pvm.one(lower_stmt(node, env, path))
+    local function one_stmt(node, env, path, return_ty)
+        return pvm.one(lower_stmt(node, env, path, false, nil, return_ty))
     end
 
     local function one_param(node, env)
@@ -285,22 +285,23 @@ function M.Define(T)
             params[i] = one_param(self.params[i], module_env)
             param_entries[i] = one_param_entry(self.params[i], module_env, i - 1)
         end
+        local result_ty = one_type(self.result, module_env)
         local body_env = extend_env_values(module_env, param_entries)
         local body = {}
         local current_env = body_env
         for i = 1, #self.body do
             local stmt_path = "func." .. self.name .. ".stmt." .. i
             local stmt = with_path(stmt_path, function()
-                return one_stmt(self.body[i], current_env, stmt_path)
+                return one_stmt(self.body[i], current_env, stmt_path, result_ty)
             end)
             body[i] = stmt
             local effect = pvm.one(api.stmt_env_effect(stmt))
             current_env = pvm.one(api.apply_stmt_env_effect(effect, current_env))
         end
         if exported then
-            return Elab.ElabFuncExport(self.name, params, one_type(self.result, module_env), body)
+            return Elab.ElabFuncExport(self.name, params, result_ty, body)
         end
-        return Elab.ElabFuncLocal(self.name, params, one_type(self.result, module_env), body)
+        return Elab.ElabFuncLocal(self.name, params, result_ty, body)
     end
 
     lower_func = pvm.phase("surface_to_elab_func", {

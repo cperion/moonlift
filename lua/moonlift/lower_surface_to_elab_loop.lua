@@ -34,8 +34,8 @@ function M.Define(T)
         return pvm.one(lower_type(node, env))
     end
 
-    local function one_expr(node, env, expected_ty, allow_bare_break, break_value_ty)
-        return pvm.one(lower_expr(node, env, expected_ty, allow_bare_break, break_value_ty))
+    local function one_expr(node, env, expected_ty, allow_bare_break, break_value_ty, return_ty)
+        return pvm.one(lower_expr(node, env, expected_ty, allow_bare_break, break_value_ty, return_ty))
     end
 
     local function elem_of_ptr(ty)
@@ -54,16 +54,16 @@ function M.Define(T)
         return pvm.one(base_lower_place(node, env))
     end
 
-    local function one_stmt(node, env, path, allow_bare_break, break_value_ty)
-        return pvm.one(lower_stmt(node, env, path, allow_bare_break, break_value_ty))
+    local function one_stmt(node, env, path, allow_bare_break, break_value_ty, return_ty)
+        return pvm.one(lower_stmt(node, env, path, allow_bare_break, break_value_ty, return_ty))
     end
 
-    local function one_loop_stmt(node, env, path)
-        return pvm.one(lower_loop_stmt(node, env, path))
+    local function one_loop_stmt(node, env, path, return_ty)
+        return pvm.one(lower_loop_stmt(node, env, path, return_ty))
     end
 
-    local function one_loop_expr(node, env, path)
-        return pvm.one(lower_loop_expr(node, env, path))
+    local function one_loop_expr(node, env, path, return_ty)
+        return pvm.one(lower_loop_expr(node, env, path, return_ty))
     end
 
     local function one_carry(node, env, loop_id, port_id)
@@ -74,12 +74,12 @@ function M.Define(T)
         return pvm.one(lower_loop_update(node, env, loop_bindings))
     end
 
-    local function one_switch_stmt_arm(node, env, path, key_expected_ty, allow_bare_break, break_value_ty)
-        return pvm.one(lower_switch_stmt_arm(node, env, path, key_expected_ty, allow_bare_break, break_value_ty))
+    local function one_switch_stmt_arm(node, env, path, key_expected_ty, allow_bare_break, break_value_ty, return_ty)
+        return pvm.one(lower_switch_stmt_arm(node, env, path, key_expected_ty, allow_bare_break, break_value_ty, return_ty))
     end
 
-    local function one_switch_expr_arm(node, env, path, key_expected_ty, expected_ty, allow_bare_break, break_value_ty)
-        return pvm.one(lower_switch_expr_arm(node, env, path, key_expected_ty, expected_ty, allow_bare_break, break_value_ty))
+    local function one_switch_expr_arm(node, env, path, key_expected_ty, expected_ty, allow_bare_break, break_value_ty, return_ty)
+        return pvm.one(lower_switch_expr_arm(node, env, path, key_expected_ty, expected_ty, allow_bare_break, break_value_ty, return_ty))
     end
 
     local function one_stmt_effect(node)
@@ -161,13 +161,13 @@ function M.Define(T)
         return pvm.with(env, { values = values })
     end
 
-    local function lower_stmt_list(stmts, env, base_path, allow_bare_break, break_value_ty)
+    local function lower_stmt_list(stmts, env, base_path, allow_bare_break, break_value_ty, return_ty)
         local out = {}
         local current_env = env
         for i = 1, #stmts do
             local stmt_path = scoped_path(base_path, "stmt." .. i)
             local stmt = with_path(stmt_path, function()
-                return one_stmt(stmts[i], current_env, stmt_path, allow_bare_break, break_value_ty)
+                return one_stmt(stmts[i], current_env, stmt_path, allow_bare_break, break_value_ty, return_ty)
             end)
             out[i] = stmt
             current_env = apply_effect(one_stmt_effect(stmt), current_env)
@@ -203,10 +203,10 @@ function M.Define(T)
 
     lower_loop_expr_exit_place = pvm.phase("surface_to_elab_loop_expr_exit_place", {
         [Surf.SurfPlaceName] = function()
-            return pvm.once(Elab.ElabLoopExprEndOnly)
+            return pvm.once(Elab.ElabExprEndOnly)
         end,
         [Surf.SurfPlacePath] = function()
-            return pvm.once(Elab.ElabLoopExprEndOnly)
+            return pvm.once(Elab.ElabExprEndOnly)
         end,
         [Surf.SurfPlaceDeref] = function(self)
             return pvm.once(one_loop_expr_exit_expr(self.base))
@@ -223,12 +223,12 @@ function M.Define(T)
     })
 
     lower_loop_expr_exit_expr = pvm.phase("surface_to_elab_loop_expr_exit_expr", {
-        [Surf.SurfInt] = function() return pvm.once(Elab.ElabLoopExprEndOnly) end,
-        [Surf.SurfFloat] = function() return pvm.once(Elab.ElabLoopExprEndOnly) end,
-        [Surf.SurfBool] = function() return pvm.once(Elab.ElabLoopExprEndOnly) end,
-        [Surf.SurfNil] = function() return pvm.once(Elab.ElabLoopExprEndOnly) end,
-        [Surf.SurfNameRef] = function() return pvm.once(Elab.ElabLoopExprEndOnly) end,
-        [Surf.SurfPathRef] = function() return pvm.once(Elab.ElabLoopExprEndOnly) end,
+        [Surf.SurfInt] = function() return pvm.once(Elab.ElabExprEndOnly) end,
+        [Surf.SurfFloat] = function() return pvm.once(Elab.ElabExprEndOnly) end,
+        [Surf.SurfBool] = function() return pvm.once(Elab.ElabExprEndOnly) end,
+        [Surf.SurfNil] = function() return pvm.once(Elab.ElabExprEndOnly) end,
+        [Surf.SurfNameRef] = function() return pvm.once(Elab.ElabExprEndOnly) end,
+        [Surf.SurfPathRef] = function() return pvm.once(Elab.ElabExprEndOnly) end,
         [Surf.SurfExprDot] = function(self)
             return pvm.once(one_loop_expr_exit_expr(self.base))
         end,
@@ -335,7 +335,7 @@ function M.Define(T)
             return pvm.once(combine_exit(one_loop_expr_exit_expr(self.base), one_loop_expr_exit_expr(self.index)))
         end,
         [Surf.SurfAgg] = function(self)
-            local exit = Elab.ElabLoopExprEndOnly
+            local exit = Elab.ElabExprEndOnly
             for i = 1, #self.fields do
                 exit = combine_exit(exit, one_loop_expr_exit_expr(self.fields[i].value))
             end
@@ -362,7 +362,7 @@ function M.Define(T)
             return pvm.once(combine_exit(exit, one_loop_expr_exit_expr(self.default_expr)))
         end,
         [Surf.SurfExprLoop] = function()
-            return pvm.once(Elab.ElabLoopExprEndOnly)
+            return pvm.once(Elab.ElabExprEndOnly)
         end,
         [Surf.SurfBlockExpr] = function(self)
             return pvm.once(combine_exit(loop_expr_exit_from_stmt_list(self.stmts), one_loop_expr_exit_expr(self.result)))
@@ -395,22 +395,22 @@ function M.Define(T)
             return pvm.once(combine_exit(exit, loop_expr_exit_from_stmt_list(self.default_body)))
         end,
         [Surf.SurfReturnVoid] = function()
-            return pvm.once(Elab.ElabLoopExprEndOnly)
+            return pvm.once(Elab.ElabExprEndOnly)
         end,
         [Surf.SurfReturnValue] = function(self)
             return pvm.once(one_loop_expr_exit_expr(self.value))
         end,
         [Surf.SurfBreak] = function()
-            return pvm.once(Elab.ElabLoopExprEndOnly)
+            return pvm.once(Elab.ElabExprEndOnly)
         end,
         [Surf.SurfBreakValue] = function()
             return pvm.once(Elab.ElabExprEndOrBreakValue)
         end,
         [Surf.SurfContinue] = function()
-            return pvm.once(Elab.ElabLoopExprEndOnly)
+            return pvm.once(Elab.ElabExprEndOnly)
         end,
         [Surf.SurfStmtLoop] = function()
-            return pvm.once(Elab.ElabLoopExprEndOnly)
+            return pvm.once(Elab.ElabExprEndOnly)
         end,
     })
 
@@ -424,16 +424,16 @@ function M.Define(T)
     end
 
     local loop_stmt_env_effect = pvm.phase("elab_loop_stmt_env_effect", {
-        [Elab.ElabLoopWhileStmt] = function(self)
+        [Elab.ElabWhileStmt] = function(self)
             return pvm.once(Elab.ElabAddBindings(loop_carry_entries(self.loop_id, self.carries)))
         end,
-        [Elab.ElabLoopOverStmt] = function(self)
+        [Elab.ElabOverStmt] = function(self)
             return pvm.once(Elab.ElabAddBindings(loop_carry_entries(self.loop_id, self.carries)))
         end,
-        [Elab.ElabLoopWhileExpr] = function()
+        [Elab.ElabWhileExpr] = function()
             return pvm.once(Elab.ElabNoBinding)
         end,
-        [Elab.ElabLoopOverExpr] = function()
+        [Elab.ElabOverExpr] = function()
             return pvm.once(Elab.ElabNoBinding)
         end,
     })
@@ -492,21 +492,21 @@ function M.Define(T)
     })
 
     lower_switch_stmt_arm = pvm.phase("surface_to_elab_switch_stmt_arm", {
-        [Surf.SurfSwitchStmtArm] = function(self, env, path, key_expected_ty, allow_bare_break, break_value_ty)
+        [Surf.SurfSwitchStmtArm] = function(self, env, path, key_expected_ty, allow_bare_break, break_value_ty, return_ty)
             local key = with_path(path, function()
                 return one_expr(self.key, env, key_expected_ty, allow_bare_break, break_value_ty)
             end)
-            local body, _ = lower_stmt_list(self.body, env, scoped_path(path, "body"), allow_bare_break, break_value_ty)
+            local body, _ = lower_stmt_list(self.body, env, scoped_path(path, "body"), allow_bare_break, break_value_ty, return_ty)
             return pvm.once(Elab.ElabSwitchStmtArm(key, body))
         end,
     })
 
     lower_switch_expr_arm = pvm.phase("surface_to_elab_switch_expr_arm", {
-        [Surf.SurfSwitchExprArm] = function(self, env, path, key_expected_ty, expected_ty, allow_bare_break, break_value_ty)
+        [Surf.SurfSwitchExprArm] = function(self, env, path, key_expected_ty, expected_ty, allow_bare_break, break_value_ty, return_ty)
             local key = with_path(path, function()
                 return one_expr(self.key, env, key_expected_ty, allow_bare_break, break_value_ty)
             end)
-            local body, body_env = lower_stmt_list(self.body, env, scoped_path(path, "body"), allow_bare_break, break_value_ty)
+            local body, body_env = lower_stmt_list(self.body, env, scoped_path(path, "body"), allow_bare_break, break_value_ty, return_ty)
             local result = with_path(scoped_path(path, "result"), function()
                 return one_expr(self.result, body_env, expected_ty, allow_bare_break, break_value_ty)
             end)
@@ -515,14 +515,14 @@ function M.Define(T)
     })
 
     lower_loop_stmt = pvm.phase("surface_to_elab_loop_stmt", {
-        [Surf.SurfStmtLoopWhile] = function(self, env, path)
+        [Surf.SurfStmtLoopWhile] = function(self, env, path, return_ty)
             local base = path_or_implicit("loop.while.stmt", self, path)
             local loop_id = base
             local carries, loop_env, loop_bindings = lower_carries(self.carries, env, loop_id, scoped_path(base, "carries"))
             local cond = with_path(scoped_path(base, "cond"), function()
-                return one_expr(self.cond, loop_env, Elab.ElabTBool, true, nil)
+                return one_expr(self.cond, loop_env, Elab.ElabTBool, true, nil, return_ty)
             end)
-            local body, body_env = lower_stmt_list(self.body, loop_env, scoped_path(base, "body"), true, nil)
+            local body, body_env = lower_stmt_list(self.body, loop_env, scoped_path(base, "body"), true, nil, return_ty)
             local next_out = {}
             for i = 1, #self.next do
                 local next_path = scoped_path(base, "next." .. i)
@@ -533,7 +533,7 @@ function M.Define(T)
             return pvm.once(Elab.ElabWhileStmt(loop_id, carries, cond, body, next_out))
         end,
 
-        [Surf.SurfStmtLoopOver] = function(self, env, path)
+        [Surf.SurfStmtLoopOver] = function(self, env, path, return_ty)
             local base = path_or_implicit("loop.over.stmt", self, path)
             local loop_id = base
             local carries, loop_env, loop_bindings = lower_carries(self.carries, env, loop_id, scoped_path(base, "carries"))
@@ -543,7 +543,7 @@ function M.Define(T)
             local index_port = Elab.ElabIndexPort(self.index_name, Elab.ElabTIndex)
             local index_binding = Elab.ElabLoopIndex(loop_id, self.index_name, Elab.ElabTIndex)
             loop_env = extend_env_value(loop_env, Elab.ElabValueEntry(self.index_name, index_binding))
-            local body, body_env = lower_stmt_list(self.body, loop_env, scoped_path(base, "body"), true, nil)
+            local body, body_env = lower_stmt_list(self.body, loop_env, scoped_path(base, "body"), true, nil, return_ty)
             local next_out = {}
             for i = 1, #self.next do
                 local next_path = scoped_path(base, "next." .. i)
@@ -556,22 +556,22 @@ function M.Define(T)
     })
 
     lower_loop_expr = pvm.phase("surface_to_elab_loop_expr", {
-        [Surf.SurfExprLoopWhile] = function(self, env, path)
+        [Surf.SurfExprLoopWhile] = function(self, env, path, return_ty)
             local base = path_or_implicit("loop.while.expr.typed", self, path)
             local loop_id = base
             local carries, loop_env, loop_bindings = lower_carries(self.carries, env, loop_id, scoped_path(base, "carries"))
             local declared_ty = one_type(self.result_ty, env)
             local result = with_path(scoped_path(base, "result"), function()
-                return one_expr(self.result, loop_env, declared_ty, false, nil)
+                return one_expr(self.result, loop_env, declared_ty, false, nil, return_ty)
             end)
             local result_ty = pvm.one(expr_api.expr_type(result))
             if result_ty ~= declared_ty then
                 error("surface_to_elab_loop: typed while expr result must currently have the declared elaborated type")
             end
             local cond = with_path(scoped_path(base, "cond"), function()
-                return one_expr(self.cond, loop_env, Elab.ElabTBool, false, nil)
+                return one_expr(self.cond, loop_env, Elab.ElabTBool, false, nil, return_ty)
             end)
-            local body, body_env = lower_stmt_list(self.body, loop_env, scoped_path(base, "body"), false, declared_ty)
+            local body, body_env = lower_stmt_list(self.body, loop_env, scoped_path(base, "body"), false, declared_ty, return_ty)
             local exit = loop_expr_exit_from_stmt_list(self.body)
             local next_out = {}
             for i = 1, #self.next do
@@ -586,25 +586,25 @@ function M.Define(T)
             ))
         end,
 
-        [Surf.SurfExprLoopOver] = function(self, env, path)
+        [Surf.SurfExprLoopOver] = function(self, env, path, return_ty)
             local base = path_or_implicit("loop.over.expr.typed", self, path)
             local loop_id = base
             local carries, loop_env, loop_bindings = lower_carries(self.carries, env, loop_id, scoped_path(base, "carries"))
             local domain = with_path(scoped_path(base, "domain"), function()
                 return one_domain(self.domain, loop_env)
             end)
-            local index_port = Elab.ElabLoopIndexPort(self.index_name, Elab.ElabTIndex)
+            local index_port = Elab.ElabIndexPort(self.index_name, Elab.ElabTIndex)
             local index_binding = Elab.ElabLoopIndex(loop_id, self.index_name, Elab.ElabTIndex)
             loop_env = extend_env_value(loop_env, Elab.ElabValueEntry(self.index_name, index_binding))
             local declared_ty = one_type(self.result_ty, env)
             local result = with_path(scoped_path(base, "result"), function()
-                return one_expr(self.result, loop_env, declared_ty, false, nil)
+                return one_expr(self.result, loop_env, declared_ty, false, nil, return_ty)
             end)
             local result_ty = pvm.one(expr_api.expr_type(result))
             if result_ty ~= declared_ty then
                 error("surface_to_elab_loop: typed over expr result must currently have the declared elaborated type")
             end
-            local body, body_env = lower_stmt_list(self.body, loop_env, scoped_path(base, "body"), false, declared_ty)
+            local body, body_env = lower_stmt_list(self.body, loop_env, scoped_path(base, "body"), false, declared_ty, return_ty)
             local exit = loop_expr_exit_from_stmt_list(self.body)
             local next_out = {}
             for i = 1, #self.next do
@@ -664,26 +664,26 @@ function M.Define(T)
         [Surf.SurfExprSatCastTo] = delegate_base_expr,
         [Surf.SurfExprIntrinsicCall] = delegate_base_expr,
         [Surf.SurfSelectExpr] = delegate_base_expr,
-        [Surf.SurfIfExpr] = function(self, env, expected_ty, allow_bare_break, break_value_ty)
-            local cond = one_expr(self.cond, env, Elab.ElabTBool, allow_bare_break, break_value_ty)
-            local then_expr = one_expr(self.then_expr, env, expected_ty, allow_bare_break, break_value_ty)
+        [Surf.SurfIfExpr] = function(self, env, expected_ty, allow_bare_break, break_value_ty, return_ty)
+            local cond = one_expr(self.cond, env, Elab.ElabTBool, allow_bare_break, break_value_ty, return_ty)
+            local then_expr = one_expr(self.then_expr, env, expected_ty, allow_bare_break, break_value_ty, return_ty)
             local then_ty = pvm.one(expr_api.expr_type(then_expr))
-            local else_expr = one_expr(self.else_expr, env, then_ty, allow_bare_break, break_value_ty)
+            local else_expr = one_expr(self.else_expr, env, then_ty, allow_bare_break, break_value_ty, return_ty)
             local else_ty = pvm.one(expr_api.expr_type(else_expr))
             if then_ty ~= else_ty then
                 error("surface_to_elab_expr: if expr branches must currently have identical elaborated types")
             end
             return pvm.once(Elab.ElabIfExpr(cond, then_expr, else_expr, then_ty))
         end,
-        [Surf.SurfSwitchExpr] = function(self, env, expected_ty, allow_bare_break, break_value_ty)
+        [Surf.SurfSwitchExpr] = function(self, env, expected_ty, allow_bare_break, break_value_ty, return_ty)
             local base = implicit_path("switch.expr", self)
-            local value = one_expr(self.value, env, nil, allow_bare_break, break_value_ty)
+            local value = one_expr(self.value, env, nil, allow_bare_break, break_value_ty, return_ty)
             local value_ty = pvm.one(expr_api.expr_type(value))
-            local default_expr = one_expr(self.default_expr, env, expected_ty, allow_bare_break, break_value_ty)
+            local default_expr = one_expr(self.default_expr, env, expected_ty, allow_bare_break, break_value_ty, return_ty)
             local result_ty = pvm.one(expr_api.expr_type(default_expr))
             local arms = {}
             for i = 1, #self.arms do
-                local arm = one_switch_expr_arm(self.arms[i], env, scoped_path(base, "arm." .. i), value_ty, result_ty, allow_bare_break, break_value_ty)
+                local arm = one_switch_expr_arm(self.arms[i], env, scoped_path(base, "arm." .. i), value_ty, result_ty, allow_bare_break, break_value_ty, return_ty)
                 local key_ty = pvm.one(expr_api.expr_type(arm.key))
                 local arm_result_ty = pvm.one(expr_api.expr_type(arm.result))
                 if key_ty ~= value_ty then
@@ -696,13 +696,13 @@ function M.Define(T)
             end
             return pvm.once(Elab.ElabSwitchExpr(value, arms, default_expr, result_ty))
         end,
-        [Surf.SurfExprLoop] = function(self, env)
-            return pvm.once(one_loop_expr(self.loop, env, implicit_path("loop.expr", self)))
+        [Surf.SurfExprLoop] = function(self, env, expected_ty, allow_bare_break, break_value_ty, return_ty)
+            return pvm.once(one_loop_expr(self.loop, env, implicit_path("loop.expr", self), return_ty))
         end,
-        [Surf.SurfBlockExpr] = function(self, env, expected_ty, allow_bare_break, break_value_ty)
+        [Surf.SurfBlockExpr] = function(self, env, expected_ty, allow_bare_break, break_value_ty, return_ty)
             local base = implicit_path("block.expr", self)
-            local stmts, block_env = lower_stmt_list(self.stmts, env, scoped_path(base, "stmts"), allow_bare_break, break_value_ty)
-            local result = one_expr(self.result, block_env, expected_ty, allow_bare_break, break_value_ty)
+            local stmts, block_env = lower_stmt_list(self.stmts, env, scoped_path(base, "stmts"), allow_bare_break, break_value_ty, return_ty)
+            local result = one_expr(self.result, block_env, expected_ty, allow_bare_break, break_value_ty, return_ty)
             return pvm.once(Elab.ElabBlockExpr(stmts, result, pvm.one(expr_api.expr_type(result))))
         end,
         [Surf.SurfClosureExpr] = function(self)
@@ -779,51 +779,51 @@ function M.Define(T)
     })
 
     lower_stmt = pvm.phase("surface_to_elab_stmt", {
-        [Surf.SurfExprStmt] = function(self, env, path, allow_bare_break, break_value_ty)
-            return pvm.once(Elab.ElabExprStmt(one_expr(self.expr, env, nil, allow_bare_break, break_value_ty)))
+        [Surf.SurfExprStmt] = function(self, env, path, allow_bare_break, break_value_ty, return_ty)
+            return pvm.once(Elab.ElabExprStmt(one_expr(self.expr, env, nil, allow_bare_break, break_value_ty, return_ty)))
         end,
-        [Surf.SurfLet] = function(self, env, path, allow_bare_break, break_value_ty)
+        [Surf.SurfLet] = function(self, env, path, allow_bare_break, break_value_ty, return_ty)
             local ty = one_type(self.ty, env)
             local id = path_or_implicit("let." .. self.name, self, path)
-            return pvm.once(Elab.ElabLet(id, self.name, ty, one_expr(self.init, env, ty, allow_bare_break, break_value_ty)))
+            return pvm.once(Elab.ElabLet(id, self.name, ty, one_expr(self.init, env, ty, allow_bare_break, break_value_ty, return_ty)))
         end,
-        [Surf.SurfVar] = function(self, env, path, allow_bare_break, break_value_ty)
+        [Surf.SurfVar] = function(self, env, path, allow_bare_break, break_value_ty, return_ty)
             local ty = one_type(self.ty, env)
             local id = path_or_implicit("var." .. self.name, self, path)
-            return pvm.once(Elab.ElabVar(id, self.name, ty, one_expr(self.init, env, ty, allow_bare_break, break_value_ty)))
+            return pvm.once(Elab.ElabVar(id, self.name, ty, one_expr(self.init, env, ty, allow_bare_break, break_value_ty, return_ty)))
         end,
-        [Surf.SurfSet] = function(self, env, path, allow_bare_break, break_value_ty)
+        [Surf.SurfSet] = function(self, env, path, allow_bare_break, break_value_ty, return_ty)
             local place = one_place(self.place, env)
-            return pvm.once(Elab.ElabSet(place, one_expr(self.value, env, pvm.one(expr_api.place_type(place)), allow_bare_break, break_value_ty)))
+            return pvm.once(Elab.ElabSet(place, one_expr(self.value, env, pvm.one(expr_api.place_type(place)), allow_bare_break, break_value_ty, return_ty)))
         end,
-        [Surf.SurfIf] = function(self, env, path, allow_bare_break, break_value_ty)
+        [Surf.SurfIf] = function(self, env, path, allow_bare_break, break_value_ty, return_ty)
             local base = path_or_implicit("if.stmt", self, path)
-            local cond = one_expr(self.cond, env, Elab.ElabTBool, allow_bare_break, break_value_ty)
-            local then_body, _ = lower_stmt_list(self.then_body, env, scoped_path(base, "then"), allow_bare_break, break_value_ty)
-            local else_body, _ = lower_stmt_list(self.else_body, env, scoped_path(base, "else"), allow_bare_break, break_value_ty)
+            local cond = one_expr(self.cond, env, Elab.ElabTBool, allow_bare_break, break_value_ty, return_ty)
+            local then_body, _ = lower_stmt_list(self.then_body, env, scoped_path(base, "then"), allow_bare_break, break_value_ty, return_ty)
+            local else_body, _ = lower_stmt_list(self.else_body, env, scoped_path(base, "else"), allow_bare_break, break_value_ty, return_ty)
             return pvm.once(Elab.ElabIf(cond, then_body, else_body))
         end,
-        [Surf.SurfSwitch] = function(self, env, path, allow_bare_break, break_value_ty)
+        [Surf.SurfSwitch] = function(self, env, path, allow_bare_break, break_value_ty, return_ty)
             local base = path_or_implicit("switch.stmt", self, path)
-            local value = one_expr(self.value, env, nil, allow_bare_break, break_value_ty)
+            local value = one_expr(self.value, env, nil, allow_bare_break, break_value_ty, return_ty)
             local value_ty = pvm.one(expr_api.expr_type(value))
             local arms = {}
             for i = 1, #self.arms do
-                local arm = one_switch_stmt_arm(self.arms[i], env, scoped_path(base, "arm." .. i), value_ty, allow_bare_break, break_value_ty)
+                local arm = one_switch_stmt_arm(self.arms[i], env, scoped_path(base, "arm." .. i), value_ty, allow_bare_break, break_value_ty, return_ty)
                 local key_ty = pvm.one(expr_api.expr_type(arm.key))
                 if key_ty ~= value_ty then
                     error("surface_to_elab_stmt: switch arm key must currently have the same elaborated type as the switch value")
                 end
                 arms[i] = arm
             end
-            local default_body, _ = lower_stmt_list(self.default_body, env, scoped_path(base, "default"), allow_bare_break, break_value_ty)
+            local default_body, _ = lower_stmt_list(self.default_body, env, scoped_path(base, "default"), allow_bare_break, break_value_ty, return_ty)
             return pvm.once(Elab.ElabSwitch(value, arms, default_body))
         end,
         [Surf.SurfReturnVoid] = function()
             return pvm.once(Elab.ElabReturnVoid)
         end,
-        [Surf.SurfReturnValue] = function(self, env, path, allow_bare_break, break_value_ty)
-            return pvm.once(Elab.ElabReturnValue(one_expr(self.value, env, nil, allow_bare_break, break_value_ty)))
+        [Surf.SurfReturnValue] = function(self, env, path, allow_bare_break, break_value_ty, return_ty)
+            return pvm.once(Elab.ElabReturnValue(one_expr(self.value, env, return_ty, allow_bare_break, break_value_ty, return_ty)))
         end,
         [Surf.SurfBreak] = function(self, env, path, allow_bare_break, break_value_ty)
             if break_value_ty ~= nil then
@@ -834,11 +834,11 @@ function M.Define(T)
             end
             return pvm.once(Elab.ElabBreak)
         end,
-        [Surf.SurfBreakValue] = function(self, env, path, allow_bare_break, break_value_ty)
+        [Surf.SurfBreakValue] = function(self, env, path, allow_bare_break, break_value_ty, return_ty)
             if break_value_ty == nil then
                 error("surface_to_elab_stmt: valued break is only valid inside an expression loop body")
             end
-            local value = one_expr(self.value, env, break_value_ty, false, break_value_ty)
+            local value = one_expr(self.value, env, break_value_ty, false, break_value_ty, return_ty)
             local value_ty = pvm.one(expr_api.expr_type(value))
             if value_ty ~= break_value_ty then
                 error("surface_to_elab_stmt: valued break must currently have the loop expression result type")
@@ -848,8 +848,8 @@ function M.Define(T)
         [Surf.SurfContinue] = function()
             return pvm.once(Elab.ElabContinue)
         end,
-        [Surf.SurfStmtLoop] = function(self, env, path)
-            return pvm.once(Elab.ElabStmtLoop(one_loop_stmt(self.loop, env, path_or_implicit("loop.stmt", self, path))))
+        [Surf.SurfStmtLoop] = function(self, env, path, allow_bare_break, break_value_ty, return_ty)
+            return pvm.once(Elab.ElabStmtLoop(one_loop_stmt(self.loop, env, path_or_implicit("loop.stmt", self, path), return_ty)))
         end,
     })
 

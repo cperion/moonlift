@@ -121,11 +121,12 @@ They should be treated as **ASDL/phase design work first**, not as backend-only 
 - [x] replace or extend the current simple slice/view story with explicit view forms that can carry at least base + length + stride (and offset/windowing if needed)
 - [x] make bounded/zip loops consume those explicit views rather than rediscovering shape from arbitrary exprs late in `Sem -> Back`
 - [x] make restrided/interleaved views from existing views representable as ASDL values instead of peeling raw variant fields in lowering
-- [ ] make row-base / segment-base / interleaved-base sharing representable in ASDL instead of hoping later lowering rediscovers repeated scalar arithmetic
+- [x] make row-base sharing representable as ASDL (`SemViewRowBase`) and wire it through residence/layout/const-fold/backend view lowering
+- [ ] make segment-base / richer interleaved-base sharing representable in ASDL instead of hoping later lowering rediscovers repeated scalar arithmetic
 
 ### E. Preserve code-shape-sensitive control/math structure explicitly
 
-- [ ] preserve first-class switch structure longer so dense/sparse dispatch is not collapsed too early into compare chains
+- [x] preserve first-class switch structure longer so dense/sparse dispatch is not collapsed too early into compare chains
 - [x] add a first-class authored/semantic scalar choose/select form when branchless lowering is intended, instead of expecting generic `if` exprs to imply it
 - [ ] keep code-shape-sensitive math/data-parallel work ASDL-first:
   - [x] first-class frontend intrinsic surface for operations like `fma`
@@ -134,6 +135,9 @@ They should be treated as **ASDL/phase design work first**, not as backend-only 
 ### F. Complete remaining realism gaps exposed by codegen probing
 
 - [ ] strengthen typed literal elaboration and typed const/immediate propagation for unsigned / `index` code (now frozen as a `Surface -> Elab` lowering rule)
+  - [x] intrinsic-specific argument elaboration is phase-driven; rotate shift literals and `assume` conditions no longer require authored helper casts
+  - [x] `return expr` elaborates `expr` with the function result type, including nested returns in if/switch/loop/block statement bodies
+  - [ ] general assignment/binary literal contextual typing still needs completion
 - [ ] fill remaining cast-heavy lowering gaps exposed by realistic kernels
 - [x] make expression-in-loop lowering consistent — new `for`/`while` syntax eliminates old loop-expr/stmt split; carries survive naturally
 
@@ -156,7 +160,7 @@ Surface -> Elab -> Sem -> Back -> Artifact
 - [x] implement `SurfParam -> ElabParam`
 - [x] implement `SurfFunc -> ElabFunc`
 - [x] define `export func` vs plain `func` visibility — frozen; `export func` visible to importers, `func` is module-local
-- [ ] implement `export func` lowering (currently all funcs are exported)
+- [x] implement `export func` vs plain `func` lowering through explicit `SurfFuncLocal` / `SurfFuncExport`, `ElabFuncLocal` / `ElabFuncExport`, and `SemFuncLocal` / `SemFuncExport` variants
 - [x] implement `SurfExternFunc -> ElabExternFunc`
 - [x] implement `SurfConst -> ElabConst`
 - [x] implement `SurfStatic -> ElabStatic`
@@ -302,7 +306,7 @@ This depends on the intended reboot language surface.
 - [x] implement select/if const eval if intended
 - [x] implement field/index projection const eval if intended
 - [x] implement aggregate/array const eval coherently
-- [x] define whether calls/intrinsics can appear in const eval — yes, const intrinsics via pvm dispatch
+- [x] define whether calls/intrinsics can appear in const eval — current rule: ordinary calls are not const-evaluable, and intrinsic-call const eval is not currently supported
 - [x] support const references between sibling consts/modules — cross-module const references now frozen as supported
 - [x] split pure compile-time const items from addressable static data items if the language intends both
 - [x] strengthen propagation/immediate folding for typed numeric and `index` consts so codegen-sensitive kernels do not route trivial constants through data objects unnecessarily
@@ -315,12 +319,14 @@ This depends on the intended reboot language surface.
 - [x] add Elab representation if needed
 - [x] map frontend intrinsic calls into `SemIntrinsic`
 - [x] make `fma` reachable from authored/frontend code as a first-class code-shape-sensitive operation
+- [x] make intrinsic argument elaboration phase-driven by `SurfIntrinsic` rather than parser magic or authored helper casts (`rotl(x, 1)`, `assume(cond)`, and `fma(a,b,c)` type their operands in `Surface -> Elab`)
 
 ### Sem -> Back
 
 - [x] implement `SemExprIntrinsicCall` lowering in value position
 - [x] implement `SemExprIntrinsicCall` lowering in materialization position where meaningful
 - [x] define which intrinsics are scalar-only vs aggregate/vector-only
+- [ ] implement const evaluation for intrinsic calls if the language decides to allow const intrinsics later
 
 ### Backend
 
@@ -353,7 +359,7 @@ This depends on the intended reboot language surface.
 - [x] implement storable/passable immutable function values — one-word code pointers, storable in structs/arrays
 - [x] implement closure desugaring to `struct { fn, ctx }` at `Surface -> Elab`
 - [x] define view construction primitives — six primitives frozen: `view`, `view_window`, `view_from_ptr`, `view_from_ptr(..., stride)`, `view_strided`, `view_interleaved`
-- [x] implement view construction lowering — basic forms done (`view(xs)`, `view(xs, start, len)`, `view_from_ptr`, `view_from_ptr(ptr, len, stride)`); `view_strided` and `view_interleaved` parsed but lowering stubbed
+- [x] implement view construction lowering — `view(xs)`, `view(xs, start, len)`, `view_from_ptr`, `view_from_ptr(ptr, len, stride)`, `view_strided`, and `view_interleaved` now lower through explicit `SemView` variants (`SemViewFromExpr`, `SemViewWindow`, `SemViewContiguous`, `SemViewStrided`, `SemViewRestrided`, `SemViewInterleavedView`)
 - [x] define array-value indexing semantics — copy-out via `base + i*elem_size` load
 - [ ] implement array-value indexing in `Sem -> Back`
 

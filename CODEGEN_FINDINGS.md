@@ -101,7 +101,7 @@ Observed current emitted shape for valued-break loops:
 - early `break expr` stores the break value, sets the flag, and jumps to the shared exit block
 - exit tests the flag and joins either the break value or the normal `end -> expr` result
 
-Moonlift now represents that distinction explicitly in ASDL (`ElabLoopExprExit` / `SemLoopExprExit`).
+Moonlift now represents that distinction explicitly in ASDL (`ElabExprExit` / `SemExprExit`).
 That matters in codegen: breakless expr loops no longer share this path.
 
 Observed current emitted shape for end-only expr loops after the ASDL split:

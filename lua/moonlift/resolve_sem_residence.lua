@@ -402,7 +402,7 @@ function M.Define(T)
     })
 
     lower_loop_update_entries = pvm.phase("moonlift_sem_residence_loop_update_entries", {
-        [Sem.SemLoopUpdate] = function(self)
+        [Sem.SemCarryUpdate] = function(self)
             return pvm.once(one_expr_entries(self.value))
         end,
     })
@@ -534,7 +534,7 @@ function M.Define(T)
     })
 
     lower_loop_entries = pvm.phase("moonlift_sem_residence_loop_entries", {
-        [Sem.SemLoopWhileStmt] = function(self)
+        [Sem.SemWhileStmt] = function(self)
             return pvm.once(concat_entries(
                 loop_carry_entry_list(self.loop_id, self.carries),
                 one_expr_entries(self.cond),
@@ -542,7 +542,7 @@ function M.Define(T)
                 loop_update_entry_list(self.next)
             ))
         end,
-        [Sem.SemLoopOverStmt] = function(self)
+        [Sem.SemOverStmt] = function(self)
             return pvm.once(concat_entries(
                 { index_entry(self) },
                 loop_carry_entry_list(self.loop_id, self.carries),
@@ -551,7 +551,7 @@ function M.Define(T)
                 loop_update_entry_list(self.next)
             ))
         end,
-        [Sem.SemLoopWhileExpr] = function(self)
+        [Sem.SemWhileExpr] = function(self)
             return pvm.once(concat_entries(
                 loop_carry_entry_list(self.loop_id, self.carries),
                 one_expr_entries(self.cond),
@@ -560,7 +560,7 @@ function M.Define(T)
                 one_expr_entries(self.result)
             ))
         end,
-        [Sem.SemLoopOverExpr] = function(self)
+        [Sem.SemOverExpr] = function(self)
             return pvm.once(concat_entries(
                 { index_entry(self) },
                 loop_carry_entry_list(self.loop_id, self.carries),

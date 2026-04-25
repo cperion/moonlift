@@ -654,14 +654,14 @@ function M.Define(T)
     })
 
     resolve_loop_carry = pvm.phase("moonlift_sem_layout_resolve_loop_carry", {
-        [Sem.SemLoopCarryPort] = function(self, layout_env)
-            return pvm.once(Sem.SemLoopCarryPort(self.port_id, self.name, self.ty, one_expr(self.init, layout_env)))
+        [Sem.SemCarryPort] = function(self, layout_env)
+            return pvm.once(Sem.SemCarryPort(self.port_id, self.name, self.ty, one_expr(self.init, layout_env)))
         end,
     })
 
     resolve_loop_update = pvm.phase("moonlift_sem_layout_resolve_loop_update", {
-        [Sem.SemLoopUpdate] = function(self, layout_env)
-            return pvm.once(Sem.SemLoopUpdate(self.port_id, one_expr(self.value, layout_env)))
+        [Sem.SemCarryUpdate] = function(self, layout_env)
+            return pvm.once(Sem.SemCarryUpdate(self.port_id, one_expr(self.value, layout_env)))
         end,
     })
 
@@ -868,17 +868,17 @@ function M.Define(T)
     })
 
     resolve_loop = pvm.phase("moonlift_sem_layout_resolve_loop", {
-        [Sem.SemLoopWhileStmt] = function(self, layout_env)
-            return pvm.once(Sem.SemLoopWhileStmt(self.loop_id, resolve_loop_carry_list(self.carries, layout_env), one_expr(self.cond, layout_env), resolve_stmt_list(self.body, layout_env), resolve_loop_update_list(self.next, layout_env)))
+        [Sem.SemWhileStmt] = function(self, layout_env)
+            return pvm.once(Sem.SemWhileStmt(self.loop_id, resolve_loop_carry_list(self.carries, layout_env), one_expr(self.cond, layout_env), resolve_stmt_list(self.body, layout_env), resolve_loop_update_list(self.next, layout_env)))
         end,
-        [Sem.SemLoopOverStmt] = function(self, layout_env)
-            return pvm.once(Sem.SemLoopOverStmt(self.loop_id, self.index_port, one_domain(self.domain, layout_env), resolve_loop_carry_list(self.carries, layout_env), resolve_stmt_list(self.body, layout_env), resolve_loop_update_list(self.next, layout_env)))
+        [Sem.SemOverStmt] = function(self, layout_env)
+            return pvm.once(Sem.SemOverStmt(self.loop_id, self.index_port, one_domain(self.domain, layout_env), resolve_loop_carry_list(self.carries, layout_env), resolve_stmt_list(self.body, layout_env), resolve_loop_update_list(self.next, layout_env)))
         end,
-        [Sem.SemLoopWhileExpr] = function(self, layout_env)
-            return pvm.once(Sem.SemLoopWhileExpr(self.loop_id, resolve_loop_carry_list(self.carries, layout_env), one_expr(self.cond, layout_env), resolve_stmt_list(self.body, layout_env), resolve_loop_update_list(self.next, layout_env), self.exit, one_expr(self.result, layout_env)))
+        [Sem.SemWhileExpr] = function(self, layout_env)
+            return pvm.once(Sem.SemWhileExpr(self.loop_id, resolve_loop_carry_list(self.carries, layout_env), one_expr(self.cond, layout_env), resolve_stmt_list(self.body, layout_env), resolve_loop_update_list(self.next, layout_env), self.exit, one_expr(self.result, layout_env)))
         end,
-        [Sem.SemLoopOverExpr] = function(self, layout_env)
-            return pvm.once(Sem.SemLoopOverExpr(self.loop_id, self.index_port, one_domain(self.domain, layout_env), resolve_loop_carry_list(self.carries, layout_env), resolve_stmt_list(self.body, layout_env), resolve_loop_update_list(self.next, layout_env), self.exit, one_expr(self.result, layout_env)))
+        [Sem.SemOverExpr] = function(self, layout_env)
+            return pvm.once(Sem.SemOverExpr(self.loop_id, self.index_port, one_domain(self.domain, layout_env), resolve_loop_carry_list(self.carries, layout_env), resolve_stmt_list(self.body, layout_env), resolve_loop_update_list(self.next, layout_env), self.exit, one_expr(self.result, layout_env)))
         end,
     })
 

@@ -108,7 +108,7 @@ module MoonliftSurface {
              | SurfIfExpr(MoonliftSurface.SurfExpr cond, MoonliftSurface.SurfExpr then_expr, MoonliftSurface.SurfExpr else_expr) unique
              | SurfSelectExpr(MoonliftSurface.SurfExpr cond, MoonliftSurface.SurfExpr then_expr, MoonliftSurface.SurfExpr else_expr) unique
              | SurfSwitchExpr(MoonliftSurface.SurfExpr value, MoonliftSurface.SurfSwitchExprArm* arms, MoonliftSurface.SurfExpr default_expr) unique
-             | SurfExprLoopNode(MoonliftSurface.SurfLoopExpr loop) unique
+             | SurfExprLoop(MoonliftSurface.SurfLoopExpr loop) unique
              | SurfBlockExpr(MoonliftSurface.SurfStmt* stmts, MoonliftSurface.SurfExpr result) unique
              | SurfClosureExpr(MoonliftSurface.SurfParam* params, MoonliftSurface.SurfTypeExpr result, MoonliftSurface.SurfStmt* body) unique
              | SurfExprView(MoonliftSurface.SurfExpr base) unique
