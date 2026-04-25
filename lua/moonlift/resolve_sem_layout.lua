@@ -593,6 +593,9 @@ function M.Define(T)
         [Sem.SemViewInterleavedView] = function(self, layout_env)
             return pvm.once(Sem.SemViewInterleavedView(one_view(self.base, layout_env), self.elem, one_expr(self.stride, layout_env), one_expr(self.lane, layout_env)))
         end,
+        [Sem.SemViewRowBase] = function(self, layout_env)
+            return pvm.once(Sem.SemViewRowBase(one_view(self.base, layout_env), one_expr(self.row_offset, layout_env), self.elem))
+        end,
     })
 
     resolve_place = pvm.phase("moonlift_sem_layout_resolve_place", {
