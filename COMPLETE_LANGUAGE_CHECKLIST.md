@@ -261,7 +261,7 @@ This depends on the intended reboot language surface.
 
 ## 3.6 Control-flow and loop completion
 
-- [x] validate final semantics of `while` loops — frozen: `while cond with carries do next ... end`
+- [x] validate final semantics of `while` loops — frozen: `while cond with carries do ... next name = expr ... end`
 - [x] validate final semantics of `over range(...)` — replaced by `for i in 0..n` and `for i in start..stop`
 - [x] validate final semantics of `over range(start, stop)` — same
 - [x] implement array-backed `over value/view` lowering
@@ -278,7 +278,7 @@ This depends on the intended reboot language surface.
 - [x] support body-local shared latch values — Cranelift SSA preserves sharing
 - [x] represent loop-invariant values — Cranelift loop analysis detects invariants
 - [x] keep loop-carried state in explicit SSA/block-param form — matches Cranelift lowering
-- [ ] implement new `for ... in` / `while ... with` syntax replacing old `loop (...) -> T while ... next ... end -> expr`
+- [x] implement new statement syntax: `for ... in ... do ... end` / `while ... with ... do ... end` with inline `next name = expr`; legacy typed `loop (...) -> T ... end -> expr` remains only as the older expression-loop path
 
 ## 3.7 Switch and block completion
 

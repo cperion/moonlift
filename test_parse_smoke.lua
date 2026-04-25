@@ -235,7 +235,7 @@ assert(type_item == Surf.SurfItemType(Surf.SurfStruct(
     }
 )))
 
-local for_domain_range = P.parse_stmt([[for i in 0..n
+local for_domain_range = P.parse_stmt([[for i in 0..n do
     let x: i32 = i
 end
 ]])
@@ -248,11 +248,10 @@ assert(for_domain_range == Surf.SurfLoopStmtNode(Surf.SurfLoopOverStmt(
 )))
 
 local while_with_carry = P.parse_stmt([[
-while i < n with acc: i32 = 0, i: i32 = 0
+while i < n with acc: i32 = 0, i: i32 = 0 do
     let x: i32 = i
-next
-    acc = acc + x
-    i = i + 1
+    next acc = acc + x
+    next i = i + 1
 end
 ]])
 assert(while_with_carry == Surf.SurfLoopStmtNode(Surf.SurfLoopWhileStmt(

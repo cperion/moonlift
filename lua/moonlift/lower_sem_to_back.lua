@@ -3131,7 +3131,9 @@ function M.Define(T)
         local header_carry_params = {}
         local body_carry_params = {}
         local continue_carry_params = {}
+        local exit_carry_params = {}
         local header_jump_args = { header_index }
+        local exit_jump_args = {}
         local cmds = {
             Back.BackCmdCreateBlock(header_block),
             Back.BackCmdCreateBlock(body_block),
@@ -3159,13 +3161,17 @@ function M.Define(T)
             local header_param = Back.BackValId(path .. ".header.carry." .. i)
             local body_param = Back.BackValId(path .. ".body.carry." .. i)
             local continue_param = Back.BackValId(path .. ".continue.carry." .. i)
+            local exit_param = Back.BackValId(path .. ".exit.carry." .. i)
             header_carry_params[i] = header_param
             body_carry_params[i] = body_param
             continue_carry_params[i] = continue_param
+            exit_carry_params[i] = exit_param
             header_jump_args[#header_jump_args + 1] = header_param
+            exit_jump_args[#exit_jump_args + 1] = header_param
             cmds[#cmds + 1] = Back.BackCmdAppendBlockParam(header_block, header_param, one_scalar(carry.ty))
             cmds[#cmds + 1] = Back.BackCmdAppendBlockParam(body_block, body_param, one_scalar(carry.ty))
             cmds[#cmds + 1] = Back.BackCmdAppendBlockParam(continue_block, continue_param, one_scalar(carry.ty))
+            cmds[#cmds + 1] = Back.BackCmdAppendBlockParam(exit_block, exit_param, one_scalar(carry.ty))
             local init = one_plain_expr(carry.init, path .. ".carry_init." .. i, layout_env, residence_plan)
             append_expr_cmds(cmds, init)
             if expr_terminates(init) then
@@ -3183,13 +3189,14 @@ function M.Define(T)
         end
         local cond_value = Back.BackValId(path .. ".cond")
         cmds[#cmds + 1] = one_lt_cmd(index_ty, cond_value, Back.BackBool, header_index, stop_plan.value)
-        cmds[#cmds + 1] = Back.BackCmdBrIf(cond_value, body_block, header_jump_args, exit_block, {})
+        cmds[#cmds + 1] = Back.BackCmdBrIf(cond_value, body_block, header_jump_args, exit_block, exit_jump_args)
         cmds[#cmds + 1] = Back.BackCmdSealBlock(body_block)
         cmds[#cmds + 1] = Back.BackCmdSwitchToBlock(body_block)
         emit_alias_for_index_binding(cmds, index_binding, body_index, residence_plan)
         emit_aliases_for_loop_bindings(cmds, loop.carries, body_carry_params, loop.loop_id, residence_plan)
         local body_current_args = over_loop_current_args(body_index, body_carry_params)
-        local body_cmds, body_flow = lower_stmt_list(loop.body, path .. ".body", layout_env, exit_block, {}, continue_block, body_current_args, residence_plan)
+        local body_break_args = loop_binding_value_args(body_carry_params)
+        local body_cmds, body_flow = lower_stmt_list(loop.body, path .. ".body", layout_env, exit_block, body_break_args, continue_block, body_current_args, residence_plan)
         copy_cmds(body_cmds, cmds)
         if body_flow == Back.BackFallsThrough then
             cmds[#cmds + 1] = Back.BackCmdJump(continue_block, body_current_args)
@@ -3215,6 +3222,7 @@ function M.Define(T)
         cmds[#cmds + 1] = Back.BackCmdSealBlock(header_block)
         cmds[#cmds + 1] = Back.BackCmdSealBlock(exit_block)
         cmds[#cmds + 1] = Back.BackCmdSwitchToBlock(exit_block)
+        emit_aliases_for_loop_bindings(cmds, loop.carries, exit_carry_params, loop.loop_id, residence_plan)
         return Back.BackStmtPlan(cmds, Back.BackFallsThrough)
     end
 
@@ -3926,6 +3934,7 @@ function M.Define(T)
             local header_params = {}
             local body_params = {}
             local continue_params = {}
+            local exit_params = {}
             local cmds = {
                 Back.BackCmdCreateBlock(header_block),
                 Back.BackCmdCreateBlock(body_block),
@@ -3942,12 +3951,15 @@ function M.Define(T)
                 local header_param = Back.BackValId(path .. ".header.param." .. i)
                 local body_param = Back.BackValId(path .. ".body.param." .. i)
                 local continue_param = Back.BackValId(path .. ".continue.param." .. i)
+                local exit_param = Back.BackValId(path .. ".exit.param." .. i)
                 header_params[i] = header_param
                 body_params[i] = body_param
                 continue_params[i] = continue_param
+                exit_params[i] = exit_param
                 cmds[#cmds + 1] = Back.BackCmdAppendBlockParam(header_block, header_param, one_scalar(carry.ty))
                 cmds[#cmds + 1] = Back.BackCmdAppendBlockParam(body_block, body_param, one_scalar(carry.ty))
                 cmds[#cmds + 1] = Back.BackCmdAppendBlockParam(continue_block, continue_param, one_scalar(carry.ty))
+                cmds[#cmds + 1] = Back.BackCmdAppendBlockParam(exit_block, exit_param, one_scalar(carry.ty))
                 local init = one_plain_expr(carry.init, path .. ".init." .. i, layout_env, residence_plan)
                 append_expr_cmds(cmds, init)
                 if expr_terminates(init) then
@@ -3963,12 +3975,12 @@ function M.Define(T)
             if expr_terminates(cond) then
                 return pvm.once(Back.BackStmtPlan(cmds, Back.BackTerminates))
             end
-            cmds[#cmds + 1] = Back.BackCmdBrIf(cond.value, body_block, header_params, exit_block, {})
+            cmds[#cmds + 1] = Back.BackCmdBrIf(cond.value, body_block, header_params, exit_block, header_params)
             cmds[#cmds + 1] = Back.BackCmdSealBlock(body_block)
             cmds[#cmds + 1] = Back.BackCmdSwitchToBlock(body_block)
             emit_aliases_for_loop_bindings(cmds, self.carries, body_params, self.loop_id, residence_plan)
             local body_current_args = loop_binding_value_args(body_params)
-            local body_cmds, body_flow = lower_stmt_list(self.body, path .. ".body", layout_env, exit_block, {}, continue_block, body_current_args, residence_plan)
+            local body_cmds, body_flow = lower_stmt_list(self.body, path .. ".body", layout_env, exit_block, body_current_args, continue_block, body_current_args, residence_plan)
             copy_cmds(body_cmds, cmds)
             if body_flow == Back.BackFallsThrough then
                 cmds[#cmds + 1] = Back.BackCmdJump(continue_block, body_current_args)
@@ -3985,6 +3997,7 @@ function M.Define(T)
             cmds[#cmds + 1] = Back.BackCmdSealBlock(header_block)
             cmds[#cmds + 1] = Back.BackCmdSealBlock(exit_block)
             cmds[#cmds + 1] = Back.BackCmdSwitchToBlock(exit_block)
+            emit_aliases_for_loop_bindings(cmds, self.carries, exit_params, self.loop_id, residence_plan)
             return pvm.once(Back.BackStmtPlan(cmds, Back.BackFallsThrough))
         end,
         [Sem.SemLoopOverStmt] = function(self, path, layout_env, residence_plan)

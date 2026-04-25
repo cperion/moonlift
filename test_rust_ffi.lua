@@ -474,28 +474,27 @@ assert(package_main(5) == 12)
 package_artifact:free()
 
 local for_in_range_artifact = source.compile([[
-export func for_sum(n: i32) -> i32
-    for i in 0..n with acc: i32 = 0
+export func for_sum(n: index) -> index
+    for i in 0..n with acc: index = 0 do
         next acc = acc + i
     end
     return acc
 end
 ]], nil, nil, nil, jit)
 local for_sum_ptr = for_in_range_artifact:getpointer(Back.BackFuncId("for_sum"))
-local for_sum = ffi.cast("int32_t (*)(int32_t)", for_sum_ptr)
+local for_sum = ffi.cast("intptr_t (*)(intptr_t)", for_sum_ptr)
 assert(for_sum(5) == 10)
 for_in_range_artifact:free()
 
 local while_break_artifact = source.compile([[
 export func while_break_find(n: i32) -> i32
-    while i < n with i: i32 = 0, found: i32 = n do
+    while i < n with i: i32 = 0 do
         if i == 3 then
-            found = i
             break
         end
         next i = i + 1
     end
-    return found
+    return i
 end
 ]], nil, nil, nil, jit)
 local while_break_find_ptr = while_break_artifact:getpointer(Back.BackFuncId("while_break_find"))
@@ -505,28 +504,27 @@ assert(while_break_find(2) == 2)
 while_break_artifact:free()
 
 local for_in_range_artifact = source.compile([[
-export func for_sum(n: i32) -> i32
-    for i in 0..n with acc: i32 = 0
+export func for_sum(n: index) -> index
+    for i in 0..n with acc: index = 0 do
         next acc = acc + i
     end
     return acc
 end
 ]], nil, nil, nil, jit)
 local for_sum_ptr = for_in_range_artifact:getpointer(Back.BackFuncId("for_sum"))
-local for_sum = ffi.cast("int32_t (*)(int32_t)", for_sum_ptr)
+local for_sum = ffi.cast("intptr_t (*)(intptr_t)", for_sum_ptr)
 assert(for_sum(5) == 10)
 for_in_range_artifact:free()
 
 local while_break_artifact = source.compile([[
 export func while_break_find(n: i32) -> i32
-    while i < n with i: i32 = 0, found: i32 = n do
+    while i < n with i: i32 = 0 do
         if i == 3 then
-            found = i
             break
         end
         next i = i + 1
     end
-    return found
+    return i
 end
 ]], nil, nil, nil, jit)
 local while_break_find_ptr = while_break_artifact:getpointer(Back.BackFuncId("while_break_find"))

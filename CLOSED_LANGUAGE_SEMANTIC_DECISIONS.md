@@ -573,11 +573,11 @@ They do **not** claim every implementation piece is complete today.
 
 In particular, the implementation still needs to finish work such as:
 
-- implementing the new loop syntax (`for ... in` / `while ... with`) replacing the old `loop (...) -> T while ... next ... end -> expr` form
-- desugaring tagged unions, untagged unions, and enums at `Surface -> Elab`
-- desugaring closures to `struct { fn, ctx }` at `Surface -> Elab`
-- adding `export func` visibility distinction
-- implementing view construction primitives
+- finishing expression-loop syntax cleanup after implementing the new statement-loop syntax (`for ... in ... do ... end` / `while ... with ... do ... end`)
+- hardening tagged unions, untagged unions, and enum desugaring
+- hardening closure desugaring to `struct { fn, ctx }`
+- maintaining `export func` visibility distinction through all module paths
+- completing view construction primitives
 - adding cross-module const reference support
 - adding const intrinsic evaluation via pvm dispatch
 - completing aggregate/non-scalar load/call/return support under the single-result + explicit-struct model

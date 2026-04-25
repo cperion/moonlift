@@ -202,6 +202,7 @@ module MoonliftElab {
     ElabConstEnv = (MoonliftElab.ElabConstEntry* entries) unique
     ElabStmtEnvEffect = ElabNoBinding
                       | ElabAddBinding(MoonliftElab.ElabValueEntry entry) unique
+                      | ElabAddBindings(MoonliftElab.ElabValueEntry* entries) unique
 
     ElabParam = (string name, MoonliftElab.ElabType ty) unique
     ElabFieldInit = (string name, MoonliftElab.ElabExpr value) unique

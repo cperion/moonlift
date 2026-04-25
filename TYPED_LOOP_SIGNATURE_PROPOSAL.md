@@ -4,13 +4,13 @@ Status: **SUPERSEDED** by the new `for ... in` / `while ... with` loop design fr
 
 - `moonlift/CLOSED_LANGUAGE_SEMANTIC_DECISIONS.md`
 
-The old `loop (...) -> T while ... next ... end -> expr` form has been removed.
-Loops now use `for i in 0..n with acc: i32 = 0 do ... end` and
+New statement loops now use `for i in 0..n with acc: i32 = 0 do ... end` and
 `while cond with i: i32 = 0 do ... end`, with carries surviving after the loop
-and `next` inline in the body. No separate `end ->` projection, no `break expr`.
+and `next` inline in the body. The old `loop (...) -> T while/over ... next ... end -> expr`
+form remains only as legacy expression-loop infrastructure until expression-loop syntax is cleaned up.
 
-This document describes the typed loop-header spellings now accepted by the reboot parser/front-end.
-The older canonical unparenthesized loop spelling has been removed from the parser:
+This document describes the superseded typed loop-header spelling that remains in the parser for legacy expression-loop coverage.
+The new user-facing statement-loop spelling is documented in:
 
 - `moonlift/REBOOT_SOURCE_SPEC.md`
 - `moonlift/REBOOT_SOURCE_GRAMMAR.md`

@@ -917,7 +917,8 @@ It already constructs `MoonliftSurface` ASDL values directly for a substantial b
   - block expr
   - canonical loop expr
 - note:
-  - loop syntax is now frozen as `for ... in` / `while ... with`, carries survive after loop, `next` inline; old `loop (...) -> T while ... next ... end -> expr` is removed
+  - statement loop syntax is now `for ... in ... do ... end` / `while ... with ... do ... end`; carries survive after loop and `next name = expr` is inline in the body
+  - the old typed `loop (...) -> T while/over ... next ... end -> expr` path still exists as legacy expression-loop infrastructure
 - statements:
   - `let`
   - `var`
@@ -1087,23 +1088,21 @@ But current real missing parts include:
 
 ---
 
-## 6.3 Loops are strong on `while`, `range`, and bounded view/zip domains; new syntax frozen
+## 6.3 Loops are strong on `for`, `while`, `range`, and bounded view/zip domains
 
 Current real support:
-- while loops (currently via old `loop (...) while ...` form)
-- `over range(stop)` / `over range(start, stop)`
-- array-backed and slice/view-backed `over value/view`
-- array-backed and slice/view-backed `zip_eq(...)` with runtime equal-length checks
-- loop exprs and stmt loops
-- carry/next machinery
+- statement `for i in 0..n do ... end` and `for i in start..stop do ... end`
+- statement `for i in domain with acc: T = init do ... next acc = expr ... end`
+- statement `while cond with i: T = init do ... next i = expr ... end`
+- old typed `loop (...) while/over ... next ... end -> expr` expression-loop path still exists as legacy infrastructure
+- range domains, array/slice/view value domains, and `zip_eq(...)` domains with runtime equal-length checks
+- loop carries survive after statement loops and are exposed as ordinary bindings after the loop
+- bare `break` preserves the current carry values
 
-Frozen new syntax (not yet implemented):
-- `for i in 0..n do ... end` — domain-driven with induction variable
-- `for i in 0..n with acc: i32 = 0 do ... end` — carries survive after loop
-- `while cond with i: i32 = 0 do ... end` — condition-driven iteration
-- `next` inline in body, no separate `next` block
-- `break` (bare only) — preserves current carry values
-- no `end -> expr` projection, no `break expr`
+Frozen syntax/semantics:
+- `do` is mandatory for new `for`/`while` statement loops
+- `next name = expr` is inline in the loop body, not a separate `next` block
+- no `end -> expr` projection for new statement loops, no `break expr`
 - carries are the loop's natural "output" per Cranelift's block-param dataflow
 
 ---
@@ -1189,13 +1188,13 @@ And the deferred future host/parser integration strategy described in:
 
 # 9. Short summary
 
-> Moonlift now has a frozen language design with `for ... in` / `while ... with` loops, closures as surface sugar, enum/union desugaring, `export func` visibility, and view construction primitives. The existing implementation has a real parser, real top-level item lowering, qualified module imports, authored struct type/layout synthesis, a layout-resolution pass, canonical compile helpers, and a substantial scalar backend. Remaining implementation work includes: new loop syntax, enum/union/closure desugaring, view construction, export visibility, array-value indexing, function-value storage, cross-module consts, const intrinsics, and the future `Meta` layer.
+> Moonlift now has a frozen language design with `for ... in` / `while ... with` loops, closures as surface sugar, enum/union desugaring, `export func` visibility, and view construction primitives. The existing implementation has a real parser, real top-level item lowering, qualified module imports, authored struct type/layout synthesis, a layout-resolution pass, canonical compile helpers, new statement-loop syntax with surviving carries, and a substantial scalar backend. Remaining implementation work includes: expression-loop syntax cleanup, full enum/union/closure hardening, view construction completion, array-value indexing, function-value storage, cross-module consts, const intrinsics, and the future `Meta` layer.
 
 And if compressed even further:
 
 - **language design:** frozen
 - **scalar backend:** real
-- **new loop/type/closure syntax:** not yet implemented
+- **new loop/type/closure syntax:** statement loops are implemented; closure/type syntax exists but still needs hardening
 - **slice/view/value-model:** still incomplete
 - **meta layer:** design-only
 

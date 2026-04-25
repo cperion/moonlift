@@ -414,6 +414,30 @@ function M.Define(T)
         end,
     })
 
+    local function loop_carry_entries(loop_id, carries)
+        local entries = {}
+        for i = 1, #carries do
+            local carry = carries[i]
+            entries[i] = Elab.ElabValueEntry(carry.name, Elab.ElabLoopCarry(loop_id, carry.port_id, carry.name, carry.ty))
+        end
+        return entries
+    end
+
+    local loop_stmt_env_effect = pvm.phase("elab_loop_stmt_env_effect", {
+        [Elab.ElabLoopWhileStmt] = function(self)
+            return pvm.once(Elab.ElabAddBindings(loop_carry_entries(self.loop_id, self.carries)))
+        end,
+        [Elab.ElabLoopOverStmt] = function(self)
+            return pvm.once(Elab.ElabAddBindings(loop_carry_entries(self.loop_id, self.carries)))
+        end,
+        [Elab.ElabLoopWhileExpr] = function()
+            return pvm.once(Elab.ElabNoBinding)
+        end,
+        [Elab.ElabLoopOverExpr] = function()
+            return pvm.once(Elab.ElabNoBinding)
+        end,
+    })
+
     stmt_env_effect = pvm.phase("elab_stmt_env_effect", {
         [Elab.ElabLet] = function(self)
             return pvm.once(Elab.ElabAddBinding(Elab.ElabValueEntry(self.name, Elab.ElabLocalValue(self.id, self.name, self.ty))))
@@ -430,7 +454,7 @@ function M.Define(T)
         [Elab.ElabBreak] = function() return pvm.once(Elab.ElabNoBinding) end,
         [Elab.ElabBreakValue] = function() return pvm.once(Elab.ElabNoBinding) end,
         [Elab.ElabContinue] = function() return pvm.once(Elab.ElabNoBinding) end,
-        [Elab.ElabLoopStmtNode] = function() return pvm.once(Elab.ElabNoBinding) end,
+        [Elab.ElabLoopStmtNode] = function(self) return loop_stmt_env_effect(self.loop) end,
     })
 
     apply_stmt_env_effect = pvm.phase("apply_elab_stmt_env_effect", {
@@ -439,6 +463,13 @@ function M.Define(T)
         end,
         [Elab.ElabAddBinding] = function(self, env)
             return pvm.once(extend_env_value(env, self.entry))
+        end,
+        [Elab.ElabAddBindings] = function(self, env)
+            local out = env
+            for i = 1, #self.entries do
+                out = extend_env_value(out, self.entries[i])
+            end
+            return pvm.once(out)
         end,
     })
 

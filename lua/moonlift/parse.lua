@@ -542,12 +542,56 @@ function Parser:parse_typed_loop_header(base_path)
     return index_name, domain, carries
 end
 
+function Parser:parse_inline_loop_nexts(next_path, first_index)
+    local out = {}
+    local index = first_index or 1
+    self:expect("next")
+    repeat
+        local first = self:peek()
+        local name = self:expect("ident", "expected loop next binding name").raw
+        self:expect("=")
+        out[#out + 1] = self.Surf.SurfLoopNextAssign(name, self:parse_expr())
+        self:record_span(next_path and self:scoped(next_path, tostring(index)) or nil, first)
+        index = index + 1
+    until not self:consume(",")
+    return out
+end
+
+function Parser:parse_inline_loop_body(body_path, next_path)
+    local body = {}
+    local nexts = {}
+    local body_i = 0
+    local next_i = 0
+    self:skip_nl()
+    while not self:is("end") do
+        if self:is("eof") then
+            parse_error(self:peek(), "unexpected end of input inside loop body")
+        end
+        if self:is("next") then
+            local parsed_nexts = self:parse_inline_loop_nexts(next_path, next_i + 1)
+            for j = 1, #parsed_nexts do
+                nexts[#nexts + 1] = parsed_nexts[j]
+                next_i = next_i + 1
+            end
+        else
+            body_i = body_i + 1
+            body[#body + 1] = self:parse_stmt(body_path and self:scoped(body_path, "stmt." .. body_i) or nil)
+        end
+        if self:consume("nl") then
+            self:skip_nl()
+        elseif not self:is("end") then
+            parse_error(self:peek(), "expected newline or 'end' inside loop body")
+        end
+    end
+    return body, nexts
+end
+
 function Parser:parse_for_stmt(path)
+    local first = self:peek()
     self:expect("for")
     local index_name = self:expect("ident", "expected loop index name").raw
     self:expect("in")
     local domain = self:parse_domain()
-    -- optional carries
     local carries = {}
     if self:consume("with") then
         self:skip_nl()
@@ -558,25 +602,10 @@ function Parser:parse_for_stmt(path)
     self:skip_nl()
     self:expect("do")
     self:require_nl()
-    local body = self:parse_stmt_block({ ["end"] = true }, path and self:scoped(path, "body") or nil)
-    -- collect next assignments inside body
-    local nexts = {}
-    for i = 1, #body do
-        local stmt = body[i]
-        if stmt.kind == "SurfLoopNextAssign" then
-            -- remove next from body and collect
-            nexts[#nexts + 1] = stmt
-            body[i] = nil
-        end
-    end
-    -- compress body (remove nils)
-    local compact_body = {}
-    for i = 1, #body do
-        if body[i] ~= nil then
-            compact_body[#compact_body + 1] = body[i]
-        end
-    end
-    body = compact_body
+    local body, nexts = self:parse_inline_loop_body(
+        path and self:scoped(path, "body") or nil,
+        path and self:scoped(path, "next") or nil
+    )
     self:expect("end")
     self:record_span(path, first)
     return self.Surf.SurfLoopStmtNode(
@@ -585,6 +614,7 @@ function Parser:parse_for_stmt(path)
 end
 
 function Parser:parse_while_stmt(path)
+    local first = self:peek()
     self:expect("while")
     local cond = self:parse_expr()
     local carries = {}
@@ -597,22 +627,10 @@ function Parser:parse_while_stmt(path)
     self:skip_nl()
     self:expect("do")
     self:require_nl()
-    local body = self:parse_stmt_block({ ["end"] = true }, path and self:scoped(path, "body") or nil)
-    local nexts = {}
-    for i = 1, #body do
-        local stmt = body[i]
-        if stmt.kind == "SurfLoopNextAssign" then
-            nexts[#nexts + 1] = stmt
-            body[i] = nil
-        end
-    end
-    local compact_body = {}
-    for i = 1, #body do
-        if body[i] ~= nil then
-            compact_body[#compact_body + 1] = body[i]
-        end
-    end
-    body = compact_body
+    local body, nexts = self:parse_inline_loop_body(
+        path and self:scoped(path, "body") or nil,
+        path and self:scoped(path, "next") or nil
+    )
     self:expect("end")
     self:record_span(path, first)
     return self.Surf.SurfLoopStmtNode(

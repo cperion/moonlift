@@ -124,7 +124,7 @@ The Rust host currently supports the explicit command subset needed by the curre
 
 Notable explicit limitation kept for now:
 
-- `BackCmdFrem` is not yet implemented in the Rust host and returns a clear error
+- floating-point remainder is not part of Moonlift; `BackCmdFrem` has been removed from the backend
 - the direct raw-pointer artifact API currently supports **at most one function result**
 
 ### Running Rust tests
