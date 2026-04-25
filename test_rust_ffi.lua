@@ -66,6 +66,50 @@ local getk = ffi.cast("int32_t (*)()", data_ptr)
 assert(getk() == 42)
 data_artifact:free()
 
+local memory_program = Back.BackProgram({
+    Back.BackCmdCreateSig(Back.BackSigId("sig:copy_i32"), { Back.BackPtr, Back.BackPtr }, { Back.BackI32 }),
+    Back.BackCmdDeclareFuncExport(Back.BackFuncId("copy_i32"), Back.BackSigId("sig:copy_i32")),
+    Back.BackCmdBeginFunc(Back.BackFuncId("copy_i32")),
+    Back.BackCmdCreateBlock(Back.BackBlockId("entry.copy_i32")),
+    Back.BackCmdSwitchToBlock(Back.BackBlockId("entry.copy_i32")),
+    Back.BackCmdBindEntryParams(Back.BackBlockId("entry.copy_i32"), { Back.BackValId("dst"), Back.BackValId("src") }),
+    Back.BackCmdConstInt(Back.BackValId("copy.len"), Back.BackIndex, "4"),
+    Back.BackCmdMemcpy(Back.BackValId("dst"), Back.BackValId("src"), Back.BackValId("copy.len")),
+    Back.BackCmdLoad(Back.BackValId("copy.value"), Back.BackI32, Back.BackValId("dst")),
+    Back.BackCmdReturnValue(Back.BackValId("copy.value")),
+    Back.BackCmdSealBlock(Back.BackBlockId("entry.copy_i32")),
+    Back.BackCmdFinishFunc(Back.BackFuncId("copy_i32")),
+
+    Back.BackCmdCreateSig(Back.BackSigId("sig:zero_i32"), { Back.BackPtr }, { Back.BackI32 }),
+    Back.BackCmdDeclareFuncExport(Back.BackFuncId("zero_i32"), Back.BackSigId("sig:zero_i32")),
+    Back.BackCmdBeginFunc(Back.BackFuncId("zero_i32")),
+    Back.BackCmdCreateBlock(Back.BackBlockId("entry.zero_i32")),
+    Back.BackCmdSwitchToBlock(Back.BackBlockId("entry.zero_i32")),
+    Back.BackCmdBindEntryParams(Back.BackBlockId("entry.zero_i32"), { Back.BackValId("dst") }),
+    Back.BackCmdConstInt(Back.BackValId("zero.byte"), Back.BackU8, "0"),
+    Back.BackCmdConstInt(Back.BackValId("zero.len"), Back.BackIndex, "4"),
+    Back.BackCmdMemset(Back.BackValId("dst"), Back.BackValId("zero.byte"), Back.BackValId("zero.len")),
+    Back.BackCmdLoad(Back.BackValId("zero.value"), Back.BackI32, Back.BackValId("dst")),
+    Back.BackCmdReturnValue(Back.BackValId("zero.value")),
+    Back.BackCmdSealBlock(Back.BackBlockId("entry.zero_i32")),
+    Back.BackCmdFinishFunc(Back.BackFuncId("zero_i32")),
+    Back.BackCmdFinalizeModule,
+})
+
+local memory_artifact = jit:compile(memory_program)
+local copy_i32_ptr = memory_artifact:getpointer(Back.BackFuncId("copy_i32"))
+local copy_i32 = ffi.cast("int32_t (*)(int32_t*, const int32_t*)", copy_i32_ptr)
+local zero_i32_ptr = memory_artifact:getpointer(Back.BackFuncId("zero_i32"))
+local zero_i32 = ffi.cast("int32_t (*)(int32_t*)", zero_i32_ptr)
+local copy_src = ffi.new("int32_t[1]", { 42 })
+local copy_dst = ffi.new("int32_t[1]", { 0 })
+assert(copy_i32(copy_dst, copy_src) == 42)
+assert(copy_dst[0] == 42)
+local zero_dst = ffi.new("int32_t[1]", { 0x7f7f7f7f })
+assert(zero_i32(zero_dst) == 0)
+assert(zero_dst[0] == 0)
+memory_artifact:free()
+
 local intrinsic_program = Back.BackProgram({
     Back.BackCmdCreateSig(Back.BackSigId("sig:poprot"), { Back.BackU32 }, { Back.BackU32 }),
     Back.BackCmdDeclareFuncExport(Back.BackFuncId("poprot"), Back.BackSigId("sig:poprot")),
@@ -366,18 +410,27 @@ local view_data = ffi.new("int32_t[4]", { 1, 2, 3, 4 })
 assert(sum_view(view_data, 4) == 10)
 sum_view_artifact:free()
 
-local typed_artifact = source.compile_module([[
+local typed_artifact = source.compile([[
 type Pair = struct { left: i32, right: i32 }
 func get_left() -> i32
     return Pair { left = 1, right = 2 }.left
+end
+func copy_right() -> i32
+    let src: Pair = Pair { left = 10, right = 20 }
+    var dst: Pair = Pair { left = 0, right = 0 }
+    dst = src
+    return dst.right
 end
 ]], nil, nil, nil, jit)
 local typed_ptr = typed_artifact:getpointer(Back.BackFuncId("get_left"))
 local get_left = ffi.cast("int32_t (*)()", typed_ptr)
 assert(get_left() == 1)
+local copy_right_ptr = typed_artifact:getpointer(Back.BackFuncId("copy_right"))
+local copy_right = ffi.cast("int32_t (*)()", copy_right_ptr)
+assert(copy_right() == 20)
 typed_artifact:free()
 
-local folded_const_artifact = source.compile_module([[
+local folded_const_artifact = source.compile([[
 const ONE: index = 1
 const TWO: index = ONE + ONE
 const HALF: f64 = 0.5
@@ -420,7 +473,7 @@ local package_main = ffi.cast("int32_t (*)(int32_t)", package_ptr)
 assert(package_main(5) == 12)
 package_artifact:free()
 
-local cfg_artifact = source.compile_module([[
+local cfg_artifact = source.compile([[
 func if_stmt() -> i32
     if true then
         1
