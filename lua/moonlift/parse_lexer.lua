@@ -246,6 +246,12 @@ function M.lex(text)
                 advance()
                 emit(c0, c0, tok_line, tok_col, start, i - 1)
 
+            elseif c0 == "." and c1 == "." then
+                advance(); advance()
+                emit("..", "..", tok_line, tok_col, start, i - 1)
+            elseif c0 == "." and c1 == "." then
+                advance(); advance()
+                emit("..", "..", tok_line, tok_col, start, i - 1)
             elseif c0 == "-" and c1 == ">" then
                 advance(); advance()
                 emit("->", "->", tok_line, tok_col, start, i - 1)

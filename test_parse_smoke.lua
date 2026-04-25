@@ -235,6 +235,42 @@ assert(type_item == Surf.SurfItemType(Surf.SurfStruct(
     }
 )))
 
+local for_domain_range = P.parse_stmt([[for i in 0..n
+    let x: i32 = i
+end
+]])
+assert(for_domain_range == Surf.SurfLoopStmtNode(Surf.SurfLoopOverStmt(
+    "i",
+    Surf.SurfDomainRange2(Surf.SurfInt("0"), Surf.SurfNameRef("n")),
+    {},
+    { Surf.SurfLet("x", Surf.SurfTI32, Surf.SurfNameRef("i")) },
+    {}
+)))
+
+local for_domain_range = P.parse_stmt([[for i in 0..n
+    let x: i32 = i
+end
+]])
+assert(for_domain_range == Surf.SurfLoopStmtNode(Surf.SurfLoopOverStmt(
+    "i",
+    Surf.SurfDomainRange2(Surf.SurfInt("0"), Surf.SurfNameRef("n")),
+    {},
+    { Surf.SurfLet("x", Surf.SurfTI32, Surf.SurfNameRef("i")) },
+    {}
+)))
+
+local for_domain_range = P.parse_stmt([[for i in 0..n
+    let x: i32 = i
+end
+]])
+assert(for_domain_range == Surf.SurfLoopStmtNode(Surf.SurfLoopOverStmt(
+    "i",
+    Surf.SurfDomainRange2(Surf.SurfInt("0"), Surf.SurfNameRef("n")),
+    {},
+    { Surf.SurfLet("x", Surf.SurfTI32, Surf.SurfNameRef("i")) },
+    {}
+)))
+
 local func_item, func_spans = P.parse_item_with_spans([[
 func add(a: i32, b: i32) -> i32
     let s: i32 = a + b

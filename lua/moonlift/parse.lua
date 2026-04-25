@@ -488,7 +488,13 @@ function Parser:parse_domain()
         self:expect(")")
         return self.Surf.SurfDomainZipEq(values)
     end
-    return self.Surf.SurfDomainValue(self:parse_expr())
+    -- try `..` range literal
+    local first = self:parse_expr()
+    if self:consume("..") then
+        local second = self:parse_expr()
+        return self.Surf.SurfDomainRange2(first, second)
+    end
+    return self.Surf.SurfDomainValue(first)
 end
 
 function Parser:parse_loop_carry(base_path, index)
