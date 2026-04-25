@@ -2,7 +2,15 @@ local M = {}
 
 local DiagMT = {
     __tostring = function(self)
-        return string.format("moonlift %s error at %d:%d: %s", self.kind or "parse", self.line or 0, self.col or 0, self.message or "error")
+        local loc = {}
+        if self.module_name ~= nil and self.module_name ~= "" then
+            loc[#loc + 1] = self.module_name
+        end
+        if self.path ~= nil and self.path ~= "" then
+            loc[#loc + 1] = self.path
+        end
+        loc[#loc + 1] = string.format("%d:%d", self.line or 0, self.col or 0)
+        return string.format("moonlift %s error at %s: %s", self.kind or "parse", table.concat(loc, ":"), self.message or "error")
     end,
 }
 
@@ -25,6 +33,9 @@ function M.as_diag(err)
 end
 
 local KEYWORDS = {
+    ["export"] = true,
+    ["fn"] = true,
+    ["closure"] = true,
     ["func"] = true,
     ["extern"] = true,
     ["const"] = true,
@@ -32,6 +43,8 @@ local KEYWORDS = {
     ["import"] = true,
     ["type"] = true,
     ["struct"] = true,
+    ["enum"] = true,
+    ["union"] = true,
     ["let"] = true,
     ["var"] = true,
     ["if"] = true,

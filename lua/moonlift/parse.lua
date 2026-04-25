@@ -220,6 +220,18 @@ function Parser:parse_type()
         self:expect("->")
         return self.Surf.SurfTFunc(params, self:parse_type())
     end
+    if self:consume("closure") then
+        self:expect("(")
+        local params = {}
+        if not self:is(")") then
+            repeat
+                params[#params + 1] = self:parse_type()
+            until not self:consume(",")
+        end
+        self:expect(")")
+        self:expect("->")
+        return self.Surf.SurfTClosure(params, self:parse_type())
+    end
     if tok.kind == "ident" then
         local path = self:parse_path()
         return self.Surf.SurfTNamed(path)
@@ -305,6 +317,38 @@ function Parser:parse_intrinsic_or_ref(first)
         end
         self:expect(")")
         return self.Surf.SurfExprIntrinsicCall(self.Surf[INTRINSICS[first.raw]], args)
+    end
+    -- View construction identifiers
+    if first.raw == "view_from_ptr" and self:is("(") then
+        self:bump()
+        local ptr = self:parse_expr()
+        self:expect(",")
+        local len = self:parse_expr()
+        if self:consume(",") then
+            local stride = self:parse_expr()
+            self:expect(")")
+            return self.Surf.SurfExprViewFromPtrStrided(ptr, len, stride)
+        end
+        self:expect(")")
+        return self.Surf.SurfExprViewFromPtr(ptr, len)
+    end
+    if first.raw == "view_strided" and self:is("(") then
+        self:bump()
+        local base = self:parse_expr()
+        self:expect(",")
+        local stride = self:parse_expr()
+        self:expect(")")
+        return self.Surf.SurfExprViewStrided(base, stride)
+    end
+    if first.raw == "view_interleaved" and self:is("(") then
+        self:bump()
+        local base = self:parse_expr()
+        self:expect(",")
+        local stride = self:parse_expr()
+        self:expect(",")
+        local lane = self:parse_expr()
+        self:expect(")")
+        return self.Surf.SurfExprViewInterleaved(base, stride, lane)
     end
     local path, parts = self:parse_path_from_first(first)
     if self:is("{") then
@@ -576,6 +620,33 @@ function Parser:parse_block_expr()
     return self.Surf.SurfBlockExpr(stmts, result)
 end
 
+function Parser:parse_view_expr()
+    self:expect("view")
+    self:expect("(")
+    local base = self:parse_expr()
+    if self:consume(",") then
+        local start = self:parse_expr()
+        self:expect(",")
+        local len = self:parse_expr()
+        self:expect(")")
+        return self.Surf.SurfExprViewWindow(base, start, len)
+    end
+    self:expect(")")
+    return self.Surf.SurfExprView(base)
+end
+
+function Parser:parse_closure_expr()
+    self:expect("fn")
+    self:expect("(")
+    local params = self:parse_param_list(self:scoped("closure", "param"))
+    self:expect(")")
+    local result = self:parse_result_type_or_void()
+    self:require_nl()
+    local body = self:parse_stmt_block({ ["end"] = true }, "closure")
+    self:expect("end")
+    return self.Surf.SurfClosureExpr(params, result, body)
+end
+
 function Parser:parse_array_lit()
     self:expect("[")
     self:expect("]")
@@ -679,6 +750,12 @@ function Parser:parse_prefix_expr()
     end
     if kind == "do" then
         return self:parse_block_expr()
+    end
+    if kind == "view" then
+        return self:parse_view_expr()
+    end
+    if kind == "fn" then
+        return self:parse_closure_expr()
     end
     if kind == "cast" or kind == "trunc" or kind == "zext" or kind == "sext" or kind == "bitcast" or kind == "satcast" then
         return self:parse_cast_expr(kind)
@@ -828,7 +905,7 @@ function Parser:parse_result_type_or_void()
     return self.Surf.SurfTVoid
 end
 
-function Parser:parse_func_item(item_path)
+function Parser:parse_func_item(item_path, exported)
     local first = self:peek()
     self:expect("func")
     local name = self:expect("ident", "expected function name").raw
@@ -842,7 +919,7 @@ function Parser:parse_func_item(item_path)
     self:expect("end")
     self:record_span(item_path, first)
     self:record_span(func_path, first)
-    return self.Surf.SurfItemFunc(self.Surf.SurfFunc(name, params, result, body))
+    return self.Surf.SurfItemFunc(self.Surf.SurfFunc(name, exported, params, result, body))
 end
 
 function Parser:parse_extern_item(item_path)
@@ -889,11 +966,62 @@ function Parser:parse_type_item(item_path)
     self:expect("type")
     local name = self:expect("ident", "expected type name").raw
     self:expect("=")
-    self:expect("struct")
-    local fields = self:parse_braced_entries(function() return self:parse_field_decl() end)
+    local kind = self:kind()
+    local decl
+    if kind == "struct" then
+        self:bump()
+        local fields = self:parse_braced_entries(function() return self:parse_field_decl() end)
+        decl = self.Surf.SurfItemType(self.Surf.SurfStruct(name, fields))
+    elseif kind == "enum" then
+        self:bump()
+        local items = {}
+        local i = 0
+        self:parse_braced_entries(function()
+            local v = self:expect("ident", "expected enum variant name").raw
+            i = i + 1
+            items[#items + 1] = self.Surf.SurfItemConst(self.Surf.SurfConst(v, self.Surf.SurfTI32, self.Surf.SurfInt(tostring(i - 1))))
+        end)
+        decl = items
+    elseif kind == "union" then
+        self:bump()
+        local fields = self:parse_braced_entries(function() return self:parse_field_decl() end)
+        decl = self.Surf.SurfItemType(self.Surf.SurfUnion(name, fields))
+    elseif kind == "ident" then
+        decl = self:parse_tagged_union_items(name, first)
+    else
+        parse_error(self:peek(), "expected struct, enum, union, or variant name after '='")
+    end
     self:record_span(item_path, first)
     self:record_span("type." .. name, first)
-    return self.Surf.SurfItemType(self.Surf.SurfStruct(name, fields))
+    return decl
+end
+
+function Parser:parse_tagged_union_items(name, first)
+    local items = {}
+    local payload_types = {}
+    local i = 0
+    while true do
+        local vname = self:expect("ident", "expected variant name").raw
+        local payload = self.Surf.SurfTVoid
+        if self:kind() == "(" then
+            self:bump()
+            payload = self:parse_type()
+            self:expect(")")
+        end
+        i = i + 1
+        payload_types[i] = { name = vname, payload = payload }
+        -- tag constant
+        items[#items + 1] = self.Surf.SurfItemConst(self.Surf.SurfConst(name .. "_tag_" .. vname, self.Surf.SurfTI32, self.Surf.SurfInt(tostring(i - 1))))
+        if self:kind() ~= "|" then break end
+        self:bump()
+    end
+    -- struct with tag + per-variant fields
+    local fields = { self.Surf.SurfFieldDecl("tag", self.Surf.SurfTI32) }
+    for j = 1, #payload_types do
+        fields[#fields + 1] = self.Surf.SurfFieldDecl("_" .. (j - 1), payload_types[j].payload)
+    end
+    table.insert(items, 1, self.Surf.SurfItemType(self.Surf.SurfStruct(name, fields)))
+    return items
 end
 
 function Parser:parse_import_item(item_path)
@@ -908,7 +1036,13 @@ end
 
 function Parser:parse_item(item_path)
     local kind = self:kind()
-    if kind == "func" then return self:parse_func_item(item_path) end
+    local exported = false
+    if kind == "export" then
+        self:bump()
+        exported = true
+        kind = self:kind()
+    end
+    if kind == "func" then return self:parse_func_item(item_path, exported) end
     if kind == "extern" then return self:parse_extern_item(item_path) end
     if kind == "const" then return self:parse_const_item(item_path) end
     if kind == "static" then return self:parse_static_item(item_path) end
@@ -939,7 +1073,15 @@ function M.Define(T)
         p:skip_nl()
         while not p:is("eof") do
             item_i = item_i + 1
-            items[#items + 1] = p:parse_item("item." .. item_i)
+            local result = p:parse_item("item." .. item_i)
+            if type(result) == "table" and result[1] ~= nil and result.name == nil then
+                -- expanded item list (enum/tagged-union desugaring)
+                for _, it in ipairs(result) do
+                    items[#items + 1] = it
+                end
+            else
+                items[#items + 1] = result
+            end
             if p:consume("nl") then
                 p:skip_nl()
             elseif not p:is("eof") then
