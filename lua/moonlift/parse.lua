@@ -686,11 +686,11 @@ function Parser:parse_loop(is_expr, path)
             self:expect("->")
             local result = self:parse_expr()
             return self.Surf.SurfExprLoop(
-                self.Surf.SurfLoopOverExprTyped(index_name, domain, carries, result_ty, body, nexts, result)
+                self.Surf.SurfExprLoopOver(index_name, domain, carries, result_ty, body, nexts, result)
             )
         end
         return self.Surf.SurfStmtLoop(
-            self.Surf.SurfLoopOverStmt(index_name, domain, carries, body, nexts)
+            self.Surf.SurfStmtLoopOver(index_name, domain, carries, body, nexts)
         )
     end
 
@@ -706,11 +706,11 @@ function Parser:parse_loop(is_expr, path)
         self:expect("->")
         local result = self:parse_expr()
         return self.Surf.SurfExprLoop(
-            self.Surf.SurfLoopWhileExprTyped(carries, result_ty, cond, body, nexts, result)
+            self.Surf.SurfExprLoopWhile(carries, result_ty, cond, body, nexts, result)
         )
     end
     return self.Surf.SurfStmtLoop(
-        self.Surf.SurfLoopWhileStmt(carries, cond, body, nexts)
+        self.Surf.SurfStmtLoopWhile(carries, cond, body, nexts)
     )
 end
 

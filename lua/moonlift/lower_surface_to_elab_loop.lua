@@ -586,7 +586,7 @@ function M.Define(T)
             ))
         end,
 
-        [Surf.SurfLoopOverExprTyped] = function(self, env, path)
+        [Surf.SurfExprLoopOver] = function(self, env, path)
             local base = path_or_implicit("loop.over.expr.typed", self, path)
             local loop_id = base
             local carries, loop_env, loop_bindings = lower_carries(self.carries, env, loop_id, scoped_path(base, "carries"))
