@@ -486,6 +486,18 @@ local for_sum = ffi.cast("intptr_t (*)(intptr_t)", for_sum_ptr)
 assert(for_sum(5) == 10)
 for_in_range_artifact:free()
 
+-- Enum desugaring test
+local enum_artifact = source.compile([[
+type Color = enum { red, green, blue }
+export func use_enum() -> i32
+    return red + green + blue
+end
+]], nil, nil, nil, jit)
+local enum_ptr = enum_artifact:getpointer(Back.BackFuncId("use_enum"))
+local use_enum = ffi.cast("int32_t (*)()", enum_ptr)
+assert(use_enum() == 0 + 1 + 2)
+enum_artifact:free()
+
 local while_break_artifact = source.compile([[
 export func while_break_find(n: i32) -> i32
     while i < n with i: i32 = 0 do
