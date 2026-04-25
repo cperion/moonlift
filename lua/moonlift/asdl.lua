@@ -382,6 +382,7 @@ module MoonliftSem {
             | SemViewStrided(MoonliftSem.SemExpr data, MoonliftSem.SemType elem, MoonliftSem.SemExpr len, MoonliftSem.SemExpr stride) unique
             | SemViewRestrided(MoonliftSem.SemView base, MoonliftSem.SemType elem, MoonliftSem.SemExpr stride) unique
             | SemViewWindow(MoonliftSem.SemView base, MoonliftSem.SemExpr start, MoonliftSem.SemExpr len) unique
+            | SemViewRowBase(MoonliftSem.SemView base, MoonliftSem.SemExpr row_offset, MoonliftSem.SemType elem) unique
             | SemViewInterleaved(MoonliftSem.SemExpr data, MoonliftSem.SemType elem, MoonliftSem.SemExpr len, MoonliftSem.SemExpr stride, MoonliftSem.SemExpr lane) unique
             | SemViewInterleavedView(MoonliftSem.SemView base, MoonliftSem.SemType elem, MoonliftSem.SemExpr stride, MoonliftSem.SemExpr lane) unique
 

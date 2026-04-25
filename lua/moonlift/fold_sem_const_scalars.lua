@@ -190,6 +190,9 @@ function M.Define(T, env)
         [Sem.SemViewInterleavedView] = function(self, const_env)
             return pvm.once(Sem.SemViewInterleavedView(one_view(self.base, const_env), self.elem, one_expr(self.stride, const_env), one_expr(self.lane, const_env)))
         end,
+        [Sem.SemViewRowBase] = function(self, const_env)
+            return pvm.once(Sem.SemViewRowBase(one_view(self.base, const_env), one_expr(self.row_offset, const_env), self.elem))
+        end,
     })
 
     fold_place = pvm.phase("moonlift_sem_fold_const_scalars_place", {

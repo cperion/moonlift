@@ -3160,6 +3160,26 @@ function M.Define(T)
             cmds[#cmds + 1] = one_add_cmd(Sem.SemTRawPtr, data, Back.BackPtr, base.data, lane_offset)
             return pvm.once(Back.BackViewPlan(cmds, data, base.len, stride))
         end,
+        [Sem.SemViewRowBase] = function(self, path, layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
+            -- SemViewRowBase(base, row_offset, elem): produce a view whose data pointer is
+            -- base.data + row_offset * base.stride, length = base.len, stride = base.stride.
+            local base = one_bounded_view(self.base, path .. ".base", layout_env, break_block, break_args, continue_block, continue_args, residence_plan)
+            local row_offset = require_index_expr(self.row_offset, path .. ".row_offset", layout_env, break_block, break_args, continue_block, continue_args, residence_plan, "sem_to_back_bounded_view")
+            local offset_bytes = Back.BackValId(path .. ".offset_bytes")
+            local data = Back.BackValId(path .. ".data")
+            local cmds = {}
+            append_view_cmds(cmds, base)
+            if view_terminates(base) then
+                return pvm.once(terminated_view(cmds))
+            end
+            append_expr_cmds(cmds, row_offset)
+            if expr_terminates(row_offset) then
+                return pvm.once(terminated_view(cmds))
+            end
+            cmds[#cmds + 1] = one_mul_cmd(Sem.SemTIndex, offset_bytes, Back.BackIndex, row_offset.value, base.stride)
+            cmds[#cmds + 1] = one_add_cmd(Sem.SemTRawPtr, data, Back.BackPtr, base.data, offset_bytes)
+            return pvm.once(Back.BackViewPlan(cmds, data, base.len, base.stride))
+        end,
     })
 
     local function build_over_stmt_plan(loop, path, start_plan, stop_plan, layout_env, residence_plan)

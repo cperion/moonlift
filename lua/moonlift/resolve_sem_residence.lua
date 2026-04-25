@@ -335,6 +335,9 @@ function M.Define(T)
         [Sem.SemViewInterleavedView] = function(self)
             return pvm.once(concat_entries(one_view_entries(self.base), one_expr_entries(self.stride), one_expr_entries(self.lane)))
         end,
+        [Sem.SemViewRowBase] = function(self)
+            return pvm.once(concat_entries(one_view_entries(self.base), one_expr_entries(self.row_offset)))
+        end,
     })
 
     lower_place_entries = pvm.phase("moonlift_sem_residence_place_entries", {
