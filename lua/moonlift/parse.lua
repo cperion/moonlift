@@ -536,6 +536,84 @@ function Parser:parse_typed_loop_header(base_path)
     return index_name, domain, carries
 end
 
+function Parser:parse_for_stmt(path)
+    self:expect("for")
+    local index_name = self:expect("ident", "expected loop index name").raw
+    self:expect("in")
+    local domain = self:parse_domain()
+    -- optional carries
+    local carries = {}
+    if self:consume("with") then
+        self:skip_nl()
+        repeat
+            carries[#carries + 1] = self:parse_loop_carry(path and self:scoped(path, "carries") or nil, #carries + 1)
+        until not self:consume(",")
+    end
+    self:skip_nl()
+    self:expect("do")
+    self:require_nl()
+    local body = self:parse_stmt_block({ ["end"] = true }, path and self:scoped(path, "body") or nil)
+    -- collect next assignments inside body
+    local nexts = {}
+    for i = 1, #body do
+        local stmt = body[i]
+        if stmt.kind == "SurfLoopNextAssign" then
+            -- remove next from body and collect
+            nexts[#nexts + 1] = stmt
+            body[i] = nil
+        end
+    end
+    -- compress body (remove nils)
+    local compact_body = {}
+    for i = 1, #body do
+        if body[i] ~= nil then
+            compact_body[#compact_body + 1] = body[i]
+        end
+    end
+    body = compact_body
+    self:expect("end")
+    self:record_span(path, first)
+    return self.Surf.SurfLoopStmtNode(
+        self.Surf.SurfLoopOverStmt(index_name, domain, carries, body, nexts)
+    )
+end
+
+function Parser:parse_while_stmt(path)
+    self:expect("while")
+    local cond = self:parse_expr()
+    local carries = {}
+    if self:consume("with") then
+        self:skip_nl()
+        repeat
+            carries[#carries + 1] = self:parse_loop_carry(path and self:scoped(path, "carries") or nil, #carries + 1)
+        until not self:consume(",")
+    end
+    self:skip_nl()
+    self:expect("do")
+    self:require_nl()
+    local body = self:parse_stmt_block({ ["end"] = true }, path and self:scoped(path, "body") or nil)
+    local nexts = {}
+    for i = 1, #body do
+        local stmt = body[i]
+        if stmt.kind == "SurfLoopNextAssign" then
+            nexts[#nexts + 1] = stmt
+            body[i] = nil
+        end
+    end
+    local compact_body = {}
+    for i = 1, #body do
+        if body[i] ~= nil then
+            compact_body[#compact_body + 1] = body[i]
+        end
+    end
+    body = compact_body
+    self:expect("end")
+    self:record_span(path, first)
+    return self.Surf.SurfLoopStmtNode(
+        self.Surf.SurfLoopWhileStmt(carries, cond, body, nexts)
+    )
+end
+
 function Parser:parse_loop_next_block(base_path)
     local nexts = {}
     local i = 0
@@ -745,7 +823,11 @@ function Parser:parse_prefix_expr()
     if kind == "switch" then
         return self:parse_switch_expr()
     end
-    if kind == "loop" then
+    if kind == "for" then
+        parse_error(self:peek(), "for is a statement, not an expression")
+    elseif kind == "while" then
+        parse_error(self:peek(), "while is a statement, not an expression")
+    elseif kind == "loop" then
         return self:parse_loop(true)
     end
     if kind == "do" then
