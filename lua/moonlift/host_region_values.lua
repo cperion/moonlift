@@ -1,0 +1,315 @@
+local M = {}
+
+local EntryParamValue = {}
+EntryParamValue.__index = EntryParamValue
+
+local ContValue = {}
+ContValue.__index = ContValue
+
+local BlockValue = {}
+BlockValue.__index = BlockValue
+
+local RegionFragValue = {}
+RegionFragValue.__index = RegionFragValue
+
+local RegionBuilder = {}
+RegionBuilder.__index = RegionBuilder
+
+local BlockBuilder = {}
+BlockBuilder.__index = BlockBuilder
+
+local function assert_name(name, site)
+    assert(type(name) == "string" and name:match("^[_%a][_%w]*$"), site .. " expects an identifier")
+end
+
+function RegionFragValue:moonlift_splice_source()
+    return self.name
+end
+
+function RegionFragValue:__tostring()
+    return "Moon2RegionFragValue(" .. self.name .. ")"
+end
+
+local function ordered_pairs_from_map(map)
+    local keys = {}
+    for k in pairs(map or {}) do keys[#keys + 1] = k end
+    table.sort(keys)
+    local i = 0
+    return function()
+        i = i + 1
+        local k = keys[i]
+        if k ~= nil then return k, map[k] end
+    end
+end
+
+function M.Install(api, session)
+    local T = session.T
+    local C, Ty, B, O, Tr = T.Moon2Core, T.Moon2Type, T.Moon2Bind, T.Moon2Open, T.Moon2Tree
+
+    local function as_param(v, site)
+        if type(v) == "table" and getmetatable(v) == api.ParamValue then return v end
+        error((site or "expected param value") .. ": got " .. type(v), 3)
+    end
+
+    local function as_entry_param(v, site)
+        if type(v) == "table" and getmetatable(v) == EntryParamValue then return v end
+        error((site or "expected entry param value") .. ": got " .. type(v), 3)
+    end
+
+    local function jump_args(args)
+        local out = {}
+        for name, expr in ordered_pairs_from_map(args or {}) do
+            out[#out + 1] = Tr.JumpArg(name, api.as_moon2_expr(expr, "jump arg expects expression value"))
+        end
+        return out
+    end
+
+    local function binding_extra_for_type(tv)
+        local extra = {}
+        if tv.pointee then extra.pointee_type = tv.pointee; extra.element_type = tv.pointee end
+        if tv.element then extra.element_type = tv.element end
+        return extra
+    end
+
+    local function copy_bindings(src)
+        local out = {}
+        for k, v in pairs(src or {}) do out[k] = v end
+        return out
+    end
+
+    local function block_param_expr(region_id, label, param, index, is_entry)
+        local class = is_entry and B.BindingClassEntryBlockParam(region_id, label.name, index) or B.BindingClassBlockParam(region_id, label.name, index)
+        local binding = B.Binding(C.Id("control:param:" .. region_id .. ":" .. label.name .. ":" .. param.name), param.name, param.ty, class)
+        local tv = api.type_from_asdl(param.ty, param.name)
+        return api.expr_ref(binding, tv, param.name, binding_extra_for_type(tv))
+    end
+
+    local function child_block_builder(parent)
+        return setmetatable({ region = parent.region, block = parent.block, body = {}, bindings = copy_bindings(parent.bindings) }, BlockBuilder)
+    end
+
+    local function make_block_builder(region, block_value, params, is_entry)
+        local bindings = copy_bindings(region.bindings)
+        local label = block_value.label
+        for i = 1, #params do
+            bindings[params[i].name] = block_param_expr(region.region_id, label, params[i], i, is_entry)
+        end
+        return setmetatable({ region = region, block = block_value, body = {}, bindings = bindings }, BlockBuilder)
+    end
+
+    function api.entry_param(name, ty, init)
+        assert_name(name, "entry_param")
+        local tv = api.as_type_value(ty, "entry_param expects type value")
+        local e = api.as_expr_value(init, "entry_param expects init expression")
+        return setmetatable({ kind = "entry_param", name = name, type = tv, init = e, decl = Tr.EntryBlockParam(name, tv.ty, e.expr) }, EntryParamValue)
+    end
+
+    function api.cont(params)
+        params = params or {}
+        local block_params = {}
+        for i = 1, #params do
+            local p = as_param(params[i], "cont param")
+            block_params[i] = Tr.BlockParam(p.name, p.type.ty)
+        end
+        return setmetatable({ kind = "cont", params = params, block_params = block_params }, ContValue)
+    end
+
+    function BlockBuilder:param(name)
+        local v = self.bindings[name]
+        assert(v ~= nil, "unknown block binding: " .. tostring(name))
+        return v
+    end
+
+    function BlockBuilder:emit_stmt(stmt)
+        self.body[#self.body + 1] = stmt
+        return stmt
+    end
+
+    function BlockBuilder:expr(expr)
+        local e = api.as_expr_value(expr, "expr statement expects expression value")
+        return self:emit_stmt(Tr.StmtExpr(Tr.StmtSurface, e.expr))
+    end
+
+    function BlockBuilder:return_(expr)
+        if expr == nil then return self:emit_stmt(Tr.StmtReturnVoid(Tr.StmtSurface)) end
+        return self:emit_stmt(Tr.StmtReturnValue(Tr.StmtSurface, api.as_moon2_expr(expr, "return expects expression")))
+    end
+
+    function BlockBuilder:yield_(expr)
+        if expr == nil then return self:emit_stmt(Tr.StmtYieldVoid(Tr.StmtSurface)) end
+        return self:emit_stmt(Tr.StmtYieldValue(Tr.StmtSurface, api.as_moon2_expr(expr, "yield expects expression")))
+    end
+
+    function BlockBuilder:jump(target, args)
+        if type(target) == "table" and getmetatable(target) == BlockValue then
+            return self:emit_stmt(Tr.StmtJump(Tr.StmtSurface, target.label, jump_args(args)))
+        elseif type(target) == "table" and getmetatable(target) == ContValue then
+            assert(target.slot ~= nil, "cannot jump to continuation value outside a region fragment")
+            return self:emit_stmt(Tr.StmtJumpCont(Tr.StmtSurface, target.slot, jump_args(args)))
+        end
+        error("jump target must be a block or continuation value", 2)
+    end
+
+    function BlockBuilder:emit(fragment, runtime_args, fills)
+        assert(type(fragment) == "table" and getmetatable(fragment) == RegionFragValue, "emit expects a region fragment value")
+        local args = {}
+        for i = 1, #(runtime_args or {}) do args[i] = api.as_moon2_expr(runtime_args[i], "emit runtime arg expects expression") end
+        local fill_values = {}
+        for name, target in ordered_pairs_from_map(fills or {}) do
+            local cont = fragment.conts[name]
+            if cont == nil then api.raise_host_issue(session.T.Moon2Host.HostIssueInvalidEmitFill(fragment.name, tostring(name))) end
+            assert(type(target) == "table" and getmetatable(target) == BlockValue, "continuation fill must be a block value")
+            fill_values[#fill_values + 1] = O.SlotBinding(O.SlotCont(cont.slot), O.SlotValueCont(target.label))
+        end
+        for name in pairs(fragment.conts) do if (fills or {})[name] == nil then api.raise_host_issue(session.T.Moon2Host.HostIssueMissingEmitFill(fragment.name, name)) end end
+        return self:emit_stmt(Tr.StmtUseRegionFrag(Tr.StmtSurface, "host.emit." .. fragment.name .. "." .. tostring(#self.body + 1), fragment.frag, args, fill_values))
+    end
+
+    function BlockBuilder:if_(cond, then_fn, else_fn)
+        local c = api.as_expr_value(cond, "if_ expects condition expression")
+        assert(type(then_fn) == "function", "if_ expects then builder function")
+        local tb = child_block_builder(self)
+        then_fn(tb)
+        local else_body = {}
+        if else_fn ~= nil then
+            assert(type(else_fn) == "function", "if_ expects else builder function")
+            local eb = child_block_builder(self)
+            else_fn(eb)
+            else_body = eb.body
+        end
+        return self:emit_stmt(Tr.StmtIf(Tr.StmtSurface, c.expr, tb.body, else_body))
+    end
+
+    function RegionBuilder:param(name)
+        local v = self.bindings[name]
+        assert(v ~= nil, "unknown region binding: " .. tostring(name))
+        return v
+    end
+
+    function RegionBuilder:entry(name, entry_params, body_fn)
+        assert(self.entry_block == nil, "region already has an entry block")
+        assert_name(name, "entry")
+        entry_params = entry_params or {}
+        local decls = {}
+        for i = 1, #entry_params do decls[i] = as_entry_param(entry_params[i], "entry param").decl end
+        local block = setmetatable({ kind = "block", label = Tr.BlockLabel(name), params = decls, is_entry = true }, BlockValue)
+        local bb = make_block_builder(self, block, decls, true)
+        if body_fn then body_fn(bb) end
+        block.body = bb.body
+        self.entry_block = block
+        return block
+    end
+
+    function RegionBuilder:block(name, params, body_fn)
+        assert_name(name, "block")
+        params = params or {}
+        local decls = {}
+        for i = 1, #params do local p = as_param(params[i], "block param"); decls[i] = Tr.BlockParam(p.name, p.type.ty) end
+        local block = setmetatable({ kind = "block", label = Tr.BlockLabel(name), params = decls, is_entry = false }, BlockValue)
+        local bb = make_block_builder(self, block, decls, false)
+        if body_fn then body_fn(bb) end
+        block.body = bb.body
+        self.blocks[#self.blocks + 1] = block
+        return block
+    end
+
+    local function new_region_builder(kind, name, result_ty, bindings)
+        return setmetatable({
+            kind = kind,
+            name = name,
+            region_id = session:symbol_key("region", name),
+            result = result_ty,
+            bindings = copy_bindings(bindings),
+            entry_block = nil,
+            blocks = {},
+            conts = {},
+        }, RegionBuilder)
+    end
+
+    local function entry_asdl(block)
+        assert(block ~= nil, "control region requires an entry block")
+        return Tr.EntryControlBlock(block.label, block.params, block.body or {})
+    end
+
+    local function blocks_asdl(blocks)
+        local out = {}
+        for i = 1, #blocks do out[i] = Tr.ControlBlock(blocks[i].label, blocks[i].params, blocks[i].body or {}) end
+        return out
+    end
+
+    function api._build_control_expr_region(result_ty, bindings, builder_fn)
+        local tv = api.as_type_value(result_ty, "region result type expected")
+        local r = new_region_builder("expr_region", "expr", tv, bindings)
+        builder_fn(r)
+        return Tr.ExprControl(Tr.ExprSurface, Tr.ControlExprRegion(r.region_id, tv.ty, entry_asdl(r.entry_block), blocks_asdl(r.blocks)))
+    end
+
+    function api.region_frag(name, runtime_params, conts, builder_fn)
+        assert_name(name, "region_frag")
+        runtime_params = runtime_params or {}
+        local open_params = {}
+        local bindings = {}
+        for i = 1, #runtime_params do
+            local p = as_param(runtime_params[i], "region_frag runtime param")
+            local op = O.OpenParam(session:symbol_key("open_param", name .. ":" .. p.name), p.name, p.type.ty)
+            open_params[i] = op
+            local binding = B.Binding(C.Id("open-param:" .. name .. ":" .. p.name), p.name, p.type.ty, B.BindingClassOpenParam(op))
+            bindings[p.name] = api.expr_ref(binding, p.type, p.name)
+        end
+        local r = new_region_builder("region_frag", name, nil, bindings)
+        local slots = {}
+        local cont_values = {}
+        for cname, cont in ordered_pairs_from_map(conts or {}) do
+            assert(type(cont) == "table" and getmetatable(cont) == ContValue, "region_frag conts must be cont values")
+            local slot = O.ContSlot(session:symbol_key("cont", name .. ":" .. cname), cname, cont.block_params)
+            local cv = setmetatable({ kind = "cont", params = cont.params, block_params = cont.block_params, slot = slot }, ContValue)
+            cont_values[cname] = cv
+            slots[#slots + 1] = O.SlotCont(slot)
+        end
+        r.conts = cont_values
+        if builder_fn then builder_fn(r) end
+        local frag = O.RegionFrag(open_params, O.OpenSet({}, {}, {}, slots), entry_asdl(r.entry_block), blocks_asdl(r.blocks))
+        return setmetatable({ kind = "region_frag", name = name, frag = frag, conts = cont_values }, RegionFragValue)
+    end
+
+    -- Patch function builders after host_func_values has installed them.
+    if api.FuncBuilder then
+        function api.FuncBuilder:return_region(result_ty, builder_fn)
+            local expr = api._build_control_expr_region(result_ty, self.bindings, builder_fn)
+            return self:emit(T.Moon2Tree.StmtReturnValue(T.Moon2Tree.StmtSurface, expr))
+        end
+    end
+
+    local block_methods = {}
+    for k, v in pairs(BlockBuilder) do block_methods[k] = v end
+    BlockBuilder.__index = function(self, key)
+        local method = block_methods[key]
+        if method ~= nil then return method end
+        if key == "label" then return self.block.label end
+        if key == "is_entry" then return self.block.is_entry end
+        return self.bindings[key]
+    end
+
+    local region_methods = {}
+    for k, v in pairs(RegionBuilder) do region_methods[k] = v end
+    RegionBuilder.__index = function(self, key)
+        local method = region_methods[key]
+        if method ~= nil then return method end
+        if key == "conts" then return rawget(self, "conts") end
+        if key == "entry_block" then return rawget(self, "entry_block") end
+        if key == "blocks" then return rawget(self, "blocks") end
+        local binding = self.bindings[key]
+        if binding ~= nil then return binding end
+        local conts = rawget(self, "conts")
+        return conts and conts[key] or nil
+    end
+
+    api.EntryParamValue = EntryParamValue
+    api.ContValue = ContValue
+    api.BlockValue = BlockValue
+    api.RegionFragValue = RegionFragValue
+    api.RegionBuilder = RegionBuilder
+    api.BlockBuilder = BlockBuilder
+end
+
+return M

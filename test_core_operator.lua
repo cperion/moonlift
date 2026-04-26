@@ -1,0 +1,51 @@
+package.path = "./?.lua;./?/init.lua;./moonlift/lua/?.lua;./moonlift/lua/?/init.lua;" .. package.path
+
+local pvm = require("moonlift.pvm")
+local A = require("moonlift.asdl")
+local Ops = require("moonlift.core_operator")
+
+local T = pvm.context()
+A.Define(T)
+local L = Ops.Define(T)
+local C = T.Moon2Core
+
+assert(L.unary(C.UnaryNeg) == C.UnaryClassArithmetic)
+assert(L.unary(C.UnaryNot) == C.UnaryClassLogical)
+assert(L.unary(C.UnaryBitNot) == C.UnaryClassBitwise)
+
+assert(L.binary(C.BinAdd) == C.BinaryClassArithmetic)
+assert(L.binary(C.BinSub) == C.BinaryClassArithmetic)
+assert(L.binary(C.BinMul) == C.BinaryClassArithmetic)
+assert(L.binary(C.BinDiv) == C.BinaryClassDivision)
+assert(L.binary(C.BinRem) == C.BinaryClassRemainder)
+assert(L.binary(C.BinBitAnd) == C.BinaryClassBitwise)
+assert(L.binary(C.BinBitOr) == C.BinaryClassBitwise)
+assert(L.binary(C.BinBitXor) == C.BinaryClassBitwise)
+assert(L.binary(C.BinShl) == C.BinaryClassShift)
+assert(L.binary(C.BinLShr) == C.BinaryClassShift)
+assert(L.binary(C.BinAShr) == C.BinaryClassShift)
+
+assert(L.cmp(C.CmpEq) == C.CmpClassEquality)
+assert(L.cmp(C.CmpNe) == C.CmpClassEquality)
+assert(L.cmp(C.CmpLt) == C.CmpClassOrdering)
+assert(L.cmp(C.CmpLe) == C.CmpClassOrdering)
+assert(L.cmp(C.CmpGt) == C.CmpClassOrdering)
+assert(L.cmp(C.CmpGe) == C.CmpClassOrdering)
+
+assert(L.intrinsic(C.IntrinsicPopcount) == C.IntrinsicClassBit)
+assert(L.intrinsic(C.IntrinsicClz) == C.IntrinsicClassBit)
+assert(L.intrinsic(C.IntrinsicCtz) == C.IntrinsicClassBit)
+assert(L.intrinsic(C.IntrinsicRotl) == C.IntrinsicClassBit)
+assert(L.intrinsic(C.IntrinsicRotr) == C.IntrinsicClassBit)
+assert(L.intrinsic(C.IntrinsicBswap) == C.IntrinsicClassBit)
+assert(L.intrinsic(C.IntrinsicFma) == C.IntrinsicClassFused)
+assert(L.intrinsic(C.IntrinsicSqrt) == C.IntrinsicClassFloat)
+assert(L.intrinsic(C.IntrinsicAbs) == C.IntrinsicClassFloat)
+assert(L.intrinsic(C.IntrinsicFloor) == C.IntrinsicClassFloat)
+assert(L.intrinsic(C.IntrinsicCeil) == C.IntrinsicClassFloat)
+assert(L.intrinsic(C.IntrinsicTruncFloat) == C.IntrinsicClassFloat)
+assert(L.intrinsic(C.IntrinsicRound) == C.IntrinsicClassFloat)
+assert(L.intrinsic(C.IntrinsicTrap) == C.IntrinsicClassControl)
+assert(L.intrinsic(C.IntrinsicAssume) == C.IntrinsicClassControl)
+
+print("moonlift core_operator ok")
