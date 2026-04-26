@@ -13,6 +13,7 @@ use std::error::Error;
 use std::ffi::c_void;
 use std::fmt;
 
+pub mod host_arena;
 mod ffi;
 
 macro_rules! id_type {
