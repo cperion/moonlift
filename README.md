@@ -97,6 +97,12 @@ The table-builder surface is syntax only; the consumed values are
 legacy ASDL text for `T:Define`, and later direct context construction can
 consume the same data without changing authoring syntax.
 
+As a migration experiment, `moonlift.asdl_data` routes the current compiler
+schema through `MoonAsdl.Schema` data before defining the context. It is a
+compatibility path for proving schema-as-data with the existing implementation;
+new hand-authored schema modules should use clean `MoonCore` / `MoonType` /
+`MoonBack`-style names rather than preserving historical module names.
+
 ## Artifact emission
 
 Compile `.mlua` object code to a relocatable object:
