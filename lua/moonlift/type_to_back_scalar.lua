@@ -34,7 +34,7 @@ function M.Define(T)
 
     type_to_back_scalar_result = pvm.phase("moon2_type_to_back_scalar_result", {
         [Ty.TypeClassScalar] = function(self, ty)
-            local values = pvm.drain(scalar_to_back(self.scalar))
+            local values = scalar_to_back:drain_uncached(self.scalar)
             if #values == 0 then
                 return pvm.once(Ty.TypeBackScalarUnavailable(ty, self))
             end
@@ -73,7 +73,7 @@ function M.Define(T)
             return type_to_back_scalar_result(class, ty)
         end,
         result = function(ty)
-            return pvm.one(type_to_back_scalar_result(classify_api.classify(ty), ty))
+            return type_to_back_scalar_result:one_uncached(classify_api.classify(ty), ty)
         end,
     }
     T._moonlift_api_cache.type_to_back_scalar = api
