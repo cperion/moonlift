@@ -3,6 +3,9 @@ local pvm = require("moonlift.pvm")
 local M = {}
 
 function M.Define(T)
+    T._moonlift_api_cache = T._moonlift_api_cache or {}
+    if T._moonlift_api_cache.type_to_back_scalar ~= nil then return T._moonlift_api_cache.type_to_back_scalar end
+
     local Core = T.Moon2Core
     local Ty = T.Moon2Type
     local Back = T.Moon2Back
@@ -63,7 +66,7 @@ function M.Define(T)
         end,
     })
 
-    return {
+    local api = {
         scalar_to_back = scalar_to_back,
         type_to_back_scalar_result = function(ty)
             local class = classify_api.classify(ty)
@@ -73,6 +76,8 @@ function M.Define(T)
             return pvm.one(type_to_back_scalar_result(classify_api.classify(ty), ty))
         end,
     }
+    T._moonlift_api_cache.type_to_back_scalar = api
+    return api
 end
 
 return M

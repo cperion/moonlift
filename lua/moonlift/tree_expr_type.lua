@@ -3,6 +3,9 @@ local pvm = require("moonlift.pvm")
 local M = {}
 
 function M.Define(T)
+    T._moonlift_api_cache = T._moonlift_api_cache or {}
+    if T._moonlift_api_cache.tree_expr_type ~= nil then return T._moonlift_api_cache.tree_expr_type end
+
     local C = T.Moon2Core
     local Ty = T.Moon2Type
     local B = T.Moon2Bind
@@ -115,13 +118,15 @@ function M.Define(T)
         [Tr.ExprUseExprFrag] = function(self) return header_or(self.h, self.frag.result) end,
     })
 
-    return {
+    local api = {
         header_type = header_type,
         value_ref_type = value_ref_type,
         call_target_type = call_target_type,
         expr_type = expr_type,
         type = function(expr) return first(expr_type(expr)) end,
     }
+    T._moonlift_api_cache.tree_expr_type = api
+    return api
 end
 
 return M

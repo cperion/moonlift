@@ -3,6 +3,9 @@ local pvm = require("moonlift.pvm")
 local M = {}
 
 function M.Define(T)
+    T._moonlift_api_cache = T._moonlift_api_cache or {}
+    if T._moonlift_api_cache.type_size_align ~= nil then return T._moonlift_api_cache.type_size_align end
+
     local Core = T.Moon2Core
     local Ty = T.Moon2Type
     local Sem = T.Moon2Sem
@@ -96,7 +99,7 @@ function M.Define(T)
         return pvm.one(class_layout(class, ty, env or Sem.LayoutEnv({})))
     end)
 
-    return {
+    local api = {
         scalar_layout = scalar_layout,
         named_layout_lookup = named_layout_lookup,
         class_layout = class_layout,
@@ -105,6 +108,8 @@ function M.Define(T)
             return pvm.one(type_layout_result(ty, env or Sem.LayoutEnv({})))
         end,
     }
+    T._moonlift_api_cache.type_size_align = api
+    return api
 end
 
 return M

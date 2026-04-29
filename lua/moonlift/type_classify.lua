@@ -3,6 +3,9 @@ local pvm = require("moonlift.pvm")
 local M = {}
 
 function M.Define(T)
+    T._moonlift_api_cache = T._moonlift_api_cache or {}
+    if T._moonlift_api_cache.type_classify ~= nil then return T._moonlift_api_cache.type_classify end
+
     local Ty = T.Moon2Type
 
     local array_len_count
@@ -70,7 +73,7 @@ function M.Define(T)
         end,
     })
 
-    return {
+    local api = {
         array_len_count = array_len_count,
         classify_type_ref = classify_type_ref,
         classify_type = classify_type,
@@ -78,6 +81,8 @@ function M.Define(T)
             return pvm.one(classify_type(ty))
         end,
     }
+    T._moonlift_api_cache.type_classify = api
+    return api
 end
 
 return M

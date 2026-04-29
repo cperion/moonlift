@@ -3,6 +3,9 @@ local pvm = require("moonlift.pvm")
 local M = {}
 
 function M.Define(T)
+    T._moonlift_api_cache = T._moonlift_api_cache or {}
+    if T._moonlift_api_cache.type_func_abi_plan ~= nil then return T._moonlift_api_cache.type_func_abi_plan end
+
     local C = T.Moon2Core
     local Ty = T.Moon2Type
     local B = T.Moon2Bind
@@ -54,13 +57,15 @@ function M.Define(T)
         return Ty.FuncAbiPlan(func_name, plans, result_plan(func_name, result_ty))
     end
 
-    return {
+    local api = {
         param_plan = param_plan,
         result_plan = result_plan,
         func_plan = func_plan,
         plan = func_plan,
         arg_binding_for_param = arg_binding_for_param,
     }
+    T._moonlift_api_cache.type_func_abi_plan = api
+    return api
 end
 
 return M
