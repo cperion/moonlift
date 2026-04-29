@@ -6,7 +6,7 @@ Moonlift is a LuaJIT-hosted compiler/runtime built on the PVM discipline:
 ASDL source values
   -> PVM phases
   -> explicit facts / decisions / proofs / rejects
-  -> flat Moon2Back commands
+  -> flat backend commands
   -> JIT, .o, and shared-library artifacts
 ```
 
@@ -33,7 +33,7 @@ examples/          runnable hosted Moonlift examples
 tests/             Lua test suite
 tests/fixtures/    non-runnable editor/LSP/demo fixtures
 emit_object.lua    .mlua -> host-native .o
-emit_shared.lua    .mlua -> .so/.dylib/.dll through Moon2Link
+emit_shared.lua    .mlua -> .so/.dylib/.dll through the ASDL linker layer
 run_mlua.lua       run hosted .mlua files with LuaJIT staging
 ```
 
@@ -69,6 +69,34 @@ luajit tests/test_json_library.lua
 luajit tests/test_lsp_integrated.lua
 ```
 
+## Schema-as-data authoring
+
+Moonlift is moving away from parser-text-first ASDL authoring. New schema and
+compiler wiring work should use Lua-hosted builders that produce canonical ASDL
+values:
+
+```lua
+local A = require("moonlift.asdl_builder").Define(T)
+
+local schema = A.schema {
+  A.module "MoonCore" {
+    A.product "Id" {
+      A.field "text" "string",
+      A.unique,
+    },
+    A.sum "Scalar" {
+      A.variant "ScalarI32",
+      A.variant "ScalarI64",
+    },
+  },
+}
+```
+
+The table-builder surface is syntax only; the consumed values are
+`MoonAsdl.Schema` / `MoonPhase.Package` ASDL values. The current bridge emits
+legacy ASDL text for `T:Define`, and later direct context construction can
+consume the same data without changing authoring syntax.
+
 ## Artifact emission
 
 Compile `.mlua` object code to a relocatable object:
@@ -92,8 +120,8 @@ The shared path is:
   -> tree_to_back
   -> back_validate
   -> back_object (.o)
-  -> Moon2Link.LinkPlan
-  -> LinkCommandPlan
+  -> linker plan
+  -> linker command plan
   -> system linker
 ```
 
