@@ -98,7 +98,12 @@ assert(has(report.issues, O.IssueUnfilledItemsSlot(items_slot)))
 assert(has(report.issues, O.IssueUnfilledModuleSlot(module_slot)))
 
 local expr_frag = O.ExprFrag({}, O.OpenSet({}, {}, {}, { O.SlotExpr(expr_slot) }), Tr.ExprSlotValue(Tr.ExprTyped(i32), expr_slot), i32)
-local region_frag = O.RegionFrag({}, O.OpenSet({}, {}, {}, { O.SlotRegion(region_slot) }), { Tr.StmtUseRegionSlot(Tr.StmtTyped, region_slot) })
+local region_frag = O.RegionFrag(
+    {},
+    O.OpenSet({}, {}, {}, { O.SlotRegion(region_slot) }),
+    Tr.EntryControlBlock(Tr.BlockLabel("entry"), {}, { Tr.StmtUseRegionSlot(Tr.StmtTyped, region_slot) }),
+    {}
+)
 local nested_module = Tr.Module(Tr.ModuleTyped("Nested"), {})
 local module = Tr.Module(
     Tr.ModuleOpen(O.ModuleNameOpen, O.OpenSet({}, {}, {}, {})),
