@@ -416,7 +416,7 @@ function M.Define(T)
             cmds[#cmds + 1] = Back.CmdCall(Back.BackCallValue(dst, scalar), target, sig, args)
             return pvm.once(Tr.TreeBackExprValue(env2, cmds, dst, scalar))
         end,
-        [Tr.ExprCast] = function(self, env) return expr_to_back(Tr.ExprMachineCast(self.h, surface_cast_to_machine_op(self.op, expr_ty(self.value), self.ty), self.ty, self.value), env) end,
+        [Tr.ExprCast] = function(self, env) return pvm.once(expr_to_back:one_uncached(Tr.ExprMachineCast(self.h, surface_cast_to_machine_op(self.op, expr_ty(self.value), self.ty), self.ty, self.value), env)) end,
         [Tr.ExprLen] = function(self, env)
             local lowered = expr_to_back:one_uncached(self.value, env)
             local view = expr_view_value(lowered)
@@ -430,11 +430,11 @@ function M.Define(T)
         [Tr.ExprLogic] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "logic lowering needs control flow")) end,
         [Tr.ExprIf] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "if expression lowering deferred")) end,
         [Tr.ExprSwitch] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "switch expression lowering deferred")) end,
-        [Tr.ExprControl] = function(self, env) return control_api.expr_region_to_back(self.region, env) end,
+        [Tr.ExprControl] = function(self, env) return pvm.once(control_api.expr_region_to_back:one_uncached(self.region, env)) end,
         [Tr.ExprBlock] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "block expression lowering deferred")) end,
         [Tr.ExprDot] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "dot lowering deferred")) end,
         [Tr.ExprIntrinsic] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "intrinsic lowering deferred")) end,
-        [Tr.ExprAddrOf] = function(self, env) return place_addr_to_back(self.place, env) end,
+        [Tr.ExprAddrOf] = function(self, env) return pvm.once(place_addr_to_back:one_uncached(self.place, env)) end,
         [Tr.ExprDeref] = function(self, env)
             local addr = expr_value(expr_to_back:one_uncached(self.value, env))
             if addr == nil then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "unsupported deref address")) end
@@ -465,7 +465,7 @@ function M.Define(T)
         [Tr.ExprAgg] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "aggregate lowering deferred")) end,
         [Tr.ExprArray] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "array lowering deferred")) end,
         [Tr.ExprClosure] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "closure lowering deferred")) end,
-        [Tr.ExprView] = function(self, env) return view_to_back(self.view, env) end,
+        [Tr.ExprView] = function(self, env) return pvm.once(view_to_back:one_uncached(self.view, env)) end,
         [Tr.ExprLoad] = function(self, env)
             local addr = expr_value(expr_to_back:one_uncached(self.addr, env))
             if addr == nil then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "unsupported load address")) end
@@ -696,7 +696,7 @@ function M.Define(T)
 
     place_addr_to_back = pvm.phase("moon2_tree_place_addr_to_back", {
         [Tr.PlaceIndex] = function(self, env)
-            return index_addr_to_back(self.base, self.index, self.h.ty, env)
+            return pvm.once(index_addr_to_back:one_uncached(self.base, self.index, self.h.ty, env))
         end,
         [Tr.PlaceDeref] = function(self, env)
             local addr = expr_value(expr_to_back:one_uncached(self.base, env))
@@ -831,8 +831,8 @@ function M.Define(T)
             return pvm.once(Tr.TreeBackStmtResult(value.env, cmds, Back.BackTerminates))
         end,
         [Tr.StmtReturnVoid] = function(_, env) return pvm.once(Tr.TreeBackStmtResult(env, { Back.CmdReturnVoid }, Back.BackTerminates)) end,
-        [Tr.StmtVar] = function(self, env) return stmt_to_back(Tr.StmtLet(self.h, self.binding, self.init), env) end,
-        [Tr.StmtSet] = function(self, env) return place_store_to_back(self.place, self.value, env) end,
+        [Tr.StmtVar] = function(self, env) return pvm.once(stmt_to_back:one_uncached(Tr.StmtLet(self.h, self.binding, self.init), env)) end,
+        [Tr.StmtSet] = function(self, env) return pvm.once(place_store_to_back:one_uncached(self.place, self.value, env)) end,
         [Tr.StmtAssert] = function(_, env) return pvm.once(Tr.TreeBackStmtResult(env, {}, Back.BackFallsThrough)) end,
         [Tr.StmtIf] = lower_if_stmt,
         [Tr.StmtSwitch] = function(_, env) return pvm.once(Tr.TreeBackStmtResult(env, { Back.CmdTrap }, Back.BackTerminates)) end,
@@ -840,7 +840,7 @@ function M.Define(T)
         [Tr.StmtJumpCont] = function(_, env) return pvm.once(Tr.TreeBackStmtResult(env, { Back.CmdTrap }, Back.BackTerminates)) end,
         [Tr.StmtYieldVoid] = function(_, env) return pvm.once(Tr.TreeBackStmtResult(env, { Back.CmdTrap }, Back.BackTerminates)) end,
         [Tr.StmtYieldValue] = function(_, env) return pvm.once(Tr.TreeBackStmtResult(env, { Back.CmdTrap }, Back.BackTerminates)) end,
-        [Tr.StmtControl] = function(self, env) return control_api.stmt_region_to_back(self.region, env) end,
+        [Tr.StmtControl] = function(self, env) return pvm.once(control_api.stmt_region_to_back:one_uncached(self.region, env)) end,
         [Tr.StmtUseRegionSlot] = function(_, env) return pvm.once(Tr.TreeBackStmtResult(env, {}, Back.BackFallsThrough)) end,
         [Tr.StmtUseRegionFrag] = function(_, env) return pvm.once(Tr.TreeBackStmtResult(env, {}, Back.BackFallsThrough)) end,
     }, { args_cache = "last" })

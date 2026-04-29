@@ -138,7 +138,7 @@ function M.Define(T, base)
         local current = env
         local args = {}
         for i = 1, #entry_record.params do
-            local init = expr_value(pvm.one(base.expr_to_back(entry_record.params[i].init, current)))
+            local init = expr_value(base.expr_to_back:one_uncached(entry_record.params[i].init, current))
             if init == nil then return unsupported_stmt(current, cmds) end
             append_all(cmds, init.cmds)
             args[#args + 1] = init.value
@@ -155,7 +155,7 @@ function M.Define(T, base)
         for i = 1, #target.params do
             local arg, err = find_jump_arg(stmt.args, target.params[i].name)
             if arg == nil then return nil, current, cmds, err end
-            local value = expr_value(pvm.one(base.expr_to_back(arg.value, current)))
+            local value = expr_value(base.expr_to_back:one_uncached(arg.value, current))
             if value == nil then return nil, current, cmds, "unsupported jump arg " .. target.params[i].name end
             append_all(cmds, value.cmds)
             args[#args + 1] = value.value
@@ -181,7 +181,7 @@ function M.Define(T, base)
         local flow = Back.BackFallsThrough
         for i = 1, #stmts do
             if flow == Back.BackTerminates then break end
-            local result = pvm.one(control_stmt_to_back(stmts[i], current, ctx))
+            local result = control_stmt_to_back:one_uncached(stmts[i], current, ctx)
             append_all(cmds, result.cmds)
             current = result.env
             flow = result.flow
@@ -240,7 +240,7 @@ function M.Define(T, base)
     end
 
     local function lower_if(stmt, env, ctx)
-        local cond = expr_value(pvm.one(base.expr_to_back(stmt.cond, env)))
+        local cond = expr_value(base.expr_to_back:one_uncached(stmt.cond, env))
         if cond == nil then return pvm.once(unsupported_stmt(env, {})) end
 
         local env1, then_block = base.env_next_block(cond.env, "ctl.if.then")
@@ -276,11 +276,11 @@ function M.Define(T, base)
     end
 
     local function lower_switch(stmt, env, ctx)
-        local value = expr_value(pvm.one(base.expr_to_back(stmt.value, env)))
+        local value = expr_value(base.expr_to_back:one_uncached(stmt.value, env))
         if value == nil then return pvm.once(unsupported_stmt(env, {})) end
         local case_raws = {}
         for i = 1, #stmt.arms do
-            local raws = pvm.drain(switch_key_raw(stmt.arms[i].key))
+            local raws = switch_key_raw:drain_uncached(stmt.arms[i].key)
             if #raws ~= 1 then return pvm.once(unsupported_stmt(value.env, value.cmds)) end
             case_raws[#case_raws + 1] = raws[1]
         end
@@ -308,23 +308,23 @@ function M.Define(T, base)
         end,
         [Tr.StmtYieldValue] = function(self, env, ctx)
             if ctx.exit_value == nil then return pvm.once(unsupported_stmt(env, {})) end
-            local value = expr_value(pvm.one(base.expr_to_back(self.value, env)))
+            local value = expr_value(base.expr_to_back:one_uncached(self.value, env))
             if value == nil then return pvm.once(unsupported_stmt(env, {})) end
             local cmds = {}; append_all(cmds, value.cmds); cmds[#cmds + 1] = Back.CmdJump(ctx.exit_block, { value.value })
             return pvm.once(Tr.TreeBackStmtResult(value.env, cmds, Back.BackTerminates))
         end,
         [Tr.StmtIf] = lower_if,
         [Tr.StmtSwitch] = lower_switch,
-        [Tr.StmtLet] = function(self, env) return base.stmt_to_back(self, env) end,
-        [Tr.StmtVar] = function(self, env) return base.stmt_to_back(self, env) end,
-        [Tr.StmtSet] = function(self, env) return base.stmt_to_back(self, env) end,
-        [Tr.StmtExpr] = function(self, env) return base.stmt_to_back(self, env) end,
-        [Tr.StmtAssert] = function(self, env) return base.stmt_to_back(self, env) end,
-        [Tr.StmtReturnVoid] = function(self, env) return base.stmt_to_back(self, env) end,
-        [Tr.StmtReturnValue] = function(self, env) return base.stmt_to_back(self, env) end,
-        [Tr.StmtControl] = function(self, env) return base.stmt_to_back(self, env) end,
-        [Tr.StmtUseRegionSlot] = function(self, env) return base.stmt_to_back(self, env) end,
-        [Tr.StmtUseRegionFrag] = function(self, env) return base.stmt_to_back(self, env) end,
+        [Tr.StmtLet] = function(self, env) return pvm.once(base.stmt_to_back:one_uncached(self, env)) end,
+        [Tr.StmtVar] = function(self, env) return pvm.once(base.stmt_to_back:one_uncached(self, env)) end,
+        [Tr.StmtSet] = function(self, env) return pvm.once(base.stmt_to_back:one_uncached(self, env)) end,
+        [Tr.StmtExpr] = function(self, env) return pvm.once(base.stmt_to_back:one_uncached(self, env)) end,
+        [Tr.StmtAssert] = function(self, env) return pvm.once(base.stmt_to_back:one_uncached(self, env)) end,
+        [Tr.StmtReturnVoid] = function(self, env) return pvm.once(base.stmt_to_back:one_uncached(self, env)) end,
+        [Tr.StmtReturnValue] = function(self, env) return pvm.once(base.stmt_to_back:one_uncached(self, env)) end,
+        [Tr.StmtControl] = function(self, env) return pvm.once(base.stmt_to_back:one_uncached(self, env)) end,
+        [Tr.StmtUseRegionSlot] = function(self, env) return pvm.once(base.stmt_to_back:one_uncached(self, env)) end,
+        [Tr.StmtUseRegionFrag] = function(self, env) return pvm.once(base.stmt_to_back:one_uncached(self, env)) end,
     }, { args_cache = "last" })
 
     local function validate_region(region)
