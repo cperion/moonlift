@@ -2,7 +2,7 @@
 ---
 ---This module is the hosted-Lua language surface for constructing Moonlift
 ---programs as ASDL values.  Every public constructor below returns a plain
----Moon2* ASDL node from the supplied context; there are no wrapper objects,
+---Moon* ASDL node from the supplied context; there are no wrapper objects,
 ---hidden compiler contexts, string tags, or phase-side caches.
 ---
 ---Usage with an existing compiler context:
@@ -24,18 +24,18 @@ local schema = require("moonlift.asdl")
 
 local M = {}
 
----@alias moonlift.ast.Type Moon2Type.Type
----@alias moonlift.ast.Expr Moon2Tree.Expr
----@alias moonlift.ast.Place Moon2Tree.Place
----@alias moonlift.ast.Stmt Moon2Tree.Stmt
----@alias moonlift.ast.Item Moon2Tree.Item
----@alias moonlift.ast.Func Moon2Tree.Func
----@alias moonlift.ast.Module Moon2Tree.Module
----@alias moonlift.ast.FieldInit Moon2Tree.FieldInit
----@alias moonlift.ast.FuncContract Moon2Tree.FuncContract
----@alias moonlift.ast.TypeDecl Moon2Tree.TypeDecl
----@alias moonlift.ast.View Moon2Tree.View
----@alias moonlift.ast.Domain Moon2Tree.Domain
+---@alias moonlift.ast.Type MoonType.Type
+---@alias moonlift.ast.Expr MoonTree.Expr
+---@alias moonlift.ast.Place MoonTree.Place
+---@alias moonlift.ast.Stmt MoonTree.Stmt
+---@alias moonlift.ast.Item MoonTree.Item
+---@alias moonlift.ast.Func MoonTree.Func
+---@alias moonlift.ast.Module MoonTree.Module
+---@alias moonlift.ast.FieldInit MoonTree.FieldInit
+---@alias moonlift.ast.FuncContract MoonTree.FuncContract
+---@alias moonlift.ast.TypeDecl MoonTree.TypeDecl
+---@alias moonlift.ast.View MoonTree.View
+---@alias moonlift.ast.Domain MoonTree.Domain
 
 ---@class moonlift.ast.ParamSpec
 ---@field name string User-authored parameter name.
@@ -51,7 +51,7 @@ local M = {}
 
 ---@class moonlift.ast.FuncSpec
 ---@field name string Function name in the enclosing module.
----@field params Moon2Type.Param[] Ordered user-authored parameters.
+---@field params MoonType.Param[] Ordered user-authored parameters.
 ---@field ret moonlift.ast.Type? Optional result type. Defaults to `void`.
 ---@field result moonlift.ast.Type? Alias for `ret`.
 ---@field contracts moonlift.ast.FuncContract[]? Source `requires` contracts.
@@ -60,7 +60,7 @@ local M = {}
 ---@class moonlift.ast.ExternFuncSpec
 ---@field name string Source name of the extern function.
 ---@field symbol string? Linker/host symbol. Defaults to `name`.
----@field params Moon2Type.Param[] Ordered parameters.
+---@field params MoonType.Param[] Ordered parameters.
 ---@field ret moonlift.ast.Type? Optional result type. Defaults to `void`.
 ---@field result moonlift.ast.Type? Alias for `ret`.
 
@@ -77,7 +77,7 @@ local M = {}
 ---@class moonlift.ast.ModuleSpec
 ---@field items moonlift.ast.Item[]? Module item list. Positional entries are also accepted.
 ---@field name string? Optional module name for typed/semantic module headers only.
----@field h Moon2Tree.ModuleHeader? Explicit module header. Defaults to `ModuleSurface`.
+---@field h MoonTree.ModuleHeader? Explicit module header. Defaults to `ModuleSurface`.
 
 local scalar_names = {
     void = "ScalarVoid", bool = "ScalarBool",
@@ -211,17 +211,17 @@ local function install(api, T)
 
     ---Create a source identifier atom.
     ---@param text string Identifier text.
-    ---@return Moon2Core.Name
+    ---@return MoonCore.Name
     function api.core_name(text) return C.Name(assert_name(text, "core_name")) end
 
     ---Create a dotted source path.
     ---@param parts string|string[] Either `"a.b"` or `{ "a", "b" }`.
-    ---@return Moon2Core.Path
+    ---@return MoonCore.Path
     function api.path(parts) return as_path(parts, "path") end
 
     ---Create a source id atom.  Use this only when constructing explicit bindings.
     ---@param text string Stable id text.
-    ---@return Moon2Core.Id
+    ---@return MoonCore.Id
     function api.id(text) assert(type(text) == "string", "id expects a string"); return C.Id(text) end
 
     -- Type nodes -----------------------------------------------------------
@@ -283,7 +283,7 @@ local function install(api, T)
     function api.ptr(elem) return Ty.TPtr(as_type(elem, "ptr element type")) end
 
     ---Array type.
-    ---@param count number|Moon2Tree.Expr|Moon2Open.ExprSlot Constant count, source length expression, or open length slot.
+    ---@param count number|MoonTree.Expr|MoonOpen.ExprSlot Constant count, source length expression, or open length slot.
     ---@param elem moonlift.ast.Type Element type.
     ---@return moonlift.ast.Type
     function api.array(count, elem)
@@ -334,7 +334,7 @@ local function install(api, T)
     ---Function/type parameter declaration.
     ---@param spec moonlift.ast.ParamSpec|string Parameter table or name.
     ---@param ty moonlift.ast.Type? Type when first argument is a name.
-    ---@return Moon2Type.Param
+    ---@return MoonType.Param
     function api.param(spec, ty)
         if type(spec) == "table" and ty == nil then return Ty.Param(assert_name(spec.name, "param"), as_type(spec.ty or spec.type, "param type")) end
         return Ty.Param(assert_name(spec, "param"), as_type(ty, "param type"))
@@ -343,7 +343,7 @@ local function install(api, T)
     ---Struct/union field declaration.
     ---@param spec moonlift.ast.FieldSpec|string Field table or name.
     ---@param ty moonlift.ast.Type? Field type when first argument is a name.
-    ---@return Moon2Type.FieldDecl
+    ---@return MoonType.FieldDecl
     function api.field_decl(spec, ty)
         if type(spec) == "table" and ty == nil then return Ty.FieldDecl(assert_name(spec.name or spec.field_name, "field_decl"), as_type(spec.ty or spec.type, "field_decl type")) end
         return Ty.FieldDecl(assert_name(spec, "field_decl"), as_type(ty, "field_decl type"))
@@ -352,7 +352,7 @@ local function install(api, T)
     ---Tagged-union variant declaration.
     ---@param spec moonlift.ast.VariantSpec|string Variant table or name.
     ---@param payload moonlift.ast.Type? Payload type when first argument is a name.
-    ---@return Moon2Type.VariantDecl
+    ---@return MoonType.VariantDecl
     function api.variant_decl(spec, payload)
         if type(spec) == "table" and payload == nil then return Ty.VariantDecl(assert_name(spec.name, "variant_decl"), as_type(spec.payload, "variant payload type")) end
         return Ty.VariantDecl(assert_name(spec, "variant_decl"), as_type(payload, "variant payload type"))
@@ -364,19 +364,19 @@ local function install(api, T)
     ---@param name string Source binding name.
     ---@param ty moonlift.ast.Type User-authored binding type.
     ---@param id_text string? Stable id. Defaults to `local:<name>`.
-    ---@return Moon2Bind.Binding
+    ---@return MoonBind.Binding
     function api.binding(name, ty, id_text) return binding(name, ty, B.BindingClassLocalValue, id_text) end
 
     ---Create an explicit mutable-cell binding value. Most users should call `var`.
     ---@param name string Source binding name.
     ---@param ty moonlift.ast.Type User-authored binding type.
     ---@param id_text string? Stable id. Defaults to `local:<name>`.
-    ---@return Moon2Bind.Binding
+    ---@return MoonBind.Binding
     function api.cell_binding(name, ty, id_text) return binding(name, ty, B.BindingClassLocalCell, id_text) end
 
     ---Create a value reference by source name, dotted path, or explicit binding.
-    ---@param v string|string[]|Moon2Bind.Binding|Moon2Bind.ValueRef Reference subject.
-    ---@return Moon2Bind.ValueRef
+    ---@param v string|string[]|MoonBind.Binding|MoonBind.ValueRef Reference subject.
+    ---@return MoonBind.ValueRef
     function api.value_ref(v)
         if type(v) == "table" and pvm.classof(v) == B.Binding then return B.ValueRefBinding(v) end
         if type(v) == "table" and pvm.classof(v) == C.Path then return B.ValueRefPath(v) end
@@ -407,7 +407,7 @@ local function install(api, T)
     function api.nil_lit() return Tr.ExprLit(Tr.ExprSurface, C.LitNil) end
 
     ---Reference expression. This is the source-level `name` expression.
-    ---@param v string|string[]|Moon2Bind.Binding|Moon2Bind.ValueRef Reference subject.
+    ---@param v string|string[]|MoonBind.Binding|MoonBind.ValueRef Reference subject.
     ---@return moonlift.ast.Expr
     function api.name(v) return Tr.ExprRef(Tr.ExprSurface, api.value_ref(v)) end
     api.ref = api.name
@@ -570,7 +570,7 @@ local function install(api, T)
 
     ---Aggregate expression with named field initializers.
     ---@param ty moonlift.ast.Type Aggregate type.
-    ---@param fields Moon2Tree.FieldInit[] Field initializers.
+    ---@param fields MoonTree.FieldInit[] Field initializers.
     ---@return moonlift.ast.Expr
     function api.agg(ty, fields) return Tr.ExprAgg(Tr.ExprSurface, as_type(ty, "aggregate type"), fields or {}) end
 
@@ -607,7 +607,7 @@ local function install(api, T)
     function api.expr_block(body, result) return Tr.ExprBlock(Tr.ExprSurface, stmts(body or {}, "expr_block body"), as_expr(result, "expr_block result")) end
 
     ---Closure expression.
-    ---@param params Moon2Type.Param[] Closure parameters.
+    ---@param params MoonType.Param[] Closure parameters.
     ---@param result moonlift.ast.Type Closure result type.
     ---@param body moonlift.ast.Stmt[] Closure body.
     ---@return moonlift.ast.Expr
@@ -683,7 +683,7 @@ local function install(api, T)
     -- Place nodes ----------------------------------------------------------
 
     ---Reference place.
-    ---@param v string|Moon2Bind.Binding|Moon2Bind.ValueRef Reference subject.
+    ---@param v string|MoonBind.Binding|MoonBind.ValueRef Reference subject.
     ---@return moonlift.ast.Place
     function api.place_ref(v) return Tr.PlaceRef(Tr.PlaceSurface, api.value_ref(v)) end
 
@@ -759,12 +759,12 @@ local function install(api, T)
     ---Jump argument for named block jumps.
     ---@param name string Target parameter name.
     ---@param value moonlift.ast.Expr Argument value.
-    ---@return Moon2Tree.JumpArg
+    ---@return MoonTree.JumpArg
     function api.jump_arg(name, value) return Tr.JumpArg(assert_name(name, "jump_arg"), as_expr(value, "jump_arg value")) end
 
     ---Jump statement.
-    ---@param target string|Moon2Tree.BlockLabel Target block label.
-    ---@param args Moon2Tree.JumpArg[]? Named jump arguments.
+    ---@param target string|MoonTree.BlockLabel Target block label.
+    ---@param args MoonTree.JumpArg[]? Named jump arguments.
     ---@return moonlift.ast.Stmt
     function api.jump(target, args)
         local label = pvm.classof(target) == Tr.BlockLabel and target or Tr.BlockLabel(assert_name(target, "jump target"))
@@ -791,25 +791,25 @@ local function install(api, T)
 
     ---Block label.
     ---@param name string Label name.
-    ---@return Moon2Tree.BlockLabel
+    ---@return MoonTree.BlockLabel
     function api.block_label(name) return Tr.BlockLabel(assert_name(name, "block_label")) end
 
     ---Block parameter.
     ---@param name string Parameter name.
     ---@param ty moonlift.ast.Type Parameter type.
-    ---@return Moon2Tree.BlockParam
+    ---@return MoonTree.BlockParam
     function api.block_param(name, ty) return Tr.BlockParam(assert_name(name, "block_param"), as_type(ty, "block_param type")) end
 
     ---Entry block parameter with an initial value.
     ---@param name string Parameter name.
     ---@param ty moonlift.ast.Type Parameter type.
     ---@param init moonlift.ast.Expr Initial value.
-    ---@return Moon2Tree.EntryBlockParam
+    ---@return MoonTree.EntryBlockParam
     function api.entry_param(name, ty, init) return Tr.EntryBlockParam(assert_name(name, "entry_param"), as_type(ty, "entry_param type"), as_expr(init, "entry_param init")) end
 
     ---Entry control block.
     ---@param spec table `{ label/name, params, body }`.
-    ---@return Moon2Tree.EntryControlBlock
+    ---@return MoonTree.EntryControlBlock
     function api.entry_block(spec)
         local label = spec.label or spec.name or spec[1]
         if pvm.classof(label) ~= Tr.BlockLabel then label = Tr.BlockLabel(assert_name(label, "entry_block label")) end
@@ -818,7 +818,7 @@ local function install(api, T)
 
     ---Non-entry control block.
     ---@param spec table `{ label/name, params, body }`.
-    ---@return Moon2Tree.ControlBlock
+    ---@return MoonTree.ControlBlock
     function api.control_block(spec)
         local label = spec.label or spec.name or spec[1]
         if pvm.classof(label) ~= Tr.BlockLabel then label = Tr.BlockLabel(assert_name(label, "control_block label")) end
@@ -827,21 +827,21 @@ local function install(api, T)
 
     ---Statement control region.
     ---@param spec table `{ id/region_id, entry, blocks }`.
-    ---@return Moon2Tree.ControlStmtRegion
+    ---@return MoonTree.ControlStmtRegion
     function api.control_stmt_region(spec) return Tr.ControlStmtRegion(spec.id or spec.region_id or "control.hosted.1", spec.entry, spec.blocks or {}) end
 
     ---Expression control region.
     ---@param spec table `{ id/region_id, result_ty, entry, blocks }`.
-    ---@return Moon2Tree.ControlExprRegion
+    ---@return MoonTree.ControlExprRegion
     function api.control_expr_region(spec) return Tr.ControlExprRegion(spec.id or spec.region_id or "control.hosted.1", as_type(spec.result_ty or spec.result, "control result type"), spec.entry, spec.blocks or {}) end
 
     ---Control-region statement.
-    ---@param region Moon2Tree.ControlStmtRegion Statement control region.
+    ---@param region MoonTree.ControlStmtRegion Statement control region.
     ---@return moonlift.ast.Stmt
     function api.control_stmt(region) return Tr.StmtControl(Tr.StmtSurface, region) end
 
     ---Control-region expression.
-    ---@param region Moon2Tree.ControlExprRegion Expression control region.
+    ---@param region MoonTree.ControlExprRegion Expression control region.
     ---@return moonlift.ast.Expr
     function api.control_expr(region) return Tr.ExprControl(Tr.ExprSurface, region) end
 
@@ -890,25 +890,25 @@ local function install(api, T)
 
     ---Extern function node.
     ---@param spec moonlift.ast.ExternFuncSpec Extern fields.
-    ---@return Moon2Tree.ExternFunc
+    ---@return MoonTree.ExternFunc
     function api.extern_func(spec) return Tr.ExternFunc(assert_name(spec.name, "extern_func"), spec.symbol or spec.name, spec.params or {}, type_or_void(spec.ret or spec.result)) end
     api.extern = api.extern_func
 
     ---Const item payload.
     ---@param spec moonlift.ast.ConstSpec Const fields.
-    ---@return Moon2Tree.ConstItem
+    ---@return MoonTree.ConstItem
     function api.const_item(spec) return Tr.ConstItem(assert_name(spec.name, "const"), as_type(spec.ty or spec.type, "const type"), as_expr(spec.value, "const value")) end
     api.const = api.const_item
 
     ---Static item payload.
     ---@param spec moonlift.ast.StaticSpec Static fields.
-    ---@return Moon2Tree.StaticItem
+    ---@return MoonTree.StaticItem
     function api.static_item(spec) return Tr.StaticItem(assert_name(spec.name, "static"), as_type(spec.ty or spec.type, "static type"), as_expr(spec.value, "static value")) end
     api.static = api.static_item
 
     ---Import item payload.
     ---@param path string|string[] Imported path.
-    ---@return Moon2Tree.ImportItem
+    ---@return MoonTree.ImportItem
     function api.import_item(path) return Tr.ImportItem(as_path(path, "import")) end
 
     local function field_decls(fields)
@@ -951,8 +951,8 @@ local function install(api, T)
         return Tr.TypeDeclTaggedUnionSugar(assert_name(spec.name, "tagged_union"), vars)
     end
 
-    ---Wrap any item payload as a Moon2Tree.Item. Already wrapped items pass through.
-    ---@param v moonlift.ast.Func|Moon2Tree.ExternFunc|Moon2Tree.ConstItem|Moon2Tree.StaticItem|Moon2Tree.ImportItem|moonlift.ast.TypeDecl|moonlift.ast.Item Item payload.
+    ---Wrap any item payload as a MoonTree.Item. Already wrapped items pass through.
+    ---@param v moonlift.ast.Func|MoonTree.ExternFunc|MoonTree.ConstItem|MoonTree.StaticItem|MoonTree.ImportItem|moonlift.ast.TypeDecl|moonlift.ast.Item Item payload.
     ---@return moonlift.ast.Item
     function api.item(v)
         local cls = pvm.classof(v)
@@ -963,7 +963,7 @@ local function install(api, T)
         if is_a(Tr.StaticItem, v) then return Tr.ItemStatic(v) end
         if cls == Tr.ImportItem then return Tr.ItemImport(v) end
         if is_a(Tr.TypeDecl, v) then return Tr.ItemType(v) end
-        error("item expects a Moon2Tree item payload", 2)
+        error("item expects a MoonTree item payload", 2)
     end
 
     ---Construct a source module. Positional entries are wrapped with `item`.

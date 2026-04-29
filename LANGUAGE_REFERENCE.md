@@ -175,7 +175,7 @@ The raw source-node constructor API lives under:
 local ast = require("moonlift.ast")
 ```
 
-`moonlift.ast` returns plain `Moon2Core` / `Moon2Type` / `Moon2Tree` ASDL values
+`moonlift.ast` returns plain `MoonCore` / `MoonType` / `MoonTree` ASDL values
 and carries LuaLS documentation for each exposed node constructor and table
 field.  This is the field-by-field hosted form of the language reference.
 
@@ -441,7 +441,7 @@ Hosted `.mlua` usually uses the top-level `struct` declaration form instead.
 
 ## 7. Hosted declarations
 
-Hosted declarations are `.mlua` top-level islands that create `Moon2Host` facts
+Hosted declarations are `.mlua` top-level islands that create `MoonHost` facts
 plus corresponding object-language ASDL where appropriate.
 
 ### 7.1 Structs
@@ -472,7 +472,7 @@ HostStructDecl
 HostFieldDecl
 HostTypeLayout
 HostFieldLayout
-Moon2Tree.TypeDeclStruct
+MoonTree.TypeDeclStruct
 ```
 
 ### 7.2 Field attributes

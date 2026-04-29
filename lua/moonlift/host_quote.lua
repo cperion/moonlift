@@ -6,7 +6,7 @@
 -- else.
 --
 -- Moonlift meaning still flows through ASDL/PVM phases:
---   hosted island text -> Moon2Host / Moon2Tree ASDL -> existing phases.
+--   hosted island text -> MoonHost / MoonTree ASDL -> existing phases.
 
 local ffi = require("ffi")
 local pvm = require("moonlift.pvm")

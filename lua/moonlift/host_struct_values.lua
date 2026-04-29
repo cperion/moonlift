@@ -31,7 +31,7 @@ function StructValue:moonlift_splice_source()
 end
 
 function StructValue:__tostring()
-    return "Moon2StructValue(" .. self.name .. ")"
+    return "MoonStructValue(" .. self.name .. ")"
 end
 
 function TypeDeclValue:as_item()
@@ -75,7 +75,7 @@ function DraftStructValue:seal()
 end
 
 function DraftStructValue:__tostring()
-    return "Moon2DraftStructValue(" .. self.name .. (self.sealed and ":sealed" or ":open") .. ")"
+    return "MoonDraftStructValue(" .. self.name .. (self.sealed and ":sealed" or ":open") .. ")"
 end
 
 local function list_has_duplicate_field(fields)

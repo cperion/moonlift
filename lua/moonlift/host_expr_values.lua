@@ -21,7 +21,7 @@ function ExprValue:as_moon2_expr()
 end
 
 function ExprValue:__tostring()
-    return "Moon2ExprValue(" .. tostring(self.source_hint or self.expr) .. ")"
+    return "MoonExprValue(" .. tostring(self.source_hint or self.expr) .. ")"
 end
 
 function M.Install(api, session)

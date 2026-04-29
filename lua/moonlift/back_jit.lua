@@ -1,7 +1,7 @@
--- Direct Moon2Back -> Rust/Cranelift tape replay.
+-- Direct MoonBack -> Rust/Cranelift tape replay.
 --
 -- This is the executable backend boundary for the current ASDL2 compiler path.
--- It encodes the flat Moon2Back.BackProgram command stream as BackCommandTape
+-- It encodes the flat MoonBack.BackProgram command stream as BackCommandTape
 -- and sends that single semantic tape to Rust.  It intentionally does not pass
 -- through MoonliftBack, moonlift_legacy.asdl, or per-command Lua FFI replay.
 
@@ -147,7 +147,7 @@ function M.Define(T, opts)
         check_ok(lib.moonlift_jit_symbol(self._raw, cstring(name), ffi.cast("const void*", ptr)), "moonlift.back_jit jit:symbol")
     end
     function Jit:compile(program)
-        assert(pvm.classof(program) == Back.BackProgram, "moonlift.back_jit compile expects Moon2Back.BackProgram")
+        assert(pvm.classof(program) == Back.BackProgram, "moonlift.back_jit compile expects MoonBack.BackProgram")
         local tape = tape_api.encode(program)
         local raw_artifact = check_ptr(lib.moonlift_jit_compile_tape(self._raw, cstring(tape.payload)), "moonlift.back_jit jit:compile_tape")
         return setmetatable({ _raw = raw_artifact }, Artifact)

@@ -70,7 +70,7 @@ local function line(op, fields) local out = { op }; append(out, fields or {}); r
 
 function M.Define(T)
     local Back = T.MoonBack or T.MoonBack
-    assert(Back, "moonlift.back_command_tape.Define expects MoonBack/Moon2Back in the context")
+    assert(Back, "moonlift.back_command_tape.Define expects MoonBack/MoonBack in the context")
 
     local function encode_cmd(cmd)
         local k = cmd.kind

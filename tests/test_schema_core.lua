@@ -17,7 +17,7 @@ assert(text:match("module MoonBack"))
 assert(text:match("module MoonType"))
 assert(text:match("Scalar = ScalarVoid"))
 assert(text:match("TypeSym = %(string key, string name%) unique"))
-assert(not text:match("Moon2"))
+assert(text:match("module MoonCore"))
 
 Schema.Define(T)
 

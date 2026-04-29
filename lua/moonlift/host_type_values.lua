@@ -31,7 +31,7 @@ function TypeValue:moonlift_splice_source()
 end
 
 function TypeValue:__tostring()
-    return "Moon2TypeValue(" .. tostring(self.source_hint) .. ")"
+    return "MoonTypeValue(" .. tostring(self.source_hint) .. ")"
 end
 
 local function type_key(v)

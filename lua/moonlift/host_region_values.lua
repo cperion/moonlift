@@ -27,7 +27,7 @@ function RegionFragValue:moonlift_splice_source()
 end
 
 function RegionFragValue:__tostring()
-    return "Moon2RegionFragValue(" .. self.name .. ")"
+    return "MoonRegionFragValue(" .. self.name .. ")"
 end
 
 local function ordered_pairs_from_map(map)

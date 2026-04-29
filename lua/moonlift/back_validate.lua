@@ -41,7 +41,7 @@ end
 
 function M.Define(T)
     local B = T.MoonBack or T.MoonBack
-    assert(B, "moonlift.back_validate.Define expects MoonBack/Moon2Back in the context")
+    assert(B, "moonlift.back_validate.Define expects MoonBack/MoonBack in the context")
 
     local function append_address_base_uses(out, index, base)
         local cls = pvm.classof(base)

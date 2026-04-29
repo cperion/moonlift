@@ -21,7 +21,7 @@ function PlaceValue:as_moon2_place()
 end
 
 function PlaceValue:__tostring()
-    return "Moon2PlaceValue(" .. tostring(self.source_hint or self.place) .. ")"
+    return "MoonPlaceValue(" .. tostring(self.source_hint or self.place) .. ")"
 end
 
 function M.Install(api, session)

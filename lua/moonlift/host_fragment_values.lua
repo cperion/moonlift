@@ -15,7 +15,7 @@ function ExprFragValue:moonlift_splice_source()
 end
 
 function ExprFragValue:__tostring()
-    return "Moon2ExprFragValue(" .. self.name .. ")"
+    return "MoonExprFragValue(" .. self.name .. ")"
 end
 
 function M.Install(api, session)

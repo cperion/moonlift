@@ -171,10 +171,10 @@ function M.Define(T)
     end
 
     local op_symbols = {
-        ["Moon2Core.BinAdd"] = "+", ["Moon2Core.BinSub"] = "-", ["Moon2Core.BinMul"] = "*", ["Moon2Core.BinDiv"] = "/", ["Moon2Core.BinRem"] = "%",
-        ["Moon2Core.BinBitAnd"] = "&", ["Moon2Core.BinBitOr"] = "|", ["Moon2Core.BinBitXor"] = "~", ["Moon2Core.BinShl"] = "<<", ["Moon2Core.BinLShr"] = ">>", ["Moon2Core.BinAShr"] = ">>",
-        ["Moon2Core.CmpEq"] = "==", ["Moon2Core.CmpNe"] = "~=", ["Moon2Core.CmpLt"] = "<", ["Moon2Core.CmpLe"] = "<=", ["Moon2Core.CmpGt"] = ">", ["Moon2Core.CmpGe"] = ">=",
-        ["Moon2Core.LogicAnd"] = "&&", ["Moon2Core.LogicOr"] = "||", ["Moon2Core.UnaryNot"] = "not", ["Moon2Core.UnaryNeg"] = "-", ["Moon2Core.UnaryBitNot"] = "~",
+        ["MoonCore.BinAdd"] = "+", ["MoonCore.BinSub"] = "-", ["MoonCore.BinMul"] = "*", ["MoonCore.BinDiv"] = "/", ["MoonCore.BinRem"] = "%",
+        ["MoonCore.BinBitAnd"] = "&", ["MoonCore.BinBitOr"] = "|", ["MoonCore.BinBitXor"] = "~", ["MoonCore.BinShl"] = "<<", ["MoonCore.BinLShr"] = ">>", ["MoonCore.BinAShr"] = ">>",
+        ["MoonCore.CmpEq"] = "==", ["MoonCore.CmpNe"] = "~=", ["MoonCore.CmpLt"] = "<", ["MoonCore.CmpLe"] = "<=", ["MoonCore.CmpGt"] = ">", ["MoonCore.CmpGe"] = ">=",
+        ["MoonCore.LogicAnd"] = "&&", ["MoonCore.LogicOr"] = "||", ["MoonCore.UnaryNot"] = "not", ["MoonCore.UnaryNeg"] = "-", ["MoonCore.UnaryBitNot"] = "~",
     }
 
     local function op_symbol(op)
@@ -325,7 +325,7 @@ function M.Define(T)
             return pvm.once(E.DiagnosticFact(E.DiagnosticError, E.DiagFromType(issue), "type.invalidCompare", "invalid comparison operands for " .. op_symbol(issue.op) .. ": " .. type_name(issue.lhs) .. " and " .. type_name(issue.rhs), operator_range(analysis, issue.op, ordinal)))
         end,
         [Tr.TypeIssueInvalidLogic] = function(issue, analysis, ordinal)
-            return pvm.once(E.DiagnosticFact(E.DiagnosticError, E.DiagFromType(issue), "type.invalidLogic", "logical expression expected bool operands, got " .. type_name(issue.lhs) .. " and " .. type_name(issue.rhs), operator_range(analysis, "Moon2Core.LogicAnd", ordinal)))
+            return pvm.once(E.DiagnosticFact(E.DiagnosticError, E.DiagFromType(issue), "type.invalidLogic", "logical expression expected bool operands, got " .. type_name(issue.lhs) .. " and " .. type_name(issue.rhs), operator_range(analysis, "MoonCore.LogicAnd", ordinal)))
         end,
         [Tr.TypeIssueMissingJumpTarget] = function(issue, analysis)
             return pvm.once(E.DiagnosticFact(E.DiagnosticError, E.DiagFromType(issue), "type.missingJumpTarget", "missing jump target '" .. issue.label.name .. "'", range_for_label(analysis, issue.label.name)))

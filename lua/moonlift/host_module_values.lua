@@ -179,7 +179,7 @@ function ModuleValue:compile()
 end
 
 function ModuleValue:__tostring()
-    return "Moon2ModuleValue(" .. self.name .. ")"
+    return "MoonModuleValue(" .. self.name .. ")"
 end
 
 function CompiledModule:get(name)
@@ -205,7 +205,7 @@ function CompiledFunction:__call(...)
 end
 
 function CompiledFunction:__tostring()
-    return "CompiledMoon2Function(" .. self.func.name .. ": " .. self.c_sig .. ")"
+    return "CompiledMoonFunction(" .. self.func.name .. ": " .. self.c_sig .. ")"
 end
 
 function M.Install(api, session)

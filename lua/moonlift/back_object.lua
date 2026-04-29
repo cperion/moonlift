@@ -1,6 +1,6 @@
--- Direct Moon2Back -> host-native relocatable object emission.
+-- Direct MoonBack -> host-native relocatable object emission.
 --
--- This is an artifact boundary over the existing flat Moon2Back.BackProgram
+-- This is an artifact boundary over the existing flat MoonBack.BackProgram
 -- command stream.  The Lua side encodes the BackProgram as BackCommandTape and
 -- the Rust/Cranelift object backend emits .o bytes from that semantic tape.
 
@@ -45,7 +45,7 @@ end
 
 function M.Define(T, opts)
     local Back = T.MoonBack or T.MoonBack
-    assert(Back, "moonlift.back_object.Define expects MoonBack/Moon2Back in the context")
+    assert(Back, "moonlift.back_object.Define expects MoonBack/MoonBack in the context")
     local lib = load_library(opts and opts.libpath or nil)
     local tape_api = require("moonlift.back_command_tape").Define(T)
 
@@ -70,7 +70,7 @@ function M.Define(T, opts)
     end
 
     local function compile(program, compile_opts)
-        assert(pvm.classof(program) == Back.BackProgram, "moonlift.back_object compile expects Moon2Back.BackProgram")
+        assert(pvm.classof(program) == Back.BackProgram, "moonlift.back_object compile expects MoonBack.BackProgram")
         compile_opts = compile_opts or {}
         local tape = tape_api.encode(program)
         local out = ffi.new("moonlift_bytes_t[1]")

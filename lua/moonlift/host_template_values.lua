@@ -36,7 +36,7 @@ function StructTemplateValue:instantiate(module_value, args)
 end
 
 function StructTemplateValue:__tostring()
-    return "Moon2StructTemplateValue(" .. self.name .. ")"
+    return "MoonStructTemplateValue(" .. self.name .. ")"
 end
 
 function M.Install(api, session)

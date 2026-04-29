@@ -27,14 +27,14 @@ Companion docs:
 - `PVM_GUIDE.md` — ASDL/PVM framework guide
 
 The current command-line artifact path consumes `.mlua` files through this same
-object grammar for functions/modules, then lowers through `Moon2Back` and the
-`Moon2Link` ASDL linker layer for `.o` / shared-library emission. Artifact
+object grammar for functions/modules, then lowers through `MoonBack` and the
+`MoonLink` ASDL linker layer for `.o` / shared-library emission. Artifact
 packaging is deliberately outside the source grammar: source declares object
-code; `Moon2Link.LinkPlan` declares how compiled objects are linked.
+code; `MoonLink.LinkPlan` declares how compiled objects are linked.
 
 The Lua constructor counterpart to this grammar is `require("moonlift.ast")`.
 Its LuaLS-documented functions construct the same source ASDL nodes described
-here (`Moon2Core`, `Moon2Type`, and `Moon2Tree` surface values), so the
+here (`MoonCore`, `MoonType`, and `MoonTree` surface values), so the
 constructor tables double as a field-by-field language reference for hosted Lua
 generation. The constructor layer is not a new semantic extension point; it
 builds existing ASDL values for the normal PVM phases.
@@ -903,11 +903,11 @@ TermBrIf(cond, then_label, then_named_args, else_label, else_named_args)
 The backend already has the right flat primitives:
 
 ```text
-Moon2Back.CmdJump
-Moon2Back.CmdBrIf
-Moon2Back.CmdReturnVoid
-Moon2Back.CmdReturnValue
-Moon2Back.CmdTrap
+MoonBack.CmdJump
+MoonBack.CmdBrIf
+MoonBack.CmdReturnVoid
+MoonBack.CmdReturnValue
+MoonBack.CmdTrap
 ```
 
 So the source/middle ASDL should feed those commands without reintroducing hidden

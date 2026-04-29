@@ -18,7 +18,7 @@ function FuncValue:as_item()
 end
 
 function FuncValue:__tostring()
-    return "Moon2FuncValue(" .. self.name .. ")"
+    return "MoonFuncValue(" .. self.name .. ")"
 end
 
 function M.Install(api, session)
