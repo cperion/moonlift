@@ -105,15 +105,15 @@ can define a context and construct representative core/type/backend values.
 
 ## PVM-on-Moonlift lowering direction
 
-The native PVM path lowers phase semantics to ordinary Moonlift surface, not to
-an extra low-level VM. `MoonAsdl.Schema` products/sums emit as Moonlift structs
-and tagged unions with typed IDs/arenas. Lowerable PVM phase bodies are authored
-with Lua builders that produce `MoonPvmSurface` ASDL values; the surface emitter
-turns `once`, `empty`, `concat`, phase calls, and child loops into Moonlift
-region-fragment code using typed jumps and an ambient typed `emit(value; resume)`
-fragment. The emitter also generates typed one-result cache wrapper skeletons;
-persistent cursor conversion for cached many-result streams will build on this
-same region/emit shape.
+The native PVM path lowers phase semantics to ordinary Moonlift values, not to
+an extra low-level VM and not through string-first code generation.
+`MoonAsdl.Schema` products/sums become hosted Moonlift module values containing
+structs and tagged unions with typed IDs/arenas. Lowerable PVM phase bodies are
+authored with Lua builders that produce `MoonPvmSurface` ASDL values; the region
+lowerer turns `once`, `empty`, `concat`, phase calls, and handler dispatch into
+hosted Moonlift `RegionFragValue` / `MoonTree` values using typed jumps and
+`emit(value; resume)` continuations. `.mlua` files remain a valid authoring
+surface, but generated compiler structure should be Moonlift values first.
 
 Initial executable-design modules:
 
@@ -121,8 +121,8 @@ Initial executable-design modules:
 lua/moonlift/schema/pvm_surface.lua
 lua/moonlift/pvm_surface_model.lua
 lua/moonlift/pvm_surface_builder.lua
-lua/moonlift/pvm_surface_emit.lua
-lua/moonlift/pvm_surface_schema_emit.lua
+lua/moonlift/pvm_surface_region_values.lua
+lua/moonlift/pvm_surface_schema_values.lua
 ```
 
 ## Artifact emission
