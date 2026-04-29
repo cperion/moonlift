@@ -35,6 +35,12 @@
 --   pvm.drain_into(g, p, c, out)  terminal optimization for append-only sinks
 --   pvm.report(phases)         cache behavior diagnostics
 --
+-- Phase objects also expose explicit uncached terminals for flat compiler
+-- execution paths that have already chosen not to use memoization:
+--   phase:triplet_uncached(node, ...)
+--   phase:one_uncached(node, ...)
+--   phase:drain_uncached(node, ...)
+--
 -- ── What pvm2 primitives this replaces ──────────────────────
 --
 --   pvm2.verb_memo   → pvm.phase (recording triplet on miss)
@@ -661,6 +667,21 @@ function pvm.phase(name, handlers_or_fn, opts)
 				return call(boundary, node, ...)
 			end)
 		end
+	end
+
+	function boundary:triplet_uncached(node, ...)
+		local cls = resolve_node(node)
+		local argc = select("#", ...)
+		local args = argc > 0 and pack_phase_args(argc, ...) or nil
+		return miss_triplet(node, cls, argc, args)
+	end
+
+	function boundary:drain_uncached(node, ...)
+		return pvm.drain(self:triplet_uncached(node, ...))
+	end
+
+	function boundary:one_uncached(node, ...)
+		return pvm.one(self:triplet_uncached(node, ...))
 	end
 
 	function boundary:stats()

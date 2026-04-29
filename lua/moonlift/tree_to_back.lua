@@ -116,7 +116,7 @@ function M.Define(T)
     end
 
     local function expr_ty(expr)
-        return pvm.one(expr_type(expr.h))
+        return expr_type:one_uncached(expr.h)
     end
 
     local function back_scalar(ty)
@@ -165,7 +165,7 @@ function M.Define(T)
 
     local function surface_cast_to_machine_op(surface_op, src_ty, dst_ty)
         if surface_op == C.SurfaceCast then return semantic_cast_op(back_scalar(src_ty), back_scalar(dst_ty)) end
-        return pvm.one(surface_cast_op(surface_op))
+        return surface_cast_op:one_uncached(surface_op)
     end
 
     local function core_scalar_to_back(scalar)
@@ -312,7 +312,7 @@ function M.Define(T)
         [Sem.CallDirect] = function(self) return pvm.once(Back.BackCallDirect(Back.BackFuncId(self.func_name))) end,
         [Sem.CallExtern] = function(self) return pvm.once(Back.BackCallExtern(Back.BackExternId(self.symbol))) end,
         [Sem.CallIndirect] = function(self, env)
-            local callee = expr_value(pvm.one(expr_to_back(self.callee, env)))
+            local callee = expr_value(expr_to_back:one_uncached(self.callee, env))
             if callee == nil then return pvm.empty() end
             return pvm.once(Back.BackCallIndirect(callee.value))
         end,
@@ -326,7 +326,7 @@ function M.Define(T)
             local scalar = back_scalar(ty)
             if scalar == nil then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "literal has non-scalar type")) end
             local env2, dst = env_next_value(env, "v")
-            return pvm.once(Tr.TreeBackExprValue(env2, { Back.CmdConst(dst, scalar, pvm.one(scalar_literal(self.value))) }, dst, scalar))
+            return pvm.once(Tr.TreeBackExprValue(env2, { Back.CmdConst(dst, scalar, scalar_literal:one_uncached(self.value)) }, dst, scalar))
         end,
         [Tr.ExprRef] = function(self, env)
             if pvm.classof(self.ref) == Bn.ValueRefBinding then
@@ -336,39 +336,39 @@ function M.Define(T)
             return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "unsupported ref"))
         end,
         [Tr.ExprUnary] = function(self, env)
-            local value = expr_value(pvm.one(expr_to_back(self.value, env)))
+            local value = expr_value(expr_to_back:one_uncached(self.value, env))
             if value == nil then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "unsupported unary operand")) end
             local env2, dst = env_next_value(value.env, "v")
             local cmds = {}; append_all(cmds, value.cmds)
-            cmds[#cmds + 1] = Back.CmdUnary(dst, pvm.one(unary_op(self.op, value.ty)), shape_scalar(value.ty), value.value)
+            cmds[#cmds + 1] = Back.CmdUnary(dst, unary_op:one_uncached(self.op, value.ty), shape_scalar(value.ty), value.value)
             return pvm.once(Tr.TreeBackExprValue(env2, cmds, dst, value.ty))
         end,
         [Tr.ExprBinary] = function(self, env)
-            local lhs = expr_value(pvm.one(expr_to_back(self.lhs, env)))
+            local lhs = expr_value(expr_to_back:one_uncached(self.lhs, env))
             if lhs == nil then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "unsupported binary lhs")) end
-            local rhs = expr_value(pvm.one(expr_to_back(self.rhs, lhs.env)))
+            local rhs = expr_value(expr_to_back:one_uncached(self.rhs, lhs.env))
             if rhs == nil then return pvm.once(Tr.TreeBackExprUnsupported(lhs.env, lhs.cmds, "unsupported binary rhs")) end
             local ty = expr_ty(self)
             local scalar = back_scalar(ty) or lhs.ty
             local env2, dst = env_next_value(rhs.env, "v")
             local cmds = {}; append_all(cmds, lhs.cmds); append_all(cmds, rhs.cmds)
-            local cmd = pvm.drain(binary_cmd(self.op, dst, scalar, lhs.value, rhs.value))[1]
+            local cmd = binary_cmd:drain_uncached(self.op, dst, scalar, lhs.value, rhs.value)[1]
             if cmd == nil then return pvm.once(Tr.TreeBackExprUnsupported(rhs.env, cmds, "unsupported binary op")) end
             cmds[#cmds + 1] = cmd
             return pvm.once(Tr.TreeBackExprValue(env2, cmds, dst, scalar))
         end,
         [Tr.ExprCompare] = function(self, env)
-            local lhs = expr_value(pvm.one(expr_to_back(self.lhs, env)))
+            local lhs = expr_value(expr_to_back:one_uncached(self.lhs, env))
             if lhs == nil then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "unsupported compare lhs")) end
-            local rhs = expr_value(pvm.one(expr_to_back(self.rhs, lhs.env)))
+            local rhs = expr_value(expr_to_back:one_uncached(self.rhs, lhs.env))
             if rhs == nil then return pvm.once(Tr.TreeBackExprUnsupported(lhs.env, lhs.cmds, "unsupported compare rhs")) end
             local env2, dst = env_next_value(rhs.env, "v")
             local cmds = {}; append_all(cmds, lhs.cmds); append_all(cmds, rhs.cmds)
-            cmds[#cmds + 1] = Back.CmdCompare(dst, pvm.one(compare_op(self.op, lhs.ty)), shape_scalar(lhs.ty), lhs.value, rhs.value)
+            cmds[#cmds + 1] = Back.CmdCompare(dst, compare_op:one_uncached(self.op, lhs.ty), shape_scalar(lhs.ty), lhs.value, rhs.value)
             return pvm.once(Tr.TreeBackExprValue(env2, cmds, dst, Back.BackBool))
         end,
         [Tr.ExprMachineCast] = function(self, env)
-            local value = expr_value(pvm.one(expr_to_back(self.value, env)))
+            local value = expr_value(expr_to_back:one_uncached(self.value, env))
             if value == nil then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "unsupported cast operand")) end
             local scalar = back_scalar(self.ty)
             if scalar == nil then return pvm.once(Tr.TreeBackExprUnsupported(value.env, value.cmds, "cast result has non-scalar type")) end
@@ -380,11 +380,11 @@ function M.Define(T)
             return pvm.once(Tr.TreeBackExprValue(env2, cmds, dst, scalar))
         end,
         [Tr.ExprSelect] = function(self, env)
-            local cond = expr_value(pvm.one(expr_to_back(self.cond, env)))
+            local cond = expr_value(expr_to_back:one_uncached(self.cond, env))
             if cond == nil then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "unsupported select cond")) end
-            local a = expr_value(pvm.one(expr_to_back(self.then_expr, cond.env)))
+            local a = expr_value(expr_to_back:one_uncached(self.then_expr, cond.env))
             if a == nil then return pvm.once(Tr.TreeBackExprUnsupported(cond.env, cond.cmds, "unsupported select then")) end
-            local b = expr_value(pvm.one(expr_to_back(self.else_expr, a.env)))
+            local b = expr_value(expr_to_back:one_uncached(self.else_expr, a.env))
             if b == nil then return pvm.once(Tr.TreeBackExprUnsupported(a.env, a.cmds, "unsupported select else")) end
             local scalar = back_scalar(expr_ty(self)) or a.ty
             local env2, dst = env_next_value(b.env, "v")
@@ -395,7 +395,7 @@ function M.Define(T)
         [Tr.ExprCall] = function(self, env)
             local args = {}; local params = {}; local cmds = {}; local current = env
             for i = 1, #self.args do
-                local arg = expr_value(pvm.one(expr_to_back(self.args[i], current)))
+                local arg = expr_value(expr_to_back:one_uncached(self.args[i], current))
                 if arg == nil then return pvm.once(Tr.TreeBackExprUnsupported(current, cmds, "unsupported call arg")) end
                 append_all(cmds, arg.cmds); args[#args + 1] = arg.value; params[#params + 1] = arg.ty; current = arg.env
             end
@@ -403,7 +403,7 @@ function M.Define(T)
             local scalar = back_scalar(ty)
             if scalar == nil then return pvm.once(Tr.TreeBackExprUnsupported(current, cmds, "call result has non-scalar type")) end
             local env2, dst = env_next_value(current, "v")
-            local target = pvm.one(call_target(self.target, env2))
+            local target = call_target:one_uncached(self.target, env2)
             local sig, declare_call_sig = Back.BackSigId("sig:call:" .. tostring(dst.text)), true
             if pvm.classof(target) == Back.BackCallExtern then
                 sig = Back.BackSigId("sig:extern:" .. tostring(target.func.text))
@@ -418,7 +418,7 @@ function M.Define(T)
         end,
         [Tr.ExprCast] = function(self, env) return expr_to_back(Tr.ExprMachineCast(self.h, surface_cast_to_machine_op(self.op, expr_ty(self.value), self.ty), self.ty, self.value), env) end,
         [Tr.ExprLen] = function(self, env)
-            local lowered = pvm.one(expr_to_back(self.value, env))
+            local lowered = expr_to_back:one_uncached(self.value, env)
             local view = expr_view_value(lowered)
             if view ~= nil then return pvm.once(Tr.TreeBackExprValue(view.env, view.cmds, view.len, Back.BackIndex)) end
             if pvm.classof(self.value) == Tr.ExprRef and pvm.classof(self.value.ref) == Bn.ValueRefBinding then
@@ -436,7 +436,7 @@ function M.Define(T)
         [Tr.ExprIntrinsic] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "intrinsic lowering deferred")) end,
         [Tr.ExprAddrOf] = function(self, env) return place_addr_to_back(self.place, env) end,
         [Tr.ExprDeref] = function(self, env)
-            local addr = expr_value(pvm.one(expr_to_back(self.value, env)))
+            local addr = expr_value(expr_to_back:one_uncached(self.value, env))
             if addr == nil then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "unsupported deref address")) end
             local scalar = back_scalar(expr_ty(self))
             if scalar == nil then return pvm.once(Tr.TreeBackExprUnsupported(addr.env, addr.cmds, "deref result has non-scalar type")) end
@@ -447,13 +447,13 @@ function M.Define(T)
         end,
         [Tr.ExprField] = function(self, env)
             if pvm.classof(self.field) ~= Sem.FieldByOffset then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "field expression requires resolved offset")) end
-            local base = expr_value(pvm.one(expr_to_back(self.base, env)))
+            local base = expr_value(expr_to_back:one_uncached(self.base, env))
             if base == nil then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "unsupported field expression base")) end
             local addr = field_addr_from_base_ptr(base, self.field)
             return pvm.once(load_from_field_addr(addr, self.field))
         end,
         [Tr.ExprIndex] = function(self, env)
-            local lowered = pvm.one(index_addr_to_back(self.base, self.index, expr_ty(self), env))
+            local lowered = index_addr_to_back:one_uncached(self.base, self.index, expr_ty(self), env)
             if pvm.classof(lowered) ~= Tr.TreeBackExprValue then return lowered end
             local scalar = back_scalar(expr_ty(self))
             if scalar == nil then return pvm.once(Tr.TreeBackExprUnsupported(lowered.env, lowered.cmds, "index result has non-scalar type")) end
@@ -467,7 +467,7 @@ function M.Define(T)
         [Tr.ExprClosure] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "closure lowering deferred")) end,
         [Tr.ExprView] = function(self, env) return view_to_back(self.view, env) end,
         [Tr.ExprLoad] = function(self, env)
-            local addr = expr_value(pvm.one(expr_to_back(self.addr, env)))
+            local addr = expr_value(expr_to_back:one_uncached(self.addr, env))
             if addr == nil then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "unsupported load address")) end
             local scalar = back_scalar(self.ty)
             if scalar == nil then return pvm.once(Tr.TreeBackExprUnsupported(addr.env, addr.cmds, "load result has non-scalar type")) end
@@ -586,7 +586,7 @@ function M.Define(T)
                 end
                 if local_entry ~= nil and pvm.classof(local_entry) == Tr.TreeBackStridedViewLocal then return pvm.once(Tr.TreeBackExprStridedView(env, {}, local_entry.data, local_entry.len, local_entry.stride)) end
             end
-            local base = expr_value(pvm.one(expr_to_back(self.base, env)))
+            local base = expr_value(expr_to_back:one_uncached(self.base, env))
             if base ~= nil and base.ty == Back.BackPtr then
                 local cmds = {}; append_all(cmds, base.cmds)
                 local current, len = const_index(base.env, cmds, 0)
@@ -596,9 +596,9 @@ function M.Define(T)
             return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "view-from-expression lowering requires a local view binding or pointer"))
         end,
         [Tr.ViewContiguous] = function(self, env)
-            local data = expr_value(pvm.one(expr_to_back(self.data, env)))
+            local data = expr_value(expr_to_back:one_uncached(self.data, env))
             if data == nil then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "unsupported view data")) end
-            local len = expr_value(pvm.one(expr_to_back(self.len, data.env)))
+            local len = expr_value(expr_to_back:one_uncached(self.len, data.env))
             if len == nil then return pvm.once(Tr.TreeBackExprUnsupported(data.env, data.cmds, "unsupported view len")) end
             local cmds = {}; append_all(cmds, data.cmds); append_all(cmds, len.cmds)
             local current, len_value = cast_to_index(len, len.env, cmds)
@@ -606,11 +606,11 @@ function M.Define(T)
             return pvm.once(Tr.TreeBackExprStridedView(current2, cmds, data.value, len_value, stride_value))
         end,
         [Tr.ViewStrided] = function(self, env)
-            local data = expr_value(pvm.one(expr_to_back(self.data, env)))
+            local data = expr_value(expr_to_back:one_uncached(self.data, env))
             if data == nil then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "unsupported view data")) end
-            local len = expr_value(pvm.one(expr_to_back(self.len, data.env)))
+            local len = expr_value(expr_to_back:one_uncached(self.len, data.env))
             if len == nil then return pvm.once(Tr.TreeBackExprUnsupported(data.env, data.cmds, "unsupported view len")) end
-            local stride = expr_value(pvm.one(expr_to_back(self.stride, len.env)))
+            local stride = expr_value(expr_to_back:one_uncached(self.stride, len.env))
             if stride == nil then local cmds = {}; append_all(cmds, data.cmds); append_all(cmds, len.cmds); return pvm.once(Tr.TreeBackExprUnsupported(len.env, cmds, "unsupported view stride")) end
             local cmds = {}; append_all(cmds, data.cmds); append_all(cmds, len.cmds); append_all(cmds, stride.cmds)
             local current, len_value = cast_to_index(len, stride.env, cmds)
@@ -618,11 +618,11 @@ function M.Define(T)
             return pvm.once(Tr.TreeBackExprStridedView(current2, cmds, data.value, len_value, stride_value))
         end,
         [Tr.ViewWindow] = function(self, env)
-            local base_view = expr_view_value(pvm.one(view_to_back(self.base, env)))
+            local base_view = expr_view_value(view_to_back:one_uncached(self.base, env))
             if base_view == nil then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "unsupported window base view")) end
-            local start = expr_value(pvm.one(expr_to_back(self.start, base_view.env)))
+            local start = expr_value(expr_to_back:one_uncached(self.start, base_view.env))
             if start == nil then return pvm.once(Tr.TreeBackExprUnsupported(base_view.env, base_view.cmds, "unsupported window start")) end
-            local len = expr_value(pvm.one(expr_to_back(self.len, start.env)))
+            local len = expr_value(expr_to_back:one_uncached(self.len, start.env))
             if len == nil then local cmds = {}; append_all(cmds, base_view.cmds); append_all(cmds, start.cmds); return pvm.once(Tr.TreeBackExprUnsupported(start.env, cmds, "unsupported window len")) end
             return pvm.once(add_scaled_offset(base_view, start, len, view_elem(self)))
         end,
@@ -646,12 +646,12 @@ function M.Define(T)
             local local_entry = env_lookup(env, base_expr.ref.binding)
             if local_entry ~= nil and (pvm.classof(local_entry) == Tr.TreeBackViewLocal or pvm.classof(local_entry) == Tr.TreeBackStridedViewLocal) then return Tr.TreeBackExprValue(env, {}, local_entry.data, Back.BackPtr) end
         end
-        return expr_value(pvm.one(expr_to_back(base_expr, env)))
+        return expr_value(expr_to_back:one_uncached(base_expr, env))
     end
 
     local function view_stride_to_back(view, env)
         local cls = pvm.classof(view)
-        if cls == Tr.ViewStrided then return expr_value(pvm.one(expr_to_back(view.stride, env))) end
+        if cls == Tr.ViewStrided then return expr_value(expr_to_back:one_uncached(view.stride, env)) end
         local base_expr = view_base_expr(view)
         if base_expr ~= nil and pvm.classof(base_expr) == Tr.ExprRef and pvm.classof(base_expr.ref) == Bn.ValueRefBinding then
             local local_entry = env_lookup(env, base_expr.ref.binding)
@@ -662,9 +662,9 @@ function M.Define(T)
 
     index_addr_to_back = pvm.phase("moon2_tree_index_addr_to_back", {
         [Tr.IndexBaseView] = function(self, index, elem_ty, env)
-            local view = expr_view_value(pvm.one(view_to_back(self.view, env)))
+            local view = expr_view_value(view_to_back:one_uncached(self.view, env))
             if view == nil then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "unsupported index base")) end
-            local idx = expr_value(pvm.one(expr_to_back(index, view.env)))
+            local idx = expr_value(expr_to_back:one_uncached(index, view.env))
             if idx == nil then return pvm.once(Tr.TreeBackExprUnsupported(view.env, view.cmds, "unsupported index value")) end
             local size = elem_size(elem_ty)
             if size == nil then return pvm.once(Tr.TreeBackExprUnsupported(idx.env, idx.cmds, "unknown indexed element size")) end
@@ -699,14 +699,14 @@ function M.Define(T)
             return index_addr_to_back(self.base, self.index, self.h.ty, env)
         end,
         [Tr.PlaceDeref] = function(self, env)
-            local addr = expr_value(pvm.one(expr_to_back(self.base, env)))
+            local addr = expr_value(expr_to_back:one_uncached(self.base, env))
             if addr == nil then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "unsupported deref place address")) end
             return pvm.once(addr)
         end,
         [Tr.PlaceField] = function(self, env)
             local field = self.field
             if pvm.classof(field) ~= Sem.FieldByOffset then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "field address requires resolved offset")) end
-            local base = expr_value(pvm.one(place_addr_to_back(self.base, env)))
+            local base = expr_value(place_addr_to_back:one_uncached(self.base, env))
             if base == nil then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "unsupported field base address")) end
             return pvm.once(field_addr_from_base_ptr(base, field))
         end,
@@ -716,9 +716,9 @@ function M.Define(T)
     }, { args_cache = "last" })
 
     local function store_at_addr(place, value, env)
-        local addr = expr_value(pvm.one(place_addr_to_back(place, env)))
+        local addr = expr_value(place_addr_to_back:one_uncached(place, env))
         if addr == nil then return pvm.once(Tr.TreeBackStmtResult(env, { Back.CmdTrap }, Back.BackTerminates)) end
-        local rhs = expr_value(pvm.one(expr_to_back(value, addr.env)))
+        local rhs = expr_value(expr_to_back:one_uncached(value, addr.env))
         if rhs == nil then return pvm.once(Tr.TreeBackStmtResult(addr.env, addr.cmds, Back.BackTerminates)) end
         local field = pvm.classof(place) == Tr.PlaceField and place.field or nil
         local scalar = field and field_storage_scalar(field) or back_scalar(place.h.ty)
@@ -750,7 +750,7 @@ function M.Define(T)
     }, { args_cache = "last" })
 
     local function lower_if_stmt(self, env)
-        local cond = expr_value(pvm.one(expr_to_back(self.cond, env)))
+        local cond = expr_value(expr_to_back:one_uncached(self.cond, env))
         if cond == nil then return pvm.once(Tr.TreeBackStmtResult(env, { Back.CmdTrap }, Back.BackTerminates)) end
 
         local env1, then_block = env_next_block(cond.env, "if.then")
@@ -788,7 +788,7 @@ function M.Define(T)
 
     stmt_to_back = pvm.phase("moon2_tree_stmt_to_back", {
         [Tr.StmtLet] = function(self, env)
-            local lowered = pvm.one(expr_to_back(self.init, env))
+            local lowered = expr_to_back:one_uncached(self.init, env)
             local view_init = expr_view_value(lowered)
             if view_init ~= nil then
                 if not is_view_type(self.binding.ty) then return pvm.once(Tr.TreeBackStmtResult(view_init.env, { Back.CmdTrap }, Back.BackTerminates)) end
@@ -804,12 +804,12 @@ function M.Define(T)
             return pvm.once(Tr.TreeBackStmtResult(env2, init.cmds, Back.BackFallsThrough))
         end,
         [Tr.StmtExpr] = function(self, env)
-            local result = expr_value(pvm.one(expr_to_back(self.expr, env)))
+            local result = expr_value(expr_to_back:one_uncached(self.expr, env))
             if result == nil then return pvm.once(Tr.TreeBackStmtResult(env, {}, Back.BackFallsThrough)) end
             return pvm.once(Tr.TreeBackStmtResult(result.env, result.cmds, Back.BackFallsThrough))
         end,
         [Tr.StmtReturnValue] = function(self, env)
-            local lowered = pvm.one(expr_to_back(self.value, env))
+            local lowered = expr_to_back:one_uncached(self.value, env)
             local view = expr_view_value(lowered)
             if view ~= nil and pvm.classof(env.ret) == Tr.TreeBackReturnView then
                 local cmds = {}; append_all(cmds, view.cmds)
@@ -851,7 +851,7 @@ function M.Define(T)
         local flow = Back.BackFallsThrough
         for i = 1, #stmts do
             if flow == Back.BackTerminates then break end
-            local result = pvm.one(stmt_to_back(stmts[i], current))
+            local result = stmt_to_back:one_uncached(stmts[i], current)
             append_all(cmds, result.cmds)
             current = result.env
             flow = result.flow
