@@ -1,18 +1,18 @@
 local M = {}
 
 M.SCHEMA = [[
-module Moon2Project {
+module MoonProject {
     TaskId = (string text) unique
     TaskStatus = TaskTodo | TaskDone | TaskDeferred(string reason) unique
-    Task = (Moon2Project.TaskId id, string title, Moon2Project.TaskStatus status, Moon2Project.TaskId* deps) unique
-    Project = (Moon2Project.Task* tasks) unique
-    TaskFact = TaskDeclared(Moon2Project.TaskId id) unique
-             | TaskCompleted(Moon2Project.TaskId id) unique
-             | TaskDependsOn(Moon2Project.TaskId id, Moon2Project.TaskId dep) unique
-             | TaskDeferredFact(Moon2Project.TaskId id, string reason) unique
-             | TaskReady(Moon2Project.TaskId id) unique
-             | TaskBlocked(Moon2Project.TaskId id, Moon2Project.TaskId* missing_or_incomplete) unique
-    ProjectReport = (Moon2Project.TaskFact* facts, Moon2Project.TaskId* ready, Moon2Project.TaskId* blocked, Moon2Project.TaskId* done, Moon2Project.TaskId* deferred) unique
+    Task = (MoonProject.TaskId id, string title, MoonProject.TaskStatus status, MoonProject.TaskId* deps) unique
+    Project = (MoonProject.Task* tasks) unique
+    TaskFact = TaskDeclared(MoonProject.TaskId id) unique
+             | TaskCompleted(MoonProject.TaskId id) unique
+             | TaskDependsOn(MoonProject.TaskId id, MoonProject.TaskId dep) unique
+             | TaskDeferredFact(MoonProject.TaskId id, string reason) unique
+             | TaskReady(MoonProject.TaskId id) unique
+             | TaskBlocked(MoonProject.TaskId id, MoonProject.TaskId* missing_or_incomplete) unique
+    ProjectReport = (MoonProject.TaskFact* facts, MoonProject.TaskId* ready, MoonProject.TaskId* blocked, MoonProject.TaskId* done, MoonProject.TaskId* deferred) unique
 }
 ]]
 

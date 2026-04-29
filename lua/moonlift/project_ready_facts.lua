@@ -3,7 +3,7 @@ local pvm = require("moonlift.pvm")
 local M = {}
 
 function M.Define(T)
-    local P = T.Moon2Project
+    local P = T.MoonProject
 
     local task_base_facts
     local project_base_facts

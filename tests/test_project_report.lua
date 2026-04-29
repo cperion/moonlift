@@ -9,7 +9,7 @@ local T = pvm.context()
 A.Define(T)
 local F = Facts.Define(T)
 local R = Report.Define(T)
-local P = T.Moon2Project
+local P = T.MoonProject
 
 local function id(text) return P.TaskId(text) end
 local function has(xs, needle)
