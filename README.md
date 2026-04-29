@@ -103,6 +103,27 @@ schema-as-data source of truth; historical compatibility names are not used in
 this clean schema. `tests/test_schema_core.lua` validates the full clean schema
 can define a context and construct representative core/type/backend values.
 
+## PVM-on-Moonlift lowering direction
+
+The native PVM path lowers phase semantics to ordinary Moonlift surface, not to
+an extra low-level VM. `MoonAsdl.Schema` products/sums emit as Moonlift structs
+and tagged unions with typed IDs/arenas. Lowerable PVM phase bodies are authored
+with Lua builders that produce `MoonPvmSurface` ASDL values; the surface emitter
+turns `once`, `empty`, `concat`, phase calls, and child loops into Moonlift
+region-fragment code using typed jumps and an ambient typed `emit(value; resume)`
+fragment. Cached wrappers and persistent cursor conversion will build on this
+same region/emit shape.
+
+Initial executable-design modules:
+
+```text
+lua/moonlift/schema/pvm_surface.lua
+lua/moonlift/pvm_surface_model.lua
+lua/moonlift/pvm_surface_builder.lua
+lua/moonlift/pvm_surface_emit.lua
+lua/moonlift/pvm_surface_schema_emit.lua
+```
+
 ## Artifact emission
 
 Compile `.mlua` object code to a relocatable object:
