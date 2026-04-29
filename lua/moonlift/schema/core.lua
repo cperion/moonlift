@@ -1,8 +1,5 @@
--- Clean MoonCore schema, authored as MoonAsdl data through Lua builders.
---
--- This is the first hand-authored replacement for the historical Moon2Core text
--- schema.  It intentionally uses the future names (`MoonCore.*`) instead of the
--- compatibility names consumed by the current compiler implementation.
+-- Clean MoonCore schema, generated from the current ASDL schema.
+-- Source of truth is now Lua builder data; edit deliberately.
 
 return function(A)
     return A.module "MoonCore" {

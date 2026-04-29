@@ -1,8 +1,5 @@
--- Clean Moon* schema modules authored as MoonAsdl data.
---
--- This is intentionally parallel to the current compatibility schema.  The
--- current compiler still consumes Moon2* internally; these modules are the
--- hand-authored destination schema we will port toward layer by layer.
+-- Full clean Moon* schema authored as MoonAsdl builder data.
+-- This is the destination schema namespace for Moonlift.
 
 local Builder = require("moonlift.asdl_builder")
 
@@ -12,6 +9,21 @@ function M.schema(T)
     local A = Builder.Define(T)
     return A.schema {
         require("moonlift.schema.core")(A),
+        require("moonlift.schema.back")(A),
+        require("moonlift.schema.link")(A),
+        require("moonlift.schema.type")(A),
+        require("moonlift.schema.open")(A),
+        require("moonlift.schema.bind")(A),
+        require("moonlift.schema.sem")(A),
+        require("moonlift.schema.tree")(A),
+        require("moonlift.schema.parse")(A),
+        require("moonlift.schema.vec")(A),
+        require("moonlift.schema.host")(A),
+        require("moonlift.schema.source")(A),
+        require("moonlift.schema.mlua")(A),
+        require("moonlift.schema.editor")(A),
+        require("moonlift.schema.lsp")(A),
+        require("moonlift.schema.rpc")(A),
     }
 end
 

@@ -97,13 +97,11 @@ The table-builder surface is syntax only; the consumed values are
 legacy ASDL text for `T:Define`, and later direct context construction can
 consume the same data without changing authoring syntax.
 
-As a migration experiment, `moonlift.asdl_data` routes the current compiler
-schema through `MoonAsdl.Schema` data before defining the context. It is a
-compatibility path for proving schema-as-data with the existing implementation;
-new hand-authored schema modules should use clean `MoonCore` / `MoonType` /
-`MoonBack`-style names rather than preserving historical module names. The first
-clean module lives in `lua/moonlift/schema/core.lua` and is validated by
-`tests/test_schema_core.lua`.
+The clean schema source now lives under `lua/moonlift/schema/` as full
+`MoonCore` / `MoonBack` / `MoonType` / ... builder modules. These are the
+schema-as-data source of truth; historical compatibility names are not used in
+this clean schema. `tests/test_schema_core.lua` validates the full clean schema
+can define a context and construct representative core/type/backend values.
 
 ## Artifact emission
 
