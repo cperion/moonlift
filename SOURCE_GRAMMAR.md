@@ -17,17 +17,14 @@ The initial parser now exists in `lua/moonlift/parse.lua`.  This document remain
 the grammar contract for expanding that implementation, and the ASDL is designed
 to represent these control-flow nouns directly. Hosted `.mlua` declaration
 islands add end-delimited `struct` / name-first `expose Name: subject ... end`
-syntax on top of this object grammar; the detailed host/exposure grammar lives
-in `HOST_VIEW_ZERO_COPY_ABI_DESIGN.md` and `LANGUAGE_REFERENCE.md`.
+syntax on top of this object grammar. The complete hosted language surface lives
+in `LANGUAGE_REFERENCE.md`.
 
 Companion docs:
 
-- `moonlift/LANGUAGE_REFERENCE.md` — complete single-file language reference
-- `moonlift/README.md`
-- `moonlift/ASDL2_REFACTOR_MAP.md`
-- `moonlift/IMPLEMENTATION_CHECKLIST.md`
-- `moonlift/REBOOT_SOURCE_GRAMMAR.md` — source-language base this grammar grew from
-- `moonlift/REBOOT_SOURCE_SPEC.md`
+- `LANGUAGE_REFERENCE.md` — complete single-file language reference
+- `README.md` — repository overview and common commands
+- `PVM_GUIDE.md` — ASDL/PVM framework guide
 
 The current command-line artifact path consumes `.mlua` files through this same
 object grammar for functions/modules, then lowers through `Moon2Back` and the
