@@ -101,7 +101,9 @@ As a migration experiment, `moonlift.asdl_data` routes the current compiler
 schema through `MoonAsdl.Schema` data before defining the context. It is a
 compatibility path for proving schema-as-data with the existing implementation;
 new hand-authored schema modules should use clean `MoonCore` / `MoonType` /
-`MoonBack`-style names rather than preserving historical module names.
+`MoonBack`-style names rather than preserving historical module names. The first
+clean module lives in `lua/moonlift/schema/core.lua` and is validated by
+`tests/test_schema_core.lua`.
 
 ## Artifact emission
 
