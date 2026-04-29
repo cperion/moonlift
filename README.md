@@ -111,7 +111,8 @@ and tagged unions with typed IDs/arenas. Lowerable PVM phase bodies are authored
 with Lua builders that produce `MoonPvmSurface` ASDL values; the surface emitter
 turns `once`, `empty`, `concat`, phase calls, and child loops into Moonlift
 region-fragment code using typed jumps and an ambient typed `emit(value; resume)`
-fragment. Cached wrappers and persistent cursor conversion will build on this
+fragment. The emitter also generates typed one-result cache wrapper skeletons;
+persistent cursor conversion for cached many-result streams will build on this
 same region/emit shape.
 
 Initial executable-design modules:

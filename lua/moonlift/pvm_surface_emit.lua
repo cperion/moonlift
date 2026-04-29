@@ -168,10 +168,129 @@ function M.emit_phase_body(T, body, opts)
     return table.concat(out, "\n") .. "\n"
 end
 
+local function phase_cache_name(body)
+    return sanitize(body.name) .. "Cache"
+end
+
+local function phase_cache_entry_name(body)
+    return sanitize(body.name) .. "CacheEntry"
+end
+
+local function phase_hit_name(body)
+    return sanitize(body.name) .. "CacheHit"
+end
+
+local function emit_cache_types(T, body)
+    local Ph = T.MoonPhase
+    local out = {}
+    push(out, 0, "-- generated typed cache storage for " .. body.name)
+    push(out, 0, "type " .. phase_hit_name(body) .. " = struct")
+    push(out, 1, "valid: bool")
+    push(out, 1, "value: " .. id_type_name(Ph, body.output))
+    push(out, 0, "end")
+    push(out, 0, "")
+    push(out, 0, "type " .. phase_cache_entry_name(body) .. " = struct")
+    push(out, 1, "key: " .. id_type_name(Ph, body.input))
+    push(out, 1, "value: " .. id_type_name(Ph, body.output))
+    push(out, 1, "state: CacheState")
+    push(out, 0, "end")
+    push(out, 0, "")
+    push(out, 0, "type " .. phase_cache_name(body) .. " = struct")
+    push(out, 1, "entries: ptr(" .. phase_cache_entry_name(body) .. ")")
+    push(out, 1, "len: index")
+    push(out, 1, "capacity: index")
+    push(out, 0, "end")
+    return table.concat(out, "\n") .. "\n"
+end
+
+function M.emit_phase_cache_types(T, body)
+    Model.Define(T)
+    local Ph, S = T.MoonPhase, T.MoonPvmSurface
+    if pvm.classof(body) ~= S.PhaseBody then error("pvm_surface_emit.emit_phase_cache_types expects MoonPvmSurface.PhaseBody", 2) end
+    if body.cache == Ph.CacheNone then return "-- phase " .. body.name .. " has CacheNone\n" end
+    return emit_cache_types(T, body)
+end
+
+function M.emit_phase_terminal(T, body)
+    Model.Define(T)
+    local Ph, S = T.MoonPhase, T.MoonPvmSurface
+    if pvm.classof(body) ~= S.PhaseBody then error("pvm_surface_emit.emit_phase_terminal expects MoonPvmSurface.PhaseBody", 2) end
+    local out = {}
+    local name = sanitize(body.name)
+    if body.result == Ph.ResultOne then
+        push(out, 0, "-- one-result terminal: consume the first emit and do not resume")
+        push(out, 0, "func " .. name .. "_drain_one_uncached(ctx: NativePvmContext, subject: " .. id_type_name(Ph, body.input) .. ") -> " .. id_type_name(Ph, body.output))
+        push(out, 1, "return drain_one_" .. name .. "_uncached(ctx, subject)")
+        push(out, 0, "end")
+    elseif body.result == Ph.ResultMany then
+        push(out, 0, "-- many-result terminal: materialize every emit into an output range")
+        push(out, 0, "func " .. name .. "_drain_uncached(ctx: NativePvmContext, subject: " .. id_type_name(Ph, body.input) .. ") -> " .. id_type_name(Ph, body.output) .. "Range")
+        push(out, 1, "return drain_many_" .. name .. "_uncached(ctx, subject)")
+        push(out, 0, "end")
+    elseif body.result == Ph.ResultOptional then
+        push(out, 0, "-- optional-result terminal: zero emits becomes None, first emit becomes Some and does not resume")
+        push(out, 0, "func " .. name .. "_drain_optional_uncached(ctx: NativePvmContext, subject: " .. id_type_name(Ph, body.input) .. ") -> Optional" .. id_type_name(Ph, body.output))
+        push(out, 1, "return drain_optional_" .. name .. "_uncached(ctx, subject)")
+        push(out, 0, "end")
+    else
+        push(out, 0, "-- report-shaped terminal for " .. body.name .. " is emitted by the report backend")
+    end
+    return table.concat(out, "\n") .. "\n"
+end
+
+function M.emit_phase_cache_wrapper(T, body)
+    Model.Define(T)
+    local Ph, S = T.MoonPhase, T.MoonPvmSurface
+    if pvm.classof(body) ~= S.PhaseBody then error("pvm_surface_emit.emit_phase_cache_wrapper expects MoonPvmSurface.PhaseBody", 2) end
+    local out = {}
+    local name = sanitize(body.name)
+    if body.cache == Ph.CacheNone then
+        push(out, 0, "-- CacheNone wrapper forwards directly to the uncached terminal")
+        push(out, 0, "export func " .. name .. "(ctx: NativePvmContext, subject: " .. id_type_name(Ph, body.input) .. ") -> " .. id_type_name(Ph, body.output))
+        push(out, 1, "stats_" .. name .. "_call(ctx)")
+        push(out, 1, "return " .. name .. "_drain_one_uncached(ctx, subject)")
+        push(out, 0, "end")
+        return table.concat(out, "\n") .. "\n"
+    end
+    if body.result ~= Ph.ResultOne then
+        push(out, 0, "-- cached stream wrapper for " .. body.name .. " uses replay/record ranges and typed cursor conversion")
+        push(out, 0, "-- generated after the one-result cache path; semantics are explicit in MoonPvmSurface.Producer")
+        return table.concat(out, "\n") .. "\n"
+    end
+    push(out, 0, "-- generated cached one-result wrapper")
+    push(out, 0, "export func " .. name .. "(ctx: NativePvmContext, subject: " .. id_type_name(Ph, body.input) .. ") -> " .. id_type_name(Ph, body.output))
+    push(out, 1, "stats_" .. name .. "_call(ctx)")
+    push(out, 1, "let hit: " .. phase_hit_name(body) .. " = cache_" .. name .. "_lookup(ctx, subject)")
+    push(out, 1, "if hit.valid then")
+    push(out, 2, "stats_" .. name .. "_hit(ctx)")
+    push(out, 2, "return hit.value")
+    push(out, 1, "end")
+    push(out, 1, "stats_" .. name .. "_miss(ctx)")
+    push(out, 1, "let value: " .. id_type_name(Ph, body.output) .. " = " .. name .. "_drain_one_uncached(ctx, subject)")
+    push(out, 1, "cache_" .. name .. "_insert(ctx, subject, value)")
+    push(out, 1, "return value")
+    push(out, 0, "end")
+    return table.concat(out, "\n") .. "\n"
+end
+
+function M.emit_phase_module(T, body, opts)
+    local parts = {
+        M.emit_phase_cache_types(T, body),
+        M.emit_phase_body(T, body, opts),
+        M.emit_phase_terminal(T, body),
+        M.emit_phase_cache_wrapper(T, body),
+    }
+    return table.concat(parts, "\n")
+end
+
 function M.Define(T)
     Model.Define(T)
     return {
         emit_phase_body = function(body, opts) return M.emit_phase_body(T, body, opts) end,
+        emit_phase_cache_types = function(body) return M.emit_phase_cache_types(T, body) end,
+        emit_phase_terminal = function(body) return M.emit_phase_terminal(T, body) end,
+        emit_phase_cache_wrapper = function(body) return M.emit_phase_cache_wrapper(T, body) end,
+        emit_phase_module = function(body, opts) return M.emit_phase_module(T, body, opts) end,
         emit_fragment_name = function(ref) return emit_fragment_name(T.MoonPhase, ref) end,
         id_type_name = function(ref) return id_type_name(T.MoonPhase, ref) end,
     }
