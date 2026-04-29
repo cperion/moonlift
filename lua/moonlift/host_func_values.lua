@@ -205,6 +205,35 @@ function M.Install(api, session)
         return make_func(module_value, "local", name, params, result, builder_fn)
     end
 
+    function api._module_extern_func(module_value, name, params, result, symbol)
+        assert_name(name, "extern func")
+        assert(type(params) == "table", "extern function params must be an ordered list")
+        local ps = {}
+        local seen = {}
+        for i = 1, #params do
+            local p = as_param(params[i], "extern function param")
+            assert(not seen[p.name], "duplicate extern function parameter: " .. p.name)
+            seen[p.name] = true
+            ps[i] = p
+        end
+        local ret = api.as_type_value(result or api.void, "extern function result must be a type value")
+        local func = Tr.ExternFunc(name, symbol or name, param_decls(ps), ret.ty)
+        return setmetatable({
+            kind = "extern_func",
+            session = session,
+            name = name,
+            visibility = "extern",
+            symbol = symbol or name,
+            params = ps,
+            result = ret,
+            func = func,
+            item = Tr.ItemExtern(func),
+            type = api.func_type((function()
+                local ts = {}; for i = 1, #ps do ts[i] = ps[i].type end; return ts
+            end)(), ret),
+        }, FuncValue)
+    end
+
     function api._module_export_func(module_value, name, params, result, builder_fn)
         return make_func(module_value, "export", name, params, result, builder_fn)
     end

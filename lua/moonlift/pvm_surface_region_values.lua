@@ -39,6 +39,8 @@ local Lower = {}
 Lower.__index = Lower
 
 function Lower:type_value_for_ref(ref)
+    if ref == self.body.input and self.input_id_ty ~= nil then return self.input_id_ty end
+    if ref == self.body.output and self.output_id_ty ~= nil then return self.output_id_ty end
     return self.api.path_named(id_type_name(self.Ph, ref))
 end
 
@@ -137,9 +139,15 @@ function Lower:bind_handler_fields(env, handler)
     local input_name = type_ref_name(self.Ph, self.body.input)
     for i = 1, #handler.binds do
         local b = handler.binds[i]
-        out[b.name] = call_expr(self.api, "get_" .. input_name .. "_" .. sanitize(handler.ctor_name) .. "_" .. sanitize(b.field_name), { env.ctx, env.subject }, self.api.path_named("Value"))
+        out[b.name] = call_expr(self.api, "get_" .. input_name .. "_" .. sanitize(handler.ctor_name) .. "_" .. sanitize(b.field_name), { env.ctx, env.subject }, self.field_ty or self.api.path_named("Value"))
     end
     return out
+end
+
+local function context_type_value(api, spec)
+    if spec == nil then return api.path_named("NativePvmContext") end
+    if type(spec) == "table" and type(spec.as_type_value) == "function" then return spec end
+    return api.path_named(spec)
 end
 
 function M.lower_phase_body(api, body, opts)
@@ -148,8 +156,8 @@ function M.lower_phase_body(api, body, opts)
     local Ph, S = api.T.MoonPhase, api.T.MoonPvmSurface
     assert(pvm.classof(body) == S.PhaseBody, "lower_phase_body expects MoonPvmSurface.PhaseBody")
     local emit_frag = assert(opts.emit_frag, "lower_phase_body expects opts.emit_frag RegionFragValue")
-    local self = setmetatable({ api = api, Ph = Ph, S = S, body = body, emit_frag = emit_frag, phase_frags = opts.phase_frags or {} }, Lower)
-    local ctx_ty = api.path_named(opts.context_type or "NativePvmContext")
+    local self = setmetatable({ api = api, Ph = Ph, S = S, body = body, emit_frag = emit_frag, phase_frags = opts.phase_frags or {}, field_ty = opts.field_type, input_id_ty = opts.input_id_type, output_id_ty = opts.output_id_type }, Lower)
+    local ctx_ty = context_type_value(api, opts.context_type)
     local subject_ty = self:type_value_for_ref(body.input)
     return api.region_frag(sanitize(body.name) .. "_uncached", {
         api.param("ctx", ctx_ty),
@@ -169,9 +177,13 @@ function M.lower_phase_body(api, body, opts)
                     end,
                 }
             end
-            start:switch_(self:tag_expr(env), arms, body.default_body and function(default)
-                self:producer(region, default, env, body.default_body, region.done)
-            end or nil)
+            start:switch_(self:tag_expr(env), arms, function(default)
+                if body.default_body ~= nil then
+                    self:producer(region, default, env, body.default_body, region.done)
+                else
+                    default:jump(region.done, {})
+                end
+            end)
         end)
     end)
 end

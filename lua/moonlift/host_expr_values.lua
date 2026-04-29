@@ -166,6 +166,15 @@ function M.Install(api, session)
         return coerce(cond, "select cond"):select(then_value, else_value)
     end
 
+    function api.call(name, args, result_ty)
+        assert(type(name) == "string" and name:match("^[_%a][_%w]*$"), "call expects a function name")
+        local tv = api.as_type_value(result_ty or api.void, "call result expects type value")
+        local exprs = {}
+        for i = 1, #(args or {}) do exprs[i] = moon_expr(args[i], "call arg") end
+        local callee = Tr.ExprRef(Tr.ExprSurface, B.ValueRefName(name))
+        return expr_value(Tr.ExprCall(Tr.ExprSurface, Sem.CallUnresolved(callee), exprs), tv, name .. "(...)")
+    end
+
     function api.load(addr, ty)
         local a = coerce(addr, "load expects address expression")
         local tv = api.as_type_value(ty, "load expects result type")

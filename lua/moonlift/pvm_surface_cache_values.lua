@@ -34,6 +34,12 @@ local function call_expr(api, func_name, args, result_ty, hint)
     return api.expr_from_asdl(expr, result_ty, hint or (func_name .. "(...)"))
 end
 
+local function context_type_value(api, spec)
+    if spec == nil then return api.path_named("NativePvmContext") end
+    if type(spec) == "table" and type(spec.as_type_value) == "function" then return spec end
+    return api.path_named(spec)
+end
+
 function M.add_one_result_cache(api, module, body, opts)
     opts = opts or {}
     Model.Define(api.T)
@@ -42,9 +48,9 @@ function M.add_one_result_cache(api, module, body, opts)
     assert(body.result == Ph.ResultOne, "add_one_result_cache expects ResultOne")
 
     local phase = sanitize(body.name)
-    local ctx_ty = api.path_named(opts.context_type or "NativePvmContext")
-    local key_ty = api.path_named(id_type_name(Ph, body.input))
-    local value_ty = api.path_named(id_type_name(Ph, body.output))
+    local ctx_ty = context_type_value(api, opts.context_type)
+    local key_ty = opts.input_id_type or api.path_named(id_type_name(Ph, body.input))
+    local value_ty = opts.output_id_type or api.path_named(id_type_name(Ph, body.output))
     local cache_state_ty = api.path_named(opts.cache_state_type or "CacheState")
 
     local hit_ty = module:struct(phase .. "CacheHit", {

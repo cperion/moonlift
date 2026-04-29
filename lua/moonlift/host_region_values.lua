@@ -179,7 +179,7 @@ function M.Install(api, session)
             end
         end
         for name in pairs(fragment.conts) do if (fills or {})[name] == nil then api.raise_host_issue(session.T.MoonHost.HostIssueMissingEmitFill(fragment.name, name)) end end
-        return self:emit_stmt(Tr.StmtUseRegionFrag(Tr.StmtSurface, "host.emit." .. fragment.name .. "." .. tostring(#self.body + 1), fragment.frag, args, fill_values))
+        return self:emit_stmt(Tr.StmtUseRegionFrag(Tr.StmtSurface, session:symbol_key("emit", fragment.name), fragment.frag, args, fill_values))
     end
 
     function BlockBuilder:if_(cond, then_fn, else_fn)

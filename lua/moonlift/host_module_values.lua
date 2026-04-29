@@ -88,6 +88,11 @@ function ModuleValue:func(name, params, result, builder_fn)
     return self:add_func(self.api._module_func(self, name, params, result, builder_fn))
 end
 
+function ModuleValue:extern_func(name, params, result, symbol)
+    reserve_func_name(self, name)
+    return self:add_func(self.api._module_extern_func(self, name, params, result, symbol))
+end
+
 function ModuleValue:export_func(name, params, result, builder_fn)
     reserve_func_name(self, name)
     return self:add_func(self.api._module_export_func(self, name, params, result, builder_fn))

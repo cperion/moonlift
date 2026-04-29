@@ -123,6 +123,8 @@ lua/moonlift/pvm_surface_model.lua
 lua/moonlift/pvm_surface_builder.lua
 lua/moonlift/pvm_surface_region_values.lua
 lua/moonlift/pvm_surface_schema_values.lua
+lua/moonlift/pvm_surface_union_values.lua
+lua/moonlift/pvm_surface_cache_values.lua
 ```
 
 ## Artifact emission
