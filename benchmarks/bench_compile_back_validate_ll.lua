@@ -64,7 +64,7 @@ local cmds = #cases[1].program.cmds
 collectgarbage("collect")
 
 local t0 = now()
-for i = 1, rounds do assert(#cases[i].V.validate_lua_cold(cases[i].program).issues == 0) end
+for i = 1, rounds do assert(#cases[i].V.validate_pvm_cold(cases[i].program).issues == 0) end
 local lua_dt = now() - t0
 collectgarbage("collect")
 local t1 = now()
@@ -73,6 +73,6 @@ local ll_dt = now() - t1
 
 print(string.format("program_cmds %d", cmds))
 print(string.format("fresh_programs %d", rounds))
-print(string.format("back_validate lua_pvm_cold %.3f ms total %.3f ms/program", ms(lua_dt), ms(lua_dt) / rounds))
-print(string.format("back_validate ll_flat %.3f ms total %.3f ms/program", ms(ll_dt), ms(ll_dt) / rounds))
+print(string.format("back_validate pvm_triplet_cold %.3f ms total %.3f ms/program", ms(lua_dt), ms(lua_dt) / rounds))
+print(string.format("back_validate flat_default %.3f ms total %.3f ms/program", ms(ll_dt), ms(ll_dt) / rounds))
 print(string.format("speedup %.2fx", lua_dt / ll_dt))

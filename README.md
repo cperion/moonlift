@@ -162,12 +162,13 @@ benchmarks/run_vs_terra.sh
 benchmarks/run_vs_terra.sh quick
 ```
 
-Back-validation has an alternate flat fact loop wired as the first build-time
-LL-PVM seam. Compare it with:
+Back-validation now defaults to the flat fact loop used for build-time LL-PVM
+work. Compare the old triplet command-fact path against the default flat path
+with:
 
 ```bash
 luajit benchmarks/bench_compile_back_validate_ll.lua
-MOONLIFT_BACK_VALIDATE=ll luajit benchmarks/profile_compile.lua
+benchmarks/compare_compile_ll.sh
 ```
 
 These compare Moonlift's jump-first kernels against equivalent Terra kernels.

@@ -623,7 +623,7 @@ function M.Define(T)
     end
 
     local validate_program = pvm.phase("moon2_back_validate_program", function(program)
-        return validate_program_impl(program, os.getenv("MOONLIFT_BACK_VALIDATE") == "ll")
+        return validate_program_impl(program, true)
     end)
 
     return {
@@ -633,11 +633,14 @@ function M.Define(T)
             return out
         end,
         validate_program = validate_program,
+        validate_pvm_cold = function(program)
+            return validate_program_impl(program, false)
+        end,
         validate_lua_cold = function(program)
             return validate_program_impl(program, false)
         end,
         validate_lua = function(program)
-            return pvm.one(validate_program(program))
+            return validate_program_impl(program, false)
         end,
         validate_ll = function(program)
             return validate_program_impl(program, true)

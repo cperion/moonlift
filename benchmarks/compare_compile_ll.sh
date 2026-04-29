@@ -2,10 +2,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-echo "== Lua PVM back_validate =="
+echo "== Default compile profile (flat back_validate) =="
 luajit benchmarks/profile_compile.lua
 
 echo
 
-echo "== LL-wired flat back_validate =="
-MOONLIFT_BACK_VALIDATE=ll luajit benchmarks/profile_compile.lua
+echo "== Back-validation A/B microbenchmark =="
+luajit benchmarks/bench_compile_back_validate_ll.lua "${1:-30}"
