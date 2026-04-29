@@ -2,7 +2,6 @@ package.path = "./?.lua;./?/init.lua;./moonlift/lua/?.lua;./moonlift/lua/?/init.
 
 local ffi = require("ffi")
 local pvm = require("moonlift.pvm")
-local A1 = require("moonlift_legacy.asdl")
 local A2 = require("moonlift.asdl")
 local Parse = require("moonlift.parse")
 local Typecheck = require("moonlift.tree_typecheck")
@@ -10,11 +9,9 @@ local ContractFacts = require("moonlift.tree_contract_facts")
 local KernelPlan = require("moonlift.vec_kernel_plan")
 local Lower = require("moonlift.tree_to_back")
 local Validate = require("moonlift.back_validate")
-local Bridge = require("moonlift.back_to_moonlift")
-local J = require("moonlift_legacy.jit")
+local J = require("moonlift.back_jit")
 
 local T = pvm.context()
-A1.Define(T)
 A2.Define(T)
 local P = Parse.Define(T)
 local TC = Typecheck.Define(T)
@@ -22,9 +19,8 @@ local CF = ContractFacts.Define(T)
 local KP = KernelPlan.Define(T)
 local Lowerer = Lower.Define(T)
 local V = Validate.Define(T)
-local bridge = Bridge.Define(T)
 local jit_api = J.Define(T)
-local B1 = T.MoonliftBack
+local B2 = T.Moon2Back
 local B2 = T.Moon2Back
 local C = T.Moon2Core
 local Vec = T.Moon2Vec
@@ -154,15 +150,15 @@ assert(saw_cmp, "expected vector compare commands")
 assert(saw_select, "expected vector select commands")
 assert(saw_mask, "expected vector mask commands")
 
-local artifact = jit_api.jit():compile(bridge.lower_program(program))
-local clamp = ffi.cast("int32_t (*)(int32_t*, const int32_t*, int32_t)", artifact:getpointer(B1.BackFuncId("clamp_nonneg_i32")))
-local max_i32 = ffi.cast("int32_t (*)(int32_t*, const int32_t*, const int32_t*, int32_t)", artifact:getpointer(B1.BackFuncId("max_i32")))
-local min_u32 = ffi.cast("int32_t (*)(uint32_t*, const uint32_t*, const uint32_t*, int32_t)", artifact:getpointer(B1.BackFuncId("min_u32")))
-local in_range = ffi.cast("int32_t (*)(int32_t*, const int32_t*, int32_t, int32_t, int32_t)", artifact:getpointer(B1.BackFuncId("in_range_i32")))
-local nonzero_or_negative = ffi.cast("int32_t (*)(int32_t*, const int32_t*, int32_t)", artifact:getpointer(B1.BackFuncId("nonzero_or_negative_i32")))
+local artifact = jit_api.jit():compile(program)
+local clamp = ffi.cast("int32_t (*)(int32_t*, const int32_t*, int32_t)", artifact:getpointer(B2.BackFuncId("clamp_nonneg_i32")))
+local max_i32 = ffi.cast("int32_t (*)(int32_t*, const int32_t*, const int32_t*, int32_t)", artifact:getpointer(B2.BackFuncId("max_i32")))
+local min_u32 = ffi.cast("int32_t (*)(uint32_t*, const uint32_t*, const uint32_t*, int32_t)", artifact:getpointer(B2.BackFuncId("min_u32")))
+local in_range = ffi.cast("int32_t (*)(int32_t*, const int32_t*, int32_t, int32_t, int32_t)", artifact:getpointer(B2.BackFuncId("in_range_i32")))
+local nonzero_or_negative = ffi.cast("int32_t (*)(int32_t*, const int32_t*, int32_t)", artifact:getpointer(B2.BackFuncId("nonzero_or_negative_i32")))
 ffi.cdef[[ typedef struct MoonliftTestViewI32 { int32_t* data; intptr_t len; intptr_t stride; } MoonliftTestViewI32; ]]
-local threshold = ffi.cast("int32_t (*)(MoonliftTestViewI32*, MoonliftTestViewI32*, int32_t, int32_t, int32_t)", artifact:getpointer(B1.BackFuncId("threshold_view_i32")))
-local max_window = ffi.cast("int32_t (*)(MoonliftTestViewI32*, MoonliftTestViewI32*, MoonliftTestViewI32*)", artifact:getpointer(B1.BackFuncId("max_view_prefix_window_i32")))
+local threshold = ffi.cast("int32_t (*)(MoonliftTestViewI32*, MoonliftTestViewI32*, int32_t, int32_t, int32_t)", artifact:getpointer(B2.BackFuncId("threshold_view_i32")))
+local max_window = ffi.cast("int32_t (*)(MoonliftTestViewI32*, MoonliftTestViewI32*, MoonliftTestViewI32*)", artifact:getpointer(B2.BackFuncId("max_view_prefix_window_i32")))
 
 local a = ffi.new("int32_t[9]", { -3, -1, 0, 2, 5, -8, 7, 1, -2 })
 local out = ffi.new("int32_t[9]")

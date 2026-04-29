@@ -714,8 +714,7 @@ The host API must not compute field offsets.  Offset resolution belongs to
 ```lua
 fn_ref:call(args)
 moon.intrinsic("popcount", { x })
-moon.cast(moon.i32, x)
-moon.zext(moon.i32, x)
+x:as(moon.i32)
 ```
 
 ASDL mapping:
@@ -1148,7 +1147,10 @@ local sum_pair = compiled:get("sum_pair")
 Equivalent source:
 
 ```moonlift
-type Pair = struct { x: i32, y: i32 }
+type Pair = struct
+    x: i32
+    y: i32
+end
 
 export func sum_pair(p: ptr(Pair)) -> i32
     return p.x + p.y
@@ -1231,7 +1233,7 @@ local scan_until = moon.region_frag("scan_until", {
         r:jump(r.conts.miss, { pos = r.i })
     end)
 
-    r:if_(r.p:index(r.i):zext(moon.i32):eq(r.target), function()
+    r:if_(r.p:index(r.i):as(moon.i32):eq(r.target), function()
         r:jump(r.conts.hit, { pos = r.i })
     end)
 

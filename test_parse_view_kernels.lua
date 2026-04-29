@@ -2,7 +2,6 @@ package.path = "./?.lua;./?/init.lua;./moonlift/lua/?.lua;./moonlift/lua/?/init.
 
 local ffi = require("ffi")
 local pvm = require("moonlift.pvm")
-local A1 = require("moonlift_legacy.asdl")
 local A2 = require("moonlift.asdl")
 local Parse = require("moonlift.parse")
 local Typecheck = require("moonlift.tree_typecheck")
@@ -10,11 +9,9 @@ local ContractFacts = require("moonlift.tree_contract_facts")
 local KernelPlan = require("moonlift.vec_kernel_plan")
 local Lower = require("moonlift.tree_to_back")
 local Validate = require("moonlift.back_validate")
-local Bridge = require("moonlift.back_to_moonlift")
-local J = require("moonlift_legacy.jit")
+local J = require("moonlift.back_jit")
 
 local T = pvm.context()
-A1.Define(T)
 A2.Define(T)
 local P = Parse.Define(T)
 local TC = Typecheck.Define(T)
@@ -22,9 +19,8 @@ local CF = ContractFacts.Define(T)
 local KP = KernelPlan.Define(T)
 local Lowerer = Lower.Define(T)
 local V = Validate.Define(T)
-local bridge = Bridge.Define(T)
 local jit_api = J.Define(T)
-local B1 = T.MoonliftBack
+local B2 = T.Moon2Back
 local C = T.Moon2Core
 local Vec = T.Moon2Vec
 
@@ -58,13 +54,13 @@ assert(program.cmds[1].params[3] == T.Moon2Back.BackIndex)
 local saw_vec = false
 for i = 1, #program.cmds do
     local cmd = program.cmds[i]
-    if pvm.classof(cmd) == T.Moon2Back.CmdLoad and pvm.classof(cmd.ty) == T.Moon2Back.BackShapeVec then saw_vec = true end
+    if pvm.classof(cmd) == T.Moon2Back.CmdLoadInfo and pvm.classof(cmd.ty) == T.Moon2Back.BackShapeVec then saw_vec = true end
 end
 assert(saw_vec, "expected vector load for view sum")
 
 ffi.cdef[[ typedef struct MoonliftTestViewI32 { int32_t* data; intptr_t len; intptr_t stride; } MoonliftTestViewI32; ]]
-local artifact = jit_api.jit():compile(bridge.lower_program(program))
-local sum = ffi.cast("int32_t (*)(MoonliftTestViewI32*)", artifact:getpointer(B1.BackFuncId("sum_view_i32")))
+local artifact = jit_api.jit():compile(program)
+local sum = ffi.cast("int32_t (*)(MoonliftTestViewI32*)", artifact:getpointer(B2.BackFuncId("sum_view_i32")))
 local xs = ffi.new("int32_t[9]", { 1, 2, 3, 4, 5, 6, 7, 8, 9 })
 local view = ffi.new("MoonliftTestViewI32[1]")
 view[0].data = xs

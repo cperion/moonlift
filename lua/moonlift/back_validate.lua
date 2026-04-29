@@ -42,10 +42,134 @@ end
 function M.Define(T)
     local B = T.Moon2Back
 
+    local function append_address_base_uses(out, index, base)
+        local cls = pvm.classof(base)
+        if cls == B.BackAddrValue then
+            out[#out + 1] = B.BackFactValueUse(index, base.value)
+        elseif cls == B.BackAddrStack then
+            out[#out + 1] = B.BackFactStackSlotRef(index, base.slot)
+        elseif cls == B.BackAddrData then
+            out[#out + 1] = B.BackFactDataRef(index, base.data)
+        end
+    end
+
+    local function append_address_uses(out, index, addr)
+        append_address_base_uses(out, index, addr.base)
+        out[#out + 1] = B.BackFactValueUse(index, addr.byte_offset)
+    end
+
+    local function append_alias_access_refs(out, index, fact)
+        local cls = pvm.classof(fact)
+        if cls == B.BackAliasScope then
+            out[#out + 1] = B.BackFactAliasAccessRef(index, fact.access)
+        else
+            out[#out + 1] = B.BackFactAliasAccessRef(index, fact.a)
+            out[#out + 1] = B.BackFactAliasAccessRef(index, fact.b)
+        end
+    end
+
+    local function scalar_size_bytes(scalar)
+        if scalar == B.BackBool or scalar == B.BackI8 or scalar == B.BackU8 then return 1 end
+        if scalar == B.BackI16 or scalar == B.BackU16 then return 2 end
+        if scalar == B.BackI32 or scalar == B.BackU32 or scalar == B.BackF32 then return 4 end
+        if scalar == B.BackI64 or scalar == B.BackU64 or scalar == B.BackF64 or scalar == B.BackPtr or scalar == B.BackIndex then return 8 end
+        return nil
+    end
+
+    local function shape_size_bytes(shape)
+        local cls = pvm.classof(shape)
+        if cls == B.BackShapeScalar then return scalar_size_bytes(shape.scalar) end
+        if cls == B.BackShapeVec then
+            local elem = scalar_size_bytes(shape.vec.elem)
+            if elem ~= nil then return elem * shape.vec.lanes end
+        end
+        return nil
+    end
+
+    local function is_power_of_two(n)
+        if type(n) ~= "number" or n < 1 or n % 1 ~= 0 then return false end
+        while n > 1 do
+            if n % 2 ~= 0 then return false end
+            n = n / 2
+        end
+        return true
+    end
+
+    local function alignment_bytes(alignment)
+        local cls = pvm.classof(alignment)
+        if cls == B.BackAlignKnown or cls == B.BackAlignAtLeast or cls == B.BackAlignAssumed then return alignment.bytes end
+        return nil
+    end
+
+    local function dereference_bytes(deref)
+        local cls = pvm.classof(deref)
+        if cls == B.BackDerefBytes or cls == B.BackDerefAssumed then return deref.bytes end
+        return nil
+    end
+
+    local function validate_memory_info(issues, index, shape, memory, expected_mode)
+        local mode = memory.mode
+        if expected_mode == B.BackAccessRead and mode ~= B.BackAccessRead and mode ~= B.BackAccessReadWrite then
+            add_issue(issues, B.BackIssueLoadAccessMode(index, mode))
+        elseif expected_mode == B.BackAccessWrite and mode ~= B.BackAccessWrite and mode ~= B.BackAccessReadWrite then
+            add_issue(issues, B.BackIssueStoreAccessMode(index, mode))
+        end
+        local align = alignment_bytes(memory.alignment)
+        if align ~= nil and not is_power_of_two(align) then
+            add_issue(issues, B.BackIssueInvalidAlignment(index, align))
+        end
+        local deref = dereference_bytes(memory.dereference)
+        local access = shape_size_bytes(shape)
+        if deref ~= nil and access ~= nil and deref < access then
+            add_issue(issues, B.BackIssueDereferenceTooSmall(index, deref, access))
+        end
+        if pvm.classof(memory.trap) == B.BackNonTrapping and deref == nil then
+            add_issue(issues, B.BackIssueNonTrappingWithoutDereference(index))
+        end
+        if pvm.classof(memory.motion) == B.BackCanMove and pvm.classof(memory.trap) ~= B.BackNonTrapping then
+            add_issue(issues, B.BackIssueCanMoveWithoutNonTrapping(index))
+        end
+    end
+
+    local function is_int_scalar(scalar)
+        return scalar == B.BackI8 or scalar == B.BackI16 or scalar == B.BackI32 or scalar == B.BackI64
+            or scalar == B.BackU8 or scalar == B.BackU16 or scalar == B.BackU32 or scalar == B.BackU64
+            or scalar == B.BackIndex
+    end
+
+    local function is_bit_scalar(scalar)
+        return scalar == B.BackBool or is_int_scalar(scalar)
+    end
+
+    local function is_float_scalar(scalar)
+        return scalar == B.BackF32 or scalar == B.BackF64
+    end
+
+    local function shape_key(shape)
+        local cls = pvm.classof(shape)
+        if cls == B.BackShapeScalar then return "s:" .. shape.scalar.kind end
+        if cls == B.BackShapeVec then return "v:" .. shape.vec.elem.kind .. ":" .. tostring(shape.vec.lanes) end
+        return tostring(shape)
+    end
+
+    local function target_supported_shapes(cmds)
+        local supported = nil
+        for i = 1, #cmds do
+            local cmd = cmds[i]
+            if pvm.classof(cmd) == B.CmdTargetModel then
+                supported = supported or {}
+                for j = 1, #cmd.target.facts do
+                    local fact = cmd.target.facts[j]
+                    if pvm.classof(fact) == B.BackTargetSupportsShape then supported[shape_key(fact.shape)] = true end
+                end
+            end
+        end
+        return supported
+    end
+
     local cmd_facts
     local call_target_facts
     local call_result_facts
-    local binary_shape_requirement
 
     call_target_facts = pvm.phase("moon2_back_call_target_facts", {
         [B.BackCallDirect] = function(self, index)
@@ -76,35 +200,10 @@ function M.Define(T)
         return B.BackFactShapeUse(index, ty, requirement)
     end
 
-    binary_shape_requirement = pvm.phase("moon2_back_binary_shape_requirement", {
-        [B.BackIadd] = function() return pvm.once(B.BackShapeRequiresScalar) end,
-        [B.BackIsub] = function() return pvm.once(B.BackShapeRequiresScalar) end,
-        [B.BackImul] = function() return pvm.once(B.BackShapeRequiresScalar) end,
-        [B.BackFadd] = function() return pvm.once(B.BackShapeRequiresScalar) end,
-        [B.BackFsub] = function() return pvm.once(B.BackShapeRequiresScalar) end,
-        [B.BackFmul] = function() return pvm.once(B.BackShapeRequiresScalar) end,
-        [B.BackSdiv] = function() return pvm.once(B.BackShapeRequiresScalar) end,
-        [B.BackUdiv] = function() return pvm.once(B.BackShapeRequiresScalar) end,
-        [B.BackFdiv] = function() return pvm.once(B.BackShapeRequiresScalar) end,
-        [B.BackSrem] = function() return pvm.once(B.BackShapeRequiresScalar) end,
-        [B.BackUrem] = function() return pvm.once(B.BackShapeRequiresScalar) end,
-        [B.BackBand] = function() return pvm.once(B.BackShapeRequiresScalar) end,
-        [B.BackBor] = function() return pvm.once(B.BackShapeRequiresScalar) end,
-        [B.BackBxor] = function() return pvm.once(B.BackShapeRequiresScalar) end,
-        [B.BackIshl] = function() return pvm.once(B.BackShapeRequiresScalar) end,
-        [B.BackUshr] = function() return pvm.once(B.BackShapeRequiresScalar) end,
-        [B.BackSshr] = function() return pvm.once(B.BackShapeRequiresScalar) end,
-        [B.BackRotl] = function() return pvm.once(B.BackShapeRequiresScalar) end,
-        [B.BackRotr] = function() return pvm.once(B.BackShapeRequiresScalar) end,
-        [B.BackVecIadd] = function() return pvm.once(B.BackShapeRequiresVector) end,
-        [B.BackVecIsub] = function() return pvm.once(B.BackShapeRequiresVector) end,
-        [B.BackVecImul] = function() return pvm.once(B.BackShapeRequiresVector) end,
-        [B.BackVecBand] = function() return pvm.once(B.BackShapeRequiresVector) end,
-        [B.BackVecBor] = function() return pvm.once(B.BackShapeRequiresVector) end,
-        [B.BackVecBxor] = function() return pvm.once(B.BackShapeRequiresVector) end,
-    })
-
     cmd_facts = pvm.phase("moon2_back_cmd_facts", {
+        [B.CmdTargetModel] = function(_, _)
+            return pvm.empty()
+        end,
         [B.CmdCreateSig] = function(self, index)
             return facts_triplet({ B.BackFactCreateSig(index, self.sig) })
         end,
@@ -179,20 +278,49 @@ function M.Define(T)
             append_value_uses(out, B, index, self.args)
             return facts_triplet(out)
         end,
-        [B.CmdBinary] = function(self, index)
-            return facts_triplet({ body(index), shape(index, self.ty, pvm.one(binary_shape_requirement(self.op))), B.BackFactValueUse(index, self.lhs), B.BackFactValueUse(index, self.rhs), B.BackFactValueDef(index, self.dst) })
-        end,
         [B.CmdCompare] = function(self, index)
             return facts_triplet({ body(index), shape(index, self.ty, B.BackShapeRequiresScalar), B.BackFactValueUse(index, self.lhs), B.BackFactValueUse(index, self.rhs), B.BackFactValueDef(index, self.dst) })
         end,
         [B.CmdCast] = function(self, index)
             return facts_triplet({ body(index), B.BackFactValueUse(index, self.value), B.BackFactValueDef(index, self.dst) })
         end,
-        [B.CmdLoad] = function(self, index)
-            return facts_triplet({ body(index), shape(index, self.ty, B.BackShapeAllowsScalarOrVector), B.BackFactValueUse(index, self.addr), B.BackFactValueDef(index, self.dst) })
+        [B.CmdPtrOffset] = function(self, index)
+            local out = { body(index), B.BackFactValueUse(index, self.index), B.BackFactValueDef(index, self.dst) }
+            append_address_base_uses(out, index, self.base)
+            return facts_triplet(out)
         end,
-        [B.CmdStore] = function(self, index)
-            return facts_triplet({ body(index), shape(index, self.ty, B.BackShapeAllowsScalarOrVector), B.BackFactValueUse(index, self.addr), B.BackFactValueUse(index, self.value) })
+        [B.CmdLoadInfo] = function(self, index)
+            local out = { body(index), shape(index, self.ty, B.BackShapeAllowsScalarOrVector), B.BackFactAccessDef(index, self.memory.access), B.BackFactValueDef(index, self.dst) }
+            append_address_uses(out, index, self.addr)
+            return facts_triplet(out)
+        end,
+        [B.CmdStoreInfo] = function(self, index)
+            local out = { body(index), shape(index, self.ty, B.BackShapeAllowsScalarOrVector), B.BackFactAccessDef(index, self.memory.access), B.BackFactValueUse(index, self.value) }
+            append_address_uses(out, index, self.addr)
+            return facts_triplet(out)
+        end,
+        [B.CmdIntBinary] = function(self, index)
+            return facts_triplet({ body(index), B.BackFactValueUse(index, self.lhs), B.BackFactValueUse(index, self.rhs), B.BackFactValueDef(index, self.dst) })
+        end,
+        [B.CmdBitBinary] = function(self, index)
+            return facts_triplet({ body(index), B.BackFactValueUse(index, self.lhs), B.BackFactValueUse(index, self.rhs), B.BackFactValueDef(index, self.dst) })
+        end,
+        [B.CmdBitNot] = function(self, index)
+            return facts_triplet({ body(index), B.BackFactValueUse(index, self.value), B.BackFactValueDef(index, self.dst) })
+        end,
+        [B.CmdShift] = function(self, index)
+            return facts_triplet({ body(index), B.BackFactValueUse(index, self.lhs), B.BackFactValueUse(index, self.rhs), B.BackFactValueDef(index, self.dst) })
+        end,
+        [B.CmdRotate] = function(self, index)
+            return facts_triplet({ body(index), B.BackFactValueUse(index, self.lhs), B.BackFactValueUse(index, self.rhs), B.BackFactValueDef(index, self.dst) })
+        end,
+        [B.CmdFloatBinary] = function(self, index)
+            return facts_triplet({ body(index), B.BackFactValueUse(index, self.lhs), B.BackFactValueUse(index, self.rhs), B.BackFactValueDef(index, self.dst) })
+        end,
+        [B.CmdAliasFact] = function(self, index)
+            local out = { body(index) }
+            append_alias_access_refs(out, index, self.fact)
+            return facts_triplet(out)
         end,
         [B.CmdMemcpy] = function(self, index)
             return facts_triplet({ body(index), B.BackFactValueUse(index, self.dst), B.BackFactValueUse(index, self.src), B.BackFactValueUse(index, self.len) })
@@ -208,6 +336,9 @@ function M.Define(T)
         end,
         [B.CmdVecSplat] = function(self, index)
             return facts_triplet({ body(index), B.BackFactValueUse(index, self.value), B.BackFactValueDef(index, self.dst) })
+        end,
+        [B.CmdVecBinary] = function(self, index)
+            return facts_triplet({ body(index), shape(index, B.BackShapeVec(self.ty), B.BackShapeRequiresVector), B.BackFactValueUse(index, self.lhs), B.BackFactValueUse(index, self.rhs), B.BackFactValueDef(index, self.dst) })
         end,
         [B.CmdVecCompare] = function(self, index)
             return facts_triplet({ body(index), shape(index, B.BackShapeVec(self.ty), B.BackShapeRequiresVector), B.BackFactValueUse(index, self.lhs), B.BackFactValueUse(index, self.rhs), B.BackFactValueDef(index, self.dst) })
@@ -291,6 +422,7 @@ function M.Define(T)
         local seen_block = nil
         local seen_slot = nil
         local seen_value = nil
+        local seen_access = nil
 
         for i = 1, #facts do
             local fact = facts[i]
@@ -320,6 +452,7 @@ function M.Define(T)
                     seen_block = {}
                     seen_slot = {}
                     seen_value = {}
+                    seen_access = {}
                 end
             elseif cls == B.BackFactFinishFunc then
                 if active_func == nil then
@@ -330,11 +463,13 @@ function M.Define(T)
                     seen_block = nil
                     seen_slot = nil
                     seen_value = nil
+                    seen_access = nil
                 else
                     active_func = nil
                     seen_block = nil
                     seen_slot = nil
                     seen_value = nil
+                    seen_access = nil
                 end
             elseif cls == B.BackFactFinalizeModule then
                 if finalized_index == nil then finalized_index = fact.index end
@@ -358,6 +493,12 @@ function M.Define(T)
                 end
             elseif cls == B.BackFactValueUse then
                 if active_func ~= nil and not has(seen_value, fact.value) then add_issue(issues, B.BackIssueMissingValue(fact.index, fact.value)) end
+            elseif cls == B.BackFactAccessDef then
+                if active_func ~= nil then
+                    note_unique(seen_access, fact.access, function() return B.BackIssueDuplicateAccess(fact.index, fact.access) end, issues)
+                end
+            elseif cls == B.BackFactAccessRef or cls == B.BackFactAliasAccessRef then
+                if active_func ~= nil and not has(seen_access, fact.access) then add_issue(issues, B.BackIssueMissingAccess(fact.index, fact.access)) end
             elseif cls == B.BackFactShapeUse then
                 local shape_cls = pvm.classof(fact.shape)
                 if fact.requirement == B.BackShapeRequiresScalar and shape_cls ~= B.BackShapeScalar then
@@ -365,6 +506,39 @@ function M.Define(T)
                 elseif fact.requirement == B.BackShapeRequiresVector and shape_cls ~= B.BackShapeVec then
                     add_issue(issues, B.BackIssueShapeRequiresVector(fact.index, fact.shape))
                 end
+            end
+        end
+
+        local supported_shapes = target_supported_shapes(cmds)
+        for index = 1, #cmds do
+            local cmd = cmds[index]
+            local cls = pvm.classof(cmd)
+            if cls == B.CmdLoadInfo then
+                validate_memory_info(issues, index, cmd.ty, cmd.memory, B.BackAccessRead)
+                if supported_shapes ~= nil and not supported_shapes[shape_key(cmd.ty)] then add_issue(issues, B.BackIssueTargetUnsupportedShape(index, cmd.ty)) end
+            elseif cls == B.CmdStoreInfo then
+                validate_memory_info(issues, index, cmd.ty, cmd.memory, B.BackAccessWrite)
+                if supported_shapes ~= nil and not supported_shapes[shape_key(cmd.ty)] then add_issue(issues, B.BackIssueTargetUnsupportedShape(index, cmd.ty)) end
+            elseif cls == B.CmdAppendBlockParam then
+                if supported_shapes ~= nil and not supported_shapes[shape_key(cmd.ty)] then add_issue(issues, B.BackIssueTargetUnsupportedShape(index, cmd.ty)) end
+            elseif cls == B.CmdUnary or cls == B.CmdIntrinsic or cls == B.CmdCompare or cls == B.CmdSelect then
+                if supported_shapes ~= nil and not supported_shapes[shape_key(cmd.ty)] then add_issue(issues, B.BackIssueTargetUnsupportedShape(index, cmd.ty)) end
+            elseif cls == B.CmdVecBinary or cls == B.CmdVecCompare or cls == B.CmdVecSelect or cls == B.CmdVecMask or cls == B.CmdVecSplat then
+                local shapev = B.BackShapeVec(cmd.ty)
+                if supported_shapes ~= nil and not supported_shapes[shape_key(shapev)] then add_issue(issues, B.BackIssueTargetUnsupportedShape(index, shapev)) end
+            elseif cls == B.CmdIntBinary then
+                if not is_int_scalar(cmd.scalar) then add_issue(issues, B.BackIssueIntScalarExpected(index, cmd.scalar)) end
+                if supported_shapes ~= nil and not supported_shapes[shape_key(B.BackShapeScalar(cmd.scalar))] then add_issue(issues, B.BackIssueTargetUnsupportedShape(index, B.BackShapeScalar(cmd.scalar))) end
+            elseif cls == B.CmdFloatBinary or cls == B.CmdFma then
+                if not is_float_scalar(cmd.ty or cmd.scalar) then add_issue(issues, B.BackIssueFloatScalarExpected(index, cmd.ty or cmd.scalar)) end
+                local scalar = cmd.ty or cmd.scalar
+                if supported_shapes ~= nil and not supported_shapes[shape_key(B.BackShapeScalar(scalar))] then add_issue(issues, B.BackIssueTargetUnsupportedShape(index, B.BackShapeScalar(scalar))) end
+            elseif cls == B.CmdBitBinary or cls == B.CmdBitNot then
+                if not is_bit_scalar(cmd.scalar) then add_issue(issues, B.BackIssueBitScalarExpected(index, cmd.scalar)) end
+                if supported_shapes ~= nil and not supported_shapes[shape_key(B.BackShapeScalar(cmd.scalar))] then add_issue(issues, B.BackIssueTargetUnsupportedShape(index, B.BackShapeScalar(cmd.scalar))) end
+            elseif cls == B.CmdShift or cls == B.CmdRotate then
+                if not is_int_scalar(cmd.scalar) then add_issue(issues, B.BackIssueShiftScalarExpected(index, cmd.scalar)) end
+                if supported_shapes ~= nil and not supported_shapes[shape_key(B.BackShapeScalar(cmd.scalar))] then add_issue(issues, B.BackIssueTargetUnsupportedShape(index, B.BackShapeScalar(cmd.scalar))) end
             end
         end
 

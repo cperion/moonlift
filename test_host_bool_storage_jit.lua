@@ -2,12 +2,10 @@ package.path = "./?.lua;./?/init.lua;./moonlift/lua/?.lua;./moonlift/lua/?/init.
 
 local ffi = require("ffi")
 local pvm = require("moonlift.pvm")
-local A1 = require("moonlift_legacy.asdl")
 local A2 = require("moonlift.asdl")
 local Lower = require("moonlift.tree_to_back")
 local Validate = require("moonlift.back_validate")
-local Bridge = require("moonlift.back_to_moonlift")
-local J = require("moonlift_legacy.jit")
+local J = require("moonlift.back_jit")
 
 ffi.cdef[[
 typedef struct MoonliftBool32User {
@@ -17,7 +15,6 @@ typedef struct MoonliftBool32User {
 ]]
 
 local T = pvm.context()
-A1.Define(T)
 A2.Define(T)
 local C = T.Moon2Core
 local Ty = T.Moon2Type
@@ -25,11 +22,10 @@ local B = T.Moon2Bind
 local Sem = T.Moon2Sem
 local Tr = T.Moon2Tree
 local H = T.Moon2Host
-local B1 = T.MoonliftBack
+local B2 = T.Moon2Back
 
 local Lowerer = Lower.Define(T)
 local V = Validate.Define(T)
-local bridge = Bridge.Define(T)
 local jit_api = J.Define(T)
 
 local bool_ty = Ty.TScalar(C.ScalarBool)
@@ -65,16 +61,16 @@ local saw_i32_load = false
 local saw_bool_compare = false
 for i = 1, #program.cmds do
     local cmd = program.cmds[i]
-    if pvm.classof(cmd) == T.Moon2Back.CmdStore and pvm.classof(cmd.ty) == T.Moon2Back.BackShapeScalar and cmd.ty.scalar == T.Moon2Back.BackI32 then saw_i32_store = true end
-    if pvm.classof(cmd) == T.Moon2Back.CmdLoad and pvm.classof(cmd.ty) == T.Moon2Back.BackShapeScalar and cmd.ty.scalar == T.Moon2Back.BackI32 then saw_i32_load = true end
+    if pvm.classof(cmd) == T.Moon2Back.CmdStoreInfo and pvm.classof(cmd.ty) == T.Moon2Back.BackShapeScalar and cmd.ty.scalar == T.Moon2Back.BackI32 then saw_i32_store = true end
+    if pvm.classof(cmd) == T.Moon2Back.CmdLoadInfo and pvm.classof(cmd.ty) == T.Moon2Back.BackShapeScalar and cmd.ty.scalar == T.Moon2Back.BackI32 then saw_i32_load = true end
     if pvm.classof(cmd) == T.Moon2Back.CmdCompare and cmd.op == T.Moon2Back.BackIcmpNe then saw_bool_compare = true end
 end
 assert(saw_i32_store, "expected bool32 store through i32 storage")
 assert(saw_i32_load, "expected bool32 load through i32 storage")
 assert(saw_bool_compare, "expected bool32 load compare-to-zero")
 
-local artifact = jit_api.jit():compile(bridge.lower_program(program))
-local set_active = ffi.cast("bool (*)(MoonliftBool32User*, bool)", artifact:getpointer(B1.BackFuncId("set_active")))
+local artifact = jit_api.jit():compile(program)
+local set_active = ffi.cast("bool (*)(MoonliftBool32User*, bool)", artifact:getpointer(B2.BackFuncId("set_active")))
 local user = ffi.new("MoonliftBool32User[1]")
 user[0].id = 7
 user[0].active = 123

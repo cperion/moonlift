@@ -40,23 +40,19 @@ end
 
 local function compile_source(src)
     local pvm = require("moonlift.pvm")
-    local A1 = require("moonlift_legacy.asdl")
     local A2 = require("moonlift.asdl")
     local Parse = require("moonlift.parse")
     local Typecheck = require("moonlift.tree_typecheck")
     local TreeToBack = require("moonlift.tree_to_back")
     local Validate = require("moonlift.back_validate")
-    local Bridge = require("moonlift.back_to_moonlift")
-    local J = require("moonlift_legacy.jit")
+    local J = require("moonlift.back_jit")
 
     local T = pvm.context()
-    A1.Define(T)
     A2.Define(T)
     local P = Parse.Define(T)
     local TC = Typecheck.Define(T)
     local Lower = TreeToBack.Define(T)
     local V = Validate.Define(T)
-    local bridge = Bridge.Define(T)
     local jit_api = J.Define(T)
 
     local parsed = P.parse_module(src)
@@ -66,20 +62,20 @@ local function compile_source(src)
     local program = Lower.module(checked.module)
     local report = V.validate(program)
     if #report.issues ~= 0 then return nil, { stage = "validate", issues = report.issues } end
-    local artifact = jit_api.jit():compile(bridge.lower_program(program))
-    return { artifact = artifact, T = T, B1 = T.MoonliftBack }, nil
+    local artifact = jit_api.jit():compile(program)
+    return { artifact = artifact, T = T, B2 = T.Moon2Back }, nil
 end
 
 function M.compile()
     local compiled, err = compile_source(M.source())
     if not compiled then return nil, err end
-    local artifact, B1 = compiled.artifact, compiled.B1
-    compiled.valid = ffi.cast("int32_t (*)(const uint8_t*, int32_t, int32_t*, int32_t)", artifact:getpointer(B1.BackFuncId("json_valid_scalar")))
-    compiled.decode_tape = ffi.cast("int32_t (*)(const uint8_t*, int32_t, int32_t*, int32_t*, int32_t, int32_t*, int32_t*, int32_t*, int32_t, int32_t*)", artifact:getpointer(B1.BackFuncId("json_decode_tape_scalar")))
-    compiled.index_tape = ffi.cast("int32_t (*)(const int32_t*, int32_t, int32_t*, int32_t, int32_t*, int32_t*, int32_t*, int32_t*, int32_t*, int32_t*, int32_t*)", artifact:getpointer(B1.BackFuncId("json_index_tape_scalar")))
-    compiled.find_field_raw = ffi.cast("int32_t (*)(const uint8_t*, const int32_t*, const int32_t*, const int32_t*, const int32_t*, const int32_t*, const int32_t*, int32_t, const uint8_t*, int32_t)", artifact:getpointer(B1.BackFuncId("json_find_field_raw_scalar")))
-    compiled.read_i32 = ffi.cast("int32_t (*)(const uint8_t*, const int32_t*, const int32_t*, const int32_t*, int32_t, int32_t*)", artifact:getpointer(B1.BackFuncId("json_read_i32_scalar")))
-    compiled.read_bool = ffi.cast("int32_t (*)(const int32_t*, int32_t, int32_t*)", artifact:getpointer(B1.BackFuncId("json_read_bool_scalar")))
+    local artifact, B2 = compiled.artifact, compiled.B2
+    compiled.valid = ffi.cast("int32_t (*)(const uint8_t*, int32_t, int32_t*, int32_t)", artifact:getpointer(B2.BackFuncId("json_valid_scalar")))
+    compiled.decode_tape = ffi.cast("int32_t (*)(const uint8_t*, int32_t, int32_t*, int32_t*, int32_t, int32_t*, int32_t*, int32_t*, int32_t, int32_t*)", artifact:getpointer(B2.BackFuncId("json_decode_tape_scalar")))
+    compiled.index_tape = ffi.cast("int32_t (*)(const int32_t*, int32_t, int32_t*, int32_t, int32_t*, int32_t*, int32_t*, int32_t*, int32_t*, int32_t*, int32_t*)", artifact:getpointer(B2.BackFuncId("json_index_tape_scalar")))
+    compiled.find_field_raw = ffi.cast("int32_t (*)(const uint8_t*, const int32_t*, const int32_t*, const int32_t*, const int32_t*, const int32_t*, const int32_t*, int32_t, const uint8_t*, int32_t)", artifact:getpointer(B2.BackFuncId("json_find_field_raw_scalar")))
+    compiled.read_i32 = ffi.cast("int32_t (*)(const uint8_t*, const int32_t*, const int32_t*, const int32_t*, int32_t, int32_t*)", artifact:getpointer(B2.BackFuncId("json_read_i32_scalar")))
+    compiled.read_bool = ffi.cast("int32_t (*)(const int32_t*, int32_t, int32_t*)", artifact:getpointer(B2.BackFuncId("json_read_bool_scalar")))
     return compiled, nil
 end
 

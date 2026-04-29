@@ -11,9 +11,9 @@ if not compiled then
 end
 
 local artifact = compiled.artifact
-local B1 = compiled.B1
-local valid = ffi.cast("int32_t (*)(const uint8_t*, int32_t, int32_t*, int32_t)", artifact:getpointer(B1.BackFuncId("json_valid_scalar")))
-local decode = ffi.cast("int32_t (*)(const uint8_t*, int32_t, int32_t*, int32_t*, int32_t, int32_t*, int32_t*, int32_t*, int32_t, int32_t*)", artifact:getpointer(B1.BackFuncId("json_decode_tape_scalar")))
+local B2 = compiled.B2
+local valid = ffi.cast("int32_t (*)(const uint8_t*, int32_t, int32_t*, int32_t)", artifact:getpointer(B2.BackFuncId("json_valid_scalar")))
+local decode = ffi.cast("int32_t (*)(const uint8_t*, int32_t, int32_t*, int32_t*, int32_t, int32_t*, int32_t*, int32_t*, int32_t, int32_t*)", artifact:getpointer(B2.BackFuncId("json_decode_tape_scalar")))
 local stack = ffi.new("int32_t[?]", 256)
 local stack_kind = ffi.new("int32_t[?]", 256)
 

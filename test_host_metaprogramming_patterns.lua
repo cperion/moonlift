@@ -15,7 +15,7 @@ local byte_patterns = Host.eval [[
 local function expect_byte(tag, byte, err_code)
     return region expect_@{tag}(p: ptr(u8), pos: i32; ok: cont(next: i32), fail: cont(pos: i32, code: i32))
     entry start()
-        if zext<i32>(p[pos]) == @{byte} then
+        if as(i32, p[pos]) == @{byte} then
             jump ok(next = pos + 1)
         end
         jump fail(pos = pos, code = @{err_code})
@@ -101,7 +101,7 @@ local score_after_60 = positive_after(60, 60)
 local scan_score = region scan_score(p: ptr(u8), n: i32; done: cont(a: i32, b: i32))
 entry loop(i: i32 = 0, a: i32 = 0, b: i32 = 0)
     if i >= n then jump done(a = a, b = b) end
-    let v: i32 = zext<i32>(p[i])
+    let v: i32 = as(i32, p[i])
     jump loop(i = i + 1, a = a + emit @{score_after_50}(v), b = b + emit @{score_after_60}(v))
 end
 end
@@ -131,7 +131,7 @@ score_pair:free()
 local adapter_patterns = Host.eval [[
 local classify_byte = region classify_byte(p: ptr(u8), pos: i32; digit: cont(value: i32), alpha: cont(value: i32), other: cont(value: i32))
 entry start()
-    let c: i32 = zext<i32>(p[pos])
+    let c: i32 = as(i32, p[pos])
     if c >= 48 then
         if c <= 57 then jump digit(value = c - 48) end
     end

@@ -65,6 +65,12 @@ ASDL representation
 PVM validation/lowering phases
 ```
 
+`moonlift.ast` is the base ASDL constructor facade for this builder/splice side:
+it exposes LuaLS-documented constructors for existing source `Moon2Core`,
+`Moon2Type`, and `Moon2Tree` nodes.  Hosted declaration/value APIs may stay more
+ergonomic, but their outputs should remain plain ASDL values compatible with the
+same constructor surface and the same PVM phases.
+
 ---
 
 ## 2. One semantic view model
@@ -168,39 +174,29 @@ Lua host/staging code
 ```lua
 local checked = true -- ordinary Lua staging value
 
-struct User {
+struct User
     id: i32
     age: i32
     active: bool32
-}
+end
 
-expose ptr(User) as UserRef {
-    lua readonly
-    terra
-    c
-}
+expose UserRef: ptr(User)
 
-expose view(User) as Users {
-    abi data_len_stride
-    stride elements
-    lua readonly checked
-    terra
-    c
-}
+expose Users: view(User)
 
-region CountActive(users: view(User)) -> i32 {
-    block loop(i: index = 0, acc: i32 = 0) {
+region CountActive(users: view(User)) -> i32
+    block loop(i: index = 0, acc: i32 = 0)
         if i >= len(users) then yield acc end
         if users[i].active then
             jump loop(i = i + 1, acc = acc + 1)
         end
         jump loop(i = i + 1, acc = acc)
-    }
-}
+    end
+end
 
-export func count_active(users: view(User)) -> i32 {
+export func count_active(users: view(User)) -> i32
     emit CountActive(users)
-}
+end
 ```
 
 This is not runtime Lua object construction and not source-string codegen. It is
@@ -234,11 +230,11 @@ local User = moon.struct("User", {
 must produce the same ASDL declarations as:
 
 ```lua
-struct User {
+struct User
     id: i32
     age: i32
     active: bool32
-}
+end
 ```
 
 Moonlift source remains the canonical readable object/declaration form. Lua host
@@ -251,21 +247,21 @@ code provides staging, composition, and specialization around it.
 A `.mlua` top-level `struct` is a boundary-stable layout declaration.
 
 ```lua
-struct User {
+struct User
     id: i32
     age: i32
     active: bool32
-}
+end
 ```
 
 Equivalent explicit form:
 
 ```lua
-struct User repr(c) {
+struct User repr(c)
     id: i32
     age: i32
     active: bool stored i32
-}
+end
 ```
 
 ### 4.1 Representation
@@ -340,9 +336,9 @@ C bool, LuaJIT bool, Terra bool, and Moonlift bool must not silently disagree.
 Invalid:
 
 ```lua
-struct Bad {
+struct Bad
     active: bool
-}
+end
 ```
 
 Diagnostic:
@@ -354,9 +350,9 @@ HostRejectAmbiguousBoolStorage("Bad.active")
 Valid:
 
 ```lua
-struct User {
+struct User
     active: bool32
-}
+end
 ```
 
 Semantic facts:
@@ -371,9 +367,9 @@ HostFieldLayout(active, rep = HostRepBool(HostBoolI32, ScalarI32), offset = ...)
 Given:
 
 ```lua
-struct User {
+struct User
     active: bool32
-}
+end
 ```
 
 Moonlift source:
@@ -454,83 +450,98 @@ FieldAttr
 Examples:
 
 ```lua
-struct User {
+struct User
     id: i32
     age: i32
     active: bool32
-}
+end
 ```
 
 ```lua
-struct Header repr(packed(1)) {
+struct Header repr(packed(1))
     tag: u8
     len: u32
-}
+end
 ```
 
 ### 5.2 Exposure declarations
 
 ```ebnf
 ExposeDecl
-  ::= "expose" ExposeSubject "as" Name "{" ExposeClause* "}"
+  ::= "expose" Name ":" ExposeSubject [ nl ExposeFacetLine* "end" ]
 
 ExposeSubject
   ::= Type
     | "ptr" "(" Type ")"
     | "view" "(" Type ")"
 
-ExposeClause
-  ::= "abi" HostAbiName
-    | "stride" StrideUnit
-    | "lua" Mutability? BoundsPolicy?
+ExposeFacetLine
+  ::= ExposeTarget ExposeFacetClause*
+
+ExposeTarget
+  ::= "lua"
     | "terra"
     | "c"
+    | "moonlift"
+
+ExposeFacetClause
+  ::= HostAbiName
+    | ProxyMode
+    | Mutability
+    | BoundsPolicy
+    | MaterializePolicy
 
 HostAbiName
-  ::= "ptr"
+  ::= "pointer"
+    | "descriptor"
     | "data_len_stride"
+    | "expanded_scalars"
 
-StrideUnit
-  ::= "elements"
-    | "bytes"
+ProxyMode
+  ::= "proxy"
+    | "typed_record"
+    | "buffer_view"
 
 Mutability
   ::= "readonly"
     | "mutable"
+    | "interior_mutable"
 
 BoundsPolicy
   ::= "checked"
     | "unchecked"
+
+MaterializePolicy
+  ::= "eager_table"
+    | "full_copy"
+    | "borrowed_view"
 ```
 
 Default decisions:
 
 ```text
-ptr(T) exposure ABI: pointer
-view(T) exposure ABI: data_len_stride
-view(T) stride: elements
-lua mutability: readonly
-lua bounds policy: checked
+ptr(T) C/Terra facet ABI: pointer
+view(T) C/Terra facet ABI: descriptor
+Lua facet access: proxy readonly checked
+non-Lua facet bounds default: unchecked unless specified
+view(T) internal Moonlift ABI: data, len, stride with element stride
+one-line expose declaration with no body: Lua + Terra + C defaults
 ```
 
 Examples:
 
 ```lua
-expose ptr(User) as UserRef {
-    lua readonly
-    terra
-    c
-}
+expose UserRef: ptr(User)
+expose Users: view(User)
 ```
 
 ```lua
-expose view(User) as Users {
-    abi data_len_stride
-    stride elements
-    lua readonly checked
-    terra
-    c
-}
+expose UsersLuaOnly: view(User)
+    lua
+end
+expose MutableUserRef: ptr(User)
+    lua mutable
+end
 ```
 
 ### 5.3 Methods
@@ -550,9 +561,9 @@ as a `HostAccessorMoonlift` fact and lowers the object code as an ordinary
 Moonlift function with a stable generated symbol.
 
 ```lua
-func User:is_active_adult(self: ptr(User)) -> bool {
+func User:is_active_adult(self: ptr(User)) -> bool
     return self.active and self.age >= 18
-}
+end
 ```
 
 Semantics:
@@ -642,11 +653,11 @@ Export
 Example:
 
 ```moonlift
-module UserKernels {
-    export func count_active(users: view(User)) -> i32 {
+module UserKernels
+    export func count_active(users: view(User)) -> i32
         emit CountActive(users)
-    }
-}
+    end
+end
 ```
 
 A function export creates both an internal Moonlift ABI and, when exposed, a host
@@ -667,10 +678,10 @@ but not backend primitives.
 Canonical block loop:
 
 ```moonlift
-block loop(i: index = 0, acc: i32 = 0) {
+block loop(i: index = 0, acc: i32 = 0)
     if i >= n then yield acc end
     jump loop(i = i + 1, acc = acc + xs[i])
-}
+end
 ```
 
 Counted loop source pattern:
@@ -678,9 +689,9 @@ Counted loop source pattern:
 ```moonlift
 loop counted i: index = 0 until i >= n
      state acc: i32 = 0
-     yield acc {
-    next acc = acc + xs[i]
-}
+     yield acc
+     next acc = acc + xs[i]
+end
 ```
 
 Lowering target for both forms:
@@ -835,7 +846,10 @@ HostLayoutKind
 
 ### 6.3 Target model
 
-Layout depends on target pointer/index ABI. That must be explicit.
+Layout depends on target pointer/index ABI. That must be explicit.  The backend
+refactor has introduced `Moon2Back.BackTargetModel` as the canonical executable
+target fact home; `HostTargetModel` remains the host-layout facet and should be
+derived from `BackTargetModel` once the target-model phase is wired.
 
 ```asdl
 HostEndian
@@ -975,11 +989,23 @@ HostExposeMode
   | HostExposeScalar(Moon2Host.HostFieldRep rep)
   | HostExposeOpaque(string reason)
 
+HostExposeAbi
+  = HostExposeAbiDefault
+  | HostExposeAbiPointer
+  | HostExposeAbiDescriptor
+  | HostExposeAbiDataLenStride
+  | HostExposeAbiExpandedScalars
+  | HostExposeAbiOpaque(string reason)
+
+HostExposeFacet =
+  (Moon2Host.HostExposeTarget target,
+   Moon2Host.HostExposeAbi abi,
+   Moon2Host.HostExposeMode mode) unique
+
 HostExposeDecl =
   (Moon2Host.HostExposeSubject subject,
    string public_name,
-   Moon2Host.HostExposeTarget* targets,
-   Moon2Host.HostExposeMode mode) unique
+   Moon2Host.HostExposeFacet* facets) unique
 ```
 
 ### 6.7 Emission plans
@@ -1031,7 +1057,9 @@ HostLayoutFact
   | HostFactField(Moon2Host.HostLayoutId owner,
                   Moon2Host.HostFieldLayout field)
   | HostFactViewDescriptor(Moon2Host.HostViewDescriptor descriptor)
-  | HostFactExpose(Moon2Host.HostExposeDecl expose)
+  | HostFactExpose(string public_name,
+                   Moon2Host.HostLayoutId layout,
+                   Moon2Host.HostExposeFacet facet)
   | HostFactAccessPlan(Moon2Host.HostAccessPlan plan)
   | HostFactLuaFfi(Moon2Host.HostLuaFfiPlan plan)
   | HostFactTerra(Moon2Host.HostTerraPlan plan)
@@ -1457,21 +1485,15 @@ No ambiguous C struct-return ABI is used.
 Given declarations:
 
 ```lua
-struct User {
+struct User
     id: i32
     age: i32
     active: bool32
-}
+end
 
-expose ptr(User) as UserRef {
-    lua readonly
-}
+expose UserRef: ptr(User)
 
-expose view(User) as Users {
-    lua readonly checked
-    terra
-    c
-}
+expose Users: view(User)
 ```
 
 Generated Lua record API:
@@ -1557,9 +1579,9 @@ __newindex mutation remains disabled by default.
 Dot assignment is only available if explicitly declared:
 
 ```lua
-expose ptr(User) as UserRef {
-    lua mutable dot_assign
-}
+expose UserRef: ptr(User)
+    lua proxy mutable dot_assign
+end
 ```
 
 Otherwise mutation must be explicit through setter methods.
@@ -1683,11 +1705,11 @@ explicitly `HostLifetimeExternal` or `HostLifetimeStatic`.
 JSON projection targets declared layouts.
 
 ```lua
-struct User {
+struct User
     id: i32
     age: i32
     active: bool32
-}
+end
 
 local projector = Json.project(User, {
     id = "$.id",
@@ -1713,7 +1735,9 @@ Anonymous current projection specs remain available, but they are defined as
 sugar for an anonymous hosted struct declaration:
 
 ```text
-struct JsonProjectionAnon17 { ... }
+struct JsonProjectionAnon17
+    ...
+end
 ```
 
 Then the same layout/access/exposure pipeline is used.
@@ -1760,35 +1784,25 @@ HostRejectStructReturnAbi(type)
 Hosted file:
 
 ```lua
-struct User {
+struct User
     id: i32
     age: i32
     active: bool32
-}
+end
 
-expose ptr(User) as UserRef {
-    lua readonly
-    terra
-    c
-}
+expose UserRef: ptr(User)
 
-expose view(User) as Users {
-    abi data_len_stride
-    stride elements
-    lua readonly checked
-    terra
-    c
-}
+expose Users: view(User)
 
 function User:is_adult()
     return self.age >= 18
 end
 
-func User:is_active_adult(self: ptr(User)) -> bool {
+func User:is_active_adult(self: ptr(User)) -> bool
     return self.active and self.age >= 18
-}
+end
 
-module UserKernels {
+module UserKernels
     export func count_active(users: view(User)) -> i32
         return block loop(i: index = 0, acc: i32 = 0) -> i32
             if i >= len(users) then yield acc end
@@ -1798,7 +1812,7 @@ module UserKernels {
             jump loop(i = i + 1, acc = acc)
         end
     end
-}
+end
 ```
 
 Generated C ABI:
@@ -1893,6 +1907,7 @@ not by convenience MVP.
 - [x] Add `HostBoundsPolicy`
 - [x] Add first `HostExposeMode`
 - [x] Extend `HostExposeMode` with mutability and bounds policy
+- [x] Add `HostExposeAbi` and per-target `HostExposeFacet`
 - [x] Add `HostExposeDecl`
 - [x] Add `HostLifetime`
 
@@ -1937,9 +1952,9 @@ not by convenience MVP.
 - [x] Parse `repr(c)` and `repr(packed(N))`
 - [x] Parse `bool8`, `bool32`, `bool stored T`
 - [x] Reject bare `bool` in hosted boundary structs
-- [x] Parse top-level `expose` declarations
-- [x] Parse `lua readonly/mutable checked/unchecked`
-- [x] Parse `terra` and `c` exposure clauses
+- [x] Parse top-level name-first `expose Name: subject` / `expose Name: subject ... end` declarations
+- [x] Parse Lua facet policies (`proxy`, readonly/mutable, checked/unchecked)
+- [x] Parse Terra/C facet ABI policies (`descriptor`, `pointer`) separately from Lua policy
 - [x] Let LuaJIT execute ordinary top-level Lua method declarations (`function Type:name(...) ... end`) and record resulting assignments as `HostAccessorLua`
 - [x] Parse top-level Moonlift method declarations (`func Type:name(...) -> T ...`) as `HostAccessorMoonlift`
 - [x] Parse top-level `region` declarations with typed params/yields
@@ -1954,7 +1969,7 @@ not by convenience MVP.
 - [x] Allow antiquote/import for staged values at typed source sites
 - [x] Reject splices whose ASDL kind does not match the source site
 - [x] Provide Lua builder APIs that produce the same host-declaration ASDL as `.mlua` source
-- [x] Route runnable `.mlua` files through the LuaJIT-first `host_quote.lua` hosted-island bridge for `struct`, `expose`, `func Type:name`, braced/named `module`, module-local regions, counted-loop sugar, and typed antiquote splices
+- [x] Route runnable `.mlua` files through the LuaJIT-first `host_quote.lua` hosted-island bridge for end-delimited `struct`, `expose`, `func Type:name`, named `module`, module-local regions, counted-loop sugar, and typed antiquote splices
 
 ### PVM phases
 

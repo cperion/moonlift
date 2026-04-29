@@ -44,7 +44,7 @@ end
 
 function M.Install(api, session)
     local T = session.T
-    local C, Ty, B, O, Tr = T.Moon2Core, T.Moon2Type, T.Moon2Bind, T.Moon2Open, T.Moon2Tree
+    local C, Ty, B, O, Sem, Tr = T.Moon2Core, T.Moon2Type, T.Moon2Bind, T.Moon2Open, T.Moon2Sem, T.Moon2Tree
 
     local function as_param(v, site)
         if type(v) == "table" and getmetatable(v) == api.ParamValue then return v end
@@ -62,6 +62,18 @@ function M.Install(api, session)
             out[#out + 1] = Tr.JumpArg(name, api.as_moon2_expr(expr, "jump arg expects expression value"))
         end
         return out
+    end
+
+    local function switch_key(value)
+        local mt = type(value) == "table" and getmetatable(value) or nil
+        local cls = mt and mt.__class or nil
+        if cls == Sem.SwitchKeyRaw or cls == Sem.SwitchKeyConst or cls == Sem.SwitchKeyExpr then return value end
+        if type(value) == "number" or type(value) == "string" then return Sem.SwitchKeyRaw(tostring(value)) end
+        if type(value) == "boolean" then return Sem.SwitchKeyRaw(value and "1" or "0") end
+        if type(value) == "table" and type(value.as_expr_value) == "function" then
+            return Sem.SwitchKeyExpr(value:as_expr_value().expr)
+        end
+        error("switch key expects raw number/string/boolean, SwitchKey, or expression value", 3)
     end
 
     local function binding_extra_for_type(tv)
@@ -158,8 +170,13 @@ function M.Install(api, session)
         for name, target in ordered_pairs_from_map(fills or {}) do
             local cont = fragment.conts[name]
             if cont == nil then api.raise_host_issue(session.T.Moon2Host.HostIssueInvalidEmitFill(fragment.name, tostring(name))) end
-            assert(type(target) == "table" and getmetatable(target) == BlockValue, "continuation fill must be a block value")
-            fill_values[#fill_values + 1] = O.SlotBinding(O.SlotCont(cont.slot), O.SlotValueCont(target.label))
+            if type(target) == "table" and getmetatable(target) == BlockValue then
+                fill_values[#fill_values + 1] = O.SlotBinding(O.SlotCont(cont.slot), O.SlotValueCont(target.label))
+            elseif type(target) == "table" and getmetatable(target) == ContValue and target.slot ~= nil then
+                fill_values[#fill_values + 1] = O.SlotBinding(O.SlotCont(cont.slot), O.SlotValueContSlot(target.slot))
+            else
+                error("continuation fill must be a block value or in-fragment continuation value", 2)
+            end
         end
         for name in pairs(fragment.conts) do if (fills or {})[name] == nil then api.raise_host_issue(session.T.Moon2Host.HostIssueMissingEmitFill(fragment.name, name)) end end
         return self:emit_stmt(Tr.StmtUseRegionFrag(Tr.StmtSurface, "host.emit." .. fragment.name .. "." .. tostring(#self.body + 1), fragment.frag, args, fill_values))
@@ -178,6 +195,29 @@ function M.Install(api, session)
             else_body = eb.body
         end
         return self:emit_stmt(Tr.StmtIf(Tr.StmtSurface, c.expr, tb.body, else_body))
+    end
+
+    function BlockBuilder:switch_(value, arms, default_fn)
+        local v = api.as_expr_value(value, "switch_ expects value expression")
+        assert(type(arms) == "table", "switch_ expects an ordered arm list")
+        local out_arms = {}
+        for i = 1, #arms do
+            local arm = arms[i]
+            assert(type(arm) == "table", "switch_ arm must be a table")
+            assert(arm.key ~= nil, "switch_ arm requires key")
+            assert(type(arm.body) == "function", "switch_ arm requires body builder function")
+            local ab = child_block_builder(self)
+            arm.body(ab)
+            out_arms[#out_arms + 1] = Tr.SwitchStmtArm(switch_key(arm.key), ab.body)
+        end
+        local default_body = {}
+        if default_fn ~= nil then
+            assert(type(default_fn) == "function", "switch_ default expects builder function")
+            local db = child_block_builder(self)
+            default_fn(db)
+            default_body = db.body
+        end
+        return self:emit_stmt(Tr.StmtSwitch(Tr.StmtSurface, v.expr, out_arms, default_body))
     end
 
     function RegionBuilder:param(name)
@@ -269,7 +309,7 @@ function M.Install(api, session)
         r.conts = cont_values
         if builder_fn then builder_fn(r) end
         local frag = O.RegionFrag(open_params, O.OpenSet({}, {}, {}, slots), entry_asdl(r.entry_block), blocks_asdl(r.blocks))
-        return setmetatable({ kind = "region_frag", name = name, frag = frag, conts = cont_values }, RegionFragValue)
+        return setmetatable({ kind = "region_frag", name = name, params = runtime_params, frag = frag, conts = cont_values }, RegionFragValue)
     end
 
     -- Patch function builders after host_func_values has installed them.

@@ -15,15 +15,26 @@ that lowers into the block/jump core.
 
 The initial parser now exists in `lua/moonlift/parse.lua`.  This document remains
 the grammar contract for expanding that implementation, and the ASDL is designed
-to represent these control-flow nouns directly.
+to represent these control-flow nouns directly. Hosted `.mlua` declaration
+islands add end-delimited `struct` / name-first `expose Name: subject ... end`
+syntax on top of this object grammar; the detailed host/exposure grammar lives
+in `HOST_VIEW_ZERO_COPY_ABI_DESIGN.md` and `LANGUAGE_REFERENCE.md`.
 
 Companion docs:
 
+- `moonlift/LANGUAGE_REFERENCE.md` — complete single-file language reference
 - `moonlift/README.md`
 - `moonlift/ASDL2_REFACTOR_MAP.md`
 - `moonlift/IMPLEMENTATION_CHECKLIST.md`
 - `moonlift/REBOOT_SOURCE_GRAMMAR.md` — source-language base this grammar grew from
 - `moonlift/REBOOT_SOURCE_SPEC.md`
+
+The Lua constructor counterpart to this grammar is `require("moonlift.ast")`.
+Its LuaLS-documented functions construct the same source ASDL nodes described
+here (`Moon2Core`, `Moon2Type`, and `Moon2Tree` surface values), so the
+constructor tables double as a field-by-field language reference for hosted Lua
+generation. The constructor layer is not a new semantic extension point; it
+builds existing ASDL values for the normal PVM phases.
 
 ---
 
@@ -136,7 +147,7 @@ noalias readonly writeonly requires bounds window_bounds disjoint same_len len
 let var if then elseif else switch case default do end
 block control jump yield return
 true false nil and or not
-cast trunc zext sext bitcast satcast
+as
 ```
 
 Scalar type words are reserved in type position:
@@ -163,7 +174,7 @@ Intentionally not base-language keywords:
 for while loop next break continue over range zip zip_eq
 ```
 
-Those names may be ordinary identifiers in the base parser. The `.mlua` source-normalize layer now reserves only the explicit `loop counted ... { next ... }` sugar pattern and lowers it to the block/jump core before parsing.
+Those names may be ordinary identifiers in the base parser. The `.mlua` source-normalize layer now reserves only the explicit end-delimited `loop counted ... end` sugar pattern and lowers it to the block/jump core before parsing.
 
 ---
 
@@ -264,14 +275,14 @@ type_decl ::= struct_decl
             | union_decl
             | tagged_union_decl
 
-struct_decl ::= "struct" "{" [ type_field_list ] "}"
-union_decl  ::= "union"  "{" [ type_field_list ] "}"
+struct_decl ::= "struct" nl type_field_list "end"
+union_decl  ::= "union"  nl type_field_list "end"
 
-type_field_list ::= type_field { "," type_field } [ "," ]
+type_field_list ::= { type_field [ "," ] nl }
 type_field      ::= ident ":" type
 
-enum_decl ::= "enum" "{" [ enum_variant_list ] "}"
-enum_variant_list ::= ident { "," ident } [ "," ]
+enum_decl ::= "enum" nl enum_variant_list "end"
+enum_variant_list ::= { ident [ "," ] nl }
 
 tagged_union_decl ::= tagged_variant { "|" tagged_variant }
 tagged_variant     ::= ident [ "(" type ")" ]
@@ -280,9 +291,22 @@ tagged_variant     ::= ident [ "(" type ")" ]
 Examples:
 
 ```moonlift
-type Pair = struct { left: i32, right: i32 }
-type Color = enum { red, green, blue }
-type Bits = union { i: i32, f: f32 }
+type Pair = struct
+    left: i32
+    right: i32
+end
+
+type Color = enum
+    red
+    green
+    blue
+end
+
+type Bits = union
+    i: i32
+    f: f32
+end
+
 type Result = ok(i32) | err(i32)
 ```
 
@@ -741,7 +765,7 @@ Lowest to highest:
 ```text
 prefix_expr ::= literal
               | name_expr
-              | cast_expr
+              | as_expr
               | intrinsic_expr
               | closure_expr
               | view_expr
@@ -753,16 +777,20 @@ literal ::= int_lit | float_lit | bool_lit | nil_lit
 name_expr ::= path
 ```
 
-### 9.3 Cast expressions
+### 9.3 Semantic conversion expressions
 
 ```text
-cast_expr ::= "cast"    "<" type ">" "(" expr ")"
-            | "trunc"   "<" type ">" "(" expr ")"
-            | "zext"    "<" type ">" "(" expr ")"
-            | "sext"    "<" type ">" "(" expr ")"
-            | "bitcast" "<" type ">" "(" expr ")"
-            | "satcast" "<" type ">" "(" expr ")"
+as_expr ::= "as" "(" type "," expr ")"
 ```
+
+`as(T, value)` is the only source-level conversion spelling. It is a semantic
+conversion request, not a generic call and not an explicit machine operation.
+The typed/lowering phases choose the concrete machine cast (`extend`, `truncate`,
+float conversion, bitcast, or identity) from the source and target types.
+
+Moonlift source intentionally has no angle-bracket type-argument syntax. Use
+Lua-hosted generation for genericity and `as(T, value)` for monomorphic
+conversions.
 
 ### 9.4 Intrinsic calls
 

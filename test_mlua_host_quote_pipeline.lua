@@ -3,29 +3,26 @@ package.path = "./?.lua;./?/init.lua;./moonlift/lua/?.lua;./moonlift/lua/?/init.
 local Host = require("moonlift.host_quote")
 
 local translated = Host.translate [[
-struct User {
+struct User
     id: i32
     active: bool32
-}
+end
 
-expose view(User) as Users {
-    lua readonly checked
-    c
-}
+expose Users: view(User)
 
 function User:is_active()
     return self.active
 end
 
-func User:always(self: ptr(User)) -> bool {
+func User:always(self: ptr(User)) -> bool
     return true
-}
+end
 
-local m = module UserKernels {
-    export func forty_two() -> i32 {
+local m = module UserKernels
+    export func forty_two() -> i32
         return 42
-    }
-}
+    end
+end
 return User, Users, m
 ]]
 assert(translated:find("local User = __moonlift_host%.struct_from_source"))
@@ -34,29 +31,26 @@ assert(translated:find("User%.always = __moonlift_host%.func_from_source"))
 assert(translated:find("__moonlift_host%.module_from_source"))
 
 local User, Users, mod = Host.eval [[
-struct User {
+struct User
     id: i32
     active: bool32
-}
+end
 
-expose view(User) as Users {
-    lua readonly checked
-    c
-}
+expose Users: view(User)
 
 function User:is_active()
     return self.active
 end
 
-func User:always(self: ptr(User)) -> bool {
+func User:always(self: ptr(User)) -> bool
     return true
-}
+end
 
-local m = module UserKernels {
-    export func forty_two() -> i32 {
+local m = module UserKernels
+    export func forty_two() -> i32
         return 42
-    }
-}
+    end
+end
 return User, Users, m
 ]]
 
@@ -69,14 +63,16 @@ assert(user_decls.decls[3].decl.name == "always")
 assert(tostring(User.always) == "MoonliftFuncQuote(User_always)")
 assert(tostring(Users) == "MoonliftExposeDecl(Users)")
 assert(tostring(mod) == "MoonliftModuleQuote")
-local runtime, RuntimeUser, RuntimeUsers = Host.eval_with_runtime([[struct RuntimeUser {
+local runtime, RuntimeUser, RuntimeUsers = Host.eval_with_runtime([[struct RuntimeUser
     id: i32
-}
-expose view(RuntimeUser) as RuntimeUsers { lua c }
+end
+expose RuntimeUsers: view(RuntimeUser)
 function RuntimeUser:lua_method()
     return self.id
 end
-func RuntimeUser:native_method(self: ptr(RuntimeUser)) -> bool { return true }
+func RuntimeUser:native_method(self: ptr(RuntimeUser)) -> bool
+    return true
+end
 return RuntimeUser, RuntimeUsers]], "runtime_decls")
 local runtime_decls = runtime:host_decl_set()
 assert(tostring(RuntimeUser) == "MoonliftStructDecl(RuntimeUser)")
@@ -93,11 +89,11 @@ assert(cm:get("forty_two")() == 42)
 cm:free()
 
 local parsed = Host.parse [[
-struct User {
+struct User
     id: i32
     active: bool32
-}
-expose view(User) as Users { lua c }
+end
+expose Users: view(User)
 function User:is_active()
     return self.active
 end
@@ -106,11 +102,11 @@ assert(#parsed.issues == 0, tostring(parsed.issues[1]))
 assert(#parsed.decls.decls == 2)
 
 local parsed_module = Host.parse [[
-module Math {
-    export func two() -> i32 {
+module Math
+    export func two() -> i32
         return 2
-    }
-}
+    end
+end
 ]]
 assert(#parsed_module.issues == 0, tostring(parsed_module.issues[1]))
 assert(#parsed_module.module.items == 1)

@@ -2,22 +2,18 @@ package.path = "./?.lua;./?/init.lua;./moonlift/lua/?.lua;./moonlift/lua/?/init.
 
 local ffi = require("ffi")
 local pvm = require("moonlift.pvm")
-local A1 = require("moonlift_legacy.asdl")
 local A2 = require("moonlift.asdl")
-local J = require("moonlift_legacy.jit")
-local Bridge = require("moonlift.back_to_moonlift")
+local J = require("moonlift.back_jit")
 local Validate = require("moonlift.back_validate")
 
 local T = pvm.context()
-A1.Define(T)
 A2.Define(T)
-local bridge = Bridge.Define(T)
 local validate = Validate.Define(T)
 local jit_api = J.Define(T)
 
 local C2 = T.Moon2Core
 local B2 = T.Moon2Back
-local B1 = T.MoonliftBack
+local B2 = T.Moon2Back
 
 local function sid(text) return B2.BackSigId(text) end
 local function fid(text) return B2.BackFuncId(text) end
@@ -84,7 +80,7 @@ local program = B2.BackProgram({
     B2.CmdBindEntryParams(poprot_entry, { pop_x }),
     B2.CmdIntrinsic(pop_pc, B2.BackIntrinsicPopcount, shape_u32, { pop_x }),
     B2.CmdConst(pop_one, u32, B2.BackLitInt("1")),
-    B2.CmdBinary(pop_out, B2.BackRotl, shape_u32, pop_pc, pop_one),
+    B2.CmdRotate(pop_out, B2.BackRotateLeft, u32, pop_pc, pop_one),
     B2.CmdReturnValue(pop_out),
     B2.CmdSealBlock(poprot_entry),
     B2.CmdFinishFunc(poprot_func),
@@ -95,7 +91,7 @@ local program = B2.BackProgram({
     B2.CmdCreateBlock(fma_entry),
     B2.CmdSwitchToBlock(fma_entry),
     B2.CmdBindEntryParams(fma_entry, { fa, fb, fc }),
-    B2.CmdFma(fma_out, f32, fa, fb, fc),
+    B2.CmdFma(fma_out, f32, B2.BackFloatStrict, fa, fb, fc),
     B2.CmdReturnValue(fma_out),
     B2.CmdSealBlock(fma_entry),
     B2.CmdFinishFunc(fma_func),
@@ -133,20 +129,19 @@ local program = B2.BackProgram({
 local report = validate.validate(program)
 assert(#report.issues == 0)
 
-local current_program = bridge.lower_program(program)
 local jit = jit_api.jit()
-local artifact = jit:compile(current_program)
+local artifact = jit:compile(program)
 
-local i32_to_f64 = ffi.cast("double (*)(int32_t)", artifact:getpointer(B1.BackFuncId("i32_to_f64")))
+local i32_to_f64 = ffi.cast("double (*)(int32_t)", artifact:getpointer(B2.BackFuncId("i32_to_f64")))
 assert(tonumber(i32_to_f64(-7)) == -7)
 
-local poprot = ffi.cast("uint32_t (*)(uint32_t)", artifact:getpointer(B1.BackFuncId("poprot")))
+local poprot = ffi.cast("uint32_t (*)(uint32_t)", artifact:getpointer(B2.BackFuncId("poprot")))
 assert(poprot(0xF0) == 8)
 
-local fma1 = ffi.cast("float (*)(float, float, float)", artifact:getpointer(B1.BackFuncId("fma1")))
+local fma1 = ffi.cast("float (*)(float, float, float)", artifact:getpointer(B2.BackFuncId("fma1")))
 assert(tonumber(fma1(2, 3, 4)) == 10)
 
-local switch_i32 = ffi.cast("int32_t (*)(int32_t)", artifact:getpointer(B1.BackFuncId("switch_i32")))
+local switch_i32 = ffi.cast("int32_t (*)(int32_t)", artifact:getpointer(B2.BackFuncId("switch_i32")))
 assert(switch_i32(0) == 10)
 assert(switch_i32(5) == 50)
 assert(switch_i32(9) == 99)

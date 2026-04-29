@@ -2,22 +2,18 @@ package.path = "./?.lua;./?/init.lua;./moonlift/lua/?.lua;./moonlift/lua/?/init.
 
 local ffi = require("ffi")
 local pvm = require("moonlift.pvm")
-local A1 = require("moonlift_legacy.asdl")
 local A2 = require("moonlift.asdl")
-local J = require("moonlift_legacy.jit")
-local Bridge = require("moonlift.back_to_moonlift")
+local J = require("moonlift.back_jit")
 local Validate = require("moonlift.back_validate")
 
 local T = pvm.context()
-A1.Define(T)
 A2.Define(T)
-local bridge = Bridge.Define(T)
 local validate = Validate.Define(T)
 local jit_api = J.Define(T)
 
 local C2 = T.Moon2Core
 local B2 = T.Moon2Back
-local B1 = T.MoonliftBack
+local B2 = T.Moon2Back
 
 local function sid(text) return B2.BackSigId(text) end
 local function fid(text) return B2.BackFuncId(text) end
@@ -28,12 +24,15 @@ local i32 = B2.BackI32
 local bool = B2.BackBool
 local shape_i32 = B2.BackShapeScalar(i32)
 local shape_bool = B2.BackShapeScalar(bool)
+local function mem(id, mode) return B2.BackMemoryInfo(B2.BackAccessId(id), B2.BackAlignUnknown, B2.BackDerefUnknown, B2.BackMayTrap, B2.BackMayNotMove, mode) end
+local function addr(base, off) return B2.BackAddress(B2.BackAddrValue(base), off, B2.BackProvUnknown, B2.BackPtrBoundsUnknown) end
 
 local zero_data = did("data:zero")
 local zero_sig = sid("sig:get_zero")
 local zero_func = fid("get_zero")
 local zero_entry = bid("entry.get_zero")
 local zaddr = vid("zero.addr")
+local zoff = vid("zero.off")
 local zval = vid("zero.val")
 
 local alias_sig = sid("sig:alias_add")
@@ -72,7 +71,8 @@ local program = B2.BackProgram({
     B2.CmdCreateBlock(zero_entry),
     B2.CmdSwitchToBlock(zero_entry),
     B2.CmdDataAddr(zaddr, zero_data),
-    B2.CmdLoad(zval, shape_i32, zaddr),
+    B2.CmdConst(zoff, B2.BackIndex, B2.BackLitInt("0")),
+    B2.CmdLoadInfo(zval, shape_i32, addr(zaddr, zoff), mem("get_zero:load", B2.BackAccessRead)),
     B2.CmdReturnValue(zval),
     B2.CmdSealBlock(zero_entry),
     B2.CmdFinishFunc(zero_func),
@@ -85,7 +85,7 @@ local program = B2.BackProgram({
     B2.CmdBindEntryParams(alias_entry, { ax }),
     B2.CmdAlias(ay, ax),
     B2.CmdConst(aone, i32, B2.BackLitInt("1")),
-    B2.CmdBinary(asum, B2.BackIadd, shape_i32, ay, aone),
+    B2.CmdIntBinary(asum, B2.BackIntAdd, i32, B2.BackIntSemantics(B2.BackIntWrap, B2.BackIntMayLose), ay, aone),
     B2.CmdReturnValue(asum),
     B2.CmdSealBlock(alias_entry),
     B2.CmdFinishFunc(alias_func),
@@ -97,9 +97,9 @@ local program = B2.BackProgram({
     B2.CmdSwitchToBlock(bit_entry),
     B2.CmdBindEntryParams(bit_entry, { bx }),
     B2.CmdConst(bmask, i32, B2.BackLitInt("15")),
-    B2.CmdBinary(band, B2.BackBand, shape_i32, bx, bmask),
+    B2.CmdBitBinary(band, B2.BackBitAnd, i32, bx, bmask),
     B2.CmdUnary(bnot, B2.BackUnaryBnot, shape_i32, bx),
-    B2.CmdBinary(bor, B2.BackBor, shape_i32, band, bnot),
+    B2.CmdBitBinary(bor, B2.BackBitOr, i32, band, bnot),
     B2.CmdReturnValue(bor),
     B2.CmdSealBlock(bit_entry),
     B2.CmdFinishFunc(bit_func),
@@ -122,20 +122,19 @@ local program = B2.BackProgram({
 
 local report = validate.validate(program)
 assert(#report.issues == 0)
-local current_program = bridge.lower_program(program)
 local jit = jit_api.jit()
-local artifact = jit:compile(current_program)
+local artifact = jit:compile(program)
 
-local get_zero = ffi.cast("int32_t (*)()", artifact:getpointer(B1.BackFuncId("get_zero")))
+local get_zero = ffi.cast("int32_t (*)()", artifact:getpointer(B2.BackFuncId("get_zero")))
 assert(get_zero() == 0)
 
-local alias_add = ffi.cast("int32_t (*)(int32_t)", artifact:getpointer(B1.BackFuncId("alias_add")))
+local alias_add = ffi.cast("int32_t (*)(int32_t)", artifact:getpointer(B2.BackFuncId("alias_add")))
 assert(alias_add(41) == 42)
 
-local bit_mix = ffi.cast("int32_t (*)(int32_t)", artifact:getpointer(B1.BackFuncId("bit_mix")))
+local bit_mix = ffi.cast("int32_t (*)(int32_t)", artifact:getpointer(B2.BackFuncId("bit_mix")))
 assert(bit_mix(0) == -1)
 
-local not_to_i32 = ffi.cast("int32_t (*)(bool)", artifact:getpointer(B1.BackFuncId("not_to_i32")))
+local not_to_i32 = ffi.cast("int32_t (*)(bool)", artifact:getpointer(B2.BackFuncId("not_to_i32")))
 assert(not_to_i32(false) == 1)
 assert(not_to_i32(true) == 0)
 

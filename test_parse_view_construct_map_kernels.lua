@@ -2,7 +2,6 @@ package.path = "./?.lua;./?/init.lua;./moonlift/lua/?.lua;./moonlift/lua/?/init.
 
 local ffi = require("ffi")
 local pvm = require("moonlift.pvm")
-local A1 = require("moonlift_legacy.asdl")
 local A2 = require("moonlift.asdl")
 local Parse = require("moonlift.parse")
 local Typecheck = require("moonlift.tree_typecheck")
@@ -10,11 +9,9 @@ local ContractFacts = require("moonlift.tree_contract_facts")
 local KernelPlan = require("moonlift.vec_kernel_plan")
 local Lower = require("moonlift.tree_to_back")
 local Validate = require("moonlift.back_validate")
-local Bridge = require("moonlift.back_to_moonlift")
-local J = require("moonlift_legacy.jit")
+local J = require("moonlift.back_jit")
 
 local T = pvm.context()
-A1.Define(T)
 A2.Define(T)
 local P = Parse.Define(T)
 local TC = Typecheck.Define(T)
@@ -22,9 +19,8 @@ local CF = ContractFacts.Define(T)
 local KP = KernelPlan.Define(T)
 local Lowerer = Lower.Define(T)
 local V = Validate.Define(T)
-local bridge = Bridge.Define(T)
 local jit_api = J.Define(T)
-local B1 = T.MoonliftBack
+local B2 = T.Moon2Back
 local C = T.Moon2Core
 local Vec = T.Moon2Vec
 
@@ -135,20 +131,20 @@ local saw_i64x2 = false
 local saw_u64x2 = false
 for i = 1, #program.cmds do
     local cmd = program.cmds[i]
-    if pvm.classof(cmd) == T.Moon2Back.CmdBinary and cmd.op == T.Moon2Back.BackVecIadd then saw_vec_add = true end
-    if pvm.classof(cmd) == T.Moon2Back.CmdLoad and pvm.classof(cmd.ty) == T.Moon2Back.BackShapeVec and cmd.ty.vec.elem == T.Moon2Back.BackI64 and cmd.ty.vec.lanes == 2 then saw_i64x2 = true end
-    if pvm.classof(cmd) == T.Moon2Back.CmdLoad and pvm.classof(cmd.ty) == T.Moon2Back.BackShapeVec and cmd.ty.vec.elem == T.Moon2Back.BackU64 and cmd.ty.vec.lanes == 2 then saw_u64x2 = true end
+    if pvm.classof(cmd) == T.Moon2Back.CmdVecBinary and cmd.op == T.Moon2Back.BackVecIntAdd then saw_vec_add = true end
+    if pvm.classof(cmd) == T.Moon2Back.CmdLoadInfo and pvm.classof(cmd.ty) == T.Moon2Back.BackShapeVec and cmd.ty.vec.elem == T.Moon2Back.BackI64 and cmd.ty.vec.lanes == 2 then saw_i64x2 = true end
+    if pvm.classof(cmd) == T.Moon2Back.CmdLoadInfo and pvm.classof(cmd.ty) == T.Moon2Back.BackShapeVec and cmd.ty.vec.elem == T.Moon2Back.BackU64 and cmd.ty.vec.lanes == 2 then saw_u64x2 = true end
 end
 assert(saw_vec_add, "expected constructed view map to vectorize")
 assert(saw_i64x2, "expected constructed i64 view map to vectorize")
 assert(saw_u64x2, "expected constructed u64 view map to vectorize")
 
-local artifact = jit_api.jit():compile(bridge.lower_program(program))
-local add = ffi.cast("int32_t (*)(int32_t*, const int32_t*, const int32_t*, intptr_t)", artifact:getpointer(B1.BackFuncId("add_construct_view_i32")))
-local copy = ffi.cast("int32_t (*)(int32_t*, const int32_t*, intptr_t)", artifact:getpointer(B1.BackFuncId("copy_construct_view_i32")))
-local add64 = ffi.cast("int32_t (*)(int64_t*, const int64_t*, const int64_t*, intptr_t)", artifact:getpointer(B1.BackFuncId("add_construct_view_i64")))
-local addu32 = ffi.cast("int32_t (*)(uint32_t*, const uint32_t*, const uint32_t*, intptr_t)", artifact:getpointer(B1.BackFuncId("add_construct_view_u32")))
-local addu64 = ffi.cast("int32_t (*)(uint64_t*, const uint64_t*, const uint64_t*, intptr_t)", artifact:getpointer(B1.BackFuncId("add_construct_view_u64")))
+local artifact = jit_api.jit():compile(program)
+local add = ffi.cast("int32_t (*)(int32_t*, const int32_t*, const int32_t*, intptr_t)", artifact:getpointer(B2.BackFuncId("add_construct_view_i32")))
+local copy = ffi.cast("int32_t (*)(int32_t*, const int32_t*, intptr_t)", artifact:getpointer(B2.BackFuncId("copy_construct_view_i32")))
+local add64 = ffi.cast("int32_t (*)(int64_t*, const int64_t*, const int64_t*, intptr_t)", artifact:getpointer(B2.BackFuncId("add_construct_view_i64")))
+local addu32 = ffi.cast("int32_t (*)(uint32_t*, const uint32_t*, const uint32_t*, intptr_t)", artifact:getpointer(B2.BackFuncId("add_construct_view_u32")))
+local addu64 = ffi.cast("int32_t (*)(uint64_t*, const uint64_t*, const uint64_t*, intptr_t)", artifact:getpointer(B2.BackFuncId("add_construct_view_u64")))
 local a = ffi.new("int32_t[9]", { 1, 2, 3, 4, 5, 6, 7, 8, 9 })
 local b = ffi.new("int32_t[9]", { 10, 20, 30, 40, 50, 60, 70, 80, 90 })
 local out = ffi.new("int32_t[9]")

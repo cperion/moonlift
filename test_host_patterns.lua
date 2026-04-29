@@ -15,7 +15,7 @@ local scanner_mod = Host.eval [[
 local scan_until = region scan_until(p: ptr(u8), n: i32, target: i32; hit: cont(pos: i32), miss: cont(pos: i32))
 entry loop(i: i32 = 0)
     if i >= n then jump miss(pos = i) end
-    if zext<i32>(p[i]) == target then jump hit(pos = i) end
+    if as(i32, p[i]) == target then jump hit(pos = i) end
     jump loop(i = i + 1)
 end
 end
@@ -65,7 +65,7 @@ scanner:free()
 local parse_mod = Host.eval [[
 local parse_digit_acc = region parse_digit_acc(p: ptr(u8), n: i32, pos: i32, acc: i32; ok: cont(pos2: i32, acc: i32), err: cont(errpos: i32, code: i32))
 entry start()
-    let c: i32 = zext<i32>(p[pos])
+    let c: i32 = as(i32, p[pos])
     if c >= 48 then
         if c <= 57 then
             jump ok(pos2 = pos + 1, acc = acc * 10 + c - 48)
@@ -111,7 +111,7 @@ local reduce_mod = Host.eval [[
 local sum_until = region sum_until(p: ptr(u8), n: i32, sentinel: i32; done: cont(sum: i32, pos: i32), eof: cont(pos: i32))
 entry loop(i: i32 = 0, sum: i32 = 0)
     if i >= n then jump eof(pos = i) end
-    let v: i32 = zext<i32>(p[i])
+    let v: i32 = as(i32, p[i])
     if v == sentinel then jump done(sum = sum, pos = i) end
     jump loop(i = i + 1, sum = sum + v)
 end
@@ -150,7 +150,7 @@ end
 local score_scan = region score_scan(p: ptr(u8), n: i32; done: cont(score: i32))
 entry loop(i: i32 = 0, score: i32 = 0)
     if i >= n then jump done(score = score) end
-    let v: i32 = zext<i32>(p[i]) - 50
+    let v: i32 = as(i32, p[i]) - 50
     jump loop(i = i + 1, score = score + emit clamp_nonneg(v))
 end
 end

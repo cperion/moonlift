@@ -82,8 +82,7 @@ assert(#accessor_report.issues == 0)
 local expose = H.HostExposeDecl(
     H.HostExposePtr(Ty.TNamed(Ty.TypeRefGlobal("demo", "User"))),
     "UserRef",
-    { H.HostExposeLua },
-    H.HostExposeProxy(H.HostProxyPtr, H.HostProxyCacheNone, H.HostReadonly, H.HostBoundsChecked)
+    { H.HostExposeFacet(H.HostExposeLua, H.HostExposeAbiDefault, H.HostExposeProxy(H.HostProxyPtr, H.HostProxyCacheNone, H.HostReadonly, H.HostBoundsChecked)) }
 )
 local expose_report = V.validate(H.HostDeclSet({ H.HostDeclExpose(expose) }))
 assert(#expose_report.issues == 0)

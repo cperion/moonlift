@@ -31,6 +31,15 @@ local function skip_space(src, i)
     return i
 end
 
+local function skip_hspace(src, i)
+    while i <= #src do
+        local c = src:sub(i, i)
+        if c ~= " " and c ~= "\t" and c ~= "\r" then break end
+        i = i + 1
+    end
+    return i
+end
+
 local function read_ident(src, i)
     local c = src:sub(i, i)
     if not c:match("[A-Za-z_]") then return nil, i end
@@ -38,6 +47,38 @@ local function read_ident(src, i)
     i = i + 1
     while i <= #src and src:sub(i, i):match("[%w_]") do i = i + 1 end
     return src:sub(s, i - 1), i
+end
+
+local function is_module_start(src, i)
+    local item_words = { export = true, extern = true, func = true, const = true, static = true, import = true, type = true, region = true, expr = true, ["end"] = true }
+    local p = i - 1
+    while p >= 1 do
+        local c = src:sub(p, p)
+        if c ~= " " and c ~= "\t" and c ~= "\r" then break end
+        p = p - 1
+    end
+    local prev = p >= 1 and src:sub(p, p) or "\n"
+    local word_end = p
+    while p >= 1 and src:sub(p, p):match("[%w_]") do p = p - 1 end
+    local prev_word = word_end >= p + 1 and src:sub(p + 1, word_end) or ""
+    local from_return = prev_word == "return"
+    local prefix_ok = prev == "\n" or prev == "="
+    if not prefix_ok and not from_return then return false end
+    local k = skip_hspace(src, i + #"module")
+    local ch = src:sub(k, k)
+    if ch == "" then return prefix_ok end
+    if ch == "\n" then
+        if not from_return then return true end
+        local next_word = read_ident(src, skip_space(src, k + 1))
+        return item_words[next_word] == true
+    end
+    local word, after_word = read_ident(src, k)
+    if not word then return false end
+    if item_words[word] then return true end
+    local next_i = skip_hspace(src, after_word)
+    local next_ch = src:sub(next_i, next_i)
+    if from_return then return next_ch == "\n" end
+    return next_ch == "" or next_ch == "\n"
 end
 
 local function skip_string(src, i, quote)
@@ -199,13 +240,12 @@ function M.Define(T)
     local function parse_struct(src, full_src, offset, issues)
         local name = src:match("^%s*struct%s+([_%a][_%w]*)")
         if not name then issues[#issues + 1] = mk_issue(P, full_src, "expected struct name", offset); return nil, nil end
-        local lbrace = src:find("{", 1, true)
-        local rbrace = lbrace and find_matching(src, lbrace, "{", "}")
-        if not lbrace or not rbrace then issues[#issues + 1] = mk_issue(P, full_src, "expected struct body", offset); return nil, nil end
+        if src:find("{", 1, true) then issues[#issues + 1] = mk_issue(P, full_src, "struct uses keyword...end, not braces", offset); return nil, nil end
+        if not src:match("%f[%w_]end%f[^%w_]%s*$") then issues[#issues + 1] = mk_issue(P, full_src, "expected end after struct", offset); return nil, nil end
         local repr = H.HostReprC
         local packed = src:match("repr%s*%(%s*packed%s*%(%s*(%d+)%s*%)%s*%)")
         if packed then repr = H.HostReprPacked(tonumber(packed)) end
-        local body = src:sub(lbrace + 1, rbrace - 1)
+        local body = src:gsub("^%s*struct%s+[_%a][_%w]*[^\n]*\n?", "", 1):gsub("%s*%f[%w_]end%f[^%w_]%s*$", "")
         local host_fields, tree_fields = {}, {}
         for raw in body:gmatch("[^\n;]+") do
             raw = strip(raw:gsub(",%s*$", ""))
@@ -226,10 +266,11 @@ function M.Define(T)
     local function parse_expose_subject(text)
         text = strip(text)
         local inner = text:match("^ptr%s*%((.*)%)$")
-        if inner then return H.HostExposePtr(parse_type_expr(inner)) end
+        if inner then local ty = parse_type_expr(inner); return H.HostExposePtr(ty) end
         inner = text:match("^view%s*%((.*)%)$")
-        if inner then return H.HostExposeView(parse_type_expr(inner)) end
-        return H.HostExposeType(parse_type_expr(text))
+        if inner then local ty = parse_type_expr(inner); return H.HostExposeView(ty) end
+        local ty = parse_type_expr(text)
+        return H.HostExposeType(ty)
     end
 
     local function proxy_kind_for_subject(subject)
@@ -239,29 +280,114 @@ function M.Define(T)
         return H.HostProxyTypedRecord
     end
 
-    local function parse_expose(src, full_src, offset, issues)
-        local subject_src, public_name = src:match("^%s*expose%s+(.-)%s+as%s+([_%a][_%w]*)")
-        if not subject_src then issues[#issues + 1] = mk_issue(P, full_src, "expected expose subject", offset); return nil end
-        local lbrace = src:find("{", 1, true)
-        local rbrace = lbrace and find_matching(src, lbrace, "{", "}")
-        local body = lbrace and rbrace and src:sub(lbrace + 1, rbrace - 1) or ""
-        local subject = parse_expose_subject(subject_src)
-        local targets = {}
+    local function target_for_word(word)
+        if word == "lua" then return H.HostExposeLua end
+        if word == "terra" then return H.HostExposeTerra end
+        if word == "c" then return H.HostExposeC end
+        if word == "moonlift" then return H.HostExposeMoonlift end
+        return nil
+    end
+
+    local function default_abi_for_target(subject, target)
+        local cls = pvm.classof(subject)
+        if cls == H.HostExposeView and (target == H.HostExposeC or target == H.HostExposeTerra) then return H.HostExposeAbiDescriptor end
+        if cls == H.HostExposePtr and (target == H.HostExposeC or target == H.HostExposeTerra) then return H.HostExposeAbiPointer end
+        return H.HostExposeAbiDefault
+    end
+
+    local function parse_expose_facet(subject, target, words)
+        local abi = default_abi_for_target(subject, target)
         local mutability = H.HostReadonly
-        local bounds = H.HostBoundsChecked
-        for word in body:gmatch("[_%a][_%w]*") do
-            if word == "lua" then targets[#targets + 1] = H.HostExposeLua
-            elseif word == "terra" then targets[#targets + 1] = H.HostExposeTerra
-            elseif word == "c" then targets[#targets + 1] = H.HostExposeC
-            elseif word == "moonlift" then targets[#targets + 1] = H.HostExposeMoonlift
-            elseif word == "mutable" then mutability = H.HostMutable
+        local bounds = target == H.HostExposeLua and H.HostBoundsChecked or H.HostBoundsUnchecked
+        local cache = H.HostProxyCacheNone
+        local proxy_kind = proxy_kind_for_subject(subject)
+        local materialize = nil
+        local opaque = nil
+        for i = 1, #words do
+            local word = words[i]
+            if word == "pointer" or word == "ptr" then abi = H.HostExposeAbiPointer
+            elseif word == "descriptor" then abi = H.HostExposeAbiDescriptor
+            elseif word == "data_len_stride" then abi = H.HostExposeAbiDataLenStride
+            elseif word == "expanded" or word == "expanded_scalars" then abi = H.HostExposeAbiExpandedScalars
+            elseif word == "proxy" then proxy_kind = proxy_kind_for_subject(subject)
+            elseif word == "record" or word == "typed_record" then proxy_kind = H.HostProxyTypedRecord
+            elseif word == "buffer_view" then proxy_kind = H.HostProxyBufferView
+            elseif word == "opaque" then opaque = "opaque exposure requested"
             elseif word == "readonly" then mutability = H.HostReadonly
+            elseif word == "mutable" then mutability = H.HostMutable
+            elseif word == "interior_mutable" then mutability = H.HostInteriorMutable
+            elseif word == "checked" then bounds = H.HostBoundsChecked
             elseif word == "unchecked" then bounds = H.HostBoundsUnchecked
-            elseif word == "checked" then bounds = H.HostBoundsChecked end
+            elseif word == "lazy" or word == "cache_lazy" then cache = H.HostProxyCacheLazy
+            elseif word == "eager" or word == "cache_eager" then cache = H.HostProxyCacheEager
+            elseif word == "none" or word == "cache_none" then cache = H.HostProxyCacheNone
+            elseif word == "table" or word == "eager_table" then materialize = H.HostMaterializeProjectedFields
+            elseif word == "full_copy" then materialize = H.HostMaterializeFullCopy
+            elseif word == "borrowed_view" then materialize = H.HostMaterializeBorrowedView end
         end
-        if #targets == 0 then targets[1] = H.HostExposeLua end
-        local mode = H.HostExposeProxy(proxy_kind_for_subject(subject), H.HostProxyCacheNone, mutability, bounds)
-        return H.HostDeclExpose(H.HostExposeDecl(subject, public_name, targets, mode))
+        local mode
+        if opaque then mode = H.HostExposeOpaque(opaque)
+        elseif materialize then mode = H.HostExposeEagerTable(materialize)
+        else mode = H.HostExposeProxy(proxy_kind, cache, mutability, bounds) end
+        return H.HostExposeFacet(target, abi, mode)
+    end
+
+    local function words_in(text)
+        local words = {}
+        for word in tostring(text or ""):gmatch("[_%a][_%w]*") do words[#words + 1] = word end
+        return words
+    end
+
+    local function default_expose_facets(subject)
+        return {
+            parse_expose_facet(subject, H.HostExposeLua, {}),
+            parse_expose_facet(subject, H.HostExposeTerra, {}),
+            parse_expose_facet(subject, H.HostExposeC, {}),
+        }
+    end
+
+    local function parse_expose_facets(subject, body, full_src, offset, issues)
+        body = strip(body or "")
+        if body == "" then return default_expose_facets(subject) end
+        if body:find("{", 1, true) or body:find("}", 1, true) then
+            issues[#issues + 1] = mk_issue(P, full_src, "expose facets use keyword...end, not braces", offset)
+            return nil
+        end
+        local facets = {}
+        local seen = {}
+        for _, line in ipairs(split_top_commas(body:gsub("\n", ","))) do
+            line = strip(line)
+            if line ~= "" then
+                local words = words_in(line)
+                local target = target_for_word(words[1])
+                if target and not seen[words[1]] then
+                    seen[words[1]] = true
+                    local policy = {}
+                    for i = 2, #words do policy[#policy + 1] = words[i] end
+                    facets[#facets + 1] = parse_expose_facet(subject, target, policy)
+                else
+                    issues[#issues + 1] = mk_issue(P, full_src, "expected expose target line", offset)
+                    return nil
+                end
+            end
+        end
+        if #facets == 0 then return default_expose_facets(subject) end
+        return facets
+    end
+
+    local function parse_expose(src, full_src, offset, issues)
+        if src:find("{", 1, true) then issues[#issues + 1] = mk_issue(P, full_src, "expose uses keyword...end, not braces", offset); return nil end
+        local public_name, subject_src = src:match("^%s*expose%s+([_%a][_%w]*)%s*:%s*([^\n]+)")
+        if not subject_src or not public_name then issues[#issues + 1] = mk_issue(P, full_src, "expected expose Name: subject", offset); return nil end
+        subject_src = strip(subject_src)
+        local body = ""
+        if src:match("%f[%w_]end%f[^%w_]%s*$") then
+            body = src:gsub("^%s*expose%s+[_%a][_%w]*%s*:%s*[^\n]+\n?", "", 1):gsub("%s*%f[%w_]end%f[^%w_]%s*$", "")
+        end
+        local subject = parse_expose_subject(subject_src)
+        local facets = parse_expose_facets(subject, body, full_src, offset, issues)
+        if not facets then return nil end
+        return H.HostDeclExpose(H.HostExposeDecl(subject, public_name, facets))
     end
 
     local function append_parsed_module(source, items, region_frags_by_name, expr_frags_by_name, issues)
@@ -316,17 +442,15 @@ function M.Define(T)
         end
     end
 
-    local function extract_braced(src, start_i)
-        local lbrace = src:find("{", start_i, true)
-        if not lbrace then return nil, nil end
-        local rbrace = find_matching(src, lbrace, "{", "}")
-        return lbrace, rbrace
-    end
-
     local function find_end_form(src, start_i)
         -- Reuse the hosted quote matcher for end-based Moonlift forms by tracking
         -- common opening words. Good enough for the existing Moonlift parser input.
-        local open = { func = true, region = true, expr = true, module = true, block = true, entry = true, control = true, ["if"] = true, switch = true }
+        local open = { struct = true, expose = true, func = true, region = true, expr = true, module = true, block = true, entry = true, control = true, ["if"] = true, switch = true }
+        local function line_prefix_has_word(src0, pos, word0)
+            local line_start = src0:sub(1, pos - 1):match(".*\n()") or 1
+            local prefix = src0:sub(line_start, pos - 1)
+            return prefix:match("%f[%w_]" .. word0 .. "%f[^%w_]") ~= nil
+        end
         local depth, i = 0, start_i
         while i <= #src do
             local skipped = skip_comment_or_string(src, i)
@@ -339,6 +463,11 @@ function M.Define(T)
                         if depth == 0 then return j - 1 end
                     elseif open[word] then
                         depth = depth + 1
+                    elseif word == "do" then
+                        if not line_prefix_has_word(src, i, "switch") then depth = depth + 1 end
+                    elseif word == "loop" then
+                        local next_word = read_ident(src, skip_space(src, j))
+                        if next_word == "counted" then depth = depth + 1 end
                     end
                 end
                 i = j
@@ -350,20 +479,15 @@ function M.Define(T)
     end
 
     local function form_extent(src, i, word)
-        if word == "struct" or word == "expose" then
-            local lb, rb = extract_braced(src, i)
-            if rb then return rb end
+        if word == "struct" then return find_end_form(src, i) end
+        if word == "expose" then
             local nl = src:find("\n", i, true)
-            return (nl or #src + 1) - 1
+            if not nl then return #src end
+            local next_word = read_ident(src, skip_space(src, nl + 1))
+            if next_word == "end" or target_for_word(next_word) then return find_end_form(src, i) end
+            return nl - 1
         end
-        local end_form = find_end_form(src, i)
-        local lb, rb = extract_braced(src, i)
-        if rb then
-            local nl = src:find("\n", i, true)
-            if (word == "func" or word == "export func" or word == "module") and (not nl or lb < nl) then return rb end
-            if word ~= "func" and word ~= "export func" and word ~= "module" and (not end_form or lb < end_form) then return rb end
-        end
-        return end_form
+        return find_end_form(src, i)
     end
 
     local function parse_module_body(body, items, regions, exprs, region_frags_by_name, expr_frags_by_name, issues)
@@ -428,7 +552,9 @@ function M.Define(T)
                     local w2 = src:sub(k, k + 3)
                     if w2 == "func" and is_boundary(src, k, 4) then word, i = "export func", i else i = j end
                 end
-                if word == "struct" or word == "expose" or word == "region" or word == "expr" or word == "module" or word == "func" or word == "export func" then
+                local is_form = word == "struct" or word == "expose" or word == "region" or word == "expr" or word == "module" or word == "func" or word == "export func"
+                if word == "module" and not is_module_start(src, i) then is_form = false end
+                if is_form then
                     local e = form_extent(src, i, word)
                     if not e then
                         issues[#issues + 1] = mk_issue(P, src, "unterminated .mlua form: " .. word, i)
@@ -447,16 +573,11 @@ function M.Define(T)
                     elseif word == "expr" then
                         parse_expr_frag(form, exprs, expr_frags_by_name, issues)
                     elseif word == "module" then
-                        local lb, rb = extract_braced(form, 1)
-                        local body
-                        if lb and rb then
-                            body = form:sub(lb + 1, rb - 1)
-                        else
-                            body = form:gsub("^%s*module%s*", ""):gsub("%s*end%s*$", "")
-                            local maybe_name, rest = body:match("^%s*([_%a][_%w]*)(.*)$")
-                            if maybe_name and not ({ export = true, extern = true, func = true, const = true, static = true, import = true, type = true, region = true, expr = true })[maybe_name] then
-                                body = rest
-                            end
+                        if form:find("{", 1, true) then issues[#issues + 1] = mk_issue(P, src, "module uses keyword...end, not braces", i) end
+                        local body = form:gsub("^%s*module%s*", ""):gsub("%s*end%s*$", "")
+                        local maybe_name, rest = body:match("^%s*([_%a][_%w]*)(.*)$")
+                        if maybe_name and not ({ export = true, extern = true, func = true, const = true, static = true, import = true, type = true, region = true, expr = true })[maybe_name] then
+                            body = rest
                         end
                         parse_module_body(body, items, regions, exprs, region_frags_by_name, expr_frags_by_name, issues)
                     elseif word == "func" or word == "export func" then

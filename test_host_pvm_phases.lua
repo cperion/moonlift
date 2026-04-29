@@ -43,8 +43,11 @@ local user_decl = H.HostStructDecl(lid("User"), "User", H.HostReprC, {
 local expose_users = H.HostExposeDecl(
     H.HostExposeView(user_ty),
     "Users",
-    { H.HostExposeLua, H.HostExposeTerra, H.HostExposeC },
-    H.HostExposeProxy(H.HostProxyView, H.HostProxyCacheNone, H.HostReadonly, H.HostBoundsChecked)
+    {
+        H.HostExposeFacet(H.HostExposeLua, H.HostExposeAbiDefault, H.HostExposeProxy(H.HostProxyView, H.HostProxyCacheNone, H.HostReadonly, H.HostBoundsChecked)),
+        H.HostExposeFacet(H.HostExposeTerra, H.HostExposeAbiDescriptor, H.HostExposeProxy(H.HostProxyView, H.HostProxyCacheNone, H.HostReadonly, H.HostBoundsChecked)),
+        H.HostExposeFacet(H.HostExposeC, H.HostExposeAbiDescriptor, H.HostExposeProxy(H.HostProxyView, H.HostProxyCacheNone, H.HostReadonly, H.HostBoundsChecked)),
+    }
 )
 
 local parsed = DeclParse.parse(H.HostDeclSourceDecls({ H.HostDeclStruct(user_decl), H.HostDeclExpose(expose_users) }))
@@ -75,9 +78,16 @@ assert(descriptor.name == "UserView")
 assert(descriptor.descriptor_layout.kind == H.HostLayoutViewDescriptor)
 local expose_facts = ViewAbi.plan_facts(expose_users, env, target)
 assert(pvm.classof(expose_facts) == H.HostFactSet)
-assert(pvm.classof(expose_facts.facts[#expose_facts.facts]) == H.HostFactViewDescriptor)
-local exposed_descriptor = expose_facts.facts[#expose_facts.facts].descriptor
-assert(exposed_descriptor.name == "Users")
+local exposed_descriptor, expose_fact_count = nil, 0
+for i = 1, #expose_facts.facts do
+    if pvm.classof(expose_facts.facts[i]) == H.HostFactViewDescriptor then exposed_descriptor = expose_facts.facts[i].descriptor end
+    if pvm.classof(expose_facts.facts[i]) == H.HostFactExpose then
+        expose_fact_count = expose_fact_count + 1
+        assert(expose_facts.facts[i].public_name == "Users")
+    end
+end
+assert(exposed_descriptor and exposed_descriptor.name == "Users")
+assert(expose_fact_count == 3)
 
 local record_access = Access.plan(H.HostAccessRecord(layout))
 assert(pvm.classof(record_access.subject) == H.HostAccessRecord)

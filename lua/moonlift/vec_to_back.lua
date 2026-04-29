@@ -11,7 +11,7 @@ function M.Define(T)
     local shape_scalar
     local shape_vec
     local param_shape
-    local scalar_bin_op
+    local scalar_bin_cmd
     local vector_bin_op
     local cmd_to_back
     local terminator_to_back
@@ -88,32 +88,14 @@ function M.Define(T)
         [V.VecVectorParam] = function(self) return pvm.once(V.VecVectorShape(self.elem, self.lanes)) end,
     })
 
-    scalar_bin_op = pvm.phase("moon2_vec_scalar_bin_to_back", {
-        [V.VecAdd] = function() return pvm.once(Back.BackIadd) end,
-        [V.VecSub] = function() return pvm.once(Back.BackIsub) end,
-        [V.VecMul] = function() return pvm.once(Back.BackImul) end,
-        [V.VecRem] = function() return pvm.once(Back.BackSrem) end,
-        [V.VecBitAnd] = function() return pvm.once(Back.BackBand) end,
-        [V.VecBitOr] = function() return pvm.once(Back.BackBor) end,
-        [V.VecBitXor] = function() return pvm.once(Back.BackBxor) end,
-        [V.VecShl] = function() return pvm.once(Back.BackIshl) end,
-        [V.VecLShr] = function() return pvm.once(Back.BackUshr) end,
-        [V.VecAShr] = function() return pvm.once(Back.BackSshr) end,
-        [V.VecEq] = function() return pvm.empty() end,
-        [V.VecNe] = function() return pvm.empty() end,
-        [V.VecLt] = function() return pvm.empty() end,
-        [V.VecLe] = function() return pvm.empty() end,
-        [V.VecGt] = function() return pvm.empty() end,
-        [V.VecGe] = function() return pvm.empty() end,
-    })
 
     vector_bin_op = pvm.phase("moon2_vec_vector_bin_to_back", {
-        [V.VecAdd] = function() return pvm.once(Back.BackVecIadd) end,
-        [V.VecSub] = function() return pvm.once(Back.BackVecIsub) end,
-        [V.VecMul] = function() return pvm.once(Back.BackVecImul) end,
-        [V.VecBitAnd] = function() return pvm.once(Back.BackVecBand) end,
-        [V.VecBitOr] = function() return pvm.once(Back.BackVecBor) end,
-        [V.VecBitXor] = function() return pvm.once(Back.BackVecBxor) end,
+        [V.VecAdd] = function() return pvm.once(Back.BackVecIntAdd) end,
+        [V.VecSub] = function() return pvm.once(Back.BackVecIntSub) end,
+        [V.VecMul] = function() return pvm.once(Back.BackVecIntMul) end,
+        [V.VecBitAnd] = function() return pvm.once(Back.BackVecBitAnd) end,
+        [V.VecBitOr] = function() return pvm.once(Back.BackVecBitOr) end,
+        [V.VecBitXor] = function() return pvm.once(Back.BackVecBitXor) end,
         [V.VecRem] = function() return pvm.empty() end,
         [V.VecShl] = function() return pvm.empty() end,
         [V.VecLShr] = function() return pvm.empty() end,
@@ -130,6 +112,72 @@ function M.Define(T)
         return cmds(env_add(env, id, shape), { cmd })
     end
 
+    local function int_sem_wrap()
+        return Back.BackIntSemantics(Back.BackIntWrap, Back.BackIntMayLose)
+    end
+
+    scalar_bin_cmd = pvm.phase("moon2_vec_scalar_bin_to_back_cmd", {
+        [V.VecAdd] = function(_, dst, scalar, lhs, rhs) return pvm.once(Back.CmdIntBinary(dst, Back.BackIntAdd, scalar, int_sem_wrap(), lhs, rhs)) end,
+        [V.VecSub] = function(_, dst, scalar, lhs, rhs) return pvm.once(Back.CmdIntBinary(dst, Back.BackIntSub, scalar, int_sem_wrap(), lhs, rhs)) end,
+        [V.VecMul] = function(_, dst, scalar, lhs, rhs) return pvm.once(Back.CmdIntBinary(dst, Back.BackIntMul, scalar, int_sem_wrap(), lhs, rhs)) end,
+        [V.VecRem] = function(_, dst, scalar, lhs, rhs) return pvm.once(Back.CmdIntBinary(dst, Back.BackIntSRem, scalar, int_sem_wrap(), lhs, rhs)) end,
+        [V.VecBitAnd] = function(_, dst, scalar, lhs, rhs) return pvm.once(Back.CmdBitBinary(dst, Back.BackBitAnd, scalar, lhs, rhs)) end,
+        [V.VecBitOr] = function(_, dst, scalar, lhs, rhs) return pvm.once(Back.CmdBitBinary(dst, Back.BackBitOr, scalar, lhs, rhs)) end,
+        [V.VecBitXor] = function(_, dst, scalar, lhs, rhs) return pvm.once(Back.CmdBitBinary(dst, Back.BackBitXor, scalar, lhs, rhs)) end,
+        [V.VecShl] = function(_, dst, scalar, lhs, rhs) return pvm.once(Back.CmdShift(dst, Back.BackShiftLeft, scalar, lhs, rhs)) end,
+        [V.VecLShr] = function(_, dst, scalar, lhs, rhs) return pvm.once(Back.CmdShift(dst, Back.BackShiftLogicalRight, scalar, lhs, rhs)) end,
+        [V.VecAShr] = function(_, dst, scalar, lhs, rhs) return pvm.once(Back.CmdShift(dst, Back.BackShiftArithmeticRight, scalar, lhs, rhs)) end,
+        [V.VecEq] = function() return pvm.empty() end,
+        [V.VecNe] = function() return pvm.empty() end,
+        [V.VecLt] = function() return pvm.empty() end,
+        [V.VecLe] = function() return pvm.empty() end,
+        [V.VecGt] = function() return pvm.empty() end,
+        [V.VecGe] = function() return pvm.empty() end,
+    })
+
+    local function elem_size(elem)
+        if elem == V.VecElemBool or elem == V.VecElemI8 or elem == V.VecElemU8 then return 1 end
+        if elem == V.VecElemI16 or elem == V.VecElemU16 then return 2 end
+        if elem == V.VecElemI32 or elem == V.VecElemU32 or elem == V.VecElemF32 then return 4 end
+        if elem == V.VecElemI64 or elem == V.VecElemU64 or elem == V.VecElemF64 then return 8 end
+        if elem == V.VecElemPtr or elem == V.VecElemIndex then return 8 end
+        return nil
+    end
+
+    local function shape_bytes(shape)
+        if pvm.classof(shape) == V.VecScalarShape then return elem_size(shape.elem) end
+        if pvm.classof(shape) == V.VecVectorShape then local size = elem_size(shape.elem); return size and (size * shape.lanes) or nil end
+        return nil
+    end
+
+    local function alignment_from_vec(access)
+        local cls = pvm.classof(access.alignment)
+        if cls == V.VecAlignmentKnown then return Back.BackAlignKnown(access.alignment.bytes) end
+        if cls == V.VecAlignmentAssumed then return Back.BackAlignAssumed(access.alignment.bytes, "vec alignment proof") end
+        return Back.BackAlignUnknown
+    end
+
+    local function dereference_from_vec(access, shape)
+        local bytes = shape_bytes(shape)
+        if bytes == nil then return Back.BackDerefUnknown end
+        local cls = pvm.classof(access.bounds)
+        if cls == V.VecBoundsProven then return Back.BackDerefBytes(bytes, "vec bounds proof") end
+        return Back.BackDerefUnknown
+    end
+
+    local function trap_from_vec(access)
+        if pvm.classof(access.bounds) == V.VecBoundsProven then return Back.BackNonTrapping("vec bounds proof") end
+        return Back.BackMayTrap
+    end
+
+    local function memory_info_from_access(access, shape, mode)
+        return Back.BackMemoryInfo(Back.BackAccessId(access.id.text), alignment_from_vec(access), dereference_from_vec(access, shape), trap_from_vec(access), Back.BackMayNotMove, mode)
+    end
+
+    local function address(base, off)
+        return Back.BackAddress(Back.BackAddrValue(base), off, Back.BackProvUnknown, Back.BackPtrBoundsUnknown)
+    end
+
     cmd_to_back = pvm.phase("moon2_vec_cmd_to_back", {
         [V.VecCmdConstInt] = function(self, env)
             local scalar = pvm.one(elem_scalar(self.elem))
@@ -143,9 +191,17 @@ function M.Define(T)
         [V.VecCmdBin] = function(self, env)
             local shape_cls = pvm.classof(self.shape)
             local op = nil
-            if shape_cls == V.VecScalarShape then op = pvm.drain(scalar_bin_op(self.op))[1] else op = pvm.drain(vector_bin_op(self.op))[1] end
-            if op == nil then return pvm.once(reject(env, self.dst, "unsupported vector binary op/shape")) end
-            return pvm.once(result_with_shape(env, self.dst, self.shape, Back.CmdBinary(value_id(self.dst), op, pvm.one(shape_to_back(self.shape)), value_id(self.lhs), value_id(self.rhs))))
+            if shape_cls == V.VecScalarShape then
+                local scalar = pvm.drain(shape_scalar(self.shape))[1]
+                local cmd = scalar ~= nil and pvm.drain(scalar_bin_cmd(self.op, value_id(self.dst), scalar, value_id(self.lhs), value_id(self.rhs)))[1] or nil
+                if cmd == nil then return pvm.once(reject(env, self.dst, "unsupported scalar vector binary op/shape")) end
+                return pvm.once(result_with_shape(env, self.dst, self.shape, cmd))
+            else
+                op = pvm.drain(vector_bin_op(self.op))[1]
+                local vec = pvm.drain(shape_vec(self.shape))[1]
+                if op == nil or vec == nil then return pvm.once(reject(env, self.dst, "unsupported vector binary op/shape")) end
+                return pvm.once(result_with_shape(env, self.dst, self.shape, Back.CmdVecBinary(value_id(self.dst), op, vec, value_id(self.lhs), value_id(self.rhs))))
+            end
         end,
         [V.VecCmdIreduce] = function(self, env)
             local scalar = pvm.one(elem_scalar(self.narrow_elem))
@@ -162,10 +218,20 @@ function M.Define(T)
             return pvm.once(result_with_shape(env, self.dst, V.VecScalarShape(shape.elem), Back.CmdVecExtractLane(value_id(self.dst), scalar, value_id(self.vec), self.lane)))
         end,
         [V.VecCmdLoad] = function(self, env)
-            return pvm.once(result_with_shape(env, self.dst, self.shape, Back.CmdLoad(value_id(self.dst), pvm.one(shape_to_back(self.shape)), value_id(self.addr))))
+            if self.access.access_kind ~= V.VecAccessLoad then return pvm.once(reject(env, self.dst, "load command requires load memory fact")) end
+            local zero = Back.BackValId("vec.load.zero:" .. self.dst.text)
+            return pvm.once(cmds(env_add(env, self.dst, self.shape), {
+                Back.CmdConst(zero, Back.BackIndex, Back.BackLitInt("0")),
+                Back.CmdLoadInfo(value_id(self.dst), pvm.one(shape_to_back(self.shape)), address(value_id(self.addr), zero), memory_info_from_access(self.access, self.shape, Back.BackAccessRead)),
+            }))
         end,
         [V.VecCmdStore] = function(self, env)
-            return pvm.once(cmds(env, { Back.CmdStore(pvm.one(shape_to_back(self.shape)), value_id(self.addr), value_id(self.value)) }))
+            if self.access.access_kind ~= V.VecAccessStore then return pvm.once(reject(env, nil, "store command requires store memory fact")) end
+            local zero = Back.BackValId("vec.store.zero:" .. self.addr.text)
+            return pvm.once(cmds(env, {
+                Back.CmdConst(zero, Back.BackIndex, Back.BackLitInt("0")),
+                Back.CmdStoreInfo(pvm.one(shape_to_back(self.shape)), address(value_id(self.addr), zero), value_id(self.value), memory_info_from_access(self.access, self.shape, Back.BackAccessWrite)),
+            }))
         end,
         [V.VecCmdSelect] = function(self, env)
             if pvm.classof(self.shape) ~= V.VecScalarShape then return pvm.once(reject(env, self.dst, "vector select lowering deferred")) end

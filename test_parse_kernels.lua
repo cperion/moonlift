@@ -3,25 +3,21 @@ package.path = "./?.lua;./?/init.lua;./moonlift/lua/?.lua;./moonlift/lua/?/init.
 local ffi = require("ffi")
 local bit = require("bit")
 local pvm = require("moonlift.pvm")
-local A1 = require("moonlift_legacy.asdl")
 local A2 = require("moonlift.asdl")
 local Parse = require("moonlift.parse")
 local Typecheck = require("moonlift.tree_typecheck")
 local TreeToBack = require("moonlift.tree_to_back")
 local Validate = require("moonlift.back_validate")
-local Bridge = require("moonlift.back_to_moonlift")
-local J = require("moonlift_legacy.jit")
+local J = require("moonlift.back_jit")
 
 local T = pvm.context()
-A1.Define(T)
 A2.Define(T)
 local P = Parse.Define(T)
 local TC = Typecheck.Define(T)
 local Lower = TreeToBack.Define(T)
 local V = Validate.Define(T)
-local bridge = Bridge.Define(T)
 local jit_api = J.Define(T)
-local B1 = T.MoonliftBack
+local B2 = T.Moon2Back
 
 local src = [[
 export func sum_i32(xs: ptr(i32), n: i32) -> i32
@@ -275,63 +271,73 @@ local program = Lower.module(checked.module)
 local report = V.validate(program)
 assert(#report.issues == 0)
 local saw_vec_load, saw_vec_add, saw_vec_sub, saw_vec_mul, saw_vec_band, saw_vec_bor, saw_vec_bxor, saw_vec_store = false, false, false, false, false, false, false, false
+local saw_alias_fact = false
 local saw_i64x2 = false
+local saw_vec_memory_proof = false
+local saw_vec_alignment = false
 for i = 1, #program.cmds do
     local cmd = program.cmds[i]
-    if pvm.classof(cmd) == T.Moon2Back.CmdLoad and pvm.classof(cmd.ty) == T.Moon2Back.BackShapeVec then
+    if pvm.classof(cmd) == T.Moon2Back.CmdLoadInfo and pvm.classof(cmd.ty) == T.Moon2Back.BackShapeVec then
         saw_vec_load = true
         if cmd.ty.vec.elem == T.Moon2Back.BackI64 and cmd.ty.vec.lanes == 2 then saw_i64x2 = true end
-    elseif pvm.classof(cmd) == T.Moon2Back.CmdBinary and cmd.op == T.Moon2Back.BackVecIadd then
+        if pvm.classof(cmd.memory.trap) == T.Moon2Back.BackNonTrapping and (pvm.classof(cmd.memory.dereference) == T.Moon2Back.BackDerefBytes or pvm.classof(cmd.memory.dereference) == T.Moon2Back.BackDerefAssumed) then saw_vec_memory_proof = true end
+        if pvm.classof(cmd.memory.alignment) == T.Moon2Back.BackAlignAssumed or pvm.classof(cmd.memory.alignment) == T.Moon2Back.BackAlignKnown then saw_vec_alignment = true end
+    elseif pvm.classof(cmd) == T.Moon2Back.CmdVecBinary and cmd.op == T.Moon2Back.BackVecIntAdd then
         saw_vec_add = true
-    elseif pvm.classof(cmd) == T.Moon2Back.CmdBinary and cmd.op == T.Moon2Back.BackVecIsub then
+    elseif pvm.classof(cmd) == T.Moon2Back.CmdVecBinary and cmd.op == T.Moon2Back.BackVecIntSub then
         saw_vec_sub = true
-    elseif pvm.classof(cmd) == T.Moon2Back.CmdBinary and cmd.op == T.Moon2Back.BackVecImul then
+    elseif pvm.classof(cmd) == T.Moon2Back.CmdVecBinary and cmd.op == T.Moon2Back.BackVecIntMul then
         saw_vec_mul = true
-    elseif pvm.classof(cmd) == T.Moon2Back.CmdBinary and cmd.op == T.Moon2Back.BackVecBand then
+    elseif pvm.classof(cmd) == T.Moon2Back.CmdVecBinary and cmd.op == T.Moon2Back.BackVecBitAnd then
         saw_vec_band = true
-    elseif pvm.classof(cmd) == T.Moon2Back.CmdBinary and cmd.op == T.Moon2Back.BackVecBor then
+    elseif pvm.classof(cmd) == T.Moon2Back.CmdVecBinary and cmd.op == T.Moon2Back.BackVecBitOr then
         saw_vec_bor = true
-    elseif pvm.classof(cmd) == T.Moon2Back.CmdBinary and cmd.op == T.Moon2Back.BackVecBxor then
+    elseif pvm.classof(cmd) == T.Moon2Back.CmdVecBinary and cmd.op == T.Moon2Back.BackVecBitXor then
         saw_vec_bxor = true
-    elseif pvm.classof(cmd) == T.Moon2Back.CmdStore and pvm.classof(cmd.ty) == T.Moon2Back.BackShapeVec then
+    elseif pvm.classof(cmd) == T.Moon2Back.CmdStoreInfo and pvm.classof(cmd.ty) == T.Moon2Back.BackShapeVec then
         saw_vec_store = true
+    elseif pvm.classof(cmd) == T.Moon2Back.CmdAliasFact then
+        saw_alias_fact = true
     end
 end
 assert(saw_vec_load, "expected vector load in sum_i32")
 assert(saw_vec_add, "expected vector add in sum_i32")
 assert(saw_vec_store, "expected vector store in fill_i32")
+assert(saw_vec_memory_proof, "expected vector memory proof to survive into BackMemoryInfo")
+assert(saw_vec_alignment, "expected vector alignment evidence to survive into BackMemoryInfo")
+assert(saw_alias_fact, "expected vector alias proof/assumption to lower into BackAliasFact")
 assert(saw_i64x2, "expected i64x2 vector operation in i64 kernels")
 assert(saw_vec_sub, "expected vector subtract in sub_i32")
 assert(saw_vec_mul, "expected vector multiply in dot_i32")
 assert(saw_vec_band, "expected vector bit-and in and_i32")
 assert(saw_vec_bor, "expected vector bit-or in or_i32")
 assert(saw_vec_bxor, "expected vector bit-xor in xor_i32")
-local artifact = jit_api.jit():compile(bridge.lower_program(program))
-local sum_i32 = ffi.cast("int32_t (*)(const int32_t*, int32_t)", artifact:getpointer(B1.BackFuncId("sum_i32")))
-local fill_i32 = ffi.cast("int32_t (*)(int32_t*, int32_t, int32_t)", artifact:getpointer(B1.BackFuncId("fill_i32")))
-local dot_i32 = ffi.cast("int32_t (*)(const int32_t*, const int32_t*, int32_t)", artifact:getpointer(B1.BackFuncId("dot_i32")))
-local prod_i32 = ffi.cast("int32_t (*)(const int32_t*, int32_t)", artifact:getpointer(B1.BackFuncId("prod_i32")))
-local xor_reduce_i32 = ffi.cast("int32_t (*)(const int32_t*, int32_t)", artifact:getpointer(B1.BackFuncId("xor_reduce_i32")))
-local copy_i32 = ffi.cast("int32_t (*)(int32_t*, const int32_t*, int32_t)", artifact:getpointer(B1.BackFuncId("copy_i32")))
-local add_i32 = ffi.cast("int32_t (*)(int32_t*, const int32_t*, const int32_t*, int32_t)", artifact:getpointer(B1.BackFuncId("add_i32")))
-local scale_i32 = ffi.cast("int32_t (*)(int32_t*, const int32_t*, int32_t, int32_t)", artifact:getpointer(B1.BackFuncId("scale_i32")))
-local inc_i32 = ffi.cast("int32_t (*)(int32_t*, int32_t)", artifact:getpointer(B1.BackFuncId("inc_i32")))
-local axpy_i32 = ffi.cast("int32_t (*)(int32_t*, const int32_t*, int32_t, int32_t)", artifact:getpointer(B1.BackFuncId("axpy_i32")))
-local and_i32 = ffi.cast("int32_t (*)(int32_t*, const int32_t*, const int32_t*, int32_t)", artifact:getpointer(B1.BackFuncId("and_i32")))
-local sub_i32 = ffi.cast("int32_t (*)(int32_t*, const int32_t*, const int32_t*, int32_t)", artifact:getpointer(B1.BackFuncId("sub_i32")))
-local or_i32 = ffi.cast("int32_t (*)(int32_t*, const int32_t*, const int32_t*, int32_t)", artifact:getpointer(B1.BackFuncId("or_i32")))
-local xor_i32 = ffi.cast("int32_t (*)(int32_t*, const int32_t*, const int32_t*, int32_t)", artifact:getpointer(B1.BackFuncId("xor_i32")))
-local sum_i64 = ffi.cast("int64_t (*)(const int64_t*, int32_t)", artifact:getpointer(B1.BackFuncId("sum_i64")))
-local add_i64 = ffi.cast("int32_t (*)(int64_t*, const int64_t*, const int64_t*, int32_t)", artifact:getpointer(B1.BackFuncId("add_i64")))
-local sub_i64 = ffi.cast("int32_t (*)(int64_t*, const int64_t*, const int64_t*, int32_t)", artifact:getpointer(B1.BackFuncId("sub_i64")))
-local dot_i64 = ffi.cast("int64_t (*)(const int64_t*, const int64_t*, int32_t)", artifact:getpointer(B1.BackFuncId("dot_i64")))
-local scale_i64 = ffi.cast("int32_t (*)(int64_t*, const int64_t*, int64_t, int32_t)", artifact:getpointer(B1.BackFuncId("scale_i64")))
-local or_i64 = ffi.cast("int32_t (*)(int64_t*, const int64_t*, const int64_t*, int32_t)", artifact:getpointer(B1.BackFuncId("or_i64")))
-local sum_u32 = ffi.cast("uint32_t (*)(const uint32_t*, int32_t)", artifact:getpointer(B1.BackFuncId("sum_u32")))
-local add_u32 = ffi.cast("int32_t (*)(uint32_t*, const uint32_t*, const uint32_t*, int32_t)", artifact:getpointer(B1.BackFuncId("add_u32")))
-local xor_u64 = ffi.cast("int32_t (*)(uint64_t*, const uint64_t*, const uint64_t*, int32_t)", artifact:getpointer(B1.BackFuncId("xor_u64")))
-local sum_u64 = ffi.cast("uint64_t (*)(const uint64_t*, int32_t)", artifact:getpointer(B1.BackFuncId("sum_u64")))
-local add_u64 = ffi.cast("int32_t (*)(uint64_t*, const uint64_t*, const uint64_t*, int32_t)", artifact:getpointer(B1.BackFuncId("add_u64")))
+local artifact = jit_api.jit():compile(program)
+local sum_i32 = ffi.cast("int32_t (*)(const int32_t*, int32_t)", artifact:getpointer(B2.BackFuncId("sum_i32")))
+local fill_i32 = ffi.cast("int32_t (*)(int32_t*, int32_t, int32_t)", artifact:getpointer(B2.BackFuncId("fill_i32")))
+local dot_i32 = ffi.cast("int32_t (*)(const int32_t*, const int32_t*, int32_t)", artifact:getpointer(B2.BackFuncId("dot_i32")))
+local prod_i32 = ffi.cast("int32_t (*)(const int32_t*, int32_t)", artifact:getpointer(B2.BackFuncId("prod_i32")))
+local xor_reduce_i32 = ffi.cast("int32_t (*)(const int32_t*, int32_t)", artifact:getpointer(B2.BackFuncId("xor_reduce_i32")))
+local copy_i32 = ffi.cast("int32_t (*)(int32_t*, const int32_t*, int32_t)", artifact:getpointer(B2.BackFuncId("copy_i32")))
+local add_i32 = ffi.cast("int32_t (*)(int32_t*, const int32_t*, const int32_t*, int32_t)", artifact:getpointer(B2.BackFuncId("add_i32")))
+local scale_i32 = ffi.cast("int32_t (*)(int32_t*, const int32_t*, int32_t, int32_t)", artifact:getpointer(B2.BackFuncId("scale_i32")))
+local inc_i32 = ffi.cast("int32_t (*)(int32_t*, int32_t)", artifact:getpointer(B2.BackFuncId("inc_i32")))
+local axpy_i32 = ffi.cast("int32_t (*)(int32_t*, const int32_t*, int32_t, int32_t)", artifact:getpointer(B2.BackFuncId("axpy_i32")))
+local and_i32 = ffi.cast("int32_t (*)(int32_t*, const int32_t*, const int32_t*, int32_t)", artifact:getpointer(B2.BackFuncId("and_i32")))
+local sub_i32 = ffi.cast("int32_t (*)(int32_t*, const int32_t*, const int32_t*, int32_t)", artifact:getpointer(B2.BackFuncId("sub_i32")))
+local or_i32 = ffi.cast("int32_t (*)(int32_t*, const int32_t*, const int32_t*, int32_t)", artifact:getpointer(B2.BackFuncId("or_i32")))
+local xor_i32 = ffi.cast("int32_t (*)(int32_t*, const int32_t*, const int32_t*, int32_t)", artifact:getpointer(B2.BackFuncId("xor_i32")))
+local sum_i64 = ffi.cast("int64_t (*)(const int64_t*, int32_t)", artifact:getpointer(B2.BackFuncId("sum_i64")))
+local add_i64 = ffi.cast("int32_t (*)(int64_t*, const int64_t*, const int64_t*, int32_t)", artifact:getpointer(B2.BackFuncId("add_i64")))
+local sub_i64 = ffi.cast("int32_t (*)(int64_t*, const int64_t*, const int64_t*, int32_t)", artifact:getpointer(B2.BackFuncId("sub_i64")))
+local dot_i64 = ffi.cast("int64_t (*)(const int64_t*, const int64_t*, int32_t)", artifact:getpointer(B2.BackFuncId("dot_i64")))
+local scale_i64 = ffi.cast("int32_t (*)(int64_t*, const int64_t*, int64_t, int32_t)", artifact:getpointer(B2.BackFuncId("scale_i64")))
+local or_i64 = ffi.cast("int32_t (*)(int64_t*, const int64_t*, const int64_t*, int32_t)", artifact:getpointer(B2.BackFuncId("or_i64")))
+local sum_u32 = ffi.cast("uint32_t (*)(const uint32_t*, int32_t)", artifact:getpointer(B2.BackFuncId("sum_u32")))
+local add_u32 = ffi.cast("int32_t (*)(uint32_t*, const uint32_t*, const uint32_t*, int32_t)", artifact:getpointer(B2.BackFuncId("add_u32")))
+local xor_u64 = ffi.cast("int32_t (*)(uint64_t*, const uint64_t*, const uint64_t*, int32_t)", artifact:getpointer(B2.BackFuncId("xor_u64")))
+local sum_u64 = ffi.cast("uint64_t (*)(const uint64_t*, int32_t)", artifact:getpointer(B2.BackFuncId("sum_u64")))
+local add_u64 = ffi.cast("int32_t (*)(uint64_t*, const uint64_t*, const uint64_t*, int32_t)", artifact:getpointer(B2.BackFuncId("add_u64")))
 local xs = ffi.new("int32_t[8]", { 1, 2, 3, 4, 5, 6, 7, 8 })
 assert(sum_i32(xs, 0) == 0)
 assert(sum_i32(xs, 4) == 10)

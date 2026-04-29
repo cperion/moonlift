@@ -12,7 +12,7 @@ export func json_valid_scalar(p: ptr(u8), n: i32, stack: ptr(i32), stack_cap: i3
     return control -> i32
     block dispatch(i: i32 = 0, depth: i32 = 0, expect: i32 = 0)
         if i >= n then jump eof(expect = expect, i = i) end
-        jump ws_space(i = i, depth = depth, expect = expect, c = zext<i32>(p[i]))
+        jump ws_space(i = i, depth = depth, expect = expect, c = as(i32, p[i]))
     end
 
     block eof(expect: i32, i: i32)
@@ -170,60 +170,60 @@ export func json_valid_scalar(p: ptr(u8), n: i32, stack: ptr(i32), stack_cap: i3
 
     block lit_true_r(i: i32, depth: i32, next: i32)
         if i >= n then yield i + 1 end
-        if zext<i32>(p[i]) == 114 then jump lit_true_u(i = i + 1, depth = depth, next = next) end
+        if as(i32, p[i]) == 114 then jump lit_true_u(i = i + 1, depth = depth, next = next) end
         yield i + 1
     end
     block lit_true_u(i: i32, depth: i32, next: i32)
         if i >= n then yield i + 1 end
-        if zext<i32>(p[i]) == 117 then jump lit_true_e(i = i + 1, depth = depth, next = next) end
+        if as(i32, p[i]) == 117 then jump lit_true_e(i = i + 1, depth = depth, next = next) end
         yield i + 1
     end
     block lit_true_e(i: i32, depth: i32, next: i32)
         if i >= n then yield i + 1 end
-        if zext<i32>(p[i]) == 101 then jump dispatch(i = i + 1, depth = depth, expect = next) end
+        if as(i32, p[i]) == 101 then jump dispatch(i = i + 1, depth = depth, expect = next) end
         yield i + 1
     end
 
     block lit_false_a(i: i32, depth: i32, next: i32)
         if i >= n then yield i + 1 end
-        if zext<i32>(p[i]) == 97 then jump lit_false_l(i = i + 1, depth = depth, next = next) end
+        if as(i32, p[i]) == 97 then jump lit_false_l(i = i + 1, depth = depth, next = next) end
         yield i + 1
     end
     block lit_false_l(i: i32, depth: i32, next: i32)
         if i >= n then yield i + 1 end
-        if zext<i32>(p[i]) == 108 then jump lit_false_s(i = i + 1, depth = depth, next = next) end
+        if as(i32, p[i]) == 108 then jump lit_false_s(i = i + 1, depth = depth, next = next) end
         yield i + 1
     end
     block lit_false_s(i: i32, depth: i32, next: i32)
         if i >= n then yield i + 1 end
-        if zext<i32>(p[i]) == 115 then jump lit_false_e(i = i + 1, depth = depth, next = next) end
+        if as(i32, p[i]) == 115 then jump lit_false_e(i = i + 1, depth = depth, next = next) end
         yield i + 1
     end
     block lit_false_e(i: i32, depth: i32, next: i32)
         if i >= n then yield i + 1 end
-        if zext<i32>(p[i]) == 101 then jump dispatch(i = i + 1, depth = depth, expect = next) end
+        if as(i32, p[i]) == 101 then jump dispatch(i = i + 1, depth = depth, expect = next) end
         yield i + 1
     end
 
     block lit_null_u(i: i32, depth: i32, next: i32)
         if i >= n then yield i + 1 end
-        if zext<i32>(p[i]) == 117 then jump lit_null_l1(i = i + 1, depth = depth, next = next) end
+        if as(i32, p[i]) == 117 then jump lit_null_l1(i = i + 1, depth = depth, next = next) end
         yield i + 1
     end
     block lit_null_l1(i: i32, depth: i32, next: i32)
         if i >= n then yield i + 1 end
-        if zext<i32>(p[i]) == 108 then jump lit_null_l2(i = i + 1, depth = depth, next = next) end
+        if as(i32, p[i]) == 108 then jump lit_null_l2(i = i + 1, depth = depth, next = next) end
         yield i + 1
     end
     block lit_null_l2(i: i32, depth: i32, next: i32)
         if i >= n then yield i + 1 end
-        if zext<i32>(p[i]) == 108 then jump dispatch(i = i + 1, depth = depth, expect = next) end
+        if as(i32, p[i]) == 108 then jump dispatch(i = i + 1, depth = depth, expect = next) end
         yield i + 1
     end
 
     block string_scan(i: i32, depth: i32, next: i32)
         if i >= n then yield i + 1 end
-        jump string_quote(i = i, depth = depth, next = next, c = zext<i32>(p[i]))
+        jump string_quote(i = i, depth = depth, next = next, c = as(i32, p[i]))
     end
     block string_quote(i: i32, depth: i32, next: i32, c: i32)
         if c == 34 then jump dispatch(i = i + 1, depth = depth, expect = next) end
@@ -240,7 +240,7 @@ export func json_valid_scalar(p: ptr(u8), n: i32, stack: ptr(i32), stack_cap: i3
 
     block escape_start(i: i32, depth: i32, next: i32)
         if i >= n then yield i + 1 end
-        jump escape_quote(i = i, depth = depth, next = next, c = zext<i32>(p[i]))
+        jump escape_quote(i = i, depth = depth, next = next, c = as(i32, p[i]))
     end
     block escape_quote(i: i32, depth: i32, next: i32, c: i32)
         if c == 34 then jump string_scan(i = i + 1, depth = depth, next = next) end
@@ -282,7 +282,7 @@ export func json_valid_scalar(p: ptr(u8), n: i32, stack: ptr(i32), stack_cap: i3
     block hex_check(i: i32, depth: i32, next: i32, count: i32)
         if count <= 0 then jump string_scan(i = i, depth = depth, next = next) end
         if i >= n then yield i + 1 end
-        jump hex_digit_lo(i = i, depth = depth, next = next, count = count, c = zext<i32>(p[i]))
+        jump hex_digit_lo(i = i, depth = depth, next = next, count = count, c = as(i32, p[i]))
     end
     block hex_digit_lo(i: i32, depth: i32, next: i32, count: i32, c: i32)
         if c >= 48 then jump hex_digit_hi(i = i, depth = depth, next = next, count = count, c = c) end
@@ -311,7 +311,7 @@ export func json_valid_scalar(p: ptr(u8), n: i32, stack: ptr(i32), stack_cap: i3
 
     block number_after_minus(i: i32, depth: i32, next: i32)
         if i >= n then yield i + 1 end
-        jump number_int_first(i = i, depth = depth, next = next, c = zext<i32>(p[i]))
+        jump number_int_first(i = i, depth = depth, next = next, c = as(i32, p[i]))
     end
     block number_int_first(i: i32, depth: i32, next: i32, c: i32)
         if c == 48 then jump number_after_zero(i = i + 1, depth = depth, next = next) end
@@ -327,7 +327,7 @@ export func json_valid_scalar(p: ptr(u8), n: i32, stack: ptr(i32), stack_cap: i3
     end
     block number_int_tail(i: i32, depth: i32, next: i32)
         if i >= n then jump dispatch(i = i, depth = depth, expect = next) end
-        jump number_tail_digit_lo(i = i, depth = depth, next = next, c = zext<i32>(p[i]))
+        jump number_tail_digit_lo(i = i, depth = depth, next = next, c = as(i32, p[i]))
     end
     block number_tail_digit_lo(i: i32, depth: i32, next: i32, c: i32)
         if c >= 48 then jump number_tail_digit_hi(i = i, depth = depth, next = next, c = c) end
@@ -339,7 +339,7 @@ export func json_valid_scalar(p: ptr(u8), n: i32, stack: ptr(i32), stack_cap: i3
     end
     block number_after_zero(i: i32, depth: i32, next: i32)
         if i >= n then jump dispatch(i = i, depth = depth, expect = next) end
-        jump number_zero_digit_lo(i = i, depth = depth, next = next, c = zext<i32>(p[i]))
+        jump number_zero_digit_lo(i = i, depth = depth, next = next, c = as(i32, p[i]))
     end
     block number_zero_digit_lo(i: i32, depth: i32, next: i32, c: i32)
         if c >= 48 then jump number_zero_digit_hi(i = i, depth = depth, next = next, c = c) end
@@ -363,7 +363,7 @@ export func json_valid_scalar(p: ptr(u8), n: i32, stack: ptr(i32), stack_cap: i3
     end
     block number_frac_first(i: i32, depth: i32, next: i32)
         if i >= n then yield i + 1 end
-        jump number_frac_digit_lo(i = i, depth = depth, next = next, c = zext<i32>(p[i]))
+        jump number_frac_digit_lo(i = i, depth = depth, next = next, c = as(i32, p[i]))
     end
     block number_frac_digit_lo(i: i32, depth: i32, next: i32, c: i32)
         if c >= 48 then jump number_frac_digit_hi(i = i, depth = depth, next = next, c = c) end
@@ -375,7 +375,7 @@ export func json_valid_scalar(p: ptr(u8), n: i32, stack: ptr(i32), stack_cap: i3
     end
     block number_frac_tail(i: i32, depth: i32, next: i32)
         if i >= n then jump dispatch(i = i, depth = depth, expect = next) end
-        jump number_frac_tail_digit_lo(i = i, depth = depth, next = next, c = zext<i32>(p[i]))
+        jump number_frac_tail_digit_lo(i = i, depth = depth, next = next, c = as(i32, p[i]))
     end
     block number_frac_tail_digit_lo(i: i32, depth: i32, next: i32, c: i32)
         if c >= 48 then jump number_frac_tail_digit_hi(i = i, depth = depth, next = next, c = c) end
@@ -387,7 +387,7 @@ export func json_valid_scalar(p: ptr(u8), n: i32, stack: ptr(i32), stack_cap: i3
     end
     block number_exp_start(i: i32, depth: i32, next: i32)
         if i >= n then yield i + 1 end
-        jump number_exp_plus(i = i, depth = depth, next = next, c = zext<i32>(p[i]))
+        jump number_exp_plus(i = i, depth = depth, next = next, c = as(i32, p[i]))
     end
     block number_exp_plus(i: i32, depth: i32, next: i32, c: i32)
         if c == 43 then jump number_exp_first(i = i + 1, depth = depth, next = next) end
@@ -399,7 +399,7 @@ export func json_valid_scalar(p: ptr(u8), n: i32, stack: ptr(i32), stack_cap: i3
     end
     block number_exp_first(i: i32, depth: i32, next: i32)
         if i >= n then yield i + 1 end
-        jump number_exp_first_c(i = i, depth = depth, next = next, c = zext<i32>(p[i]))
+        jump number_exp_first_c(i = i, depth = depth, next = next, c = as(i32, p[i]))
     end
     block number_exp_first_c(i: i32, depth: i32, next: i32, c: i32)
         if c >= 48 then jump number_exp_first_hi(i = i, depth = depth, next = next, c = c) end
@@ -411,7 +411,7 @@ export func json_valid_scalar(p: ptr(u8), n: i32, stack: ptr(i32), stack_cap: i3
     end
     block number_exp_tail(i: i32, depth: i32, next: i32)
         if i >= n then jump dispatch(i = i, depth = depth, expect = next) end
-        jump number_exp_tail_lo(i = i, depth = depth, next = next, c = zext<i32>(p[i]))
+        jump number_exp_tail_lo(i = i, depth = depth, next = next, c = as(i32, p[i]))
     end
     block number_exp_tail_lo(i: i32, depth: i32, next: i32, c: i32)
         if c >= 48 then jump number_exp_tail_hi(i = i, depth = depth, next = next, c = c) end
@@ -446,7 +446,7 @@ export func json_decode_tape_scalar(p: ptr(u8), n: i32, stack_next: ptr(i32), st
     return control -> i32
     block dispatch(i: i32 = 0, depth: i32 = 0, expect: i32 = 0)
         if i >= n then jump eof(expect = expect, i = i) end
-        jump ws_space(i = i, depth = depth, expect = expect, c = zext<i32>(p[i]))
+        jump ws_space(i = i, depth = depth, expect = expect, c = as(i32, p[i]))
     end
 
     block eof(expect: i32, i: i32)
@@ -642,60 +642,60 @@ export func json_decode_tape_scalar(p: ptr(u8), n: i32, stack_next: ptr(i32), st
 
     block lit_true_r(i: i32, depth: i32, next: i32, start: i32)
         if i >= n then yield -(i + 1) end
-        if zext<i32>(p[i]) == 114 then jump lit_true_u(i = i + 1, depth = depth, next = next, start = start) end
+        if as(i32, p[i]) == 114 then jump lit_true_u(i = i + 1, depth = depth, next = next, start = start) end
         yield -(i + 1)
     end
     block lit_true_u(i: i32, depth: i32, next: i32, start: i32)
         if i >= n then yield -(i + 1) end
-        if zext<i32>(p[i]) == 117 then jump lit_true_e(i = i + 1, depth = depth, next = next, start = start) end
+        if as(i32, p[i]) == 117 then jump lit_true_e(i = i + 1, depth = depth, next = next, start = start) end
         yield -(i + 1)
     end
     block lit_true_e(i: i32, depth: i32, next: i32, start: i32)
         if i >= n then yield -(i + 1) end
-        if zext<i32>(p[i]) == 101 then jump emit_simple(i = i + 1, depth = depth, next = next, tag = 8, aa = start, bb = 1) end
+        if as(i32, p[i]) == 101 then jump emit_simple(i = i + 1, depth = depth, next = next, tag = 8, aa = start, bb = 1) end
         yield -(i + 1)
     end
 
     block lit_false_a(i: i32, depth: i32, next: i32, start: i32)
         if i >= n then yield -(i + 1) end
-        if zext<i32>(p[i]) == 97 then jump lit_false_l(i = i + 1, depth = depth, next = next, start = start) end
+        if as(i32, p[i]) == 97 then jump lit_false_l(i = i + 1, depth = depth, next = next, start = start) end
         yield -(i + 1)
     end
     block lit_false_l(i: i32, depth: i32, next: i32, start: i32)
         if i >= n then yield -(i + 1) end
-        if zext<i32>(p[i]) == 108 then jump lit_false_s(i = i + 1, depth = depth, next = next, start = start) end
+        if as(i32, p[i]) == 108 then jump lit_false_s(i = i + 1, depth = depth, next = next, start = start) end
         yield -(i + 1)
     end
     block lit_false_s(i: i32, depth: i32, next: i32, start: i32)
         if i >= n then yield -(i + 1) end
-        if zext<i32>(p[i]) == 115 then jump lit_false_e(i = i + 1, depth = depth, next = next, start = start) end
+        if as(i32, p[i]) == 115 then jump lit_false_e(i = i + 1, depth = depth, next = next, start = start) end
         yield -(i + 1)
     end
     block lit_false_e(i: i32, depth: i32, next: i32, start: i32)
         if i >= n then yield -(i + 1) end
-        if zext<i32>(p[i]) == 101 then jump emit_simple(i = i + 1, depth = depth, next = next, tag = 9, aa = start, bb = 0) end
+        if as(i32, p[i]) == 101 then jump emit_simple(i = i + 1, depth = depth, next = next, tag = 9, aa = start, bb = 0) end
         yield -(i + 1)
     end
 
     block lit_null_u(i: i32, depth: i32, next: i32, start: i32)
         if i >= n then yield -(i + 1) end
-        if zext<i32>(p[i]) == 117 then jump lit_null_l1(i = i + 1, depth = depth, next = next, start = start) end
+        if as(i32, p[i]) == 117 then jump lit_null_l1(i = i + 1, depth = depth, next = next, start = start) end
         yield -(i + 1)
     end
     block lit_null_l1(i: i32, depth: i32, next: i32, start: i32)
         if i >= n then yield -(i + 1) end
-        if zext<i32>(p[i]) == 108 then jump lit_null_l2(i = i + 1, depth = depth, next = next, start = start) end
+        if as(i32, p[i]) == 108 then jump lit_null_l2(i = i + 1, depth = depth, next = next, start = start) end
         yield -(i + 1)
     end
     block lit_null_l2(i: i32, depth: i32, next: i32, start: i32)
         if i >= n then yield -(i + 1) end
-        if zext<i32>(p[i]) == 108 then jump emit_simple(i = i + 1, depth = depth, next = next, tag = 10, aa = start, bb = 0) end
+        if as(i32, p[i]) == 108 then jump emit_simple(i = i + 1, depth = depth, next = next, tag = 10, aa = start, bb = 0) end
         yield -(i + 1)
     end
 
     block string_scan(i: i32, depth: i32, next: i32, start: i32, tag: i32)
         if i >= n then yield -(i + 1) end
-        jump string_quote(i = i, depth = depth, next = next, start = start, tag = tag, c = zext<i32>(p[i]))
+        jump string_quote(i = i, depth = depth, next = next, start = start, tag = tag, c = as(i32, p[i]))
     end
     block string_quote(i: i32, depth: i32, next: i32, start: i32, tag: i32, c: i32)
         if c == 34 then jump emit_simple(i = i + 1, depth = depth, next = next, tag = tag, aa = start, bb = i - start) end
@@ -712,7 +712,7 @@ export func json_decode_tape_scalar(p: ptr(u8), n: i32, stack_next: ptr(i32), st
 
     block escape_start(i: i32, depth: i32, next: i32, start: i32, tag: i32)
         if i >= n then yield -(i + 1) end
-        jump escape_quote(i = i, depth = depth, next = next, start = start, tag = tag, c = zext<i32>(p[i]))
+        jump escape_quote(i = i, depth = depth, next = next, start = start, tag = tag, c = as(i32, p[i]))
     end
     block escape_quote(i: i32, depth: i32, next: i32, start: i32, tag: i32, c: i32)
         if c == 34 then jump string_scan(i = i + 1, depth = depth, next = next, start = start, tag = tag) end
@@ -754,7 +754,7 @@ export func json_decode_tape_scalar(p: ptr(u8), n: i32, stack_next: ptr(i32), st
     block hex_check(i: i32, depth: i32, next: i32, start: i32, tag: i32, count: i32)
         if count <= 0 then jump string_scan(i = i, depth = depth, next = next, start = start, tag = tag) end
         if i >= n then yield -(i + 1) end
-        jump hex_digit_lo(i = i, depth = depth, next = next, start = start, tag = tag, count = count, c = zext<i32>(p[i]))
+        jump hex_digit_lo(i = i, depth = depth, next = next, start = start, tag = tag, count = count, c = as(i32, p[i]))
     end
     block hex_digit_lo(i: i32, depth: i32, next: i32, start: i32, tag: i32, count: i32, c: i32)
         if c >= 48 then jump hex_digit_hi(i = i, depth = depth, next = next, start = start, tag = tag, count = count, c = c) end
@@ -783,7 +783,7 @@ export func json_decode_tape_scalar(p: ptr(u8), n: i32, stack_next: ptr(i32), st
 
     block number_after_minus(i: i32, depth: i32, next: i32, start: i32)
         if i >= n then yield -(i + 1) end
-        jump number_int_first(i = i, depth = depth, next = next, c = zext<i32>(p[i]), start = start)
+        jump number_int_first(i = i, depth = depth, next = next, c = as(i32, p[i]), start = start)
     end
     block number_int_first(i: i32, depth: i32, next: i32, c: i32, start: i32)
         if c == 48 then jump number_after_zero(i = i + 1, depth = depth, next = next, start = start) end
@@ -799,7 +799,7 @@ export func json_decode_tape_scalar(p: ptr(u8), n: i32, stack_next: ptr(i32), st
     end
     block number_int_tail(i: i32, depth: i32, next: i32, start: i32)
         if i >= n then jump emit_simple(i = i, depth = depth, next = next, tag = 7, aa = start, bb = i - start) end
-        jump number_tail_digit_lo(i = i, depth = depth, next = next, start = start, c = zext<i32>(p[i]))
+        jump number_tail_digit_lo(i = i, depth = depth, next = next, start = start, c = as(i32, p[i]))
     end
     block number_tail_digit_lo(i: i32, depth: i32, next: i32, start: i32, c: i32)
         if c >= 48 then jump number_tail_digit_hi(i = i, depth = depth, next = next, start = start, c = c) end
@@ -811,7 +811,7 @@ export func json_decode_tape_scalar(p: ptr(u8), n: i32, stack_next: ptr(i32), st
     end
     block number_after_zero(i: i32, depth: i32, next: i32, start: i32)
         if i >= n then jump emit_simple(i = i, depth = depth, next = next, tag = 7, aa = start, bb = i - start) end
-        jump number_zero_digit_lo(i = i, depth = depth, next = next, start = start, c = zext<i32>(p[i]))
+        jump number_zero_digit_lo(i = i, depth = depth, next = next, start = start, c = as(i32, p[i]))
     end
     block number_zero_digit_lo(i: i32, depth: i32, next: i32, start: i32, c: i32)
         if c >= 48 then jump number_zero_digit_hi(i = i, depth = depth, next = next, start = start, c = c) end
@@ -835,7 +835,7 @@ export func json_decode_tape_scalar(p: ptr(u8), n: i32, stack_next: ptr(i32), st
     end
     block number_frac_first(i: i32, depth: i32, next: i32, start: i32)
         if i >= n then yield -(i + 1) end
-        jump number_frac_digit_lo(i = i, depth = depth, next = next, start = start, c = zext<i32>(p[i]))
+        jump number_frac_digit_lo(i = i, depth = depth, next = next, start = start, c = as(i32, p[i]))
     end
     block number_frac_digit_lo(i: i32, depth: i32, next: i32, start: i32, c: i32)
         if c >= 48 then jump number_frac_digit_hi(i = i, depth = depth, next = next, start = start, c = c) end
@@ -847,7 +847,7 @@ export func json_decode_tape_scalar(p: ptr(u8), n: i32, stack_next: ptr(i32), st
     end
     block number_frac_tail(i: i32, depth: i32, next: i32, start: i32)
         if i >= n then jump emit_simple(i = i, depth = depth, next = next, tag = 7, aa = start, bb = i - start) end
-        jump number_frac_tail_digit_lo(i = i, depth = depth, next = next, start = start, c = zext<i32>(p[i]))
+        jump number_frac_tail_digit_lo(i = i, depth = depth, next = next, start = start, c = as(i32, p[i]))
     end
     block number_frac_tail_digit_lo(i: i32, depth: i32, next: i32, start: i32, c: i32)
         if c >= 48 then jump number_frac_tail_digit_hi(i = i, depth = depth, next = next, start = start, c = c) end
@@ -859,7 +859,7 @@ export func json_decode_tape_scalar(p: ptr(u8), n: i32, stack_next: ptr(i32), st
     end
     block number_exp_start(i: i32, depth: i32, next: i32, start: i32)
         if i >= n then yield -(i + 1) end
-        jump number_exp_plus(i = i, depth = depth, next = next, start = start, c = zext<i32>(p[i]))
+        jump number_exp_plus(i = i, depth = depth, next = next, start = start, c = as(i32, p[i]))
     end
     block number_exp_plus(i: i32, depth: i32, next: i32, start: i32, c: i32)
         if c == 43 then jump number_exp_first(i = i + 1, depth = depth, next = next, start = start) end
@@ -871,7 +871,7 @@ export func json_decode_tape_scalar(p: ptr(u8), n: i32, stack_next: ptr(i32), st
     end
     block number_exp_first(i: i32, depth: i32, next: i32, start: i32)
         if i >= n then yield -(i + 1) end
-        jump number_exp_first_c(i = i, depth = depth, next = next, start = start, c = zext<i32>(p[i]))
+        jump number_exp_first_c(i = i, depth = depth, next = next, start = start, c = as(i32, p[i]))
     end
     block number_exp_first_c(i: i32, depth: i32, next: i32, start: i32, c: i32)
         if c >= 48 then jump number_exp_first_hi(i = i, depth = depth, next = next, start = start, c = c) end
@@ -883,7 +883,7 @@ export func json_decode_tape_scalar(p: ptr(u8), n: i32, stack_next: ptr(i32), st
     end
     block number_exp_tail(i: i32, depth: i32, next: i32, start: i32)
         if i >= n then jump emit_simple(i = i, depth = depth, next = next, tag = 7, aa = start, bb = i - start) end
-        jump number_exp_tail_lo(i = i, depth = depth, next = next, start = start, c = zext<i32>(p[i]))
+        jump number_exp_tail_lo(i = i, depth = depth, next = next, start = start, c = as(i32, p[i]))
     end
     block number_exp_tail_lo(i: i32, depth: i32, next: i32, start: i32, c: i32)
         if c >= 48 then jump number_exp_tail_hi(i = i, depth = depth, next = next, start = start, c = c) end
@@ -1073,7 +1073,7 @@ export func json_find_field_raw_scalar(p: ptr(u8), tags: ptr(i32), a: ptr(i32), 
     end
     block cmp(child: i32, key_idx: i32, j: i32)
         if j >= key_len then yield child end
-        if zext<i32>(p[a[key_idx] + j]) == zext<i32>(key[j]) then jump cmp(child = child, key_idx = key_idx, j = j + 1) end
+        if as(i32, p[a[key_idx] + j]) == as(i32, key[j]) then jump cmp(child = child, key_idx = key_idx, j = j + 1) end
         jump loop(child = next_sibling[child])
     end
     end
@@ -1103,18 +1103,18 @@ export func json_read_i32_scalar(p: ptr(u8), tags: ptr(i32), a: ptr(i32), b: ptr
     block start()
         if value_idx < 0 then yield -1 end
         if tags[value_idx] ~= 7 then yield -1 end
-        jump begin(sign = 1, i = a[value_idx], stop = a[value_idx] + b[value_idx], acc = zext<i64>(0), seen = 0)
+        jump begin(sign = 1, i = a[value_idx], stop = a[value_idx] + b[value_idx], acc = as(i64, 0), seen = 0)
     end
     block begin(sign: i32, i: i32, stop: i32, acc: i64, seen: i32)
         if i >= stop then yield -1 end
-        if zext<i32>(p[i]) == 45 then jump digits(sign = -1, i = i + 1, stop = stop, acc = zext<i64>(0), seen = 0) end
+        if as(i32, p[i]) == 45 then jump digits(sign = -1, i = i + 1, stop = stop, acc = as(i64, 0), seen = 0) end
         jump digits(sign = sign, i = i, stop = stop, acc = acc, seen = seen)
     end
     block digits(sign: i32, i: i32, stop: i32, acc: i64, seen: i32)
         if i >= stop then jump finish(sign = sign, acc = acc, seen = seen) end
-        let c: i32 = zext<i32>(p[i])
+        let c: i32 = as(i32, p[i])
         if c >= 48 then
-            if c <= 57 then jump digit_checked(sign = sign, i = i, stop = stop, acc = acc, seen = seen, d = zext<i64>(c) - 48) end
+            if c <= 57 then jump digit_checked(sign = sign, i = i, stop = stop, acc = acc, seen = seen, d = as(i64, c) - 48) end
         end
         yield -1
     end
@@ -1133,11 +1133,11 @@ export func json_read_i32_scalar(p: ptr(u8), tags: ptr(i32), a: ptr(i32), b: ptr
     block finish(sign: i32, acc: i64, seen: i32)
         if seen == 0 then yield -1 end
         if sign == -1 then jump finish_neg(acc = acc) end
-        out[0] = trunc<i32>(acc)
+        out[0] = as(i32, acc)
         yield 0
     end
     block finish_neg(acc: i64)
-        out[0] = 0 - trunc<i32>(acc)
+        out[0] = 0 - as(i32, acc)
         yield 0
     end
     end

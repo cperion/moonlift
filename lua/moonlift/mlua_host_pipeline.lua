@@ -45,7 +45,15 @@ function M.Define(T)
         return layouts, facts
     end
 
+    local function has_lua_facet(expose)
+        for i = 1, #expose.facets do
+            if expose.facets[i].target == H.HostExposeLua then return true end
+        end
+        return false
+    end
+
     local function add_access_facts_for_expose(facts, expose, env, expose_facts)
+        if not has_lua_facet(expose) then return end
         for i = 1, #expose_facts.facts do
             local fact = expose_facts.facts[i]
             if pvm.classof(fact) == H.HostFactViewDescriptor then

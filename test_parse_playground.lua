@@ -2,29 +2,25 @@ package.path = "./?.lua;./?/init.lua;./moonlift/lua/?.lua;./moonlift/lua/?/init.
 
 local ffi = require("ffi")
 local pvm = require("moonlift.pvm")
-local A1 = require("moonlift_legacy.asdl")
 local A2 = require("moonlift.asdl")
 local Parse = require("moonlift.parse")
 local Typecheck = require("moonlift.tree_typecheck")
 local TreeToBack = require("moonlift.tree_to_back")
 local Validate = require("moonlift.back_validate")
-local Bridge = require("moonlift.back_to_moonlift")
-local J = require("moonlift_legacy.jit")
+local J = require("moonlift.back_jit")
 local VecFacts = require("moonlift.vec_loop_facts")
 local VecDecide = require("moonlift.vec_loop_decide")
 
 local T = pvm.context()
-A1.Define(T)
 A2.Define(T)
 local P = Parse.Define(T)
 local TC = Typecheck.Define(T)
 local Lower = TreeToBack.Define(T)
 local VBack = Validate.Define(T)
-local bridge = Bridge.Define(T)
 local jit_api = J.Define(T)
 local VF = VecFacts.Define(T)
 local VD = VecDecide.Define(T)
-local B1 = T.MoonliftBack
+local B2 = T.Moon2Back
 local Vec = T.Moon2Vec
 
 local src = [[
@@ -116,11 +112,11 @@ local first_region = checked.module.items[4].func.body[1].value.region
 local first_facts = VF.facts(first_region)
 print("multi-block source", pvm.classof(first_facts.source) == Vec.VecLoopSourceRejected and "not a vector loop yet" or "recognized")
 
-local artifact = jit_api.jit():compile(bridge.lower_program(program))
-local tri = ffi.cast("int32_t (*)(int32_t)", artifact:getpointer(B1.BackFuncId("tri")))
-local fact = ffi.cast("int32_t (*)(int32_t)", artifact:getpointer(B1.BackFuncId("fact")))
-local clamp = ffi.cast("int32_t (*)(int32_t)", artifact:getpointer(B1.BackFuncId("clamp_nonneg")))
-local first = ffi.cast("int32_t (*)(int32_t)", artifact:getpointer(B1.BackFuncId("first_three_or_n")))
+local artifact = jit_api.jit():compile(program)
+local tri = ffi.cast("int32_t (*)(int32_t)", artifact:getpointer(B2.BackFuncId("tri")))
+local fact = ffi.cast("int32_t (*)(int32_t)", artifact:getpointer(B2.BackFuncId("fact")))
+local clamp = ffi.cast("int32_t (*)(int32_t)", artifact:getpointer(B2.BackFuncId("clamp_nonneg")))
+local first = ffi.cast("int32_t (*)(int32_t)", artifact:getpointer(B2.BackFuncId("first_three_or_n")))
 assert(tri(10) == 45)
 assert(fact(5) == 120)
 assert(clamp(-7) == 0)

@@ -16,6 +16,8 @@ lower layers cleanly.
 - [x] `ASDL2_REFACTOR_MAP.md` maps old rich ASDL concepts into ASDL2 homes
 - [x] `FILE_NAMING.md` defines file naming discipline from ASDL modules/types
 - [x] `SOURCE_GRAMMAR.md` defines the jump-first authored language grammar target
+- [x] `LANGUAGE_REFERENCE.md` is the complete single-file Moonlift language reference
+- [x] `lua/moonlift/ast.lua` exposes LuaLS-documented ASDL source constructors (`moonlift.ast`) for hosted Lua program generation
 - [x] ASDL-backed project-management model exists (`project_asdl.lua`)
 - [x] project ready/blocked/report phases exist
 
@@ -43,7 +45,9 @@ Files should use `back_` prefix.
 - [x] `Moon2Back.BackProgram` exists
 - [x] categorized `Moon2Back.Cmd` exists
 - [x] backend validation issue/report ASDL exists
-- [ ] `back_program.lua` construction conveniences exist if needed
+- [x] first fact-rich backend schema slice exists: canonical `BackTargetModel`, explicit address/provenance values, `BackMemoryInfo`, relational `BackAliasFact`, split int/bit/shift/rotate/float scalar commands, and split vector binary commands
+- [x] `back_target_model.lua` provides the default executable `BackTargetModel` plus derived `HostTargetModel` / `VecTargetModel` facets, covered by `test_back_target_model.lua`
+- [x] `back_program.lua` construction conveniences exist as pure ASDL `BackProgram` builders (`empty`, `program`, `singleton`, `append`, `extend`, `concat`, `cmds`) covered by `test_back_program.lua`
 
 ### Validation
 
@@ -57,23 +61,32 @@ Files should use `back_` prefix.
 - [x] validation covers data object references
 - [x] validation covers call target/signature references
 - [x] validation covers scalar/vector shape requirements for categorized commands
+- [x] validation covers the first fact-rich load/store slice: access mode, alignment, dereference byte coverage, nontrapping/motion evidence shape, address value refs, and alias access refs
+- [x] validation covers active target-supported shape facts and split scalar arithmetic domains (`int`, `float`, `bit`, `shift`/`rotate`)
 
-### Bridge / execution through current backend
+### Direct execution through current backend
 
-- [x] `back_to_moonlift.lua` lowers `Moon2Back.BackProgram -> MoonliftBack.BackProgram`
-- [x] `test_back_to_moonlift.lua` validates structural command translation
-- [x] `test_back_bridge_coverage.lua` exercises every `Moon2Back.Cmd` category and every backend op family through the bridge/fact gatherer
-- [x] `test_back_add_i32.lua` compiles and runs add_i32 through current Rust backend
+- [x] `back_jit.lua` replays `Moon2Back.BackProgram` directly into the retained Rust/Cranelift FFI command builder
+- [x] legacy `Moon2Back -> MoonliftBack` bridge removed from the active compile path
+- [x] `test_back_add_i32.lua` compiles and runs add_i32 through direct `Moon2Back` backend replay
 - [x] branch/select vertical slice compiles and runs
 - [x] call vertical slice compiles and runs
 - [x] load/store/stack slot vertical slice compiles and runs
 - [x] data object vertical slice compiles and runs
 - [x] vector command smoke slice compiles or is explicitly deferred
-- [x] vector compare/select backend slice (`CmdVecCompare` / `CmdVecSelect` / mask commands) bridges to MoonliftBack and executes through Rust/Cranelift
+- [x] vector compare/select backend slice (`CmdVecCompare` / `CmdVecSelect` / mask commands) executes through direct `Moon2Back` backend replay and Rust/Cranelift
 - [x] cast/intrinsic/switch vertical slice compiles and runs
 - [x] extern-call and memcpy/memset vertical slice compiles and runs
 - [x] indirect-call and stmt-call vertical slice compiles and runs
 - [x] data zero-init / alias / unary bit-bool ops vertical slice compiles and runs
+- [x] first fact-rich backend smoke slice (`CmdStoreInfo` / `CmdLoadInfo` with explicit `BackAddress`, `BackMemoryInfo`, and `BackAliasFact`) validates and executes through `back_jit.lua`
+- [x] vector-kernel backend lowering emits fact-rich `CmdLoadInfo` / `CmdStoreInfo` for kernel memory accesses, carries proven/assumed kernel safety into `BackDereference` / `BackTrap`, carries vector-kernel alignment evidence into `BackAlignment`, emits relational `BackAliasFact` commands, emits split scalar arithmetic commands for loop/index/tail arithmetic, and emits split `CmdVecBinary` commands for vector arithmetic/bitwise ops
+- [x] scalar/tree backend lowering emits fact-rich `CmdLoadInfo` / `CmdStoreInfo`, explicit `CmdPtrOffset`, and split scalar arithmetic commands for source loads/stores, field access, view indexing/windows, descriptor wrappers, and view-return stores
+- [x] obsolete generic executable command variants `CmdBinary`, `CmdLoad`, and `CmdStore` and the obsolete `BackBinaryOp` enum are removed from active `Moon2Back`; manual backend tests now use the fact-rich command families
+- [x] Rust/FFI memory execution now owns fact-rich `BackMemoryInfo` for scalar/vector loads and stores; old Rust `Load` / `Store` / `VecLoad` / `VecStore` command variants and FFI entry points are removed, and exact safe facts map conservatively to Cranelift `MemFlags` (`notrap`, `checked`, `can_move`, natural `aligned`)
+- [x] Rust/FFI scalar arithmetic replay now has split fact-rich entry points for `CmdIntBinary`, `CmdBitBinary`, `CmdShift`, `CmdRotate`, and `CmdFloatBinary`; integer overflow/exactness and float strict/fast-math facts are represented in Rust command values even where Cranelift has no matching metadata
+- [x] Rust/FFI compare and pointer-address replay now use explicit `compare`, `ptr_add`, and `ptr_offset` entry points; the old generic `moonlift_program_cmd_binary` FFI path is removed from active replay
+- [x] `back_inspect.lua` produces ASDL-backed backend inspection reports for command counts, target models, address/provenance and pointer-offset formation facts, memory facts, alias facts, and int/float semantic facts, covered by `test_back_inspect.lua`
 
 Do not start broad `Moon2Tree` lowering before `Moon2Back` can execute basic flat
 programs.
@@ -176,17 +189,22 @@ Files should use `vec_` prefix.
 - [x] `vec_loop_facts.lua` gathers canonical counted-loop facts from jump-first control regions
 - [x] `vec_loop_facts.lua` gathers indexed view/raw-address load facts and indexed store facts with explicit `VecMemoryBase`
 - [x] `vec_loop_facts.lua` derives initial alias/dependence facts from `VecMemoryBase`, access pattern, and lane-index evidence
-- [x] `vec_loop_decide.lua` produces `VecLoopDecision`
+- [x] `vec_loop_decide.lua` produces `VecLoopDecision` with explicit `VecLegality` and `VecSchedule` facets
 - [x] `vec_to_back.lua` lowers selected vector/scalar code shape to `Moon2Back`
 - [x] `vec_kernel_plan.lua` converts typed control regions into explicit generic, element-typed `VecKernelPlan` / `VecKernelExpr` / store/reduction values with target-op gating and explicit reduction identity values
 - [x] `vec_kernel_safety.lua` classifies `VecKernelCore` memory uses into explicit `VecKernelSafetyDecision` values
 - [x] `tree_contract_facts.lua` converts typed `bounds` / `disjoint` / `same_len` / `noalias` / `readonly` / `writeonly` contracts to binding-backed `ContractFact` values
 - [x] `VecKernelSafety` carries explicit raw-pointer bounds/alias assumptions, contract-derived bounds/alias/same-len proofs, view-length bounds proofs, and same-index in-place safety proofs for widened source kernels
-- [x] `vec_kernel_to_back.lua` lowers `VecKernelPlan` values to vector-shaped `Moon2Back` command plans for current executable 128-bit shapes (`i32x4`, `u32x4`, `i64x2`, `u64x2`) and consumes explicit `VecKernelCounter` ASDL decisions (`index` for `view`/`len(view)` stops, `i32` for authored `i32` pointer stops) rather than rediscovering counter policy in backend helpers
+- [x] `vec_kernel_to_back.lua` lowers `VecKernelPlan` values to vector-shaped `Moon2Back` command plans for current executable 128-bit shapes (`i32x4`, `u32x4`, `i64x2`, `u64x2`) and consumes explicit `VecKernelCounter` and `VecSchedule` ASDL decisions (`index` for `view`/`len(view)` stops, `i32` for authored `i32` pointer stops, lanes/unroll/interleave/accumulator policy from schedule) rather than rediscovering policy in backend helpers; the active map/reduce path executes positive integer unroll/interleave schedules and multiple vector accumulators when requested by schedule
 - [x] vector compare/select is represented as `VecKernelMaskExpr` plus `VecKernelExprSelect`, target-gated with explicit compare/select/mask facts, safety-walked through mask/select operands, and lowered to vector compare/select/mask plus scalar-tail select commands
 - [x] `tree_to_back.lua` consumes `VecKernelPlan` for source-kernel auto-vectorization (`sum_i32`, `dot_i32`, `prod_i32`, `xor_reduce_i32`, `fill_i32`, `copy_i32`, `add_i32`, `sub_i32`, `scale_i32`, `and_i32`, `or_i32`, `xor_i32`, `inc_i32`, `axpy_i32`, `sum_i64`, `dot_i64`, `add_i64`, `sub_i64`, `scale_i64`, `or_i64`, `sum_u32`, `add_u32`, `sum_u64`, `add_u64`, `xor_u64` shapes)
 - [x] tests cover canonical control counted domains, reductions, memory/alias/dependence facts, rejects, proofs, decisions
 - [x] nested loop facts/decisions are visible to parent loops
+- [x] specialized `VecKernelI32*` plan variants and `VecKernelReductionI32Add` are removed; active i32/u32/i64/u64 kernels use generic element-typed reduce/map plans
+- [x] `vec_inspect.lua` reports explicit vector legality/schedule decisions as ASDL `VecInspectionReport`, covered by `test_vec_inspect.lua`
+- [x] vector-kernel alias safety decisions lower into explicit `BackAliasFact` scope/relation facts for backend inspection and validation
+- [x] `back_diagnostics.lua` produces ASDL-backed backend/vector diagnostics with optional disassembly capture
+- [x] `back_command_tape.lua` produces deterministic `BackCommandTape` encodings of `Moon2Back.BackProgram` command streams, and active `back_jit.lua` compilation now crosses Lua→Rust through one `moonlift_jit_compile_tape` call instead of per-command FFI replay
 
 ---
 
@@ -196,7 +214,8 @@ Files should use `vec_` prefix.
 - [x] parser exists after lower IR layers are validated (`parse.lua`)
 - [x] parser outputs `Moon2Tree.Module(ModuleSurface)` with `ValueRefName` refs and surface headers for functions, externs, consts, statics, pointer/view kernels, `len(view)`, source contracts/parameter modifiers, and jump-first control slices
 - [x] parser returns explicit `Moon2Parse.ParseResult` / `ParseIssue` ASDL values
-- [x] parser parses explicit scalar cast forms (`cast`, `trunc`, `zext`, `sext`, `bitcast`, `satcast`) into `ExprCast`
+- [x] parser parses the single source conversion form `as(type, expr)` into `ExprCast`; old angle-bracket machine-cast spellings are rejected as source syntax
+- [x] documented `moonlift.ast` constructors cover the existing source ASDL node surface and can build modules that typecheck/lower/execute through the normal pipeline
 - [x] parser treats `select(cond, then_expr, else_expr)` as source sugar for `ExprSelect`, leaving typing and vector mask recognition to later phases
 - [x] parser does not own semantic decisions; `tree_typecheck.lua` resolves names and types
 
@@ -220,21 +239,20 @@ Files should use `vec_` prefix.
 - [x] `Moon2Host` ASDL plus `host_issue_values.lua` provide explicit hosted construction issue/report values; duplicate type and continuation-fill diagnostics are covered by `test_host_issue_values.lua`
 - [x] `Moon2Host` now owns the first zero-copy hosted declaration facts (`HostDeclSet`, `HostDecl`, `HostStructDecl`, `HostRepr`, `HostFieldDecl`, `HostFieldAttr`, `HostStorageRep`, `HostAccessorDecl`), with duplicate/invalid declaration rejects covered by `host_decl_validate.lua` and `test_host_decl_validate.lua`
 - [x] Host layout facts now include explicit `HostTargetModel` / `HostEndian`; `host_layout_facts.lua` derives pointer/index field sizes from the target model instead of hardcoding 64-bit layout, covered by `test_host_target_model.lua`
-- [x] Zero-copy view ABI ASDL is now explicit (`HostExposeSubject`, `HostStrideUnit`, `HostViewAbi`, `HostViewDescriptor`, exposure targets, mutability, bounds, expose declarations, lifetimes), and `host_layout_facts.lua` can derive `MoonView_T { data, len, stride }` descriptor layout/cdef facts covered by `test_host_view_descriptor_facts.lua`
+- [x] Zero-copy view ABI ASDL is now explicit (`HostExposeSubject`, `HostExposeFacet`, `HostExposeAbi`, `HostStrideUnit`, `HostViewAbi`, `HostViewDescriptor`, per-target exposure facets, mutability, bounds, expose declarations, lifetimes), and `host_layout_facts.lua` can derive `MoonView_T { data, len, stride }` descriptor layout/cdef facts covered by `test_host_view_descriptor_facts.lua`
 - [x] Host access plans now distinguish record/ptr/view subjects, use explicit bool decode/encode ops, and include view len/data/stride/index/direct-field access operations instead of hiding descriptor access policy in Lua tables
 - [x] Host emission plan ASDL now covers Lua FFI, Terra, C headers, and host export ABI choices (`HostLuaFfiPlan`, `HostTerraPlan`, `HostCPlan`, `HostExportAbi`, and corresponding fact variants)
 - [x] `buffer_view.lua` now has a descriptor-backed zero-copy `view(T)` runtime family: `define_view_from_host_descriptor` wraps `MoonView_T { data, len, stride }`, supports `#view`, checked/unchecked `view[i]`, direct `view:get_field(i)` accessors, zero-copy mutation visibility, and table materialization covered by `test_host_zero_copy_view_runtime.lua`
 - [x] The zero-copy host ABI PVM phase set is implemented: `host_decl_parse`, `host_decl_validate`, `host_layout_resolve`, `host_view_abi_plan`, `host_access_plan`, `host_lua_ffi_emit_plan`, `host_terra_emit_plan`, `host_c_emit_plan`, and `tree_field_resolve`; `test_host_pvm_phases.lua` covers the end-to-end fact stream from hosted declarations to layout/view/access/emission plans and field resolution
 - [x] The first integrated `.mlua` parser/source-language slice is implemented: `mlua_parse.lua` parses the Moonlift/host islands (`struct`, `expose`, `func Type:name`, regions with continuation exits, top-level funcs, modules, module-local regions, canonical block-loop forms, and counted-loop sugar) into ASDL/block-jump form; ordinary Lua method declarations stay LuaJIT syntax and are recorded by the hosted runtime as `HostAccessorLua`; `mlua_region_typecheck.lua` and `mlua_loop_expand.lua` provide explicit PVM phase boundaries covered by `test_mlua_parse.lua`, `test_mlua_module_local_region.lua`, `test_mlua_counted_loop.lua`, and `test_mlua_method_syntax.lua`
 - [x] Lua builders are now equal host-declaration frontends for the first `.mlua` slice: `host_decl_values.lua` installs ASDL-producing builders (`host_struct`, `host_field`, `host_expose`, `host_lua_accessor`, etc.), and `test_mlua_builder_equivalence.lua` checks source == builder == ASDL for hosted declarations
-- [x] `host_quote.lua` was rewritten as a clean LuaJIT-first hosted-island bridge: it does not parse Lua, only lexically rewrites the added `.mlua` islands (`struct`, `expose`, braced `func`, `func Type:name`, braced/named `module`, module-local regions, counted-loop sugar, and typed antiquote splices) into ordinary Lua calls while routing object code through the existing Moon2Tree/Moon2Back pipeline; each loaded chunk now gets one `HostRuntime`/ASDL context that accumulates `HostDecl` facts from hosted declarations and LuaJIT method assignments, and `runtime:host_pipeline_result()` feeds those facts into layout/view/access/emission phases; `test_mlua_host_quote_pipeline.lua`, `test_mlua_splice_shapes.lua`, and `test_mlua_module_local_region.lua` cover the runnable hosted path
+- [x] `host_quote.lua` was rewritten as a clean LuaJIT-first hosted-island bridge: it does not parse Lua, only lexically rewrites the added end-delimited `.mlua` islands (`struct`, `expose`, `func`, `func Type:name`, named `module`, module-local regions, counted-loop sugar, and typed antiquote splices) into ordinary Lua calls while routing object code through the existing Moon2Tree/Moon2Back pipeline; each loaded chunk now gets one `HostRuntime`/ASDL context that accumulates `HostDecl` facts from hosted declarations and LuaJIT method assignments, and `runtime:host_pipeline_result()` feeds those facts into layout/view/access/emission phases; `test_mlua_host_quote_pipeline.lua`, `test_mlua_splice_shapes.lua`, and `test_mlua_module_local_region.lua` cover the runnable hosted path
 - [x] `mlua_host_pipeline.lua` connects full `.mlua` parse results to hosted declaration validation, layout resolution, view/access planning, and Lua/Terra/C emission plans as one ASDL result (`MluaHostPipelineResult`), covered by `test_mlua_host_pipeline.lua`
-- [x] `Moon2Host` now also owns explicit host layout/view/access facts (`HostTypeLayout`, `HostFieldLayout`, `HostExposeMode`, `HostAccessPlan`, `HostViewPlan`, `HostFactSet`) so buffer-backed Lua views are represented as ASDL facts instead of hidden JSON/Rust policy
+- [x] `Moon2Host` now also owns explicit host layout/view/access facts (`HostTypeLayout`, `HostFieldLayout`, `HostExposeFacet`, `HostExposeMode`, `HostAccessPlan`, `HostViewPlan`, `HostFactSet`) so buffer-backed Lua views are represented as ASDL facts instead of hidden JSON/Rust policy
 - [x] `host_fragment_values.lua` implements ASDL-backed `expr_frag`, `emit_expr`, and Lua-hosted expression-fragment templates covered by `test_host_fragment_values.lua`
-- [x] `test_host_source_no_generics.lua` locks the source-language policy: no source-level generic fragment/type-argument syntax; use Lua-hosted values/templates for meta-abstraction
 - [x] `host_session.lua` exposes reflection wrappers for type classification, size/alignment, ABI decisions, and host struct layout facts covered by `test_host_reflection.lua`
 - [x] `host_expr_values.lua`, `host_place_values.lua`, `host_func_values.lua`, and `host_module_values.lua` implement the first direct expression/place/function/module builder slice, with scalar, conditional, and pointer-index store/load typecheck/backend validation covered by `test_host_func_values.lua` and `test_host_place_values.lua`
-- [x] `host_region_values.lua` implements initial direct inline control-region and region-fragment builders; `jump` lowers to `StmtJump` / `StmtJumpCont`, `emit` lowers to `StmtUseRegionFrag`, and `test_host_region_values.lua` validates jump/emit regions through open expansion, typecheck, lowering, and backend validation
+- [x] `host_region_values.lua` implements initial direct inline control-region and region-fragment builders; `jump` lowers to `StmtJump` / `StmtJumpCont`, `emit` lowers to `StmtUseRegionFrag`, direct continuation-to-continuation fills lower through `SlotValueContSlot`, `switch_` lowers to `StmtSwitch`, and `test_host_region_values.lua` validates jump/emit regions through open expansion, typecheck, lowering, and backend validation
 - [x] `test_host_value_jit.lua` executes direct-builder scalar, conditional, expression-fragment, and jump-first region functions through the current JIT backend
 - [x] `tree_to_back.lua` lowers scalar `ExprLoad`, pointer `ExprDeref`, address-of for indexed/deref/offset field places, and stores through indexed/deref/offset field places; `test_host_addr_load_jit.lua` and `test_host_field_jit.lua` cover pointer load/store and struct field store/load execution
 - [x] Moonlift object-code semantics now use representation-aware `FieldByOffset(field, offset, expose_ty, storage_rep)`: bool storage fields load through compare-to-zero and store through explicit 0/1 encoding, covered by `test_host_bool_storage_jit.lua`
@@ -282,3 +300,21 @@ Files should use `vec_` prefix.
 - [x] `bench_json_generic_doc_cjson.lua` compares reusable generic indexed-doc field reads against `cjson.decode` field extraction
 - [x] retained JSON benchmarks cover validation, reusable generic indexed-doc reads, and indexed projection paths
 - [x] `std.lua` / `builtins.lua` provide the public Moonlift standard-library surface: `require("moonlift").json` exposes cached JSON library compilation, indexed-document decoding, typed scalar reads, and projection helpers while preserving the low-level indexed-tape architecture
+
+---
+
+## 12. Moonlift LSP — integrated editor semantics
+
+- [x] `LSP_INTEGRATION_DESIGN.md` defines the complete ASDL/PVM architecture for integrating the `.mlua` language server into the canonical Moonlift schema.
+- [x] `LSP_INTEGRATION_CHECKLIST.md` defines the detailed end-to-end work checklist for the integrated LSP.
+- [x] `lua/moonlift/asdl.lua` owns the canonical LSP/editor schema modules: `Moon2Source`, `Moon2Mlua`, `Moon2Editor`, `Moon2Lsp`, and `Moon2Rpc`.
+- [x] document snapshots, text edits, source ranges, source slices, and source anchors are represented as `Moon2Source` ASDL values.
+- [x] `.mlua` segmentation produces `Moon2Mlua.DocumentParts` and `IslandText` values; scanner output is source-map data only, never semantic truth.
+- [x] island/document parse products preserve `MluaParseResult`, `HostDeclSet`, `Moon2Tree.Module`, `RegionFrag*`, and `ExprFrag*` while adding source anchor facts.
+- [x] document analysis consumes `MluaHostPipelineResult`, host/layout/access/view facts, open/type/control/vector/backend reports, and emits editor semantic facts. The current pass runs module open validation, module typecheck, control fact gathering, vector loop decisions/rejects, and backend validation when typed modules are suitable for lowering.
+- [x] diagnostics, document/workspace symbols, bindings, hover, completion, signature help, definition, references, document highlights, prepare-rename/rename, semantic tokens, diagnostic-origin code actions, folding, selection ranges, and parameter inlay hints are represented as ASDL values before any LSP protocol adaptation.
+- [x] Region/expr fragment definitions and `emit` uses now participate in binding facts, go-to-definition, references, and rename through the same ASDL navigation path as structs/fields/functions.
+- [x] Local/param navigation now flows through explicit `BindingScopeReport`, `BindingScopeFact`, `ScopedBinding`, and `BindingResolution` ASDL facts, so shadowing, block/continuation params, jump-argument writes, assignment writes, and read/write highlights are no longer same-island/source-order approximations.
+- [x] Unresolved value uses produce anchored `DiagFromBindingResolution` diagnostics, hover shows the diagnostic subject, and code actions can insert an explicit local declaration from the diagnostic origin without message-string matching.
+- [x] Type and backend diagnostics now use explicit variant dispatch for stable codes/messages; common type issues such as invalid binary operands and return/expected-type mismatches use source anchors instead of full-document fallback when an operator/keyword/name anchor exists, and void cascades after unresolved values are filtered.
+- [x] JSON-RPC/LSP transport decodes to `Moon2Rpc.Incoming` / `Moon2Editor.ClientEvent` and writes only flat `Moon2Rpc.OutCommand` values from the final loop; both publish diagnostics and LSP pull diagnostics (`textDocument/diagnostic`) are supported.

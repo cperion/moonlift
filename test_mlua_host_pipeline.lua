@@ -11,21 +11,14 @@ local H = T.Moon2Host
 local Pipeline = MluaHostPipeline.Define(T)
 
 local src = [[
-struct User {
+struct User
     id: i32
     active: bool32
-}
+end
 
-expose view(User) as Users {
-    lua readonly checked
-    terra
-    c
-}
+expose Users: view(User)
 
-expose ptr(User) as UserRef {
-    lua readonly
-    c
-}
+expose UserRef: ptr(User)
 ]]
 
 local result = Pipeline.pipeline(H.MluaSource("demo", src), "demo")
@@ -54,5 +47,18 @@ local host_result = Host.host_pipeline(src, "demo2")
 assert(#host_result.report.issues == 0)
 assert(host_result.lua.module_name == "demo2")
 assert(#host_result.layout_env.layouts == 1)
+
+local c_only = Pipeline.pipeline(H.MluaSource("demo_c_only", [[
+struct User
+    id: i32
+    active: bool32
+end
+expose UsersC: view(User)
+    c
+end
+]]), "demo_c_only")
+assert(#c_only.report.issues == 0)
+assert(#c_only.lua.access_plans == 0)
+assert(#c_only.c.views >= 1)
 
 print("moonlift mlua host pipeline ok")

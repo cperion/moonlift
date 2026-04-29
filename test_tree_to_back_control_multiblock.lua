@@ -2,18 +2,14 @@ package.path = "./?.lua;./?/init.lua;./moonlift/lua/?.lua;./moonlift/lua/?/init.
 
 local ffi = require("ffi")
 local pvm = require("moonlift.pvm")
-local A1 = require("moonlift_legacy.asdl")
 local A2 = require("moonlift.asdl")
-local J = require("moonlift_legacy.jit")
-local Bridge = require("moonlift.back_to_moonlift")
+local J = require("moonlift.back_jit")
 local Validate = require("moonlift.back_validate")
 local TreeToBack = require("moonlift.tree_to_back")
 
 local T = pvm.context()
-A1.Define(T)
 A2.Define(T)
 local jit_api = J.Define(T)
-local bridge = Bridge.Define(T)
 local validate = Validate.Define(T)
 local lower = TreeToBack.Define(T)
 
@@ -22,7 +18,7 @@ local Ty = T.Moon2Type
 local Bn = T.Moon2Bind
 local Sem = T.Moon2Sem
 local Tr = T.Moon2Tree
-local B1 = T.MoonliftBack
+local B2 = T.Moon2Back
 
 local i32 = Ty.TScalar(C.ScalarI32)
 local bool = Ty.TScalar(C.ScalarBool)
@@ -95,17 +91,16 @@ local program = lower.module(module)
 local report = validate.validate(program)
 assert(#report.issues == 0)
 
-local current = bridge.lower_program(program)
 local jit = jit_api.jit()
-local artifact = jit:compile(current)
-local f = ffi.cast("int32_t (*)(int32_t)", artifact:getpointer(B1.BackFuncId("first_three_or_n")))
+local artifact = jit:compile(program)
+local f = ffi.cast("int32_t (*)(int32_t)", artifact:getpointer(B2.BackFuncId("first_three_or_n")))
 assert(f(0) == 0)
 assert(f(2) == 2)
 assert(f(3) == 3)
 assert(f(5) == 3)
-local g = ffi.cast("int32_t (*)()", artifact:getpointer(B1.BackFuncId("control_stmt_exit")))
+local g = ffi.cast("int32_t (*)()", artifact:getpointer(B2.BackFuncId("control_stmt_exit")))
 assert(g() == 7)
-local h = ffi.cast("int32_t (*)(int32_t)", artifact:getpointer(B1.BackFuncId("control_switch")))
+local h = ffi.cast("int32_t (*)(int32_t)", artifact:getpointer(B2.BackFuncId("control_switch")))
 assert(h(0) == 10)
 assert(h(1) == 11)
 assert(h(2) == 12)

@@ -152,8 +152,7 @@ function ModuleValue:compile()
     local SemLayout = require("moonlift.sem_layout_resolve")
     local TreeToBack = require("moonlift.tree_to_back")
     local Validate = require("moonlift.back_validate")
-    local Bridge = require("moonlift.back_to_moonlift")
-    local Jit = require("moonlift_legacy.jit")
+    local Jit = require("moonlift.back_jit")
 
     local T = self.session.T
     local OF = OpenFacts.Define(T)
@@ -163,7 +162,6 @@ function ModuleValue:compile()
     local Layout = SemLayout.Define(T)
     local Lower = TreeToBack.Define(T)
     local V = Validate.Define(T)
-    local bridge = Bridge.Define(T)
     local jit_api = Jit.Define(T)
 
     local module = self:to_asdl()
@@ -176,7 +174,7 @@ function ModuleValue:compile()
     local program = Lower.module(resolved_module)
     local report = V.validate(program)
     if #report.issues ~= 0 then error("host module back validation failed: " .. tostring(report.issues[1]), 2) end
-    local artifact = jit_api.jit():compile(bridge.lower_program(program))
+    local artifact = jit_api.jit():compile(program)
     return setmetatable({ module = self, artifact = artifact, T = T, functions = {} }, CompiledModule)
 end
 
@@ -188,9 +186,9 @@ function CompiledModule:get(name)
     local cached = self.functions[name]
     if cached then return cached end
     local func = assert(self.module.exports[name], "compiled module has no exported function: " .. tostring(name))
-    local B1 = self.T.MoonliftBack
+    local B2 = self.T.Moon2Back
     local c_sig = c_sig_of(self.module.api, func)
-    local ptr = self.artifact:getpointer(B1.BackFuncId(name))
+    local ptr = self.artifact:getpointer(B2.BackFuncId(name))
     local fn = ffi.cast(c_sig, ptr)
     local wrapped = setmetatable({ module = self, func = func, fn = fn, c_sig = c_sig }, CompiledFunction)
     self.functions[name] = wrapped

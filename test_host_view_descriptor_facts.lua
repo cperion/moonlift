@@ -62,8 +62,11 @@ assert(pvm.classof(facts.facts[#facts.facts]) == H.HostFactViewDescriptor)
 local expose = H.HostExposeDecl(
     H.HostExposeView(Ty.TNamed(Ty.TypeRefGlobal("demo", "HostViewUser"))),
     "Users",
-    { H.HostExposeLua, H.HostExposeTerra, H.HostExposeC },
-    H.HostExposeProxy(H.HostProxyView, H.HostProxyCacheNone, H.HostReadonly, H.HostBoundsChecked)
+    {
+        H.HostExposeFacet(H.HostExposeLua, H.HostExposeAbiDefault, H.HostExposeProxy(H.HostProxyView, H.HostProxyCacheNone, H.HostReadonly, H.HostBoundsChecked)),
+        H.HostExposeFacet(H.HostExposeTerra, H.HostExposeAbiDescriptor, H.HostExposeProxy(H.HostProxyView, H.HostProxyCacheNone, H.HostReadonly, H.HostBoundsChecked)),
+        H.HostExposeFacet(H.HostExposeC, H.HostExposeAbiDescriptor, H.HostExposeProxy(H.HostProxyView, H.HostProxyCacheNone, H.HostReadonly, H.HostBoundsChecked)),
+    }
 )
 assert(pvm.classof(expose) == H.HostExposeDecl)
 assert(pvm.classof(H.HostLifetimeBorrowed("input")) == H.HostLifetimeBorrowed)

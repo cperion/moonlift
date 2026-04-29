@@ -45,8 +45,7 @@ Moonlift source text
   -> vec_kernel_safety.lua
   -> vec_kernel_to_back.lua
   -> Moon2Back.BackProgram
-  -> back_to_moonlift.lua
-  -> moonlift.jit
+  -> back_jit.lua
   -> Rust / Cranelift
 ```
 

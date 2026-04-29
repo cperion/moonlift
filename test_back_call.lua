@@ -2,22 +2,18 @@ package.path = "./?.lua;./?/init.lua;./moonlift/lua/?.lua;./moonlift/lua/?/init.
 
 local ffi = require("ffi")
 local pvm = require("moonlift.pvm")
-local A1 = require("moonlift_legacy.asdl")
 local A2 = require("moonlift.asdl")
-local J = require("moonlift_legacy.jit")
-local Bridge = require("moonlift.back_to_moonlift")
+local J = require("moonlift.back_jit")
 local Validate = require("moonlift.back_validate")
 
 local T = pvm.context()
-A1.Define(T)
 A2.Define(T)
-local bridge = Bridge.Define(T)
 local validate = Validate.Define(T)
 local jit_api = J.Define(T)
 
 local C2 = T.Moon2Core
 local B2 = T.Moon2Back
-local B1 = T.MoonliftBack
+local B2 = T.Moon2Back
 
 local function sid(text) return B2.BackSigId(text) end
 local function fid(text) return B2.BackFuncId(text) end
@@ -50,7 +46,7 @@ local program = B2.BackProgram({
     B2.CmdSwitchToBlock(inc_entry),
     B2.CmdBindEntryParams(inc_entry, { inc_x }),
     B2.CmdConst(inc_one, i32, B2.BackLitInt("1")),
-    B2.CmdBinary(inc_out, B2.BackIadd, shape_i32, inc_x, inc_one),
+    B2.CmdIntBinary(inc_out, B2.BackIntAdd, i32, B2.BackIntSemantics(B2.BackIntWrap, B2.BackIntMayLose), inc_x, inc_one),
     B2.CmdReturnValue(inc_out),
     B2.CmdSealBlock(inc_entry),
     B2.CmdFinishFunc(inc_func),
@@ -69,11 +65,10 @@ local program = B2.BackProgram({
 local report = validate.validate(program)
 assert(#report.issues == 0)
 
-local current_program = bridge.lower_program(program)
 local jit = jit_api.jit()
-local artifact = jit:compile(current_program)
+local artifact = jit:compile(program)
 
-local ptr = artifact:getpointer(B1.BackFuncId("call_inc_i32"))
+local ptr = artifact:getpointer(B2.BackFuncId("call_inc_i32"))
 local call_inc_i32 = ffi.cast("int32_t (*)(int32_t)", ptr)
 assert(call_inc_i32(41) == 42)
 assert(call_inc_i32(-8) == -7)

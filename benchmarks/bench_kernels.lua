@@ -5,14 +5,12 @@ package.path = "./?.lua;./?/init.lua;./moonlift/lua/?.lua;./moonlift/lua/?/init.
 
 local ffi = require("ffi")
 local pvm = require("moonlift.pvm")
-local A1 = require("moonlift_legacy.asdl")
 local A2 = require("moonlift.asdl")
 local Parse = require("moonlift.parse")
 local Typecheck = require("moonlift.tree_typecheck")
 local TreeToBack = require("moonlift.tree_to_back")
 local Validate = require("moonlift.back_validate")
-local Bridge = require("moonlift.back_to_moonlift")
-local J = require("moonlift_legacy.jit")
+local J = require("moonlift.back_jit")
 
 local mode = arg and arg[1] or nil
 local quick = mode == "quick"
@@ -81,15 +79,13 @@ local function fill_i32_arrays(n)
 end
 
 local T = pvm.context()
-A1.Define(T)
 A2.Define(T)
 local P = Parse.Define(T)
 local TC = Typecheck.Define(T)
 local Lower = TreeToBack.Define(T)
 local V = Validate.Define(T)
-local bridge = Bridge.Define(T)
 local jit_api = J.Define(T)
-local B1 = T.MoonliftBack
+local B2 = T.Moon2Back
 
 local compile_start = os.clock()
 local parsed = P.parse_module(SRC)
@@ -99,13 +95,13 @@ assert(#checked.issues == 0, "type issues: " .. #checked.issues)
 local program = Lower.module(checked.module)
 local report = V.validate(program)
 assert(#report.issues == 0, "back validation issues: " .. #report.issues)
-local artifact = jit_api.jit():compile(bridge.lower_program(program))
+local artifact = jit_api.jit():compile(program)
 local compile_time = os.clock() - compile_start
 
-local sum_i32 = ffi.cast("int32_t (*)(const int32_t*, int32_t)", artifact:getpointer(B1.BackFuncId("sum_i32")))
-local dot_i32 = ffi.cast("int32_t (*)(const int32_t*, const int32_t*, int32_t)", artifact:getpointer(B1.BackFuncId("dot_i32")))
-local add_i32 = ffi.cast("int32_t (*)(int32_t*, const int32_t*, const int32_t*, int32_t)", artifact:getpointer(B1.BackFuncId("add_i32")))
-local scale_i32 = ffi.cast("int32_t (*)(int32_t*, const int32_t*, int32_t, int32_t)", artifact:getpointer(B1.BackFuncId("scale_i32")))
+local sum_i32 = ffi.cast("int32_t (*)(const int32_t*, int32_t)", artifact:getpointer(B2.BackFuncId("sum_i32")))
+local dot_i32 = ffi.cast("int32_t (*)(const int32_t*, const int32_t*, int32_t)", artifact:getpointer(B2.BackFuncId("dot_i32")))
+local add_i32 = ffi.cast("int32_t (*)(int32_t*, const int32_t*, const int32_t*, int32_t)", artifact:getpointer(B2.BackFuncId("add_i32")))
+local scale_i32 = ffi.cast("int32_t (*)(int32_t*, const int32_t*, int32_t, int32_t)", artifact:getpointer(B2.BackFuncId("scale_i32")))
 
 local a, b, out = fill_i32_arrays(N)
 assert(sum_i32(a, 8) == 500)

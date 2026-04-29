@@ -62,7 +62,7 @@ function M.Define(T)
 
     local expose_fact_phase = pvm.phase("moon2_host_view_abi_plan", {
         [H.HostExposeDecl] = function(self, env, target)
-            local facts = { H.HostFactExpose(H.HostLayoutId(self.public_name, self.public_name), self.mode) }
+            local facts = {}
             if pvm.classof(self.subject) == H.HostExposeView then
                 local descriptor, cdef = descriptor_for_elem(self.subject.elem, env, { name = self.public_name, target_model = target })
                 if descriptor then
@@ -73,13 +73,22 @@ function M.Define(T)
                         facts[#facts + 1] = H.HostFactField(layout.id, layout.fields[i])
                     end
                     facts[#facts + 1] = H.HostFactViewDescriptor(descriptor)
+                    for i = 1, #self.facets do
+                        facts[#facts + 1] = H.HostFactExpose(self.public_name, descriptor.id, self.facets[i])
+                    end
+                else
+                    for i = 1, #self.facets do
+                        facts[#facts + 1] = H.HostFactExpose(self.public_name, H.HostLayoutId(self.public_name, self.public_name), self.facets[i])
+                    end
                 end
             else
                 local g, p, c = subject_phase(self.subject, env)
                 local resolved_values = pvm.drain(g, p, c)
                 local resolved = resolved_values[1]
-                if resolved ~= nil and pvm.classof(resolved) == H.HostTypeLayout then
-                    facts[1] = H.HostFactExpose(resolved.id, self.mode)
+                local layout_id = H.HostLayoutId(self.public_name, self.public_name)
+                if resolved ~= nil and pvm.classof(resolved) == H.HostTypeLayout then layout_id = resolved.id end
+                for i = 1, #self.facets do
+                    facts[#facts + 1] = H.HostFactExpose(self.public_name, layout_id, self.facets[i])
                 end
             end
             return pvm.T.seq(facts)

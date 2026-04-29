@@ -12,9 +12,19 @@ local MT = ModuleType.Define(T)
 local C, Ty, B, Tr = T.Moon2Core, T.Moon2Type, T.Moon2Bind, T.Moon2Tree
 
 local parsed = P.parse_module [[
-type Pair = struct { x: i32, y: i32 }
-type Bits = union { i: i32, f: f32 }
-type Color = enum { red, green, blue }
+type Pair = struct
+    x: i32
+    y: i32
+end
+type Bits = union
+    i: i32
+    f: f32
+end
+type Color = enum
+    red
+    green
+    blue
+end
 export func id(x: i32) -> i32
     return x
 end
@@ -30,5 +40,11 @@ local typed_module = Tr.Module(Tr.ModuleTyped("Demo"), module.items)
 local env = MT.env(typed_module)
 assert(#env.types == 3)
 assert(env.types[1] == B.TypeEntry("Pair", Ty.TNamed(Ty.TypeRefGlobal("Demo", "Pair"))))
+
+local braced = P.parse_module [[
+type OldPair = struct { x: i32, y: i32 }
+]]
+assert(#braced.issues >= 1)
+assert(braced.issues[1].message:match("keyword...end, not braces"))
 
 print("moonlift parse type items ok")

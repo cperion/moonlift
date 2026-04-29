@@ -1,5 +1,4 @@
 local pvm = require("moonlift.pvm")
-local A1 = require("moonlift_legacy.asdl")
 local A2 = require("moonlift.asdl")
 
 local M = {}
@@ -9,9 +8,6 @@ Session.__index = Session
 function M.new(opts)
     opts = opts or {}
     local T = pvm.context()
-    -- Define the current backend schema too so ModuleValue:compile() can bridge
-    -- directly to the existing JIT path.
-    A1.Define(T)
     A2.Define(T)
     return setmetatable({
         T = T,

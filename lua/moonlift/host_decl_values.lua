@@ -47,6 +47,15 @@ local function cache_to_asdl(H, value)
     error("unknown host proxy cache policy: " .. tostring(value), 3)
 end
 
+local function abi_name_to_asdl(H, value)
+    if value == nil or value == "default" then return H.HostExposeAbiDefault end
+    if value == "pointer" or value == "ptr" then return H.HostExposeAbiPointer end
+    if value == "descriptor" then return H.HostExposeAbiDescriptor end
+    if value == "data_len_stride" then return H.HostExposeAbiDataLenStride end
+    if value == "expanded" or value == "expanded_scalars" then return H.HostExposeAbiExpandedScalars end
+    error("unknown host expose ABI: " .. tostring(value), 3)
+end
+
 function M.Install(api, session)
     local T = session.T
     local C, Ty, H = T.Moon2Core, T.Moon2Type, T.Moon2Host
@@ -161,13 +170,56 @@ function M.Install(api, session)
         return H.HostProxyTypedRecord
     end
 
-    local function as_targets(targets)
-        local out = {}
-        for i = 1, #(targets or { "lua" }) do
-            local t = targets[i]
-            out[i] = type(t) == "string" and target_name_to_asdl(H, t) or t
+    local function default_abi_for_target(subject, target)
+        local cls = pvm.classof(subject)
+        if cls == H.HostExposeView and (target == H.HostExposeC or target == H.HostExposeTerra) then return H.HostExposeAbiDescriptor end
+        if cls == H.HostExposePtr and (target == H.HostExposeC or target == H.HostExposeTerra) then return H.HostExposeAbiPointer end
+        return H.HostExposeAbiDefault
+    end
+
+    local function expose_mode_for_opts(subject, opts, target)
+        opts = opts or {}
+        if opts.mode then return opts.mode end
+        if opts.materialize then
+            return H.HostExposeEagerTable(type(opts.materialize) == "string" and (opts.materialize == "full_copy" and H.HostMaterializeFullCopy or opts.materialize == "borrowed_view" and H.HostMaterializeBorrowedView or H.HostMaterializeProjectedFields) or opts.materialize)
         end
+        local default_bounds = target == H.HostExposeLua and "checked" or "unchecked"
+        return H.HostExposeProxy(
+            opts.proxy_kind or proxy_kind_for_subject(subject),
+            cache_to_asdl(H, opts.cache),
+            mutability_to_asdl(H, opts.mutability),
+            bounds_to_asdl(H, opts.bounds or default_bounds)
+        )
+    end
+
+    local function facet_from_opts(subject, target, opts)
+        opts = opts or {}
+        target = type(target) == "string" and target_name_to_asdl(H, target) or target
+        return H.HostExposeFacet(target, opts.abi and (type(opts.abi) == "string" and abi_name_to_asdl(H, opts.abi) or opts.abi) or default_abi_for_target(subject, target), expose_mode_for_opts(subject, opts, target))
+    end
+
+    local function as_facets(subject, opts)
+        opts = opts or {}
+        if opts.facets then
+            local out = {}
+            for i = 1, #opts.facets do
+                local facet = opts.facets[i]
+                if pvm.classof(facet) == H.HostExposeFacet then out[i] = facet
+                else out[i] = facet_from_opts(subject, facet.target or facet[1], facet) end
+            end
+            return out
+        end
+        local targets = opts.targets or { "lua", "terra", "c" }
+        local out = {}
+        for i = 1, #targets do out[i] = facet_from_opts(subject, targets[i], opts) end
         return out
+    end
+
+    function api.host_expose_facet(target, opts)
+        local facet = {}
+        for k, v in pairs(opts or {}) do facet[k] = v end
+        facet.target = target
+        return facet
     end
 
     function api.host_expose_decl(subject, public_name, opts)
@@ -175,13 +227,7 @@ function M.Install(api, session)
         opts = opts or {}
         if type(subject) == "table" and getmetatable(subject) == HostFieldType then subject = H.HostExposeType(subject.expose_ty) end
         if not pvm.classof(subject) then subject = api.host_expose_type(subject) end
-        local mode = opts.mode or H.HostExposeProxy(
-            opts.proxy_kind or proxy_kind_for_subject(subject),
-            cache_to_asdl(H, opts.cache),
-            mutability_to_asdl(H, opts.mutability),
-            bounds_to_asdl(H, opts.bounds)
-        )
-        return H.HostExposeDecl(subject, public_name, as_targets(opts.targets), mode)
+        return H.HostExposeDecl(subject, public_name, as_facets(subject, opts))
     end
 
     function api.host_expose(subject, public_name, opts)

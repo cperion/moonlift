@@ -2,28 +2,24 @@ package.path = "./?.lua;./?/init.lua;./moonlift/lua/?.lua;./moonlift/lua/?/init.
 
 local ffi = require("ffi")
 local pvm = require("moonlift.pvm")
-local A1 = require("moonlift_legacy.asdl")
 local A2 = require("moonlift.asdl")
 local Lower = require("moonlift.tree_to_back")
 local Validate = require("moonlift.back_validate")
-local Bridge = require("moonlift.back_to_moonlift")
-local J = require("moonlift_legacy.jit")
+local J = require("moonlift.back_jit")
 
 ffi.cdef[[ typedef struct MoonliftReturnViewI32 { int32_t* data; intptr_t len; intptr_t stride; } MoonliftReturnViewI32; ]]
 
 local T = pvm.context()
-A1.Define(T)
 A2.Define(T)
 local C = T.Moon2Core
 local Ty = T.Moon2Type
 local B = T.Moon2Bind
 local Tr = T.Moon2Tree
-local B1 = T.MoonliftBack
+local B2 = T.Moon2Back
 local B2 = T.Moon2Back
 
 local Lowerer = Lower.Define(T)
 local V = Validate.Define(T)
-local bridge = Bridge.Define(T)
 local jit_api = J.Define(T)
 
 local i32 = Ty.TScalar(C.ScalarI32)
@@ -52,12 +48,12 @@ assert(#program.cmds[1].results == 0)
 local saw_stride_store = false
 for i = 1, #program.cmds do
     local cmd = program.cmds[i]
-    if pvm.classof(cmd) == B2.CmdStore and pvm.classof(cmd.ty) == B2.BackShapeScalar and cmd.ty.scalar == B2.BackIndex then saw_stride_store = true end
+    if pvm.classof(cmd) == B2.CmdStoreInfo and pvm.classof(cmd.ty) == B2.BackShapeScalar and cmd.ty.scalar == B2.BackIndex then saw_stride_store = true end
 end
 assert(saw_stride_store, "expected descriptor len/stride stores")
 
-local artifact = jit_api.jit():compile(bridge.lower_program(program))
-local make_view = ffi.cast("void (*)(MoonliftReturnViewI32*, int32_t*, intptr_t)", artifact:getpointer(B1.BackFuncId("make_view")))
+local artifact = jit_api.jit():compile(program)
+local make_view = ffi.cast("void (*)(MoonliftReturnViewI32*, int32_t*, intptr_t)", artifact:getpointer(B2.BackFuncId("make_view")))
 local xs = ffi.new("int32_t[4]", { 3, 4, 5, 6 })
 local out = ffi.new("MoonliftReturnViewI32[1]")
 make_view(out, xs, 4)

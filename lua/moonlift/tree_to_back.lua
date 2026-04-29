@@ -21,7 +21,7 @@ function M.Define(T)
     local expr_type
     local scalar_literal
     local unary_op
-    local binary_op
+    local binary_cmd
     local compare_op
     local machine_cast_op
     local surface_cast_op
@@ -41,6 +41,8 @@ function M.Define(T)
     local item_to_back
     local module_to_back
     local control_api
+    local append_load_info
+    local append_store_info
 
     local function env_empty(ret)
         return Tr.TreeBackEnv({}, 0, 0, ret or Tr.TreeBackReturnScalar)
@@ -123,6 +125,49 @@ function M.Define(T)
         return nil
     end
 
+    local int_scalar_info = {
+        [Back.BackBool] = { bits = 1, signed = false },
+        [Back.BackI8] = { bits = 8, signed = true },
+        [Back.BackI16] = { bits = 16, signed = true },
+        [Back.BackI32] = { bits = 32, signed = true },
+        [Back.BackI64] = { bits = 64, signed = true },
+        [Back.BackU8] = { bits = 8, signed = false },
+        [Back.BackU16] = { bits = 16, signed = false },
+        [Back.BackU32] = { bits = 32, signed = false },
+        [Back.BackU64] = { bits = 64, signed = false },
+        [Back.BackIndex] = { bits = 64, signed = true },
+    }
+
+    local float_scalar_bits = {
+        [Back.BackF32] = 32,
+        [Back.BackF64] = 64,
+    }
+
+    local function semantic_cast_op(src_scalar, dst_scalar)
+        if src_scalar == nil or dst_scalar == nil then return C.MachineCastBitcast end
+        if src_scalar == dst_scalar then return C.MachineCastIdentity end
+        local si, di = int_scalar_info[src_scalar], int_scalar_info[dst_scalar]
+        if si ~= nil and di ~= nil then
+            if di.bits < si.bits then return C.MachineCastIreduce end
+            if di.bits > si.bits then return si.signed and C.MachineCastSextend or C.MachineCastUextend end
+            return C.MachineCastBitcast
+        end
+        local sf, df = float_scalar_bits[src_scalar], float_scalar_bits[dst_scalar]
+        if sf ~= nil and df ~= nil then
+            if df > sf then return C.MachineCastFpromote end
+            if df < sf then return C.MachineCastFdemote end
+            return C.MachineCastIdentity
+        end
+        if si ~= nil and df ~= nil then return si.signed and C.MachineCastSToF or C.MachineCastUToF end
+        if sf ~= nil and di ~= nil then return di.signed and C.MachineCastFToS or C.MachineCastFToU end
+        return C.MachineCastBitcast
+    end
+
+    local function surface_cast_to_machine_op(surface_op, src_ty, dst_ty)
+        if surface_op == C.SurfaceCast then return semantic_cast_op(back_scalar(src_ty), back_scalar(dst_ty)) end
+        return pvm.one(surface_cast_op(surface_op))
+    end
+
     local function core_scalar_to_back(scalar)
         local values = pvm.drain(scalar_api.scalar_to_back(scalar))
         return values[1]
@@ -201,18 +246,34 @@ function M.Define(T)
         [C.UnaryBitNot] = function() return pvm.once(Back.BackUnaryBnot) end,
     }, { args_cache = "last" })
 
-    binary_op = pvm.phase("moon2_tree_binary_to_back_op", {
-        [C.BinAdd] = function(_, scalar) if scalar == Back.BackF32 or scalar == Back.BackF64 then return pvm.once(Back.BackFadd) end return pvm.once(Back.BackIadd) end,
-        [C.BinSub] = function(_, scalar) if scalar == Back.BackF32 or scalar == Back.BackF64 then return pvm.once(Back.BackFsub) end return pvm.once(Back.BackIsub) end,
-        [C.BinMul] = function(_, scalar) if scalar == Back.BackF32 or scalar == Back.BackF64 then return pvm.once(Back.BackFmul) end return pvm.once(Back.BackImul) end,
-        [C.BinDiv] = function(_, scalar) if scalar == Back.BackF32 or scalar == Back.BackF64 then return pvm.once(Back.BackFdiv) end return pvm.once(Back.BackSdiv) end,
-        [C.BinRem] = function() return pvm.once(Back.BackSrem) end,
-        [C.BinBitAnd] = function() return pvm.once(Back.BackBand) end,
-        [C.BinBitOr] = function() return pvm.once(Back.BackBor) end,
-        [C.BinBitXor] = function() return pvm.once(Back.BackBxor) end,
-        [C.BinShl] = function() return pvm.once(Back.BackIshl) end,
-        [C.BinLShr] = function() return pvm.once(Back.BackUshr) end,
-        [C.BinAShr] = function() return pvm.once(Back.BackSshr) end,
+    local function int_sem_wrap()
+        return Back.BackIntSemantics(Back.BackIntWrap, Back.BackIntMayLose)
+    end
+
+    binary_cmd = pvm.phase("moon2_tree_binary_to_back_cmd", {
+        [C.BinAdd] = function(_, dst, scalar, lhs, rhs)
+            if scalar == Back.BackF32 or scalar == Back.BackF64 then return pvm.once(Back.CmdFloatBinary(dst, Back.BackFloatAdd, scalar, Back.BackFloatStrict, lhs, rhs)) end
+            return pvm.once(Back.CmdIntBinary(dst, Back.BackIntAdd, scalar, int_sem_wrap(), lhs, rhs))
+        end,
+        [C.BinSub] = function(_, dst, scalar, lhs, rhs)
+            if scalar == Back.BackF32 or scalar == Back.BackF64 then return pvm.once(Back.CmdFloatBinary(dst, Back.BackFloatSub, scalar, Back.BackFloatStrict, lhs, rhs)) end
+            return pvm.once(Back.CmdIntBinary(dst, Back.BackIntSub, scalar, int_sem_wrap(), lhs, rhs))
+        end,
+        [C.BinMul] = function(_, dst, scalar, lhs, rhs)
+            if scalar == Back.BackF32 or scalar == Back.BackF64 then return pvm.once(Back.CmdFloatBinary(dst, Back.BackFloatMul, scalar, Back.BackFloatStrict, lhs, rhs)) end
+            return pvm.once(Back.CmdIntBinary(dst, Back.BackIntMul, scalar, int_sem_wrap(), lhs, rhs))
+        end,
+        [C.BinDiv] = function(_, dst, scalar, lhs, rhs)
+            if scalar == Back.BackF32 or scalar == Back.BackF64 then return pvm.once(Back.CmdFloatBinary(dst, Back.BackFloatDiv, scalar, Back.BackFloatStrict, lhs, rhs)) end
+            return pvm.once(Back.CmdIntBinary(dst, Back.BackIntSDiv, scalar, int_sem_wrap(), lhs, rhs))
+        end,
+        [C.BinRem] = function(_, dst, scalar, lhs, rhs) return pvm.once(Back.CmdIntBinary(dst, Back.BackIntSRem, scalar, int_sem_wrap(), lhs, rhs)) end,
+        [C.BinBitAnd] = function(_, dst, scalar, lhs, rhs) return pvm.once(Back.CmdBitBinary(dst, Back.BackBitAnd, scalar, lhs, rhs)) end,
+        [C.BinBitOr] = function(_, dst, scalar, lhs, rhs) return pvm.once(Back.CmdBitBinary(dst, Back.BackBitOr, scalar, lhs, rhs)) end,
+        [C.BinBitXor] = function(_, dst, scalar, lhs, rhs) return pvm.once(Back.CmdBitBinary(dst, Back.BackBitXor, scalar, lhs, rhs)) end,
+        [C.BinShl] = function(_, dst, scalar, lhs, rhs) return pvm.once(Back.CmdShift(dst, Back.BackShiftLeft, scalar, lhs, rhs)) end,
+        [C.BinLShr] = function(_, dst, scalar, lhs, rhs) return pvm.once(Back.CmdShift(dst, Back.BackShiftLogicalRight, scalar, lhs, rhs)) end,
+        [C.BinAShr] = function(_, dst, scalar, lhs, rhs) return pvm.once(Back.CmdShift(dst, Back.BackShiftArithmeticRight, scalar, lhs, rhs)) end,
     }, { args_cache = "last" })
 
     compare_op = pvm.phase("moon2_tree_compare_to_back_op", {
@@ -291,7 +352,9 @@ function M.Define(T)
             local scalar = back_scalar(ty) or lhs.ty
             local env2, dst = env_next_value(rhs.env, "v")
             local cmds = {}; append_all(cmds, lhs.cmds); append_all(cmds, rhs.cmds)
-            cmds[#cmds + 1] = Back.CmdBinary(dst, pvm.one(binary_op(self.op, scalar)), shape_scalar(scalar), lhs.value, rhs.value)
+            local cmd = pvm.drain(binary_cmd(self.op, dst, scalar, lhs.value, rhs.value))[1]
+            if cmd == nil then return pvm.once(Tr.TreeBackExprUnsupported(rhs.env, cmds, "unsupported binary op")) end
+            cmds[#cmds + 1] = cmd
             return pvm.once(Tr.TreeBackExprValue(env2, cmds, dst, scalar))
         end,
         [Tr.ExprCompare] = function(self, env)
@@ -353,7 +416,7 @@ function M.Define(T)
             cmds[#cmds + 1] = Back.CmdCall(Back.BackCallValue(dst, scalar), target, sig, args)
             return pvm.once(Tr.TreeBackExprValue(env2, cmds, dst, scalar))
         end,
-        [Tr.ExprCast] = function(self, env) return expr_to_back(Tr.ExprMachineCast(self.h, pvm.one(surface_cast_op(self.op)), self.ty, self.value), env) end,
+        [Tr.ExprCast] = function(self, env) return expr_to_back(Tr.ExprMachineCast(self.h, surface_cast_to_machine_op(self.op, expr_ty(self.value), self.ty), self.ty, self.value), env) end,
         [Tr.ExprLen] = function(self, env)
             local lowered = pvm.one(expr_to_back(self.value, env))
             local view = expr_view_value(lowered)
@@ -379,8 +442,8 @@ function M.Define(T)
             if scalar == nil then return pvm.once(Tr.TreeBackExprUnsupported(addr.env, addr.cmds, "deref result has non-scalar type")) end
             local env2, dst = env_next_value(addr.env, "v")
             local cmds = {}; append_all(cmds, addr.cmds)
-            cmds[#cmds + 1] = Back.CmdLoad(dst, shape_scalar(scalar), addr.value)
-            return pvm.once(Tr.TreeBackExprValue(env2, cmds, dst, scalar))
+            local env3 = append_load_info(cmds, env2, dst, shape_scalar(scalar), addr.value, dst.text)
+            return pvm.once(Tr.TreeBackExprValue(env3, cmds, dst, scalar))
         end,
         [Tr.ExprField] = function(self, env)
             if pvm.classof(self.field) ~= Sem.FieldByOffset then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "field expression requires resolved offset")) end
@@ -396,8 +459,8 @@ function M.Define(T)
             if scalar == nil then return pvm.once(Tr.TreeBackExprUnsupported(lowered.env, lowered.cmds, "index result has non-scalar type")) end
             local env2, dst = env_next_value(lowered.env, "v")
             local cmds = {}; append_all(cmds, lowered.cmds)
-            cmds[#cmds + 1] = Back.CmdLoad(dst, shape_scalar(scalar), lowered.value)
-            return pvm.once(Tr.TreeBackExprValue(env2, cmds, dst, scalar))
+            local env3 = append_load_info(cmds, env2, dst, shape_scalar(scalar), lowered.value, dst.text)
+            return pvm.once(Tr.TreeBackExprValue(env3, cmds, dst, scalar))
         end,
         [Tr.ExprAgg] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "aggregate lowering deferred")) end,
         [Tr.ExprArray] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "array lowering deferred")) end,
@@ -410,8 +473,8 @@ function M.Define(T)
             if scalar == nil then return pvm.once(Tr.TreeBackExprUnsupported(addr.env, addr.cmds, "load result has non-scalar type")) end
             local env2, dst = env_next_value(addr.env, "v")
             local cmds = {}; append_all(cmds, addr.cmds)
-            cmds[#cmds + 1] = Back.CmdLoad(dst, shape_scalar(scalar), addr.value)
-            return pvm.once(Tr.TreeBackExprValue(env2, cmds, dst, scalar))
+            local env3 = append_load_info(cmds, env2, dst, shape_scalar(scalar), addr.value, dst.text)
+            return pvm.once(Tr.TreeBackExprValue(env3, cmds, dst, scalar))
         end,
         [Tr.ExprSlotValue] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "slot expr lowering deferred")) end,
         [Tr.ExprUseExprFrag] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "frag expr lowering deferred")) end,
@@ -435,13 +498,39 @@ function M.Define(T)
         return Back.BackLitInt(tostring(raw))
     end
 
+    local function memory_info(access_text, mode)
+        return Back.BackMemoryInfo(Back.BackAccessId(access_text), Back.BackAlignUnknown, Back.BackDerefUnknown, Back.BackMayTrap, Back.BackMayNotMove, mode)
+    end
+
+    local function append_zero_offset(cmds, current)
+        local env1, zero = env_next_value(current, "v")
+        cmds[#cmds + 1] = Back.CmdConst(zero, Back.BackIndex, Back.BackLitInt("0"))
+        return env1, zero
+    end
+
+    local function address_from_ptr(ptr, offset)
+        return Back.BackAddress(Back.BackAddrValue(ptr), offset, Back.BackProvUnknown, Back.BackPtrBoundsUnknown)
+    end
+
+    append_load_info = function(cmds, current, dst, shape, ptr, access_tag)
+        local env1, zero = append_zero_offset(cmds, current)
+        cmds[#cmds + 1] = Back.CmdLoadInfo(dst, shape, address_from_ptr(ptr, zero), memory_info("tree:" .. tostring(access_tag or dst.text), Back.BackAccessRead))
+        return env1
+    end
+
+    append_store_info = function(cmds, current, shape, ptr, value, access_tag)
+        local env1, zero = append_zero_offset(cmds, current)
+        cmds[#cmds + 1] = Back.CmdStoreInfo(shape, address_from_ptr(ptr, zero), value, memory_info("tree:" .. tostring(access_tag or ptr.text), Back.BackAccessWrite))
+        return env1
+    end
+
     local function add_ptr_offset(value, offset)
         if offset == 0 then return value end
         local cmds = {}; append_all(cmds, value.cmds)
         local env1, off_val = env_next_value(value.env, "v")
         local env2, addr_val = env_next_value(env1, "v")
         cmds[#cmds + 1] = Back.CmdConst(off_val, Back.BackIndex, Back.BackLitInt(tostring(offset)))
-        cmds[#cmds + 1] = Back.CmdBinary(addr_val, Back.BackIadd, shape_scalar(Back.BackPtr), value.value, off_val)
+        cmds[#cmds + 1] = Back.CmdPtrOffset(addr_val, Back.BackAddrValue(value.value), off_val, 1, 0, Back.BackProvDerived("tree byte offset"), Back.BackPtrBoundsUnknown)
         return Tr.TreeBackExprValue(env2, cmds, addr_val, Back.BackPtr)
     end
 
@@ -454,11 +543,11 @@ function M.Define(T)
         if storage_scalar == nil then return Tr.TreeBackExprUnsupported(addr.env, addr.cmds, "field storage has no scalar backend") end
         local cmds = {}; append_all(cmds, addr.cmds)
         local env1, raw = env_next_value(addr.env, "v")
-        cmds[#cmds + 1] = Back.CmdLoad(raw, shape_scalar(storage_scalar), addr.value)
+        local env_load = append_load_info(cmds, env1, raw, shape_scalar(storage_scalar), addr.value, raw.text)
         if not field_is_stored_bool(field) then
-            return Tr.TreeBackExprValue(env1, cmds, raw, storage_scalar)
+            return Tr.TreeBackExprValue(env_load, cmds, raw, storage_scalar)
         end
-        local env2, zero = env_next_value(env1, "v")
+        local env2, zero = env_next_value(env_load, "v")
         local env3, dst = env_next_value(env2, "v")
         cmds[#cmds + 1] = Back.CmdConst(zero, storage_scalar, const_for_scalar(storage_scalar, "0"))
         cmds[#cmds + 1] = Back.CmdCompare(dst, Back.BackIcmpNe, shape_scalar(storage_scalar), raw, zero)
@@ -472,7 +561,7 @@ function M.Define(T)
         local stride_expr = Tr.TreeBackExprValue(current, {}, stride_value, Back.BackIndex)
         current, stride_value = cast_to_index(stride_expr, current, cmds)
         local mul_env, mul_val = env_next_value(current, "v")
-        cmds[#cmds + 1] = Back.CmdBinary(mul_val, Back.BackImul, shape_scalar(Back.BackIndex), elem_index, stride_value)
+        cmds[#cmds + 1] = Back.CmdIntBinary(mul_val, Back.BackIntMul, Back.BackIndex, int_sem_wrap(), elem_index, stride_value)
         current = mul_env
         elem_index = mul_val
         local size = elem_size(elem_ty)
@@ -481,8 +570,8 @@ function M.Define(T)
         local env2, off_val = env_next_value(env1, "v")
         local env3, data_val = env_next_value(env2, "v")
         cmds[#cmds + 1] = Back.CmdConst(size_val, Back.BackIndex, Back.BackLitInt(tostring(size)))
-        cmds[#cmds + 1] = Back.CmdBinary(off_val, Back.BackImul, shape_scalar(Back.BackIndex), elem_index, size_val)
-        cmds[#cmds + 1] = Back.CmdBinary(data_val, Back.BackIadd, shape_scalar(Back.BackPtr), base_view.data, off_val)
+        cmds[#cmds + 1] = Back.CmdIntBinary(off_val, Back.BackIntMul, Back.BackIndex, int_sem_wrap(), elem_index, size_val)
+        cmds[#cmds + 1] = Back.CmdPtrOffset(data_val, Back.BackAddrValue(base_view.data), off_val, 1, 0, Back.BackProvDerived("view window data"), Back.BackPtrBoundsUnknown)
         return Tr.TreeBackExprStridedView(env3, cmds, data_val, len.value, base_view.stride)
     end
 
@@ -590,15 +679,15 @@ function M.Define(T)
             end
             local stride_value = view.stride
             local mul_env, mul_val = env_next_value(current, "v")
-            cmds[#cmds + 1] = Back.CmdBinary(mul_val, Back.BackImul, shape_scalar(Back.BackIndex), index_value, stride_value)
+            cmds[#cmds + 1] = Back.CmdIntBinary(mul_val, Back.BackIntMul, Back.BackIndex, int_sem_wrap(), index_value, stride_value)
             current = mul_env
             index_value = mul_val
             local env1, size_val = env_next_value(current, "v")
             local env2, off_val = env_next_value(env1, "v")
             local env3, addr_val = env_next_value(env2, "v")
             cmds[#cmds + 1] = Back.CmdConst(size_val, Back.BackIndex, Back.BackLitInt(tostring(size)))
-            cmds[#cmds + 1] = Back.CmdBinary(off_val, Back.BackImul, shape_scalar(Back.BackIndex), index_value, size_val)
-            cmds[#cmds + 1] = Back.CmdBinary(addr_val, Back.BackIadd, shape_scalar(Back.BackPtr), view.data, off_val)
+            cmds[#cmds + 1] = Back.CmdIntBinary(off_val, Back.BackIntMul, Back.BackIndex, int_sem_wrap(), index_value, size_val)
+            cmds[#cmds + 1] = Back.CmdPtrOffset(addr_val, Back.BackAddrValue(view.data), off_val, 1, 0, Back.BackProvDerived("view index address"), Back.BackPtrBoundsUnknown)
             return pvm.once(Tr.TreeBackExprValue(env3, cmds, addr_val, Back.BackPtr))
         end,
         [Tr.IndexBasePlace] = function(_, _, _, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "place index address lowering deferred")) end,
@@ -647,7 +736,7 @@ function M.Define(T)
             store_value = encoded
             current = env3
         end
-        cmds[#cmds + 1] = Back.CmdStore(shape_scalar(scalar), addr.value, store_value)
+        current = append_store_info(cmds, current, shape_scalar(scalar), addr.value, store_value, tostring(addr.value.text) .. ":store")
         return pvm.once(Tr.TreeBackStmtResult(current, cmds, Back.BackFallsThrough))
     end
 
@@ -730,11 +819,11 @@ function M.Define(T)
                 cmds = len_addr.cmds
                 local stride_addr = add_ptr_offset(Tr.TreeBackExprValue(len_addr.env, cmds, out, Back.BackPtr), 16)
                 cmds = stride_addr.cmds
-                cmds[#cmds + 1] = Back.CmdStore(shape_scalar(Back.BackPtr), out, view.data)
-                cmds[#cmds + 1] = Back.CmdStore(shape_scalar(Back.BackIndex), len_addr.value, view.len)
-                cmds[#cmds + 1] = Back.CmdStore(shape_scalar(Back.BackIndex), stride_addr.value, view.stride)
+                local current = append_store_info(cmds, stride_addr.env, shape_scalar(Back.BackPtr), out, view.data, tostring(out.text) .. ":data")
+                current = append_store_info(cmds, current, shape_scalar(Back.BackIndex), len_addr.value, view.len, tostring(out.text) .. ":len")
+                current = append_store_info(cmds, current, shape_scalar(Back.BackIndex), stride_addr.value, view.stride, tostring(out.text) .. ":stride")
                 cmds[#cmds + 1] = Back.CmdReturnVoid
-                return pvm.once(Tr.TreeBackStmtResult(stride_addr.env, cmds, Back.BackTerminates))
+                return pvm.once(Tr.TreeBackStmtResult(current, cmds, Back.BackTerminates))
             end
             local value = expr_value(lowered)
             if value == nil then return pvm.once(Tr.TreeBackStmtResult(env, { Back.CmdTrap }, Back.BackTerminates)) end
@@ -865,12 +954,12 @@ function M.Define(T)
             local env1, off_val = env_next_value(current, "v")
             local env2, addr_val = env_next_value(env1, "v")
             cmds[#cmds + 1] = Back.CmdConst(off_val, Back.BackIndex, Back.BackLitInt(tostring(offset)))
-            cmds[#cmds + 1] = Back.CmdBinary(addr_val, Back.BackIadd, shape_scalar(Back.BackPtr), desc, off_val)
+            cmds[#cmds + 1] = Back.CmdPtrOffset(addr_val, Back.BackAddrValue(desc), off_val, 1, 0, Back.BackProvDerived("descriptor " .. field_name), Back.BackPtrBoundsUnknown)
             current, addr = env2, addr_val
         end
         local env3, value = env_next_value(current, "v")
-        cmds[#cmds + 1] = Back.CmdLoad(value, shape_scalar(scalar), addr)
-        return env3, value
+        local env4 = append_load_info(cmds, env3, value, shape_scalar(scalar), addr, "descriptor:" .. tostring(desc.text) .. ":" .. field_name)
+        return env4, value
     end
 
     local function lower_host_export_wrapper(public_name, inner_name, params, result_ty)

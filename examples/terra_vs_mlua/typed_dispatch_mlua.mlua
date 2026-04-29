@@ -1,0 +1,178 @@
+-- Moonlift/.mlua side of the typed dispatch comparison.
+--
+-- Idiom shown here:
+--   Lua host code manufactures typed region/expression fragments.
+--   Moonlift object code composes those fragments with `emit`.
+--   Dispatch is ordinary `switch`; exits are typed continuations.
+--   The backend ultimately sees blocks, jumps, switch arms, and flat commands.
+
+local ffi = require("ffi")
+
+local function u8buf(s)
+    local buf = ffi.new("uint8_t[?]", #s)
+    ffi.copy(buf, s, #s)
+    return buf, #s
+end
+
+local function expect_byte(tag, byte, err_code)
+    return region expect_@{tag}(p: ptr(u8), n: i32, pos: i32;
+        ok: cont(next: i32),
+        err: cont(pos: i32, code: i32))
+    entry start()
+        if pos >= n then jump err(pos = pos, code = @{err_code}) end
+        if as(i32, p[pos]) == @{byte} then
+            jump ok(next = pos + 1)
+        end
+        jump err(pos = pos, code = @{err_code})
+    end
+    end
+end
+
+local expect_semicolon = expect_byte("semicolon", 59, 30)
+
+local digit_acc = region digit_acc(p: ptr(u8), n: i32, pos: i32, acc: i32;
+    ok: cont(pos2: i32, acc: i32),
+    err: cont(pos: i32, code: i32))
+entry start()
+    if pos >= n then jump err(pos = pos, code = 11) end
+    let c: i32 = as(i32, p[pos])
+    if c >= 48 then
+        if c <= 57 then
+            jump ok(pos2 = pos + 1, acc = acc * 10 + c - 48)
+        end
+    end
+    jump err(pos = pos, code = 12)
+end
+end
+
+local two_digits = region two_digits(p: ptr(u8), n: i32, pos: i32;
+    ok: cont(value: i32, pos2: i32),
+    err: cont(pos: i32, code: i32))
+entry start()
+    emit digit_acc(p, n, pos, 0; ok = got_one, err = err)
+end
+block got_one(pos2: i32, acc: i32)
+    emit digit_acc(p, n, pos2, acc; ok = got_two, err = err)
+end
+block got_two(pos2: i32, acc: i32)
+    jump ok(value = acc, pos2 = pos2)
+end
+end
+
+local upper_alpha = region upper_alpha(p: ptr(u8), n: i32, pos: i32;
+    ok: cont(value: i32, pos2: i32),
+    err: cont(pos: i32, code: i32))
+entry start()
+    if pos >= n then jump err(pos = pos, code = 21) end
+    let c: i32 = as(i32, p[pos])
+    if c >= 65 then
+        if c <= 90 then
+            jump ok(value = c - 65, pos2 = pos + 1)
+        end
+    end
+    jump err(pos = pos, code = 22)
+end
+end
+
+local digit_sum_until_semicolon = region digit_sum_until_semicolon(p: ptr(u8), n: i32, pos: i32;
+    ok: cont(sum: i32, pos2: i32),
+    err: cont(pos: i32, code: i32))
+entry loop(i: i32 = pos, sum: i32 = 0)
+    if i >= n then jump err(pos = i, code = 31) end
+    let c: i32 = as(i32, p[i])
+    if c == 59 then
+        jump ok(sum = sum, pos2 = i + 1)
+    end
+    if c >= 48 then
+        if c <= 57 then
+            jump loop(i = i + 1, sum = sum + c - 48)
+        end
+    end
+    jump err(pos = i, code = 32)
+end
+end
+
+local function positive_after(tag, pivot)
+    return expr positive_after_@{tag}(x: i32) -> i32
+        select(x > @{pivot}, x - @{pivot}, 0)
+    end
+end
+
+local score_after_50 = positive_after(50, 50)
+local score_after_60 = positive_after(60, 60)
+
+local score_pair_region = region score_pair_region(p: ptr(u8), n: i32;
+    done: cont(a: i32, b: i32))
+entry loop(i: i32 = 0, a: i32 = 0, b: i32 = 0)
+    if i >= n then jump done(a = a, b = b) end
+    let v: i32 = as(i32, p[i])
+    jump loop(
+        i = i + 1,
+        a = a + emit @{score_after_50}(v),
+        b = b + emit @{score_after_60}(v))
+end
+end
+
+local packet = module PacketMlua
+export func parse_packet(p: ptr(u8), n: i32) -> i32
+    return region -> i32
+    entry start()
+        if n <= 0 then yield -1 end
+        switch as(i32, p[0]) do
+        case 65 then
+            emit two_digits(p, n, 1; ok = got_A, err = bad)
+        case 66 then
+            emit upper_alpha(p, n, 1; ok = got_B, err = bad)
+        case 67 then
+            emit digit_sum_until_semicolon(p, n, 1; ok = got_C, err = bad)
+        default then
+            yield -9
+        end
+    end
+    block got_A(value: i32, pos2: i32)
+        yield 1000 + value
+    end
+    block got_B(value: i32, pos2: i32)
+        yield 2000 + value
+    end
+    block got_C(sum: i32, pos2: i32)
+        yield 3000 + sum
+    end
+    block bad(pos: i32, code: i32)
+        yield 0 - code
+    end
+    end
+end
+
+export func score_pair(p: ptr(u8), n: i32) -> i32
+    return region -> i32
+    entry start()
+        emit score_pair_region(p, n; done = out)
+    end
+    block out(a: i32, b: i32)
+        yield a * 100 + b
+    end
+    end
+end
+end
+
+local compiled = packet:compile()
+local parse_packet = compiled:get("parse_packet")
+local score_pair = compiled:get("score_pair")
+
+local a, na = u8buf("A42")
+local b, nb = u8buf("BC")
+local c, nc = u8buf("C123;")
+local bad_digit, nbad_digit = u8buf("A4x")
+local unknown, nunknown = u8buf("Z")
+assert(parse_packet(a, na) == 1042)
+assert(parse_packet(b, nb) == 2002)
+assert(parse_packet(c, nc) == 3006)
+assert(parse_packet(bad_digit, nbad_digit) == -12)
+assert(parse_packet(unknown, nunknown) == -9)
+
+local scores, nscores = u8buf(string.char(40, 55, 65))
+assert(score_pair(scores, nscores) == 2005)
+
+compiled:free()
+return "Moonlift typed region dispatch comparison ok"

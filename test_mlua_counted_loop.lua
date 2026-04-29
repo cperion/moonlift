@@ -16,9 +16,9 @@ export func sum(xs: ptr(i32), n: index) -> i32
     let v: view(i32) = view(xs, n)
     return loop counted i: index = 0 until i >= len(v)
         state acc: i32 = 0
-        yield acc {
+        yield acc
         next acc = acc + v[i]
-    }
+    end
 end
 ]]
 assert(#parsed.issues == 0, tostring(parsed.issues[1]))
@@ -33,9 +33,9 @@ local sum = func sum(xs: ptr(i32), n: index) -> i32
     let v: view(i32) = view(xs, n)
     return loop counted i: index = 0 until i >= len(v)
         state acc: i32 = 0
-        yield acc {
+        yield acc
         next acc = acc + v[i]
-    }
+    end
 end
 return sum
 ]]

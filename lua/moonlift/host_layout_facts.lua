@@ -299,7 +299,7 @@ function M.Define(T)
         for i = 1, #ty.fields do
             facts[#facts + 1] = H.HostFactField(ty.id, ty.fields[i])
         end
-        facts[#facts + 1] = H.HostFactExpose(ty.id, view.expose)
+        facts[#facts + 1] = H.HostFactExpose(ty.name, ty.id, H.HostExposeFacet(H.HostExposeLua, H.HostExposeAbiDefault, view.expose))
         facts[#facts + 1] = H.HostFactAccessPlan(access)
         facts[#facts + 1] = H.HostFactViewPlan(view)
         facts[#facts + 1] = H.HostFactProducer(producer_plan(opts.producer_name or ty.name, opts.producer_kind or H.HostProducerLowLevelMoonlift, { ty }))

@@ -12,17 +12,13 @@ local Validate = HostDeclValidate.Define(T)
 local H = T.Moon2Host
 
 local src = [[
-struct User repr(packed(4)) {
+struct User repr(packed(4))
     id: i32 readonly
     active: bool32 mutable
     small: bool stored u8 noalias
-}
+end
 
-expose view(User) as Users {
-    lua readonly checked
-    terra
-    c
-}
+expose Users: view(User)
 ]]
 
 local parsed = MP.parse(src, "builder_equivalence.mlua")
@@ -34,11 +30,7 @@ local built = Host.host_decl_set({
         Host.host_field("active", Host.host_bool32, { "mutable" }),
         Host.host_field("small", Host.host_bool_stored(Host.u8), { "noalias" }),
     }, { packed = 4 }),
-    Host.host_expose(Host.host_expose_view(Host.host_named("User")), "Users", {
-        targets = { "lua", "terra", "c" },
-        mutability = "readonly",
-        bounds = "checked",
-    }),
+    Host.host_expose(Host.host_expose_view(Host.host_named("User")), "Users"),
 })
 
 assert(parsed.decls == built)

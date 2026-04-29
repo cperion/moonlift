@@ -2,7 +2,6 @@ package.path = "./?.lua;./?/init.lua;./moonlift/lua/?.lua;./moonlift/lua/?/init.
 
 local ffi = require("ffi")
 local pvm = require("moonlift.pvm")
-local A1 = require("moonlift_legacy.asdl")
 local A2 = require("moonlift.asdl")
 local Parse = require("moonlift.parse")
 local Typecheck = require("moonlift.tree_typecheck")
@@ -10,11 +9,9 @@ local ContractFacts = require("moonlift.tree_contract_facts")
 local KernelPlan = require("moonlift.vec_kernel_plan")
 local Lower = require("moonlift.tree_to_back")
 local Validate = require("moonlift.back_validate")
-local Bridge = require("moonlift.back_to_moonlift")
-local J = require("moonlift_legacy.jit")
+local J = require("moonlift.back_jit")
 
 local T = pvm.context()
-A1.Define(T)
 A2.Define(T)
 local P = Parse.Define(T)
 local TC = Typecheck.Define(T)
@@ -22,11 +19,10 @@ local CF = ContractFacts.Define(T)
 local KP = KernelPlan.Define(T)
 local Lowerer = Lower.Define(T)
 local Vd = Validate.Define(T)
-local bridge = Bridge.Define(T)
 local jit_api = J.Define(T)
 local C = T.Moon2Core
 local Vec = T.Moon2Vec
-local B1 = T.MoonliftBack
+local B2 = T.Moon2Back
 
 local src = [[
 export func sum_view_full_window_i32(xs: view(i32)) -> i32
@@ -89,11 +85,11 @@ end
 local program = Lowerer.module(checked.module)
 local report = Vd.validate(program)
 assert(#report.issues == 0)
-local artifact = jit_api.jit():compile(bridge.lower_program(program))
-local sum_full = ffi.cast("int32_t (*)(const int32_t*, intptr_t)", artifact:getpointer(B1.BackFuncId("sum_view_full_window_i32")))
-local sum_prefix = ffi.cast("int32_t (*)(const int32_t*, intptr_t)", artifact:getpointer(B1.BackFuncId("sum_view_prefix_window_i32")))
-local sum_nested = ffi.cast("int32_t (*)(const int32_t*, intptr_t)", artifact:getpointer(B1.BackFuncId("sum_view_nested_window_i32")))
-local add = ffi.cast("int32_t (*)(int32_t*, intptr_t, const int32_t*, intptr_t, const int32_t*, intptr_t)", artifact:getpointer(B1.BackFuncId("add_view_window_i32")))
+local artifact = jit_api.jit():compile(program)
+local sum_full = ffi.cast("int32_t (*)(const int32_t*, intptr_t)", artifact:getpointer(B2.BackFuncId("sum_view_full_window_i32")))
+local sum_prefix = ffi.cast("int32_t (*)(const int32_t*, intptr_t)", artifact:getpointer(B2.BackFuncId("sum_view_prefix_window_i32")))
+local sum_nested = ffi.cast("int32_t (*)(const int32_t*, intptr_t)", artifact:getpointer(B2.BackFuncId("sum_view_nested_window_i32")))
+local add = ffi.cast("int32_t (*)(int32_t*, intptr_t, const int32_t*, intptr_t, const int32_t*, intptr_t)", artifact:getpointer(B2.BackFuncId("add_view_window_i32")))
 local xs = ffi.new("int32_t[8]", { 1, 2, 3, 4, 5, 6, 7, 8 })
 assert(sum_full(xs, 8) == 36)
 assert(sum_prefix(xs, 8) == 2 + 3 + 4 + 5 + 6 + 7 + 8)

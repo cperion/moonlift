@@ -111,12 +111,15 @@ function M.Define(T)
             for i = 1, #facts.memory do append_all(rejects, pvm.drain(memory_rejects(facts.memory[i]))) end
             for i = 1, #facts.dependences do append_all(rejects, pvm.drain(dependence_rejects(facts.dependences[i]))) end
             if #rejects > 0 then
-                return pvm.once(V.VecLoopDecision(facts, V.VecLoopScalar(facts.loop, rejects), { V.VecShapeScore(V.VecLoopScalar(facts.loop, rejects), 1, 0, "existing rejects") }))
+                local chosen = V.VecLoopScalar(facts.loop, rejects)
+                return pvm.once(V.VecLoopDecision(facts, V.VecIllegal(rejects), V.VecScheduleScalar(rejects), chosen, { V.VecShapeScore(chosen, 1, 0, "existing rejects") }))
             end
             local elem = pvm.drain(facts_elem(facts))[1]
             if elem == nil then
                 local reject = V.VecRejectUnsupportedLoop(facts.loop, "no scalar element type for loop")
-                return pvm.once(V.VecLoopDecision(facts, V.VecLoopScalar(facts.loop, { reject }), { V.VecShapeScore(V.VecLoopScalar(facts.loop, { reject }), 1, 0, "missing element") }))
+                local rejects2 = { reject }
+                local chosen = V.VecLoopScalar(facts.loop, rejects2)
+                return pvm.once(V.VecLoopDecision(facts, V.VecIllegal(rejects2), V.VecScheduleScalar(rejects2), chosen, { V.VecShapeScore(chosen, 1, 0, "missing element") }))
             end
             local bits = pvm.one(target_vector_bits(target))
             local ebits = pvm.one(elem_bits(elem))
@@ -125,11 +128,16 @@ function M.Define(T)
             local shape = V.VecVectorShape(elem, lanes)
             if not pvm.one(target_supports_shape(target, shape)) then
                 local reject = V.VecRejectTarget(shape, "target does not advertise shape")
-                return pvm.once(V.VecLoopDecision(facts, V.VecLoopScalar(facts.loop, { reject }), { V.VecShapeScore(V.VecLoopScalar(facts.loop, { reject }), 1, 0, "target reject") }))
+                local rejects2 = { reject }
+                local chosen = V.VecLoopScalar(facts.loop, rejects2)
+                return pvm.once(V.VecLoopDecision(facts, V.VecIllegal(rejects2), V.VecScheduleScalar(rejects2), chosen, { V.VecShapeScore(chosen, 1, 0, "target reject") }))
             end
             local proof = V.VecProofDomain("counted domain")
-            local chosen = V.VecLoopVector(facts.loop, shape, 1, V.VecTailScalar, { proof })
-            return pvm.once(V.VecLoopDecision(facts, chosen, { V.VecShapeScore(chosen, lanes, 100, "supported counted vector loop") }))
+            local proofs = { proof }
+            local tail = V.VecTailScalar
+            local chosen = V.VecLoopVector(facts.loop, shape, 1, tail, proofs)
+            local schedule = V.VecScheduleVector(shape, 1, 1, tail, 1, {}, proofs)
+            return pvm.once(V.VecLoopDecision(facts, V.VecLegal(proofs), schedule, chosen, { V.VecShapeScore(chosen, lanes, 100, "supported counted vector loop") }))
         end,
     }, { args_cache = "last" })
 

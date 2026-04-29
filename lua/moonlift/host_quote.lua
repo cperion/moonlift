@@ -50,6 +50,15 @@ local function skip_space(src, i)
     return i
 end
 
+local function skip_hspace(src, i)
+    while i <= #src do
+        local c = src:sub(i, i)
+        if c ~= " " and c ~= "\t" and c ~= "\r" then break end
+        i = i + 1
+    end
+    return i
+end
+
 local function read_ident(src, i)
     if not src:sub(i, i):match("[A-Za-z_]") then return nil, i end
     local s = i
@@ -95,47 +104,16 @@ local function skip_comment_or_string(src, i)
     return nil
 end
 
-local function find_matching_brace(src, open_i)
-    local depth, i = 0, open_i
-    while i <= #src do
-        local skipped = skip_comment_or_string(src, i)
-        if skipped then
-            i = skipped
-        else
-            local c = src:sub(i, i)
-            if c == "{" then depth = depth + 1; i = i + 1
-            elseif c == "}" then
-                depth = depth - 1
-                if depth == 0 then return i end
-                i = i + 1
-            else
-                i = i + 1
-            end
-        end
-    end
-    error("unterminated hosted Moonlift brace form", 2)
-end
-
-local function find_first_brace(src, start_i)
-    local i = start_i
-    while i <= #src do
-        local skipped = skip_comment_or_string(src, i)
-        if skipped then
-            i = skipped
-        elseif src:sub(i, i) == "{" and src:sub(i - 1, i - 1) ~= "@" then
-            return i
-        else
-            i = i + 1
-        end
-    end
-    return nil
-end
-
 local open_words = {
-    func = true, module = true, region = true, expr = true,
+    struct = true, expose = true, func = true, module = true, region = true, expr = true,
     ["if"] = true, switch = true, block = true, entry = true, control = true,
-    ["do"] = true, ["function"] = true, ["repeat"] = true,
 }
+
+local function line_prefix_has_word(src, i, word)
+    local line_start = src:sub(1, i - 1):match(".*\n()") or 1
+    local prefix = src:sub(line_start, i - 1)
+    return prefix:match("%f[%w_]" .. word .. "%f[^%w_]") ~= nil
+end
 
 local function find_matching_end(src, start_i)
     local depth, i = 0, start_i
@@ -151,6 +129,11 @@ local function find_matching_end(src, start_i)
                     if depth == 0 then return j - 1 end
                 elseif open_words[word] then
                     depth = depth + 1
+                elseif word == "do" then
+                    if not line_prefix_has_word(src, i, "switch") then depth = depth + 1 end
+                elseif word == "loop" then
+                    local next_word = read_ident(src, skip_space(src, j))
+                    if next_word == "counted" then depth = depth + 1 end
                 end
             end
             i = j
@@ -161,11 +144,6 @@ local function find_matching_end(src, start_i)
     error("unterminated hosted Moonlift island", 2)
 end
 
-local function same_line_before(src, a, b)
-    local nl = src:find("\n", a, true)
-    return not nl or b < nl
-end
-
 local function is_island_start(src, i, kind)
     if not has_word(src, i, kind) then return false end
     local j = skip_space(src, i + #kind)
@@ -173,14 +151,38 @@ local function is_island_start(src, i, kind)
         return read_ident(src, j) ~= nil
     end
     if kind == "expose" then
-        return src:find("%f[%w_]as%f[^%w_]", j) ~= nil
+        return read_ident(src, j) ~= nil
     end
     if kind == "module" then
-        local word, after_word = read_ident(src, j)
-        local ch = src:sub(j, j)
-        if ch == "{" then return true end
-        if word and src:sub(skip_space(src, after_word), skip_space(src, after_word)) == "{" then return true end
-        return word == "export" or word == "extern" or word == "func" or word == "const" or word == "static" or word == "import" or word == "type" or word == "region" or word == "expr" or word == "end"
+        local item_words = { export = true, extern = true, func = true, const = true, static = true, import = true, type = true, region = true, expr = true, ["end"] = true }
+        local p = i - 1
+        while p >= 1 do
+            local c = src:sub(p, p)
+            if c ~= " " and c ~= "\t" and c ~= "\r" then break end
+            p = p - 1
+        end
+        local prev = p >= 1 and src:sub(p, p) or "\n"
+        local word_end = p
+        while p >= 1 and src:sub(p, p):match("[%w_]") do p = p - 1 end
+        local prev_word = word_end >= p + 1 and src:sub(p + 1, word_end) or ""
+        local from_return = prev_word == "return"
+        local prefix_ok = prev == "\n" or prev == "="
+        if not prefix_ok and not from_return then return false end
+        local k = skip_hspace(src, i + #kind)
+        local ch = src:sub(k, k)
+        if ch == "" then return prefix_ok end
+        if ch == "\n" then
+            if not from_return then return true end
+            local next_word = read_ident(src, skip_space(src, k + 1))
+            return item_words[next_word] == true
+        end
+        local word, after_word = read_ident(src, k)
+        if not word then return false end
+        if item_words[word] then return true end
+        local next_i = skip_hspace(src, after_word)
+        local next_ch = src:sub(next_i, next_i)
+        if from_return then return next_ch == "\n" end
+        return next_ch == "" or next_ch == "\n"
     end
     return false
 end
@@ -204,10 +206,14 @@ local function find_next_island(src, i)
 end
 
 local function island_end(src, start_i, kind)
-    local brace = find_first_brace(src, start_i)
-    if kind == "struct" or kind == "expose" then return find_matching_brace(src, brace) end
-    if (kind == "func" or kind == "module") and brace and same_line_before(src, start_i, brace) then
-        return find_matching_brace(src, brace)
+    if kind == "expose" then
+        local nl = src:find("\n", start_i, true)
+        if not nl then return #src end
+        local next_word = read_ident(src, skip_space(src, nl + 1))
+        if next_word == "end" or next_word == "lua" or next_word == "terra" or next_word == "c" or next_word == "moonlift" then
+            return find_matching_end(src, start_i)
+        end
+        return nl - 1
     end
     return find_matching_end(src, start_i)
 end
@@ -224,19 +230,20 @@ local function normalize_method_func_source(src)
 end
 
 local function module_body_from_source(src)
-    local brace = find_first_brace(src, 1)
-    if brace and same_line_before(src, 1, brace) then
-        local close = find_matching_brace(src, brace)
-        return src:sub(brace + 1, close - 1)
+    local body = src:match("^%s*module%s+([%s%S]-)%s*end%s*$")
+    if not body then return src end
+    local maybe_name, rest = body:match("^%s*([_%a][_%w]*)([%s%S]*)$")
+    if maybe_name and not ({ export = true, extern = true, func = true, const = true, static = true, import = true, type = true, region = true, expr = true, ["end"] = true })[maybe_name] then
+        body = rest
     end
-    return src:match("^%s*module%s*(.-)%s*end%s*$") or src
+    return body
 end
 
 local function expected_splice_kind(src, at)
     local prefix = src:sub(1, at - 1):gsub("%s+$", "")
     if prefix:match("%f[%w_]emit%s*$") then return "emit" end
     local line = prefix:match("([^\n]*)$") or prefix
-    if line:match(":%s*[%w_%.%s%(]*$") or line:match("%-%>%s*[%w_%.%s%(]*$") or line:match("<%s*$") then return "type" end
+    if line:match(":%s*[%w_%.%s%(]*$") or line:match("%-%>%s*[%w_%.%s%(]*$") or line:match("%f[%w_]as%s*%(%s*$") then return "type" end
     return "expr"
 end
 
@@ -305,7 +312,8 @@ local function translate_island(kind, source, assigned, known_frag_vars)
         return "local " .. name .. " = __moonlift_host.struct_from_source(" .. source_expr_with_antiquotes(source, known_frag_vars) .. ")"
     end
     if kind == "expose" then
-        local name = assert(source:match("%f[%w_]as%f[^%w_]%s+([_%a][_%w]*)"), "expose island without public name")
+        local name = source:match("^%s*expose%s+([_%a][_%w]*)%s*:")
+        assert(name, "expected expose Name: subject")
         return "local " .. name .. " = __moonlift_host.expose_from_source(" .. source_expr_with_antiquotes(source, known_frag_vars) .. ")"
     end
     if kind == "func" then
@@ -610,6 +618,16 @@ local function parse_signature(src)
     return { name = name, params = params, result = result }
 end
 
+local function module_item_source(src)
+    local body = src:match("^%s*module%s+([%s%S]-)%s*end%s*$")
+    if not body then return src end
+    local maybe_name, rest = body:match("^%s*([_%a][_%w]*)([%s%S]*)$")
+    if maybe_name and not ({ export = true, extern = true, func = true, const = true, static = true, import = true, type = true, region = true, expr = true, ["end"] = true })[maybe_name] then
+        body = rest
+    end
+    return body
+end
+
 local function parse_module_signatures(src)
     local signatures = {}
     local normalized = normalize_moonlift_body(src)
@@ -643,7 +661,7 @@ local function c_sig_of(sig)
 end
 
 local function compile_module_source(src, region_frags, expr_frags)
-    local A1 = require("moonlift_legacy.asdl")
+    src = module_item_source(src)
     local A2 = require("moonlift.asdl")
     local Parse = require("moonlift.parse")
     local OpenFacts = require("moonlift.open_facts")
@@ -652,10 +670,9 @@ local function compile_module_source(src, region_frags, expr_frags)
     local Typecheck = require("moonlift.tree_typecheck")
     local TreeToBack = require("moonlift.tree_to_back")
     local Validate = require("moonlift.back_validate")
-    local Bridge = require("moonlift.back_to_moonlift")
-    local J = require("moonlift_legacy.jit")
+    local J = require("moonlift.back_jit")
 
-    local T = pvm.context(); A1.Define(T); A2.Define(T)
+    local T = pvm.context(); A2.Define(T)
     local P = Parse.Define(T)
     local OF = OpenFacts.Define(T)
     local OV = OpenValidate.Define(T)
@@ -663,7 +680,6 @@ local function compile_module_source(src, region_frags, expr_frags)
     local TC = Typecheck.Define(T)
     local Lower = TreeToBack.Define(T)
     local V = Validate.Define(T)
-    local bridge = Bridge.Define(T)
     local jit_api = J.Define(T)
 
     local parsed_expr_frags = {}
@@ -698,7 +714,7 @@ local function compile_module_source(src, region_frags, expr_frags)
     local program = Lower.module(checked.module)
     local report = V.validate(program)
     if #report.issues ~= 0 then error("host module back validation failed: " .. tostring(report.issues[1]), 2) end
-    return jit_api.jit():compile(bridge.lower_program(program)), T
+    return jit_api.jit():compile(program), T
 end
 
 local function export_func_source(src)
@@ -742,6 +758,7 @@ end
 
 function M.module_from_source(src)
     local source, region_frags, expr_frags = normalize_source(src)
+    source = module_item_source(source)
     source, region_frags, expr_frags = extract_module_local_frags(source, region_frags, expr_frags)
     return setmetatable({ source = source, region_frags = region_frags, expr_frags = expr_frags, signatures = parse_module_signatures(source) }, ModuleQuote)
 end
@@ -816,8 +833,8 @@ function CompiledModule:get(name)
     local cached = self.functions[name]
     if cached then return cached end
     local sig = assert(self.quote.signatures[name], "compiled module has no exported function signature for `" .. tostring(name) .. "`")
-    local B1 = self.T.MoonliftBack
-    local ptr = self.artifact:getpointer(B1.BackFuncId(name))
+    local B2 = self.T.Moon2Back
+    local ptr = self.artifact:getpointer(B2.BackFuncId(name))
     local c_sig = c_sig_of(sig)
     local fn = ffi.cast(c_sig, ptr)
     local wrapped = setmetatable({ module = self, quote = sig, fn = fn, c_sig = c_sig }, CompiledFunction)

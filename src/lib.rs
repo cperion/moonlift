@@ -52,6 +52,7 @@ id_type!(BackDataId);
 id_type!(BackBlockId);
 id_type!(BackValId);
 id_type!(BackStackSlotId);
+id_type!(BackAccessId);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BackSwitchCase {
@@ -98,6 +99,16 @@ impl BackScalar {
             Self::Ptr | Self::Index => ptr_ty,
         }
     }
+
+    fn byte_size(self, ptr_bytes: u32) -> u32 {
+        match self {
+            Self::Bool | Self::I8 | Self::U8 => 1,
+            Self::I16 | Self::U16 => 2,
+            Self::I32 | Self::U32 | Self::F32 => 4,
+            Self::I64 | Self::U64 | Self::F64 => 8,
+            Self::Ptr | Self::Index => ptr_bytes,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -109,6 +120,10 @@ pub struct BackVec {
 impl BackVec {
     pub fn new(elem: BackScalar, lanes: u32) -> Self {
         Self { elem, lanes }
+    }
+
+    fn byte_size(self, ptr_bytes: u32) -> u32 {
+        self.elem.byte_size(ptr_bytes).saturating_mul(self.lanes)
     }
 
     fn clif_type(self, ptr_ty: Type) -> Result<Type, MoonliftError> {
@@ -125,6 +140,126 @@ impl BackVec {
                 self.elem, self.lanes
             ))
         })
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BackIntOverflow {
+    Wrap,
+    NoSignedWrap,
+    NoUnsignedWrap,
+    NoWrap,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BackIntExact {
+    MayLose,
+    Exact,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BackIntSemantics {
+    pub overflow: BackIntOverflow,
+    pub exact: BackIntExact,
+}
+
+impl BackIntSemantics {
+    pub fn new(overflow: BackIntOverflow, exact: BackIntExact) -> Self {
+        Self { overflow, exact }
+    }
+
+    pub fn wrapping() -> Self {
+        Self { overflow: BackIntOverflow::Wrap, exact: BackIntExact::MayLose }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BackFloatSemantics {
+    Strict,
+    FastMath,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BackAlignment {
+    Unknown,
+    Known(u32),
+    AtLeast(u32),
+    Assumed(u32),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BackDereference {
+    Unknown,
+    Bytes(u32),
+    Assumed(u32),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BackTrap {
+    MayTrap,
+    NonTrapping,
+    Checked,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BackMotion {
+    MayNotMove,
+    CanMove,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BackAccessMode {
+    Read,
+    Write,
+    ReadWrite,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BackMemoryInfo {
+    pub access: BackAccessId,
+    pub alignment: BackAlignment,
+    pub dereference: BackDereference,
+    pub trap: BackTrap,
+    pub motion: BackMotion,
+    pub mode: BackAccessMode,
+}
+
+impl BackMemoryInfo {
+    pub fn new(
+        access: BackAccessId,
+        alignment: BackAlignment,
+        dereference: BackDereference,
+        trap: BackTrap,
+        motion: BackMotion,
+        mode: BackAccessMode,
+    ) -> Self {
+        Self { access, alignment, dereference, trap, motion, mode }
+    }
+
+    fn memflags(&self, access_bytes: u32, natural_align: u32) -> MemFlags {
+        let mut flags = MemFlags::new();
+        match self.trap {
+            BackTrap::NonTrapping => flags.set_notrap(),
+            BackTrap::Checked => flags.set_checked(),
+            BackTrap::MayTrap => {}
+        }
+        if matches!(self.motion, BackMotion::CanMove) {
+            flags.set_can_move();
+        }
+        let align_bytes = match self.alignment {
+            BackAlignment::Known(bytes) | BackAlignment::AtLeast(bytes) | BackAlignment::Assumed(bytes) => Some(bytes),
+            BackAlignment::Unknown => None,
+        };
+        if align_bytes.is_some_and(|bytes| bytes >= natural_align && natural_align > 0) {
+            flags.set_aligned();
+        }
+        if matches!(self.trap, BackTrap::MayTrap) {
+            match self.dereference {
+                BackDereference::Bytes(bytes) | BackDereference::Assumed(bytes) if bytes >= access_bytes => flags.set_notrap(),
+                _ => {}
+            }
+        }
+        flags
     }
 }
 
@@ -170,17 +305,17 @@ pub enum BackCmd {
     Ceil(BackValId, BackScalar, BackValId),
     TruncFloat(BackValId, BackScalar, BackValId),
     Round(BackValId, BackScalar, BackValId),
-    Iadd(BackValId, BackScalar, BackValId, BackValId),
-    Isub(BackValId, BackScalar, BackValId, BackValId),
-    Imul(BackValId, BackScalar, BackValId, BackValId),
-    Fadd(BackValId, BackScalar, BackValId, BackValId),
-    Fsub(BackValId, BackScalar, BackValId, BackValId),
-    Fmul(BackValId, BackScalar, BackValId, BackValId),
-    Sdiv(BackValId, BackScalar, BackValId, BackValId),
-    Udiv(BackValId, BackScalar, BackValId, BackValId),
-    Fdiv(BackValId, BackScalar, BackValId, BackValId),
-    Srem(BackValId, BackScalar, BackValId, BackValId),
-    Urem(BackValId, BackScalar, BackValId, BackValId),
+    Iadd(BackValId, BackScalar, BackIntSemantics, BackValId, BackValId),
+    Isub(BackValId, BackScalar, BackIntSemantics, BackValId, BackValId),
+    Imul(BackValId, BackScalar, BackIntSemantics, BackValId, BackValId),
+    Fadd(BackValId, BackScalar, BackFloatSemantics, BackValId, BackValId),
+    Fsub(BackValId, BackScalar, BackFloatSemantics, BackValId, BackValId),
+    Fmul(BackValId, BackScalar, BackFloatSemantics, BackValId, BackValId),
+    Sdiv(BackValId, BackScalar, BackIntSemantics, BackValId, BackValId),
+    Udiv(BackValId, BackScalar, BackIntSemantics, BackValId, BackValId),
+    Fdiv(BackValId, BackScalar, BackFloatSemantics, BackValId, BackValId),
+    Srem(BackValId, BackScalar, BackIntSemantics, BackValId, BackValId),
+    Urem(BackValId, BackScalar, BackIntSemantics, BackValId, BackValId),
     Band(BackValId, BackScalar, BackValId, BackValId),
     Bor(BackValId, BackScalar, BackValId, BackValId),
     Bxor(BackValId, BackScalar, BackValId, BackValId),
@@ -215,12 +350,14 @@ pub enum BackCmd {
     UToF(BackValId, BackScalar, BackValId),
     FToS(BackValId, BackScalar, BackValId),
     FToU(BackValId, BackScalar, BackValId),
-    Load(BackValId, BackScalar, BackValId),
-    Store(BackScalar, BackValId, BackValId),
+    PtrAdd(BackValId, BackValId, BackValId),
+    PtrOffset(BackValId, BackValId, BackValId, u32, i64),
+    LoadInfo(BackValId, BackScalar, BackValId, BackMemoryInfo),
+    StoreInfo(BackScalar, BackValId, BackValId, BackMemoryInfo),
     Memcpy(BackValId, BackValId, BackValId),
     Memset(BackValId, BackValId, BackValId),
     Select(BackValId, BackScalar, BackValId, BackValId, BackValId),
-    Fma(BackValId, BackScalar, BackValId, BackValId, BackValId),
+    Fma(BackValId, BackScalar, BackFloatSemantics, BackValId, BackValId, BackValId),
     VecSplat(BackValId, BackVec, BackValId),
     VecIcmpEq(BackValId, BackVec, BackValId, BackValId),
     VecIcmpNe(BackValId, BackVec, BackValId, BackValId),
@@ -242,8 +379,8 @@ pub enum BackCmd {
     VecBand(BackValId, BackVec, BackValId, BackValId),
     VecBor(BackValId, BackVec, BackValId, BackValId),
     VecBxor(BackValId, BackVec, BackValId, BackValId),
-    VecLoad(BackValId, BackVec, BackValId),
-    VecStore(BackVec, BackValId, BackValId),
+    VecLoadInfo(BackValId, BackVec, BackValId, BackMemoryInfo),
+    VecStoreInfo(BackVec, BackValId, BackValId, BackMemoryInfo),
     VecInsertLane(BackValId, BackVec, BackValId, BackValId, u32),
     VecExtractLane(BackValId, BackScalar, BackValId, u32),
     CallValueDirect(BackValId, BackScalar, BackFuncId, BackSigId, Vec<BackValId>),
@@ -1239,17 +1376,17 @@ impl<'a, 'b> FunctionLowerer<'a, 'b> {
                 let out = self.builder.ins().nearest(value);
                 self.bind_value(dst, out)
             }
-            BackCmd::Iadd(dst, _, lhs, rhs) => self.bind_binop(dst, lhs, rhs, |b, l, r| b.ins().iadd(l, r)),
-            BackCmd::Isub(dst, _, lhs, rhs) => self.bind_binop(dst, lhs, rhs, |b, l, r| b.ins().isub(l, r)),
-            BackCmd::Imul(dst, _, lhs, rhs) => self.bind_binop(dst, lhs, rhs, |b, l, r| b.ins().imul(l, r)),
-            BackCmd::Fadd(dst, _, lhs, rhs) => self.bind_binop(dst, lhs, rhs, |b, l, r| b.ins().fadd(l, r)),
-            BackCmd::Fsub(dst, _, lhs, rhs) => self.bind_binop(dst, lhs, rhs, |b, l, r| b.ins().fsub(l, r)),
-            BackCmd::Fmul(dst, _, lhs, rhs) => self.bind_binop(dst, lhs, rhs, |b, l, r| b.ins().fmul(l, r)),
-            BackCmd::Sdiv(dst, _, lhs, rhs) => self.bind_binop(dst, lhs, rhs, |b, l, r| b.ins().sdiv(l, r)),
-            BackCmd::Udiv(dst, _, lhs, rhs) => self.bind_binop(dst, lhs, rhs, |b, l, r| b.ins().udiv(l, r)),
-            BackCmd::Fdiv(dst, _, lhs, rhs) => self.bind_binop(dst, lhs, rhs, |b, l, r| b.ins().fdiv(l, r)),
-            BackCmd::Srem(dst, _, lhs, rhs) => self.bind_binop(dst, lhs, rhs, |b, l, r| b.ins().srem(l, r)),
-            BackCmd::Urem(dst, _, lhs, rhs) => self.bind_binop(dst, lhs, rhs, |b, l, r| b.ins().urem(l, r)),
+            BackCmd::Iadd(dst, _, _, lhs, rhs) => self.bind_binop(dst, lhs, rhs, |b, l, r| b.ins().iadd(l, r)),
+            BackCmd::Isub(dst, _, _, lhs, rhs) => self.bind_binop(dst, lhs, rhs, |b, l, r| b.ins().isub(l, r)),
+            BackCmd::Imul(dst, _, _, lhs, rhs) => self.bind_binop(dst, lhs, rhs, |b, l, r| b.ins().imul(l, r)),
+            BackCmd::Fadd(dst, _, _, lhs, rhs) => self.bind_binop(dst, lhs, rhs, |b, l, r| b.ins().fadd(l, r)),
+            BackCmd::Fsub(dst, _, _, lhs, rhs) => self.bind_binop(dst, lhs, rhs, |b, l, r| b.ins().fsub(l, r)),
+            BackCmd::Fmul(dst, _, _, lhs, rhs) => self.bind_binop(dst, lhs, rhs, |b, l, r| b.ins().fmul(l, r)),
+            BackCmd::Sdiv(dst, _, _, lhs, rhs) => self.bind_binop(dst, lhs, rhs, |b, l, r| b.ins().sdiv(l, r)),
+            BackCmd::Udiv(dst, _, _, lhs, rhs) => self.bind_binop(dst, lhs, rhs, |b, l, r| b.ins().udiv(l, r)),
+            BackCmd::Fdiv(dst, _, _, lhs, rhs) => self.bind_binop(dst, lhs, rhs, |b, l, r| b.ins().fdiv(l, r)),
+            BackCmd::Srem(dst, _, _, lhs, rhs) => self.bind_binop(dst, lhs, rhs, |b, l, r| b.ins().srem(l, r)),
+            BackCmd::Urem(dst, _, _, lhs, rhs) => self.bind_binop(dst, lhs, rhs, |b, l, r| b.ins().urem(l, r)),
             BackCmd::Band(dst, _, lhs, rhs) => self.bind_binop(dst, lhs, rhs, |b, l, r| b.ins().band(l, r)),
             BackCmd::Bor(dst, _, lhs, rhs) => self.bind_binop(dst, lhs, rhs, |b, l, r| b.ins().bor(l, r)),
             BackCmd::Bxor(dst, _, lhs, rhs) => self.bind_binop(dst, lhs, rhs, |b, l, r| b.ins().bxor(l, r)),
@@ -1324,18 +1461,44 @@ impl<'a, 'b> FunctionLowerer<'a, 'b> {
                 let out = self.builder.ins().fcvt_to_uint(ty.clif_type(self.ptr_ty), value);
                 self.bind_value(dst, out)
             }
-            BackCmd::Load(dst, ty, addr) => {
-                let addr = self.value(addr)?;
-                let out = self
-                    .builder
-                    .ins()
-                    .load(ty.clif_type(self.ptr_ty), MemFlags::new(), addr, 0);
+            BackCmd::PtrAdd(dst, base, byte_offset) => {
+                let base_value = self.value(base)?;
+                let offset_value = self.value(byte_offset)?;
+                self.require_value_type(base, base_value, self.ptr_ty, "BackCmdPtrAdd base")?;
+                self.require_value_type(byte_offset, offset_value, self.ptr_ty, "BackCmdPtrAdd byte_offset")?;
+                let out = self.builder.ins().iadd(base_value, offset_value);
                 self.bind_value(dst, out)
             }
-            BackCmd::Store(_, addr, value) => {
+            BackCmd::PtrOffset(dst, base, index, elem_size, const_offset) => {
+                let base_value = self.value(base)?;
+                let index_value = self.value(index)?;
+                self.require_value_type(base, base_value, self.ptr_ty, "BackCmdPtrOffset base")?;
+                self.require_value_type(index, index_value, self.ptr_ty, "BackCmdPtrOffset index")?;
+                let elem_size_value = self.builder.ins().iconst(self.ptr_ty, i64::from(*elem_size));
+                let scaled = self.builder.ins().imul(index_value, elem_size_value);
+                let total = if *const_offset == 0 {
+                    scaled
+                } else {
+                    let const_value = self.builder.ins().iconst(self.ptr_ty, *const_offset);
+                    self.builder.ins().iadd(scaled, const_value)
+                };
+                let out = self.builder.ins().iadd(base_value, total);
+                self.bind_value(dst, out)
+            }
+            BackCmd::LoadInfo(dst, ty, addr, memory) => {
+                let addr = self.value(addr)?;
+                let clif_ty = ty.clif_type(self.ptr_ty);
+                let ptr_bytes = self.ptr_ty.bytes();
+                let flags = memory.memflags(ty.byte_size(ptr_bytes), ty.byte_size(ptr_bytes));
+                let out = self.builder.ins().load(clif_ty, flags, addr, 0);
+                self.bind_value(dst, out)
+            }
+            BackCmd::StoreInfo(ty, addr, value, memory) => {
                 let addr = self.value(addr)?;
                 let value = self.value(value)?;
-                self.builder.ins().store(MemFlags::new(), value, addr, 0);
+                let ptr_bytes = self.ptr_ty.bytes();
+                let flags = memory.memflags(ty.byte_size(ptr_bytes), ty.byte_size(ptr_bytes));
+                self.builder.ins().store(flags, value, addr, 0);
                 Ok(())
             }
             BackCmd::Memcpy(dst, src, len) => {
@@ -1366,7 +1529,7 @@ impl<'a, 'b> FunctionLowerer<'a, 'b> {
                 let out = self.builder.ins().select(cond_value, then_value, else_value);
                 self.bind_value(dst, out)
             }
-            BackCmd::Fma(dst, _, a, b, c) => {
+            BackCmd::Fma(dst, _, _, a, b, c) => {
                 let a = self.value(a)?;
                 let b = self.value(b)?;
                 let c = self.value(c)?;
@@ -1400,18 +1563,22 @@ impl<'a, 'b> FunctionLowerer<'a, 'b> {
             BackCmd::VecBand(dst, ty, lhs, rhs) => self.bind_vec_binop(dst, *ty, lhs, rhs, |b, l, r| b.ins().band(l, r)),
             BackCmd::VecBor(dst, ty, lhs, rhs) => self.bind_vec_binop(dst, *ty, lhs, rhs, |b, l, r| b.ins().bor(l, r)),
             BackCmd::VecBxor(dst, ty, lhs, rhs) => self.bind_vec_binop(dst, *ty, lhs, rhs, |b, l, r| b.ins().bxor(l, r)),
-            BackCmd::VecLoad(dst, ty, addr) => {
+            BackCmd::VecLoadInfo(dst, ty, addr, memory) => {
                 let addr_value = self.value(addr)?;
-                self.require_value_type(addr, addr_value, self.ptr_ty, "BackCmdVecLoad addr")?;
-                let out = self.builder.ins().load(ty.clif_type(self.ptr_ty)?, MemFlags::new(), addr_value, 0);
+                self.require_value_type(addr, addr_value, self.ptr_ty, "BackCmdVecLoadInfo addr")?;
+                let ptr_bytes = self.ptr_ty.bytes();
+                let flags = memory.memflags(ty.byte_size(ptr_bytes), ty.byte_size(ptr_bytes));
+                let out = self.builder.ins().load(ty.clif_type(self.ptr_ty)?, flags, addr_value, 0);
                 self.bind_value(dst, out)
             }
-            BackCmd::VecStore(ty, addr, value) => {
+            BackCmd::VecStoreInfo(ty, addr, value, memory) => {
                 let addr_value = self.value(addr)?;
                 let store_value = self.value(value)?;
-                self.require_value_type(addr, addr_value, self.ptr_ty, "BackCmdVecStore addr")?;
-                self.require_value_type(value, store_value, ty.clif_type(self.ptr_ty)?, "BackCmdVecStore value")?;
-                self.builder.ins().store(MemFlags::new(), store_value, addr_value, 0);
+                self.require_value_type(addr, addr_value, self.ptr_ty, "BackCmdVecStoreInfo addr")?;
+                self.require_value_type(value, store_value, ty.clif_type(self.ptr_ty)?, "BackCmdVecStoreInfo value")?;
+                let ptr_bytes = self.ptr_ty.bytes();
+                let flags = memory.memflags(ty.byte_size(ptr_bytes), ty.byte_size(ptr_bytes));
+                self.builder.ins().store(flags, store_value, addr_value, 0);
                 Ok(())
             }
             BackCmd::VecInsertLane(dst, ty, value, lane_value, lane) => {
@@ -1566,6 +1733,13 @@ impl<'a, 'b> FunctionLowerer<'a, 'b> {
         self.require_value_type(mask, mask_value, expected, "vector select mask")?;
         self.require_value_type(dst, then_value, expected, "vector select then")?;
         self.require_value_type(dst, else_value, expected, "vector select else")?;
+        if matches!(ty.elem, BackScalar::F32 | BackScalar::F64) {
+            return Err(MoonliftError::new(format!(
+                "function '{}' uses BackCmdVecSelect on float vector {:?}; Moonlift requires an explicit future float-vector select/blend command instead of integer mask lowering",
+                self.func_name.as_str(),
+                ty
+            )));
+        }
         let masked_then = self.builder.ins().band(mask_value, then_value);
         let not_mask = self.builder.ins().bnot(mask_value);
         let masked_else = self.builder.ins().band(not_mask, else_value);
@@ -2062,6 +2236,62 @@ mod tests {
     use super::*;
     use std::mem;
 
+    fn int_wrap() -> BackIntSemantics { BackIntSemantics::wrapping() }
+
+    fn test_mem(access: &str, mode: BackAccessMode) -> BackMemoryInfo {
+        BackMemoryInfo::new(
+            BackAccessId::from(access),
+            BackAlignment::Known(4),
+            BackDereference::Bytes(4),
+            BackTrap::NonTrapping,
+            BackMotion::MayNotMove,
+            mode,
+        )
+    }
+
+    #[test]
+    fn back_memory_info_maps_only_exact_cranelift_flags() {
+        let movable = BackMemoryInfo::new(
+            BackAccessId::from("a"),
+            BackAlignment::Known(4),
+            BackDereference::Bytes(4),
+            BackTrap::NonTrapping,
+            BackMotion::CanMove,
+            BackAccessMode::Read,
+        );
+        let flags = movable.memflags(4, 4);
+        assert!(flags.notrap());
+        assert!(flags.aligned());
+        assert!(flags.can_move());
+        assert!(!flags.checked());
+        assert!(!flags.readonly());
+
+        let under_aligned = BackMemoryInfo::new(
+            BackAccessId::from("b"),
+            BackAlignment::Known(4),
+            BackDereference::Bytes(8),
+            BackTrap::MayTrap,
+            BackMotion::MayNotMove,
+            BackAccessMode::Read,
+        );
+        let flags = under_aligned.memflags(8, 8);
+        assert!(flags.notrap());
+        assert!(!flags.aligned());
+        assert!(!flags.can_move());
+
+        let checked = BackMemoryInfo::new(
+            BackAccessId::from("c"),
+            BackAlignment::Unknown,
+            BackDereference::Unknown,
+            BackTrap::Checked,
+            BackMotion::MayNotMove,
+            BackAccessMode::Write,
+        );
+        let flags = checked.memflags(4, 4);
+        assert!(flags.checked());
+        assert!(!flags.notrap());
+    }
+
     #[test]
     fn compiles_and_calls_exported_function() {
         let jit = Jit::new();
@@ -2076,6 +2306,7 @@ mod tests {
             BackCmd::Iadd(
                 BackValId::from("sum"),
                 BackScalar::I32,
+                int_wrap(),
                 BackValId::from("arg"),
                 BackValId::from("one"),
             ),
@@ -2144,7 +2375,7 @@ mod tests {
             BackCmd::CreateBlock(BackBlockId::from("entry")),
             BackCmd::SwitchToBlock(BackBlockId::from("entry")),
             BackCmd::DataAddr(BackValId::from("addr"), BackDataId::from("const:k")),
-            BackCmd::Load(BackValId::from("value"), BackScalar::I32, BackValId::from("addr")),
+            BackCmd::LoadInfo(BackValId::from("value"), BackScalar::I32, BackValId::from("addr"), test_mem("getk:load", BackAccessMode::Read)),
             BackCmd::ReturnValue(BackValId::from("value")),
             BackCmd::SealBlock(BackBlockId::from("entry")),
             BackCmd::FinishFunc(BackFuncId::from("getk")),
@@ -2198,6 +2429,7 @@ mod tests {
             BackCmd::Iadd(
                 BackValId::from("next"),
                 BackScalar::I32,
+                int_wrap(),
                 BackValId::from("i"),
                 BackValId::from("one"),
             ),
@@ -2239,7 +2471,7 @@ mod tests {
                 BackValId::from("src"),
                 BackValId::from("len"),
             ),
-            BackCmd::Load(BackValId::from("value"), BackScalar::I32, BackValId::from("dst")),
+            BackCmd::LoadInfo(BackValId::from("value"), BackScalar::I32, BackValId::from("dst"), test_mem("copy_i32:load", BackAccessMode::Read)),
             BackCmd::ReturnValue(BackValId::from("value")),
             BackCmd::SealBlock(BackBlockId::from("entry.copy_i32")),
             BackCmd::FinishFunc(BackFuncId::from("copy_i32")),
@@ -2279,7 +2511,7 @@ mod tests {
                 BackValId::from("byte"),
                 BackValId::from("len"),
             ),
-            BackCmd::Load(BackValId::from("value"), BackScalar::I32, BackValId::from("dst")),
+            BackCmd::LoadInfo(BackValId::from("value"), BackScalar::I32, BackValId::from("dst"), test_mem("zero_i32:load", BackAccessMode::Read)),
             BackCmd::ReturnValue(BackValId::from("value")),
             BackCmd::SealBlock(BackBlockId::from("entry.zero_i32")),
             BackCmd::FinishFunc(BackFuncId::from("zero_i32")),

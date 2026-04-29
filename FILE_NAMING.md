@@ -59,7 +59,7 @@ Good names:
 ```text
 back_program.lua
 back_validate.lua
-back_to_moonlift.lua
+back_jit.lua
 back_emit_current.lua
 
 type_classify.lua
@@ -118,7 +118,7 @@ a `sem_` file.  If a file crosses a boundary, name the boundary explicitly:
 ```text
 tree_to_back.lua
 vec_to_back.lua
-back_to_moonlift.lua
+back_jit.lua
 ```
 
 ---
@@ -188,7 +188,7 @@ PVM phase files should include the phase verb in the file name.
 | decision | `<layer>_<noun>_decide.lua` | `sem_switch_decide.lua` |
 | validation | `<layer>_validate.lua` / `<layer>_<noun>_validate.lua` | `back_validate.lua` |
 | lowering | `<from>_to_<to>.lua` | `tree_to_back.lua` |
-| replay/bridge | `<from>_to_<external>.lua` | `back_to_moonlift.lua` |
+| executable replay | `<layer>_<target>.lua` | `back_jit.lua` |
 
 A `pvm.phase("...")` name should match the file's question.
 
@@ -213,7 +213,7 @@ Examples:
 
 ```text
 test_back_validate.lua
-test_back_to_moonlift.lua
+test_back_add_i32.lua
 test_type_classify.lua
 test_bind_residence_decide.lua
 test_sem_switch_decide.lua

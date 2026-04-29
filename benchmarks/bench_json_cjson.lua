@@ -11,14 +11,12 @@ package.cpath = "./.luarocks/lib64/lua/5.1/?.so;./third_party/lua-cjson/?.so;./t
 local ffi = require("ffi")
 local cjson = require("cjson")
 local pvm = require("moonlift.pvm")
-local A1 = require("moonlift_legacy.asdl")
 local A2 = require("moonlift.asdl")
 local Parse = require("moonlift.parse")
 local Typecheck = require("moonlift.tree_typecheck")
 local TreeToBack = require("moonlift.tree_to_back")
 local Validate = require("moonlift.back_validate")
-local Bridge = require("moonlift.back_to_moonlift")
-local J = require("moonlift_legacy.jit")
+local J = require("moonlift.back_jit")
 
 local mode = arg and arg[1] or "quick"
 local quick = mode == "quick"
@@ -33,7 +31,7 @@ export func json_sum_i32_array(p: ptr(u8), n: i32) -> i32
         if i >= n then
             jump finish(acc = acc, value = value, in_num = in_num, sign = sign)
         end
-        jump classify(i = i, acc = acc, value = value, in_num = in_num, sign = sign, c = zext<i32>(p[i]))
+        jump classify(i = i, acc = acc, value = value, in_num = in_num, sign = sign, c = as(i32, p[i]))
     end
     block classify(i: i32, acc: i32, value: i32, in_num: i32, sign: i32, c: i32)
         if c >= 48 then
@@ -103,15 +101,13 @@ local function best_of(f, ...)
 end
 
 local T = pvm.context()
-A1.Define(T)
 A2.Define(T)
 local P = Parse.Define(T)
 local TC = Typecheck.Define(T)
 local Lower = TreeToBack.Define(T)
 local V = Validate.Define(T)
-local bridge = Bridge.Define(T)
 local jit_api = J.Define(T)
-local B1 = T.MoonliftBack
+local B2 = T.Moon2Back
 
 local compile_start = os.clock()
 local parsed = P.parse_module(SRC)
@@ -130,10 +126,10 @@ assert(#checked.issues == 0, "type issues: " .. #checked.issues)
 local program = Lower.module(checked.module)
 local report = V.validate(program)
 assert(#report.issues == 0, "back validation issues: " .. #report.issues)
-local artifact = jit_api.jit():compile(bridge.lower_program(program))
+local artifact = jit_api.jit():compile(program)
 local compile_time = os.clock() - compile_start
 
-local json_sum = ffi.cast("int32_t (*)(const uint8_t*, int32_t)", artifact:getpointer(B1.BackFuncId("json_sum_i32_array")))
+local json_sum = ffi.cast("int32_t (*)(const uint8_t*, int32_t)", artifact:getpointer(B2.BackFuncId("json_sum_i32_array")))
 
 local src, expected = build_json(COUNT)
 local buf = ffi.new("uint8_t[?]", #src)

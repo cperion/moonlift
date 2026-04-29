@@ -26,25 +26,21 @@ local O = T.Moon2Open
 local src = [[
 local staging_value = 17
 
-struct User {
+struct User
     id: i32
     age: i32
     active: bool32
-}
+end
 
-expose view(User) as Users {
-    lua readonly checked
-    terra
-    c
-}
+expose Users: view(User)
 
 function User:is_adult()
     return self.age >= 18
 end
 
-func User:is_active(self: ptr(User)) -> bool {
+func User:is_active(self: ptr(User)) -> bool
     return true
-}
+end
 
 region DoneCounter(n: i32; done: cont(total: i32))
 entry start(total: i32 = 0)
@@ -52,13 +48,13 @@ entry start(total: i32 = 0)
 end
 end
 
-export func first(xs: ptr(i32), n: index) -> i32 {
+export func first(xs: ptr(i32), n: index) -> i32
     let v: view(i32) = view(xs, n)
     if len(v) <= 0 then
         return 0
     end
     return v[0]
-}
+end
 
 export func sum(xs: ptr(i32), n: index) -> i32
     let v: view(i32) = view(xs, n)
@@ -106,10 +102,39 @@ assert(pvm.classof(layout.fields[3].rep) == H.HostRepBool)
 local expose = result.decls.decls[2].decl
 assert(pvm.classof(expose.subject) == H.HostExposeView)
 assert(expose.public_name == "Users")
-assert(#expose.targets == 3)
-assert(expose.mode.kind == H.HostProxyView)
-assert(expose.mode.mutability == H.HostReadonly)
-assert(expose.mode.bounds == H.HostBoundsChecked)
+assert(#expose.facets == 3)
+assert(expose.facets[1].target == H.HostExposeLua)
+assert(expose.facets[1].abi == H.HostExposeAbiDefault)
+assert(expose.facets[1].mode.kind == H.HostProxyView)
+assert(expose.facets[1].mode.mutability == H.HostReadonly)
+assert(expose.facets[1].mode.bounds == H.HostBoundsChecked)
+assert(expose.facets[2].target == H.HostExposeTerra)
+assert(expose.facets[2].abi == H.HostExposeAbiDescriptor)
+assert(expose.facets[2].mode.bounds == H.HostBoundsUnchecked)
+assert(expose.facets[3].target == H.HostExposeC)
+assert(expose.facets[3].abi == H.HostExposeAbiDescriptor)
+assert(expose.facets[3].mode.bounds == H.HostBoundsUnchecked)
+
+local explicit_targets = MP.parse("struct User\n  id: i32\n  active: bool32\nend\nexpose Users: view(User)\n  lua\n  c\nend\n", "explicit_targets.mlua")
+assert(#explicit_targets.issues == 0, explicit_targets.issues[1] and explicit_targets.issues[1].message)
+assert(#explicit_targets.decls.decls[2].decl.facets == 2)
+assert(explicit_targets.decls.decls[2].decl.facets[2].target == H.HostExposeC)
+
+local old_expose = MP.parse("struct User\n  id: i32\n  active: bool32\nend\nexpose view(User) as Users\n", "old_expose.mlua")
+assert(#old_expose.issues >= 1)
+assert(old_expose.issues[1].message:match("expected expose Name: subject"))
+
+local braced_expose = MP.parse("struct User\n  id: i32\n  active: bool32\nend\nexpose Users: view(User) { lua }\n", "braced_expose.mlua")
+assert(#braced_expose.issues >= 1)
+assert(braced_expose.issues[1].message:match("expose uses keyword...end, not braces"))
+
+local braced_struct = MP.parse("struct User { id: i32 }\n", "braced_struct.mlua")
+assert(#braced_struct.issues >= 1)
+assert(braced_struct.issues[1].message:match("unterminated .mlua form: struct"))
+
+local braced_func = MP.parse("func bad() -> i32 { return 0 }\n", "braced_func.mlua")
+assert(#braced_func.issues >= 1)
+assert(braced_func.issues[1].message:match("unterminated .mlua form: func"))
 
 local native_method = result.decls.decls[3].decl
 assert(pvm.classof(native_method) == H.HostAccessorMoonlift)

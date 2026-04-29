@@ -42,7 +42,7 @@ local find_byte = func find_byte(p: ptr(u8), n: i32, target: i32) -> i32
     return region -> i32
     entry scan(i: i32 = 0)
         if i >= n then yield -1 end
-        if zext<i32>(p[i]) == target then yield i end
+        if as(i32, p[i]) == target then yield i end
         jump scan(i = i + 1)
     end
     end

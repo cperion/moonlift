@@ -13,7 +13,7 @@ local TK = {
     block = 130, control = 131, jump = 132, yield = 133, return_kw = 134, region = 135, entry = 136, emit = 137, expr = 138,
     true_kw = 140, false_kw = 141, nil_kw = 142, and_kw = 143, or_kw = 144, not_kw = 145,
     view = 150, noalias = 151, readonly = 152, writeonly = 153, requires = 154, bounds = 155, disjoint = 156, len = 157, same_len = 158, view_window = 159, window_bounds = 160,
-    cast = 170, trunc = 171, zext = 172, sext = 173, bitcast = 174, satcast = 175,
+    as_kw = 170,
     struct = 180, union = 181, enum = 182,
 }
 
@@ -23,7 +23,7 @@ local keywords = {
     block = TK.block, control = TK.control, jump = TK.jump, ["yield"] = TK.yield, ["return"] = TK.return_kw, region = TK.region, entry = TK.entry, emit = TK.emit, expr = TK.expr,
     ["true"] = TK.true_kw, ["false"] = TK.false_kw, ["nil"] = TK.nil_kw, ["and"] = TK.and_kw, ["or"] = TK.or_kw, ["not"] = TK.not_kw,
     view = TK.view, noalias = TK.noalias, readonly = TK.readonly, writeonly = TK.writeonly, requires = TK.requires, bounds = TK.bounds, disjoint = TK.disjoint, len = TK.len, same_len = TK.same_len, view_window = TK.view_window, window_bounds = TK.window_bounds,
-    cast = TK.cast, trunc = TK.trunc, zext = TK.zext, sext = TK.sext, bitcast = TK.bitcast, satcast = TK.satcast,
+    ["as"] = TK.as_kw,
     struct = TK.struct, union = TK.union, enum = TK.enum,
 }
 
@@ -205,31 +205,21 @@ function Parser:parse_expr(rbp)
     return left
 end
 
-function Parser:parse_cast_expr(k)
+function Parser:parse_as_expr()
     local C, Tr = self.C, self.Tr
-    local ops = {
-        [TK.cast] = C.SurfaceCast,
-        [TK.trunc] = C.SurfaceTrunc,
-        [TK.zext] = C.SurfaceZExt,
-        [TK.sext] = C.SurfaceSExt,
-        [TK.bitcast] = C.SurfaceBitcast,
-        [TK.satcast] = C.SurfaceSatCast,
-    }
-    local op = ops[k]
-    self:expect(TK.lt, "expected '<' in cast expression")
+    self:expect(TK.lparen, "expected '(' in as expression")
     local ty = self:parse_type()
-    self:expect(TK.gt, "expected '>' in cast expression")
-    self:expect(TK.lparen, "expected '(' in cast expression")
+    self:expect(TK.comma, "expected ',' after target type in as expression")
     local value = self:parse_expr(0)
-    self:expect(TK.rparen, "expected ')' in cast expression")
-    return Tr.ExprCast(Tr.ExprSurface, op, ty, value)
+    self:expect(TK.rparen, "expected ')' in as expression")
+    return Tr.ExprCast(Tr.ExprSurface, C.SurfaceCast, ty, value)
 end
 
 function Parser:nud()
     local C, B, Tr = self.C, self.B, self.Tr
     local k, text = self:kind(), self:text()
     self.i = self.i + 1
-    if k == TK.cast or k == TK.trunc or k == TK.zext or k == TK.sext or k == TK.bitcast or k == TK.satcast then return self:parse_cast_expr(k) end
+    if k == TK.as_kw then return self:parse_as_expr() end
     if k == TK.int then return Tr.ExprLit(Tr.ExprSurface, C.LitInt(text)) end
     if k == TK.float then return Tr.ExprLit(Tr.ExprSurface, C.LitFloat(text)) end
     if k == TK.true_kw then return Tr.ExprLit(Tr.ExprSurface, C.LitBool(true)) end
@@ -726,37 +716,31 @@ end
 
 function Parser:parse_type_fields()
     local fields = {}
-    self:expect(TK.lbrace, "expected '{' in type declaration")
     self:skip_nl()
-    if self:kind() ~= TK.rbrace then
-        while true do
-            local name = self:expect_name("expected field name")
-            self:expect(TK.colon, "expected ':' in field declaration")
-            fields[#fields + 1] = self.Ty.FieldDecl(name, self:parse_type())
-            self:skip_nl()
-            if not self:accept(TK.comma) then break end
-            self:skip_nl()
-            if self:kind() == TK.rbrace then break end
-        end
+    if self:kind() == TK.lbrace then self:issue("type declarations use keyword...end, not braces"); self.i = self.i + 1 end
+    while self:kind() ~= TK.end_kw and self:kind() ~= TK.rbrace and self:kind() ~= TK.eof do
+        local name = self:expect_name("expected field name")
+        self:expect(TK.colon, "expected ':' in field declaration")
+        fields[#fields + 1] = self.Ty.FieldDecl(name, self:parse_type())
+        self:skip_nl()
+        if self:accept(TK.comma) then self:skip_nl() end
     end
-    self:expect(TK.rbrace, "expected '}' after type declaration")
+    if self:kind() == TK.rbrace then self.i = self.i + 1 end
+    self:expect(TK.end_kw, "expected end after type declaration")
     return fields
 end
 
 function Parser:parse_enum_variants()
     local variants = {}
-    self:expect(TK.lbrace, "expected '{' in enum declaration")
     self:skip_nl()
-    if self:kind() ~= TK.rbrace then
-        while true do
-            variants[#variants + 1] = self.C.Name(self:expect_name("expected enum variant"))
-            self:skip_nl()
-            if not self:accept(TK.comma) then break end
-            self:skip_nl()
-            if self:kind() == TK.rbrace then break end
-        end
+    if self:kind() == TK.lbrace then self:issue("enum declarations use keyword...end, not braces"); self.i = self.i + 1 end
+    while self:kind() ~= TK.end_kw and self:kind() ~= TK.rbrace and self:kind() ~= TK.eof do
+        variants[#variants + 1] = self.C.Name(self:expect_name("expected enum variant"))
+        self:skip_nl()
+        if self:accept(TK.comma) then self:skip_nl() end
     end
-    self:expect(TK.rbrace, "expected '}' after enum declaration")
+    if self:kind() == TK.rbrace then self.i = self.i + 1 end
+    self:expect(TK.end_kw, "expected end after enum declaration")
     return variants
 end
 

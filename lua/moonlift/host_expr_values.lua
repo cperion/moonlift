@@ -153,14 +153,13 @@ function M.Install(api, session)
         return expr_value(Tr.ExprSelect(Tr.ExprSurface, self.expr, tv.expr, ev.expr), tv.type, "select(...)")
     end
 
-    function ExprValue:cast(ty)
-        local tv = api.as_type_value(ty, "cast expects type value")
-        return expr_value(Tr.ExprCast(Tr.ExprSurface, C.SurfaceCast, tv.ty, self.expr), tv, "cast<" .. tv.source_hint .. ">(...)")
+    function ExprValue:as(ty)
+        local tv = api.as_type_value(ty, "as expects type value")
+        return expr_value(Tr.ExprCast(Tr.ExprSurface, C.SurfaceCast, tv.ty, self.expr), tv, "as(" .. tv.source_hint .. ", ...)")
     end
 
-    function ExprValue:zext(ty)
-        local tv = api.as_type_value(ty, "zext expects type value")
-        return expr_value(Tr.ExprCast(Tr.ExprSurface, C.SurfaceZExt, tv.ty, self.expr), tv, "zext<" .. tv.source_hint .. ">(...)")
+    function ExprValue:cast(ty)
+        return self:as(ty)
     end
 
     function api.select(cond, then_value, else_value)

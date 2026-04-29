@@ -379,6 +379,29 @@ function M.Define(T)
         return false
     end
 
+    local function alignments_for_uses(uses)
+        local alignments = {}
+        local seen = {}
+        for i = 1, #(uses or {}) do
+            local use = uses[i]
+            local bytes = nil
+            if use.elem == V.VecElemI32 or use.elem == V.VecElemU32 or use.elem == V.VecElemF32 then bytes = 4
+            elseif use.elem == V.VecElemI64 or use.elem == V.VecElemU64 or use.elem == V.VecElemF64 or use.elem == V.VecElemIndex or use.elem == V.VecElemPtr then bytes = 8
+            elseif use.elem == V.VecElemI16 or use.elem == V.VecElemU16 then bytes = 2
+            elseif use.elem == V.VecElemI8 or use.elem == V.VecElemU8 or use.elem == V.VecElemBool then bytes = 1 end
+            local key = use.base.id.text .. ":" .. tostring(use.elem)
+            if not seen[key] then
+                seen[key] = true
+                if bytes ~= nil then
+                    alignments[#alignments + 1] = V.VecKernelAlignProven(use.base, use.elem, bytes, V.VecProofKernelSafety("typed pointer/view element access proves natural alignment"))
+                else
+                    alignments[#alignments + 1] = V.VecKernelAlignUnknown(use.base, use.elem, "element alignment is not known")
+                end
+            end
+        end
+        return alignments
+    end
+
     local function aliases_for_uses(uses, contracts)
         local aliases = {}
         local assumptions = {}
@@ -431,9 +454,11 @@ function M.Define(T)
             local bounds, bound_assumptions, bound_proofs, bound_rejects = bounds_for_uses(self.facts, self.uses, stop, self.contracts or {}, self.core.scalars or {})
             append_all(proofs, bound_proofs)
             append_all(proofs, dependence_proofs(self.facts))
+            local alignments = alignments_for_uses(self.uses)
             local aliases, alias_assumptions = aliases_for_uses(self.uses, self.contracts or {})
             local assumptions = {}
             append_all(assumptions, bound_assumptions)
+            for i = 1, #alignments do if pvm.classof(alignments[i]) == V.VecKernelAlignAssumed then assumptions[#assumptions + 1] = alignments[i].assumption end end
             append_all(assumptions, alias_assumptions)
             for i = 1, #aliases do
                 local cls = pvm.classof(aliases[i])
@@ -442,7 +467,7 @@ function M.Define(T)
             local safety
             if #bound_rejects > 0 then safety = V.VecKernelSafetyRejected(bound_rejects)
             elseif #assumptions == 0 then safety = V.VecKernelSafetyProven(proofs) else safety = V.VecKernelSafetyAssumed(proofs, assumptions) end
-            return pvm.once(V.VecKernelSafetyDecision(safety, bounds, aliases, bound_rejects))
+            return pvm.once(V.VecKernelSafetyDecision(safety, bounds, alignments, aliases, bound_rejects))
         end,
     })
 

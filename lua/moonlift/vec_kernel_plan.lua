@@ -428,8 +428,12 @@ function M.Define(T)
     local function make_decision(facts, elem)
         local shape = elem_shape(elem)
         if shape == nil then return nil end
-        local chosen = V.VecLoopVector(facts.loop, shape, 1, V.VecTailScalar, { V.VecProofDomain("kernel planner selected target-supported vector shape") })
-        return V.VecLoopDecision(facts, chosen, { V.VecShapeScore(chosen, shape.lanes, 50, "kernel planner structural match") })
+        local proof = V.VecProofDomain("kernel planner selected target-supported vector shape")
+        local proofs = { proof }
+        local tail = V.VecTailScalar
+        local chosen = V.VecLoopVector(facts.loop, shape, 1, tail, proofs)
+        local schedule = V.VecScheduleVector(shape, 1, 1, tail, 1, {}, proofs)
+        return V.VecLoopDecision(facts, V.VecLegal(proofs), schedule, chosen, { V.VecShapeScore(chosen, shape.lanes, 50, "kernel planner structural match") })
     end
 
     local function view_alias_reject(binding, reason)
@@ -557,7 +561,7 @@ function M.Define(T)
         local reduction_plan = V.VecKernelReductionBin(red_op, elem, acc_binding, value, identity)
         local core = V.VecKernelCoreReduce(decision, elem, common.stop, common.counter, scalars or {}, reduction_plan)
         local safety = safety_api.decide(common.facts, core, contracts or {})
-        return V.VecKernelReduce(decision, elem, common.stop, common.counter, scalars or {}, reduction_plan, safety.safety)
+        return V.VecKernelReduce(decision, elem, common.stop, common.counter, scalars or {}, reduction_plan, safety.safety, safety.alignments, safety.aliases)
     end
 
     local function plan_map_region(region, contracts, aliases, scalars)
@@ -576,7 +580,7 @@ function M.Define(T)
         local decision = make_decision(common.facts, elem)
         local core = V.VecKernelCoreMap(decision, elem, common.stop, common.counter, scalars or {}, stores)
         local safety = safety_api.decide(common.facts, core, contracts or {})
-        return V.VecKernelMap(decision, elem, common.stop, common.counter, scalars or {}, stores, safety.safety)
+        return V.VecKernelMap(decision, elem, common.stop, common.counter, scalars or {}, stores, safety.safety, safety.alignments, safety.aliases)
     end
 
     local function plan_func(name, visibility, params, result_ty, body, contracts)

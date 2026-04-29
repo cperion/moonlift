@@ -44,8 +44,8 @@ if not compiled then
     error("json library compile failed")
 end
 local artifact = compiled.artifact
-local B1 = compiled.B1
-local valid = ffi.cast("int32_t (*)(const uint8_t*, int32_t, int32_t*, int32_t)", artifact:getpointer(B1.BackFuncId("json_valid_scalar")))
+local B2 = compiled.B2
+local valid = ffi.cast("int32_t (*)(const uint8_t*, int32_t, int32_t*, int32_t)", artifact:getpointer(B2.BackFuncId("json_valid_scalar")))
 
 local src = build_json(COUNT)
 local buf = ffi.new("uint8_t[?]", #src)

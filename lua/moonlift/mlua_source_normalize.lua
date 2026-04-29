@@ -43,25 +43,37 @@ local function skip_comment_or_string(src, i)
     return nil
 end
 
-local function find_matching_brace(src, open_i)
-    local depth = 0
-    local i = open_i
+local function read_ident(src, i)
+    if not src:sub(i, i):match("[A-Za-z_]") then return nil, i end
+    local s = i
+    i = i + 1
+    while i <= #src and src:sub(i, i):match("[%w_]") do i = i + 1 end
+    return src:sub(s, i - 1), i
+end
+
+local function find_matching_end(src, start_i)
+    local open = { ["if"] = true, switch = true, block = true, control = true }
+    local depth, i = 1, start_i
     while i <= #src do
         local skipped = skip_comment_or_string(src, i)
         if skipped then
             i = skipped
-        else
-            local c = src:sub(i, i)
-            if c == "{" then
-                depth = depth + 1
-                i = i + 1
-            elseif c == "}" then
-                depth = depth - 1
-                if depth == 0 then return i end
-                i = i + 1
-            else
-                i = i + 1
+        elseif src:sub(i, i):match("[A-Za-z_]") then
+            local word, j = read_ident(src, i)
+            if is_boundary(src, i, #word) then
+                if word == "end" then
+                    depth = depth - 1
+                    if depth == 0 then return i, j - 1 end
+                elseif open[word] then
+                    depth = depth + 1
+                elseif word == "loop" then
+                    local next_word = read_ident(src, skip_space(src, j))
+                    if next_word == "counted" then depth = depth + 1 end
+                end
             end
+            i = j
+        else
+            i = i + 1
         end
     end
     return nil
@@ -116,6 +128,8 @@ local function parse_counted_body(body)
         local name, value = line:match("^%s*next%s+([_%a][_%w]*)%s*=%s*(.-)%s*$")
         if name then
             next_values[name] = value
+        elseif line:match("^%s*state%s+[_%a][_%w]*%s*:") or line:match("^%s*yield%s+") then
+            -- Header lines of the counted-loop sugar, not body statements.
         elseif strip(line) ~= "" then
             kept[#kept + 1] = line
         end
@@ -123,8 +137,11 @@ local function parse_counted_body(body)
     return kept, next_values
 end
 
-local function counted_rewrite(info, body)
-    local kept, next_values = parse_counted_body(body)
+local function counted_rewrite(info, form)
+    local lines = split_lines(form)
+    local body_lines = {}
+    for i = 2, #lines do body_lines[#body_lines + 1] = lines[i] end
+    local kept, next_values = parse_counted_body(table.concat(body_lines, "\n"))
     local params = { info.var .. ": " .. info.var_ty .. " = " .. info.init }
     for i = 1, #info.states do
         local s = info.states[i]
@@ -155,19 +172,18 @@ local function expand_counted_loops(src)
             i = skipped
         elseif src:sub(i, i + #"loop counted" - 1) == "loop counted" and is_boundary(src, i, #"loop") then
             local after = i + #"loop counted"
-            local lbrace = src:find("{", after, true)
-            if not lbrace then
+            local end_start, end_stop = find_matching_end(src, after)
+            if not end_start then
                 i = i + 1
             else
-                local rbrace = find_matching_brace(src, lbrace)
-                if not rbrace then return src end
-                local info = parse_counted_header(src:sub(after, lbrace - 1))
+                local form = src:sub(after, end_start - 1)
+                local info = parse_counted_header(form)
                 if not info then
                     i = i + 1
                 else
                     out[#out + 1] = src:sub(literal_start, i - 1)
-                    out[#out + 1] = counted_rewrite(info, src:sub(lbrace + 1, rbrace - 1))
-                    i = rbrace + 1
+                    out[#out + 1] = counted_rewrite(info, form)
+                    i = end_stop + 1
                     literal_start = i
                 end
             end
@@ -179,39 +195,12 @@ local function expand_counted_loops(src)
     return table.concat(out)
 end
 
-local function braces_to_end(src)
-    local out, stack = {}, {}
-    local i = 1
-    while i <= #src do
-        local skipped = skip_comment_or_string(src, i)
-        if skipped then
-            out[#out + 1] = src:sub(i, skipped - 1)
-            i = skipped
-        else
-            local c = src:sub(i, i)
-            if c == "{" then
-                stack[#stack + 1] = "end"
-                out[#out + 1] = "\n"
-                i = i + 1
-            elseif c == "}" and #stack > 0 then
-                stack[#stack] = nil
-                out[#out + 1] = "\nend\n"
-                i = i + 1
-            else
-                out[#out + 1] = c
-                i = i + 1
-            end
-        end
-    end
-    return table.concat(out)
-end
-
 function M.expand_counted_loops(src)
     return expand_counted_loops(src)
 end
 
 function M.moonlift_body(src)
-    return braces_to_end(expand_counted_loops(src))
+    return expand_counted_loops(src)
 end
 
 return M
