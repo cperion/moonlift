@@ -67,6 +67,10 @@ Files should use `back_` prefix.
 ### Direct execution through current backend
 
 - [x] `back_jit.lua` replays `Moon2Back.BackProgram` directly into the retained Rust/Cranelift FFI command builder
+- [x] `back_object.lua` emits host-native relocatable object bytes from `Moon2Back.BackProgram` through the same deterministic `BackCommandTape` and Rust/Cranelift lowering core, covered by `test_back_object_emit.lua` and `test_back_object_full.lua` linking emitted `.o` files with C harnesses across scalar, local-call, data, stack, memory, extern, memcpy/memset, and vector slices
+- [x] `Moon2Link` ASDL defines the curated linker/artifact layer: target model, platform/arch/object format, relocation model, artifact kind, linker tool, inputs, exports, extern policy, runtime paths, options, flat commands, reports, and results
+- [x] `link_target_model.lua`, `link_plan_validate.lua`, `link_command_plan.lua`, and `link_execute.lua` implement the first host-native linker phase set over `Moon2Link.LinkPlan`, covered by `test_link_plan.lua`
+- [x] `emit_shared.lua` provides `.mlua -> object -> shared library` packaging through the `Moon2Link` path, covered by `test_back_shared_emit.lua` loading the emitted shared library through LuaJIT FFI
 - [x] legacy `Moon2Back -> MoonliftBack` bridge removed from the active compile path
 - [x] `test_back_add_i32.lua` compiles and runs add_i32 through direct `Moon2Back` backend replay
 - [x] branch/select vertical slice compiles and runs
@@ -218,6 +222,7 @@ Files should use `vec_` prefix.
 - [x] documented `moonlift.ast` constructors cover the existing source ASDL node surface and can build modules that typecheck/lower/execute through the normal pipeline
 - [x] parser treats `select(cond, then_expr, else_expr)` as source sugar for `ExprSelect`, leaving typing and vector mask recognition to later phases
 - [x] parser does not own semantic decisions; `tree_typecheck.lua` resolves names and types
+- [x] `emit_object.lua` provides the first `.mlua -> host-native .o` command-line emitter over the normal parse/typecheck/lower/validate/object path
 
 ---
 

@@ -3,6 +3,7 @@ use crate::{
     BackDereference, BackExternId, BackFloatSemantics, BackFuncId, BackIntExact,
     BackIntOverflow, BackIntSemantics, BackMemoryInfo, BackMotion, BackProgram, BackScalar,
     BackSigId, BackStackSlotId, BackSwitchCase, BackTrap, BackValId, BackVec, Jit, MoonliftError,
+    compile_object,
 };
 use crate::host_arena::{HostSession, MoonHostFieldInit, MoonHostPtr, MoonHostRecordSpec, MoonHostRef};
 use std::cell::RefCell;
@@ -17,6 +18,12 @@ pub struct moonlift_jit_t {
 #[repr(C)]
 pub struct moonlift_artifact_t {
     inner: Artifact,
+}
+
+#[repr(C)]
+pub struct moonlift_bytes_t {
+    data: *mut u8,
+    len: usize,
 }
 
 #[repr(C)]
@@ -388,6 +395,42 @@ pub extern "C" fn moonlift_jit_free(ptr: *mut moonlift_jit_t) {
 pub extern "C" fn moonlift_artifact_free(ptr: *mut moonlift_artifact_t) {
     if !ptr.is_null() {
         unsafe { drop(Box::from_raw(ptr)); }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn moonlift_bytes_free(data: *mut u8, len: usize) {
+    if !data.is_null() {
+        unsafe { drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(data, len))); }
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn moonlift_object_compile_tape(
+    payload: *const c_char,
+    module_name: *const c_char,
+    out: *mut moonlift_bytes_t,
+) -> c_int {
+    let result: Result<_, MoonliftError> = (|| {
+        let out = unsafe { out.as_mut() }
+            .ok_or_else(|| MoonliftError("moonlift_bytes_t output pointer was null".to_string()))?;
+        let payload = read_cstr(payload, "BackCommandTape payload")?;
+        let module_name = if module_name.is_null() {
+            "moonlift_object".to_string()
+        } else {
+            read_cstr(module_name, "object module name")?
+        };
+        let cmds = parse_back_command_tape(&payload)?;
+        let artifact = compile_object(&BackProgram::new(cmds), &module_name)?;
+        let mut bytes = artifact.into_bytes().into_boxed_slice();
+        out.data = bytes.as_mut_ptr();
+        out.len = bytes.len();
+        std::mem::forget(bytes);
+        Ok(())
+    })();
+    match result {
+        Ok(()) => ok_int(),
+        Err(err) => fail_int(err.0),
     }
 }
 

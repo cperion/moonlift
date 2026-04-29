@@ -8,10 +8,12 @@ use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Switch};
 use cranelift_jit::{JITBuilder, JITModule};
 use cranelift_module::{DataDescription, DataId, FuncId, Linkage, Module, default_libcall_names};
+use cranelift_object::{ObjectBuilder, ObjectModule};
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::ffi::c_void;
 use std::fmt;
+use std::sync::Arc;
 
 pub mod host_arena;
 mod ffi;
@@ -511,6 +513,25 @@ pub struct Artifact {
     function_ptrs: HashMap<BackFuncId, *const u8>,
 }
 
+pub struct ObjectArtifact {
+    bytes: Vec<u8>,
+}
+
+impl ObjectArtifact {
+    pub fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.bytes
+    }
+}
+
+pub fn compile_object(program: &BackProgram, module_name: &str) -> Result<ObjectArtifact, MoonliftError> {
+    let compiler = Compiler::new_object(module_name)?;
+    compiler.compile_object(program)
+}
+
 impl Artifact {
     pub fn getpointer(&self, func: &BackFuncId) -> Result<*const c_void, MoonliftError> {
         let ptr = self
@@ -568,8 +589,8 @@ struct DataDecl {
     data_id: Option<DataId>,
 }
 
-struct Compiler {
-    module: JITModule,
+struct Compiler<M: Module> {
+    module: M,
     signatures: HashMap<BackSigId, Signature>,
     funcs: HashMap<BackFuncId, FuncDecl>,
     externs: HashMap<BackExternId, ExternDecl>,
@@ -577,38 +598,15 @@ struct Compiler {
     bodies: Vec<(BackFuncId, Vec<BackCmd>)>,
 }
 
-impl Compiler {
+impl Compiler<JITModule> {
     fn new(symbols: &HashMap<String, *const u8>) -> Result<Self, MoonliftError> {
-        let mut flag_builder = settings::builder();
-        flag_builder
-            .set("use_colocated_libcalls", "false")
-            .map_err(|e| MoonliftError::new(format!("failed to set Cranelift flag use_colocated_libcalls: {e}")))?;
-        flag_builder
-            .set("is_pic", "false")
-            .map_err(|e| MoonliftError::new(format!("failed to set Cranelift flag is_pic: {e}")))?;
-        flag_builder
-            .set("opt_level", "speed")
-            .map_err(|e| MoonliftError::new(format!("failed to set Cranelift flag opt_level: {e}")))?;
-
-        let isa_builder = cranelift_native::builder()
-            .map_err(|e| MoonliftError::new(format!("host machine is not supported by Cranelift: {e}")))?;
-        let isa = isa_builder
-            .finish(settings::Flags::new(flag_builder))
-            .map_err(|e| MoonliftError::new(format!("failed to finalize Cranelift ISA: {e}")))?;
-
+        let isa = host_isa(false)?;
         let mut builder = JITBuilder::with_isa(isa, default_libcall_names());
         for (name, ptr) in symbols {
             builder.symbol(name, *ptr);
         }
 
-        Ok(Self {
-            module: JITModule::new(builder),
-            signatures: HashMap::new(),
-            funcs: HashMap::new(),
-            externs: HashMap::new(),
-            datas: HashMap::new(),
-            bodies: Vec::new(),
-        })
+        Ok(Self::with_module(JITModule::new(builder)))
     }
 
     fn compile(&mut self, program: &BackProgram) -> Result<Artifact, MoonliftError> {
@@ -632,6 +630,39 @@ impl Compiler {
             _module: std::mem::replace(&mut self.module, empty_module()?),
             function_ptrs,
         })
+    }
+}
+
+impl Compiler<ObjectModule> {
+    fn new_object(module_name: &str) -> Result<Self, MoonliftError> {
+        let isa = host_isa(true)?;
+        let builder = ObjectBuilder::new(isa, module_name, default_libcall_names())
+            .map_err(|e| MoonliftError::new(format!("failed to create Cranelift object builder: {e}")))?;
+        Ok(Self::with_module(ObjectModule::new(builder)))
+    }
+
+    fn compile_object(mut self, program: &BackProgram) -> Result<ObjectArtifact, MoonliftError> {
+        self.collect(program)?;
+        self.declare_all()?;
+        self.define_all()?;
+        let product = self.module.finish();
+        let bytes = product
+            .emit()
+            .map_err(|e| MoonliftError::new(format!("failed to emit Moonlift object file: {e}")))?;
+        Ok(ObjectArtifact { bytes })
+    }
+}
+
+impl<M: Module> Compiler<M> {
+    fn with_module(module: M) -> Self {
+        Self {
+            module,
+            signatures: HashMap::new(),
+            funcs: HashMap::new(),
+            externs: HashMap::new(),
+            datas: HashMap::new(),
+            bodies: Vec::new(),
+        }
     }
 
     fn collect(&mut self, program: &BackProgram) -> Result<(), MoonliftError> {
@@ -851,7 +882,11 @@ impl Compiler {
                 spec.returns.len()
             )));
         }
-        let symbol = local_symbol_name(func);
+        let symbol = if linkage == Linkage::Export {
+            func.as_str().to_string()
+        } else {
+            local_symbol_name(func)
+        };
         match self.funcs.get(func) {
             Some(existing) => {
                 if existing.sig != *sig || existing.linkage != linkage {
@@ -1008,8 +1043,8 @@ impl Compiler {
     }
 }
 
-struct FunctionLowerer<'a, 'b> {
-    module: &'a mut JITModule,
+struct FunctionLowerer<'a, 'b, M: Module> {
+    module: &'a mut M,
     signatures: &'a HashMap<BackSigId, Signature>,
     funcs: &'a HashMap<BackFuncId, FuncDecl>,
     externs: &'a HashMap<BackExternId, ExternDecl>,
@@ -1022,9 +1057,9 @@ struct FunctionLowerer<'a, 'b> {
     stack_slots: HashMap<BackStackSlotId, StackSlot>,
 }
 
-impl<'a, 'b> FunctionLowerer<'a, 'b> {
+impl<'a, 'b, M: Module> FunctionLowerer<'a, 'b, M> {
     fn new(
-        module: &'a mut JITModule,
+        module: &'a mut M,
         signatures: &'a HashMap<BackSigId, Signature>,
         funcs: &'a HashMap<BackFuncId, FuncDecl>,
         externs: &'a HashMap<BackExternId, ExternDecl>,
@@ -2031,7 +2066,7 @@ fn bool_value_from_cond(builder: &mut FunctionBuilder<'_>, cond: Value) -> Value
     builder.ins().select(cond, one, zero)
 }
 
-fn make_signature(module: &JITModule, params: &[BackScalar], results: &[BackScalar]) -> Signature {
+fn make_signature<M: Module>(module: &M, params: &[BackScalar], results: &[BackScalar]) -> Signature {
     let ptr_ty = module.target_config().pointer_type();
     let mut sig = module.make_signature();
     for param in params {
@@ -2225,6 +2260,25 @@ fn hex_digit(n: u8) -> char {
         10..=15 => (b'a' + (n - 10)) as char,
         _ => unreachable!(),
     }
+}
+
+fn host_isa(is_pic: bool) -> Result<Arc<dyn cranelift_codegen::isa::TargetIsa>, MoonliftError> {
+    let mut flag_builder = settings::builder();
+    flag_builder
+        .set("use_colocated_libcalls", "false")
+        .map_err(|e| MoonliftError::new(format!("failed to set Cranelift flag use_colocated_libcalls: {e}")))?;
+    flag_builder
+        .set("is_pic", if is_pic { "true" } else { "false" })
+        .map_err(|e| MoonliftError::new(format!("failed to set Cranelift flag is_pic: {e}")))?;
+    flag_builder
+        .set("opt_level", "speed")
+        .map_err(|e| MoonliftError::new(format!("failed to set Cranelift flag opt_level: {e}")))?;
+
+    let isa_builder = cranelift_native::builder()
+        .map_err(|e| MoonliftError::new(format!("host machine is not supported by Cranelift: {e}")))?;
+    isa_builder
+        .finish(settings::Flags::new(flag_builder))
+        .map_err(|e| MoonliftError::new(format!("failed to finalize Cranelift ISA: {e}")))
 }
 
 fn empty_module() -> Result<JITModule, MoonliftError> {

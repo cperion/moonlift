@@ -29,6 +29,12 @@ Companion docs:
 - `moonlift/REBOOT_SOURCE_GRAMMAR.md` — source-language base this grammar grew from
 - `moonlift/REBOOT_SOURCE_SPEC.md`
 
+The current command-line artifact path consumes `.mlua` files through this same
+object grammar for functions/modules, then lowers through `Moon2Back` and the
+`Moon2Link` ASDL linker layer for `.o` / shared-library emission. Artifact
+packaging is deliberately outside the source grammar: source declares object
+code; `Moon2Link.LinkPlan` declares how compiled objects are linked.
+
 The Lua constructor counterpart to this grammar is `require("moonlift.ast")`.
 Its LuaLS-documented functions construct the same source ASDL nodes described
 here (`Moon2Core`, `Moon2Type`, and `Moon2Tree` surface values), so the

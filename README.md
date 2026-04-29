@@ -184,6 +184,26 @@ stable spines
     address-formation, and schedule-selected command facts that Cranelift can
     consume and ignoring only validation/scheduling evidence that has no direct
     Cranelift representation.
+- `lua/moonlift/back_object.lua`
+  - Direct `Moon2Back.BackProgram` relocatable object emission through the same
+    deterministic `BackCommandTape` transport and Rust/Cranelift lowering core.
+    This is the first ahead-of-time artifact boundary: Lua receives host-native
+    `.o` bytes from flat backend commands. `test_back_object_emit.lua` covers
+    the scalar smoke slice, and `test_back_object_full.lua` links a fuller object
+    containing local calls, data objects, stack slots, pointer loads/stores,
+    unresolved extern relocations resolved by the C harness, memcpy/memset, and
+    vector commands. `moonlift/emit_object.lua` is the first `.mlua -> .o`
+    command-line emitter.
+- `lua/moonlift/link_target_model.lua`, `link_plan_validate.lua`,
+  `link_command_plan.lua`, `link_execute.lua`
+  - Curated `Moon2Link` ASDL linker/artifact layer for object/shared/executable
+    packaging. It models platform/arch/object format, relocation model, linker
+    tools, artifact kinds, inputs, exports, extern policy, runtime paths,
+    options, flat linker commands, reports, and results. `emit_shared.lua` uses
+    this path to produce `.so` / `.dylib` / `.dll` from `.mlua` via object
+    emission plus a PVM-planned linker command; `test_link_plan.lua` validates
+    command planning and `test_back_shared_emit.lua` links and loads a shared
+    library through LuaJIT FFI.
 - `lua/moonlift/type_classify.lua`
   - `Moon2Type.Type -> Moon2Type.TypeClass` classification.
 - `lua/moonlift/type_to_back_scalar.lua`
@@ -624,6 +644,10 @@ luajit moonlift/test_back_add_i32.lua
 # requires the current Rust backend shared library
 cargo build --manifest-path moonlift/Cargo.toml
 luajit moonlift/test_back_add_i32.lua
+luajit moonlift/test_back_object_emit.lua
+luajit moonlift/test_back_object_full.lua
+luajit moonlift/test_link_plan.lua
+luajit moonlift/test_back_shared_emit.lua
 luajit moonlift/test_back_fact_rich_smoke.lua
 luajit moonlift/test_back_branch_select.lua
 luajit moonlift/test_back_call.lua

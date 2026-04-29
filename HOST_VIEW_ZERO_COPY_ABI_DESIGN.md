@@ -1654,6 +1654,14 @@ typedef struct MoonView_User {
 
 C ABI output is deterministic from `HostFactSet`.
 
+The executable artifact path is now explicitly split from C declaration emission:
+`Moon2Back.BackProgram` emits host-native relocatable objects through
+`back_object.lua`, while `Moon2Link` owns shared-library/executable packaging as
+ASDL `LinkPlan` / `LinkCommandPlan` / `LinkResult` values.  `emit_shared.lua`
+therefore packages `.mlua` object code into `.so` / `.dylib` / `.dll` through a
+PVM-planned linker command rather than hiding linker policy in an ad hoc shell
+string.
+
 Conflicts are rejects:
 
 ```text

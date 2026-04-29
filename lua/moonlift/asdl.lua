@@ -388,6 +388,100 @@ module Moon2Back {
     BackCommandTape = (number version, number command_count, string payload) unique
 }
 
+module Moon2Link {
+    LinkPath = (string text) unique
+    LinkSymbol = (string name) unique
+    LinkEnv = (string key, string value) unique
+
+    LinkPlatform = LinkPlatformLinux
+                 | LinkPlatformMacOS
+                 | LinkPlatformWindows
+                 | LinkPlatformWasm
+                 | LinkPlatformUnknown(string name) unique
+    LinkArch = LinkArchX86_64
+             | LinkArchAArch64
+             | LinkArchX86
+             | LinkArchArm
+             | LinkArchWasm32
+             | LinkArchUnknown(string name) unique
+    LinkObjectFormat = LinkFormatElf
+                     | LinkFormatMachO
+                     | LinkFormatCoff
+                     | LinkFormatWasm
+                     | LinkFormatUnknown(string name) unique
+    LinkRelocationModel = LinkRelocStatic
+                        | LinkRelocPic
+                        | LinkRelocPie
+    LinkTargetModel = (Moon2Back.BackTargetModel backend, Moon2Link.LinkPlatform platform, Moon2Link.LinkArch arch, Moon2Link.LinkObjectFormat object_format, Moon2Link.LinkRelocationModel relocation) unique
+
+    LinkArtifactKind = LinkArtifactObject
+                     | LinkArtifactStaticArchive
+                     | LinkArtifactSharedLibrary
+                     | LinkArtifactExecutable
+    LinkerKind = LinkerSystemCc
+               | LinkerCc
+               | LinkerClang
+               | LinkerGcc
+               | LinkerLd
+               | LinkerLld
+               | LinkerAr
+               | LinkerLibtool
+               | LinkerCustom(string name) unique
+    LinkTool = (Moon2Link.LinkerKind kind, Moon2Link.LinkPath path) unique
+
+    LinkInput = LinkInputObject(Moon2Link.LinkPath path) unique
+              | LinkInputStaticArchive(Moon2Link.LinkPath path) unique
+              | LinkInputSharedLibrary(Moon2Link.LinkPath path) unique
+              | LinkInputSystemLibrary(string name) unique
+              | LinkInputFramework(string name) unique
+              | LinkInputLibrarySearchPath(Moon2Link.LinkPath path) unique
+              | LinkInputLinkerScript(Moon2Link.LinkPath path) unique
+
+    LinkExportPolicy = LinkExportAll
+                     | LinkExportNone
+                     | LinkExportSymbols(Moon2Link.LinkSymbol* symbols) unique
+                     | LinkExportVersionScript(Moon2Link.LinkPath path) unique
+    LinkExternPolicy = LinkExternRequireResolved
+                     | LinkExternAllowUnresolved
+    LinkDebugPolicy = LinkDebugDefault
+                    | LinkDebugKeep
+                    | LinkDebugStrip
+    LinkRuntimePath = LinkRpath(Moon2Link.LinkPath path) unique
+                    | LinkRunpath(Moon2Link.LinkPath path) unique
+    LinkOption = LinkOptRuntimePath(Moon2Link.LinkRuntimePath path) unique
+               | LinkOptEntry(Moon2Link.LinkSymbol symbol) unique
+               | LinkOptSoname(string name) unique
+               | LinkOptInstallName(string name) unique
+               | LinkOptOutputImplib(Moon2Link.LinkPath path) unique
+               | LinkOptDebug(Moon2Link.LinkDebugPolicy policy) unique
+               | LinkOptWholeArchiveBegin
+               | LinkOptWholeArchiveEnd
+               | LinkOptNoDefaultLibs
+               | LinkOptStaticLibgcc
+               | LinkOptCustomArg(string arg) unique
+
+    LinkPlan = (Moon2Link.LinkTargetModel target, Moon2Link.LinkArtifactKind kind, Moon2Link.LinkTool tool, Moon2Link.LinkPath output, Moon2Link.LinkInput* inputs, Moon2Link.LinkExportPolicy exports, Moon2Link.LinkExternPolicy externs, Moon2Link.LinkOption* options) unique
+
+    LinkIssue = LinkIssueMissingOutput
+              | LinkIssueNoInputs
+              | LinkIssueMissingInput(Moon2Link.LinkPath path) unique
+              | LinkIssueUnsupportedPlatform(Moon2Link.LinkPlatform platform, Moon2Link.LinkArtifactKind kind) unique
+              | LinkIssueUnsupportedInput(Moon2Link.LinkInput input, string reason) unique
+              | LinkIssueUnsupportedOption(Moon2Link.LinkOption option, string reason) unique
+              | LinkIssueUnresolvedSymbol(Moon2Link.LinkSymbol symbol) unique
+              | LinkIssueDuplicateSymbol(Moon2Link.LinkSymbol symbol) unique
+              | LinkIssueToolUnavailable(Moon2Link.LinkTool tool) unique
+              | LinkIssueCommandFailed(number index, number code, string stderr) unique
+    LinkReport = (Moon2Link.LinkIssue* issues) unique
+
+    LinkCommand = LinkCmdRun(Moon2Link.LinkTool tool, string* args, Moon2Link.LinkEnv* env) unique
+                | LinkCmdWriteFile(Moon2Link.LinkPath path, string contents) unique
+                | LinkCmdRemoveFile(Moon2Link.LinkPath path) unique
+    LinkCommandPlan = (Moon2Link.LinkPlan plan, Moon2Link.LinkCommand* commands) unique
+    LinkResult = LinkOk(Moon2Link.LinkPath output) unique
+               | LinkFailed(Moon2Link.LinkReport report) unique
+}
+
 module Moon2Type {
     TypeRef = TypeRefPath(Moon2Core.Path path) unique
             | TypeRefGlobal(string module_name, string type_name) unique
