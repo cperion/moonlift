@@ -13,7 +13,7 @@ use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::ffi::c_void;
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 pub mod host_arena;
 mod ffi;
@@ -2262,7 +2262,7 @@ fn hex_digit(n: u8) -> char {
     }
 }
 
-fn host_isa(is_pic: bool) -> Result<Arc<dyn cranelift_codegen::isa::TargetIsa>, MoonliftError> {
+fn build_host_isa(is_pic: bool) -> Result<Arc<dyn cranelift_codegen::isa::TargetIsa>, MoonliftError> {
     let mut flag_builder = settings::builder();
     flag_builder
         .set("use_colocated_libcalls", "false")
@@ -2279,6 +2279,18 @@ fn host_isa(is_pic: bool) -> Result<Arc<dyn cranelift_codegen::isa::TargetIsa>, 
     isa_builder
         .finish(settings::Flags::new(flag_builder))
         .map_err(|e| MoonliftError::new(format!("failed to finalize Cranelift ISA: {e}")))
+}
+
+fn host_isa(is_pic: bool) -> Result<Arc<dyn cranelift_codegen::isa::TargetIsa>, MoonliftError> {
+    static JIT_ISA: OnceLock<Arc<dyn cranelift_codegen::isa::TargetIsa>> = OnceLock::new();
+    static PIC_ISA: OnceLock<Arc<dyn cranelift_codegen::isa::TargetIsa>> = OnceLock::new();
+    let slot = if is_pic { &PIC_ISA } else { &JIT_ISA };
+    if let Some(isa) = slot.get() {
+        return Ok(Arc::clone(isa));
+    }
+    let isa = build_host_isa(is_pic)?;
+    let _ = slot.set(Arc::clone(&isa));
+    Ok(isa)
 }
 
 #[cfg(test)]
