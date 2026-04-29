@@ -181,8 +181,8 @@ local function is_island_start(src, i, kind)
         if item_words[word] then return true end
         local next_i = skip_hspace(src, after_word)
         local next_ch = src:sub(next_i, next_i)
-        if from_return then return next_ch == "\n" end
-        return next_ch == "" or next_ch == "\n"
+        if from_return then return next_ch == "\n" or next_ch == "{" end
+        return next_ch == "" or next_ch == "\n" or next_ch == "{"
     end
     return false
 end
@@ -205,6 +205,8 @@ local function find_next_island(src, i)
     return nil, nil
 end
 
+local find_matching_brace
+
 local function island_end(src, start_i, kind)
     if kind == "expose" then
         local nl = src:find("\n", start_i, true)
@@ -214,6 +216,13 @@ local function island_end(src, start_i, kind)
             return find_matching_end(src, start_i)
         end
         return nl - 1
+    end
+    if kind == "module" then
+        local _, after_module = read_ident(src, start_i)
+        local k = skip_hspace(src, after_module)
+        local word, after_word = read_ident(src, k)
+        if word ~= nil then k = skip_hspace(src, after_word) end
+        if src:sub(k, k) == "{" then return find_matching_brace(src, k) end
     end
     return find_matching_end(src, start_i)
 end
@@ -231,6 +240,10 @@ end
 
 local function module_body_from_source(src)
     local body = src:match("^%s*module%s+([%s%S]-)%s*end%s*$")
+    if body == nil then
+        local head, braced = src:match("^%s*module%s+([_%a][_%w]*)%s*{%s*([%s%S]-)%s*}%s*$")
+        if head ~= nil then body = braced end
+    end
     if not body then return src end
     local maybe_name, rest = body:match("^%s*([_%a][_%w]*)([%s%S]*)$")
     if maybe_name and not ({ export = true, extern = true, func = true, const = true, static = true, import = true, type = true, region = true, expr = true, ["end"] = true })[maybe_name] then
@@ -245,6 +258,28 @@ local function expected_splice_kind(src, at)
     local line = prefix:match("([^\n]*)$") or prefix
     if line:match(":%s*[%w_%.%s%(]*$") or line:match("%-%>%s*[%w_%.%s%(]*$") or line:match("%f[%w_]as%s*%(%s*$") then return "type" end
     return "expr"
+end
+
+find_matching_brace = function(src, open_i)
+    local depth = 1
+    local i = open_i + 1
+    while i <= #src do
+        local skipped = skip_comment_or_string(src, i)
+        if skipped then
+            i = skipped
+        else
+            local c = src:sub(i, i)
+            if c == "{" then depth = depth + 1; i = i + 1
+            elseif c == "}" then
+                depth = depth - 1
+                if depth == 0 then return i end
+                i = i + 1
+            else
+                i = i + 1
+            end
+        end
+    end
+    error("unterminated Moonlift brace island", 2)
 end
 
 local function find_antiquote_end(src, i)
