@@ -23,11 +23,11 @@ local function find_jump_arg(args, name)
 end
 
 function M.Define(T, base)
-    local C = T.Moon2Core
-    local Bn = T.Moon2Bind
-    local Sem = T.Moon2Sem
-    local Tr = T.Moon2Tree
-    local Back = T.Moon2Back
+    local C = (T.MoonCore or T.Moon2Core)
+    local Bn = (T.MoonBind or T.Moon2Bind)
+    local Sem = (T.MoonSem or T.Moon2Sem)
+    local Tr = (T.MoonTree or T.Moon2Tree)
+    local Back = (T.MoonBack or T.Moon2Back)
 
     local facts_api = require("moonlift.tree_control_facts").Define(T)
 

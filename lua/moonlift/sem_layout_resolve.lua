@@ -3,11 +3,11 @@ local pvm = require("moonlift.pvm")
 local M = {}
 
 function M.Define(T)
-    local C = T.Moon2Core
-    local Ty = T.Moon2Type
-    local Sem = T.Moon2Sem
-    local Tr = T.Moon2Tree
-    local H = T.Moon2Host
+    local C = (T.MoonCore or T.Moon2Core)
+    local Ty = (T.MoonType or T.Moon2Type)
+    local Sem = (T.MoonSem or T.Moon2Sem)
+    local Tr = (T.MoonTree or T.Moon2Tree)
+    local H = (T.MoonHost or T.Moon2Host)
 
     local type_layout
     local type_ref_layout

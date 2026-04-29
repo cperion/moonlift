@@ -3,11 +3,11 @@ local pvm = require("moonlift.pvm")
 local M = {}
 
 function M.Define(T)
-    local H = T.Moon2Host
-    local Sem = T.Moon2Sem
-    local Ty = T.Moon2Type
-    local Tr = T.Moon2Tree
-    local C = T.Moon2Core
+    local H = (T.MoonHost or T.Moon2Host)
+    local Sem = (T.MoonSem or T.Moon2Sem)
+    local Ty = (T.MoonType or T.Moon2Type)
+    local Tr = (T.MoonTree or T.Moon2Tree)
+    local C = (T.MoonCore or T.Moon2Core)
 
     local function ty_from_rep(rep)
         local cls = pvm.classof(rep)

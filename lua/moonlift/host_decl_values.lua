@@ -58,7 +58,7 @@ end
 
 function M.Install(api, session)
     local T = session.T
-    local C, Ty, H = T.Moon2Core, T.Moon2Type, T.Moon2Host
+    local C, Ty, H = (T.MoonCore or T.Moon2Core), (T.MoonType or T.Moon2Type), (T.MoonHost or T.Moon2Host)
 
     local function layout_id(name, opts)
         opts = opts or {}

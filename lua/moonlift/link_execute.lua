@@ -23,7 +23,7 @@ local function run_capture(argv, env)
 end
 
 function M.Define(T)
-    local Link = T.Moon2Link
+    local Link = (T.MoonLink or T.Moon2Link)
     assert(Link, "moonlift.link_execute.Define expects moonlift.asdl in the context")
 
     local function execute(plan)

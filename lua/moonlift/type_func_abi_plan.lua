@@ -6,10 +6,10 @@ function M.Define(T)
     T._moonlift_api_cache = T._moonlift_api_cache or {}
     if T._moonlift_api_cache.type_func_abi_plan ~= nil then return T._moonlift_api_cache.type_func_abi_plan end
 
-    local C = T.Moon2Core
-    local Ty = T.Moon2Type
-    local B = T.Moon2Bind
-    local Back = T.Moon2Back
+    local C = (T.MoonCore or T.Moon2Core)
+    local Ty = (T.MoonType or T.Moon2Type)
+    local B = (T.MoonBind or T.Moon2Bind)
+    local Back = (T.MoonBack or T.Moon2Back)
 
     local scalar_api = require("moonlift.type_to_back_scalar").Define(T)
 

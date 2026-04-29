@@ -15,11 +15,11 @@ end
 
 function StructTemplateValue:instantiate(module_value, args)
     args = args or {}
-    if #args ~= #self.params then self.api.raise_host_issue(self.session.T.Moon2Host.HostIssueArgCount("struct template " .. self.name, #self.params, #args)) end
+    if #args ~= #self.params then self.api.raise_host_issue((self.session.T.MoonHost or self.session.T.Moon2Host).HostIssueArgCount("struct template " .. self.name, #self.params, #args)) end
     local concrete = {}
     local suffix = {}
     local fills = {}
-    local O = self.session.T.Moon2Open
+    local O = (self.session.T.MoonOpen or self.session.T.Moon2Open)
     for i = 1, #args do
         concrete[i] = self.api.as_type_value(args[i], "struct template arg must be a type value")
         suffix[i] = sanitize(concrete[i].source_hint)
@@ -41,7 +41,7 @@ end
 
 function M.Install(api, session)
     local T = session.T
-    local O, Ty = T.Moon2Open, T.Moon2Type
+    local O, Ty = (T.MoonOpen or T.Moon2Open), (T.MoonType or T.Moon2Type)
 
     function api.type_param(name)
         assert_name(name, "type_param")

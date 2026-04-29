@@ -3,9 +3,9 @@ local pvm = require("moonlift.pvm")
 local M = {}
 
 function M.Define(T)
-    local S = T.Moon2Source
-    local E = T.Moon2Editor
-    local Mlua = T.Moon2Mlua
+    local S = (T.MoonSource or T.Moon2Source)
+    local E = (T.MoonEditor or T.Moon2Editor)
+    local Mlua = (T.MoonMlua or T.Moon2Mlua)
 
     local folding_phase = pvm.phase("moon2_editor_folding_ranges", {
         [Mlua.DocumentAnalysis] = function(analysis)

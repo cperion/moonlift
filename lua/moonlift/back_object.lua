@@ -44,7 +44,7 @@ local function cstring(text)
 end
 
 function M.Define(T, opts)
-    local Back = T.MoonBack or T.Moon2Back
+    local Back = T.MoonBack or (T.MoonBack or T.Moon2Back)
     assert(Back, "moonlift.back_object.Define expects MoonBack/Moon2Back in the context")
     local lib = load_library(opts and opts.libpath or nil)
     local tape_api = require("moonlift.back_command_tape").Define(T)

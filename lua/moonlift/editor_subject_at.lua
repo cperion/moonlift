@@ -25,13 +25,13 @@ local function uri_eq(a, b)
 end
 
 function M.Define(T)
-    local S = T.Moon2Source
-    local E = T.Moon2Editor
-    local C = T.Moon2Core
-    local Ty = T.Moon2Type
-    local Tr = T.Moon2Tree
-    local H = T.Moon2Host
-    local Mlua = T.Moon2Mlua
+    local S = (T.MoonSource or T.Moon2Source)
+    local E = (T.MoonEditor or T.Moon2Editor)
+    local C = (T.MoonCore or T.Moon2Core)
+    local Ty = (T.MoonType or T.Moon2Type)
+    local Tr = (T.MoonTree or T.Moon2Tree)
+    local H = (T.MoonHost or T.Moon2Host)
+    local Mlua = (T.MoonMlua or T.Moon2Mlua)
     local P = PositionIndex.Define(T)
     local AI = AnchorIndex.Define(T)
     local Diag = Diagnostics.Define(T)

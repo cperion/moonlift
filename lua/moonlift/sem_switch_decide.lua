@@ -3,8 +3,8 @@ local pvm = require("moonlift.pvm")
 local M = {}
 
 function M.Define(T)
-    local Sem = T.Moon2Sem
-    local Tr = T.Moon2Tree
+    local Sem = (T.MoonSem or T.Moon2Sem)
+    local Tr = (T.MoonTree or T.Moon2Tree)
 
     local key_kind
     local stmt_arm_key

@@ -28,11 +28,11 @@ local function remap_issue(S, P, Parse, index, segment_range, issue)
 end
 
 function M.Define(T)
-    local S = T.Moon2Source
-    local Mlua = T.Moon2Mlua
-    local H = T.Moon2Host
-    local Tr = T.Moon2Tree
-    local Parse = T.Moon2Parse
+    local S = (T.MoonSource or T.Moon2Source)
+    local Mlua = (T.MoonMlua or T.Moon2Mlua)
+    local H = (T.MoonHost or T.Moon2Host)
+    local Tr = (T.MoonTree or T.Moon2Tree)
+    local Parse = (T.MoonParse or T.Moon2Parse)
     local Parts = DocumentParts.Define(T)
     local Island = IslandParse.Define(T)
     local Whole = WholeParse.Define(T)

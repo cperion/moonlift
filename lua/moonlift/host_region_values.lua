@@ -44,7 +44,7 @@ end
 
 function M.Install(api, session)
     local T = session.T
-    local C, Ty, B, O, Sem, Tr = T.Moon2Core, T.Moon2Type, T.Moon2Bind, T.Moon2Open, T.Moon2Sem, T.Moon2Tree
+    local C, Ty, B, O, Sem, Tr = (T.MoonCore or T.Moon2Core), (T.MoonType or T.Moon2Type), (T.MoonBind or T.Moon2Bind), (T.MoonOpen or T.Moon2Open), (T.MoonSem or T.Moon2Sem), (T.MoonTree or T.Moon2Tree)
 
     local function as_param(v, site)
         if type(v) == "table" and getmetatable(v) == api.ParamValue then return v end
@@ -169,7 +169,7 @@ function M.Install(api, session)
         local fill_values = {}
         for name, target in ordered_pairs_from_map(fills or {}) do
             local cont = fragment.conts[name]
-            if cont == nil then api.raise_host_issue(session.T.Moon2Host.HostIssueInvalidEmitFill(fragment.name, tostring(name))) end
+            if cont == nil then api.raise_host_issue((session.T.MoonHost or session.T.Moon2Host).HostIssueInvalidEmitFill(fragment.name, tostring(name))) end
             if type(target) == "table" and getmetatable(target) == BlockValue then
                 fill_values[#fill_values + 1] = O.SlotBinding(O.SlotCont(cont.slot), O.SlotValueCont(target.label))
             elseif type(target) == "table" and getmetatable(target) == ContValue and target.slot ~= nil then
@@ -178,7 +178,7 @@ function M.Install(api, session)
                 error("continuation fill must be a block value or in-fragment continuation value", 2)
             end
         end
-        for name in pairs(fragment.conts) do if (fills or {})[name] == nil then api.raise_host_issue(session.T.Moon2Host.HostIssueMissingEmitFill(fragment.name, name)) end end
+        for name in pairs(fragment.conts) do if (fills or {})[name] == nil then api.raise_host_issue((session.T.MoonHost or session.T.Moon2Host).HostIssueMissingEmitFill(fragment.name, name)) end end
         return self:emit_stmt(Tr.StmtUseRegionFrag(Tr.StmtSurface, "host.emit." .. fragment.name .. "." .. tostring(#self.body + 1), fragment.frag, args, fill_values))
     end
 
@@ -316,7 +316,7 @@ function M.Install(api, session)
     if api.FuncBuilder then
         function api.FuncBuilder:return_region(result_ty, builder_fn)
             local expr = api._build_control_expr_region(result_ty, self.bindings, builder_fn)
-            return self:emit(T.Moon2Tree.StmtReturnValue(T.Moon2Tree.StmtSurface, expr))
+            return self:emit((T.MoonTree or T.Moon2Tree).StmtReturnValue((T.MoonTree or T.Moon2Tree).StmtSurface, expr))
         end
     end
 

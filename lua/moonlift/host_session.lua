@@ -23,12 +23,12 @@ function Session:symbol_key(kind, name)
 end
 
 function Session:type_sym(name)
-    local C = self.T.Moon2Core
+    local C = (self.T.MoonCore or self.T.Moon2Core)
     return C.TypeSym(self:symbol_key("type", name), name)
 end
 
 function Session:id(kind, name)
-    local C = self.T.Moon2Core
+    local C = (self.T.MoonCore or self.T.Moon2Core)
     return C.Id(self:symbol_key(kind or "id", name))
 end
 
@@ -71,7 +71,7 @@ end
 function Session:layout_of(type_value)
     local pvm = require("moonlift.pvm")
     local api = self:api()
-    local Sem = self.T.Moon2Sem
+    local Sem = (self.T.MoonSem or self.T.Moon2Sem)
     local tv
     if type(type_value) == "table" and type(type_value.as_type_value) == "function" then tv = type_value:as_type_value() else tv = api.as_type_value(type_value, "layout_of expects type value") end
     local fields = type_value.fields or tv.fields
@@ -84,7 +84,7 @@ function Session:layout_of(type_value)
         for i = 1, #fields do
             local f = fields[i]
             local r = self:size_align(f.type)
-            if pvm.classof(r) ~= self.T.Moon2Type.TypeMemLayoutKnown then return nil end
+            if pvm.classof(r) ~= (self.T.MoonType or self.T.Moon2Type).TypeMemLayoutKnown then return nil end
             local a = r.layout.align
             if a > align then align = a end
             local rem = offset % a

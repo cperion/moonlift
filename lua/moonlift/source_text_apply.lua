@@ -18,7 +18,7 @@ local function sort_by_range_start(a, b)
 end
 
 function M.Define(T)
-    local S = T.Moon2Source
+    local S = (T.MoonSource or T.Moon2Source)
     local P = PositionIndex.Define(T)
 
     local apply_phase = pvm.phase("moon2_source_text_apply", function(document, edit)

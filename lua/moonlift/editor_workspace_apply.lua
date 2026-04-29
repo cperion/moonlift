@@ -21,7 +21,7 @@ local function find_doc(docs, uri)
 end
 
 function M.Define(T)
-    local E = T.Moon2Editor
+    local E = (T.MoonEditor or T.Moon2Editor)
     local SourceApply = SourceTextApply.Define(T)
 
     local function initial_state()
@@ -75,7 +75,7 @@ function M.Define(T)
             local _, doc = find_doc(before.open_docs, event.edit.uri)
             if doc then
                 local result = SourceApply.apply(doc, event.edit)
-                if pvm.classof(result) == T.Moon2Source.SourceApplyOk then
+                if pvm.classof(result) == (T.MoonSource or T.Moon2Source).SourceApplyOk then
                     after = upsert_doc(before, result.document)
                 end
             end

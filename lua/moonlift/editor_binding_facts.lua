@@ -47,14 +47,14 @@ local function subject_key(pvm, E, subject)
 end
 
 function M.Define(T)
-    local S = T.Moon2Source
-    local C = T.Moon2Core
-    local Ty = T.Moon2Type
-    local Tr = T.Moon2Tree
-    local B = T.Moon2Bind
-    local E = T.Moon2Editor
-    local H = T.Moon2Host
-    local Mlua = T.Moon2Mlua
+    local S = (T.MoonSource or T.Moon2Source)
+    local C = (T.MoonCore or T.Moon2Core)
+    local Ty = (T.MoonType or T.Moon2Type)
+    local Tr = (T.MoonTree or T.Moon2Tree)
+    local B = (T.MoonBind or T.Moon2Bind)
+    local E = (T.MoonEditor or T.Moon2Editor)
+    local H = (T.MoonHost or T.Moon2Host)
+    local Mlua = (T.MoonMlua or T.Moon2Mlua)
     local Sym = Symbols.Define(T)
     local ScopeFacts = BindingScopes.Define(T)
 

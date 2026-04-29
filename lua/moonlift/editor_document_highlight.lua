@@ -11,7 +11,7 @@ local function highlight_kind(E, role)
 end
 
 function M.Define(T)
-    local E = T.Moon2Editor
+    local E = (T.MoonEditor or T.Moon2Editor)
     local Subject = SubjectAt.Define(T)
     local Bindings = BindingFacts.Define(T)
 

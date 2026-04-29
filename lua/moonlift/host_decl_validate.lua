@@ -21,9 +21,9 @@ local function is_power_of_two(n)
 end
 
 function M.Define(T)
-    local H = T.Moon2Host
-    local Ty = T.Moon2Type
-    local C = T.Moon2Core
+    local H = (T.MoonHost or T.Moon2Host)
+    local Ty = (T.MoonType or T.Moon2Type)
+    local C = (T.MoonCore or T.Moon2Core)
 
     local function scalar_bool_ty(ty)
         return pvm.classof(ty) == Ty.TScalar and ty.scalar == C.ScalarBool

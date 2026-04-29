@@ -490,7 +490,7 @@ local function runtime_add_decl(runtime, decl)
 end
 
 function HostRuntime:host_decl_set()
-    return self.T.Moon2Host.HostDeclSet(self.decls)
+    return (self.T.MoonHost or self.T.Moon2Host).HostDeclSet(self.decls)
 end
 
 function HostRuntime:parse(src, name)
@@ -505,7 +505,7 @@ function HostRuntime:host_pipeline(src, module_name, target)
 end
 
 function HostRuntime:host_pipeline_result(module_name, target)
-    local H, Tr = self.T.Moon2Host, self.T.Moon2Tree
+    local H, Tr = (self.T.MoonHost or self.T.Moon2Host), (self.T.MoonTree or self.T.Moon2Tree)
     local parsed = H.MluaParseResult(self:host_decl_set(), Tr.Module(Tr.ModuleSurface, {}), {}, {}, {})
     return require("moonlift.mlua_host_pipeline").Define(self.T).pipeline(parsed, module_name or self.name, target)
 end
@@ -536,7 +536,7 @@ end
 function StructDeclValue:moonlift_splice_source() return self.name end
 function StructDeclValue:as_host_decl() return self.host_decl end
 function StructDeclValue:host_decl_set()
-    local H = self.T.Moon2Host
+    local H = (self.T.MoonHost or self.T.Moon2Host)
     local decls = { self.host_decl }
     for i = 1, #(self.lua_accessors or {}) do decls[#decls + 1] = self.lua_accessors[i] end
     return H.HostDeclSet(decls)
@@ -545,7 +545,7 @@ function StructDeclValue:__tostring() return "MoonliftStructDecl(" .. tostring(s
 function StructDeclValue:__newindex(k, v)
     rawset(self, k, v)
     if type(k) ~= "string" or not (self.T and self.name) then return end
-    local H = self.T.Moon2Host
+    local H = (self.T.MoonHost or self.T.Moon2Host)
     local host_decl
     if type(v) == "function" then
         host_decl = H.HostDeclAccessor(H.HostAccessorLua(self.name, k, self.name .. "_" .. k))
@@ -567,8 +567,8 @@ end
 local function struct_from_source_in(runtime, src)
     local source = normalize_source(src)
     local result = parse_mlua_source_in(runtime.T, source, "<struct>")
-    local decl = first_decl(result, runtime.T.Moon2Host.HostDeclStruct)
-    local host_decl = decl and runtime.T.Moon2Host.HostDeclStruct(decl)
+    local decl = first_decl(result, (runtime.T.MoonHost or runtime.T.Moon2Host).HostDeclStruct)
+    local host_decl = decl and (runtime.T.MoonHost or runtime.T.Moon2Host).HostDeclStruct(decl)
     local name = decl and decl.name or source:match("^%s*struct%s+([_%a][_%w]*)")
     runtime_add_decl(runtime, host_decl)
     return setmetatable({ name = name, source = source, parse_result = result, T = runtime.T, runtime = runtime, decl = decl, host_decl = host_decl, lua_accessors = {} }, StructDeclValue)
@@ -577,8 +577,8 @@ end
 local function expose_from_source_in(runtime, src)
     local source = normalize_source(src)
     local result = parse_mlua_source_in(runtime.T, source, "<expose>")
-    local decl = first_decl(result, runtime.T.Moon2Host.HostDeclExpose)
-    local host_decl = decl and runtime.T.Moon2Host.HostDeclExpose(decl)
+    local decl = first_decl(result, (runtime.T.MoonHost or runtime.T.Moon2Host).HostDeclExpose)
+    local host_decl = decl and (runtime.T.MoonHost or runtime.T.Moon2Host).HostDeclExpose(decl)
     runtime_add_decl(runtime, host_decl)
     return setmetatable({ source = source, parse_result = result, T = runtime.T, runtime = runtime, decl = decl, host_decl = host_decl }, ExposeDeclValue)
 end
@@ -769,7 +769,7 @@ local function parse_host_func_ast(T, quote)
     if #parsed.issues ~= 0 then return nil end
     for i = 1, #parsed.module.items do
         local item = parsed.module.items[i]
-        if pvm.classof(item) == T.Moon2Tree.ItemFunc then return item.func end
+        if pvm.classof(item) == (T.MoonTree or T.Moon2Tree).ItemFunc then return item.func end
     end
     return nil
 end
@@ -833,7 +833,7 @@ function CompiledModule:get(name)
     local cached = self.functions[name]
     if cached then return cached end
     local sig = assert(self.quote.signatures[name], "compiled module has no exported function signature for `" .. tostring(name) .. "`")
-    local B2 = self.T.Moon2Back
+    local B2 = (self.T.MoonBack or self.T.Moon2Back)
     local ptr = self.artifact:getpointer(B2.BackFuncId(name))
     local c_sig = c_sig_of(sig)
     local fn = ffi.cast(c_sig, ptr)

@@ -12,8 +12,8 @@ local function add(out, E, label, kind, detail, documentation, insert_text)
 end
 
 function M.Define(T)
-    local E = T.Moon2Editor
-    local H = T.Moon2Host
+    local E = (T.MoonEditor or T.Moon2Editor)
+    local H = (T.MoonHost or T.Moon2Host)
     local Context = CompletionContext.Define(T)
 
     local items_phase = pvm.phase("moon2_editor_completion_items", {

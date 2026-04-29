@@ -128,7 +128,7 @@ Parser.__index = Parser
 
 local function parser(T, src, opts)
     opts = opts or {}
-    return setmetatable({ T = T, C = T.Moon2Core, Ty = T.Moon2Type, B = T.Moon2Bind, O = T.Moon2Open, Sem = T.Moon2Sem, Tr = T.Moon2Tree, Pm = T.Moon2Parse, toks = M.lex(src), i = 1, issues = {}, region_seq = 0, value_env = opts.value_env or {}, cont_env = opts.cont_env or {}, region_frags = opts.region_frags or {}, expr_frags = opts.expr_frags or {} }, Parser)
+    return setmetatable({ T = T, C = (T.MoonCore or T.Moon2Core), Ty = (T.MoonType or T.Moon2Type), B = (T.MoonBind or T.Moon2Bind), O = (T.MoonOpen or T.Moon2Open), Sem = (T.MoonSem or T.Moon2Sem), Tr = (T.MoonTree or T.Moon2Tree), Pm = (T.MoonParse or T.Moon2Parse), toks = M.lex(src), i = 1, issues = {}, region_seq = 0, value_env = opts.value_env or {}, cont_env = opts.cont_env or {}, region_frags = opts.region_frags or {}, expr_frags = opts.expr_frags or {} }, Parser)
 end
 
 function Parser:kind(offset) return self.toks.kind[self.i + (offset or 0)] end
@@ -784,7 +784,7 @@ end
 function M.parse(T, src, opts)
     local p = parser(T, src, opts)
     local module = p:parse_module()
-    return T.Moon2Parse.ParseResult(module, p.issues)
+    return (T.MoonParse or T.Moon2Parse).ParseResult(module, p.issues)
 end
 
 function M.parse_region_frag(T, src, opts)

@@ -6,9 +6,9 @@ function M.Define(T)
     T._moonlift_api_cache = T._moonlift_api_cache or {}
     if T._moonlift_api_cache.type_to_back_scalar ~= nil then return T._moonlift_api_cache.type_to_back_scalar end
 
-    local Core = T.Moon2Core
-    local Ty = T.Moon2Type
-    local Back = T.Moon2Back
+    local Core = (T.MoonCore or T.Moon2Core)
+    local Ty = (T.MoonType or T.Moon2Type)
+    local Back = (T.MoonBack or T.Moon2Back)
 
     local scalar_to_back
     local type_to_back_scalar_result

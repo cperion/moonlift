@@ -1,7 +1,7 @@
 local M = {}
 
 function M.Define(T)
-    local Back = T.MoonBack or T.Moon2Back
+    local Back = T.MoonBack or (T.MoonBack or T.Moon2Back)
     assert(Back, "moonlift.back_program.Define expects MoonBack/Moon2Back in the context")
 
     local api = {}

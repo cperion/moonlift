@@ -3,8 +3,8 @@ local pvm = require("moonlift.pvm")
 local M = {}
 
 function M.Define(T)
-    local V = T.Moon2Vec
-    local Back = T.Moon2Back
+    local V = (T.MoonVec or T.Moon2Vec)
+    local Back = (T.MoonBack or T.Moon2Back)
 
     local elem_scalar
     local shape_to_back

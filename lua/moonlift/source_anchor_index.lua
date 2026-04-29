@@ -32,7 +32,7 @@ local function sorted_copy(anchors)
 end
 
 function M.Define(T)
-    local S = T.Moon2Source
+    local S = (T.MoonSource or T.Moon2Source)
 
     local build_index_phase = pvm.phase("moon2_source_anchor_index", function(anchor_set)
         return S.AnchorIndex(anchor_set, sorted_copy(anchor_set.anchors))

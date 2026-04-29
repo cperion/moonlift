@@ -7,9 +7,9 @@ local function append_all(out, xs)
 end
 
 function M.Define(T)
-    local C = T.Moon2Core
-    local Ty = T.Moon2Type
-    local V = T.Moon2Vec
+    local C = (T.MoonCore or T.Moon2Core)
+    local Ty = (T.MoonType or T.Moon2Type)
+    local V = (T.MoonVec or T.Moon2Vec)
 
     local scalar_elem
     local elem_bits

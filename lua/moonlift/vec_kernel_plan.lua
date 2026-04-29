@@ -3,12 +3,12 @@ local pvm = require("moonlift.pvm")
 local M = {}
 
 function M.Define(T)
-    local C = T.Moon2Core
-    local Ty = T.Moon2Type
-    local B = T.Moon2Bind
-    local Tr = T.Moon2Tree
-    local V = T.Moon2Vec
-    local Back = T.Moon2Back
+    local C = (T.MoonCore or T.Moon2Core)
+    local Ty = (T.MoonType or T.Moon2Type)
+    local B = (T.MoonBind or T.Moon2Bind)
+    local Tr = (T.MoonTree or T.Moon2Tree)
+    local V = (T.MoonVec or T.Moon2Vec)
+    local Back = (T.MoonBack or T.Moon2Back)
 
     local expr_type_api = require("moonlift.tree_expr_type").Define(T)
     local scalar_api = require("moonlift.type_to_back_scalar").Define(T)

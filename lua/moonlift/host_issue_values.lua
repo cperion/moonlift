@@ -1,7 +1,7 @@
 local M = {}
 
 function M.Install(api, session)
-    local H = session.T.Moon2Host
+    local H = (session.T.MoonHost or session.T.Moon2Host)
 
     local function report(issues)
         return H.HostReport(issues or {})

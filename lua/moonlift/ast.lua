@@ -129,7 +129,7 @@ local function copy_array(src)
 end
 
 local function install(api, T)
-    local C, Ty, B, Sem, Tr = T.Moon2Core, T.Moon2Type, T.Moon2Bind, T.Moon2Sem, T.Moon2Tree
+    local C, Ty, B, Sem, Tr = (T.MoonCore or T.Moon2Core), (T.MoonType or T.Moon2Type), (T.MoonBind or T.Moon2Bind), (T.MoonSem or T.Moon2Sem), (T.MoonTree or T.Moon2Tree)
 
     api.T = T
     api.raw = T
@@ -1008,7 +1008,7 @@ end
 ---@param T table ASDL context containing the Moonlift schema.
 ---@return table api Constructor API.
 function M.new(T)
-    assert(T and T.Moon2Tree and T.Moon2Type, "moonlift.ast.new expects a context with moonlift.asdl defined")
+    assert(T and (T.MoonTree or T.Moon2Tree) and (T.MoonType or T.Moon2Type), "moonlift.ast.new expects a context with moonlift.asdl defined")
     return install({}, T)
 end
 

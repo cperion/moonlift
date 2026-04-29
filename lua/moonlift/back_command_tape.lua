@@ -69,7 +69,7 @@ local function append(out, xs) for i = 1, #xs do out[#out + 1] = xs[i] end end
 local function line(op, fields) local out = { op }; append(out, fields or {}); return table.concat(out, "\t") end
 
 function M.Define(T)
-    local Back = T.MoonBack or T.Moon2Back
+    local Back = T.MoonBack or (T.MoonBack or T.Moon2Back)
     assert(Back, "moonlift.back_command_tape.Define expects MoonBack/Moon2Back in the context")
 
     local function encode_cmd(cmd)

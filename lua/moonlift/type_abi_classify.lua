@@ -3,9 +3,9 @@ local pvm = require("moonlift.pvm")
 local M = {}
 
 function M.Define(T)
-    local Ty = T.Moon2Type
-    local Back = T.Moon2Back
-    local Sem = T.Moon2Sem
+    local Ty = (T.MoonType or T.Moon2Type)
+    local Back = (T.MoonBack or T.Moon2Back)
+    local Sem = (T.MoonSem or T.Moon2Sem)
 
     local scalar_api = require("moonlift.type_to_back_scalar").Define(T)
     local layout_api = require("moonlift.type_size_align").Define(T)
@@ -27,7 +27,7 @@ function M.Define(T)
                 if r.scalar == Back.BackVoid then return pvm.once(Ty.AbiIgnore) end
                 return pvm.once(Ty.AbiDirect(r.scalar))
             end
-            if self.scalar == T.Moon2Core.ScalarVoid then return pvm.once(Ty.AbiIgnore) end
+            if self.scalar == (T.MoonCore or T.Moon2Core).ScalarVoid then return pvm.once(Ty.AbiIgnore) end
             return pvm.once(Ty.AbiUnknown(self))
         end,
         [Ty.TypeClassPointer] = function() return pvm.once(Ty.AbiDirect(Back.BackPtr)) end,

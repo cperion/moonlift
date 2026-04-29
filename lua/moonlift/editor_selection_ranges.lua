@@ -5,8 +5,8 @@ local AnchorIndex = require("moonlift.source_anchor_index")
 local M = {}
 
 function M.Define(T)
-    local S = T.Moon2Source
-    local E = T.Moon2Editor
+    local S = (T.MoonSource or T.Moon2Source)
+    local E = (T.MoonEditor or T.Moon2Editor)
     local P = PositionIndex.Define(T)
     local AI = AnchorIndex.Define(T)
 

@@ -46,7 +46,7 @@ function M.run(opts)
     local Encode = LspEncode.Define(T)
     local WorkspaceApply = Workspace.Define(T)
     local Out = OutCommands.Define(T)
-    local R = T.Moon2Rpc
+    local R = (T.MoonRpc or T.Moon2Rpc)
 
     local state = opts.state or WorkspaceApply.initial_state()
     local running = true

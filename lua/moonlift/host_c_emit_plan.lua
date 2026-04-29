@@ -3,7 +3,7 @@ local pvm = require("moonlift.pvm")
 local M = {}
 
 function M.Define(T)
-    local H = T.Moon2Host
+    local H = (T.MoonHost or T.Moon2Host)
 
     local phase = pvm.phase("moon2_host_c_emit_plan", {
         [H.HostFactSet] = function(self, header_name)

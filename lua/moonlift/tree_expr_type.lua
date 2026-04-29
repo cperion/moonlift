@@ -6,11 +6,11 @@ function M.Define(T)
     T._moonlift_api_cache = T._moonlift_api_cache or {}
     if T._moonlift_api_cache.tree_expr_type ~= nil then return T._moonlift_api_cache.tree_expr_type end
 
-    local C = T.Moon2Core
-    local Ty = T.Moon2Type
-    local B = T.Moon2Bind
-    local Sem = T.Moon2Sem
-    local Tr = T.Moon2Tree
+    local C = (T.MoonCore or T.Moon2Core)
+    local Ty = (T.MoonType or T.Moon2Type)
+    local B = (T.MoonBind or T.Moon2Bind)
+    local Sem = (T.MoonSem or T.Moon2Sem)
+    local Tr = (T.MoonTree or T.Moon2Tree)
 
     local header_type
     local value_ref_type

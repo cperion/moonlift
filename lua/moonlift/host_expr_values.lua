@@ -26,7 +26,7 @@ end
 
 function M.Install(api, session)
     local T = session.T
-    local C, Ty, B, Sem, Tr = T.Moon2Core, T.Moon2Type, T.Moon2Bind, T.Moon2Sem, T.Moon2Tree
+    local C, Ty, B, Sem, Tr = (T.MoonCore or T.Moon2Core), (T.MoonType or T.Moon2Type), (T.MoonBind or T.Moon2Bind), (T.MoonSem or T.Moon2Sem), (T.MoonTree or T.Moon2Tree)
 
     local function expr_value(expr, ty, source_hint, extra)
         local v = extra or {}

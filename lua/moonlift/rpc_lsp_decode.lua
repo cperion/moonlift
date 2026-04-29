@@ -23,9 +23,9 @@ local function language(S, lang)
 end
 
 function M.Define(T)
-    local S = T.Moon2Source
-    local E = T.Moon2Editor
-    local R = T.Moon2Rpc
+    local S = (T.MoonSource or T.Moon2Source)
+    local E = (T.MoonEditor or T.Moon2Editor)
+    local R = (T.MoonRpc or T.Moon2Rpc)
     local Decode = JsonDecode.Define(T)
     local P = PositionIndex.Define(T)
 

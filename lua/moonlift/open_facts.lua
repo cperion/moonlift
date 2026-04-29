@@ -3,9 +3,9 @@ local pvm = require("moonlift.pvm")
 local M = {}
 
 function M.Define(T)
-    local O = T.Moon2Open
-    local B = T.Moon2Bind
-    local Tr = T.Moon2Tree
+    local O = (T.MoonOpen or T.Moon2Open)
+    local B = (T.MoonBind or T.Moon2Bind)
+    local Tr = (T.MoonTree or T.Moon2Tree)
 
     local slot_fact
     local value_import_fact

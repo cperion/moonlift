@@ -4,9 +4,9 @@ local ffi = require("ffi")
 local M = {}
 
 function M.Define(T)
-    local H = T.Moon2Host
-    local C = T.Moon2Core
-    local Ty = T.Moon2Type
+    local H = (T.MoonHost or T.Moon2Host)
+    local C = (T.MoonCore or T.Moon2Core)
+    local Ty = (T.MoonType or T.Moon2Type)
 
     local scalar_by_kind = {
         bool = C.ScalarU8,

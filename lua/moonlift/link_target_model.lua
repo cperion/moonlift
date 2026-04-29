@@ -3,7 +3,7 @@ local ffi = require("ffi")
 local M = {}
 
 function M.Define(T)
-    local Link = T.Moon2Link
+    local Link = (T.MoonLink or T.Moon2Link)
     local BackTarget = require("moonlift.back_target_model").Define(T)
     assert(Link, "moonlift.link_target_model.Define expects moonlift.asdl in the context")
 

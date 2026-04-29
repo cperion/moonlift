@@ -20,7 +20,7 @@ end
 
 function M.Install(api, session)
     local T = session.T
-    local C, B, O, Tr = T.Moon2Core, T.Moon2Bind, T.Moon2Open, T.Moon2Tree
+    local C, B, O, Tr = (T.MoonCore or T.Moon2Core), (T.MoonBind or T.Moon2Bind), (T.MoonOpen or T.Moon2Open), (T.MoonTree or T.Moon2Tree)
 
     local function as_param(v, site)
         if type(v) == "table" and getmetatable(v) == api.ParamValue then return v end
@@ -59,7 +59,7 @@ function M.Install(api, session)
     function api.emit_expr(fragment, args)
         assert(type(fragment) == "table" and getmetatable(fragment) == ExprFragValue, "emit_expr expects an expression fragment value")
         args = args or {}
-        if #args ~= #fragment.params then api.raise_host_issue(session.T.Moon2Host.HostIssueArgCount("emit_expr " .. fragment.name, #fragment.params, #args)) end
+        if #args ~= #fragment.params then api.raise_host_issue((session.T.MoonHost or session.T.Moon2Host).HostIssueArgCount("emit_expr " .. fragment.name, #fragment.params, #args)) end
         local exprs = {}
         for i = 1, #args do exprs[i] = api.as_moon2_expr(args[i], "emit_expr arg expects expression") end
         local use_id = session:symbol_key("emit_expr", fragment.name)
