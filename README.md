@@ -29,7 +29,9 @@ lua/moonlift/      Lua compiler, PVM, ASDL, hosted API, LSP, linker phases
 src/               Rust Cranelift backend and FFI surface
 lib/               Moonlift standard-library sources
 benchmarks/        performance benchmarks
+examples/          runnable hosted Moonlift examples
 tests/             Lua test suite
+tests/fixtures/    non-runnable editor/LSP/demo fixtures
 emit_object.lua    .mlua -> host-native .o
 emit_shared.lua    .mlua -> .so/.dylib/.dll through Moon2Link
 run_mlua.lua       run hosted .mlua files with LuaJIT staging

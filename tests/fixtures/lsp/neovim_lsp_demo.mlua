@@ -1,4 +1,7 @@
--- Moonlift Neovim LSP demo
+-- Moonlift Neovim LSP demo fixture.
+--
+-- This file is intentionally an editor/LSP playground, not a runnable
+-- run_mlua example.
 --
 -- Open this file in Neovim and try:
 --   - hover on: User, id, i32, Users, User:is_adult, scan_until
