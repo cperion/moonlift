@@ -169,7 +169,7 @@ function M.Define(T)
     end
 
     local function core_scalar_to_back(scalar)
-        local values = pvm.drain(scalar_api.scalar_to_back(scalar))
+        local values = scalar_api.scalar_to_back:drain_uncached(scalar)
         return values[1]
     end
 
@@ -372,7 +372,7 @@ function M.Define(T)
             if value == nil then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "unsupported cast operand")) end
             local scalar = back_scalar(self.ty)
             if scalar == nil then return pvm.once(Tr.TreeBackExprUnsupported(value.env, value.cmds, "cast result has non-scalar type")) end
-            local ops = pvm.drain(machine_cast_op(self.op))
+            local ops = machine_cast_op:drain_uncached(self.op)
             if #ops == 0 then return pvm.once(Tr.TreeBackExprValue(value.env, value.cmds, value.value, scalar)) end
             local env2, dst = env_next_value(value.env, "v")
             local cmds = {}; append_all(cmds, value.cmds)
