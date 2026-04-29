@@ -3,10 +3,10 @@ local pvm = require("moonlift.pvm")
 local M = {}
 
 function M.Define(T)
-    local Back = T.Moon2Back
-    local Vec = T.Moon2Vec
-    local Host = T.Moon2Host
-    assert(Back and Vec and Host, "moonlift.back_target_model.Define expects moonlift.asdl in the context")
+    local Back = T.MoonBack or T.Moon2Back
+    local Vec = T.MoonVec or T.Moon2Vec
+    local Host = T.MoonHost or T.Moon2Host
+    assert(Back and Vec and Host, "moonlift.back_target_model.Define expects MoonBack/MoonVec/MoonHost in the context")
 
     local api = {}
 
