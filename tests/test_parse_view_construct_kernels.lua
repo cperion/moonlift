@@ -50,7 +50,7 @@ assert(#report.issues == 0)
 local saw_vec = false
 for i = 1, #program.cmds do
     local cmd = program.cmds[i]
-    if pvm.classof(cmd) == T.MoonBack.CmdLoad and pvm.classof(cmd.ty) == T.MoonBack.BackShapeVec then saw_vec = true end
+    if pvm.classof(cmd) == T.MoonBack.CmdLoadInfo and pvm.classof(cmd.ty) == T.MoonBack.BackShapeVec then saw_vec = true end
 end
 assert(saw_vec, "expected constructed view kernel to vectorize")
 
