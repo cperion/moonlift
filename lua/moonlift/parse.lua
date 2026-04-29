@@ -145,6 +145,14 @@ function Parser:expect(k, msg)
     return text
 end
 function Parser:expect_name(msg) return self:expect(TK.name, msg or "expected identifier") end
+function Parser:expect_field_name(msg)
+    if self:kind() == TK.name or self:kind() == TK.len then
+        local text = self:text()
+        self.i = self.i + 1
+        return text
+    end
+    return self:expect(TK.name, msg or "expected field name")
+end
 function Parser:is_stop(stops) return stops[self:kind()] == true end
 function Parser:next_region_id(prefix)
     self.region_seq = self.region_seq + 1
@@ -719,7 +727,7 @@ function Parser:parse_type_fields()
     self:skip_nl()
     if self:kind() == TK.lbrace then self:issue("type declarations use keyword...end, not braces"); self.i = self.i + 1 end
     while self:kind() ~= TK.end_kw and self:kind() ~= TK.rbrace and self:kind() ~= TK.eof do
-        local name = self:expect_name("expected field name")
+        local name = self:expect_field_name("expected field name")
         self:expect(TK.colon, "expected ':' in field declaration")
         fields[#fields + 1] = self.Ty.FieldDecl(name, self:parse_type())
         self:skip_nl()
@@ -744,6 +752,23 @@ function Parser:parse_enum_variants()
     return variants
 end
 
+function Parser:parse_tagged_union_variants()
+    local variants = {}
+    while self:kind() ~= TK.eof do
+        self:skip_nl()
+        local name = self:expect_name("expected tagged union variant")
+        local payload = self.Ty.TScalar(self.C.ScalarVoid)
+        if self:accept(TK.lparen) then
+            payload = self:parse_type()
+            self:expect(TK.rparen, "expected ')' after tagged union payload")
+        end
+        variants[#variants + 1] = self.Ty.VariantDecl(name, payload)
+        self:skip_nl()
+        if not self:accept(TK.pipe) then break end
+    end
+    return variants
+end
+
 function Parser:parse_type_item()
     local Tr = self.Tr
     local name = self:expect_name("expected type name")
@@ -751,8 +776,7 @@ function Parser:parse_type_item()
     if self:accept(TK.struct) then return Tr.ItemType(Tr.TypeDeclStruct(name, self:parse_type_fields())) end
     if self:accept(TK.union) then return Tr.ItemType(Tr.TypeDeclUnion(name, self:parse_type_fields())) end
     if self:accept(TK.enum) then return Tr.ItemType(Tr.TypeDeclEnumSugar(name, self:parse_enum_variants())) end
-    self:issue("expected struct, union, or enum after type =")
-    return nil
+    return Tr.ItemType(Tr.TypeDeclTaggedUnionSugar(name, self:parse_tagged_union_variants()))
 end
 
 function Parser:parse_item()
