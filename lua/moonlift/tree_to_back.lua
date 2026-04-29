@@ -1067,53 +1067,55 @@ function M.Define(T)
         return Tr.TreeBackFuncResult(cmds)
     end
 
-    func_to_back = pvm.phase("moon2_tree_func_to_back", {
-        [Tr.FuncLocal] = function(self) return pvm.once(lower_func_common(self.name, C.VisibilityLocal, self.params, self.result, self.body)) end,
-        [Tr.FuncExport] = function(self) return pvm.once(lower_func_common(self.name, C.VisibilityExport, self.params, self.result, self.body)) end,
-        [Tr.FuncLocalContract] = function(self) return pvm.once(lower_func_common(self.name, C.VisibilityLocal, self.params, self.result, self.body, contract_api.facts(self).facts)) end,
-        [Tr.FuncExportContract] = function(self) return pvm.once(lower_func_common(self.name, C.VisibilityExport, self.params, self.result, self.body, contract_api.facts(self).facts)) end,
-        [Tr.FuncOpen] = function(self) return pvm.once(lower_func_common(self.sym.name, self.visibility, {}, self.result, self.body)) end,
-    })
+    local function lower_func_direct(func_node)
+        local cls = pvm.classof(func_node)
+        if cls == Tr.FuncLocal then return lower_func_common(func_node.name, C.VisibilityLocal, func_node.params, func_node.result, func_node.body) end
+        if cls == Tr.FuncExport then return lower_func_common(func_node.name, C.VisibilityExport, func_node.params, func_node.result, func_node.body) end
+        if cls == Tr.FuncLocalContract then return lower_func_common(func_node.name, C.VisibilityLocal, func_node.params, func_node.result, func_node.body, contract_api.facts(func_node).facts) end
+        if cls == Tr.FuncExportContract then return lower_func_common(func_node.name, C.VisibilityExport, func_node.params, func_node.result, func_node.body, contract_api.facts(func_node).facts) end
+        if cls == Tr.FuncOpen then return lower_func_common(func_node.sym.name, func_node.visibility, {}, func_node.result, func_node.body) end
+        return Tr.TreeBackFuncResult({})
+    end
 
-    extern_to_back = pvm.phase("moon2_tree_extern_to_back", {
-        [Tr.ExternFunc] = function(self)
-            local sig = Back.BackSigId("sig:extern:" .. self.name)
-            local ps, rs = func_sig(self.params, self.result)
-            return pvm.once(Tr.TreeBackItemResult({ Back.CmdCreateSig(sig, ps, rs), Back.CmdDeclareExtern(Back.BackExternId(self.name), self.symbol, sig) }))
-        end,
-        [Tr.ExternFuncOpen] = function(self)
-            local sig = Back.BackSigId("sig:extern:" .. self.sym.name)
-            local result_scalar = back_scalar(self.result)
+    local function lower_extern_direct(func_node)
+        local cls = pvm.classof(func_node)
+        if cls == Tr.ExternFunc then
+            local sig = Back.BackSigId("sig:extern:" .. func_node.name)
+            local ps, rs = func_sig(func_node.params, func_node.result)
+            return Tr.TreeBackItemResult({ Back.CmdCreateSig(sig, ps, rs), Back.CmdDeclareExtern(Back.BackExternId(func_node.name), func_node.symbol, sig) })
+        end
+        if cls == Tr.ExternFuncOpen then
+            local sig = Back.BackSigId("sig:extern:" .. func_node.sym.name)
+            local result_scalar = back_scalar(func_node.result)
             local rs = {}
             if result_scalar ~= nil and result_scalar ~= Back.BackVoid then rs[#rs + 1] = result_scalar end
-            return pvm.once(Tr.TreeBackItemResult({ Back.CmdCreateSig(sig, {}, rs), Back.CmdDeclareExtern(Back.BackExternId(self.sym.name), self.sym.symbol, sig) }))
-        end,
-    })
+            return Tr.TreeBackItemResult({ Back.CmdCreateSig(sig, {}, rs), Back.CmdDeclareExtern(Back.BackExternId(func_node.sym.name), func_node.sym.symbol, sig) })
+        end
+        return Tr.TreeBackItemResult({})
+    end
 
-    item_to_back = pvm.phase("moon2_tree_item_to_back", {
-        [Tr.ItemFunc] = function(self) local r = pvm.one(func_to_back(self.func)); return pvm.once(Tr.TreeBackItemResult(r.cmds)) end,
-        [Tr.ItemExtern] = function(self) return extern_to_back(self.func) end,
-        [Tr.ItemConst] = function() return pvm.once(Tr.TreeBackItemResult({})) end,
-        [Tr.ItemStatic] = function() return pvm.once(Tr.TreeBackItemResult({})) end,
-        [Tr.ItemImport] = function() return pvm.once(Tr.TreeBackItemResult({})) end,
-        [Tr.ItemType] = function() return pvm.once(Tr.TreeBackItemResult({})) end,
-        [Tr.ItemUseTypeDeclSlot] = function() return pvm.once(Tr.TreeBackItemResult({})) end,
-        [Tr.ItemUseItemsSlot] = function() return pvm.once(Tr.TreeBackItemResult({})) end,
-        [Tr.ItemUseModule] = function(self) return module_to_back(self.module) end,
-        [Tr.ItemUseModuleSlot] = function() return pvm.once(Tr.TreeBackItemResult({})) end,
-    })
+    local lower_item_direct
+    local lower_module_direct
 
-    module_to_back = pvm.phase("moon2_tree_module_to_back", {
-        [Tr.Module] = function(module)
-            local cmds = {}
-            for i = 1, #module.items do
-                local r = pvm.one(item_to_back(module.items[i]))
-                append_all(cmds, r.cmds)
-            end
-            cmds[#cmds + 1] = Back.CmdFinalizeModule
-            return pvm.once(Back.BackProgram(cmds))
-        end,
-    })
+    lower_item_direct = function(item)
+        local cls = pvm.classof(item)
+        if cls == Tr.ItemFunc then return Tr.TreeBackItemResult(lower_func_direct(item.func).cmds) end
+        if cls == Tr.ItemExtern then return lower_extern_direct(item.func) end
+        if cls == Tr.ItemUseModule then return Tr.TreeBackItemResult(lower_module_direct(item.module).cmds) end
+        return Tr.TreeBackItemResult({})
+    end
+
+    lower_module_direct = function(module)
+        local cmds = {}
+        for i = 1, #module.items do append_all(cmds, lower_item_direct(module.items[i]).cmds) end
+        cmds[#cmds + 1] = Back.CmdFinalizeModule
+        return Back.BackProgram(cmds)
+    end
+
+    func_to_back = pvm.phase("moon2_tree_func_to_back", function(self) return lower_func_direct(self) end)
+    extern_to_back = pvm.phase("moon2_tree_extern_to_back", function(self) return lower_extern_direct(self) end)
+    item_to_back = pvm.phase("moon2_tree_item_to_back", function(self) return lower_item_direct(self) end)
+    module_to_back = pvm.phase("moon2_tree_module_to_back", function(module) return lower_module_direct(module) end)
 
     return {
         env_empty = env_empty,
@@ -1122,7 +1124,10 @@ function M.Define(T)
         func_to_back = func_to_back,
         item_to_back = item_to_back,
         module_to_back = module_to_back,
-        module = function(module) return pvm.one(module_to_back(module)) end,
+        func_direct = lower_func_direct,
+        item_direct = lower_item_direct,
+        module_direct = lower_module_direct,
+        module = lower_module_direct,
     }
 end
 
