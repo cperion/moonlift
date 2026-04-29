@@ -1103,7 +1103,7 @@ unless they remain the clean final design.
 - [x] Emit explicit `BackAddress` values for vector-kernel loads/stores instead of pointer-add + old load/store commands.
 - [x] Emit explicit vector binary commands for vector-kernel arithmetic/bitwise ops instead of generic vector-shaped `CmdBinary`.
 - [x] Emit explicit unroll/interleave command schedules as `VecSchedule` facts; active map/reduce lowering now executes positive integer unroll/interleave schedules by expanding explicit vector groups.
-- [x] Emit multiple reduction accumulators when schedule requests them for the active vector-reduce lowering slice.
+- [x] Emit multiple reduction accumulators when target-preferred schedule facts request them for the active vector-reduce lowering slice.
 - [x] Update vector-to-back tests for fact-rich Back memory/arithmetic; disassembly checks remain in diagnostics/benchmark work.
 
 ### 8. Refactor Lua/Rust backend boundary
@@ -1138,7 +1138,7 @@ unless they remain the clean final design.
 - [x] Add alias relation reporting.
 - [x] Add int/float semantic reporting.
 - [x] Add optional CLIF/disassembly dump for benchmark kernels through `back_diagnostics.lua` / artifact disassembly hooks.
-- [ ] Add comparison notes against Terra/LLVM output.
+- [x] Add comparison notes against Terra output in `BENCHMARK_RESULTS.md`; direct LLVM/CLIF deeper comparison remains future tuning detail.
 
 ### 11. Packed command tape, after semantics are clean
 
@@ -1149,13 +1149,13 @@ unless they remain the clean final design.
 
 ### 12. Benchmark and tune
 
-- [ ] Re-run compile-time benchmark against Terra.
-- [ ] Re-run runtime benchmark against Terra.
-- [ ] Compare `sum_i32` schedule and disassembly.
-- [ ] Compare `dot_i32` schedule and disassembly.
-- [ ] Compare `add_i32` schedule and disassembly.
-- [ ] Compare `scale_i32` schedule and disassembly.
-- [ ] Classify each remaining runtime gap as A/B/C/D/E from section 14.
+- [x] Re-run compile-time benchmark against Terra.
+- [x] Re-run runtime benchmark against Terra.
+- [x] Compare `sum_i32` schedule and disassembly.
+- [x] Compare `dot_i32` schedule and disassembly.
+- [x] Compare `add_i32` schedule and disassembly.
+- [x] Compare `scale_i32` schedule and disassembly.
+- [x] Classify each remaining runtime gap as A/B/C/D/E from section 14 in `BENCHMARK_RESULTS.md`.
 - [ ] Only then add further ASDL facts or schedule decisions.
 
 ---

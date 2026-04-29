@@ -163,7 +163,7 @@ stable spines
     relations, and int/float semantic facts.
 - `lua/moonlift/back_diagnostics.lua`
   - Combined backend/vector diagnostics with optional JIT disassembly capture for
-    benchmark kernels.
+    benchmark kernels. Current benchmark notes live in `BENCHMARK_RESULTS.md`.
 - `lua/moonlift/vec_inspect.lua`
   - ASDL-backed vector inspection reports for loop legality and explicit vector
     schedules.

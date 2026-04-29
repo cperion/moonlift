@@ -19,22 +19,40 @@ else
   terra moonlift/benchmarks/bench_kernels_terra.t "$MODE" > "$terra_out"
 fi
 awk '
-  FNR == NR { t[$1]=$2; r[$1]=$3; names[++n]=$1; next }
-  { t[$1]=$2; r[$1]=$3; names[++n]=$1 }
+  function suffix(k) {
+    sub(/^moonlift_/, "", k)
+    sub(/^terra_/, "", k)
+    return k
+  }
+  FNR == NR {
+    ml_t[$1]=$2; ml_r[$1]=$3; s=suffix($1); order[++n]=s; next
+  }
+  {
+    terra_t[$1]=$2; terra_r[$1]=$3
+  }
   END {
-    printf("\nMoonlift vs Terra: jump-first i32 kernels\n")
+    printf("\nMoonlift vs Terra: jump-first typed block/jump kernel suite\n")
     printf("Mode: %s\n\n", mode == "" ? "default" : mode)
-    printf("%-20s %10s  %s\n", "kernel", "time", "result/check")
-    printf("%-20s %10s  %s\n", "--------------------", "----------", "------------")
+    printf("%-32s %12s %12s %8s  %s\n", "kernel", "moonlift", "terra", "ratio", "result/check")
+    printf("%-32s %12s %12s %8s  %s\n", "--------------------------------", "------------", "------------", "--------", "------------")
     for (i=1;i<=n;i++) {
-      k=names[i]
-      printf("%-20s %7.3f ms  %s\n", k, t[k]*1000, r[k])
+      s=order[i]
+      mk="moonlift_" s
+      tk="terra_" s
+      if (!(tk in terra_t)) continue
+      ratio=ml_t[mk] / terra_t[tk]
+      mismatch=(ml_r[mk] != terra_r[tk]) ? "  MISMATCH terra=" terra_r[tk] : ""
+      printf("%-32s %9.3f ms %9.3f ms %7.2fx  %s%s\n", s, ml_t[mk]*1000, terra_t[tk]*1000, ratio, ml_r[mk], mismatch)
     }
-    printf("\nMoonlift / Terra ratios (lower is better for Moonlift):\n")
-    printf("compile      %.2fx\n", t["moonlift_compile"] / t["terra_compile"])
-    printf("sum_i32      %.2fx\n", t["moonlift_sum_i32"] / t["terra_sum_i32"])
-    printf("dot_i32      %.2fx\n", t["moonlift_dot_i32"] / t["terra_dot_i32"])
-    printf("add_i32      %.2fx\n", t["moonlift_add_i32"] / t["terra_add_i32"])
-    printf("scale_i32    %.2fx\n", t["moonlift_scale_i32"] / t["terra_scale_i32"])
+    printf("\nMoonlift / Terra ratios by family (lower is better for Moonlift):\n")
+    printf("compile                  %.2fx\n", ml_t["moonlift_compile"] / terra_t["terra_compile"])
+    for (i=1;i<=n;i++) {
+      s=order[i]
+      if (s == "compile") continue
+      mk="moonlift_" s
+      tk="terra_" s
+      if (!(tk in terra_t)) continue
+      printf("%-24s %.2fx\n", s, ml_t[mk] / terra_t[tk])
+    }
   }
 ' mode="$MODE" "$ml_out" "$terra_out"

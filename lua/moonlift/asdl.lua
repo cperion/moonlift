@@ -955,6 +955,7 @@ module Moon2Vec {
                   | VecTargetSupportsMaskOp(Moon2Vec.VecShape shape, Moon2Vec.VecMaskOp op) unique
                   | VecTargetSupportsUnaryOp(Moon2Vec.VecShape shape, Moon2Vec.VecUnaryOp op) unique
                   | VecTargetPrefersUnroll(Moon2Vec.VecShape shape, number unroll, number rank) unique
+                  | VecTargetPrefersReductionAccumulators(Moon2Vec.VecShape shape, Moon2Vec.VecBinOp op, number accumulators, number rank) unique
                   | VecTargetPrefersScalarTail
                   | VecTargetSupportsMaskedTail
                   | VecTargetVectorBits(number bits) unique

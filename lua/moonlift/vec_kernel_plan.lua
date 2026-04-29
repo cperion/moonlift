@@ -98,6 +98,11 @@ function M.Define(T)
             V.VecTargetSupportsMaskOp(shape, V.VecMaskNot),
             V.VecTargetSupportsMaskOp(shape, V.VecMaskAnd),
             V.VecTargetSupportsMaskOp(shape, V.VecMaskOr),
+            V.VecTargetPrefersReductionAccumulators(shape, V.VecAdd, 4, 100),
+            V.VecTargetPrefersReductionAccumulators(shape, V.VecMul, 4, 90),
+            V.VecTargetPrefersReductionAccumulators(shape, V.VecBitAnd, 4, 80),
+            V.VecTargetPrefersReductionAccumulators(shape, V.VecBitOr, 4, 80),
+            V.VecTargetPrefersReductionAccumulators(shape, V.VecBitXor, 4, 80),
         }
         if elem == V.VecElemI32 or elem == V.VecElemI64 then
             facts[#facts + 1] = V.VecTargetSupportsCmpOp(shape, V.VecCmpSLt)
@@ -425,15 +430,29 @@ function M.Define(T)
         return V.VecKernelStorePlan(dst, dst_offset, dst_base_len, dst_len_value, value), elem
     end
 
-    local function make_decision(facts, elem)
+    local function preferred_reduction_accumulators(target, shape, op)
+        local best_acc, best_rank = 1, -1
+        for i = 1, #(target and target.facts or {}) do
+            local fact = target.facts[i]
+            if pvm.classof(fact) == V.VecTargetPrefersReductionAccumulators and fact.shape == shape and fact.op == op and fact.rank > best_rank then
+                best_acc, best_rank = fact.accumulators, fact.rank
+            end
+        end
+        if best_acc < 1 or math.floor(best_acc) ~= best_acc then return 1 end
+        return best_acc
+    end
+
+    local function make_decision(facts, elem, target, reduction_op)
         local shape = elem_shape(elem)
         if shape == nil then return nil end
         local proof = V.VecProofDomain("kernel planner selected target-supported vector shape")
         local proofs = { proof }
         local tail = V.VecTailScalar
         local chosen = V.VecLoopVector(facts.loop, shape, 1, tail, proofs)
-        local schedule = V.VecScheduleVector(shape, 1, 1, tail, 1, {}, proofs)
-        return V.VecLoopDecision(facts, V.VecLegal(proofs), schedule, chosen, { V.VecShapeScore(chosen, shape.lanes, 50, "kernel planner structural match") })
+        local accumulators = reduction_op ~= nil and preferred_reduction_accumulators(target, shape, reduction_op) or 1
+        local reductions = reduction_op ~= nil and { V.VecReductionSchedule(reduction_op, accumulators, proofs) } or {}
+        local schedule = V.VecScheduleVector(shape, 1, 1, tail, accumulators, reductions, proofs)
+        return V.VecLoopDecision(facts, V.VecLegal(proofs), schedule, chosen, { V.VecShapeScore(chosen, shape.lanes * accumulators, 50 + accumulators, "kernel planner structural match") })
     end
 
     local function view_alias_reject(binding, reason)
@@ -557,7 +576,7 @@ function M.Define(T)
         if identity == nil or literal_int_raw(region.entry.params[acc_index].init) ~= identity then return reject(region.region_id, "reduction accumulator identity mismatch") end
         local value = kernel_expr(contribution, common.index, elem, target, shape, aliases)
         if value == nil then return reject(region.region_id, "reduction contribution is not vectorizable") end
-        local decision = make_decision(common.facts, elem)
+        local decision = make_decision(common.facts, elem, target, red_op)
         local reduction_plan = V.VecKernelReductionBin(red_op, elem, acc_binding, value, identity)
         local core = V.VecKernelCoreReduce(decision, elem, common.stop, common.counter, scalars or {}, reduction_plan)
         local safety = safety_api.decide(common.facts, core, contracts or {})
@@ -577,7 +596,7 @@ function M.Define(T)
             end
         end
         if #stores ~= #common.facts.stores then return reject(region.region_id, "not all stores are vectorizable") end
-        local decision = make_decision(common.facts, elem)
+        local decision = make_decision(common.facts, elem, elem and target_for_elem(elem) or nil, nil)
         local core = V.VecKernelCoreMap(decision, elem, common.stop, common.counter, scalars or {}, stores)
         local safety = safety_api.decide(common.facts, core, contracts or {})
         return V.VecKernelMap(decision, elem, common.stop, common.counter, scalars or {}, stores, safety.safety, safety.alignments, safety.aliases)
