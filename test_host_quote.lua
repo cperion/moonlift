@@ -1,4 +1,4 @@
-package.path = "./?.lua;./?/init.lua;./moonlift/lua/?.lua;./moonlift/lua/?/init.lua;./moonlift/lua/?.lua;./moonlift/lua/?/init.lua;" .. package.path
+package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local ffi = require("ffi")
 local Host = require("moonlift.host_quote")
@@ -188,13 +188,13 @@ assert(cm:get("add2")(40) == 42)
 assert(cm:get("mul3")(14) == 42)
 cm:free()
 
-local file_chunk = Host.loadfile("moonlift/test_host_quote_file.mlua")
+local file_chunk = Host.loadfile("test_host_quote_file.mlua")
 assert(type(file_chunk) == "function")
 local file_add = file_chunk()
 local c_file_add = file_add:compile()
 assert(c_file_add(37) == 42)
 c_file_add:free()
-local file_add_again = Host.dofile("moonlift/test_host_quote_file.mlua")
+local file_add_again = Host.dofile("test_host_quote_file.mlua")
 assert(tostring(file_add_again) == "MoonliftFuncQuote(file_add)")
 
 print("moonlift host_quote ok")

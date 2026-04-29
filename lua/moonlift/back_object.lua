@@ -24,8 +24,8 @@ local function load_library(libpath)
     elseif ffi.os == "Windows" then ext, prefix = ".dll", ""
     else ext, prefix = ".so", "lib" end
     local candidates = {
-        "./moonlift/target/release/" .. prefix .. "moonlift" .. ext,
-        "./moonlift/target/debug/" .. prefix .. "moonlift" .. ext,
+        "./target/release/" .. prefix .. "moonlift" .. ext,
+        "./target/debug/" .. prefix .. "moonlift" .. ext,
         prefix .. "moonlift" .. ext,
         "moonlift",
     }

@@ -66,7 +66,7 @@ already uses it.
 
 ## 2. Canonical ASDL integration
 
-The LSP schema belongs in `moonlift/lua/moonlift/asdl.lua`, not in a separate
+The LSP schema belongs in `lua/moonlift/asdl.lua`, not in a separate
 parallel `lsp_asdl.lua` universe. It should be added as canonical modules that
 reuse existing `Moon2Core`, `Moon2Type`, `Moon2Open`, `Moon2Tree`, `Moon2Host`,
 `Moon2Vec`, and `Moon2Back` values.

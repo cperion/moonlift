@@ -1059,14 +1059,14 @@ Use precise file names matching Moonlift discipline.
 Recommended initial files:
 
 ```text
-moonlift/lua/moonlift/host_type_values.lua
-moonlift/lua/moonlift/host_struct_values.lua
-moonlift/lua/moonlift/host_expr_values.lua
-moonlift/lua/moonlift/host_func_values.lua
-moonlift/lua/moonlift/host_region_values.lua
-moonlift/lua/moonlift/host_module_values.lua
-moonlift/lua/moonlift/host_session.lua
-moonlift/lua/moonlift/host.lua
+lua/moonlift/host_type_values.lua
+lua/moonlift/host_struct_values.lua
+lua/moonlift/host_expr_values.lua
+lua/moonlift/host_func_values.lua
+lua/moonlift/host_region_values.lua
+lua/moonlift/host_module_values.lua
+lua/moonlift/host_session.lua
+lua/moonlift/host.lua
 ```
 
 `host.lua` is allowed only as a thin facade.  Semantic construction belongs in
@@ -1075,13 +1075,13 @@ the precise files above.
 Tests mirror files:
 
 ```text
-moonlift/test_host_type_values.lua
-moonlift/test_host_struct_values.lua
-moonlift/test_host_expr_values.lua
-moonlift/test_host_func_values.lua
-moonlift/test_host_region_values.lua
-moonlift/test_host_module_values.lua
-moonlift/test_host_session.lua
+test_host_type_values.lua
+test_host_struct_values.lua
+test_host_expr_values.lua
+test_host_func_values.lua
+test_host_region_values.lua
+test_host_module_values.lua
+test_host_session.lua
 ```
 
 ---

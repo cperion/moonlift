@@ -514,7 +514,7 @@ HostExposeEagerTable -> native table builder or to_table materializer
 
 ### Phase 1: General Lua proxy runtime
 
-- [ ] Add `moonlift/lua/moonlift/value_proxy.lua`
+- [ ] Add `lua/moonlift/value_proxy.lua`
 - [ ] Define hidden keys: `REF`, `OWNER`, `CACHE`
 - [ ] Define `MoonValueRef` FFI struct
 - [ ] Define family registry

@@ -35,7 +35,7 @@ local function read_all(path)
 end
 
 function M.source()
-    return read_all("moonlift/lib/json.moon2")
+    return read_all("lib/json.moon2")
 end
 
 local function compile_source(src)

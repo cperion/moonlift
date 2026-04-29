@@ -193,7 +193,7 @@ host_quote.lua
 Hosted files use a Moonlift-hosted Lua dialect, tentatively `.mlua`:
 
 ```bash
-luajit moonlift/run_mlua.lua file.mlua
+luajit run_mlua.lua file.mlua
 ```
 
 A hosted file is mostly Lua, with recognized Moonlift forms:
@@ -528,7 +528,7 @@ parsing succeeds.
 Existing file:
 
 ```text
-moonlift/lua/moonlift/host_quote.lua
+lua/moonlift/host_quote.lua
 ```
 
 Current role:
@@ -546,9 +546,9 @@ Keep this as the bootstrap path while syntax evolves.
 Future file candidates:
 
 ```text
-moonlift/lua/moonlift/host_parse.lua
-moonlift/lua/moonlift/host_lower.lua
-moonlift/lua/moonlift/host_splice.lua
+lua/moonlift/host_parse.lua
+lua/moonlift/host_lower.lua
+lua/moonlift/host_splice.lua
 ```
 
 Responsibilities:
@@ -564,10 +564,10 @@ Responsibilities:
 Future file candidates:
 
 ```text
-moonlift/lua/moonlift/type_values.lua
-moonlift/lua/moonlift/tree_expr_values.lua
-moonlift/lua/moonlift/tree_region_values.lua
-moonlift/lua/moonlift/open_fragment_values.lua
+lua/moonlift/type_values.lua
+lua/moonlift/tree_expr_values.lua
+lua/moonlift/tree_region_values.lua
+lua/moonlift/open_fragment_values.lua
 ```
 
 Purpose:
@@ -598,9 +598,9 @@ ASDL these values create.
 Existing files:
 
 ```text
-moonlift/lua/moonlift/open_expand.lua
-moonlift/lua/moonlift/open_validate.lua
-moonlift/lua/moonlift/open_rewrite.lua
+lua/moonlift/open_expand.lua
+lua/moonlift/open_validate.lua
+lua/moonlift/open_rewrite.lua
 ```
 
 Needed work:
@@ -616,9 +616,9 @@ Needed work:
 Existing files:
 
 ```text
-moonlift/lua/moonlift/tree_typecheck.lua
-moonlift/lua/moonlift/tree_control_facts.lua
-moonlift/lua/moonlift/tree_to_back.lua
+lua/moonlift/tree_typecheck.lua
+lua/moonlift/tree_control_facts.lua
+lua/moonlift/tree_to_back.lua
 ```
 
 Needed work:
@@ -634,8 +634,8 @@ Needed work:
 Existing files:
 
 ```text
-moonlift/run_mlua.lua
-moonlift/lua/moonlift/host_quote.lua
+run_mlua.lua
+lua/moonlift/host_quote.lua
 ```
 
 Future shape:
@@ -1075,7 +1075,7 @@ Tasks:
 - [x] `Host.eval(src)` executes a hosted chunk immediately
 - [x] `Host.loadfile(path)` loads `.mlua` source as a chunk function
 - [x] `Host.dofile(path)` executes `.mlua` source
-- [x] `moonlift/run_mlua.lua` runner exists
+- [x] `run_mlua.lua` runner exists
 - [x] Basic `@{...}` antiquote works for scalar/source splices
 - [x] Hosted function values compile through normal Moonlift pipeline
 - [x] Hosted module values compile through normal Moonlift pipeline

@@ -1,4 +1,4 @@
-package.path = "./?.lua;./?/init.lua;./moonlift/lua/?.lua;./moonlift/lua/?/init.lua;./moonlift/lua/?.lua;./moonlift/lua/?/init.lua;" .. package.path
+package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 package.cpath = "./.luarocks/lib64/lua/5.1/?.so;" .. package.cpath
 
 local cjson = require("cjson")

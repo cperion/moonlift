@@ -232,7 +232,7 @@ Files should use `vec_` prefix.
 - [x] hosted `func` and `module` values compile through the normal Moonlift parse/typecheck/back/JIT path
 - [x] hosted antiquote `@{lua_expr}` supports explicit scalar/source/type splices evaluated by the outer Lua chunk
 - [x] hosted function bodies accept `region -> T` / `entry` as the continuation-language spelling for inline control regions
-- [x] hosted `.mlua` loading works through `Host.loadfile` / `Host.dofile`, with `moonlift/run_mlua.lua` as a small runner
+- [x] hosted `.mlua` loading works through `Host.loadfile` / `Host.dofile`, with `run_mlua.lua` as a small runner
 - [x] hosted syntax is currently a frontend experiment only; semantics remain ASDL/parser/compiler owned
 - [x] `test_host_quote.lua` covers scalar function quotes, antiquote, module quotes, `.mlua` loading, and jump-first control-region function quotes
 - [x] `test_host_quote_value_splice.lua` covers splicing ASDL-backed `TypeValue` objects through hosted source antiquote
@@ -292,7 +292,7 @@ Files should use `vec_` prefix.
 - [x] `json_library.lua` compiles the JSON library through the normal parse/typecheck/back/JIT path
 - [x] `value_proxy.lua` provides the first generic Lua proxy runtime: hidden FFI `MoonliftValueRef`, optional hidden typed pointer, owner/session pinning, family dispatch, table-like field/index/length/iterator access, immutable proxies, and explicit `:to_table()` materialization
 - [x] `buffer_view.lua` and `host_arena_abi.lua` implement the first domain-neutral typed-record/view ABI prototypes: generated-style C layouts, type-local field accessors/methods, hidden pointer/ref proxies, and direct FFI pointer field reads covered by `test_json_projection_view.lua`, `test_host_arena_abi.lua`, and measured by projection/HostArena benchmarks
-- [x] `moonlift/src/host_arena.rs` and `host_arena_native.lua` implement only the Rust-owned typed-record allocation slice: aligned record allocation, scalar field initialization by layout offsets, batch record allocation, stable refs/pointers, generation-checked reset/stale-ref detection, Lua owner pinning, and typed proxy access covered by `test_host_arena_native.lua` and HostArena typed-record benchmarks
+- [x] `src/host_arena.rs` and `host_arena_native.lua` implement only the Rust-owned typed-record allocation slice: aligned record allocation, scalar field initialization by layout offsets, batch record allocation, stable refs/pointers, generation-checked reset/stale-ref detection, Lua owner pinning, and typed proxy access covered by `test_host_arena_native.lua` and HostArena typed-record benchmarks
 - [x] Rust-defined JSON/dynamic HostArena graph experiments were removed: no generic Rust string/array/map arena, no HostArena builder extern surface, and no JSON-shaped Rust runtime path; low-level producers should be Moonlift code plus explicit structs
 - [x] `HOST_EXPOSURE_PERFORMANCE_DESIGN.md` defines the proper host exposure performance architecture: explicit proxy/eager/scalar/opaque exposure modes, proxy cache/index policies, reusable decode sessions, coarse batch operations over hidden refs, and a separate native Lua table-builder target
 - [x] `lib/json.moon2` provides `json_index_tape_scalar`, a low-level generic structural index over the raw JSON event tape: parent, first-child, next-sibling, child-count, key-index, and matching-end arrays

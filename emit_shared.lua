@@ -1,5 +1,5 @@
 #!/usr/bin/env luajit
-package.path = "./?.lua;./?/init.lua;./moonlift/lua/?.lua;./moonlift/lua/?/init.lua;" .. package.path
+package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local pvm = require("moonlift.pvm")
 local A2 = require("moonlift.asdl")
@@ -14,7 +14,7 @@ local LinkCommand = require("moonlift.link_command_plan")
 local LinkExecute = require("moonlift.link_execute")
 
 local function usage()
-    io.stderr:write("usage: luajit moonlift/emit_shared.lua input.mlua -o liboutput.so [--module-name name] [--keep-object path]\n")
+    io.stderr:write("usage: luajit emit_shared.lua input.mlua -o liboutput.so [--module-name name] [--keep-object path]\n")
     os.exit(2)
 end
 

@@ -1,7 +1,7 @@
 -- Profile Moonlift compile-time boundaries for the current jump-first i32 kernels.
 -- Measures explicit phase boundaries rather than sampling Lua internals.
 
-package.path = "./?.lua;./?/init.lua;./moonlift/lua/?.lua;./moonlift/lua/?/init.lua;./moonlift/lua/?.lua;./moonlift/lua/?/init.lua;" .. package.path
+package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local boot_start = os.clock()
 local spans = {}

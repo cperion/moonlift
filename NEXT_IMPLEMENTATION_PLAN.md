@@ -732,7 +732,7 @@ result: i32 in the current executable ABI slice; future target is index
 Add a dedicated phase file:
 
 ```text
-moonlift/lua/moonlift/tree_contract_facts.lua
+lua/moonlift/tree_contract_facts.lua
 ```
 
 Responsibilities:
@@ -1011,44 +1011,44 @@ Each must be represented as explicit ASDL facts/plans before backend commands.
 ### Required existing tests to keep green
 
 ```bash
-cargo build --manifest-path moonlift/Cargo.toml
+cargo build --manifest-path Cargo.toml
 
-luajit moonlift/test_back_vectors.lua
+luajit test_back_vectors.lua
 
-luajit moonlift/test_asdl_define.lua
-luajit moonlift/test_parse_typecheck.lua
-luajit moonlift/test_parse_playground.lua
-luajit moonlift/test_parse_kernels.lua
-luajit moonlift/test_back_bridge_coverage.lua
-luajit moonlift/test_back_vector_smoke.lua
-luajit moonlift/test_tree_type.lua
-luajit moonlift/test_tree_typecheck.lua
-luajit moonlift/test_tree_control_facts.lua
-luajit moonlift/test_tree_to_back_add_select.lua
-luajit moonlift/test_tree_to_back_counted_loop.lua
-luajit moonlift/test_tree_to_back_while_expr_loop.lua
-luajit moonlift/test_tree_to_back_control_multiblock.lua
-luajit moonlift/test_open_facts_validate.lua
-luajit moonlift/test_open_expand.lua
-luajit moonlift/test_open_rewrite.lua
-luajit moonlift/test_sem_layout_resolve.lua
-luajit moonlift/test_sem_const_eval.lua
-luajit moonlift/test_sem_switch_call.lua
-luajit moonlift/test_bind_residence.lua
-luajit moonlift/test_bind_residence_coverage.lua
-luajit moonlift/test_vec_loop_facts_decide.lua
-luajit moonlift/test_vec_kernel_plan.lua
-luajit moonlift/test_vec_to_back.lua
+luajit test_asdl_define.lua
+luajit test_parse_typecheck.lua
+luajit test_parse_playground.lua
+luajit test_parse_kernels.lua
+luajit test_back_bridge_coverage.lua
+luajit test_back_vector_smoke.lua
+luajit test_tree_type.lua
+luajit test_tree_typecheck.lua
+luajit test_tree_control_facts.lua
+luajit test_tree_to_back_add_select.lua
+luajit test_tree_to_back_counted_loop.lua
+luajit test_tree_to_back_while_expr_loop.lua
+luajit test_tree_to_back_control_multiblock.lua
+luajit test_open_facts_validate.lua
+luajit test_open_expand.lua
+luajit test_open_rewrite.lua
+luajit test_sem_layout_resolve.lua
+luajit test_sem_const_eval.lua
+luajit test_sem_switch_call.lua
+luajit test_bind_residence.lua
+luajit test_bind_residence_coverage.lua
+luajit test_vec_loop_facts_decide.lua
+luajit test_vec_kernel_plan.lua
+luajit test_vec_to_back.lua
 ```
 
 ### New tests to add
 
-- [ ] `moonlift/test_parse_contracts.lua`
-- [ ] `moonlift/test_tree_typecheck_contracts.lua`
-- [x] `moonlift/test_tree_contract_facts.lua`
-- [ ] `moonlift/test_view_backend.lua`
-- [x] `moonlift/test_vec_kernel_safety_proofs.lua`
-- [x] `moonlift/test_parse_view_kernels.lua`
+- [ ] `test_parse_contracts.lua`
+- [ ] `test_tree_typecheck_contracts.lua`
+- [x] `test_tree_contract_facts.lua`
+- [ ] `test_view_backend.lua`
+- [x] `test_vec_kernel_safety_proofs.lua`
+- [x] `test_parse_view_kernels.lua`
 
 ### Required new runtime kernels
 

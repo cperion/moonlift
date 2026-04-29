@@ -1,5 +1,5 @@
 #!/usr/bin/env luajit
-package.path = "./?.lua;./?/init.lua;./moonlift/lua/?.lua;./moonlift/lua/?/init.lua;" .. package.path
+package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local pvm = require("moonlift.pvm")
 local A2 = require("moonlift.asdl")
@@ -10,7 +10,7 @@ local Validate = require("moonlift.back_validate")
 local Object = require("moonlift.back_object")
 
 local function usage()
-    io.stderr:write("usage: luajit moonlift/emit_object.lua input.mlua -o output.o [--module-name name]\n")
+    io.stderr:write("usage: luajit emit_object.lua input.mlua -o output.o [--module-name name]\n")
     os.exit(2)
 end
 

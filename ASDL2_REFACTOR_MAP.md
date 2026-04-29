@@ -1,6 +1,6 @@
 # Moonlift ASDL2 lossless refactor map
 
-Status: design-only map for `moonlift/lua/moonlift/asdl2.lua`.
+Status: design-only map for `lua/moonlift/asdl2.lua`.
 
 This document is the preservation map written before the ASDL2 draft.  The goal
 is **not** to delete information from the current rich ASDL.  The goal is to

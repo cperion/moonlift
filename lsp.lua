@@ -3,8 +3,8 @@
 package.path = table.concat({
   "./?.lua",
   "./?/init.lua",
-  "./moonlift/lua/?.lua",
-  "./moonlift/lua/?/init.lua",
+  "./lua/?.lua",
+  "./lua/?/init.lua",
   package.path,
 }, ";")
 

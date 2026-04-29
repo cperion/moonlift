@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
-cd "$(dirname "$0")/../.."
+cd "$(dirname "$0")/.."
 MODE="${1:-}"
 if [[ "$MODE" != "" && "$MODE" != "quick" ]]; then
-  echo "usage: moonlift/benchmarks/run_vs_terra.sh [quick]" >&2
+  echo "usage: benchmarks/run_vs_terra.sh [quick]" >&2
   exit 2
 fi
 if ! command -v luajit >/dev/null 2>&1; then echo "ERROR: luajit not found" >&2; exit 1; fi
 if ! command -v terra >/dev/null 2>&1; then echo "ERROR: terra not found" >&2; exit 1; fi
-cargo build --manifest-path moonlift/Cargo.toml --release >/dev/null
+cargo build --manifest-path Cargo.toml --release >/dev/null
 ml_out="$(mktemp)"; terra_out="$(mktemp)"
 trap 'rm -f "$ml_out" "$terra_out"' EXIT
 if [[ "$MODE" == "" ]]; then
-  luajit moonlift/benchmarks/bench_kernels.lua > "$ml_out"
-  terra moonlift/benchmarks/bench_kernels_terra.t > "$terra_out"
+  luajit benchmarks/bench_kernels.lua > "$ml_out"
+  terra benchmarks/bench_kernels_terra.t > "$terra_out"
 else
-  luajit moonlift/benchmarks/bench_kernels.lua "$MODE" > "$ml_out"
-  terra moonlift/benchmarks/bench_kernels_terra.t "$MODE" > "$terra_out"
+  luajit benchmarks/bench_kernels.lua "$MODE" > "$ml_out"
+  terra benchmarks/bench_kernels_terra.t "$MODE" > "$terra_out"
 fi
 awk '
   function suffix(k) {

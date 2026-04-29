@@ -5,7 +5,7 @@
 -- It does not build a Lua table.  The point is to test whether Moonlift's
 -- block+jump control form can express a fast byte scanner.
 
-package.path = "./?.lua;./?/init.lua;./moonlift/lua/?.lua;./moonlift/lua/?/init.lua;./moonlift/lua/?.lua;./moonlift/lua/?/init.lua;./third_party/lua-cjson/?.lua;" .. package.path
+package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./lua/?.lua;./lua/?/init.lua;./third_party/lua-cjson/?.lua;" .. package.path
 package.cpath = "./.luarocks/lib64/lua/5.1/?.so;./third_party/lua-cjson/?.so;./third_party/lua-cjson/?.dll;" .. package.cpath
 
 local ffi = require("ffi")

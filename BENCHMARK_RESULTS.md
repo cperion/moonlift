@@ -5,7 +5,7 @@ Host: local development machine used by this run
 Command:
 
 ```text
-moonlift/benchmarks/run_vs_terra.sh
+benchmarks/run_vs_terra.sh
 ```
 
 The benchmark suite now compares a broader set of idiomatic Moonlift kernels
@@ -85,7 +85,7 @@ kernels.
 Command:
 
 ```text
-moonlift/benchmarks/run_vs_terra.sh quick
+benchmarks/run_vs_terra.sh quick
 ```
 
 Quick mode uses `N=1048576`, `WARMUP=1`, and `ITERS=2`.  It is useful as a smoke
@@ -97,7 +97,7 @@ default run for runtime comparisons.
 Command:
 
 ```text
-luajit moonlift/benchmarks/bench_diagnostics.lua
+luajit benchmarks/bench_diagnostics.lua
 ```
 
 Current schedule/fact summary from the focused diagnostic kernels:
@@ -124,7 +124,7 @@ pointer_offsets 0
 Optional disassembly capture:
 
 ```text
-MOONLIFT_BENCH_DIAGNOSTICS_DISASM=1 luajit moonlift/benchmarks/bench_diagnostics.lua
+MOONLIFT_BENCH_DIAGNOSTICS_DISASM=1 luajit benchmarks/bench_diagnostics.lua
 ```
 
 ## Next tuning candidates

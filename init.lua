@@ -1,2 +1,2 @@
-package.path = "./moonlift/lua/?.lua;./moonlift/lua/?/init.lua;" .. package.path
-return dofile("moonlift/lua/moonlift/init.lua")
+package.path = "./lua/?.lua;./lua/?/init.lua;" .. package.path
+return dofile("lua/moonlift/init.lua")

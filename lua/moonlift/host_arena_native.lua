@@ -68,8 +68,8 @@ local function load_library(libpath)
     else ext, prefix = ".so", "lib" end
     local candidates = {
         os.getenv("MOONLIFT_LIB"),
-        "./moonlift/target/debug/" .. prefix .. "moonlift" .. ext,
-        "./moonlift/target/release/" .. prefix .. "moonlift" .. ext,
+        "./target/debug/" .. prefix .. "moonlift" .. ext,
+        "./target/release/" .. prefix .. "moonlift" .. ext,
         prefix .. "moonlift" .. ext,
         "moonlift",
     }

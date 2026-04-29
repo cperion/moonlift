@@ -1,7 +1,7 @@
 -- Diagnostics for the benchmark kernels.
 -- Prints schedule, backend fact summaries, command counts, and optional disassembly.
 
-package.path = "./?.lua;./?/init.lua;./moonlift/lua/?.lua;./moonlift/lua/?/init.lua;" .. package.path
+package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local pvm = require("moonlift.pvm")
 local A2 = require("moonlift.asdl")

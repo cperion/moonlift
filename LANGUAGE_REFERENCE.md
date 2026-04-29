@@ -159,7 +159,7 @@ local result = chunk()
 or from the repo runner:
 
 ```bash
-luajit moonlift/run_mlua.lua file.mlua
+luajit run_mlua.lua file.mlua
 ```
 
 ### 3.2 Moonlift source strings
@@ -1345,17 +1345,17 @@ end
 Important implementation homes:
 
 ```text
-moonlift/lua/moonlift/parse.lua                  object source parser
-moonlift/lua/moonlift/mlua_parse.lua             .mlua hosted island parser
-moonlift/lua/moonlift/host_quote.lua             LuaJIT hosted island bridge
-moonlift/lua/moonlift/host_*_values.lua          Lua builder values
-moonlift/lua/moonlift/open_expand.lua            slot/fill/fragment expansion
-moonlift/lua/moonlift/tree_typecheck.lua         typecheck/name resolution
-moonlift/lua/moonlift/tree_control_facts.lua     control validation facts
-moonlift/lua/moonlift/tree_control_to_back.lua   region/control lowering
-moonlift/lua/moonlift/tree_to_back.lua           tree -> flat backend commands
-moonlift/lua/moonlift/vec_*                      vector facts/decisions/lowering
-moonlift/lua/moonlift/host_*_plan.lua            host layout/view/access/emission
+lua/moonlift/parse.lua                  object source parser
+lua/moonlift/mlua_parse.lua             .mlua hosted island parser
+lua/moonlift/host_quote.lua             LuaJIT hosted island bridge
+lua/moonlift/host_*_values.lua          Lua builder values
+lua/moonlift/open_expand.lua            slot/fill/fragment expansion
+lua/moonlift/tree_typecheck.lua         typecheck/name resolution
+lua/moonlift/tree_control_facts.lua     control validation facts
+lua/moonlift/tree_control_to_back.lua   region/control lowering
+lua/moonlift/tree_to_back.lua           tree -> flat backend commands
+lua/moonlift/vec_*                      vector facts/decisions/lowering
+lua/moonlift/host_*_plan.lua            host layout/view/access/emission
 ```
 
 ---

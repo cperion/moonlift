@@ -192,7 +192,7 @@ stable spines
     the scalar smoke slice, and `test_back_object_full.lua` links a fuller object
     containing local calls, data objects, stack slots, pointer loads/stores,
     unresolved extern relocations resolved by the C harness, memcpy/memset, and
-    vector commands. `moonlift/emit_object.lua` is the first `.mlua -> .o`
+    vector commands. `emit_object.lua` is the first `.mlua -> .o`
     command-line emitter.
 - `lua/moonlift/link_target_model.lua`, `link_plan_validate.lua`,
   `link_command_plan.lua`, `link_execute.lua`
@@ -352,7 +352,7 @@ stable spines
     Moonlift function/module quote values. It also supports narrow staged
     antiquote with `@{lua_expr}` for scalar literal/source/type splices, hosted
     `region -> T` / `entry` control syntax, and `.mlua` loading through
-    `Host.loadfile` / `Host.dofile`; `moonlift/run_mlua.lua`
+    `Host.loadfile` / `Host.dofile`; `run_mlua.lua`
     is a small hosted-file runner. This proves the custom-keyword direction
     without forking LuaJIT: hosted syntax is a frontend over the existing
     parser/ASDL/compiler path.
@@ -426,7 +426,7 @@ stable spines
     is in `HOST_ARENA_ABI_DESIGN.md`: a domain-neutral Rust HostArena with stable
     refs/pointers, generated layout facts, and Lua accessors that mostly cast
     pointers and read fields. The first Rust-owned slice lives in
-    `moonlift/src/host_arena.rs` plus `lua/moonlift/host_arena_native.lua`:
+    `src/host_arena.rs` plus `lua/moonlift/host_arena_native.lua`:
     sessions allocate aligned typed records, initialize scalar fields by layout
     offsets, support batch record allocation, return stable refs/pointers, and
     reject stale refs after reset. There is deliberately no Rust-defined JSON
@@ -549,7 +549,7 @@ The LSP architecture is defined in `LSP_INTEGRATION_DESIGN.md`.
 Run the current server from the repository root with:
 
 ```bash
-luajit moonlift/lsp.lua
+luajit lsp.lua
 ```
 
 Programmatic embedding can use the package facade:
@@ -609,103 +609,103 @@ an unsupported SSA vector type.
 From repo root:
 
 ```bash
-luajit moonlift/test_asdl_define.lua
-luajit moonlift/test_source_position_index.lua
-luajit moonlift/test_source_text_apply.lua
-luajit moonlift/test_source_anchor_index.lua
-luajit moonlift/test_editor_workspace_apply.lua
-luajit moonlift/test_mlua_document_parts.lua
-luajit moonlift/test_mlua_island_parse.lua
-luajit moonlift/test_mlua_document_parse.lua
-luajit moonlift/test_mlua_document_analysis.lua
-luajit moonlift/test_editor_diagnostic_facts.lua
-luajit moonlift/test_editor_symbol_facts.lua
-luajit moonlift/test_editor_subject_at.lua
-luajit moonlift/test_editor_hover.lua
-luajit moonlift/test_editor_completion_context.lua
-luajit moonlift/test_editor_completion_items.lua
-luajit moonlift/test_editor_signature_help.lua
-luajit moonlift/test_editor_inlay_hints.lua
-luajit moonlift/test_editor_binding_navigation.lua
-luajit moonlift/test_editor_binding_scopes.lua
-luajit moonlift/test_editor_semantic_tokens.lua
-luajit moonlift/test_editor_structure_ranges.lua
-luajit moonlift/test_editor_code_actions.lua
-luajit moonlift/test_lsp_integrated.lua
-luajit moonlift/test_lsp_diagnostic_pull.lua
-luajit moonlift/test_lsp_unresolved_diagnostics.lua
-luajit moonlift/test_lsp_navigation_tokens.lua
-luajit moonlift/test_lsp_fragment_navigation.lua
-luajit moonlift/test_lsp_code_actions.lua
-luajit moonlift/test_lsp_signature_help.lua
-luajit moonlift/test_back_validate.lua
-luajit moonlift/test_back_add_i32.lua
+luajit test_asdl_define.lua
+luajit test_source_position_index.lua
+luajit test_source_text_apply.lua
+luajit test_source_anchor_index.lua
+luajit test_editor_workspace_apply.lua
+luajit test_mlua_document_parts.lua
+luajit test_mlua_island_parse.lua
+luajit test_mlua_document_parse.lua
+luajit test_mlua_document_analysis.lua
+luajit test_editor_diagnostic_facts.lua
+luajit test_editor_symbol_facts.lua
+luajit test_editor_subject_at.lua
+luajit test_editor_hover.lua
+luajit test_editor_completion_context.lua
+luajit test_editor_completion_items.lua
+luajit test_editor_signature_help.lua
+luajit test_editor_inlay_hints.lua
+luajit test_editor_binding_navigation.lua
+luajit test_editor_binding_scopes.lua
+luajit test_editor_semantic_tokens.lua
+luajit test_editor_structure_ranges.lua
+luajit test_editor_code_actions.lua
+luajit test_lsp_integrated.lua
+luajit test_lsp_diagnostic_pull.lua
+luajit test_lsp_unresolved_diagnostics.lua
+luajit test_lsp_navigation_tokens.lua
+luajit test_lsp_fragment_navigation.lua
+luajit test_lsp_code_actions.lua
+luajit test_lsp_signature_help.lua
+luajit test_back_validate.lua
+luajit test_back_add_i32.lua
 
 # requires the current Rust backend shared library
-cargo build --manifest-path moonlift/Cargo.toml
-luajit moonlift/test_back_add_i32.lua
-luajit moonlift/test_back_object_emit.lua
-luajit moonlift/test_back_object_full.lua
-luajit moonlift/test_link_plan.lua
-luajit moonlift/test_back_shared_emit.lua
-luajit moonlift/test_back_fact_rich_smoke.lua
-luajit moonlift/test_back_branch_select.lua
-luajit moonlift/test_back_call.lua
-luajit moonlift/test_back_memory_data.lua
-luajit moonlift/test_back_cast_intrinsic_switch.lua
-luajit moonlift/test_back_extern_mem.lua
-luajit moonlift/test_back_vector_smoke.lua
-luajit moonlift/test_back_indirect_stmt.lua
-luajit moonlift/test_back_zero_alias_ops.lua
-luajit moonlift/test_project_report.lua
-luajit moonlift/test_core_scalar.lua
-luajit moonlift/test_core_operator.lua
-luajit moonlift/test_type_classify.lua
-luajit moonlift/test_type_to_back_scalar.lua
-luajit moonlift/test_type_size_align.lua
-luajit moonlift/test_type_abi_classify.lua
-luajit moonlift/test_open_facts_validate.lua
-luajit moonlift/test_open_expand.lua
-luajit moonlift/test_open_rewrite.lua
-luajit moonlift/test_bind_residence.lua
-luajit moonlift/test_bind_residence_coverage.lua
-luajit moonlift/test_sem_layout_resolve.lua
-luajit moonlift/test_sem_const_eval.lua
-luajit moonlift/test_sem_switch_call.lua
-luajit moonlift/test_parse_typecheck.lua
-luajit moonlift/test_parse_playground.lua
-luajit moonlift/test_parse_kernels.lua
-luajit moonlift/test_tree_type.lua
-luajit moonlift/test_tree_typecheck.lua
-luajit moonlift/test_tree_control_facts.lua
-luajit moonlift/test_tree_to_back_add_select.lua
-luajit moonlift/test_tree_to_back_counted_loop.lua
-luajit moonlift/test_tree_to_back_while_expr_loop.lua
-luajit moonlift/test_tree_to_back_control_multiblock.lua
-luajit moonlift/test_vec_loop_facts_decide.lua
-luajit moonlift/test_vec_kernel_plan.lua
-luajit moonlift/test_vec_kernel_schedule_to_back.lua
-luajit moonlift/test_vec_inspect.lua
-luajit moonlift/test_vec_to_back.lua
-luajit moonlift/test_host_quote.lua
-luajit moonlift/test_host_quote_value_splice.lua
-luajit moonlift/test_host_type_values.lua
-luajit moonlift/test_host_struct_values.lua
-luajit moonlift/test_host_struct_draft_values.lua
-luajit moonlift/test_host_template_values.lua
-luajit moonlift/test_host_fragment_values.lua
-luajit moonlift/test_host_issue_values.lua
-luajit moonlift/test_host_reflection.lua
-luajit moonlift/test_host_func_values.lua
-luajit moonlift/test_host_place_values.lua
-luajit moonlift/test_host_region_values.lua
-luajit moonlift/test_host_value_jit.lua
-luajit moonlift/test_host_addr_load_jit.lua
-luajit moonlift/test_host_field_jit.lua
-luajit moonlift/test_host_patterns.lua
-luajit moonlift/test_host_metaprogramming_patterns.lua
-luajit moonlift/test_json_projection_view.lua
-luajit moonlift/test_json_generic_doc.lua
-luajit moonlift/test_continuation_slot_expand.lua
-luajit moonlift/test_json_library.lua
+cargo build --manifest-path Cargo.toml
+luajit test_back_add_i32.lua
+luajit test_back_object_emit.lua
+luajit test_back_object_full.lua
+luajit test_link_plan.lua
+luajit test_back_shared_emit.lua
+luajit test_back_fact_rich_smoke.lua
+luajit test_back_branch_select.lua
+luajit test_back_call.lua
+luajit test_back_memory_data.lua
+luajit test_back_cast_intrinsic_switch.lua
+luajit test_back_extern_mem.lua
+luajit test_back_vector_smoke.lua
+luajit test_back_indirect_stmt.lua
+luajit test_back_zero_alias_ops.lua
+luajit test_project_report.lua
+luajit test_core_scalar.lua
+luajit test_core_operator.lua
+luajit test_type_classify.lua
+luajit test_type_to_back_scalar.lua
+luajit test_type_size_align.lua
+luajit test_type_abi_classify.lua
+luajit test_open_facts_validate.lua
+luajit test_open_expand.lua
+luajit test_open_rewrite.lua
+luajit test_bind_residence.lua
+luajit test_bind_residence_coverage.lua
+luajit test_sem_layout_resolve.lua
+luajit test_sem_const_eval.lua
+luajit test_sem_switch_call.lua
+luajit test_parse_typecheck.lua
+luajit test_parse_playground.lua
+luajit test_parse_kernels.lua
+luajit test_tree_type.lua
+luajit test_tree_typecheck.lua
+luajit test_tree_control_facts.lua
+luajit test_tree_to_back_add_select.lua
+luajit test_tree_to_back_counted_loop.lua
+luajit test_tree_to_back_while_expr_loop.lua
+luajit test_tree_to_back_control_multiblock.lua
+luajit test_vec_loop_facts_decide.lua
+luajit test_vec_kernel_plan.lua
+luajit test_vec_kernel_schedule_to_back.lua
+luajit test_vec_inspect.lua
+luajit test_vec_to_back.lua
+luajit test_host_quote.lua
+luajit test_host_quote_value_splice.lua
+luajit test_host_type_values.lua
+luajit test_host_struct_values.lua
+luajit test_host_struct_draft_values.lua
+luajit test_host_template_values.lua
+luajit test_host_fragment_values.lua
+luajit test_host_issue_values.lua
+luajit test_host_reflection.lua
+luajit test_host_func_values.lua
+luajit test_host_place_values.lua
+luajit test_host_region_values.lua
+luajit test_host_value_jit.lua
+luajit test_host_addr_load_jit.lua
+luajit test_host_field_jit.lua
+luajit test_host_patterns.lua
+luajit test_host_metaprogramming_patterns.lua
+luajit test_json_projection_view.lua
+luajit test_json_generic_doc.lua
+luajit test_continuation_slot_expand.lua
+luajit test_json_library.lua
 ```

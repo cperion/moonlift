@@ -36,7 +36,7 @@ A checked item must be true in code, tests, and docs.
 
 ## 0. Architecture guardrails
 
-- [ ] LSP/editor ASDL lives in canonical `moonlift/lua/moonlift/asdl.lua`, not a
+- [ ] LSP/editor ASDL lives in canonical `lua/moonlift/asdl.lua`, not a
       standalone parallel schema.
 - [ ] Editor-visible meaning is represented as ASDL values.
 - [ ] LSP handlers never compute semantic answers directly from raw strings.
@@ -1018,7 +1018,7 @@ lsp.lua
 - [x] Add root command example:
 
 ```bash
-luajit moonlift/lsp.lua
+luajit lsp.lua
 ```
 
 - [ ] Add troubleshooting notes:
@@ -1142,7 +1142,7 @@ Position-only request after no edit:
 
 ## 22. Removal/avoidance checklist
 
-- [ ] No `moonlift/lua/moonlift/lsp_asdl.lua` standalone schema.
+- [ ] No `lua/moonlift/lsp_asdl.lua` standalone schema.
 - [ ] No scanner-only `lsp_symbols.lua` / `lsp_hover.lua` semantics.
 - [ ] No JSON-RPC server that stores semantic documents in mutable Lua tables as
       the source of truth.

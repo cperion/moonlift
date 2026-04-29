@@ -1,11 +1,11 @@
 #!/usr/bin/env luajit
-package.path = "./?.lua;./?/init.lua;./moonlift/lua/?.lua;./moonlift/lua/?/init.lua;./moonlift/lua/?.lua;./moonlift/lua/?/init.lua;" .. package.path
+package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local Host = require("moonlift.host_quote")
 
 local path = arg and arg[1]
 if not path then
-    io.stderr:write("usage: luajit moonlift/run_mlua.lua file.mlua [args...]\n")
+    io.stderr:write("usage: luajit run_mlua.lua file.mlua [args...]\n")
     os.exit(2)
 end
 

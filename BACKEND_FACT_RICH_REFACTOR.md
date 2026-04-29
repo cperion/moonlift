@@ -1110,8 +1110,8 @@ unless they remain the clean final design.
 
 - [x] Update `back_jit.lua` for the first new `Moon2Back.Cmd` variants (`CmdLoadInfo`, `CmdStoreInfo`, split scalar arithmetic, `CmdVecBinary`, `CmdPtrOffset`, `CmdAliasFact`, `CmdTargetModel`).
 - [x] Remove old Lua FFI replay handlers corresponding to deleted generic `CmdBinary`, `CmdLoad`, and `CmdStore` ASDL commands.
-- [x] Update `moonlift/src/ffi.rs` command API.
-- [x] Update `moonlift/src/lib.rs` `BackCmd` enum.
+- [x] Update `src/ffi.rs` command API.
+- [x] Update `src/lib.rs` `BackCmd` enum.
 - [x] Add Rust representations for memory and int/float semantic facts used by active execution; target/address/alias fact structs remain future direct-ownership work beyond current replay needs.
 - [x] Map `BackMemoryInfo` to Cranelift `MemFlags` only where exact semantics match.
 - [x] Map stack/data/load/store alignment facts where applicable through `BackMemoryInfo -> MemFlags::aligned` when the fact proves natural access alignment; vector-kernel lowering now supplies natural alignment facts.

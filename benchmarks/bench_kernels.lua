@@ -1,7 +1,7 @@
 -- Moonlift vs Terra runtime benchmark kernel suite.
 -- Emits machine-readable lines consumed by run_vs_terra.sh.
 
-package.path = "./?.lua;./?/init.lua;./moonlift/lua/?.lua;./moonlift/lua/?/init.lua;./moonlift/lua/?.lua;./moonlift/lua/?/init.lua;" .. package.path
+package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local ffi = require("ffi")
 local bit = require("bit")

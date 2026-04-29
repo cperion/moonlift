@@ -1,4 +1,4 @@
-package.path = "./?.lua;./?/init.lua;./moonlift/lua/?.lua;./moonlift/lua/?/init.lua;" .. package.path
+package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local pvm = require("moonlift.pvm")
 local A = require("moonlift.project_asdl")
