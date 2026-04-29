@@ -497,7 +497,7 @@ impl Jit {
     }
 
     pub fn compile(&self, program: &BackProgram) -> Result<Artifact, MoonliftError> {
-        let mut compiler = Compiler::new(&self.symbols)?;
+        let compiler = Compiler::new(&self.symbols)?;
         compiler.compile(program)
     }
 }
@@ -609,7 +609,7 @@ impl Compiler<JITModule> {
         Ok(Self::with_module(JITModule::new(builder)))
     }
 
-    fn compile(&mut self, program: &BackProgram) -> Result<Artifact, MoonliftError> {
+    fn compile(mut self, program: &BackProgram) -> Result<Artifact, MoonliftError> {
         self.collect(program)?;
         self.declare_all()?;
         self.define_all()?;
@@ -627,7 +627,7 @@ impl Compiler<JITModule> {
         }
 
         Ok(Artifact {
-            _module: std::mem::replace(&mut self.module, empty_module()?),
+            _module: self.module,
             function_ptrs,
         })
     }
@@ -2279,10 +2279,6 @@ fn host_isa(is_pic: bool) -> Result<Arc<dyn cranelift_codegen::isa::TargetIsa>, 
     isa_builder
         .finish(settings::Flags::new(flag_builder))
         .map_err(|e| MoonliftError::new(format!("failed to finalize Cranelift ISA: {e}")))
-}
-
-fn empty_module() -> Result<JITModule, MoonliftError> {
-    Compiler::new(&HashMap::new()).map(|c| c.module)
 }
 
 #[cfg(test)]
