@@ -201,6 +201,67 @@ function M.Define(T)
         return B.BackFactShapeUse(index, ty, requirement)
     end
 
+    local function append_cmd_facts_flat(out, cmd, index)
+        if cmd == B.CmdFinalizeModule then out[#out + 1] = B.BackFactFinalizeModule(index); return end
+        if cmd == B.CmdReturnVoid or cmd == B.CmdTrap then out[#out + 1] = body(index); return end
+        local cls = pvm.classof(cmd)
+        if cls == B.CmdTargetModel then return end
+        if cls == B.CmdCreateSig then out[#out + 1] = B.BackFactCreateSig(index, cmd.sig); return end
+        if cls == B.CmdDeclareData then out[#out + 1] = B.BackFactDeclareData(index, cmd.data); return end
+        if cls == B.CmdDataInitZero or cls == B.CmdDataInit then out[#out + 1] = B.BackFactDataRef(index, cmd.data); return end
+        if cls == B.CmdDeclareFunc then out[#out + 1] = B.BackFactDeclareFunc(index, cmd.func); out[#out + 1] = B.BackFactSigRef(index, cmd.sig); return end
+        if cls == B.CmdDeclareExtern then out[#out + 1] = B.BackFactDeclareExtern(index, cmd.func); out[#out + 1] = B.BackFactSigRef(index, cmd.sig); return end
+        if cls == B.CmdBeginFunc then out[#out + 1] = B.BackFactBeginFunc(index, cmd.func); out[#out + 1] = B.BackFactFuncRef(index, cmd.func); return end
+        if cls == B.CmdFinishFunc then out[#out + 1] = B.BackFactFinishFunc(index, cmd.func); out[#out + 1] = B.BackFactFuncRef(index, cmd.func); return end
+        if cls == B.CmdCreateBlock then out[#out + 1] = body(index); out[#out + 1] = B.BackFactCreateBlock(index, cmd.block); return end
+        if cls == B.CmdSwitchToBlock or cls == B.CmdSealBlock then out[#out + 1] = body(index); out[#out + 1] = B.BackFactBlockRef(index, cmd.block); return end
+        if cls == B.CmdBindEntryParams then out[#out + 1] = body(index); out[#out + 1] = B.BackFactBlockRef(index, cmd.block); append_value_defs(out, B, index, cmd.values); return end
+        if cls == B.CmdAppendBlockParam then out[#out + 1] = body(index); out[#out + 1] = B.BackFactBlockRef(index, cmd.block); out[#out + 1] = B.BackFactValueDef(index, cmd.value); return end
+        if cls == B.CmdCreateStackSlot then out[#out + 1] = body(index); out[#out + 1] = B.BackFactStackSlotDef(index, cmd.slot); return end
+        if cls == B.CmdAlias then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.src); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
+        if cls == B.CmdStackAddr then out[#out + 1] = body(index); out[#out + 1] = B.BackFactStackSlotRef(index, cmd.slot); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
+        if cls == B.CmdDataAddr then out[#out + 1] = body(index); out[#out + 1] = B.BackFactDataRef(index, cmd.data); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
+        if cls == B.CmdFuncAddr then out[#out + 1] = body(index); out[#out + 1] = B.BackFactFuncRef(index, cmd.func); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
+        if cls == B.CmdExternAddr then out[#out + 1] = body(index); out[#out + 1] = B.BackFactExternRef(index, cmd.func); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
+        if cls == B.CmdConst then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
+        if cls == B.CmdUnary then out[#out + 1] = body(index); out[#out + 1] = shape(index, cmd.ty, B.BackShapeRequiresScalar); out[#out + 1] = B.BackFactValueUse(index, cmd.value); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
+        if cls == B.CmdIntrinsic then out[#out + 1] = body(index); out[#out + 1] = shape(index, cmd.ty, B.BackShapeRequiresScalar); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); append_value_uses(out, B, index, cmd.args); return end
+        if cls == B.CmdCompare then out[#out + 1] = body(index); out[#out + 1] = shape(index, cmd.ty, B.BackShapeRequiresScalar); out[#out + 1] = B.BackFactValueUse(index, cmd.lhs); out[#out + 1] = B.BackFactValueUse(index, cmd.rhs); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
+        if cls == B.CmdCast then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.value); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
+        if cls == B.CmdPtrOffset then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.index); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); append_address_base_uses(out, index, cmd.base); return end
+        if cls == B.CmdLoadInfo then out[#out + 1] = body(index); out[#out + 1] = shape(index, cmd.ty, B.BackShapeAllowsScalarOrVector); out[#out + 1] = B.BackFactAccessDef(index, cmd.memory.access); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); append_address_uses(out, index, cmd.addr); return end
+        if cls == B.CmdStoreInfo then out[#out + 1] = body(index); out[#out + 1] = shape(index, cmd.ty, B.BackShapeAllowsScalarOrVector); out[#out + 1] = B.BackFactAccessDef(index, cmd.memory.access); out[#out + 1] = B.BackFactValueUse(index, cmd.value); append_address_uses(out, index, cmd.addr); return end
+        if cls == B.CmdIntBinary or cls == B.CmdBitBinary or cls == B.CmdShift or cls == B.CmdRotate or cls == B.CmdFloatBinary then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.lhs); out[#out + 1] = B.BackFactValueUse(index, cmd.rhs); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
+        if cls == B.CmdBitNot then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.value); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
+        if cls == B.CmdAliasFact then out[#out + 1] = body(index); append_alias_access_refs(out, index, cmd.fact); return end
+        if cls == B.CmdMemcpy then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.dst); out[#out + 1] = B.BackFactValueUse(index, cmd.src); out[#out + 1] = B.BackFactValueUse(index, cmd.len); return end
+        if cls == B.CmdMemset then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.dst); out[#out + 1] = B.BackFactValueUse(index, cmd.byte); out[#out + 1] = B.BackFactValueUse(index, cmd.len); return end
+        if cls == B.CmdSelect then out[#out + 1] = body(index); out[#out + 1] = shape(index, cmd.ty, B.BackShapeRequiresScalar); out[#out + 1] = B.BackFactValueUse(index, cmd.cond); out[#out + 1] = B.BackFactValueUse(index, cmd.then_value); out[#out + 1] = B.BackFactValueUse(index, cmd.else_value); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
+        if cls == B.CmdFma then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.a); out[#out + 1] = B.BackFactValueUse(index, cmd.b); out[#out + 1] = B.BackFactValueUse(index, cmd.c); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
+        if cls == B.CmdVecSplat then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.value); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
+        if cls == B.CmdVecBinary or cls == B.CmdVecCompare then out[#out + 1] = body(index); out[#out + 1] = shape(index, B.BackShapeVec(cmd.ty), B.BackShapeRequiresVector); out[#out + 1] = B.BackFactValueUse(index, cmd.lhs); out[#out + 1] = B.BackFactValueUse(index, cmd.rhs); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
+        if cls == B.CmdVecSelect then out[#out + 1] = body(index); out[#out + 1] = shape(index, B.BackShapeVec(cmd.ty), B.BackShapeRequiresVector); out[#out + 1] = B.BackFactValueUse(index, cmd.mask); out[#out + 1] = B.BackFactValueUse(index, cmd.then_value); out[#out + 1] = B.BackFactValueUse(index, cmd.else_value); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
+        if cls == B.CmdVecMask then out[#out + 1] = body(index); out[#out + 1] = shape(index, B.BackShapeVec(cmd.ty), B.BackShapeRequiresVector); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); append_value_uses(out, B, index, cmd.args); return end
+        if cls == B.CmdVecInsertLane then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.value); out[#out + 1] = B.BackFactValueUse(index, cmd.lane_value); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
+        if cls == B.CmdVecExtractLane then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.value); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
+        if cls == B.CmdCall then
+            out[#out + 1] = body(index); out[#out + 1] = B.BackFactSigRef(index, cmd.sig)
+            local target_cls = pvm.classof(cmd.target)
+            if target_cls == B.BackCallDirect then out[#out + 1] = B.BackFactFuncRef(index, cmd.target.func)
+            elseif target_cls == B.BackCallExtern then out[#out + 1] = B.BackFactExternRef(index, cmd.target.func)
+            elseif target_cls == B.BackCallIndirect then out[#out + 1] = B.BackFactValueUse(index, cmd.target.callee) end
+            if cmd.result ~= B.BackCallStmt and pvm.classof(cmd.result) == B.BackCallValue then out[#out + 1] = B.BackFactValueDef(index, cmd.result.dst) end
+            append_value_uses(out, B, index, cmd.args)
+            return
+        end
+        if cls == B.CmdJump then out[#out + 1] = body(index); out[#out + 1] = B.BackFactBlockRef(index, cmd.dest); append_value_uses(out, B, index, cmd.args); return end
+        if cls == B.CmdBrIf then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.cond); out[#out + 1] = B.BackFactBlockRef(index, cmd.then_block); out[#out + 1] = B.BackFactBlockRef(index, cmd.else_block); append_value_uses(out, B, index, cmd.then_args); append_value_uses(out, B, index, cmd.else_args); return end
+        if cls == B.CmdSwitchInt then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.value); out[#out + 1] = B.BackFactBlockRef(index, cmd.default_dest); for i = 1, #cmd.cases do out[#out + 1] = B.BackFactBlockRef(index, cmd.cases[i].dest) end; return end
+        if cls == B.CmdReturnValue then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.value); return end
+        local g, p, c = cmd_facts(cmd, index)
+        pvm.drain_into(g, p, c, out)
+    end
+
     cmd_facts = pvm.phase("moon2_back_cmd_facts", {
         [B.CmdTargetModel] = function(_, _)
             return pvm.empty()
@@ -399,7 +460,7 @@ function M.Define(T)
         end,
     })
 
-    local validate_program = pvm.phase("moon2_back_validate_program", function(program)
+    local function validate_program_impl(program, use_flat)
         local issues = {}
         local cmds = program.cmds
         if #cmds == 0 then
@@ -409,9 +470,13 @@ function M.Define(T)
         end
 
         local facts = {}
-        for i = 1, #cmds do
-            local g, p, c = cmd_facts(cmds[i], i)
-            pvm.drain_into(g, p, c, facts)
+        if use_flat then
+            for i = 1, #cmds do append_cmd_facts_flat(facts, cmds[i], i) end
+        else
+            for i = 1, #cmds do
+                local g, p, c = cmd_facts(cmds[i], i)
+                pvm.drain_into(g, p, c, facts)
+            end
         end
 
         local seen_sig = {}
@@ -555,11 +620,28 @@ function M.Define(T)
         end
 
         return B.BackValidationReport(issues)
+    end
+
+    local validate_program = pvm.phase("moon2_back_validate_program", function(program)
+        return validate_program_impl(program, os.getenv("MOONLIFT_BACK_VALIDATE") == "ll")
     end)
 
     return {
         cmd_facts = cmd_facts,
+        cmd_facts_flat_into = function(program, out)
+            for i = 1, #program.cmds do append_cmd_facts_flat(out, program.cmds[i], i) end
+            return out
+        end,
         validate_program = validate_program,
+        validate_lua_cold = function(program)
+            return validate_program_impl(program, false)
+        end,
+        validate_lua = function(program)
+            return pvm.one(validate_program(program))
+        end,
+        validate_ll = function(program)
+            return validate_program_impl(program, true)
+        end,
         validate = function(program)
             return pvm.one(validate_program(program))
         end,

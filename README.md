@@ -162,6 +162,14 @@ benchmarks/run_vs_terra.sh
 benchmarks/run_vs_terra.sh quick
 ```
 
+Back-validation has an alternate flat fact loop wired as the first build-time
+LL-PVM seam. Compare it with:
+
+```bash
+luajit benchmarks/bench_compile_back_validate_ll.lua
+MOONLIFT_BACK_VALIDATE=ll luajit benchmarks/profile_compile.lua
+```
+
 These compare Moonlift's jump-first kernels against equivalent Terra kernels.
 
 ## Core rule
