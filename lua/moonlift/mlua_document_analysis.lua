@@ -22,11 +22,11 @@ local function module_name_from_uri(uri)
 end
 
 function M.Define(T)
-    local Mlua = (T.MoonMlua or T.Moon2Mlua)
-    local O = (T.MoonOpen or T.Moon2Open)
-    local Tr = (T.MoonTree or T.Moon2Tree)
-    local V = (T.MoonVec or T.Moon2Vec)
-    local B = (T.MoonBack or T.Moon2Back)
+    local Mlua = T.MoonMlua
+    local O = T.MoonOpen
+    local Tr = T.MoonTree
+    local V = T.MoonVec
+    local B = T.MoonBack
     local Parse = DocumentParse.Define(T)
     local Pipeline = HostPipeline.Define(T)
     local OF = OpenFacts.Define(T)

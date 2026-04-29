@@ -20,9 +20,9 @@ local KP = KernelPlan.Define(T)
 local Lowerer = Lower.Define(T)
 local Vd = Validate.Define(T)
 local jit_api = J.Define(T)
-local C = T.Moon2Core
-local Vec = T.Moon2Vec
-local B2 = T.Moon2Back
+local C = T.MoonCore
+local Vec = T.MoonVec
+local B2 = T.MoonBack
 
 local src = [[
 export func sum_full_window_i32(xs: ptr(i32), n: index) -> i32

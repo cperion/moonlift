@@ -7,9 +7,9 @@ local Classify = require("moonlift.type_classify")
 local T = pvm.context()
 A.Define(T)
 local L = Classify.Define(T)
-local C = T.Moon2Core
-local Ty = T.Moon2Type
-local O = T.Moon2Open
+local C = T.MoonCore
+local Ty = T.MoonType
+local O = T.MoonOpen
 
 local i32 = Ty.TScalar(C.ScalarI32)
 assert(L.classify(i32) == Ty.TypeClassScalar(C.ScalarI32))

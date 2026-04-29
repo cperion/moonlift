@@ -3,10 +3,10 @@ local pvm = require("moonlift.pvm")
 local M = {}
 
 function M.Define(T)
-    local C = (T.MoonCore or T.Moon2Core)
-    local Ty = (T.MoonType or T.Moon2Type)
-    local B = (T.MoonBind or T.Moon2Bind)
-    local Tr = (T.MoonTree or T.Moon2Tree)
+    local C = T.MoonCore
+    local Ty = T.MoonType
+    local B = T.MoonBind
+    local Tr = T.MoonTree
 
     local module_name
     local func_entry
@@ -24,7 +24,7 @@ function M.Define(T)
         [Tr.ModuleSem] = function(self) return pvm.once(self.module_name) end,
         [Tr.ModuleCode] = function(self) return pvm.once(self.module_name) end,
         [Tr.ModuleOpen] = function(self)
-            if self.name ~= (T.MoonOpen or T.Moon2Open).ModuleNameOpen then return pvm.once(self.name.module_name) end
+            if self.name ~= T.MoonOpen.ModuleNameOpen then return pvm.once(self.name.module_name) end
             return pvm.once("")
         end,
         [Tr.ModuleSurface] = function() return pvm.once("") end,

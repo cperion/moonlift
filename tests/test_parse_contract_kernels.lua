@@ -16,7 +16,7 @@ local TC = Typecheck.Define(T)
 local Lowerer = Lower.Define(T)
 local V = Validate.Define(T)
 local jit_api = J.Define(T)
-local B2 = T.Moon2Back
+local B2 = T.MoonBack
 
 local src = [[
 export func add_noalias_i32(noalias dst: ptr(i32), readonly a: ptr(i32), readonly b: ptr(i32), n: i32) -> i32
@@ -46,7 +46,7 @@ assert(#report.issues == 0)
 local saw_vec = false
 for i = 1, #program.cmds do
     local cmd = program.cmds[i]
-    if pvm.classof(cmd) == T.Moon2Back.CmdVecBinary and cmd.op == T.Moon2Back.BackVecIntAdd then saw_vec = true end
+    if pvm.classof(cmd) == T.MoonBack.CmdVecBinary and cmd.op == T.MoonBack.BackVecIntAdd then saw_vec = true end
 end
 assert(saw_vec, "expected contract kernel to vectorize")
 

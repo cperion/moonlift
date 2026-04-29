@@ -9,11 +9,11 @@ local T = pvm.context()
 A.Define(T)
 local F = Facts.Define(T)
 local D = Decide.Define(T)
-local C = T.Moon2Core
-local Ty = T.Moon2Type
-local B = T.Moon2Bind
-local Tr = T.Moon2Tree
-local V = T.Moon2Vec
+local C = T.MoonCore
+local Ty = T.MoonType
+local B = T.MoonBind
+local Tr = T.MoonTree
+local V = T.MoonVec
 
 local i32 = Ty.TScalar(C.ScalarI32)
 local bool = Ty.TScalar(C.ScalarBool)

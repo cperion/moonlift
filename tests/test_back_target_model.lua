@@ -6,9 +6,9 @@ local Target = require("moonlift.back_target_model")
 
 local T = pvm.context()
 A2.Define(T)
-local B = T.Moon2Back
-local V = T.Moon2Vec
-local H = T.Moon2Host
+local B = T.MoonBack
+local V = T.MoonVec
+local H = T.MoonHost
 local target_api = Target.Define(T)
 
 local back = target_api.default_native()

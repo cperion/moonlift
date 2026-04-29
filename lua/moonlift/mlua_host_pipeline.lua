@@ -3,7 +3,7 @@ local pvm = require("moonlift.pvm")
 local M = {}
 
 function M.Define(T)
-    local H = (T.MoonHost or T.Moon2Host)
+    local H = T.MoonHost
     local MluaParse = require("moonlift.mlua_parse").Define(T)
     local HostDeclValidate = require("moonlift.host_decl_validate").Define(T)
     local HostLayoutResolve = require("moonlift.host_layout_resolve").Define(T)

@@ -6,8 +6,8 @@ local PartsMod = require("moonlift.mlua_document_parts")
 
 local T = pvm.context()
 A.Define(T)
-local S = T.Moon2Source
-local Mlua = T.Moon2Mlua
+local S = T.MoonSource
+local Mlua = T.MoonMlua
 local Parts = PartsMod.Define(T)
 
 local uri = S.DocUri("file:///parts.mlua")

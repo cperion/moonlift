@@ -16,13 +16,13 @@ typedef struct MoonliftBool32User {
 
 local T = pvm.context()
 A2.Define(T)
-local C = T.Moon2Core
-local Ty = T.Moon2Type
-local B = T.Moon2Bind
-local Sem = T.Moon2Sem
-local Tr = T.Moon2Tree
-local H = T.Moon2Host
-local B2 = T.Moon2Back
+local C = T.MoonCore
+local Ty = T.MoonType
+local B = T.MoonBind
+local Sem = T.MoonSem
+local Tr = T.MoonTree
+local H = T.MoonHost
+local B2 = T.MoonBack
 
 local Lowerer = Lower.Define(T)
 local V = Validate.Define(T)
@@ -61,9 +61,9 @@ local saw_i32_load = false
 local saw_bool_compare = false
 for i = 1, #program.cmds do
     local cmd = program.cmds[i]
-    if pvm.classof(cmd) == T.Moon2Back.CmdStoreInfo and pvm.classof(cmd.ty) == T.Moon2Back.BackShapeScalar and cmd.ty.scalar == T.Moon2Back.BackI32 then saw_i32_store = true end
-    if pvm.classof(cmd) == T.Moon2Back.CmdLoadInfo and pvm.classof(cmd.ty) == T.Moon2Back.BackShapeScalar and cmd.ty.scalar == T.Moon2Back.BackI32 then saw_i32_load = true end
-    if pvm.classof(cmd) == T.Moon2Back.CmdCompare and cmd.op == T.Moon2Back.BackIcmpNe then saw_bool_compare = true end
+    if pvm.classof(cmd) == T.MoonBack.CmdStoreInfo and pvm.classof(cmd.ty) == T.MoonBack.BackShapeScalar and cmd.ty.scalar == T.MoonBack.BackI32 then saw_i32_store = true end
+    if pvm.classof(cmd) == T.MoonBack.CmdLoadInfo and pvm.classof(cmd.ty) == T.MoonBack.BackShapeScalar and cmd.ty.scalar == T.MoonBack.BackI32 then saw_i32_load = true end
+    if pvm.classof(cmd) == T.MoonBack.CmdCompare and cmd.op == T.MoonBack.BackIcmpNe then saw_bool_compare = true end
 end
 assert(saw_i32_store, "expected bool32 store through i32 storage")
 assert(saw_i32_load, "expected bool32 load through i32 storage")

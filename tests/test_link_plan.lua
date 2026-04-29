@@ -11,7 +11,7 @@ A2.Define(T)
 local LT = LinkTarget.Define(T)
 local LV = LinkValidate.Define(T)
 local LC = LinkCommand.Define(T)
-local L = T.Moon2Link
+local L = T.MoonLink
 
 local obj = os.tmpname() .. ".o"
 local f = assert(io.open(obj, "wb")); f:write("x"); f:close()

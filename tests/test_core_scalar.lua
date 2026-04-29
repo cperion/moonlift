@@ -7,7 +7,7 @@ local CoreScalar = require("moonlift.core_scalar")
 local T = pvm.context()
 A.Define(T)
 local L = CoreScalar.Define(T)
-local C = T.Moon2Core
+local C = T.MoonCore
 
 local function expect(scalar, family, bits)
     assert(L.family(scalar) == family)

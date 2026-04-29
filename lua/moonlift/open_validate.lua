@@ -3,7 +3,7 @@ local pvm = require("moonlift.pvm")
 local M = {}
 
 function M.Define(T)
-    local O = (T.MoonOpen or T.Moon2Open)
+    local O = T.MoonOpen
 
     local slot_issue
     local fact_issue

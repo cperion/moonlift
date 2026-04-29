@@ -20,9 +20,9 @@ local KP = KernelPlan.Define(T)
 local Lowerer = Lower.Define(T)
 local V = Validate.Define(T)
 local jit_api = J.Define(T)
-local B2 = T.Moon2Back
-local C = T.Moon2Core
-local Vec = T.Moon2Vec
+local B2 = T.MoonBack
+local C = T.MoonCore
+local Vec = T.MoonVec
 
 local src = [[
 export func sum_construct_view_scalar(xs: ptr(i32), n: index) -> i32
@@ -50,7 +50,7 @@ assert(#report.issues == 0)
 local saw_vec = false
 for i = 1, #program.cmds do
     local cmd = program.cmds[i]
-    if pvm.classof(cmd) == T.Moon2Back.CmdLoad and pvm.classof(cmd.ty) == T.Moon2Back.BackShapeVec then saw_vec = true end
+    if pvm.classof(cmd) == T.MoonBack.CmdLoad and pvm.classof(cmd.ty) == T.MoonBack.BackShapeVec then saw_vec = true end
 end
 assert(saw_vec, "expected constructed view kernel to vectorize")
 

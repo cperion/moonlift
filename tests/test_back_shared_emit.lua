@@ -35,7 +35,7 @@ local LT = LinkTarget.Define(T)
 local LV = LinkValidate.Define(T)
 local LC = LinkCommand.Define(T)
 local LE = LinkExecute.Define(T)
-local Link = T.Moon2Link
+local Link = T.MoonLink
 
 local src = [[
 export func add_i32(a: i32, b: i32) -> i32

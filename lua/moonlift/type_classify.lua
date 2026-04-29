@@ -6,7 +6,7 @@ function M.Define(T)
     T._moonlift_api_cache = T._moonlift_api_cache or {}
     if T._moonlift_api_cache.type_classify ~= nil then return T._moonlift_api_cache.type_classify end
 
-    local Ty = (T.MoonType or T.Moon2Type)
+    local Ty = T.MoonType
 
     local array_len_count
     local classify_type

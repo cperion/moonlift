@@ -3,11 +3,11 @@ local pvm = require("moonlift.pvm")
 local M = {}
 
 function M.Define(T)
-    local V = (T.MoonVec or T.Moon2Vec)
-    local B = (T.MoonBind or T.Moon2Bind)
-    local Tr = (T.MoonTree or T.Moon2Tree)
-    local Ty = (T.MoonType or T.Moon2Type)
-    local C = (T.MoonCore or T.Moon2Core)
+    local V = T.MoonVec
+    local B = T.MoonBind
+    local Tr = T.MoonTree
+    local Ty = T.MoonType
+    local C = T.MoonCore
 
     local expr_uses
     local mask_uses
@@ -31,13 +31,13 @@ function M.Define(T)
     end
 
     local function expr_binding(expr)
-        local Tr = (T.MoonTree or T.Moon2Tree)
+        local Tr = T.MoonTree
         if pvm.classof(expr) == Tr.ExprRef and pvm.classof(expr.ref) == B.ValueRefBinding then return expr.ref.binding end
         return nil
     end
 
     local function view_base_binding(view)
-        local Tr = (T.MoonTree or T.Moon2Tree)
+        local Tr = T.MoonTree
         local cls = pvm.classof(view)
         if cls == Tr.ViewFromExpr then return expr_binding(view.base) end
         if cls == Tr.ViewContiguous then return expr_binding(view.data) end
@@ -45,7 +45,7 @@ function M.Define(T)
     end
 
     local function memory_base_binding(base)
-        local Tr = (T.MoonTree or T.Moon2Tree)
+        local Tr = T.MoonTree
         local cls = pvm.classof(base)
         if cls == V.VecMemoryBaseRawAddr then return expr_binding(base.addr) end
         if cls == V.VecMemoryBaseView then return view_base_binding(base.view) end

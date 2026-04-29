@@ -23,7 +23,7 @@ end
 
 function M.Install(api, session)
     local T = session.T
-    local C, Ty, B, Tr = (T.MoonCore or T.Moon2Core), (T.MoonType or T.Moon2Type), (T.MoonBind or T.Moon2Bind), (T.MoonTree or T.Moon2Tree)
+    local C, Ty, B, Tr = T.MoonCore, T.MoonType, T.MoonBind, T.MoonTree
 
     local function as_param(v, site)
         if type(v) == "table" and getmetatable(v) == ParamValue then return v end

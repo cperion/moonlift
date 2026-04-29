@@ -3,8 +3,8 @@ local pvm = require("moonlift.pvm")
 local M = {}
 
 function M.Define(T)
-    local H = (T.MoonHost or T.Moon2Host)
-    local Tr = (T.MoonTree or T.Moon2Tree)
+    local H = T.MoonHost
+    local Tr = T.MoonTree
 
     local phase = pvm.phase("moon2_mlua_loop_expand", {
         [H.MluaLoopControlStmt] = function(self)

@@ -3,11 +3,11 @@ local pvm = require("moonlift.pvm")
 local M = {}
 
 function M.Define(T)
-    local Ty = (T.MoonType or T.Moon2Type)
-    local O = (T.MoonOpen or T.Moon2Open)
-    local B = (T.MoonBind or T.Moon2Bind)
-    local Sem = (T.MoonSem or T.Moon2Sem)
-    local Tr = (T.MoonTree or T.Moon2Tree)
+    local Ty = T.MoonType
+    local O = T.MoonOpen
+    local B = T.MoonBind
+    local Sem = T.MoonSem
+    local Tr = T.MoonTree
 
     local classify_api = require("moonlift.type_classify").Define(T)
 

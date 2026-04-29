@@ -59,13 +59,13 @@ local function find_call_context(text, offset)
 end
 
 function M.Define(T)
-    local S = (T.MoonSource or T.Moon2Source)
-    local E = (T.MoonEditor or T.Moon2Editor)
-    local C = (T.MoonCore or T.Moon2Core)
-    local Ty = (T.MoonType or T.Moon2Type)
-    local H = (T.MoonHost or T.Moon2Host)
-    local Tr = (T.MoonTree or T.Moon2Tree)
-    local Mlua = (T.MoonMlua or T.Moon2Mlua)
+    local S = T.MoonSource
+    local E = T.MoonEditor
+    local C = T.MoonCore
+    local Ty = T.MoonType
+    local H = T.MoonHost
+    local Tr = T.MoonTree
+    local Mlua = T.MoonMlua
     local P = PositionIndex.Define(T)
     local AI = AnchorIndex.Define(T)
 

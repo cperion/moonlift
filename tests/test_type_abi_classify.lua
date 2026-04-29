@@ -7,11 +7,11 @@ local Abi = require("moonlift.type_abi_classify")
 local T = pvm.context()
 A.Define(T)
 local L = Abi.Define(T)
-local C = T.Moon2Core
-local Ty = T.Moon2Type
-local B = T.Moon2Back
-local Sem = T.Moon2Sem
-local O = T.Moon2Open
+local C = T.MoonCore
+local Ty = T.MoonType
+local B = T.MoonBack
+local Sem = T.MoonSem
+local O = T.MoonOpen
 
 local i32 = Ty.TScalar(C.ScalarI32)
 local void = Ty.TScalar(C.ScalarVoid)

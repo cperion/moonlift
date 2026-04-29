@@ -7,8 +7,8 @@ local EncodeMod = require("moonlift.rpc_json_encode")
 
 local T = pvm.context()
 A.Define(T)
-local R = T.Moon2Rpc
-local E = T.Moon2Editor
+local R = T.MoonRpc
+local E = T.MoonEditor
 local Decode = DecodeMod.Define(T)
 local Encode = EncodeMod.Define(T)
 

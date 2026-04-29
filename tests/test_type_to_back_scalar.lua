@@ -7,9 +7,9 @@ local Scalar = require("moonlift.type_to_back_scalar")
 local T = pvm.context()
 A.Define(T)
 local L = Scalar.Define(T)
-local C = T.Moon2Core
-local Ty = T.Moon2Type
-local B = T.Moon2Back
+local C = T.MoonCore
+local Ty = T.MoonType
+local B = T.MoonBack
 
 local function known(ty, scalar)
     assert(L.result(ty) == Ty.TypeBackScalarKnown(scalar))

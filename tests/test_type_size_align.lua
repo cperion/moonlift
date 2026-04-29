@@ -7,10 +7,10 @@ local Size = require("moonlift.type_size_align")
 local T = pvm.context()
 A.Define(T)
 local L = Size.Define(T)
-local C = T.Moon2Core
-local Ty = T.Moon2Type
-local Sem = T.Moon2Sem
-local O = T.Moon2Open
+local C = T.MoonCore
+local Ty = T.MoonType
+local Sem = T.MoonSem
+local O = T.MoonOpen
 
 local function known(ty, size, align, env)
     local result = L.result(ty, env)

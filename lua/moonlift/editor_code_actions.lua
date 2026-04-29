@@ -28,10 +28,10 @@ local function class_is(node, cls)
 end
 
 function M.Define(T)
-    local S = (T.MoonSource or T.Moon2Source)
-    local E = (T.MoonEditor or T.Moon2Editor)
-    local H = (T.MoonHost or T.Moon2Host)
-    local Mlua = (T.MoonMlua or T.Moon2Mlua)
+    local S = T.MoonSource
+    local E = T.MoonEditor
+    local H = T.MoonHost
+    local Mlua = T.MoonMlua
     local Diag = Diagnostics.Define(T)
     local P = PositionIndex.Define(T)
 

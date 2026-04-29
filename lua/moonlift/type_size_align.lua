@@ -6,9 +6,9 @@ function M.Define(T)
     T._moonlift_api_cache = T._moonlift_api_cache or {}
     if T._moonlift_api_cache.type_size_align ~= nil then return T._moonlift_api_cache.type_size_align end
 
-    local Core = (T.MoonCore or T.Moon2Core)
-    local Ty = (T.MoonType or T.Moon2Type)
-    local Sem = (T.MoonSem or T.Moon2Sem)
+    local Core = T.MoonCore
+    local Ty = T.MoonType
+    local Sem = T.MoonSem
 
     local classify_api = require("moonlift.type_classify").Define(T)
 

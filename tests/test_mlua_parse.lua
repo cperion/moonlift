@@ -17,11 +17,11 @@ local HDV = HostDeclValidate.Define(T)
 local HLR = HostLayoutResolve.Define(T)
 local RTC = MluaRegionTypecheck.Define(T)
 local Loop = MluaLoopExpand.Define(T)
-local H = T.Moon2Host
-local Ty = T.Moon2Type
-local C = T.Moon2Core
-local Tr = T.Moon2Tree
-local O = T.Moon2Open
+local H = T.MoonHost
+local Ty = T.MoonType
+local C = T.MoonCore
+local Tr = T.MoonTree
+local O = T.MoonOpen
 
 local src = [[
 local staging_value = 17

@@ -26,7 +26,7 @@ end
 
 function M.Install(api, session)
     local T = session.T
-    local B, Tr = (T.MoonBind or T.Moon2Bind), (T.MoonTree or T.Moon2Tree)
+    local B, Tr = T.MoonBind, T.MoonTree
 
     local function place_value(place, ty, source_hint, extra)
         local v = extra or {}
@@ -86,7 +86,7 @@ function M.Install(api, session)
         if field_ty == nil and self.type and self.type.fields_by_name then field_ty = self.type.fields_by_name[name] end
         assert(field_ty ~= nil, "place field type is required unless the base place carries struct field metadata")
         local ft = api.as_type_value(field_ty, "place field type must be a type value")
-        return place_value(Tr.PlaceField(Tr.PlaceSurface, self.place, (T.MoonSem or T.Moon2Sem).FieldByName(name, ft.ty)), ft, (self.source_hint or "<place>") .. "." .. name)
+        return place_value(Tr.PlaceField(Tr.PlaceSurface, self.place, T.MoonSem.FieldByName(name, ft.ty)), ft, (self.source_hint or "<place>") .. "." .. name)
     end
 
     api.PlaceValue = PlaceValue

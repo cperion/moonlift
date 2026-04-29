@@ -13,9 +13,9 @@ local P = Parse.Define(T)
 local TC = Typecheck.Define(T)
 local CF = ContractFacts.Define(T)
 local KP = KernelPlan.Define(T)
-local C = T.Moon2Core
-local Tr = T.Moon2Tree
-local V = T.Moon2Vec
+local C = T.MoonCore
+local Tr = T.MoonTree
+local V = T.MoonVec
 
 local src = [[
 export func add_raw_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32) -> i32

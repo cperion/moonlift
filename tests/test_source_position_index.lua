@@ -6,7 +6,7 @@ local PositionIndex = require("moonlift.source_position_index")
 
 local T = pvm.context()
 A.Define(T)
-local S = T.Moon2Source
+local S = T.MoonSource
 local P = PositionIndex.Define(T)
 
 local function doc(text)

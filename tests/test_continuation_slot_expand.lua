@@ -14,7 +14,7 @@ local Jit = require("moonlift.back_jit")
 local T = pvm.context()
 A2.Define(T)
 
-local C, Ty, B, O, Tr = T.Moon2Core, T.Moon2Type, T.Moon2Bind, T.Moon2Open, T.Moon2Tree
+local C, Ty, B, O, Tr = T.MoonCore, T.MoonType, T.MoonBind, T.MoonOpen, T.MoonTree
 local OF = OpenFacts.Define(T)
 local OV = OpenValidate.Define(T)
 local OE = OpenExpand.Define(T)
@@ -81,7 +81,7 @@ local program = Lower.module(checked.module)
 local back_report = BV.validate(program)
 assert(#back_report.issues == 0, tostring(back_report.issues[1]))
 local artifact = jit_api.jit():compile(program)
-local ptr = artifact:getpointer(T.Moon2Back.BackFuncId("cont_slot_smoke"))
+local ptr = artifact:getpointer(T.MoonBack.BackFuncId("cont_slot_smoke"))
 local fn = ffi.cast("int32_t (*)(void)", ptr)
 assert(fn() == 42)
 artifact:free()

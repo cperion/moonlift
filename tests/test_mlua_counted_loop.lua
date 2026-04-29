@@ -9,7 +9,7 @@ local MluaParse = require("moonlift.mlua_parse")
 local T = pvm.context()
 A.Define(T)
 local MP = MluaParse.Define(T)
-local Tr = T.Moon2Tree
+local Tr = T.MoonTree
 
 local parsed = MP.parse [[
 export func sum(xs: ptr(i32), n: index) -> i32

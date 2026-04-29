@@ -42,7 +42,7 @@ end
 
 function M.Install(api, session)
     local T = session.T
-    local C, Ty = (T.MoonCore or T.Moon2Core), (T.MoonType or T.Moon2Type)
+    local C, Ty = T.MoonCore, T.MoonType
 
     local function type_value(ty, source_hint, extra)
         local v = extra or {}

@@ -112,8 +112,8 @@ local function is_array(t)
 end
 
 function M.Define(T)
-    local R = (T.MoonRpc or T.Moon2Rpc)
-    local E = (T.MoonEditor or T.Moon2Editor)
+    local R = T.MoonRpc
+    local E = T.MoonEditor
 
     local function lua_to_value(v)
         local tv = type(v)

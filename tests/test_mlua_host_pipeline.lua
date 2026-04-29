@@ -7,7 +7,7 @@ local Host = require("moonlift.host_quote")
 
 local T = pvm.context()
 A.Define(T)
-local H = T.Moon2Host
+local H = T.MoonHost
 local Pipeline = MluaHostPipeline.Define(T)
 
 local src = [[

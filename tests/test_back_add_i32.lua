@@ -11,9 +11,9 @@ A2.Define(T)
 local validate = Validate.Define(T)
 local jit_api = J.Define(T)
 
-local C2 = T.Moon2Core
-local B2 = T.Moon2Back
-local B2 = T.Moon2Back
+local C2 = T.MoonCore
+local B2 = T.MoonBack
+local B2 = T.MoonBack
 
 local sig = B2.BackSigId("sig:add_i32")
 local func = B2.BackFuncId("add_i32")

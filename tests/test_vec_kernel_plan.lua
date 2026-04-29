@@ -11,9 +11,9 @@ A.Define(T)
 local P = Parse.Define(T)
 local TC = Typecheck.Define(T)
 local KP = Plan.Define(T)
-local V = T.Moon2Vec
-local C = T.Moon2Core
-local Tr = T.Moon2Tree
+local V = T.MoonVec
+local C = T.MoonCore
+local Tr = T.MoonTree
 
 local src = [[
 export func sum_i32(xs: ptr(i32), n: i32) -> i32

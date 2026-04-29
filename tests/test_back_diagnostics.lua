@@ -6,7 +6,7 @@ local Diagnostics = require("moonlift.back_diagnostics")
 
 local T = pvm.context()
 A.Define(T)
-local B = T.Moon2Back
+local B = T.MoonBack
 local D = Diagnostics.Define(T)
 
 local program = B.BackProgram({ B.CmdFinalizeModule })

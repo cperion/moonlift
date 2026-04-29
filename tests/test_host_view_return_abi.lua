@@ -11,12 +11,12 @@ ffi.cdef[[ typedef struct MoonliftReturnViewI32 { int32_t* data; intptr_t len; i
 
 local T = pvm.context()
 A2.Define(T)
-local C = T.Moon2Core
-local Ty = T.Moon2Type
-local B = T.Moon2Bind
-local Tr = T.Moon2Tree
-local B2 = T.Moon2Back
-local B2 = T.Moon2Back
+local C = T.MoonCore
+local Ty = T.MoonType
+local B = T.MoonBind
+local Tr = T.MoonTree
+local B2 = T.MoonBack
+local B2 = T.MoonBack
 
 local Lowerer = Lower.Define(T)
 local V = Validate.Define(T)

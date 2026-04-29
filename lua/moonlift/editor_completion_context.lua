@@ -14,8 +14,8 @@ local function previous_word(prefix)
 end
 
 function M.Define(T)
-    local S = (T.MoonSource or T.Moon2Source)
-    local E = (T.MoonEditor or T.Moon2Editor)
+    local S = T.MoonSource
+    local E = T.MoonEditor
     local P = PositionIndex.Define(T)
     local AI = AnchorIndex.Define(T)
 

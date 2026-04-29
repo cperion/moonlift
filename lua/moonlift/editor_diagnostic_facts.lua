@@ -40,16 +40,16 @@ local function first_anchor_with_label(anchor_set, label)
 end
 
 function M.Define(T)
-    local S = (T.MoonSource or T.Moon2Source)
-    local E = (T.MoonEditor or T.Moon2Editor)
-    local C = (T.MoonCore or T.Moon2Core)
-    local Ty = (T.MoonType or T.Moon2Type)
-    local Mlua = (T.MoonMlua or T.Moon2Mlua)
-    local H = (T.MoonHost or T.Moon2Host)
-    local O = (T.MoonOpen or T.Moon2Open)
-    local Tr = (T.MoonTree or T.Moon2Tree)
-    local B = (T.MoonBack or T.Moon2Back)
-    local V = (T.MoonVec or T.Moon2Vec)
+    local S = T.MoonSource
+    local E = T.MoonEditor
+    local C = T.MoonCore
+    local Ty = T.MoonType
+    local Mlua = T.MoonMlua
+    local H = T.MoonHost
+    local O = T.MoonOpen
+    local Tr = T.MoonTree
+    local B = T.MoonBack
+    local V = T.MoonVec
     local P = PositionIndex.Define(T)
     local AI = AnchorIndex.Define(T)
     local ScopeFacts = BindingScopes.Define(T)

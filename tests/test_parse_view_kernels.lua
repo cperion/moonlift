@@ -20,9 +20,9 @@ local KP = KernelPlan.Define(T)
 local Lowerer = Lower.Define(T)
 local V = Validate.Define(T)
 local jit_api = J.Define(T)
-local B2 = T.Moon2Back
-local C = T.Moon2Core
-local Vec = T.Moon2Vec
+local B2 = T.MoonBack
+local C = T.MoonCore
+local Vec = T.MoonVec
 
 local src = [[
 export func sum_view_i32(xs: view(i32)) -> i32
@@ -48,13 +48,13 @@ assert(pvm.classof(plan.safety) == Vec.VecKernelSafetyProven)
 local program = Lowerer.module(checked.module)
 local report = V.validate(program)
 assert(#report.issues == 0)
-assert(program.cmds[1].params[1] == T.Moon2Back.BackPtr)
-assert(program.cmds[1].params[2] == T.Moon2Back.BackIndex)
-assert(program.cmds[1].params[3] == T.Moon2Back.BackIndex)
+assert(program.cmds[1].params[1] == T.MoonBack.BackPtr)
+assert(program.cmds[1].params[2] == T.MoonBack.BackIndex)
+assert(program.cmds[1].params[3] == T.MoonBack.BackIndex)
 local saw_vec = false
 for i = 1, #program.cmds do
     local cmd = program.cmds[i]
-    if pvm.classof(cmd) == T.Moon2Back.CmdLoadInfo and pvm.classof(cmd.ty) == T.Moon2Back.BackShapeVec then saw_vec = true end
+    if pvm.classof(cmd) == T.MoonBack.CmdLoadInfo and pvm.classof(cmd.ty) == T.MoonBack.BackShapeVec then saw_vec = true end
 end
 assert(saw_vec, "expected vector load for view sum")
 

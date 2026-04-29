@@ -40,7 +40,7 @@ local function append_value_defs(out, B, index, values)
 end
 
 function M.Define(T)
-    local B = T.MoonBack or (T.MoonBack or T.Moon2Back)
+    local B = T.MoonBack or T.MoonBack
     assert(B, "moonlift.back_validate.Define expects MoonBack/Moon2Back in the context")
 
     local function append_address_base_uses(out, index, base)

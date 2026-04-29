@@ -31,8 +31,8 @@ local T = pvm.context()
 A2.Define(T)
 local validate = Validate.Define(T)
 local object_api = Object.Define(T)
-local C2 = T.Moon2Core
-local B2 = T.Moon2Back
+local C2 = T.MoonCore
+local B2 = T.MoonBack
 
 local function sid(text) return B2.BackSigId(text) end
 local function fid(text) return B2.BackFuncId(text) end

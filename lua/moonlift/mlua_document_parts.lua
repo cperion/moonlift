@@ -239,8 +239,8 @@ local function add_anchor(S, anchors, id_text, kind, label, range)
 end
 
 function M.Define(T)
-    local S = (T.MoonSource or T.Moon2Source)
-    local Mlua = (T.MoonMlua or T.Moon2Mlua)
+    local S = T.MoonSource
+    local Mlua = T.MoonMlua
     local P = PositionIndex.Define(T)
 
     local function make_lua_segment(index, document, segments, start_offset, stop_offset)

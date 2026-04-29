@@ -3,8 +3,8 @@ local pvm = require("moonlift.pvm")
 local M = {}
 
 function M.Define(T)
-    local B = (T.MoonBind or T.Moon2Bind)
-    local Tr = (T.MoonTree or T.Moon2Tree)
+    local B = T.MoonBind
+    local Tr = T.MoonTree
 
     local stmt_env_effect
 

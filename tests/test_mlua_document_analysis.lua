@@ -6,12 +6,12 @@ local AnalysisMod = require("moonlift.mlua_document_analysis")
 
 local T = pvm.context()
 A.Define(T)
-local S = T.Moon2Source
-local Mlua = T.Moon2Mlua
-local H = T.Moon2Host
-local O = T.Moon2Open
-local Tr = T.Moon2Tree
-local B = T.Moon2Back
+local S = T.MoonSource
+local Mlua = T.MoonMlua
+local H = T.MoonHost
+local O = T.MoonOpen
+local Tr = T.MoonTree
+local B = T.MoonBack
 local Analysis = AnalysisMod.Define(T)
 
 local uri = S.DocUri("file:///analysis.mlua")

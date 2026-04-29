@@ -7,9 +7,9 @@ local HostDeclValidate = require("moonlift.host_decl_validate")
 local T = pvm.context()
 A.Define(T)
 local V = HostDeclValidate.Define(T)
-local H = T.Moon2Host
-local Ty = T.Moon2Type
-local C = T.Moon2Core
+local H = T.MoonHost
+local Ty = T.MoonType
+local C = T.MoonCore
 
 local function layout_id(name)
     return H.HostLayoutId("test." .. name, name)

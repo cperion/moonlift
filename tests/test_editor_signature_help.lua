@@ -8,13 +8,13 @@ local PositionIndex = require("moonlift.source_position_index")
 
 local T = pvm.context()
 A.Define(T)
-local S = T.Moon2Source
-local E = T.Moon2Editor
-local Mlua = T.Moon2Mlua
-local H = T.Moon2Host
-local Ty = T.Moon2Type
-local C = T.Moon2Core
-local Tr = T.Moon2Tree
+local S = T.MoonSource
+local E = T.MoonEditor
+local Mlua = T.MoonMlua
+local H = T.MoonHost
+local Ty = T.MoonType
+local C = T.MoonCore
+local Tr = T.MoonTree
 local Analysis = AnalysisMod.Define(T)
 local Sig = SigMod.Define(T)
 local P = PositionIndex.Define(T)

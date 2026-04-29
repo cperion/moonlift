@@ -7,10 +7,10 @@ local Abi = require("moonlift.type_func_abi_plan")
 local T = pvm.context()
 A.Define(T)
 local L = Abi.Define(T)
-local C = T.Moon2Core
-local Ty = T.Moon2Type
-local B = T.Moon2Bind
-local Back = T.Moon2Back
+local C = T.MoonCore
+local Ty = T.MoonType
+local B = T.MoonBind
+local Back = T.MoonBack
 
 local i32 = Ty.TScalar(C.ScalarI32)
 local view_i32 = Ty.TView(i32)

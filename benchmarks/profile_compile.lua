@@ -81,7 +81,7 @@ assert(#report.issues == 0, "back validation issues: " .. #report.issues)
 local jit = timed("jit_create", function() return jit_api.jit() end)
 local artifact = timed("back_jit_cranelift_compile", function() return jit:compile(program) end)
 
-local B2 = T.Moon2Back
+local B2 = T.MoonBack
 local sum_i32 = ffi.cast("int32_t (*)(const int32_t*, int32_t)", artifact:getpointer(B2.BackFuncId("sum_i32")))
 local xs = ffi.new("int32_t[8]", { 3, 20, 37, 54, 71, 88, 105, 122 })
 assert(sum_i32(xs, 8) == 500)

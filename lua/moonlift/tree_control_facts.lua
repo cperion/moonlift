@@ -3,7 +3,7 @@ local pvm = require("moonlift.pvm")
 local M = {}
 
 function M.Define(T)
-    local Tr = (T.MoonTree or T.Moon2Tree)
+    local Tr = T.MoonTree
 
     local expr_type
     local stmt_facts

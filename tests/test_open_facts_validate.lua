@@ -9,10 +9,10 @@ local T = pvm.context()
 A.Define(T)
 local F = Facts.Define(T)
 local V = Validate.Define(T)
-local C = T.Moon2Core
-local Ty = T.Moon2Type
-local O = T.Moon2Open
-local Tr = T.Moon2Tree
+local C = T.MoonCore
+local Ty = T.MoonType
+local O = T.MoonOpen
+local Tr = T.MoonTree
 
 local i32 = Ty.TScalar(C.ScalarI32)
 local lit = Tr.ExprLit(Tr.ExprTyped(i32), C.LitInt("1"))

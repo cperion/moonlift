@@ -3,7 +3,7 @@ local pvm = require("moonlift.pvm")
 local M = {}
 
 function M.Define(T)
-    local H = (T.MoonHost or T.Moon2Host)
+    local H = T.MoonHost
 
     local function field_read_op(field)
         if pvm.classof(field.rep) == H.HostRepBool then return H.HostAccessDecodeBool(field) end

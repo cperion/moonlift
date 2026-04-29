@@ -11,11 +11,11 @@ A.Define(T)
 local E = Expand.Define(T)
 local F = Facts.Define(T)
 local V = Validate.Define(T)
-local C = T.Moon2Core
-local Ty = T.Moon2Type
-local O = T.Moon2Open
-local B = T.Moon2Bind
-local Tr = T.Moon2Tree
+local C = T.MoonCore
+local Ty = T.MoonType
+local O = T.MoonOpen
+local B = T.MoonBind
+local Tr = T.MoonTree
 
 local i32 = Ty.TScalar(C.ScalarI32)
 local u64 = Ty.TScalar(C.ScalarU64)

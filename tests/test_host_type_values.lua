@@ -4,7 +4,7 @@ local pvm = require("moonlift.pvm")
 local moon = require("moonlift.host")
 
 local T = moon.T
-local C, Ty = T.Moon2Core, T.Moon2Type
+local C, Ty = T.MoonCore, T.MoonType
 
 assert(moon.i32.ty == Ty.TScalar(C.ScalarI32))
 assert(moon.bool.ty == Ty.TScalar(C.ScalarBool))
@@ -34,6 +34,6 @@ assert(named.ty == Ty.TNamed(Ty.TypeRefGlobal("Demo", "Pair")))
 
 local s = moon.new_session({ prefix = "test" })
 local h = s:api()
-assert(h.i64.ty == h.T.Moon2Type.TScalar(h.T.Moon2Core.ScalarI64))
+assert(h.i64.ty == h.T.MoonType.TScalar(h.T.MoonCore.ScalarI64))
 
 print("moonlift host type values ok")

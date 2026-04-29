@@ -3,7 +3,7 @@ local pvm = require("moonlift.pvm")
 local M = {}
 
 function M.Define(T)
-    local B = (T.MoonBind or T.Moon2Bind)
+    local B = T.MoonBind
 
     local decision_machine_binding
     local plan_machine_bindings

@@ -17,7 +17,7 @@ local TC = Typecheck.Define(T)
 local Lower = TreeToBack.Define(T)
 local V = Validate.Define(T)
 local jit_api = J.Define(T)
-local B2 = T.Moon2Back
+local B2 = T.MoonBack
 
 local src = [[
 export func sum_i32(xs: ptr(i32), n: i32) -> i32
@@ -277,26 +277,26 @@ local saw_vec_memory_proof = false
 local saw_vec_alignment = false
 for i = 1, #program.cmds do
     local cmd = program.cmds[i]
-    if pvm.classof(cmd) == T.Moon2Back.CmdLoadInfo and pvm.classof(cmd.ty) == T.Moon2Back.BackShapeVec then
+    if pvm.classof(cmd) == T.MoonBack.CmdLoadInfo and pvm.classof(cmd.ty) == T.MoonBack.BackShapeVec then
         saw_vec_load = true
-        if cmd.ty.vec.elem == T.Moon2Back.BackI64 and cmd.ty.vec.lanes == 2 then saw_i64x2 = true end
-        if pvm.classof(cmd.memory.trap) == T.Moon2Back.BackNonTrapping and (pvm.classof(cmd.memory.dereference) == T.Moon2Back.BackDerefBytes or pvm.classof(cmd.memory.dereference) == T.Moon2Back.BackDerefAssumed) then saw_vec_memory_proof = true end
-        if pvm.classof(cmd.memory.alignment) == T.Moon2Back.BackAlignAssumed or pvm.classof(cmd.memory.alignment) == T.Moon2Back.BackAlignKnown then saw_vec_alignment = true end
-    elseif pvm.classof(cmd) == T.Moon2Back.CmdVecBinary and cmd.op == T.Moon2Back.BackVecIntAdd then
+        if cmd.ty.vec.elem == T.MoonBack.BackI64 and cmd.ty.vec.lanes == 2 then saw_i64x2 = true end
+        if pvm.classof(cmd.memory.trap) == T.MoonBack.BackNonTrapping and (pvm.classof(cmd.memory.dereference) == T.MoonBack.BackDerefBytes or pvm.classof(cmd.memory.dereference) == T.MoonBack.BackDerefAssumed) then saw_vec_memory_proof = true end
+        if pvm.classof(cmd.memory.alignment) == T.MoonBack.BackAlignAssumed or pvm.classof(cmd.memory.alignment) == T.MoonBack.BackAlignKnown then saw_vec_alignment = true end
+    elseif pvm.classof(cmd) == T.MoonBack.CmdVecBinary and cmd.op == T.MoonBack.BackVecIntAdd then
         saw_vec_add = true
-    elseif pvm.classof(cmd) == T.Moon2Back.CmdVecBinary and cmd.op == T.Moon2Back.BackVecIntSub then
+    elseif pvm.classof(cmd) == T.MoonBack.CmdVecBinary and cmd.op == T.MoonBack.BackVecIntSub then
         saw_vec_sub = true
-    elseif pvm.classof(cmd) == T.Moon2Back.CmdVecBinary and cmd.op == T.Moon2Back.BackVecIntMul then
+    elseif pvm.classof(cmd) == T.MoonBack.CmdVecBinary and cmd.op == T.MoonBack.BackVecIntMul then
         saw_vec_mul = true
-    elseif pvm.classof(cmd) == T.Moon2Back.CmdVecBinary and cmd.op == T.Moon2Back.BackVecBitAnd then
+    elseif pvm.classof(cmd) == T.MoonBack.CmdVecBinary and cmd.op == T.MoonBack.BackVecBitAnd then
         saw_vec_band = true
-    elseif pvm.classof(cmd) == T.Moon2Back.CmdVecBinary and cmd.op == T.Moon2Back.BackVecBitOr then
+    elseif pvm.classof(cmd) == T.MoonBack.CmdVecBinary and cmd.op == T.MoonBack.BackVecBitOr then
         saw_vec_bor = true
-    elseif pvm.classof(cmd) == T.Moon2Back.CmdVecBinary and cmd.op == T.Moon2Back.BackVecBitXor then
+    elseif pvm.classof(cmd) == T.MoonBack.CmdVecBinary and cmd.op == T.MoonBack.BackVecBitXor then
         saw_vec_bxor = true
-    elseif pvm.classof(cmd) == T.Moon2Back.CmdStoreInfo and pvm.classof(cmd.ty) == T.Moon2Back.BackShapeVec then
+    elseif pvm.classof(cmd) == T.MoonBack.CmdStoreInfo and pvm.classof(cmd.ty) == T.MoonBack.BackShapeVec then
         saw_vec_store = true
-    elseif pvm.classof(cmd) == T.Moon2Back.CmdAliasFact then
+    elseif pvm.classof(cmd) == T.MoonBack.CmdAliasFact then
         saw_alias_fact = true
     end
 end

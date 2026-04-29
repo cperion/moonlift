@@ -3,7 +3,7 @@ local pvm = require("moonlift.pvm")
 local M = {}
 
 function M.Define(T)
-    local H = (T.MoonHost or T.Moon2Host)
+    local H = T.MoonHost
 
     local phase = pvm.phase("moon2_host_decl_parse", {
         [H.HostDeclSourceSet] = function(self)

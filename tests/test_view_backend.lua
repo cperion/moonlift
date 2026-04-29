@@ -16,7 +16,7 @@ local TC = Typecheck.Define(T)
 local Lowerer = Lower.Define(T)
 local V = Validate.Define(T)
 local jit_api = J.Define(T)
-local B2 = T.Moon2Back
+local B2 = T.MoonBack
 
 local src = [[
 export func first_from_view(xs: ptr(i32), n: index) -> i32

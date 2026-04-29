@@ -20,10 +20,10 @@ local KP = KernelPlan.Define(T)
 local Lowerer = Lower.Define(T)
 local V = Validate.Define(T)
 local jit_api = J.Define(T)
-local B2 = T.Moon2Back
-local B2 = T.Moon2Back
-local C = T.Moon2Core
-local Vec = T.Moon2Vec
+local B2 = T.MoonBack
+local B2 = T.MoonBack
+local C = T.MoonCore
+local Vec = T.MoonVec
 
 local src = [[
 export func clamp_nonneg_i32(noalias dst: ptr(i32), readonly a: ptr(i32), n: i32) -> i32

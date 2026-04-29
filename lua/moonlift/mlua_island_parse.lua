@@ -81,10 +81,10 @@ local function find_word(src, word, init)
 end
 
 function M.Define(T)
-    local S = (T.MoonSource or T.Moon2Source)
-    local Mlua = (T.MoonMlua or T.Moon2Mlua)
-    local H = (T.MoonHost or T.Moon2Host)
-    local Tr = (T.MoonTree or T.Moon2Tree)
+    local S = T.MoonSource
+    local Mlua = T.MoonMlua
+    local H = T.MoonHost
+    local Tr = T.MoonTree
     local P = PositionIndex.Define(T)
     local Parser = MluaParse.Define(T)
 

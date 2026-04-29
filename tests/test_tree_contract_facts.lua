@@ -11,7 +11,7 @@ A.Define(T)
 local P = Parse.Define(T)
 local TC = Typecheck.Define(T)
 local CF = ContractFacts.Define(T)
-local Tr = T.Moon2Tree
+local Tr = T.MoonTree
 
 local src = [[
 export func add_noalias_i32(noalias dst: ptr(i32), readonly a: ptr(i32), readonly b: ptr(i32), n: i32) -> i32

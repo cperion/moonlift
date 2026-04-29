@@ -165,12 +165,12 @@ local scope_open_words = {
 }
 
 function M.Define(T)
-    local S = (T.MoonSource or T.Moon2Source)
-    local C = (T.MoonCore or T.Moon2Core)
-    local Ty = (T.MoonType or T.Moon2Type)
-    local B = (T.MoonBind or T.Moon2Bind)
-    local E = (T.MoonEditor or T.Moon2Editor)
-    local Mlua = (T.MoonMlua or T.Moon2Mlua)
+    local S = T.MoonSource
+    local C = T.MoonCore
+    local Ty = T.MoonType
+    local B = T.MoonBind
+    local E = T.MoonEditor
+    local Mlua = T.MoonMlua
     local P = PositionIndex.Define(T)
 
     scalar_type_names = scalar_type_names or {

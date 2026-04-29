@@ -6,7 +6,7 @@ local Inspect = require("moonlift.back_inspect")
 
 local T = pvm.context()
 A2.Define(T)
-local B = T.Moon2Back
+local B = T.MoonBack
 local I = Inspect.Define(T)
 
 local sig = B.BackSigId("sig")
@@ -20,7 +20,7 @@ local sem = B.BackIntSemantics(B.BackIntWrap, B.BackIntMayLose)
 local program = B.BackProgram({
     B.CmdTargetModel(B.BackTargetModel(B.BackTargetCraneliftJit, { B.BackTargetSupportsShape(B.BackShapeScalar(B.BackI32)) })),
     B.CmdCreateSig(sig, { B.BackPtr }, { B.BackI32 }),
-    B.CmdDeclareFunc(T.Moon2Core.VisibilityExport, func, sig),
+    B.CmdDeclareFunc(T.MoonCore.VisibilityExport, func, sig),
     B.CmdBeginFunc(func),
     B.CmdCreateBlock(entry),
     B.CmdSwitchToBlock(entry),

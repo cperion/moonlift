@@ -5,9 +5,9 @@ local JsonEncode = require("moonlift.rpc_json_encode")
 local M = {}
 
 function M.Define(T)
-    local E = (T.MoonEditor or T.Moon2Editor)
-    local R = (T.MoonRpc or T.Moon2Rpc)
-    local L = (T.MoonLsp or T.Moon2Lsp)
+    local E = T.MoonEditor
+    local R = T.MoonRpc
+    local L = T.MoonLsp
     local Decode = JsonDecode.Define(T)
     local Encode = JsonEncode.Define(T)
 

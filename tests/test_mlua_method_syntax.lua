@@ -8,7 +8,7 @@ local Host = require("moonlift.host_quote")
 local T = pvm.context()
 A.Define(T)
 local MP = MluaParse.Define(T)
-local H = T.Moon2Host
+local H = T.MoonHost
 
 local translated = Host.translate([[function User:is_adult()
     return self.age >= 18
@@ -26,7 +26,7 @@ return User
 ]]
 local lua_decls = User:host_decl_set()
 assert(#lua_decls.decls == 2)
-assert(pvm.classof(lua_decls.decls[2].decl) == User.T.Moon2Host.HostAccessorLua)
+assert(pvm.classof(lua_decls.decls[2].decl) == User.T.MoonHost.HostAccessorLua)
 assert(lua_decls.decls[2].decl.owner_name == "User")
 assert(lua_decls.decls[2].decl.name == "is_adult")
 

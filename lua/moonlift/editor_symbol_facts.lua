@@ -36,11 +36,11 @@ local function const_name(pvm, Tr, item)
 end
 
 function M.Define(T)
-    local S = (T.MoonSource or T.Moon2Source)
-    local E = (T.MoonEditor or T.Moon2Editor)
-    local Mlua = (T.MoonMlua or T.Moon2Mlua)
-    local H = (T.MoonHost or T.Moon2Host)
-    local Tr = (T.MoonTree or T.Moon2Tree)
+    local S = T.MoonSource
+    local E = T.MoonEditor
+    local Mlua = T.MoonMlua
+    local H = T.MoonHost
+    local Tr = T.MoonTree
     local P = PositionIndex.Define(T)
     local ROOT = E.SymbolId("root")
 

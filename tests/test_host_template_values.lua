@@ -4,7 +4,7 @@ local pvm = require("moonlift.pvm")
 local moon = require("moonlift.host")
 
 local T = moon.T
-local Ty, O, Tr = T.Moon2Type, T.Moon2Open, T.Moon2Tree
+local Ty, O, Tr = T.MoonType, T.MoonOpen, T.MoonTree
 
 local TParam = moon.type_param("T")
 assert(pvm.classof(TParam.ty) == Ty.TSlot)

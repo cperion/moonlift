@@ -23,9 +23,9 @@ local function align_to(offset, align)
 end
 
 function M.Define(T)
-    local H = (T.MoonHost or T.Moon2Host)
-    local Ty = (T.MoonType or T.Moon2Type)
-    local C = (T.MoonCore or T.Moon2Core)
+    local H = T.MoonHost
+    local Ty = T.MoonType
+    local C = T.MoonCore
 
     local scalar_size_align = {
         [C.ScalarBool] = { 1, 1 },

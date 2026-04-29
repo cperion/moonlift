@@ -1,8 +1,8 @@
 local M = {}
 
 function M.Define(T)
-    local Back = (T.MoonBack or T.Moon2Back)
-    local Vec = (T.MoonVec or T.Moon2Vec)
+    local Back = T.MoonBack
+    local Vec = T.MoonVec
     assert(Back and Vec, "moonlift.back_diagnostics.Define expects moonlift.asdl in the context")
 
     local Inspect = require("moonlift.back_inspect").Define(T)

@@ -63,7 +63,7 @@ local function compile_source(src)
     local report = V.validate(program)
     if #report.issues ~= 0 then return nil, { stage = "validate", issues = report.issues } end
     local artifact = jit_api.jit():compile(program)
-    return { artifact = artifact, T = T, B2 = (T.MoonBack or T.Moon2Back) }, nil
+    return { artifact = artifact, T = T, B2 = T.MoonBack }, nil
 end
 
 function M.compile()

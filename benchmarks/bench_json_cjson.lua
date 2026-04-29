@@ -107,7 +107,7 @@ local TC = Typecheck.Define(T)
 local Lower = TreeToBack.Define(T)
 local V = Validate.Define(T)
 local jit_api = J.Define(T)
-local B2 = T.Moon2Back
+local B2 = T.MoonBack
 
 local compile_start = os.clock()
 local parsed = P.parse_module(SRC)

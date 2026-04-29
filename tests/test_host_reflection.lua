@@ -4,10 +4,10 @@ local pvm = require("moonlift.pvm")
 local moon = require("moonlift.host")
 
 local T = moon.T
-local Ty, Sem = T.Moon2Type, T.Moon2Sem
+local Ty, Sem = T.MoonType, T.MoonSem
 
 local class = moon.classify_type(moon.i32)
-assert(class == Ty.TypeClassScalar(T.Moon2Core.ScalarI32))
+assert(class == Ty.TypeClassScalar(T.MoonCore.ScalarI32))
 
 local layout = moon.size_align(moon.ptr(moon.i32))
 assert(pvm.classof(layout) == Ty.TypeMemLayoutKnown)
@@ -51,6 +51,6 @@ assert(pvm.classof(unknown_abi.class) == Ty.AbiUnknown)
 
 local s = moon.session({ prefix = "reflect" })
 local h = s:api()
-assert(s:classify_type(h.u64) == h.T.Moon2Type.TypeClassScalar(h.T.Moon2Core.ScalarU64))
+assert(s:classify_type(h.u64) == h.T.MoonType.TypeClassScalar(h.T.MoonCore.ScalarU64))
 
 print("moonlift host reflection ok")

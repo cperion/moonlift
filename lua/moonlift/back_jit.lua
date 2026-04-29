@@ -90,8 +90,8 @@ local function format_hex_bytes(bytes, cols)
 end
 
 function M.Define(T, opts)
-    local Back = T.MoonBack or (T.MoonBack or T.Moon2Back)
-    local Core = T.MoonCore or (T.MoonCore or T.Moon2Core)
+    local Back = T.MoonBack or T.MoonBack
+    local Core = T.MoonCore or T.MoonCore
     assert(Back and Core, "moonlift.back_jit.Define expects MoonBack/MoonCore in the context")
     local lib = load_library(opts and opts.libpath or nil)
     local tape_api = require("moonlift.back_command_tape").Define(T)

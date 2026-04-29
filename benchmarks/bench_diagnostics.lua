@@ -54,9 +54,9 @@ local V = Validate.Define(T)
 local KP = KernelPlan.Define(T)
 local BI = BackInspect.Define(T)
 local BD = BackDiagnostics.Define(T)
-local B = T.Moon2Back
-local Vec = T.Moon2Vec
-local Core = T.Moon2Core
+local B = T.MoonBack
+local Vec = T.MoonVec
+local Core = T.MoonCore
 
 local parsed = P.parse_module(SRC)
 assert(#parsed.issues == 0)

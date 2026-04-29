@@ -6,7 +6,7 @@ local Inspect = require("moonlift.vec_inspect")
 
 local T = pvm.context()
 A2.Define(T)
-local V = T.Moon2Vec
+local V = T.MoonVec
 local I = Inspect.Define(T)
 
 local loop = V.VecLoopId("loop")

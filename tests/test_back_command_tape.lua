@@ -6,8 +6,8 @@ local Tape = require("moonlift.back_command_tape")
 
 local T = pvm.context()
 A.Define(T)
-local B = T.Moon2Back
-local C = T.Moon2Core
+local B = T.MoonBack
+local C = T.MoonCore
 local E = Tape.Define(T)
 
 local sig = B.BackSigId("sig")

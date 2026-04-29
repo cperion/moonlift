@@ -1,7 +1,7 @@
 local M = {}
 
 function M.Define(T)
-    local V = (T.MoonVec or T.Moon2Vec)
+    local V = T.MoonVec
     assert(V, "moonlift.vec_inspect.Define expects moonlift.asdl in the context")
 
     local function decision(decision)

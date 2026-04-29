@@ -3,7 +3,7 @@ local pvm = require("moonlift.pvm")
 local M = {}
 
 function M.Define(T)
-    local C = (T.MoonCore or T.Moon2Core)
+    local C = T.MoonCore
 
     local unary_class
     local binary_class

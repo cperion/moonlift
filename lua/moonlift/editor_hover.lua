@@ -41,10 +41,10 @@ local function find_field_layout(layout, name)
 end
 
 function M.Define(T)
-    local E = (T.MoonEditor or T.Moon2Editor)
-    local C = (T.MoonCore or T.Moon2Core)
-    local H = (T.MoonHost or T.Moon2Host)
-    local Mlua = (T.MoonMlua or T.Moon2Mlua)
+    local E = T.MoonEditor
+    local C = T.MoonCore
+    local H = T.MoonHost
+    local Mlua = T.MoonMlua
     local Subject = SubjectAt.Define(T)
 
     local hover_from_pick_phase = pvm.phase("moon2_editor_hover_from_subject", function(pick, analysis)

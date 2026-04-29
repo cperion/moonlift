@@ -6,7 +6,7 @@ local SourceApply = require("moonlift.source_text_apply")
 
 local T = pvm.context()
 A.Define(T)
-local S = T.Moon2Source
+local S = T.MoonSource
 local Apply = SourceApply.Define(T)
 
 local uri = S.DocUri("file:///edit.mlua")

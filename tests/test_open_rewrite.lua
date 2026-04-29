@@ -7,11 +7,11 @@ local Rewrite = require("moonlift.open_rewrite")
 local T = pvm.context()
 A.Define(T)
 local R = Rewrite.Define(T)
-local C = T.Moon2Core
-local Ty = T.Moon2Type
-local O = T.Moon2Open
-local B = T.Moon2Bind
-local Tr = T.Moon2Tree
+local C = T.MoonCore
+local Ty = T.MoonType
+local O = T.MoonOpen
+local B = T.MoonBind
+local Tr = T.MoonTree
 
 local i32 = Ty.TScalar(C.ScalarI32)
 local i64 = Ty.TScalar(C.ScalarI64)

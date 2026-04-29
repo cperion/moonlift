@@ -7,12 +7,12 @@ local Layout = require("moonlift.sem_layout_resolve")
 local T = pvm.context()
 A.Define(T)
 local L = Layout.Define(T)
-local C = T.Moon2Core
-local Ty = T.Moon2Type
-local B = T.Moon2Bind
-local Sem = T.Moon2Sem
-local Tr = T.Moon2Tree
-local H = T.Moon2Host
+local C = T.MoonCore
+local Ty = T.MoonType
+local B = T.MoonBind
+local Sem = T.MoonSem
+local Tr = T.MoonTree
+local H = T.MoonHost
 
 local i32 = Ty.TScalar(C.ScalarI32)
 local i32_rep = H.HostRepScalar(C.ScalarI32)

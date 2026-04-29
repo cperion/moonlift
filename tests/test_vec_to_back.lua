@@ -13,12 +13,12 @@ local jit_api = J.Define(T)
 local validate = Validate.Define(T)
 local lower = VecToBack.Define(T)
 
-local C = T.Moon2Core
-local Ty = T.Moon2Type
-local Tr = T.Moon2Tree
-local V = T.Moon2Vec
-local Back = T.Moon2Back
-local B2 = T.Moon2Back
+local C = T.MoonCore
+local Ty = T.MoonType
+local Tr = T.MoonTree
+local V = T.MoonVec
+local Back = T.MoonBack
+local B2 = T.MoonBack
 
 local p = V.VecValueId("p")
 local loaded = V.VecValueId("loaded")

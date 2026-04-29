@@ -13,8 +13,8 @@ local P = Parse.Define(T)
 local TC = Typecheck.Define(T)
 local CF = ContractFacts.Define(T)
 local KP = KernelPlan.Define(T)
-local C = T.Moon2Core
-local Vec = T.Moon2Vec
+local C = T.MoonCore
+local Vec = T.MoonVec
 
 local src = [[
 export func sum_stride1(xs: ptr(i32), n: index) -> i32

@@ -31,10 +31,10 @@ local function find_doc(state, uri)
 end
 
 function M.Define(T)
-    local S = (T.MoonSource or T.Moon2Source)
-    local E = (T.MoonEditor or T.Moon2Editor)
-    local R = (T.MoonRpc or T.Moon2Rpc)
-    local L = (T.MoonLsp or T.Moon2Lsp)
+    local S = T.MoonSource
+    local E = T.MoonEditor
+    local R = T.MoonRpc
+    local L = T.MoonLsp
     local Analysis = AnalysisMod.Define(T)
     local Diag = Diagnostics.Define(T)
     local Sym = Symbols.Define(T)

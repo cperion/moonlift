@@ -21,9 +21,9 @@ local KP = KernelPlan.Define(T)
 local Lowerer = Lower.Define(T)
 local V = Validate.Define(T)
 local jit_api = J.Define(T)
-local B2 = T.Moon2Back
-local C = T.Moon2Core
-local Vec = T.Moon2Vec
+local B2 = T.MoonBack
+local C = T.MoonCore
+local Vec = T.MoonVec
 
 local src = [[
 export func sum_construct_view_i32(xs: ptr(i32), n: index) -> i32
@@ -401,16 +401,16 @@ assert(#report.issues == 0)
 local saw = { add = false, sub = false, mul = false, band = false, bor = false, bxor = false, i64 = false, u64 = false }
 for i = 1, #program.cmds do
     local cmd = program.cmds[i]
-    if pvm.classof(cmd) == T.Moon2Back.CmdVecBinary then
-        if cmd.op == T.Moon2Back.BackVecIntAdd then saw.add = true end
-        if cmd.op == T.Moon2Back.BackVecIntSub then saw.sub = true end
-        if cmd.op == T.Moon2Back.BackVecIntMul then saw.mul = true end
-        if cmd.op == T.Moon2Back.BackVecBitAnd then saw.band = true end
-        if cmd.op == T.Moon2Back.BackVecBitOr then saw.bor = true end
-        if cmd.op == T.Moon2Back.BackVecBitXor then saw.bxor = true end
-    elseif pvm.classof(cmd) == T.Moon2Back.CmdLoadInfo and pvm.classof(cmd.ty) == T.Moon2Back.BackShapeVec then
-        if cmd.ty.vec.elem == T.Moon2Back.BackI64 and cmd.ty.vec.lanes == 2 then saw.i64 = true end
-        if cmd.ty.vec.elem == T.Moon2Back.BackU64 and cmd.ty.vec.lanes == 2 then saw.u64 = true end
+    if pvm.classof(cmd) == T.MoonBack.CmdVecBinary then
+        if cmd.op == T.MoonBack.BackVecIntAdd then saw.add = true end
+        if cmd.op == T.MoonBack.BackVecIntSub then saw.sub = true end
+        if cmd.op == T.MoonBack.BackVecIntMul then saw.mul = true end
+        if cmd.op == T.MoonBack.BackVecBitAnd then saw.band = true end
+        if cmd.op == T.MoonBack.BackVecBitOr then saw.bor = true end
+        if cmd.op == T.MoonBack.BackVecBitXor then saw.bxor = true end
+    elseif pvm.classof(cmd) == T.MoonBack.CmdLoadInfo and pvm.classof(cmd.ty) == T.MoonBack.BackShapeVec then
+        if cmd.ty.vec.elem == T.MoonBack.BackI64 and cmd.ty.vec.lanes == 2 then saw.i64 = true end
+        if cmd.ty.vec.elem == T.MoonBack.BackU64 and cmd.ty.vec.lanes == 2 then saw.u64 = true end
     end
 end
 assert(saw.add and saw.sub and saw.mul and saw.band and saw.bor and saw.bxor and saw.i64 and saw.u64)

@@ -13,12 +13,12 @@ local jit_api = J.Define(T)
 local validate = Validate.Define(T)
 local lower = TreeToBack.Define(T)
 
-local C = T.Moon2Core
-local Ty = T.Moon2Type
-local Bn = T.Moon2Bind
-local Sem = T.Moon2Sem
-local Tr = T.Moon2Tree
-local B2 = T.Moon2Back
+local C = T.MoonCore
+local Ty = T.MoonType
+local Bn = T.MoonBind
+local Sem = T.MoonSem
+local Tr = T.MoonTree
+local B2 = T.MoonBack
 
 local i32 = Ty.TScalar(C.ScalarI32)
 local bool = Ty.TScalar(C.ScalarBool)

@@ -4,11 +4,11 @@ local bit = require("bit")
 local M = {}
 
 function M.Define(T)
-    local C = (T.MoonCore or T.Moon2Core)
-    local Ty = (T.MoonType or T.Moon2Type)
-    local B = (T.MoonBind or T.Moon2Bind)
-    local Sem = (T.MoonSem or T.Moon2Sem)
-    local Tr = (T.MoonTree or T.Moon2Tree)
+    local C = T.MoonCore
+    local Ty = T.MoonType
+    local B = T.MoonBind
+    local Sem = T.MoonSem
+    local Tr = T.MoonTree
 
     local expr_type
     local literal_const

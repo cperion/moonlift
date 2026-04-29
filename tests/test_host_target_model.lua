@@ -7,7 +7,7 @@ local HostFacts = require("moonlift.host_layout_facts")
 local T = pvm.context()
 A.Define(T)
 local HF = HostFacts.Define(T)
-local H = T.Moon2Host
+local H = T.MoonHost
 
 local host = HF.default_target_model()
 assert(pvm.classof(host) == H.HostTargetModel)

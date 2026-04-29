@@ -7,13 +7,13 @@ local DiagMod = require("moonlift.editor_diagnostic_facts")
 
 local T = pvm.context()
 A.Define(T)
-local S = T.Moon2Source
-local E = T.Moon2Editor
-local H = T.Moon2Host
-local O = T.Moon2Open
-local Tr = T.Moon2Tree
-local B = T.Moon2Back
-local V = T.Moon2Vec
+local S = T.MoonSource
+local E = T.MoonEditor
+local H = T.MoonHost
+local O = T.MoonOpen
+local Tr = T.MoonTree
+local B = T.MoonBack
+local V = T.MoonVec
 local Analysis = AnalysisMod.Define(T)
 local Diag = DiagMod.Define(T)
 
@@ -103,7 +103,7 @@ assert(saw_expected)
 
 local parsed = host_bad.parse
 local base = host_bad.host
-local synthetic = T.Moon2Mlua.DocumentAnalysis(
+local synthetic = T.MoonMlua.DocumentAnalysis(
     parsed,
     base,
     O.ValidationReport({ O.IssueOpenModuleName }),

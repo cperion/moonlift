@@ -44,13 +44,13 @@ end
 
 local function reserve_type_name(self, name)
     assert_name(name, "type")
-    if self.type_names[name] ~= nil then self.api.raise_host_issue((self.session.T.MoonHost or self.session.T.Moon2Host).HostIssueDuplicateType(self.name, name)) end
+    if self.type_names[name] ~= nil then self.api.raise_host_issue(self.session.T.MoonHost.HostIssueDuplicateType(self.name, name)) end
     self.type_names[name] = true
 end
 
 local function reserve_func_name(self, name)
     assert_name(name, "func")
-    if self.func_names[name] ~= nil then self.api.raise_host_issue((self.session.T.MoonHost or self.session.T.Moon2Host).HostIssueDuplicateFunc(self.name, name)) end
+    if self.func_names[name] ~= nil then self.api.raise_host_issue(self.session.T.MoonHost.HostIssueDuplicateFunc(self.name, name)) end
     self.func_names[name] = true
 end
 
@@ -95,16 +95,16 @@ end
 
 function ModuleValue:to_asdl()
     for i = 1, #self.drafts do
-        if not self.drafts[i].sealed then self.api.raise_host_issue((self.session.T.MoonHost or self.session.T.Moon2Host).HostIssueUnsealedType(self.name, self.drafts[i].name)) end
+        if not self.drafts[i].sealed then self.api.raise_host_issue(self.session.T.MoonHost.HostIssueUnsealedType(self.name, self.drafts[i].name)) end
     end
-    local Tr = (self.session.T.MoonTree or self.session.T.Moon2Tree)
+    local Tr = self.session.T.MoonTree
     local items = {}
     for i = 1, #self.items do items[i] = self.items[i] end
     return Tr.Module(Tr.ModuleTyped(self.name), items)
 end
 
 function ModuleValue:layout_env()
-    local Sem = (self.session.T.MoonSem or self.session.T.Moon2Sem)
+    local Sem = self.session.T.MoonSem
     local layouts = {}
     for i = 1, #self.type_values do
         local layout = self.session:layout_of(self.type_values[i])
@@ -120,7 +120,7 @@ end
 local function ctype_of_type(api, ty_value)
     local pvm = require("moonlift.pvm")
     local T = api.T
-    local Ty = (T.MoonType or T.Moon2Type)
+    local Ty = T.MoonType
     local Back = require("moonlift.type_to_back_scalar").Define(T)
     local tv = api.as_type_value(ty_value, "ctype expects type value")
     local cls = pvm.classof(tv.ty)
@@ -133,7 +133,7 @@ end
 
 local function c_sig_of(api, func_value)
     local pvm = require("moonlift.pvm")
-    local Ty = (api.T.MoonType or api.T.Moon2Type)
+    local Ty = api.T.MoonType
     local args = {}
     local result_ty = api.as_type_value(func_value.result, "function result type").ty
     local result_is_view = pvm.classof(result_ty) == Ty.TView
@@ -186,7 +186,7 @@ function CompiledModule:get(name)
     local cached = self.functions[name]
     if cached then return cached end
     local func = assert(self.module.exports[name], "compiled module has no exported function: " .. tostring(name))
-    local B2 = (self.T.MoonBack or self.T.Moon2Back)
+    local B2 = self.T.MoonBack
     local c_sig = c_sig_of(self.module.api, func)
     local ptr = self.artifact:getpointer(B2.BackFuncId(name))
     local fn = ffi.cast(c_sig, ptr)

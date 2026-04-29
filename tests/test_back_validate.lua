@@ -7,8 +7,8 @@ local V = require("moonlift.back_validate")
 local T = pvm.context()
 A.Define(T)
 local L = V.Define(T)
-local C = T.Moon2Core
-local B = T.Moon2Back
+local C = T.MoonCore
+local B = T.MoonBack
 
 local function issue_count(program)
     return #L.validate(program).issues

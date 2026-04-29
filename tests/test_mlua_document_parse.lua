@@ -8,10 +8,10 @@ local MluaParse = require("moonlift.mlua_parse")
 
 local T = pvm.context()
 A.Define(T)
-local S = T.Moon2Source
-local Mlua = T.Moon2Mlua
-local H = T.Moon2Host
-local O = T.Moon2Open
+local S = T.MoonSource
+local Mlua = T.MoonMlua
+local H = T.MoonHost
+local O = T.MoonOpen
 local Parts = PartsMod.Define(T)
 local DocParse = DocParseMod.Define(T)
 local Whole = MluaParse.Define(T)

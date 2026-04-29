@@ -51,9 +51,9 @@ function DraftStructValue:moonlift_splice_source()
 end
 
 function DraftStructValue:add_field(name, ty)
-    if self.sealed then self.api.raise_host_issue((self.session.T.MoonHost or self.session.T.Moon2Host).HostIssueSealedMutation(self.name)) end
+    if self.sealed then self.api.raise_host_issue(self.session.T.MoonHost.HostIssueSealedMutation(self.name)) end
     assert_name(name, "struct field")
-    if self.fields_by_name[name] ~= nil then self.api.raise_host_issue((self.session.T.MoonHost or self.session.T.Moon2Host).HostIssueDuplicateField(self.name, name)) end
+    if self.fields_by_name[name] ~= nil then self.api.raise_host_issue(self.session.T.MoonHost.HostIssueDuplicateField(self.name, name)) end
     local f = self.api.field(name, ty)
     self.fields[#self.fields + 1] = f
     self.fields_by_name[name] = f.type
@@ -62,10 +62,10 @@ function DraftStructValue:add_field(name, ty)
 end
 
 function DraftStructValue:seal()
-    if self.sealed then self.api.raise_host_issue((self.session.T.MoonHost or self.session.T.Moon2Host).HostIssueAlreadySealed(self.name)) end
+    if self.sealed then self.api.raise_host_issue(self.session.T.MoonHost.HostIssueAlreadySealed(self.name)) end
     local decls = {}
     for i = 1, #self.fields do decls[i] = self.fields[i].decl end
-    local Tr = (self.session.T.MoonTree or self.session.T.Moon2Tree)
+    local Tr = self.session.T.MoonTree
     self.decl = Tr.TypeDeclStruct(self.name, decls)
     self.item = Tr.ItemType(self.decl)
     self.sealed = true
@@ -90,7 +90,7 @@ end
 
 function M.Install(api, session)
     local T = session.T
-    local C, Ty, Tr = (T.MoonCore or T.Moon2Core), (T.MoonType or T.Moon2Type), (T.MoonTree or T.Moon2Tree)
+    local C, Ty, Tr = T.MoonCore, T.MoonType, T.MoonTree
 
     local function as_field(v, site)
         if type(v) == "table" and getmetatable(v) == FieldValue then return v end
@@ -106,7 +106,7 @@ function M.Install(api, session)
             by_name[f.name] = f.type
         end
         local dup = list_has_duplicate_field(out)
-        if dup ~= nil then api.raise_host_issue((session.T.MoonHost or session.T.Moon2Host).HostIssueDuplicateField("<type>", tostring(dup))) end
+        if dup ~= nil then api.raise_host_issue(session.T.MoonHost.HostIssueDuplicateField("<type>", tostring(dup))) end
         return out, by_name
     end
 

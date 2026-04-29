@@ -20,9 +20,9 @@ local KP = KernelPlan.Define(T)
 local Lowerer = Lower.Define(T)
 local V = Validate.Define(T)
 local jit_api = J.Define(T)
-local B2 = T.Moon2Back
-local C = T.Moon2Core
-local Vec = T.Moon2Vec
+local B2 = T.MoonBack
+local C = T.MoonCore
+local Vec = T.MoonVec
 
 local src = [[
 export func add_construct_view_i32(noalias dst: ptr(i32), readonly a: ptr(i32), readonly b: ptr(i32), n: index) -> i32
@@ -131,9 +131,9 @@ local saw_i64x2 = false
 local saw_u64x2 = false
 for i = 1, #program.cmds do
     local cmd = program.cmds[i]
-    if pvm.classof(cmd) == T.Moon2Back.CmdVecBinary and cmd.op == T.Moon2Back.BackVecIntAdd then saw_vec_add = true end
-    if pvm.classof(cmd) == T.Moon2Back.CmdLoadInfo and pvm.classof(cmd.ty) == T.Moon2Back.BackShapeVec and cmd.ty.vec.elem == T.Moon2Back.BackI64 and cmd.ty.vec.lanes == 2 then saw_i64x2 = true end
-    if pvm.classof(cmd) == T.Moon2Back.CmdLoadInfo and pvm.classof(cmd.ty) == T.Moon2Back.BackShapeVec and cmd.ty.vec.elem == T.Moon2Back.BackU64 and cmd.ty.vec.lanes == 2 then saw_u64x2 = true end
+    if pvm.classof(cmd) == T.MoonBack.CmdVecBinary and cmd.op == T.MoonBack.BackVecIntAdd then saw_vec_add = true end
+    if pvm.classof(cmd) == T.MoonBack.CmdLoadInfo and pvm.classof(cmd.ty) == T.MoonBack.BackShapeVec and cmd.ty.vec.elem == T.MoonBack.BackI64 and cmd.ty.vec.lanes == 2 then saw_i64x2 = true end
+    if pvm.classof(cmd) == T.MoonBack.CmdLoadInfo and pvm.classof(cmd.ty) == T.MoonBack.BackShapeVec and cmd.ty.vec.elem == T.MoonBack.BackU64 and cmd.ty.vec.lanes == 2 then saw_u64x2 = true end
 end
 assert(saw_vec_add, "expected constructed view map to vectorize")
 assert(saw_i64x2, "expected constructed i64 view map to vectorize")

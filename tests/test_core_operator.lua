@@ -7,7 +7,7 @@ local Ops = require("moonlift.core_operator")
 local T = pvm.context()
 A.Define(T)
 local L = Ops.Define(T)
-local C = T.Moon2Core
+local C = T.MoonCore
 
 assert(L.unary(C.UnaryNeg) == C.UnaryClassArithmetic)
 assert(L.unary(C.UnaryNot) == C.UnaryClassLogical)

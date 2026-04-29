@@ -16,8 +16,8 @@ local TC = Typecheck.Define(T)
 local Lower = TreeToBack.Define(T)
 local V = Validate.Define(T)
 local jit_api = J.Define(T)
-local Tr = T.Moon2Tree
-local B2 = T.Moon2Back
+local Tr = T.MoonTree
+local B2 = T.MoonBack
 
 local src = [[
 export func sum(n: i32) -> i32

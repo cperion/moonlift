@@ -11,11 +11,11 @@ A.Define(T)
 local G = Gather.Define(T)
 local D = Decide.Define(T)
 local M = Machine.Define(T)
-local C = T.Moon2Core
-local Ty = T.Moon2Type
-local B = T.Moon2Bind
-local O = T.Moon2Open
-local Tr = T.Moon2Tree
+local C = T.MoonCore
+local Ty = T.MoonType
+local B = T.MoonBind
+local O = T.MoonOpen
+local Tr = T.MoonTree
 
 local i32 = Ty.TScalar(C.ScalarI32)
 local fn_ty = Ty.TFunc({ i32 }, i32)

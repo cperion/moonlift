@@ -13,7 +13,7 @@ local function add_unique_range(out, seen, range)
 end
 
 function M.Define(T)
-    local E = (T.MoonEditor or T.Moon2Editor)
+    local E = T.MoonEditor
     local Subject = SubjectAt.Define(T)
     local Bindings = BindingFacts.Define(T)
 

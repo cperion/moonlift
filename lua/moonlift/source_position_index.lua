@@ -93,7 +93,7 @@ local function build_lines(S, document)
 end
 
 function M.Define(T)
-    local S = (T.MoonSource or T.Moon2Source)
+    local S = T.MoonSource
 
     local build_index_phase = pvm.phase("moon2_source_position_index", function(document)
         return S.PositionIndex(document, build_lines(S, document))

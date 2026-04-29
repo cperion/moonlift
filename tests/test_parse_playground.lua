@@ -20,8 +20,8 @@ local VBack = Validate.Define(T)
 local jit_api = J.Define(T)
 local VF = VecFacts.Define(T)
 local VD = VecDecide.Define(T)
-local B2 = T.Moon2Back
-local Vec = T.Moon2Vec
+local B2 = T.MoonBack
+local Vec = T.MoonVec
 
 local src = [[
 export func tri(n: i32) -> i32

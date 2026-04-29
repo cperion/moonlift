@@ -13,7 +13,7 @@ projector:compile()
 
 local T = pvm.context()
 A.Define(T)
-local H = T.Moon2Host
+local H = T.MoonHost
 local facts, layout = projector:view_layout_facts(T, { layout = { name = "JsonUserProjection" }, producer_name = "json_user_projection" })
 assert(pvm.classof(facts) == H.HostFactSet)
 assert(pvm.classof(layout) == H.HostTypeLayout)

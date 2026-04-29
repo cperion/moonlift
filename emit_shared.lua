@@ -49,7 +49,7 @@ local LT = LinkTarget.Define(T)
 local LV = LinkValidate.Define(T)
 local LC = LinkCommand.Define(T)
 local LE = LinkExecute.Define(T)
-local Link = T.Moon2Link
+local Link = T.MoonLink
 
 local function issue_list(issues)
     for j = 1, #issues do io.stderr:write(tostring(issues[j].message or issues[j]), "\n") end

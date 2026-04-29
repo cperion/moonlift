@@ -10,8 +10,8 @@ local function stable_name(text)
 end
 
 function M.Define(T)
-    local H = (T.MoonHost or T.Moon2Host)
-    local C = (T.MoonCore or T.Moon2Core)
+    local H = T.MoonHost
+    local C = T.MoonCore
 
     local scalar_terra = {
         [C.ScalarBool] = "bool",

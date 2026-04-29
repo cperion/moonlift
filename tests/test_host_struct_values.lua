@@ -4,7 +4,7 @@ local pvm = require("moonlift.pvm")
 local moon = require("moonlift.host")
 
 local T = moon.T
-local Ty, Tr = T.Moon2Type, T.Moon2Tree
+local Ty, Tr = T.MoonType, T.MoonTree
 
 local fx = moon.field("x", moon.i32)
 assert(fx.decl == Ty.FieldDecl("x", moon.i32.ty))

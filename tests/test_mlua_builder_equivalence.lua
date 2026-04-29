@@ -9,7 +9,7 @@ local HostDeclValidate = require("moonlift.host_decl_validate")
 local T = Host.default_session.T
 local MP = MluaParse.Define(T)
 local Validate = HostDeclValidate.Define(T)
-local H = T.Moon2Host
+local H = T.MoonHost
 
 local src = [[
 struct User repr(packed(4))
@@ -41,8 +41,8 @@ local struct_decl = built.decls[1].decl
 assert(struct_decl.repr == H.HostReprPacked(4))
 assert(struct_decl.fields[1].attrs[1] == H.HostFieldReadonly)
 assert(struct_decl.fields[2].attrs[1] == H.HostFieldMutable)
-assert(struct_decl.fields[2].storage == H.HostStorageBool(H.HostBoolI32, T.Moon2Core.ScalarI32))
+assert(struct_decl.fields[2].storage == H.HostStorageBool(H.HostBoolI32, T.MoonCore.ScalarI32))
 assert(struct_decl.fields[3].attrs[1] == H.HostFieldNoalias)
-assert(struct_decl.fields[3].storage == H.HostStorageBool(H.HostBoolU8, T.Moon2Core.ScalarU8))
+assert(struct_decl.fields[3].storage == H.HostStorageBool(H.HostBoolU8, T.MoonCore.ScalarU8))
 
 print("moonlift mlua builder equivalence ok")

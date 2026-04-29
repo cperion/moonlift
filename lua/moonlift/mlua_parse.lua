@@ -189,7 +189,7 @@ local function normalize_moonlift_body(src)
 end
 
 function M.Define(T)
-    local C, Ty, Tr, H, O, P = (T.MoonCore or T.Moon2Core), (T.MoonType or T.Moon2Type), (T.MoonTree or T.Moon2Tree), (T.MoonHost or T.Moon2Host), (T.MoonOpen or T.Moon2Open), (T.MoonParse or T.Moon2Parse)
+    local C, Ty, Tr, H, O, P = T.MoonCore, T.MoonType, T.MoonTree, T.MoonHost, T.MoonOpen, T.MoonParse
     local Parse = require("moonlift.parse").Define(T)
 
     local function scalar_ty(name)

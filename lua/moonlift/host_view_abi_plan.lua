@@ -9,8 +9,8 @@ local function last_path_part(path)
 end
 
 function M.Define(T)
-    local H = (T.MoonHost or T.Moon2Host)
-    local Ty = (T.MoonType or T.Moon2Type)
+    local H = T.MoonHost
+    local Ty = T.MoonType
     local HF = HostLayoutFacts.Define(T)
 
     local function layout_name_for_type(ty)

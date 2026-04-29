@@ -10,7 +10,7 @@ local TreeToBack = require("moonlift.tree_to_back")
 local BackValidate = require("moonlift.back_validate")
 
 local T = moon.T
-local Tr = T.Moon2Tree
+local Tr = T.MoonTree
 local OF = OpenFacts.Define(T)
 local OV = OpenValidate.Define(T)
 local OE = OpenExpand.Define(T)

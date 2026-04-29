@@ -11,8 +11,8 @@ A2.Define(T)
 local validate = Validate.Define(T)
 local jit_api = J.Define(T)
 
-local C = T.Moon2Core
-local B = T.Moon2Back
+local C = T.MoonCore
+local B = T.MoonBack
 
 local function sid(text) return B.BackSigId(text) end
 local function fid(text) return B.BackFuncId(text) end

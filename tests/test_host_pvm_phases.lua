@@ -14,11 +14,11 @@ local TreeFieldResolve = require("moonlift.tree_field_resolve")
 
 local T = pvm.context()
 A.Define(T)
-local H = T.Moon2Host
-local Ty = T.Moon2Type
-local C = T.Moon2Core
-local Tr = T.Moon2Tree
-local Sem = T.Moon2Sem
+local H = T.MoonHost
+local Ty = T.MoonType
+local C = T.MoonCore
+local Tr = T.MoonTree
+local Sem = T.MoonSem
 
 local DeclParse = HostDeclParse.Define(T)
 local DeclValidate = HostDeclValidate.Define(T)

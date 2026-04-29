@@ -9,12 +9,12 @@ local T = pvm.context()
 A.Define(T)
 local S = Switch.Define(T)
 local CallD = Call.Define(T)
-local C = T.Moon2Core
-local Ty = T.Moon2Type
-local O = T.Moon2Open
-local B = T.Moon2Bind
-local Sem = T.Moon2Sem
-local Tr = T.Moon2Tree
+local C = T.MoonCore
+local Ty = T.MoonType
+local O = T.MoonOpen
+local B = T.MoonBind
+local Sem = T.MoonSem
+local Tr = T.MoonTree
 
 local i32 = Ty.TScalar(C.ScalarI32)
 local fn_ty = Ty.TFunc({ i32 }, i32)

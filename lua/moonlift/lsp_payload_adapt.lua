@@ -3,8 +3,8 @@ local pvm = require("moonlift.pvm")
 local M = {}
 
 function M.Define(T)
-    local E = (T.MoonEditor or T.Moon2Editor)
-    local L = (T.MoonLsp or T.Moon2Lsp)
+    local E = T.MoonEditor
+    local L = T.MoonLsp
 
     local symbol_kind_number = {
         [E.SymFile] = 1, [E.SymModule] = 2, [E.SymNamespace] = 3, [E.SymPackage] = 4,

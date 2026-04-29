@@ -9,7 +9,7 @@ local T = pvm.context()
 A.Define(T)
 local P = Parse.Define(T)
 local MT = ModuleType.Define(T)
-local C, Ty, B, Tr = T.Moon2Core, T.Moon2Type, T.Moon2Bind, T.Moon2Tree
+local C, Ty, B, Tr = T.MoonCore, T.MoonType, T.MoonBind, T.MoonTree
 
 local parsed = P.parse_module [[
 type Pair = struct

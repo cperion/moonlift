@@ -7,8 +7,8 @@ local SymbolsMod = require("moonlift.editor_symbol_facts")
 
 local T = pvm.context()
 A.Define(T)
-local S = T.Moon2Source
-local E = T.Moon2Editor
+local S = T.MoonSource
+local E = T.MoonEditor
 local Analysis = AnalysisMod.Define(T)
 local Symbols = SymbolsMod.Define(T)
 

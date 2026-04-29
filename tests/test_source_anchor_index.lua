@@ -7,7 +7,7 @@ local AnchorIndex = require("moonlift.source_anchor_index")
 
 local T = pvm.context()
 A.Define(T)
-local S = T.Moon2Source
+local S = T.MoonSource
 local P = PositionIndex.Define(T)
 local AIndex = AnchorIndex.Define(T)
 

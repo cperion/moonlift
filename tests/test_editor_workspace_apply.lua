@@ -8,8 +8,8 @@ local Transition = require("moonlift.editor_transition")
 
 local T = pvm.context()
 A.Define(T)
-local S = T.Moon2Source
-local E = T.Moon2Editor
+local S = T.MoonSource
+local E = T.MoonEditor
 local Apply = SourceApply.Define(T)
 local W = Workspace.Define(T)
 local W2 = Transition.Define(T)

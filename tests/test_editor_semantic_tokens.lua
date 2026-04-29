@@ -9,8 +9,8 @@ local PositionIndex = require("moonlift.source_position_index")
 
 local T = pvm.context()
 A.Define(T)
-local S = T.Moon2Source
-local E = T.Moon2Editor
+local S = T.MoonSource
+local E = T.MoonEditor
 local Analysis = AnalysisMod.Define(T)
 local Tokens = TokensMod.Define(T)
 local Adapt = AdaptMod.Define(T)
@@ -48,7 +48,7 @@ local range_tokens = Tokens.range_tokens(E.RangeQuery(uri, S.DocVersion(1), r), 
 assert(#range_tokens < #tokens)
 
 local encoded = Adapt.semantic_tokens(tokens)
-assert(pvm.classof(encoded) == T.Moon2Lsp.SemanticTokens)
+assert(pvm.classof(encoded) == T.MoonLsp.SemanticTokens)
 assert(#encoded.data > 0 and #encoded.data % 5 == 0)
 
 print("moonlift editor semantic tokens ok")

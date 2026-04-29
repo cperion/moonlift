@@ -8,8 +8,8 @@ local PositionIndex = require("moonlift.source_position_index")
 
 local T = pvm.context()
 A.Define(T)
-local S = T.Moon2Source
-local E = T.Moon2Editor
+local S = T.MoonSource
+local E = T.MoonEditor
 local Analysis = AnalysisMod.Define(T)
 local Actions = ActionsMod.Define(T)
 local P = PositionIndex.Define(T)
@@ -53,7 +53,7 @@ assert(saw4)
 local dup_field_src = "struct Dup\n  id: i32\n  id: i32\nend\n"
 local dup_field_analysis, dup_field_doc = analyze(dup_field_src)
 local dup_field_range = assert(P.range_from_offsets(P.build_index(dup_field_doc), dup_field_src:find("id", dup_field_src:find("id") + 1, true) - 1, dup_field_src:find("id", dup_field_src:find("id") + 1, true) + 1))
-local dup_field_diag = E.DiagnosticFact(E.DiagnosticError, E.DiagFromHost(T.Moon2Host.HostIssueDuplicateField("Dup", "id")), "host.duplicateField", "duplicate field", dup_field_range)
+local dup_field_diag = E.DiagnosticFact(E.DiagnosticError, E.DiagFromHost(T.MoonHost.HostIssueDuplicateField("Dup", "id")), "host.duplicateField", "duplicate field", dup_field_range)
 local dup_field_actions = Actions.actions(E.CodeActionQuery(E.RangeQuery(uri, dup_field_doc.version, dup_field_range), { dup_field_diag }), dup_field_analysis)
 assert(#dup_field_actions >= 1)
 assert(dup_field_actions[1].diagnostics[1].code == "host.duplicateField")

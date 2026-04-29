@@ -18,10 +18,10 @@ local KP = Plan.Define(T)
 local TB = ToBack.Define(T)
 local V = Validate.Define(T)
 local J = Jit.Define(T)
-local Vec = T.Moon2Vec
-local Core = T.Moon2Core
-local Back = T.Moon2Back
-local Tree = T.Moon2Tree
+local Vec = T.MoonVec
+local Core = T.MoonCore
+local Back = T.MoonBack
+local Tree = T.MoonTree
 
 local src = [[
 export func sum_i32(xs: ptr(i32), n: i32) -> i32

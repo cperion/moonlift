@@ -7,7 +7,7 @@ local TreeToBack = require("moonlift.tree_to_back")
 local BackValidate = require("moonlift.back_validate")
 
 local T = moon.T
-local Tr = T.Moon2Tree
+local Tr = T.MoonTree
 local TC = Typecheck.Define(T)
 local Lower = TreeToBack.Define(T)
 local BV = BackValidate.Define(T)

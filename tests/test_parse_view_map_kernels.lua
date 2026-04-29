@@ -20,10 +20,10 @@ local KP = KernelPlan.Define(T)
 local Lowerer = Lower.Define(T)
 local V = Validate.Define(T)
 local jit_api = J.Define(T)
-local B2 = T.Moon2Back
-local C = T.Moon2Core
-local Vec = T.Moon2Vec
-local Tr = T.Moon2Tree
+local B2 = T.MoonBack
+local C = T.MoonCore
+local Vec = T.MoonVec
+local Tr = T.MoonTree
 
 local src = [[
 export func add_view_i32(noalias dst: view(i32), readonly a: view(i32), readonly b: view(i32)) -> i32
@@ -78,8 +78,8 @@ local saw_vec_add = false
 local saw_vec_store = false
 for i = 1, #program.cmds do
     local cmd = program.cmds[i]
-    if pvm.classof(cmd) == T.Moon2Back.CmdVecBinary and cmd.op == T.Moon2Back.BackVecIntAdd then saw_vec_add = true end
-    if pvm.classof(cmd) == T.Moon2Back.CmdStoreInfo and pvm.classof(cmd.ty) == T.Moon2Back.BackShapeVec then saw_vec_store = true end
+    if pvm.classof(cmd) == T.MoonBack.CmdVecBinary and cmd.op == T.MoonBack.BackVecIntAdd then saw_vec_add = true end
+    if pvm.classof(cmd) == T.MoonBack.CmdStoreInfo and pvm.classof(cmd.ty) == T.MoonBack.BackShapeVec then saw_vec_store = true end
 end
 assert(saw_vec_add, "expected vector add for view map")
 assert(saw_vec_store, "expected vector store for view maps")

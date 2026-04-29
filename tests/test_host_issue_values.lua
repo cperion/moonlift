@@ -3,7 +3,7 @@ package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./lua/?.lua;./
 local pvm = require("moonlift.pvm")
 local moon = require("moonlift.host")
 
-local H = moon.T.Moon2Host
+local H = moon.T.MoonHost
 local issue = H.HostIssueDuplicateType("Demo", "Pair")
 local report = moon.host_report({ issue })
 assert(pvm.classof(report) == H.HostReport)
