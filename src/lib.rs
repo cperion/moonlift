@@ -242,7 +242,7 @@ impl BackMemoryInfo {
         let mut flags = MemFlags::new();
         match self.trap {
             BackTrap::NonTrapping => flags.set_notrap(),
-            BackTrap::Checked => flags.set_checked(),
+            BackTrap::Checked => {} // default MemFlags already has HEAP_OUT_OF_BOUNDS trap code
             BackTrap::MayTrap => {}
         }
         if matches!(self.motion, BackMotion::CanMove) {

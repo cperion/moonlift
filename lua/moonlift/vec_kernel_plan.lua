@@ -64,46 +64,51 @@ function M.Define(T)
     end
 
     local function elem_lanes(elem)
-        if elem == V.VecElemI32 or elem == V.VecElemU32 then return 4 end
-        if elem == V.VecElemI64 or elem == V.VecElemU64 then return 2 end
+        if elem == V.VecElemI32 or elem == V.VecElemU32 or elem == V.VecElemF32 then return 4 end
+        if elem == V.VecElemI64 or elem == V.VecElemU64 or elem == V.VecElemF64 then return 2 end
+        return nil
+    end
+
+    local function candidate_lanes(elem)
+        -- TODO: return {8,4} / {4,2} when Cranelift x64 backend supports >128-bit
+        -- vectors. 0.130.1 → 0.131.0 both cap at `ty.bits() <= 128`.
+        if elem == V.VecElemI32 or elem == V.VecElemU32 or elem == V.VecElemF32 then return {4} end
+        if elem == V.VecElemI64 or elem == V.VecElemU64 or elem == V.VecElemF64 then return {2} end
         return nil
     end
 
     local function elem_bits(elem)
-        if elem == V.VecElemI32 or elem == V.VecElemU32 then return 32 end
-        if elem == V.VecElemI64 or elem == V.VecElemU64 then return 64 end
+        if elem == V.VecElemI32 or elem == V.VecElemU32 or elem == V.VecElemF32 then return 32 end
+        if elem == V.VecElemI64 or elem == V.VecElemU64 or elem == V.VecElemF64 then return 64 end
         return nil
     end
 
-    local function elem_shape(elem)
-        local lanes = elem_lanes(elem)
+    local function elem_shape(elem, lanes)
+        lanes = lanes or elem_lanes(elem)
         if lanes == nil then return nil end
         return V.VecVectorShape(elem, lanes)
     end
 
-    local function target_for_elem(elem)
-        local shape = elem_shape(elem)
-        if shape == nil then return nil end
-        local facts = {
-            V.VecTargetVectorBits(elem_bits(elem) * shape.lanes),
-            V.VecTargetSupportsShape(shape),
-            V.VecTargetSupportsBinOp(shape, V.VecAdd),
-            V.VecTargetSupportsBinOp(shape, V.VecSub),
-            V.VecTargetSupportsBinOp(shape, V.VecBitAnd),
-            V.VecTargetSupportsBinOp(shape, V.VecBitOr),
-            V.VecTargetSupportsBinOp(shape, V.VecBitXor),
-            V.VecTargetSupportsCmpOp(shape, V.VecCmpEq),
-            V.VecTargetSupportsCmpOp(shape, V.VecCmpNe),
-            V.VecTargetSupportsSelect(shape),
-            V.VecTargetSupportsMaskOp(shape, V.VecMaskNot),
-            V.VecTargetSupportsMaskOp(shape, V.VecMaskAnd),
-            V.VecTargetSupportsMaskOp(shape, V.VecMaskOr),
-            V.VecTargetPrefersReductionAccumulators(shape, V.VecAdd, 4, 100),
-            V.VecTargetPrefersReductionAccumulators(shape, V.VecMul, 4, 90),
-            V.VecTargetPrefersReductionAccumulators(shape, V.VecBitAnd, 4, 80),
-            V.VecTargetPrefersReductionAccumulators(shape, V.VecBitOr, 4, 80),
-            V.VecTargetPrefersReductionAccumulators(shape, V.VecBitXor, 4, 80),
-        }
+    local function build_shape_facts(facts, elem, lanes)
+        local shape = V.VecVectorShape(elem, lanes)
+        facts[#facts + 1] = V.VecTargetVectorBits(elem_bits(elem) * lanes)
+        facts[#facts + 1] = V.VecTargetSupportsShape(shape)
+        facts[#facts + 1] = V.VecTargetSupportsBinOp(shape, V.VecAdd)
+        facts[#facts + 1] = V.VecTargetSupportsBinOp(shape, V.VecSub)
+        facts[#facts + 1] = V.VecTargetSupportsBinOp(shape, V.VecBitAnd)
+        facts[#facts + 1] = V.VecTargetSupportsBinOp(shape, V.VecBitOr)
+        facts[#facts + 1] = V.VecTargetSupportsBinOp(shape, V.VecBitXor)
+        facts[#facts + 1] = V.VecTargetSupportsCmpOp(shape, V.VecCmpEq)
+        facts[#facts + 1] = V.VecTargetSupportsCmpOp(shape, V.VecCmpNe)
+        facts[#facts + 1] = V.VecTargetSupportsSelect(shape)
+        facts[#facts + 1] = V.VecTargetSupportsMaskOp(shape, V.VecMaskNot)
+        facts[#facts + 1] = V.VecTargetSupportsMaskOp(shape, V.VecMaskAnd)
+        facts[#facts + 1] = V.VecTargetSupportsMaskOp(shape, V.VecMaskOr)
+        facts[#facts + 1] = V.VecTargetPrefersReductionAccumulators(shape, V.VecAdd, 4, 100)
+        facts[#facts + 1] = V.VecTargetPrefersReductionAccumulators(shape, V.VecMul, 4, 90)
+        facts[#facts + 1] = V.VecTargetPrefersReductionAccumulators(shape, V.VecBitAnd, 4, 80)
+        facts[#facts + 1] = V.VecTargetPrefersReductionAccumulators(shape, V.VecBitOr, 4, 80)
+        facts[#facts + 1] = V.VecTargetPrefersReductionAccumulators(shape, V.VecBitXor, 4, 80)
         if elem == V.VecElemI32 or elem == V.VecElemI64 then
             facts[#facts + 1] = V.VecTargetSupportsCmpOp(shape, V.VecCmpSLt)
             facts[#facts + 1] = V.VecTargetSupportsCmpOp(shape, V.VecCmpSLe)
@@ -116,6 +121,15 @@ function M.Define(T)
             facts[#facts + 1] = V.VecTargetSupportsCmpOp(shape, V.VecCmpUGe)
         end
         facts[#facts + 1] = V.VecTargetSupportsBinOp(shape, V.VecMul)
+    end
+
+    local function target_for_elem(elem)
+        local candidates = candidate_lanes(elem)
+        if candidates == nil then return nil end
+        local facts = {}
+        for _, lanes in ipairs(candidates) do
+            build_shape_facts(facts, elem, lanes)
+        end
         return V.VecTargetModel(V.VecTargetCraneliftJit, facts)
     end
 
@@ -422,12 +436,18 @@ function M.Define(T)
         local dst, dst_offset, dst_base_len, dst_len_value = view_access_for_binding(aliases, dst_binding)
         local elem = elem_from_type(stmt.place.h.ty)
         if elem == nil then return nil end
-        local shape = elem_shape(elem)
         local target = target_for_elem(elem)
-        if shape == nil or target == nil then return nil end
-        local value = kernel_expr(stmt.value, index_binding, elem, target, shape, aliases)
-        if value == nil then return nil end
-        return V.VecKernelStorePlan(dst, dst_offset, dst_base_len, dst_len_value, value), elem
+        if target == nil then return nil end
+        local candidates = candidate_lanes(elem)
+        if candidates == nil then return nil end
+        for _, lanes in ipairs(candidates) do
+            local shape = elem_shape(elem, lanes)
+            local value = kernel_expr(stmt.value, index_binding, elem, target, shape, aliases)
+            if value ~= nil then
+                return V.VecKernelStorePlan(dst, dst_offset, dst_base_len, dst_len_value, value), elem, lanes
+            end
+        end
+        return nil
     end
 
     local function preferred_reduction_accumulators(target, shape, op)
@@ -442,8 +462,9 @@ function M.Define(T)
         return best_acc
     end
 
-    local function make_decision(facts, elem, target, reduction_op)
-        local shape = elem_shape(elem)
+    local function make_decision(facts, elem, target, reduction_op, lanes)
+        lanes = lanes or elem_lanes(elem)
+        local shape = elem_shape(elem, lanes)
         if shape == nil then return nil end
         local proof = V.VecProofDomain("kernel planner selected target-supported vector shape")
         local proofs = { proof }
@@ -569,14 +590,19 @@ function M.Define(T)
         if contribution == nil then return reject(region.region_id, "reduction contribution not recognized") end
         local elem = elem_from_type(acc_binding.ty) or infer_kernel_expr_elem(contribution, common.index)
         local target = elem and target_for_elem(elem) or nil
-        local shape = elem and elem_shape(elem) or nil
-        if elem == nil or target == nil or shape == nil then return reject(region.region_id, "reduction element type is not vectorizable") end
-        if not target_supports_bin_op(target, shape, red_op) then return reject(region.region_id, "target does not support reduction op") end
+        if elem == nil or target == nil then return reject(region.region_id, "reduction element type is not vectorizable") end
+        if not target_supports_bin_op(target, elem_shape(elem), red_op) then return reject(region.region_id, "target does not support reduction op") end
         local identity = identity_raw(red_op, elem)
         if identity == nil or literal_int_raw(region.entry.params[acc_index].init) ~= identity then return reject(region.region_id, "reduction accumulator identity mismatch") end
-        local value = kernel_expr(contribution, common.index, elem, target, shape, aliases)
+        local candidates = candidate_lanes(elem) or {}
+        local value, chosen_lanes = nil, elem_lanes(elem)
+        for _, lanes in ipairs(candidates) do
+            local shape = elem_shape(elem, lanes)
+            value = kernel_expr(contribution, common.index, elem, target, shape, aliases)
+            if value ~= nil then chosen_lanes = lanes; break end
+        end
         if value == nil then return reject(region.region_id, "reduction contribution is not vectorizable") end
-        local decision = make_decision(common.facts, elem, target, red_op)
+        local decision = make_decision(common.facts, elem, target, red_op, chosen_lanes)
         local reduction_plan = V.VecKernelReductionBin(red_op, elem, acc_binding, value, identity)
         local core = V.VecKernelCoreReduce(decision, elem, common.stop, common.counter, scalars or {}, reduction_plan)
         local safety = safety_api.decide(common.facts, core, contracts or {})
@@ -587,16 +613,17 @@ function M.Define(T)
         local common, no = common_region_base(region, aliases)
         if common == nil then return no end
         if #common.facts.reductions ~= 0 or #common.facts.stores == 0 then return reject(region.region_id, "map kernel needs stores and no reductions") end
-        local stores = {}; local elem = nil
+        local stores = {}; local elem = nil; local chosen_lanes = nil
         for i = 1, #region.entry.body do
-            local store, store_elem = vector_store_plan(region.entry.body[i], common.index, aliases)
+            local store, store_elem, store_lanes = vector_store_plan(region.entry.body[i], common.index, aliases)
             if store ~= nil then
-                if elem == nil then elem = store_elem elseif elem ~= store_elem then return reject(region.region_id, "mixed element vector maps are deferred") end
+                if elem == nil then elem = store_elem; chosen_lanes = store_lanes
+                elseif elem ~= store_elem then return reject(region.region_id, "mixed element vector maps are deferred") end
                 stores[#stores + 1] = store
             end
         end
         if #stores ~= #common.facts.stores then return reject(region.region_id, "not all stores are vectorizable") end
-        local decision = make_decision(common.facts, elem, elem and target_for_elem(elem) or nil, nil)
+        local decision = make_decision(common.facts, elem, elem and target_for_elem(elem) or nil, nil, chosen_lanes)
         local core = V.VecKernelCoreMap(decision, elem, common.stop, common.counter, scalars or {}, stores)
         local safety = safety_api.decide(common.facts, core, contracts or {})
         return V.VecKernelMap(decision, elem, common.stop, common.counter, scalars or {}, stores, safety.safety, safety.alignments, safety.aliases)
