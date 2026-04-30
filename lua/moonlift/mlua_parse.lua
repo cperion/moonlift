@@ -445,7 +445,7 @@ function M.Define(T)
     local function find_end_form(src, start_i)
         -- Reuse the hosted quote matcher for end-based Moonlift forms by tracking
         -- common opening words. Good enough for the existing Moonlift parser input.
-        local open = { struct = true, expose = true, func = true, region = true, expr = true, module = true, block = true, entry = true, control = true, ["if"] = true, switch = true }
+        local open = { struct = true, expose = true, func = true, region = true, expr = true, module = true, block = true, entry = true, control = true, ["if"] = true }
         local function line_prefix_has_word(src0, pos, word0)
             local line_start = src0:sub(1, pos - 1):match(".*\n()") or 1
             local prefix = src0:sub(line_start, pos - 1)

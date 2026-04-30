@@ -3,7 +3,6 @@ package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.p
 local pvm = require("moonlift.pvm")
 local Model = require("moonlift.asdl_model")
 local Builder = require("moonlift.asdl_builder")
-local Emit = require("moonlift.asdl_emit")
 local DefineSchema = require("moonlift.context_define_schema")
 
 local T = pvm.context()
@@ -51,12 +50,8 @@ local schema = A.schema {
 }
 
 assert(pvm.classof(schema) == T.MoonAsdl.Schema)
-local text = Emit.emit(schema, T.MoonAsdl)
-assert(text:match("module MoonCore"))
-assert(text:match("Id = %(string text%) unique"))
-assert(text:match("ScalarVoid"))
-assert(text:match("MoonDemo.Type%* types"))
 
+-- Define directly from schema data (no text round-trip).
 DefineSchema.define(T, schema)
 
 local id = T.MoonCore.Id("x")
