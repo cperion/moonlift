@@ -1,0 +1,205 @@
+-- RESP (Redis Serialization Protocol) parser sketch in Moonlift.
+--
+-- This demonstrates why typed regions + typed jumps fit protocol parsers:
+-- each recognizer is a tiny state machine with explicit typed exits, while Lua
+-- manufactures monomorphic parser fragments without Moonlift source generics.
+--
+-- Demo return convention:
+--   +simple\r\n       -> 100000 + payload bytes
+--   -error\r\n        -> 200000 + payload bytes
+--   :123\r\n          -> 300000 + value
+--   $3\r\nfoo\r\n     -> 400000 + payload bytes
+--   $-1\r\n          -> 499999
+--   *2\r\n            -> 500000 + count
+--   *-1\r\n          -> 599999
+--   malformed input -> negative error code
+
+local ffi = require("ffi")
+
+local function u8buf(s)
+    local buf = ffi.new("uint8_t[?]", #s)
+    ffi.copy(buf, s, #s)
+    return buf, #s
+end
+
+local function make_line_payload(tag, err_base)
+    return region resp_line_@{tag}(p: ptr(u8), n: i32, pos: i32;
+        ok: cont(bytes: i32, next: i32),
+        err: cont(pos: i32, code: i32))
+    entry start()
+        jump scan(i = pos, base = pos)
+    end
+    block scan(i: i32, base: i32)
+        if i >= n then jump err(pos = i, code = @{err_base}) end
+        if as(i32, p[i]) == 13 then
+            jump saw_cr(crpos = i, bytes = i - base)
+        end
+        jump scan(i = i + 1, base = base)
+    end
+    block saw_cr(crpos: i32, bytes: i32)
+        if crpos + 1 >= n then jump err(pos = crpos, code = @{err_base + 1}) end
+        if as(i32, p[crpos + 1]) == 10 then
+            jump ok(bytes = bytes, next = crpos + 2)
+        end
+        jump err(pos = crpos + 1, code = @{err_base + 2})
+    end
+    end
+end
+
+local function make_decimal_line(tag, err_base)
+    return region resp_decimal_@{tag}(p: ptr(u8), n: i32, pos: i32;
+        ok: cont(value: i32, next: i32),
+        err: cont(pos: i32, code: i32))
+    entry start()
+        if pos >= n then jump err(pos = pos, code = @{err_base}) end
+        if as(i32, p[pos]) == 45 then
+            jump digits(i = pos + 1, sign = 0 - 1, value = 0, seen = 0)
+        end
+        jump digits(i = pos, sign = 1, value = 0, seen = 0)
+    end
+    block digits(i: i32, sign: i32, value: i32, seen: i32)
+        if i >= n then jump err(pos = i, code = @{err_base + 1}) end
+        let c: i32 = as(i32, p[i])
+        if c == 13 then
+            if seen == 0 then jump err(pos = i, code = @{err_base + 2}) end
+            jump saw_cr(value = value * sign, crpos = i)
+        end
+        if c >= 48 then
+            if c <= 57 then
+                jump digits(i = i + 1, sign = sign, value = value * 10 + c - 48, seen = 1)
+            end
+        end
+        jump err(pos = i, code = @{err_base + 3})
+    end
+    block saw_cr(value: i32, crpos: i32)
+        if crpos + 1 >= n then jump err(pos = crpos, code = @{err_base + 4}) end
+        if as(i32, p[crpos + 1]) == 10 then
+            jump ok(value = value, next = crpos + 2)
+        end
+        jump err(pos = crpos + 1, code = @{err_base + 5})
+    end
+    end
+end
+
+local function make_bulk_string(tag, err_base)
+    return region resp_bulk_@{tag}(p: ptr(u8), n: i32, pos: i32;
+        ok: cont(bytes: i32, next: i32),
+        null: cont(next: i32),
+        err: cont(pos: i32, code: i32))
+    entry start()
+        if pos >= n then jump err(pos = pos, code = @{err_base}) end
+        if as(i32, p[pos]) == 45 then
+            jump digits(i = pos + 1, sign = 0 - 1, value = 0, seen = 0)
+        end
+        jump digits(i = pos, sign = 1, value = 0, seen = 0)
+    end
+    block digits(i: i32, sign: i32, value: i32, seen: i32)
+        if i >= n then jump err(pos = i, code = @{err_base + 1}) end
+        let c: i32 = as(i32, p[i])
+        if c == 13 then
+            if seen == 0 then jump err(pos = i, code = @{err_base + 2}) end
+            jump header_done(bytes = value * sign, crpos = i)
+        end
+        if c >= 48 then
+            if c <= 57 then
+                jump digits(i = i + 1, sign = sign, value = value * 10 + c - 48, seen = 1)
+            end
+        end
+        jump err(pos = i, code = @{err_base + 3})
+    end
+    block header_done(bytes: i32, crpos: i32)
+        if crpos + 1 >= n then jump err(pos = crpos, code = @{err_base + 4}) end
+        if as(i32, p[crpos + 1]) == 10 then
+            if bytes < 0 then jump null(next = crpos + 2) end
+            let data: i32 = crpos + 2
+            let endpos: i32 = data + bytes
+            if endpos + 1 >= n then jump err(pos = endpos, code = @{err_base + 5}) end
+            if as(i32, p[endpos]) == 13 then
+                if as(i32, p[endpos + 1]) == 10 then
+                    jump ok(bytes = bytes, next = endpos + 2)
+                end
+            end
+            jump err(pos = endpos, code = @{err_base + 6})
+        end
+        jump err(pos = crpos + 1, code = @{err_base + 7})
+    end
+    end
+end
+
+local simple_line = make_line_payload(1, 20)
+local error_line = make_line_payload(2, 30)
+local integer_line = make_decimal_line(3, 40)
+local array_line = make_decimal_line(4, 50)
+local bulk_string = make_bulk_string(5, 60)
+
+local resp = module RespParser
+export func parse_one(p: ptr(u8), n: i32) -> i32
+    return region -> i32
+    entry start()
+        if n <= 0 then yield -1 end
+        switch as(i32, p[0]) do
+        case 43 then
+            emit @{simple_line}(p, n, 1; ok = simple, err = bad)
+        case 45 then
+            emit @{error_line}(p, n, 1; ok = error_out, err = bad)
+        case 58 then
+            emit @{integer_line}(p, n, 1; ok = integer, err = bad)
+        case 36 then
+            emit @{bulk_string}(p, n, 1; ok = bulk, null = null_bulk, err = bad)
+        case 42 then
+            emit @{array_line}(p, n, 1; ok = array_header, err = bad)
+        default then
+            yield -2
+        end
+    end
+    block simple(bytes: i32, next: i32)
+        yield 100000 + bytes
+    end
+    block error_out(bytes: i32, next: i32)
+        yield 200000 + bytes
+    end
+    block integer(value: i32, next: i32)
+        yield 300000 + value
+    end
+    block bulk(bytes: i32, next: i32)
+        yield 400000 + bytes
+    end
+    block null_bulk(next: i32)
+        yield 499999
+    end
+    block array_header(value: i32, next: i32)
+        if value < 0 then yield 599999 end
+        yield 500000 + value
+    end
+    block bad(pos: i32, code: i32)
+        yield 0 - code
+    end
+    end
+end
+end
+
+local compiled = resp:compile()
+local parse_one = compiled:get("parse_one")
+
+local simple, nsimple = u8buf("+OK\r\n")
+local errline, nerrline = u8buf("-ERR bad\r\n")
+local integer, ninteger = u8buf(":123\r\n")
+local bulk, nbulk = u8buf("$3\r\nfoo\r\n")
+local null_bulk, nnull_bulk = u8buf("$-1\r\n")
+local array, narray = u8buf("*2\r\n")
+local null_array, nnull_array = u8buf("*-1\r\n")
+local bad_bulk, nbad_bulk = u8buf("$3\r\nfoX")
+local bad_int, nbad_int = u8buf(":12x\r\n")
+
+assert(parse_one(simple, nsimple) == 100002)
+assert(parse_one(errline, nerrline) == 200007)
+assert(parse_one(integer, ninteger) == 300123)
+assert(parse_one(bulk, nbulk) == 400003)
+assert(parse_one(null_bulk, nnull_bulk) == 499999)
+assert(parse_one(array, narray) == 500002)
+assert(parse_one(null_array, nnull_array) == 599999)
+assert(parse_one(bad_bulk, nbad_bulk) < 0)
+assert(parse_one(bad_int, nbad_int) < 0)
+
+compiled:free()
+return "Moonlift RESP parser demo ok"

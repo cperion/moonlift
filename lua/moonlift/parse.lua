@@ -251,6 +251,7 @@ function Parser:nud()
     if k == TK.minus then return Tr.ExprUnary(Tr.ExprSurface, C.UnaryNeg, self:parse_expr(80)) end
     if k == TK.not_kw then return Tr.ExprUnary(Tr.ExprSurface, C.UnaryNot, self:parse_expr(80)) end
     if k == TK.tilde then return Tr.ExprUnary(Tr.ExprSurface, C.UnaryBitNot, self:parse_expr(80)) end
+    if k == TK.switch then return self:parse_switch_expr() end
     if k == TK.emit then return self:parse_emit_expr() end
     if k == TK.block then return self:parse_control_expr_after_block() end
     if k == TK.control or k == TK.region then return self:parse_multi_control_expr() end
@@ -358,6 +359,85 @@ function Parser:parse_if_stmt()
     if self:accept(TK.else_kw) then else_body = self:parse_stmt_until({ [TK.end_kw] = true }) end
     self:expect(TK.end_kw, "expected end")
     return Tr.StmtIf(Tr.StmtSurface, cond, then_body, else_body)
+end
+
+function Parser:switch_key_from_expr(expr)
+    local C, Sem, Tr, B = self.C, self.Sem, self.Tr, self.B
+    local cls = pvm.classof(expr)
+    if cls == Tr.ExprLit then
+        local lit = pvm.classof(expr.value)
+        if lit == C.LitInt then return Sem.SwitchKeyRaw(expr.value.raw) end
+        if lit == C.LitBool then return Sem.SwitchKeyRaw(expr.value.value and "true" or "false") end
+    end
+    if cls == Tr.ExprRef then
+        if pvm.classof(expr.ref) == B.ValueRefName then
+            return Sem.SwitchKeyRaw(expr.ref.name)
+        end
+    end
+    return Sem.SwitchKeyExpr(expr)
+end
+
+function Parser:parse_switch_stmt()
+    local Tr, Sem = self.Tr, self.Sem
+    local value = self:parse_expr(0)
+    self:expect(TK.do_kw, "expected do after switch expression")
+    self:skip_nl()
+    local arms = {}
+    while self:kind() == TK.case do
+        self.i = self.i + 1
+        local key_expr = self:parse_expr(0)
+        self:expect(TK.then_kw, "expected then after case expression")
+        local body = self:parse_stmt_until({ [TK.case] = true, [TK.default] = true, [TK.end_kw] = true })
+        arms[#arms + 1] = Tr.SwitchStmtArm(self:switch_key_from_expr(key_expr), body)
+    end
+    if #arms == 0 then self:issue("switch statement must have at least one case arm") end
+    self:expect(TK.default, "expected default in switch")
+    self:expect(TK.then_kw, "expected then after default")
+    local default_body = self:parse_stmt_until({ [TK.end_kw] = true })
+    self:expect(TK.end_kw, "expected end")
+    return Tr.StmtSwitch(Tr.StmtSurface, value, arms, default_body)
+end
+
+function Parser:parse_switch_expr()
+    local Tr, Sem = self.Tr, self.Sem
+    local value = self:parse_expr(0)
+    self:expect(TK.do_kw, "expected do after switch expression")
+    self:skip_nl()
+    local arms = {}
+    while self:kind() == TK.case do
+        self.i = self.i + 1
+        local key_expr = self:parse_expr(0)
+        self:expect(TK.then_kw, "expected then after case expression")
+        local body, result = self:parse_expr_block({ [TK.case] = true, [TK.default] = true, [TK.end_kw] = true })
+        arms[#arms + 1] = Tr.SwitchExprArm(self:switch_key_from_expr(key_expr), body, result)
+    end
+    if #arms == 0 then self:issue("switch expression must have at least one case arm") end
+    self:expect(TK.default, "expected default in switch")
+    self:expect(TK.then_kw, "expected then after default")
+    local default_body, default_expr = self:parse_expr_block({ [TK.end_kw] = true })
+    self:expect(TK.end_kw, "expected end")
+    return Tr.ExprSwitch(Tr.ExprSurface, value, arms, default_expr)
+end
+
+function Parser:parse_expr_block(stops)
+    local C, Tr = self.C, self.Tr
+    local stmts = {}
+    self:skip_nl()
+    while not self:is_stop(stops) and self:kind() ~= TK.eof do
+        stmts[#stmts + 1] = self:parse_stmt()
+        self:skip_nl()
+    end
+    if #stmts == 0 then
+        self:issue("expected expression in switch arm")
+        return {}, Tr.ExprLit(Tr.ExprSurface, C.LitInt("0"))
+    end
+    local last = stmts[#stmts]
+    stmts[#stmts] = nil
+    if pvm.classof(last) ~= Tr.StmtExpr then
+        self:issue("expected expression as last item in switch arm")
+        return stmts, Tr.ExprLit(Tr.ExprSurface, C.LitInt("0"))
+    end
+    return stmts, last.expr
 end
 
 function Parser:parse_stmt_control_after_block()
@@ -496,6 +576,7 @@ function Parser:parse_stmt()
         return is_var and Tr.StmtVar(Tr.StmtSurface, binding, init) or Tr.StmtLet(Tr.StmtSurface, binding, init)
     end
     if self:accept(TK.if_kw) then return self:parse_if_stmt() end
+    if self:accept(TK.switch) then return self:parse_switch_stmt() end
     if self:accept(TK.return_kw) then if self:kind() == TK.nl or self:kind() == TK.end_kw then return Tr.StmtReturnVoid(Tr.StmtSurface) end; return Tr.StmtReturnValue(Tr.StmtSurface, self:parse_expr(0)) end
     if self:accept(TK.yield) then if self:kind() == TK.nl or self:kind() == TK.end_kw then return Tr.StmtYieldVoid(Tr.StmtSurface) end; return Tr.StmtYieldValue(Tr.StmtSurface, self:parse_expr(0)) end
     if self:accept(TK.jump) then
