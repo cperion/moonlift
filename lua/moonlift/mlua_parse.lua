@@ -77,8 +77,8 @@ local function is_module_start(src, i)
     if item_words[word] then return true end
     local next_i = skip_hspace(src, after_word)
     local next_ch = src:sub(next_i, next_i)
-    if from_return then return next_ch == "\n" end
-    return next_ch == "" or next_ch == "\n"
+    if from_return then return next_ch == "\n" or next_ch == "{" end
+    return next_ch == "" or next_ch == "\n" or next_ch == "{"
 end
 
 local function skip_string(src, i, quote)
@@ -478,6 +478,26 @@ function M.Define(T)
         return nil
     end
 
+    local function find_braced_form(src, open_i)
+        local depth, i = 1, open_i + 1
+        while i <= #src do
+            local skipped = skip_comment_or_string(src, i)
+            if skipped then i = skipped
+            else
+                local c = src:sub(i, i)
+                if c == "{" then depth = depth + 1; i = i + 1
+                elseif c == "}" then
+                    depth = depth - 1
+                    if depth == 0 then return i end
+                    i = i + 1
+                else
+                    i = i + 1
+                end
+            end
+        end
+        return nil
+    end
+
     local function form_extent(src, i, word)
         if word == "struct" then return find_end_form(src, i) end
         if word == "expose" then
@@ -486,6 +506,13 @@ function M.Define(T)
             local next_word = read_ident(src, skip_space(src, nl + 1))
             if next_word == "end" or target_for_word(next_word) then return find_end_form(src, i) end
             return nl - 1
+        end
+        if word == "module" then
+            local _, after_module = read_ident(src, i)
+            local k = skip_hspace(src, after_module)
+            local maybe_name, after_name = read_ident(src, k)
+            if maybe_name then k = skip_hspace(src, after_name) end
+            if src:sub(k, k) == "{" then return find_braced_form(src, k) end
         end
         return find_end_form(src, i)
     end
@@ -573,11 +600,14 @@ function M.Define(T)
                     elseif word == "expr" then
                         parse_expr_frag(form, exprs, expr_frags_by_name, issues)
                     elseif word == "module" then
-                        if form:find("{", 1, true) then issues[#issues + 1] = mk_issue(P, src, "module uses keyword...end, not braces", i) end
-                        local body = form:gsub("^%s*module%s*", ""):gsub("%s*end%s*$", "")
-                        local maybe_name, rest = body:match("^%s*([_%a][_%w]*)(.*)$")
-                        if maybe_name and not ({ export = true, extern = true, func = true, const = true, static = true, import = true, type = true, region = true, expr = true })[maybe_name] then
-                            body = rest
+                        local body = form:match("^%s*module%s+[_%a][_%w]*%s*{%s*([%s%S]-)%s*}%s*$")
+                        if not body then body = form:match("^%s*module%s*{%s*([%s%S]-)%s*}%s*$") end
+                        if not body then
+                            body = form:gsub("^%s*module%s*", ""):gsub("%s*end%s*$", "")
+                            local maybe_name, rest = body:match("^%s*([_%a][_%w]*)(.*)$")
+                            if maybe_name and not ({ export = true, extern = true, func = true, const = true, static = true, import = true, type = true, region = true, expr = true })[maybe_name] then
+                                body = rest
+                            end
                         end
                         parse_module_body(body, items, regions, exprs, region_frags_by_name, expr_frags_by_name, issues)
                     elseif word == "func" or word == "export func" then

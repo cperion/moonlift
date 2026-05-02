@@ -94,6 +94,15 @@ for i = 1, #nested.segments do
 end
 assert(nested_hosted == 1)
 
+local exported = Parts.document_parts(doc("export func public_add(x: i32) -> i32\n    return x + 1\nend\n"))
+local exported_island
+for i = 1, #exported.segments do
+    if pvm.classof(exported.segments[i]) == Mlua.HostedIsland then exported_island = exported.segments[i].island end
+end
+assert(exported_island and exported_island.kind == Mlua.IslandFunc)
+assert(exported_island.source.text:match("^export%s+func%s+public_add"))
+assert(pvm.classof(exported_island.name) == Mlua.IslandNamed and exported_island.name.name == "public_add")
+
 local module_local = Parts.document_parts(doc("module\nregion Inner(done: cont())\nentry start()\n    jump done()\nend\nend\nend\n"))
 local module_island
 for i = 1, #module_local.segments do

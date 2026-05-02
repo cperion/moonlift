@@ -648,6 +648,28 @@ function M.Define(T)
         validate = function(program)
             return pvm.one(validate_program(program))
         end,
+
+        validate_verify = function(program)
+            local ref = validate_program_impl(program, false)
+            local fast = validate_program_impl(program, true)
+            local ref_n, fast_n = #ref.issues, #fast.issues
+            if ref_n ~= fast_n then
+                error(string.format(
+                    "back_validate verify MISMATCH: issue count ref=%d fast=%d",
+                    ref_n, fast_n
+                ), 2)
+            end
+            for i = 1, ref_n do
+                if ref.issues[i] ~= fast.issues[i] then
+                    local ri, fi = ref.issues[i], fast.issues[i]
+                    error(string.format(
+                        "back_validate verify MISMATCH at issue %d: ref=%s fast=%s",
+                        i, tostring(ri and ri.kind or ri), tostring(fi and fi.kind or fi)
+                    ), 2)
+                end
+            end
+            return ref
+        end,
     }
 end
 

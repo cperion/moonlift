@@ -153,8 +153,8 @@ local function is_island_start(src, i, kind)
         if item_words[word] then return true end
         local next_i = skip_hspace(src, after_word)
         local next_ch = src:sub(next_i, next_i)
-        if from_return then return next_ch == "\n" end
-        return next_ch == "" or next_ch == "\n"
+        if from_return then return next_ch == "\n" or next_ch == "{" end
+        return next_ch == "" or next_ch == "\n" or next_ch == "{"
     end
     return false
 end
@@ -167,14 +167,40 @@ local function find_next_island(src, i)
         if skipped then
             i = skipped
         else
+            if has_word(src, i, "export") then
+                local func_i = skip_space(src, i + #"export")
+                if is_island_start(src, func_i, "func") then return i, "func", func_i end
+            end
             for k = 1, #island_order do
                 local kind = island_order[k]
-                if is_island_start(src, i, kind) then return i, kind end
+                if is_island_start(src, i, kind) then return i, kind, i end
             end
             i = i + 1
         end
     end
-    return nil, nil
+    return nil, nil, nil
+end
+
+local function find_matching_brace(src, open_i)
+    local depth = 1
+    local i = open_i + 1
+    while i <= #src do
+        local skipped = skip_comment_or_string(src, i)
+        if skipped then
+            i = skipped
+        else
+            local c = src:sub(i, i)
+            if c == "{" then depth = depth + 1; i = i + 1
+            elseif c == "}" then
+                depth = depth - 1
+                if depth == 0 then return i end
+                i = i + 1
+            else
+                i = i + 1
+            end
+        end
+    end
+    return nil, "unterminated Moonlift brace island"
 end
 
 local function island_end(src, start_i, kind)
@@ -186,6 +212,13 @@ local function island_end(src, start_i, kind)
             return find_matching_end(src, start_i)
         end
         return nl - 1
+    end
+    if kind == "module" then
+        local _, after_module = read_ident(src, start_i)
+        local k = skip_hspace(src, after_module)
+        local word, after_word = read_ident(src, k)
+        if word ~= nil then k = skip_hspace(src, after_word) end
+        if src:sub(k, k) == "{" then return find_matching_brace(src, k) end
     end
     return find_matching_end(src, start_i)
 end
@@ -202,6 +235,10 @@ end
 
 local function island_name(Mlua, src, start_i, kind)
     local j = skip_space(src, start_i + #kind)
+    if kind == "func" and has_word(src, start_i, "export") then
+        local func_i = skip_space(src, start_i + #"export")
+        if has_word(src, func_i, "func") then j = skip_space(src, func_i + #"func") end
+    end
     if kind == "expose" then
         local first, after_first = read_ident(src, j)
         if first and src:sub(skip_space(src, after_first), skip_space(src, after_first)) == ":" then return Mlua.IslandNamed(first) end
@@ -251,11 +288,13 @@ function M.Define(T)
         segments[#segments + 1] = Mlua.LuaOpaque(occurrence)
     end
 
-    local function make_island_segment(index, document, segments, anchors, ordinal, start_i, end_i, kind_word)
+    local function make_island_segment(index, document, segments, anchors, ordinal, start_i, end_i, kind_word, keyword_i)
+        keyword_i = keyword_i or start_i
         local start_offset = start_i - 1
         local stop_offset = end_i
+        local keyword_offset = keyword_i - 1
         local full_range = add_range(P, index, start_offset, stop_offset)
-        local keyword_range = add_range(P, index, start_offset, start_offset + #kind_word)
+        local keyword_range = add_range(P, index, keyword_offset, keyword_offset + #kind_word)
         local kind = island_kind(Mlua, kind_word)
         local source_text = document.text:sub(start_i, end_i)
         local name = island_name(Mlua, document.text, start_i, kind_word)
@@ -305,7 +344,7 @@ function M.Define(T)
         local ordinal = 1
         add_anchor(S, anchors, "document", S.AnchorDocument, document.uri.text, add_range(P, index, 0, #document.text))
         while cursor <= #document.text do
-            local start_i, kind_word = find_next_island(document.text, cursor)
+            local start_i, kind_word, keyword_i = find_next_island(document.text, cursor)
             if not start_i then break end
             make_lua_segment(index, document, segments, cursor - 1, start_i - 1)
             local end_i, reason = island_end(document.text, start_i, kind_word)
@@ -313,7 +352,7 @@ function M.Define(T)
                 make_malformed_segment(index, document, segments, anchors, ordinal, start_i, kind_word, reason)
                 cursor = #document.text + 1
             else
-                make_island_segment(index, document, segments, anchors, ordinal, start_i, end_i, kind_word)
+                make_island_segment(index, document, segments, anchors, ordinal, start_i, end_i, kind_word, keyword_i)
                 cursor = end_i + 1
             end
             ordinal = ordinal + 1

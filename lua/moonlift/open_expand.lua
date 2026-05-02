@@ -406,33 +406,34 @@ function M.Define(T)
         return out
     end
 
-    local function runtime_jump_args_from_names(frag)
+    local function runtime_jump_args_from_names(frag, captures)
         local out = {}
         for i = 1, #frag.params do out[#out + 1] = Tr.JumpArg(runtime_param_name(frag.params[i].name), runtime_param_expr(frag.params[i].name)) end
+        for i = 1, #(captures or {}) do out[#out + 1] = Tr.JumpArg(captures[i].name, Tr.ExprRef(Tr.ExprSurface, B.ValueRefName(captures[i].name))) end
         return out
     end
 
-    local function prepend_runtime_args(args, frag)
-        local out = runtime_jump_args_from_names(frag)
+    local function prepend_runtime_args(args, frag, captures)
+        local out = runtime_jump_args_from_names(frag, captures)
         for i = 1, #args do out[#out + 1] = args[i] end
         return out
     end
 
-    local function rebase_stmts(stmts, map, frag)
+    local function rebase_stmts(stmts, map, frag, captures)
         local out = {}
         for i = 1, #stmts do
             local stmt = stmts[i]
             local cls = pvm.classof(stmt)
             if cls == Tr.StmtJump then
                 local target = rebase_label(stmt.target, map)
-                local args = map[stmt.target.name] and prepend_runtime_args(stmt.args, frag) or stmt.args
+                local args = map[stmt.target.name] and prepend_runtime_args(stmt.args, frag, captures) or stmt.args
                 out[#out + 1] = pvm.with(stmt, { target = target, args = args })
             elseif cls == Tr.StmtIf then
-                out[#out + 1] = pvm.with(stmt, { then_body = rebase_stmts(stmt.then_body, map, frag), else_body = rebase_stmts(stmt.else_body, map, frag) })
+                out[#out + 1] = pvm.with(stmt, { then_body = rebase_stmts(stmt.then_body, map, frag, captures), else_body = rebase_stmts(stmt.else_body, map, frag, captures) })
             elseif cls == Tr.StmtSwitch then
                 local arms = {}
-                for j = 1, #stmt.arms do arms[#arms + 1] = pvm.with(stmt.arms[j], { body = rebase_stmts(stmt.arms[j].body, map, frag) }) end
-                out[#out + 1] = pvm.with(stmt, { arms = arms, default_body = rebase_stmts(stmt.default_body, map, frag) })
+                for j = 1, #stmt.arms do arms[#arms + 1] = pvm.with(stmt.arms[j], { body = rebase_stmts(stmt.arms[j].body, map, frag, captures) }) end
+                out[#out + 1] = pvm.with(stmt, { arms = arms, default_body = rebase_stmts(stmt.default_body, map, frag, captures) })
             else
                 out[#out + 1] = stmt
             end
@@ -442,8 +443,33 @@ function M.Define(T)
 
     local expand_region_stmts
 
-    local function rebase_control_block_body(block, map, frag)
-        return pvm.with(block, { body = rebase_stmts(block.body, map, frag) })
+    local function rebase_control_block_body(block, map, frag, captures)
+        return pvm.with(block, { body = rebase_stmts(block.body, map, frag, captures) })
+    end
+
+    local function expr_ref_name(expr)
+        if pvm.classof(expr) == Tr.ExprRef and pvm.classof(expr.ref) == B.ValueRefName then return expr.ref.name end
+        return nil
+    end
+
+    local function capture_runtime_params(frag, env)
+        local seen, params, args = {}, {}, {}
+        for i = 1, #frag.params do seen[runtime_param_name(frag.params[i].name)] = true end
+        for i = 1, #env.params do
+            local binding = env.params[i]
+            local name = expr_ref_name(binding.value)
+            if name ~= nil and name:match("^__rt_") and not seen[name] then
+                seen[name] = true
+                params[#params + 1] = Tr.BlockParam(name, one(expand_type, binding.param.ty, env))
+                args[#args + 1] = Tr.JumpArg(name, binding.value)
+            end
+        end
+        return params, args
+    end
+
+    local function append_all(dst, src)
+        for i = 1, #(src or {}) do dst[#dst + 1] = src[i] end
+        return dst
     end
 
     local function expand_region_frag_use(stmt, env)
@@ -452,29 +478,31 @@ function M.Define(T)
         local local_env = env_with_fills_and_params(env, stmt.fills, runtime_param_bindings)
         local init_env = env_with_fills_and_params(env, stmt.fills, frag_param_bindings(stmt.frag.params, stmt.args, env))
         local map = label_map_for_frag(stmt.frag, stmt.use_id)
-        local entry_params, entry_args = runtime_block_params(stmt.frag, local_env), {}
+        local capture_params, capture_args = capture_runtime_params(stmt.frag, env)
+        local entry_params, entry_args = append_all(runtime_block_params(stmt.frag, local_env), capture_params), {}
         for i = 1, #stmt.frag.params do
             entry_args[#entry_args + 1] = Tr.JumpArg(runtime_param_name(stmt.frag.params[i].name), one(expand_expr, stmt.args[i], env))
         end
+        append_all(entry_args, capture_args)
         for i = 1, #stmt.frag.entry.params do
             local p = stmt.frag.entry.params[i]
             entry_params[#entry_params + 1] = Tr.BlockParam(p.name, one(expand_type, p.ty, local_env))
             entry_args[#entry_args + 1] = Tr.JumpArg(p.name, one(expand_expr, p.init, init_env))
         end
         local entry_body, entry_nested = expand_region_stmts(stmt.frag.entry.body, local_env)
-        local entry_body2 = expand_stmts(rebase_stmts(entry_body, map, stmt.frag), local_env)
+        local entry_body2 = expand_stmts(rebase_stmts(entry_body, map, stmt.frag, capture_params), local_env)
         local blocks = {
             Tr.ControlBlock(map[stmt.frag.entry.label.name], entry_params, entry_body2)
         }
-        for i = 1, #entry_nested do blocks[#blocks + 1] = rebase_control_block_body(entry_nested[i], map, stmt.frag) end
+        for i = 1, #entry_nested do blocks[#blocks + 1] = rebase_control_block_body(entry_nested[i], map, stmt.frag, capture_params) end
         for i = 1, #stmt.frag.blocks do
             local block = stmt.frag.blocks[i]
-            local params = runtime_block_params(stmt.frag, local_env)
+            local params = append_all(runtime_block_params(stmt.frag, local_env), capture_params)
             for j = 1, #block.params do params[#params + 1] = pvm.with(block.params[j], { ty = one(expand_type, block.params[j].ty, local_env) }) end
             local block_body, block_nested = expand_region_stmts(block.body, local_env)
-            local block_body2 = expand_stmts(rebase_stmts(block_body, map, stmt.frag), local_env)
+            local block_body2 = expand_stmts(rebase_stmts(block_body, map, stmt.frag, capture_params), local_env)
             blocks[#blocks + 1] = Tr.ControlBlock(map[block.label.name], params, block_body2)
-            for j = 1, #block_nested do blocks[#blocks + 1] = rebase_control_block_body(block_nested[j], map, stmt.frag) end
+            for j = 1, #block_nested do blocks[#blocks + 1] = rebase_control_block_body(block_nested[j], map, stmt.frag, capture_params) end
         end
         return Tr.StmtJump(one(expand_stmt_header, stmt.h, env), map[stmt.frag.entry.label.name], entry_args), blocks
     end

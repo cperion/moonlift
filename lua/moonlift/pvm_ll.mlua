@@ -1,0 +1,327 @@
+-- pvm_ll.mlua -- MLUA-level PVM-LL helpers.
+--
+-- PVM-LL is not a builder DSL.  Users write ordinary .mlua regions, emits,
+-- switches, and Lua metaprogramming.  This module only provides reusable
+-- region templates for the repetitive PVM boundary patterns: scalar wrappers,
+-- cache wrappers, sinks, stream span replay, and optional ABI shells.
+
+local Host = require("moonlift.host_quote")
+
+local M = {}
+M._VERSION = "pvm-ll-mlua-patterns-1"
+
+M.type = Host.type
+M.ptr = Host.ptr
+M.i8, M.i16, M.i32, M.i64 = Host.i8, Host.i16, Host.i32, Host.i64
+M.u8, M.u16, M.u32, M.u64 = Host.u8, Host.u16, Host.u32, Host.u64
+M.f32, M.f64 = Host.f32, Host.f64
+M.bool, M.void, M.index = Host.bool, Host.void, Host.index
+
+local function need(spec, key, site)
+    local v = spec and spec[key]
+    assert(v ~= nil, site .. " expects `" .. key .. "`")
+    return v
+end
+
+local RawIdent = {}
+RawIdent.__index = RawIdent
+function RawIdent:moonlift_splice_source() return self.name end
+function RawIdent:__tostring() return self.name end
+
+function M.ident(name)
+    assert(type(name) == "string" and name:match("^[_%a][_%w]*$"), "pvmll.ident expects an identifier")
+    return setmetatable({ name = name }, RawIdent)
+end
+
+local next_name_id = 0
+function M.gensym_id()
+    next_name_id = next_name_id + 1
+    return next_name_id
+end
+
+local function name_id(_)
+    return M.gensym_id()
+end
+
+local function op(v)
+    if type(v) == "string" then v = M.ident(v) end
+    return Host.typed_splice(v, "source")
+end
+
+local function optional_stmt(fn_name, arg_src)
+    if not fn_name then return "" end
+    return Host.source { op(fn_name), "(", arg_src or "ctx", ")" }
+end
+
+-- Public alias wrapper.  It exposes `name` while delegating to `uncached`.
+function M.one(spec)
+    local name = name_id(need(spec, "name", "pvmll.one"))
+    local uncached = need(spec, "uncached", "pvmll.one")
+    local ctx_ty = need(spec, "ctx_ty", "pvmll.one")
+    local subject_ty = need(spec, "subject_ty", "pvmll.one")
+    local value_ty = need(spec, "value_ty", "pvmll.one")
+    local fail_ty = spec.fail_ty
+
+    if fail_ty then
+        return region pvmll_@{name}(ctx: @{ctx_ty}, subject: @{subject_ty};
+            value: cont(v: @{value_ty}),
+            fail: cont(issue: @{fail_ty}))
+        entry start()
+            emit @{uncached}(ctx, subject; value = got_value, fail = got_fail)
+        end
+        block got_value(v: @{value_ty})
+            jump value(v = v)
+        end
+        block got_fail(issue: @{fail_ty})
+            jump fail(issue = issue)
+        end
+        end
+    end
+
+    return region pvmll_@{name}(ctx: @{ctx_ty}, subject: @{subject_ty};
+        value: cont(v: @{value_ty}))
+    entry start()
+        emit @{uncached}(ctx, subject; value = got_value)
+    end
+    block got_value(v: @{value_ty})
+        jump value(v = v)
+    end
+    end
+end
+
+-- Cached scalar wrapper.
+-- Conventions:
+--   lookup(ctx, subject) -> hit_ty where hit.valid: bool and hit.value: value_ty
+--   insert(ctx, subject, value) -> void
+function M.cached_one(spec)
+    local name = name_id(need(spec, "name", "pvmll.cached_one"))
+    local uncached = need(spec, "uncached", "pvmll.cached_one")
+    local ctx_ty = need(spec, "ctx_ty", "pvmll.cached_one")
+    local subject_ty = need(spec, "subject_ty", "pvmll.cached_one")
+    local value_ty = need(spec, "value_ty", "pvmll.cached_one")
+    local hit_ty = need(spec, "hit_ty", "pvmll.cached_one")
+    local lookup = op(need(spec, "lookup", "pvmll.cached_one"))
+    local insert = op(need(spec, "insert", "pvmll.cached_one"))
+    local fail_ty = spec.fail_ty
+
+    if fail_ty then
+        return region pvmll_@{name}(ctx: @{ctx_ty}, subject: @{subject_ty};
+            value: cont(v: @{value_ty}),
+            fail: cont(issue: @{fail_ty}))
+        entry start()
+            @{optional_stmt(spec.stats_call)}
+            let hit: @{hit_ty} = @{lookup}(ctx, subject)
+            if hit.valid then
+                @{optional_stmt(spec.stats_hit)}
+                jump value(v = hit.value)
+            end
+            @{optional_stmt(spec.stats_miss)}
+            emit @{uncached}(ctx, subject; value = miss, fail = got_fail)
+        end
+        block miss(v: @{value_ty})
+            @{insert}(ctx, subject, v)
+            jump value(v = v)
+        end
+        block got_fail(issue: @{fail_ty})
+            jump fail(issue = issue)
+        end
+        end
+    end
+
+    return region pvmll_@{name}(ctx: @{ctx_ty}, subject: @{subject_ty};
+        value: cont(v: @{value_ty}))
+    entry start()
+        @{optional_stmt(spec.stats_call)}
+        let hit: @{hit_ty} = @{lookup}(ctx, subject)
+        if hit.valid then
+            @{optional_stmt(spec.stats_hit)}
+            jump value(v = hit.value)
+        end
+        @{optional_stmt(spec.stats_miss)}
+        emit @{uncached}(ctx, subject; value = miss)
+    end
+    block miss(v: @{value_ty})
+        @{insert}(ctx, subject, v)
+        jump value(v = v)
+    end
+    end
+end
+
+-- Optional result wrapper protocol:
+--   pass(ctx, subject; some(v), none(), fail?)
+function M.optional(spec)
+    local name = name_id(need(spec, "name", "pvmll.optional"))
+    local uncached = need(spec, "uncached", "pvmll.optional")
+    local ctx_ty = need(spec, "ctx_ty", "pvmll.optional")
+    local subject_ty = need(spec, "subject_ty", "pvmll.optional")
+    local value_ty = need(spec, "value_ty", "pvmll.optional")
+    local fail_ty = spec.fail_ty
+
+    if fail_ty then
+        return region pvmll_@{name}(ctx: @{ctx_ty}, subject: @{subject_ty};
+            some: cont(v: @{value_ty}),
+            none: cont(),
+            fail: cont(issue: @{fail_ty}))
+        entry start()
+            emit @{uncached}(ctx, subject; some = got_some, none = got_none, fail = got_fail)
+        end
+        block got_some(v: @{value_ty})
+            jump some(v = v)
+        end
+        block got_none()
+            jump none()
+        end
+        block got_fail(issue: @{fail_ty})
+            jump fail(issue = issue)
+        end
+        end
+    end
+
+    return region pvmll_@{name}(ctx: @{ctx_ty}, subject: @{subject_ty};
+        some: cont(v: @{value_ty}),
+        none: cont())
+    entry start()
+        emit @{uncached}(ctx, subject; some = got_some, none = got_none)
+    end
+    block got_some(v: @{value_ty})
+        jump some(v = v)
+    end
+    block got_none()
+        jump none()
+    end
+    end
+end
+
+-- A stream sink that appends/forwards one value then resumes.  `append` has
+-- signature append(ctx, value) -> void.
+function M.append_sink(spec)
+    local name = name_id(need(spec, "name", "pvmll.append_sink"))
+    local ctx_ty = need(spec, "ctx_ty", "pvmll.append_sink")
+    local value_ty = need(spec, "value_ty", "pvmll.append_sink")
+    local append = op(need(spec, "append", "pvmll.append_sink"))
+
+    -- Moonlift currently preserves call side effects reliably when the call is
+    -- bound.  Convention: append(ctx, value) returns i32 status (usually 0).
+    return region pvmll_@{name}(ctx: @{ctx_ty}, value: @{value_ty};
+        resume: cont())
+    entry start()
+        let _pvmll_append_status: i32 = @{append}(ctx, value)
+        jump resume()
+    end
+    end
+end
+
+-- A stream sink that records and forwards.  `append_record(ctx, rec, value)`
+-- records the value; then the value is emitted to `sink`.
+function M.recording_sink(spec)
+    local name = name_id(need(spec, "name", "pvmll.recording_sink"))
+    local sink = need(spec, "sink", "pvmll.recording_sink")
+    local ctx_ty = need(spec, "ctx_ty", "pvmll.recording_sink")
+    local record_ty = need(spec, "record_ty", "pvmll.recording_sink")
+    local value_ty = need(spec, "value_ty", "pvmll.recording_sink")
+    local append_record = op(need(spec, "append_record", "pvmll.recording_sink"))
+
+    return region pvmll_@{name}(ctx: @{ctx_ty}, rec: @{record_ty}, value: @{value_ty};
+        resume: cont())
+    entry start()
+        let _pvmll_record_status: i32 = @{append_record}(ctx, rec, value)
+        emit @{sink}(ctx, value; resume = after_forward)
+    end
+    block after_forward()
+        jump resume()
+    end
+    end
+end
+
+-- Stream span cache wrapper.
+-- Conventions:
+--   lookup(ctx, subject) -> hit_ty { valid, start, len }
+--   value_at(ctx, index) -> value_ty
+--   begin(ctx, subject) -> record_ty
+--   commit(ctx, subject, rec) -> void
+--   uncached_recording(ctx, subject, rec; done(rec), fail?) emits through a
+--     recording sink that also forwards to the real sink.
+function M.cached_stream_span(spec)
+    local name = name_id(need(spec, "name", "pvmll.cached_stream_span"))
+    local uncached_recording = need(spec, "uncached_recording", "pvmll.cached_stream_span")
+    local sink = need(spec, "sink", "pvmll.cached_stream_span")
+    local ctx_ty = need(spec, "ctx_ty", "pvmll.cached_stream_span")
+    local subject_ty = need(spec, "subject_ty", "pvmll.cached_stream_span")
+    local value_ty = need(spec, "value_ty", "pvmll.cached_stream_span")
+    local hit_ty = need(spec, "hit_ty", "pvmll.cached_stream_span")
+    local record_ty = need(spec, "record_ty", "pvmll.cached_stream_span")
+    local lookup = op(need(spec, "lookup", "pvmll.cached_stream_span"))
+    local value_at = op(need(spec, "value_at", "pvmll.cached_stream_span"))
+    local begin = op(need(spec, "begin", "pvmll.cached_stream_span"))
+    local commit = op(need(spec, "commit", "pvmll.cached_stream_span"))
+    local fail_ty = spec.fail_ty
+    local replay_sink_name = name_id("replay_sink")
+
+    -- Replaying a cached span needs loop state after the sink resumes.  A
+    -- standard sink has `resume: cont()`, so wrap it in a state-carrying sink.
+    local replay_sink = region pvmll_@{replay_sink_name}(ctx: @{ctx_ty}, value: @{value_ty}, i: index, start: index, len: index;
+        resume: cont(i: index, start: index, len: index))
+    entry begin()
+        emit @{sink}(ctx, value; resume = after_sink)
+    end
+    block after_sink()
+        jump resume(i = i, start = start, len = len)
+    end
+    end
+
+    if fail_ty then
+        return region pvmll_@{name}(ctx: @{ctx_ty}, subject: @{subject_ty};
+            done: cont(),
+            fail: cont(issue: @{fail_ty}))
+        entry start()
+            let hit: @{hit_ty} = @{lookup}(ctx, subject)
+            if hit.valid then
+                jump replay(i = 0, start = hit.start, len = hit.len)
+            end
+            let rec: @{record_ty} = @{begin}(ctx, subject)
+            emit @{uncached_recording}(ctx, subject, rec; done = miss_done, fail = got_fail)
+        end
+        block miss_done(rec: @{record_ty})
+            @{commit}(ctx, subject, rec)
+            jump done()
+        end
+        block got_fail(issue: @{fail_ty})
+            jump fail(issue = issue)
+        end
+        block replay(i: index, start: index, len: index)
+            if i >= len then jump done() end
+            let value: @{value_ty} = @{value_at}(ctx, start + i)
+            emit @{replay_sink}(ctx, value, i, start, len; resume = replay_next)
+        end
+        block replay_next(i: index, start: index, len: index)
+            jump replay(i = i + 1, start = start, len = len)
+        end
+        end
+    end
+
+    return region pvmll_@{name}(ctx: @{ctx_ty}, subject: @{subject_ty};
+        done: cont())
+    entry start()
+        let hit: @{hit_ty} = @{lookup}(ctx, subject)
+        if hit.valid then
+            jump replay(i = 0, start = hit.start, len = hit.len)
+        end
+        let rec: @{record_ty} = @{begin}(ctx, subject)
+        emit @{uncached_recording}(ctx, subject, rec; done = miss_done)
+    end
+    block miss_done(rec: @{record_ty})
+        @{commit}(ctx, subject, rec)
+        jump done()
+    end
+    block replay(i: index, start: index, len: index)
+        if i >= len then jump done() end
+        let value: @{value_ty} = @{value_at}(ctx, start + i)
+        emit @{replay_sink}(ctx, value, i, start, len; resume = replay_next)
+    end
+    block replay_next(i: index, start: index, len: index)
+        jump replay(i = i + 1, start = start, len = len)
+    end
+    end
+end
+
+return M

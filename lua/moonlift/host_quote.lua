@@ -1,12 +1,12 @@
--- Clean hosted .mlua bridge.
+-- Hosted .mlua execution bridge.
 --
--- `.mlua` is an ordinary LuaJIT chunk with a small number of Moonlift source
--- islands.  This module does not parse Lua.  It only lexically finds the added
--- island forms and rewrites them to ordinary Lua calls; LuaJIT owns everything
--- else.
+-- `.mlua` is LuaJIT Lua plus Moonlift hosted islands.  Island discovery is not
+-- implemented here anymore: it flows through the MoonMlua document parser first
+-- (`mlua_document_parts`), so the executable host chunk is produced from parsed
+-- MLUA segments instead of a second ad-hoc scanner/rewrite pass.
 --
 -- Moonlift meaning still flows through ASDL/PVM phases:
---   hosted island text -> MoonHost / MoonTree ASDL -> existing phases.
+--   MLUA document -> MoonMlua segments -> MoonHost / MoonTree ASDL -> phases.
 
 local ffi = require("ffi")
 local pvm = require("moonlift.pvm")
@@ -104,129 +104,6 @@ local function skip_comment_or_string(src, i)
     return nil
 end
 
-local open_words = {
-    struct = true, expose = true, func = true, module = true, region = true, expr = true,
-    ["if"] = true, switch = true, block = true, entry = true, control = true,
-}
-
-local function line_prefix_has_word(src, i, word)
-    local line_start = src:sub(1, i - 1):match(".*\n()") or 1
-    local prefix = src:sub(line_start, i - 1)
-    return prefix:match("%f[%w_]" .. word .. "%f[^%w_]") ~= nil
-end
-
-local function find_matching_end(src, start_i)
-    local depth, i = 0, start_i
-    while i <= #src do
-        local skipped = skip_comment_or_string(src, i)
-        if skipped then
-            i = skipped
-        elseif src:sub(i, i):match("[A-Za-z_]") then
-            local word, j = read_ident(src, i)
-            if is_boundary(src, i, #word) then
-                if word == "end" then
-                    depth = depth - 1
-                    if depth == 0 then return j - 1 end
-                elseif open_words[word] then
-                    depth = depth + 1
-                elseif word == "do" then
-                    if not line_prefix_has_word(src, i, "switch") then depth = depth + 1 end
-                elseif word == "loop" then
-                    local next_word = read_ident(src, skip_space(src, j))
-                    if next_word == "counted" then depth = depth + 1 end
-                end
-            end
-            i = j
-        else
-            i = i + 1
-        end
-    end
-    error("unterminated hosted Moonlift island", 2)
-end
-
-local function is_island_start(src, i, kind)
-    if not has_word(src, i, kind) then return false end
-    local j = skip_space(src, i + #kind)
-    if kind == "struct" or kind == "func" or kind == "region" or kind == "expr" then
-        return read_ident(src, j) ~= nil
-    end
-    if kind == "expose" then
-        return read_ident(src, j) ~= nil
-    end
-    if kind == "module" then
-        local item_words = { export = true, extern = true, func = true, const = true, static = true, import = true, type = true, region = true, expr = true, ["end"] = true }
-        local p = i - 1
-        while p >= 1 do
-            local c = src:sub(p, p)
-            if c ~= " " and c ~= "\t" and c ~= "\r" then break end
-            p = p - 1
-        end
-        local prev = p >= 1 and src:sub(p, p) or "\n"
-        local word_end = p
-        while p >= 1 and src:sub(p, p):match("[%w_]") do p = p - 1 end
-        local prev_word = word_end >= p + 1 and src:sub(p + 1, word_end) or ""
-        local from_return = prev_word == "return"
-        local prefix_ok = prev == "\n" or prev == "="
-        if not prefix_ok and not from_return then return false end
-        local k = skip_hspace(src, i + #kind)
-        local ch = src:sub(k, k)
-        if ch == "" then return prefix_ok end
-        if ch == "\n" then
-            if not from_return then return true end
-            local next_word = read_ident(src, skip_space(src, k + 1))
-            return item_words[next_word] == true
-        end
-        local word, after_word = read_ident(src, k)
-        if not word then return false end
-        if item_words[word] then return true end
-        local next_i = skip_hspace(src, after_word)
-        local next_ch = src:sub(next_i, next_i)
-        if from_return then return next_ch == "\n" or next_ch == "{" end
-        return next_ch == "" or next_ch == "\n" or next_ch == "{"
-    end
-    return false
-end
-
-local island_order = { "struct", "expose", "func", "module", "region", "expr" }
-
-local function find_next_island(src, i)
-    while i <= #src do
-        local skipped = skip_comment_or_string(src, i)
-        if skipped then
-            i = skipped
-        else
-            for k = 1, #island_order do
-                local kind = island_order[k]
-                if is_island_start(src, i, kind) then return i, kind end
-            end
-            i = i + 1
-        end
-    end
-    return nil, nil
-end
-
-local find_matching_brace
-
-local function island_end(src, start_i, kind)
-    if kind == "expose" then
-        local nl = src:find("\n", start_i, true)
-        if not nl then return #src end
-        local next_word = read_ident(src, skip_space(src, nl + 1))
-        if next_word == "end" or next_word == "lua" or next_word == "terra" or next_word == "c" or next_word == "moonlift" then
-            return find_matching_end(src, start_i)
-        end
-        return nl - 1
-    end
-    if kind == "module" then
-        local _, after_module = read_ident(src, start_i)
-        local k = skip_hspace(src, after_module)
-        local word, after_word = read_ident(src, k)
-        if word ~= nil then k = skip_hspace(src, after_word) end
-        if src:sub(k, k) == "{" then return find_matching_brace(src, k) end
-    end
-    return find_matching_end(src, start_i)
-end
-
 local function assigned_name_before_quote(prefix)
     return prefix:match("([_%a][_%w]*)%s*=%s*$")
 end
@@ -258,28 +135,6 @@ local function expected_splice_kind(src, at)
     local line = prefix:match("([^\n]*)$") or prefix
     if line:match(":%s*[%w_%.%s%(]*$") or line:match("%-%>%s*[%w_%.%s%(]*$") or line:match("%f[%w_]as%s*%(%s*$") then return "type" end
     return "expr"
-end
-
-find_matching_brace = function(src, open_i)
-    local depth = 1
-    local i = open_i + 1
-    while i <= #src do
-        local skipped = skip_comment_or_string(src, i)
-        if skipped then
-            i = skipped
-        else
-            local c = src:sub(i, i)
-            if c == "{" then depth = depth + 1; i = i + 1
-            elseif c == "}" then
-                depth = depth - 1
-                if depth == 0 then return i end
-                i = i + 1
-            else
-                i = i + 1
-            end
-        end
-    end
-    error("unterminated Moonlift brace island", 2)
 end
 
 local function find_antiquote_end(src, i)
@@ -371,19 +226,47 @@ local function translate_island(kind, source, assigned, known_frag_vars)
     error("unknown hosted island kind: " .. tostring(kind), 2)
 end
 
-function M.translate(src)
-    local out = {}
-    local known_frag_vars = {}
-    local i = 1
-    while i <= #src do
-        local f, kind = find_next_island(src, i)
-        if not f then out[#out + 1] = src:sub(i); break end
-        local prefix = src:sub(i, f - 1)
-        out[#out + 1] = prefix
-        local e = island_end(src, f, kind)
-        local source = src:sub(f, e)
-        out[#out + 1] = translate_island(kind, source, assigned_name_before_quote(prefix), known_frag_vars)
-        i = e + 1
+local function parsed_mlua_parts(src, name)
+    local A = require("moonlift.asdl")
+    local T = pvm.context()
+    A.Define(T)
+    local S = T.MoonSource
+    local doc = S.DocumentSnapshot(S.DocUri(name or "<mlua>"), S.DocVersion(0), S.LangMlua, src)
+    return require("moonlift.mlua_document_parts").Define(T).document_parts(doc), T
+end
+
+local function island_kind_word(Mlua, island)
+    if island.kind == Mlua.IslandStruct then return "struct" end
+    if island.kind == Mlua.IslandExpose then return "expose" end
+    if island.kind == Mlua.IslandFunc then return "func" end
+    if island.kind == Mlua.IslandModule then return "module" end
+    if island.kind == Mlua.IslandRegion then return "region" end
+    if island.kind == Mlua.IslandExpr then return "expr" end
+    error("unknown hosted island kind", 2)
+end
+
+function M.translate(src, name)
+    local parts, T = parsed_mlua_parts(src, name)
+    local Mlua = T.MoonMlua
+    local out, known_frag_vars = {}, {}
+    local last_lua_prefix = ""
+    for i = 1, #parts.segments do
+        local seg = parts.segments[i]
+        local cls = pvm.classof(seg)
+        if cls == Mlua.LuaOpaque then
+            local text = seg.occurrence.slice.text
+            out[#out + 1] = text
+            last_lua_prefix = text
+        elseif cls == Mlua.HostedIsland then
+            local kind = island_kind_word(Mlua, seg.island)
+            local source = seg.island.source.text
+            out[#out + 1] = translate_island(kind, source, assigned_name_before_quote(last_lua_prefix), known_frag_vars)
+            last_lua_prefix = ""
+        elseif cls == Mlua.MalformedIsland then
+            error(seg.reason, 2)
+        else
+            error("unknown MLUA document segment", 2)
+        end
     end
     return table.concat(out)
 end
@@ -421,6 +304,7 @@ end
 local function splice_kind_matches(actual, expected)
     if expected == nil or expected == "any" then return true end
     if expected == "emit" then return actual == "region" or actual == "expr" end
+    if actual == "source" and (expected == "expr" or expected == "emit") then return true end
     return actual == expected
 end
 
@@ -767,25 +651,30 @@ function M.func_from_source(src)
 end
 
 local function extract_module_local_frags(source, region_frags, expr_frags)
-    local out, i = {}, 1
-    while i <= #source do
-        local skipped = skip_comment_or_string(source, i)
-        if skipped then
-            out[#out + 1] = source:sub(i, skipped - 1); i = skipped
-        elseif is_island_start(source, i, "region") or is_island_start(source, i, "expr") then
-            local kind = is_island_start(source, i, "region") and "region" or "expr"
-            local e = island_end(source, i, kind)
-            local form = source:sub(i, e)
+    local parts, T = parsed_mlua_parts(source, "<module>")
+    local Mlua = T.MoonMlua
+    local out = {}
+    for i = 1, #parts.segments do
+        local seg = parts.segments[i]
+        local cls = pvm.classof(seg)
+        if cls == Mlua.LuaOpaque then
+            out[#out + 1] = seg.occurrence.slice.text
+        elseif cls == Mlua.HostedIsland then
+            local kind = island_kind_word(Mlua, seg.island)
+            local form = seg.island.source.text
             if kind == "region" then
                 local name = assert(form:match("^%s*region%s+([_%a][_%w]*)"), "module-local region name")
                 region_frags[name] = setmetatable({ name = name, source = form, region_frags = {}, expr_frags = {} }, RegionFragValue)
-            else
+                out[#out + 1] = "\n"
+            elseif kind == "expr" then
                 local name = assert(form:match("^%s*expr%s+([_%a][_%w]*)"), "module-local expr name")
                 expr_frags[name] = setmetatable({ name = name, source = form }, ExprFragValue)
+                out[#out + 1] = "\n"
+            else
+                out[#out + 1] = form
             end
-            out[#out + 1] = "\n"; i = e + 1
-        else
-            out[#out + 1] = source:sub(i, i); i = i + 1
+        elseif cls == Mlua.MalformedIsland then
+            error(seg.reason, 2)
         end
     end
     return table.concat(out), region_frags, expr_frags
@@ -888,7 +777,7 @@ function CompiledFunction:__tostring() return "CompiledMoonliftFunction(" .. sel
 
 function M.compile_chunk(src, chunk_name, runtime)
     runtime = runtime or M.new_runtime({ name = chunk_name })
-    local lua_src = M.translate(src)
+    local lua_src = M.translate(src, chunk_name)
     local q = Quote()
     local host = q:val(runtime, "moonlift_host")
     q("return function(...)")

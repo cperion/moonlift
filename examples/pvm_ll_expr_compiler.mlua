@@ -1,0 +1,456 @@
+-- PVM-LL vs Regular PVM: expression-tape compiler benchmark.
+--
+-- This example implements the SAME compiler task twice, side by side:
+--
+--   PVM-LL         native Moonlift regions/jumps/emits
+--   Regular PVM    pvm.lua with ASDL dispatch, triplets, recording cache
+--
+-- The task:
+--   * classify source opcodes to stack delta (scalar cached phase)
+--   * compile a source tape to bytecode (stream-like compiler phase)
+--   * run the bytecode and validate the result
+--
+-- This comparison is the core PVM-LL argument:
+--   PVM-LL phases are direct Moonlift control, not Lua callbacks.
+--   No triplets, no ASDL dispatch table, no weak-key caches, no recording
+--   generator.  Just regions, switches, emits, and jumps.
+
+local ffi = require("ffi")
+
+local N = tonumber((arg and arg[2]) or 4096) or 4096
+local T_CONST, T_ADD, T_MUL, T_SUB, T_NEG, T_DUP, T_DROP = 1, 2, 3, 4, 5, 6, 7
+local OP_PUSH, OP_ADD, OP_MUL, OP_SUB, OP_NEG, OP_DUP, OP_DROP = 1, 2, 3, 4, 5, 6, 7
+
+local function seconds() return os.clock() end
+local function bench(name, rounds, fn)
+    local t0 = seconds()
+    local acc = 0
+    for _ = 1, rounds do acc = acc + fn() end
+    local dt = seconds() - t0
+    print(string.format("  %-28s rounds=%-8d time=%.6f s  %.1f ns/round  acc=%d", name, rounds, dt, dt * 1e9 / rounds, acc))
+    return dt
+end
+
+local function new_test_tape(N)
+    -- Generate a valid stack program: Const, Const, [op], Const, [Neg], Const, Const, [op], ...
+    local tag, imm = ffi.new("int32_t[?]", N), ffi.new("int32_t[?]", N)
+    local op_types = { T_ADD, T_MUL, T_SUB, T_NEG, T_DUP, T_DROP, T_NEG, T_ADD, T_MUL, T_SUB, T_DUP, T_DROP }
+    local w, op_cycle, depth = 0, 0, 0
+    while w < N do
+        if depth < 2 then
+            tag[w] = T_CONST; imm[w] = ((w * 17) % 31) - 15; w = w + 1; depth = depth + 1
+        else
+            local op = op_types[(op_cycle % #op_types) + 1]
+            if op == T_NEG then
+                tag[w] = T_NEG; w = w + 1
+            elseif op == T_DUP then
+                tag[w] = T_DUP; w = w + 1; depth = depth + 1
+            elseif op == T_DROP then
+                tag[w] = T_DROP; w = w + 1; depth = depth - 1
+            else
+                tag[w] = op; w = w + 1; depth = depth - 1
+            end
+            op_cycle = op_cycle + 1
+        end
+    end
+    return tag, imm
+end
+
+local function run_bytecode_lua(code, code_len)
+    local stack, sp, ip = {}, 0, 1
+    while ip <= code_len do
+        local op = code[ip]
+        if op == OP_PUSH then
+            sp = sp + 1; stack[sp] = code[ip + 1]; ip = ip + 2
+        elseif op == OP_ADD then
+            stack[sp - 1] = stack[sp - 1] + stack[sp]; sp = sp - 1; ip = ip + 1
+        elseif op == OP_MUL then
+            stack[sp - 1] = stack[sp - 1] * stack[sp]; sp = sp - 1; ip = ip + 1
+        elseif op == OP_SUB then
+            stack[sp - 1] = stack[sp - 1] - stack[sp]; sp = sp - 1; ip = ip + 1
+        elseif op == OP_NEG then
+            stack[sp] = 0 - stack[sp]; ip = ip + 1
+        elseif op == OP_DUP then
+            sp = sp + 1; stack[sp] = stack[sp - 1]; ip = ip + 1
+        elseif op == OP_DROP then
+            sp = sp - 1; ip = ip + 1
+        else error("bad op " .. op .. " at " .. ip) end
+    end
+    return stack[sp]
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════
+--  PART 1 — PVM-LL implementation
+-- ═══════════════════════════════════════════════════════════════════════════
+
+local pvmll = require("moonlift.pvm_ll")
+
+local SRC_TAG_BASE = 0
+local SRC_IMM_BASE = 8192
+local CODE_BASE = 16384
+local STACK_BASE = 32768
+local CLASS_VALID_BASE = 49152
+local CLASS_VALUE_BASE = 49200
+local PC_SLOT = 60000
+local TMP_I = 60001
+local TMP_DEPTH = 60002
+local TMP_MAX = 60003
+local MEM_SIZE = 70000
+
+local compiler_ll = module PvmLlModule
+export func clear_class_cache_ll(ctx: ptr(i32)) -> i32
+    block loop(i: i32 = 0)
+        if i >= 32 then return 0 end
+        ctx[@{CLASS_VALID_BASE} + i] = 0
+        jump loop(i = i + 1)
+    end
+end
+
+region classify_uncached_ll(ctx: ptr(i32), tag: i32;
+    value: cont(delta: i32))
+entry start()
+    switch tag do
+    case @{T_CONST} then jump value(delta = 1)
+    case @{T_ADD} then jump value(delta = 0 - 1)
+    case @{T_MUL} then jump value(delta = 0 - 1)
+    case @{T_SUB} then jump value(delta = 0 - 1)
+    case @{T_NEG} then jump value(delta = 0)
+    case @{T_DUP} then jump value(delta = 1)
+    case @{T_DROP} then jump value(delta = 0 - 1)
+    default then jump value(delta = 0)
+    end
+end
+end
+
+region classify_cached_ll(ctx: ptr(i32), tag: i32;
+    value: cont(delta: i32))
+entry start()
+    if ctx[@{CLASS_VALID_BASE} + tag] ~= 0 then
+        jump value(delta = ctx[@{CLASS_VALUE_BASE} + tag])
+    end
+    emit classify_uncached_ll(ctx, tag; value = miss)
+end
+block miss(delta: i32)
+    ctx[@{CLASS_VALUE_BASE} + tag] = delta
+    ctx[@{CLASS_VALID_BASE} + tag] = 1
+    jump value(delta = delta)
+end
+end
+
+region compile_program_ll(ctx: ptr(i32), n: i32;
+    done: cont(max_stack: i32))
+entry start()
+    ctx[@{PC_SLOT}] = 0
+    jump loop(i = 0, depth = 0, max_stack = 0)
+end
+block loop(i: i32, depth: i32, max_stack: i32)
+    if i >= n then jump done(max_stack = max_stack) end
+    ctx[@{TMP_I}] = i
+    ctx[@{TMP_DEPTH}] = depth
+    ctx[@{TMP_MAX}] = max_stack
+    switch ctx[@{SRC_TAG_BASE} + i] do
+    case @{T_CONST} then jump classified_ll(delta = 1)
+    case @{T_ADD} then jump classified_ll(delta = 0 - 1)
+    case @{T_MUL} then jump classified_ll(delta = 0 - 1)
+    case @{T_SUB} then jump classified_ll(delta = 0 - 1)
+    case @{T_NEG} then jump classified_ll(delta = 0)
+    case @{T_DUP} then jump classified_ll(delta = 1)
+    case @{T_DROP} then jump classified_ll(delta = 0 - 1)
+    default then jump classified_ll(delta = 0)
+    end
+end
+block classified_ll(delta: i32)
+    let i: i32 = ctx[@{TMP_I}]
+    let depth: i32 = ctx[@{TMP_DEPTH}]
+    let max_stack: i32 = ctx[@{TMP_MAX}]
+    let tag: i32 = ctx[@{SRC_TAG_BASE} + i]
+    let new_depth: i32 = depth + delta
+    let new_max: i32 = select(new_depth > max_stack, new_depth, max_stack)
+    ctx[@{TMP_DEPTH}] = new_depth
+    ctx[@{TMP_MAX}] = new_max
+    switch tag do
+    case @{T_CONST} then jump emit_const_ll()
+    case @{T_ADD} then jump emit_add_ll()
+    case @{T_MUL} then jump emit_mul_ll()
+    case @{T_SUB} then jump emit_sub_ll()
+    case @{T_NEG} then jump emit_neg_ll()
+    case @{T_DUP} then jump emit_dup_ll()
+    case @{T_DROP} then jump emit_drop_ll()
+    default then jump op_done_ll()
+    end
+end
+block emit_const_ll()
+    let pc: i32 = ctx[@{PC_SLOT}]
+    ctx[@{CODE_BASE} + pc] = @{OP_PUSH}
+    ctx[@{CODE_BASE} + pc + 1] = ctx[@{SRC_IMM_BASE} + ctx[@{TMP_I}]]
+    ctx[@{PC_SLOT}] = pc + 2
+    jump op_done_ll()
+end
+block emit_add_ll()
+    let pc: i32 = ctx[@{PC_SLOT}]
+    ctx[@{CODE_BASE} + pc] = @{OP_ADD}
+    ctx[@{PC_SLOT}] = pc + 1
+    jump op_done_ll()
+end
+block emit_mul_ll()
+    let pc: i32 = ctx[@{PC_SLOT}]
+    ctx[@{CODE_BASE} + pc] = @{OP_MUL}
+    ctx[@{PC_SLOT}] = pc + 1
+    jump op_done_ll()
+end
+block emit_sub_ll()
+    let pc: i32 = ctx[@{PC_SLOT}]
+    ctx[@{CODE_BASE} + pc] = @{OP_SUB}
+    ctx[@{PC_SLOT}] = pc + 1
+    jump op_done_ll()
+end
+block emit_neg_ll()
+    let pc: i32 = ctx[@{PC_SLOT}]
+    ctx[@{CODE_BASE} + pc] = @{OP_NEG}
+    ctx[@{PC_SLOT}] = pc + 1
+    jump op_done_ll()
+end
+block emit_dup_ll()
+    let pc: i32 = ctx[@{PC_SLOT}]
+    ctx[@{CODE_BASE} + pc] = @{OP_DUP}
+    ctx[@{PC_SLOT}] = pc + 1
+    jump op_done_ll()
+end
+block emit_drop_ll()
+    let pc: i32 = ctx[@{PC_SLOT}]
+    ctx[@{CODE_BASE} + pc] = @{OP_DROP}
+    ctx[@{PC_SLOT}] = pc + 1
+    jump op_done_ll()
+end
+block op_done_ll()
+    jump loop(i = ctx[@{TMP_I}] + 1, depth = ctx[@{TMP_DEPTH}], max_stack = ctx[@{TMP_MAX}])
+end
+end
+
+export func classify_export_ll(ctx: ptr(i32), tag: i32) -> i32
+    return region -> i32
+    entry start()
+        ctx[@{CLASS_VALID_BASE} + tag] = 0
+        emit classify_cached_ll(ctx, tag; value = done)
+    end
+    block done(delta: i32)
+        yield delta
+    end
+    end
+end
+
+export func compile_export_ll(ctx: ptr(i32), n: i32) -> i32
+    return region -> i32
+    entry start()
+        emit compile_program_ll(ctx, n; done = done)
+    end
+    block done(max_stack: i32)
+        yield max_stack
+    end
+    end
+end
+end
+
+local compiled_ll = compiler_ll:compile()
+local classify_ll = compiled_ll:get("classify_export_ll")
+local compile_ll = compiled_ll:get("compile_export_ll")
+local clear_class_cache_ll = compiled_ll:get("clear_class_cache_ll")
+
+-- ═══════════════════════════════════════════════════════════════════════════
+--  PART 2 — Regular PVM (pvm.lua + ASDL) implementation
+-- ═══════════════════════════════════════════════════════════════════════════
+
+local pvm = require("moonlift.pvm")
+
+local T = pvm.context()
+T:Define [[
+    module TapeOp {
+        Op = OpConst(number value)
+           | OpAdd
+           | OpMul
+           | OpSub
+           | OpNeg
+           | OpDup
+           | OpDrop
+    }
+]]
+
+local TOp = T.TapeOp
+
+local tag_to_op = { [T_CONST] = TOp.OpConst, [T_ADD] = TOp.OpAdd, [T_MUL] = TOp.OpMul,
+                    [T_SUB] = TOp.OpSub, [T_NEG] = TOp.OpNeg, [T_DUP] = TOp.OpDup, [T_DROP] = TOp.OpDrop }
+
+-- We model the whole tape as one ASDL node so pvm.phase can cache it by
+-- identity.
+local delta_of = { [T_CONST] = 1, [T_ADD] = -1, [T_MUL] = -1, [T_SUB] = -1, [T_NEG] = 0, [T_DUP] = 1, [T_DROP] = -1 }
+local tape_delta = {}
+for op = 1, 7 do
+    tape_delta[tag_to_op[op]] = function(self)
+        return pvm.once(delta_of[op])
+    end
+end
+
+local classify_pvm = pvm.phase("classify", tape_delta)
+
+-- Build an array of tape ops by reading the flat arrays.
+local function make_tape_ops(tag_arr, imm_arr, n)
+    local ops = {}
+    for i = 0, n - 1 do
+        local tag = tag_arr[i]
+        if tag == T_CONST then ops[#ops + 1] = TOp.OpConst(imm_arr[i])
+        elseif tag == T_ADD then ops[#ops + 1] = TOp.OpAdd
+        elseif tag == T_MUL then ops[#ops + 1] = TOp.OpMul
+        elseif tag == T_SUB then ops[#ops + 1] = TOp.OpSub
+        elseif tag == T_NEG then ops[#ops + 1] = TOp.OpNeg
+        elseif tag == T_DUP then ops[#ops + 1] = TOp.OpDup
+        else ops[#ops + 1] = TOp.OpDrop end
+    end
+    return ops
+end
+
+-- Regular PVM compile phase.  It drains triplets into a flat code table.
+-- This mirrors pvm_triplet_cold in back_validate.
+local function two(delta, next_pc)
+    local g1, p1, c1 = pvm.once(delta)
+    local g2, p2, c2 = pvm.once(next_pc)
+    return pvm.concat2(g1, p1, c1, g2, p2, c2)
+end
+
+local tape_compile_pvm = pvm.phase("compile_tape_pvm", {
+    [TOp.OpConst] = function(self, ops, i, code, pc)
+        code[pc] = OP_PUSH; code[pc + 1] = self.value
+        return two(1, pc + 2)
+    end,
+    [TOp.OpAdd] = function(self, ops, i, code, pc)
+        code[pc] = OP_ADD
+        return two(-1, pc + 1)
+    end,
+    [TOp.OpMul] = function(self, ops, i, code, pc)
+        code[pc] = OP_MUL
+        return two(-1, pc + 1)
+    end,
+    [TOp.OpSub] = function(self, ops, i, code, pc)
+        code[pc] = OP_SUB
+        return two(-1, pc + 1)
+    end,
+    [TOp.OpNeg] = function(self, ops, i, code, pc)
+        code[pc] = OP_NEG
+        return two(0, pc + 1)
+    end,
+    [TOp.OpDup] = function(self, ops, i, code, pc)
+        code[pc] = OP_DUP
+        return two(1, pc + 1)
+    end,
+    [TOp.OpDrop] = function(self, ops, i, code, pc)
+        code[pc] = OP_DROP
+        return two(-1, pc + 1)
+    end,
+})
+
+local function compile_tape_pvm(ops, n)
+    local code = {}
+    local pc, depth, max_depth = 1, 0, 0
+    for i = 1, n do
+        local g, p, c = tape_compile_pvm(ops[i], ops, i, code, pc)
+        local items = pvm.drain(g, p, c)
+        local delta, next_pc = items[1], items[2]
+        depth = depth + delta
+        if depth > max_depth then max_depth = depth end
+        pc = next_pc
+    end
+    return code, pc - 1, max_depth
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════
+--  PART 3 — Benchmarks
+-- ═══════════════════════════════════════════════════════════════════════════
+
+print()
+print("================================================================")
+print("  PVM-LL (native Moonlift regions/jumps) vs Regular PVM (pvm.lua)")
+print("  tape ops: " .. N)
+print("================================================================")
+print()
+
+-- Build test data
+local tag_arr, imm_arr = new_test_tape(N)
+
+-- PVM-LL: warm classify cache, validate
+local ctx = ffi.new("int32_t[?]", MEM_SIZE)
+ffi.copy(ctx + SRC_TAG_BASE, tag_arr, N * 4)
+ffi.copy(ctx + SRC_IMM_BASE, imm_arr, N * 4)
+
+clear_class_cache_ll(ctx)
+assert(classify_ll(ctx, T_CONST) == 1)
+assert(classify_ll(ctx, T_ADD) == -1)
+
+local max_stack_ll = compile_ll(ctx, N)
+local code_len_ll = ctx[PC_SLOT]
+
+-- Validate
+local code_lua = {}
+for i = 0, code_len_ll - 1 do code_lua[i + 1] = ctx[CODE_BASE + i] end
+assert(code_len_ll > 0, "empty bytecode from PVM-LL compile")
+local result_ll = run_bytecode_lua(code_lua, code_len_ll)
+assert(max_stack_ll >= 0)
+
+-- Regular PVM: warm classify cache, validate
+local ops = make_tape_ops(tag_arr, imm_arr, N)
+for i = 1, #ops do
+    assert(pvm.classof(classify_pvm(ops[i])) ~= nil)
+end
+
+local code_arr, code_len_pvm, max_stack_pvm = compile_tape_pvm(ops, N)
+assert(code_len_pvm > 0, "empty bytecode from PVM compile")
+local result_pvm = run_bytecode_lua(code_arr, code_len_pvm)
+assert(max_stack_pvm == max_stack_ll, string.format("max stack mismatch: pvm=%d ll=%d", max_stack_pvm, max_stack_ll))
+assert(result_pvm == result_ll, string.format("result mismatch: pvm=%d ll=%d", result_pvm, result_ll))
+assert(code_len_pvm == code_len_ll, string.format("code len mismatch: pvm=%d ll=%d", code_len_pvm, code_len_ll))
+
+print(string.format("  validated: max_stack=%d  bytecode_words=%d  result=%d", max_stack_ll, code_len_ll, result_ll))
+print()
+
+-- Scalar classify benchmark
+clear_class_cache_ll(ctx)
+
+print("--- Scalar classify (cached hit after first access) ---")
+bench("classify PVM-LL (native)", 2000000, function() return classify_ll(ctx, T_ADD) end)
+bench("classify Regular PVM (pvm.lua)", 2000000, function()
+    local g, p, c = classify_pvm(ops[2]) -- OpAdd
+    return pvm.one(g, p, c)
+end)
+print()
+
+-- Compiler pass benchmark
+print("--- Compile tape (full compiler pass) ---")
+bench("compile PVM-LL (native regions/jumps)", 20000, function()
+    ctx[PC_SLOT] = 0
+    return compile_ll(ctx, N)
+end)
+bench("compile Regular PVM (triplet drain)", 2000, function()
+    local _, _, max = compile_tape_pvm(ops, N)
+    return max
+end)
+print()
+
+-- Bytecode run benchmark (single Lua impl, same code)
+print("--- Run bytecode (same code, Lua loop) ---")
+bench("run bytecode", 200000, function()
+    return run_bytecode_lua(code_lua, code_len_ll)
+end)
+print()
+
+-- Summary
+print("================================================================")
+print("  key metrics:")
+print(string.format("    scalar classify:  PVM-LL regions/switches/jumps"))
+print(string.format("                      Regular PVM: pvm.phase + ASDL dispatch +"))
+print(string.format("                      triplet recording cache"))
+print(string.format("    full compile:     PVM-LL: one region, linear loop, switches"))
+print(string.format("                      Regular PVM: per-node pvm.phase calls,"))
+print(string.format("                      per-node triplets, pvm.drain per node"))
+print("================================================================")
+print()
+
+compiled_ll:free()
+return "PVM-LL vs Regular PVM comparison ok"
