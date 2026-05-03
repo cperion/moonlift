@@ -1,0 +1,487 @@
+-- JSON tape decoder via MoonLift metaprogramming.
+-- Reuses scanner fragments from json_meta.mlua, adds tape emission on top.
+--
+-- Return convention:
+--   >= 0 => number of tape entries emitted
+--   <  0 => error near one-based offset (-offset)
+--
+-- Tape format (same as json.moon2 for compatibility):
+--   tag   a              b
+--   1     start_offset   0         ARRAY_BEGIN
+--   2     end_offset     0         ARRAY_END
+--   3     start_offset   0         OBJECT_BEGIN
+--   4     end_offset     0         OBJECT_END
+--   5     start_offset   len       KEY_SLICE
+--   6     start_offset   len       STRING_SLICE
+--   7     start_offset   len       NUMBER_SLICE
+--   8     offset         1         TRUE
+--   9     offset         0         FALSE
+--   10    offset         0         NULL
+
+-- ===========================================================================
+-- Scanner fragments (same generators as json_meta, different suffix)
+-- ===========================================================================
+
+local function make_skip_ws(name)
+    return region skip_ws_@{name}(p: ptr(u8), n: i32, pos: i32, depth: i32, expect: i32;
+        ok: cont(next: i32, depth: i32, expect: i32),
+        eof: cont(next: i32, depth: i32, expect: i32))
+    entry start()
+        jump scan(i = pos)
+    end
+    block scan(i: i32)
+        if i >= n then jump eof(next = i, depth = depth, expect = expect) end
+        switch as(i32, p[i]) do
+        case 9  then jump scan(i = i + 1)
+        case 10 then jump scan(i = i + 1)
+        case 13 then jump scan(i = i + 1)
+        case 32 then jump scan(i = i + 1)
+        default then jump ok(next = i, depth = depth, expect = expect)
+        end
+    end
+    end
+end
+
+local function make_scan_string(name)
+    return region scan_str_@{name}(p: ptr(u8), n: i32, start: i32, depth: i32, next: i32;
+        ok: cont(end_i: i32, start_i: i32, depth: i32, next: i32),
+        bad: cont(bad_pos: i32))
+    entry start()
+        jump scan(i = start)
+    end
+    block scan(i: i32)
+        if i >= n then jump bad(bad_pos = i) end
+        let c: i32 = as(i32, p[i])
+        if c == 34 then jump ok(end_i = i + 1, start_i = start, depth = depth, next = next) end
+        if c == 92 then jump escape(i = i + 1) end
+        if c < 32 then jump bad(bad_pos = i) end
+        jump scan(i = i + 1)
+    end
+    block escape(i: i32)
+        if i >= n then jump bad(bad_pos = i) end
+        let c: i32 = as(i32, p[i])
+        switch c do
+        case 34  then jump scan(i = i + 1)
+        case 92  then jump scan(i = i + 1)
+        case 47  then jump scan(i = i + 1)
+        case 98  then jump scan(i = i + 1)
+        case 102 then jump scan(i = i + 1)
+        case 110 then jump scan(i = i + 1)
+        case 114 then jump scan(i = i + 1)
+        case 116 then jump scan(i = i + 1)
+        case 117 then jump hex_scan(i = i + 1, count = 4)
+        default then jump bad(bad_pos = i)
+        end
+    end
+    block hex_scan(i: i32, count: i32)
+        if count <= 0 then jump scan(i = i) end
+        if i >= n then jump bad(bad_pos = i) end
+        let c: i32 = as(i32, p[i])
+        if c >= 48 then
+            if c <= 57 then jump hex_scan(i = i + 1, count = count - 1) end
+        end
+        if c >= 65 then
+            if c <= 70 then jump hex_scan(i = i + 1, count = count - 1) end
+        end
+        if c >= 97 then
+            if c <= 102 then jump hex_scan(i = i + 1, count = count - 1) end
+        end
+        jump bad(bad_pos = i)
+    end
+    end
+end
+
+local function make_scan_number(name)
+    return region scan_num_@{name}(p: ptr(u8), n: i32, start: i32, depth: i32, next: i32;
+        ok: cont(end_i: i32, start_i: i32, depth: i32, next: i32),
+        bad: cont(bad_pos: i32))
+    entry start()
+        if start >= n then jump bad(bad_pos = start) end
+        let c: i32 = as(i32, p[start])
+        if c == 45 then jump after_minus(i = start + 1) end
+        jump first_digit(c = c, i = start)
+    end
+    block after_minus(i: i32)
+        if i >= n then jump bad(bad_pos = i) end
+        let c: i32 = as(i32, p[i])
+        jump first_digit(c = c, i = i)
+    end
+    block first_digit(c: i32, i: i32)
+        if c == 48 then jump after_zero(i = i + 1) end
+        if c >= 49 then
+            if c <= 57 then jump int_tail(i = i + 1) end
+        end
+        jump bad(bad_pos = i)
+    end
+    block int_tail(i: i32)
+        if i >= n then jump ok(end_i = i, start_i = start, depth = depth, next = next) end
+        let c: i32 = as(i32, p[i])
+        if c >= 48 then
+            if c <= 57 then jump int_tail(i = i + 1) end
+        end
+        jump frac_or_exp(c = c, i = i)
+    end
+    block after_zero(i: i32)
+        if i >= n then jump ok(end_i = i, start_i = start, depth = depth, next = next) end
+        let c: i32 = as(i32, p[i])
+        if c >= 48 then
+            if c <= 57 then jump bad(bad_pos = i) end
+        end
+        jump frac_or_exp(c = c, i = i)
+    end
+    block frac_or_exp(c: i32, i: i32)
+        if c == 46 then jump frac_first(i = i + 1) end
+        jump exp_check(c = c, i = i)
+    end
+    block frac_first(i: i32)
+        if i >= n then jump bad(bad_pos = i) end
+        let c: i32 = as(i32, p[i])
+        if c >= 48 then
+            if c <= 57 then jump frac_tail(i = i + 1) end
+        end
+        jump bad(bad_pos = i)
+    end
+    block frac_tail(i: i32)
+        if i >= n then jump ok(end_i = i, start_i = start, depth = depth, next = next) end
+        let c: i32 = as(i32, p[i])
+        if c >= 48 then
+            if c <= 57 then jump frac_tail(i = i + 1) end
+        end
+        jump exp_check(c = c, i = i)
+    end
+    block exp_check(c: i32, i: i32)
+        if c == 101 then jump exp_sign(i = i + 1) end
+        if c == 69 then jump exp_sign(i = i + 1) end
+        jump ok(end_i = i, start_i = start, depth = depth, next = next)
+    end
+    block exp_sign(i: i32)
+        if i >= n then jump bad(bad_pos = i) end
+        let c: i32 = as(i32, p[i])
+        if c == 43 then jump exp_first(i = i + 1) end
+        if c == 45 then jump exp_first(i = i + 1) end
+        jump exp_first_digit(c = c, i = i)
+    end
+    block exp_first_digit(c: i32, i: i32)
+        if c >= 48 then
+            if c <= 57 then jump exp_tail(i = i + 1) end
+        end
+        jump bad(bad_pos = i)
+    end
+    block exp_first(i: i32)
+        if i >= n then jump bad(bad_pos = i) end
+        let c: i32 = as(i32, p[i])
+        jump exp_first_digit(c = c, i = i)
+    end
+    block exp_tail(i: i32)
+        if i >= n then jump ok(end_i = i, start_i = start, depth = depth, next = next) end
+        let c: i32 = as(i32, p[i])
+        if c >= 48 then
+            if c <= 57 then jump exp_tail(i = i + 1) end
+        end
+        jump ok(end_i = i, start_i = start, depth = depth, next = next)
+    end
+    end
+end
+
+local function make_match_literal(name, suffix, char2, char3, char4, tag, a_val, b_val)
+    return region match_@{name}_@{suffix}(p: ptr(u8), n: i32, start: i32, depth: i32, next: i32;
+        ok: cont(end_i: i32, start_i: i32, depth: i32, next: i32),
+        bad: cont(bad_pos: i32))
+    entry start()
+        jump check2(i = start + 1)
+    end
+    block check2(i: i32)
+        if i >= n then jump bad(bad_pos = i) end
+        if as(i32, p[i]) == @{char2} then jump check3(i = i + 1) end
+        jump bad(bad_pos = i)
+    end
+    block check3(i: i32)
+        if i >= n then jump bad(bad_pos = i) end
+        if as(i32, p[i]) == @{char3} then jump check4(i = i + 1) end
+        jump bad(bad_pos = i)
+    end
+    block check4(i: i32)
+        if i >= n then jump bad(bad_pos = i) end
+        if as(i32, p[i]) == @{char4} then jump ok(end_i = i + 1, start_i = start, depth = depth, next = next) end
+        jump bad(bad_pos = i)
+    end
+    end
+end
+
+
+-- ===========================================================================
+-- Instantiate fragments
+-- ===========================================================================
+
+local skip_ws     = make_skip_ws("d")
+local scan_str    = make_scan_string("d")
+local scan_num    = make_scan_number("d")
+local match_true  = make_match_literal("true",  "d", 114, 117, 101, 8, 0, 1)    -- r, u, e
+local match_false = make_match_literal("false", "d", 97,  108, 115, 9, 0, 0)    -- a, l, s  (+check4=e)
+local match_null  = make_match_literal("null",  "d", 117, 108, 108, 10, 0, 0)   -- u, l, l
+
+-- match_false needs 4 checks (a, l, s, e), so handle it specially
+local match_false = region match_false_d(p: ptr(u8), n: i32, start: i32, depth: i32, next: i32;
+    ok: cont(end_i: i32, start_i: i32, depth: i32, next: i32),
+    bad: cont(bad_pos: i32))
+entry start()
+    jump check_a(i = start + 1)
+end
+block check_a(i: i32)
+    if i >= n then jump bad(bad_pos = i) end
+    if as(i32, p[i]) == 97 then jump check_l(i = i + 1) end
+    jump bad(bad_pos = i)
+end
+block check_l(i: i32)
+    if i >= n then jump bad(bad_pos = i) end
+    if as(i32, p[i]) == 108 then jump check_s(i = i + 1) end
+    jump bad(bad_pos = i)
+end
+block check_s(i: i32)
+    if i >= n then jump bad(bad_pos = i) end
+    if as(i32, p[i]) == 115 then jump check_e(i = i + 1) end
+    jump bad(bad_pos = i)
+end
+block check_e(i: i32)
+    if i >= n then jump bad(bad_pos = i) end
+    if as(i32, p[i]) == 101 then jump ok(end_i = i + 1, start_i = start, depth = depth, next = next) end
+    jump bad(bad_pos = i)
+end
+end
+
+
+-- ===========================================================================
+-- Main tape decoder
+-- ===========================================================================
+
+local json = module JsonMetaDecode
+
+export func json_decode_tape(p: ptr(u8), n: i32,
+    stack_next: ptr(i32), stack_kind: ptr(i32), stack_cap: i32,
+    tags: ptr(i32), a: ptr(i32), b: ptr(i32), tape_cap: i32,
+    meta: ptr(i32)) -> i32
+    meta[0] = 0
+    return region -> i32
+    entry dispatch(i: i32 = 0, depth: i32 = 0, expect: i32 = 0)
+        if i >= n then jump eof(expect = expect, i = i) end
+        let c: i32 = as(i32, p[i])
+        -- inline whitespace skip (no fragment emit overhead on hot path)
+        jump ws_check(i = i, depth = depth, expect = expect, c = c)
+    end
+
+    block ws_check(i: i32, depth: i32, expect: i32, c: i32)
+        if c == 32 then jump dispatch(i = i + 1, depth = depth, expect = expect) end
+        if c == 10 then jump dispatch(i = i + 1, depth = depth, expect = expect) end
+        if c == 13 then jump dispatch(i = i + 1, depth = depth, expect = expect) end
+        if c == 9  then jump dispatch(i = i + 1, depth = depth, expect = expect) end
+        jump expect_top(i = i, depth = depth, expect = expect, c = c)
+    end
+
+    block eof(expect: i32, i: i32)
+        if expect == 1 then yield meta[0] end
+        yield -(i + 1)
+    end
+
+    -- Expect state machine (same logic as original)
+    block expect_top(i: i32, depth: i32, expect: i32, c: i32)
+        if expect == 0 then jump value_enter(i = i, depth = depth, next = 1, c = c) end
+        jump expect_done(i = i, depth = depth, expect = expect, c = c)
+    end
+    block expect_done(i: i32, depth: i32, expect: i32, c: i32)
+        if expect == 1 then yield -(i + 1) end
+        jump expect_array_val(i = i, depth = depth, expect = expect, c = c)
+    end
+    block expect_array_val(i: i32, depth: i32, expect: i32, c: i32)
+        if expect == 2 then jump array_val_or_end(i = i, depth = depth, c = c) end
+        jump expect_array_comma(i = i, depth = depth, expect = expect, c = c)
+    end
+    block expect_array_comma(i: i32, depth: i32, expect: i32, c: i32)
+        if expect == 3 then jump array_comma_or_end(i = i, depth = depth, c = c) end
+        jump expect_obj_key(i = i, depth = depth, expect = expect, c = c)
+    end
+    block expect_obj_key(i: i32, depth: i32, expect: i32, c: i32)
+        if expect == 4 then jump obj_key_or_end(i = i, depth = depth, c = c) end
+        jump expect_obj_colon(i = i, depth = depth, expect = expect, c = c)
+    end
+    block expect_obj_colon(i: i32, depth: i32, expect: i32, c: i32)
+        if expect == 5 then jump obj_colon(i = i, depth = depth, c = c) end
+        jump expect_obj_val(i = i, depth = depth, expect = expect, c = c)
+    end
+    block expect_obj_val(i: i32, depth: i32, expect: i32, c: i32)
+        if expect == 6 then jump value_enter(i = i, depth = depth, next = 7, c = c) end
+        jump expect_obj_comma(i = i, depth = depth, expect = expect, c = c)
+    end
+    block expect_obj_comma(i: i32, depth: i32, expect: i32, c: i32)
+        if expect == 7 then jump obj_comma_or_end(i = i, depth = depth, c = c) end
+        jump expect_array_val_req(i = i, depth = depth, expect = expect, c = c)
+    end
+    block expect_array_val_req(i: i32, depth: i32, expect: i32, c: i32)
+        if expect == 8 then jump value_enter(i = i, depth = depth, next = 3, c = c) end
+        jump expect_obj_key_req(i = i, depth = depth, expect = expect, c = c)
+    end
+    block expect_obj_key_req(i: i32, depth: i32, expect: i32, c: i32)
+        if expect == 9 then jump obj_key_quote(i = i, depth = depth, c = c) end
+        yield -(i + 1)
+    end
+
+    -- Array handling
+    block array_val_or_end(i: i32, depth: i32, c: i32)
+        if c == 93 then jump pop_container(i = i + 1, depth = depth) end
+        jump value_enter(i = i, depth = depth, next = 3, c = c)
+    end
+    block array_comma_or_end(i: i32, depth: i32, c: i32)
+        if c == 44 then jump dispatch(i = i + 1, depth = depth, expect = 8) end
+        jump array_end_after(i = i, depth = depth, c = c)
+    end
+    block array_end_after(i: i32, depth: i32, c: i32)
+        if c == 93 then jump pop_container(i = i + 1, depth = depth) end
+        yield -(i + 1)
+    end
+
+    -- Object handling
+    block obj_key_or_end(i: i32, depth: i32, c: i32)
+        if c == 125 then jump pop_container(i = i + 1, depth = depth) end
+        jump obj_key_quote(i = i, depth = depth, c = c)
+    end
+    block obj_key_quote(i: i32, depth: i32, c: i32)
+        if c == 34 then
+            emit @{scan_str}(p, n, i + 1, depth, 5; ok = key_done, bad = invalid)
+        end
+        yield -(i + 1)
+    end
+    block key_done(end_i: i32, start_i: i32, depth: i32, next: i32)
+        jump emit_key(start_i = start_i, end_i = end_i, depth = depth)
+    end
+    block obj_colon(i: i32, depth: i32, c: i32)
+        if c == 58 then jump dispatch(i = i + 1, depth = depth, expect = 6) end
+        yield -(i + 1)
+    end
+    block obj_comma_or_end(i: i32, depth: i32, c: i32)
+        if c == 44 then jump dispatch(i = i + 1, depth = depth, expect = 9) end
+        jump obj_end_after(i = i, depth = depth, c = c)
+    end
+    block obj_end_after(i: i32, depth: i32, c: i32)
+        if c == 125 then jump pop_container(i = i + 1, depth = depth) end
+        yield -(i + 1)
+    end
+
+    -- Tape emission
+    block emit_simple(i: i32, depth: i32, next: i32, tag: i32, aa: i32, bb: i32)
+        if meta[0] >= tape_cap then yield -(i + 1) end
+        tags[meta[0]] = tag
+        a[meta[0]] = aa
+        b[meta[0]] = bb
+        meta[0] = meta[0] + 1
+        jump dispatch(i = i, depth = depth, expect = next)
+    end
+    block emit_key(start_i: i32, end_i: i32, depth: i32)
+        -- KEY_SLICE: a = start (after opening quote), b = length
+        if meta[0] >= tape_cap then yield -(start_i + 1) end
+        tags[meta[0]] = 5
+        a[meta[0]] = start_i
+        b[meta[0]] = end_i - start_i - 1
+        meta[0] = meta[0] + 1
+        jump dispatch(i = end_i, depth = depth, expect = 5)
+    end
+
+    -- Container push/pop
+    block pop_container(i: i32, depth: i32)
+        if depth <= 0 then yield -i end
+        jump pop_read(i = i, depth = depth, next = stack_next[depth - 1], kind = stack_kind[depth - 1])
+    end
+    block pop_read(i: i32, depth: i32, next: i32, kind: i32)
+        if kind == 1 then jump emit_pop_array(i = i, depth = depth - 1, next = next) end
+        jump emit_pop_object(i = i, depth = depth - 1, next = next)
+    end
+    block emit_pop_array(i: i32, depth: i32, next: i32)
+        if meta[0] >= tape_cap then yield -i end
+        tags[meta[0]] = 2
+        a[meta[0]] = i - 1
+        b[meta[0]] = 0
+        meta[0] = meta[0] + 1
+        jump dispatch(i = i, depth = depth, expect = next)
+    end
+    block emit_pop_object(i: i32, depth: i32, next: i32)
+        if meta[0] >= tape_cap then yield -i end
+        tags[meta[0]] = 4
+        a[meta[0]] = i - 1
+        b[meta[0]] = 0
+        meta[0] = meta[0] + 1
+        jump dispatch(i = i, depth = depth, expect = next)
+    end
+
+    block push_array(i: i32, depth: i32, next: i32)
+        if depth >= stack_cap then yield -(i + 1) end
+        if meta[0] >= tape_cap then yield -(i + 1) end
+        tags[meta[0]] = 1
+        a[meta[0]] = i
+        b[meta[0]] = 0
+        meta[0] = meta[0] + 1
+        stack_next[depth] = next
+        stack_kind[depth] = 1
+        jump dispatch(i = i + 1, depth = depth + 1, expect = 2)
+    end
+    block push_object(i: i32, depth: i32, next: i32)
+        if depth >= stack_cap then yield -(i + 1) end
+        if meta[0] >= tape_cap then yield -(i + 1) end
+        tags[meta[0]] = 3
+        a[meta[0]] = i
+        b[meta[0]] = 0
+        meta[0] = meta[0] + 1
+        stack_next[depth] = next
+        stack_kind[depth] = 2
+        jump dispatch(i = i + 1, depth = depth + 1, expect = 4)
+    end
+
+    -- Value dispatch: classify first byte
+    block value_enter(i: i32, depth: i32, next: i32, c: i32)
+        if c == 34 then
+            emit @{scan_str}(p, n, i + 1, depth, next; ok = str_done, bad = invalid)
+        end
+        if c == 45 then
+            emit @{scan_num}(p, n, i, depth, next; ok = num_done, bad = invalid)
+        end
+        if c >= 48 then
+            if c <= 57 then
+                emit @{scan_num}(p, n, i, depth, next; ok = num_done, bad = invalid)
+            end
+        end
+        if c == 91 then jump push_array(i = i, depth = depth, next = next) end
+        if c == 123 then jump push_object(i = i, depth = depth, next = next) end
+        if c == 116 then
+            emit @{match_true}(p, n, i, depth, next; ok = true_done, bad = invalid)
+        end
+        if c == 102 then
+            emit @{match_false}(p, n, i, depth, next; ok = false_done, bad = invalid)
+        end
+        if c == 110 then
+            emit @{match_null}(p, n, i, depth, next; ok = null_done, bad = invalid)
+        end
+        yield -(i + 1)
+    end
+
+    -- Value completion: record on tape then continue
+    block str_done(end_i: i32, start_i: i32, depth: i32, next: i32)
+        jump emit_simple(i = end_i, depth = depth, next = next, tag = 6, aa = start_i, bb = end_i - start_i - 1)
+    end
+    block num_done(end_i: i32, start_i: i32, depth: i32, next: i32)
+        jump emit_simple(i = end_i, depth = depth, next = next, tag = 7, aa = start_i, bb = end_i - start_i)
+    end
+    block true_done(end_i: i32, start_i: i32, depth: i32, next: i32)
+        jump emit_simple(i = end_i, depth = depth, next = next, tag = 8, aa = start_i, bb = 1)
+    end
+    block false_done(end_i: i32, start_i: i32, depth: i32, next: i32)
+        jump emit_simple(i = end_i, depth = depth, next = next, tag = 9, aa = start_i, bb = 0)
+    end
+    block null_done(end_i: i32, start_i: i32, depth: i32, next: i32)
+        jump emit_simple(i = end_i, depth = depth, next = next, tag = 10, aa = start_i, bb = 0)
+    end
+
+    block invalid(bad_pos: i32)
+        yield -(bad_pos + 1)
+    end
+    end
+end
+end
+
+return json

@@ -387,11 +387,6 @@ function M.Define(T)
         for i = 1, #frag.blocks do
             map[frag.blocks[i].label.name] = Tr.BlockLabel(prefix .. frag.blocks[i].label.name)
         end
-        if not map["hex_scan"] then
-            io.stderr:write(string.format("LABEL_MAP: hex_scan NOT in map, blocks: "))
-            for i=1,#frag.blocks do io.stderr:write(frag.blocks[i].label.name .. " ") end
-            io.stderr:write("\n")
-        end
         return map
     end
 
@@ -433,9 +428,6 @@ function M.Define(T)
             local cls = pvm.classof(stmt)
             if cls == Tr.StmtJump then
                 local target = rebase_label(stmt.target, map)
-                if stmt.target.name == "hex_scan" then
-                    io.stderr:write(string.format("REBASE: hex_scan -> %s (in map=%s)\n", target.name, tostring(map["hex_scan"] ~= nil)))
-                end
                 local args = map[stmt.target.name] and prepend_runtime_args(stmt.args, frag, captures) or stmt.args
                 out[#out + 1] = pvm.with(stmt, { target = target, args = args })
             elseif cls == Tr.StmtIf then
@@ -488,7 +480,6 @@ function M.Define(T)
         local local_env = env_with_fills_and_params(env, stmt.fills, runtime_param_bindings)
         local init_env = env_with_fills_and_params(env, stmt.fills, frag_param_bindings(stmt.frag.params, stmt.args, env))
         local map = label_map_for_frag(stmt.frag, stmt.use_id)
-        local capture_params, capture_args = capture_runtime_params(stmt.frag, env)
         local capture_params, capture_args = capture_runtime_params(stmt.frag, env)
         local entry_params, entry_args = append_all(runtime_block_params(stmt.frag, local_env), capture_params), {}
         for i = 1, #stmt.frag.params do

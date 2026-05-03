@@ -180,8 +180,10 @@ end
 function Parser:parse_param_list()
     local params, contracts = {}, {}
     local Tr, B = self.Tr, self.B
+    self:skip_nl()
     if self:kind() == TK.rparen then return params, contracts end
     while true do
+        self:skip_nl()
         local mods = {}
         while self:kind() == TK.noalias or self:kind() == TK.readonly or self:kind() == TK.writeonly do
             mods[#mods + 1] = self:kind()
@@ -197,6 +199,7 @@ function Parser:parse_param_list()
             elseif mods[i] == TK.writeonly then contracts[#contracts + 1] = Tr.ContractWriteonly(ref) end
         end
         if not self:accept(TK.comma) then break end
+        self:skip_nl()
     end
     return params, contracts
 end
