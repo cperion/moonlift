@@ -1,16 +1,165 @@
+-- Hosted JSON decode: realistic correctness suite.
+--
+-- Exercises every code path: scalars, strings with escapes, unicode
+-- (including surrogate pairs), arrays, objects, nesting, edge cases.
+
 local json = require("json")
 
-local obj = json.decode([[{"name":"moon\nlift","n":123.5,"ok":true,"no":false,"z":null,"arr":[1,"x",{"y":"\uD83D\uDE80"}]}]])
-assert(type(obj) == "table")
-assert(obj.name == "moon\nlift")
-assert(obj.n == 123.5)
-assert(obj.ok == true)
-assert(obj.no == false)
-assert(obj.z == nil)
-assert(type(obj.arr) == "table")
-assert(obj.arr[1] == 1)
-assert(obj.arr[2] == "x")
-assert(obj.arr[3].y == "🚀")
+-- ===========================================================================
+-- Basic scalars
+-- ===========================================================================
+local v = json.decode([[42]])
+assert(v == 42, "bare integer")
+v = json.decode([[-17]])
+assert(v == -17, "negative integer")
+v = json.decode([[0]])
+assert(v == 0, "zero integer")
+v = json.decode([[3.14159]])
+assert(v == 3.14159, "float")
+v = json.decode([[-0.5]])
+assert(v == -0.5, "negative float")
+v = json.decode([[1.5e10]])
+assert(v == 1.5e10, "scientific notation")
+v = json.decode([[2.5E-3]])
+assert(v == 0.0025, "scientific uppercase E")
+v = json.decode([[true]])
+assert(v == true, "bool true")
+v = json.decode([[false]])
+assert(v == false, "bool false")
+v = json.decode([[null]])
+assert(v == nil, "null")
+
+-- ===========================================================================
+-- Strings
+-- ===========================================================================
+v = json.decode([["hello world"]])
+assert(v == "hello world", "plain string")
+v = json.decode([[""]])
+assert(v == "", "empty string")
+v = json.decode([["hello\nworld"]])
+assert(v == "hello\nworld", "newline escape")
+v = json.decode([["tab\there"]])
+assert(v == "tab\there", "tab escape")
+v = json.decode([["quote\"here"]])
+assert(v == 'quote"here', "quote escape")
+v = json.decode([["backslash\\here"]])
+assert(v == "backslash\\here", "backslash escape")
+v = json.decode([["solidus\/here"]])
+assert(v == "solidus/here", "solidus escape")
+v = json.decode([["form\f feed"]])
+assert(v == "form\f feed", "form feed")
+v = json.decode([["carriage\r return"]])
+assert(v == "carriage\r return", "carriage return")
+v = json.decode([["back\bspace"]])
+assert(v == "back\bspace", "backspace")
+
+-- ===========================================================================
+-- Unicode escapes
+-- ===========================================================================
+v = json.decode([["\u00e9"]]);          assert(v == "é", "unicode latin")
+v = json.decode([["\u03A9"]]);          assert(v == "Ω", "unicode greek")
+v = json.decode([["\uD83D\uDE80"]]);    assert(v == "🚀", "surrogate pair rocket")
+v = json.decode([["\uD83D\uDE04"]]);    assert(v == "😄", "surrogate pair smile")
+
+-- ===========================================================================
+-- Arrays
+-- ===========================================================================
+v = json.decode("[]")
+assert(type(v) == "table", "empty array type")
+assert(#v == 0, "empty array length")
+v = json.decode("[1]")
+assert(#v == 1 and v[1] == 1, "single element array")
+v = json.decode("[1, \"two\", true, null, 3.0]")
+assert(#v == 5, "mixed array length")
+assert(v[1] == 1, "mixed array[1]")
+assert(v[2] == "two", "mixed array[2]")
+assert(v[3] == true, "mixed array[3]")
+assert(v[4] == nil, "mixed array[4] null")
+assert(v[5] == 3.0, "mixed array[5]")
+
+-- ===========================================================================
+-- Objects
+-- ===========================================================================
+v = json.decode("{}")
+assert(type(v) == "table" and next(v) == nil, "empty object")
+v = json.decode('{"a":1,"b":"two","c":[1,2,3],"d":{"x":true}}')
+assert(v.a == 1, "object field int")
+assert(v.b == "two", "object field string")
+assert(#v.c == 3, "object field array")
+assert(v.d.x == true, "nested object field")
+
+-- ===========================================================================
+-- Nesting
+-- ===========================================================================
+v = json.decode([=[[[[{"deep":true}]]]]=])
+assert(v[1][1][1].deep == true, "triple nested array")
+v = json.decode('{"a":{"b":{"c":{"d":{"e":"deep"}}}}}');
+assert(v.a.b.c.d.e == "deep", "deeply nested object")
+
+-- ===========================================================================
+-- Whitespace tolerance
+-- ===========================================================================
+v = json.decode("  42  ")
+assert(v == 42, "surrounding whitespace")
+v = json.decode([=[
+    {"a": 1, "b": 2}
+]=])
+assert(v.a == 1 and v.b == 2, "multiline object")
+v = json.decode([=[
+    [
+        1,
+        2,
+        3
+    ]
+]=])
+assert(#v == 3 and v[3] == 3, "multiline array")
+v = json.decode(' { "a" : 1 , "b" : "x" } ')
+assert(v.a == 1 and v.b == "x", "spaced-out object")
+-- Whitespace tolerance: multiline with varied spacing
+v = json.decode('  {  "x"  :  [  1  ,  2  ,  3  ]  ,  "y"  :  true  }  ')
+assert(v.x[2] == 2 and v.y == true, "heavily-spaced object")
+
+-- ===========================================================================
+-- Edge cases
+-- ===========================================================================
+-- Empty arrays in objects
+v = json.decode('{"empty":[],"also_empty":{}}')
+assert(#v.empty == 0, "empty array in object")
+assert(type(v.also_empty) == "table" and next(v.also_empty) == nil, "empty object in object")
+
+-- Array of objects
+v = json.decode('{"users":[{"name":"a"},{"name":"b"},{"name":"c"}]}')
+assert(#v.users == 3 and v.users[2].name == "b", "array of objects")
+
+-- Many consecutive escapes
+v = json.decode([["\t\n\r\"\\\/"]])
+assert(#v == 6, "consecutive escapes length")
+
+-- Zero-prefixed number edge (valid in JSON: 0 as standalone, not 01)
+v = json.decode("0.5")
+assert(v == 0.5, "zero-point-five")
+v = json.decode("-0")
+assert(v == 0, "negative zero")
+
+-- ===========================================================================
+-- Large-ish document: realistic shape
+-- ===========================================================================
+local parts = {'{"results":['}
+for i = 1, 50 do
+    if i > 1 then parts[#parts + 1] = "," end
+    parts[#parts + 1] = string.format(
+        '{"id":%d,"name":"item-%d","active":%s,"score":%.4f,"tags":["a","b","c"]}',
+        i, i, (i % 2 == 0) and "true" or "false", i * 1.5)
+end
+parts[#parts + 1] = '],"meta":{"count":50,"next":null}}'
+v = json.decode(table.concat(parts))
+assert(#v.results == 50, "large doc array length")
+assert(v.results[1].id == 1, "large doc first id")
+assert(v.results[25].name == "item-25", "large doc mid name")
+assert(v.results[50].active == true, "large doc last active")
+assert(#v.results[10].tags == 3, "large doc tags")
+assert(v.meta.count == 50, "large doc meta count")
+assert(v.meta.next == nil, "large doc meta null")
 
 json.free()
 return "hosted json decode ok"
