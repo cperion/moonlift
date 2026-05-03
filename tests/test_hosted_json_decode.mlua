@@ -1,0 +1,16 @@
+local json = require("json")
+
+local obj = json.decode([[{"name":"moon\nlift","n":123.5,"ok":true,"no":false,"z":null,"arr":[1,"x",{"y":"\uD83D\uDE80"}]}]])
+assert(type(obj) == "table")
+assert(obj.name == "moon\nlift")
+assert(obj.n == 123.5)
+assert(obj.ok == true)
+assert(obj.no == false)
+assert(obj.z == nil)
+assert(type(obj.arr) == "table")
+assert(obj.arr[1] == 1)
+assert(obj.arr[2] == "x")
+assert(obj.arr[3].y == "🚀")
+
+json.free()
+return "hosted json decode ok"

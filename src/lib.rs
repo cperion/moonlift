@@ -16,6 +16,7 @@ use std::fmt;
 use std::sync::{Arc, OnceLock};
 
 pub mod host_arena;
+pub mod lua_api;
 mod ffi;
 
 macro_rules! id_type {
@@ -499,6 +500,11 @@ impl Jit {
     pub fn compile(&self, program: &BackProgram) -> Result<Artifact, MoonliftError> {
         let compiler = Compiler::new(&self.symbols)?;
         compiler.compile(program)
+    }
+
+    pub fn compile_tape(&self, payload: &str) -> Result<Artifact, MoonliftError> {
+        let cmds = ffi::parse_back_command_tape(payload)?;
+        self.compile(&BackProgram::new(cmds))
     }
 }
 
@@ -2325,7 +2331,7 @@ mod tests {
         assert!(flags.notrap());
         assert!(flags.aligned());
         assert!(flags.can_move());
-        assert!(!flags.checked());
+        assert!(flags.trap_code().is_none());
         assert!(!flags.readonly());
 
         let under_aligned = BackMemoryInfo::new(
@@ -2350,7 +2356,7 @@ mod tests {
             BackAccessMode::Write,
         );
         let flags = checked.memflags(4, 4);
-        assert!(flags.checked());
+        assert!(flags.trap_code().is_some());
         assert!(!flags.notrap());
     }
 

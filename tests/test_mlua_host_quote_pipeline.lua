@@ -88,6 +88,18 @@ local cm = mod:compile()
 assert(cm:get("forty_two")() == 42)
 cm:free()
 
+local extern_mod = Host.eval [[
+local m = module ExternModule
+    extern func external_no_end(x: i32) -> i32
+    export func forty_three() -> i32
+        return 43
+    end
+end
+return m
+]]
+assert(tostring(extern_mod) == "MoonliftModuleQuote")
+assert(extern_mod.signatures.forty_three ~= nil)
+
 local parsed = Host.parse [[
 struct User
     id: i32

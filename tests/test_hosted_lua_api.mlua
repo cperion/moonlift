@@ -1,0 +1,29 @@
+local ffi = require("ffi")
+local Host = require("moonlift.host_quote")
+local LuaApi = Host.dofile("lib/lua_api.mlua")
+
+local api = module HostedLuaApi
+    @{LuaApi.decls}
+
+    export func make_table_stack_neutral(L: ptr(u8)) -> i32
+        return region -> i32
+        entry start()
+            emit @{LuaApi.stack_mark}(L; mark = marked)
+        end
+        block marked(top: i32)
+            emit @{LuaApi.create_table_restore}(L, 2, 0, top; done = done)
+        end
+        block done()
+            yield 42
+        end
+        end
+    end
+end
+
+local compiled = api:compile()
+local make_table = compiled:get("make_table_stack_neutral")
+local result = make_table(ffi.cast("void *", MOONLIFT_LUASTATE))
+compiled:free()
+
+assert(result == 42, "expected hosted Lua API smoke test to return 42")
+return "hosted lua api ok"

@@ -1,11 +1,14 @@
--- JSON tape decoder via MoonLift metaprogramming.
--- Reuses scanner fragments from json_meta.mlua, adds tape emission on top.
+-- Canonical hosted JSON implementation internals.
 --
--- Return convention:
+-- The hosted path parses JSON to a native tape, then immediately builds real Lua
+-- values with Lua C API calls from compiled MoonLift code. The tape exports are
+-- retained as implementation hooks/tests, not as a separate public JSON API.
+--
+-- Tape parse return convention:
 --   >= 0 => number of tape entries emitted
 --   <  0 => error near one-based offset (-offset)
 --
--- Tape format (same as json.moon2 for compatibility):
+-- Tape format:
 --   tag   a              b
 --   1     start_offset   0         ARRAY_BEGIN
 --   2     end_offset     0         ARRAY_END
@@ -18,8 +21,156 @@
 --   9     offset         0         FALSE
 --   10    offset         0         NULL
 
+local Host = require("moonlift.host_quote")
+local LuaApi = Host.dofile("lib/lua_api.mlua")
+
+local hosted_json_items = Host.source { "" }
+if _M_HOSTED then
+    hosted_json_items = Host.source { LuaApi.decls, [=[
+func json_count_array(tags: ptr(i32), tape_count: i32, arr_idx: i32) -> i32
+    return region -> i32
+    entry start()
+        jump scan(i = arr_idx + 1, depth = 0, count = 0)
+    end
+    block scan(i: i32, depth: i32, count: i32)
+        if i >= tape_count then yield count end
+        let tag: i32 = tags[i]
+        if tag == 2 then if depth == 0 then yield count end jump scan(i = i + 1, depth = depth - 1, count = count) end
+        if tag == 4 then if depth == 0 then yield count end jump scan(i = i + 1, depth = depth - 1, count = count) end
+        if tag == 1 then if depth == 0 then jump scan(i = i + 1, depth = 1, count = count + 1) end jump scan(i = i + 1, depth = depth + 1, count = count) end
+        if tag == 3 then if depth == 0 then jump scan(i = i + 1, depth = 1, count = count + 1) end jump scan(i = i + 1, depth = depth + 1, count = count) end
+        if depth == 0 then jump scan(i = i + 1, depth = depth, count = count + 1) end
+        jump scan(i = i + 1, depth = depth, count = count)
+    end
+    end
+end
+
+func json_count_object(tags: ptr(i32), tape_count: i32, obj_idx: i32) -> i32
+    return region -> i32
+    entry start()
+        jump scan(i = obj_idx + 1, count = 0)
+    end
+    block scan(i: i32, count: i32)
+        if i >= tape_count then yield count end
+        if tags[i] == 4 then yield count end
+        if tags[i] ~= 5 then yield count end
+        let value_i: i32 = i + 1
+        if value_i >= tape_count then yield count end
+        let tag: i32 = tags[value_i]
+        if tag == 1 then jump skip(i = value_i + 1, depth = 1, count = count + 1) end
+        if tag == 3 then jump skip(i = value_i + 1, depth = 1, count = count + 1) end
+        jump scan(i = value_i + 1, count = count + 1)
+    end
+    block skip(i: i32, depth: i32, count: i32)
+        if i >= tape_count then yield count end
+        let tag: i32 = tags[i]
+        if tag == 1 then jump skip(i = i + 1, depth = depth + 1, count = count) end
+        if tag == 3 then jump skip(i = i + 1, depth = depth + 1, count = count) end
+        if tag == 2 then if depth <= 1 then jump scan(i = i + 1, count = count) end jump skip(i = i + 1, depth = depth - 1, count = count) end
+        if tag == 4 then if depth <= 1 then jump scan(i = i + 1, count = count) end jump skip(i = i + 1, depth = depth - 1, count = count) end
+        jump skip(i = i + 1, depth = depth, count = count)
+    end
+    end
+end
+
+func json_build_value(L: ptr(u8), p: ptr(u8), tags: ptr(i32), a: ptr(i32), b: ptr(i32), tape_count: i32, idx: i32) -> i32
+    return region -> i32
+    entry start()
+        if idx < 0 then yield -(idx + 1) end
+        if idx >= tape_count then yield -(idx + 1) end
+        let tag: i32 = tags[idx]
+
+        if tag == 10 then
+            lua_pushnil(L)
+            yield idx + 1
+        end
+        if tag == 8 then
+            lua_pushboolean(L, 1)
+            yield idx + 1
+        end
+        if tag == 9 then
+            lua_pushboolean(L, 0)
+            yield idx + 1
+        end
+        if tag == 7 then
+            if moonlift_lua_push_json_number_at(L, p, a[idx], b[idx]) == 0 then yield -(idx + 1) end
+            yield idx + 1
+        end
+        if tag == 6 then
+            if moonlift_lua_push_json_string_at(L, p, a[idx], b[idx]) == 0 then yield -(idx + 1) end
+            yield idx + 1
+        end
+        if tag == 1 then
+            lua_createtable(L, json_count_array(tags, tape_count, idx), 0)
+            jump array_loop(i = idx + 1, slot = 1)
+        end
+        if tag == 3 then
+            lua_createtable(L, 0, json_count_object(tags, tape_count, idx))
+            jump object_loop(i = idx + 1)
+        end
+        yield -(idx + 1)
+    end
+
+    block array_loop(i: i32, slot: i32)
+        if i >= tape_count then yield -(i + 1) end
+        if tags[i] == 2 then yield i + 1 end
+        let next: i32 = json_build_value(L, p, tags, a, b, tape_count, i)
+        if next < 0 then yield next end
+        lua_rawseti(L, -2, slot)
+        jump array_loop(i = next, slot = slot + 1)
+    end
+
+    block object_loop(i: i32)
+        if i >= tape_count then yield -(i + 1) end
+        if tags[i] == 4 then yield i + 1 end
+        if tags[i] ~= 5 then yield -(i + 1) end
+        if moonlift_lua_push_json_string_at(L, p, a[i], b[i]) == 0 then yield -(i + 1) end
+        let next: i32 = json_build_value(L, p, tags, a, b, tape_count, i + 1)
+        if next < 0 then yield next end
+        lua_settable(L, -3)
+        jump object_loop(i = next)
+    end
+    end
+end
+
+export func json_decode_lua(L: ptr(u8)) -> i32
+    let top: i32 = lua_gettop(L)
+    let p: ptr(u8) = moonlift_lua_arg_lstring_ptr(L, 1)
+    let n_index: index = moonlift_lua_arg_lstring_len(L, 1)
+    if n_index < 0 then
+        lua_settop(L, top)
+        lua_pushnil(L)
+        return 1
+    end
+    let n: i32 = as(i32, n_index)
+    let cap: i32 = n + 16
+    let stack_next: ptr(i32) = moonlift_scratch_i32(0, cap)
+    let stack_kind: ptr(i32) = moonlift_scratch_i32(1, cap)
+    let tags: ptr(i32) = moonlift_scratch_i32(2, cap)
+    let a: ptr(i32) = moonlift_scratch_i32(3, cap)
+    let b: ptr(i32) = moonlift_scratch_i32(4, cap)
+    let meta: ptr(i32) = moonlift_scratch_i32(5, 1)
+
+    let count: i32 = json_decode_tape(p, n, stack_next, stack_kind, cap, tags, a, b, cap, meta)
+    if count < 0 then
+        lua_settop(L, top)
+        lua_pushnil(L)
+        return 1
+    end
+
+    let next: i32 = json_build_value(L, p, tags, a, b, count, 0)
+    if next < 0 then
+        lua_settop(L, top)
+        lua_pushnil(L)
+    end
+
+    return 1
+end
+]=] }
+end
+
 -- ===========================================================================
--- Scanner fragments (same generators as json_meta, different suffix)
+-- Scanner fragments
 -- ===========================================================================
 
 local function make_skip_ws(name)
@@ -246,6 +397,199 @@ block check_e(i: i32)
     if i >= n then jump bad(bad_pos = i) end
     if as(i32, p[i]) == 101 then jump ok(end_i = i + 1, start_i = start, depth = depth, next = next) end
     jump bad(bad_pos = i)
+end
+end
+
+
+-- ===========================================================================
+-- Tape navigator fragments (all-native, no Lua loops)
+-- ===========================================================================
+
+-- Array: get element at 1-based index n. Returns tape index or -1.
+local arr_get = region arr_get_d(
+    tags: ptr(i32), tape_count: i32, arr_idx: i32, n: i32;
+    ok: cont(elem_idx: i32))
+entry start()
+    if arr_idx < 0 then jump ok(elem_idx = -1) end
+    if arr_idx >= tape_count then jump ok(elem_idx = -1) end
+    if tags[arr_idx] ~= 1 then jump ok(elem_idx = -1) end
+    jump walk(i = arr_idx + 1, k = 1)
+end
+block walk(i: i32, k: i32)
+    if i >= tape_count then jump ok(elem_idx = -1) end
+    let tag: i32 = tags[i]
+    if tag == 2 then jump ok(elem_idx = -1) end
+    if k == n then jump ok(elem_idx = i) end
+    if tag == 1 then jump skip_container(i = i + 1, depth = 1, k = k + 1) end
+    if tag == 3 then jump skip_container(i = i + 1, depth = 1, k = k + 1) end
+    jump walk(i = i + 1, k = k + 1)
+end
+block skip_container(i: i32, depth: i32, k: i32)
+    if i >= tape_count then jump ok(elem_idx = -1) end
+    let tag: i32 = tags[i]
+    if tag == 1 then jump skip_container(i = i + 1, depth = depth + 1, k = k) end
+    if tag == 3 then jump skip_container(i = i + 1, depth = depth + 1, k = k) end
+    if tag == 2 then if depth <= 1 then jump walk(i = i + 1, k = k) end jump skip_container(i = i + 1, depth = depth - 1, k = k) end
+    if tag == 4 then if depth <= 1 then jump walk(i = i + 1, k = k) end jump skip_container(i = i + 1, depth = depth - 1, k = k) end
+    jump skip_container(i = i + 1, depth = depth, k = k)
+end
+end
+
+-- Array: count elements
+local arr_len_frag = region arr_len_d2(
+    tags: ptr(i32), tape_count: i32, arr_idx: i32;
+    ok: cont(n: i32))
+entry start()
+    if arr_idx < 0 then jump ok(n = 0) end
+    if arr_idx >= tape_count then jump ok(n = 0) end
+    if tags[arr_idx] ~= 1 then jump ok(n = 0) end
+    jump walk(i = arr_idx + 1, n = 0)
+end
+block walk(i: i32, n: i32)
+    if i >= tape_count then jump ok(n = n) end
+    let tag: i32 = tags[i]
+    if tag == 2 then jump ok(n = n) end
+    if tag == 1 then jump skip_container(i = i + 1, depth = 1, n = n + 1) end
+    if tag == 3 then jump skip_container(i = i + 1, depth = 1, n = n + 1) end
+    jump walk(i = i + 1, n = n + 1)
+end
+block skip_container(i: i32, depth: i32, n: i32)
+    if i >= tape_count then jump ok(n = n) end
+    let tag: i32 = tags[i]
+    if tag == 1 then jump skip_container(i = i + 1, depth = depth + 1, n = n) end
+    if tag == 3 then jump skip_container(i = i + 1, depth = depth + 1, n = n) end
+    if tag == 2 then if depth <= 1 then jump walk(i = i + 1, n = n) end jump skip_container(i = i + 1, depth = depth - 1, n = n) end
+    if tag == 4 then if depth <= 1 then jump walk(i = i + 1, n = n) end jump skip_container(i = i + 1, depth = depth - 1, n = n) end
+    jump skip_container(i = i + 1, depth = depth, n = n)
+end
+end
+
+-- Object: find key by byte comparison. Returns value tape index or -1.
+local obj_get = region obj_get_d(
+    tags: ptr(i32), a: ptr(i32), b: ptr(i32), p: ptr(u8), tape_count: i32, obj_idx: i32,
+    key_ptr: ptr(u8), key_len: i32;
+    ok: cont(val_idx: i32))
+entry start()
+    if obj_idx < 0 then jump ok(val_idx = -1) end
+    if obj_idx >= tape_count then jump ok(val_idx = -1) end
+    if tags[obj_idx] ~= 3 then jump ok(val_idx = -1) end
+    jump scan(i = obj_idx + 1)
+end
+block scan(i: i32)
+    if i >= tape_count then jump ok(val_idx = -1) end
+    let tag: i32 = tags[i]
+    if tag == 4 then jump ok(val_idx = -1) end
+    if tag ~= 5 then jump ok(val_idx = -1) end
+    let key_off: i32 = a[i]
+    let key_sz: i32 = b[i]
+    if key_sz == key_len then jump cmp(pos = 0, off_a = key_off, off_b = 0, scan_i = i) end
+    jump skip_value(i = i + 1)
+end
+block cmp(pos: i32, off_a: i32, off_b: i32, scan_i: i32)
+    if pos >= key_len then
+        if scan_i + 1 >= tape_count then jump ok(val_idx = -1) end
+        jump ok(val_idx = scan_i + 1)
+    end
+    if as(i32, p[off_a + pos]) ~= as(i32, key_ptr[off_b + pos]) then jump skip_value(i = scan_i + 1) end
+    jump cmp(pos = pos + 1, off_a = off_a, off_b = off_b, scan_i = scan_i)
+end
+block skip_value(i: i32)
+    if i >= tape_count then jump ok(val_idx = -1) end
+    let tag: i32 = tags[i]
+    if tag == 1 then jump skip_container(i = i + 1, depth = 1) end
+    if tag == 3 then jump skip_container(i = i + 1, depth = 1) end
+    jump scan(i = i + 1)
+end
+block skip_container(i: i32, depth: i32)
+    if i >= tape_count then jump ok(val_idx = -1) end
+    let tag: i32 = tags[i]
+    if tag == 1 then jump skip_container(i = i + 1, depth = depth + 1) end
+    if tag == 3 then jump skip_container(i = i + 1, depth = depth + 1) end
+    if tag == 2 then if depth <= 1 then jump scan(i = i + 1) end jump skip_container(i = i + 1, depth = depth - 1) end
+    if tag == 4 then if depth <= 1 then jump scan(i = i + 1) end jump skip_container(i = i + 1, depth = depth - 1) end
+    jump skip_container(i = i + 1, depth = depth)
+end
+end
+
+
+-- ===========================================================================
+-- Index builders: fill pre-allocated arrays with tape positions.
+-- Called once per container; proxy reads these arrays for O(1) access.
+-- ===========================================================================
+
+-- Index an array: fills elem_idx[i] = tape index of i-th element (1-based).
+-- Returns number of elements, or -1 on overflow.
+local index_array = region index_array_d(
+    tags: ptr(i32), tape_count: i32, arr_idx: i32,
+    out_elems: ptr(i32), out_cap: i32;
+    ok: cont(count: i32))
+entry start()
+    if arr_idx < 0 then jump ok(count = 0) end
+    if arr_idx >= tape_count then jump ok(count = 0) end
+    if tags[arr_idx] ~= 1 then jump ok(count = 0) end
+    jump walk(i = arr_idx + 1, k = 0)
+end
+block walk(i: i32, k: i32)
+    if i >= tape_count then jump ok(count = k) end
+    let tag: i32 = tags[i]
+    if tag == 2 then jump ok(count = k) end
+    if k >= out_cap then jump ok(count = -1) end
+    out_elems[k] = i
+    if tag == 1 then jump skip_container(i = i + 1, depth = 1, k = k + 1) end
+    if tag == 3 then jump skip_container(i = i + 1, depth = 1, k = k + 1) end
+    jump walk(i = i + 1, k = k + 1)
+end
+block skip_container(i: i32, depth: i32, k: i32)
+    if i >= tape_count then jump ok(count = k) end
+    let tag: i32 = tags[i]
+    if tag == 1 then jump skip_container(i = i + 1, depth = depth + 1, k = k) end
+    if tag == 3 then jump skip_container(i = i + 1, depth = depth + 1, k = k) end
+    if tag == 2 then if depth <= 1 then jump walk(i = i + 1, k = k) end jump skip_container(i = i + 1, depth = depth - 1, k = k) end
+    if tag == 4 then if depth <= 1 then jump walk(i = i + 1, k = k) end jump skip_container(i = i + 1, depth = depth - 1, k = k) end
+    jump skip_container(i = i + 1, depth = depth, k = k)
+end
+end
+
+-- Index an object: fills out_keys[2*i]=offset, out_keys[2*i+1]=len, out_vals[i]=tape_idx.
+-- Returns number of entries, or -1 on overflow.
+local index_object = region index_object_d(
+    tags: ptr(i32), a: ptr(i32), b: ptr(i32), tape_count: i32, obj_idx: i32,
+    out_keys: ptr(i32), out_vals: ptr(i32), out_cap: i32;
+    ok: cont(count: i32))
+entry start()
+    if obj_idx < 0 then jump ok(count = 0) end
+    if obj_idx >= tape_count then jump ok(count = 0) end
+    if tags[obj_idx] ~= 3 then jump ok(count = 0) end
+    jump scan(i = obj_idx + 1, k = 0)
+end
+block scan(i: i32, k: i32)
+    if i >= tape_count then jump ok(count = k) end
+    let tag: i32 = tags[i]
+    if tag == 4 then jump ok(count = k) end
+    if tag ~= 5 then jump ok(count = k) end
+    if k >= out_cap then jump ok(count = -1) end
+    out_keys[k * 2] = a[i]
+    out_keys[k * 2 + 1] = b[i]
+    if i + 1 >= tape_count then jump ok(count = k) end
+    out_vals[k] = i + 1
+    -- skip value
+    jump skip_value(i = i + 1, k = k + 1)
+end
+block skip_value(i: i32, k: i32)
+    if i >= tape_count then jump ok(count = k) end
+    let tag: i32 = tags[i]
+    if tag == 1 then jump skip_container(i = i + 1, depth = 1, k = k) end
+    if tag == 3 then jump skip_container(i = i + 1, depth = 1, k = k) end
+    jump scan(i = i + 1, k = k)
+end
+block skip_container(i: i32, depth: i32, k: i32)
+    if i >= tape_count then jump ok(count = k) end
+    let tag: i32 = tags[i]
+    if tag == 1 then jump skip_container(i = i + 1, depth = depth + 1, k = k) end
+    if tag == 3 then jump skip_container(i = i + 1, depth = depth + 1, k = k) end
+    if tag == 2 then if depth <= 1 then jump scan(i = i + 1, k = k) end jump skip_container(i = i + 1, depth = depth - 1, k = k) end
+    if tag == 4 then if depth <= 1 then jump scan(i = i + 1, k = k) end jump skip_container(i = i + 1, depth = depth - 1, k = k) end
+    jump skip_container(i = i + 1, depth = depth, k = k)
 end
 end
 
@@ -482,6 +826,64 @@ export func json_decode_tape(p: ptr(u8), n: i32,
     end
     end
 end
+
+export func tape_arr_get(tags: ptr(i32), tape_count: i32, arr_idx: i32, n: i32) -> i32
+    return region -> i32
+    entry start()
+        emit @{arr_get}(tags, tape_count, arr_idx, n; ok = done)
+    end
+    block done(elem_idx: i32)
+        yield elem_idx
+    end
+    end
+end
+
+export func tape_arr_len(tags: ptr(i32), tape_count: i32, arr_idx: i32) -> i32
+    return region -> i32
+    entry start()
+        emit @{arr_len_frag}(tags, tape_count, arr_idx; ok = done)
+    end
+    block done(n: i32)
+        yield n
+    end
+    end
+end
+
+export func tape_obj_get(tags: ptr(i32), a: ptr(i32), b: ptr(i32), p: ptr(u8), tape_count: i32, obj_idx: i32, key_ptr: ptr(u8), key_len: i32) -> i32
+    return region -> i32
+    entry start()
+        emit @{obj_get}(tags, a, b, p, tape_count, obj_idx, key_ptr, key_len; ok = done)
+    end
+    block done(val_idx: i32)
+        yield val_idx
+    end
+    end
+end
+
+export func tape_index_array(tags: ptr(i32), tape_count: i32, arr_idx: i32, out_elems: ptr(i32), out_cap: i32) -> i32
+    return region -> i32
+    entry start()
+        emit @{index_array}(tags, tape_count, arr_idx, out_elems, out_cap; ok = done)
+    end
+    block done(count: i32)
+        yield count
+    end
+    end
+end
+
+export func tape_index_object(tags: ptr(i32), a: ptr(i32), b: ptr(i32), tape_count: i32, obj_idx: i32, out_keys: ptr(i32), out_vals: ptr(i32), out_cap: i32) -> i32
+    return region -> i32
+    entry start()
+        emit @{index_object}(tags, a, b, tape_count, obj_idx, out_keys, out_vals, out_cap; ok = done)
+    end
+    block done(count: i32)
+        yield count
+    end
+    end
+end
+
+@{hosted_json_items}
+
 end
 
 return json

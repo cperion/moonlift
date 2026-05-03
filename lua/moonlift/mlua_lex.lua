@@ -174,12 +174,20 @@ local function find_matching_end(src, start_i, open_words)
                     end
                     pending_case_ends = pending_case_ends + 1
                 elseif open_words[word] then
-                    if word == "block" and keyword_stack[#keyword_stack] == "entry" then
-                        table.remove(keyword_stack)
-                        depth = depth - 1
+                    -- `extern func name(...)` is a declaration item, not an
+                    -- end-delimited function body.  The island matcher scans
+                    -- Moonlift module bodies too, so it must not count this
+                    -- `func` as a nested opener.
+                    if word == "func" and line_prefix_has_word(src, i, "extern") then
+                        -- no depth change
+                    else
+                        if word == "block" and keyword_stack[#keyword_stack] == "entry" then
+                            table.remove(keyword_stack)
+                            depth = depth - 1
+                        end
+                        table.insert(keyword_stack, word)
+                        depth = depth + 1
                     end
-                    table.insert(keyword_stack, word)
-                    depth = depth + 1
                 elseif word == "do" then
                     if not line_prefix_has_word(src, i, "switch") then
                         depth = depth + 1

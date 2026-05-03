@@ -304,7 +304,7 @@ fn tape_float_op(op: &str, dst: BackValId, ty: BackScalar, sem: BackFloatSemanti
     }
 }
 
-fn parse_back_command_tape(payload: &str) -> Result<Vec<BackCmd>, MoonliftError> {
+pub(crate) fn parse_back_command_tape(payload: &str) -> Result<Vec<BackCmd>, MoonliftError> {
     let mut lines = payload.lines();
     let Some(header) = lines.next() else { return Err(MoonliftError("empty BackCommandTape payload".to_string())); };
     if header != "moonlift-back-command-tape-v2" { return Err(MoonliftError(format!("unsupported BackCommandTape header {header}"))); }
@@ -381,7 +381,9 @@ pub extern "C" fn moonlift_last_error_message() -> *const c_char {
 #[unsafe(no_mangle)]
 pub extern "C" fn moonlift_jit_new() -> *mut moonlift_jit_t {
     clear_last_error();
-    Box::into_raw(Box::new(moonlift_jit_t { inner: Jit::new() }))
+    let mut inner = Jit::new();
+    crate::lua_api::register_symbols(&mut inner);
+    Box::into_raw(Box::new(moonlift_jit_t { inner }))
 }
 
 #[unsafe(no_mangle)]

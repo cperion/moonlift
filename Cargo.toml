@@ -8,6 +8,10 @@ name = "moonlift"
 path = "src/lib.rs"
 crate-type = ["rlib", "cdylib"]
 
+[[bin]]
+name = "moonlift"
+path = "src/main.rs"
+
 [dependencies]
 cranelift-codegen = { version = "0.131.0", default-features = true }
 cranelift-frontend = { version = "0.131.0", default-features = true }
@@ -15,3 +19,4 @@ cranelift-jit = { version = "0.131.0", features = ["selinux-fix"] }
 cranelift-module = { version = "0.131.0", default-features = true }
 cranelift-object = { version = "0.131.0", default-features = true }
 cranelift-native = { version = "0.131.0", default-features = true }
+mlua = { version = "0.10", features = ["luajit"] }

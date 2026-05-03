@@ -1,0 +1,16 @@
+local Host = require('moonlift.host_quote')
+local LuaApi = Host.dofile('lib/lua_api.mlua')
+local m = module T
+    @{LuaApi.decls}
+    export func make(L: ptr(u8)) -> i32
+        lua_createtable(L, 1, 0)
+        lua_pushnumber(L, 12.0)
+        lua_rawseti(L, -2, 1)
+        return 1
+    end
+end
+local c=m:compile()
+local t=c.artifact:call('make')
+assert(type(t)=='table' and t[1] == 12)
+c:free()
+return 'table return ok'

@@ -58,10 +58,10 @@ assert(help.signatures[1].label == "add(a: i32, b: i32) -> i32")
 assert(#help.signatures[1].params == 2)
 assert(help.signatures[1].params[2].label == "b: i32")
 
-local builtin = Sig.help(q_after("moonlift.json.decode(bytes,"), analysis)
+local builtin = Sig.help(q_after("moonlift.json.decode(bytes"), analysis)
 assert(pvm.classof(builtin) == E.SignatureHelp)
-assert(builtin.active_parameter == 1)
-assert(builtin.signatures[1].label == "moonlift.json.decode(src, opts)")
+assert(builtin.active_parameter == 0)
+assert(builtin.signatures[1].label == "moonlift.json.decode(src)")
 
 local extern_src = [[
 expr UseExtern() -> i32

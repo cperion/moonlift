@@ -804,6 +804,29 @@ function M.Define(T)
             return pvm.once(Tr.TreeBackStmtResult(env2, init.cmds, Back.BackFallsThrough))
         end,
         [Tr.StmtExpr] = function(self, env)
+            if pvm.classof(self.expr) == Tr.ExprCall then
+                local ty = expr_ty(self.expr)
+                if pvm.classof(ty) == Ty.TScalar and ty.scalar == C.ScalarVoid then
+                    local args, params, cmds, current = {}, {}, {}, env
+                    for i = 1, #self.expr.args do
+                        local arg = expr_value(expr_to_back:one_uncached(self.expr.args[i], current))
+                        if arg == nil then return pvm.once(Tr.TreeBackStmtResult(current, cmds, Back.BackFallsThrough)) end
+                        append_all(cmds, arg.cmds); args[#args + 1] = arg.value; params[#params + 1] = arg.ty; current = arg.env
+                    end
+                    local target = call_target:one_uncached(self.expr.target, current)
+                    local sig, declare_call_sig = Back.BackSigId("sig:callstmt:" .. tostring(#cmds)), true
+                    if pvm.classof(target) == Back.BackCallExtern then
+                        sig = Back.BackSigId("sig:extern:" .. tostring(target.func.text))
+                        declare_call_sig = false
+                    elseif pvm.classof(target) == Back.BackCallDirect then
+                        sig = Back.BackSigId("sig:" .. tostring(target.func.text))
+                        declare_call_sig = false
+                    end
+                    if declare_call_sig then cmds[#cmds + 1] = Back.CmdCreateSig(sig, params, {}) end
+                    cmds[#cmds + 1] = Back.CmdCall(Back.BackCallStmt, target, sig, args)
+                    return pvm.once(Tr.TreeBackStmtResult(current, cmds, Back.BackFallsThrough))
+                end
+            end
             local result = expr_value(expr_to_back:one_uncached(self.expr, env))
             if result == nil then return pvm.once(Tr.TreeBackStmtResult(env, {}, Back.BackFallsThrough)) end
             return pvm.once(Tr.TreeBackStmtResult(result.env, result.cmds, Back.BackFallsThrough))

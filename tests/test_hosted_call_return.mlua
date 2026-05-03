@@ -1,0 +1,14 @@
+local Host = require('moonlift.host_quote')
+local LuaApi = Host.dofile('lib/lua_api.mlua')
+local m = module T
+    @{LuaApi.decls}
+    export func make(L: ptr(u8)) -> i32
+        lua_pushnumber(L, 12.0)
+        return 1
+    end
+end
+local c=m:compile()
+local t=c.artifact:call('make')
+assert(t == 12)
+c:free()
+return 'call return ok'

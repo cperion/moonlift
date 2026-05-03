@@ -1,0 +1,346 @@
+-- Moonlift vs CJSON: realistic JSON decode benchmarks.
+--
+-- Covers shapes that real applications encounter:
+--   api       – REST API response (nested objects, mixed types, ISO dates, URLs)
+--   geojson   – GeoJSON geometry (deep number arrays, coordinate pairs)
+--   logs      – structured log entries (many uniform records, timestamps, messages)
+--   twitter   – social media timeline (nested entities, urls, mentions, varied shapes)
+--   config    – configuration file (deep nesting, escaped strings, scientific notation)
+--   uniform   – the original synthetic items array (baseline)
+
+local json = require("json")
+local ok_cjson, cjson = pcall(require, "cjson")
+if not ok_cjson then
+    package.cpath = package.cpath .. ";/home/cedric/.luarocks/lib64/lua/5.1/?.so;/home/cedric/.luarocks/lib/lua/5.1/?.so"
+    cjson = require("cjson")
+end
+
+-- ===========================================================================
+-- Realistic document builders
+-- ===========================================================================
+
+local builders = {}
+
+-- GitHub-style API response: repository search results
+builders.api = function(N)
+    local parts = {
+        '{"total_count":' .. (N * 100 + 42) .. ',"incomplete_results":false,"items":['
+    }
+    for i = 1, N do
+        if i > 1 then parts[#parts + 1] = "," end
+        parts[#parts + 1] = string.format([[
+            {"id":%d,"name":"repo-%d","full_name":"user/repo-%d",
+             "owner":{"login":"user%d","id":%d,"avatar_url":"https://avatars.example.com/u/%d"},
+             "html_url":"https://github.com/user/repo-%d",
+             "description":"Sample repository number %d with some \u00e9scaped chars \n\t",
+             "fork":%s,"private":false,
+             "created_at":"2024-%02d-15T10:30:00Z",
+             "updated_at":"2024-%02d-20T14:22:00Z",
+             "pushed_at":"2024-%02d-28T09:00:00Z",
+             "stargazers_count":%d,"watchers_count":%d,"forks_count":%d,
+             "open_issues_count":%d,"language":"Lua",
+             "topics":["compiler","lua","native"],
+             "license":{"key":"mit","name":"MIT License","url":"https://api.github.com/licenses/mit"},
+             "score":%.6f}
+        ]], i, i, i, i, i, i, i, i, (i % 2 == 0) and "true" or "false",
+            (i % 12) + 1, (i % 12) + 1, (i % 12) + 1,
+            i * 10, i * 10 + 1, i * 3, i,
+            1.0 / (i + 0.5))
+    end
+    parts[#parts + 1] = '],"metadata":{"server":"api","took_ms":' .. (N + 23) .. '}}'
+    return table.concat(parts)
+end
+
+-- GeoJSON-style geometry: polygons with many coordinate pairs
+builders.geojson = function(N)
+    local parts = {
+        '{"type":"FeatureCollection","features":['
+    }
+    for i = 1, N do
+        if i > 1 then parts[#parts + 1] = "," end
+        parts[#parts + 1] = string.format([[
+            {"type":"Feature","id":%d,
+             "geometry":{"type":"Polygon","coordinates":[[
+        ]], i)
+        -- Each feature has a polygon ring of coordinate pairs
+        for j = 1, 8 do
+            if j > 1 then parts[#parts + 1] = "," end
+            local lon = -73.985 + (i * 0.001) + (j * 0.0001)
+            local lat = 40.748 + (i * 0.001) - (j * 0.0001)
+            parts[#parts + 1] = string.format("[%.6f,%.6f]", lon, lat)
+        end
+        parts[#parts + 1] = string.format([[
+            ]]},
+             "properties":{"name":"Site %d","category":"landmark",
+             "tags":["geo","poi","feature-%d"],"score":%.4f,
+             "metadata":{"source":"survey","accuracy":%.2f}}}
+        ]], i, i, i * 1.5, 5.0 + (i % 3))
+    end
+    parts[#parts + 1] = ']}'
+    return table.concat(parts)
+end
+
+-- Structured logging: many uniform records with varied fields
+builders.logs = function(N)
+    local levels = {"INFO", "WARN", "ERROR", "DEBUG"}
+    local msgs = {
+        "request completed", "connection timeout after retry",
+        "cache miss for key", "rate limit exceeded",
+        "authentication failed", "schema migration applied",
+        "health check passed", "circuit breaker opened",
+        "message queued for delivery", "session expired"
+    }
+    local parts = {'{"app":"moonlift","host":"node-7","logs":['}
+    for i = 1, N do
+        if i > 1 then parts[#parts + 1] = "," end
+        local ts = 1714000000 + i
+        local level = levels[(i % #levels) + 1]
+        local msg = msgs[(i % #msgs) + 1]
+        parts[#parts + 1] = string.format([[
+            {"timestamp":%d,"level":"%s","message":"%s",
+             "duration_ms":%.3f,"status":%d,
+             "trace_id":"%08x-%04x-%04x-%04x-%012x",
+             "tags":{"service":"api","region":"us-east-%d"},
+             "context":{"user_id":%d,"endpoint":"/api/v1/%s"}}
+        ]], ts, level, msg, math.random() * 500, 200 + (i % 5) * 100,
+            i, i % 65535, i % 65535, i, i % 65535,
+            (i % 3) + 1,
+            i % 1000, (i % 2 == 0) and "query" or "mutate")
+    end
+    parts[#parts + 1] = '],"total":' .. N .. '}'
+    return table.concat(parts)
+end
+
+-- Twitter-style timeline: nested entities (urls, mentions, hashtags)
+builders.twitter = function(N)
+    local parts = {'{"statuses":['}
+    for i = 1, N do
+        if i > 1 then parts[#parts + 1] = "," end
+        local has_url = (i % 3 == 0)
+        local has_mention = (i % 2 == 0)
+        local has_hashtag = (i % 4 == 0)
+        parts[#parts + 1] = string.format([[
+            {"id":%d,"created_at":"Mon Apr %02d 15:30:%02d +0000 2024",
+             "text":"This is status number %d about #moonlift and compilers",
+             "user":{"id":%d,"name":"User %d","screen_name":"user%d",
+                     "followers_count":%d,"friends_count":%d},
+             "retweet_count":%d,"favorite_count":%d,
+             "lang":"en","source":"<a href=\\"https://moonlift.dev\\">Moonlift</a>",
+        ]], i * 1000 + 1, (i % 28) + 1, i % 60, i,
+            i * 10, i, i, i * 100, i * 50,
+            i % 50, i * 2)
+        if has_url then
+            parts[#parts + 1] = string.format([[
+             "entities":{"urls":[{"url":"https://t.co/abc%d","expanded_url":"https://example.com/posts/%d","display_url":"example.com/posts/%d","indices":[%d,%d]}]},
+            ]], i, i, i, 42 + i % 30, 62 + i % 30)
+        else
+            parts[#parts + 1] = '"entities":{},'
+        end
+        if has_hashtag then
+            parts[#parts + 1] = string.format([[
+             "hashtags":[{"text":"moonlift","indices":[%d,%d]}]
+            ]], 74 + i % 10, 83 + i % 10)
+        end
+        parts[#parts + 1] = '}'
+    end
+    parts[#parts + 1] = '],"search_metadata":{"count":' .. N .. ',"completed_in":0.042}}'
+    return table.concat(parts)
+end
+
+-- Configuration file: deep nesting, mixed scalars, strings with escapes
+builders.config = function(N)
+    local parts = {
+        '{"version":"2.1.0","environment":"production",'
+    }
+    for i = 1, N do
+        if i > 1 then parts[#parts + 1] = "," end
+        parts[#parts + 1] = string.format([[
+            "service_%d":{"enabled":%s,"port":%d,
+             "hosts":["host-%d-a.internal","host-%d-b.internal","host-%d-c.internal"],
+             "timeout_ms":%d,"retry":{"max_attempts":%d,"backoff":"exponential","base_ms":%d},
+             "limits":{"rate":%d,"burst":%d,"concurrency":%d},
+             "tls":{"enabled":true,"cert_file":"/etc/certs/svc%d.pem","key_file":"/etc/certs/svc%d-key.pem"},
+             "paths":{"/health":{"method":"GET","auth":false},
+                      "/metrics":{"method":"GET","auth":true},
+                      "/api/v2/query":{"method":"POST","auth":true,"body_limit":%d}},
+             "features":{"logging":true,"tracing":%s,"metrics":true,"circuit_breaker":%s},
+             "env":{"LOG_LEVEL":"%s","MAX_CONNECTIONS":"%d","SECRET":"\\u0048hidden\\nvalue"}}
+        ]], i, (i % 3 ~= 0) and "true" or "false",
+            8000 + i, i, i, i,
+            30000 + i * 1000, 3 + (i % 3), 100 * (1 + i % 5),
+            1000 + i * 100, 200 + i * 50, 50 + i * 10,
+            i, i,
+            1024 * (1 + i % 5),
+            (i % 3 == 0) and "true" or "false",
+            (i % 2 == 0) and "true" or "false",
+            (i % 3 == 0) and "debug" or "info",
+            100 + i * 10)
+    end
+    parts[#parts + 1] = '}'
+    return table.concat(parts)
+end
+
+-- Original uniform baseline
+builders.uniform = function(N)
+    local parts = {'{"items":['}
+    for i = 1, N do
+        if i > 1 then parts[#parts + 1] = "," end
+        parts[#parts + 1] = string.format(
+            '{"id":%d,"name":"item%d","ok":%s,"vals":[1,2,3]}',
+            i, i, (i % 2 == 0) and "true" or "false")
+    end
+    parts[#parts + 1] = '],"meta":{"count":' .. N .. ',"kind":"bench"}}'
+    return table.concat(parts)
+end
+
+-- ===========================================================================
+-- Check functions (validate decode correctness)
+-- ===========================================================================
+
+local checks = {}
+
+checks.api = function(v, N)
+    assert(type(v) == "table")
+    assert(v.total_count == N * 100 + 42)
+    assert(#v.items == N)
+    local item = v.items[1]
+    assert(type(item.owner) == "table")
+    assert(item.owner.login == "user1")
+    assert(type(item.topics) == "table")
+    assert(#item.topics == 3)
+    assert(item.license.key == "mit")
+    assert(v.metadata.server == "api")
+    return #v.items
+end
+
+checks.geojson = function(v, N)
+    assert(v.type == "FeatureCollection")
+    assert(#v.features == N)
+    local f = v.features[1]
+    assert(f.geometry.type == "Polygon")
+    assert(type(f.geometry.coordinates[1]) == "table")
+    assert(#f.geometry.coordinates[1] == 8)
+    assert(f.properties.name == "Site 1")
+    assert(type(f.properties.tags) == "table")
+    return #v.features
+end
+
+checks.logs = function(v, N)
+    assert(v.app == "moonlift")
+    assert(#v.logs == N)
+    local e = v.logs[1]
+    assert(type(e.timestamp) == "number")
+    assert(type(e.level) == "string")
+    assert(type(e.tags) == "table")
+    assert(type(e.context) == "table")
+    assert(v.total == N)
+    return #v.logs
+end
+
+checks.twitter = function(v, N)
+    assert(#v.statuses == N)
+    local s = v.statuses[1]
+    assert(type(s.user) == "table")
+    assert(s.user.followers_count > 0)
+    assert(s.lang == "en")
+    assert(v.search_metadata.count == N)
+    return #v.statuses
+end
+
+checks.config = function(v, N)
+    assert(v.version == "2.1.0")
+    assert(v.environment == "production")
+    local svc = v["service_1"]
+    assert(svc.enabled == true)
+    assert(type(svc.hosts) == "table")
+    assert(#svc.hosts == 3)
+    assert(type(svc.retry) == "table")
+    assert(svc.retry.backoff == "exponential")
+    assert(type(svc.paths) == "table")
+    assert(type(svc.env) == "table")
+    return N
+end
+
+checks.uniform = function(v, N)
+    assert(#v.items == N)
+    assert(v.items[1].id == 1)
+    assert(v.items[N].name == "item" .. N)
+    assert(v.meta.count == N)
+    return #v.items
+end
+
+-- ===========================================================================
+-- Benchmark harness
+-- ===========================================================================
+
+local function best_of(decode_fn, check_fn, src, check_arg, reps, rounds)
+    collectgarbage("collect")
+    local best = math.huge
+    local result
+    for _ = 1, rounds do
+        collectgarbage("collect")
+        local t0 = os.clock()
+        for _ = 1, reps do
+            result = check_fn(decode_fn(src), check_arg)
+        end
+        local dt = os.clock() - t0
+        if dt < best then best = dt end
+    end
+    return best / reps, result
+end
+
+local labels = {
+    api      = "GitHub API response (nested objects, dates, URLs, licenses)",
+    geojson  = "GeoJSON features (deep number arrays, coordinate pairs)",
+    logs     = "Structured logs (many uniform records, hex trace IDs)",
+    twitter  = "Social timeline (entities, urls, mentions, varied shapes)",
+    config   = "Config file (deep nesting, escaped strings, mixed types)",
+    uniform  = "Uniform items array (baseline)",
+}
+
+local sizes = {10, 100, 500}
+local suites = {"api", "geojson", "logs", "twitter", "config", "uniform"}
+
+print()
+print("══════════════════════════════════════════════════════════════════════════")
+print("  Moonlift vs CJSON — Realistic JSON Decode Benchmarks")
+print("══════════════════════════════════════════════════════════════════════════")
+print()
+
+for _, suite in ipairs(suites) do
+    print(string.format("── %s", labels[suite]))
+    for _, N in ipairs(sizes) do
+        local src = builders[suite](N)
+        local check_fn = checks[suite]
+
+        -- Warmup
+        check_fn(json.decode(src), N)
+        check_fn(cjson.decode(src), N)
+
+        local reps
+        if #src < 2048 then reps = 1000
+        elseif #src < 20000 then reps = 200
+        elseif #src < 200000 then reps = 50
+        else reps = 10 end
+
+        local tj, _ = best_of(json.decode, check_fn, src, N, reps, 5)
+        local tc, _ = best_of(cjson.decode, check_fn, src, N, reps, 5)
+        local mb = #src / (1024 * 1024)
+        local ratio = tj / tc
+
+        local marker = ""
+        if ratio < 0.85 then marker = "  ← Moonlift wins strong"
+        elseif ratio < 1.0 then marker = "  ← Moonlift wins"
+        elseif ratio < 1.15 then marker = "  ≈ tie"
+        else marker = "  ← CJSON wins"
+        end
+
+        print(string.format("  N=%-4d | %7d bytes | %5.1f kB |  moonlift %6.1f MB/s  cjson %6.1f MB/s  ratio %.3f%s",
+            N, #src, #src / 1024, mb / tj, mb / tc, ratio, marker))
+    end
+    print()
+end
+
+json.free()
+print("══════════════════════════════════════════════════════════════════════════")
+return "bench hosted json done"

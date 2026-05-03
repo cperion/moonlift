@@ -1,0 +1,82 @@
+-- Lua C API support for hosted MoonLift code.
+--
+-- This file is intentionally .mlua, not a Lua file containing MoonLift strings.
+-- Load it from another .mlua file with:
+--
+--   local Host = require("moonlift.host_quote")
+--   local LuaApi = Host.dofile("lib/lua_api.mlua")
+--
+-- Then splice declarations and fragments into your module:
+--
+--   local m = module MyModule
+--       @{LuaApi.decls}
+--       export func f(L: ptr(u8)) -> i32
+--           return region -> i32
+--           entry start()
+--               emit @{LuaApi.stack_mark}(L; mark = marked)
+--           end
+--           block marked(top: i32)
+--               ... Lua stack writes ...
+--               emit @{LuaApi.stack_restore}(L, top; done = done)
+--           end
+--           block done()
+--               yield 0
+--           end
+--           end
+--       end
+--   end
+
+local Host = require("moonlift.host_quote")
+
+local LuaApi = {}
+
+-- Declarations required by the fragments below.  These are resolved by the
+-- hosted Rust binary as native JIT symbols.
+LuaApi.decls = Host.source { [[
+extern func lua_gettop(L: ptr(u8)) -> i32
+extern func lua_settop(L: ptr(u8), idx: i32)
+extern func lua_createtable(L: ptr(u8), narr: i32, nrec: i32)
+extern func lua_pushlstring(L: ptr(u8), s: ptr(u8), len: index)
+extern func lua_pushnumber(L: ptr(u8), n: f64)
+extern func lua_pushboolean(L: ptr(u8), b: i32)
+extern func lua_pushnil(L: ptr(u8))
+extern func lua_setfield(L: ptr(u8), idx: i32, k: ptr(u8))
+extern func lua_settable(L: ptr(u8), idx: i32)
+extern func lua_rawseti(L: ptr(u8), idx: i32, i: i32)
+extern func moonlift_scratch_i32(slot: i32, count: i32) -> ptr(i32)
+extern func moonlift_alloc_i32(count: i32) -> ptr(i32)
+extern func moonlift_free_i32(p: ptr(i32), count: i32) -> i32
+extern func moonlift_lua_arg_lstring_ptr(L: ptr(u8), idx: i32) -> ptr(u8)
+extern func moonlift_lua_arg_lstring_len(L: ptr(u8), idx: i32) -> index
+extern func moonlift_lua_push_json_number(L: ptr(u8), p: ptr(u8), len: index) -> i32
+extern func moonlift_lua_push_json_string(L: ptr(u8), p: ptr(u8), len: index) -> i32
+extern func moonlift_lua_push_json_number_at(L: ptr(u8), p: ptr(u8), offset: i32, len: i32) -> i32
+extern func moonlift_lua_push_json_string_at(L: ptr(u8), p: ptr(u8), offset: i32, len: i32) -> i32
+]] }
+
+-- Capture the current Lua stack top and continue with that value.
+LuaApi.stack_mark = region lua_stack_mark(lua_state: ptr(u8); mark: cont(top: i32))
+entry start()
+    jump mark(top = lua_gettop(lua_state))
+end
+end
+
+-- Restore the Lua stack top and continue.
+LuaApi.stack_restore = region lua_stack_restore(lua_state: ptr(u8), restore_top: i32; done: cont())
+entry start()
+    lua_settop(lua_state, restore_top)
+    jump done()
+end
+end
+
+-- Convenience fragment for code paths that only need to validate native Lua C
+-- API table creation and leave the stack exactly as it was.
+LuaApi.create_table_restore = region lua_create_table_restore(lua_state: ptr(u8), narr: i32, nrec: i32, restore_top: i32; done: cont())
+entry start()
+    lua_createtable(lua_state, narr, nrec)
+    lua_settop(lua_state, restore_top)
+    jump done()
+end
+end
+
+return LuaApi

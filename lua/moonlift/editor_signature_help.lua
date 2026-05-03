@@ -226,7 +226,7 @@ function M.Define(T)
                 end
             end
         end
-        catalog["moonlift.json.decode"] = { E.SignatureInfo("moonlift.json.decode(src, opts)", "Decode JSON bytes through the Moonlift indexed-tape JSON library.", { E.SignatureParameter("src", "JSON source bytes"), E.SignatureParameter("opts", "decoder options") }) }
+        catalog["moonlift.json.decode"] = { E.SignatureInfo("moonlift.json.decode(src)", "Decode JSON bytes through the hosted MoonLift JSON decoder.", { E.SignatureParameter("src", "JSON source bytes") }) }
         catalog["moonlift.json.get_i32"] = { E.SignatureInfo("moonlift.json.get_i32(src, key, opts)", "Read an i32 field from a decoded JSON document.", { E.SignatureParameter("src", "JSON source bytes"), E.SignatureParameter("key", "raw object key"), E.SignatureParameter("opts", "decoder options") }) }
         catalog["moonlift.json.get_bool"] = { E.SignatureInfo("moonlift.json.get_bool(src, key, opts)", "Read a bool field from a decoded JSON document.", { E.SignatureParameter("src", "JSON source bytes"), E.SignatureParameter("key", "raw object key"), E.SignatureParameter("opts", "decoder options") }) }
         return catalog

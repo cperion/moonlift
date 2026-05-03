@@ -144,7 +144,7 @@ function Parser:expect(k, msg)
     if text == nil then self:issue(msg or ("expected token " .. tostring(k))); return "" end
     return text
 end
-function Parser:expect_name(msg) return self:expect(TK.name, msg or "expected identifier") end
+function Parser:expect_name(msg) return self:expect_field_name(msg or "expected identifier") end
 function Parser:expect_field_name(msg)
     if self:kind() == TK.name or self:kind() == TK.len then
         local text = self:text()
@@ -248,7 +248,13 @@ function Parser:nud()
         self:expect(TK.rparen)
         return Tr.ExprView(Tr.ExprSurface, Tr.ViewContiguous(data, self.Ty.TScalar(C.ScalarVoid), len))
     end
-    if k == TK.len then self:expect(TK.lparen); local value = self:parse_expr(0); self:expect(TK.rparen); return Tr.ExprLen(Tr.ExprSurface, value) end
+    if k == TK.len then
+        -- Allow 'len' as a variable name when not followed by '('
+        if self:kind() ~= TK.lparen then
+            return Tr.ExprRef(Tr.ExprSurface, B.ValueRefName(text))
+        end
+        self.i = self.i + 1; local value = self:parse_expr(0); self:expect(TK.rparen); return Tr.ExprLen(Tr.ExprSurface, value)
+    end
     if k == TK.view_window then self:expect(TK.lparen); local base = self:parse_expr(0); self:expect(TK.comma); local start = self:parse_expr(0); self:expect(TK.comma); local len = self:parse_expr(0); self:expect(TK.rparen); return Tr.ExprView(Tr.ExprSurface, Tr.ViewWindow(Tr.ViewFromExpr(base, self.Ty.TScalar(C.ScalarVoid)), start, len)) end
     if k == TK.lparen then local e = self:parse_expr(0); self:expect(TK.rparen); return e end
     if k == TK.minus then return Tr.ExprUnary(Tr.ExprSurface, C.UnaryNeg, self:parse_expr(80)) end
@@ -781,6 +787,7 @@ function Parser:parse_region_frag()
         end
     end
     local cont_slots = {}
+    self:skip_nl()
     if self:accept(TK.semi) then
         self:skip_nl()
         cont_slots, slots = self:parse_cont_params()
