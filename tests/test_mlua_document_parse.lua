@@ -2,8 +2,7 @@ package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.p
 
 local pvm = require("moonlift.pvm")
 local A = require("moonlift.asdl")
-local PartsMod = require("moonlift.mlua_document_parts")
-local DocParseMod = require("moonlift.mlua_document_parse")
+local DocMod = require("moonlift.mlua_document")
 local MluaParse = require("moonlift.mlua_parse")
 
 local T = pvm.context()
@@ -12,8 +11,8 @@ local S = T.MoonSource
 local Mlua = T.MoonMlua
 local H = T.MoonHost
 local O = T.MoonOpen
-local Parts = PartsMod.Define(T)
-local DocParse = DocParseMod.Define(T)
+local Parts = DocMod.Define(T)
+local DocParse = Parts
 local Whole = MluaParse.Define(T)
 
 local uri = S.DocUri("file:///doc_parse.mlua")

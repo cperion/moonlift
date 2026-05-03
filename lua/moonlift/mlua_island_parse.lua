@@ -1,8 +1,13 @@
 local pvm = require("moonlift.pvm")
 local PositionIndex = require("moonlift.source_position_index")
 local MluaParse = require("moonlift.mlua_parse")
+local Lex = require("moonlift.mlua_lex")
 
 local M = {}
+
+local starts_ident_char = Lex.starts_ident_char
+local word_at_boundary = Lex.word_at_boundary
+local find_word = Lex.find_word
 
 local scalar_words = {
     void = true, bool = true,
@@ -28,16 +33,6 @@ local non_call_words = {
     view = true, ptr = true, len = true,
 }
 for k in pairs(scalar_words) do non_call_words[k] = true end
-
-local function starts_ident_char(c)
-    return c and c:match("[%w_]") ~= nil
-end
-
-local function word_at_boundary(src, s, e)
-    local before = s > 1 and src:sub(s - 1, s - 1) or ""
-    local after = src:sub(e + 1, e + 1)
-    return not starts_ident_char(before) and not starts_ident_char(after)
-end
 
 local function kind_label(Mlua, kind)
     if kind == Mlua.IslandStruct then return "struct" end
@@ -67,17 +62,6 @@ end
 
 local function add_anchor(S, anchors, id_text, kind, label, range)
     anchors[#anchors + 1] = S.AnchorSpan(S.AnchorId(id_text), kind, label, range)
-end
-
-local function find_word(src, word, init)
-    init = init or 1
-    local i = init
-    while true do
-        local s, e = src:find(word, i, true)
-        if not s then return nil end
-        if word_at_boundary(src, s, e) then return s, e end
-        i = e + 1
-    end
 end
 
 function M.Define(T)

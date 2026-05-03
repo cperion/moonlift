@@ -1,0 +1,72 @@
+-- Repro: separate block (not entry) with emit inside if
+local inner = region inner(c: i32; ok: cont(v: i32), bad: cont(pos: i32))
+entry start()
+    if c < 0 then jump bad(pos = 0 - c) end
+    jump dispatch(c = c)
+end
+block dispatch(c: i32)
+    switch c do
+    case 1 then jump handle_one()
+    case 2 then jump handle_two()
+    default then jump bad(pos = c)
+    end
+end
+block handle_one()
+    jump ok(v = 1)
+end
+block handle_two()
+    jump ok(v = 2)
+end
+end
+
+local inner2 = region inner2(c: i32; ok: cont(v: i32), bad: cont(pos: i32))
+entry start()
+    if c < 0 then jump bad(pos = 0 - c) end
+    jump dispatch(c = c)
+end
+block dispatch(c: i32)
+    switch c do
+    case 3 then jump handle_three()
+    default then jump bad(pos = c)
+    end
+end
+block handle_three()
+    jump ok(v = 3)
+end
+end
+
+local test = module TestMultiBlock
+export func run(x: i32) -> i32
+    return region -> i32
+    entry start()
+        jump value_dispatch(c = x)
+    end
+    block value_dispatch(c: i32)
+        if c >= 1 then
+            if c <= 2 then
+                emit @{inner}(c; ok = done, bad = fail)
+            end
+        end
+        if c == 3 then
+            emit @{inner2}(c; ok = done, bad = fail)
+        end
+        yield -100
+    end
+    block done(v: i32)
+        yield v
+    end
+    block fail(pos: i32)
+        yield 0 - pos
+    end
+    end
+end
+end
+
+local compiled = test:compile()
+local run = compiled:get("run")
+assert(run(1) == 1)
+assert(run(2) == 2)
+assert(run(3) == 3)
+assert(run(99) == -100)
+compiled:free()
+return "multi block frag ok"

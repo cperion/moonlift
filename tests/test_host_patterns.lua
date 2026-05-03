@@ -24,7 +24,7 @@ return module
 export func find_byte(p: ptr(u8), n: i32, target: i32) -> i32
     return region -> i32
     entry start()
-        emit scan_until(p, n, target; hit = found, miss = missing)
+        emit @{scan_until}(p, n, target; hit = found, miss = missing)
     end
     block found(pos: i32)
         yield pos
@@ -38,7 +38,7 @@ end
 export func prefix_len_or_all(p: ptr(u8), n: i32, target: i32) -> i32
     return region -> i32
     entry start()
-        emit scan_until(p, n, target; hit = found, miss = missing)
+        emit @{scan_until}(p, n, target; hit = found, miss = missing)
     end
     block found(pos: i32)
         yield pos
@@ -78,10 +78,10 @@ end
 local parse_two_digits = func parse_two_digits(p: ptr(u8), n: i32) -> i32
     return region -> i32
     entry start()
-        emit parse_digit_acc(p, n, 0, 0; ok = got_one, err = bad1)
+        emit @{parse_digit_acc}(p, n, 0, 0; ok = got_one, err = bad1)
     end
     block got_one(pos2: i32, acc: i32)
-        emit parse_digit_acc(p, n, pos2, acc; ok = done, err = bad2)
+        emit @{parse_digit_acc}(p, n, pos2, acc; ok = done, err = bad2)
     end
     block done(pos2: i32, acc: i32)
         yield acc
@@ -120,7 +120,7 @@ end
 local sum_before_byte = func sum_before_byte(p: ptr(u8), n: i32, sentinel: i32) -> i32
     return region -> i32
     entry start()
-        emit sum_until(p, n, sentinel; done = found, eof = missing)
+        emit @{sum_until}(p, n, sentinel; done = found, eof = missing)
     end
     block found(sum: i32, pos: i32)
         yield sum
@@ -151,14 +151,14 @@ local score_scan = region score_scan(p: ptr(u8), n: i32; done: cont(score: i32))
 entry loop(i: i32 = 0, score: i32 = 0)
     if i >= n then jump done(score = score) end
     let v: i32 = as(i32, p[i]) - 50
-    jump loop(i = i + 1, score = score + emit clamp_nonneg(v))
+    jump loop(i = i + 1, score = score + emit @{clamp_nonneg}(v))
 end
 end
 
 local score = func score(p: ptr(u8), n: i32) -> i32
     return region -> i32
     entry start()
-        emit score_scan(p, n; done = out)
+        emit @{score_scan}(p, n; done = out)
     end
     block out(score: i32)
         yield score

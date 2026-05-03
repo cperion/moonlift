@@ -142,7 +142,7 @@ end
 local use_multiblock_frag = func use_multiblock_frag(x: i32) -> i32
     return region -> i32
     entry start()
-        emit countdown2(x; done = finished)
+        emit @{countdown2}(x; done = finished)
     end
     block finished(pos: i32)
         yield pos + 42
@@ -161,7 +161,7 @@ local inc = expr inc(x: i32) -> i32
 end
 
 local use_expr_frag = func use_expr_frag(x: i32) -> i32
-    return emit inc(x)
+    return emit @{inc}(x)
 end
 return use_expr_frag
 ]]

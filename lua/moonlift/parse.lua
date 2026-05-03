@@ -389,12 +389,13 @@ function Parser:parse_switch_stmt()
         self:expect(TK.then_kw, "expected then after case expression")
         local body = self:parse_stmt_until({ [TK.case] = true, [TK.default] = true, [TK.end_kw] = true })
         arms[#arms + 1] = Tr.SwitchStmtArm(self:switch_key_from_expr(key_expr), body)
+        self:skip_nl()
     end
     if #arms == 0 then self:issue("switch statement must have at least one case arm") end
     self:expect(TK.default, "expected default in switch")
     self:expect(TK.then_kw, "expected then after default")
     local default_body = self:parse_stmt_until({ [TK.end_kw] = true })
-    self:expect(TK.end_kw, "expected end")
+    self:expect(TK.end_kw, "expected end after switch")
     return Tr.StmtSwitch(Tr.StmtSurface, value, arms, default_body)
 end
 
@@ -410,12 +411,13 @@ function Parser:parse_switch_expr()
         self:expect(TK.then_kw, "expected then after case expression")
         local body, result = self:parse_expr_block({ [TK.case] = true, [TK.default] = true, [TK.end_kw] = true })
         arms[#arms + 1] = Tr.SwitchExprArm(self:switch_key_from_expr(key_expr), body, result)
+        self:skip_nl()
     end
     if #arms == 0 then self:issue("switch expression must have at least one case arm") end
     self:expect(TK.default, "expected default in switch")
     self:expect(TK.then_kw, "expected then after default")
     local default_body, default_expr = self:parse_expr_block({ [TK.end_kw] = true })
-    self:expect(TK.end_kw, "expected end")
+    self:expect(TK.end_kw, "expected end after switch")
     return Tr.ExprSwitch(Tr.ExprSurface, value, arms, default_expr)
 end
 
@@ -468,8 +470,12 @@ function Parser:parse_multi_control_expr()
     if not (self:accept(TK.entry) or self:accept(TK.block)) then self:expect(TK.entry, "expected entry block") end
     local entry_label = Tr.BlockLabel(self:expect_name("expected block label"))
     local entry_params = self:parse_block_params(true)
-    local entry_body = self:parse_stmt_until({ [TK.end_kw] = true })
-    self:expect(TK.end_kw)
+    local entry_body = self:parse_stmt_until({ [TK.end_kw] = true, [TK.block] = true })
+    if self:kind() == TK.end_kw then
+        self.i = self.i + 1
+    elseif self:kind() ~= TK.block then
+        self:expect(TK.end_kw)
+    end
     local blocks = {}
     self:skip_nl()
     while self:kind() == TK.block do
@@ -783,8 +789,12 @@ function Parser:parse_region_frag()
     local entry_params = self:parse_block_params(true)
     local old_value_env, old_cont_env = self.value_env, self.cont_env
     self.value_env, self.cont_env = param_bindings, cont_slots
-    local body = self:parse_stmt_until({ [TK.end_kw] = true })
-    self:expect(TK.end_kw, "expected end after region fragment entry")
+    local body = self:parse_stmt_until({ [TK.end_kw] = true, [TK.block] = true })
+    if self:kind() == TK.end_kw then
+        self.i = self.i + 1
+    elseif self:kind() ~= TK.block then
+        self:expect(TK.end_kw, "expected end after region fragment entry")
+    end
     local blocks = {}
     self:skip_nl()
     while self:kind() == TK.block do

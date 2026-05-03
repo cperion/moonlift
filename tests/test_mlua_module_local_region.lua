@@ -10,7 +10,7 @@ A.Define(T)
 local MP = MluaParse.Define(T)
 
 local src = [[
-module LocalRegion {
+module LocalRegion
 region emit_inc(x: i32; done: cont(y: i32))
 entry start()
     jump done(y = x + 1)
@@ -27,7 +27,7 @@ export func use_region(x: i32) -> i32
     end
     end
 end
-}
+end
 ]]
 
 local parsed = MP.parse(src, "module_local_region.mlua")

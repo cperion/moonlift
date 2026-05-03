@@ -1,227 +1,16 @@
 local pvm = require("moonlift.pvm")
 local PositionIndex = require("moonlift.source_position_index")
+local Lex = require("moonlift.mlua_lex")
 
 local M = {}
 
-local function starts_ident_char(c)
-    return c and c:match("[%w_]") ~= nil
-end
-
-local function is_boundary(src, i, n)
-    local before = i > 1 and src:sub(i - 1, i - 1) or ""
-    local after = src:sub(i + n, i + n)
-    return not starts_ident_char(before) and not starts_ident_char(after)
-end
-
-local function has_word(src, i, word)
-    return src:sub(i, i + #word - 1) == word and is_boundary(src, i, #word)
-end
-
-local function skip_space(src, i)
-    while i <= #src do
-        local c = src:sub(i, i)
-        if c ~= " " and c ~= "\t" and c ~= "\r" and c ~= "\n" then break end
-        i = i + 1
-    end
-    return i
-end
-
-local function skip_hspace(src, i)
-    while i <= #src do
-        local c = src:sub(i, i)
-        if c ~= " " and c ~= "\t" and c ~= "\r" then break end
-        i = i + 1
-    end
-    return i
-end
-
-local function read_ident(src, i)
-    if not src:sub(i, i):match("[A-Za-z_]") then return nil, i end
-    local s = i
-    i = i + 1
-    while i <= #src and src:sub(i, i):match("[%w_]") do i = i + 1 end
-    return src:sub(s, i - 1), i
-end
-
-local function skip_string(src, i, quote)
-    i = i + 1
-    while i <= #src do
-        local c = src:sub(i, i)
-        if c == "\\" then i = i + 2
-        elseif c == quote then return i + 1
-        else i = i + 1 end
-    end
-    return i
-end
-
-local function skip_long_bracket(src, i)
-    local eq = src:match("^%[(=*)%[", i)
-    if not eq then return nil end
-    local close = "]" .. eq .. "]"
-    local j = src:find(close, i + 2 + #eq, true)
-    return j and (j + #close) or (#src + 1)
-end
-
-local function skip_comment_or_string(src, i)
-    local c = src:sub(i, i)
-    local n = src:sub(i, i + 1)
-    if n == "--" then
-        local lb = skip_long_bracket(src, i + 2)
-        if lb then return lb end
-        local j = src:find("\n", i + 2, true)
-        return j or (#src + 1)
-    end
-    if c == '"' or c == "'" then return skip_string(src, i, c) end
-    if c == "[" then return skip_long_bracket(src, i) end
-    return nil
-end
-
-local open_words = {
-    struct = true, expose = true, func = true, module = true, region = true, expr = true,
-    ["if"] = true, switch = true, block = true, entry = true, control = true,
-}
-
-local function line_prefix_has_word(src, i, word)
-    local line_start = src:sub(1, i - 1):match(".*\n()") or 1
-    local prefix = src:sub(line_start, i - 1)
-    return prefix:match("%f[%w_]" .. word .. "%f[^%w_]") ~= nil
-end
-
-local function find_matching_end(src, start_i)
-    local depth, i = 0, start_i
-    while i <= #src do
-        local skipped = skip_comment_or_string(src, i)
-        if skipped then
-            i = skipped
-        elseif src:sub(i, i):match("[A-Za-z_]") then
-            local word, j = read_ident(src, i)
-            if is_boundary(src, i, #word) then
-                if word == "end" then
-                    depth = depth - 1
-                    if depth == 0 then return j - 1 end
-                elseif open_words[word] then
-                    depth = depth + 1
-                elseif word == "do" then
-                    if not line_prefix_has_word(src, i, "switch") then depth = depth + 1 end
-                elseif word == "loop" then
-                    local next_word = read_ident(src, skip_space(src, j))
-                    if next_word == "counted" then depth = depth + 1 end
-                end
-            end
-            i = j
-        else
-            i = i + 1
-        end
-    end
-    return nil, "unterminated hosted Moonlift island"
-end
-
-local function is_island_start(src, i, kind)
-    if not has_word(src, i, kind) then return false end
-    local j = skip_space(src, i + #kind)
-    if kind == "struct" or kind == "func" or kind == "region" or kind == "expr" then
-        return read_ident(src, j) ~= nil
-    end
-    if kind == "expose" then
-        return read_ident(src, j) ~= nil
-    end
-    if kind == "module" then
-        local item_words = { export = true, extern = true, func = true, const = true, static = true, import = true, type = true, region = true, expr = true, ["end"] = true }
-        local p = i - 1
-        while p >= 1 do
-            local c = src:sub(p, p)
-            if c ~= " " and c ~= "\t" and c ~= "\r" then break end
-            p = p - 1
-        end
-        local prev = p >= 1 and src:sub(p, p) or "\n"
-        local word_end = p
-        while p >= 1 and src:sub(p, p):match("[%w_]") do p = p - 1 end
-        local prev_word = word_end >= p + 1 and src:sub(p + 1, word_end) or ""
-        local from_return = prev_word == "return"
-        local prefix_ok = prev == "\n" or prev == "="
-        if not prefix_ok and not from_return then return false end
-        local k = skip_hspace(src, i + #kind)
-        local ch = src:sub(k, k)
-        if ch == "" then return prefix_ok end
-        if ch == "\n" then
-            if not from_return then return true end
-            local next_word = read_ident(src, skip_space(src, k + 1))
-            return item_words[next_word] == true
-        end
-        local word, after_word = read_ident(src, k)
-        if not word then return false end
-        if item_words[word] then return true end
-        local next_i = skip_hspace(src, after_word)
-        local next_ch = src:sub(next_i, next_i)
-        if from_return then return next_ch == "\n" or next_ch == "{" end
-        return next_ch == "" or next_ch == "\n" or next_ch == "{"
-    end
-    return false
-end
-
-local island_order = { "struct", "expose", "func", "module", "region", "expr" }
-
-local function find_next_island(src, i)
-    while i <= #src do
-        local skipped = skip_comment_or_string(src, i)
-        if skipped then
-            i = skipped
-        else
-            if has_word(src, i, "export") then
-                local func_i = skip_space(src, i + #"export")
-                if is_island_start(src, func_i, "func") then return i, "func", func_i end
-            end
-            for k = 1, #island_order do
-                local kind = island_order[k]
-                if is_island_start(src, i, kind) then return i, kind, i end
-            end
-            i = i + 1
-        end
-    end
-    return nil, nil, nil
-end
-
-local function find_matching_brace(src, open_i)
-    local depth = 1
-    local i = open_i + 1
-    while i <= #src do
-        local skipped = skip_comment_or_string(src, i)
-        if skipped then
-            i = skipped
-        else
-            local c = src:sub(i, i)
-            if c == "{" then depth = depth + 1; i = i + 1
-            elseif c == "}" then
-                depth = depth - 1
-                if depth == 0 then return i end
-                i = i + 1
-            else
-                i = i + 1
-            end
-        end
-    end
-    return nil, "unterminated Moonlift brace island"
-end
-
-local function island_end(src, start_i, kind)
-    if kind == "expose" then
-        local nl = src:find("\n", start_i, true)
-        if not nl then return #src end
-        local next_word = read_ident(src, skip_space(src, nl + 1))
-        if next_word == "end" or next_word == "lua" or next_word == "terra" or next_word == "c" or next_word == "moonlift" then
-            return find_matching_end(src, start_i)
-        end
-        return nl - 1
-    end
-    if kind == "module" then
-        local _, after_module = read_ident(src, start_i)
-        local k = skip_hspace(src, after_module)
-        local word, after_word = read_ident(src, k)
-        if word ~= nil then k = skip_hspace(src, after_word) end
-        if src:sub(k, k) == "{" then return find_matching_brace(src, k) end
-    end
-    return find_matching_end(src, start_i)
-end
+local has_word = Lex.has_word
+local skip_space = Lex.skip_space
+local skip_hspace = Lex.skip_hspace
+local read_ident = Lex.read_ident
+local is_island_start = Lex.is_island_start
+local find_next_island = Lex.find_next_island
+local island_end = Lex.island_end
 
 local function island_kind(Mlua, kind)
     if kind == "struct" then return Mlua.IslandStruct end
@@ -278,7 +67,12 @@ end
 function M.Define(T)
     local S = T.MoonSource
     local Mlua = T.MoonMlua
+    local H = T.MoonHost
+    local Tr = T.MoonTree
+    local Parse = T.MoonParse
     local P = PositionIndex.Define(T)
+
+    -- -- document_parts phase (was mlua_document_parts.lua) --
 
     local function make_lua_segment(index, document, segments, start_offset, stop_offset)
         if stop_offset <= start_offset then return end
@@ -365,9 +159,86 @@ function M.Define(T)
         return pvm.one(document_parts_phase(document))
     end
 
+    -- -- document_parse phase (was mlua_document_parse.lua) --
+
+    local function append_all(dst, xs)
+        for i = 1, #(xs or {}) do dst[#dst + 1] = xs[i] end
+    end
+
+    local function remap_range(P, index, segment_range, local_range)
+        local start_offset = segment_range.start_offset + local_range.start_offset
+        local stop_offset = segment_range.start_offset + local_range.stop_offset
+        return assert(P.range_from_offsets(index, start_offset, stop_offset))
+    end
+
+    local function remap_issue(S, P, Parse, index, segment_range, issue)
+        local local_offset = math.max(0, (issue.offset or 1) - 1)
+        local doc_offset = segment_range.start_offset + local_offset
+        if doc_offset > segment_range.stop_offset then doc_offset = segment_range.stop_offset end
+        local pos_result = P.offset_to_pos(index, doc_offset)
+        if pvm.classof(pos_result) == S.SourcePositionHit then
+            return Parse.ParseIssue(issue.message, doc_offset + 1, pos_result.pos.line + 1, pos_result.pos.byte_col + 1)
+        end
+        return Parse.ParseIssue(issue.message, doc_offset + 1, issue.line, issue.col)
+    end
+
+    local function remap_anchor(index, segment_ordinal, segment_range, anchor)
+        local range = remap_range(P, index, segment_range, anchor.range)
+        return S.AnchorSpan(S.AnchorId("island." .. tostring(segment_ordinal) .. ".parse." .. anchor.id.text), anchor.kind, anchor.label, range)
+    end
+
+    local function malformed_issue(index, seg)
+        local range = seg.occurrence.range
+        return Parse.ParseIssue(seg.reason, range.start_offset + 1, range.start.line + 1, range.start.byte_col + 1)
+    end
+
+    local IslandParse = require("moonlift.mlua_island_parse")
+    local WholeParse = require("moonlift.mlua_parse")
+
+    local document_parse_phase = pvm.phase("moon2_mlua_document_parse", function(parts)
+        local index = P.build_index(parts.document)
+        local Island = IslandParse.Define(T)
+        local Whole = WholeParse.Define(T)
+        local island_parses = {}
+        local malformed_issues, anchors = {}, {}
+        append_all(anchors, parts.anchors.anchors)
+        local island_ordinal = 0
+        for i = 1, #parts.segments do
+            local seg = parts.segments[i]
+            local cls = pvm.classof(seg)
+            if cls == Mlua.HostedIsland then
+                island_ordinal = island_ordinal + 1
+                local parsed = Island.parse(seg.island)
+                island_parses[#island_parses + 1] = parsed
+                for j = 1, #parsed.anchors.anchors do
+                    anchors[#anchors + 1] = remap_anchor(index, island_ordinal, seg.range, parsed.anchors.anchors[j])
+                end
+            elseif cls == Mlua.MalformedIsland then
+                malformed_issues[#malformed_issues + 1] = malformed_issue(index, seg)
+            end
+        end
+        local whole = Whole.parse(parts.document.text, parts.document.uri.text)
+        local issues = {}
+        append_all(issues, whole.issues)
+        if #issues == 0 then append_all(issues, malformed_issues) end
+        local combined = H.MluaParseResult(whole.decls, whole.module, whole.region_frags, whole.expr_frags, issues)
+        return Mlua.DocumentParse(parts, combined, island_parses, S.AnchorSet(anchors))
+    end)
+
+    local function document_parse(parts)
+        return pvm.one(document_parse_phase(parts))
+    end
+
+    local function parse_document(document)
+        return document_parse(document_parts(document))
+    end
+
     return {
         document_parts_phase = document_parts_phase,
         document_parts = document_parts,
+        document_parse_phase = document_parse_phase,
+        document_parse = document_parse,
+        parse_document = parse_document,
     }
 end
 

@@ -2,7 +2,7 @@
 --
 -- `.mlua` is LuaJIT Lua plus Moonlift hosted islands.  Island discovery is not
 -- implemented here anymore: it flows through the MoonMlua document parser first
--- (`mlua_document_parts`), so the executable host chunk is produced from parsed
+-- (`mlua_document`), so the executable host chunk is produced from parsed
 -- MLUA segments instead of a second ad-hoc scanner/rewrite pass.
 --
 -- Moonlift meaning still flows through ASDL/PVM phases:
@@ -11,6 +11,7 @@
 local ffi = require("ffi")
 local pvm = require("moonlift.pvm")
 local Quote = require("moonlift.quote")
+local Lex = require("moonlift.mlua_lex")
 
 local M = {}
 
@@ -27,86 +28,8 @@ local CompiledFunction = {}; CompiledFunction.__index = CompiledFunction
 local CompiledModule = {}; CompiledModule.__index = CompiledModule
 local HostRuntime = {}; HostRuntime.__index = HostRuntime
 
-local function starts_ident_char(c)
-    return c and c:match("[%w_]") ~= nil
-end
-
-local function is_boundary(src, i, n)
-    local before = i > 1 and src:sub(i - 1, i - 1) or ""
-    local after = src:sub(i + n, i + n)
-    return not starts_ident_char(before) and not starts_ident_char(after)
-end
-
-local function has_word(src, i, word)
-    return src:sub(i, i + #word - 1) == word and is_boundary(src, i, #word)
-end
-
-local function skip_space(src, i)
-    while i <= #src do
-        local c = src:sub(i, i)
-        if c ~= " " and c ~= "\t" and c ~= "\r" and c ~= "\n" then break end
-        i = i + 1
-    end
-    return i
-end
-
-local function skip_hspace(src, i)
-    while i <= #src do
-        local c = src:sub(i, i)
-        if c ~= " " and c ~= "\t" and c ~= "\r" then break end
-        i = i + 1
-    end
-    return i
-end
-
-local function read_ident(src, i)
-    if not src:sub(i, i):match("[A-Za-z_]") then return nil, i end
-    local s = i
-    i = i + 1
-    while i <= #src and src:sub(i, i):match("[%w_]") do i = i + 1 end
-    return src:sub(s, i - 1), i
-end
-
-local function lua_string_literal(s)
-    return string.format("%q", s)
-end
-
-local function skip_string(src, i, quote)
-    i = i + 1
-    while i <= #src do
-        local c = src:sub(i, i)
-        if c == "\\" then i = i + 2
-        elseif c == quote then return i + 1
-        else i = i + 1 end
-    end
-    return i
-end
-
-local function skip_long_bracket(src, i)
-    local eq = src:match("^%[(=*)%[", i)
-    if not eq then return nil end
-    local close = "]" .. eq .. "]"
-    local j = src:find(close, i + 2 + #eq, true)
-    return j and (j + #close) or (#src + 1)
-end
-
-local function skip_comment_or_string(src, i)
-    local c = src:sub(i, i)
-    local n = src:sub(i, i + 1)
-    if n == "--" then
-        local lb = skip_long_bracket(src, i + 2)
-        if lb then return lb end
-        local j = src:find("\n", i + 2, true)
-        return j or (#src + 1)
-    end
-    if c == '"' or c == "'" then return skip_string(src, i, c) end
-    if c == "[" then return skip_long_bracket(src, i) end
-    return nil
-end
-
-local function assigned_name_before_quote(prefix)
-    return prefix:match("([_%a][_%w]*)%s*=%s*$")
-end
+local skip_comment_or_string = Lex.skip_comment_or_string
+local lua_string_literal = Lex.lua_string_literal
 
 local function normalize_method_func_source(src)
     local prefix, owner, method_name, rest = src:match("^%s*(export%s+)func%s+([_%a][_%w]*)%s*:%s*([_%a][_%w]*)(.*)$")
@@ -116,14 +39,25 @@ local function normalize_method_func_source(src)
 end
 
 local function module_body_from_source(src)
-    local body = src:match("^%s*module%s+([%s%S]-)%s*end%s*$")
-    if body == nil then
-        local head, braced = src:match("^%s*module%s+([_%a][_%w]*)%s*{%s*([%s%S]-)%s*}%s*$")
-        if head ~= nil then body = braced end
+    -- Extract the body from a module wrapper: "module [Name] ... end"
+    local module_pos, module_name, module_start = src:match("^()%s*module%s+([_%a][_%w]*)()")
+    local name_is_keyword = module_name and ({ export = true, extern = true, func = true, ["type"] = true, region = true, expr = true, struct = true, expose = true })[module_name]
+    if not module_name or name_is_keyword then
+        -- Anonymous module or name matched a keyword: "module\n ... end"
+        module_pos, module_start = src:match("^()%s*module%s*()\n")
+        if not module_pos then
+            module_pos, module_start = src:match("^()%s*module%s*()$")
+        end
     end
-    if not body then return src end
+    if not module_start then return src end
+    local end_pos = Lex.find_matching_end(src, module_pos, Lex.open_words_island)
+    if not end_pos then return src end
+    local body = src:sub(module_start, end_pos - 3)  -- exclude the closing 'end'
+    body = body:gsub("^%s+", ""):gsub("%s+$", "")
+    -- Strip the module name if it redundantly appears as first word of body
     local maybe_name, rest = body:match("^%s*([_%a][_%w]*)([%s%S]*)$")
-    if maybe_name and not ({ export = true, extern = true, func = true, const = true, static = true, import = true, type = true, region = true, expr = true, ["end"] = true })[maybe_name] then
+    if maybe_name and not Lex.open_words_form[maybe_name]
+        and not ({ export = true, extern = true, const = true, static = true, import = true })[maybe_name] then
         body = rest
     end
     return body
@@ -162,8 +96,7 @@ local function typed_splice_expr(lua_expr, expected)
     return "{__moonlift_host.typed_splice((" .. lua_expr .. "), " .. lua_string_literal(expected) .. ")}"
 end
 
-local function source_expr_with_antiquotes(src, known_frag_vars)
-    known_frag_vars = known_frag_vars or {}
+local function source_expr_with_antiquotes(src)
     local parts = {}
     local i, literal_start = 1, 1
     while i <= #src do
@@ -176,17 +109,6 @@ local function source_expr_with_antiquotes(src, known_frag_vars)
             parts[#parts + 1] = typed_splice_expr(src:sub(i + 2, e - 1), expected_splice_kind(src, i))
             i = e + 1
             literal_start = i
-        elseif has_word(src, i, "emit") then
-            local j = skip_space(src, i + 4)
-            local name, after_name = read_ident(src, j)
-            if name and known_frag_vars[name] then
-                if literal_start < j then parts[#parts + 1] = lua_string_literal(src:sub(literal_start, j - 1)) end
-                parts[#parts + 1] = typed_splice_expr(name, known_frag_vars[name])
-                i = after_name
-                literal_start = i
-            else
-                i = i + 4
-            end
         else
             i = i + 1
         end
@@ -196,32 +118,30 @@ local function source_expr_with_antiquotes(src, known_frag_vars)
     return "__moonlift_host.source({" .. table.concat(parts, ", ") .. "})"
 end
 
-local function translate_island(kind, source, assigned, known_frag_vars)
+local function translate_island(kind, source)
     if kind == "struct" then
         local name = assert(source:match("^%s*struct%s+([_%a][_%w]*)"), "struct island without name")
-        return "local " .. name .. " = __moonlift_host.struct_from_source(" .. source_expr_with_antiquotes(source, known_frag_vars) .. ")"
+        return "local " .. name .. " = __moonlift_host.struct_from_source(" .. source_expr_with_antiquotes(source) .. ")"
     end
     if kind == "expose" then
         local name = source:match("^%s*expose%s+([_%a][_%w]*)%s*:")
         assert(name, "expected expose Name: subject")
-        return "local " .. name .. " = __moonlift_host.expose_from_source(" .. source_expr_with_antiquotes(source, known_frag_vars) .. ")"
+        return "local " .. name .. " = __moonlift_host.expose_from_source(" .. source_expr_with_antiquotes(source) .. ")"
     end
     if kind == "func" then
         local _, owner, method_name = normalize_method_func_source(source)
-        local expr = "__moonlift_host.func_from_source(" .. source_expr_with_antiquotes(source, known_frag_vars) .. ")"
-        if owner and not assigned then return owner .. "." .. method_name .. " = " .. expr end
+        local expr = "__moonlift_host.func_from_source(" .. source_expr_with_antiquotes(source) .. ")"
+        if owner and method_name then return owner .. "." .. method_name .. " = " .. expr end
         return expr
     end
     if kind == "module" then
-        return "__moonlift_host.module_from_source(" .. source_expr_with_antiquotes(module_body_from_source(source), known_frag_vars) .. ")"
+        return "__moonlift_host.module_from_source(" .. source_expr_with_antiquotes(module_body_from_source(source)) .. ")"
     end
     if kind == "region" then
-        if assigned then known_frag_vars[assigned] = "region" end
-        return "__moonlift_host.region_from_source(" .. source_expr_with_antiquotes(source, known_frag_vars) .. ")"
+        return "__moonlift_host.region_from_source(" .. source_expr_with_antiquotes(source) .. ")"
     end
     if kind == "expr" then
-        if assigned then known_frag_vars[assigned] = "expr" end
-        return "__moonlift_host.expr_from_source(" .. source_expr_with_antiquotes(source, known_frag_vars) .. ")"
+        return "__moonlift_host.expr_from_source(" .. source_expr_with_antiquotes(source) .. ")"
     end
     error("unknown hosted island kind: " .. tostring(kind), 2)
 end
@@ -232,7 +152,7 @@ local function parsed_mlua_parts(src, name)
     A.Define(T)
     local S = T.MoonSource
     local doc = S.DocumentSnapshot(S.DocUri(name or "<mlua>"), S.DocVersion(0), S.LangMlua, src)
-    return require("moonlift.mlua_document_parts").Define(T).document_parts(doc), T
+    return require("moonlift.mlua_document").Define(T).document_parts(doc), T
 end
 
 local function island_kind_word(Mlua, island)
@@ -248,20 +168,16 @@ end
 function M.translate(src, name)
     local parts, T = parsed_mlua_parts(src, name)
     local Mlua = T.MoonMlua
-    local out, known_frag_vars = {}, {}
-    local last_lua_prefix = ""
+    local out = {}
     for i = 1, #parts.segments do
         local seg = parts.segments[i]
         local cls = pvm.classof(seg)
         if cls == Mlua.LuaOpaque then
-            local text = seg.occurrence.slice.text
-            out[#out + 1] = text
-            last_lua_prefix = text
+            out[#out + 1] = seg.occurrence.slice.text
         elseif cls == Mlua.HostedIsland then
             local kind = island_kind_word(Mlua, seg.island)
             local source = seg.island.source.text
-            out[#out + 1] = translate_island(kind, source, assigned_name_before_quote(last_lua_prefix), known_frag_vars)
-            last_lua_prefix = ""
+            out[#out + 1] = translate_island(kind, source)
         elseif cls == Mlua.MalformedIsland then
             error(seg.reason, 2)
         else
@@ -322,7 +238,7 @@ function M.splice(v)
     if tv == "number" then return tostring(v) end
     if tv == "boolean" then return v and "true" or "false" end
     if tv == "nil" then return "nil" end
-    if tv == "string" then return lua_string_literal(v) end
+    if tv == "string" then return v end
     if tv == "table" or tv == "userdata" then
         local mt = getmetatable(v)
         if mt == TypedSplice then return M.splice_checked(v) end
@@ -516,7 +432,7 @@ function ExprFragValue:moonlift_splice_source() return self.name end
 function ExprFragValue:__tostring() return "MoonliftExprFrag(" .. self.name .. ")" end
 
 local function normalize_moonlift_body(src)
-    return require("moonlift.mlua_source_normalize").moonlift_body(src)
+    return Lex.moonlift_body(src)
 end
 
 local function parse_signature(src)
@@ -538,13 +454,8 @@ local function parse_signature(src)
 end
 
 local function module_item_source(src)
-    local body = src:match("^%s*module%s+([%s%S]-)%s*end%s*$")
-    if not body then return src end
-    local maybe_name, rest = body:match("^%s*([_%a][_%w]*)([%s%S]*)$")
-    if maybe_name and not ({ export = true, extern = true, func = true, const = true, static = true, import = true, type = true, region = true, expr = true, ["end"] = true })[maybe_name] then
-        body = rest
-    end
-    return body
+    -- Use the same nesting-aware extraction as module_body_from_source
+    return module_body_from_source(src)
 end
 
 local function parse_module_signatures(src)

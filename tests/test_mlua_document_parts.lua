@@ -2,7 +2,7 @@ package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.p
 
 local pvm = require("moonlift.pvm")
 local A = require("moonlift.asdl")
-local PartsMod = require("moonlift.mlua_document_parts")
+local PartsMod = require("moonlift.mlua_document")
 
 local T = pvm.context()
 A.Define(T)

@@ -109,7 +109,7 @@ end
 local score_pair = func score_pair(p: ptr(u8), n: i32) -> i32
     return region -> i32
     entry start()
-        emit scan_score(p, n; done = out)
+        emit @{scan_score}(p, n; done = out)
     end
     block out(a: i32, b: i32)
         yield a * 100 + b
@@ -145,7 +145,7 @@ end
 local compact_class = func compact_class(p: ptr(u8)) -> i32
     return region -> i32
     entry start()
-        emit classify_byte(p, 0; digit = d, alpha = a, other = o)
+        emit @{classify_byte}(p, 0; digit = d, alpha = a, other = o)
     end
     block d(value: i32)
         yield value

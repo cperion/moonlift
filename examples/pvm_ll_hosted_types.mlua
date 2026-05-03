@@ -1,0 +1,518 @@
+-- PVM-LL hosting ASDL types: the convergence.
+--
+-- This demonstrates the full path:
+--   1. ASDL schema → Moonlift types (structs + tagged unions)
+--   2. Linear arena for typed value storage
+--   3. Phase dispatch as native switch on union tags
+--   4. Cache as native lookup/insert (pvm_ll.cached_one pattern)
+--   5. Benchmark against regular PVM (pvm.lua)
+--
+-- The key insight: ASDL sum type variants become numeric tags in the arena.
+-- Phase dispatch is `switch` on the tag. No Lua callbacks, no triplet
+-- recording, no weak-key caches. Just regions, switches, emits, and jumps.
+
+local ffi = require("ffi")
+
+local N = tonumber((arg and arg[2]) or 4096) or 4096
+local OP_PUSH, OP_ADD, OP_MUL, OP_SUB, OP_NEG, OP_DUP, OP_DROP = 1, 2, 3, 4, 5, 6, 7
+
+local function seconds() return os.clock() end
+local function bench(name, rounds, fn)
+    local t0 = seconds()
+    local acc = 0
+    for _ = 1, rounds do acc = acc + fn() end
+    local dt = seconds() - t0
+    print(string.format("  %-36s rounds=%-8d time=%.6f s  %.1f ns/round  acc=%d", name, rounds, dt, dt * 1e9 / rounds, acc))
+    return dt
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════
+--  1. Arena layout constants (Lua, not Moonlift)
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- Storage layout per op entry: [0]=tag (i32), [1]=value (i32)
+local STRIDE = 2
+
+-- Arena offsets into the i32[] context buffer
+local ARENA_OPS = 0        -- start of op entries
+local CLASS_VALID = 16384  -- classify cache valid flags
+local CLASS_VALUE = 16416  -- classify cache values (32 entries)
+local CODE_BASE = 32768    -- output bytecode
+local PC_SLOT = 60000
+local SRC_I = 60001
+local SRC_DEPTH = 60002
+local SRC_MAX = 60003
+local MEM_SIZE = 70000
+
+-- ═══════════════════════════════════════════════════════════════════════════
+--  2. Test data builder (Lua)
+-- ═══════════════════════════════════════════════════════════════════════════
+
+local function new_test_tape(N)
+    local tag, imm = ffi.new("int32_t[?]", N), ffi.new("int32_t[?]", N)
+    local op_types = { 1, 2, 3, 4, 5, 6, 1, 2, 3, 4, 5, 6 }
+    local w, op_cycle, depth = 0, 0, 0
+    while w < N do
+        if depth < 2 then
+            tag[w] = 0  -- TAG_OpConst
+            imm[w] = ((w * 17) % 31) - 15
+            w = w + 1; depth = depth + 1
+        else
+            local op = op_types[(op_cycle % #op_types) + 1]
+            if op == 5 then  -- T_NEG
+                tag[w] = 4; w = w + 1
+            elseif op == 6 then  -- T_DUP
+                tag[w] = 5; w = w + 1; depth = depth + 1
+            elseif op == 7 then  -- T_DROP
+                tag[w] = 6; w = w + 1; depth = depth - 1
+            else
+                tag[w] = op; w = w + 1; depth = depth - 1
+            end
+            op_cycle = op_cycle + 1
+        end
+    end
+    return tag, imm
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════
+--  3. Moonlift module: types + regions + exports
+--
+--  The Op tagged union: each variant's payload is explicit
+--    OpConst(i32) | OpAdd | OpMul | OpSub | OpNeg | OpDup | OpDrop
+--  Tags: 0=OpConst, 1=OpAdd, 2=OpMul, 3=OpSub, 4=OpNeg, 5=OpDup, 6=OpDrop
+-- ═══════════════════════════════════════════════════════════════════════════
+
+local TapeOpModule = module TapeOpTypes
+--
+--  This is the PVM-LL equivalent of:
+--    pvm.phase("classify", { [OpAdd] = fn → -1, [OpConst] = fn → 1, ... })
+--
+--  Dispatch: switch on the union tag (loaded from arena)
+--  Cache: native valid/value arrays, checked with direct loads
+-- ═══════════════════════════════════════════════════════════════════════════
+
+region classify_uncached(ctx: ptr(i32), tag: i32;
+    value: cont(delta: i32))
+entry start()
+    switch tag do
+    case 0 then jump value(delta = 1)     -- OpConst: push
+    case 1 then jump value(delta = 0 - 1) -- OpAdd:   pop2 push1
+    case 2 then jump value(delta = 0 - 1) -- OpMul
+    case 3 then jump value(delta = 0 - 1) -- OpSub
+    case 4 then jump value(delta = 0)     -- OpNeg
+    case 5 then jump value(delta = 1)     -- OpDup
+    case 6 then jump value(delta = 0 - 1) -- OpDrop
+    default then jump value(delta = 0)
+    end
+end
+end
+
+region classify_cached(ctx: ptr(i32), tag: i32;
+    value: cont(delta: i32))
+entry start()
+    if ctx[@{CLASS_VALID} + tag] ~= 0 then
+        jump value(delta = ctx[@{CLASS_VALUE} + tag])
+    end
+    emit classify_uncached(ctx, tag; value = miss)
+end
+block miss(delta: i32)
+    ctx[@{CLASS_VALUE} + tag] = delta
+    ctx[@{CLASS_VALID} + tag] = 1
+    jump value(delta = delta)
+end
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════
+--  4. Compile phase: ops → bytecode  (stream)
+--
+--  Each op entry is [tag, payload]. We load the tag, switch on it,
+--  then read the payload if needed (OpConst) and emit bytecode.
+-- ═══════════════════════════════════════════════════════════════════════════
+
+region compile_program(ctx: ptr(i32), n: i32;
+    done: cont(max_stack: i32))
+entry start()
+    ctx[@{PC_SLOT}] = 0
+    jump loop(i = 0, depth = 0, max_stack = 0)
+end
+block loop(i: i32, depth: i32, max_stack: i32)
+    if i >= n then jump done(max_stack = max_stack) end
+    let tag: i32 = ctx[@{ARENA_OPS} + i * @{STRIDE}]
+    ctx[@{SRC_I}] = i
+    ctx[@{SRC_DEPTH}] = depth
+    ctx[@{SRC_MAX}] = max_stack
+    switch tag do
+    case 0 then jump op_const()
+    case 1 then jump op_add()
+    case 2 then jump op_mul()
+    case 3 then jump op_sub()
+    case 4 then jump op_neg()
+    case 5 then jump op_dup()
+    case 6 then jump op_drop()
+    default then jump op_done()
+    end
+end
+block op_const()
+    let i: i32 = ctx[@{SRC_I}]
+    let depth: i32 = ctx[@{SRC_DEPTH}]
+    let max_stack: i32 = ctx[@{SRC_MAX}]
+    let new_depth: i32 = depth + 1
+    let new_max: i32 = select(new_depth > max_stack, new_depth, max_stack)
+    ctx[@{SRC_DEPTH}] = new_depth
+    ctx[@{SRC_MAX}] = new_max
+    let pc: i32 = ctx[@{PC_SLOT}]
+    ctx[@{CODE_BASE} + pc] = @{OP_PUSH}
+    ctx[@{CODE_BASE} + pc + 1] = ctx[@{ARENA_OPS} + i * @{STRIDE} + 1]
+    ctx[@{PC_SLOT}] = pc + 2
+    jump loop(i = i + 1, depth = new_depth, max_stack = new_max)
+end
+block op_add()
+    let i: i32 = ctx[@{SRC_I}]
+    let depth: i32 = ctx[@{SRC_DEPTH}]
+    let max_stack: i32 = ctx[@{SRC_MAX}]
+    let new_depth: i32 = depth - 1
+    let pc: i32 = ctx[@{PC_SLOT}]
+    ctx[@{CODE_BASE} + pc] = @{OP_ADD}
+    ctx[@{PC_SLOT}] = pc + 1
+    jump loop(i = i + 1, depth = new_depth, max_stack = max_stack)
+end
+block op_mul()
+    let i: i32 = ctx[@{SRC_I}]
+    let depth: i32 = ctx[@{SRC_DEPTH}]
+    let pc: i32 = ctx[@{PC_SLOT}]
+    ctx[@{CODE_BASE} + pc] = @{OP_MUL}
+    ctx[@{PC_SLOT}] = pc + 1
+    jump loop(i = i + 1, depth = depth - 1, max_stack = ctx[@{SRC_MAX}])
+end
+block op_sub()
+    let i: i32 = ctx[@{SRC_I}]
+    let pc: i32 = ctx[@{PC_SLOT}]
+    ctx[@{CODE_BASE} + pc] = @{OP_SUB}
+    ctx[@{PC_SLOT}] = pc + 1
+    jump loop(i = i + 1, depth = ctx[@{SRC_DEPTH}] - 1, max_stack = ctx[@{SRC_MAX}])
+end
+block op_neg()
+    let i: i32 = ctx[@{SRC_I}]
+    let pc: i32 = ctx[@{PC_SLOT}]
+    ctx[@{CODE_BASE} + pc] = @{OP_NEG}
+    ctx[@{PC_SLOT}] = pc + 1
+    jump loop(i = i + 1, depth = ctx[@{SRC_DEPTH}], max_stack = ctx[@{SRC_MAX}])
+end
+block op_dup()
+    let i: i32 = ctx[@{SRC_I}]
+    let depth: i32 = ctx[@{SRC_DEPTH}]
+    let new_depth: i32 = depth + 1
+    let new_max: i32 = select(new_depth > ctx[@{SRC_MAX}], new_depth, ctx[@{SRC_MAX}])
+    let pc: i32 = ctx[@{PC_SLOT}]
+    ctx[@{CODE_BASE} + pc] = @{OP_DUP}
+    ctx[@{PC_SLOT}] = pc + 1
+    jump loop(i = i + 1, depth = new_depth, max_stack = new_max)
+end
+block op_drop()
+    let i: i32 = ctx[@{SRC_I}]
+    let pc: i32 = ctx[@{PC_SLOT}]
+    ctx[@{CODE_BASE} + pc] = @{OP_DROP}
+    ctx[@{PC_SLOT}] = pc + 1
+    jump loop(i = i + 1, depth = ctx[@{SRC_DEPTH}] - 1, max_stack = ctx[@{SRC_MAX}])
+end
+block op_done()
+    jump loop(i = ctx[@{SRC_I}] + 1, depth = ctx[@{SRC_DEPTH}], max_stack = ctx[@{SRC_MAX}])
+end
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════
+--  5. Export shells (ABI boundaries only)
+-- ═══════════════════════════════════════════════════════════════════════════
+
+export func clear_class_cache(ctx: ptr(i32)) -> i32
+    block loop(i: i32 = 0)
+        if i >= 32 then return 0 end
+        ctx[@{CLASS_VALID} + i] = 0
+        jump loop(i = i + 1)
+    end
+end
+
+export func classify(ctx: ptr(i32), tag: i32) -> i32
+    return region -> i32
+    entry start()
+        ctx[@{CLASS_VALID} + tag] = 0
+        emit classify_cached(ctx, tag; value = done)
+    end
+    block done(delta: i32)
+        yield delta
+    end
+    end
+end
+
+export func compile(ctx: ptr(i32), n: i32) -> i32
+    return region -> i32
+    entry start()
+        emit compile_program(ctx, n; done = done)
+    end
+    block done(max_stack: i32)
+        yield max_stack
+    end
+    end
+end
+
+-- Export a function that classifies an op by reading its tag from the arena
+export func classify_op(ctx: ptr(i32), op_index: i32) -> i32
+    return region -> i32
+    entry start()
+        let tag: i32 = ctx[@{ARENA_OPS} + op_index * @{STRIDE}]
+        emit classify_cached(ctx, tag; value = done)
+    end
+    block done(delta: i32)
+        yield delta
+    end
+    end
+end
+
+type OpTag = enum
+    TAG_OpConst
+    TAG_OpAdd
+    TAG_OpMul
+    TAG_OpSub
+    TAG_OpNeg
+    TAG_OpDup
+    TAG_OpDrop
+end
+
+end  -- module TapeOpTypes
+
+-- ═══════════════════════════════════════════════════════════════════════════
+--  4. Compile and get function pointers
+-- ═══════════════════════════════════════════════════════════════════════════
+
+local compiled = TapeOpModule:compile()
+local clear_cache = compiled:get("clear_class_cache")
+local classify_fn = compiled:get("classify")
+local compile_fn = compiled:get("compile")
+local classify_op_fn = compiled:get("classify_op")
+
+-- ═══════════════════════════════════════════════════════════════════════════
+--  5. Regular PVM implementation (for comparison)
+-- ═══════════════════════════════════════════════════════════════════════════
+
+local pvm = require("moonlift.pvm")
+
+local T = pvm.context()
+T:Define [[
+    module TapeOp {
+        Op = OpConst(number value)
+           | OpAdd
+           | OpMul
+           | OpSub
+           | OpNeg
+           | OpDup
+           | OpDrop
+    }
+]]
+
+local TOp = T.TapeOp
+local delta_of = {
+    [TOp.OpConst] = 1, [TOp.OpAdd] = -1, [TOp.OpMul] = -1, [TOp.OpSub] = -1,
+    [TOp.OpNeg] = 0, [TOp.OpDup] = 1, [TOp.OpDrop] = -1
+}
+
+local classify_pvm = pvm.phase("classify", {
+    [TOp.OpConst] = function() return pvm.once(1) end,
+    [TOp.OpAdd]   = function() return pvm.once(-1) end,
+    [TOp.OpMul]   = function() return pvm.once(-1) end,
+    [TOp.OpSub]   = function() return pvm.once(-1) end,
+    [TOp.OpNeg]   = function() return pvm.once(0) end,
+    [TOp.OpDup]   = function() return pvm.once(1) end,
+    [TOp.OpDrop]  = function() return pvm.once(-1) end,
+})
+
+local tape_compile_pvm = pvm.phase("compile", {
+    [TOp.OpConst] = function(self, code, pc)
+        code[pc] = OP_PUSH; code[pc + 1] = self.value
+        return pvm.once({ delta = 1, next_pc = pc + 2 })
+    end,
+    [TOp.OpAdd] = function(self, code, pc)
+        code[pc] = OP_ADD
+        return pvm.once({ delta = -1, next_pc = pc + 1 })
+    end,
+    [TOp.OpMul] = function(self, code, pc)
+        code[pc] = OP_MUL
+        return pvm.once({ delta = -1, next_pc = pc + 1 })
+    end,
+    [TOp.OpSub] = function(self, code, pc)
+        code[pc] = OP_SUB
+        return pvm.once({ delta = -1, next_pc = pc + 1 })
+    end,
+    [TOp.OpNeg] = function(self, code, pc)
+        code[pc] = OP_NEG
+        return pvm.once({ delta = 0, next_pc = pc + 1 })
+    end,
+    [TOp.OpDup] = function(self, code, pc)
+        code[pc] = OP_DUP
+        return pvm.once({ delta = 1, next_pc = pc + 1 })
+    end,
+    [TOp.OpDrop] = function(self, code, pc)
+        code[pc] = OP_DROP
+        return pvm.once({ delta = -1, next_pc = pc + 1 })
+    end,
+})
+
+local function make_pvm_ops(tag_arr, imm_arr, n)
+    local ops = {}
+    for i = 0, n - 1 do
+        local tag = tag_arr[i]
+        if tag == 0 then ops[#ops + 1] = TOp.OpConst(imm_arr[i])
+        elseif tag == 1 then ops[#ops + 1] = TOp.OpAdd
+        elseif tag == 2 then ops[#ops + 1] = TOp.OpMul
+        elseif tag == 3 then ops[#ops + 1] = TOp.OpSub
+        elseif tag == 4 then ops[#ops + 1] = TOp.OpNeg
+        elseif tag == 5 then ops[#ops + 1] = TOp.OpDup
+        else ops[#ops + 1] = TOp.OpDrop end
+    end
+    return ops
+end
+
+local function compile_pvm(ops, n)
+    local code = {}
+    local pc, depth, max_depth = 1, 0, 0
+    for i = 1, n do
+        local result = pvm.one(tape_compile_pvm(ops[i], code, pc))
+        depth = depth + result.delta
+        if depth > max_depth then max_depth = depth end
+        pc = result.next_pc
+    end
+    return code, pc - 1, max_depth
+end
+
+local function run_bytecode(code, code_len)
+    local stack, sp, ip = {}, 0, 1
+    while ip <= code_len do
+        local op = code[ip]
+        if op == OP_PUSH then
+            sp = sp + 1; stack[sp] = code[ip + 1]; ip = ip + 2
+        elseif op == OP_ADD then
+            stack[sp - 1] = stack[sp - 1] + stack[sp]; sp = sp - 1; ip = ip + 1
+        elseif op == OP_MUL then
+            stack[sp - 1] = stack[sp - 1] * stack[sp]; sp = sp - 1; ip = ip + 1
+        elseif op == OP_SUB then
+            stack[sp - 1] = stack[sp - 1] - stack[sp]; sp = sp - 1; ip = ip + 1
+        elseif op == OP_NEG then
+            stack[sp] = 0 - stack[sp]; ip = ip + 1
+        elseif op == OP_DUP then
+            sp = sp + 1; stack[sp] = stack[sp - 1]; ip = ip + 1
+        elseif op == OP_DROP then
+            sp = sp - 1; ip = ip + 1
+        else error("bad op " .. op .. " at " .. ip) end
+    end
+    return stack[sp]
+end
+
+-- ═══════════════════════════════════════════════════════════════════════════
+--  6. Validation and benchmarking
+-- ═══════════════════════════════════════════════════════════════════════════
+
+print()
+print("==========================================================================")
+print("  PVM-LL Hosted Types: ASDL sum types → Moonlift tagged unions")
+print("  tape ops: " .. N)
+print("==========================================================================")
+print()
+
+-- Build test data in linear arena format
+local tag_arr, imm_arr = new_test_tape(N)
+local ctx = ffi.new("int32_t[?]", MEM_SIZE)
+
+-- Copy into arena: [tag, payload] pairs
+for i = 0, N - 1 do
+    ctx[ARENA_OPS + i * STRIDE] = tag_arr[i]
+    ctx[ARENA_OPS + i * STRIDE + 1] = imm_arr[i]
+end
+
+-- Validate PVM-LL
+clear_cache(ctx)
+assert(classify_fn(ctx, 0) == 1, "classify OpConst")
+assert(classify_fn(ctx, 1) == -1, "classify OpAdd")
+assert(classify_fn(ctx, 2) == -1, "classify OpMul")
+
+-- Validate classif_op reads tag from arena
+assert(classify_op_fn(ctx, 0) == 1, "classify_op index 0 (OpConst)")
+
+local max_stack = compile_fn(ctx, N)
+local code_len = ctx[PC_SLOT]
+local code_lua = {}
+for i = 0, code_len - 1 do code_lua[i + 1] = ctx[CODE_BASE + i] end
+assert(code_len > 0, "empty bytecode")
+local result = run_bytecode(code_lua, code_len)
+
+-- Validate PVM
+local ops = make_pvm_ops(tag_arr, imm_arr, N)
+for i = 1, #ops do
+    assert(pvm.classof(classify_pvm(ops[i])) ~= nil)
+end
+local code_arr, code_len_pvm, max_stack_pvm = compile_pvm(ops, N)
+local result_pvm = run_bytecode(code_arr, code_len_pvm)
+assert(max_stack == max_stack_pvm, string.format("max stack mismatch: ll=%d pvm=%d", max_stack, max_stack_pvm))
+assert(result == result_pvm, string.format("result mismatch: ll=%d pvm=%d", result, result_pvm))
+assert(code_len == code_len_pvm, string.format("code len mismatch: ll=%d pvm=%d", code_len, code_len_pvm))
+
+print(string.format("  validated: max_stack=%d  bytecode=%d  result=%d", max_stack, code_len, result))
+print()
+
+-- Benchmarks
+clear_cache(ctx)
+
+-- Benchmark scalar classify with varying tags (prevents constant folding)
+local classify_tags = {0, 1, 2, 3, 4, 5, 6, 0, 1, 2, 3, 4, 5, 6, 0, 1}
+local classify_pvm_ops = {}
+for i = 1, #classify_tags do
+    local t = classify_tags[i]
+    if t == 0 then classify_pvm_ops[i] = TOp.OpConst(42)
+    elseif t == 1 then classify_pvm_ops[i] = TOp.OpAdd
+    elseif t == 2 then classify_pvm_ops[i] = TOp.OpMul
+    elseif t == 3 then classify_pvm_ops[i] = TOp.OpSub
+    elseif t == 4 then classify_pvm_ops[i] = TOp.OpNeg
+    elseif t == 5 then classify_pvm_ops[i] = TOp.OpDup
+    else classify_pvm_ops[i] = TOp.OpDrop end
+end
+
+print("--- Scalar classify (varying tags, cache hit after warmup) ---")
+bench("PVM-LL: native switch on union tag", 5000000, function()
+    local t = classify_tags[(classify_fn(ctx, 0) % #classify_tags) + 1]
+    return classify_fn(ctx, t)
+end)
+bench("Regular PVM: pvm.phase dispatch", 5000000, function()
+    local i = (classify_pvm_ops[1] and 1) or 1  -- force non-constant
+    return pvm.one(classify_pvm(classify_pvm_ops[((i + 1) % #classify_pvm_ops) + 1]))
+end)
+print()
+
+print("--- classify_op: load tag from arena, then classify ---")
+bench("PVM-LL: load tag + switch", 5000000, function() return classify_op_fn(ctx, 1) end)
+print()
+
+print("--- Full compile pass ---")
+bench("PVM-LL: native regions/switches/jumps", 20000, function()
+    ctx[PC_SLOT] = 0
+    return compile_fn(ctx, N)
+end)
+bench("Regular PVM: pvm.phase + pvm.one per node", 2000, function()
+    local _, _, max = compile_pvm(ops, N)
+    return max
+end)
+print()
+
+print("--- Run bytecode (same bytecode, Lua loop) ---")
+bench("run bytecode", 200000, function() return run_bytecode(code_lua, code_len) end)
+print()
+
+print("==========================================================================")
+print("  Architecture:")
+print("    ASDL schema  ──→  Moonlift tagged unions (OpTag enum + arena layout)")
+print("    Phase dispatch  ──→  switch on union tag (native jump table)")
+print("    Cache  ──→  native valid/value arrays (load + cmp + br)")
+print("    Compose  ──→  emit / jump (CFG splicing, zero allocation)")
+print("    Metaprogram  ──→  Lua generates monomorphic region families")
+print("==========================================================================")
+print()
+
+compiled:free()
+return "PVM-LL hosted types convergence ok"

@@ -1,5 +1,5 @@
 local pvm = require("moonlift.pvm")
-local DocumentParse = require("moonlift.mlua_document_parse")
+local DocumentParse = require("moonlift.mlua_document")
 local HostPipeline = require("moonlift.mlua_host_pipeline")
 local OpenFacts = require("moonlift.open_facts")
 local OpenValidate = require("moonlift.open_validate")

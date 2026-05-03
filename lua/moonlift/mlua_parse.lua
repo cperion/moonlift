@@ -1,4 +1,5 @@
 local pvm = require("moonlift.pvm")
+local Lex = require("moonlift.mlua_lex")
 
 local M = {}
 
@@ -12,180 +13,26 @@ local scalar_names = {
     index = "ScalarIndex",
 }
 
-local function starts_ident_char(c)
-    return c and c:match("[%w_]") ~= nil
-end
-
-local function is_boundary(src, i, n)
-    local before = i > 1 and src:sub(i - 1, i - 1) or ""
-    local after = src:sub(i + n, i + n)
-    return not starts_ident_char(before) and not starts_ident_char(after)
-end
-
-local function skip_space(src, i)
-    while i <= #src do
-        local c = src:sub(i, i)
-        if c ~= " " and c ~= "\t" and c ~= "\r" and c ~= "\n" then break end
-        i = i + 1
-    end
-    return i
-end
-
-local function skip_hspace(src, i)
-    while i <= #src do
-        local c = src:sub(i, i)
-        if c ~= " " and c ~= "\t" and c ~= "\r" then break end
-        i = i + 1
-    end
-    return i
-end
-
-local function read_ident(src, i)
-    local c = src:sub(i, i)
-    if not c:match("[A-Za-z_]") then return nil, i end
-    local s = i
-    i = i + 1
-    while i <= #src and src:sub(i, i):match("[%w_]") do i = i + 1 end
-    return src:sub(s, i - 1), i
-end
-
-local function is_module_start(src, i)
-    local item_words = { export = true, extern = true, func = true, const = true, static = true, import = true, type = true, region = true, expr = true, ["end"] = true }
-    local p = i - 1
-    while p >= 1 do
-        local c = src:sub(p, p)
-        if c ~= " " and c ~= "\t" and c ~= "\r" then break end
-        p = p - 1
-    end
-    local prev = p >= 1 and src:sub(p, p) or "\n"
-    local word_end = p
-    while p >= 1 and src:sub(p, p):match("[%w_]") do p = p - 1 end
-    local prev_word = word_end >= p + 1 and src:sub(p + 1, word_end) or ""
-    local from_return = prev_word == "return"
-    local prefix_ok = prev == "\n" or prev == "="
-    if not prefix_ok and not from_return then return false end
-    local k = skip_hspace(src, i + #"module")
-    local ch = src:sub(k, k)
-    if ch == "" then return prefix_ok end
-    if ch == "\n" then
-        if not from_return then return true end
-        local next_word = read_ident(src, skip_space(src, k + 1))
-        return item_words[next_word] == true
-    end
-    local word, after_word = read_ident(src, k)
-    if not word then return false end
-    if item_words[word] then return true end
-    local next_i = skip_hspace(src, after_word)
-    local next_ch = src:sub(next_i, next_i)
-    if from_return then return next_ch == "\n" or next_ch == "{" end
-    return next_ch == "" or next_ch == "\n" or next_ch == "{"
-end
-
-local function skip_string(src, i, quote)
-    i = i + 1
-    while i <= #src do
-        local c = src:sub(i, i)
-        if c == "\\" then i = i + 2
-        elseif c == quote then return i + 1
-        else i = i + 1 end
-    end
-    return i
-end
-
-local function skip_long_bracket(src, i)
-    local eq = src:match("^%[(=*)%[", i)
-    if not eq then return nil end
-    local close = "]" .. eq .. "]"
-    local j = src:find(close, i + 2 + #eq, true)
-    return j and (j + #close) or (#src + 1)
-end
-
-local function skip_comment_or_string(src, i)
-    local c = src:sub(i, i)
-    local n = src:sub(i, i + 1)
-    if n == "--" then
-        local lb = skip_long_bracket(src, i + 2)
-        if lb then return lb end
-        local j = src:find("\n", i + 2, true)
-        return j or (#src + 1)
-    end
-    if c == '"' or c == "'" then return skip_string(src, i, c) end
-    if c == "[" then return skip_long_bracket(src, i) end
-    return nil
-end
-
-local function find_matching(src, open_i, open_ch, close_ch)
-    local depth = 0
-    local i = open_i
-    while i <= #src do
-        local skipped = skip_comment_or_string(src, i)
-        if skipped then
-            i = skipped
-        else
-            local c = src:sub(i, i)
-            if c == open_ch then depth = depth + 1; i = i + 1
-            elseif c == close_ch then
-                depth = depth - 1
-                if depth == 0 then return i end
-                i = i + 1
-            else
-                i = i + 1
-            end
-        end
-    end
-    return nil
-end
-
-local function line_col(src, offset)
-    local line, col = 1, 1
-    for i = 1, math.max(1, offset) - 1 do
-        if src:sub(i, i) == "\n" then line, col = line + 1, 1 else col = col + 1 end
-    end
-    return line, col
-end
+local starts_ident_char = Lex.starts_ident_char
+local is_boundary = Lex.is_boundary
+local skip_space = Lex.skip_space
+local skip_hspace = Lex.skip_hspace
+local read_ident = Lex.read_ident
+local skip_comment_or_string = Lex.skip_comment_or_string
+local is_module_start = Lex.is_module_start
+local split_top_commas = Lex.split_top_commas
+local strip = Lex.strip
+local strip_outer_parens = Lex.strip_outer_parens
+local line_col = Lex.line_col
+local form_extent = Lex.form_extent
 
 local function mk_issue(P, src, msg, offset)
     local line, col = line_col(src, offset or 1)
     return P.ParseIssue(msg, offset or 1, line, col)
 end
 
-local function split_top_commas(s)
-    local out = {}
-    local start, i, depth = 1, 1, 0
-    while i <= #s do
-        local skipped = skip_comment_or_string(s, i)
-        if skipped then
-            i = skipped
-        else
-            local c = s:sub(i, i)
-            if c == "(" or c == "[" or c == "{" then depth = depth + 1
-            elseif c == ")" or c == "]" or c == "}" then depth = depth - 1
-            elseif c == "," and depth == 0 then
-                out[#out + 1] = s:sub(start, i - 1)
-                start = i + 1
-            end
-            i = i + 1
-        end
-    end
-    if start <= #s then out[#out + 1] = s:sub(start) end
-    return out
-end
-
-local function strip(s)
-    return (s:gsub("^%s+", ""):gsub("%s+$", ""))
-end
-
-local function strip_outer_parens(s)
-    s = strip(s)
-    if s:sub(1, 1) == "(" then
-        local e = find_matching(s, 1, "(", ")")
-        if e == #s then return strip(s:sub(2, -2)) end
-    end
-    return s
-end
-
 local function normalize_moonlift_body(src)
-    return require("moonlift.mlua_source_normalize").moonlift_body(src)
+    return Lex.moonlift_body(src)
 end
 
 function M.Define(T)
@@ -440,81 +287,6 @@ function M.Define(T)
             local name = source:match("^%s*expr%s+([_%a][_%w]*)")
             if name then expr_frags_by_name[name] = parsed.value end
         end
-    end
-
-    local function find_end_form(src, start_i)
-        -- Reuse the hosted quote matcher for end-based Moonlift forms by tracking
-        -- common opening words. Good enough for the existing Moonlift parser input.
-        local open = { struct = true, expose = true, func = true, region = true, expr = true, module = true, block = true, entry = true, control = true, ["if"] = true }
-        local function line_prefix_has_word(src0, pos, word0)
-            local line_start = src0:sub(1, pos - 1):match(".*\n()") or 1
-            local prefix = src0:sub(line_start, pos - 1)
-            return prefix:match("%f[%w_]" .. word0 .. "%f[^%w_]") ~= nil
-        end
-        local depth, i = 0, start_i
-        while i <= #src do
-            local skipped = skip_comment_or_string(src, i)
-            if skipped then i = skipped
-            elseif src:sub(i, i):match("[A-Za-z_]") then
-                local word, j = read_ident(src, i)
-                if is_boundary(src, i, #word) then
-                    if word == "end" then
-                        depth = depth - 1
-                        if depth == 0 then return j - 1 end
-                    elseif open[word] then
-                        depth = depth + 1
-                    elseif word == "do" then
-                        if not line_prefix_has_word(src, i, "switch") then depth = depth + 1 end
-                    elseif word == "loop" then
-                        local next_word = read_ident(src, skip_space(src, j))
-                        if next_word == "counted" then depth = depth + 1 end
-                    end
-                end
-                i = j
-            else
-                i = i + 1
-            end
-        end
-        return nil
-    end
-
-    local function find_braced_form(src, open_i)
-        local depth, i = 1, open_i + 1
-        while i <= #src do
-            local skipped = skip_comment_or_string(src, i)
-            if skipped then i = skipped
-            else
-                local c = src:sub(i, i)
-                if c == "{" then depth = depth + 1; i = i + 1
-                elseif c == "}" then
-                    depth = depth - 1
-                    if depth == 0 then return i end
-                    i = i + 1
-                else
-                    i = i + 1
-                end
-            end
-        end
-        return nil
-    end
-
-    local function form_extent(src, i, word)
-        if word == "struct" then return find_end_form(src, i) end
-        if word == "expose" then
-            local nl = src:find("\n", i, true)
-            if not nl then return #src end
-            local next_word = read_ident(src, skip_space(src, nl + 1))
-            if next_word == "end" or target_for_word(next_word) then return find_end_form(src, i) end
-            return nl - 1
-        end
-        if word == "module" then
-            local _, after_module = read_ident(src, i)
-            local k = skip_hspace(src, after_module)
-            local maybe_name, after_name = read_ident(src, k)
-            if maybe_name then k = skip_hspace(src, after_name) end
-            if src:sub(k, k) == "{" then return find_braced_form(src, k) end
-        end
-        return find_end_form(src, i)
     end
 
     local function parse_module_body(body, items, regions, exprs, region_frags_by_name, expr_frags_by_name, issues)
