@@ -276,6 +276,17 @@ end
 
 Compose regions with `emit`. The caller decides what each exit means.
 
+For higher-level composition, use the **region composition algebra** (`moonlift.region_compose`):
+
+```lua
+local C = moon.region_compose.new("grammar")
+local digit = C:choice({digit_0, digit_1, digit_2, ...})
+local number = C:plus(digit)       -- one or more digits
+local optional_sign = C:opt(sign)  -- zero or one sign
+local int = C:seq({optional_sign, number})
+-- All fragments emitted as native jump-first regions at generation time
+```
+
 ### Switch dispatch
 
 ```moonlift
@@ -505,6 +516,7 @@ Moonlift's standard library lives under `lib/`:
 | `json.lua` | Canonical hosted JSON decoder; compiled Moonlift builds Lua tables directly through the Lua C API |
 | `json_meta_decode.mlua` | Internal hosted JSON implementation module |
 | `lua_api.mlua` | Hosted Lua C API declarations/fragments for native Lua value construction |
+| `region_compose.lua` | **Region composition algebra.** PEG-style combinators (`seq`, `choice`, `star`, `plus`, `opt`, `pred`, `not_pred`) that generate native jump-first regions at Lua generation time. Exposed as `moonlift.region_compose` / `moonlift.compose` |
 
 JSON benchmarks compare the hosted Moonlift decoder against Lua CJSON.
 
@@ -572,6 +584,7 @@ moonlift/
 │   ├── triplet.lua         Triplet iterator algebra
 │   ├── host.lua            High-level Lua builder API
 │   ├── ast.lua             Low-level ASDL node constructor API
+│   ├── region_compose.lua  Region composition algebra (seq, choice, star, ...)
 │   │   ...
 │   └── editor_*.lua        LSP features (completion, hover, references, ...)
 ├── src/                    Rust Cranelift backend

@@ -1,0 +1,68 @@
+-- Inline test: grammar combinators used directly in the .mlua file
+-- No separate grammar.mlua loading — everything in one file
+
+local M = {}
+function M.range(name, lo, hi)
+    return region r_@{name}(p: ptr(u8), n: i32, pos: i32;
+        ok: cont(next: i32), fail: cont(at: i32))
+    entry start()
+        if pos >= n then jump fail(at = pos) end
+        let c: i32 = as(i32, p[pos])
+        if c < @{lo} then jump fail(at = pos) end
+        if c > @{hi} then jump fail(at = pos) end
+        jump ok(next = pos + 1)
+    end
+    end
+end
+
+local function grammar(name)
+    local next_id = 0
+    local function fresh_id(base)
+        next_id = next_id + 1
+        return name .. "_" .. base .. "_" .. next_id
+    end
+    local rules = {}
+    return {
+        rule = function(self, rname, fn)
+            local inner = fn({range = function(lo, hi) return M.range(fresh_id("range"), lo, hi) end})
+            rules[rname] = inner
+            return self
+        end,
+        get = function(self, rname)
+            return rules[rname]
+        end,
+    }
+end
+
+local G = grammar("Inline")
+G:rule("d", function(R) return R.range(48, 57) end)
+
+local ffi = require("ffi")
+local function u8buf(s)
+    local buf = ffi.new("uint8_t[?]", #s)
+    ffi.copy(buf, s, #s)
+    return buf, #s
+end
+
+local ExprParser = module ExprParser
+export func parse(p: ptr(u8), n: i32) -> i32
+    return region -> i32
+    entry start()
+        emit @{G:get("d")}(p, n, 0; ok = done, fail = err)
+    end
+    block done(next: i32)
+        yield 1
+    end
+    block err(at: i32)
+        yield -1
+    end
+    end
+end
+end
+
+local compiled = ExprParser:compile()
+local parse = compiled:get("parse")
+assert(parse(u8buf("1")) == 1, "digit")
+assert(parse(u8buf("a")) == -1, "letter")
+compiled:free()
+return "inline ok"

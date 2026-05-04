@@ -1,0 +1,53 @@
+-- Expression grammar demo using the grammar combinator library.
+-- Parses simple expressions: number + number
+-- Run: luajit run_mlua.lua lib/expr_grammar_demo.mlua
+
+local grammar = require("lib.grammar")
+local G = grammar.grammar("Expr")
+
+G:rule("digit", function(R) return R.range(48, 57) end)
+G:rule("number", function(R) return R.plus(R.ref("digit")) end)
+G:rule("plus", function(R) return R.byte_eq(43) end)
+G:rule("ws", function(R) return R.star(R.alt { R.byte_eq(32) }) end)
+
+G:rule("sum", function(R)
+    return R.seq { R.ref("number"), R.ref("ws"), R.ref("plus"), R.ref("ws"), R.ref("number") }
+end)
+
+local ffi = require("ffi")
+local function u8buf(s)
+    local buf = ffi.new("uint8_t[?]", #s)
+    ffi.copy(buf, s, #s)
+    return buf, #s
+end
+
+local ExprParser = module ExprParser
+export func parse(p: ptr(u8), n: i32) -> i32
+    return region -> i32
+    entry start()
+        emit @{G:get("sum")}(p, n, 0; ok = done, fail = err)
+    end
+    block done(next: i32)
+        yield 1
+    end
+    block err(at: i32)
+        yield -1
+    end
+    end
+end
+end
+
+local compiled = ExprParser:compile()
+local parse = compiled:get("parse")
+
+assert(parse(u8buf("1+2")) == 1, "1+2")
+assert(parse(u8buf("123+456")) == 1, "123+456")
+assert(parse(u8buf("1 + 2")) == 1, "1 + 2 (with spaces)")
+assert(parse(u8buf("12+")) == -1, "trailing +")
+assert(parse(u8buf("+12")) == -1, "leading +")
+assert(parse(u8buf("")) == -1, "empty")
+assert(parse(u8buf("1++2")) == -1, "double +")
+assert(parse(u8buf("abc")) == -1, "letters")
+
+compiled:free()
+return "expr grammar demo ok"

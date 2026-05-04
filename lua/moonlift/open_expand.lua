@@ -10,6 +10,8 @@ function M.Define(T)
 
     local lookup_slot_value
     local lookup_param_value
+    local lookup_region_frag
+    local lookup_expr_frag
     local expand_type
     local expand_open_set
     local expand_expr_header
@@ -106,18 +108,33 @@ function M.Define(T)
         local merged = {}
         for i = 1, #env.fills.bindings do merged[#merged + 1] = env.fills.bindings[i] end
         for i = 1, #fills do merged[#merged + 1] = fills[i] end
-        return O.ExpandEnv(O.FillSet(merged), env.params, env.rebase_prefix)
+        return O.ExpandEnv(env.region_frags, env.expr_frags, O.FillSet(merged), env.conts, env.params, env.rebase_prefix)
     end
 
     local function env_with_params(env, params)
         local merged = {}
         for i = 1, #env.params do merged[#merged + 1] = env.params[i] end
         for i = 1, #params do merged[#merged + 1] = params[i] end
-        return O.ExpandEnv(env.fills, merged, env.rebase_prefix)
+        return O.ExpandEnv(env.region_frags, env.expr_frags, env.fills, env.conts, merged, env.rebase_prefix)
+    end
+
+    local function env_with_conts(env, conts)
+        local merged = {}
+        for i = 1, #env.conts do merged[#merged + 1] = env.conts[i] end
+        for i = 1, #conts do merged[#merged + 1] = conts[i] end
+        return O.ExpandEnv(env.region_frags, env.expr_frags, env.fills, merged, env.params, env.rebase_prefix)
+    end
+
+    local function env_at_path(env, path)
+        return O.ExpandEnv(env.region_frags, env.expr_frags, env.fills, env.conts, env.params, path)
+    end
+
+    local function env_with_fills_conts_and_params(env, fills, conts, params)
+        return env_with_params(env_with_conts(merge_fills(env, fills), conts), params)
     end
 
     local function env_with_fills_and_params(env, fills, params)
-        return env_with_params(merge_fills(env, fills), params)
+        return env_with_fills_conts_and_params(env, fills, {}, params)
     end
 
     local function frag_param_bindings(params, args, env)
@@ -130,7 +147,7 @@ function M.Define(T)
         return out
     end
 
-    lookup_slot_value = pvm.phase("moon2_open_lookup_slot_value", {
+    lookup_slot_value = pvm.phase("moonlift_open_lookup_slot_value", {
         [O.SlotType] = function(self, env)
             local v = slot_value(self, env)
             if v == nil then return pvm.empty() end
@@ -198,7 +215,7 @@ function M.Define(T)
         end,
     }, { args_cache = "last" })
 
-    lookup_param_value = pvm.phase("moon2_open_lookup_param_value", function(param, env)
+    lookup_param_value = pvm.phase("moonlift_open_lookup_param_value", function(param, env)
         for i = #env.params, 1, -1 do
             local binding = env.params[i]
             if binding.param == param then
@@ -208,7 +225,21 @@ function M.Define(T)
         return pvm.NIL
     end, { args_cache = "last" })
 
-    expand_type = pvm.phase("moon2_open_expand_type", {
+    lookup_region_frag = function(name, env)
+        for i = #env.region_frags, 1, -1 do
+            if env.region_frags[i].name == name then return env.region_frags[i] end
+        end
+        return pvm.NIL
+    end
+
+    lookup_expr_frag = function(name, env)
+        for i = #env.expr_frags, 1, -1 do
+            if env.expr_frags[i].name == name then return env.expr_frags[i] end
+        end
+        return pvm.NIL
+    end
+
+    expand_type = pvm.phase("moonlift_open_expand_type", {
         [Ty.TScalar] = function(self) return pvm.once(self) end,
         [Ty.TPtr] = function(self, env) return pvm.once(pvm.with(self, { elem = one(expand_type, self.elem, env) })) end,
         [Ty.TArray] = function(self, env) return pvm.once(pvm.with(self, { elem = one(expand_type, self.elem, env) })) end,
@@ -226,7 +257,7 @@ function M.Define(T)
         end,
     }, { args_cache = "last" })
 
-    expand_open_set = pvm.phase("moon2_open_expand_open_set", {
+    expand_open_set = pvm.phase("moonlift_open_expand_open_set", {
         [O.OpenSet] = function(open, env)
             local slots = {}
             for i = 1, #open.slots do
@@ -238,7 +269,7 @@ function M.Define(T)
         end,
     }, { args_cache = "last" })
 
-    expand_expr_header = pvm.phase("moon2_open_expand_expr_header", {
+    expand_expr_header = pvm.phase("moonlift_open_expand_expr_header", {
         [Tr.ExprSurface] = function(self) return pvm.once(self) end,
         [Tr.ExprTyped] = function(self, env) return pvm.once(pvm.with(self, { ty = one(expand_type, self.ty, env) })) end,
         [Tr.ExprOpen] = function(self, env)
@@ -251,7 +282,7 @@ function M.Define(T)
         [Tr.ExprCode] = function(self, env) return pvm.once(pvm.with(self, { ty = one(expand_type, self.ty, env) })) end,
     }, { args_cache = "last" })
 
-    expand_place_header = pvm.phase("moon2_open_expand_place_header", {
+    expand_place_header = pvm.phase("moonlift_open_expand_place_header", {
         [Tr.PlaceSurface] = function(self) return pvm.once(self) end,
         [Tr.PlaceTyped] = function(self, env) return pvm.once(pvm.with(self, { ty = one(expand_type, self.ty, env) })) end,
         [Tr.PlaceOpen] = function(self, env)
@@ -263,7 +294,7 @@ function M.Define(T)
         [Tr.PlaceSem] = function(self, env) return pvm.once(pvm.with(self, { ty = one(expand_type, self.ty, env) })) end,
     }, { args_cache = "last" })
 
-    expand_stmt_header = pvm.phase("moon2_open_expand_stmt_header", {
+    expand_stmt_header = pvm.phase("moonlift_open_expand_stmt_header", {
         [Tr.StmtSurface] = function(self) return pvm.once(self) end,
         [Tr.StmtTyped] = function(self) return pvm.once(self) end,
         [Tr.StmtOpen] = function(self, env)
@@ -275,7 +306,7 @@ function M.Define(T)
         [Tr.StmtCode] = function(self) return pvm.once(self) end,
     }, { args_cache = "last" })
 
-    expand_module_header = pvm.phase("moon2_open_expand_module_header", {
+    expand_module_header = pvm.phase("moonlift_open_expand_module_header", {
         [Tr.ModuleSurface] = function(self) return pvm.once(self) end,
         [Tr.ModuleTyped] = function(self) return pvm.once(self) end,
         [Tr.ModuleOpen] = function(self, env)
@@ -289,13 +320,13 @@ function M.Define(T)
         [Tr.ModuleCode] = function(self) return pvm.once(self) end,
     }, { args_cache = "last" })
 
-    expand_binding = pvm.phase("moon2_open_expand_binding", {
+    expand_binding = pvm.phase("moonlift_open_expand_binding", {
         [B.Binding] = function(self, env)
             return pvm.once(pvm.with(self, { ty = one(expand_type, self.ty, env) }))
         end,
     }, { args_cache = "last" })
 
-    expand_value_ref_expr = pvm.phase("moon2_open_expand_value_ref_expr", {
+    expand_value_ref_expr = pvm.phase("moonlift_open_expand_value_ref_expr", {
         [B.ValueRefBinding] = function(self, h, env)
             local cls = pvm.classof(self.binding.class)
             if cls == B.BindingClassOpenParam then
@@ -318,7 +349,7 @@ function M.Define(T)
         [B.ValueRefStaticSlot] = function() return pvm.empty() end,
     }, { args_cache = "last" })
 
-    expand_value_ref = pvm.phase("moon2_open_expand_value_ref", {
+    expand_value_ref = pvm.phase("moonlift_open_expand_value_ref", {
         [B.ValueRefBinding] = function(self, env) return pvm.once(pvm.with(self, { binding = one(expand_binding, self.binding, env) })) end,
         [B.ValueRefName] = function(self) return pvm.once(self) end,
         [B.ValueRefPath] = function(self) return pvm.once(self) end,
@@ -328,7 +359,7 @@ function M.Define(T)
         [B.ValueRefStaticSlot] = function(self) return pvm.once(self) end,
     }, { args_cache = "last" })
 
-    expand_view = pvm.phase("moon2_open_expand_view", {
+    expand_view = pvm.phase("moonlift_open_expand_view", {
         [Tr.ViewFromExpr] = function(self, env) return pvm.once(pvm.with(self, { base = one(expand_expr, self.base, env), elem = one(expand_type, self.elem, env) })) end,
         [Tr.ViewContiguous] = function(self, env) return pvm.once(pvm.with(self, { data = one(expand_expr, self.data, env), elem = one(expand_type, self.elem, env), len = one(expand_expr, self.len, env) })) end,
         [Tr.ViewStrided] = function(self, env) return pvm.once(pvm.with(self, { data = one(expand_expr, self.data, env), elem = one(expand_type, self.elem, env), len = one(expand_expr, self.len, env), stride = one(expand_expr, self.stride, env) })) end,
@@ -339,7 +370,7 @@ function M.Define(T)
         [Tr.ViewInterleavedView] = function(self, env) return pvm.once(pvm.with(self, { base = one(expand_view, self.base, env), elem = one(expand_type, self.elem, env), stride = one(expand_expr, self.stride, env), lane = one(expand_expr, self.lane, env) })) end,
     }, { args_cache = "last" })
 
-    expand_domain = pvm.phase("moon2_open_expand_domain", {
+    expand_domain = pvm.phase("moonlift_open_expand_domain", {
         [Tr.DomainRange] = function(self, env) return pvm.once(pvm.with(self, { stop = one(expand_expr, self.stop, env) })) end,
         [Tr.DomainRange2] = function(self, env) return pvm.once(pvm.with(self, { start = one(expand_expr, self.start, env), stop = one(expand_expr, self.stop, env) })) end,
         [Tr.DomainZipEqValues] = function(self, env) return pvm.once(pvm.with(self, { values = expand_exprs(self.values, env) })) end,
@@ -359,13 +390,13 @@ function M.Define(T)
         end,
     }, { args_cache = "last" })
 
-    expand_index_base = pvm.phase("moon2_open_expand_index_base", {
+    expand_index_base = pvm.phase("moonlift_open_expand_index_base", {
         [Tr.IndexBaseExpr] = function(self, env) return pvm.once(pvm.with(self, { base = one(expand_expr, self.base, env) })) end,
         [Tr.IndexBasePlace] = function(self, env) return pvm.once(pvm.with(self, { base = one(expand_place, self.base, env), elem = one(expand_type, self.elem, env) })) end,
         [Tr.IndexBaseView] = function(self, env) return pvm.once(pvm.with(self, { view = one(expand_view, self.view, env) })) end,
     }, { args_cache = "last" })
 
-    expand_place = pvm.phase("moon2_open_expand_place", {
+    expand_place = pvm.phase("moonlift_open_expand_place", {
         [Tr.PlaceRef] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_place_header, self.h, env), ref = one(expand_value_ref, self.ref, env) })) end,
         [Tr.PlaceDeref] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_place_header, self.h, env), base = one(expand_expr, self.base, env) })) end,
         [Tr.PlaceDot] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_place_header, self.h, env), base = one(expand_place, self.base, env) })) end,
@@ -474,39 +505,78 @@ function M.Define(T)
         return dst
     end
 
+    local function cont_slot_by_name(frag, name)
+        for i = 1, #frag.conts do
+            if frag.conts[i].pretty_name == name then return frag.conts[i] end
+        end
+        return nil
+    end
+
+    local function instantiate_cont_fills(frag, cont_fills)
+        local out = {}
+        for i = 1, #(cont_fills or {}) do
+            local fill = cont_fills[i]
+            local slot = cont_slot_by_name(frag, fill.name)
+            if slot ~= nil then out[#out + 1] = O.ContBinding(slot.key, fill.target) end
+        end
+        return out
+    end
+
+    local function resolve_cont_target(slot, env, seen)
+        seen = seen or {}
+        if seen[slot.key] then return nil end
+        seen[slot.key] = true
+        for i = #env.conts, 1, -1 do
+            local binding = env.conts[i]
+            if binding.name == slot.key then
+                local target = binding.target
+                local cls = pvm.classof(target)
+                if cls == O.ContTargetLabel then return target
+                elseif cls == O.ContTargetSlot then return resolve_cont_target(target.slot, env, seen) or target end
+            end
+        end
+        return nil
+    end
+
     local function expand_region_frag_use(stmt, env)
+        local frag = lookup_region_frag(stmt.frag_name, env)
+        if frag == pvm.NIL then
+            return pvm.with(stmt, { h = one(expand_stmt_header, stmt.h, env), args = expand_exprs(stmt.args, env) }), {}
+        end
+        local child_path = (env.rebase_prefix ~= "" and (env.rebase_prefix .. ".") or "") .. stmt.use_id
         local runtime_param_bindings = {}
-        for i = 1, #stmt.frag.params do runtime_param_bindings[#runtime_param_bindings + 1] = O.ParamBinding(stmt.frag.params[i], runtime_param_expr(stmt.frag.params[i].name)) end
-        local local_env = env_with_fills_and_params(env, stmt.fills, runtime_param_bindings)
-        local init_env = env_with_fills_and_params(env, stmt.fills, frag_param_bindings(stmt.frag.params, stmt.args, env))
-        local map = label_map_for_frag(stmt.frag, stmt.use_id)
-        local capture_params, capture_args = capture_runtime_params(stmt.frag, env)
-        local entry_params, entry_args = append_all(runtime_block_params(stmt.frag, local_env), capture_params), {}
-        for i = 1, #stmt.frag.params do
-            entry_args[#entry_args + 1] = Tr.JumpArg(runtime_param_name(stmt.frag.params[i].name), one(expand_expr, stmt.args[i], env))
+        for i = 1, #frag.params do runtime_param_bindings[#runtime_param_bindings + 1] = O.ParamBinding(frag.params[i], runtime_param_expr(frag.params[i].name)) end
+        local cont_bindings = instantiate_cont_fills(frag, stmt.cont_fills)
+        local local_env = env_at_path(env_with_fills_conts_and_params(env, stmt.fills, cont_bindings, runtime_param_bindings), child_path)
+        local init_env = env_at_path(env_with_fills_conts_and_params(env, stmt.fills, cont_bindings, frag_param_bindings(frag.params, stmt.args, env)), child_path)
+        local map = label_map_for_frag(frag, child_path)
+        local capture_params, capture_args = capture_runtime_params(frag, env)
+        local entry_params, entry_args = append_all(runtime_block_params(frag, local_env), capture_params), {}
+        for i = 1, #frag.params do
+            entry_args[#entry_args + 1] = Tr.JumpArg(runtime_param_name(frag.params[i].name), one(expand_expr, stmt.args[i], env))
         end
         append_all(entry_args, capture_args)
-        for i = 1, #stmt.frag.entry.params do
-            local p = stmt.frag.entry.params[i]
+        for i = 1, #frag.entry.params do
+            local p = frag.entry.params[i]
             entry_params[#entry_params + 1] = Tr.BlockParam(p.name, one(expand_type, p.ty, local_env))
             entry_args[#entry_args + 1] = Tr.JumpArg(p.name, one(expand_expr, p.init, init_env))
         end
-        local entry_body, entry_nested = expand_region_stmts(stmt.frag.entry.body, local_env)
-        local entry_body2 = expand_stmts(rebase_stmts(entry_body, map, stmt.frag, capture_params), local_env)
+        local entry_body, entry_nested = expand_region_stmts(frag.entry.body, local_env)
+        local entry_body2 = expand_stmts(rebase_stmts(entry_body, map, frag, capture_params), local_env)
         local blocks = {
-            Tr.ControlBlock(map[stmt.frag.entry.label.name], entry_params, entry_body2)
+            Tr.ControlBlock(map[frag.entry.label.name], entry_params, entry_body2)
         }
-        for i = 1, #entry_nested do blocks[#blocks + 1] = rebase_control_block_body(entry_nested[i], map, stmt.frag, capture_params) end
-        for i = 1, #stmt.frag.blocks do
-            local block = stmt.frag.blocks[i]
-            local params = append_all(runtime_block_params(stmt.frag, local_env), capture_params)
+        for i = 1, #entry_nested do blocks[#blocks + 1] = rebase_control_block_body(entry_nested[i], map, frag, capture_params) end
+        for i = 1, #frag.blocks do
+            local block = frag.blocks[i]
+            local params = append_all(runtime_block_params(frag, local_env), capture_params)
             for j = 1, #block.params do params[#params + 1] = pvm.with(block.params[j], { ty = one(expand_type, block.params[j].ty, local_env) }) end
             local block_body, block_nested = expand_region_stmts(block.body, local_env)
-            local block_body2 = expand_stmts(rebase_stmts(block_body, map, stmt.frag, capture_params), local_env)
+            local block_body2 = expand_stmts(rebase_stmts(block_body, map, frag, capture_params), local_env)
             blocks[#blocks + 1] = Tr.ControlBlock(map[block.label.name], params, block_body2)
-            for j = 1, #block_nested do blocks[#blocks + 1] = rebase_control_block_body(block_nested[j], map, stmt.frag, capture_params) end
+            for j = 1, #block_nested do blocks[#blocks + 1] = rebase_control_block_body(block_nested[j], map, frag, capture_params) end
         end
-        return Tr.StmtJump(one(expand_stmt_header, stmt.h, env), map[stmt.frag.entry.label.name], entry_args), blocks
+        return Tr.StmtJump(one(expand_stmt_header, stmt.h, env), map[frag.entry.label.name], entry_args), blocks
     end
 
     expand_region_stmts = function(stmts, env)
@@ -556,7 +626,7 @@ function M.Define(T)
         return pvm.with(block, { params = params, body = body }), blocks
     end
 
-    expand_control_stmt_region = pvm.phase("moon2_open_expand_control_stmt_region", {
+    expand_control_stmt_region = pvm.phase("moonlift_open_expand_control_stmt_region", {
         [Tr.ControlStmtRegion] = function(self, env)
             local entry, entry_blocks = expand_entry_block(self.entry, env)
             local blocks = {}; for i = 1, #entry_blocks do blocks[#blocks + 1] = entry_blocks[i] end
@@ -565,7 +635,7 @@ function M.Define(T)
         end,
     }, { args_cache = "last" })
 
-    expand_control_expr_region = pvm.phase("moon2_open_expand_control_expr_region", {
+    expand_control_expr_region = pvm.phase("moonlift_open_expand_control_expr_region", {
         [Tr.ControlExprRegion] = function(self, env)
             local entry, entry_blocks = expand_entry_block(self.entry, env)
             local blocks = {}; for i = 1, #entry_blocks do blocks[#blocks + 1] = entry_blocks[i] end
@@ -574,7 +644,7 @@ function M.Define(T)
         end,
     }, { args_cache = "last" })
 
-    expand_expr = pvm.phase("moon2_open_expand_expr", {
+    expand_expr = pvm.phase("moonlift_open_expand_expr", {
         [Tr.ExprLit] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_expr_header, self.h, env) })) end,
         [Tr.ExprRef] = function(self, env)
             local replacement = maybe_expr_from_value_ref(self.ref, self.h, env)
@@ -621,12 +691,16 @@ function M.Define(T)
             return pvm.once(pvm.with(self, { h = one(expand_expr_header, self.h, env) }))
         end,
         [Tr.ExprUseExprFrag] = function(self, env)
-            local local_env = env_with_fills_and_params(env, self.fills, frag_param_bindings(self.frag.params, self.args, env))
-            return expand_expr(self.frag.body, local_env)
+            local frag = lookup_expr_frag(self.frag_name, env)
+            if frag == pvm.NIL then
+                return pvm.once(pvm.with(self, { h = one(expand_expr_header, self.h, env), args = expand_exprs(self.args, env) }))
+            end
+            local local_env = env_with_fills_and_params(env, self.fills, frag_param_bindings(frag.params, self.args, env))
+            return expand_expr(frag.body, local_env)
         end,
     }, { args_cache = "last" })
 
-    expand_stmt = pvm.phase("moon2_open_expand_stmt", {
+    expand_stmt = pvm.phase("moonlift_open_expand_stmt", {
         [Tr.StmtLet] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_stmt_header, self.h, env), binding = one(expand_binding, self.binding, env), init = one(expand_expr, self.init, env) })) end,
         [Tr.StmtVar] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_stmt_header, self.h, env), binding = one(expand_binding, self.binding, env), init = one(expand_expr, self.init, env) })) end,
         [Tr.StmtSet] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_stmt_header, self.h, env), place = one(expand_place, self.place, env), value = one(expand_expr, self.value, env) })) end,
@@ -641,12 +715,14 @@ function M.Define(T)
         [Tr.StmtJump] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_stmt_header, self.h, env), args = expand_jump_args(self.args, env) })) end,
         [Tr.StmtJumpCont] = function(self, env)
             local args = expand_jump_args(self.args, env)
-            local values = pvm.drain(lookup_slot_value(O.SlotCont(self.slot), env))
-            if #values == 1 and pvm.classof(values[1]) == O.SlotValueCont then
-                return pvm.once(Tr.StmtJump(one(expand_stmt_header, self.h, env), values[1].label, args))
-            end
-            if #values == 1 and pvm.classof(values[1]) == O.SlotValueContSlot then
-                return pvm.once(Tr.StmtJumpCont(one(expand_stmt_header, self.h, env), values[1].slot, args))
+            local target = resolve_cont_target(self.slot, env)
+            if target ~= nil then
+                local cls = pvm.classof(target)
+                if cls == O.ContTargetLabel then
+                    return pvm.once(Tr.StmtJump(one(expand_stmt_header, self.h, env), target.label, args))
+                elseif cls == O.ContTargetSlot then
+                    return pvm.once(Tr.StmtJumpCont(one(expand_stmt_header, self.h, env), target.slot, args))
+                end
             end
             return pvm.once(pvm.with(self, { h = one(expand_stmt_header, self.h, env), args = args }))
         end,
@@ -663,12 +739,11 @@ function M.Define(T)
             return pvm.once(pvm.with(self, { h = one(expand_stmt_header, self.h, env) }))
         end,
         [Tr.StmtUseRegionFrag] = function(self, env)
-            local local_env = env_with_fills_and_params(env, self.fills, frag_param_bindings(self.frag.params, self.args, env))
-            return pvm.children(function(stmt) return expand_stmt(stmt, local_env) end, self.frag.entry.body)
+            return pvm.once(pvm.with(self, { h = one(expand_stmt_header, self.h, env), args = expand_exprs(self.args, env) }))
         end,
     }, { args_cache = "last" })
 
-    expand_func = pvm.phase("moon2_open_expand_func", {
+    expand_func = pvm.phase("moonlift_open_expand_func", {
         [Tr.FuncLocal] = function(self, env) return pvm.once(pvm.with(self, { body = expand_stmts(self.body, env) })) end,
         [Tr.FuncExport] = function(self, env) return pvm.once(pvm.with(self, { body = expand_stmts(self.body, env) })) end,
         [Tr.FuncLocalContract] = function(self, env) return pvm.once(pvm.with(self, { body = expand_stmts(self.body, env) })) end,
@@ -679,22 +754,22 @@ function M.Define(T)
         end,
     }, { args_cache = "last" })
 
-    expand_extern = pvm.phase("moon2_open_expand_extern", {
+    expand_extern = pvm.phase("moonlift_open_expand_extern", {
         [Tr.ExternFunc] = function(self) return pvm.once(self) end,
         [Tr.ExternFuncOpen] = function(self, env) return pvm.once(pvm.with(self, { result = one(expand_type, self.result, env) })) end,
     }, { args_cache = "last" })
 
-    expand_const = pvm.phase("moon2_open_expand_const", {
+    expand_const = pvm.phase("moonlift_open_expand_const", {
         [Tr.ConstItem] = function(self, env) return pvm.once(pvm.with(self, { ty = one(expand_type, self.ty, env), value = one(expand_expr, self.value, env) })) end,
         [Tr.ConstItemOpen] = function(self, env) return pvm.once(pvm.with(self, { open = one(expand_open_set, self.open, env), ty = one(expand_type, self.ty, env), value = one(expand_expr, self.value, env) })) end,
     }, { args_cache = "last" })
 
-    expand_static = pvm.phase("moon2_open_expand_static", {
+    expand_static = pvm.phase("moonlift_open_expand_static", {
         [Tr.StaticItem] = function(self, env) return pvm.once(pvm.with(self, { ty = one(expand_type, self.ty, env), value = one(expand_expr, self.value, env) })) end,
         [Tr.StaticItemOpen] = function(self, env) return pvm.once(pvm.with(self, { open = one(expand_open_set, self.open, env), ty = one(expand_type, self.ty, env), value = one(expand_expr, self.value, env) })) end,
     }, { args_cache = "last" })
 
-    expand_type_decl = pvm.phase("moon2_open_expand_type_decl", {
+    expand_type_decl = pvm.phase("moonlift_open_expand_type_decl", {
         [Tr.TypeDeclStruct] = function(self, env)
             local fields = {}
             for i = 1, #self.fields do fields[#fields + 1] = pvm.with(self.fields[i], { ty = one(expand_type, self.fields[i].ty, env) }) end
@@ -719,7 +794,7 @@ function M.Define(T)
         end,
     }, { args_cache = "last" })
 
-    expand_item = pvm.phase("moon2_open_expand_item", {
+    expand_item = pvm.phase("moonlift_open_expand_item", {
         [Tr.ItemFunc] = function(self, env) return pvm.once(pvm.with(self, { func = one(expand_func, self.func, env) })) end,
         [Tr.ItemExtern] = function(self, env) return pvm.once(pvm.with(self, { func = one(expand_extern, self.func, env) })) end,
         [Tr.ItemConst] = function(self, env) return pvm.once(pvm.with(self, { c = one(expand_const, self.c, env) })) end,
@@ -756,20 +831,33 @@ function M.Define(T)
         end,
     }, { args_cache = "last" })
 
-    expand_module = pvm.phase("moon2_open_expand_module", {
+    expand_module = pvm.phase("moonlift_open_expand_module", {
         [Tr.Module] = function(module, env)
             return pvm.once(pvm.with(module, { h = one(expand_module_header, module.h, env), items = expand_items(module.items, env) }))
         end,
     }, { args_cache = "last" })
 
-    local function empty_env()
-        return O.ExpandEnv(O.FillSet({}), {}, "")
+    local function list_from_map_or_list(xs)
+        local out = {}
+        if xs == nil then return out end
+        if #xs > 0 then for i = 1, #xs do out[#out + 1] = xs[i] end; return out end
+        for _, v in pairs(xs) do
+            if type(v) == "table" and v.frag ~= nil then out[#out + 1] = v.frag else out[#out + 1] = v end
+        end
+        return out
+    end
+
+    local function empty_env(region_frags, expr_frags)
+        return O.ExpandEnv(list_from_map_or_list(region_frags), list_from_map_or_list(expr_frags), O.FillSet({}), {}, {}, "")
     end
 
     return {
         empty_env = empty_env,
         lookup_slot_value = lookup_slot_value,
         lookup_param_value = lookup_param_value,
+        lookup_region_frag = lookup_region_frag,
+        lookup_expr_frag = lookup_expr_frag,
+        env_with_frags = empty_env,
         expand_type = expand_type,
         expand_open_set = expand_open_set,
         expand_expr = expand_expr,

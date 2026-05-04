@@ -1,0 +1,35 @@
+-- Simplest grammar test: one rule, no fragment reuse
+local grammar = require("lib.grammar")
+local G = grammar.grammar("Min")
+
+G:rule("digit", function(R) return R.range(48, 57) end)
+
+local ffi = require("ffi")
+local function u8buf(s)
+    local buf = ffi.new("uint8_t[?]", #s)
+    ffi.copy(buf, s, #s)
+    return buf, #s
+end
+
+local ExprParser = module ExprParser
+export func parse(p: ptr(u8), n: i32) -> i32
+    return region -> i32
+    entry start()
+        emit @{G:get("digit")}(p, n, 0; ok = done, fail = err)
+    end
+    block done(next: i32)
+        yield 1
+    end
+    block err(at: i32)
+        yield -1
+    end
+    end
+end
+end
+
+local compiled = ExprParser:compile()
+local parse = compiled:get("parse")
+assert(parse(u8buf("5")) == 1, "digit")
+assert(parse(u8buf("a")) == -1, "letter")
+compiled:free()
+return "simplest ok"

@@ -44,7 +44,7 @@ function M.Define(T)
     local function each(phase, xs) return pvm.children(phase, xs) end
     local function slot(slot_node) return pvm.once(O.MetaFactSlot(slot_node)) end
 
-    slot_fact = pvm.phase("moon2_open_slot_fact", {
+    slot_fact = pvm.phase("moonlift_open_slot_fact", {
         [O.SlotType] = function(self) return slot(self) end,
         [O.SlotValue] = function(self) return slot(self) end,
         [O.SlotExpr] = function(self) return slot(self) end,
@@ -60,7 +60,7 @@ function M.Define(T)
         [O.SlotModule] = function(self) return slot(self) end,
     })
 
-    value_import_fact = pvm.phase("moon2_open_value_import_fact", {
+    value_import_fact = pvm.phase("moonlift_open_value_import_fact", {
         [O.ImportValue] = function(self) return pvm.once(O.MetaFactValueImportUse(self)) end,
         [O.ImportGlobalFunc] = function(self) return pvm.once(O.MetaFactGlobalFunc(self.module_name, self.item_name)) end,
         [O.ImportGlobalConst] = function(self) return pvm.once(O.MetaFactGlobalConst(self.module_name, self.item_name)) end,
@@ -68,7 +68,7 @@ function M.Define(T)
         [O.ImportExtern] = function(self) return pvm.once(O.MetaFactExtern(self.symbol)) end,
     })
 
-    open_set_facts = pvm.phase("moon2_open_set_facts", {
+    open_set_facts = pvm.phase("moonlift_open_set_facts", {
         [O.OpenSet] = function(open)
             return cat({
                 pack(each(value_import_fact, open.value_imports)),
@@ -77,7 +77,7 @@ function M.Define(T)
         end,
     })
 
-    expr_header_facts = pvm.phase("moon2_open_expr_header_facts", {
+    expr_header_facts = pvm.phase("moonlift_open_expr_header_facts", {
         [Tr.ExprSurface] = function() return pvm.empty() end,
         [Tr.ExprTyped] = function() return pvm.empty() end,
         [Tr.ExprOpen] = function(self) return open_set_facts(self.open) end,
@@ -85,14 +85,14 @@ function M.Define(T)
         [Tr.ExprCode] = function() return pvm.empty() end,
     })
 
-    place_header_facts = pvm.phase("moon2_open_place_header_facts", {
+    place_header_facts = pvm.phase("moonlift_open_place_header_facts", {
         [Tr.PlaceSurface] = function() return pvm.empty() end,
         [Tr.PlaceTyped] = function() return pvm.empty() end,
         [Tr.PlaceOpen] = function(self) return open_set_facts(self.open) end,
         [Tr.PlaceSem] = function() return pvm.empty() end,
     })
 
-    stmt_header_facts = pvm.phase("moon2_open_stmt_header_facts", {
+    stmt_header_facts = pvm.phase("moonlift_open_stmt_header_facts", {
         [Tr.StmtSurface] = function() return pvm.empty() end,
         [Tr.StmtTyped] = function() return pvm.empty() end,
         [Tr.StmtOpen] = function(self) return open_set_facts(self.open) end,
@@ -100,7 +100,7 @@ function M.Define(T)
         [Tr.StmtCode] = function() return pvm.empty() end,
     })
 
-    module_header_facts = pvm.phase("moon2_open_module_header_facts", {
+    module_header_facts = pvm.phase("moonlift_open_module_header_facts", {
         [Tr.ModuleSurface] = function() return pvm.empty() end,
         [Tr.ModuleTyped] = function() return pvm.empty() end,
         [Tr.ModuleOpen] = function(self)
@@ -116,7 +116,7 @@ function M.Define(T)
         [Tr.ModuleCode] = function() return pvm.empty() end,
     })
 
-    binding_class_facts = pvm.phase("moon2_open_binding_class_facts", {
+    binding_class_facts = pvm.phase("moonlift_open_binding_class_facts", {
         [B.BindingClassLocalValue] = function(_, binding) return pvm.once(O.MetaFactLocalValue(binding.id.text, binding.name)) end,
         [B.BindingClassLocalCell] = function(_, binding) return pvm.once(O.MetaFactLocalCell(binding.id.text, binding.name)) end,
         [B.BindingClassArg] = function() return pvm.empty() end,
@@ -138,13 +138,13 @@ function M.Define(T)
         [B.BindingClassValueSlot] = function(self) return pvm.once(O.MetaFactSlot(O.SlotValue(self.slot))) end,
     })
 
-    binding_facts = pvm.phase("moon2_open_binding_facts", {
+    binding_facts = pvm.phase("moonlift_open_binding_facts", {
         [B.Binding] = function(binding)
             return binding_class_facts(binding.class, binding)
         end,
     })
 
-    value_ref_facts = pvm.phase("moon2_open_value_ref_facts", {
+    value_ref_facts = pvm.phase("moonlift_open_value_ref_facts", {
         [B.ValueRefName] = function() return pvm.empty() end,
         [B.ValueRefPath] = function() return pvm.empty() end,
         [B.ValueRefBinding] = function(self) return binding_facts(self.binding) end,
@@ -154,7 +154,7 @@ function M.Define(T)
         [B.ValueRefStaticSlot] = function(self) return pvm.once(O.MetaFactSlot(O.SlotStatic(self.slot))) end,
     })
 
-    slot_value_facts = pvm.phase("moon2_open_slot_value_facts", {
+    slot_value_facts = pvm.phase("moonlift_open_slot_value_facts", {
         [O.SlotValueType] = function() return pvm.empty() end,
         [O.SlotValueExpr] = function(self) return expr_facts(self.expr) end,
         [O.SlotValuePlace] = function(self) return place_facts(self.place) end,
@@ -170,37 +170,37 @@ function M.Define(T)
         [O.SlotValueModule] = function(self) return module_facts(self.module) end,
     })
 
-    slot_binding_facts = pvm.phase("moon2_open_slot_binding_facts", {
+    slot_binding_facts = pvm.phase("moonlift_open_slot_binding_facts", {
         [O.SlotBinding] = function(binding)
             return slot_value_facts(binding.value)
         end,
     })
 
-    fill_set_facts = pvm.phase("moon2_open_fill_set_facts", {
+    fill_set_facts = pvm.phase("moonlift_open_fill_set_facts", {
         [O.FillSet] = function(fills)
             return each(slot_binding_facts, fills.bindings)
         end,
     })
 
-    field_init_facts = pvm.phase("moon2_open_field_init_facts", {
+    field_init_facts = pvm.phase("moonlift_open_field_init_facts", {
         [Tr.FieldInit] = function(init)
             return expr_facts(init.value)
         end,
     })
 
-    switch_stmt_arm_facts = pvm.phase("moon2_open_switch_stmt_arm_facts", {
+    switch_stmt_arm_facts = pvm.phase("moonlift_open_switch_stmt_arm_facts", {
         [Tr.SwitchStmtArm] = function(arm)
             return each(stmt_facts, arm.body)
         end,
     })
 
-    switch_expr_arm_facts = pvm.phase("moon2_open_switch_expr_arm_facts", {
+    switch_expr_arm_facts = pvm.phase("moonlift_open_switch_expr_arm_facts", {
         [Tr.SwitchExprArm] = function(arm)
             return cat({ pack(each(stmt_facts, arm.body)), pack(expr_facts(arm.result)) })
         end,
     })
 
-    view_facts = pvm.phase("moon2_open_view_facts", {
+    view_facts = pvm.phase("moonlift_open_view_facts", {
         [Tr.ViewFromExpr] = function(self) return expr_facts(self.base) end,
         [Tr.ViewContiguous] = function(self) return cat({ pack(expr_facts(self.data)), pack(expr_facts(self.len)) }) end,
         [Tr.ViewStrided] = function(self) return cat({ pack(expr_facts(self.data)), pack(expr_facts(self.len)), pack(expr_facts(self.stride)) }) end,
@@ -211,7 +211,7 @@ function M.Define(T)
         [Tr.ViewInterleavedView] = function(self) return cat({ pack(view_facts(self.base)), pack(expr_facts(self.stride)), pack(expr_facts(self.lane)) }) end,
     })
 
-    domain_facts = pvm.phase("moon2_open_domain_facts", {
+    domain_facts = pvm.phase("moonlift_open_domain_facts", {
         [Tr.DomainRange] = function(self) return expr_facts(self.stop) end,
         [Tr.DomainRange2] = function(self) return cat({ pack(expr_facts(self.start)), pack(expr_facts(self.stop)) }) end,
         [Tr.DomainZipEqValues] = function(self) return each(expr_facts, self.values) end,
@@ -221,13 +221,13 @@ function M.Define(T)
         [Tr.DomainSlotValue] = function(self) return pvm.once(O.MetaFactSlot(O.SlotDomain(self.slot))) end,
     })
 
-    index_base_facts = pvm.phase("moon2_open_index_base_facts", {
+    index_base_facts = pvm.phase("moonlift_open_index_base_facts", {
         [Tr.IndexBaseExpr] = function(self) return expr_facts(self.base) end,
         [Tr.IndexBasePlace] = function(self) return place_facts(self.base) end,
         [Tr.IndexBaseView] = function(self) return view_facts(self.view) end,
     })
 
-    place_facts = pvm.phase("moon2_open_place_facts", {
+    place_facts = pvm.phase("moonlift_open_place_facts", {
         [Tr.PlaceRef] = function(self) return cat({ pack(place_header_facts(self.h)), pack(value_ref_facts(self.ref)) }) end,
         [Tr.PlaceDeref] = function(self) return cat({ pack(place_header_facts(self.h)), pack(expr_facts(self.base)) }) end,
         [Tr.PlaceDot] = function(self) return cat({ pack(place_header_facts(self.h)), pack(place_facts(self.base)) }) end,
@@ -246,7 +246,7 @@ function M.Define(T)
         return each(stmt_facts, block.body)
     end
 
-    control_stmt_region_facts = pvm.phase("moon2_open_control_stmt_region_facts", {
+    control_stmt_region_facts = pvm.phase("moonlift_open_control_stmt_region_facts", {
         [Tr.ControlStmtRegion] = function(self)
             local trips = { pack(entry_block_facts(self.entry)) }
             for i = 1, #self.blocks do trips[#trips + 1] = pack(control_block_facts(self.blocks[i])) end
@@ -254,7 +254,7 @@ function M.Define(T)
         end,
     })
 
-    control_expr_region_facts = pvm.phase("moon2_open_control_expr_region_facts", {
+    control_expr_region_facts = pvm.phase("moonlift_open_control_expr_region_facts", {
         [Tr.ControlExprRegion] = function(self)
             local trips = { pack(entry_block_facts(self.entry)) }
             for i = 1, #self.blocks do trips[#trips + 1] = pack(control_block_facts(self.blocks[i])) end
@@ -262,7 +262,7 @@ function M.Define(T)
         end,
     })
 
-    expr_facts = pvm.phase("moon2_open_expr_facts", {
+    expr_facts = pvm.phase("moonlift_open_expr_facts", {
         [Tr.ExprLit] = function(self) return expr_header_facts(self.h) end,
         [Tr.ExprRef] = function(self) return cat({ pack(expr_header_facts(self.h)), pack(value_ref_facts(self.ref)) }) end,
         [Tr.ExprDot] = function(self) return cat({ pack(expr_header_facts(self.h)), pack(expr_facts(self.base)) }) end,
@@ -291,11 +291,11 @@ function M.Define(T)
         [Tr.ExprLoad] = function(self) return cat({ pack(expr_header_facts(self.h)), pack(expr_facts(self.addr)) }) end,
         [Tr.ExprSlotValue] = function(self) return cat({ pack(expr_header_facts(self.h)), pack(pvm.once(O.MetaFactSlot(O.SlotExpr(self.slot)))) }) end,
         [Tr.ExprUseExprFrag] = function(self)
-            return cat({ pack(expr_header_facts(self.h)), pack(pvm.once(O.MetaFactExprFragUse(self.use_id))), pack(open_set_facts(self.frag.open)), pack(expr_facts(self.frag.body)), pack(each(expr_facts, self.args)), pack(each(slot_binding_facts, self.fills)) })
+            return cat({ pack(expr_header_facts(self.h)), pack(pvm.once(O.MetaFactExprFragUse(self.use_id))), pack(each(expr_facts, self.args)), pack(each(slot_binding_facts, self.fills)) })
         end,
     })
 
-    stmt_facts = pvm.phase("moon2_open_stmt_facts", {
+    stmt_facts = pvm.phase("moonlift_open_stmt_facts", {
         [Tr.StmtLet] = function(self) return cat({ pack(stmt_header_facts(self.h)), pack(binding_facts(self.binding)), pack(expr_facts(self.init)) }) end,
         [Tr.StmtVar] = function(self) return cat({ pack(stmt_header_facts(self.h)), pack(binding_facts(self.binding)), pack(expr_facts(self.init)) }) end,
         [Tr.StmtSet] = function(self) return cat({ pack(stmt_header_facts(self.h)), pack(place_facts(self.place)), pack(expr_facts(self.value)) }) end,
@@ -304,7 +304,7 @@ function M.Define(T)
         [Tr.StmtIf] = function(self) return cat({ pack(stmt_header_facts(self.h)), pack(expr_facts(self.cond)), pack(each(stmt_facts, self.then_body)), pack(each(stmt_facts, self.else_body)) }) end,
         [Tr.StmtSwitch] = function(self) return cat({ pack(stmt_header_facts(self.h)), pack(expr_facts(self.value)), pack(each(switch_stmt_arm_facts, self.arms)), pack(each(stmt_facts, self.default_body)) }) end,
         [Tr.StmtJump] = function(self) local trips = { pack(stmt_header_facts(self.h)) }; for i = 1, #self.args do trips[#trips + 1] = pack(expr_facts(self.args[i].value)) end; return cat(trips) end,
-        [Tr.StmtJumpCont] = function(self) local trips = { pack(stmt_header_facts(self.h)), pack(pvm.once(O.MetaFactSlot(O.SlotCont(self.slot)))) }; for i = 1, #self.args do trips[#trips + 1] = pack(expr_facts(self.args[i].value)) end; return cat(trips) end,
+        [Tr.StmtJumpCont] = function(self) local trips = { pack(stmt_header_facts(self.h)) }; for i = 1, #self.args do trips[#trips + 1] = pack(expr_facts(self.args[i].value)) end; return cat(trips) end,
         [Tr.StmtYieldVoid] = function(self) return stmt_header_facts(self.h) end,
         [Tr.StmtYieldValue] = function(self) return cat({ pack(stmt_header_facts(self.h)), pack(expr_facts(self.value)) }) end,
         [Tr.StmtReturnVoid] = function(self) return stmt_header_facts(self.h) end,
@@ -312,11 +312,11 @@ function M.Define(T)
         [Tr.StmtControl] = function(self) return cat({ pack(stmt_header_facts(self.h)), pack(control_stmt_region_facts(self.region)) }) end,
         [Tr.StmtUseRegionSlot] = function(self) return cat({ pack(stmt_header_facts(self.h)), pack(pvm.once(O.MetaFactSlot(O.SlotRegion(self.slot)))) }) end,
         [Tr.StmtUseRegionFrag] = function(self)
-            return cat({ pack(stmt_header_facts(self.h)), pack(pvm.once(O.MetaFactRegionFragUse(self.use_id))), pack(open_set_facts(self.frag.open)), pack(entry_block_facts(self.frag.entry)), pack(each(control_block_facts, self.frag.blocks)), pack(each(expr_facts, self.args)), pack(each(slot_binding_facts, self.fills)) })
+            return cat({ pack(stmt_header_facts(self.h)), pack(pvm.once(O.MetaFactRegionFragUse(self.use_id))), pack(each(expr_facts, self.args)), pack(each(slot_binding_facts, self.fills)) })
         end,
     })
 
-    func_facts = pvm.phase("moon2_open_func_facts", {
+    func_facts = pvm.phase("moonlift_open_func_facts", {
         [Tr.FuncLocal] = function(self) return each(stmt_facts, self.body) end,
         [Tr.FuncExport] = function(self) return each(stmt_facts, self.body) end,
         [Tr.FuncLocalContract] = function(self) return each(stmt_facts, self.body) end,
@@ -324,22 +324,22 @@ function M.Define(T)
         [Tr.FuncOpen] = function(self) return cat({ pack(open_set_facts(self.open)), pack(each(stmt_facts, self.body)) }) end,
     })
 
-    extern_facts = pvm.phase("moon2_open_extern_facts", {
+    extern_facts = pvm.phase("moonlift_open_extern_facts", {
         [Tr.ExternFunc] = function() return pvm.empty() end,
         [Tr.ExternFuncOpen] = function() return pvm.empty() end,
     })
 
-    const_facts = pvm.phase("moon2_open_const_facts", {
+    const_facts = pvm.phase("moonlift_open_const_facts", {
         [Tr.ConstItem] = function(self) return expr_facts(self.value) end,
         [Tr.ConstItemOpen] = function(self) return cat({ pack(open_set_facts(self.open)), pack(expr_facts(self.value)) }) end,
     })
 
-    static_facts = pvm.phase("moon2_open_static_facts", {
+    static_facts = pvm.phase("moonlift_open_static_facts", {
         [Tr.StaticItem] = function(self) return expr_facts(self.value) end,
         [Tr.StaticItemOpen] = function(self) return cat({ pack(open_set_facts(self.open)), pack(expr_facts(self.value)) }) end,
     })
 
-    type_decl_facts = pvm.phase("moon2_open_type_decl_facts", {
+    type_decl_facts = pvm.phase("moonlift_open_type_decl_facts", {
         [Tr.TypeDeclStruct] = function() return pvm.empty() end,
         [Tr.TypeDeclUnion] = function() return pvm.empty() end,
         [Tr.TypeDeclEnumSugar] = function() return pvm.empty() end,
@@ -348,7 +348,7 @@ function M.Define(T)
         [Tr.TypeDeclOpenUnion] = function(self) return pvm.once(O.MetaFactLocalType(self.sym)) end,
     })
 
-    item_facts = pvm.phase("moon2_open_item_facts", {
+    item_facts = pvm.phase("moonlift_open_item_facts", {
         [Tr.ItemFunc] = function(self) return func_facts(self.func) end,
         [Tr.ItemExtern] = function(self) return extern_facts(self.func) end,
         [Tr.ItemConst] = function(self) return const_facts(self.c) end,
@@ -361,7 +361,7 @@ function M.Define(T)
         [Tr.ItemUseModuleSlot] = function(self) return cat({ pack(pvm.once(O.MetaFactModuleSlotUse(self.use_id, self.slot))), pack(pvm.once(O.MetaFactSlot(O.SlotModule(self.slot)))), pack(each(slot_binding_facts, self.fills)) }) end,
     })
 
-    module_facts = pvm.phase("moon2_open_module_facts", {
+    module_facts = pvm.phase("moonlift_open_module_facts", {
         [Tr.Module] = function(module)
             return cat({ pack(module_header_facts(module.h)), pack(each(item_facts, module.items)) })
         end,

@@ -255,6 +255,34 @@ return function(A)
             A.unique,
         },
 
+        A.product "FragId" {
+            A.field "key" "string",
+            A.field "pretty_name" "string",
+            A.unique,
+        },
+
+        A.product "UseId" {
+            A.field "path" "string",
+            A.unique,
+        },
+
+        A.sum "ContTarget" {
+            A.variant "ContTargetLabel" {
+                A.field "label" "MoonTree.BlockLabel",
+                A.variant_unique,
+            },
+            A.variant "ContTargetSlot" {
+                A.field "slot" "MoonOpen.ContSlot",
+                A.variant_unique,
+            },
+        },
+
+        A.product "ContBinding" {
+            A.field "name" "string",
+            A.field "target" "MoonOpen.ContTarget",
+            A.unique,
+        },
+
         A.product "ParamBinding" {
             A.field "param" "MoonOpen.OpenParam",
             A.field "value" "MoonTree.Expr",
@@ -267,7 +295,10 @@ return function(A)
         },
 
         A.product "ExpandEnv" {
+            A.field "region_frags" (A.many "MoonOpen.RegionFrag"),
+            A.field "expr_frags" (A.many "MoonOpen.ExprFrag"),
             A.field "fills" "MoonOpen.FillSet",
+            A.field "conts" (A.many "MoonOpen.ContBinding"),
             A.field "params" (A.many "MoonOpen.ParamBinding"),
             A.field "rebase_prefix" "string",
             A.unique,
@@ -286,6 +317,7 @@ return function(A)
         },
 
         A.product "ExprFrag" {
+            A.field "name" "string",
             A.field "params" (A.many "MoonOpen.OpenParam"),
             A.field "open" "MoonOpen.OpenSet",
             A.field "body" "MoonTree.Expr",
@@ -294,7 +326,9 @@ return function(A)
         },
 
         A.product "RegionFrag" {
+            A.field "name" "string",
             A.field "params" (A.many "MoonOpen.OpenParam"),
+            A.field "conts" (A.many "MoonOpen.ContSlot"),
             A.field "open" "MoonOpen.OpenSet",
             A.field "entry" "MoonTree.EntryControlBlock",
             A.field "blocks" (A.many "MoonTree.ControlBlock"),

@@ -9,14 +9,14 @@ function M.Define(T)
     local fact_issue
     local validate_facts
 
-    slot_issue = pvm.phase("moon2_open_slot_issue", {
+    slot_issue = pvm.phase("moonlift_open_slot_issue", {
         [O.SlotType] = function(self) return pvm.once(O.IssueUnfilledTypeSlot(self.slot)) end,
         [O.SlotValue] = function(self) return pvm.once(O.IssueOpenSlot(self)) end,
         [O.SlotExpr] = function(self) return pvm.once(O.IssueUnfilledExprSlot(self.slot)) end,
         [O.SlotPlace] = function(self) return pvm.once(O.IssueUnfilledPlaceSlot(self.slot)) end,
         [O.SlotDomain] = function(self) return pvm.once(O.IssueUnfilledDomainSlot(self.slot)) end,
         [O.SlotRegion] = function(self) return pvm.once(O.IssueUnfilledRegionSlot(self.slot)) end,
-        [O.SlotCont] = function(self) return pvm.once(O.IssueUnfilledContSlot(self.slot)) end,
+        [O.SlotCont] = function() return pvm.empty() end,
         [O.SlotFunc] = function(self) return pvm.once(O.IssueUnfilledFuncSlot(self.slot)) end,
         [O.SlotConst] = function(self) return pvm.once(O.IssueUnfilledConstSlot(self.slot)) end,
         [O.SlotStatic] = function(self) return pvm.once(O.IssueUnfilledStaticSlot(self.slot)) end,
@@ -25,7 +25,7 @@ function M.Define(T)
         [O.SlotModule] = function(self) return pvm.once(O.IssueUnfilledModuleSlot(self.slot)) end,
     })
 
-    fact_issue = pvm.phase("moon2_open_fact_issue", {
+    fact_issue = pvm.phase("moonlift_open_fact_issue", {
         [O.MetaFactSlot] = function(self) return slot_issue(self.slot) end,
         [O.MetaFactParamUse] = function() return pvm.empty() end,
         [O.MetaFactValueImportUse] = function(self) return pvm.once(O.IssueGenericValueImport(self.import)) end,
@@ -45,7 +45,7 @@ function M.Define(T)
         [O.MetaFactLocalType] = function() return pvm.empty() end,
     })
 
-    validate_facts = pvm.phase("moon2_open_validate_facts", function(fact_set)
+    validate_facts = pvm.phase("moonlift_open_validate_facts", function(fact_set)
         local issues = {}
         local seen = {}
         for i = 1, #fact_set.facts do

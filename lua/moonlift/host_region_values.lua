@@ -171,15 +171,15 @@ function M.Install(api, session)
             local cont = fragment.conts[name]
             if cont == nil then api.raise_host_issue(session.T.MoonHost.HostIssueInvalidEmitFill(fragment.name, tostring(name))) end
             if type(target) == "table" and getmetatable(target) == BlockValue then
-                fill_values[#fill_values + 1] = O.SlotBinding(O.SlotCont(cont.slot), O.SlotValueCont(target.label))
+                fill_values[#fill_values + 1] = O.ContBinding(name, O.ContTargetLabel(target.label))
             elseif type(target) == "table" and getmetatable(target) == ContValue and target.slot ~= nil then
-                fill_values[#fill_values + 1] = O.SlotBinding(O.SlotCont(cont.slot), O.SlotValueContSlot(target.slot))
+                fill_values[#fill_values + 1] = O.ContBinding(name, O.ContTargetSlot(target.slot))
             else
                 error("continuation fill must be a block value or in-fragment continuation value", 2)
             end
         end
         for name in pairs(fragment.conts) do if (fills or {})[name] == nil then api.raise_host_issue(session.T.MoonHost.HostIssueMissingEmitFill(fragment.name, name)) end end
-        return self:emit_stmt(Tr.StmtUseRegionFrag(Tr.StmtSurface, session:symbol_key("emit", fragment.name), fragment.frag, args, fill_values))
+        return self:emit_stmt(Tr.StmtUseRegionFrag(Tr.StmtSurface, session:symbol_key("emit", fragment.name), fragment.name, args, {}, fill_values))
     end
 
     function BlockBuilder:if_(cond, then_fn, else_fn)
@@ -304,11 +304,11 @@ function M.Install(api, session)
             local slot = O.ContSlot(session:symbol_key("cont", name .. ":" .. cname), cname, cont.block_params)
             local cv = setmetatable({ kind = "cont", params = cont.params, block_params = cont.block_params, slot = slot }, ContValue)
             cont_values[cname] = cv
-            slots[#slots + 1] = O.SlotCont(slot)
+            slots[#slots + 1] = slot
         end
         r.conts = cont_values
         if builder_fn then builder_fn(r) end
-        local frag = O.RegionFrag(open_params, O.OpenSet({}, {}, {}, slots), entry_asdl(r.entry_block), blocks_asdl(r.blocks))
+        local frag = O.RegionFrag(name, open_params, slots, O.OpenSet({}, {}, {}, {}), entry_asdl(r.entry_block), blocks_asdl(r.blocks))
         return setmetatable({ kind = "region_frag", name = name, params = runtime_params, frag = frag, conts = cont_values }, RegionFragValue)
     end
 

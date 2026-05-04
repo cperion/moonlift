@@ -1,0 +1,93 @@
+-- Arrow nested array kernel library.
+-- List<T>, Struct, FixedSizeList, Map.
+
+local M = module ArrowNested
+
+region _list_slice_i32(bitmap: ptr(u8), offsets: ptr(i32), i: i32;
+    ok: cont(start: i32, len: i32, is_valid: i32))
+entry start()
+    if as(index, bitmap) ~= 0 then
+        let nb: i32 = i >> 3
+        let nb_bit: i32 = i & 7
+        if ((as(i32, bitmap[nb]) >> nb_bit) & 1) == 0 then
+            jump ok(start = 0, len = 0, is_valid = 0)
+        end
+    end
+    jump ok(start = offsets[i], len = offsets[i + 1] - offsets[i], is_valid = 1)
+end
+end
+
+region _struct_is_valid(bitmap: ptr(u8), i: i32;
+    ok: cont(valid: i32))
+entry start()
+    if as(index, bitmap) == 0 then jump ok(valid = 1) end
+    let nb: i32 = i >> 3
+    let nb_bit: i32 = i & 7
+    if ((as(i32, bitmap[nb]) >> nb_bit) & 1) then jump ok(valid = 1) end
+    jump ok(valid = 0)
+end
+end
+
+region _fsl_slice(bitmap: ptr(u8), list_size: i32, i: i32;
+    ok: cont(start: i32, len: i32, is_valid: i32))
+entry start()
+    if as(index, bitmap) ~= 0 then
+        let nb: i32 = i >> 3
+        let nb_bit: i32 = i & 7
+        if ((as(i32, bitmap[nb]) >> nb_bit) & 1) == 0 then
+            jump ok(start = 0, len = 0, is_valid = 0)
+        end
+    end
+    jump ok(start = i * list_size, len = list_size, is_valid = 1)
+end
+end
+
+-- ===========================================================================
+-- Exports
+-- ===========================================================================
+
+export func list_slice_i32(bitmap: ptr(u8), offsets: ptr(i32), i: i32,
+                           out_start: ptr(i32), out_len: ptr(i32), out_valid: ptr(i32))
+    return region
+    entry start()
+        emit _list_slice_i32(bitmap, offsets, i; ok = done)
+    end
+    block done(start: i32, len: i32, is_valid: i32)
+        out_start[0] = start
+        out_len[0] = len
+        out_valid[0] = is_valid
+        yield
+    end
+    end
+end
+
+export func struct_is_valid(bitmap: ptr(u8), i: i32, out_valid: ptr(i32))
+    return region
+    entry start()
+        emit _struct_is_valid(bitmap, i; ok = done)
+    end
+    block done(valid: i32)
+        out_valid[0] = valid
+        yield
+    end
+    end
+end
+
+export func fsl_slice(bitmap: ptr(u8), list_size: i32, i: i32,
+                      out_start: ptr(i32), out_len: ptr(i32), out_valid: ptr(i32))
+    return region
+    entry start()
+        emit _fsl_slice(bitmap, list_size, i; ok = done)
+    end
+    block done(start: i32, len: i32, is_valid: i32)
+        out_start[0] = start
+        out_len[0] = len
+        out_valid[0] = is_valid
+        yield
+    end
+    end
+end
+
+end
+
+return M

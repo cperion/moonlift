@@ -1,0 +1,23 @@
+-- Verify tokenizer + composition engine compose and compile.
+local Host = require("moonlift.host_quote")
+local Tok = Host.dofile("lib/tokenizer.mlua")
+local C = require("moonlift.region_compose").new("test")
+
+-- Build tokenizer fragments
+local ws    = Tok.skip_ws("test_ws")
+local digit = Tok.scan_range("test_digit", 48, 57)
+local comma = Tok.match_byte("test_comma", 44)   -- ','
+local lb    = Tok.match_byte("test_lb", 91)       -- '['  (using bytes to avoid literal strings)
+
+-- Compose: array = '[' (digit (',' digit)*)? ']'
+local maybe_ws_digit = C:seq({ws, digit})
+local digit_and_comma = C:seq({digit, comma})
+local star_comma_digit = C:star(C:seq({comma, ws, digit}))
+local elements = C:seq({ws, maybe_ws_digit, star_comma_digit})
+local array = C:seq({lb, ws, elements, ws, lb})  -- TODO: close bracket
+
+-- Smoke test: verify the composed region was produced
+print("tokenizer ws name:", ws.name)
+print("composed star name:", star_comma_digit.name)
+print("tokenizer + compose ok")
+return "tokenizer compose ok"

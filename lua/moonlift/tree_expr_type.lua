@@ -115,7 +115,7 @@ function M.Define(T)
         [Tr.ExprView] = function(self) return header_or(self.h) end,
         [Tr.ExprLoad] = function(self) return pvm.once(self.ty) end,
         [Tr.ExprSlotValue] = function(self) return header_or(self.h, self.slot.ty) end,
-        [Tr.ExprUseExprFrag] = function(self) return header_or(self.h, self.frag.result) end,
+        [Tr.ExprUseExprFrag] = function(self) return header_or(self.h) end,
     })
 
     local api = {

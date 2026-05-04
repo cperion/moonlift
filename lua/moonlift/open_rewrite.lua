@@ -88,7 +88,7 @@ function M.Define(T)
         return out
     end
 
-    type_rule_target = pvm.phase("moon2_open_rewrite_type_rule_target", {
+    type_rule_target = pvm.phase("moonlift_open_rewrite_type_rule_target", {
         [O.RewriteType] = function(self, value) if self.from == value then return pvm.once(self.to) end return pvm.empty() end,
         [O.RewriteBinding] = function() return pvm.empty() end,
         [O.RewritePlace] = function() return pvm.empty() end,
@@ -98,7 +98,7 @@ function M.Define(T)
         [O.RewriteItem] = function() return pvm.empty() end,
     }, { args_cache = "last" })
 
-    binding_rule_target = pvm.phase("moon2_open_rewrite_binding_rule_target", {
+    binding_rule_target = pvm.phase("moonlift_open_rewrite_binding_rule_target", {
         [O.RewriteBinding] = function(self, value) if self.from == value then return pvm.once(self.to) end return pvm.empty() end,
         [O.RewriteType] = function() return pvm.empty() end,
         [O.RewritePlace] = function() return pvm.empty() end,
@@ -108,7 +108,7 @@ function M.Define(T)
         [O.RewriteItem] = function() return pvm.empty() end,
     }, { args_cache = "last" })
 
-    place_rule_target = pvm.phase("moon2_open_rewrite_place_rule_target", {
+    place_rule_target = pvm.phase("moonlift_open_rewrite_place_rule_target", {
         [O.RewritePlace] = function(self, value) if self.from == value then return pvm.once(self.to) end return pvm.empty() end,
         [O.RewriteType] = function() return pvm.empty() end,
         [O.RewriteBinding] = function() return pvm.empty() end,
@@ -118,7 +118,7 @@ function M.Define(T)
         [O.RewriteItem] = function() return pvm.empty() end,
     }, { args_cache = "last" })
 
-    domain_rule_target = pvm.phase("moon2_open_rewrite_domain_rule_target", {
+    domain_rule_target = pvm.phase("moonlift_open_rewrite_domain_rule_target", {
         [O.RewriteDomain] = function(self, value) if self.from == value then return pvm.once(self.to) end return pvm.empty() end,
         [O.RewriteType] = function() return pvm.empty() end,
         [O.RewriteBinding] = function() return pvm.empty() end,
@@ -128,7 +128,7 @@ function M.Define(T)
         [O.RewriteItem] = function() return pvm.empty() end,
     }, { args_cache = "last" })
 
-    expr_rule_target = pvm.phase("moon2_open_rewrite_expr_rule_target", {
+    expr_rule_target = pvm.phase("moonlift_open_rewrite_expr_rule_target", {
         [O.RewriteExpr] = function(self, value) if self.from == value then return pvm.once(self.to) end return pvm.empty() end,
         [O.RewriteType] = function() return pvm.empty() end,
         [O.RewriteBinding] = function() return pvm.empty() end,
@@ -138,7 +138,7 @@ function M.Define(T)
         [O.RewriteItem] = function() return pvm.empty() end,
     }, { args_cache = "last" })
 
-    stmt_rule_target = pvm.phase("moon2_open_rewrite_stmt_rule_target", {
+    stmt_rule_target = pvm.phase("moonlift_open_rewrite_stmt_rule_target", {
         [O.RewriteStmt] = function(self, value) if self.from == value then return pvm.children(function(stmt) return pvm.once(stmt) end, self.to) end return pvm.empty() end,
         [O.RewriteType] = function() return pvm.empty() end,
         [O.RewriteBinding] = function() return pvm.empty() end,
@@ -148,7 +148,7 @@ function M.Define(T)
         [O.RewriteItem] = function() return pvm.empty() end,
     }, { args_cache = "last" })
 
-    item_rule_target = pvm.phase("moon2_open_rewrite_item_rule_target", {
+    item_rule_target = pvm.phase("moonlift_open_rewrite_item_rule_target", {
         [O.RewriteItem] = function(self, value) if self.from == value then return pvm.children(function(item) return pvm.once(item) end, self.to) end return pvm.empty() end,
         [O.RewriteType] = function() return pvm.empty() end,
         [O.RewriteBinding] = function() return pvm.empty() end,
@@ -158,7 +158,7 @@ function M.Define(T)
         [O.RewriteStmt] = function() return pvm.empty() end,
     }, { args_cache = "last" })
 
-    rewrite_type = pvm.phase("moon2_open_rewrite_type", {
+    rewrite_type = pvm.phase("moonlift_open_rewrite_type", {
         [Ty.TScalar] = function(self, set) return pvm.once(first_target(type_rule_target, set, self) or self) end,
         [Ty.TPtr] = function(self, set) local t = first_target(type_rule_target, set, self); if t then return pvm.once(t) end; return pvm.once(pvm.with(self, { elem = one(rewrite_type, self.elem, set) })) end,
         [Ty.TArray] = function(self, set) local t = first_target(type_rule_target, set, self); if t then return pvm.once(t) end; return pvm.once(pvm.with(self, { elem = one(rewrite_type, self.elem, set) })) end,
@@ -170,7 +170,7 @@ function M.Define(T)
         [Ty.TSlot] = function(self, set) return pvm.once(first_target(type_rule_target, set, self) or self) end,
     }, { args_cache = "last" })
 
-    rewrite_binding = pvm.phase("moon2_open_rewrite_binding", {
+    rewrite_binding = pvm.phase("moonlift_open_rewrite_binding", {
         [B.Binding] = function(self, set)
             local t = first_target(binding_rule_target, set, self)
             if t then return pvm.once(t) end
@@ -178,7 +178,7 @@ function M.Define(T)
         end,
     }, { args_cache = "last" })
 
-    rewrite_value_ref = pvm.phase("moon2_open_rewrite_value_ref", {
+    rewrite_value_ref = pvm.phase("moonlift_open_rewrite_value_ref", {
         [B.ValueRefBinding] = function(self, set) return pvm.once(pvm.with(self, { binding = one(rewrite_binding, self.binding, set) })) end,
         [B.ValueRefName] = function(self) return pvm.once(self) end,
         [B.ValueRefPath] = function(self) return pvm.once(self) end,
@@ -188,7 +188,7 @@ function M.Define(T)
         [B.ValueRefStaticSlot] = function(self) return pvm.once(self) end,
     }, { args_cache = "last" })
 
-    rewrite_view = pvm.phase("moon2_open_rewrite_view", {
+    rewrite_view = pvm.phase("moonlift_open_rewrite_view", {
         [Tr.ViewFromExpr] = function(self, set) return pvm.once(pvm.with(self, { base = one(rewrite_expr, self.base, set), elem = one(rewrite_type, self.elem, set) })) end,
         [Tr.ViewContiguous] = function(self, set) return pvm.once(pvm.with(self, { data = one(rewrite_expr, self.data, set), elem = one(rewrite_type, self.elem, set), len = one(rewrite_expr, self.len, set) })) end,
         [Tr.ViewStrided] = function(self, set) return pvm.once(pvm.with(self, { data = one(rewrite_expr, self.data, set), elem = one(rewrite_type, self.elem, set), len = one(rewrite_expr, self.len, set), stride = one(rewrite_expr, self.stride, set) })) end,
@@ -199,7 +199,7 @@ function M.Define(T)
         [Tr.ViewInterleavedView] = function(self, set) return pvm.once(pvm.with(self, { base = one(rewrite_view, self.base, set), elem = one(rewrite_type, self.elem, set), stride = one(rewrite_expr, self.stride, set), lane = one(rewrite_expr, self.lane, set) })) end,
     }, { args_cache = "last" })
 
-    rewrite_domain = pvm.phase("moon2_open_rewrite_domain", {
+    rewrite_domain = pvm.phase("moonlift_open_rewrite_domain", {
         [Tr.DomainRange] = function(self, set) local t = first_target(domain_rule_target, set, self); if t then return pvm.once(t) end; return pvm.once(pvm.with(self, { stop = one(rewrite_expr, self.stop, set) })) end,
         [Tr.DomainRange2] = function(self, set) local t = first_target(domain_rule_target, set, self); if t then return pvm.once(t) end; return pvm.once(pvm.with(self, { start = one(rewrite_expr, self.start, set), stop = one(rewrite_expr, self.stop, set) })) end,
         [Tr.DomainZipEqValues] = function(self, set) local t = first_target(domain_rule_target, set, self); if t then return pvm.once(t) end; return pvm.once(pvm.with(self, { values = rewrite_exprs(self.values, set) })) end,
@@ -209,13 +209,13 @@ function M.Define(T)
         [Tr.DomainSlotValue] = function(self, set) return pvm.once(first_target(domain_rule_target, set, self) or self) end,
     }, { args_cache = "last" })
 
-    rewrite_index_base = pvm.phase("moon2_open_rewrite_index_base", {
+    rewrite_index_base = pvm.phase("moonlift_open_rewrite_index_base", {
         [Tr.IndexBaseExpr] = function(self, set) return pvm.once(pvm.with(self, { base = one(rewrite_expr, self.base, set) })) end,
         [Tr.IndexBasePlace] = function(self, set) return pvm.once(pvm.with(self, { base = one(rewrite_place, self.base, set), elem = one(rewrite_type, self.elem, set) })) end,
         [Tr.IndexBaseView] = function(self, set) return pvm.once(pvm.with(self, { view = one(rewrite_view, self.view, set) })) end,
     }, { args_cache = "last" })
 
-    rewrite_place = pvm.phase("moon2_open_rewrite_place", {
+    rewrite_place = pvm.phase("moonlift_open_rewrite_place", {
         [Tr.PlaceRef] = function(self, set) local t = first_target(place_rule_target, set, self); if t then return pvm.once(t) end; return pvm.once(pvm.with(self, { ref = one(rewrite_value_ref, self.ref, set) })) end,
         [Tr.PlaceDeref] = function(self, set) local t = first_target(place_rule_target, set, self); if t then return pvm.once(t) end; return pvm.once(pvm.with(self, { base = one(rewrite_expr, self.base, set) })) end,
         [Tr.PlaceDot] = function(self, set) local t = first_target(place_rule_target, set, self); if t then return pvm.once(t) end; return pvm.once(pvm.with(self, { base = one(rewrite_place, self.base, set) })) end,
@@ -236,21 +236,21 @@ function M.Define(T)
         return pvm.with(block, { params = params, body = rewrite_stmts(block.body, set) })
     end
 
-    rewrite_control_stmt_region = pvm.phase("moon2_open_rewrite_control_stmt_region", {
+    rewrite_control_stmt_region = pvm.phase("moonlift_open_rewrite_control_stmt_region", {
         [Tr.ControlStmtRegion] = function(self, set)
             local blocks = {}; for i = 1, #self.blocks do blocks[#blocks + 1] = rewrite_control_block(self.blocks[i], set) end
             return pvm.once(pvm.with(self, { entry = rewrite_entry_block(self.entry, set), blocks = blocks }))
         end,
     }, { args_cache = "last" })
 
-    rewrite_control_expr_region = pvm.phase("moon2_open_rewrite_control_expr_region", {
+    rewrite_control_expr_region = pvm.phase("moonlift_open_rewrite_control_expr_region", {
         [Tr.ControlExprRegion] = function(self, set)
             local blocks = {}; for i = 1, #self.blocks do blocks[#blocks + 1] = rewrite_control_block(self.blocks[i], set) end
             return pvm.once(pvm.with(self, { result_ty = one(rewrite_type, self.result_ty, set), entry = rewrite_entry_block(self.entry, set), blocks = blocks }))
         end,
     }, { args_cache = "last" })
 
-    rewrite_expr = pvm.phase("moon2_open_rewrite_expr", {
+    rewrite_expr = pvm.phase("moonlift_open_rewrite_expr", {
         [Tr.ExprLit] = function(self, set) return pvm.once(first_target(expr_rule_target, set, self) or self) end,
         [Tr.ExprRef] = function(self, set) local t = first_target(expr_rule_target, set, self); if t then return pvm.once(t) end; return pvm.once(pvm.with(self, { ref = one(rewrite_value_ref, self.ref, set) })) end,
         [Tr.ExprDot] = function(self, set) local t = first_target(expr_rule_target, set, self); if t then return pvm.once(t) end; return pvm.once(pvm.with(self, { base = one(rewrite_expr, self.base, set) })) end,
@@ -281,7 +281,7 @@ function M.Define(T)
         [Tr.ExprUseExprFrag] = function(self, set) local t = first_target(expr_rule_target, set, self); if t then return pvm.once(t) end; return pvm.once(pvm.with(self, { args = rewrite_exprs(self.args, set) })) end,
     }, { args_cache = "last" })
 
-    rewrite_stmt = pvm.phase("moon2_open_rewrite_stmt", {
+    rewrite_stmt = pvm.phase("moonlift_open_rewrite_stmt", {
         [Tr.StmtLet] = function(self, set) local targets = rule_targets(stmt_rule_target, set, self); if #targets > 0 then return pvm.children(function(stmt) return pvm.once(stmt) end, targets) end; return pvm.once(pvm.with(self, { binding = one(rewrite_binding, self.binding, set), init = one(rewrite_expr, self.init, set) })) end,
         [Tr.StmtVar] = function(self, set) local targets = rule_targets(stmt_rule_target, set, self); if #targets > 0 then return pvm.children(function(stmt) return pvm.once(stmt) end, targets) end; return pvm.once(pvm.with(self, { binding = one(rewrite_binding, self.binding, set), init = one(rewrite_expr, self.init, set) })) end,
         [Tr.StmtSet] = function(self, set) local targets = rule_targets(stmt_rule_target, set, self); if #targets > 0 then return pvm.children(function(stmt) return pvm.once(stmt) end, targets) end; return pvm.once(pvm.with(self, { place = one(rewrite_place, self.place, set), value = one(rewrite_expr, self.value, set) })) end,
@@ -300,7 +300,7 @@ function M.Define(T)
         [Tr.StmtUseRegionFrag] = function(self, set) local targets = rule_targets(stmt_rule_target, set, self); if #targets > 0 then return pvm.children(function(stmt) return pvm.once(stmt) end, targets) end; return pvm.once(pvm.with(self, { args = rewrite_exprs(self.args, set) })) end,
     }, { args_cache = "last" })
 
-    rewrite_func = pvm.phase("moon2_open_rewrite_func", {
+    rewrite_func = pvm.phase("moonlift_open_rewrite_func", {
         [Tr.FuncLocal] = function(self, set) return pvm.once(pvm.with(self, { body = rewrite_stmts(self.body, set) })) end,
         [Tr.FuncExport] = function(self, set) return pvm.once(pvm.with(self, { body = rewrite_stmts(self.body, set) })) end,
         [Tr.FuncLocalContract] = function(self, set) return pvm.once(pvm.with(self, { body = rewrite_stmts(self.body, set) })) end,
@@ -308,22 +308,22 @@ function M.Define(T)
         [Tr.FuncOpen] = function(self, set) return pvm.once(pvm.with(self, { result = one(rewrite_type, self.result, set), body = rewrite_stmts(self.body, set) })) end,
     }, { args_cache = "last" })
 
-    rewrite_extern = pvm.phase("moon2_open_rewrite_extern", {
+    rewrite_extern = pvm.phase("moonlift_open_rewrite_extern", {
         [Tr.ExternFunc] = function(self, set) return pvm.once(pvm.with(self, { result = one(rewrite_type, self.result, set) })) end,
         [Tr.ExternFuncOpen] = function(self, set) return pvm.once(pvm.with(self, { result = one(rewrite_type, self.result, set) })) end,
     }, { args_cache = "last" })
 
-    rewrite_const = pvm.phase("moon2_open_rewrite_const", {
+    rewrite_const = pvm.phase("moonlift_open_rewrite_const", {
         [Tr.ConstItem] = function(self, set) return pvm.once(pvm.with(self, { ty = one(rewrite_type, self.ty, set), value = one(rewrite_expr, self.value, set) })) end,
         [Tr.ConstItemOpen] = function(self, set) return pvm.once(pvm.with(self, { ty = one(rewrite_type, self.ty, set), value = one(rewrite_expr, self.value, set) })) end,
     }, { args_cache = "last" })
 
-    rewrite_static = pvm.phase("moon2_open_rewrite_static", {
+    rewrite_static = pvm.phase("moonlift_open_rewrite_static", {
         [Tr.StaticItem] = function(self, set) return pvm.once(pvm.with(self, { ty = one(rewrite_type, self.ty, set), value = one(rewrite_expr, self.value, set) })) end,
         [Tr.StaticItemOpen] = function(self, set) return pvm.once(pvm.with(self, { ty = one(rewrite_type, self.ty, set), value = one(rewrite_expr, self.value, set) })) end,
     }, { args_cache = "last" })
 
-    rewrite_type_decl = pvm.phase("moon2_open_rewrite_type_decl", {
+    rewrite_type_decl = pvm.phase("moonlift_open_rewrite_type_decl", {
         [Tr.TypeDeclStruct] = function(self, set) local fields = {}; for i = 1, #self.fields do fields[#fields + 1] = pvm.with(self.fields[i], { ty = one(rewrite_type, self.fields[i].ty, set) }) end; return pvm.once(pvm.with(self, { fields = fields })) end,
         [Tr.TypeDeclUnion] = function(self, set) local fields = {}; for i = 1, #self.fields do fields[#fields + 1] = pvm.with(self.fields[i], { ty = one(rewrite_type, self.fields[i].ty, set) }) end; return pvm.once(pvm.with(self, { fields = fields })) end,
         [Tr.TypeDeclEnumSugar] = function(self) return pvm.once(self) end,
@@ -332,7 +332,7 @@ function M.Define(T)
         [Tr.TypeDeclOpenUnion] = function(self, set) local fields = {}; for i = 1, #self.fields do fields[#fields + 1] = pvm.with(self.fields[i], { ty = one(rewrite_type, self.fields[i].ty, set) }) end; return pvm.once(pvm.with(self, { fields = fields })) end,
     }, { args_cache = "last" })
 
-    rewrite_item = pvm.phase("moon2_open_rewrite_item", {
+    rewrite_item = pvm.phase("moonlift_open_rewrite_item", {
         [Tr.ItemFunc] = function(self, set) local targets = rule_targets(item_rule_target, set, self); if #targets > 0 then return pvm.children(function(item) return pvm.once(item) end, targets) end; return pvm.once(pvm.with(self, { func = one(rewrite_func, self.func, set) })) end,
         [Tr.ItemExtern] = function(self, set) local targets = rule_targets(item_rule_target, set, self); if #targets > 0 then return pvm.children(function(item) return pvm.once(item) end, targets) end; return pvm.once(pvm.with(self, { func = one(rewrite_extern, self.func, set) })) end,
         [Tr.ItemConst] = function(self, set) local targets = rule_targets(item_rule_target, set, self); if #targets > 0 then return pvm.children(function(item) return pvm.once(item) end, targets) end; return pvm.once(pvm.with(self, { c = one(rewrite_const, self.c, set) })) end,
@@ -345,7 +345,7 @@ function M.Define(T)
         [Tr.ItemUseModuleSlot] = function(self, set) local targets = rule_targets(item_rule_target, set, self); if #targets > 0 then return pvm.children(function(item) return pvm.once(item) end, targets) end; return pvm.once(self) end,
     }, { args_cache = "last" })
 
-    rewrite_module = pvm.phase("moon2_open_rewrite_module", {
+    rewrite_module = pvm.phase("moonlift_open_rewrite_module", {
         [Tr.Module] = function(module, set) return pvm.once(pvm.with(module, { items = rewrite_items(module.items, set) })) end,
     }, { args_cache = "last" })
 

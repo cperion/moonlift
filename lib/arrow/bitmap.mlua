@@ -1,0 +1,127 @@
+local M = module ArrowBitmap
+
+-- Null bitmap: 1 bit per element, LSB-first per byte, 0 = null.
+-- A nil/null bitmap pointer means "all valid".
+
+region _bitmap_is_set(p: ptr(u8), i: i32;
+    ok: cont(value: i32))
+entry start()
+    if as(index, p) == 0 then jump ok(value = 1) end
+    let byte_idx: i32 = i >> 3
+    let bit: i32 = i & 7
+    jump ok(value = (as(i32, p[byte_idx]) >> bit) & 1)
+end
+end
+
+region _bitmap_count_nulls(bitmap: ptr(u8), n: i32;
+    done: cont(count: i32))
+entry start()
+    if as(index, bitmap) == 0 then jump done(count = 0) end
+    let bytes: i32 = select((n & 7) == 0, n >> 3, (n >> 3) + 1)
+    jump loop(i = 0, nulls = 0)
+end
+block loop(i: i32, nulls: i32)
+    if i >= bytes then jump done(count = nulls) end
+    let b: i32 = as(i32, bitmap[i])
+    let mask: i32 = 255
+    if i + 1 >= bytes then
+        let rem: i32 = n & 7
+        if rem ~= 0 then mask = (1 << rem) - 1 end
+    end
+    let ones: i32 = popcount(b & mask)
+    let bits_in_byte: i32 = select(i + 1 < bytes, 8, select((n & 7) == 0, 8, n & 7))
+    jump loop(i = i + 1, nulls = nulls + bits_in_byte - ones)
+end
+end
+
+region _bitmap_count_valid(bitmap: ptr(u8), n: i32;
+    done: cont(count: i32))
+entry start()
+    if as(index, bitmap) == 0 then jump done(count = n) end
+    let bytes: i32 = select((n & 7) == 0, n >> 3, (n >> 3) + 1)
+    jump loop(i = 0, valid = 0)
+end
+block loop(i: i32, valid: i32)
+    if i >= bytes then jump done(count = valid) end
+    let b: i32 = as(i32, bitmap[i])
+    let mask: i32 = 255
+    if i + 1 >= bytes then
+        let rem: i32 = n & 7
+        if rem ~= 0 then mask = (1 << rem) - 1 end
+    end
+    jump loop(i = i + 1, valid = valid + popcount(b & mask))
+end
+end
+
+region _bitmap_any_null(bitmap: ptr(u8), start: i32, len: i32;
+    yes: cont(), no: cont())
+entry start()
+    if as(index, bitmap) == 0 then jump no() end
+    jump loop(i = 0)
+end
+block loop(i: i32)
+    if i >= len then jump no() end
+    let idx: i32 = start + i
+    let byte_idx: i32 = idx >> 3
+    let bit: i32 = idx & 7
+    if ((as(i32, bitmap[byte_idx]) >> bit) & 1) == 0 then jump yes() end
+    jump loop(i = i + 1)
+end
+end
+
+-- ===========================================================================
+-- Exported functions
+-- ===========================================================================
+
+export func bitmap_is_set(bitmap: ptr(u8), i: i32) -> i32
+    return region -> i32
+    entry start()
+        emit _bitmap_is_set(bitmap, i; ok = done)
+    end
+    block done(value: i32)
+        yield value
+    end
+    end
+end
+
+export func bitmap_count_nulls(bitmap: ptr(u8), n: i32) -> i32
+    return region -> i32
+    entry start()
+        emit _bitmap_count_nulls(bitmap, n; done = done)
+    end
+    block done(count: i32)
+        yield count
+    end
+    end
+end
+
+export func bitmap_count_valid(bitmap: ptr(u8), n: i32) -> i32
+    return region -> i32
+    entry start()
+        emit _bitmap_count_valid(bitmap, n; done = done)
+    end
+    block done(count: i32)
+        yield count
+    end
+    end
+end
+
+export func bitmap_any_null(bitmap: ptr(u8), start: i32, len: i32, out_has_null: ptr(i32))
+    return region
+    entry start()
+        emit _bitmap_any_null(bitmap, start, len; yes = found, no = none)
+    end
+    block found()
+        out_has_null[0] = 1
+        yield
+    end
+    block none()
+        out_has_null[0] = 0
+        yield
+    end
+    end
+end
+
+end
+
+return M

@@ -25,7 +25,7 @@ function StructTemplateValue:instantiate(module_value, args)
         suffix[i] = sanitize(concrete[i].source_hint)
         fills[i] = O.SlotBinding(O.SlotType(self.params[i].type_slot), O.SlotValueType(concrete[i].ty))
     end
-    local env = O.ExpandEnv(O.FillSet(fills), {}, "")
+    local env = O.ExpandEnv({}, {}, O.FillSet(fills), {}, {}, "")
     local expand = require("moonlift.open_expand").Define(self.session.T)
     local fields = {}
     for i = 1, #self.open_fields do

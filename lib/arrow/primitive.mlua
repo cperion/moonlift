@@ -1,0 +1,234 @@
+-- Arrow primitive array kernel library.
+--
+-- Primitive arrays: { values: ptr(T), bitmap: ptr(u8) | nil }
+-- All accessors check null bitmap before reading. nil bitmap = all valid.
+
+local M = module ArrowPrimitive
+
+-- ===========================================================================
+-- Internal region fragments
+-- ===========================================================================
+
+region _i32_get(bitmap: ptr(u8), values: ptr(i32), i: i32;
+    ok: cont(value: i32, is_valid: i32))
+entry start()
+    if as(index, bitmap) ~= 0 then
+        let byte_idx: i32 = i >> 3
+        let bit: i32 = i & 7
+        if ((as(i32, bitmap[byte_idx]) >> bit) & 1) == 0 then
+            jump ok(value = 0, is_valid = 0)
+        end
+    end
+    jump ok(value = values[i], is_valid = 1)
+end
+end
+
+region _i64_get(bitmap: ptr(u8), values: ptr(i64), i: i32;
+    ok: cont(value: i64, is_valid: i32))
+entry start()
+    if as(index, bitmap) ~= 0 then
+        let byte_idx: i32 = i >> 3
+        let bit: i32 = i & 7
+        if ((as(i32, bitmap[byte_idx]) >> bit) & 1) == 0 then
+            jump ok(value = 0, is_valid = 0)
+        end
+    end
+    jump ok(value = values[i], is_valid = 1)
+end
+end
+
+region _f64_get(bitmap: ptr(u8), values: ptr(f64), i: i32;
+    ok: cont(value: f64, is_valid: i32))
+entry start()
+    if as(index, bitmap) ~= 0 then
+        let byte_idx: i32 = i >> 3
+        let bit: i32 = i & 7
+        if ((as(i32, bitmap[byte_idx]) >> bit) & 1) == 0 then
+            jump ok(value = 0.0, is_valid = 0)
+        end
+    end
+    jump ok(value = values[i], is_valid = 1)
+end
+end
+
+region _i32_filter(
+    bitmap: ptr(u8), values: ptr(i32),
+    select_mask: ptr(u8), n: i32,
+    out: ptr(i32);
+    done: cont(written: i32))
+entry loop(i: i32 = 0, w: i32 = 0)
+    if i >= n then jump done(written = w) end
+    let sb: i32 = i >> 3
+    let sb_bit: i32 = i & 7
+    if ((as(i32, select_mask[sb]) >> sb_bit) & 1) == 0 then
+        jump loop(i = i + 1, w = w)
+    end
+    if as(index, bitmap) ~= 0 then
+        let nb: i32 = i >> 3
+        let nb_bit: i32 = i & 7
+        if ((as(i32, bitmap[nb]) >> nb_bit) & 1) == 0 then
+            jump loop(i = i + 1, w = w)
+        end
+    end
+    out[w] = values[i]
+    jump loop(i = i + 1, w = w + 1)
+end
+end
+
+region _f64_filter(
+    bitmap: ptr(u8), values: ptr(f64),
+    select_mask: ptr(u8), n: i32,
+    out: ptr(f64);
+    done: cont(written: i32))
+entry loop(i: i32 = 0, w: i32 = 0)
+    if i >= n then jump done(written = w) end
+    let sb: i32 = i >> 3
+    let sb_bit: i32 = i & 7
+    if ((as(i32, select_mask[sb]) >> sb_bit) & 1) == 0 then
+        jump loop(i = i + 1, w = w)
+    end
+    if as(index, bitmap) ~= 0 then
+        let nb: i32 = i >> 3
+        let nb_bit: i32 = i & 7
+        if ((as(i32, bitmap[nb]) >> nb_bit) & 1) == 0 then
+            jump loop(i = i + 1, w = w)
+        end
+    end
+    out[w] = values[i]
+    jump loop(i = i + 1, w = w + 1)
+end
+end
+
+region _i32_sum(bitmap: ptr(u8), values: ptr(i32), n: i32;
+    done: cont(total: i64))
+entry loop(i: i32 = 0, acc: i64 = 0)
+    if i >= n then jump done(total = acc) end
+    if as(index, bitmap) ~= 0 then
+        let nb: i32 = i >> 3
+        let nb_bit: i32 = i & 7
+        if ((as(i32, bitmap[nb]) >> nb_bit) & 1) == 0 then
+            jump loop(i = i + 1, acc = acc)
+        end
+    end
+    jump loop(i = i + 1, acc = acc + as(i64, values[i]))
+end
+end
+
+region _f64_sum(bitmap: ptr(u8), values: ptr(f64), n: i32;
+    done: cont(total: f64))
+entry loop(i: i32 = 0, acc: f64 = 0.0)
+    if i >= n then jump done(total = acc) end
+    if as(index, bitmap) ~= 0 then
+        let nb: i32 = i >> 3
+        let nb_bit: i32 = i & 7
+        if ((as(i32, bitmap[nb]) >> nb_bit) & 1) == 0 then
+            jump loop(i = i + 1, acc = acc)
+        end
+    end
+    jump loop(i = i + 1, acc = acc + values[i])
+end
+end
+
+-- ===========================================================================
+-- Exported functions
+-- ===========================================================================
+
+export func i32_get(bitmap: ptr(u8), values: ptr(i32), i: i32,
+                    out_value: ptr(i32), out_valid: ptr(i32))
+    return region
+    entry start()
+        emit _i32_get(bitmap, values, i; ok = done)
+    end
+    block done(value: i32, is_valid: i32)
+        out_value[0] = value
+        out_valid[0] = is_valid
+        yield
+    end
+    end
+end
+
+export func i64_get(bitmap: ptr(u8), values: ptr(i64), i: i32,
+                    out_value: ptr(i64), out_valid: ptr(i32))
+    return region
+    entry start()
+        emit _i64_get(bitmap, values, i; ok = done)
+    end
+    block done(value: i64, is_valid: i32)
+        out_value[0] = value
+        out_valid[0] = is_valid
+        yield
+    end
+    end
+end
+
+export func f64_get(bitmap: ptr(u8), values: ptr(f64), i: i32,
+                    out_value: ptr(f64), out_valid: ptr(i32))
+    return region
+    entry start()
+        emit _f64_get(bitmap, values, i; ok = done)
+    end
+    block done(value: f64, is_valid: i32)
+        out_value[0] = value
+        out_valid[0] = is_valid
+        yield
+    end
+    end
+end
+
+export func i32_filter(bitmap: ptr(u8), values: ptr(i32),
+                       select_mask: ptr(u8), n: i32, out: ptr(i32)) -> i32
+    return region -> i32
+    entry start()
+        emit _i32_filter(bitmap, values, select_mask, n, out; done = done)
+    end
+    block done(written: i32)
+        yield written
+    end
+    end
+end
+
+export func f64_filter(bitmap: ptr(u8), values: ptr(f64),
+                       select_mask: ptr(u8), n: i32, out: ptr(f64)) -> i32
+    return region -> i32
+    entry start()
+        emit _f64_filter(bitmap, values, select_mask, n, out; done = done)
+    end
+    block done(written: i32)
+        yield written
+    end
+    end
+end
+
+export func i32_sum(bitmap: ptr(u8), values: ptr(i32), n: i32) -> i64
+    return region -> i64
+    entry start()
+        emit _i32_sum(bitmap, values, n; done = done)
+    end
+    block done(total: i64)
+        yield total
+    end
+    end
+end
+
+export func f64_sum(bitmap: ptr(u8), values: ptr(f64), n: i32) -> f64
+    return region -> f64
+    entry start()
+        emit _f64_sum(bitmap, values, n; done = done)
+    end
+    block done(total: f64)
+        yield total
+    end
+    end
+end
+
+export func i32_slice(values: ptr(i32), offset: i32) -> ptr(i32)
+    return values + offset
+end
+
+export func f64_slice(values: ptr(f64), offset: i32) -> ptr(f64)
+    return values + offset
+end
+
+end
+
+return M

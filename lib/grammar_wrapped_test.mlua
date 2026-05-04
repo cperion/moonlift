@@ -1,0 +1,53 @@
+-- Inline test WITH a wrapper region (like Grammar:rule does)
+local M = {}
+function M.range(name, lo, hi)
+    return region r_@{name}(p: ptr(u8), n: i32, pos: i32;
+        ok: cont(next: i32), fail: cont(at: i32))
+    entry start()
+        if pos >= n then jump fail(at = pos) end
+        let c: i32 = as(i32, p[pos])
+        if c < @{lo} then jump fail(at = pos) end
+        if c > @{hi} then jump fail(at = pos) end
+        jump ok(next = pos + 1)
+    end
+    end
+end
+
+-- Simulate Grammar:rule wrapper: wraps inner in a named region
+local inner = M.range("inner_digit", 48, 57)
+local wrapped = region r_wrapped(p: ptr(u8), n: i32, pos: i32;
+    ok: cont(next: i32), fail: cont(at: i32))
+entry start()
+    emit @{inner}(p, n, pos; ok = ok, fail = fail)
+end
+end
+
+local ffi = require("ffi")
+local function u8buf(s)
+    local buf = ffi.new("uint8_t[?]", #s)
+    ffi.copy(buf, s, #s)
+    return buf, #s
+end
+
+local ExprParser = module ExprParser
+export func parse(p: ptr(u8), n: i32) -> i32
+    return region -> i32
+    entry start()
+        emit @{wrapped}(p, n, 0; ok = done, fail = err)
+    end
+    block done(next: i32)
+        yield 1
+    end
+    block err(at: i32)
+        yield -1
+    end
+    end
+end
+end
+
+local compiled = ExprParser:compile()
+local parse = compiled:get("parse")
+assert(parse(u8buf("5")) == 1, "digit")
+assert(parse(u8buf("z")) == -1, "letter")
+compiled:free()
+return "wrapped ok"

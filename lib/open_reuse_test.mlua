@@ -1,0 +1,56 @@
+-- Regression: reusable region fragment instantiations must get unique label namespaces.
+
+local A = region r_reuse_A(p: ptr(u8), n: i32, pos: i32;
+    ok: cont(next: i32), fail: cont(at: i32))
+entry start()
+    if pos >= n then jump fail(at = pos) end
+    if as(i32, p[pos]) ~= 65 then jump fail(at = pos) end
+    jump ok(next = pos + 1)
+end
+end
+
+local Twice = region r_reuse_Twice(p: ptr(u8), n: i32, pos: i32;
+    ok: cont(next: i32), fail: cont(at: i32))
+entry start()
+    emit @{A}(p, n, pos; ok = mid, fail = ffail)
+end
+block mid(next: i32)
+    emit @{A}(p, n, next; ok = ook, fail = ffail)
+end
+block ook(next: i32)
+    jump ok(next = next)
+end
+block ffail(at: i32)
+    jump fail(at = at)
+end
+end
+
+local ffi = require("ffi")
+local function u8buf(s)
+    local buf = ffi.new("uint8_t[?]", #s)
+    ffi.copy(buf, s, #s)
+    return buf, #s
+end
+
+local ReuseParser = module ReuseParser
+export func parse(p: ptr(u8), n: i32) -> i32
+    return region -> i32
+    entry start()
+        emit @{Twice}(p, n, 0; ok = done, fail = err)
+    end
+    block done(next: i32)
+        yield next
+    end
+    block err(at: i32)
+        yield -1
+    end
+    end
+end
+end
+
+local compiled = ReuseParser:compile()
+local parse = compiled:get("parse")
+assert(parse(u8buf("AA")) == 2, "AA")
+assert(parse(u8buf("AB")) == -1, "AB")
+compiled:free()
+return "open reuse ok"

@@ -1,0 +1,36 @@
+-- Raw combinator test — no Grammar wrapper
+local G = require("lib.grammar")
+local Host = require("moonlift.host_quote")
+local ffi = require("ffi")
+
+-- Build a raw range fragment directly
+local digit = G.range("raw_digit", 48, 57)
+
+local function u8buf(s)
+    local buf = ffi.new("uint8_t[?]", #s)
+    ffi.copy(buf, s, #s)
+    return buf, #s
+end
+
+local M = module RawTest
+export func parse(p: ptr(u8), n: i32) -> i32
+    return region -> i32
+    entry start()
+        emit @{digit}(p, n, 0; ok = done, fail = err)
+    end
+    block done(next: i32)
+        yield 1
+    end
+    block err(at: i32)
+        yield -1
+    end
+    end
+end
+end
+
+local compiled = M:compile()
+local parse = compiled:get("parse")
+assert(parse(u8buf("1")) == 1, "digit")
+assert(parse(u8buf("a")) == -1, "letter")
+compiled:free()
+return "raw ok"

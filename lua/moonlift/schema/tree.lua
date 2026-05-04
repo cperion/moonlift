@@ -664,7 +664,7 @@ return function(A)
             A.variant "ExprUseExprFrag" {
                 A.field "h" "MoonTree.ExprHeader",
                 A.field "use_id" "string",
-                A.field "frag" "MoonOpen.ExprFrag",
+                A.field "frag_name" "string",
                 A.field "args" (A.many "MoonTree.Expr"),
                 A.field "fills" (A.many "MoonOpen.SlotBinding"),
                 A.variant_unique,
@@ -757,9 +757,10 @@ return function(A)
             A.variant "StmtUseRegionFrag" {
                 A.field "h" "MoonTree.StmtHeader",
                 A.field "use_id" "string",
-                A.field "frag" "MoonOpen.RegionFrag",
+                A.field "frag_name" "string",
                 A.field "args" (A.many "MoonTree.Expr"),
                 A.field "fills" (A.many "MoonOpen.SlotBinding"),
+                A.field "cont_fills" (A.many "MoonOpen.ContBinding"),
                 A.variant_unique,
             },
         },

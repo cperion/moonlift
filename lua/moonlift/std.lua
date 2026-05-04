@@ -7,6 +7,8 @@ M.host = require("moonlift.host")
 M.mlua = require("moonlift.host_quote")
 M.views = require("moonlift.buffer_view")
 M.buffer_view = M.views
+M.region_compose = require("moonlift.region_compose")
+M.compose = M.region_compose
 
 local Json = {}
 M.json = Json

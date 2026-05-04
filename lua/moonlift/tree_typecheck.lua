@@ -408,7 +408,7 @@ function M.Define(T)
         end,
         [Tr.ExprClosure] = function(self, ctx) local ty = Ty.TClosure(self.params, self.result); return pvm.once(result_expr(pvm.with(self, { h = Tr.ExprTyped(ty) }), ty, {})) end,
         [Tr.ExprSlotValue] = function(self, ctx) return pvm.once(result_expr(Tr.ExprSlotValue(Tr.ExprTyped(self.slot.ty), self.slot), self.slot.ty, {})) end,
-        [Tr.ExprUseExprFrag] = function(self, ctx) return pvm.once(result_expr(pvm.with(self, { h = Tr.ExprTyped(self.frag.result) }), self.frag.result, {})) end,
+        [Tr.ExprUseExprFrag] = function(self, ctx) local ty = void_ty(); return pvm.once(result_expr(pvm.with(self, { h = Tr.ExprTyped(ty) }), ty, {})) end,
     }, { args_cache = "last" })
 
     type_switch_key = function(key, ctx, value_ty, issues)

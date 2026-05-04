@@ -1,0 +1,134 @@
+local M = module ArrowVarlen
+
+region varlen_get_inner(bitmap: ptr(u8), offsets: ptr(i32), data: ptr(u8), i: i32;
+    ok: cont(len: i32, data_ptr: ptr(u8), is_valid: i32))
+entry start()
+    if as(index, bitmap) ~= 0 then
+        let nb: i32 = i >> 3
+        let nb_bit: i32 = i & 7
+        if ((as(i32, bitmap[nb]) >> nb_bit) & 1) == 0 then
+            jump ok(len = 0, data_ptr = data, is_valid = 0)
+        end
+    end
+    let off: i32 = offsets[i]
+    jump ok(len = offsets[i + 1] - off, data_ptr = data + off, is_valid = 1)
+end
+end
+
+region _varlen_total_size_i32(bitmap: ptr(u8), offsets: ptr(i32), n: i32;
+    done: cont(total: i64))
+entry start()
+    if as(index, bitmap) == 0 then
+        jump done(total = as(i64, offsets[n]) - as(i64, offsets[0]))
+    end
+    jump loop(i = 0, total = 0)
+end
+block loop(i: i32, total: i64)
+    if i >= n then jump done(total = total) end
+    let nb: i32 = i >> 3
+    let nb_bit: i32 = i & 7
+    if ((as(i32, bitmap[nb]) >> nb_bit) & 1) == 0 then
+        jump loop(i = i + 1, total = total)
+    end
+    jump loop(i = i + 1, total = total + as(i64, offsets[i + 1]) - as(i64, offsets[i]))
+end
+end
+
+region _varlen_count_valid_i32(bitmap: ptr(u8), n: i32;
+    done: cont(count: i32))
+entry start()
+    if as(index, bitmap) == 0 then jump done(count = n) end
+    let bytes: i32 = select((n & 7) == 0, n >> 3, (n >> 3) + 1)
+    jump loop(i = 0, valid = 0)
+end
+block loop(i: i32, valid: i32)
+    if i >= bytes then jump done(count = valid) end
+    let b: i32 = as(i32, bitmap[i])
+    let mask: i32 = 255
+    if i + 1 >= bytes then
+        let rem: i32 = n & 7
+        if rem ~= 0 then mask = (1 << rem) - 1 end
+    end
+    jump loop(i = i + 1, valid = valid + popcount(b & mask))
+end
+end
+
+-- ===========================================================================
+-- Exports
+-- ===========================================================================
+
+export func varlen_len_i32(bitmap: ptr(u8), offsets: ptr(i32), i: i32,
+                           out_len: ptr(i32), out_valid: ptr(i32))
+    return region
+    entry start()
+        emit varlen_get_inner(bitmap, offsets, 0, i; ok = done)
+    end
+    block done(len: i32, data_ptr: ptr(u8), is_valid: i32)
+        out_len[0] = len
+        out_valid[0] = is_valid
+        yield
+    end
+    end
+end
+
+export func varlen_get_i32(bitmap: ptr(u8), offsets: ptr(i32), data: ptr(u8), i: i32,
+                           out_ptr: ptr(ptr(u8)), out_len: ptr(i32), out_valid: ptr(i32))
+    return region
+    entry start()
+        emit varlen_get_inner(bitmap, offsets, data, i; ok = done)
+    end
+    block done(len: i32, ptr: ptr(u8), is_valid: i32)
+        out_ptr[0] = ptr
+        out_len[0] = len
+        out_valid[0] = is_valid
+        yield
+    end
+    end
+end
+
+export func varlen_copy_i32(bitmap: ptr(u8), offsets: ptr(i32), data: ptr(u8), i: i32,
+                            dst: ptr(u8)) -> i32
+    return region -> i32
+    entry start()
+        if as(index, bitmap) ~= 0 then
+            let nb: i32 = i >> 3
+            let nb_bit: i32 = i & 7
+            if ((as(i32, bitmap[nb]) >> nb_bit) & 1) == 0 then yield -1 end
+        end
+        let off: i32 = offsets[i]
+        let len: i32 = offsets[i + 1] - off
+        jump copy(j = 0)
+    end
+    block copy(j: i32)
+        if j >= len then yield len end
+        dst[j] = data[off + j]
+        jump copy(j = j + 1)
+    end
+    end
+end
+
+export func varlen_total_size_i32(bitmap: ptr(u8), offsets: ptr(i32), n: i32) -> i64
+    return region -> i64
+    entry start()
+        emit _varlen_total_size_i32(bitmap, offsets, n; done = done)
+    end
+    block done(total: i64)
+        yield total
+    end
+    end
+end
+
+export func varlen_count_valid_i32(bitmap: ptr(u8), n: i32) -> i32
+    return region -> i32
+    entry start()
+        emit _varlen_count_valid_i32(bitmap, n; done = done)
+    end
+    block done(count: i32)
+        yield count
+    end
+    end
+end
+
+end
+
+return M

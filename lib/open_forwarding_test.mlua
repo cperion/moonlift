@@ -1,0 +1,36 @@
+-- Regression: forwarding a continuation slot through an emit should be valid.
+
+local A = region r_fwd_A(p: ptr(u8), n: i32, pos: i32;
+    ok: cont(next: i32), fail: cont(at: i32))
+entry start()
+    jump fail(at = pos)
+end
+end
+
+local Wrap = region r_fwd_Wrap(p: ptr(u8), n: i32, pos: i32;
+    ok: cont(next: i32), fail: cont(at: i32))
+entry start()
+    emit @{A}(p, n, pos; ok = ok, fail = fail)
+end
+end
+
+local FwdParser = module FwdParser
+export func parse(p: ptr(u8), n: i32) -> i32
+    return region -> i32
+    entry start()
+        emit @{Wrap}(p, n, 0; ok = done, fail = err)
+    end
+    block done(next: i32)
+        yield 1
+    end
+    block err(at: i32)
+        yield -1
+    end
+    end
+end
+end
+
+local compiled = FwdParser:compile()
+local parse = compiled:get("parse")
+compiled:free()
+return "open forwarding ok"

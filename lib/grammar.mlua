@@ -1,0 +1,505 @@
+-- Grammar combinator library for MoonLift.
+--
+-- Pure .mlua. Every combinator is a static MoonLift region.
+-- The library produces RegionFragValues. You write the module
+-- that wires them together — zero string concat anywhere.
+--
+-- Continuation protocol:
+--   ok:   cont(next: i32)   -- matched, advanced position
+--   fail: cont(at: i32)     -- failed, at this position
+--
+-- Usage:
+--   local G = grammar("JSON")
+--   G:rule("digit",  function(R) return R.range(48, 57) end)
+--   G:rule("number", function(R) return R.plus(R.ref("digit")) end)
+--   G:rule("value",  function(R) return R.alt { R.ref("string"), R.ref("number") } end)
+--
+--   module JSONParser
+--   export func parse(p: ptr(u8), n: i32) -> i32
+--       return region -> i32
+--       entry start()
+--           emit @{G:get("value")}(p, n, 0; ok = done, fail = err)
+--       end
+--       block done(next: i32)
+--           yield 1
+--       end
+--       block err(at: i32)
+--           yield -1
+--       end
+--       end
+--   end
+--   end
+
+local M = {}
+
+-- ===========================================================================
+-- Binary combinators — static MoonLift regions
+-- ===========================================================================
+
+function M.seq2(name, a, b)
+    return region r_@{name}(p: ptr(u8), n: i32, pos: i32;
+        ok: cont(next: i32), fail: cont(at: i32))
+    entry start()
+        emit @{a}(p, n, pos; ok = @{name .. "_b"}, fail = @{name .. "_fail"})
+    end
+    block @{name .. "_b"}(next: i32)
+        emit @{b}(p, n, next; ok = @{name .. "_ok"}, fail = @{name .. "_fail"})
+    end
+    block @{name .. "_ok"}(next: i32)
+        jump ok(next = next)
+    end
+    block @{name .. "_fail"}(at: i32)
+        jump fail(at = at)
+    end
+    end
+end
+
+function M.alt2(name, a, b)
+    return region r_@{name}(p: ptr(u8), n: i32, pos: i32;
+        ok: cont(next: i32), fail: cont(at: i32))
+    entry start()
+        emit @{a}(p, n, pos; ok = @{name .. "_ok"}, fail = @{name .. "_try"})
+    end
+    block @{name .. "_try"}(at: i32)
+        emit @{b}(p, n, pos; ok = @{name .. "_ok"}, fail = @{name .. "_fail"})
+    end
+    block @{name .. "_ok"}(next: i32)
+        jump ok(next = next)
+    end
+    block @{name .. "_fail"}(at: i32)
+        jump fail(at = at)
+    end
+    end
+end
+
+function M.star(name, fragment)
+    local r = region r_@{name}(p: ptr(u8), n: i32, pos: i32;
+        ok: cont(next: i32))
+    entry start()
+        emit @{fragment}(p, n, pos; ok = @{name .. "_loop"}, fail = @{name .. "_done"})
+    end
+    block @{name .. "_loop"}(next: i32)
+        emit @{fragment}(p, n, next; ok = @{name .. "_loop"}, fail = @{name .. "_yield"})
+    end
+    block @{name .. "_yield"}(at: i32)
+        jump ok(next = at)
+    end
+    block @{name .. "_done"}(at: i32)
+        jump ok(next = pos)
+    end
+    end
+    r.nofail = true
+    return r
+end
+
+function M.opt(name, fragment)
+    local r = region r_@{name}(p: ptr(u8), n: i32, pos: i32;
+        ok: cont(next: i32))
+    entry start()
+        emit @{fragment}(p, n, pos; ok = ok, fail = @{name .. "_none"})
+    end
+    block @{name .. "_none"}(at: i32)
+        jump ok(next = pos)
+    end
+    end
+    r.nofail = true
+    return r
+end
+
+function M.empty(name)
+    local r = region r_@{name}(p: ptr(u8), n: i32, pos: i32;
+        ok: cont(next: i32))
+    entry start()
+        jump ok(next = pos)
+    end
+    end
+    r.nofail = true
+    return r
+end
+
+function M.pred(name, fragment)
+    return region r_@{name}(p: ptr(u8), n: i32, pos: i32;
+        ok: cont(next: i32), fail: cont(at: i32))
+    entry start()
+        emit @{fragment}(p, n, pos; ok = @{name .. "_rok"}, fail = @{name .. "_fail"})
+    end
+    block @{name .. "_rok"}(next: i32)
+        jump ok(next = pos)
+    end
+    block @{name .. "_fail"}(at: i32)
+        jump fail(at = at)
+    end
+    end
+end
+
+function M.not_pred(name, fragment)
+    return region r_@{name}(p: ptr(u8), n: i32, pos: i32;
+        ok: cont(next: i32), fail: cont(at: i32))
+    entry start()
+        emit @{fragment}(p, n, pos; ok = @{name .. "_ffail"}, fail = @{name .. "_ok"})
+    end
+    block @{name .. "_ok"}(at: i32)
+        jump ok(next = pos)
+    end
+    block @{name .. "_ffail"}(at: i32)
+        jump fail(at = at)
+    end
+    end
+end
+
+-- Variants for fragments without fail continuation
+
+-- seq2 where first fragment lacks fail (star, opt, empty)
+function M.seq2_a_nf(name, a, b)
+    return region r_@{name}(p: ptr(u8), n: i32, pos: i32;
+        ok: cont(next: i32), fail: cont(at: i32))
+    entry start()
+        emit @{a}(p, n, pos; ok = @{name .. "_b"})
+    end
+    block @{name .. "_b"}(next: i32)
+        emit @{b}(p, n, next; ok = @{name .. "_ok"}, fail = @{name .. "_fail"})
+    end
+    block @{name .. "_ok"}(next: i32)
+        jump ok(next = next)
+    end
+    block @{name .. "_fail"}(at: i32)
+        jump fail(at = at)
+    end
+    end
+end
+
+-- seq2 where second fragment lacks fail
+function M.seq2_b_nf(name, a, b)
+    return region r_@{name}(p: ptr(u8), n: i32, pos: i32;
+        ok: cont(next: i32), fail: cont(at: i32))
+    entry start()
+        emit @{a}(p, n, pos; ok = @{name .. "_b"}, fail = @{name .. "_fail"})
+    end
+    block @{name .. "_b"}(next: i32)
+        emit @{b}(p, n, next; ok = @{name .. "_ok"})
+    end
+    block @{name .. "_ok"}(next: i32)
+        jump ok(next = next)
+    end
+    block @{name .. "_fail"}(at: i32)
+        jump fail(at = at)
+    end
+    end
+end
+
+-- alt2 where second alternative lacks fail → result also has no fail
+function M.alt2_result_nf(name, a, b)
+    local r = region r_@{name}(p: ptr(u8), n: i32, pos: i32;
+        ok: cont(next: i32))
+    entry start()
+        emit @{a}(p, n, pos; ok = @{name .. "_ok"}, fail = @{name .. "_try"})
+    end
+    block @{name .. "_try"}(at: i32)
+        emit @{b}(p, n, pos; ok = @{name .. "_ok"})
+    end
+    block @{name .. "_ok"}(next: i32)
+        jump ok(next = next)
+    end
+    end
+    r.nofail = true
+    return r
+end
+
+-- ===========================================================================
+-- Primitives — static MoonLift regions
+-- ===========================================================================
+
+function M.range(name, lo, hi)
+    return region r_@{name}(p: ptr(u8), n: i32, pos: i32;
+        ok: cont(next: i32), fail: cont(at: i32))
+    entry start()
+        if pos >= n then jump fail(at = pos) end
+        let c: i32 = as(i32, p[pos])
+        if c < @{lo} then jump fail(at = pos) end
+        if c > @{hi} then jump fail(at = pos) end
+        jump ok(next = pos + 1)
+    end
+    end
+end
+
+function M.byte_eq(name, val)
+    return region r_@{name}(p: ptr(u8), n: i32, pos: i32;
+        ok: cont(next: i32), fail: cont(at: i32))
+    entry start()
+        if pos >= n then jump fail(at = pos) end
+        if as(i32, p[pos]) ~= @{val} then jump fail(at = pos) end
+        jump ok(next = pos + 1)
+    end
+    end
+end
+
+function M.any_byte(name)
+    return region r_@{name}(p: ptr(u8), n: i32, pos: i32;
+        ok: cont(next: i32), fail: cont(at: i32))
+    entry start()
+        if pos >= n then jump fail(at = pos) end
+        jump ok(next = pos + 1)
+    end
+    end
+end
+
+function M.empty(name)
+    return region r_@{name}(p: ptr(u8), n: i32, pos: i32;
+        ok: cont(next: i32), fail: cont(at: i32))
+    entry start()
+        jump ok(next = pos)
+    end
+    end
+end
+
+function M.range_except(name, lo, hi)
+    return region r_@{name}(p: ptr(u8), n: i32, pos: i32;
+        ok: cont(next: i32), fail: cont(at: i32))
+    entry start()
+        if pos >= n then jump fail(at = pos) end
+        let c: i32 = as(i32, p[pos])
+        if c >= @{lo} then
+            if c <= @{hi} then jump fail(at = pos) end
+        end
+        jump ok(next = pos + 1)
+    end
+    end
+end
+
+-- ===========================================================================
+-- Grammar builder
+-- ===========================================================================
+
+local Grammar = {}
+Grammar.__index = Grammar
+
+function M.grammar(name)
+    return setmetatable({
+        name = name or "g",
+        rules = {},       -- name -> RegionFragValue
+        next_id = 0,
+    }, Grammar)
+end
+
+function Grammar:fresh_id(base)
+    self.next_id = self.next_id + 1
+    return self.name .. "_" .. base .. "_" .. self.next_id
+end
+
+-- Build the combinators table exposed to rule body functions.
+local function combinators_for(grammar, rule_name)
+    local R = {}
+    local id = function(base) return grammar:fresh_id(base) end
+
+    -- The predictable region name for THIS rule (used by forward refs)
+    R.name = grammar.name .. "_" .. rule_name
+
+-- ── N-ary combinators (Lua, nest binary regions) ────
+
+    -- Helper: pick the right binary combinator based on whether fragments have fail
+    local function binary_seq(name, a, b)
+        if a.nofail then
+            return M.seq2_a_nf(name, a, b)
+        elseif b.nofail then
+            return M.seq2_b_nf(name, a, b)
+        else
+            return M.seq2(name, a, b)
+        end
+    end
+
+    local function binary_alt(name, a, b)
+        if a.nofail then return a end
+        if b.nofail then return M.alt2_result_nf(name, a, b) end
+        return M.alt2(name, a, b)
+    end
+
+    function R.seq(fragments)
+        if #fragments == 0 then return M.empty(id("empty")) end
+        local result = fragments[1]
+        for i = 2, #fragments do
+            result = binary_seq(id("seq"), result, fragments[i])
+        end
+        return result
+    end
+
+    function R.alt(alternatives)
+        if #alternatives == 0 then return M.empty(id("empty")) end
+        local result = alternatives[1]
+        for i = 2, #alternatives do
+            result = binary_alt(id("alt"), result, alternatives[i])
+        end
+        return result
+    end
+
+    function R.star(fragment)
+        return M.star(id("star"), fragment)
+    end
+
+    function R.plus(fragment)
+        -- Use separate star to avoid emitting the same fragment twice (label collision)
+        return M.seq2(id("plus"), fragment, M.star(id("star"), fragment))
+    end
+
+    function R.opt(fragment)
+        return M.opt(id("opt"), fragment)
+    end
+
+    function R.pred(fragment)
+        return M.pred(id("pred"), fragment)
+    end
+
+    function R.not_pred(fragment)
+        return M.not_pred(id("not"), fragment)
+    end
+
+    -- ── Primitives ───────────────────────────────────────
+
+    function R.range(lo, hi)
+        return M.range(id("range"), lo, hi)
+    end
+
+    function R.byte_eq(val)
+        return M.byte_eq(id("byte"), val)
+    end
+
+    function R.any_byte()
+        return M.any_byte(id("any"))
+    end
+
+    function R.empty()
+        return M.empty(id("empty"))
+    end
+
+    function R.range_except(lo, hi)
+        return M.range_except(id("rnot"), lo, hi)
+    end
+
+    -- ── Reference ────────────────────────────────────────
+
+    function R.ref(name)
+        local frag = grammar.rules[name]
+        if not frag then
+            error("grammar: rule '" .. name .. "' not defined (rules must be bottom-up, or use grammar:forward('" .. name .. "') first)", 2)
+        end
+        return frag
+    end
+
+    return R
+end
+
+-- ===========================================================================
+-- Rule registration
+-- ===========================================================================
+
+function Grammar:rule(name, fn)
+    local R = combinators_for(self, name)
+    local inner = fn(R)
+    local region_name = R.name
+
+    -- Wrap in a named region so the rule always has a predictable name.
+    -- Match the inner fragment's protocol: if inner has no fail, the
+    -- wrapper only provides ok.
+    if inner.nofail then
+        local frag = region r_@{region_name}(p: ptr(u8), n: i32, pos: i32;
+            ok: cont(next: i32))
+        entry start()
+            emit @{inner}(p, n, pos; ok = @{region_name .. "_ok"})
+        end
+        block @{region_name .. "_ok"}(next: i32)
+            jump ok(next = next)
+        end
+        end
+        frag.nofail = true
+        self.rules[name] = frag
+    else
+        local frag = region r_@{region_name}(p: ptr(u8), n: i32, pos: i32;
+            ok: cont(next: i32), fail: cont(at: i32))
+        entry start()
+            emit @{inner}(p, n, pos; ok = @{region_name .. "_ok"}, fail = @{region_name .. "_fail"})
+        end
+        block @{region_name .. "_ok"}(next: i32)
+            jump ok(next = next)
+        end
+        block @{region_name .. "_fail"}(at: i32)
+            jump fail(at = at)
+        end
+        end
+        self.rules[name] = frag
+    end
+    return self
+end
+
+-- Pre-declare a rule name so rules can reference it before it's defined.
+-- Creates a stub region with the correct predictable name so @{...}
+-- splicing in dependent rules emits the right region name.
+-- When the real rule is later defined via :rule(), it replaces this stub.
+function Grammar:forward(name)
+    local region_name = self.name .. "_" .. name
+    -- Duck-type RegionFragValue stub: has moonlift_splice_source method
+    -- accessible via __index, and region_frags table.
+    local mt = { moonlift_splice_source = function(self) return self.name end }
+    mt.__index = mt
+    self.rules[name] = setmetatable(
+        { name = region_name, source = "", region_frags = {}, expr_frags = {} },
+        mt
+    )
+    return self
+end
+
+-- ===========================================================================
+-- Access
+-- ===========================================================================
+
+function Grammar:get(name)
+    local frag = self.rules[name]
+    if frag then
+        -- Deep-flatten region_frags so the module compiler finds all sub-fragments
+        self:_flatten_frags(frag)
+    end
+    return frag
+end
+
+function Grammar:_flatten_frags(frag)
+    if not frag or not frag.region_frags then return end
+    local stack = { frag }
+    local seen = { [frag.name] = true }
+    while #stack > 0 do
+        local f = table.remove(stack)
+        if f.region_frags then
+            for _, sub in pairs(f.region_frags) do
+                if not seen[sub.name] then
+                    seen[sub.name] = true
+                    frag.region_frags[sub.name] = sub
+                    table.insert(stack, sub)
+                end
+            end
+        end
+    end
+end
+
+-- Recursively collect all RegionFragValues (including internal auto-generated ones)
+function Grammar:all_frags()
+    local collected = {}
+    local function collect(frag)
+        if not frag or collected[frag.name] then return end
+        if type(frag) ~= "table" then return end
+        collected[frag.name] = frag
+        if frag.region_frags then
+            for _, sub in pairs(frag.region_frags) do
+                collect(sub)
+            end
+        end
+    end
+    for _, frag in pairs(self.rules) do
+        collect(frag)
+    end
+    return collected
+end
+
+function Grammar:names()
+    local ns = {}
+    for name in pairs(self.rules) do ns[#ns + 1] = name end
+    return ns
+end
+
+return M

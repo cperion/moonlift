@@ -206,13 +206,19 @@ local function splice_kind(v)
     if tv == "table" or tv == "userdata" then
         local mt = getmetatable(v)
         if mt == TypedSplice then return splice_kind(v.value) end
-        if mt == RegionFragValue then return "region" end
-        if mt == ExprFragValue then return "expr" end
+        -- Duck-type: check for the method, not metatable identity.
+        -- This makes fragments from different Host.dofile calls compatible.
+        if mt and mt.moonlift_splice_source then
+            -- RegionFragValue and ExprFragValue both have moonlift_splice_source.
+            -- Distinguish by checking for region_frags field (RegionFragValue has it).
+            if rawget(v, "region_frags") ~= nil then return "region" end
+            return "expr"
+        end
         if mt == SourceChunk then return "source" end
         if mt == TypeValue or mt == StructDeclValue then return "type" end
         if mt and mt.__moon2_host_type_value == true then return "type" end
         if type(v.as_moon2_type) == "function" or type(v.as_type_value) == "function" then return "type" end
-        if (mt and mt.__moonlift_splice_source) or type(v.moonlift_splice_source) == "function" then return "source" end
+        if type(v.moonlift_splice_source) == "function" then return "source" end
     end
     return tv
 end
@@ -259,9 +265,11 @@ local function append_source_part(out, region_frags, expr_frags, part, expected)
     out[#out + 1] = M.splice_checked(part, expected)
     if mt == SourceChunk then
         merge_splices(region_frags, part.region_frags); merge_splices(expr_frags, part.expr_frags)
-    elseif mt == RegionFragValue then
+    elseif (mt and mt.moonlift_splice_source and rawget(part, "region_frags") ~= nil) then
+        -- Duck-type RegionFragValue (compatible across dofile boundaries)
         merge_splices(region_frags, part.region_frags); region_frags[part.name] = part; merge_splices(expr_frags, part.expr_frags)
-    elseif mt == ExprFragValue then
+    elseif (mt and mt.moonlift_splice_source) then
+        -- Duck-type ExprFragValue
         expr_frags[part.name] = part
     end
 end
@@ -519,24 +527,16 @@ local function compile_module_source(src, region_frags, expr_frags)
         parsed_expr_frags[name] = parsed.value
     end
 
-    local parsed_region_frags, pending = {}, {}
-    for name, frag_value in pairs(region_frags or {}) do pending[name] = frag_value end
-    while next(pending) do
-        local progressed, last_issue = false, nil
-        for name, frag_value in pairs(pending) do
-            local parsed = P.parse_region_frag(frag_value.source, { expr_frags = parsed_expr_frags, region_frags = parsed_region_frags })
-            if #parsed.issues == 0 then
-                parsed_region_frags[name] = parsed.value; pending[name] = nil; progressed = true
-            else
-                last_issue = parsed.issues[1]
-            end
-        end
-        if not progressed then error("host region parse failed: " .. tostring(last_issue), 2) end
+    local parsed_region_frags = {}
+    for name, frag_value in pairs(region_frags or {}) do
+        local parsed = P.parse_region_frag(frag_value.source, { expr_frags = parsed_expr_frags, region_frags = parsed_region_frags })
+        if #parsed.issues ~= 0 then error("host region parse failed: " .. tostring(parsed.issues[1]), 2) end
+        parsed_region_frags[name] = parsed.value
     end
 
     local parsed = P.parse_module(normalize_moonlift_body(src), { region_frags = parsed_region_frags, expr_frags = parsed_expr_frags })
     if #parsed.issues ~= 0 then error("host module parse failed: " .. tostring(parsed.issues[1]), 2) end
-    local expanded = OE.module(parsed.module)
+    local expanded = OE.module(parsed.module, OE.env_with_frags(parsed_region_frags, parsed_expr_frags))
     local open_report = OV.validate(OF.facts_of_module(expanded))
     if #open_report.issues ~= 0 then error("host module open validation failed: " .. tostring(open_report.issues[1]), 2) end
     local checked = TC.check_module(expanded)

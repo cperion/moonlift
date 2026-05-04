@@ -520,21 +520,14 @@ end
 function Parser:parse_emit_expr()
     local Tr = self.Tr
     local frag_name = self:expect_name("expected expression fragment name after emit")
-    local frag_value = self.expr_frags[frag_name]
     local args = self:parse_call_expr_args()
-    if frag_value == nil then
-        self:issue("unknown expression fragment in emit: " .. frag_name)
-        return Tr.ExprLit(Tr.ExprSurface, self.C.LitInt("0"))
-    end
-    return Tr.ExprUseExprFrag(Tr.ExprSurface, "emit.expr." .. frag_name .. "." .. tostring(self.i), frag_value.frag, args, {})
+    return Tr.ExprUseExprFrag(Tr.ExprSurface, "emit.expr." .. frag_name .. "." .. tostring(self.i), frag_name, args, {})
 end
 
 function Parser:parse_emit_stmt()
     local Tr, O = self.Tr, self.O
     local frag_name = self:expect_name("expected region fragment name after emit")
-    local frag_value = self.region_frags[frag_name]
-    if frag_value == nil then self:issue("unknown region fragment in emit: " .. frag_name) end
-    local args, fills = {}, {}
+    local args, fills, cont_fills = {}, {}, {}
     self:expect(TK.lparen, "expected '(' after emitted fragment name")
     self:skip_nl()
     if self:kind() ~= TK.rparen and self:kind() ~= TK.semi then
@@ -556,28 +549,18 @@ function Parser:parse_emit_stmt()
             local label = self:expect_name("expected block label in continuation fill")
             if seen_fills[name] then self:issue("duplicate continuation fill for fragment " .. frag_name .. ": " .. name) end
             seen_fills[name] = true
-            if frag_value and frag_value.cont_slots and frag_value.cont_slots[name] then
-                if self.cont_env and self.cont_env[label] then
-                    fills[#fills + 1] = O.SlotBinding(O.SlotCont(frag_value.cont_slots[name]), O.SlotValueContSlot(self.cont_env[label]))
-                else
-                    fills[#fills + 1] = O.SlotBinding(O.SlotCont(frag_value.cont_slots[name]), O.SlotValueCont(Tr.BlockLabel(label)))
-                end
+            if self.cont_env and self.cont_env[label] then
+                cont_fills[#cont_fills + 1] = O.ContBinding(name, O.ContTargetSlot(self.cont_env[label]))
             else
-                self:issue("unknown continuation fill for fragment " .. frag_name .. ": " .. name)
+                cont_fills[#cont_fills + 1] = O.ContBinding(name, O.ContTargetLabel(Tr.BlockLabel(label)))
             end
             self:skip_nl()
             if not self:accept(TK.comma) then break end
             self:skip_nl()
         end
     end
-    if frag_value and frag_value.cont_slots then
-        for name, _ in pairs(frag_value.cont_slots) do
-            if not seen_fills[name] then self:issue("missing continuation fill for fragment " .. frag_name .. ": " .. name) end
-        end
-    end
     self:expect(TK.rparen, "expected ')' after emit")
-    if frag_value == nil then return Tr.StmtExpr(Tr.StmtSurface, Tr.ExprLit(Tr.ExprSurface, self.C.LitInt("0"))) end
-    return Tr.StmtUseRegionFrag(Tr.StmtSurface, "emit." .. frag_name .. "." .. tostring(self.i), frag_value.frag, args, fills)
+    return Tr.StmtUseRegionFrag(Tr.StmtSurface, "emit." .. frag_name .. "." .. tostring(self.i), frag_name, args, fills, cont_fills)
 end
 
 function Parser:parse_stmt()
@@ -665,8 +648,9 @@ function Parser:parse_func(exported)
     return Tr.FuncLocal(name, params, result, body)
 end
 
-function Parser:parse_cont_params()
+function Parser:parse_cont_params(owner_name)
     local Tr, O = self.Tr, self.O
+    owner_name = owner_name or "<anon>"
     local cont_slots = {}
     local slots = {}
     while self:kind() ~= TK.rparen and self:kind() ~= TK.eof do
@@ -687,9 +671,9 @@ function Parser:parse_cont_params()
             end
         end
         self:expect(TK.rparen, "expected ')' after cont type")
-        local slot = O.ContSlot("cont:" .. name .. ":" .. tostring(#slots + 1), name, params)
+        local slot = O.ContSlot("cont:" .. owner_name .. ":" .. name .. ":" .. tostring(#slots + 1), name, params)
         cont_slots[name] = slot
-        slots[#slots + 1] = O.SlotCont(slot)
+        slots[#slots + 1] = slot
         self:skip_nl()
         if not self:accept(TK.comma) then break end
         self:skip_nl()
@@ -733,7 +717,7 @@ function Parser:parse_expr_frag()
     self:skip_nl()
     self:expect(TK.end_kw, "expected end after expression fragment")
     self.value_env = old_value_env
-    return { name = name, frag = O.ExprFrag(params, O.OpenSet({}, {}, {}, {}), body, result) }
+    return { name = name, frag = O.ExprFrag(name, params, O.OpenSet({}, {}, {}, {}), body, result) }
 end
 
 function Parser:validate_cont_jump_args_in_stmts(stmts, cont_slots)
@@ -790,7 +774,7 @@ function Parser:parse_region_frag()
     self:skip_nl()
     if self:accept(TK.semi) then
         self:skip_nl()
-        cont_slots, slots = self:parse_cont_params()
+        cont_slots, slots = self:parse_cont_params(name)
     end
     self:expect(TK.rparen, "expected ')' after region fragment params")
     self:skip_nl()
@@ -820,7 +804,7 @@ function Parser:parse_region_frag()
     for i = 1, #blocks do self:validate_cont_jump_args_in_stmts(blocks[i].body, cont_slots) end
     self:expect(TK.end_kw, "expected end after region fragment")
     self.value_env, self.cont_env = old_value_env, old_cont_env
-    return { name = name, frag = O.RegionFrag(params, O.OpenSet({}, {}, {}, slots), Tr.EntryControlBlock(entry_label, entry_params, body), blocks), cont_slots = cont_slots }
+    return { name = name, frag = O.RegionFrag(name, params, slots, O.OpenSet({}, {}, {}, {}), Tr.EntryControlBlock(entry_label, entry_params, body), blocks), cont_slots = cont_slots }
 end
 
 function Parser:parse_type_fields()
@@ -918,8 +902,8 @@ function M.parse_region_frag(T, src, opts)
     return { value = value, issues = p.issues }
 end
 
-function M.parse_expr_frag(T, src)
-    local p = parser(T, src)
+function M.parse_expr_frag(T, src, opts)
+    local p = parser(T, src, opts)
     local value = p:parse_expr_frag()
     return { value = value, issues = p.issues }
 end
@@ -930,7 +914,7 @@ function M.Define(T)
         lex = M.lex,
         parse_module = function(src, opts) return M.parse(T, src, opts) end,
         parse_region_frag = function(src, opts) return M.parse_region_frag(T, src, opts) end,
-        parse_expr_frag = function(src) return M.parse_expr_frag(T, src) end,
+        parse_expr_frag = function(src, opts) return M.parse_expr_frag(T, src, opts) end,
     }
 end
 

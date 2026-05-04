@@ -1,0 +1,242 @@
+-- MoonLift tokenizer primitives for parser generation.
+--
+-- Each function returns a MoonLift `RegionFragValue` with a uniform continuation
+-- protocol:
+--
+--   ok:   cont(next: i32)    -- matched, new position
+--   fail: cont(at: i32)      -- failed, at this position
+--
+-- Usage:
+--
+--   local Tok = Host.dofile("lib/lua_api.mlua")  -- if you need Lua C API
+--   local T   = Host.dofile("lib/tokenizer.mlua")
+--
+--   local ws    = T.skip_ws("my_ws")
+--   local digit = T.scan_range("digit", 48, 57)  -- '0'..'9'
+--   local eq    = T.match_literal("eq", "=")
+--
+-- All fragments read from `p: ptr(u8)` with length `n: i32`, starting at
+-- `pos: i32`.
+
+local M = {}
+
+-- ===========================================================================
+-- Skip a set of single-byte characters (loop).
+-- ===========================================================================
+function M.skip_chars(name, chars)
+    if type(chars) ~= "table" or #chars == 0 then
+        error("skip_chars expects a non-empty char-code table", 2)
+    end
+    local arms = {}
+    for _, b in ipairs(chars) do
+        arms[#arms + 1] = string.format("if c == %d then jump scan(i = i + 1) end", b)
+    end
+    return region @{name}(p: ptr(u8), n: i32, pos: i32;
+        ok: cont(next: i32), fail: cont(at: i32))
+    entry start()
+        jump scan(i = pos)
+    end
+    block scan(i: i32)
+        if i >= n then jump fail(at = i) end
+        let c: i32 = as(i32, p[i])
+@{table.concat(arms, "\n        ")}
+        jump ok(next = i)
+    end
+    end
+end
+
+-- ===========================================================================
+-- Standard whitespace skip (space, \n, \r, \t).
+-- ===========================================================================
+function M.skip_ws(name)
+    return M.skip_chars(name, {32, 10, 13, 9})
+end
+
+-- ===========================================================================
+-- Scan while the current byte falls within [lo, hi] (inclusive).
+-- ===========================================================================
+function M.scan_range(name, lo, hi)
+    return region @{name}(p: ptr(u8), n: i32, pos: i32;
+        ok: cont(next: i32), fail: cont(at: i32))
+    entry start()
+        if pos >= n then jump fail(at = pos) end
+        let c: i32 = as(i32, p[pos])
+        if c < @{lo} then jump fail(at = pos) end
+        if c > @{hi} then jump fail(at = pos) end
+        jump ok(next = pos + 1)
+    end
+    end
+end
+
+-- ===========================================================================
+-- Scan while the current byte is in a set (whitelist).
+-- ===========================================================================
+function M.scan_set(name, byte_set)
+    local arms = {}
+    for _, b in ipairs(byte_set) do
+        arms[#arms + 1] = string.format("if c == %d then jump ok(next = pos + 1) end", b)
+    end
+    return region @{name}(p: ptr(u8), n: i32, pos: i32;
+        ok: cont(next: i32), fail: cont(at: i32))
+    entry start()
+        if pos >= n then jump fail(at = pos) end
+        let c: i32 = as(i32, p[pos])
+@{table.concat(arms, "\n        ")}
+        jump fail(at = pos)
+    end
+    end
+end
+
+-- ===========================================================================
+-- Match an exact literal byte sequence.
+--
+-- Short strings (<= 16 bytes) are fully unrolled (one comparison per byte).
+-- Longer strings use a counted comparison loop via a companion data object.
+-- ===========================================================================
+function M.match_literal(name, text)
+    if #text == 0 then
+        return region @{name}(p: ptr(u8), n: i32, pos: i32;
+            ok: cont(next: i32), fail: cont(at: i32))
+        entry start()
+            jump ok(next = pos)
+        end
+        end
+    end
+
+    if #text <= 16 then
+        local checks = {}
+        for i = 1, #text do
+            checks[#checks + 1] = string.format(
+                "if as(i32, p[pos + %d]) ~= %d then jump fail(at = pos) end",
+                i - 1, string.byte(text, i))
+        end
+        return region @{name}(p: ptr(u8), n: i32, pos: i32;
+            ok: cont(next: i32), fail: cont(at: i32))
+        entry start()
+            if pos + @{#text} > n then jump fail(at = pos) end
+@{table.concat(checks, "\n            ")}
+            jump ok(next = pos + @{#text})
+        end
+        end
+    end
+
+    -- Long string → loop + data (capped at 128)
+    local data_name = "data_" .. name
+    local bytes = {}
+    for i = 1, #text do bytes[#bytes + 1] = string.byte(text, i) end
+    return region @{name}(p: ptr(u8), n: i32, pos: i32;
+        ok: cont(next: i32), fail: cont(at: i32))
+    entry start()
+        if pos + @{#text} > n then jump fail(at = pos) end
+        jump cmp(i = 0)
+    end
+    block cmp(i: i32)
+        if i >= @{#text} then jump ok(next = pos + @{#text}) end
+        if as(i32, p[pos + i]) ~= @{data_name}[i] then jump fail(at = pos) end
+        jump cmp(i = i + 1)
+    end
+    end
+end
+
+-- ===========================================================================
+-- Create a literal from a pre-defined data object.
+-- ===========================================================================
+function M.match_literal_data(name, data_obj)
+    return region @{name}(p: ptr(u8), n: i32, pos: i32;
+        ok: cont(next: i32), fail: cont(at: i32))
+    entry start()
+        if pos + @{len(data_obj)} > n then jump fail(at = pos) end
+        jump cmp(i = 0)
+    end
+    block cmp(i: i32)
+        if i >= @{len(data_obj)} then jump ok(next = pos + @{len(data_obj)}) end
+        if as(i32, p[pos + i]) ~= @{data_obj}[i] then jump fail(at = pos) end
+        jump cmp(i = i + 1)
+    end
+    end
+end
+
+-- ===========================================================================
+-- Scan while the byte at `p[pos]` matches `p[pos] == val` (single value).
+-- ===========================================================================
+function M.scan_value(name, val)
+    return region @{name}(p: ptr(u8), n: i32, pos: i32;
+        ok: cont(next: i32), fail: cont(at: i32))
+    entry start()
+        jump scan(i = pos)
+    end
+    block scan(i: i32)
+        if i >= n then jump fail(at = i) end
+        if as(i32, p[i]) ~= @{val} then jump fail(at = i) end
+        jump scan(i = i + 1)
+    end
+    end
+end
+
+-- ===========================================================================
+-- Scanner that matches a single byte, advancing 1 on success.
+-- ===========================================================================
+function M.match_byte(name, byte_val)
+    return region @{name}(p: ptr(u8), n: i32, pos: i32;
+        ok: cont(next: i32), fail: cont(at: i32))
+    entry start()
+        if pos >= n then jump fail(at = pos) end
+        if as(i32, p[pos]) ~= @{byte_val} then jump fail(at = pos) end
+        jump ok(next = pos + 1)
+    end
+    end
+end
+
+-- ===========================================================================
+-- Scan through a JSON-style string (double-quoted with backslash escapes).
+--
+-- Returns the ending position and the start (for caller to extract content).
+-- This fragment matches only the delimited syntax; callers must handle the
+-- semantic value (decode escapes, etc.) separately.
+-- ===========================================================================
+function M.scan_quoted_string(name, quote_byte_value)
+    return region @{name}(p: ptr(u8), n: i32, pos: i32;
+        ok: cont(end_i: i32, start_i: i32),
+        fail: cont(at: i32))
+    entry start()
+        if pos >= n then jump fail(at = pos) end
+        if as(i32, p[pos]) ~= @{quote_byte_value} then jump fail(at = pos) end
+        jump body(i = pos + 1, start_i = pos + 1)
+    end
+    block body(i: i32, start_i: i32)
+        if i >= n then jump fail(at = pos) end
+        let c: i32 = as(i32, p[i])
+        if c == @{quote_byte_value} then jump ok(end_i = i, start_i = start_i) end
+        if c == 92 then jump escape(i = i + 2, start_i = start_i) end   -- backslash
+        if c < 32 then jump fail(at = i) end
+        jump body(i = i + 1, start_i = start_i)
+    end
+    block escape(i: i32, start_i: i32)
+        if i >= n then jump fail(at = pos) end
+        jump body(i = i, start_i = start_i)
+    end
+    end
+end
+
+-- ===========================================================================
+-- Machine fragment: loop `n` times calling `inner` for each slot.
+--
+-- Used by `plus` / `star` combinator implementations at the grammar layer.
+--
+--   loop_times(inner, n) → Emits inner `n` times, sequentially.
+-- ===========================================================================
+function M.loop_times(name, inner_frag)
+    return region @{name}(p: ptr(u8), n: i32, pos: i32, count: i32;
+        ok: cont(next: i32), fail: cont(at: i32))
+    entry start()
+        if count <= 0 then jump ok(next = pos) end
+        jump iter(i = 0, at = pos)
+    end
+    block iter(i: i32, at: i32)
+        if i >= count then jump ok(next = at) end
+        emit @{inner_frag}(p, n, at; ok = iter(i = i + 1, at = next), fail = fail)
+    end
+    end
+end
+
+return M

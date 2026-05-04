@@ -52,7 +52,7 @@ function M.Install(api, session)
         end
         local builder = setmetatable({ name = name, bindings = bindings }, ExprFragBuilder)
         local body = api.as_expr_value(body_fn(builder), "expr_frag body must return an expression value")
-        local frag = O.ExprFrag(open_params, O.OpenSet({}, {}, {}, {}), body.expr, result.ty)
+        local frag = O.ExprFrag(name, open_params, O.OpenSet({}, {}, {}, {}), body.expr, result.ty)
         return setmetatable({ kind = "expr_frag", name = name, frag = frag, result = result, params = params }, ExprFragValue)
     end
 
@@ -63,7 +63,7 @@ function M.Install(api, session)
         local exprs = {}
         for i = 1, #args do exprs[i] = api.as_moon2_expr(args[i], "emit_expr arg expects expression") end
         local use_id = session:symbol_key("emit_expr", fragment.name)
-        return api.expr_from_asdl(Tr.ExprUseExprFrag(Tr.ExprSurface, use_id, fragment.frag, exprs, {}), fragment.result, "emit " .. fragment.name .. "(...)")
+        return api.expr_from_asdl(Tr.ExprUseExprFrag(Tr.ExprSurface, use_id, fragment.name, exprs, {}), fragment.result, "emit " .. fragment.name .. "(...)")
     end
 
     function api.expr_frag_template(name, type_params, builder_fn)
