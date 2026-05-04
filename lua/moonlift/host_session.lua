@@ -7,8 +7,8 @@ Session.__index = Session
 
 function M.new(opts)
     opts = opts or {}
-    local T = pvm.context()
-    A2.Define(T)
+    local T = opts.T or pvm.context()
+    if not opts.T then A2.Define(T) end
     T._moonlift_host_region_frags = {}
     T._moonlift_host_expr_frags = {}
     return setmetatable({

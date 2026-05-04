@@ -1,7 +1,7 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local ffi = require("ffi")
-local Host = require("moonlift.host_quote")
+local Host = require("moonlift.mlua_run")
 
 local function u8buf(s)
     local buf = ffi.new("uint8_t[?]", #s)

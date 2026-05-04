@@ -59,10 +59,19 @@ function Compose.new(moon_or_session, opts)
         session = HostSession.new({ prefix = moon_or_session or "compose" })
         api = session:api()
         prefix = moon_or_session or "compose"
+        opts._auto_session = true
     else
         error("region_compose.new expects moon host api, HostSession, or prefix", 2)
     end
-    return setmetatable({ api = api, session = session, prefix = prefix or "compose", next_id = 0 }, Compose)
+    return setmetatable({ api = api, session = session, prefix = prefix or "compose", next_id = 0, _auto_session = opts._auto_session or false }, Compose)
+end
+
+function Compose:adopt_fragment_session(frag)
+    if self._auto_session and frag and frag.session and frag.session ~= self.session then
+        self.session = frag.session
+        self.api = frag.session:api()
+        self._auto_session = false
+    end
 end
 
 function Compose:fresh(base)
@@ -146,6 +155,7 @@ end
 
 function Compose:route(name, frag, opts)
     assert_region_value(frag, "route")
+    self:adopt_fragment_session(frag)
     opts = opts or {}
     name = name or self:fresh("route")
     local params = opts.params or self:param_specs_from_fragment(frag)
@@ -187,11 +197,12 @@ function Compose:seq(fragments, opts)
     opts = opts or {}
     assert(type(fragments) == "table" and #fragments > 0, "seq expects a non-empty array of fragments")
     for i = 1, #fragments do assert_region_value(fragments[i], "seq") end
+    self:adopt_fragment_session(fragments[1])
     local name = opts.name or self:fresh("seq")
     local through = opts.through or "ok"
     local failure = opts.failure or "fail"
     local params = opts.params or self:param_specs_from_fragment(fragments[1])
-    local conts = opts.conts or self:cont_specs_from_fragment(fragments[#fragments])
+    local conts = opts.conts or self:cont_specs_from_fragment(fragments[1])
     local api = self.api
 
     return api.region_frag(name, params, conts, function(r)
@@ -237,6 +248,7 @@ function Compose:choice(alternatives, opts)
     opts = opts or {}
     assert(type(alternatives) == "table" and #alternatives > 0, "choice expects a non-empty array of fragments")
     for i = 1, #alternatives do assert_region_value(alternatives[i], "choice") end
+    self:adopt_fragment_session(alternatives[1])
     local name = opts.name or self:fresh("choice")
     local success = opts.success or "ok"
     local failure = opts.failure or "fail"
@@ -280,6 +292,7 @@ end
 function Compose:star(fragment, opts)
     opts = opts or {}
     assert_region_value(fragment, "star")
+    self:adopt_fragment_session(fragment)
     local api = self.api
     local name = opts.name or self:fresh("star")
     local success = opts.success or "ok"
@@ -312,6 +325,7 @@ end
 
 function Compose:opt(fragment, opts)
     opts = opts or {}
+    self:adopt_fragment_session(fragment)
     local api = self.api
     local name = opts.name or self:fresh("opt")
     local success = opts.success or "ok"
@@ -333,6 +347,7 @@ end
 -- Lookahead remains parser sugar; kept protocol-parameterized for now.
 function Compose:pred(fragment, opts)
     opts = opts or {}
+    self:adopt_fragment_session(fragment)
     local api = self.api
     local name = opts.name or self:fresh("pred")
     local success = opts.success or "ok"
@@ -353,6 +368,7 @@ end
 
 function Compose:not_pred(fragment, opts)
     opts = opts or {}
+    self:adopt_fragment_session(fragment)
     local api = self.api
     local name = opts.name or self:fresh("not")
     local success = opts.success or "ok"

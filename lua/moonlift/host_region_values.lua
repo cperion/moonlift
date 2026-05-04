@@ -230,7 +230,7 @@ function M.Install(api, session)
             default_fn(db)
             default_body = db.body
         end
-        return self:emit_stmt(Tr.StmtSwitch(Tr.StmtSurface, v.expr, out_arms, default_body))
+        return self:emit_stmt(Tr.StmtSwitch(Tr.StmtSurface, v.expr, out_arms, {}, default_body))
     end
 
     function RegionBuilder:param(name)

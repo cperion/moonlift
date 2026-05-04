@@ -1,0 +1,51 @@
+-- test_asdl_pvm_ll.mlua — test the ASDL-native PVM-LL patterns
+local pvmll = require("moonlift.asdl_pvm_ll")
+assert(pvmll._VERSION == "asdl-pvm-ll-1")
+
+-- ── User writes an ordinary uncached region island ──
+
+local classify_uncached = region classify_uncached(ctx: ptr(u8), subject: i32;
+    value: cont(v: i32))
+entry start()
+    switch subject do
+    case 0 then jump value(v = 11)
+    case 1 then jump value(v = 22)
+    default then jump value(v = 99)
+    end
+end
+end
+
+-- ── Wrap it with the ASDL builder (no antiquotes, no parse) ──
+
+local classify = pvmll.one {
+    name       = "classify",
+    uncached   = classify_uncached,
+    ctx_ty     = pvmll.ptr(pvmll.u8),
+    subject_ty = pvmll.i32,
+    value_ty   = pvmll.i32,
+}
+
+-- ── Use it in a module via ordinary emit ──
+
+local mod = module PvmLlAsdlTest
+export func classify_export(ctx: ptr(u8), subject: i32) -> i32
+    return region -> i32
+    entry start()
+        emit @{classify}(ctx, subject; value = done)
+    end
+    block done(v: i32)
+        yield v
+    end
+    end
+end
+end
+
+local compiled = mod:compile()
+local fn = compiled:get("classify_export")
+
+assert(fn(nil, 0) == 11)
+assert(fn(nil, 1) == 22)
+assert(fn(nil, 7) == 99)
+compiled:free()
+
+return "moonlift asdl pvm-ll ok"

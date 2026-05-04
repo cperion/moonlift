@@ -122,7 +122,7 @@ M.line_prefix_has_word = line_prefix_has_word
 -- For finding island boundaries in .mlua text
 local open_words_island = {
     struct = true, expose = true, func = true, module = true, region = true, expr = true,
-    ["if"] = true, switch = true, block = true, entry = true, control = true, ["type"] = true,
+    ["if"] = true, switch = true, block = true, entry = true, control = true,
 }
 M.open_words_island = open_words_island
 
@@ -133,7 +133,7 @@ M.open_words_body = open_words_body
 -- For finding form extent within parsed islands (no switch)
 local open_words_form = {
     struct = true, expose = true, func = true, region = true, expr = true, module = true,
-    block = true, entry = true, control = true, ["if"] = true, ["type"] = true, ["switch"] = true,
+    block = true, entry = true, control = true, ["if"] = true, ["switch"] = true,
 }
 M.open_words_form = open_words_form
 
@@ -175,9 +175,7 @@ local function find_matching_end(src, start_i, open_words)
                     pending_case_ends = pending_case_ends + 1
                 elseif open_words[word] then
                     -- `extern func name(...)` is a declaration item, not an
-                    -- end-delimited function body.  The island matcher scans
-                    -- Moonlift module bodies too, so it must not count this
-                    -- `func` as a nested opener.
+                    -- end-delimited function body.
                     if word == "func" and line_prefix_has_word(src, i, "extern") then
                         -- no depth change
                     else
@@ -296,7 +294,7 @@ local function is_island_start(src, i, kind)
     if not has_word(src, i, kind) then return false end
     local j = skip_space(src, i + #kind)
     if kind == "struct" or kind == "func" or kind == "region" or kind == "expr" then
-        return read_ident(src, j) ~= nil
+        return read_ident(src, j) ~= nil or src:sub(j, j + 1) == "@{"
     end
     if kind == "expose" then
         return read_ident(src, j) ~= nil

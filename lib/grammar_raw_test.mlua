@@ -1,6 +1,6 @@
 -- Raw combinator test — no Grammar wrapper
 local G = require("lib.grammar")
-local Host = require("moonlift.host_quote")
+local Host = require("moonlift.mlua_run")
 local ffi = require("ffi")
 
 -- Build a raw range fragment directly

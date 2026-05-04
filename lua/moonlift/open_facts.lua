@@ -194,6 +194,12 @@ function M.Define(T)
         end,
     })
 
+    switch_variant_arm_facts = pvm.phase("moonlift_open_switch_variant_arm_facts", {
+        [Tr.SwitchVariantStmtArm] = function(arm)
+            return each(stmt_facts, arm.body)
+        end,
+    })
+
     switch_expr_arm_facts = pvm.phase("moonlift_open_switch_expr_arm_facts", {
         [Tr.SwitchExprArm] = function(arm)
             return cat({ pack(each(stmt_facts, arm.body)), pack(expr_facts(arm.result)) })
@@ -302,7 +308,7 @@ function M.Define(T)
         [Tr.StmtExpr] = function(self) return cat({ pack(stmt_header_facts(self.h)), pack(expr_facts(self.expr)) }) end,
         [Tr.StmtAssert] = function(self) return cat({ pack(stmt_header_facts(self.h)), pack(expr_facts(self.cond)) }) end,
         [Tr.StmtIf] = function(self) return cat({ pack(stmt_header_facts(self.h)), pack(expr_facts(self.cond)), pack(each(stmt_facts, self.then_body)), pack(each(stmt_facts, self.else_body)) }) end,
-        [Tr.StmtSwitch] = function(self) return cat({ pack(stmt_header_facts(self.h)), pack(expr_facts(self.value)), pack(each(switch_stmt_arm_facts, self.arms)), pack(each(stmt_facts, self.default_body)) }) end,
+        [Tr.StmtSwitch] = function(self) return cat({ pack(stmt_header_facts(self.h)), pack(expr_facts(self.value)), pack(each(switch_stmt_arm_facts, self.arms)), pack(each(switch_variant_arm_facts, self.variant_arms or {})), pack(each(stmt_facts, self.default_body)) }) end,
         [Tr.StmtJump] = function(self) local trips = { pack(stmt_header_facts(self.h)) }; for i = 1, #self.args do trips[#trips + 1] = pack(expr_facts(self.args[i].value)) end; return cat(trips) end,
         [Tr.StmtJumpCont] = function(self) local trips = { pack(stmt_header_facts(self.h)), pack(pvm.once(O.MetaFactSlot(O.SlotCont(self.slot)))) }; for i = 1, #self.args do trips[#trips + 1] = pack(expr_facts(self.args[i].value)) end; return cat(trips) end,
         [Tr.StmtYieldVoid] = function(self) return stmt_header_facts(self.h) end,

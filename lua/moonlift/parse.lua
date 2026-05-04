@@ -428,20 +428,64 @@ function Parser:parse_switch_stmt()
     self:expect(TK.do_kw, "expected do after switch expression")
     self:skip_nl()
     local arms = {}
+    local variant_arms = {}
+    local seen_variants = {}
     while self:kind() == TK.case do
         self.i = self.i + 1
-        local key_expr = self:parse_expr(0)
-        self:expect(TK.then_kw, "expected then after case expression")
-        local body = self:parse_stmt_until({ [TK.case] = true, [TK.default] = true, [TK.end_kw] = true })
-        arms[#arms + 1] = Tr.SwitchStmtArm(self:switch_key_from_expr(key_expr), body)
-        self:skip_nl()
+        -- Try variant pattern: case Name(bindings) then
+        if self:kind() == TK.name then
+            local var_name = self.toks.text[self.i]
+            local lookahead = self.i + 1
+            -- skip whitespace/newlines for lookahead
+            while lookahead <= #self.toks.kind and (self.toks.kind[lookahead] == TK.nl or self.toks.kind[lookahead] == TK.spaces) do lookahead = lookahead + 1 end
+            if lookahead <= #self.toks.kind and self.toks.kind[lookahead] == TK.lparen then
+                -- Variant arm
+                self.i = self.i + 1 -- consume name
+                self.i = self.i + 1 -- consume (
+                self:skip_nl()
+                local binds = {}
+                if self:kind() ~= TK.rparen then
+                    while true do
+                        local bname = self:expect_name("expected binding name in variant arm")
+                        self:expect(TK.colon, "expected ':' after variant binding")
+                        local bty = self:parse_type()
+                        binds[#binds + 1] = Tr.VariantBind(bname, bty)
+                        self:skip_nl()
+                        if not self:accept(TK.comma) then break end
+                        self:skip_nl()
+                        if self:kind() == TK.rparen then break end
+                    end
+                end
+                self:expect(TK.rparen, "expected ')' after variant bindings")
+                self:expect(TK.then_kw, "expected then after variant arm")
+                local body = self:parse_stmt_until({ [TK.case] = true, [TK.default] = true, [TK.end_kw] = true })
+                if seen_variants[var_name] then self:issue("duplicate variant arm: " .. var_name) end
+                seen_variants[var_name] = true
+                variant_arms[#variant_arms + 1] = Tr.SwitchVariantStmtArm(var_name, binds, body)
+                self:skip_nl()
+            else
+                -- Regular case arm
+                local key_expr = self:parse_expr(0)
+                self:expect(TK.then_kw, "expected then after case expression")
+                local body = self:parse_stmt_until({ [TK.case] = true, [TK.default] = true, [TK.end_kw] = true })
+                arms[#arms + 1] = Tr.SwitchStmtArm(self:switch_key_from_expr(key_expr), body)
+                self:skip_nl()
+            end
+        else
+            local key_expr = self:parse_expr(0)
+            self:expect(TK.then_kw, "expected then after case expression")
+            local body = self:parse_stmt_until({ [TK.case] = true, [TK.default] = true, [TK.end_kw] = true })
+            arms[#arms + 1] = Tr.SwitchStmtArm(self:switch_key_from_expr(key_expr), body)
+            self:skip_nl()
+        end
     end
-    if #arms == 0 then self:issue("switch statement must have at least one case arm") end
+    if #variant_arms > 0 and #arms > 0 then self:issue("switch cannot mix variant arms and key arms") end
+    if #arms == 0 and #variant_arms == 0 then self:issue("switch statement must have at least one case arm") end
     self:expect(TK.default, "expected default in switch")
     self:expect(TK.then_kw, "expected then after default")
     local default_body = self:parse_stmt_until({ [TK.end_kw] = true })
     self:expect(TK.end_kw, "expected end after switch")
-    return Tr.StmtSwitch(Tr.StmtSurface, value, arms, default_body)
+    return Tr.StmtSwitch(Tr.StmtSurface, value, arms, variant_arms, default_body)
 end
 
 function Parser:parse_switch_expr()
@@ -450,15 +494,55 @@ function Parser:parse_switch_expr()
     self:expect(TK.do_kw, "expected do after switch expression")
     self:skip_nl()
     local arms = {}
+    local variant_arms = {}
+    local seen_variants = {}
     while self:kind() == TK.case do
         self.i = self.i + 1
-        local key_expr = self:parse_expr(0)
-        self:expect(TK.then_kw, "expected then after case expression")
-        local body, result = self:parse_expr_block({ [TK.case] = true, [TK.default] = true, [TK.end_kw] = true })
-        arms[#arms + 1] = Tr.SwitchExprArm(self:switch_key_from_expr(key_expr), body, result)
-        self:skip_nl()
+        if self:kind() == TK.name then
+            local var_name = self.toks.text[self.i]
+            local lookahead = self.i + 1
+            while lookahead <= #self.toks.kind and (self.toks.kind[lookahead] == TK.nl or self.toks.kind[lookahead] == TK.spaces) do lookahead = lookahead + 1 end
+            if lookahead <= #self.toks.kind and self.toks.kind[lookahead] == TK.lparen then
+                self.i = self.i + 1
+                self.i = self.i + 1
+                self:skip_nl()
+                local binds = {}
+                if self:kind() ~= TK.rparen then
+                    while true do
+                        local bname = self:expect_name("expected binding name in variant arm")
+                        self:expect(TK.colon, "expected ':' after variant binding")
+                        local bty = self:parse_type()
+                        binds[#binds + 1] = Tr.VariantBind(bname, bty)
+                        self:skip_nl()
+                        if not self:accept(TK.comma) then break end
+                        self:skip_nl()
+                        if self:kind() == TK.rparen then break end
+                    end
+                end
+                self:expect(TK.rparen, "expected ')' after variant bindings")
+                self:expect(TK.then_kw, "expected then after variant arm")
+                local body, result = self:parse_expr_block({ [TK.case] = true, [TK.default] = true, [TK.end_kw] = true })
+                if seen_variants[var_name] then self:issue("duplicate variant arm: " .. var_name) end
+                seen_variants[var_name] = true
+                variant_arms[#variant_arms + 1] = Tr.SwitchVariantExprArm(var_name, binds, body, result)
+                self:skip_nl()
+            else
+                local key_expr = self:parse_expr(0)
+                self:expect(TK.then_kw, "expected then after case expression")
+                local body, result = self:parse_expr_block({ [TK.case] = true, [TK.default] = true, [TK.end_kw] = true })
+                arms[#arms + 1] = Tr.SwitchExprArm(self:switch_key_from_expr(key_expr), body, result)
+                self:skip_nl()
+            end
+        else
+            local key_expr = self:parse_expr(0)
+            self:expect(TK.then_kw, "expected then after case expression")
+            local body, result = self:parse_expr_block({ [TK.case] = true, [TK.default] = true, [TK.end_kw] = true })
+            arms[#arms + 1] = Tr.SwitchExprArm(self:switch_key_from_expr(key_expr), body, result)
+            self:skip_nl()
+        end
     end
-    if #arms == 0 then self:issue("switch expression must have at least one case arm") end
+    if #variant_arms > 0 and #arms > 0 then self:issue("switch cannot mix variant arms and key arms") end
+    if #arms == 0 and #variant_arms == 0 then self:issue("switch expression must have at least one case arm") end
     self:expect(TK.default, "expected default in switch")
     self:expect(TK.then_kw, "expected then after default")
     local default_body, default_expr = self:parse_expr_block({ [TK.end_kw] = true })

@@ -7,7 +7,7 @@
 --   local arrow = require("arrow")
 --   local count = arrow.bitmap_count_nulls(bitmap_ptr, 1024)
 
-local Host = require("moonlift.host_quote")
+local Host = require("moonlift.mlua_run")
 
 local function load_kernel(path)
     local mod = Host.dofile(path)

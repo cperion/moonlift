@@ -1,0 +1,34 @@
+local pvm = require("moonlift.pvm")
+local A = require("moonlift.asdl")
+local Session = require("moonlift.host_session")
+
+local T = pvm.context(); A.Define(T)
+local S = T.MoonSource
+local doc = S.DocumentSnapshot(S.DocUri("host-model.mlua"), S.DocVersion(0), S.LangMlua, [[
+local x = 1
+region R()
+entry start()
+    let y: i32 = @{x}
+end
+end
+]])
+
+local parts = require("moonlift.mlua_document").Define(T).document_parts(doc)
+local HostModel = require("moonlift.mlua_host_model").Define(T)
+local HostEval = require("moonlift.host_eval").Define(T)
+local program = pvm.one(HostModel.host_program(parts))
+
+assert(#program.steps >= 2, "expected Lua step plus region island step")
+local island_step
+for i = 1, #program.steps do if program.steps[i].template then island_step = program.steps[i] end end
+assert(island_step and island_step.template.kind_word == "region")
+assert(#island_step.template.parts == 3, "region template should expose antiquote as ASDL part")
+
+local session = Session.new({ prefix = "host-model-test", T = T })
+local result = pvm.one(HostEval.eval(program, session))
+assert(#result.report.issues == 0, "host eval should succeed")
+assert(#result.templates == 1)
+assert(#result.templates[1].splices == 1)
+
+print("moonlift ASDL host model ok")
+return "moonlift ASDL host model ok"

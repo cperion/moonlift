@@ -491,7 +491,7 @@ function M.Define(T)
             end
             local default = type_stmt_body(self.default_body, ctx)
             append_all(issues, default.issues)
-            return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtSwitch(Tr.StmtTyped, value.expr, arms, default.stmts) }, issues))
+            return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtSwitch(Tr.StmtTyped, value.expr, arms, {}, default.stmts) }, issues))
         end,
         [Tr.StmtControl] = function(self, ctx) local region = pvm.one(type_control_stmt_region(self.region, ctx)); return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtControl(Tr.StmtTyped, region.region) }, region.issues)) end,
         [Tr.StmtUseRegionSlot] = function(self, ctx) return pvm.once(Tr.TypeStmtResult(ctx, { pvm.with(self, { h = Tr.StmtTyped }) }, {})) end,

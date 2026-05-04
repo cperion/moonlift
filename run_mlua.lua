@@ -7,8 +7,8 @@ if not path then
     os.exit(2)
 end
 
-local Host = require("moonlift.host_quote")
-local result = Host.dofile(path)
+local Run = require("moonlift.mlua_run")
+local result = Run.dofile(path)
 
 -- If .mlua returned a compiled module, find a main/run/test exported function.
 if result ~= nil then

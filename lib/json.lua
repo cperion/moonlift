@@ -4,7 +4,7 @@
 -- parses JSON and builds real Lua values directly from compiled MoonLift via the
 -- Lua C API.
 
-local Host = require("moonlift.host_quote")
+local Host = require("moonlift.mlua_run")
 
 if not _M_HOSTED then
     error("lib/json.lua requires the hosted MoonLift runtime", 2)

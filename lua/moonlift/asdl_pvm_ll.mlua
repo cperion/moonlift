@@ -1,0 +1,97 @@
+-- asdl_pvm_ll.mlua — ASDL-native PVM phase boundary patterns
+--
+-- Same semantics as pvm_ll.mlua but constructed directly via the
+-- moon.region_frag(...) builder API.  No @{...} antiquotes.  No parse step
+-- after template evaluation — the builder emits ASDL fragments directly.
+--
+-- All MoonLift region islands in this file are the user's uncached phases
+-- and module shells.  The cached wrappers are pure ASDL construction.
+
+local moon = moon  -- from hosted environment, not require("moonlift.host")
+assert(moon.region_frag, "moon API must supply region_frag builder")
+
+local M = {}
+M._VERSION = "asdl-pvm-ll-1"
+
+-- ── Type shorthands ────────────────────────────────────────
+
+M.type  = moon.path_named
+M.ptr   = moon.ptr
+M.i8    = moon.i8;     M.i16  = moon.i16
+M.i32   = moon.i32;    M.i64  = moon.i64
+M.u8    = moon.u8;     M.u16  = moon.u16
+M.u32   = moon.u32;    M.u64  = moon.u64
+M.f32   = moon.f32;    M.f64  = moon.f64
+M.bool  = moon.bool;   M.void = moon.void
+M.index = moon.index
+
+-- ── Name generation ────────────────────────────────────────
+
+local counters = {}
+local function fresh(prefix)
+    counters[prefix] = (counters[prefix] or 0) + 1
+    return "asdlpvm_" .. prefix .. "_" .. counters[prefix]
+end
+M.gensym_id = function() return fresh("g") end
+
+-- ── Scalar patterns ────────────────────────────────────────
+
+function M.one(spec)
+    local name     = spec.name or fresh("one")
+    local uncached = spec.uncached  -- RegionFragValue
+    local ctx_ty   = spec.ctx_ty
+    local subj_ty  = spec.subject_ty
+    local val_ty   = spec.value_ty
+    local fail_ty  = spec.fail_ty
+
+    local val_block  = name .. "_val"
+    local fail_block = name .. "_fail"
+
+    if fail_ty then
+        return moon.region_frag(name, {
+            moon.param("ctx", ctx_ty),
+            moon.param("subject", subj_ty),
+        }, {
+            value = moon.cont({ moon.param("v", val_ty) }),
+            fail  = moon.cont({ moon.param("issue", fail_ty) }),
+        }, function(r)
+            local vblk  = r:block_decl(val_block,  { moon.param("v", val_ty) })
+            local fblk  = r:block_decl(fail_block, { moon.param("issue", fail_ty) })
+
+            r:entry("start", {}, function(start)
+                start:emit(uncached, { r.ctx, r.subject }, {
+                    value = vblk,
+                    fail  = fblk,
+                })
+            end)
+
+            vblk:body_fn(function(b)
+                b:jump(r.value, { v = b.v })
+            end)
+            fblk:body_fn(function(b)
+                b:jump(r.fail, { issue = b.issue })
+            end)
+        end)
+    end
+
+    return moon.region_frag(name, {
+        moon.param("ctx", ctx_ty),
+        moon.param("subject", subj_ty),
+    }, {
+        value = moon.cont({ moon.param("v", val_ty) }),
+    }, function(r)
+        local vblk = r:block_decl(val_block, { moon.param("v", val_ty) })
+
+        r:entry("start", {}, function(start)
+            start:emit(uncached, { r.ctx, r.subject }, {
+                value = vblk,
+            })
+        end)
+
+        vblk:body_fn(function(b)
+            b:jump(r.value, { v = b.v })
+        end)
+    end)
+end
+
+return M

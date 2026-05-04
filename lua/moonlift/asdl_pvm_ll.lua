@@ -1,18 +1,11 @@
--- Runtime-aware loader shim.  The implementation lives in pvm_ll.mlua.
---
--- Plain Lua `require` caches this shim globally, but .mlua libraries must be
--- instantiated per active MLUA runtime/session so generated region fragments are
--- registered in the caller's fragment table.  Therefore this file returns a
--- proxy whose fields dispatch to a per-runtime implementation table.
-
 local Host = require("moonlift.mlua_run")
 
 local mlua_path
 if package.searchpath then
     local mlua_package_path = package.path:gsub("%?%.lua", "?%.mlua")
-    mlua_path = package.searchpath("moonlift.pvm_ll", mlua_package_path)
+    mlua_path = package.searchpath("moonlift.asdl_pvm_ll", mlua_package_path)
 end
-mlua_path = mlua_path or "lua/moonlift/pvm_ll.mlua"
+mlua_path = mlua_path or "lua/moonlift/asdl_pvm_ll.mlua"
 
 local cache = setmetatable({}, { __mode = "k" })
 local standalone
@@ -33,6 +26,4 @@ end
 
 return setmetatable({}, {
     __index = function(_, key) return impl()[key] end,
-    __newindex = function(_, key, value) impl()[key] = value end,
-    __tostring = function() return "moonlift.pvm_ll(runtime-aware-proxy)" end,
 })

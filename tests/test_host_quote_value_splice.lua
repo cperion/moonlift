@@ -1,6 +1,6 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local Host = require("moonlift.host_quote")
+local Host = require("moonlift.mlua_run")
 
 local f = Host.eval [[
 local moon = require("moonlift.host")

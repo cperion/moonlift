@@ -21,12 +21,12 @@
 --   9     offset         0         FALSE
 --   10    offset         0         NULL
 
-local Host = require("moonlift.host_quote")
+local Host = require("moonlift.mlua_run")
 local LuaApi = Host.dofile("lib/lua_api.mlua")
 
-local hosted_json_items = Host.source { "" }
+local hosted_json_items = ""
 if _M_HOSTED then
-    hosted_json_items = Host.source { LuaApi.decls, [=[
+    hosted_json_items = LuaApi.decls .. [=[
 func json_count_array(tags: ptr(i32), tape_count: i32, arr_idx: i32) -> i32
     return region -> i32
     entry start()
@@ -384,7 +384,7 @@ export func json_decode_lua(L: ptr(u8)) -> i32
 
     return 1
 end
-]=] }
+]=]
 end
 
 -- ===========================================================================

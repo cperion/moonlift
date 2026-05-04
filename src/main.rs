@@ -149,8 +149,8 @@ fn run_mlua_file(lua: &Lua, path: &str) -> mlua::Result<()> {
     lua.globals().set("_MOONLIFT_RUN_PATH", path)?;
     lua.load(
         r#"
-        local Host = require("moonlift.host_quote")
-        local result = Host.dofile(_MOONLIFT_RUN_PATH)
+        local Run = require("moonlift.mlua_run")
+        local result = Run.dofile(_MOONLIFT_RUN_PATH)
         if result ~= nil then print(result) end
     "#,
     )
@@ -168,7 +168,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     moonlift::lua_api::register_symbols(&mut jit);
     install_host_api(&lua, Rc::new(RefCell::new(jit)))?;
 
-    lua.load(r#"require("moonlift.host_quote")"#).exec()?;
+    lua.load(r#"require("moonlift.mlua_run")"#).exec()?;
 
     if let Some(path) = std::env::args().nth(1) {
         run_mlua_file(&lua, &path)?;

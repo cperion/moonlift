@@ -710,7 +710,9 @@ function M.Define(T)
         [Tr.StmtSwitch] = function(self, env)
             local arms = {}
             for i = 1, #self.arms do arms[#arms + 1] = pvm.with(self.arms[i], { body = expand_stmts(self.arms[i].body, env) }) end
-            return pvm.once(pvm.with(self, { h = one(expand_stmt_header, self.h, env), value = one(expand_expr, self.value, env), arms = arms, default_body = expand_stmts(self.default_body, env) }))
+            local var_arms = {}
+            for i = 1, #(self.variant_arms or {}) do var_arms[#var_arms + 1] = pvm.with(self.variant_arms[i], { binds = self.variant_arms[i].binds, body = expand_stmts(self.variant_arms[i].body, env) }) end
+            return pvm.once(pvm.with(self, { h = one(expand_stmt_header, self.h, env), value = one(expand_expr, self.value, env), arms = arms, variant_arms = var_arms, default_body = expand_stmts(self.default_body, env) }))
         end,
         [Tr.StmtJump] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_stmt_header, self.h, env), args = expand_jump_args(self.args, env) })) end,
         [Tr.StmtJumpCont] = function(self, env)

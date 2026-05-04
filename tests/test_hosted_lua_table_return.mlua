@@ -1,4 +1,4 @@
-local Host = require('moonlift.host_quote')
+local Host = require('moonlift.mlua_run')
 local LuaApi = Host.dofile('lib/lua_api.mlua')
 local m = module T
     @{LuaApi.decls}

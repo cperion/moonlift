@@ -1,5 +1,5 @@
 -- Verify tokenizer + composition engine compose and compile.
-local Host = require("moonlift.host_quote")
+local Host = require("moonlift.mlua_run")
 local Tok = Host.dofile("lib/tokenizer.mlua")
 local C = require("moonlift.region_compose").new("test")
 

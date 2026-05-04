@@ -1,5 +1,5 @@
 local ffi = require("ffi")
-local Host = require("moonlift.host_quote")
+local Host = require("moonlift.mlua_run")
 local LuaApi = Host.dofile("lib/lua_api.mlua")
 
 local api = module HostedLuaApi

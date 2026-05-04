@@ -1,127 +1,32 @@
-package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
+-- The old host_quote translation pipeline is gone.  Verify the replacement
+-- ASDL host model exposes explicit HostProgram/HostTemplate steps.
 
-local Host = require("moonlift.host_quote")
+local pvm = require("moonlift.pvm")
+local A = require("moonlift.asdl")
 
-local translated = Host.translate [[
-struct User
-    id: i32
-    active: bool32
+local T = pvm.context(); A.Define(T)
+local S = T.MoonSource
+local doc = S.DocumentSnapshot(S.DocUri("pipeline.mlua"), S.DocVersion(0), S.LangMlua, [[
+local x = 7
+local r = region R()
+entry start()
+    let y: i32 = @{x}
 end
-
-expose Users: view(User)
-
-function User:is_active()
-    return self.active
 end
+return r
+]])
 
-func User:always(self: ptr(User)) -> bool
-    return true
-end
-
-local m = module UserKernels
-    export func forty_two() -> i32
-        return 42
+local parts = require("moonlift.mlua_document").Define(T).document_parts(doc)
+local program = pvm.one(require("moonlift.mlua_host_model").Define(T).host_program(parts))
+assert(#program.steps >= 2)
+local saw_region = false
+for i = 1, #program.steps do
+    if program.steps[i].template and program.steps[i].template.kind_word == "region" then
+        saw_region = true
+        assert(#program.steps[i].template.parts == 3)
     end
 end
-return User, Users, m
-]]
-assert(translated:find("local User = __moonlift_host%.struct_from_source"))
-assert(translated:find("local Users = __moonlift_host%.expose_from_source"))
-assert(translated:find("User%.always = __moonlift_host%.func_from_source"))
-assert(translated:find("__moonlift_host%.module_from_source"))
+assert(saw_region)
 
-local User, Users, mod = Host.eval [[
-struct User
-    id: i32
-    active: bool32
-end
-
-expose Users: view(User)
-
-function User:is_active()
-    return self.active
-end
-
-func User:always(self: ptr(User)) -> bool
-    return true
-end
-
-local m = module UserKernels
-    export func forty_two() -> i32
-        return 42
-    end
-end
-return User, Users, m
-]]
-
-assert(tostring(User) == "MoonliftStructDecl(User)")
-assert(type(User.is_active) == "function")
-local user_decls = User:host_decl_set()
-assert(#user_decls.decls == 3)
-assert(user_decls.decls[2].decl.name == "is_active")
-assert(user_decls.decls[3].decl.name == "always")
-assert(tostring(User.always) == "MoonliftFuncQuote(User_always)")
-assert(tostring(Users) == "MoonliftExposeDecl(Users)")
-assert(tostring(mod) == "MoonliftModuleQuote")
-local runtime, RuntimeUser, RuntimeUsers = Host.eval_with_runtime([[struct RuntimeUser
-    id: i32
-end
-expose RuntimeUsers: view(RuntimeUser)
-function RuntimeUser:lua_method()
-    return self.id
-end
-func RuntimeUser:native_method(self: ptr(RuntimeUser)) -> bool
-    return true
-end
-return RuntimeUser, RuntimeUsers]], "runtime_decls")
-local runtime_decls = runtime:host_decl_set()
-assert(tostring(RuntimeUser) == "MoonliftStructDecl(RuntimeUser)")
-assert(tostring(RuntimeUsers) == "MoonliftExposeDecl(RuntimeUsers)")
-assert(#runtime_decls.decls == 4)
-assert(runtime_decls.decls[3].decl.name == "lua_method")
-assert(runtime_decls.decls[4].decl.name == "native_method")
-local runtime_pipeline = runtime:host_pipeline_result("runtime_decls")
-assert(#runtime_pipeline.report.issues == 0)
-assert(#runtime_pipeline.layout_env.layouts == 1)
-assert(#runtime_pipeline.lua.cdefs >= 2)
-local cm = mod:compile()
-assert(cm:get("forty_two")() == 42)
-cm:free()
-
-local extern_mod = Host.eval [[
-local m = module ExternModule
-    extern func external_no_end(x: i32) -> i32
-    export func forty_three() -> i32
-        return 43
-    end
-end
-return m
-]]
-assert(tostring(extern_mod) == "MoonliftModuleQuote")
-assert(extern_mod.signatures.forty_three ~= nil)
-
-local parsed = Host.parse [[
-struct User
-    id: i32
-    active: bool32
-end
-expose Users: view(User)
-function User:is_active()
-    return self.active
-end
-]]
-assert(#parsed.issues == 0, tostring(parsed.issues[1]))
-assert(#parsed.decls.decls == 2)
-
-local parsed_module = Host.parse [[
-module Math
-    export func two() -> i32
-        return 2
-    end
-end
-]]
-assert(#parsed_module.issues == 0, tostring(parsed_module.issues[1]))
-assert(#parsed_module.module.items == 1)
-assert(parsed_module.module.items[1].func.name == "two")
-
-print("moonlift mlua host quote pipeline ok")
+print("moonlift ASDL host pipeline ok")
+return "moonlift ASDL host pipeline ok"

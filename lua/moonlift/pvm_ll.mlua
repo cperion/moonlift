@@ -1,276 +1,290 @@
--- pvm_ll.mlua -- MLUA-level PVM-LL helpers.
+-- pvm_ll.mlua — PVM phase-boundary region templates.
 --
--- PVM-LL is not a builder DSL.  Users write ordinary .mlua regions, emits,
--- switches, and Lua metaprogramming.  This module only provides reusable
--- region templates for the repetitive PVM boundary patterns: scalar wrappers,
--- cache wrappers, sinks, stream span replay, and optional ABI shells.
-
-local Host = require("moonlift.host_quote")
+-- PVM-LL is not a DSL.  This module provides small reusable .mlua region
+-- templates for common PVM boundary patterns.  You author ordinary .mlua
+-- (Lua metaprogramming + MoonLift region islands + @{...} antiquotes), and
+-- these helpers stamp out the repetitive cache/sink/span boilerplate.
+--
+-- Every template returns a real MoonLift RegionFragValue ready for `emit`.
 
 local M = {}
-M._VERSION = "pvm-ll-mlua-patterns-1"
+M._VERSION = "pvm-ll-2"
 
-M.type = Host.type
-M.ptr = Host.ptr
-M.i8, M.i16, M.i32, M.i64 = Host.i8, Host.i16, Host.i32, Host.i64
-M.u8, M.u16, M.u32, M.u64 = Host.u8, Host.u16, Host.u32, Host.u64
-M.f32, M.f64 = Host.f32, Host.f64
-M.bool, M.void, M.index = Host.bool, Host.void, Host.index
+-- ── Type shorthands ────────────────────────────────────────
 
-local function need(spec, key, site)
-    local v = spec and spec[key]
-    assert(v ~= nil, site .. " expects `" .. key .. "`")
+M.type  = function(s)
+    return setmetatable({ kind = "type", source = s }, {
+        __tostring = function(self) return self.source end,
+        __index = { moonlift_splice_source = function(self) return self.source end },
+    })
+end
+M.ptr   = function(inner) return M.type("ptr(" .. tostring(inner) .. ")") end
+M.i8    = M.type("i8");   M.i16  = M.type("i16")
+M.i32   = M.type("i32");  M.i64  = M.type("i64")
+M.u8    = M.type("u8");   M.u16  = M.type("u16")
+M.u32   = M.type("u32");  M.u64  = M.type("u64")
+M.f32   = M.type("f32");  M.f64  = M.type("f64")
+M.bool  = M.type("bool"); M.void = M.type("void")
+M.index = M.type("index")
+
+-- ── Splice helpers ─────────────────────────────────────────
+
+local function ty(tv)
+    -- A type value splices as its source text in @{...} positions.
+    if type(tv) == "table" and tv.kind == "type" then return tv end
+    if type(tv) == "table" and tv.source then return M.type(tv.source) end
+    return M.type(tostring(tv))
+end
+
+local function splice(v)
+    -- Anything with moonlift_splice_source splices as its name/source.
+    -- Region fragments splices as their name; types splices as "i32"/etc.
+    if type(v) == "table" and type(v.moonlift_splice_source) == "function" then return v end
+    if type(v) == "table" and v.kind == "type" then return v end
     return v
 end
 
-local RawIdent = {}
-RawIdent.__index = RawIdent
-function RawIdent:moonlift_splice_source() return self.name end
-function RawIdent:__tostring() return self.name end
+-- ── Name generation ────────────────────────────────────────
 
-function M.ident(name)
-    assert(type(name) == "string" and name:match("^[_%a][_%w]*$"), "pvmll.ident expects an identifier")
-    return setmetatable({ name = name }, RawIdent)
+local counters = {}
+local function fresh(prefix)
+    counters[prefix] = (counters[prefix] or 0) + 1
+    return "pvmll_" .. prefix .. "_" .. counters[prefix]
+end
+local function local_label(name, suffix)
+    return ("pvmll_" .. tostring(name) .. "_" .. suffix):gsub("[^_%w]", "_")
+end
+M.gensym_id = function() return fresh("g") end
+
+-- ── Optional stats call ────────────────────────────────────
+
+local function stats(stat_fn)
+    if not stat_fn then return "" end
+    return stat_fn .. "()"
 end
 
-local next_name_id = 0
-function M.gensym_id()
-    next_name_id = next_name_id + 1
-    return next_name_id
-end
+-- ══════════════════════════════════════════════════════════════
+--  SCALAR PATTERNS
+-- ══════════════════════════════════════════════════════════════
 
-local function name_id(_)
-    return M.gensym_id()
-end
-
-local function op(v)
-    if type(v) == "string" then v = M.ident(v) end
-    return Host.typed_splice(v, "source")
-end
-
-local function optional_stmt(fn_name, arg_src)
-    if not fn_name then return "" end
-    return Host.source { op(fn_name), "(", arg_src or "ctx", ")" }
-end
-
--- Public alias wrapper.  It exposes `name` while delegating to `uncached`.
+--- Wrap an uncached one-result region with an optional failure path.
+--- The wrapped region always delegates to `uncached` and forwards results
+--- through real continuation blocks.
+---
+--- If `fail_ty` is given, the wrapper also expects a `fail` continuation on
+--- `uncached` and exposes it.
 function M.one(spec)
-    local name = name_id(need(spec, "name", "pvmll.one"))
-    local uncached = need(spec, "uncached", "pvmll.one")
-    local ctx_ty = need(spec, "ctx_ty", "pvmll.one")
-    local subject_ty = need(spec, "subject_ty", "pvmll.one")
-    local value_ty = need(spec, "value_ty", "pvmll.one")
-    local fail_ty = spec.fail_ty
+    local name      = spec.name or fresh("one")
+    local uncached  = splice(spec.uncached)
+    local ctx_ty    = ty(spec.ctx_ty)
+    local subj_ty   = ty(spec.subject_ty)
+    local val_ty    = ty(spec.value_ty)
+    local fail_ty   = spec.fail_ty and ty(spec.fail_ty)
+
+    local value_block = local_label(name, "value")
+    local fail_block = local_label(name, "fail")
 
     if fail_ty then
-        return region pvmll_@{name}(ctx: @{ctx_ty}, subject: @{subject_ty};
-            value: cont(v: @{value_ty}),
+        return region @{name}(ctx: @{ctx_ty}, subject: @{subj_ty};
+            value: cont(v: @{val_ty}),
             fail: cont(issue: @{fail_ty}))
         entry start()
-            emit @{uncached}(ctx, subject; value = got_value, fail = got_fail)
+            @{stats(spec.stats_call)}
+            emit @{uncached}(ctx, subject; value = @{value_block}, fail = @{fail_block})
         end
-        block got_value(v: @{value_ty})
+        block @{value_block}(v: @{val_ty})
             jump value(v = v)
         end
-        block got_fail(issue: @{fail_ty})
+        block @{fail_block}(issue: @{fail_ty})
             jump fail(issue = issue)
         end
         end
     end
 
-    return region pvmll_@{name}(ctx: @{ctx_ty}, subject: @{subject_ty};
-        value: cont(v: @{value_ty}))
+    return region @{name}(ctx: @{ctx_ty}, subject: @{subj_ty};
+        value: cont(v: @{val_ty}))
     entry start()
-        emit @{uncached}(ctx, subject; value = got_value)
+        @{stats(spec.stats_call)}
+        emit @{uncached}(ctx, subject; value = @{value_block})
     end
-    block got_value(v: @{value_ty})
+    block @{value_block}(v: @{val_ty})
         jump value(v = v)
     end
     end
 end
 
--- Cached scalar wrapper.
--- Conventions:
---   lookup(ctx, subject) -> hit_ty where hit.valid: bool and hit.value: value_ty
---   insert(ctx, subject, value) -> void
+--- Cached scalar wrapper.
+---
+--- Conventions:
+---   lookup(ctx, subject) -> Hit { valid: bool, value: Value }
+---   insert(ctx, subject, value) -> void
 function M.cached_one(spec)
-    local name = name_id(need(spec, "name", "pvmll.cached_one"))
-    local uncached = need(spec, "uncached", "pvmll.cached_one")
-    local ctx_ty = need(spec, "ctx_ty", "pvmll.cached_one")
-    local subject_ty = need(spec, "subject_ty", "pvmll.cached_one")
-    local value_ty = need(spec, "value_ty", "pvmll.cached_one")
-    local hit_ty = need(spec, "hit_ty", "pvmll.cached_one")
-    local lookup = op(need(spec, "lookup", "pvmll.cached_one"))
-    local insert = op(need(spec, "insert", "pvmll.cached_one"))
-    local fail_ty = spec.fail_ty
+    local name      = spec.name or fresh("cached_one")
+    local uncached  = splice(spec.uncached)
+    local ctx_ty    = ty(spec.ctx_ty)
+    local subj_ty   = ty(spec.subject_ty)
+    local val_ty    = ty(spec.value_ty)
+    local hit_ty    = ty(spec.hit_ty)
+    local lookup    = splice(spec.lookup)
+    local insert    = splice(spec.insert)
+    local fail_ty   = spec.fail_ty and ty(spec.fail_ty)
 
     if fail_ty then
-        return region pvmll_@{name}(ctx: @{ctx_ty}, subject: @{subject_ty};
-            value: cont(v: @{value_ty}),
+        return region @{name}(ctx: @{ctx_ty}, subject: @{subj_ty};
+            value: cont(v: @{val_ty}),
             fail: cont(issue: @{fail_ty}))
         entry start()
-            @{optional_stmt(spec.stats_call)}
+            @{stats(spec.stats_call)}
             let hit: @{hit_ty} = @{lookup}(ctx, subject)
             if hit.valid then
-                @{optional_stmt(spec.stats_hit)}
+                @{stats(spec.stats_hit)}
                 jump value(v = hit.value)
             end
-            @{optional_stmt(spec.stats_miss)}
-            emit @{uncached}(ctx, subject; value = miss, fail = got_fail)
+            @{stats(spec.stats_miss)}
+            emit @{uncached}(ctx, subject; value = miss, fail = fail)
         end
-        block miss(v: @{value_ty})
+        block miss(v: @{val_ty})
             @{insert}(ctx, subject, v)
             jump value(v = v)
         end
-        block got_fail(issue: @{fail_ty})
-            jump fail(issue = issue)
-        end
         end
     end
 
-    return region pvmll_@{name}(ctx: @{ctx_ty}, subject: @{subject_ty};
-        value: cont(v: @{value_ty}))
+    return region @{name}(ctx: @{ctx_ty}, subject: @{subj_ty};
+        value: cont(v: @{val_ty}))
     entry start()
-        @{optional_stmt(spec.stats_call)}
+        @{stats(spec.stats_call)}
         let hit: @{hit_ty} = @{lookup}(ctx, subject)
         if hit.valid then
-            @{optional_stmt(spec.stats_hit)}
+            @{stats(spec.stats_hit)}
             jump value(v = hit.value)
         end
-        @{optional_stmt(spec.stats_miss)}
+        @{stats(spec.stats_miss)}
         emit @{uncached}(ctx, subject; value = miss)
     end
-    block miss(v: @{value_ty})
+    block miss(v: @{val_ty})
         @{insert}(ctx, subject, v)
         jump value(v = v)
     end
     end
 end
 
--- Optional result wrapper protocol:
---   pass(ctx, subject; some(v), none(), fail?)
+--- Optional-result wrapper (some / none).
+--- The uncached region must expose `some` and `none` continuations.
 function M.optional(spec)
-    local name = name_id(need(spec, "name", "pvmll.optional"))
-    local uncached = need(spec, "uncached", "pvmll.optional")
-    local ctx_ty = need(spec, "ctx_ty", "pvmll.optional")
-    local subject_ty = need(spec, "subject_ty", "pvmll.optional")
-    local value_ty = need(spec, "value_ty", "pvmll.optional")
-    local fail_ty = spec.fail_ty
+    local name      = spec.name or fresh("optional")
+    local uncached  = splice(spec.uncached)
+    local ctx_ty    = ty(spec.ctx_ty)
+    local subj_ty   = ty(spec.subject_ty)
+    local val_ty    = ty(spec.value_ty)
+    local fail_ty   = spec.fail_ty and ty(spec.fail_ty)
 
     if fail_ty then
-        return region pvmll_@{name}(ctx: @{ctx_ty}, subject: @{subject_ty};
-            some: cont(v: @{value_ty}),
+        return region @{name}(ctx: @{ctx_ty}, subject: @{subj_ty};
+            some: cont(v: @{val_ty}),
             none: cont(),
             fail: cont(issue: @{fail_ty}))
         entry start()
-            emit @{uncached}(ctx, subject; some = got_some, none = got_none, fail = got_fail)
+            emit @{uncached}(ctx, subject; some = got, none = got_none, fail = got_fail)
         end
-        block got_some(v: @{value_ty})
-            jump some(v = v)
-        end
-        block got_none()
-            jump none()
-        end
-        block got_fail(issue: @{fail_ty})
-            jump fail(issue = issue)
-        end
+        block got(v: @{val_ty})        jump some(v = v) end
+        block got_none()               jump none() end
+        block got_fail(issue: @{fail_ty}) jump fail(issue = issue) end
         end
     end
 
-    return region pvmll_@{name}(ctx: @{ctx_ty}, subject: @{subject_ty};
-        some: cont(v: @{value_ty}),
+    return region @{name}(ctx: @{ctx_ty}, subject: @{subj_ty};
+        some: cont(v: @{val_ty}),
         none: cont())
     entry start()
-        emit @{uncached}(ctx, subject; some = got_some, none = got_none)
+        emit @{uncached}(ctx, subject; some = got, none = got_none)
     end
-    block got_some(v: @{value_ty})
-        jump some(v = v)
-    end
-    block got_none()
-        jump none()
-    end
+    block got(v: @{val_ty})  jump some(v = v) end
+    block got_none()         jump none() end
     end
 end
 
--- A stream sink that appends/forwards one value then resumes.  `append` has
--- signature append(ctx, value) -> void.
+-- ══════════════════════════════════════════════════════════════
+--  STREAM PATTERNS
+-- ══════════════════════════════════════════════════════════════
+
+--- Sink that appends one value and resumes.
+--- append(ctx, value) -> i32 status (convention: 0 = ok)
 function M.append_sink(spec)
-    local name = name_id(need(spec, "name", "pvmll.append_sink"))
-    local ctx_ty = need(spec, "ctx_ty", "pvmll.append_sink")
-    local value_ty = need(spec, "value_ty", "pvmll.append_sink")
-    local append = op(need(spec, "append", "pvmll.append_sink"))
+    local name   = spec.name or fresh("append_sink")
+    local ctx_ty = ty(spec.ctx_ty)
+    local val_ty = ty(spec.value_ty)
+    local append = splice(spec.append)
 
-    -- Moonlift currently preserves call side effects reliably when the call is
-    -- bound.  Convention: append(ctx, value) returns i32 status (usually 0).
-    return region pvmll_@{name}(ctx: @{ctx_ty}, value: @{value_ty};
+    return region @{name}(ctx: @{ctx_ty}, value: @{val_ty};
         resume: cont())
     entry start()
-        let _pvmll_append_status: i32 = @{append}(ctx, value)
+        let _st: i32 = @{append}(ctx, value)
         jump resume()
     end
     end
 end
 
--- A stream sink that records and forwards.  `append_record(ctx, rec, value)`
--- records the value; then the value is emitted to `sink`.
+--- Recording sink: records the value via `append_record(ctx, rec, value)`,
+--- then forwards to `sink`.
 function M.recording_sink(spec)
-    local name = name_id(need(spec, "name", "pvmll.recording_sink"))
-    local sink = need(spec, "sink", "pvmll.recording_sink")
-    local ctx_ty = need(spec, "ctx_ty", "pvmll.recording_sink")
-    local record_ty = need(spec, "record_ty", "pvmll.recording_sink")
-    local value_ty = need(spec, "value_ty", "pvmll.recording_sink")
-    local append_record = op(need(spec, "append_record", "pvmll.recording_sink"))
+    local name          = spec.name or fresh("recording_sink")
+    local sink          = splice(spec.sink)
+    local ctx_ty        = ty(spec.ctx_ty)
+    local rec_ty        = ty(spec.record_ty)
+    local val_ty        = ty(spec.value_ty)
+    local append_record = splice(spec.append_record)
 
-    return region pvmll_@{name}(ctx: @{ctx_ty}, rec: @{record_ty}, value: @{value_ty};
+    return region @{name}(ctx: @{ctx_ty}, rec: @{rec_ty}, value: @{val_ty};
         resume: cont())
     entry start()
-        let _pvmll_record_status: i32 = @{append_record}(ctx, rec, value)
-        emit @{sink}(ctx, value; resume = after_forward)
+        let _st: i32 = @{append_record}(ctx, rec, value)
+        emit @{sink}(ctx, value; resume = after)
     end
-    block after_forward()
+    block after()
         jump resume()
     end
     end
 end
 
--- Stream span cache wrapper.
--- Conventions:
---   lookup(ctx, subject) -> hit_ty { valid, start, len }
---   value_at(ctx, index) -> value_ty
---   begin(ctx, subject) -> record_ty
---   commit(ctx, subject, rec) -> void
---   uncached_recording(ctx, subject, rec; done(rec), fail?) emits through a
---     recording sink that also forwards to the real sink.
+--- Cached stream span.
+---
+--- Conventions:
+---   lookup(ctx, subject) -> Hit { valid: bool, start: index, len: index }
+---   value_at(ctx, absolute_index) -> Value
+---   begin(ctx, subject) -> Record
+---   commit(ctx, subject, record) -> void
+---   uncached_recording(ctx, subject, record; done(record), fail?)
 function M.cached_stream_span(spec)
-    local name = name_id(need(spec, "name", "pvmll.cached_stream_span"))
-    local uncached_recording = need(spec, "uncached_recording", "pvmll.cached_stream_span")
-    local sink = need(spec, "sink", "pvmll.cached_stream_span")
-    local ctx_ty = need(spec, "ctx_ty", "pvmll.cached_stream_span")
-    local subject_ty = need(spec, "subject_ty", "pvmll.cached_stream_span")
-    local value_ty = need(spec, "value_ty", "pvmll.cached_stream_span")
-    local hit_ty = need(spec, "hit_ty", "pvmll.cached_stream_span")
-    local record_ty = need(spec, "record_ty", "pvmll.cached_stream_span")
-    local lookup = op(need(spec, "lookup", "pvmll.cached_stream_span"))
-    local value_at = op(need(spec, "value_at", "pvmll.cached_stream_span"))
-    local begin = op(need(spec, "begin", "pvmll.cached_stream_span"))
-    local commit = op(need(spec, "commit", "pvmll.cached_stream_span"))
-    local fail_ty = spec.fail_ty
-    local replay_sink_name = name_id("replay_sink")
+    local name       = spec.name or fresh("cached_stream_span")
+    local uncached   = splice(spec.uncached_recording)
+    local sink       = splice(spec.sink)
+    local ctx_ty     = ty(spec.ctx_ty)
+    local subj_ty    = ty(spec.subject_ty)
+    local val_ty     = ty(spec.value_ty)
+    local hit_ty     = ty(spec.hit_ty)
+    local rec_ty     = ty(spec.record_ty)
+    local lookup     = splice(spec.lookup)
+    local value_at   = splice(spec.value_at)
+    local begin      = splice(spec.begin)
+    local commit     = splice(spec.commit)
+    local fail_ty    = spec.fail_ty and ty(spec.fail_ty)
 
-    -- Replaying a cached span needs loop state after the sink resumes.  A
-    -- standard sink has `resume: cont()`, so wrap it in a state-carrying sink.
-    local replay_sink = region pvmll_@{replay_sink_name}(ctx: @{ctx_ty}, value: @{value_ty}, i: index, start: index, len: index;
+    -- A sink that replays one cached value, carrying loop state through resume.
+    local replay_name = fresh("replay")
+    local replay = region @{replay_name}(ctx: @{ctx_ty}, value: @{val_ty},
+            i: index, start: index, len: index;
         resume: cont(i: index, start: index, len: index))
-    entry begin()
-        emit @{sink}(ctx, value; resume = after_sink)
+    entry start()
+        emit @{sink}(ctx, value; resume = after)
     end
-    block after_sink()
+    block after()
         jump resume(i = i, start = start, len = len)
     end
     end
 
     if fail_ty then
-        return region pvmll_@{name}(ctx: @{ctx_ty}, subject: @{subject_ty};
+        return region @{name}(ctx: @{ctx_ty}, subject: @{subj_ty};
             done: cont(),
             fail: cont(issue: @{fail_ty}))
         entry start()
@@ -278,20 +292,17 @@ function M.cached_stream_span(spec)
             if hit.valid then
                 jump replay(i = 0, start = hit.start, len = hit.len)
             end
-            let rec: @{record_ty} = @{begin}(ctx, subject)
-            emit @{uncached_recording}(ctx, subject, rec; done = miss_done, fail = got_fail)
+            let rec: @{rec_ty} = @{begin}(ctx, subject)
+            emit @{uncached}(ctx, subject, rec; done = miss_done, fail = fail)
         end
-        block miss_done(rec: @{record_ty})
+        block miss_done(rec: @{rec_ty})
             @{commit}(ctx, subject, rec)
             jump done()
         end
-        block got_fail(issue: @{fail_ty})
-            jump fail(issue = issue)
-        end
         block replay(i: index, start: index, len: index)
             if i >= len then jump done() end
-            let value: @{value_ty} = @{value_at}(ctx, start + i)
-            emit @{replay_sink}(ctx, value, i, start, len; resume = replay_next)
+            let value: @{val_ty} = @{value_at}(ctx, start + i)
+            emit @{replay}(ctx, value, i, start, len; resume = replay_next)
         end
         block replay_next(i: index, start: index, len: index)
             jump replay(i = i + 1, start = start, len = len)
@@ -299,24 +310,24 @@ function M.cached_stream_span(spec)
         end
     end
 
-    return region pvmll_@{name}(ctx: @{ctx_ty}, subject: @{subject_ty};
+    return region @{name}(ctx: @{ctx_ty}, subject: @{subj_ty};
         done: cont())
     entry start()
         let hit: @{hit_ty} = @{lookup}(ctx, subject)
         if hit.valid then
             jump replay(i = 0, start = hit.start, len = hit.len)
         end
-        let rec: @{record_ty} = @{begin}(ctx, subject)
-        emit @{uncached_recording}(ctx, subject, rec; done = miss_done)
+        let rec: @{rec_ty} = @{begin}(ctx, subject)
+        emit @{uncached}(ctx, subject, rec; done = miss_done)
     end
-    block miss_done(rec: @{record_ty})
+    block miss_done(rec: @{rec_ty})
         @{commit}(ctx, subject, rec)
         jump done()
     end
     block replay(i: index, start: index, len: index)
         if i >= len then jump done() end
-        let value: @{value_ty} = @{value_at}(ctx, start + i)
-        emit @{replay_sink}(ctx, value, i, start, len; resume = replay_next)
+        let value: @{val_ty} = @{value_at}(ctx, start + i)
+        emit @{replay}(ctx, value, i, start, len; resume = replay_next)
     end
     block replay_next(i: index, start: index, len: index)
         jump replay(i = i + 1, start = start, len = len)

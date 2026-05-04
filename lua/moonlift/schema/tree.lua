@@ -1,5 +1,12 @@
--- Clean MoonTree schema, generated from the current ASDL schema.
--- Source of truth is now Lua builder data; edit deliberately.
+-- MoonTree schema with tagged union surface support.
+--
+-- Adds:
+--   ExprCtor          — construct a tagged union value: TypeName.Variant(args)
+--   SwitchVariantStmtArm  — pattern-match variant in statement switch
+--   SwitchVariantExprArm  — pattern-match variant in expression switch
+--   VariantBind        — single payload field binding
+--   TypeIssueUnknownVariant, TypeIssueVariantPayloadMismatch
+--   ControlFactSwitchOnTag, ControlFactVariantFieldBind
 
 return function(A)
     return A.module "MoonTree" {
@@ -68,6 +75,12 @@ return function(A)
             A.unique,
         },
 
+        A.product "VariantBind" {
+            A.field "name" "string",
+            A.field "ty" "MoonType.Type",
+            A.unique,
+        },
+
         A.product "SwitchStmtArm" {
             A.field "key" "MoonSem.SwitchKey",
             A.field "body" (A.many "MoonTree.Stmt"),
@@ -76,6 +89,21 @@ return function(A)
 
         A.product "SwitchExprArm" {
             A.field "key" "MoonSem.SwitchKey",
+            A.field "body" (A.many "MoonTree.Stmt"),
+            A.field "result" "MoonTree.Expr",
+            A.unique,
+        },
+
+        A.product "SwitchVariantStmtArm" {
+            A.field "variant_name" "string",
+            A.field "binds" (A.many "MoonTree.VariantBind"),
+            A.field "body" (A.many "MoonTree.Stmt"),
+            A.unique,
+        },
+
+        A.product "SwitchVariantExprArm" {
+            A.field "variant_name" "string",
+            A.field "binds" (A.many "MoonTree.VariantBind"),
             A.field "body" (A.many "MoonTree.Stmt"),
             A.field "result" "MoonTree.Expr",
             A.unique,
@@ -418,6 +446,22 @@ return function(A)
                 A.field "to_label" "MoonTree.BlockLabel",
                 A.variant_unique,
             },
+            A.variant "ControlFactVariantSwitch" {
+                A.field "region_id" "string",
+                A.field "from_label" "MoonTree.BlockLabel",
+                A.field "switch_on" "string",
+                A.field "arms" (A.many "MoonTree.ControlVariantArmFact"),
+                A.field "default_label" "MoonTree.BlockLabel",
+                A.variant_unique,
+            },
+        },
+
+        A.product "ControlVariantArmFact" {
+            A.field "variant_name" "string",
+            A.field "tag_value" "number",
+            A.field "label" "MoonTree.BlockLabel",
+            A.field "binds" (A.many "MoonTree.BlockParam"),
+            A.unique,
         },
 
         A.product "ControlFactSet" {
@@ -480,6 +524,11 @@ return function(A)
             A.variant "ControlRejectIrreducible" {
                 A.field "region_id" "string",
                 A.field "reason" "string",
+                A.variant_unique,
+            },
+            A.variant "ControlRejectUnknownVariant" {
+                A.field "region_id" "string",
+                A.field "variant_name" "string",
                 A.variant_unique,
             },
         },
@@ -669,6 +718,13 @@ return function(A)
                 A.field "fills" (A.many "MoonOpen.SlotBinding"),
                 A.variant_unique,
             },
+            A.variant "ExprCtor" {
+                A.field "h" "MoonTree.ExprHeader",
+                A.field "type_name" "string",
+                A.field "variant_name" "string",
+                A.field "args" (A.many "MoonTree.Expr"),
+                A.variant_unique,
+            },
         },
 
         A.sum "Stmt" {
@@ -711,6 +767,7 @@ return function(A)
                 A.field "h" "MoonTree.StmtHeader",
                 A.field "value" "MoonTree.Expr",
                 A.field "arms" (A.many "MoonTree.SwitchStmtArm"),
+                A.field "variant_arms" (A.many "MoonTree.SwitchVariantStmtArm"),
                 A.field "default_body" (A.many "MoonTree.Stmt"),
                 A.variant_unique,
             },
@@ -1052,6 +1109,23 @@ return function(A)
             A.variant "TypeIssueInvalidControl" {
                 A.field "region_id" "string",
                 A.field "reject" "MoonTree.ControlReject",
+                A.variant_unique,
+            },
+            A.variant "TypeIssueUnknownVariant" {
+                A.field "type_name" "string",
+                A.field "variant_name" "string",
+                A.variant_unique,
+            },
+            A.variant "TypeIssueVariantPayloadMismatch" {
+                A.field "type_name" "string",
+                A.field "variant_name" "string",
+                A.field "expected" "MoonType.Type",
+                A.field "actual" "MoonType.Type",
+                A.variant_unique,
+            },
+            A.variant "TypeIssueDuplicateVariant" {
+                A.field "type_name" "string",
+                A.field "variant_name" "string",
                 A.variant_unique,
             },
         },

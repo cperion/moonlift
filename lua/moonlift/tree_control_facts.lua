@@ -67,6 +67,9 @@ function M.Define(T)
             for i = 1, #stmt.arms do
                 for j = 1, #stmt.arms[i].body do append_all(out, pvm.drain(stmt_facts(stmt.arms[i].body[j], region_id, from_label, entry_label))) end
             end
+            for i = 1, #(stmt.variant_arms or {}) do
+                for j = 1, #stmt.variant_arms[i].body do append_all(out, pvm.drain(stmt_facts(stmt.variant_arms[i].body[j], region_id, from_label, entry_label))) end
+            end
             for i = 1, #stmt.default_body do append_all(out, pvm.drain(stmt_facts(stmt.default_body[i], region_id, from_label, entry_label))) end
             return pvm.children(function(fact) return pvm.once(fact) end, out)
         end,
@@ -95,6 +98,9 @@ function M.Define(T)
             if not body_terminates(stmt.default_body) then return pvm.once(false) end
             for i = 1, #stmt.arms do
                 if not body_terminates(stmt.arms[i].body) then return pvm.once(false) end
+            end
+            for i = 1, #(stmt.variant_arms or {}) do
+                if not body_terminates(stmt.variant_arms[i].body) then return pvm.once(false) end
             end
             return pvm.once(true)
         end,

@@ -1,0 +1,95 @@
+-- expr_eval.mlua — PVM-LL pipeline where everything is a value
+--
+-- Expr is a tagged union:  Expr = Lit(value:i32) | Add(a:Expr, b:Expr)
+-- This is NOT a schema declaration.  It's just values flowing through regions.
+-- The "ASDL" is the types on every parameter, continuation, and block.
+
+local pvmll = require("moonlift.pvm_ll")
+
+-- ── The data model lives in the host as values ────────────────
+--   Expr   — an opaque value handle (like an index into a heap)
+--   Tag    — i32 discriminant (0 = Lit, 1 = Add)
+--   Value  — i32 result
+--
+-- Host provides: tag(ctx, e:Expr) -> Tag
+--               lit_value(ctx, e:Expr) -> Value
+--               add_left(ctx, e:Expr) -> Expr
+--               add_right(ctx, e:Expr) -> Expr
+
+-- ══════════════════════════════════════════════════════════════
+--  The uncached pass — user-authored, fully typed
+-- ══════════════════════════════════════════════════════════════
+
+local eval_uncached = region eval_uncached(
+    ctx:     ptr(u8),
+    subject: i32,          -- Expr value
+;
+    value: cont(v: i32),   -- Value
+)
+entry start()
+    let t: i32 = tag(ctx, subject)
+    switch t do
+    case 0 then
+        -- Lit variant: unpack and return
+        let v: i32 = lit_value(ctx, subject)
+        jump value(v = v)
+    case 1 then
+        -- Add variant: recurse through cached eval
+        let left: i32  = add_left(ctx, subject)
+        let right: i32 = add_right(ctx, subject)
+        emit @{eval}(ctx, left; value = got_left)
+    end
+    end
+end
+
+block got_left(lv: i32)
+    emit @{eval}(ctx, right; value = got_both)
+end
+
+block got_both(rv: i32)
+    jump value(v = lv + rv)
+end
+end
+
+-- ══════════════════════════════════════════════════════════════
+--  The cached wrapper — memoization boundary
+-- ══════════════════════════════════════════════════════════════
+
+local eval = pvmll.cached_one {
+    name       = "eval",
+    uncached   = eval_uncached,
+    ctx_ty     = pvmll.ptr(pvmll.u8),
+    subject_ty = pvmll.i32,
+    value_ty   = pvmll.i32,
+    hit_ty     = pvmll.type("EvalHit"),
+    lookup     = "eval_lookup",
+    insert     = "eval_insert",
+}
+
+-- ══════════════════════════════════════════════════════════════
+--  Module shell
+-- ══════════════════════════════════════════════════════════════
+
+local mod = module ExprEval
+
+func eval_lookup(ctx: ptr(u8), e: i32) -> EvalHit
+    return eval_lookup_host(ctx, e)
+end
+
+func eval_insert(ctx: ptr(u8), e: i32, v: i32) -> void
+    eval_insert_host(ctx, e, v)
+end
+
+export func eval_expr(ctx: ptr(u8), e: i32) -> i32
+    return region -> i32
+    entry start()
+        emit @{eval}(ctx, e; value = done)
+    end
+    block done(v: i32)
+        yield v
+    end
+    end
+end
+
+end
+return mod

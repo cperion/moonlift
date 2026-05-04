@@ -258,7 +258,7 @@ function M.Define(T)
         [Tr.StmtExpr] = function(self, env) return pvm.once(pvm.with(self, { expr = one(resolve_expr, self.expr, env) })) end,
         [Tr.StmtAssert] = function(self, env) return pvm.once(pvm.with(self, { cond = one(resolve_expr, self.cond, env) })) end,
         [Tr.StmtIf] = function(self, env) return pvm.once(pvm.with(self, { cond = one(resolve_expr, self.cond, env), then_body = map_stmts(self.then_body, env), else_body = map_stmts(self.else_body, env) })) end,
-        [Tr.StmtSwitch] = function(self, env) local arms = {}; for i = 1, #self.arms do arms[#arms + 1] = pvm.with(self.arms[i], { body = map_stmts(self.arms[i].body, env) }) end; return pvm.once(pvm.with(self, { value = one(resolve_expr, self.value, env), arms = arms, default_body = map_stmts(self.default_body, env) })) end,
+        [Tr.StmtSwitch] = function(self, env) local arms = {}; for i = 1, #self.arms do arms[#arms + 1] = pvm.with(self.arms[i], { body = map_stmts(self.arms[i].body, env) }) end; local var_arms = {}; for i = 1, #(self.variant_arms or {}) do var_arms[#var_arms + 1] = pvm.with(self.variant_arms[i], { body = map_stmts(self.variant_arms[i].body, env) }) end; return pvm.once(pvm.with(self, { value = one(resolve_expr, self.value, env), arms = arms, variant_arms = var_arms, default_body = map_stmts(self.default_body, env) })) end,
         [Tr.StmtJump] = function(self, env) return pvm.once(pvm.with(self, { args = map_jump_args(self.args, env) })) end,
         [Tr.StmtJumpCont] = function(self, env) return pvm.once(pvm.with(self, { args = map_jump_args(self.args, env) })) end,
         [Tr.StmtYieldVoid] = function(self) return pvm.once(self) end,

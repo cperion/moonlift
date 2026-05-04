@@ -57,7 +57,7 @@ function M.Define(T)
     return require("moonlift.asdl").Define(T)
 end
 
-function M.host_quote()
+function M.mlua_run()
     return M.mlua
 end
 

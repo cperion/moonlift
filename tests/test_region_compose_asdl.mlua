@@ -1,0 +1,31 @@
+local pvm = require("moonlift.pvm")
+local moon = require("moonlift.host")
+local C = require("moonlift.parser_compose").new(moon, { prefix = "asdlc" })
+
+local params = {
+    moon.param("p", moon.ptr(moon.u8)),
+    moon.param("n", moon.i32),
+    moon.param("pos", moon.i32),
+}
+local conts = {
+    ok = moon.cont({ moon.param("next", moon.i32) }),
+    fail = moon.cont({ moon.param("at", moon.i32) }),
+}
+
+local a = moon.region_frag("asdlc_a", params, conts, function(r)
+    r:entry("start", {}, function(b) b:jump(r.ok, { next = r.pos }) end)
+end)
+local b = moon.region_frag("asdlc_b", params, conts, function(r)
+    r:entry("start", {}, function(bb) bb:jump(r.fail, { at = r.pos }) end)
+end)
+
+local ab = C:seq({ a, b })
+assert(ab.kind == "region_frag")
+assert(pvm.classof(ab.frag) == moon.T.MoonOpen.RegionFrag)
+assert(ab.source == nil, "ASDL compose must not produce source quote primary result")
+assert(ab.deps.region_frags.asdlc_a == a)
+assert(ab.deps.region_frags.asdlc_b == b)
+assert(#ab.frag.blocks == 1)
+
+print("moonlift ASDL region compose ok")
+return "moonlift ASDL region compose ok"

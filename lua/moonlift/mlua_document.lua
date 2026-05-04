@@ -51,7 +51,9 @@ local function island_name(Mlua, src, start_i, kind)
         return Mlua.IslandNamed(owner_or_name)
     end
     local name = read_ident(src, j)
-    return name and Mlua.IslandNamed(name) or Mlua.IslandMalformedName("missing " .. kind .. " name")
+    if name then return Mlua.IslandNamed(name) end
+    if src:sub(j, j + 1) == "@{" then return Mlua.IslandAnonymous end
+    return Mlua.IslandMalformedName("missing " .. kind .. " name")
 end
 
 local function add_range(P, index, start_offset, stop_offset)

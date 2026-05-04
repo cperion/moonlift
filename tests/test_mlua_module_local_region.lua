@@ -2,7 +2,7 @@ package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./lua/?.lua;./
 
 local pvm = require("moonlift.pvm")
 local A = require("moonlift.asdl")
-local Host = require("moonlift.host_quote")
+local Host = require("moonlift.mlua_run")
 local MluaParse = require("moonlift.mlua_parse")
 
 local T = pvm.context()
