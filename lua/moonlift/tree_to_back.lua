@@ -350,8 +350,20 @@ function M.Define(T)
             if rhs == nil then return pvm.once(Tr.TreeBackExprUnsupported(lhs.env, lhs.cmds, "unsupported binary rhs")) end
             local ty = expr_ty(self)
             local scalar = back_scalar(ty) or lhs.ty
-            local env2, dst = env_next_value(rhs.env, "v")
             local cmds = {}; append_all(cmds, lhs.cmds); append_all(cmds, rhs.cmds)
+
+            -- Pointer arithmetic: pointer + integer offset
+            if self.op == C.BinAdd and scalar == Back.BackPtr then
+                local ptr, off = lhs, rhs
+                if ptr.ty ~= Back.BackPtr then ptr, off = rhs, lhs end
+                local env_e1, off_ext = env_next_value(rhs.env, "v")
+                cmds[#cmds + 1] = Back.CmdCast(off_ext, Back.BackSextend, Back.BackIndex, off.value)
+                local env_e2, addr = env_next_value(env_e1, "v")
+                cmds[#cmds + 1] = Back.CmdPtrOffset(addr, Back.BackAddrValue(ptr.value), off_ext, 1, 0, Back.BackProvDerived("ptr add"), Back.BackPtrBoundsUnknown)
+                return pvm.once(Tr.TreeBackExprValue(env_e2, cmds, addr, Back.BackPtr))
+            end
+
+            local env2, dst = env_next_value(rhs.env, "v")
             local cmd = binary_cmd:drain_uncached(self.op, dst, scalar, lhs.value, rhs.value)[1]
             if cmd == nil then return pvm.once(Tr.TreeBackExprUnsupported(rhs.env, cmds, "unsupported binary op")) end
             cmds[#cmds + 1] = cmd
@@ -427,7 +439,29 @@ function M.Define(T)
             end
             return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "len lowering requires view binding"))
         end,
-        [Tr.ExprLogic] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "logic lowering needs control flow")) end,
+        [Tr.ExprLogic] = function(self, env)
+            local lhs = expr_value(expr_to_back:one_uncached(self.lhs, env))
+            if lhs == nil then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "unsupported logic lhs")) end
+            local rhs = expr_value(expr_to_back:one_uncached(self.rhs, lhs.env))
+            if rhs == nil then return pvm.once(Tr.TreeBackExprUnsupported(lhs.env, lhs.cmds, "unsupported logic rhs")) end
+            local cmds = {}; append_all(cmds, lhs.cmds); append_all(cmds, rhs.cmds)
+
+            if self.op == C.LogicAnd then
+                local env1, false_val = env_next_value(rhs.env, "v")
+                cmds[#cmds + 1] = Back.CmdConst(false_val, Back.BackBool, Back.BackLitBool(false))
+                local env2, dst = env_next_value(env1, "v")
+                cmds[#cmds + 1] = Back.CmdSelect(dst, Back.BackShapeScalar(Back.BackBool), lhs.value, rhs.value, false_val)
+                return pvm.once(Tr.TreeBackExprValue(env2, cmds, dst, Back.BackBool))
+            end
+            if self.op == C.LogicOr then
+                local env1, true_val = env_next_value(rhs.env, "v")
+                cmds[#cmds + 1] = Back.CmdConst(true_val, Back.BackBool, Back.BackLitBool(true))
+                local env2, dst = env_next_value(env1, "v")
+                cmds[#cmds + 1] = Back.CmdSelect(dst, Back.BackShapeScalar(Back.BackBool), lhs.value, true_val, rhs.value)
+                return pvm.once(Tr.TreeBackExprValue(env2, cmds, dst, Back.BackBool))
+            end
+            return pvm.once(Tr.TreeBackExprUnsupported(rhs.env, cmds, "unsupported logic op"))
+        end,
         [Tr.ExprIf] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "if expression lowering deferred")) end,
         [Tr.ExprSwitch] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "switch expression lowering deferred")) end,
         [Tr.ExprControl] = function(self, env) return pvm.once(control_api.expr_region_to_back:one_uncached(self.region, env)) end,

@@ -247,6 +247,12 @@ end
 
 function M.splice_checked(v, expected)
     if getmetatable(v) == TypedSplice then expected = v.expected or expected; v = v.value end
+    -- Plain Lua primitives are valid MoonLift source text in any position.
+    -- Kind checking only applies to structured values (fragments, TypeValues, etc.).
+    local tv = type(v)
+    if tv == "string" or tv == "number" or tv == "boolean" or tv == "nil" then
+        return M.splice(v)
+    end
     local actual = splice_kind(v)
     if not splice_kind_matches(actual, expected) then
         error("Moonlift splice kind mismatch: expected " .. tostring(expected) .. ", got " .. tostring(actual), 2)

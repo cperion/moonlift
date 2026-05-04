@@ -458,6 +458,15 @@ function Grammar:get(name)
     return frag
 end
 
+function Grammar:_resolve_forward(name)
+    for _, rule in pairs(self.rules) do
+        if rule.name == name and (rule.source == nil or rule.source ~= "") then
+            return rule
+        end
+    end
+    return nil
+end
+
 function Grammar:_flatten_frags(frag)
     if not frag or not frag.deps or not frag.deps.region_frags then return end
     local stack = { frag }
@@ -466,11 +475,18 @@ function Grammar:_flatten_frags(frag)
         local f = table.remove(stack)
         local deps = f.deps
         if deps and deps.region_frags then
-            for _, sub in pairs(deps.region_frags) do
-                if not seen[sub.name] then
-                    seen[sub.name] = true
-                    frag.deps.region_frags[sub.name] = sub
-                    table.insert(stack, sub)
+            for dep_name, sub in pairs(deps.region_frags) do
+                -- Resolve forward stubs: if dep has empty source, it's a stub.
+                -- Look for the real rule by matching name.
+                local resolved = sub
+                if sub.source == nil or sub.source == "" then
+                    local real = self:_resolve_forward(sub.name)
+                    if real then resolved = real end
+                end
+                if not seen[resolved.name] then
+                    seen[resolved.name] = true
+                    frag.deps.region_frags[resolved.name] = resolved
+                    table.insert(stack, resolved)
                 end
             end
         end
@@ -483,9 +499,15 @@ function Grammar:all_frags()
     local function collect(frag)
         if not frag or collected[frag.name] then return end
         if type(frag) ~= "table" then return end
-        collected[frag.name] = frag
-        if frag.deps and frag.deps.region_frags then
-            for _, sub in pairs(frag.deps.region_frags) do
+        -- Resolve forward stubs
+        local resolved = frag
+        if (frag.source == nil or frag.source == "") then
+            local real = self:_resolve_forward(frag.name)
+            if real then resolved = real end
+        end
+        collected[resolved.name] = resolved
+        if resolved.deps and resolved.deps.region_frags then
+            for _, sub in pairs(resolved.deps.region_frags) do
                 collect(sub)
             end
         end

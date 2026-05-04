@@ -73,6 +73,203 @@ func json_count_object(tags: ptr(i32), tape_count: i32, obj_idx: i32) -> i32
     end
 end
 
+-- Pure Moonlift helpers (replaces JSON-specific Rust functions)
+
+func has_backslash(src: ptr(u8), len: i32) -> i32
+    return region -> i32
+    entry start()
+        jump scan(i = 0)
+    end
+    block scan(i: i32)
+        if i >= len then yield 0 end
+        if as(i32, src[i]) == 92 then yield 1 end
+        jump scan(i = i + 1)
+    end
+    end
+end
+
+func hex4(p: ptr(u8), i: i32) -> i32
+    return region -> i32
+    entry start()
+        jump acc(idx = 0, val = 0)
+    end
+    block acc(idx: i32, val: i32)
+        if idx >= 4 then yield val end
+        let c: i32 = as(i32, p[i + idx])
+        if c >= 48 then if c <= 57  then jump acc(idx = idx + 1, val = (val << 4) + (c - 48)) end end
+        if c >= 65 then if c <= 70  then jump acc(idx = idx + 1, val = (val << 4) + (c - 55)) end end
+        if c >= 97 then if c <= 102 then jump acc(idx = idx + 1, val = (val << 4) + (c - 87)) end end
+        yield -1
+    end
+    end
+end
+
+func parse_f64(p: ptr(u8), len: i32) -> f64
+    return region -> f64
+    entry start()
+        let neg: i32 = 0
+        if len > 0 then
+            if as(i32, p[0]) == 45 then jump after_sign(i = 1, neg = 1) end
+        end
+        jump after_sign(i = 0, neg = 0)
+    end
+    block after_sign(i: i32, neg: i32)
+        jump int_digits(i = i, int_val = 0.0, neg = neg)
+    end
+    block int_digits(i: i32, int_val: f64, neg: i32)
+        if i >= len then jump finalize(val = int_val, neg = neg) end
+        let c: i32 = as(i32, p[i])
+        if c >= 48 then
+            if c <= 57 then
+                jump int_digits(i = i + 1, int_val = int_val * 10.0 + as(f64, c - 48), neg = neg)
+            end
+        end
+        if c == 46 then jump frac_digits(i = i + 1, int_val = int_val, frac_val = 0.0, frac_count = 0, neg = neg) end
+        if c == 101 then jump exp_start(i = i + 1, mantissa = int_val, neg = neg) end
+        if c == 69 then jump exp_start(i = i + 1, mantissa = int_val, neg = neg) end
+        jump finalize(val = int_val, neg = neg)
+    end
+    block frac_digits(i: i32, int_val: f64, frac_val: f64, frac_count: i32, neg: i32)
+        if i >= len then jump combine_frac(int_val = int_val, frac_val = frac_val, frac_count = frac_count, neg = neg) end
+        let c: i32 = as(i32, p[i])
+        if c >= 48 then
+            if c <= 57 then
+                jump frac_digits(i = i + 1, int_val = int_val, frac_val = frac_val * 10.0 + as(f64, c - 48), frac_count = frac_count + 1, neg = neg)
+            end
+        end
+        if c == 101 then jump combine_frac_exp(i = i + 1, int_val = int_val, frac_val = frac_val, frac_count = frac_count, neg = neg) end
+        if c == 69 then jump combine_frac_exp(i = i + 1, int_val = int_val, frac_val = frac_val, frac_count = frac_count, neg = neg) end
+        jump combine_frac(int_val = int_val, frac_val = frac_val, frac_count = frac_count, neg = neg)
+    end
+    block combine_frac(int_val: f64, frac_val: f64, frac_count: i32, neg: i32)
+        if frac_count <= 0 then jump finalize(val = int_val, neg = neg) end
+        jump pow10_denom(acc = 10.0, rem = frac_count - 1, int_val = int_val, frac_val = frac_val, neg = neg)
+    end
+    block combine_frac_exp(i: i32, int_val: f64, frac_val: f64, frac_count: i32, neg: i32)
+        if frac_count <= 0 then jump exp_start(i = i, mantissa = int_val, neg = neg) end
+        jump pow10_denom_exp(acc = 10.0, rem = frac_count - 1, i = i, int_val = int_val, frac_val = frac_val, neg = neg)
+    end
+    block pow10_denom(acc: f64, rem: i32, int_val: f64, frac_val: f64, neg: i32)
+        if rem <= 0 then jump finalize(val = int_val + frac_val / acc, neg = neg) end
+        jump pow10_denom(acc = acc * 10.0, rem = rem - 1, int_val = int_val, frac_val = frac_val, neg = neg)
+    end
+    block pow10_denom_exp(acc: f64, rem: i32, i: i32, int_val: f64, frac_val: f64, neg: i32)
+        if rem <= 0 then jump exp_start(i = i, mantissa = int_val + frac_val / acc, neg = neg) end
+        jump pow10_denom_exp(acc = acc * 10.0, rem = rem - 1, i = i, int_val = int_val, frac_val = frac_val, neg = neg)
+    end
+    block exp_start(i: i32, mantissa: f64, neg: i32)
+        if i >= len then jump finalize(val = mantissa, neg = neg) end
+        let c: i32 = as(i32, p[i])
+        if c == 43 then jump exp_digits(i = i + 1, mantissa = mantissa, exp = 0, exp_neg = 0, neg = neg) end
+        if c == 45 then jump exp_digits(i = i + 1, mantissa = mantissa, exp = 0, exp_neg = 1, neg = neg) end
+        jump exp_digits(i = i, mantissa = mantissa, exp = 0, exp_neg = 0, neg = neg)
+    end
+    block exp_digits(i: i32, mantissa: f64, exp: i32, exp_neg: i32, neg: i32)
+        if i >= len then jump apply_exp(mantissa = mantissa, exp = exp, exp_neg = exp_neg, neg = neg) end
+        let c: i32 = as(i32, p[i])
+        if c >= 48 then
+            if c <= 57 then
+                jump exp_digits(i = i + 1, mantissa = mantissa, exp = exp * 10 + (c - 48), exp_neg = exp_neg, neg = neg)
+            end
+        end
+        jump apply_exp(mantissa = mantissa, exp = exp, exp_neg = exp_neg, neg = neg)
+    end
+    block apply_exp(mantissa: f64, exp: i32, exp_neg: i32, neg: i32)
+        if exp <= 0 then jump finalize(val = mantissa, neg = neg) end
+        if exp_neg == 1 then jump exp_denom(denom = 10.0, rem = exp - 1, mantissa = mantissa, neg = neg) end
+        jump exp_mult(acc = mantissa, rem = exp, neg = neg)
+    end
+    block exp_denom(denom: f64, rem: i32, mantissa: f64, neg: i32)
+        if rem <= 0 then jump finalize(val = mantissa / denom, neg = neg) end
+        jump exp_denom(denom = denom * 10.0, rem = rem - 1, mantissa = mantissa, neg = neg)
+    end
+    block exp_mult(acc: f64, rem: i32, neg: i32)
+        if rem <= 0 then jump finalize(val = acc, neg = neg) end
+        jump exp_mult(acc = acc * 10.0, rem = rem - 1, neg = neg)
+    end
+    block finalize(val: f64, neg: i32)
+        if neg == 1 then yield 0.0 - val end
+        yield val
+    end
+    end
+end
+
+func decode_json_escapes(src: ptr(u8), len: i32, out: ptr(u8)) -> i32
+    return region -> i32
+    entry start()
+        jump scan(i = 0, o = 0)
+    end
+    block scan(i: i32, o: i32)
+        if i >= len then yield o end
+        let c: i32 = as(i32, src[i])
+        if c == 92 then jump escape(i = i + 1, o = o) end
+        if c < 32 then yield -1 end
+        out[o] = as(u8, c)
+        jump scan(i = i + 1, o = o + 1)
+    end
+    block escape(i: i32, o: i32)
+        if i >= len then yield -1 end
+        let c: i32 = as(i32, src[i])
+        if c == 0x22 then out[o] = 0x22 jump scan(i = i + 1, o = o + 1) end  -- \"
+        if c == 0x5C then out[o] = 0x5C jump scan(i = i + 1, o = o + 1) end  -- \\
+        if c == 0x2F then out[o] = 0x2F jump scan(i = i + 1, o = o + 1) end  -- \/
+        if c == 98   then out[o] = 0x08 jump scan(i = i + 1, o = o + 1) end  -- \b
+        if c == 102  then out[o] = 0x0C jump scan(i = i + 1, o = o + 1) end  -- \f
+        if c == 110  then out[o] = 0x0A jump scan(i = i + 1, o = o + 1) end  -- \n
+        if c == 114  then out[o] = 0x0D jump scan(i = i + 1, o = o + 1) end  -- \r
+        if c == 116  then out[o] = 0x09 jump scan(i = i + 1, o = o + 1) end  -- \t
+        if c == 117 then jump unicode_escape(i = i + 1, o = o) end
+        yield -1
+    end
+    block unicode_escape(i: i32, o: i32)
+        if i + 4 > len then yield -1 end
+        let cp: i32 = hex4(src, i)
+        if cp < 0 then yield -1 end
+        if cp >= 0xD800 then
+            if cp <= 0xDBFF then
+                jump surrogate_pair(i = i + 4, o = o, high = cp)
+            end
+        end
+        if cp >= 0xDC00 then
+            if cp <= 0xDFFF then yield -1 end
+        end
+        jump encode_utf8(i = i + 4, o = o, cp = cp)
+    end
+    block surrogate_pair(i: i32, o: i32, high: i32)
+        if i + 6 > len then yield -1 end
+        if as(i32, src[i]) ~= 92 then yield -1 end
+        if as(i32, src[i + 1]) ~= 117 then yield -1 end
+        let low: i32 = hex4(src, i + 2)
+        if low < 0xDC00 then yield -1 end
+        if low > 0xDFFF then yield -1 end
+        let full_cp: i32 = 0x10000 + ((high - 0xD800) << 10) + (low - 0xDC00)
+        jump encode_utf8(i = i + 6, o = o, cp = full_cp)
+    end
+    block encode_utf8(i: i32, o: i32, cp: i32)
+        if cp < 0x80 then
+            out[o] = as(u8, cp)
+            jump scan(i = i, o = o + 1)
+        end
+        if cp < 0x800 then
+            out[o]     = as(u8, 0xC0 + (cp >>> 6))
+            out[o + 1] = as(u8, 0x80 + (cp & 0x3F))
+            jump scan(i = i, o = o + 2)
+        end
+        if cp < 0x10000 then
+            out[o]     = as(u8, 0xE0 + (cp >>> 12))
+            out[o + 1] = as(u8, 0x80 + ((cp >>> 6) & 0x3F))
+            out[o + 2] = as(u8, 0x80 + (cp & 0x3F))
+            jump scan(i = i, o = o + 3)
+        end
+        out[o]     = as(u8, 0xF0 + (cp >>> 18))
+        out[o + 1] = as(u8, 0x80 + ((cp >>> 12) & 0x3F))
+        out[o + 2] = as(u8, 0x80 + ((cp >>> 6) & 0x3F))
+        out[o + 3] = as(u8, 0x80 + (cp & 0x3F))
+        jump scan(i = i, o = o + 4)
+    end
+    end
+end
+
 func json_build_value(L: ptr(u8), p: ptr(u8), tags: ptr(i32), a: ptr(i32), b: ptr(i32), tape_count: i32, idx: i32) -> i32
     return region -> i32
     entry start()
@@ -93,11 +290,20 @@ func json_build_value(L: ptr(u8), p: ptr(u8), tags: ptr(i32), a: ptr(i32), b: pt
             yield idx + 1
         end
         if tag == 7 then
-            if moonlift_lua_push_json_number_at(L, p, a[idx], b[idx]) == 0 then yield -(idx + 1) end
+            lua_pushnumber(L, parse_f64(p + a[idx], b[idx]))
             yield idx + 1
         end
         if tag == 6 then
-            if moonlift_lua_push_json_string_at(L, p, a[idx], b[idx]) == 0 then yield -(idx + 1) end
+            let src: ptr(u8) = p + a[idx]
+            let slen: i32 = b[idx]
+            if has_backslash(src, slen) == 0 then
+                lua_pushlstring(L, src, as(index, slen))
+                yield idx + 1
+            end
+            let out: ptr(u8) = moonlift_scratch_u8(6, slen)
+            let out_len: i32 = decode_json_escapes(src, slen, out)
+            if out_len < 0 then yield -(idx + 1) end
+            lua_pushlstring(L, out, as(index, out_len))
             yield idx + 1
         end
         if tag == 1 then
@@ -124,7 +330,19 @@ func json_build_value(L: ptr(u8), p: ptr(u8), tags: ptr(i32), a: ptr(i32), b: pt
         if i >= tape_count then yield -(i + 1) end
         if tags[i] == 4 then yield i + 1 end
         if tags[i] ~= 5 then yield -(i + 1) end
-        if moonlift_lua_push_json_string_at(L, p, a[i], b[i]) == 0 then yield -(i + 1) end
+        let src: ptr(u8) = p + a[i]
+        let slen: i32 = b[i]
+        if has_backslash(src, slen) == 0 then
+            lua_pushlstring(L, src, as(index, slen))
+            jump obj_val_next(i = i)
+        end
+        let out: ptr(u8) = moonlift_scratch_u8(6, slen)
+        let out_len: i32 = decode_json_escapes(src, slen, out)
+        if out_len < 0 then yield -(i + 1) end
+        lua_pushlstring(L, out, as(index, out_len))
+        jump obj_val_next(i = i)
+    end
+    block obj_val_next(i: i32)
         let next: i32 = json_build_value(L, p, tags, a, b, tape_count, i + 1)
         if next < 0 then yield next end
         lua_settable(L, -3)

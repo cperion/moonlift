@@ -45,6 +45,14 @@ function M.Install(api, session)
         if cls == H.HostIssueInvalidPackedAlign then return "invalid packed alignment for " .. issue.type_name .. ": " .. tostring(issue.align) end
         if cls == H.HostIssueBareBoolInBoundaryStruct then return "bare bool in boundary struct " .. issue.type_name .. "." .. issue.field_name .. " requires explicit bool storage" end
         if cls == H.HostIssueArgCount then return issue.site .. ": expected " .. tostring(issue.expected) .. " args, got " .. tostring(issue.actual) end
+        if cls == H.HostIssueSpliceExpected then return "splice " .. issue.splice_id .. ": expected " .. issue.expected .. ", got " .. issue.actual end
+        if cls == H.HostIssueSpliceEvalError then return "splice " .. issue.splice_id .. " evaluation failed: " .. issue.message end
+        if cls == H.HostIssueLuaStepError then return "Lua host step " .. issue.step_id .. " failed: " .. issue.message end
+        if cls == H.HostIssueTemplateParseError then return "host template " .. issue.template_id .. " parse failed: " .. issue.message end
+        if cls == H.HostIssueRegionComposeMissingExit then return "region compose: fragment " .. issue.fragment_name .. " has no exit " .. issue.exit_name end
+        if cls == H.HostIssueRegionComposeIncompatibleCont then return "region compose: fragment " .. issue.fragment_name .. "." .. issue.exit_name .. " expected " .. issue.expected .. ", got " .. issue.actual end
+        if cls == H.HostIssueRegionComposeIncompleteRoute then return "region compose: missing route for " .. issue.fragment_name .. "." .. issue.exit_name end
+        if cls == H.HostIssueRegionComposeContextMismatch then return "region compose: context mismatch between " .. issue.left .. " and " .. issue.right end
         return tostring(issue)
     end
 

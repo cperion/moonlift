@@ -16,6 +16,7 @@ function M.new(opts)
         prefix = opts.prefix or "host",
         next_id = 0,
         _api = nil,
+        host_values = {},
     }, Session)
 end
 
@@ -34,11 +35,27 @@ function Session:id(kind, name)
     return C.Id(self:symbol_key(kind or "id", name))
 end
 
+function Session:host_value_id(pretty)
+    local H = self.T.MoonHost
+    return H.HostValueId(self:symbol_key("host-value", pretty or "value"), tostring(pretty or "value"))
+end
+
+function Session:register_host_value(id, value)
+    self.host_values[id.key] = value
+    return id
+end
+
+function Session:lookup_host_value(id_or_key)
+    local key = type(id_or_key) == "table" and id_or_key.key or id_or_key
+    return self.host_values[key]
+end
+
 function Session:api()
     if self._api then return self._api end
     local api = { session = self, T = self.T }
     require("moonlift.host_issue_values").Install(api, self)
     require("moonlift.host_type_values").Install(api, self)
+    require("moonlift.host_values").Install(api, self)
     require("moonlift.host_expr_values").Install(api, self)
     require("moonlift.host_place_values").Install(api, self)
     require("moonlift.host_fragment_values").Install(api, self)

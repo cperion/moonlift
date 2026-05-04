@@ -162,8 +162,21 @@ function M.Install(api, session)
         error("jump target must be a block or continuation value", 2)
     end
 
+    local function merge_region_dep(deps, fragment)
+        if deps == nil or fragment == nil then return end
+        deps.region_frags[fragment.name] = fragment
+        local fdeps = fragment.deps
+        if fdeps and fdeps.region_frags then
+            for k, v in pairs(fdeps.region_frags) do deps.region_frags[k] = v end
+        end
+        if fdeps and fdeps.expr_frags then
+            for k, v in pairs(fdeps.expr_frags) do deps.expr_frags[k] = v end
+        end
+    end
+
     function BlockBuilder:emit(fragment, runtime_args, fills)
-        assert(type(fragment) == "table" and getmetatable(fragment) == RegionFragValue, "emit expects a region fragment value")
+        assert(type(fragment) == "table" and (getmetatable(fragment) == RegionFragValue or getmetatable(fragment) == api.CanonicalRegionFragValue), "emit expects a region fragment value")
+        merge_region_dep(self.region.deps, fragment)
         local args = {}
         for i = 1, #(runtime_args or {}) do args[i] = api.as_moonlift_expr(runtime_args[i], "emit runtime arg expects expression") end
         local fill_values = {}
@@ -245,12 +258,35 @@ function M.Install(api, session)
         params = params or {}
         local decls = {}
         for i = 1, #params do local p = as_param(params[i], "block param"); decls[i] = Tr.BlockParam(p.name, p.type.ty) end
-        local block = setmetatable({ kind = "block", label = Tr.BlockLabel(name), params = decls, is_entry = false }, BlockValue)
+        local block = setmetatable({ kind = "block", label = Tr.BlockLabel(name), params = decls, is_entry = false, _region = self, _decl_params = decls }, BlockValue)
         local bb = make_block_builder(self, block, decls, false)
         if body_fn then body_fn(bb) end
         block.body = bb.body
         self.blocks[#self.blocks + 1] = block
         return block
+    end
+
+    function RegionBuilder:block_decl(name, params)
+        assert_name(name, "block_decl")
+        params = params or {}
+        local decls = {}
+        for i = 1, #params do local p = as_param(params[i], "block param"); decls[i] = Tr.BlockParam(p.name, p.type.ty) end
+        local block = setmetatable({ kind = "block", label = Tr.BlockLabel(name), params = decls, is_entry = false, body = {}, _region = self, _decl_params = decls }, BlockValue)
+        self.blocks[#self.blocks + 1] = block
+        return block
+    end
+
+    function BlockValue:body_fn(body_fn)
+        assert(self._region ~= nil, "block body cannot be assigned outside its region")
+        assert(type(body_fn) == "function", "block body expects builder function")
+        local bb = make_block_builder(self._region, self, self._decl_params or self.params or {}, false)
+        body_fn(bb)
+        self.body = bb.body
+        return self
+    end
+
+    function BlockValue:body(body_fn)
+        return self:body_fn(body_fn)
     end
 
     local function new_region_builder(kind, name, result_ty, bindings)
@@ -263,6 +299,7 @@ function M.Install(api, session)
             entry_block = nil,
             blocks = {},
             conts = {},
+            deps = { region_frags = {}, expr_frags = {} },
         }, RegionBuilder)
     end
 
@@ -311,7 +348,7 @@ function M.Install(api, session)
         local frag = O.RegionFrag(name, open_params, slots, O.OpenSet({}, {}, {}, {}), entry_asdl(r.entry_block), blocks_asdl(r.blocks))
         session.T._moonlift_host_region_frags = session.T._moonlift_host_region_frags or {}
         session.T._moonlift_host_region_frags[name] = frag
-        return setmetatable({ kind = "region_frag", name = name, params = runtime_params, frag = frag, conts = cont_values }, RegionFragValue)
+        return setmetatable({ kind = "region_frag", moonlift_quote_kind = "region_frag", name = name, params = runtime_params, frag = frag, conts = cont_values, protocol = nil, deps = r.deps }, RegionFragValue)
     end
 
     -- Patch function builders after host_func_values has installed them.

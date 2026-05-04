@@ -7,6 +7,8 @@ local Session = require("moonlift.host_session")
 local default_session = Session.new({ prefix = "default" })
 local M = default_session:api()
 M.default_session = default_session
+M.region_compose = require("moonlift.region_compose")
+M.parser_compose = require("moonlift.parser_compose")
 
 function M.new_session(opts)
     return Session.new(opts)

@@ -8,6 +8,8 @@ local TK = {
     plus = 20, minus = 21, star = 22, slash = 23, percent = 24, eq = 25, arrow = 26,
     eqeq = 27, ne = 28, lt = 29, le = 30, gt = 31, ge = 32,
     amp = 33, pipe = 34, caret = 35, tilde = 36,
+    shl = 37, lshr = 38, ashr = 39,
+    amp2 = 40, pipe2 = 41,
     export = 100, extern = 101, func = 102, const = 103, static = 104, import = 105, type_kw = 106,
     let = 110, var = 111, if_kw = 112, then_kw = 113, elseif_kw = 114, else_kw = 115, switch = 116, case = 117, default = 118, do_kw = 119, end_kw = 120,
     block = 130, control = 131, jump = 132, yield = 133, return_kw = 134, region = 135, entry = 136, emit = 137, expr = 138,
@@ -50,7 +52,12 @@ local function push(t, kind, text, s, e, line, col)
     t.col[n] = col
 end
 
-local two_char = { ["->"] = TK.arrow, ["=="] = TK.eqeq, ["~="] = TK.ne, ["<="] = TK.le, [">="] = TK.ge }
+local two_char = { ["->"] = TK.arrow, ["=="] = TK.eqeq, ["~="] = TK.ne, ["<="] = TK.le, [">="] = TK.ge, ["<<"] = TK.shl, [">>"] = TK.ashr, ["&&"] = TK.amp2, ["||"] = TK.pipe2 }
+local three_char = { [">>>"] = TK.lshr }
+
+local function is_hex_digit(b)
+    return (b >= 48 and b <= 57) or (b >= 65 and b <= 70) or (b >= 97 and b <= 102)
+end
 local one_char = { ["("] = TK.lparen, [")"] = TK.rparen, ["["] = TK.lbrack, ["]"] = TK.rbrack, ["{"] = TK.lbrace, ["}"] = TK.rbrace, [","] = TK.comma, [":"] = TK.colon, ["."] = TK.dot, [";"] = TK.semi, ["+"] = TK.plus, ["-"] = TK.minus, ["*"] = TK.star, ["/"] = TK.slash, ["%"] = TK.percent, ["="] = TK.eq, ["<"] = TK.lt, [">"] = TK.gt, ["&"] = TK.amp, ["|"] = TK.pipe, ["^"] = TK.caret, ["~"] = TK.tilde }
 
 function M.lex(src)
@@ -84,6 +91,21 @@ function M.lex(src)
             local text = src:sub(s, i - 1)
             push(t, keywords[text] or TK.name, text, s, i - 1, line, c)
         elseif is_digit(b) then
+            if b == 48 and i < n then
+                local next_b = src:byte(i + 1)
+                if next_b == 120 or next_b == 88 then
+                    local s, c = i, col
+                    i = i + 2; col = col + 2
+                    while i <= n and is_hex_digit(src:byte(i)) do i = i + 1; col = col + 1 end
+                    local text = src:sub(s, i - 1)
+                    if text == "0x" or text == "0X" then
+                        push(t, TK.int, "0", s, i - 1, line, c)
+                    else
+                        push(t, TK.int, tostring(tonumber(text)), s, i - 1, line, c)
+                    end
+                    goto continue_lex
+                end
+            end
             local s, c, is_float = i, col, false
             i = i + 1; col = col + 1
             while i <= n and is_digit(src:byte(i)) do i = i + 1; col = col + 1 end
@@ -107,6 +129,14 @@ function M.lex(src)
             if i <= n then i = i + 1; col = col + 1 end
             push(t, TK.string, src:sub(s + 1, i - 2), s, i - 1, line, c)
         else
+            if i + 2 <= n then
+                local s3 = src:sub(i, i + 2)
+                local k3 = three_char[s3]
+                if k3 then
+                    push(t, k3, s3, i, i + 2, line, col); i = i + 3; col = col + 3
+                    goto continue_lex
+                end
+            end
             local s2 = src:sub(i, i + 1)
             local kind = two_char[s2]
             if kind then
@@ -118,6 +148,7 @@ function M.lex(src)
                 i = i + 1; col = col + 1
             end
         end
+        ::continue_lex::
     end
     push(t, TK.eof, "", n + 1, n + 1, line, col)
     return t
@@ -204,7 +235,7 @@ function Parser:parse_param_list()
     return params, contracts
 end
 
-local lbp = { [TK.or_kw] = 10, [TK.and_kw] = 20, [TK.eqeq] = 30, [TK.ne] = 30, [TK.lt] = 30, [TK.le] = 30, [TK.gt] = 30, [TK.ge] = 30, [TK.pipe] = 40, [TK.caret] = 45, [TK.amp] = 50, [TK.plus] = 60, [TK.minus] = 60, [TK.star] = 70, [TK.slash] = 70, [TK.percent] = 70, [TK.lparen] = 90, [TK.lbrack] = 90, [TK.dot] = 90 }
+local lbp = { [TK.or_kw] = 10, [TK.pipe2] = 10, [TK.and_kw] = 20, [TK.amp2] = 20, [TK.eqeq] = 30, [TK.ne] = 30, [TK.lt] = 30, [TK.le] = 30, [TK.gt] = 30, [TK.ge] = 30, [TK.pipe] = 40, [TK.caret] = 45, [TK.amp] = 50, [TK.shl] = 55, [TK.lshr] = 55, [TK.ashr] = 55, [TK.plus] = 60, [TK.minus] = 60, [TK.star] = 70, [TK.slash] = 70, [TK.percent] = 70, [TK.lparen] = 90, [TK.lbrack] = 90, [TK.dot] = 90 }
 
 function Parser:parse_expr(rbp)
     self:skip_nl()
@@ -284,12 +315,12 @@ function Parser:led(k, left)
     elseif k == TK.dot then
         return Tr.ExprDot(Tr.ExprSurface, left, self:expect_name("expected field name"))
     end
-    local bin = { [TK.plus] = C.BinAdd, [TK.minus] = C.BinSub, [TK.star] = C.BinMul, [TK.slash] = C.BinDiv, [TK.percent] = C.BinRem, [TK.amp] = C.BinBitAnd, [TK.pipe] = C.BinBitOr, [TK.caret] = C.BinBitXor }
+    local bin = { [TK.plus] = C.BinAdd, [TK.minus] = C.BinSub, [TK.star] = C.BinMul, [TK.slash] = C.BinDiv, [TK.percent] = C.BinRem, [TK.amp] = C.BinBitAnd, [TK.pipe] = C.BinBitOr, [TK.caret] = C.BinBitXor, [TK.shl] = C.BinShl, [TK.lshr] = C.BinLShr, [TK.ashr] = C.BinAShr }
     local cmp = { [TK.eqeq] = C.CmpEq, [TK.ne] = C.CmpNe, [TK.lt] = C.CmpLt, [TK.le] = C.CmpLe, [TK.gt] = C.CmpGt, [TK.ge] = C.CmpGe }
     if bin[k] then return Tr.ExprBinary(Tr.ExprSurface, bin[k], left, self:parse_expr(lbp[k])) end
     if cmp[k] then return Tr.ExprCompare(Tr.ExprSurface, cmp[k], left, self:parse_expr(lbp[k])) end
-    if k == TK.and_kw then return Tr.ExprLogic(Tr.ExprSurface, C.LogicAnd, left, self:parse_expr(lbp[k])) end
-    if k == TK.or_kw then return Tr.ExprLogic(Tr.ExprSurface, C.LogicOr, left, self:parse_expr(lbp[k])) end
+    if k == TK.and_kw or k == TK.amp2 then return Tr.ExprLogic(Tr.ExprSurface, C.LogicAnd, left, self:parse_expr(lbp[k])) end
+    if k == TK.or_kw or k == TK.pipe2 then return Tr.ExprLogic(Tr.ExprSurface, C.LogicOr, left, self:parse_expr(lbp[k])) end
     self:issue("unknown infix operator")
     return left
 end
@@ -359,14 +390,19 @@ function Parser:parse_stmt_until(stops)
     return out
 end
 
-function Parser:parse_if_stmt()
+function Parser:parse_if_stmt(is_elseif)
     local Tr = self.Tr
     local cond = self:parse_expr(0)
     self:expect(TK.then_kw, "expected then")
-    local then_body = self:parse_stmt_until({ [TK.else_kw] = true, [TK.end_kw] = true })
+    local then_body = self:parse_stmt_until({ [TK.else_kw] = true, [TK.elseif_kw] = true, [TK.end_kw] = true })
     local else_body = {}
-    if self:accept(TK.else_kw) then else_body = self:parse_stmt_until({ [TK.end_kw] = true }) end
-    self:expect(TK.end_kw, "expected end")
+    if self:accept(TK.elseif_kw) then
+        local nested_if = self:parse_if_stmt(true)
+        else_body = { nested_if }
+    elseif self:accept(TK.else_kw) then
+        else_body = self:parse_stmt_until({ [TK.end_kw] = true })
+    end
+    if not is_elseif then self:expect(TK.end_kw, "expected end") end
     return Tr.StmtIf(Tr.StmtSurface, cond, then_body, else_body)
 end
 

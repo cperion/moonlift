@@ -78,6 +78,49 @@ return function(A)
                 A.field "actual" "number",
                 A.variant_unique,
             },
+            A.variant "HostIssueSpliceExpected" {
+                A.field "splice_id" "string",
+                A.field "expected" "string",
+                A.field "actual" "string",
+                A.variant_unique,
+            },
+            A.variant "HostIssueSpliceEvalError" {
+                A.field "splice_id" "string",
+                A.field "message" "string",
+                A.variant_unique,
+            },
+            A.variant "HostIssueLuaStepError" {
+                A.field "step_id" "string",
+                A.field "message" "string",
+                A.variant_unique,
+            },
+            A.variant "HostIssueTemplateParseError" {
+                A.field "template_id" "string",
+                A.field "message" "string",
+                A.variant_unique,
+            },
+            A.variant "HostIssueRegionComposeMissingExit" {
+                A.field "fragment_name" "string",
+                A.field "exit_name" "string",
+                A.variant_unique,
+            },
+            A.variant "HostIssueRegionComposeIncompatibleCont" {
+                A.field "fragment_name" "string",
+                A.field "exit_name" "string",
+                A.field "expected" "string",
+                A.field "actual" "string",
+                A.variant_unique,
+            },
+            A.variant "HostIssueRegionComposeIncompleteRoute" {
+                A.field "fragment_name" "string",
+                A.field "exit_name" "string",
+                A.variant_unique,
+            },
+            A.variant "HostIssueRegionComposeContextMismatch" {
+                A.field "left" "string",
+                A.field "right" "string",
+                A.variant_unique,
+            },
         },
 
         A.product "HostReport" {
@@ -254,6 +297,134 @@ return function(A)
         A.product "MluaSource" {
             A.field "name" "string",
             A.field "source" "string",
+            A.unique,
+        },
+
+        A.sum "SpliceExpectation" {
+            A.variant "SpliceAny",
+            A.variant "SpliceExpr",
+            A.variant "SpliceType",
+            A.variant "SpliceEmit",
+            A.variant "SpliceRegionFrag",
+            A.variant "SpliceExprFrag",
+            A.variant "SpliceSource",
+        },
+
+        A.product "HostValueId" {
+            A.field "key" "string",
+            A.field "pretty" "string",
+            A.unique,
+        },
+
+        A.sum "HostValueKind" {
+            A.variant "HostValueRegionFrag",
+            A.variant "HostValueExprFrag",
+            A.variant "HostValueType",
+            A.variant "HostValueDecl",
+            A.variant "HostValueModule",
+            A.variant "HostValueLua",
+            A.variant "HostValueSource",
+        },
+
+        A.product "HostValueRef" {
+            A.field "id" "MoonHost.HostValueId",
+            A.field "kind" "MoonHost.HostValueKind",
+            A.unique,
+        },
+
+        A.product "TemplatePartText" {
+            A.field "source" "MoonSource.SourceSlice",
+            A.unique,
+        },
+
+        A.product "TemplateSplice" {
+            A.field "id" "string",
+            A.field "expected" "MoonHost.SpliceExpectation",
+            A.field "lua_source" "MoonSource.SourceSlice",
+            A.unique,
+        },
+
+        A.sum "TemplatePart" {
+            A.variant "TemplateText" {
+                A.field "text" "MoonHost.TemplatePartText",
+                A.variant_unique,
+            },
+            A.variant "TemplateSplicePart" {
+                A.field "splice" "MoonHost.TemplateSplice",
+                A.variant_unique,
+            },
+        },
+
+        A.product "HostTemplate" {
+            A.field "kind_word" "string",
+            A.field "parts" (A.many "MoonHost.TemplatePart"),
+            A.unique,
+        },
+
+        A.sum "HostStep" {
+            A.variant "HostStepLua" {
+                A.field "id" "string",
+                A.field "source" "MoonSource.SourceSlice",
+                A.variant_unique,
+            },
+            A.variant "HostStepIsland" {
+                A.field "id" "string",
+                A.field "island" "MoonMlua.IslandText",
+                A.field "template" "MoonHost.HostTemplate",
+                A.variant_unique,
+            },
+        },
+
+        A.product "HostProgram" {
+            A.field "source" "MoonHost.MluaSource",
+            A.field "steps" (A.many "MoonHost.HostStep"),
+            A.unique,
+        },
+
+        A.product "HostSpliceResult" {
+            A.field "splice_id" "string",
+            A.field "expected" "MoonHost.SpliceExpectation",
+            A.field "value" "MoonHost.HostValueRef",
+            A.unique,
+        },
+
+        A.product "HostEvaluatedTemplate" {
+            A.field "template" "MoonHost.HostTemplate",
+            A.field "splices" (A.many "MoonHost.HostSpliceResult"),
+            A.field "issues" (A.many "MoonHost.HostIssue"),
+            A.unique,
+        },
+
+        A.product "HostEvalResult" {
+            A.field "program" "MoonHost.HostProgram",
+            A.field "templates" (A.many "MoonHost.HostEvaluatedTemplate"),
+            A.field "report" "MoonHost.HostReport",
+            A.unique,
+        },
+
+        A.product "ProtocolRole" {
+            A.field "role" "string",
+            A.field "target" "string",
+            A.unique,
+        },
+
+        A.product "RegionProtocol" {
+            A.field "name" "string",
+            A.field "roles" (A.many "MoonHost.ProtocolRole"),
+            A.unique,
+        },
+
+        A.product "FragmentDeps" {
+            A.field "region_frags" (A.many "MoonOpen.RegionFrag"),
+            A.field "expr_frags" (A.many "MoonOpen.ExprFrag"),
+            A.unique,
+        },
+
+        A.product "RegionFragMeta" {
+            A.field "name" "string",
+            A.field "frag" "MoonOpen.RegionFrag",
+            A.field "protocol" (A.optional "MoonHost.RegionProtocol"),
+            A.field "deps" "MoonHost.FragmentDeps",
             A.unique,
         },
 

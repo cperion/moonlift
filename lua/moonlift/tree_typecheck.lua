@@ -156,6 +156,13 @@ function M.Define(T)
     end
 
     local function type_binary_op(op, lhs_ty, rhs_ty, issues)
+        -- Pointer arithmetic: ptr + int or int + ptr
+        if op == C.BinAdd then
+            local lhs_is_ptr = pvm.classof(lhs_ty) == Ty.TPtr
+            local rhs_is_ptr = pvm.classof(rhs_ty) == Ty.TPtr
+            if lhs_is_ptr and is_integer_scalar(rhs_ty) then return lhs_ty end
+            if rhs_is_ptr and is_integer_scalar(lhs_ty) then return rhs_ty end
+        end
         if not type_eq(lhs_ty, rhs_ty) then
             issues[#issues + 1] = Tr.TypeIssueInvalidBinary(tostring(op), lhs_ty, rhs_ty)
             return lhs_ty

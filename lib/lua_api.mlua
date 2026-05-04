@@ -44,14 +44,11 @@ extern func lua_setfield(L: ptr(u8), idx: i32, k: ptr(u8))
 extern func lua_settable(L: ptr(u8), idx: i32)
 extern func lua_rawseti(L: ptr(u8), idx: i32, i: i32)
 extern func moonlift_scratch_i32(slot: i32, count: i32) -> ptr(i32)
+extern func moonlift_scratch_u8(slot: i32, count: i32) -> ptr(u8)
 extern func moonlift_alloc_i32(count: i32) -> ptr(i32)
 extern func moonlift_free_i32(p: ptr(i32), count: i32) -> i32
 extern func moonlift_lua_arg_lstring_ptr(L: ptr(u8), idx: i32) -> ptr(u8)
 extern func moonlift_lua_arg_lstring_len(L: ptr(u8), idx: i32) -> index
-extern func moonlift_lua_push_json_number(L: ptr(u8), p: ptr(u8), len: index) -> i32
-extern func moonlift_lua_push_json_string(L: ptr(u8), p: ptr(u8), len: index) -> i32
-extern func moonlift_lua_push_json_number_at(L: ptr(u8), p: ptr(u8), offset: i32, len: i32) -> i32
-extern func moonlift_lua_push_json_string_at(L: ptr(u8), p: ptr(u8), offset: i32, len: i32) -> i32
 ]] }
 
 -- Capture the current Lua stack top and continue with that value.

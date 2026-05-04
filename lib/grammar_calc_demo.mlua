@@ -1,0 +1,99 @@
+-- grammar_calc_demo.mlua — end-to-end grammar combinator test
+-- Builds a simple parser: integer | identifier | ( expr )
+-- Tests: range, alt, seq, star, plus, opt, pred, not_pred, empty
+
+local grammar = require("lib.grammar")
+local G = grammar.grammar("Calc")
+
+-- ── Character classes ──────────────────────────────────────
+G:rule("digit",  function(R) return R.range(48, 57) end)
+G:rule("alpha",  function(R) return R.alt { R.range(65, 90), R.range(97, 122) } end)
+G:rule("space",  function(R) return R.range(32, 32) end)
+
+-- ── Token combinators ──────────────────────────────────────
+G:rule("integer", function(R) return R.plus(R.ref("digit")) end)
+G:rule("ident",   function(R)
+    return R.seq { R.ref("alpha"), R.star(R.ref("alpha")) }
+end)
+G:rule("ws",      function(R) return R.star(R.ref("space")) end)
+
+-- ── Expression fragments ───────────────────────────────────
+G:rule("atom", function(R)
+    return R.alt { R.ref("integer"), R.ref("ident") }
+end)
+
+G:rule("expr", function(R)
+    return R.seq { R.ref("ws"), R.ref("atom"), R.ref("ws") }
+end)
+
+-- ── Compile and run ────────────────────────────────────────
+local compiled = module CalcTest
+export func eval(p: ptr(u8), n: i32) -> i32
+    return region -> i32
+    entry start()
+        emit @{G:get("expr")}(p, n, 0; ok = matched, fail = err)
+    end
+    block matched(next: i32)
+        yield 1
+    end
+    block err(at: i32)
+        yield 0
+    end
+    end
+end
+end
+
+local compute = compiled:compile()
+local fn = compute:get("eval")
+
+local ffi = require("ffi")
+local function test(s, expected)
+    local buf = ffi.new("uint8_t[?]", #s)
+    ffi.copy(buf, s, #s)
+    local ok = fn(buf, #s)
+    assert(ok == (expected and 1 or 0),
+        string.format("input %q: expected %s, got %s", s, expected, ok == 1 and "ok" or "reject"))
+end
+
+test("42",    true)
+test("abc",   true)
+test("a123",  true)
+test("  7  ", true)
+test("@#$",   false)
+test("",      false)
+
+-- Also build a position-reporting variant to verify prefix semantics
+local compiled2 = module CalcTest2
+export func parse_pos(p: ptr(u8), n: i32) -> i32
+    return region -> i32
+    entry start()
+        emit @{G:get("expr")}(p, n, 0; ok = matched, fail = err)
+    end
+    block matched(next: i32)
+        yield next
+    end
+    block err(at: i32)
+        yield -1
+    end
+    end
+end
+end
+
+local compute2 = compiled2:compile()
+local fn2 = compute2:get("parse_pos")
+
+local function test_pos(s, expected_pos)
+    local buf = ffi.new("uint8_t[?]", math.max(1, #s))
+    ffi.copy(buf, s, #s)
+    local pos = fn2(buf, #s)
+    assert(pos == expected_pos,
+        string.format("input %q: expected pos %d, got %d", s, expected_pos, pos))
+end
+
+test_pos("123a", 3)   -- integer matches "123", stops at position 3
+test_pos("xyz",  3)   -- ident matches "xyz"
+test_pos("@#$",  -1)  -- fail, position irrelevant
+
+compute:free()
+compute2:free()
+return "grammar calc demo ok"

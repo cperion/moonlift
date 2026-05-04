@@ -1,0 +1,111 @@
+-- Parser combinator test — key=value parsing with value production.
+-- Exercises: range, byte_eq, alt, seq_keep_b, opt, pred, not_pred,
+-- forward references, end-to-end compilation with FFI execution.
+
+local parser = require("lib.parser")
+local P = parser.parser("KV")
+
+-- ── Character classes ──────────────────────────────────────
+P:rule("alpha",  function(R) return R.alt { R.range(65, 90), R.range(97, 122) } end)
+P:rule("digit",  function(R) return R.range(48, 57) end)
+P:rule("eq",     function(R) return R.byte_eq(61) end)
+
+-- ── Tokens ─────────────────────────────────────────────────
+P:rule("ident", function(R)
+    return R.seq { R.ref("alpha"), R.opt(R.ref("alpha")) }
+end)
+
+P:rule("integer", function(R)
+    return R.seq { R.ref("digit"), R.opt(R.ref("digit")) }
+end)
+
+-- ── Forward reference ─────────────────────────────────────
+P:forward("number", "i32")
+
+P:rule("number", function(R)
+    return R.alt { R.ref("integer") }
+end)
+
+-- ── Key-value pair ─────────────────────────────────────────
+P:rule("kv", function(R)
+    return R.seq { R.ref("ident"), R.ref("eq"), R.ref("number") }
+end)
+
+-- ── Predicate ──────────────────────────────────────────────
+P:rule("is_alpha", function(R)
+    return R.pred(R.ref("alpha"))
+end)
+
+-- ── Compile and test ───────────────────────────────────────
+local compiled = module KVParserTest
+export func test_accept(p: ptr(u8), n: i32) -> i32
+    return region -> i32
+    entry start()
+        emit @{P:get("kv")}(p, n, 0; ok = matched, fail = err)
+    end
+    block matched(next: i32, val: i32)
+        yield 1
+    end
+    block err(at: i32)
+        yield 0
+    end
+    end
+end
+export func test_pos(p: ptr(u8), n: i32) -> i32
+    return region -> i32
+    entry start()
+        emit @{P:get("kv")}(p, n, 0; ok = matched, fail = err)
+    end
+    block matched(next: i32, val: i32)
+        yield next
+    end
+    block err(at: i32)
+        yield -1
+    end
+    end
+end
+export func test_pred(p: ptr(u8), n: i32) -> i32
+    return region -> i32
+    entry start()
+        emit @{P:get("is_alpha")}(p, n, 0; ok = matched, fail = err)
+    end
+    block matched(next: i32, val: i32)
+        yield 1
+    end
+    block err(at: i32)
+        yield 0
+    end
+    end
+end
+end
+
+local compute = compiled:compile()
+local ffi = require("ffi")
+
+local function check(s, fn_name, expected)
+    local buf = ffi.new("uint8_t[?]", math.max(1, #s))
+    ffi.copy(buf, s, #s)
+    local result = compute:get(fn_name)(buf, #s)
+    assert(result == expected,
+        string.format("%s %q: expected %s, got %s", fn_name, s, tostring(expected), tostring(result)))
+end
+
+-- Accept/reject
+check("x=42", "test_accept", 1)
+check("a=1",  "test_accept", 1)
+check("z=9",  "test_accept", 1)
+check("=1",   "test_accept", 0)
+check("",     "test_accept", 0)
+
+-- Position tracking
+check("x=42", "test_pos", 4)
+check("a=1",  "test_pos", 3)
+check("a=1z", "test_pos", 3)   -- PEG prefix, stops at 3
+
+-- Predicate (lookahead without consuming)
+check("abc", "test_pred", 1)
+check("123", "test_pred", 0)
+check("",    "test_pred", 0)
+
+compute:free()
+return "parser combinators ok"
