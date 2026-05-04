@@ -19,7 +19,7 @@ local FuncQuote = {}; FuncQuote.__index = FuncQuote
 local ModuleQuote = {}; ModuleQuote.__index = ModuleQuote
 local RegionFragValue = {}; RegionFragValue.__index = RegionFragValue
 local ExprFragValue = {}; ExprFragValue.__index = ExprFragValue
-local SourceChunk = {}; SourceChunk.__index = SourceChunk
+local QuoteSource = {}; QuoteSource.__index = QuoteSource
 local StructDeclValue = {}; StructDeclValue.__index = StructDeclValue
 local ExposeDeclValue = {}; ExposeDeclValue.__index = ExposeDeclValue
 local TypedSplice = {}; TypedSplice.__index = TypedSplice
@@ -187,13 +187,33 @@ function M.translate(src, name)
     return table.concat(out)
 end
 
-local function merge_splices(dst, src)
+local function new_quote_deps()
+    return { region_frags = {}, expr_frags = {} }
+end
+
+local function merge_named(dst, src)
     for k, v in pairs(src or {}) do dst[k] = v end
 end
 
+local function merge_deps(dst, src)
+    if src == nil then return dst end
+    merge_named(dst.region_frags, src.region_frags)
+    merge_named(dst.expr_frags, src.expr_frags)
+    return dst
+end
+
+local function clone_deps(src)
+    return merge_deps(new_quote_deps(), src)
+end
+
+local function quote_kind(v)
+    if type(v) ~= "table" and type(v) ~= "userdata" then return nil end
+    return rawget(v, "moonlift_quote_kind")
+end
+
 local function normalize_source(src)
-    if getmetatable(src) == SourceChunk then return src.source, src.region_frags, src.expr_frags end
-    return src, {}, {}
+    if getmetatable(src) == QuoteSource then return src.source, clone_deps(src.deps) end
+    return src, new_quote_deps()
 end
 
 function M.typed_splice(value, expected)
@@ -206,18 +226,13 @@ local function splice_kind(v)
     if tv == "table" or tv == "userdata" then
         local mt = getmetatable(v)
         if mt == TypedSplice then return splice_kind(v.value) end
-        -- Duck-type: check for the method, not metatable identity.
-        -- This makes fragments from different Host.dofile calls compatible.
-        if mt and mt.moonlift_splice_source then
-            -- RegionFragValue and ExprFragValue both have moonlift_splice_source.
-            -- Distinguish by checking for region_frags field (RegionFragValue has it).
-            if rawget(v, "region_frags") ~= nil then return "region" end
-            return "expr"
-        end
-        if mt == SourceChunk then return "source" end
+        local qk = quote_kind(v)
+        if qk == "region_frag" then return "region" end
+        if qk == "expr_frag" then return "expr" end
+        if qk == "source" then return "source" end
+        if qk == "type" then return "type" end
         if mt == TypeValue or mt == StructDeclValue then return "type" end
-        if mt and mt.__moon2_host_type_value == true then return "type" end
-        if type(v.as_moon2_type) == "function" or type(v.as_type_value) == "function" then return "type" end
+        if type(v.as_type_value) == "function" then return "type" end
         if type(v.moonlift_splice_source) == "function" then return "source" end
     end
     return tv
@@ -254,41 +269,41 @@ function M.splice(v)
     error("cannot splice Lua value of type " .. tv .. " into Moonlift source", 2)
 end
 
-local function append_source_part(out, region_frags, expr_frags, part, expected)
+local function append_source_part(out, deps, part, expected)
     if type(part) == "table" and getmetatable(part) == nil and #part == 1 then part = part[1] end
-    if getmetatable(part) == TypedSplice then return append_source_part(out, region_frags, expr_frags, part.value, part.expected or expected) end
+    if getmetatable(part) == TypedSplice then return append_source_part(out, deps, part.value, part.expected or expected) end
     if type(part) == "string" and expected == nil then
         out[#out + 1] = part
         return
     end
-    local mt = getmetatable(part)
     out[#out + 1] = M.splice_checked(part, expected)
-    if mt == SourceChunk then
-        merge_splices(region_frags, part.region_frags); merge_splices(expr_frags, part.expr_frags)
-    elseif (mt and mt.moonlift_splice_source and rawget(part, "region_frags") ~= nil) then
-        -- Duck-type RegionFragValue (compatible across dofile boundaries)
-        merge_splices(region_frags, part.region_frags); region_frags[part.name] = part; merge_splices(expr_frags, part.expr_frags)
-    elseif (mt and mt.moonlift_splice_source) then
-        -- Duck-type ExprFragValue
-        expr_frags[part.name] = part
+    local qk = quote_kind(part)
+    if qk == "source" then
+        merge_deps(deps, part.deps)
+    elseif qk == "region_frag" then
+        merge_deps(deps, part.deps)
+        deps.region_frags[part.name] = part
+    elseif qk == "expr_frag" then
+        merge_deps(deps, part.deps)
+        deps.expr_frags[part.name] = part
     end
 end
 
 function M.source(parts)
-    local out, region_frags, expr_frags = {}, {}, {}
-    for i = 1, #parts do append_source_part(out, region_frags, expr_frags, parts[i], nil) end
-    return setmetatable({ source = table.concat(out), region_frags = region_frags, expr_frags = expr_frags }, SourceChunk)
+    local out, deps = {}, new_quote_deps()
+    for i = 1, #parts do append_source_part(out, deps, parts[i], nil) end
+    return setmetatable({ moonlift_quote_kind = "source", source = table.concat(out), deps = deps }, QuoteSource)
 end
 
-function SourceChunk:moonlift_splice_source() return self.source end
-function SourceChunk:__tostring() return self.source end
+function QuoteSource:moonlift_splice_source() return self.source end
+function QuoteSource:__tostring() return self.source end
 
 function TypeValue:moonlift_splice_source() return self.source end
 function TypeValue:__tostring() return "MoonliftType(" .. self.source .. ")" end
 
 function M.type(source)
     assert(type(source) == "string" and source ~= "", "Moonlift type source must be a non-empty string")
-    return setmetatable({ source = source }, TypeValue)
+    return setmetatable({ moonlift_quote_kind = "type", source = source }, TypeValue)
 end
 
 M.i8 = M.type("i8"); M.i16 = M.type("i16"); M.i32 = M.type("i32"); M.i64 = M.type("i64")
@@ -498,7 +513,8 @@ local function c_sig_of(sig)
     return ctype_of(sig.result) .. " (*)(" .. table.concat(args, ", ") .. ")"
 end
 
-local function compile_module_source(src, region_frags, expr_frags)
+local function compile_module_source(src, deps)
+    deps = deps or new_quote_deps()
     src = module_item_source(src)
     local A2 = require("moonlift.asdl")
     local Parse = require("moonlift.parse")
@@ -521,14 +537,14 @@ local function compile_module_source(src, region_frags, expr_frags)
     local jit_api = J.Define(T)
 
     local parsed_expr_frags = {}
-    for name, frag_value in pairs(expr_frags or {}) do
+    for name, frag_value in pairs(deps.expr_frags or {}) do
         local parsed = P.parse_expr_frag(frag_value.source)
         if #parsed.issues ~= 0 then error("host expr parse failed: " .. tostring(parsed.issues[1]), 2) end
         parsed_expr_frags[name] = parsed.value
     end
 
     local parsed_region_frags = {}
-    for name, frag_value in pairs(region_frags or {}) do
+    for name, frag_value in pairs(deps.region_frags or {}) do
         local parsed = P.parse_region_frag(frag_value.source, { expr_frags = parsed_expr_frags, region_frags = parsed_region_frags })
         if #parsed.issues ~= 0 then error("host region parse failed: " .. tostring(parsed.issues[1]), 2) end
         parsed_region_frags[name] = parsed.value
@@ -554,14 +570,14 @@ local function export_func_source(src)
 end
 
 function M.func_from_source(src)
-    local source, region_frags, expr_frags = normalize_source(src)
+    local source, deps = normalize_source(src)
     local normalized, owner_name, method_name = normalize_method_func_source(source)
     normalized = normalize_moonlift_body(normalized)
     local sig = parse_signature(normalized)
-    return setmetatable({ source = normalized, region_frags = region_frags, expr_frags = expr_frags, name = sig.name, params = sig.params, result = sig.result, owner_name = owner_name, method_name = method_name }, FuncQuote)
+    return setmetatable({ moonlift_quote_kind = "func", source = normalized, deps = deps, name = sig.name, params = sig.params, result = sig.result, owner_name = owner_name, method_name = method_name }, FuncQuote)
 end
 
-local function extract_module_local_frags(source, region_frags, expr_frags)
+local function extract_module_local_frags(source, deps)
     local parts, T = parsed_mlua_parts(source, "<module>")
     local Mlua = T.MoonMlua
     local out = {}
@@ -575,11 +591,11 @@ local function extract_module_local_frags(source, region_frags, expr_frags)
             local form = seg.island.source.text
             if kind == "region" then
                 local name = assert(form:match("^%s*region%s+([_%a][_%w]*)"), "module-local region name")
-                region_frags[name] = setmetatable({ name = name, source = form, region_frags = {}, expr_frags = {} }, RegionFragValue)
+                deps.region_frags[name] = setmetatable({ moonlift_quote_kind = "region_frag", name = name, source = form, deps = new_quote_deps() }, RegionFragValue)
                 out[#out + 1] = "\n"
             elseif kind == "expr" then
                 local name = assert(form:match("^%s*expr%s+([_%a][_%w]*)"), "module-local expr name")
-                expr_frags[name] = setmetatable({ name = name, source = form }, ExprFragValue)
+                deps.expr_frags[name] = setmetatable({ moonlift_quote_kind = "expr_frag", name = name, source = form, deps = new_quote_deps() }, ExprFragValue)
                 out[#out + 1] = "\n"
             else
                 out[#out + 1] = form
@@ -588,14 +604,14 @@ local function extract_module_local_frags(source, region_frags, expr_frags)
             error(seg.reason, 2)
         end
     end
-    return table.concat(out), region_frags, expr_frags
+    return table.concat(out), deps
 end
 
 function M.module_from_source(src)
-    local source, region_frags, expr_frags = normalize_source(src)
+    local source, deps = normalize_source(src)
     source = module_item_source(source)
-    source, region_frags, expr_frags = extract_module_local_frags(source, region_frags, expr_frags)
-    return setmetatable({ source = source, region_frags = region_frags, expr_frags = expr_frags, signatures = parse_module_signatures(source) }, ModuleQuote)
+    source, deps = extract_module_local_frags(source, deps)
+    return setmetatable({ moonlift_quote_kind = "module", source = source, deps = deps, signatures = parse_module_signatures(source) }, ModuleQuote)
 end
 
 local function parse_host_func_ast(T, quote)
@@ -640,26 +656,26 @@ function M.new_runtime(opts)
 end
 
 function M.region_from_source(src)
-    local source, region_frags, expr_frags = normalize_source(src)
+    local source, deps = normalize_source(src)
     local name = assert(source:match("^%s*region%s+([_%a][_%w]*)"), "host region quote: expected `region name(...)`")
-    return setmetatable({ name = name, source = source, region_frags = region_frags, expr_frags = expr_frags }, RegionFragValue)
+    return setmetatable({ moonlift_quote_kind = "region_frag", name = name, source = source, deps = deps }, RegionFragValue)
 end
 
 function M.expr_from_source(src)
-    local source = normalize_source(src)
+    local source, deps = normalize_source(src)
     local name = assert(source:match("^%s*expr%s+([_%a][_%w]*)"), "host expr quote: expected `expr name(...)`")
-    return setmetatable({ name = name, source = source }, ExprFragValue)
+    return setmetatable({ moonlift_quote_kind = "expr_frag", name = name, source = source, deps = deps }, ExprFragValue)
 end
 
 function FuncQuote:module_source() return export_func_source(self.source) end
 function FuncQuote:compile()
-    local m = M.module_from_source(setmetatable({ source = self:module_source(), region_frags = self.region_frags or {}, expr_frags = self.expr_frags or {} }, SourceChunk)):compile()
+    local m = M.module_from_source(setmetatable({ moonlift_quote_kind = "source", source = self:module_source(), deps = clone_deps(self.deps) }, QuoteSource)):compile()
     local f = m:get(self.name); f.owns_module = true; return f
 end
 function FuncQuote:__tostring() return "MoonliftFuncQuote(" .. self.name .. ")" end
 
 function ModuleQuote:compile()
-    local artifact, T = compile_module_source(self.source, self.region_frags, self.expr_frags)
+    local artifact, T = compile_module_source(self.source, self.deps)
     return setmetatable({ quote = self, artifact = artifact, T = T, functions = {} }, CompiledModule)
 end
 function ModuleQuote:__tostring() return "MoonliftModuleQuote" end

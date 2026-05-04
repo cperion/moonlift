@@ -177,7 +177,7 @@ function M.Define(T)
         return H.HostTypeLayout(decl.id, decl.name, ctype, H.HostLayoutStruct, size, align, fields)
     end
 
-    local fact_phase = pvm.phase("moon2_host_layout_resolve", {
+    local fact_phase = pvm.phase("moonlift_host_layout_resolve", {
         [H.HostStructDecl] = function(self, target)
             local layout = layout_from_decl(self, target)
             local facts = { H.HostFactTypeLayout(layout) }

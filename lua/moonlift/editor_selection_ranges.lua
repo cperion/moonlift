@@ -10,7 +10,7 @@ function M.Define(T)
     local P = PositionIndex.Define(T)
     local AI = AnchorIndex.Define(T)
 
-    local selection_phase = pvm.phase("moon2_editor_selection_ranges", function(query, analysis)
+    local selection_phase = pvm.phase("moonlift_editor_selection_ranges", function(query, analysis)
         local index = P.build_index(analysis.parse.parts.document)
         local hit = P.source_pos_to_offset(index, query.pos)
         if pvm.classof(hit) ~= S.SourceOffsetHit then return E.SelectionRange(analysis.anchors.anchors[1].range, {}) end

@@ -62,7 +62,7 @@ function M.Define(T)
         return out
     end
 
-    type_ref_layout = pvm.phase("moon2_sem_type_ref_layout", {
+    type_ref_layout = pvm.phase("moonlift_sem_type_ref_layout", {
         [Ty.TypeRefGlobal] = function(ref, env)
             for i = 1, #env.layouts do
                 local layout = env.layouts[i]
@@ -85,7 +85,7 @@ function M.Define(T)
         [Ty.TypeRefSlot] = function() return pvm.empty() end,
     }, { args_cache = "last" })
 
-    type_layout = pvm.phase("moon2_sem_type_layout", {
+    type_layout = pvm.phase("moonlift_sem_type_layout", {
         [Ty.TNamed] = function(self, env) return type_ref_layout(self.ref, env) end,
         [Ty.TScalar] = function() return pvm.empty() end,
         [Ty.TPtr] = function() return pvm.empty() end,
@@ -97,7 +97,7 @@ function M.Define(T)
         [Ty.TSlot] = function() return pvm.empty() end,
     }, { args_cache = "last" })
 
-    field_in_layout = pvm.phase("moon2_sem_field_in_layout", {
+    field_in_layout = pvm.phase("moonlift_sem_field_in_layout", {
         [Sem.LayoutNamed] = function(layout, field_name)
             for i = 1, #layout.fields do
                 local field = layout.fields[i]
@@ -125,7 +125,7 @@ function M.Define(T)
         return H.HostRepOpaque("sem_layout")
     end
 
-    resolve_field_ref = pvm.phase("moon2_sem_resolve_field_ref", {
+    resolve_field_ref = pvm.phase("moonlift_sem_resolve_field_ref", {
         [Sem.FieldByOffset] = function(field) return pvm.once(field) end,
         [Sem.FieldByName] = function(field, base_ty, env)
             local layout = maybe_one(type_layout(base_ty, env))
@@ -143,13 +143,13 @@ function M.Define(T)
         return nil
     end
 
-    resolve_index_base = pvm.phase("moon2_sem_layout_index_base", {
+    resolve_index_base = pvm.phase("moonlift_sem_layout_index_base", {
         [Tr.IndexBaseExpr] = function(self, env) return pvm.once(pvm.with(self, { base = one(resolve_expr, self.base, env) })) end,
         [Tr.IndexBasePlace] = function(self, env) return pvm.once(pvm.with(self, { base = one(resolve_place, self.base, env) })) end,
         [Tr.IndexBaseView] = function(self, env) return pvm.once(pvm.with(self, { view = one(resolve_view, self.view, env) })) end,
     }, { args_cache = "last" })
 
-    resolve_place = pvm.phase("moon2_sem_layout_place", {
+    resolve_place = pvm.phase("moonlift_sem_layout_place", {
         [Tr.PlaceRef] = function(self) return pvm.once(self) end,
         [Tr.PlaceDeref] = function(self, env) return pvm.once(pvm.with(self, { base = one(resolve_expr, self.base, env) })) end,
         [Tr.PlaceDot] = function(self, env) return pvm.once(pvm.with(self, { base = one(resolve_place, self.base, env) })) end,
@@ -164,7 +164,7 @@ function M.Define(T)
         [Tr.PlaceSlotValue] = function(self) return pvm.once(self) end,
     }, { args_cache = "last" })
 
-    resolve_view = pvm.phase("moon2_sem_layout_view", {
+    resolve_view = pvm.phase("moonlift_sem_layout_view", {
         [Tr.ViewFromExpr] = function(self, env) return pvm.once(pvm.with(self, { base = one(resolve_expr, self.base, env) })) end,
         [Tr.ViewContiguous] = function(self, env) return pvm.once(pvm.with(self, { data = one(resolve_expr, self.data, env), len = one(resolve_expr, self.len, env) })) end,
         [Tr.ViewStrided] = function(self, env) return pvm.once(pvm.with(self, { data = one(resolve_expr, self.data, env), len = one(resolve_expr, self.len, env), stride = one(resolve_expr, self.stride, env) })) end,
@@ -175,7 +175,7 @@ function M.Define(T)
         [Tr.ViewInterleavedView] = function(self, env) return pvm.once(pvm.with(self, { base = one(resolve_view, self.base, env), stride = one(resolve_expr, self.stride, env), lane = one(resolve_expr, self.lane, env) })) end,
     }, { args_cache = "last" })
 
-    resolve_domain = pvm.phase("moon2_sem_layout_domain", {
+    resolve_domain = pvm.phase("moonlift_sem_layout_domain", {
         [Tr.DomainRange] = function(self, env) return pvm.once(pvm.with(self, { stop = one(resolve_expr, self.stop, env) })) end,
         [Tr.DomainRange2] = function(self, env) return pvm.once(pvm.with(self, { start = one(resolve_expr, self.start, env), stop = one(resolve_expr, self.stop, env) })) end,
         [Tr.DomainZipEqValues] = function(self, env) return pvm.once(pvm.with(self, { values = map_exprs(self.values, env) })) end,
@@ -185,7 +185,7 @@ function M.Define(T)
         [Tr.DomainSlotValue] = function(self) return pvm.once(self) end,
     }, { args_cache = "last" })
 
-    resolve_expr = pvm.phase("moon2_sem_layout_expr", {
+    resolve_expr = pvm.phase("moonlift_sem_layout_expr", {
         [Tr.ExprLit] = function(self) return pvm.once(self) end,
         [Tr.ExprRef] = function(self) return pvm.once(self) end,
         [Tr.ExprDot] = function(self, env) return pvm.once(pvm.with(self, { base = one(resolve_expr, self.base, env) })) end,
@@ -235,7 +235,7 @@ function M.Define(T)
         return pvm.with(block, { body = map_stmts(block.body, env) })
     end
 
-    resolve_control_stmt_region = pvm.phase("moon2_sem_layout_control_stmt_region", {
+    resolve_control_stmt_region = pvm.phase("moonlift_sem_layout_control_stmt_region", {
         [Tr.ControlStmtRegion] = function(self, env)
             local blocks = {}
             for i = 1, #self.blocks do blocks[#blocks + 1] = resolve_control_block(self.blocks[i], env) end
@@ -243,7 +243,7 @@ function M.Define(T)
         end,
     }, { args_cache = "last" })
 
-    resolve_control_expr_region = pvm.phase("moon2_sem_layout_control_expr_region", {
+    resolve_control_expr_region = pvm.phase("moonlift_sem_layout_control_expr_region", {
         [Tr.ControlExprRegion] = function(self, env)
             local blocks = {}
             for i = 1, #self.blocks do blocks[#blocks + 1] = resolve_control_block(self.blocks[i], env) end
@@ -251,7 +251,7 @@ function M.Define(T)
         end,
     }, { args_cache = "last" })
 
-    resolve_stmt = pvm.phase("moon2_sem_layout_stmt", {
+    resolve_stmt = pvm.phase("moonlift_sem_layout_stmt", {
         [Tr.StmtLet] = function(self, env) return pvm.once(pvm.with(self, { init = one(resolve_expr, self.init, env) })) end,
         [Tr.StmtVar] = function(self, env) return pvm.once(pvm.with(self, { init = one(resolve_expr, self.init, env) })) end,
         [Tr.StmtSet] = function(self, env) return pvm.once(pvm.with(self, { place = one(resolve_place, self.place, env), value = one(resolve_expr, self.value, env) })) end,
@@ -270,7 +270,7 @@ function M.Define(T)
         [Tr.StmtUseRegionFrag] = function(self, env) return pvm.once(pvm.with(self, { args = map_exprs(self.args, env) })) end,
     }, { args_cache = "last" })
 
-    resolve_func = pvm.phase("moon2_sem_layout_func", {
+    resolve_func = pvm.phase("moonlift_sem_layout_func", {
         [Tr.FuncLocal] = function(self, env) return pvm.once(pvm.with(self, { body = map_stmts(self.body, env) })) end,
         [Tr.FuncExport] = function(self, env) return pvm.once(pvm.with(self, { body = map_stmts(self.body, env) })) end,
         [Tr.FuncLocalContract] = function(self, env) return pvm.once(pvm.with(self, { body = map_stmts(self.body, env) })) end,
@@ -278,17 +278,17 @@ function M.Define(T)
         [Tr.FuncOpen] = function(self, env) return pvm.once(pvm.with(self, { body = map_stmts(self.body, env) })) end,
     }, { args_cache = "last" })
 
-    resolve_const = pvm.phase("moon2_sem_layout_const", {
+    resolve_const = pvm.phase("moonlift_sem_layout_const", {
         [Tr.ConstItem] = function(self, env) return pvm.once(pvm.with(self, { value = one(resolve_expr, self.value, env) })) end,
         [Tr.ConstItemOpen] = function(self, env) return pvm.once(pvm.with(self, { value = one(resolve_expr, self.value, env) })) end,
     }, { args_cache = "last" })
 
-    resolve_static = pvm.phase("moon2_sem_layout_static", {
+    resolve_static = pvm.phase("moonlift_sem_layout_static", {
         [Tr.StaticItem] = function(self, env) return pvm.once(pvm.with(self, { value = one(resolve_expr, self.value, env) })) end,
         [Tr.StaticItemOpen] = function(self, env) return pvm.once(pvm.with(self, { value = one(resolve_expr, self.value, env) })) end,
     }, { args_cache = "last" })
 
-    resolve_type_decl = pvm.phase("moon2_sem_layout_type_decl", {
+    resolve_type_decl = pvm.phase("moonlift_sem_layout_type_decl", {
         [Tr.TypeDeclStruct] = function(self) return pvm.once(self) end,
         [Tr.TypeDeclUnion] = function(self) return pvm.once(self) end,
         [Tr.TypeDeclEnumSugar] = function(self) return pvm.once(self) end,
@@ -297,7 +297,7 @@ function M.Define(T)
         [Tr.TypeDeclOpenUnion] = function(self) return pvm.once(self) end,
     })
 
-    resolve_item = pvm.phase("moon2_sem_layout_item", {
+    resolve_item = pvm.phase("moonlift_sem_layout_item", {
         [Tr.ItemFunc] = function(self, env) return pvm.once(pvm.with(self, { func = one(resolve_func, self.func, env) })) end,
         [Tr.ItemExtern] = function(self) return pvm.once(self) end,
         [Tr.ItemConst] = function(self, env) return pvm.once(pvm.with(self, { c = one(resolve_const, self.c, env) })) end,
@@ -310,7 +310,7 @@ function M.Define(T)
         [Tr.ItemUseModuleSlot] = function(self) return pvm.once(self) end,
     }, { args_cache = "last" })
 
-    resolve_module = pvm.phase("moon2_sem_layout_module", {
+    resolve_module = pvm.phase("moonlift_sem_layout_module", {
         [Tr.Module] = function(module, env) return pvm.once(pvm.with(module, { items = map_items(module.items, env) })) end,
     }, { args_cache = "last" })
 

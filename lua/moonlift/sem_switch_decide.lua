@@ -13,21 +13,21 @@ function M.Define(T)
     local decide_stmt_switch
     local decide_expr_switch
 
-    key_kind = pvm.phase("moon2_sem_switch_key_kind", {
+    key_kind = pvm.phase("moonlift_sem_switch_key_kind", {
         [Sem.SwitchKeyConst] = function() return pvm.once("const") end,
         [Sem.SwitchKeyRaw] = function() return pvm.once("const") end,
         [Sem.SwitchKeyExpr] = function() return pvm.once("expr") end,
     })
 
-    stmt_arm_key = pvm.phase("moon2_sem_stmt_switch_arm_key", {
+    stmt_arm_key = pvm.phase("moonlift_sem_stmt_switch_arm_key", {
         [Tr.SwitchStmtArm] = function(arm) return pvm.once(arm.key) end,
     })
 
-    expr_arm_key = pvm.phase("moon2_sem_expr_switch_arm_key", {
+    expr_arm_key = pvm.phase("moonlift_sem_expr_switch_arm_key", {
         [Tr.SwitchExprArm] = function(arm) return pvm.once(arm.key) end,
     })
 
-    decide_keys = pvm.phase("moon2_sem_switch_decide_keys", {
+    decide_keys = pvm.phase("moonlift_sem_switch_decide_keys", {
         [Sem.SwitchKeySet] = function(set)
             local has_const = false
             local has_expr = false
@@ -46,7 +46,7 @@ function M.Define(T)
         end,
     })
 
-    decide_stmt_switch = pvm.phase("moon2_sem_stmt_switch_decide", {
+    decide_stmt_switch = pvm.phase("moonlift_sem_stmt_switch_decide", {
         [Tr.StmtSwitch] = function(stmt)
             local keys = {}
             for i = 1, #stmt.arms do keys[#keys + 1] = pvm.one(stmt_arm_key(stmt.arms[i])) end
@@ -54,7 +54,7 @@ function M.Define(T)
         end,
     })
 
-    decide_expr_switch = pvm.phase("moon2_sem_expr_switch_decide", {
+    decide_expr_switch = pvm.phase("moonlift_sem_expr_switch_decide", {
         [Tr.ExprSwitch] = function(expr)
             local keys = {}
             for i = 1, #expr.arms do keys[#keys + 1] = pvm.one(expr_arm_key(expr.arms[i])) end

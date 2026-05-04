@@ -27,7 +27,7 @@ local region_slot = O.RegionSlot("R", "R")
 local items_slot = O.ItemsSlot("I", "I")
 local module_slot = O.ModuleSlot("M", "M")
 
-local env = O.ExpandEnv(O.FillSet({
+local env = O.ExpandEnv({}, {}, O.FillSet({
     O.SlotBinding(O.SlotType(type_slot), O.SlotValueType(u64)),
     O.SlotBinding(O.SlotExpr(expr_slot), O.SlotValueExpr(lit("7"))),
     O.SlotBinding(O.SlotRegion(region_slot), O.SlotValueRegion({
@@ -41,7 +41,7 @@ local env = O.ExpandEnv(O.FillSet({
     O.SlotBinding(O.SlotModule(module_slot), O.SlotValueModule(Tr.Module(Tr.ModuleTyped("Nested"), {
         Tr.ItemConst(Tr.ConstItem("nested", i32, lit("5"))),
     }))),
-}), {}, "")
+}), {}, {}, "")
 
 assert(E.type(Ty.TSlot(type_slot), env) == u64)
 assert(E.expr(Tr.ExprSlotValue(Tr.ExprTyped(i32), expr_slot), env) == lit("7"))
@@ -62,8 +62,8 @@ assert(module_items[1] == Tr.ItemConst(Tr.ConstItem("nested", i32, lit("5"))))
 
 local param = O.OpenParam("x", "x", i32)
 local binding = B.Binding(C.Id("x"), "x", i32, B.BindingClassOpenParam(param))
-local frag = O.ExprFrag({ param }, O.OpenSet({}, {}, {}, {}), Tr.ExprRef(Tr.ExprTyped(i32), B.ValueRefBinding(binding)), i32)
-local expanded_frag = E.expr(Tr.ExprUseExprFrag(Tr.ExprTyped(i32), "frag", frag, { lit("9") }, {}), E.empty_env())
+local frag = O.ExprFrag("frag", { param }, O.OpenSet({}, {}, {}, {}), Tr.ExprRef(Tr.ExprTyped(i32), B.ValueRefBinding(binding)), i32)
+local expanded_frag = E.expr(Tr.ExprUseExprFrag(Tr.ExprTyped(i32), "use.frag", "frag", { lit("9") }, {}), E.env_with_frags({}, { frag }))
 assert(expanded_frag == lit("9"))
 
 local module = Tr.Module(

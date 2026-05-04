@@ -19,14 +19,14 @@ function M.Define(T)
         return xs[1]
     end
 
-    header_type = pvm.phase("moon2_tree_place_header_type", {
+    header_type = pvm.phase("moonlift_tree_place_header_type", {
         [Tr.PlaceSurface] = function() return pvm.empty() end,
         [Tr.PlaceTyped] = function(self) return pvm.once(self.ty) end,
         [Tr.PlaceOpen] = function(self) return pvm.once(self.ty) end,
         [Tr.PlaceSem] = function(self) return pvm.once(self.ty) end,
     })
 
-    value_ref_type = pvm.phase("moon2_tree_place_value_ref_type", {
+    value_ref_type = pvm.phase("moonlift_tree_place_value_ref_type", {
         [B.ValueRefBinding] = function(self) return pvm.once(self.binding.ty) end,
         [B.ValueRefSlot] = function(self) return pvm.once(self.slot.ty) end,
         [B.ValueRefFuncSlot] = function(self) return pvm.once(self.slot.fn_ty) end,
@@ -36,7 +36,7 @@ function M.Define(T)
         [B.ValueRefPath] = function() return pvm.empty() end,
     })
 
-    index_base_elem_type = pvm.phase("moon2_tree_index_base_elem_type", {
+    index_base_elem_type = pvm.phase("moonlift_tree_index_base_elem_type", {
         [Tr.IndexBaseExpr] = function() return pvm.empty() end,
         [Tr.IndexBasePlace] = function(self) return pvm.once(self.elem) end,
         [Tr.IndexBaseView] = function(self) return pvm.once(self.view.elem) end,
@@ -49,7 +49,7 @@ function M.Define(T)
         return pvm.empty()
     end
 
-    place_type = pvm.phase("moon2_tree_place_type", {
+    place_type = pvm.phase("moonlift_tree_place_type", {
         [Tr.PlaceRef] = function(self)
             local ty = first(header_type(self.h)) or first(value_ref_type(self.ref))
             if ty ~= nil then return pvm.once(ty) end

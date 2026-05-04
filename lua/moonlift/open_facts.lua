@@ -304,7 +304,7 @@ function M.Define(T)
         [Tr.StmtIf] = function(self) return cat({ pack(stmt_header_facts(self.h)), pack(expr_facts(self.cond)), pack(each(stmt_facts, self.then_body)), pack(each(stmt_facts, self.else_body)) }) end,
         [Tr.StmtSwitch] = function(self) return cat({ pack(stmt_header_facts(self.h)), pack(expr_facts(self.value)), pack(each(switch_stmt_arm_facts, self.arms)), pack(each(stmt_facts, self.default_body)) }) end,
         [Tr.StmtJump] = function(self) local trips = { pack(stmt_header_facts(self.h)) }; for i = 1, #self.args do trips[#trips + 1] = pack(expr_facts(self.args[i].value)) end; return cat(trips) end,
-        [Tr.StmtJumpCont] = function(self) local trips = { pack(stmt_header_facts(self.h)) }; for i = 1, #self.args do trips[#trips + 1] = pack(expr_facts(self.args[i].value)) end; return cat(trips) end,
+        [Tr.StmtJumpCont] = function(self) local trips = { pack(stmt_header_facts(self.h)), pack(pvm.once(O.MetaFactSlot(O.SlotCont(self.slot)))) }; for i = 1, #self.args do trips[#trips + 1] = pack(expr_facts(self.args[i].value)) end; return cat(trips) end,
         [Tr.StmtYieldVoid] = function(self) return stmt_header_facts(self.h) end,
         [Tr.StmtYieldValue] = function(self) return cat({ pack(stmt_header_facts(self.h)), pack(expr_facts(self.value)) }) end,
         [Tr.StmtReturnVoid] = function(self) return stmt_header_facts(self.h) end,

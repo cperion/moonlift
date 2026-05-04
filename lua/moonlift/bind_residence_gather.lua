@@ -31,7 +31,7 @@ function M.Define(T)
     local function cat(trips) return pvm.concat_all(trips) end
     local function each(phase, xs) return pvm.children(phase, xs) end
 
-    binding_facts = pvm.phase("moon2_bind_residence_binding_facts", {
+    binding_facts = pvm.phase("moonlift_bind_residence_binding_facts", {
         [B.Binding] = function(binding)
             local facts = { B.ResidenceFactBinding(binding) }
             local scalar_result = scalar_api.result(binding.ty)
@@ -42,7 +42,7 @@ function M.Define(T)
         end,
     })
 
-    value_ref_facts = pvm.phase("moon2_bind_residence_value_ref_facts", {
+    value_ref_facts = pvm.phase("moonlift_bind_residence_value_ref_facts", {
         [B.ValueRefBinding] = function(self) return binding_facts(self.binding) end,
         [B.ValueRefName] = function() return pvm.empty() end,
         [B.ValueRefPath] = function() return pvm.empty() end,
@@ -52,7 +52,7 @@ function M.Define(T)
         [B.ValueRefStaticSlot] = function() return pvm.empty() end,
     })
 
-    place_address_facts = pvm.phase("moon2_bind_residence_place_address_facts", {
+    place_address_facts = pvm.phase("moonlift_bind_residence_place_address_facts", {
         [Tr.PlaceRef] = function(self)
             if pvm.classof(self.ref) == B.ValueRefBinding then
                 return cat({ pack(value_ref_facts(self.ref)), pack(pvm.once(B.ResidenceFactAddressTaken(self.ref.binding))) })
@@ -66,7 +66,7 @@ function M.Define(T)
         [Tr.PlaceSlotValue] = function() return pvm.empty() end,
     })
 
-    place_facts = pvm.phase("moon2_bind_residence_place_facts", {
+    place_facts = pvm.phase("moonlift_bind_residence_place_facts", {
         [Tr.PlaceRef] = function(self) return value_ref_facts(self.ref) end,
         [Tr.PlaceDeref] = function(self) return expr_facts(self.base) end,
         [Tr.PlaceDot] = function(self) return place_facts(self.base) end,
@@ -75,7 +75,7 @@ function M.Define(T)
         [Tr.PlaceSlotValue] = function() return pvm.empty() end,
     })
 
-    view_facts = pvm.phase("moon2_bind_residence_view_facts", {
+    view_facts = pvm.phase("moonlift_bind_residence_view_facts", {
         [Tr.ViewFromExpr] = function(self) return expr_facts(self.base) end,
         [Tr.ViewContiguous] = function(self) return cat({ pack(expr_facts(self.data)), pack(expr_facts(self.len)) }) end,
         [Tr.ViewStrided] = function(self) return cat({ pack(expr_facts(self.data)), pack(expr_facts(self.len)), pack(expr_facts(self.stride)) }) end,
@@ -86,7 +86,7 @@ function M.Define(T)
         [Tr.ViewInterleavedView] = function(self) return cat({ pack(view_facts(self.base)), pack(expr_facts(self.stride)), pack(expr_facts(self.lane)) }) end,
     })
 
-    domain_facts = pvm.phase("moon2_bind_residence_domain_facts", {
+    domain_facts = pvm.phase("moonlift_bind_residence_domain_facts", {
         [Tr.DomainRange] = function(self) return expr_facts(self.stop) end,
         [Tr.DomainRange2] = function(self) return cat({ pack(expr_facts(self.start)), pack(expr_facts(self.stop)) }) end,
         [Tr.DomainZipEqValues] = function(self) return each(expr_facts, self.values) end,
@@ -96,7 +96,7 @@ function M.Define(T)
         [Tr.DomainSlotValue] = function() return pvm.empty() end,
     })
 
-    index_base_facts = pvm.phase("moon2_bind_residence_index_base_facts", {
+    index_base_facts = pvm.phase("moonlift_bind_residence_index_base_facts", {
         [Tr.IndexBaseExpr] = function(self) return expr_facts(self.base) end,
         [Tr.IndexBasePlace] = function(self) return place_facts(self.base) end,
         [Tr.IndexBaseView] = function(self) return view_facts(self.view) end,
@@ -112,7 +112,7 @@ function M.Define(T)
         return each(stmt_facts, block.body)
     end
 
-    control_stmt_region_facts = pvm.phase("moon2_bind_residence_control_stmt_region_facts", {
+    control_stmt_region_facts = pvm.phase("moonlift_bind_residence_control_stmt_region_facts", {
         [Tr.ControlStmtRegion] = function(self)
             local trips = { pack(entry_block_facts(self.entry)) }
             for i = 1, #self.blocks do trips[#trips + 1] = pack(control_block_facts(self.blocks[i])) end
@@ -120,7 +120,7 @@ function M.Define(T)
         end,
     })
 
-    control_expr_region_facts = pvm.phase("moon2_bind_residence_control_expr_region_facts", {
+    control_expr_region_facts = pvm.phase("moonlift_bind_residence_control_expr_region_facts", {
         [Tr.ControlExprRegion] = function(self)
             local trips = { pack(entry_block_facts(self.entry)) }
             for i = 1, #self.blocks do trips[#trips + 1] = pack(control_block_facts(self.blocks[i])) end
@@ -128,7 +128,7 @@ function M.Define(T)
         end,
     })
 
-    expr_facts = pvm.phase("moon2_bind_residence_expr_facts", {
+    expr_facts = pvm.phase("moonlift_bind_residence_expr_facts", {
         [Tr.ExprLit] = function() return pvm.empty() end,
         [Tr.ExprRef] = function(self) return value_ref_facts(self.ref) end,
         [Tr.ExprDot] = function(self) return expr_facts(self.base) end,
@@ -171,7 +171,7 @@ function M.Define(T)
         [Tr.ExprUseExprFrag] = function(self) return each(expr_facts, self.args) end,
     })
 
-    stmt_facts = pvm.phase("moon2_bind_residence_stmt_facts", {
+    stmt_facts = pvm.phase("moonlift_bind_residence_stmt_facts", {
         [Tr.StmtLet] = function(self) return cat({ pack(binding_facts(self.binding)), pack(expr_facts(self.init)) }) end,
         [Tr.StmtVar] = function(self) return cat({ pack(binding_facts(self.binding)), pack(pvm.once(B.ResidenceFactMutableCell(self.binding))), pack(expr_facts(self.init)) }) end,
         [Tr.StmtSet] = function(self) return cat({ pack(place_facts(self.place)), pack(expr_facts(self.value)) }) end,
@@ -203,7 +203,7 @@ function M.Define(T)
         [Tr.StmtUseRegionFrag] = function(self) return each(expr_facts, self.args) end,
     })
 
-    func_facts = pvm.phase("moon2_bind_residence_func_facts", {
+    func_facts = pvm.phase("moonlift_bind_residence_func_facts", {
         [Tr.FuncLocal] = function(self) return each(stmt_facts, self.body) end,
         [Tr.FuncExport] = function(self) return each(stmt_facts, self.body) end,
         [Tr.FuncLocalContract] = function(self) return each(stmt_facts, self.body) end,
@@ -211,22 +211,22 @@ function M.Define(T)
         [Tr.FuncOpen] = function(self) return each(stmt_facts, self.body) end,
     })
 
-    extern_facts = pvm.phase("moon2_bind_residence_extern_facts", {
+    extern_facts = pvm.phase("moonlift_bind_residence_extern_facts", {
         [Tr.ExternFunc] = function() return pvm.empty() end,
         [Tr.ExternFuncOpen] = function() return pvm.empty() end,
     })
 
-    const_facts = pvm.phase("moon2_bind_residence_const_facts", {
+    const_facts = pvm.phase("moonlift_bind_residence_const_facts", {
         [Tr.ConstItem] = function(self) return expr_facts(self.value) end,
         [Tr.ConstItemOpen] = function(self) return expr_facts(self.value) end,
     })
 
-    static_facts = pvm.phase("moon2_bind_residence_static_facts", {
+    static_facts = pvm.phase("moonlift_bind_residence_static_facts", {
         [Tr.StaticItem] = function(self) return expr_facts(self.value) end,
         [Tr.StaticItemOpen] = function(self) return expr_facts(self.value) end,
     })
 
-    item_facts = pvm.phase("moon2_bind_residence_item_facts", {
+    item_facts = pvm.phase("moonlift_bind_residence_item_facts", {
         [Tr.ItemFunc] = function(self) return func_facts(self.func) end,
         [Tr.ItemExtern] = function(self) return extern_facts(self.func) end,
         [Tr.ItemConst] = function(self) return const_facts(self.c) end,
@@ -239,7 +239,7 @@ function M.Define(T)
         [Tr.ItemUseModuleSlot] = function() return pvm.empty() end,
     })
 
-    module_facts = pvm.phase("moon2_bind_residence_module_facts", {
+    module_facts = pvm.phase("moonlift_bind_residence_module_facts", {
         [Tr.Module] = function(module) return each(item_facts, module.items) end,
     })
 

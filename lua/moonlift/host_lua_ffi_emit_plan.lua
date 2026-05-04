@@ -5,7 +5,7 @@ local M = {}
 function M.Define(T)
     local H = T.MoonHost
 
-    local phase = pvm.phase("moon2_host_lua_ffi_emit_plan", {
+    local phase = pvm.phase("moonlift_host_lua_ffi_emit_plan", {
         [H.HostFactSet] = function(self, module_name)
             local cdefs, access_plans = {}, {}
             for i = 1, #self.facts do
@@ -17,12 +17,12 @@ function M.Define(T)
                     access_plans[#access_plans + 1] = fact.plan
                 end
             end
-            return pvm.once(H.HostLuaFfiPlan(module_name or "moon2_host", cdefs, access_plans))
+            return pvm.once(H.HostLuaFfiPlan(module_name or "moonlift_host", cdefs, access_plans))
         end,
     }, { args_cache = "full" })
 
     local function plan(facts, module_name)
-        return pvm.one(phase(facts, module_name or "moon2_host"))
+        return pvm.one(phase(facts, module_name or "moonlift_host"))
     end
 
     return {

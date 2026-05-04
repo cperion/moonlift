@@ -5,7 +5,7 @@ local M = {}
 function M.Define(T)
     local H = T.MoonHost
 
-    local phase = pvm.phase("moon2_host_c_emit_plan", {
+    local phase = pvm.phase("moonlift_host_c_emit_plan", {
         [H.HostFactSet] = function(self, header_name)
             local layouts, views, sources = {}, {}, {}
             for i = 1, #self.facts do
@@ -19,12 +19,12 @@ function M.Define(T)
                     sources[#sources + 1] = fact.cdef.source
                 end
             end
-            return pvm.once(H.HostCPlan(header_name or "moon2_host.h", table.concat(sources, "\n\n"), layouts, views))
+            return pvm.once(H.HostCPlan(header_name or "moonlift_host.h", table.concat(sources, "\n\n"), layouts, views))
         end,
     }, { args_cache = "full" })
 
     local function plan(facts, header_name)
-        return pvm.one(phase(facts, header_name or "moon2_host.h"))
+        return pvm.one(phase(facts, header_name or "moonlift_host.h"))
     end
 
     return {

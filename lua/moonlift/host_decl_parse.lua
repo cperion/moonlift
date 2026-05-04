@@ -5,7 +5,7 @@ local M = {}
 function M.Define(T)
     local H = T.MoonHost
 
-    local phase = pvm.phase("moon2_host_decl_parse", {
+    local phase = pvm.phase("moonlift_host_decl_parse", {
         [H.HostDeclSourceSet] = function(self)
             return pvm.once(self.set)
         end,

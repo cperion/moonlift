@@ -20,7 +20,7 @@ function M.Define(T)
     local dependence_rejects
     local decide_loop
 
-    scalar_elem = pvm.phase("moon2_vec_scalar_elem", {
+    scalar_elem = pvm.phase("moonlift_vec_scalar_elem", {
         [C.ScalarBool] = function() return pvm.once(V.VecElemBool) end,
         [C.ScalarI8] = function() return pvm.once(V.VecElemI8) end,
         [C.ScalarI16] = function() return pvm.once(V.VecElemI16) end,
@@ -37,7 +37,7 @@ function M.Define(T)
         [C.ScalarVoid] = function() return pvm.empty() end,
     })
 
-    elem_bits = pvm.phase("moon2_vec_elem_bits", {
+    elem_bits = pvm.phase("moonlift_vec_elem_bits", {
         [V.VecElemBool] = function() return pvm.once(1) end,
         [V.VecElemI8] = function() return pvm.once(8) end,
         [V.VecElemU8] = function() return pvm.once(8) end,
@@ -53,7 +53,7 @@ function M.Define(T)
         [V.VecElemIndex] = function() return pvm.once(64) end,
     })
 
-    target_vector_bits = pvm.phase("moon2_vec_target_vector_bits", {
+    target_vector_bits = pvm.phase("moonlift_vec_target_vector_bits", {
         [V.VecTargetModel] = function(model)
             for i = 1, #model.facts do
                 local fact = model.facts[i]
@@ -63,7 +63,7 @@ function M.Define(T)
         end,
     })
 
-    target_supports_shape = pvm.phase("moon2_vec_target_supports_shape", {
+    target_supports_shape = pvm.phase("moonlift_vec_target_supports_shape", {
         [V.VecTargetModel] = function(model, shape)
             for i = 1, #model.facts do
                 local fact = model.facts[i]
@@ -73,7 +73,7 @@ function M.Define(T)
         end,
     }, { args_cache = "last" })
 
-    memory_rejects = pvm.phase("moon2_vec_memory_rejects", {
+    memory_rejects = pvm.phase("moonlift_vec_memory_rejects", {
         [V.VecMemoryAccess] = function(self)
             if self.pattern == V.VecAccessContiguous then return pvm.empty() end
             local pattern = pvm.classof(self.pattern)
@@ -84,13 +84,13 @@ function M.Define(T)
         end,
     })
 
-    dependence_rejects = pvm.phase("moon2_vec_dependence_rejects", {
+    dependence_rejects = pvm.phase("moonlift_vec_dependence_rejects", {
         [V.VecNoDependence] = function() return pvm.empty() end,
         [V.VecDependenceUnknown] = function(self) return pvm.once(self.reject) end,
         [V.VecLoopCarriedDependence] = function(self) return pvm.once(self.reject) end,
     })
 
-    facts_elem = pvm.phase("moon2_vec_facts_elem", {
+    facts_elem = pvm.phase("moonlift_vec_facts_elem", {
         [V.VecLoopFacts] = function(facts)
             if #facts.reductions > 0 then
                 local ty = facts.reductions[1].accumulator.ty
@@ -104,7 +104,7 @@ function M.Define(T)
         end,
     })
 
-    decide_loop = pvm.phase("moon2_vec_loop_decide", {
+    decide_loop = pvm.phase("moonlift_vec_loop_decide", {
         [V.VecLoopFacts] = function(facts, target)
             local rejects = {}
             for i = 1, #facts.rejects do rejects[#rejects + 1] = facts.rejects[i] end

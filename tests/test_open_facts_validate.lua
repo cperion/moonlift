@@ -97,20 +97,15 @@ assert(has(report.issues, O.IssueUnfilledTypeDeclSlot(type_decl_slot)))
 assert(has(report.issues, O.IssueUnfilledItemsSlot(items_slot)))
 assert(has(report.issues, O.IssueUnfilledModuleSlot(module_slot)))
 
-local expr_frag = O.ExprFrag({}, O.OpenSet({}, {}, {}, { O.SlotExpr(expr_slot) }), Tr.ExprSlotValue(Tr.ExprTyped(i32), expr_slot), i32)
-local region_frag = O.RegionFrag(
-    {},
-    O.OpenSet({}, {}, {}, { O.SlotRegion(region_slot) }),
-    Tr.EntryControlBlock(Tr.BlockLabel("entry"), {}, { Tr.StmtUseRegionSlot(Tr.StmtTyped, region_slot) }),
-    {}
-)
+local expr_frag_name = "expr.frag"
+local region_frag_name = "region.frag"
 local nested_module = Tr.Module(Tr.ModuleTyped("Nested"), {})
 local module = Tr.Module(
     Tr.ModuleOpen(O.ModuleNameOpen, O.OpenSet({}, {}, {}, {})),
     {
         Tr.ItemFunc(Tr.FuncLocal("f", {}, i32, {
-            Tr.StmtExpr(Tr.StmtTyped, Tr.ExprUseExprFrag(Tr.ExprTyped(i32), "expr.use", expr_frag, { lit }, {})),
-            Tr.StmtUseRegionFrag(Tr.StmtTyped, "region.use", region_frag, { lit }, {}),
+            Tr.StmtExpr(Tr.StmtTyped, Tr.ExprUseExprFrag(Tr.ExprTyped(i32), "expr.use", expr_frag_name, { lit }, {})),
+            Tr.StmtUseRegionFrag(Tr.StmtTyped, "region.use", region_frag_name, { lit }, {}, {}),
         })),
         Tr.ItemUseTypeDeclSlot(type_decl_slot),
         Tr.ItemUseItemsSlot(items_slot),
@@ -125,8 +120,6 @@ assert(has(module_facts.facts, O.MetaFactExprFragUse("expr.use")))
 assert(has(module_facts.facts, O.MetaFactRegionFragUse("region.use")))
 assert(has(module_facts.facts, O.MetaFactModuleUse("module.use")))
 assert(has(module_facts.facts, O.MetaFactModuleSlotUse("module.slot.use", module_slot)))
-assert(has(module_facts.facts, O.MetaFactSlot(O.SlotExpr(expr_slot))))
-assert(has(module_facts.facts, O.MetaFactSlot(O.SlotRegion(region_slot))))
 assert(has(module_facts.facts, O.MetaFactSlot(O.SlotTypeDecl(type_decl_slot))))
 assert(has(module_facts.facts, O.MetaFactSlot(O.SlotItems(items_slot))))
 assert(has(module_facts.facts, O.MetaFactSlot(O.SlotModule(module_slot))))
@@ -136,8 +129,6 @@ assert(has(module_report.issues, O.IssueOpenModuleName))
 assert(has(module_report.issues, O.IssueUnexpandedExprFragUse("expr.use")))
 assert(has(module_report.issues, O.IssueUnexpandedRegionFragUse("region.use")))
 assert(has(module_report.issues, O.IssueUnexpandedModuleUse("module.use")))
-assert(has(module_report.issues, O.IssueUnfilledExprSlot(expr_slot)))
-assert(has(module_report.issues, O.IssueUnfilledRegionSlot(region_slot)))
 assert(has(module_report.issues, O.IssueUnfilledTypeDeclSlot(type_decl_slot)))
 assert(has(module_report.issues, O.IssueUnfilledItemsSlot(items_slot)))
 assert(has(module_report.issues, O.IssueUnfilledModuleSlot(module_slot)))

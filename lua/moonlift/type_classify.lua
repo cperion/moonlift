@@ -12,7 +12,7 @@ function M.Define(T)
     local classify_type
     local classify_type_ref
 
-    array_len_count = pvm.phase("moon2_type_array_len_count", {
+    array_len_count = pvm.phase("moonlift_type_array_len_count", {
         [Ty.ArrayLenConst] = function(self)
             return pvm.once(self.count)
         end,
@@ -24,7 +24,7 @@ function M.Define(T)
         end,
     })
 
-    classify_type_ref = pvm.phase("moon2_type_ref_classify", {
+    classify_type_ref = pvm.phase("moonlift_type_ref_classify", {
         [Ty.TypeRefGlobal] = function(self)
             return pvm.once(Ty.TypeClassAggregate(self.module_name, self.type_name))
         end,
@@ -39,7 +39,7 @@ function M.Define(T)
         end,
     })
 
-    classify_type = pvm.phase("moon2_type_classify", {
+    classify_type = pvm.phase("moonlift_type_classify", {
         [Ty.TScalar] = function(self)
             return pvm.once(Ty.TypeClassScalar(self.scalar))
         end,

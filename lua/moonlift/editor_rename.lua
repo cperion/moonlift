@@ -42,7 +42,7 @@ function M.Define(T)
         return ranges
     end
 
-    local prepare_rename_phase = pvm.phase("moon2_editor_prepare_rename", {
+    local prepare_rename_phase = pvm.phase("moonlift_editor_prepare_rename", {
         [E.PositionQuery] = function(query, analysis)
             local pick = Subject.subject_at(query, analysis)
             local id = rename_subject_id(pick.subject)
@@ -55,7 +55,7 @@ function M.Define(T)
         end,
     }, { args_cache = "full" })
 
-    local rename_phase = pvm.phase("moon2_editor_rename", {
+    local rename_phase = pvm.phase("moonlift_editor_rename", {
         [E.RenameQuery] = function(query, analysis)
             if not valid_identifier(query.new_name) then return pvm.once(E.RenameRejected("invalid identifier")) end
             local prepared = pvm.one(prepare_rename_phase(query.position, analysis))

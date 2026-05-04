@@ -215,7 +215,7 @@ function M.Define(T)
         return E.SubjectMissing("no semantic subject for anchor " .. anchor.label)
     end
 
-    local subject_at_phase = pvm.phase("moon2_editor_subject_at", function(query, analysis)
+    local subject_at_phase = pvm.phase("moonlift_editor_subject_at", function(query, analysis)
         local index = P.build_index(analysis.parse.parts.document)
         local offset_hit = P.source_pos_to_offset(index, query.pos)
         if pvm.classof(offset_hit) ~= S.SourceOffsetHit then

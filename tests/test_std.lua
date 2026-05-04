@@ -1,4 +1,4 @@
-package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
+package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./lib/?.lua;./lib/?/init.lua;" .. package.path
 
 local moonlift = require("moonlift")
 local Std = require("moonlift.std")
@@ -9,21 +9,17 @@ assert(moonlift.json == Std.json)
 assert(moonlift.host == Std.host)
 assert(moonlift.mlua == Std.mlua)
 assert(Builtins == Std.builtins)
-assert(type(Builtins.source("json")) == "string")
+local ok = pcall(function() Builtins.source("json") end)
+assert(not ok)
 
 local src = [[{"id":42,"active":true}]]
-local id, id_err = moonlift.json.get_i32(src, "id", { byte_cap = 64, tape_cap = 64, stack_cap = 64 })
-assert(id == 42, tostring(id_err))
-local active, active_err = moonlift.json.get_bool(src, "active", { byte_cap = 64, tape_cap = 64, stack_cap = 64 })
-assert(active == true, tostring(active_err))
-
-local decoded = assert(moonlift.json.decode_project({ { name = "id", type = "i32" }, { name = "active", type = "bool" } }, src))
-assert(decoded.id == 42)
-assert(decoded.active == true)
-
-local view = assert(moonlift.json.decode_project_view({ { name = "id", type = "i32" }, { name = "active", type = "bool" } }, src))
-assert(view.id == 42)
-assert(view.active == true)
-
-moonlift.json.free()
+if _M_HOSTED then
+    local decoded = assert(moonlift.json.decode(src))
+    assert(decoded.id == 42)
+    assert(decoded.active == true)
+    moonlift.json.free()
+else
+    local ok_json = pcall(function() moonlift.json.decode(src) end)
+    assert(not ok_json)
+end
 print("moonlift std ok")

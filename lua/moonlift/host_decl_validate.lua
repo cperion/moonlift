@@ -29,7 +29,7 @@ function M.Define(T)
         return pvm.classof(ty) == Ty.TScalar and ty.scalar == C.ScalarBool
     end
 
-    local field_issue_phase = pvm.phase("moon2_host_field_decl_validate", {
+    local field_issue_phase = pvm.phase("moonlift_host_field_decl_validate", {
         [H.HostFieldDecl] = function(self, owner_name)
             local issues = {}
             if not is_identifier(self.name) then
@@ -42,7 +42,7 @@ function M.Define(T)
         end,
     }, { args_cache = "full" })
 
-    local struct_issue_phase = pvm.phase("moon2_host_struct_decl_validate", {
+    local struct_issue_phase = pvm.phase("moonlift_host_struct_decl_validate", {
         [H.HostStructDecl] = function(self)
             local issues = {}
             if not is_identifier(self.name) then
@@ -66,7 +66,7 @@ function M.Define(T)
         end,
     })
 
-    local expose_issue_phase = pvm.phase("moon2_host_expose_decl_validate", {
+    local expose_issue_phase = pvm.phase("moonlift_host_expose_decl_validate", {
         [H.HostExposeDecl] = function(self)
             local issues = {}
             if not is_identifier(self.public_name) then
@@ -76,7 +76,7 @@ function M.Define(T)
         end,
     })
 
-    local accessor_issue_phase = pvm.phase("moon2_host_accessor_decl_validate", {
+    local accessor_issue_phase = pvm.phase("moonlift_host_accessor_decl_validate", {
         [H.HostAccessorField] = function(self)
             local issues = {}
             if not is_identifier(self.owner_name) then issues[#issues + 1] = H.HostIssueInvalidName("accessor.owner", tostring(self.owner_name)) end
@@ -99,7 +99,7 @@ function M.Define(T)
         end,
     })
 
-    local decl_issue_phase = pvm.phase("moon2_host_decl_validate", {
+    local decl_issue_phase = pvm.phase("moonlift_host_decl_validate", {
         [H.HostDeclStruct] = function(self)
             return struct_issue_phase(self.decl)
         end,
@@ -111,7 +111,7 @@ function M.Define(T)
         end,
     })
 
-    local decl_set_issue_phase = pvm.phase("moon2_host_decl_set_validate", {
+    local decl_set_issue_phase = pvm.phase("moonlift_host_decl_set_validate", {
         [H.HostDeclSet] = function(self)
             local issues = {}
             local seen = {}

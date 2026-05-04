@@ -103,7 +103,7 @@ function M.Define(T)
         return H.MluaHostPipelineResult(parsed, report, env, H.HostFactSet(all_facts), lua, terra, c)
     end
 
-    local phase = pvm.phase("moon2_mlua_host_pipeline", {
+    local phase = pvm.phase("moonlift_mlua_host_pipeline", {
         [H.MluaSource] = function(self, module_name, target)
             local parsed = MluaParse.parse(self.source, self.name)
             return pvm.once(run(parsed, module_name or self.name, target))

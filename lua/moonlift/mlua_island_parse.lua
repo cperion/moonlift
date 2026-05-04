@@ -292,7 +292,7 @@ function M.Define(T)
         return S.AnchorSet(anchors)
     end
 
-    local island_parse_phase = pvm.phase("moon2_mlua_island_parse", function(island)
+    local island_parse_phase = pvm.phase("moonlift_mlua_island_parse", function(island)
         local parsed = Parser.parse(island.source.text, kind_label(Mlua, island.kind) .. ":" .. island_name_text(Mlua, island))
         return Mlua.IslandParse(
             island,

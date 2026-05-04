@@ -19,7 +19,7 @@ function M.Define(T)
     local P = PositionIndex.Define(T)
     local AI = AnchorIndex.Define(T)
 
-    local context_phase = pvm.phase("moon2_editor_completion_context", function(query, analysis)
+    local context_phase = pvm.phase("moonlift_editor_completion_context", function(query, analysis)
         local doc = analysis.parse.parts.document
         local index = P.build_index(doc)
         local hit = P.source_pos_to_offset(index, query.pos)

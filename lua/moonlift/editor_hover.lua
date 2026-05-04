@@ -47,7 +47,7 @@ function M.Define(T)
     local Mlua = T.MoonMlua
     local Subject = SubjectAt.Define(T)
 
-    local hover_from_pick_phase = pvm.phase("moon2_editor_hover_from_subject", function(pick, analysis)
+    local hover_from_pick_phase = pvm.phase("moonlift_editor_hover_from_subject", function(pick, analysis)
         local subject = pick.subject
         local range = (#pick.anchors > 0 and pick.anchors[1].range) or analysis.anchors.anchors[1].range
         local cls = pvm.classof(subject)
@@ -91,7 +91,7 @@ function M.Define(T)
         return E.HoverMissing("no hover for subject")
     end, { args_cache = "full" })
 
-    local hover_phase = pvm.phase("moon2_editor_hover", function(query, analysis)
+    local hover_phase = pvm.phase("moonlift_editor_hover", function(query, analysis)
         local pick = Subject.subject_at(query, analysis)
         return pvm.one(hover_from_pick_phase(pick, analysis))
     end, { args_cache = "full" })

@@ -8,7 +8,7 @@ function M.Define(T)
     local mark_fact
     local decide_facts
 
-    mark_fact = pvm.phase("moon2_bind_residence_mark_fact", {
+    mark_fact = pvm.phase("moonlift_bind_residence_mark_fact", {
         [B.ResidenceFactBinding] = function() return pvm.empty() end,
         [B.ResidenceFactAddressTaken] = function(self, state) state.address[self.binding] = true; return pvm.empty() end,
         [B.ResidenceFactMutableCell] = function(self, state) state.mutable[self.binding] = true; return pvm.empty() end,
@@ -17,7 +17,7 @@ function M.Define(T)
         [B.ResidenceFactBackendRequired] = function(self, state) state.backend[self.binding] = true; return pvm.empty() end,
     }, { args_cache = "none" })
 
-    decide_facts = pvm.phase("moon2_bind_residence_decide_facts", {
+    decide_facts = pvm.phase("moonlift_bind_residence_decide_facts", {
         [B.ResidenceFactSet] = function(fact_set)
             local state = {
                 bindings = {}, seen = {}, address = {}, mutable = {}, nonscalar = {}, materialized = {}, backend = {},

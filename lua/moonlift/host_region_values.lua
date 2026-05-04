@@ -59,7 +59,7 @@ function M.Install(api, session)
     local function jump_args(args)
         local out = {}
         for name, expr in ordered_pairs_from_map(args or {}) do
-            out[#out + 1] = Tr.JumpArg(name, api.as_moon2_expr(expr, "jump arg expects expression value"))
+            out[#out + 1] = Tr.JumpArg(name, api.as_moonlift_expr(expr, "jump arg expects expression value"))
         end
         return out
     end
@@ -144,12 +144,12 @@ function M.Install(api, session)
 
     function BlockBuilder:return_(expr)
         if expr == nil then return self:emit_stmt(Tr.StmtReturnVoid(Tr.StmtSurface)) end
-        return self:emit_stmt(Tr.StmtReturnValue(Tr.StmtSurface, api.as_moon2_expr(expr, "return expects expression")))
+        return self:emit_stmt(Tr.StmtReturnValue(Tr.StmtSurface, api.as_moonlift_expr(expr, "return expects expression")))
     end
 
     function BlockBuilder:yield_(expr)
         if expr == nil then return self:emit_stmt(Tr.StmtYieldVoid(Tr.StmtSurface)) end
-        return self:emit_stmt(Tr.StmtYieldValue(Tr.StmtSurface, api.as_moon2_expr(expr, "yield expects expression")))
+        return self:emit_stmt(Tr.StmtYieldValue(Tr.StmtSurface, api.as_moonlift_expr(expr, "yield expects expression")))
     end
 
     function BlockBuilder:jump(target, args)
@@ -165,7 +165,7 @@ function M.Install(api, session)
     function BlockBuilder:emit(fragment, runtime_args, fills)
         assert(type(fragment) == "table" and getmetatable(fragment) == RegionFragValue, "emit expects a region fragment value")
         local args = {}
-        for i = 1, #(runtime_args or {}) do args[i] = api.as_moon2_expr(runtime_args[i], "emit runtime arg expects expression") end
+        for i = 1, #(runtime_args or {}) do args[i] = api.as_moonlift_expr(runtime_args[i], "emit runtime arg expects expression") end
         local fill_values = {}
         for name, target in ordered_pairs_from_map(fills or {}) do
             local cont = fragment.conts[name]
@@ -309,6 +309,8 @@ function M.Install(api, session)
         r.conts = cont_values
         if builder_fn then builder_fn(r) end
         local frag = O.RegionFrag(name, open_params, slots, O.OpenSet({}, {}, {}, {}), entry_asdl(r.entry_block), blocks_asdl(r.blocks))
+        session.T._moonlift_host_region_frags = session.T._moonlift_host_region_frags or {}
+        session.T._moonlift_host_region_frags[name] = frag
         return setmetatable({ kind = "region_frag", name = name, params = runtime_params, frag = frag, conts = cont_values }, RegionFragValue)
     end
 

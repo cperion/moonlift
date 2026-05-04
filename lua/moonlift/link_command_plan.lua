@@ -103,7 +103,7 @@ function M.Define(T)
         return Link.LinkCommandPlan(plan, { Link.LinkCmdRun(Link.LinkTool(plan.tool.kind, Link.LinkPath(tool_path(plan.tool))), args, {}) })
     end
 
-    local phase = pvm.phase("moon2_link_command_plan", {
+    local phase = pvm.phase("moonlift_link_command_plan", {
         [Link.LinkPlan] = function(self) return pvm.once(command_plan(self)) end,
     })
 

@@ -15,7 +15,7 @@ function M.Define(T)
     local Subject = SubjectAt.Define(T)
     local Bindings = BindingFacts.Define(T)
 
-    local highlight_phase = pvm.phase("moon2_editor_document_highlight", {
+    local highlight_phase = pvm.phase("moonlift_editor_document_highlight", {
         [E.PositionQuery] = function(query, analysis)
             local pick = Subject.subject_at(query, analysis)
             local id = Bindings.subject_key(pick.subject)

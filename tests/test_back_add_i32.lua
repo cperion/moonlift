@@ -22,7 +22,7 @@ local a = B2.BackValId("a")
 local b = B2.BackValId("b")
 local r = B2.BackValId("r")
 
-local moon2_program = B2.BackProgram({
+local moonlift_program = B2.BackProgram({
     B2.CmdCreateSig(sig, { B2.BackI32, B2.BackI32 }, { B2.BackI32 }),
     B2.CmdDeclareFunc(C2.VisibilityExport, func, sig),
     B2.CmdBeginFunc(func),
@@ -36,11 +36,11 @@ local moon2_program = B2.BackProgram({
     B2.CmdFinalizeModule,
 })
 
-local report = validate.validate(moon2_program)
+local report = validate.validate(moonlift_program)
 assert(#report.issues == 0)
 
 local jit = jit_api.jit()
-local artifact = jit:compile(moon2_program)
+local artifact = jit:compile(moonlift_program)
 local ptr = artifact:getpointer(B2.BackFuncId("add_i32"))
 local add_i32 = ffi.cast("int32_t (*)(int32_t, int32_t)", ptr)
 assert(add_i32(20, 22) == 42)

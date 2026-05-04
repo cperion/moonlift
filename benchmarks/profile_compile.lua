@@ -96,7 +96,7 @@ local function pct(x, total) if total == 0 then return 0 end return x * 100 / to
 io.write("Moonlift compile-time profile: jump-first i32 kernels\n\n")
 io.write(string.format("source_bytes %d\n", #SRC))
 io.write(string.format("items %d\n", #checked.module.items))
-io.write(string.format("moon2_back_cmds %d\n\n", #program.cmds))
+io.write(string.format("moonlift_back_cmds %d\n\n", #program.cmds))
 
 io.write("Core compile path\n")
 io.write(string.format("  %-24s %9.3f ms %6.1f%%\n", "parse", ms(spans.parse or 0), pct(spans.parse or 0, compile_core)))

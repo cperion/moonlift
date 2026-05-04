@@ -6,7 +6,7 @@ function M.Define(T)
     local H = T.MoonHost
     local Tr = T.MoonTree
 
-    local phase = pvm.phase("moon2_mlua_loop_expand", {
+    local phase = pvm.phase("moonlift_mlua_loop_expand", {
         [H.MluaLoopControlStmt] = function(self)
             return pvm.once(H.MluaLoopExpandResult(self.region.entry, self.region.blocks, {}))
         end,

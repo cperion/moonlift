@@ -2,13 +2,13 @@ local M = {}
 
 local ExprValue = {}
 ExprValue.__index = ExprValue
-ExprValue.__moon2_host_expr_value = true
+ExprValue.__moonlift_host_expr_value = true
 
 local function get_expr_value(v)
     if type(v) ~= "table" then return nil end
     local mt = getmetatable(v)
     if mt == ExprValue then return v end
-    if mt and mt.__moon2_host_expr_value and type(v.as_expr_value) == "function" then return v:as_expr_value() end
+    if mt and mt.__moonlift_host_expr_value and type(v.as_expr_value) == "function" then return v:as_expr_value() end
     return nil
 end
 
@@ -16,7 +16,7 @@ function ExprValue:as_expr_value()
     return self
 end
 
-function ExprValue:as_moon2_expr()
+function ExprValue:as_moonlift_expr()
     return self.expr
 end
 
@@ -68,7 +68,7 @@ function M.Install(api, session)
         return coerce(v, site)
     end
 
-    function api.as_moon2_expr(v, site)
+    function api.as_moonlift_expr(v, site)
         return moon_expr(v, site)
     end
 

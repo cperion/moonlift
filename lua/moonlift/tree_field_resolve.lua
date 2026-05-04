@@ -31,7 +31,7 @@ function M.Define(T)
         return Sem.FieldByOffset(field.name, field.offset, ty_from_rep(field.rep), field.rep)
     end
 
-    local phase = pvm.phase("moon2_tree_field_resolve", {
+    local phase = pvm.phase("moonlift_tree_field_resolve", {
         [Tr.ExprDot] = function(self, layout)
             local field = find_field(layout, self.name)
             if not field then return pvm.empty() end

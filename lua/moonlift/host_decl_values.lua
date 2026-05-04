@@ -71,7 +71,7 @@ function M.Install(api, session)
     end
 
     local function as_type(v, site)
-        return api.as_moon2_type(v, site or "expected Moonlift type value")
+        return api.as_moonlift_type(v, site or "expected Moonlift type value")
     end
 
     local function host_field_type(expose_ty, storage, source_hint)

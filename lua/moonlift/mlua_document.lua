@@ -130,7 +130,7 @@ function M.Define(T)
         add_anchor(S, anchors, base .. ".keyword", S.AnchorKeyword, kind_word, keyword_range)
     end
 
-    local document_parts_phase = pvm.phase("moon2_mlua_document_parts", function(document)
+    local document_parts_phase = pvm.phase("moonlift_mlua_document_parts", function(document)
         local index = P.build_index(document)
         local segments = {}
         local anchors = {}
@@ -195,7 +195,7 @@ function M.Define(T)
     local IslandParse = require("moonlift.mlua_island_parse")
     local WholeParse = require("moonlift.mlua_parse")
 
-    local document_parse_phase = pvm.phase("moon2_mlua_document_parse", function(parts)
+    local document_parse_phase = pvm.phase("moonlift_mlua_document_parse", function(parts)
         local index = P.build_index(parts.document)
         local Island = IslandParse.Define(T)
         local Whole = WholeParse.Define(T)

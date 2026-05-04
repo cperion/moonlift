@@ -21,7 +21,7 @@ function M.Define(T)
     local S = T.MoonSource
     local P = PositionIndex.Define(T)
 
-    local apply_phase = pvm.phase("moon2_source_text_apply", function(document, edit)
+    local apply_phase = pvm.phase("moonlift_source_text_apply", function(document, edit)
         local issues = {}
         if document.uri ~= edit.uri then
             append_issue(issues, S.SourceIssueWrongDocument(document.uri, edit.uri))

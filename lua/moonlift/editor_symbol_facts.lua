@@ -54,7 +54,7 @@ function M.Define(T)
         return a and a.range or full_range(analysis)
     end
 
-    local symbol_facts_phase = pvm.phase("moon2_editor_symbol_facts", {
+    local symbol_facts_phase = pvm.phase("moonlift_editor_symbol_facts", {
         [Mlua.DocumentAnalysis] = function(analysis)
             local symbols = {}
             local seen = {}

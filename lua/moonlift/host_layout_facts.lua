@@ -216,7 +216,7 @@ function M.Define(T)
         )
     end
 
-    local access_plan_phase = pvm.phase("moon2_host_access_plan", {
+    local access_plan_phase = pvm.phase("moonlift_host_access_plan", {
         [H.HostTypeLayout] = function(self)
             local subject = H.HostAccessRecord(self)
             local entries = {}
@@ -235,7 +235,7 @@ function M.Define(T)
         end,
     })
 
-    local view_access_plan_phase = pvm.phase("moon2_host_view_access_plan", {
+    local view_access_plan_phase = pvm.phase("moonlift_host_view_access_plan", {
         [H.HostViewDescriptor] = function(self)
             local subject = H.HostAccessView(self)
             local elem_layout = self.abi.elem_layout

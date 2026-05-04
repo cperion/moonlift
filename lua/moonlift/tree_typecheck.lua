@@ -174,7 +174,7 @@ function M.Define(T)
         return bool_ty()
     end
 
-    type_view = pvm.phase("moon2_tree_typecheck_view", {
+    type_view = pvm.phase("moonlift_tree_typecheck_view", {
         [Tr.ViewFromExpr] = function(self, ctx)
             local base = pvm.one(type_expr(self.base, ctx))
             local issues = {}; append_all(issues, base.issues)
@@ -239,7 +239,7 @@ function M.Define(T)
         return void_ty()
     end
 
-    type_index_base = pvm.phase("moon2_tree_typecheck_index_base", {
+    type_index_base = pvm.phase("moonlift_tree_typecheck_index_base", {
         [Tr.IndexBaseExpr] = function(self, ctx)
             local base = pvm.one(type_expr(self.base, ctx))
             local issues = {}; append_all(issues, base.issues)
@@ -260,7 +260,7 @@ function M.Define(T)
         end,
     }, { args_cache = "last" })
 
-    type_place = pvm.phase("moon2_tree_typecheck_place", {
+    type_place = pvm.phase("moonlift_tree_typecheck_place", {
         [Tr.PlaceRef] = function(self, ctx)
             local ty, ref, issues = ref_type(self.ref, ctx.env)
             return pvm.once(result_place(Tr.PlaceRef(Tr.PlaceTyped(ty), ref), ty, issues))
@@ -289,7 +289,7 @@ function M.Define(T)
         [Tr.PlaceSlotValue] = function(self, ctx) return pvm.once(result_place(Tr.PlaceSlotValue(Tr.PlaceTyped(self.slot.ty), self.slot), self.slot.ty, {})) end,
     }, { args_cache = "last" })
 
-    type_expr = pvm.phase("moon2_tree_typecheck_expr", {
+    type_expr = pvm.phase("moonlift_tree_typecheck_expr", {
         [Tr.ExprLit] = function(self, ctx)
             local cls = pvm.classof(self.value)
             local ty = void_ty()
@@ -445,7 +445,7 @@ function M.Define(T)
         return out
     end
 
-    type_stmt = pvm.phase("moon2_tree_typecheck_stmt", {
+    type_stmt = pvm.phase("moonlift_tree_typecheck_stmt", {
         [Tr.StmtLet] = function(self, ctx)
             local init = type_expr_expect(self.init, ctx, self.binding.ty); local issues = {}; append_all(issues, init.issues); check_expected("let " .. self.binding.name, self.binding.ty, init.ty, issues)
             local binding = pvm.with(self.binding, { class = B.BindingClassLocalValue })
@@ -527,7 +527,7 @@ function M.Define(T)
         return issues
     end
 
-    type_control_stmt_region = pvm.phase("moon2_tree_typecheck_control_stmt_region", {
+    type_control_stmt_region = pvm.phase("moonlift_tree_typecheck_control_stmt_region", {
         [Tr.ControlStmtRegion] = function(self, ctx)
             local entry, issues = type_entry_block(self.region_id, self.entry, ctx, Tr.TypeYieldVoid)
             local blocks = {}
@@ -537,7 +537,7 @@ function M.Define(T)
         end,
     }, { args_cache = "last" })
 
-    type_control_expr_region = pvm.phase("moon2_tree_typecheck_control_expr_region", {
+    type_control_expr_region = pvm.phase("moonlift_tree_typecheck_control_expr_region", {
         [Tr.ControlExprRegion] = function(self, ctx)
             local entry, issues = type_entry_block(self.region_id, self.entry, ctx, Tr.TypeYieldValue(self.result_ty))
             local blocks = {}
@@ -615,7 +615,7 @@ function M.Define(T)
         return Tr.TypeFuncResult(pvm.with(self, { contracts = contracts, body = body.stmts }), issues)
     end
 
-    type_func = pvm.phase("moon2_tree_typecheck_func", {
+    type_func = pvm.phase("moonlift_tree_typecheck_func", {
         [Tr.FuncLocal] = function(self, module_env) return pvm.once(type_plain_func(self, module_env)) end,
         [Tr.FuncExport] = function(self, module_env) return pvm.once(type_plain_func(self, module_env)) end,
         [Tr.FuncLocalContract] = function(self, module_env) return pvm.once(type_contract_func(self, module_env)) end,
@@ -623,7 +623,7 @@ function M.Define(T)
         [Tr.FuncOpen] = function(self, module_env) local ctx = Tr.TypeCheckEnv(module_env, self.result, Tr.TypeYieldNone); local body = type_stmt_body(self.body, ctx); return pvm.once(Tr.TypeFuncResult(pvm.with(self, { body = body.stmts }), body.issues)) end,
     }, { args_cache = "last" })
 
-    type_item = pvm.phase("moon2_tree_typecheck_item", {
+    type_item = pvm.phase("moonlift_tree_typecheck_item", {
         [Tr.ItemFunc] = function(self, module_env) local r = pvm.one(type_func(self.func, module_env)); return pvm.once(Tr.TypeItemResult({ Tr.ItemFunc(r.func) }, r.issues)) end,
         [Tr.ItemConst] = function(self, module_env) local ctx = Tr.TypeCheckEnv(module_env, self.c.ty, Tr.TypeYieldNone); local value = pvm.one(type_expr(self.c.value, ctx)); local issues = {}; append_all(issues, value.issues); check_expected("const", self.c.ty, value.ty, issues); return pvm.once(Tr.TypeItemResult({ Tr.ItemConst(pvm.with(self.c, { value = value.expr })) }, issues)) end,
         [Tr.ItemStatic] = function(self, module_env) local ctx = Tr.TypeCheckEnv(module_env, self.s.ty, Tr.TypeYieldNone); local value = pvm.one(type_expr(self.s.value, ctx)); local issues = {}; append_all(issues, value.issues); check_expected("static", self.s.ty, value.ty, issues); return pvm.once(Tr.TypeItemResult({ Tr.ItemStatic(pvm.with(self.s, { value = value.expr })) }, issues)) end,
@@ -636,7 +636,7 @@ function M.Define(T)
         [Tr.ItemUseModuleSlot] = function(self) return pvm.once(Tr.TypeItemResult({ self }, {})) end,
     }, { args_cache = "last" })
 
-    type_module = pvm.phase("moon2_tree_typecheck_module", {
+    type_module = pvm.phase("moonlift_tree_typecheck_module", {
         [Tr.Module] = function(module)
             local module_env = module_type_api.env(module)
             local items = {}

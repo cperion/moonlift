@@ -10,13 +10,13 @@ function M.Define(T)
     local cmp_class
     local intrinsic_class
 
-    unary_class = pvm.phase("moon2_core_unary_op_class", {
+    unary_class = pvm.phase("moonlift_core_unary_op_class", {
         [C.UnaryNeg] = function() return pvm.once(C.UnaryClassArithmetic) end,
         [C.UnaryNot] = function() return pvm.once(C.UnaryClassLogical) end,
         [C.UnaryBitNot] = function() return pvm.once(C.UnaryClassBitwise) end,
     })
 
-    binary_class = pvm.phase("moon2_core_binary_op_class", {
+    binary_class = pvm.phase("moonlift_core_binary_op_class", {
         [C.BinAdd] = function() return pvm.once(C.BinaryClassArithmetic) end,
         [C.BinSub] = function() return pvm.once(C.BinaryClassArithmetic) end,
         [C.BinMul] = function() return pvm.once(C.BinaryClassArithmetic) end,
@@ -30,7 +30,7 @@ function M.Define(T)
         [C.BinAShr] = function() return pvm.once(C.BinaryClassShift) end,
     })
 
-    cmp_class = pvm.phase("moon2_core_cmp_op_class", {
+    cmp_class = pvm.phase("moonlift_core_cmp_op_class", {
         [C.CmpEq] = function() return pvm.once(C.CmpClassEquality) end,
         [C.CmpNe] = function() return pvm.once(C.CmpClassEquality) end,
         [C.CmpLt] = function() return pvm.once(C.CmpClassOrdering) end,
@@ -39,7 +39,7 @@ function M.Define(T)
         [C.CmpGe] = function() return pvm.once(C.CmpClassOrdering) end,
     })
 
-    intrinsic_class = pvm.phase("moon2_core_intrinsic_class", {
+    intrinsic_class = pvm.phase("moonlift_core_intrinsic_class", {
         [C.IntrinsicPopcount] = function() return pvm.once(C.IntrinsicClassBit) end,
         [C.IntrinsicClz] = function() return pvm.once(C.IntrinsicClassBit) end,
         [C.IntrinsicCtz] = function() return pvm.once(C.IntrinsicClassBit) end,

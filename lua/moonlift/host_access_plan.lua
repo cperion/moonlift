@@ -38,7 +38,7 @@ function M.Define(T)
         return entries
     end
 
-    local phase = pvm.phase("moon2_host_access_plan", {
+    local phase = pvm.phase("moonlift_host_access_plan", {
         [H.HostAccessRecord] = function(self)
             return pvm.once(H.HostAccessPlan(self, record_entries(self, self.layout, true)))
         end,

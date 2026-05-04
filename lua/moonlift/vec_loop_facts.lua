@@ -87,7 +87,7 @@ function M.Define(T)
         return V.VecBoundsUnknown(reject)
     end
 
-    bin_op = pvm.phase("moon2_vec_bin_op", {
+    bin_op = pvm.phase("moonlift_vec_bin_op", {
         [C.BinAdd] = function() return pvm.once(V.VecAdd) end,
         [C.BinSub] = function() return pvm.once(V.VecSub) end,
         [C.BinMul] = function() return pvm.once(V.VecMul) end,
@@ -101,7 +101,7 @@ function M.Define(T)
         [C.BinDiv] = function() return pvm.empty() end,
     })
 
-    view_access_pattern = pvm.phase("moon2_vec_view_access_pattern", {
+    view_access_pattern = pvm.phase("moonlift_vec_view_access_pattern", {
         [Tr.ViewFromExpr] = function() return pvm.once(V.VecAccessUnknown) end,
         [Tr.ViewContiguous] = function() return pvm.once(V.VecAccessContiguous) end,
         [Tr.ViewStrided] = function(self)
@@ -118,7 +118,7 @@ function M.Define(T)
         [Tr.ViewInterleavedView] = function() return pvm.once(V.VecAccessUnknown) end,
     })
 
-    index_base_memory_base = pvm.phase("moon2_vec_index_base_memory_base", {
+    index_base_memory_base = pvm.phase("moonlift_vec_index_base_memory_base", {
         [Tr.IndexBaseExpr] = function(self) return pvm.once(V.VecMemoryBaseRawAddr(self.base)) end,
         [Tr.IndexBaseView] = function(self) return pvm.once(V.VecMemoryBaseView(self.view)) end,
         [Tr.IndexBasePlace] = function(self) return pvm.once(V.VecMemoryBasePlace(self.base)) end,
@@ -129,7 +129,7 @@ function M.Define(T)
         return V.VecAccessUnknown
     end
 
-    place_memory_base = pvm.phase("moon2_vec_place_memory_base", {
+    place_memory_base = pvm.phase("moonlift_vec_place_memory_base", {
         [Tr.PlaceRef] = function(self) return pvm.once(V.VecMemoryBasePlace(self)) end,
         [Tr.PlaceDeref] = function(self) return pvm.once(V.VecMemoryBaseRawAddr(self.base)) end,
         [Tr.PlaceDot] = function(self) return pvm.once(V.VecMemoryBasePlace(self)) end,
@@ -138,7 +138,7 @@ function M.Define(T)
         [Tr.PlaceSlotValue] = function(self) return pvm.once(V.VecMemoryBasePlace(self)) end,
     })
 
-    memory_base_alias = pvm.phase("moon2_vec_memory_base_alias", {
+    memory_base_alias = pvm.phase("moonlift_vec_memory_base_alias", {
         [V.VecMemoryBaseRawAddr] = function(self, other, a, b)
             if other == self then return pvm.once(V.VecAccessSameBase(a, b, "same raw-address expression")) end
             return pvm.once(V.VecAliasUnknown(a, b, V.VecRejectUnsupportedMemory(a, "raw-address alias proof is unknown")))
@@ -153,7 +153,7 @@ function M.Define(T)
         end,
     }, { args_cache = "last" })
 
-    expr_facts = pvm.phase("moon2_vec_expr_facts", {
+    expr_facts = pvm.phase("moonlift_vec_expr_facts", {
         [Tr.ExprLit] = function(expr, env, path)
             local id = expr_id(path)
             local ty = ty_of(expr)
@@ -288,7 +288,7 @@ function M.Define(T)
         [Tr.ExprUseExprFrag] = function(expr, env, path) return pvm.once(reject_expr(expr, path, "fragment facts deferred")) end,
     }, { args_cache = "last" })
 
-    store_place_facts = pvm.phase("moon2_vec_store_place_facts", {
+    store_place_facts = pvm.phase("moonlift_vec_store_place_facts", {
         [Tr.PlaceIndex] = function(place, value, env, path)
             local index = pvm.one(expr_facts(place.index, env, path .. ".index"))
             local facts = {}; append_all(facts, value.facts); append_all(facts, index.facts)
@@ -307,7 +307,7 @@ function M.Define(T)
         [Tr.PlaceSlotValue] = function(_, value, _, path) local rejects = {}; append_all(rejects, value.rejects); rejects[#rejects + 1] = V.VecRejectUnsupportedStmt(path, "slot store facts deferred"); return pvm.once(V.VecStmtIgnored(value.facts, value.memory, value.ranges, rejects)) end,
     }, { args_cache = "last" })
 
-    stmt_facts = pvm.phase("moon2_vec_stmt_facts", {
+    stmt_facts = pvm.phase("moonlift_vec_stmt_facts", {
         [Tr.StmtLet] = function(stmt, env, path)
             local value = pvm.one(expr_facts(stmt.init, env, path .. ".init"))
             local local_fact = V.VecLocalFact(stmt.binding, value.value, stmt.binding.ty)
@@ -585,11 +585,11 @@ function M.Define(T)
         return unsupported_control_region(region.region_id, reason)
     end
 
-    control_stmt_facts = pvm.phase("moon2_vec_control_stmt_facts", {
+    control_stmt_facts = pvm.phase("moonlift_vec_control_stmt_facts", {
         [Tr.ControlStmtRegion] = function(region) return pvm.once(control_region_facts(region)) end,
     })
 
-    control_expr_facts = pvm.phase("moon2_vec_control_expr_facts", {
+    control_expr_facts = pvm.phase("moonlift_vec_control_expr_facts", {
         [Tr.ControlExprRegion] = function(region) return pvm.once(control_region_facts(region)) end,
     })
 

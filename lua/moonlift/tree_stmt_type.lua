@@ -8,7 +8,7 @@ function M.Define(T)
 
     local stmt_env_effect
 
-    stmt_env_effect = pvm.phase("moon2_tree_stmt_env_effect", {
+    stmt_env_effect = pvm.phase("moonlift_tree_stmt_env_effect", {
         [Tr.StmtLet] = function(self) return pvm.once(B.StmtEnvAddBinding(B.ValueEntry(self.binding.name, self.binding))) end,
         [Tr.StmtVar] = function(self) return pvm.once(B.StmtEnvAddBinding(B.ValueEntry(self.binding.name, self.binding))) end,
         [Tr.StmtSet] = function() return pvm.once(B.StmtEnvNoBinding) end,

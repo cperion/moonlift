@@ -26,8 +26,10 @@ local jit_api = Jit.Define(T)
 local i32 = Ty.TScalar(C.ScalarI32)
 local hit_slot = O.ContSlot("test.hit", "hit", { Tr.BlockParam("pos", i32) })
 local region_frag = O.RegionFrag(
+    "hit",
     {},
-    O.OpenSet({}, {}, {}, { O.SlotCont(hit_slot) }),
+    { hit_slot },
+    O.OpenSet({}, {}, {}, {}),
     Tr.EntryControlBlock(
         Tr.BlockLabel("emit_hit"),
         {},
@@ -44,7 +46,7 @@ local function make_module(fills)
     local entry = Tr.EntryControlBlock(
         Tr.BlockLabel("start"),
         {},
-        { Tr.StmtUseRegionFrag(Tr.StmtSurface, "use.hit", region_frag, {}, fills or {}) }
+        { Tr.StmtUseRegionFrag(Tr.StmtSurface, "use.hit", "hit", {}, {}, fills or {}) }
     )
     local found = Tr.ControlBlock(
         Tr.BlockLabel("found"),
@@ -63,7 +65,7 @@ local function make_module(fills)
     return Tr.Module(Tr.ModuleSurface, { Tr.ItemFunc(Tr.FuncExport("cont_slot_smoke", {}, i32, body)) })
 end
 
-local unfilled = make_module({})
+local unfilled = OE.module(make_module({}), OE.env_with_frags({ region_frag }, {}))
 local report = OV.validate(OF.facts_of_module(unfilled))
 local saw_cont_issue = false
 for i = 1, #report.issues do
@@ -73,8 +75,8 @@ for i = 1, #report.issues do
 end
 assert(saw_cont_issue, "expected unfilled continuation slot issue")
 
-local filled = make_module({ O.SlotBinding(O.SlotCont(hit_slot), O.SlotValueCont(Tr.BlockLabel("found"))) })
-local expanded = OE.module(filled)
+local filled = make_module({ O.ContBinding("hit", O.ContTargetLabel(Tr.BlockLabel("found"))) })
+local expanded = OE.module(filled, OE.env_with_frags({ region_frag }, {}))
 local checked = TC.check_module(expanded)
 assert(#checked.issues == 0, tostring(checked.issues[1]))
 local program = Lower.module(checked.module)

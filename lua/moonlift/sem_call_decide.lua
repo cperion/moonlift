@@ -24,7 +24,7 @@ function M.Define(T)
         return Sem.CallIndirect(callee, fn_ty)
     end
 
-    import_call_target = pvm.phase("moon2_sem_import_call_target", {
+    import_call_target = pvm.phase("moonlift_sem_import_call_target", {
         [O.ImportGlobalFunc] = function(import, callee, fn_ty)
             return pvm.once(Sem.CallDirect(import.module_name, import.item_name, fn_ty))
         end,
@@ -42,7 +42,7 @@ function M.Define(T)
         end,
     }, { args_cache = "last" })
 
-    binding_class_call_target = pvm.phase("moon2_sem_binding_class_call_target", {
+    binding_class_call_target = pvm.phase("moonlift_sem_binding_class_call_target", {
         [B.BindingClassGlobalFunc] = function(self, callee, fn_ty)
             return pvm.once(Sem.CallDirect(self.module_name, self.item_name, fn_ty))
         end,
@@ -74,7 +74,7 @@ function M.Define(T)
         [B.BindingClassValueSlot] = function(_, callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
     }, { args_cache = "last" })
 
-    value_ref_call_target = pvm.phase("moon2_sem_value_ref_call_target", {
+    value_ref_call_target = pvm.phase("moonlift_sem_value_ref_call_target", {
         [B.ValueRefBinding] = function(ref, callee, fn_ty)
             return binding_class_call_target(ref.binding.class, callee, fn_ty)
         end,
@@ -86,7 +86,7 @@ function M.Define(T)
         [B.ValueRefStaticSlot] = function(_, callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
     }, { args_cache = "last" })
 
-    callee_call_target = pvm.phase("moon2_sem_call_decide", {
+    callee_call_target = pvm.phase("moonlift_sem_call_decide", {
         [Tr.ExprRef] = function(callee, fn_ty)
             return value_ref_call_target(callee.ref, callee, fn_ty)
         end,

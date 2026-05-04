@@ -421,7 +421,7 @@ function M.Define(T)
         return out
     end
 
-    local scope_report_phase = pvm.phase("moon2_editor_binding_scope_report", {
+    local scope_report_phase = pvm.phase("moonlift_editor_binding_scope_report", {
         [Mlua.DocumentAnalysis] = function(analysis)
             local index = P.build_index(analysis.parse.parts.document)
             local scopes, scope_records = build_scopes(analysis, index)

@@ -177,7 +177,7 @@ function M.Define(T)
         return Back.validate(ToBack.module(module))
     end
 
-    local document_analysis_phase = pvm.phase("moon2_mlua_document_analysis", function(document_parse, target)
+    local document_analysis_phase = pvm.phase("moonlift_mlua_document_analysis", function(document_parse, target)
         local module_name = module_name_from_uri(document_parse.parts.document.uri)
         local host = Pipeline.run(document_parse.combined, module_name, target)
         local open_report = open_report_for(document_parse)

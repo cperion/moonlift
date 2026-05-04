@@ -21,7 +21,7 @@ function M.Define(T)
         return Ty.TypeMemLayoutKnown(Sem.MemLayout(size, align))
     end
 
-    scalar_layout = pvm.phase("moon2_type_scalar_mem_layout", {
+    scalar_layout = pvm.phase("moonlift_type_scalar_mem_layout", {
         [Core.ScalarVoid] = function() return pvm.once(known(0, 1)) end,
         [Core.ScalarBool] = function() return pvm.once(known(1, 1)) end,
         [Core.ScalarI8] = function() return pvm.once(known(1, 1)) end,
@@ -38,7 +38,7 @@ function M.Define(T)
         [Core.ScalarIndex] = function() return pvm.once(known(8, 8)) end,
     })
 
-    named_layout_lookup = pvm.phase("moon2_type_named_layout_lookup", function(env, module_name, type_name)
+    named_layout_lookup = pvm.phase("moonlift_type_named_layout_lookup", function(env, module_name, type_name)
         for i = 1, #env.layouts do
             local layout = env.layouts[i]
             if layout.module_name == module_name and layout.type_name == type_name then
@@ -55,7 +55,7 @@ function M.Define(T)
         return nil
     end
 
-    class_layout = pvm.phase("moon2_type_class_mem_layout", {
+    class_layout = pvm.phase("moonlift_type_class_mem_layout", {
         [Ty.TypeClassScalar] = function(self)
             return scalar_layout(self.scalar)
         end,
@@ -94,7 +94,7 @@ function M.Define(T)
         end,
     })
 
-    type_layout_result = pvm.phase("moon2_type_mem_layout_result", function(ty, env)
+    type_layout_result = pvm.phase("moonlift_type_mem_layout_result", function(ty, env)
         local class = classify_api.classify(ty)
         return pvm.one(class_layout(class, ty, env or Sem.LayoutEnv({})))
     end)

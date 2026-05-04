@@ -25,7 +25,7 @@ function M.Define(T)
         return false
     end
 
-    expr_type = pvm.phase("moon2_tree_control_expr_type", {
+    expr_type = pvm.phase("moonlift_tree_control_expr_type", {
         [Tr.ExprTyped] = function(self) return pvm.once(self.ty) end,
         [Tr.ExprOpen] = function(self) return pvm.once(self.ty) end,
         [Tr.ExprSem] = function(self) return pvm.once(self.ty) end,
@@ -33,7 +33,7 @@ function M.Define(T)
         [Tr.ExprSurface] = function() return pvm.empty() end,
     })
 
-    stmt_facts = pvm.phase("moon2_tree_control_stmt_facts", {
+    stmt_facts = pvm.phase("moonlift_tree_control_stmt_facts", {
         [Tr.StmtJump] = function(stmt, region_id, from_label, entry_label)
             local facts = { Tr.ControlFactJump(region_id, from_label, stmt.target) }
             for i = 1, #stmt.args do
@@ -83,7 +83,7 @@ function M.Define(T)
         [Tr.StmtUseRegionFrag] = function() return pvm.empty() end,
     }, { args_cache = "last" })
 
-    stmt_terminates = pvm.phase("moon2_tree_control_stmt_terminates", {
+    stmt_terminates = pvm.phase("moonlift_tree_control_stmt_terminates", {
         [Tr.StmtJump] = function() return pvm.once(true) end,
         [Tr.StmtJumpCont] = function() return pvm.once(true) end,
         [Tr.StmtYieldVoid] = function() return pvm.once(true) end,
@@ -133,7 +133,7 @@ function M.Define(T)
         return facts
     end
 
-    region_facts = pvm.phase("moon2_tree_control_region_facts", {
+    region_facts = pvm.phase("moonlift_tree_control_region_facts", {
         [Tr.ControlStmtRegion] = function(region)
             return pvm.children(function(fact) return pvm.once(fact) end, facts_for(region.region_id, region.entry, region.blocks))
         end,
@@ -233,7 +233,7 @@ function M.Define(T)
         return Tr.ControlDecisionReducible(region.region_id, facts)
     end
 
-    region_decide = pvm.phase("moon2_tree_control_decide", {
+    region_decide = pvm.phase("moonlift_tree_control_decide", {
         [Tr.ControlStmtRegion] = function(region)
             local facts = pvm.drain(region_facts(region))
             return pvm.once(decide_from_facts(region, facts))

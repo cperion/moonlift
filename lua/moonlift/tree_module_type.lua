@@ -19,7 +19,7 @@ function M.Define(T)
 
     local function pack(g, p, c) return { g, p, c } end
 
-    module_name = pvm.phase("moon2_tree_module_name", {
+    module_name = pvm.phase("moonlift_tree_module_name", {
         [Tr.ModuleTyped] = function(self) return pvm.once(self.module_name) end,
         [Tr.ModuleSem] = function(self) return pvm.once(self.module_name) end,
         [Tr.ModuleCode] = function(self) return pvm.once(self.module_name) end,
@@ -36,7 +36,7 @@ function M.Define(T)
         return Ty.TFunc(tys, result)
     end
 
-    func_entry = pvm.phase("moon2_tree_func_value_entry", {
+    func_entry = pvm.phase("moonlift_tree_func_value_entry", {
         [Tr.FuncLocal] = function(self, mod_name) return pvm.once(B.ValueEntry(self.name, B.Binding(C.Id("func:" .. mod_name .. ":" .. self.name), self.name, params_type(self.params, self.result), B.BindingClassGlobalFunc(mod_name, self.name)))) end,
         [Tr.FuncExport] = function(self, mod_name) return pvm.once(B.ValueEntry(self.name, B.Binding(C.Id("func:" .. mod_name .. ":" .. self.name), self.name, params_type(self.params, self.result), B.BindingClassGlobalFunc(mod_name, self.name)))) end,
         [Tr.FuncLocalContract] = function(self, mod_name) return pvm.once(B.ValueEntry(self.name, B.Binding(C.Id("func:" .. mod_name .. ":" .. self.name), self.name, params_type(self.params, self.result), B.BindingClassGlobalFunc(mod_name, self.name)))) end,
@@ -44,22 +44,22 @@ function M.Define(T)
         [Tr.FuncOpen] = function(self, mod_name) return pvm.once(B.ValueEntry(self.sym.name, B.Binding(C.Id("func:" .. self.sym.key), self.sym.name, Ty.TFunc({}, self.result), B.BindingClassFuncSym(self.sym)))) end,
     }, { args_cache = "last" })
 
-    extern_entry = pvm.phase("moon2_tree_extern_value_entry", {
+    extern_entry = pvm.phase("moonlift_tree_extern_value_entry", {
         [Tr.ExternFunc] = function(self) return pvm.once(B.ValueEntry(self.name, B.Binding(C.Id("extern:" .. self.name), self.name, params_type(self.params, self.result), B.BindingClassExtern(self.symbol)))) end,
         [Tr.ExternFuncOpen] = function(self) return pvm.once(B.ValueEntry(self.sym.name, B.Binding(C.Id("extern:" .. self.sym.key), self.sym.name, Ty.TFunc({}, self.result), B.BindingClassExternSym(self.sym)))) end,
     })
 
-    const_entry = pvm.phase("moon2_tree_const_value_entry", {
+    const_entry = pvm.phase("moonlift_tree_const_value_entry", {
         [Tr.ConstItem] = function(self, mod_name) return pvm.once(B.ValueEntry(self.name, B.Binding(C.Id("const:" .. mod_name .. ":" .. self.name), self.name, self.ty, B.BindingClassGlobalConst(mod_name, self.name)))) end,
         [Tr.ConstItemOpen] = function(self) return pvm.once(B.ValueEntry(self.sym.name, B.Binding(C.Id("const:" .. self.sym.key), self.sym.name, self.ty, B.BindingClassConstSym(self.sym)))) end,
     }, { args_cache = "last" })
 
-    static_entry = pvm.phase("moon2_tree_static_value_entry", {
+    static_entry = pvm.phase("moonlift_tree_static_value_entry", {
         [Tr.StaticItem] = function(self, mod_name) return pvm.once(B.ValueEntry(self.name, B.Binding(C.Id("static:" .. mod_name .. ":" .. self.name), self.name, self.ty, B.BindingClassGlobalStatic(mod_name, self.name)))) end,
         [Tr.StaticItemOpen] = function(self) return pvm.once(B.ValueEntry(self.sym.name, B.Binding(C.Id("static:" .. self.sym.key), self.sym.name, self.ty, B.BindingClassStaticSym(self.sym)))) end,
     }, { args_cache = "last" })
 
-    type_entry = pvm.phase("moon2_tree_type_entry", {
+    type_entry = pvm.phase("moonlift_tree_type_entry", {
         [Tr.TypeDeclStruct] = function(self, mod_name) return pvm.once(B.TypeEntry(self.name, Ty.TNamed(Ty.TypeRefGlobal(mod_name, self.name)))) end,
         [Tr.TypeDeclUnion] = function(self, mod_name) return pvm.once(B.TypeEntry(self.name, Ty.TNamed(Ty.TypeRefGlobal(mod_name, self.name)))) end,
         [Tr.TypeDeclEnumSugar] = function(self, mod_name) return pvm.once(B.TypeEntry(self.name, Ty.TNamed(Ty.TypeRefGlobal(mod_name, self.name)))) end,
@@ -68,7 +68,7 @@ function M.Define(T)
         [Tr.TypeDeclOpenUnion] = function(self) return pvm.once(B.TypeEntry(self.sym.name, Ty.TNamed(Ty.TypeRefLocal(self.sym)))) end,
     }, { args_cache = "last" })
 
-    item_env_entries = pvm.phase("moon2_tree_item_env_entries", {
+    item_env_entries = pvm.phase("moonlift_tree_item_env_entries", {
         [Tr.ItemFunc] = function(self, mod_name) return func_entry(self.func, mod_name) end,
         [Tr.ItemExtern] = function(self) return extern_entry(self.func) end,
         [Tr.ItemConst] = function(self, mod_name) return const_entry(self.c, mod_name) end,
@@ -81,7 +81,7 @@ function M.Define(T)
         [Tr.ItemUseModuleSlot] = function() return pvm.empty() end,
     }, { args_cache = "last" })
 
-    module_env = pvm.phase("moon2_tree_module_env", {
+    module_env = pvm.phase("moonlift_tree_module_env", {
         [Tr.Module] = function(module)
             local mod_name = pvm.one(module_name(module.h))
             local values = {}

@@ -2,7 +2,7 @@ local M = {}
 
 local TypeValue = {}
 TypeValue.__index = TypeValue
-TypeValue.__moon2_host_type_value = true
+TypeValue.__moonlift_host_type_value = true
 
 local scalar_sources = {
     ScalarVoid = "void",
@@ -22,7 +22,7 @@ function TypeValue:as_type_value()
     return self
 end
 
-function TypeValue:as_moon2_type()
+function TypeValue:as_moonlift_type()
     return self.ty
 end
 
@@ -37,7 +37,7 @@ end
 local function type_key(v)
     local mt = type(v) == "table" and getmetatable(v)
     if mt == TypeValue then return true end
-    return mt and mt.__moon2_host_type_value == true
+    return mt and mt.__moonlift_host_type_value == true
 end
 
 function M.Install(api, session)
@@ -89,7 +89,7 @@ function M.Install(api, session)
         return as_type_value(v, site)
     end
 
-    function api.as_moon2_type(v, site)
+    function api.as_moonlift_type(v, site)
         return as_type(v, site)
     end
 

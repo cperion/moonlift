@@ -99,7 +99,7 @@ function M.Define(T)
         return a == b
     end
 
-    expr_type = pvm.phase("moon2_sem_const_expr_type", {
+    expr_type = pvm.phase("moonlift_sem_const_expr_type", {
         [Tr.ExprSurface] = function() return pvm.empty() end,
         [Tr.ExprTyped] = function(self) return pvm.once(self.ty) end,
         [Tr.ExprOpen] = function(self) return pvm.once(self.ty) end,
@@ -107,14 +107,14 @@ function M.Define(T)
         [Tr.ExprCode] = function(self) return pvm.once(self.ty) end,
     })
 
-    literal_const = pvm.phase("moon2_sem_literal_const", {
+    literal_const = pvm.phase("moonlift_sem_literal_const", {
         [C.LitInt] = function(self, ty) return pvm.once(yes(Sem.ConstInt(ty, self.raw))) end,
         [C.LitFloat] = function(self, ty) return pvm.once(yes(Sem.ConstFloat(ty, self.raw))) end,
         [C.LitBool] = function(self) return pvm.once(yes(Sem.ConstBool(self.value))) end,
         [C.LitNil] = function(_, ty) return pvm.once(yes(Sem.ConstNil(ty))) end,
     }, { args_cache = "last" })
 
-    unary_const = pvm.phase("moon2_sem_unary_const", {
+    unary_const = pvm.phase("moonlift_sem_unary_const", {
         [C.UnaryNeg] = function(_, value, ty)
             local raw = int_raw(value)
             if raw == nil then return pvm.once(no()) end
@@ -132,7 +132,7 @@ function M.Define(T)
         end,
     }, { args_cache = "last" })
 
-    binary_const = pvm.phase("moon2_sem_binary_const", {
+    binary_const = pvm.phase("moonlift_sem_binary_const", {
         [C.BinAdd] = function(_, a, b, ty) local x, y = tonumber(int_raw(a)), tonumber(int_raw(b)); if not x or not y then return pvm.once(no()) end; return pvm.once(yes(Sem.ConstInt(ty, number_string(x + y)))) end,
         [C.BinSub] = function(_, a, b, ty) local x, y = tonumber(int_raw(a)), tonumber(int_raw(b)); if not x or not y then return pvm.once(no()) end; return pvm.once(yes(Sem.ConstInt(ty, number_string(x - y)))) end,
         [C.BinMul] = function(_, a, b, ty) local x, y = tonumber(int_raw(a)), tonumber(int_raw(b)); if not x or not y then return pvm.once(no()) end; return pvm.once(yes(Sem.ConstInt(ty, number_string(x * y)))) end,
@@ -146,7 +146,7 @@ function M.Define(T)
         [C.BinAShr] = function(_, a, b, ty) local x, y = tonumber(int_raw(a)), tonumber(int_raw(b)); if not x or not y then return pvm.once(no()) end; return pvm.once(yes(Sem.ConstInt(ty, tostring(bit.arshift(x, y))))) end,
     }, { args_cache = "last" })
 
-    compare_const = pvm.phase("moon2_sem_compare_const", {
+    compare_const = pvm.phase("moonlift_sem_compare_const", {
         [C.CmpEq] = function(_, a, b) return pvm.once(yes(Sem.ConstBool(same_const(a, b)))) end,
         [C.CmpNe] = function(_, a, b) return pvm.once(yes(Sem.ConstBool(not same_const(a, b)))) end,
         [C.CmpLt] = function(_, a, b) local x, y = tonumber(int_raw(a)), tonumber(int_raw(b)); if not x or not y then return pvm.once(no()) end; return pvm.once(yes(Sem.ConstBool(x < y))) end,
@@ -155,12 +155,12 @@ function M.Define(T)
         [C.CmpGe] = function(_, a, b) local x, y = tonumber(int_raw(a)), tonumber(int_raw(b)); if not x or not y then return pvm.once(no()) end; return pvm.once(yes(Sem.ConstBool(x >= y))) end,
     }, { args_cache = "last" })
 
-    logic_const = pvm.phase("moon2_sem_logic_const", {
+    logic_const = pvm.phase("moonlift_sem_logic_const", {
         [C.LogicAnd] = function(_, a, b) local x, y = bool_value(a), bool_value(b); if x == nil or y == nil then return pvm.once(no()) end; return pvm.once(yes(Sem.ConstBool(x and y))) end,
         [C.LogicOr] = function(_, a, b) local x, y = bool_value(a), bool_value(b); if x == nil or y == nil then return pvm.once(no()) end; return pvm.once(yes(Sem.ConstBool(x or y))) end,
     }, { args_cache = "last" })
 
-    value_ref_const = pvm.phase("moon2_sem_value_ref_const", {
+    value_ref_const = pvm.phase("moonlift_sem_value_ref_const", {
         [B.ValueRefBinding] = function(self, const_env, local_env)
             local local_value = local_lookup(local_env, self.binding)
             if local_value ~= nil then return pvm.once(yes(local_value)) end
@@ -183,7 +183,7 @@ function M.Define(T)
         [B.ValueRefStaticSlot] = function() return pvm.once(no()) end,
     }, { args_cache = "last" })
 
-    expr_const_class = pvm.phase("moon2_sem_expr_const_class", {
+    expr_const_class = pvm.phase("moonlift_sem_expr_const_class", {
         [Tr.ExprLit] = function(self)
             local tys = pvm.drain(expr_type(self.h))
             return literal_const(self.value, tys[1] or Ty.TScalar(C.ScalarVoid))
@@ -304,7 +304,7 @@ function M.Define(T)
         [Tr.ExprUseExprFrag] = function() return pvm.once(no()) end,
     }, { args_cache = "last" })
 
-    stmt_const_result = pvm.phase("moon2_sem_stmt_const_result", {
+    stmt_const_result = pvm.phase("moonlift_sem_stmt_const_result", {
         [Tr.StmtLet] = function(self, const_env, local_env)
             local v = eval_value(self.init, const_env, local_env)
             if v == nil then return pvm.once(Sem.ConstStmtFallsThrough(local_env)) end

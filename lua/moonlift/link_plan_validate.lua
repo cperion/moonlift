@@ -31,7 +31,7 @@ function M.Define(T)
         return Link.LinkReport(issues)
     end
 
-    local phase = pvm.phase("moon2_link_plan_validate", {
+    local phase = pvm.phase("moonlift_link_plan_validate", {
         [Link.LinkPlan] = function(self) return pvm.once(validate(self)) end,
     })
 

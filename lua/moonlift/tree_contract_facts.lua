@@ -20,7 +20,7 @@ function M.Define(T)
         return Tr.ContractFactRejected(Tr.TypeIssueUnresolvedValue(name or "<contract>"))
     end
 
-    contract_fact = pvm.phase("moon2_tree_contract_fact", {
+    contract_fact = pvm.phase("moonlift_tree_contract_fact", {
         [Tr.ContractBounds] = function(self)
             local base, len = expr_binding(self.base), expr_binding(self.len)
             if base == nil or len == nil then return pvm.once(reject("bounds")) end
@@ -64,7 +64,7 @@ function M.Define(T)
         return Tr.ContractFactSet(facts)
     end
 
-    func_facts = pvm.phase("moon2_tree_func_contract_facts", {
+    func_facts = pvm.phase("moonlift_tree_func_contract_facts", {
         [Tr.FuncLocal] = function() return pvm.once(Tr.ContractFactSet({})) end,
         [Tr.FuncExport] = function() return pvm.once(Tr.ContractFactSet({})) end,
         [Tr.FuncLocalContract] = function(self) return pvm.once(facts_from_contracts(self.contracts)) end,

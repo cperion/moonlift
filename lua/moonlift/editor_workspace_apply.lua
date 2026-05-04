@@ -56,7 +56,7 @@ function M.Define(T)
         return event == variant or (variant_class ~= false and cls == variant_class)
     end
 
-    local apply_event_phase = pvm.phase("moon2_editor_workspace_apply", function(event, state)
+    local apply_event_phase = pvm.phase("moonlift_editor_workspace_apply", function(event, state)
         local before = state
         local cls = pvm.classof(event)
         local after = before

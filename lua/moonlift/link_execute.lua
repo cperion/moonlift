@@ -47,7 +47,7 @@ function M.Define(T)
         return Link.LinkOk(plan.plan.output)
     end
 
-    local phase = pvm.phase("moon2_link_execute", {
+    local phase = pvm.phase("moonlift_link_execute", {
         [Link.LinkCommandPlan] = function(self) return pvm.once(execute(self)) end,
     })
 

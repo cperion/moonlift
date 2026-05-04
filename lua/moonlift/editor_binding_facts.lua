@@ -243,7 +243,7 @@ function M.Define(T)
         return best
     end
 
-    local binding_facts_phase = pvm.phase("moon2_editor_binding_facts", {
+    local binding_facts_phase = pvm.phase("moonlift_editor_binding_facts", {
         [Mlua.DocumentAnalysis] = function(analysis)
         local facts = {}
         local scope_report = ScopeFacts.report(analysis)

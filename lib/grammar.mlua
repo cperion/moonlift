@@ -435,12 +435,11 @@ end
 -- When the real rule is later defined via :rule(), it replaces this stub.
 function Grammar:forward(name)
     local region_name = self.name .. "_" .. name
-    -- Duck-type RegionFragValue stub: has moonlift_splice_source method
-    -- accessible via __index, and region_frags table.
+    -- Forward reference quote value. The real rule replaces this when defined.
     local mt = { moonlift_splice_source = function(self) return self.name end }
     mt.__index = mt
     self.rules[name] = setmetatable(
-        { name = region_name, source = "", region_frags = {}, expr_frags = {} },
+        { moonlift_quote_kind = "region_frag", name = region_name, source = "", deps = { region_frags = {}, expr_frags = {} } },
         mt
     )
     return self
@@ -453,23 +452,24 @@ end
 function Grammar:get(name)
     local frag = self.rules[name]
     if frag then
-        -- Deep-flatten region_frags so the module compiler finds all sub-fragments
+        -- Deep-flatten dependencies so the module compiler finds all sub-fragments
         self:_flatten_frags(frag)
     end
     return frag
 end
 
 function Grammar:_flatten_frags(frag)
-    if not frag or not frag.region_frags then return end
+    if not frag or not frag.deps or not frag.deps.region_frags then return end
     local stack = { frag }
     local seen = { [frag.name] = true }
     while #stack > 0 do
         local f = table.remove(stack)
-        if f.region_frags then
-            for _, sub in pairs(f.region_frags) do
+        local deps = f.deps
+        if deps and deps.region_frags then
+            for _, sub in pairs(deps.region_frags) do
                 if not seen[sub.name] then
                     seen[sub.name] = true
-                    frag.region_frags[sub.name] = sub
+                    frag.deps.region_frags[sub.name] = sub
                     table.insert(stack, sub)
                 end
             end
@@ -484,8 +484,8 @@ function Grammar:all_frags()
         if not frag or collected[frag.name] then return end
         if type(frag) ~= "table" then return end
         collected[frag.name] = frag
-        if frag.region_frags then
-            for _, sub in pairs(frag.region_frags) do
+        if frag.deps and frag.deps.region_frags then
+            for _, sub in pairs(frag.deps.region_frags) do
                 collect(sub)
             end
         end

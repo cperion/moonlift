@@ -197,7 +197,7 @@ function M.Define(T)
         }
     end
 
-    local code_actions_phase = pvm.phase("moon2_editor_code_actions", {
+    local code_actions_phase = pvm.phase("moonlift_editor_code_actions", {
         [E.CodeActionQuery] = function(query, analysis)
             local out = {}
             local diagnostics = candidate_diagnostics(query, analysis)

@@ -15,7 +15,7 @@ The goal is not compatibility with the current open-fragment implementation. The
 7. Continuation forwarding is valid aliasing and must not require wrapper blocks.
 8. Closed MoonLift after expansion contains no fragment uses, no unbound meta slots, and no open module names.
 9. All identities are declaration identities, not surface names.
-10. No `moon2_*` naming remains in redesigned code. Use canonical `Moon*` schema/module names and `moonlift_*` phase names only.
+10. No legacy phase prefix naming remains in redesigned code. Use canonical `Moon*` schema/module names and `moonlift_*` phase names only.
 
 ## Current structural failures
 
@@ -52,7 +52,7 @@ SpliceHole {
 
 The MoonLift island parser, not regex heuristics, determines each hole's expected kind.
 
-### 2. `SourceChunk` side tables are not a sound dependency model
+### 2. Source side tables are not a sound dependency model
 
 Current quote values carry:
 
@@ -326,16 +326,7 @@ Do not encode formal continuation forwarding as `SlotValueContSlot` in the gener
 
 ## Naming cleanup
 
-The redesign removes old `moon2_*` names.
-
-Examples:
-
-- `moon2_open_expand_*` -> `moonlift_open_expand_*`
-- `moon2_open_validate_*` -> `moonlift_open_validate_*`
-- `moon2_tree_control_*` -> `moonlift_tree_control_*`
-- comments saying `Moon2` / `moon2` are updated to `MoonLift` / `moonlift`.
-
-No compatibility aliases should be added for redesigned phases.
+The redesign removes legacy phase-prefix names in favor of canonical `moonlift_*` names. Comments and diagnostics use `MoonLift` / `moonlift`. No compatibility aliases should be added for redesigned phases.
 
 ## Implementation order
 
@@ -344,14 +335,14 @@ This is an architectural order, not a compatibility migration:
 1. Introduce canonical identity helpers for declaration IDs, use IDs, continuation IDs.
 2. Redesign schema for fragment declarations and emit references.
 3. Replace island antiquote text splicing with typed hole templates.
-4. Replace SourceChunk side tables with quote dependency/declaration objects.
+4. Replace source side tables with quote dependency/declaration objects.
 5. Implement declaration/interface collection pass.
 6. Parse/resolve bodies against interfaces.
 7. Implement template validator.
 8. Implement hygienic fragment expansion with full instantiation paths.
 9. Implement continuation alias normalization with cycle detection.
 10. Implement closed validator.
-11. Remove old `moon2_*` phase names from touched pipeline.
+11. Remove legacy phase-prefix names from touched pipeline.
 12. Update host/runtime APIs to construct the new quote values directly.
 13. Rebuild grammar combinators on the corrected fragment model.
 
@@ -368,4 +359,4 @@ The redesigned implementation must support these without wrappers or hacks:
 7. Missing/extra runtime argument gives template validation/type error.
 8. Recursive macro fragment expansion is rejected with an expansion-cycle diagnostic.
 9. No `StmtEmitRegionFrag` / `ExprEmitFrag` remains after closed expansion.
-10. No `moon2_*` phase names remain in redesigned files.
+10. No legacy phase-prefix names remain in redesigned files.

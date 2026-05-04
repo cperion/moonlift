@@ -15,7 +15,7 @@ function M.Define(T)
 
     local classify_api = require("moonlift.type_classify").Define(T)
 
-    scalar_to_back = pvm.phase("moon2_type_scalar_to_back", {
+    scalar_to_back = pvm.phase("moonlift_type_scalar_to_back", {
         [Core.ScalarBool] = function() return pvm.once(Back.BackBool) end,
         [Core.ScalarI8] = function() return pvm.once(Back.BackI8) end,
         [Core.ScalarI16] = function() return pvm.once(Back.BackI16) end,
@@ -32,7 +32,7 @@ function M.Define(T)
         [Core.ScalarVoid] = function() return pvm.empty() end,
     })
 
-    type_to_back_scalar_result = pvm.phase("moon2_type_to_back_scalar_result", {
+    type_to_back_scalar_result = pvm.phase("moonlift_type_to_back_scalar_result", {
         [Ty.TypeClassScalar] = function(self, ty)
             local values = scalar_to_back:drain_uncached(self.scalar)
             if #values == 0 then

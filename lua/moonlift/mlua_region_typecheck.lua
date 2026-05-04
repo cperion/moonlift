@@ -6,7 +6,7 @@ function M.Define(T)
     local H = T.MoonHost
     local O = T.MoonOpen
 
-    local phase = pvm.phase("moon2_mlua_region_typecheck", {
+    local phase = pvm.phase("moonlift_mlua_region_typecheck", {
         [O.RegionFrag] = function(self)
             -- The current RegionFrag ASDL already carries typed OpenParam and
             -- continuation slot declarations. Deeper jump/yield validation is

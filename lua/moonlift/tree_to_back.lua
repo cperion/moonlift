@@ -222,7 +222,7 @@ function M.Define(T)
         return nil
     end
 
-    expr_type = pvm.phase("moon2_tree_expr_type_from_header", {
+    expr_type = pvm.phase("moonlift_tree_expr_type_from_header", {
         [Tr.ExprTyped] = function(self) return pvm.once(self.ty) end,
         [Tr.ExprOpen] = function(self) return pvm.once(self.ty) end,
         [Tr.ExprSem] = function(self) return pvm.once(self.ty) end,
@@ -230,14 +230,14 @@ function M.Define(T)
         [Tr.ExprSurface] = function() return pvm.empty() end,
     })
 
-    scalar_literal = pvm.phase("moon2_tree_literal_to_back_literal", {
+    scalar_literal = pvm.phase("moonlift_tree_literal_to_back_literal", {
         [C.LitInt] = function(self) return pvm.once(Back.BackLitInt(self.raw)) end,
         [C.LitFloat] = function(self) return pvm.once(Back.BackLitFloat(self.raw)) end,
         [C.LitBool] = function(self) return pvm.once(Back.BackLitBool(self.value)) end,
         [C.LitNil] = function() return pvm.once(Back.BackLitNull) end,
     })
 
-    unary_op = pvm.phase("moon2_tree_unary_to_back_op", {
+    unary_op = pvm.phase("moonlift_tree_unary_to_back_op", {
         [C.UnaryNeg] = function(_, scalar)
             if scalar == Back.BackF32 or scalar == Back.BackF64 then return pvm.once(Back.BackUnaryFneg) end
             return pvm.once(Back.BackUnaryIneg)
@@ -250,7 +250,7 @@ function M.Define(T)
         return Back.BackIntSemantics(Back.BackIntWrap, Back.BackIntMayLose)
     end
 
-    binary_cmd = pvm.phase("moon2_tree_binary_to_back_cmd", {
+    binary_cmd = pvm.phase("moonlift_tree_binary_to_back_cmd", {
         [C.BinAdd] = function(_, dst, scalar, lhs, rhs)
             if scalar == Back.BackF32 or scalar == Back.BackF64 then return pvm.once(Back.CmdFloatBinary(dst, Back.BackFloatAdd, scalar, Back.BackFloatStrict, lhs, rhs)) end
             return pvm.once(Back.CmdIntBinary(dst, Back.BackIntAdd, scalar, int_sem_wrap(), lhs, rhs))
@@ -276,7 +276,7 @@ function M.Define(T)
         [C.BinAShr] = function(_, dst, scalar, lhs, rhs) return pvm.once(Back.CmdShift(dst, Back.BackShiftArithmeticRight, scalar, lhs, rhs)) end,
     }, { args_cache = "last" })
 
-    compare_op = pvm.phase("moon2_tree_compare_to_back_op", {
+    compare_op = pvm.phase("moonlift_tree_compare_to_back_op", {
         [C.CmpEq] = function(_, scalar) if scalar == Back.BackF32 or scalar == Back.BackF64 then return pvm.once(Back.BackFCmpEq) end return pvm.once(Back.BackIcmpEq) end,
         [C.CmpNe] = function(_, scalar) if scalar == Back.BackF32 or scalar == Back.BackF64 then return pvm.once(Back.BackFCmpNe) end return pvm.once(Back.BackIcmpNe) end,
         [C.CmpLt] = function(_, scalar) if scalar == Back.BackF32 or scalar == Back.BackF64 then return pvm.once(Back.BackFCmpLt) end return pvm.once(Back.BackSIcmpLt) end,
@@ -285,7 +285,7 @@ function M.Define(T)
         [C.CmpGe] = function(_, scalar) if scalar == Back.BackF32 or scalar == Back.BackF64 then return pvm.once(Back.BackFCmpGe) end return pvm.once(Back.BackSIcmpGe) end,
     }, { args_cache = "last" })
 
-    machine_cast_op = pvm.phase("moon2_tree_machine_cast_to_back_op", {
+    machine_cast_op = pvm.phase("moonlift_tree_machine_cast_to_back_op", {
         [C.MachineCastBitcast] = function() return pvm.once(Back.BackBitcast) end,
         [C.MachineCastIreduce] = function() return pvm.once(Back.BackIreduce) end,
         [C.MachineCastSextend] = function() return pvm.once(Back.BackSextend) end,
@@ -299,7 +299,7 @@ function M.Define(T)
         [C.MachineCastIdentity] = function() return pvm.empty() end,
     })
 
-    surface_cast_op = pvm.phase("moon2_tree_surface_cast_to_machine_cast", {
+    surface_cast_op = pvm.phase("moonlift_tree_surface_cast_to_machine_cast", {
         [C.SurfaceCast] = function() return pvm.once(C.MachineCastBitcast) end,
         [C.SurfaceTrunc] = function() return pvm.once(C.MachineCastIreduce) end,
         [C.SurfaceZExt] = function() return pvm.once(C.MachineCastUextend) end,
@@ -308,7 +308,7 @@ function M.Define(T)
         [C.SurfaceSatCast] = function() return pvm.once(C.MachineCastBitcast) end,
     })
 
-    call_target = pvm.phase("moon2_tree_call_target_to_back", {
+    call_target = pvm.phase("moonlift_tree_call_target_to_back", {
         [Sem.CallDirect] = function(self) return pvm.once(Back.BackCallDirect(Back.BackFuncId(self.func_name))) end,
         [Sem.CallExtern] = function(self) return pvm.once(Back.BackCallExtern(Back.BackExternId(self.symbol))) end,
         [Sem.CallIndirect] = function(self, env)
@@ -320,7 +320,7 @@ function M.Define(T)
         [Sem.CallUnresolved] = function() return pvm.empty() end,
     }, { args_cache = "last" })
 
-    expr_to_back = pvm.phase("moon2_tree_expr_to_back", {
+    expr_to_back = pvm.phase("moonlift_tree_expr_to_back", {
         [Tr.ExprLit] = function(self, env)
             local ty = expr_ty(self)
             local scalar = back_scalar(ty)
@@ -575,7 +575,7 @@ function M.Define(T)
         return Tr.TreeBackExprStridedView(env3, cmds, data_val, len.value, base_view.stride)
     end
 
-    view_to_back = pvm.phase("moon2_tree_view_to_back", {
+    view_to_back = pvm.phase("moonlift_tree_view_to_back", {
         [Tr.ViewFromExpr] = function(self, env)
             if pvm.classof(self.base) == Tr.ExprRef and pvm.classof(self.base.ref) == Bn.ValueRefBinding then
                 local local_entry = env_lookup(env, self.base.ref.binding)
@@ -660,7 +660,7 @@ function M.Define(T)
         return nil
     end
 
-    index_addr_to_back = pvm.phase("moon2_tree_index_addr_to_back", {
+    index_addr_to_back = pvm.phase("moonlift_tree_index_addr_to_back", {
         [Tr.IndexBaseView] = function(self, index, elem_ty, env)
             local view = expr_view_value(view_to_back:one_uncached(self.view, env))
             if view == nil then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "unsupported index base")) end
@@ -694,7 +694,7 @@ function M.Define(T)
         [Tr.IndexBaseExpr] = function(_, _, _, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "untyped index base reached backend")) end,
     }, { args_cache = "last" })
 
-    place_addr_to_back = pvm.phase("moon2_tree_place_addr_to_back", {
+    place_addr_to_back = pvm.phase("moonlift_tree_place_addr_to_back", {
         [Tr.PlaceIndex] = function(self, env)
             return pvm.once(index_addr_to_back:one_uncached(self.base, self.index, self.h.ty, env))
         end,
@@ -740,7 +740,7 @@ function M.Define(T)
         return pvm.once(Tr.TreeBackStmtResult(current, cmds, Back.BackFallsThrough))
     end
 
-    place_store_to_back = pvm.phase("moon2_tree_place_store_to_back", {
+    place_store_to_back = pvm.phase("moonlift_tree_place_store_to_back", {
         [Tr.PlaceIndex] = function(self, value, env) return store_at_addr(self, value, env) end,
         [Tr.PlaceDeref] = function(self, value, env) return store_at_addr(self, value, env) end,
         [Tr.PlaceField] = function(self, value, env) return store_at_addr(self, value, env) end,
@@ -786,7 +786,7 @@ function M.Define(T)
         return pvm.once(Tr.TreeBackStmtResult(out_env, cmds, Back.BackTerminates))
     end
 
-    stmt_to_back = pvm.phase("moon2_tree_stmt_to_back", {
+    stmt_to_back = pvm.phase("moonlift_tree_stmt_to_back", {
         [Tr.StmtLet] = function(self, env)
             local lowered = expr_to_back:one_uncached(self.init, env)
             local view_init = expr_view_value(lowered)
@@ -1135,10 +1135,10 @@ function M.Define(T)
         return Back.BackProgram(cmds)
     end
 
-    func_to_back = pvm.phase("moon2_tree_func_to_back", function(self) return lower_func_direct(self) end)
-    extern_to_back = pvm.phase("moon2_tree_extern_to_back", function(self) return lower_extern_direct(self) end)
-    item_to_back = pvm.phase("moon2_tree_item_to_back", function(self) return lower_item_direct(self) end)
-    module_to_back = pvm.phase("moon2_tree_module_to_back", function(module) return lower_module_direct(module) end)
+    func_to_back = pvm.phase("moonlift_tree_func_to_back", function(self) return lower_func_direct(self) end)
+    extern_to_back = pvm.phase("moonlift_tree_extern_to_back", function(self) return lower_extern_direct(self) end)
+    item_to_back = pvm.phase("moonlift_tree_item_to_back", function(self) return lower_item_direct(self) end)
+    module_to_back = pvm.phase("moonlift_tree_module_to_back", function(module) return lower_module_direct(module) end)
 
     return {
         env_empty = env_empty,

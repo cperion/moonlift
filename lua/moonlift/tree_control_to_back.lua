@@ -164,7 +164,7 @@ function M.Define(T, base)
         return args, current, cmds, nil
     end
 
-    switch_key_raw = pvm.phase("moon2_tree_control_switch_key_raw", {
+    switch_key_raw = pvm.phase("moonlift_tree_control_switch_key_raw", {
         [Sem.SwitchKeyRaw] = function(self) return pvm.once(self.raw) end,
         [Sem.SwitchKeyConst] = function(self)
             local cls = pvm.classof(self.value)
@@ -293,7 +293,7 @@ function M.Define(T, base)
         return pvm.once(Tr.TreeBackStmtResult(result.env, cmds, result.flow))
     end
 
-    control_stmt_to_back = pvm.phase("moon2_tree_control_stmt_to_back", {
+    control_stmt_to_back = pvm.phase("moonlift_tree_control_stmt_to_back", {
         [Tr.StmtJump] = function(self, env, ctx)
             local target = ctx.labels[label_key(self.target)]
             if target == nil then return pvm.once(unsupported_stmt(env, {})) end
@@ -371,7 +371,7 @@ function M.Define(T, base)
         return { env = out_env, cmds = cmds, flow = Back.BackFallsThrough, value = exit_value, scalar = result_scalar }, nil
     end
 
-    control_stmt_region_to_back = pvm.phase("moon2_tree_control_stmt_region_to_back", {
+    control_stmt_region_to_back = pvm.phase("moonlift_tree_control_stmt_region_to_back", {
         [Tr.ControlStmtRegion] = function(self, env)
             local lowered, err = lower_region(self, self.region_id, self.entry, self.blocks, nil, env)
             if lowered == nil then return pvm.once(unsupported_stmt(env, {})) end
@@ -379,7 +379,7 @@ function M.Define(T, base)
         end,
     }, { args_cache = "last" })
 
-    control_expr_region_to_back = pvm.phase("moon2_tree_control_expr_region_to_back", {
+    control_expr_region_to_back = pvm.phase("moonlift_tree_control_expr_region_to_back", {
         [Tr.ControlExprRegion] = function(self, env)
             local scalar = base.back_scalar(self.result_ty)
             if scalar == nil then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "control expression result has non-scalar type")) end

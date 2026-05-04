@@ -43,7 +43,7 @@ function M.Define(T)
         return table.concat(lines, "\n")
     end
 
-    local phase = pvm.phase("moon2_host_terra_emit_plan", {
+    local phase = pvm.phase("moonlift_host_terra_emit_plan", {
         [H.HostFactSet] = function(self, module_name)
             local layouts, views, sources = {}, {}, {}
             for i = 1, #self.facts do
@@ -56,12 +56,12 @@ function M.Define(T)
                     views[#views + 1] = fact.descriptor
                 end
             end
-            return pvm.once(H.HostTerraPlan(module_name or "moon2_host", table.concat(sources, "\n\n"), layouts, views))
+            return pvm.once(H.HostTerraPlan(module_name or "moonlift_host", table.concat(sources, "\n\n"), layouts, views))
         end,
     }, { args_cache = "full" })
 
     local function plan(facts, module_name)
-        return pvm.one(phase(facts, module_name or "moon2_host"))
+        return pvm.one(phase(facts, module_name or "moonlift_host"))
     end
 
     return {

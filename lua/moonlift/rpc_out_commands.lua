@@ -81,7 +81,7 @@ function M.Define(T)
         return event == variant or (variant_class ~= false and cls == variant_class)
     end
 
-    local out_commands_phase = pvm.phase("moon2_rpc_out_commands", {
+    local out_commands_phase = pvm.phase("moonlift_rpc_out_commands", {
         [E.Transition] = function(tr)
             local event = tr.event
             local cls = pvm.classof(event)

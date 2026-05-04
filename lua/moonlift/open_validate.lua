@@ -16,7 +16,7 @@ function M.Define(T)
         [O.SlotPlace] = function(self) return pvm.once(O.IssueUnfilledPlaceSlot(self.slot)) end,
         [O.SlotDomain] = function(self) return pvm.once(O.IssueUnfilledDomainSlot(self.slot)) end,
         [O.SlotRegion] = function(self) return pvm.once(O.IssueUnfilledRegionSlot(self.slot)) end,
-        [O.SlotCont] = function() return pvm.empty() end,
+        [O.SlotCont] = function(self) return pvm.once(O.IssueUnfilledContSlot(self.slot)) end,
         [O.SlotFunc] = function(self) return pvm.once(O.IssueUnfilledFuncSlot(self.slot)) end,
         [O.SlotConst] = function(self) return pvm.once(O.IssueUnfilledConstSlot(self.slot)) end,
         [O.SlotStatic] = function(self) return pvm.once(O.IssueUnfilledStaticSlot(self.slot)) end,

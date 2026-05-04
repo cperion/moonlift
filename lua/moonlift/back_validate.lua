@@ -172,7 +172,7 @@ function M.Define(T)
     local call_target_facts
     local call_result_facts
 
-    call_target_facts = pvm.phase("moon2_back_call_target_facts", {
+    call_target_facts = pvm.phase("moonlift_back_call_target_facts", {
         [B.BackCallDirect] = function(self, index)
             return pvm.once(B.BackFactFuncRef(index, self.func))
         end,
@@ -184,7 +184,7 @@ function M.Define(T)
         end,
     })
 
-    call_result_facts = pvm.phase("moon2_back_call_result_facts", {
+    call_result_facts = pvm.phase("moonlift_back_call_result_facts", {
         [B.BackCallStmt] = function()
             return pvm.empty()
         end,
@@ -262,7 +262,7 @@ function M.Define(T)
         pvm.drain_into(g, p, c, out)
     end
 
-    cmd_facts = pvm.phase("moon2_back_cmd_facts", {
+    cmd_facts = pvm.phase("moonlift_back_cmd_facts", {
         [B.CmdTargetModel] = function(_, _)
             return pvm.empty()
         end,
@@ -622,7 +622,7 @@ function M.Define(T)
         return B.BackValidationReport(issues)
     end
 
-    local validate_program = pvm.phase("moon2_back_validate_program", function(program)
+    local validate_program = pvm.phase("moonlift_back_validate_program", function(program)
         return validate_program_impl(program, true)
     end)
 

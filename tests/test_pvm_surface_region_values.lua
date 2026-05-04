@@ -27,12 +27,12 @@ local phase_frag = RegionLower.lower_phase_body(moon, body, { emit_frag = emit_f
 assert(type(phase_frag) == "table" and getmetatable(phase_frag) == moon.RegionFragValue)
 assert(phase_frag.name == "type_ref_classify_uncached")
 assert(#phase_frag.frag.params == 2)
-assert(#phase_frag.frag.open.slots == 1)
+assert(#phase_frag.frag.conts == 1)
 assert(pvm.classof(phase_frag.frag.entry.body[1]) == Tr.StmtSwitch)
 local switch = phase_frag.frag.entry.body[1]
 assert(#switch.arms == 4)
 assert(#switch.arms[1].body == 1)
 assert(pvm.classof(switch.arms[1].body[1]) == Tr.StmtUseRegionFrag)
-assert(pvm.classof(switch.arms[1].body[1].fills[1].value) == O.SlotValueContSlot)
+assert(pvm.classof(switch.arms[1].body[1].cont_fills[1].target) == O.ContTargetSlot)
 
 io.write("moonlift pvm_surface_region_values ok\n")

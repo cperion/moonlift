@@ -58,7 +58,7 @@ function M.Define(T)
     local P = PositionIndex.Define(T)
     local Sig = SignatureHelp.Define(T)
 
-    local hints_phase = pvm.phase("moon2_editor_inlay_hints", {
+    local hints_phase = pvm.phase("moonlift_editor_inlay_hints", {
         [E.RangeQuery] = function(query, analysis)
         local doc = analysis.parse.parts.document
         local index = P.build_index(doc)

@@ -30,7 +30,7 @@ function M.Define(T)
         return Ty.TScalar(C.ScalarVoid)
     end
 
-    header_type = pvm.phase("moon2_tree_expr_header_type", {
+    header_type = pvm.phase("moonlift_tree_expr_header_type", {
         [Tr.ExprSurface] = function() return pvm.empty() end,
         [Tr.ExprTyped] = function(self) return pvm.once(self.ty) end,
         [Tr.ExprOpen] = function(self) return pvm.once(self.ty) end,
@@ -38,7 +38,7 @@ function M.Define(T)
         [Tr.ExprCode] = function(self) return pvm.once(self.ty) end,
     })
 
-    value_ref_type = pvm.phase("moon2_tree_value_ref_type", {
+    value_ref_type = pvm.phase("moonlift_tree_value_ref_type", {
         [B.ValueRefBinding] = function(self) return pvm.once(self.binding.ty) end,
         [B.ValueRefSlot] = function(self) return pvm.once(self.slot.ty) end,
         [B.ValueRefFuncSlot] = function(self) return pvm.once(self.slot.fn_ty) end,
@@ -48,7 +48,7 @@ function M.Define(T)
         [B.ValueRefPath] = function() return pvm.empty() end,
     })
 
-    call_target_type = pvm.phase("moon2_tree_call_target_type", {
+    call_target_type = pvm.phase("moonlift_tree_call_target_type", {
         [Sem.CallDirect] = function(self) return pvm.once(self.fn_ty) end,
         [Sem.CallExtern] = function(self) return pvm.once(self.fn_ty) end,
         [Sem.CallIndirect] = function(self) return pvm.once(self.fn_ty) end,
@@ -76,7 +76,7 @@ function M.Define(T)
         return nil
     end
 
-    expr_type = pvm.phase("moon2_tree_expr_type", {
+    expr_type = pvm.phase("moonlift_tree_expr_type", {
         [Tr.ExprLit] = function(self) return header_or(self.h, scalar_void()) end,
         [Tr.ExprRef] = function(self)
             local ty = first(header_type(self.h)) or first(value_ref_type(self.ref))

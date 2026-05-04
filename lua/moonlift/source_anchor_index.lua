@@ -34,11 +34,11 @@ end
 function M.Define(T)
     local S = T.MoonSource
 
-    local build_index_phase = pvm.phase("moon2_source_anchor_index", function(anchor_set)
+    local build_index_phase = pvm.phase("moonlift_source_anchor_index", function(anchor_set)
         return S.AnchorIndex(anchor_set, sorted_copy(anchor_set.anchors))
     end)
 
-    local lookup_phase = pvm.phase("moon2_source_anchor_lookup", {
+    local lookup_phase = pvm.phase("moonlift_source_anchor_lookup", {
         [S.AnchorQueryId] = function(query)
             local out = {}
             for i = 1, #query.index.anchors do

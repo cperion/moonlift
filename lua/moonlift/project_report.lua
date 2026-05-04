@@ -8,7 +8,7 @@ function M.Define(T)
 
     local project_report
 
-    project_report = pvm.phase("moon2_project_report", {
+    project_report = pvm.phase("moonlift_project_report", {
         [P.Project] = function(project)
             local facts = Facts.facts(project)
             local ready = {}

@@ -52,7 +52,7 @@ function M.Define(T)
         return V.VecBackCmds(env, xs)
     end
 
-    elem_scalar = pvm.phase("moon2_vec_elem_to_back_scalar", {
+    elem_scalar = pvm.phase("moonlift_vec_elem_to_back_scalar", {
         [V.VecElemBool] = function() return pvm.once(Back.BackBool) end,
         [V.VecElemI8] = function() return pvm.once(Back.BackI8) end,
         [V.VecElemI16] = function() return pvm.once(Back.BackI16) end,
@@ -68,28 +68,28 @@ function M.Define(T)
         [V.VecElemIndex] = function() return pvm.once(Back.BackIndex) end,
     })
 
-    shape_to_back = pvm.phase("moon2_vec_shape_to_back_shape", {
+    shape_to_back = pvm.phase("moonlift_vec_shape_to_back_shape", {
         [V.VecScalarShape] = function(self) return pvm.once(Back.BackShapeScalar(pvm.one(elem_scalar(self.elem)))) end,
         [V.VecVectorShape] = function(self) return pvm.once(Back.BackShapeVec(Back.BackVec(pvm.one(elem_scalar(self.elem)), self.lanes))) end,
     })
 
-    shape_scalar = pvm.phase("moon2_vec_shape_scalar", {
+    shape_scalar = pvm.phase("moonlift_vec_shape_scalar", {
         [V.VecScalarShape] = function(self) return pvm.once(pvm.one(elem_scalar(self.elem))) end,
         [V.VecVectorShape] = function() return pvm.empty() end,
     })
 
-    shape_vec = pvm.phase("moon2_vec_shape_vec", {
+    shape_vec = pvm.phase("moonlift_vec_shape_vec", {
         [V.VecVectorShape] = function(self) return pvm.once(Back.BackVec(pvm.one(elem_scalar(self.elem)), self.lanes)) end,
         [V.VecScalarShape] = function() return pvm.empty() end,
     })
 
-    param_shape = pvm.phase("moon2_vec_param_shape", {
+    param_shape = pvm.phase("moonlift_vec_param_shape", {
         [V.VecScalarParam] = function(self) return pvm.once(V.VecScalarShape(self.elem)) end,
         [V.VecVectorParam] = function(self) return pvm.once(V.VecVectorShape(self.elem, self.lanes)) end,
     })
 
 
-    vector_bin_op = pvm.phase("moon2_vec_vector_bin_to_back", {
+    vector_bin_op = pvm.phase("moonlift_vec_vector_bin_to_back", {
         [V.VecAdd] = function() return pvm.once(Back.BackVecIntAdd) end,
         [V.VecSub] = function() return pvm.once(Back.BackVecIntSub) end,
         [V.VecMul] = function() return pvm.once(Back.BackVecIntMul) end,
@@ -116,7 +116,7 @@ function M.Define(T)
         return Back.BackIntSemantics(Back.BackIntWrap, Back.BackIntMayLose)
     end
 
-    scalar_bin_cmd = pvm.phase("moon2_vec_scalar_bin_to_back_cmd", {
+    scalar_bin_cmd = pvm.phase("moonlift_vec_scalar_bin_to_back_cmd", {
         [V.VecAdd] = function(_, dst, scalar, lhs, rhs) return pvm.once(Back.CmdIntBinary(dst, Back.BackIntAdd, scalar, int_sem_wrap(), lhs, rhs)) end,
         [V.VecSub] = function(_, dst, scalar, lhs, rhs) return pvm.once(Back.CmdIntBinary(dst, Back.BackIntSub, scalar, int_sem_wrap(), lhs, rhs)) end,
         [V.VecMul] = function(_, dst, scalar, lhs, rhs) return pvm.once(Back.CmdIntBinary(dst, Back.BackIntMul, scalar, int_sem_wrap(), lhs, rhs)) end,
@@ -178,7 +178,7 @@ function M.Define(T)
         return Back.BackAddress(Back.BackAddrValue(base), off, Back.BackProvUnknown, Back.BackPtrBoundsUnknown)
     end
 
-    cmd_to_back = pvm.phase("moon2_vec_cmd_to_back", {
+    cmd_to_back = pvm.phase("moonlift_vec_cmd_to_back", {
         [V.VecCmdConstInt] = function(self, env)
             local scalar = pvm.one(elem_scalar(self.elem))
             return pvm.once(result_with_shape(env, self.dst, V.VecScalarShape(self.elem), Back.CmdConst(value_id(self.dst), scalar, Back.BackLitInt(self.raw))))
@@ -241,14 +241,14 @@ function M.Define(T)
         [V.VecCmdHorizontalReduce] = function(self, env) return pvm.once(reject(env, self.dst, "horizontal reduce lowering deferred")) end,
     }, { args_cache = "last" })
 
-    terminator_to_back = pvm.phase("moon2_vec_terminator_to_back", {
+    terminator_to_back = pvm.phase("moonlift_vec_terminator_to_back", {
         [V.VecJump] = function(self) local args = {}; for i = 1, #self.args do args[#args + 1] = value_id(self.args[i]) end; return pvm.once({ Back.CmdJump(block_id(self.dest), args) }) end,
         [V.VecBrIf] = function(self) local ta = {}; for i = 1, #self.then_args do ta[#ta + 1] = value_id(self.then_args[i]) end; local ea = {}; for i = 1, #self.else_args do ea[#ea + 1] = value_id(self.else_args[i]) end; return pvm.once({ Back.CmdBrIf(value_id(self.cond), block_id(self.then_block), ta, block_id(self.else_block), ea) }) end,
         [V.VecReturnVoid] = function() return pvm.once({ Back.CmdReturnVoid }) end,
         [V.VecReturnValue] = function(self) return pvm.once({ Back.CmdReturnValue(value_id(self.value)) }) end,
     })
 
-    block_to_back = pvm.phase("moon2_vec_block_to_back", {
+    block_to_back = pvm.phase("moonlift_vec_block_to_back", {
         [V.VecBlock] = function(block, env)
             local current = env
             local out = { Back.CmdCreateBlock(block_id(block.id)) }
@@ -287,7 +287,7 @@ function M.Define(T)
         return ps, rs
     end
 
-    func_to_back = pvm.phase("moon2_vec_func_to_back", {
+    func_to_back = pvm.phase("moonlift_vec_func_to_back", {
         [V.VecBackFuncSpec] = function(func)
             local ps, rs = sig_scalars(func.params, func.results)
             if ps == nil then return pvm.once(V.VecBackReject(env_empty(), V.VecRejectUnsupportedLoop(V.VecLoopId(func.name), "function ABI only supports scalar params/results"))) end
@@ -328,7 +328,7 @@ function M.Define(T)
         end,
     })
 
-    program_to_back = pvm.phase("moon2_vec_program_to_back", {
+    program_to_back = pvm.phase("moonlift_vec_program_to_back", {
         [V.VecBackProgramSpec] = function(program)
             local out = {}
             local env = env_empty()

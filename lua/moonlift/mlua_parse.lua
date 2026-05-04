@@ -398,7 +398,7 @@ function M.Define(T)
         return H.MluaParseResult(H.HostDeclSet(decls), Tr.Module(Tr.ModuleSurface, items), regions, exprs, issues)
     end
 
-    local mlua_parse = pvm.phase("moon2_mlua_parse", {
+    local mlua_parse = pvm.phase("moonlift_mlua_parse", {
         [H.MluaSource] = function(self)
             return pvm.once(parse_source(self))
         end,

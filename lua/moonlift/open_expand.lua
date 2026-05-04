@@ -848,7 +848,10 @@ function M.Define(T)
     end
 
     local function empty_env(region_frags, expr_frags)
-        return O.ExpandEnv(list_from_map_or_list(region_frags), list_from_map_or_list(expr_frags), O.FillSet({}), {}, {}, "")
+        return O.ExpandEnv(
+            list_from_map_or_list(region_frags or T._moonlift_host_region_frags),
+            list_from_map_or_list(expr_frags or T._moonlift_host_expr_frags),
+            O.FillSet({}), {}, {}, "")
     end
 
     return {

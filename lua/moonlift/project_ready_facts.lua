@@ -11,7 +11,7 @@ function M.Define(T)
 
     local function pack(g, p, c) return { g, p, c } end
 
-    task_base_facts = pvm.phase("moon2_project_task_base_facts", {
+    task_base_facts = pvm.phase("moonlift_project_task_base_facts", {
         [P.Task] = function(task)
             local facts = { P.TaskDeclared(task.id) }
             if task.status == P.TaskDone then facts[#facts + 1] = P.TaskCompleted(task.id) end
@@ -21,13 +21,13 @@ function M.Define(T)
         end,
     })
 
-    project_base_facts = pvm.phase("moon2_project_base_facts", {
+    project_base_facts = pvm.phase("moonlift_project_base_facts", {
         [P.Project] = function(project)
             return pvm.children(task_base_facts, project.tasks)
         end,
     })
 
-    project_ready_facts = pvm.phase("moon2_project_ready_facts", {
+    project_ready_facts = pvm.phase("moonlift_project_ready_facts", {
         [P.Project] = function(project)
             local declared = {}
             local done = {}

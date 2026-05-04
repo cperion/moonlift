@@ -205,12 +205,12 @@ function M.Define(T)
         return full_range(analysis)
     end
 
-    local parse_issue_diag_phase = pvm.phase("moon2_editor_parse_issue_diagnostic", function(issue, analysis)
+    local parse_issue_diag_phase = pvm.phase("moonlift_editor_parse_issue_diagnostic", function(issue, analysis)
         local range = range_at_offset(analysis, issue.offset)
         return E.DiagnosticFact(E.DiagnosticError, E.DiagFromParse(issue), "parse", issue.message, range)
     end, { args_cache = "full" })
 
-    local host_issue_diag_phase = pvm.phase("moon2_editor_host_issue_diagnostic", {
+    local host_issue_diag_phase = pvm.phase("moonlift_editor_host_issue_diagnostic", {
         [H.HostIssueInvalidName] = function(issue, analysis)
             return pvm.once(E.DiagnosticFact(E.DiagnosticError, E.DiagFromHost(issue), "host.invalidName", issue.site .. " has invalid name '" .. issue.name .. "'", range_for_label(analysis, issue.name)))
         end,
@@ -259,7 +259,7 @@ function M.Define(T)
         end,
     }, { args_cache = "full" })
 
-    local open_issue_diag_phase = pvm.phase("moon2_editor_open_issue_diagnostic", function(issue, analysis)
+    local open_issue_diag_phase = pvm.phase("moonlift_editor_open_issue_diagnostic", function(issue, analysis)
         return E.DiagnosticFact(E.DiagnosticError, E.DiagFromOpen(issue), "open." .. class_name(issue), class_name(issue), full_range(analysis))
     end, { args_cache = "full" })
 
@@ -291,7 +291,7 @@ function M.Define(T)
         return full_range(analysis)
     end
 
-    local type_issue_diag_phase = pvm.phase("moon2_editor_type_issue_diagnostic", {
+    local type_issue_diag_phase = pvm.phase("moonlift_editor_type_issue_diagnostic", {
         [Tr.TypeIssueUnresolvedValue] = function(issue, analysis)
             return pvm.once(E.DiagnosticFact(E.DiagnosticError, E.DiagFromType(issue), "type.unresolvedValue", "unresolved value '" .. issue.name .. "'", range_for_label(analysis, issue.name)))
         end,
@@ -362,7 +362,7 @@ function M.Define(T)
         return type_unresolved_names[resolution.use.anchor.label] == true
     end
 
-    local binding_resolution_diag_phase = pvm.phase("moon2_editor_binding_resolution_diagnostic", {
+    local binding_resolution_diag_phase = pvm.phase("moonlift_editor_binding_resolution_diagnostic", {
         [E.BindingUnresolved] = function(resolution)
             local name = resolution.use.anchor.label
             return pvm.once(E.DiagnosticFact(E.DiagnosticError, E.DiagFromBindingResolution(resolution), "binding.unresolved", "unresolved binding '" .. name .. "'", resolution.use.anchor.range))
@@ -380,7 +380,7 @@ function M.Define(T)
         return full_range(analysis)
     end
 
-    local back_issue_diag_phase = pvm.phase("moon2_editor_back_issue_diagnostic", {
+    local back_issue_diag_phase = pvm.phase("moonlift_editor_back_issue_diagnostic", {
         [B.BackIssueEmptyProgram] = function(issue, analysis) return pvm.once(E.DiagnosticFact(E.DiagnosticError, E.DiagFromBack(issue), "back.emptyProgram", "backend command stream is empty", back_range(analysis))) end,
         [B.BackIssueMissingFinalize] = function(issue, analysis) return pvm.once(E.DiagnosticFact(E.DiagnosticError, E.DiagFromBack(issue), "back.missingFinalize", "backend command stream is missing finalization", back_range(analysis))) end,
         [B.BackIssueCommandAfterFinalize] = function(issue, analysis) return pvm.once(E.DiagnosticFact(E.DiagnosticError, E.DiagFromBack(issue), "back.commandAfterFinalize", "backend command after finalize at #" .. tostring(issue.index), back_range(analysis))) end,
@@ -407,11 +407,11 @@ function M.Define(T)
         [B.BackIssueShapeRequiresVector] = function(issue, analysis) return pvm.once(E.DiagnosticFact(E.DiagnosticError, E.DiagFromBack(issue), "back.shapeRequiresVector", "backend shape requires vector at #" .. tostring(issue.index), back_range(analysis))) end,
     }, { args_cache = "full" })
 
-    local vec_reject_diag_phase = pvm.phase("moon2_editor_vec_reject_diagnostic", function(reject, analysis)
+    local vec_reject_diag_phase = pvm.phase("moonlift_editor_vec_reject_diagnostic", function(reject, analysis)
         return E.DiagnosticFact(E.DiagnosticInformation, E.DiagFromVectorReject(reject), "vec." .. class_name(reject), class_name(reject), full_range(analysis))
     end, { args_cache = "full" })
 
-    local document_diagnostics_phase = pvm.phase("moon2_editor_document_diagnostics", {
+    local document_diagnostics_phase = pvm.phase("moonlift_editor_document_diagnostics", {
         [Mlua.DocumentAnalysis] = function(analysis)
             local diagnostics = {}
             for i = 1, #analysis.parse.combined.issues do

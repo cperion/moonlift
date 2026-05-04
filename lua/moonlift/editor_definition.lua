@@ -17,7 +17,7 @@ function M.Define(T)
     local Subject = SubjectAt.Define(T)
     local Bindings = BindingFacts.Define(T)
 
-    local definition_phase = pvm.phase("moon2_editor_definition", function(query, analysis)
+    local definition_phase = pvm.phase("moonlift_editor_definition", function(query, analysis)
         local pick = Subject.subject_at(query, analysis)
         local cls = pvm.classof(pick.subject)
         if cls == E.SubjectMissing or cls == E.SubjectKeyword or cls == E.SubjectDiagnostic then

@@ -153,7 +153,7 @@ function M.Define(T)
         return pvm.classof(source) == V.VecKernelLenBinding and same_binding_slot(source.binding, binding)
     end
 
-    mask_uses = pvm.phase("moon2_vec_kernel_mask_memory_uses", {
+    mask_uses = pvm.phase("moonlift_vec_kernel_mask_memory_uses", {
         [V.VecKernelMaskCompare] = function(self, elem)
             local out = {}
             append_all(out, pvm.one(expr_uses(self.lhs, elem)))
@@ -171,7 +171,7 @@ function M.Define(T)
         end,
     }, { args_cache = "last" })
 
-    expr_uses = pvm.phase("moon2_vec_kernel_expr_memory_uses", {
+    expr_uses = pvm.phase("moonlift_vec_kernel_expr_memory_uses", {
         [V.VecKernelExprLoad] = function(self, elem)
             return pvm.once({ V.VecKernelRead(self.base, elem, self.offset, self.base_len, self.len_value) })
         end,
@@ -193,7 +193,7 @@ function M.Define(T)
         end,
     }, { args_cache = "last" })
 
-    core_uses = pvm.phase("moon2_vec_kernel_core_memory_uses", {
+    core_uses = pvm.phase("moonlift_vec_kernel_core_memory_uses", {
         [V.VecKernelCoreReduce] = function(self)
             local uses = {}
             append_all(uses, pvm.one(expr_uses(self.reduction.value, self.elem)))
@@ -277,7 +277,7 @@ function M.Define(T)
         return nil
     end
 
-    window_range_decide = pvm.phase("moon2_vec_window_range_decide", {
+    window_range_decide = pvm.phase("moonlift_vec_window_range_decide", {
         [V.VecWindowRangeObligation] = function(self, contracts, scalars)
             scalars = scalars or {}
             if offset_is_zero(self.start) and (len_source_is_binding(self.base_len, self.len) or expr_same(self.len_value, len_source_expr(self.base_len), scalars, contracts)) then
@@ -447,7 +447,7 @@ function M.Define(T)
         return aliases, assumptions
     end
 
-    decide_input = pvm.phase("moon2_vec_kernel_safety_decide", {
+    decide_input = pvm.phase("moonlift_vec_kernel_safety_decide", {
         [V.VecKernelSafetyInput] = function(self)
             local stop = self.core.stop
             local proofs = { V.VecProofDomain("canonical counted vector kernel") }

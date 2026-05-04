@@ -42,7 +42,7 @@ function M.Define(T)
         return descriptor, cdef, layout
     end
 
-    local subject_phase = pvm.phase("moon2_host_view_abi_plan_subject", {
+    local subject_phase = pvm.phase("moonlift_host_view_abi_plan_subject", {
         [H.HostExposeType] = function(self, env)
             local layout = find_layout(env, self.ty)
             if layout then return pvm.once(layout) end
@@ -60,7 +60,7 @@ function M.Define(T)
         end,
     }, { args_cache = "full" })
 
-    local expose_fact_phase = pvm.phase("moon2_host_view_abi_plan", {
+    local expose_fact_phase = pvm.phase("moonlift_host_view_abi_plan", {
         [H.HostExposeDecl] = function(self, env, target)
             local facts = {}
             if pvm.classof(self.subject) == H.HostExposeView then

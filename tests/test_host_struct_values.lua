@@ -18,7 +18,7 @@ assert(pvm.classof(Pair.decl) == Tr.TypeDeclStruct)
 assert(Pair.decl.name == "Pair")
 assert(#Pair.decl.fields == 2)
 assert(Pair.fields_by_name.x == moon.i32)
-assert(moon.ptr(Pair).ty == Ty.TPtr(Pair:as_moon2_type()))
+assert(moon.ptr(Pair).ty == Ty.TPtr(Pair:as_moonlift_type()))
 
 local M = moon.module("Demo")
 local MPair = M:struct("Pair", {

@@ -5,14 +5,14 @@ FieldValue.__index = FieldValue
 
 local StructValue = {}
 StructValue.__index = StructValue
-StructValue.__moon2_host_type_value = true
+StructValue.__moonlift_host_type_value = true
 
 local TypeDeclValue = {}
 TypeDeclValue.__index = TypeDeclValue
 
 local DraftStructValue = {}
 DraftStructValue.__index = DraftStructValue
-DraftStructValue.__moon2_host_type_value = true
+DraftStructValue.__moonlift_host_type_value = true
 
 local function assert_name(name, site)
     assert(type(name) == "string" and name:match("^[_%a][_%w]*$"), site .. " expects an identifier")
@@ -22,7 +22,7 @@ function StructValue:as_type_value()
     return self.type
 end
 
-function StructValue:as_moon2_type()
+function StructValue:as_moonlift_type()
     return self.type.ty
 end
 
@@ -42,7 +42,7 @@ function DraftStructValue:as_type_value()
     return self.type
 end
 
-function DraftStructValue:as_moon2_type()
+function DraftStructValue:as_moonlift_type()
     return self.type.ty
 end
 

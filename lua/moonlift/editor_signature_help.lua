@@ -232,7 +232,7 @@ function M.Define(T)
         return catalog
     end
 
-    local signature_context_phase = pvm.phase("moon2_editor_signature_context", {
+    local signature_context_phase = pvm.phase("moonlift_editor_signature_context", {
         [E.PositionQuery] = function(query, analysis)
             local doc = analysis.parse.parts.document
             local index = P.build_index(doc)
@@ -258,7 +258,7 @@ function M.Define(T)
         end,
     }, { args_cache = "full" })
 
-    local signature_help_phase = pvm.phase("moon2_editor_signature_help", {
+    local signature_help_phase = pvm.phase("moonlift_editor_signature_help", {
         [E.PositionQuery] = function(query, analysis)
             local context = pvm.one(signature_context_phase(query, analysis))
             if pvm.classof(context) ~= E.SignatureCall then return pvm.once(E.SignatureHelpMissing(context.reason)) end

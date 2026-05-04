@@ -75,11 +75,6 @@ M:func("type_ref_classify_drain_one_uncached", {
     end)
 end)
 
-CacheValues.add_one_result_cache(moon, M, body, {
-    context_type = ctx_ty,
-    input_id_type = type_ref_id,
-    output_id_type = type_class_id,
-})
 M:extern_func("stats_type_ref_classify_call", { moon.param("ctx", ctx_ty) }, moon.void)
 M:extern_func("stats_type_ref_classify_hit", { moon.param("ctx", ctx_ty) }, moon.void)
 M:extern_func("stats_type_ref_classify_miss", { moon.param("ctx", ctx_ty) }, moon.void)
@@ -92,6 +87,11 @@ M:extern_func("cache_type_ref_classify_insert", {
     moon.param("subject", type_ref_id),
     moon.param("value", type_class_id),
 }, moon.void)
+CacheValues.add_one_result_cache(moon, M, body, {
+    context_type = ctx_ty,
+    input_id_type = type_ref_id,
+    output_id_type = type_class_id,
+})
 
 local module = M:to_asdl()
 local saw_phase_emit = false

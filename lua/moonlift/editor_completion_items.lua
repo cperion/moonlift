@@ -16,7 +16,7 @@ function M.Define(T)
     local H = T.MoonHost
     local Context = CompletionContext.Define(T)
 
-    local items_phase = pvm.phase("moon2_editor_completion_items", {
+    local items_phase = pvm.phase("moonlift_editor_completion_items", {
         [E.CompletionQuery] = function(query, analysis)
         local items = {}
         local context = query.context
@@ -74,7 +74,7 @@ function M.Define(T)
         end,
     }, { args_cache = "full" })
 
-    local completion_phase = pvm.phase("moon2_editor_completion", {
+    local completion_phase = pvm.phase("moonlift_editor_completion", {
         [E.PositionQuery] = function(position_query, analysis)
         local context = Context.context(position_query, analysis)
         return pvm.seq(pvm.drain(items_phase(E.CompletionQuery(position_query, context), analysis)))

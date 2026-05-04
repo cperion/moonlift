@@ -32,7 +32,7 @@ function M.Define(T)
         return nil, nil
     end
 
-    local tokens_phase = pvm.phase("moon2_editor_semantic_tokens", {
+    local tokens_phase = pvm.phase("moonlift_editor_semantic_tokens", {
         [Mlua.DocumentAnalysis] = function(analysis)
         local out = {}
         for i = 1, #analysis.anchors.anchors do
@@ -51,7 +51,7 @@ function M.Define(T)
         end,
     })
 
-    local range_tokens_phase = pvm.phase("moon2_editor_semantic_tokens_range", {
+    local range_tokens_phase = pvm.phase("moonlift_editor_semantic_tokens_range", {
         [E.RangeQuery] = function(query, analysis)
         local all = pvm.drain(tokens_phase(analysis))
         local out = {}

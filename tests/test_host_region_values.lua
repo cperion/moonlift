@@ -101,7 +101,7 @@ M:export_func("dispatch_abs", { moon.param("mode", moon.i32), moon.param("x", mo
     end)
 end)
 
-assert(pvm.classof(abs_forward_frag.frag.entry.body[1].fills[1].value) == O.SlotValueContSlot)
+assert(pvm.classof(abs_forward_frag.frag.entry.body[1].cont_fills[1].target) == O.ContTargetSlot)
 local module = M:to_asdl()
 assert(pvm.classof(module.items[1].func.body[1].value) == Tr.ExprControl)
 assert(pvm.classof(module.items[2].func.body[1].value) == Tr.ExprControl)

@@ -2,13 +2,13 @@ local M = {}
 
 local PlaceValue = {}
 PlaceValue.__index = PlaceValue
-PlaceValue.__moon2_host_place_value = true
+PlaceValue.__moonlift_host_place_value = true
 
 local function get_place_value(v)
     if type(v) ~= "table" then return nil end
     local mt = getmetatable(v)
     if mt == PlaceValue then return v end
-    if mt and mt.__moon2_host_place_value and type(v.as_place_value) == "function" then return v:as_place_value() end
+    if mt and mt.__moonlift_host_place_value and type(v.as_place_value) == "function" then return v:as_place_value() end
     return nil
 end
 
@@ -16,7 +16,7 @@ function PlaceValue:as_place_value()
     return self
 end
 
-function PlaceValue:as_moon2_place()
+function PlaceValue:as_moonlift_place()
     return self.place
 end
 
@@ -52,7 +52,7 @@ function M.Install(api, session)
         return coerce(v, site)
     end
 
-    function api.as_moon2_place(v, site)
+    function api.as_moonlift_place(v, site)
         return coerce(v, site).place
     end
 

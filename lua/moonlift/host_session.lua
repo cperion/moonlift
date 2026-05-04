@@ -9,6 +9,8 @@ function M.new(opts)
     opts = opts or {}
     local T = pvm.context()
     A2.Define(T)
+    T._moonlift_host_region_frags = {}
+    T._moonlift_host_expr_frags = {}
     return setmetatable({
         T = T,
         prefix = opts.prefix or "host",
@@ -52,19 +54,19 @@ end
 
 function Session:classify_type(ty_value)
     local api = self:api()
-    local ty = api.as_moon2_type(ty_value, "classify_type expects type value")
+    local ty = api.as_moonlift_type(ty_value, "classify_type expects type value")
     return require("moonlift.type_classify").Define(self.T).classify(ty)
 end
 
 function Session:size_align(ty_value, env)
     local api = self:api()
-    local ty = api.as_moon2_type(ty_value, "size_align expects type value")
+    local ty = api.as_moonlift_type(ty_value, "size_align expects type value")
     return require("moonlift.type_size_align").Define(self.T).result(ty, env)
 end
 
 function Session:abi_of(ty_value, env)
     local api = self:api()
-    local ty = api.as_moon2_type(ty_value, "abi_of expects type value")
+    local ty = api.as_moonlift_type(ty_value, "abi_of expects type value")
     return require("moonlift.type_abi_classify").Define(self.T).decide(ty, env)
 end
 

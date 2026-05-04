@@ -7,7 +7,7 @@ function M.Define(T)
     local E = T.MoonEditor
     local Mlua = T.MoonMlua
 
-    local folding_phase = pvm.phase("moon2_editor_folding_ranges", {
+    local folding_phase = pvm.phase("moonlift_editor_folding_ranges", {
         [Mlua.DocumentAnalysis] = function(analysis)
         local out = {}
         for i = 1, #analysis.parse.parts.segments do

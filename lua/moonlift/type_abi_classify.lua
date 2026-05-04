@@ -20,7 +20,7 @@ function M.Define(T)
         return nil
     end
 
-    abi_class_from_type_class = pvm.phase("moon2_type_abi_class_from_type_class", {
+    abi_class_from_type_class = pvm.phase("moonlift_type_abi_class_from_type_class", {
         [Ty.TypeClassScalar] = function(self, ty)
             local r = scalar_api.result(ty)
             if pvm.classof(r) == Ty.TypeBackScalarKnown then
@@ -56,7 +56,7 @@ function M.Define(T)
         end,
     }, { args_cache = "last" })
 
-    abi_decision = pvm.phase("moon2_type_abi_decision", function(ty, env)
+    abi_decision = pvm.phase("moonlift_type_abi_decision", function(ty, env)
         local class = classify_api.classify(ty)
         local abi = pvm.one(abi_class_from_type_class(class, ty, env or Sem.LayoutEnv({})))
         return Ty.AbiDecision(ty, abi)
