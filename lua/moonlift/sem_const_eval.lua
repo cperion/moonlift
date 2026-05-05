@@ -111,6 +111,7 @@ function M.Define(T)
         [C.LitInt] = function(self, ty) return pvm.once(yes(Sem.ConstInt(ty, self.raw))) end,
         [C.LitFloat] = function(self, ty) return pvm.once(yes(Sem.ConstFloat(ty, self.raw))) end,
         [C.LitBool] = function(self) return pvm.once(yes(Sem.ConstBool(self.value))) end,
+        [C.LitString] = function() return pvm.once(no()) end,
         [C.LitNil] = function(_, ty) return pvm.once(yes(Sem.ConstNil(ty))) end,
     }, { args_cache = "last" })
 

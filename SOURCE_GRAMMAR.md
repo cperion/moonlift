@@ -130,14 +130,17 @@ path  ::= ident { "." ident }
 ### 2.4 Literals
 
 ```text
-int_lit   ::= decimal_int | hex_int
-float_lit ::= decimal_float [ exponent ]
-bool_lit  ::= "true" | "false"
-nil_lit   ::= "nil"
+int_lit    ::= decimal_int | hex_int
+float_lit  ::= decimal_float [ exponent ]
+string_lit ::= '"' { c_string_char | c_escape } '"'
+bool_lit   ::= "true" | "false"
+nil_lit    ::= "nil"
 ```
 
 Numeric literal raw spelling is preserved in the source ASDL.  Numeric meaning is
-decided by later typed phases.
+decided by later typed phases. String literals are C-style byte strings; escapes
+include `\\n`, `\\r`, `\\t`, `\\\\`, `\\\"`, octal, and `\\xHH`, and the backend
+lowers each literal to NUL-terminated static `ptr(u8)` data.
 
 ### 2.5 Reserved words
 

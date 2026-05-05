@@ -402,6 +402,12 @@ local function install(api, T)
     ---@return moonlift.ast.Expr
     function api.bool_lit(value) return Tr.ExprLit(Tr.ExprSurface, C.LitBool(value and true or false)) end
 
+    ---C string literal expression. The supplied Lua string is stored as bytes and
+    ---lowered to a NUL-terminated static `ptr(u8)` object.
+    ---@param bytes string Decoded string bytes, without the trailing NUL.
+    ---@return moonlift.ast.Expr
+    function api.string_lit(bytes) return Tr.ExprLit(Tr.ExprSurface, C.LitString(bytes)) end
+
     ---Nil literal expression.
     ---@return moonlift.ast.Expr
     function api.nil_lit() return Tr.ExprLit(Tr.ExprSurface, C.LitNil) end

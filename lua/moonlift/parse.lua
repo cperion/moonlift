@@ -58,6 +58,18 @@ local three_char = { [">>>"] = TK.lshr }
 local function is_hex_digit(b)
     return (b >= 48 and b <= 57) or (b >= 65 and b <= 70) or (b >= 97 and b <= 102)
 end
+
+local function hex_value(b)
+    if b >= 48 and b <= 57 then return b - 48 end
+    if b >= 65 and b <= 70 then return b - 55 end
+    if b >= 97 and b <= 102 then return b - 87 end
+    return nil
+end
+
+local function is_oct_digit(b)
+    return b >= 48 and b <= 55
+end
+
 local one_char = { ["("] = TK.lparen, [")"] = TK.rparen, ["["] = TK.lbrack, ["]"] = TK.rbrack, ["{"] = TK.lbrace, ["}"] = TK.rbrace, [","] = TK.comma, [":"] = TK.colon, ["."] = TK.dot, [";"] = TK.semi, ["+"] = TK.plus, ["-"] = TK.minus, ["*"] = TK.star, ["/"] = TK.slash, ["%"] = TK.percent, ["="] = TK.eq, ["<"] = TK.lt, [">"] = TK.gt, ["&"] = TK.amp, ["|"] = TK.pipe, ["^"] = TK.caret, ["~"] = TK.tilde }
 
 function M.lex(src)
@@ -122,12 +134,52 @@ function M.lex(src)
             push(t, is_float and TK.float or TK.int, src:sub(s, i - 1), s, i - 1, line, c)
         elseif b == 34 then
             local s, c = i, col
+            local parts = {}
             i = i + 1; col = col + 1
             while i <= n and src:byte(i) ~= 34 do
-                if src:byte(i) == 10 then line = line + 1; col = 1; i = i + 1 else i = i + 1; col = col + 1 end
+                local x = src:byte(i)
+                if x == 92 and i < n then
+                    local e = src:byte(i + 1)
+                    local consumed = 2
+                    if e == 110 then parts[#parts + 1] = "\n"
+                    elseif e == 114 then parts[#parts + 1] = "\r"
+                    elseif e == 116 then parts[#parts + 1] = "\t"
+                    elseif e == 98 then parts[#parts + 1] = "\b"
+                    elseif e == 102 then parts[#parts + 1] = "\f"
+                    elseif e == 97 then parts[#parts + 1] = string.char(7)
+                    elseif e == 118 then parts[#parts + 1] = string.char(11)
+                    elseif e == 92 then parts[#parts + 1] = "\\"
+                    elseif e == 34 then parts[#parts + 1] = "\""
+                    elseif e == 39 then parts[#parts + 1] = "'"
+                    elseif is_oct_digit(e) then
+                        local value = 0
+                        local j = i + 1
+                        consumed = 1
+                        while consumed <= 3 and j <= n and is_oct_digit(src:byte(j)) do
+                            value = value * 8 + (src:byte(j) - 48)
+                            j = j + 1; consumed = consumed + 1
+                        end
+                        parts[#parts + 1] = string.char(value % 256)
+                    elseif e == 120 and i + 2 <= n and is_hex_digit(src:byte(i + 2)) then
+                        local value = 0
+                        local j = i + 2
+                        consumed = 2
+                        while consumed < 4 and j <= n and is_hex_digit(src:byte(j)) do
+                            value = value * 16 + hex_value(src:byte(j))
+                            j = j + 1; consumed = consumed + 1
+                        end
+                        parts[#parts + 1] = string.char(value % 256)
+                    else
+                        parts[#parts + 1] = string.char(e)
+                    end
+                    i = i + consumed; col = col + consumed
+                else
+                    parts[#parts + 1] = string.char(x)
+                    if x == 10 then line = line + 1; col = 1; i = i + 1 else i = i + 1; col = col + 1 end
+                end
             end
             if i <= n then i = i + 1; col = col + 1 end
-            push(t, TK.string, src:sub(s + 1, i - 2), s, i - 1, line, c)
+            push(t, TK.string, table.concat(parts), s, i - 1, line, c)
         else
             if i + 2 <= n then
                 local s3 = src:sub(i, i + 2)
@@ -264,6 +316,7 @@ function Parser:nud()
     if k == TK.as_kw then return self:parse_as_expr() end
     if k == TK.int then return Tr.ExprLit(Tr.ExprSurface, C.LitInt(text)) end
     if k == TK.float then return Tr.ExprLit(Tr.ExprSurface, C.LitFloat(text)) end
+    if k == TK.string then return Tr.ExprLit(Tr.ExprSurface, C.LitString(text)) end
     if k == TK.true_kw then return Tr.ExprLit(Tr.ExprSurface, C.LitBool(true)) end
     if k == TK.false_kw then return Tr.ExprLit(Tr.ExprSurface, C.LitBool(false)) end
     if k == TK.nil_kw then return Tr.ExprLit(Tr.ExprSurface, C.LitNil) end

@@ -306,13 +306,16 @@ module paths or field access depending on context — resolution is semantic.
 int_lit   ::= decimal_lit | hex_lit
 decimal_lit ::= [0-9]+ | [0-9]+ "_" [0-9]+
 hex_lit    ::= "0x" [0-9a-fA-F]+
-float_lit ::= [0-9]+ "." [0-9]+ ( [eE] [+-]? [0-9]+ )?
-bool_lit  ::= "true" | "false"
-nil_lit   ::= "nil"
+float_lit  ::= [0-9]+ "." [0-9]+ ( [eE] [+-]? [0-9]+ )?
+string_lit ::= '"' { c_string_char | c_escape } '"'
+bool_lit   ::= "true" | "false"
+nil_lit    ::= "nil"
 ```
 
 Numeric spellings are preserved as raw strings in the source ASDL and
-interpreted later by typed phases. Underscore separators in decimal integers
+interpreted later by typed phases. String literals are C-style byte strings with
+escapes such as `\\n`, `\\r`, `\\t`, `\\\\`, `\\\"`, octal, and `\\xHH`; they type as
+NUL-terminated static `ptr(u8)` data. Underscore separators in decimal integers
 are accepted for readability (e.g. `1_000_000`).
 
 Integer overflow at constant time follows the target scalar's semantics — a
@@ -1220,6 +1223,7 @@ expr ::= literal
 1_000_000       -- decimal with underscores
 3.14            -- float literal
 1.5e-2          -- float with exponent
+"hello\n"       -- C-style NUL-terminated ptr(u8) string
 true            -- bool literal
 false           -- bool literal
 nil             -- nil literal (typed as ptr(u8) null pointer in most contexts)
@@ -1227,8 +1231,9 @@ nil             -- nil literal (typed as ptr(u8) null pointer in most contexts)
 
 Numeric literals carry no inherent type. The type is determined by the
 expected type at the expression's position: a parameter typed `i32` gives an
-`i32` literal, a `let x: f64 = 42` produces `42.0`, etc. When the expected
-type is ambiguous, use `as(T, literal)`.
+`i32` literal, a `let x: f64 = 42` produces `42.0`, etc. String literals have
+inherent type `ptr(u8)` and point at read-only static bytes with an added `\0`.
+When the expected type is ambiguous, use `as(T, literal)`.
 
 ### 9.3 Name references
 
@@ -2071,6 +2076,7 @@ moon.closure_type(params, result) -- closure type
 moon.int(42)
 moon.float("1.5")
 moon.bool_lit(true)
+moon.string_lit("hello\n")
 moon.nil_lit()
 
 -- Arithmetic (on expression values)

@@ -84,6 +84,10 @@ function M.Install(api, session)
         return expr_value(Tr.ExprLit(Tr.ExprSurface, C.LitBool(value and true or false)), api.bool, value and "true" or "false")
     end
 
+    function api.string_lit(bytes)
+        return expr_value(Tr.ExprLit(Tr.ExprSurface, C.LitString(bytes)), api.ptr(api.u8), "\"...\"")
+    end
+
     function api.nil_lit(ty)
         return expr_value(Tr.ExprLit(Tr.ExprSurface, C.LitNil), ty, "nil")
     end

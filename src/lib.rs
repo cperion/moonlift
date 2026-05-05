@@ -1136,10 +1136,7 @@ impl<'a, 'b, M: Module> FunctionLowerer<'a, 'b, M> {
             BackCmd::DataInitZero(..)
             | BackCmd::DataInitInt(..)
             | BackCmd::DataInitFloat(..)
-            | BackCmd::DataInitBool(..) => Err(MoonliftError::new(format!(
-                "data initialization commands cannot appear inside function body '{}'",
-                self.func_name.as_str()
-            ))),
+            | BackCmd::DataInitBool(..) => Ok(()),
             BackCmd::DeclareFuncLocal(func, sig) | BackCmd::DeclareFuncExport(func, sig) => {
                 let decl = self.funcs.get(func).ok_or_else(|| {
                     MoonliftError::new(format!(

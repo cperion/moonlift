@@ -47,6 +47,7 @@ function M.Define(T)
     local function i32_ty() return Ty.TScalar(C.ScalarI32) end
     local function index_ty() return Ty.TScalar(C.ScalarIndex) end
     local function f64_ty() return Ty.TScalar(C.ScalarF64) end
+    local function cstr_ty() return Ty.TPtr(Ty.TScalar(C.ScalarU8)) end
 
     local function view_elem(view)
         local cls = pvm.classof(view)
@@ -300,7 +301,7 @@ function M.Define(T)
         [Tr.ExprLit] = function(self, ctx)
             local cls = pvm.classof(self.value)
             local ty = void_ty()
-            if cls == C.LitInt then ty = i32_ty() elseif cls == C.LitFloat then ty = f64_ty() elseif cls == C.LitBool then ty = bool_ty() end
+            if cls == C.LitInt then ty = i32_ty() elseif cls == C.LitFloat then ty = f64_ty() elseif cls == C.LitBool then ty = bool_ty() elseif cls == C.LitString then ty = cstr_ty() end
             return pvm.once(result_expr(Tr.ExprLit(Tr.ExprTyped(ty), self.value), ty, {}))
         end,
         [Tr.ExprRef] = function(self, ctx)

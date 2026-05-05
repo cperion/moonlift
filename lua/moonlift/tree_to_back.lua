@@ -115,6 +115,25 @@ function M.Define(T)
         for i = 1, #xs do out[#out + 1] = xs[i] end
     end
 
+    local hex = {}
+    for i = 0, 255 do hex[i] = string.format("%02x", i) end
+
+    local function string_data_id(bytes)
+        local parts = { "str", tostring(#bytes) }
+        for i = 1, #bytes do parts[#parts + 1] = hex[bytes:byte(i)] end
+        return Back.BackDataId(table.concat(parts, ":"))
+    end
+
+    local function string_data_cmds(bytes)
+        local data = string_data_id(bytes)
+        local cmds = { Back.CmdDeclareData(data, #bytes + 1, 1) }
+        for i = 1, #bytes do
+            cmds[#cmds + 1] = Back.CmdDataInit(data, i - 1, Back.BackU8, Back.BackLitInt(tostring(bytes:byte(i))))
+        end
+        cmds[#cmds + 1] = Back.CmdDataInitZero(data, #bytes, 1)
+        return data, cmds
+    end
+
     local function expr_ty(expr)
         return expr_type:one_uncached(expr.h)
     end
@@ -322,6 +341,12 @@ function M.Define(T)
 
     expr_to_back = pvm.phase("moonlift_tree_expr_to_back", {
         [Tr.ExprLit] = function(self, env)
+            if pvm.classof(self.value) == C.LitString then
+                local data, cmds = string_data_cmds(self.value.bytes)
+                local env2, dst = env_next_value(env, "v")
+                cmds[#cmds + 1] = Back.CmdDataAddr(dst, data)
+                return pvm.once(Tr.TreeBackExprValue(env2, cmds, dst, Back.BackPtr))
+            end
             local ty = expr_ty(self)
             local scalar = back_scalar(ty)
             if scalar == nil then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "literal has non-scalar type")) end
@@ -1154,6 +1179,37 @@ function M.Define(T)
     local lower_item_direct
     local lower_module_direct
 
+    local function data_cmd_key(cmd)
+        local k = cmd.kind
+        if k == "CmdDeclareData" then return table.concat({ k, cmd.data.text, tostring(cmd.size), tostring(cmd.align) }, "\t") end
+        if k == "CmdDataInitZero" then return table.concat({ k, cmd.data.text, tostring(cmd.offset), tostring(cmd.size) }, "\t") end
+        if k == "CmdDataInit" then
+            local v = cmd.value
+            local value_key = v.kind
+            if v.kind == "BackLitInt" or v.kind == "BackLitFloat" then value_key = value_key .. ":" .. v.raw
+            elseif v.kind == "BackLitBool" then value_key = value_key .. ":" .. tostring(v.value)
+            end
+            return table.concat({ k, cmd.data.text, tostring(cmd.offset), cmd.ty.kind, value_key }, "\t")
+        end
+        return nil
+    end
+
+    local function hoist_data_cmds(cmds)
+        local data_cmds, other_cmds, seen = {}, {}, {}
+        for i = 1, #cmds do
+            local key = data_cmd_key(cmds[i])
+            if key ~= nil then
+                if not seen[key] then data_cmds[#data_cmds + 1] = cmds[i]; seen[key] = true end
+            else
+                other_cmds[#other_cmds + 1] = cmds[i]
+            end
+        end
+        local out = {}
+        append_all(out, data_cmds)
+        append_all(out, other_cmds)
+        return out
+    end
+
     lower_item_direct = function(item)
         local cls = pvm.classof(item)
         if cls == Tr.ItemFunc then return Tr.TreeBackItemResult(lower_func_direct(item.func).cmds) end
@@ -1165,6 +1221,7 @@ function M.Define(T)
     lower_module_direct = function(module)
         local cmds = {}
         for i = 1, #module.items do append_all(cmds, lower_item_direct(module.items[i]).cmds) end
+        cmds = hoist_data_cmds(cmds)
         cmds[#cmds + 1] = Back.CmdFinalizeModule
         return Back.BackProgram(cmds)
     end

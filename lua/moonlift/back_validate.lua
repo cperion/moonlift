@@ -391,9 +391,6 @@ function M.Define(T)
         [B.CmdMemset] = function(self, index)
             return facts_triplet({ body(index), B.BackFactValueUse(index, self.dst), B.BackFactValueUse(index, self.byte), B.BackFactValueUse(index, self.len) })
         end,
-        [B.CmdMemcmp] = function(self, index)
-            return facts_triplet({ body(index), B.BackFactValueUse(index, self.left), B.BackFactValueUse(index, self.right), B.BackFactValueUse(index, self.len), B.BackFactValueDef(index, self.dst) })
-        end,
         [B.CmdSelect] = function(self, index)
             return facts_triplet({ body(index), shape(index, self.ty, B.BackShapeRequiresScalar), B.BackFactValueUse(index, self.cond), B.BackFactValueUse(index, self.then_value), B.BackFactValueUse(index, self.else_value), B.BackFactValueDef(index, self.dst) })
         end,

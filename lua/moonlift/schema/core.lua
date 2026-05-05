@@ -97,6 +97,10 @@ return function(A)
                 A.field "value" "boolean",
                 A.variant_unique,
             },
+            A.variant "LitString" {
+                A.field "bytes" "string",
+                A.variant_unique,
+            },
             A.variant "LitNil",
         },
 
