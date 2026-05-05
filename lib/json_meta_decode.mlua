@@ -700,16 +700,12 @@ block scan(i: i32)
     if tag ~= 5 then jump ok(val_idx = -1) end
     let key_off: i32 = a[i]
     let key_sz: i32 = b[i]
-    if key_sz == key_len then jump cmp(pos = 0, off_a = key_off, off_b = 0, scan_i = i) end
-    jump skip_value(i = i + 1)
-end
-block cmp(pos: i32, off_a: i32, off_b: i32, scan_i: i32)
-    if pos >= key_len then
-        if scan_i + 1 >= tape_count then jump ok(val_idx = -1) end
-        jump ok(val_idx = scan_i + 1)
+    if key_sz ~= key_len then jump skip_value(i = i + 1) end
+    if memcmp(p + key_off, key_ptr, as(i64, key_len)) == 0 then
+        if i + 1 >= tape_count then jump ok(val_idx = -1) end
+        jump ok(val_idx = i + 1)
     end
-    if as(i32, p[off_a + pos]) ~= as(i32, key_ptr[off_b + pos]) then jump skip_value(i = scan_i + 1) end
-    jump cmp(pos = pos + 1, off_a = off_a, off_b = off_b, scan_i = scan_i)
+    jump skip_value(i = i + 1)
 end
 block skip_value(i: i32)
     if i >= tape_count then jump ok(val_idx = -1) end
@@ -817,6 +813,8 @@ end
 -- ===========================================================================
 
 local json = module JsonMetaDecode
+
+extern func memcmp(left: ptr(u8), right: ptr(u8), len: i64) -> i32
 
 export func json_decode_tape(p: ptr(u8), n: i32,
     stack_next: ptr(i32), stack_kind: ptr(i32), stack_cap: i32,

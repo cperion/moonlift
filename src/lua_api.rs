@@ -1,5 +1,9 @@
 use std::alloc::{Layout, alloc_zeroed, dealloc};
-use std::ffi::{c_char, c_int};
+use std::ffi::{c_char, c_int, c_void};
+
+unsafe extern "C" {
+    fn memcmp(s1: *const c_void, s2: *const c_void, n: usize) -> c_int;
+}
 
 thread_local! {
     static SCRATCH_I32: std::cell::RefCell<Vec<Vec<i32>>> = std::cell::RefCell::new(vec![Vec::new(); 8]);
@@ -140,4 +144,6 @@ pub fn register_symbols(jit: &mut crate::Jit) {
     sym!("moonlift_free_i32", moonlift_free_i32);
     sym!("moonlift_lua_arg_lstring_ptr", moonlift_lua_arg_lstring_ptr);
     sym!("moonlift_lua_arg_lstring_len", moonlift_lua_arg_lstring_len);
+
+    sym!("memcmp", memcmp);
 }

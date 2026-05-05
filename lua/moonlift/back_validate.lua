@@ -236,6 +236,7 @@ function M.Define(T)
         if cls == B.CmdAliasFact then out[#out + 1] = body(index); append_alias_access_refs(out, index, cmd.fact); return end
         if cls == B.CmdMemcpy then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.dst); out[#out + 1] = B.BackFactValueUse(index, cmd.src); out[#out + 1] = B.BackFactValueUse(index, cmd.len); return end
         if cls == B.CmdMemset then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.dst); out[#out + 1] = B.BackFactValueUse(index, cmd.byte); out[#out + 1] = B.BackFactValueUse(index, cmd.len); return end
+        if cls == B.CmdMemcmp then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.left); out[#out + 1] = B.BackFactValueUse(index, cmd.right); out[#out + 1] = B.BackFactValueUse(index, cmd.len); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
         if cls == B.CmdSelect then out[#out + 1] = body(index); out[#out + 1] = shape(index, cmd.ty, B.BackShapeRequiresScalar); out[#out + 1] = B.BackFactValueUse(index, cmd.cond); out[#out + 1] = B.BackFactValueUse(index, cmd.then_value); out[#out + 1] = B.BackFactValueUse(index, cmd.else_value); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
         if cls == B.CmdFma then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.a); out[#out + 1] = B.BackFactValueUse(index, cmd.b); out[#out + 1] = B.BackFactValueUse(index, cmd.c); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
         if cls == B.CmdVecSplat then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.value); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
@@ -389,6 +390,9 @@ function M.Define(T)
         end,
         [B.CmdMemset] = function(self, index)
             return facts_triplet({ body(index), B.BackFactValueUse(index, self.dst), B.BackFactValueUse(index, self.byte), B.BackFactValueUse(index, self.len) })
+        end,
+        [B.CmdMemcmp] = function(self, index)
+            return facts_triplet({ body(index), B.BackFactValueUse(index, self.left), B.BackFactValueUse(index, self.right), B.BackFactValueUse(index, self.len), B.BackFactValueDef(index, self.dst) })
         end,
         [B.CmdSelect] = function(self, index)
             return facts_triplet({ body(index), shape(index, self.ty, B.BackShapeRequiresScalar), B.BackFactValueUse(index, self.cond), B.BackFactValueUse(index, self.then_value), B.BackFactValueUse(index, self.else_value), B.BackFactValueDef(index, self.dst) })

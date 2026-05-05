@@ -1,0 +1,12 @@
+local TestMod = module DeclOnly
+extern func memcmp(left: ptr(u8), right: ptr(u8), len: i64) -> i32
+export func add2(x: i32) -> i32
+    return x + 2
+end
+end
+print("compiling...")
+local compiled = TestMod:compile()
+print("calling add2...")
+local r = compiled.artifact:call("add2", 40)
+print("result:", r)
+compiled:free()
