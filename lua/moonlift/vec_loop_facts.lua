@@ -396,11 +396,13 @@ function M.Define(T)
 
     local function exit_test_from_condition(cond, bindings)
         if pvm.classof(cond) ~= Tr.ExprCompare then return nil, nil end
-        if cond.op == C.CmpGe then
+        if cond.op == C.CmpGe or cond.op == C.CmpLt then
+            -- i >= stop   or   i < stop  →  induction on LHS, stop on RHS
             for i = 1, #bindings do
                 if same_param_ref(cond.lhs, bindings[i]) then return i, cond.rhs end
             end
-        elseif cond.op == C.CmpLe then
+        elseif cond.op == C.CmpLe or cond.op == C.CmpGt then
+            -- stop <= i   or   i > stop  →  induction on RHS, stop on LHS
             for i = 1, #bindings do
                 if same_param_ref(cond.rhs, bindings[i]) then return i, cond.lhs end
             end
@@ -409,8 +411,15 @@ function M.Define(T)
     end
 
     local function is_terminal_exit_if(stmt, bindings)
-        if pvm.classof(stmt) ~= Tr.StmtIf or #stmt.then_body == 0 or #stmt.else_body ~= 0 or not body_exits_region(stmt.then_body) then return false end
-        local index_i = exit_test_from_condition(stmt.cond, bindings)
+        if pvm.classof(stmt) ~= Tr.StmtIf then return false end
+        local index_i
+        -- Normal form: yield in then, else empty  (if i >= stop then yield end)
+        if #stmt.then_body > 0 and #stmt.else_body == 0 and body_exits_region(stmt.then_body) then
+            index_i = exit_test_from_condition(stmt.cond, bindings)
+        -- Inverted form: yield in else, then empty  (if i < stop then {} else yield end)
+        elseif #stmt.then_body == 0 and #stmt.else_body > 0 and body_exits_region(stmt.else_body) then
+            index_i = exit_test_from_condition(stmt.cond, bindings)
+        end
         return index_i ~= nil
     end
 

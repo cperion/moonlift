@@ -995,6 +995,18 @@ return function(A)
                 A.field "fills" (A.many "MoonOpen.SlotBinding"),
                 A.variant_unique,
             },
+            A.variant "ItemData" {
+                A.field "data" "MoonTree.DataItem",
+                A.variant_unique,
+            },
+        },
+
+        A.product "DataItem" {
+            A.field "id" "MoonCore.DataId",
+            A.field "size" "number",
+            A.field "align" "number",
+            A.field "bytes" "string",
+            A.unique,
         },
 
         A.sum "ModuleHeader" {

@@ -13,6 +13,95 @@ function M.Define(T)
     local HostTerraEmitPlan = require("moonlift.host_terra_emit_plan").Define(T)
     local HostCEmitPlan = require("moonlift.host_c_emit_plan").Define(T)
 
+    -- C frontend modules (lazy-loaded when C code detected)
+    local c_lexer, cpp_expand, c_parse, cimport, lower_c
+
+    -- Detect if source contains C code with function bodies or preprocessor directives
+    local function is_c_source_with_bodies(source)
+        if not source then return false end
+        -- Check for preprocessor directives
+        if source:find("#") then return true end
+        -- Check for function bodies: ) followed by { (function definition)
+        if source:find("%)%s*{") then return true end
+        -- Check for GNU statement expressions: ({ ... })
+        if source:find("%(%s*{") then return true end
+        return false
+    end
+
+    -- Extract C source segments from MLUA source
+    -- Looks for `import c` islands with bodies
+    local function extract_c_source(mlua_source)
+        local c_parts = {}
+        -- Match import c [[ ... ]] or import c " ... "
+        for body in mlua_source:gmatch("import%s+c%s+%[%[(.-)%]%]") do
+            if is_c_source_with_bodies(body) then
+                c_parts[#c_parts + 1] = body
+            end
+        end
+        -- Also match import c "file.c" patterns
+        for file_path in mlua_source:gmatch('import%s+c%s+"([^"]+)"') do
+            if file_path:match("%.c$") or file_path:match("%.h$") then
+                -- File path reference — would be handled by VFS
+                c_parts[#c_parts + 1] = "__file__:" .. file_path
+            end
+        end
+        return c_parts
+    end
+
+    -- Run the C frontend pipeline on C source text
+    local function run_c_pipeline(c_source, module_name)
+        if not c_lexer then
+            c_lexer = require("moonlift.c.c_lexer")
+            c_parse = require("moonlift.c.c_parse").Define(T)
+            cimport = require("moonlift.c.cimport").Define(T)
+            lower_c = require("moonlift.c.lower_c").Define(T)
+        end
+
+        local issues = {}
+
+        -- Phase 1: Lex
+        local result = c_lexer.lex(c_source, "c://" .. (module_name or "c"))
+
+        -- cpp_expand: if directive tokens present, expand macros
+        local has_directives = false
+        for _, t in ipairs(result.tokens) do
+            if t._variant == "CTokDirective" then has_directives = true; break end
+        end
+
+        if has_directives then
+            -- Run preprocessor
+            local cpp = require("moonlift.c.cpp_expand").Define(T)
+            local vfs_module = require("moonlift.c.vfs")
+            local vfs = vfs_module.real_fs()
+            local expanded = cpp.expand(result.tokens, result.spans, result.issues, vfs, ".")
+            result.tokens = expanded.tokens
+            result.spans = expanded.spans
+            append_all(result.issues, expanded.issues)
+        end
+
+        for i = 1, #result.issues do
+            issues[#issues + 1] = result.issues[i]
+        end
+
+        -- Phase 2: Parse
+        local tu, parse_issues = c_parse.parse(result.tokens, result.spans)
+        for i = 1, #parse_issues do
+            issues[#issues + 1] = parse_issues[i]
+        end
+
+        if #issues > 0 then
+            return nil, issues
+        end
+
+        -- Phase 3: cimport (type integration)
+        local type_facts, layout_facts, extern_funcs = cimport.cimport(tu.items, module_name)
+
+        -- Phase 4: Lower to MoonTree
+        local module = lower_c.lower(tu.items, type_facts, layout_facts, extern_funcs, module_name)
+
+        return module, issues
+    end
+
     local function append_all(dst, xs)
         for i = 1, #(xs or {}) do dst[#dst + 1] = xs[i] end
     end
@@ -106,6 +195,33 @@ function M.Define(T)
     local phase = pvm.phase("moonlift_mlua_host_pipeline", {
         [H.MluaSource] = function(self, module_name, target)
             local parsed = MluaParse.parse(self.source, self.name)
+
+            -- Check for C code with bodies and route through C frontend
+            local c_modules = {}
+            local c_parts = extract_c_source(self.source)
+            for i = 1, #c_parts do
+                if not c_parts[i]:match("^__file__:") then
+                    local c_module, c_issues = run_c_pipeline(c_parts[i], (module_name or self.name) .. "_c")
+                    if c_module then
+                        c_modules[#c_modules + 1] = c_module
+                    end
+                    if c_issues then
+                        for j = 1, #c_issues do
+                            parsed.issues[#parsed.issues + 1] = c_issues[j]
+                        end
+                    end
+                end
+            end
+
+            -- Merge C modules into parsed module
+            if #c_modules > 0 then
+                for _, cm in ipairs(c_modules) do
+                    for _, item in ipairs(cm.items) do
+                        parsed.module.items[#parsed.module.items + 1] = item
+                    end
+                end
+            end
+
             return pvm.once(run(parsed, module_name or self.name, target))
         end,
         [H.MluaParseResult] = function(self, module_name, target)

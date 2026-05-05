@@ -235,5 +235,10 @@ return function(A)
             A.field "name" "string",
             A.unique,
         },
+
+        A.product "DataId" {
+            A.field "text" "string",
+            A.unique,
+        },
     }
 end

@@ -78,6 +78,14 @@ return function(A)
                 A.field "slot" "MoonOpen.TypeSlot",
                 A.variant_unique,
             },
+            A.variant "TCType" {
+                A.field "id" "MoonC.CTypeId",
+                A.variant_unique,
+            },
+            A.variant "TCFuncPtr" {
+                A.field "sig" "MoonC.CFuncSigId",
+                A.variant_unique,
+            },
         },
 
         A.sum "TypeClass" {

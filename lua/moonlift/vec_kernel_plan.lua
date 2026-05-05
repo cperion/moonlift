@@ -482,6 +482,9 @@ function M.Define(T)
 
     local function scalar_alias_from_stmt(stmt)
         if pvm.classof(stmt) ~= Tr.StmtLet or pvm.classof(stmt.binding.ty) == Ty.TView then return nil end
+        -- A StmtLet whose init is an ExprControl carries a control region result —
+        -- it is computation, not a simple alias.  Don't strip it from the kernel body.
+        if pvm.classof(stmt.init) == Tr.ExprControl then return nil end
         if back_scalar(stmt.binding.ty) == nil then return nil end
         return V.VecKernelScalarAlias(stmt.binding, stmt.init)
     end
@@ -534,8 +537,11 @@ function M.Define(T)
         local rejects = {}
         local first = 1
         while first <= #body do
-            local scalar = scalar_alias_from_stmt(body[first])
-            if scalar ~= nil then
+            -- Skip trivially ignorable expression statements (e.g. for-init cleanup)
+            if pvm.classof(body[first]) == Tr.StmtExpr then
+                first = first + 1
+            elseif scalar_alias_from_stmt(body[first]) ~= nil then
+                local scalar = scalar_alias_from_stmt(body[first])
                 scalars[#scalars + 1] = scalar
                 first = first + 1
             else
@@ -632,13 +638,19 @@ function M.Define(T)
     local function plan_func(name, visibility, params, result_ty, body, contracts)
         local aliases, scalars, kernel_body, alias_rejects = split_prefix_aliases(body, seed_param_aliases(name, params))
         if #alias_rejects > 0 then return V.VecKernelNoPlan(alias_rejects) end
-        if #kernel_body ~= 1 then return V.VecKernelNoPlan({}) end
+        if #kernel_body == 0 then return V.VecKernelNoPlan({}) end
+
+        -- Accept return ExprControl(...) directly
         if pvm.classof(kernel_body[1]) == Tr.StmtReturnValue and pvm.classof(kernel_body[1].value) == Tr.ExprControl then
             local region = kernel_body[1].value.region
-            if pvm.classof(region) == Tr.ControlExprRegion then return plan_reduce_region(region, contracts, aliases, scalars) end
+            if pvm.classof(region) == Tr.ControlExprRegion and #kernel_body == 1 then return plan_reduce_region(region, contracts, aliases, scalars) end
         elseif pvm.classof(kernel_body[1]) == Tr.StmtControl then
             local region = kernel_body[1].region
-            if pvm.classof(region) == Tr.ControlStmtRegion then return plan_map_region(region, contracts, aliases, scalars) end
+            if pvm.classof(region) == Tr.ControlStmtRegion and #kernel_body == 1 then return plan_map_region(region, contracts, aliases, scalars) end
+        -- Accept let x = ExprControl; return x
+        elseif #kernel_body == 2 and pvm.classof(kernel_body[1]) == Tr.StmtLet and pvm.classof(kernel_body[1].init) == Tr.ExprControl then
+            local region = kernel_body[1].init.region
+            if pvm.classof(region) == Tr.ControlExprRegion then return plan_reduce_region(region, contracts, aliases, scalars) end
         end
         return V.VecKernelNoPlan({})
     end
