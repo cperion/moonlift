@@ -748,10 +748,170 @@ function M.Define(T)
         return cls == V.VecKernelSafetyProven or cls == V.VecKernelSafetyAssumed
     end
 
+    local function lower_algebraic_affine(ctx, coeff_a, coeff_b, n_val, cmds, v, tag_prefix)
+        --- Emit  a * n*(n-1)/2  +  b * n,  return the BackValId.
+        tag_prefix = tag_prefix or ""
+        if coeff_a == "0" and coeff_b == "0" then
+            local zero = v(tag_prefix .. "zero")
+            cmds[#cmds + 1] = Back.CmdConst(zero, Back.BackIndex, Back.BackLitInt("0"))
+            return zero
+        elseif coeff_a == "0" then
+            if coeff_b == "1" then return n_val end
+            local b_val = v(tag_prefix .. "b")
+            cmds[#cmds + 1] = Back.CmdConst(b_val, Back.BackIndex, Back.BackLitInt(coeff_b))
+            local r = v(tag_prefix .. "b_times_n")
+            cmds[#cmds + 1] = Back.CmdIntBinary(r, Back.BackIntMul, Back.BackIndex, int_sem_wrap(), n_val, b_val)
+            return r
+        end
+
+        -- n * (n-1) / 2
+        local one = v(tag_prefix .. "one")
+        cmds[#cmds + 1] = Back.CmdConst(one, Back.BackIndex, Back.BackLitInt("1"))
+        local n_m1 = v(tag_prefix .. "n_m1")
+        cmds[#cmds + 1] = Back.CmdIntBinary(n_m1, Back.BackIntSub, Back.BackIndex, int_sem_wrap(), n_val, one)
+        local tri = v(tag_prefix .. "tri")
+        cmds[#cmds + 1] = Back.CmdIntBinary(tri, Back.BackIntMul, Back.BackIndex, int_sem_wrap(), n_val, n_m1)
+        local two = v(tag_prefix .. "two")
+        cmds[#cmds + 1] = Back.CmdConst(two, Back.BackIndex, Back.BackLitInt("2"))
+        local half = v(tag_prefix .. "half")
+        cmds[#cmds + 1] = Back.CmdIntBinary(half, Back.BackIntSDiv, Back.BackIndex, int_sem_wrap(), tri, two)
+
+        -- a * half
+        local result64 = half
+        if coeff_a ~= "1" then
+            local a_val = v(tag_prefix .. "a")
+            cmds[#cmds + 1] = Back.CmdConst(a_val, Back.BackIndex, Back.BackLitInt(coeff_a))
+            result64 = v(tag_prefix .. "a_times_half")
+            cmds[#cmds + 1] = Back.CmdIntBinary(result64, Back.BackIntMul, Back.BackIndex, int_sem_wrap(), half, a_val)
+        end
+
+        -- + b * n
+        if coeff_b ~= "0" then
+            local b_term
+            if coeff_b == "1" then b_term = n_val else
+                local b_val = v(tag_prefix .. "b")
+                cmds[#cmds + 1] = Back.CmdConst(b_val, Back.BackIndex, Back.BackLitInt(coeff_b))
+                b_term = v(tag_prefix .. "b_times_n")
+                cmds[#cmds + 1] = Back.CmdIntBinary(b_term, Back.BackIntMul, Back.BackIndex, int_sem_wrap(), n_val, b_val)
+            end
+            local total = v(tag_prefix .. "total")
+            cmds[#cmds + 1] = Back.CmdIntBinary(total, Back.BackIntAdd, Back.BackIndex, int_sem_wrap(), result64, b_term)
+            result64 = total
+        end
+        return result64
+    end
+
+    local function lower_algebraic_quadratic(ctx, coeff_c, coeff_a, coeff_b, n_val, cmds, v)
+        --- Emit  c * n*(n-1)*(2n-1)/6  +  a * n*(n-1)/2  +  b * n
+        local result64 = v("quad_zero")
+        cmds[#cmds + 1] = Back.CmdConst(result64, Back.BackIndex, Back.BackLitInt("0"))
+
+        if coeff_c ~= "0" then
+            local one = v("one")
+            cmds[#cmds + 1] = Back.CmdConst(one, Back.BackIndex, Back.BackLitInt("1"))
+            local two = v("two")
+            cmds[#cmds + 1] = Back.CmdConst(two, Back.BackIndex, Back.BackLitInt("2"))
+            local six = v("six")
+            cmds[#cmds + 1] = Back.CmdConst(six, Back.BackIndex, Back.BackLitInt("6"))
+
+            -- n * (n-1) * (2n-1) / 6
+            local n_m1 = v("n_m1")
+            cmds[#cmds + 1] = Back.CmdIntBinary(n_m1, Back.BackIntSub, Back.BackIndex, int_sem_wrap(), n_val, one)
+            local term12 = v("term_n_n1")
+            cmds[#cmds + 1] = Back.CmdIntBinary(term12, Back.BackIntMul, Back.BackIndex, int_sem_wrap(), n_val, n_m1)
+            local two_n = v("two_n")
+            cmds[#cmds + 1] = Back.CmdIntBinary(two_n, Back.BackIntMul, Back.BackIndex, int_sem_wrap(), n_val, two)
+            local two_n_m1 = v("two_n_m1")
+            cmds[#cmds + 1] = Back.CmdIntBinary(two_n_m1, Back.BackIntSub, Back.BackIndex, int_sem_wrap(), two_n, one)
+            local term123 = v("term123")
+            cmds[#cmds + 1] = Back.CmdIntBinary(term123, Back.BackIntMul, Back.BackIndex, int_sem_wrap(), term12, two_n_m1)
+            local quad = v("quad")
+            cmds[#cmds + 1] = Back.CmdIntBinary(quad, Back.BackIntSDiv, Back.BackIndex, int_sem_wrap(), term123, six)
+
+            if coeff_c == "1" then
+                result64 = quad
+            else
+                local c_val = v("coeff_c")
+                cmds[#cmds + 1] = Back.CmdConst(c_val, Back.BackIndex, Back.BackLitInt(coeff_c))
+                local scaled = v("c_quad")
+                cmds[#cmds + 1] = Back.CmdIntBinary(scaled, Back.BackIntMul, Back.BackIndex, int_sem_wrap(), quad, c_val)
+                result64 = scaled
+            end
+        end
+
+        -- Add affine part
+        if coeff_a ~= "0" or coeff_b ~= "0" then
+            local affine = lower_algebraic_affine(ctx, coeff_a, coeff_b, n_val, cmds, v, "aff_")
+            if coeff_c ~= "0" then
+                local total = v("total")
+                cmds[#cmds + 1] = Back.CmdIntBinary(total, Back.BackIntAdd, Back.BackIndex, int_sem_wrap(), result64, affine)
+                result64 = total
+            else
+                result64 = affine
+            end
+        end
+
+        return result64
+    end
+
+    local function lower_algebraic(name, visibility, params, result_ty, plan)
+        local scalar_ty = elem_scalar(plan.elem)
+        if scalar_ty == nil then return nil end
+        if back_scalar(result_ty) ~= scalar_ty then return nil end
+
+        local sig, func, param_scalars, result_scalars, param_vals = common_prefix(name, visibility, params, result_ty)
+        local entry = Back.BackBlockId("entry:" .. name)
+        local function v(s) return Back.BackValId("alg:" .. name .. ":" .. s) end
+
+        local cmds = {
+            Back.CmdCreateSig(sig, param_scalars, result_scalars),
+            Back.CmdDeclareFunc(visibility, func, sig),
+            Back.CmdBeginFunc(func),
+            Back.CmdCreateBlock(entry),
+            Back.CmdSwitchToBlock(entry),
+            Back.CmdBindEntryParams(entry, param_vals),
+        }
+
+        local counter = 0
+        local ctx = {
+            name = name, params = params, scalars = {},
+            cmds = cmds,
+            next = function(tag)
+                counter = counter + 1
+                return Back.BackValId("alg:" .. name .. ":" .. (tag or "val") .. "." .. tostring(counter))
+            end,
+        }
+
+        -- n: the loop bound, already cast to BackIndex by len_value_for_binding
+        local n_val = len_value_for_binding(ctx, plan.stop, cmds, Back.BackIndex)
+        if n_val == nil then return nil end
+
+        local kind_cls = pvm.classof(plan.kind)
+        local result64
+        if kind_cls == V.VecAlgebraicQuadratic then
+            result64 = lower_algebraic_quadratic(ctx, plan.kind.coeff_c, plan.kind.coeff_a, plan.kind.coeff_b, n_val, cmds, v)
+        else
+            result64 = lower_algebraic_affine(ctx, plan.kind.coeff_a, plan.kind.coeff_b, n_val, cmds, v)
+        end
+        if result64 == nil then return nil end
+
+        -- Narrow to result element type
+        local result = result64
+        if scalar_ty ~= Back.BackIndex then
+            result = v("result")
+            cmds[#cmds + 1] = Back.CmdCast(result, Back.BackIreduce, scalar_ty, result64)
+        end
+
+        cmds[#cmds + 1] = Back.CmdReturnValue(result)
+        cmds[#cmds + 1] = Back.CmdFinishFunc(func)
+        return Tr.TreeBackFuncResult(cmds)
+    end
+
     local function lower_func(name, visibility, params, result_ty, plan)
         local cls = pvm.classof(plan)
         if cls == V.VecKernelReduce then if not safety_allows(plan.safety) then return nil end; return lower_reduce(name, visibility, params, result_ty, plan.decision, plan.elem, plan.stop, plan.counter, plan.scalars, plan.reduction, plan.safety, plan.alignments, plan.aliases) end
         if cls == V.VecKernelMap then if not safety_allows(plan.safety) then return nil end; return lower_map(name, visibility, params, result_ty, plan.decision, plan.elem, plan.stop, plan.counter, plan.scalars, plan.stores, plan.safety, plan.alignments, plan.aliases) end
+        if cls == V.VecKernelAlgebraic then return lower_algebraic(name, visibility, params, result_ty, plan) end
         return nil
     end
 

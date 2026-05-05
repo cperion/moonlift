@@ -579,10 +579,197 @@ function M.Define(T)
         return { facts = facts, index = facts.inductions[1].binding, stop = stop, counter = counter }, nil
     end
 
+    local function same_both(ind, lhs, rhs)
+        return same_ref(lhs, ind) and same_ref(rhs, ind)
+    end
+
+    local function try_quadratic_mul(expr, ind, C_MoonCore)
+        --- Returns c (raw string) if expr is c * i * i, nil otherwise.
+        --- Handles all associativities: (c*i)*i, (i*i)*c, c*(i*i), i*i.
+        if pvm.classof(expr) ~= Tr.ExprBinary or expr.op ~= C_MoonCore.BinMul then return nil end
+
+        -- i * i  (pure quadratic)
+        if same_both(ind, expr.lhs, expr.rhs) then return "1" end
+
+        -- (c * i) * i   or   (i * c) * i
+        if same_ref(expr.rhs, ind) then
+            if pvm.classof(expr.lhs) == Tr.ExprBinary and expr.lhs.op == C_MoonCore.BinMul then
+                local c = nil
+                if same_ref(expr.lhs.lhs, ind) then c = literal_int_raw(expr.lhs.rhs)
+                elseif same_ref(expr.lhs.rhs, ind) then c = literal_int_raw(expr.lhs.lhs) end
+                if c ~= nil then return c end
+            end
+        end
+
+        -- (i * i) * c
+        if pvm.classof(expr.lhs) == Tr.ExprBinary and expr.lhs.op == C_MoonCore.BinMul
+           and same_both(ind, expr.lhs.lhs, expr.lhs.rhs) then
+            return literal_int_raw(expr.rhs)
+        end
+
+        -- c * (i * i)
+        if pvm.classof(expr.rhs) == Tr.ExprBinary and expr.rhs.op == C_MoonCore.BinMul
+           and same_both(ind, expr.rhs.lhs, expr.rhs.rhs) then
+            return literal_int_raw(expr.lhs)
+        end
+
+        return nil
+    end
+
+    local function try_linear_term(expr, ind, C_MoonCore)
+        --- Returns a (raw string) if expr is a * i, nil otherwise.
+        --- a="1" for a bare induction ref.
+        if same_ref(expr, ind) then return "1" end
+        if pvm.classof(expr) ~= Tr.ExprBinary or expr.op ~= C_MoonCore.BinMul then return nil end
+        if same_ref(expr.lhs, ind) then return literal_int_raw(expr.rhs)
+        elseif same_ref(expr.rhs, ind) then return literal_int_raw(expr.lhs) end
+        return nil
+    end
+
+    local function collect_add_terms(expr, ind, C_MoonCore)
+        --- Walks a left-associative add tree, classifying each leaf:
+        ---   sq_c  = coeff of i*i (nil if absent)
+        ---   lin_a = coeff of a*i  (nil if absent, "1" for bare i)
+        ---   const_b = raw integer (nil if absent)
+        --- Returns nil if any term is unrecognized or duplicates appear.
+        local function flatten(e, out)
+            if pvm.classof(e) == Tr.ExprBinary and e.op == C_MoonCore.BinAdd then
+                flatten(e.lhs, out); flatten(e.rhs, out)
+            else
+                out[#out + 1] = e
+            end
+        end
+        local terms = {}; flatten(expr, terms)
+
+        local sq_c, lin_a, const_b = nil, nil, nil
+        for _, t in ipairs(terms) do
+            local sc = try_quadratic_mul(t, ind, C_MoonCore)
+            if sc ~= nil then
+                if sq_c ~= nil then return end; sq_c = sc
+            else
+                local a = try_linear_term(t, ind, C_MoonCore)
+                if a ~= nil then
+                    if lin_a ~= nil then return end; lin_a = a
+                else
+                    local b = literal_int_raw(t)
+                    if b ~= nil then
+                        if const_b ~= nil then return end; const_b = b
+                    else
+                        return  -- unrecognized term
+                    end
+                end
+            end
+        end
+        return sq_c, lin_a or "0", const_b or "0"
+    end
+
+    local function try_algebraic_quadratic(contribution, common, C_MoonCore)
+        --- Returns {kind = VecAlgebraicQuadratic(c,a,b)} or nil.
+
+        -- Pure quadratic mul: i*i, c*i*i, etc.
+        local c = try_quadratic_mul(contribution, common.index, C_MoonCore)
+        if c ~= nil then return { kind = V.VecAlgebraicQuadratic(c, "0", "0") } end
+
+        -- Add tree with a quadratic term
+        if pvm.classof(contribution) == Tr.ExprBinary and contribution.op == C_MoonCore.BinAdd then
+            local sq_c, lin_a, const_b = collect_add_terms(contribution, common.index, C_MoonCore)
+            if sq_c ~= nil then
+                return { kind = V.VecAlgebraicQuadratic(sq_c, lin_a, const_b) }
+            end
+        end
+
+        return nil
+    end
+
+    local function try_algebraic_affine(contribution, common, C_MoonCore)
+        --- Returns {kind = VecAlgebraicSeries(a,b)} or nil.
+
+        -- Induction variable ref (possibly cast): a=1, b=0
+        if same_ref(contribution, common.index) then
+            return { kind = V.VecAlgebraicSeries("1", "0") }
+        end
+        if pvm.classof(contribution) == Tr.ExprCast and same_ref(contribution.value, common.index) then
+            return { kind = V.VecAlgebraicSeries("1", "0") }
+        end
+
+        -- Literal constant: a=0, b=c
+        local lit = literal_int_raw(contribution)
+        if lit ~= nil then
+            return { kind = V.VecAlgebraicSeries("0", lit) }
+        end
+
+        -- c * induction  or  induction * c:  a=c, b=0
+        if pvm.classof(contribution) == Tr.ExprBinary and contribution.op == C_MoonCore.BinMul then
+            local c = nil
+            if same_ref(contribution.lhs, common.index) then c = literal_int_raw(contribution.rhs)
+            elseif same_ref(contribution.rhs, common.index) then c = literal_int_raw(contribution.lhs) end
+            if c ~= nil then return { kind = V.VecAlgebraicSeries(c, "0") } end
+        end
+
+        -- induction + c  or  c + induction:  a=1, b=c
+        if pvm.classof(contribution) == Tr.ExprBinary and contribution.op == C_MoonCore.BinAdd then
+            local const_side = nil
+            if same_ref(contribution.lhs, common.index) then const_side = contribution.rhs
+            elseif same_ref(contribution.rhs, common.index) then const_side = contribution.lhs end
+            if const_side ~= nil then
+                local b = literal_int_raw(const_side)
+                if b ~= nil then return { kind = V.VecAlgebraicSeries("1", b) } end
+            end
+        end
+
+        -- c*induction + d  (both orders of add):  a=c, b=d
+        if pvm.classof(contribution) == Tr.ExprBinary and contribution.op == C_MoonCore.BinAdd then
+            for _, sides in ipairs({{mul="lhs", cnst="rhs"}, {mul="rhs", cnst="lhs"}}) do
+                local mul_expr = contribution[sides.mul]
+                if pvm.classof(mul_expr) == Tr.ExprBinary and mul_expr.op == C_MoonCore.BinMul then
+                    local c = nil
+                    if same_ref(mul_expr.lhs, common.index) then c = literal_int_raw(mul_expr.rhs)
+                    elseif same_ref(mul_expr.rhs, common.index) then c = literal_int_raw(mul_expr.lhs) end
+                    local d = c ~= nil and literal_int_raw(contribution[sides.cnst])
+                    if c ~= nil and d ~= nil then return { kind = V.VecAlgebraicSeries(c, d) } end
+                end
+            end
+        end
+
+        return nil
+    end
+
+    local function try_algebraic(contribution, common)
+        --- Returns {kind = ...} if the contribution matches a known
+        --- algebraic closed-form pattern.  Nil otherwise.
+        local C_MoonCore = T.MoonCore
+        return try_algebraic_quadratic(contribution, common, C_MoonCore)
+            or try_algebraic_affine(contribution, common, C_MoonCore)
+    end
+
     local function plan_reduce_region(region, contracts, aliases, scalars)
         local common, no = common_region_base(region, aliases)
         if common == nil then return no end
         if #common.facts.reductions ~= 1 or #common.facts.stores ~= 0 then return reject(region.region_id, "reduction kernel needs one reduction and no stores") end
+        local reduction = common.facts.reductions[1]
+        local red_op = reduction_source_op(reduction)
+        if red_op == nil then return reject(region.region_id, "unsupported reduction operator") end
+        local jump = find_self_jump(region)
+        if jump == nil then return reject(region.region_id, "missing self jump") end
+        local acc_index, acc_binding = nil, reduction.accumulator
+        for i = 1, #region.entry.params do if same_binding_slot(entry_param_binding(region, i), acc_binding) then acc_index = i end end
+        local acc_arg = find_jump_arg(jump.args, region.entry.params[acc_index].name)
+        if acc_arg == nil then return reject(region.region_id, "missing accumulator jump arg") end
+        local contribution = contribution_expr(acc_arg.value, acc_binding, red_op)
+        if contribution == nil then return reject(region.region_id, "reduction contribution not recognized") end
+        if #common.facts.memory == 0 then
+            --- Reduction with zero memory loads — SIMD adds overhead
+            --- (splat + vector-op + extract).  First try an algebraic
+            --- closed form; otherwise fall back to scalar Cranelift.
+            local alg = try_algebraic(contribution, common)
+            if alg then
+                local alg_elem = elem_from_type(acc_binding.ty)
+                if alg_elem ~= nil then
+                    return V.VecKernelAlgebraic(common.facts, alg.kind, alg_elem, common.stop, acc_binding)
+                end
+            end
+            return reject(region.region_id, "scalar-only reduction — no parallel data to vectorize")
+        end
         local reduction = common.facts.reductions[1]
         local red_op = reduction_source_op(reduction)
         if red_op == nil then return reject(region.region_id, "unsupported reduction operator") end

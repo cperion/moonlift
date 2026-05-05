@@ -1070,6 +1070,35 @@ return function(A)
             A.unique,
         },
 
+        A.sum "VecAlgebraicKind" {
+            A.variant "VecAlgebraicSeries" {
+                --- sum(a*i + b) for i in 0..n-1
+                --- closed form:  a * n*(n-1)/2  +  b * n
+                ---
+                --- Special cases:
+                ---   triangular sum  (a="1",  b="0")  →  n*(n-1)/2
+                ---   constant acc.   (a="0",  b="c")  →  c*n
+                ---   scaled tri.     (a="c",  b="0")  →  c*n*(n-1)/2
+                A.field "coeff_a" "string",
+                A.field "coeff_b" "string",
+                A.variant_unique,
+            },
+            A.variant "VecAlgebraicQuadratic" {
+                --- sum(c*i^2 + a*i + b) for i in 0..n-1
+                --- closed form:  c * n*(n-1)*(2n-1)/6  +  a * n*(n-1)/2  +  b * n
+                ---
+                --- Common cases:
+                ---   i*i       (c="1",  a="0",  b="0")  →  n*(n-1)*(2n-1)/6
+                ---   scale*i*i (c="k",  a="0",  b="0")  →  k*n*(n-1)*(2n-1)/6
+                --- The a and b coefficients reuse the affine formula;
+                --- c=0 degrades to VecAlgebraicSeries.
+                A.field "coeff_c" "string",
+                A.field "coeff_a" "string",
+                A.field "coeff_b" "string",
+                A.variant_unique,
+            },
+        },
+
         A.sum "VecKernelPlan" {
             A.variant "VecKernelNoPlan" {
                 A.field "rejects" (A.many "MoonVec.VecReject"),
@@ -1097,6 +1126,18 @@ return function(A)
                 A.field "safety" "MoonVec.VecKernelSafety",
                 A.field "alignments" (A.many "MoonVec.VecKernelAlignment"),
                 A.field "aliases" (A.many "MoonVec.VecKernelAlias"),
+                A.variant_unique,
+            },
+            A.variant "VecKernelAlgebraic" {
+                --- Replace a counted reduction loop with a closed-form
+                --- scalar expression.  The loop body contains zero memory
+                --- loads and the accumulated value is an affine function
+                --- of the induction variable.
+                A.field "facts" "MoonVec.VecLoopFacts",
+                A.field "kind" "MoonVec.VecAlgebraicKind",
+                A.field "elem" "MoonVec.VecElem",
+                A.field "stop" "MoonBind.Binding",
+                A.field "accumulator" "MoonBind.Binding",
                 A.variant_unique,
             },
         },
