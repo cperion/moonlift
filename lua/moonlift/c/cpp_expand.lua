@@ -953,9 +953,15 @@ local function parse_include(tokens, spans)
         return { kind = "angle", path = table.concat(path_parts) }
     end
 
-    -- Quoted include: "path"
+    -- Quoted include: "path".  Lexer keeps the quotes in tok.raw; VFS
+    -- resolution expects the path payload.
     if tok._variant == "CTokStringLiteral" then
-        return { kind = "quoted", path = tok.raw }
+        local raw = tok.raw or ""
+        local path = raw
+        if #raw >= 2 and raw:sub(1, 1) == '"' and raw:sub(#raw, #raw) == '"' then
+            path = raw:sub(2, #raw - 1)
+        end
+        return { kind = "quoted", path = path }
     end
 
     return nil
@@ -1087,11 +1093,14 @@ local function process_file(tokens, spans, state)
                                 line_counter_ref.n = saved_line
                                 file_uri_ref.s = saved_uri
 
-                                for _, et in ipairs(exp_result.tokens) do
-                                    out_tokens[#out_tokens + 1] = et
-                                end
-                                for _, es in ipairs(exp_result.spans) do
-                                    out_spans[#out_spans + 1] = es
+                                for idx, et in ipairs(exp_result.tokens) do
+                                    -- Included files have their own EOF sentinel; keep only
+                                    -- the translation unit's final EOF, otherwise the C
+                                    -- parser stops at the end of the first include.
+                                    if not is_eof(et) then
+                                        out_tokens[#out_tokens + 1] = et
+                                        out_spans[#out_spans + 1] = exp_result.spans[idx]
+                                    end
                                 end
 
                                 include_stack[resolved_path] = nil

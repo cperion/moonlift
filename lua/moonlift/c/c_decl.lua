@@ -775,7 +775,9 @@ function M.Define(T)
         if tok_punct(p, "{") then
             return M.parse_init_list(p)
         end
-        local e = p.parse_expr(p)
+        -- Use assign_expr, NOT comma_expr: commas in a declaration separate
+        -- declarators and must not be consumed as part of the initializer value.
+        local e = p.parse_assign_expr(p)
         if e then
             return { _variant = "CInitExpr", expr = e }
         end

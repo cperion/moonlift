@@ -1,0 +1,215 @@
+-- lexgen_demo.mlua — Native keyword lexer with benchmark
+--
+-- Run: luajit run_mlua.lua lib/lexgen_demo.mlua
+
+local ffi = require("ffi")
+local lexgen = require("lib.lexgen")
+
+local function u8buf(s) local b=ffi.new("uint8_t[?]",#s+1); ffi.copy(b,s,#s); return b,#s end
+local function now() return os.clock() end
+
+local tokens = {
+    {name="fn",id=1,keyword="fn"},{name="if",id=2,keyword="if"},
+    {name="else",id=3,keyword="else"},{name="return",id=4,keyword="return"},
+    {name="let",id=5,keyword="let"},{name="var",id=6,keyword="var"},
+    {name="func",id=7,keyword="func"},{name="struct",id=8,keyword="struct"},
+    {name="export",id=9,keyword="export"},{name="module",id=10,keyword="module"},
+    {name="region",id=11,keyword="region"},{name="switch",id=12,keyword="switch"},
+    {name="while",id=13,keyword="while"},{name="for",id=14,keyword="for"},
+    {name="end",id=15,keyword="end"},
+}
+
+local trie = lexgen.build_trie(tokens)
+local names = lexgen.assign_names("Lex", trie)
+
+-- ═══════════════════════════════════════════════════════════
+--  Region factories (pattern: LANGUAGE_REFERENCE §21.3)
+-- ═══════════════════════════════════════════════════════════
+
+local nid = 0
+local function fresh() nid=nid+1; return "Lex_"..nid end
+
+-- Single region that handles ALL cases for a trie node.
+-- Terminal check is emitted once; child dispatch via if-chain.
+local function gen_node(node, depth)
+    local children = {}
+    for byte, child in pairs(node.children) do
+        children[byte] = gen_node(child, depth + 1)
+    end
+
+    local sorted = lexgen.sorted_children(node)
+    for _, e in ipairs(sorted) do e.frag = children[e.byte] end
+
+    local name = fresh()
+    local tok_id = node.token and node.token.id
+
+    if #sorted == 0 then
+        -- Leaf: terminal or fail
+        if tok_id then
+            return region @{name}(p: ptr(u8), n: i32, pos: i32;
+                ok: cont(next: i32, token: i32), fail: cont(at: i32))
+            entry start()
+                let after: i32 = pos + @{depth}
+                if after < n then
+                    let c: i32 = as(i32, p[after])
+                    if c >= 97 then if c <= 122 then jump fail(at = pos) end end
+                    if c >= 65 then if c <= 90  then jump fail(at = pos) end end
+                    if c >= 48 then if c <= 57  then jump fail(at = pos) end end
+                    if c == 95 then jump fail(at = pos) end
+                end
+                jump ok(next = after, token = @{tok_id})
+            end
+            end
+        else
+            return region @{name}(p: ptr(u8), n: i32, pos: i32;
+                ok: cont(next: i32, token: i32), fail: cont(at: i32))
+            entry start()
+                jump fail(at = pos)
+            end
+            end
+        end
+    end
+
+    -- Build if-chain regions for each child
+    -- Last child also handles the terminal check
+    local chain = nil
+    for i = #sorted, 1, -1 do
+        local item = sorted[i]
+        local is_last = (i == #sorted)
+        local rest = chain
+        local ch_name = fresh()
+
+        if is_last and tok_id then
+            chain = region @{ch_name}(p: ptr(u8), n: i32, pos: i32;
+                ok: cont(next: i32, token: i32), fail: cont(at: i32))
+            entry start()
+                let c: i32 = as(i32, p[pos + @{depth}])
+                if c == @{item.byte} then
+                    emit @{item.frag}(p, n, pos; ok = ok, fail = fail)
+                end
+                let after: i32 = pos + @{depth}
+                if after < n then
+                    let c: i32 = as(i32, p[after])
+                    if c >= 97 then if c <= 122 then jump fail(at = pos) end end
+                    if c >= 65 then if c <= 90  then jump fail(at = pos) end end
+                    if c >= 48 then if c <= 57  then jump fail(at = pos) end end
+                    if c == 95 then jump fail(at = pos) end
+                end
+                jump ok(next = after, token = @{tok_id})
+            end
+            end
+        elseif is_last then
+            chain = region @{ch_name}(p: ptr(u8), n: i32, pos: i32;
+                ok: cont(next: i32, token: i32), fail: cont(at: i32))
+            entry start()
+                let c: i32 = as(i32, p[pos + @{depth}])
+                if c == @{item.byte} then
+                    emit @{item.frag}(p, n, pos; ok = ok, fail = fail)
+                end
+                jump fail(at = pos)
+            end
+            end
+        else
+            chain = region @{ch_name}(p: ptr(u8), n: i32, pos: i32;
+                ok: cont(next: i32, token: i32), fail: cont(at: i32))
+            entry start()
+                let c: i32 = as(i32, p[pos + @{depth}])
+                if c == @{item.byte} then
+                    emit @{item.frag}(p, n, pos; ok = ok, fail = fail)
+                end
+                emit @{rest}(p, n, pos; ok = ok, fail = fail)
+            end
+            end
+        end
+    end
+
+    -- Wrap in bounds-check region
+    return region @{name}(p: ptr(u8), n: i32, pos: i32;
+        ok: cont(next: i32, token: i32), fail: cont(at: i32))
+    entry start()
+        let offset: i32 = pos + @{depth}
+        if offset >= n then jump fail(at = pos) end
+        emit @{chain}(p, n, pos; ok = ok, fail = fail)
+    end
+    end
+end
+
+local classify = gen_node(trie, 0)
+
+-- ═══════════════════════════════════════════════════════════
+--  Module
+-- ═══════════════════════════════════════════════════════════
+
+local LexMod = module LexMod
+export func classify(p: ptr(u8), n: i32, pos: i32) -> i32
+    return region -> i32
+    entry start()
+        emit @{classify}(p, n, pos; ok = found, fail = miss)
+    end
+    block found(next: i32, token: i32) yield token end
+    block miss(at: i32) yield 0 end
+    end
+end
+end
+
+local compiled = LexMod:compile()
+local classify_fn = compiled:get("classify")
+
+-- ═══════════════════════════════════════════════════════════
+--  Validate
+-- ═══════════════════════════════════════════════════════════
+
+local function test(word, expected_id)
+    local buf, n = u8buf(word)
+    assert(classify_fn(buf, n, 0) == expected_id,
+        string.format("classify(%q): expected %d, got %d", word, expected_id, classify_fn(buf, n, 0)))
+end
+for _, tok in ipairs(tokens) do test(tok.keyword, tok.id) end
+test("iffy", 0); test("returned", 0); test("endx", 0); test("xyz", 0); test("", 0)
+print(string.format("  validated: %d assertions", #tokens + 5))
+
+-- ═══════════════════════════════════════════════════════════
+--  Benchmark
+-- ═══════════════════════════════════════════════════════════
+
+-- Lua comparison: hash table
+local lua_kw = {}
+for _, tok in ipairs(tokens) do lua_kw[tok.keyword] = tok.id end
+
+local function lua_classify(buf, n, pos)
+    local e = pos
+    while e < n do
+        local b = buf[e]
+        if b == 95 or (b >= 48 and b <= 57) or (b >= 65 and b <= 90) or (b >= 97 and b <= 122) then
+            e = e + 1
+        else break end
+    end
+    if e == pos then return 0 end
+    return lua_kw[ffi.string(buf + pos, e - pos)] or 0
+end
+
+local test_data = "if fn else return let var func struct export module region switch while for end iffy returned endx xyz"
+local tbuf, tn = u8buf(test_data)
+
+local function bench(label, fn, rounds)
+    local t0 = now()
+    local acc = 0
+    for _ = 1, rounds do
+        for pos = 0, 19 do
+            acc = acc + fn(tbuf, tn, pos)
+        end
+    end
+    local dt = now() - t0
+    local ncalls = rounds * 20
+    print(string.format("  %-20s %8d rounds  %7.4f s  %6.0f ns/call  acc=%d",
+        label, rounds, dt, dt * 1e9 / ncalls, acc))
+    return dt
+end
+
+local R = 500000
+local dt_native = bench("native trie", classify_fn, R)
+local dt_lua    = bench("lua hash table", lua_classify, R)
+print(string.format("  speedup: %.1fx", dt_lua / dt_native))
+
+compiled:free()
+return "lexgen_demo ok"

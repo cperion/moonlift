@@ -157,7 +157,14 @@ function M.Define(T)
         return false
     end
 
-    local function type_spec_to_cdef(spec, qualifiers)
+    local type_spec_to_cdef
+    local declarator_to_cdef
+    local field_decl_to_cdef
+    local param_decl_to_cdef
+    local expr_to_cdef
+    local initializer_expr_to_cdef
+
+    type_spec_to_cdef = function(spec, qualifiers)
         local qstr = ""
         for _, q in ipairs(qualifiers or {}) do
             local qt = q._variant
@@ -205,7 +212,7 @@ function M.Define(T)
                     if i > 1 then fields_str = fields_str .. "; " end
                     fields_str = fields_str .. fdecl
                 end
-                return qstr .. kind .. " " .. name_part .. " { " .. fields_str .. " }"
+                return qstr .. kind .. " " .. name_part .. " { " .. fields_str .. "; }"
             else
                 return qstr .. kind .. " " .. name_part
             end
@@ -232,52 +239,56 @@ function M.Define(T)
         return qstr .. "int"
     end
 
-    local function derived_to_cdef(derived, inner)
-        local tag = derived._variant
-        if tag == "CDerivedPointer" then
-            local qs = ""
-            for _, q in ipairs(derived.qualifiers or {}) do
-                local qt = q._variant
-                if qt == "CQualConst" then qs = qs .. "const "
-                elseif qt == "CQualVolatile" then qs = qs .. "volatile "
-                elseif qt == "CQualRestrict" then qs = qs .. "__restrict "
+    local function pointer_quals_to_cdef(quals)
+        local qs = ""
+        for _, q in ipairs(quals or {}) do
+            local qt = q._variant
+            if qt == "CQualConst" then qs = qs .. "const "
+            elseif qt == "CQualVolatile" then qs = qs .. "volatile "
+            elseif qt == "CQualRestrict" then qs = qs .. "__restrict "
+            end
+        end
+        return qs
+    end
+
+    local function params_to_cdef(params, variadic)
+        local params_str = ""
+        for i, p in ipairs(params or {}) do
+            if i > 1 then params_str = params_str .. ", " end
+            params_str = params_str .. param_decl_to_cdef(p)
+        end
+        if variadic then
+            if #(params or {}) > 0 then params_str = params_str .. ", " end
+            params_str = params_str .. "..."
+        end
+        if params_str == "" then params_str = "void" end
+        return params_str
+    end
+
+    declarator_to_cdef = function(decl, spec_str)
+        local inner = decl.name or ""
+        local derived = decl.derived or {}
+        for i, d in ipairs(derived) do
+            local tag = d._variant
+            local next_d = derived[i + 1]
+            if tag == "CDerivedPointer" then
+                local qs = pointer_quals_to_cdef(d.qualifiers)
+                if next_d and (next_d._variant == "CDerivedFunction" or next_d._variant == "CDerivedArray") then
+                    inner = "(" .. qs .. "*" .. inner .. ")"
+                else
+                    inner = qs .. "*" .. inner
                 end
+            elseif tag == "CDerivedArray" then
+                inner = inner .. "[" .. (d.size and expr_to_cdef(d.size) or "") .. "]"
+            elseif tag == "CDerivedFunction" then
+                inner = inner .. "(" .. params_to_cdef(d.params, d.variadic) .. ")"
             end
-            return inner .. " " .. qs .. "*"
-        elseif tag == "CDerivedArray" then
-            if derived.size then
-                return inner .. "[" .. expr_to_cdef(derived.size) .. "]"
-            else
-                return inner .. "[]"
-            end
-        elseif tag == "CDerivedFunction" then
-            local params_str = ""
-            for i, p in ipairs(derived.params) do
-                if i > 1 then params_str = params_str .. ", " end
-                params_str = params_str .. param_decl_to_cdef(p)
-            end
-            if derived.variadic then
-                if #derived.params > 0 then params_str = params_str .. ", " end
-                params_str = params_str .. "..."
-            end
-            return inner .. "(" .. params_str .. ")"
         end
-        return inner
+        if inner == "" then return spec_str end
+        return spec_str .. " " .. inner
     end
 
-    local function declarator_to_cdef(decl, spec_str)
-        local name_str = decl.name or ""
-        local ty = spec_str
-        if name_str ~= "" then
-            ty = ty .. " " .. name_str
-        end
-        for _, d in ipairs(decl.derived or {}) do
-            ty = derived_to_cdef(d, ty)
-        end
-        return ty
-    end
-
-    local function field_decl_to_cdef(field)
+    field_decl_to_cdef = function(field)
         local spec_str = type_spec_to_cdef(field.type_spec)
         local parts = {}
         for _, fd in ipairs(field.declarators) do
@@ -298,7 +309,7 @@ function M.Define(T)
         return table.concat(parts, ", ")
     end
 
-    local function param_decl_to_cdef(param)
+    param_decl_to_cdef = function(param)
         local spec_str = type_spec_to_cdef(param.type_spec, param.qualifiers)
         if param.declarator then
             return declarator_to_cdef(param.declarator, spec_str)
@@ -306,7 +317,7 @@ function M.Define(T)
         return spec_str
     end
 
-    local function expr_to_cdef(expr)
+    expr_to_cdef = function(expr)
         if type(expr) ~= "table" then
             return tostring(expr)
         end
@@ -366,7 +377,7 @@ function M.Define(T)
         return "0"
     end
 
-    local function initializer_expr_to_cdef(init)
+    initializer_expr_to_cdef = function(init)
         if init._variant == "CInitExpr" then
             return expr_to_cdef(init.expr)
         end
@@ -388,51 +399,6 @@ function M.Define(T)
                 end
                 for _, decltor in ipairs(decl.declarators) do
                     local dstr = declarator_to_cdef(decltor, spec_str)
-                    if decltor.derived then
-                        -- Check for function pointer in derived types
-                        local has_func_ptr = false
-                        for _, d in ipairs(decltor.derived) do
-                            if d._variant == "CDerivedFunction" then
-                                has_func_ptr = true
-                                break
-                            end
-                        end
-                        if has_func_ptr then
-                            -- Function pointer declarations need typedef or explicit form
-                            -- Reconstruct for function pointer: return_type (*name)(params)
-                            local inner_name = decltor.name or ""
-                            local base_str = spec_str
-                            -- Walk derived types in reverse to reconstruct
-                            local function build_funcptr(derived, idx, inner)
-                                if idx > #derived then return inner end
-                                local d = derived[idx]
-                                local next_inner = inner
-                                if d._variant == "CDerivedPointer" then
-                                    next_inner = "(*" .. inner .. ")"
-                                elseif d._variant == "CDerivedArray" then
-                                    if d.size then
-                                        next_inner = "(" .. inner .. ")[" .. expr_to_cdef(d.size) .. "]"
-                                    else
-                                        next_inner = "(" .. inner .. ")[]"
-                                    end
-                                elseif d._variant == "CDerivedFunction" then
-                                    local params_str = ""
-                                    for i, p in ipairs(d.params) do
-                                        if i > 1 then params_str = params_str .. ", " end
-                                        params_str = params_str .. param_decl_to_cdef(p)
-                                    end
-                                    if d.variadic then
-                                        if #d.params > 0 then params_str = params_str .. ", " end
-                                        params_str = params_str .. "..."
-                                    end
-                                    next_inner = "(" .. inner .. ")(" .. params_str .. ")"
-                                end
-                                return build_funcptr(derived, idx + 1, next_inner)
-                            end
-                            dstr = build_funcptr(decltor.derived, 1, inner_name)
-                            dstr = spec_str .. " " .. dstr
-                        end
-                    end
                     if is_typedef then
                         cdef_parts[#cdef_parts + 1] = "typedef " .. dstr .. ";"
                     elseif decl.storage and decl.storage._variant == "CStorageExtern" then
@@ -457,35 +423,7 @@ function M.Define(T)
                 local func = item.func
                 local spec_str = type_spec_to_cdef(func.type_spec, func.qualifiers)
                 local decltor = func.declarator
-                local name_str = decltor.name or ""
-                local ty = spec_str .. " " .. name_str
-                -- Apply derived types except function (handled separately)
-                local params = {}
-                local variadic = false
-                for _, d in ipairs(decltor.derived or {}) do
-                    if d._variant == "CDerivedFunction" then
-                        params = d.params
-                        variadic = d.variadic
-                    elseif d._variant == "CDerivedPointer" then
-                        ty = ty .. " *"
-                    elseif d._variant == "CDerivedArray" then
-                        if d.size then
-                            ty = ty .. "[" .. expr_to_cdef(d.size) .. "]"
-                        else
-                            ty = ty .. "[]"
-                        end
-                    end
-                end
-                local params_str = ""
-                for i, p in ipairs(params) do
-                    if i > 1 then params_str = params_str .. ", " end
-                    params_str = params_str .. param_decl_to_cdef(p)
-                end
-                if variadic then
-                    if #params > 0 then params_str = params_str .. ", " end
-                    params_str = params_str .. "..."
-                end
-                cdef_parts[#cdef_parts + 1] = ty .. "(" .. params_str .. ");"
+                cdef_parts[#cdef_parts + 1] = declarator_to_cdef(decltor, spec_str) .. ";"
             end
         end
         return table.concat(cdef_parts, "\n")
@@ -639,13 +577,12 @@ function M.Define(T)
     -- Layout fact construction via FFI
     --------------------------------------------------------------------------
 
-    local function build_layout_for_struct(module_name, struct_name, members, type_facts, typedef_table)
-        local lookup_name = "struct " .. struct_name
+    local function build_layout_for_type(module_name, type_spelling, ffi_lookup_name, members, type_facts, typedef_table)
         local fields = {}
         local ok, ffi_fields = pcall(function()
-            local ct = ffi.typeof(lookup_name)
+            local ct = ffi.typeof(ffi_lookup_name)
             local results = {}
-            for i, member in ipairs(members) do
+            for _, member in ipairs(members) do
                 for _, fd in ipairs(member.declarators) do
                     local fd_name = fd.declarator and fd.declarator.name
                     if fd_name then
@@ -655,7 +592,7 @@ function M.Define(T)
                         local fal = field_type_fact.align or 1
                         results[#results + 1] = {
                             _variant = "CFieldLayout",
-                            owner = make_c_type_id(module_name, lookup_name),
+                            owner = make_c_type_id(module_name, type_spelling),
                             name = fd_name,
                             type = field_type_fact.id,
                             offset = tonumber(offset),
@@ -669,19 +606,17 @@ function M.Define(T)
             end
             return results
         end)
-        if ok then
-            fields = ffi_fields
-        end
+        if ok then fields = ffi_fields end
         local sz = nil
         local al = nil
-        local ok_sz, ffi_sz = pcall(ffi.sizeof, lookup_name)
+        local ok_sz, ffi_sz = pcall(ffi.sizeof, ffi_lookup_name)
         if ok_sz then sz = tonumber(ffi_sz) end
-        local ok_al, ffi_al = pcall(ffi.alignof, lookup_name)
+        local ok_al, ffi_al = pcall(ffi.alignof, ffi_lookup_name)
         if ok_al then al = tonumber(ffi_al) end
 
         return {
             _variant = "CLayoutFact",
-            type = make_c_type_id(module_name, lookup_name),
+            type = make_c_type_id(module_name, type_spelling),
             size = sz or 0,
             align = al or 1,
             fields = fields,
@@ -773,7 +708,16 @@ function M.Define(T)
                                     typing = { _variant = "CFuncPtr", sig = sig_id }
                                 end
                             end
-                            local fact = make_c_type_fact(module_name, name, typing, base_fact.complete, base_fact.size, base_fact.align)
+                            local complete = base_fact.complete
+                            local size = base_fact.size
+                            local align = base_fact.align
+                            if decl.type_spec._variant == "CTyStructOrUnion" and decl.type_spec.members and #(decltor.derived or {}) == 0 then
+                                local ok_sz, ffi_sz = pcall(ffi.sizeof, name)
+                                local ok_al, ffi_al = pcall(ffi.alignof, name)
+                                if ok_sz then size = tonumber(ffi_sz); complete = true end
+                                if ok_al then align = tonumber(ffi_al) end
+                            end
+                            local fact = make_c_type_fact(module_name, name, typing, complete, size, align)
                             type_facts[#type_facts + 1] = fact
                             typedef_table[name] = fact
                             type_fact_cache[name] = fact
@@ -914,8 +858,14 @@ function M.Define(T)
                 if spec._variant == "CTyStructOrUnion" and spec.members then
                     local sname = spec.name
                     if sname then
-                        local layout = build_layout_for_struct(module_name, sname, spec.members, type_facts, typedef_table)
-                        layout_facts[#layout_facts + 1] = layout
+                        layout_facts[#layout_facts + 1] = build_layout_for_type(module_name, "struct " .. sname, "struct " .. sname, spec.members, type_facts, typedef_table)
+                    end
+                    if item.decl.storage and item.decl.storage._variant == "CStorageTypedef" then
+                        for _, decltor in ipairs(item.decl.declarators or {}) do
+                            if decltor.name and #(decltor.derived or {}) == 0 then
+                                layout_facts[#layout_facts + 1] = build_layout_for_type(module_name, decltor.name, decltor.name, spec.members, type_facts, typedef_table)
+                            end
+                        end
                     end
                 end
             end

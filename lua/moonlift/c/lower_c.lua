@@ -16,6 +16,7 @@ function M.Define(T)
     local C = T.MoonCore
     local Bind = T.MoonBind
     local Sem = T.MoonSem
+    local Host = T.MoonHost
 
     --------------------------------------------------------------------------
     -- Helpers: bindings, names
@@ -171,7 +172,9 @@ function M.Define(T)
         elseif tag == "CTyNamed" then return spec.name
         elseif tag == "CTyUnsigned" then return "unsigned int"
         elseif tag == "CTySigned" then return "int"
-        elseif tag == "CTyStructOrUnion" then return spec.name or "struct"
+        elseif tag == "CTyStructOrUnion" then
+            local kind = spec.kind and spec.kind._variant == "CStructKindUnion" and "union" or "struct"
+            return spec.name and (kind .. " " .. spec.name) or kind
         elseif tag == "CTyEnum" then return spec.name or "enum"
         else return "int"
         end
@@ -181,6 +184,9 @@ function M.Define(T)
         local name = spec_to_name(spec)
         local fact = ctx.ctypes[name]
         if fact then return c_kind_to_moon_type(fact.kind, ctx) end
+        if spec._variant == "CTyStructOrUnion" and not spec.name and spec.members then
+            return Ty.TScalar(C.ScalarRawPtr)
+        end
         local tag = spec._variant
         if tag == "CTyVoid" then return Ty.TScalar(C.ScalarVoid)
         elseif tag == "CTyChar" then return Ty.TScalar(C.ScalarI8)
@@ -222,6 +228,60 @@ function M.Define(T)
         return base
     end
 
+    local function c_type_id_for_spec(spec, ctx)
+        local name = spec_to_name(spec)
+        local fact = ctx.ctypes[name]
+        if fact then return fact.id end
+        return MC.CTypeId(ctx.module_name, name)
+    end
+
+    local function c_desc_from_spec_decl(spec, decltor, ctx)
+        local id = c_type_id_for_spec(spec, ctx)
+        local desc = { tag = "type", id = id }
+        for _, d in ipairs((decltor and decltor.derived) or {}) do
+            if d._variant == "CDerivedPointer" or d._variant == "CDerivedArray" then
+                desc = { tag = "ptr", pointee = desc, id = nil }
+            elseif d._variant == "CDerivedFunction" then
+                break
+            end
+        end
+        return desc
+    end
+
+    local function c_desc_to_moon_type(desc, ctx)
+        if not desc then return Ty.TScalar(C.ScalarI32) end
+        if desc.tag == "ptr" then return Ty.TPtr(c_desc_to_moon_type(desc.pointee, ctx)) end
+        local id = desc.id
+        local fact = id and (ctx.ctypes[id.module_name .. ":" .. id.spelling] or ctx.ctypes[id.spelling])
+        if fact then return c_kind_to_moon_type(fact.kind, ctx) end
+        return Ty.TScalar(C.ScalarI32)
+    end
+
+    local function field_layout_for(owner_desc, field_name, ctx)
+        if not owner_desc or owner_desc.tag ~= "type" or not owner_desc.id then return nil end
+        local id = owner_desc.id
+        local layout = ctx.layouts[id.module_name .. ":" .. id.spelling] or ctx.layouts[id.spelling]
+        if not layout then return nil end
+        for _, f in ipairs(layout.fields or {}) do
+            if f.name == field_name then return f end
+        end
+        return nil
+    end
+
+    local function host_rep_for_type(ty)
+        if pvm.classof(ty) == Ty.TScalar then return Host.HostRepScalar(ty.scalar) end
+        if pvm.classof(ty) == Ty.TPtr then return Host.HostRepPtr(ty.elem) end
+        return Host.HostRepOpaque("c-field")
+    end
+
+    local function field_ref_for(owner_desc, field_name, ctx)
+        local fl = field_layout_for(owner_desc, field_name, ctx)
+        if not fl then return nil end
+        local ffact = ctx.ctypes[fl.type.module_name .. ":" .. fl.type.spelling] or ctx.ctypes[fl.type.spelling]
+        local fty = ffact and c_kind_to_moon_type(ffact.kind, ctx) or Ty.TScalar(C.ScalarI32)
+        return Sem.FieldByOffset(field_name, fl.offset, fty, host_rep_for_type(fty)), { tag = "type", id = fl.type }
+    end
+
     local lit_int  -- forward declaration (used by c_cond_to_bool)
 
     -- Wrap a C condition expression for Moonlift StmtIf (expects Bool).
@@ -236,18 +296,19 @@ function M.Define(T)
     end
 
     local function c_func_param_types(c_func, ctx)
-        local tys = {}
+        local params = {}
         for _, d in ipairs(c_func.declarator.derived or {}) do
             if d._variant == "CDerivedFunction" then
-                for _, p in ipairs(d.params) do
-                    tys[#tys + 1] = c_type_spec_to_moon_type(p.type_spec, ctx)
+                for i, p in ipairs(d.params) do
+                    local pname = p.declarator and p.declarator.name or ("p" .. i)
+                    params[#params + 1] = Ty.Param(pname, c_param_type(p, ctx))
                 end
                 if d.variadic then
-                    tys[#tys + 1] = Ty.TScalar(C.ScalarRawPtr)
+                    params[#params + 1] = Ty.Param("__va", Ty.TScalar(C.ScalarRawPtr))
                 end
             end
         end
-        return tys
+        return params
     end
 
     --------------------------------------------------------------------------
@@ -297,6 +358,36 @@ function M.Define(T)
 
     local function lit_nil()
         return Tr.ExprLit(Tr.ExprSurface, C.LitNil)
+    end
+
+    local function c_expr_desc(c_expr, ctx)
+        if type(c_expr) ~= "table" then return nil end
+        local tag = c_expr._variant
+        if tag == "CEIdent" then
+            local l = ctx.locals[c_expr.name]
+            return l and l.c_desc or nil
+        elseif tag == "CEParen" then
+            return c_expr_desc(c_expr.expr, ctx)
+        elseif tag == "CEDeref" then
+            local d = c_expr_desc(c_expr.operand, ctx)
+            return d and d.tag == "ptr" and d.pointee or nil
+        elseif tag == "CEAddrOf" then
+            local d = c_expr_desc(c_expr.operand, ctx)
+            return d and { tag = "ptr", pointee = d } or nil
+        elseif tag == "CESubscript" then
+            local d = c_expr_desc(c_expr.base, ctx)
+            return d and d.tag == "ptr" and d.pointee or nil
+        elseif tag == "CEArrow" then
+            local d = c_expr_desc(c_expr.base, ctx)
+            local owner = d and d.tag == "ptr" and d.pointee or nil
+            local _, fd = field_ref_for(owner, c_expr.field, ctx)
+            return fd
+        elseif tag == "CEDot" then
+            local owner = c_expr_desc(c_expr.base, ctx)
+            local _, fd = field_ref_for(owner, c_expr.field, ctx)
+            return fd
+        end
+        return nil
     end
 
     --------------------------------------------------------------------------
@@ -702,6 +793,7 @@ function M.Define(T)
     --------------------------------------------------------------------------
     -- Expression lowering: CAst.Expr → MoonTree.Expr
     --------------------------------------------------------------------------
+    local lower_expr_to_place
     local function lower_expr(c_expr, ctx)
 
         -- Literals
@@ -857,8 +949,7 @@ function M.Define(T)
             local rhs = lower_expr(c_expr.right, ctx)
             local rhs_val = rhs
             if assign_tag ~= "CAssign" then
-                local opname = c_expr.left._variant == "CEIdent" and c_expr.left.name or "tmp"
-                local old_val = Tr.ExprRef(Tr.ExprSurface, Bind.ValueRefName(opname))
+                local old_val = lower_expr(c_expr.left, ctx)
                 local bop = C.BinAdd
                 if assign_tag == "CSubAssign" then bop = C.BinSub
                 elseif assign_tag == "CMulAssign" then bop = C.BinMul
@@ -872,9 +963,7 @@ function M.Define(T)
                 end
                 rhs_val = Tr.ExprBinary(Tr.ExprSurface, bop, old_val, rhs)
             end
-            local stmts = { Tr.StmtSet(Tr.StmtSurface,
-                Tr.PlaceRef(Tr.PlaceSurface, Bind.ValueRefName(c_expr.left._variant == "CEIdent" and c_expr.left.name or "tmp")),
-                rhs_val) }
+            local stmts = { Tr.StmtSet(Tr.StmtSurface, lower_expr_to_place(c_expr.left, ctx), rhs_val) }
             return Tr.ExprBlock(Tr.ExprSurface, stmts, rhs_val)
         end
 
@@ -895,11 +984,24 @@ function M.Define(T)
             return Tr.ExprCall(Tr.ExprSurface, Sem.CallUnresolved(callee), args)
         end
 
-        -- Member access
+        -- Member access.  Resolve C layout facts here, because Tree Dot is a
+        -- high-level surface construct and tree_to_back only lowers resolved
+        -- FieldByOffset accesses.
         if tag == "CEDot" then
+            local owner = c_expr_desc(c_expr.base, ctx)
+            local field = field_ref_for(owner, c_expr.field, ctx)
+            if field then
+                return Tr.ExprField(Tr.ExprSurface, lower_expr(c_expr.base, ctx), field)
+            end
             return Tr.ExprDot(Tr.ExprSurface, lower_expr(c_expr.base, ctx), c_expr.field)
         end
         if tag == "CEArrow" then
+            local d = c_expr_desc(c_expr.base, ctx)
+            local owner = d and d.tag == "ptr" and d.pointee or nil
+            local field = field_ref_for(owner, c_expr.field, ctx)
+            if field then
+                return Tr.ExprField(Tr.ExprSurface, lower_expr(c_expr.base, ctx), field)
+            end
             return Tr.ExprDot(Tr.ExprSurface,
                 Tr.ExprDeref(Tr.ExprSurface, lower_expr(c_expr.base, ctx)),
                 c_expr.field)
@@ -938,7 +1040,7 @@ function M.Define(T)
     --------------------------------------------------------------------------
     -- Statement lowering: CAst.Stmt → MoonTree.Stmt[]
     -------------------------------------------------------------------------=
-    local function lower_expr_to_place(c_expr, ctx)
+    lower_expr_to_place = function(c_expr, ctx)
         local tag = c_expr._variant
         if tag == "CEIdent" then
             return Tr.PlaceRef(Tr.PlaceSurface, Bind.ValueRefName(c_expr.name))
@@ -947,12 +1049,19 @@ function M.Define(T)
             return Tr.PlaceDeref(Tr.PlaceSurface, lower_expr(c_expr.operand, ctx))
         end
         if tag == "CEDot" then
-            return Tr.PlaceDot(Tr.PlaceSurface,
-                Tr.PlaceRef(Tr.PlaceSurface, Bind.ValueRefName("_")), c_expr.field)
+            local owner = c_expr_desc(c_expr.base, ctx)
+            local field = field_ref_for(owner, c_expr.field, ctx)
+            local base_place = lower_expr_to_place(c_expr.base, ctx)
+            if field then return Tr.PlaceField(Tr.PlaceSurface, base_place, field) end
+            return Tr.PlaceDot(Tr.PlaceSurface, base_place, c_expr.field)
         end
         if tag == "CEArrow" then
-            return Tr.PlaceDot(Tr.PlaceSurface,
-                Tr.PlaceDeref(Tr.PlaceSurface, lower_expr(c_expr.base, ctx)), c_expr.field)
+            local d = c_expr_desc(c_expr.base, ctx)
+            local owner = d and d.tag == "ptr" and d.pointee or nil
+            local field = field_ref_for(owner, c_expr.field, ctx)
+            local base_place = Tr.PlaceDeref(Tr.PlaceSurface, lower_expr(c_expr.base, ctx))
+            if field then return Tr.PlaceField(Tr.PlaceSurface, base_place, field) end
+            return Tr.PlaceDot(Tr.PlaceSurface, base_place, c_expr.field)
         end
         if tag == "CESubscript" then
             local base = lower_expr(c_expr.base, ctx)
@@ -992,7 +1101,7 @@ function M.Define(T)
                         init = lower_expr(decltor.initializer.expr, ctx)
                     end
                 end
-                ctx.locals[name] = { binding = bind, is_var = is_var, init = init }
+                ctx.locals[name] = { binding = bind, is_var = is_var, init = init, c_desc = c_desc_from_spec_decl(decl.type_spec, decltor, ctx) }
                 if init then
                     if is_var then
                         stmts[#stmts + 1] = Tr.StmtVar(Tr.StmtSurface, bind, init)
@@ -1017,6 +1126,25 @@ function M.Define(T)
 
         if tag == "CSExpr" then
             if c_stmt.expr then
+                if c_stmt.expr._variant == "CEAssign" then
+                    local rhs = lower_expr(c_stmt.expr.right, ctx)
+                    local assign_tag = c_stmt.expr.op._variant
+                    if assign_tag ~= "CAssign" then
+                        local old_val = lower_expr(c_stmt.expr.left, ctx)
+                        local bop = C.BinAdd
+                        if assign_tag == "CSubAssign" then bop = C.BinSub
+                        elseif assign_tag == "CMulAssign" then bop = C.BinMul
+                        elseif assign_tag == "CDivAssign" then bop = C.BinDiv
+                        elseif assign_tag == "CModAssign" then bop = C.BinRem
+                        elseif assign_tag == "CAndAssign" then bop = C.BinBitAnd
+                        elseif assign_tag == "COrAssign" then bop = C.BinBitOr
+                        elseif assign_tag == "CXorAssign" then bop = C.BinBitXor
+                        elseif assign_tag == "CShlAssign" then bop = C.BinShl
+                        elseif assign_tag == "CShrAssign" then bop = C.BinAShr end
+                        rhs = Tr.ExprBinary(Tr.ExprSurface, bop, old_val, rhs)
+                    end
+                    return { Tr.StmtSet(Tr.StmtSurface, lower_expr_to_place(c_stmt.expr.left, ctx), rhs) }
+                end
                 return { Tr.StmtExpr(Tr.StmtSurface, lower_expr(c_stmt.expr, ctx)) }
             end
             return {}
@@ -1135,6 +1263,8 @@ function M.Define(T)
                 entry_body[#entry_body + 1] = Tr.StmtIf(Tr.StmtSurface, c_cond_to_bool(cond),
                     {}, { Tr.StmtYieldVoid(Tr.StmtSurface) })
             end
+            -- Inject cleaned body (non-carried-write statements) before the jump
+            for _, s in ipairs(cleaned_body) do entry_body[#entry_body + 1] = s end
             local jump_args = {}
             local written_names = {}
             for _, pair in ipairs(jump_args_pairs) do
@@ -1229,6 +1359,8 @@ function M.Define(T)
                 entry_body[#entry_body + 1] = Tr.StmtIf(Tr.StmtSurface, c_cond_to_bool(cond),
                     {}, { Tr.StmtYieldVoid(Tr.StmtSurface) })
             end
+            -- Inject cleaned body (non-carried-write statements) before the jump
+            for _, s in ipairs(cleaned_body) do entry_body[#entry_body + 1] = s end
             local jump_args = {}
             local written_names = {}
             for _, pair in ipairs(jump_args_pairs) do
@@ -1332,7 +1464,7 @@ function M.Define(T)
                         else
                             init_stmts[#init_stmts + 1] = Tr.StmtLet(Tr.StmtSurface, bind, init)
                         end
-                        ctx.locals[decltor.name] = { binding = bind, is_var = is_var, init = init }
+                        ctx.locals[decltor.name] = { binding = bind, is_var = is_var, init = init, c_desc = c_desc_from_spec_decl(c_stmt.init.decl.type_spec, decltor, ctx) }
                     end
                 end
             elseif c_stmt.init and c_stmt.init._variant == "CFInitExpr" then
@@ -1382,6 +1514,9 @@ function M.Define(T)
                 entry_body[#entry_body + 1] = Tr.StmtIf(Tr.StmtSurface, c_cond_to_bool(cond),
                     {}, { Tr.StmtYieldVoid(Tr.StmtSurface) })
             end
+            -- Inject cleaned body + incr (non-carried-write statements) before the jump
+            for _, s in ipairs(cleaned_body) do entry_body[#entry_body + 1] = s end
+            for _, s in ipairs(cleaned_incr) do entry_body[#entry_body + 1] = s end
             local jump_args = {}
             for name, value in pairs(jump_arg_map) do
                 jump_args[#jump_args + 1] = Tr.JumpArg(name, value)
@@ -1623,6 +1758,7 @@ function M.Define(T)
                     ctx.locals[pname] = {
                         binding = arg_binding(pname, i),
                         is_var = false,
+                        c_desc = c_desc_from_spec_decl(p.type_spec, p.declarator, ctx),
                     }
                 end
             end
@@ -1716,22 +1852,35 @@ function M.Define(T)
                                 out[#out + 1] = Tr.ItemExtern(
                                     Tr.ExternFunc(decltor.name, decltor.name,
                                         c_func_param_types({ declarator = decltor, type_spec = decl.type_spec }, ctx),
-                                        c_type_spec_to_moon_type(decl.type_spec, ctx)))
+                                        wrap_decl_type(c_type_spec_to_moon_type(decl.type_spec, ctx), decltor, ctx)))
                             end
                         end
                     end
                 else
                     for _, decltor in ipairs(decl.declarators or {}) do
                         if decltor.name then
-                            local ty = c_type_spec_to_moon_type(decl.type_spec, ctx)
-                            local init = lit_int("0")
-                            if decltor.initializer and decltor.initializer._variant == "CInitExpr" then
-                                init = lower_expr(decltor.initializer.expr, ctx)
+                            local has_func = false
+                            for _, d in ipairs(decltor.derived or {}) do
+                                if d._variant == "CDerivedFunction" then has_func = true; break end
                             end
-                            if is_static then
-                                out[#out + 1] = Tr.ItemStatic(Tr.StaticItem(decltor.name, ty, init))
+                            if has_func then
+                                if not ctx.func_table[decltor.name] then
+                                    out[#out + 1] = Tr.ItemExtern(
+                                        Tr.ExternFunc(decltor.name, decltor.name,
+                                            c_func_param_types({ declarator = decltor, type_spec = decl.type_spec }, ctx),
+                                            wrap_decl_type(c_type_spec_to_moon_type(decl.type_spec, ctx), decltor, ctx)))
+                                end
                             else
-                                out[#out + 1] = Tr.ItemStatic(Tr.StaticItem(decltor.name, ty, init))
+                                local ty = wrap_decl_type(c_type_spec_to_moon_type(decl.type_spec, ctx), decltor, ctx)
+                                local init = lit_int("0")
+                                if decltor.initializer and decltor.initializer._variant == "CInitExpr" then
+                                    init = lower_expr(decltor.initializer.expr, ctx)
+                                end
+                                if is_static then
+                                    out[#out + 1] = Tr.ItemStatic(Tr.StaticItem(decltor.name, ty, init))
+                                else
+                                    out[#out + 1] = Tr.ItemStatic(Tr.StaticItem(decltor.name, ty, init))
+                                end
                             end
                         end
                     end
