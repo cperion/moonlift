@@ -1,8 +1,7 @@
 -- Public Moonlift Lua facade.
 --
 -- The PVM/ASDL implementation is internal to the moonlift package and exposed
--- through this namespace.  Prefer `require("moonlift.pvm")` or this facade over
--- root-level compatibility shims.
+-- through this namespace. Prefer `require("moonlift.pvm")` or this facade.
 
 local M = {}
 
@@ -39,10 +38,8 @@ M.link_execute = require("moonlift.link_execute")
 M.vec_inspect = require("moonlift.vec_inspect")
 M.region_compose = require("moonlift.region_compose")
 M.parser_compose = require("moonlift.parser_compose")
-M.compose = M.region_compose
 M.std = require("moonlift.std")
 M.json = M.std.json
-M.builtins = M.std.builtins
 M.views = M.std.views
 M.buffer_view = M.std.buffer_view
 M.host = M.std.host
@@ -55,10 +52,6 @@ end
 
 function M.Define(T)
     return require("moonlift.asdl").Define(T)
-end
-
-function M.mlua_run()
-    return M.mlua
 end
 
 return M

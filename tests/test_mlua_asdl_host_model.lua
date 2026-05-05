@@ -1,5 +1,4 @@
--- The old host_quote translation pipeline is gone.  Verify the replacement
--- ASDL host model exposes explicit HostProgram/HostTemplate steps.
+-- Verify the ASDL host model exposes explicit HostProgram/HostTemplate steps.
 
 local pvm = require("moonlift.pvm")
 local A = require("moonlift.asdl")

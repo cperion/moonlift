@@ -1,9 +1,8 @@
 -- Canonical ASDL-as-data meta-model.
 --
 -- This is the small bootstrap schema used by the Lua-hosted schema builder.
--- User-facing schema files should build MoonAsdl.Schema values instead of
--- hand-writing parser text.  The old text parser remains a compatibility
--- backend for now.
+-- User-facing schema files build MoonAsdl.Schema values instead of
+-- hand-writing parser text.
 
 local M = {}
 

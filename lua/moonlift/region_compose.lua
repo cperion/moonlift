@@ -1,12 +1,9 @@
 -- ASDL-native region composition.
 --
--- This module no longer generates `region ... end` source.  Composition is
--- lowered through the hosted region/ASDL builder and returns real region
--- fragment values.  Parser-shaped helpers (`seq`, `choice`, `star`, ...) are
--- retained here only as protocol-parameterized conveniences; the long-term
--- parser-facing API lives in parser_compose.lua.
-
-local HostSession = require("moonlift.host_session")
+-- This module lowers composition through the hosted region/ASDL builder and
+-- returns real region fragment values. Parser-shaped helpers (`seq`, `choice`,
+-- `star`, ...) are protocol-parameterized conveniences; byte-parser defaults
+-- live in parser_compose.lua.
 
 local M = {}
 local Compose = {}
@@ -52,25 +49,15 @@ function Compose.new(moon_or_session, opts)
         session = moon_or_session
         api = session:api()
         prefix = opts.prefix or opts[1]
-    elseif type(moon_or_session) == "string" or moon_or_session == nil then
-        -- Full-clean API is session/API based.  For bare old-style construction,
-        -- create a fresh ASDL host session so new builder fragments can still be
-        -- composed without source strings.
-        session = HostSession.new({ prefix = moon_or_session or "compose" })
-        api = session:api()
-        prefix = moon_or_session or "compose"
-        opts._auto_session = true
     else
-        error("region_compose.new expects moon host api, HostSession, or prefix", 2)
+        error("region_compose.new expects a moon host api or HostSession", 2)
     end
-    return setmetatable({ api = api, session = session, prefix = prefix or "compose", next_id = 0, _auto_session = opts._auto_session or false }, Compose)
+    return setmetatable({ api = api, session = session, prefix = prefix or "compose", next_id = 0 }, Compose)
 end
 
 function Compose:adopt_fragment_session(frag)
-    if self._auto_session and frag and frag.session and frag.session ~= self.session then
-        self.session = frag.session
-        self.api = frag.session:api()
-        self._auto_session = false
+    if frag and frag.session and frag.session ~= self.session then
+        error("region_compose fragments must belong to the compose session", 2)
     end
 end
 
@@ -303,14 +290,15 @@ function Compose:star(fragment, opts)
     local conts = opts.conts or { [success] = self:cont_specs_from_fragment(fragment)[success] }
 
     return api.region_frag(name, params, conts, function(r)
+        local fail_param = opts.failure_param or "at"
         local loop = r:block_decl(self:fresh("star_loop"), { api.param(next_param, api.i32) })
-        local yield = r:block_decl(self:fresh("star_yield"), { api.param(opts.failure_param or "at", api.i32) })
-        local zero = r:block_decl(self:fresh("star_zero"), {})
+        local yield = r:block_decl(self:fresh("star_yield"), { api.param(fail_param, api.i32) })
+        local zero = r:block_decl(self:fresh("star_zero"), { api.param(fail_param, api.i32) })
         loop:body_fn(function(b)
             local fills = {}; fills[success] = loop; fills[failure] = yield
             b:emit(fragment, self:runtime_args_after(b, r, params, { position_param = position_param, next_param = next_param }), fills)
         end)
-        yield:body_fn(function(b) b:jump(r.conts[success], { [next_param] = b[opts.failure_param or "at"] }) end)
+        yield:body_fn(function(b) b:jump(r.conts[success], { [next_param] = b[fail_param] }) end)
         zero:body_fn(function(b) b:jump(r.conts[success], { [next_param] = r[position_param] }) end)
         r:entry("start", {}, function(b)
             local fills = {}; fills[success] = loop; fills[failure] = zero
@@ -344,7 +332,6 @@ function Compose:opt(fragment, opts)
     end)
 end
 
--- Lookahead remains parser sugar; kept protocol-parameterized for now.
 function Compose:pred(fragment, opts)
     opts = opts or {}
     self:adopt_fragment_session(fragment)

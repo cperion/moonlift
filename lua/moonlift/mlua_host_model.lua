@@ -1,7 +1,6 @@
 -- ASDL hosted program model for .mlua documents.
 --
--- This phase is the replacement architectural center for host_quote.translate:
--- it turns lexical MLUA segments into explicit HostStep ASDL values.  Lua
+-- This phase turns lexical MLUA segments into explicit HostStep ASDL values. Lua
 -- snippets and hosted islands are no longer hidden in generated Lua source.
 
 local pvm = require("moonlift.pvm")

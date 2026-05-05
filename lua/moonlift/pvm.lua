@@ -79,21 +79,6 @@ local function get_asdl()
 	if ASDL ~= nil then
 		return ASDL
 	end
-	if not package.preload["gps.asdl_lexer"] then
-		package.preload["gps.asdl_lexer"] = function()
-			return require("moonlift.asdl_lexer")
-		end
-	end
-	if not package.preload["gps.asdl_parser"] then
-		package.preload["gps.asdl_parser"] = function()
-			return require("moonlift.asdl_parser")
-		end
-	end
-	if not package.preload["gps.asdl_context"] then
-		package.preload["gps.asdl_context"] = function()
-			return require("moonlift.asdl_context")
-		end
-	end
 	ASDL = require("moonlift.asdl_context")
 	return ASDL
 end
@@ -106,12 +91,6 @@ function pvm.context(opts)
 		return self
 	end
 	return ctx
-end
-
-function pvm.context_wj(opts)
-	-- Retained as a compatibility alias after retiring the experimental
-	-- watjit-backed ASDL runtime. All contexts now use the GC-backed backend.
-	return pvm.context(opts)
 end
 
 function pvm.classof(node)

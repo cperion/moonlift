@@ -44,8 +44,9 @@ assert(has(targets, "lua") and has(targets, "terra") and has(targets, "c"))
 local modes = Items.items(E.CompletionQuery(query(0), E.CompletionExposeMode), analysis)
 assert(has(modes, "proxy") and has(modes, "descriptor") and has(modes, "readonly") and has(modes, "mutable") and has(modes, "checked") and has(modes, "unchecked"))
 
-local builtins = Items.items(E.CompletionQuery(query(0), E.CompletionBuiltinPath), analysis)
-assert(has(builtins, "json") and has(builtins, "builtins"))
+local builtin_path = Items.items(E.CompletionQuery(query(0), E.CompletionBuiltinPath), analysis)
+assert(has(builtin_path, "json") and has(builtin_path, "host") and has(builtin_path, "views"))
+assert(not has(builtin_path, "builtins"))
 
 local none = Items.items(E.CompletionQuery(query(0), E.CompletionLuaOpaque), analysis)
 assert(#none == 0)

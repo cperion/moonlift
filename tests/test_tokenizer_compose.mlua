@@ -1,23 +1,29 @@
--- Verify tokenizer + composition engine compose and compile.
+-- Verify tokenizer fragments compose through the explicit parser-composition API.
 local Host = require("moonlift.mlua_run")
 local Tok = Host.dofile("lib/tokenizer.mlua")
-local C = require("moonlift.region_compose").new("test")
+local pvm = require("moonlift.pvm")
 
--- Build tokenizer fragments
 local ws    = Tok.skip_ws("test_ws")
 local digit = Tok.scan_range("test_digit", 48, 57)
 local comma = Tok.match_byte("test_comma", 44)   -- ','
-local lb    = Tok.match_byte("test_lb", 91)       -- '['  (using bytes to avoid literal strings)
+local lb    = Tok.match_byte("test_lb", 91)      -- '['
+local rb    = Tok.match_byte("test_rb", 93)      -- ']'
 
--- Compose: array = '[' (digit (',' digit)*)? ']'
-local maybe_ws_digit = C:seq({ws, digit})
-local digit_and_comma = C:seq({digit, comma})
-local star_comma_digit = C:star(C:seq({comma, ws, digit}))
-local elements = C:seq({ws, maybe_ws_digit, star_comma_digit})
-local array = C:seq({lb, ws, elements, ws, lb})  -- TODO: close bracket
+local C = require("moonlift.parser_compose").new(ws.session, { prefix = "test" })
+local comma_digit = C:seq({ comma, ws, digit }, { name = "test_comma_digit" })
+local more_digits = C:star(comma_digit, { name = "test_more_digits" })
+local array = C:seq({ lb, ws, digit, more_digits, ws, rb }, { name = "test_array" })
 
--- Smoke test: verify the composed region was produced
-print("tokenizer ws name:", ws.name)
-print("composed star name:", star_comma_digit.name)
+assert(array.kind == "region_frag")
+assert(array.name == "test_array")
+assert(array.source == nil, "composition must not generate source strings")
+assert(pvm.classof(array.frag) == ws.session.T.MoonOpen.RegionFrag)
+assert(array.deps.region_frags.test_lb == lb)
+assert(array.deps.region_frags.test_rb == rb)
+assert(array.deps.region_frags.test_digit == digit)
+assert(array.deps.region_frags.test_comma_digit == comma_digit)
+assert(array.deps.region_frags.test_more_digits == more_digits)
+assert(#more_digits.frag.blocks[3].params == 1 and more_digits.frag.blocks[3].params[1].name == "at")
+
 print("tokenizer + compose ok")
 return "tokenizer compose ok"

@@ -221,7 +221,7 @@ luajit emit_shared.lua examples/pvm_ll_hosted_types.mlua -o build/libtape.so
 ```bash
 luajit tests/test_back_add_i32.lua          # Bare Cranelift JIT path
 luajit tests/test_back_object_emit.lua       # Object file emission
-luajit tests/test_host_quote.lua             # .mlua hosted island bridge
+luajit tests/test_mlua_host_pipeline.lua     # .mlua hosted island bridge
 luajit tests/test_parse_typecheck.lua        # Parse + typecheck pipeline
 luajit tests/test_parse_kernels.lua          # Jump-first kernel suite
 luajit tests/test_lsp_integrated.lua         # Full LSP integration
@@ -516,7 +516,7 @@ Moonlift's standard library lives under `lib/`:
 | `json.lua` | Canonical hosted JSON decoder; compiled Moonlift builds Lua tables directly through the Lua C API |
 | `json_meta_decode.mlua` | Internal hosted JSON implementation module |
 | `lua_api.mlua` | Hosted Lua C API declarations/fragments for native Lua value construction |
-| `region_compose.lua` | **Region composition algebra.** PEG-style combinators (`seq`, `choice`, `star`, `plus`, `opt`, `pred`, `not_pred`) that generate native jump-first regions at Lua generation time. Exposed as `moonlift.region_compose` / `moonlift.compose` |
+| `region_compose.lua` | **Region composition algebra.** PEG-style combinators (`seq`, `choice`, `star`, `plus`, `opt`, `pred`, `not_pred`) that generate native jump-first regions at Lua generation time. Exposed as `moonlift.region_compose` |
 
 JSON benchmarks compare the hosted Moonlift decoder against Lua CJSON.
 
@@ -570,7 +570,7 @@ moonlift/
 │   ├── schema/             Schema-as-data source of truth (MoonCore, MoonType, MoonBack, ...)
 │   ├── parse.lua           Moonlift source parser
 │   ├── mlua_parse.lua      .mlua hosted island parser
-│   ├── host_quote.lua      LuaJIT hosted island bridge
+│   ├── mlua_run.lua        LuaJIT hosted island runner
 │   ├── tree_typecheck.lua  Typecheck/name resolution
 │   ├── tree_to_back.lua    Tree → flat backend commands
 │   ├── back_validate.lua   Backend validation facts
@@ -670,7 +670,6 @@ luajit tests/test_vec_to_back.lua
 ### Host and builder tests
 
 ```bash
-luajit tests/test_host_quote.lua
 luajit tests/test_host_value_jit.lua
 luajit tests/test_host_metaprogramming_patterns.lua
 luajit tests/test_host_struct_values.lua

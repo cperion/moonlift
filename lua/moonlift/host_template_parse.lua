@@ -2,8 +2,8 @@
 --
 -- Final architecture target: parser-with-typed-holes.  This module is the
 -- choke-point for that lowering.  Today it renders evaluated templates through
--- typed HostValueRefs and immediately parses to ASDL, keeping the source bridge
--- contained here instead of spread through host_quote/source composition.
+-- typed HostValueRefs and immediately parses to ASDL, keeping source rendering
+-- contained at this boundary.
 
 local pvm = require("moonlift.pvm")
 

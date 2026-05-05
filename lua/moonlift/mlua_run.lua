@@ -1,7 +1,7 @@
 -- ASDL-hosted .mlua runner.
 --
--- This replaces host_quote as the execution bridge.  The document is first
--- segmented into MoonMlua/MoonHost ASDL values.  Generated Lua is now only the
+-- The document is first segmented into MoonMlua/MoonHost ASDL values.
+-- Generated Lua is only the
 -- host language execution carrier; hosted islands are explicit HostTemplate
 -- values evaluated through Runtime:eval_island.
 
@@ -120,23 +120,23 @@ local function named_island(T, island)
     return nil
 end
 
+local function adopt_frag_map(out, frags)
+    if frags == nil then return end
+    for key, frag in pairs(frags) do
+        local name = frag.name or (frag.frag and frag.frag.name) or key
+        out[name] = out[name] or frag
+    end
+end
+
 local function adopt_splice_value(runtime, value)
     if type(value) ~= "table" then return end
     local kind = rawget(value, "moonlift_quote_kind") or rawget(value, "kind")
     if kind == "region_frag" and value.frag ~= nil then
         runtime.region_frags[value.name or value.frag.name] = value
         local deps = value.deps
-        if deps and deps.region_frags then
-            for i = 1, #deps.region_frags do
-                local frag = deps.region_frags[i]
-                runtime.region_frags[frag.name] = runtime.region_frags[frag.name] or frag
-            end
-        end
-        if deps and deps.expr_frags then
-            for i = 1, #deps.expr_frags do
-                local frag = deps.expr_frags[i]
-                runtime.expr_frags[frag.name] = runtime.expr_frags[frag.name] or frag
-            end
+        if deps then
+            adopt_frag_map(runtime.region_frags, deps.region_frags)
+            adopt_frag_map(runtime.expr_frags, deps.expr_frags)
         end
     elseif kind == "expr_frag" and value.frag ~= nil then
         runtime.expr_frags[value.name or value.frag.name] = value

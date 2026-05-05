@@ -61,8 +61,7 @@ function M.Define(T)
             add(items, E, "checked", E.CompletionKeyword, "checked bounds", "Checked view bounds")
             add(items, E, "unchecked", E.CompletionKeyword, "unchecked bounds", "Unchecked view bounds")
         elseif context == E.CompletionBuiltinPath then
-            add(items, E, "json", E.CompletionModule, "moonlift.json", "Indexed tape JSON builtin library")
-            add(items, E, "builtins", E.CompletionModule, "moonlift.builtins", "Moonlift builtin library compiler surface")
+            add(items, E, "json", E.CompletionModule, "moonlift.json", "Indexed tape JSON library")
             add(items, E, "host", E.CompletionModule, "moonlift.host", "Moonlift host integration")
             add(items, E, "views", E.CompletionModule, "moonlift.views", "Moonlift zero-copy view helpers")
         elseif context == E.CompletionRegionStatement then

@@ -3,7 +3,6 @@ package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./lua/?.lua;./
 local pvm = require("moonlift.pvm")
 local A = require("moonlift.asdl")
 local MluaHostPipeline = require("moonlift.mlua_host_pipeline")
-local Host = require("moonlift.mlua_run")
 
 local T = pvm.context()
 A.Define(T)
@@ -42,11 +41,6 @@ for i = 1, #result.facts.facts do
     if cls == H.HostFactViewDescriptor then saw_view = true end
 end
 assert(saw_lua and saw_terra and saw_c and saw_view)
-
-local host_result = Host.host_pipeline(src, "demo2")
-assert(#host_result.report.issues == 0)
-assert(host_result.lua.module_name == "demo2")
-assert(#host_result.layout_env.layouts == 1)
 
 local c_only = Pipeline.pipeline(H.MluaSource("demo_c_only", [[
 struct User
