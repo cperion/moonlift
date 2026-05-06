@@ -30,7 +30,7 @@ assert(S.keys({ key1, expr_key }) == Sem.SwitchDecisionCompareFallback({ key1, e
 local switch_stmt = Tr.StmtSwitch(Tr.StmtTyped, Tr.ExprLit(Tr.ExprTyped(i32), C.LitInt("0")), {
     Tr.SwitchStmtArm(key1, {}),
     Tr.SwitchStmtArm(key2, {}),
-}, {})
+}, {}, {})
 assert(S.stmt(switch_stmt) == Sem.SwitchDecisionConstKeys({ key1, key2 }))
 
 local direct_binding = B.Binding(C.Id("f"), "f", fn_ty, B.BindingClassGlobalFunc("Demo", "f"))

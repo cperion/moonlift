@@ -78,7 +78,7 @@ local switch_region = Tr.ControlExprRegion(
         Tr.StmtSwitch(Tr.StmtTyped, ref(sw_n), {
             Tr.SwitchStmtArm(Sem.SwitchKeyRaw("0"), { Tr.StmtYieldValue(Tr.StmtTyped, lit("10")) }),
             Tr.SwitchStmtArm(Sem.SwitchKeyRaw("1"), { Tr.StmtYieldValue(Tr.StmtTyped, lit("11")) }),
-        }, { Tr.StmtYieldValue(Tr.StmtTyped, lit("12")) }),
+        }, {}, { Tr.StmtYieldValue(Tr.StmtTyped, lit("12")) }),
     }),
     {}
 )

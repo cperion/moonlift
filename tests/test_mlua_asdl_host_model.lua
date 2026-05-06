@@ -1,5 +1,7 @@
 -- Verify the ASDL host model exposes explicit HostProgram/HostTemplate steps.
 
+package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
+
 local pvm = require("moonlift.pvm")
 local A = require("moonlift.asdl")
 
