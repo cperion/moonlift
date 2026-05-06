@@ -23,6 +23,9 @@ function M.Define(T)
         [O.SlotTypeDecl] = function(self) return pvm.once(O.IssueUnfilledTypeDeclSlot(self.slot)) end,
         [O.SlotItems] = function(self) return pvm.once(O.IssueUnfilledItemsSlot(self.slot)) end,
         [O.SlotModule] = function(self) return pvm.once(O.IssueUnfilledModuleSlot(self.slot)) end,
+        [O.SlotRegionFrag] = function(self) return pvm.once(O.IssueUnfilledRegionFragSlot(self.slot)) end,
+        [O.SlotExprFrag] = function(self) return pvm.once(O.IssueUnfilledExprFragSlot(self.slot)) end,
+        [O.SlotName] = function(self) return pvm.once(O.IssueUnfilledNameSlot(self.slot)) end,
     })
 
     fact_issue = pvm.phase("moonlift_open_fact_issue", {
@@ -39,6 +42,8 @@ function M.Define(T)
         [O.MetaFactExtern] = function() return pvm.empty() end,
         [O.MetaFactExprFragUse] = function(self) return pvm.once(O.IssueUnexpandedExprFragUse(self.use_id)) end,
         [O.MetaFactRegionFragUse] = function(self) return pvm.once(O.IssueUnexpandedRegionFragUse(self.use_id)) end,
+        [O.MetaFactRegionFragSlotUse] = function(self) return pvm.once(O.IssueUnfilledRegionFragSlot(self.slot)) end,
+        [O.MetaFactExprFragSlotUse] = function(self) return pvm.once(O.IssueUnfilledExprFragSlot(self.slot)) end,
         [O.MetaFactModuleUse] = function(self) return pvm.once(O.IssueUnexpandedModuleUse(self.use_id)) end,
         [O.MetaFactModuleSlotUse] = function() return pvm.empty() end,
         [O.MetaFactOpenModuleName] = function() return pvm.once(O.IssueOpenModuleName) end,

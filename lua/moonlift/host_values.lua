@@ -97,6 +97,16 @@ function ExprFragValue:moonlift_splice_source() return self.name end
 function ExprFragValue:__tostring() return "MoonExprFragValue(" .. tostring(self.name) .. ")" end
 
 function SourceValue:moonlift_splice_source() return self.source end
+function SourceValue:moonlift_splice(role, session, site)
+    -- SourceValue is the moon.source(...) escape. The actual coercion
+    -- (parsing source text for the target role) is handled in host_splice.lua.
+    -- We accept roles that can take source and return self so host_splice
+    -- can detect M.is_source(value) and handle it.
+    if role == "expr" or role == "type" or role == "region_body" or role == "module_items" then
+        return self  -- host_splice.fill_* will handle via M.is_source check
+    end
+    error((site or "splice") .. ": source value cannot splice as " .. role, 2)
+end
 function SourceValue:__tostring() return self.source end
 
 function M.region_frag_value(session, frag, opts)

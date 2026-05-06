@@ -19,14 +19,14 @@ return function(A)
         A.product "ExprSlot" {
             A.field "key" "string",
             A.field "pretty_name" "string",
-            A.field "ty" "MoonType.Type",
+            A.field "ty" (A.optional "MoonType.Type"),
             A.unique,
         },
 
         A.product "PlaceSlot" {
             A.field "key" "string",
             A.field "pretty_name" "string",
-            A.field "ty" "MoonType.Type",
+            A.field "ty" (A.optional "MoonType.Type"),
             A.unique,
         },
 
@@ -88,6 +88,46 @@ return function(A)
             A.unique,
         },
 
+        A.product "NameSlot" {
+            A.field "key" "string",
+            A.field "pretty_name" "string",
+            A.unique,
+        },
+
+        A.product "RegionFragSlot" {
+            A.field "key" "string",
+            A.field "pretty_name" "string",
+            A.unique,
+        },
+
+        A.product "ExprFragSlot" {
+            A.field "key" "string",
+            A.field "pretty_name" "string",
+            A.unique,
+        },
+
+        A.sum "RegionFragRef" {
+            A.variant "RegionFragRefName" {
+                A.field "name" "string",
+                A.variant_unique,
+            },
+            A.variant "RegionFragRefSlot" {
+                A.field "slot" "MoonOpen.RegionFragSlot",
+                A.variant_unique,
+            },
+        },
+
+        A.sum "ExprFragRef" {
+            A.variant "ExprFragRefName" {
+                A.field "name" "string",
+                A.variant_unique,
+            },
+            A.variant "ExprFragRefSlot" {
+                A.field "slot" "MoonOpen.ExprFragSlot",
+                A.variant_unique,
+            },
+        },
+
         A.sum "Slot" {
             A.variant "SlotType" {
                 A.field "slot" "MoonOpen.TypeSlot",
@@ -139,6 +179,18 @@ return function(A)
             },
             A.variant "SlotModule" {
                 A.field "slot" "MoonOpen.ModuleSlot",
+                A.variant_unique,
+            },
+            A.variant "SlotRegionFrag" {
+                A.field "slot" "MoonOpen.RegionFragSlot",
+                A.variant_unique,
+            },
+            A.variant "SlotExprFrag" {
+                A.field "slot" "MoonOpen.ExprFragSlot",
+                A.variant_unique,
+            },
+            A.variant "SlotName" {
+                A.field "slot" "MoonOpen.NameSlot",
                 A.variant_unique,
             },
         },
@@ -388,6 +440,18 @@ return function(A)
                 A.field "module" "MoonTree.Module",
                 A.variant_unique,
             },
+            A.variant "SlotValueRegionFrag" {
+                A.field "frag" "MoonOpen.RegionFrag",
+                A.variant_unique,
+            },
+            A.variant "SlotValueExprFrag" {
+                A.field "frag" "MoonOpen.ExprFrag",
+                A.variant_unique,
+            },
+            A.variant "SlotValueName" {
+                A.field "text" "string",
+                A.variant_unique,
+            },
         },
 
         A.product "SlotBinding" {
@@ -503,6 +567,14 @@ return function(A)
                 A.field "use_id" "string",
                 A.variant_unique,
             },
+            A.variant "MetaFactRegionFragSlotUse" {
+                A.field "slot" "MoonOpen.RegionFragSlot",
+                A.variant_unique,
+            },
+            A.variant "MetaFactExprFragSlotUse" {
+                A.field "slot" "MoonOpen.ExprFragSlot",
+                A.variant_unique,
+            },
             A.variant "MetaFactModuleUse" {
                 A.field "use_id" "string",
                 A.variant_unique,
@@ -583,6 +655,18 @@ return function(A)
             },
             A.variant "IssueUnexpandedRegionFragUse" {
                 A.field "use_id" "string",
+                A.variant_unique,
+            },
+            A.variant "IssueUnfilledRegionFragSlot" {
+                A.field "slot" "MoonOpen.RegionFragSlot",
+                A.variant_unique,
+            },
+            A.variant "IssueUnfilledExprFragSlot" {
+                A.field "slot" "MoonOpen.ExprFragSlot",
+                A.variant_unique,
+            },
+            A.variant "IssueUnfilledNameSlot" {
+                A.field "slot" "MoonOpen.NameSlot",
                 A.variant_unique,
             },
             A.variant "IssueUnexpandedModuleUse" {

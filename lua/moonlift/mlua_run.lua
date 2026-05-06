@@ -92,66 +92,16 @@ local function module_funcs(T, module)
     return out
 end
 
+-- splice_to_source is kept only for debug/display use.
 local function splice_to_source(value)
     local tv = type(value)
     if tv == "number" or tv == "boolean" then return tostring(value) end
     if tv == "nil" then return "nil" end
-    -- Strings are raw Moonlift source/name fragments, not quoted string literals.
     if tv == "string" then return value end
     if (tv == "table" or tv == "userdata") and type(value.moonlift_splice_source) == "function" then
         return value:moonlift_splice_source()
     end
-    error("cannot splice host value " .. tv, 3)
-end
-
-local function splice_expected_name(T, expected)
-    local H = T.MoonHost
-    if expected == H.SpliceAny then return "any" end
-    if expected == H.SpliceExpr then return "expr" end
-    if expected == H.SpliceType then return "type" end
-    if expected == H.SpliceEmit then return "emit" end
-    if expected == H.SpliceRegionFrag then return "region_frag" end
-    if expected == H.SpliceExprFrag then return "expr_frag" end
-    if expected == H.SpliceSource then return "source" end
-    return tostring(expected)
-end
-
-local function splice_value_kind(value)
-    local tv = type(value)
-    if tv == "number" or tv == "boolean" or tv == "nil" then return "expr" end
-    if tv == "string" then return "source" end
-    if tv == "table" then
-        local kind = rawget(value, "moonlift_quote_kind") or rawget(value, "kind")
-        local mt = getmetatable(value)
-        if kind == "region_frag" then return "region_frag" end
-        if kind == "expr_frag" then return "expr_frag" end
-        if kind == "type" or type(value.as_type_value) == "function" or (mt and mt.__moonlift_host_type_value == true) then return "type" end
-        if kind == "module" then return "module" end
-        if kind == "source" then return "source" end
-        if type(value.moonlift_splice_source) == "function" then return "source" end
-    elseif tv == "userdata" and type(value.moonlift_splice_source) == "function" then
-        return "source"
-    end
-    return "lua"
-end
-
-local function splice_expectation_accepts(T, expected, actual)
-    local H = T.MoonHost
-    if expected == H.SpliceAny then return true end
-    if expected == H.SpliceExpr then return actual == "expr" or actual == "source" end
-    if expected == H.SpliceType then return actual == "type" or actual == "source" end
-    if expected == H.SpliceEmit then return actual == "region_frag" or actual == "expr_frag" or actual == "source" end
-    if expected == H.SpliceRegionFrag then return actual == "region_frag" end
-    if expected == H.SpliceExprFrag then return actual == "expr_frag" end
-    if expected == H.SpliceSource then return actual == "source" end
-    return false
-end
-
-local function validate_splice_value(T, splice, value)
-    local actual = splice_value_kind(value)
-    if not splice_expectation_accepts(T, splice.expected, actual) then
-        error("Moonlift splice kind mismatch at " .. tostring(splice.id) .. ": expected " .. splice_expected_name(T, splice.expected) .. ", got " .. actual, 3)
-    end
+    return tostring(value)
 end
 
 local function island_kind_word(T, island)
@@ -194,100 +144,170 @@ local function adopt_splice_value(runtime, value)
     end
 end
 
-local function render_template(runtime, template, closures)
-    local H = runtime.T.MoonHost
-    local out = {}
-    for i = 1, #template.parts do
-        local part = template.parts[i]
-        local cls = pvm.classof(part)
-        if cls == H.TemplateText then
-            out[#out + 1] = part.text.source.text
-        elseif cls == H.TemplateSplicePart then
-            local fn = closures and closures[part.splice.id]
-            if not fn then error("missing splice closure " .. part.splice.id, 2) end
-            local value = fn()
-            validate_splice_value(runtime.T, part.splice, value)
-            adopt_splice_value(runtime, value)
-            out[#out + 1] = splice_to_source(value)
+-- Adopt a Lua host value: register region/expr fragment values so they are
+-- available for future emit resolution inside expand.
+local function adopt_splice_value(runtime, value)
+    if type(value) ~= "table" then return end
+    local kind = rawget(value, "moonlift_quote_kind") or rawget(value, "kind")
+    if kind == "region_frag" and value.frag ~= nil then
+        runtime.region_frags[value.name or value.frag.name] = value
+        local deps = value.deps
+        if deps then
+            for _, v in pairs(deps.region_frags or {}) do
+                local n = v.name or (v.frag and v.frag.name)
+                if n then runtime.region_frags[n] = runtime.region_frags[n] or v end
+            end
+            for _, v in pairs(deps.expr_frags or {}) do
+                local n = v.name or (v.frag and v.frag.name)
+                if n then runtime.expr_frags[n] = runtime.expr_frags[n] or v end
+            end
         end
+    elseif kind == "expr_frag" and value.frag ~= nil then
+        runtime.expr_frags[value.name or value.frag.name] = value
     end
-    return table.concat(out)
 end
 
-local function normalize_moonlift_body(src)
-    return require("moonlift.mlua_lex").moonlift_body(src)
-end
-
-local function parse_region(runtime, source)
-    local parsed = require("moonlift.parse").Define(runtime.T).parse_region_frag(normalize_moonlift_body(source), {
-        region_frags = runtime.region_frags,
-        expr_frags = runtime.expr_frags,
-    })
-    if #parsed.issues ~= 0 then error("region parse failed: " .. tostring(parsed.issues[1]), 2) end
-    local value = HostValues.region_frag_value(runtime.session, parsed.value.frag, { deps = parsed.value.deps })
-    runtime.region_frags[value.name] = value
-    return value
-end
-
-local function parse_expr(runtime, source)
-    local parsed = require("moonlift.parse").Define(runtime.T).parse_expr_frag(normalize_moonlift_body(source), {
-        expr_frags = runtime.expr_frags,
-    })
-    if #parsed.issues ~= 0 then error("expr parse failed: " .. tostring(parsed.issues[1]), 2) end
-    local value = HostValues.expr_frag_value(runtime.session, parsed.value.frag)
-    runtime.expr_frags[value.name] = value
-    return value
-end
-
-local function module_body_from_source(src)
-    local Lex = require("moonlift.mlua_lex")
-    local module_pos, module_name, module_start = src:match("^()%s*module%s+([_%a][_%w]*)()")
-    local name_is_keyword = module_name and ({ export = true, extern = true, func = true, ["type"] = true, region = true, expr = true, struct = true, expose = true })[module_name]
-    if not module_name or name_is_keyword then
-        module_pos, module_start = src:match("^()%s*module%s*()\n")
-        if not module_pos then module_pos, module_start = src:match("^()%s*module%s*()$") end
-    end
-    if not module_start then return src end
-    local end_pos = Lex.find_matching_end(src, module_pos, Lex.open_words_island)
-    if not end_pos then return src end
-    local body = src:sub(module_start, end_pos - 3):gsub("^%s+", ""):gsub("%s+$", "")
-    local maybe_name, rest = body:match("^%s*([_%a][_%w]*)([%s%S]*)$")
-    if maybe_name and not Lex.open_words_form[maybe_name] and not ({ export = true, extern = true, const = true, static = true, import = true, ["type"] = true })[maybe_name] then body = rest end
-    return body
-end
-
-local function parse_module(runtime, source)
-    source = module_body_from_source(source)
-    local Parse = require("moonlift.parse").Define(runtime.T)
-    local parsed = Parse.parse_module(normalize_moonlift_body(source), {
-        region_frags = runtime.region_frags,
-        expr_frags = runtime.expr_frags,
-    })
-    if #parsed.issues ~= 0 then error("module parse failed: " .. tostring(parsed.issues[1]), 2) end
-    return setmetatable({ kind = "module", module = parsed.module, T = runtime.T, runtime = runtime }, ModuleValue)
-end
-
-local function parse_func(runtime, source)
-    local m = parse_module(runtime, source)
-    local Tr = runtime.T.MoonTree
-    for i = 1, #m.module.items do
-        local item = m.module.items[i]
-        if pvm.classof(item) == Tr.ItemFunc then
-            return setmetatable({ kind = "func", name = item.func.name, func = item.func, module = m, T = runtime.T, runtime = runtime }, FuncValue)
-        end
-    end
-    error("func island did not produce function", 2)
-end
-
+-- New slot-based eval_island: parse template with holes, fill slots, expand.
 function Runtime:eval_island(step_index, closures)
     local step = assert(self.program.steps[step_index], "unknown island step " .. tostring(step_index))
-    local text = render_template(self, step.template, closures or {})
+    local H = self.T.MoonHost
+    local Parse  = require("moonlift.parse").Define(self.T)
+    local Splice = require("moonlift.host_splice")
+    local Expand = require("moonlift.open_expand").Define(self.T)
+
+    -- 1. Evaluate each splice Lua closure; preserve nil/false.
+    local luamap = {}
+    for _, part in ipairs(step.template.parts) do
+        if pvm.classof(part) == H.TemplateSplicePart then
+            local id = part.splice.id
+            local fn = assert(closures and closures[id], "missing splice closure " .. id)
+            local ok, val = pcall(fn)
+            if not ok then
+                error("Moonlift splice eval failed at " .. id .. ": " .. tostring(val), 2)
+            end
+            luamap[id] = { present = true, value = val }
+            adopt_splice_value(self, val)
+        end
+    end
+
+    -- 2. Parse template with holes → ASDL + splice_slots list.
     local kind = step.template.kind_word
-    if kind == "region" then return parse_region(self, text) end
-    if kind == "expr" then return parse_expr(self, text) end
-    if kind == "module" then return parse_module(self, text) end
-    if kind == "func" then return parse_func(self, text) end
-    error("unsupported hosted island kind in ASDL runner: " .. tostring(kind), 2)
+    local parse_opts = { region_frags = self.region_frags, expr_frags = self.expr_frags }
+    local parsed
+    if kind == "region" then
+        parsed = Parse.parse_region_frag_template(step.template, parse_opts)
+    elseif kind == "expr" then
+        parsed = Parse.parse_expr_frag_template(step.template, parse_opts)
+    elseif kind == "module" then
+        parsed = Parse.parse_module_template(step.template, parse_opts)
+    elseif kind == "func" then
+        parsed = Parse.parse_func_template(step.template, parse_opts)
+    else
+        error("unsupported hosted island kind: " .. tostring(kind), 2)
+    end
+    if #parsed.issues ~= 0 then
+        error("Moonlift template parse failed: " .. tostring(parsed.issues[1]), 2)
+    end
+
+    -- 3. Coerce each splice value into a SlotBinding.
+    local bindings = {}
+    for _, ss in ipairs(parsed.splice_slots) do
+        local rec = luamap[ss.splice_id]
+        if not rec or not rec.present then
+            error("missing splice value for " .. ss.splice_id, 2)
+        end
+        bindings[#bindings + 1] = Splice.fill(
+            self.session, ss.slot, rec.value, "splice " .. ss.splice_id)
+    end
+
+    -- 4. Build expand env: all previously registered frags + new splice fills.
+    local base_env = Expand.env_with_frags(self.region_frags, self.expr_frags)
+    local env      = Expand.env_with_fills(base_env, bindings)
+
+    -- 5. Expand and wrap as host value.
+    if kind == "region" then
+        local raw_frag    = parsed.value.frag
+        -- Resolve name splice if the region name was a hole.
+        if parsed.value.name_splice_id then
+            local ns_id = parsed.value.name_splice_id
+            local rec = luamap[ns_id]
+            if rec and rec.present and type(rec.value) == "string" then
+                raw_frag = pvm.with(raw_frag, { name = rec.value })
+            end
+        end
+        local expanded    = Expand.expand_region_frag(raw_frag, env)
+        local value       = HostValues.region_frag_value(self.session, expanded, {})
+        self.region_frags[value.name] = value
+        return value
+    elseif kind == "expr" then
+        local raw_frag    = parsed.value.frag
+        -- Resolve name splice if the expr frag name was a hole.
+        if parsed.value.name_splice_id then
+            local ns_id = parsed.value.name_splice_id
+            local rec = luamap[ns_id]
+            if rec and rec.present and type(rec.value) == "string" then
+                raw_frag = pvm.with(raw_frag, { name = rec.value })
+            end
+        end
+        local expanded    = Expand.expand_expr_frag(raw_frag, env)
+        local value       = HostValues.expr_frag_value(self.session, expanded)
+        self.expr_frags[value.name] = value
+        return value
+    elseif kind == "module" then
+        -- Adopt region/expr frags defined inline in the module body, then rebuild
+        -- env with them so the module expansion can resolve emit calls.
+        if parsed.region_frags then
+            for name, frag_result in pairs(parsed.region_frags) do
+                if type(frag_result) == "table" and frag_result.frag then
+                    local hv = HostValues.region_frag_value(self.session, frag_result.frag, {})
+                    self.region_frags[name] = hv
+                end
+            end
+        end
+        if parsed.expr_frags then
+            for name, frag_result in pairs(parsed.expr_frags) do
+                if type(frag_result) == "table" and frag_result.frag then
+                    local hv = HostValues.expr_frag_value(self.session, frag_result.frag)
+                    self.expr_frags[name] = hv
+                end
+            end
+        end
+        -- Rebuild env with updated frags.
+        env = Expand.env_with_fills(
+            Expand.env_with_frags(self.region_frags, self.expr_frags),
+            bindings)
+        local expanded = Expand.expand_module(parsed.module, env)
+        return setmetatable({ kind = "module", module = expanded, T = self.T, runtime = self }, ModuleValue)
+    elseif kind == "func" then
+        -- Adopt frags parsed inline in the func island body.
+        if parsed.region_frags then
+            for name, fr in pairs(parsed.region_frags) do
+                if type(fr) == "table" and fr.frag then
+                    self.region_frags[name] = self.region_frags[name] or HostValues.region_frag_value(self.session, fr.frag, {})
+                end
+            end
+        end
+        if parsed.expr_frags then
+            for name, fr in pairs(parsed.expr_frags) do
+                if type(fr) == "table" and fr.frag then
+                    self.expr_frags[name] = self.expr_frags[name] or HostValues.expr_frag_value(self.session, fr.frag)
+                end
+            end
+        end
+        env = Expand.env_with_fills(
+            Expand.env_with_frags(self.region_frags, self.expr_frags),
+            bindings)
+        local expanded_mod = Expand.expand_module(parsed.module, env)
+        local Tr = self.T.MoonTree
+        for i = 1, #expanded_mod.items do
+            local item = expanded_mod.items[i]
+            if pvm.classof(item) == Tr.ItemFunc then
+                local mv = setmetatable({ kind = "module", module = expanded_mod, T = self.T, runtime = self }, ModuleValue)
+                return setmetatable({ kind = "func", name = item.func.name, func = item.func, module = mv, T = self.T, runtime = self }, FuncValue)
+            end
+        end
+        error("func island did not produce a function", 2)
+    end
 end
 
 function ModuleValue:compile()
@@ -297,7 +317,8 @@ function ModuleValue:compile()
     local TreeToBack = require("moonlift.tree_to_back").Define(self.T)
     local Validate = require("moonlift.back_validate").Define(self.T)
     local J = require("moonlift.back_jit").Define(self.T)
-    local expanded = OpenExpand.module(self.module, OpenExpand.env_with_frags(self.runtime.region_frags, self.runtime.expr_frags))
+    -- Module has already been open-expanded by eval_island; typecheck/lower directly.
+    local expanded = self.module
     local checked = Typecheck.check_module(expanded)
     if #checked.issues ~= 0 then error("module typecheck failed: " .. tostring(checked.issues[1]), 2) end
     local resolved = Layout.module(checked.module)

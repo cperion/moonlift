@@ -30,6 +30,11 @@ function TypeValue:moonlift_splice_source()
     return self.source_hint
 end
 
+function TypeValue:moonlift_splice(role, session, site)
+    if role == "type" then return self.ty end
+    error((site or "splice") .. ": type value cannot splice as " .. role, 2)
+end
+
 function TypeValue:__tostring()
     return "MoonTypeValue(" .. tostring(self.source_hint) .. ")"
 end

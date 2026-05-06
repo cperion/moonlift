@@ -300,16 +300,6 @@ return function(A)
             A.unique,
         },
 
-        A.sum "SpliceExpectation" {
-            A.variant "SpliceAny",
-            A.variant "SpliceExpr",
-            A.variant "SpliceType",
-            A.variant "SpliceEmit",
-            A.variant "SpliceRegionFrag",
-            A.variant "SpliceExprFrag",
-            A.variant "SpliceSource",
-        },
-
         A.product "HostValueId" {
             A.field "key" "string",
             A.field "pretty" "string",
@@ -339,7 +329,6 @@ return function(A)
 
         A.product "TemplateSplice" {
             A.field "id" "string",
-            A.field "expected" "MoonHost.SpliceExpectation",
             A.field "lua_source" "MoonSource.SourceSlice",
             A.unique,
         },
@@ -383,7 +372,6 @@ return function(A)
 
         A.product "HostSpliceResult" {
             A.field "splice_id" "string",
-            A.field "expected" "MoonHost.SpliceExpectation",
             A.field "value" "MoonHost.HostValueRef",
             A.unique,
         },

@@ -213,6 +213,21 @@ function M.Define(T)
             if v == nil then return pvm.empty() end
             return pvm.once(v)
         end,
+        [O.SlotRegionFrag] = function(self, env)
+            local v = slot_value(self, env)
+            if v == nil then return pvm.empty() end
+            return pvm.once(v)
+        end,
+        [O.SlotExprFrag] = function(self, env)
+            local v = slot_value(self, env)
+            if v == nil then return pvm.empty() end
+            return pvm.once(v)
+        end,
+        [O.SlotName] = function(self, env)
+            local v = slot_value(self, env)
+            if v == nil then return pvm.empty() end
+            return pvm.once(v)
+        end,
     }, { args_cache = "last" })
 
     lookup_param_value = pvm.phase("moonlift_open_lookup_param_value", function(param, env)
@@ -235,6 +250,34 @@ function M.Define(T)
     lookup_expr_frag = function(name, env)
         for i = #env.expr_frags, 1, -1 do
             if env.expr_frags[i].name == name then return env.expr_frags[i] end
+        end
+        return pvm.NIL
+    end
+
+    -- Resolve a RegionFragRef to a RegionFrag ASDL node, or pvm.NIL.
+    local function lookup_region_frag_ref(ref, env)
+        local cls = pvm.classof(ref)
+        if cls == O.RegionFragRefName then
+            return lookup_region_frag(ref.name, env)
+        elseif cls == O.RegionFragRefSlot then
+            local values = pvm.drain(lookup_slot_value(O.SlotRegionFrag(ref.slot), env))
+            if #values == 1 and pvm.classof(values[1]) == O.SlotValueRegionFrag then
+                return values[1].frag
+            end
+        end
+        return pvm.NIL
+    end
+
+    -- Resolve an ExprFragRef to an ExprFrag ASDL node, or pvm.NIL.
+    local function lookup_expr_frag_ref(ref, env)
+        local cls = pvm.classof(ref)
+        if cls == O.ExprFragRefName then
+            return lookup_expr_frag(ref.name, env)
+        elseif cls == O.ExprFragRefSlot then
+            local values = pvm.drain(lookup_slot_value(O.SlotExprFrag(ref.slot), env))
+            if #values == 1 and pvm.classof(values[1]) == O.SlotValueExprFrag then
+                return values[1].frag
+            end
         end
         return pvm.NIL
     end
@@ -539,7 +582,7 @@ function M.Define(T)
     end
 
     local function expand_region_frag_use(stmt, env)
-        local frag = lookup_region_frag(stmt.frag_name, env)
+        local frag = lookup_region_frag_ref(stmt.frag, env)
         if frag == pvm.NIL then
             return pvm.with(stmt, { h = one(expand_stmt_header, stmt.h, env), args = expand_exprs(stmt.args, env) }), {}
         end
@@ -691,7 +734,7 @@ function M.Define(T)
             return pvm.once(pvm.with(self, { h = one(expand_expr_header, self.h, env) }))
         end,
         [Tr.ExprUseExprFrag] = function(self, env)
-            local frag = lookup_expr_frag(self.frag_name, env)
+            local frag = lookup_expr_frag_ref(self.frag, env)
             if frag == pvm.NIL then
                 return pvm.once(pvm.with(self, { h = one(expand_expr_header, self.h, env), args = expand_exprs(self.args, env) }))
             end
@@ -746,10 +789,26 @@ function M.Define(T)
     }, { args_cache = "last" })
 
     expand_func = pvm.phase("moonlift_open_expand_func", {
-        [Tr.FuncLocal] = function(self, env) return pvm.once(pvm.with(self, { body = expand_stmts(self.body, env) })) end,
-        [Tr.FuncExport] = function(self, env) return pvm.once(pvm.with(self, { body = expand_stmts(self.body, env) })) end,
-        [Tr.FuncLocalContract] = function(self, env) return pvm.once(pvm.with(self, { body = expand_stmts(self.body, env) })) end,
-        [Tr.FuncExportContract] = function(self, env) return pvm.once(pvm.with(self, { body = expand_stmts(self.body, env) })) end,
+        [Tr.FuncLocal] = function(self, env)
+            local params = {}
+            for i = 1, #self.params do params[i] = pvm.with(self.params[i], { ty = one(expand_type, self.params[i].ty, env) }) end
+            return pvm.once(pvm.with(self, { params = params, result = one(expand_type, self.result, env), body = expand_stmts(self.body, env) }))
+        end,
+        [Tr.FuncExport] = function(self, env)
+            local params = {}
+            for i = 1, #self.params do params[i] = pvm.with(self.params[i], { ty = one(expand_type, self.params[i].ty, env) }) end
+            return pvm.once(pvm.with(self, { params = params, result = one(expand_type, self.result, env), body = expand_stmts(self.body, env) }))
+        end,
+        [Tr.FuncLocalContract] = function(self, env)
+            local params = {}
+            for i = 1, #self.params do params[i] = pvm.with(self.params[i], { ty = one(expand_type, self.params[i].ty, env) }) end
+            return pvm.once(pvm.with(self, { params = params, result = one(expand_type, self.result, env), body = expand_stmts(self.body, env) }))
+        end,
+        [Tr.FuncExportContract] = function(self, env)
+            local params = {}
+            for i = 1, #self.params do params[i] = pvm.with(self.params[i], { ty = one(expand_type, self.params[i].ty, env) }) end
+            return pvm.once(pvm.with(self, { params = params, result = one(expand_type, self.result, env), body = expand_stmts(self.body, env) }))
+        end,
         [Tr.FuncOpen] = function(self, env)
             local local_env = merge_fills(env, {})
             return pvm.once(pvm.with(self, { open = one(expand_open_set, self.open, env), result = one(expand_type, self.result, env), body = expand_stmts(self.body, local_env) }))
@@ -757,7 +816,11 @@ function M.Define(T)
     }, { args_cache = "last" })
 
     expand_extern = pvm.phase("moonlift_open_expand_extern", {
-        [Tr.ExternFunc] = function(self) return pvm.once(self) end,
+        [Tr.ExternFunc] = function(self, env)
+            local params = {}
+            for i = 1, #self.params do params[i] = pvm.with(self.params[i], { ty = one(expand_type, self.params[i].ty, env) }) end
+            return pvm.once(pvm.with(self, { params = params, result = one(expand_type, self.result, env) }))
+        end,
         [Tr.ExternFuncOpen] = function(self, env) return pvm.once(pvm.with(self, { result = one(expand_type, self.result, env) })) end,
     }, { args_cache = "last" })
 
@@ -863,12 +926,60 @@ function M.Define(T)
         lookup_region_frag = lookup_region_frag,
         lookup_expr_frag = lookup_expr_frag,
         env_with_frags = empty_env,
+        env_with_fills = function(env, bindings) return merge_fills(env, bindings) end,
+        -- Expand a standalone RegionFrag (resolves type/expr slots in its
+        -- params, body, and blocks using the given env, but does NOT inline
+        -- nested emit uses — those are resolved later at use sites).
+        expand_region_frag = function(frag, env)
+            local params = {}
+            for i = 1, #frag.params do
+                local p = frag.params[i]
+                params[i] = O.OpenParam(p.key, p.name, one(expand_type, p.ty, env))
+            end
+            local conts = {}
+            for i = 1, #frag.conts do
+                local c = frag.conts[i]
+                local cparams = {}
+                for j = 1, #c.params do
+                    cparams[j] = Tr.BlockParam(c.params[j].name, one(expand_type, c.params[j].ty, env))
+                end
+                conts[i] = O.ContSlot(c.key, c.pretty_name, cparams)
+            end
+            local eparams = {}
+            for i = 1, #frag.entry.params do
+                local p = frag.entry.params[i]
+                eparams[i] = Tr.EntryBlockParam(p.name, one(expand_type, p.ty, env), one(expand_expr, p.init, env))
+            end
+            local ebody = expand_stmts(frag.entry.body, env)
+            local entry = Tr.EntryControlBlock(frag.entry.label, eparams, ebody)
+            local blocks = {}
+            for i = 1, #frag.blocks do
+                local b = frag.blocks[i]
+                local bparams = {}
+                for j = 1, #b.params do
+                    bparams[j] = Tr.BlockParam(b.params[j].name, one(expand_type, b.params[j].ty, env))
+                end
+                blocks[i] = Tr.ControlBlock(b.label, bparams, expand_stmts(b.body, env))
+            end
+            return O.RegionFrag(frag.name, params, conts, frag.open, entry, blocks)
+        end,
+        -- Expand a standalone ExprFrag (resolves type/expr slots).
+        expand_expr_frag = function(frag, env)
+            local params = {}
+            for i = 1, #frag.params do
+                local p = frag.params[i]
+                params[i] = O.OpenParam(p.key, p.name, one(expand_type, p.ty, env))
+            end
+            local body   = one(expand_expr, frag.body, env)
+            local result = one(expand_type, frag.result, env)
+            return O.ExprFrag(frag.name, params, frag.open, body, result)
+        end,
+        expand_module = function(module, env) return one(expand_module, module, env or empty_env()) end,
         expand_type = expand_type,
         expand_open_set = expand_open_set,
         expand_expr = expand_expr,
         expand_stmt = expand_stmt,
         expand_item = expand_item,
-        expand_module = expand_module,
         type = function(ty, env) return one(expand_type, ty, env or empty_env()) end,
         expr = function(expr, env) return one(expand_expr, expr, env or empty_env()) end,
         stmts = function(stmts, env) return expand_stmts(stmts, env or empty_env()) end,

@@ -12,8 +12,8 @@ end
 -- Host Lua manufactures distinct fragment names and constants.  The generated
 -- object-language primitive is still a typed continuation region.
 local byte_patterns = Host.eval [[
-local function expect_byte(tag, byte, err_code)
-    return region expect_@{tag}(p: ptr(u8), pos: i32; ok: cont(next: i32), fail: cont(pos: i32, code: i32))
+local function expect_byte(full_name, byte, err_code)
+    return region @{full_name}(p: ptr(u8), pos: i32; ok: cont(next: i32), fail: cont(pos: i32, code: i32))
     entry start()
         if as(i32, p[pos]) == @{byte} then
             jump ok(next = pos + 1)
@@ -23,9 +23,9 @@ local function expect_byte(tag, byte, err_code)
     end
 end
 
-local expect_A = expect_byte(65, 65, 10)
-local expect_B = expect_byte(66, 66, 20)
-local expect_C = expect_byte(67, 67, 30)
+local expect_A = expect_byte("expect_A", 65, 10)
+local expect_B = expect_byte("expect_B", 66, 20)
+local expect_C = expect_byte("expect_C", 67, 30)
 
 return module
 export func parse_ABC(p: ptr(u8), n: i32) -> i32
@@ -89,14 +89,14 @@ bm:free()
 -- Host-generated expression fragments can be specialized by constants and then
 -- used inside region loops.
 local score_patterns = Host.eval [[
-local function positive_after(tag, pivot)
-    return expr positive_after_@{tag}(x: i32) -> i32
+local function positive_after(full_name, pivot)
+    return expr @{full_name}(x: i32) -> i32
         select(x > @{pivot}, x - @{pivot}, 0)
     end
 end
 
-local score_after_50 = positive_after(50, 50)
-local score_after_60 = positive_after(60, 60)
+local score_after_50 = positive_after("score_after_50", 50)
+local score_after_60 = positive_after("score_after_60", 60)
 
 local scan_score = region scan_score(p: ptr(u8), n: i32; done: cont(a: i32, b: i32))
 entry loop(i: i32 = 0, a: i32 = 0, b: i32 = 0)

@@ -17,6 +17,7 @@ local TK = {
     view = 150, noalias = 151, readonly = 152, writeonly = 153, requires = 154, bounds = 155, disjoint = 156, len = 157, same_len = 158, view_window = 159, window_bounds = 160,
     as_kw = 170,
     struct = 180, union = 181, enum = 182,
+    hole = 999,  -- splice hole: @{...} becomes TK.hole; text carries splice id
 }
 
 local keywords = {
@@ -214,6 +215,21 @@ local function parser(T, src, opts)
     return setmetatable({ T = T, C = T.MoonCore, Ty = T.MoonType, B = T.MoonBind, O = T.MoonOpen, Sem = T.MoonSem, Tr = T.MoonTree, Pm = T.MoonParse, toks = M.lex(src), i = 1, issues = {}, region_seq = 0, value_env = opts.value_env or {}, cont_env = opts.cont_env or {}, region_frags = opts.region_frags or {}, expr_frags = opts.expr_frags or {} }, Parser)
 end
 
+local function parser_from_toks(T, toks, opts)
+    opts = opts or {}
+    return setmetatable({
+        T = T, C = T.MoonCore, Ty = T.MoonType, B = T.MoonBind, O = T.MoonOpen,
+        Sem = T.MoonSem, Tr = T.MoonTree, Pm = T.MoonParse,
+        toks = toks, i = 1, issues = {}, region_seq = 0,
+        value_env = opts.value_env or {},
+        cont_env = opts.cont_env or {},
+        region_frags = opts.region_frags or {},
+        expr_frags = opts.expr_frags or {},
+        splice_slots = {},
+        splice_slots_by_id = {},
+    }, Parser)
+end
+
 function Parser:kind(offset) return self.toks.kind[self.i + (offset or 0)] end
 function Parser:text(offset) return self.toks.text[self.i + (offset or 0)] end
 function Parser:skip_nl() while self:kind() == TK.nl do self.i = self.i + 1 end end
@@ -242,6 +258,48 @@ function Parser:next_region_id(prefix)
     return "control." .. prefix .. "." .. tostring(self.region_seq)
 end
 
+-- Splice hole support (only active for template parsers created via parser_from_toks)
+function Parser:splice_key(role, id)
+    return "splice:" .. role .. ":" .. tostring(id)
+end
+
+function Parser:record_splice_slot(splice_id, slot_sum, role)
+    if not self.splice_slots then
+        self:issue("splice @{} is not valid in plain source; use a template island")
+        return
+    end
+    if self.splice_slots_by_id[splice_id] then
+        self:issue("duplicate splice id: " .. splice_id)
+    end
+    local entry = { splice_id = splice_id, slot = slot_sum, role = role }
+    self.splice_slots[#self.splice_slots + 1] = entry
+    self.splice_slots_by_id[splice_id] = entry
+end
+
+function Parser:parse_region_frag_ref()
+    local O = self.O
+    if self:kind() == TK.hole then
+        local id = self:text(); self.i = self.i + 1
+        local slot = O.RegionFragSlot(self:splice_key("region_frag", id), id)
+        self:record_splice_slot(id, O.SlotRegionFrag(slot), "region_frag")
+        return O.RegionFragRefSlot(slot), "splice." .. id
+    end
+    local name = self:expect_name("expected region fragment name after emit")
+    return O.RegionFragRefName(name), name
+end
+
+function Parser:parse_expr_frag_ref()
+    local O = self.O
+    if self:kind() == TK.hole then
+        local id = self:text(); self.i = self.i + 1
+        local slot = O.ExprFragSlot(self:splice_key("expr_frag", id), id)
+        self:record_splice_slot(id, O.SlotExprFrag(slot), "expr_frag")
+        return O.ExprFragRefSlot(slot), "splice." .. id
+    end
+    local name = self:expect_name("expected expression fragment name after emit")
+    return O.ExprFragRefName(name), name
+end
+
 function Parser:type_name(name)
     local C, Ty = self.C, self.Ty
     local m = { void = C.ScalarVoid, bool = C.ScalarBool, i8 = C.ScalarI8, i16 = C.ScalarI16, i32 = C.ScalarI32, i64 = C.ScalarI64, u8 = C.ScalarU8, u16 = C.ScalarU16, u32 = C.ScalarU32, u64 = C.ScalarU64, f32 = C.ScalarF32, f64 = C.ScalarF64, index = C.ScalarIndex, ptr = C.ScalarRawPtr }
@@ -250,6 +308,12 @@ function Parser:type_name(name)
 end
 
 function Parser:parse_type()
+    if self:kind() == TK.hole then
+        local id = self:text(); self.i = self.i + 1
+        local slot = self.O.TypeSlot(self:splice_key("type", id), id)
+        self:record_splice_slot(id, self.O.SlotType(slot), "type")
+        return self.Ty.TSlot(slot)
+    end
     if self:accept(TK.view) then
         self:expect(TK.lparen); local elem = self:parse_type(); self:expect(TK.rparen); return self.Ty.TView(elem)
     end
@@ -313,6 +377,13 @@ function Parser:nud()
     local C, B, Tr = self.C, self.B, self.Tr
     local k, text = self:kind(), self:text()
     self.i = self.i + 1
+    if k == TK.hole then
+        -- Expression splice: @{value} in expression position
+        local id = text
+        local slot = self.O.ExprSlot(self:splice_key("expr", id), id, nil)
+        self:record_splice_slot(id, self.O.SlotExpr(slot), "expr")
+        return Tr.ExprSlotValue(Tr.ExprSurface, slot)
+    end
     if k == TK.as_kw then return self:parse_as_expr() end
     if k == TK.int then return Tr.ExprLit(Tr.ExprSurface, C.LitInt(text)) end
     if k == TK.float then return Tr.ExprLit(Tr.ExprSurface, C.LitFloat(text)) end
@@ -692,14 +763,15 @@ end
 
 function Parser:parse_emit_expr()
     local Tr = self.Tr
-    local frag_name = self:expect_name("expected expression fragment name after emit")
+    local frag_ref, use_suffix = self:parse_expr_frag_ref()
     local args = self:parse_call_expr_args()
-    return Tr.ExprUseExprFrag(Tr.ExprSurface, "emit.expr." .. frag_name .. "." .. tostring(self.i), frag_name, args, {})
+    return Tr.ExprUseExprFrag(Tr.ExprSurface, "emit.expr." .. tostring(use_suffix) .. "." .. tostring(self.i), frag_ref, args, {})
 end
 
 function Parser:parse_emit_stmt()
     local Tr, O = self.Tr, self.O
-    local frag_name = self:expect_name("expected region fragment name after emit")
+    local frag_ref, use_suffix = self:parse_region_frag_ref()
+    local frag_name_str = type(use_suffix) == "string" and use_suffix or tostring(use_suffix)
     local args, fills, cont_fills = {}, {}, {}
     self:expect(TK.lparen, "expected '(' after emitted fragment name")
     self:skip_nl()
@@ -720,7 +792,7 @@ function Parser:parse_emit_stmt()
             local name = self:expect_name("expected continuation fill name")
             self:expect(TK.eq, "expected '=' in continuation fill")
             local label = self:expect_name("expected block label in continuation fill")
-            if seen_fills[name] then self:issue("duplicate continuation fill for fragment " .. frag_name .. ": " .. name) end
+            if seen_fills[name] then self:issue("duplicate continuation fill for fragment " .. frag_name_str .. ": " .. name) end
             seen_fills[name] = true
             if self.cont_env and self.cont_env[label] then
                 cont_fills[#cont_fills + 1] = O.ContBinding(name, O.ContTargetSlot(self.cont_env[label]))
@@ -733,12 +805,19 @@ function Parser:parse_emit_stmt()
         end
     end
     self:expect(TK.rparen, "expected ')' after emit")
-    return Tr.StmtUseRegionFrag(Tr.StmtSurface, "emit." .. frag_name .. "." .. tostring(self.i), frag_name, args, fills, cont_fills)
+    return Tr.StmtUseRegionFrag(Tr.StmtSurface, "emit." .. frag_name_str .. "." .. tostring(self.i), frag_ref, args, fills, cont_fills)
 end
 
 function Parser:parse_stmt()
     local Tr, B, C = self.Tr, self.B, self.C
     self:skip_nl()
+    -- Region body splice: @{stmts} in statement position
+    if self:kind() == TK.hole then
+        local id = self:text(); self.i = self.i + 1
+        local slot = self.O.RegionSlot(self:splice_key("region_body", id), id)
+        self:record_splice_slot(id, self.O.SlotRegion(slot), "region_body")
+        return Tr.StmtUseRegionSlot(Tr.StmtSurface, slot)
+    end
     if self:accept(TK.emit) then return self:parse_emit_stmt() end
     if self:accept(TK.let) or self:accept(TK.var) then
         local is_var = self.toks.kind[self.i - 1] == TK.var
@@ -878,7 +957,15 @@ end
 function Parser:parse_expr_frag()
     local O = self.O
     self:expect(TK.expr, "expected expr")
-    local name = self:expect_name("expected expression fragment name")
+    local name, name_splice_id
+    if self:kind() == TK.hole then
+        name_splice_id = self:text(); self.i = self.i + 1
+        local slot = O.NameSlot(self:splice_key("name", name_splice_id), name_splice_id)
+        self:record_splice_slot(name_splice_id, O.SlotName(slot), "name")
+        name = "__splice_name_" .. name_splice_id
+    else
+        name = self:expect_name("expected expression fragment name")
+    end
     self:expect(TK.lparen, "expected '(' in expression fragment")
     local params, param_bindings = self:parse_open_expr_params(name)
     self:expect(TK.rparen, "expected ')' after expression fragment params")
@@ -890,7 +977,7 @@ function Parser:parse_expr_frag()
     self:skip_nl()
     self:expect(TK.end_kw, "expected end after expression fragment")
     self.value_env = old_value_env
-    return { name = name, frag = O.ExprFrag(name, params, O.OpenSet({}, {}, {}, {}), body, result) }
+    return { name = name, name_splice_id = name_splice_id, frag = O.ExprFrag(name, params, O.OpenSet({}, {}, {}, {}), body, result) }
 end
 
 function Parser:validate_cont_jump_args_in_stmts(stmts, cont_slots)
@@ -925,7 +1012,16 @@ end
 function Parser:parse_region_frag()
     local O, B, C, Tr = self.O, self.B, self.C, self.Tr
     self:expect(TK.region, "expected region")
-    local name = self:expect_name("expected region fragment name")
+    -- Name can be a splice hole (full name provided by Lua, not a mid-identifier suffix).
+    local name, name_splice_id
+    if self:kind() == TK.hole then
+        name_splice_id = self:text(); self.i = self.i + 1
+        local slot = O.NameSlot(self:splice_key("name", name_splice_id), name_splice_id)
+        self:record_splice_slot(name_splice_id, O.SlotName(slot), "name")
+        name = "__splice_name_" .. name_splice_id
+    else
+        name = self:expect_name("expected region fragment name")
+    end
     self:expect(TK.lparen, "expected '(' in region fragment")
     local params, param_bindings, slots = {}, {}, {}
     self:skip_nl()
@@ -977,7 +1073,7 @@ function Parser:parse_region_frag()
     for i = 1, #blocks do self:validate_cont_jump_args_in_stmts(blocks[i].body, cont_slots) end
     self:expect(TK.end_kw, "expected end after region fragment")
     self.value_env, self.cont_env = old_value_env, old_cont_env
-    return { name = name, frag = O.RegionFrag(name, params, slots, O.OpenSet({}, {}, {}, {}), Tr.EntryControlBlock(entry_label, entry_params, body), blocks), cont_slots = cont_slots }
+    return { name = name, name_splice_id = name_splice_id, frag = O.RegionFrag(name, params, slots, O.OpenSet({}, {}, {}, {}), Tr.EntryControlBlock(entry_label, entry_params, body), blocks), cont_slots = cont_slots }
 end
 
 function Parser:parse_type_fields()
@@ -1040,6 +1136,13 @@ end
 function Parser:parse_item()
     local Tr = self.Tr
     self:skip_nl()
+    -- Module item splice: @{items} in module item position
+    if self:kind() == TK.hole then
+        local id = self:text(); self.i = self.i + 1
+        local slot = self.O.ItemsSlot(self:splice_key("items", id), id)
+        self:record_splice_slot(id, self.O.SlotItems(slot), "module_items")
+        return Tr.ItemUseItemsSlot(slot)
+    end
     local exported = self:accept(TK.export) ~= nil
     if self:accept(TK.func) then return Tr.ItemFunc(self:parse_func(exported)) end
     if self:accept(TK.extern) then self:expect(TK.func, "expected func after extern"); return Tr.ItemExtern(self:parse_extern_func()) end
@@ -1069,6 +1172,125 @@ function M.parse(T, src, opts)
     return T.MoonParse.ParseResult(module, p.issues)
 end
 
+-- Template lexer: builds a token stream from a HostTemplate, injecting TK.hole
+-- tokens for each TemplateSplicePart.  Each TemplateText chunk is preprocessed
+-- with expand_counted_loops before lexing so counted-loop sugar works.
+function M.lex_template(T, template)
+    local H = T.MoonHost
+    local toks = { src = "", kind = {}, text = {}, start = {}, stop = {}, line = {}, col = {}, n = 0 }
+    local Lex = require("moonlift.mlua_lex")
+
+    local function push_tok(k, t, s, e, ln, c)
+        local n = toks.n + 1
+        toks.n = n
+        toks.kind[n] = k
+        toks.text[n] = t
+        toks.start[n] = s
+        toks.stop[n] = e
+        toks.line[n] = ln
+        toks.col[n] = c
+    end
+
+    local function append_toks(from)
+        for i = 1, from.n do
+            if from.kind[i] ~= TK.eof then
+                push_tok(from.kind[i], from.text[i], from.start[i], from.stop[i], from.line[i], from.col[i])
+            end
+        end
+    end
+
+    for _, part in ipairs(template.parts) do
+        if pvm.classof(part) == H.TemplateText then
+            -- Apply counted-loop / other syntactic sugar preprocessing to each text chunk.
+            local raw = part.text.source.text
+            local processed = Lex.moonlift_body(raw)
+            append_toks(M.lex(processed))
+        elseif pvm.classof(part) == H.TemplateSplicePart then
+            push_tok(TK.hole, part.splice.id, 0, 0, 0, 0)
+        end
+    end
+    push_tok(TK.eof, "", 0, 0, 0, 0)
+    return toks
+end
+
+-- Template parse entrypoints.  Each returns:
+--   { value = ..., module/frag = ..., splice_slots = {...}, issues = {...} }
+
+-- parse_module_template: parse a module island template.
+-- Handles optional leading "module [name]" header, trailing "end",
+-- and region/expr frag definitions inside the module body.
+function M.parse_module_template(T, template, opts)
+    local toks = M.lex_template(T, template)
+    local p = parser_from_toks(T, toks, opts)
+    p:skip_nl()
+    -- consume optional "module [name]" header ("module" is a plain TK.name)
+    if p:kind() == TK.name and p:text() == "module" then
+        p.i = p.i + 1
+        p:skip_nl()
+        -- consume optional module name (not a keyword)
+        if p:kind() == TK.name and not keywords[p:text()] then
+            p.i = p.i + 1
+        end
+        p:skip_nl()
+    end
+    -- parse items (and inline region/expr frag definitions) until end/eof
+    local items = {}
+    while p:kind() ~= TK.eof and p:kind() ~= TK.end_kw do
+        p:skip_nl()
+        if p:kind() == TK.eof or p:kind() == TK.end_kw then break end
+        -- region/expr definitions inside module body: parse as frags, not items
+        if p:kind() == TK.region then
+            local frag_result = p:parse_region_frag()
+            if frag_result and frag_result.frag then
+                p.region_frags[frag_result.name] = frag_result
+            end
+        elseif p:kind() == TK.expr then
+            local frag_result = p:parse_expr_frag()
+            if frag_result and frag_result.frag then
+                p.expr_frags[frag_result.name] = frag_result
+            end
+        else
+            local item = p:parse_item()
+            if item ~= nil then items[#items + 1] = item end
+        end
+        p:skip_nl()
+    end
+    if p:kind() == TK.end_kw then p.i = p.i + 1 end
+    local module = p.Tr.Module(p.Tr.ModuleSurface, items)
+    return { value = module, module = module, splice_slots = p.splice_slots, issues = p.issues,
+             region_frags = p.region_frags, expr_frags = p.expr_frags }
+end
+
+-- parse_func_template: like parse_module_template but extracts the first function.
+function M.parse_func_template(T, template, opts)
+    local result = M.parse_module_template(T, template, opts)
+    local Tr = T.MoonTree
+    for i = 1, #result.module.items do
+        local item = result.module.items[i]
+        if pvm.classof(item) == Tr.ItemFunc then
+            return { value = item.func, func = item.func, module = result.module, splice_slots = result.splice_slots, issues = result.issues }
+        end
+    end
+    result.issues[#result.issues + 1] = T.MoonParse.ParseIssue("func island contained no function", 0, 0, 0)
+    return { value = nil, splice_slots = result.splice_slots, issues = result.issues }
+end
+
+-- parse_region_frag_template: parse a region fragment template.
+function M.parse_region_frag_template(T, template, opts)
+    local toks = M.lex_template(T, template)
+    local p = parser_from_toks(T, toks, opts)
+    local value = p:parse_region_frag()
+    return { value = value, splice_slots = p.splice_slots, issues = p.issues }
+end
+
+-- parse_expr_frag_template: parse an expression fragment template.
+function M.parse_expr_frag_template(T, template, opts)
+    local toks = M.lex_template(T, template)
+    local p = parser_from_toks(T, toks, opts)
+    local value = p:parse_expr_frag()
+    return { value = value, splice_slots = p.splice_slots, issues = p.issues }
+end
+
 function M.parse_region_frag(T, src, opts)
     local p = parser(T, src, opts)
     local value = p:parse_region_frag()
@@ -1085,10 +1307,33 @@ function M.Define(T)
     return {
         TK = TK,
         lex = M.lex,
+        lex_template = function(template) return M.lex_template(T, template) end,
         parse_module = function(src, opts) return M.parse(T, src, opts) end,
         parse_region_frag = function(src, opts) return M.parse_region_frag(T, src, opts) end,
         parse_expr_frag = function(src, opts) return M.parse_expr_frag(T, src, opts) end,
+        parse_module_template = function(template, opts) return M.parse_module_template(T, template, opts) end,
+        parse_func_template = function(template, opts) return M.parse_func_template(T, template, opts) end,
+        parse_region_frag_template = function(template, opts) return M.parse_region_frag_template(T, template, opts) end,
+        parse_expr_frag_template = function(template, opts) return M.parse_expr_frag_template(T, template, opts) end,
     }
+end
+
+-- Parse a single type expression from a source string.
+-- Wraps the expression as a parameter type, parses, and extracts it.
+function M.parse_type_string(T, src)
+    local wrapped = "func __t__(x: " .. src .. ") -> void end"
+    local result = M.parse(T, wrapped)
+    if #result.issues > 0 then
+        error("type source parse error '" .. src .. "': " .. tostring(result.issues[1]), 2)
+    end
+    local Tr = T.MoonTree
+    for _, item in ipairs(result.module.items) do
+        if pvm.classof(item) == Tr.ItemFunc then
+            local params = item.func.params
+            if params and params[1] then return params[1].ty end
+        end
+    end
+    error("could not extract type from source '" .. src .. "'", 2)
 end
 
 return M

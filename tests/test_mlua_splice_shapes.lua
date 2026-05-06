@@ -63,7 +63,7 @@ end
 ]]
 end)
 assert(not ok)
-assert(tostring(err):match("Moonlift splice kind mismatch"))
+assert(tostring(err):match("type splice") or tostring(err):match("Moonlift splice kind mismatch"))
 
 local ok_emit, err_emit = pcall(function()
     Host.eval [[
@@ -75,6 +75,6 @@ end
 ]]
 end)
 assert(not ok_emit)
-assert(tostring(err_emit):match("expected emit, got type"))
+assert(tostring(err_emit):match("emit%-expr target splice") or tostring(err_emit):match("expected emit, got type"))
 
 print("moonlift mlua splice shapes ok")

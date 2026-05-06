@@ -26,6 +26,11 @@ function RegionFragValue:moonlift_splice_source()
     return self.name
 end
 
+function RegionFragValue:moonlift_splice(role, session, site)
+    if role == "region_frag" then return self.frag end
+    error((site or "splice") .. ": region fragment value cannot splice as " .. role, 2)
+end
+
 function RegionFragValue:__tostring()
     return "MoonRegionFragValue(" .. self.name .. ")"
 end
@@ -192,7 +197,7 @@ function M.Install(api, session)
             end
         end
         for name in pairs(fragment.conts) do if (fills or {})[name] == nil then api.raise_host_issue(session.T.MoonHost.HostIssueMissingEmitFill(fragment.name, name)) end end
-        return self:emit_stmt(Tr.StmtUseRegionFrag(Tr.StmtSurface, session:symbol_key("emit", fragment.name), fragment.name, args, {}, fill_values))
+        return self:emit_stmt(Tr.StmtUseRegionFrag(Tr.StmtSurface, session:symbol_key("emit", fragment.name), O.RegionFragRefName(fragment.name), args, {}, fill_values))
     end
 
     function BlockBuilder:if_(cond, then_fn, else_fn)

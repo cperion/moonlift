@@ -104,8 +104,8 @@ local module = Tr.Module(
     Tr.ModuleOpen(O.ModuleNameOpen, O.OpenSet({}, {}, {}, {})),
     {
         Tr.ItemFunc(Tr.FuncLocal("f", {}, i32, {
-            Tr.StmtExpr(Tr.StmtTyped, Tr.ExprUseExprFrag(Tr.ExprTyped(i32), "expr.use", expr_frag_name, { lit }, {})),
-            Tr.StmtUseRegionFrag(Tr.StmtTyped, "region.use", region_frag_name, { lit }, {}, {}),
+            Tr.StmtExpr(Tr.StmtTyped, Tr.ExprUseExprFrag(Tr.ExprTyped(i32), "expr.use", O.ExprFragRefName(expr_frag_name), { lit }, {})),
+            Tr.StmtUseRegionFrag(Tr.StmtTyped, "region.use", O.RegionFragRefName(region_frag_name), { lit }, {}, {}),
         })),
         Tr.ItemUseTypeDeclSlot(type_decl_slot),
         Tr.ItemUseItemsSlot(items_slot),

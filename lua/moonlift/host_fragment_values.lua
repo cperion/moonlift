@@ -14,6 +14,11 @@ function ExprFragValue:moonlift_splice_source()
     return self.name
 end
 
+function ExprFragValue:moonlift_splice(role, session, site)
+    if role == "expr_frag" then return self.frag end
+    error((site or "splice") .. ": expression fragment value cannot splice as " .. role, 2)
+end
+
 function ExprFragValue:__tostring()
     return "MoonExprFragValue(" .. self.name .. ")"
 end
@@ -65,7 +70,7 @@ function M.Install(api, session)
         local exprs = {}
         for i = 1, #args do exprs[i] = api.as_moonlift_expr(args[i], "emit_expr arg expects expression") end
         local use_id = session:symbol_key("emit_expr", fragment.name)
-        return api.expr_from_asdl(Tr.ExprUseExprFrag(Tr.ExprSurface, use_id, fragment.name, exprs, {}), fragment.result, "emit " .. fragment.name .. "(...)")
+        return api.expr_from_asdl(Tr.ExprUseExprFrag(Tr.ExprSurface, use_id, O.ExprFragRefName(fragment.name), exprs, {}), fragment.result, "emit " .. fragment.name .. "(...)")
     end
 
     function api.expr_frag_template(name, type_params, builder_fn)

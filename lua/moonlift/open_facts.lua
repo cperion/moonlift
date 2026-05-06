@@ -58,6 +58,9 @@ function M.Define(T)
         [O.SlotTypeDecl] = function(self) return slot(self) end,
         [O.SlotItems] = function(self) return slot(self) end,
         [O.SlotModule] = function(self) return slot(self) end,
+        [O.SlotRegionFrag] = function(self) return slot(self) end,
+        [O.SlotExprFrag] = function(self) return slot(self) end,
+        [O.SlotName] = function(self) return slot(self) end,
     })
 
     value_import_fact = pvm.phase("moonlift_open_value_import_fact", {
@@ -297,7 +300,13 @@ function M.Define(T)
         [Tr.ExprLoad] = function(self) return cat({ pack(expr_header_facts(self.h)), pack(expr_facts(self.addr)) }) end,
         [Tr.ExprSlotValue] = function(self) return cat({ pack(expr_header_facts(self.h)), pack(pvm.once(O.MetaFactSlot(O.SlotExpr(self.slot)))) }) end,
         [Tr.ExprUseExprFrag] = function(self)
-            return cat({ pack(expr_header_facts(self.h)), pack(pvm.once(O.MetaFactExprFragUse(self.use_id))), pack(each(expr_facts, self.args)), pack(each(slot_binding_facts, self.fills)) })
+            local ref_trip
+            if pvm.classof(self.frag) == O.ExprFragRefSlot then
+                ref_trip = pack(pvm.once(O.MetaFactSlot(O.SlotExprFrag(self.frag.slot))))
+            else
+                ref_trip = pack(pvm.empty())
+            end
+            return cat({ pack(expr_header_facts(self.h)), pack(pvm.once(O.MetaFactExprFragUse(self.use_id))), ref_trip, pack(each(expr_facts, self.args)), pack(each(slot_binding_facts, self.fills)) })
         end,
     })
 
@@ -318,7 +327,13 @@ function M.Define(T)
         [Tr.StmtControl] = function(self) return cat({ pack(stmt_header_facts(self.h)), pack(control_stmt_region_facts(self.region)) }) end,
         [Tr.StmtUseRegionSlot] = function(self) return cat({ pack(stmt_header_facts(self.h)), pack(pvm.once(O.MetaFactSlot(O.SlotRegion(self.slot)))) }) end,
         [Tr.StmtUseRegionFrag] = function(self)
-            return cat({ pack(stmt_header_facts(self.h)), pack(pvm.once(O.MetaFactRegionFragUse(self.use_id))), pack(each(expr_facts, self.args)), pack(each(slot_binding_facts, self.fills)) })
+            local ref_trip
+            if pvm.classof(self.frag) == O.RegionFragRefSlot then
+                ref_trip = pack(pvm.once(O.MetaFactSlot(O.SlotRegionFrag(self.frag.slot))))
+            else
+                ref_trip = pack(pvm.empty())
+            end
+            return cat({ pack(stmt_header_facts(self.h)), pack(pvm.once(O.MetaFactRegionFragUse(self.use_id))), ref_trip, pack(each(expr_facts, self.args)), pack(each(slot_binding_facts, self.fills)) })
         end,
     })
 

@@ -46,7 +46,7 @@ local function make_module(fills)
     local entry = Tr.EntryControlBlock(
         Tr.BlockLabel("start"),
         {},
-        { Tr.StmtUseRegionFrag(Tr.StmtSurface, "use.hit", "hit", {}, {}, fills or {}) }
+        { Tr.StmtUseRegionFrag(Tr.StmtSurface, "use.hit", O.RegionFragRefName("hit"), {}, {}, fills or {}) }
     )
     local found = Tr.ControlBlock(
         Tr.BlockLabel("found"),
