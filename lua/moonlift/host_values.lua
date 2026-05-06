@@ -172,6 +172,37 @@ function M.Install(api, session)
     api.expr_frag_value_from_asdl = function(frag, opts) return M.expr_frag_value(session, frag, opts) end
     api.empty_fragment_deps = function() return empty_deps_asdl(session) end
     api.fragment_deps_from_table = function(deps) return deps_asdl_from_table(session, deps) end
+
+    -- moon.memoize(fn): returns a memoized version of a factory function.
+    -- Caches results by argument identity. Like Terra's terralib.memoize().
+    -- Works for any MoonLift value (regions, exprs, modules, funcs, structs).
+    -- Usage: local make_range = moon.memoize(function(lo, hi) return region ... end end)
+    api.memoize = function(fn)
+        local cache = {}
+        return function(...)
+            local n = select("#", ...)
+            if n == 0 then
+                cache[0] = cache[0] or fn()
+                return cache[0]
+            end
+            local key = {n}
+            for i = 1, n do
+                local v = select(i, ...)
+                local tv = type(v)
+                if tv == "table" then
+                    -- MoonLift values: use splice source (region name, expr name, etc.)
+                    -- Falls back to .name, then .kind, then tostring
+                    key[i + 1] = (type(v.moonlift_splice_source) == "function" and v:moonlift_splice_source())
+                        or v.name or v.kind or tostring(v)
+                else
+                    key[i + 1] = tostring(v)
+                end
+            end
+            local k = table.concat(key, "\0")
+            cache[k] = cache[k] or fn(...)
+            return cache[k]
+        end
+    end
 end
 
 return M

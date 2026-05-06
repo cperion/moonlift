@@ -301,8 +301,6 @@ local function expression_for_island(T, step_index, island, template)
 end
 
 local function translation_for_island(T, step_index, island, template)
-    -- Islands lower to expressions.  Binding is now explicit Lua responsibility:
-    -- `local x = region R ... end` or `return module ... end`.
     return expression_for_island(T, step_index, island, template)
 end
 
@@ -371,6 +369,14 @@ function M.dofile(path, opts, ...)
     if is_load_opts(opts) then
         local fn = assert(M.loadfile(path, opts))
         return fn(...)
+    end
+    -- Auto-detect parent runtime for .mlua files loaded from within .mlua
+    if not opts and path:match("%.mlua$") then
+        local parent = M.current_runtime()
+        if parent then
+            local fn = assert(M.loadfile(path, { runtime = parent }))
+            return fn(...)
+        end
     end
     local fn = assert(M.loadfile(path))
     if opts == nil then return fn(...) end
