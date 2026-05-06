@@ -18,6 +18,13 @@ ExprFragValue.__index = ExprFragValue
 local SourceValue = {}
 SourceValue.__index = SourceValue
 
+local NilSpliceValue = {
+    kind = "source",
+    moonlift_quote_kind = "source",
+    source = "nil",
+}
+function NilSpliceValue:moonlift_splice_source() return "nil" end
+
 local function classof(v) return pvm.classof(v) end
 
 local function assert_same_context(session, node, site)
@@ -67,7 +74,7 @@ local function host_kind_for_value(session, value)
         local mt = getmetatable(value)
         if mt == RegionFragValue or rawget(value, "kind") == "region_frag" or rawget(value, "moonlift_quote_kind") == "region_frag" then return H.HostValueRegionFrag end
         if mt == ExprFragValue or rawget(value, "kind") == "expr_frag" or rawget(value, "moonlift_quote_kind") == "expr_frag" then return H.HostValueExprFrag end
-        if rawget(value, "moonlift_quote_kind") == "type" or rawget(value, "kind") == "type" then return H.HostValueType end
+        if rawget(value, "moonlift_quote_kind") == "type" or rawget(value, "kind") == "type" or type(value.as_type_value) == "function" or (mt and mt.__moonlift_host_type_value == true) then return H.HostValueType end
         if rawget(value, "moonlift_quote_kind") == "module" then return H.HostValueModule end
         if rawget(value, "moonlift_quote_kind") == "source" then return H.HostValueSource end
     end
@@ -75,6 +82,7 @@ local function host_kind_for_value(session, value)
 end
 
 local function value_ref(session, value, pretty)
+    if value == nil then value = NilSpliceValue end
     local H = session.T.MoonHost
     local id = session:host_value_id(pretty or (type(value) == "table" and (value.name or value.kind)) or type(value))
     local kind = host_kind_for_value(session, value)

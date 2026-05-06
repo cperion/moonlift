@@ -13,6 +13,14 @@ local c_typed = typed:compile()
 assert(c_typed(42) == 42)
 c_typed:free()
 
+local nested_type_in_as = Host.eval [[
+local moon = require("moonlift.host")
+return func nested_type_in_as(p: ptr(i32)) -> ptr(i32)
+    return as(ptr(@{moon.i32}), p)
+end
+]]
+assert(nested_type_in_as.name == "nested_type_in_as")
+
 local use_expr = Host.eval [[
 local inc = expr inc(x: i32) -> i32
     x + 1
@@ -56,5 +64,17 @@ end
 end)
 assert(not ok)
 assert(tostring(err):match("Moonlift splice kind mismatch"))
+
+local ok_emit, err_emit = pcall(function()
+    Host.eval [[
+local moon = require("moonlift.host")
+local S = moon.struct("S", { moon.field("x", moon.i32) })
+return func bad_emit() -> i32
+    return emit @{S}()
+end
+]]
+end)
+assert(not ok_emit)
+assert(tostring(err_emit):match("expected emit, got type"))
 
 print("moonlift mlua splice shapes ok")

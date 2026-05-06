@@ -21,22 +21,31 @@ local function expectation_name(T, e)
 end
 
 local function value_kind_name(session, value)
+    local tv = type(value)
+    if tv == "number" or tv == "boolean" or tv == "nil" then return "expr" end
+    -- Strings render as raw Moonlift source/name fragments.
+    if tv == "string" then return "source" end
     local ref = require("moonlift.host_values").value_ref(session, value, "classify")
     local H = session.T.MoonHost
     if ref.kind == H.HostValueRegionFrag then return "region_frag" end
     if ref.kind == H.HostValueExprFrag then return "expr_frag" end
     if ref.kind == H.HostValueType then return "type" end
+    if tv == "table" then
+        local mt = getmetatable(value)
+        if type(value.as_type_value) == "function" or (mt and mt.__moonlift_host_type_value == true) then return "type" end
+    end
     if ref.kind == H.HostValueDecl then return "decl" end
     if ref.kind == H.HostValueModule then return "module" end
     if ref.kind == H.HostValueSource then return "source" end
+    if (tv == "table" or tv == "userdata") and type(value.moonlift_splice_source) == "function" then return "source" end
     return "lua"
 end
 
 local function expectation_accepts(T, expected, actual)
     local H = T.MoonHost
     if expected == H.SpliceAny then return true end
-    if expected == H.SpliceExpr then return actual == "expr" or actual == "source" or actual == "lua" end
-    if expected == H.SpliceType then return actual == "type" end
+    if expected == H.SpliceExpr then return actual == "expr" or actual == "source" end
+    if expected == H.SpliceType then return actual == "type" or actual == "source" end
     if expected == H.SpliceEmit then return actual == "region_frag" or actual == "expr_frag" or actual == "source" end
     if expected == H.SpliceRegionFrag then return actual == "region_frag" end
     if expected == H.SpliceExprFrag then return actual == "expr_frag" end

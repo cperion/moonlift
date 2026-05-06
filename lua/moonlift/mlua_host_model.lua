@@ -40,12 +40,49 @@ local function find_antiquote_end(src, i)
     return nil
 end
 
+local function in_as_type_argument(src)
+    local stack, pending_as = {}, false
+    local i = 1
+    while i <= #src do
+        local skipped = Lex.skip_comment_or_string(src, i)
+        if skipped then
+            i = skipped
+        else
+            local c = src:sub(i, i)
+            if c:match("[A-Za-z_]") then
+                local word, j = Lex.read_ident(src, i)
+                pending_as = (word == "as")
+                i = j
+            elseif c == "(" then
+                stack[#stack + 1] = { word = pending_as and "as" or nil, comma_seen = false }
+                pending_as = false
+                i = i + 1
+            elseif c == ")" then
+                stack[#stack] = nil
+                pending_as = false
+                i = i + 1
+            elseif c == "," then
+                if stack[#stack] and stack[#stack].word == "as" then stack[#stack].comma_seen = true end
+                pending_as = false
+                i = i + 1
+            else
+                if not c:match("%s") then pending_as = false end
+                i = i + 1
+            end
+        end
+    end
+    for n = #stack, 1, -1 do
+        if stack[n].word == "as" then return not stack[n].comma_seen end
+    end
+    return false
+end
+
 local function expected_splice(T, src, at)
     local H = T.MoonHost
     local prefix = src:sub(1, at - 1):gsub("%s+$", "")
     if prefix:match("%f[%w_]emit%s*$") then return H.SpliceEmit end
     local line = prefix:match("([^\n]*)$") or prefix
-    if line:match(":%s*[%w_%.%s%(]*$") or line:match("%-%>%s*[%w_%.%s%(]*$") or line:match("%f[%w_]as%s*%(%s*$") then return H.SpliceType end
+    if line:match(":%s*[%w_%.%s%(]*$") or line:match("%-%>%s*[%w_%.%s%(]*$") or in_as_type_argument(prefix) then return H.SpliceType end
     return H.SpliceExpr
 end
 

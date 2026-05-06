@@ -96,11 +96,62 @@ local function splice_to_source(value)
     local tv = type(value)
     if tv == "number" or tv == "boolean" then return tostring(value) end
     if tv == "nil" then return "nil" end
+    -- Strings are raw Moonlift source/name fragments, not quoted string literals.
     if tv == "string" then return value end
     if (tv == "table" or tv == "userdata") and type(value.moonlift_splice_source) == "function" then
         return value:moonlift_splice_source()
     end
     error("cannot splice host value " .. tv, 3)
+end
+
+local function splice_expected_name(T, expected)
+    local H = T.MoonHost
+    if expected == H.SpliceAny then return "any" end
+    if expected == H.SpliceExpr then return "expr" end
+    if expected == H.SpliceType then return "type" end
+    if expected == H.SpliceEmit then return "emit" end
+    if expected == H.SpliceRegionFrag then return "region_frag" end
+    if expected == H.SpliceExprFrag then return "expr_frag" end
+    if expected == H.SpliceSource then return "source" end
+    return tostring(expected)
+end
+
+local function splice_value_kind(value)
+    local tv = type(value)
+    if tv == "number" or tv == "boolean" or tv == "nil" then return "expr" end
+    if tv == "string" then return "source" end
+    if tv == "table" then
+        local kind = rawget(value, "moonlift_quote_kind") or rawget(value, "kind")
+        local mt = getmetatable(value)
+        if kind == "region_frag" then return "region_frag" end
+        if kind == "expr_frag" then return "expr_frag" end
+        if kind == "type" or type(value.as_type_value) == "function" or (mt and mt.__moonlift_host_type_value == true) then return "type" end
+        if kind == "module" then return "module" end
+        if kind == "source" then return "source" end
+        if type(value.moonlift_splice_source) == "function" then return "source" end
+    elseif tv == "userdata" and type(value.moonlift_splice_source) == "function" then
+        return "source"
+    end
+    return "lua"
+end
+
+local function splice_expectation_accepts(T, expected, actual)
+    local H = T.MoonHost
+    if expected == H.SpliceAny then return true end
+    if expected == H.SpliceExpr then return actual == "expr" or actual == "source" end
+    if expected == H.SpliceType then return actual == "type" or actual == "source" end
+    if expected == H.SpliceEmit then return actual == "region_frag" or actual == "expr_frag" or actual == "source" end
+    if expected == H.SpliceRegionFrag then return actual == "region_frag" end
+    if expected == H.SpliceExprFrag then return actual == "expr_frag" end
+    if expected == H.SpliceSource then return actual == "source" end
+    return false
+end
+
+local function validate_splice_value(T, splice, value)
+    local actual = splice_value_kind(value)
+    if not splice_expectation_accepts(T, splice.expected, actual) then
+        error("Moonlift splice kind mismatch at " .. tostring(splice.id) .. ": expected " .. splice_expected_name(T, splice.expected) .. ", got " .. actual, 3)
+    end
 end
 
 local function island_kind_word(T, island)
@@ -155,6 +206,7 @@ local function render_template(runtime, template, closures)
             local fn = closures and closures[part.splice.id]
             if not fn then error("missing splice closure " .. part.splice.id, 2) end
             local value = fn()
+            validate_splice_value(runtime.T, part.splice, value)
             adopt_splice_value(runtime, value)
             out[#out + 1] = splice_to_source(value)
         end

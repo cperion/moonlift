@@ -201,10 +201,10 @@ fully resolved before backend command generation.
 ### 3.1 `.mlua` files
 
 A `.mlua` file is standard LuaJIT Lua with Moonlift hosted islands embedded as
-Lua strings. It is loaded by the host quote bridge:
+Lua strings. It is loaded by the hosted `.mlua` runner:
 
 ```lua
-local Host = require("moonlift.host_quote")
+local Host = require("moonlift.mlua_run")
 local chunk = Host.loadfile("file.mlua")
 local result = chunk()
 ```
@@ -222,7 +222,7 @@ call an exported `main`, `run`, or `test` function.
 ### 3.2 Moonlift source strings
 
 Moonlift modules, functions, and regions can also be built from source strings
-through `host_quote` or parsed directly:
+through `mlua_run` or parsed directly:
 
 ```lua
 local parse = require("moonlift.mlua_parse")
@@ -1976,12 +1976,12 @@ the antiquote syntax:
 
 | Source position | Expected splice kind |
 |---|---|
-| Type position (`let x: @{T}`) | A type value (from `moon.i32`, `moon.ptr(T)`, etc.) |
-| Expression position (`@{val} + 1`) | An expression/literal value |
-| Emit fragment position (`emit @{frag}(...)`) | A region or expression fragment value |
-| Declaration/module site | Declaration or module value |
-| Block label position | String (label name) |
-| Integer constant position | Number (integer) |
+| Type position (`let x: @{T}`, `as(ptr(@{T}), x)`) | A type value (from `moon.i32`, `moon.ptr(T)`, etc.). A string/source value is accepted as an explicit source-name escape for generated code. |
+| Expression position (`@{val} + 1`) | A literal/expression source value. Numbers, booleans, `nil`, strings/source values, and expression values are accepted. |
+| Emit fragment position (`emit @{frag}(...)`) | A region or expression fragment value. A string/source value is accepted as an explicit fragment-name escape. |
+| Declaration/module item site | Source/declaration text today; first-class declaration/module ASDL splicing is a planned parser-with-typed-holes boundary. |
+| Block label/name position | String/source value (label or generated identifier) |
+| Integer constant position | Number (integer), or source value that parses as an integer expression |
 
 ### 14.2 Examples
 
@@ -2019,13 +2019,19 @@ end
 
 ### 14.3 Splicing semantics
 
-Splicing inserts typed ASDL values, never raw source text. The splice is
-resolved at `.mlua` load time, during hosted island construction. The
-resulting ASDL is then processed by the normal compilation pipeline.
+Splicing is checked against the expected syntactic role before the hosted
+island is parsed. Typed host values are preferred (`moon.i32`, region fragment
+values, expression fragment values, source values). For pragmatic generated-code
+cases, strings are treated as explicit raw Moonlift source/name fragments, not
+as quoted string literals; use `moon.string_lit(...)` or a Moonlift string
+literal when you want a runtime `ptr(u8)` string.
 
 There is no runtime splicing. All `@{...}` expressions are evaluated exactly
 once when the `.mlua` file is loaded. The expanded form (with all splices
-resolved) is a pure Moonlift module or declaration.
+resolved) is a pure Moonlift module or declaration. Implementation note: the
+current bridge still renders checked holes through a source boundary before
+parsing; the intended long-term boundary is parser-with-typed-holes so ASDL
+values need not round-trip through source text.
 
 ---
 
@@ -2721,7 +2727,7 @@ mlua_island_parse.lua           island detection and extraction
 mlua_loop_expand.lua            loop sugar → block/jump lowering
 
 -- Host bridge
-host_quote.lua                  LuaJIT hosted island bridge
+mlua_run.lua                    LuaJIT hosted island runner / antiquote bridge
 host.lua                        high-level builder API entry point
 host_session.lua                session management
 host_module_values.lua          module value construction
