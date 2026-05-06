@@ -227,52 +227,38 @@ function Runtime:eval_island(step_index, closures)
     -- 5. Expand and wrap as host value.
     if kind == "region" then
         local raw_frag    = parsed.value.frag
-        -- Resolve name splice if the region name was a hole.
-        if parsed.value.name_splice_id then
-            local ns_id = parsed.value.name_splice_id
-            local rec = luamap[ns_id]
-            if rec and rec.present and type(rec.value) == "string" then
-                raw_frag = pvm.with(raw_frag, { name = rec.value })
-            end
-        end
         local expanded    = Expand.expand_region_frag(raw_frag, env)
         local value       = HostValues.region_frag_value(self.session, expanded, {})
         self.region_frags[value.name] = value
         return value
     elseif kind == "expr" then
         local raw_frag    = parsed.value.frag
-        -- Resolve name splice if the expr frag name was a hole.
-        if parsed.value.name_splice_id then
-            local ns_id = parsed.value.name_splice_id
-            local rec = luamap[ns_id]
-            if rec and rec.present and type(rec.value) == "string" then
-                raw_frag = pvm.with(raw_frag, { name = rec.value })
-            end
-        end
         local expanded    = Expand.expand_expr_frag(raw_frag, env)
         local value       = HostValues.expr_frag_value(self.session, expanded)
         self.expr_frags[value.name] = value
         return value
     elseif kind == "module" then
-        -- Adopt region/expr frags defined inline in the module body, then rebuild
-        -- env with them so the module expansion can resolve emit calls.
+        -- Pre-expand region/expr frags defined inline in the module body, then
+        -- store them so emit calls in the module body can resolve them.
         if parsed.region_frags then
             for name, frag_result in pairs(parsed.region_frags) do
                 if type(frag_result) == "table" and frag_result.frag then
-                    local hv = HostValues.region_frag_value(self.session, frag_result.frag, {})
-                    self.region_frags[name] = hv
+                    local expanded = Expand.expand_region_frag(frag_result.frag, env)
+                    local hv = HostValues.region_frag_value(self.session, expanded, {})
+                    self.region_frags[hv.name] = hv
                 end
             end
         end
         if parsed.expr_frags then
             for name, frag_result in pairs(parsed.expr_frags) do
                 if type(frag_result) == "table" and frag_result.frag then
-                    local hv = HostValues.expr_frag_value(self.session, frag_result.frag)
-                    self.expr_frags[name] = hv
+                    local expanded = Expand.expand_expr_frag(frag_result.frag, env)
+                    local hv = HostValues.expr_frag_value(self.session, expanded)
+                    self.expr_frags[hv.name] = hv
                 end
             end
         end
-        -- Rebuild env with updated frags.
+        -- Rebuild env so the module expansion sees the newly expanded frags.
         env = Expand.env_with_fills(
             Expand.env_with_frags(self.region_frags, self.expr_frags),
             bindings)

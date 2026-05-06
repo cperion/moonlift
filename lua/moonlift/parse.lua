@@ -957,17 +957,20 @@ end
 function Parser:parse_expr_frag()
     local O = self.O
     self:expect(TK.expr, "expected expr")
-    local name, name_splice_id
+    local name_ref
     if self:kind() == TK.hole then
-        name_splice_id = self:text(); self.i = self.i + 1
-        local slot = O.NameSlot(self:splice_key("name", name_splice_id), name_splice_id)
-        self:record_splice_slot(name_splice_id, O.SlotName(slot), "name")
-        name = "__splice_name_" .. name_splice_id
+        local id = self:text(); self.i = self.i + 1
+        local slot = O.NameSlot(self:splice_key("name", id), id)
+        self:record_splice_slot(id, O.SlotName(slot), "name")
+        name_ref = O.NameRefSlot(slot)
     else
-        name = self:expect_name("expected expression fragment name")
+        name_ref = O.NameRefText(self:expect_name("expected expression fragment name"))
     end
+    local name_key
+    if pvm.classof(name_ref) == O.NameRefText then name_key = name_ref.text
+    else name_key = "__hole_" .. name_ref.slot.key end
     self:expect(TK.lparen, "expected '(' in expression fragment")
-    local params, param_bindings = self:parse_open_expr_params(name)
+    local params, param_bindings = self:parse_open_expr_params(name_key)
     self:expect(TK.rparen, "expected ')' after expression fragment params")
     self:expect(TK.arrow, "expected -> in expression fragment")
     local result = self:parse_type()
@@ -977,7 +980,7 @@ function Parser:parse_expr_frag()
     self:skip_nl()
     self:expect(TK.end_kw, "expected end after expression fragment")
     self.value_env = old_value_env
-    return { name = name, name_splice_id = name_splice_id, frag = O.ExprFrag(name, params, O.OpenSet({}, {}, {}, {}), body, result) }
+    return { name = name_key, frag = O.ExprFrag(name_ref, params, O.OpenSet({}, {}, {}, {}), body, result) }
 end
 
 function Parser:validate_cont_jump_args_in_stmts(stmts, cont_slots)
@@ -1012,15 +1015,23 @@ end
 function Parser:parse_region_frag()
     local O, B, C, Tr = self.O, self.B, self.C, self.Tr
     self:expect(TK.region, "expected region")
-    -- Name can be a splice hole (full name provided by Lua, not a mid-identifier suffix).
-    local name, name_splice_id
+    -- Name can be a splice hole (full name via NameRefSlot).
+    local name_ref
     if self:kind() == TK.hole then
-        name_splice_id = self:text(); self.i = self.i + 1
-        local slot = O.NameSlot(self:splice_key("name", name_splice_id), name_splice_id)
-        self:record_splice_slot(name_splice_id, O.SlotName(slot), "name")
-        name = "__splice_name_" .. name_splice_id
+        local id = self:text(); self.i = self.i + 1
+        local slot = O.NameSlot(self:splice_key("name", id), id)
+        self:record_splice_slot(id, O.SlotName(slot), "name")
+        name_ref = O.NameRefSlot(slot)
     else
-        name = self:expect_name("expected region fragment name")
+        name_ref = O.NameRefText(self:expect_name("expected region fragment name"))
+    end
+    -- Local string key for parameter/binding/cont-slot naming.  For NameRefSlot
+    -- this is a generated temporary key; the real name is resolved later.
+    local name_key
+    if pvm.classof(name_ref) == O.NameRefText then
+        name_key = name_ref.text
+    else
+        name_key = "__hole_" .. name_ref.slot.key
     end
     self:expect(TK.lparen, "expected '(' in region fragment")
     local params, param_bindings, slots = {}, {}, {}
@@ -1030,9 +1041,9 @@ function Parser:parse_region_frag()
             local pname = self:expect_name("expected region parameter name")
             self:expect(TK.colon, "expected ':' in region parameter")
             local ty = self:parse_type()
-            local param = O.OpenParam("param:" .. name .. ":" .. pname .. ":" .. tostring(#params + 1), pname, ty)
+            local param = O.OpenParam("param:" .. name_key .. ":" .. pname .. ":" .. tostring(#params + 1), pname, ty)
             params[#params + 1] = param
-            param_bindings[pname] = B.Binding(C.Id("open-param:" .. name .. ":" .. pname), pname, ty, B.BindingClassOpenParam(param))
+            param_bindings[pname] = B.Binding(C.Id("open-param:" .. name_key .. ":" .. pname), pname, ty, B.BindingClassOpenParam(param))
             self:skip_nl()
             if not self:accept(TK.comma) then break end
             self:skip_nl()
@@ -1043,7 +1054,7 @@ function Parser:parse_region_frag()
     self:skip_nl()
     if self:accept(TK.semi) then
         self:skip_nl()
-        cont_slots, slots = self:parse_cont_params(name)
+        cont_slots, slots = self:parse_cont_params(name_key)
     end
     self:expect(TK.rparen, "expected ')' after region fragment params")
     self:skip_nl()
@@ -1073,7 +1084,7 @@ function Parser:parse_region_frag()
     for i = 1, #blocks do self:validate_cont_jump_args_in_stmts(blocks[i].body, cont_slots) end
     self:expect(TK.end_kw, "expected end after region fragment")
     self.value_env, self.cont_env = old_value_env, old_cont_env
-    return { name = name, name_splice_id = name_splice_id, frag = O.RegionFrag(name, params, slots, O.OpenSet({}, {}, {}, {}), Tr.EntryControlBlock(entry_label, entry_params, body), blocks), cont_slots = cont_slots }
+    return { name = name_key, frag = O.RegionFrag(name_ref, params, slots, O.OpenSet({}, {}, {}, {}), Tr.EntryControlBlock(entry_label, entry_params, body), blocks), cont_slots = cont_slots }
 end
 
 function Parser:parse_type_fields()
@@ -1206,7 +1217,8 @@ function M.lex_template(T, template)
             local processed = Lex.moonlift_body(raw)
             append_toks(M.lex(processed))
         elseif pvm.classof(part) == H.TemplateSplicePart then
-            push_tok(TK.hole, part.splice.id, 0, 0, 0, 0)
+            local off = part.splice.byte_offset or 0
+            push_tok(TK.hole, part.splice.id, off, off, 1, 1)
         end
     end
     push_tok(TK.eof, "", 0, 0, 0, 0)
@@ -1303,12 +1315,29 @@ function M.parse_expr_frag(T, src, opts)
     return { value = value, issues = p.issues }
 end
 
+-- Parse a block of statements from raw source (for moon.source in region_body role).
+function M.parse_stmt_list(T, src, opts)
+    local wrapped = "func __stmts__(x: i32) -> i32\n" .. src .. "\n    return x\nend"
+    local result = M.parse(T, wrapped, opts)
+    if #result.issues > 0 then
+        return nil, result.issues
+    end
+    local Tr = T.MoonTree
+    for _, item in ipairs(result.module.items) do
+        if pvm.classof(item) == Tr.ItemFunc then
+            return item.func.body, {}
+        end
+    end
+    return nil, { T.MoonParse.ParseIssue("source stmt list: could not extract body", 0, 0, 0) }
+end
+
 function M.Define(T)
     return {
         TK = TK,
         lex = M.lex,
         lex_template = function(template) return M.lex_template(T, template) end,
         parse_module = function(src, opts) return M.parse(T, src, opts) end,
+        parse_stmt_list = function(src, opts) return M.parse_stmt_list(T, src, opts) end,
         parse_region_frag = function(src, opts) return M.parse_region_frag(T, src, opts) end,
         parse_expr_frag = function(src, opts) return M.parse_expr_frag(T, src, opts) end,
         parse_module_template = function(template, opts) return M.parse_module_template(T, template, opts) end,

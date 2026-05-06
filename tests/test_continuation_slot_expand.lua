@@ -25,8 +25,7 @@ local jit_api = Jit.Define(T)
 
 local i32 = Ty.TScalar(C.ScalarI32)
 local hit_slot = O.ContSlot("test.hit", "hit", { Tr.BlockParam("pos", i32) })
-local region_frag = O.RegionFrag(
-    "hit",
+local region_frag = O.RegionFrag(O.NameRefText("hit"),
     {},
     { hit_slot },
     O.OpenSet({}, {}, {}, {}),

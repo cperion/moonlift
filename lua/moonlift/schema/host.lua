@@ -330,6 +330,7 @@ return function(A)
         A.product "TemplateSplice" {
             A.field "id" "string",
             A.field "lua_source" "MoonSource.SourceSlice",
+            A.field "byte_offset" "number",
             A.unique,
         },
 

@@ -57,7 +57,7 @@ function M.Install(api, session)
         end
         local builder = setmetatable({ name = name, bindings = bindings }, ExprFragBuilder)
         local body = api.as_expr_value(body_fn(builder), "expr_frag body must return an expression value")
-        local frag = O.ExprFrag(name, open_params, O.OpenSet({}, {}, {}, {}), body.expr, result.ty)
+        local frag = O.ExprFrag(O.NameRefText(name), open_params, O.OpenSet({}, {}, {}, {}), body.expr, result.ty)
         session.T._moonlift_host_expr_frags = session.T._moonlift_host_expr_frags or {}
         session.T._moonlift_host_expr_frags[name] = frag
         return setmetatable({ kind = "expr_frag", name = name, frag = frag, result = result, params = params }, ExprFragValue)

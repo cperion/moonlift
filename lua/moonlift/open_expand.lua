@@ -242,14 +242,25 @@ function M.Define(T)
 
     lookup_region_frag = function(name, env)
         for i = #env.region_frags, 1, -1 do
-            if env.region_frags[i].name == name then return env.region_frags[i] end
+            local fn = env.region_frags[i].name
+            -- Resolve NameRef to plain string for comparison.
+            if type(fn) ~= "string" then
+                local cls = pvm.classof(fn)
+                if cls == O.NameRefText then fn = fn.text end
+            end
+            if fn == name then return env.region_frags[i] end
         end
         return pvm.NIL
     end
 
     lookup_expr_frag = function(name, env)
         for i = #env.expr_frags, 1, -1 do
-            if env.expr_frags[i].name == name then return env.expr_frags[i] end
+            local fn = env.expr_frags[i].name
+            if type(fn) ~= "string" then
+                local cls = pvm.classof(fn)
+                if cls == O.NameRefText then fn = fn.text end
+            end
+            if fn == name then return env.expr_frags[i] end
         end
         return pvm.NIL
     end
@@ -281,6 +292,30 @@ function M.Define(T)
         end
         return pvm.NIL
     end
+
+    -- Resolve a NameRef to a concrete string.  If unresolved, returns nil.
+    local function name_text(ref, env)
+        local cls = pvm.classof(ref)
+        if cls == O.NameRefText then return ref.text end
+        if cls == O.NameRefSlot then
+            local values = pvm.drain(lookup_slot_value(O.SlotName(ref.slot), env))
+            if #values == 1 and pvm.classof(values[1]) == O.SlotValueName then
+                return values[1].text
+            end
+        end
+        return nil
+    end
+
+    expand_name_ref = pvm.phase("moonlift_open_expand_name_ref", {
+        [O.NameRefText] = function(self) return pvm.once(self) end,
+        [O.NameRefSlot] = function(self, env)
+            local values = pvm.drain(lookup_slot_value(O.SlotName(self.slot), env))
+            if #values == 1 and pvm.classof(values[1]) == O.SlotValueName then
+                return pvm.once(O.NameRefText(values[1].text))
+            end
+            return pvm.once(self)
+        end,
+    }, { args_cache = "last" })
 
     expand_type = pvm.phase("moonlift_open_expand_type", {
         [Ty.TScalar] = function(self) return pvm.once(self) end,
@@ -961,7 +996,8 @@ function M.Define(T)
                 end
                 blocks[i] = Tr.ControlBlock(b.label, bparams, expand_stmts(b.body, env))
             end
-            return O.RegionFrag(frag.name, params, conts, frag.open, entry, blocks)
+            local resolved_name = name_text(frag.name, env) or "<unresolved>"
+            return O.RegionFrag(O.NameRefText(resolved_name), params, conts, frag.open, entry, blocks)
         end,
         -- Expand a standalone ExprFrag (resolves type/expr slots).
         expand_expr_frag = function(frag, env)
@@ -972,8 +1008,10 @@ function M.Define(T)
             end
             local body   = one(expand_expr, frag.body, env)
             local result = one(expand_type, frag.result, env)
-            return O.ExprFrag(frag.name, params, frag.open, body, result)
+            local resolved_name = name_text(frag.name, env) or "<unresolved>"
+            return O.ExprFrag(O.NameRefText(resolved_name), params, frag.open, body, result)
         end,
+        expand_name_ref = expand_name_ref,
         expand_module = function(module, env) return one(expand_module, module, env or empty_env()) end,
         expand_type = expand_type,
         expand_open_set = expand_open_set,

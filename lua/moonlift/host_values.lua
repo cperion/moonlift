@@ -25,6 +25,15 @@ local NilSpliceValue = {
 }
 function NilSpliceValue:moonlift_splice_source() return "nil" end
 
+local function frag_name_text(session, frag)
+    local ref = frag.name
+    if type(ref) == "string" then return ref end  -- migration shim
+    local O = session.T.MoonOpen
+    if pvm.classof(ref) == O.NameRefText then return ref.text end
+    if pvm.classof(ref) == O.NameRefSlot then return ref.slot.pretty_name or ref.slot.key end
+    return tostring(ref)
+end
+
 local function classof(v) return pvm.classof(v) end
 
 local function assert_same_context(session, node, site)
@@ -115,12 +124,13 @@ function M.region_frag_value(session, frag, opts)
     local O = session.T.MoonOpen
     assert(classof(frag) == O.RegionFrag, "region_frag_value expects MoonOpen.RegionFrag")
     local deps = deps_asdl_from_table(session, opts.deps)
-    local meta = session.T.MoonHost.RegionFragMeta(frag.name, frag, opts.protocol, deps)
+    local fname = frag_name_text(session, frag)
+    local meta = session.T.MoonHost.RegionFragMeta(fname, frag, opts.protocol, deps)
     local value = setmetatable({
         kind = "region_frag",
         moonlift_quote_kind = "region_frag",
-        id = session:host_value_id("region:" .. frag.name),
-        name = frag.name,
+        id = session:host_value_id("region:" .. fname),
+        name = fname,
         frag = frag,
         meta = meta,
         params = frag.params,
@@ -140,11 +150,12 @@ function M.expr_frag_value(session, frag, opts)
     assert_same_context(session, frag, "expr_frag_value")
     local O = session.T.MoonOpen
     assert(classof(frag) == O.ExprFrag, "expr_frag_value expects MoonOpen.ExprFrag")
+    local fname = frag_name_text(session, frag)
     local value = setmetatable({
         kind = "expr_frag",
         moonlift_quote_kind = "expr_frag",
-        id = session:host_value_id("expr:" .. frag.name),
-        name = frag.name,
+        id = session:host_value_id("expr:" .. fname),
+        name = fname,
         frag = frag,
         params = frag.params,
         params_by_name = list_to_name_map(frag.params),

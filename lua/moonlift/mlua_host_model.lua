@@ -58,7 +58,8 @@ local function parse_template(T, island)
             local lua_src = e and src:sub(i + 2, e - 1) or src:sub(i + 2)
             parts[#parts + 1] = H.TemplateSplicePart(H.TemplateSplice(
                 "splice." .. tostring(splice_i),
-                S.SourceSlice(lua_src)))
+                S.SourceSlice(lua_src),
+                i))  -- byte offset of @{ in the island source
             if not e then break end
             i = e + 1
             literal_start = i

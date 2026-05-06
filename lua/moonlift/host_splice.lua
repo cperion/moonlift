@@ -108,9 +108,13 @@ function M.fill_type(session, slot, value, site)
         ty = value
     end
 
-    -- 4. Source escape (deferred – raise now rather than silently pass bad source)
+    -- 4. Source escape: parse the source string as a type.
     if not ty and M.is_source(value) then
-        error((site or "splice") .. ": moon.source in type position is not yet implemented; pass a TypeValue instead", 2)
+        local ok, result = pcall(function()
+            return require("moonlift.parse").parse_type_string(session.T, value.source)
+        end)
+        if ok then ty = result
+        else error((site or "splice") .. ": moon.source type parse error: " .. tostring(result), 2) end
     end
 
     if not ty then
@@ -189,7 +193,7 @@ function M.fill_expr(session, slot, value, site)
         end
     end
 
-    -- 3. Host ExprValue or direct ASDL Expr node
+    -- 3. Host ExprValue, direct ASDL Expr node, or source escape.
     if not expr and type(value) == "table" then
         if type(value.as_expr_value) == "function" then
             expr = value:as_expr_value().expr
@@ -197,7 +201,27 @@ function M.fill_expr(session, slot, value, site)
             -- Raw ASDL node — trust the caller
             expr = value
         elseif M.is_source(value) then
-            error((site or "splice") .. ": moon.source in expr position is not yet implemented", 2)
+            local ok, result = pcall(function()
+                local T = session.T
+                local Parse = require("moonlift.parse")
+                local wrapped = "func __expr__() -> void\n    return " .. value.source .. "\nend"
+                local parsed = Parse.parse_module(T, wrapped)
+                if #parsed.issues > 0 then
+                    error("parse error: " .. tostring(parsed.issues[1]), 2)
+                end
+                for _, item in ipairs(parsed.module.items) do
+                    if pvm.classof(item) == Tr.ItemFunc then
+                        for _, stmt in ipairs(item.func.body) do
+                            if pvm.classof(stmt) == Tr.StmtReturnValue then
+                                return stmt.value
+                            end
+                        end
+                    end
+                end
+                error("could not extract expression", 2)
+            end)
+            if ok then expr = result
+            else error((site or "splice") .. ": moon.source expr parse error: " .. tostring(result), 2) end
         end
     end
 
@@ -219,8 +243,23 @@ function M.fill_region_body(session, slot, value, site)
     if p ~= nil then stmts = p end
 
     if not stmts and type(value) == "table" then
-        -- Accept any Lua array (we trust the contents are Stmt nodes)
-        stmts = value
+        -- Source escape
+        if M.is_source(value) then
+            local ok, result = pcall(function()
+                local T = session.T
+                local Parse = require("moonlift.parse")
+                local stmts_out, issues = Parse.parse_stmt_list(T, value.source)
+                if #issues > 0 then
+                    error("parse error: " .. tostring(issues[1]), 2)
+                end
+                return stmts_out
+            end)
+            if ok then stmts = result
+            else error((site or "splice") .. ": moon.source region_body parse error: " .. tostring(result), 2) end
+        else
+            -- Accept any Lua array (we trust the contents are Stmt nodes)
+            stmts = value
+        end
     end
 
     if not stmts then
@@ -322,11 +361,23 @@ function M.fill_items(session, slot, value, site)
     if p ~= nil and type(p) == "table" then items = p end
 
     if not items and type(value) == "table" then
-        -- ModuleValue with .module.items
+        -- Module value with .module.items
         if type(value.module) == "table" and value.module.items then
             items = value.module.items
+        -- Source escape
+        elseif M.is_source(value) then
+            local ok, result = pcall(function()
+                local T = session.T
+                local Parse = require("moonlift.parse")
+                local parsed = Parse.parse_module(T, value.source)
+                if #parsed.issues > 0 then
+                    error("parse error: " .. tostring(parsed.issues[1]), 2)
+                end
+                return parsed.module.items
+            end)
+            if ok then items = result
+            else error((site or "splice") .. ": moon.source module_items parse error: " .. tostring(result), 2) end
         else
-            -- Treat as array of items (or empty table → zero items)
             items = value
         end
     end

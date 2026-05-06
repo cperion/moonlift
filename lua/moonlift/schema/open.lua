@@ -128,6 +128,17 @@ return function(A)
             },
         },
 
+        A.sum "NameRef" {
+            A.variant "NameRefText" {
+                A.field "text" "string",
+                A.variant_unique,
+            },
+            A.variant "NameRefSlot" {
+                A.field "slot" "MoonOpen.NameSlot",
+                A.variant_unique,
+            },
+        },
+
         A.sum "Slot" {
             A.variant "SlotType" {
                 A.field "slot" "MoonOpen.TypeSlot",
@@ -369,7 +380,7 @@ return function(A)
         },
 
         A.product "ExprFrag" {
-            A.field "name" "string",
+            A.field "name" "MoonOpen.NameRef",
             A.field "params" (A.many "MoonOpen.OpenParam"),
             A.field "open" "MoonOpen.OpenSet",
             A.field "body" "MoonTree.Expr",
@@ -378,7 +389,7 @@ return function(A)
         },
 
         A.product "RegionFrag" {
-            A.field "name" "string",
+            A.field "name" "MoonOpen.NameRef",
             A.field "params" (A.many "MoonOpen.OpenParam"),
             A.field "conts" (A.many "MoonOpen.ContSlot"),
             A.field "open" "MoonOpen.OpenSet",

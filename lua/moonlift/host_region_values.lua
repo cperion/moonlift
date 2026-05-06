@@ -350,7 +350,7 @@ function M.Install(api, session)
         end
         r.conts = cont_values
         if builder_fn then builder_fn(r) end
-        local frag = O.RegionFrag(name, open_params, slots, O.OpenSet({}, {}, {}, {}), entry_asdl(r.entry_block), blocks_asdl(r.blocks))
+        local frag = O.RegionFrag(O.NameRefText(name), open_params, slots, O.OpenSet({}, {}, {}, {}), entry_asdl(r.entry_block), blocks_asdl(r.blocks))
         session.T._moonlift_host_region_frags = session.T._moonlift_host_region_frags or {}
         session.T._moonlift_host_region_frags[name] = frag
         return setmetatable({ kind = "region_frag", moonlift_quote_kind = "region_frag", name = name, params = runtime_params, frag = frag, conts = cont_values, protocol = nil, deps = r.deps }, RegionFragValue)

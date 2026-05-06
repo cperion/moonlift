@@ -62,7 +62,7 @@ assert(module_items[1] == Tr.ItemConst(Tr.ConstItem("nested", i32, lit("5"))))
 
 local param = O.OpenParam("x", "x", i32)
 local binding = B.Binding(C.Id("x"), "x", i32, B.BindingClassOpenParam(param))
-local frag = O.ExprFrag("frag", { param }, O.OpenSet({}, {}, {}, {}), Tr.ExprRef(Tr.ExprTyped(i32), B.ValueRefBinding(binding)), i32)
+local frag = O.ExprFrag(O.NameRefText("frag"), { param }, O.OpenSet({}, {}, {}, {}), Tr.ExprRef(Tr.ExprTyped(i32), B.ValueRefBinding(binding)), i32)
 local expanded_frag = E.expr(Tr.ExprUseExprFrag(Tr.ExprTyped(i32), "use.frag", O.ExprFragRefName("frag"), { lit("9") }, {}), E.env_with_frags({}, { frag }))
 assert(expanded_frag == lit("9"))
 
