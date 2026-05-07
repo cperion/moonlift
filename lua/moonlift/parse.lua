@@ -1141,7 +1141,9 @@ function Parser:parse_type_item()
     if self:accept(TK.struct) then return Tr.ItemType(Tr.TypeDeclStruct(name, self:parse_type_fields())) end
     if self:accept(TK.union) then return Tr.ItemType(Tr.TypeDeclUnion(name, self:parse_type_fields())) end
     if self:accept(TK.enum) then return Tr.ItemType(Tr.TypeDeclEnumSugar(name, self:parse_enum_variants())) end
-    return Tr.ItemType(Tr.TypeDeclTaggedUnionSugar(name, self:parse_tagged_union_variants()))
+    local variants = self:parse_tagged_union_variants()
+    self:expect(TK.end_kw, "expected end after tagged union")
+    return Tr.ItemType(Tr.TypeDeclTaggedUnionSugar(name, variants))
 end
 
 function Parser:parse_item()
@@ -1160,6 +1162,19 @@ function Parser:parse_item()
     if self:accept(TK.const) then local name = self:expect_name("expected const name"); self:expect(TK.colon); local ty = self:parse_type(); self:expect(TK.eq); return Tr.ItemConst(Tr.ConstItem(name, ty, self:parse_expr(0))) end
     if self:accept(TK.static) then local name = self:expect_name("expected static name"); self:expect(TK.colon); local ty = self:parse_type(); self:expect(TK.eq); return Tr.ItemStatic(Tr.StaticItem(name, ty, self:parse_expr(0))) end
     if self:accept(TK.type_kw) then return self:parse_type_item() end
+    -- Tagged union: name followed by variants (no keyword).
+    if self:kind() == TK.name then
+        local saved_i = self.i
+        local saved_n = #self.issues
+        local name = self:text(); self.i = self.i + 1
+        local variants = self:parse_tagged_union_variants()
+        if #self.issues == saved_n then
+            self:expect(TK.end_kw, "expected end after tagged union")
+            return Tr.ItemType(Tr.TypeDeclTaggedUnionSugar(name, variants))
+        end
+        self.i = saved_i
+        while #self.issues > saved_n do self.issues[#self.issues] = nil end
+    end
     self:issue("expected item")
     self.i = self.i + 1
     return nil
@@ -1169,11 +1184,12 @@ function Parser:parse_module()
     local Tr = self.Tr
     local items = {}
     self:skip_nl()
-    while self:kind() ~= TK.eof do
+    while self:kind() ~= TK.eof and self:kind() ~= TK.end_kw do
         local item = self:parse_item()
         if item ~= nil then items[#items + 1] = item end
         self:skip_nl()
     end
+    if self:kind() == TK.end_kw then self.i = self.i + 1 end
     return Tr.Module(Tr.ModuleSurface, items)
 end
 

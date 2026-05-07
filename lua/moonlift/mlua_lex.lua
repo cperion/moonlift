@@ -275,7 +275,9 @@ local function is_module_start(src, i)
     if ch == "" then return prefix_ok end
     if ch == "\n" then
         if not from_return then return true end
-        local next_word = read_ident(src, skip_space(src, k + 1))
+        local next_line_start = skip_space(src, k + 1)
+        if src:sub(next_line_start, next_line_start + 1) == "@{" then return true end
+        local next_word = read_ident(src, next_line_start)
         return item_words[next_word] == true
     end
     local word, after_word = read_ident(src, k)

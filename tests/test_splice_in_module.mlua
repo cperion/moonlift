@@ -1,0 +1,8 @@
+-- Simple splice test inside module body
+local decl_blob = ""
+return module
+    @{decl_blob}
+    export func hello() -> i32
+        return 42
+    end
+end
