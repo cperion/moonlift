@@ -48,6 +48,7 @@ sealing = function
 Key architectural commitments:
 
 - [x] Region-first VM architecture.
+- [x] Named protocol exit types as the architectural contract (`docs/VM_PROTOCOL_DESIGN.md`).
 - [x] LuaJIT-like SSA IR: `IRIns`, `TRef`, `REF_BIAS`.
 - [x] Snapshots are the deoptimization contract.
 - [x] Interpreter opcode dispatch is a `switch`.
@@ -77,6 +78,13 @@ These are Moonlift language/compiler blockers that affect the VM experiment.
     - emitted fragment containing switch;
     - dispatch-shaped block using switch+emit;
     - recursive emit cycle rejection.
+
+- [x] **P0.COMP.007 — Named protocol exit syntax**
+  - Tagged-union variants now carry named fields: `type P = exit(field: T) | ...`
+  - `region r(...) -> P` syntax lowers protocol type to continuation slots.
+  - Parser, `.mlua` parser, template parser all updated.
+  - `docs/PROTOCOL_SYNTAX.md` documents the surface syntax.
+  - `tests/test_protocol_syntax.lua` regression suite.
 
 - [ ] **P0.COMP.003 — Decide struct literal strategy**
   - Current blocker: struct literals documented but parser rejects them.
@@ -121,6 +129,14 @@ Before writing VM code, freeze the contracts that are hardest to change.
 - [x] **P1.ARCH.003 — Assembler reuse strategy**
   - Added to architecture doc.
 
+- [x] **P1.ARCH.011 — VM protocol design**
+  - File: `docs/VM_PROTOCOL_DESIGN.md`
+  - Full protocol catalog: all 25 protocol types across every VM subsystem.
+  - `TraceAbort` data union matching `lj_traceerr.h` TREDEF table exactly.
+  - Protocol hierarchy diagram.
+  - Grammar library upgrade path.
+  - M0–M12 milestone-to-protocol-type mapping.
+
 - [ ] **P1.ARCH.004 — Decide TValue representation for first implementation**
   - Candidate decision: explicit `{tag, payload}` first, with helper abstraction
     allowing later NaN-boxing.
@@ -164,6 +180,12 @@ Exit criteria for P1:
 ### P2.SKEL — File/Module Layout
 
 - [ ] **P2.SKEL.001 — Create `mlua/luajitvm/` root**
+
+- [ ] **P2.SKEL.009 — Create `mlua/luajitvm/protocols.mlua` (M0)**
+  - Declare all protocol types from `docs/VM_PROTOCOL_DESIGN.md §4`.
+  - No implementations — types only.
+  - Must compile before any other VM module is written.
+  - This is the M0 milestone gate.
 
 - [ ] **P2.SKEL.002 — Create core modules**
   - `core/value.mlua`
@@ -276,46 +298,47 @@ Exit criteria for P3:
 
 ### P4.PROTO — Control Protocol Surface
 
-- [ ] **P4.PROTO.001 — Stub interpreter region signatures**
-  - `vm_loop`
-  - `vm_bc_add`
-  - `vm_bc_call`
-  - `vm_bc_ret`
-  - `vm_bc_loop`
+- [ ] **P4.PROTO.001 — Create M0 protocol type file**
+  - Implement `P2.SKEL.009` first.
+  - All VM regions reference types from `protocols.mlua`.
+  - No inline continuation declarations for any named-family region.
 
-- [ ] **P4.PROTO.002 — Stub runtime object region signatures**
-  - `table_get`
-  - `table_set`
-  - `metamethod_binop`
+- [ ] **P4.PROTO.002 — Stub interpreter region signatures**
+  - `vm_loop` → `InterpResult`
+  - `vm_bc_add`, `vm_bc_tgetv`, `vm_bc_call` → `OpcodeResult`
 
-- [ ] **P4.PROTO.003 — Stub GC region signatures**
-  - `gc_alloc`
-  - `gc_step`
-  - `gc_barrier_obj`
-  - `gc_barrier_back`
+- [ ] **P4.PROTO.003 — Stub runtime object region signatures**
+  - `table_get` → `TableGet`
+  - `table_set` → `TableSet`
+  - `metamethod_binop` → `MetamethodResult`
 
-- [ ] **P4.PROTO.004 — Stub trace region signatures**
-  - `trace_start`
-  - `trace_record_root`
-  - `trace_record_side`
-  - `trace_commit`
+- [ ] **P4.PROTO.004 — Stub GC region signatures**
+  - `gc_alloc` → `AllocResult`
+  - `gc_step` → `GCStepResult`
+  - `gc_barrier_fwd`, `gc_barrier_back` → `BarrierResult`
 
-- [ ] **P4.PROTO.005 — Stub IR region signatures**
-  - `ir_emit`
-  - `fold_ir`
-  - `snap_add`
+- [ ] **P4.PROTO.005 — Stub trace region signatures**
+  - `trace_record_root` → `TraceRecord`
+  - `trace_record_side` → `TraceRecordSide`
+  - `trace_commit` → `TraceCommit`
 
-- [ ] **P4.PROTO.006 — Stub optimizer region signatures**
-  - `optimize_trace`
-  - `opt_dce`
-  - `opt_loop`
-  - `opt_sink`
+- [ ] **P4.PROTO.006 — Stub IR region signatures**
+  - `ir_emit` → `IREmit`
+  - `ir_fold` → `FoldResult`
+  - `snap_add` → `SnapAdd`
+  - `rec_getslot` → `SlotGet`
 
-- [ ] **P4.PROTO.007 — Stub assembler region signatures**
-  - `asm_trace`
-  - `ra_alloc`
-  - `ra_dest`
-  - `x64_asm_one_ir`
+- [ ] **P4.PROTO.007 — Stub optimizer region signatures**
+  - `optimize_trace` → `OptResult`
+  - `opt_dce` → `DCEResult`
+  - `opt_loop` → `LoopOptResult`
+  - `opt_sink` → `SinkResult`
+
+- [ ] **P4.PROTO.008 — Stub assembler region signatures**
+  - `asm_trace` → `AsmResult`
+  - `x64_asm_one_ir` → `TileResult`
+  - `ra_alloc` → `RAAlloc`
+  - `ra_dest` → `RADest`
 
 Exit criteria for P4:
 
@@ -722,6 +745,27 @@ Temporary shortcut:
   import, alpha-renaming, continuation routing, and recursive-cycle detection
   must be explicit compiler infrastructure.
 
+### D006 — Named protocol exit syntax
+
+- Status: accepted and implemented.
+- Decision: tagged-union types with named variant fields (`type P = exit(field: T) | ...`)
+  serve as protocol types. `region r(...) -> P` lowers to continuation slots.
+- Implementation: `lua/moonlift/parse.lua`, `lua/moonlift/mlua_parse.lua`,
+  `lua/moonlift/mlua_lex.lua`, `lua/moonlift/schema/type.lua`.
+- Tests: `tests/test_protocol_syntax.lua`, `tests/test_parse_type_items.lua`.
+- Docs: `PROTOCOL_SYNTAX.md`.
+- Rationale: every VM subsystem boundary maps to a named protocol type; the
+  `-> ProtocolType` syntax makes the boundary visible and compiler-checked.
+
+### D007 — VM protocol design document as canonical contract
+
+- Status: accepted.
+- Decision: `docs/VM_PROTOCOL_DESIGN.md` is the canonical source for all VM
+  protocol types. Architecture and implementation plan reference it; neither
+  duplicates the type definitions.
+- Rationale: single authoritative catalog prevents drift between design docs
+  and implementation.
+
 ---
 
 ## 21. Current Blockers
@@ -729,8 +773,11 @@ Temporary shortcut:
 - [x] **Region composition is now first-class enough to start VM skeleton work.**
   - Implemented RNF in `lua/moonlift/region_normal_form.lua`.
   - `open_expand.lua` now delegates control-region composition to RNF.
-  - Regression tests cover switch+emit dispatch shapes and recursive emit cycle
-    rejection.
+
+- [x] **Named protocol exit syntax is implemented (D006).**
+  - `type P = exit(field: T) | ...` and `region r(...) -> P` work end-to-end.
+  - Protocol types declared at module scope seed continuation slots for
+    following region definitions in the same `.mlua` file.
 
 - [!] Struct literals not implemented.
 - [!] Struct field assignment not implemented.
@@ -739,15 +786,15 @@ Temporary shortcut:
 
 ## 22. Next Immediate Actions
 
-1. [x] Design Region Normal Form (RNF) as the clean compiler boundary for
-   composed control graphs.
-2. [x] Replace ad-hoc region emit expansion with RNF lowering:
-   emit-site -> imported blocks + entry jump + typed continuation routes.
-3. [x] Add regression tests for emit inside switch arms, switch inside emitted
-   fragments, continuation forwarding, dispatch-style blocks, and recursive
-   emit rejection.
-4. [ ] Create `VALUE_LAYOUT.md`, `IR_LAYOUT.md`, `TRACE_LAYOUT.md` drafts.
-5. [ ] Create `mlua/luajitvm/` skeleton once RNF is viable.
+1. [x] Design Region Normal Form (RNF).
+2. [x] Replace ad-hoc region emit expansion with RNF lowering.
+3. [x] Add regression tests for region composition shapes.
+4. [x] Design and implement named protocol exit syntax (`type P = ...`, `region r() -> P`).
+5. [x] Write `docs/VM_PROTOCOL_DESIGN.md` — full VM protocol catalog.
+6. [ ] Create `mlua/luajitvm/protocols.mlua` — M0 protocol type declarations.
+7. [ ] Create `mlua/luajitvm/` skeleton (P2.SKEL).
+8. [ ] Stub all region signatures using protocol types (P4.PROTO).
+9. [ ] Create `VALUE_LAYOUT.md`, `IR_LAYOUT.md`, `TRACE_LAYOUT.md` drafts.
 
 ---
 

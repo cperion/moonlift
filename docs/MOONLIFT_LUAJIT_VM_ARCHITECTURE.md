@@ -33,17 +33,20 @@ LuaJIT is difficult because its essential protocols are implicit:
 - metamethod fast/slow path states.
 
 In C, these are encoded as return values, flags, mutable fields, macros, and
-non-local aborts. In Moonlift, they become region signatures.
+non-local aborts. In Moonlift, they become **named protocol types**.
 
 ```moonlift
-region rec_opcode(J: ptr(JitState), L: ptr(ThreadState), bc: BCIns;
-    next: cont(pc: ptr(BCIns)),
-    stop: cont(link: TraceLink),
-    need_snapshot: cont(guard: IRRef),
-    abort: cont(code: TraceAbort))
+type RecOpcodeResult
+    = next(pc: ptr(BCIns))
+    | stop(link: TraceLink)
+    | metamethod(mm: i32)
+    | abort(reason: TraceAbort)
+
+region rec_bc_add(J: ptr(JitState), L: ptr(ThreadState), bc: i32) -> RecOpcodeResult
 ```
 
-That signature is architecture. It is checked by the compiler.
+The protocol type is declared once and shared by every opcode recorder.
+The signature is architecture. It is checked by the compiler.
 
 ---
 
@@ -102,7 +105,29 @@ Lua may be used at build time for Moonlift metaprogramming:
 
 The compiled VM/JIT runtime must be native code produced from Moonlift.
 
-### 2.5 LuaJIT-Grade Means Full Semantics
+### 2.5 Protocol Types Are the Architectural Contract
+
+Every subsystem boundary that can produce multiple distinct control outcomes
+is a **named protocol type**.
+
+```moonlift
+type TraceRecord = compiled(tr: i32) | interpret() | abort(reason: TraceAbort)
+type TableGet    = hit(val: TValue) | nil_no_meta() | meta(mm: TValue) | error(kind: RuntimeErrorKind)
+type AllocResult = ok(obj: ptr(GCobj)) | step(budget: usize) | oom()
+```
+
+Rules:
+
+1. Protocol types are declared once in `mlua/luajitvm/protocols.mlua` (M0).
+2. Every region that belongs to a subsystem family uses `-> ProtocolType`.
+3. Inline continuation declarations (`; exit: cont(...)`) are reserved for
+   one-off local regions that do not belong to a named family.
+4. Changing a protocol type propagates type errors to every non-conforming
+   implementation immediately.
+
+Full protocol catalog: `docs/VM_PROTOCOL_DESIGN.md`.
+
+### 2.6 LuaJIT-Grade Means Full Semantics
 
 The target is a full LuaJIT-class runtime, not a calculator VM:
 
@@ -494,6 +519,17 @@ After RNF, executable control regions should contain no lowerable
 
 ### 8.1 Canonical Region Shape
 
+The preferred form uses a named protocol type:
+
+```moonlift
+type TableGet = hit(val: TValue) | nil_no_meta() | meta(mm: TValue) | error(kind: RuntimeErrorKind)
+
+region table_get(G: ptr(GlobalState), tab: ptr(GCtab), key: TValue) -> TableGet
+```
+
+For one-off local regions without a named family, inline continuations
+are still valid:
+
 ```moonlift
 region fragment(inputs...;
     fast: cont(...),
@@ -501,7 +537,7 @@ region fragment(inputs...;
     error: cont(code: i32))
 ```
 
-Rules:
+Rules (apply to both forms):
 
 1. All exits are named and typed.
 2. No hidden nullable returns for control events.
@@ -511,23 +547,39 @@ Rules:
 
 ### 8.2 Region Protocol Table
 
-| Subsystem | Primary region | Exits |
+All VM subsystem protocols are defined as named tagged-union types and
+catalogued in `docs/VM_PROTOCOL_DESIGN.md`.
+
+| Subsystem | Protocol type | Key exits |
 |---|---|---|
-| interpreter | `vm_loop` | `yield`, `returned`, `error` |
-| opcode handler | `vm_bc_*` | `next`, `metamethod`, `hot`, `error` |
-| table get | `table_get` | `hit`, `nil_no_meta`, `meta`, `error` |
-| table set | `table_set` | `done`, `need_barrier`, `new_key`, `meta`, `error` |
-| call | `prepare_call` | `lua`, `native`, `metamethod`, `error` |
-| return | `return_from_lua` | `resume_caller`, `final_return`, `close_upvalues`, `error` |
-| allocation | `gc_alloc` | `ok`, `step`, `oom` |
-| GC step | `gc_step` | `done`, `need_finalize`, `oom`, `error` |
-| recorder | `trace_record_root` | `compiled`, `stitch`, `interpret`, `abort` |
-| IR emit | `ir_emit` | `result`, `retry`, `need_snapshot`, `overflow`, `abort` |
-| fold | `fold_ir` | `replace`, `emit`, `retry`, `snapshot`, `abort` |
-| snapshot | `snap_add` | `done`, `merge`, `overflow`, `abort` |
-| optimizer | `optimize_trace` | `optimized`, `retry_recording`, `abort` |
-| assembler | `asm_trace` | `mcode`, `retry_realign`, `retry_ir_grew`, `mcode_full`, `abort` |
-| exit handler | `trace_exit_handler` | `resume_interp`, `start_side_trace`, `error` |
+| interpreter top | `InterpResult` | `returned`, `yielded`, `error` |
+| opcode handler | `OpcodeResult` | `next`, `hot`, `yield`, `error` |
+| table get | `TableGet` | `hit`, `nil_no_meta`, `meta`, `error` |
+| table set | `TableSet` | `done`, `need_barrier`, `new_key`, `meta`, `error` |
+| call setup | `CallResult` | `lua_call`, `native_call`, `metamethod`, `error` |
+| return | `ReturnResult` | `resume_caller`, `final_return`, `close_upvalues`, `error` |
+| metamethod | `MetamethodResult` | `found`, `not_found`, `error` |
+| allocation | `AllocResult` | `ok`, `step`, `oom` |
+| GC step | `GCStepResult` | `done`, `need_finalize`, `oom`, `error` |
+| GC barrier | `BarrierResult` | `done` |
+| trace record root | `TraceRecord` | `compiled`, `interpret`, `abort` |
+| trace record side | `TraceRecordSide` | `compiled`, `stitch`, `interpret`, `abort` |
+| trace commit | `TraceCommit` | `root_patched`, `side_patched`, `abort` |
+| IR emit | `IREmit` | `result`, `retry`, `need_snapshot`, `overflow`, `abort` |
+| FOLD | `FoldResult` | `replace`, `emit`, `retry`, `abort` |
+| slot access | `SlotGet` | `have`, `need_sload`, `abort` |
+| snap add | `SnapAdd` | `done`, `merge`, `overflow`, `abort` |
+| snap restore | `SnapRestore` | `restored`, `unsupported`, `error` |
+| optimizer | `OptResult` | `optimized`, `retry_recording`, `abort` |
+| assembler | `AsmResult` | `mcode`, `retry_realign`, `retry_ir_grew`, `mcode_full`, `abort` |
+| tile dispatch | `TileResult` | `done`, `need_snapshot`, `mcode_full`, `abort` |
+| register alloc | `RAAlloc` | `reg`, `remat`, `spill_and_retry`, `fail` |
+| hot exit | `HotExit` | `resume_interp`, `start_side`, `blacklist`, `error` |
+| parse exit | `ParseExit` | `ok`, `fail` |
+
+Abort reasons for `abort(reason: TraceAbort)` are themselves a typed data
+union matching the full LuaJIT `lj_traceerr.h` TREDEF table — see
+`docs/VM_PROTOCOL_DESIGN.md §3`.
 
 ---
 
@@ -540,36 +592,45 @@ The interpreter is a switch-driven hot loop sealed inside a function.
 ```moonlift
 func vm_resume(L: ptr(ThreadState), resume_status: i32) -> i32
     emit vm_loop(L, resume_status;
-        yield = ret_yield,
         returned = ret_returned,
-        error = ret_error)
+        yielded  = ret_yielded,
+        error    = ret_error)
 end
 ```
 
 ```moonlift
-region vm_loop(L: ptr(ThreadState), resume_status: i32;
-    yield: cont(code: i32),
-    returned: cont(nresults: i32),
-    error: cont(code: i32))
+region vm_loop(L: ptr(ThreadState), status: i32) -> InterpResult
 entry dispatch()
-    bc = *L.pc
-    op = bc_op(bc)
+    let bc: i32 = load(L.pc)
+    let op: i32 = bc & 0xFF
     switch op
-        case BC_ADD:
-            emit vm_bc_add(L, bc; next=dispatch, error=error)
-        case BC_TGETV:
-            emit vm_bc_tgetv(L, bc; next=dispatch, error=error)
-        case BC_CALL:
-            emit vm_bc_call(L, bc; next=dispatch, yield=yield, error=error)
-        case BC_RET:
-            emit vm_bc_ret(L, bc; returned=returned, next=dispatch, error=error)
-        case BC_LOOP:
-            emit vm_bc_loop(L, bc; next=dispatch, enter_trace=enter_trace, error=error)
-        case BC_JLOOP:
-            emit vm_bc_jloop(L, bc; next=dispatch, enter_trace=enter_trace, error=error)
+    case BC_ADD then
+        emit vm_bc_add(L, bc; next=dispatch, hot=enter_trace, error=error)
     end
-block enter_trace(tr: TraceNo)
-    emit trace_enter(L, tr; next=dispatch, returned=returned, error=error)
+    case BC_TGETV then
+        emit vm_bc_tgetv(L, bc; next=dispatch, hot=enter_trace, error=error)
+    end
+    case BC_CALL then
+        emit vm_bc_call(L, bc; next=dispatch, hot=enter_trace, yield=yielded, error=error)
+    end
+    case BC_RET then
+        emit vm_bc_ret(L, bc; resume_caller=dispatch, final_return=returned, close_upvalues=close_upvals, error=error)
+    end
+    case BC_LOOP then
+        emit vm_bc_loop(L, bc; next=dispatch, hot=enter_trace, error=error)
+    end
+    case BC_JLOOP then
+        emit vm_bc_jloop(L, bc; next=dispatch, hot=enter_trace, error=error)
+    end
+    default then
+        jump error(kind = type_error(0, 0))
+    end
+block enter_trace(pc: ptr(BCIns))
+    emit trace_enter(L, pc; next=dispatch, returned=returned, error=error)
+end
+block close_upvals(from: ptr(TValue))
+    emit upvalue_close(L, from; done=dispatch, error=error)
+end
 end
 ```
 
@@ -578,9 +639,7 @@ end
 #### Arithmetic
 
 ```moonlift
-region vm_bc_add(L: ptr(ThreadState), bc: BCIns;
-    next: cont(),
-    error: cont(code: i32))
+region vm_bc_add(L: ptr(ThreadState), bc: i32) -> OpcodeResult
 ```
 
 States:
@@ -596,9 +655,7 @@ States:
 #### Table Get
 
 ```moonlift
-region vm_bc_tgetv(L: ptr(ThreadState), bc: BCIns;
-    next: cont(),
-    error: cont(code: i32))
+region vm_bc_tgetv(L: ptr(ThreadState), bc: i32) -> OpcodeResult
 ```
 
 States:
@@ -613,10 +670,7 @@ States:
 #### Call
 
 ```moonlift
-region vm_bc_call(L: ptr(ThreadState), bc: BCIns;
-    next: cont(),
-    yield: cont(code: i32),
-    error: cont(code: i32))
+region vm_bc_call(L: ptr(ThreadState), bc: i32) -> OpcodeResult
 ```
 
 States:
@@ -657,11 +711,7 @@ stateDiagram-v2
 ### 10.1 Table Lookup Protocol
 
 ```moonlift
-region table_get(G: ptr(GlobalState), tab: ptr(GCtab), key: TValue;
-    hit: cont(val: TValue),
-    nil_no_meta: cont(),
-    meta: cont(mm: TValue),
-    error: cont(code: i32))
+region table_get(G: ptr(GlobalState), tab: ptr(GCtab), key: TValue) -> TableGet
 ```
 
 ```mermaid
@@ -691,12 +741,7 @@ flowchart TD
 ### 10.2 Table Store Protocol
 
 ```moonlift
-region table_set(G: ptr(GlobalState), tab: ptr(GCtab), key: TValue, val: TValue;
-    done: cont(),
-    need_barrier: cont(parent: ptr(GCobj), child: TValue),
-    new_key: cont(),
-    meta: cont(mm: TValue),
-    error: cont(code: i32))
+region table_set(G: ptr(GlobalState), tab: ptr(GCtab), key: TValue, val: TValue) -> TableSet
 ```
 
 The GC barrier is not hidden in the store. It is a typed exit that must be
@@ -705,10 +750,7 @@ handled by every caller.
 ### 10.3 Metamethod Engine
 
 ```moonlift
-region metamethod_binop(L: ptr(ThreadState), mm: MMS, lhs: TValue, rhs: TValue;
-    call: cont(fn: TValue, lhs: TValue, rhs: TValue),
-    not_found: cont(),
-    error: cont(code: i32))
+region metamethod_binop(L: ptr(ThreadState), mm: i32, lhs: TValue, rhs: TValue) -> MetamethodResult
 ```
 
 Metamethod lookup uses per-table negative caches (`nomm`) like LuaJIT. Recorder
@@ -737,28 +779,19 @@ stateDiagram-v2
 ### 11.2 GC Regions
 
 ```moonlift
-region gc_alloc(G: ptr(GlobalState), size: usize, gct: u8;
-    ok: cont(obj: ptr(GCobj)),
-    step: cont(required: usize),
-    oom: cont())
+region gc_alloc(G: ptr(GlobalState), size: usize, gct: i32) -> AllocResult
 ```
 
 ```moonlift
-region gc_step(G: ptr(GlobalState), budget: i32;
-    done: cont(used: i32),
-    need_finalize: cont(),
-    oom: cont(),
-    error: cont(code: i32))
+region gc_step(G: ptr(GlobalState), budget: i32) -> GCStepResult
 ```
 
 ```moonlift
-region gc_barrier_obj(G: ptr(GlobalState), parent: ptr(GCobj), child: TValue;
-    done: cont())
+region gc_barrier_fwd(G: ptr(GlobalState), parent: ptr(GCobj), child: TValue) -> BarrierResult
 ```
 
 ```moonlift
-region gc_barrier_back(G: ptr(GlobalState), tab: ptr(GCtab);
-    done: cont())
+region gc_barrier_back(G: ptr(GlobalState), tab: ptr(GCtab)) -> BarrierResult
 ```
 
 ### 11.3 GC Invariants
@@ -800,9 +833,7 @@ stateDiagram-v2
 ### 12.1 Trace Start
 
 ```moonlift
-region trace_start(J: ptr(JitState), L: ptr(ThreadState), startpc: ptr(BCIns), parent: TraceNo, exitno: ExitNo;
-    ready: cont(pc: ptr(BCIns)),
-    abort: cont(code: TraceAbort))
+region trace_start(J: ptr(JitState), L: ptr(ThreadState), pc: ptr(BCIns), parent: i32, exitno: i32) -> TraceRecord
 ```
 
 Responsibilities:
@@ -816,29 +847,19 @@ Responsibilities:
 ### 12.2 Recording Root
 
 ```moonlift
-region trace_record_root(J: ptr(JitState), L: ptr(ThreadState), startpc: ptr(BCIns);
-    compiled: cont(tr: TraceNo),
-    interpret: cont(),
-    abort: cont(code: TraceAbort))
+region trace_record_root(J: ptr(JitState), L: ptr(ThreadState), pc: ptr(BCIns)) -> TraceRecord
 ```
 
 ### 12.3 Recording Side Trace
 
 ```moonlift
-region trace_record_side(J: ptr(JitState), L: ptr(ThreadState), parent: TraceNo, exitno: ExitNo;
-    compiled: cont(tr: TraceNo),
-    stitch: cont(tr: TraceNo),
-    interpret: cont(),
-    abort: cont(code: TraceAbort))
+region trace_record_side(J: ptr(JitState), L: ptr(ThreadState), parent: i32, exitno: i32) -> TraceRecordSide
 ```
 
 ### 12.4 Trace Commit
 
 ```moonlift
-region trace_commit(J: ptr(JitState), T: ptr(Trace), mcode: ptr(MCode);
-    root_patched: cont(tr: TraceNo),
-    side_patched: cont(tr: TraceNo),
-    abort: cont(code: TraceAbort))
+region trace_commit(J: ptr(JitState), tr: i32, mcode_entry: ptr(u8)) -> TraceCommit
 ```
 
 Commit updates:
@@ -922,12 +943,7 @@ successful design.
 ### 14.1 Emit Protocol
 
 ```moonlift
-region ir_emit(J: ptr(JitState), ot: IROpType, a: TRef, b: TRef;
-    result: cont(ref: TRef),
-    retry: cont(ot: IROpType, a: TRef, b: TRef),
-    need_snapshot: cont(guard: IRRef),
-    overflow: cont(),
-    abort: cont(code: TraceAbort))
+region ir_emit(J: ptr(JitState), ot: i32, a: i32, b: i32) -> IREmit
 ```
 
 ### 14.2 FOLD State Machine
@@ -958,11 +974,7 @@ stateDiagram-v2
 Fold rules are generated by Lua at build time as concrete Moonlift regions.
 
 ```moonlift
-region fold_add_kint_kint(J: ptr(JitState), ins: IRIns;
-    replace: cont(ref: TRef),
-    retry: cont(ins: IRIns),
-    emit: cont(ins: IRIns),
-    abort: cont(code: TraceAbort))
+region fold_add_kint_kint(J: ptr(JitState), ot: i32, a: i32, b: i32) -> FoldResult
 ```
 
 The generated dispatcher is a switch/tree over opcode and operand classes. The
@@ -996,25 +1008,15 @@ flowchart LR
 ### 15.2 Recorder Opcode Protocol
 
 ```moonlift
-region rec_bc_add(J: ptr(JitState), L: ptr(ThreadState), bc: BCIns;
-    next: cont(pc: ptr(BCIns)),
-    metamethod: cont(mm: MMS),
-    abort: cont(code: TraceAbort))
+region rec_bc_add(J: ptr(JitState), L: ptr(ThreadState), bc: i32) -> RecOpcodeResult
 ```
 
 ```moonlift
-region rec_bc_tgetv(J: ptr(JitState), L: ptr(ThreadState), bc: BCIns;
-    next: cont(pc: ptr(BCIns)),
-    guard_meta: cont(mm: TValue),
-    abort: cont(code: TraceAbort))
+region rec_bc_tgetv(J: ptr(JitState), L: ptr(ThreadState), bc: i32) -> RecTableGet
 ```
 
 ```moonlift
-region rec_bc_call(J: ptr(JitState), L: ptr(ThreadState), bc: BCIns;
-    inline_lua: cont(fn: ptr(GCfuncL)),
-    link_call: cont(),
-    stop: cont(link: TraceLink),
-    abort: cont(code: TraceAbort))
+region rec_bc_call(J: ptr(JitState), L: ptr(ThreadState), bc: i32) -> RecCallResult
 ```
 
 ### 15.3 Slot Map
@@ -1026,10 +1028,7 @@ J.slot[stack_slot] -> TRef
 Protocol:
 
 ```moonlift
-region rec_getslot(J: ptr(JitState), L: ptr(ThreadState), slot: BCReg;
-    have: cont(ref: TRef),
-    need_sload: cont(slot: BCReg, runtime: TValue),
-    abort: cont(code: TraceAbort))
+region rec_getslot(J: ptr(JitState), L: ptr(ThreadState), slot: i32) -> SlotGet
 ```
 
 First access emits `SLOAD` with a type guard. Subsequent access reuses the slot
@@ -1058,20 +1057,13 @@ SnapEntry:
 ### 16.2 Capture Protocol
 
 ```moonlift
-region snap_add(J: ptr(JitState), guard: IRRef;
-    done: cont(snapno: SnapNo),
-    merge: cont(snapno: SnapNo),
-    overflow: cont(),
-    abort: cont(code: TraceAbort))
+region snap_add(J: ptr(JitState), guard: i32) -> SnapAdd
 ```
 
 ### 16.3 Restore Protocol
 
 ```moonlift
-region snap_restore(L: ptr(ThreadState), T: ptr(Trace), exitno: ExitNo, ex: ptr(ExitState);
-    restored: cont(pc: ptr(BCIns)),
-    unsupported: cont(code: i32),
-    error: cont(code: i32))
+region snap_restore(L: ptr(ThreadState), tr: i32, exitno: i32, ex: ptr(ExitState)) -> SnapRestore
 ```
 
 ```mermaid
@@ -1115,10 +1107,7 @@ flowchart LR
 ### 17.1 Optimize Trace Region
 
 ```moonlift
-region optimize_trace(J: ptr(JitState), T: ptr(Trace);
-    optimized: cont(T: ptr(Trace)),
-    retry_recording: cont(reason: i32),
-    abort: cont(code: TraceAbort))
+region optimize_trace(J: ptr(JitState), tr: i32) -> OptResult
 ```
 
 ### 17.2 DCE
@@ -1126,9 +1115,7 @@ region optimize_trace(J: ptr(JitState), T: ptr(Trace);
 Mark from snapshots and side effects, then walk backwards.
 
 ```moonlift
-region opt_dce(J: ptr(JitState), T: ptr(Trace);
-    done: cont(),
-    abort: cont(code: TraceAbort))
+region opt_dce(J: ptr(JitState), tr: i32) -> DCEResult
 ```
 
 ### 17.3 Loop Optimization
@@ -1136,11 +1123,7 @@ region opt_dce(J: ptr(JitState), T: ptr(Trace);
 LuaJIT's loop optimizer is copy-substitution unrolling with PHI insertion.
 
 ```moonlift
-region opt_loop(J: ptr(JitState), T: ptr(Trace);
-    done: cont(),
-    not_loop: cont(),
-    overflow: cont(),
-    abort: cont(code: TraceAbort))
+region opt_loop(J: ptr(JitState), tr: i32) -> LoopOptResult
 ```
 
 States:
@@ -1155,10 +1138,7 @@ States:
 ### 17.4 Sinking
 
 ```moonlift
-region opt_sink(J: ptr(JitState), T: ptr(Trace);
-    done: cont(),
-    disabled: cont(),
-    abort: cont(code: TraceAbort))
+region opt_sink(J: ptr(JitState), tr: i32) -> SinkResult
 ```
 
 Allocation sinking makes allocations virtual until a side exit requires
@@ -1193,47 +1173,42 @@ flowchart TD
 ### 18.2 Top-Level Region
 
 ```moonlift
-region asm_trace(J: ptr(JitState), T: ptr(Trace);
-    mcode: cont(entry: ptr(MCode), size: usize),
-    retry_realign: cont(),
-    retry_ir_grew: cont(),
-    mcode_full: cont(),
-    abort: cont(code: TraceAbort))
+region asm_trace(J: ptr(JitState), tr: i32) -> AsmResult
 ```
 
 ### 18.3 Register Allocator Protocols
 
 ```moonlift
-region ra_alloc(A: ptr(AsmState), ref: IRRef, allow: RegSet;
-    reg: cont(r: Reg),
-    remat: cont(r: Reg),
-    spill_and_retry: cont(victim: IRRef),
-    fail: cont(code: i32))
+region ra_alloc(A: ptr(AsmState), ref: i32, allow: i32) -> RAAlloc
 ```
 
 ```moonlift
-region ra_dest(A: ptr(AsmState), ref: IRRef, allow: RegSet;
-    reg: cont(r: Reg),
-    spill: cont(victim: IRRef),
-    fail: cont(code: i32))
+region ra_dest(A: ptr(AsmState), ref: i32, allow: i32) -> RADest
 ```
 
 ### 18.4 Tile Dispatch
 
 ```moonlift
-region asm_one_ir(A: ptr(AsmState), ref: IRRef;
-    done: cont(),
-    need_snapshot: cont(snapno: SnapNo),
-    mcode_full: cont(),
-    abort: cont(code: i32))
+region x64_asm_one_ir(A: ptr(AsmState), ref: i32) -> TileResult
 entry start()
-    op = IR(ref).op
+    let op: i32 = ir_op(A, ref)
     switch op
-        case IR_ADD:   emit asm_ir_add(A, ref; done=done, mcode_full=mcode_full, abort=abort)
-        case IR_SLOAD: emit asm_ir_sload(A, ref; done=done, mcode_full=mcode_full, abort=abort)
-        case IR_HLOAD: emit asm_ir_hload(A, ref; done=done, mcode_full=mcode_full, abort=abort)
-        case IR_EQ:    emit asm_ir_guard_eq(A, ref; done=done, mcode_full=mcode_full, abort=abort)
+    case IR_ADD then
+        emit x64_ir_add(A, ref; done=done, mcode_full=mcode_full, abort=abort)
     end
+    case IR_SLOAD then
+        emit x64_ir_sload(A, ref; done=done, need_snapshot=need_snapshot, mcode_full=mcode_full, abort=abort)
+    end
+    case IR_HLOAD then
+        emit x64_ir_hload(A, ref; done=done, mcode_full=mcode_full, abort=abort)
+    end
+    case IR_EQ then
+        emit x64_ir_guard_eq(A, ref; done=done, need_snapshot=need_snapshot, mcode_full=mcode_full, abort=abort)
+    end
+    default then
+        jump unsupported(op = op)
+    end
+end
 end
 ```
 
@@ -1255,26 +1230,17 @@ MCodeArea:
 ### 19.2 Allocation Protocol
 
 ```moonlift
-region mcode_reserve(J: ptr(JitState), need: usize;
-    ok: cont(area: ptr(MCodeArea), top: ptr(MCode)),
-    grow: cont(),
-    full: cont())
+region mcode_reserve(J: ptr(JitState), need: usize) -> MCodeReserve
 ```
 
 ### 19.3 Patch Protocols
 
 ```moonlift
-region patch_trace_link(J: ptr(JitState), from: TraceNo, to: TraceNo;
-    direct: cont(),
-    indirect: cont(),
-    out_of_range: cont(),
-    error: cont(code: i32))
+region patch_trace_link(J: ptr(JitState), from: i32, to: i32) -> PatchBranch
 ```
 
 ```moonlift
-region emit_exit_stub(A: ptr(AsmState), exitno: ExitNo;
-    done: cont(addr: ptr(MCode)),
-    mcode_full: cont())
+region emit_exit_stub(A: ptr(AsmState), exitno: i32) -> ExitStubResult
 ```
 
 MCode code emission must never silently invalidate pointers. If alignment,
@@ -1306,11 +1272,7 @@ flowchart TD
 Region:
 
 ```moonlift
-region hot_side_exit(J: ptr(JitState), L: ptr(ThreadState), parent: TraceNo, exitno: ExitNo;
-    resume_interp: cont(),
-    start_side: cont(parent: TraceNo, exitno: ExitNo),
-    blacklist: cont(),
-    error: cont(code: i32))
+region hot_side_exit(J: ptr(JitState), L: ptr(ThreadState), parent: i32, exitno: i32) -> HotExit
 ```
 
 ---
@@ -1343,35 +1305,21 @@ CTypeState:
 ### 21.2 CData Regions
 
 ```moonlift
-region cdata_index(L: ptr(ThreadState), cd: ptr(GCcdata), key: TValue;
-    field: cont(addr: ptr(u8), ctype: CTypeID),
-    method: cont(fn: TValue),
-    error: cont(code: i32))
+region cdata_index(L: ptr(ThreadState), cd: ptr(GCcdata), key: TValue) -> CDataIndex
 ```
 
 ```moonlift
-region cdata_store(L: ptr(ThreadState), cd: ptr(GCcdata), key: TValue, val: TValue;
-    done: cont(),
-    barrier: cont(),
-    error: cont(code: i32))
+region cdata_store(L: ptr(ThreadState), cd: ptr(GCcdata), key: TValue, val: TValue) -> TableSet
 ```
 
 ### 21.3 C Call Regions
 
 ```moonlift
-region ffi_prepare_call(L: ptr(ThreadState), cfun: ptr(CFunction), args: ptr(TValue), nargs: i32;
-    call_direct: cont(cif: ptr(CIF), argv: ptr(u8)),
-    need_conversion: cont(argno: i32),
-    unsupported_abi: cont(code: i32),
-    error: cont(code: i32))
+region ffi_prepare_call(L: ptr(ThreadState), cfun: ptr(u8), args: ptr(TValue), nargs: i32) -> FFIPrepCall
 ```
 
 ```moonlift
-region ffi_emit_call(A: ptr(AsmState), ci: CCallInfo;
-    done: cont(),
-    spill_regs: cont(),
-    unsupported_abi: cont(code: i32),
-    mcode_full: cont())
+region ffi_emit_call(A: ptr(AsmState), ci: ptr(u8)) -> FFIEmitCall
 ```
 
 FFI can be implemented after core tracing, but its layout constraints must be
@@ -1384,22 +1332,18 @@ reserved early.
 ### 22.1 Runtime Error Protocol
 
 ```moonlift
-region runtime_error(L: ptr(ThreadState), code: i32;
-    protected_handler: cont(frame: ptr(CFrame)),
-    unprotected: cont(code: i32))
+region runtime_error(L: ptr(ThreadState), kind: RuntimeErrorKind) -> RuntimeError
 ```
 
 ### 22.2 Trace Abort Protocol
 
 ```moonlift
-region trace_abort(J: ptr(JitState), code: TraceAbort;
-    retry_later: cont(),
-    blacklist: cont(pc: ptr(BCIns)),
-    fatal: cont(code: i32))
+region trace_abort_handler(J: ptr(JitState), reason: TraceAbort) -> HotExit
 ```
 
 Trace aborts are not exceptions in compiler internals. Every compiler region
-that can fail has an explicit `abort` continuation.
+that can fail has an explicit `abort(reason: TraceAbort)` exit. `TraceAbort`
+is a typed data union — see `docs/VM_PROTOCOL_DESIGN.md §3`.
 
 ---
 
@@ -1452,7 +1396,8 @@ region protocols.
 
 | Milestone | Deliverable | Constraint |
 |---|---|---|
-| M0 | architecture + generated metadata skeleton | final region signatures committed |
+| M0 | all protocol types declared in `mlua/luajitvm/protocols.mlua` | **no region implements a protocol not in this file** |
+| M1 | architecture + generated metadata skeleton | final region signatures committed |
 | M1 | TValue/object/state layouts | no toy stack/value model |
 | M2 | interpreter for core Lua bytecode | switch dispatch, region handlers |
 | M3 | GC allocation + barriers | real object allocation discipline |
@@ -1470,8 +1415,9 @@ region protocols.
 
 ## 26. Non-Negotiable Invariants
 
-1. **Typed exits only:** every meaningful control exit is a continuation.
-2. **Switch dispatch:** interpreter opcode dispatch is a switch, not an if-chain.
+1. **Protocol types first:** every subsystem exit boundary is a named tagged-union type in `protocols.mlua` before any region implements it.
+2. **Typed exits only:** every meaningful control exit is a continuation.
+3. **Switch dispatch:** interpreter opcode dispatch is a switch, not an if-chain.
 3. **No hidden null control:** nullable pointers are not used for miss/error/oom
    in hot VM infrastructure.
 4. **Final IR shape:** LuaJIT-like `IRIns`, `TRef`, `REF_BIAS` from the start.
@@ -1493,25 +1439,27 @@ region protocols.
 
 These must be resolved before coding the low-level core.
 
-| Question | Options | Impact |
+| Question | Status | Decision |
 |---|---|---|
-| TValue representation | explicit tag struct, NaN-boxing, GC64 | stack layout, asm, snapshots |
-| number mode | dualnum vs always-f64+int specialization | recorder and arithmetic ops |
-| bytecode source | LuaJIT-compatible bytecode vs Moonlift-defined Lua bytecode | parser/frontend compatibility |
-| GC exactness | LuaJIT-like incremental GC vs simpler exact collector first | barriers and allocation helpers |
-| backend target first | x64 only vs x64+arm64 | asm abstractions |
-| C API compatibility | Lua 5.1-compatible embedding API or reduced native API first | public ABI, stack protocol |
-| FFI scope | full LuaJIT FFI vs staged ccall/cdata subset | CType design |
-| coroutine model | full yield across C/native calls or staged | frame/error protocol |
+| TValue representation | **decided** | explicit tag/payload struct first; NaN-boxing behind helper regions later |
+| number mode | open | dualnum vs always-f64+int |
+| bytecode source | open | LuaJIT-compatible vs Moonlift-defined |
+| GC exactness | open | incremental tri-color first (final) or bump-only bring-up |
+| backend target first | **decided** | x64 first; arm64 later |
+| C API compatibility | open | Lua 5.1 subset or internal-only first |
+| FFI scope | open | full FFI vs staged ccall/cdata |
+| coroutine model | open | full yield or staged |
+| protocol types location | **decided** | `mlua/luajitvm/protocols.mlua` is M0, all types declared before any implementation |
 
-Recommended first decisions:
+Decisions made:
 
-1. Use LuaJIT-style `IRIns/TRef/REF_BIAS` permanently.
-2. Use explicit-tag TValue for first compiler bring-up, but design fields so
-   NaN-boxing can replace it behind helper regions.
-3. Target x64 first.
-4. Use final snapshot format immediately.
-5. Include GC barrier continuations from day one, even if GC starts simple.
+1. LuaJIT-style `IRIns/TRef/REF_BIAS` permanently (D002).
+2. Explicit-tag TValue for bring-up, NaN-boxing behind helper regions (D004 candidate).
+3. x64 first (D004).
+4. Final snapshot format from the start.
+5. GC barrier continuations from day one.
+6. Named protocol exit syntax implemented in Moonlift parser (D006).
+7. VM protocol catalog in `docs/VM_PROTOCOL_DESIGN.md` (D007).
 
 ---
 
@@ -1586,24 +1534,13 @@ for, but not implemented until the backend protocol survives x64.
 All target backends implement the same region protocol:
 
 ```moonlift
-region asm_trace_target(A: ptr(AsmState), T: ptr(Trace);
-    mcode: cont(entry: ptr(MCode), size: usize),
-    retry_realign: cont(),
-    retry_ir_grew: cont(),
-    mcode_full: cont(),
-    unsupported: cont(op: IROp),
-    abort: cont(code: TraceAbort))
+region asm_trace_target(A: ptr(AsmState), tr: i32) -> AsmResult
 ```
 
 Target-specific tile dispatch remains isolated:
 
 ```moonlift
-region x64_asm_one_ir(A: ptr(AsmState), ref: IRRef;
-    done: cont(),
-    need_snapshot: cont(snapno: SnapNo),
-    mcode_full: cont(),
-    unsupported: cont(op: IROp),
-    abort: cont(code: TraceAbort))
+region x64_asm_one_ir(A: ptr(AsmState), ref: i32) -> TileResult
 ```
 
 ### 28.5 Practical Rule
@@ -1634,8 +1571,14 @@ LuaJIT C:
   flags + mutable state + macros + return codes + longjmp
 
 Moonlift VM:
-  region signatures + typed continuations + block states + emit composition
+  named protocol types + typed region exits + block states + emit composition
 ```
+
+Every LuaJIT implicit protocol — recorder stop/abort, FOLD retry/replace,
+snapshot capture/restore, mcode reservation/retry, GC barrier, side-exit hot
+counting — becomes a named tagged-union type. The types are declared once.
+Every region either satisfies one of those types or is a one-off local fragment.
+The full catalog is in `docs/VM_PROTOCOL_DESIGN.md`.
 
 The low-level data structures remain brutal and precise: TValue layouts, GC
 headers, SSA IR buffers, snapshots, mcode arenas, register sets. Moonlift does
