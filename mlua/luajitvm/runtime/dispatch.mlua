@@ -8,8 +8,21 @@ type InterpResult = returned(nresults: i32)
     | yielded(code: i32)
     | error(code: i32)
 
+const BC_ISLT:  i32 = 0
+const BC_ISGE:  i32 = 1
+const BC_ISEQV: i32 = 4
+const BC_ISNEV: i32 = 5
 const BC_KSHORT: i32 = 41
+const BC_KNUM:   i32 = 42
+const BC_KPRI:   i32 = 43
+const BC_KNIL:   i32 = 44
 const BC_MOV:   i32 = 18
+const BC_ADDVN: i32 = 22
+const BC_SUBVN: i32 = 23
+const BC_MULVN: i32 = 24
+const BC_ADDNV: i32 = 27
+const BC_SUBNV: i32 = 28
+const BC_MULNV: i32 = 29
 const BC_ADDVV: i32 = 32
 const BC_SUBVV: i32 = 33
 const BC_MULVV: i32 = 34
@@ -59,6 +72,70 @@ block dispatch(ip: i32)
     case 34 then
         tv32[a * 4] = LUA_TINT
         tv64[a * 2 + 1] = as(i64, as(i32, tv64[b * 2 + 1]) * as(i32, tv64[cd * 2 + 1]))
+        jump dispatch(ip = ip + 1)
+    case 22 then
+        -- ADDVN: A = B + lit(D)
+        let lit: i32 = cd - ((cd >> 15) * 65536)
+        tv32[a * 4] = LUA_TINT
+        tv64[a * 2 + 1] = as(i64, as(i32, tv64[b * 2 + 1]) + lit)
+        jump dispatch(ip = ip + 1)
+    case 23 then
+        let lit: i32 = cd - ((cd >> 15) * 65536)
+        tv32[a * 4] = LUA_TINT
+        tv64[a * 2 + 1] = as(i64, as(i32, tv64[b * 2 + 1]) - lit)
+        jump dispatch(ip = ip + 1)
+    case 24 then
+        let lit: i32 = cd - ((cd >> 15) * 65536)
+        tv32[a * 4] = LUA_TINT
+        tv64[a * 2 + 1] = as(i64, as(i32, tv64[b * 2 + 1]) * lit)
+        jump dispatch(ip = ip + 1)
+    case 27 then
+        -- ADDNV: A = lit(D) + B
+        let lit: i32 = cd - ((cd >> 15) * 65536)
+        tv32[a * 4] = LUA_TINT
+        tv64[a * 2 + 1] = as(i64, lit + as(i32, tv64[b * 2 + 1]))
+        jump dispatch(ip = ip + 1)
+    case 28 then
+        let lit: i32 = cd - ((cd >> 15) * 65536)
+        tv32[a * 4] = LUA_TINT
+        tv64[a * 2 + 1] = as(i64, lit - as(i32, tv64[b * 2 + 1]))
+        jump dispatch(ip = ip + 1)
+    case 29 then
+        let lit: i32 = cd - ((cd >> 15) * 65536)
+        tv32[a * 4] = LUA_TINT
+        tv64[a * 2 + 1] = as(i64, lit * as(i32, tv64[b * 2 + 1]))
+        jump dispatch(ip = ip + 1)
+    case 0 then
+        -- ISLT: if !(B < C) skip next instruction
+        let bv: i32 = as(i32, tv64[b * 2 + 1])
+        let cv: i32 = as(i32, tv64[cd * 2 + 1])
+        let skip: i32 = 2 - as(i32, bv < cv)
+        jump dispatch(ip = ip + skip)
+    case 1 then
+        -- ISGE: if !(B >= C) skip next instruction
+        let bv: i32 = as(i32, tv64[b * 2 + 1])
+        let cv: i32 = as(i32, tv64[cd * 2 + 1])
+        let skip: i32 = 2 - as(i32, bv >= cv)
+        jump dispatch(ip = ip + skip)
+    case 4 then
+        -- ISEQV: if !(B == C) skip next instruction
+        let bv: i32 = as(i32, tv64[b * 2 + 1])
+        let cv: i32 = as(i32, tv64[cd * 2 + 1])
+        let skip: i32 = 2 - as(i32, bv == cv)
+        jump dispatch(ip = ip + skip)
+    case 5 then
+        -- ISNEV: if !(B ~= C) skip next instruction
+        let bv: i32 = as(i32, tv64[b * 2 + 1])
+        let cv: i32 = as(i32, tv64[cd * 2 + 1])
+        let skip: i32 = 2 - as(i32, bv ~= cv)
+        jump dispatch(ip = ip + skip)
+    case 43 then
+        -- KPRI: store primitive constant (0=nil, 1=false, 2=true)
+        tv32[a * 4] = cd
+        jump dispatch(ip = ip + 1)
+    case 44 then
+        -- KNIL: set slots A through A+D to nil. For now just nil slot A.
+        tv32[a * 4] = 0
         jump dispatch(ip = ip + 1)
     case 88 then
         jump dispatch(ip = ip + 1 + cd - ((cd >> 15) * 65536))

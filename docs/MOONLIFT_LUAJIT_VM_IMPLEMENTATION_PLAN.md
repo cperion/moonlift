@@ -393,10 +393,10 @@ Exit criteria for P4:
   - ADDVV, SUBVV, MULVV: slot[dest] = slot[src1] op slot[src2].
   - All operands read as i32 from payload, result stored with LUA_TINT tag.
 
-- [~] **P5.INT.004 — Implement comparisons and conditional branches**
-  - ISLT: typechecker rejects `bool and i32 or i32` in branch-exit logic.
-  - JMP: unconditional signed 16-bit offset branch works.
-  - ISLT/ISGE deferred until Moonlift supports bool→i32 conversion or `if/else` in switch case for protocol exit routing.
+- [x] **P5.INT.004 — Implement comparisons and conditional branches**
+  - ISLT, ISGE, ISEQV, ISNEV: `as(i32, bool)` works for arithmetic skip-offset.
+  - JMP: unconditional signed 16-bit offset branch.
+  - Pattern: `skip = 2 - as(i32, bv < cv)`; jump dispatch at `ip + skip`.
 
 - [x] **P5.INT.005 — Implement LOOP/hotcount skeleton**
   - LOOP: back-edge branch with signed 16-bit offset works.
@@ -418,7 +418,7 @@ Exit criteria for P5:
 - [x] A small bytecode program executes through `vm_loop`.
 - [x] LOOP branches correctly (hotcount mechanism deferred).
 - [x] Return path is typed and explicit (`returned(nresults)` protocol).
-- [~] ISLT/ISGE deferred (bool/i32 type issue in switch-case protocol routing).
+- [x] ISLT/ISGE/ISEQV/ISNEV work via `as(i32, bool)` arithmetic offset.
 
 ---
 

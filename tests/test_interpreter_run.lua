@@ -122,6 +122,67 @@ bc_buf[2] = 34 + (0 * 256) + (1 * 65536)              -- MULVV A=0 B=0 C=1 → s
 bc_buf[3] = 76                                         -- RET1 A=0
 check("mulvv", 42, run_program(bc_buf, 4))
 
+-- Test 9: ISLT — 3 < 5 → true, don't skip, return 1
+bc_buf[0] = kshort(0, 3); bc_buf[1] = kshort(1, 5)
+bc_buf[2] = 0 + (1 * 65536)                            -- ISLT B=0 C=1
+bc_buf[3] = kshort(0, 1)                               -- executed
+bc_buf[4] = 76
+check("islt_true", 1, run_program(bc_buf, 5))
+
+-- Test 10: ISLT — 5 < 3 → false, skip next, return 5
+bc_buf[0] = kshort(0, 5); bc_buf[1] = kshort(1, 3)
+bc_buf[2] = 0 + (1 * 65536)                            -- ISLT B=0 C=1
+bc_buf[3] = kshort(0, 99)                              -- SKIPPED
+bc_buf[4] = 76
+check("islt_false", 5, run_program(bc_buf, 5))
+
+-- Test 11: ISGE — 5 >= 3 → true, don't skip, return 1
+bc_buf[0] = kshort(0, 5); bc_buf[1] = kshort(1, 3)
+bc_buf[2] = 1 + (1 * 65536)
+bc_buf[3] = kshort(0, 1)
+bc_buf[4] = 76
+check("isge_true", 1, run_program(bc_buf, 5))
+
+-- Test 12: ISEQV — 7 == 7 → true, don't skip, return 1
+bc_buf[0] = kshort(0, 7); bc_buf[1] = kshort(1, 7)
+bc_buf[2] = 4 + (1 * 65536)
+bc_buf[3] = kshort(0, 1)
+bc_buf[4] = 76
+check("iseqv_true", 1, run_program(bc_buf, 5))
+
+-- Test 13: ISNEV — 7 != 3 → true, don't skip, return 1
+bc_buf[0] = kshort(0, 7); bc_buf[1] = kshort(1, 3)
+bc_buf[2] = 5 + (1 * 65536)
+bc_buf[3] = kshort(0, 1)
+bc_buf[4] = 76
+check("isnev_true", 1, run_program(bc_buf, 5))
+
+-- Test 14: ADDVN — slot0(=3) + lit(7) = 10
+bc_buf[0] = kshort(0, 3)
+bc_buf[1] = 22 + (0 * 256) + (7 * 65536)
+bc_buf[2] = 76
+check("addvn", 10, run_program(bc_buf, 3))
+
+-- Test 15: ADDNV — lit(3) + slot0(=7) = 10
+bc_buf[0] = kshort(0, 7)
+bc_buf[1] = 27 + (0 * 256) + (3 * 65536)
+bc_buf[2] = 76
+check("addnv", 10, run_program(bc_buf, 3))
+
+-- Test 16: KPRI nil — read tag from stack (LUA_TNIL = 0)
+bc_buf[0] = 43 + (0 * 256)                              -- KPRI A=0 D=0 (nil)
+bc_buf[1] = 76
+ffi.fill(stack_buf, StackBytes, 0)
+dispatch:get("vm_interp_run")(state_ptr, bc_ptr, 0, 0)
+check("kpri_nil", 0, ffi.cast("int32_t *", stack_buf)[0])
+
+-- Test 17: KPRI true — tag value (LUA_TTRUE = 2)
+bc_buf[0] = 43 + (0 * 256) + (2 * 65536)               -- KPRI A=0 D=2 (true)
+bc_buf[1] = 76
+ffi.fill(stack_buf, StackBytes, 0)
+dispatch:get("vm_interp_run")(state_ptr, bc_ptr, 0, 0)
+check("kpri_true", 2, ffi.cast("int32_t *", stack_buf)[0])
+
 -- Cleanup
 dispatch:free()
 
