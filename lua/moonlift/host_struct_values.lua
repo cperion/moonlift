@@ -169,7 +169,7 @@ function M.Install(api, session)
     function api.variant(name, ty)
         assert_name(name, "variant")
         local tv = api.as_type_value(ty or api.void, "variant expects a type value")
-        return { kind = "variant", name = name, type = tv, decl = Ty.VariantDecl(name, tv.ty) }
+        return { kind = "variant", name = name, type = tv, decl = Ty.VariantDecl(name, tv.ty, {}) }
     end
 
     function api.struct(name, fields)

@@ -242,6 +242,7 @@ return function(A)
         A.product "VariantDecl" {
             A.field "name" "string",
             A.field "payload" "MoonType.Type",
+            A.field "fields" (A.many "MoonType.FieldDecl"),
             A.unique,
         },
     }

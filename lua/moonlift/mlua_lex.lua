@@ -360,6 +360,28 @@ end
 
 local function form_extent(src, i, word)
     if word == "struct" then return find_matching_end(src, i, open_words_form) end
+    if word == "type" then
+        local eq = src:find("=", i, true)
+        if eq then
+            local rhs_word = read_ident(src, skip_space(src, eq + 1))
+            if rhs_word == "struct" or rhs_word == "union" or rhs_word == "enum" then
+                local s, e = find_word(src, "end", eq + 1)
+                return e or s
+            end
+        end
+        local pos = i
+        while true do
+            local nl = src:find("\n", pos, true)
+            if not nl then return #src end
+            local line = src:sub(pos, nl - 1)
+            local k = skip_hspace(src, nl + 1)
+            if line:match("|%s*$") or src:sub(k, k) == "|" then
+                pos = nl + 1
+            else
+                return nl - 1
+            end
+        end
+    end
     if word == "expose" then
         local nl = src:find("\n", i, true)
         if not nl then return #src end

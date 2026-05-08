@@ -573,11 +573,16 @@ access performs a bitcast.
 
 ```moonlift
 type Result = ok(i32) | err(i32)
+type Scanner = hit(pos: i32) | miss(pos: i32)
 ```
 
 Tagged unions carry an implicit discriminant tag followed by the variant
 payload. The tag is an integer starting from 0 in declaration order. Useful
 for explicit phase/result dispatch.
+
+When a tagged union is used as a region result protocol (`region r(...) -> Scanner`),
+its variants become exits and named variant fields become continuation
+parameters. Protocol variants must use named fields.
 
 ### 5.9 Hosted boundary storage types
 

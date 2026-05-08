@@ -354,8 +354,15 @@ local function install(api, T)
     ---@param payload moonlift.ast.Type? Payload type when first argument is a name.
     ---@return MoonType.VariantDecl
     function api.variant_decl(spec, payload)
-        if type(spec) == "table" and payload == nil then return Ty.VariantDecl(assert_name(spec.name, "variant_decl"), as_type(spec.payload, "variant payload type")) end
-        return Ty.VariantDecl(assert_name(spec, "variant_decl"), as_type(payload, "variant payload type"))
+        local function field_decls(fields)
+            local out = {}
+            for i = 1, #(fields or {}) do out[i] = api.field_decl(fields[i]) end
+            return out
+        end
+        if type(spec) == "table" and payload == nil then
+            return Ty.VariantDecl(assert_name(spec.name, "variant_decl"), as_type(spec.payload, "variant payload type"), field_decls(spec.fields))
+        end
+        return Ty.VariantDecl(assert_name(spec, "variant_decl"), as_type(payload, "variant payload type"), {})
     end
 
     -- Binding and reference nodes -----------------------------------------

@@ -237,8 +237,8 @@ function M.Define(T)
         return H.HostDeclExpose(H.HostExposeDecl(subject, public_name, facets))
     end
 
-    local function append_parsed_module(source, items, region_frags_by_name, expr_frags_by_name, issues)
-        local parsed = Parse.parse_module(normalize_moonlift_body(source), { region_frags = region_frags_by_name, expr_frags = expr_frags_by_name })
+    local function append_parsed_module(source, items, region_frags_by_name, expr_frags_by_name, protocol_types, issues)
+        local parsed = Parse.parse_module(normalize_moonlift_body(source), { region_frags = region_frags_by_name, expr_frags = expr_frags_by_name, protocol_types = protocol_types })
         for i = 1, #parsed.issues do issues[#issues + 1] = parsed.issues[i] end
         if #parsed.issues == 0 then
             for i = 1, #parsed.module.items do items[#items + 1] = parsed.module.items[i] end
@@ -246,21 +246,21 @@ function M.Define(T)
         return parsed
     end
 
-    local function parse_module_items(source, items, region_frags_by_name, expr_frags_by_name, issues)
-        append_parsed_module(source, items, region_frags_by_name, expr_frags_by_name, issues)
+    local function parse_module_items(source, items, region_frags_by_name, expr_frags_by_name, protocol_types, issues)
+        append_parsed_module(source, items, region_frags_by_name, expr_frags_by_name, protocol_types, issues)
     end
 
-    local function parse_func_form(source, decls, items, region_frags_by_name, expr_frags_by_name, issues)
+    local function parse_func_form(source, decls, items, region_frags_by_name, expr_frags_by_name, protocol_types, issues)
         local prefix, owner, method_name, rest = source:match("^%s*(export%s+)func%s+([_%a][_%w]*)%s*:%s*([_%a][_%w]*)(.*)$")
         if not owner then prefix, owner, method_name, rest = "", source:match("^%s*func%s+([_%a][_%w]*)%s*:%s*([_%a][_%w]*)(.*)$") end
         if not owner then
-            parse_module_items(source, items, region_frags_by_name, expr_frags_by_name, issues)
+            parse_module_items(source, items, region_frags_by_name, expr_frags_by_name, protocol_types, issues)
             return
         end
         local func_name = owner .. "_" .. method_name
         local normalized = (prefix or "") .. "func " .. func_name .. rest
         local before = #items
-        local parsed = append_parsed_module(normalized, items, region_frags_by_name, expr_frags_by_name, issues)
+        local parsed = append_parsed_module(normalized, items, region_frags_by_name, expr_frags_by_name, protocol_types, issues)
         if #parsed.issues == 0 and #items > before then
             local item = items[before + 1]
             if pvm.classof(item) == Tr.ItemFunc then
@@ -269,8 +269,8 @@ function M.Define(T)
         end
     end
 
-    local function parse_region(source, regions, region_frags_by_name, expr_frags_by_name, issues)
-        local parsed = Parse.parse_region_frag(normalize_moonlift_body(source), { region_frags = region_frags_by_name, expr_frags = expr_frags_by_name })
+    local function parse_region(source, regions, region_frags_by_name, expr_frags_by_name, protocol_types, issues)
+        local parsed = Parse.parse_region_frag(normalize_moonlift_body(source), { region_frags = region_frags_by_name, expr_frags = expr_frags_by_name, protocol_types = protocol_types })
         for i = 1, #parsed.issues do issues[#issues + 1] = parsed.issues[i] end
         if #parsed.issues == 0 and parsed.value then
             regions[#regions + 1] = parsed.value.frag
@@ -289,8 +289,14 @@ function M.Define(T)
         end
     end
 
-    local function parse_module_body(body, items, regions, exprs, region_frags_by_name, expr_frags_by_name, issues)
+    local function parse_module_body(body, items, regions, exprs, region_frags_by_name, expr_frags_by_name, protocol_types, issues)
         local kept = {}
+        local function flush_kept()
+            if #kept > 0 then
+                parse_module_items(table.concat(kept), items, region_frags_by_name, expr_frags_by_name, protocol_types, issues)
+                kept = {}
+            end
+        end
         local i = 1
         while i <= #body do
             local skipped = skip_comment_or_string(body, i)
@@ -319,7 +325,8 @@ function M.Define(T)
                         break
                     end
                     local form = body:sub(i, e)
-                    if word == "region" then parse_region(form, regions, region_frags_by_name, expr_frags_by_name, issues)
+                    flush_kept()
+                    if word == "region" then parse_region(form, regions, region_frags_by_name, expr_frags_by_name, protocol_types, issues)
                     else parse_expr_frag(form, exprs, expr_frags_by_name, issues) end
                     kept[#kept + 1] = "\n"
                     i = e + 1
@@ -332,13 +339,13 @@ function M.Define(T)
                 i = i + 1
             end
         end
-        parse_module_items(table.concat(kept), items, region_frags_by_name, expr_frags_by_name, issues)
+        flush_kept()
     end
 
     local function parse_source(node)
         local src = node.source
         local issues, decls, items, regions, exprs = {}, {}, {}, {}, {}
-        local region_frags_by_name, expr_frags_by_name = {}, {}
+        local region_frags_by_name, expr_frags_by_name, protocol_types = {}, {}, {}
         local i = 1
         while i <= #src do
             local skipped = skip_comment_or_string(src, i)
@@ -351,7 +358,7 @@ function M.Define(T)
                     local w2 = src:sub(k, k + 3)
                     if w2 == "func" and is_boundary(src, k, 4) then word, i = "export func", i else i = j end
                 end
-                local is_form = word == "struct" or word == "expose" or word == "region" or word == "expr" or word == "module" or word == "func" or word == "export func"
+                local is_form = word == "struct" or word == "expose" or word == "type" or word == "region" or word == "expr" or word == "module" or word == "func" or word == "export func"
                 if word == "module" and not is_module_start(src, i) then is_form = false end
                 if is_form then
                     local e = form_extent(src, i, word)
@@ -368,7 +375,7 @@ function M.Define(T)
                         local decl = parse_expose(form, src, i, issues)
                         if decl then decls[#decls + 1] = decl end
                     elseif word == "region" then
-                        parse_region(form, regions, region_frags_by_name, expr_frags_by_name, issues)
+                        parse_region(form, regions, region_frags_by_name, expr_frags_by_name, protocol_types, issues)
                     elseif word == "expr" then
                         parse_expr_frag(form, exprs, expr_frags_by_name, issues)
                     elseif word == "module" then
@@ -381,11 +388,11 @@ function M.Define(T)
                                 body = rest
                             end
                         end
-                        parse_module_body(body, items, regions, exprs, region_frags_by_name, expr_frags_by_name, issues)
+                        parse_module_body(body, items, regions, exprs, region_frags_by_name, expr_frags_by_name, protocol_types, issues)
                     elseif word == "func" or word == "export func" then
-                        parse_func_form(form, decls, items, region_frags_by_name, expr_frags_by_name, issues)
+                        parse_func_form(form, decls, items, region_frags_by_name, expr_frags_by_name, protocol_types, issues)
                     else
-                        parse_module_items(form, items, region_frags_by_name, expr_frags_by_name, issues)
+                        parse_module_items(form, items, region_frags_by_name, expr_frags_by_name, protocol_types, issues)
                     end
                     i = e + 1
                 else

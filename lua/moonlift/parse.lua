@@ -212,7 +212,7 @@ Parser.__index = Parser
 
 local function parser(T, src, opts)
     opts = opts or {}
-    return setmetatable({ T = T, C = T.MoonCore, Ty = T.MoonType, B = T.MoonBind, O = T.MoonOpen, Sem = T.MoonSem, Tr = T.MoonTree, Pm = T.MoonParse, toks = M.lex(src), i = 1, issues = {}, region_seq = 0, value_env = opts.value_env or {}, cont_env = opts.cont_env or {}, region_frags = opts.region_frags or {}, expr_frags = opts.expr_frags or {} }, Parser)
+    return setmetatable({ T = T, C = T.MoonCore, Ty = T.MoonType, B = T.MoonBind, O = T.MoonOpen, Sem = T.MoonSem, Tr = T.MoonTree, Pm = T.MoonParse, toks = M.lex(src), i = 1, issues = {}, region_seq = 0, value_env = opts.value_env or {}, cont_env = opts.cont_env or {}, region_frags = opts.region_frags or {}, expr_frags = opts.expr_frags or {}, protocol_types = opts.protocol_types or {} }, Parser)
 end
 
 local function parser_from_toks(T, toks, opts)
@@ -225,6 +225,7 @@ local function parser_from_toks(T, toks, opts)
         cont_env = opts.cont_env or {},
         region_frags = opts.region_frags or {},
         expr_frags = opts.expr_frags or {},
+        protocol_types = opts.protocol_types or {},
         splice_slots = {},
         splice_slots_by_id = {},
     }, Parser)
@@ -1012,6 +1013,46 @@ function Parser:validate_cont_jump_args_in_stmts(stmts, cont_slots)
     end
 end
 
+function Parser:is_void_type(ty)
+    return pvm.classof(ty) == self.Ty.TScalar and ty.scalar == self.C.ScalarVoid
+end
+
+function Parser:protocol_name_from_type(ty)
+    if pvm.classof(ty) == self.Ty.TNamed and pvm.classof(ty.ref) == self.Ty.TypeRefPath and #ty.ref.path.parts == 1 then
+        return ty.ref.path.parts[1].text
+    end
+    return nil
+end
+
+function Parser:cont_slots_from_protocol(protocol_ty, owner_name)
+    local name = self:protocol_name_from_type(protocol_ty)
+    if not name then
+        self:issue("region protocol result must be a named tagged-union type")
+        return {}, {}
+    end
+    local variants = self.protocol_types[name]
+    if not variants then
+        self:issue("unknown region protocol type: " .. name)
+        return {}, {}
+    end
+    local cont_slots, slots = {}, {}
+    for i = 1, #variants do
+        local variant = variants[i]
+        local params = {}
+        if #variant.fields == 0 and not self:is_void_type(variant.payload) then
+            self:issue("protocol exit " .. variant.name .. " must use named fields")
+        end
+        for j = 1, #variant.fields do
+            local field = variant.fields[j]
+            params[#params + 1] = self.Tr.BlockParam(field.field_name, field.ty)
+        end
+        local slot = self.O.ContSlot("cont:" .. owner_name .. ":" .. variant.name .. ":" .. tostring(i), variant.name, params)
+        cont_slots[variant.name] = slot
+        slots[#slots + 1] = slot
+    end
+    return cont_slots, slots
+end
+
 function Parser:parse_region_frag()
     local O, B, C, Tr = self.O, self.B, self.C, self.Tr
     self:expect(TK.region, "expected region")
@@ -1058,6 +1099,12 @@ function Parser:parse_region_frag()
     end
     self:expect(TK.rparen, "expected ')' after region fragment params")
     self:skip_nl()
+    if self:accept(TK.arrow) then
+        if #slots > 0 then self:issue("region cannot mix inline continuations with protocol result") end
+        local protocol_ty = self:parse_type()
+        cont_slots, slots = self:cont_slots_from_protocol(protocol_ty, name_key)
+        self:skip_nl()
+    end
     if not (self:accept(TK.entry) or self:accept(TK.block)) then self:expect(TK.entry, "expected entry block in region fragment") end
     local entry_label = Tr.BlockLabel(self:expect_name("expected entry label in region fragment"))
     local entry_params = self:parse_block_params(true)
@@ -1117,33 +1164,69 @@ function Parser:parse_enum_variants()
     return variants
 end
 
+function Parser:parse_variant_named_fields()
+    local fields = {}
+    self:skip_nl()
+    if self:kind() ~= TK.rparen then
+        while true do
+            local fname = self:expect_name("expected tagged union field name")
+            self:expect(TK.colon, "expected ':' in tagged union field")
+            fields[#fields + 1] = self.Ty.FieldDecl(fname, self:parse_type())
+            self:skip_nl()
+            if not self:accept(TK.comma) then break end
+            self:skip_nl()
+            if self:kind() == TK.rparen then break end
+        end
+    end
+    return fields
+end
+
 function Parser:parse_tagged_union_variants()
     local variants = {}
     while self:kind() ~= TK.eof do
         self:skip_nl()
         local name = self:expect_name("expected tagged union variant")
         local payload = self.Ty.TScalar(self.C.ScalarVoid)
+        local fields = {}
         if self:accept(TK.lparen) then
-            payload = self:parse_type()
+            local saved_i = self.i
+            self:skip_nl()
+            if self:kind() == TK.name and self:kind(1) == TK.colon then
+                fields = self:parse_variant_named_fields()
+                if #fields == 1 then payload = fields[1].ty end
+            else
+                self.i = saved_i
+                payload = self:parse_type()
+            end
             self:expect(TK.rparen, "expected ')' after tagged union payload")
         end
-        variants[#variants + 1] = self.Ty.VariantDecl(name, payload)
+        variants[#variants + 1] = self.Ty.VariantDecl(name, payload, fields)
         self:skip_nl()
         if not self:accept(TK.pipe) then break end
     end
     return variants
 end
 
+function Parser:record_protocol_type(name, variants)
+    self.protocol_types[name] = variants
+end
+
+function Parser:type_item_from_decl(decl)
+    local Tr = self.Tr
+    if pvm.classof(decl) == Tr.TypeDeclTaggedUnionSugar then self:record_protocol_type(decl.name, decl.variants) end
+    return Tr.ItemType(decl)
+end
+
 function Parser:parse_type_item()
     local Tr = self.Tr
     local name = self:expect_name("expected type name")
     self:expect(TK.eq, "expected '=' in type item")
-    if self:accept(TK.struct) then return Tr.ItemType(Tr.TypeDeclStruct(name, self:parse_type_fields())) end
-    if self:accept(TK.union) then return Tr.ItemType(Tr.TypeDeclUnion(name, self:parse_type_fields())) end
-    if self:accept(TK.enum) then return Tr.ItemType(Tr.TypeDeclEnumSugar(name, self:parse_enum_variants())) end
+    if self:accept(TK.struct) then return self:type_item_from_decl(Tr.TypeDeclStruct(name, self:parse_type_fields())) end
+    if self:accept(TK.union) then return self:type_item_from_decl(Tr.TypeDeclUnion(name, self:parse_type_fields())) end
+    if self:accept(TK.enum) then return self:type_item_from_decl(Tr.TypeDeclEnumSugar(name, self:parse_enum_variants())) end
     local variants = self:parse_tagged_union_variants()
-    self:expect(TK.end_kw, "expected end after tagged union")
-    return Tr.ItemType(Tr.TypeDeclTaggedUnionSugar(name, variants))
+    if self:kind() == TK.end_kw then self.i = self.i + 1 end
+    return self:type_item_from_decl(Tr.TypeDeclTaggedUnionSugar(name, variants))
 end
 
 function Parser:parse_item()
@@ -1169,8 +1252,8 @@ function Parser:parse_item()
         local name = self:text(); self.i = self.i + 1
         local variants = self:parse_tagged_union_variants()
         if #self.issues == saved_n then
-            self:expect(TK.end_kw, "expected end after tagged union")
-            return Tr.ItemType(Tr.TypeDeclTaggedUnionSugar(name, variants))
+            if self:kind() == TK.end_kw then self.i = self.i + 1 end
+            return self:type_item_from_decl(Tr.TypeDeclTaggedUnionSugar(name, variants))
         end
         self.i = saved_i
         while #self.issues > saved_n do self.issues[#self.issues] = nil end

@@ -27,23 +27,26 @@ type Color = enum
 end
 type Result = ok(i32) | err(i32) | none
 end
+type Scanner = hit(pos: i32) | miss(pos: i32)
 export func id(x: i32) -> i32
     return x
 end
 ]]
 assert(#parsed.issues == 0, tostring(parsed.issues[1]))
 local module = parsed.module
-assert(#module.items == 5)
+assert(#module.items == 6)
 assert(pvm.classof(module.items[1].t) == Tr.TypeDeclStruct)
 assert(module.items[1].t.fields[1] == Ty.FieldDecl("x", Ty.TScalar(C.ScalarI32)))
 assert(pvm.classof(module.items[2].t) == Tr.TypeDeclUnion)
 assert(pvm.classof(module.items[3].t) == Tr.TypeDeclEnumSugar)
 assert(pvm.classof(module.items[4].t) == Tr.TypeDeclTaggedUnionSugar)
-assert(module.items[4].t.variants[1] == Ty.VariantDecl("ok", Ty.TScalar(C.ScalarI32)))
-assert(module.items[4].t.variants[3] == Ty.VariantDecl("none", Ty.TScalar(C.ScalarVoid)))
+assert(module.items[4].t.variants[1] == Ty.VariantDecl("ok", Ty.TScalar(C.ScalarI32), {}))
+assert(module.items[4].t.variants[3] == Ty.VariantDecl("none", Ty.TScalar(C.ScalarVoid), {}))
+assert(module.items[5].t.variants[1] == Ty.VariantDecl("hit", Ty.TScalar(C.ScalarI32), { Ty.FieldDecl("pos", Ty.TScalar(C.ScalarI32)) }))
+assert(module.items[5].t.variants[2].fields[1] == Ty.FieldDecl("pos", Ty.TScalar(C.ScalarI32)))
 local typed_module = Tr.Module(Tr.ModuleTyped("Demo"), module.items)
 local env = MT.env(typed_module)
-assert(#env.types == 4)
+assert(#env.types == 5)
 assert(env.types[1] == B.TypeEntry("Pair", Ty.TNamed(Ty.TypeRefGlobal("Demo", "Pair"))))
 
 local braced = P.parse_module [[
