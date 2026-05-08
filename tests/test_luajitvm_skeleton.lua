@@ -35,7 +35,7 @@ local files = {
     "mlua/luajitvm/generated/fold_rules.mlua",
     "mlua/luajitvm/generated/asm_tiles_x64.mlua",
     -- Task 8: P4.PROTO.002 interpreter stubs
-    "mlua/luajitvm/runtime/dispatch.mlua",
+    "mlua/luajitvm/runtime/dispatch.mlua",  -- P5.INT: real interpreter now
     "mlua/luajitvm/runtime/arith.mlua",
     "mlua/luajitvm/runtime/call.mlua",
     -- Task 8: P4.PROTO.003 table/meta stubs

@@ -36,6 +36,7 @@ const TS_OFF_OPENUPVAL: i32 = 64
 const TS_OFF_ENV:       i32 = 72
 const TS_OFF_CFRAME:    i32 = 80
 const TS_OFF_STACKSIZE: i32 = 88
+const TS_OFF_PC:       i32 = 92   -- i32 bytecode instruction offset
 const TS_SIZE:          i32 = 96
 
 -- Thread status codes (lua.h compatible)
@@ -130,6 +131,17 @@ export func ts_set_stacksize(ts: ptr(u8), sz: u32)
     p[TS_OFF_STACKSIZE / 4] = sz
 end
 
+-- PC offset (Moonlift extension: integer index into bytecode array)
+export func ts_pc(ts: ptr(u8)) -> i32
+    let p: ptr(i32) = as(ptr(i32), ts)
+    return p[TS_OFF_PC / 4]
+end
+
+export func ts_set_pc(ts: ptr(u8), pc: i32)
+    let p: ptr(i32) = as(ptr(i32), ts)
+    p[TS_OFF_PC / 4] = pc
+end
+
 -- Frame helpers: frame size = top - base (in TValue slots, each 16 bytes)
 export func ts_frame_slots(ts: ptr(u8)) -> i32
     let b: ptr(u64) = as(ptr(u64), ts)
@@ -140,7 +152,7 @@ export func ts_frame_slots(ts: ptr(u8)) -> i32
 end
 
 export func state_const_check() -> i32
-    return TS_SIZE + TS_OFF_STATUS + TS_OFF_BASE + TS_OFF_TOP + TS_OFF_STACK + LUA_OK + LUA_ERRRUN
+    return TS_SIZE + TS_OFF_STATUS + TS_OFF_BASE + TS_OFF_TOP + TS_OFF_STACK + TS_OFF_PC + LUA_OK + LUA_ERRRUN
 end
 
 end

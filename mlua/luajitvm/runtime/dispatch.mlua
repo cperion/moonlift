@@ -1,6 +1,6 @@
--- runtime/dispatch.mlua -- vm_loop: main interpreter dispatch loop.
--- Protocol: InterpResult, OpcodeResult
--- P4.PROTO.002 stub.
+-- runtime/dispatch.mlua -- Minimal interpreter dispatch loop.
+--
+-- Handles: MOV, KSHORT, ADDVV, SUBVV, MULVV, JMP, LOOP, RET
 
 local m = module VmRuntimeDispatch
 
@@ -8,19 +8,99 @@ type InterpResult = returned(nresults: i32)
     | yielded(code: i32)
     | error(code: i32)
 
-type OpcodeResult = next
-    | hot(pc: ptr(u8))
-    | yielded(code: i32)
-    | error(code: i32)
+const BC_KSHORT: i32 = 41
+const BC_MOV:   i32 = 18
+const BC_ADDVV: i32 = 32
+const BC_SUBVV: i32 = 33
+const BC_MULVV: i32 = 34
+const BC_JMP:   i32 = 88
+const BC_LOOP:  i32 = 85
+const BC_RET:   i32 = 74
+const BC_RET0:  i32 = 75
+const BC_RET1:  i32 = 76
 
--- Main interpreter dispatch loop stub.
--- Real implementation: switch over bc_op; emit per-opcode handler regions.
-region vm_loop(L: ptr(u8), status: i32) -> InterpResult
-entry dispatch()
-    jump error(code = 0)
+const LUA_TINT:   i32 = 5
+const LUA_OK:     i32 = 0
+const LUA_ERRRUN: i32 = 2
+
+region vm_loop(L: ptr(u8), bc: ptr(u32), pc: i32, status: i32) -> InterpResult
+entry start()
+    jump dispatch(ip = pc)
+end
+
+block dispatch(ip: i32)
+    let ins: u32 = bc[ip]
+    let op: i32 = as(i32, ins) & 0xFF
+    let a: i32 = (as(i32, ins) >> 8) & 0xFF
+    let b: i32 = (as(i32, ins) >> 24) & 0xFF
+    let cd: i32 = (as(i32, ins) >> 16) & 0xFFFF
+    -- Stack base = *(ptr*)(L + 32); cast to typed views
+    let stack: ptr(u8) = as(ptr(u8), as(ptr(u64), L)[4])
+    let tv32: ptr(i32) = as(ptr(i32), stack)
+    let tv64: ptr(i64) = as(ptr(i64), stack)
+
+    switch op do
+    case 41 then
+        tv32[a * 4] = LUA_TINT
+        tv64[a * 2 + 1] = as(i64, cd - ((cd >> 15) * 65536))
+        jump dispatch(ip = ip + 1)
+    case 18 then
+        tv32[a * 4] = tv32[b * 4]
+        tv64[a * 2 + 1] = tv64[b * 2 + 1]
+        jump dispatch(ip = ip + 1)
+    case 32 then
+        tv32[a * 4] = LUA_TINT
+        tv64[a * 2 + 1] = as(i64, as(i32, tv64[b * 2 + 1]) + as(i32, tv64[cd * 2 + 1]))
+        jump dispatch(ip = ip + 1)
+    case 33 then
+        tv32[a * 4] = LUA_TINT
+        tv64[a * 2 + 1] = as(i64, as(i32, tv64[b * 2 + 1]) - as(i32, tv64[cd * 2 + 1]))
+        jump dispatch(ip = ip + 1)
+    case 34 then
+        tv32[a * 4] = LUA_TINT
+        tv64[a * 2 + 1] = as(i64, as(i32, tv64[b * 2 + 1]) * as(i32, tv64[cd * 2 + 1]))
+        jump dispatch(ip = ip + 1)
+    case 88 then
+        jump dispatch(ip = ip + 1 + cd - ((cd >> 15) * 65536))
+    case 85 then
+        jump dispatch(ip = ip + 1 + cd - ((cd >> 15) * 65536))
+    case 74 then
+        jump returned(nresults = cd - 1)
+    case 75 then
+        jump returned(nresults = 0)
+    case 76 then
+        jump returned(nresults = 1)
+    default then
+        jump error(code = LUA_ERRRUN)
+    end
 end
 end
 
+export func vm_interp_run(L: ptr(u8), bc: ptr(u32), pc: i32, status: i32) -> i32
+    return region -> i32
+    entry start()
+        emit vm_loop(L, bc, pc, status;
+            returned = got_returned,
+            yielded  = got_yielded,
+            error   = got_error)
+    end
+    block got_returned(nresults: i32)
+        yield nresults
+    end
+    block got_yielded(code: i32)
+        yield -1 - code
+    end
+    block got_error(code: i32)
+        yield -100 - code
+    end
+    end
 end
 
-local _c = m:compile(); _c:free()
+export func dispatch_const_check() -> i32
+    return BC_LOOP + BC_RET + BC_MOV + BC_ADDVV + BC_KSHORT + LUA_OK
+end
+
+end
+
+
+return m
