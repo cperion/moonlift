@@ -465,6 +465,33 @@ regions.
 
 ## 8. Region Programming Model for the VM
 
+### 8.0 Compiler Boundary: Region Normal Form
+
+Region composition is normalized by a dedicated compiler pass/module:
+
+```text
+open Moonlift region source
+  -> open expansion of values/types/names
+  -> RNF: import emitted fragments into one explicit CFG
+  -> control validation/typecheck
+  -> BackCmd lowering
+```
+
+Implementation: `lua/moonlift/region_normal_form.lua`.
+
+RNF owns:
+
+- emitted fragment block import;
+- alpha-renaming imported labels;
+- runtime parameter capture and rebinding;
+- continuation fill routing;
+- replacement of emit sites with entry jumps;
+- block hoisting;
+- recursive emit cycle rejection.
+
+After RNF, executable control regions should contain no lowerable
+`StmtUseRegionFrag` nodes.
+
 ### 8.1 Canonical Region Shape
 
 ```moonlift

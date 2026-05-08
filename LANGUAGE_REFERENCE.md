@@ -576,8 +576,8 @@ type Result = ok(i32) | err(i32)
 ```
 
 Tagged unions carry an implicit discriminant tag followed by the variant
-payload. The tag is an integer starting from 0 in declaration order. Used
-extensively in PVM-LL lowering for phase dispatch.
+payload. The tag is an integer starting from 0 in declaration order. Useful
+for explicit phase/result dispatch.
 
 ### 5.9 Hosted boundary storage types
 
@@ -2692,7 +2692,7 @@ export func sum_first_n(xs: view(i32), n: index) -> i32
 end
 ```
 
-### 21.7 PVM-LL phase dispatch (tagged union switch)
+### 21.7 Phase dispatch (tagged union switch)
 
 ```moonlift
 region classify_uncached(ctx: ptr(i32), tag: i32;

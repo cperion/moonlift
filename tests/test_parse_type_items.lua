@@ -26,6 +26,7 @@ type Color = enum
     blue
 end
 type Result = ok(i32) | err(i32) | none
+end
 export func id(x: i32) -> i32
     return x
 end

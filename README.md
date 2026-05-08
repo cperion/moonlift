@@ -200,8 +200,7 @@ cargo build --release
 ### Run your first `.mlua` file
 
 ```bash
-# JIT and run a .mlua file
-luajit run_mlua.lua examples/pvm_ll_hosted_types.mlua
+luajit run_mlua.lua examples/protocols/resp_parser.mlua
 ```
 
 ### Compile to a native object file
@@ -213,7 +212,7 @@ luajit emit_object.lua examples/protocols/resp_parser.mlua -o build/resp_parser.
 ### Compile to a shared library
 
 ```bash
-luajit emit_shared.lua examples/pvm_ll_hosted_types.mlua -o build/libtape.so
+luajit emit_shared.lua examples/protocols/resp_parser.mlua -o build/libresp_parser.so
 ```
 
 ### Quick validation
@@ -459,7 +458,6 @@ that consumes ELF/Mach-O/COFF.
 ### Shared libraries (.so/.dylib)
 
 ```bash
-luajit emit_shared.lua examples/pvm_ll_hosted_types.mlua -o build/libtape.so
 ```
 
 The linker path: `.mlua` → parse → typecheck → lower → object → link plan → system linker → `.so`.
@@ -513,12 +511,7 @@ Moonlift's standard library lives under `lib/`:
 
 | Module | Description |
 |---|---|
-| `json.lua` | Canonical hosted JSON decoder; compiled Moonlift builds Lua tables directly through the Lua C API |
-| `json_meta_decode.mlua` | Internal hosted JSON implementation module |
-| `lua_api.mlua` | Hosted Lua C API declarations/fragments for native Lua value construction |
 | `region_compose.lua` | **Region composition algebra.** PEG-style combinators (`seq`, `choice`, `star`, `plus`, `opt`, `pred`, `not_pred`) that generate native jump-first regions at Lua generation time. Exposed as `moonlift.region_compose` |
-
-JSON benchmarks compare the hosted Moonlift decoder against Lua CJSON.
 
 ---
 
@@ -611,14 +604,9 @@ moonlift/
 │   ├── ffi.rs              Lua FFI surface
 │   └── host_arena.rs       Host arena native implementation
 ├── lib/                    Moonlift standard library
-│   ├── json.lua            Hosted JSON decoder public API
-│   ├── json_meta_decode.mlua  Hosted JSON implementation internals
-│   ├── lua_api.mlua        Hosted Lua C API fragments
 │   └── ...
 ├── examples/               Runnable examples
 │   ├── protocols/          RESP parser example
-│   ├── pvm_ll_hosted_types.mlua     PVM-LL convergence demo
-│   ├── pvm_ll_expr_compiler.mlua    Expression compiler demo
 │   └── terra_vs_mlua/              Terra comparison
 ├── benchmarks/             Performance benchmarks
 ├── tests/                  Lua test suite (~130+ tests)
@@ -633,7 +621,6 @@ moonlift/
 ├── SOURCE_GRAMMAR.md       Jump-first grammar contract
 ├── PVM_GUIDE.md            PVM ASDL/phase framework guide
 ├── COMPILER_PATTERN.md     Interactive software as compilers
-├── PVM_LL.md               PVM-LL lowering direction
 └── README.md               This file
 ```
 
@@ -647,7 +634,6 @@ moonlift/
 | [`SOURCE_GRAMMAR.md`](SOURCE_GRAMMAR.md) | **Jump-first source grammar contract.** Lexical rules, modules, types, statements, expressions, control validation rules. |
 | [`PVM_GUIDE.md`](PVM_GUIDE.md) | **Complete PVM guide.** ASDL contexts, structural update, recording-triplet phases, pull-driven evaluation, the triplet algebra. |
 | [`COMPILER_PATTERN.md`](COMPILER_PATTERN.md) | **Interactive software as compilers.** The philosophy behind Moonlift's architecture: ASDL as the input language, live compilation, memoized phase boundaries. |
-| [`PVM_LL.md`](PVM_LL.md) | **PVM-LL lowering direction.** Lowering PVM phase semantics to ordinary Moonlift values with typed IDs and arenas. |
 
 ---
 

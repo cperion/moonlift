@@ -45,7 +45,8 @@ local modes = Items.items(E.CompletionQuery(query(0), E.CompletionExposeMode), a
 assert(has(modes, "proxy") and has(modes, "descriptor") and has(modes, "readonly") and has(modes, "mutable") and has(modes, "checked") and has(modes, "unchecked"))
 
 local builtin_path = Items.items(E.CompletionQuery(query(0), E.CompletionBuiltinPath), analysis)
-assert(has(builtin_path, "json") and has(builtin_path, "host") and has(builtin_path, "views"))
+assert(has(builtin_path, "host") and has(builtin_path, "views"))
+assert(not has(builtin_path, "json"))
 assert(not has(builtin_path, "builtins"))
 
 local none = Items.items(E.CompletionQuery(query(0), E.CompletionLuaOpaque), analysis)

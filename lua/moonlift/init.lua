@@ -39,7 +39,6 @@ M.vec_inspect = require("moonlift.vec_inspect")
 M.region_compose = require("moonlift.region_compose")
 M.parser_compose = require("moonlift.parser_compose")
 M.std = require("moonlift.std")
-M.json = M.std.json
 M.views = M.std.views
 M.buffer_view = M.std.buffer_view
 M.host = M.std.host

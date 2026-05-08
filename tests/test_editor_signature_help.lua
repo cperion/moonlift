@@ -34,7 +34,6 @@ expr UseFrag() -> i32
     Twice(1)
 end
 
-local decoded = moonlift.json.decode(bytes, opts)
 local lua_side = add(1, 2)
 ]]
 local doc = S.DocumentSnapshot(uri, S.DocVersion(1), S.LangMlua, src)
@@ -58,10 +57,6 @@ assert(help.signatures[1].label == "add(a: i32, b: i32) -> i32")
 assert(#help.signatures[1].params == 2)
 assert(help.signatures[1].params[2].label == "b: i32")
 
-local builtin = Sig.help(q_after("moonlift.json.decode(bytes"), analysis)
-assert(pvm.classof(builtin) == E.SignatureHelp)
-assert(builtin.active_parameter == 0)
-assert(builtin.signatures[1].label == "moonlift.json.decode(src)")
 
 local extern_src = [[
 expr UseExtern() -> i32

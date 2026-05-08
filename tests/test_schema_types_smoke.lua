@@ -7,11 +7,11 @@ local Types = require("moonlift.schema_types")
 -- Verify the blob is non-empty and contains expected types
 local blob = Types.declarations
 assert(type(blob) == "string" and #blob > 1000, "declarations blob is non-empty")
-assert(blob:match("struct MoonCore_Name"), "contains MoonCore_Name")
-assert(blob:match("enum MoonCore_Scalar"), "contains MoonCore_Scalar enum")
-assert(blob:match("union MoonCore_Literal"), "contains MoonCore_Literal union")
-assert(blob:match("union MoonTree_Expr"), "contains MoonTree_Expr union")
-assert(blob:match("union MoonType_Type"), "contains MoonType_Type union")
+assert(blob:match("type MoonCore_Name = struct"), "contains MoonCore_Name")
+assert(blob:match("type MoonCore_Scalar = enum"), "contains MoonCore_Scalar enum")
+assert(blob:match("type MoonCore_Literal ="), "contains MoonCore_Literal union")
+assert(blob:match("type MoonTree_Expr ="), "contains MoonTree_Expr union")
+assert(blob:match("type MoonType_Type ="), "contains MoonType_Type union")
 
 -- Verify tags
 local tags = Types.tags

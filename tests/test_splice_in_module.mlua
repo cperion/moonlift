@@ -1,8 +1,14 @@
 -- Simple splice test inside module body
 local decl_blob = ""
-return module
+local m = module SpliceInModule
     @{decl_blob}
     export func hello() -> i32
         return 42
     end
 end
+
+local c = m:compile()
+local hello = c:get("hello")
+assert(hello() == 42)
+c:free()
+return "splice in module ok"

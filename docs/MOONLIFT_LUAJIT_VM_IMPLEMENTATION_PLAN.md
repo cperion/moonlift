@@ -63,19 +63,20 @@ These are Moonlift language/compiler blockers that affect the VM experiment.
 
 ### P0.COMP — Moonlift Compiler Readiness
 
-- [!] **P0.COMP.001 — Diagnose `region + switch + emit` hang**
-  - Minimal reproducer needed.
-  - This blocks the region-composed VM architecture.
-  - Expected outcome: compiler fix or accepted workaround preserving region
-    semantics.
+- [x] **P0.COMP.001 — Diagnose `region + switch + emit` hang**
+  - Result: simple `region + switch + emit` cases compile; the architectural
+    issue was ad-hoc region composition living inside `open_expand.lua`.
+  - Fix: introduced `lua/moonlift/region_normal_form.lua` as the explicit RNF
+    composition boundary.
 
-- [ ] **P0.COMP.002 — Build small region-state-machine regression suite**
-  - Tests should cover:
-    - region inside module;
-    - `switch` inside region;
+- [x] **P0.COMP.002 — Build small region-state-machine regression suite**
+  - Added `tests/test_region_normal_form.mlua`.
+  - Added `tests/test_region_normal_form_recursive.lua`.
+  - Covers:
     - `emit` inside switch case;
-    - continuation forwarding;
-    - block jumps with typed params.
+    - emitted fragment containing switch;
+    - dispatch-shaped block using switch+emit;
+    - recursive emit cycle rejection.
 
 - [ ] **P0.COMP.003 — Decide struct literal strategy**
   - Current blocker: struct literals documented but parser rejects them.
@@ -711,17 +712,25 @@ Temporary shortcut:
 - Decision: x64 backend before arm64.
 - Rationale: smaller immediate target, easier oracle comparison.
 
+### D005 — Region Normal Form compiler boundary
+
+- Status: accepted and implemented.
+- Decision: region `emit` composition is a dedicated RNF pass/module, not hidden
+  as ad-hoc syntax-tree expansion in `open_expand.lua`.
+- Implementation: `lua/moonlift/region_normal_form.lua`.
+- Rationale: the VM uses regions as its core CFG composition mechanism, so block
+  import, alpha-renaming, continuation routing, and recursive-cycle detection
+  must be explicit compiler infrastructure.
+
 ---
 
 ## 21. Current Blockers
 
-- [!] **Region composition is not yet architecturally first-class enough for the VM.**
-  - Simple `region + switch + emit` examples currently compile, but the compiler
-    still represents composition as syntax-tree expansion plus block hoisting in
-    `open_expand.lua`.
-  - For a VM-sized region graph, this is too fragile. We need a dedicated Region
-    Normal Form / CFG composition pass with explicit alpha-renaming, block import,
-    continuation routing, and termination analysis.
+- [x] **Region composition is now first-class enough to start VM skeleton work.**
+  - Implemented RNF in `lua/moonlift/region_normal_form.lua`.
+  - `open_expand.lua` now delegates control-region composition to RNF.
+  - Regression tests cover switch+emit dispatch shapes and recursive emit cycle
+    rejection.
 
 - [!] Struct literals not implemented.
 - [!] Struct field assignment not implemented.
@@ -730,12 +739,13 @@ Temporary shortcut:
 
 ## 22. Next Immediate Actions
 
-1. [ ] Design Region Normal Form (RNF) as the clean compiler boundary for
+1. [x] Design Region Normal Form (RNF) as the clean compiler boundary for
    composed control graphs.
-2. [ ] Replace ad-hoc region emit expansion with RNF lowering:
+2. [x] Replace ad-hoc region emit expansion with RNF lowering:
    emit-site -> imported blocks + entry jump + typed continuation routes.
-3. [ ] Add regression tests for emit inside switch arms, switch inside emitted
-   fragments, continuation forwarding, and dispatch-style backedges.
+3. [x] Add regression tests for emit inside switch arms, switch inside emitted
+   fragments, continuation forwarding, dispatch-style blocks, and recursive
+   emit rejection.
 4. [ ] Create `VALUE_LAYOUT.md`, `IR_LAYOUT.md`, `TRACE_LAYOUT.md` drafts.
 5. [ ] Create `mlua/luajitvm/` skeleton once RNF is viable.
 

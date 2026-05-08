@@ -1,0 +1,88 @@
+-- Region Normal Form regression tests.
+-- These patterns are the VM/JIT architecture's core: dispatch blocks with
+-- switch arms that emit typed handler regions, and emitted fragments that
+-- contain their own switches/blocks.
+
+local test = module TestRegionNormalForm
+region inc(x: i32; next: cont(v: i32))
+entry start()
+    jump next(v = x + 1)
+end
+end
+
+region classify(x: i32; hit: cont(v: i32), miss: cont(v: i32))
+entry start()
+    switch x do
+    case 10 then jump hit(v = x)
+    case 20 then jump hit(v = x + 1)
+    default then jump miss(v = 0 - x)
+    end
+end
+end
+
+export func emit_inside_switch(x: i32, op: i32) -> i32
+    return region -> i32
+    entry start()
+        switch op do
+        case 1 then
+            emit inc(x; next = done)
+        default then
+            yield x
+        end
+    end
+    block done(v: i32)
+        yield v
+    end
+    end
+end
+
+export func emitted_switch(x: i32) -> i32
+    return region -> i32
+    entry start()
+        emit classify(x; hit = done, miss = done)
+    end
+    block done(v: i32)
+        yield v
+    end
+    end
+end
+
+export func dispatch_shape(x: i32, op: i32) -> i32
+    return region -> i32
+    entry start()
+        jump dispatch(v = x)
+    end
+    block dispatch(v: i32)
+        switch op do
+        case 1 then
+            emit inc(v; next = done)
+        case 2 then
+            emit classify(v; hit = done, miss = done)
+        default then
+            yield v
+        end
+    end
+    block done(v: i32)
+        yield v
+    end
+    end
+end
+end
+
+local compiled = test:compile()
+local emit_inside_switch = compiled:get("emit_inside_switch")
+local emitted_switch = compiled:get("emitted_switch")
+local dispatch_shape = compiled:get("dispatch_shape")
+
+assert(emit_inside_switch(41, 1) == 42)
+assert(emit_inside_switch(41, 0) == 41)
+assert(emitted_switch(10) == 10)
+assert(emitted_switch(20) == 21)
+assert(emitted_switch(7) == -7)
+assert(dispatch_shape(9, 1) == 10)
+assert(dispatch_shape(10, 2) == 10)
+assert(dispatch_shape(7, 2) == -7)
+assert(dispatch_shape(5, 0) == 5)
+compiled:free()
+
+return "region normal form ok"
