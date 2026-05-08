@@ -1,34 +1,276 @@
--- jit/ir.mlua -- IR emit and fold region stubs.
--- Protocol: IREmit, FoldResult
--- P4.PROTO.006 stub.
+-- jit/ir.mlua — LuaJIT-style SSA IR: IRIns layout, TRef, REF_BIAS, IR buffer.
+--
+-- Layout matches lj_ir.h exactly:
+--   IRIns = 8 bytes: [op1:u16@0][op2:u16@2][t:u8@4][o:u8@5][r:u8@6][s:u8@7]
+--   During recording: bytes 6-7 hold prev (CSE chain, u16).
+--   After recording: bytes 6-7 hold r+s (register+spill).
+--
+-- REF_BIAS divides constant space (< 0x8000) from instruction space (>= 0x8000).
+-- TRef packs IRType in bits 31:24, flags in 23:16, ref in 15:0.
 
 local m = module VmJitIr
 
-type IREmit = result(ref: i32)
-    | retry(ot: i32, a: i32, b: i32)
-    | need_snapshot(guard: i32)
-    | overflow
-    | abort(reason: i32)
+-- =========================================================================
+-- §1. IR Types (irt_t)
+-- =========================================================================
 
-type FoldResult = replace(ref: i32)
-    | fold_emit(ot: i32, a: i32, b: i32)
-    | retry(ot: i32, a: i32, b: i32)
-    | abort(reason: i32)
+const IRT_NIL:     i32 = 0
+const IRT_FALSE:   i32 = 1
+const IRT_TRUE:    i32 = 2
+const IRT_LIGHTUD: i32 = 3
+const IRT_STR:     i32 = 4
+const IRT_P32:     i32 = 5
+const IRT_THREAD:  i32 = 6
+const IRT_PROTO:   i32 = 7
+const IRT_FUNC:    i32 = 8
+const IRT_P64:     i32 = 9
+const IRT_CDATA:   i32 = 10
+const IRT_TAB:     i32 = 11
+const IRT_UDATA:   i32 = 12
+const IRT_FLOAT:   i32 = 13
+const IRT_NUM:     i32 = 14
+const IRT_I8:      i32 = 15
+const IRT_U8:      i32 = 16
+const IRT_I16:     i32 = 17
+const IRT_U16:     i32 = 18
+const IRT_INT:     i32 = 19
+const IRT_U32:     i32 = 20
+const IRT_I64:     i32 = 21
+const IRT_U64:     i32 = 22
 
--- Emit one IR instruction through the FOLD/CSE pipeline.
-region ir_emit(J: ptr(u8), ot: i32, a: i32, b: i32) -> IREmit
-entry start()
-    jump abort(reason = 0)
-end
+-- IRT flags
+const IRT_MARK:  i32 = 0x20
+const IRT_ISPHI: i32 = 0x40
+const IRT_GUARD: i32 = 0x80
+const IRT_TYPE:  i32 = 0x1f
+const IRT_T:     i32 = 0xff
+
+-- =========================================================================
+-- §2. IR Opcodes (IROp)
+-- =========================================================================
+
+-- Constants
+const IR_KINT:  i32 = 60     -- 32-bit integer constant
+const IR_KINT64:i32 = 61     -- 64-bit integer constant
+const IR_KNUM:  i32 = 62     -- number constant (takes 2 IRIns)
+const IR_KGC:   i32 = 63     -- GC object constant
+const IR_KPTR:  i32 = 64     -- pointer constant
+const IR_KKPTR: i32 = 65     -- offsetted pointer constant
+const IR_KNULL: i32 = 66     -- NULL pointer constant
+const IR_KPRI:  i32 = 67     -- primitive constant (nil/false/true)
+
+-- SLOAD / FLOAD / ALOAD
+const IR_BASE:   i32 = 0     -- base reference for current frame
+const IR_SLOAD:  i32 = 31    -- stack slot load (with snapshot map)
+const IR_FLOAD:  i32 = 32    -- field load
+const IR_ALOAD:  i32 = 33    -- array load
+
+-- Arithmetic (integer)
+const IR_ADD:  i32 = 10
+const IR_SUB:  i32 = 11
+const IR_MUL:  i32 = 12
+const IR_DIV:  i32 = 13
+const IR_MOD:  i32 = 14
+const IR_NEG:  i32 = 15
+
+-- Comparisons (integer)
+const IR_LT:  i32 = 20
+const IR_GE:  i32 = 21
+const IR_LE:  i32 = 22
+const IR_GT:  i32 = 23
+const IR_EQ:  i32 = 24
+const IR_NE:  i32 = 25
+
+-- Bit operations
+const IR_BAND: i32 = 40
+const IR_BOR:  i32 = 41
+const IR_BXOR: i32 = 42
+const IR_BSHL: i32 = 43
+const IR_BSHR: i32 = 44
+const IR_BSAR: i32 = 45
+const IR_BNOT: i32 = 46
+
+-- Control flow
+const IR_LOOP: i32 = 80
+const IR_RETF: i32 = 82
+
+-- Miscellaneous
+const IR_NOP: i32 = 90
+
+-- =========================================================================
+-- §3. REF_BIAS and TRef
+-- =========================================================================
+
+const REF_BIAS:  i32 = 0x8000       -- 32768
+const REF_NIL:   i32 = 0x7FFF       -- REF_BIAS - 1
+const REF_FALSE: i32 = 0x7FFE       -- REF_BIAS - 2
+const REF_TRUE:  i32 = 0x7FFD       -- REF_BIAS - 3
+const REF_FIRST: i32 = 0x8001       -- REF_BIAS + 1
+
+-- TRef: tagged IR reference (u32)
+--   [31:24] irt — IRType copy
+--   [23:16] flags — TREF_FRAME, TREF_CONT
+--   [15:0]  ref  — IR reference
+const TREF_FRAME: i32 = 0x00010000
+const TREF_CONT:  i32 = 0x00020000
+
+-- TRef constructors as const values
+const TREF_NIL:   i32 = REF_NIL   + (IRT_NIL << 24)
+const TREF_FALSE: i32 = REF_FALSE + (IRT_FALSE << 24)
+const TREF_TRUE:  i32 = REF_TRUE  + (IRT_TRUE << 24)
+
+-- =========================================================================
+-- §4. TRef helpers (operate on u32 values)
+-- =========================================================================
+
+export func tref_ref(tr: u32) -> i32
+    return as(i32, tr) & 0xFFFF
 end
 
--- Apply FOLD rules to one instruction.
-region ir_fold(J: ptr(u8), ot: i32, a: i32, b: i32) -> FoldResult
-entry start()
-    jump abort(reason = 0)
+export func tref_type(tr: u32) -> i32
+    return (as(i32, tr) >> 24) & IRT_TYPE
 end
+
+export func tref_isk(tr: u32) -> bool
+    return tref_ref(tr) < REF_BIAS
+end
+
+export func tref_isnum(tr: u32) -> bool
+    return tref_type(tr) == IRT_NUM
+end
+
+export func tref_isint(tr: u32) -> bool
+    return tref_type(tr) == IRT_INT
+end
+
+export func tref_isinteger(tr: u32) -> bool
+    let t: i32 = tref_type(tr)
+    return t >= IRT_I8 and t <= IRT_INT
+end
+
+-- Build a TRef from ref + irt
+export func tref_new(ref: i32, irt: i32) -> u32
+    return as(u32, ref + (irt << 24))
+end
+
+-- =========================================================================
+-- §5. IRIns layout (8 bytes) and field accessors
+-- =========================================================================
+--   [0:1] op1 (u16)   [2:3] op2 (u16)   [4] t (u8)   [5] o (u8)
+--   [6:7] prev (u16 during recording) or [6]r [7]s (after recording)
+
+export func ir_op1(ins: ptr(u8)) -> i32
+    let p: ptr(u16) = as(ptr(u16), ins)
+    return as(i32, p[0])
+end
+
+export func ir_set_op1(ins: ptr(u8), v: i32)
+    let p: ptr(u16) = as(ptr(u16), ins)
+    p[0] = as(u16, v)
+end
+
+export func ir_op2(ins: ptr(u8)) -> i32
+    let p: ptr(u16) = as(ptr(u16), ins)
+    return as(i32, p[1])
+end
+
+export func ir_set_op2(ins: ptr(u8), v: i32)
+    let p: ptr(u16) = as(ptr(u16), ins)
+    p[1] = as(u16, v)
+end
+
+export func ir_type(ins: ptr(u8)) -> i32
+    return as(i32, ins[4])
+end
+
+export func ir_set_type(ins: ptr(u8), v: i32)
+    ins[4] = as(u8, v)
+end
+
+export func ir_op(ins: ptr(u8)) -> i32
+    return as(i32, ins[5])
+end
+
+export func ir_set_op(ins: ptr(u8), v: i32)
+    ins[5] = as(u8, v)
+end
+
+export func ir_prev(ins: ptr(u8)) -> i32
+    let p: ptr(u16) = as(ptr(u16), ins)
+    return as(i32, p[3])
+end
+
+export func ir_set_prev(ins: ptr(u8), v: i32)
+    let p: ptr(u16) = as(ptr(u16), ins)
+    p[3] = as(u16, v)
+end
+
+export func ir_reg(ins: ptr(u8)) -> i32
+    return as(i32, ins[6])
+end
+
+export func ir_set_reg(ins: ptr(u8), v: i32)
+    ins[6] = as(u8, v)
+end
+
+export func ir_spill(ins: ptr(u8)) -> i32
+    return as(i32, ins[7])
+end
+
+export func ir_set_spill(ins: ptr(u8), v: i32)
+    ins[7] = as(u8, v)
+end
+
+-- Combined: set all fields at once
+export func ir_set(ins: ptr(u8), o: i32, t: i32, op1: i32, op2: i32)
+    let p16: ptr(u16) = as(ptr(u16), ins)
+    p16[0] = as(u16, op1)
+    p16[1] = as(u16, op2)
+    ins[4] = as(u8, t)
+    ins[5] = as(u8, o)
+end
+
+-- =========================================================================
+-- §6. IR buffer: growable array of IRIns (each 8 bytes)
+--   buf_base: ptr(u8) to start of buffer
+--   buf_top:  i32 — number of IRIns currently in buffer
+--   buf_cap:  i32 — capacity in IRIns count
+-- =========================================================================
+
+export func ir_buf_append(buf_base: ptr(u8), buf_top: i32, o: i32, t: i32, op1: i32, op2: i32) -> i32
+    let off: i32 = buf_top * 8
+    let ins: ptr(u8) = buf_base  -- FIXME: should be buf_base + off
+    ir_set(ins, o, t, op1, op2)
+    return buf_top + 1
+end
+
+-- =========================================================================
+-- §7. Built-in constants
+-- =========================================================================
+
+-- Predefined constants occupy slots below REF_BIAS.
+-- For now: just return the constant ref values.
+
+export func ir_const_nil() -> i32
+    return REF_NIL
+end
+
+export func ir_const_false() -> i32
+    return REF_FALSE
+end
+
+export func ir_const_true() -> i32
+    return REF_TRUE
+end
+
+export func ir_isk(ref: i32) -> bool
+    return ref < REF_BIAS
+end
+
+export func ir_const_check() -> i32
+    return REF_BIAS + REF_NIL + REF_TRUE + IRT_INT + IR_ADD + IR_SLOAD + IR_LOOP
 end
 
 end
 
-local _c = m:compile(); _c:free()
+return m

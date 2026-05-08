@@ -1,43 +1,126 @@
--- jit/trace.mlua -- Trace record/commit region stubs.
--- Protocol: TraceRecord, TraceRecordSide, TraceCommit
--- P4.PROTO.005 stub.
-
 local m = module VmJitTrace
 
-type TraceRecord = compiled(tr: i32)
-    | interpret
-    | abort(reason: i32)
+const TR_OFF_NSNAP:    i32 = 16
+const TR_OFF_NINS:     i32 = 18
+const TR_OFF_IR:       i32 = 24
+const TR_OFF_NK:       i32 = 32
+const TR_OFF_NSNAPMAP: i32 = 36
+const TR_OFF_SNAP:     i32 = 40
+const TR_OFF_SNAPMAP:  i32 = 48
+const TR_OFF_STARTPT:  i32 = 56
+const TR_OFF_STARTPC:  i32 = 64
+const TR_OFF_STARTINS: i32 = 72
+const TR_OFF_SZMCODE:  i32 = 76
+const TR_OFF_MCODE:    i32 = 80
+const TR_OFF_MCLOOP:   i32 = 88
+const TR_OFF_NCHILD:   i32 = 90
+const TR_OFF_SPADJUST: i32 = 92
+const TR_OFF_TRACENO:  i32 = 94
+const TR_OFF_LINK:     i32 = 96
+const TR_SIZE:         i32 = 104
 
-type TraceRecordSide = compiled(tr: i32)
-    | stitch(tr: i32)
-    | interpret
-    | abort(reason: i32)
+const SNAP_OFF_MAPOFS: i32 = 0
+const SNAP_OFF_NSLOTS: i32 = 4
+const SNAP_OFF_NENT:   i32 = 8
+const SNAP_OFF_COUNT:  i32 = 10
+const SNAP_OFF_REF:    i32 = 12
+const SNAP_SIZE:       i32 = 16
 
-type TraceCommit = root_patched(tr: i32)
-    | side_patched(tr: i32)
-    | abort(reason: i32)
+const SNAP_SLOT_SHIFT: i32 = 24
+const SNAP_FRAME:      i32 = 0x00010000
+const SNAP_NORESTORE:  i32 = 0x00020000
+const EXIT_SIZE:       i32 = 64
 
--- Record a root trace starting at pc.
-region trace_record_root(J: ptr(u8), L: ptr(u8), pc: ptr(u8)) -> TraceRecord
-entry start()
-    jump interpret()
-end
-end
-
--- Record a side trace from a hot guard exit.
-region trace_record_side(J: ptr(u8), L: ptr(u8), parent: i32, exitno: i32) -> TraceRecordSide
-entry start()
-    jump interpret()
-end
+export func tr_nins(tr: ptr(u8)) -> i32
+    let p: ptr(u32) = as(ptr(u32), tr)
+    return as(i32, p[4])
 end
 
--- Commit a compiled trace to the runtime.
-region trace_commit(J: ptr(u8), tr: i32, mcode_ptr: ptr(u8)) -> TraceCommit
-entry start()
-    jump abort(reason = 0)
+export func tr_set_nins(tr: ptr(u8), v: i32)
+    let p: ptr(u32) = as(ptr(u32), tr)
+    p[4] = as(u32, v)
 end
+
+export func tr_nsnap(tr: ptr(u8)) -> i32
+    let p: ptr(u16) = as(ptr(u16), tr)
+    return as(i32, p[8])
+end
+
+export func tr_irbuf(tr: ptr(u8)) -> ptr(u8)
+    let p: ptr(u64) = as(ptr(u64), tr)
+    return as(ptr(u8), p[3])
+end
+
+export func tr_set_irbuf(tr: ptr(u8), buf: ptr(u8))
+    let p: ptr(u64) = as(ptr(u64), tr)
+    p[3] = as(u64, buf)
+end
+
+export func tr_snap(tr: ptr(u8)) -> ptr(u8)
+    let p: ptr(u64) = as(ptr(u64), tr)
+    return as(ptr(u8), p[5])
+end
+
+export func tr_snapmap(tr: ptr(u8)) -> ptr(u8)
+    let p: ptr(u64) = as(ptr(u64), tr)
+    return as(ptr(u8), p[6])
+end
+
+export func tr_mcode(tr: ptr(u8)) -> ptr(u8)
+    let p: ptr(u64) = as(ptr(u64), tr)
+    return as(ptr(u8), p[10])
+end
+
+export func tr_szmcode(tr: ptr(u8)) -> i32
+    let p: ptr(u32) = as(ptr(u32), tr)
+    return as(i32, p[19])
+end
+
+export func tr_traceno(tr: ptr(u8)) -> i32
+    let p: ptr(u16) = as(ptr(u16), tr)
+    return as(i32, p[47])
+end
+
+export func tr_link(tr: ptr(u8)) -> i32
+    let p: ptr(u16) = as(ptr(u16), tr)
+    return as(i32, p[48])
+end
+
+export func snap_mapofs(snap: ptr(u8)) -> i32
+    let p: ptr(u32) = as(ptr(u32), snap)
+    return as(i32, p[0])
+end
+
+export func snap_nslots(snap: ptr(u8)) -> i32
+    let p: ptr(u32) = as(ptr(u32), snap)
+    return as(i32, p[1])
+end
+
+export func snap_nent(snap: ptr(u8)) -> i32
+    let p: ptr(u16) = as(ptr(u16), snap)
+    return as(i32, p[4])
+end
+
+export func snap_ref(snap: ptr(u8)) -> i32
+    let p: ptr(u16) = as(ptr(u16), snap)
+    return as(i32, p[6])
+end
+
+export func snap_entry_encode(slot: i32, flags: i32, ref: i32) -> i32
+    return (slot << SNAP_SLOT_SHIFT) + flags + (ref & 0xFF)
+end
+
+export func snap_entry_slot(e: i32) -> i32
+    return e >> SNAP_SLOT_SHIFT
+end
+
+export func snap_entry_ref(e: i32) -> i32
+    return e & 0xFF
+end
+
+export func trace_const_check() -> i32
+    return TR_SIZE + SNAP_SIZE + EXIT_SIZE + SNAP_SLOT_SHIFT
 end
 
 end
-
-local _c = m:compile(); _c:free()
+return m

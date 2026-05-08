@@ -367,7 +367,7 @@ local function expression_for_island(T, step_index, island, template)
 end
 
 local function translation_for_island(T, step_index, island, template)
-    return expression_for_island(T, step_index, island, template)
+    return "(" .. expression_for_island(T, step_index, island, template) .. ")"
 end
 
 local function translate_runtime(runtime)

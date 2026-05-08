@@ -140,11 +140,15 @@ M.open_words_form = open_words_form
 local function opener_context_allows(src, word_start, word_stop)
     local next_i = skip_space(src, word_stop)
     local next_ch = src:sub(next_i, next_i)
+    local word = read_ident(src, word_start)
     -- Type/protocol variant fields such as `entry: ptr(u8)` are identifiers,
     -- not block openers. Depth tracking must never treat them as syntax.
     if next_ch == ":" or next_ch == "," or next_ch == ")" then return false end
+    if word == "entry" then
+        local line_start = src:sub(1, word_start - 1):match(".*\n()") or 1
+        if src:sub(line_start, word_start - 1):match("%S") then return false end
+    end
     if line_prefix_has_word(src, word_start, "type") then
-        local word = read_ident(src, word_start)
         if word ~= "struct" and word ~= "union" then return false end
     end
     return true
@@ -153,8 +157,7 @@ M.opener_context_allows = opener_context_allows
 
 local function find_matching_end(src, start_i, open_words)
     local depth, i = 0, start_i
-    local keyword_stack = {}  -- stack of opener keywords (not case/default)
-    local pending_case_ends = 0  -- case/default bodies inside switch not yet closed
+    local keyword_stack = {}
     while i <= #src do
         local skipped = skip_comment_or_string(src, i)
         if skipped then
@@ -163,30 +166,14 @@ local function find_matching_end(src, start_i, open_words)
             local word, j = read_ident(src, i)
             if is_boundary(src, i, #word) then
                 if word == "end" then
-                    if pending_case_ends > 0 then
-                        -- An end that shares a line with case/default is an explicit
-                        -- case-body terminator; otherwise it is the switch's own end
-                        -- (which also closes the last pending case body).
-                        if line_prefix_has_word(src, i, "case") or line_prefix_has_word(src, i, "default") then
-                            pending_case_ends = pending_case_ends - 1
-                        else
-                            pending_case_ends = 0
-                            if keyword_stack[#keyword_stack] == "switch" then
-                                table.remove(keyword_stack)
-                                depth = depth - 1
-                            end
-                        end
-                    else
-                        table.remove(keyword_stack)
-                        depth = depth - 1
-                        if depth == 0 then return j - 1 end
-                    end
+                    table.remove(keyword_stack)
+                    depth = depth - 1
+                    if depth == 0 then return j - 1 end
                 elseif word == "case" or word == "default" then
-                    if pending_case_ends > 0 then
-                        -- previous case/default body implicitly closed
-                        pending_case_ends = pending_case_ends - 1
-                    end
-                    pending_case_ends = pending_case_ends + 1
+                    -- Switch case bodies are not end-delimited forms. They end
+                    -- at the next case/default or at the switch's own end. Do
+                    -- not track them here; nested if/block forms in case bodies
+                    -- are tracked by their own opener keywords.
                 elseif open_words[word] and opener_context_allows(src, i, j) then
                     -- `extern func name(...)` is a declaration item, not an
                     -- end-delimited function body.
@@ -202,11 +189,13 @@ local function find_matching_end(src, start_i, open_words)
                     end
                 elseif word == "do" then
                     if not line_prefix_has_word(src, i, "switch") then
+                        table.insert(keyword_stack, "do")
                         depth = depth + 1
                     end
                 elseif word == "loop" then
                     local next_word = read_ident(src, skip_space(src, j))
                     if next_word == "counted" then
+                        table.insert(keyword_stack, "loop counted")
                         depth = depth + 1
                     end
                 end
@@ -287,6 +276,7 @@ local function is_module_start(src, i)
     local k = skip_hspace(src, i + #"module")
     local ch = src:sub(k, k)
     if ch == "" then return prefix_ok end
+    if ch == '"' or ch == "'" then return true end
     if ch == "\n" then
         if not from_return then return true end
         local next_line_start = skip_space(src, k + 1)

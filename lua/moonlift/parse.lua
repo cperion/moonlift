@@ -235,6 +235,7 @@ end
 function Parser:kind(offset) return self.toks.kind[self.i + (offset or 0)] end
 function Parser:text(offset) return self.toks.text[self.i + (offset or 0)] end
 function Parser:skip_nl() while self:kind() == TK.nl do self.i = self.i + 1 end end
+function Parser:skip_sep() while self:kind() == TK.nl or self:kind() == TK.semi do self.i = self.i + 1 end end
 function Parser:accept(k) if self:kind() == k then local text = self:text(); self.i = self.i + 1; return text end end
 function Parser:issue(msg)
     local i = self.i
@@ -534,10 +535,10 @@ end
 
 function Parser:parse_stmt_until(stops)
     local out = {}
-    self:skip_nl()
+    self:skip_sep()
     while not self:is_stop(stops) and self:kind() ~= TK.eof do
         out[#out + 1] = self:parse_stmt()
-        self:skip_nl()
+        self:skip_sep()
     end
     return out
 end
@@ -705,10 +706,10 @@ end
 function Parser:parse_expr_block(stops)
     local C, Tr = self.C, self.Tr
     local stmts = {}
-    self:skip_nl()
+    self:skip_sep()
     while not self:is_stop(stops) and self:kind() ~= TK.eof do
         stmts[#stmts + 1] = self:parse_stmt()
-        self:skip_nl()
+        self:skip_sep()
     end
     if #stmts == 0 then
         self:issue("expected expression in switch arm")
@@ -1297,11 +1298,11 @@ end
 function Parser:parse_module()
     local Tr = self.Tr
     local items = {}
-    self:skip_nl()
+    self:skip_sep()
     while self:kind() ~= TK.eof and self:kind() ~= TK.end_kw do
         local item = self:parse_item()
         if item ~= nil then items[#items + 1] = item end
-        self:skip_nl()
+        self:skip_sep()
     end
     if self:kind() == TK.end_kw then self.i = self.i + 1 end
     return Tr.Module(Tr.ModuleSurface, items)
@@ -1364,21 +1365,21 @@ end
 function M.parse_module_template(T, template, opts)
     local toks = M.lex_template(T, template)
     local p = parser_from_toks(T, toks, opts)
-    p:skip_nl()
+    p:skip_sep()
     -- consume optional "module [name]" header ("module" is a plain TK.name)
     if p:kind() == TK.name and p:text() == "module" then
         p.i = p.i + 1
-        p:skip_nl()
-        -- consume optional module name (not a keyword)
-        if p:kind() == TK.name and not keywords[p:text()] then
+        p:skip_sep()
+        -- consume optional module name (identifier or Lua-style string path)
+        if (p:kind() == TK.name and not keywords[p:text()]) or p:kind() == TK.string then
             p.i = p.i + 1
         end
-        p:skip_nl()
+        p:skip_sep()
     end
     -- parse items (and inline region/expr frag definitions) until end/eof
     local items = {}
     while p:kind() ~= TK.eof and p:kind() ~= TK.end_kw do
-        p:skip_nl()
+        p:skip_sep()
         if p:kind() == TK.eof or p:kind() == TK.end_kw then break end
         -- region/expr definitions inside module body: parse as frags, not items
         if p:kind() == TK.region then
@@ -1395,7 +1396,7 @@ function M.parse_module_template(T, template, opts)
             local item = p:parse_item()
             if item ~= nil then items[#items + 1] = item end
         end
-        p:skip_nl()
+        p:skip_sep()
     end
     if p:kind() == TK.end_kw then p.i = p.i + 1 end
     local module = p.Tr.Module(p.Tr.ModuleSurface, items)

@@ -1,23 +1,24 @@
--- gc/barrier.mlua — GC write barrier stubs (no incremental GC yet).
---
--- Barriers are no-ops for now. Their call sites are preserved so that
--- every store that could violate GC invariants goes through a visible edge.
--- When incremental GC is added, these become real barrier implementations.
+-- gc/barrier.mlua — GC write barrier regions.
+-- Every store that can violate GC invariants routes through these edges.
 
 local m = module VmGcBarrier
 
 type BarrierResult = done
 
--- Forward barrier: called when a non-white object stores a reference to a white object.
--- If parent is black and child is white, mark child gray (and parent gray for backward).
-export func gc_barrier_fwd(G: ptr(u8), parent: ptr(u8), child: ptr(u8))
-    -- No-op: no incremental GC yet
+-- Forward barrier: if parent is black and child is white, mark child gray.
+-- No-op stub: no incremental GC yet.
+region gc_barrier_fwd(G: ptr(u8), parent: ptr(u8), child: ptr(u8)) -> BarrierResult
+entry start()
+    jump done()
+end
 end
 
--- Backward barrier: called when a black table is modified.
--- Re-mark the table gray so its references get rescanned.
-export func gc_barrier_back(G: ptr(u8), tab: ptr(u8))
-    -- No-op: no incremental GC yet
+-- Backward barrier: if table is black, re-mark it gray.
+-- No-op stub: no incremental GC yet.
+region gc_barrier_back(G: ptr(u8), tab: ptr(u8)) -> BarrierResult
+entry start()
+    jump done()
+end
 end
 
 export func barrier_const_check() -> i32
@@ -25,5 +26,4 @@ export func barrier_const_check() -> i32
 end
 
 end
-
 return m

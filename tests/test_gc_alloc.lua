@@ -90,9 +90,8 @@ assert(is_white_fn(obj3_ptr, 1), "white obj should be white")
 -- obj1 is black
 assert(is_black_fn(obj1_ptr), "obj1 should be black")
 
--- Barrier smoke test (no-ops, just verify they don't crash)
-barrier:get("gc_barrier_fwd")(G_ptr, obj3_ptr, obj1_ptr)
-barrier:get("gc_barrier_back")(G_ptr, obj3_ptr)
+-- Barrier regions: verify they compile (regions can't be called directly from Lua)
+assert(barrier:get("barrier_const_check")() == 1, "barrier sentinel")
 
 alloc:free()
 barrier:free()
