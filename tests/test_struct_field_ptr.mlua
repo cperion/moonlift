@@ -1,0 +1,29 @@
+-- Pointer-to-struct field access and assignment lower through layout-resolved field offsets.
+
+local ffi = require("ffi")
+
+local m = module StructFieldPtr
+
+type Pair = struct
+    a: i32
+    b: i32
+end
+
+export func get_b(p: ptr(Pair)) -> i32
+    return p.b
+end
+
+export func set_b(p: ptr(Pair), v: i32)
+    p.b = v
+end
+
+end
+
+local c = m:compile()
+local cells = ffi.new("int32_t[2]", {5, 9})
+assert(c:get("get_b")(cells) == 9)
+c:get("set_b")(cells, 12)
+assert(cells[0] == 5)
+assert(cells[1] == 12)
+c:free()
+return "struct field ptr ok"

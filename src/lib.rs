@@ -945,7 +945,7 @@ impl<M: Module> Compiler<M> {
         for decl in self.datas.values_mut() {
             let data_id = self
                 .module
-                .declare_data(&decl.symbol, Linkage::Local, false, false)
+                .declare_data(&decl.symbol, Linkage::Local, true, false)
                 .map_err(|e| MoonliftError::new(format!("failed to declare data object '{}': {e}", decl.symbol)))?;
             decl.data_id = Some(data_id);
         }

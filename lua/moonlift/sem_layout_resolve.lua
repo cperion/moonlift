@@ -9,6 +9,8 @@ function M.Define(T)
     local Tr = T.MoonTree
     local H = T.MoonHost
 
+    local module_type_api = require("moonlift.tree_module_type").Define(T)
+
     local type_layout
     local type_ref_layout
     local field_in_layout
@@ -81,7 +83,16 @@ function M.Define(T)
             end
             return pvm.empty()
         end,
-        [Ty.TypeRefPath] = function() return pvm.empty() end,
+        [Ty.TypeRefPath] = function(ref, env)
+            if #ref.path.parts == 1 then
+                local name = ref.path.parts[1].text
+                for i = 1, #env.layouts do
+                    local layout = env.layouts[i]
+                    if pvm.classof(layout) == Sem.LayoutNamed and layout.type_name == name then return pvm.once(layout) end
+                end
+            end
+            return pvm.empty()
+        end,
         [Ty.TypeRefSlot] = function() return pvm.empty() end,
     }, { args_cache = "last" })
 
@@ -152,10 +163,21 @@ function M.Define(T)
     resolve_place = pvm.phase("moonlift_sem_layout_place", {
         [Tr.PlaceRef] = function(self) return pvm.once(self) end,
         [Tr.PlaceDeref] = function(self, env) return pvm.once(pvm.with(self, { base = one(resolve_expr, self.base, env) })) end,
-        [Tr.PlaceDot] = function(self, env) return pvm.once(pvm.with(self, { base = one(resolve_place, self.base, env) })) end,
+        [Tr.PlaceDot] = function(self, env)
+            local base = one(resolve_place, self.base, env)
+            local base_ty = type_of_place(base)
+            local lookup_ty = base_ty
+            if lookup_ty ~= nil and pvm.classof(lookup_ty) == Ty.TPtr then lookup_ty = lookup_ty.elem end
+            if lookup_ty ~= nil then
+                local field = pvm.one(resolve_field_ref(Sem.FieldByName(self.name, lookup_ty), lookup_ty, env))
+                if pvm.classof(field) == Sem.FieldByOffset then return pvm.once(Tr.PlaceField(Tr.PlaceTyped(field.ty), base, field)) end
+            end
+            return pvm.once(pvm.with(self, { base = base }))
+        end,
         [Tr.PlaceField] = function(self, env)
             local base = one(resolve_place, self.base, env)
             local base_ty = type_of_place(base)
+            if base_ty ~= nil and pvm.classof(base_ty) == Ty.TPtr then base_ty = base_ty.elem end
             local field = self.field
             if base_ty ~= nil then field = pvm.one(resolve_field_ref(self.field, base_ty, env)) end
             return pvm.once(pvm.with(self, { base = base, field = field }))
@@ -188,7 +210,20 @@ function M.Define(T)
     resolve_expr = pvm.phase("moonlift_sem_layout_expr", {
         [Tr.ExprLit] = function(self) return pvm.once(self) end,
         [Tr.ExprRef] = function(self) return pvm.once(self) end,
-        [Tr.ExprDot] = function(self, env) return pvm.once(pvm.with(self, { base = one(resolve_expr, self.base, env) })) end,
+        [Tr.ExprDot] = function(self, env)
+            local base = one(resolve_expr, self.base, env)
+            local h = base.h
+            local base_ty = nil
+            local h_cls = pvm.classof(h)
+            if h_cls == Tr.ExprTyped or h_cls == Tr.ExprOpen or h_cls == Tr.ExprSem or h_cls == Tr.ExprCode then base_ty = h.ty end
+            local lookup_ty = base_ty
+            if lookup_ty ~= nil and pvm.classof(lookup_ty) == Ty.TPtr then lookup_ty = lookup_ty.elem end
+            if lookup_ty ~= nil then
+                local field = pvm.one(resolve_field_ref(Sem.FieldByName(self.name, lookup_ty), lookup_ty, env))
+                if pvm.classof(field) == Sem.FieldByOffset then return pvm.once(Tr.ExprField(Tr.ExprTyped(field.ty), base, field)) end
+            end
+            return pvm.once(pvm.with(self, { base = base }))
+        end,
         [Tr.ExprUnary] = function(self, env) return pvm.once(pvm.with(self, { value = one(resolve_expr, self.value, env) })) end,
         [Tr.ExprBinary] = function(self, env) return pvm.once(pvm.with(self, { lhs = one(resolve_expr, self.lhs, env), rhs = one(resolve_expr, self.rhs, env) })) end,
         [Tr.ExprCompare] = function(self, env) return pvm.once(pvm.with(self, { lhs = one(resolve_expr, self.lhs, env), rhs = one(resolve_expr, self.rhs, env) })) end,
@@ -206,6 +241,7 @@ function M.Define(T)
             local base_ty = nil
             local h_cls = pvm.classof(h)
             if h_cls == Tr.ExprTyped or h_cls == Tr.ExprOpen or h_cls == Tr.ExprSem or h_cls == Tr.ExprCode then base_ty = h.ty end
+            if base_ty ~= nil and pvm.classof(base_ty) == Ty.TPtr then base_ty = base_ty.elem end
             local field = self.field
             if base_ty ~= nil then field = pvm.one(resolve_field_ref(self.field, base_ty, env)) end
             return pvm.once(pvm.with(self, { base = base, field = field }))
@@ -311,7 +347,13 @@ function M.Define(T)
     }, { args_cache = "last" })
 
     resolve_module = pvm.phase("moonlift_sem_layout_module", {
-        [Tr.Module] = function(module, env) return pvm.once(pvm.with(module, { items = map_items(module.items, env) })) end,
+        [Tr.Module] = function(module, env)
+            local resolved_env = env
+            if resolved_env == nil or #resolved_env.layouts == 0 then
+                resolved_env = Sem.LayoutEnv(module_type_api.env(module).layouts)
+            end
+            return pvm.once(pvm.with(module, { items = map_items(module.items, resolved_env) }))
+        end,
     }, { args_cache = "last" })
 
     local function empty_env()
@@ -329,7 +371,7 @@ function M.Define(T)
         field = function(field, base_ty, env) return pvm.one(resolve_field_ref(field, base_ty, env or empty_env())) end,
         expr = function(expr, env) return one(resolve_expr, expr, env or empty_env()) end,
         place = function(place, env) return one(resolve_place, place, env or empty_env()) end,
-        module = function(module, env) return one(resolve_module, module, env or empty_env()) end,
+        module = function(module, env) return one(resolve_module, module, env) end,
     }
 end
 

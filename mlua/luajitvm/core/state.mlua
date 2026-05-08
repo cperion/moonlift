@@ -33,6 +33,10 @@ export func ts_set_status(ts: ptr(u8), status: i32)
     ts[48] = as(u8, status)
 end
 
+export func state_const_check() -> i32
+    return LUA_OK + LUA_ERRRUN + TS_OFF_PC
+end
+
 end
 
 return m

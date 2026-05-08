@@ -85,6 +85,34 @@ function M.Define(T)
         return a == b
     end
 
+    local function named_ref(ty)
+        if pvm.classof(ty) == Ty.TNamed then return ty.ref end
+        return nil
+    end
+
+    local function field_layout_for(env, ty, field_name)
+        local ref = named_ref(ty)
+        if ref == nil then return nil end
+        for i = 1, #env.layouts do
+            local layout = env.layouts[i]
+            local cls = pvm.classof(layout)
+            local matches = false
+            if cls == Sem.LayoutNamed and pvm.classof(ref) == Ty.TypeRefGlobal then
+                matches = layout.module_name == ref.module_name and layout.type_name == ref.type_name
+            elseif cls == Sem.LayoutNamed and pvm.classof(ref) == Ty.TypeRefPath then
+                matches = #ref.path.parts == 1 and layout.type_name == ref.path.parts[1].text
+            elseif cls == Sem.LayoutLocal and pvm.classof(ref) == Ty.TypeRefLocal then
+                matches = layout.sym == ref.sym
+            end
+            if matches then
+                for j = 1, #layout.fields do
+                    if layout.fields[j].field_name == field_name then return layout.fields[j] end
+                end
+            end
+        end
+        return nil
+    end
+
     local function scalar_kind(ty)
         if pvm.classof(ty) == Ty.TScalar then return ty.scalar end
         return nil
@@ -282,6 +310,12 @@ function M.Define(T)
         end,
         [Tr.PlaceDot] = function(self, ctx)
             local base = pvm.one(type_place(self.base, ctx)); local issues = {}; append_all(issues, base.issues)
+            local lookup_ty = base.ty
+            if pvm.classof(lookup_ty) == Ty.TPtr then lookup_ty = lookup_ty.elem end
+            local layout = field_layout_for(ctx.env, lookup_ty, self.name)
+            if layout ~= nil then
+                return pvm.once(result_place(Tr.PlaceField(Tr.PlaceTyped(layout.ty), base.place, Sem.FieldByName(layout.field_name, layout.ty)), layout.ty, issues))
+            end
             return pvm.once(result_place(Tr.PlaceDot(Tr.PlaceTyped(base.ty), base.place, self.name), base.ty, issues))
         end,
         [Tr.PlaceField] = function(self, ctx)
@@ -395,7 +429,21 @@ function M.Define(T)
         [Tr.ExprAgg] = function(self, ctx) return pvm.once(result_expr(pvm.with(self, { h = Tr.ExprTyped(self.ty) }), self.ty, {})) end,
         [Tr.ExprView] = function(self, ctx) local view = pvm.one(type_view(self.view, ctx)); local ty = Ty.TView(view_elem(view.view)); return pvm.once(result_expr(Tr.ExprView(Tr.ExprTyped(ty), view.view), ty, view.issues)) end,
         [Tr.ExprLoad] = function(self, ctx) local addr = pvm.one(type_expr(self.addr, ctx)); return pvm.once(result_expr(Tr.ExprLoad(Tr.ExprTyped(self.ty), self.ty, addr.expr), self.ty, addr.issues)) end,
-        [Tr.ExprDot] = function(self, ctx) local base = pvm.one(type_expr(self.base, ctx)); return pvm.once(result_expr(Tr.ExprDot(Tr.ExprTyped(base.ty), base.expr, self.name), base.ty, base.issues)) end,
+        [Tr.ExprDot] = function(self, ctx)
+            local base = pvm.one(type_expr(self.base, ctx)); local issues = {}; append_all(issues, base.issues)
+            local base_ty = base.ty
+            if pvm.classof(base_ty) == Ty.TPtr then
+                local layout = field_layout_for(ctx.env, base_ty.elem, self.name)
+                if layout ~= nil then
+                    return pvm.once(result_expr(Tr.ExprField(Tr.ExprTyped(layout.ty), base.expr, Sem.FieldByName(layout.field_name, layout.ty)), layout.ty, issues))
+                end
+            end
+            local layout = field_layout_for(ctx.env, base_ty, self.name)
+            if layout ~= nil then
+                return pvm.once(result_expr(Tr.ExprField(Tr.ExprTyped(layout.ty), base.expr, Sem.FieldByName(layout.field_name, layout.ty)), layout.ty, issues))
+            end
+            return pvm.once(result_expr(Tr.ExprDot(Tr.ExprTyped(base.ty), base.expr, self.name), base.ty, issues))
+        end,
         [Tr.ExprIntrinsic] = function(self, ctx) local issues = {}; local args = {}; for i = 1, #self.args do local a = pvm.one(type_expr(self.args[i], ctx)); args[#args + 1] = a.expr; append_all(issues, a.issues) end; local ty = void_ty(); return pvm.once(result_expr(Tr.ExprIntrinsic(Tr.ExprTyped(ty), self.op, args), ty, issues)) end,
         [Tr.ExprAddrOf] = function(self, ctx) local place = pvm.one(type_place(self.place, ctx)); local ty = Ty.TPtr(place.ty); return pvm.once(result_expr(Tr.ExprAddrOf(Tr.ExprTyped(ty), place.place), ty, place.issues)) end,
         [Tr.ExprDeref] = function(self, ctx) local value = pvm.one(type_expr(self.value, ctx)); local issues = {}; append_all(issues, value.issues); local ty = void_ty(); if pvm.classof(value.ty) == Ty.TPtr then ty = value.ty.elem else issues[#issues + 1] = Tr.TypeIssueNotPointer(value.ty) end; return pvm.once(result_expr(Tr.ExprDeref(Tr.ExprTyped(ty), value.expr), ty, issues)) end,

@@ -109,6 +109,10 @@ const BC_JFUNCV: i32 = 94
 const BC_FUNCC: i32 = 95
 const BC_FUNCCW: i32 = 96
 
+export func bytecode_const_check() -> i32
+    return BC_ADDVV + BC_CALL + BC_LOOP
+end
+
 end
 
 return m

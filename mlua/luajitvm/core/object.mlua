@@ -54,6 +54,10 @@ export func gc_is_black(obj: ptr(u8)) -> bool
     return as(i32, obj[8]) == 3
 end
 
+export func object_const_check() -> i32
+    return GCT_STR + GCT_TAB + GC_GRAY + GC_BLACK + GCOFF_GCT + GCHDR_SIZE
+end
+
 end
 
 return m

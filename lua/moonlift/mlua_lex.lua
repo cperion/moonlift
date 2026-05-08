@@ -137,6 +137,20 @@ local open_words_form = {
 }
 M.open_words_form = open_words_form
 
+local function opener_context_allows(src, word_start, word_stop)
+    local next_i = skip_space(src, word_stop)
+    local next_ch = src:sub(next_i, next_i)
+    -- Type/protocol variant fields such as `entry: ptr(u8)` are identifiers,
+    -- not block openers. Depth tracking must never treat them as syntax.
+    if next_ch == ":" or next_ch == "," or next_ch == ")" then return false end
+    if line_prefix_has_word(src, word_start, "type") then
+        local word = read_ident(src, word_start)
+        if word ~= "struct" and word ~= "union" then return false end
+    end
+    return true
+end
+M.opener_context_allows = opener_context_allows
+
 local function find_matching_end(src, start_i, open_words)
     local depth, i = 0, start_i
     local keyword_stack = {}  -- stack of opener keywords (not case/default)
@@ -173,7 +187,7 @@ local function find_matching_end(src, start_i, open_words)
                         pending_case_ends = pending_case_ends - 1
                     end
                     pending_case_ends = pending_case_ends + 1
-                elseif open_words[word] then
+                elseif open_words[word] and opener_context_allows(src, i, j) then
                     -- `extern func name(...)` is a declaration item, not an
                     -- end-delimited function body.
                     if word == "func" and line_prefix_has_word(src, i, "extern") then

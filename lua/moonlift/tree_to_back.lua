@@ -17,6 +17,10 @@ function M.Define(T)
     local vec_kernel_to_back_api = require("moonlift.vec_kernel_to_back").Define(T)
     local contract_api = require("moonlift.tree_contract_facts").Define(T)
     local abi_api = require("moonlift.type_func_abi_plan").Define(T)
+    local module_type_api = require("moonlift.tree_module_type").Define(T)
+    local const_eval_api = require("moonlift.sem_const_eval").Define(T)
+
+    local lower_context = { const_env = Bn.ConstEnv({}), globals = {} }
 
     local expr_type
     local scalar_literal
@@ -43,9 +47,20 @@ function M.Define(T)
     local control_api
     local append_load_info
     local append_store_info
+    local global_data_addr
+    local load_global_data
+    local store_global_data
 
     local function env_empty(ret)
         return Tr.TreeBackEnv({}, 0, 0, ret or Tr.TreeBackReturnScalar)
+    end
+
+    local function global_key(module_name, item_name)
+        return tostring(module_name or "") .. "\0" .. tostring(item_name or "")
+    end
+
+    local function data_id_for_global(module_name, item_name)
+        return Back.BackDataId("data:" .. tostring(module_name or "") .. ":" .. tostring(item_name or ""))
     end
 
     local function env_add(env, binding, value, ty)
@@ -256,6 +271,56 @@ function M.Define(T)
         [C.LitNil] = function() return pvm.once(Back.BackLitNull) end,
     })
 
+    local function sem_const_literal(value)
+        local cls = pvm.classof(value)
+        if cls == Sem.ConstInt then return Back.BackLitInt(value.raw) end
+        if cls == Sem.ConstFloat then return Back.BackLitFloat(value.raw) end
+        if cls == Sem.ConstBool then return Back.BackLitBool(value.value) end
+        if cls == Sem.ConstNil then return Back.BackLitNull end
+        return nil
+    end
+
+    local function scalar_size_align(scalar)
+        local ii = int_scalar_info[scalar]
+        if ii ~= nil then
+            local n = math.max(1, math.floor((ii.bits + 7) / 8))
+            return n, n
+        end
+        local fb = float_scalar_bits[scalar]
+        if fb ~= nil then
+            local n = math.floor((fb + 7) / 8)
+            return n, n
+        end
+        if scalar == Back.BackPtr then return 8, 8 end
+        if scalar == Back.BackBool then return 1, 1 end
+        return nil, nil
+    end
+
+    local function const_value_for(module_name, item_name)
+        for i = 1, #lower_context.const_env.entries do
+            local entry = lower_context.const_env.entries[i]
+            if entry.module_name == module_name and entry.item_name == item_name then
+                return const_eval_api.value(entry.value, lower_context.const_env, const_eval_api.empty_local_env())
+            end
+        end
+        return nil
+    end
+
+    local function data_init_cmds(module_name, item_name, ty, value_expr)
+        local scalar = back_scalar(ty)
+        if scalar == nil then return nil, "global data requires scalar backend type" end
+        local value = const_eval_api.value(value_expr, lower_context.const_env, const_eval_api.empty_local_env())
+        local lit = value and sem_const_literal(value) or nil
+        if lit == nil then return nil, "global data initializer is not a scalar constant" end
+        local size, align = scalar_size_align(scalar)
+        if size == nil then return nil, "global data has unsupported scalar layout" end
+        local data = data_id_for_global(module_name, item_name)
+        return {
+            Back.CmdDeclareData(data, size, align),
+            Back.CmdDataInit(data, 0, scalar, lit),
+        }
+    end
+
     unary_op = pvm.phase("moonlift_tree_unary_to_back_op", {
         [C.UnaryNeg] = function(_, scalar)
             if scalar == Back.BackF32 or scalar == Back.BackF64 then return pvm.once(Back.BackUnaryFneg) end
@@ -354,9 +419,48 @@ function M.Define(T)
             return pvm.once(Tr.TreeBackExprValue(env2, { Back.CmdConst(dst, scalar, scalar_literal:one_uncached(self.value)) }, dst, scalar))
         end,
         [Tr.ExprRef] = function(self, env)
-            if pvm.classof(self.ref) == Bn.ValueRefBinding then
+            local ref_cls = pvm.classof(self.ref)
+            if ref_cls == Bn.ValueRefBinding then
                 local local_entry = env_lookup(env, self.ref.binding)
                 if local_entry ~= nil and pvm.classof(local_entry) == Tr.TreeBackScalarLocal then return pvm.once(Tr.TreeBackExprValue(env, {}, local_entry.value, local_entry.ty)) end
+
+                local class = self.ref.binding.class
+                local class_cls = pvm.classof(class)
+                if class_cls == Bn.BindingClassGlobalConst then
+                    local value = const_value_for(class.module_name, class.item_name)
+                    local lit = value and sem_const_literal(value) or nil
+                    local scalar = back_scalar(self.ref.binding.ty)
+                    if lit ~= nil and scalar ~= nil then
+                        local env2, dst = env_next_value(env, "v")
+                        return pvm.once(Tr.TreeBackExprValue(env2, { Back.CmdConst(dst, scalar, lit) }, dst, scalar))
+                    end
+                    return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "global const is not a scalar compile-time value"))
+                end
+                if class_cls == Bn.BindingClassGlobalStatic then
+                    return pvm.once(load_global_data(env, data_id_for_global(class.module_name, class.item_name), self.ref.binding.ty, class.item_name))
+                end
+                if class_cls == Bn.BindingClassGlobalFunc then
+                    local env2, dst = env_next_value(env, "v")
+                    return pvm.once(Tr.TreeBackExprValue(env2, { Back.CmdFuncAddr(dst, Back.BackFuncId(class.item_name)) }, dst, Back.BackPtr))
+                end
+                if class_cls == Bn.BindingClassExtern then
+                    local env2, dst = env_next_value(env, "v")
+                    return pvm.once(Tr.TreeBackExprValue(env2, { Back.CmdExternAddr(dst, Back.BackExternId(class.symbol)) }, dst, Back.BackPtr))
+                end
+            elseif ref_cls == Bn.ValueRefConstSlot then
+                local value = lower_context.slot_consts and lower_context.slot_consts[self.ref.slot.key] or nil
+                local lit = value and sem_const_literal(value) or nil
+                local scalar = back_scalar(self.ref.slot.ty)
+                if lit ~= nil and scalar ~= nil then
+                    local env2, dst = env_next_value(env, "v")
+                    return pvm.once(Tr.TreeBackExprValue(env2, { Back.CmdConst(dst, scalar, lit) }, dst, scalar))
+                end
+            elseif ref_cls == Bn.ValueRefStaticSlot then
+                local data = lower_context.slot_statics and lower_context.slot_statics[self.ref.slot.key] or nil
+                if data ~= nil then return pvm.once(load_global_data(env, data, self.ref.slot.ty, self.ref.slot.pretty_name)) end
+            elseif ref_cls == Bn.ValueRefFuncSlot then
+                local env2, dst = env_next_value(env, "v")
+                return pvm.once(Tr.TreeBackExprValue(env2, { Back.CmdFuncAddr(dst, Back.BackFuncId(self.ref.slot.pretty_name)) }, dst, Back.BackPtr))
             end
             return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "unsupported ref"))
         end,
@@ -571,6 +675,39 @@ function M.Define(T)
         return Back.BackAddress(Back.BackAddrValue(ptr), offset, Back.BackProvUnknown, Back.BackPtrBoundsUnknown)
     end
 
+    local function address_from_data(data, offset)
+        return Back.BackAddress(Back.BackAddrData(data), offset, Back.BackProvData(data), Back.BackPtrInBounds("global data"))
+    end
+
+    global_data_addr = function(env, data)
+        local env2, dst = env_next_value(env, "v")
+        return Tr.TreeBackExprValue(env2, { Back.CmdDataAddr(dst, data) }, dst, Back.BackPtr)
+    end
+
+    load_global_data = function(env, data, ty, access_tag)
+        local scalar = back_scalar(ty)
+        if scalar == nil then return Tr.TreeBackExprUnsupported(env, {}, "global load requires scalar backend type") end
+        local env1, zero = env_next_value(env, "v")
+        local env2, dst = env_next_value(env1, "v")
+        local cmds = {
+            Back.CmdConst(zero, Back.BackIndex, Back.BackLitInt("0")),
+            Back.CmdLoadInfo(dst, shape_scalar(scalar), address_from_data(data, zero), memory_info("tree:global:" .. tostring(access_tag or data.text), Back.BackAccessRead)),
+        }
+        return Tr.TreeBackExprValue(env2, cmds, dst, scalar)
+    end
+
+    store_global_data = function(env, data, ty, value, access_tag)
+        local rhs = expr_value(expr_to_back:one_uncached(value, env))
+        if rhs == nil then return Tr.TreeBackStmtResult(env, {}, Back.BackTerminates) end
+        local scalar = back_scalar(ty)
+        if scalar == nil then return Tr.TreeBackStmtResult(rhs.env, rhs.cmds, Back.BackTerminates) end
+        local cmds = {}; append_all(cmds, rhs.cmds)
+        local env1, zero = env_next_value(rhs.env, "v")
+        cmds[#cmds + 1] = Back.CmdConst(zero, Back.BackIndex, Back.BackLitInt("0"))
+        cmds[#cmds + 1] = Back.CmdStoreInfo(shape_scalar(scalar), address_from_data(data, zero), rhs.value, memory_info("tree:global:" .. tostring(access_tag or data.text), Back.BackAccessWrite))
+        return Tr.TreeBackStmtResult(env1, cmds, Back.BackFallsThrough)
+    end
+
     append_load_info = function(cmds, current, dst, shape, ptr, access_tag)
         local env1, zero = append_zero_offset(cmds, current)
         cmds[#cmds + 1] = Back.CmdLoadInfo(dst, shape, address_from_ptr(ptr, zero), memory_info("tree:" .. tostring(access_tag or dst.text), Back.BackAccessRead))
@@ -765,11 +902,34 @@ function M.Define(T)
         [Tr.PlaceField] = function(self, env)
             local field = self.field
             if pvm.classof(field) ~= Sem.FieldByOffset then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "field address requires resolved offset")) end
-            local base = expr_value(place_addr_to_back:one_uncached(self.base, env))
+            local base = nil
+            if pvm.classof(self.base) == Tr.PlaceRef then
+                local h = self.base.h
+                if pvm.classof(h) == Tr.PlaceTyped and pvm.classof(h.ty) == Ty.TPtr then
+                    base = expr_value(expr_to_back:one_uncached(Tr.ExprRef(Tr.ExprTyped(h.ty), self.base.ref), env))
+                end
+            end
+            if base == nil then base = expr_value(place_addr_to_back:one_uncached(self.base, env)) end
             if base == nil then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "unsupported field base address")) end
             return pvm.once(field_addr_from_base_ptr(base, field))
         end,
-        [Tr.PlaceRef] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "address of scalar binding lowering deferred")) end,
+        [Tr.PlaceRef] = function(self, env)
+            local ref_cls = pvm.classof(self.ref)
+            if ref_cls == Bn.ValueRefBinding then
+                local class = self.ref.binding.class
+                local class_cls = pvm.classof(class)
+                if class_cls == Bn.BindingClassGlobalStatic or class_cls == Bn.BindingClassGlobalConst then
+                    return pvm.once(global_data_addr(env, data_id_for_global(class.module_name, class.item_name)))
+                end
+            elseif ref_cls == Bn.ValueRefStaticSlot then
+                local data = lower_context.slot_statics and lower_context.slot_statics[self.ref.slot.key] or nil
+                if data ~= nil then return pvm.once(global_data_addr(env, data)) end
+            elseif ref_cls == Bn.ValueRefConstSlot then
+                local data = lower_context.slot_consts_data and lower_context.slot_consts_data[self.ref.slot.key] or nil
+                if data ~= nil then return pvm.once(global_data_addr(env, data)) end
+            end
+            return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "address of scalar binding lowering deferred"))
+        end,
         [Tr.PlaceDot] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "dot place address lowering deferred")) end,
         [Tr.PlaceSlotValue] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "slot place address lowering deferred")) end,
     }, { args_cache = "last" })
@@ -803,7 +963,17 @@ function M.Define(T)
         [Tr.PlaceIndex] = function(self, value, env) return store_at_addr(self, value, env) end,
         [Tr.PlaceDeref] = function(self, value, env) return store_at_addr(self, value, env) end,
         [Tr.PlaceField] = function(self, value, env) return store_at_addr(self, value, env) end,
-        [Tr.PlaceRef] = function(_, _, env) return pvm.once(Tr.TreeBackStmtResult(env, {}, Back.BackFallsThrough)) end,
+        [Tr.PlaceRef] = function(self, value, env)
+            if pvm.classof(self.ref) == Bn.ValueRefBinding and pvm.classof(self.ref.binding.class) == Bn.BindingClassGlobalStatic then
+                local class = self.ref.binding.class
+                return pvm.once(store_global_data(env, data_id_for_global(class.module_name, class.item_name), self.ref.binding.ty, value, class.item_name))
+            end
+            if pvm.classof(self.ref) == Bn.ValueRefStaticSlot then
+                local data = lower_context.slot_statics and lower_context.slot_statics[self.ref.slot.key] or nil
+                if data ~= nil then return pvm.once(store_global_data(env, data, self.ref.slot.ty, value, self.ref.slot.pretty_name)) end
+            end
+            return pvm.once(Tr.TreeBackStmtResult(env, {}, Back.BackFallsThrough))
+        end,
         [Tr.PlaceDot] = function(_, _, env) return pvm.once(Tr.TreeBackStmtResult(env, { Back.CmdTrap }, Back.BackTerminates)) end,
         [Tr.PlaceSlotValue] = function(_, _, env) return pvm.once(Tr.TreeBackStmtResult(env, { Back.CmdTrap }, Back.BackTerminates)) end,
     }, { args_cache = "last" })
@@ -1215,61 +1385,88 @@ function M.Define(T)
         if cls == Tr.ItemFunc then return Tr.TreeBackItemResult(lower_func_direct(item.func).cmds) end
         if cls == Tr.ItemExtern then return lower_extern_direct(item.func) end
         if cls == Tr.ItemConst then
-            -- Lower const as a zero-arg function that returns its value.
             local c = item.c
-            if pvm.classof(c) == Tr.ConstItemOpen then c = { name = c.sym.name, ty = c.ty, value = c.value } end
-            if pvm.classof(c) ~= Tr.ConstItem then return Tr.TreeBackItemResult({}) end
-            local scalar = back_scalar(c.ty)
-            local lit_node = c.value
-            if pvm.classof(lit_node) == Tr.ExprLit then lit_node = lit_node.value end
-            local lit = pvm.one(scalar_literal(lit_node))
-            if scalar == nil or lit == nil then return Tr.TreeBackItemResult({}) end
-            local name = c.name
-            local func = Back.BackFuncId(name)
-            local sig = Back.BackSigId("sig:" .. name)
-            local entry = Back.BackBlockId("entry:" .. name)
-            local val = Back.BackValId("v:" .. name)
-            return Tr.TreeBackItemResult({
-                Back.CmdCreateSig(sig, {}, { scalar }),
-                Back.CmdDeclareFunc(C.VisibilityExport, func, sig),
-                Back.CmdBeginFunc(func),
-                Back.CmdCreateBlock(entry),
-                Back.CmdSwitchToBlock(entry),
-                Back.CmdBindEntryParams(entry, {}),
-                Back.CmdConst(val, scalar, lit),
-                Back.CmdReturnValue(val),
-                Back.CmdSealBlock(entry),
-                Back.CmdFinishFunc(func),
-            })
+            local name = nil
+            if pvm.classof(c) == Tr.ConstItem then name = c.name elseif pvm.classof(c) == Tr.ConstItemOpen then name = c.sym.name end
+            if name == nil then return Tr.TreeBackItemResult({}) end
+            local cmds = data_init_cmds(lower_context.module_name, name, c.ty, c.value)
+            return Tr.TreeBackItemResult(cmds or {})
         end
         if cls == Tr.ItemStatic then
-            -- Lower static as a data item (statics are mutable)
             local s = item.s
-            if pvm.classof(s) == Tr.StaticItemOpen then s = { name = s.sym.name, ty = s.ty, value = s.value } end
-            local scalar = back_scalar(s.ty)
-            local lit_node = s.value
-            if pvm.classof(lit_node) == Tr.ExprLit then lit_node = lit_node.value end
-            local lit = pvm.one(scalar_literal(lit_node))
-            if scalar ~= nil and lit ~= nil then
-                local data_id = Back.BackDataId(s.name)
-                local nbytes = math.floor(((int_scalar_info[scalar] or {bits=64}).bits + 7) / 8)
-                return Tr.TreeBackItemResult({
-                    Back.CmdDeclareData(data_id, nbytes, nbytes),
-                    Back.CmdDataInit(data_id, 0, scalar, lit),
-                })
-            end
-            return Tr.TreeBackItemResult({})
+            local name = nil
+            if pvm.classof(s) == Tr.StaticItem then name = s.name elseif pvm.classof(s) == Tr.StaticItemOpen then name = s.sym.name end
+            if name == nil then return Tr.TreeBackItemResult({}) end
+            local cmds = data_init_cmds(lower_context.module_name, name, s.ty, s.value)
+            return Tr.TreeBackItemResult(cmds or {})
         end
         if cls == Tr.ItemUseModule then return Tr.TreeBackItemResult(lower_module_direct(item.module).cmds) end
         return Tr.TreeBackItemResult({})
     end
 
+    local function module_name_of(module)
+        return pvm.one(module_type_api.module_name(module.h)) or ""
+    end
+
+    local function collect_global_context(module, const_entries, globals, slot_consts, slot_statics, slot_consts_data)
+        local mod_name = module_name_of(module)
+        for i = 1, #module.items do
+            local item = module.items[i]
+            local cls = pvm.classof(item)
+            if cls == Tr.ItemConst then
+                local c = item.c
+                local name = nil
+                if pvm.classof(c) == Tr.ConstItem then name = c.name elseif pvm.classof(c) == Tr.ConstItemOpen then name = c.sym.name end
+                if name ~= nil then
+                    const_entries[#const_entries + 1] = Bn.ConstEntry(mod_name, name, c.ty, c.value)
+                    local data = data_id_for_global(mod_name, name)
+                    globals[global_key(mod_name, name)] = { data = data, ty = c.ty, mutable = false }
+                    if pvm.classof(c) == Tr.ConstItemOpen then
+                        slot_consts[c.sym.key] = const_eval_api.value(c.value, Bn.ConstEnv(const_entries), const_eval_api.empty_local_env())
+                        slot_consts_data[c.sym.key] = data
+                    end
+                end
+            elseif cls == Tr.ItemStatic then
+                local s = item.s
+                local name = nil
+                if pvm.classof(s) == Tr.StaticItem then name = s.name elseif pvm.classof(s) == Tr.StaticItemOpen then name = s.sym.name end
+                if name ~= nil then
+                    local data = data_id_for_global(mod_name, name)
+                    globals[global_key(mod_name, name)] = { data = data, ty = s.ty, mutable = true }
+                    if pvm.classof(s) == Tr.StaticItemOpen then slot_statics[s.sym.key] = data end
+                end
+            elseif cls == Tr.ItemUseModule then
+                collect_global_context(item.module, const_entries, globals, slot_consts, slot_statics, slot_consts_data)
+            end
+        end
+    end
+
+    local function with_module_context(module, fn)
+        local previous = lower_context
+        local const_entries, globals, slot_consts, slot_statics, slot_consts_data = {}, {}, {}, {}, {}
+        collect_global_context(module, const_entries, globals, slot_consts, slot_statics, slot_consts_data)
+        lower_context = {
+            module_name = module_name_of(module),
+            const_env = Bn.ConstEnv(const_entries),
+            globals = globals,
+            slot_consts = slot_consts,
+            slot_statics = slot_statics,
+            slot_consts_data = slot_consts_data,
+        }
+        local ok, result = pcall(fn)
+        lower_context = previous
+        if not ok then error(result, 0) end
+        return result
+    end
+
     lower_module_direct = function(module)
-        local cmds = {}
-        for i = 1, #module.items do append_all(cmds, lower_item_direct(module.items[i]).cmds) end
-        cmds = hoist_data_cmds(cmds)
-        cmds[#cmds + 1] = Back.CmdFinalizeModule
-        return Back.BackProgram(cmds)
+        return with_module_context(module, function()
+            local cmds = {}
+            for i = 1, #module.items do append_all(cmds, lower_item_direct(module.items[i]).cmds) end
+            cmds = hoist_data_cmds(cmds)
+            cmds[#cmds + 1] = Back.CmdFinalizeModule
+            return Back.BackProgram(cmds)
+        end)
     end
 
     func_to_back = pvm.phase("moonlift_tree_func_to_back", function(self) return lower_func_direct(self) end)

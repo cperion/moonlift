@@ -149,6 +149,10 @@ export func tv_copy(tv32: ptr(i32), tv64: ptr(i64), src_slot: i32, dst_slot: i32
     tv64[dst_slot * 2 + 1] = tv64[src_slot * 2 + 1]
 end
 
+export func value_const_check() -> i32
+    return LUA_TNIL + LUA_TFALSE + LUA_TTRUE + LUA_TINT + LUA_TNUM + LUA_TSTR + LUA_TTAB + LUA_TFUNC + LUA_TCDATA
+end
+
 end
 
 return m

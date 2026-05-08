@@ -245,9 +245,30 @@ function Parser:expect(k, msg)
     if text == nil then self:issue(msg or ("expected token " .. tostring(k))); return "" end
     return text
 end
-function Parser:expect_name(msg) return self:expect_field_name(msg or "expected identifier") end
-function Parser:expect_field_name(msg)
+function Parser:expect_name(msg)
     if self:kind() == TK.name or self:kind() == TK.len then
+        local text = self:text()
+        self.i = self.i + 1
+        return text
+    end
+    return self:expect(TK.name, msg or "expected identifier")
+end
+
+local identifier_keyword_token = {
+    [TK.export] = true, [TK.extern] = true, [TK.func] = true, [TK.const] = true, [TK.static] = true,
+    [TK.import] = true, [TK.type_kw] = true, [TK.let] = true, [TK.var] = true, [TK.if_kw] = true,
+    [TK.then_kw] = true, [TK.elseif_kw] = true, [TK.else_kw] = true, [TK.switch] = true,
+    [TK.case] = true, [TK.default] = true, [TK.do_kw] = true, [TK.block] = true, [TK.control] = true,
+    [TK.jump] = true, [TK.yield] = true, [TK.return_kw] = true, [TK.region] = true, [TK.entry] = true,
+    [TK.emit] = true, [TK.expr] = true, [TK.true_kw] = true, [TK.false_kw] = true, [TK.nil_kw] = true,
+    [TK.and_kw] = true, [TK.or_kw] = true, [TK.not_kw] = true, [TK.view] = true, [TK.noalias] = true,
+    [TK.readonly] = true, [TK.writeonly] = true, [TK.requires] = true, [TK.bounds] = true,
+    [TK.disjoint] = true, [TK.same_len] = true, [TK.view_window] = true, [TK.window_bounds] = true,
+    [TK.as_kw] = true, [TK.struct] = true, [TK.union] = true, [TK.enum] = true,
+}
+
+function Parser:expect_field_name(msg)
+    if self:kind() == TK.name or self:kind() == TK.len or identifier_keyword_token[self:kind()] then
         local text = self:text()
         self.i = self.i + 1
         return text
@@ -417,6 +438,8 @@ function Parser:nud()
     if k == TK.minus then return Tr.ExprUnary(Tr.ExprSurface, C.UnaryNeg, self:parse_expr(80)) end
     if k == TK.not_kw then return Tr.ExprUnary(Tr.ExprSurface, C.UnaryNot, self:parse_expr(80)) end
     if k == TK.tilde then return Tr.ExprUnary(Tr.ExprSurface, C.UnaryBitNot, self:parse_expr(80)) end
+    if k == TK.star then return Tr.ExprDeref(Tr.ExprSurface, self:parse_expr(80)) end
+    if k == TK.amp then return Tr.ExprAddrOf(Tr.ExprSurface, self:expr_to_place(self:parse_expr(80))) end
     if k == TK.switch then return self:parse_switch_expr() end
     if k == TK.emit then return self:parse_emit_expr() end
     if k == TK.block then return self:parse_control_expr_after_block() end
@@ -455,6 +478,9 @@ function Parser:expr_to_place(expr)
     local Tr, B = self.Tr, self.B
     local cls = require("moonlift.pvm").classof(expr)
     if cls == Tr.ExprRef then return Tr.PlaceRef(Tr.PlaceSurface, expr.ref) end
+    if cls == Tr.ExprDeref then return Tr.PlaceDeref(Tr.PlaceSurface, expr.value) end
+    if cls == Tr.ExprDot then return Tr.PlaceDot(Tr.PlaceSurface, self:expr_to_place(expr.base), expr.name) end
+    if cls == Tr.ExprField then return Tr.PlaceField(Tr.PlaceSurface, self:expr_to_place(expr.base), expr.field) end
     if cls == Tr.ExprIndex then return Tr.PlaceIndex(Tr.PlaceSurface, expr.base, expr.index) end
     self:issue("assignment target is not a place")
     return Tr.PlaceRef(Tr.PlaceSurface, B.ValueRefName("<bad-place>"))
@@ -1170,7 +1196,7 @@ function Parser:parse_variant_named_fields()
     self:skip_nl()
     if self:kind() ~= TK.rparen then
         while true do
-            local fname = self:expect_name("expected tagged union field name")
+            local fname = self:expect_field_name("expected tagged union field name")
             self:expect(TK.colon, "expected ':' in tagged union field")
             fields[#fields + 1] = self.Ty.FieldDecl(fname, self:parse_type())
             self:skip_nl()
@@ -1186,7 +1212,7 @@ function Parser:parse_tagged_union_variants()
     local variants = {}
     while self:kind() ~= TK.eof do
         self:skip_nl()
-        local name = self:expect_name("expected tagged union variant")
+        local name = self:expect_field_name("expected tagged union variant")
         local payload = self.Ty.TScalar(self.C.ScalarVoid)
         local fields = {}
         if self:accept(TK.lparen) then
@@ -1195,7 +1221,7 @@ function Parser:parse_tagged_union_variants()
             if self:kind() == TK.rparen then
                 -- empty parens: no payload, no named fields
                 self.i = self.i + 1
-            elseif self:kind() == TK.name and self:kind(1) == TK.colon then
+            elseif (self:kind() == TK.name or self:kind() == TK.len or identifier_keyword_token[self:kind()]) and self:kind(1) == TK.colon then
                 fields = self:parse_variant_named_fields()
                 if #fields == 1 then payload = fields[1].ty end
                 self:expect(TK.rparen, "expected ')' after tagged union payload")

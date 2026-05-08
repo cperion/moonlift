@@ -6,7 +6,10 @@ function M.Define(T)
     local C = T.MoonCore
     local Ty = T.MoonType
     local B = T.MoonBind
+    local Sem = T.MoonSem
     local Tr = T.MoonTree
+
+    local layout_api = require("moonlift.type_size_align").Define(T)
 
     local module_name
     local func_entry
@@ -16,6 +19,7 @@ function M.Define(T)
     local type_entry
     local item_env_entries
     local module_env
+    local item_layout
 
     local function pack(g, p, c) return { g, p, c } end
 
@@ -68,6 +72,57 @@ function M.Define(T)
         [Tr.TypeDeclOpenUnion] = function(self) return pvm.once(B.TypeEntry(self.sym.name, Ty.TNamed(Ty.TypeRefLocal(self.sym)))) end,
     }, { args_cache = "last" })
 
+    local function align_up(x, a)
+        if a <= 1 then return x end
+        return math.floor((x + a - 1) / a) * a
+    end
+
+    local function field_layout(fields, env, is_union)
+        local out, offset, max_size, max_align = {}, 0, 0, 1
+        for i = 1, #fields do
+            local r = layout_api.result(fields[i].ty, env)
+            local size, align = 0, 1
+            if pvm.classof(r) == Ty.TypeMemLayoutKnown then size, align = r.layout.size, r.layout.align end
+            if is_union then
+                out[#out + 1] = Sem.FieldLayout(fields[i].field_name, 0, fields[i].ty)
+                if size > max_size then max_size = size end
+                if align > max_align then max_align = align end
+            else
+                offset = align_up(offset, align)
+                out[#out + 1] = Sem.FieldLayout(fields[i].field_name, offset, fields[i].ty)
+                offset = offset + size
+                if align > max_align then max_align = align end
+            end
+        end
+        local size = is_union and max_size or offset
+        return out, align_up(size, max_align), max_align
+    end
+
+    item_layout = pvm.phase("moonlift_tree_item_layout", {
+        [Tr.ItemType] = function(self, mod_name, env)
+            local t = self.t
+            local cls = pvm.classof(t)
+            if cls == Tr.TypeDeclStruct or cls == Tr.TypeDeclUnion then
+                local fields, size, align = field_layout(t.fields, env, cls == Tr.TypeDeclUnion)
+                return pvm.once(Sem.LayoutNamed(mod_name, t.name, fields, size, align))
+            end
+            if cls == Tr.TypeDeclOpenStruct or cls == Tr.TypeDeclOpenUnion then
+                local fields, size, align = field_layout(t.fields, env, cls == Tr.TypeDeclOpenUnion)
+                return pvm.once(Sem.LayoutLocal(t.sym, fields, size, align))
+            end
+            return pvm.empty()
+        end,
+        [Tr.ItemFunc] = function() return pvm.empty() end,
+        [Tr.ItemExtern] = function() return pvm.empty() end,
+        [Tr.ItemConst] = function() return pvm.empty() end,
+        [Tr.ItemStatic] = function() return pvm.empty() end,
+        [Tr.ItemImport] = function() return pvm.empty() end,
+        [Tr.ItemUseTypeDeclSlot] = function() return pvm.empty() end,
+        [Tr.ItemUseItemsSlot] = function() return pvm.empty() end,
+        [Tr.ItemUseModule] = function(self, mod_name, env) return pvm.children(function(item) return item_layout(item, mod_name, env) end, self.module.items) end,
+        [Tr.ItemUseModuleSlot] = function() return pvm.empty() end,
+    }, { args_cache = "last" })
+
     item_env_entries = pvm.phase("moonlift_tree_item_env_entries", {
         [Tr.ItemFunc] = function(self, mod_name) return func_entry(self.func, mod_name) end,
         [Tr.ItemExtern] = function(self) return extern_entry(self.func) end,
@@ -86,6 +141,7 @@ function M.Define(T)
             local mod_name = pvm.one(module_name(module.h))
             local values = {}
             local types = {}
+            local layouts = {}
             for i = 1, #module.items do
                 local entries = pvm.drain(item_env_entries(module.items[i], mod_name))
                 for j = 1, #entries do
@@ -93,7 +149,13 @@ function M.Define(T)
                     if pvm.classof(entries[j]) == B.TypeEntry then types[#types + 1] = entries[j] end
                 end
             end
-            return pvm.once(B.Env(mod_name, values, types, {}))
+            local layout_env = Sem.LayoutEnv(layouts)
+            for i = 1, #module.items do
+                local ls = pvm.drain(item_layout(module.items[i], mod_name, layout_env))
+                for j = 1, #ls do layouts[#layouts + 1] = ls[j] end
+                layout_env = Sem.LayoutEnv(layouts)
+            end
+            return pvm.once(B.Env(mod_name, values, types, layouts))
         end,
     })
 

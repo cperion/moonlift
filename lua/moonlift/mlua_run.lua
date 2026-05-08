@@ -84,16 +84,9 @@ local function module_funcs(T, module)
     local out = {}
     for i = 1, #module.items do
         local item = module.items[i]
-        local icls = pvm.classof(item)
-        if icls == Tr.ItemFunc then
+        if pvm.classof(item) == Tr.ItemFunc then
             local cls = pvm.classof(item.func)
             if cls == Tr.FuncExport or cls == Tr.FuncLocal then out[item.func.name] = item.func end
-        elseif icls == Tr.ItemConst then
-            -- Const is lowered as a zero-arg function; synthesize a FuncExport for get()
-            local c = item.c
-            if pvm.classof(c) == Tr.ConstItem then
-                out[c.name] = { name = c.name, params = {}, result = c.ty, body = {} }
-            end
         end
     end
     return out
