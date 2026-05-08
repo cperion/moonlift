@@ -1,0 +1,26 @@
+-- runtime/dispatch.mlua -- vm_loop: main interpreter dispatch loop.
+-- Protocol: InterpResult, OpcodeResult
+-- P4.PROTO.002 stub.
+
+local m = module VmRuntimeDispatch
+
+type InterpResult = returned(nresults: i32)
+    | yielded(code: i32)
+    | error(code: i32)
+
+type OpcodeResult = next
+    | hot(pc: ptr(u8))
+    | yielded(code: i32)
+    | error(code: i32)
+
+-- Main interpreter dispatch loop stub.
+-- Real implementation: switch over bc_op; emit per-opcode handler regions.
+region vm_loop(L: ptr(u8), status: i32) -> InterpResult
+entry dispatch()
+    jump error(code = 0)
+end
+end
+
+end
+
+local _c = m:compile(); _c:free()

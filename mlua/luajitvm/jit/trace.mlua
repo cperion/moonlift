@@ -1,0 +1,43 @@
+-- jit/trace.mlua -- Trace record/commit region stubs.
+-- Protocol: TraceRecord, TraceRecordSide, TraceCommit
+-- P4.PROTO.005 stub.
+
+local m = module VmJitTrace
+
+type TraceRecord = compiled(tr: i32)
+    | interpret
+    | abort(reason: i32)
+
+type TraceRecordSide = compiled(tr: i32)
+    | stitch(tr: i32)
+    | interpret
+    | abort(reason: i32)
+
+type TraceCommit = root_patched(tr: i32)
+    | side_patched(tr: i32)
+    | abort(reason: i32)
+
+-- Record a root trace starting at pc.
+region trace_record_root(J: ptr(u8), L: ptr(u8), pc: ptr(u8)) -> TraceRecord
+entry start()
+    jump interpret()
+end
+end
+
+-- Record a side trace from a hot guard exit.
+region trace_record_side(J: ptr(u8), L: ptr(u8), parent: i32, exitno: i32) -> TraceRecordSide
+entry start()
+    jump interpret()
+end
+end
+
+-- Commit a compiled trace to the runtime.
+region trace_commit(J: ptr(u8), tr: i32, mcode_ptr: ptr(u8)) -> TraceCommit
+entry start()
+    jump abort(reason = 0)
+end
+end
+
+end
+
+local _c = m:compile(); _c:free()

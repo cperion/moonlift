@@ -1,0 +1,11 @@
+-- jit/emit.mlua -- IR emission helpers stub.
+
+local m = module VmJitEmit
+
+export func emit_version() -> i32
+    return 1
+end
+
+end
+
+local _c = m:compile(); _c:free()

@@ -1,0 +1,11 @@
+-- generated/fold_rules.mlua -- FOLD rule dispatch stub (build-time generated).
+
+local m = module VmGenFoldRules
+
+export func fold_rules_version() -> i32
+    return 1
+end
+
+end
+
+local _c = m:compile(); _c:free()

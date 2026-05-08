@@ -1,0 +1,13 @@
+-- core/state.mlua -- GlobalState and ThreadState layout stubs.
+-- Actual layout defined once struct field assignment is supported.
+
+local m = module VmCoreState
+
+-- Placeholder: VM state version sentinel.
+export func state_version() -> i32
+    return 1
+end
+
+end
+
+local _c = m:compile(); _c:free()

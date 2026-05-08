@@ -1,0 +1,18 @@
+-- ffi/cdata.mlua -- CData index/store region stubs.
+-- Protocol: CDataIndex
+
+local m = module VmFfiCdata
+
+type CDataIndex = cdata_field(addr: ptr(u8), ctype: i32)
+    | cdata_method(fn_tag: i32, fn_payload: i64)
+    | error(code: i32)
+
+region cdata_index(L: ptr(u8), cd: ptr(u8), key_tag: i32, key_payload: i64) -> CDataIndex
+entry start()
+    jump error(code = 0)
+end
+end
+
+end
+
+local _c = m:compile(); _c:free()

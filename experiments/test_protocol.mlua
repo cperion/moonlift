@@ -1,0 +1,27 @@
+module ProtoTest
+
+type Scanner = hit(pos: i32) | miss()
+
+region scan_until(p: ptr(u8), n: i32, target: i32) -> Scanner
+entry loop(i: i32 = 0)
+    if i >= n then jump miss() end
+    if as(i32, p[i]) == target then jump hit(pos = i) end
+    jump loop(i = i + 1)
+end
+end
+
+export func run_test(p: ptr(u8), n: i32, target: i32) -> i32
+    return region -> i32
+    entry start()
+        emit scan_until(p, n, target; hit = found, miss = missing)
+    end
+    block found(pos: i32)
+        yield pos
+    end
+    block missing()
+        yield -1
+    end
+    end
+end
+
+end

@@ -1,0 +1,11 @@
+-- asm/x64_exit.mlua -- x64 exit stub emission stub.
+
+local m = module VmAsmX64Exit
+
+export func x64_exit_version() -> i32
+    return 1
+end
+
+end
+
+local _c = m:compile(); _c:free()

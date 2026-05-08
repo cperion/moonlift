@@ -1,0 +1,21 @@
+-- jit/fold.mlua -- FOLD rule dispatch stub.
+-- Protocol: FoldResult
+-- Generated at build time from Lua-defined fold rule tables.
+
+local m = module VmJitFold
+
+type FoldResult = replace(ref: i32)
+    | fold_emit(ot: i32, a: i32, b: i32)
+    | retry(ot: i32, a: i32, b: i32)
+    | abort(reason: i32)
+
+-- Example fold rule: add two integer constants.
+region fold_add_kint_kint(J: ptr(u8), ot: i32, a: i32, b: i32) -> FoldResult
+entry start()
+    jump abort(reason = 0)
+end
+end
+
+end
+
+local _c = m:compile(); _c:free()

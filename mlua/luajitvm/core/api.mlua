@@ -1,0 +1,11 @@
+-- core/api.mlua -- Public embedding API stubs.
+
+local m = module VmCoreApi
+
+export func api_version() -> i32
+    return 1
+end
+
+end
+
+local _c = m:compile(); _c:free()

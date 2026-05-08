@@ -1,0 +1,25 @@
+-- gc/barrier.mlua -- GC write barrier region stubs.
+-- Protocol: BarrierResult
+-- P4.PROTO.004 stub.
+
+local m = module VmGcBarrier
+
+type BarrierResult = done
+
+-- Forward barrier: parent (black) stores reference to child (white).
+region gc_barrier_fwd(G: ptr(u8), parent: ptr(u8), child_tag: i32, child_payload: i64) -> BarrierResult
+entry start()
+    jump done()
+end
+end
+
+-- Backward barrier: table (black) modified; re-mark table gray.
+region gc_barrier_back(G: ptr(u8), tab: ptr(u8)) -> BarrierResult
+entry start()
+    jump done()
+end
+end
+
+end
+
+local _c = m:compile(); _c:free()

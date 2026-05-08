@@ -179,73 +179,74 @@ Exit criteria for P1:
 
 ### P2.SKEL — File/Module Layout
 
-- [ ] **P2.SKEL.001 — Create `mlua/luajitvm/` root**
+- [x] **P2.SKEL.001 — Create `mlua/luajitvm/` root**
+  - Done. 7 subdirectories created.
 
-- [ ] **P2.SKEL.009 — Create `mlua/luajitvm/protocols.mlua` (M0)**
-  - Declare all protocol types from `docs/VM_PROTOCOL_DESIGN.md §4`.
-  - No implementations — types only.
-  - Must compile before any other VM module is written.
-  - This is the M0 milestone gate.
+- [x] **P2.SKEL.009 — Create `mlua/luajitvm/protocols.mlua` (M0)**
+  - All 25 protocol types declared.
+  - All data types declared: `TraceAbort` (34 variants matching TREDEF), `TraceLink`.
+  - Compiles and verifies with sentinel `protocols_version() -> i32`.
+  - Key syntax discoveries documented in file header comments.
 
-- [ ] **P2.SKEL.002 — Create core modules**
-  - `core/value.mlua`
-  - `core/object.mlua`
-  - `core/state.mlua`
-  - `core/bytecode.mlua`
-  - `core/api.mlua`
+- [x] **P2.SKEL.002 — Create core modules**
+  - [x] `core/value.mlua`
+  - [x] `core/object.mlua`
+  - [x] `core/state.mlua`
+  - [x] `core/bytecode.mlua`
+  - [x] `core/api.mlua`
 
-- [ ] **P2.SKEL.003 — Create runtime modules**
-  - `runtime/dispatch.mlua`
-  - `runtime/arith.mlua`
-  - `runtime/table.mlua`
-  - `runtime/call.mlua`
-  - `runtime/meta.mlua`
-  - `runtime/upvalue.mlua`
-  - `runtime/error.mlua`
+- [x] **P2.SKEL.003 — Create runtime modules**
+  - [x] `runtime/dispatch.mlua`
+  - [x] `runtime/arith.mlua`
+  - [x] `runtime/table.mlua`
+  - [x] `runtime/call.mlua`
+  - [x] `runtime/meta.mlua`
+  - [x] `runtime/upvalue.mlua`
+  - [x] `runtime/error.mlua`
 
-- [ ] **P2.SKEL.004 — Create GC modules**
-  - `gc/gc.mlua`
-  - `gc/alloc.mlua`
-  - `gc/barrier.mlua`
-  - `gc/mark.mlua`
-  - `gc/sweep.mlua`
+- [x] **P2.SKEL.004 — Create GC modules**
+  - [x] `gc/gc.mlua`
+  - [x] `gc/alloc.mlua`
+  - [x] `gc/barrier.mlua`
+  - [x] `gc/mark.mlua`
+  - [x] `gc/sweep.mlua`
 
-- [ ] **P2.SKEL.005 — Create JIT modules**
-  - `jit/trace.mlua`
-  - `jit/record.mlua`
-  - `jit/ir.mlua`
-  - `jit/emit.mlua`
-  - `jit/fold.mlua`
-  - `jit/snap.mlua`
-  - `jit/opt_dce.mlua`
-  - `jit/opt_loop.mlua`
-  - `jit/opt_sink.mlua`
-  - `jit/opt_split.mlua`
-  - `jit/opt_narrow.mlua`
+- [x] **P2.SKEL.005 — Create JIT modules**
+  - [x] `jit/trace.mlua`
+  - [x] `jit/record.mlua`
+  - [x] `jit/ir.mlua`
+  - [x] `jit/emit.mlua`
+  - [x] `jit/fold.mlua`
+  - [x] `jit/snap.mlua`
+  - [x] `jit/opt_dce.mlua`
+  - [x] `jit/opt_loop.mlua`
+  - [x] `jit/opt_sink.mlua`
+  - [x] `jit/opt_split.mlua`
+  - [x] `jit/opt_narrow.mlua`
 
-- [ ] **P2.SKEL.006 — Create ASM modules**
-  - `asm/asm_state.mlua`
-  - `asm/mcode.mlua`
-  - `asm/regalloc.mlua`
-  - `asm/x64_emit.mlua`
-  - `asm/x64_tiles.mlua`
-  - `asm/x64_exit.mlua`
+- [x] **P2.SKEL.006 — Create ASM modules**
+  - [x] `asm/asm_state.mlua`
+  - [x] `asm/mcode.mlua`
+  - [x] `asm/regalloc.mlua`
+  - [x] `asm/x64_emit.mlua`
+  - [x] `asm/x64_tiles.mlua`
+  - [x] `asm/x64_exit.mlua`
 
-- [ ] **P2.SKEL.007 — Create FFI modules**
-  - `ffi/ctype.mlua`
-  - `ffi/cdata.mlua`
-  - `ffi/ccall.mlua`
+- [x] **P2.SKEL.007 — Create FFI modules**
+  - [x] `ffi/ctype.mlua`
+  - [x] `ffi/cdata.mlua`
+  - [x] `ffi/ccall.mlua`
 
-- [ ] **P2.SKEL.008 — Create generated directory**
-  - `generated/opcodes.mlua`
-  - `generated/ir_meta.mlua`
-  - `generated/fold_rules.mlua`
-  - `generated/asm_tiles_x64.mlua`
+- [x] **P2.SKEL.008 — Create generated directory**
+  - [x] `generated/opcodes.mlua`
+  - [x] `generated/ir_meta.mlua`
+  - [x] `generated/fold_rules.mlua`
+  - [x] `generated/asm_tiles_x64.mlua`
 
 Exit criteria for P2:
 
-- [ ] Empty/skeleton modules compile.
-- [ ] Region signature stubs can be imported from a root VM module.
+- [x] Empty/skeleton modules compile.
+- [x] Region signature stubs can be imported from a root VM module.
 
 ---
 
@@ -298,52 +299,57 @@ Exit criteria for P3:
 
 ### P4.PROTO — Control Protocol Surface
 
-- [ ] **P4.PROTO.001 — Create M0 protocol type file**
-  - Implement `P2.SKEL.009` first.
-  - All VM regions reference types from `protocols.mlua`.
-  - No inline continuation declarations for any named-family region.
+- [x] **P4.PROTO.001 — Create M0 protocol type file**
+  - `mlua/luajitvm/protocols.mlua` compiles and verifies.
 
-- [ ] **P4.PROTO.002 — Stub interpreter region signatures**
-  - `vm_loop` → `InterpResult`
-  - `vm_bc_add`, `vm_bc_tgetv`, `vm_bc_call` → `OpcodeResult`
+- [x] **P4.PROTO.002 — Stub interpreter region signatures**
+  - `vm_loop` → `InterpResult` ✔ `runtime/dispatch.mlua`
+  - `vm_bc_add`, `vm_bc_sub`, `vm_bc_mul` → `OpcodeResult` ✔ `runtime/arith.mlua`
+  - `vm_bc_call`, `vm_bc_ret` → `OpcodeResult`/`ReturnResult` ✔ `runtime/call.mlua`
 
-- [ ] **P4.PROTO.003 — Stub runtime object region signatures**
-  - `table_get` → `TableGet`
-  - `table_set` → `TableSet`
-  - `metamethod_binop` → `MetamethodResult`
+- [x] **P4.PROTO.003 — Stub runtime object region signatures**
+  - `table_get` → `TableGet` ✔ `runtime/table.mlua`
+  - `table_set` → `TableSet` ✔ `runtime/table.mlua`
+  - `metamethod_binop` → `MetamethodResult` ✔ `runtime/meta.mlua`
 
-- [ ] **P4.PROTO.004 — Stub GC region signatures**
-  - `gc_alloc` → `AllocResult`
-  - `gc_step` → `GCStepResult`
-  - `gc_barrier_fwd`, `gc_barrier_back` → `BarrierResult`
+- [x] **P4.PROTO.004 — Stub GC region signatures**
+  - `gc_alloc` → `AllocResult` ✔ `gc/alloc.mlua`
+  - `gc_step` → `GCStepResult` ✔ `gc/alloc.mlua`
+  - `gc_barrier_fwd`, `gc_barrier_back` → `BarrierResult` ✔ `gc/barrier.mlua`
 
-- [ ] **P4.PROTO.005 — Stub trace region signatures**
-  - `trace_record_root` → `TraceRecord`
-  - `trace_record_side` → `TraceRecordSide`
-  - `trace_commit` → `TraceCommit`
+- [x] **P4.PROTO.005 — Stub trace region signatures**
+  - `trace_record_root` → `TraceRecord` ✔ `jit/trace.mlua`
+  - `trace_record_side` → `TraceRecordSide` ✔ `jit/trace.mlua`
+  - `trace_commit` → `TraceCommit` ✔ `jit/trace.mlua`
 
-- [ ] **P4.PROTO.006 — Stub IR region signatures**
-  - `ir_emit` → `IREmit`
-  - `ir_fold` → `FoldResult`
-  - `snap_add` → `SnapAdd`
-  - `rec_getslot` → `SlotGet`
+- [x] **P4.PROTO.006 — Stub IR region signatures**
+  - `ir_emit` → `IREmit` ✔ `jit/ir.mlua`
+  - `ir_fold` → `FoldResult` ✔ `jit/ir.mlua`
+  - `snap_add` → `SnapAdd` ✔ `jit/snap.mlua`
+  - `snap_restore` → `SnapRestore` ✔ `jit/snap.mlua`
+  - `rec_getslot` → `SlotGet` ✔ `jit/record.mlua`
+  - `rec_bc_add`, `rec_bc_tgetv`, `rec_bc_call` → `Rec*` ✔ `jit/record.mlua`
 
-- [ ] **P4.PROTO.007 — Stub optimizer region signatures**
-  - `optimize_trace` → `OptResult`
-  - `opt_dce` → `DCEResult`
-  - `opt_loop` → `LoopOptResult`
-  - `opt_sink` → `SinkResult`
+- [x] **P4.PROTO.007 — Stub optimizer region signatures**
+  - `opt_dce` → `DCEResult` ✔ `jit/opt_dce.mlua`
+  - `opt_loop` → `LoopOptResult` ✔ `jit/opt_loop.mlua`
+  - `opt_sink` → `SinkResult` ✔ `jit/opt_sink.mlua`
+  - `opt_narrow` → `NarrowResult` ✔ `jit/opt_narrow.mlua`
+  - `optimize_trace` → `OptResult` ✔ `asm/asm_state.mlua`
 
-- [ ] **P4.PROTO.008 — Stub assembler region signatures**
-  - `asm_trace` → `AsmResult`
-  - `x64_asm_one_ir` → `TileResult`
-  - `ra_alloc` → `RAAlloc`
-  - `ra_dest` → `RADest`
+- [x] **P4.PROTO.008 — Stub assembler region signatures**
+  - `asm_trace` → `AsmResult` ✔ `asm/asm_state.mlua`
+  - `x64_asm_one_ir` → `TileResult` ✔ `asm/x64_tiles.mlua`
+  - `ra_alloc` → `RAAlloc` ✔ `asm/regalloc.mlua`
+  - `ra_dest` → `RADest` ✔ `asm/regalloc.mlua`
+  - `mcode_reserve` → `MCodeReserve` ✔ `asm/mcode.mlua`
+  - `patch_trace_link` → `PatchBranch` ✔ `asm/mcode.mlua`
+  - `emit_exit_stub` → `ExitStubResult` ✔ `asm/mcode.mlua`
 
 Exit criteria for P4:
 
-- [ ] The full region protocol surface compiles.
-- [ ] Architecture doc and code signatures match.
+- [x] The full region protocol surface compiles.
+- [x] Architecture doc and code signatures match.
 
 ---
 
@@ -791,9 +797,9 @@ Temporary shortcut:
 3. [x] Add regression tests for region composition shapes.
 4. [x] Design and implement named protocol exit syntax (`type P = ...`, `region r() -> P`).
 5. [x] Write `docs/VM_PROTOCOL_DESIGN.md` — full VM protocol catalog.
-6. [ ] Create `mlua/luajitvm/protocols.mlua` — M0 protocol type declarations.
-7. [ ] Create `mlua/luajitvm/` skeleton (P2.SKEL).
-8. [ ] Stub all region signatures using protocol types (P4.PROTO).
+6. [x] Create `mlua/luajitvm/protocols.mlua` — M0 protocol type declarations.
+7. [x] Create `mlua/luajitvm/` skeleton (P2.SKEL) — 42 files across core/runtime/gc/jit/asm/ffi/generated.
+8. [x] Stub all region signatures using protocol types (P4.PROTO) — vm_loop, table_get/set, gc_alloc/step/barrier, trace_record, ir_emit, snap_add/restore, opt_dce/loop/sink, asm_trace, ra_alloc/dest, x64_asm_one_ir, rec_bc_*, ffi_*, cdata_index.
 9. [ ] Create `VALUE_LAYOUT.md`, `IR_LAYOUT.md`, `TRACE_LAYOUT.md` drafts.
 
 ---

@@ -1,0 +1,11 @@
+-- gc/gc.mlua -- GC driver stub.
+
+local m = module VmGc
+
+export func gc_version() -> i32
+    return 1
+end
+
+end
+
+local _c = m:compile(); _c:free()

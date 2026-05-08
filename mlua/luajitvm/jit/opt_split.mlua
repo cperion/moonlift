@@ -1,0 +1,11 @@
+-- jit/opt_split.mlua -- 64-bit op splitting pass stub (for 32-bit targets).
+
+local m = module VmJitOptSplit
+
+export func opt_split_version() -> i32
+    return 1
+end
+
+end
+
+local _c = m:compile(); _c:free()

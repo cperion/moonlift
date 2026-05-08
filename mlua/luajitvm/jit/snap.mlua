@@ -1,0 +1,32 @@
+-- jit/snap.mlua -- Snapshot add/restore region stubs.
+-- Protocol: SnapAdd, SnapRestore
+-- P4.PROTO.006 stub.
+
+local m = module VmJitSnap
+
+type SnapAdd = snap_done(snapno: i32)
+    | merge(snapno: i32)
+    | overflow
+    | abort(reason: i32)
+
+type SnapRestore = restored(pc: ptr(u8))
+    | unsupported(code: i32)
+    | error(code: i32)
+
+-- Add a snapshot at a guard instruction.
+region snap_add(J: ptr(u8), guard: i32) -> SnapAdd
+entry start()
+    jump abort(reason = 0)
+end
+end
+
+-- Restore interpreter state from a snapshot after a guard exit.
+region snap_restore(L: ptr(u8), tr: i32, exitno: i32, ex: ptr(u8)) -> SnapRestore
+entry start()
+    jump unsupported(code = 0)
+end
+end
+
+end
+
+local _c = m:compile(); _c:free()

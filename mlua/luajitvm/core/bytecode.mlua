@@ -1,0 +1,28 @@
+-- core/bytecode.mlua -- BCIns layout and decoder helpers.
+-- LuaJIT bytecode: 32-bit packed: op:u8, A:u8, B:u8, C:u8 or op:u8, A:u8, D:u16.
+
+local m = module VmCoreBytecode
+
+export func bc_op(ins: i32) -> i32
+    return ins & 0xFF
+end
+
+export func bc_a(ins: i32) -> i32
+    return (ins >> 8) & 0xFF
+end
+
+export func bc_b(ins: i32) -> i32
+    return (ins >> 24) & 0xFF
+end
+
+export func bc_c(ins: i32) -> i32
+    return (ins >> 16) & 0xFF
+end
+
+export func bc_d(ins: i32) -> i32
+    return (ins >> 16) & 0xFFFF
+end
+
+end
+
+local _c = m:compile(); _c:free()

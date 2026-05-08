@@ -1,0 +1,11 @@
+-- generated/ir_meta.mlua -- IR opcode metadata stub (build-time generated).
+
+local m = module VmGenIrMeta
+
+export func ir_meta_version() -> i32
+    return 1
+end
+
+end
+
+local _c = m:compile(); _c:free()

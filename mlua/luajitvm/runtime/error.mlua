@@ -1,0 +1,11 @@
+-- runtime/error.mlua -- Runtime error handling stubs.
+
+local m = module VmRuntimeError
+
+export func runtime_error_version() -> i32
+    return 1
+end
+
+end
+
+local _c = m:compile(); _c:free()

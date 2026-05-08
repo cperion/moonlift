@@ -1,0 +1,18 @@
+-- core/object.mlua -- GC object header and type-tag constants.
+
+local m = module VmCoreObject
+
+-- GC object type tags (matching LuaJIT lj_obj.h LJ_T* values).
+export func gct_str()   -> i32  return 0  end
+export func gct_upval() -> i32  return 1  end
+export func gct_thread() -> i32 return 2  end
+export func gct_proto() -> i32  return 3  end
+export func gct_func()  -> i32  return 4  end
+export func gct_trace() -> i32  return 5  end
+export func gct_cdata() -> i32  return 6  end
+export func gct_tab()   -> i32  return 7  end
+export func gct_udata() -> i32  return 8  end
+
+end
+
+local _c = m:compile(); _c:free()

@@ -1,0 +1,42 @@
+-- asm/mcode.mlua -- MCode arena and patching region stubs.
+-- Protocol: MCodeReserve, PatchBranch, ExitStubResult
+-- P4.PROTO.008 stub.
+
+local m = module VmAsmMcode
+
+type MCodeReserve = mcode_ok(top: ptr(u8))
+    | grow
+    | full
+
+type PatchBranch = direct
+    | indirect
+    | out_of_range
+    | error(code: i32)
+
+type ExitStubResult = stub_done(addr: ptr(u8))
+    | mcode_full
+
+-- Reserve space in the mcode arena.
+region mcode_reserve(J: ptr(u8), need: u64) -> MCodeReserve
+entry start()
+    jump full()
+end
+end
+
+-- Patch a branch in already-emitted mcode.
+region patch_trace_link(J: ptr(u8), from: i32, to: i32) -> PatchBranch
+entry start()
+    jump error(code = 0)
+end
+end
+
+-- Emit an exit stub for one guard.
+region emit_exit_stub(A: ptr(u8), exitno: i32) -> ExitStubResult
+entry start()
+    jump mcode_full()
+end
+end
+
+end
+
+local _c = m:compile(); _c:free()

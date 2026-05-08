@@ -1,0 +1,33 @@
+-- asm/asm_state.mlua -- Top-level assembler region stub.
+-- Protocol: AsmResult, OptResult
+-- P4.PROTO.008 stub.
+
+local m = module VmAsmState
+
+type AsmResult = mcode(entry_ptr: ptr(u8), size: u64)
+    | retry_realign
+    | retry_ir_grew
+    | mcode_full
+    | abort(reason: i32)
+
+type OptResult = optimized
+    | retry_recording(reason: i32)
+    | abort(reason: i32)
+
+-- Top-level trace assembler: IR -> machine code.
+region asm_trace(J: ptr(u8), tr: i32) -> AsmResult
+entry start()
+    jump abort(reason = 0)
+end
+end
+
+-- Full optimizer pipeline.
+region optimize_trace(J: ptr(u8), tr: i32) -> OptResult
+entry start()
+    jump abort(reason = 0)
+end
+end
+
+end
+
+local _c = m:compile(); _c:free()

@@ -226,6 +226,7 @@ local function parser_from_toks(T, toks, opts)
         region_frags = opts.region_frags or {},
         expr_frags = opts.expr_frags or {},
         protocol_types = opts.protocol_types or {},
+        protocol_types = opts.protocol_types or {},
         splice_slots = {},
         splice_slots_by_id = {},
     }, Parser)
@@ -1191,14 +1192,18 @@ function Parser:parse_tagged_union_variants()
         if self:accept(TK.lparen) then
             local saved_i = self.i
             self:skip_nl()
-            if self:kind() == TK.name and self:kind(1) == TK.colon then
+            if self:kind() == TK.rparen then
+                -- empty parens: no payload, no named fields
+                self.i = self.i + 1
+            elseif self:kind() == TK.name and self:kind(1) == TK.colon then
                 fields = self:parse_variant_named_fields()
                 if #fields == 1 then payload = fields[1].ty end
+                self:expect(TK.rparen, "expected ')' after tagged union payload")
             else
                 self.i = saved_i
                 payload = self:parse_type()
+                self:expect(TK.rparen, "expected ')' after tagged union payload")
             end
-            self:expect(TK.rparen, "expected ')' after tagged union payload")
         end
         variants[#variants + 1] = self.Ty.VariantDecl(name, payload, fields)
         self:skip_nl()
@@ -1369,7 +1374,7 @@ function M.parse_module_template(T, template, opts)
     if p:kind() == TK.end_kw then p.i = p.i + 1 end
     local module = p.Tr.Module(p.Tr.ModuleSurface, items)
     return { value = module, module = module, splice_slots = p.splice_slots, issues = p.issues,
-             region_frags = p.region_frags, expr_frags = p.expr_frags }
+             region_frags = p.region_frags, expr_frags = p.expr_frags, protocol_types = p.protocol_types }
 end
 
 -- parse_func_template: like parse_module_template but extracts the first function.

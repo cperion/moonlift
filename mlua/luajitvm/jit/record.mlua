@@ -1,0 +1,55 @@
+-- jit/record.mlua -- Recorder opcode region stubs.
+-- Protocol: RecOpcodeResult, RecTableGet, RecCallResult, SlotGet
+-- P4.PROTO.006 stub.
+
+local m = module VmJitRecord
+
+type RecOpcodeResult = rec_next(pc: ptr(u8))
+    | rec_stop(link_kind: i32)
+    | metamethod(mm: i32)
+    | abort(reason: i32)
+
+type RecTableGet = rec_next(pc: ptr(u8))
+    | guard_meta(mm_tag: i32, mm_payload: i64)
+    | abort(reason: i32)
+
+type RecCallResult = inline_lua(fn: ptr(u8))
+    | link_call
+    | rec_stop(link_kind: i32)
+    | abort(reason: i32)
+
+type SlotGet = have(ref: i32)
+    | need_sload(slot: i32, val_tag: i32, val_payload: i64)
+    | abort(reason: i32)
+
+-- Record BC_ADD.
+region rec_bc_add(J: ptr(u8), L: ptr(u8), bc: i32) -> RecOpcodeResult
+entry start()
+    jump abort(reason = 0)
+end
+end
+
+-- Record BC_TGETV.
+region rec_bc_tgetv(J: ptr(u8), L: ptr(u8), bc: i32) -> RecTableGet
+entry start()
+    jump abort(reason = 0)
+end
+end
+
+-- Record BC_CALL.
+region rec_bc_call(J: ptr(u8), L: ptr(u8), bc: i32) -> RecCallResult
+entry start()
+    jump abort(reason = 0)
+end
+end
+
+-- Access a slot from the slot map (or emit SLOAD on first access).
+region rec_getslot(J: ptr(u8), L: ptr(u8), slot: i32) -> SlotGet
+entry start()
+    jump abort(reason = 0)
+end
+end
+
+end
+
+local _c = m:compile(); _c:free()

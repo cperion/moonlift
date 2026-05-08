@@ -1,0 +1,322 @@
+-- M0: All VM protocol type declarations.
+-- This file is the canonical type catalog for the LuaJIT-grade VM implementation.
+-- No region implementations -- types only.
+--
+-- Reference: docs/VM_PROTOCOL_DESIGN.md
+-- Notes:
+--   - Empty variants use no parens in type decls:  oom  (not oom())
+--   - jump always uses parens:                      jump oom()
+--   - Moonlift keywords must not be variant names:  yielded (not yield), loop_back (not loop)
+--   - usize is not a Moonlift type: use u64 instead
+--   - All GC/state pointers are ptr(u8) for M0 (struct literals not yet supported)
+
+local m = module LuaJitVmProtocols
+
+-- -----------------------------------------------------------------------
+-- §3 Error and Abort Types (data types, used as field types in exits)
+-- -----------------------------------------------------------------------
+
+-- Trace abort reasons, matching lj_traceerr.h TREDEF table exactly.
+type TraceAbort = recerr
+    | traceov | stackov | snapov | blackl | retry
+    | nyibc(bc: i32) | lleave | linner | lunroll
+    | badtype | cjitoff | cunroll | downrec
+    | nyiffu(id: i32) | nyiretl | storenn | nomm
+    | idxloop | nyitmix | nocache | nyiconv | nyicall
+    | gfail | phiov | typeins
+    | mcodeal | mcodeov | mcodelm | spillov | badra
+    | nyiir(op: i32) | nyiphi | nyicoal
+
+-- Trace link kind.
+type TraceLink = loop_back
+    | root(tr: i32)
+    | side(tr: i32, exitno: i32)
+    | interp
+    | return_trace
+
+-- -----------------------------------------------------------------------
+-- §4.1 Interpreter Protocols
+-- -----------------------------------------------------------------------
+
+-- Top-level interpreter result returned to the embedder.
+type InterpResult = returned(nresults: i32)
+    | yielded(code: i32)
+    | error(code: i32)
+
+-- Result of a single opcode handler.
+-- hot: this PC is hot enough to start the recorder.
+type OpcodeResult = next
+    | hot(pc: ptr(u8))
+    | yielded(code: i32)
+    | error(code: i32)
+
+-- Result of a call setup sequence.
+type CallResult = lua_call(fn: ptr(u8))
+    | native_call(fn: ptr(u8))
+    | metamethod(mm: ptr(u8))
+    | error(code: i32)
+
+-- Result of a return sequence.
+type ReturnResult = resume_caller
+    | final_return
+    | close_upvalues(from: ptr(u8))
+    | error(code: i32)
+
+-- -----------------------------------------------------------------------
+-- §4.2 Table and Metamethod Protocols
+-- -----------------------------------------------------------------------
+
+-- Result of a table key lookup.
+type TableGet = hit(val_tag: i32, val_payload: i64)
+    | nil_no_meta
+    | meta(mm_tag: i32, mm_payload: i64)
+    | error(code: i32)
+
+-- Result of a table key store.
+type TableSet = done
+    | need_barrier(parent: ptr(u8), child_tag: i32, child_payload: i64)
+    | new_key
+    | meta(mm_tag: i32, mm_payload: i64)
+    | error(code: i32)
+
+-- Result of a metamethod dispatch lookup.
+type MetamethodResult = found(fn_tag: i32, fn_payload: i64, lhs_tag: i32, rhs_tag: i32)
+    | not_found
+    | error(code: i32)
+
+-- -----------------------------------------------------------------------
+-- §4.3 GC Protocols
+-- -----------------------------------------------------------------------
+
+-- Result of allocating a new GC object.
+type AllocResult = ok(obj: ptr(u8))
+    | step(budget: u64)
+    | oom
+
+-- Result of a single incremental GC step.
+type GCStepResult = done(used: i32)
+    | need_finalize
+    | oom
+    | error(code: i32)
+
+-- Result of a GC write barrier check.
+-- Always done -- but the call site is explicit and compiler-visible.
+type BarrierResult = done
+
+-- -----------------------------------------------------------------------
+-- §4.4 Trace Lifecycle Protocols
+-- -----------------------------------------------------------------------
+
+-- Result of recording a root trace.
+type TraceRecord = compiled(tr: i32)
+    | interpret
+    | abort(reason: i32)
+
+-- Result of recording a side trace (from a hot guard exit).
+type TraceRecordSide = compiled(tr: i32)
+    | stitch(tr: i32)
+    | interpret
+    | abort(reason: i32)
+
+-- Result of committing a compiled trace to the runtime.
+type TraceCommit = root_patched(tr: i32)
+    | side_patched(tr: i32)
+    | abort(reason: i32)
+
+-- What happens at a hot side exit.
+type HotExit = resume_interp
+    | start_side(parent: i32, exitno: i32)
+    | blacklist
+    | error(code: i32)
+
+-- -----------------------------------------------------------------------
+-- §4.5 IR Builder Protocols
+-- -----------------------------------------------------------------------
+
+-- Result of emitting one IR instruction through the FOLD/CSE pipeline.
+type IREmit = result(ref: i32)
+    | retry(ot: i32, a: i32, b: i32)
+    | need_snapshot(guard: i32)
+    | overflow
+    | abort(reason: i32)
+
+-- Result of applying FOLD rules to one instruction.
+type FoldResult = replace(ref: i32)
+    | fold_emit(ot: i32, a: i32, b: i32)
+    | retry(ot: i32, a: i32, b: i32)
+    | abort(reason: i32)
+
+-- Result of a slot map access during recording.
+type SlotGet = have(ref: i32)
+    | need_sload(slot: i32, val_tag: i32, val_payload: i64)
+    | abort(reason: i32)
+
+-- -----------------------------------------------------------------------
+-- §4.6 Snapshot Protocols
+-- -----------------------------------------------------------------------
+
+-- Result of adding a snapshot to the snapshot buffer.
+type SnapAdd = snap_done(snapno: i32)
+    | merge(snapno: i32)
+    | overflow
+    | abort(reason: i32)
+
+-- Result of restoring interpreter state from a snapshot after a guard exit.
+type SnapRestore = restored(pc: ptr(u8))
+    | unsupported(code: i32)
+    | error(code: i32)
+
+-- -----------------------------------------------------------------------
+-- §4.7 Optimizer Protocols
+-- -----------------------------------------------------------------------
+
+-- Overall optimizer pipeline result.
+type OptResult = optimized
+    | retry_recording(reason: i32)
+    | abort(reason: i32)
+
+-- Dead-code elimination pass result.
+type DCEResult = dce_done
+    | abort(reason: i32)
+
+-- Loop optimization pass result.
+type LoopOptResult = loop_done
+    | not_loop
+    | overflow
+    | abort(reason: i32)
+
+-- Allocation sinking pass result.
+type SinkResult = sink_done
+    | disabled
+    | abort(reason: i32)
+
+-- Narrowing pass result.
+type NarrowResult = narrow_done
+    | abort(reason: i32)
+
+-- -----------------------------------------------------------------------
+-- §4.8 Register Allocator Protocols
+-- -----------------------------------------------------------------------
+
+-- Result of allocating a register for an IR ref (source operand).
+type RAAlloc = reg(r: i32)
+    | remat(r: i32)
+    | spill_and_retry(victim: i32)
+    | fail(code: i32)
+
+-- Result of allocating a destination register for a definition.
+type RADest = dest_reg(r: i32)
+    | dest_spill(victim: i32)
+    | fail(code: i32)
+
+-- Result of coalescing a PHI pair.
+type RACoalesce = coalesced(r: i32)
+    | conflict
+    | abort(reason: i32)
+
+-- -----------------------------------------------------------------------
+-- §4.9 Assembler Protocols
+-- -----------------------------------------------------------------------
+
+-- Top-level trace assembler result.
+type AsmResult = mcode(entry_ptr: ptr(u8), size: u64)
+    | retry_realign
+    | retry_ir_grew
+    | mcode_full
+    | abort(reason: i32)
+
+-- Result of assembling one IR instruction (tile dispatch).
+type TileResult = tile_done
+    | need_snapshot(snapno: i32)
+    | mcode_full
+    | unsupported(op: i32)
+    | abort(reason: i32)
+
+-- Result of emitting an exit stub for one guard.
+type ExitStubResult = stub_done(addr: ptr(u8))
+    | mcode_full
+
+-- -----------------------------------------------------------------------
+-- §4.10 MCode Arena Protocols
+-- -----------------------------------------------------------------------
+
+-- Result of reserving space in the mcode arena.
+type MCodeReserve = mcode_ok(top: ptr(u8))
+    | grow
+    | full
+
+-- Result of patching a branch in already-emitted mcode.
+type PatchBranch = direct
+    | indirect
+    | out_of_range
+    | error(code: i32)
+
+-- -----------------------------------------------------------------------
+-- §4.11 Recorder Opcode Protocols
+-- -----------------------------------------------------------------------
+
+-- Result of recording one bytecode instruction into the IR.
+type RecOpcodeResult = rec_next(pc: ptr(u8))
+    | rec_stop(link_kind: i32)
+    | metamethod(mm: i32)
+    | abort(reason: i32)
+
+-- Result of recording a table access.
+type RecTableGet = rec_next(pc: ptr(u8))
+    | guard_meta(mm_tag: i32, mm_payload: i64)
+    | abort(reason: i32)
+
+-- Result of recording a call boundary.
+type RecCallResult = inline_lua(fn: ptr(u8))
+    | link_call
+    | rec_stop(link_kind: i32)
+    | abort(reason: i32)
+
+-- -----------------------------------------------------------------------
+-- §4.12 FFI Protocols
+-- -----------------------------------------------------------------------
+
+-- Result of preparing a C function call for FFI execution.
+type FFIPrepCall = call_direct(argv: ptr(u8))
+    | need_conversion(argno: i32)
+    | unsupported_abi(code: i32)
+    | error(code: i32)
+
+-- Result of emitting a C call in the assembler.
+type FFIEmitCall = ffi_done
+    | spill_regs
+    | unsupported_abi(code: i32)
+    | mcode_full
+
+-- Result of a cdata field index operation.
+type CDataIndex = cdata_field(addr: ptr(u8), ctype: i32)
+    | cdata_method(fn_tag: i32, fn_payload: i64)
+    | error(code: i32)
+
+-- -----------------------------------------------------------------------
+-- §4.13 Parse Exit Protocols (grammar library)
+-- -----------------------------------------------------------------------
+
+-- Standard parser protocol used by grammar.mlua and all parser combinators.
+type ParseExit = ok(next: i32)
+    | fail(at: i32)
+
+-- Infallible parser (star, opt, pred, empty).
+type ParseNoFail = ok(next: i32)
+
+-- -----------------------------------------------------------------------
+-- Version sentinel -- proves this module compiled successfully.
+-- -----------------------------------------------------------------------
+
+export func protocols_version() -> i32
+    return 1
+end
+
+end
+
+-- Run the module and verify it compiles.
+local c = m:compile()
+local v = c:get("protocols_version")
+assert(v ~= nil and v() == 1, "protocols module failed to compile")
+c:free()
+return "luajitvm protocols M0 ok"

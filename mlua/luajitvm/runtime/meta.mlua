@@ -1,0 +1,19 @@
+-- runtime/meta.mlua -- Metamethod dispatch region stubs.
+-- Protocol: MetamethodResult
+-- P4.PROTO.003 stub.
+
+local m = module VmRuntimeMeta
+
+type MetamethodResult = found(fn_tag: i32, fn_payload: i64, lhs_tag: i32, rhs_tag: i32)
+    | not_found
+    | error(code: i32)
+
+region metamethod_binop(L: ptr(u8), mm: i32, lhs_tag: i32, lhs_payload: i64, rhs_tag: i32, rhs_payload: i64) -> MetamethodResult
+entry start()
+    jump not_found()
+end
+end
+
+end
+
+local _c = m:compile(); _c:free()

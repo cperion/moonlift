@@ -1,0 +1,11 @@
+-- ffi/ctype.mlua -- CType system stub.
+
+local m = module VmFfiCtype
+
+export func ctype_version() -> i32
+    return 1
+end
+
+end
+
+local _c = m:compile(); _c:free()

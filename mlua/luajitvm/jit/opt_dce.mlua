@@ -1,0 +1,18 @@
+-- jit/opt_dce.mlua -- Dead-code elimination pass stub.
+-- Protocol: DCEResult
+-- P4.PROTO.007 stub.
+
+local m = module VmJitOptDce
+
+type DCEResult = dce_done
+    | abort(reason: i32)
+
+region opt_dce(J: ptr(u8), tr: i32) -> DCEResult
+entry start()
+    jump abort(reason = 0)
+end
+end
+
+end
+
+local _c = m:compile(); _c:free()

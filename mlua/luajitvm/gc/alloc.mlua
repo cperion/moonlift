@@ -1,0 +1,32 @@
+-- gc/alloc.mlua -- GC allocation and step region stubs.
+-- Protocol: AllocResult, GCStepResult
+-- P4.PROTO.004 stub.
+
+local m = module VmGcAlloc
+
+type AllocResult = ok(obj: ptr(u8))
+    | step(budget: u64)
+    | oom
+
+type GCStepResult = done(used: i32)
+    | need_finalize
+    | oom
+    | error(code: i32)
+
+-- Allocate a new GC object of given type and size.
+region gc_alloc(G: ptr(u8), size: u64, gct: i32) -> AllocResult
+entry start()
+    jump oom()
+end
+end
+
+-- Run one incremental GC step.
+region gc_step(G: ptr(u8), budget: i32) -> GCStepResult
+entry start()
+    jump done(used = 0)
+end
+end
+
+end
+
+local _c = m:compile(); _c:free()

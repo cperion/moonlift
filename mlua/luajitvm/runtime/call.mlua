@@ -1,0 +1,35 @@
+-- runtime/call.mlua -- Call and return region stubs.
+-- Protocol: CallResult, ReturnResult, OpcodeResult
+
+local m = module VmRuntimeCall
+
+type CallResult = lua_call(fn: ptr(u8))
+    | native_call(fn: ptr(u8))
+    | metamethod(mm: ptr(u8))
+    | error(code: i32)
+
+type ReturnResult = resume_caller
+    | final_return
+    | close_upvalues(from: ptr(u8))
+    | error(code: i32)
+
+type OpcodeResult = next
+    | hot(pc: ptr(u8))
+    | yielded(code: i32)
+    | error(code: i32)
+
+region vm_bc_call(L: ptr(u8), bc: i32) -> OpcodeResult
+entry start()
+    jump error(code = 0)
+end
+end
+
+region vm_bc_ret(L: ptr(u8), bc: i32) -> ReturnResult
+entry start()
+    jump final_return()
+end
+end
+
+end
+
+local _c = m:compile(); _c:free()

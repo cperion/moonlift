@@ -1,0 +1,27 @@
+-- core/value.mlua -- TValue and GC object type stubs.
+-- All GC pointers are ptr(u8) for M0. Struct literals not yet supported.
+
+local m = module VmCoreValue
+
+-- TValue: explicit-tag representation for bring-up.
+-- tag  = TValueTag constant (i32)
+-- payload = integer, float bits, or GC pointer as i64
+export func tvalue_tag(tv_tag: i32, tv_payload: i64) -> i32
+    return tv_tag
+end
+
+export func tvalue_payload(tv_tag: i32, tv_payload: i64) -> i64
+    return tv_payload
+end
+
+export func tvalue_is_int(tag: i32) -> bool
+    return tag == 1
+end
+
+export func tvalue_is_nil(tag: i32) -> bool
+    return tag == 0
+end
+
+end
+
+local _c = m:compile(); _c:free()

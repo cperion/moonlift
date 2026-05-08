@@ -192,7 +192,7 @@ function Runtime:eval_island(step_index, closures)
 
     -- 2. Parse template with holes → ASDL + splice_slots list.
     local kind = step.template.kind_word
-    local parse_opts = { region_frags = self.region_frags, expr_frags = self.expr_frags }
+    local parse_opts = { region_frags = self.region_frags, expr_frags = self.expr_frags, protocol_types = self.protocol_types }
     local parsed
     if kind == "region" then
         parsed = Parse.parse_region_frag_template(step.template, parse_opts)
@@ -238,6 +238,13 @@ function Runtime:eval_island(step_index, closures)
         self.expr_frags[value.name] = value
         return value
     elseif kind == "module" then
+        -- Persist protocol types registered by this island so later
+        -- islands (parsed in separate steps) can resolve them.
+        if parsed.protocol_types then
+            for name, variants in pairs(parsed.protocol_types) do
+                self.protocol_types[name] = variants
+            end
+        end
         -- Pre-expand region/expr frags defined inline in the module body, then
         -- store them so emit calls in the module body can resolve them.
         if parsed.region_frags then
@@ -394,6 +401,7 @@ function M.loadstring(src, chunk_name, opts)
         program = program,
         region_frags = opts.region_frags or (parent and parent.region_frags) or {},
         expr_frags = opts.expr_frags or (parent and parent.expr_frags) or {},
+        protocol_types = opts.protocol_types or (parent and parent.protocol_types) or {},
     }, Runtime)
     local lua_src = translate_runtime(runtime)
     local q = Quote()

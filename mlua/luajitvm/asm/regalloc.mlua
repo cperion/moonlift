@@ -1,0 +1,32 @@
+-- asm/regalloc.mlua -- Register allocator region stubs.
+-- Protocol: RAAlloc, RADest
+-- P4.PROTO.008 stub.
+
+local m = module VmAsmRegalloc
+
+type RAAlloc = reg(r: i32)
+    | remat(r: i32)
+    | spill_and_retry(victim: i32)
+    | fail(code: i32)
+
+type RADest = dest_reg(r: i32)
+    | dest_spill(victim: i32)
+    | fail(code: i32)
+
+-- Allocate a register for an IR ref (source operand).
+region ra_alloc(A: ptr(u8), ref: i32, allow: i32) -> RAAlloc
+entry start()
+    jump fail(code = 0)
+end
+end
+
+-- Allocate a destination register for an IR definition.
+region ra_dest(A: ptr(u8), ref: i32, allow: i32) -> RADest
+entry start()
+    jump fail(code = 0)
+end
+end
+
+end
+
+local _c = m:compile(); _c:free()

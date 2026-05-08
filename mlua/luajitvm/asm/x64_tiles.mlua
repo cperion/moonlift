@@ -1,0 +1,22 @@
+-- asm/x64_tiles.mlua -- x64 tile dispatch region stub.
+-- Protocol: TileResult
+-- P4.PROTO.008 stub.
+
+local m = module VmAsmX64Tiles
+
+type TileResult = tile_done
+    | need_snapshot(snapno: i32)
+    | mcode_full
+    | unsupported(op: i32)
+    | abort(reason: i32)
+
+-- x64 tile dispatch: assemble one IR instruction.
+region x64_asm_one_ir(A: ptr(u8), ref: i32) -> TileResult
+entry start()
+    jump unsupported(op = 0)
+end
+end
+
+end
+
+local _c = m:compile(); _c:free()

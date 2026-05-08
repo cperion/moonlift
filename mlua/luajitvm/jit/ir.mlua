@@ -1,0 +1,34 @@
+-- jit/ir.mlua -- IR emit and fold region stubs.
+-- Protocol: IREmit, FoldResult
+-- P4.PROTO.006 stub.
+
+local m = module VmJitIr
+
+type IREmit = result(ref: i32)
+    | retry(ot: i32, a: i32, b: i32)
+    | need_snapshot(guard: i32)
+    | overflow
+    | abort(reason: i32)
+
+type FoldResult = replace(ref: i32)
+    | fold_emit(ot: i32, a: i32, b: i32)
+    | retry(ot: i32, a: i32, b: i32)
+    | abort(reason: i32)
+
+-- Emit one IR instruction through the FOLD/CSE pipeline.
+region ir_emit(J: ptr(u8), ot: i32, a: i32, b: i32) -> IREmit
+entry start()
+    jump abort(reason = 0)
+end
+end
+
+-- Apply FOLD rules to one instruction.
+region ir_fold(J: ptr(u8), ot: i32, a: i32, b: i32) -> FoldResult
+entry start()
+    jump abort(reason = 0)
+end
+end
+
+end
+
+local _c = m:compile(); _c:free()

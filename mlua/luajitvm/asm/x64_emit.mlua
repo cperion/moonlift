@@ -1,0 +1,11 @@
+-- asm/x64_emit.mlua -- x64 instruction encoding helpers stub.
+
+local m = module VmAsmX64Emit
+
+export func x64_emit_version() -> i32
+    return 1
+end
+
+end
+
+local _c = m:compile(); _c:free()
