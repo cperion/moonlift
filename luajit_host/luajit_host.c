@@ -33,53 +33,62 @@ static int cf_ir_trace_compile(lua_State *L) {
     jit_State *J = L2J(L);
     luaL_checktype(L, 1, LUA_TTABLE);
     int nir = (int)lua_objlen(L, 1);
-    if (nir < 2) { lua_pushnil(L); lua_pushstring(L, "nir<2"); return 2; }
+    int nk  = (int)luaL_optinteger(L, 2, 0);
+    int ni  = nir - nk;
+    if (ni < 2) { lua_pushnil(L); lua_pushstring(L, "ni<2"); return 2; }
 
-    PackedIRIns *id = malloc((size_t)nir * sizeof(PackedIRIns));
-    for (int j = 0; j < nir; j++) {
-        lua_rawgeti(L,1,j+1);
-        lua_getfield(L,-1,"o"); id[j].o=(int)lua_tointeger(L,-1); lua_pop(L,1);
-        lua_getfield(L,-1,"t"); id[j].t=(int)lua_tointeger(L,-1); lua_pop(L,1);
-        lua_getfield(L,-1,"op1");id[j].op1=(int)lua_tointeger(L,-1); lua_pop(L,1);
-        lua_getfield(L,-1,"op2");id[j].op2=(int)lua_tointeger(L,-1); lua_pop(L,1);
-        lua_getfield(L,-1,"i");  id[j].i=(int)lua_tointeger(L,-1);   lua_pop(L,1);
+    PackedIRIns *d = malloc((size_t)nir * sizeof(PackedIRIns));
+    for (int i=0;i<nir;i++){
+        lua_rawgeti(L,1,i+1);
+        lua_getfield(L,-1,"o"); d[i].o=(int)lua_tointeger(L,-1); lua_pop(L,1);
+        lua_getfield(L,-1,"t"); d[i].t=(int)lua_tointeger(L,-1); lua_pop(L,1);
+        lua_getfield(L,-1,"op1");d[i].op1=(int)lua_tointeger(L,-1);lua_pop(L,1);
+        lua_getfield(L,-1,"op2");d[i].op2=(int)lua_tointeger(L,-1);lua_pop(L,1);
+        lua_getfield(L,-1,"i");  d[i].i=(int)lua_tointeger(L,-1);  lua_pop(L,1);
         lua_pop(L,1);
     }
 
-    int total = REF_BIAS + nir + 64;
+    int total = REF_BIAS + ni + 64;
     IRIns *irbuf = calloc((size_t)total, sizeof(IRIns));
     irbuf[REF_NIL].o=IR_KPRI;   irbuf[REF_NIL].t.irt=IRT_NIL;
     irbuf[REF_TRUE].o=IR_KPRI;  irbuf[REF_TRUE].t.irt=IRT_TRUE;
     irbuf[REF_FALSE].o=IR_KPRI; irbuf[REF_FALSE].t.irt=IRT_FALSE;
-    for (int j=0;j<nir;j++) {
-        IRIns *ins=&irbuf[REF_BIAS+j];
-        ins->o=(IROp1)id[j].o; ins->t.irt=(uint8_t)id[j].t;
-        ins->op1=(IRRef1)id[j].op1; ins->op2=(IRRef1)id[j].op2;
-        ins->i=id[j].i; ins->prev=0;
+
+    // Constants at irbuf[0..nk-1], instructions at irbuf[REF_BIAS..]
+    for (int i=0;i<nk;i++) {
+        IRIns *ins=&irbuf[i];
+        ins->o=(IROp1)d[i].o; ins->t.irt=(uint8_t)d[i].t;
+        ins->op1=(IRRef1)d[i].op1; ins->op2=(IRRef1)d[i].op2;
+        ins->i=d[i].i; ins->prev=0;
     }
-    free(id);
+    for (int i=0;i<ni;i++) {
+        IRIns *ins=&irbuf[REF_BIAS+i];
+        int idx=nk+i;
+        ins->o=(IROp1)d[idx].o; ins->t.irt=(uint8_t)d[idx].t;
+        ins->op1=(IRRef1)d[idx].op1; ins->op2=(IRRef1)d[idx].op2;
+        ins->i=d[idx].i; ins->prev=0;
+    }
+    free(d);
 
     GCtrace *T = lj_mem_new(L, sizeof(GCtrace));
     memset(T,0,sizeof(GCtrace));
-    T->traceno=1; T->link=1; T->linktype=LJ_TRLINK_ROOT;
-    // Dummy prototype — asm_head_root dereferences T->startpt for framesize
-    GCproto *dummy_pt = lj_mem_new(L, sizeof(GCproto));
-    memset(dummy_pt, 0, sizeof(GCproto));
-    dummy_pt->framesize = 0;
-    dummy_pt->gct = (uint8_t)~LJ_TPROTO;  // so gco2pt works
-    setgcrefp(T->startpt, dummy_pt);
-    T->topslot = 0;
+    GCproto *pt = lj_mem_new(L, sizeof(GCproto));
+    memset(pt,0,sizeof(GCproto));
+    pt->gct=(uint8_t)~LJ_TPROTO;
+    setgcrefp(T->startpt, pt);
+    T->topslot=0; T->traceno=1; T->link=1; T->linktype=LJ_TRLINK_ROOT;
+    T->nins=REF_BIAS+ni; T->nk=REF_BIAS; T->ir=irbuf;
+    T->nsnap=0; T->nsnapmap=0;
 
     memset(&J->cur,0,sizeof(GCtrace));
     J->cur.traceno=1; J->cur.link=1; J->cur.linktype=LJ_TRLINK_ROOT;
-    J->cur.ir=irbuf;  J->cur.nins=REF_BIAS+nir;  J->cur.nk=REF_BIAS;
-    J->cur.nsnap=0;   J->cur.nsnapmap=0;
+    J->cur.ir=irbuf; J->cur.nins=REF_BIAS+ni; J->cur.nk=REF_BIAS;
+    J->cur.nsnap=0; J->cur.nsnapmap=0;
     J->cur.snap=lj_mem_new(L,sizeof(SnapShot));
     J->cur.snapmap=lj_mem_new(L,sizeof(SnapEntry));
     memset(J->cur.snap,0,sizeof(SnapShot));
     memset(J->cur.snapmap,0,sizeof(SnapEntry));
-
-    J->irtoplim=REF_BIAS+nir+64; J->irbotlim=0; J->loopref=0;
+    J->irtoplim=REF_BIAS+ni+64; J->irbotlim=0; J->loopref=0;
     J->framedepth=0; J->maxslot=0; J->baseslot=0;
     J->bc_min=NULL; J->bc_extent=0; J->pt=NULL; J->pc=NULL;
     J->mctop=J->mcarea;
@@ -92,26 +101,25 @@ static int cf_ir_trace_compile(lua_State *L) {
     lj_opt_cse(J);
     lj_opt_dce(J);
     lj_opt_sink(J);
-    // skip lj_opt_loop — needs full snapshot infrastructure
 
-    T->nins=J->cur.nins; T->nk=J->cur.nk;
-    fprintf(stderr, "asm...\n");
-    lj_asm_trace(J, T);
-    fprintf(stderr, "asm-ok\n");
+    T->nins=J->cur.nins; T->nk=J->cur.nk; T->ir=irbuf;
+    // lj_asm_trace(J, T);  // TODO: GC state wiring
 
     lua_newtable(L);
-    lua_pushlightuserdata(L, T->mcode); lua_setfield(L,-2,"mcode");
-    lua_pushinteger(L,(lua_Integer)T->szmcode); lua_setfield(L,-2,"size");
-    free(irbuf); lj_mem_free(G(L),T,sizeof(GCtrace));
+    lua_pushinteger(L, T->nins - T->nk); lua_setfield(L,-2,"nins");
+    lua_pushinteger(L, T->nk); lua_setfield(L,-2,"nk");
+    free(irbuf);
+    lj_mem_free(G(L),pt,sizeof(GCproto));
+    lj_mem_free(G(L),T,sizeof(GCtrace));
     return 1;
 }
 
-static const luaL_Reg jit_lib[] = {
-    {"init", cf_lj_jit_init}, {"compile", cf_ir_trace_compile}, {NULL,NULL}
+static const luaL_Reg jit_lib[]={
+    {"init",cf_lj_jit_init},{"compile",cf_ir_trace_compile},{NULL,NULL}
 };
 
-int main(int argc, char **argv) {
-    lua_State *L = luaL_newstate(); luaL_openlibs(L);
+int main(int argc,char**argv){
+    lua_State*L=luaL_newstate(); luaL_openlibs(L);
     lua_getglobal(L,"jit");
     if(lua_isnil(L,-1)){lua_pop(L,1);lua_newtable(L);lua_setglobal(L,"jit");lua_getglobal(L,"jit");}
     luaL_setfuncs(L,jit_lib,0); lua_pop(L,1);
@@ -122,5 +130,5 @@ int main(int argc, char **argv) {
         else s=luaL_dofile(L,argv[i]);
         if(s){fprintf(stderr,"%s\n",lua_tostring(L,-1));lua_pop(L,1);}
     }
-    lua_close(L); return s;
+    lua_close(L);return s;
 }
