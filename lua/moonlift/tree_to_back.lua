@@ -1214,6 +1214,52 @@ function M.Define(T)
         local cls = pvm.classof(item)
         if cls == Tr.ItemFunc then return Tr.TreeBackItemResult(lower_func_direct(item.func).cmds) end
         if cls == Tr.ItemExtern then return lower_extern_direct(item.func) end
+        if cls == Tr.ItemConst then
+            -- Lower const as a zero-arg function that returns its value.
+            local c = item.c
+            if pvm.classof(c) == Tr.ConstItemOpen then c = { name = c.sym.name, ty = c.ty, value = c.value } end
+            if pvm.classof(c) ~= Tr.ConstItem then return Tr.TreeBackItemResult({}) end
+            local scalar = back_scalar(c.ty)
+            local lit_node = c.value
+            if pvm.classof(lit_node) == Tr.ExprLit then lit_node = lit_node.value end
+            local lit = pvm.one(scalar_literal(lit_node))
+            if scalar == nil or lit == nil then return Tr.TreeBackItemResult({}) end
+            local name = c.name
+            local func = Back.BackFuncId(name)
+            local sig = Back.BackSigId("sig:" .. name)
+            local entry = Back.BackBlockId("entry:" .. name)
+            local val = Back.BackValId("v:" .. name)
+            return Tr.TreeBackItemResult({
+                Back.CmdCreateSig(sig, {}, { scalar }),
+                Back.CmdDeclareFunc(C.VisibilityExport, func, sig),
+                Back.CmdBeginFunc(func),
+                Back.CmdCreateBlock(entry),
+                Back.CmdSwitchToBlock(entry),
+                Back.CmdBindEntryParams(entry, {}),
+                Back.CmdConst(val, scalar, lit),
+                Back.CmdReturnValue(val),
+                Back.CmdSealBlock(entry),
+                Back.CmdFinishFunc(func),
+            })
+        end
+        if cls == Tr.ItemStatic then
+            -- Lower static as a data item (statics are mutable)
+            local s = item.s
+            if pvm.classof(s) == Tr.StaticItemOpen then s = { name = s.sym.name, ty = s.ty, value = s.value } end
+            local scalar = back_scalar(s.ty)
+            local lit_node = s.value
+            if pvm.classof(lit_node) == Tr.ExprLit then lit_node = lit_node.value end
+            local lit = pvm.one(scalar_literal(lit_node))
+            if scalar ~= nil and lit ~= nil then
+                local data_id = Back.BackDataId(s.name)
+                local nbytes = math.floor(((int_scalar_info[scalar] or {bits=64}).bits + 7) / 8)
+                return Tr.TreeBackItemResult({
+                    Back.CmdDeclareData(data_id, nbytes, nbytes),
+                    Back.CmdDataInit(data_id, 0, scalar, lit),
+                })
+            end
+            return Tr.TreeBackItemResult({})
+        end
         if cls == Tr.ItemUseModule then return Tr.TreeBackItemResult(lower_module_direct(item.module).cmds) end
         return Tr.TreeBackItemResult({})
     end

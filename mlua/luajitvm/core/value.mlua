@@ -1,7 +1,6 @@
 -- core/value.mlua — TValue type constants, accessors, predicates.
 -- Layout: TValue = 16 bytes: [tag:i32@0][pad:i32@4][payload:i64@8]
 -- Access via ptr(i32) for 32-bit fields, ptr(i64) for 64-bit payload.
--- One TValue = 4 i32 elements, or 2 i64 elements.
 
 local m = module VmCoreValue
 
@@ -9,48 +8,41 @@ local m = module VmCoreValue
 -- Type tag constants (matching LuaJIT lj_obj.h LJ_T* values)
 -- -----------------------------------------------------------------------
 
-export func LUA_TNIL()     -> i32 return 0  end
-export func LUA_TFALSE()   -> i32 return 1  end
-export func LUA_TTRUE()    -> i32 return 2  end
-export func LUA_TINT()     -> i32 return 3  end
-export func LUA_TNUM()     -> i32 return 4  end
-export func LUA_TSTR()     -> i32 return 5  end
-export func LUA_TTAB()     -> i32 return 8  end
-export func LUA_TFUNC()    -> i32 return 9  end
-export func LUA_TTHREAD()  -> i32 return 10 end
-export func LUA_TUDATA()   -> i32 return 11 end
-export func LUA_TCDATA()   -> i32 return 12 end
-export func LUA_TLIGHTUD() -> i32 return 14 end
-
--- TValue size in bytes
-export func TV_SIZE() -> i32 return 16 end
+const LUA_TNIL:     i32 = 0
+const LUA_TFALSE:   i32 = 1
+const LUA_TTRUE:    i32 = 2
+const LUA_TINT:     i32 = 3
+const LUA_TNUM:     i32 = 4
+const LUA_TSTR:     i32 = 5
+const LUA_TTAB:     i32 = 8
+const LUA_TFUNC:    i32 = 9
+const LUA_TTHREAD:  i32 = 10
+const LUA_TUDATA:   i32 = 11
+const LUA_TCDATA:   i32 = 12
+const LUA_TLIGHTUD: i32 = 14
+const TV_SIZE:      i32 = 16
 
 -- -----------------------------------------------------------------------
 -- TValue accessors (ptr(i32) + ptr(i64) views over stack memory)
 -- -----------------------------------------------------------------------
 
--- Read tag from slot N. tv32 is ptr(i32) at base of TValue array.
 export func tv_tag(tv32: ptr(i32), slot: i32) -> i32
     return tv32[slot * 4]
 end
 
--- Read payload from slot N. tv64 is ptr(i64) at base of TValue array.
 export func tv_payload(tv64: ptr(i64), slot: i32) -> i64
     return tv64[slot * 2 + 1]
 end
 
--- Write a full TValue with explicit tag and payload.
 export func tv_set(tv32: ptr(i32), tv64: ptr(i64), slot: i32, tag: i32, payload: i64)
     tv32[slot * 4] = tag
     tv64[slot * 2 + 1] = payload
 end
 
--- Write tag only (preserves payload).
 export func tv_set_tag(tv32: ptr(i32), slot: i32, tag: i32)
     tv32[slot * 4] = tag
 end
 
--- Write payload only (preserves tag).
 export func tv_set_payload(tv64: ptr(i64), slot: i32, payload: i64)
     tv64[slot * 2 + 1] = payload
 end
@@ -107,32 +99,28 @@ export func tv_is_lightud(tv32: ptr(i32), slot: i32) -> bool
     return tv32[slot * 4] == 14
 end
 
--- Primitive type range: nil, false, true
 export func tv_is_pri(tv32: ptr(i32), slot: i32) -> bool
     let tag: i32 = tv32[slot * 4]
     return tag <= 2
 end
 
--- GC-collectable value range: str through udata
 export func tv_is_gcv(tv32: ptr(i32), slot: i32) -> bool
     let tag: i32 = tv32[slot * 4]
     return tag >= 5 and tag <= 12
 end
 
--- Number range: int or num
 export func tv_is_number(tv32: ptr(i32), slot: i32) -> bool
     let tag: i32 = tv32[slot * 4]
     return tag == 3 or tag == 4
 end
 
--- Truthy: not nil and not false
 export func tv_is_truthy(tv32: ptr(i32), slot: i32) -> bool
     let tag: i32 = tv32[slot * 4]
     return tag ~= 0 and tag ~= 1
 end
 
 -- -----------------------------------------------------------------------
--- Convenience setters for common types
+-- Convenience setters
 -- -----------------------------------------------------------------------
 
 export func tv_set_nil(tv32: ptr(i32), tv64: ptr(i64), slot: i32)
@@ -152,17 +140,10 @@ export func tv_set_int(tv32: ptr(i32), tv64: ptr(i64), slot: i32, val: i32)
     tv64[slot * 2 + 1] = as(i64, val)
 end
 
-export func tv_set_num(tv32: ptr(i32), tv64: ptr(i64), slot: i32, val: f64)
-    tv32[slot * 4] = 4
-    tv64[slot * 2 + 1] = as(i64, val)
-end
-
--- Read integer value from an int-tagged TValue
 export func tv_get_int(tv64: ptr(i64), slot: i32) -> i32
     return as(i32, tv64[slot * 2 + 1])
 end
 
--- Copy TValue from src slot to dst slot
 export func tv_copy(tv32: ptr(i32), tv64: ptr(i64), src_slot: i32, dst_slot: i32)
     tv32[dst_slot * 4] = tv32[src_slot * 4]
     tv64[dst_slot * 2 + 1] = tv64[src_slot * 2 + 1]

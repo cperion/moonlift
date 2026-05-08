@@ -1,83 +1,55 @@
--- core/object.mlua — GC object type constants and header offsets.
--- GCHeader = 10 bytes: nextgc(8), marked(1), gct(1)
--- All GC objects have GCHeader at offset 0.
+-- core/object.mlua — GC object type constants, header offsets, accessors.
 
 local m = module VmCoreObject
 
--- -----------------------------------------------------------------------
--- GC object type tags (gct field, matching LuaJIT lj_obj.h)
--- -----------------------------------------------------------------------
+-- GC type tags
+const GCT_STR:    i32 = 0
+const GCT_UPVAL:  i32 = 1
+const GCT_THREAD: i32 = 2
+const GCT_PROTO:  i32 = 3
+const GCT_FUNC:   i32 = 4
+const GCT_TRACE:  i32 = 5
+const GCT_CDATA:  i32 = 6
+const GCT_TAB:    i32 = 7
+const GCT_UDATA:  i32 = 8
 
-export func GCT_STR()    -> i32 return 0 end
-export func GCT_UPVAL()  -> i32 return 1 end
-export func GCT_THREAD() -> i32 return 2 end
-export func GCT_PROTO()  -> i32 return 3 end
-export func GCT_FUNC()   -> i32 return 4 end
-export func GCT_TRACE()  -> i32 return 5 end
-export func GCT_CDATA()  -> i32 return 6 end
-export func GCT_TAB()    -> i32 return 7 end
-export func GCT_UDATA()  -> i32 return 8 end
+-- Mark colors
+const GC_WHITE0: i32 = 0
+const GC_WHITE1: i32 = 1
+const GC_GRAY:   i32 = 2
+const GC_BLACK:  i32 = 3
 
--- -----------------------------------------------------------------------
--- GC mark color constants (marked field bits)
--- -----------------------------------------------------------------------
+-- GCHeader byte offsets from base of GC object
+const GCOFF_NEXT:   i32 = 0
+const GCOFF_MARKED: i32 = 8
+const GCOFF_GCT:    i32 = 9
+const GCHDR_SIZE:   i32 = 16
 
-export func GC_WHITE0() -> i32 return 0 end
-export func GC_WHITE1() -> i32 return 1 end
-export func GC_GRAY()   -> i32 return 2 end
-export func GC_BLACK()  -> i32 return 3 end
-
--- -----------------------------------------------------------------------
--- GCHeader field offsets (byte offsets from base of GC object)
--- -----------------------------------------------------------------------
-
--- nextgc: ptr(GCobj) at offset 0 (8 bytes)
-export func GCOFF_NEXT() -> i32 return 0 end
-
--- marked: u8 at offset 8
-export func GCOFF_MARKED() -> i32 return 8 end
-
--- gct: u8 at offset 9
-export func GCOFF_GCT() -> i32 return 9 end
-
--- Total header size
-export func GCHDR_SIZE() -> i32 return 16 end
-
--- -----------------------------------------------------------------------
--- GCHeader accessors (work on ptr(u8) base of any GC object)
--- -----------------------------------------------------------------------
-
--- Read gct field
+-- GCHeader accessors (work on ptr(u8) base)
 export func gc_gct(obj: ptr(u8)) -> i32
     return as(i32, obj[9])
 end
 
--- Read marked field
 export func gc_marked(obj: ptr(u8)) -> i32
     return as(i32, obj[8])
 end
 
--- Write gct field
 export func gc_set_gct(obj: ptr(u8), gct: i32)
     obj[9] = as(u8, gct)
 end
 
--- Write marked field
 export func gc_set_marked(obj: ptr(u8), marked: i32)
     obj[8] = as(u8, marked)
 end
 
--- Check if object is white (either currentwhite value)
 export func gc_is_white(obj: ptr(u8), currentwhite: i32) -> bool
     return as(i32, obj[8]) == currentwhite
 end
 
--- Check if object is gray
 export func gc_is_gray(obj: ptr(u8)) -> bool
     return as(i32, obj[8]) == 2
 end
 
--- Check if object is black
 export func gc_is_black(obj: ptr(u8)) -> bool
     return as(i32, obj[8]) == 3
 end

@@ -1,67 +1,34 @@
--- core/state.mlua — ThreadState and GlobalState layout constants.
--- ThreadState is a GCthread: stack, base, top, pc, status, glref.
--- Access via ptr(u8) base + byte offsets.
+-- core/state.mlua — ThreadState offsets, status codes.
 
 local m = module VmCoreState
 
--- -----------------------------------------------------------------------
--- ThreadState byte offsets (from base of GCthread, after GCHeader at +0)
--- GCHDR = 16 bytes reserved for GCHeader
--- -----------------------------------------------------------------------
+-- ThreadState byte offsets (from base of GCthread, after GCHeader at +16)
+const TS_OFF_STACK:     i32 = 16
+const TS_OFF_STACKSIZE: i32 = 24
+const TS_OFF_TOP:       i32 = 28
+const TS_OFF_BASE:      i32 = 32
+const TS_OFF_MAXSTACK:  i32 = 36
+const TS_OFF_PC:        i32 = 40
+const TS_OFF_STATUS:    i32 = 48
+const TS_OFF_GLREF:     i32 = 56
+const TS_OFF_OPENUPVAL: i32 = 64
 
--- stack: ptr(TValue) — stack buffer base
-export func TS_OFF_STACK() -> i32 return 16 end
-
--- stacksize: u32 — allocated stack slots
-export func TS_OFF_STACKSIZE() -> i32 return 24 end
-
--- top: ptr(TValue) — current top of stack
-export func TS_OFF_TOP() -> i32 return 28 end
-
--- base: ptr(TValue) — current frame base
-export func TS_OFF_BASE() -> i32 return 32 end
-
--- maxstack: u32 — maximum stack depth reached
-export func TS_OFF_MAXSTACK() -> i32 return 36 end
-
--- pc: ptr(BCIns) — bytecode instruction pointer
-export func TS_OFF_PC() -> i32 return 40 end
-
--- status: i32 — thread execution status
-export func TS_OFF_STATUS() -> i32 return 48 end
-
--- glref: ptr(GlobalState) — backward link
-export func TS_OFF_GLREF() -> i32 return 56 end
-
--- openupval: ptr(GCupval) — open upvalue list
-export func TS_OFF_OPENUPVAL() -> i32 return 64 end
-
--- -----------------------------------------------------------------------
 -- Thread status codes
--- -----------------------------------------------------------------------
+const LUA_OK:        i32 = 0
+const LUA_YIELD:     i32 = 1
+const LUA_ERRRUN:    i32 = 2
+const LUA_ERRSYNTAX: i32 = 3
+const LUA_ERRMEM:    i32 = 4
+const LUA_ERRERR:    i32 = 5
 
-export func LUA_OK()        -> i32 return 0 end
-export func LUA_YIELD()     -> i32 return 1 end
-export func LUA_ERRRUN()    -> i32 return 2 end
-export func LUA_ERRSYNTAX() -> i32 return 3 end
-export func LUA_ERRMEM()    -> i32 return 4 end
-export func LUA_ERRERR()    -> i32 return 5 end
-
--- -----------------------------------------------------------------------
--- ThreadState field accessors (on ptr(u8) base of GCthread)
--- -----------------------------------------------------------------------
-
--- Read pc field (8 bytes at offset TS_OFF_PC)
 export func ts_get_pc_lo(ts: ptr(u8)) -> i32
     return as(i32, ts[40])
 end
 
--- Read status field (4 bytes at offset TS_OFF_STATUS)
 export func ts_get_status_byte0(ts: ptr(u8)) -> i32
     return as(i32, ts[48])
 end
 
--- Set status field
 export func ts_set_status(ts: ptr(u8), status: i32)
     ts[48] = as(u8, status)
 end

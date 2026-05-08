@@ -1,158 +1,113 @@
--- core/bytecode.mlua — BCIns layout, decoder accessors, opcode constants.
--- BCIns = u32 (4 bytes): [op:u8@0][A:u8@8][C:u8@16][B:u8@24]
--- D-format: [op:u8@0][A:u8@8][D:u16@16]
+-- core/bytecode.mlua — BCIns layout, decoders, opcode constants.
 
 local m = module VmCoreBytecode
 
--- -----------------------------------------------------------------------
 -- Bitfield extractors
--- -----------------------------------------------------------------------
-
-export func bc_op(ins: i32) -> i32
-    return ins & 0xFF
-end
-
-export func bc_a(ins: i32) -> i32
-    return (ins >> 8) & 0xFF
-end
-
-export func bc_b(ins: i32) -> i32
-    return (ins >> 24) & 0xFF
-end
-
-export func bc_c(ins: i32) -> i32
-    return (ins >> 16) & 0xFF
-end
-
-export func bc_d(ins: i32) -> i32
-    return (ins >> 16) & 0xFFFF
-end
-
--- -----------------------------------------------------------------------
--- Opcode constants (matching LuaJIT bcdef.h layout)
--- -----------------------------------------------------------------------
+export func bc_op(ins: i32) -> i32 return ins & 0xFF end
+export func bc_a(ins: i32)  -> i32 return (ins >> 8) & 0xFF end
+export func bc_b(ins: i32)  -> i32 return (ins >> 24) & 0xFF end
+export func bc_c(ins: i32)  -> i32 return (ins >> 16) & 0xFF end
+export func bc_d(ins: i32)  -> i32 return (ins >> 16) & 0xFFFF end
 
 -- Comparisons
-export func BC_ISLT()  -> i32 return 0  end
-export func BC_ISGE()  -> i32 return 1  end
-export func BC_ISLE()  -> i32 return 2  end
-export func BC_ISGT()  -> i32 return 3  end
-export func BC_ISEQV() -> i32 return 4  end
-export func BC_ISNEV() -> i32 return 5  end
-export func BC_ISEQS() -> i32 return 6  end
-export func BC_ISNES() -> i32 return 7  end
-export func BC_ISEQN() -> i32 return 8  end
-export func BC_ISNEN() -> i32 return 9  end
-export func BC_ISEQP() -> i32 return 10 end
-export func BC_ISNEP() -> i32 return 11 end
-
--- Unary test/copy
-export func BC_ISTC()  -> i32 return 12 end
-export func BC_ISFC()  -> i32 return 13 end
-export func BC_IST()   -> i32 return 14 end
-export func BC_ISF()   -> i32 return 15 end
-export func BC_ISTYPE() -> i32 return 16 end
-export func BC_ISNUM() -> i32 return 17 end
+const BC_ISLT:  i32 = 0
+const BC_ISGE:  i32 = 1
+const BC_ISEQV: i32 = 4
+const BC_ISNEV: i32 = 5
 
 -- Constants and moves
-export func BC_MOV()   -> i32 return 18 end
-export func BC_NOT()   -> i32 return 19 end
-export func BC_UNM()   -> i32 return 20 end
-export func BC_LEN()   -> i32 return 21 end
+const BC_MOV: i32 = 18
+const BC_NOT: i32 = 19
+const BC_UNM: i32 = 20
+const BC_LEN: i32 = 21
 
 -- Arithmetic
-export func BC_ADDVN() -> i32 return 22 end
-export func BC_SUBVN() -> i32 return 23 end
-export func BC_MULVN() -> i32 return 24 end
-export func BC_DIVVN() -> i32 return 25 end
-export func BC_MODVN() -> i32 return 26 end
-export func BC_ADDNV() -> i32 return 27 end
-export func BC_SUBNV() -> i32 return 28 end
-export func BC_MULNV() -> i32 return 29 end
-export func BC_DIVNV() -> i32 return 30 end
-export func BC_MODNV() -> i32 return 31 end
-export func BC_ADDVV() -> i32 return 32 end
-export func BC_SUBVV() -> i32 return 33 end
-export func BC_MULVV() -> i32 return 34 end
-export func BC_DIVVV() -> i32 return 35 end
-export func BC_MODVV() -> i32 return 36 end
-export func BC_POW()   -> i32 return 37 end
-export func BC_CAT()   -> i32 return 38 end
+const BC_ADDVN: i32 = 22
+const BC_SUBVN: i32 = 23
+const BC_MULVN: i32 = 24
+const BC_DIVVN: i32 = 25
+const BC_MODVN: i32 = 26
+const BC_ADDNV: i32 = 27
+const BC_SUBNV: i32 = 28
+const BC_MULNV: i32 = 29
+const BC_DIVNV: i32 = 30
+const BC_MODNV: i32 = 31
+const BC_ADDVV: i32 = 32
+const BC_SUBVV: i32 = 33
+const BC_MULVV: i32 = 34
+const BC_DIVVV: i32 = 35
+const BC_MODVV: i32 = 36
+const BC_POW:   i32 = 37
+const BC_CAT:   i32 = 38
 
 -- Constants
-export func BC_KSTR()  -> i32 return 39 end
-export func BC_KCDATA() -> i32 return 40 end
-export func BC_KSHORT() -> i32 return 41 end
-export func BC_KNUM()  -> i32 return 42 end
-export func BC_KPRI()  -> i32 return 43 end
-export func BC_KNIL()  -> i32 return 44 end
+const BC_KSTR:   i32 = 39
+const BC_KCDATA: i32 = 40
+const BC_KSHORT: i32 = 41
+const BC_KNUM:   i32 = 42
+const BC_KPRI:   i32 = 43
+const BC_KNIL:   i32 = 44
 
 -- Upvalues
-export func BC_UGET()  -> i32 return 45 end
-export func BC_USETV() -> i32 return 46 end
-export func BC_USETS() -> i32 return 47 end
-export func BC_USETN() -> i32 return 48 end
-export func BC_USETP() -> i32 return 49 end
-export func BC_UCLO()  -> i32 return 50 end
-export func BC_FNEW()  -> i32 return 51 end
+const BC_UGET:  i32 = 45
+const BC_USETV: i32 = 46
+const BC_USETS: i32 = 47
+const BC_USETN: i32 = 48
+const BC_USETP: i32 = 49
+const BC_UCLO:  i32 = 50
+const BC_FNEW:  i32 = 51
 
 -- Tables
-export func BC_TNEW()  -> i32 return 52 end
-export func BC_TDUP()  -> i32 return 53 end
-export func BC_GGET()  -> i32 return 54 end
-export func BC_GSET()  -> i32 return 55 end
-export func BC_TGETV() -> i32 return 56 end
-export func BC_TGETS() -> i32 return 57 end
-export func BC_TGETB() -> i32 return 58 end
-export func BC_TGETR() -> i32 return 59 end
-export func BC_TSETV() -> i32 return 60 end
-export func BC_TSETS() -> i32 return 61 end
-export func BC_TSETB() -> i32 return 62 end
-export func BC_TSETM() -> i32 return 63 end
-export func BC_TSETR() -> i32 return 64 end
+const BC_TNEW:  i32 = 52
+const BC_TDUP:  i32 = 53
+const BC_GGET:  i32 = 54
+const BC_GSET:  i32 = 55
+const BC_TGETV: i32 = 56
+const BC_TGETS: i32 = 57
+const BC_TGETB: i32 = 58
+const BC_TSETV: i32 = 60
+const BC_TSETS: i32 = 61
+const BC_TSETB: i32 = 62
 
 -- Calls
-export func BC_CALLM()  -> i32 return 65 end
-export func BC_CALL()   -> i32 return 66 end
-export func BC_CALLMT() -> i32 return 67 end
-export func BC_CALLT()  -> i32 return 68 end
-export func BC_ITERC()  -> i32 return 69 end
-export func BC_ITERN()  -> i32 return 70 end
-export func BC_VARG()   -> i32 return 71 end
-export func BC_ISNEXT() -> i32 return 72 end
+const BC_CALLM:  i32 = 65
+const BC_CALL:   i32 = 66
+const BC_CALLMT: i32 = 67
+const BC_CALLT:  i32 = 68
+const BC_ITERC:  i32 = 69
+const BC_ITERN:  i32 = 70
+const BC_VARG:   i32 = 71
+const BC_ISNEXT: i32 = 72
 
 -- Returns
-export func BC_RETM()  -> i32 return 73 end
-export func BC_RET()   -> i32 return 74 end
-export func BC_RET0()  -> i32 return 75 end
-export func BC_RET1()  -> i32 return 76 end
+const BC_RETM: i32 = 73
+const BC_RET:  i32 = 74
+const BC_RET0: i32 = 75
+const BC_RET1: i32 = 76
 
 -- Loops
-export func BC_FORI()  -> i32 return 77 end
-export func BC_JFORI() -> i32 return 78 end
-export func BC_FORL()  -> i32 return 79 end
-export func BC_IFORL() -> i32 return 80 end
-export func BC_JFORL() -> i32 return 81 end
-export func BC_ITERL() -> i32 return 82 end
-export func BC_IITERL() -> i32 return 83 end
-export func BC_JITERL() -> i32 return 84 end
-export func BC_LOOP()  -> i32 return 85 end
-export func BC_ILOOP() -> i32 return 86 end
-export func BC_JLOOP() -> i32 return 87 end
+const BC_FORI:  i32 = 77
+const BC_JFORI: i32 = 78
+const BC_FORL:  i32 = 79
+const BC_IFORL: i32 = 80
+const BC_JFORL: i32 = 81
+const BC_ITERL: i32 = 82
+const BC_IITERL: i32 = 83
+const BC_JITERL: i32 = 84
+const BC_LOOP:  i32 = 85
+const BC_ILOOP: i32 = 86
+const BC_JLOOP: i32 = 87
 
 -- Jumps
-export func BC_JMP()   -> i32 return 88 end
-export func BC_FUNCF() -> i32 return 89 end
-export func BC_IFUNCF() -> i32 return 90 end
-export func BC_JFUNCF() -> i32 return 91 end
-export func BC_FUNCV() -> i32 return 92 end
-export func BC_IFUNCV() -> i32 return 93 end
-export func BC_JFUNCV() -> i32 return 94 end
-export func BC_FUNCC() -> i32 return 95 end
-export func BC_FUNCCW() -> i32 return 96 end
-
--- Bytecode size constant
-export func BC_INS_SIZE() -> i32 return 4 end
+const BC_JMP:   i32 = 88
+const BC_FUNCF: i32 = 89
+const BC_IFUNCF: i32 = 90
+const BC_JFUNCF: i32 = 91
+const BC_FUNCV: i32 = 92
+const BC_IFUNCV: i32 = 93
+const BC_JFUNCV: i32 = 94
+const BC_FUNCC: i32 = 95
+const BC_FUNCCW: i32 = 96
 
 end
 

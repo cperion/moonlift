@@ -1,10 +1,8 @@
--- core/api.mlua -- Public embedding API stubs.
+-- core/api.mlua — Public embedding API constants.
 
 local m = module VmCoreApi
 
-export func api_version() -> i32
-    return 1
-end
+const API_VERSION: i32 = 1
 
 end
 
