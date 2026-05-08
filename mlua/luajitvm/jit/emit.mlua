@@ -1,25 +1,28 @@
--- jit/emit.mlua — IR emitter: region-based instruction emission with CSE + folding.
+-- jit/emit.mlua — IR emitter: region-based instruction emission.
 --
--- The ir_emit region is the core on-the-fly optimizer. It receives operands
--- (as TRef values), opcode, and type, and:
---   1. Normalizes operand order (commutative ops).
---   2. Looks up the CSE hash chain for existing equivalent instructions.
---   3. If found: returns the existing ref (CSE hit).
---   4. If not: appends a new IRIns, links it into the CSE chain.
---   5. For guards: emits a snapshot entry.
+-- ir_emit: writes a new IRIns into the trace buffer, computes the ref,
+-- and optionally links into the CSE hash chain.
 --
--- Protocol: IREmitResult = result(ref) | need_snapshot | overflow | abort
+-- ir_emit_const: allocates a constant slot below REF_BIAS.
+--
+-- Both are regions that return the typed protocol IREmitResult.
 
 local m = module VmJitEmit
 
+-- =========================================================================
 -- Protocol types
+-- =========================================================================
 type IREmitResult = result(ref: i32)
     | need_snapshot(ref: i32)
     | overflow
     | abort(reason: i32)
 
--- IR opcodes (from jit/ir.mlua)
+-- =========================================================================
+-- IR opcodes (must match jit/ir.mlua)
+-- =========================================================================
+const IR_NOP:   i32 = 90
 const IR_KINT:  i32 = 60
+const IR_KINT64:i32 = 61
 const IR_ADD:   i32 = 10
 const IR_SUB:   i32 = 11
 const IR_MUL:   i32 = 12
@@ -27,21 +30,27 @@ const IR_SLOAD: i32 = 31
 const IR_LOOP:  i32 = 80
 const IR_RETF:  i32 = 82
 
--- IR types
-const IRT_INT: i32 = 19
+-- =========================================================================
+-- IR type constants
+-- =========================================================================
+const IRT_INT:   i32 = 19
+const IRT_NUM:   i32 = 14
 const IRT_GUARD: i32 = 0x80
 
--- REF_BIAS
-const REF_BIAS: i32 = 0x8000
-const REF_NIL:  i32 = 0x7FFF
+-- =========================================================================
+-- REF_BIAS and limits
+-- =========================================================================
+const REF_BIAS:  i32 = 0x8000     -- 32768
+const REF_NIL:   i32 = 0x7FFF
+const IR_MAX:    i32 = 256        -- max instructions in one trace
 
 -- =========================================================================
--- JitState mini-layout (just enough for IR emission)
---   J+0:  ptr(GCtrace) cur.trace
---   J+8:  i32 cur.nins       (next IR index, biased)
---   J+16: i32 cur.nk         (lowest constant index)
---   J+24: i32 cur.nsnap      (snapshot counter)
---   J+28: i32 cur.snapno     (current snapshot #)
+-- JitState fields (mini-layout, offsets into ptr(u8))
+--   J+0:  cur.trace  (ptr(u8)/u64)
+--   J+8:  cur.nins   (u32/i32) — next free instruction index (0-based)
+--   J+16: cur.nk     (u32/i32) — next free constant slot (starts at REF_BIAS, goes down)
+--   J+24: cur.nsnap  (u32/i32) — snapshot counter
+--   J+28: cur.snapno (u32/i32) — current snapshot number
 -- =========================================================================
 const J_OFF_TRACE:  i32 = 0
 const J_OFF_NINS:   i32 = 8
@@ -50,49 +59,70 @@ const J_OFF_NSNAP:  i32 = 24
 const J_OFF_SNAPNO: i32 = 28
 
 -- =========================================================================
--- ir_emit: emit a new IR instruction or find existing via CSE.
+-- ir_emit: write a new IR instruction into the trace buffer.
 --
 -- Parameters:
 --   J:   ptr(u8)  — JitState
---   o:   i32      — IR opcode
---   t:   i32      — IR type (may include IRT_GUARD flag)
---   op1: i32      — first operand (IRRef or constant)
---   op2: i32      — second operand
---   op3: i32      — auxiliary operand (for SLOAD slot, etc.)
+--   o:   i32      — IR opcode (must fit in u8, 0-255)
+--   t:   i32      — IR type (u8, may include IRT_GUARD flag)
+--   op1: i32      — first operand (IRRef or constant, fits in u16)
+--   op2: i32      — second operand (IRRef, fits in u16)
+--   prev:i32      — CSE chain previous (0 for no chain)
 --
--- Returns IREmitResult:
---   result(ref)     — success, ref is the new or CSE-matched IR reference
---   need_snapshot   — guard emitted, caller must capture snapshot
---   overflow        — IR buffer full
---   abort(reason)   — fatal error
+-- On success, writes an 8-byte IRIns at slot [nins] in the trace IR buffer,
+-- bumps nins, and returns result(ref).
+--
+-- IRIns layout (packed into u64):
+--   bits [ 0:15]  op1  (u16)
+--   bits [16:31]  op2  (u16)
+--   bits [32:39]  t    (u8)
+--   bits [40:47]  o    (u8)
+--   bits [48:63]  prev (u16)
 -- =========================================================================
 
-region ir_emit(J: ptr(u8), o: i32, t: i32, op1: i32, op2: i32, op3: i32) -> IREmitResult
+region ir_emit(J: ptr(u8), o: i32, t: i32, op1: i32, op2: i32, prev: i32) -> IREmitResult
 entry start()
-    -- Read JitState fields
+    -- Read JitState: trace pointer + nins
     let j64: ptr(u64) = as(ptr(u64), J)
-    let trace_ptr: u64 = j64[0]           -- J.cur.trace
-    let nins: i32 = as(i32, j64[1])       -- J.cur.nins
+    let trace_ptr: u64 = j64[0]
+    let nins: i32 = as(i32, j64[1])
 
-    -- Read IR buffer from trace
+    -- Capacity check
+    if nins >= IR_MAX then jump overflow() end
+
+    -- Read IR buffer pointer from trace (offset 24 = byte 3 in ptr(u64))
     let tr64: ptr(u64) = as(ptr(u64), as(ptr(u8), trace_ptr))
-    let irbuf: u64 = tr64[3]              -- trace.ir at offset 24
+    let irbuf_raw: u64 = tr64[3]
+    let irbuf: ptr(u64) = as(ptr(u64), as(ptr(u8), irbuf_raw))
 
-    -- IR buffer capacity check (simplified: cap = 256)
-    let cap: i32 = 256
-    if nins >= cap then jump overflow() end
+    -- Pack IRIns fields into a u64
+    let o64:  u64 = as(u64, o)
+    let t64:  u64 = as(u64, t)
+    let a64:  u64 = as(u64, op1)
+    let b64:  u64 = as(u64, op2)
+    let p64:  u64 = as(u64, prev)
 
-    -- Compute the IRIns pointer at slot nins
-    -- irbuf + nins * 8: we can't do pointer arithmetic in Moonlift.
-    -- Instead: store the result ref and let the caller handle buffer write.
+    let mask16: u64 = 0xFFFF
+    let mask8:  u64 = 0xFF
 
-    -- For now: just return the next ref (BIAS + nins)
-    let ref: i32 = REF_BIAS + nins
+    let a16: u64 = a64 & mask16
+    let b16: u64 = (b64 & mask16) << 16
+    let t8:  u64 = (t64 & mask8) << 32
+    let o8:  u64 = (o64 & mask8) << 40
+    let p16: u64 = (p64 & mask16) << 48
 
-    -- Update nins in JitState
-    j64[1] = as(u64, nins + 1)
+    let ir: u64 = a16 | b16 | t8 | o8 | p16
 
-    -- Check if this is a guard
+    -- Write into buffer at position nins
+    -- ptr(u64)[nins] writes 8 bytes at offset nins * sizeof(u64) = nins * 8
+    irbuf[nins] = ir
+
+    -- Bump nins and compute ref
+    let nins_next: i32 = nins + 1
+    j64[1] = as(u64, nins_next)
+    let ref: i32 = nins + REF_BIAS
+
+    -- Guard check
     if (t & IRT_GUARD) ~= 0 then
         jump need_snapshot(ref = ref)
     else
@@ -102,27 +132,108 @@ end
 end
 
 -- =========================================================================
--- ir_emit_const: intern an integer constant (IR_KINT).
---   Returns the constant ref, allocating a new one if needed.
+-- ir_emit_const: intern an integer constant.
+--
+-- Constants are stored at positions below REF_BIAS, growing downward.
+-- Each constant occupies one IRIns slot: opcode=IR_KINT, type=IRT_INT,
+-- op1=value, op2=0, prev=0.
+--
+-- Parameters:
+--   J:   ptr(u8)  — JitState
+--   val: i32      — integer constant value
+--
+-- Returns: result(ref) where ref is the allocated constant slot index.
 -- =========================================================================
 
 region ir_emit_const(J: ptr(u8), val: i32) -> IREmitResult
 entry start()
     let j64: ptr(u64) = as(ptr(u64), J)
-    let nk_raw: u64 = j64[2]             -- J.cur.nk at offset 16
+    let trace_ptr: u64 = j64[0]
+    let nk_raw: u32 = as(u32, j64[2])
     let nk: i32 = as(i32, nk_raw)
 
-    -- Check if we have room for another constant
+    -- Check room (constants consume from high end downward; floor at 0)
     if nk <= 0 then jump overflow() end
 
-    -- Allocate constant slot: decrement nk, store value
-    let new_nk: i32 = nk - 1
-    j64[2] = as(u64, new_nk)
+    -- Allocate: decrement nk first
+    let nk_next: i32 = nk - 1
+    j64[2] = as(u64, nk_next)
 
-    -- Return the constant ref (below REF_BIAS)
-    let ref: i32 = new_nk
+    -- Read IR buffer from trace
+    let tr64: ptr(u64) = as(ptr(u64), as(ptr(u8), trace_ptr))
+    let irbuf_raw: u64 = tr64[3]
+    let irbuf: ptr(u64) = as(ptr(u64), as(ptr(u8), irbuf_raw))
+
+    -- Pack IR_KINT: opcode=IR_KINT, type=IRT_INT, op1=val, op2=0, prev=0
+    let o64:  u64 = as(u64, IR_KINT)
+    let t64:  u64 = as(u64, IRT_INT)
+    let a64:  u64 = as(u64, val)
+
+    let mask16: u64 = 0xFFFF
+    let mask8:  u64 = 0xFF
+
+    let ir: u64 = (a64 & mask16) | ((t64 & mask8) << 32) | ((o64 & mask8) << 40)
+
+    -- Write at constant slot
+    irbuf[nk_next] = ir
+
+    let ref: i32 = nk_next
     jump result(ref = ref)
 end
+end
+
+-- =========================================================================
+-- Test wrappers: call regions and capture results via emit + yield
+-- =========================================================================
+
+-- emit_single: emit one instruction, return ref or negative on error.
+export func emit_single(J: ptr(u8), o: i32, t: i32, a: i32, b: i32, p: i32) -> i32
+    return region -> i32
+    entry start()
+        emit ir_emit(J, o, t, a, b, p;
+            result = got_ref,
+            need_snapshot = got_snap,
+            overflow = got_overflow,
+            abort = got_abort)
+    end
+    block got_ref(ref: i32)
+        yield ref
+    end
+    block got_snap(ref: i32)
+        yield ref
+    end
+    block got_overflow()
+        yield -1
+    end
+    block got_abort(reason: i32)
+        yield -2
+    end
+    end
+end
+
+-- emit_const_single: intern one constant, return ref or negative on error.
+export func emit_const_single(J: ptr(u8), val: i32) -> i32
+    return region -> i32
+    entry start()
+        emit ir_emit_const(J, val;
+            result = got_ref,
+            need_snapshot = got_snap,
+            overflow = got_overflow,
+            abort = got_abort)
+    end
+    block got_ref(ref: i32)
+        yield ref
+    end
+    block got_snap(ref: i32)
+        yield ref
+    end
+    block got_overflow()
+        yield -1
+    end
+    block got_abort(reason: i32)
+        yield -2
+    end
+    end
 end
 
 -- =========================================================================
