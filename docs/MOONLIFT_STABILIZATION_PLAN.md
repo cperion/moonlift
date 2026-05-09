@@ -82,34 +82,25 @@ Add and document:
 - `.mlua` evaluation errors include island kind and source span.
 - `run_mlua.lua` supports compile-only/module-only files without requiring `main`.
 
-### S7: Fix `var` mutation in conditional branches
+### S7: ~~Fix `var` mutation in conditional branches~~ **FIXED**
 
-`var x: i32 = 0` followed by `if cond then x = 5 end` — `x` always reads 0, the assignment is silently ignored. This is a backend lowering bug: `StmtSet` on a local cell inside an `if` branch is not properly wired into the phi node / block join.
+`var x: i32 = 0` followed by `if cond then x = 5 end` previously left `x` always at 0
+because:
 
-Workaround until fixed: use region blocks with typed params to thread values across conditional branches instead of mutating locals.
+1. `place_store_to_back[PlaceRef]` silently dropped assignments to `BindingClassLocalCell`
+   bindings (used the wrong `pvm.classof` comparison — `LocalCell` is a unit variant
+   so direct equality `binding.class == Bn.BindingClassLocalCell` must be used, not
+   `pvm.classof(binding.class) == Bn.BindingClassLocalCell`).
 
-Example of broken pattern:
+2. `lower_if_stmt` restored `env.locals` to the pre-branch snapshot after both
+   branches, discarding any mutations. Fixed by:
+   - Tracking which `LocalCell` bindings changed in each branch.
+   - Emitting `CmdAppendBlockParam` on the join block for each mutated binding.
+   - Patching the branch `CmdJump` calls to pass the correct SSA values.
+   - Binding the join block's param value in the post-if env.
 
-```moonlift
-var op2: i32 = 0
-if rhs_slot >= 0 then
-    op2 = slot_refs[rhs_slot]   -- never reaches the variable
-end
-use(op2)  -- always 0
-```
-
-Correct pattern:
-
-```moonlift
-if rhs_slot >= 0 then
-    jump next(op2 = slot_refs[rhs_slot])
-end
-jump next(op2 = default_value)
-
-block next(op2: i32)
-    use(op2)  -- correct
-end
-```
+Nested ifs are handled correctly because each `lower_if_stmt` call propagates
+mutations outward, and the outer if sees the phi results from inner ifs.
 
 
 Every stabilization bug gets a test before or with the fix. Current parser/island tests cover:

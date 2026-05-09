@@ -972,6 +972,18 @@ function M.Define(T)
                 local data = lower_context.slot_statics and lower_context.slot_statics[self.ref.slot.key] or nil
                 if data ~= nil then return pvm.once(store_global_data(env, data, self.ref.slot.ty, value, self.ref.slot.pretty_name)) end
             end
+            -- Local cell mutation: evaluate the RHS and rebind the variable in the env.
+            if pvm.classof(self.ref) == Bn.ValueRefBinding and self.ref.binding.class == Bn.BindingClassLocalCell then
+                local rhs = expr_value(expr_to_back:one_uncached(value, env))
+                if rhs == nil then return pvm.once(Tr.TreeBackStmtResult(env, {}, Back.BackFallsThrough)) end
+                local scalar = back_scalar(self.ref.binding.ty) or rhs.ty
+                local env2, alias = env_next_value(rhs.env, "var")
+                local cmds = {}
+                append_all(cmds, rhs.cmds)
+                cmds[#cmds + 1] = Back.CmdAlias(alias, rhs.value)
+                local env3 = env_add(env2, self.ref.binding, alias, scalar)
+                return pvm.once(Tr.TreeBackStmtResult(env3, cmds, Back.BackFallsThrough))
+            end
             return pvm.once(Tr.TreeBackStmtResult(env, {}, Back.BackFallsThrough))
         end,
         [Tr.PlaceDot] = function(_, _, env) return pvm.once(Tr.TreeBackStmtResult(env, { Back.CmdTrap }, Back.BackTerminates)) end,
@@ -997,16 +1009,68 @@ function M.Define(T)
         cmds[#cmds + 1] = Back.CmdSwitchToBlock(then_block)
         local then_start = env_with_locals(env3, env.locals)
         local then_env, then_cmds, then_flow = lower_body(self.then_body, then_start)
+        local then_jump_pos = nil
+        if then_flow ~= Back.BackTerminates then
+            then_cmds[#then_cmds + 1] = Back.CmdJump(join_block, {})
+            then_jump_pos = #cmds + #then_cmds  -- absolute index in cmds after append
+        end
+        local then_cmds_start = #cmds + 1
         append_all(cmds, then_cmds)
-        if then_flow ~= Back.BackTerminates then cmds[#cmds + 1] = Back.CmdJump(join_block, {}) end
+        -- Adjust: then_jump_pos is relative to then_cmds, absolute in cmds
+        if then_flow ~= Back.BackTerminates then then_jump_pos = then_cmds_start + #then_cmds - 1 end
 
         cmds[#cmds + 1] = Back.CmdSwitchToBlock(else_block)
         local else_start = env_with_locals(env_with_counters(env, then_env), env.locals)
         local else_env, else_cmds, else_flow = lower_body(self.else_body, else_start)
+        if else_flow ~= Back.BackTerminates then else_cmds[#else_cmds + 1] = Back.CmdJump(join_block, {}) end
+        local else_jump_pos = else_flow ~= Back.BackTerminates and (#cmds + #else_cmds + 1) or nil  -- +1 for SwitchToBlock
+        local else_cmds_start = #cmds + 1
         append_all(cmds, else_cmds)
-        if else_flow ~= Back.BackTerminates then cmds[#cmds + 1] = Back.CmdJump(join_block, {}) end
+        if else_flow ~= Back.BackTerminates then else_jump_pos = else_cmds_start + #else_cmds - 1 end
 
-        local out_env = env_with_locals(env_with_counters(env, else_env), env.locals)
+        -- Phi analysis: find LocalCell bindings mutated in either branch.
+        -- For each, emit a CmdAppendBlockParam on the join block and thread
+        -- the correct value from each branch through the jump args.
+        local out_locals = {}
+        for i = 1, #env.locals do out_locals[#out_locals + 1] = env.locals[i] end
+
+        local phi_then_args = {}
+        local phi_else_args = {}
+        local pre_counters = env_with_counters(env, else_env)
+
+        for i = 1, #env.locals do
+            local local_entry = env.locals[i]
+            if pvm.classof(local_entry) == Tr.TreeBackScalarLocal
+                and local_entry.binding.class == Bn.BindingClassLocalCell then
+                local then_val = env_lookup(then_env, local_entry.binding)
+                local else_val = env_lookup(else_env, local_entry.binding)
+                local then_v = then_val and then_val.value or local_entry.value
+                local else_v = else_val and else_val.value or local_entry.value
+                -- Only emit phi if at least one branch changed the value
+                local changed = (then_v ~= local_entry.value) or (else_v ~= local_entry.value)
+                if changed then
+                    local phi_env, phi_val = env_next_value(pre_counters, "phi")
+                    pre_counters = phi_env
+                    cmds[#cmds + 1] = Back.CmdAppendBlockParam(join_block, phi_val, shape_scalar(local_entry.ty))
+                    phi_then_args[#phi_then_args + 1] = then_v
+                    phi_else_args[#phi_else_args + 1] = else_v
+                    -- Rebind the local to the phi value in out_locals
+                    out_locals[#out_locals + 1] = Tr.TreeBackScalarLocal(local_entry.binding, phi_val, local_entry.ty)
+                end
+            end
+        end
+
+        -- Patch the branch jumps to include phi args
+        if #phi_then_args > 0 then
+            if then_flow ~= Back.BackTerminates and then_jump_pos ~= nil then
+                cmds[then_jump_pos] = Back.CmdJump(join_block, phi_then_args)
+            end
+            if else_flow ~= Back.BackTerminates and else_jump_pos ~= nil then
+                cmds[else_jump_pos] = Back.CmdJump(join_block, phi_else_args)
+            end
+        end
+
+        local out_env = Tr.TreeBackEnv(out_locals, pre_counters.next_value, pre_counters.next_block, env.ret)
         cmds[#cmds + 1] = Back.CmdSealBlock(join_block)
         if then_flow ~= Back.BackTerminates or else_flow ~= Back.BackTerminates then
             cmds[#cmds + 1] = Back.CmdSwitchToBlock(join_block)
