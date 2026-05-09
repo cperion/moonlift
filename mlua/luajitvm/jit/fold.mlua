@@ -1,21 +1,206 @@
--- jit/fold.mlua -- FOLD rule dispatch stub.
--- Protocol: FoldResult
--- Generated at build time from Lua-defined fold rule tables.
+-- jit/fold.mlua — Region-based algebraic fold engine.
+--
+-- fold_ins: tries to simplify (o, op1, op2) before the instruction is stored:
+--   1. Constant folding    ADD(KINT(3), KINT(4))  -> KINT(7)
+--   2. Identity removal    ADD(x, KINT(0))        -> x
+--   3. Commutative norm    ADD(large, small)      -> ADD(small, large)  (for CSE)
+--
+-- Returns FoldResult:
+--   folded(ref)          -- use this ref instead; do NOT store the new instruction
+--   normalized(a, b)     -- re-try with swapped operands (a <= b guaranteed)
+--   keep                 -- store the instruction as-is
+--   abort(reason)
 
 local m = module VmJitFold
 
-type FoldResult = replace(ref: i32)
-    | fold_emit(ot: i32, a: i32, b: i32)
-    | retry(ot: i32, a: i32, b: i32)
+-- =========================================================================
+-- Protocol
+-- =========================================================================
+type FoldResult = folded(ref: i32)
+    | normalized(a: i32, b: i32)
+    | keep
     | abort(reason: i32)
 
--- Example fold rule: add two integer constants.
-region fold_add_kint_kint(J: ptr(u8), ot: i32, a: i32, b: i32) -> FoldResult
+-- =========================================================================
+-- Constants
+-- =========================================================================
+const IR_KINT:  i32 = 60
+const IR_ADD:   i32 = 10
+const IR_SUB:   i32 = 11
+const IR_MUL:   i32 = 12
+const IR_BAND:  i32 = 40
+const IR_BOR:   i32 = 41
+const IR_BXOR:  i32 = 42
+const IRT_INT:  i32 = 19
+const REF_BIAS: i32 = 0x8000
+
+-- =========================================================================
+-- IR buffer accessors (element-indexed ptr(u64), 8 bytes per IRIns)
+-- Packing: [op1:u16][op2:u16][t:u8][o:u8][prev:u16]
+-- =========================================================================
+func ir_op_at(buf: ptr(u64), idx: i32) -> i32
+    return as(i32, (buf[idx] >> 40) & 0xFF)
+end
+
+func ir_type_at(buf: ptr(u64), idx: i32) -> i32
+    return as(i32, (buf[idx] >> 32) & 0xFF)
+end
+
+func ir_op1_at(buf: ptr(u64), idx: i32) -> i32
+    return as(i32, buf[idx] & 0xFFFF)
+end
+
+func ir_op2_at(buf: ptr(u64), idx: i32) -> i32
+    return as(i32, (buf[idx] >> 16) & 0xFFFF)
+end
+
+-- =========================================================================
+-- Predicates
+-- =========================================================================
+func is_kref(ref: i32) -> bool
+    return ref < REF_BIAS
+end
+
+func is_kint_at(buf: ptr(u64), ref: i32) -> bool
+    return is_kref(ref) and ir_op_at(buf, ref) == IR_KINT
+end
+
+func kint_val(buf: ptr(u64), ref: i32) -> i32
+    return ir_op1_at(buf, ref)
+end
+
+func can_const_fold(o: i32) -> bool
+    return o == IR_ADD or o == IR_SUB or o == IR_MUL or o == IR_BAND or o == IR_BOR or o == IR_BXOR
+end
+
+func is_commutative(o: i32) -> bool
+    return o == IR_ADD or o == IR_MUL or o == IR_BAND or o == IR_BOR or o == IR_BXOR
+end
+
+-- Returns the identity element for op, or -1 if none.
+func identity_of(o: i32) -> i32
+    if o == IR_ADD then return 0 end
+    if o == IR_SUB then return 0 end
+    if o == IR_MUL then return 1 end
+    if o == IR_BOR  then return 0 end
+    if o == IR_BXOR then return 0 end
+    return -1
+end
+
+-- Compute constant fold result for integer ops.
+func const_fold_int(o: i32, a: i32, b: i32) -> i32
+    if o == IR_ADD  then return a + b end
+    if o == IR_SUB  then return a - b end
+    if o == IR_MUL  then return a * b end
+    if o == IR_BAND then return a & b end
+    if o == IR_BOR  then return a | b end
+    if o == IR_BXOR then return a ^ b end
+    return 0
+end
+
+-- Pack a new IR_KINT(val) record into a u64.
+func pack_kint(val: i32) -> u64
+    return (as(u64, val) & 0xFFFF) | (as(u64, IRT_INT) << 32) | (as(u64, IR_KINT) << 40)
+end
+
+-- =========================================================================
+-- alloc_kint: allocate a constant slot in the IR buffer and store val.
+-- Returns the slot index, or -1 on overflow.
+-- (J.cur.nk lives at j64[2]; starts at REF_BIAS and grows downward.)
+-- =========================================================================
+func alloc_kint(J: ptr(u8), irbuf: ptr(u64), val: i32) -> i32
+    let j64: ptr(u64) = as(ptr(u64), J)
+    let nk: i32 = as(i32, j64[2])
+    if nk <= 0 then return -1 end
+    let slot: i32 = nk - 1
+    j64[2] = as(u64, slot)
+    irbuf[slot] = pack_kint(val)
+    return slot
+end
+
+-- =========================================================================
+-- fold_ins: core fold region.
+-- =========================================================================
+region fold_ins(J: ptr(u8), irbuf: ptr(u64), op1: i32, op2: i32, o: i32) -> FoldResult
 entry start()
-    jump abort(reason = 0)
+
+    -- -----------------------------------------------------------------
+    -- 1. Constant folding
+    -- -----------------------------------------------------------------
+    if can_const_fold(o) and is_kint_at(irbuf, op1) and is_kint_at(irbuf, op2) then
+        let a: i32 = kint_val(irbuf, op1)
+        let b: i32 = kint_val(irbuf, op2)
+        let c: i32 = const_fold_int(o, a, b)
+        let ref: i32 = alloc_kint(J, irbuf, c)
+        if ref < 0 then jump abort(reason = 1) end
+        jump folded(ref = ref)
+    end
+
+    -- -----------------------------------------------------------------
+    -- 2. Identity elimination
+    -- -----------------------------------------------------------------
+    let id: i32 = identity_of(o)
+    if id >= 0 then
+        if is_kint_at(irbuf, op2) then
+            if kint_val(irbuf, op2) == id then
+                jump folded(ref = op1)
+            end
+        end
+        if o ~= IR_SUB and is_kint_at(irbuf, op1) then
+            if kint_val(irbuf, op1) == id then
+                jump folded(ref = op2)
+            end
+        end
+    end
+
+    -- -----------------------------------------------------------------
+    -- 3. Commutative normalization: put smaller ref in op1 for CSE
+    -- -----------------------------------------------------------------
+    if is_commutative(o) and op1 > op2 then
+        jump normalized(a = op2, b = op1)
+    end
+
+    jump keep()
 end
 end
 
+-- =========================================================================
+-- Export func wrappers for testing
+-- =========================================================================
+
+-- fold_test: call fold_ins, return result as i32:
+--   >= 0         : folded with this ref
+--   -1           : keep (no fold applicable)
+--   -200000 + N  : normalized, new op1 = N (Lua side computes op2 from context)
+--   -999         : abort
+export func fold_test(J: ptr(u8), irbuf: ptr(u64), op1: i32, op2: i32, o: i32) -> i32
+    return region -> i32
+    entry start()
+        emit fold_ins(J, irbuf, op1, op2, o;
+            folded     = got_folded,
+            normalized = got_norm,
+            keep       = got_keep,
+            abort      = got_abort)
+    end
+    block got_folded(ref: i32)
+        yield ref
+    end
+    block got_norm(a: i32, b: i32)
+        yield -200000 + a
+    end
+    block got_keep()
+        yield -1
+    end
+    block got_abort(reason: i32)
+        yield -999
+    end
+    end
 end
 
-local _c = m:compile(); _c:free()
+-- fold_const_check: sentinel
+export func fold_const_check() -> i32
+    return IR_ADD + IR_MUL + IR_KINT + IRT_INT + REF_BIAS
+end
+
+end
+return m
