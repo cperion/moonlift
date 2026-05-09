@@ -7,15 +7,8 @@
 --
 -- Both are regions that return the typed protocol IREmitResult.
 
-local m = module VmJitEmit
-
--- =========================================================================
--- Protocol types
--- =========================================================================
-type IREmitResult = result(ref: i32)
-    | need_snapshot(ref: i32)
-    | overflow
-    | abort(reason: i32)
+local proto = moon.require("luajitvm.protocols")
+local m = module "luajitvm.jit.emit"
 
 -- =========================================================================
 -- IR opcodes (must match jit/ir.mlua)
@@ -80,7 +73,7 @@ const J_OFF_SNAPNO: i32 = 28
 --   bits [48:63]  prev (u16)
 -- =========================================================================
 
-region ir_emit(J: ptr(u8), o: i32, t: i32, op1: i32, op2: i32, prev: i32) -> IREmitResult
+region ir_emit(J: ptr(u8), o: i32, t: i32, op1: i32, op2: i32, prev: i32) -> proto.IREmit
 entry start()
     -- Read JitState: trace pointer + nins
     let j64: ptr(u64) = as(ptr(u64), J)
@@ -124,7 +117,7 @@ entry start()
 
     -- Guard check
     if (t & IRT_GUARD) ~= 0 then
-        jump need_snapshot(ref = ref)
+        jump need_snapshot(guard = ref)
     else
         jump result(ref = ref)
     end
@@ -145,7 +138,7 @@ end
 -- Returns: result(ref) where ref is the allocated constant slot index.
 -- =========================================================================
 
-region ir_emit_const(J: ptr(u8), val: i32) -> IREmitResult
+region ir_emit_const(J: ptr(u8), val: i32) -> proto.IREmit
 entry start()
     let j64: ptr(u64) = as(ptr(u64), J)
     let trace_ptr: u64 = j64[0]
@@ -192,6 +185,7 @@ export func emit_single(J: ptr(u8), o: i32, t: i32, a: i32, b: i32, p: i32) -> i
     entry start()
         emit ir_emit(J, o, t, a, b, p;
             result = got_ref,
+            retry = got_retry,
             need_snapshot = got_snap,
             overflow = got_overflow,
             abort = got_abort)
@@ -199,8 +193,11 @@ export func emit_single(J: ptr(u8), o: i32, t: i32, a: i32, b: i32, p: i32) -> i
     block got_ref(ref: i32)
         yield ref
     end
-    block got_snap(ref: i32)
-        yield ref
+    block got_snap(guard: i32)
+        yield guard
+    end
+    block got_retry(ot: i32, a: i32, b: i32)
+        yield -3
     end
     block got_overflow()
         yield -1
@@ -217,6 +214,7 @@ export func emit_const_single(J: ptr(u8), val: i32) -> i32
     entry start()
         emit ir_emit_const(J, val;
             result = got_ref,
+            retry = got_retry,
             need_snapshot = got_snap,
             overflow = got_overflow,
             abort = got_abort)
@@ -224,8 +222,11 @@ export func emit_const_single(J: ptr(u8), val: i32) -> i32
     block got_ref(ref: i32)
         yield ref
     end
-    block got_snap(ref: i32)
-        yield ref
+    block got_snap(guard: i32)
+        yield guard
+    end
+    block got_retry(ot: i32, a: i32, b: i32)
+        yield -3
     end
     block got_overflow()
         yield -1

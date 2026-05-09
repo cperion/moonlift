@@ -1,6 +1,6 @@
 -- gc/sweep.mlua -- GC sweep phase stub.
 
-local m = module VmGcSweep
+local m = module "luajitvm.gc.sweep"
 
 export func sweep_version() -> i32
     return 1

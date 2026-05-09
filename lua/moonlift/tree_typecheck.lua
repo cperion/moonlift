@@ -723,7 +723,10 @@ function M.Define(T)
         [Tr.ItemType] = function(self) return pvm.once(Tr.TypeItemResult({ self }, {})) end,
         [Tr.ItemUseTypeDeclSlot] = function(self) return pvm.once(Tr.TypeItemResult({ self }, {})) end,
         [Tr.ItemUseItemsSlot] = function(self) return pvm.once(Tr.TypeItemResult({ self }, {})) end,
-        [Tr.ItemUseModule] = function(self) return pvm.once(Tr.TypeItemResult({ self }, {})) end,
+        [Tr.ItemUseModule] = function(self)
+            local r = pvm.one(type_module(self.module))
+            return pvm.once(Tr.TypeItemResult({ pvm.with(self, { module = r.module }) }, r.issues))
+        end,
         [Tr.ItemUseModuleSlot] = function(self) return pvm.once(Tr.TypeItemResult({ self }, {})) end,
     }, { args_cache = "last" })
 

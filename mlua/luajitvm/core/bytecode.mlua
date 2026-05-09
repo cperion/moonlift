@@ -1,6 +1,6 @@
 -- core/bytecode.mlua — BCIns layout, decoders, opcode constants.
 
-local m = module VmCoreBytecode
+local m = module "luajitvm.core.bytecode"
 
 -- Bitfield extractors
 export func bc_op(ins: i32) -> i32 return ins & 0xFF end

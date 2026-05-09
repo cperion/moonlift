@@ -6,6 +6,7 @@ function M.Define(T)
     local Ty = T.MoonType
     local O = T.MoonOpen
     local B = T.MoonBind
+    local Sem = T.MoonSem
     local Tr = T.MoonTree
 
     local lookup_slot_value
@@ -550,7 +551,13 @@ function M.Define(T)
         [Tr.ExprIntrinsic] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_expr_header, self.h, env), args = expand_exprs(self.args, env) })) end,
         [Tr.ExprAddrOf] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_expr_header, self.h, env), place = one(expand_place, self.place, env) })) end,
         [Tr.ExprDeref] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_expr_header, self.h, env), value = one(expand_expr, self.value, env) })) end,
-        [Tr.ExprCall] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_expr_header, self.h, env), args = expand_exprs(self.args, env) })) end,
+        [Tr.ExprCall] = function(self, env)
+            local target = self.target
+            if pvm.classof(target) == Sem.CallUnresolved then
+                target = Sem.CallUnresolved(one(expand_expr, target.callee, env))
+            end
+            return pvm.once(pvm.with(self, { h = one(expand_expr_header, self.h, env), target = target, args = expand_exprs(self.args, env) }))
+        end,
         [Tr.ExprLen] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_expr_header, self.h, env), value = one(expand_expr, self.value, env) })) end,
         [Tr.ExprField] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_expr_header, self.h, env), base = one(expand_expr, self.base, env) })) end,
         [Tr.ExprIndex] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_expr_header, self.h, env), base = one(expand_index_base, self.base, env), index = one(expand_expr, self.index, env) })) end,

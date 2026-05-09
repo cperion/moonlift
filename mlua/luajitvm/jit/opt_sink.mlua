@@ -1,13 +1,11 @@
 -- jit/opt_sink.mlua -- Allocation sinking pass stub.
 -- Protocol: SinkResult
 
-local m = module VmJitOptSink
+local proto = moon.require("luajitvm.protocols")
+local m = module "luajitvm.jit.opt_sink"
 
-type SinkResult = sink_done
-    | disabled
-    | abort(reason: i32)
 
-region opt_sink(J: ptr(u8), tr: i32) -> SinkResult
+region opt_sink(J: ptr(u8), tr: i32) -> proto.SinkResult
 entry start()
     jump disabled()
 end

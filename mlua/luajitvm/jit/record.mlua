@@ -12,16 +12,8 @@
 -- All regions return typed protocol exits. Callers (the recorder loop)
 -- compose them via emit.
 
-local m = module VmJitRecord
-
--- =========================================================================
--- Protocols
--- =========================================================================
-type RecResult = done(ref: i32)
-    | need_snap(ref: i32)
-    | abort(reason: i32)
-
-type InitResult = ready | abort(reason: i32)
+local proto = moon.require("luajitvm.protocols")
+local m = module "luajitvm.jit.record"
 
 -- =========================================================================
 -- Constants matching emit.mlua and ir.mlua
@@ -115,7 +107,7 @@ end
 -- Sets nins=1 (slot 0 reserved), nk=REF_BIAS, nsnap=0.
 -- =========================================================================
 
-region trace_init(J: ptr(u8)) -> InitResult
+region trace_init(J: ptr(u8); ready: cont(), abort: cont(reason: i32))
 entry start()
     let j64: ptr(u64) = as(ptr(u64), J)
     j64[1] = 1          -- nins = 1
@@ -142,7 +134,7 @@ end
 --   abort(reason)   — trace abort
 -- =========================================================================
 
-region rec_sload(J: ptr(u8), slot_refs: ptr(i32), stack: ptr(u8), slot: i32) -> RecResult
+region rec_sload(J: ptr(u8), slot_refs: ptr(i32), stack: ptr(u8), slot: i32; done: cont(ref: i32), need_snap: cont(ref: i32), abort: cont(reason: i32))
 entry start()
     let j64:  ptr(u64) = as(ptr(u64), J)
     let irbuf: ptr(u64) = j_irbuf(j64)
@@ -184,7 +176,7 @@ end
 -- ir_op:    i32 — IR_ADD / IR_SUB / IR_MUL
 -- =========================================================================
 
-region rec_arith(J: ptr(u8), slot_refs: ptr(i32), lhs_slot: i32, rhs_slot: i32, rhs_kval: i32, dst_slot: i32, ir_op: i32) -> RecResult
+region rec_arith(J: ptr(u8), slot_refs: ptr(i32), lhs_slot: i32, rhs_slot: i32, rhs_kval: i32, dst_slot: i32, ir_op: i32; done: cont(ref: i32), need_snap: cont(ref: i32), abort: cont(reason: i32))
 entry start()
     let j64:   ptr(u64) = as(ptr(u64), J)
     let irbuf: ptr(u64) = j_irbuf(j64)
@@ -230,6 +222,36 @@ block emit_ir(ea: i32, eb: i32, j4: ptr(u64), ib: ptr(u64))
     let ref: i32 = emit_ins(j4, ib, ir_op, IRT_INT, ea, eb)
     slot_refs[dst_slot] = ref
     jump done(ref = ref)
+end
+end
+
+-- =========================================================================
+-- Canonical recorder protocol surface stubs. The current integration tests use
+-- the lower-level bring-up regions above; these protocol regions preserve the
+-- architecture boundary for the future recorder dispatch loop.
+-- =========================================================================
+
+region rec_getslot(J: ptr(u8), L: ptr(u8), slot: i32) -> proto.SlotGet
+entry start()
+    jump need_sload(slot = slot, val_tag = 0, val_payload = as(i64, 0))
+end
+end
+
+region rec_bc_add(J: ptr(u8), L: ptr(u8), bc: i32) -> proto.RecOpcodeResult
+entry start()
+    jump abort(reason = 0)
+end
+end
+
+region rec_bc_tgetv(J: ptr(u8), L: ptr(u8), bc: i32) -> proto.RecTableGet
+entry start()
+    jump abort(reason = 0)
+end
+end
+
+region rec_bc_call(J: ptr(u8), L: ptr(u8), bc: i32) -> proto.RecCallResult
+entry start()
+    jump abort(reason = 0)
 end
 end
 

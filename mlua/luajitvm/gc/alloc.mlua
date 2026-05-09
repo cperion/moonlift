@@ -3,11 +3,10 @@
 -- Allocation: host provides raw memory (FFI in tests, lua_Alloc in production).
 -- Moonlift initializes GC headers and maintains the allgc intrusive list.
 
-local m = module VmGcAlloc
+local proto = moon.require("luajitvm.protocols")
+local m = module "luajitvm.gc.alloc"
 
 -- Protocol types
-type AllocResult = ok(obj: ptr(u8))
-    | oom
 
 -- GC type tags
 const GCT_STR:    i32 = 0
@@ -77,6 +76,26 @@ end
 
 export func gc_is_black(obj: ptr(u8)) -> bool
     return as(i32, obj[8]) == GC_BLACK
+end
+
+-- =========================================================================
+-- Protocol regions. Allocation memory is still provided by the caller/host in
+-- this bring-up stage; the region owns object initialization, allgc linking, and
+-- explicit typed allocation outcomes.
+-- =========================================================================
+
+region gc_alloc(G: ptr(u8), obj: ptr(u8), gct: i32) -> proto.AllocResult
+entry start()
+    if as(u64, obj) == 0 then jump oom() end
+    gc_init_and_link(G, obj, gct)
+    jump ok(obj = obj)
+end
+end
+
+region gc_step(G: ptr(u8), budget: u64) -> proto.GCStepResult
+entry start()
+    jump done(used = 0)
+end
 end
 
 -- =========================================================================

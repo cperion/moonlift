@@ -36,7 +36,7 @@
 --   464     96    gcroot[12]    (GCRef[GCROOT_MAX=12])
 --   Total: 552 bytes
 
-local m = module VmCoreGlobal
+local m = module "luajitvm.core.global"
 
 -- GCState (embedded at offset 16, 104 bytes)
 -- GCState layout:

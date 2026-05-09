@@ -16,7 +16,7 @@
 --   44-47   4     _pad
 --   Total: 48 bytes
 
-local m = module VmCoreUpval
+local m = module "luajitvm.core.upval"
 
 const UV_OFF_CLOSED:     i32 = 10
 const UV_OFF_IMMUTABLE:  i32 = 11

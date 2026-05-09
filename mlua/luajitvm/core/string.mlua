@@ -12,7 +12,7 @@
 --   20      4     len      (u32 string byte length)
 --   Total header: 24 bytes. String data follows at offset 24.
 
-local m = module VmCoreString
+local m = module "luajitvm.core.string"
 
 -- Field offsets from GCstr base
 const STR_OFF_RESERVED:  i32 = 10

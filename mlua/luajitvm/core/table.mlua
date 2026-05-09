@@ -15,7 +15,7 @@
 --   52      4     hmask      (u32 hash mask)
 --   Total: 56 bytes
 
-local m = module VmCoreTable
+local m = module "luajitvm.core.table"
 
 const TAB_OFF_NOMM:      i32 = 10
 const TAB_OFF_COLO:      i32 = 11

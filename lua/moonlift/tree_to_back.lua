@@ -1424,6 +1424,7 @@ function M.Define(T)
 
     local lower_item_direct
     local lower_module_direct
+    local with_module_context
 
     local function data_cmd_key(cmd)
         local k = cmd.kind
@@ -1476,7 +1477,13 @@ function M.Define(T)
             local cmds = data_init_cmds(lower_context.module_name, name, s.ty, s.value)
             return Tr.TreeBackItemResult(cmds or {})
         end
-        if cls == Tr.ItemUseModule then return Tr.TreeBackItemResult(lower_module_direct(item.module).cmds) end
+        if cls == Tr.ItemUseModule then
+            return with_module_context(item.module, function()
+                local cmds = {}
+                for i = 1, #item.module.items do append_all(cmds, lower_item_direct(item.module.items[i]).cmds) end
+                return Tr.TreeBackItemResult(cmds)
+            end)
+        end
         return Tr.TreeBackItemResult({})
     end
 
@@ -1517,7 +1524,7 @@ function M.Define(T)
         end
     end
 
-    local function with_module_context(module, fn)
+    function with_module_context(module, fn)
         local previous = lower_context
         local const_entries, globals, slot_consts, slot_statics, slot_consts_data = {}, {}, {}, {}, {}
         collect_global_context(module, const_entries, globals, slot_consts, slot_statics, slot_consts_data)

@@ -1,6 +1,13 @@
 -- asm/x64_exit.mlua -- x64 exit stub emission stub.
 
-local m = module VmAsmX64Exit
+local proto = moon.require("luajitvm.protocols")
+local m = module "luajitvm.asm.x64_exit"
+
+region emit_exit_stub(A: ptr(u8), exitno: i32) -> proto.ExitStubResult
+entry start()
+    jump mcode_full()
+end
+end
 
 export func x64_exit_version() -> i32
     return 1

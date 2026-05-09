@@ -14,7 +14,8 @@ local HostValues = require("moonlift.host_values")
 
 local M = {}
 local Runtime = {}; Runtime.__index = Runtime
-local ModuleValue = {}; ModuleValue.__index = ModuleValue
+local ModuleValue = {}
+local module_value_mt
 local CompiledModule = {}; CompiledModule.__index = CompiledModule
 local CompiledFunction = {}; CompiledFunction.__index = CompiledFunction
 local FuncValue = {}; FuncValue.__index = FuncValue
@@ -90,6 +91,83 @@ local function module_funcs(T, module)
         end
     end
     return out
+end
+
+local function module_name_of(T, module)
+    local Tr = T.MoonTree
+    local h = module and module.h
+    local cls = h and pvm.classof(h)
+    if cls == Tr.ModuleTyped or cls == Tr.ModuleSem or cls == Tr.ModuleCode then return h.module_name end
+    if cls == Tr.ModuleOpen and h.name ~= T.MoonOpen.ModuleNameOpen then return h.name.module_name end
+    return ""
+end
+
+local function func_type(T, params, result)
+    local tys = {}
+    for i = 1, #(params or {}) do tys[i] = params[i].ty end
+    return T.MoonType.TFunc(tys, result)
+end
+
+local function exported_module_fields(runtime, module, extra)
+    local T = runtime.T
+    local C, B, Tr = T.MoonCore, T.MoonBind, T.MoonTree
+    local api = runtime.session:api()
+    local mod_name = module_name_of(T, module)
+    local fields = {}
+    for i = 1, #module.items do
+        local item = module.items[i]
+        local cls = pvm.classof(item)
+        if cls == Tr.ItemType then
+            local t = item.t
+            local name = t.name or (t.sym and t.sym.name)
+            if name then
+                local extra = {}
+                if pvm.classof(t) == Tr.TypeDeclTaggedUnionSugar then extra.protocol_variants = t.variants end
+                fields[name] = api.type_from_asdl(T.MoonType.TNamed(T.MoonType.TypeRefGlobal(mod_name, name)), (mod_name ~= "" and (mod_name .. ".") or "") .. name, extra)
+            end
+        elseif cls == Tr.ItemConst then
+            local c = item.c
+            local name = c.name or (c.sym and c.sym.name)
+            if name then
+                fields[name] = api.expr_from_asdl(c.value, api.type_from_asdl(c.ty, name), (mod_name ~= "" and (mod_name .. ".") or "") .. name)
+            end
+        elseif cls == Tr.ItemFunc then
+            local f = item.func
+            local fcls = pvm.classof(f)
+            if fcls == Tr.FuncExport or fcls == Tr.FuncExportContract then
+                local ty = api.type_from_asdl(func_type(T, f.params, f.result), f.name)
+                local binding = B.Binding(C.Id("func:" .. mod_name .. ":" .. f.name), f.name, ty.ty, B.BindingClassGlobalFunc(mod_name, f.name))
+                fields[f.name] = api.expr_ref(binding, ty, (mod_name ~= "" and (mod_name .. ".") or "") .. f.name)
+            end
+        elseif cls == Tr.ItemExtern then
+            local f = item.func
+            local ty = api.type_from_asdl(func_type(T, f.params, f.result), f.name)
+            local binding = B.Binding(C.Id("extern:" .. f.name), f.name, ty.ty, B.BindingClassExtern(f.symbol))
+            fields[f.name] = api.expr_ref(binding, ty, f.name)
+        end
+    end
+    for k, v in pairs(extra or {}) do fields[k] = v end
+    return fields
+end
+
+local function current_dep_table(runtime)
+    local stack = runtime.require_stack
+    if stack and #stack > 0 then return stack[#stack].deps end
+    runtime.root_deps = runtime.root_deps or {}
+    return runtime.root_deps
+end
+
+local function new_module_value(runtime, module, extra_fields)
+    return setmetatable({
+        kind = "module",
+        moonlift_quote_kind = "module",
+        name = module_name_of(runtime.T, module),
+        module = module,
+        exports = exported_module_fields(runtime, module, extra_fields),
+        deps = current_dep_table(runtime),
+        T = runtime.T,
+        runtime = runtime,
+    }, module_value_mt)
 end
 
 -- splice_to_source is kept only for debug/display use.
@@ -175,16 +253,23 @@ function Runtime:eval_island(step_index, closures)
     local Splice = require("moonlift.host_splice")
     local Expand = require("moonlift.open_expand").Define(self.T)
 
-    -- 1. Evaluate each splice Lua closure; preserve nil/false.
+    -- 1. Evaluate splice Lua closures and auto-qualified module-table probes.
     local luamap = {}
-    for _, part in ipairs(step.template.parts) do
-        if pvm.classof(part) == H.TemplateSplicePart then
-            local id = part.splice.id
-            local fn = assert(closures and closures[id], "missing splice closure " .. id)
-            local ok, val = pcall(fn)
-            if not ok then
-                error("Moonlift splice eval failed at " .. id .. ": " .. tostring(val), 2)
+    local qualified_values = {}
+    for id, fn in pairs(closures or {}) do
+        local ok, val = pcall(fn)
+        if not ok then
+            error("Moonlift splice eval failed at " .. id .. ": " .. tostring(val), 2)
+        end
+        if id:match("^qualified%.") then
+            if val ~= nil then
+                luamap[id] = { present = true, value = val }
+                local path = id:gsub("^qualified%.", "", 1)
+                qualified_values[path] = true
+                if type(val) == "table" and val.protocol_variants then self.protocol_types[path] = val.protocol_variants end
+                adopt_splice_value(self, val)
             end
+        else
             luamap[id] = { present = true, value = val }
             adopt_splice_value(self, val)
         end
@@ -192,7 +277,7 @@ function Runtime:eval_island(step_index, closures)
 
     -- 2. Parse template with holes → ASDL + splice_slots list.
     local kind = step.template.kind_word
-    local parse_opts = { region_frags = self.region_frags, expr_frags = self.expr_frags, protocol_types = self.protocol_types }
+    local parse_opts = { region_frags = self.region_frags, expr_frags = self.expr_frags, protocol_types = self.protocol_types, qualified_values = qualified_values }
     local parsed
     if kind == "region" then
         parsed = Parse.parse_region_frag_template(step.template, parse_opts)
@@ -270,7 +355,14 @@ function Runtime:eval_island(step_index, closures)
             Expand.env_with_frags(self.region_frags, self.expr_frags),
             bindings)
         local expanded = Expand.expand_module(parsed.module, env)
-        return setmetatable({ kind = "module", module = expanded, T = self.T, runtime = self }, ModuleValue)
+        local frag_fields = {}
+        for name, fr in pairs(parsed.region_frags or {}) do
+            if self.region_frags[name] then frag_fields[name] = self.region_frags[name] end
+        end
+        for name, fr in pairs(parsed.expr_frags or {}) do
+            if self.expr_frags[name] then frag_fields[name] = self.expr_frags[name] end
+        end
+        return new_module_value(self, expanded, frag_fields)
     elseif kind == "func" then
         -- Adopt frags parsed inline in the func island body.
         if parsed.region_frags then
@@ -295,12 +387,51 @@ function Runtime:eval_island(step_index, closures)
         for i = 1, #expanded_mod.items do
             local item = expanded_mod.items[i]
             if pvm.classof(item) == Tr.ItemFunc then
-                local mv = setmetatable({ kind = "module", module = expanded_mod, T = self.T, runtime = self }, ModuleValue)
+                local mv = new_module_value(self, expanded_mod)
                 return setmetatable({ kind = "func", name = item.func.name, func = item.func, module = mv, T = self.T, runtime = self }, FuncValue)
             end
         end
         error("func island did not produce a function", 2)
     end
+end
+
+local function module_value_index(self, key)
+    local method = ModuleValue[key]
+    if method ~= nil then return method end
+    local exports = rawget(self, "exports")
+    if exports and exports[key] ~= nil then return exports[key] end
+    return nil
+end
+
+local function module_value_newindex(self, key)
+    error("Moonlift module tables are sealed; cannot assign field " .. tostring(key), 2)
+end
+
+module_value_mt = { __index = module_value_index, __newindex = module_value_newindex }
+
+function ModuleValue:moonlift_splice(role)
+    if role == "module_items" then return self.module.items end
+    if role == "module" then return self.module end
+    return nil
+end
+
+function ModuleValue:__tostring()
+    return "MoonModuleValue(" .. tostring(self.name or "<anonymous>") .. ")"
+end
+
+local function module_with_required_deps(self)
+    local deps = self.deps or {}
+    if #deps == 0 then return self.module end
+    local Tr = self.T.MoonTree
+    local items, seen = {}, {}
+    for _, dep in ipairs(deps) do
+        if type(dep) == "table" and dep ~= self and dep.module and not seen[dep.module] then
+            seen[dep.module] = true
+            items[#items + 1] = Tr.ItemUseModule("require:" .. tostring(dep.name or #items + 1), dep.module, {})
+        end
+    end
+    for i = 1, #self.module.items do items[#items + 1] = self.module.items[i] end
+    return Tr.Module(self.module.h, items)
 end
 
 function ModuleValue:compile()
@@ -311,7 +442,7 @@ function ModuleValue:compile()
     local Validate = require("moonlift.back_validate").Define(self.T)
     local J = require("moonlift.back_jit").Define(self.T)
     -- Module has already been open-expanded by eval_island; typecheck/lower directly.
-    local expanded = self.module
+    local expanded = module_with_required_deps(self)
     local checked = Typecheck.check_module(expanded)
     if #checked.issues ~= 0 then error("module typecheck failed: " .. tostring(checked.issues[1]), 2) end
     local resolved = Layout.module(checked.module)
@@ -354,13 +485,77 @@ function FuncValue:compile()
     return self.module:compile():get(self.name)
 end
 
+local function module_path_candidates(runtime, name)
+    local rel = tostring(name):gsub("%.", "/")
+    local patterns = runtime.module_path_patterns or { "mlua/?.mlua", "mlua/?/init.mlua", "?.mlua", "?/init.mlua" }
+    local out = {}
+    for i = 1, #patterns do out[#out + 1] = (patterns[i]:gsub("%?", rel)) end
+    return out
+end
+
+function Runtime:note_require_dep(value)
+    if not (type(value) == "table" and value.module) then return end
+    local deps = current_dep_table(self)
+    for i = 1, #deps do if deps[i] == value then return end end
+    deps[#deps + 1] = value
+end
+
+function Runtime:require(name)
+    self.require_cache = self.require_cache or {}
+    if self.require_cache[name] == false then error("circular moon.require for " .. tostring(name), 2) end
+    if self.require_cache[name] ~= nil then
+        local cached = self.require_cache[name]
+        self:note_require_dep(cached)
+        return cached
+    end
+    local tried = {}
+    for _, path in ipairs(module_path_candidates(self, name)) do
+        tried[#tried + 1] = path
+        local f = io.open(path, "rb")
+        if f then
+            f:close()
+            self.require_cache[name] = false -- cycle guard
+            local frame = { name = name, deps = {} }
+            self.require_stack[#self.require_stack + 1] = frame
+            local ok, loaded_or_err = pcall(function()
+                local fn = assert(M.loadfile(path, { runtime = self }))
+                return fn()
+            end)
+            self.require_stack[#self.require_stack] = nil
+            if not ok then
+                self.require_cache[name] = nil
+                error(loaded_or_err, 2)
+            end
+            local value = loaded_or_err
+            if type(value) == "table" and value.module then value.deps = frame.deps end
+            self.require_cache[name] = value
+            self:note_require_dep(value)
+            return value
+        end
+    end
+    error("moon.require could not find " .. tostring(name) .. " (tried " .. table.concat(tried, ", ") .. ")", 2)
+end
+
 local function expression_for_island(T, step_index, island, template)
     local H = T.MoonHost
     local entries = {}
+    local seen = {}
+    local function add(id, src)
+        if seen[id] then return end
+        seen[id] = true
+        entries[#entries + 1] = string.format("[%q] = function() %s end", id, src)
+    end
     for i = 1, #template.parts do
         local part = template.parts[i]
         if pvm.classof(part) == H.TemplateSplicePart then
-            entries[#entries + 1] = string.format("[%q] = function() return (%s) end", part.splice.id, part.splice.lua_source.text)
+            add(part.splice.id, "return (" .. part.splice.lua_source.text .. ")")
+        elseif pvm.classof(part) == H.TemplateText then
+            local text = part.text.source.text
+            for base, field in text:gmatch("([_%a][_%w]*)%.([_%a][_%w]*)") do
+                local path = base .. "." .. field
+                add("qualified." .. path,
+                    "local __v = " .. base .. "; if type(__v) == 'table' or type(__v) == 'userdata' then return __v[" .. string.format("%q", field) .. "] end; return nil")
+            end
         end
     end
     return string.format("__moonlift_runtime:eval_island(%d, {%s})", step_index, table.concat(entries, ","))
@@ -402,13 +597,17 @@ function M.loadstring(src, chunk_name, opts)
         region_frags = opts.region_frags or (parent and parent.region_frags) or {},
         expr_frags = opts.expr_frags or (parent and parent.expr_frags) or {},
         protocol_types = opts.protocol_types or (parent and parent.protocol_types) or {},
+        require_cache = opts.require_cache or (parent and parent.require_cache) or {},
+        require_stack = opts.require_stack or (parent and parent.require_stack) or {},
+        root_deps = opts.root_deps or (parent and parent.root_deps) or {},
+        module_path_patterns = opts.module_path_patterns or opts.module_paths or (parent and parent.module_path_patterns),
     }, Runtime)
     local lua_src = translate_runtime(runtime)
     local q = Quote()
     local rt = q:val(runtime, "runtime")
     q("return function(...)")
     q("local __moonlift_runtime = %s", rt)
-    q("local moon = __moonlift_runtime.session:api()")
+    q("local moon = setmetatable({ require = function(name) return __moonlift_runtime:require(name) end }, { __index = __moonlift_runtime.session:api() })")
     q(lua_src)
     q("end")
     local inner = q:compile(chunk_name or "=(moonlift.mlua_run)")

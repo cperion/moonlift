@@ -1,30 +1,17 @@
 -- runtime/call.mlua -- Call and return region stubs.
 -- Protocol: CallResult, ReturnResult, OpcodeResult
 
-local m = module VmRuntimeCall
+local proto = moon.require("luajitvm.protocols")
+local m = module "luajitvm.runtime.call"
 
-type CallResult = lua_call(fn: ptr(u8))
-    | native_call(fn: ptr(u8))
-    | metamethod(mm: ptr(u8))
-    | error(code: i32)
 
-type ReturnResult = resume_caller
-    | final_return
-    | close_upvalues(from: ptr(u8))
-    | error(code: i32)
-
-type OpcodeResult = next
-    | hot(pc: ptr(u8))
-    | yielded(code: i32)
-    | error(code: i32)
-
-region vm_bc_call(L: ptr(u8), bc: i32) -> OpcodeResult
+region vm_bc_call(L: ptr(u8), bc: i32) -> proto.OpcodeResult
 entry start()
     jump error(code = 0)
 end
 end
 
-region vm_bc_ret(L: ptr(u8), bc: i32) -> ReturnResult
+region vm_bc_ret(L: ptr(u8), bc: i32) -> proto.ReturnResult
 entry start()
     jump final_return()
 end

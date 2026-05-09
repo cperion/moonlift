@@ -2,11 +2,8 @@
 --
 -- Handles: MOV, KSHORT, ADDVV, SUBVV, MULVV, JMP, LOOP, RET
 
-local m = module VmRuntimeDispatch
-
-type InterpResult = returned(nresults: i32)
-    | yielded(code: i32)
-    | error(code: i32)
+local proto = moon.require("luajitvm.protocols")
+local m = module "luajitvm.runtime.dispatch"
 
 const BC_ISLT:  i32 = 0
 const BC_ISGE:  i32 = 1
@@ -36,7 +33,7 @@ const LUA_TINT:   i32 = 5
 const LUA_OK:     i32 = 0
 const LUA_ERRRUN: i32 = 2
 
-region vm_loop(L: ptr(u8), bc: ptr(u32), pc: i32, status: i32) -> InterpResult
+region vm_loop(L: ptr(u8), bc: ptr(u32), pc: i32, status: i32) -> proto.InterpResult
 entry start()
     jump dispatch(ip = pc)
 end

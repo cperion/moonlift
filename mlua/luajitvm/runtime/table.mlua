@@ -2,28 +2,19 @@
 -- Protocol: TableGet, TableSet
 -- P4.PROTO.003 stub.
 
-local m = module VmRuntimeTable
+local proto = moon.require("luajitvm.protocols")
+local m = module "luajitvm.runtime.table"
 
-type TableGet = hit(val_tag: i32, val_payload: i64)
-    | nil_no_meta
-    | meta(mm_tag: i32, mm_payload: i64)
-    | error(code: i32)
-
-type TableSet = done
-    | need_barrier(parent: ptr(u8), child_tag: i32, child_payload: i64)
-    | new_key
-    | meta(mm_tag: i32, mm_payload: i64)
-    | error(code: i32)
 
 -- Table key lookup stub.
-region table_get(G: ptr(u8), tab: ptr(u8), key_tag: i32, key_payload: i64) -> TableGet
+region table_get(G: ptr(u8), tab: ptr(u8), key_tag: i32, key_payload: i64) -> proto.TableGet
 entry start()
     jump nil_no_meta()
 end
 end
 
 -- Table key store stub.
-region table_set(G: ptr(u8), tab: ptr(u8), key_tag: i32, key_payload: i64, val_tag: i32, val_payload: i64) -> TableSet
+region table_set(G: ptr(u8), tab: ptr(u8), key_tag: i32, key_payload: i64, val_tag: i32, val_payload: i64) -> proto.TableSet
 entry start()
     jump error(code = 0)
 end

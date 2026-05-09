@@ -21,7 +21,7 @@
 --   92-95   4     _pad
 --   Total: 96 bytes
 
-local m = module VmCoreState
+local m = module "luajitvm.core.state"
 
 -- Field offsets from lua_State base
 const TS_OFF_GCT:       i32 = 9

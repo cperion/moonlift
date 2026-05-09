@@ -1,4 +1,5 @@
-local m = module VmJitTrace
+local proto = moon.require("luajitvm.protocols")
+local m = module "luajitvm.jit.trace"
 
 const TR_OFF_NSNAP:    i32 = 16
 const TR_OFF_NINS:     i32 = 18
@@ -116,6 +117,24 @@ end
 
 export func snap_entry_ref(e: i32) -> i32
     return e & 0xFF
+end
+
+region trace_record_root(J: ptr(u8), L: ptr(u8), pc: ptr(u8)) -> proto.TraceRecord
+entry start()
+    jump interpret()
+end
+end
+
+region trace_record_side(J: ptr(u8), L: ptr(u8), parent: i32, exitno: i32) -> proto.TraceRecordSide
+entry start()
+    jump interpret()
+end
+end
+
+region trace_commit(J: ptr(u8), tr: i32, mcode_entry: ptr(u8)) -> proto.TraceCommit
+entry start()
+    jump abort(reason = 0)
+end
 end
 
 export func trace_const_check() -> i32

@@ -11,15 +11,8 @@
 --   keep                 -- store the instruction as-is
 --   abort(reason)
 
-local m = module VmJitFold
-
--- =========================================================================
--- Protocol
--- =========================================================================
-type FoldResult = folded(ref: i32)
-    | normalized(a: i32, b: i32)
-    | keep
-    | abort(reason: i32)
+local proto = moon.require("luajitvm.protocols")
+local m = module "luajitvm.jit.fold"
 
 -- =========================================================================
 -- Constants
@@ -121,7 +114,7 @@ end
 -- =========================================================================
 -- fold_ins: core fold region.
 -- =========================================================================
-region fold_ins(J: ptr(u8), irbuf: ptr(u64), op1: i32, op2: i32, o: i32) -> FoldResult
+region fold_ins(J: ptr(u8), irbuf: ptr(u64), op1: i32, op2: i32, o: i32) -> proto.FoldResult
 entry start()
 
     -- -----------------------------------------------------------------
@@ -133,7 +126,7 @@ entry start()
         let c: i32 = const_fold_int(o, a, b)
         let ref: i32 = alloc_kint(J, irbuf, c)
         if ref < 0 then jump abort(reason = 1) end
-        jump folded(ref = ref)
+        jump replace(ref = ref)
     end
 
     -- -----------------------------------------------------------------
@@ -143,12 +136,12 @@ entry start()
     if id >= 0 then
         if is_kint_at(irbuf, op2) then
             if kint_val(irbuf, op2) == id then
-                jump folded(ref = op1)
+                jump replace(ref = op1)
             end
         end
         if o ~= IR_SUB and is_kint_at(irbuf, op1) then
             if kint_val(irbuf, op1) == id then
-                jump folded(ref = op2)
+                jump replace(ref = op2)
             end
         end
     end
@@ -157,10 +150,10 @@ entry start()
     -- 3. Commutative normalization: put smaller ref in op1 for CSE
     -- -----------------------------------------------------------------
     if is_commutative(o) and op1 > op2 then
-        jump normalized(a = op2, b = op1)
+        jump retry(ot = o, a = op2, b = op1)
     end
 
-    jump keep()
+    jump fold_emit(ot = o, a = op1, b = op2)
 end
 end
 
@@ -177,18 +170,18 @@ export func fold_test(J: ptr(u8), irbuf: ptr(u64), op1: i32, op2: i32, o: i32) -
     return region -> i32
     entry start()
         emit fold_ins(J, irbuf, op1, op2, o;
-            folded     = got_folded,
-            normalized = got_norm,
-            keep       = got_keep,
-            abort      = got_abort)
+            replace   = got_folded,
+            fold_emit = got_keep,
+            retry     = got_norm,
+            abort     = got_abort)
     end
     block got_folded(ref: i32)
         yield ref
     end
-    block got_norm(a: i32, b: i32)
+    block got_norm(ot: i32, a: i32, b: i32)
         yield -200000 + a
     end
-    block got_keep()
+    block got_keep(ot: i32, a: i32, b: i32)
         yield -1
     end
     block got_abort(reason: i32)

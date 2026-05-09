@@ -1,6 +1,6 @@
 -- gc/mark.mlua -- GC mark phase stub.
 
-local m = module VmGcMark
+local m = module "luajitvm.gc.mark"
 
 export func mark_version() -> i32
     return 1

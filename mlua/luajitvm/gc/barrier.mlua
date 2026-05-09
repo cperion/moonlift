@@ -1,13 +1,13 @@
 -- gc/barrier.mlua — GC write barrier regions.
 -- Every store that can violate GC invariants routes through these edges.
 
-local m = module VmGcBarrier
+local proto = moon.require("luajitvm.protocols")
+local m = module "luajitvm.gc.barrier"
 
-type BarrierResult = done
 
 -- Forward barrier: if parent is black and child is white, mark child gray.
 -- No-op stub: no incremental GC yet.
-region gc_barrier_fwd(G: ptr(u8), parent: ptr(u8), child: ptr(u8)) -> BarrierResult
+region gc_barrier_fwd(G: ptr(u8), parent: ptr(u8), child: ptr(u8)) -> proto.BarrierResult
 entry start()
     jump done()
 end
@@ -15,7 +15,7 @@ end
 
 -- Backward barrier: if table is black, re-mark it gray.
 -- No-op stub: no incremental GC yet.
-region gc_barrier_back(G: ptr(u8), tab: ptr(u8)) -> BarrierResult
+region gc_barrier_back(G: ptr(u8), tab: ptr(u8)) -> proto.BarrierResult
 entry start()
     jump done()
 end

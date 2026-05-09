@@ -1,6 +1,6 @@
 -- core/api.mlua — Public embedding API constants.
 
-local m = module VmCoreApi
+local m = module "luajitvm.core.api"
 
 const API_VERSION: i32 = 1
 

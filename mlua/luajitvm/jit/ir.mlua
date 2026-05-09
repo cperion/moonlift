@@ -8,7 +8,7 @@
 -- REF_BIAS divides constant space (< 0x8000) from instruction space (>= 0x8000).
 -- TRef packs IRType in bits 31:24, flags in 23:16, ref in 15:0.
 
-local m = module VmJitIr
+local m = module "luajitvm.jit.ir"
 
 -- =========================================================================
 -- §1. IR Types (irt_t)

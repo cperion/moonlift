@@ -119,7 +119,10 @@ function M.Define(T)
         [Tr.ItemImport] = function() return pvm.empty() end,
         [Tr.ItemUseTypeDeclSlot] = function() return pvm.empty() end,
         [Tr.ItemUseItemsSlot] = function() return pvm.empty() end,
-        [Tr.ItemUseModule] = function(self, mod_name, env) return pvm.children(function(item) return item_layout(item, mod_name, env) end, self.module.items) end,
+        [Tr.ItemUseModule] = function(self, _, env)
+            local use_mod_name = pvm.one(module_name(self.module.h))
+            return pvm.children(function(item) return item_layout(item, use_mod_name, env) end, self.module.items)
+        end,
         [Tr.ItemUseModuleSlot] = function() return pvm.empty() end,
     }, { args_cache = "last" })
 
@@ -132,7 +135,10 @@ function M.Define(T)
         [Tr.ItemImport] = function() return pvm.empty() end,
         [Tr.ItemUseTypeDeclSlot] = function() return pvm.empty() end,
         [Tr.ItemUseItemsSlot] = function() return pvm.empty() end,
-        [Tr.ItemUseModule] = function(self, mod_name) return pvm.children(function(item) return item_env_entries(item, mod_name) end, self.module.items) end,
+        [Tr.ItemUseModule] = function(self)
+            local use_mod_name = pvm.one(module_name(self.module.h))
+            return pvm.children(function(item) return item_env_entries(item, use_mod_name) end, self.module.items)
+        end,
         [Tr.ItemUseModuleSlot] = function() return pvm.empty() end,
     }, { args_cache = "last" })
 

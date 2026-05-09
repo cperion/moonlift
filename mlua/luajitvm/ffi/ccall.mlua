@@ -1,25 +1,17 @@
 -- ffi/ccall.mlua -- C call preparation and emission stubs.
 -- Protocol: FFIPrepCall, FFIEmitCall
 
-local m = module VmFfiCcall
+local proto = moon.require("luajitvm.protocols")
+local m = module "luajitvm.ffi.ccall"
 
-type FFIPrepCall = call_direct(argv: ptr(u8))
-    | need_conversion(argno: i32)
-    | unsupported_abi(code: i32)
-    | error(code: i32)
 
-type FFIEmitCall = ffi_done
-    | spill_regs
-    | unsupported_abi(code: i32)
-    | mcode_full
-
-region ffi_prepare_call(L: ptr(u8), cfun: ptr(u8), args: ptr(u8), nargs: i32) -> FFIPrepCall
+region ffi_prepare_call(L: ptr(u8), cfun: ptr(u8), args: ptr(u8), nargs: i32) -> proto.FFIPrepCall
 entry start()
     jump error(code = 0)
 end
 end
 
-region ffi_emit_call(A: ptr(u8), ci: ptr(u8)) -> FFIEmitCall
+region ffi_emit_call(A: ptr(u8), ci: ptr(u8)) -> proto.FFIEmitCall
 entry start()
     jump mcode_full()
 end

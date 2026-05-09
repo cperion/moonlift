@@ -1,6 +1,6 @@
 -- core/object.mlua — GC object type constants, header offsets, accessors.
 
-local m = module VmCoreObject
+local m = module "luajitvm.core.object"
 
 -- GC type tags
 const GCT_STR:    i32 = 0

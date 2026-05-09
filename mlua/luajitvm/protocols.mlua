@@ -10,7 +10,7 @@
 --   - usize is not a Moonlift type: use u64 instead
 --   - All GC/state pointers are ptr(u8) for M0 (struct literals not yet supported)
 
-local m = module LuaJitVmProtocols
+local m = module "luajitvm.protocols"
 
 -- -----------------------------------------------------------------------
 -- §3 Error and Abort Types (data types, used as field types in exits)
@@ -314,9 +314,11 @@ end
 
 end
 
--- Run the module and verify it compiles.
+-- Verify this canonical protocol module when executed directly, but return the
+-- module table so other .mlua files can use `moon.require("luajitvm.protocols")`
+-- and refer to protocol types as `proto.OpcodeResult`, etc.
 local c = m:compile()
 local v = c:get("protocols_version")
 assert(v ~= nil and v() == 1, "protocols module failed to compile")
 c:free()
-return "luajitvm protocols M0 ok"
+return m

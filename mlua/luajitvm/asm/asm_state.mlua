@@ -18,9 +18,9 @@
 -- Supported IR opcodes: NOP(90) KINT(60) ADD(10) SUB(11) MUL(12) RETF(82) LOOP(80)
 -- Register set: rax(0) rcx(1) rdx(2) rsi(6) rdi(7) r8(8) r9(9) r10(10) r11(11)
 
-local m = module VmAsmState
-
-type AsmResult = mcode_ok(top: ptr(u8)) | mcode_full | abort(reason: i32)
+local proto = moon.require("luajitvm.protocols")
+local tiles = moon.require("luajitvm.asm.x64_tiles")
+local m = module "luajitvm.asm.asm_state"
 
 -- =========================================================================
 -- Constants
@@ -40,6 +40,7 @@ const REF_FIRST: i32 = 0x8001
 const A_FREE:      i32 = 0
 const A_MAP:       i32 = 4
 const A_EXIT_ADDR: i32 = 260   -- ptr(u8) = deopt exit stub address (8 bytes at 260..267)
+const A_CUR_SLOT:  i32 = 268   -- i32 current slot for tile continuation routing
 
 -- IRT_GUARD flag in type byte: guard emitted, snapshot/deopt required
 const IRT_GUARD: i32 = 0x80
@@ -258,145 +259,11 @@ func has_dest(o: i32) -> bool
 end
 
 -- =========================================================================
--- Tile emitters
--- Code grows downward so each tile emits in *reverse* execution order:
--- the first execution-order byte ends up at the lowest address.
---
--- For a two-instruction tile  [A][B]  (A executes before B):
---   emit B first  → higher address
---   emit A second → lower address
--- Then execution reads A → B. ✓
--- =========================================================================
-
--- SLOAD (no guard): load i64 payload from TValue at Lua stack slot `slot`.
-func tile_sload(J: ptr(u8), dst: i32, slot: i32)
-    emit_load_rdi_d32(J, dst, slot * TV_STRIDE + TV_PAYLOAD)
-end
-
--- SLOAD with type guard: CMP tag == LUA_TINT; JNE deopt; MOV dst, payload
--- Backward emission order: LOAD (highest) → JNE → CMP (lowest = first executed)
--- If guard fires the trace returns DEOPT_SENTINEL (via the pre-emitted exit stub).
-func tile_sload_guard(J: ptr(u8), A: ptr(u8), dst: i32, slot: i32)
-    let payload_disp: i32 = slot * TV_STRIDE + TV_PAYLOAD
-    let tag_disp:     i32 = slot * TV_STRIDE
-    -- 1. Emit LOAD (highest addr, executes last if guard passes)
-    emit_load_rdi_d32(J, dst, payload_disp)
-    -- 2. Emit JNE to exit stub (exit_stub_addr > mc_top(J) → positive disp)
-    let exit_u64: u64 = as(ptr(u64), A + A_EXIT_ADDR)[0]
-    let jne_disp: i32 = as(i32, exit_u64 - as(u64, mc_top(J)))
-    emit_jne_rel32(J, jne_disp)
-    -- 3. Emit CMP (lowest addr, executes first)
-    emit_cmp_rdi_d32_imm8(J, tag_disp, LUA_TINT)
-end
-
--- KINT: MOV dst, imm32
--- imm = op1 | (op2 << 16) — op2 is 0 for constants < 32768 (ir_emit_const)
-func tile_kint(J: ptr(u8), dst: i32, op1: i32, op2: i32)
-    emit_mov_ri32(J, dst, op1 | (op2 << 16))
-end
-
--- ADD: [MOV dst, r1]  [ADD dst, r2]  (skip MOV if dst == r1)
-func tile_add(J: ptr(u8), dst: i32, r1: i32, r2: i32)
-    emit_add_rr(J, dst, r2)
-    if dst ~= r1 then emit_mov_rr(J, dst, r1) end
-end
-
--- SUB: [MOV dst, r1]  [SUB dst, r2]
-func tile_sub(J: ptr(u8), dst: i32, r1: i32, r2: i32)
-    emit_sub_rr(J, dst, r2)
-    if dst ~= r1 then emit_mov_rr(J, dst, r1) end
-end
-
--- MUL: [MOV dst, r1]  [IMUL dst, r2]
-func tile_mul(J: ptr(u8), dst: i32, r1: i32, r2: i32)
-    emit_imul_rr(J, dst, r2)
-    if dst ~= r1 then emit_mov_rr(J, dst, r1) end
-end
-
--- RETF: [MOV rax, r_val]  [RET]   (skip MOV if r_val already rax=0)
-func tile_retf(J: ptr(u8), r_val: i32)
-    emit_ret(J)
-    if r_val ~= 0 then emit_mov_rr(J, 0, r_val) end
-end
-
--- =========================================================================
--- asm_one: emit the x64 tile for one IR slot.  Returns true on success.
--- Operand registers must already be allocated in A's regmap.
--- =========================================================================
-func asm_one(A: ptr(u8), J: ptr(u8), ir_buf: ptr(u64), slot: i32, o: i32) -> bool
-    let op1 = ir_op1_at(ir_buf, slot)
-    let op2 = ir_op2_at(ir_buf, slot)
-
-    if o == IR_SLOAD then
-        let dst = ra_get(A, slot)
-        if dst < 0 then return true end
-        let t: i32 = ir_type_at(ir_buf, slot)
-        if (t & IRT_GUARD) ~= 0 then
-            tile_sload_guard(J, A, dst, op1)
-        end
-        if (t & IRT_GUARD) == 0 then
-            tile_sload(J, dst, op1)
-        end
-        return true
-    end
-
-    if o == IR_KINT then
-        let dst = ra_get(A, slot)
-        if dst < 0 then return true end        -- dead constant
-        tile_kint(J, dst, op1, op2)
-        return true
-    end
-
-    if o == IR_ADD then
-        let dst = ra_get(A, slot)
-        if dst < 0 then return true end
-        let r1 = ra_get(A, op1 - REF_BIAS)
-        let r2 = ra_get(A, op2 - REF_BIAS)
-        if r1 < 0 then return false end
-        if r2 < 0 then return false end
-        tile_add(J, dst, r1, r2)
-        return true
-    end
-
-    if o == IR_SUB then
-        let dst = ra_get(A, slot)
-        if dst < 0 then return true end
-        let r1 = ra_get(A, op1 - REF_BIAS)
-        let r2 = ra_get(A, op2 - REF_BIAS)
-        if r1 < 0 then return false end
-        if r2 < 0 then return false end
-        tile_sub(J, dst, r1, r2)
-        return true
-    end
-
-    if o == IR_MUL then
-        let dst = ra_get(A, slot)
-        if dst < 0 then return true end
-        let r1 = ra_get(A, op1 - REF_BIAS)
-        let r2 = ra_get(A, op2 - REF_BIAS)
-        if r1 < 0 then return false end
-        if r2 < 0 then return false end
-        tile_mul(J, dst, r1, r2)
-        return true
-    end
-
-    if o == IR_RETF then
-        let r_val = ra_get(A, op1 - REF_BIAS)
-        if r_val < 0 then return false end
-        tile_retf(J, r_val)
-        return true
-    end
-
-    -- IR_NOP, IR_LOOP: nothing to emit
-    return true
-end
-
--- =========================================================================
 -- asm_trace: backward scan over IR slots [1, nins-1].
 -- A must be caller-zeroed (260 bytes); this region sets free_regs.
 -- J must have mctop/mcbot already initialised.
 -- =========================================================================
-region asm_trace(A: ptr(u8), J: ptr(u8), ir_buf: ptr(u64), nins: i32) -> AsmResult
+region asm_trace(A: ptr(u8), J: ptr(u8), ir_buf: ptr(u64), nins: i32) -> proto.AsmResult
 entry start()
     as(ptr(i32), A)[0] = FREE_INIT   -- initialise free_regs; regmap already zeroed
     -- Emit the deopt exit stub FIRST (highest address) so guards can jump UP to it.
@@ -411,7 +278,7 @@ entry start()
 end
 
 block scan(slot: i32)
-    if slot < 1 then jump mcode_ok(top = mc_top(J)) end
+    if slot < 1 then jump mcode(entry_ptr = mc_top(J), size = as(u64, 0)) end
 
     let o = ir_op_at(ir_buf, slot)
     if o == IR_NOP  then jump scan(slot = slot - 1) end
@@ -439,14 +306,37 @@ block scan(slot: i32)
         ra_ensure(A, op1 - REF_BIAS)
     end
 
-    -- Emit the x64 tile.
-    let ok = asm_one(A, J, ir_buf, slot, o)
-    if not ok then jump abort(reason = slot) end
+    -- Emit the x64 tile through the region-first tile dispatch surface.
+    as(ptr(i32), A + A_CUR_SLOT)[0] = slot
+    emit tiles.x64_asm_one_ir(A, J, ir_buf, slot;
+        tile_done = tile_done,
+        need_snapshot = tile_snapshot,
+        mcode_full = tile_full,
+        unsupported = tile_unsupported,
+        abort = tile_abort)
+end
 
-    -- Release destination register (going backward: definition is now past).
+block tile_done()
+    let slot: i32 = as(ptr(i32), A + A_CUR_SLOT)[0]
+    let o: i32 = ir_op_at(ir_buf, slot)
     if has_dest(o) then ra_release(A, slot) end
-
     jump scan(slot = slot - 1)
+end
+
+block tile_snapshot(snapno: i32)
+    jump abort(reason = snapno)
+end
+
+block tile_full()
+    jump mcode_full()
+end
+
+block tile_unsupported(op: i32)
+    jump abort(reason = op)
+end
+
+block tile_abort(reason: i32)
+    jump abort(reason = reason)
 end
 end
 
@@ -461,11 +351,15 @@ export func asm_trace_test(A: ptr(u8), J: ptr(u8), ir_buf: ptr(u64), nins: i32) 
     return region -> ptr(u8)
     entry start()
         emit asm_trace(A, J, ir_buf, nins;
-            mcode_ok  = got_ok,
+            mcode = got_ok,
+            retry_realign = got_retry_realign,
+            retry_ir_grew = got_retry_ir_grew,
             mcode_full = got_full,
-            abort      = got_abort)
+            abort = got_abort)
     end
-    block got_ok(top: ptr(u8))     yield top         end
+    block got_ok(entry_ptr: ptr(u8), size: u64) yield entry_ptr end
+    block got_retry_realign()      yield as(ptr(u8), as(u64, 0)) end
+    block got_retry_ir_grew()      yield as(ptr(u8), as(u64, 0)) end
     block got_full()               yield as(ptr(u8), as(u64, 0)) end
     block got_abort(reason: i32)   yield as(ptr(u8), as(u64, 0)) end
     end

@@ -27,7 +27,7 @@
 --   40      N*8   uvptr[0..nupvalues-1] (GCRef array, pointers to GCupval)
 --   sizeof(GCfuncL) = 40 + nupvalues*8.
 
-local m = module VmCoreFunc
+local m = module "luajitvm.core.func"
 
 -- Shared header offsets
 const FUNC_OFF_FFID:      i32 = 10

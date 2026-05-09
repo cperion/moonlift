@@ -19,14 +19,8 @@
 --
 -- Protocol: SnapResult = added(snap_idx) | overflow | abort(reason)
 
-local m = module VmJitSnap
-
--- =========================================================================
--- Protocol
--- =========================================================================
-type SnapResult = added(snap_idx: i32)
-    | overflow
-    | abort(reason: i32)
+local proto = moon.require("luajitvm.protocols")
+local m = module "luajitvm.jit.snap"
 
 -- =========================================================================
 -- Constants
@@ -99,7 +93,7 @@ end
 --   guard_ref i32       IR ref of the guard instruction
 -- =========================================================================
 
-region snap_add(J: ptr(u8), slots: ptr(i32), nslots: i32, guard_ref: i32) -> SnapResult
+region snap_add(J: ptr(u8), slots: ptr(i32), nslots: i32, guard_ref: i32) -> proto.SnapAdd
 entry start()
     let j64: ptr(u64) = as(ptr(u64), J)
     let tr:  ptr(u8)  = as(ptr(u8),  j64[0])
@@ -145,9 +139,15 @@ block commit(nent: i32,
     snap_write(snap_b_v, nsnap_v, nsmap_v, nslots, nent, guard_ref)
     tr_set_nsnap(tr_v, nsnap_v + 1)
     tr_set_nsnapmap(tr_v, nsmap_v + nent)
-    jump added(snap_idx = nsnap_v)
+    jump snap_done(snapno = nsnap_v)
 end
 
+end
+
+region snap_restore(L: ptr(u8), tr: i32, exitno: i32, ex: ptr(u8)) -> proto.SnapRestore
+entry start()
+    jump unsupported(code = 0)
+end
 end
 
 -- =========================================================================
@@ -158,12 +158,16 @@ export func snap_add_test(J: ptr(u8), slots: ptr(i32), nslots: i32, guard_ref: i
     return region -> i32
     entry start()
         emit snap_add(J, slots, nslots, guard_ref;
-            added    = got_added,
-            overflow = got_overflow,
-            abort    = got_abort)
+            snap_done = got_added,
+            merge     = got_merge,
+            overflow  = got_overflow,
+            abort     = got_abort)
     end
-    block got_added(snap_idx: i32)
-        yield snap_idx
+    block got_added(snapno: i32)
+        yield snapno
+    end
+    block got_merge(snapno: i32)
+        yield snapno
     end
     block got_overflow()
         yield -1

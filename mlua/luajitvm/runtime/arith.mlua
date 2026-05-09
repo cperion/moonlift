@@ -2,29 +2,26 @@
 -- Protocol: OpcodeResult
 -- P4.PROTO.002 stub.
 
-local m = module VmRuntimeArith
+local proto = moon.require("luajitvm.protocols")
+local m = module "luajitvm.runtime.arith"
 
-type OpcodeResult = next
-    | hot(pc: ptr(u8))
-    | yielded(code: i32)
-    | error(code: i32)
 
 -- BC_ADD handler stub.
-region vm_bc_add(L: ptr(u8), bc: i32) -> OpcodeResult
+region vm_bc_add(L: ptr(u8), bc: i32) -> proto.OpcodeResult
 entry start()
     jump error(code = 0)
 end
 end
 
 -- BC_SUB handler stub.
-region vm_bc_sub(L: ptr(u8), bc: i32) -> OpcodeResult
+region vm_bc_sub(L: ptr(u8), bc: i32) -> proto.OpcodeResult
 entry start()
     jump error(code = 0)
 end
 end
 
 -- BC_MUL handler stub.
-region vm_bc_mul(L: ptr(u8), bc: i32) -> OpcodeResult
+region vm_bc_mul(L: ptr(u8), bc: i32) -> proto.OpcodeResult
 entry start()
     jump error(code = 0)
 end

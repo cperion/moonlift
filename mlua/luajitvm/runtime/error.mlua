@@ -1,6 +1,6 @@
 -- runtime/error.mlua -- Runtime error handling stubs.
 
-local m = module VmRuntimeError
+local m = module "luajitvm.runtime.error"
 
 export func runtime_error_version() -> i32
     return 1

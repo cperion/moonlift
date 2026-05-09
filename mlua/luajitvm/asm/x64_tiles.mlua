@@ -1,22 +1,226 @@
--- asm/x64_tiles.mlua -- x64 tile dispatch region stub.
--- Protocol: TileResult
--- P4.PROTO.008 stub.
+-- asm/x64_tiles.mlua -- Region-based x64 tile dispatch.
+--
+-- This is the architectural tile-dispatch surface: a switch region over IR
+-- opcodes, with one region per tile family.  It mirrors the bring-up assembler
+-- in asm_state.mlua but keeps tile selection as typed region control flow.
 
-local m = module VmAsmX64Tiles
+local proto = moon.require("luajitvm.protocols")
+local m = module "luajitvm.asm.x64_tiles"
 
-type TileResult = tile_done
-    | need_snapshot(snapno: i32)
-    | mcode_full
-    | unsupported(op: i32)
-    | abort(reason: i32)
+const IR_NOP:   i32 = 90
+const IR_KINT:  i32 = 60
+const IR_ADD:   i32 = 10
+const IR_SUB:   i32 = 11
+const IR_MUL:   i32 = 12
+const IR_LOOP:  i32 = 80
+const IR_RETF:  i32 = 82
+const IR_SLOAD: i32 = 31
 
--- x64 tile dispatch: assemble one IR instruction.
-region x64_asm_one_ir(A: ptr(u8), ref: i32) -> TileResult
+const REF_BIAS:    i32 = 0x8000
+const A_MAP:       i32 = 4
+const A_EXIT_ADDR: i32 = 260
+const IRT_GUARD:   i32 = 0x80
+const TV_STRIDE:   i32 = 16
+const TV_PAYLOAD:  i32 = 8
+const LUA_TINT:    i32 = 3
+
+func x64t_ir_op_at(buf: ptr(u64), idx: i32) -> i32
+    return as(i32, (buf[idx] >> 40) & 0xFF)
+end
+func x64t_ir_type_at(buf: ptr(u64), idx: i32) -> i32
+    return as(i32, (buf[idx] >> 32) & 0xFF)
+end
+func x64t_ir_op1_at(buf: ptr(u64), idx: i32) -> i32
+    return as(i32, buf[idx] & 0xFFFF)
+end
+func x64t_ir_op2_at(buf: ptr(u64), idx: i32) -> i32
+    return as(i32, (buf[idx] >> 16) & 0xFFFF)
+end
+
+func x64t_mc_top(J: ptr(u8)) -> ptr(u8)
+    return as(ptr(u8), as(ptr(u64), J)[4])
+end
+func x64t_mc_set_top(J: ptr(u8), v: ptr(u8))
+    as(ptr(u64), J)[4] = as(u64, v)
+end
+func x64t_mc_put8(J: ptr(u8), b: i32)
+    let p = x64t_mc_top(J) - 1
+    p[0] = as(u8, b)
+    x64t_mc_set_top(J, p)
+end
+func x64t_mc_put32(J: ptr(u8), v: i32)
+    let p = x64t_mc_top(J) - 4
+    p[0] = as(u8, v)
+    p[1] = as(u8, v >> 8)
+    p[2] = as(u8, v >> 16)
+    p[3] = as(u8, v >> 24)
+    x64t_mc_set_top(J, p)
+end
+
+func x64t_rex_wb(r: i32, b: i32) -> i32
+    return 0x48 | ((r >> 3) << 2) | (b >> 3)
+end
+func x64t_modrm_rr(reg: i32, rm: i32) -> i32
+    return 0xC0 | ((reg & 7) << 3) | (rm & 7)
+end
+func x64t_emit_mov_rr(J: ptr(u8), dst: i32, src: i32)
+    x64t_mc_put8(J, x64t_modrm_rr(src, dst)); x64t_mc_put8(J, 0x89); x64t_mc_put8(J, x64t_rex_wb(src, dst))
+end
+func x64t_emit_add_rr(J: ptr(u8), dst: i32, src: i32)
+    x64t_mc_put8(J, x64t_modrm_rr(src, dst)); x64t_mc_put8(J, 0x01); x64t_mc_put8(J, x64t_rex_wb(src, dst))
+end
+func x64t_emit_sub_rr(J: ptr(u8), dst: i32, src: i32)
+    x64t_mc_put8(J, x64t_modrm_rr(src, dst)); x64t_mc_put8(J, 0x29); x64t_mc_put8(J, x64t_rex_wb(src, dst))
+end
+func x64t_emit_imul_rr(J: ptr(u8), dst: i32, src: i32)
+    x64t_mc_put8(J, x64t_modrm_rr(dst, src)); x64t_mc_put8(J, 0xAF); x64t_mc_put8(J, 0x0F); x64t_mc_put8(J, x64t_rex_wb(dst, src))
+end
+func x64t_emit_mov_ri32(J: ptr(u8), dst: i32, imm: i32)
+    x64t_mc_put32(J, imm); x64t_mc_put8(J, x64t_modrm_rr(0, dst)); x64t_mc_put8(J, 0xC7); x64t_mc_put8(J, x64t_rex_wb(0, dst))
+end
+func x64t_emit_load_rdi_d32(J: ptr(u8), dst: i32, disp: i32)
+    x64t_mc_put32(J, disp); x64t_mc_put8(J, 0x80 | ((dst & 7) << 3) | 7); x64t_mc_put8(J, 0x8B); x64t_mc_put8(J, 0x48 | ((dst >> 3) << 2))
+end
+func x64t_emit_ret(J: ptr(u8))
+    x64t_mc_put8(J, 0xC3)
+end
+func x64t_emit_cmp_rdi_d32_imm8(J: ptr(u8), disp: i32, imm: i32)
+    x64t_mc_put8(J, imm & 0xFF); x64t_mc_put32(J, disp); x64t_mc_put8(J, 0xBF); x64t_mc_put8(J, 0x83)
+end
+func x64t_emit_jne_rel32(J: ptr(u8), disp: i32)
+    x64t_mc_put32(J, disp); x64t_mc_put8(J, 0x85); x64t_mc_put8(J, 0x0F)
+end
+
+func x64t_ra_get(A: ptr(u8), slot: i32) -> i32
+    return as(i32, (A + A_MAP)[slot]) - 1
+end
+
+region x64_ir_sload(A: ptr(u8), J: ptr(u8), ir_buf: ptr(u64), slot: i32) -> proto.TileResult
 entry start()
-    jump unsupported(op = 0)
+    let op1: i32 = x64t_ir_op1_at(ir_buf, slot)
+    let dst: i32 = x64t_ra_get(A, slot)
+    if dst < 0 then jump tile_done() end
+    let t: i32 = x64t_ir_type_at(ir_buf, slot)
+    if (t & IRT_GUARD) ~= 0 then
+        let payload_disp: i32 = op1 * TV_STRIDE + TV_PAYLOAD
+        let tag_disp: i32 = op1 * TV_STRIDE
+        x64t_emit_load_rdi_d32(J, dst, payload_disp)
+        let exit_u64: u64 = as(ptr(u64), A + A_EXIT_ADDR)[0]
+        let jne_disp: i32 = as(i32, exit_u64 - as(u64, x64t_mc_top(J)))
+        x64t_emit_jne_rel32(J, jne_disp)
+        x64t_emit_cmp_rdi_d32_imm8(J, tag_disp, LUA_TINT)
+        jump tile_done()
+    end
+    x64t_emit_load_rdi_d32(J, dst, op1 * TV_STRIDE + TV_PAYLOAD)
+    jump tile_done()
+end
+end
+
+region x64_ir_kint(A: ptr(u8), J: ptr(u8), ir_buf: ptr(u64), slot: i32) -> proto.TileResult
+entry start()
+    let dst: i32 = x64t_ra_get(A, slot)
+    if dst < 0 then jump tile_done() end
+    let op1: i32 = x64t_ir_op1_at(ir_buf, slot)
+    let op2: i32 = x64t_ir_op2_at(ir_buf, slot)
+    x64t_emit_mov_ri32(J, dst, op1 | (op2 << 16))
+    jump tile_done()
+end
+end
+
+region x64_ir_add(A: ptr(u8), J: ptr(u8), ir_buf: ptr(u64), slot: i32) -> proto.TileResult
+entry start()
+    let dst: i32 = x64t_ra_get(A, slot)
+    if dst < 0 then jump tile_done() end
+    let r1: i32 = x64t_ra_get(A, x64t_ir_op1_at(ir_buf, slot) - REF_BIAS)
+    let r2: i32 = x64t_ra_get(A, x64t_ir_op2_at(ir_buf, slot) - REF_BIAS)
+    if r1 < 0 then jump abort(reason = slot) end
+    if r2 < 0 then jump abort(reason = slot) end
+    x64t_emit_add_rr(J, dst, r2)
+    if dst ~= r1 then x64t_emit_mov_rr(J, dst, r1) end
+    jump tile_done()
+end
+end
+
+region x64_ir_sub(A: ptr(u8), J: ptr(u8), ir_buf: ptr(u64), slot: i32) -> proto.TileResult
+entry start()
+    let dst: i32 = x64t_ra_get(A, slot)
+    if dst < 0 then jump tile_done() end
+    let r1: i32 = x64t_ra_get(A, x64t_ir_op1_at(ir_buf, slot) - REF_BIAS)
+    let r2: i32 = x64t_ra_get(A, x64t_ir_op2_at(ir_buf, slot) - REF_BIAS)
+    if r1 < 0 then jump abort(reason = slot) end
+    if r2 < 0 then jump abort(reason = slot) end
+    x64t_emit_sub_rr(J, dst, r2)
+    if dst ~= r1 then x64t_emit_mov_rr(J, dst, r1) end
+    jump tile_done()
+end
+end
+
+region x64_ir_mul(A: ptr(u8), J: ptr(u8), ir_buf: ptr(u64), slot: i32) -> proto.TileResult
+entry start()
+    let dst: i32 = x64t_ra_get(A, slot)
+    if dst < 0 then jump tile_done() end
+    let r1: i32 = x64t_ra_get(A, x64t_ir_op1_at(ir_buf, slot) - REF_BIAS)
+    let r2: i32 = x64t_ra_get(A, x64t_ir_op2_at(ir_buf, slot) - REF_BIAS)
+    if r1 < 0 then jump abort(reason = slot) end
+    if r2 < 0 then jump abort(reason = slot) end
+    x64t_emit_imul_rr(J, dst, r2)
+    if dst ~= r1 then x64t_emit_mov_rr(J, dst, r1) end
+    jump tile_done()
+end
+end
+
+region x64_ir_retf(A: ptr(u8), J: ptr(u8), ir_buf: ptr(u64), slot: i32) -> proto.TileResult
+entry start()
+    let r_val: i32 = x64t_ra_get(A, x64t_ir_op1_at(ir_buf, slot) - REF_BIAS)
+    if r_val < 0 then jump abort(reason = slot) end
+    x64t_emit_ret(J)
+    if r_val ~= 0 then x64t_emit_mov_rr(J, 0, r_val) end
+    jump tile_done()
+end
+end
+
+region x64_asm_one_ir(A: ptr(u8), J: ptr(u8), ir_buf: ptr(u64), slot: i32) -> proto.TileResult
+entry start()
+    let op: i32 = x64t_ir_op_at(ir_buf, slot)
+    switch op do
+    case 31 then
+        emit x64_ir_sload(A, J, ir_buf, slot; tile_done = done, need_snapshot = snap, mcode_full = full, unsupported = unsup, abort = bad)
+    case 60 then
+        emit x64_ir_kint(A, J, ir_buf, slot; tile_done = done, need_snapshot = snap, mcode_full = full, unsupported = unsup, abort = bad)
+    case 10 then
+        emit x64_ir_add(A, J, ir_buf, slot; tile_done = done, need_snapshot = snap, mcode_full = full, unsupported = unsup, abort = bad)
+    case 11 then
+        emit x64_ir_sub(A, J, ir_buf, slot; tile_done = done, need_snapshot = snap, mcode_full = full, unsupported = unsup, abort = bad)
+    case 12 then
+        emit x64_ir_mul(A, J, ir_buf, slot; tile_done = done, need_snapshot = snap, mcode_full = full, unsupported = unsup, abort = bad)
+    case 82 then
+        emit x64_ir_retf(A, J, ir_buf, slot; tile_done = done, need_snapshot = snap, mcode_full = full, unsupported = unsup, abort = bad)
+    case 80 then
+        jump tile_done()
+    case 90 then
+        jump tile_done()
+    default then
+        jump unsupported(op = op)
+    end
+end
+block done()
+    jump tile_done()
+end
+block snap(snapno: i32)
+    jump need_snapshot(snapno = snapno)
+end
+block full()
+    jump mcode_full()
+end
+block unsup(op: i32)
+    jump unsupported(op = op)
+end
+block bad(reason: i32)
+    jump abort(reason = reason)
 end
 end
 
 end
 
 local _c = m:compile(); _c:free()
+return m

@@ -1,6 +1,6 @@
 -- ffi/ctype.mlua -- CType system stub.
 
-local m = module VmFfiCtype
+local m = module "luajitvm.ffi.ctype"
 
 export func ctype_version() -> i32
     return 1

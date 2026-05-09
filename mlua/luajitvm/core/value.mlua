@@ -2,7 +2,7 @@
 -- Layout: TValue = 16 bytes: [tag:i32@0][pad:i32@4][payload:i64@8]
 -- Access via ptr(i32) for 32-bit fields, ptr(i64) for 64-bit payload.
 
-local m = module VmCoreValue
+local m = module "luajitvm.core.value"
 
 -- -----------------------------------------------------------------------
 -- Type tag constants (matching LuaJIT lj_obj.h LJ_T* values)

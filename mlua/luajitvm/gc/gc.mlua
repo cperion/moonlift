@@ -1,6 +1,6 @@
 -- gc/gc.mlua -- GC driver stub.
 
-local m = module VmGc
+local m = module "luajitvm.gc.gc"
 
 export func gc_version() -> i32
     return 1

@@ -1,6 +1,6 @@
 -- generated/fold_rules.mlua -- FOLD rule dispatch stub (build-time generated).
 
-local m = module VmGenFoldRules
+local m = module "luajitvm.generated.fold_rules"
 
 export func fold_rules_version() -> i32
     return 1

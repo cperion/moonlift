@@ -1,32 +1,103 @@
--- asm/regalloc.mlua -- Register allocator region stubs.
--- Protocol: RAAlloc, RADest
--- P4.PROTO.008 stub.
+-- asm/regalloc.mlua -- Register allocator regions.
+--
+-- Region-first register allocation surface for x64 trace assembly.  The current
+-- allocator is a final-interface bring-up: backward linear scan, remat/spill
+-- not implemented yet, but exhaustion exits through typed protocol variants.
 
-local m = module VmAsmRegalloc
+local proto = moon.require("luajitvm.protocols")
+local m = module "luajitvm.asm.regalloc"
 
-type RAAlloc = reg(r: i32)
-    | remat(r: i32)
-    | spill_and_retry(victim: i32)
-    | fail(code: i32)
+const REF_BIAS:  i32 = 0x8000
+const A_FREE:    i32 = 0
+const A_MAP:     i32 = 4
+const FREE_INIT: i32 = 0x0F47 -- rax,rcx,rdx,rsi,r8-r11; rdi reserved for Lua base
 
-type RADest = dest_reg(r: i32)
-    | dest_spill(victim: i32)
-    | fail(code: i32)
+func ref_slot(ref: i32) -> i32
+    if ref >= REF_BIAS then return ref - REF_BIAS end
+    return ref
+end
 
--- Allocate a register for an IR ref (source operand).
-region ra_alloc(A: ptr(u8), ref: i32, allow: i32) -> RAAlloc
+func ra_free_mask(A: ptr(u8)) -> i32
+    return as(ptr(i32), A)[0]
+end
+
+func ra_set_free_mask(A: ptr(u8), v: i32)
+    as(ptr(i32), A)[0] = v
+end
+
+func ra_map(A: ptr(u8)) -> ptr(u8)
+    return A + A_MAP
+end
+
+func ra_assigned(A: ptr(u8), slot: i32) -> bool
+    return ra_map(A)[slot] ~= 0
+end
+
+func ra_get_reg(A: ptr(u8), slot: i32) -> i32
+    return as(i32, ra_map(A)[slot]) - 1
+end
+
+func ra_set_reg(A: ptr(u8), slot: i32, r: i32)
+    ra_map(A)[slot] = as(u8, r + 1)
+end
+
+func bit_scan_low(mask: i32) -> i32
+    if (mask & 1)     ~= 0 then return 0  end
+    if (mask & 2)     ~= 0 then return 1  end
+    if (mask & 4)     ~= 0 then return 2  end
+    if (mask & 8)     ~= 0 then return 3  end
+    if (mask & 0x10)  ~= 0 then return 4  end
+    if (mask & 0x20)  ~= 0 then return 5  end
+    if (mask & 0x40)  ~= 0 then return 6  end
+    if (mask & 0x80)  ~= 0 then return 7  end
+    if (mask & 0x100) ~= 0 then return 8  end
+    if (mask & 0x200) ~= 0 then return 9  end
+    if (mask & 0x400) ~= 0 then return 10 end
+    if (mask & 0x800) ~= 0 then return 11 end
+    return -1
+end
+
+region ra_alloc(A: ptr(u8), ref: i32, allow: i32) -> proto.RAAlloc
 entry start()
-    jump fail(code = 0)
+    let slot: i32 = ref_slot(ref)
+    if ra_assigned(A, slot) then jump reg(r = ra_get_reg(A, slot)) end
+    let free: i32 = ra_free_mask(A) & allow
+    let r: i32 = bit_scan_low(free)
+    if r < 0 then jump fail(code = ref) end
+    ra_set_free_mask(A, ra_free_mask(A) - (1 << r))
+    ra_set_reg(A, slot, r)
+    jump reg(r = r)
 end
 end
 
--- Allocate a destination register for an IR definition.
-region ra_dest(A: ptr(u8), ref: i32, allow: i32) -> RADest
+region ra_dest(A: ptr(u8), ref: i32, allow: i32) -> proto.RADest
 entry start()
-    jump fail(code = 0)
+    let slot: i32 = ref_slot(ref)
+    if ra_assigned(A, slot) then jump dest_reg(r = ra_get_reg(A, slot)) end
+    let free: i32 = ra_free_mask(A) & allow
+    let r: i32 = bit_scan_low(free)
+    if r < 0 then jump fail(code = ref) end
+    ra_set_free_mask(A, ra_free_mask(A) - (1 << r))
+    ra_set_reg(A, slot, r)
+    jump dest_reg(r = r)
 end
+end
+
+export func regalloc_init(A: ptr(u8))
+    ra_set_free_mask(A, FREE_INIT)
+end
+
+export func regalloc_get(A: ptr(u8), ref: i32) -> i32
+    let slot: i32 = ref_slot(ref)
+    if not ra_assigned(A, slot) then return -1 end
+    return ra_get_reg(A, slot)
+end
+
+export func regalloc_const_check() -> i32
+    return FREE_INIT + REF_BIAS
 end
 
 end
 
 local _c = m:compile(); _c:free()
+return m

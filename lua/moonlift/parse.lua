@@ -212,7 +212,7 @@ Parser.__index = Parser
 
 local function parser(T, src, opts)
     opts = opts or {}
-    return setmetatable({ T = T, C = T.MoonCore, Ty = T.MoonType, B = T.MoonBind, O = T.MoonOpen, Sem = T.MoonSem, Tr = T.MoonTree, Pm = T.MoonParse, toks = M.lex(src), i = 1, issues = {}, region_seq = 0, value_env = opts.value_env or {}, cont_env = opts.cont_env or {}, region_frags = opts.region_frags or {}, expr_frags = opts.expr_frags or {}, protocol_types = opts.protocol_types or {} }, Parser)
+    return setmetatable({ T = T, C = T.MoonCore, Ty = T.MoonType, B = T.MoonBind, O = T.MoonOpen, Sem = T.MoonSem, Tr = T.MoonTree, Pm = T.MoonParse, toks = M.lex(src), i = 1, issues = {}, region_seq = 0, value_env = opts.value_env or {}, cont_env = opts.cont_env or {}, region_frags = opts.region_frags or {}, expr_frags = opts.expr_frags or {}, protocol_types = opts.protocol_types or {}, qualified_values = opts.qualified_values or {} }, Parser)
 end
 
 local function parser_from_toks(T, toks, opts)
@@ -226,7 +226,7 @@ local function parser_from_toks(T, toks, opts)
         region_frags = opts.region_frags or {},
         expr_frags = opts.expr_frags or {},
         protocol_types = opts.protocol_types or {},
-        protocol_types = opts.protocol_types or {},
+        qualified_values = opts.qualified_values or {},
         splice_slots = {},
         splice_slots_by_id = {},
     }, Parser)
@@ -292,12 +292,21 @@ function Parser:record_splice_slot(splice_id, slot_sum, role)
         self:issue("splice @{} is not valid in plain source; use a template island")
         return
     end
-    if self.splice_slots_by_id[splice_id] then
-        self:issue("duplicate splice id: " .. splice_id)
-    end
+    local key = tostring(role) .. ":" .. tostring(splice_id)
+    local existing = self.splice_slots_by_id[key]
+    if existing then return existing end
     local entry = { splice_id = splice_id, slot = slot_sum, role = role }
     self.splice_slots[#self.splice_slots + 1] = entry
-    self.splice_slots_by_id[splice_id] = entry
+    self.splice_slots_by_id[key] = entry
+    return entry
+end
+
+function Parser:qualified_slot_id(path_text)
+    return "qualified." .. path_text
+end
+
+function Parser:has_qualified_value(path_text)
+    return self.qualified_values and self.qualified_values[path_text] ~= nil
 end
 
 function Parser:parse_region_frag_ref()
@@ -309,6 +318,18 @@ function Parser:parse_region_frag_ref()
         return O.RegionFragRefSlot(slot), "splice." .. id
     end
     local name = self:expect_name("expected region fragment name after emit")
+    if self:kind() == TK.dot then
+        local parts = { name }
+        while self:accept(TK.dot) do parts[#parts + 1] = self:expect_name("expected qualified region fragment field") end
+        local path_text = table.concat(parts, ".")
+        if self:has_qualified_value(path_text) then
+            local id = self:qualified_slot_id(path_text)
+            local slot = O.RegionFragSlot(self:splice_key("region_frag", id), path_text)
+            self:record_splice_slot(id, O.SlotRegionFrag(slot), "region_frag")
+            return O.RegionFragRefSlot(slot), path_text
+        end
+        return O.RegionFragRefName(parts[#parts]), path_text
+    end
     return O.RegionFragRefName(name), name
 end
 
@@ -321,6 +342,18 @@ function Parser:parse_expr_frag_ref()
         return O.ExprFragRefSlot(slot), "splice." .. id
     end
     local name = self:expect_name("expected expression fragment name after emit")
+    if self:kind() == TK.dot then
+        local parts = { name }
+        while self:accept(TK.dot) do parts[#parts + 1] = self:expect_name("expected qualified expression fragment field") end
+        local path_text = table.concat(parts, ".")
+        if self:has_qualified_value(path_text) then
+            local id = self:qualified_slot_id(path_text)
+            local slot = O.ExprFragSlot(self:splice_key("expr_frag", id), path_text)
+            self:record_splice_slot(id, O.SlotExprFrag(slot), "expr_frag")
+            return O.ExprFragRefSlot(slot), path_text
+        end
+        return O.ExprFragRefName(parts[#parts]), path_text
+    end
     return O.ExprFragRefName(name), name
 end
 
@@ -344,6 +377,20 @@ function Parser:parse_type()
     local name = self:expect_name("expected type")
     if name == "ptr" and self:accept(TK.lparen) then
         local elem = self:parse_type(); self:expect(TK.rparen); return self.Ty.TPtr(elem)
+    end
+    if self:kind() == TK.dot then
+        local parts = { name }
+        while self:accept(TK.dot) do parts[#parts + 1] = self:expect_name("expected qualified type field") end
+        local path_text = table.concat(parts, ".")
+        if self:has_qualified_value(path_text) then
+            local id = self:qualified_slot_id(path_text)
+            local slot = self.O.TypeSlot(self:splice_key("type", id), path_text)
+            self:record_splice_slot(id, self.O.SlotType(slot), "type")
+            return self.Ty.TSlot(slot)
+        end
+        local path_parts = {}
+        for i = 1, #parts do path_parts[i] = self.C.Name(parts[i]) end
+        return self.Ty.TNamed(self.Ty.TypeRefPath(self.C.Path(path_parts)))
     end
     return self:type_name(name)
 end
@@ -463,7 +510,17 @@ function Parser:led(k, left)
         local index = self:parse_expr(0); self:expect(TK.rbrack)
         return Tr.ExprIndex(Tr.ExprSurface, Tr.IndexBaseExpr(left), index)
     elseif k == TK.dot then
-        return Tr.ExprDot(Tr.ExprSurface, left, self:expect_name("expected field name"))
+        local field = self:expect_name("expected field name")
+        if pvm.classof(left) == Tr.ExprRef and pvm.classof(left.ref) == self.B.ValueRefName then
+            local path_text = left.ref.name .. "." .. field
+            if self:has_qualified_value(path_text) then
+                local id = self:qualified_slot_id(path_text)
+                local slot = self.O.ExprSlot(self:splice_key("expr", id), path_text, nil)
+                self:record_splice_slot(id, self.O.SlotExpr(slot), "expr")
+                return Tr.ExprSlotValue(Tr.ExprSurface, slot)
+            end
+        end
+        return Tr.ExprDot(Tr.ExprSurface, left, field)
     end
     local bin = { [TK.plus] = C.BinAdd, [TK.minus] = C.BinSub, [TK.star] = C.BinMul, [TK.slash] = C.BinDiv, [TK.percent] = C.BinRem, [TK.amp] = C.BinBitAnd, [TK.pipe] = C.BinBitOr, [TK.caret] = C.BinBitXor, [TK.shl] = C.BinShl, [TK.lshr] = C.BinLShr, [TK.ashr] = C.BinAShr }
     local cmp = { [TK.eqeq] = C.CmpEq, [TK.ne] = C.CmpNe, [TK.lt] = C.CmpLt, [TK.le] = C.CmpLe, [TK.gt] = C.CmpGt, [TK.ge] = C.CmpGe }
@@ -1059,6 +1116,9 @@ function Parser:protocol_name_from_type(ty)
     if pvm.classof(ty) == self.Ty.TNamed and pvm.classof(ty.ref) == self.Ty.TypeRefPath and #ty.ref.path.parts == 1 then
         return ty.ref.path.parts[1].text
     end
+    if pvm.classof(ty) == self.Ty.TSlot then
+        return ty.slot.pretty_name
+    end
     return nil
 end
 
@@ -1376,12 +1436,14 @@ function M.parse_module_template(T, template, opts)
     local toks = M.lex_template(T, template)
     local p = parser_from_toks(T, toks, opts)
     p:skip_sep()
+    local module_name = nil
     -- consume optional "module [name]" header ("module" is a plain TK.name)
     if p:kind() == TK.name and p:text() == "module" then
         p.i = p.i + 1
         p:skip_sep()
         -- consume optional module name (identifier or Lua-style string path)
         if (p:kind() == TK.name and not keywords[p:text()]) or p:kind() == TK.string then
+            module_name = p:text()
             p.i = p.i + 1
         end
         p:skip_sep()
@@ -1409,7 +1471,7 @@ function M.parse_module_template(T, template, opts)
         p:skip_sep()
     end
     if p:kind() == TK.end_kw then p.i = p.i + 1 end
-    local module = p.Tr.Module(p.Tr.ModuleSurface, items)
+    local module = p.Tr.Module(module_name and p.Tr.ModuleTyped(module_name) or p.Tr.ModuleSurface, items)
     return { value = module, module = module, splice_slots = p.splice_slots, issues = p.issues,
              region_frags = p.region_frags, expr_frags = p.expr_frags, protocol_types = p.protocol_types }
 end

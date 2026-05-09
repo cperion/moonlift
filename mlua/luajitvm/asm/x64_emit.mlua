@@ -9,9 +9,7 @@
 --
 -- All operations are 64-bit unless noted.
 
-local m = module VmAsmX64Emit
-
-type EmitResult = ok | full | abort(reason: i32)
+local m = module "luajitvm.asm.x64_emit"
 
 -- =========================================================================
 -- JitState mcode accessors (same layout as mcode.mlua)
@@ -75,7 +73,7 @@ end
 -- =========================================================================
 
 -- emit_mov_rr: MOV dst, src  (64-bit reg-to-reg)
-region emit_mov_rr(J: ptr(u8), dst: i32, src: i32) -> EmitResult
+region emit_mov_rr(J: ptr(u8), dst: i32, src: i32; ok: cont(), full: cont(), abort: cont(reason: i32))
 entry start()
     if not mc_can_fit(J, 3) then jump full() end
     -- Encoding: REX.W + 89 /r   (MOV r/m64, r64)
@@ -87,7 +85,7 @@ end
 end
 
 -- emit_add_rr: ADD dst, src  (64-bit)
-region emit_add_rr(J: ptr(u8), dst: i32, src: i32) -> EmitResult
+region emit_add_rr(J: ptr(u8), dst: i32, src: i32; ok: cont(), full: cont(), abort: cont(reason: i32))
 entry start()
     if not mc_can_fit(J, 3) then jump full() end
     -- REX.W + 01 /r   (ADD r/m64, r64)
@@ -99,7 +97,7 @@ end
 end
 
 -- emit_sub_rr: SUB dst, src  (64-bit)
-region emit_sub_rr(J: ptr(u8), dst: i32, src: i32) -> EmitResult
+region emit_sub_rr(J: ptr(u8), dst: i32, src: i32; ok: cont(), full: cont(), abort: cont(reason: i32))
 entry start()
     if not mc_can_fit(J, 3) then jump full() end
     -- REX.W + 29 /r   (SUB r/m64, r64)
@@ -111,7 +109,7 @@ end
 end
 
 -- emit_imul_rr: IMUL dst, src  (64-bit signed multiply)
-region emit_imul_rr(J: ptr(u8), dst: i32, src: i32) -> EmitResult
+region emit_imul_rr(J: ptr(u8), dst: i32, src: i32; ok: cont(), full: cont(), abort: cont(reason: i32))
 entry start()
     if not mc_can_fit(J, 4) then jump full() end
     -- REX.W + 0F AF /r  (IMUL r64, r/m64)
@@ -124,7 +122,7 @@ end
 end
 
 -- emit_mov_ri32: MOV dst, imm32 (zero-extended to 64 bits)
-region emit_mov_ri32(J: ptr(u8), dst: i32, imm: i32) -> EmitResult
+region emit_mov_ri32(J: ptr(u8), dst: i32, imm: i32; ok: cont(), full: cont(), abort: cont(reason: i32))
 entry start()
     if not mc_can_fit(J, 7) then jump full() end
     -- REX.W + C7 /0 id  (MOV r/m64, imm32 sign-extended)
@@ -137,7 +135,7 @@ end
 end
 
 -- emit_ret: RET (near return)
-region emit_ret(J: ptr(u8)) -> EmitResult
+region emit_ret(J: ptr(u8); ok: cont(), full: cont(), abort: cont(reason: i32))
 entry start()
     if not mc_can_fit(J, 1) then jump full() end
     mc_put8(J, 0xC3)
@@ -146,7 +144,7 @@ end
 end
 
 -- emit_push_r: PUSH r (64-bit)
-region emit_push_r(J: ptr(u8), r: i32) -> EmitResult
+region emit_push_r(J: ptr(u8), r: i32; ok: cont(), full: cont(), abort: cont(reason: i32))
 entry start()
     let need = 1 + (r >> 3)  -- extra REX byte if r >= 8
     if not mc_can_fit(J, need) then jump full() end
@@ -159,7 +157,7 @@ end
 end
 
 -- emit_pop_r: POP r (64-bit)
-region emit_pop_r(J: ptr(u8), r: i32) -> EmitResult
+region emit_pop_r(J: ptr(u8), r: i32; ok: cont(), full: cont(), abort: cont(reason: i32))
 entry start()
     let need = 1 + (r >> 3)
     if not mc_can_fit(J, need) then jump full() end

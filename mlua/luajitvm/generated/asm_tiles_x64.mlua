@@ -1,6 +1,6 @@
 -- generated/asm_tiles_x64.mlua -- x64 assembler tile tables stub (build-time generated).
 
-local m = module VmGenAsmTilesX64
+local m = module "luajitvm.generated.asm_tiles_x64"
 
 export func asm_tiles_x64_version() -> i32
     return 1

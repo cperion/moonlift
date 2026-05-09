@@ -15,11 +15,8 @@
 --
 -- Protocol types
 
-local m = module VmAsmMcode
-
-type MCodeResult = ok(top: ptr(u8))
-    | full
-    | abort(reason: i32)
+local proto = moon.require("luajitvm.protocols")
+local m = module "luajitvm.asm.mcode"
 
 -- =========================================================================
 -- JitState mcode field accessors
@@ -50,7 +47,7 @@ end
 -- Sets mctop to buf+size (high end), mcbot to buf+16 (leave room for header).
 -- =========================================================================
 
-region mcode_init(J: ptr(u8), buf: ptr(u8), size: i32) -> MCodeResult
+region mcode_init(J: ptr(u8), buf: ptr(u8), size: i32) -> proto.MCodeReserve
 entry start()
     let j64 = as(ptr(u64), J)
     -- mctop starts at end of buffer (code grows downward)
@@ -60,7 +57,7 @@ entry start()
     j64[4] = as(u64, top)
     j64[5] = as(u64, bot)
     j64[6] = as(u64, buf)
-    jump ok(top = top)
+    jump mcode_ok(top = top)
 end
 end
 
@@ -69,7 +66,7 @@ end
 --   Returns updated top if ok, or full if out of space.
 -- =========================================================================
 
-region mc_reserve(J: ptr(u8), need: i32) -> MCodeResult
+region mc_reserve(J: ptr(u8), need: i32) -> proto.MCodeReserve
 entry start()
     let j64 = as(ptr(u64), J)
     let top = as(ptr(u8), j64[4])
@@ -78,7 +75,28 @@ entry start()
     -- Check: new_top >= bot
     if as(u64, new_top) < as(u64, bot) then jump full() end
     j64[4] = as(u64, new_top)
-    jump ok(top = new_top)
+    jump mcode_ok(top = new_top)
+end
+end
+
+region mcode_reserve(J: ptr(u8), need: u64) -> proto.MCodeReserve
+entry start()
+    emit mc_reserve(J, as(i32, need); mcode_ok = ok, grow = grow_more, full = no_room)
+end
+block ok(top: ptr(u8))
+    jump mcode_ok(top = top)
+end
+block grow_more()
+    jump grow()
+end
+block no_room()
+    jump full()
+end
+end
+
+region patch_trace_link(J: ptr(u8), from_tr: i32, to_tr: i32) -> proto.PatchBranch
+entry start()
+    jump direct()
 end
 end
 
@@ -87,7 +105,7 @@ end
 -- mctop is decremented BEFORE writing (grows downward).
 -- =========================================================================
 
-region mc_emit_byte(J: ptr(u8), b: i32) -> MCodeResult
+region mc_emit_byte(J: ptr(u8), b: i32) -> proto.MCodeReserve
 entry start()
     let j64 = as(ptr(u64), J)
     let top = as(ptr(u8), j64[4])
@@ -96,7 +114,7 @@ entry start()
     if as(u64, new_top) < as(u64, bot) then jump full() end
     new_top[0] = as(u8, b)
     j64[4] = as(u64, new_top)
-    jump ok(top = new_top)
+    jump mcode_ok(top = new_top)
 end
 end
 
@@ -104,7 +122,7 @@ end
 -- mc_emit_u32: write 4 bytes (little-endian) growing downward.
 -- =========================================================================
 
-region mc_emit_u32(J: ptr(u8), v: i32) -> MCodeResult
+region mc_emit_u32(J: ptr(u8), v: i32) -> proto.MCodeReserve
 entry start()
     let j64 = as(ptr(u64), J)
     let top = as(ptr(u8), j64[4])
@@ -118,7 +136,7 @@ entry start()
     p[2] = as(u8, v >> 16)
     p[3] = as(u8, v >> 24)
     j64[4] = as(u64, new_top)
-    jump ok(top = new_top)
+    jump mcode_ok(top = new_top)
 end
 end
 
@@ -130,11 +148,11 @@ export func mcode_init_test(J: ptr(u8), buf: ptr(u8), size: i32) -> i32
     return region -> i32
     entry start()
         emit mcode_init(J, buf, size;
-            ok = got_ok, full = got_full, abort = got_abort)
+            mcode_ok = got_ok, grow = got_grow, full = got_full)
     end
     block got_ok(top: ptr(u8)) yield 0 end
+    block got_grow()           yield -3 end
     block got_full()           yield -1 end
-    block got_abort(reason: i32) yield -2 end
     end
 end
 
@@ -142,11 +160,11 @@ export func mc_emit_byte_test(J: ptr(u8), b: i32) -> i32
     return region -> i32
     entry start()
         emit mc_emit_byte(J, b;
-            ok = got_ok, full = got_full, abort = got_abort)
+            mcode_ok = got_ok, grow = got_grow, full = got_full)
     end
     block got_ok(top: ptr(u8)) yield as(i32, top[0]) end
+    block got_grow()           yield -3 end
     block got_full()           yield -1 end
-    block got_abort(reason: i32) yield -2 end
     end
 end
 
@@ -154,11 +172,11 @@ export func mc_emit_u32_test(J: ptr(u8), v: i32) -> i32
     return region -> i32
     entry start()
         emit mc_emit_u32(J, v;
-            ok = got_ok, full = got_full, abort = got_abort)
+            mcode_ok = got_ok, grow = got_grow, full = got_full)
     end
     block got_ok(top: ptr(u8)) yield 0 end
+    block got_grow()           yield -3 end
     block got_full()           yield -1 end
-    block got_abort(reason: i32) yield -2 end
     end
 end
 
