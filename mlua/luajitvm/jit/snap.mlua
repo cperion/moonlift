@@ -1,32 +1,182 @@
--- jit/snap.mlua -- Snapshot add/restore region stubs.
--- Protocol: SnapAdd, SnapRestore
--- P4.PROTO.006 stub.
+-- jit/snap.mlua — Snapshot capture region.
+--
+-- snap_add: records the current virtual frame as a SnapShot entry.
+-- Each guard emits a snapshot so the deoptimiser can rebuild the Lua
+-- stack by reading back IR values from the snapshot map.
+--
+-- SnapShot header (16 bytes):
+--   [0:3]  mapofs u32  — byte offset into snapmap where entries start
+--   [4:7]  nslots u32  — number of slots captured
+--   [8:9]  nent   u16  — number of SnapEntry items
+--   [10:11] count u16  — times snapshot was taken
+--   [12:13] ref   u16  — IR ref of the guard
+--   [14:15] depth u16  — call depth
+--
+-- SnapEntry (4 bytes / i32):
+--   bits [31:24]  slot   — Lua stack slot index
+--   bits [23:16]  flags  — SNAP_FRAME, SNAP_NORESTORE, etc.
+--   bits [15:0]   ref    — low 16 bits of the IR ref
+--
+-- Protocol: SnapResult = added(snap_idx) | overflow | abort(reason)
 
 local m = module VmJitSnap
 
-type SnapAdd = snap_done(snapno: i32)
-    | merge(snapno: i32)
+-- =========================================================================
+-- Protocol
+-- =========================================================================
+type SnapResult = added(snap_idx: i32)
     | overflow
     | abort(reason: i32)
 
-type SnapRestore = restored(pc: ptr(u8))
-    | unsupported(code: i32)
-    | error(code: i32)
+-- =========================================================================
+-- Constants
+-- =========================================================================
+const SNAP_SIZE:       i32 = 16
+const SNAP_ENTRY_SIZE: i32 = 4
+const SNAP_SLOT_SHIFT: i32 = 24
+const SNAP_FRAME:      i32 = 0x00010000
+const SNAP_NORESTORE:  i32 = 0x00020000
+const MAX_SNAPS:       i32 = 256
+const MAX_SNAPMAP:     i32 = 4096
 
--- Add a snapshot at a guard instruction.
-region snap_add(J: ptr(u8), guard: i32) -> SnapAdd
+-- =========================================================================
+-- Accessors into GCtrace (layout from trace.mlua)
+-- =========================================================================
+func tr_snap_ptr(tr: ptr(u8)) -> ptr(u8)
+    let p: ptr(u64) = as(ptr(u64), tr)
+    return as(ptr(u8), p[5])
+end
+
+func tr_snapmap_ptr(tr: ptr(u8)) -> ptr(u8)
+    let p: ptr(u64) = as(ptr(u64), tr)
+    return as(ptr(u8), p[6])
+end
+
+func tr_nsnap(tr: ptr(u8)) -> i32
+    let p: ptr(u16) = as(ptr(u16), tr)
+    return as(i32, p[8])
+end
+
+func tr_set_nsnap(tr: ptr(u8), v: i32)
+    let p: ptr(u16) = as(ptr(u16), tr)
+    p[8] = as(u16, v)
+end
+
+func tr_nsnapmap(tr: ptr(u8)) -> i32
+    let p: ptr(u32) = as(ptr(u32), tr)
+    return as(i32, p[9])
+end
+
+func tr_set_nsnapmap(tr: ptr(u8), v: i32)
+    let p: ptr(u32) = as(ptr(u32), tr)
+    p[9] = as(u32, v)
+end
+
+-- Write one SnapShot header (16 bytes) at slot snap_idx.
+-- Each slot is 4 u32s.  Element base = snap_idx * 4.
+func snap_write(snap_base: ptr(u8), snap_idx: i32, mapofs: i32, nslots: i32, nent: i32, ref: i32)
+    let b: i32 = snap_idx * 4
+    let p: ptr(u32) = as(ptr(u32), snap_base)
+    p[b + 0] = as(u32, mapofs)
+    p[b + 1] = as(u32, nslots)
+    p[b + 2] = as(u32, nent & 0xFFFF)
+    p[b + 3] = as(u32, ref & 0xFFFF)
+end
+
+-- Write one SnapEntry at entry_idx in the snapmap.
+func snapmap_write(snapmap_base: ptr(u8), entry_idx: i32, slot: i32, flags: i32, ref: i32)
+    let p: ptr(u32) = as(ptr(u32), snapmap_base)
+    p[entry_idx] = as(u32, (slot << SNAP_SLOT_SHIFT) | (flags & 0x00FF0000) | (ref & 0xFFFF))
+end
+
+-- =========================================================================
+-- snap_add: capture current slot-to-ref mapping as a new snapshot.
+--
+-- Parameters:
+--   J         ptr(u8)   JitState
+--   slots     ptr(i32)  array of IR refs indexed by stack slot
+--   nslots    i32       number of slots
+--   guard_ref i32       IR ref of the guard instruction
+-- =========================================================================
+
+region snap_add(J: ptr(u8), slots: ptr(i32), nslots: i32, guard_ref: i32) -> SnapResult
 entry start()
-    jump abort(reason = 0)
-end
+    let j64: ptr(u64) = as(ptr(u64), J)
+    let tr:  ptr(u8)  = as(ptr(u8),  j64[0])
+
+    let nsnap:    i32     = tr_nsnap(tr)
+    let nsnapmap: i32     = tr_nsnapmap(tr)
+    let snap_b:   ptr(u8) = tr_snap_ptr(tr)
+    let smap_b:   ptr(u8) = tr_snapmap_ptr(tr)
+
+    if nsnap >= MAX_SNAPS then jump overflow() end
+    if nsnapmap + nslots > MAX_SNAPMAP then jump overflow() end
+
+    jump iter(slot_idx = 0, nent = 0,
+        tr_v = tr, nsnap_v = nsnap, nsmap_v = nsnapmap,
+        snap_b_v = snap_b, smap_b_v = smap_b)
 end
 
--- Restore interpreter state from a snapshot after a guard exit.
-region snap_restore(L: ptr(u8), tr: i32, exitno: i32, ex: ptr(u8)) -> SnapRestore
-entry start()
-    jump unsupported(code = 0)
+-- Iterate over slots, writing a SnapEntry for each live (non-zero) ref.
+block iter(slot_idx: i32, nent: i32,
+    tr_v: ptr(u8), nsnap_v: i32, nsmap_v: i32,
+    snap_b_v: ptr(u8), smap_b_v: ptr(u8))
+    if slot_idx >= nslots then
+        jump commit(nent = nent,
+            tr_v = tr_v, nsnap_v = nsnap_v, nsmap_v = nsmap_v,
+            snap_b_v = snap_b_v, smap_b_v = smap_b_v)
+    end
+    let ref: i32 = slots[slot_idx]
+    if ref == 0 then
+        jump iter(slot_idx = slot_idx + 1, nent = nent,
+            tr_v = tr_v, nsnap_v = nsnap_v, nsmap_v = nsmap_v,
+            snap_b_v = snap_b_v, smap_b_v = smap_b_v)
+    end
+    snapmap_write(smap_b_v, nsmap_v + nent, slot_idx, 0, ref)
+    jump iter(slot_idx = slot_idx + 1, nent = nent + 1,
+        tr_v = tr_v, nsnap_v = nsnap_v, nsmap_v = nsmap_v,
+        snap_b_v = snap_b_v, smap_b_v = smap_b_v)
 end
+
+-- Write the SnapShot header and update trace counters.
+block commit(nent: i32,
+    tr_v: ptr(u8), nsnap_v: i32, nsmap_v: i32,
+    snap_b_v: ptr(u8), smap_b_v: ptr(u8))
+    snap_write(snap_b_v, nsnap_v, nsmap_v, nslots, nent, guard_ref)
+    tr_set_nsnap(tr_v, nsnap_v + 1)
+    tr_set_nsnapmap(tr_v, nsmap_v + nent)
+    jump added(snap_idx = nsnap_v)
 end
 
 end
 
-local _c = m:compile(); _c:free()
+-- =========================================================================
+-- Export func wrappers for testing
+-- =========================================================================
+
+export func snap_add_test(J: ptr(u8), slots: ptr(i32), nslots: i32, guard_ref: i32) -> i32
+    return region -> i32
+    entry start()
+        emit snap_add(J, slots, nslots, guard_ref;
+            added    = got_added,
+            overflow = got_overflow,
+            abort    = got_abort)
+    end
+    block got_added(snap_idx: i32)
+        yield snap_idx
+    end
+    block got_overflow()
+        yield -1
+    end
+    block got_abort(reason: i32)
+        yield -2
+    end
+    end
+end
+
+export func snap_const_check() -> i32
+    return SNAP_SIZE + SNAP_ENTRY_SIZE + SNAP_SLOT_SHIFT + MAX_SNAPS
+end
+
+end
+return m
