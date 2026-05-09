@@ -1,18 +1,157 @@
--- jit/opt_dce.mlua -- Dead-code elimination pass stub.
--- Protocol: DCEResult
--- P4.PROTO.007 stub.
+-- jit/opt_dce.mlua — Dead Code Elimination pass.
+--
+-- Scans the IR buffer backward from nins-1 to REF_FIRST.
+-- Marks each instruction live if:
+--   - It has a side effect (SLOAD guard, LOOP, RETF, store ops)
+--   - It is referenced by an already-live instruction's op1 or op2
+-- Dead instructions are replaced with IR_NOP.
+--
+-- Protocol: DceResult = done(removed: i32) | abort(reason: i32)
 
 local m = module VmJitOptDce
 
-type DCEResult = dce_done
+type DceResult = done(removed: i32)
     | abort(reason: i32)
 
-region opt_dce(J: ptr(u8), tr: i32) -> DCEResult
+-- =========================================================================
+-- Constants
+-- =========================================================================
+const IR_NOP:   i32 = 90
+const IR_SLOAD: i32 = 31
+const IR_LOOP:  i32 = 80
+const IR_RETF:  i32 = 82
+const IR_KINT:  i32 = 60
+const IR_KPRI:  i32 = 67
+
+const REF_BIAS:  i32 = 0x8000
+const REF_FIRST: i32 = 0x8001
+const IRT_GUARD: i32 = 0x80
+
+-- Mark array: 256-slot u8 array indexed by (ref - REF_BIAS)
+-- We pass this as ptr(u8), one byte per instruction slot.
+const MARK_CAP: i32 = 256
+
+-- =========================================================================
+-- IRIns field accessors (same packing as ir.mlua / emit.mlua)
+--   bits [0:15]  op1
+--   bits [16:31] op2
+--   bits [32:39] t   (type byte, includes IRT_GUARD flag)
+--   bits [40:47] o   (opcode byte)
+-- =========================================================================
+func ir_op1_at(buf: ptr(u64), idx: i32) -> i32
+    return as(i32, buf[idx] & 0xFFFF)
+end
+
+func ir_op2_at(buf: ptr(u64), idx: i32) -> i32
+    return as(i32, (buf[idx] >> 16) & 0xFFFF)
+end
+
+func ir_type_at(buf: ptr(u64), idx: i32) -> i32
+    return as(i32, (buf[idx] >> 32) & 0xFF)
+end
+
+func ir_op_at(buf: ptr(u64), idx: i32) -> i32
+    return as(i32, (buf[idx] >> 40) & 0xFF)
+end
+
+-- Replace instruction at idx with IR_NOP (zeroes all fields)
+func ir_nop_at(buf: ptr(u64), idx: i32)
+    let m16: u64 = 0xFFFF
+    let m8:  u64 = 0xFF
+    buf[idx] = (as(u64, IR_NOP) & m8) << 40
+end
+
+-- =========================================================================
+-- has_side_effect: instructions that must not be eliminated
+-- =========================================================================
+func has_side_effect(o: i32, t: i32) -> bool
+    if o == IR_SLOAD then return true end     -- stack load with type guard
+    if o == IR_LOOP  then return true end     -- loop back-edge
+    if o == IR_RETF  then return true end     -- function return
+    if (t & IRT_GUARD) ~= 0 then return true end  -- any guard
+    return false
+end
+
+-- =========================================================================
+-- mark_ref: mark a ref as live in the mark array (if it's an instruction)
+-- =========================================================================
+func mark_ref(marks: ptr(u8), ref: i32)
+    if ref >= REF_FIRST then
+        let slot: i32 = ref - REF_BIAS
+        if slot < MARK_CAP then
+            marks[slot] = 1
+        end
+    end
+end
+
+-- =========================================================================
+-- dce_pass: the main backward scan region.
+--
+-- Parameters:
+--   irbuf:  ptr(u64)  IR instruction buffer (element-indexed)
+--   marks:  ptr(u8)   scratch byte array [MARK_CAP] zeroed by caller
+--   nins:   i32       current instruction count (next free slot, 1-based)
+--
+-- The scan iterates idx = nins-1 downto 1 using a recursive block.
+-- Returns done(removed) on success.
+-- =========================================================================
+
+region dce_pass(irbuf: ptr(u64), marks: ptr(u8), nins: i32) -> DceResult
 entry start()
-    jump abort(reason = 0)
+    -- Phase 1: mark all side-effecting instructions live initially
+    jump mark_side_effects(idx = nins - 1)
 end
+
+block mark_side_effects(idx: i32)
+    if idx < 1 then jump backward_scan(idx = nins - 1, removed = 0) end
+    let o: i32 = ir_op_at(irbuf, idx)
+    let t: i32 = ir_type_at(irbuf, idx)
+    if has_side_effect(o, t) then
+        marks[idx] = 1
+    end
+    jump mark_side_effects(idx = idx - 1)
+end
+
+-- Phase 2: backward scan — propagate liveness and eliminate dead instructions
+block backward_scan(idx: i32, removed: i32)
+    if idx < 1 then jump done(removed = removed) end
+    if marks[idx] ~= 0 then
+        -- This instruction is live: mark its operands live
+        let op1 = ir_op1_at(irbuf, idx)
+        let op2 = ir_op2_at(irbuf, idx)
+        mark_ref(marks, op1)
+        mark_ref(marks, op2)
+        jump backward_scan(idx = idx - 1, removed = removed)
+    end
+    -- Dead instruction: replace with NOP
+    ir_nop_at(irbuf, idx)
+    jump backward_scan(idx = idx - 1, removed = removed + 1)
 end
 
 end
 
-local _c = m:compile(); _c:free()
+-- =========================================================================
+-- Export func wrapper for testing
+-- =========================================================================
+
+export func dce_test(irbuf: ptr(u64), marks: ptr(u8), nins: i32) -> i32
+    return region -> i32
+    entry start()
+        emit dce_pass(irbuf, marks, nins;
+            done = got_done, abort = got_abort)
+    end
+    block got_done(removed: i32)
+        yield removed
+    end
+    block got_abort(reason: i32)
+        yield -1
+    end
+    end
+end
+
+export func dce_const_check() -> i32
+    return IR_NOP + IR_SLOAD + IR_LOOP + REF_BIAS + MARK_CAP
+end
+
+end
+return m
