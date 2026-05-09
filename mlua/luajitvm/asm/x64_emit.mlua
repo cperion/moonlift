@@ -1,11 +1,227 @@
--- asm/x64_emit.mlua -- x64 instruction encoding helpers stub.
+-- asm/x64_emit.mlua — x64 instruction encoding for JIT-compiled traces.
+--
+-- Emits x64 machine code for the core IR operations.
+-- Code grows DOWNWARD in the mcode buffer (LuaJIT style).
+--
+-- Register conventions (caller-saved, trace registers):
+--   rax=0  rcx=1  rdx=2  rbx=3  rsp=4  rbp=5  rsi=6  rdi=7
+--   r8=8   r9=9   r10=10 r11=11 r12=12 r13=13 r14=14 r15=15
+--
+-- All operations are 64-bit unless noted.
 
 local m = module VmAsmX64Emit
 
+type EmitResult = ok | full | abort(reason: i32)
+
+-- =========================================================================
+-- JitState mcode accessors (same layout as mcode.mlua)
+-- =========================================================================
+const J_OFF_MCTOP: i32 = 32
+
+func mc_top(J: ptr(u8)) -> ptr(u8)
+    return as(ptr(u8), as(ptr(u64), J)[4])
+end
+
+func mc_set_top(J: ptr(u8), v: ptr(u8))
+    as(ptr(u64), J)[4] = as(u64, v)
+end
+
+func mc_bot(J: ptr(u8)) -> ptr(u8)
+    return as(ptr(u8), as(ptr(u64), J)[5])
+end
+
+-- =========================================================================
+-- Low-level byte emitters (code grows downward)
+-- =========================================================================
+
+func mc_can_fit(J: ptr(u8), n: i32) -> bool
+    let top = mc_top(J)
+    let bot = mc_bot(J)
+    return as(u64, top - n) >= as(u64, bot)
+end
+
+-- emit one byte at top-1, decrement top
+func mc_put8(J: ptr(u8), b: i32)
+    let top = mc_top(J)
+    let p = top - 1
+    p[0] = as(u8, b)
+    mc_set_top(J, p)
+end
+
+-- emit u32 little-endian at top-4
+func mc_put32(J: ptr(u8), v: i32)
+    let top = mc_top(J)
+    let p = top - 4
+    p[0] = as(u8, v)
+    p[1] = as(u8, v >> 8)
+    p[2] = as(u8, v >> 16)
+    p[3] = as(u8, v >> 24)
+    mc_set_top(J, p)
+end
+
+-- REX prefix: W=1 (64-bit), R=reg_ext, B=rm_ext
+func rex_byte(w: i32, r: i32, x: i32, b: i32) -> i32
+    return 0x40 | (w << 3) | ((r >> 3) << 2) | ((x >> 3) << 1) | (b >> 3)
+end
+
+-- ModRM byte: mod=3 (reg-to-reg), reg, rm
+func modrm_rr(reg: i32, rm: i32) -> i32
+    return 0xC0 | ((reg & 7) << 3) | (rm & 7)
+end
+
+-- =========================================================================
+-- Instruction emitters (write bytes right-to-left since growing down)
+-- For simplicity we emit forward into a local array then copy to mctop.
+-- =========================================================================
+
+-- emit_mov_rr: MOV dst, src  (64-bit reg-to-reg)
+region emit_mov_rr(J: ptr(u8), dst: i32, src: i32) -> EmitResult
+entry start()
+    if not mc_can_fit(J, 3) then jump full() end
+    -- Encoding: REX.W + 89 /r   (MOV r/m64, r64)
+    mc_put8(J, modrm_rr(src, dst))
+    mc_put8(J, 0x89)
+    mc_put8(J, rex_byte(1, src, 0, dst))
+    jump ok()
+end
+end
+
+-- emit_add_rr: ADD dst, src  (64-bit)
+region emit_add_rr(J: ptr(u8), dst: i32, src: i32) -> EmitResult
+entry start()
+    if not mc_can_fit(J, 3) then jump full() end
+    -- REX.W + 01 /r   (ADD r/m64, r64)
+    mc_put8(J, modrm_rr(src, dst))
+    mc_put8(J, 0x01)
+    mc_put8(J, rex_byte(1, src, 0, dst))
+    jump ok()
+end
+end
+
+-- emit_sub_rr: SUB dst, src  (64-bit)
+region emit_sub_rr(J: ptr(u8), dst: i32, src: i32) -> EmitResult
+entry start()
+    if not mc_can_fit(J, 3) then jump full() end
+    -- REX.W + 29 /r   (SUB r/m64, r64)
+    mc_put8(J, modrm_rr(src, dst))
+    mc_put8(J, 0x29)
+    mc_put8(J, rex_byte(1, src, 0, dst))
+    jump ok()
+end
+end
+
+-- emit_imul_rr: IMUL dst, src  (64-bit signed multiply)
+region emit_imul_rr(J: ptr(u8), dst: i32, src: i32) -> EmitResult
+entry start()
+    if not mc_can_fit(J, 4) then jump full() end
+    -- REX.W + 0F AF /r  (IMUL r64, r/m64)
+    mc_put8(J, modrm_rr(dst, src))
+    mc_put8(J, 0xAF)
+    mc_put8(J, 0x0F)
+    mc_put8(J, rex_byte(1, dst, 0, src))
+    jump ok()
+end
+end
+
+-- emit_mov_ri32: MOV dst, imm32 (zero-extended to 64 bits)
+region emit_mov_ri32(J: ptr(u8), dst: i32, imm: i32) -> EmitResult
+entry start()
+    if not mc_can_fit(J, 7) then jump full() end
+    -- REX.W + C7 /0 id  (MOV r/m64, imm32 sign-extended)
+    mc_put32(J, imm)
+    mc_put8(J, modrm_rr(0, dst))
+    mc_put8(J, 0xC7)
+    mc_put8(J, rex_byte(1, 0, 0, dst))
+    jump ok()
+end
+end
+
+-- emit_ret: RET (near return)
+region emit_ret(J: ptr(u8)) -> EmitResult
+entry start()
+    if not mc_can_fit(J, 1) then jump full() end
+    mc_put8(J, 0xC3)
+    jump ok()
+end
+end
+
+-- emit_push_r: PUSH r (64-bit)
+region emit_push_r(J: ptr(u8), r: i32) -> EmitResult
+entry start()
+    let need = 1 + (r >> 3)  -- extra REX byte if r >= 8
+    if not mc_can_fit(J, need) then jump full() end
+    mc_put8(J, 0x50 | (r & 7))
+    if r >= 8 then
+        mc_put8(J, rex_byte(0, 0, 0, r))
+    end
+    jump ok()
+end
+end
+
+-- emit_pop_r: POP r (64-bit)
+region emit_pop_r(J: ptr(u8), r: i32) -> EmitResult
+entry start()
+    let need = 1 + (r >> 3)
+    if not mc_can_fit(J, need) then jump full() end
+    mc_put8(J, 0x58 | (r & 7))
+    if r >= 8 then
+        mc_put8(J, rex_byte(0, 0, 0, r))
+    end
+    jump ok()
+end
+end
+
+-- =========================================================================
+-- Export func wrappers (each takes J and the instruction operands)
+-- =========================================================================
+
+export func test_mov_rr(J: ptr(u8), dst: i32, src: i32) -> i32
+    return region -> i32
+    entry start()
+        emit emit_mov_rr(J, dst, src; ok = done, full = nope, abort = nope2)
+    end
+    block done()       yield 0  end
+    block nope()       yield -1 end
+    block nope2(r: i32) yield -2 end
+    end
+end
+
+export func test_add_rr(J: ptr(u8), dst: i32, src: i32) -> i32
+    return region -> i32
+    entry start()
+        emit emit_add_rr(J, dst, src; ok = done, full = nope, abort = nope2)
+    end
+    block done()       yield 0  end
+    block nope()       yield -1 end
+    block nope2(r: i32) yield -2 end
+    end
+end
+
+export func test_mov_ri32(J: ptr(u8), dst: i32, imm: i32) -> i32
+    return region -> i32
+    entry start()
+        emit emit_mov_ri32(J, dst, imm; ok = done, full = nope, abort = nope2)
+    end
+    block done()       yield 0  end
+    block nope()       yield -1 end
+    block nope2(r: i32) yield -2 end
+    end
+end
+
+export func test_ret(J: ptr(u8)) -> i32
+    return region -> i32
+    entry start()
+        emit emit_ret(J; ok = done, full = nope, abort = nope2)
+    end
+    block done()       yield 0  end
+    block nope()       yield -1 end
+    block nope2(r: i32) yield -2 end
+    end
+end
+
 export func x64_emit_version() -> i32
-    return 1
+    return 2
 end
 
 end
-
-local _c = m:compile(); _c:free()
+return m

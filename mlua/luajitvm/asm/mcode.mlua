@@ -1,42 +1,170 @@
--- asm/mcode.mlua -- MCode arena and patching region stubs.
--- Protocol: MCodeReserve, PatchBranch, ExitStubResult
--- P4.PROTO.008 stub.
+-- asm/mcode.mlua — MCode buffer management regions.
+--
+-- The mcode buffer grows downward (like LuaJIT):
+--   mcarea:  ptr(u8)  — base of allocated memory
+--   mctop:   ptr(u8)  — current write position (decrements as code is emitted)
+--   mcbot:   ptr(u8)  — lowest usable position (guards against mcarea)
+--
+-- Layout in JitState (mini, offsets from ptr(u8)):
+--   J+32: mctop   (ptr at offset 32 = j64[4])
+--   J+40: mcbot   (ptr at offset 40 = j64[5])
+--   J+48: mcarea  (ptr at offset 48 = j64[6])
+--
+-- Code is written at mctop-N, then mctop -= N.
+-- The final mcode patch writes the entry point.
+--
+-- Protocol types
 
 local m = module VmAsmMcode
 
-type MCodeReserve = mcode_ok(top: ptr(u8))
-    | grow
+type MCodeResult = ok(top: ptr(u8))
     | full
+    | abort(reason: i32)
 
-type PatchBranch = direct
-    | indirect
-    | out_of_range
-    | error(code: i32)
+-- =========================================================================
+-- JitState mcode field accessors
+-- =========================================================================
+const J_OFF_MCTOP:  i32 = 32   -- offset 32 = j64[4]
+const J_OFF_MCBOT:  i32 = 40   -- offset 40 = j64[5]
+const J_OFF_MCAREA: i32 = 48   -- offset 48 = j64[6]
 
-type ExitStubResult = stub_done(addr: ptr(u8))
-    | mcode_full
+func mc_top(J: ptr(u8)) -> ptr(u8)
+    let p = as(ptr(u64), J)
+    return as(ptr(u8), p[4])
+end
 
--- Reserve space in the mcode arena.
-region mcode_reserve(J: ptr(u8), need: u64) -> MCodeReserve
+func mc_bot(J: ptr(u8)) -> ptr(u8)
+    let p = as(ptr(u64), J)
+    return as(ptr(u8), p[5])
+end
+
+func mc_set_top(J: ptr(u8), v: ptr(u8))
+    let p = as(ptr(u64), J)
+    p[4] = as(u64, v)
+end
+
+-- =========================================================================
+-- mcode_init: set up mcode pointers from a pre-allocated byte buffer.
+--   buf:  ptr(u8)  — start of the mcode arena buffer
+--   size: i32      — buffer size in bytes
+-- Sets mctop to buf+size (high end), mcbot to buf+16 (leave room for header).
+-- =========================================================================
+
+region mcode_init(J: ptr(u8), buf: ptr(u8), size: i32) -> MCodeResult
 entry start()
-    jump full()
+    let j64 = as(ptr(u64), J)
+    -- mctop starts at end of buffer (code grows downward)
+    let top = buf + size
+    -- mcbot is the bottom guard
+    let bot = buf + 16
+    j64[4] = as(u64, top)
+    j64[5] = as(u64, bot)
+    j64[6] = as(u64, buf)
+    jump ok(top = top)
 end
 end
 
--- Patch a branch in already-emitted mcode.
-region patch_trace_link(J: ptr(u8), from: i32, to: i32) -> PatchBranch
+-- =========================================================================
+-- mc_reserve: ensure `need` bytes are available below mctop.
+--   Returns updated top if ok, or full if out of space.
+-- =========================================================================
+
+region mc_reserve(J: ptr(u8), need: i32) -> MCodeResult
 entry start()
-    jump error(code = 0)
+    let j64 = as(ptr(u64), J)
+    let top = as(ptr(u8), j64[4])
+    let bot = as(ptr(u8), j64[5])
+    let new_top = top - need
+    -- Check: new_top >= bot
+    if as(u64, new_top) < as(u64, bot) then jump full() end
+    j64[4] = as(u64, new_top)
+    jump ok(top = new_top)
 end
 end
 
--- Emit an exit stub for one guard.
-region emit_exit_stub(A: ptr(u8), exitno: i32) -> ExitStubResult
+-- =========================================================================
+-- mc_emit_byte: write one byte at the current mctop position.
+-- mctop is decremented BEFORE writing (grows downward).
+-- =========================================================================
+
+region mc_emit_byte(J: ptr(u8), b: i32) -> MCodeResult
 entry start()
-    jump mcode_full()
+    let j64 = as(ptr(u64), J)
+    let top = as(ptr(u8), j64[4])
+    let bot = as(ptr(u8), j64[5])
+    let new_top = top - 1
+    if as(u64, new_top) < as(u64, bot) then jump full() end
+    new_top[0] = as(u8, b)
+    j64[4] = as(u64, new_top)
+    jump ok(top = new_top)
 end
 end
 
+-- =========================================================================
+-- mc_emit_u32: write 4 bytes (little-endian) growing downward.
+-- =========================================================================
+
+region mc_emit_u32(J: ptr(u8), v: i32) -> MCodeResult
+entry start()
+    let j64 = as(ptr(u64), J)
+    let top = as(ptr(u8), j64[4])
+    let bot = as(ptr(u8), j64[5])
+    let new_top = top - 4
+    if as(u64, new_top) < as(u64, bot) then jump full() end
+    -- Write little-endian u32 at new_top[0..3]
+    let p = as(ptr(u8), new_top)
+    p[0] = as(u8, v)
+    p[1] = as(u8, v >> 8)
+    p[2] = as(u8, v >> 16)
+    p[3] = as(u8, v >> 24)
+    j64[4] = as(u64, new_top)
+    jump ok(top = new_top)
+end
 end
 
-local _c = m:compile(); _c:free()
+-- =========================================================================
+-- Export func wrappers for testing
+-- =========================================================================
+
+export func mcode_init_test(J: ptr(u8), buf: ptr(u8), size: i32) -> i32
+    return region -> i32
+    entry start()
+        emit mcode_init(J, buf, size;
+            ok = got_ok, full = got_full, abort = got_abort)
+    end
+    block got_ok(top: ptr(u8)) yield 0 end
+    block got_full()           yield -1 end
+    block got_abort(reason: i32) yield -2 end
+    end
+end
+
+export func mc_emit_byte_test(J: ptr(u8), b: i32) -> i32
+    return region -> i32
+    entry start()
+        emit mc_emit_byte(J, b;
+            ok = got_ok, full = got_full, abort = got_abort)
+    end
+    block got_ok(top: ptr(u8)) yield as(i32, top[0]) end
+    block got_full()           yield -1 end
+    block got_abort(reason: i32) yield -2 end
+    end
+end
+
+export func mc_emit_u32_test(J: ptr(u8), v: i32) -> i32
+    return region -> i32
+    entry start()
+        emit mc_emit_u32(J, v;
+            ok = got_ok, full = got_full, abort = got_abort)
+    end
+    block got_ok(top: ptr(u8)) yield 0 end
+    block got_full()           yield -1 end
+    block got_abort(reason: i32) yield -2 end
+    end
+end
+
+export func mcode_const_check() -> i32
+    return J_OFF_MCTOP + J_OFF_MCBOT + J_OFF_MCAREA
+end
+
+end
+return m
