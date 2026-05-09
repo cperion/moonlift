@@ -1,33 +1,399 @@
--- asm/asm_state.mlua -- Top-level assembler region stub.
--- Protocol: AsmResult, OptResult
--- P4.PROTO.008 stub.
+-- asm/asm_state.mlua — Trace assembler: backward scan, linear-scan regalloc, x64 tiles.
+--
+-- Pipeline (backward over IR):
+--   1. For each IR slot going downward from nins-1 to 1:
+--      a. Ensure operand registers allocated (ra_ensure)
+--      b. Emit x64 tile (code grows downward in J's mcode buffer)
+--      c. Release destination register (ra_release)
+--   2. Return entry pointer (lowest mctop after emission)
+--
+-- AsmState layout (A: ptr(u8), caller-allocated 260 bytes, must be zeroed):
+--   A[0..3]:   i32  free_regs bitmask
+--   A[4..259]: u8[256] regmap   slot → (reg+1); 0 = unassigned
+--
+-- JitState mcode layout (J: ptr(u8)):
+--   J[32..39] = mctop ptr  (j64[4])
+--   J[40..47] = mcbot ptr  (j64[5])
+--
+-- Supported IR opcodes: NOP(90) KINT(60) ADD(10) SUB(11) MUL(12) RETF(82) LOOP(80)
+-- Register set: rax(0) rcx(1) rdx(2) rsi(6) rdi(7) r8(8) r9(9) r10(10) r11(11)
 
 local m = module VmAsmState
 
-type AsmResult = mcode(entry_ptr: ptr(u8), size: u64)
-    | retry_realign
-    | retry_ir_grew
-    | mcode_full
-    | abort(reason: i32)
+type AsmResult = mcode_ok(top: ptr(u8)) | mcode_full | abort(reason: i32)
 
-type OptResult = optimized
-    | retry_recording(reason: i32)
-    | abort(reason: i32)
+-- =========================================================================
+-- Constants
+-- =========================================================================
+const IR_NOP:  i32 = 90
+const IR_KINT: i32 = 60
+const IR_ADD:  i32 = 10
+const IR_SUB:  i32 = 11
+const IR_MUL:  i32 = 12
+const IR_LOOP: i32 = 80
+const IR_RETF: i32 = 82
 
--- Top-level trace assembler: IR -> machine code.
-region asm_trace(J: ptr(u8), tr: i32) -> AsmResult
+const REF_BIAS:  i32 = 0x8000
+const REF_FIRST: i32 = 0x8001
+
+-- AsmState field offsets
+const A_FREE:  i32 = 0
+const A_MAP:   i32 = 4
+
+-- Register bitmask: rax(0) rcx(1) rdx(2) rsi(6) rdi(7) r8(8) r9(9) r10(10) r11(11)
+-- 1+2+4+64+128+256+512+1024+2048 = 4039 = 0x0FC7
+const FREE_INIT: i32 = 0x0FC7
+
+-- =========================================================================
+-- IR field accessors
+-- =========================================================================
+func ir_op_at(buf: ptr(u64), idx: i32) -> i32
+    return as(i32, (buf[idx] >> 40) & 0xFF)
+end
+func ir_op1_at(buf: ptr(u64), idx: i32) -> i32
+    return as(i32, buf[idx] & 0xFFFF)
+end
+func ir_op2_at(buf: ptr(u64), idx: i32) -> i32
+    return as(i32, (buf[idx] >> 16) & 0xFFFF)
+end
+
+-- =========================================================================
+-- mcode helpers — code grows downward; j64[4]=mctop, j64[5]=mcbot
+-- =========================================================================
+func mc_top(J: ptr(u8)) -> ptr(u8)
+    return as(ptr(u8), as(ptr(u64), J)[4])
+end
+func mc_set_top(J: ptr(u8), v: ptr(u8))
+    as(ptr(u64), J)[4] = as(u64, v)
+end
+func mc_bot(J: ptr(u8)) -> ptr(u8)
+    return as(ptr(u8), as(ptr(u64), J)[5])
+end
+func mc_put8(J: ptr(u8), b: i32)
+    let p = mc_top(J) - 1
+    p[0] = as(u8, b)
+    mc_set_top(J, p)
+end
+func mc_put32(J: ptr(u8), v: i32)
+    let p = mc_top(J) - 4
+    p[0] = as(u8, v)
+    p[1] = as(u8, v >> 8)
+    p[2] = as(u8, v >> 16)
+    p[3] = as(u8, v >> 24)
+    mc_set_top(J, p)
+end
+
+-- =========================================================================
+-- x64 encoding helpers
+-- =========================================================================
+
+-- REX.W byte: W=1, R=high bit of reg, B=high bit of rm
+func rex_wb(r: i32, b: i32) -> i32
+    return 0x48 | ((r >> 3) << 2) | (b >> 3)
+end
+
+-- ModRM byte: mod=11 (reg-to-reg), reg, rm
+func modrm_rr(reg: i32, rm: i32) -> i32
+    return 0xC0 | ((reg & 7) << 3) | (rm & 7)
+end
+
+-- MOV dst, src   REX.W 89 /r
+func emit_mov_rr(J: ptr(u8), dst: i32, src: i32)
+    mc_put8(J, modrm_rr(src, dst))
+    mc_put8(J, 0x89)
+    mc_put8(J, rex_wb(src, dst))
+end
+
+-- ADD dst, src   REX.W 01 /r
+func emit_add_rr(J: ptr(u8), dst: i32, src: i32)
+    mc_put8(J, modrm_rr(src, dst))
+    mc_put8(J, 0x01)
+    mc_put8(J, rex_wb(src, dst))
+end
+
+-- SUB dst, src   REX.W 29 /r
+func emit_sub_rr(J: ptr(u8), dst: i32, src: i32)
+    mc_put8(J, modrm_rr(src, dst))
+    mc_put8(J, 0x29)
+    mc_put8(J, rex_wb(src, dst))
+end
+
+-- IMUL dst, src   REX.W 0F AF /r
+func emit_imul_rr(J: ptr(u8), dst: i32, src: i32)
+    mc_put8(J, modrm_rr(dst, src))
+    mc_put8(J, 0xAF)
+    mc_put8(J, 0x0F)
+    mc_put8(J, rex_wb(dst, src))
+end
+
+-- MOV dst, imm32   REX.W C7 /0 id  (sign-extends to 64 bits)
+func emit_mov_ri32(J: ptr(u8), dst: i32, imm: i32)
+    mc_put32(J, imm)
+    mc_put8(J, modrm_rr(0, dst))
+    mc_put8(J, 0xC7)
+    mc_put8(J, rex_wb(0, dst))
+end
+
+-- RET
+func emit_ret(J: ptr(u8))
+    mc_put8(J, 0xC3)
+end
+
+-- =========================================================================
+-- Register allocator state helpers
+-- =========================================================================
+func ra_free(A: ptr(u8)) -> i32
+    return as(ptr(i32), A)[0]
+end
+func ra_set_free(A: ptr(u8), v: i32)
+    as(ptr(i32), A)[0] = v
+end
+func ra_map(A: ptr(u8)) -> ptr(u8)
+    return A + A_MAP
+end
+func ra_assigned(A: ptr(u8), slot: i32) -> bool
+    let m = ra_map(A)
+    return m[slot] ~= 0
+end
+func ra_get(A: ptr(u8), slot: i32) -> i32
+    let m = ra_map(A)
+    return as(i32, m[slot]) - 1
+end
+func ra_set(A: ptr(u8), slot: i32, r: i32)
+    let m = ra_map(A)
+    m[slot] = as(u8, r + 1)
+end
+func ra_clear(A: ptr(u8), slot: i32)
+    let m = ra_map(A)
+    m[slot] = 0
+end
+
+-- Scan for the lowest set bit in mask (0-11).  Returns -1 if none set.
+func bit_scan_low(mask: i32) -> i32
+    if (mask & 1)     ~= 0 then return 0  end
+    if (mask & 2)     ~= 0 then return 1  end
+    if (mask & 4)     ~= 0 then return 2  end
+    if (mask & 8)     ~= 0 then return 3  end
+    if (mask & 0x10)  ~= 0 then return 4  end
+    if (mask & 0x20)  ~= 0 then return 5  end
+    if (mask & 0x40)  ~= 0 then return 6  end
+    if (mask & 0x80)  ~= 0 then return 7  end
+    if (mask & 0x100) ~= 0 then return 8  end
+    if (mask & 0x200) ~= 0 then return 9  end
+    if (mask & 0x400) ~= 0 then return 10 end
+    if (mask & 0x800) ~= 0 then return 11 end
+    return -1
+end
+
+-- Ensure slot has a register; silently fail if none available.
+func ra_ensure(A: ptr(u8), slot: i32)
+    if ra_assigned(A, slot) then return end
+    let free = ra_free(A)
+    let r    = bit_scan_low(free)
+    if r < 0 then return end             -- out of registers: caller will see -1 via ra_get
+    ra_set_free(A, free - (1 << r))      -- clear bit r (known set)
+    ra_set(A, slot, r)
+end
+
+-- Release slot's register back to the free pool.
+func ra_release(A: ptr(u8), slot: i32)
+    if not ra_assigned(A, slot) then return end
+    let r = ra_get(A, slot)
+    ra_set_free(A, ra_free(A) | (1 << r))
+    ra_clear(A, slot)
+end
+
+-- =========================================================================
+-- has_dest: does this opcode produce a SSA result that occupies a register?
+-- =========================================================================
+func has_dest(o: i32) -> bool
+    if o == IR_NOP  then return false end
+    if o == IR_LOOP then return false end
+    if o == IR_RETF then return false end
+    return true
+end
+
+-- =========================================================================
+-- Tile emitters
+-- Code grows downward so each tile emits in *reverse* execution order:
+-- the first execution-order byte ends up at the lowest address.
+--
+-- For a two-instruction tile  [A][B]  (A executes before B):
+--   emit B first  → higher address
+--   emit A second → lower address
+-- Then execution reads A → B. ✓
+-- =========================================================================
+
+-- KINT: MOV dst, imm32
+-- imm = op1 | (op2 << 16) — op2 is 0 for constants < 32768 (ir_emit_const)
+func tile_kint(J: ptr(u8), dst: i32, op1: i32, op2: i32)
+    emit_mov_ri32(J, dst, op1 | (op2 << 16))
+end
+
+-- ADD: [MOV dst, r1]  [ADD dst, r2]  (skip MOV if dst == r1)
+func tile_add(J: ptr(u8), dst: i32, r1: i32, r2: i32)
+    emit_add_rr(J, dst, r2)
+    if dst ~= r1 then emit_mov_rr(J, dst, r1) end
+end
+
+-- SUB: [MOV dst, r1]  [SUB dst, r2]
+func tile_sub(J: ptr(u8), dst: i32, r1: i32, r2: i32)
+    emit_sub_rr(J, dst, r2)
+    if dst ~= r1 then emit_mov_rr(J, dst, r1) end
+end
+
+-- MUL: [MOV dst, r1]  [IMUL dst, r2]
+func tile_mul(J: ptr(u8), dst: i32, r1: i32, r2: i32)
+    emit_imul_rr(J, dst, r2)
+    if dst ~= r1 then emit_mov_rr(J, dst, r1) end
+end
+
+-- RETF: [MOV rax, r_val]  [RET]   (skip MOV if r_val already rax=0)
+func tile_retf(J: ptr(u8), r_val: i32)
+    emit_ret(J)
+    if r_val ~= 0 then emit_mov_rr(J, 0, r_val) end
+end
+
+-- =========================================================================
+-- asm_one: emit the x64 tile for one IR slot.  Returns true on success.
+-- Operand registers must already be allocated in A's regmap.
+-- =========================================================================
+func asm_one(A: ptr(u8), J: ptr(u8), ir_buf: ptr(u64), slot: i32, o: i32) -> bool
+    let op1 = ir_op1_at(ir_buf, slot)
+    let op2 = ir_op2_at(ir_buf, slot)
+
+    if o == IR_KINT then
+        let dst = ra_get(A, slot)
+        if dst < 0 then return true end        -- dead constant
+        tile_kint(J, dst, op1, op2)
+        return true
+    end
+
+    if o == IR_ADD then
+        let dst = ra_get(A, slot)
+        if dst < 0 then return true end
+        let r1 = ra_get(A, op1 - REF_BIAS)
+        let r2 = ra_get(A, op2 - REF_BIAS)
+        if r1 < 0 then return false end
+        if r2 < 0 then return false end
+        tile_add(J, dst, r1, r2)
+        return true
+    end
+
+    if o == IR_SUB then
+        let dst = ra_get(A, slot)
+        if dst < 0 then return true end
+        let r1 = ra_get(A, op1 - REF_BIAS)
+        let r2 = ra_get(A, op2 - REF_BIAS)
+        if r1 < 0 then return false end
+        if r2 < 0 then return false end
+        tile_sub(J, dst, r1, r2)
+        return true
+    end
+
+    if o == IR_MUL then
+        let dst = ra_get(A, slot)
+        if dst < 0 then return true end
+        let r1 = ra_get(A, op1 - REF_BIAS)
+        let r2 = ra_get(A, op2 - REF_BIAS)
+        if r1 < 0 then return false end
+        if r2 < 0 then return false end
+        tile_mul(J, dst, r1, r2)
+        return true
+    end
+
+    if o == IR_RETF then
+        let r_val = ra_get(A, op1 - REF_BIAS)
+        if r_val < 0 then return false end
+        tile_retf(J, r_val)
+        return true
+    end
+
+    -- IR_NOP, IR_LOOP: nothing to emit
+    return true
+end
+
+-- =========================================================================
+-- asm_trace: backward scan over IR slots [1, nins-1].
+-- A must be caller-zeroed (260 bytes); this region sets free_regs.
+-- J must have mctop/mcbot already initialised.
+-- =========================================================================
+region asm_trace(A: ptr(u8), J: ptr(u8), ir_buf: ptr(u64), nins: i32) -> AsmResult
 entry start()
-    jump abort(reason = 0)
+    as(ptr(i32), A)[0] = FREE_INIT   -- initialise free_regs; regmap already zeroed
+    jump scan(slot = nins - 1)
+end
+
+block scan(slot: i32)
+    if slot < 1 then jump mcode_ok(top = mc_top(J)) end
+
+    let o = ir_op_at(ir_buf, slot)
+    if o == IR_NOP  then jump scan(slot = slot - 1) end
+    if o == IR_LOOP then jump scan(slot = slot - 1) end
+
+    let op1 = ir_op1_at(ir_buf, slot)
+    let op2 = ir_op2_at(ir_buf, slot)
+
+    -- Ensure operand registers are allocated.
+    -- For arithmetic ops both operands are IR refs.
+    -- For RETF op1 is the return value ref.
+    -- For KINT op1/op2 are raw constant bits — do NOT call ra_ensure on them.
+    if o == IR_ADD then
+        ra_ensure(A, op1 - REF_BIAS)
+        ra_ensure(A, op2 - REF_BIAS)
+    end
+    if o == IR_SUB then
+        ra_ensure(A, op1 - REF_BIAS)
+        ra_ensure(A, op2 - REF_BIAS)
+    end
+    if o == IR_MUL then
+        ra_ensure(A, op1 - REF_BIAS)
+        ra_ensure(A, op2 - REF_BIAS)
+    end
+    if o == IR_RETF then
+        ra_ensure(A, op1 - REF_BIAS)
+    end
+
+    -- Emit the x64 tile.
+    let ok = asm_one(A, J, ir_buf, slot, o)
+    if not ok then jump abort(reason = slot) end
+
+    -- Release destination register (going backward: definition is now past).
+    if has_dest(o) then ra_release(A, slot) end
+
+    jump scan(slot = slot - 1)
 end
 end
 
--- Full optimizer pipeline.
-region optimize_trace(J: ptr(u8), tr: i32) -> OptResult
-entry start()
-    jump abort(reason = 0)
+-- =========================================================================
+-- Export wrappers
+-- =========================================================================
+
+-- Assemble IR into J's mcode buffer.
+-- A: ptr(u8) 260-byte zeroed AsmState.
+-- Returns entry ptr on success, null on failure.
+export func asm_trace_test(A: ptr(u8), J: ptr(u8), ir_buf: ptr(u64), nins: i32) -> ptr(u8)
+    return region -> ptr(u8)
+    entry start()
+        emit asm_trace(A, J, ir_buf, nins;
+            mcode_ok  = got_ok,
+            mcode_full = got_full,
+            abort      = got_abort)
+    end
+    block got_ok(top: ptr(u8))     yield top         end
+    block got_full()               yield as(ptr(u8), as(u64, 0)) end
+    block got_abort(reason: i32)   yield as(ptr(u8), as(u64, 0)) end
+    end
 end
+
+-- Expose ra_get for inspecting regmap after assembly.
+export func ra_get_test(A: ptr(u8), slot: i32) -> i32
+    return ra_get(A, slot)
+end
+
+export func asm_const_check() -> i32
+    return FREE_INIT + REF_BIAS + IR_ADD + IR_RETF
 end
 
 end
-
-local _c = m:compile(); _c:free()
+return m
