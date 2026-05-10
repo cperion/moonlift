@@ -28,11 +28,14 @@ export func BC_SUBVV() -> i32  return 33  end
 export func BC_MULVV() -> i32  return 34  end
 export func BC_DIVVV() -> i32  return 35  end
 export func BC_MODVV() -> i32  return 36  end
+export func BC_KSTR() -> i32   return 39  end
 export func BC_KSHORT() -> i32 return 41  end
+export func BC_KNUM() -> i32   return 42  end
 export func BC_KPRI() -> i32   return 43  end
 export func BC_KNIL() -> i32   return 44  end
 
--- Tables
+-- Closures/tables
+export func BC_FNEW() -> i32   return 51  end
 export func BC_TNEW() -> i32   return 52  end
 export func BC_TDUP() -> i32   return 53  end
 export func BC_GGET() -> i32   return 54  end

@@ -364,6 +364,26 @@ function Parser:type_name(name)
     return Ty.TNamed(Ty.TypeRefPath(C.Path({ C.Name(name) })))
 end
 
+function Parser:parse_callable_type(kind)
+    local Ty, C = self.Ty, self.C
+    self:expect(TK.lparen, "expected '(' in function pointer type")
+    local params = {}
+    self:skip_nl()
+    if self:kind() ~= TK.rparen then
+        while true do
+            params[#params + 1] = self:parse_type()
+            self:skip_nl()
+            if not self:accept(TK.comma) then break end
+            self:skip_nl()
+        end
+    end
+    self:expect(TK.rparen, "expected ')' after function pointer parameters")
+    local result = Ty.TScalar(C.ScalarVoid)
+    if self:accept(TK.arrow) then result = self:parse_type() end
+    if kind == "closure" then return Ty.TClosure(params, result) end
+    return Ty.TFunc(params, result)
+end
+
 function Parser:parse_type()
     if self:kind() == TK.hole then
         local id = self:text(); self.i = self.i + 1
@@ -373,6 +393,15 @@ function Parser:parse_type()
     end
     if self:accept(TK.view) then
         self:expect(TK.lparen); local elem = self:parse_type(); self:expect(TK.rparen); return self.Ty.TView(elem)
+    end
+    if self:accept(TK.func) then return self:parse_callable_type("func") end
+    if self:kind() == TK.name and (self:text() == "fn" or self:text() == "fnptr") then
+        self.i = self.i + 1
+        return self:parse_callable_type("func")
+    end
+    if self:kind() == TK.name and self:text() == "closure" then
+        self.i = self.i + 1
+        return self:parse_callable_type("closure")
     end
     local name = self:expect_name("expected type")
     if name == "ptr" and self:accept(TK.lparen) then

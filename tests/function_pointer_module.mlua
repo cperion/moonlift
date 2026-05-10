@@ -1,0 +1,21 @@
+local m = module "tests.function_pointer_module"
+
+export func callee(x: i32) -> i32
+    return x + 1
+end
+
+export func call_fp(fp: func(i32) -> i32, x: i32) -> i32
+    return fp(x)
+end
+
+export func call_fp_alias(fp: fn(i32) -> i32, x: i32) -> i32
+    return fp(x)
+end
+
+export func call_fp_cast(raw: ptr(u8), x: i32) -> i32
+    let fp: func(i32) -> i32 = as(func(i32) -> i32, raw)
+    return fp(x)
+end
+
+end
+return m

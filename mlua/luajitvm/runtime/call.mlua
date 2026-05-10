@@ -14,6 +14,8 @@ const FF_LUA: i32 = func_mod.FF_LUA
 
 const FUNC_OFF_FFID: i32 = 10
 const FUNC_OFF_PC: i32 = 32
+const PROTO_SIZE: i32 = 96
+const P_OFF_NUMPARAMS: i32 = 10
 
 -- ThreadState Moonlift extension fields.  Core LuaJIT-compatible fields remain
 -- unchanged; these fields describe the current interpreter execution state.
@@ -22,17 +24,24 @@ const TS_OFF_CURPC: i32 = 104     -- ptr(u32): current instruction pointer
 const TS_OFF_CI:    i32 = 112     -- ptr(u8): explicit CallInfo array
 const TS_OFF_CIDEPTH: i32 = 120   -- u32: number of active CallInfo records
 
--- CallInfo record (32 bytes):
+-- CallInfo record (48 bytes):
 --   0  prev_base   ptr(TValue)
 --   8  return_bc   ptr(u32)
 --   16 return_ip   i32
 --   20 ret_slot    i32 (caller slot receiving first result)
---   24 reserved
-const CI_SIZE: i32 = 32
+--   24 wanted      i32 (fixed wanted results; -1 = multret)
+--   28 nargs       i32 (actual argument count)
+--   32 var_base    ptr(TValue) first extra vararg
+--   40 var_count   i32
+const CI_SIZE: i32 = 48
 const CI_PREV_BASE: i32 = 0
 const CI_RETURN_BC: i32 = 8
 const CI_RETURN_IP: i32 = 16
 const CI_RET_SLOT: i32 = 20
+const CI_WANTED: i32 = 24
+const CI_NARGS: i32 = 28
+const CI_VAR_BASE: i32 = 32
+const CI_VAR_COUNT: i32 = 40
 
 func call_bc_a(ins: u32) -> i32
     return (as(i32, ins) >> 8) & 0xFF
@@ -95,11 +104,36 @@ func call_func_bc(fn: ptr(u8)) -> ptr(u32)
     return as(ptr(u32), as(ptr(u64), fn)[FUNC_OFF_PC / 8])
 end
 
-func call_write_ci(ci: ptr(u8), prev_base: ptr(u8), return_bc: ptr(u32), return_ip: i32, ret_slot: i32)
+func call_func_proto(fn: ptr(u8)) -> ptr(u8)
+    return as(ptr(u8), call_func_bc(fn)) - PROTO_SIZE
+end
+
+func call_proto_numparams(pt: ptr(u8)) -> i32
+    return as(i32, pt[P_OFF_NUMPARAMS])
+end
+
+func call_top(L: ptr(u8)) -> ptr(u8)
+    return as(ptr(u8), as(ptr(u64), L)[5])
+end
+
+func call_set_top(L: ptr(u8), top: ptr(u8))
+    as(ptr(u64), L)[5] = as(u64, top)
+end
+
+func call_stack_slots(from: ptr(u8), to: ptr(u8)) -> i32
+    if as(u64, to) <= as(u64, from) then return 0 end
+    return as(i32, as(u64, to) - as(u64, from)) / 16
+end
+
+func call_write_ci(ci: ptr(u8), prev_base: ptr(u8), return_bc: ptr(u32), return_ip: i32, ret_slot: i32, wanted: i32, nargs: i32, var_base: ptr(u8), var_count: i32)
     as(ptr(u64), ci)[CI_PREV_BASE / 8] = as(u64, prev_base)
     as(ptr(u64), ci)[CI_RETURN_BC / 8] = as(u64, return_bc)
     as(ptr(i32), ci)[CI_RETURN_IP / 4] = return_ip
     as(ptr(i32), ci)[CI_RET_SLOT / 4] = ret_slot
+    as(ptr(i32), ci)[CI_WANTED / 4] = wanted
+    as(ptr(i32), ci)[CI_NARGS / 4] = nargs
+    as(ptr(u64), ci)[CI_VAR_BASE / 8] = as(u64, var_base)
+    as(ptr(i32), ci)[CI_VAR_COUNT / 4] = var_count
 end
 
 func call_ci_prev_base(ci: ptr(u8)) -> ptr(u8)
@@ -118,11 +152,28 @@ func call_ci_ret_slot(ci: ptr(u8)) -> i32
     return as(ptr(i32), ci)[CI_RET_SLOT / 4]
 end
 
+func call_ci_wanted(ci: ptr(u8)) -> i32
+    return as(ptr(i32), ci)[CI_WANTED / 4]
+end
+
+func call_ci_var_base(ci: ptr(u8)) -> ptr(u8)
+    return as(ptr(u8), as(ptr(u64), ci)[CI_VAR_BASE / 8])
+end
+
+func call_ci_var_count(ci: ptr(u8)) -> i32
+    return as(ptr(i32), ci)[CI_VAR_COUNT / 4]
+end
+
+func call_max(a: i32, b: i32) -> i32
+    if a >= b then return a end
+    return b
+end
+
 -- BC_CALL: A=function slot, B=nargs+1, C=nresults+1.
 -- Lua function calls push an explicit CallInfo and switch bytecode stream.
 region vmop_call(L: ptr(u8), ins: u32, bc: ptr(u32), ip: i32;
     enter_lua: cont(target_bc: ptr(u32), target_ip: i32),
-    native_call: cont(fn: ptr(u8)),
+    native_call: cont(fn: ptr(u8), a: i32, nargs: i32, wanted: i32),
     metamethod: cont(mm_tag: i32, mm_payload: i64),
     error: cont(code: i32))
 entry start()
@@ -131,15 +182,33 @@ entry start()
     if call_slot_tag(base, a) ~= LUA_TFUNC then jump error(code = 11) end
     let fn: ptr(u8) = as(ptr(u8), call_slot_payload(base, a))
     let ffid: i32 = as(i32, fn[FUNC_OFF_FFID])
-    if ffid ~= FF_LUA then jump native_call(fn = fn) end
+    let b: i32 = call_bc_b(ins)
+    let c: i32 = call_bc_c(ins)
+    let nargs: i32 = b - 1
+    if b == 0 then
+        nargs = call_stack_slots(base + (a + 1) * 16, call_top(L))
+    end
+    let wanted: i32 = c - 1
+    if c == 0 then wanted = -1 end
+    if ffid ~= FF_LUA then jump native_call(fn = fn, a = a, nargs = nargs, wanted = wanted) end
     let ci_base: ptr(u8) = call_ci_base(L)
     if as(u64, ci_base) == 0 then jump error(code = 14) end
     let depth: i32 = call_ci_depth(L)
     let ci: ptr(u8) = call_ci_at(L, depth)
-    call_write_ci(ci, base, bc, ip + 1, a)
+    let new_base: ptr(u8) = base + (a + 1) * 16
+    let pt: ptr(u8) = call_func_proto(fn)
+    let nparams: i32 = call_proto_numparams(pt)
+    let var_count: i32 = call_max(nargs - nparams, 0)
+    let var_base: ptr(u8) = new_base + nparams * 16
+    call_write_ci(ci, base, bc, ip + 1, a, wanted, nargs, var_base, var_count)
     call_set_ci_depth(L, depth + 1)
-    call_set_stack_base(L, base + (a + 1) * 16)
-    jump enter_lua(target_bc = call_func_bc(fn), target_ip = 0)
+    call_set_stack_base(L, new_base)
+    jump fill_missing(slot = nargs, nparams = nparams, new_base = new_base, target = call_func_bc(fn))
+end
+block fill_missing(slot: i32, nparams: i32, new_base: ptr(u8), target: ptr(u32))
+    if slot >= nparams then jump enter_lua(target_bc = target, target_ip = 0) end
+    call_slot_set(new_base, slot, 0, as(i64, 0))
+    jump fill_missing(slot = slot + 1, nparams = nparams, new_base = new_base, target = target)
 end
 end
 
@@ -147,7 +216,7 @@ end
 -- top-level tail call, final return from the callee is final return to host.
 region vmop_callt(L: ptr(u8), ins: u32, bc: ptr(u32), ip: i32;
     enter_lua: cont(target_bc: ptr(u32), target_ip: i32),
-    native_call: cont(fn: ptr(u8)),
+    native_call: cont(fn: ptr(u8), a: i32, nargs: i32, wanted: i32),
     metamethod: cont(mm_tag: i32, mm_payload: i64),
     error: cont(code: i32))
 entry start()
@@ -156,9 +225,45 @@ entry start()
     if call_slot_tag(base, a) ~= LUA_TFUNC then jump error(code = 11) end
     let fn: ptr(u8) = as(ptr(u8), call_slot_payload(base, a))
     let ffid: i32 = as(i32, fn[FUNC_OFF_FFID])
-    if ffid ~= FF_LUA then jump native_call(fn = fn) end
+    let b: i32 = call_bc_b(ins)
+    let c: i32 = call_bc_c(ins)
+    let nargs: i32 = b - 1
+    if b == 0 then nargs = call_stack_slots(base + (a + 1) * 16, call_top(L)) end
+    let wanted: i32 = c - 1
+    if c == 0 then wanted = -1 end
+    if ffid ~= FF_LUA then jump native_call(fn = fn, a = a, nargs = nargs, wanted = wanted) end
     call_set_stack_base(L, base + (a + 1) * 16)
     jump enter_lua(target_bc = call_func_bc(fn), target_ip = 0)
+end
+end
+
+-- BC_VARG: copy varargs into slots starting at A. D=nresults+1, D=0 means all.
+region vmop_varg(L: ptr(u8), ins: u32, ip: i32; next: cont(ip: i32), returned: cont(nresults: i32), error: cont(code: i32))
+entry start()
+    let depth: i32 = call_ci_depth(L)
+    if depth == 0 then jump error(code = 19) end
+    let ci: ptr(u8) = call_ci_at(L, depth - 1)
+    let a: i32 = call_bc_a(ins)
+    let d: i32 = call_bc_cd(ins)
+    let n: i32 = d - 1
+    if d == 0 then n = call_ci_var_count(ci) end
+    let base: ptr(u8) = call_stack_base(L)
+    let var_base: ptr(u8) = call_ci_var_base(ci)
+    let var_count: i32 = call_ci_var_count(ci)
+    jump varg_copy(i = 0, n = n, var_count = var_count, base = base, var_base = var_base, a = a, all = d == 0)
+end
+block varg_copy(i: i32, n: i32, var_count: i32, base: ptr(u8), var_base: ptr(u8), a: i32, all: bool)
+    if i >= n then jump varg_done(n = n, base = base, a = a, all = all) end
+    if i < var_count then
+        call_slot_copy(var_base, i, base, a + i)
+        jump varg_copy(i = i + 1, n = n, var_count = var_count, base = base, var_base = var_base, a = a, all = all)
+    end
+    call_slot_set(base, a + i, 0, as(i64, 0))
+    jump varg_copy(i = i + 1, n = n, var_count = var_count, base = base, var_base = var_base, a = a, all = all)
+end
+block varg_done(n: i32, base: ptr(u8), a: i32, all: bool)
+    if all then call_set_top(L, base + (a + n) * 16) end
+    jump next(ip = ip + 1)
 end
 end
 
@@ -177,12 +282,19 @@ entry start()
     let prev_base: ptr(u8) = call_ci_prev_base(ci)
     let cur_base: ptr(u8) = call_stack_base(L)
     let ret_slot: i32 = call_ci_ret_slot(ci)
-    jump copy_results(i = 0, n = nresults, cur_base = cur_base, prev_base = prev_base, ret_slot = ret_slot, ci = ci, depth = depth)
+    let wanted: i32 = call_ci_wanted(ci)
+    let copy_n: i32 = nresults
+    if wanted >= 0 then copy_n = wanted end
+    jump copy_results(i = 0, n = copy_n, actual = nresults, cur_base = cur_base, prev_base = prev_base, ret_slot = ret_slot, ci = ci, depth = depth)
 end
-block copy_results(i: i32, n: i32, cur_base: ptr(u8), prev_base: ptr(u8), ret_slot: i32, ci: ptr(u8), depth: i32)
+block copy_results(i: i32, n: i32, actual: i32, cur_base: ptr(u8), prev_base: ptr(u8), ret_slot: i32, ci: ptr(u8), depth: i32)
     if i >= n then jump restore(ci = ci, depth = depth, prev_base = prev_base) end
-    call_slot_copy(cur_base, call_bc_a(ins) + i, prev_base, ret_slot + i)
-    jump copy_results(i = i + 1, n = n, cur_base = cur_base, prev_base = prev_base, ret_slot = ret_slot, ci = ci, depth = depth)
+    if i < actual then
+        call_slot_copy(cur_base, call_bc_a(ins) + i, prev_base, ret_slot + i)
+        jump copy_results(i = i + 1, n = n, actual = actual, cur_base = cur_base, prev_base = prev_base, ret_slot = ret_slot, ci = ci, depth = depth)
+    end
+    call_slot_set(prev_base, ret_slot + i, 0, as(i64, 0))
+    jump copy_results(i = i + 1, n = n, actual = actual, cur_base = cur_base, prev_base = prev_base, ret_slot = ret_slot, ci = ci, depth = depth)
 end
 block restore(ci: ptr(u8), depth: i32, prev_base: ptr(u8))
     call_set_stack_base(L, prev_base)
@@ -201,6 +313,16 @@ entry start()
     if depth == 0 then jump final_return(nresults = 0) end
     let ci: ptr(u8) = call_ci_at(L, depth - 1)
     let prev_base: ptr(u8) = call_ci_prev_base(ci)
+    let wanted: i32 = call_ci_wanted(ci)
+    if wanted <= 0 then jump ret0_restore(ci = ci, depth = depth, prev_base = prev_base) end
+    jump ret0_fill(i = 0, n = wanted, ci = ci, depth = depth, prev_base = prev_base, ret_slot = call_ci_ret_slot(ci))
+end
+block ret0_fill(i: i32, n: i32, ci: ptr(u8), depth: i32, prev_base: ptr(u8), ret_slot: i32)
+    if i >= n then jump ret0_restore(ci = ci, depth = depth, prev_base = prev_base) end
+    call_slot_set(prev_base, ret_slot + i, 0, as(i64, 0))
+    jump ret0_fill(i = i + 1, n = n, ci = ci, depth = depth, prev_base = prev_base, ret_slot = ret_slot)
+end
+block ret0_restore(ci: ptr(u8), depth: i32, prev_base: ptr(u8))
     call_set_stack_base(L, prev_base)
     call_set_ci_depth(L, depth - 1)
     jump resume_caller(target_bc = call_ci_return_bc(ci), target_ip = call_ci_return_ip(ci))
@@ -219,7 +341,21 @@ entry start()
     let ci: ptr(u8) = call_ci_at(L, depth - 1)
     let prev_base: ptr(u8) = call_ci_prev_base(ci)
     let cur_base: ptr(u8) = call_stack_base(L)
-    call_slot_copy(cur_base, a, prev_base, call_ci_ret_slot(ci))
+    let wanted: i32 = call_ci_wanted(ci)
+    let copy_n: i32 = 1
+    if wanted >= 0 then copy_n = wanted end
+    jump ret1_copy(i = 0, n = copy_n, ci = ci, depth = depth, prev_base = prev_base, cur_base = cur_base, ret_slot = call_ci_ret_slot(ci), a = a)
+end
+block ret1_copy(i: i32, n: i32, ci: ptr(u8), depth: i32, prev_base: ptr(u8), cur_base: ptr(u8), ret_slot: i32, a: i32)
+    if i >= n then jump ret1_restore(ci = ci, depth = depth, prev_base = prev_base) end
+    if i == 0 then
+        call_slot_copy(cur_base, a, prev_base, ret_slot)
+        jump ret1_copy(i = i + 1, n = n, ci = ci, depth = depth, prev_base = prev_base, cur_base = cur_base, ret_slot = ret_slot, a = a)
+    end
+    call_slot_set(prev_base, ret_slot + i, 0, as(i64, 0))
+    jump ret1_copy(i = i + 1, n = n, ci = ci, depth = depth, prev_base = prev_base, cur_base = cur_base, ret_slot = ret_slot, a = a)
+end
+block ret1_restore(ci: ptr(u8), depth: i32, prev_base: ptr(u8))
     call_set_stack_base(L, prev_base)
     call_set_ci_depth(L, depth - 1)
     jump resume_caller(target_bc = call_ci_return_bc(ci), target_ip = call_ci_return_ip(ci))

@@ -40,6 +40,8 @@ local files = {
     "mlua/luajitvm/runtime/compare.mlua",
     "mlua/luajitvm/runtime/stackop.mlua",
     "mlua/luajitvm/runtime/call.mlua",
+    "mlua/luajitvm/runtime/base.mlua",
+    "mlua/luajitvm/runtime/closure.mlua",
     -- Task 8: P4.PROTO.003 table/meta stubs
     "mlua/luajitvm/runtime/table.mlua",
     "mlua/luajitvm/runtime/string.mlua",
@@ -51,6 +53,7 @@ local files = {
     "mlua/luajitvm/gc/barrier.mlua",
     -- Task 8: P4.PROTO.005 trace stubs
     "mlua/luajitvm/jit/trace.mlua",
+    -- Function pointer trace-call smoke module is covered by tests/test_trace_function_pointer.lua.
     -- Task 8: P4.PROTO.006 IR stubs
     "mlua/luajitvm/jit/ir.mlua",
     "mlua/luajitvm/jit/snap.mlua",

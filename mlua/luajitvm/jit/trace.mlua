@@ -32,6 +32,48 @@ const SNAP_FRAME:      i32 = 0x00010000
 const SNAP_NORESTORE:  i32 = 0x00020000
 const EXIT_SIZE:       i32 = 64
 
+const REF_BIAS:        i32 = 0x8000
+const TRACE_MAX_BC:    i32 = 32
+const TRACE_NSLOTS:    i32 = 16
+
+-- JitState mini-layout used by trace/mcode integration:
+--   +0  current GCtrace*
+--   +8  nins
+--   +16 nk
+--   +24 nsnap / snapno
+--   +32 mctop
+--   +40 mcbot
+--   +48 mcarea
+--   +56 slot_refs
+--   +64 asm state / exit metadata scratch
+--   +72 recorder ip
+--   +76 recorder budget
+const J_OFF_SLOTREFS:  i32 = 56
+const J_OFF_ASMSTATE:  i32 = 64
+const J_OFF_RECIP:     i32 = 72
+const J_OFF_RECBUD:    i32 = 76
+
+const BC_MOV:          i32 = 18
+const BC_ADDVV:        i32 = 32
+const BC_SUBVV:        i32 = 33
+const BC_MULVV:        i32 = 34
+const BC_KSHORT:       i32 = 41
+const BC_RET1:         i32 = 76
+const BC_LOOP:         i32 = 85
+
+const IR_ADD:          i32 = 10
+const IR_SUB:          i32 = 11
+const IR_MUL:          i32 = 12
+const IR_SLOAD:        i32 = 31
+const IR_KINT:         i32 = 60
+const IR_LOOP:         i32 = 80
+const IR_RETF:         i32 = 82
+const IRT_GUARD:       i32 = 0x80
+const LUA_TINT:        i32 = 3
+const TV_STRIDE:       i32 = 16
+const TV_PAYLOAD:      i32 = 8
+const TS_OFF_CURPC:    i32 = 104
+
 export func tr_nins(tr: ptr(u8)) -> i32
     let p: ptr(u32) = as(ptr(u32), tr)
     return as(i32, p[4])
@@ -119,9 +161,463 @@ export func snap_entry_ref(e: i32) -> i32
     return e & 0xFF
 end
 
+func tr_nk(tr: ptr(u8)) -> i32
+    return as(i32, as(ptr(u32), tr)[8])
+end
+
+func tr_set_nk(tr: ptr(u8), v: i32)
+    as(ptr(u32), tr)[8] = as(u32, v)
+end
+
+func tr_set_nsnapmap(tr: ptr(u8), v: i32)
+    as(ptr(u32), tr)[9] = as(u32, v)
+end
+
+func tr_set_startpc(tr: ptr(u8), pc: ptr(u8))
+    as(ptr(u64), tr)[8] = as(u64, pc)
+end
+
+func tr_set_startins(tr: ptr(u8), ins: u32)
+    as(ptr(u32), tr)[TR_OFF_STARTINS / 4] = ins
+end
+
+func trace_j_tr(J: ptr(u8)) -> ptr(u8)
+    return as(ptr(u8), as(ptr(u64), J)[0])
+end
+
+func trace_j_nins(J: ptr(u8)) -> i32
+    return as(i32, as(ptr(u64), J)[1])
+end
+
+func trace_j_nk(J: ptr(u8)) -> i32
+    return as(i32, as(ptr(u64), J)[2])
+end
+
+func trace_refs_ptr(J: ptr(u8)) -> ptr(i32)
+    return as(ptr(i32), as(ptr(u64), J)[J_OFF_SLOTREFS / 8])
+end
+
+func trace_asmstate(J: ptr(u8)) -> ptr(u8)
+    return as(ptr(u8), as(ptr(u64), J)[J_OFF_ASMSTATE / 8])
+end
+
+func trace_stack_base(L: ptr(u8)) -> ptr(u8)
+    return as(ptr(u8), as(ptr(u64), L)[4])
+end
+
+func trace_bc_a(ins: u32) -> i32
+    return (as(i32, ins) >> 8) & 0xFF
+end
+
+func trace_bc_b(ins: u32) -> i32
+    return (as(i32, ins) >> 24) & 0xFF
+end
+
+func trace_bc_c(ins: u32) -> i32
+    return (as(i32, ins) >> 16) & 0xFF
+end
+
+func trace_bc_d(ins: u32) -> i32
+    return as(i32, (ins >> 16) & 0xFFFF)
+end
+
+func trace_s16(v: i32) -> i32
+    return v - ((v >> 15) * 65536)
+end
+
+func trace_zero_refs(refs: ptr(i32), idx: i32)
+    if idx >= TRACE_NSLOTS then return end
+    refs[idx] = 0
+    trace_zero_refs(refs, idx + 1)
+end
+
+func trace_set_rec_pos(J: ptr(u8), ip: i32, budget: i32)
+    as(ptr(i32), J)[J_OFF_RECIP / 4] = ip
+    as(ptr(i32), J)[J_OFF_RECBUD / 4] = budget
+end
+
+func trace_rec_ip(J: ptr(u8)) -> i32
+    return as(ptr(i32), J)[J_OFF_RECIP / 4]
+end
+
+func trace_rec_budget(J: ptr(u8)) -> i32
+    return as(ptr(i32), J)[J_OFF_RECBUD / 4]
+end
+
+func trace_sync_to_tr(J: ptr(u8), tr: ptr(u8))
+    tr_set_nins(tr, trace_j_nins(J))
+    tr_set_nk(tr, trace_j_nk(J))
+end
+
+func trace_set_nsnap(tr: ptr(u8), v: i32)
+    as(ptr(u16), tr)[8] = as(u16, v)
+end
+
+func trace_nsnapmap(tr: ptr(u8)) -> i32
+    return as(i32, as(ptr(u32), tr)[9])
+end
+
+func trace_write_snap_entries(sm: ptr(u32), refs: ptr(i32), mapofs: i32, slot: i32, nent: i32) -> i32
+    if slot >= TRACE_NSLOTS then return nent end
+    let ref: i32 = refs[slot]
+    if ref ~= 0 then
+        sm[mapofs + nent] = as(u32, (slot << SNAP_SLOT_SHIFT) | (ref & 0xFFFF))
+        return trace_write_snap_entries(sm, refs, mapofs, slot + 1, nent + 1)
+    end
+    return trace_write_snap_entries(sm, refs, mapofs, slot + 1, nent)
+end
+
+func trace_write_snap(tr: ptr(u8), refs: ptr(i32), guard: i32)
+    let ns: i32 = tr_nsnap(tr)
+    let mapofs: i32 = trace_nsnapmap(tr)
+    let sb: ptr(u32) = as(ptr(u32), tr_snap(tr))
+    let sm: ptr(u32) = as(ptr(u32), tr_snapmap(tr))
+    let nent: i32 = trace_write_snap_entries(sm, refs, mapofs, 0, 0)
+    sb[ns * 4 + 0] = as(u32, mapofs)
+    sb[ns * 4 + 1] = as(u32, TRACE_NSLOTS)
+    sb[ns * 4 + 2] = as(u32, nent & 0xFFFF)
+    sb[ns * 4 + 3] = as(u32, guard & 0xFFFF)
+    trace_set_nsnap(tr, ns + 1)
+    tr_set_nsnapmap(tr, mapofs + nent)
+end
+
+func trace_irbuf_u64(J: ptr(u8)) -> ptr(u64)
+    let tr: ptr(u8) = trace_j_tr(J)
+    return as(ptr(u64), tr_irbuf(tr))
+end
+
+func trace_set_j_nins(J: ptr(u8), v: i32)
+    as(ptr(u64), J)[1] = as(u64, v)
+end
+
+func trace_set_j_nk(J: ptr(u8), v: i32)
+    as(ptr(u64), J)[2] = as(u64, v)
+end
+
+func trace_emit_ins(J: ptr(u8), o: i32, t: i32, op1: i32, op2: i32) -> i32
+    let n: i32 = trace_j_nins(J)
+    let ir: ptr(u64) = trace_irbuf_u64(J)
+    let m16: u64 = 0xFFFF
+    let m8: u64 = 0xFF
+    ir[n] = (as(u64, op1) & m16) | ((as(u64, op2) & m16) << 16) | ((as(u64, t) & m8) << 32) | ((as(u64, o) & m8) << 40)
+    trace_set_j_nins(J, n + 1)
+    return n + REF_BIAS
+end
+
+func trace_emit_kint(J: ptr(u8), refs: ptr(i32), dst: i32, val: i32) -> i32
+    let nk: i32 = trace_j_nk(J) - 1
+    trace_set_j_nk(J, nk)
+    let ir: ptr(u64) = trace_irbuf_u64(J)
+    let m16: u64 = 0xFFFF
+    let m8: u64 = 0xFF
+    ir[nk] = (as(u64, val) & m16) | ((as(u64, 19) & m8) << 32) | ((as(u64, 60) & m8) << 40)
+    refs[dst] = nk
+    return nk
+end
+
+func trace_record_sload(J: ptr(u8), L: ptr(u8), refs: ptr(i32), slot: i32) -> i32
+    if slot < 0 or slot >= TRACE_NSLOTS then return -21 end
+    if refs[slot] ~= 0 then return refs[slot] end
+    let base: ptr(u8) = trace_stack_base(L)
+    if as(ptr(i32), base)[slot * 4] ~= 3 then return -8 end
+    let ref: i32 = trace_emit_ins(J, 31, 19 | 0x80, slot, 0)
+    refs[slot] = ref
+    trace_write_snap(trace_j_tr(J), refs, ref)
+    return ref
+end
+
+func trace_record_arith(J: ptr(u8), refs: ptr(i32), dst: i32, lhs: i32, rhs: i32, op: i32) -> i32
+    let a: i32 = refs[lhs]
+    let b: i32 = refs[rhs]
+    if a == 0 or b == 0 then return -5 end
+    let ref: i32 = trace_emit_ins(J, op, 19, a, b)
+    refs[dst] = ref
+    return ref
+end
+
+func traceasm_mc_top(J: ptr(u8)) -> ptr(u8)
+    return as(ptr(u8), as(ptr(u64), J)[4])
+end
+
+func traceasm_set_mc_top(J: ptr(u8), p: ptr(u8))
+    as(ptr(u64), J)[4] = as(u64, p)
+end
+
+func traceasm_put8(J: ptr(u8), b: i32)
+    let p: ptr(u8) = traceasm_mc_top(J) - 1
+    p[0] = as(u8, b)
+    traceasm_set_mc_top(J, p)
+end
+
+func traceasm_put32(J: ptr(u8), v: i32)
+    let p: ptr(u8) = traceasm_mc_top(J) - 4
+    p[0] = as(u8, v)
+    p[1] = as(u8, v >> 8)
+    p[2] = as(u8, v >> 16)
+    p[3] = as(u8, v >> 24)
+    traceasm_set_mc_top(J, p)
+end
+
+func traceasm_rex_wb(r: i32, b: i32) -> i32
+    return 0x48 | ((r >> 3) << 2) | (b >> 3)
+end
+
+func traceasm_modrm_rr(reg: i32, rm: i32) -> i32
+    return 0xC0 | ((reg & 7) << 3) | (rm & 7)
+end
+
+func traceasm_emit_mov_rr(J: ptr(u8), dst: i32, src: i32)
+    traceasm_put8(J, traceasm_modrm_rr(src, dst))
+    traceasm_put8(J, 0x89)
+    traceasm_put8(J, traceasm_rex_wb(src, dst))
+end
+
+func traceasm_emit_add_rr(J: ptr(u8), dst: i32, src: i32)
+    traceasm_put8(J, traceasm_modrm_rr(src, dst))
+    traceasm_put8(J, 0x01)
+    traceasm_put8(J, traceasm_rex_wb(src, dst))
+end
+
+func traceasm_emit_sub_rr(J: ptr(u8), dst: i32, src: i32)
+    traceasm_put8(J, traceasm_modrm_rr(src, dst))
+    traceasm_put8(J, 0x29)
+    traceasm_put8(J, traceasm_rex_wb(src, dst))
+end
+
+func traceasm_emit_imul_rr(J: ptr(u8), dst: i32, src: i32)
+    traceasm_put8(J, traceasm_modrm_rr(dst, src))
+    traceasm_put8(J, 0xAF)
+    traceasm_put8(J, 0x0F)
+    traceasm_put8(J, traceasm_rex_wb(dst, src))
+end
+
+func traceasm_emit_mov_ri32(J: ptr(u8), dst: i32, imm: i32)
+    traceasm_put32(J, imm)
+    traceasm_put8(J, traceasm_modrm_rr(0, dst))
+    traceasm_put8(J, 0xC7)
+    traceasm_put8(J, traceasm_rex_wb(0, dst))
+end
+
+func traceasm_emit_load_rdi_d32(J: ptr(u8), dst: i32, disp: i32)
+    traceasm_put32(J, disp)
+    traceasm_put8(J, 0x80 | ((dst & 7) << 3) | 7)
+    traceasm_put8(J, 0x8B)
+    traceasm_put8(J, 0x48 | ((dst >> 3) << 2))
+end
+
+func traceasm_emit_cmp_rdi_d32_imm8(J: ptr(u8), disp: i32, imm: i32)
+    traceasm_put8(J, imm & 0xFF)
+    traceasm_put32(J, disp)
+    traceasm_put8(J, 0xBF)
+    traceasm_put8(J, 0x83)
+end
+
+func traceasm_emit_jne_rel32(J: ptr(u8), disp: i32)
+    traceasm_put32(J, disp)
+    traceasm_put8(J, 0x85)
+    traceasm_put8(J, 0x0F)
+end
+
+func traceasm_emit_ret(J: ptr(u8))
+    traceasm_put8(J, 0xC3)
+end
+
+func traceasm_reg_for_slot(slot: i32) -> i32
+    if slot == 1 then return 1 end
+    if slot == 2 then return 2 end
+    if slot == 3 then return 0 end
+    if slot == 4 then return 6 end
+    if slot == 5 then return 8 end
+    if slot == 6 then return 9 end
+    if slot == 7 then return 10 end
+    return 11
+end
+
+func traceasm_is_guard_sload(ir: ptr(u64), slot: i32) -> bool
+    let op: i32 = as(i32, (ir[slot] >> 40) & 0xFF)
+    let ty: i32 = as(i32, (ir[slot] >> 32) & 0xFF)
+    return op == IR_SLOAD and (ty & IRT_GUARD) ~= 0
+end
+
+func traceasm_count_guards(ir: ptr(u64), slot: i32, nins: i32, count: i32) -> i32
+    if slot >= nins then return count end
+    if traceasm_is_guard_sload(ir, slot) then return traceasm_count_guards(ir, slot + 1, nins, count + 1) end
+    return traceasm_count_guards(ir, slot + 1, nins, count)
+end
+
+func traceasm_guard_snapno(ir: ptr(u64), slot: i32, i: i32, count: i32) -> i32
+    if i > slot then return count - 1 end
+    if traceasm_is_guard_sload(ir, i) then return traceasm_guard_snapno(ir, slot, i + 1, count + 1) end
+    return traceasm_guard_snapno(ir, slot, i + 1, count)
+end
+
+func traceasm_set_exit_addr(A: ptr(u8), snapno: i32, addr: ptr(u8))
+    as(ptr(u64), A)[snapno] = as(u64, addr)
+end
+
+func traceasm_get_exit_addr(A: ptr(u8), snapno: i32) -> u64
+    return as(ptr(u64), A)[snapno]
+end
+
+func traceasm_emit_exit_stubs(J: ptr(u8), A: ptr(u8), snapno: i32)
+    if snapno < 0 then return end
+    traceasm_emit_ret(J)
+    traceasm_emit_mov_ri32(J, 0, 0 - (snapno + 1))
+    traceasm_set_exit_addr(A, snapno, traceasm_mc_top(J))
+    traceasm_emit_exit_stubs(J, A, snapno - 1)
+end
+
+region traceasm_asm_trace(J: ptr(u8), A: ptr(u8), ir: ptr(u64), nins: i32; mcode: cont(entry_ptr: ptr(u8)), abort: cont(reason: i32))
+entry start()
+    if as(u64, A) == 0 then jump abort(reason = 90) end
+    let nguards: i32 = traceasm_count_guards(ir, 1, nins, 0)
+    traceasm_emit_exit_stubs(J, A, nguards - 1)
+    jump scan(slot = nins - 1, A = A)
+end
+block scan(slot: i32, A: ptr(u8))
+    if slot < 1 then jump mcode(entry_ptr = traceasm_mc_top(J)) end
+    let op: i32 = as(i32, (ir[slot] >> 40) & 0xFF)
+    if op == IR_LOOP then jump scan(slot = slot - 1, A = A) end
+    if op == IR_RETF then jump emit_retf(slot = slot, A = A) end
+    if op == IR_ADD or op == IR_SUB or op == IR_MUL then jump emit_arith(slot = slot, op = op, A = A) end
+    if op == IR_SLOAD then jump emit_sload(slot = slot, A = A) end
+    if op == IR_KINT then jump emit_kint(slot = slot, A = A) end
+    jump abort(reason = op)
+end
+block emit_retf(slot: i32, A: ptr(u8))
+    let src_ref: i32 = as(i32, ir[slot] & 0xFFFF)
+    let r: i32 = traceasm_reg_for_slot(src_ref - REF_BIAS)
+    traceasm_emit_ret(J)
+    if r ~= 0 then traceasm_emit_mov_rr(J, 0, r) end
+    jump scan(slot = slot - 1, A = A)
+end
+block emit_arith(slot: i32, op: i32, A: ptr(u8))
+    let dst: i32 = traceasm_reg_for_slot(slot)
+    let op1: i32 = as(i32, ir[slot] & 0xFFFF)
+    let op2: i32 = as(i32, (ir[slot] >> 16) & 0xFFFF)
+    let r1: i32 = traceasm_reg_for_slot(op1 - REF_BIAS)
+    let r2: i32 = traceasm_reg_for_slot(op2 - REF_BIAS)
+    if op == IR_ADD then traceasm_emit_add_rr(J, dst, r2) end
+    if op == IR_SUB then traceasm_emit_sub_rr(J, dst, r2) end
+    if op == IR_MUL then traceasm_emit_imul_rr(J, dst, r2) end
+    if dst ~= r1 then traceasm_emit_mov_rr(J, dst, r1) end
+    jump scan(slot = slot - 1, A = A)
+end
+block emit_sload(slot: i32, A: ptr(u8))
+    let dst: i32 = traceasm_reg_for_slot(slot)
+    let stack_slot: i32 = as(i32, ir[slot] & 0xFFFF)
+    traceasm_emit_load_rdi_d32(J, dst, stack_slot * TV_STRIDE + TV_PAYLOAD)
+    let ty: i32 = as(i32, (ir[slot] >> 32) & 0xFF)
+    if (ty & IRT_GUARD) ~= 0 then
+        let snapno: i32 = traceasm_guard_snapno(ir, slot, 1, 0)
+        let exit_addr: u64 = traceasm_get_exit_addr(A, snapno)
+        let disp: i32 = as(i32, exit_addr - as(u64, traceasm_mc_top(J)))
+        traceasm_emit_jne_rel32(J, disp)
+        traceasm_emit_cmp_rdi_d32_imm8(J, stack_slot * TV_STRIDE, LUA_TINT)
+    end
+    jump scan(slot = slot - 1, A = A)
+end
+block emit_kint(slot: i32, A: ptr(u8))
+    traceasm_emit_mov_ri32(J, traceasm_reg_for_slot(slot), as(i32, ir[slot] & 0xFFFF))
+    jump scan(slot = slot - 1, A = A)
+end
+end
+
 region trace_record_root(J: ptr(u8), L: ptr(u8), pc: ptr(u8)) -> proto.TraceRecord
 entry start()
-    jump interpret()
+    let tr: ptr(u8) = trace_j_tr(J)
+    if as(u64, tr) == 0 then jump interpret() end
+    if as(u64, tr_irbuf(tr)) == 0 then jump abort(reason = 10) end
+    if as(u64, tr_snap(tr)) == 0 or as(u64, tr_snapmap(tr)) == 0 then jump abort(reason = 11) end
+    let refs: ptr(i32) = trace_refs_ptr(J)
+    if as(u64, refs) == 0 then jump abort(reason = 12) end
+    tr_set_startpc(tr, pc)
+    tr_set_startins(tr, as(ptr(u32), pc)[0])
+    tr_set_nsnapmap(tr, 0)
+    trace_set_nsnap(tr, 0)
+    trace_set_j_nins(J, 1)
+    trace_set_j_nk(J, REF_BIAS)
+    trace_zero_refs(refs, 0)
+    jump rec_ip(ip = 0, budget = TRACE_MAX_BC)
+end
+block rec_ip(ip: i32, budget: i32)
+    if budget <= 0 then jump abort(reason = 30) end
+    let ins: u32 = as(ptr(u32), pc)[ip]
+    let op: i32 = as(i32, ins) & 0xFF
+    let refs: ptr(i32) = trace_refs_ptr(J)
+    switch op do
+    case 18 then
+        let src: i32 = trace_bc_d(ins)
+        let dst: i32 = trace_bc_a(ins)
+        if refs[src] == 0 then jump abort(reason = 5) end
+        refs[dst] = refs[src]
+        jump rec_ip(ip = ip + 1, budget = budget - 1)
+    case 32 then
+        let b: i32 = trace_bc_b(ins)
+        let c: i32 = trace_bc_c(ins)
+        let rb: i32 = trace_record_sload(J, L, refs, b)
+        if rb < 0 then jump abort(reason = 0 - rb) end
+        let rc: i32 = trace_record_sload(J, L, refs, c)
+        if rc < 0 then jump abort(reason = 0 - rc) end
+        let rr: i32 = trace_record_arith(J, refs, trace_bc_a(ins), b, c, IR_ADD)
+        if rr < 0 then jump abort(reason = 0 - rr) end
+        jump rec_ip(ip = ip + 1, budget = budget - 1)
+    case 33 then
+        let b: i32 = trace_bc_b(ins)
+        let c: i32 = trace_bc_c(ins)
+        let rb: i32 = trace_record_sload(J, L, refs, b)
+        if rb < 0 then jump abort(reason = 0 - rb) end
+        let rc: i32 = trace_record_sload(J, L, refs, c)
+        if rc < 0 then jump abort(reason = 0 - rc) end
+        let rr: i32 = trace_record_arith(J, refs, trace_bc_a(ins), b, c, IR_SUB)
+        if rr < 0 then jump abort(reason = 0 - rr) end
+        jump rec_ip(ip = ip + 1, budget = budget - 1)
+    case 34 then
+        let b: i32 = trace_bc_b(ins)
+        let c: i32 = trace_bc_c(ins)
+        let rb: i32 = trace_record_sload(J, L, refs, b)
+        if rb < 0 then jump abort(reason = 0 - rb) end
+        let rc: i32 = trace_record_sload(J, L, refs, c)
+        if rc < 0 then jump abort(reason = 0 - rc) end
+        let rr: i32 = trace_record_arith(J, refs, trace_bc_a(ins), b, c, IR_MUL)
+        if rr < 0 then jump abort(reason = 0 - rr) end
+        jump rec_ip(ip = ip + 1, budget = budget - 1)
+    case 41 then
+        trace_emit_kint(J, refs, trace_bc_a(ins), trace_s16(trace_bc_d(ins)))
+        jump rec_ip(ip = ip + 1, budget = budget - 1)
+    case 76 then
+        let a: i32 = trace_bc_a(ins)
+        let r: i32 = trace_record_sload(J, L, refs, a)
+        if r < 0 then jump abort(reason = 0 - r) end
+        trace_emit_ins(J, 82, 19, refs[a], 0)
+        jump compile_trace()
+    case 85 then
+        trace_emit_ins(J, 80, 19, 0, 0)
+        jump compile_trace()
+    default then
+        jump abort(reason = 100 + op)
+    end
+end
+block compile_trace()
+    let tr: ptr(u8) = trace_j_tr(J)
+    trace_sync_to_tr(J, tr)
+    if as(u64, as(ptr(u64), J)[4]) == 0 then jump compiled(tr = tr_traceno(tr)) end
+    emit traceasm_asm_trace(J, trace_asmstate(J), trace_irbuf_u64(J), trace_j_nins(J); mcode = asm_done, abort = asm_abort)
+end
+block asm_done(entry_ptr: ptr(u8))
+    emit trace_commit(J, tr_traceno(trace_j_tr(J)), entry_ptr; root_patched = commit_root, side_patched = commit_side, abort = commit_abort)
+end
+block asm_abort(reason: i32)
+    jump abort(reason = 50 + reason)
+end
+block commit_root(tr: i32)
+    jump compiled(tr = tr)
+end
+block commit_side(tr: i32)
+    jump compiled(tr = tr)
+end
+block commit_abort(reason: i32)
+    jump abort(reason = 60 + reason)
 end
 end
 
@@ -142,6 +638,99 @@ entry start()
     p32[19] = 0                    -- szmcode placeholder @ offset 76
     jump root_patched(tr = tr)
 end
+end
+
+func trace_call_entry(entry_ptr: ptr(u8), base: ptr(u8)) -> i64
+    let fp: func(ptr(u8)) -> i64 = as(func(ptr(u8)) -> i64, entry_ptr)
+    return fp(base)
+end
+
+func trace_snap_mapofs(tr: ptr(u8), snapno: i32) -> i32
+    return as(i32, as(ptr(u32), tr_snap(tr))[snapno * 4])
+end
+
+func trace_snap_nent(tr: ptr(u8), snapno: i32) -> i32
+    return as(i32, as(ptr(u16), tr_snap(tr))[snapno * 8 + 4])
+end
+
+func trace_snapentry_slot(e: i32) -> i32
+    return e >> SNAP_SLOT_SHIFT
+end
+
+func trace_snapentry_ref(e: i32) -> i32
+    return e & 0xFFFF
+end
+
+func trace_restore_set_slot(L: ptr(u8), slot: i32, payload: i64)
+    let base: ptr(u8) = as(ptr(u8), as(ptr(u64), L)[4])
+    as(ptr(i32), base)[slot * 4] = LUA_TINT
+    as(ptr(i64), base)[slot * 2 + 1] = payload
+end
+
+func trace_restore_entries(L: ptr(u8), sm: ptr(i32), mapofs: i32, nent: i32, i: i32, ex: ptr(i64))
+    if i >= nent then return end
+    let e: i32 = sm[mapofs + i]
+    let slot: i32 = trace_snapentry_slot(e)
+    let ref: i32 = trace_snapentry_ref(e)
+    if ref >= REF_BIAS then
+        trace_restore_set_slot(L, slot, ex[ref - REF_BIAS])
+    end
+    trace_restore_entries(L, sm, mapofs, nent, i + 1, ex)
+end
+
+func trace_restore_snapshot(L: ptr(u8), tr: ptr(u8), snapno: i32, ex: ptr(i64)) -> ptr(u8)
+    let sm: ptr(i32) = as(ptr(i32), tr_snapmap(tr))
+    let mapofs: i32 = trace_snap_mapofs(tr, snapno)
+    let nent: i32 = trace_snap_nent(tr, snapno)
+    trace_restore_entries(L, sm, mapofs, nent, 0, ex)
+    let pc: ptr(u8) = as(ptr(u8), as(ptr(u64), tr)[TR_OFF_STARTPC / 8])
+    as(ptr(u64), L)[TS_OFF_CURPC / 8] = as(u64, pc)
+    return pc
+end
+
+region trace_execute(L: ptr(u8), tr: ptr(u8), base: ptr(u8), ex: ptr(i64)) -> proto.TraceExecute
+entry start()
+    if as(u64, tr) == 0 then jump error(code = 1) end
+    let entry_ptr: ptr(u8) = tr_mcode(tr)
+    if as(u64, entry_ptr) == 0 then jump error(code = 2) end
+    let result: i64 = trace_call_entry(entry_ptr, base)
+    if result < as(i64, 0) then
+        let snapno: i32 = as(i32, (as(i64, 0) - result) - as(i64, 1))
+        let pc: ptr(u8) = trace_restore_snapshot(L, tr, snapno, ex)
+        jump restored(pc = pc)
+    end
+    jump completed(result = result)
+end
+end
+
+export func trace_entry_probe(base: ptr(u8)) -> i64
+    return as(ptr(i64), base)[1]
+end
+
+export func trace_call_mcode_test(tr: ptr(u8), base: ptr(u8)) -> i64
+    return trace_call_entry(tr_mcode(tr), base)
+end
+
+export func trace_execute_test(L: ptr(u8), tr: ptr(u8), base: ptr(u8), ex: ptr(i64)) -> i64
+    return region -> i64
+    entry start()
+        emit trace_execute(L, tr, base, ex; completed = got_completed, restored = got_restored, error = got_error)
+    end
+    block got_completed(result: i64) yield result end
+    block got_restored(pc: ptr(u8)) yield as(i64, -1) end
+    block got_error(code: i32) yield as(i64, 0 - code) end
+    end
+end
+
+export func trace_record_root_test(J: ptr(u8), L: ptr(u8), pc: ptr(u8)) -> i32
+    return region -> i32
+    entry start()
+        emit trace_record_root(J, L, pc; compiled = got_compiled, interpret = got_interpret, abort = got_abort)
+    end
+    block got_compiled(tr: i32) yield tr end
+    block got_interpret() yield -1 end
+    block got_abort(reason: i32) yield -1000 - reason end
+    end
 end
 
 export func trace_commit_test(J: ptr(u8), tr: i32, mcode_entry: ptr(u8)) -> i32

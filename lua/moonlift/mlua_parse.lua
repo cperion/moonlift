@@ -46,6 +46,37 @@ function M.Define(T)
     end
 
     local parse_type_expr
+    local function parse_callable_type_expr(text, keyword)
+        text = strip(text)
+        local prefix = keyword .. "("
+        if text:sub(1, #prefix) ~= prefix then return nil end
+        local depth = 0
+        local close_pos = nil
+        for i = #keyword + 1, #text do
+            local ch = text:sub(i, i)
+            if ch == "(" then depth = depth + 1
+            elseif ch == ")" then
+                depth = depth - 1
+                if depth == 0 then close_pos = i; break end
+            end
+        end
+        if not close_pos then return nil end
+        local params_src = text:sub(#keyword + 2, close_pos - 1)
+        local rest = strip(text:sub(close_pos + 1))
+        local result_src = "void"
+        if rest:sub(1, 2) == "->" then result_src = strip(rest:sub(3))
+        elseif rest ~= "" then return nil end
+        local params = {}
+        params_src = strip(params_src)
+        if params_src ~= "" then
+            for _, part in ipairs(split_top_commas(params_src)) do
+                params[#params + 1] = parse_type_expr(part)
+            end
+        end
+        local result = parse_type_expr(result_src)
+        if keyword == "closure" then return Ty.TClosure(params, result), H.HostStorageSame end
+        return Ty.TFunc(params, result), H.HostStorageSame
+    end
     parse_type_expr = function(text)
         text = strip(text):gsub("%s+", " ")
         if text == "bool8" then return Ty.TScalar(C.ScalarBool), H.HostStorageBool(H.HostBoolU8, C.ScalarU8) end
@@ -57,6 +88,14 @@ function M.Define(T)
             local enc = (scalar == C.ScalarU8 or scalar == C.ScalarI8) and H.HostBoolU8 or H.HostBoolI32
             return Ty.TScalar(C.ScalarBool), H.HostStorageBool(enc, scalar)
         end
+        local fn_ty, fn_storage = parse_callable_type_expr(text, "func")
+        if fn_ty then return fn_ty, fn_storage end
+        fn_ty, fn_storage = parse_callable_type_expr(text, "fn")
+        if fn_ty then return fn_ty, fn_storage end
+        fn_ty, fn_storage = parse_callable_type_expr(text, "fnptr")
+        if fn_ty then return fn_ty, fn_storage end
+        fn_ty, fn_storage = parse_callable_type_expr(text, "closure")
+        if fn_ty then return fn_ty, fn_storage end
         local inner = text:match("^ptr%s*%((.*)%)$")
         if inner then local ty = parse_type_expr(inner); return Ty.TPtr(ty), H.HostStoragePtr(ty) end
         inner = text:match("^view%s*%((.*)%)$")

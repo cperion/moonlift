@@ -1,0 +1,189 @@
+-- runtime/closure.mlua -- Closure creation (BC_FNEW).
+--
+-- FNEW decodes the child proto constant and exposes allocation through a typed
+-- protocol.  The allocator/host provides memory for GCfuncL, then
+-- vmop_fnew_finish initializes the closure header payload that the interpreter
+-- needs: ffid=Lua, nupvalues, and pc=child proto bytecode.
+
+local proto = moon.require("luajitvm.protocols")
+local m = module "luajitvm.runtime.closure"
+
+const LUA_TFUNC: i32 = 9
+const FF_LUA: i32 = 0
+const GCT_FUNC: i32 = 4
+
+const PROTO_SIZE: i32 = 96
+const P_OFF_K: i32 = 24
+const P_OFF_UV: i32 = 32
+const P_OFF_SIZEUV: i32 = 52
+const TS_OFF_CURBC: i32 = 96
+const TS_OFF_OPENUPVAL: i32 = 64
+
+const FUNC_OFF_MARKED: i32 = 8
+const FUNC_OFF_GCT: i32 = 9
+const FUNC_OFF_FFID: i32 = 10
+const FUNC_OFF_NUPVALUES: i32 = 11
+const FUNC_OFF_PC: i32 = 32
+const FUNCL_OFF_UVPTR: i32 = 40
+
+const UV_LOCAL: i32 = 0x8000
+const UV_SLOT_MASK: i32 = 0x7FFF
+const UV_SIZE: i32 = 48
+const UV_OFF_CLOSED: i32 = 10
+const UV_OFF_TV: i32 = 16
+const UV_OFF_V: i32 = 32
+const UV_OFF_DHASH: i32 = 40
+
+func clos_bc_a(ins: u32) -> i32
+    return (as(i32, ins) >> 8) & 0xFF
+end
+
+func clos_bc_d(ins: u32) -> i32
+    return (as(i32, ins) >> 16) & 0xFFFF
+end
+
+func clos_stack_base(L: ptr(u8)) -> ptr(u8)
+    return as(ptr(u8), as(ptr(u64), L)[4])
+end
+
+func clos_cur_proto(L: ptr(u8)) -> ptr(u8)
+    return as(ptr(u8), as(ptr(u64), L)[TS_OFF_CURBC / 8]) - PROTO_SIZE
+end
+
+func clos_proto_k(pt: ptr(u8)) -> ptr(u8)
+    return as(ptr(u8), as(ptr(u64), pt)[P_OFF_K / 8])
+end
+
+func clos_const_payload(L: ptr(u8), idx: i32) -> i64
+    return as(ptr(i64), clos_proto_k(clos_cur_proto(L)))[idx * 2 + 1]
+end
+
+func clos_proto_sizeuv(pt: ptr(u8)) -> i32
+    return as(i32, pt[P_OFF_SIZEUV])
+end
+
+func clos_proto_uv(pt: ptr(u8)) -> ptr(u16)
+    return as(ptr(u16), as(ptr(u64), pt)[P_OFF_UV / 8])
+end
+
+func clos_proto_bc(pt: ptr(u8)) -> ptr(u32)
+    return as(ptr(u32), pt + PROTO_SIZE)
+end
+
+func clos_tv_set(base: ptr(u8), slot: i32, tag: i32, payload: i64)
+    as(ptr(i32), base)[slot * 4] = tag
+    as(ptr(i64), base)[slot * 2 + 1] = payload
+end
+
+func clos_current_func(L: ptr(u8)) -> ptr(u8)
+    let base: ptr(u8) = clos_stack_base(L)
+    return as(ptr(u8), as(ptr(i64), base - 16)[1])
+end
+
+func clos_func_uvptr(fn: ptr(u8), idx: i32) -> ptr(u8)
+    return as(ptr(u8), as(ptr(u64), fn)[(FUNCL_OFF_UVPTR / 8) + idx])
+end
+
+func clos_set_func_uvptr(fn: ptr(u8), idx: i32, uv: ptr(u8))
+    as(ptr(u64), fn)[(FUNCL_OFF_UVPTR / 8) + idx] = as(u64, uv)
+end
+
+func clos_uv_v(uv: ptr(u8)) -> ptr(u8)
+    return as(ptr(u8), as(ptr(u64), uv)[UV_OFF_V / 8])
+end
+
+func clos_uv_next(uv: ptr(u8)) -> ptr(u8)
+    return as(ptr(u8), as(ptr(u64), uv)[3])
+end
+
+func clos_open_head(L: ptr(u8)) -> ptr(u8)
+    return as(ptr(u8), as(ptr(u64), L)[TS_OFF_OPENUPVAL / 8])
+end
+
+func clos_set_open_head(L: ptr(u8), uv: ptr(u8))
+    as(ptr(u64), L)[TS_OFF_OPENUPVAL / 8] = as(u64, uv)
+end
+
+func clos_init_open_uv(uv: ptr(u8), target: ptr(u8), next_uv: ptr(u8), hash: i32)
+    uv[UV_OFF_CLOSED] = as(u8, 0)
+    as(ptr(u64), uv)[2] = as(u64, 0)
+    as(ptr(u64), uv)[3] = as(u64, next_uv)
+    as(ptr(u64), uv)[UV_OFF_V / 8] = as(u64, target)
+    as(ptr(u32), uv)[UV_OFF_DHASH / 4] = as(u32, hash)
+end
+
+region vmop_fnew(L: ptr(u8), ins: u32, ip: i32) -> proto.ClosureNew
+entry start()
+    let d: i32 = clos_bc_d(ins)
+    let pt: ptr(u8) = as(ptr(u8), clos_const_payload(L, d))
+    if as(u64, pt) == 0 then jump error(code = 17) end
+    jump need_alloc(pt = pt, nupvalues = clos_proto_sizeuv(pt), ins = ins, ip = ip)
+end
+end
+
+region vmop_fnew_finish(L: ptr(u8), ins: u32, ip: i32, fn: ptr(u8), pt: ptr(u8); next: cont(ip: i32), error: cont(code: i32))
+entry start()
+    if as(u64, fn) == 0 then jump error(code = 18) end
+    if as(u64, pt) ~= 0 then
+        fn[FUNC_OFF_MARKED] = as(u8, 0)
+        fn[FUNC_OFF_GCT] = as(u8, GCT_FUNC)
+        fn[FUNC_OFF_FFID] = as(u8, FF_LUA)
+        fn[FUNC_OFF_NUPVALUES] = as(u8, clos_proto_sizeuv(pt))
+        as(ptr(u64), fn)[FUNC_OFF_PC / 8] = as(u64, clos_proto_bc(pt))
+        jump bind_uv(idx = 0, n = clos_proto_sizeuv(pt), pool = fn + FUNCL_OFF_UVPTR + clos_proto_sizeuv(pt) * 8)
+    end
+    jump store_closure()
+end
+block bind_uv(idx: i32, n: i32, pool: ptr(u8))
+    if idx >= n then jump store_closure() end
+    let descs: ptr(u16) = clos_proto_uv(pt)
+    let desc: i32 = as(i32, descs[idx])
+    if (desc & UV_LOCAL) ~= 0 then
+        let slot: i32 = desc & UV_SLOT_MASK
+        let target: ptr(u8) = clos_stack_base(L) + slot * 16
+        jump find_open(idx = idx, n = n, pool = pool, slot = slot, target = target, uv = clos_open_head(L))
+    end
+    let parent: ptr(u8) = clos_current_func(L)
+    clos_set_func_uvptr(fn, idx, clos_func_uvptr(parent, desc & UV_SLOT_MASK))
+    jump bind_uv(idx = idx + 1, n = n, pool = pool)
+end
+block find_open(idx: i32, n: i32, pool: ptr(u8), slot: i32, target: ptr(u8), uv: ptr(u8))
+    if as(u64, uv) == 0 then jump make_open(idx = idx, n = n, pool = pool, slot = slot, target = target) end
+    if clos_uv_v(uv) == target then
+        clos_set_func_uvptr(fn, idx, uv)
+        jump bind_uv(idx = idx + 1, n = n, pool = pool)
+    end
+    jump find_open(idx = idx, n = n, pool = pool, slot = slot, target = target, uv = clos_uv_next(uv))
+end
+block make_open(idx: i32, n: i32, pool: ptr(u8), slot: i32, target: ptr(u8))
+    let uv: ptr(u8) = pool + idx * UV_SIZE
+    clos_init_open_uv(uv, target, clos_open_head(L), slot)
+    clos_set_open_head(L, uv)
+    clos_set_func_uvptr(fn, idx, uv)
+    jump bind_uv(idx = idx + 1, n = n, pool = pool)
+end
+block store_closure()
+    let base: ptr(u8) = clos_stack_base(L)
+    clos_tv_set(base, clos_bc_a(ins), LUA_TFUNC, as(i64, fn))
+    jump next(ip = ip + 1)
+end
+end
+
+export func fnew_finish_test(L: ptr(u8), ins: u32, ip: i32, fn: ptr(u8), pt: ptr(u8)) -> i32
+    return region -> i32
+    entry start()
+        emit vmop_fnew_finish(L, ins, ip, fn, pt; next = ok, error = fail)
+    end
+    block ok(ip: i32) yield ip end
+    block fail(code: i32) yield -code end
+    end
+end
+
+export func closure_version() -> i32
+    return 2
+end
+
+end
+
+local _c = m:compile(); _c:free()
+return m

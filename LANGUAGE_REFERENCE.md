@@ -604,11 +604,27 @@ In type position:
 
 ```text
 func(i32, i32) -> i32           -- function pointer type
+fn(i32, i32) -> i32             -- alias for func(...)
+fnptr(i32, i32) -> i32          -- alias for func(...)
 closure(i32) -> i32             -- closure type (function + context)
 ```
 
-These are used primarily for indirect calls and interface types. The builder
-API uses `moon.func_type(params, result)` and `moon.closure_type(params, result)`.
+Function pointer values are scalar pointer-sized values. They can be passed as
+parameters, returned, produced with `&some_func`/function-address lowering, cast
+from `ptr(u8)`, and called indirectly:
+
+```moonlift
+export func call_fp(fp: func(i32) -> i32, x: i32) -> i32
+    return fp(x)
+end
+
+export func call_raw(raw: ptr(u8), x: i32) -> i32
+    let fp: func(i32) -> i32 = as(func(i32) -> i32, raw)
+    return fp(x)
+end
+```
+
+The builder API uses `moon.func_type(params, result)` and `moon.closure_type(params, result)`.
 
 ### 5.11 Source-level genericity
 

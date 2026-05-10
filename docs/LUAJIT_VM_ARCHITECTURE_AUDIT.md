@@ -14,7 +14,16 @@ The first cleanup pass fixed the highest-risk interpreter architecture issues:
 - `TNEW.need_alloc` is a typed top-level interpreter suspension, not a runtime error;
 - table-store barrier edges now mark black tables gray;
 - recorder SLOAD now reads the canonical TValue tag offset;
-- upvalue current-function lookup now reads the function slot below `base`.
+- upvalue current-function lookup now reads the function slot below `base`;
+- `KSTR`/`KNUM` load constants from the current proto;
+- `GGET`/`GSET` use proto constants as keys and support string-key hash lookup;
+- `FNEW` exposes typed closure allocation and has a finish path to initialize GCfuncL;
+- `LOOP` has a typed hot edge based on `global_State.hookcount`;
+- table `__index`/`__newindex` misses route to typed metamethod-call suspension edges;
+- `BC_VARG` uses CallInfo vararg metadata and fills missing values with nil;
+- `runtime/base.mlua` handles a small deterministic builtin fast-function subset;
+- builtin yield exits through typed `InterpResult.yielded`;
+- `snap_restore` restores integer slots from KINT constants and exit-state refs.
 
 Remaining sections below describe the original findings and any still-open work.
 
@@ -22,7 +31,7 @@ Remaining sections below describe the original findings and any still-open work.
 
 The current interpreter started as a useful opcode smoke-test harness, but was not yet a coherent LuaJIT VM runtime model.  The largest architectural fault was exactly the suspected one: `runtime/dispatch.mlua` treated the bytecode array as a fixed `bc: ptr(u32)` parameter, while the architecture says dispatch should load from `L->pc` / current frame state.  This blocked correct Lua calls, returns, trace entry, snapshot restore, and any execution that switches bytecode streams.
 
-A second class of faults comes from local simplifications that bypass the canonical object/state layouts and protocols: table allocation turns into an error in top-level dispatch, write barriers are acknowledged but not executed, metamethod protocol exits are converted to errors, globals use integer D indices instead of string constants, and recorder/snapshot paths use incompatible TValue assumptions.
+A second class of faults came from local simplifications that bypassed the canonical object/state layouts and protocols: table allocation turned into an error in top-level dispatch, write barriers were acknowledged but not executed, metamethod protocol exits were converted to errors, globals used integer D indices instead of string constants, and recorder/snapshot paths used incompatible TValue assumptions.  The first four are now fixed for the interpreter fast paths covered by tests; snapshot/deopt remains open.
 
 ## P0: Must Fix Before Implementing CALL / JIT Integration
 
@@ -118,17 +127,17 @@ This is acceptable only as a smoke-test signal, not as VM architecture. A VM dis
 
 This can corrupt incremental GC invariants once real GC marking exists.
 
-### B3. Metamethod exits become errors or are never reached
+### B3. Metamethod exits become errors or are never reached — PARTIAL
 
 **Files:** `runtime/table.mlua`, `runtime/meta.mlua`, `runtime/arith.mlua`, `runtime/compare.mlua`
 
-`runtime/meta.mlua` implements lookup/negative cache, but table get/set never call it; `TableGet.meta`/`TableSet.meta` are converted to `error(code = 3)`. Arithmetic and comparison fast paths do not check tags or route to metamethods.
+`runtime/meta.mlua` implements lookup/negative cache. Table `__index` and `__newindex` lookup now route to typed `metamethod_call` interpreter suspension edges instead of errors. Arithmetic and comparison fast paths still do not route to metamethods.
 
-### B4. Global access uses D as an integer key, not a string constant
+### B4. Global access uses D as an integer key, not a string constant — FIXED
 
 **File:** `runtime/global.mlua`
 
-Comment says `GGET/GSET use the string constant at index D`, but implementation treats `D` itself as an integer key into env array. This avoids proto constants and string interning, so it will not execute real LuaJIT bytecode semantics.
+`GGET/GSET` now read the TValue key from the current proto constant table and support string-key hash lookup/update in the environment table.
 
 ## P1: Bytecode Coverage / Decoder Issues
 
@@ -138,7 +147,7 @@ Comment says `GGET/GSET use the string constant at index D`, but implementation 
 
 `core/bytecode.mlua` defines opcodes through `FUNCCW=96`. Dispatch handles only a subset and hardcodes numeric `case` labels. `generated/opcodes.mlua` is also incomplete relative to `core/bytecode.mlua`.
 
-Missing from dispatch include: `KSTR`, `KNUM`, `FNEW`, `TDUP`, `TGETS`, `TSETS`, `CALLM`, `CALL`, `CALLMT`, `CALLT`, `ITERC`, `ITERN`, `VARG`, `ISNEXT`, `RETM`, `JFORI`, `IFORL`, `JFORL`, `ITERL`, `JLOOP`, `FUNCF/FUNCV/FUNCC`, etc.
+Still missing from dispatch include: `TDUP`, `TGETS`, `TSETS`, `CALLM`, `CALLMT`, `ITERC`, `ITERN`, `VARG`, `ISNEXT`, `RETM`, `JFORI`, `IFORL`, `JFORL`, `ITERL`, `JLOOP`, `FUNCF/FUNCV/FUNCC`, etc. `KSTR`, `KNUM`, `FNEW`, `CALL`, and `CALLT` are now wired.
 
 ### C2. Some signed D decoding remains ambiguous
 
@@ -169,17 +178,17 @@ Runtime modules define their own `LUA_T*` constants and stack helpers. This alre
 
 ## P2: JIT / Snapshot / Exit Integration Gaps
 
-### E1. Hotcount path is not wired
+### E1. Hotcount path is not wired — PARTIAL
 
-`LOOP` just jumps; there is no `OpcodeResult.hot(pc)` edge from interpreter to recorder.
+`LOOP` now checks `global_State.hookcount` and exits through typed `InterpResult.hot(pc)` when expired. The hot edge is not yet connected to `trace_record_root`.
 
-### E2. Trace recording entry is disconnected
+### E2. Trace recording entry is disconnected — PARTIAL
 
-`trace_record_root` and `trace_record_side` return `interpret()` unconditionally. Recorder opcode regions exist mostly as low-level test helpers.
+`vm_interp_run_record` consumes the interpreter `hot(pc)` edge by composing `trace_record_root`. `trace_record_root` now records a small typed root-trace subset (`SLOAD`, `KSHORT`, `MOV`, `ADDVV/SUBVV/MULVV`, `RET1`, `LOOP`), writes guard snapshot-map entries, syncs trace counters, emits x64 mcode for the recorded subset, and commits the assembled entry through `trace_commit`. Committed entries can now be called via Moonlift `func(ptr(u8)) -> i64` function-pointer casts. The executable-mcode smoke path records into an RWX arena, calls the emitted trace, returns normal results, and routes typed guard exits through `TraceExecute.restored` with snapshot slot repair for integer refs. Full bytecode recorder coverage, optimizer integration, production arena management, and side traces remain open.
 
-### E3. Snapshot restore is unsupported
+### E3. Snapshot restore is unsupported — PARTIAL
 
-`snap_restore` returns `unsupported(code=0)`. Exit stubs cannot restore interpreter state.
+`snap_restore` now rebuilds integer stack slots from snapshot map entries backed by KINT constants or exit-state values and restores `L->curpc`. Full object/value materialization and machine exit-state integration remain open.
 
 ### E4. Exit stub uses sentinel-style deopt
 

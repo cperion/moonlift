@@ -42,6 +42,9 @@ type TraceLink = loop_back
 type InterpResult = returned(nresults: i32)
     | yielded(code: i32)
     | need_table_alloc(asize: i32, hmask: i32, ins: u32, ip: i32)
+    | need_func_alloc(pt: ptr(u8), nupvalues: i32, ins: u32, ip: i32)
+    | metamethod_call(mm_tag: i32, mm_payload: i64, ins: u32, ip: i32)
+    | hot(pc: ptr(u8))
     | error(code: i32)
 
 -- Result of a single opcode handler.
@@ -83,6 +86,11 @@ type TableSet = done
 -- Result of table creation (BC_TNEW / BC_TDUP).
 type TableNew = created(tab: ptr(u8), ins: u32, ip: i32)
     | need_alloc(asize: i32, hmask: i32, ins: u32, ip: i32)
+    | error(code: i32)
+
+-- Result of closure creation (BC_FNEW).
+type ClosureNew = created(fn: ptr(u8), ins: u32, ip: i32)
+    | need_alloc(pt: ptr(u8), nupvalues: i32, ins: u32, ip: i32)
     | error(code: i32)
 
 -- Result of a metamethod dispatch lookup.
@@ -134,6 +142,11 @@ type TraceRecordSide = compiled(tr: i32)
 type TraceCommit = root_patched(tr: i32)
     | side_patched(tr: i32)
     | abort(reason: i32)
+
+-- Result of executing a committed trace entry through a typed function pointer.
+type TraceExecute = completed(result: i64)
+    | restored(pc: ptr(u8))
+    | error(code: i32)
 
 -- What happens at a hot side exit.
 type HotExit = resume_interp

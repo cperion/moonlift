@@ -15,9 +15,13 @@ local cmp = moon.require("luajitvm.runtime.compare")
 local stackop = moon.require("luajitvm.runtime.stackop")
 local tableop = moon.require("luajitvm.runtime.table")
 local call = moon.require("luajitvm.runtime.call")
+local baseop = moon.require("luajitvm.runtime.base")
 local uvop = moon.require("luajitvm.runtime.upvalue")
+local closop = moon.require("luajitvm.runtime.closure")
 local gop = moon.require("luajitvm.runtime.global")
 local loopop = moon.require("luajitvm.runtime.loop")
+local traceop = moon.require("luajitvm.jit.trace")
+local asm_dep = moon.require("luajitvm.asm.asm_state")
 local m = module "luajitvm.runtime.dispatch"
 
 -- Bytecode opcode constants (from core/bytecode.mlua)
@@ -45,7 +49,9 @@ const BC_SUBVV:  i32 = 33
 const BC_MULVV:  i32 = 34
 const BC_DIVVV:  i32 = 35
 const BC_MODVV:  i32 = 36
+const BC_KSTR:   i32 = 39
 const BC_KSHORT: i32 = 41
+const BC_KNUM:   i32 = 42
 const BC_KPRI:   i32 = 43
 const BC_KNIL:   i32 = 44
 const BC_UGET:   i32 = 45
@@ -54,6 +60,7 @@ const BC_USETS:  i32 = 47
 const BC_USETN:  i32 = 48
 const BC_USETP:  i32 = 49
 const BC_UCLO:   i32 = 50
+const BC_FNEW:   i32 = 51
 const BC_TNEW:   i32 = 52
 const BC_GGET:   i32 = 54
 const BC_GSET:   i32 = 55
@@ -63,6 +70,7 @@ const BC_TSETV:  i32 = 60
 const BC_TSETB:  i32 = 62
 const BC_CALL:   i32 = 66
 const BC_CALLT:  i32 = 68
+const BC_VARG:   i32 = 71
 const BC_RET:    i32 = 74
 const BC_RET0:   i32 = 75
 const BC_RET1:   i32 = 76
@@ -77,6 +85,7 @@ const LUA_ERRRUN: i32 = 2
 const TS_OFF_PCIDX: i32 = 92     -- i32: current instruction index in current bc
 const TS_OFF_CURBC: i32 = 96     -- ptr(u32): current bytecode base
 const TS_OFF_CURPC: i32 = 104    -- ptr(u32): current instruction pointer
+const G_OFF_HOOKCOUNT: i32 = 368
 
 func disp_set_exec(L: ptr(u8), bc: ptr(u32), ip: i32)
     as(ptr(i32), L)[TS_OFF_PCIDX / 4] = ip
@@ -86,6 +95,26 @@ end
 
 func disp_cur_bc(L: ptr(u8)) -> ptr(u32)
     return as(ptr(u32), as(ptr(u64), L)[TS_OFF_CURBC / 8])
+end
+
+func disp_global(L: ptr(u8)) -> ptr(u8)
+    return as(ptr(u8), as(ptr(u64), L)[2])
+end
+
+func disp_s16(v: i32) -> i32
+    return v - ((v >> 15) * 65536)
+end
+
+func disp_bc_d(ins: u32) -> i32
+    return as(i32, (ins >> 16) & 0xFFFF)
+end
+
+func disp_hookcount(G: ptr(u8)) -> i32
+    return as(ptr(i32), G)[G_OFF_HOOKCOUNT / 4]
+end
+
+func disp_set_hookcount(G: ptr(u8), v: i32)
+    as(ptr(i32), G)[G_OFF_HOOKCOUNT / 4] = v
 end
 
 region vm_loop(L: ptr(u8), bc: ptr(u32), pc: i32, status: i32) -> proto.InterpResult
@@ -100,8 +129,12 @@ block dispatch(bc_v: ptr(u32), ip: i32)
     switch op do
 
     -- Stack / constant ops
+    case 39 then
+        emit stackop.vmop_kstr(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
     case 41 then
         emit stackop.vmop_kshort(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+    case 42 then
+        emit stackop.vmop_knum(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
     case 18 then
         emit stackop.vmop_mov(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
     case 43 then
@@ -111,7 +144,13 @@ block dispatch(bc_v: ptr(u32), ip: i32)
     case 88 then
         emit stackop.vmop_jmp(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
     case 85 then
-        emit stackop.vmop_loop(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+        let G: ptr(u8) = disp_global(L)
+        if as(u64, G) ~= 0 then
+            let hc: i32 = disp_hookcount(G)
+            if hc <= 0 then jump hot(pc = as(ptr(u8), bc_v + ip)) end
+            disp_set_hookcount(G, hc - 1)
+        end
+        jump dispatch(bc_v = bc_v, ip = ip + 1 + disp_s16(disp_bc_d(ins)))
 
     -- Unary ops
     case 19 then
@@ -183,6 +222,13 @@ block dispatch(bc_v: ptr(u32), ip: i32)
     case 50 then
         emit uvop.vmop_uclo(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
 
+    -- Closure creation (typed ClosureNew protocol exits)
+    case 51 then
+        emit closop.vmop_fnew(L, ins, ip;
+            created = fnew_created,
+            need_alloc = fnew_need_alloc,
+            error = fnew_error)
+
     -- Table creation (typed TableNew protocol exits)
     case 52 then
         emit tableop.vmop_tnew(ins, ip;
@@ -198,13 +244,13 @@ block dispatch(bc_v: ptr(u32), ip: i32)
 
     -- Table get/set
     case 56 then
-        emit tableop.vmop_tgetv(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+        emit tableop.vmop_tgetv(L, ins, ip; next = op_next, returned = op_returned, metamethod = op_metamethod, error = op_error)
     case 58 then
-        emit tableop.vmop_tgetb(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+        emit tableop.vmop_tgetb(L, ins, ip; next = op_next, returned = op_returned, metamethod = op_metamethod, error = op_error)
     case 60 then
-        emit tableop.vmop_tsetv(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+        emit tableop.vmop_tsetv(L, ins, ip; next = op_next, returned = op_returned, metamethod = op_metamethod, error = op_error)
     case 62 then
-        emit tableop.vmop_tsetb(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+        emit tableop.vmop_tsetb(L, ins, ip; next = op_next, returned = op_returned, metamethod = op_metamethod, error = op_error)
 
     -- Calls
     case 66 then
@@ -219,6 +265,8 @@ block dispatch(bc_v: ptr(u32), ip: i32)
             native_call = call_native,
             metamethod = call_metamethod,
             error = op_error)
+    case 71 then
+        emit call.vmop_varg(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
 
     -- Return
     case 74 then
@@ -254,12 +302,33 @@ block tnew_error(code: i32)
     jump error(code = code)
 end
 
+block fnew_created(fn: ptr(u8), ins: u32, ip: i32)
+    -- A created closure already has a function object; write it to the stack.
+    let pt: ptr(u8) = as(ptr(u8), as(u64, 0))
+    emit closop.vmop_fnew_finish(L, ins, ip, fn, pt; next = op_next, error = op_error)
+end
+
+block fnew_need_alloc(pt: ptr(u8), nupvalues: i32, ins: u32, ip: i32)
+    jump need_func_alloc(pt = pt, nupvalues = nupvalues, ins = ins, ip = ip)
+end
+
+block fnew_error(code: i32)
+    jump error(code = code)
+end
+
 block call_enter_lua(target_bc: ptr(u32), target_ip: i32)
     jump dispatch(bc_v = target_bc, ip = target_ip)
 end
 
-block call_native(fn: ptr(u8))
-    jump yielded(code = 1)
+block call_native(fn: ptr(u8), a: i32, nargs: i32, wanted: i32)
+    let ffid: i32 = as(i32, fn[10])
+    emit baseop.base_call(L, ffid, a, nargs, wanted; done = base_done, yielded = base_yielded, error = op_error)
+end
+block base_done(nresults: i32)
+    jump op_next(ip = as(ptr(i32), L)[TS_OFF_PCIDX / 4] + 1)
+end
+block base_yielded(code: i32)
+    jump yielded(code = code)
 end
 
 block call_metamethod(mm_tag: i32, mm_payload: i64)
@@ -278,6 +347,10 @@ block op_next(ip: i32)
     jump dispatch(bc_v = disp_cur_bc(L), ip = ip)
 end
 
+block op_metamethod(mm_tag: i32, mm_payload: i64, ins: u32, ip: i32)
+    jump metamethod_call(mm_tag = mm_tag, mm_payload = mm_payload, ins = ins, ip = ip)
+end
+
 block op_returned(nresults: i32)
     jump returned(nresults = nresults)
 end
@@ -294,6 +367,9 @@ export func vm_interp_run(L: ptr(u8), bc: ptr(u32), pc: i32, status: i32) -> i32
             returned = got_returned,
             yielded  = got_yielded,
             need_table_alloc = got_need_table_alloc,
+            need_func_alloc = got_need_func_alloc,
+            metamethod_call = got_metamethod_call,
+            hot = got_hot,
             error   = got_error)
     end
     block got_returned(nresults: i32)
@@ -305,9 +381,45 @@ export func vm_interp_run(L: ptr(u8), bc: ptr(u32), pc: i32, status: i32) -> i32
     block got_need_table_alloc(asize: i32, hmask: i32, ins: u32, ip: i32)
         yield -200 - asize
     end
+    block got_need_func_alloc(pt: ptr(u8), nupvalues: i32, ins: u32, ip: i32)
+        yield -300 - nupvalues
+    end
+    block got_metamethod_call(mm_tag: i32, mm_payload: i64, ins: u32, ip: i32)
+        yield -500 - mm_tag
+    end
+    block got_hot(pc: ptr(u8))
+        yield -400
+    end
     block got_error(code: i32)
         yield -100 - code
     end
+    end
+end
+
+export func vm_interp_run_record(L: ptr(u8), bc: ptr(u32), pc: i32, status: i32, J: ptr(u8)) -> i32
+    return region -> i32
+    entry start()
+        emit vm_loop(L, bc, pc, status;
+            returned = got_returned,
+            yielded = got_yielded,
+            need_table_alloc = got_need_table_alloc,
+            need_func_alloc = got_need_func_alloc,
+            metamethod_call = got_metamethod_call,
+            hot = got_hot,
+            error = got_error)
+    end
+    block got_returned(nresults: i32) yield nresults end
+    block got_yielded(code: i32) yield -1 - code end
+    block got_need_table_alloc(asize: i32, hmask: i32, ins: u32, ip: i32) yield -200 - asize end
+    block got_need_func_alloc(pt: ptr(u8), nupvalues: i32, ins: u32, ip: i32) yield -300 - nupvalues end
+    block got_metamethod_call(mm_tag: i32, mm_payload: i64, ins: u32, ip: i32) yield -500 - mm_tag end
+    block got_hot(pc: ptr(u8))
+        emit traceop.trace_record_root(J, L, pc; compiled = trace_compiled, interpret = trace_interpret, abort = trace_abort)
+    end
+    block trace_compiled(tr: i32) yield 1000 + tr end
+    block trace_interpret() yield -401 end
+    block trace_abort(reason: i32) yield -600 - reason end
+    block got_error(code: i32) yield -100 - code end
     end
 end
 

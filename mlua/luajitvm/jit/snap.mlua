@@ -32,6 +32,10 @@ const SNAP_FRAME:      i32 = 0x00010000
 const SNAP_NORESTORE:  i32 = 0x00020000
 const MAX_SNAPS:       i32 = 256
 const MAX_SNAPMAP:     i32 = 4096
+const REF_BIAS:        i32 = 0x8000
+const IR_KINT:         i32 = 60
+const LUA_TINT:        i32 = 3
+const TS_OFF_CURPC:    i32 = 104
 
 -- =========================================================================
 -- Accessors into GCtrace (layout from trace.mlua)
@@ -44,6 +48,16 @@ end
 func tr_snapmap_ptr(tr: ptr(u8)) -> ptr(u8)
     let p: ptr(u64) = as(ptr(u64), tr)
     return as(ptr(u8), p[6])
+end
+
+func tr_ir_ptr(tr: ptr(u8)) -> ptr(u64)
+    let p: ptr(u64) = as(ptr(u64), tr)
+    return as(ptr(u64), p[3])
+end
+
+func tr_startpc_ptr(tr: ptr(u8)) -> ptr(u8)
+    let p: ptr(u64) = as(ptr(u64), tr)
+    return as(ptr(u8), p[8])
 end
 
 func tr_nsnap(tr: ptr(u8)) -> i32
@@ -144,15 +158,82 @@ end
 
 end
 
-region snap_restore(L: ptr(u8), tr: i32, exitno: i32, ex: ptr(u8)) -> proto.SnapRestore
+func snap_mapofs_at(snap_base: ptr(u8), snapno: i32) -> i32
+    return as(i32, as(ptr(u32), snap_base)[snapno * 4])
+end
+
+func snap_nent_at(snap_base: ptr(u8), snapno: i32) -> i32
+    return as(i32, as(ptr(u16), snap_base)[snapno * 8 + 4])
+end
+
+func snapentry_slot(e: i32) -> i32
+    return e >> SNAP_SLOT_SHIFT
+end
+
+func snapentry_ref(e: i32) -> i32
+    return e & 0xFFFF
+end
+
+func ir_op_at(ir: ptr(u64), ref: i32) -> i32
+    return as(i32, (ir[ref] >> 40) & 0xFF)
+end
+
+func ir_op1_at(ir: ptr(u64), ref: i32) -> i32
+    return as(i32, ir[ref] & 0xFFFF)
+end
+
+func restore_set_slot(L: ptr(u8), slot: i32, tag: i32, payload: i64)
+    let base: ptr(u8) = as(ptr(u8), as(ptr(u64), L)[4])
+    as(ptr(i32), base)[slot * 4] = tag
+    as(ptr(i64), base)[slot * 2 + 1] = payload
+end
+
+region snap_restore(L: ptr(u8), tr: ptr(u8), exitno: i32, ex: ptr(u8)) -> proto.SnapRestore
 entry start()
-    jump unsupported(code = 0)
+    if as(u64, tr) == 0 then jump error(code = 1) end
+    let snap_b: ptr(u8) = tr_snap_ptr(tr)
+    let smap_b: ptr(u8) = tr_snapmap_ptr(tr)
+    if as(u64, snap_b) == 0 or as(u64, smap_b) == 0 then jump error(code = 2) end
+    jump restore_entry(i = 0, n = snap_nent_at(snap_b, exitno), mapofs = snap_mapofs_at(snap_b, exitno), ir = tr_ir_ptr(tr), smap = as(ptr(i32), smap_b))
+end
+block restore_entry(i: i32, n: i32, mapofs: i32, ir: ptr(u64), smap: ptr(i32))
+    if i >= n then jump restore_done() end
+    let e: i32 = smap[mapofs + i]
+    let slot: i32 = snapentry_slot(e)
+    let ref: i32 = snapentry_ref(e)
+    if ref < REF_BIAS then
+        if ir_op_at(ir, ref) ~= IR_KINT then jump error(code = 3) end
+        restore_set_slot(L, slot, LUA_TINT, as(i64, ir_op1_at(ir, ref)))
+        jump restore_entry(i = i + 1, n = n, mapofs = mapofs, ir = ir, smap = smap)
+    end
+    if as(u64, ex) == 0 then jump error(code = 4) end
+    restore_set_slot(L, slot, LUA_TINT, as(ptr(i64), ex)[ref - REF_BIAS])
+    jump restore_entry(i = i + 1, n = n, mapofs = mapofs, ir = ir, smap = smap)
+end
+block restore_done()
+    let pc: ptr(u8) = tr_startpc_ptr(tr)
+    as(ptr(u64), L)[TS_OFF_CURPC / 8] = as(u64, pc)
+    jump restored(pc = pc)
 end
 end
 
 -- =========================================================================
 -- Export func wrappers for testing
 -- =========================================================================
+
+export func snap_restore_test(L: ptr(u8), tr: ptr(u8), exitno: i32, ex: ptr(u8)) -> i32
+    return region -> i32
+    entry start()
+        emit snap_restore(L, tr, exitno, ex;
+            restored = got_restored,
+            unsupported = got_unsupported,
+            error = got_error)
+    end
+    block got_restored(pc: ptr(u8)) yield 0 end
+    block got_unsupported(code: i32) yield -100 - code end
+    block got_error(code: i32) yield -code end
+    end
+end
 
 export func snap_add_test(J: ptr(u8), slots: ptr(i32), nslots: i32, guard_ref: i32) -> i32
     return region -> i32

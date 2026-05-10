@@ -27,6 +27,7 @@ const IR_GE:    i32 = 21
 const IR_EQ:    i32 = 24
 const IR_NE:    i32 = 25
 const IR_LOOP:  i32 = 80
+const IR_RETF:  i32 = 82
 
 const IRT_INT:   i32 = 19
 const IRT_NUM:   i32 = 14
@@ -58,7 +59,7 @@ const J_OFF_NSNAP: i32 = 24
 
 -- Write packed IRIns at slot nins in the trace IR buffer.
 -- Returns the new ref (nins + REF_BIAS).
-func emit_ins(j64: ptr(u64), irbuf: ptr(u64), o: i32, t: i32, op1: i32, op2: i32) -> i32
+export func emit_ins(j64: ptr(u64), irbuf: ptr(u64), o: i32, t: i32, op1: i32, op2: i32) -> i32
     let nins: i32 = as(i32, j64[1])
     let m16: u64 = 0xFFFF
     let m8:  u64 = 0xFF
@@ -88,21 +89,21 @@ entry start()
 end
 end
 
-func j_nins(j64: ptr(u64)) -> i32
+export func j_nins(j64: ptr(u64)) -> i32
     return as(i32, j64[1])
 end
 
-func j_irbuf(j64: ptr(u64)) -> ptr(u64)
+export func j_irbuf(j64: ptr(u64)) -> ptr(u64)
     let tr: ptr(u64) = as(ptr(u64), as(ptr(u8), j64[0]))
     return as(ptr(u64), as(ptr(u8), tr[3]))
 end
 
-func j_nsnap(j64: ptr(u64)) -> i32
+export func j_nsnap(j64: ptr(u64)) -> i32
     let p: ptr(u32) = as(ptr(u32), as(ptr(u8), j64))
     return as(i32, p[6])
 end
 
-func j_set_nsnap(j64: ptr(u64), v: i32)
+export func j_set_nsnap(j64: ptr(u64), v: i32)
     let p: ptr(u32) = as(ptr(u32), as(ptr(u8), j64))
     p[6] = as(u32, v)
 end
@@ -267,6 +268,43 @@ entry start()
 end
 end
 
+region rec_kint_slot(J: ptr(u8), slot_refs: ptr(i32), dst_slot: i32, val: i32; done: cont(ref: i32), abort: cont(reason: i32))
+entry start()
+    let j64:   ptr(u64) = as(ptr(u64), J)
+    let irbuf: ptr(u64) = j_irbuf(j64)
+    emit alloc_kint(j64, irbuf, val; ok = kdone, overflow = kov)
+end
+block kdone(ref: i32)
+    slot_refs[dst_slot] = ref
+    jump done(ref = ref)
+end
+block kov()
+    jump abort(reason = 2)
+end
+end
+
+region rec_mov(J: ptr(u8), slot_refs: ptr(i32), dst_slot: i32, src_slot: i32; done: cont(ref: i32), abort: cont(reason: i32))
+entry start()
+    let ref: i32 = slot_refs[src_slot]
+    if ref == 0 then jump abort(reason = 5) end
+    slot_refs[dst_slot] = ref
+    jump done(ref = ref)
+end
+end
+
+region rec_retf(J: ptr(u8), slot_refs: ptr(i32), src_slot: i32; done: cont(ref: i32), abort: cont(reason: i32))
+entry start()
+    let j64:   ptr(u64) = as(ptr(u64), J)
+    let irbuf: ptr(u64) = j_irbuf(j64)
+    let nins:  i32      = j_nins(j64)
+    if nins >= IR_MAX then jump abort(reason = 1) end
+    let src: i32 = slot_refs[src_slot]
+    if src == 0 then jump abort(reason = 5) end
+    let ref: i32 = emit_ins(j64, irbuf, IR_RETF, IRT_INT, src, 0)
+    jump done(ref = ref)
+end
+end
+
 -- =========================================================================
 -- Canonical recorder protocol surface stubs. The current integration tests use
 -- the lower-level bring-up regions above; these protocol regions preserve the
@@ -361,8 +399,18 @@ export func rec_loop_test(J: ptr(u8)) -> i32
     end
 end
 
+export func rec_retf_test(J: ptr(u8), slot_refs: ptr(i32), src: i32) -> i32
+    return region -> i32
+    entry start()
+        emit rec_retf(J, slot_refs, src; done = got_done, abort = got_abort)
+    end
+    block got_done(ref: i32)     yield ref    end
+    block got_abort(reason: i32) yield -1     end
+    end
+end
+
 export func record_const_check() -> i32
-    return IR_SLOAD + IR_ADD + IRT_INT + REF_BIAS
+    return IR_SLOAD + IR_ADD + IR_RETF + IRT_INT + REF_BIAS
 end
 
 end

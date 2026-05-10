@@ -416,7 +416,8 @@ Exit criteria for P4:
 
 - [x] **P5.INT.005 — Implement LOOP/hotcount skeleton**
   - LOOP: back-edge branch with signed 16-bit offset works.
-  - Hotcount mechanism deferred (no JIT integration yet).
+  - Expired `global_State.hookcount` exits through typed `InterpResult.hot(pc)`;
+    JIT recorder consumption remains future P9/P12 wiring.
 
 - [x] **P5.INT.006 — Implement RET**
   - RET: D = nresults+1, exits via `returned(nresults)` protocol.
@@ -438,14 +439,13 @@ Exit criteria for P4:
     lookup/update for non-array keys.
   - `vmop_tgetv`, `vmop_tsetv`, `vmop_tgetb`, and `vmop_tsetb` are typed opcode
     regions composed by `runtime/dispatch.mlua`.
-  - Store path exposes `need_barrier(...)` for collectable values; current
-    interpreter handler acknowledges the edge and continues until full table/GC
-    integration wires the barrier module directly.
+  - Store path exposes `need_barrier(...)` for collectable values; interpreter
+    handler repairs black table -> gray via a back-barrier-compatible transition.
 
 Exit criteria for P5:
 
 - [x] A small bytecode program executes through `vm_loop`.
-- [x] LOOP branches correctly (hotcount mechanism deferred).
+- [x] LOOP branches correctly and expired hotcount reaches typed `hot(pc)` edge.
 - [x] Return path is typed and explicit (`returned(nresults)` protocol).
 - [x] ISLT/ISGE/ISLE/ISGT/ISEQV/ISNEV work via `as(i32, bool)` arithmetic offset.
 - [x] TGETV/TSETV execute integer-key array table accesses through typed
@@ -792,18 +792,49 @@ Exit criteria for P11:
     bytecode/frame via typed continuations.
   - Smoke test `lua_call_ret` verifies callee bytecode dispatch and caller resume.
 
-- [ ] **P13.RUNTIME.006 — Implement closures/upvalues**
+- [x] **P13.RUNTIME.006 — Implement closures/upvalues**
+  - `runtime/closure.mlua`: `BC_FNEW` decodes child proto constants and exits
+    through typed `ClosureNew.need_alloc(pt, nupvalues, ins, ip)`; finish path
+    initializes GCfuncL, binds child upvalues from proto descriptors, deduplicates
+    existing open upvalues, creates missing open upvalues in the allocation block,
+    links `L->openupval`, and stores a function TValue.
+  - `runtime/upvalue.mlua`: current function lookup now uses the frame function
+    slot below `base`.
+  - `tests/test_closure_upvalue.lua` verifies FNEW finish and duplicate local
+    capture deduplication.
 
-- [ ] **P13.RUNTIME.007 — Implement varargs**
+- [x] **P13.RUNTIME.007 — Implement varargs**
+  - CallInfo records now track `nargs`, wanted results, vararg base and vararg
+    count. `BC_VARG` copies fixed or all varargs and fills missing slots with nil.
+  - `tests/test_interpreter_run.lua` includes `varg_sum`.
 
-- [ ] **P13.RUNTIME.008 — Implement coroutines/yield protocol**
+- [-] **P13.RUNTIME.008 — Implement coroutines/yield protocol**
+  - Builtin fast-function `FF_YIELD` exits through typed `InterpResult.yielded`.
+  - Full coroutine object scheduling/resume remains future work.
 
-- [ ] **P13.RUNTIME.009 — Implement base library subset**
+- [x] **P13.RUNTIME.009 — Implement base library subset**
+  - `runtime/base.mlua` implements deterministic VM-internal fast functions:
+    type-tag, assert, nargs, and yield. Native CALL dispatch composes this module
+    instead of unconditionally yielding/erroring.
 
 Exit criteria for P13:
 
 - [ ] Nontrivial Lua-like programs run in interpreter.
-- [ ] Recorder either records supported fast paths or aborts explicitly.
+- [-] Recorder either records supported fast paths or aborts explicitly.
+  - `LOOP` produces a typed interpreter `hot(pc)` edge when hookcount is expired.
+  - `vm_interp_run_record` consumes the edge through `trace_record_root`.
+  - `trace_record_root` records a small root-trace subset (`SLOAD`, `KSHORT`,
+    `MOV`, `ADDVV/SUBVV/MULVV`, `RET1`, `LOOP`), writes guard snapshot-map
+    entries, syncs trace counters, emits x64 mcode for the subset, and commits
+    the assembled entry.
+  - `trace_call_entry` uses Moonlift function-pointer syntax
+    (`func(ptr(u8)) -> i64`) to cast committed mcode addresses and call trace
+    entries through typed indirect calls.
+  - `TraceExecute` wraps mcode calls with typed `completed/restored/error` exits;
+    guard exits return per-snapshot exit codes and restore integer slots from
+    snapshot maps plus exit-state values.
+  - Full bytecode recorder coverage, optimizer integration, executable arena
+    management, and side traces remain future work.
 
 ---
 

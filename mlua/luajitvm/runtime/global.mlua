@@ -1,15 +1,22 @@
 -- runtime/global.mlua -- Global variable get/set (BC_GGET, BC_GSET).
 --
 -- Globals are stored in the environment table (L->env).  GGET/GSET use the
--- string constant at index D to look up the global name.  For our simplified
--- model, the constant index IS the integer key used for lookup.
+-- TValue constant at index D from the current proto as the lookup key.
 
 local proto = moon.require("luajitvm.protocols")
 local m = module "luajitvm.runtime.global"
 
 const LUA_TNIL: i32 = 0
 const LUA_TINT: i32 = 3
+const LUA_TSTR: i32 = 5
 const LUA_TTAB: i32 = 8
+const PROTO_SIZE: i32 = 96
+const P_OFF_K: i32 = 24
+const TS_OFF_CURBC: i32 = 96
+const NODE_SIZE: i32 = 48
+const NODE_OFF_VAL: i32 = 0
+const NODE_OFF_KEY: i32 = 16
+const NODE_OFF_NEXT: i32 = 32
 
 func g_stack_base(L: ptr(u8)) -> ptr(u8)
     return as(ptr(u8), as(ptr(u64), L)[4])
@@ -48,46 +55,149 @@ func g_tv_set_at(base: ptr(u8), slot: i32, tag: i32, payload: i64)
     as(ptr(i64), base)[slot * 2 + 1] = payload
 end
 
--- BC_GGET: A = dest slot, D = string constant index (used as integer key)
+func g_cur_proto(L: ptr(u8)) -> ptr(u8)
+    return as(ptr(u8), as(ptr(u64), L)[TS_OFF_CURBC / 8]) - PROTO_SIZE
+end
+
+func g_proto_k(pt: ptr(u8)) -> ptr(u8)
+    return as(ptr(u8), as(ptr(u64), pt)[P_OFF_K / 8])
+end
+
+func g_const_tag(L: ptr(u8), idx: i32) -> i32
+    return as(ptr(i32), g_proto_k(g_cur_proto(L)))[idx * 4]
+end
+
+func g_const_payload(L: ptr(u8), idx: i32) -> i64
+    return as(ptr(i64), g_proto_k(g_cur_proto(L)))[idx * 2 + 1]
+end
+
+func g_node_val_tag(n: ptr(u8)) -> i32
+    return as(ptr(i32), n + NODE_OFF_VAL)[0]
+end
+
+func g_node_val_payload(n: ptr(u8)) -> i64
+    return as(ptr(i64), n + NODE_OFF_VAL)[1]
+end
+
+func g_node_set_val(n: ptr(u8), tag: i32, payload: i64)
+    as(ptr(i32), n + NODE_OFF_VAL)[0] = tag
+    as(ptr(i64), n + NODE_OFF_VAL)[1] = payload
+end
+
+func g_node_key_tag(n: ptr(u8)) -> i32
+    return as(ptr(i32), n + NODE_OFF_KEY)[0]
+end
+
+func g_node_key_payload(n: ptr(u8)) -> i64
+    return as(ptr(i64), n + NODE_OFF_KEY)[1]
+end
+
+func g_node_next(n: ptr(u8)) -> ptr(u8)
+    return as(ptr(u8), as(ptr(u64), n)[NODE_OFF_NEXT / 8])
+end
+
+func g_tab_node(t: ptr(u8)) -> ptr(u8)
+    return as(ptr(u8), as(ptr(u64), t)[5])
+end
+
+func g_tab_hmask(t: ptr(u8)) -> i32
+    return as(i32, as(ptr(u32), t)[13])
+end
+
+func g_key_hash(tag: i32, payload: i64) -> i32
+    return (tag * 131) ^ as(i32, payload)
+end
+
+-- BC_GGET: A = dest slot, D = constant index used as key.
 region vmop_gget(L: ptr(u8), ins: u32, ip: i32; next: cont(ip: i32), returned: cont(nresults: i32), error: cont(code: i32))
 entry start()
     let a: i32 = g_bc_a(ins)
     let d: i32 = g_bc_d(ins)
+    let key_tag: i32 = g_const_tag(L, d)
+    let key_payload: i64 = g_const_payload(L, d)
     let env: ptr(u8) = L_env(L)
     if as(u64, env) == 0 then jump error(code = 5) end
+    if key_tag == LUA_TINT then jump array_lookup(a = a, env = env, key = as(i32, key_payload)) end
+    jump hash_lookup(a = a, env = env, key_tag = key_tag, key_payload = key_payload)
+end
+block array_lookup(a: i32, env: ptr(u8), key: i32)
     let arr: ptr(u8) = g_tab_array(env)
     let asize: i32 = g_tab_asize(env)
-    if d > 0 and d <= asize and as(u64, arr) ~= 0 then
-        let tag: i32 = g_tv_tag_at(arr, d - 1)
+    if key > 0 and key <= asize and as(u64, arr) ~= 0 then
+        let tag: i32 = g_tv_tag_at(arr, key - 1)
         if tag ~= LUA_TNIL then
             let base: ptr(u8) = g_stack_base(L)
-            g_tv_set_at(base, a, tag, g_tv_payload_at(arr, d - 1))
+            g_tv_set_at(base, a, tag, g_tv_payload_at(arr, key - 1))
             jump next(ip = ip + 1)
         end
     end
+    jump set_nil(a = a)
+end
+block hash_lookup(a: i32, env: ptr(u8), key_tag: i32, key_payload: i64)
+    let nbase: ptr(u8) = g_tab_node(env)
+    if as(u64, nbase) == 0 then jump set_nil(a = a) end
+    let bucket: i32 = g_key_hash(key_tag, key_payload) & g_tab_hmask(env)
+    jump hash_scan(a = a, key_tag = key_tag, key_payload = key_payload, n = nbase + bucket * NODE_SIZE)
+end
+block hash_scan(a: i32, key_tag: i32, key_payload: i64, n: ptr(u8))
+    if as(u64, n) == 0 then jump set_nil(a = a) end
+    let kt: i32 = g_node_key_tag(n)
+    if kt == LUA_TNIL then jump set_nil(a = a) end
+    if kt == key_tag and g_node_key_payload(n) == key_payload then
+        let vt: i32 = g_node_val_tag(n)
+        if vt == LUA_TNIL then jump set_nil(a = a) end
+        let base: ptr(u8) = g_stack_base(L)
+        g_tv_set_at(base, a, vt, g_node_val_payload(n))
+        jump next(ip = ip + 1)
+    end
+    jump hash_scan(a = a, key_tag = key_tag, key_payload = key_payload, n = g_node_next(n))
+end
+block set_nil(a: i32)
     let base: ptr(u8) = g_stack_base(L)
     g_tv_set_at(base, a, LUA_TNIL, as(i64, 0))
     jump next(ip = ip + 1)
 end
 end
 
--- BC_GSET: A = value slot, D = string constant index (used as integer key)
+-- BC_GSET: A = value slot, D = constant index used as key.
 region vmop_gset(L: ptr(u8), ins: u32, ip: i32; next: cont(ip: i32), returned: cont(nresults: i32), error: cont(code: i32))
 entry start()
     let a: i32 = g_bc_a(ins)
     let d: i32 = g_bc_d(ins)
+    let key_tag: i32 = g_const_tag(L, d)
+    let key_payload: i64 = g_const_payload(L, d)
     let env: ptr(u8) = L_env(L)
     if as(u64, env) == 0 then jump error(code = 5) end
     let base: ptr(u8) = g_stack_base(L)
     let val_tag: i32 = g_tv_tag_at(base, a)
     let val_payload: i64 = g_tv_payload_at(base, a)
+    if key_tag == LUA_TINT then jump array_set(env = env, key = as(i32, key_payload), val_tag = val_tag, val_payload = val_payload) end
+    jump hash_set(env = env, key_tag = key_tag, key_payload = key_payload, val_tag = val_tag, val_payload = val_payload)
+end
+block array_set(env: ptr(u8), key: i32, val_tag: i32, val_payload: i64)
     let arr: ptr(u8) = g_tab_array(env)
     let asize: i32 = g_tab_asize(env)
-    if d > 0 and d <= asize and as(u64, arr) ~= 0 then
-        g_tv_set_at(arr, d - 1, val_tag, val_payload)
+    if key > 0 and key <= asize and as(u64, arr) ~= 0 then
+        g_tv_set_at(arr, key - 1, val_tag, val_payload)
         jump next(ip = ip + 1)
     end
     jump error(code = 6)
+end
+block hash_set(env: ptr(u8), key_tag: i32, key_payload: i64, val_tag: i32, val_payload: i64)
+    let nbase: ptr(u8) = g_tab_node(env)
+    if as(u64, nbase) == 0 then jump error(code = 6) end
+    let bucket: i32 = g_key_hash(key_tag, key_payload) & g_tab_hmask(env)
+    jump hash_set_scan(n = nbase + bucket * NODE_SIZE, key_tag = key_tag, key_payload = key_payload, val_tag = val_tag, val_payload = val_payload)
+end
+block hash_set_scan(n: ptr(u8), key_tag: i32, key_payload: i64, val_tag: i32, val_payload: i64)
+    if as(u64, n) == 0 then jump error(code = 6) end
+    let kt: i32 = g_node_key_tag(n)
+    if kt == LUA_TNIL then jump error(code = 6) end
+    if kt == key_tag and g_node_key_payload(n) == key_payload then
+        g_node_set_val(n, val_tag, val_payload)
+        jump next(ip = ip + 1)
+    end
+    jump hash_set_scan(n = g_node_next(n), key_tag = key_tag, key_payload = key_payload, val_tag = val_tag, val_payload = val_payload)
 end
 end
 

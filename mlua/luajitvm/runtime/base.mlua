@@ -1,0 +1,76 @@
+-- runtime/base.mlua -- Minimal built-in fast function subset.
+--
+-- GCfuncC/fast functions are identified by ffid in the function header.  This
+-- module implements deterministic VM-internal base helpers without calling back
+-- into Lua or C.  Unsupported native functions exit through a typed yield/error
+-- path at the dispatch boundary.
+
+local m = module "luajitvm.runtime.base"
+
+const FF_TYPE_TAG: i32 = 2   -- returns integer TValue tag of arg1
+const FF_ASSERT:   i32 = 3   -- assert(arg1): returns arg1 or errors
+const FF_NARGS:    i32 = 4   -- returns nargs as integer
+const FF_YIELD:    i32 = 5   -- coroutine-style yield edge
+
+const LUA_TNIL:   i32 = 0
+const LUA_TFALSE: i32 = 1
+const LUA_TINT:   i32 = 3
+
+func base_stack_base(L: ptr(u8)) -> ptr(u8)
+    return as(ptr(u8), as(ptr(u64), L)[4])
+end
+
+func base_tag_at(base: ptr(u8), slot: i32) -> i32
+    return as(ptr(i32), base)[slot * 4]
+end
+
+func base_payload_at(base: ptr(u8), slot: i32) -> i64
+    return as(ptr(i64), base)[slot * 2 + 1]
+end
+
+func base_set(base: ptr(u8), slot: i32, tag: i32, payload: i64)
+    as(ptr(i32), base)[slot * 4] = tag
+    as(ptr(i64), base)[slot * 2 + 1] = payload
+end
+
+func base_copy(base: ptr(u8), src: i32, dst: i32)
+    base_set(base, dst, base_tag_at(base, src), base_payload_at(base, src))
+end
+
+region base_call(L: ptr(u8), ffid: i32, a: i32, nargs: i32, wanted: i32;
+    done: cont(nresults: i32),
+    yielded: cont(code: i32),
+    error: cont(code: i32))
+entry start()
+    let base: ptr(u8) = base_stack_base(L)
+    if ffid == FF_TYPE_TAG then
+        if nargs < 1 then jump error(code = 21) end
+        base_set(base, a, LUA_TINT, as(i64, base_tag_at(base, a + 1)))
+        jump done(nresults = 1)
+    end
+    if ffid == FF_ASSERT then
+        if nargs < 1 then jump error(code = 22) end
+        let tag: i32 = base_tag_at(base, a + 1)
+        if tag == LUA_TNIL or tag == LUA_TFALSE then jump error(code = 23) end
+        base_copy(base, a + 1, a)
+        jump done(nresults = 1)
+    end
+    if ffid == FF_NARGS then
+        base_set(base, a, LUA_TINT, as(i64, nargs))
+        jump done(nresults = 1)
+    end
+    if ffid == FF_YIELD then
+        jump yielded(code = nargs)
+    end
+    jump error(code = 24)
+end
+end
+
+export func base_version() -> i32
+    return 1
+end
+
+end
+
+local _c = m:compile(); _c:free()
+return m

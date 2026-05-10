@@ -2,7 +2,13 @@
 
 local m = module "luajitvm.runtime.stackop"
 
+const LUA_TNIL: i32 = 0
 const LUA_TINT: i32 = 3
+const LUA_TNUM: i32 = 4
+const LUA_TSTR: i32 = 5
+const PROTO_SIZE: i32 = 96
+const P_OFF_K: i32 = 24
+const TS_OFF_CURBC: i32 = 96
 
 func stackop_bc_a(ins: u32) -> i32
     return (as(i32, ins) >> 8) & 0xFF
@@ -28,6 +34,42 @@ func stackop_stack64(L: ptr(u8)) -> ptr(i64)
     return as(ptr(i64), as(ptr(u8), as(ptr(u64), L)[4]))
 end
 
+func stackop_cur_bc(L: ptr(u8)) -> ptr(u8)
+    return as(ptr(u8), as(ptr(u64), L)[TS_OFF_CURBC / 8])
+end
+
+func stackop_cur_proto(L: ptr(u8)) -> ptr(u8)
+    return stackop_cur_bc(L) - PROTO_SIZE
+end
+
+func stackop_proto_k(pt: ptr(u8)) -> ptr(u8)
+    return as(ptr(u8), as(ptr(u64), pt)[P_OFF_K / 8])
+end
+
+func stackop_const_tag(L: ptr(u8), idx: i32) -> i32
+    let k: ptr(u8) = stackop_proto_k(stackop_cur_proto(L))
+    return as(ptr(i32), k)[idx * 4]
+end
+
+func stackop_const_payload(L: ptr(u8), idx: i32) -> i64
+    let k: ptr(u8) = stackop_proto_k(stackop_cur_proto(L))
+    return as(ptr(i64), k)[idx * 2 + 1]
+end
+
+region vmop_kstr(L: ptr(u8), ins: u32, ip: i32; next: cont(ip: i32), returned: cont(nresults: i32), error: cont(code: i32))
+entry start()
+    let a: i32 = stackop_bc_a(ins)
+    let d: i32 = stackop_bc_cd(ins)
+    let tag: i32 = stackop_const_tag(L, d)
+    if tag ~= LUA_TSTR then jump error(code = 15) end
+    let tv32: ptr(i32) = stackop_stack32(L)
+    let tv64: ptr(i64) = stackop_stack64(L)
+    tv32[a * 4] = tag
+    tv64[a * 2 + 1] = stackop_const_payload(L, d)
+    jump next(ip = ip + 1)
+end
+end
+
 region vmop_kshort(L: ptr(u8), ins: u32, ip: i32; next: cont(ip: i32), returned: cont(nresults: i32), error: cont(code: i32))
 entry start()
     let a: i32 = stackop_bc_a(ins)
@@ -36,6 +78,20 @@ entry start()
     let tv64: ptr(i64) = stackop_stack64(L)
     tv32[a * 4] = LUA_TINT
     tv64[a * 2 + 1] = as(i64, d)
+    jump next(ip = ip + 1)
+end
+end
+
+region vmop_knum(L: ptr(u8), ins: u32, ip: i32; next: cont(ip: i32), returned: cont(nresults: i32), error: cont(code: i32))
+entry start()
+    let a: i32 = stackop_bc_a(ins)
+    let d: i32 = stackop_bc_cd(ins)
+    let tag: i32 = stackop_const_tag(L, d)
+    if tag ~= LUA_TINT and tag ~= LUA_TNUM then jump error(code = 16) end
+    let tv32: ptr(i32) = stackop_stack32(L)
+    let tv64: ptr(i64) = stackop_stack64(L)
+    tv32[a * 4] = tag
+    tv64[a * 2 + 1] = stackop_const_payload(L, d)
     jump next(ip = ip + 1)
 end
 end

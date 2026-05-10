@@ -34,9 +34,7 @@ state_u64[5] = stack_uint + StackBytes                       -- top = stack_ptr 
 state_u64[7] = stack_uint                                    -- stack = stack_ptr
 state_u64[14] = tonumber(ffi.cast("uintptr_t", callinfo_buf)) -- explicit CallInfo stack
 
-local function run_program_with_setup(bc, nins, setup)
-    -- Add RET1 at position nins to return slot 0
-    bc[nins] = 76  -- RET1 with A=0
+local function reset_runtime(setup)
     ffi.fill(stack_buf, StackBytes, 0)
     ffi.fill(callinfo_buf, 32 * 16, 0)
     state_u64[4] = stack_uint
@@ -45,9 +43,29 @@ local function run_program_with_setup(bc, nins, setup)
     state_u64[14] = tonumber(ffi.cast("uintptr_t", callinfo_buf))
     ffi.cast("uint32_t *", state_buf)[30] = 0 -- cidepth
     if setup then setup() end
-    local nresults = dispatch:get("vm_interp_run")(state_ptr, bc_ptr, 0, 0)
+end
+
+local function run_bcptr_with_setup(run_bc_ptr, setup)
+    reset_runtime(setup)
+    local nresults = dispatch:get("vm_interp_run")(state_ptr, ffi.cast("void *", run_bc_ptr), 0, 0)
     local tv64 = ffi.cast("int64_t *", stack_buf)
-    return tonumber(tv64[1])  -- payload at byte offset 8 = i64 index 1
+    return tonumber(tv64[1]), nresults
+end
+
+local function run_program_with_setup(bc, nins, setup)
+    -- Add RET1 at position nins to return slot 0
+    bc[nins] = 76  -- RET1 with A=0
+    return run_bcptr_with_setup(bc_ptr, setup)
+end
+
+local function make_proto(nbc, nconst)
+    local total = 96 + nbc * 4
+    local proto = ffi.new("uint8_t[?]", total)
+    local k = ffi.new("uint8_t[?]", nconst * 16)
+    local p64 = ffi.cast("uint64_t *", proto)
+    p64[3] = tonumber(ffi.cast("uintptr_t", k))
+    local bc = ffi.cast("uint32_t *", proto + 96)
+    return proto, k, bc
 end
 
 local function run_program(bc, nins)
@@ -116,6 +134,25 @@ bc_buf[0] = kshort(0, 7)
 bc_buf[1] = 85 + (0 * 256) + (0 * 65536)     -- LOOP D=0: jump to pc+1
 bc_buf[2] = 76                                -- RET1 A=0 → return 7
 check("loop_d0", 7, run_program(bc_buf, 3))
+
+-- Test 6b: LOOP with expired hotcount exits through typed hot edge.
+do
+    local G = ffi.new("uint8_t[?]", 552)
+    ffi.cast("int32_t *", G)[368 / 4] = 0
+    bc_buf[0] = 85 + (0 * 256) + (0 * 65536)
+    bc_buf[1] = 76
+    local _, status = run_program_with_setup(bc_buf, 2, function()
+        state_u64[2] = tonumber(ffi.cast("uintptr_t", G))
+    end)
+    check("loop_hot", -400, status)
+    reset_runtime(function()
+        state_u64[2] = tonumber(ffi.cast("uintptr_t", G))
+        ffi.cast("int32_t *", G)[368 / 4] = 0
+    end)
+    local J = ffi.new("uint8_t[?]", 32)
+    local rec_status = dispatch:get("vm_interp_run_record")(state_ptr, bc_ptr, 0, 0, ffi.cast("void *", J))
+    check("loop_hot_record", -401, rec_status)
+end
 
 -- Test 7: LOOP back-edge (finite: loop exactly once, then use counter)
 -- Program:
@@ -391,7 +428,34 @@ do
     check("tsetv_barrier_gray", 2, tab_buf[8])
 end
 
--- Test 26: NOT — truthy int → false (tag 1), falsy nil → true (tag 2)
+-- Test 26: TGETV miss with __index emits typed metamethod call edge.
+do
+    local tab_buf = ffi.new("uint8_t[?]", 56)
+    local mt_buf = ffi.new("uint8_t[?]", 56)
+    local mt_arr = ffi.new("uint8_t[?]", 16 * 16)
+    local fake_fn = ffi.new("uint8_t[?]", 48)
+    local tab64 = ffi.cast("uint64_t *", tab_buf)
+    local mt64 = ffi.cast("uint64_t *", mt_buf)
+    local mt32 = ffi.cast("uint32_t *", mt_buf)
+    local arr32 = ffi.cast("int32_t *", mt_arr)
+    local arr64 = ffi.cast("int64_t *", mt_arr)
+    tab64[4] = tonumber(ffi.cast("uintptr_t", mt_buf))
+    mt64[2] = tonumber(ffi.cast("uintptr_t", mt_arr))
+    mt32[12] = 16
+    arr32[12 * 4] = 9
+    arr64[12 * 2 + 1] = tonumber(ffi.cast("uintptr_t", fake_fn))
+    bc_buf[0] = tgetv(0, 1, 2)
+    bc_buf[1] = 76
+    local _, status = run_program_with_setup(bc_buf, 2, function()
+        local st32 = ffi.cast("int32_t *", stack_buf)
+        local st64 = ffi.cast("int64_t *", stack_buf)
+        st32[4] = 8; st64[3] = tonumber(ffi.cast("uintptr_t", tab_buf))
+        st32[8] = 3; st64[5] = 999
+    end)
+    check("tgetv_index_meta", -509, status)
+end
+
+-- Test 27: NOT — truthy int → false (tag 1), falsy nil → true (tag 2)
 bc_buf[0] = kshort(0, 7)                             -- slot0 = 7 (truthy int)
 bc_buf[1] = 19 + (1 * 256) + (0 * 16777216)         -- NOT A=1 B=0
 bc_buf[2] = 76 + (1 * 256)                          -- RET1 A=1
@@ -446,7 +510,7 @@ end
 -- Test 28: CALL/RET switches to callee bytecode and resumes caller
 -- Caller: CALL slot0; RET1 slot0.  Callee: returns 123 from its own bytecode.
 do
-    local callee_bc = ffi.new("uint32_t[?]", 4)
+    local callee_proto, ck, callee_bc = make_proto(4, 0)
     local fn_buf = ffi.new("uint8_t[?]", 48)
     local fn64 = ffi.cast("uint64_t *", fn_buf)
     fn_buf[10] = 0 -- FF_LUA
@@ -465,42 +529,139 @@ do
     check("lua_call_ret", 123, got)
 end
 
--- Test 29: GGET — read from env table array part
+-- Test 29: VARG copies extra arguments according to callee frame metadata.
 do
+    local callee_proto, ck, callee_bc = make_proto(8, 0)
+    callee_proto[10] = 1 -- numparams: first arg is fixed, remaining are varargs
+    local fn_buf = ffi.new("uint8_t[?]", 48)
+    local fn64 = ffi.cast("uint64_t *", fn_buf)
+    fn_buf[10] = 0
+    fn64[4] = tonumber(ffi.cast("uintptr_t", callee_bc))
+    local function call(a, b, c) return 66 + (a * 256) + (c * 65536) + (b * 16777216) end
+    callee_bc[0] = 71 + (1 * 256) + (3 * 65536) -- VARG A=1 D=3: copy two extras
+    callee_bc[1] = addvv(0, 1, 2)               -- slot0 = vararg1 + vararg2
+    callee_bc[2] = 76                            -- RET1 A=0
+    bc_buf[0] = call(0, 4, 2) -- function + 3 args, one result
+    bc_buf[1] = 76
+    local got = run_program_with_setup(bc_buf, 2, function()
+        local st32 = ffi.cast("int32_t *", stack_buf)
+        local st64 = ffi.cast("int64_t *", stack_buf)
+        st32[0] = 9; st64[1] = tonumber(ffi.cast("uintptr_t", fn_buf))
+        st32[4] = 3; st64[3] = 10
+        st32[8] = 3; st64[5] = 20
+        st32[12] = 3; st64[7] = 30
+    end)
+    check("varg_sum", 50, got)
+end
+
+-- Test 30: Builtin native fast function returns type tag.
+do
+    local fn_buf = ffi.new("uint8_t[?]", 48)
+    fn_buf[10] = 2 -- FF_TYPE_TAG
+    local function call(a, b, c) return 66 + (a * 256) + (c * 65536) + (b * 16777216) end
+    bc_buf[0] = call(0, 2, 2) -- one arg, one result
+    bc_buf[1] = 76
+    local got = run_program_with_setup(bc_buf, 2, function()
+        local st32 = ffi.cast("int32_t *", stack_buf)
+        local st64 = ffi.cast("int64_t *", stack_buf)
+        st32[0] = 9; st64[1] = tonumber(ffi.cast("uintptr_t", fn_buf))
+        st32[4] = 3; st64[3] = 88
+    end)
+    check("base_type_tag", 3, got)
+end
+
+-- Test 31: Builtin yield fast function exits through typed yielded edge.
+do
+    local fn_buf = ffi.new("uint8_t[?]", 48)
+    fn_buf[10] = 5 -- FF_YIELD
+    local function call(a, b, c) return 66 + (a * 256) + (c * 65536) + (b * 16777216) end
+    bc_buf[0] = call(0, 2, 0) -- one arg, multret wanted; yield code = nargs
+    bc_buf[1] = 76
+    local _, status = run_program_with_setup(bc_buf, 2, function()
+        local st32 = ffi.cast("int32_t *", stack_buf)
+        local st64 = ffi.cast("int64_t *", stack_buf)
+        st32[0] = 9; st64[1] = tonumber(ffi.cast("uintptr_t", fn_buf))
+        st32[4] = 3; st64[3] = 88
+    end)
+    check("base_yield", -2, status)
+end
+
+-- Test 32: KSTR/KNUM copy constants from current proto.
+do
+    local proto, k, pbc = make_proto(4, 2)
+    local k32 = ffi.cast("int32_t *", k)
+    local k64 = ffi.cast("int64_t *", k)
+    local str_obj = ffi.new("uint8_t[?]", 32)
+    k32[0] = 5; k64[1] = tonumber(ffi.cast("uintptr_t", str_obj))
+    k32[4] = 3; k64[3] = 2468
+    pbc[0] = 42 + (0 * 256) + (1 * 65536) -- KNUM A=0 D=1
+    pbc[1] = 76
+    local got = run_bcptr_with_setup(pbc)
+    check("knum_const", 2468, got)
+end
+
+-- Test 31: FNEW exposes typed closure allocation suspension.
+do
+    local parent, k, pbc = make_proto(3, 1)
+    local child, ck, cbc = make_proto(2, 0)
+    child[52] = 2 -- sizeuv
+    local k32 = ffi.cast("int32_t *", k)
+    local k64 = ffi.cast("int64_t *", k)
+    k32[0] = 0; k64[1] = tonumber(ffi.cast("uintptr_t", child))
+    pbc[0] = 51 + (0 * 256) + (0 * 65536) -- FNEW A=0 D=0
+    pbc[1] = 76
+    local got, status = run_bcptr_with_setup(pbc)
+    check("fnew_need_alloc", -302, status)
+end
+
+-- Test 32: GGET — read env table by string constant key.
+do
+    local proto, k, pbc = make_proto(4, 1)
+    local k32 = ffi.cast("int32_t *", k)
+    local k64 = ffi.cast("int64_t *", k)
+    local key_str = ffi.new("uint8_t[?]", 32)
+    k32[0] = 5; k64[1] = tonumber(ffi.cast("uintptr_t", key_str))
     local env_buf = ffi.new("uint8_t[?]", 56)
-    local env_arr = ffi.new("uint8_t[?]", 16 * 8)
+    local node_buf = ffi.new("uint8_t[?]", 48)
     local env64 = ffi.cast("uint64_t *", env_buf)
     local env32 = ffi.cast("uint32_t *", env_buf)
-    local ea32 = ffi.cast("int32_t *", env_arr)
-    local ea64 = ffi.cast("int64_t *", env_arr)
-    env64[2] = tonumber(ffi.cast("uintptr_t", env_arr))
-    env32[12] = 8
-    -- Global key 3 → array slot 2
-    ea32[8] = 3; ea64[5] = 7777  -- array[2]: int 7777
-    bc_buf[0] = 54 + (0 * 256) + (3 * 65536)  -- GGET A=0 D=3
-    bc_buf[1] = 76                              -- RET1 A=0
-    local got = run_program_with_setup(bc_buf, 2, function()
-        local st64 = ffi.cast("uint64_t *", state_buf)
-        st64[9] = tonumber(ffi.cast("uintptr_t", env_buf)) -- L.env
+    local node32 = ffi.cast("int32_t *", node_buf)
+    local node64 = ffi.cast("int64_t *", node_buf)
+    env64[5] = tonumber(ffi.cast("uintptr_t", node_buf))
+    env32[13] = 0
+    node32[0] = 3; node64[1] = 7777
+    node32[4] = 5; node64[3] = tonumber(ffi.cast("uintptr_t", key_str))
+    pbc[0] = 54 + (0 * 256) + (0 * 65536) -- GGET A=0 D=0
+    pbc[1] = 76
+    local got = run_bcptr_with_setup(pbc, function()
+        state_u64[9] = tonumber(ffi.cast("uintptr_t", env_buf))
     end)
     check("gget", 7777, got)
 end
 
--- Test 29: GSET — write to env table array part
+-- Test 32: GSET — write env table by string constant key.
 do
+    local proto, k, pbc = make_proto(5, 1)
+    local k32 = ffi.cast("int32_t *", k)
+    local k64 = ffi.cast("int64_t *", k)
+    local key_str = ffi.new("uint8_t[?]", 32)
+    k32[0] = 5; k64[1] = tonumber(ffi.cast("uintptr_t", key_str))
     local env_buf = ffi.new("uint8_t[?]", 56)
-    local env_arr = ffi.new("uint8_t[?]", 16 * 8)
+    local node_buf = ffi.new("uint8_t[?]", 48)
     local env64 = ffi.cast("uint64_t *", env_buf)
     local env32 = ffi.cast("uint32_t *", env_buf)
-    env64[2] = tonumber(ffi.cast("uintptr_t", env_arr))
-    env32[12] = 8
-    bc_buf[0] = kshort(0, 5555)               -- slot0 = 5555
-    bc_buf[1] = 55 + (0 * 256) + (5 * 65536)  -- GSET A=0 D=5 (write slot0 to global key 5)
-    bc_buf[2] = 54 + (0 * 256) + (5 * 65536)  -- GGET A=0 D=5 (read it back)
-    bc_buf[3] = 76                              -- RET1 A=0
-    local got = run_program_with_setup(bc_buf, 4, function()
-        local st64 = ffi.cast("uint64_t *", state_buf)
-        st64[9] = tonumber(ffi.cast("uintptr_t", env_buf))
+    local node32 = ffi.cast("int32_t *", node_buf)
+    local node64 = ffi.cast("int64_t *", node_buf)
+    env64[5] = tonumber(ffi.cast("uintptr_t", node_buf))
+    env32[13] = 0
+    node32[0] = 0; node64[1] = 0
+    node32[4] = 5; node64[3] = tonumber(ffi.cast("uintptr_t", key_str))
+    pbc[0] = kshort(0, 5555)
+    pbc[1] = 55 + (0 * 256) + (0 * 65536) -- GSET A=0 D=0
+    pbc[2] = 54 + (0 * 256) + (0 * 65536) -- GGET A=0 D=0
+    pbc[3] = 76
+    local got = run_bcptr_with_setup(pbc, function()
+        state_u64[9] = tonumber(ffi.cast("uintptr_t", env_buf))
     end)
     check("gset", 5555, got)
 end

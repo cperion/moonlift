@@ -163,7 +163,22 @@ export func proto_varinfo(pt: ptr(u8)) -> ptr(u8)
 end
 
 -- Bytecode array starts at pt + P_SIZE.
--- proto_bc(pt) = pt[P_SIZE..] cast as ptr(BCIns)
+export func proto_bc(pt: ptr(u8)) -> ptr(u32)
+    return as(ptr(u32), pt + P_SIZE)
+end
+
+export func proto_from_bc(bc: ptr(u32)) -> ptr(u8)
+    return as(ptr(u8), bc) - P_SIZE
+end
+
+-- M0 constant table representation: proto.k points at a packed TValue array.
+export func proto_const_tag(pt: ptr(u8), idx: i32) -> i32
+    return as(ptr(i32), proto_k(pt))[idx * 4]
+end
+
+export func proto_const_payload(pt: ptr(u8), idx: i32) -> i64
+    return as(ptr(i64), proto_k(pt))[idx * 2 + 1]
+end
 
 export func proto_const_check() -> i32
     return P_SIZE + P_OFF_FLAGS + P_OFF_TRACE + PROTO_VARARG + PROTO_UV_LOCAL

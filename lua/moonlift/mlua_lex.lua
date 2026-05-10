@@ -144,6 +144,10 @@ local function opener_context_allows(src, word_start, word_stop)
     -- Type/protocol variant fields such as `entry: ptr(u8)` are identifiers,
     -- not block openers. Depth tracking must never treat them as syntax.
     if next_ch == ":" or next_ch == "," or next_ch == ")" then return false end
+    -- Function pointer type syntax `func(...) -> T` is not a function-body
+    -- opener. Hosted-island extent tracking must only count declaration forms
+    -- like `func name(...) ... end`.
+    if word == "func" and next_ch == "(" then return false end
     if word == "entry" then
         local line_start = src:sub(1, word_start - 1):match(".*\n()") or 1
         if src:sub(line_start, word_start - 1):match("%S") then return false end

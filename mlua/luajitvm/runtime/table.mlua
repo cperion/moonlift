@@ -10,8 +10,12 @@ local m = module "luajitvm.runtime.table"
 const LUA_TNIL: i32 = 0
 const LUA_TINT: i32 = 3
 const LUA_TTAB: i32 = 8
+const MM_INDEX: i32 = 12
+const MM_NEWINDEX: i32 = 13
 
+const TAB_OFF_NOMM: i32 = 10
 const TAB_OFF_ARRAY: i32 = 16
+const TAB_OFF_METATABLE: i32 = 32
 const TAB_OFF_NODE:  i32 = 40
 const TAB_OFF_ASIZE: i32 = 48
 const TAB_OFF_HMASK: i32 = 52
@@ -23,8 +27,20 @@ const NODE_SIZE:     i32 = 48
 const GC_BLACK:      i32 = 3
 const GC_GRAY:       i32 = 2
 
+func tbl_tab_nomm(t: ptr(u8)) -> i32
+    return as(i32, t[TAB_OFF_NOMM])
+end
+
+func tbl_tab_set_nomm(t: ptr(u8), v: i32)
+    t[TAB_OFF_NOMM] = as(u8, v)
+end
+
 func tbl_tab_array(t: ptr(u8)) -> ptr(u8)
     return as(ptr(u8), as(ptr(u64), t)[2])
+end
+
+func tbl_tab_metatable(t: ptr(u8)) -> ptr(u8)
+    return as(ptr(u8), as(ptr(u64), t)[TAB_OFF_METATABLE / 8])
 end
 
 func tbl_tab_asize(t: ptr(u8)) -> i32
@@ -128,22 +144,46 @@ end
 
 block hash_lookup()
     let nbase: ptr(u8) = tbl_tab_node(tab)
-    if as(u64, nbase) == 0 then jump nil_no_meta() end
+    if as(u64, nbase) == 0 then jump lookup_index_meta() end
     let mask: i32 = tbl_tab_hmask(tab)
     let bucket: i32 = key_hash(key_tag, key_payload) & mask
     jump hash_scan(n = nbase + bucket * NODE_SIZE)
 end
 
 block hash_scan(n: ptr(u8))
-    if as(u64, n) == 0 then jump nil_no_meta() end
+    if as(u64, n) == 0 then jump lookup_index_meta() end
     let kt: i32 = node_key_tag(n)
-    if kt == LUA_TNIL then jump nil_no_meta() end
+    if kt == LUA_TNIL then jump lookup_index_meta() end
     if kt == key_tag and node_key_payload(n) == key_payload then
         let vt: i32 = node_val_tag(n)
-        if vt == LUA_TNIL then jump nil_no_meta() end
+        if vt == LUA_TNIL then jump lookup_index_meta() end
         jump hit(val_tag = vt, val_payload = node_val_payload(n))
     end
     jump hash_scan(n = node_next(n))
+end
+block lookup_index_meta()
+    let bit: i32 = 1 << MM_INDEX
+    if (tbl_tab_nomm(tab) & bit) ~= 0 then jump nil_no_meta() end
+    let mt: ptr(u8) = tbl_tab_metatable(tab)
+    if as(u64, mt) == 0 then
+        tbl_tab_set_nomm(tab, tbl_tab_nomm(tab) | bit)
+        jump nil_no_meta()
+    end
+    if MM_INDEX >= tbl_tab_asize(mt) then
+        tbl_tab_set_nomm(tab, tbl_tab_nomm(tab) | bit)
+        jump nil_no_meta()
+    end
+    let arr: ptr(u8) = tbl_tab_array(mt)
+    if as(u64, arr) == 0 then
+        tbl_tab_set_nomm(tab, tbl_tab_nomm(tab) | bit)
+        jump nil_no_meta()
+    end
+    let tag: i32 = tbl_tv_tag_at(arr, MM_INDEX)
+    if tag == LUA_TNIL then
+        tbl_tab_set_nomm(tab, tbl_tab_nomm(tab) | bit)
+        jump nil_no_meta()
+    end
+    jump meta(mm_tag = tag, mm_payload = tbl_tv_payload_at(arr, MM_INDEX))
 end
 end
 
@@ -165,21 +205,45 @@ end
 
 block hash_set_lookup()
     let nbase: ptr(u8) = tbl_tab_node(tab)
-    if as(u64, nbase) == 0 then jump new_key() end
+    if as(u64, nbase) == 0 then jump lookup_newindex_meta() end
     let mask: i32 = tbl_tab_hmask(tab)
     let bucket: i32 = key_hash(key_tag, key_payload) & mask
     jump hash_set_scan(n = nbase + bucket * NODE_SIZE)
 end
 
 block hash_set_scan(n: ptr(u8))
-    if as(u64, n) == 0 then jump new_key() end
+    if as(u64, n) == 0 then jump lookup_newindex_meta() end
     let kt: i32 = node_key_tag(n)
-    if kt == LUA_TNIL then jump new_key() end
+    if kt == LUA_TNIL then jump lookup_newindex_meta() end
     if kt == key_tag and node_key_payload(n) == key_payload then
         node_set_val(n, val_tag, val_payload)
         jump value_stored()
     end
     jump hash_set_scan(n = node_next(n))
+end
+block lookup_newindex_meta()
+    let bit: i32 = 1 << MM_NEWINDEX
+    if (tbl_tab_nomm(tab) & bit) ~= 0 then jump new_key() end
+    let mt: ptr(u8) = tbl_tab_metatable(tab)
+    if as(u64, mt) == 0 then
+        tbl_tab_set_nomm(tab, tbl_tab_nomm(tab) | bit)
+        jump new_key()
+    end
+    if MM_NEWINDEX >= tbl_tab_asize(mt) then
+        tbl_tab_set_nomm(tab, tbl_tab_nomm(tab) | bit)
+        jump new_key()
+    end
+    let arr: ptr(u8) = tbl_tab_array(mt)
+    if as(u64, arr) == 0 then
+        tbl_tab_set_nomm(tab, tbl_tab_nomm(tab) | bit)
+        jump new_key()
+    end
+    let tag: i32 = tbl_tv_tag_at(arr, MM_NEWINDEX)
+    if tag == LUA_TNIL then
+        tbl_tab_set_nomm(tab, tbl_tab_nomm(tab) | bit)
+        jump new_key()
+    end
+    jump meta(mm_tag = tag, mm_payload = tbl_tv_payload_at(arr, MM_NEWINDEX))
 end
 
 block value_stored()
@@ -190,7 +254,7 @@ block value_stored()
 end
 end
 
-region vmop_tgetv(L: ptr(u8), ins: u32, ip: i32; next: cont(ip: i32), returned: cont(nresults: i32), error: cont(code: i32))
+region vmop_tgetv(L: ptr(u8), ins: u32, ip: i32; next: cont(ip: i32), returned: cont(nresults: i32), metamethod: cont(mm_tag: i32, mm_payload: i64, ins: u32, ip: i32), error: cont(code: i32))
 entry start()
     let base: ptr(u8) = tbl_stack_base(L)
     let a: i32 = tbl_bc_a(ins)
@@ -214,14 +278,14 @@ block got_nil()
     jump next(ip = ip + 1)
 end
 block got_meta(mm_tag: i32, mm_payload: i64)
-    jump error(code = 3)
+    jump metamethod(mm_tag = mm_tag, mm_payload = mm_payload, ins = ins, ip = ip)
 end
 block got_error(code: i32)
     jump error(code = code)
 end
 end
 
-region vmop_tsetv(L: ptr(u8), ins: u32, ip: i32; next: cont(ip: i32), returned: cont(nresults: i32), error: cont(code: i32))
+region vmop_tsetv(L: ptr(u8), ins: u32, ip: i32; next: cont(ip: i32), returned: cont(nresults: i32), metamethod: cont(mm_tag: i32, mm_payload: i64, ins: u32, ip: i32), error: cont(code: i32))
 entry start()
     let base: ptr(u8) = tbl_stack_base(L)
     let a: i32 = tbl_bc_a(ins) -- value slot
@@ -246,14 +310,14 @@ block set_new_key()
     jump error(code = 4)
 end
 block set_meta(mm_tag: i32, mm_payload: i64)
-    jump error(code = 3)
+    jump metamethod(mm_tag = mm_tag, mm_payload = mm_payload, ins = ins, ip = ip)
 end
 block set_error(code: i32)
     jump error(code = code)
 end
 end
 
-region vmop_tgetb(L: ptr(u8), ins: u32, ip: i32; next: cont(ip: i32), returned: cont(nresults: i32), error: cont(code: i32))
+region vmop_tgetb(L: ptr(u8), ins: u32, ip: i32; next: cont(ip: i32), returned: cont(nresults: i32), metamethod: cont(mm_tag: i32, mm_payload: i64, ins: u32, ip: i32), error: cont(code: i32))
 entry start()
     let base: ptr(u8) = tbl_stack_base(L)
     let b: i32 = tbl_bc_b(ins)
@@ -275,14 +339,14 @@ block got_nil()
     jump next(ip = ip + 1)
 end
 block got_meta(mm_tag: i32, mm_payload: i64)
-    jump error(code = 3)
+    jump metamethod(mm_tag = mm_tag, mm_payload = mm_payload, ins = ins, ip = ip)
 end
 block got_error(code: i32)
     jump error(code = code)
 end
 end
 
-region vmop_tsetb(L: ptr(u8), ins: u32, ip: i32; next: cont(ip: i32), returned: cont(nresults: i32), error: cont(code: i32))
+region vmop_tsetb(L: ptr(u8), ins: u32, ip: i32; next: cont(ip: i32), returned: cont(nresults: i32), metamethod: cont(mm_tag: i32, mm_payload: i64, ins: u32, ip: i32), error: cont(code: i32))
 entry start()
     let base: ptr(u8) = tbl_stack_base(L)
     let a: i32 = tbl_bc_a(ins) -- value slot
@@ -306,7 +370,7 @@ block bset_new_key()
     jump error(code = 4)
 end
 block bset_meta(mm_tag: i32, mm_payload: i64)
-    jump error(code = 3)
+    jump metamethod(mm_tag = mm_tag, mm_payload = mm_payload, ins = ins, ip = ip)
 end
 block bset_error(code: i32)
     jump error(code = code)

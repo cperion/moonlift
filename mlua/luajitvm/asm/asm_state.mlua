@@ -19,8 +19,6 @@
 -- Register set: rax(0) rcx(1) rdx(2) rsi(6) rdi(7) r8(8) r9(9) r10(10) r11(11)
 
 local proto = moon.require("luajitvm.protocols")
-local ra = moon.require("luajitvm.asm.regalloc")
-local tiles = moon.require("luajitvm.asm.x64_tiles")
 local m = module "luajitvm.asm.asm_state"
 
 -- =========================================================================
@@ -232,6 +230,103 @@ func has_dest(o: i32) -> bool
     return true
 end
 
+func asm_choose_reg(mask: i32) -> i32
+    if (mask & 1)     ~= 0 then return 0  end
+    if (mask & 2)     ~= 0 then return 1  end
+    if (mask & 4)     ~= 0 then return 2  end
+    if (mask & 0x40)  ~= 0 then return 6  end
+    if (mask & 0x100) ~= 0 then return 8  end
+    if (mask & 0x200) ~= 0 then return 9  end
+    if (mask & 0x400) ~= 0 then return 10 end
+    if (mask & 0x800) ~= 0 then return 11 end
+    return -1
+end
+
+region asm_ra_alloc_local(A: ptr(u8), slot: i32; reg: cont(r: i32), fail: cont(code: i32))
+entry start()
+    if slot < 0 then jump fail(code = slot) end
+    if asm_ra_assigned(A, slot) then jump reg(r = asm_ra_get(A, slot)) end
+    let r: i32 = asm_choose_reg(asm_ra_free(A) & FREE_INIT)
+    if r < 0 then jump fail(code = slot) end
+    asm_ra_set_free(A, asm_ra_free(A) - (1 << r))
+    asm_ra_set(A, slot, r)
+    jump reg(r = r)
+end
+end
+
+region asm_emit_one_ir(A: ptr(u8), J: ptr(u8), ir_buf: ptr(u64), slot: i32) -> proto.TileResult
+entry start()
+    let o: i32 = ir_op_at(ir_buf, slot)
+    if o == IR_SLOAD then jump emit_sload() end
+    if o == IR_KINT then jump emit_kint() end
+    if o == IR_ADD then jump emit_add() end
+    if o == IR_SUB then jump emit_sub() end
+    if o == IR_MUL then jump emit_mul() end
+    if o == IR_RETF then jump emit_retf() end
+    if o == IR_LOOP then jump tile_done() end
+    if o == IR_NOP then jump tile_done() end
+    jump unsupported(op = o)
+end
+block emit_sload()
+    let dst: i32 = asm_ra_get(A, slot)
+    if dst < 0 then jump tile_done() end
+    let stack_slot: i32 = ir_op1_at(ir_buf, slot)
+    let payload_disp: i32 = stack_slot * TV_STRIDE + TV_PAYLOAD
+    let tag_disp: i32 = stack_slot * TV_STRIDE
+    emit_load_rdi_d32(J, dst, payload_disp)
+    if (ir_type_at(ir_buf, slot) & IRT_GUARD) ~= 0 then
+        let exit_u64: u64 = as(ptr(u64), A + A_EXIT_ADDR)[0]
+        let jne_disp: i32 = as(i32, exit_u64 - as(u64, mc_top(J)))
+        emit_jne_rel32(J, jne_disp)
+        emit_cmp_rdi_d32_imm8(J, tag_disp, LUA_TINT)
+    end
+    jump tile_done()
+end
+block emit_kint()
+    let dst: i32 = asm_ra_get(A, slot)
+    if dst < 0 then jump tile_done() end
+    emit_mov_ri32(J, dst, ir_op1_at(ir_buf, slot))
+    jump tile_done()
+end
+block emit_add()
+    let dst: i32 = asm_ra_get(A, slot)
+    if dst < 0 then jump abort(reason = slot) end
+    let r1: i32 = asm_ra_get(A, ir_op1_at(ir_buf, slot) - REF_BIAS)
+    let r2: i32 = asm_ra_get(A, ir_op2_at(ir_buf, slot) - REF_BIAS)
+    if r1 < 0 or r2 < 0 then jump abort(reason = slot) end
+    emit_add_rr(J, dst, r2)
+    if dst ~= r1 then emit_mov_rr(J, dst, r1) end
+    jump tile_done()
+end
+block emit_sub()
+    let dst: i32 = asm_ra_get(A, slot)
+    if dst < 0 then jump abort(reason = slot) end
+    let r1: i32 = asm_ra_get(A, ir_op1_at(ir_buf, slot) - REF_BIAS)
+    let r2: i32 = asm_ra_get(A, ir_op2_at(ir_buf, slot) - REF_BIAS)
+    if r1 < 0 or r2 < 0 then jump abort(reason = slot) end
+    emit_sub_rr(J, dst, r2)
+    if dst ~= r1 then emit_mov_rr(J, dst, r1) end
+    jump tile_done()
+end
+block emit_mul()
+    let dst: i32 = asm_ra_get(A, slot)
+    if dst < 0 then jump abort(reason = slot) end
+    let r1: i32 = asm_ra_get(A, ir_op1_at(ir_buf, slot) - REF_BIAS)
+    let r2: i32 = asm_ra_get(A, ir_op2_at(ir_buf, slot) - REF_BIAS)
+    if r1 < 0 or r2 < 0 then jump abort(reason = slot) end
+    emit_imul_rr(J, dst, r2)
+    if dst ~= r1 then emit_mov_rr(J, dst, r1) end
+    jump tile_done()
+end
+block emit_retf()
+    let r_val: i32 = asm_ra_get(A, ir_op1_at(ir_buf, slot) - REF_BIAS)
+    if r_val < 0 then jump abort(reason = slot) end
+    emit_ret(J)
+    if r_val ~= 0 then emit_mov_rr(J, 0, r_val) end
+    jump tile_done()
+end
+end
+
 -- =========================================================================
 -- asm_trace: backward scan over IR slots [1, nins-1].
 -- A must be caller-zeroed (260 bytes); this region sets free_regs.
@@ -264,15 +359,13 @@ block scan(slot: i32)
     -- region.  KINT and SLOAD operands are immediates/stack slots, not IR refs.
     let op1 = ir_op1_at(ir_buf, slot)
     if o == IR_ADD or o == IR_SUB or o == IR_MUL then
-        emit ra.ra_alloc(A, op1 - REF_BIAS, FREE_INIT;
+        emit asm_ra_alloc_local(A, op1 - REF_BIAS;
             reg = need_rhs,
-            spill = ra_spill,
             fail = ra_fail)
     end
     if o == IR_RETF then
-        emit ra.ra_alloc(A, op1 - REF_BIAS, FREE_INIT;
+        emit asm_ra_alloc_local(A, op1 - REF_BIAS;
             reg = operands_ready,
-            spill = ra_spill,
             fail = ra_fail)
     end
     jump emit_tile()
@@ -281,18 +374,13 @@ end
 block need_rhs(r: i32)
     let slot: i32 = as(ptr(i32), A + A_CUR_SLOT)[0]
     let op2: i32 = ir_op2_at(ir_buf, slot)
-    emit ra.ra_alloc(A, op2 - REF_BIAS, FREE_INIT;
+    emit asm_ra_alloc_local(A, op2 - REF_BIAS;
         reg = operands_ready,
-        spill = ra_spill,
         fail = ra_fail)
 end
 
 block operands_ready(r: i32)
     jump emit_tile()
-end
-
-block ra_spill(slot: i32)
-    jump abort(reason = slot)
 end
 
 block ra_fail(code: i32)
@@ -301,7 +389,7 @@ end
 
 block emit_tile()
     let slot: i32 = as(ptr(i32), A + A_CUR_SLOT)[0]
-    emit tiles.x64_asm_one_ir(A, J, ir_buf, slot;
+    emit asm_emit_one_ir(A, J, ir_buf, slot;
         tile_done = tile_done,
         need_snapshot = tile_snapshot,
         mcode_full = tile_full,

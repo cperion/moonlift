@@ -82,6 +82,10 @@ export func func_pc(fn: ptr(u8)) -> ptr(u8)
     return as(ptr(u8), p[4])
 end
 
+export func func_proto(fn: ptr(u8)) -> ptr(u8)
+    return func_pc(fn) - 96
+end
+
 export func func_set_pc(fn: ptr(u8), pc: ptr(u8))
     let p: ptr(u64) = as(ptr(u64), fn)
     p[4] = as(u64, pc)

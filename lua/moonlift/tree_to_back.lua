@@ -555,7 +555,8 @@ function M.Define(T)
             if scalar == nil then return pvm.once(Tr.TreeBackExprUnsupported(current, cmds, "call result has non-scalar type")) end
             local env2, dst = env_next_value(current, "v")
             local target = call_target:one_uncached(self.target, env2)
-            local sig, declare_call_sig = Back.BackSigId("sig:call:" .. tostring(dst.text)), true
+            local sig_prefix = "sig:call:" .. tostring(lower_context.module_name or "") .. ":" .. tostring(lower_context.current_func or "") .. ":"
+            local sig, declare_call_sig = Back.BackSigId(sig_prefix .. tostring(dst.text)), true
             if pvm.classof(target) == Back.BackCallExtern then
                 sig = Back.BackSigId("sig:extern:" .. tostring(target.func.text))
                 declare_call_sig = false
@@ -1377,7 +1378,10 @@ function M.Define(T)
         local param_scalars, result_scalars = abi_param_scalars(abi_plan), abi_result_scalars(abi_plan)
         local env = env_from_abi_params(abi_plan)
         local param_vals = abi_param_values(abi_plan)
+        local previous_func = lower_context.current_func
+        lower_context.current_func = name
         local _, body_cmds, flow = lower_body(body, env)
+        lower_context.current_func = previous_func
         local cmds = {
             Back.CmdCreateSig(sig, param_scalars, result_scalars),
             Back.CmdDeclareFunc(visibility, func, sig),
