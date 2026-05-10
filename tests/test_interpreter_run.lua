@@ -676,9 +676,77 @@ do
 end
 
 -- Cleanup
+
+-- ===== New tests: TGETS, TSETS, TDUP =====
+
+local function tgets(a, b, c) return 57 + (a * 256) + (c * 65536) + (b * 16777216) end
+local function tsets(a, b, c) return 61 + (a * 256) + (c * 65536) + (b * 16777216) end
+
+-- TGETS: table[string_key] hit
+do
+    local proto, k, pbc = make_proto(4, 1)
+    local k32 = ffi.cast("int32_t *", k); local k64 = ffi.cast("int64_t *", k)
+    local key_str = ffi.new("uint8_t[?]", 32)
+    k32[0] = 5; k64[1] = tonumber(ffi.cast("uintptr_t", key_str))
+    local tab = ffi.new("uint8_t[?]", 56)
+    local node = ffi.new("uint8_t[?]", 48)
+    local tab64 = ffi.cast("uint64_t *", tab); local tab32 = ffi.cast("uint32_t *", tab)
+    local nd32 = ffi.cast("int32_t *", node); local nd64 = ffi.cast("int64_t *", node)
+    tab64[5] = tonumber(ffi.cast("uintptr_t", node)); tab32[13] = 0
+    nd32[0] = 3; nd64[1] = 9876          -- val int 9876
+    nd32[4] = 5; nd64[3] = tonumber(ffi.cast("uintptr_t", key_str)) -- key == key_str
+    pbc[0] = tgets(0, 1, 0)  -- A=0 B=1 C=0 (const 0 = key_str)
+    pbc[1] = 76
+    local got = run_bcptr_with_setup(pbc, function()
+        local st32 = ffi.cast("int32_t *", stack_buf); local st64 = ffi.cast("int64_t *", stack_buf)
+        st32[4] = 8; st64[3] = tonumber(ffi.cast("uintptr_t", tab))
+    end)
+    check("tgets_hash", 9876, got)
+end
+
+-- TSETS: table[string_key] = value, then TGETS reads it back
+do
+    local proto, k, pbc = make_proto(6, 1)
+    local k32 = ffi.cast("int32_t *", k); local k64 = ffi.cast("int64_t *", k)
+    local key_str = ffi.new("uint8_t[?]", 32)
+    k32[0] = 5; k64[1] = tonumber(ffi.cast("uintptr_t", key_str))
+    local tab = ffi.new("uint8_t[?]", 56)
+    local node = ffi.new("uint8_t[?]", 48)
+    local tab64 = ffi.cast("uint64_t *", tab); local tab32 = ffi.cast("uint32_t *", tab)
+    local nd32 = ffi.cast("int32_t *", node); local nd64 = ffi.cast("int64_t *", node)
+    tab64[5] = tonumber(ffi.cast("uintptr_t", node)); tab32[13] = 0
+    nd32[0] = 0; nd64[1] = 0
+    nd32[4] = 5; nd64[3] = tonumber(ffi.cast("uintptr_t", key_str))
+    pbc[0] = kshort(2, 4321)
+    pbc[1] = tsets(2, 1, 0)  -- tab[key_str] = slot2
+    pbc[2] = tgets(0, 1, 0)  -- slot0 = tab[key_str]
+    pbc[3] = 76
+    local got = run_bcptr_with_setup(pbc, function()
+        local st32 = ffi.cast("int32_t *", stack_buf); local st64 = ffi.cast("int64_t *", stack_buf)
+        st32[4] = 8; st64[3] = tonumber(ffi.cast("uintptr_t", tab))
+    end)
+    check("tsets_hash", 4321, got)
+end
+
+-- TDUP: write template table pointer to slot
+do
+    local proto, k, pbc = make_proto(3, 1)
+    local k32 = ffi.cast("int32_t *", k); local k64 = ffi.cast("int64_t *", k)
+    local tmpl_tab = ffi.new("uint8_t[?]", 56)
+    k32[0] = 8; k64[1] = tonumber(ffi.cast("uintptr_t", tmpl_tab))  -- LUA_TTAB=8
+    pbc[0] = 53 + (0 * 256) + (0 * 65536)  -- TDUP A=0 D=0
+    pbc[1] = 76
+    run_bcptr_with_setup(pbc)
+    local st32 = ffi.cast("int32_t *", stack_buf); local st64 = ffi.cast("int64_t *", stack_buf)
+    check("tdup_tag",     8, st32[0])
+    check("tdup_payload", tonumber(ffi.cast("uintptr_t", tmpl_tab)), tonumber(st64[1]))
+end
+
+
 dispatch:free()
 
 if failed > 0 then
     error(string.format("%d interpreter tests FAILED", failed))
 end
 print(string.format("\nAll %d interpreter smoke tests passed", passed))
+

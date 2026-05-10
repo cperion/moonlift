@@ -377,6 +377,141 @@ block bset_error(code: i32)
 end
 end
 
+-- BC_TGETR: raw table get (no metamethod call).  This reuses table_get for
+-- existing array/hash hits and maps miss/metamethod lookup to nil.
+region vmop_tgetr(L: ptr(u8), ins: u32, ip: i32; next: cont(ip: i32), returned: cont(nresults: i32), error: cont(code: i32))
+entry start()
+    let base: ptr(u8) = tbl_stack_base(L)
+    let b: i32 = tbl_bc_b(ins)
+    let c: i32 = tbl_bc_c(ins)
+    if tbl_tv_tag_at(base, b) ~= LUA_TTAB then jump error(code = 2) end
+    emit table_get(as(ptr(u8), as(u64, 0)), as(ptr(u8), tbl_tv_payload_at(base, b)), tbl_tv_tag_at(base, c), tbl_tv_payload_at(base, c);
+        hit = raw_get_hit,
+        nil_no_meta = raw_get_nil,
+        meta = raw_get_meta,
+        error = raw_get_error)
+end
+block raw_get_hit(val_tag: i32, val_payload: i64)
+    tbl_tv_set_at(tbl_stack_base(L), tbl_bc_a(ins), val_tag, val_payload)
+    jump next(ip = ip + 1)
+end
+block raw_get_nil()
+    tbl_tv_set_at(tbl_stack_base(L), tbl_bc_a(ins), LUA_TNIL, as(i64, 0))
+    jump next(ip = ip + 1)
+end
+block raw_get_meta(mm_tag: i32, mm_payload: i64)
+    tbl_tv_set_at(tbl_stack_base(L), tbl_bc_a(ins), LUA_TNIL, as(i64, 0))
+    jump next(ip = ip + 1)
+end
+block raw_get_error(code: i32) jump error(code = code) end
+end
+
+-- BC_TSETR: raw table set for existing array/hash slots. New raw keys still
+-- surface as an explicit error until raw hash-node allocation is wired in.
+region vmop_tsetr(L: ptr(u8), ins: u32, ip: i32; next: cont(ip: i32), returned: cont(nresults: i32), error: cont(code: i32))
+entry start()
+    let base: ptr(u8) = tbl_stack_base(L)
+    let a: i32 = tbl_bc_a(ins)
+    let b: i32 = tbl_bc_b(ins)
+    let c: i32 = tbl_bc_c(ins)
+    if tbl_tv_tag_at(base, b) ~= LUA_TTAB then jump error(code = 2) end
+    emit table_set(as(ptr(u8), as(u64, 0)), as(ptr(u8), tbl_tv_payload_at(base, b)), tbl_tv_tag_at(base, c), tbl_tv_payload_at(base, c), tbl_tv_tag_at(base, a), tbl_tv_payload_at(base, a);
+        done = raw_set_done,
+        need_barrier = raw_set_barrier,
+        new_key = raw_set_new_key,
+        meta = raw_set_meta,
+        error = raw_set_error)
+end
+block raw_set_done() jump next(ip = ip + 1) end
+block raw_set_barrier(parent: ptr(u8), child_tag: i32, child_payload: i64)
+    tbl_gc_barrier_back(parent)
+    jump next(ip = ip + 1)
+end
+block raw_set_new_key() jump error(code = 4) end
+block raw_set_meta(mm_tag: i32, mm_payload: i64) jump error(code = 4) end
+block raw_set_error(code: i32) jump error(code = code) end
+end
+
+-- =========================================================================
+-- Proto constant helpers: read current frame's proto constant table.
+-- TS_OFF_CURBC / 8 = 12; P_OFF_K / 8 = 3.
+-- =========================================================================
+func tbl_const_tag(L: ptr(u8), idx: i32) -> i32
+    let pt: ptr(u8) = as(ptr(u8), as(ptr(u64), L)[12]) - 96
+    let k: ptr(u8) = as(ptr(u8), as(ptr(u64), pt)[3])
+    return as(ptr(i32), k)[idx * 4]
+end
+
+func tbl_const_payload(L: ptr(u8), idx: i32) -> i64
+    let pt: ptr(u8) = as(ptr(u8), as(ptr(u64), L)[12]) - 96
+    let k: ptr(u8) = as(ptr(u8), as(ptr(u64), pt)[3])
+    return as(ptr(i64), k)[idx * 2 + 1]
+end
+
+-- BC_TGETS: A=result, B=table, C=string-constant index in proto.
+-- Looks up by interned string key; routes metamethod via typed exit.
+region vmop_tgets(L: ptr(u8), ins: u32, ip: i32; next: cont(ip: i32), returned: cont(nresults: i32), metamethod: cont(mm_tag: i32, mm_payload: i64, ins: u32, ip: i32), error: cont(code: i32))
+entry start()
+    let base: ptr(u8) = tbl_stack_base(L)
+    let b: i32 = tbl_bc_b(ins)
+    if tbl_tv_tag_at(base, b) ~= LUA_TTAB then jump error(code = 2) end
+    let ktag: i32 = tbl_const_tag(L, tbl_bc_c(ins))
+    if ktag ~= LUA_TSTR then jump error(code = 15) end
+    emit table_get(as(ptr(u8), as(u64, 0)), as(ptr(u8), tbl_tv_payload_at(base, b)), ktag, tbl_const_payload(L, tbl_bc_c(ins));
+        hit = tgets_hit, nil_no_meta = tgets_nil, meta = tgets_meta, error = tgets_error)
+end
+block tgets_hit(val_tag: i32, val_payload: i64)
+    tbl_tv_set_at(tbl_stack_base(L), tbl_bc_a(ins), val_tag, val_payload)
+    jump next(ip = ip + 1)
+end
+block tgets_nil()
+    tbl_tv_set_at(tbl_stack_base(L), tbl_bc_a(ins), LUA_TNIL, as(i64, 0))
+    jump next(ip = ip + 1)
+end
+block tgets_meta(mm_tag: i32, mm_payload: i64)
+    jump metamethod(mm_tag = mm_tag, mm_payload = mm_payload, ins = ins, ip = ip)
+end
+block tgets_error(code: i32)
+    jump error(code = code)
+end
+end
+
+-- BC_TSETS: A=value slot, B=table, C=string-constant index in proto.
+region vmop_tsets(L: ptr(u8), ins: u32, ip: i32; next: cont(ip: i32), returned: cont(nresults: i32), metamethod: cont(mm_tag: i32, mm_payload: i64, ins: u32, ip: i32), error: cont(code: i32))
+entry start()
+    let base: ptr(u8) = tbl_stack_base(L)
+    let b: i32 = tbl_bc_b(ins)
+    if tbl_tv_tag_at(base, b) ~= LUA_TTAB then jump error(code = 2) end
+    let ktag: i32 = tbl_const_tag(L, tbl_bc_c(ins))
+    if ktag ~= LUA_TSTR then jump error(code = 15) end
+    emit table_set(as(ptr(u8), as(u64, 0)), as(ptr(u8), tbl_tv_payload_at(base, b)), ktag, tbl_const_payload(L, tbl_bc_c(ins)), tbl_tv_tag_at(base, tbl_bc_a(ins)), tbl_tv_payload_at(base, tbl_bc_a(ins));
+        done = tsets_done, need_barrier = tsets_barrier, new_key = tsets_new_key, meta = tsets_meta, error = tsets_error)
+end
+block tsets_done() jump next(ip = ip + 1) end
+block tsets_barrier(parent: ptr(u8), child_tag: i32, child_payload: i64)
+    tbl_gc_barrier_back(parent)
+    jump next(ip = ip + 1)
+end
+block tsets_new_key() jump error(code = 4) end
+block tsets_meta(mm_tag: i32, mm_payload: i64)
+    jump metamethod(mm_tag = mm_tag, mm_payload = mm_payload, ins = ins, ip = ip)
+end
+block tsets_error(code: i32) jump error(code = code) end
+end
+
+-- BC_TDUP: A=dest, D=template-table constant index in proto.
+-- Shallow duplication: for now writes the template pointer directly as-is
+-- (full copy requires GC allocation; this gives a typed interpreter entry point).
+region vmop_tdup(L: ptr(u8), ins: u32, ip: i32; next: cont(ip: i32), error: cont(code: i32))
+entry start()
+    let d: i32 = (as(i32, ins) >> 16) & 0xFFFF
+    let ktag: i32 = tbl_const_tag(L, d)
+    if ktag ~= LUA_TTAB then jump error(code = 2) end
+    tbl_tv_set_at(tbl_stack_base(L), tbl_bc_a(ins), LUA_TTAB, tbl_const_payload(L, d))
+    jump next(ip = ip + 1)
+end
+end
+
 -- BC_TNEW: A = dest slot, D = table hint (asize in low 8 bits, hbits in high 8)
 -- Returns TableNew protocol so the caller can integrate with the GC allocator.
 -- When need_alloc fires, the host provides a GCtab and calls vmop_tnew_finish.

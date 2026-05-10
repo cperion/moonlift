@@ -54,16 +54,47 @@ const J_OFF_RECIP:     i32 = 72
 const J_OFF_RECBUD:    i32 = 76
 
 const BC_MOV:          i32 = 18
+const BC_KSHORT:       i32 = 41
+const BC_KNUM:         i32 = 42
+const BC_KPRI:         i32 = 43
 const BC_ADDVV:        i32 = 32
 const BC_SUBVV:        i32 = 33
 const BC_MULVV:        i32 = 34
-const BC_KSHORT:       i32 = 41
+const BC_DIVVV:        i32 = 35
+const BC_MODVV:        i32 = 36
+const BC_ADDVN:        i32 = 22
+const BC_SUBVN:        i32 = 23
+const BC_MULVN:        i32 = 24
+const BC_DIVVN:        i32 = 25
+const BC_MODVN:        i32 = 26
+const BC_ADDNV:        i32 = 27
+const BC_SUBNV:        i32 = 28
+const BC_MULNV:        i32 = 29
+const BC_DIVNV:        i32 = 30
+const BC_MODNV:        i32 = 31
+const BC_ISLT:         i32 = 0
+const BC_ISGE:         i32 = 1
+const BC_ISLE:         i32 = 2
+const BC_ISGT:         i32 = 3
+const BC_ISEQV:        i32 = 4
+const BC_ISNEV:        i32 = 5
+const BC_FORI:         i32 = 77
+const BC_FORL:         i32 = 79
+const BC_RET0:         i32 = 75
 const BC_RET1:         i32 = 76
 const BC_LOOP:         i32 = 85
 
 const IR_ADD:          i32 = 10
 const IR_SUB:          i32 = 11
 const IR_MUL:          i32 = 12
+const IR_DIV:          i32 = 13
+const IR_MOD:          i32 = 14
+const IR_LT:           i32 = 20
+const IR_GE:           i32 = 21
+const IR_LE:           i32 = 22
+const IR_GT:           i32 = 23
+const IR_EQ:           i32 = 24
+const IR_NE:           i32 = 25
 const IR_SLOAD:        i32 = 31
 const IR_KINT:         i32 = 60
 const IR_LOOP:         i32 = 80
@@ -72,7 +103,10 @@ const IRT_GUARD:       i32 = 0x80
 const LUA_TINT:        i32 = 3
 const TV_STRIDE:       i32 = 16
 const TV_PAYLOAD:      i32 = 8
+const TS_OFF_CURBC:    i32 = 96
 const TS_OFF_CURPC:    i32 = 104
+const PROTO_SIZE:      i32 = 96
+const P_OFF_K:         i32 = 24
 
 export func tr_nins(tr: ptr(u8)) -> i32
     let p: ptr(u32) = as(ptr(u32), tr)
@@ -203,6 +237,24 @@ end
 
 func trace_stack_base(L: ptr(u8)) -> ptr(u8)
     return as(ptr(u8), as(ptr(u64), L)[4])
+end
+
+func trace_cur_proto(L: ptr(u8)) -> ptr(u8)
+    return as(ptr(u8), as(ptr(u64), L)[TS_OFF_CURBC / 8]) - PROTO_SIZE
+end
+
+func trace_proto_k(pt: ptr(u8)) -> ptr(u8)
+    return as(ptr(u8), as(ptr(u64), pt)[P_OFF_K / 8])
+end
+
+func trace_const_tag(L: ptr(u8), idx: i32) -> i32
+    let k: ptr(u8) = trace_proto_k(trace_cur_proto(L))
+    return as(ptr(i32), k)[idx * 4]
+end
+
+func trace_const_payload(L: ptr(u8), idx: i32) -> i64
+    let k: ptr(u8) = trace_proto_k(trace_cur_proto(L))
+    return as(ptr(i64), k)[idx * 2 + 1]
 end
 
 func trace_bc_a(ins: u32) -> i32
@@ -422,6 +474,39 @@ func traceasm_emit_ret(J: ptr(u8))
     traceasm_put8(J, 0xC3)
 end
 
+-- Emit: `cmp r1, r2` (64-bit)
+func traceasm_emit_cmp_rr(J: ptr(u8), r1: i32, r2: i32)
+    traceasm_put8(J, traceasm_modrm_rr(r1, r2))
+    traceasm_put8(J, 0x3B)
+    traceasm_put8(J, traceasm_rex_wb(r1, r2))
+end
+
+-- Emit conditional jump rel32. cc: 0=o,2=b,4=z,5=ne,12=l,13=ge,14=le,15=g
+func traceasm_emit_jcc_rel32(J: ptr(u8), cc: i32, disp: i32)
+    traceasm_put32(J, disp)
+    traceasm_put8(J, 0x80 | (cc & 0xF))
+    traceasm_put8(J, 0x0F)
+end
+
+-- Emit: xor edx, edx; idiv r2 (r0 = rax, rdx = remainder after)
+func traceasm_emit_idiv_rr(J: ptr(u8), r2: i32)
+    traceasm_put8(J, traceasm_modrm_rr(7, r2)) -- /7 r/m
+    traceasm_put8(J, 0xF7)
+    traceasm_put8(J, traceasm_rex_wb(0, r2))
+    -- xor edx, edx
+    traceasm_put8(J, 0xD2)
+    traceasm_put8(J, 0x33)
+    traceasm_put8(J, 0x48)
+end
+
+-- After idiv: move result reg to dst (rax=quotient is r0, rdx=remainder is r2/rdx=2)
+func traceasm_emit_mov_rax_to(J: ptr(u8), dst: i32)
+    if dst ~= 0 then traceasm_emit_mov_rr(J, dst, 0) end
+end
+func traceasm_emit_mov_rdx_to(J: ptr(u8), dst: i32)
+    if dst ~= 2 then traceasm_emit_mov_rr(J, dst, 2) end
+end
+
 func traceasm_reg_for_slot(slot: i32) -> i32
     if slot == 1 then return 1 end
     if slot == 2 then return 2 end
@@ -480,6 +565,9 @@ block scan(slot: i32, A: ptr(u8))
     if op == IR_LOOP then jump scan(slot = slot - 1, A = A) end
     if op == IR_RETF then jump emit_retf(slot = slot, A = A) end
     if op == IR_ADD or op == IR_SUB or op == IR_MUL then jump emit_arith(slot = slot, op = op, A = A) end
+    if op == IR_DIV then jump emit_div(slot = slot, A = A) end
+    if op == IR_MOD then jump emit_mod(slot = slot, A = A) end
+    if op == IR_LT or op == IR_GE or op == IR_LE or op == IR_GT or op == IR_EQ or op == IR_NE then jump emit_cmp(slot = slot, op = op, A = A) end
     if op == IR_SLOAD then jump emit_sload(slot = slot, A = A) end
     if op == IR_KINT then jump emit_kint(slot = slot, A = A) end
     jump abort(reason = op)
@@ -521,6 +609,56 @@ block emit_kint(slot: i32, A: ptr(u8))
     traceasm_emit_mov_ri32(J, traceasm_reg_for_slot(slot), as(i32, ir[slot] & 0xFFFF))
     jump scan(slot = slot - 1, A = A)
 end
+block emit_div(slot: i32, A: ptr(u8))
+    let op1: i32 = as(i32, ir[slot] & 0xFFFF)
+    let op2: i32 = as(i32, (ir[slot] >> 16) & 0xFFFF)
+    let dst: i32 = traceasm_reg_for_slot(slot)
+    let r1: i32 = traceasm_reg_for_slot(op1 - REF_BIAS)
+    let r2: i32 = traceasm_reg_for_slot(op2 - REF_BIAS)
+    -- quotient in rax (r0), so move rax result to dst
+    traceasm_emit_mov_rax_to(J, dst)
+    traceasm_emit_idiv_rr(J, r2)
+    -- ensure dividend in rax
+    if r1 ~= 0 then traceasm_emit_mov_rr(J, 0, r1) end
+    jump scan(slot = slot - 1, A = A)
+end
+block emit_mod(slot: i32, A: ptr(u8))
+    let op1: i32 = as(i32, ir[slot] & 0xFFFF)
+    let op2: i32 = as(i32, (ir[slot] >> 16) & 0xFFFF)
+    let dst: i32 = traceasm_reg_for_slot(slot)
+    let r1: i32 = traceasm_reg_for_slot(op1 - REF_BIAS)
+    let r2: i32 = traceasm_reg_for_slot(op2 - REF_BIAS)
+    -- remainder in rdx (r2), so move rdx result to dst
+    traceasm_emit_mov_rdx_to(J, dst)
+    traceasm_emit_idiv_rr(J, r2)
+    if r1 ~= 0 then traceasm_emit_mov_rr(J, 0, r1) end
+    jump scan(slot = slot - 1, A = A)
+end
+block emit_cmp(slot: i32, op: i32, A: ptr(u8))
+    let op1: i32 = as(i32, ir[slot] & 0xFFFF)
+    let op2: i32 = as(i32, (ir[slot] >> 16) & 0xFFFF)
+    let r1: i32 = traceasm_reg_for_slot(op1 - REF_BIAS)
+    let r2: i32 = traceasm_reg_for_slot(op2 - REF_BIAS)
+    let snapno: i32 = traceasm_guard_snapno(ir, slot, 1, 0)
+    let exit_addr: u64 = traceasm_get_exit_addr(A, snapno)
+    -- For a guard: emit the INVERSE condition jump to the exit stub
+    -- IR_LT (a<b passes): fail if NOT (a<b), i.e. JGE exit
+    -- IR_GE (a>=b): fail if NOT >=, i.e. JL exit
+    -- IR_LE (a<=b): fail if NOT <=, i.e. JG exit
+    -- IR_GT (a>b): fail if NOT >, i.e. JLE exit
+    -- IR_EQ (a==b): fail if NE, i.e. JNE exit
+    -- IR_NE (a!=b): fail if EQ, i.e. JE exit
+    let cc: i32 = 13 -- JGE default (inverted LT)
+    if op == IR_GE then cc = 12 end  -- JL inverts GE
+    if op == IR_LE then cc = 15 end  -- JG inverts LE
+    if op == IR_GT then cc = 14 end  -- JLE inverts GT
+    if op == IR_EQ then cc = 5 end   -- JNE inverts EQ
+    if op == IR_NE then cc = 4 end   -- JE inverts NE
+    let disp: i32 = as(i32, exit_addr - as(u64, traceasm_mc_top(J)))
+    traceasm_emit_jcc_rel32(J, cc, disp)
+    traceasm_emit_cmp_rr(J, r1, r2)
+    jump scan(slot = slot - 1, A = A)
+end
 end
 
 region trace_record_root(J: ptr(u8), L: ptr(u8), pc: ptr(u8)) -> proto.TraceRecord
@@ -546,12 +684,30 @@ block rec_ip(ip: i32, budget: i32)
     let op: i32 = as(i32, ins) & 0xFF
     let refs: ptr(i32) = trace_refs_ptr(J)
     switch op do
+    -- MOV
     case 18 then
         let src: i32 = trace_bc_d(ins)
         let dst: i32 = trace_bc_a(ins)
         if refs[src] == 0 then jump abort(reason = 5) end
         refs[dst] = refs[src]
         jump rec_ip(ip = ip + 1, budget = budget - 1)
+    -- KSHORT
+    case 41 then
+        trace_emit_kint(J, refs, trace_bc_a(ins), trace_s16(trace_bc_d(ins)))
+        jump rec_ip(ip = ip + 1, budget = budget - 1)
+    -- KNUM integer constants from current proto constant table.
+    case 42 then
+        let a: i32 = trace_bc_a(ins)
+        let d: i32 = trace_bc_d(ins)
+        let tag: i32 = trace_const_tag(L, d)
+        if tag ~= LUA_TINT then jump abort(reason = 42) end
+        trace_emit_kint(J, refs, a, as(i32, trace_const_payload(L, d)))
+        jump rec_ip(ip = ip + 1, budget = budget - 1)
+    -- KPRI (nil/false/true — treat as KINT 0/0/1 for guard purposes)
+    case 43 then
+        trace_emit_kint(J, refs, trace_bc_a(ins), trace_bc_d(ins))
+        jump rec_ip(ip = ip + 1, budget = budget - 1)
+    -- ADDVV
     case 32 then
         let b: i32 = trace_bc_b(ins)
         let c: i32 = trace_bc_c(ins)
@@ -562,6 +718,7 @@ block rec_ip(ip: i32, budget: i32)
         let rr: i32 = trace_record_arith(J, refs, trace_bc_a(ins), b, c, IR_ADD)
         if rr < 0 then jump abort(reason = 0 - rr) end
         jump rec_ip(ip = ip + 1, budget = budget - 1)
+    -- SUBVV
     case 33 then
         let b: i32 = trace_bc_b(ins)
         let c: i32 = trace_bc_c(ins)
@@ -572,6 +729,7 @@ block rec_ip(ip: i32, budget: i32)
         let rr: i32 = trace_record_arith(J, refs, trace_bc_a(ins), b, c, IR_SUB)
         if rr < 0 then jump abort(reason = 0 - rr) end
         jump rec_ip(ip = ip + 1, budget = budget - 1)
+    -- MULVV
     case 34 then
         let b: i32 = trace_bc_b(ins)
         let c: i32 = trace_bc_c(ins)
@@ -582,15 +740,208 @@ block rec_ip(ip: i32, budget: i32)
         let rr: i32 = trace_record_arith(J, refs, trace_bc_a(ins), b, c, IR_MUL)
         if rr < 0 then jump abort(reason = 0 - rr) end
         jump rec_ip(ip = ip + 1, budget = budget - 1)
-    case 41 then
-        trace_emit_kint(J, refs, trace_bc_a(ins), trace_s16(trace_bc_d(ins)))
+    -- DIVVV
+    case 35 then
+        let b: i32 = trace_bc_b(ins)
+        let c: i32 = trace_bc_c(ins)
+        let rb: i32 = trace_record_sload(J, L, refs, b)
+        if rb < 0 then jump abort(reason = 0 - rb) end
+        let rc: i32 = trace_record_sload(J, L, refs, c)
+        if rc < 0 then jump abort(reason = 0 - rc) end
+        let rr: i32 = trace_record_arith(J, refs, trace_bc_a(ins), b, c, IR_DIV)
+        if rr < 0 then jump abort(reason = 0 - rr) end
         jump rec_ip(ip = ip + 1, budget = budget - 1)
+    -- MODVV
+    case 36 then
+        let b: i32 = trace_bc_b(ins)
+        let c: i32 = trace_bc_c(ins)
+        let rb: i32 = trace_record_sload(J, L, refs, b)
+        if rb < 0 then jump abort(reason = 0 - rb) end
+        let rc: i32 = trace_record_sload(J, L, refs, c)
+        if rc < 0 then jump abort(reason = 0 - rc) end
+        let rr: i32 = trace_record_arith(J, refs, trace_bc_a(ins), b, c, IR_MOD)
+        if rr < 0 then jump abort(reason = 0 - rr) end
+        jump rec_ip(ip = ip + 1, budget = budget - 1)
+    -- ADDVN
+    case 22 then
+        let b: i32 = trace_bc_b(ins)
+        let rb: i32 = trace_record_sload(J, L, refs, b)
+        if rb < 0 then jump abort(reason = 0 - rb) end
+        let kval: i32 = trace_s16(trace_bc_d(ins))
+        let kref: i32 = trace_emit_kint(J, refs, trace_bc_a(ins), kval)
+        let rr: i32 = trace_record_arith(J, refs, trace_bc_a(ins), b, trace_bc_a(ins), IR_ADD)
+        if rr < 0 then jump abort(reason = 0 - rr) end
+        jump rec_ip(ip = ip + 1, budget = budget - 1)
+    -- SUBVN
+    case 23 then
+        let b: i32 = trace_bc_b(ins)
+        let rb: i32 = trace_record_sload(J, L, refs, b)
+        if rb < 0 then jump abort(reason = 0 - rb) end
+        let kval: i32 = trace_s16(trace_bc_d(ins))
+        let kref: i32 = trace_emit_kint(J, refs, trace_bc_a(ins), kval)
+        let rr: i32 = trace_record_arith(J, refs, trace_bc_a(ins), b, trace_bc_a(ins), IR_SUB)
+        if rr < 0 then jump abort(reason = 0 - rr) end
+        jump rec_ip(ip = ip + 1, budget = budget - 1)
+    -- MULVN
+    case 24 then
+        let b: i32 = trace_bc_b(ins)
+        let rb: i32 = trace_record_sload(J, L, refs, b)
+        if rb < 0 then jump abort(reason = 0 - rb) end
+        let kval: i32 = trace_s16(trace_bc_d(ins))
+        let kref: i32 = trace_emit_kint(J, refs, trace_bc_a(ins), kval)
+        let rr: i32 = trace_record_arith(J, refs, trace_bc_a(ins), b, trace_bc_a(ins), IR_MUL)
+        if rr < 0 then jump abort(reason = 0 - rr) end
+        jump rec_ip(ip = ip + 1, budget = budget - 1)
+    -- DIVVN
+    case 25 then
+        let b: i32 = trace_bc_b(ins)
+        let rb: i32 = trace_record_sload(J, L, refs, b)
+        if rb < 0 then jump abort(reason = 0 - rb) end
+        let kval: i32 = trace_s16(trace_bc_d(ins))
+        let kref: i32 = trace_emit_kint(J, refs, trace_bc_a(ins), kval)
+        let rr: i32 = trace_record_arith(J, refs, trace_bc_a(ins), b, trace_bc_a(ins), IR_DIV)
+        if rr < 0 then jump abort(reason = 0 - rr) end
+        jump rec_ip(ip = ip + 1, budget = budget - 1)
+    -- MODVN
+    case 26 then
+        let b: i32 = trace_bc_b(ins)
+        let rb: i32 = trace_record_sload(J, L, refs, b)
+        if rb < 0 then jump abort(reason = 0 - rb) end
+        let kval: i32 = trace_s16(trace_bc_d(ins))
+        let kref: i32 = trace_emit_kint(J, refs, trace_bc_a(ins), kval)
+        let rr: i32 = trace_record_arith(J, refs, trace_bc_a(ins), b, trace_bc_a(ins), IR_MOD)
+        if rr < 0 then jump abort(reason = 0 - rr) end
+        jump rec_ip(ip = ip + 1, budget = budget - 1)
+    -- ADDNV
+    case 27 then
+        let b: i32 = trace_bc_b(ins)
+        let rb: i32 = trace_record_sload(J, L, refs, b)
+        if rb < 0 then jump abort(reason = 0 - rb) end
+        let kref: i32 = trace_emit_kint(J, refs, trace_bc_a(ins), trace_s16(trace_bc_d(ins)))
+        let rr: i32 = trace_record_arith(J, refs, trace_bc_a(ins), trace_bc_a(ins), b, IR_ADD)
+        if rr < 0 then jump abort(reason = 0 - rr) end
+        jump rec_ip(ip = ip + 1, budget = budget - 1)
+    -- SUBNV
+    case 28 then
+        let b: i32 = trace_bc_b(ins)
+        let rb: i32 = trace_record_sload(J, L, refs, b)
+        if rb < 0 then jump abort(reason = 0 - rb) end
+        let kref: i32 = trace_emit_kint(J, refs, trace_bc_a(ins), trace_s16(trace_bc_d(ins)))
+        let rr: i32 = trace_record_arith(J, refs, trace_bc_a(ins), trace_bc_a(ins), b, IR_SUB)
+        if rr < 0 then jump abort(reason = 0 - rr) end
+        jump rec_ip(ip = ip + 1, budget = budget - 1)
+    -- MULNV
+    case 29 then
+        let b: i32 = trace_bc_b(ins)
+        let rb: i32 = trace_record_sload(J, L, refs, b)
+        if rb < 0 then jump abort(reason = 0 - rb) end
+        let kref: i32 = trace_emit_kint(J, refs, trace_bc_a(ins), trace_s16(trace_bc_d(ins)))
+        let rr: i32 = trace_record_arith(J, refs, trace_bc_a(ins), trace_bc_a(ins), b, IR_MUL)
+        if rr < 0 then jump abort(reason = 0 - rr) end
+        jump rec_ip(ip = ip + 1, budget = budget - 1)
+    -- DIVNV
+    case 30 then
+        let b: i32 = trace_bc_b(ins)
+        let rb: i32 = trace_record_sload(J, L, refs, b)
+        if rb < 0 then jump abort(reason = 0 - rb) end
+        let kref: i32 = trace_emit_kint(J, refs, trace_bc_a(ins), trace_s16(trace_bc_d(ins)))
+        let rr: i32 = trace_record_arith(J, refs, trace_bc_a(ins), trace_bc_a(ins), b, IR_DIV)
+        if rr < 0 then jump abort(reason = 0 - rr) end
+        jump rec_ip(ip = ip + 1, budget = budget - 1)
+    -- MODNV
+    case 31 then
+        let b: i32 = trace_bc_b(ins)
+        let rb: i32 = trace_record_sload(J, L, refs, b)
+        if rb < 0 then jump abort(reason = 0 - rb) end
+        let kref: i32 = trace_emit_kint(J, refs, trace_bc_a(ins), trace_s16(trace_bc_d(ins)))
+        let rr: i32 = trace_record_arith(J, refs, trace_bc_a(ins), trace_bc_a(ins), b, IR_MOD)
+        if rr < 0 then jump abort(reason = 0 - rr) end
+        jump rec_ip(ip = ip + 1, budget = budget - 1)
+    -- Comparisons: record a guard IR and write snapshot
+    case 0 then
+        let rb: i32 = trace_record_sload(J, L, refs, trace_bc_b(ins))
+        if rb < 0 then jump abort(reason = 0 - rb) end
+        let rc: i32 = trace_record_sload(J, L, refs, trace_bc_c(ins))
+        if rc < 0 then jump abort(reason = 0 - rc) end
+        trace_emit_ins(J, IR_LT, 19 | 0x80, refs[trace_bc_b(ins)], refs[trace_bc_c(ins)])
+        trace_write_snap(trace_j_tr(J), refs, trace_j_nins(J) - 1 + REF_BIAS)
+        jump rec_ip(ip = ip + 1, budget = budget - 1)
+    case 1 then
+        let rb: i32 = trace_record_sload(J, L, refs, trace_bc_b(ins))
+        if rb < 0 then jump abort(reason = 0 - rb) end
+        let rc: i32 = trace_record_sload(J, L, refs, trace_bc_c(ins))
+        if rc < 0 then jump abort(reason = 0 - rc) end
+        trace_emit_ins(J, IR_GE, 19 | 0x80, refs[trace_bc_b(ins)], refs[trace_bc_c(ins)])
+        trace_write_snap(trace_j_tr(J), refs, trace_j_nins(J) - 1 + REF_BIAS)
+        jump rec_ip(ip = ip + 1, budget = budget - 1)
+    case 2 then
+        let rb: i32 = trace_record_sload(J, L, refs, trace_bc_b(ins))
+        if rb < 0 then jump abort(reason = 0 - rb) end
+        let rc: i32 = trace_record_sload(J, L, refs, trace_bc_c(ins))
+        if rc < 0 then jump abort(reason = 0 - rc) end
+        trace_emit_ins(J, IR_LE, 19 | 0x80, refs[trace_bc_b(ins)], refs[trace_bc_c(ins)])
+        trace_write_snap(trace_j_tr(J), refs, trace_j_nins(J) - 1 + REF_BIAS)
+        jump rec_ip(ip = ip + 1, budget = budget - 1)
+    case 3 then
+        let rb: i32 = trace_record_sload(J, L, refs, trace_bc_b(ins))
+        if rb < 0 then jump abort(reason = 0 - rb) end
+        let rc: i32 = trace_record_sload(J, L, refs, trace_bc_c(ins))
+        if rc < 0 then jump abort(reason = 0 - rc) end
+        trace_emit_ins(J, IR_GT, 19 | 0x80, refs[trace_bc_b(ins)], refs[trace_bc_c(ins)])
+        trace_write_snap(trace_j_tr(J), refs, trace_j_nins(J) - 1 + REF_BIAS)
+        jump rec_ip(ip = ip + 1, budget = budget - 1)
+    case 4 then
+        let rb: i32 = trace_record_sload(J, L, refs, trace_bc_b(ins))
+        if rb < 0 then jump abort(reason = 0 - rb) end
+        let rc: i32 = trace_record_sload(J, L, refs, trace_bc_c(ins))
+        if rc < 0 then jump abort(reason = 0 - rc) end
+        trace_emit_ins(J, IR_EQ, 19 | 0x80, refs[trace_bc_b(ins)], refs[trace_bc_c(ins)])
+        trace_write_snap(trace_j_tr(J), refs, trace_j_nins(J) - 1 + REF_BIAS)
+        jump rec_ip(ip = ip + 1, budget = budget - 1)
+    case 5 then
+        let rb: i32 = trace_record_sload(J, L, refs, trace_bc_b(ins))
+        if rb < 0 then jump abort(reason = 0 - rb) end
+        let rc: i32 = trace_record_sload(J, L, refs, trace_bc_c(ins))
+        if rc < 0 then jump abort(reason = 0 - rc) end
+        trace_emit_ins(J, IR_NE, 19 | 0x80, refs[trace_bc_b(ins)], refs[trace_bc_c(ins)])
+        trace_write_snap(trace_j_tr(J), refs, trace_j_nins(J) - 1 + REF_BIAS)
+        jump rec_ip(ip = ip + 1, budget = budget - 1)
+    -- FORI: index <= limit check; record as guard on comparison
+    case 77 then
+        let a: i32 = trace_bc_a(ins)
+        let ri: i32 = trace_record_sload(J, L, refs, a)
+        if ri < 0 then jump abort(reason = 0 - ri) end
+        let rl: i32 = trace_record_sload(J, L, refs, a + 1)
+        if rl < 0 then jump abort(reason = 0 - rl) end
+        let rs: i32 = trace_record_sload(J, L, refs, a + 2)
+        if rs < 0 then jump abort(reason = 0 - rs) end
+        refs[a + 3] = refs[a]
+        trace_emit_ins(J, IR_LE, 19 | 0x80, refs[a], refs[a + 1])
+        trace_write_snap(trace_j_tr(J), refs, trace_j_nins(J) - 1 + REF_BIAS)
+        jump rec_ip(ip = ip + 1, budget = budget - 1)
+    -- FORL: increment + loop-back guard
+    case 79 then
+        let a: i32 = trace_bc_a(ins)
+        if refs[a] == 0 then jump abort(reason = 5) end
+        if refs[a + 2] == 0 then jump abort(reason = 5) end
+        let new_idx: i32 = trace_emit_ins(J, IR_ADD, 19, refs[a], refs[a + 2])
+        refs[a] = new_idx
+        refs[a + 3] = new_idx
+        trace_emit_ins(J, IR_LE, 19 | 0x80, new_idx, refs[a + 1])
+        trace_write_snap(trace_j_tr(J), refs, trace_j_nins(J) - 1 + REF_BIAS)
+        jump rec_ip(ip = ip + 1, budget = budget - 1)
+    -- RET0
+    case 75 then
+        trace_emit_ins(J, 82, 19, 0, 0)
+        jump compile_trace()
+    -- RET1
     case 76 then
         let a: i32 = trace_bc_a(ins)
         let r: i32 = trace_record_sload(J, L, refs, a)
         if r < 0 then jump abort(reason = 0 - r) end
         trace_emit_ins(J, 82, 19, refs[a], 0)
         jump compile_trace()
+    -- LOOP
     case 85 then
         trace_emit_ins(J, 80, 19, 0, 0)
         jump compile_trace()

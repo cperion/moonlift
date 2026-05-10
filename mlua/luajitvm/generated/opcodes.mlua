@@ -4,58 +4,98 @@
 local m = module "luajitvm.generated.opcodes"
 
 -- Comparisons
-export func BC_ISLT() -> i32   return 0   end
-export func BC_ISGE() -> i32   return 1   end
-export func BC_ISLE() -> i32   return 2   end
-export func BC_ISGT() -> i32   return 3   end
-export func BC_ISEQV() -> i32  return 4   end
-export func BC_ISNEV() -> i32  return 5   end
+const BC_ISLT: i32 = 0
+const BC_ISGE: i32 = 1
+const BC_ISLE: i32 = 2
+const BC_ISGT: i32 = 3
+const BC_ISEQV: i32 = 4
+const BC_ISNEV: i32 = 5
+const BC_ISEQS: i32 = 6
+const BC_ISNES: i32 = 7
+const BC_ISEQN: i32 = 8
+const BC_ISNEN: i32 = 9
+const BC_ISEQP: i32 = 10
+const BC_ISNEP: i32 = 11
+const BC_ISTC: i32 = 12
+const BC_ISFC: i32 = 13
+const BC_IST: i32 = 14
+const BC_ISF: i32 = 15
+const BC_ISTYPE: i32 = 16
+const BC_ISNUM: i32 = 17
 
 -- Constants/moves/arithmetic
-export func BC_MOV() -> i32    return 18  end
-export func BC_ADDVN() -> i32  return 22  end
-export func BC_SUBVN() -> i32  return 23  end
-export func BC_MULVN() -> i32  return 24  end
-export func BC_DIVVN() -> i32  return 25  end
-export func BC_MODVN() -> i32  return 26  end
-export func BC_ADDNV() -> i32  return 27  end
-export func BC_SUBNV() -> i32  return 28  end
-export func BC_MULNV() -> i32  return 29  end
-export func BC_DIVNV() -> i32  return 30  end
-export func BC_MODNV() -> i32  return 31  end
-export func BC_ADDVV() -> i32  return 32  end
-export func BC_SUBVV() -> i32  return 33  end
-export func BC_MULVV() -> i32  return 34  end
-export func BC_DIVVV() -> i32  return 35  end
-export func BC_MODVV() -> i32  return 36  end
-export func BC_KSTR() -> i32   return 39  end
-export func BC_KSHORT() -> i32 return 41  end
-export func BC_KNUM() -> i32   return 42  end
-export func BC_KPRI() -> i32   return 43  end
-export func BC_KNIL() -> i32   return 44  end
+const BC_MOV: i32 = 18
+const BC_NOT: i32 = 19
+const BC_UNM: i32 = 20
+const BC_LEN: i32 = 21
+const BC_ADDVN: i32 = 22
+const BC_SUBVN: i32 = 23
+const BC_MULVN: i32 = 24
+const BC_DIVVN: i32 = 25
+const BC_MODVN: i32 = 26
+const BC_ADDNV: i32 = 27
+const BC_SUBNV: i32 = 28
+const BC_MULNV: i32 = 29
+const BC_DIVNV: i32 = 30
+const BC_MODNV: i32 = 31
+const BC_ADDVV: i32 = 32
+const BC_SUBVV: i32 = 33
+const BC_MULVV: i32 = 34
+const BC_DIVVV: i32 = 35
+const BC_MODVV: i32 = 36
+const BC_POW: i32 = 37
+const BC_CAT: i32 = 38
+const BC_KSTR: i32 = 39
+const BC_KCDATA: i32 = 40
+const BC_KSHORT: i32 = 41
+const BC_KNUM: i32 = 42
+const BC_KPRI: i32 = 43
+const BC_KNIL: i32 = 44
 
 -- Closures/tables
-export func BC_FNEW() -> i32   return 51  end
-export func BC_TNEW() -> i32   return 52  end
-export func BC_TDUP() -> i32   return 53  end
-export func BC_GGET() -> i32   return 54  end
-export func BC_GSET() -> i32   return 55  end
-export func BC_TGETV() -> i32  return 56  end
-export func BC_TGETS() -> i32  return 57  end
-export func BC_TGETB() -> i32  return 58  end
-export func BC_TSETV() -> i32  return 60  end
-export func BC_TSETS() -> i32  return 61  end
-export func BC_TSETB() -> i32  return 62  end
+const BC_FNEW: i32 = 51
+const BC_TNEW: i32 = 52
+const BC_TDUP: i32 = 53
+const BC_GGET: i32 = 54
+const BC_GSET: i32 = 55
+const BC_TGETV: i32 = 56
+const BC_TGETS: i32 = 57
+const BC_TGETB: i32 = 58
+const BC_TGETR: i32 = 59
+const BC_TSETV: i32 = 60
+const BC_TSETS: i32 = 61
+const BC_TSETB: i32 = 62
+const BC_TSETM: i32 = 63
+const BC_TSETR: i32 = 64
 
 -- Calls/returns/loops
-export func BC_CALL() -> i32   return 66  end
-export func BC_CALLT() -> i32  return 68  end
-export func BC_RET() -> i32    return 74  end
-export func BC_RET0() -> i32   return 75  end
-export func BC_RET1() -> i32   return 76  end
-export func BC_LOOP() -> i32   return 85  end
-export func BC_JLOOP() -> i32  return 87  end
-export func BC_JMP() -> i32    return 88  end
+const BC_CALLM: i32 = 65
+const BC_CALL: i32 = 66
+const BC_CALLMT: i32 = 67
+const BC_CALLT: i32 = 68
+const BC_RET: i32 = 74
+const BC_RET0: i32 = 75
+const BC_RET1: i32 = 76
+const BC_FORI: i32 = 77
+const BC_JFORI: i32 = 78
+const BC_FORL: i32 = 79
+const BC_IFORL: i32 = 80
+const BC_JFORL: i32 = 81
+const BC_ITERL: i32 = 82
+const BC_IITERL: i32 = 83
+const BC_JITERL: i32 = 84
+const BC_LOOP: i32 = 85
+const BC_ILOOP: i32 = 86
+const BC_JLOOP: i32 = 87
+const BC_JMP: i32 = 88
+const BC_FUNCF: i32 = 89
+const BC_IFUNCF: i32 = 90
+const BC_JFUNCF: i32 = 91
+const BC_FUNCV: i32 = 92
+const BC_IFUNCV: i32 = 93
+const BC_JFUNCV: i32 = 94
+const BC_FUNCC: i32 = 95
+const BC_FUNCCW: i32 = 96
 
 end
 

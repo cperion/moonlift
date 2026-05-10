@@ -7,6 +7,7 @@
 
 local m = module "luajitvm.runtime.loop"
 
+const LUA_TNIL: i32 = 0
 const LUA_TINT: i32 = 3
 
 func stack32(L: ptr(u8)) -> ptr(i32)
@@ -76,6 +77,18 @@ entry start()
         if nidx < limit then jump next(ip = ip + 1) end
     end
     jump next(ip = ip + 1 + d)
+end
+end
+
+-- BC_ITERL/IITERL: generic iterator loop branch.  If the iterator result in
+-- slot A is non-nil, continue at the loop body target; otherwise fall through.
+region vmop_iterl(L: ptr(u8), ins: u32, ip: i32; next: cont(ip: i32), returned: cont(nresults: i32), error: cont(code: i32))
+entry start()
+    let a: i32 = loop_bc_a(ins)
+    let d: i32 = s16(loop_bc_d(ins))
+    let tv32: ptr(i32) = stack32(L)
+    if tv32[a * 4] ~= LUA_TNIL then jump next(ip = ip + 1 + d) end
+    jump next(ip = ip + 1)
 end
 end
 

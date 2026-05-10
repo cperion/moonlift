@@ -31,9 +31,22 @@ const BC_ISLE:   i32 = 2
 const BC_ISGT:   i32 = 3
 const BC_ISEQV:  i32 = 4
 const BC_ISNEV:  i32 = 5
+const BC_ISEQS:  i32 = 6
+const BC_ISNES:  i32 = 7
+const BC_ISEQN:  i32 = 8
+const BC_ISNEN:  i32 = 9
+const BC_ISEQP:  i32 = 10
+const BC_ISNEP:  i32 = 11
+const BC_ISTC:   i32 = 12
+const BC_ISFC:   i32 = 13
+const BC_IST:    i32 = 14
+const BC_ISF:    i32 = 15
+const BC_ISTYPE: i32 = 16
+const BC_ISNUM:  i32 = 17
 const BC_MOV:    i32 = 18
 const BC_NOT:    i32 = 19
 const BC_UNM:    i32 = 20
+const BC_LEN:    i32 = 21
 const BC_ADDVN:  i32 = 22
 const BC_SUBVN:  i32 = 23
 const BC_MULVN:  i32 = 24
@@ -50,6 +63,7 @@ const BC_MULVV:  i32 = 34
 const BC_DIVVV:  i32 = 35
 const BC_MODVV:  i32 = 36
 const BC_KSTR:   i32 = 39
+const BC_KCDATA: i32 = 40
 const BC_KSHORT: i32 = 41
 const BC_KNUM:   i32 = 42
 const BC_KPRI:   i32 = 43
@@ -62,22 +76,46 @@ const BC_USETP:  i32 = 49
 const BC_UCLO:   i32 = 50
 const BC_FNEW:   i32 = 51
 const BC_TNEW:   i32 = 52
+const BC_TDUP:   i32 = 53
 const BC_GGET:   i32 = 54
 const BC_GSET:   i32 = 55
 const BC_TGETV:  i32 = 56
+const BC_TGETS:  i32 = 57
 const BC_TGETB:  i32 = 58
+const BC_TGETR:  i32 = 59
 const BC_TSETV:  i32 = 60
+const BC_TSETS:  i32 = 61
 const BC_TSETB:  i32 = 62
+const BC_TSETM:  i32 = 63
+const BC_TSETR:  i32 = 64
+const BC_CALLM:  i32 = 65
 const BC_CALL:   i32 = 66
+const BC_CALLMT: i32 = 67
 const BC_CALLT:  i32 = 68
 const BC_VARG:   i32 = 71
 const BC_RET:    i32 = 74
 const BC_RET0:   i32 = 75
 const BC_RET1:   i32 = 76
 const BC_FORI:   i32 = 77
+const BC_JFORI:  i32 = 78
 const BC_FORL:   i32 = 79
+const BC_IFORL:  i32 = 80
+const BC_JFORL:  i32 = 81
+const BC_ITERL:  i32 = 82
+const BC_IITERL: i32 = 83
+const BC_JITERL: i32 = 84
 const BC_LOOP:   i32 = 85
+const BC_ILOOP:  i32 = 86
+const BC_JLOOP:  i32 = 87
 const BC_JMP:    i32 = 88
+const BC_FUNCF:  i32 = 89
+const BC_IFUNCF: i32 = 90
+const BC_JFUNCF: i32 = 91
+const BC_FUNCV:  i32 = 92
+const BC_IFUNCV: i32 = 93
+const BC_JFUNCV: i32 = 94
+const BC_FUNCC:  i32 = 95
+const BC_FUNCCW: i32 = 96
 
 const LUA_OK:     i32 = 0
 const LUA_ERRRUN: i32 = 2
@@ -126,50 +164,83 @@ block dispatch(bc_v: ptr(u32), ip: i32)
     disp_set_exec(L, bc_v, ip)
     let ins: u32 = bc_v[ip]
     let op: i32 = as(i32, ins) & 0xFF
-    switch op do
 
-    -- Stack / constant ops
-    case 39 then
-        emit stackop.vmop_kstr(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
-    case 41 then
-        emit stackop.vmop_kshort(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
-    case 42 then
-        emit stackop.vmop_knum(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+    -- Keep the top-level decoder small.  Each family block contains only a
+    -- modest switch and emits the typed opcode regions for that family.  This
+    -- avoids one huge RNF-expanded CFG where every bytecode region is inlined
+    -- into a single switch block.
+    if op <= 17 then jump dispatch_cmp(bc_v = bc_v, ip = ip, ins = ins, op = op) end
+    if op <= 21 then jump dispatch_stack_unary(bc_v = bc_v, ip = ip, ins = ins, op = op) end
+    if op <= 38 then jump dispatch_arith(bc_v = bc_v, ip = ip, ins = ins, op = op) end
+    if op <= 44 then jump dispatch_const(bc_v = bc_v, ip = ip, ins = ins, op = op) end
+    if op <= 51 then jump dispatch_upvalue_closure(bc_v = bc_v, ip = ip, ins = ins, op = op) end
+    if op <= 64 then jump dispatch_table_global(bc_v = bc_v, ip = ip, ins = ins, op = op) end
+    if op <= 76 then jump dispatch_call_ret(bc_v = bc_v, ip = ip, ins = ins, op = op) end
+    if op <= 88 then jump dispatch_loop_branch(bc_v = bc_v, ip = ip, ins = ins, op = op) end
+    if op <= 96 then jump dispatch_func_header(bc_v = bc_v, ip = ip, ins = ins, op = op) end
+    jump error(code = LUA_ERRRUN)
+end
+
+block dispatch_cmp(bc_v: ptr(u32), ip: i32, ins: u32, op: i32)
+    switch op do
+    case 0 then
+        emit cmp.vmop_islt(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+    case 1 then
+        emit cmp.vmop_isge(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+    case 2 then
+        emit cmp.vmop_isle(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+    case 3 then
+        emit cmp.vmop_isgt(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+    case 4 then
+        emit cmp.vmop_iseqv(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+    case 5 then
+        emit cmp.vmop_isnev(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+    case 6 then
+        emit cmp.vmop_iseqs(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+    case 7 then
+        emit cmp.vmop_isnes(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+    case 8 then
+        emit cmp.vmop_iseqn(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+    case 9 then
+        emit cmp.vmop_isnen(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+    case 10 then
+        emit cmp.vmop_iseqp(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+    case 11 then
+        emit cmp.vmop_isnep(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+    case 12 then
+        emit cmp.vmop_istc(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+    case 13 then
+        emit cmp.vmop_isfc(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+    case 14 then
+        emit cmp.vmop_ist(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+    case 15 then
+        emit cmp.vmop_isf(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+    case 16 then
+        emit cmp.vmop_istype(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+    case 17 then
+        emit cmp.vmop_isnum(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+    default then
+        jump error(code = LUA_ERRRUN)
+    end
+end
+
+block dispatch_stack_unary(bc_v: ptr(u32), ip: i32, ins: u32, op: i32)
+    switch op do
     case 18 then
         emit stackop.vmop_mov(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
-    case 43 then
-        emit stackop.vmop_kpri(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
-    case 44 then
-        emit stackop.vmop_knil(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
-    case 88 then
-        emit stackop.vmop_jmp(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
-    case 85 then
-        let G: ptr(u8) = disp_global(L)
-        if as(u64, G) ~= 0 then
-            let hc: i32 = disp_hookcount(G)
-            if hc <= 0 then jump hot(pc = as(ptr(u8), bc_v + ip)) end
-            disp_set_hookcount(G, hc - 1)
-        end
-        jump dispatch(bc_v = bc_v, ip = ip + 1 + disp_s16(disp_bc_d(ins)))
-
-    -- Unary ops
     case 19 then
         emit cmp.vmop_not(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
     case 20 then
         emit arith.vmop_unm(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+    case 21 then
+        emit stackop.vmop_len(L, ins, ip; next = op_next, returned = op_returned, metamethod = op_metamethod, error = op_error)
+    default then
+        jump error(code = LUA_ERRRUN)
+    end
+end
 
-    -- Arithmetic VV
-    case 32 then
-        emit arith.vmop_addvv(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
-    case 33 then
-        emit arith.vmop_subvv(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
-    case 34 then
-        emit arith.vmop_mulvv(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
-    case 35 then
-        emit arith.vmop_divvv(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
-    case 36 then
-        emit arith.vmop_modvv(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
-
+block dispatch_arith(bc_v: ptr(u32), ip: i32, ins: u32, op: i32)
+    switch op do
     -- Arithmetic VN
     case 22 then
         emit arith.vmop_addvn(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
@@ -194,21 +265,43 @@ block dispatch(bc_v: ptr(u32), ip: i32)
     case 31 then
         emit arith.vmop_modnv(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
 
-    -- Comparisons
-    case 0 then
-        emit cmp.vmop_islt(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
-    case 1 then
-        emit cmp.vmop_isge(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
-    case 2 then
-        emit cmp.vmop_isle(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
-    case 3 then
-        emit cmp.vmop_isgt(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
-    case 4 then
-        emit cmp.vmop_iseqv(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
-    case 5 then
-        emit cmp.vmop_isnev(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+    -- Arithmetic VV
+    case 32 then
+        emit arith.vmop_addvv(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+    case 33 then
+        emit arith.vmop_subvv(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+    case 34 then
+        emit arith.vmop_mulvv(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+    case 35 then
+        emit arith.vmop_divvv(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+    case 36 then
+        emit arith.vmop_modvv(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+    default then
+        jump error(code = LUA_ERRRUN)
+    end
+end
 
-    -- Upvalue ops
+block dispatch_const(bc_v: ptr(u32), ip: i32, ins: u32, op: i32)
+    switch op do
+    case 39 then
+        emit stackop.vmop_kstr(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+    case 40 then
+        emit stackop.vmop_kcdata(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+    case 41 then
+        emit stackop.vmop_kshort(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+    case 42 then
+        emit stackop.vmop_knum(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+    case 43 then
+        emit stackop.vmop_kpri(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+    case 44 then
+        emit stackop.vmop_knil(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+    default then
+        jump error(code = LUA_ERRRUN)
+    end
+end
+
+block dispatch_upvalue_closure(bc_v: ptr(u32), ip: i32, ins: u32, op: i32)
+    switch op do
     case 45 then
         emit uvop.vmop_uget(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
     case 46 then
@@ -221,40 +314,69 @@ block dispatch(bc_v: ptr(u32), ip: i32)
         emit uvop.vmop_uusetp(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
     case 50 then
         emit uvop.vmop_uclo(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
-
-    -- Closure creation (typed ClosureNew protocol exits)
     case 51 then
         emit closop.vmop_fnew(L, ins, ip;
             created = fnew_created,
             need_alloc = fnew_need_alloc,
             error = fnew_error)
+    default then
+        jump error(code = LUA_ERRRUN)
+    end
+end
 
-    -- Table creation (typed TableNew protocol exits)
+block dispatch_table_global(bc_v: ptr(u32), ip: i32, ins: u32, op: i32)
+    switch op do
     case 52 then
         emit tableop.vmop_tnew(ins, ip;
             created = tnew_created,
             need_alloc = tnew_need_alloc,
             error = tnew_error)
-
-    -- Global variable ops
+    case 53 then
+        emit tableop.vmop_tdup(L, ins, ip; next = op_next, error = op_error)
     case 54 then
         emit gop.vmop_gget(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
     case 55 then
         emit gop.vmop_gset(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
-
-    -- Table get/set
     case 56 then
         emit tableop.vmop_tgetv(L, ins, ip; next = op_next, returned = op_returned, metamethod = op_metamethod, error = op_error)
+    case 57 then
+        emit tableop.vmop_tgets(L, ins, ip; next = op_next, returned = op_returned, metamethod = op_metamethod, error = op_error)
     case 58 then
         emit tableop.vmop_tgetb(L, ins, ip; next = op_next, returned = op_returned, metamethod = op_metamethod, error = op_error)
+    case 59 then
+        emit tableop.vmop_tgetr(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
     case 60 then
         emit tableop.vmop_tsetv(L, ins, ip; next = op_next, returned = op_returned, metamethod = op_metamethod, error = op_error)
+    case 61 then
+        emit tableop.vmop_tsets(L, ins, ip; next = op_next, returned = op_returned, metamethod = op_metamethod, error = op_error)
     case 62 then
         emit tableop.vmop_tsetb(L, ins, ip; next = op_next, returned = op_returned, metamethod = op_metamethod, error = op_error)
+    case 64 then
+        emit tableop.vmop_tsetr(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+    default then
+        jump error(code = LUA_ERRRUN)
+    end
+end
 
-    -- Calls
+block dispatch_call_ret(bc_v: ptr(u32), ip: i32, ins: u32, op: i32)
+    switch op do
+    case 65 then
+        -- CALLM uses L->top to determine the actual argument count.  Reuse
+        -- the CALL implementation by clearing B to zero, which is its dynamic
+        -- argument-count path.
+        emit call.vmop_call(L, ins & 0x00FFFFFF, bc_v, ip;
+            enter_lua = call_enter_lua,
+            native_call = call_native,
+            metamethod = call_metamethod,
+            error = op_error)
     case 66 then
         emit call.vmop_call(L, ins, bc_v, ip;
+            enter_lua = call_enter_lua,
+            native_call = call_native,
+            metamethod = call_metamethod,
+            error = op_error)
+    case 67 then
+        emit call.vmop_callt(L, ins & 0x00FFFFFF, bc_v, ip;
             enter_lua = call_enter_lua,
             native_call = call_native,
             metamethod = call_metamethod,
@@ -267,21 +389,64 @@ block dispatch(bc_v: ptr(u32), ip: i32)
             error = op_error)
     case 71 then
         emit call.vmop_varg(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
-
-    -- Return
     case 74 then
         emit call.vmop_ret(L, ins, ip; resume_caller = ret_resume, final_return = op_returned, close_upvalues = ret_close_upvalues, error = op_error)
     case 75 then
         emit call.vmop_ret0(L, ins, ip; resume_caller = ret_resume, final_return = op_returned, close_upvalues = ret_close_upvalues, error = op_error)
     case 76 then
         emit call.vmop_ret1(L, ins, ip; resume_caller = ret_resume, final_return = op_returned, close_upvalues = ret_close_upvalues, error = op_error)
+    default then
+        jump error(code = LUA_ERRRUN)
+    end
+end
 
-    -- Numeric for-loop
+block dispatch_loop_branch(bc_v: ptr(u32), ip: i32, ins: u32, op: i32)
+    switch op do
     case 77 then
         emit loopop.vmop_fori(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
     case 79 then
         emit loopop.vmop_forl(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+    case 80 then
+        emit loopop.vmop_forl(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+    case 82 then
+        emit loopop.vmop_iterl(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+    case 83 then
+        emit loopop.vmop_iterl(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+    case 85 then
+        let G: ptr(u8) = disp_global(L)
+        if as(u64, G) ~= 0 then
+            let hc: i32 = disp_hookcount(G)
+            if hc <= 0 then jump hot(pc = as(ptr(u8), bc_v + ip)) end
+            disp_set_hookcount(G, hc - 1)
+        end
+        jump dispatch(bc_v = bc_v, ip = ip + 1 + disp_s16(disp_bc_d(ins)))
+    case 86 then
+        jump dispatch(bc_v = bc_v, ip = ip + 1 + disp_s16(disp_bc_d(ins)))
+    case 88 then
+        emit stackop.vmop_jmp(L, ins, ip; next = op_next, returned = op_returned, error = op_error)
+    default then
+        jump error(code = LUA_ERRRUN)
+    end
+end
 
+block dispatch_func_header(bc_v: ptr(u32), ip: i32, ins: u32, op: i32)
+    switch op do
+    case 89 then
+        jump dispatch(bc_v = bc_v, ip = ip + 1)
+    case 90 then
+        jump dispatch(bc_v = bc_v, ip = ip + 1)
+    case 91 then
+        jump dispatch(bc_v = bc_v, ip = ip + 1)
+    case 92 then
+        jump dispatch(bc_v = bc_v, ip = ip + 1)
+    case 93 then
+        jump dispatch(bc_v = bc_v, ip = ip + 1)
+    case 94 then
+        jump dispatch(bc_v = bc_v, ip = ip + 1)
+    case 95 then
+        jump dispatch(bc_v = bc_v, ip = ip + 1)
+    case 96 then
+        jump dispatch(bc_v = bc_v, ip = ip + 1)
     default then
         jump error(code = LUA_ERRRUN)
     end
@@ -424,7 +589,7 @@ export func vm_interp_run_record(L: ptr(u8), bc: ptr(u32), pc: i32, status: i32,
 end
 
 export func dispatch_const_check() -> i32
-    return BC_LOOP + BC_RET + BC_MOV + BC_NOT + BC_UNM + BC_ADDVV + BC_TGETV + BC_TGETB + BC_TSETV + BC_TSETB + BC_KSHORT + BC_UGET + BC_USETV + BC_GGET + BC_GSET + BC_TNEW + BC_FORI + BC_FORL + BC_UCLO + LUA_OK
+    return BC_LOOP + BC_ILOOP + BC_RET + BC_MOV + BC_NOT + BC_UNM + BC_LEN + BC_ADDVV + BC_TGETV + BC_TGETB + BC_TGETR + BC_TGETS + BC_TSETV + BC_TSETB + BC_TSETR + BC_TSETS + BC_KSHORT + BC_KCDATA + BC_UGET + BC_USETV + BC_GGET + BC_GSET + BC_TNEW + BC_TDUP + BC_CALLM + BC_CALLMT + BC_FORI + BC_FORL + BC_IFORL + BC_ITERL + BC_IITERL + BC_UCLO + BC_ISEQS + BC_ISTYPE + BC_FUNCF + BC_FUNCV + LUA_OK
 end
 
 end

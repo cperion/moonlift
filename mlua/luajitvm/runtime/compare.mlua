@@ -2,6 +2,20 @@
 
 local m = module "luajitvm.runtime.compare"
 
+const LUA_TNIL:   i32 = 0
+const LUA_TFALSE: i32 = 1
+const LUA_TTRUE:  i32 = 2
+const LUA_TINT:   i32 = 3
+const LUA_TNUM:   i32 = 4
+const LUA_TSTR:   i32 = 5
+const PROTO_SIZE: i32 = 96
+const P_OFF_K:    i32 = 24
+const TS_OFF_CURBC: i32 = 96
+
+func cmp_bc_a(ins: u32) -> i32
+    return (as(i32, ins) >> 8) & 0xFF
+end
+
 func cmp_bc_b(ins: u32) -> i32
     return (as(i32, ins) >> 24) & 0xFF
 end
@@ -14,8 +28,42 @@ func cmp_bc_cd(ins: u32) -> i32
     return (as(i32, ins) >> 16) & 0xFFFF
 end
 
+func cmp_stack32(L: ptr(u8)) -> ptr(i32)
+    return as(ptr(i32), as(ptr(u8), as(ptr(u64), L)[4]))
+end
+
 func cmp_stack64(L: ptr(u8)) -> ptr(i64)
     return as(ptr(i64), as(ptr(u8), as(ptr(u64), L)[4]))
+end
+
+func cmp_cur_bc(L: ptr(u8)) -> ptr(u8)
+    return as(ptr(u8), as(ptr(u64), L)[TS_OFF_CURBC / 8])
+end
+
+func cmp_cur_proto(L: ptr(u8)) -> ptr(u8)
+    return cmp_cur_bc(L) - PROTO_SIZE
+end
+
+func cmp_proto_k(pt: ptr(u8)) -> ptr(u8)
+    return as(ptr(u8), as(ptr(u64), pt)[P_OFF_K / 8])
+end
+
+func cmp_const_tag(L: ptr(u8), idx: i32) -> i32
+    let k: ptr(u8) = cmp_proto_k(cmp_cur_proto(L))
+    return as(ptr(i32), k)[idx * 4]
+end
+
+func cmp_const_payload(L: ptr(u8), idx: i32) -> i64
+    let k: ptr(u8) = cmp_proto_k(cmp_cur_proto(L))
+    return as(ptr(i64), k)[idx * 2 + 1]
+end
+
+func cmp_truthy_tag(tag: i32) -> bool
+    return tag ~= LUA_TNIL and tag ~= LUA_TFALSE
+end
+
+func cmp_eq_payload_and_tag(lhs_tag: i32, lhs_payload: i64, rhs_tag: i32, rhs_payload: i64) -> bool
+    return lhs_tag == rhs_tag and lhs_payload == rhs_payload
 end
 
 region vmop_islt(L: ptr(u8), ins: u32, ip: i32; next: cont(ip: i32), returned: cont(nresults: i32), error: cont(code: i32))
@@ -74,6 +122,154 @@ entry start()
     let c: i32 = cmp_bc_c(ins)
     let tv64: ptr(i64) = cmp_stack64(L)
     let skip: i32 = 2 - as(i32, as(i32, tv64[b * 2 + 1]) ~= as(i32, tv64[c * 2 + 1]))
+    jump next(ip = ip + skip)
+end
+end
+
+region vmop_iseqs(L: ptr(u8), ins: u32, ip: i32; next: cont(ip: i32), returned: cont(nresults: i32), error: cont(code: i32))
+entry start()
+    let a: i32 = cmp_bc_a(ins)
+    let d: i32 = cmp_bc_cd(ins)
+    let tv32: ptr(i32) = cmp_stack32(L)
+    let tv64: ptr(i64) = cmp_stack64(L)
+    let ctag: i32 = cmp_const_tag(L, d)
+    if ctag ~= LUA_TSTR then jump error(code = 21) end
+    let ok: bool = cmp_eq_payload_and_tag(tv32[a * 4], tv64[a * 2 + 1], ctag, cmp_const_payload(L, d))
+    let skip: i32 = 2 - as(i32, ok)
+    jump next(ip = ip + skip)
+end
+end
+
+region vmop_isnes(L: ptr(u8), ins: u32, ip: i32; next: cont(ip: i32), returned: cont(nresults: i32), error: cont(code: i32))
+entry start()
+    let a: i32 = cmp_bc_a(ins)
+    let d: i32 = cmp_bc_cd(ins)
+    let tv32: ptr(i32) = cmp_stack32(L)
+    let tv64: ptr(i64) = cmp_stack64(L)
+    let ctag: i32 = cmp_const_tag(L, d)
+    if ctag ~= LUA_TSTR then jump error(code = 21) end
+    let ok: bool = not cmp_eq_payload_and_tag(tv32[a * 4], tv64[a * 2 + 1], ctag, cmp_const_payload(L, d))
+    let skip: i32 = 2 - as(i32, ok)
+    jump next(ip = ip + skip)
+end
+end
+
+region vmop_iseqn(L: ptr(u8), ins: u32, ip: i32; next: cont(ip: i32), returned: cont(nresults: i32), error: cont(code: i32))
+entry start()
+    let a: i32 = cmp_bc_a(ins)
+    let d: i32 = cmp_bc_cd(ins)
+    let tv32: ptr(i32) = cmp_stack32(L)
+    let tv64: ptr(i64) = cmp_stack64(L)
+    let ctag: i32 = cmp_const_tag(L, d)
+    if ctag ~= LUA_TINT and ctag ~= LUA_TNUM then jump error(code = 22) end
+    let ok: bool = cmp_eq_payload_and_tag(tv32[a * 4], tv64[a * 2 + 1], ctag, cmp_const_payload(L, d))
+    let skip: i32 = 2 - as(i32, ok)
+    jump next(ip = ip + skip)
+end
+end
+
+region vmop_isnen(L: ptr(u8), ins: u32, ip: i32; next: cont(ip: i32), returned: cont(nresults: i32), error: cont(code: i32))
+entry start()
+    let a: i32 = cmp_bc_a(ins)
+    let d: i32 = cmp_bc_cd(ins)
+    let tv32: ptr(i32) = cmp_stack32(L)
+    let tv64: ptr(i64) = cmp_stack64(L)
+    let ctag: i32 = cmp_const_tag(L, d)
+    if ctag ~= LUA_TINT and ctag ~= LUA_TNUM then jump error(code = 22) end
+    let ok: bool = not cmp_eq_payload_and_tag(tv32[a * 4], tv64[a * 2 + 1], ctag, cmp_const_payload(L, d))
+    let skip: i32 = 2 - as(i32, ok)
+    jump next(ip = ip + skip)
+end
+end
+
+region vmop_iseqp(L: ptr(u8), ins: u32, ip: i32; next: cont(ip: i32), returned: cont(nresults: i32), error: cont(code: i32))
+entry start()
+    let a: i32 = cmp_bc_a(ins)
+    let d: i32 = cmp_bc_cd(ins)
+    let tv32: ptr(i32) = cmp_stack32(L)
+    let ok: bool = tv32[a * 4] == d
+    let skip: i32 = 2 - as(i32, ok)
+    jump next(ip = ip + skip)
+end
+end
+
+region vmop_isnep(L: ptr(u8), ins: u32, ip: i32; next: cont(ip: i32), returned: cont(nresults: i32), error: cont(code: i32))
+entry start()
+    let a: i32 = cmp_bc_a(ins)
+    let d: i32 = cmp_bc_cd(ins)
+    let tv32: ptr(i32) = cmp_stack32(L)
+    let ok: bool = tv32[a * 4] ~= d
+    let skip: i32 = 2 - as(i32, ok)
+    jump next(ip = ip + skip)
+end
+end
+
+region vmop_istc(L: ptr(u8), ins: u32, ip: i32; next: cont(ip: i32), returned: cont(nresults: i32), error: cont(code: i32))
+entry start()
+    let a: i32 = cmp_bc_a(ins)
+    let d: i32 = cmp_bc_cd(ins)
+    let tv32: ptr(i32) = cmp_stack32(L)
+    let tv64: ptr(i64) = cmp_stack64(L)
+    let ok: bool = cmp_truthy_tag(tv32[d * 4])
+    if ok then
+        tv32[a * 4] = tv32[d * 4]
+        tv64[a * 2 + 1] = tv64[d * 2 + 1]
+        jump next(ip = ip + 1)
+    end
+    jump next(ip = ip + 2)
+end
+end
+
+region vmop_isfc(L: ptr(u8), ins: u32, ip: i32; next: cont(ip: i32), returned: cont(nresults: i32), error: cont(code: i32))
+entry start()
+    let a: i32 = cmp_bc_a(ins)
+    let d: i32 = cmp_bc_cd(ins)
+    let tv32: ptr(i32) = cmp_stack32(L)
+    let tv64: ptr(i64) = cmp_stack64(L)
+    let ok: bool = not cmp_truthy_tag(tv32[d * 4])
+    if ok then
+        tv32[a * 4] = tv32[d * 4]
+        tv64[a * 2 + 1] = tv64[d * 2 + 1]
+        jump next(ip = ip + 1)
+    end
+    jump next(ip = ip + 2)
+end
+end
+
+region vmop_ist(L: ptr(u8), ins: u32, ip: i32; next: cont(ip: i32), returned: cont(nresults: i32), error: cont(code: i32))
+entry start()
+    let d: i32 = cmp_bc_cd(ins)
+    let tv32: ptr(i32) = cmp_stack32(L)
+    let skip: i32 = 2 - as(i32, cmp_truthy_tag(tv32[d * 4]))
+    jump next(ip = ip + skip)
+end
+end
+
+region vmop_isf(L: ptr(u8), ins: u32, ip: i32; next: cont(ip: i32), returned: cont(nresults: i32), error: cont(code: i32))
+entry start()
+    let d: i32 = cmp_bc_cd(ins)
+    let tv32: ptr(i32) = cmp_stack32(L)
+    let skip: i32 = 2 - as(i32, not cmp_truthy_tag(tv32[d * 4]))
+    jump next(ip = ip + skip)
+end
+end
+
+region vmop_istype(L: ptr(u8), ins: u32, ip: i32; next: cont(ip: i32), returned: cont(nresults: i32), error: cont(code: i32))
+entry start()
+    let a: i32 = cmp_bc_a(ins)
+    let d: i32 = cmp_bc_cd(ins)
+    let tv32: ptr(i32) = cmp_stack32(L)
+    let skip: i32 = 2 - as(i32, tv32[a * 4] == d)
+    jump next(ip = ip + skip)
+end
+end
+
+region vmop_isnum(L: ptr(u8), ins: u32, ip: i32; next: cont(ip: i32), returned: cont(nresults: i32), error: cont(code: i32))
+entry start()
+    let a: i32 = cmp_bc_a(ins)
+    let tv32: ptr(i32) = cmp_stack32(L)
+    let tag: i32 = tv32[a * 4]
+    let skip: i32 = 2 - as(i32, tag == LUA_TINT or tag == LUA_TNUM)
     jump next(ip = ip + skip)
 end
 end

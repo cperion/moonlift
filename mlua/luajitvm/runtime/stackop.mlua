@@ -6,9 +6,17 @@ const LUA_TNIL: i32 = 0
 const LUA_TINT: i32 = 3
 const LUA_TNUM: i32 = 4
 const LUA_TSTR: i32 = 5
+const LUA_TTAB: i32 = 8
+const LUA_TCDATA: i32 = 12
+const MM_LEN: i32 = 7
 const PROTO_SIZE: i32 = 96
 const P_OFF_K: i32 = 24
 const TS_OFF_CURBC: i32 = 96
+const STR_OFF_LEN: i32 = 20
+const TAB_OFF_NOMM: i32 = 10
+const TAB_OFF_ARRAY: i32 = 16
+const TAB_OFF_METATABLE: i32 = 32
+const TAB_OFF_ASIZE: i32 = 48
 
 func stackop_bc_a(ins: u32) -> i32
     return (as(i32, ins) >> 8) & 0xFF
@@ -56,12 +64,60 @@ func stackop_const_payload(L: ptr(u8), idx: i32) -> i64
     return as(ptr(i64), k)[idx * 2 + 1]
 end
 
+func stackop_tab_array(t: ptr(u8)) -> ptr(u8)
+    return as(ptr(u8), as(ptr(u64), t)[TAB_OFF_ARRAY / 8])
+end
+
+func stackop_tab_asize(t: ptr(u8)) -> i32
+    return as(i32, as(ptr(u32), t)[TAB_OFF_ASIZE / 4])
+end
+
+func stackop_tab_nomm(t: ptr(u8)) -> i32
+    return as(i32, t[TAB_OFF_NOMM])
+end
+
+func stackop_tab_set_nomm(t: ptr(u8), v: i32)
+    t[TAB_OFF_NOMM] = as(u8, v)
+end
+
+func stackop_tab_metatable(t: ptr(u8)) -> ptr(u8)
+    return as(ptr(u8), as(ptr(u64), t)[TAB_OFF_METATABLE / 8])
+end
+
+func stackop_tv_tag_at(base: ptr(u8), slot: i32) -> i32
+    return as(ptr(i32), base)[slot * 4]
+end
+
+func stackop_tv_payload_at(base: ptr(u8), slot: i32) -> i64
+    return as(ptr(i64), base)[slot * 2 + 1]
+end
+
+func stackop_table_len_scan(arr: ptr(u8), idx: i32) -> i32
+    if idx < 0 then return 0 end
+    if stackop_tv_tag_at(arr, idx) ~= LUA_TNIL then return idx + 1 end
+    return stackop_table_len_scan(arr, idx - 1)
+end
+
 region vmop_kstr(L: ptr(u8), ins: u32, ip: i32; next: cont(ip: i32), returned: cont(nresults: i32), error: cont(code: i32))
 entry start()
     let a: i32 = stackop_bc_a(ins)
     let d: i32 = stackop_bc_cd(ins)
     let tag: i32 = stackop_const_tag(L, d)
     if tag ~= LUA_TSTR then jump error(code = 15) end
+    let tv32: ptr(i32) = stackop_stack32(L)
+    let tv64: ptr(i64) = stackop_stack64(L)
+    tv32[a * 4] = tag
+    tv64[a * 2 + 1] = stackop_const_payload(L, d)
+    jump next(ip = ip + 1)
+end
+end
+
+region vmop_kcdata(L: ptr(u8), ins: u32, ip: i32; next: cont(ip: i32), returned: cont(nresults: i32), error: cont(code: i32))
+entry start()
+    let a: i32 = stackop_bc_a(ins)
+    let d: i32 = stackop_bc_cd(ins)
+    let tag: i32 = stackop_const_tag(L, d)
+    if tag ~= LUA_TCDATA then jump error(code = 17) end
     let tv32: ptr(i32) = stackop_stack32(L)
     let tv64: ptr(i64) = stackop_stack64(L)
     tv32[a * 4] = tag
@@ -92,6 +148,65 @@ entry start()
     let tv64: ptr(i64) = stackop_stack64(L)
     tv32[a * 4] = tag
     tv64[a * 2 + 1] = stackop_const_payload(L, d)
+    jump next(ip = ip + 1)
+end
+end
+
+region vmop_len(L: ptr(u8), ins: u32, ip: i32; next: cont(ip: i32), returned: cont(nresults: i32), metamethod: cont(mm_tag: i32, mm_payload: i64, ins: u32, ip: i32), error: cont(code: i32))
+entry start()
+    let a: i32 = stackop_bc_a(ins)
+    let b: i32 = stackop_bc_b(ins)
+    let tv32: ptr(i32) = stackop_stack32(L)
+    let tv64: ptr(i64) = stackop_stack64(L)
+    let tag: i32 = tv32[b * 4]
+    if tag == LUA_TSTR then
+        let s: ptr(u8) = as(ptr(u8), tv64[b * 2 + 1])
+        tv32[a * 4] = LUA_TINT
+        tv64[a * 2 + 1] = as(i64, as(i32, as(ptr(u32), s)[STR_OFF_LEN / 4]))
+        jump next(ip = ip + 1)
+    end
+    if tag == LUA_TTAB then jump len_table(tab = as(ptr(u8), tv64[b * 2 + 1]), a = a) end
+    jump error(code = 18)
+end
+block len_table(tab: ptr(u8), a: i32)
+    let bit: i32 = 1 << MM_LEN
+    if (stackop_tab_nomm(tab) & bit) ~= 0 then jump raw_table_len(tab = tab, a = a) end
+    let mt: ptr(u8) = stackop_tab_metatable(tab)
+    if as(u64, mt) == 0 then
+        stackop_tab_set_nomm(tab, stackop_tab_nomm(tab) | bit)
+        jump raw_table_len(tab = tab, a = a)
+    end
+    if MM_LEN >= stackop_tab_asize(mt) then
+        stackop_tab_set_nomm(tab, stackop_tab_nomm(tab) | bit)
+        jump raw_table_len(tab = tab, a = a)
+    end
+    let arr: ptr(u8) = stackop_tab_array(mt)
+    if as(u64, arr) == 0 then
+        stackop_tab_set_nomm(tab, stackop_tab_nomm(tab) | bit)
+        jump raw_table_len(tab = tab, a = a)
+    end
+    let mtag: i32 = stackop_tv_tag_at(arr, MM_LEN)
+    if mtag == LUA_TNIL then
+        stackop_tab_set_nomm(tab, stackop_tab_nomm(tab) | bit)
+        jump raw_table_len(tab = tab, a = a)
+    end
+    jump metamethod(mm_tag = mtag, mm_payload = stackop_tv_payload_at(arr, MM_LEN), ins = ins, ip = ip)
+end
+block raw_table_len(tab: ptr(u8), a: i32)
+    let arr: ptr(u8) = stackop_tab_array(tab)
+    if as(u64, arr) == 0 then jump write_len(a = a, n = 0) end
+    jump scan_table_len(arr = arr, idx = stackop_tab_asize(tab) - 1, a = a)
+end
+block scan_table_len(arr: ptr(u8), idx: i32, a: i32)
+    if idx < 0 then jump write_len(a = a, n = 0) end
+    if stackop_tv_tag_at(arr, idx) ~= LUA_TNIL then jump write_len(a = a, n = idx + 1) end
+    jump scan_table_len(arr = arr, idx = idx - 1, a = a)
+end
+block write_len(a: i32, n: i32)
+    let tv32: ptr(i32) = stackop_stack32(L)
+    let tv64: ptr(i64) = stackop_stack64(L)
+    tv32[a * 4] = LUA_TINT
+    tv64[a * 2 + 1] = as(i64, n)
     jump next(ip = ip + 1)
 end
 end
