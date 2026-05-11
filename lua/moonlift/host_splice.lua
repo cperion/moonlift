@@ -205,16 +205,14 @@ function M.fill_expr(session, slot, value, site)
                 local T = session.T
                 local Parse = require("moonlift.parse")
                 local wrapped = "func __expr__() -> void\n    return " .. value.source .. "\nend"
-                local parsed = Parse.parse_module(T, wrapped)
+                local parsed = Parse.parse_func(T, wrapped)
                 if #parsed.issues > 0 then
                     error("parse error: " .. tostring(parsed.issues[1]), 2)
                 end
-                for _, item in ipairs(parsed.module.items) do
-                    if pvm.classof(item) == Tr.ItemFunc then
-                        for _, stmt in ipairs(item.func.body) do
-                            if pvm.classof(stmt) == Tr.StmtReturnValue then
-                                return stmt.value
-                            end
+                if parsed.func and parsed.func.body then
+                    for _, stmt in ipairs(parsed.func.body) do
+                        if pvm.classof(stmt) == Tr.StmtReturnValue then
+                            return stmt.value
                         end
                     end
                 end
@@ -365,7 +363,7 @@ function M.fill_items(session, slot, value, site)
     if not items and type(value) == "string" then
         local ok, result = pcall(function()
             local T = session.T
-            local parsed = require("moonlift.parse").parse(T, value)
+            local parsed = require("moonlift.parse").parse_items(T, value)
             if #parsed.issues > 0 then
                 error("parse error: " .. tostring(parsed.issues[1]), 2)
             end
@@ -383,7 +381,7 @@ function M.fill_items(session, slot, value, site)
         elseif M.is_source(value) then
             local ok, result = pcall(function()
                 local T = session.T
-                local parsed = require("moonlift.parse").parse(T, value.source)
+                local parsed = require("moonlift.parse").parse_items(T, value.source)
                 if #parsed.issues > 0 then
                     error("parse error: " .. tostring(parsed.issues[1]), 2)
                 end

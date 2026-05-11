@@ -121,7 +121,7 @@ M.line_prefix_has_word = line_prefix_has_word
 
 -- For finding island boundaries in .mlua text
 local open_words_island = {
-    struct = true, expose = true, func = true, module = true, region = true, expr = true,
+    struct = true, expose = true, func = true, region = true, expr = true,
     ["if"] = true, switch = true, block = true, entry = true, control = true,
 }
 M.open_words_island = open_words_island
@@ -298,7 +298,7 @@ local function is_module_start(src, i)
 end
 M.is_module_start = is_module_start
 
-local island_order = { "struct", "expose", "func", "module", "region", "expr" }
+local island_order = { "struct", "expose", "func", "region", "expr", "type", "const", "static" }
 
 local function is_island_start(src, i, kind)
     if not has_word(src, i, kind) then return false end
@@ -309,8 +309,8 @@ local function is_island_start(src, i, kind)
     if kind == "expose" then
         return read_ident(src, j) ~= nil
     end
-    if kind == "module" then
-        return is_module_start(src, i)
+    if kind == "type" or kind == "const" or kind == "static" then
+        return read_ident(src, j) ~= nil
     end
     return false
 end
@@ -326,12 +326,23 @@ local function island_end(src, start_i, kind)
         end
         return nl - 1
     end
-    if kind == "module" then
-        local _, after_module = read_ident(src, start_i)
-        local k = skip_hspace(src, after_module)
-        local word, after_word = read_ident(src, k)
-        if word ~= nil then k = skip_hspace(src, after_word) end
-        if src:sub(k, k) == "{" then return find_matching_brace(src, k) end
+    -- Single-line declarations: extern, const, static — end at newline or next keyword
+    if kind == "extern" or kind == "const" or kind == "static" then
+        -- Scan forward to newline (tracking paren depth for multi-line exprs)
+        local depth = 0
+        local i = start_i
+        while i <= #src do
+            local c = src:sub(i, i)
+            if c == "(" then depth = depth + 1
+            elseif c == ")" then depth = depth - 1
+            elseif c == "\n" and depth == 0 then return i - 1 end
+            i = i + 1
+        end
+        return #src
+    end
+    -- Type declarations: use default keyword-depth matching (type ... end)
+    if kind == "type" then
+        return find_matching_end(src, start_i, open_words_island)
     end
     return find_matching_end(src, start_i, open_words_island)
 end
@@ -343,9 +354,10 @@ local function find_next_island(src, i)
         if skipped then
             i = skipped
         else
-            if has_word(src, i, "export") then
-                local func_i = skip_space(src, i + #"export")
-                if is_island_start(src, func_i, "func") then return i, "func", func_i end
+            -- extern func → extern island
+            if has_word(src, i, "extern") then
+                local func_i = skip_space(src, i + #"extern")
+                if is_island_start(src, func_i, "func") then return i, "extern", func_i end
             end
             for k = 1, #island_order do
                 local kind = island_order[k]

@@ -7,9 +7,12 @@ return function(A)
             A.variant "IslandStruct",
             A.variant "IslandExpose",
             A.variant "IslandFunc",
-            A.variant "IslandModule",
+            A.variant "IslandExtern",
             A.variant "IslandRegion",
             A.variant "IslandExpr",
+            A.variant "IslandType",
+            A.variant "IslandConst",
+            A.variant "IslandStatic",
         },
 
         A.sum "IslandName" {

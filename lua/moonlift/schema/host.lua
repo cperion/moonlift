@@ -322,35 +322,6 @@ return function(A)
             A.unique,
         },
 
-        A.product "TemplatePartText" {
-            A.field "source" "MoonSource.SourceSlice",
-            A.unique,
-        },
-
-        A.product "TemplateSplice" {
-            A.field "id" "string",
-            A.field "lua_source" "MoonSource.SourceSlice",
-            A.field "byte_offset" "number",
-            A.unique,
-        },
-
-        A.sum "TemplatePart" {
-            A.variant "TemplateText" {
-                A.field "text" "MoonHost.TemplatePartText",
-                A.variant_unique,
-            },
-            A.variant "TemplateSplicePart" {
-                A.field "splice" "MoonHost.TemplateSplice",
-                A.variant_unique,
-            },
-        },
-
-        A.product "HostTemplate" {
-            A.field "kind_word" "string",
-            A.field "parts" (A.many "MoonHost.TemplatePart"),
-            A.unique,
-        },
-
         A.sum "HostStep" {
             A.variant "HostStepLua" {
                 A.field "id" "string",
@@ -360,7 +331,7 @@ return function(A)
             A.variant "HostStepIsland" {
                 A.field "id" "string",
                 A.field "island" "MoonMlua.IslandText",
-                A.field "template" "MoonHost.HostTemplate",
+                A.field "binding" (A.optional "string"),
                 A.variant_unique,
             },
         },
@@ -368,26 +339,6 @@ return function(A)
         A.product "HostProgram" {
             A.field "source" "MoonHost.MluaSource",
             A.field "steps" (A.many "MoonHost.HostStep"),
-            A.unique,
-        },
-
-        A.product "HostSpliceResult" {
-            A.field "splice_id" "string",
-            A.field "value" "MoonHost.HostValueRef",
-            A.unique,
-        },
-
-        A.product "HostEvaluatedTemplate" {
-            A.field "template" "MoonHost.HostTemplate",
-            A.field "splices" (A.many "MoonHost.HostSpliceResult"),
-            A.field "issues" (A.many "MoonHost.HostIssue"),
-            A.unique,
-        },
-
-        A.product "HostEvalResult" {
-            A.field "program" "MoonHost.HostProgram",
-            A.field "templates" (A.many "MoonHost.HostEvaluatedTemplate"),
-            A.field "report" "MoonHost.HostReport",
             A.unique,
         },
 
