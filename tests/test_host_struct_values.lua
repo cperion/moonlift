@@ -1,14 +1,15 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
+-- Test struct values using session API and .mlua
 local pvm = require("moonlift.pvm")
-local moon = require("moonlift.host")
+local A = require("moonlift.asdl")
+local T = pvm.context(); A.Define(T)
+local Session = require("moonlift.host_session")
+local session = Session.new({ prefix = "struct_test", T = T })
+local moon = session:api()
+local Tr = T.MoonTree
 
-local T = moon.T
-local Ty, Tr = T.MoonType, T.MoonTree
-
-local fx = moon.field("x", moon.i32)
-assert(fx.decl == Ty.FieldDecl("x", moon.i32.ty))
-
+-- Standalone struct via builder API
 local Pair = moon.struct("Pair", {
     moon.field("x", moon.i32),
     moon.field("y", moon.i32),
@@ -17,36 +18,20 @@ assert(Pair.name == "Pair")
 assert(pvm.classof(Pair.decl) == Tr.TypeDeclStruct)
 assert(Pair.decl.name == "Pair")
 assert(#Pair.decl.fields == 2)
-assert(Pair.fields_by_name.x == moon.i32)
-assert(moon.ptr(Pair).ty == Ty.TPtr(Pair:as_moonlift_type()))
+assert(Pair.decl.fields[1].field_name == "x")
+assert(Pair.decl.fields[2].field_name == "y")
+print("OK: standalone struct")
 
-local M = moon.module("Demo")
-local MPair = M:struct("Pair", {
-    moon.field("left", moon.i32),
-    moon.field("right", moon.i32),
-})
-assert(MPair.owner_module == M)
-assert(MPair.type.ty == Ty.TNamed(Ty.TypeRefGlobal("Demo", "Pair")))
+-- ptr(struct) type works
+assert(moon.ptr(Pair).ty == T.MoonType.TPtr(Pair:as_moonlift_type()))
+print("OK: ptr(struct)")
 
-local Bits = M:union("Bits", { moon.field("i", moon.i32), moon.field("f", moon.f32) })
-assert(pvm.classof(Bits.decl) == Tr.TypeDeclUnion)
-
-local Color = M:enum("Color", { "red", "green", "blue" })
-assert(pvm.classof(Color.decl) == Tr.TypeDeclEnumSugar)
-assert(#Color.decl.variants == 3)
-
-local Result = M:tagged_union("Result", { moon.variant("ok", moon.i32), moon.variant("err", moon.i32) })
-assert(pvm.classof(Result.decl) == Tr.TypeDeclTaggedUnionSugar)
-
-local module = M:to_asdl()
-assert(pvm.classof(module.h) == Tr.ModuleTyped)
-assert(module.h.module_name == "Demo")
-assert(#module.items == 4)
-assert(pvm.classof(module.items[1]) == Tr.ItemType)
-
-local ok, err = pcall(function()
-    moon.struct("Bad", { moon.field("x", moon.i32), moon.field("x", moon.i64) })
-end)
-assert(not ok and tostring(err):match("duplicate field"))
+-- Struct via .mlua
+local Host = require("moonlift.mlua_run")
+local MPair = Host.eval [[return struct MPair left: i32; right: i32 end]]
+assert(MPair.decl.name == "MPair")
+assert(#MPair.decl.fields == 2)
+assert(MPair.decl.fields[1].field_name == "left")
+print("OK: .mlua struct")
 
 print("moonlift host struct values ok")

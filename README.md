@@ -2,11 +2,11 @@
 
 **A typed, jump-first compiled language embedded in LuaJIT that generates native code through Cranelift.**
 
-Moonlift compiles to machine code. You write `.mlua` files — Lua with hosted
-typed islands — and Moonlift turns them into JIT-ed function pointers, relocatable
-`.o` files, or `.so`/`.dylib` shared libraries. Lua is the metaprogramming
-language; Moonlift is the monomorphic native output. No strings, no templating
-hacks, no extra VM.
+Moonlift compiles to machine code. You write `.mlua` files — Lua with Moonlift
+value islands (`func`, `region`, `expr`, `struct`, `union`) — and Moonlift turns
+them into JIT-ed function pointers, relocatable `.o` files, or `.so`/`.dylib`
+shared libraries. Lua is the metaprogramming language; Moonlift is the monomorphic
+native output. No strings, no templating hacks, no extra VM.
 
 ---
 
@@ -60,26 +60,23 @@ metaprogramming, and who believe semantics should be data, not strings.
 ### JIT: Compile and call native functions from Lua
 
 ```lua
-local moon = require("moonlift.host")
-
-local M = moon.module("Demo")
-M:export_func("add", {
-    moon.param("a", moon.i32),
-    moon.param("b", moon.i32),
-}, moon.i32, function(fn)
-    fn:return_(fn.a + fn.b)
-end)
-
-local demo = M:compile()
-local add = demo:get("add")
-print(add(3, 4))  -- 7, running as native machine code
-demo:free()
+local Host = require("moonlift.mlua_run")
+local chunk = Host.loadstring([[
+local add = func add(a: i32, b: i32) -> i32
+    return a + b
+end
+return add
+]], "demo.mlua")
+local add_val = chunk()
+local compiled = add_val:compile()
+print(compiled(3, 4))  -- 7, running as native machine code
+compiled:free()
 ```
 
 ### `.mlua` source: Lua host + typed islands
 
-```moonlift
--- Lua metaprogramming layer
+```lua
+-- Lua metaprogramming layer: build region fragments from Lua functions
 local function expect_byte(tag, byte, err_code)
     return region expect_@{tag}(p: ptr(u8), n: i32, pos: i32;
         ok: cont(next: i32),
@@ -97,10 +94,8 @@ end
 local expect_A = expect_byte("A", 65, 10)
 local expect_semicolon = expect_byte("semicolon", 59, 30)
 
--- Typed module with jump-first control
-module PacketParser
-
-export func parse_packet(p: ptr(u8), n: i32) -> i32
+-- Function with jump-first control (no module, no export)
+local parse_packet = func parse_packet(p: ptr(u8), n: i32) -> i32
     return region -> i32
     entry start()
         if n <= 0 then yield -1 end
@@ -130,7 +125,7 @@ export func parse_packet(p: ptr(u8), n: i32) -> i32
     end
 end
 
-end
+return { parse_packet = parse_packet }
 ```
 
 ### Control: typed blocks, jumps, yields
@@ -139,7 +134,7 @@ end
 -- No while, for, break, or continue.
 -- Everything is blocks with explicit state transitions.
 
-export func sum(xs: view(i32), n: index) -> i32
+local sum = func sum(xs: view(i32), n: index) -> i32
     block loop(i: index = 0, acc: i32 = 0)
         if i >= n then
             return acc
@@ -147,6 +142,8 @@ export func sum(xs: view(i32), n: index) -> i32
         jump loop(i = i + 1, acc = acc + xs[i])
     end
 end
+
+return sum
 ```
 
 ### Regions: typed control fragments with continuation protocols

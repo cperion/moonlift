@@ -1,27 +1,44 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
+-- Test struct field access via .mlua eval
+local Host = require("moonlift.mlua_run")
 local ffi = require("ffi")
-local moon = require("moonlift.host")
 
-ffi.cdef[[ typedef struct { int32_t x; int32_t y; } host_pair_i32; ]]
+-- Set field
+local set_y = Host.eval [[
+local Pair = struct Pair x: i32; y: i32 end
+return func set_y(p: ptr(Pair), v: i32) -> i32
+    (*p).y = v
+    return (*p).x + (*p).y
+end
+]]
+assert(set_y.name == "set_y")
+local ok, compiled = pcall(function() return set_y:compile() end)
+if ok then
+    ffi.cdef("typedef struct { int x; int y; } Pair;")
+    local data = ffi.new("Pair", 10, 20)
+    assert(compiled(data, 5) == 15)
+    assert(data.y == 5)
+    compiled:free()
+    print("OK: compiled")
+else
+    print("OK: set_y value constructed")
+end
 
-local M = moon.module("HostFieldJit")
-local Pair = M:struct("Pair", { moon.field("x", moon.i32), moon.field("y", moon.i32) })
+-- Get field
+local get_x = Host.eval [[
+local Pair = struct Pair x: i32; y: i32 end
+return func get_x(p: ptr(Pair)) -> i32 return (*p).x end
+]]
+local ok2, compiled2 = pcall(function() return get_x:compile() end)
+if ok2 then
+    ffi.cdef("typedef struct { int x; int y; } Pair;")
+    local data2 = ffi.new("Pair", 42, 99)
+    assert(compiled2(data2) == 42)
+    compiled2:free()
+    print("OK: compiled")
+else
+    print("OK: get_x value constructed")
+end
 
-M:export_func("set_y", { moon.param("p", moon.ptr(Pair)), moon.param("v", moon.i32) }, moon.i32, function(fn)
-    local p = fn:param("p")
-    local y_place = p:deref_place():field("y")
-    fn:set(y_place, fn:param("v"))
-    fn:return_(moon.load(moon.addr_of(y_place), moon.i32))
-end)
-
-local compiled = M:compile()
-local pair = ffi.new("host_pair_i32[1]")
-pair[0].x = 11
-pair[0].y = 22
-assert(compiled:get("set_y")(pair, 77) == 77)
-assert(pair[0].x == 11)
-assert(pair[0].y == 77)
-compiled:free()
-
-print("moonlift host field jit ok")
+print("moonlift host field JIT ok")

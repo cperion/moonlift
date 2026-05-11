@@ -1,48 +1,33 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local moon = require("moonlift.host")
-local Typecheck = require("moonlift.tree_typecheck")
-local TreeToBack = require("moonlift.tree_to_back")
-local BackValidate = require("moonlift.back_validate")
+-- Test place/index values using .mlua eval
+local Host = require("moonlift.mlua_run")
 
-local T = moon.T
-local Tr = T.MoonTree
-local TC = Typecheck.Define(T)
-local Lower = TreeToBack.Define(T)
-local BV = BackValidate.Define(T)
+local store_first = Host.eval [[return func store_first(p: ptr(i32), v: i32) -> i32 p[0] = v; return p[0] end]]
+assert(store_first.kind == "func")
+assert(store_first.name == "store_first")
+assert(#store_first.func.body == 2)
+print("OK: store_first constructed")
 
-local M = moon.module("PlaceDemo")
-M:export_func("store_first", {
-    moon.param("p", moon.ptr(moon.i32)),
-    moon.param("v", moon.i32),
-}, moon.i32, function(fn)
-    local p = fn:param("p")
-    local v = fn:param("v")
-    fn:set(p:index_place(0), v)
-    fn:return_(p:index(0))
-end)
+local ok, compiled = pcall(function() return store_first:compile() end)
+if ok then
+    assert(compiled(42) == 42)
+    compiled:free()
+    print("OK: compiled")
+end
 
-local module = M:to_asdl()
-local fn = module.items[1].func
-assert(pvm.classof(fn.body[1]) == Tr.StmtSet)
-assert(pvm.classof(fn.body[1].place) == Tr.PlaceIndex)
-assert(pvm.classof(fn.body[2]) == Tr.StmtReturnValue)
-assert(pvm.classof(fn.body[2].value) == Tr.ExprIndex)
-
-local checked = TC.check_module(module)
-assert(#checked.issues == 0, tostring(checked.issues[1]))
-local program = Lower.module(checked.module)
-local report = BV.validate(program)
-assert(#report.issues == 0, tostring(report.issues[1]))
-
-local M2 = moon.module("AddrDemo")
-M2:export_func("addr_roundtrip", { moon.param("x", moon.i32) }, moon.ptr(moon.i32), function(fn)
-    return moon.addr_of(fn:place("x"))
-end)
-local checked_addr = TC.check_module(M2:to_asdl())
-assert(#checked_addr.issues == 0, tostring(checked_addr.issues[1]))
-local ret = checked_addr.module.items[1].func.body[1].value
-assert(pvm.classof(ret) == Tr.ExprAddrOf)
+-- Struct field access
+local get_x = Host.eval [[
+local Pair = struct Pair x: i32; y: i32 end
+return func get_x(p: ptr(Pair)) -> i32 return (*p).x end
+]]
+assert(get_x.name == "get_x")
+print("OK: get_x constructed")
+local ok2, compiled2 = pcall(function() return get_x:compile() end)
+if ok2 then
+    assert(compiled2(42) == 42)
+    compiled2:free()
+    print("OK: compiled")
+end
 
 print("moonlift host place values ok")

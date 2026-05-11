@@ -830,6 +830,7 @@ function M.Define(T)
             return O.ExprFrag(O.NameRefText(resolved_name), params, frag.open, body, result)
         end,
         expand_name_ref = expand_name_ref,
+        expand_type_decl = function(decl, env) return one(expand_type_decl, decl, env or empty_env()) end,
         expand_module = function(module, env) return one(expand_module, module, env or empty_env()) end,
         expand_type = expand_type,
         expand_open_set = expand_open_set,

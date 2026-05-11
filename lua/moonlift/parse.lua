@@ -30,8 +30,8 @@ local TK = {
     amp = 33, pipe = 34, caret = 35, tilde = 36,
     shl = 37, lshr = 38, ashr = 39,
     -- keyword tokens (> 99 so they never collide with ASCII char checks)
-    extern_kw  = 101, func_kw    = 102, const_kw   = 103, static_kw  = 104,
-    type_kw    = 106, export_kw  = 107,
+    func_kw    = 102,
+    type_kw    = 106,
     let_kw     = 110, var_kw     = 111, if_kw      = 112, then_kw    = 113,
     elseif_kw  = 114, else_kw    = 115, switch_kw  = 116, case_kw    = 117,
     default_kw = 118, do_kw      = 119, end_kw     = 120,
@@ -45,12 +45,11 @@ local TK = {
     same_len_kw= 158,
     as_kw      = 170,
     struct_kw  = 180,
+    union_kw   = 181,
 }
 
 local keywords = {
-    ["extern"]   = TK.extern_kw,   ["func"]     = TK.func_kw,
-    ["export"]   = TK.export_kw,
-    ["const"]    = TK.const_kw,    ["static"]   = TK.static_kw,
+    ["func"]     = TK.func_kw,
     ["type"]     = TK.type_kw,
     ["let"]      = TK.let_kw,      ["var"]      = TK.var_kw,
     ["if"]       = TK.if_kw,       ["then"]     = TK.then_kw,
@@ -73,6 +72,7 @@ local keywords = {
     ["same_len"] = TK.same_len_kw,
     ["as"]       = TK.as_kw,
     ["struct"]   = TK.struct_kw,
+    ["union"]    = TK.union_kw,
 }
 
 -- Character classification (byte comparisons, no tables in hot path)
@@ -294,118 +294,13 @@ function M.lex(src)
 end
 
 ---------------------------------------------------------------------------
--- Island boundary scanning
----------------------------------------------------------------------------
-
-local island_start = {
-    [TK.func_kw]=true, [TK.region_kw]=true, [TK.expr_kw]=true,
-    [TK.struct_kw]=true, [TK.type_kw]=true, [TK.const_kw]=true,
-    [TK.static_kw]=true, [TK.extern_kw]=true,
-}
-
-local end_delimited_open = {
-    [TK.func_kw]=true, [TK.region_kw]=true, [TK.expr_kw]=true,
-    [TK.struct_kw]=true, [TK.if_kw]=true, [TK.switch_kw]=true,
-    [TK.block_kw]=true, [TK.control_kw]=true, [TK.entry_kw]=true,
-}
-
-local function scan_line_island(toks, i)
-    local j = i + 1
-    while j <= toks.n and toks.kind[j] ~= TK.nl and toks.kind[j] ~= TK.eof do
-        j = j + 1
-    end
-    return j
-end
-
-local function scan_end_delimited_island(toks, i)
-    local depth = 1
-    local j = i + 1
-    while j <= toks.n and depth > 0 do
-        local k = toks.kind[j]
-        if end_delimited_open[k] then
-            depth = depth + 1
-        elseif k == TK.end_kw then
-            depth = depth - 1
-        end
-        j = j + 1
-    end
-    return j
-end
-
-local function scan_to_first_end(toks, i)
-    local j = i + 1
-    while j <= toks.n and toks.kind[j] ~= TK.eof do
-        if toks.kind[j] == TK.end_kw then return j + 1 end
-        j = j + 1
-    end
-    return j
-end
-
-local function type_is_end_delimited(toks, i)
-    local j = i + 1
-    while j <= toks.n and toks.kind[j] ~= TK.eof do
-        local k = toks.kind[j]
-        if k == TK.struct_kw or k == TK.end_kw then return true end
-        if island_start[k] or (k == TK.export_kw and toks.kind[j + 1] == TK.func_kw) then return false end
-        j = j + 1
-    end
-    return false
-end
-
-function M.scan_islands(src)
-    local toks = M.lex(src)
-    local islands = {}
-    local i = 1
-    while i <= toks.n do
-        local k = toks.kind[i]
-        local start_i = i
-        local kind
-
-        if k == TK.export_kw and toks.kind[i + 1] == TK.func_kw then
-            kind = "func"
-            i = i + 1
-        elseif k == TK.extern_kw and toks.kind[i + 1] == TK.func_kw then
-            kind = "extern"
-        elseif island_start[k] then
-            kind = toks.text[i]
-        end
-
-        if kind then
-            local end_i
-            if kind == "extern" or kind == "const" or kind == "static" or (kind == "type" and not type_is_end_delimited(toks, i)) then
-                end_i = scan_line_island(toks, i)
-            elseif kind == "type" then
-                end_i = scan_to_first_end(toks, i)
-            else
-                end_i = scan_end_delimited_island(toks, i)
-            end
-            local stop_i = math.min(end_i - 1, toks.n)
-            local holes = {}
-            for h = start_i, stop_i do
-                if toks.kind[h] == TK.hole then holes[#holes + 1] = toks.text[h] end
-            end
-            islands[#islands + 1] = {
-                kind = kind,
-                start = toks.start[start_i],
-                stop = toks.stop[stop_i] or #src,
-                holes = holes,
-            }
-            i = end_i
-        else
-            i = i + 1
-        end
-    end
-    return { toks = toks, islands = islands, splice_map = toks.splice_map }
-end
-
----------------------------------------------------------------------------
 -- Parser
 ---------------------------------------------------------------------------
 
 local Parser = {}
 Parser.__index = Parser
 
-local function new_parser(T, toks, opts)
+local function new_parser_internal(T, toks, first, limit, opts)
     opts = opts or {}
     local C, Ty, B, O, Sem, Tr, Pm =
         T.MoonCore, T.MoonType, T.MoonBind, T.MoonOpen,
@@ -413,7 +308,11 @@ local function new_parser(T, toks, opts)
     return setmetatable({
         T = T, C = C, Ty = Ty, B = B, O = O,
         Sem = Sem, Tr = Tr, Pm = Pm,
-        toks = toks, i = 1, issues = {},
+        toks = toks,
+        i = first or 1,
+        first = first or 1,
+        limit = limit or toks.n,
+        issues = {},
         value_env = opts.value_env or {},
         cont_env = opts.cont_env or {},
         protocol_types = opts.protocol_types or {},
@@ -423,11 +322,32 @@ local function new_parser(T, toks, opts)
     }, Parser)
 end
 
--- Token accessors
-function Parser:kind(offset) return self.toks.kind[self.i + (offset or 0)] end
-function Parser:text(offset) return self.toks.text[self.i + (offset or 0)] end
-function Parser:start(offset) return self.toks.start[self.i + (offset or 0)] end
-function Parser:stop(offset) return self.toks.stop[self.i + (offset or 0)] end
+-- Token accessors (limit-aware)
+function Parser:_idx(offset)
+    local j = self.i + (offset or 0)
+    if j > self.limit then return nil end
+    return j
+end
+function Parser:kind(offset)
+    local j = self:_idx(offset)
+    if not j then return TK.eof end
+    return self.toks.kind[j]
+end
+function Parser:text(offset)
+    local j = self:_idx(offset)
+    if not j then return "" end
+    return self.toks.text[j]
+end
+function Parser:start(offset)
+    local j = self:_idx(offset)
+    if not j then return 0 end
+    return self.toks.start[j]
+end
+function Parser:stop(offset)
+    local j = self:_idx(offset)
+    if not j then return 0 end
+    return self.toks.stop[j]
+end
 function Parser:skip_nl() while self:kind() == TK.nl do self.i = self.i + 1 end end
 function Parser:skip_sep() while self:kind() == TK.nl or self:kind() == TK.semi do self.i = self.i + 1 end end
 function Parser:accept(k) if self:kind() == k then self.i = self.i + 1; return true end; return false end
@@ -454,7 +374,7 @@ end
 
 -- Identifier keywords (can be used as field names etc.)
 local ident_kw = {
-    [TK.extern_kw]=true, [TK.func_kw]=true, [TK.const_kw]=true, [TK.static_kw]=true,
+    [TK.func_kw]=true,
     [TK.type_kw]=true, [TK.let_kw]=true, [TK.var_kw]=true, [TK.if_kw]=true,
     [TK.then_kw]=true, [TK.elseif_kw]=true, [TK.else_kw]=true, [TK.switch_kw]=true,
     [TK.case_kw]=true, [TK.default_kw]=true, [TK.do_kw]=true, [TK.end_kw]=true,
@@ -466,6 +386,7 @@ local ident_kw = {
     [TK.requires_kw]=true, [TK.bounds_kw]=true, [TK.disjoint_kw]=true,
     [TK.len_kw]=true, [TK.same_len_kw]=true, [TK.as_kw]=true,
     [TK.struct_kw]=true,
+    [TK.union_kw]=true,
 }
 
 function Parser:expect_field_name(msg)
@@ -1145,16 +1066,7 @@ end
 -- Top-level declaration parsing
 ---------------------------------------------------------------------------
 
-function Parser:parse_extern_func()
-    local Tr = self.Tr
-    local name = self:expect_name("expected extern function name")
-    self:expect(TK.lparen); local params = self:parse_param_list(); self:expect(TK.rparen)
-    local result = self.Ty.TScalar(self.C.ScalarVoid)
-    if self:accept(TK.arrow) then result = self:parse_type() end
-    return Tr.ExternFunc(name, name, params, result)
-end
-
-function Parser:parse_func(is_export)
+function Parser:parse_func()
     local Tr, Ty, C = self.Tr, self.Ty, self.C
     local name = self:expect_name("expected function name")
     self:expect(TK.lparen); local params, contracts = self:parse_param_list(); self:expect(TK.rparen)
@@ -1167,34 +1079,10 @@ function Parser:parse_func(is_export)
     end
     local body = self:parse_stmt_until({ [TK.end_kw]=true })
     self:expect(TK.end_kw, "expected end after function")
-    if is_export then
-        if #contracts > 0 then
-            return Tr.FuncExportContract(name, params, result, contracts, body)
-        end
-        return Tr.FuncExport(name, params, result, body)
-    end
     if #contracts > 0 then
         return Tr.FuncLocalContract(name, params, result, contracts, body)
     end
     return Tr.FuncLocal(name, params, result, body)
-end
-
--- Structure: struct Name [repr(packed(N))] field: Type ... end
-function Parser:parse_struct()
-    local Tr, Ty = self.Tr, self.Ty
-    local name = self:expect_name("expected struct name")
-    self:skip_nl()
-    local fields = {}
-    while self:kind() ~= TK.end_kw and self:kind() ~= TK.eof do
-        self:skip_nl()
-        if self:kind() == TK.end_kw then break end
-        local fname = self:expect_field_name("expected struct field name")
-        self:expect(TK.colon, "expected ':' in struct field")
-        fields[#fields + 1] = Ty.FieldDecl(fname, self:parse_type())
-        self:skip_nl()
-    end
-    self:expect(TK.end_kw, "expected end after struct")
-    return Tr.TypeDeclStruct(name, fields)
 end
 
 -- Continuation params for region fragments
@@ -1370,25 +1258,11 @@ function Parser:parse_expr_frag()
     return O.ExprFrag(name_ref, params, O.OpenSet({}, {}, {}, {}), body, result)
 end
 
--- Type declaration: type Name = struct/union/enum ... end  OR  type Name = A | B(i32)
-function Parser:parse_type_item()
+-- Type declaration: type Name = struct ... end  OR  type Name = A | B(i32)
+-- Always end-delimited.
+function Parser:parse_struct_island()
     local Tr, Ty = self.Tr, self.Ty
-    local name = self:expect_name("expected type name")
-    self:expect(TK.eq, "expected '=' in type item")
-    if self:accept(TK.struct_kw) then
-        local fields = self:parse_type_fields()
-        return Tr.ItemType(Tr.TypeDeclStruct(name, fields))
-    end
-    -- Tagged union
-    local variants = self:parse_tagged_union_variants()
-    if self:kind() == TK.end_kw then self.i = self.i + 1 end
-    -- Record protocol type for region dispatch
-    self.protocol_types[name] = variants
-    return Tr.ItemType(Tr.TypeDeclTaggedUnionSugar(name, variants))
-end
-
-function Parser:parse_type_fields()
-    local Ty = self.Ty
+    local name = self:expect_name("expected struct name")
     local fields = {}
     self:skip_nl()
     while self:kind() ~= TK.end_kw and self:kind() ~= TK.eof do
@@ -1396,28 +1270,33 @@ function Parser:parse_type_fields()
         self:expect(TK.colon, "expected ':' in field declaration")
         fields[#fields + 1] = Ty.FieldDecl(fname, self:parse_type())
         self:skip_nl()
-        if self:accept(TK.comma) then self:skip_nl() end
+        if self:accept(TK.comma) or self:accept(TK.semi) then self:skip_nl() end
     end
-    self:expect(TK.end_kw, "expected end after type declaration")
-    return fields
+    self:expect(TK.end_kw, "expected end after struct")
+    return {
+        name = name,
+        decl = Tr.TypeDeclStruct(name, fields),
+        protocol_variants = nil,
+    }
 end
 
-function Parser:parse_tagged_union_variants()
-    local Ty = self.Ty
+-- Union type island: union Name variant | variant end
+function Parser:parse_union_island()
+    local Tr, Ty = self.Tr, self.Ty
+    local name = self:expect_name("expected union name")
     local variants = {}
-    while self:kind() ~= TK.eof do
+    while self:kind() ~= TK.eof and self:kind() ~= TK.end_kw do
         self:skip_nl()
-        local name = self:expect_field_name("expected tagged union variant")
+        local vname = self:expect_field_name("expected variant name")
         local payload = Ty.TScalar(self.C.ScalarVoid)
         local fields = {}
         if self:accept(TK.lparen) then
             self:skip_nl()
             if self:kind() == TK.rparen then
-                self.i = self.i + 1  -- empty ()
+                self.i = self.i + 1
             elseif self:kind() == TK.name and self:kind(1) == TK.colon then
-                -- Named fields
                 while self:kind() ~= TK.rparen and self:kind() ~= TK.eof do
-                    local fname = self:expect_field_name("expected tagged union field name")
+                    local fname = self:expect_field_name("expected variant field name")
                     self:expect(TK.colon)
                     fields[#fields + 1] = Ty.FieldDecl(fname, self:parse_type())
                     self:skip_nl()
@@ -1431,29 +1310,17 @@ function Parser:parse_tagged_union_variants()
                 self:expect(TK.rparen)
             end
         end
-        variants[#variants + 1] = Ty.VariantDecl(name, payload, fields)
+        variants[#variants + 1] = Ty.VariantDecl(vname, payload, fields)
         self:skip_nl()
         if not self:accept(TK.pipe) then break end
     end
-    return variants
-end
-
-function Parser:parse_const()
-    local Tr = self.Tr
-    local name = self:expect_name("expected const name")
-    self:expect(TK.colon)
-    local ty = self:parse_type()
-    self:expect(TK.eq)
-    return Tr.ItemConst(Tr.ConstItem(name, ty, self:parse_expr(0)))
-end
-
-function Parser:parse_static()
-    local Tr = self.Tr
-    local name = self:expect_name("expected static name")
-    self:expect(TK.colon)
-    local ty = self:parse_type()
-    self:expect(TK.eq)
-    return Tr.ItemStatic(Tr.StaticItem(name, ty, self:parse_expr(0)))
+    self:expect(TK.end_kw, "expected end after union")
+    self.protocol_types[name] = variants
+    return {
+        name = name,
+        decl = Tr.TypeDeclTaggedUnionSugar(name, variants),
+        protocol_variants = variants,
+    }
 end
 
 local function parse_result(kind, value, p)
@@ -1466,66 +1333,324 @@ local function parse_result(kind, value, p)
     }
 end
 
-local function parser_for_source(T, src, opts)
-    return new_parser(T, M.lex(src), opts or {})
+---------------------------------------------------------------------------
+-- Lua-aware document scanner
+---------------------------------------------------------------------------
+
+-- Scan a Lua string until the closing quote.
+local function skip_lua_short_string(src, i, quote)
+    i = i + 1
+    while i <= #src do
+        local c = byte(src, i)
+        if c == 92 then
+            i = i + 1
+        elseif c == quote then
+            return i + 1
+        elseif c == 10 then
+            return i
+        end
+        i = i + 1
+    end
+    return #src + 1
 end
 
-function M.parse_type(T, src, opts)
-    local p = parser_for_source(T, src, opts)
+-- Find the matching close long bracket.
+local function skip_lua_long_bracket(src, start)
+    local eqs = 0
+    local j = start
+    while j <= #src and byte(src, j) == 61 do eqs = eqs + 1; j = j + 1 end
+    if j > #src or byte(src, j) ~= 91 then return nil end
+    local close_pat = "]" .. string.rep("=", eqs) .. "]"
+    local close = find(src, close_pat, j + 1, true)
+    if not close then return nil end
+    return close + #close_pat
+end
+
+-- Line comment or long comment.
+local function skip_lua_comment(src, i)
+    if i + 3 <= #src and sub(src, i + 1, i + 3) == "[[" then
+        local close = find(src, "]]", i + 4, true)
+        if close then return close + 2 end
+        return #src + 1
+    end
+    local nl = find(src, "\n", i + 1, true)
+    return (nl or #src + 1) + (nl and 1 or 0)
+end
+
+local moonlift_kw = {}
+for k, _ in pairs(keywords) do moonlift_kw[k] = true end
+
+-- Tokenize a single island from the original source, appending tokens to the
+-- shared token stream. Returns (first_tok, last_tok, stop_byte).
+local function tokenize_island(src, island_kind, start_byte, toks)
+    local first_tok = toks.n + 1
+    local n = #src
+    local i = start_byte
+    local line, col = 1, 1
+    for pos = 1, math.min(start_byte - 1, #src) do
+        if byte(src, pos) == 10 then line = line + 1; col = 1 else col = col + 1 end
+    end
+
+    local end_open = {
+        [TK.if_kw]=true, [TK.switch_kw]=true,
+        [TK.block_kw]=true, [TK.control_kw]=true, [TK.entry_kw]=true,
+        [TK.region_kw]=true, [TK.expr_kw]=true,
+    }
+    -- Exclude the island's own start keyword so depth tracking is correct:
+    -- the initial keyword sets depth=1, and its matching `end` brings depth to 0.
+    -- Remove it from end_open entirely so it doesn't count as an opener.
+    local start_kw = ({ ["func"]=TK.func_kw, ["region"]=TK.region_kw, ["expr"]=TK.expr_kw,
+                          ["struct"]=TK.struct_kw, ["union"]=TK.union_kw })[island_kind]
+    end_open[start_kw] = nil
+    -- struct and union islands have no internal nesting constructs.
+    local depth = 1
+
+    while i <= n and depth > 0 do
+        local b = byte(src, i)
+        if b == 32 or b == 9 or b == 13 then
+            i = i + 1; col = col + 1
+        elseif b == 10 then
+            push_tok(toks, TK.nl, "\n", i, i, line, col)
+            i = i + 1; line = line + 1; col = 1
+        elseif b == 45 and i < n and byte(src, i + 1) == 45 then
+            local nl = find(src, "\n", i + 2, true)
+            i = (nl or n + 1) + (nl and 1 or 0)
+            if not nl then break end
+            line = line + 1; col = 1
+        elseif b == 64 and i < n and byte(src, i + 1) == 123 then
+            local close = scan_antiquote(src, i + 1, n)
+            if not close then break end
+            local lua_expr = sub(src, i + 2, close - 1)
+            toks.splice_i = toks.splice_i + 1
+            local id = "splice." .. toks.splice_i
+            toks.splice_map[id] = lua_expr
+            push_tok(toks, TK.hole, id, i, close, line, col)
+            col = col + (close - i + 1)
+            i = close + 1
+        elseif is_alpha(b) then
+            local s = i
+            i = i + 1
+            while i <= n do
+                local c = byte(src, i)
+                if not is_alnum(c) then break end
+                i = i + 1
+            end
+            local text = sub(src, s, i - 1)
+            local kind = keywords[text] or TK.name
+            push_tok(toks, kind, text, s, i - 1, line, col)
+            col = col + (i - s)
+            if end_open[kind] then
+                depth = depth + 1
+            elseif kind == TK.end_kw then
+                depth = depth - 1
+                if depth == 0 then
+                    return first_tok, toks.n, i - 1
+                end
+            end
+        elseif is_digit(b) then
+            local s, is_float = i, false
+            if b == 48 and i < n then
+                local nb = byte(src, i + 1)
+                if nb == 120 or nb == 88 then
+                    i = i + 2
+                    while i <= n and is_hex(byte(src, i)) do i = i + 1 end
+                    push_tok(toks, TK.int, sub(src, s, i - 1), s, i - 1, line, col)
+                    col = col + (i - s)
+                    goto continue_tok
+                end
+            end
+            i = i + 1
+            while i <= n and is_digit(byte(src, i)) do i = i + 1 end
+            if i <= n and byte(src, i) == 46 and not (i < n and byte(src, i + 1) == 46) then
+                is_float = true; i = i + 1
+                while i <= n and is_digit(byte(src, i)) do i = i + 1 end
+            end
+            local c = byte(src, i)
+            if c == 101 or c == 69 then
+                is_float = true; i = i + 1
+                local sign = byte(src, i); if sign == 43 or sign == 45 then i = i + 1 end
+                while i <= n and is_digit(byte(src, i)) do i = i + 1 end
+            end
+            push_tok(toks, is_float and TK.float or TK.int, sub(src, s, i - 1), s, i - 1, line, col)
+            col = col + (i - s)
+        elseif b == 34 then
+            local s, sc = i, col
+            i = scan_string(src, i, n, 34)
+            push_tok(toks, TK.string, sub(src, s, i - 1), s, i - 1, line, sc)
+            col = col + (i - s)
+        else
+            local ch = sub(src, i, i)
+            if i + 2 <= n and sub(src, i, i + 2) == ">>>" then
+                push_tok(toks, TK.lshr, ">>>", i, i + 2, line, col); i = i + 3; col = col + 3
+                goto continue_tok
+            end
+            if i < n then
+                local s2 = sub(src, i, i + 1)
+                local k2 = ({ ["->"]=TK.arrow, ["=="]=TK.eqeq, ["~="]=TK.ne, ["<="]=TK.le,
+                              [">="]=TK.ge, ["<<"]=TK.shl, [">>"]=TK.ashr })[s2]
+                if k2 then push_tok(toks, k2, s2, i, i + 1, line, col); i = i + 2; col = col + 2; goto continue_tok end
+            end
+            local k1 = ({ ["("]=TK.lparen, [")"]=TK.rparen, ["["]=TK.lbrack, ["]"]=TK.rbrack,
+                          ["{"]=TK.lbrace, ["}"]=TK.rbrace, [","]=TK.comma, [":"]=TK.colon,
+                          ["."]=TK.dot, [";"]=TK.semi, ["+"]=TK.plus, ["-"]=TK.minus,
+                          ["*"]=TK.star, ["/"]=TK.slash, ["%"]=TK.percent, ["="]=TK.eq,
+                          ["<"]=TK.lt, [">"]=TK.gt, ["&"]=TK.amp, ["|"]=TK.pipe,
+                          ["^"]=TK.caret, ["~"]=TK.tilde })[ch]
+            if k1 then push_tok(toks, k1, ch, i, i, line, col) end
+            i = i + 1; col = col + 1
+        end
+        ::continue_tok::
+    end
+    return first_tok, toks.n, i - 1
+end
+
+-- Lua-aware document scanner.
+function M.scan_document(src)
+    local toks = new_tokens(src)
+    local islands = {}
+    local n = #src
+    local i = 1
+
+    local island_kind_map = {
+        ["func"] = "func", ["region"] = "region", ["expr"] = "expr",
+        ["struct"] = "struct", ["union"] = "union",
+    }
+
+    while i <= n do
+        local b = byte(src, i)
+        if b == 10 then
+            i = i + 1
+        elseif b == 32 or b == 9 or b == 13 then
+            i = i + 1
+        elseif b == 39 then  -- single-quoted Lua string
+            i = skip_lua_short_string(src, i, 39)
+        elseif b == 34 then  -- double-quoted Lua string
+            i = skip_lua_short_string(src, i, 34)
+        elseif b == 91 then  -- possibly long bracket
+            local after = skip_lua_long_bracket(src, i)
+            if after then i = after end
+        elseif b == 45 and i < n and byte(src, i + 1) == 45 then
+            i = skip_lua_comment(src, i)
+        elseif is_alpha(b) or b == 95 then
+            local s = i
+            i = i + 1
+            while i <= n do
+                local c = byte(src, i)
+                if not (is_alpha(c) or is_digit(c)) then break end
+                i = i + 1
+            end
+            local word = sub(src, s, i - 1)
+            local target_kind = island_kind_map[word]
+
+            if target_kind then
+                -- Check preceding non-whitespace, non-nl character or word
+                local prev = 0
+                local prev_word = nil
+                for p = s - 1, 1, -1 do
+                    local pc = byte(src, p)
+                    if pc == 10 or pc == 32 or pc == 9 or pc == 13 then
+                        -- skip whitespace
+                    else
+                        -- Check if this is a letter/underscore (part of a Lua keyword)
+                        if is_alpha(pc) or pc == 95 then
+                            local ws = p
+                            while ws > 1 and (is_alpha(byte(src, ws - 1)) or is_digit(byte(src, ws - 1))) do
+                                ws = ws - 1
+                            end
+                            prev_word = sub(src, ws, p)
+                        end
+                        if pc == 61 or pc == 40 or pc == 44 or pc == 123 or pc == 91 or pc == 59 then
+                            prev = 1; break
+                        elseif prev_word == "return" then
+                            prev = 1; break
+                        else
+                            prev = -1; break
+                        end
+                    end
+                end
+                if prev >= 0 then
+                    local first_tok, last_tok, stop_byte = tokenize_island(src, target_kind, s, toks)
+                    local holes = {}
+                    for hi = first_tok, last_tok do
+                        if toks.kind[hi] == TK.hole then holes[#holes + 1] = toks.text[hi] end
+                    end
+                    islands[#islands + 1] = {
+                        kind = target_kind, first_tok = first_tok, last_tok = last_tok,
+                        start = s, stop = stop_byte or s, holes = holes,
+                    }
+                    i = (stop_byte or s) + 1
+                end
+            end
+        else
+            i = i + 1
+        end
+    end
+
+    return { src = src, toks = toks, islands = islands, splice_map = toks.splice_map }
+end
+
+---------------------------------------------------------------------------
+-- Public parse API using token windows
+---------------------------------------------------------------------------
+
+function M.parse_island(T, scan, island_index, opts)
+    opts = opts or {}
+    local toks = scan.toks
+    local island = scan.islands[island_index]
+    if not island then error("no island at index " .. tostring(island_index), 2) end
+
+    local p = new_parser_internal(T, toks, island.first_tok, island.last_tok, opts)
+    p:skip_sep()
+
+    local value
+    if island.kind == "func" then
+        p:expect(TK.func_kw)
+        value = p:parse_func()
+    elseif island.kind == "region" then
+        p:expect(TK.region_kw)
+        value = p:parse_region_frag()
+    elseif island.kind == "expr" then
+        p:expect(TK.expr_kw)
+        value = p:parse_expr_frag()
+    elseif island.kind == "struct" then
+        p:expect(TK.struct_kw)
+        value = p:parse_struct_island()
+    elseif island.kind == "union" then
+        p:expect(TK.union_kw)
+        value = p:parse_union_island()
+    else
+        error("unsupported island kind: " .. tostring(island.kind), 2)
+    end
+
+    p:skip_sep()
+    if p:kind() ~= TK.eof then p:issue("unexpected token after " .. island.kind .. " island") end
+    return {
+        kind = island.kind,
+        value = value,
+        splice_slots = p.splice_slots,
+        issues = p.issues,
+        protocol_types = p.protocol_types,
+    }
+end
+
+function M.parse_type_string(T, src, opts)
+    local toks = M.lex(src)
+    local p = new_parser_internal(T, toks, 1, toks.n, opts or {})
     p:skip_sep()
     local ty = p:parse_type()
     p:skip_sep()
     if p:kind() ~= TK.eof then p:issue("unexpected token after type") end
-    return parse_result("type_expr", ty, p)
-end
-
-function M.parse(T, kind, src, opts)
-    local p = parser_for_source(T, src, opts)
-    p:skip_sep()
-
-    local value
-    if kind == "func" then
-        local is_export = p:accept(TK.export_kw)
-        p:expect(TK.func_kw)
-        value = p:parse_func(is_export)
-    elseif kind == "region" then
-        p:expect(TK.region_kw)
-        value = p:parse_region_frag()
-    elseif kind == "expr" then
-        p:expect(TK.expr_kw)
-        value = p:parse_expr_frag()
-    elseif kind == "struct" then
-        p:expect(TK.struct_kw)
-        value = p:parse_struct()
-    elseif kind == "extern" then
-        p:expect(TK.extern_kw)
-        p:expect(TK.func_kw)
-        value = p:parse_extern_func()
-    elseif kind == "type" then
-        p:expect(TK.type_kw)
-        value = p:parse_type_item()
-    elseif kind == "const" then
-        p:expect(TK.const_kw)
-        value = p:parse_const()
-    elseif kind == "static" then
-        p:expect(TK.static_kw)
-        value = p:parse_static()
-    else
-        error("unsupported island kind: " .. tostring(kind), 2)
-    end
-
-    p:skip_sep()
-    if p:kind() ~= TK.eof then p:issue("unexpected token after " .. kind .. " island") end
-    return parse_result(kind, value, p)
+    return { kind = "type_expr", value = ty, splice_slots = p.splice_slots,
+             issues = p.issues, protocol_types = p.protocol_types }
 end
 
 function M.Define(T)
     return {
         TK = TK,
         lex = M.lex,
-        scan_islands = M.scan_islands,
-        parse = function(kind, src, opts) return M.parse(T, kind, src, opts) end,
-        parse_type = function(src, opts) return M.parse_type(T, src, opts) end,
+        scan_document = M.scan_document,
+        parse_island = function(scan, island_index, opts) return M.parse_island(T, scan, island_index, opts) end,
+        parse_type = function(src, opts) return M.parse_type_string(T, src, opts) end,
     }
 end
 

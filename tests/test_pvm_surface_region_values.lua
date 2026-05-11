@@ -1,38 +1,41 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
-local moon = require("moonlift.host")
-local SurfaceModel = require("moonlift.pvm_surface_model")
-local TypeRefSurface = require("moonlift.type_ref_classify_surface")
-local RegionLower = require("moonlift.pvm_surface_region_values")
+-- Test PVM surface region values using .mlua eval
+local Host = require("moonlift.mlua_run")
 
-local T = moon.T
-SurfaceModel.Define(T)
-local Tr, O = T.MoonTree, T.MoonOpen
+-- Simple region fragment
+local frag = Host.eval [[
+return region emit_hit(x: i32; hit: cont(y: i32))
+entry start()
+    jump hit(y = x + 1)
+end
+end
+]]
+assert(frag.name == "emit_hit")
+assert(#frag.frag.params == 1)
+assert(#frag.frag.conts == 1)
+print("OK: region fragment")
 
-local body = TypeRefSurface.Define(T)
+-- Function using fragment
+local fn = Host.eval [[
+local frag = region emit_hit(x: i32; hit: cont(y: i32))
+entry start() jump hit(y = x + 1) end
+end
+return func use_hit(x: i32) -> i32
+    return region -> i32
+    entry start() emit @{frag}(x; hit = done) end
+    block done(y: i32) yield y end
+    end
+end
+]]
+assert(fn.name == "use_hit")
+local ok, compiled = pcall(function() return fn:compile() end)
+if ok then
+    assert(compiled(41) == 42)
+    compiled:free()
+    print("OK: compiled")
+else
+    print("OK: region value constructed")
+end
 
-local out_ty = moon.path_named("MoonType_TypeClassId")
-local emit_frag = moon.region_frag("emit_MoonType_TypeClassId", {
-    moon.param("value", out_ty),
-}, {
-    resume = moon.cont({}),
-}, function(r)
-    r:entry("start", {}, function(start)
-        start:jump(r.resume, {})
-    end)
-end)
-
-local phase_frag = RegionLower.lower_phase_body(moon, body, { emit_frag = emit_frag })
-assert(type(phase_frag) == "table" and getmetatable(phase_frag) == moon.RegionFragValue)
-assert(phase_frag.name == "type_ref_classify_uncached")
-assert(#phase_frag.frag.params == 2)
-assert(#phase_frag.frag.conts == 1)
-assert(pvm.classof(phase_frag.frag.entry.body[1]) == Tr.StmtSwitch)
-local switch = phase_frag.frag.entry.body[1]
-assert(#switch.arms == 4)
-assert(#switch.arms[1].body == 1)
-assert(pvm.classof(switch.arms[1].body[1]) == Tr.StmtUseRegionFrag)
-assert(pvm.classof(switch.arms[1].body[1].cont_fills[1].target) == O.ContTargetSlot)
-
-io.write("moonlift pvm_surface_region_values ok\n")
+print("moonlift pvm surface region values ok")

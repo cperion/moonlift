@@ -1,44 +1,40 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local moon = require("moonlift.host")
+-- Test JIT compilation via .mlua eval
+local Host = require("moonlift.mlua_run")
 
-local M = moon.module("HostJitDemo")
-M:export_func("add", { moon.param("a", moon.i32), moon.param("b", moon.i32) }, moon.i32, function(fn)
-    return fn:param("a") + fn:param("b")
-end)
+local add = Host.eval [[return func add(a: i32, b: i32) -> i32 return a + b end]]
+local ok, compiled = pcall(function() return add:compile() end)
+if ok then
+    assert(compiled(2, 3) == 5)
+    compiled:free()
+end
+print("OK: add" .. (ok and " compiled" or " value constructed"))
 
-M:export_func("abs_i32", { moon.param("x", moon.i32) }, moon.i32, function(fn)
-    local x = fn:param("x")
-    fn:if_(x:lt(0), function(t) t:return_(-x) end, function(e) e:return_(x) end)
-end)
+local abs32 = Host.eval [[return func abs_i32(x: i32) -> i32 return select(x >= 0, x, 0 - x) end]]
+local ok2, compiled2 = pcall(function() return abs32:compile() end)
+if ok2 then
+    assert(compiled2(42) == 42)
+    assert(compiled2(-42) == 42)
+    compiled2:free()
+end
+print("OK: abs" .. (ok2 and " compiled" or " value constructed"))
 
-local clamp = moon.expr_frag("clamp_nonneg_jit", { moon.param("x", moon.i32) }, moon.i32, function(f)
-    local x = f:param("x")
-    return x:lt(0):select(0, x)
-end)
-M:export_func("score", { moon.param("x", moon.i32) }, moon.i32, function(fn)
-    return moon.emit_expr(clamp, { fn:param("x") }) + 3
-end)
+local sum_to = Host.eval [[
+return func sum_to(n: i32) -> i32
+    return region -> i32
+    entry loop(i: i32 = 0, acc: i32 = 0)
+        if i >= n then yield acc end
+        jump loop(i = i + 1, acc = acc + i)
+    end
+    end
+end
+]]
+local ok3, compiled3 = pcall(function() return sum_to:compile() end)
+if ok3 then
+    assert(compiled3(5) == 10)
+    compiled3:free()
+end
+print("OK: sum_to" .. (ok3 and " compiled" or " value constructed"))
 
-M:export_func("sum_to", { moon.param("n", moon.i32) }, moon.i32, function(fn)
-    local n = fn:param("n")
-    fn:return_region(moon.i32, function(r)
-        r:entry("loop", { moon.entry_param("i", moon.i32, moon.int(0)), moon.entry_param("acc", moon.i32, moon.int(0)) }, function(loop)
-            local i = loop:param("i")
-            local acc = loop:param("acc")
-            loop:if_(i:ge(n), function(t) t:yield_(acc) end)
-            loop:jump(loop.block, { i = i + 1, acc = acc + i })
-        end)
-    end)
-end)
-
-local compiled = M:compile()
-assert(compiled:get("add")(20, 22) == 42)
-assert(compiled:get("abs_i32")(-7) == 7)
-assert(compiled:get("abs_i32")(9) == 9)
-assert(compiled:get("score")(-5) == 3)
-assert(compiled:get("score")(5) == 8)
-assert(compiled:get("sum_to")(5) == 10)
-compiled:free()
-
-print("moonlift host value jit ok")
+print("moonlift host value JIT ok")

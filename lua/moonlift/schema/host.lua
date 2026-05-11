@@ -321,26 +321,6 @@ return function(A)
             A.unique,
         },
 
-        A.sum "HostStep" {
-            A.variant "HostStepLua" {
-                A.field "id" "string",
-                A.field "source" "MoonSource.SourceSlice",
-                A.variant_unique,
-            },
-            A.variant "HostStepIsland" {
-                A.field "id" "string",
-                A.field "island" "MoonMlua.IslandText",
-                A.field "binding" (A.optional "string"),
-                A.variant_unique,
-            },
-        },
-
-        A.product "HostProgram" {
-            A.field "source" "MoonHost.MluaSource",
-            A.field "steps" (A.many "MoonHost.HostStep"),
-            A.unique,
-        },
-
         A.product "ProtocolRole" {
             A.field "role" "string",
             A.field "target" "string",
@@ -364,26 +344,6 @@ return function(A)
             A.field "frag" "MoonOpen.RegionFrag",
             A.field "protocol" (A.optional "MoonHost.RegionProtocol"),
             A.field "deps" "MoonHost.FragmentDeps",
-            A.unique,
-        },
-
-        A.product "MluaParseResult" {
-            A.field "decls" "MoonHost.HostDeclSet",
-            A.field "module" "MoonTree.Module",
-            A.field "region_frags" (A.many "MoonOpen.RegionFrag"),
-            A.field "expr_frags" (A.many "MoonOpen.ExprFrag"),
-            A.field "issues" (A.many "MoonParse.ParseIssue"),
-            A.unique,
-        },
-
-        A.product "MluaHostPipelineResult" {
-            A.field "parse" "MoonHost.MluaParseResult",
-            A.field "report" "MoonHost.HostReport",
-            A.field "layout_env" "MoonHost.HostLayoutEnv",
-            A.field "facts" "MoonHost.HostFactSet",
-            A.field "lua" "MoonHost.HostLuaFfiPlan",
-            A.field "terra" "MoonHost.HostTerraPlan",
-            A.field "c" "MoonHost.HostCPlan",
             A.unique,
         },
 

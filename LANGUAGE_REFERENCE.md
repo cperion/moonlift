@@ -200,8 +200,10 @@ fully resolved before backend command generation.
 
 ### 3.1 `.mlua` files
 
-A `.mlua` file is standard LuaJIT Lua with Moonlift hosted islands embedded as
-Lua strings. It is loaded by the hosted `.mlua` runner:
+A `.mlua` file is LuaJIT Lua with Moonlift value islands embedded as Lua
+expressions. Each island produces a host value (function, region fragment,
+expr fragment, struct type, or union type). The file is loaded by the `.mlua`
+runner:
 
 ```lua
 local Host = require("moonlift.mlua_run")
@@ -215,21 +217,31 @@ From the repo runner:
 luajit run_mlua.lua file.mlua
 ```
 
-The `.mlua` file can return a compiled module, a function, or any Lua value.
-If it returns a table with a `:compile()` method, `run_mlua.lua` attempts to
-call an exported `main`, `run`, or `test` function.
+The `.mlua` file returns any Lua value — typically a function or a table of
+functions.
 
-### 3.2 Moonlift source strings
-
-Moonlift modules, functions, and regions can also be built from source strings
-through `mlua_run` or parsed directly:
+Example:
 
 ```lua
-local parse = require("moonlift.mlua_parse")
-local result = parse.parse(source, "@source_name")
+-- file.mlua
+local add = func add(a: i32, b: i32) -> i32
+    return a + b
+end
+
+return add
 ```
 
-The parser returns a `MoonTree.Module` ASDL value with attached issues.
+### 3.2 Parsing types from strings
+
+Individual type expressions can be parsed from strings:
+
+```lua
+local Parse = require("moonlift.parse")
+local T = pvm.context()
+local P = Parse.Define(T)
+local result = P.parse_type("ptr(i32)")
+-- result.value is a MoonType.TPtr(elem = MoonType.TScalar(ScalarI32))
+```
 
 ### 3.3 Lua builder API (two surfaces)
 
@@ -330,10 +342,9 @@ Float literals support decimal notation with optional exponent (`1.5`, `2.0`,
 
 Complete list of reserved words in Moonlift object-language source:
 
-**Declaration and module keywords:**
+**Declaration keywords:**
 ```text
-export  extern  func  const  static  import  type
-struct  union   enum  view
+func  struct  union  type
 ```
 
 **Pointer and access modifiers:**
@@ -433,15 +444,7 @@ ptr(i32)      -- pointer to one i32
 
 `ptr(T)` means a pointer to exactly one `T` value. There is no `ptr(void)`.
 
-In object-language source, the alternate spelling `&T` is also accepted:
 
-```moonlift
-&u8
-&i32
-&User
-```
-
-These are identical at the ASDL level (`MoonType.Ptr`).
 
 Pointer operations:
 
@@ -518,7 +521,7 @@ declarations and imports. Unresolved names produce type errors.
 
 ### 5.5 Struct types
 
-Declared via hosted `struct ... end` blocks or object-level `type Name = struct ... end`:
+Declared via `struct ... end` islands in `.mlua` files:
 
 ```moonlift
 struct Vec3
@@ -526,6 +529,12 @@ struct Vec3
     y: f32
     z: f32
 end
+```
+
+Or inline:
+
+```moonlift
+struct Vec3 x: f32; y: f32; z: f32 end
 ```
 
 Fields are laid out in declaration order with natural alignment (`repr(c)`
@@ -544,12 +553,13 @@ is the byte alignment (1, 2, 4, 8, 16).
 ### 5.6 Enum types
 
 ```moonlift
-type Color = enum
+enum Color
     red
     green
     blue
 end
 ```
+Note: `enum` syntax is planned but not yet implemented. Use `struct` + runtime checks for now.
 
 Enum variants are assigned consecutive integer values starting from 0. The
 underlying type is `i32` by default. Enums can be used in `switch` statements
@@ -560,11 +570,12 @@ and compared with `==` and `~=`.
 Untagged unions:
 
 ```moonlift
-type Bits = union
+union Bits
     i: i32
     f: f32
 end
 ```
+Note: untagged `union` syntax is planned but not yet implemented. Use `struct` with explicit discriminant.
 
 All fields share the same storage. The size is the maximum field size. Field
 access performs a bitcast.
@@ -572,8 +583,8 @@ access performs a bitcast.
 ### 5.8 Tagged union types
 
 ```moonlift
-type Result = ok(i32) | err(i32)
-type Scanner = hit(pos: i32) | miss(pos: i32)
+union Result ok(i32) | err(i32) end
+union Scanner hit(pos: i32) | miss(pos: i32) end
 ```
 
 Tagged unions carry an implicit discriminant tag followed by the variant
@@ -604,8 +615,6 @@ In type position:
 
 ```text
 func(i32, i32) -> i32           -- function pointer type
-fn(i32, i32) -> i32             -- alias for func(...)
-fnptr(i32, i32) -> i32          -- alias for func(...)
 closure(i32) -> i32             -- closure type (function + context)
 ```
 
@@ -614,11 +623,11 @@ parameters, returned, produced with `&some_func`/function-address lowering, cast
 from `ptr(u8)`, and called indirectly:
 
 ```moonlift
-export func call_fp(fp: func(i32) -> i32, x: i32) -> i32
+func call_fp(fp: func(i32) -> i32, x: i32) -> i32
     return fp(x)
 end
 
-export func call_raw(raw: ptr(u8), x: i32) -> i32
+func call_raw(raw: ptr(u8), x: i32) -> i32
     let fp: func(i32) -> i32 = as(func(i32) -> i32, raw)
     return fp(x)
 end
@@ -632,40 +641,10 @@ There is none. Use Lua to generate specialized concrete types/functions/fragment
 
 ---
 
-## 6. Modules and items
-
-### 6.1 Module syntax
-
-Modules are the top-level compilation unit. Two forms exist:
-
-**Object-language module** (item list without explicit name):
+## 6. Functions
 
 ```moonlift
-export func add(a: i32, b: i32) -> i32
-    return a + b
-end
-
-func helper(x: i32) -> i32
-    return x * 2
-end
-```
-
-**Hosted named module** (`.mlua` top-level islands):
-
-```moonlift
-module Name
-    item*
-end
-```
-
-A module may contain: functions, externs, consts, statics, type declarations,
-regions, and expression fragments. The module name determines the default
-symbol prefix for JIT and object emission.
-
-### 6.2 Functions
-
-```moonlift
-[export] func name ( param_list? ) [-> type]
+func name ( param_list? ) [-> type]
     requires_clause*
     stmt*
 end
@@ -675,10 +654,8 @@ Rules:
 
 - Function bodies are always `end`-delimited. Brace-delimited function bodies
   are rejected.
-- `export func` is visible to importing modules and produces an exported
-  symbol in emitted objects/shared libraries.
-- Plain `func` is module-local. The linker may strip unreferenced local
-  functions.
+- Functions are standalone compiled values. There is no module-level visibility system.
+  Symbol visibility is controlled by the compilation/linker target.
 - Omitting the result type means `void` return.
 - The parameter list may be empty: `func name() -> i32 ... end` or `func name()
   ... end` for void.
@@ -687,7 +664,7 @@ Rules:
 Examples:
 
 ```moonlift
-export func add(a: i32, b: i32) -> i32
+func add(a: i32, b: i32) -> i32
     return a + b
 end
 
@@ -719,7 +696,7 @@ facts phase and used by vector safety and alias/proof decisions.
 Example:
 
 ```moonlift
-export func sum(readonly noalias xs: ptr(i32), n: i32) -> i32
+func sum(readonly noalias xs: ptr(i32), n: i32) -> i32
     block loop(i: index = 0, acc: i32 = 0)
         if i >= n then return acc end
         jump loop(i = i + 1, acc = acc + xs[i])
@@ -730,80 +707,21 @@ end
 Modifiers can be combined. `noalias readonly xs: ptr(T)` means the pointer is
 both non-aliasing and the memory it points to is only read.
 
-### 6.4 Extern functions
+
+
+
+
+### 6.4 Type declarations
+
+In `.mlua` files, use `struct` and `union` islands:
 
 ```moonlift
-extern func name ( param_list? ) [-> type]
+struct Pair left: i32; right: i32 end
+
+union Result ok(i32) | err(string) | none end
 ```
 
-Extern functions declare a C-ABI function with an external symbol. The local
-name is the default external symbol name. The symbol can be overridden by a
-linker-level symbol policy.
 
-```moonlift
-extern func puts(x: ptr(u8)) -> i32
-extern func malloc(size: index) -> ptr(u8)
-extern func free(p: ptr(u8))
-extern func memcpy(dst: ptr(u8), src: ptr(u8), n: index) -> ptr(u8)
-```
-
-Extern functions have C calling convention. They are not inlined. Their
-signatures must use scalar types, pointers, and views — struct arguments
-by value are not supported in extern declarations.
-
-### 6.5 Constants and statics
-
-```moonlift
-const answer: i32 = 42
-const name_len: index = 256
-const scale: f64 = 1.5
-
-static counter: i32 = 0
-static buffer: [256]u8 = []u8 { 0, ... }  -- (aggregate init syntax)
-```
-
-- `const` creates a compile-time value. Const expressions are evaluated during
-  typechecking. Supported const expressions include literals, references to
-  other consts, and simple arithmetic.
-- `static` creates module-level storage with an initial value. Statics have
-  addresses and can be referenced by pointer. Static initializers must be const
-  expressions.
-
-### 6.6 Type declarations (object-language)
-
-```moonlift
-type Pair = struct
-    left: i32
-    right: i32
-end
-
-type Tag = enum
-    A
-    B
-    C
-end
-
-type Bits = union
-    i: i32
-    f: f32
-end
-
-type Result = ok(i32) | err(i32)
-```
-
-In `.mlua` hosted syntax, use the top-level `struct`, `enum`, and `union`
-declaration forms instead.
-
-### 6.7 Imports
-
-```moonlift
-import other_module
-```
-
-Imports introduce qualified namespaces. `import other_module` makes
-`other_module.TypeName` available in type position. The exact import
-resolution mechanism depends on the compilation context (module path,
-file system, or programmatic registration).
 
 ---
 
@@ -2702,7 +2620,7 @@ entry loop(i: index = 0, acc: i32 = 0)
 end
 end
 
-export func sum_first_n(xs: view(i32), n: index) -> i32
+func sum_first_n(xs: view(i32), n: index) -> i32
     return region -> i32
     entry start()
         emit sum_range(xs, 0, n; done = out)

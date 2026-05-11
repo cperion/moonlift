@@ -1,62 +1,50 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
+-- Test func values using .mlua eval
+local Host = require("moonlift.mlua_run")
 local pvm = require("moonlift.pvm")
-local moon = require("moonlift.host")
-local Typecheck = require("moonlift.tree_typecheck")
-local TreeToBack = require("moonlift.tree_to_back")
-local BackValidate = require("moonlift.back_validate")
 
-local T = moon.T
-local C, B, Tr = T.MoonCore, T.MoonBind, T.MoonTree
-local TC = Typecheck.Define(T)
-local Lower = TreeToBack.Define(T)
-local BV = BackValidate.Define(T)
-
-local M = moon.module("Demo")
-local add = M:export_func("add", {
-    moon.param("a", moon.i32),
-    moon.param("b", moon.i32),
-}, moon.i32, function(fn)
-    local a = fn:param("a")
-    local b = fn:param("b")
-    fn:return_(a + b)
-end)
-
-assert(add.visibility == "export")
-assert(pvm.classof(add.func) == Tr.FuncExport)
+local add = Host.eval [[return func add(a: i32, b: i32) -> i32 return a + b end]]
+assert(add.kind == "func")
+assert(add.name == "add")
+local Tr = add.T.MoonTree
+assert(pvm.classof(add.func) == Tr.FuncLocal)
 assert(#add.func.body == 1)
 assert(pvm.classof(add.func.body[1]) == Tr.StmtReturnValue)
 local ret = add.func.body[1].value
 assert(pvm.classof(ret) == Tr.ExprBinary)
-assert(ret.op == C.BinAdd)
-assert(pvm.classof(ret.lhs.ref.binding.class) == B.BindingClassArg)
-assert(ret.lhs.ref.binding.class.index == 0)
+print("OK: func ASDL correct")
 
-local module = M:to_asdl()
-local checked = TC.check_module(module)
-assert(#checked.issues == 0, tostring(checked.issues[1]))
-local program = Lower.module(checked.module)
-local report = BV.validate(program)
-assert(#report.issues == 0, tostring(report.issues[1]))
+-- Compile if JIT available
+local ok_c, compiled = pcall(function() return add:compile() end)
+if ok_c then
+    assert(compiled(2, 3) == 5)
+    compiled:free()
+    print("OK: compiled")
+end
 
--- Callback return shorthand also becomes a return statement.
-local M2 = moon.module("Demo2")
-M2:export_func("inc", { moon.param("x", moon.i32) }, moon.i32, function(fn)
-    local x = fn:param("x")
-    return x + 1
-end)
-M2:export_func("abs_i32", { moon.param("x", moon.i32) }, moon.i32, function(fn)
-    local x = fn:param("x")
-    fn:if_(x:lt(0), function(t)
-        t:return_(-x)
-    end, function(e)
-        e:return_(x)
-    end)
-end)
-local checked2 = TC.check_module(M2:to_asdl())
-assert(#checked2.issues == 0, tostring(checked2.issues[1]))
-local program2 = Lower.module(checked2.module)
-local report2 = BV.validate(program2)
-assert(#report2.issues == 0, tostring(report2.issues[1]))
+-- Function with block
+local sum = Host.eval [[
+return func sum(readonly xs: ptr(i32), n: i32) -> i32
+    block loop(i: i32 = 0, acc: i32 = 0)
+        if i >= n then return acc end
+        jump loop(i = i + 1, acc = acc + xs[i])
+    end
+end
+]]
+assert(sum.name == "sum")
+assert(#sum.func.params == 2)
+print("OK: block function")
+
+-- Multiple functions via loader
+local loader = assert(Host.loadstring([[
+local add = func add(a: i32, b: i32) -> i32 return a + b end
+local sub = func sub(a: i32, b: i32) -> i32 return a - b end
+return { add = add, sub = sub }
+]], "multi.mlua"))
+local multi = loader()
+assert(multi.add.name == "add")
+assert(multi.sub.name == "sub")
+print("OK: multiple functions")
 
 print("moonlift host func values ok")

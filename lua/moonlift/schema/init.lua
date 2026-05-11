@@ -21,11 +21,7 @@ function M.schema(T)
         require("moonlift.schema.vec")(A),
         require("moonlift.schema.host")(A),
         require("moonlift.schema.source")(A),
-        require("moonlift.c.c_ast")(A),
-        require("moonlift.schema.mlua")(A),
-        require("moonlift.schema.editor")(A),
-        require("moonlift.schema.lsp")(A),
-        require("moonlift.schema.rpc")(A),
+        require("moonlift.c.c_ast")(A)
     }
 end
 
