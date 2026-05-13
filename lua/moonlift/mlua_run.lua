@@ -14,6 +14,7 @@ local HostValues= require("moonlift.host_values")
 local Parse     = require("moonlift.parse")
 local SourceMap = require("moonlift.source_map")
 local Diag      = require("moonlift.diagnostic")
+local Errors    = require("moonlift.error")
 
 local M = {}
 
@@ -70,6 +71,7 @@ local function format_report(opts)
 end
 
 local function format_phase_exception(runtime, phase, err, extra)
+    -- First, produce the legacy diagnostic (unchanged)
     local diag = Diag.from_error(err, {
         phase = phase,
         file = runtime and runtime.chunk_name,
@@ -94,7 +96,47 @@ local function format_phase_exception(runtime, phase, err, extra)
         diag.snippet = SourceMap.snippet(runtime.line_starts, diag.src_line, 2)
     end
 
-    return diag
+    -- Now also produce a new-style error report for better display
+    local uri = runtime and runtime.chunk_name or "?"
+    local source_text = runtime and runtime.src or nil
+    local span = nil
+    if diag.src_line then
+        span = Errors.Span.from_offsets(uri, 0, 0,
+            diag.src_line, diag.src_col or 1,
+            diag.src_line, (diag.src_col or 1) + 1)
+    end
+
+    local report = Errors.from_legacy_error(err, {
+        phase = phase,
+        file = uri,
+        src_line = diag.src_line,
+        src_col = diag.src_col,
+    })
+
+    -- Add phase and island context
+    if phase then
+        report = Errors.Report.with_note(report, "phase: " .. phase)
+    end
+    if extra and extra.island_index then
+        report = Errors.Report.with_note(report,
+            "in island #" .. extra.island_index
+            .. (extra.island_kind and (" (" .. extra.island_kind .. ")") or ""))
+    end
+
+    -- Render the new-format report and append it
+    local new_rendered = Errors.Terminal.render(report, source_text)
+
+    -- Return a combined result: new format first, then legacy for compat
+    -- We use a metatable trick so tostring() works and old code still
+    -- sees the legacy diagnostic fields
+    local result = new_rendered
+
+    -- Copy legacy fields into result for backward compatibility
+    for k, v in pairs(diag) do result[k] = v end
+    result.__moonlift_diagnostic = true
+    result._new_render = new_rendered
+
+    return setmetatable(result, getmetatable(diag) or { __tostring = function() return new_rendered end })
 end
 
 local function format_parse_issue(runtime, phase, issue, extra)
@@ -104,9 +146,37 @@ local function format_parse_issue(runtime, phase, issue, extra)
         src_line, src_col = line_col_of_offset(runtime.line_starts, tonumber(issue.offset) or 1)
     end
 
-    return Diag.new({
+    -- Build a proper SourceSpan from the parse issue
+    local uri = runtime and runtime.chunk_name or "?"
+    local span = Errors.Span.from_offsets(uri,
+        tonumber(issue and issue.offset) or 0,
+        (tonumber(issue and issue.offset) or 0) + 1,
+        src_line or 1, src_col or 1,
+        src_line or 1, (src_col or 1) + 1)
+
+    -- Use the new error catalog for rich error reports
+    local source_text = runtime and runtime.src or nil
+    local report = Errors.Catalog.build_report("E0101", {
+        message = issue and issue.message or tostring(issue),
+        span = span,
+        offset = tonumber(issue and issue.offset) or 0,
+    }, { source_text = source_text, uri = uri })
+
+    -- Add island context as a note
+    if extra and extra.island_index then
+        report = Errors.Report.with_note(report,
+            "in island #" .. extra.island_index
+            .. (extra.island_kind and (" (" .. extra.island_kind .. ")") or ""))
+    end
+
+    -- Render the report to terminal format and return as a string
+    -- that can be thrown as an error (backward compatible)
+    local rendered = Errors.Terminal.render(report, source_text)
+
+    -- Also produce the legacy diagnostic for backward compat
+    local legacy = Diag.new({
         phase = phase,
-        file = runtime and runtime.chunk_name,
+        file = uri,
         island_index = extra and extra.island_index,
         island_kind = extra and extra.island_kind,
         src_line = src_line,
@@ -115,6 +185,12 @@ local function format_parse_issue(runtime, phase, issue, extra)
         hint = Diag.detect_hint(issue and issue.message or issue),
         snippet = SourceMap.snippet(runtime.line_starts, src_line, 2),
     })
+
+    -- Return the new-format rendered string for immediate display,
+    -- but attach the legacy diag and the report for downstream consumers
+    local result = rendered
+    result = result .. "\n" .. tostring(legacy)
+    return result
 end
 
 local function island_context(runtime, island_index)
@@ -329,18 +405,20 @@ function Runtime:eval_island(island_index, closures)
     for id, fn in pairs(closures or {}) do
         local ok, val = pcall(fn)
         if not ok then
-            local snippet = render_snippet(self.src, self.line_starts, ctx.src_line, 2)
-            error(format_report({
-                phase = "splice_eval",
-                file = self.chunk_name,
-                island_index = ctx.island_index,
-                island_kind = ctx.island_kind,
-                src_line = ctx.src_line,
-                src_col = ctx.src_col,
-                message = "splice " .. tostring(id) .. " evaluation failed: " .. tostring(val),
-                hint = Diag.detect_hint(val),
-                snippet = snippet,
-            }), 0)
+            local uri = self.chunk_name or "?"
+            local span = Errors.Span.from_offsets(uri, 0, 0,
+                ctx.src_line or 1, ctx.src_col or 1,
+                ctx.src_line or 1, (ctx.src_col or 1) + 1)
+            local report = Errors.Catalog.build_report("E0701", {
+                message = "splice `@{" .. tostring(id) .. "}` evaluation failed: " .. tostring(val),
+                span = span,
+                splice_id = tostring(id),
+            }, { source_text = self.src })
+            report = Errors.Report.with_note(report,
+                "in island #" .. (ctx.island_index or "?")
+                .. (ctx.island_kind and (" (" .. ctx.island_kind .. ")") or ""))
+            local rendered = Errors.Terminal.render(report, self.src)
+            error(rendered, 0)
         end
         luamap[id] = {present = true, value = val}
         adopt_splice_value(self, val)
@@ -363,17 +441,18 @@ function Runtime:eval_island(island_index, closures)
     for _, ss in ipairs(parsed.splice_slots) do
         local rec = luamap[ss.splice_id]
         if not rec or not rec.present then
-            local snippet = render_snippet(self.src, self.line_starts, ctx.src_line, 2)
-            error(format_report({
-                phase = "splice_fill",
-                file = self.chunk_name,
-                island_index = ctx.island_index,
-                island_kind = ctx.island_kind,
-                src_line = ctx.src_line,
-                src_col = ctx.src_col,
+            local uri = self.chunk_name or "?"
+            local span = Errors.Span.from_offsets(uri, 0, 0,
+                ctx.src_line or 1, ctx.src_col or 1,
+                ctx.src_line or 1, (ctx.src_col or 1) + 1)
+            local report = Errors.Catalog.build_report("E0702", {
                 message = "missing splice value for " .. tostring(ss.splice_id),
-                snippet = snippet,
-            }), 0)
+                span = span,
+                fill_name = tostring(ss.splice_id),
+                fragment_name = "<island #" .. (ctx.island_index or "?") .. ">",
+            }, { source_text = self.src })
+            local rendered = Errors.Terminal.render(report, self.src)
+            error(rendered, 0)
         end
         local ok_fill, binding_or_err = pcall(Splice.fill, self.session, ss.slot, rec.value, "splice " .. ss.splice_id)
         if not ok_fill then phase_fail("splice_fill", binding_or_err) end

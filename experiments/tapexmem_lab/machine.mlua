@@ -90,8 +90,8 @@ end
 
 local a = run({ 0, 10, 0, 32, 1, 2, 3, 4, 9 })
 local b = run({ 3, 9 })
-print("regular2", a, b)
+print("tapexmem", a, b)
 assert(a == 2103)
 assert(b == -31)
 compiled:free()
-return "tapexmem regular2 ok"
+return "tapexmem machine ok"

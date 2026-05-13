@@ -1,8 +1,0 @@
-local run = func run() -> i32
-    return 7
-end
-
-local compiled = run:compile()
-print("smoke regular", compiled())
-compiled:free()
-return run
