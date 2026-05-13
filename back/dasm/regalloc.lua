@@ -21,7 +21,8 @@ end
 
 -- ── register sets ─────────────────────────────────────────────────────
 
-local CALLER_SAVED = {0, 1, 2, 6, 7, 8, 9, 10, 11}
+-- r10/r11 are kept as scratch temporaries by isel (not allocatable).
+local CALLER_SAVED = {0, 1, 2, 6, 7, 8, 9}
 local CALLEE_SAVED = {3, 12, 13, 14, 15}  -- rbp(5) handled specially
 
 -- All allocatable registers in allocation preference order
@@ -81,6 +82,63 @@ local function compute_intervals(cmds)
                 intervals[key] = {first = i, last = i}
             end
         end
+
+        -- BindEntryParams defines multiple values at function entry.
+        if cmd.kind == "CmdBindEntryParams" then
+            for _, val_id in ipairs(cmd.values or {}) do
+                local key = id_key(val_id)
+                if key then
+                    if intervals[key] then
+                        intervals[key].first = math.min(intervals[key].first, i)
+                        intervals[key].last  = math.max(intervals[key].last, i)
+                    else
+                        intervals[key] = { first = i, last = i }
+                    end
+                end
+            end
+        end
+    end
+
+    -- Conservative loop handling for linearized CFG:
+    -- if we have a backward edge, any value live at the loop header must
+    -- remain live through the end of the tape, otherwise linear scan may
+    -- incorrectly reuse its register across iterations.
+    local block_pos = {}
+    for i, cmd in ipairs(cmds) do
+        if cmd.kind == "CmdSwitchToBlock" then
+            local bk = id_key(cmd.block)
+            if bk and not block_pos[bk] then block_pos[bk] = i end
+        end
+    end
+
+    local function extend_live_at(header_pos)
+        local tail = #cmds
+        for _, iv in pairs(intervals) do
+            if iv.first <= header_pos and iv.last >= header_pos then
+                iv.last = math.max(iv.last, tail)
+            end
+        end
+    end
+
+    for i, cmd in ipairs(cmds) do
+        if cmd.kind == "CmdJump" then
+            local dest_pos = block_pos[id_key(cmd.dest)]
+            if dest_pos and dest_pos <= i then
+                extend_live_at(dest_pos)
+            end
+        elseif cmd.kind == "CmdBrIf" then
+            local tpos = block_pos[id_key(cmd.then_block)]
+            local epos = block_pos[id_key(cmd.else_block)]
+            if tpos and tpos <= i then extend_live_at(tpos) end
+            if epos and epos <= i then extend_live_at(epos) end
+        elseif cmd.kind == "CmdSwitchInt" then
+            local dpos = block_pos[id_key(cmd.default_dest)]
+            if dpos and dpos <= i then extend_live_at(dpos) end
+            for _, cs in ipairs(cmd.cases or {}) do
+                local cpos = block_pos[id_key(cs.dest)]
+                if cpos and cpos <= i then extend_live_at(cpos) end
+            end
+        end
     end
 
     return intervals
@@ -96,6 +154,11 @@ cmd_uses = function(cmd)
         if id then uses[#uses + 1] = id end
     end
 
+    local function add_addr_base(base)
+        if not base or type(base) ~= "table" then return end
+        if base.kind == "BackAddrValue" then add(base.value) end
+    end
+
     local kind = cmd.kind
     if kind == "CmdAlias"         then add(cmd.src)
     elseif kind == "CmdUnary"     then add(cmd.value)
@@ -109,9 +172,9 @@ cmd_uses = function(cmd)
     elseif kind == "CmdFloatBinary" then add(cmd.lhs); add(cmd.rhs)
     elseif kind == "CmdSelect"    then add(cmd.cond); add(cmd.then_value); add(cmd.else_value)
     elseif kind == "CmdFma"       then add(cmd.a); add(cmd.b); add(cmd.c)
-    elseif kind == "CmdLoadInfo"  then add(cmd.addr.byte_offset)
-    elseif kind == "CmdStoreInfo" then add(cmd.addr.byte_offset); add(cmd.value)
-    elseif kind == "CmdPtrOffset" then add(cmd.index)
+    elseif kind == "CmdLoadInfo"  then add_addr_base(cmd.addr and cmd.addr.base); add(cmd.addr and cmd.addr.byte_offset)
+    elseif kind == "CmdStoreInfo" then add_addr_base(cmd.addr and cmd.addr.base); add(cmd.addr and cmd.addr.byte_offset); add(cmd.value)
+    elseif kind == "CmdPtrOffset" then add(cmd.index); add_addr_base(cmd.base)
     elseif kind == "CmdMemcpy"    then add(cmd.dst); add(cmd.src); add(cmd.len)
     elseif kind == "CmdMemset"    then add(cmd.dst); add(cmd.byte); add(cmd.len)
     elseif kind == "CmdBrIf"      then add(cmd.cond)
@@ -120,6 +183,7 @@ cmd_uses = function(cmd)
         for _, arg in ipairs(cmd.args or {}) do add(arg) end
     elseif kind == "CmdCall" then
         for _, arg in ipairs(cmd.args or {}) do add(arg) end
+        if cmd.target and cmd.target.kind == "BackCallIndirect" then add(cmd.target.callee) end
         if cmd.result and cmd.result.kind == "BackCallValue" then
             -- result dst is a def, not a use
         end
@@ -221,6 +285,15 @@ function regalloc.allocate(cmds)
     local next_spill_offset = 0
 
     local function alloc_reg(key, at_cmd_idx)
+        local interval = intervals[key]
+        if not interval then
+            -- Value has no interval (shouldn't happen for normal uses).
+            -- Assign a temporary spill slot to avoid crashes.
+            spilled[key] = next_spill_offset
+            next_spill_offset = next_spill_offset + 8
+            return nil
+        end
+
         if free_mask == 0 then
             -- No free registers: spill the interval with farthest endpoint
             if #active == 0 then return nil end
@@ -232,10 +305,8 @@ function regalloc.allocate(cmds)
             regmap[victim.key] = nil
             -- victim_reg is now free; allocate it to the new interval
             regmap[key] = victim_reg
-            -- Mark the interval as active (without a register — it's spilled)
-            local new_interval = intervals[key]
-            new_interval.reg = victim_reg
-            new_interval.spilled = true
+            interval.reg = victim_reg
+            interval.spilled = true
             return victim_reg
         end
 
@@ -258,7 +329,6 @@ function regalloc.allocate(cmds)
         end
 
         -- Mark as active
-        local interval = intervals[key]
         interval.reg = reg
         return reg
     end

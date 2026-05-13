@@ -1,0 +1,8 @@
+local fib = func fib_i32(n: i32) -> i32
+    return block loop(i: i32 = 0, a: i32 = 0, b: i32 = 1) -> i32
+        if i >= n then yield a end
+        jump loop(i = i + 1, a = b, b = a + b)
+    end
+end
+
+return { fib = fib }

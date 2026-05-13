@@ -1,0 +1,60 @@
+-- Product-space machine via Host.eval (avoids top-level island scanner edge cases)
+
+local backend = (os.getenv("MOONLIFT_BACKEND") or ""):lower()
+if backend ~= "cranelift" then
+    error("set MOONLIFT_BACKEND=cranelift (dynasm is intentionally avoided here)")
+end
+
+local ffi = require("ffi")
+local Host = require("moonlift.mlua_run")
+
+local run_machine = Host.eval [[
+return func run_machine(tape: ptr(i32), n: i32) -> i32
+    return region -> i32
+    entry check(pc: i32 = 0, acc: i32 = 0, fuel: i32 = 128)
+        if fuel <= 0 then yield -700 end
+        if pc >= n then yield acc end
+
+        let op: i32 = tape[pc]
+        if op == 0 then
+            if pc + 1 >= n then yield -10 end
+            jump check(pc = pc + 2, acc = acc + tape[pc + 1], fuel = fuel - 1)
+        end
+        if op == 1 then
+            jump check(pc = pc + 1, acc = acc + 1, fuel = fuel - 1)
+        end
+        if op == 2 then
+            jump gc(pc = pc + 1, acc = acc, fuel = fuel - 1)
+        end
+        if op == 9 then yield acc end
+        yield -99
+    end
+
+    block gc(pc: i32, acc: i32, fuel: i32)
+        jump check(pc = pc, acc = acc + 1000, fuel = fuel - 1)
+    end
+    end
+end
+]]
+
+local compiled = run_machine:compile()
+
+local function run_tape(words)
+    local p = ffi.new("int32_t[?]", #words)
+    for i, v in ipairs(words) do
+        p[i - 1] = v
+    end
+    return compiled(p, #words)
+end
+
+print("=== Tape × Mem machine (eval) ===")
+local code1 = run_tape({ 0, 10, 0, 32, 1, 2, 9 })
+local code2 = run_tape({ 2, 2, 2, 9 })
+print("program1 code =", code1)
+print("program2 code =", code2)
+
+assert(code1 == 1043)
+assert(code2 == 3000)
+
+compiled:free()
+return "tapexmem eval machine ok"

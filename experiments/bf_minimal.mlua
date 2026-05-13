@@ -1,0 +1,50 @@
+-- Absolute minimal BF: just ADD and HALT, no loops
+
+local ffi = require("ffi")
+
+local step = region step(code: ptr(i32), data: ptr(i32), ip: i32, dp: i32, out_sum: i32; next: cont(ip: i32, dp: i32, out_sum: i32), output: cont(ip: i32, dp: i32, byte: i32, out_sum: i32), halt: cont(result: i32))
+entry start()
+    let op: i32 = code[ip]
+    switch op do
+    case 0 then
+        data[dp] = data[dp] + 1
+        jump next(ip = ip + 1, dp = dp, out_sum = out_sum)
+    case 4 then
+        jump output(ip = ip + 1, dp = dp, byte = data[dp], out_sum = out_sum)
+    case 8 then
+        jump halt(result = out_sum)
+    default then
+        jump halt(result = 0 - ip)
+    end
+end
+end
+
+local run = func run(code: ptr(i32), data: ptr(i32)) -> i32
+    return region -> i32
+    entry start()
+        emit step(code, data, 0, 0, 0; next = loop, output = got_out, halt = done)
+    end
+    block loop(ip: i32, dp: i32, out_sum: i32)
+        emit step(code, data, ip, dp, out_sum; next = loop, output = got_out, halt = done)
+    end
+    block got_out(ip: i32, dp: i32, byte: i32, out_sum: i32)
+        jump loop(ip = ip, dp = dp, out_sum = out_sum + byte)
+    end
+    block done(result: i32)
+        yield result
+    end
+    end
+end
+
+local c = run:compile()
+local code = ffi.new("int32_t[?]", 4)
+code[0] = 0  -- ADD
+code[1] = 0  -- ADD
+code[2] = 0  -- ADD
+code[3] = 4  -- OUT
+code[4] = 8  -- HALT
+local data = ffi.new("int32_t[?]", 16)
+local r = c(code, data)
+print("minimal BF: add add add out halt =>", r, "expect 3")
+c:free()
+return "ok"

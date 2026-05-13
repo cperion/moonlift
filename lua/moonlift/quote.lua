@@ -22,6 +22,7 @@
 
 local M = {}
 local unpack = table.unpack or unpack
+local Diag = require("moonlift.diagnostic")
 
 local mt = {}; mt.__index = mt
 local NEXT_QUOTE_ID = 0
@@ -131,10 +132,22 @@ function M.compile_source(src, env, name)
     local fn, err
     if loadstring then
         fn, err = loadstring(wrapper, name or "=(quote)")
-        if not fn then error(err .. "\n--- generated source ---\n" .. wrapper, 2) end
+        if not fn then
+            Diag.raise(Diag.from_error(err, {
+                phase = "compile_lua_chunk",
+                file = name or "=(quote)",
+                generated_source = wrapper,
+            }), 2)
+        end
     else
         fn, err = load(wrapper, name or "=(quote)", "t")
-        if not fn then error(err .. "\n--- generated source ---\n" .. wrapper, 2) end
+        if not fn then
+            Diag.raise(Diag.from_error(err, {
+                phase = "compile_lua_chunk",
+                file = name or "=(quote)",
+                generated_source = wrapper,
+            }), 2)
+        end
     end
 
     return fn(unpack(uvals)), src

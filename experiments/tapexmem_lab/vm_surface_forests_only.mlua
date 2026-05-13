@@ -1,0 +1,228 @@
+-- Whole-VM surface as two forests:
+--   (A) Struct forest (memory + ABI layout)
+--   (B) Protocol forest (region signatures / transition contracts)
+
+-- ============================================================
+-- A) Struct forest
+-- ============================================================
+
+local TValue = struct TValue
+    tag: u8
+    bits: u64
+end
+
+local GCHeader = struct GCHeader
+    gct: u8
+    marked: u8
+    reserved: u16
+end
+
+local GCString = struct GCString
+    hdr: GCHeader
+    hash: u32
+    len: u32
+    data: ptr(u8)
+end
+
+local GCUpval = struct GCUpval
+    hdr: GCHeader
+    closed: u8
+    immutable: u8
+    vptr: ptr(TValue)
+end
+
+local GCProto = struct GCProto
+    hdr: GCHeader
+    numparams: u8
+    framesize: u8
+    sizebc: u32
+    bytecode: view(u32)
+    constants: view(TValue)
+    uvdesc: view(u16)
+end
+
+local GCFunc = struct GCFunc
+    hdr: GCHeader
+    ffid: u8
+    nupvalues: u8
+    proto_ptr: ptr(GCProto)
+end
+
+local Node = struct Node
+    key: TValue
+    val: TValue
+    next_ptr: ptr(u8)
+end
+
+local GCTable = struct GCTable
+    hdr: GCHeader
+    array_part: view(TValue)
+    hash_part: view(Node)
+    asize: u32
+    hmask: u32
+end
+
+local LuaThread = struct LuaThread
+    hdr: GCHeader
+    status: u8
+    stack: view(TValue)
+    base: u32
+    top: u32
+    maxstack: u32
+end
+
+local GCState = struct GCState
+    total: u64
+    threshold: u64
+    state: u8
+    debt: i64
+    estimate: u64
+end
+
+local StrInternState = struct StrInternState
+    table_ptr: ptr(GCString)
+    mask: u32
+    count: u32
+    next_sid: u32
+end
+
+local GlobalState = struct GlobalState
+    gc: GCState
+    str: StrInternState
+    vmstate: i32
+    hookmask: u8
+    vmevmask: u8
+    current_thread: ptr(LuaThread)
+end
+
+local HotCountTable = struct HotCountTable
+    slots: view(u16)
+end
+
+local DispatchState = struct DispatchState
+    dispatchmode: u8
+    hotloop: u16
+    hotexit: u16
+    hotcounts: ptr(HotCountTable)
+end
+
+local IrIns = struct IrIns
+    op: u8
+    type_tag: u8
+    left: u16
+    right: u16
+    prev: u16
+end
+
+local Snapshot = struct Snapshot
+    pc: u32
+    nslots: u16
+    mapofs: u32
+end
+
+local SnapEntry = struct SnapEntry
+    raw: u32
+end
+
+local ExitInfo = struct ExitInfo
+    exit_no: u16
+    count: u16
+    target_trace: u16
+end
+
+local Trace = struct Trace
+    trace_id: u16
+    root_id: u16
+    link_id: u16
+    start_pc: u32
+    ir: view(IrIns)
+    snaps: view(Snapshot)
+    snapmap: view(SnapEntry)
+    exits: view(ExitInfo)
+    entry_ptr: ptr(u8)
+end
+
+local JitState = struct JitState
+    state: u8
+    parent: u16
+    exit_no: u16
+    hotloop: u16
+    hotexit: u16
+    maxrecord: u32
+    maxsnap: u16
+    maxside: u16
+end
+
+local CType = struct CType
+    info: u32
+    size: u32
+    name_ptr: ptr(GCString)
+end
+
+local CTState = struct CTState
+    ctab: view(CType)
+    top: u32
+    miscmap: ptr(GCTable)
+end
+
+local CData = struct CData
+    hdr: GCHeader
+    ctypeid: u16
+    payload: ptr(u8)
+end
+
+local LexState = struct LexState
+    line: i32
+    token: i32
+    chunkname: ptr(GCString)
+end
+
+local ParseState = struct ParseState
+    lex: ptr(LexState)
+    proto_out: ptr(GCProto)
+end
+
+local VMState = struct VMState
+    global: ptr(GlobalState)
+    dispatch: ptr(DispatchState)
+    jit: ptr(JitState)
+    ctype_state: ptr(CTState)
+end
+
+-- ============================================================
+-- B) Protocol forest
+-- ============================================================
+
+local VmTopProto = union VmTopProto vm_step() | vm_halt(code: i32) end
+
+local DispatchProto = union DispatchProto dispatch_interp() | dispatch_record() | dispatch_hook() end
+
+local CallProto = union CallProto call_lua() | call_c() | call_ff() | call_err(code: i32) end
+local ReturnProto = union ReturnProto ret_ok() | ret_yield() | ret_err(code: i32) end
+
+local MetaProto = union MetaProto meta_ok() | meta_call_mm(mm: u8) | meta_err(code: i32) end
+
+local GCProtoFlow = union GCProtoFlow gc_propagate() | gc_sweep() | gc_finalize() | gc_pause() end
+local BarrierProto = union BarrierProto barrier_forward() | barrier_back() end
+
+local JitTraceProto = union JitTraceProto tr_start() | tr_record() | tr_end() | tr_asm() | tr_abort(code: i32) end
+local JitRootProto = union JitRootProto root_started() | root_ignored() end
+local JitSideProto = union JitSideProto side_started() | side_skipped() end
+
+local RecordProto = union RecordProto rec_decode() | rec_emit_ir() | rec_snapshot() | rec_stop(link: i32) | rec_abort(code: i32) end
+local FoldProto = union FoldProto fold_hit(ref: u16) | fold_miss() | fold_fail() end
+
+local AsmProto = union AsmProto asm_ra() | asm_emit() | asm_patch() | asm_link() | asm_done() | asm_fail(code: i32) end
+
+local ExitProto = union ExitProto exit_restore_interp() | exit_side_hot() | exit_err(code: i32) end
+local StitchProto = union StitchProto stitch_linked() | stitch_blacklisted() end
+
+local FFIProto = union FFIProto ffi_ctype_parse() | ffi_cdata_alloc() | ffi_call_c() | ffi_callback() | ffi_err(code: i32) end
+
+local ParseProto = union ParseProto parse_chunk() | parse_proto_done() | parse_err(code: i32) end
+local BCLoadProto = union BCLoadProto bcload_ok() | bcload_err(code: i32) end
+
+local HookProto = union HookProto hook_line() | hook_call() | hook_ret() | hook_profile() end
+local VMEventProto = union VMEventProto vmevent_bc() | vmevent_trace() | vmevent_record() | vmevent_texit() end
+
+return "vm surface forests only"

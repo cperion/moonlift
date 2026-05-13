@@ -81,6 +81,7 @@ return function(A)
         A.sum "BackTarget" {
             A.variant "BackTargetNative",
             A.variant "BackTargetCraneliftJit",
+            A.variant "BackTargetDynasmJit",
             A.variant "BackTargetNamed" {
                 A.field "name" "string",
                 A.variant_unique,

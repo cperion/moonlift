@@ -1,0 +1,230 @@
+-- Tape × Mem machine-shape experiment (Moonlift-native style)
+--
+-- Clarified framing:
+--   Moonlift is a machine description language.
+--   Regions define machine states.
+--   Jumps/continuations define the machine protocol.
+--
+-- This prototype keeps a tiny product state:
+--   (pc, tape_len, mem_sum, live, phase, fuel)
+-- where:
+--   tape_len = tape projection summary
+--   mem_sum  = memory projection summary
+--   live     = heap liveness summary
+--   phase    = 0 exec slice, 1 gc slice
+--   fuel     = explicit step budget (prevents accidental non-termination)
+
+local ffi = require("ffi")
+
+local machine = module TapeXMemMachine
+
+type Step = again(
+    pc: i32,
+    tape_len: i32,
+    mem_sum: i32,
+    live: i32,
+    phase: i32,
+    fuel: i32
+) | stop(code: i32)
+
+region check_product_invariants(
+    pc: i32,
+    tape_len: i32,
+    mem_sum: i32,
+    live: i32,
+    phase: i32,
+    fuel: i32
+) -> Step
+entry start()
+    if fuel <= 0 then jump stop(code = -700) end
+    if pc < 0 then jump stop(code = -200) end
+    if tape_len < 0 then jump stop(code = -201) end
+    if live < 0 then jump stop(code = -202) end
+    jump again(
+        pc = pc,
+        tape_len = tape_len,
+        mem_sum = mem_sum,
+        live = live,
+        phase = phase,
+        fuel = fuel
+    )
+end
+end
+
+-- Exec slice: decode one op and update both projections.
+-- Opcodes:
+--   0 KINT imm
+--   1 ADD1
+--   2 NEWOBJ
+--   3 DROP_ROOT
+--   4 GC_HINT
+--   9 HALT
+region exec_slice(
+    tape: ptr(i32),
+    n: i32,
+    pc: i32,
+    tape_len: i32,
+    mem_sum: i32,
+    live: i32,
+    fuel: i32
+) -> Step
+entry start()
+    if pc >= n then
+        jump stop(code = mem_sum + tape_len * 10 + live * 100)
+    end
+
+    let op: i32 = tape[pc]
+    switch op do
+    case 0 then
+        if pc + 1 >= n then jump stop(code = -10) end
+        let imm: i32 = tape[pc + 1]
+        jump again(
+            pc = pc + 2,
+            tape_len = tape_len + 1,
+            mem_sum = mem_sum + imm,
+            live = live,
+            phase = 0,
+            fuel = fuel - 1
+        )
+    case 1 then
+        jump again(
+            pc = pc + 1,
+            tape_len = tape_len + 1,
+            mem_sum = mem_sum + 1,
+            live = live,
+            phase = 0,
+            fuel = fuel - 1
+        )
+    case 2 then
+        jump again(
+            pc = pc + 1,
+            tape_len = tape_len + 1,
+            mem_sum = mem_sum,
+            live = live + 1,
+            phase = 0,
+            fuel = fuel - 1
+        )
+    case 3 then
+        let next_live: i32 = live - 1
+        if next_live < 0 then jump stop(code = -31) end
+        jump again(
+            pc = pc + 1,
+            tape_len = tape_len + 1,
+            mem_sum = mem_sum,
+            live = next_live,
+            phase = 1,
+            fuel = fuel - 1
+        )
+    case 4 then
+        jump again(
+            pc = pc + 1,
+            tape_len = tape_len + 1,
+            mem_sum = mem_sum,
+            live = live,
+            phase = 1,
+            fuel = fuel - 1
+        )
+    case 9 then
+        jump stop(code = mem_sum + tape_len * 10 + live * 100)
+    default then
+        jump stop(code = -99)
+    end
+end
+end
+
+-- GC slice: same product state, different projection lens.
+region gc_slice(
+    pc: i32,
+    tape_len: i32,
+    mem_sum: i32,
+    live: i32,
+    fuel: i32
+) -> Step
+entry start()
+    if live == 0 then
+        jump again(
+            pc = pc,
+            tape_len = tape_len,
+            mem_sum = mem_sum + 1000,
+            live = live,
+            phase = 0,
+            fuel = fuel - 1
+        )
+    end
+
+    jump again(
+        pc = pc,
+        tape_len = tape_len,
+        mem_sum = mem_sum + 10,
+        live = live,
+        phase = 0,
+        fuel = fuel - 1
+    )
+end
+end
+
+export func run_machine(tape: ptr(i32), n: i32) -> i32
+    return control -> i32
+    entry start()
+        jump dispatch(pc = 0, tape_len = 0, mem_sum = 0, live = 0, phase = 0, fuel = 256)
+    end
+
+    block dispatch(pc: i32, tape_len: i32, mem_sum: i32, live: i32, phase: i32, fuel: i32)
+        emit check_product_invariants(pc, tape_len, mem_sum, live, phase, fuel; again = mode_select, stop = halted)
+    end
+
+    block mode_select(pc: i32, tape_len: i32, mem_sum: i32, live: i32, phase: i32, fuel: i32)
+        switch phase do
+        case 0 then jump do_exec(pc = pc, tape_len = tape_len, mem_sum = mem_sum, live = live, fuel = fuel)
+        case 1 then jump do_gc(pc = pc, tape_len = tape_len, mem_sum = mem_sum, live = live, fuel = fuel)
+        default then jump halted(code = -203)
+        end
+    end
+
+    block do_exec(pc: i32, tape_len: i32, mem_sum: i32, live: i32, fuel: i32)
+        emit exec_slice(tape, n, pc, tape_len, mem_sum, live, fuel; again = dispatch, stop = halted)
+    end
+
+    block do_gc(pc: i32, tape_len: i32, mem_sum: i32, live: i32, fuel: i32)
+        emit gc_slice(pc, tape_len, mem_sum, live, fuel; again = dispatch, stop = halted)
+    end
+
+    block halted(code: i32)
+        yield code
+    end
+    end
+end
+
+end
+
+local compiled = machine:compile()
+local run_machine = compiled:get("run_machine")
+
+local function run_tape(words)
+    local p = ffi.new("int32_t[?]", #words)
+    for i, v in ipairs(words) do
+        p[i - 1] = v
+    end
+    return run_machine(p, #words)
+end
+
+print("=== Tape × Mem machine-shape (.mlua) ===")
+
+local code1 = run_tape({
+    0, 10,
+    0, 32,
+    1,
+    2,
+    3,
+    4,
+    9
+})
+print("program1 code =", code1)
+assert(code1 == 2103)
+
+local code2 = run_tape({ 3, 9 })
+print("program2 code =", code2)
+assert(code2 == -31)
+
+compiled:free()
+return machine

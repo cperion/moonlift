@@ -1,0 +1,1319 @@
+-- Canonical VM surface model (single file)
+--
+-- Whole design surface =
+--   (1) Struct forest: memory/ABI layout
+--   (2) Protocol forest: continuation contracts
+--
+-- No implementation logic here: only type + protocol signatures.
+
+-- ============================================================
+-- 1) Struct forest
+-- ============================================================
+
+-- ---------- Value / object core ----------
+
+local TValue = struct TValue
+    tag: u8
+    bits: u64
+end
+
+local GCHeader = struct GCHeader
+    gct: u8
+    marked: u8
+    flags: u16
+end
+
+local GCString = struct GCString
+    hdr: GCHeader
+    hash: u32
+    len: u32
+    sid: u32
+    data: ptr(u8)
+end
+
+local GCUpval = struct GCUpval
+    hdr: GCHeader
+    closed: u8
+    immutable: u8
+    value_ptr: ptr(TValue)
+end
+
+local GCProto = struct GCProto
+    hdr: GCHeader
+    numparams: u8
+    framesize: u8
+    sizebc: u32
+    bytecode: view(u32)
+    constants: view(TValue)
+    uvdesc: view(u16)
+    trace_anchor: u16
+end
+
+local GCFunc = struct GCFunc
+    hdr: GCHeader
+    ffid: u8
+    nupvalues: u8
+    proto_ptr: ptr(GCProto)
+end
+
+local Node = struct Node
+    key: TValue
+    val: TValue
+    next_ptr: ptr(u8)
+end
+
+local GCTable = struct GCTable
+    hdr: GCHeader
+    array_part: view(TValue)
+    hash_part: view(Node)
+    asize: u32
+    hmask: u32
+end
+
+local CData = struct CData
+    hdr: GCHeader
+    ctypeid: u16
+    payload: ptr(u8)
+end
+
+-- ---------- Thread / global ----------
+
+local LuaThread = struct LuaThread
+    hdr: GCHeader
+    status: u8
+    stack: view(TValue)
+    base: u32
+    top: u32
+    maxstack: u32
+end
+
+local CallFrame = struct CallFrame
+    func_ptr: ptr(GCFunc)
+    base: u32
+    top: u32
+    pc: u32
+end
+
+local RegisterFile = struct RegisterFile
+    slots: view(TValue)
+    window_base: u32
+    window_top: u32
+end
+
+local GCState = struct GCState
+    total: u64
+    threshold: u64
+    state: u8
+    debt: i64
+    estimate: u64
+end
+
+local StrInternState = struct StrInternState
+    table_ptr: ptr(GCString)
+    mask: u32
+    count: u32
+    next_sid: u32
+end
+
+local GlobalState = struct GlobalState
+    gc: GCState
+    str: StrInternState
+    vmstate: i32
+    hookmask: u8
+    vmevmask: u8
+    current_thread: ptr(LuaThread)
+end
+
+-- ---------- Dispatch / hotness ----------
+
+local HotCountTable = struct HotCountTable
+    slots: view(u16)
+end
+
+local DispatchState = struct DispatchState
+    dispatchmode: u8
+    hotloop: u16
+    hotexit: u16
+    tryside: u16
+    hotcounts: ptr(HotCountTable)
+end
+
+-- ---------- Trace / IR / snapshot (LuaJIT-faithful schema) ----------
+
+-- IR refs are 16-bit biased indices in LuaJIT (REF_BIAS = 0x8000).
+-- Constants grow downward (< REF_BIAS), instructions upward (>= REF_BIAS).
+local IrIns = struct IrIns
+    op1: u16
+    op2: u16
+    ot: u16        -- packed opcode+type+guard flag class
+    prev: u16      -- pre-RA chain link / post-RA reg+spill overlay
+end
+
+-- Optional side payload for constant slots (LuaJIT uses union overlays).
+local IrConst64 = struct IrConst64
+    lo: u32
+    hi: u32
+end
+
+-- Snapshot header (mirrors SnapShot in lj_jit.h).
+local Snapshot = struct Snapshot
+    mapofs: u32
+    ref: u16       -- first IR ref for this snapshot
+    mcofs: u16     -- machine-code offset for exit-stub mapping
+    nslots: u8
+    topslot: u8
+    nent: u8       -- number of compressed entries
+    count: u8      -- taken-exit counter (255 = SNAPCOUNT_DONE)
+end
+
+-- Compressed snapshot map entry (slot + flags + ref).
+-- flags include FRAME/CONT/NORESTORE/KEYINDEX class bits.
+local SnapEntry = struct SnapEntry
+    raw: u32
+end
+
+-- Optional decoded side-exit view (derived from snapshots + patch table).
+local ExitInfo = struct ExitInfo
+    snap_no: u16
+    taken_count: u16
+    link_trace: u16
+    link_type: u8
+    reserved: u8
+end
+
+-- Trace object core (inspired by GCtrace layout, minus GC header details).
+local Trace = struct Trace
+    trace_id: u16
+    root_id: u16
+    link_id: u16
+    nextroot_id: u16
+    nextside_id: u16
+
+    start_pc: u32
+    start_ins: u32
+
+    nsnap: u16
+    nins: u16
+    nk: u16
+    nchild: u16
+    topslot: u8
+    sinktags: u8
+    linktype: u8
+    reserved0: u8
+
+    nsnapmap: u32
+    szmcode: u32
+    mcloop: u32
+    spadjust: u16
+    reserved1: u16
+
+    ir: view(IrIns)
+    ir_const64: view(IrConst64)
+    snaps: view(Snapshot)
+    snapmap: view(SnapEntry)
+    exits: view(ExitInfo)
+    entry_ptr: ptr(u8)
+end
+
+local TraceStore = struct TraceStore
+    traces: view(Trace)
+    count: u16
+    freetrace: u16
+    sizetrace: u16
+end
+
+-- Penalty/blacklist slot model (round-robin cache in LuaJIT).
+local HotPenalty = struct HotPenalty
+    pc: u32
+    val: u16
+    reason: u16
+end
+
+-- Transient recording builder state.
+local TraceBuilder = struct TraceBuilder
+    start_pc: u32
+    parent: u16
+    exit_no: u16
+
+    nins: u16
+    nk: u16
+    nsnap: u16
+    nsnapmap: u32
+
+    baseslot: u16
+    maxslot: u16
+    framedepth: i32
+    retdepth: i32
+
+    needsnap: u8
+    mergesnap: u8
+    bcskip: u8
+    retryrec: u8
+
+    abort_reason: i32
+end
+
+local JitState = struct JitState
+    state: u8
+    flags: u32
+
+    parent: u16
+    exit_no: u16
+    cur_trace_id: u16
+
+    hotloop: u16
+    hotexit: u16
+    tryside: u16
+
+    maxrecord: u32
+    maxirconst: u32
+    maxsnap: u16
+    maxside: u16
+    maxtrace: u16
+
+    instunroll: i32
+    loopunroll: i32
+    tailcalled: i32
+
+    penaltyslot: u32
+    penalties: view(HotPenalty)
+end
+
+-- ---------- Canonical LuaJIT IRDEF tables (ops/types/modes) ----------
+
+local LuaJITIrOperandMode = {
+    ref = 0,
+    lit = 1,
+    cst = 2,
+    ___ = 3,
+}
+
+-- Base mode class plus modifier bits (from lj_ir.h IRM_* flags).
+local LuaJITIrModeClass = {
+    N = 0,
+    R = 0,
+    A = 0x20,
+    L = 0x40,
+    S = 0x60,
+    C = 0x10,
+    W = 0x80,
+}
+
+local LuaJITIrOpTable = {
+    { id = 0, name = "LT", mode = "N", op1 = "ref", op2 = "ref" },
+    { id = 1, name = "GE", mode = "N", op1 = "ref", op2 = "ref" },
+    { id = 2, name = "LE", mode = "N", op1 = "ref", op2 = "ref" },
+    { id = 3, name = "GT", mode = "N", op1 = "ref", op2 = "ref" },
+    { id = 4, name = "ULT", mode = "N", op1 = "ref", op2 = "ref" },
+    { id = 5, name = "UGE", mode = "N", op1 = "ref", op2 = "ref" },
+    { id = 6, name = "ULE", mode = "N", op1 = "ref", op2 = "ref" },
+    { id = 7, name = "UGT", mode = "N", op1 = "ref", op2 = "ref" },
+    { id = 8, name = "EQ", mode = "C", op1 = "ref", op2 = "ref" },
+    { id = 9, name = "NE", mode = "C", op1 = "ref", op2 = "ref" },
+    { id = 10, name = "ABC", mode = "N", op1 = "ref", op2 = "ref" },
+    { id = 11, name = "RETF", mode = "S", op1 = "ref", op2 = "ref" },
+    { id = 12, name = "NOP", mode = "N", op1 = "___", op2 = "___" },
+    { id = 13, name = "BASE", mode = "N", op1 = "lit", op2 = "lit" },
+    { id = 14, name = "PVAL", mode = "N", op1 = "lit", op2 = "___" },
+    { id = 15, name = "GCSTEP", mode = "S", op1 = "___", op2 = "___" },
+    { id = 16, name = "HIOP", mode = "S", op1 = "ref", op2 = "ref" },
+    { id = 17, name = "LOOP", mode = "S", op1 = "___", op2 = "___" },
+    { id = 18, name = "USE", mode = "S", op1 = "ref", op2 = "___" },
+    { id = 19, name = "PHI", mode = "S", op1 = "ref", op2 = "ref" },
+    { id = 20, name = "RENAME", mode = "S", op1 = "ref", op2 = "lit" },
+    { id = 21, name = "PROF", mode = "S", op1 = "___", op2 = "___" },
+    { id = 22, name = "KPRI", mode = "N", op1 = "___", op2 = "___" },
+    { id = 23, name = "KINT", mode = "N", op1 = "cst", op2 = "___" },
+    { id = 24, name = "KGC", mode = "N", op1 = "cst", op2 = "___" },
+    { id = 25, name = "KPTR", mode = "N", op1 = "cst", op2 = "___" },
+    { id = 26, name = "KKPTR", mode = "N", op1 = "cst", op2 = "___" },
+    { id = 27, name = "KNULL", mode = "N", op1 = "cst", op2 = "___" },
+    { id = 28, name = "KNUM", mode = "N", op1 = "cst", op2 = "___" },
+    { id = 29, name = "KINT64", mode = "N", op1 = "cst", op2 = "___" },
+    { id = 30, name = "KSLOT", mode = "N", op1 = "ref", op2 = "lit" },
+    { id = 31, name = "BNOT", mode = "N", op1 = "ref", op2 = "___" },
+    { id = 32, name = "BSWAP", mode = "N", op1 = "ref", op2 = "___" },
+    { id = 33, name = "BAND", mode = "C", op1 = "ref", op2 = "ref" },
+    { id = 34, name = "BOR", mode = "C", op1 = "ref", op2 = "ref" },
+    { id = 35, name = "BXOR", mode = "C", op1 = "ref", op2 = "ref" },
+    { id = 36, name = "BSHL", mode = "N", op1 = "ref", op2 = "ref" },
+    { id = 37, name = "BSHR", mode = "N", op1 = "ref", op2 = "ref" },
+    { id = 38, name = "BSAR", mode = "N", op1 = "ref", op2 = "ref" },
+    { id = 39, name = "BROL", mode = "N", op1 = "ref", op2 = "ref" },
+    { id = 40, name = "BROR", mode = "N", op1 = "ref", op2 = "ref" },
+    { id = 41, name = "ADD", mode = "C", op1 = "ref", op2 = "ref" },
+    { id = 42, name = "SUB", mode = "N", op1 = "ref", op2 = "ref" },
+    { id = 43, name = "MUL", mode = "C", op1 = "ref", op2 = "ref" },
+    { id = 44, name = "DIV", mode = "N", op1 = "ref", op2 = "ref" },
+    { id = 45, name = "MOD", mode = "N", op1 = "ref", op2 = "ref" },
+    { id = 46, name = "POW", mode = "N", op1 = "ref", op2 = "ref" },
+    { id = 47, name = "NEG", mode = "N", op1 = "ref", op2 = "ref" },
+    { id = 48, name = "ABS", mode = "N", op1 = "ref", op2 = "ref" },
+    { id = 49, name = "LDEXP", mode = "N", op1 = "ref", op2 = "ref" },
+    { id = 50, name = "MIN", mode = "N", op1 = "ref", op2 = "ref" },
+    { id = 51, name = "MAX", mode = "N", op1 = "ref", op2 = "ref" },
+    { id = 52, name = "FPMATH", mode = "N", op1 = "ref", op2 = "lit" },
+    { id = 53, name = "ADDOV", mode = "CW", op1 = "ref", op2 = "ref" },
+    { id = 54, name = "SUBOV", mode = "NW", op1 = "ref", op2 = "ref" },
+    { id = 55, name = "MULOV", mode = "CW", op1 = "ref", op2 = "ref" },
+    { id = 56, name = "AREF", mode = "R", op1 = "ref", op2 = "ref" },
+    { id = 57, name = "HREFK", mode = "R", op1 = "ref", op2 = "ref" },
+    { id = 58, name = "HREF", mode = "L", op1 = "ref", op2 = "ref" },
+    { id = 59, name = "NEWREF", mode = "S", op1 = "ref", op2 = "ref" },
+    { id = 60, name = "UREFO", mode = "LW", op1 = "ref", op2 = "lit" },
+    { id = 61, name = "UREFC", mode = "LW", op1 = "ref", op2 = "lit" },
+    { id = 62, name = "FREF", mode = "R", op1 = "ref", op2 = "lit" },
+    { id = 63, name = "TMPREF", mode = "S", op1 = "ref", op2 = "lit" },
+    { id = 64, name = "STRREF", mode = "N", op1 = "ref", op2 = "ref" },
+    { id = 65, name = "LREF", mode = "L", op1 = "___", op2 = "___" },
+    { id = 66, name = "ALOAD", mode = "L", op1 = "ref", op2 = "___" },
+    { id = 67, name = "HLOAD", mode = "L", op1 = "ref", op2 = "___" },
+    { id = 68, name = "ULOAD", mode = "L", op1 = "ref", op2 = "___" },
+    { id = 69, name = "FLOAD", mode = "L", op1 = "ref", op2 = "lit" },
+    { id = 70, name = "XLOAD", mode = "L", op1 = "ref", op2 = "lit" },
+    { id = 71, name = "SLOAD", mode = "L", op1 = "lit", op2 = "lit" },
+    { id = 72, name = "VLOAD", mode = "L", op1 = "ref", op2 = "lit" },
+    { id = 73, name = "ALEN", mode = "L", op1 = "ref", op2 = "ref" },
+    { id = 74, name = "ASTORE", mode = "S", op1 = "ref", op2 = "ref" },
+    { id = 75, name = "HSTORE", mode = "S", op1 = "ref", op2 = "ref" },
+    { id = 76, name = "USTORE", mode = "S", op1 = "ref", op2 = "ref" },
+    { id = 77, name = "FSTORE", mode = "S", op1 = "ref", op2 = "ref" },
+    { id = 78, name = "XSTORE", mode = "S", op1 = "ref", op2 = "ref" },
+    { id = 79, name = "SNEW", mode = "N", op1 = "ref", op2 = "ref" },
+    { id = 80, name = "XSNEW", mode = "A", op1 = "ref", op2 = "ref" },
+    { id = 81, name = "TNEW", mode = "AW", op1 = "lit", op2 = "lit" },
+    { id = 82, name = "TDUP", mode = "AW", op1 = "ref", op2 = "___" },
+    { id = 83, name = "CNEW", mode = "AW", op1 = "ref", op2 = "ref" },
+    { id = 84, name = "CNEWI", mode = "NW", op1 = "ref", op2 = "ref" },
+    { id = 85, name = "BUFHDR", mode = "L", op1 = "ref", op2 = "lit" },
+    { id = 86, name = "BUFPUT", mode = "LW", op1 = "ref", op2 = "ref" },
+    { id = 87, name = "BUFSTR", mode = "AW", op1 = "ref", op2 = "ref" },
+    { id = 88, name = "TBAR", mode = "S", op1 = "ref", op2 = "___" },
+    { id = 89, name = "OBAR", mode = "S", op1 = "ref", op2 = "ref" },
+    { id = 90, name = "XBAR", mode = "S", op1 = "___", op2 = "___" },
+    { id = 91, name = "CONV", mode = "N", op1 = "ref", op2 = "lit" },
+    { id = 92, name = "TOBIT", mode = "N", op1 = "ref", op2 = "ref" },
+    { id = 93, name = "TOSTR", mode = "N", op1 = "ref", op2 = "lit" },
+    { id = 94, name = "STRTO", mode = "N", op1 = "ref", op2 = "___" },
+    { id = 95, name = "CALLN", mode = "NW", op1 = "ref", op2 = "lit" },
+    { id = 96, name = "CALLA", mode = "AW", op1 = "ref", op2 = "lit" },
+    { id = 97, name = "CALLL", mode = "LW", op1 = "ref", op2 = "lit" },
+    { id = 98, name = "CALLS", mode = "S", op1 = "ref", op2 = "lit" },
+    { id = 99, name = "CALLXS", mode = "S", op1 = "ref", op2 = "ref" },
+    { id = 100, name = "CARG", mode = "N", op1 = "ref", op2 = "ref" },
+}
+
+local LuaJITIrTypeTable = {
+    { id = 0, name = "NIL", size_expr = "4" },
+    { id = 1, name = "FALSE", size_expr = "4" },
+    { id = 2, name = "TRUE", size_expr = "4" },
+    { id = 3, name = "LIGHTUD", size_expr = "LJ_64 ? 8 : 4" },
+    { id = 4, name = "STR", size_expr = "IRTSIZE_PGC" },
+    { id = 5, name = "P32", size_expr = "4" },
+    { id = 6, name = "THREAD", size_expr = "IRTSIZE_PGC" },
+    { id = 7, name = "PROTO", size_expr = "IRTSIZE_PGC" },
+    { id = 8, name = "FUNC", size_expr = "IRTSIZE_PGC" },
+    { id = 9, name = "P64", size_expr = "8" },
+    { id = 10, name = "CDATA", size_expr = "IRTSIZE_PGC" },
+    { id = 11, name = "TAB", size_expr = "IRTSIZE_PGC" },
+    { id = 12, name = "UDATA", size_expr = "IRTSIZE_PGC" },
+    { id = 13, name = "FLOAT", size_expr = "4" },
+    { id = 14, name = "NUM", size_expr = "8" },
+    { id = 15, name = "I8", size_expr = "1" },
+    { id = 16, name = "U8", size_expr = "1" },
+    { id = 17, name = "I16", size_expr = "2" },
+    { id = 18, name = "U16", size_expr = "2" },
+    { id = 19, name = "INT", size_expr = "4" },
+    { id = 20, name = "U32", size_expr = "4" },
+    { id = 21, name = "I64", size_expr = "8" },
+    { id = 22, name = "U64", size_expr = "8" },
+    { id = 23, name = "SOFTFP", size_expr = "4" },
+}
+
+local LuaJITIrOpIdByName = {}
+for _, d in ipairs(LuaJITIrOpTable) do
+    LuaJITIrOpIdByName[d.name] = d.id
+end
+
+if #LuaJITIrOpTable ~= 101 then error("LuaJIT IRDEF drift: expected 101 ops") end
+if #LuaJITIrTypeTable ~= 24 then error("LuaJIT IRTDEF drift: expected 24 types") end
+if LuaJITIrOpIdByName.KINT ~= 23 then error("LuaJIT IRDEF mismatch: KINT") end
+if LuaJITIrOpIdByName.ADD ~= 41 then error("LuaJIT IRDEF mismatch: ADD") end
+if LuaJITIrOpIdByName.RETF ~= 11 then error("LuaJIT IRDEF mismatch: RETF") end
+
+-- ---------- Codegen pipeline ----------
+
+local RegAssignment = struct RegAssignment
+    dst: u8
+    src1: u8
+    src2: u8
+    spill: u8
+end
+
+local PatchEntry = struct PatchEntry
+    at_pos: u32
+    target_ir: u16
+    kind: u8
+end
+
+local CodeArena = struct CodeArena
+    base: ptr(u8)
+    size: u32
+    pos: u32
+end
+
+local IRArena = struct IRArena
+    buf: view(IrIns)
+    pos: u32
+end
+
+local SnapArena = struct SnapArena
+    buf: view(u8)
+    pos: u32
+end
+
+-- ---------- FFI / parser ----------
+
+local CType = struct CType
+    info: u32
+    size: u32
+    name_ptr: ptr(GCString)
+end
+
+local CTState = struct CTState
+    ctab: view(CType)
+    top: u32
+    miscmap_ptr: ptr(GCTable)
+end
+
+local LexState = struct LexState
+    line: i32
+    token: i32
+    chunkname_ptr: ptr(GCString)
+end
+
+local ParseState = struct ParseState
+    lex: ptr(LexState)
+    proto_out: ptr(GCProto)
+end
+
+-- ---------- Iterator machine root ----------
+
+local IteratorState = struct IteratorState
+    mode: u8
+    pc: u32
+    exit_reason: i32
+
+    current_func: ptr(GCProto)
+    current_trace: ptr(Trace)
+    builder: ptr(TraceBuilder)
+
+    regs: ptr(RegisterFile)
+    thread: ptr(LuaThread)
+    global: ptr(GlobalState)
+
+    dispatch: ptr(DispatchState)
+    jit: ptr(JitState)
+
+    ir_arena: ptr(IRArena)
+    snap_arena: ptr(SnapArena)
+    code_arena: ptr(CodeArena)
+    trace_store: ptr(TraceStore)
+
+    ctype_state: ptr(CTState)
+end
+
+local VMState = struct VMState
+    iterator: ptr(IteratorState)
+    global: ptr(GlobalState)
+end
+
+-- ============================================================
+-- 2) Protocol forest
+-- ============================================================
+
+-- ---------- Top-level / mode protocols ----------
+
+local VmProto = union VmProto vm_step() | vm_halt(code: i32) end
+
+local ModeProto = union ModeProto
+    mode_cold()
+  | mode_warm()
+  | mode_recording()
+  | mode_compiling()
+  | mode_native()
+  | mode_bad(code: i32)
+end
+
+local ColdProto = union ColdProto cold_next() | cold_to_warm() | cold_halt(code: i32) end
+local WarmProto = union WarmProto warm_next() | warm_to_recording(start_pc: u32) | warm_halt(code: i32) end
+local RecordingProto = union RecordingProto rec_next() | rec_to_compiling() | rec_abort_to_warm(code: i32) | rec_halt(code: i32) end
+local CompilingProto = union CompilingProto comp_next() | comp_to_native(trace_id: u16) | comp_fail(code: i32) end
+local NativeProto = union NativeProto nat_next() | nat_to_warm() | nat_to_recording() | nat_halt(code: i32) end
+
+-- ---------- Recording subprotocols ----------
+
+local RecDecodeProto = union RecDecodeProto rec_decoded(op: u8, bc: u32) | rec_decode_halt(code: i32) end
+local RecObserveProto = union RecObserveProto rec_observed(op: u8, bc: u32) end
+local RecFoldProto = union RecFoldProto rec_fold_keep(op: u8, bc: u32) | rec_fold_replace(ref: u16) | rec_fold_abort(code: i32) end
+local RecSnapProto = union RecSnapProto rec_snap_none() | rec_snap_added() end
+local RecCommitProto = union RecCommitProto rec_commit_continue() | rec_commit_to_compiling() | rec_commit_abort(code: i32) end
+
+-- ---------- Compiling subprotocols ----------
+
+local CompRaProto = union CompRaProto comp_ra_done() | comp_ra_fail(code: i32) end
+local CompEmitProto = union CompEmitProto comp_emit_done() | comp_emit_fail(code: i32) end
+local CompPatchProto = union CompPatchProto comp_patch_done() | comp_patch_fail(code: i32) end
+local CompStubProto = union CompStubProto comp_stub_done() | comp_stub_fail(code: i32) end
+local CompInstallProto = union CompInstallProto comp_install_done(trace_id: u16) | comp_install_fail(code: i32) end
+
+-- ---------- Native subprotocols ----------
+
+local NatEnterProto = union NatEnterProto nat_enter_done() | nat_enter_fail(code: i32) end
+local NatRunProto = union NatRunProto nat_run_exit(exit_kind: i32) end
+local NatExitDecodeProto = union NatExitDecodeProto nat_decode_to_warm() | nat_decode_to_recording() | nat_decode_halt(code: i32) end
+local NatRestoreProto = union NatRestoreProto nat_restore_done() | nat_restore_fail(code: i32) end
+
+-- ---------- GC / barriers ----------
+
+local GCProtoFlow = union GCProtoFlow gc_propagate() | gc_sweep() | gc_finalize() | gc_pause() end
+local BarrierProto = union BarrierProto barrier_forward() | barrier_back() | barrier_none() end
+
+-- ---------- Calls / returns / metamethods ----------
+
+local CallProto = union CallProto call_lua() | call_c() | call_ff() | call_err(code: i32) end
+local ReturnProto = union ReturnProto ret_ok() | ret_yield() | ret_err(code: i32) end
+local MetaProto = union MetaProto meta_ok() | meta_call_mm(mm: u8) | meta_err(code: i32) end
+
+-- ---------- Trace linking / exits ----------
+
+local TraceProto = union TraceProto tr_start() | tr_record() | tr_end() | tr_asm() | tr_abort(code: i32) end
+local RootProto = union RootProto root_started() | root_ignored() end
+local SideProto = union SideProto side_started() | side_skipped() end
+local ExitProto = union ExitProto exit_restore_interp() | exit_side_hot() | exit_err(code: i32) end
+local StitchProto = union StitchProto stitch_linked() | stitch_rejected(code: i32) end
+
+-- ---------- FFI / parse / load / hooks ----------
+
+local FFIProto = union FFIProto ffi_ctype_parse() | ffi_cdata_alloc() | ffi_call_c() | ffi_callback() | ffi_err(code: i32) end
+local ParseProto = union ParseProto parse_chunk() | parse_proto_done() | parse_err(code: i32) end
+local BCLoadProto = union BCLoadProto bcload_ok() | bcload_err(code: i32) end
+local HookProto = union HookProto hook_line() | hook_call() | hook_ret() | hook_profile() end
+local VMEventProto = union VMEventProto vmevent_bc() | vmevent_trace() | vmevent_record() | vmevent_texit() end
+
+-- ============================================================
+-- 3) Region signature forest
+-- ============================================================
+
+local drive = region drive(vm: ptr(VMState)) -> VmProto
+entry start() jump vm_step() end
+end
+
+local mode_select = region mode_select(it: ptr(IteratorState)) -> ModeProto
+entry start() jump mode_cold() end
+end
+
+local run_cold = region run_cold(it: ptr(IteratorState)) -> ColdProto
+entry start() jump cold_next() end
+end
+
+local run_warm = region run_warm(it: ptr(IteratorState)) -> WarmProto
+entry start() jump warm_next() end
+end
+
+local run_recording = region run_recording(it: ptr(IteratorState)) -> RecordingProto
+entry start() jump rec_next() end
+end
+
+local run_compiling = region run_compiling(it: ptr(IteratorState)) -> CompilingProto
+entry start() jump comp_next() end
+end
+
+local run_native = region run_native(it: ptr(IteratorState)) -> NativeProto
+entry start() jump nat_next() end
+end
+
+-- Recording pipeline signatures.
+local rec_decode = region rec_decode(it: ptr(IteratorState)) -> RecDecodeProto
+entry start() jump rec_decode_halt(code = -1) end
+end
+
+local rec_observe = region rec_observe(it: ptr(IteratorState), op: u8, bc: u32) -> RecObserveProto
+entry start() jump rec_observed(op = op, bc = bc) end
+end
+
+local rec_fold = region rec_fold(it: ptr(IteratorState), op: u8, bc: u32) -> RecFoldProto
+entry start() jump rec_fold_keep(op = op, bc = bc) end
+end
+
+local rec_snapshot = region rec_snapshot(it: ptr(IteratorState), op: u8, bc: u32) -> RecSnapProto
+entry start() jump rec_snap_none() end
+end
+
+local rec_commit = region rec_commit(it: ptr(IteratorState)) -> RecCommitProto
+entry start() jump rec_commit_continue() end
+end
+
+-- Compiling pipeline signatures.
+local comp_ra = region comp_ra(it: ptr(IteratorState)) -> CompRaProto
+entry start() jump comp_ra_done() end
+end
+
+local comp_emit = region comp_emit(it: ptr(IteratorState)) -> CompEmitProto
+entry start() jump comp_emit_done() end
+end
+
+local comp_patch = region comp_patch(it: ptr(IteratorState)) -> CompPatchProto
+entry start() jump comp_patch_done() end
+end
+
+local comp_stub = region comp_stub(it: ptr(IteratorState)) -> CompStubProto
+entry start() jump comp_stub_done() end
+end
+
+local comp_install = region comp_install(it: ptr(IteratorState)) -> CompInstallProto
+entry start() jump comp_install_fail(code = -1) end
+end
+
+-- Native pipeline signatures.
+local nat_enter = region nat_enter(it: ptr(IteratorState)) -> NatEnterProto
+entry start() jump nat_enter_done() end
+end
+
+local nat_run = region nat_run(it: ptr(IteratorState)) -> NatRunProto
+entry start() jump nat_run_exit(exit_kind = 0) end
+end
+
+local nat_exit_decode = region nat_exit_decode(it: ptr(IteratorState), exit_kind: i32) -> NatExitDecodeProto
+entry start() jump nat_decode_to_warm() end
+end
+
+local nat_restore = region nat_restore(it: ptr(IteratorState)) -> NatRestoreProto
+entry start() jump nat_restore_done() end
+end
+
+-- Other subsystem signatures.
+local gc_step = region gc_step(vm: ptr(VMState)) -> GCProtoFlow
+entry start() jump gc_pause() end
+end
+
+local barrier_step = region barrier_step(vm: ptr(VMState)) -> BarrierProto
+entry start() jump barrier_none() end
+end
+
+local call_step = region call_step(vm: ptr(VMState)) -> CallProto
+entry start() jump call_lua() end
+end
+
+local return_step = region return_step(vm: ptr(VMState)) -> ReturnProto
+entry start() jump ret_ok() end
+end
+
+local meta_step = region meta_step(vm: ptr(VMState)) -> MetaProto
+entry start() jump meta_ok() end
+end
+
+local trace_step = region trace_step(vm: ptr(VMState)) -> TraceProto
+entry start() jump tr_start() end
+end
+
+local root_start = region root_start(vm: ptr(VMState)) -> RootProto
+entry start() jump root_started() end
+end
+
+local side_start = region side_start(vm: ptr(VMState)) -> SideProto
+entry start() jump side_skipped() end
+end
+
+local exit_step = region exit_step(vm: ptr(VMState)) -> ExitProto
+entry start() jump exit_restore_interp() end
+end
+
+local stitch_step = region stitch_step(vm: ptr(VMState), parent_trace: u16, exit_id: u16, child_trace: u16) -> StitchProto
+entry start() jump stitch_rejected(code = -1) end
+end
+
+local ffi_step = region ffi_step(vm: ptr(VMState)) -> FFIProto
+entry start() jump ffi_ctype_parse() end
+end
+
+local parse_step = region parse_step(vm: ptr(VMState), ps: ptr(ParseState)) -> ParseProto
+entry start() jump parse_chunk() end
+end
+
+local bcload_step = region bcload_step(vm: ptr(VMState), ps: ptr(ParseState)) -> BCLoadProto
+entry start() jump bcload_ok() end
+end
+
+local hook_step = region hook_step(vm: ptr(VMState)) -> HookProto
+entry start() jump hook_line() end
+end
+
+local vmevent_step = region vmevent_step(vm: ptr(VMState)) -> VMEventProto
+entry start() jump vmevent_bc() end
+end
+
+-- ============================================================
+-- 4) Coverage matrix (protocol variants -> producer/consumer wiring)
+-- ============================================================
+
+local RegionRegistry = {
+    drive = drive,
+    mode_select = mode_select,
+    run_cold = run_cold,
+    run_warm = run_warm,
+    run_recording = run_recording,
+    run_compiling = run_compiling,
+    run_native = run_native,
+
+    rec_decode = rec_decode,
+    rec_observe = rec_observe,
+    rec_fold = rec_fold,
+    rec_snapshot = rec_snapshot,
+    rec_commit = rec_commit,
+
+    comp_ra = comp_ra,
+    comp_emit = comp_emit,
+    comp_patch = comp_patch,
+    comp_stub = comp_stub,
+    comp_install = comp_install,
+
+    nat_enter = nat_enter,
+    nat_run = nat_run,
+    nat_exit_decode = nat_exit_decode,
+    nat_restore = nat_restore,
+
+    gc_step = gc_step,
+    barrier_step = barrier_step,
+    call_step = call_step,
+    return_step = return_step,
+    meta_step = meta_step,
+    trace_step = trace_step,
+    root_start = root_start,
+    side_start = side_start,
+    exit_step = exit_step,
+    stitch_step = stitch_step,
+    ffi_step = ffi_step,
+    parse_step = parse_step,
+    bcload_step = bcload_step,
+    hook_step = hook_step,
+    vmevent_step = vmevent_step,
+}
+
+local ProtocolVariants = {
+    VmProto = { "vm_step", "vm_halt" },
+    ModeProto = { "mode_cold", "mode_warm", "mode_recording", "mode_compiling", "mode_native", "mode_bad" },
+    ColdProto = { "cold_next", "cold_to_warm", "cold_halt" },
+    WarmProto = { "warm_next", "warm_to_recording", "warm_halt" },
+    RecordingProto = { "rec_next", "rec_to_compiling", "rec_abort_to_warm", "rec_halt" },
+    CompilingProto = { "comp_next", "comp_to_native", "comp_fail" },
+    NativeProto = { "nat_next", "nat_to_warm", "nat_to_recording", "nat_halt" },
+
+    RecDecodeProto = { "rec_decoded", "rec_decode_halt" },
+    RecObserveProto = { "rec_observed" },
+    RecFoldProto = { "rec_fold_keep", "rec_fold_replace", "rec_fold_abort" },
+    RecSnapProto = { "rec_snap_none", "rec_snap_added" },
+    RecCommitProto = { "rec_commit_continue", "rec_commit_to_compiling", "rec_commit_abort" },
+
+    CompRaProto = { "comp_ra_done", "comp_ra_fail" },
+    CompEmitProto = { "comp_emit_done", "comp_emit_fail" },
+    CompPatchProto = { "comp_patch_done", "comp_patch_fail" },
+    CompStubProto = { "comp_stub_done", "comp_stub_fail" },
+    CompInstallProto = { "comp_install_done", "comp_install_fail" },
+
+    NatEnterProto = { "nat_enter_done", "nat_enter_fail" },
+    NatRunProto = { "nat_run_exit" },
+    NatExitDecodeProto = { "nat_decode_to_warm", "nat_decode_to_recording", "nat_decode_halt" },
+    NatRestoreProto = { "nat_restore_done", "nat_restore_fail" },
+
+    GCProtoFlow = { "gc_propagate", "gc_sweep", "gc_finalize", "gc_pause" },
+    BarrierProto = { "barrier_forward", "barrier_back", "barrier_none" },
+
+    CallProto = { "call_lua", "call_c", "call_ff", "call_err" },
+    ReturnProto = { "ret_ok", "ret_yield", "ret_err" },
+    MetaProto = { "meta_ok", "meta_call_mm", "meta_err" },
+
+    TraceProto = { "tr_start", "tr_record", "tr_end", "tr_asm", "tr_abort" },
+    RootProto = { "root_started", "root_ignored" },
+    SideProto = { "side_started", "side_skipped" },
+    ExitProto = { "exit_restore_interp", "exit_side_hot", "exit_err" },
+    StitchProto = { "stitch_linked", "stitch_rejected" },
+
+    FFIProto = { "ffi_ctype_parse", "ffi_cdata_alloc", "ffi_call_c", "ffi_callback", "ffi_err" },
+    ParseProto = { "parse_chunk", "parse_proto_done", "parse_err" },
+    BCLoadProto = { "bcload_ok", "bcload_err" },
+    HookProto = { "hook_line", "hook_call", "hook_ret", "hook_profile" },
+    VMEventProto = { "vmevent_bc", "vmevent_trace", "vmevent_record", "vmevent_texit" },
+}
+
+local ProducerByProtocol = {
+    VmProto = "drive",
+    ModeProto = "mode_select",
+    ColdProto = "run_cold",
+    WarmProto = "run_warm",
+    RecordingProto = "run_recording",
+    CompilingProto = "run_compiling",
+    NativeProto = "run_native",
+
+    RecDecodeProto = "rec_decode",
+    RecObserveProto = "rec_observe",
+    RecFoldProto = "rec_fold",
+    RecSnapProto = "rec_snapshot",
+    RecCommitProto = "rec_commit",
+
+    CompRaProto = "comp_ra",
+    CompEmitProto = "comp_emit",
+    CompPatchProto = "comp_patch",
+    CompStubProto = "comp_stub",
+    CompInstallProto = "comp_install",
+
+    NatEnterProto = "nat_enter",
+    NatRunProto = "nat_run",
+    NatExitDecodeProto = "nat_exit_decode",
+    NatRestoreProto = "nat_restore",
+
+    GCProtoFlow = "gc_step",
+    BarrierProto = "barrier_step",
+
+    CallProto = "call_step",
+    ReturnProto = "return_step",
+    MetaProto = "meta_step",
+
+    TraceProto = "trace_step",
+    RootProto = "root_start",
+    SideProto = "side_start",
+    ExitProto = "exit_step",
+    StitchProto = "stitch_step",
+
+    FFIProto = "ffi_step",
+    ParseProto = "parse_step",
+    BCLoadProto = "bcload_step",
+    HookProto = "hook_step",
+    VMEventProto = "vmevent_step",
+}
+
+local ConsumersByProtocol = {
+    VmProto = { "host_drive_loop" },
+    ModeProto = { "drive" },
+    ColdProto = { "drive" },
+    WarmProto = { "drive" },
+    RecordingProto = { "drive" },
+    CompilingProto = { "drive" },
+    NativeProto = { "drive" },
+
+    RecDecodeProto = { "run_recording" },
+    RecObserveProto = { "run_recording" },
+    RecFoldProto = { "run_recording" },
+    RecSnapProto = { "run_recording" },
+    RecCommitProto = { "run_recording" },
+
+    CompRaProto = { "run_compiling" },
+    CompEmitProto = { "run_compiling" },
+    CompPatchProto = { "run_compiling" },
+    CompStubProto = { "run_compiling" },
+    CompInstallProto = { "run_compiling" },
+
+    NatEnterProto = { "run_native" },
+    NatRunProto = { "run_native" },
+    NatExitDecodeProto = { "run_native" },
+    NatRestoreProto = { "run_native" },
+
+    GCProtoFlow = { "drive" },
+    BarrierProto = { "gc_step", "run_recording", "run_native" },
+
+    CallProto = { "run_cold", "run_warm", "run_native" },
+    ReturnProto = { "call_step" },
+    MetaProto = { "run_cold", "run_warm", "run_native" },
+
+    TraceProto = { "run_recording", "run_compiling" },
+    RootProto = { "trace_step" },
+    SideProto = { "trace_step" },
+    ExitProto = { "run_native" },
+    StitchProto = { "exit_step" },
+
+    FFIProto = { "run_cold", "run_warm", "run_native" },
+    ParseProto = { "external_frontend" },
+    BCLoadProto = { "parse_step" },
+    HookProto = { "drive" },
+    VMEventProto = { "drive" },
+}
+
+-- Populated from the currently working five-mode experiment shape
+-- (tapexmem_lab/five_mode_machine_regular.mlua), first-pass core wiring.
+-- Key format: "<Protocol>.<variant>".
+local WiredVariants = {
+    ["ModeProto.mode_cold"] = true,
+    ["ModeProto.mode_warm"] = true,
+    ["ModeProto.mode_recording"] = true,
+    ["ModeProto.mode_compiling"] = true,
+    ["ModeProto.mode_native"] = true,
+
+    ["ColdProto.cold_next"] = true,
+    ["ColdProto.cold_to_warm"] = true,
+    ["ColdProto.cold_halt"] = true,
+
+    ["WarmProto.warm_next"] = true,
+    ["WarmProto.warm_to_recording"] = true,
+    ["WarmProto.warm_halt"] = true,
+
+    ["RecordingProto.rec_next"] = true,
+    ["RecordingProto.rec_to_compiling"] = true,
+    ["RecordingProto.rec_abort_to_warm"] = true,
+    ["RecordingProto.rec_halt"] = true,
+
+    ["CompilingProto.comp_next"] = true,
+    ["NativeProto.nat_next"] = true,
+
+    ["RecDecodeProto.rec_decoded"] = true,
+    ["RecDecodeProto.rec_decode_halt"] = true,
+    ["RecObserveProto.rec_observed"] = true,
+    ["RecFoldProto.rec_fold_keep"] = true,
+    ["RecFoldProto.rec_fold_replace"] = true,
+    ["RecFoldProto.rec_fold_abort"] = true,
+    ["RecSnapProto.rec_snap_none"] = true,
+    ["RecSnapProto.rec_snap_added"] = true,
+    ["RecCommitProto.rec_commit_continue"] = true,
+    ["RecCommitProto.rec_commit_to_compiling"] = true,
+    ["RecCommitProto.rec_commit_abort"] = true,
+
+    ["CompRaProto.comp_ra_done"] = true,
+    ["CompRaProto.comp_ra_fail"] = true,
+    ["CompEmitProto.comp_emit_done"] = true,
+    ["CompEmitProto.comp_emit_fail"] = true,
+    ["CompPatchProto.comp_patch_done"] = true,
+    ["CompPatchProto.comp_patch_fail"] = true,
+    ["CompStubProto.comp_stub_done"] = true,
+    ["CompStubProto.comp_stub_fail"] = true,
+    ["CompInstallProto.comp_install_done"] = true,
+    ["CompInstallProto.comp_install_fail"] = true,
+
+    ["CompilingProto.comp_to_native"] = true,
+    ["CompilingProto.comp_fail"] = true,
+
+    ["NatEnterProto.nat_enter_done"] = true,
+    ["NatEnterProto.nat_enter_fail"] = true,
+    ["NatRunProto.nat_run_exit"] = true,
+    ["NatExitDecodeProto.nat_decode_to_warm"] = true,
+    ["NatExitDecodeProto.nat_decode_to_recording"] = true,
+    ["NatExitDecodeProto.nat_decode_halt"] = true,
+    ["NatRestoreProto.nat_restore_done"] = true,
+    ["NatRestoreProto.nat_restore_fail"] = true,
+
+    ["NativeProto.nat_to_warm"] = true,
+    ["NativeProto.nat_to_recording"] = true,
+    ["NativeProto.nat_halt"] = true,
+
+    ["TraceProto.tr_start"] = true,
+    ["TraceProto.tr_record"] = true,
+    ["TraceProto.tr_end"] = true,
+    ["TraceProto.tr_asm"] = true,
+    ["TraceProto.tr_abort"] = true,
+
+    ["RootProto.root_started"] = true,
+    ["RootProto.root_ignored"] = true,
+    ["SideProto.side_started"] = true,
+    ["SideProto.side_skipped"] = true,
+
+    ["ExitProto.exit_restore_interp"] = true,
+    ["ExitProto.exit_side_hot"] = true,
+    ["ExitProto.exit_err"] = true,
+
+    ["StitchProto.stitch_linked"] = true,
+    ["StitchProto.stitch_rejected"] = true,
+
+    ["GCProtoFlow.gc_propagate"] = true,
+    ["GCProtoFlow.gc_sweep"] = true,
+    ["GCProtoFlow.gc_finalize"] = true,
+    ["GCProtoFlow.gc_pause"] = true,
+
+    ["BarrierProto.barrier_forward"] = true,
+    ["BarrierProto.barrier_back"] = true,
+    ["BarrierProto.barrier_none"] = true,
+
+    ["CallProto.call_lua"] = true,
+    ["CallProto.call_c"] = true,
+    ["CallProto.call_ff"] = true,
+    ["CallProto.call_err"] = true,
+
+    ["ReturnProto.ret_ok"] = true,
+    ["ReturnProto.ret_yield"] = true,
+    ["ReturnProto.ret_err"] = true,
+
+    ["MetaProto.meta_ok"] = true,
+    ["MetaProto.meta_call_mm"] = true,
+    ["MetaProto.meta_err"] = true,
+
+    ["FFIProto.ffi_ctype_parse"] = true,
+    ["FFIProto.ffi_cdata_alloc"] = true,
+    ["FFIProto.ffi_call_c"] = true,
+    ["FFIProto.ffi_callback"] = true,
+    ["FFIProto.ffi_err"] = true,
+
+    ["HookProto.hook_line"] = true,
+    ["HookProto.hook_call"] = true,
+    ["HookProto.hook_ret"] = true,
+    ["HookProto.hook_profile"] = true,
+
+    ["VMEventProto.vmevent_bc"] = true,
+    ["VMEventProto.vmevent_trace"] = true,
+    ["VMEventProto.vmevent_record"] = true,
+    ["VMEventProto.vmevent_texit"] = true,
+
+    ["VmProto.vm_step"] = true,
+    ["VmProto.vm_halt"] = true,
+
+    ["ModeProto.mode_bad"] = true,
+
+    ["ParseProto.parse_chunk"] = true,
+    ["ParseProto.parse_proto_done"] = true,
+    ["ParseProto.parse_err"] = true,
+    ["BCLoadProto.bcload_ok"] = true,
+    ["BCLoadProto.bcload_err"] = true,
+}
+
+local ExternalConsumers = {
+    host_drive_loop = true,
+    external_frontend = true,
+}
+
+local function consumer_known(name)
+    return RegionRegistry[name] ~= nil or ExternalConsumers[name] == true
+end
+
+local function sort_keys(t)
+    local keys = {}
+    for k, _ in pairs(t) do
+        keys[#keys + 1] = k
+    end
+    table.sort(keys)
+    return keys
+end
+
+local protocol_names = sort_keys(ProtocolVariants)
+
+local total = 0
+local producer_ok = 0
+local consumer_ok = 0
+local wired = 0
+
+print("--- vm surface coverage matrix ---")
+print("protocol,variant,producer,producer_ok,consumers,consumers_ok,wired")
+
+for _, proto in ipairs(protocol_names) do
+    local variants = ProtocolVariants[proto]
+    local producer = ProducerByProtocol[proto]
+    local producer_exists = RegionRegistry[producer] ~= nil
+    local consumers = ConsumersByProtocol[proto] or {}
+
+    local consumers_exist = true
+    for _, c in ipairs(consumers) do
+        if not consumer_known(c) then
+            consumers_exist = false
+            break
+        end
+    end
+
+    for _, v in ipairs(variants) do
+        total = total + 1
+        if producer_exists then producer_ok = producer_ok + 1 end
+        if consumers_exist then consumer_ok = consumer_ok + 1 end
+        local key = proto .. "." .. v
+        local is_wired = WiredVariants[key] == true
+        if is_wired then wired = wired + 1 end
+
+        print(string.format(
+            "%s,%s,%s,%s,%s,%s,%s",
+            proto,
+            v,
+            producer,
+            producer_exists and "yes" or "no",
+            table.concat(consumers, ";"),
+            consumers_exist and "yes" or "no",
+            is_wired and "yes" or "no"
+        ))
+    end
+end
+
+print(string.format("summary: variants=%d producer_ok=%d consumer_ok=%d wired=%d", total, producer_ok, consumer_ok, wired))
+
+-- Core gate: fail fast if the primary 5-mode path regresses.
+local CoreRequiredVariants = {
+    "ModeProto.mode_cold",
+    "ModeProto.mode_warm",
+    "ModeProto.mode_recording",
+    "ModeProto.mode_compiling",
+    "ModeProto.mode_native",
+
+    "ColdProto.cold_next",
+    "ColdProto.cold_halt",
+    "WarmProto.warm_next",
+    "WarmProto.warm_halt",
+
+    "RecordingProto.rec_next",
+    "RecordingProto.rec_halt",
+
+    "CompilingProto.comp_next",
+    "NativeProto.nat_next",
+
+    "RecDecodeProto.rec_decoded",
+    "RecDecodeProto.rec_decode_halt",
+    "RecObserveProto.rec_observed",
+    "RecFoldProto.rec_fold_keep",
+    "RecFoldProto.rec_fold_abort",
+
+    "CompRaProto.comp_ra_done",
+    "CompEmitProto.comp_emit_done",
+    "CompPatchProto.comp_patch_done",
+    "CompInstallProto.comp_install_done",
+
+    "NatEnterProto.nat_enter_done",
+    "NatRunProto.nat_run_exit",
+    "NatExitDecodeProto.nat_decode_to_warm",
+    "NatExitDecodeProto.nat_decode_to_recording",
+    "NatRestoreProto.nat_restore_done",
+}
+
+local missing_core = {}
+for _, key in ipairs(CoreRequiredVariants) do
+    if WiredVariants[key] ~= true then
+        missing_core[#missing_core + 1] = key
+    end
+end
+
+if #missing_core > 0 then
+    print("core_wiring_missing," .. table.concat(missing_core, ";"))
+    error("core wiring gate failed")
+end
+
+print(string.format("core_wiring_gate,ok,required=%d", #CoreRequiredVariants))
+
+-- Priority plan for next wiring work.
+local PriorityByVariant = {}
+
+local function mark_priority(rank, label, keys)
+    for _, key in ipairs(keys) do
+        PriorityByVariant[key] = { rank = rank, label = label }
+    end
+end
+
+mark_priority(1, "recording closeout", {
+    "RecSnapProto.rec_snap_none",
+    "RecSnapProto.rec_snap_added",
+    "RecCommitProto.rec_commit_continue",
+    "RecCommitProto.rec_commit_to_compiling",
+    "RecCommitProto.rec_commit_abort",
+    "RecordingProto.rec_to_compiling",
+    "RecordingProto.rec_abort_to_warm",
+    "WarmProto.warm_to_recording",
+})
+
+mark_priority(2, "compile/native completion", {
+    "CompStubProto.comp_stub_done",
+    "CompStubProto.comp_stub_fail",
+    "CompRaProto.comp_ra_fail",
+    "CompEmitProto.comp_emit_fail",
+    "CompPatchProto.comp_patch_fail",
+    "CompInstallProto.comp_install_fail",
+    "CompilingProto.comp_to_native",
+    "CompilingProto.comp_fail",
+    "NativeProto.nat_to_warm",
+    "NativeProto.nat_to_recording",
+    "NatExitDecodeProto.nat_decode_halt",
+    "NatRestoreProto.nat_restore_fail",
+    "NatEnterProto.nat_enter_fail",
+})
+
+mark_priority(3, "trace/exit linkage", {
+    "TraceProto.tr_start",
+    "TraceProto.tr_record",
+    "TraceProto.tr_end",
+    "TraceProto.tr_asm",
+    "TraceProto.tr_abort",
+    "RootProto.root_started",
+    "RootProto.root_ignored",
+    "SideProto.side_started",
+    "SideProto.side_skipped",
+    "ExitProto.exit_restore_interp",
+    "ExitProto.exit_side_hot",
+    "ExitProto.exit_err",
+    "StitchProto.stitch_linked",
+    "StitchProto.stitch_rejected",
+    "RecFoldProto.rec_fold_replace",
+})
+
+mark_priority(4, "runtime subsystems", {
+    "GCProtoFlow.gc_propagate",
+    "GCProtoFlow.gc_sweep",
+    "GCProtoFlow.gc_finalize",
+    "GCProtoFlow.gc_pause",
+    "BarrierProto.barrier_forward",
+    "BarrierProto.barrier_back",
+    "BarrierProto.barrier_none",
+    "CallProto.call_lua",
+    "CallProto.call_c",
+    "CallProto.call_ff",
+    "CallProto.call_err",
+    "ReturnProto.ret_ok",
+    "ReturnProto.ret_yield",
+    "ReturnProto.ret_err",
+    "MetaProto.meta_ok",
+    "MetaProto.meta_call_mm",
+    "MetaProto.meta_err",
+    "FFIProto.ffi_ctype_parse",
+    "FFIProto.ffi_cdata_alloc",
+    "FFIProto.ffi_call_c",
+    "FFIProto.ffi_callback",
+    "FFIProto.ffi_err",
+    "HookProto.hook_line",
+    "HookProto.hook_call",
+    "HookProto.hook_ret",
+    "HookProto.hook_profile",
+    "VMEventProto.vmevent_bc",
+    "VMEventProto.vmevent_trace",
+    "VMEventProto.vmevent_record",
+    "VMEventProto.vmevent_texit",
+    "VmProto.vm_step",
+    "VmProto.vm_halt",
+    "ModeProto.mode_bad",
+    "ColdProto.cold_to_warm",
+    "NativeProto.nat_halt",
+})
+
+mark_priority(5, "frontend", {
+    "ParseProto.parse_chunk",
+    "ParseProto.parse_proto_done",
+    "ParseProto.parse_err",
+    "BCLoadProto.bcload_ok",
+    "BCLoadProto.bcload_err",
+})
+
+local unwired = {}
+for _, proto in ipairs(protocol_names) do
+    for _, v in ipairs(ProtocolVariants[proto]) do
+        local key = proto .. "." .. v
+        if WiredVariants[key] ~= true then
+            local p = PriorityByVariant[key]
+            unwired[#unwired + 1] = {
+                key = key,
+                rank = p and p.rank or 99,
+                label = p and p.label or "unclassified",
+            }
+        end
+    end
+end
+
+table.sort(unwired, function(a, b)
+    if a.rank ~= b.rank then return a.rank < b.rank end
+    return a.key < b.key
+end)
+
+print("--- unwired by priority ---")
+for i, item in ipairs(unwired) do
+    if i > 40 then
+        print(string.format("...,more=%d", #unwired - 40))
+        break
+    end
+    print(string.format("%02d,%s,%s", item.rank, item.label, item.key))
+end
+
+return "vm surface model loaded"

@@ -1,0 +1,269 @@
+;; rules_x64.lisle — x64 instruction selector for MoonBack.Cmd
+;;
+;; Each rule maps a MoonBack.Cmd constructor to the handler in
+;; back/dasm/isel_x64.lua.  The lisle compiler turns this into a
+;; pattern-matching trie; compile.lua calls the generated
+;; M.lower_cmd(cmd, regmap, cmd_index).
+;;
+;; =====================================================================
+;; Command constructors (sum type)
+;; =====================================================================
+
+(type Cmd
+  (CmdConst dst ty value)
+  (CmdAlias dst src)
+  (CmdUnary dst op ty value)
+  (CmdIntrinsic dst op ty args)
+  (CmdCompare dst op ty lhs rhs)
+  (CmdCast dst op ty value)
+  (CmdPtrOffset dst base index elem_size const_offset provenance bounds)
+  (CmdLoadInfo dst ty addr memory)
+  (CmdStoreInfo ty addr value memory)
+  (CmdIntBinary dst op scalar semantics lhs rhs)
+  (CmdBitBinary dst op scalar lhs rhs)
+  (CmdBitNot dst scalar value)
+  (CmdShift dst op scalar lhs rhs)
+  (CmdRotate dst op scalar lhs rhs)
+  (CmdFloatBinary dst op scalar semantics lhs rhs)
+  (CmdSelect dst ty cond then_value else_value)
+  (CmdFma dst ty semantics a b c)
+  (CmdCall result target sig args)
+  (CmdJump dest args)
+  (CmdBrIf cond then_block then_args else_block else_args)
+  (CmdSwitchInt value ty cases default_dest)
+  (CmdReturnValue value)
+  CmdReturnVoid
+  CmdTrap
+  (CmdStackAddr dst slot)
+  (CmdFuncAddr dst func)
+  (CmdExternAddr dst func)
+  (CmdDataAddr dst data)
+  (CmdMemcpy dst src len)
+  (CmdMemset dst byte len)
+  (CmdVecSplat dst ty value)
+  (CmdVecBinary dst op ty lhs rhs)
+  (CmdVecCompare dst op ty lhs rhs)
+  (CmdVecSelect dst ty mask then_value else_value)
+  (CmdVecMask dst op ty args)
+  (CmdVecInsertLane dst ty value lane_value lane)
+  (CmdVecExtractLane dst ty value lane)
+
+  ;; Structural commands handled by earlier phases (no-op in isel)
+  CmdCreateBlock
+  CmdSwitchToBlock
+  CmdSealBlock
+  CmdBindEntryParams
+  CmdAppendBlockParam
+  CmdCreateStackSlot
+  CmdTargetModel
+  CmdCreateSig
+  CmdDeclareFunc
+  CmdDeclareExtern
+  CmdDeclareData
+  CmdDataInitZero
+  CmdDataInit
+  CmdBeginFunc
+  CmdFinishFunc
+  CmdFinalizeModule
+  CmdAliasFact
+)
+
+;; =====================================================================
+;; Terms (generated functions)
+;; =====================================================================
+
+(term lower_cmd   (cmd regmap cmd_index))
+
+;; =====================================================================
+;; Dispatch rules — priority 0 = default, higher = more specific
+;; =====================================================================
+
+;; ── Constants ──
+(rule lower_cmd 0 ((CmdConst _ _ _) regmap cmd_index)
+  (lua "return isel.const_(cmd, regmap)"))
+
+;; ── Alias (register move) ──
+(rule lower_cmd 0 ((CmdAlias _ _) regmap cmd_index)
+  (lua "return isel.alias_(cmd, regmap)"))
+
+;; ── Unary ──
+(rule lower_cmd 0 ((CmdUnary _ _ _ _) regmap cmd_index)
+  (lua "return isel.unary_(cmd, regmap)"))
+
+;; ── Integer binary ──
+;; TODO: Add priority > 0 rules for (IntConst rhs) → add_imm, sub_imm, etc.
+(rule lower_cmd 0 ((CmdIntBinary _ _ _ _ _ _) regmap cmd_index)
+  (lua "return isel.intbin_(cmd, regmap, cmd_index)"))
+
+;; ── Bitwise binary ──
+(rule lower_cmd 0 ((CmdBitBinary _ _ _ _ _) regmap cmd_index)
+  (lua "return isel.bitbin_(cmd, regmap, cmd_index)"))
+
+;; ── Bitwise not ──
+(rule lower_cmd 0 ((CmdBitNot _ _ _) regmap cmd_index)
+  (lua "return isel.bitnot_(cmd, regmap)"))
+
+;; ── Shift ──
+(rule lower_cmd 0 ((CmdShift _ _ _ _ _) regmap cmd_index)
+  (lua "return isel.shift_(cmd, regmap, cmd_index)"))
+
+;; ── Rotate ──
+(rule lower_cmd 0 ((CmdRotate _ _ _ _ _) regmap cmd_index)
+  (lua "return isel.rotate_(cmd, regmap, cmd_index)"))
+
+;; ── Float binary ──
+(rule lower_cmd 0 ((CmdFloatBinary _ _ _ _ _ _) regmap cmd_index)
+  (lua "return isel.floatbin_(cmd, regmap)"))
+
+;; ── Comparison ──
+(rule lower_cmd 0 ((CmdCompare _ _ _ _ _) regmap cmd_index)
+  (lua "return isel.compare_(cmd, regmap)"))
+
+;; ── Cast ──
+(rule lower_cmd 0 ((CmdCast _ _ _ _) regmap cmd_index)
+  (lua "return isel.cast_(cmd, regmap)"))
+
+;; ── Intrinsics ──
+(rule lower_cmd 0 ((CmdIntrinsic _ _ _ _) regmap cmd_index)
+  (lua "return isel.intrinsic_(cmd, regmap)"))
+
+;; ── Memory ──
+(rule lower_cmd 0 ((CmdLoadInfo _ _ _ _) regmap cmd_index)
+  (lua "return isel.load_(cmd, regmap)"))
+
+(rule lower_cmd 0 ((CmdStoreInfo _ _ _ _) regmap cmd_index)
+  (lua "return isel.store_(cmd, regmap)"))
+
+;; ── Pointer offset ──
+(rule lower_cmd 0 ((CmdPtrOffset _ _ _ _ _ _ _) regmap cmd_index)
+  (lua "return isel.ptroff_(cmd, regmap)"))
+
+;; ── Select ──
+(rule lower_cmd 0 ((CmdSelect _ _ _ _ _) regmap cmd_index)
+  (lua "return isel.select_(cmd, regmap)"))
+
+;; ── FMA ──
+(rule lower_cmd 0 ((CmdFma _ _ _ _ _ _) regmap cmd_index)
+  (lua "return isel.fma_(cmd, regmap)"))
+
+;; ── Control flow ──
+(rule lower_cmd 0 ((CmdJump _ _) regmap cmd_index)
+  (lua "return isel.jump_(cmd, regmap)"))
+
+(rule lower_cmd 0 ((CmdBrIf _ _ _ _ _) regmap cmd_index)
+  (lua "return isel.brif_(cmd, regmap)"))
+
+(rule lower_cmd 0 ((CmdSwitchInt _ _ _ _) regmap cmd_index)
+  (lua "return isel.switch_(cmd, regmap)"))
+
+;; ── Calls ──
+(rule lower_cmd 0 ((CmdCall _ _ _ _) regmap cmd_index)
+  (lua "return isel.call_(cmd, regmap)"))
+
+;; ── Returns ──
+(rule lower_cmd 0 ((CmdReturnValue _) regmap cmd_index)
+  (lua "return isel.retval_(cmd, regmap)"))
+
+(rule lower_cmd 0 ((CmdReturnVoid) regmap cmd_index)
+  (lua "return isel.emit_epilogue()"))
+
+;; ── Trap ──
+(rule lower_cmd 0 ((CmdTrap) regmap cmd_index)
+  (lua "return encode.emit('int3_0')"))
+
+;; ── Stack / func / extern / data address ──
+(rule lower_cmd 0 ((CmdStackAddr _ _) regmap cmd_index)
+  (lua "return isel.stackaddr_(cmd, regmap)"))
+
+(rule lower_cmd 0 ((CmdFuncAddr _ _) regmap cmd_index)
+  (lua "return isel.funcaddr_(cmd, regmap)"))
+
+(rule lower_cmd 0 ((CmdExternAddr _ _) regmap cmd_index)
+  (lua "return isel.externaddr_(cmd, regmap)"))
+
+(rule lower_cmd 0 ((CmdDataAddr _ _) regmap cmd_index)
+  (lua "return isel.dataaddr_(cmd, regmap)"))
+
+;; ── Bulk memory ──
+(rule lower_cmd 0 ((CmdMemcpy _ _ _) regmap cmd_index)
+  (lua "return isel.memcpy_(cmd, regmap)"))
+
+(rule lower_cmd 0 ((CmdMemset _ _ _) regmap cmd_index)
+  (lua "return isel.memset_(cmd, regmap)"))
+
+;; ── Vector operations (not yet supported) ──
+(rule lower_cmd 0 ((CmdVecSplat _ _ _) regmap cmd_index)
+  (lua "error('isel: vector CmdVecSplat not supported')"))
+
+(rule lower_cmd 0 ((CmdVecBinary _ _ _ _ _) regmap cmd_index)
+  (lua "error('isel: vector CmdVecBinary not supported')"))
+
+(rule lower_cmd 0 ((CmdVecCompare _ _ _ _ _) regmap cmd_index)
+  (lua "error('isel: vector CmdVecCompare not supported')"))
+
+(rule lower_cmd 0 ((CmdVecSelect _ _ _ _ _) regmap cmd_index)
+  (lua "error('isel: vector CmdVecSelect not supported')"))
+
+(rule lower_cmd 0 ((CmdVecMask _ _ _ _) regmap cmd_index)
+  (lua "error('isel: vector CmdVecMask not supported')"))
+
+(rule lower_cmd 0 ((CmdVecInsertLane _ _ _ _ _) regmap cmd_index)
+  (lua "error('isel: vector CmdVecInsertLane not supported')"))
+
+(rule lower_cmd 0 ((CmdVecExtractLane _ _ _ _) regmap cmd_index)
+  (lua "error('isel: vector CmdVecExtractLane not supported')"))
+
+;; ── Structural commands (no-op in isel) ──
+(rule lower_cmd 0 ((CmdCreateBlock) regmap cmd_index)
+  (lua "return"))
+
+(rule lower_cmd 0 ((CmdSwitchToBlock) regmap cmd_index)
+  (lua "return"))
+
+(rule lower_cmd 0 ((CmdSealBlock) regmap cmd_index)
+  (lua "return"))
+
+(rule lower_cmd 0 ((CmdBindEntryParams) regmap cmd_index)
+  (lua "return"))
+
+(rule lower_cmd 0 ((CmdAppendBlockParam) regmap cmd_index)
+  (lua "return"))
+
+(rule lower_cmd 0 ((CmdCreateStackSlot) regmap cmd_index)
+  (lua "return"))
+
+(rule lower_cmd 0 ((CmdTargetModel) regmap cmd_index)
+  (lua "return"))
+
+(rule lower_cmd 0 ((CmdCreateSig) regmap cmd_index)
+  (lua "return"))
+
+(rule lower_cmd 0 ((CmdDeclareFunc) regmap cmd_index)
+  (lua "return"))
+
+(rule lower_cmd 0 ((CmdDeclareExtern) regmap cmd_index)
+  (lua "return"))
+
+(rule lower_cmd 0 ((CmdDeclareData) regmap cmd_index)
+  (lua "return"))
+
+(rule lower_cmd 0 ((CmdDataInitZero) regmap cmd_index)
+  (lua "return"))
+
+(rule lower_cmd 0 ((CmdDataInit) regmap cmd_index)
+  (lua "return"))
+
+(rule lower_cmd 0 ((CmdBeginFunc) regmap cmd_index)
+  (lua "return"))
+
+(rule lower_cmd 0 ((CmdFinishFunc) regmap cmd_index)
+  (lua "return"))
+
+(rule lower_cmd 0 ((CmdFinalizeModule) regmap cmd_index)
+  (lua "return"))
+
+(rule lower_cmd 0 ((CmdAliasFact) regmap cmd_index)
+  (lua "return"))
+
+(default lower_cmd
+  (lua "error('isel: unhandled command in rules_x64.lisle: ' .. tostring(cmd and cmd.kind), 0)"))

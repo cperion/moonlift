@@ -1,0 +1,13 @@
+local S = struct S
+    a: i32
+    b: i32
+end
+
+local f = func f(x: i32) -> i32
+    return x + 1
+end
+
+local c = f:compile()
+print("struct smoke", c(1))
+c:free()
+return "ok"

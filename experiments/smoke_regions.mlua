@@ -1,0 +1,80 @@
+-- Minimal smoke test: does store through ptr(i32) index work?
+
+local ffi = require("ffi")
+
+local add1 = func add1(p: ptr(i32)) -> i32
+    p[0] = p[0] + 1
+    return p[0]
+end
+
+local c1 = add1:compile()
+local buf1 = ffi.new("int32_t[?]", 4, 7)
+print("add1 smoke:", c1(buf1), "expect 8")
+assert(c1(buf1) == 9)
+c1:free()
+
+-- Now try the simplest loop: count from 0 to n
+local count = func count(n: i32) -> i32
+    return block loop(i: i32 = 0, acc: i32 = 0) -> i32
+        if i >= n then yield acc end
+        jump loop(i = i + 1, acc = acc + 1)
+    end
+end
+
+local c2 = count:compile()
+print("count(10):", c2(10), "expect 10")
+assert(c2(10) == 10)
+c2:free()
+
+-- Now try a simple region: increment through a region
+local inc_region = region inc_region(x: i32; next: cont(v: i32))
+entry start()
+    jump next(v = x + 1)
+end
+end
+
+local use_inc = func use_inc(x: i32) -> i32
+    return region -> i32
+    entry start()
+        emit inc_region(x; next = done)
+    end
+    block done(v: i32)
+        yield v
+    end
+    end
+end
+
+local c3 = use_inc:compile()
+print("use_inc(41):", c3(41), "expect 42")
+assert(c3(41) == 42)
+c3:free()
+
+-- Now try a looped region: sum from 0..n
+local sum_step = region sum_step(i: i32, n: i32, acc: i32; next: cont(i: i32, acc: i32), done: cont(result: i32))
+entry start()
+    if i >= n then jump done(result = acc) end
+    jump next(i = i + 1, acc = acc + i)
+end
+end
+
+local sum_n = func sum_n(n: i32) -> i32
+    return region -> i32
+    entry start()
+        emit sum_step(0, n, 0; next = loop, done = finished)
+    end
+    block loop(i: i32, acc: i32)
+        emit sum_step(i, n, acc; next = loop, done = finished)
+    end
+    block finished(result: i32)
+        yield result
+    end
+    end
+end
+
+local c4 = sum_n:compile()
+print("sum_n(5):", c4(5), "expect 10")
+assert(c4(5) == 10)
+c4:free()
+
+print("all smoke tests passed!")
+return "ok"

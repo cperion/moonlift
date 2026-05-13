@@ -1,0 +1,23 @@
+local ffi = require("ffi")
+
+local inc = region inc(x: i32; next: cont(v: i32))
+entry start()
+    jump next(v = x + 1)
+end
+end
+
+local run = func run(x: i32) -> i32
+    return region -> i32
+    entry start()
+        emit @{inc}(x; next = done)
+    end
+    block done(v: i32)
+        yield v
+    end
+    end
+end
+
+local compiled = run:compile()
+print("regular_min", compiled(41))
+compiled:free()
+return "ok"

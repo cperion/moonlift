@@ -1,0 +1,18 @@
+local ffi = require("ffi")
+
+local S = struct S
+    mode: i32
+    pc: i32
+end
+
+local get_mode = func get_mode(st: ptr(S)) -> i32
+    return (*st).mode
+end
+
+local compiled = get_mode:compile()
+local st = ffi.new("int32_t[2]")
+st[0] = 7
+st[1] = 9
+print("ptr smoke", compiled(st))
+compiled:free()
+return "ok"

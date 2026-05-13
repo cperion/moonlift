@@ -1,0 +1,100 @@
+-- Tape × Mem machine experiment (single control machine)
+--
+-- This version keeps all states as blocks in one control region so it runs
+-- today without recursive emit expansion.
+
+local ffi = require("ffi")
+
+local run_machine = func run_machine(tape: ptr(i32), n: i32) -> i32
+    return region -> i32
+    entry start()
+        jump check(pc = 0, tape_len = 0, mem_sum = 0, live = 0, phase = 0, fuel = 256)
+    end
+
+    -- Product-space invariant gate.
+    block check(pc: i32, tape_len: i32, mem_sum: i32, live: i32, phase: i32, fuel: i32)
+        if fuel <= 0 then jump halted(code = -700) end
+        if pc < 0 then jump halted(code = -200) end
+        if tape_len < 0 then jump halted(code = -201) end
+        if live < 0 then jump halted(code = -202) end
+        jump mode_select(pc = pc, tape_len = tape_len, mem_sum = mem_sum, live = live, phase = phase, fuel = fuel)
+    end
+
+    -- Machine protocol dispatch.
+    block mode_select(pc: i32, tape_len: i32, mem_sum: i32, live: i32, phase: i32, fuel: i32)
+        if phase == 0 then
+            jump exec_slice(pc = pc, tape_len = tape_len, mem_sum = mem_sum, live = live, fuel = fuel)
+        end
+        if phase == 1 then
+            jump gc_slice(pc = pc, tape_len = tape_len, mem_sum = mem_sum, live = live, fuel = fuel)
+        end
+        jump halted(code = -203)
+    end
+
+    -- Exec slice.
+    block exec_slice(pc: i32, tape_len: i32, mem_sum: i32, live: i32, fuel: i32)
+        if pc >= n then jump halted(code = mem_sum + tape_len * 10 + live * 100) end
+
+        let op: i32 = tape[pc]
+        if op == 0 then
+            if pc + 1 >= n then jump halted(code = -10) end
+            let imm: i32 = tape[pc + 1]
+            jump check(pc = pc + 2, tape_len = tape_len + 1, mem_sum = mem_sum + imm, live = live, phase = 0, fuel = fuel - 1)
+        end
+        if op == 1 then
+            jump check(pc = pc + 1, tape_len = tape_len + 1, mem_sum = mem_sum + 1, live = live, phase = 0, fuel = fuel - 1)
+        end
+        if op == 2 then
+            jump check(pc = pc + 1, tape_len = tape_len + 1, mem_sum = mem_sum, live = live + 1, phase = 0, fuel = fuel - 1)
+        end
+        if op == 3 then
+            let next_live: i32 = live - 1
+            if next_live < 0 then jump halted(code = -31) end
+            jump check(pc = pc + 1, tape_len = tape_len + 1, mem_sum = mem_sum, live = next_live, phase = 1, fuel = fuel - 1)
+        end
+        if op == 4 then
+            jump check(pc = pc + 1, tape_len = tape_len + 1, mem_sum = mem_sum, live = live, phase = 1, fuel = fuel - 1)
+        end
+        if op == 9 then
+            jump halted(code = mem_sum + tape_len * 10 + live * 100)
+        end
+        jump halted(code = -99)
+    end
+
+    -- GC slice.
+    block gc_slice(pc: i32, tape_len: i32, mem_sum: i32, live: i32, fuel: i32)
+        if live == 0 then
+            jump check(pc = pc, tape_len = tape_len, mem_sum = mem_sum + 1000, live = live, phase = 0, fuel = fuel - 1)
+        end
+        jump check(pc = pc, tape_len = tape_len, mem_sum = mem_sum + 10, live = live, phase = 0, fuel = fuel - 1)
+    end
+
+    block halted(code: i32)
+        yield code
+    end
+    end
+end
+
+print("compiling run_machine...")
+local compiled = run_machine:compile()
+print("compile done")
+
+local function run_tape(words)
+    local p = ffi.new("int32_t[?]", #words)
+    for i, v in ipairs(words) do
+        p[i - 1] = v
+    end
+    return compiled(p, #words)
+end
+
+print("=== Tape × Mem blocks machine ===")
+local code1 = run_tape({ 0, 10, 0, 32, 1, 2, 3, 4, 9 })
+local code2 = run_tape({ 3, 9 })
+print("program1 code =", code1)
+print("program2 code =", code2)
+
+assert(code1 == 2103)
+assert(code2 == -31)
+
+compiled:free()
+return "tapexmem blocks machine ok"

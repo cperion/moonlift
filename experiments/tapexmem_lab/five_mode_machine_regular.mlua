@@ -1,0 +1,1874 @@
+local ffi = require("ffi")
+
+-- Surface-first schema: memory layout + machine protocol.
+-- This is the stable design surface; submachine code below is refinement.
+local IteratorState = struct IteratorState
+    mode: i32
+    pc: i32
+    mem_acc: i32
+    tape_ops: i32
+    hot_counter: i32
+    fuel: i32
+    trace_ready: i32
+    native_budget: i32
+    rec_len: i32
+    gc_facts: i32
+    opt_facts: i32
+    live: i32
+    blacklist: i32
+    exits: i32
+end
+
+-- Explicit mode protocols (one contract per state region).
+local InvProto = union InvProto inv_ok() | inv_bad(code: i32) end
+local ColdProto = union ColdProto cold_next() | cold_to_warm() | cold_halt(code: i32) end
+local WarmProto = union WarmProto warm_next() | warm_to_recording() | warm_halt(code: i32) end
+local RecProto = union RecProto rec_next() | rec_to_compiling() | rec_abort_to_warm(code: i32) | rec_halt(code: i32) end
+local CompProto = union CompProto comp_next() | comp_to_native() | comp_fail(code: i32) end
+local NatProto = union NatProto nat_next() | nat_to_warm() | nat_to_recording() | nat_halt(code: i32) end
+
+-- Native pipeline protocols (enter -> run -> exit decode -> resume).
+local NatEnterProto = union NatEnterProto nat_enter_ready() | nat_enter_fail(code: i32) end
+local NatEnterPolicyProto = union NatEnterPolicyProto nep_ready() | nep_fail(code: i32) end
+local NatExecBodyProto = union NatExecBodyProto neb_done() end
+local NatExitKindProto = union NatExitKindProto nek_done(exit_kind: i32) end
+local NatRunProto = union NatRunProto nat_run_done(exit_kind: i32) end
+local NatExitProto = union NatExitProto nat_to_warm() | nat_to_recording() | nat_decode_halt(code: i32) end
+local NatResumeProto = union NatResumeProto nat_resumed() | nat_resume_fail(code: i32) end
+
+-- Compiling pipeline protocols (RA -> Emit -> Patch -> Stub -> Install).
+local CompRaProto = union CompRaProto comp_ra_done() | comp_ra_fail(code: i32) end
+local CompEmitProto = union CompEmitProto comp_emit_done() | comp_emit_fail(code: i32) end
+local CompPatchProto = union CompPatchProto comp_patch_done() | comp_patch_fail(code: i32) end
+local CompStubProto = union CompStubProto comp_stub_done() | comp_stub_fail(code: i32) end
+local CompInstallProto = union CompInstallProto comp_install_done() | comp_install_fail(code: i32) end
+
+-- Trace / exit linkage protocols.
+local TraceProto = union TraceProto tr_start() | tr_record() | tr_end() | tr_asm() | tr_abort(code: i32) end
+local RootProto = union RootProto root_started() | root_ignored() end
+local SideProto = union SideProto side_started() | side_skipped() end
+local ExitProto = union ExitProto exit_restore_interp() | exit_side_hot() | exit_err(code: i32) end
+local StitchProto = union StitchProto stitch_linked() | stitch_rejected(code: i32) end
+
+-- Runtime subsystem protocols.
+local GCProtoFlow = union GCProtoFlow gc_propagate() | gc_sweep() | gc_finalize() | gc_pause() end
+local BarrierProto = union BarrierProto barrier_forward() | barrier_back() | barrier_none() end
+local CallProto = union CallProto call_lua() | call_c() | call_ff() | call_err(code: i32) end
+local ReturnProto = union ReturnProto ret_ok() | ret_yield() | ret_err(code: i32) end
+local MetaProto = union MetaProto meta_ok() | meta_call_mm(mm: i32) | meta_err(code: i32) end
+local FFIProto = union FFIProto ffi_ctype_parse() | ffi_cdata_alloc() | ffi_call_c() | ffi_callback() | ffi_err(code: i32) end
+local HookProto = union HookProto hook_line() | hook_call() | hook_ret() | hook_profile() end
+local VMEventProto = union VMEventProto vmevent_bc() | vmevent_trace() | vmevent_record() | vmevent_texit() end
+local PreludeProto = union PreludeProto prelude_done() end
+local HotCountTickProto = union HotCountTickProto hc_tick_continue() | hc_tick_hot(pc: i32) end
+local HotCountSetProto = union HotCountSetProto hc_set_done() end
+local BlacklistProto = union BlacklistProto bl_pass() | bl_blocked() end
+local PenaltyProto = union PenaltyProto pen_done() end
+local PolicyHotProto = union PolicyHotProto pol_hot_record(pc: i32) | pol_hot_skip() end
+local PolicyAbortProto = union PolicyAbortProto pol_abort_done() end
+local PolicyCommitProto = union PolicyCommitProto pol_commit_done() end
+local AnchorLookupProto = union AnchorLookupProto anchor_hit(trace: i32, pc: i32) | anchor_miss(pc: i32) end
+local TraceLayoutProto = union TraceLayoutProto trace_layout_done() end
+local InstallDispatchProto = union InstallDispatchProto install_dispatch_done() end
+local InstallActivateProto = union InstallActivateProto install_activate_done() end
+local ExitLinkPolicyProto = union ExitLinkPolicyProto exlink_hit(trace: i32, exno: i32) | exlink_miss(exno: i32) end
+local ExitSnapPolicyProto = union ExitSnapPolicyProto exsnap_done(exno: i32) end
+local ExitRoutePolicyProto = union ExitRoutePolicyProto exroute_record(exno: i32) | exroute_warm(exno: i32) end
+local IrBuildProto = union IrBuildProto ir_build_done() | ir_build_fail(code: i32) end
+local DeoptSelectProto = union DeoptSelectProto deopt_sel_slot0(base: i32) | deopt_sel_slot1(base: i32) | deopt_sel_fail(code: i32) end
+local DeoptRestoreProto = union DeoptRestoreProto deopt_restore_done() | deopt_restore_fail(code: i32) end
+
+-- Recording submachine split, preserving the seed architecture idea:
+-- execute + observe + fold are explicit submachines wired by protocols.
+local RecDecodeProto = union RecDecodeProto rec_decoded(op: i32) | rec_decode_halt(code: i32) end
+local RecObserveProto = union RecObserveProto rec_observed(op: i32) end
+local RecFoldProto = union RecFoldProto rec_fold_next(op: i32) | rec_fold_replace(op: i32) | rec_fold_abort() end
+local RecExecProto = union RecExecProto rec_exec_next() | rec_exec_halt(code: i32) end
+local RecSnapProto = union RecSnapProto rec_snap_none() | rec_snap_added() end
+local RecCommitProto = union RecCommitProto rec_commit_continue() | rec_commit_to_compiling() | rec_commit_abort(code: i32) end
+
+-- st indices:
+-- 0 mode (0 cold, 1 warm, 2 recording, 3 compiling, 4 native)
+-- 1 pc, 2 mem_acc, 3 tape_ops, 4 hot_counter, 5 fuel
+-- 6 trace_ready, 7 native_budget, 8 rec_len
+-- 9 gc_facts, 10 opt_facts, 11 live, 12 blacklist_cooldown, 13 exits
+-- 14 active_trace_id, 15 trace_count
+-- 16 snap_valid, 17 snap_pc, 18 snap_acc, 19 snap_live
+-- 20 hotloop_param, 21 hotexit_param, 22 penalty, 23 ir_cursor
+-- 24 pending_root_pc / ir_base_scratch, 25 pending_parent_trace / ir_len_scratch, 26 pending_parent_exit_no
+-- 27 ir_arg_scratch / exit_hitcount_scratch
+
+-- LuaJIT IRDEF order (lj_ir.h). These IDs are canonical.
+local IR = {
+    LT = 0,
+    GE = 1,
+    LE = 2,
+    GT = 3,
+    ULT = 4,
+    UGE = 5,
+    ULE = 6,
+    UGT = 7,
+    EQ = 8,
+    NE = 9,
+    ABC = 10,
+    RETF = 11,
+    NOP = 12,
+    BASE = 13,
+    PVAL = 14,
+    GCSTEP = 15,
+    HIOP = 16,
+    LOOP = 17,
+    USE = 18,
+    PHI = 19,
+    RENAME = 20,
+    PROF = 21,
+    KPRI = 22,
+    KINT = 23,
+    KGC = 24,
+    KPTR = 25,
+    KKPTR = 26,
+    KNULL = 27,
+    KNUM = 28,
+    KINT64 = 29,
+    KSLOT = 30,
+    BNOT = 31,
+    BSWAP = 32,
+    BAND = 33,
+    BOR = 34,
+    BXOR = 35,
+    BSHL = 36,
+    BSHR = 37,
+    BSAR = 38,
+    BROL = 39,
+    BROR = 40,
+    ADD = 41,
+    SUB = 42,
+    MUL = 43,
+    DIV = 44,
+    MOD = 45,
+    POW = 46,
+    NEG = 47,
+    ABS = 48,
+    LDEXP = 49,
+    MIN = 50,
+    MAX = 51,
+    FPMATH = 52,
+    ADDOV = 53,
+    SUBOV = 54,
+    MULOV = 55,
+    AREF = 56,
+    HREFK = 57,
+    HREF = 58,
+    NEWREF = 59,
+    UREFO = 60,
+    UREFC = 61,
+    FREF = 62,
+    TMPREF = 63,
+    STRREF = 64,
+    LREF = 65,
+    ALOAD = 66,
+    HLOAD = 67,
+    ULOAD = 68,
+    FLOAD = 69,
+    XLOAD = 70,
+    SLOAD = 71,
+    VLOAD = 72,
+    ALEN = 73,
+    ASTORE = 74,
+    HSTORE = 75,
+    USTORE = 76,
+    FSTORE = 77,
+    XSTORE = 78,
+    SNEW = 79,
+    XSNEW = 80,
+    TNEW = 81,
+    TDUP = 82,
+    CNEW = 83,
+    CNEWI = 84,
+    BUFHDR = 85,
+    BUFPUT = 86,
+    BUFSTR = 87,
+    TBAR = 88,
+    OBAR = 89,
+    XBAR = 90,
+    CONV = 91,
+    TOBIT = 92,
+    TOSTR = 93,
+    STRTO = 94,
+    CALLN = 95,
+    CALLA = 96,
+    CALLL = 97,
+    CALLS = 98,
+    CALLXS = 99,
+    CARG = 100,
+}
+
+local IR_LT = IR.LT
+local IR_RETF = IR.RETF
+local IR_GCSTEP = IR.GCSTEP
+local IR_KINT = IR.KINT
+local IR_ADD = IR.ADD
+local IR_TNEW = IR.TNEW
+
+local inv_check = region inv_check(st: ptr(i32), n: i32) -> InvProto
+entry start()
+    if st[5] <= 0 then jump inv_bad(code = -700) end
+    if st[0] < 0 then jump inv_bad(code = -710) end
+    if st[0] > 4 then jump inv_bad(code = -711) end
+    if st[1] < 0 then jump inv_bad(code = -720) end
+    if st[1] > n then jump inv_bad(code = -721) end
+    if st[11] < 0 then jump inv_bad(code = -730) end
+    if st[14] < 0 then jump inv_bad(code = -740) end
+    if st[15] < 0 then jump inv_bad(code = -741) end
+    if st[16] < 0 then jump inv_bad(code = -742) end
+    if st[16] > 1 then jump inv_bad(code = -743) end
+    if st[16] == 1 then
+        if st[17] < 0 then jump inv_bad(code = -744) end
+        if st[17] > n then jump inv_bad(code = -745) end
+        if st[19] < 0 then jump inv_bad(code = -746) end
+    end
+    if st[20] <= 0 then jump inv_bad(code = -747) end
+    if st[21] <= 0 then jump inv_bad(code = -748) end
+    if st[22] < 0 then jump inv_bad(code = -749) end
+    if st[12] < 0 then jump inv_bad(code = -750) end
+    if st[24] < -1 then jump inv_bad(code = -751) end
+    if st[24] > n then jump inv_bad(code = -752) end
+    if st[25] < -1 then jump inv_bad(code = -753) end
+    if st[26] < -1 then jump inv_bad(code = -754) end
+    jump inv_ok()
+end
+end
+
+local hook_step = region hook_step(st: ptr(i32)) -> HookProto
+entry start()
+    let k: i32 = st[3] % 4
+    if k == 0 then jump hook_line() end
+    if k == 1 then jump hook_call() end
+    if k == 2 then jump hook_ret() end
+    jump hook_profile()
+end
+end
+
+local vmevent_step = region vmevent_step(st: ptr(i32)) -> VMEventProto
+entry start()
+    let k: i32 = st[0] % 4
+    if k == 0 then jump vmevent_bc() end
+    if k == 1 then jump vmevent_trace() end
+    if k == 2 then jump vmevent_record() end
+    jump vmevent_texit()
+end
+end
+
+local gc_step = region gc_step(st: ptr(i32)) -> GCProtoFlow
+entry start()
+    let k: i32 = st[9] % 4
+    if k == 0 then jump gc_propagate() end
+    if k == 1 then jump gc_sweep() end
+    if k == 2 then jump gc_finalize() end
+    jump gc_pause()
+end
+end
+
+local barrier_step = region barrier_step(st: ptr(i32)) -> BarrierProto
+entry start()
+    let k: i32 = st[11] % 3
+    if k == 0 then jump barrier_forward() end
+    if k == 1 then jump barrier_back() end
+    jump barrier_none()
+end
+end
+
+local meta_step = region meta_step(st: ptr(i32)) -> MetaProto
+entry start()
+    if st[12] >= 900 then jump meta_err(code = -710) end
+    if st[2] % 17 == 0 then jump meta_call_mm(mm = 1) end
+    jump meta_ok()
+end
+end
+
+local ffi_step = region ffi_step(st: ptr(i32)) -> FFIProto
+entry start()
+    if st[12] >= 901 then jump ffi_err(code = -720) end
+    let k: i32 = st[2] % 4
+    if k == 0 then jump ffi_ctype_parse() end
+    if k == 1 then jump ffi_cdata_alloc() end
+    if k == 2 then jump ffi_call_c() end
+    jump ffi_callback()
+end
+end
+
+local call_step = region call_step(st: ptr(i32)) -> CallProto
+entry start()
+    if st[12] >= 902 then jump call_err(code = -730) end
+    let k: i32 = st[3] % 3
+    if k == 0 then jump call_lua() end
+    if k == 1 then jump call_c() end
+    jump call_ff()
+end
+end
+
+local return_step = region return_step(st: ptr(i32)) -> ReturnProto
+entry start()
+    if st[12] >= 903 then jump ret_err(code = -740) end
+    if st[5] % 11 == 0 then jump ret_yield() end
+    jump ret_ok()
+end
+end
+
+local runtime_prelude = region runtime_prelude(st: ptr(i32)) -> PreludeProto
+entry start()
+    emit hook_step(st; hook_line = after_hook, hook_call = after_hook, hook_ret = after_hook, hook_profile = after_hook)
+end
+block after_hook()
+    emit vmevent_step(st; vmevent_bc = after_event, vmevent_trace = after_event, vmevent_record = after_event, vmevent_texit = after_event)
+end
+block after_event()
+    emit gc_step(st; gc_propagate = after_gc, gc_sweep = after_gc, gc_finalize = after_gc, gc_pause = after_gc)
+end
+block after_gc()
+    emit barrier_step(st; barrier_forward = after_barrier, barrier_back = after_barrier, barrier_none = after_barrier)
+end
+block after_barrier()
+    emit meta_step(st; meta_ok = after_meta, meta_call_mm = after_meta_mm, meta_err = after_meta_err)
+end
+block after_meta()
+    emit ffi_step(st; ffi_ctype_parse = after_ffi, ffi_cdata_alloc = after_ffi, ffi_call_c = after_ffi, ffi_callback = after_ffi, ffi_err = after_ffi_err)
+end
+block after_meta_mm(mm: i32)
+    emit ffi_step(st; ffi_ctype_parse = after_ffi, ffi_cdata_alloc = after_ffi, ffi_call_c = after_ffi, ffi_callback = after_ffi, ffi_err = after_ffi_err)
+end
+block after_meta_err(code: i32)
+    emit ffi_step(st; ffi_ctype_parse = after_ffi, ffi_cdata_alloc = after_ffi, ffi_call_c = after_ffi, ffi_callback = after_ffi, ffi_err = after_ffi_err)
+end
+block after_ffi()
+    emit call_step(st; call_lua = after_call, call_c = after_call, call_ff = after_call, call_err = after_call_err)
+end
+block after_ffi_err(code: i32)
+    emit call_step(st; call_lua = after_call, call_c = after_call, call_ff = after_call, call_err = after_call_err)
+end
+block after_call()
+    emit return_step(st; ret_ok = done, ret_yield = done, ret_err = done_err)
+end
+block after_call_err(code: i32)
+    emit return_step(st; ret_ok = done, ret_yield = done, ret_err = done_err)
+end
+block done()
+    jump prelude_done()
+end
+block done_err(code: i32)
+    jump prelude_done()
+end
+end
+
+local hotcount_tick = region hotcount_tick(st: ptr(i32), hotcounts: ptr(i32), hcap: i32, pc: i32) -> HotCountTickProto
+entry start()
+    if pc < 0 then jump hc_tick_continue() end
+    if pc >= hcap then jump hc_tick_continue() end
+
+    if hotcounts[pc] > 0 then hotcounts[pc] = hotcounts[pc] - 1 end
+
+    if hotcounts[pc] <= 0 then
+        hotcounts[pc] = st[20]
+        jump hc_tick_hot(pc = pc)
+    end
+
+    jump hc_tick_continue()
+end
+end
+
+local hotcount_reset = region hotcount_reset(st: ptr(i32), hotcounts: ptr(i32), hcap: i32, pc: i32) -> HotCountSetProto
+entry start()
+    if pc >= 0 then
+        if pc < hcap then hotcounts[pc] = st[20] end
+    end
+    jump hc_set_done()
+end
+end
+
+local blacklist_gate = region blacklist_gate(st: ptr(i32), blacklists: ptr(i32), bcap: i32, pc: i32) -> BlacklistProto
+entry start()
+    if pc < 0 then jump bl_pass() end
+    if pc >= bcap then jump bl_pass() end
+
+    if blacklists[pc] > 0 then
+        blacklists[pc] = blacklists[pc] - 1
+        st[12] = blacklists[pc]
+        jump bl_blocked()
+    end
+
+    st[12] = 0
+    jump bl_pass()
+end
+end
+
+local penalty_raise = region penalty_raise(st: ptr(i32), penalties: ptr(i32), pcap: i32, blacklists: ptr(i32), bcap: i32, pc: i32) -> PenaltyProto
+entry start()
+    if pc < 0 then jump pen_done() end
+    if pc >= pcap then jump pen_done() end
+
+    if penalties[pc] < 32 then
+        penalties[pc] = penalties[pc] * 2 + 1
+    else
+        penalties[pc] = 64
+    end
+
+    st[22] = penalties[pc]
+
+    if pc < bcap then
+        if penalties[pc] >= 8 then
+            blacklists[pc] = blacklists[pc] + 2
+            if blacklists[pc] > 64 then blacklists[pc] = 64 end
+        end
+        st[12] = blacklists[pc]
+    end
+
+    jump pen_done()
+end
+end
+
+local penalty_decay = region penalty_decay(st: ptr(i32), penalties: ptr(i32), pcap: i32, pc: i32) -> PenaltyProto
+entry start()
+    if pc < 0 then jump pen_done() end
+    if pc >= pcap then jump pen_done() end
+
+    if penalties[pc] > 0 then penalties[pc] = penalties[pc] - 1 end
+    st[22] = penalties[pc]
+    jump pen_done()
+end
+end
+
+local policy_hot_gate = region policy_hot_gate(st: ptr(i32), blacklists: ptr(i32), bcap: i32, pc: i32) -> PolicyHotProto
+entry start()
+    emit blacklist_gate(st, blacklists, bcap, pc; bl_pass = pass, bl_blocked = blocked)
+end
+block pass()
+    jump pol_hot_record(pc = pc)
+end
+block blocked()
+    jump pol_hot_skip()
+end
+end
+
+local policy_on_nyi = region policy_on_nyi(st: ptr(i32), penalties: ptr(i32), pcap: i32, blacklists: ptr(i32), bcap: i32, root_pc: i32, cur_pc: i32) -> PolicyAbortProto
+entry start()
+    if root_pc >= 0 then emit penalty_raise(st, penalties, pcap, blacklists, bcap, root_pc; pen_done = after_root) end
+    jump after_root()
+end
+block after_root()
+    emit penalty_raise(st, penalties, pcap, blacklists, bcap, cur_pc; pen_done = done)
+end
+block done()
+    jump pol_abort_done()
+end
+end
+
+local policy_on_commit = region policy_on_commit(st: ptr(i32), penalties: ptr(i32), pcap: i32, root_pc: i32, cur_pc: i32) -> PolicyCommitProto
+entry start()
+    if root_pc >= 0 then emit penalty_decay(st, penalties, pcap, root_pc; pen_done = after_root) end
+    jump after_root()
+end
+block after_root()
+    emit penalty_decay(st, penalties, pcap, cur_pc; pen_done = done)
+end
+block done()
+    jump pol_commit_done()
+end
+end
+
+local anchor_lookup = region anchor_lookup(anchors: ptr(i32), acap: i32, pc: i32) -> AnchorLookupProto
+entry start()
+    if pc < 0 then jump anchor_miss(pc = pc) end
+    if pc >= acap then jump anchor_miss(pc = pc) end
+    let tid: i32 = anchors[pc]
+    if tid >= 0 then jump anchor_hit(trace = tid, pc = pc) end
+    jump anchor_miss(pc = pc)
+end
+end
+
+local ir_build_policy = region ir_build_policy(tape: ptr(i32), n: i32, st: ptr(i32), tmeta: ptr(i32), irbuf: ptr(i32), icap: i32, gmeta: ptr(i32), gcap: i32, tid: i32) -> IrBuildProto
+entry start()
+    let ir_base: i32 = st[23]
+    if st[24] >= 0 then jump scan(pc = st[24], ir_base = ir_base, ir_len = 0, gcount = 0) end
+    jump scan(pc = st[1], ir_base = ir_base, ir_len = 0, gcount = 0)
+end
+block scan(pc: i32, ir_base: i32, ir_len: i32, gcount: i32)
+    if ir_len >= 48 then jump finalize(ir_base = ir_base, ir_len = ir_len, gcount = gcount) end
+    if pc < 0 then jump emit_halt(ir_base = ir_base, ir_len = ir_len, gcount = gcount) end
+    if pc >= n then jump emit_halt(ir_base = ir_base, ir_len = ir_len, gcount = gcount) end
+
+    let op: i32 = tape[pc]
+    let slot: i32 = ir_base + ir_len
+    if slot >= icap then jump ir_build_fail(code = -552) end
+    let off: i32 = slot * 4
+
+    if op == 0 then
+        if pc + 1 >= n then jump ir_build_fail(code = -10) end
+        irbuf[off + 0] = IR_KINT
+        irbuf[off + 1] = tape[pc + 1]
+        irbuf[off + 2] = 0
+        irbuf[off + 3] = 0
+        let irn: i32 = ir_len + 1
+        jump scan(pc = pc + 2, ir_base = ir_base, ir_len = irn, gcount = gcount)
+    end
+
+    if op == 1 then
+        irbuf[off + 0] = IR_ADD
+        irbuf[off + 1] = 1
+        irbuf[off + 2] = 0
+        irbuf[off + 3] = 0
+        let irn: i32 = ir_len + 1
+        jump scan(pc = pc + 1, ir_base = ir_base, ir_len = irn, gcount = gcount)
+    end
+
+    if op == 5 then
+        irbuf[off + 0] = IR_GCSTEP
+        irbuf[off + 1] = 0
+        irbuf[off + 2] = 0
+        irbuf[off + 3] = 0
+        let irn: i32 = ir_len + 1
+        jump scan(pc = pc + 1, ir_base = ir_base, ir_len = irn, gcount = gcount)
+    end
+
+    if op == 6 then
+        irbuf[off + 0] = IR_TNEW
+        irbuf[off + 1] = 0
+        irbuf[off + 2] = 0
+        irbuf[off + 3] = 0
+        let irn: i32 = ir_len + 1
+        jump scan(pc = pc + 1, ir_base = ir_base, ir_len = irn, gcount = gcount)
+    end
+
+    if op == 2 then
+        if gcount >= gcap then jump emit_halt(ir_base = ir_base, ir_len = ir_len, gcount = gcount) end
+        irbuf[off + 0] = IR_LT
+        irbuf[off + 1] = gcount
+        irbuf[off + 2] = 0
+        irbuf[off + 3] = 0
+        let irn: i32 = ir_len + 1
+        let gn: i32 = gcount + 1
+        jump scan(pc = pc + 1, ir_base = ir_base, ir_len = irn, gcount = gn)
+    end
+
+    if op == 3 then
+        irbuf[off + 0] = IR_RETF
+        irbuf[off + 1] = 0
+        irbuf[off + 2] = 0
+        irbuf[off + 3] = 0
+        let irn: i32 = ir_len + 1
+        jump finalize(ir_base = ir_base, ir_len = irn, gcount = gcount)
+    end
+
+    jump emit_halt(ir_base = ir_base, ir_len = ir_len, gcount = gcount)
+end
+block emit_halt(ir_base: i32, ir_len: i32, gcount: i32)
+    let slot: i32 = ir_base + ir_len
+    if slot >= icap then jump ir_build_fail(code = -552) end
+    let off: i32 = slot * 4
+    irbuf[off + 0] = IR_RETF
+    irbuf[off + 1] = 0
+    irbuf[off + 2] = 0
+    irbuf[off + 3] = 0
+    let irn: i32 = ir_len + 1
+    jump finalize(ir_base = ir_base, ir_len = irn, gcount = gcount)
+end
+block finalize(ir_base: i32, ir_len: i32, gcount: i32)
+    let tbase: i32 = tid * 3
+    tmeta[tbase + 0] = ir_base
+    tmeta[tbase + 1] = ir_len
+    tmeta[tbase + 2] = gcount
+    st[23] = ir_base + ir_len
+    jump init_guards(gi = 0)
+end
+block init_guards(gi: i32)
+    if gi >= gcap then jump ir_build_done() end
+    let goff: i32 = (tid * gcap + gi) * 4
+    gmeta[goff + 0] = -1
+    if gi % 2 == 0 then gmeta[goff + 1] = 0 else gmeta[goff + 1] = 1 end
+    gmeta[goff + 2] = 0
+    gmeta[goff + 3] = 0
+    let gn: i32 = gi + 1
+    jump init_guards(gi = gn)
+end
+end
+
+local trace_layout_policy = region trace_layout_policy(st: ptr(i32), traces: ptr(i32), tid: i32) -> TraceLayoutProto
+entry start()
+    -- Trace record stride = 20:
+    -- 0 valid, 1 start_pc, 2 exit_count, 3 run_count,
+    -- 4 snap_count, 5 selected_snap_ix,
+    -- 6..8 snap0(pc,acc,live), 9..11 snap1(pc,acc,live),
+    -- 12 sel0_count, 13 sel1_count,
+    -- 14 parent_trace, 15 parent_exit_no,
+    -- 16..17 legacy link slots, 18 flags, 19 reserved.
+    let base: i32 = tid * 20
+    traces[base + 0] = 1
+
+    if st[24] >= 0 then traces[base + 1] = st[24] else traces[base + 1] = st[1] end
+
+    traces[base + 2] = 0
+    traces[base + 3] = 0
+    traces[base + 4] = 2
+    traces[base + 5] = 0
+
+    if st[16] == 1 then
+        traces[base + 6] = st[17]
+        traces[base + 7] = st[18]
+        traces[base + 8] = st[19]
+    else
+        traces[base + 6] = st[1]
+        traces[base + 7] = st[2]
+        traces[base + 8] = st[11]
+    end
+
+    traces[base + 9] = st[1]
+    traces[base + 10] = st[2]
+    traces[base + 11] = st[11]
+    traces[base + 12] = 0
+    traces[base + 13] = 0
+
+    traces[base + 14] = st[25]
+    traces[base + 15] = st[26]
+    traces[base + 16] = -1
+    traces[base + 17] = -1
+    traces[base + 18] = 0
+    traces[base + 19] = 0
+
+    jump trace_layout_done()
+end
+end
+
+local install_dispatch_policy = region install_dispatch_policy(st: ptr(i32), traces: ptr(i32), tcap: i32, anchors: ptr(i32), acap: i32, gmeta: ptr(i32), gcap: i32, tid: i32) -> InstallDispatchProto
+entry start()
+    if st[25] >= 0 then
+        if st[25] < tcap then
+            let pbase: i32 = st[25] * 20
+            if traces[pbase + 0] == 1 then
+                if st[26] >= 0 then
+                    if st[26] < gcap then
+                        let goff: i32 = (st[25] * gcap + st[26]) * 4
+                        gmeta[goff + 0] = tid
+                        gmeta[goff + 2] = 255
+                    end
+                end
+            end
+        end
+        jump install_dispatch_done()
+    end
+
+    let base: i32 = tid * 20
+    let epc: i32 = traces[base + 1]
+    if epc >= 0 then
+        if epc < acap then anchors[epc] = tid end
+    end
+    jump install_dispatch_done()
+end
+end
+
+local install_activate_policy = region install_activate_policy(st: ptr(i32), tid: i32) -> InstallActivateProto
+entry start()
+    st[14] = tid
+    st[15] = st[15] + 1
+    st[24] = -1
+    st[25] = -1
+    st[26] = -1
+
+    -- Install trace entry and switch iterator mode.
+    st[6] = 1
+    st[7] = 2
+    st[0] = 4
+    st[5] = st[5] - 1
+    jump install_activate_done()
+end
+end
+
+local exit_link_policy = region exit_link_policy(gmeta: ptr(i32), gcap: i32, tid: i32, exit_no: i32) -> ExitLinkPolicyProto
+entry start()
+    if exit_no < 0 then jump exlink_miss(exno = exit_no) end
+    if exit_no >= gcap then jump exlink_miss(exno = exit_no) end
+    let goff: i32 = (tid * gcap + exit_no) * 4
+    if gmeta[goff + 0] >= 0 then jump exlink_hit(trace = gmeta[goff + 0], exno = exit_no) end
+    jump exlink_miss(exno = exit_no)
+end
+end
+
+local exit_snapshot_policy = region exit_snapshot_policy(traces: ptr(i32), gmeta: ptr(i32), gcap: i32, tid: i32, gid: i32, exno: i32) -> ExitSnapPolicyProto
+entry start()
+    let base: i32 = tid * 20
+    let sx: i32 = 0
+    if gid >= 0 then
+        if gid < gcap then
+            let goff: i32 = (tid * gcap + gid) * 4
+            if gmeta[goff + 1] == 1 then
+                traces[base + 5] = 1
+                traces[base + 13] = traces[base + 13] + 1
+                jump exsnap_done(exno = exno)
+            end
+        end
+    end
+
+    traces[base + 5] = sx
+    traces[base + 12] = traces[base + 12] + 1
+    jump exsnap_done(exno = exno)
+end
+end
+
+local exit_route_policy = region exit_route_policy(st: ptr(i32), exno: i32) -> ExitRoutePolicyProto
+entry start()
+    if exno >= st[21] then jump exroute_record(exno = exno) end
+    jump exroute_warm(exno = exno)
+end
+end
+
+local deopt_select_policy = region deopt_select_policy(st: ptr(i32), traces: ptr(i32), tcap: i32) -> DeoptSelectProto
+entry start()
+    if st[14] < 0 then jump deopt_sel_fail(code = -641) end
+    if st[14] >= tcap then jump deopt_sel_fail(code = -642) end
+
+    let base: i32 = st[14] * 20
+    if traces[base + 0] == 0 then jump deopt_sel_fail(code = -643) end
+    if traces[base + 4] <= 0 then jump deopt_sel_fail(code = -644) end
+
+    let ix: i32 = traces[base + 5]
+    if ix < 0 then jump deopt_sel_fail(code = -646) end
+    if ix >= traces[base + 4] then jump deopt_sel_fail(code = -647) end
+
+    if ix == 0 then jump deopt_sel_slot0(base = base) end
+    if ix == 1 then jump deopt_sel_slot1(base = base) end
+    jump deopt_sel_fail(code = -648)
+end
+end
+
+local deopt_restore_policy = region deopt_restore_policy(st: ptr(i32), traces: ptr(i32), base: i32, ix: i32) -> DeoptRestoreProto
+entry start()
+    if ix == 0 then
+        if traces[base + 8] < 0 then jump deopt_restore_fail(code = -645) end
+        st[1] = traces[base + 6]
+        st[2] = traces[base + 7]
+        st[11] = traces[base + 8]
+        st[16] = 1
+        st[17] = traces[base + 6]
+        st[18] = traces[base + 7]
+        st[19] = traces[base + 8]
+        st[10] = st[10] + 1
+        jump deopt_restore_done()
+    end
+
+    if ix == 1 then
+        if traces[base + 11] < 0 then jump deopt_restore_fail(code = -645) end
+        st[1] = traces[base + 9]
+        st[2] = traces[base + 10]
+        st[11] = traces[base + 11]
+        st[16] = 1
+        st[17] = traces[base + 9]
+        st[18] = traces[base + 10]
+        st[19] = traces[base + 11]
+        st[10] = st[10] + 1
+        jump deopt_restore_done()
+    end
+
+    jump deopt_restore_fail(code = -648)
+end
+end
+
+-- opcodes: 0 KINT imm, 1 ADD1, 2 BACKEDGE, 3 HALT, 4 NYI, 5 GC_PULSE, 6 ALLOC
+local cold_step = region cold_step(tape: ptr(i32), n: i32, st: ptr(i32)) -> ColdProto
+entry start()
+    if st[1] >= n then jump cold_halt(code = st[2]) end
+    let op: i32 = tape[st[1]]
+
+    if op == 0 then
+        if st[1] + 1 >= n then jump cold_halt(code = -10) end
+        st[2] = st[2] + tape[st[1] + 1]
+        st[3] = st[3] + 1
+        st[1] = st[1] + 2
+        st[5] = st[5] - 1
+        jump cold_next()
+    end
+    if op == 1 then
+        st[2] = st[2] + 1
+        st[3] = st[3] + 1
+        st[1] = st[1] + 1
+        st[5] = st[5] - 1
+        jump cold_next()
+    end
+    if op == 2 then
+        st[3] = st[3] + 1
+        st[1] = st[1] + 1
+        st[0] = 1
+        st[5] = st[5] - 1
+        jump cold_to_warm()
+    end
+    if op == 5 then
+        st[9] = st[9] + 1
+        st[3] = st[3] + 1
+        st[1] = st[1] + 1
+        st[5] = st[5] - 1
+        jump cold_next()
+    end
+    if op == 6 then
+        st[11] = st[11] + 1
+        st[9] = st[9] + 1
+        st[3] = st[3] + 1
+        st[1] = st[1] + 1
+        st[5] = st[5] - 1
+        jump cold_next()
+    end
+    if op == 3 then jump cold_halt(code = st[2] + st[3] * 10 + st[10] * 100 + st[9] * 1000) end
+    jump cold_halt(code = -99)
+end
+end
+
+local warm_step = region warm_step(tape: ptr(i32), n: i32, st: ptr(i32), hotcounts: ptr(i32), hcap: i32, anchors: ptr(i32), acap: i32, blacklists: ptr(i32), bcap: i32) -> WarmProto
+entry start()
+    if st[1] >= n then jump warm_halt(code = st[2]) end
+    let op: i32 = tape[st[1]]
+
+    if op == 0 then
+        if st[1] + 1 >= n then jump warm_halt(code = -10) end
+        st[2] = st[2] + tape[st[1] + 1]
+        st[3] = st[3] + 1
+        st[1] = st[1] + 2
+        st[5] = st[5] - 1
+        jump warm_next()
+    end
+    if op == 1 then
+        st[2] = st[2] + 1
+        st[3] = st[3] + 1
+        st[1] = st[1] + 1
+        st[5] = st[5] - 1
+        jump warm_next()
+    end
+    if op == 2 then
+        let hpc: i32 = st[1]
+        st[3] = st[3] + 1
+        st[1] = st[1] + 1
+
+        -- Fast native re-entry via PC->trace anchor table (policy submachine).
+        if st[6] == 1 then emit anchor_lookup(anchors, acap, hpc; anchor_hit = op2_anchor_hit, anchor_miss = op2_after_anchor) end
+        jump op2_after_anchor(pc = hpc)
+    end
+    if op == 5 then
+        st[9] = st[9] + 1
+        st[3] = st[3] + 1
+        st[1] = st[1] + 1
+        st[5] = st[5] - 1
+        jump warm_next()
+    end
+    if op == 6 then
+        st[11] = st[11] + 1
+        st[9] = st[9] + 1
+        st[3] = st[3] + 1
+        st[1] = st[1] + 1
+        st[5] = st[5] - 1
+        jump warm_next()
+    end
+    if op == 3 then jump warm_halt(code = st[2] + st[3] * 10 + st[10] * 100 + st[9] * 1000) end
+    jump warm_halt(code = -199)
+end
+block op2_anchor_hit(trace: i32, pc: i32)
+    st[14] = trace
+    st[0] = 4
+    st[7] = 2
+    st[5] = st[5] - 1
+    jump warm_next()
+end
+block op2_after_anchor(pc: i32)
+    emit hotcount_tick(st, hotcounts, hcap, pc; hc_tick_continue = op2_continue, hc_tick_hot = op2_hot)
+end
+block op2_continue()
+    st[5] = st[5] - 1
+    jump warm_next()
+end
+block op2_hot(pc: i32)
+    emit policy_hot_gate(st, blacklists, bcap, pc; pol_hot_record = op2_record, pol_hot_skip = op2_blocked)
+end
+block op2_blocked()
+    st[5] = st[5] - 1
+    jump warm_next()
+end
+block op2_record(pc: i32)
+    st[0] = 2
+    st[8] = 0
+    st[24] = pc
+    st[25] = -1
+    st[26] = -1
+    st[5] = st[5] - 1
+    jump warm_to_recording()
+end
+end
+
+local rec_decode = region rec_decode(tape: ptr(i32), n: i32, st: ptr(i32)) -> RecDecodeProto
+entry start()
+    if st[1] >= n then jump rec_decode_halt(code = st[2]) end
+    jump rec_decoded(op = tape[st[1]])
+end
+end
+
+local rec_observe = region rec_observe(op: i32, st: ptr(i32)) -> RecObserveProto
+entry start()
+    -- Observation/fact gathering projection.
+    st[10] = st[10] + 1
+    st[8] = st[8] + 1
+    jump rec_observed(op = op)
+end
+end
+
+local rec_fold = region rec_fold(op: i32, st: ptr(i32), penalties: ptr(i32), pcap: i32, blacklists: ptr(i32), bcap: i32) -> RecFoldProto
+entry start()
+    -- Fold/abort projection. NYI aborts recording and returns to warm.
+    -- Policy submachine handles per-PC penalty/blacklist escalation.
+    if op == 4 then
+        emit policy_on_nyi(st, penalties, pcap, blacklists, bcap, st[24], st[1]; pol_abort_done = nyi_abort)
+    end
+
+    -- Tiny example fold fact: ADD1 when acc is 0 is treated as cheap fold hit.
+    if op == 1 then
+        if st[2] == 0 then
+            st[10] = st[10] + 1
+            jump rec_fold_replace(op = op)
+        end
+    end
+
+    jump rec_fold_next(op = op)
+end
+block nyi_abort()
+    st[0] = 1
+    st[1] = st[1] + 1
+    st[5] = st[5] - 1
+    jump rec_fold_abort()
+end
+end
+
+local rec_exec = region rec_exec(op: i32, tape: ptr(i32), n: i32, st: ptr(i32)) -> RecExecProto
+entry start()
+    if op == 0 then
+        if st[1] + 1 >= n then jump rec_exec_halt(code = -10) end
+        st[2] = st[2] + tape[st[1] + 1]
+        st[3] = st[3] + 1
+        st[1] = st[1] + 2
+        if st[8] >= 6 then st[0] = 3 end
+        st[5] = st[5] - 1
+        jump rec_exec_next()
+    end
+    if op == 1 then
+        st[2] = st[2] + 1
+        st[3] = st[3] + 1
+        st[1] = st[1] + 1
+        if st[8] >= 6 then st[0] = 3 end
+        st[5] = st[5] - 1
+        jump rec_exec_next()
+    end
+    if op == 2 then
+        st[3] = st[3] + 1
+        st[1] = st[1] + 1
+        st[0] = 3
+        st[5] = st[5] - 1
+        jump rec_exec_next()
+    end
+    if op == 5 then
+        st[9] = st[9] + 1
+        st[3] = st[3] + 1
+        st[1] = st[1] + 1
+        if st[8] >= 6 then st[0] = 3 end
+        st[5] = st[5] - 1
+        jump rec_exec_next()
+    end
+    if op == 6 then
+        st[11] = st[11] + 1
+        st[9] = st[9] + 1
+        st[3] = st[3] + 1
+        st[1] = st[1] + 1
+        if st[8] >= 6 then st[0] = 3 end
+        st[5] = st[5] - 1
+        jump rec_exec_next()
+    end
+
+    if op == 3 then jump rec_exec_halt(code = st[2] + st[3] * 10 + st[10] * 100 + st[9] * 1000) end
+    jump rec_exec_halt(code = -299)
+end
+end
+
+local rec_snapshot = region rec_snapshot(st: ptr(i32)) -> RecSnapProto
+entry start()
+    -- Tiny snapshot policy: every second recorded op captures a point.
+    if st[8] % 2 == 0 then
+        st[16] = 1
+        st[17] = st[1]
+        st[18] = st[2]
+        st[19] = st[11]
+        st[10] = st[10] + 1
+        jump rec_snap_added()
+    end
+    jump rec_snap_none()
+end
+end
+
+local rec_commit = region rec_commit(st: ptr(i32), penalties: ptr(i32), pcap: i32) -> RecCommitProto
+entry start()
+    if st[0] == 1 then jump rec_commit_abort(code = -420) end
+    emit policy_on_commit(st, penalties, pcap, st[24], st[1]; pol_commit_done = after_decay)
+end
+block after_decay()
+    if st[0] == 3 then jump rec_commit_to_compiling() end
+    jump rec_commit_continue()
+end
+end
+
+local root_start = region root_start(st: ptr(i32)) -> RootProto
+entry start()
+    if st[24] >= 0 then jump root_started() end
+    jump root_ignored()
+end
+end
+
+local trace_step = region trace_step(st: ptr(i32), phase: i32) -> TraceProto
+entry start()
+    if st[12] >= 200 then jump tr_abort(code = -560) end
+    if phase == 0 then jump tr_start() end
+    if phase == 1 then jump tr_record() end
+    if phase == 2 then jump tr_end() end
+    jump tr_asm()
+end
+end
+
+local side_start = region side_start(st: ptr(i32)) -> SideProto
+entry start()
+    if st[13] >= st[21] then jump side_started() end
+    jump side_skipped()
+end
+end
+
+local stitch_step = region stitch_step(st: ptr(i32), traces: ptr(i32), tcap: i32, gmeta: ptr(i32), gcap: i32) -> StitchProto
+entry start()
+    if st[25] < 0 then jump stitch_rejected(code = -650) end
+    if st[25] >= tcap then jump stitch_rejected(code = -651) end
+    let pbase: i32 = st[25] * 20
+    if traces[pbase + 0] == 0 then jump stitch_rejected(code = -652) end
+    if st[26] < 0 then jump stitch_rejected(code = -654) end
+    if st[26] >= gcap then jump stitch_rejected(code = -655) end
+
+    let goff: i32 = (st[25] * gcap + st[26]) * 4
+    if gmeta[goff + 0] >= 0 then jump stitch_linked() end
+    jump stitch_rejected(code = -653)
+end
+end
+
+local exit_step = region exit_step(exit_kind: i32, st: ptr(i32)) -> ExitProto
+entry start()
+    if exit_kind == 1 then
+        if st[13] >= st[21] then jump exit_side_hot() end
+        jump exit_restore_interp()
+    end
+    if exit_kind == 0 then jump exit_restore_interp() end
+    jump exit_err(code = -660)
+end
+end
+
+local recording_step = region recording_step(tape: ptr(i32), n: i32, st: ptr(i32), penalties: ptr(i32), pcap: i32, blacklists: ptr(i32), bcap: i32) -> RecProto
+entry start()
+    emit rec_decode(tape, n, st; rec_decoded = got_op, rec_decode_halt = rec_halt)
+end
+block got_op(op: i32)
+    emit rec_observe(op, st; rec_observed = after_observe)
+end
+block after_observe(op: i32)
+    emit rec_fold(op, st, penalties, pcap, blacklists, bcap; rec_fold_next = do_exec, rec_fold_replace = do_exec, rec_fold_abort = abort_commit)
+end
+block do_exec(op: i32)
+    emit rec_exec(op, tape, n, st; rec_exec_next = trace_record_then_snap, rec_exec_halt = rec_halt)
+end
+block trace_record_then_snap()
+    emit trace_step(st, 1; tr_record = snap_then_commit, tr_start = snap_then_commit, tr_end = snap_then_commit, tr_asm = snap_then_commit, tr_abort = trace_abort)
+end
+block snap_then_commit()
+    emit rec_snapshot(st; rec_snap_none = do_commit, rec_snap_added = do_commit)
+end
+block abort_commit()
+    emit rec_commit(st, penalties, pcap; rec_commit_continue = rec_next, rec_commit_to_compiling = finalize_to_compiling, rec_commit_abort = rec_abort_to_warm)
+end
+block do_commit()
+    emit rec_commit(st, penalties, pcap; rec_commit_continue = rec_next, rec_commit_to_compiling = finalize_to_compiling, rec_commit_abort = rec_abort_to_warm)
+end
+block finalize_to_compiling()
+    emit trace_step(st, 2; tr_end = rec_to_compiling, tr_start = rec_to_compiling, tr_record = rec_to_compiling, tr_asm = rec_to_compiling, tr_abort = trace_abort)
+end
+block trace_abort(code: i32)
+    jump rec_abort_to_warm(code = code)
+end
+end
+
+local comp_ra = region comp_ra(st: ptr(i32)) -> CompRaProto
+entry start()
+    -- Reverse linear scan allocation summary.
+    if st[12] >= 100 then jump comp_ra_fail(code = -510) end
+    st[10] = st[10] + 1
+    st[5] = st[5] - 1
+    jump comp_ra_done()
+end
+end
+
+local comp_emit = region comp_emit(st: ptr(i32)) -> CompEmitProto
+entry start()
+    -- Forward byte emission summary.
+    if st[12] >= 101 then jump comp_emit_fail(code = -520) end
+    st[10] = st[10] + 1
+    st[5] = st[5] - 1
+    jump comp_emit_done()
+end
+end
+
+local comp_patch = region comp_patch(st: ptr(i32)) -> CompPatchProto
+entry start()
+    -- Forward jump patch summary.
+    if st[12] >= 102 then jump comp_patch_fail(code = -530) end
+    st[10] = st[10] + 1
+    st[5] = st[5] - 1
+    jump comp_patch_done()
+end
+end
+
+local comp_stub = region comp_stub(st: ptr(i32)) -> CompStubProto
+entry start()
+    -- Side-exit stubs / trampoline metadata.
+    if st[12] >= 103 then jump comp_stub_fail(code = -540) end
+    st[10] = st[10] + 1
+    st[5] = st[5] - 1
+    jump comp_stub_done()
+end
+end
+
+local comp_install = region comp_install(tape: ptr(i32), n: i32, st: ptr(i32), traces: ptr(i32), tcap: i32, anchors: ptr(i32), acap: i32, tmeta: ptr(i32), irbuf: ptr(i32), icap: i32, gmeta: ptr(i32), gcap: i32) -> CompInstallProto
+entry start()
+    if st[12] >= 104 then jump comp_install_fail(code = -550) end
+    if st[15] >= tcap then jump comp_install_fail(code = -551) end
+
+    let tid: i32 = st[15]
+    emit ir_build_policy(tape, n, st, tmeta, irbuf, icap, gmeta, gcap, tid; ir_build_done = after_ir, ir_build_fail = comp_install_fail)
+end
+block after_ir()
+    let tid: i32 = st[15]
+    emit trace_layout_policy(st, traces, tid; trace_layout_done = after_layout)
+end
+block after_layout()
+    let tid: i32 = st[15]
+    emit install_dispatch_policy(st, traces, tcap, anchors, acap, gmeta, gcap, tid; install_dispatch_done = after_install_dispatch)
+end
+block after_install_dispatch()
+    let tid: i32 = st[15]
+    emit install_activate_policy(st, tid; install_activate_done = done_activate)
+end
+block done_activate()
+    jump comp_install_done()
+end
+end
+
+local compiling_step = region compiling_step(tape: ptr(i32), n: i32, st: ptr(i32), traces: ptr(i32), tcap: i32, anchors: ptr(i32), acap: i32, tmeta: ptr(i32), irbuf: ptr(i32), icap: i32, gmeta: ptr(i32), gcap: i32) -> CompProto
+entry start()
+    emit comp_ra(st; comp_ra_done = after_ra, comp_ra_fail = fail)
+end
+block after_ra()
+    emit comp_emit(st; comp_emit_done = after_emit, comp_emit_fail = fail)
+end
+block after_emit()
+    emit comp_patch(st; comp_patch_done = after_patch, comp_patch_fail = fail)
+end
+block after_patch()
+    emit comp_stub(st; comp_stub_done = after_stub, comp_stub_fail = fail)
+end
+block after_stub()
+    emit comp_install(tape, n, st, traces, tcap, anchors, acap, tmeta, irbuf, icap, gmeta, gcap; comp_install_done = done_install, comp_install_fail = fail)
+end
+block done_install()
+    emit trace_step(st, 3; tr_asm = comp_to_native, tr_start = comp_to_native, tr_record = comp_to_native, tr_end = comp_to_native, tr_abort = fail)
+end
+block fail(code: i32)
+    st[0] = 1
+    jump comp_fail(code = code)
+end
+end
+
+local nat_enter_policy = region nat_enter_policy(st: ptr(i32), traces: ptr(i32), tcap: i32) -> NatEnterPolicyProto
+entry start()
+    -- Entry guard policy for native trace execution.
+    if st[6] == 0 then jump nep_fail(code = -610) end
+    if st[14] < 0 then jump nep_fail(code = -611) end
+    if st[14] >= tcap then jump nep_fail(code = -612) end
+    let base: i32 = st[14] * 20
+    if traces[base + 0] == 0 then jump nep_fail(code = -613) end
+    if traces[base + 4] <= 0 then jump nep_fail(code = -614) end
+    if traces[base + 18] ~= 0 then jump nep_fail(code = -615) end
+    jump nep_ready()
+end
+end
+
+local nat_enter = region nat_enter(st: ptr(i32), traces: ptr(i32), tcap: i32) -> NatEnterProto
+entry start()
+    emit nat_enter_policy(st, traces, tcap; nep_ready = ok, nep_fail = fail)
+end
+block ok()
+    jump nat_enter_ready()
+end
+block fail(code: i32)
+    jump nat_enter_fail(code = code)
+end
+end
+
+local nat_exec_body_policy = region nat_exec_body_policy(st: ptr(i32)) -> NatExecBodyProto
+entry start()
+    let op: i32 = st[4]
+    let a: i32 = st[27]
+
+    if op == IR_KINT then
+        st[2] = st[2] + a
+        st[3] = st[3] + 1
+        st[10] = st[10] + 1
+        st[5] = st[5] - 1
+        jump neb_done()
+    end
+    if op == IR_ADD then
+        st[2] = st[2] + a
+        st[3] = st[3] + 1
+        st[10] = st[10] + 1
+        st[5] = st[5] - 1
+        jump neb_done()
+    end
+    if op == IR_GCSTEP then
+        st[9] = st[9] + 1
+        st[3] = st[3] + 1
+        st[10] = st[10] + 1
+        st[5] = st[5] - 1
+        jump neb_done()
+    end
+    if op == IR_TNEW then
+        st[11] = st[11] + 1
+        st[9] = st[9] + 1
+        st[3] = st[3] + 1
+        st[10] = st[10] + 1
+        st[5] = st[5] - 1
+        jump neb_done()
+    end
+    jump neb_done()
+end
+end
+
+local nat_exit_kind_policy = region nat_exit_kind_policy(st: ptr(i32)) -> NatExitKindProto
+entry start()
+    let op: i32 = st[4]
+
+    -- Guarded side exits are keyed by parent exit number (snapshot slot).
+    if op == IR_LT then
+        if st[7] > 0 then st[7] = st[7] - 1 end
+        if st[7] <= 0 then
+            st[26] = st[27]
+            st[7] = 2
+            jump nek_done(exit_kind = 1)
+        end
+        jump nek_done(exit_kind = 0)
+    end
+
+    if op == IR_RETF then jump nek_done(exit_kind = 0) end
+    jump nek_done(exit_kind = 0)
+end
+end
+
+local nat_run = region nat_run(st: ptr(i32), traces: ptr(i32), tmeta: ptr(i32), irbuf: ptr(i32)) -> NatRunProto
+entry start()
+    let base: i32 = st[14] * 20
+    traces[base + 3] = traces[base + 3] + 1
+
+    let mbase: i32 = st[14] * 3
+    st[24] = tmeta[mbase + 0]
+    st[25] = tmeta[mbase + 1]
+    st[23] = 0
+    if st[25] <= 0 then jump nat_run_done(exit_kind = 0) end
+    jump exec()
+end
+block exec()
+    if st[23] >= st[25] then jump nat_run_done(exit_kind = 0) end
+
+    let off: i32 = (st[24] + st[23]) * 4
+    st[4] = irbuf[off + 0]
+    st[27] = irbuf[off + 1]
+
+    emit nat_exec_body_policy(st; neb_done = classify)
+end
+block classify()
+    emit nat_exit_kind_policy(st; nek_done = done_kind)
+end
+block done_kind(exit_kind: i32)
+    if st[4] == IR_RETF then jump nat_run_done(exit_kind = 0) end
+    if exit_kind == 1 then jump nat_run_done(exit_kind = 1) end
+    st[23] = st[23] + 1
+    jump exec()
+end
+end
+
+local nat_exit_decode = region nat_exit_decode(exit_kind: i32, st: ptr(i32), traces: ptr(i32), gmeta: ptr(i32), gcap: i32) -> NatExitProto
+entry start()
+    let base: i32 = st[14] * 20
+
+    if exit_kind == 1 then
+        st[13] = st[13] + 1
+        st[9] = st[9] + 1
+        traces[base + 2] = traces[base + 2] + 1
+
+        let exit_no: i32 = st[26]
+        if exit_no < 0 then jump nat_decode_halt(code = -631) end
+        if exit_no >= gcap then jump nat_decode_halt(code = -632) end
+
+        let goff: i32 = (st[14] * gcap + exit_no) * 4
+        if gmeta[goff + 2] < 255 then gmeta[goff + 2] = gmeta[goff + 2] + 1 end
+        st[27] = gmeta[goff + 2]
+
+        emit exit_link_policy(gmeta, gcap, st[14], exit_no; exlink_hit = guard_linked, exlink_miss = guard_unlinked)
+    end
+
+    if exit_kind == 0 then
+        traces[base + 5] = 0
+        traces[base + 12] = traces[base + 12] + 1
+        st[0] = 1
+        jump nat_to_warm()
+    end
+
+    jump nat_decode_halt(code = -630)
+end
+block guard_linked(trace: i32, exno: i32)
+    st[14] = trace
+    st[0] = 4
+    st[7] = 2
+    jump nat_to_warm()
+end
+block guard_unlinked(exno: i32)
+    emit exit_snapshot_policy(traces, gmeta, gcap, st[14], st[26], exno; exsnap_done = guard_route)
+end
+block guard_route(exno: i32)
+    emit exit_route_policy(st, st[27]; exroute_record = guard_to_recording, exroute_warm = guard_to_warm)
+end
+block guard_to_recording(exno: i32)
+    st[0] = 2
+    st[8] = 0
+    st[24] = st[1]
+    st[25] = st[14]
+    -- st[26] already holds parent exit number for side-trace linking.
+    jump nat_to_recording()
+end
+block guard_to_warm(exno: i32)
+    st[0] = 1
+    jump nat_to_warm()
+end
+end
+
+local nat_resume = region nat_resume(st: ptr(i32), traces: ptr(i32), tcap: i32) -> NatResumeProto
+entry start()
+    emit deopt_select_policy(st, traces, tcap; deopt_sel_slot0 = restore0, deopt_sel_slot1 = restore1, deopt_sel_fail = fail)
+end
+block restore0(base: i32)
+    emit deopt_restore_policy(st, traces, base, 0; deopt_restore_done = done, deopt_restore_fail = fail)
+end
+block restore1(base: i32)
+    emit deopt_restore_policy(st, traces, base, 1; deopt_restore_done = done, deopt_restore_fail = fail)
+end
+block done()
+    jump nat_resumed()
+end
+block fail(code: i32)
+    jump nat_resume_fail(code = code)
+end
+end
+
+local native_step = region native_step(st: ptr(i32), traces: ptr(i32), tcap: i32, tmeta: ptr(i32), irbuf: ptr(i32), gmeta: ptr(i32), gcap: i32) -> NatProto
+entry start()
+    emit nat_enter(st, traces, tcap; nat_enter_ready = do_run, nat_enter_fail = halt)
+end
+block do_run()
+    emit nat_run(st, traces, tmeta, irbuf; nat_run_done = decode_exit)
+end
+block decode_exit(exit_kind: i32)
+    emit nat_exit_decode(exit_kind, st, traces, gmeta, gcap; nat_to_warm = classify_warm_exit, nat_to_recording = classify_recording_exit, nat_decode_halt = halt)
+end
+block classify_warm_exit()
+    emit exit_step(0, st; exit_restore_interp = resume_warm, exit_side_hot = side_then_stitch_warm, exit_err = halt)
+end
+block classify_recording_exit()
+    emit exit_step(1, st; exit_restore_interp = resume_recording, exit_side_hot = side_then_stitch_recording, exit_err = halt)
+end
+block side_then_stitch_warm()
+    emit side_start(st; side_started = stitch_warm, side_skipped = stitch_warm)
+end
+block stitch_warm()
+    emit stitch_step(st, traces, tcap, gmeta, gcap; stitch_linked = resume_warm, stitch_rejected = resume_warm_rejected)
+end
+block resume_warm_rejected(code: i32)
+    emit nat_resume(st, traces, tcap; nat_resumed = done_warm, nat_resume_fail = halt)
+end
+block side_then_stitch_recording()
+    emit side_start(st; side_started = stitch_recording, side_skipped = stitch_recording)
+end
+block stitch_recording()
+    emit stitch_step(st, traces, tcap, gmeta, gcap; stitch_linked = resume_recording, stitch_rejected = resume_recording_rejected)
+end
+block resume_recording_rejected(code: i32)
+    emit nat_resume(st, traces, tcap; nat_resumed = done_recording, nat_resume_fail = halt)
+end
+block resume_warm()
+    emit nat_resume(st, traces, tcap; nat_resumed = done_warm, nat_resume_fail = halt)
+end
+block done_warm()
+    jump nat_to_warm()
+end
+block resume_recording()
+    emit nat_resume(st, traces, tcap; nat_resumed = done_recording, nat_resume_fail = halt)
+end
+block done_recording()
+    st[24] = st[1]
+    jump nat_to_recording()
+end
+block halt(code: i32)
+    jump nat_halt(code = code)
+end
+end
+
+local run_machine_split = func run_machine_split(tape: ptr(i32), n: i32, st: ptr(i32), traces: ptr(i32), tcap: i32, hotcounts: ptr(i32), hcap: i32, anchors: ptr(i32), acap: i32, penalties: ptr(i32), pcap: i32, blacklists: ptr(i32), bcap: i32, tmeta: ptr(i32), irbuf: ptr(i32), icap: i32, gmeta: ptr(i32), gcap: i32) -> i32
+    return region -> i32
+    entry start()
+        jump dispatch()
+    end
+
+    block dispatch()
+        emit runtime_prelude(st; prelude_done = after_prelude)
+    end
+
+    block after_prelude()
+        emit inv_check(st, n; inv_ok = mode_select, inv_bad = done)
+    end
+
+    block mode_select()
+        switch st[0] do
+        case 0 then emit cold_step(tape, n, st; cold_next = dispatch, cold_to_warm = dispatch, cold_halt = done)
+        case 1 then emit warm_step(tape, n, st, hotcounts, hcap, anchors, acap, blacklists, bcap; warm_next = dispatch, warm_to_recording = warm_enter_recording, warm_halt = done)
+        case 2 then emit recording_step(tape, n, st, penalties, pcap, blacklists, bcap; rec_next = dispatch, rec_to_compiling = dispatch, rec_abort_to_warm = rec_abort, rec_halt = done)
+        case 3 then emit compiling_step(tape, n, st, traces, tcap, anchors, acap, tmeta, irbuf, icap, gmeta, gcap; comp_next = dispatch, comp_to_native = dispatch, comp_fail = done)
+        case 4 then emit native_step(st, traces, tcap, tmeta, irbuf, gmeta, gcap; nat_next = dispatch, nat_to_warm = dispatch, nat_to_recording = dispatch, nat_halt = done)
+        default then jump done(code = -799)
+        end
+    end
+
+    block warm_enter_recording()
+        emit root_start(st; root_started = warm_trace_start, root_ignored = warm_trace_start)
+    end
+
+    block warm_trace_start()
+        emit trace_step(st, 0; tr_start = dispatch, tr_record = dispatch, tr_end = dispatch, tr_asm = dispatch, tr_abort = rec_abort)
+    end
+
+    block rec_abort(code: i32)
+        -- Mimic hotcount reset after aborted traces.
+        if st[24] >= 0 then emit hotcount_reset(st, hotcounts, hcap, st[24]; hc_set_done = rec_abort_done) end
+        jump rec_abort_done()
+    end
+
+    block rec_abort_done()
+        st[24] = -1
+        st[25] = -1
+        st[26] = -1
+        jump dispatch()
+    end
+
+    block done(code: i32)
+        yield code
+    end
+    end
+end
+
+local compiled_split = run_machine_split:compile()
+
+local function reset_state(st)
+    st[0] = 0
+    st[1] = 0
+    st[2] = 0
+    st[3] = 0
+    st[4] = 0
+    st[5] = 256
+    st[6] = 0
+    st[7] = 0
+    st[8] = 0
+    st[9] = 0
+    st[10] = 0
+    st[11] = 0
+    st[12] = 0
+    st[13] = 0
+    st[14] = 0
+    st[15] = 0
+    st[16] = 0
+    st[17] = 0
+    st[18] = 0
+    st[19] = 0
+    st[20] = 1
+    st[21] = 2
+    st[22] = 0
+    st[23] = 0
+    st[24] = -1
+    st[25] = -1
+    st[26] = -1
+    st[27] = 0
+end
+
+local function reset_traces(traces, tcap)
+    local i = 0
+    while i < tcap * 20 do
+        traces[i] = 0
+        i = i + 1
+    end
+end
+
+local function reset_anchors(anchors, acap)
+    local i = 0
+    while i < acap do
+        anchors[i] = -1
+        i = i + 1
+    end
+end
+
+local function reset_hotcounts(hotcounts, hcap, hotloop)
+    local i = 0
+    while i < hcap do
+        hotcounts[i] = hotloop
+        i = i + 1
+    end
+end
+
+local function reset_penalties(penalties, pcap)
+    local i = 0
+    while i < pcap do
+        penalties[i] = 0
+        i = i + 1
+    end
+end
+
+local function reset_blacklists(blacklists, bcap)
+    local i = 0
+    while i < bcap do
+        blacklists[i] = 0
+        i = i + 1
+    end
+end
+
+local function reset_tmeta(tmeta, tcap)
+    local i = 0
+    while i < tcap * 3 do
+        tmeta[i] = 0
+        i = i + 1
+    end
+end
+
+local function reset_irbuf(irbuf, icap)
+    local i = 0
+    while i < icap * 4 do
+        irbuf[i] = 0
+        i = i + 1
+    end
+end
+
+local function reset_gmeta(gmeta, tcap, gcap)
+    local i = 0
+    while i < tcap * gcap do
+        gmeta[i * 4 + 0] = -1
+        gmeta[i * 4 + 1] = 0
+        gmeta[i * 4 + 2] = 0
+        gmeta[i * 4 + 3] = 0
+        i = i + 1
+    end
+end
+
+local function run_once(fn, tape, n, st, traces, tcap, hotcounts, hcap, anchors, acap, penalties, pcap, blacklists, bcap, tmeta, irbuf, icap, gmeta, gcap)
+    reset_state(st)
+    reset_traces(traces, tcap)
+    reset_hotcounts(hotcounts, hcap, st[20])
+    reset_anchors(anchors, acap)
+    reset_penalties(penalties, pcap)
+    reset_blacklists(blacklists, bcap)
+    reset_tmeta(tmeta, tcap)
+    reset_gmeta(gmeta, tcap, gcap)
+    return fn(tape, n, st, traces, tcap, hotcounts, hcap, anchors, acap, penalties, pcap, blacklists, bcap, tmeta, irbuf, icap, gmeta, gcap)
+end
+
+local words = {
+    0, 5,
+    2,
+    1,
+    2,
+    1,
+    2,
+    1,
+    2,
+    1,
+    2,
+    3,
+}
+
+local tape = ffi.new("int32_t[?]", #words)
+for i, v in ipairs(words) do tape[i - 1] = v end
+local n = #words
+
+local tcap = 8
+local gcap = 8
+local icap = 1024
+local st = ffi.new("int32_t[28]")
+local traces = ffi.new("int32_t[?]", tcap * 20)
+local hotcounts = ffi.new("int32_t[?]", n)
+local anchors = ffi.new("int32_t[?]", n)
+local penalties = ffi.new("int32_t[?]", n)
+local blacklists = ffi.new("int32_t[?]", n)
+local tmeta = ffi.new("int32_t[?]", tcap * 3)
+local irbuf = ffi.new("int32_t[?]", icap * 4)
+local gmeta = ffi.new("int32_t[?]", tcap * gcap * 4)
+
+local code = run_once(compiled_split, tape, n, st, traces, tcap, hotcounts, n, anchors, n, penalties, n, blacklists, n, tmeta, irbuf, icap, gmeta, gcap)
+
+print("split code", code, "opt", st[10], "gc", st[9], "exit", st[13], "traces", st[15], "active", st[14], "blk", st[12], "pen", st[22])
+
+assert(code > 0)
+assert(st[9] > 0)
+assert(st[15] > 0)
+assert(traces[0] == 1)
+assert(traces[4] == 2)
+
+local function count_anchors(anchors_, acap)
+    local i = 0
+    local c = 0
+    while i < acap do
+        if anchors_[i] >= 0 then c = c + 1 end
+        i = i + 1
+    end
+    return c
+end
+
+assert(count_anchors(anchors, n) > 0)
+
+local function run_with_tuning(fn, tape_, n_, st_, traces_, tcap_, hotcounts_, hcap_, anchors_, acap_, penalties_, pcap_, blacklists_, bcap_, tmeta_, irbuf_, icap_, gmeta_, gcap_, hotloop, hotexit)
+    reset_state(st_)
+    reset_traces(traces_, tcap_)
+    reset_anchors(anchors_, acap_)
+    reset_penalties(penalties_, pcap_)
+    reset_blacklists(blacklists_, bcap_)
+    reset_tmeta(tmeta_, tcap_)
+    reset_gmeta(gmeta_, tcap_, gcap_)
+    st_[20] = hotloop
+    st_[21] = hotexit
+    reset_hotcounts(hotcounts_, hcap_, hotloop)
+    return fn(tape_, n_, st_, traces_, tcap_, hotcounts_, hcap_, anchors_, acap_, penalties_, pcap_, blacklists_, bcap_, tmeta_, irbuf_, icap_, gmeta_, gcap_)
+end
+
+local function sum_sel(traces_, trace_count, sel_off)
+    local i = 0
+    local s = 0
+    while i < trace_count do
+        s = s + traces_[i * 20 + sel_off]
+        i = i + 1
+    end
+    return s
+end
+
+local function dump_traces(tag, traces_, trace_count)
+    print(tag, "trace_count", trace_count)
+    local i = 0
+    while i < trace_count do
+        local b = i * 20
+        print("trace", i,
+            "entry_pc", traces_[b + 1],
+            "exits", traces_[b + 2],
+            "runs", traces_[b + 3],
+            "sel_ix", traces_[b + 5],
+            "sel0", traces_[b + 12],
+            "sel1", traces_[b + 13],
+            "parent", traces_[b + 14],
+            "link0", traces_[b + 16],
+            "link1", traces_[b + 17],
+            "snap0_pc", traces_[b + 6],
+            "snap1_pc", traces_[b + 9])
+        i = i + 1
+    end
+end
+
+local function has_repeated_entry_pc(traces_, trace_count)
+    local i = 0
+    while i < trace_count do
+        local bi = i * 20
+        local e = traces_[bi + 1]
+        local j = i + 1
+        while j < trace_count do
+            local bj = j * 20
+            if traces_[bj + 1] == e then return true end
+            j = j + 1
+        end
+        i = i + 1
+    end
+    return false
+end
+
+local function count_parented_and_linked(traces_, trace_count, gmeta_, gcap_)
+    local i = 0
+    local parented = 0
+    local linked = 0
+    while i < trace_count do
+        local b = i * 20
+        if traces_[b + 14] >= 0 then parented = parented + 1 end
+        local g = 0
+        while g < gcap_ do
+            local goff = (i * gcap_ + g) * 4
+            if gmeta_[goff + 0] >= 0 then linked = linked + 1 end
+            g = g + 1
+        end
+        i = i + 1
+    end
+    return parented, linked
+end
+
+local function count_link_slots(gmeta_, trace_count, gcap_)
+    local i = 0
+    local l0 = 0
+    local l1 = 0
+    while i < trace_count do
+        local g = 0
+        while g < gcap_ do
+            local goff = (i * gcap_ + g) * 4
+            if gmeta_[goff + 0] >= 0 then
+                if g % 2 == 0 then l0 = l0 + 1 else l1 = l1 + 1 end
+            end
+            g = g + 1
+        end
+        i = i + 1
+    end
+    return l0, l1
+end
+
+local function count_nonzero(arr, cap)
+    local i = 0
+    local c = 0
+    while i < cap do
+        if arr[i] > 0 then c = c + 1 end
+        i = i + 1
+    end
+    return c
+end
+
+-- Stress case: force repeated native exits so both snapshot indices are selected.
+local stress_words = {
+    0, 1,
+    2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
+    3,
+}
+local stress_tape = ffi.new("int32_t[?]", #stress_words)
+for i, v in ipairs(stress_words) do stress_tape[i - 1] = v end
+
+local stress_tcap = 32
+local st_stress = ffi.new("int32_t[28]")
+local traces_stress = ffi.new("int32_t[?]", stress_tcap * 20)
+local hotcounts_stress = ffi.new("int32_t[?]", #stress_words)
+local anchors_stress = ffi.new("int32_t[?]", #stress_words)
+local penalties_stress = ffi.new("int32_t[?]", #stress_words)
+local blacklists_stress = ffi.new("int32_t[?]", #stress_words)
+local tmeta_stress = ffi.new("int32_t[?]", stress_tcap * 3)
+local irbuf_stress = ffi.new("int32_t[?]", icap * 4)
+local gmeta_stress = ffi.new("int32_t[?]", stress_tcap * gcap * 4)
+
+local code_stress = run_with_tuning(compiled_split, stress_tape, #stress_words, st_stress, traces_stress, stress_tcap, hotcounts_stress, #stress_words, anchors_stress, #stress_words, penalties_stress, #stress_words, blacklists_stress, #stress_words, tmeta_stress, irbuf_stress, icap, gmeta_stress, gcap, 1, 1)
+
+local sel0 = sum_sel(traces_stress, st_stress[15], 12)
+local sel1 = sum_sel(traces_stress, st_stress[15], 13)
+local parented, linked = count_parented_and_linked(traces_stress, st_stress[15], gmeta_stress, gcap)
+
+print("stress split", code_stress, "traces", st_stress[15], "exits", st_stress[13], "sel0", sel0, "sel1", sel1, "parented", parented, "linked", linked)
+dump_traces("stress_split_dump", traces_stress, st_stress[15])
+
+assert(sel0 + sel1 > 0)
+assert(parented > 0)
+assert(linked > 0)
+assert(st_stress[15] > 0)
+
+-- Extra stress: hotexit=1 should route side links through exit slot 1.
+local st_stress_odd = ffi.new("int32_t[28]")
+local traces_stress_odd = ffi.new("int32_t[?]", stress_tcap * 20)
+local hotcounts_stress_odd = ffi.new("int32_t[?]", #stress_words)
+local anchors_stress_odd = ffi.new("int32_t[?]", #stress_words)
+local penalties_stress_odd = ffi.new("int32_t[?]", #stress_words)
+local blacklists_stress_odd = ffi.new("int32_t[?]", #stress_words)
+local tmeta_stress_odd = ffi.new("int32_t[?]", stress_tcap * 3)
+local irbuf_stress_odd = ffi.new("int32_t[?]", icap * 4)
+local gmeta_stress_odd = ffi.new("int32_t[?]", stress_tcap * gcap * 4)
+local code_stress_odd = run_with_tuning(compiled_split, stress_tape, #stress_words, st_stress_odd, traces_stress_odd, stress_tcap, hotcounts_stress_odd, #stress_words, anchors_stress_odd, #stress_words, penalties_stress_odd, #stress_words, blacklists_stress_odd, #stress_words, tmeta_stress_odd, irbuf_stress_odd, icap, gmeta_stress_odd, gcap, 1, 1)
+local link0_odd, link1_odd = count_link_slots(gmeta_stress_odd, st_stress_odd[15], gcap)
+print("stress oddhot", code_stress_odd, "traces", st_stress_odd[15], "link0", link0_odd, "link1", link1_odd)
+assert(link0_odd + link1_odd > 0)
+
+-- Policy stress: force NYI aborts and verify per-PC penalty/blacklist tables update.
+local policy_words = { 2, 2, 4, 3 }
+local policy_tape = ffi.new("int32_t[?]", #policy_words)
+for i, v in ipairs(policy_words) do policy_tape[i - 1] = v end
+local st_policy = ffi.new("int32_t[28]")
+local traces_policy = ffi.new("int32_t[?]", 8 * 20)
+local hotcounts_policy = ffi.new("int32_t[?]", #policy_words)
+local anchors_policy = ffi.new("int32_t[?]", #policy_words)
+local penalties_policy = ffi.new("int32_t[?]", #policy_words)
+local blacklists_policy = ffi.new("int32_t[?]", #policy_words)
+local tmeta_policy = ffi.new("int32_t[?]", 8 * 3)
+local irbuf_policy = ffi.new("int32_t[?]", icap * 4)
+local gmeta_policy = ffi.new("int32_t[?]", 8 * gcap * 4)
+reset_penalties(penalties_policy, #policy_words)
+reset_blacklists(blacklists_policy, #policy_words)
+local code_policy = 0
+local pr = 0
+while pr < 8 do
+    reset_state(st_policy)
+    reset_traces(traces_policy, 8)
+    reset_anchors(anchors_policy, #policy_words)
+    st_policy[20] = 1
+    st_policy[21] = 2
+    reset_hotcounts(hotcounts_policy, #policy_words, st_policy[20])
+    reset_tmeta(tmeta_policy, 8)
+    reset_gmeta(gmeta_policy, 8, gcap)
+    code_policy = compiled_split(policy_tape, #policy_words, st_policy, traces_policy, 8, hotcounts_policy, #policy_words, anchors_policy, #policy_words, penalties_policy, #policy_words, blacklists_policy, #policy_words, tmeta_policy, irbuf_policy, icap, gmeta_policy, gcap)
+    pr = pr + 1
+end
+local penpcs_policy = count_nonzero(penalties_policy, #policy_words)
+local blkpcs_policy = count_nonzero(blacklists_policy, #policy_words)
+print("stress policy", code_policy, "penpcs", penpcs_policy, "blkpcs", blkpcs_policy, "last_pen", st_policy[22], "last_blk", st_policy[12])
+assert(penpcs_policy > 0)
+assert(blkpcs_policy > 0)
+
+local function bench(fn, tape_, n_, iters, tcap_)
+    local st_ = ffi.new("int32_t[28]")
+    local traces_ = ffi.new("int32_t[?]", tcap_ * 20)
+    local hotcounts_ = ffi.new("int32_t[?]", n_)
+    local anchors_ = ffi.new("int32_t[?]", n_)
+    local penalties_ = ffi.new("int32_t[?]", n_)
+    local blacklists_ = ffi.new("int32_t[?]", n_)
+    local tmeta_ = ffi.new("int32_t[?]", tcap_ * 3)
+    local irbuf_ = ffi.new("int32_t[?]", icap * 4)
+    local gmeta_ = ffi.new("int32_t[?]", tcap_ * gcap * 4)
+    local t0 = os.clock()
+    local acc = 0
+    local i = 0
+    while i < iters do
+        reset_state(st_)
+        reset_traces(traces_, tcap_)
+        reset_hotcounts(hotcounts_, n_, st_[20])
+        reset_anchors(anchors_, n_)
+        reset_penalties(penalties_, n_)
+        reset_blacklists(blacklists_, n_)
+        reset_tmeta(tmeta_, tcap_)
+        reset_gmeta(gmeta_, tcap_, gcap)
+        acc = acc + fn(tape_, n_, st_, traces_, tcap_, hotcounts_, n_, anchors_, n_, penalties_, n_, blacklists_, n_, tmeta_, irbuf_, icap, gmeta_, gcap)
+        i = i + 1
+    end
+    return os.clock() - t0, acc
+end
+
+local iters = 20000
+local ts, as = bench(compiled_split, tape, n, iters, tcap)
+
+print(string.format("bench split: %.6fs", ts))
+print("checksum", as)
+
+compiled_split:free()
+return "five mode split experiment ok"

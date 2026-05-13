@@ -12,6 +12,8 @@ local Quote     = require("moonlift.quote")
 local Session   = require("moonlift.host_session")
 local HostValues= require("moonlift.host_values")
 local Parse     = require("moonlift.parse")
+local SourceMap = require("moonlift.source_map")
+local Diag      = require("moonlift.diagnostic")
 
 local M = {}
 
@@ -40,6 +42,91 @@ function M._push_runtime(runtime) return push_runtime(runtime) end
 
 local function new_context()
     local T = pvm.context(); A.Define(T); return T
+end
+
+---------------------------------------------------------------------------
+-- Error diagnostics: phase + source mapping + snippets
+---------------------------------------------------------------------------
+
+local function build_line_starts(src)
+    return SourceMap.index(src)
+end
+
+local function line_col_of_offset(line_index, offset)
+    return SourceMap.line_col(line_index, offset)
+end
+
+local function render_snippet(_src_ignored, line_index, line_no, ctx)
+    return SourceMap.snippet(line_index, line_no, ctx)
+end
+
+local function map_generated_line(runtime, lua_line)
+    if not runtime or not runtime.carrier_map or not lua_line then return nil end
+    return SourceMap.lookup_generated(runtime.carrier_map, lua_line)
+end
+
+local function format_report(opts)
+    return Diag.new(opts)
+end
+
+local function format_phase_exception(runtime, phase, err, extra)
+    local diag = Diag.from_error(err, {
+        phase = phase,
+        file = runtime and runtime.chunk_name,
+    })
+    if diag.phase and diag.phase ~= phase then
+        diag.envelope_phase = phase
+    else
+        diag.phase = phase
+    end
+
+    local mapped = map_generated_line(runtime, diag.generated_line)
+    diag.src_line = (extra and extra.src_line) or diag.src_line or (mapped and mapped.src_line)
+    diag.src_col = (extra and extra.src_col) or diag.src_col or (mapped and mapped.src_col) or 1
+    diag.island_index = (extra and extra.island_index) or diag.island_index or (mapped and mapped.island_index)
+    diag.island_kind = (extra and extra.island_kind) or diag.island_kind or (mapped and mapped.island_kind)
+
+    if (not diag.generated_path) and diag.generated_source then
+        diag.generated_path = Diag.write_temp_generated(diag.generated_source)
+    end
+
+    if runtime and runtime.line_starts and diag.src_line and not diag.snippet then
+        diag.snippet = SourceMap.snippet(runtime.line_starts, diag.src_line, 2)
+    end
+
+    return diag
+end
+
+local function format_parse_issue(runtime, phase, issue, extra)
+    local src_line = tonumber(issue and issue.line) or nil
+    local src_col = tonumber(issue and issue.col) or 1
+    if (not src_line or src_line <= 0) and issue and issue.offset then
+        src_line, src_col = line_col_of_offset(runtime.line_starts, tonumber(issue.offset) or 1)
+    end
+
+    return Diag.new({
+        phase = phase,
+        file = runtime and runtime.chunk_name,
+        island_index = extra and extra.island_index,
+        island_kind = extra and extra.island_kind,
+        src_line = src_line,
+        src_col = src_col,
+        message = issue and issue.message or tostring(issue),
+        hint = Diag.detect_hint(issue and issue.message or issue),
+        snippet = SourceMap.snippet(runtime.line_starts, src_line, 2),
+    })
+end
+
+local function island_context(runtime, island_index)
+    local island = runtime and runtime.scan and runtime.scan.islands and runtime.scan.islands[island_index]
+    if not island then return { island_index = island_index } end
+    local line, col = line_col_of_offset(runtime.line_starts, island.start)
+    return {
+        island_index = island_index,
+        island_kind = island.kind,
+        src_line = line,
+        src_col = col,
+    }
 end
 
 ---------------------------------------------------------------------------
@@ -133,9 +220,9 @@ end
 
 local CompiledFunction = {}; CompiledFunction.__index = CompiledFunction
 
--- Select backend: MOONLIFT_BACKEND env var, default "dynasm"
+-- Select backend: MOONLIFT_BACKEND env var, default "cranelift"
 local function select_backend(T)
-    local name = (os.getenv("MOONLIFT_BACKEND") or "dynasm"):lower()
+    local name = (os.getenv("MOONLIFT_BACKEND") or "cranelift"):lower()
     if name == "dynasm" then
         return require("back.dasm.init").Define(T)
     elseif name == "cranelift" then
@@ -231,13 +318,29 @@ function Runtime:eval_island(island_index, closures)
     local ParseApi = Parse.Define(T)
     local Splice = require("moonlift.host_splice")
     local Expand = require("moonlift.open_expand").Define(T)
+    local ctx = island_context(self, island_index)
+
+    local function phase_fail(phase, err)
+        error(format_phase_exception(self, phase, err, ctx), 0)
+    end
 
     -- 1. Evaluate Lua closures for splice values
     local luamap = {}
     for id, fn in pairs(closures or {}) do
         local ok, val = pcall(fn)
         if not ok then
-            error("Moonlift splice eval failed at " .. id .. ": " .. tostring(val), 2)
+            local snippet = render_snippet(self.src, self.line_starts, ctx.src_line, 2)
+            error(format_report({
+                phase = "splice_eval",
+                file = self.chunk_name,
+                island_index = ctx.island_index,
+                island_kind = ctx.island_kind,
+                src_line = ctx.src_line,
+                src_col = ctx.src_col,
+                message = "splice " .. tostring(id) .. " evaluation failed: " .. tostring(val),
+                hint = Diag.detect_hint(val),
+                snippet = snippet,
+            }), 0)
         end
         luamap[id] = {present = true, value = val}
         adopt_splice_value(self, val)
@@ -248,9 +351,11 @@ function Runtime:eval_island(island_index, closures)
     local parse_opts = {
         protocol_types = self.protocol_types,
     }
-    local parsed = ParseApi.parse_island(self.scan, island_index, parse_opts)
+    local ok_parse, parsed_or_err = pcall(ParseApi.parse_island, self.scan, island_index, parse_opts)
+    if not ok_parse then phase_fail("parse_island", parsed_or_err) end
+    local parsed = parsed_or_err
     if #parsed.issues ~= 0 then
-        error("Moonlift parse failed: " .. tostring(parsed.issues[1]), 2)
+        error(format_parse_issue(self, "parse_island", parsed.issues[1], ctx), 0)
     end
 
     -- 3. Fill splice slots
@@ -258,44 +363,76 @@ function Runtime:eval_island(island_index, closures)
     for _, ss in ipairs(parsed.splice_slots) do
         local rec = luamap[ss.splice_id]
         if not rec or not rec.present then
-            error("missing splice value for " .. ss.splice_id, 2)
+            local snippet = render_snippet(self.src, self.line_starts, ctx.src_line, 2)
+            error(format_report({
+                phase = "splice_fill",
+                file = self.chunk_name,
+                island_index = ctx.island_index,
+                island_kind = ctx.island_kind,
+                src_line = ctx.src_line,
+                src_col = ctx.src_col,
+                message = "missing splice value for " .. tostring(ss.splice_id),
+                snippet = snippet,
+            }), 0)
         end
-        bindings[#bindings + 1] = Splice.fill(self.session, ss.slot, rec.value, "splice " .. ss.splice_id)
+        local ok_fill, binding_or_err = pcall(Splice.fill, self.session, ss.slot, rec.value, "splice " .. ss.splice_id)
+        if not ok_fill then phase_fail("splice_fill", binding_or_err) end
+        bindings[#bindings + 1] = binding_or_err
     end
 
     -- 4. Expand + wrap uniformly
-    local base_env = Expand.env_with_frags(self.region_frags, self.expr_frags)
-    local env = Expand.env_with_fills(base_env, bindings)
+    local ok_base_env, base_env_or_err = pcall(Expand.env_with_frags, self.region_frags, self.expr_frags)
+    if not ok_base_env then phase_fail("expand_env", base_env_or_err) end
+    local ok_env, env_or_err = pcall(Expand.env_with_fills, base_env_or_err, bindings)
+    if not ok_env then phase_fail("expand_env", env_or_err) end
+    local env = env_or_err
 
     if parsed.kind == "region" then
-        local expanded = Expand.expand_region_frag(parsed.value, env)
-        local value = HostValues.region_frag_value(self.session, expanded, {})
-        self.region_frags[value.name] = value
-        track_deps(value, closure_deps)
-        return value
+        local ok_expand, expanded_or_err = pcall(Expand.expand_region_frag, parsed.value, env)
+        if not ok_expand then phase_fail("expand_region", expanded_or_err) end
+        local ok_value, value_or_err = pcall(HostValues.region_frag_value, self.session, expanded_or_err, {})
+        if not ok_value then phase_fail("wrap_region", value_or_err) end
+        self.region_frags[value_or_err.name] = value_or_err
+        track_deps(value_or_err, closure_deps)
+        return value_or_err
 
     elseif parsed.kind == "expr" then
-        local expanded = Expand.expand_expr_frag(parsed.value, env)
-        local value = HostValues.expr_frag_value(self.session, expanded)
-        self.expr_frags[value.name] = value
-        track_deps(value, closure_deps)
-        return value
+        local ok_expand, expanded_or_err = pcall(Expand.expand_expr_frag, parsed.value, env)
+        if not ok_expand then phase_fail("expand_expr", expanded_or_err) end
+        local ok_value, value_or_err = pcall(HostValues.expr_frag_value, self.session, expanded_or_err)
+        if not ok_value then phase_fail("wrap_expr", value_or_err) end
+        self.expr_frags[value_or_err.name] = value_or_err
+        track_deps(value_or_err, closure_deps)
+        return value_or_err
 
     elseif parsed.kind == "func" then
         -- Expand by wrapping in internal module
         local Tr = T.MoonTree
         local deps = merge_deps(closure_deps, deps_of(self))
         local raw_mod = internal_module_for_func(T, parsed.value, deps, parsed.value.name)
-        local expanded_mod = Expand.expand_module(raw_mod, env)
+        local ok_mod, expanded_mod_or_err = pcall(Expand.expand_module, raw_mod, env)
+        if not ok_mod then phase_fail("expand_func", expanded_mod_or_err) end
+
         -- Extract the expanded function
         local expanded_func
-        for i = 1, #expanded_mod.items do
-            if pvm.classof(expanded_mod.items[i]) == Tr.ItemFunc then
-                expanded_func = expanded_mod.items[i].func
+        for i = 1, #expanded_mod_or_err.items do
+            if pvm.classof(expanded_mod_or_err.items[i]) == Tr.ItemFunc then
+                expanded_func = expanded_mod_or_err.items[i].func
                 break
             end
         end
-        if not expanded_func then error("func island did not produce a function after expansion", 2) end
+        if not expanded_func then
+            error(format_report({
+                phase = "expand_func",
+                file = self.chunk_name,
+                island_index = ctx.island_index,
+                island_kind = ctx.island_kind,
+                src_line = ctx.src_line,
+                src_col = ctx.src_col,
+                message = "func island did not produce a function after expansion",
+                snippet = render_snippet(self.src, self.line_starts, ctx.src_line, 2),
+            }), 0)
+        end
 
         local value = setmetatable({
             kind = "func", name = expanded_func.name, func = expanded_func,
@@ -309,8 +446,9 @@ function Runtime:eval_island(island_index, closures)
         local td = parsed.value
         local Ty = T.MoonType
         local ty = Ty.TNamed(Ty.TypeRefPath(T.MoonCore.Path({ T.MoonCore.Name(td.name) })))
-        -- Expand the decl
-        local expanded_decl = Expand.expand_type_decl(td.decl, env)
+
+        local ok_decl, expanded_decl_or_err = pcall(Expand.expand_type_decl, td.decl, env)
+        if not ok_decl then phase_fail("expand_type_decl", expanded_decl_or_err) end
 
         -- Register protocol variants
         if td.protocol_variants then
@@ -318,15 +456,25 @@ function Runtime:eval_island(island_index, closures)
         end
 
         local api = self.session:api()
-        local value = api.type_from_asdl(ty, td.name, {
-            decl = expanded_decl,
+        local ok_value, value_or_err = pcall(api.type_from_asdl, ty, td.name, {
+            decl = expanded_decl_or_err,
             protocol_variants = td.protocol_variants,
         })
-        track_deps(value, merge_deps(closure_deps, { type_decls = { td } }))
-        return value
+        if not ok_value then phase_fail("wrap_type_decl", value_or_err) end
+        track_deps(value_or_err, merge_deps(closure_deps, { type_decls = { td } }))
+        return value_or_err
 
     else
-        error("unsupported island kind: " .. tostring(parsed.kind), 2)
+        error(format_report({
+            phase = "eval_island",
+            file = self.chunk_name,
+            island_index = ctx.island_index,
+            island_kind = ctx.island_kind,
+            src_line = ctx.src_line,
+            src_col = ctx.src_col,
+            message = "unsupported island kind: " .. tostring(parsed.kind),
+            snippet = render_snippet(self.src, self.line_starts, ctx.src_line, 2),
+        }), 0)
     end
 end
 
@@ -374,13 +522,29 @@ function M.loadstring(src, chunk_name, opts)
     local session = opts.session or (parent and parent.session)
         or Session.new({prefix = opts.prefix or "mlua", T = T})
 
-    -- Scan the document once, authoritatively
-    local scan = Parse.scan_document(src)
+    local file_name = chunk_name or "=(moonlift.mlua_run)"
+    local line_starts = build_line_starts(src)
+
+    -- Scan the document once, authoritatively.
+    local ok_scan, scan_or_err = pcall(Parse.scan_document, src)
+    if not ok_scan then
+        local pseudo_runtime = {
+            src = src,
+            line_starts = line_starts,
+            chunk_name = file_name,
+        }
+        error(format_phase_exception(pseudo_runtime, "scan_document", scan_or_err, {}), 0)
+    end
+    local scan = scan_or_err
 
     local runtime = setmetatable({
         T = T,
         session = session,
         scan = scan,
+        src = src,
+        chunk_name = file_name,
+        line_starts = line_starts,
+        carrier_map = SourceMap.new_carrier_map(1),
         region_frags = opts.region_frags or (parent and parent.region_frags) or {},
         expr_frags = opts.expr_frags or (parent and parent.expr_frags) or {},
         protocol_types = opts.protocol_types or (parent and parent.protocol_types) or {},
@@ -392,20 +556,38 @@ function M.loadstring(src, chunk_name, opts)
 
     local q = Quote()
     local rt = q:val(runtime, "runtime")
-    q("return function(...)")
-    q("local __moonlift_runtime = %s", rt)
-    q("local moon = setmetatable({ require = function(name) return __moonlift_runtime:require(name) end }, { __index = __moonlift_runtime.session:api() })")
 
-    local island_spans = {}
+    local function emit_block(text, map_fn)
+        q(text)
+        SourceMap.carrier_emit(runtime.carrier_map, text, map_fn)
+    end
+
+    local function emit_source_segment(text, src_offset)
+        local start_line, start_col = line_col_of_offset(line_starts, src_offset)
+        emit_block(text, function(i)
+            return {
+                src_line = start_line + (i - 1),
+                src_col = (i == 1) and start_col or 1,
+                origin = "source",
+            }
+        end)
+    end
+
+    emit_block("return function(...)", function() return { origin = "carrier_prelude" } end)
+    emit_block(string.format("local __moonlift_runtime = %s", rt), function() return { origin = "carrier_prelude" } end)
+    emit_block("local moon = setmetatable({ require = function(name) return __moonlift_runtime:require(name) end }, { __index = __moonlift_runtime.session:api() })", function()
+        return { origin = "carrier_prelude" }
+    end)
+
     local cursor = 1
     for island_index, island in ipairs(scan.islands) do
-        -- Emit Lua source between cursor and island start
+        -- Emit Lua source between cursor and island start.
         local lua_part = src:sub(cursor, island.start - 1)
         if lua_part:match("%S") then
-            q(lua_part)
+            emit_source_segment(lua_part, cursor)
         end
 
-        -- Build closure table for this island's holes
+        -- Build closure table for this island's holes.
         local entries = {}
         for _, hid in ipairs(island.holes) do
             local expr = scan.splice_map[hid]
@@ -414,19 +596,36 @@ function M.loadstring(src, chunk_name, opts)
             end
         end
 
-        -- Emit eval_island call by island index, not by source slice
-        q(string.format("__moonlift_runtime:eval_island(%d, {%s})",
-            island_index, table.concat(entries, ",")))
+        -- Emit eval_island call by island index, not by source slice.
+        local island_line, island_col = line_col_of_offset(line_starts, island.start)
+        emit_block(string.format("__moonlift_runtime:eval_island(%d, {%s})", island_index, table.concat(entries, ",")), function()
+            return {
+                src_line = island_line,
+                src_col = island_col,
+                island_index = island_index,
+                island_kind = island.kind,
+                origin = "island_dispatch",
+            }
+        end)
 
         cursor = island.stop + 1
     end
 
-    -- Trailing Lua
+    -- Trailing Lua.
     local tail = src:sub(cursor)
-    if tail:match("%S") then q(tail) end
+    if tail:match("%S") then emit_source_segment(tail, cursor) end
 
-    q("end")
-    local inner, lua_src = q:compile(chunk_name or "=(moonlift.mlua_run)")
+    emit_block("end", function() return { origin = "carrier_prelude" } end)
+
+    local ok_compile, inner_or_err, lua_src_or_nil = pcall(function()
+        return q:compile(file_name)
+    end)
+    if not ok_compile then
+        error(format_phase_exception(runtime, "compile_carrier", inner_or_err, {}), 0)
+    end
+
+    local inner = inner_or_err
+    local lua_src = lua_src_or_nil
 
     local function fn(...)
         local pop = push_runtime(runtime)
@@ -435,14 +634,23 @@ function M.loadstring(src, chunk_name, opts)
         end
         local results = pack(pcall(inner, ...))
         pop()
-        if not results[1] then error(results[2], 0) end
+        if not results[1] then
+            error(format_phase_exception(runtime, "run_carrier", results[2], {}), 0)
+        end
         return unpack(results, 2, results.n)
     end
     return fn, runtime, lua_src
 end
 
 function M.loadfile(path, opts)
-    local f = assert(io.open(path, "rb"))
+    local f, ferr = io.open(path, "rb")
+    if not f then
+        error(format_report({
+            phase = "loadfile",
+            file = path,
+            message = ferr or ("unable to open file " .. tostring(path)),
+        }), 0)
+    end
     local src = f:read("*a")
     f:close()
     return M.loadstring(src, path, opts)

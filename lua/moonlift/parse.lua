@@ -75,6 +75,50 @@ local keywords = {
     ["union"]    = TK.union_kw,
 }
 
+local token_label = {
+    [TK.eof] = "end of input",
+    [TK.name] = "identifier",
+    [TK.int] = "integer literal",
+    [TK.float] = "number literal",
+    [TK.string] = "string literal",
+    [TK.nl] = "newline",
+    [TK.hole] = "splice @{...}",
+    [TK.lparen] = "'('",
+    [TK.rparen] = "')'",
+    [TK.lbrack] = "'['",
+    [TK.rbrack] = "']'",
+    [TK.lbrace] = "'{'",
+    [TK.rbrace] = "'}'",
+    [TK.comma] = "','",
+    [TK.colon] = "':'",
+    [TK.dot] = "'.'",
+    [TK.semi] = "';'",
+    [TK.plus] = "'+'",
+    [TK.minus] = "'-'",
+    [TK.star] = "'*'",
+    [TK.slash] = "'/'",
+    [TK.percent] = "'%'",
+    [TK.eq] = "'='",
+    [TK.arrow] = "'->'",
+    [TK.eqeq] = "'=='",
+    [TK.ne] = "'~='",
+    [TK.lt] = "'<'",
+    [TK.le] = "'<='",
+    [TK.gt] = "'>'",
+    [TK.ge] = "'>='",
+    [TK.amp] = "'&'",
+    [TK.pipe] = "'|'",
+    [TK.caret] = "'^'",
+    [TK.tilde] = "'~'",
+    [TK.shl] = "'<<'",
+    [TK.lshr] = "'>>>'",
+    [TK.ashr] = "'>>'",
+}
+
+for kw, k in pairs(keywords) do
+    token_label[k] = "'" .. kw .. "'"
+end
+
 -- Character classification (byte comparisons, no tables in hot path)
 local function is_alpha(c) return (c >= 65 and c <= 90) or (c >= 97 and c <= 122) or c == 95 end
 local function is_digit(c) return c >= 48 and c <= 57 end
@@ -353,6 +397,26 @@ function Parser:skip_sep() while self:kind() == TK.nl or self:kind() == TK.semi 
 function Parser:accept(k) if self:kind() == k then self.i = self.i + 1; return true end; return false end
 function Parser:accept_text(k) if self:kind() == k then local t = self:text(); self.i = self.i + 1; return t end; return nil end
 
+function Parser:token_label(k)
+    return token_label[k] or ("token " .. tostring(k))
+end
+
+function Parser:token_desc(offset)
+    local k = self:kind(offset)
+    local txt = self:text(offset)
+    local label = self:token_label(k)
+    if k == TK.name and txt ~= "" then
+        return label .. " '" .. txt .. "'"
+    end
+    if (k == TK.int or k == TK.float or k == TK.string) and txt ~= "" then
+        return label .. " " .. txt
+    end
+    if k == TK.eof then
+        return label
+    end
+    return label
+end
+
 function Parser:issue(msg)
     local i = self.i
     self.issues[#self.issues + 1] = self.Pm.ParseIssue(msg, self.toks.start[i] or 0, self.toks.line[i] or 0, self.toks.col[i] or 0)
@@ -360,7 +424,9 @@ end
 
 function Parser:expect(k, msg)
     if self:accept(k) then return true end
-    self:issue(msg or ("expected token " .. tostring(k)))
+    local expected = self:token_label(k)
+    local got = self:token_desc(0)
+    self:issue(msg or ("expected " .. expected .. ", got " .. got))
     return false
 end
 
@@ -1528,7 +1594,13 @@ function M.scan_document(src)
             i = skip_lua_short_string(src, i, 34)
         elseif b == 91 then  -- possibly long bracket
             local after = skip_lua_long_bracket(src, i)
-            if after then i = after end
+            if after then
+                i = after
+            else
+                -- Ordinary '[' in Lua code (indexing/table access), not a long string.
+                -- Must advance to avoid scanner stalling.
+                i = i + 1
+            end
         elseif b == 45 and i < n and byte(src, i + 1) == 45 then
             i = skip_lua_comment(src, i)
         elseif is_alpha(b) or b == 95 then

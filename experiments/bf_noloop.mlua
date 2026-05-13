@@ -1,0 +1,88 @@
+-- BF interpreter step 2: ADD, SUB, RIGHT, LEFT, OUT, HALT (no loops yet)
+
+local ffi = require("ffi")
+
+local OP_ADD = 0 local OP_SUB = 1 local OP_RIGHT = 2 local OP_LEFT = 3
+local OP_OUT = 4 local OP_HALT = 8
+
+local step = region step(code: ptr(i32), data: ptr(i32), ip: i32, dp: i32, out_sum: i32; next: cont(ip: i32, dp: i32, out_sum: i32), output: cont(ip: i32, dp: i32, byte: i32, out_sum: i32), halt: cont(result: i32))
+entry start()
+    let op: i32 = code[ip]
+    switch op do
+    case 0 then
+        data[dp] = data[dp] + 1
+        jump next(ip = ip + 1, dp = dp, out_sum = out_sum)
+    case 1 then
+        data[dp] = data[dp] - 1
+        jump next(ip = ip + 1, dp = dp, out_sum = out_sum)
+    case 2 then
+        jump next(ip = ip + 1, dp = dp + 1, out_sum = out_sum)
+    case 3 then
+        jump next(ip = ip + 1, dp = dp - 1, out_sum = out_sum)
+    case 4 then
+        jump output(ip = ip + 1, dp = dp, byte = data[dp], out_sum = out_sum)
+    case 8 then
+        jump halt(result = out_sum)
+    default then
+        jump halt(result = 0 - ip)
+    end
+end
+end
+
+local run = func run(code: ptr(i32), code_len: i32, data: ptr(i32), data_len: i32) -> i32
+    return region -> i32
+    entry start()
+        emit step(code, data, 0, 0, 0; next = loop, output = got_out, halt = done)
+    end
+    block loop(ip: i32, dp: i32, out_sum: i32)
+        if ip >= code_len then jump done(result = out_sum) end
+        emit step(code, data, ip, dp, out_sum; next = loop, output = got_out, halt = done)
+    end
+    block got_out(ip: i32, dp: i32, byte: i32, out_sum: i32)
+        jump loop(ip = ip, dp = dp, out_sum = out_sum + byte)
+    end
+    block done(result: i32)
+        yield result
+    end
+    end
+end
+
+local c = run:compile()
+
+-- Test: +++++++. => 7 outputs, sum = 7
+do
+    local t1 = ffi.new("int32_t[?]", 8)
+    t1[0]=0 t1[1]=0 t1[2]=0 t1[3]=0 t1[4]=0 t1[5]=0 t1[6]=0 t1[7]=4
+    local d1 = ffi.new("int32_t[?]", 16)
+    local r1 = c(t1, 8, d1, 16)
+    print("7 adds + out:", r1)
+    assert(r1 == 7)
+end
+
+-- Test: ++++++>++++++++. => cell1 = 8, output 8
+do
+    local t2 = ffi.new("int32_t[?]", 16)
+    -- 6 ADDs, RIGHT, 8 ADDs, OUT
+    t2[0]=0 t2[1]=0 t2[2]=0 t2[3]=0 t2[4]=0 t2[5]=0  -- 6 ADDs
+    t2[6]=2  -- RIGHT
+    t2[7]=0 t2[8]=0 t2[9]=0 t2[10]=0 t2[11]=0 t2[12]=0 t2[13]=0 t2[14]=0  -- 8 ADDs
+    t2[15]=4  -- OUT
+    local d2 = ffi.new("int32_t[?]", 16)
+    local r2 = c(t2, 16, d2, 16)
+    print("6 adds, right, 8 adds, out:", r2)
+    assert(r2 == 8)
+end
+
+-- Test: +++.---. => 3 then 0, sum = 3
+do
+    local t3 = ffi.new("int32_t[?]", 8)
+    t3[0]=0 t3[1]=0 t3[2]=0 t3[3]=4 t3[4]=1 t3[5]=1 t3[6]=1 t3[7]=4
+    local d3 = ffi.new("int32_t[?]", 16)
+    local r3 = c(t3, 8, d3, 16)
+    print("3 adds, out, 3 subs, out:", r3)
+    assert(r3 == 3)
+end
+
+c:free()
+print("all no-loop tests passed!")
+return "ok"

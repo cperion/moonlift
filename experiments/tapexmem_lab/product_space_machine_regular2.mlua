@@ -1,0 +1,97 @@
+local ffi = require("ffi")
+
+local inv = region inv(pc: i32, tape_len: i32, acc: i32, live: i32, phase: i32, fuel: i32;
+    ok: cont(pc: i32, tape_len: i32, acc: i32, live: i32, phase: i32, fuel: i32),
+    bad: cont(code: i32))
+entry start()
+    if fuel <= 0 then jump bad(code = -700) end
+    if pc < 0 then jump bad(code = -200) end
+    if tape_len < 0 then jump bad(code = -201) end
+    if live < 0 then jump bad(code = -202) end
+    jump ok(pc = pc, tape_len = tape_len, acc = acc, live = live, phase = phase, fuel = fuel)
+end
+end
+
+local exec = region exec(tape: ptr(i32), n: i32, pc: i32, tape_len: i32, acc: i32, live: i32, fuel: i32;
+    next: cont(pc: i32, tape_len: i32, acc: i32, live: i32, phase: i32, fuel: i32),
+    stop: cont(code: i32))
+entry start()
+    if pc >= n then jump stop(code = acc + tape_len * 10 + live * 100) end
+
+    let op: i32 = tape[pc]
+    if op == 0 then
+        if pc + 1 >= n then jump stop(code = -10) end
+        jump next(pc = pc + 2, tape_len = tape_len + 1, acc = acc + tape[pc + 1], live = live, phase = 0, fuel = fuel - 1)
+    end
+    if op == 1 then
+        jump next(pc = pc + 1, tape_len = tape_len + 1, acc = acc + 1, live = live, phase = 0, fuel = fuel - 1)
+    end
+    if op == 2 then
+        jump next(pc = pc + 1, tape_len = tape_len + 1, acc = acc, live = live + 1, phase = 0, fuel = fuel - 1)
+    end
+    if op == 3 then
+        if live <= 0 then jump stop(code = -31) end
+        jump next(pc = pc + 1, tape_len = tape_len + 1, acc = acc, live = live - 1, phase = 1, fuel = fuel - 1)
+    end
+    if op == 4 then
+        jump next(pc = pc + 1, tape_len = tape_len + 1, acc = acc, live = live, phase = 1, fuel = fuel - 1)
+    end
+    if op == 9 then jump stop(code = acc + tape_len * 10 + live * 100) end
+    jump stop(code = -99)
+end
+end
+
+local gc = region gc(pc: i32, tape_len: i32, acc: i32, live: i32, fuel: i32;
+    next: cont(pc: i32, tape_len: i32, acc: i32, live: i32, phase: i32, fuel: i32))
+entry start()
+    if live == 0 then
+        jump next(pc = pc, tape_len = tape_len, acc = acc + 1000, live = live, phase = 0, fuel = fuel - 1)
+    end
+    jump next(pc = pc, tape_len = tape_len, acc = acc + 10, live = live, phase = 0, fuel = fuel - 1)
+end
+end
+
+local run_machine = func run_machine(tape: ptr(i32), n: i32) -> i32
+    return region -> i32
+    entry start()
+        jump dispatch(pc = 0, tape_len = 0, acc = 0, live = 0, phase = 0, fuel = 256)
+    end
+
+    block dispatch(pc: i32, tape_len: i32, acc: i32, live: i32, phase: i32, fuel: i32)
+        emit @{inv}(pc, tape_len, acc, live, phase, fuel; ok = mode, bad = done)
+    end
+
+    block mode(pc: i32, tape_len: i32, acc: i32, live: i32, phase: i32, fuel: i32)
+        if phase == 0 then
+            emit @{exec}(tape, n, pc, tape_len, acc, live, fuel; next = recv, stop = done)
+        end
+        if phase == 1 then
+            emit @{gc}(pc, tape_len, acc, live, fuel; next = recv)
+        end
+        jump done(code = -203)
+    end
+
+    block recv(pc: i32, tape_len: i32, acc: i32, live: i32, phase: i32, fuel: i32)
+        jump dispatch(pc = pc, tape_len = tape_len, acc = acc, live = live, phase = phase, fuel = fuel)
+    end
+
+    block done(code: i32)
+        yield code
+    end
+    end
+end
+
+local compiled = run_machine:compile()
+local function run(words)
+    local p = ffi.new("int32_t[?]", #words)
+    for i, v in ipairs(words) do p[i - 1] = v end
+    return compiled(p, #words)
+end
+
+local a = run({ 0, 10, 0, 32, 1, 2, 3, 4, 9 })
+local b = run({ 3, 9 })
+print("regular2", a, b)
+assert(a == 2103)
+assert(b == -31)
+compiled:free()
+return "tapexmem regular2 ok"

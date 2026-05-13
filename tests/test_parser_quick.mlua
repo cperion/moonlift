@@ -1,0 +1,13 @@
+func add(x: i32, y: i32) -> i32
+    return x + y
+end
+
+func sub(x: i32, y: i32) -> i32
+    return x - y
+end
+
+local unit = __moonlift_runtime:moon_compile()
+assert(unit.add(3, 4) == 7, "add")
+assert(unit.sub(10, 3) == 7, "sub")
+unit.artifact:free()
+return "parser ok"
