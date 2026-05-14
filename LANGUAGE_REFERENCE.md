@@ -581,7 +581,7 @@ There is none. Use Lua to generate specialized concrete types/functions/fragment
 ## 6. Functions
 
 ```moonlift
-func name ( param_list? ) [-> type]
+func [name] ( param_list? ) [-> type]
     requires_clause*
     stmt*
 end
@@ -593,6 +593,10 @@ Rules:
   are rejected.
 - Functions are standalone compiled values. There is no module-level visibility system.
   Symbol visibility is controlled by the compilation/linker target.
+- The name is optional. When the function is assigned (`local f = func(...)`
+  or `M.f = func(...)`), the name is inferred from the assignment target.
+  When the name is omitted without an assignment (e.g. `return func(...)`),
+  an auto-generated internal name is used.
 - Omitting the result type means `void` return.
 - The parameter list may be empty: `func name() -> i32 ... end` or `func name()
   ... end` for void.
@@ -602,6 +606,16 @@ Examples:
 
 ```moonlift
 func add(a: i32, b: i32) -> i32
+    return a + b
+end
+
+-- Inferred name from assignment
+local add = func(a: i32, b: i32) -> i32
+    return a + b
+end
+
+-- Anonymous return
+return func(a: i32, b: i32) -> i32
     return a + b
 end
 
@@ -650,12 +664,19 @@ both non-aliasing and the memory it points to is only read.
 
 ### 6.4 Type declarations
 
-In `.mlua` files, use `struct` and `union` islands:
+In `.mlua` files, use `struct` and `union` islands. The name is optional when
+assigned — inferred from the assignment target:
 
 ```moonlift
 struct Pair left: i32; right: i32 end
+local Pair = struct left: i32; right: i32 end   -- same, name inferred
 
 union Result ok(i32) | err(string) | none end
+local Result = union ok(i32) | err(string) | none end  -- same, name inferred
+
+-- Anonymous (auto-named)
+return struct x: f32; y: f32 end
+return union ok(i32) | err(i32) end
 ```
 
 
@@ -664,15 +685,17 @@ union Result ok(i32) | err(string) | none end
 
 ## 7. Hosted declarations
 
-The `.mlua` source parser recognizes these hosted declaration islands:
+The `.mlua` source parser recognizes these hosted declaration islands.
+Names in brackets are optional — when omitted, the name is inferred from the
+Lua assignment target or auto-generated:
 
-- `struct Name field: T ... end` — standalone struct declaration
-- `union Name variant(...) | variant(...) end` — standalone union declaration
-- `func name(params...) [-> T] ... end` — standalone function declaration
-- `region name(params; continuations) ... end` — standalone region declaration
-- `expr name(params) -> T expr end` — standalone expression declaration
+- `struct [Name] field: T ... end`
+- `union [Name] variant(...) | variant(...) end`
+- `func [name](params...) [-> T] ... end`
+- `region [name](params; continuations) ... end`
+- `expr [name](params) -> T expr end`
 
-### 7.1 Anonymous forms with name inference
+### 7.1 Name inference and anonymous forms
 
 When assigned, the keyword name is omitted and inferred from the assignment:
 

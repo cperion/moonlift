@@ -1,10 +1,11 @@
 // MoonLift host binary — Terra-style hosted runtime.
 //
-// The binary owns the LuaJIT lua_State, hosts the MoonLift compiler, and exposes
-// a direct Rust JIT bridge to Lua. Compiled MoonLift code can call Lua C API
-// functions as regular native extern calls.
+// Self-contained: embeds all Lua compiler sources so no filesystem
+// access is needed at runtime (beyond the user's .mlua file).
 //
 //   cargo run --bin moonlift -- path/to/file.mlua
+
+mod embedded_lua;
 
 use std::cell::RefCell;
 use std::ffi::{c_int, c_void};
@@ -99,9 +100,7 @@ fn install_host_api(lua: &Lua, jit: Rc<RefCell<moonlift::Jit>>) -> mlua::Result<
     Ok(())
 }
 
-fn init_lua(lua: &Lua, root: &str) -> Result<(), Box<dyn std::error::Error>> {
-    lua.globals().set("MOONLIFT_ROOT", root)?;
-
+fn init_lua(lua: &Lua) -> mlua::Result<()> {
     let mut lua_state = std::ptr::null_mut();
     unsafe {
         lua.exec_raw::<()>((), |state| {
@@ -111,15 +110,22 @@ fn init_lua(lua: &Lua, root: &str) -> Result<(), Box<dyn std::error::Error>> {
     lua.globals()
         .set("MOONLIFT_LUASTATE", LightUserData(lua_state.cast::<c_void>()))?;
 
+    // Register all embedded Lua modules so require() finds them without disk I/O.
+    let package = lua.globals().get::<mlua::Table>("package")?;
+    let preload = package.get::<mlua::Table>("preload")?;
+    for (name, source) in embedded_lua::embedded_modules() {
+        let loader = lua.create_function(move |lua, ()| {
+            let chunk = lua.load(source).set_name(name).into_function()?;
+            let result: mlua::Value = chunk.call(())?;
+            Ok(result)
+        })?;
+        preload.set(name, loader)?;
+    }
+
+    // Override back_jit so the hosted (in-process Rust) backend is used
+    // instead of loading libmoonlift.so via FFI.
     lua.load(
         r#"
-        package.path = MOONLIFT_ROOT .. "/?.lua;" ..
-                       MOONLIFT_ROOT .. "/?/init.lua;" ..
-                       MOONLIFT_ROOT .. "/lua/?.lua;" ..
-                       MOONLIFT_ROOT .. "/lua/?/init.lua;" ..
-                       MOONLIFT_ROOT .. "/lib/?.lua;" ..
-                       package.path
-
         local ffi = require("ffi")
         ffi.cdef[[
             void lua_createtable(void *L, int narr, int nrec);
@@ -158,11 +164,8 @@ fn run_mlua_file(lua: &Lua, path: &str) -> mlua::Result<()> {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let cwd = std::env::current_dir()?;
-    let root = cwd.display().to_string();
-
     let lua = unsafe { Lua::unsafe_new() };
-    init_lua(&lua, &root)?;
+    init_lua(&lua)?;
 
     let mut jit = moonlift::Jit::new();
     moonlift::lua_api::register_symbols(&mut jit);
