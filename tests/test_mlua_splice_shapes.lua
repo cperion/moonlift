@@ -23,7 +23,7 @@ assert(nested_type_in_as.name == "nested_type_in_as")
 
 -- Expression fragment use
 local use_expr = Host.eval [[
-local inc = expr inc(x: i32) -> i32
+local inc = expr(x: i32) -> i32
     x + 1
 end
 return func use_expr(x: i32) -> i32
@@ -36,7 +36,7 @@ c_expr:free()
 
 -- Region fragment use
 local use_region = Host.eval [[
-local emit_hit = region emit_hit(x: i32; hit: cont(y: i32))
+local emit_hit = region(x: i32; hit: cont(y: i32))
 entry start()
     jump hit(y = x + 1)
 end

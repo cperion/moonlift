@@ -39,7 +39,7 @@ print("OK: region fragment parsed")
 
 -- Function using emit
 local fn = Host.eval [[
-local scan_until = region scan_until(p: ptr(u8), n: i32, target: i32; hit: cont(pos: i32), miss: cont(pos: i32))
+local scan_until = region(p: ptr(u8), n: i32, target: i32; hit: cont(pos: i32), miss: cont(pos: i32))
 entry loop(i: i32 = 0)
     if i >= n then jump miss(pos = i) end
     if as(i32, p[i]) == target then jump hit(pos = i) end

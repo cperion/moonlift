@@ -1,6 +1,6 @@
 local ffi = require("ffi")
 
-local inv = region inv(pc: i32, tape_len: i32, acc: i32, live: i32, phase: i32, fuel: i32;
+local inv = region(pc: i32, tape_len: i32, acc: i32, live: i32, phase: i32, fuel: i32;
     ok: cont(pc: i32, tape_len: i32, acc: i32, live: i32, phase: i32, fuel: i32),
     bad: cont(code: i32))
 entry start()
@@ -12,7 +12,7 @@ entry start()
 end
 end
 
-local exec = region exec(tape: ptr(i32), n: i32, pc: i32, tape_len: i32, acc: i32, live: i32, fuel: i32;
+local exec = region(tape: ptr(i32), n: i32, pc: i32, tape_len: i32, acc: i32, live: i32, fuel: i32;
     next: cont(pc: i32, tape_len: i32, acc: i32, live: i32, phase: i32, fuel: i32),
     stop: cont(code: i32))
 entry start()
@@ -41,7 +41,7 @@ entry start()
 end
 end
 
-local gc = region gc(pc: i32, tape_len: i32, acc: i32, live: i32, fuel: i32;
+local gc = region(pc: i32, tape_len: i32, acc: i32, live: i32, fuel: i32;
     next: cont(pc: i32, tape_len: i32, acc: i32, live: i32, phase: i32, fuel: i32))
 entry start()
     if live == 0 then
@@ -51,7 +51,7 @@ entry start()
 end
 end
 
-local run_machine = func run_machine(tape: ptr(i32), n: i32) -> i32
+local run_machine = func(tape: ptr(i32), n: i32) -> i32
     return region -> i32
     entry start()
         jump dispatch(pc = 0, tape_len = 0, acc = 0, live = 0, phase = 0, fuel = 256)

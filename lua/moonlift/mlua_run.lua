@@ -25,6 +25,11 @@ local M = {}
 local Runtime = {}; Runtime.__index = Runtime
 
 local FuncValue = {}; FuncValue.__index = FuncValue
+
+function FuncValue:as_item()
+    return self.item
+end
+
 local Deps = { __mode = "k" }
 local deps_of_value = setmetatable({}, Deps)
 
@@ -473,9 +478,29 @@ function Runtime:eval_island(island_index, closures)
             }), 0)
         end
 
+        local api = self.session:api()
+        local func_params = {}
+        for i = 1, #expanded_func.params do
+            local p = expanded_func.params[i]
+            func_params[i] = { name = p.name, type = api.type_from_asdl(p.ty, p.name) }
+        end
+        local exported_func
+        local cls = pvm.classof(expanded_func)
+        if cls == Tr.FuncLocalContract or cls == Tr.FuncExportContract then
+            exported_func = Tr.FuncExportContract(expanded_func.name, expanded_func.params, expanded_func.result, expanded_func.contracts, expanded_func.body)
+        else
+            exported_func = Tr.FuncExport(expanded_func.name, expanded_func.params, expanded_func.result, expanded_func.body)
+        end
         local value = setmetatable({
-            kind = "func", name = expanded_func.name, func = expanded_func,
-            T = T, runtime = self,
+            kind = "func",
+            name = expanded_func.name,
+            visibility = "export",
+            func = expanded_func,
+            item = Tr.ItemFunc(exported_func),
+            params = func_params,
+            result = api.type_from_asdl(expanded_func.result, tostring(expanded_func.result)),
+            T = T,
+            runtime = self,
         }, FuncValue)
         track_deps(value, deps)
         return value

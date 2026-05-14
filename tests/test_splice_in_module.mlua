@@ -1,6 +1,6 @@
 -- Splice test using Lua-first .mlua (no module, just eval)
 
-local hello = func hello() -> i32
+local hello = func() -> i32
     return 42
 end
 

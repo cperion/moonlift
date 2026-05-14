@@ -30,7 +30,7 @@ Target source shape:
 ```lua
 local runtime = moon.require("tapexmem.runtime")
 
-local vm_loop = region vm_loop(ts: ptr(runtime.ThreadState); done: cont(code: i32))
+local vm_loop = region(ts: ptr(runtime.ThreadState); done: cont(code: i32))
 entry start()
     ...
 end

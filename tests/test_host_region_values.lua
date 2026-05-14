@@ -25,7 +25,7 @@ end
 
 -- Region fragment with emit
 local use_double = Host.eval [[
-local double = region double(x: i32; out: cont(y: i32))
+local double = region(x: i32; out: cont(y: i32))
 entry start() jump out(y = x * 2) end
 end
 return func use_double(x: i32) -> i32

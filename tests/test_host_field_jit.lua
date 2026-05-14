@@ -6,7 +6,7 @@ local ffi = require("ffi")
 
 -- Set field
 local set_y = Host.eval [[
-local Pair = struct Pair x: i32; y: i32 end
+local Pair = struct x: i32; y: i32 end
 return func set_y(p: ptr(Pair), v: i32) -> i32
     (*p).y = v
     return (*p).x + (*p).y
@@ -27,7 +27,7 @@ end
 
 -- Get field
 local get_x = Host.eval [[
-local Pair = struct Pair x: i32; y: i32 end
+local Pair = struct x: i32; y: i32 end
 return func get_x(p: ptr(Pair)) -> i32 return (*p).x end
 ]]
 local ok2, compiled2 = pcall(function() return get_x:compile() end)

@@ -239,7 +239,7 @@ end
 -- JsonDecoder tape scanner
 -- ===========================================================================
 
-local json_decode_tape = func json_decode_tape(p: ptr(u8), n: i32,
+local json_decode_tape = func(p: ptr(u8), n: i32,
     stack_next: ptr(i32), stack_kind: ptr(i32), stack_cap: i32,
     tags: ptr(i32), a: ptr(i32), b: ptr(i32), tape_cap: i32,
     meta: ptr(i32)) -> i32

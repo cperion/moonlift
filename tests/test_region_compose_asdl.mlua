@@ -3,7 +3,7 @@ local Host = require("moonlift.mlua_run")
 
 -- Region fragment with multiple continuation exits
 local fn = Host.eval [[
-local scan_byte = region scan_byte(p: ptr(u8), n: i32, pos: i32;
+local scan_byte = region(p: ptr(u8), n: i32, pos: i32;
     ok: cont(next: i32, value: i32),
     err: cont(pos: i32))
 entry start()

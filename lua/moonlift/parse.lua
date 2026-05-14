@@ -406,6 +406,8 @@ local function new_parser_internal(T, toks, first, limit, opts)
         splice_slots = {},
         splice_slots_by_id = {},
         region_seq = 0,
+        anonymous = false,
+        anon_counter = 0,
     }, Parser)
     local window_start = toks.start[p.first] or 0
     local window_stop = toks.stop[p.limit] or math.huge
@@ -528,14 +530,25 @@ function Parser:expect_field_name(msg)
     return ""
 end
 
+-- Name resolution for islands with optional name (func/region/expr).
+-- Priority: explicit name > name_hint from Lua assignment > anonymous.
 function Parser:name_or_hint_before_lparen(msg)
-    if self:kind() == TK.lparen and self.name_hint then return self.name_hint end
+    if self:kind() == TK.lparen then
+        if self.name_hint then return self.name_hint end
+        -- Truly anonymous — generate a placeholder name.
+        self.anonymous = true
+        return "_anon_" .. tostring(self.anon_counter)
+    end
     return self:expect_name(msg)
 end
 
 function Parser:name_ref_or_hint_before_lparen(msg)
     local O = self.O
-    if self:kind() == TK.lparen and self.name_hint then return O.NameRefText(self.name_hint) end
+    if self:kind() == TK.lparen then
+        if self.name_hint then return O.NameRefText(self.name_hint) end
+        self.anonymous = true
+        return O.NameRefText("_anon_" .. tostring(self.anon_counter))
+    end
     if self:kind() == TK.hole then
         local id = self:text(); self.i = self.i + 1
         local slot = O.NameSlot(self:splice_key("name", id), id)
@@ -1431,13 +1444,19 @@ function Parser:parse_expr_frag()
     return O.ExprFrag(name_ref, params, O.OpenSet({}, {}, {}, {}), body, result)
 end
 
--- Type declaration islands are `struct Name ... end` and `union Name ... end`.
+-- Type declaration islands: `struct Name ... end`, `struct ... end`,
+-- `union Name ... end`, `union ... end`.
+-- Name is optional when inferred from a Lua assignment.
 function Parser:parse_struct_island()
     local Tr, Ty = self.Tr, self.Ty
     local name
-    if self.name_hint and (self:kind() == TK.nl or self:kind() == TK.end_kw
-       or ((self:kind() == TK.name or ident_kw[self:kind()]) and self:kind(1) == TK.colon)) then
+    local next_is_field = (self:kind() == TK.name or ident_kw[self:kind()]) and self:kind(1) == TK.colon
+    if self.name_hint and (self:kind() == TK.nl or self:kind() == TK.end_kw or next_is_field) then
         name = self.name_hint
+    elseif self:kind() == TK.nl or self:kind() == TK.end_kw or next_is_field then
+        -- Truly anonymous struct — no name at all.
+        name = "_anon_struct_" .. tostring(self.anon_counter)
+        self.anonymous = true
     else
         name = self:expect_name("expected struct name")
     end
@@ -1458,7 +1477,8 @@ function Parser:parse_struct_island()
     }
 end
 
--- Union type island: union Name variant | variant end
+-- Union type island: `union Name variant | variant end`, `union variant | variant end`.
+-- Name is optional when inferred from a Lua assignment.
 function Parser:parse_union_island()
     local Tr, Ty = self.Tr, self.Ty
     local name
@@ -1467,6 +1487,9 @@ function Parser:parse_union_island()
         and (k1 == TK.pipe or k1 == TK.lparen or k1 == TK.end_kw or k1 == TK.nl)
     if self.name_hint and (self:kind() == TK.nl or self:kind() == TK.end_kw or current_starts_variant) then
         name = self.name_hint
+    elseif self:kind() == TK.nl or self:kind() == TK.end_kw or current_starts_variant then
+        name = "_anon_union_" .. tostring(self.anon_counter)
+        self.anonymous = true
     else
         name = self:expect_name("expected union name")
     end
@@ -1733,7 +1756,9 @@ local function infer_lua_assignment_name(src, island_start)
         local c = byte(src, p)
         if c == 32 or c == 9 or c == 13 or c == 10 then p = p - 1 else break end
     end
-    if p < 1 or byte(src, p) ~= 61 then return nil end
+    if p < 1 then return nil end
+    if byte(src, p) ~= 61 then return nil end
+    -- Reject <= >= == ~=
     local before_eq = byte(src, p - 1)
     if before_eq == 60 or before_eq == 62 or before_eq == 61 or before_eq == 126 then return nil end
     p = p - 1
@@ -1741,12 +1766,20 @@ local function infer_lua_assignment_name(src, island_start)
         local c = byte(src, p)
         if c == 32 or c == 9 or c == 13 or c == 10 then p = p - 1 else break end
     end
-    if p < 1 or not (is_alpha(byte(src, p)) or byte(src, p) == 95) then return nil end
+    -- The LHS could be a simple name, or a dotted name like table.field.
+    -- Walk back to find the last identifier segment.
+    -- First skip past the current (rightmost) identifier.
     local e = p
-    while p > 1 and (is_alpha(byte(src, p - 1)) or is_digit(byte(src, p - 1)) or byte(src, p - 1) == 95) do
-        p = p - 1
+    while p >= 1 do
+        local c = byte(src, p)
+        if is_alpha(c) or is_digit(c) or c == 95 then p = p - 1 else break end
     end
-    return sub(src, p, e)
+    p = p + 1
+    if p > e or not (is_alpha(byte(src, p)) or byte(src, p) == 95) then return nil end
+    local name = sub(src, p, e)
+    -- Check if preceded by `.` — if so we already have the field name.
+    -- If preceded by `local` keyword that's fine too.
+    return name
 end
 
 -- Lua-aware document scanner.

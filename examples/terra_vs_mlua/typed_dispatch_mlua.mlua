@@ -31,7 +31,7 @@ end
 
 local expect_semicolon = expect_byte("semicolon", 59, 30)
 
-local digit_acc = region digit_acc(p: ptr(u8), n: i32, pos: i32, acc: i32;
+local digit_acc = region(p: ptr(u8), n: i32, pos: i32, acc: i32;
     ok: cont(pos2: i32, acc: i32),
     err: cont(pos: i32, code: i32))
 entry start()
@@ -46,7 +46,7 @@ entry start()
 end
 end
 
-local two_digits = region two_digits(p: ptr(u8), n: i32, pos: i32;
+local two_digits = region(p: ptr(u8), n: i32, pos: i32;
     ok: cont(value: i32, pos2: i32),
     err: cont(pos: i32, code: i32))
 entry start()
@@ -60,7 +60,7 @@ block got_two(pos2: i32, acc: i32)
 end
 end
 
-local upper_alpha = region upper_alpha(p: ptr(u8), n: i32, pos: i32;
+local upper_alpha = region(p: ptr(u8), n: i32, pos: i32;
     ok: cont(value: i32, pos2: i32),
     err: cont(pos: i32, code: i32))
 entry start()
@@ -75,7 +75,7 @@ entry start()
 end
 end
 
-local digit_sum_until_semicolon = region digit_sum_until_semicolon(p: ptr(u8), n: i32, pos: i32;
+local digit_sum_until_semicolon = region(p: ptr(u8), n: i32, pos: i32;
     ok: cont(sum: i32, pos2: i32),
     err: cont(pos: i32, code: i32))
 entry loop(i: i32 = pos, sum: i32 = 0)
@@ -103,7 +103,7 @@ end
 local score_after_50 = positive_after(50, 50)
 local score_after_60 = positive_after(60, 60)
 
-local score_pair_region = region score_pair_region(p: ptr(u8), n: i32;
+local score_pair_region = region(p: ptr(u8), n: i32;
     done: cont(a: i32, b: i32))
 entry loop(i: i32 = 0, a: i32 = 0, b: i32 = 0)
     if i >= n then jump done(a = a, b = b) end
@@ -115,7 +115,7 @@ entry loop(i: i32 = 0, a: i32 = 0, b: i32 = 0)
 end
 end
 
-local parse_packet = func parse_packet(p: ptr(u8), n: i32) -> i32
+local parse_packet = func(p: ptr(u8), n: i32) -> i32
     return region -> i32
     entry start()
         if n <= 0 then yield -1 end
@@ -145,7 +145,7 @@ local parse_packet = func parse_packet(p: ptr(u8), n: i32) -> i32
     end
 end
 
-local score_pair = func score_pair(p: ptr(u8), n: i32) -> i32
+local score_pair = func(p: ptr(u8), n: i32) -> i32
     return region -> i32
     entry start()
         emit score_pair_region(p, n; done = out)

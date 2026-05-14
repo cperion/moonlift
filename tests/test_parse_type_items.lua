@@ -19,7 +19,7 @@ assert(parsed1.value.protocol_variants == nil)
 print("OK: struct island parsed")
 
 -- Union type island
-local scan2 = Parse.scan_document("local R = union R ok(i32) | err(string) | none end")
+local scan2 = Parse.scan_document("local R = union ok(i32) | err(string) | none end")
 assert(#scan2.islands == 1)
 assert(scan2.islands[1].kind == "union")
 local parsed2 = P.parse_island(scan2, 1)
@@ -36,8 +36,8 @@ print("OK: union variants correct")
 local T3 = pvm.context(); A.Define(T3)
 local P3 = Parse.Define(T3)
 local src3 = [[
-local R = union R ok(i32) | err(string) end
-local r = region r(s: ptr(i32); ok: cont(v: i32), err: cont(msg: ptr(u8)))
+local R = union ok(i32) | err(string) end
+local r = region(s: ptr(i32); ok: cont(v: i32), err: cont(msg: ptr(u8)))
 entry start()
     if *s >= 0 then jump ok(v = *s) else jump err(msg = "negative") end
 end

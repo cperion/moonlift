@@ -14,7 +14,7 @@
 --   G:rule("number", function(R) return R.plus(R.ref("digit")) end)
 --   G:rule("value",  function(R) return R.alt { R.ref("string"), R.ref("number") } end)
 --
---   local parse = func parse(p: ptr(u8), n: i32) -> i32
+--   local parse = func(p: ptr(u8), n: i32) -> i32
 --       return region -> i32
 --       entry start()
 --           emit @{G:get("value")}(p, n, 0; ok = done, fail = err)

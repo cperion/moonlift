@@ -27,8 +27,7 @@ local expect_A = expect_byte("expect_A", 65, 10)
 local expect_B = expect_byte("expect_B", 66, 20)
 local expect_C = expect_byte("expect_C", 67, 30)
 
-return module
-func parse_ABC(p: ptr(u8), n: i32) -> i32
+local parse_ABC = func(p: ptr(u8), n: i32) -> i32
     return region -> i32
     entry start()
         emit @{expect_A}(p, 0; ok = got_A, fail = bad_A)
@@ -54,7 +53,7 @@ func parse_ABC(p: ptr(u8), n: i32) -> i32
     end
 end
 
-func parse_A_or_B(p: ptr(u8), n: i32) -> i32
+local parse_A_or_B = func(p: ptr(u8), n: i32) -> i32
     return region -> i32
     entry start()
         emit @{expect_A}(p, 0; ok = done, fail = try_B)
@@ -70,7 +69,11 @@ func parse_A_or_B(p: ptr(u8), n: i32) -> i32
     end
     end
 end
-end
+
+local M = moon.module("byte_patterns")
+M:add_func(parse_ABC)
+M:add_func(parse_A_or_B)
+return M
 ]]
 
 local bm = byte_patterns:compile()
@@ -98,7 +101,7 @@ end
 local score_after_50 = positive_after("score_after_50", 50)
 local score_after_60 = positive_after("score_after_60", 60)
 
-local scan_score = region scan_score(p: ptr(u8), n: i32; done: cont(a: i32, b: i32))
+local scan_score = region(p: ptr(u8), n: i32; done: cont(a: i32, b: i32))
 entry loop(i: i32 = 0, a: i32 = 0, b: i32 = 0)
     if i >= n then jump done(a = a, b = b) end
     let v: i32 = as(i32, p[i])
@@ -106,7 +109,7 @@ entry loop(i: i32 = 0, a: i32 = 0, b: i32 = 0)
 end
 end
 
-local score_pair = func score_pair(p: ptr(u8), n: i32) -> i32
+local score_pair = func(p: ptr(u8), n: i32) -> i32
     return region -> i32
     entry start()
         emit @{scan_score}(p, n; done = out)
@@ -129,7 +132,7 @@ score_pair:free()
 -- Continuation adapters: the fragment reports rich exits, while the caller
 -- adapts them into a compact return convention.
 local adapter_patterns = Host.eval [[
-local classify_byte = region classify_byte(p: ptr(u8), pos: i32; digit: cont(value: i32), alpha: cont(value: i32), other: cont(value: i32))
+local classify_byte = region(p: ptr(u8), pos: i32; digit: cont(value: i32), alpha: cont(value: i32), other: cont(value: i32))
 entry start()
     let c: i32 = as(i32, p[pos])
     if c >= 48 then
@@ -142,7 +145,7 @@ entry start()
 end
 end
 
-local compact_class = func compact_class(p: ptr(u8)) -> i32
+local compact_class = func(p: ptr(u8)) -> i32
     return region -> i32
     entry start()
         emit @{classify_byte}(p, 0; digit = d, alpha = a, other = o)

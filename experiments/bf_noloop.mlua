@@ -5,7 +5,7 @@ local ffi = require("ffi")
 local OP_ADD = 0 local OP_SUB = 1 local OP_RIGHT = 2 local OP_LEFT = 3
 local OP_OUT = 4 local OP_HALT = 8
 
-local step = region step(code: ptr(i32), data: ptr(i32), ip: i32, dp: i32, out_sum: i32; next: cont(ip: i32, dp: i32, out_sum: i32), output: cont(ip: i32, dp: i32, byte: i32, out_sum: i32), halt: cont(result: i32))
+local step = region(code: ptr(i32), data: ptr(i32), ip: i32, dp: i32, out_sum: i32; next: cont(ip: i32, dp: i32, out_sum: i32), output: cont(ip: i32, dp: i32, byte: i32, out_sum: i32), halt: cont(result: i32))
 entry start()
     let op: i32 = code[ip]
     switch op do
@@ -29,7 +29,7 @@ entry start()
 end
 end
 
-local run = func run(code: ptr(i32), code_len: i32, data: ptr(i32), data_len: i32) -> i32
+local run = func(code: ptr(i32), code_len: i32, data: ptr(i32), data_len: i32) -> i32
     return region -> i32
     entry start()
         emit step(code, data, 0, 0, 0; next = loop, output = got_out, halt = done)

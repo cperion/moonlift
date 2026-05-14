@@ -7,7 +7,7 @@ local ffi = require("ffi")
 -- Region fragments
 -- ===========================================================================
 
-local scan_str = region scan_str(p: ptr(u8), n: i32, start: i32, depth: i32, next: i32;
+local scan_str = region(p: ptr(u8), n: i32, start: i32, depth: i32, next: i32;
     ok: cont(epos: i32, start_i: i32, depth: i32, next: i32),
     bad: cont(bad_pos: i32))
 entry start()
@@ -50,7 +50,7 @@ block hex(i: i32, count: i32)
 end
 end
 
-local scan_num = region scan_num(p: ptr(u8), n: i32, start: i32, depth: i32, next: i32;
+local scan_num = region(p: ptr(u8), n: i32, start: i32, depth: i32, next: i32;
     ok: cont(epos: i32, start_i: i32, depth: i32, next: i32),
     bad: cont(bad_pos: i32))
 entry start()
@@ -107,7 +107,7 @@ block exp_tail(i: i32)
 end
 end
 
-local match_true = region match_true(p: ptr(u8), n: i32, start: i32, depth: i32, next: i32;
+local match_true = region(p: ptr(u8), n: i32, start: i32, depth: i32, next: i32;
     ok: cont(epos: i32, depth: i32, next: i32),
     bad: cont(bad_pos: i32))
 entry start() jump r(i = start + 1) end
@@ -128,7 +128,7 @@ block e(i: i32)
 end
 end
 
-local match_false = region match_false(p: ptr(u8), n: i32, start: i32, depth: i32, next: i32;
+local match_false = region(p: ptr(u8), n: i32, start: i32, depth: i32, next: i32;
     ok: cont(epos: i32, depth: i32, next: i32),
     bad: cont(bad_pos: i32))
 entry start() jump a(i = start + 1) end
@@ -154,7 +154,7 @@ block e2(i: i32)
 end
 end
 
-local match_null = region match_null(p: ptr(u8), n: i32, start: i32, depth: i32, next: i32;
+local match_null = region(p: ptr(u8), n: i32, start: i32, depth: i32, next: i32;
     ok: cont(epos: i32, depth: i32, next: i32),
     bad: cont(bad_pos: i32))
 entry start() jump u(i = start + 1) end
@@ -179,7 +179,7 @@ end
 -- Number parser: parse decimal string to f64
 -- ===========================================================================
 
-local parse_f64 = region parse_f64(p: ptr(u8), start: i32, slen: i32;
+local parse_f64 = region(p: ptr(u8), start: i32, slen: i32;
     ok: cont(value: f64), err: cont())
 entry start()
     jump digits(i = start, acc = 0, neg = 0)
@@ -214,7 +214,7 @@ end
 -- String unescape decoder
 -- ===========================================================================
 
-local unescape = region unescape(p: ptr(u8), start: i32, slen: i32,
+local unescape = region(p: ptr(u8), start: i32, slen: i32,
     dst: ptr(u8), dst_cap: i32;
     ok: cont(decoded_len: i32), err: cont())
 entry start()
@@ -282,7 +282,7 @@ end
 --   4=key_slice    5=string_slice  6=number_slice  7=true  8=false  9=null
 -- ===========================================================================
 
-local json_decode_tape = func json_decode_tape(p: ptr(u8), n: i32,
+local json_decode_tape = func(p: ptr(u8), n: i32,
     stack_next: ptr(i32), stack_kind: ptr(i32), stack_cap: i32,
     tags: ptr(i32), a: ptr(i32), b: ptr(i32), tape_cap: i32,
     meta: ptr(i32)) -> i32
@@ -433,7 +433,7 @@ end
 -- Table builder: walks tape, builds Lua tables via C API
 -- ===========================================================================
 
-local json_build_value = func json_build_value(L: ptr(u8), p: ptr(u8),
+local json_build_value = func(L: ptr(u8), p: ptr(u8),
     tags: ptr(i32), a: ptr(i32), b: ptr(i32), tape_count: i32, idx: i32) -> i32
     return region -> i32
     entry start()
@@ -496,7 +496,7 @@ end
 -- Lua-callable entry point: takes lua_State*, reads arg 1 (string), returns table
 -- ===========================================================================
 
-local json_decode_lua = func json_decode_lua(L: ptr(u8)) -> i32
+local json_decode_lua = func(L: ptr(u8)) -> i32
     let top: i32 = lua_gettop(L)
     let p: ptr(u8) = moonlift_lua_arg_lstring_ptr(L, 1)
     let n_index: index = moonlift_lua_arg_lstring_len(L, 1)

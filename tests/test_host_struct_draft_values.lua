@@ -14,7 +14,7 @@ print("OK: struct fields correct")
 
 -- Nested struct
 local Outer = Host.eval [[
-local Inner = struct Inner v: i32 end
+local Inner = struct v: i32 end
 return struct Outer inner: Inner end
 ]]
 assert(Outer.decl.name == "Outer")

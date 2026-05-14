@@ -1,4 +1,4 @@
-local scan_str = region scan_str(p: ptr(u8), n: i32, start: i32;
+local scan_str = region(p: ptr(u8), n: i32, start: i32;
     ok: cont(epos: i32, start_i: i32),
     bad: cont(bad_pos: i32))
 entry start()

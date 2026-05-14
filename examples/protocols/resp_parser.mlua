@@ -135,7 +135,7 @@ local integer_line = make_decimal_line(3, 40)
 local array_line = make_decimal_line(4, 50)
 local bulk_string = make_bulk_string(5, 60)
 
-local parse_one = func parse_one(p: ptr(u8), n: i32) -> i32
+local parse_one = func(p: ptr(u8), n: i32) -> i32
     return region -> i32
     entry start()
         if n <= 0 then yield -1 end

@@ -2,7 +2,7 @@
 
 local ffi = require("ffi")
 
-local add1 = func add1(p: ptr(i32)) -> i32
+local add1 = func(p: ptr(i32)) -> i32
     p[0] = p[0] + 1
     return p[0]
 end
@@ -14,7 +14,7 @@ assert(c1(buf1) == 9)
 c1:free()
 
 -- Now try the simplest loop: count from 0 to n
-local count = func count(n: i32) -> i32
+local count = func(n: i32) -> i32
     return block loop(i: i32 = 0, acc: i32 = 0) -> i32
         if i >= n then yield acc end
         jump loop(i = i + 1, acc = acc + 1)
@@ -27,13 +27,13 @@ assert(c2(10) == 10)
 c2:free()
 
 -- Now try a simple region: increment through a region
-local inc_region = region inc_region(x: i32; next: cont(v: i32))
+local inc_region = region(x: i32; next: cont(v: i32))
 entry start()
     jump next(v = x + 1)
 end
 end
 
-local use_inc = func use_inc(x: i32) -> i32
+local use_inc = func(x: i32) -> i32
     return region -> i32
     entry start()
         emit inc_region(x; next = done)
@@ -50,14 +50,14 @@ assert(c3(41) == 42)
 c3:free()
 
 -- Now try a looped region: sum from 0..n
-local sum_step = region sum_step(i: i32, n: i32, acc: i32; next: cont(i: i32, acc: i32), done: cont(result: i32))
+local sum_step = region(i: i32, n: i32, acc: i32; next: cont(i: i32, acc: i32), done: cont(result: i32))
 entry start()
     if i >= n then jump done(result = acc) end
     jump next(i = i + 1, acc = acc + i)
 end
 end
 
-local sum_n = func sum_n(n: i32) -> i32
+local sum_n = func(n: i32) -> i32
     return region -> i32
     entry start()
         emit sum_step(0, n, 0; next = loop, done = finished)

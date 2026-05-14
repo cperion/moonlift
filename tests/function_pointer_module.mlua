@@ -1,10 +1,10 @@
 -- Function pointer test using Lua-first style
 
-local callee = func callee(x: i32) -> i32
+local callee = func(x: i32) -> i32
     return x + 1
 end
 
-local call_fp = func call_fp(fp: func(i32) -> i32, x: i32) -> i32
+local call_fp = func(fp: func(i32) -> i32, x: i32) -> i32
     return fp(x)
 end
 

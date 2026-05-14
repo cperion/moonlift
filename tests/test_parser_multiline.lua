@@ -8,7 +8,7 @@ local T = pvm.context(); A.Define(T)
 local P = Parse.Define(T)
 
 local src = [[
-local add = func add(
+local add = func(
     a: i32,
     b: i32,
 ) ->
@@ -17,7 +17,7 @@ local add = func add(
            b
 end
 
-local scan = region scan(
+local scan = region(
     p: ptr(u8),
     n: i32,
     pos: i32;
@@ -51,8 +51,8 @@ assert(#r.value.params == 3)
 assert(#r.value.conts == 2)
 
 -- Lexical errors are reported as parse issues on the owning island only.
-local bad = Parse.scan_document([[local good = func good() end
-local bad = func bad() -> i32
+local bad = Parse.scan_document([[local good = func() end
+local bad = func() -> i32
     return @
 end]])
 local good = P.parse_island(bad, 1)

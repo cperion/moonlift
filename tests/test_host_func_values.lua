@@ -38,8 +38,8 @@ print("OK: block function")
 
 -- Multiple functions via loader
 local loader = assert(Host.loadstring([[
-local add = func add(a: i32, b: i32) -> i32 return a + b end
-local sub = func sub(a: i32, b: i32) -> i32 return a - b end
+local add = func(a: i32, b: i32) -> i32 return a + b end
+local sub = func(a: i32, b: i32) -> i32 return a - b end
 return { add = add, sub = sub }
 ]], "multi.mlua"))
 local multi = loader()

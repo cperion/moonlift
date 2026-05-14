@@ -11,8 +11,8 @@ end
 
 -- Pattern 1: scanner fragment with success/failure continuations.
 -- The caller decides what success/failure mean; the fragment only routes control.
-local scanner_mod = Host.eval [[
-local scan_until = region scan_until(p: ptr(u8), n: i32, target: i32; hit: cont(pos: i32), miss: cont(pos: i32))
+local scan_until = Host.eval [[
+local scan_until = region(p: ptr(u8), n: i32, target: i32; hit: cont(pos: i32), miss: cont(pos: i32))
 entry loop(i: i32 = 0)
     if i >= n then jump miss(pos = i) end
     if as(i32, p[i]) == target then jump hit(pos = i) end
@@ -20,8 +20,19 @@ entry loop(i: i32 = 0)
 end
 end
 
-return module
-func find_byte(p: ptr(u8), n: i32, target: i32) -> i32
+return scan_until
+]]
+
+local find_byte = Host.eval [[
+local scan_until = region(p: ptr(u8), n: i32, target: i32; hit: cont(pos: i32), miss: cont(pos: i32))
+entry loop(i: i32 = 0)
+    if i >= n then jump miss(pos = i) end
+    if as(i32, p[i]) == target then jump hit(pos = i) end
+    jump loop(i = i + 1)
+end
+end
+
+local find_byte = func(p: ptr(u8), n: i32, target: i32) -> i32
     return region -> i32
     entry start()
         emit @{scan_until}(p, n, target; hit = found, miss = missing)
@@ -35,7 +46,19 @@ func find_byte(p: ptr(u8), n: i32, target: i32) -> i32
     end
 end
 
-func prefix_len_or_all(p: ptr(u8), n: i32, target: i32) -> i32
+return find_byte
+]]
+
+local prefix_len_or_all = Host.eval [[
+local scan_until = region(p: ptr(u8), n: i32, target: i32; hit: cont(pos: i32), miss: cont(pos: i32))
+entry loop(i: i32 = 0)
+    if i >= n then jump miss(pos = i) end
+    if as(i32, p[i]) == target then jump hit(pos = i) end
+    jump loop(i = i + 1)
+end
+end
+
+local prefix_len_or_all = func(p: ptr(u8), n: i32, target: i32) -> i32
     return region -> i32
     entry start()
         emit @{scan_until}(p, n, target; hit = found, miss = missing)
@@ -48,22 +71,25 @@ func prefix_len_or_all(p: ptr(u8), n: i32, target: i32) -> i32
     end
     end
 end
-end
+
+return prefix_len_or_all
 ]]
 
-local scanner = scanner_mod:compile()
+local c_find = find_byte:compile()
+local c_prefix = prefix_len_or_all:compile()
 local buf, n = u8buf("abc-def")
-assert(scanner:get("find_byte")(buf, n, string.byte("-")) == 3)
-assert(scanner:get("find_byte")(buf, n, string.byte("z")) == -1)
-assert(scanner:get("prefix_len_or_all")(buf, n, string.byte("-")) == 3)
-assert(scanner:get("prefix_len_or_all")(buf, n, string.byte("z")) == n)
-scanner:free()
+assert(c_find(buf, n, string.byte("-")) == 3)
+assert(c_find(buf, n, string.byte("z")) == -1)
+assert(c_prefix(buf, n, string.byte("-")) == 3)
+assert(c_prefix(buf, n, string.byte("z")) == n)
+c_find:free()
+c_prefix:free()
 
 -- Pattern 2: parser combinator style. A digit parser fragment returns a new
 -- parse position and accumulator through a continuation. The consumer composes
 -- it twice without runtime callbacks.
-local parse_mod = Host.eval [[
-local parse_digit_acc = region parse_digit_acc(p: ptr(u8), n: i32, pos: i32, acc: i32; ok: cont(pos2: i32, acc: i32), err: cont(errpos: i32, code: i32))
+local parse_two_digits = Host.eval [[
+local parse_digit_acc = region(p: ptr(u8), n: i32, pos: i32, acc: i32; ok: cont(pos2: i32, acc: i32), err: cont(errpos: i32, code: i32))
 entry start()
     let c: i32 = as(i32, p[pos])
     if c >= 48 then
@@ -75,7 +101,7 @@ entry start()
 end
 end
 
-local parse_two_digits = func parse_two_digits(p: ptr(u8), n: i32) -> i32
+local parse_two_digits = func(p: ptr(u8), n: i32) -> i32
     return region -> i32
     entry start()
         emit @{parse_digit_acc}(p, n, 0, 0; ok = got_one, err = bad1)
@@ -98,17 +124,17 @@ end
 return parse_two_digits
 ]]
 
-local parse_two_digits = parse_mod:compile()
+local c_parse = parse_two_digits:compile()
 local b12, n12 = u8buf("42xx")
 local bbad, nbad = u8buf("4axx")
-assert(parse_two_digits(b12, n12) == 42)
-assert(parse_two_digits(bbad, nbad) == -2)
-parse_two_digits:free()
+assert(c_parse(b12, n12) == 42)
+assert(c_parse(bbad, nbad) == -2)
+c_parse:free()
 
 -- Pattern 3: reducer fragment. Internal loop state is hidden in the fragment;
 -- the caller only receives typed exits.
-local reduce_mod = Host.eval [[
-local sum_until = region sum_until(p: ptr(u8), n: i32, sentinel: i32; done: cont(sum: i32, pos: i32), eof: cont(pos: i32))
+local sum_before_byte = Host.eval [[
+local sum_until = region(p: ptr(u8), n: i32, sentinel: i32; done: cont(sum: i32, pos: i32), eof: cont(pos: i32))
 entry loop(i: i32 = 0, sum: i32 = 0)
     if i >= n then jump eof(pos = i) end
     let v: i32 = as(i32, p[i])
@@ -117,7 +143,7 @@ entry loop(i: i32 = 0, sum: i32 = 0)
 end
 end
 
-local sum_before_byte = func sum_before_byte(p: ptr(u8), n: i32, sentinel: i32) -> i32
+local sum_before_byte = func(p: ptr(u8), n: i32, sentinel: i32) -> i32
     return region -> i32
     entry start()
         emit @{sum_until}(p, n, sentinel; done = found, eof = missing)
@@ -134,20 +160,20 @@ end
 return sum_before_byte
 ]]
 
-local sum_before_byte = reduce_mod:compile()
+local c_sum = sum_before_byte:compile()
 local bsum, nsum = u8buf(string.char(1, 2, 3, 255, 9))
-assert(sum_before_byte(bsum, nsum, 255) == 6)
-assert(sum_before_byte(bsum, nsum, 7) == -1)
-sum_before_byte:free()
+assert(c_sum(bsum, nsum, 255) == 6)
+assert(c_sum(bsum, nsum, 7) == -1)
+c_sum:free()
 
 -- Pattern 4: expression fragments are staged scalar combinators and can be used
 -- inside continuation-region code.
-local expr_mod = Host.eval [[
-local clamp_nonneg = expr clamp_nonneg(x: i32) -> i32
+local score = Host.eval [[
+local clamp_nonneg = expr(x: i32) -> i32
     select(x < 0, 0, x)
 end
 
-local score_scan = region score_scan(p: ptr(u8), n: i32; done: cont(score: i32))
+local score_scan = region(p: ptr(u8), n: i32; done: cont(score: i32))
 entry loop(i: i32 = 0, score: i32 = 0)
     if i >= n then jump done(score = score) end
     let v: i32 = as(i32, p[i]) - 50
@@ -155,7 +181,7 @@ entry loop(i: i32 = 0, score: i32 = 0)
 end
 end
 
-local score = func score(p: ptr(u8), n: i32) -> i32
+local score = func(p: ptr(u8), n: i32) -> i32
     return region -> i32
     entry start()
         emit @{score_scan}(p, n; done = out)
@@ -169,9 +195,9 @@ end
 return score
 ]]
 
-local score = expr_mod:compile()
+local c_score = score:compile()
 local bscore, nscore = u8buf(string.char(40, 50, 52, 60))
-assert(score(bscore, nscore) == 12)
-score:free()
+assert(c_score(bscore, nscore) == 12)
+c_score:free()
 
 print("moonlift host patterns ok")

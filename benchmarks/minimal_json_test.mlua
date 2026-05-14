@@ -1,7 +1,7 @@
 -- Minimal test: just one region + one func, no externs
 local ffi = require("ffi")
 
-local scan_str = region scan_str(p: ptr(u8), n: i32, start: i32;
+local scan_str = region(p: ptr(u8), n: i32, start: i32;
     ok: cont(epos: i32, start_i: i32),
     bad: cont(bad_pos: i32))
 entry start()
@@ -15,7 +15,7 @@ block scan(i: i32)
 end
 end
 
-local decode = func decode(p: ptr(u8), n: i32) -> i32
+local decode = func(p: ptr(u8), n: i32) -> i32
     return region -> i32
     entry start()
         emit @{scan_str}(p, n, 0; ok = done, bad = err)

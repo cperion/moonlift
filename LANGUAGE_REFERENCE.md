@@ -664,14 +664,58 @@ union Result ok(i32) | err(string) | none end
 
 ## 7. Hosted declarations
 
-The current `.mlua` source parser recognizes only these hosted declaration
-islands:
+The `.mlua` source parser recognizes these hosted declaration islands:
 
-- `struct Name field: T ... end` or `local Name = struct field: T ... end`
-- `union Name variant(...) | variant(...) end` or `local Name = union variant(...) | ... end`
-- `func name(params...) [-> T] ... end` or `local name = func(params...) [-> T] ... end`
-- `region name(params; continuations) ... end` or `local name = region(params; continuations) ... end`
-- `expr name(params) -> T expr end` or `local name = expr(params) -> T expr end`
+- `struct Name field: T ... end` — standalone struct declaration
+- `union Name variant(...) | variant(...) end` — standalone union declaration
+- `func name(params...) [-> T] ... end` — standalone function declaration
+- `region name(params; continuations) ... end` — standalone region declaration
+- `expr name(params) -> T expr end` — standalone expression declaration
+
+### 7.1 Anonymous forms with name inference
+
+When assigned, the keyword name is omitted and inferred from the assignment:
+
+```lua
+local add = func(a: i32, b: i32) -> i32                 -- name = "add"
+    return a + b
+end
+
+local scan = region(p: ptr(u8), n: i32;
+                    hit: cont(pos: i32))
+entry loop(i: i32 = 0)
+    if i >= n then jump hit(pos = -1) end
+    jump loop(i = i + 1)
+end
+end                                                       -- name = "scan"
+
+local T = struct x: f32; y: f32; z: f32 end              -- name = "T"
+local U = union ok(i32) | err(i32) end                   -- name = "U"
+```
+
+Name inference also works in other positions:
+
+```lua
+-- Table field assignment
+M.add = func(a: i32, b: i32) -> i32                      -- name = "add"
+    return a + b
+end
+
+-- Return anonymous function (generates a stable internal name)
+return func(a: i32, b: i32) -> i32                       -- auto-named
+    return a + b
+end
+
+-- Anonymous struct / union (type context determines usage)
+return struct x: f32; y: f32 end
+return union ok(i32) | err(i32) end
+```
+
+Name inference handles identifiers ending in digits (e.g. `load_u64`,
+`parse_i32`) correctly — the trailing digits are part of the identifier, not
+treated as an index suffix.
+
+The same inference rules apply to `region` and `expr` anonymous forms.
 
 Host-facing APIs such as exposure policies, proxy generation, module assembly,
 and native method registration are provided through the Lua builder/host APIs,
@@ -1668,7 +1712,7 @@ name in Lua instead (`local name = "foo_" .. tag`) and write `@{name}`.
 ```lua
 -- Splice a type
 local T = moon.i32
-local inc = expr inc(x: @{T}) -> @{T}
+local inc = expr(x: @{T}) -> @{T}
     x + 1
 end
 

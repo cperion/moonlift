@@ -25,7 +25,7 @@ local function check(n, exp, got)
 end
 
 print("--- let/var type inference ---")
-local c1 = compile([[local f = func f(x: i32) -> i32
+local c1 = compile([[local f = func(x: i32) -> i32
     let y = x + 1
     let z = y * 2
     return z
@@ -35,7 +35,7 @@ check("let infer: f(5)=12",  12, c1:get("f")(5))
 check("let infer: f(10)=22", 22, c1:get("f")(10))
 c1:free()
 
-local c2 = compile([[local h = func h(x: i32) -> i32
+local c2 = compile([[local h = func(x: i32) -> i32
     var acc = 0
     if x > 0 then acc = x * 2 end
     return acc
@@ -46,13 +46,13 @@ check("var infer + mut: h(-1)=0",  0, c2:get("h")(-1))
 c2:free()
 
 print("\n--- pointer arithmetic ---")
-local c3 = compile([[local ptr_next = func ptr_next(p: ptr(u32), n: i32) -> ptr(u32)
+local c3 = compile([[local ptr_next = func(p: ptr(u32), n: i32) -> ptr(u32)
     return p + n
 end
-local ptr_prev = func ptr_prev(p: ptr(u32), n: i32) -> ptr(u32)
+local ptr_prev = func(p: ptr(u32), n: i32) -> ptr(u32)
     return p - n
 end
-local load_at = func load_at(p: ptr(u32), n: i32) -> u32
+local load_at = func(p: ptr(u32), n: i32) -> u32
     let q = p + n
     return q[0]
 end
@@ -65,7 +65,7 @@ check("load_at(p,4)=40",   40, c3:get("load_at")(vp, 4))
 c3:free()
 
 print("\n--- named constants via Lua splices ---")
-local c4 = compile([[local decode = func decode(op: i32) -> i32
+local c4 = compile([[local decode = func(op: i32) -> i32
     return block b(v: i32 = 0) -> i32
         switch op do
         case 41 then yield 1
@@ -82,7 +82,7 @@ check("BC_RET=76→3",    3, c4:get("decode")(76))
 check("unknown=99→0",   0, c4:get("decode")(99))
 c4:free()
 
-local c4b = compile([[local classify = func classify(op: i32) -> i32
+local c4b = compile([[local classify = func(op: i32) -> i32
     return switch op do
     case 11 then 100
     case 12 then
@@ -99,7 +99,7 @@ check("switch expr stmt arm", 22, c4b:get("classify")(12))
 check("switch expr default body", 3, c4b:get("classify")(99))
 c4b:free()
 
-local c5 = compile([[local load_u64 = func load_u64(base: ptr(u64), idx: i32) -> u64
+local c5 = compile([[local load_u64 = func(base: ptr(u64), idx: i32) -> u64
     let p = base + idx
     return p[0]
 end
@@ -108,7 +108,7 @@ local buf64 = ffi.new("uint64_t[4]"); buf64[0]=100; buf64[1]=200; buf64[2]=300; 
 check("ptr+idx u64 elem", 300, c5:get("load_u64")(ffi.cast("void*",buf64), 2))
 c5:free()
 
-local c6 = compile([[local sum4 = func sum4(p: ptr(i32)) -> i32
+local c6 = compile([[local sum4 = func(p: ptr(i32)) -> i32
     let a = p[0]
     let b = p[1]
     let c = p[2]

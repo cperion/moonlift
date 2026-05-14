@@ -671,7 +671,7 @@ error[E0407]: `yield` used outside a region
 error[E0501]: duplicate field `mode` in struct `IteratorState`
   ┌─ experiment.mlua:8:5
   │
- 5│ local IteratorState = struct IteratorState
+ 5│ local IteratorState = struct
  6│     mode: i32
    │     ^^^^ first definition
   │
