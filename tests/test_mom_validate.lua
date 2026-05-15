@@ -1,13 +1,13 @@
 -- MOM validation: loads MOM schema modules and reports type counts.
 --
 -- Usage:
---   target/release/moonlift experiments/mom/validate.mlua
+--   target/release/moonlift lua/moonlift/mom/validate.mlua
 
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./experiments/?/?.lua;./experiments/?/init.lua;" .. package.path
 
 local Host = require("moonlift.mlua_run")
 
-local S = Host.dofile("experiments/mom/schema/init.lua")
+local S = Host.dofile("lua/moonlift/mom/schema/init.lua")
 
 local function count_types(mod)
     local n = 0

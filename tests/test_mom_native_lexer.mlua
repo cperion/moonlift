@@ -3,7 +3,7 @@ package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.p
 local ffi = require("ffi")
 local Host = require("moonlift.mlua_run")
 
-local mod = Host.dofile("experiments/mom/parser/native_lexer.mlua")
+local mod = Host.dofile("lua/moonlift/mom/parser/native_lexer.mlua")
 local unit = mod:compile()
 local lex = unit:get("mom_lex_into")
 local parse_events = unit:get("mom_parse_module_events")

@@ -551,6 +551,16 @@ impl Jit {
         let cmds = ffi::parse_back_command_tape(payload)?;
         self.compile(&BackProgram::new(cmds))
     }
+
+    pub fn compile_binary(&self, payload: &[u8]) -> Result<Artifact, MoonliftError> {
+        let cmds = ffi::parse_back_command_binary(payload)?;
+        self.compile(&BackProgram::new(cmds))
+    }
+}
+
+pub fn compile_object_binary(payload: &[u8], module_name: &str) -> Result<ObjectArtifact, MoonliftError> {
+    let cmds = ffi::parse_back_command_binary(payload)?;
+    compile_object(&BackProgram::new(cmds), module_name)
 }
 
 impl Default for Jit {

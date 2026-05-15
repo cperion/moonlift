@@ -1,18 +1,19 @@
 MOONLIFT  = target/release/moonlift
+MOM       = target/release/mom
 LUAJIT    = .vendor/LuaJIT/src
 
 .PHONY: all clean
 
-all: $(MOONLIFT)
+all: $(MOONLIFT) $(MOM)
 
 $(LUAJIT)/libluajit.a:
 	$(MAKE) -C $(LUAJIT) CFLAGS="-fPIC"
 	ln -sf libluajit.a $(LUAJIT)/libluajit-5.1.a
 
-$(MOONLIFT): $(LUAJIT)/libluajit.a
+$(MOONLIFT) $(MOM): $(LUAJIT)/libluajit.a
 	LUAJIT_LIB=$(CURDIR)/$(LUAJIT)/libluajit-5.1.a \
 	LUAJIT_INCLUDE=$(CURDIR)/$(LUAJIT) \
-	cargo build --release --bin moonlift
+	cargo build --release --bin moonlift --bin mom
 
 clean:
 	$(MAKE) -C $(LUAJIT) clean

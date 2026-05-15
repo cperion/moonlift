@@ -1,12 +1,24 @@
 # Moonlift
 
-**A typed, jump-first compiled language embedded in LuaJIT that generates native code through Cranelift.**
+**A typed, jump-first compiled language that generates native code through Cranelift.
+Two compiler frontends, one ABI, one runtime.**
 
-Moonlift compiles to machine code. You write `.mlua` files — Lua with Moonlift
-value islands (`func`, `region`, `expr`, `struct`, `union`) — and Moonlift turns
-them into JIT-ed function pointers, relocatable `.o` files, or `.so`/`.dylib`
-shared libraries. Lua is the metaprogramming language; Moonlift is the monomorphic
-native output. No strings, no templating hacks, no extra VM.
+Moonlift compiles to machine code. You write Moonlift source — plain `.moon` files
+or `.mlua` (Lua with Moonlift value islands) — and Moonlift turns them into
+JIT-ed function pointers, relocatable `.o` files, or `.so`/`.dylib` shared
+libraries.
+
+Two compiler frontends share a single binary protocol:
+
+| Frontend | Audience | When to use |
+|---|---|---|
+| **MOM** (`moon.mom()`) | End users | Default path. Compile pure Moonlift source directly to native code. |
+| **Lua** (`moonlift.mlua_run`) | Compiler developers | Metaprogramming host, test oracles, `.mlua` staging. |
+
+MOM is the default — native Moonlift-on-Moonlift compiler, zero Lua in the hot
+path. The Lua frontend is the bootstrap seed and conformance oracle: two
+implementations converging on the same ABI means every bug in one is a test case
+for the other.
 
 ---
 
@@ -57,23 +69,25 @@ metaprogramming, and who believe semantics should be data, not strings.
 
 ## At a Glance
 
-### JIT: Compile and call native functions from Lua
+### MOM: compile Moonlift source directly (default path)
 
 ```lua
-local Host = require("moonlift.mlua_run")
-local chunk = Host.loadstring([[
-local add = func(a: i32, b: i32) -> i32
-    return a + b
-end
-return add
-]], "demo.mlua")
-local add_val = chunk()
-local compiled = add_val:compile()
-print(compiled(3, 4))  -- 7, running as native machine code
+local mom = require("moonlift.host_mom")
+local compiled = mom([[
+  func add(x: i32, y: i32) -> i32
+    return x + y
+  end
+]])
+local ffi = require("ffi")
+local add = ffi.cast("int32_t (*)(int32_t, int32_t)", compiled:get("add"))
+print(add(3, 4))  -- 7, running as native machine code
 compiled:free()
 ```
 
-### `.mlua` source: Lua host + typed islands
+No Lua in the compiler core — source goes directly to native code through the
+MOM pipeline: lex → parse → lower → MLBT binary → Rust/LuaJIT backend.
+
+### `.mlua` source: Lua host + typed islands (Lua frontend)
 
 ```lua
 -- Lua metaprogramming layer: build region fragments from Lua functions
@@ -228,15 +242,19 @@ cd moonlift
 make
 ```
 
-Produces a **fully static 9MB binary** at `target/release/moonlift`:
-- Embeds the full Moonlift compiler (195 Lua sources via `include_str!`)
-- Links vendored LuaJIT statically (from `.vendor/LuaJIT/`)
+Produces fully static binaries at `target/release/moonlift` and `target/release/mom`:
+- Embed the Moonlift Lua staging layer and MOM compiler sources via `include_str!`
+- Link vendored LuaJIT statically (from `.vendor/LuaJIT/`)
+- Link the Rust/Cranelift backend in-process
 - No runtime dependencies beyond libc
 
 ### Run your first `.mlua` file
 
 ```bash
-# Standalone binary — copy anywhere, zero deps
+# MOM frontend binary — native compiler path, copy anywhere, zero deps
+target/release/mom run --call main my_program.mlua
+
+# Lua frontend binary — staging/oracle path, copy anywhere, zero deps
 target/release/moonlift examples/protocols/resp_parser.mlua
 
 # Or via LuaJIT runner (needs libmoonlift.so and repo files)
@@ -471,22 +489,58 @@ local function make_parser(tag_rules)
 end
 ```
 
-### Two builder APIs
+### Two compiler frontends
 
-| API | Path | Use |
-|---|---|---|
-| **Lua-hosted builder** | `moonlift.host` | High-level: direct construction of types, functions, regions |
-| **ASDL AST builder** | `moonlift.ast` | Low-level: field-by-field ASDL node construction, LuaLS documented |
+| Frontend | Entry point | Compiler core runtime | Best for |
+|---|---|---|---|
+| **MOM** | `moon.mom(source)` → compiled module | Pure Moonlift (native) | End-user compilation, production paths |
+| **Lua** | `moonlift.host` module builder + `:compile()` | Lua + PVM phases | Metaprogramming, `.mlua` staging, cross-check oracle |
 
-Both APIs produce the same ASDL values consumed by the same PVM phases.
+Both frontends produce the same MLBT v3 binary format consumed by the same
+Rust Cranelift backend. MOM is the default path — faster to compile, no Lua
+materialization step. The Lua frontend is the reference oracle: every MOM bug
+gets caught by a cross-check test against the Lua pipeline.
 
 ---
 
 ## Compilation Pipeline
 
-Moonlift's compilation pipeline is explicit at every step:
+Moonlift has two compilation pipelines that converge on the same backend:
+
+### MOM pipeline (default)
 
 ```
+.moon / .mlua source
+  │
+  ├─► mom_lex_into              ──► token tape
+  ├─► mom_parse_native_core     ──► native AST tape
+  ├─► mom_lower_native_core_to_wire  ──► MLBT v3 binary
+  │
+  ├─► moonlift_jit_compile_binary    ──► Cranelift JIT → function pointers (Rust)
+  └─► moonlift_object_compile_binary ──► Cranelift → .o relocatable object (Rust)
+```
+
+All compiler phases run as native Moonlift code. The only Lua involvement is
+allocating FFI-compatible buffers.
+
+### Lua frontend pipeline (bootstrap / oracle)
+
+```
+.mlua source
+  │
+  ├─► parse/scan_document ──► hosted island values / MoonTree module (ASDL)
+  ├─► tree_typecheck      ──► typed+resolved module
+  ├─► tree_to_back        ──► MoonBack program (flat command array)
+  ├─► back_validate       ──► validation facts + rejects
+  │
+  ├─► back_command_binary ──► MLBT v3 binary (Lua encoder)
+  ├─► moonlift_jit_compile_binary   ──► Cranelift JIT → function pointers (Rust)
+  └─► moonlift_object_compile_binary ──► Cranelift → .o relocatable object (Rust)
+```
+
+Both pipelines produce the same MLBT v3 binary wire format consumed by the
+same Rust Cranelift backend. The Lua frontend is the conformance oracle and
+metaprogramming host; MOM is the default compilation path.
 .mlua source
   │
   ├─► parse/scan_document ─► hosted island values / MoonTree module (ASDL)
@@ -563,15 +617,17 @@ that consumes ELF/Mach-O/COFF.
 
 The linker path: `.mlua` → parse → typecheck → lower → object → link plan → system linker → `.so`.
 
-### Standalone binary
+### Standalone binaries
 
 ```bash
 make
+target/release/mom run --call main my_program.mlua
+target/release/mom --emit-object -o my_program.o my_program.mlua
 target/release/moonlift my_program.mlua
 ```
 
-The `moonlift` binary is **fully static** — 9MB, zero runtime dependencies.
-Copy it anywhere. No `libluajit.so`, no `lua/` directory, no `libmoonlift.so`.
+The `mom` and `moonlift` binaries are fully static with zero runtime dependencies.
+Copy them anywhere. No `libluajit.so`, no `lua/` directory, no `libmoonlift.so`.
 
 ### From Lua with the builder API
 
@@ -708,27 +764,26 @@ luajit benchmarks/bench_host_arena_native.lua   # Native host type access
 
 ```
 moonlift/
-├── lua/moonlift/           Lua compiler, PVM framework, ASDL, LSP, linker
-│   ├── schema/             Schema-as-data source of truth (MoonCore, MoonType, MoonBack, ...)
-│   ├── parse.lua           Unified source parser and hosted island scanner
-│   ├── mlua_document_analysis.lua  .mlua editor/LSP analysis
-│   ├── mlua_run.lua        LuaJIT hosted island runner
+├── lua/moonlift/
+│   ├── mom/                MOM native compiler modules
+│   │   ├── parser/         Native tokeniser, AST tape parser core
+│   │   ├── back/           Backend op/type/command lowering (native)
+│   │   ├── vec/            Vectorization loop facts, decision, planning
+│   │   ├── driver/         MLBT v3 wire generation, Rust backend FFI
+│   │   ├── runtime/        Runtime builders, integer maps
+│   │   └── schema/         Schema seed (MoonBack, MoonCore, ...)
+│   ├── host_mom.lua        MOM frontend entry point — moon.mom()
+│   ├── host.lua            High-level Lua builder API (Lua frontend)
+│   ├── ast.lua             Low-level ASDL node constructor API
+│   ├── back_jit.lua        Lua→Rust JIT FFI bridge (now uses binary wire format)
+│   ├── back_command_binary.lua  MLBT v3 binary wire format encoder (Lua)
+│   ├── back_object.lua     Object file emission (uses binary wire format)
+│   ├── parser/             Lua-based source parser
+│   ├── schema/             ASDL source of truth (MoonCore, ...)
+│   ├── pvm.lua             PVM: ASDL context, phases, triplets
 │   ├── tree_typecheck.lua  Typecheck/name resolution
 │   ├── tree_to_back.lua    Tree → flat backend commands
-│   ├── back_validate.lua   Backend validation facts
-│   ├── back_jit.lua        JIT compilation backend (Rust FFI)
-│   ├── back_object.lua     Object file emission
-│   ├── back_program.lua    Backend program construction
-│   ├── tree_control_facts.lua     Control validation (labels, params, edges)
-│   ├── vec_loop_facts.lua         Vector loop shape facts
-│   ├── vec_kernel_plan.lua        Vector kernel planning
-│   ├── pvm.lua             PVM: ASDL context, phases, triplets
-│   ├── triplet.lua         Triplet iterator algebra
-│   ├── host.lua            High-level Lua builder API
-│   ├── ast.lua             Low-level ASDL node constructor API
-│   ├── region_compose.lua  Region composition algebra (seq, choice, star, ...)
-│   │   ...
-│   └── editor_*.lua        LSP features (completion, hover, references, ...)
+│   └── ...                 Remaining Lua compiler phases
 ├── src/                    Rust Cranelift backend + standalone binary
 │   ├── lib.rs              Full Cranelift backend (JIT + object emission)
 │   ├── main.rs             Standalone `moonlift` binary (embeds Lua compiler)
@@ -764,9 +819,12 @@ moonlift/
 ## Documentation
 
 | Document | Description |
-|---|---|
+|---|---|---|
 | [`LANGUAGE_REFERENCE.md`](LANGUAGE_REFERENCE.md) | **Complete Moonlift language reference.** Types, modules, functions, control regions, fragments, host declarations, view ABI, vectorization. |
 | [`SOURCE_GRAMMAR.md`](SOURCE_GRAMMAR.md) | **Jump-first source grammar contract.** Lexical rules, modules, types, statements, expressions, control validation rules. |
+| [`lua/moonlift/mom/PORTING_GUIDE.md`](lua/moonlift/mom/PORTING_GUIDE.md) | **MOM porting guide.** Phase plan, module organization, lowering discipline for the native compiler. |
+| [`lua/moonlift/mom/PARSER_DESIGN.md`](lua/moonlift/mom/PARSER_DESIGN.md) | **MOM native parser design.** Source-to-AST pipeline, token tape, Pratt parsing, memory model. |
+| [`BACK_WIRE_FORMAT.md`](BACK_WIRE_FORMAT.md) | **MLBT v3 binary wire format.** The stable ABI shared by both frontends. |
 | [`PROTOCOL_SYNTAX.md`](PROTOCOL_SYNTAX.md) | **Named protocol exits.** Tagged-union types used as reusable region exit protocols. |
 | [`PVM_GUIDE.md`](PVM_GUIDE.md) | **Complete PVM guide.** ASDL contexts, structural update, recording-triplet phases, pull-driven evaluation, the triplet algebra. |
 | [`COMPILER_PATTERN.md`](COMPILER_PATTERN.md) | **Interactive software as compilers.** The philosophy behind Moonlift's architecture: ASDL as the input language, live compilation, memoized phase boundaries. |
@@ -775,9 +833,33 @@ moonlift/
 
 ## Testing
 
-Moonlift has ~130+ tests covering every phase of the pipeline:
+Moonlift has ~150+ tests covering every phase of both frontends:
 
-### Core compiler tests
+### MOM tests (native compiler)
+
+```bash
+# Compiler core
+luajit tests/test_mom_groundwork.lua        # Runtime builders, maps, id allocators
+luajit tests/test_mom_native_lexer.mlua     # Native lexer
+luajit tests/test_mom_native_core.lua       # Native parser core (AST tapes)
+luajit tests/test_mom_native_ast.lua        # Native AST vs Lua AST cross-check
+luajit tests/test_mom_source_to_binary.lua  # Source → lex → parse → MLBT → execute
+luajit tests/test_mom_cli.lua               # Standalone mom run/object CLI
+
+# Schema validation
+luajit tests/test_mom_check_correctness.mlua  # Schema type comparison
+
+# Vectorization
+luajit tests/test_mom_vec.lua               # Vec facts → decide → plan → lower
+
+# Wire format
+luajit tests/test_mom_wire.lua              # MLBT v3 wire builder
+
+# Frontend API
+luajit -e 'local m=require("moonlift.host_mom"); print(m"func f()->i32 return 7 end":get("f"))'
+```
+
+### Lua frontend tests (bootstrap / oracle)
 
 ```bash
 # Parser + typechecker
@@ -863,39 +945,47 @@ luajit tests/test_pvm_surface_region_values.lua
 
 Moonlift follows a few hard rules:
 
-### 1. ASDL is the architecture
+### 1. Two frontends, one ABI
+
+MOM (Moonlift-on-Moonlift) is the default compiler — native code from source to
+backend. The Lua frontend is the bootstrap seed and conformance oracle. Both
+produce the same MLBT v3 binary wire format consumed by the Rust Cranelift
+backend. Two implementations sharing one stable ABI means every bug in one is a
+test case for the other.
+
+### 2. ASDL is the architecture
 
 If a distinction matters to compilation, it is represented as an ASDL value —
 interned, immutable, with structural identity. Meaning must not hide in strings,
 callbacks, mutable side tables, or backend-only IR. Everything downstream
 consumes explicit facts.
 
-### 2. Lua is the metaprogramming language
+### 3. Lua is the metaprogramming language
 
 Moonlift source has no type parameters, no generics, no angle-bracket syntax.
 LuaJIT Lua is where templates, specialization, and code generation live.
 Moonlift receives the monomorphic result. This keeps the language small and the
 metaprogramming powerful.
 
-### 3. Jump-first control flow
+### 4. Jump-first control flow
 
 There is no `for`, `while`, `break`, or `continue`. All loops are typed blocks
 with explicit jump arguments and yield/return exits. Vectorization consumes
 explicit facts, not parser guesses about loop shapes.
 
-### 4. Every phase is explicit
+### 5. Every phase is explicit
 
 Parse → typecheck → lower → validate → emit. Each phase produces explicit
 facts, decisions, proofs, and rejects. Diagnostics are ASDL values consumed by
 tools and LSP features — not format strings rediscovered from raw text.
 
-### 5. Monomorphic compilation
+### 6. Monomorphic compilation
 
 Every Moonlift function, region, block, continuation, and value has concrete
 types when it reaches typecheck/lowering. No runtime type dispatch in compiled
 code.
 
-### 6. Flat backend commands
+### 7. Flat backend commands
 
 The compilation target is a flat, verifiable array of `BackCmd` variants.
 No nested IR trees, no mutable builder state, no hidden side effects.

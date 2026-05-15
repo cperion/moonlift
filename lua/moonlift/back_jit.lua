@@ -18,6 +18,7 @@ moonlift_jit_t* moonlift_jit_new(void);
 void moonlift_jit_free(moonlift_jit_t*);
 int moonlift_jit_symbol(moonlift_jit_t*, const char* name, const void* ptr);
 moonlift_artifact_t* moonlift_jit_compile_tape(moonlift_jit_t*, const char* payload);
+moonlift_artifact_t* moonlift_jit_compile_binary(moonlift_jit_t*, const uint8_t* data, size_t len);
 
 void moonlift_artifact_free(moonlift_artifact_t*);
 const void* moonlift_artifact_getpointer(const moonlift_artifact_t*, const char* func);
@@ -94,7 +95,7 @@ function M.Define(T, opts)
     local Core = T.MoonCore or T.MoonCore
     assert(Back and Core, "moonlift.back_jit.Define expects MoonBack/MoonCore in the context")
     local lib = load_library(opts and opts.libpath or nil)
-    local tape_api = require("moonlift.back_command_tape").Define(T)
+    local binary_api = require("moonlift.back_command_binary").Define(T)
 
     local function id_text(node) return type(node) == "string" and node or node.text end
     local function last_error()
@@ -148,8 +149,10 @@ function M.Define(T, opts)
     end
     function Jit:compile(program)
         assert(pvm.classof(program) == Back.BackProgram, "moonlift.back_jit compile expects MoonBack.BackProgram")
-        local tape = tape_api.encode(program)
-        local raw_artifact = check_ptr(lib.moonlift_jit_compile_tape(self._raw, cstring(tape.payload)), "moonlift.back_jit jit:compile_tape")
+        local payload = binary_api.encode(program)
+        local buf = ffi.new("uint8_t[?]", #payload)
+        ffi.copy(buf, payload, #payload)
+        local raw_artifact = check_ptr(lib.moonlift_jit_compile_binary(self._raw, buf, #payload), "moonlift.back_jit jit:compile_binary")
         return setmetatable({ _raw = raw_artifact }, Artifact)
     end
     function Jit:peek(program, func, opts)

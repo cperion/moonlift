@@ -9,6 +9,7 @@ use crate::host_arena::{HostSession, MoonHostFieldInit, MoonHostPtr, MoonHostRec
 use std::cell::RefCell;
 use std::ffi::{CStr, CString, c_char, c_int, c_void};
 use std::ptr;
+use std::sync::LazyLock;
 
 #[repr(C)]
 pub struct moonlift_jit_t {
@@ -657,5 +658,971 @@ pub extern "C" fn moonlift_artifact_getpointer(
             ptr
         }
         Err(err) => fail_const_ptr(err.0),
+    }
+}
+
+// =========================================================================
+// Binary wire format decoder (MLBT v3)
+// =========================================================================
+
+/// Slot count per command tag. Index by tag (0 = invalid).
+static SLOT_COUNT: LazyLock<[usize; 64]> = LazyLock::new(|| {
+    let mut t = [0usize; 64];
+    t[1] = 0;  // CmdTargetModel
+    t[2] = 0;  // CmdAliasFact
+    t[3] = 5;  // CmdCreateSig
+    t[4] = 3;  // CmdDeclareData
+    t[5] = 3;  // CmdDataInitZero
+    t[6] = 6;  // CmdDataInit
+    t[7] = 2;  // CmdDataAddr
+    t[8] = 2;  // CmdFuncAddr
+    t[9] = 2;  // CmdExternAddr
+    t[10] = 3; // CmdDeclareFunc
+    t[11] = 3; // CmdDeclareExtern
+    t[12] = 1; // CmdBeginFunc
+    t[13] = 1; // CmdCreateBlock
+    t[14] = 1; // CmdSwitchToBlock
+    t[15] = 1; // CmdSealBlock
+    t[16] = 3; // CmdBindEntryParams
+    t[17] = 5; // CmdAppendBlockParam
+    t[18] = 3; // CmdCreateStackSlot
+    t[19] = 2; // CmdAlias
+    t[20] = 2; // CmdStackAddr
+    t[21] = 5; // CmdConst
+    t[22] = 6; // CmdUnary
+    t[23] = 7; // CmdIntrinsic
+    t[24] = 7; // CmdCompare
+    t[25] = 4; // CmdCast
+    t[26] = 7; // CmdPtrOffset
+    t[27] = 15; // CmdLoadInfo
+    t[28] = 15; // CmdStoreInfo
+    t[29] = 15; // CmdAtomicLoad
+    t[30] = 14; // CmdAtomicStore
+    t[31] = 16; // CmdAtomicRmw
+    t[32] = 17; // CmdAtomicCas
+    t[33] = 1; // CmdAtomicFence
+    t[34] = 7; // CmdIntBinary
+    t[35] = 5; // CmdBitBinary
+    t[36] = 3; // CmdBitNot
+    t[37] = 5; // CmdShift
+    t[38] = 5; // CmdRotate
+    t[39] = 6; // CmdFloatBinary
+    t[40] = 3; // CmdMemcpy
+    t[41] = 3; // CmdMemset
+    t[42] = 7; // CmdSelect
+    t[43] = 6; // CmdFma
+    t[44] = 4; // CmdVecSplat
+    t[45] = 6; // CmdVecBinary
+    t[46] = 6; // CmdVecCompare
+    t[47] = 6; // CmdVecSelect
+    t[48] = 6; // CmdVecMask
+    t[49] = 6; // CmdVecInsertLane
+    t[50] = 4; // CmdVecExtractLane
+    t[51] = 15; // CmdVecLoadInfo
+    t[52] = 14; // CmdVecStoreInfo
+    t[53] = 8; // CmdCall
+    t[54] = 3; // CmdJump
+    t[55] = 7; // CmdBrIf
+    t[56] = 5; // CmdSwitchInt
+    t[57] = 0; // CmdReturnVoid
+    t[58] = 1; // CmdReturnValue
+    t[59] = 0; // CmdTrap
+    t[60] = 1; // CmdFinishFunc
+    t[61] = 0; // CmdFinalizeModule
+    t
+});
+
+/// Binary wire format reader.
+struct BinaryReader<'a> {
+    buf: &'a [u8],
+    pos: usize,
+    pool: Vec<String>,
+    aux_offsets: Vec<usize>,  // aux[i] = byte offset into buf for the aux entry data
+    aux_counts: Vec<u32>,     // aux[i] = count of u32 words
+}
+
+impl<'a> BinaryReader<'a> {
+    fn new(buf: &'a [u8]) -> Result<Self, MoonliftError> {
+        if buf.len() < 16 {
+            return Err(MoonliftError("binary wire buffer too short for header".to_string()));
+        }
+        let magic = u32::from_le_bytes(buf[0..4].try_into().unwrap());
+        if magic != 0x4D4C4254 {
+            return Err(MoonliftError(format!("invalid binary wire magic {magic:#010x}")));
+        }
+        let version = u32::from_le_bytes(buf[4..8].try_into().unwrap());
+        if version != 3 {
+            return Err(MoonliftError(format!("unsupported binary wire version {version}")));
+        }
+        let n_strings = u32::from_le_bytes(buf[8..12].try_into().unwrap()) as usize;
+        let _n_aux = u32::from_le_bytes(buf[12..16].try_into().unwrap()) as usize;
+
+        let mut reader = Self {
+            buf,
+            pos: 16,
+            pool: Vec::with_capacity(n_strings),
+            aux_offsets: Vec::new(),
+            aux_counts: Vec::new(),
+        };
+
+        // Read string pool.
+        for i in 0..n_strings {
+            let len = reader.take_u32("pool string len")? as usize;
+            if reader.pos + len > reader.buf.len() {
+                return Err(MoonliftError(format!("pool string {i} overflows buffer")));
+            }
+            let s = String::from_utf8_lossy(&reader.buf[reader.pos..reader.pos + len]).to_string();
+            reader.pool.push(s);
+            let padded_len = len + (4 - (len % 4)) % 4;
+            reader.pos += padded_len;
+        }
+
+        // Record aux entry offsets.
+        let _aux_start = reader.pos;
+        let mut aux_scan = reader.pos;
+        for i in 0.._n_aux {
+            if aux_scan + 4 > buf.len() {
+                return Err(MoonliftError(format!("aux entry {i} count overflows buffer")));
+            }
+            let count = u32::from_le_bytes(buf[aux_scan..aux_scan + 4].try_into().unwrap());
+            reader.aux_offsets.push(aux_scan + 4);
+            reader.aux_counts.push(count);
+            aux_scan += 4 + 4 * count as usize;
+        }
+        reader.pos = aux_scan;
+
+        Ok(reader)
+    }
+
+    fn take_u32(&mut self, what: &str) -> Result<u32, MoonliftError> {
+        if self.pos + 4 > self.buf.len() {
+            return Err(MoonliftError(format!("unexpected end of buffer reading {what}")));
+        }
+        let v = u32::from_le_bytes(self.buf[self.pos..self.pos + 4].try_into().unwrap());
+        self.pos += 4;
+        Ok(v)
+    }
+
+    fn pool_str(&self, idx: u32, what: &str) -> Result<String, MoonliftError> {
+        let i = idx as usize;
+        if i >= self.pool.len() {
+            return Err(MoonliftError(format!("{what} pool index {idx} out of range (pool has {} entries)", self.pool.len())));
+        }
+        Ok(self.pool[i].clone())
+    }
+
+    fn pool_val(&self, idx: u32, what: &str) -> Result<BackValId, MoonliftError> {
+        Ok(BackValId::from(self.pool_str(idx, what)?))
+    }
+
+    fn pool_block(&self, idx: u32, what: &str) -> Result<BackBlockId, MoonliftError> {
+        Ok(BackBlockId::from(self.pool_str(idx, what)?))
+    }
+
+    fn pool_sig(&self, idx: u32, what: &str) -> Result<BackSigId, MoonliftError> {
+        Ok(BackSigId::from(self.pool_str(idx, what)?))
+    }
+
+    fn pool_func(&self, idx: u32, what: &str) -> Result<BackFuncId, MoonliftError> {
+        Ok(BackFuncId::from(self.pool_str(idx, what)?))
+    }
+
+    fn pool_extern(&self, idx: u32, what: &str) -> Result<BackExternId, MoonliftError> {
+        Ok(BackExternId::from(self.pool_str(idx, what)?))
+    }
+
+    fn pool_data(&self, idx: u32, what: &str) -> Result<BackDataId, MoonliftError> {
+        Ok(BackDataId::from(self.pool_str(idx, what)?))
+    }
+
+    fn pool_slot(&self, idx: u32, what: &str) -> Result<BackStackSlotId, MoonliftError> {
+        Ok(BackStackSlotId::from(self.pool_str(idx, what)?))
+    }
+
+    fn pool_access(&self, idx: u32, what: &str) -> Result<BackAccessId, MoonliftError> {
+        Ok(BackAccessId::from(self.pool_str(idx, what)?))
+    }
+
+    fn read_scalar(&self, code: u32, what: &str) -> Result<BackScalar, MoonliftError> {
+        read_scalar_code(code, what)
+    }
+
+    fn read_shape(&self, shape_tag: u32, scalar: u32, lanes: u32) -> Result<Option<BackVec>, MoonliftError> {
+        match shape_tag {
+            0 => Ok(None),
+            1 => {
+                let elem = self.read_scalar(scalar, "shape scalar")?;
+                Ok(Some(BackVec::new(elem, lanes)))
+            }
+            _ => Err(MoonliftError(format!("invalid shape tag {shape_tag}"))),
+        }
+    }
+
+    /// Read u32 values from an aux entry. Returns the u32 slice.
+    fn aux_slice(&self, aux_idx: u32, what: &str) -> Result<&'a [u8], MoonliftError> {
+        let i = aux_idx as usize;
+        if i >= self.aux_offsets.len() {
+            return Err(MoonliftError(format!("{what} aux index {aux_idx} out of range")));
+        }
+        let offset = self.aux_offsets[i];
+        let count = self.aux_counts[i] as usize;
+        let end = offset + 4 * count;
+        if end > self.buf.len() {
+            return Err(MoonliftError(format!("{what} aux entry {aux_idx} overflows buffer")));
+        }
+        Ok(&self.buf[offset..end])
+    }
+
+    /// Read pool-indexed val IDs from aux.
+    fn aux_vals(&self, aux_idx: u32, count: u32, what: &str) -> Result<Vec<BackValId>, MoonliftError> {
+        let data = self.aux_slice(aux_idx, what)?;
+        let n = count as usize;
+        if n * 4 != data.len() {
+            return Err(MoonliftError(format!("{what}: expected {n} u32s but aux has {} u32s", data.len() / 4)));
+        }
+        let mut out = Vec::with_capacity(n);
+        for i in 0..n {
+            let idx = u32::from_le_bytes(data[i * 4..i * 4 + 4].try_into().unwrap());
+            out.push(self.pool_val(idx, what)?);
+        }
+        Ok(out)
+    }
+
+    /// Read scalar tags from aux.
+    fn aux_scalars(&self, aux_idx: u32, count: u32, what: &str) -> Result<Vec<BackScalar>, MoonliftError> {
+        let data = self.aux_slice(aux_idx, what)?;
+        let n = count as usize;
+        if n * 4 != data.len() {
+            return Err(MoonliftError(format!("{what}: expected {n} u32s but aux has {} u32s", data.len() / 4)));
+        }
+        let mut out = Vec::with_capacity(n);
+        for i in 0..n {
+            let code = u32::from_le_bytes(data[i * 4..i * 4 + 4].try_into().unwrap());
+            out.push(self.read_scalar(code, what)?);
+        }
+        Ok(out)
+    }
+
+    fn decode_address_base(&self, base_tag: u32, base_id: u32, prefix: &str, out: &mut Vec<BackCmd>) -> Result<BackValId, MoonliftError> {
+        match base_tag {
+            0 => Ok(self.pool_val(base_id, &format!("{prefix} base value"))?),
+            1 => {
+                let slot = self.pool_slot(base_id, &format!("{prefix} base slot"))?;
+                let dst = BackValId::from(format!("{prefix}:base"));
+                out.push(BackCmd::StackAddr(dst.clone(), slot));
+                Ok(dst)
+            }
+            2 => {
+                let data = self.pool_data(base_id, &format!("{prefix} base data"))?;
+                let dst = BackValId::from(format!("{prefix}:base"));
+                out.push(BackCmd::DataAddr(dst.clone(), data));
+                Ok(dst)
+            }
+            _ => Err(MoonliftError(format!("invalid base_tag {base_tag}"))),
+        }
+    }
+
+    fn decode_address(&self, base_tag: u32, base_id: u32, offset_id: u32, prefix: &str, out: &mut Vec<BackCmd>) -> Result<BackValId, MoonliftError> {
+        let base = self.decode_address_base(base_tag, base_id, prefix, out)?;
+        let byte_offset = self.pool_val(offset_id, &format!("{prefix} byte_offset"))?;
+        let dst = BackValId::from(format!("{prefix}:addr"));
+        out.push(BackCmd::PtrAdd(dst.clone(), base, byte_offset));
+        Ok(dst)
+    }
+
+    fn decode_memory(&self, slots: &[u32], offset: usize) -> Result<BackMemoryInfo, MoonliftError> {
+        let access = self.pool_access(slots[offset], "memory access")?;
+        let ak = slots[offset + 1];
+        let ab = slots[offset + 2];
+        let dk = slots[offset + 3];
+        let db = slots[offset + 4];
+        let tk = slots[offset + 5];
+        let mk = slots[offset + 6];
+        let mode_k = slots[offset + 7];
+        Ok(BackMemoryInfo::new(
+            access,
+            read_alignment(ak, ab)?,
+            read_dereference(dk, db)?,
+            read_trap(tk)?,
+            read_motion(mk)?,
+            read_access_mode(mode_k)?,
+        ))
+    }
+
+    #[allow(dead_code)]
+    fn decode_literal(&self, _lit_tag: u32, _lit_lo: u32, _lit_hi: u32, _scalar: BackScalar) -> Result<BackCmd, MoonliftError> {
+        // This returns the raw cmd fragments; caller assembles the final BackCmd.
+        // We return a small helper enum but actually just return parts.
+        // Instead, let the caller handle this.
+        unreachable!() // unused, see inline below
+    }
+
+    fn decode_commands(mut self) -> Result<Vec<BackCmd>, MoonliftError> {
+        let mut out = Vec::new();
+        while self.pos < self.buf.len() {
+            let tag = self.take_u32("command tag")?;
+            if tag == 0 || tag as usize >= SLOT_COUNT.len() {
+                return Err(MoonliftError(format!("invalid command tag {tag}")));
+            }
+            let n_slots = SLOT_COUNT[tag as usize];
+            if self.pos + 4 * n_slots > self.buf.len() {
+                return Err(MoonliftError(format!("command tag {tag} needs {n_slots} slots but buffer has {} bytes left", self.buf.len() - self.pos)));
+            }
+            // Read slots as u32 slice.
+            let _slots_start = self.pos;
+            let mut slots = Vec::with_capacity(n_slots);
+            for _ in 0..n_slots {
+                slots.push(u32::from_le_bytes(self.buf[self.pos..self.pos + 4].try_into().unwrap()));
+                self.pos += 4;
+            }
+
+            match tag {
+                1 | 2 => { /* CmdTargetModel, CmdAliasFact: no-op */ }
+
+                3 => { // CmdCreateSig
+                    let sig = self.pool_sig(slots[0], "sig")?;
+                    let params = self.aux_scalars(slots[1], slots[2], "sig params")?;
+                    let results = self.aux_scalars(slots[3], slots[4], "sig results")?;
+                    out.push(BackCmd::CreateSig(sig, params, results));
+                }
+
+                4 => { // CmdDeclareData
+                    out.push(BackCmd::DeclareData(self.pool_data(slots[0], "data")?, slots[1], slots[2]));
+                }
+
+                5 => { // CmdDataInitZero
+                    out.push(BackCmd::DataInitZero(self.pool_data(slots[0], "data")?, slots[1], slots[2]));
+                }
+
+                6 => { // CmdDataInit
+                    let data = self.pool_data(slots[0], "data")?;
+                    let offset = slots[1];
+                    let scalar = self.read_scalar(slots[2], "data init scalar")?;
+                    match slots[3] {
+                        0 => out.push(BackCmd::DataInitZero(data, offset, scalar.byte_size(8))),
+                        1 => out.push(BackCmd::DataInitBool(data, offset, slots[4] != 0)),
+                        2 => {
+                            let raw = binary_int_literal_raw(scalar, slots[4], slots[5]);
+                            out.push(BackCmd::DataInitInt(data, offset, scalar, raw));
+                        }
+                        3 => {
+                            let bits = (slots[4] as u64) | ((slots[5] as u64) << 32);
+                            let raw = match scalar {
+                                BackScalar::F32 => format!("{}", f32::from_bits(bits as u32)),
+                                BackScalar::F64 => format!("{}", f64::from_bits(bits)),
+                                _ => format!("{bits}"),
+                            };
+                            out.push(BackCmd::DataInitFloat(data, offset, scalar, raw));
+                        }
+                        _ => return Err(MoonliftError(format!("unsupported lit_tag {}", slots[3]))),
+                    }
+                }
+
+                7 => { // CmdDataAddr
+                    out.push(BackCmd::DataAddr(self.pool_val(slots[0], "dst")?, self.pool_data(slots[1], "data")?));
+                }
+
+                8 => { // CmdFuncAddr
+                    out.push(BackCmd::FuncAddr(self.pool_val(slots[0], "dst")?, self.pool_func(slots[1], "func")?));
+                }
+
+                9 => { // CmdExternAddr
+                    out.push(BackCmd::ExternAddr(self.pool_val(slots[0], "dst")?, self.pool_extern(slots[1], "extern")?));
+                }
+
+                10 => { // CmdDeclareFunc
+                    let func = self.pool_func(slots[1], "func")?;
+                    let sig = self.pool_sig(slots[2], "sig")?;
+                    if slots[0] == 1 {
+                        out.push(BackCmd::DeclareFuncExport(func, sig));
+                    } else {
+                        out.push(BackCmd::DeclareFuncLocal(func, sig));
+                    }
+                }
+
+                11 => { // CmdDeclareExtern
+                    out.push(BackCmd::DeclareFuncExtern(self.pool_extern(slots[0], "extern")?, self.pool_str(slots[1], "symbol")?, self.pool_sig(slots[2], "sig")?));
+                }
+
+                12 => { out.push(BackCmd::BeginFunc(self.pool_func(slots[0], "func")?)); }
+                13 => { out.push(BackCmd::CreateBlock(self.pool_block(slots[0], "block")?)); }
+                14 => { out.push(BackCmd::SwitchToBlock(self.pool_block(slots[0], "block")?)); }
+                15 => { out.push(BackCmd::SealBlock(self.pool_block(slots[0], "block")?)); }
+
+                16 => { // CmdBindEntryParams
+                    let block = self.pool_block(slots[0], "block")?;
+                    let vals = self.aux_vals(slots[1], slots[2], "entry params")?;
+                    out.push(BackCmd::BindEntryParams(block, vals));
+                }
+
+                17 => { // CmdAppendBlockParam
+                    let block = self.pool_block(slots[0], "block")?;
+                    let val = self.pool_val(slots[1], "value")?;
+                    if let Some(vec) = self.read_shape(slots[2], slots[3], slots[4])? {
+                        out.push(BackCmd::AppendVecBlockParam(block, val, vec));
+                    } else {
+                        out.push(BackCmd::AppendBlockParam(block, val, self.read_scalar(slots[3], "param scalar")?));
+                    }
+                }
+
+                18 => { out.push(BackCmd::CreateStackSlot(self.pool_slot(slots[0], "slot")?, slots[1], slots[2])); }
+                19 => { out.push(BackCmd::Alias(self.pool_val(slots[0], "dst")?, self.pool_val(slots[1], "src")?)); }
+                20 => { out.push(BackCmd::StackAddr(self.pool_val(slots[0], "dst")?, self.pool_slot(slots[1], "slot")?)); }
+
+                21 => { // CmdConst
+                    let dst = self.pool_val(slots[0], "dst")?;
+                    let scalar = self.read_scalar(slots[1], "const scalar")?;
+                    match slots[2] {
+                        0 => out.push(BackCmd::ConstNull(dst)),
+                        1 => out.push(BackCmd::ConstBool(dst, slots[3] != 0)),
+                        2 => {
+                            let raw = binary_int_literal_raw(scalar, slots[3], slots[4]);
+                            out.push(BackCmd::ConstInt(dst, scalar, raw));
+                        }
+                        3 => {
+                            let bits = (slots[3] as u64) | ((slots[4] as u64) << 32);
+                            let raw = match scalar {
+                                BackScalar::F32 => format!("{}", f32::from_bits(bits as u32)),
+                                BackScalar::F64 => format!("{}", f64::from_bits(bits)),
+                                _ => format!("{bits}"),
+                            };
+                            out.push(BackCmd::ConstFloat(dst, scalar, raw));
+                        }
+                        _ => return Err(MoonliftError(format!("unsupported lit_tag {}", slots[2]))),
+                    }
+                }
+
+                22 => { // CmdUnary
+                    let dst = self.pool_val(slots[0], "dst")?;
+                    let scalar = self.read_scalar(slots[3], "unary scalar")?;
+                    let value = self.pool_val(slots[5], "unary value")?;
+                    let cmd = match slots[1] {
+                        1 => BackCmd::Ineg(dst, scalar, value),
+                        2 => BackCmd::Fneg(dst, scalar, value),
+                        3 => BackCmd::Bnot(dst, scalar, value),
+                        4 => BackCmd::BoolNot(dst, value),
+                        _ => return Err(MoonliftError(format!("unsupported unary op {}", slots[1]))),
+                    };
+                    out.push(cmd);
+                }
+
+                23 => { // CmdIntrinsic
+                    let dst = self.pool_val(slots[0], "dst")?;
+                    let scalar = self.read_scalar(slots[3], "intrinsic scalar")?;
+                    let args = self.aux_vals(slots[5], slots[6], "intrinsic args")?;
+                    let v = args[0].clone();
+                    let cmd = match slots[1] {
+                        1 => BackCmd::Popcount(dst, scalar, v),
+                        2 => BackCmd::Clz(dst, scalar, v),
+                        3 => BackCmd::Ctz(dst, scalar, v),
+                        4 => BackCmd::Bswap(dst, scalar, v),
+                        5 => BackCmd::Sqrt(dst, scalar, v),
+                        6 => BackCmd::Abs(dst, scalar, v),
+                        7 => BackCmd::Floor(dst, scalar, v),
+                        8 => BackCmd::Ceil(dst, scalar, v),
+                        9 => BackCmd::TruncFloat(dst, scalar, v),
+                        10 => BackCmd::Round(dst, scalar, v),
+                        _ => return Err(MoonliftError(format!("unsupported intrinsic op {}", slots[1]))),
+                    };
+                    out.push(cmd);
+                }
+
+                24 => { // CmdCompare
+                    let dst = self.pool_val(slots[0], "dst")?;
+                    let scalar = self.read_scalar(slots[3], "compare scalar")?;
+                    let lhs = self.pool_val(slots[5], "compare lhs")?;
+                    let rhs = self.pool_val(slots[6], "compare rhs")?;
+                    let cmd = match slots[1] {
+                        1 => BackCmd::IcmpEq(dst, scalar, lhs, rhs),
+                        2 => BackCmd::IcmpNe(dst, scalar, lhs, rhs),
+                        3 => BackCmd::SIcmpLt(dst, scalar, lhs, rhs),
+                        4 => BackCmd::SIcmpLe(dst, scalar, lhs, rhs),
+                        5 => BackCmd::SIcmpGt(dst, scalar, lhs, rhs),
+                        6 => BackCmd::SIcmpGe(dst, scalar, lhs, rhs),
+                        7 => BackCmd::UIcmpLt(dst, scalar, lhs, rhs),
+                        8 => BackCmd::UIcmpLe(dst, scalar, lhs, rhs),
+                        9 => BackCmd::UIcmpGt(dst, scalar, lhs, rhs),
+                        10 => BackCmd::UIcmpGe(dst, scalar, lhs, rhs),
+                        11 => BackCmd::FCmpEq(dst, scalar, lhs, rhs),
+                        12 => BackCmd::FCmpNe(dst, scalar, lhs, rhs),
+                        13 => BackCmd::FCmpLt(dst, scalar, lhs, rhs),
+                        14 => BackCmd::FCmpLe(dst, scalar, lhs, rhs),
+                        15 => BackCmd::FCmpGt(dst, scalar, lhs, rhs),
+                        16 => BackCmd::FCmpGe(dst, scalar, lhs, rhs),
+                        _ => return Err(MoonliftError(format!("unsupported compare op {}", slots[1]))),
+                    };
+                    out.push(cmd);
+                }
+
+                25 => { // CmdCast
+                    let dst = self.pool_val(slots[0], "dst")?;
+                    let scalar = self.read_scalar(slots[2], "cast scalar")?;
+                    let value = self.pool_val(slots[3], "cast value")?;
+                    let cmd = match slots[1] {
+                        1 => BackCmd::Bitcast(dst, scalar, value),
+                        2 => BackCmd::Ireduce(dst, scalar, value),
+                        3 => BackCmd::Sextend(dst, scalar, value),
+                        4 => BackCmd::Uextend(dst, scalar, value),
+                        5 => BackCmd::Fpromote(dst, scalar, value),
+                        6 => BackCmd::Fdemote(dst, scalar, value),
+                        7 => BackCmd::SToF(dst, scalar, value),
+                        8 => BackCmd::UToF(dst, scalar, value),
+                        9 => BackCmd::FToS(dst, scalar, value),
+                        10 => BackCmd::FToU(dst, scalar, value),
+                        _ => return Err(MoonliftError(format!("unsupported cast op {}", slots[1]))),
+                    };
+                    out.push(cmd);
+                }
+
+                26 => { // CmdPtrOffset
+                    let dst = self.pool_val(slots[0], "dst")?;
+                    let base = self.decode_address_base(slots[1], slots[2], &format!("__binary:ptr:{}", dst.as_str()), &mut out)?;
+                    let index = self.pool_val(slots[3], "ptr offset index")?;
+                    let elem_size = slots[4];
+                    let const_offset = ((slots[6] as u64) << 32) | (slots[5] as u64);
+                    out.push(BackCmd::PtrOffset(dst, base, index, elem_size, const_offset as i64));
+                }
+
+                27 => { // CmdLoadInfo
+                    let dst = self.pool_val(slots[0], "dst")?;
+                    let prefix = format!("__binary:load:{}", dst.as_str());
+                    let scalar = self.read_scalar(slots[2], "load scalar")?;
+                    let addr = self.decode_address(slots[4], slots[5], slots[6], &prefix, &mut out)?;
+                    let mem = self.decode_memory(&slots, 7)?;
+                    if let Some(vec) = self.read_shape(slots[1], slots[2], slots[3])? {
+                        out.push(BackCmd::VecLoadInfo(dst, vec, addr, mem));
+                    } else {
+                        out.push(BackCmd::LoadInfo(dst, scalar, addr, mem));
+                    }
+                }
+
+                28 => { // CmdStoreInfo
+                    let prefix = format!("__binary:store:{}", slots[5]);
+                    let scalar = self.read_scalar(slots[1], "store scalar")?;
+                    let addr = self.decode_address(slots[3], slots[4], slots[5], &prefix, &mut out)?;
+                    let value = self.pool_val(slots[6], "store value")?;
+                    let mem = self.decode_memory(&slots, 7)?;
+                    if let Some(vec) = self.read_shape(slots[0], slots[1], slots[2])? {
+                        out.push(BackCmd::VecStoreInfo(vec, addr, value, mem));
+                    } else {
+                        out.push(BackCmd::StoreInfo(scalar, addr, value, mem));
+                    }
+                }
+
+                29 => { // CmdAtomicLoad
+                    let dst = self.pool_val(slots[0], "dst")?;
+                    let prefix = format!("__binary:atomic_load:{}", dst.as_str());
+                    let scalar = self.read_scalar(slots[1], "atomic load scalar")?;
+                    let addr = self.decode_address(slots[2], slots[3], slots[4], &prefix, &mut out)?;
+                    let mem = self.decode_memory(&slots, 5)?;
+                    let ordering = read_binary_atomic_ordering(slots[13])?;
+                    out.push(BackCmd::AtomicLoad(dst, scalar, addr, mem, ordering));
+                }
+
+                30 => { // CmdAtomicStore
+                    let prefix = format!("__binary:atomic_store:{}", slots[4]);
+                    let scalar = self.read_scalar(slots[0], "atomic store scalar")?;
+                    let addr = self.decode_address(slots[1], slots[2], slots[3], &prefix, &mut out)?;
+                    let value = self.pool_val(slots[4], "atomic store value")?;
+                    let mem = self.decode_memory(&slots, 5)?;
+                    let ordering = read_binary_atomic_ordering(slots[13])?;
+                    out.push(BackCmd::AtomicStore(scalar, addr, value, mem, ordering));
+                }
+
+                31 => { // CmdAtomicRmw
+                    let dst = self.pool_val(slots[0], "dst")?;
+                    let prefix = format!("__binary:atomic_rmw:{}", dst.as_str());
+                    let op = read_binary_atomic_rmw_op(slots[1])?;
+                    let scalar = self.read_scalar(slots[2], "atomic rmw scalar")?;
+                    let addr = self.decode_address(slots[3], slots[4], slots[5], &prefix, &mut out)?;
+                    let value = self.pool_val(slots[6], "atomic rmw value")?;
+                    let mem = self.decode_memory(&slots, 7)?;
+                    let ordering = read_binary_atomic_ordering(slots[15])?;
+                    out.push(BackCmd::AtomicRmw(dst, op, scalar, addr, value, mem, ordering));
+                }
+
+                32 => { // CmdAtomicCas
+                    let dst = self.pool_val(slots[0], "dst")?;
+                    let prefix = format!("__binary:atomic_cas:{}", dst.as_str());
+                    let scalar = self.read_scalar(slots[1], "atomic cas scalar")?;
+                    let addr = self.decode_address(slots[2], slots[3], slots[4], &prefix, &mut out)?;
+                    let expected = self.pool_val(slots[5], "atomic cas expected")?;
+                    let replacement = self.pool_val(slots[6], "atomic cas replacement")?;
+                    let mem = self.decode_memory(&slots, 7)?;
+                    let ordering = read_binary_atomic_ordering(slots[15])?;
+                    out.push(BackCmd::AtomicCas(dst, scalar, addr, expected, replacement, mem, ordering));
+                }
+
+                33 => { // CmdAtomicFence
+                    out.push(BackCmd::AtomicFence(read_binary_atomic_ordering(slots[0])?));
+                }
+
+                34 => { // CmdIntBinary
+                    let dst = self.pool_val(slots[0], "dst")?;
+                    let scalar = self.read_scalar(slots[2], "int binary scalar")?;
+                    let sem = read_int_semantics(slots[3], slots[4])?;
+                    let lhs = self.pool_val(slots[5], "int binary lhs")?;
+                    let rhs = self.pool_val(slots[6], "int binary rhs")?;
+                    let cmd = match slots[1] {
+                        1 => BackCmd::Iadd(dst, scalar, sem, lhs, rhs),
+                        2 => BackCmd::Isub(dst, scalar, sem, lhs, rhs),
+                        3 => BackCmd::Imul(dst, scalar, sem, lhs, rhs),
+                        4 => BackCmd::Sdiv(dst, scalar, sem, lhs, rhs),
+                        5 => BackCmd::Udiv(dst, scalar, sem, lhs, rhs),
+                        6 => BackCmd::Srem(dst, scalar, sem, lhs, rhs),
+                        7 => BackCmd::Urem(dst, scalar, sem, lhs, rhs),
+                        _ => return Err(MoonliftError(format!("unsupported int op {}", slots[1]))),
+                    };
+                    out.push(cmd);
+                }
+
+                35 => { // CmdBitBinary
+                    let dst = self.pool_val(slots[0], "dst")?;
+                    let scalar = self.read_scalar(slots[2], "bit binary scalar")?;
+                    let lhs = self.pool_val(slots[3], "bit binary lhs")?;
+                    let rhs = self.pool_val(slots[4], "bit binary rhs")?;
+                    let cmd = match slots[1] {
+                        1 => BackCmd::Band(dst, scalar, lhs, rhs),
+                        2 => BackCmd::Bor(dst, scalar, lhs, rhs),
+                        3 => BackCmd::Bxor(dst, scalar, lhs, rhs),
+                        _ => return Err(MoonliftError(format!("unsupported bit op {}", slots[1]))),
+                    };
+                    out.push(cmd);
+                }
+
+                36 => { // CmdBitNot
+                    out.push(BackCmd::Bnot(self.pool_val(slots[0], "dst")?, self.read_scalar(slots[1], "bitnot scalar")?, self.pool_val(slots[2], "bitnot value")?));
+                }
+
+                37 => { // CmdShift
+                    let dst = self.pool_val(slots[0], "dst")?;
+                    let scalar = self.read_scalar(slots[2], "shift scalar")?;
+                    let lhs = self.pool_val(slots[3], "shift lhs")?;
+                    let rhs = self.pool_val(slots[4], "shift rhs")?;
+                    let cmd = match slots[1] {
+                        1 => BackCmd::Ishl(dst, scalar, lhs, rhs),
+                        2 => BackCmd::Ushr(dst, scalar, lhs, rhs),
+                        3 => BackCmd::Sshr(dst, scalar, lhs, rhs),
+                        _ => return Err(MoonliftError(format!("unsupported shift op {}", slots[1]))),
+                    };
+                    out.push(cmd);
+                }
+
+                38 => { // CmdRotate
+                    let dst = self.pool_val(slots[0], "dst")?;
+                    let scalar = self.read_scalar(slots[2], "rotate scalar")?;
+                    let lhs = self.pool_val(slots[3], "rotate lhs")?;
+                    let rhs = self.pool_val(slots[4], "rotate rhs")?;
+                    let cmd = match slots[1] {
+                        1 => BackCmd::Rotl(dst, scalar, lhs, rhs),
+                        2 => BackCmd::Rotr(dst, scalar, lhs, rhs),
+                        _ => return Err(MoonliftError(format!("unsupported rotate op {}", slots[1]))),
+                    };
+                    out.push(cmd);
+                }
+
+                39 => { // CmdFloatBinary
+                    let dst = self.pool_val(slots[0], "dst")?;
+                    let scalar = self.read_scalar(slots[2], "float binary scalar")?;
+                    let sem = read_float_semantics(slots[3])?;
+                    let lhs = self.pool_val(slots[4], "float binary lhs")?;
+                    let rhs = self.pool_val(slots[5], "float binary rhs")?;
+                    let cmd = match slots[1] {
+                        1 => BackCmd::Fadd(dst, scalar, sem, lhs, rhs),
+                        2 => BackCmd::Fsub(dst, scalar, sem, lhs, rhs),
+                        3 => BackCmd::Fmul(dst, scalar, sem, lhs, rhs),
+                        4 => BackCmd::Fdiv(dst, scalar, sem, lhs, rhs),
+                        _ => return Err(MoonliftError(format!("unsupported float op {}", slots[1]))),
+                    };
+                    out.push(cmd);
+                }
+
+                40 => { out.push(BackCmd::Memcpy(self.pool_val(slots[0], "dst")?, self.pool_val(slots[1], "src")?, self.pool_val(slots[2], "len")?)); }
+                41 => { out.push(BackCmd::Memset(self.pool_val(slots[0], "dst")?, self.pool_val(slots[1], "byte")?, self.pool_val(slots[2], "len")?)); }
+
+                42 => { // CmdSelect
+                    let dst = self.pool_val(slots[0], "dst")?;
+                    let scalar = self.read_scalar(slots[2], "select scalar")?;
+                    out.push(BackCmd::Select(dst, scalar, self.pool_val(slots[4], "cond")?, self.pool_val(slots[5], "then")?, self.pool_val(slots[6], "else")?));
+                }
+
+                43 => { // CmdFma
+                    let dst = self.pool_val(slots[0], "dst")?;
+                    let scalar = self.read_scalar(slots[1], "fma scalar")?;
+                    let sem = read_float_semantics(slots[2])?;
+                    out.push(BackCmd::Fma(dst, scalar, sem, self.pool_val(slots[3], "a")?, self.pool_val(slots[4], "b")?, self.pool_val(slots[5], "c")?));
+                }
+
+                44 => { // CmdVecSplat
+                    out.push(BackCmd::VecSplat(self.pool_val(slots[0], "dst")?, BackVec::new(self.read_scalar(slots[1], "splat elem")?, slots[2]), self.pool_val(slots[3], "splat value")?));
+                }
+
+                45 => { // CmdVecBinary
+                    let dst = self.pool_val(slots[0], "dst")?;
+                    let vec = BackVec::new(self.read_scalar(slots[2], "vec elem")?, slots[3]);
+                    let lhs = self.pool_val(slots[4], "vec lhs")?;
+                    let rhs = self.pool_val(slots[5], "vec rhs")?;
+                    let cmd = match slots[1] {
+                        1 => BackCmd::VecIadd(dst, vec, lhs, rhs),
+                        2 => BackCmd::VecIsub(dst, vec, lhs, rhs),
+                        3 => BackCmd::VecImul(dst, vec, lhs, rhs),
+                        4 => BackCmd::VecBand(dst, vec, lhs, rhs),
+                        5 => BackCmd::VecBor(dst, vec, lhs, rhs),
+                        6 => BackCmd::VecBxor(dst, vec, lhs, rhs),
+                        _ => return Err(MoonliftError(format!("unsupported vec binary op {}", slots[1]))),
+                    };
+                    out.push(cmd);
+                }
+
+                46 => { // CmdVecCompare
+                    let dst = self.pool_val(slots[0], "dst")?;
+                    let vec = BackVec::new(self.read_scalar(slots[2], "vec elem")?, slots[3]);
+                    let lhs = self.pool_val(slots[4], "vec lhs")?;
+                    let rhs = self.pool_val(slots[5], "vec rhs")?;
+                    let cmd = match slots[1] {
+                        1 => BackCmd::VecIcmpEq(dst, vec, lhs, rhs),
+                        2 => BackCmd::VecIcmpNe(dst, vec, lhs, rhs),
+                        3 => BackCmd::VecSIcmpLt(dst, vec, lhs, rhs),
+                        4 => BackCmd::VecSIcmpLe(dst, vec, lhs, rhs),
+                        5 => BackCmd::VecSIcmpGt(dst, vec, lhs, rhs),
+                        6 => BackCmd::VecSIcmpGe(dst, vec, lhs, rhs),
+                        7 => BackCmd::VecUIcmpLt(dst, vec, lhs, rhs),
+                        8 => BackCmd::VecUIcmpLe(dst, vec, lhs, rhs),
+                        9 => BackCmd::VecUIcmpGt(dst, vec, lhs, rhs),
+                        10 => BackCmd::VecUIcmpGe(dst, vec, lhs, rhs),
+                        _ => return Err(MoonliftError(format!("unsupported vec compare op {}", slots[1]))),
+                    };
+                    out.push(cmd);
+                }
+
+                47 => { // CmdVecSelect
+                    let dst = self.pool_val(slots[0], "dst")?;
+                    let vec = BackVec::new(self.read_scalar(slots[1], "vec elem")?, slots[2]);
+                    out.push(BackCmd::VecSelect(dst, vec, self.pool_val(slots[3], "mask")?, self.pool_val(slots[4], "then")?, self.pool_val(slots[5], "else")?));
+                }
+
+                48 => { // CmdVecMask
+                    let dst = self.pool_val(slots[0], "dst")?;
+                    let vec = BackVec::new(self.read_scalar(slots[2], "vec elem")?, slots[3]);
+                    let args = self.aux_vals(slots[4], slots[5], "vec mask args")?;
+                    let lhs = args[0].clone();
+                    let rhs = args.get(1).cloned().unwrap_or_else(|| lhs.clone());
+                    let cmd = match slots[1] {
+                        1 => BackCmd::VecMaskNot(dst, vec, lhs),
+                        2 => BackCmd::VecMaskAnd(dst, vec, lhs, rhs),
+                        3 => BackCmd::VecMaskOr(dst, vec, lhs, rhs),
+                        _ => return Err(MoonliftError(format!("unsupported vec mask op {}", slots[1]))),
+                    };
+                    out.push(cmd);
+                }
+
+                49 => { // CmdVecInsertLane
+                    let dst = self.pool_val(slots[0], "dst")?;
+                    let vec = BackVec::new(self.read_scalar(slots[1], "vec elem")?, slots[2]);
+                    out.push(BackCmd::VecInsertLane(dst, vec, self.pool_val(slots[3], "value")?, self.pool_val(slots[4], "lane value")?, slots[5]));
+                }
+
+                50 => { // CmdVecExtractLane
+                    out.push(BackCmd::VecExtractLane(self.pool_val(slots[0], "dst")?, self.read_scalar(slots[1], "extract scalar")?, self.pool_val(slots[2], "value")?, slots[3]));
+                }
+
+                51 => { // CmdVecLoadInfo
+                    let dst = self.pool_val(slots[0], "dst")?;
+                    let prefix = format!("__binary:vec_load:{}", dst.as_str());
+                    let vec = BackVec::new(self.read_scalar(slots[1], "vec elem")?, slots[2]);
+                    let addr = self.decode_address(slots[3], slots[4], slots[5], &prefix, &mut out)?;
+                    let mem = self.decode_memory(&slots, 6)?;
+                    out.push(BackCmd::VecLoadInfo(dst, vec, addr, mem));
+                }
+
+                52 => { // CmdVecStoreInfo
+                    let prefix = format!("__binary:vec_store:{}", slots[5]);
+                    let vec = BackVec::new(self.read_scalar(slots[0], "vec elem")?, slots[1]);
+                    let addr = self.decode_address(slots[2], slots[3], slots[4], &prefix, &mut out)?;
+                    let value = self.pool_val(slots[5], "store value")?;
+                    let mem = self.decode_memory(&slots, 6)?;
+                    out.push(BackCmd::VecStoreInfo(vec, addr, value, mem));
+                }
+
+                53 => { // CmdCall
+                    let result_tag = slots[0];
+                    let result_dst = slots[1];
+                    let result_scalar = slots[2];
+                    let target_tag = slots[3];
+                    let target_id = slots[4];
+                    let sig = self.pool_sig(slots[5], "call sig")?;
+                    let args = self.aux_vals(slots[6], slots[7], "call args")?;
+                    let cmd = match (result_tag, target_tag) {
+                        (1, 0) => BackCmd::CallValueDirect(self.pool_val(result_dst, "call dst")?, self.read_scalar(result_scalar, "call result scalar")?, self.pool_func(target_id, "call func")?, sig, args),
+                        (0, 0) => BackCmd::CallStmtDirect(self.pool_func(target_id, "call func")?, sig, args),
+                        (1, 1) => BackCmd::CallValueExtern(self.pool_val(result_dst, "call dst")?, self.read_scalar(result_scalar, "call result scalar")?, self.pool_extern(target_id, "call extern")?, sig, args),
+                        (0, 1) => BackCmd::CallStmtExtern(self.pool_extern(target_id, "call extern")?, sig, args),
+                        (1, 2) => BackCmd::CallValueIndirect(self.pool_val(result_dst, "call dst")?, self.read_scalar(result_scalar, "call result scalar")?, self.pool_val(target_id, "call callee")?, sig, args),
+                        (0, 2) => BackCmd::CallStmtIndirect(self.pool_val(target_id, "call callee")?, sig, args),
+                        _ => return Err(MoonliftError(format!("unsupported call {result_tag}/{target_tag}"))),
+                    };
+                    out.push(cmd);
+                }
+
+                54 => { // CmdJump
+                    let dest = self.pool_block(slots[0], "jump dest")?;
+                    let args = self.aux_vals(slots[1], slots[2], "jump args")?;
+                    out.push(BackCmd::Jump(dest, args));
+                }
+
+                55 => { // CmdBrIf
+                    let cond = self.pool_val(slots[0], "brif cond")?;
+                    let then_block = self.pool_block(slots[1], "brif then")?;
+                    let then_args = self.aux_vals(slots[2], slots[3], "brif then args")?;
+                    let else_block = self.pool_block(slots[4], "brif else")?;
+                    let else_args = self.aux_vals(slots[5], slots[6], "brif else args")?;
+                    out.push(BackCmd::BrIf(cond, then_block, then_args, else_block, else_args));
+                }
+
+                56 => { // CmdSwitchInt
+                    let value = self.pool_val(slots[0], "switch value")?;
+                    let ty = self.read_scalar(slots[1], "switch scalar")?;
+                    let n_cases = slots[3] as usize;
+                    let aux_data = self.aux_slice(slots[2], "switch cases")?;
+                    if aux_data.len() < n_cases * 12 {
+                        return Err(MoonliftError(format!("switch cases aux too short: {} < {}", aux_data.len(), n_cases * 12)));
+                    }
+                    let mut cases = Vec::with_capacity(n_cases);
+                    for i in 0..n_cases {
+                        let lo = u32::from_le_bytes(aux_data[i * 12..i * 12 + 4].try_into().unwrap());
+                        let hi = u32::from_le_bytes(aux_data[i * 12 + 4..i * 12 + 8].try_into().unwrap());
+                        let dest_idx = u32::from_le_bytes(aux_data[i * 12 + 8..i * 12 + 12].try_into().unwrap());
+                        let raw = binary_int_literal_raw(ty, lo, hi);
+                        let dest = self.pool_block(dest_idx, "switch case dest")?;
+                        cases.push(BackSwitchCase::new(raw, dest));
+                    }
+                    let default = self.pool_block(slots[4], "switch default")?;
+                    out.push(BackCmd::SwitchInt(value, ty, cases, default));
+                }
+
+                57 => { out.push(BackCmd::ReturnVoid); }
+                58 => { out.push(BackCmd::ReturnValue(self.pool_val(slots[0], "return value")?)); }
+                59 => { out.push(BackCmd::Trap); }
+                60 => { out.push(BackCmd::FinishFunc(self.pool_func(slots[0], "func")?)); }
+                61 => { out.push(BackCmd::FinalizeModule); }
+
+                _ => return Err(MoonliftError(format!("unsupported binary command tag {tag}"))),
+            }
+        }
+        Ok(out)
+    }
+}
+
+fn binary_u64(lo: u32, hi: u32) -> u64 {
+    (lo as u64) | ((hi as u64) << 32)
+}
+
+fn binary_int_literal_raw(scalar: BackScalar, lo: u32, hi: u32) -> String {
+    let bits = binary_u64(lo, hi);
+    match scalar {
+        BackScalar::I8 | BackScalar::I16 | BackScalar::I32 | BackScalar::I64 => (bits as i64).to_string(),
+        _ => bits.to_string(),
+    }
+}
+
+fn read_scalar_code(code: u32, what: &str) -> Result<BackScalar, MoonliftError> {
+    match code {
+        1 => Ok(BackScalar::Bool),
+        2 => Ok(BackScalar::I8),
+        3 => Ok(BackScalar::I16),
+        4 => Ok(BackScalar::I32),
+        5 => Ok(BackScalar::I64),
+        6 => Ok(BackScalar::U8),
+        7 => Ok(BackScalar::U16),
+        8 => Ok(BackScalar::U32),
+        9 => Ok(BackScalar::U64),
+        10 => Ok(BackScalar::F32),
+        11 => Ok(BackScalar::F64),
+        12 => Ok(BackScalar::Ptr),
+        13 => Ok(BackScalar::Index),
+        _ => Err(MoonliftError(format!("unknown {what} scalar code {code}"))),
+    }
+}
+
+fn read_binary_atomic_ordering(code: u32) -> Result<BackAtomicOrdering, MoonliftError> {
+    match code {
+        1 => Ok(BackAtomicOrdering::SeqCst),
+        _ => Err(MoonliftError(format!("unknown atomic ordering code {code}"))),
+    }
+}
+
+fn read_binary_atomic_rmw_op(code: u32) -> Result<BackAtomicRmwOp, MoonliftError> {
+    match code {
+        1 => Ok(BackAtomicRmwOp::Add),
+        2 => Ok(BackAtomicRmwOp::Sub),
+        3 => Ok(BackAtomicRmwOp::And),
+        4 => Ok(BackAtomicRmwOp::Or),
+        5 => Ok(BackAtomicRmwOp::Xor),
+        6 => Ok(BackAtomicRmwOp::Xchg),
+        _ => Err(MoonliftError(format!("unknown atomic rmw op code {code}"))),
+    }
+}
+
+pub(crate) fn parse_back_command_binary(data: &[u8]) -> Result<Vec<BackCmd>, MoonliftError> {
+    let reader = BinaryReader::new(data)?;
+    reader.decode_commands()
+}
+
+// =========================================================================
+// Binary FFI entry points
+// =========================================================================
+
+#[unsafe(no_mangle)]
+pub extern "C" fn moonlift_jit_compile_binary(
+    jit: *mut moonlift_jit_t,
+    data: *const u8,
+    len: usize,
+) -> *mut moonlift_artifact_t {
+    let result: Result<_, MoonliftError> = (|| {
+        let jit = require_ptr(jit, "moonlift_jit_t")?;
+        if data.is_null() {
+            return Err(MoonliftError("binary data pointer was null".to_string()));
+        }
+        let buf = unsafe { std::slice::from_raw_parts(data, len) };
+        let cmds = parse_back_command_binary(buf)?;
+        let artifact = jit.inner.compile(&BackProgram::new(cmds))?;
+        Ok(Box::into_raw(Box::new(moonlift_artifact_t { inner: artifact })))
+    })();
+    match result {
+        Ok(ptr) => { clear_last_error(); ptr }
+        Err(err) => fail_ptr(err.0),
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn moonlift_object_compile_binary(
+    data: *const u8,
+    len: usize,
+    module_name: *const c_char,
+    out: *mut moonlift_bytes_t,
+) -> c_int {
+    let result: Result<_, MoonliftError> = (|| {
+        let out = unsafe { out.as_mut() }
+            .ok_or_else(|| MoonliftError("moonlift_bytes_t output pointer was null".to_string()))?;
+        if data.is_null() {
+            return Err(MoonliftError("binary data pointer was null".to_string()));
+        }
+        let buf = unsafe { std::slice::from_raw_parts(data, len) };
+        let module_name = if module_name.is_null() {
+            "moonlift_object".to_string()
+        } else {
+            read_cstr(module_name, "object module name")?
+        };
+        let cmds = parse_back_command_binary(buf)?;
+        let artifact = compile_object(&BackProgram::new(cmds), &module_name)?;
+        let mut bytes = artifact.into_bytes().into_boxed_slice();
+        out.data = bytes.as_mut_ptr();
+        out.len = bytes.len();
+        std::mem::forget(bytes);
+        Ok(())
+    })();
+    match result {
+        Ok(()) => ok_int(),
+        Err(err) => fail_int(err.0),
     }
 }

@@ -24,9 +24,16 @@ is a native token tape lexer over `ptr(u8)+len`, plus native parse-event passes.
 Lua/PVM MoonTree values from the native token tape to compare against the
 existing pipeline; it is outside the compiler dependency graph. The MOM parser
 core is `parser/native_core.mlua`: compiled Moonlift parser functions/regions
-that write native AST tapes into caller-provided buffers. OS integration can be
-done through Moonlift `extern` calls to libc; the parser core itself remains a
-pure buffer-to-AST component.
+that write native AST tapes into caller-provided buffers. `driver/wire.mlua`
+writes MLBT v3 BackProgram buffers directly into caller-provided memory, and
+`driver/lower_wire.mlua` lowers native parser tapes into that binary BackProgram,
+and `driver/backend_ffi.mlua` invokes the Rust backend through the same binary C
+ABI. `tests/test_mom_source_to_binary.lua` exercises the current native source →
+lexer → parser → MLBT → executable path. The standalone `mom` binary links
+LuaJIT, embedded Moonlift/MOM sources, and the Rust Cranelift backend; it can run
+MOM-compiled source files or emit relocatable objects. OS integration can be done
+through Moonlift `extern` calls to libc; the parser core itself remains a pure
+buffer-to-AST component.
 
 ## Schema seed
 
@@ -51,7 +58,7 @@ Moonlift code for the pipeline.
 
 1. Keep expanding `MoonParse` as implementation needs demand.
 2. Extend native scanner/lexer coverage and document scanner/island handling.
-3. Implement Pratt expression parsing and recursive-descent statement/type/top
-   level parsing that constructs MoonTree ASDL directly.
+3. Extend native parser-tape lowering beyond the current scalar function subset:
+   local bindings, calls, control regions, memory/view operations, and externs.
 4. Then port phases in dependency order: open/bind/typecheck → tree lowering →
    control facts → back validation/inspection → vectorization/link/execution.

@@ -4,8 +4,8 @@ package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./experiments/
 local Host = require("moonlift.mlua_run")
 
 -- Load individual schema modules
-local C = Host.dofile("experiments/mom/schema/MoonCore.mlua")
-local B = Host.dofile("experiments/mom/schema/MoonBack.mlua")
+local C = Host.dofile("lua/moonlift/mom/schema/MoonCore.mlua")
+local B = Host.dofile("lua/moonlift/mom/schema/MoonBack.mlua")
 
 print("C.Scalar:", C.Scalar)
 print("C.Name:", C.Name)

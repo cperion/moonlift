@@ -31,7 +31,7 @@ end
 local lua_idx = build_lua_schema_index()
 
 -- Load MOM types
-local S = Host.dofile("experiments/mom/schema/init.lua")
+local S = Host.dofile("lua/moonlift/mom/schema/init.lua")
 
 -- Map Lua module names to MOM module tables
 local mom_map = {

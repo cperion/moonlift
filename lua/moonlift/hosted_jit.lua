@@ -2,8 +2,8 @@
 --
 -- This module has the same public shape as moonlift.back_jit, but it runs inside
 -- the Rust host binary.  The host owns one moonlift::Jit and exposes
--- _host_compile(tape) -> HostedArtifact userdata.  No cdylib FFI JIT boundary is
--- used on this path.
+-- _host_compile_binary(payload) -> HostedArtifact userdata. No cdylib FFI JIT
+-- boundary is used on this path.
 
 local ffi = require("ffi")
 local pvm = require("moonlift.pvm")
@@ -16,7 +16,7 @@ end
 
 function M.Define(T, _opts)
     local Back = T.MoonBack
-    local tape_api = require("moonlift.back_command_tape").Define(T)
+    local binary_api = require("moonlift.back_command_binary").Define(T)
 
     local Artifact = {}
     Artifact.__index = Artifact
@@ -51,8 +51,8 @@ function M.Define(T, _opts)
 
     function Jit:compile(program)
         assert(pvm.classof(program) == Back.BackProgram, "hosted_jit compile expects MoonBack.BackProgram")
-        local tape = tape_api.encode(program)
-        local artifact = assert(_host_compile(tape.payload), "hosted compile failed")
+        local payload = binary_api.encode(program)
+        local artifact = assert(_host_compile_binary(payload), "hosted binary compile failed")
         return setmetatable({ _raw = artifact }, Artifact)
     end
 

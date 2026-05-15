@@ -31,7 +31,7 @@ M.TK = TK
 local native_unit
 local function native_lexer()
     if native_unit then return native_unit end
-    local mod = Host.dofile("experiments/mom/parser/native_lexer.mlua")
+    local mod = Host.dofile("lua/moonlift/mom/parser/native_lexer.mlua")
     native_unit = mod:compile()
     return native_unit
 end

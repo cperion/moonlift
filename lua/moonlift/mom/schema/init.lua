@@ -4,7 +4,7 @@
 
 local Host = require("moonlift.mlua_run")
 
-local DIR = "experiments/mom/schema/"
+local DIR = "lua/moonlift/mom/schema/"
 
 local cache = {}
 

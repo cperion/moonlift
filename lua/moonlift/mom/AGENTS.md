@@ -15,14 +15,14 @@ Read these before changing direction:
 
 | File | Purpose |
 |---|---|
-| `experiments/mom/PORTING_GUIDE.md` | Porting contract, phase plan, module organization, lowering discipline |
-| `experiments/mom/PARSER_DESIGN.md` | Native parser/source-to-AST design |
-| `experiments/mom/README.md` | Current MOM status and high-level map |
-| `experiments/mom/parser/README.md` | Parser implementation boundaries |
+| `lua/moonlift/mom/PORTING_GUIDE.md` | Porting contract, phase plan, module organization, lowering discipline |
+| `lua/moonlift/mom/PARSER_DESIGN.md` | Native parser/source-to-AST design |
+| `lua/moonlift/mom/README.md` | Current MOM status and high-level map |
+| `lua/moonlift/mom/parser/README.md` | Parser implementation boundaries |
 | `LANGUAGE_REFERENCE.md` | Moonlift language semantics |
 | `SOURCE_GRAMMAR.md` | Source grammar contract |
 | `lua/moonlift/schema/*.lua` | Current ASDL source of truth |
-| `experiments/mom/schema/*.mlua` | MOM schema seed |
+| `lua/moonlift/mom/schema/*.mlua` | MOM schema seed |
 | current Lua phase modules under `lua/moonlift/` | Behavioral reference, not architecture to copy |
 
 When in doubt, the current Lua compiler is a **behavioral oracle**. It is not a
@@ -68,7 +68,7 @@ Follow `PORTING_GUIDE.md` section 14.
 Current intended layout:
 
 ```text
-experiments/mom/
+lua/moonlift/mom/
   runtime/      -- arenas, builders, strings, sets, diagnostics
   parser/       -- source scan, lex, parse cursor/type/expr/stmt/item/module
   open/         -- open facts, validation, expansion
@@ -155,6 +155,9 @@ Existing native MOM modules:
 | `back/ids.mlua` | backend id allocator core |
 | `back/env.mlua` | function-local backend environment frames |
 | `back/ops.mlua` | pure backend op/scalar selection helpers |
+| `driver/wire.mlua` | allocation-free MLBT v3 binary backend ABI writer |
+| `driver/backend_ffi.mlua` | native MLBT v3 Rust backend FFI adapter |
+| `driver/lower_wire.mlua` | native parser-tape to MLBT v3 BackProgram lowering |
 | `parser/native_lexer.mlua` | native lexer and parse-event scanner |
 | `parser/native_core.mlua` | native AST tape parser core |
 | `vec/vec_facts.mlua` | Phase 8a: loop recognition → VecFact tape |
@@ -175,12 +178,15 @@ Verification harness code must not be imported by native compiler modules.
 Run focused tests after edits:
 
 ```sh
-luajit experiments/mom/test_groundwork.lua
-luajit experiments/mom/test_native_lexer.mlua
-luajit experiments/mom/test_native_core.lua
-luajit experiments/mom/test_native_ast.lua
-luajit experiments/mom/check_correctness.mlua
-luajit experiments/mom/test_vec.lua
+luajit tests/test_mom_groundwork.lua            # MOM compiler foundation
+luajit tests/test_mom_native_lexer.mlua         # Native lexer
+luajit tests/test_mom_native_core.lua           # Native parser core
+luajit tests/test_mom_native_ast.lua            # Native AST verification
+luajit tests/test_mom_check_correctness.mlua    # Schema correctness
+luajit tests/test_mom_vec.lua                   # Vectorization pipeline
+luajit tests/test_mom_wire.lua                  # MLBT v3 wire format
+luajit tests/test_mom_source_to_binary.lua      # End-to-end: source to executable
+luajit tests/test_mom_cli.lua                   # Standalone MOM binary run/object paths
 ```
 
 Regression for region-id collision:

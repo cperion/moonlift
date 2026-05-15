@@ -703,7 +703,7 @@ function M.loadstring(src, chunk_name, opts)
 
     emit_block("return function(...)", function() return { origin = "carrier_prelude" } end)
     emit_block(string.format("local __moonlift_runtime = %s", rt), function() return { origin = "carrier_prelude" } end)
-    emit_block("local moon = setmetatable({ require = function(name) return __moonlift_runtime:require(name) end }, { __index = __moonlift_runtime.session:api() })", function()
+    emit_block("local moon = setmetatable({ require = function(name) return __moonlift_runtime:require(name) end, mom = function(source) return require('moonlift.host_mom')(source) end }, { __index = __moonlift_runtime.session:api() })", function()
         return { origin = "carrier_prelude" }
     end)
 

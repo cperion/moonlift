@@ -152,5 +152,11 @@ pub fn register_symbols(jit: &mut crate::Jit) {
     sym!("moonlift_lua_arg_lstring_ptr", moonlift_lua_arg_lstring_ptr);
     sym!("moonlift_lua_arg_lstring_len", moonlift_lua_arg_lstring_len);
 
+    sym!("moonlift_jit_new", crate::ffi::moonlift_jit_new);
+    sym!("moonlift_jit_free", crate::ffi::moonlift_jit_free);
+    sym!("moonlift_jit_compile_binary", crate::ffi::moonlift_jit_compile_binary);
+    sym!("moonlift_artifact_getpointer", crate::ffi::moonlift_artifact_getpointer);
+    sym!("moonlift_artifact_free", crate::ffi::moonlift_artifact_free);
+
     sym!("memcmp", memcmp);
 }

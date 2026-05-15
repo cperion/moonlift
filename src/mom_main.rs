@@ -1,9 +1,8 @@
-// MoonLift host binary — Terra-style hosted runtime.
+// MOM standalone binary.
 //
-// Self-contained: embeds all Lua compiler sources so no filesystem
-// access is needed at runtime (beyond the user's .mlua file).
-//
-//   cargo run --bin moonlift -- path/to/file.mlua
+// Links LuaJIT, the Moonlift staging layer, MOM .mlua compiler modules, and the
+// Rust/Cranelift backend into one executable.  The CLI itself lives in
+// moonlift.mom_cli so the OS-facing policy is easy to exercise from tests.
 
 mod embedded_lua;
 
@@ -120,7 +119,6 @@ fn init_lua(lua: &Lua) -> mlua::Result<()> {
     lua.globals()
         .set("MOONLIFT_LUASTATE", LightUserData(lua_state.cast::<c_void>()))?;
 
-    // Register all embedded Lua modules so require() finds them without disk I/O.
     let package = lua.globals().get::<mlua::Table>("package")?;
     let preload = package.get::<mlua::Table>("preload")?;
     for (name, source) in embedded_lua::embedded_modules() {
@@ -138,8 +136,6 @@ fn init_lua(lua: &Lua) -> mlua::Result<()> {
     }
     lua.globals().set("_MOONLIFT_EMBEDDED_MLUA", embedded_mlua)?;
 
-    // Override back_jit so the hosted (in-process Rust) backend is used
-    // instead of loading libmoonlift.so via FFI.
     lua.load(
         r#"
         local ffi = require("ffi")
@@ -167,18 +163,6 @@ fn init_lua(lua: &Lua) -> mlua::Result<()> {
     Ok(())
 }
 
-fn run_mlua_file(lua: &Lua, path: &str) -> mlua::Result<()> {
-    lua.globals().set("_MOONLIFT_RUN_PATH", path)?;
-    lua.load(
-        r#"
-        local Run = require("moonlift.mlua_run")
-        local result = Run.dofile(_MOONLIFT_RUN_PATH)
-        if result ~= nil then print(result) end
-    "#,
-    )
-    .exec()
-}
-
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let lua = unsafe { Lua::unsafe_new() };
     init_lua(&lua)?;
@@ -189,11 +173,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     lua.load(r#"require("moonlift.mlua_run")"#).exec()?;
 
-    if let Some(path) = std::env::args().nth(1) {
-        run_mlua_file(&lua, &path)?;
-    } else {
-        println!("MoonLift host ready. usage: moonlift file.mlua");
+    let args_table = lua.create_table()?;
+    for (i, arg) in std::env::args().skip(1).enumerate() {
+        args_table.set(i + 1, arg)?;
     }
+    lua.globals().set("_MOM_ARGV", args_table)?;
 
-    Ok(())
+    let code: i64 = lua
+        .load(r#"return require("moonlift.mom_cli").run(_MOM_ARGV)"#)
+        .eval()?;
+    std::process::exit(code as i32);
 }

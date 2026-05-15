@@ -1,0 +1,38 @@
+-- MOM backend FFI adapter.
+--
+-- Native driver functions for invoking the Rust backend through the MLBT v3 C
+-- ABI. Opaque Rust handles are represented as ptr(u8) at this boundary.
+
+local M = moon.module("mom_driver_backend_ffi")
+
+local moonlift_jit_new = extern moonlift_jit_new() -> ptr(u8) end
+local moonlift_jit_free = extern moonlift_jit_free(jit: ptr(u8)) -> void end
+local moonlift_jit_compile_binary = extern moonlift_jit_compile_binary(jit: ptr(u8), data: ptr(u8), len: index) -> ptr(u8) end
+local moonlift_artifact_getpointer = extern moonlift_artifact_getpointer(artifact: ptr(u8), name: ptr(u8)) -> ptr(u8) end
+local moonlift_artifact_free = extern moonlift_artifact_free(artifact: ptr(u8)) -> void end
+
+local mom_backend_compile_binary = func(data: ptr(u8), len: index) -> ptr(u8)
+    let jit: ptr(u8) = moonlift_jit_new()
+    let artifact: ptr(u8) = moonlift_jit_compile_binary(jit, data, len)
+    moonlift_jit_free(jit)
+    return artifact
+end
+
+local mom_backend_getpointer = func(artifact: ptr(u8), func_name: ptr(u8)) -> ptr(u8)
+    return moonlift_artifact_getpointer(artifact, func_name)
+end
+
+local mom_backend_free_artifact = func(artifact: ptr(u8))
+    moonlift_artifact_free(artifact)
+end
+
+M:add_func(moonlift_jit_new)
+M:add_func(moonlift_jit_free)
+M:add_func(moonlift_jit_compile_binary)
+M:add_func(moonlift_artifact_getpointer)
+M:add_func(moonlift_artifact_free)
+M:add_func(mom_backend_compile_binary)
+M:add_func(mom_backend_getpointer)
+M:add_func(mom_backend_free_artifact)
+
+return M

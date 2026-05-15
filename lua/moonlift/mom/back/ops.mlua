@@ -1,7 +1,7 @@
 -- MOM backend op selection helpers.
 --
 -- Pure functions only: no builders, no env, no command emission. Numeric tags
--- mirror declaration order in experiments/mom/schema/MoonCore.mlua and
+-- mirror declaration order in lua/moonlift/mom/schema/MoonCore.mlua and
 -- MoonBack.mlua. Command construction layers consume these tags through typed
 -- accessors or schema-generated constants.
 

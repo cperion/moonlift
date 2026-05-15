@@ -1,8 +1,7 @@
 -- Direct MoonBack -> host-native relocatable object emission.
 --
--- This is an artifact boundary over the existing flat MoonBack.BackProgram
--- command stream.  The Lua side encodes the BackProgram as BackCommandTape and
--- the Rust/Cranelift object backend emits .o bytes from that semantic tape.
+-- Encodes the flat MoonBack.BackProgram command stream as the MLBT v3 binary
+-- wire format and sends it to the Rust/Cranelift object backend for .o output.
 
 local ffi = require("ffi")
 local pvm = require("moonlift.pvm")
@@ -11,7 +10,7 @@ ffi.cdef [[
 typedef struct moonlift_bytes_t { uint8_t* data; size_t len; } moonlift_bytes_t;
 
 const char* moonlift_last_error_message(void);
-int moonlift_object_compile_tape(const char* payload, const char* module_name, moonlift_bytes_t* out);
+int moonlift_object_compile_binary(const uint8_t* data, size_t len, const char* module_name, moonlift_bytes_t* out);
 void moonlift_bytes_free(uint8_t* data, size_t len);
 ]]
 
@@ -47,7 +46,7 @@ function M.Define(T, opts)
     local Back = T.MoonBack or T.MoonBack
     assert(Back, "moonlift.back_object.Define expects MoonBack/MoonBack in the context")
     local lib = load_library(opts and opts.libpath or nil)
-    local tape_api = require("moonlift.back_command_tape").Define(T)
+    local binary_api = require("moonlift.back_command_binary").Define(T)
 
     local function last_error()
         local p = lib.moonlift_last_error_message()
@@ -72,11 +71,13 @@ function M.Define(T, opts)
     local function compile(program, compile_opts)
         assert(pvm.classof(program) == Back.BackProgram, "moonlift.back_object compile expects MoonBack.BackProgram")
         compile_opts = compile_opts or {}
-        local tape = tape_api.encode(program)
+        local payload = binary_api.encode(program)
+        local buf = ffi.new("uint8_t[?]", #payload)
+        ffi.copy(buf, payload, #payload)
         local out = ffi.new("moonlift_bytes_t[1]")
         check_ok(
-            lib.moonlift_object_compile_tape(cstring(tape.payload), cstring(compile_opts.module_name or "moonlift_object"), out),
-            "moonlift.back_object compile_tape"
+            lib.moonlift_object_compile_binary(buf, #payload, cstring(compile_opts.module_name or "moonlift_object"), out),
+            "moonlift.back_object compile_binary"
         )
         local bytes = ffi.string(out[0].data, tonumber(out[0].len))
         lib.moonlift_bytes_free(out[0].data, out[0].len)

@@ -11,7 +11,7 @@ local function compile(path)
 end
 
 -- Phase 8a: vec_facts.mlua — fact extraction
-local vf_mod = compile("experiments/mom/vec/vec_facts.mlua")
+local vf_mod = compile("lua/moonlift/mom/vec/vec_facts.mlua")
 local mv_extract_vec_facts = vf_mod:get("mv_extract_vec_facts")
 
 local ncf = 8
@@ -49,7 +49,7 @@ assert(vft[0] == 1, "vec_facts[0] domain: " .. tonumber(vft[0]))
 assert(vft[1] == 2, "vec_facts[1] induction: " .. tonumber(vft[1]))
 assert(vft[2] == 10, "vec_facts[2] reduction: " .. tonumber(vft[2]))
 
-local vd_mod = compile("experiments/mom/vec/vec_decide.mlua")
+local vd_mod = compile("lua/moonlift/mom/vec/vec_decide.mlua")
 local mv_decide = vd_mod:get("mv_decide")
 local dec_arr = ffi.new("int32_t[6]")
 local dec_cnt = ffi.new("int32_t[1]", 0)
@@ -59,7 +59,7 @@ assert(dec_cnt[0] == 1, "decide count: " .. tonumber(dec_cnt[0]))
 assert(dec_arr[0] == 1, "decide legal: " .. tonumber(dec_arr[0]))
 assert(dec_arr[2] == 4, "decide lanes: " .. tonumber(dec_arr[2]))
 
-local vp_mod = compile("experiments/mom/vec/vec_plan.mlua")
+local vp_mod = compile("lua/moonlift/mom/vec/vec_plan.mlua")
 local mv_plan_kernel = vp_mod:get("mv_plan_kernel")
 local pt_arr = ffi.new("int32_t[5]")
 local pa_arr = ffi.new("int32_t[5]")
@@ -73,7 +73,7 @@ mv_plan_kernel(vft, vfa, vfb, vfc, vfd, vfe, vff, vfcnt[0],
 assert(pcnt[0] == 1, "plan count: " .. tonumber(pcnt[0]))
 assert(pt_arr[0] == 4, "plan algebraic: " .. tonumber(pt_arr[0]))
 
-local vl_mod = compile("experiments/mom/vec/vec_lower.mlua")
+local vl_mod = compile("lua/moonlift/mom/vec/vec_lower.mlua")
 local mv_lower_kernel = vl_mod:get("mv_lower_kernel")
 local lct = ffi.new("int32_t[?]", 64)
 local lca = ffi.new("int32_t[?]", 64)

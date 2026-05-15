@@ -7,8 +7,8 @@ Moonlift is the monomorphic native output.
 ## Build
 
 ```sh
-make                                    # produces fully static 9MB target/release/moonlift
-cargo build --release                   # produces target/release/libmoonlift.so
+make                                    # produces fully static target/release/moonlift and target/release/mom
+cargo build --release                   # produces target/release/libmoonlift.so plus binaries
 ```
 
 `libmoonlift.so` is loaded by `lua/moonlift/back_jit.lua` via FFI. Build
@@ -28,7 +28,8 @@ All scripts set `package.path` to include `./lua/?.lua`.
 ## Run .mlua files
 
 ```sh
-target/release/moonlift file.mlua              # standalone binary
+target/release/mom run --call main file.mlua   # standalone MOM binary
+target/release/moonlift file.mlua              # standalone Lua frontend binary
 luajit run_mlua.lua file.mlua                  # via LuaJIT runner
 luajit emit_object.lua input.mlua -o out.o     # compile to .o
 luajit emit_shared.lua input.mlua -o out.so    # compile to .so
@@ -40,12 +41,23 @@ luajit lsp.lua                                 # LSP server (stdio)
 ~130+ tests under `tests/`. No test framework — each is a standalone script:
 
 ```sh
-luajit tests/test_back_add_i32.lua           # Cranelift JIT path
-luajit tests/test_back_object_emit.lua        # Object file emission
-luajit tests/test_mlua_host_pipeline.lua      # .mlua hosted island bridge
-luajit tests/test_parse_typecheck.lua         # Parse + typecheck pipeline
-luajit tests/test_parse_kernels.lua           # Jump-first kernel suite
-luajit tests/test_lsp_integrated.lua          # Full LSP integration
+luajit tests/test_back_add_i32.lua             # Cranelift JIT path
+luajit tests/test_back_object_emit.lua          # Object file emission
+luajit tests/test_mlua_host_pipeline.lua        # .mlua hosted island bridge
+luajit tests/test_parse_typecheck.lua           # Parse + typecheck pipeline
+luajit tests/test_parse_kernels.lua             # Jump-first kernel suite
+luajit tests/test_lsp_integrated.lua            # Full LSP integration
+
+## MOM tests
+
+luajit tests/test_mom_groundwork.lua            # MOM compiler foundation
+luajit tests/test_mom_native_lexer.mlua         # Native lexer
+luajit tests/test_mom_native_core.lua           # Native parser core
+luajit tests/test_mom_native_ast.lua            # Native AST verification
+luajit tests/test_mom_check_correctness.mlua    # Schema correctness
+luajit tests/test_mom_vec.lua                   # Vectorization pipeline
+luajit tests/test_mom_wire.lua                  # MLBT v3 wire format
+luajit tests/test_mom_source_to_binary.lua      # End-to-end: source to executable
 ```
 
 ## Benchmarks
@@ -79,7 +91,7 @@ back_validate → back_jit / back_object / back_object + link_target
 
 ## Key documentation
 
-When working under `experiments/mom/`, also read `experiments/mom/AGENTS.md`.
+When working under `lua/moonlift/mom/`, also read `lua/moonlift/mom/AGENTS.md`.
 It contains stricter MOM-specific discipline for the native compiler port,
 including the no-escape-hatch/no-"for now" framing rule, module organization,
 and required verification boundaries.
@@ -267,4 +279,9 @@ Explicit programming makes plain-text tooling powerful again.
 | `lua/moonlift/ast.lua` | Low-level ASDL node constructor API |
 | `src/lib.rs` | Full Cranelift backend (JIT + object emission) |
 | `src/main.rs` | Standalone `moonlift` binary (embeds Lua compiler) |
-| `src/ffi.rs` | C FFI exports for LuaJIT interop |
+| `src/ffi.rs` | C FFI exports for LuaJIT interop (text tape + binary wire format) |
+| `lua/moonlift/back_command_binary.lua` | MLBT v3 binary wire format encoder (replaces text tape) |
+| `BACK_WIRE_FORMAT.md` | Binary wire format specification (MLBT v3) |
+| `lua/moonlift/back_command_tape.lua` | Legacy text tape encoder (kept for CI cross-check) |
+| `lua/moonlift/host_mom.lua` | MOM frontend `moon.mom()` API — source → native compiler → executable |
+| `lua/moonlift/mom/` | MOM compiler modules (runtime, parser, back, vec, driver, schema) |

@@ -19,8 +19,8 @@ typedef struct NativeParseOut {
 } NativeParseOut;
 ]]
 
-local lexer_mod = Host.dofile("experiments/mom/parser/native_lexer.mlua")
-local parser_mod = Host.dofile("experiments/mom/parser/native_core.mlua")
+local lexer_mod = Host.dofile("lua/moonlift/mom/parser/native_lexer.mlua")
+local parser_mod = Host.dofile("lua/moonlift/mom/parser/native_core.mlua")
 local lexer_unit = lexer_mod:compile()
 local parser_unit = parser_mod:compile()
 local lex = lexer_unit:get("mom_lex_into")

@@ -19,7 +19,7 @@ S = require("moonlift.schema").schema(T)
 -- Schema now registered in T
 
 -- Load MOM types
-local S = Host.dofile("experiments/mom/schema/init.lua")
+local S = Host.dofile("lua/moonlift/mom/schema/init.lua")
 
 local function count_mod(mod)
     local n = 0

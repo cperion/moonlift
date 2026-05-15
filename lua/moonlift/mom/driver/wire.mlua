@@ -1,0 +1,179 @@
+-- MOM BackProgram wire writer.
+--
+-- Allocation-free MLBT v3 writer for the native compiler boundary.  The caller
+-- provides the byte buffer and owns pool/aux ordering.  The writer appends the
+-- same binary format consumed by moonlift_jit_compile_binary.
+
+local M = moon.module("mom_driver_wire")
+
+local u8p = moon.ptr(moon.u8)
+local i32p = moon.ptr(moon.i32)
+
+local MW_OK = 0
+local MW_OVERFLOW = 1
+
+local MLBT_MAGIC = 1296843348 -- 0x4d4c4254, bytes "TBLM" little-endian
+local MLBT_VERSION = 3
+
+local MomWireBuilder = M:struct("MomWireBuilder", {
+    moon.field("data", u8p),
+    moon.field("len", moon.index),
+    moon.field("cap", moon.index),
+    moon.field("string_count", moon.i32),
+    moon.field("aux_count", moon.i32),
+    moon.field("error", moon.i32),
+})
+
+local mw_mark_overflow = func(w: ptr(@{MomWireBuilder}))
+    w.error = @{MW_OVERFLOW}
+end
+
+local mw_put_u8 = func(w: ptr(@{MomWireBuilder}), value: u8)
+    let i: index = w.len
+    if i < w.cap then
+        w.data[i] = value
+    else
+        mw_mark_overflow(w)
+    end
+    w.len = i + as(index, 1)
+end
+
+local mw_write_u32 = func(w: ptr(@{MomWireBuilder}), value: i32)
+    let u: u32 = as(u32, value)
+    mw_put_u8(w, as(u8, u))
+    mw_put_u8(w, as(u8, u / as(u32, 256)))
+    mw_put_u8(w, as(u8, u / as(u32, 65536)))
+    mw_put_u8(w, as(u8, u / as(u32, 16777216)))
+end
+
+local mw_patch_u32 = func(w: ptr(@{MomWireBuilder}), pos: index, value: i32)
+    let u: u32 = as(u32, value)
+    if pos + as(index, 4) <= w.cap then
+        w.data[pos] = as(u8, u)
+        w.data[pos + as(index, 1)] = as(u8, u / as(u32, 256))
+        w.data[pos + as(index, 2)] = as(u8, u / as(u32, 65536))
+        w.data[pos + as(index, 3)] = as(u8, u / as(u32, 16777216))
+    else
+        mw_mark_overflow(w)
+    end
+end
+
+local mw_align4 = func(w: ptr(@{MomWireBuilder}))
+    block loop()
+        if (w.len % as(index, 4)) == as(index, 0) then return end
+        mw_put_u8(w, as(u8, 0))
+        jump loop()
+    end
+end
+
+local mw_init = func(w: ptr(@{MomWireBuilder}), data: ptr(u8), cap: index)
+    w.data = data
+    w.len = 0
+    w.cap = cap
+    w.string_count = 0
+    w.aux_count = 0
+    w.error = @{MW_OK}
+    mw_write_u32(w, @{MLBT_MAGIC})
+    mw_write_u32(w, @{MLBT_VERSION})
+    mw_write_u32(w, 0) -- string count patched by mw_finish
+    mw_write_u32(w, 0) -- aux count patched by mw_finish
+end
+
+local mw_finish = func(w: ptr(@{MomWireBuilder})) -> index
+    mw_patch_u32(w, as(index, 8), w.string_count)
+    mw_patch_u32(w, as(index, 12), w.aux_count)
+    return w.len
+end
+
+local mw_ok = func(w: ptr(@{MomWireBuilder})) -> bool
+    return w.error == @{MW_OK} and w.len <= w.cap
+end
+
+local mw_write_pool_string = func(w: ptr(@{MomWireBuilder}), text: ptr(u8), len: index) -> i32
+    let idx: i32 = w.string_count
+    w.string_count = idx + 1
+    mw_write_u32(w, as(i32, len))
+    block loop(i: index = 0)
+        if i >= len then
+            mw_align4(w)
+            return idx
+        end
+        mw_put_u8(w, text[i])
+        jump loop(i = i + as(index, 1))
+    end
+end
+
+local mw_write_aux_i32s = func(w: ptr(@{MomWireBuilder}), words: ptr(i32), count: index) -> i32
+    let idx: i32 = w.aux_count
+    w.aux_count = idx + 1
+    mw_write_u32(w, as(i32, count))
+    block loop(i: index = 0)
+        if i >= count then return idx end
+        mw_write_u32(w, words[i])
+        jump loop(i = i + as(index, 1))
+    end
+end
+
+local mw_write_cmd = func(w: ptr(@{MomWireBuilder}), tag: i32, slots: ptr(i32), count: index)
+    mw_write_u32(w, tag)
+    block loop(i: index = 0)
+        if i >= count then return end
+        mw_write_u32(w, slots[i])
+        jump loop(i = i + as(index, 1))
+    end
+end
+
+local mw_write_cmd0 = func(w: ptr(@{MomWireBuilder}), tag: i32)
+    mw_write_u32(w, tag)
+end
+
+local mw_write_cmd1 = func(w: ptr(@{MomWireBuilder}), tag: i32, a: i32)
+    mw_write_u32(w, tag)
+    mw_write_u32(w, a)
+end
+
+local mw_write_cmd3 = func(w: ptr(@{MomWireBuilder}), tag: i32, a: i32, b: i32, c: i32)
+    mw_write_u32(w, tag)
+    mw_write_u32(w, a)
+    mw_write_u32(w, b)
+    mw_write_u32(w, c)
+end
+
+local mw_write_cmd5 = func(w: ptr(@{MomWireBuilder}), tag: i32, a: i32, b: i32, c: i32, d: i32, e: i32)
+    mw_write_u32(w, tag)
+    mw_write_u32(w, a)
+    mw_write_u32(w, b)
+    mw_write_u32(w, c)
+    mw_write_u32(w, d)
+    mw_write_u32(w, e)
+end
+
+local mw_write_cmd7 = func(w: ptr(@{MomWireBuilder}), tag: i32, a: i32, b: i32, c: i32, d: i32, e: i32, f: i32, g: i32)
+    mw_write_u32(w, tag)
+    mw_write_u32(w, a)
+    mw_write_u32(w, b)
+    mw_write_u32(w, c)
+    mw_write_u32(w, d)
+    mw_write_u32(w, e)
+    mw_write_u32(w, f)
+    mw_write_u32(w, g)
+end
+
+M:add_func(mw_mark_overflow)
+M:add_func(mw_put_u8)
+M:add_func(mw_write_u32)
+M:add_func(mw_patch_u32)
+M:add_func(mw_align4)
+M:add_func(mw_init)
+M:add_func(mw_finish)
+M:add_func(mw_ok)
+M:add_func(mw_write_pool_string)
+M:add_func(mw_write_aux_i32s)
+M:add_func(mw_write_cmd)
+M:add_func(mw_write_cmd0)
+M:add_func(mw_write_cmd1)
+M:add_func(mw_write_cmd3)
+M:add_func(mw_write_cmd5)
+M:add_func(mw_write_cmd7)
+
+return M

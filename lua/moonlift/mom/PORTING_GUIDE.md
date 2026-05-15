@@ -42,7 +42,7 @@ AST construction, host/island document splitting, binding/opening, typecheck,
 lowerings, validation, inspection, control analysis, vectorization, link plans.
 Every module becomes Moonlift `func` and `region` declarations.
 
-The schema files (`experiments/mom/schema/`) are the seed — ASDL types as
+The schema files (`lua/moonlift/mom/schema/`) are the seed — ASDL types as
 Moonlift struct/union declarations. The parser contract is explicit:
 `ptr(u8)+len` source bytes become typed MoonTree AST values before semantic
 phases run.
@@ -846,7 +846,7 @@ creation), it's a Moonlift `func` that checks a hash table through FFI.
 
 ### Phase 0: Schema ✅ (done)
 
-`experiments/mom/schema/` — all ASDL types as Moonlift struct/union.
+`lua/moonlift/mom/schema/` — all ASDL types as Moonlift struct/union.
 
 ### Phase 1: Native Parser Layer
 
@@ -1415,12 +1415,12 @@ compiler responsibility and one explicit native data interface.
 
 ### 14.1 Directory Layout
 
-Use this layout under `experiments/mom/`. This is the intended compiler source
+Use this layout under `lua/moonlift/mom/`. This is the intended compiler source
 shape; moving it under `lua/moonlift/mom/` or embedding it is a packaging
 operation, not a redesign.
 
 ```text
-experiments/mom/
+lua/moonlift/mom/
   schema/
     MoonCore.mlua          -- scalar/op/name/id data
     MoonType.mlua          -- types and ABI helper data
