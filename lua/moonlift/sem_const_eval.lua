@@ -301,6 +301,9 @@ function M.Define(T)
         [Tr.ExprClosure] = function() return pvm.once(no()) end,
         [Tr.ExprView] = function() return pvm.once(no()) end,
         [Tr.ExprLoad] = function() return pvm.once(no()) end,
+        [Tr.ExprAtomicLoad] = function() return pvm.once(no()) end,
+        [Tr.ExprAtomicRmw] = function() return pvm.once(no()) end,
+        [Tr.ExprAtomicCas] = function() return pvm.once(no()) end,
         [Tr.ExprSlotValue] = function() return pvm.once(no()) end,
         [Tr.ExprUseExprFrag] = function() return pvm.once(no()) end,
     }, { args_cache = "last" })
@@ -317,6 +320,8 @@ function M.Define(T)
             return pvm.once(Sem.ConstStmtFallsThrough(local_put(local_env, self.binding, v)))
         end,
         [Tr.StmtSet] = function(_, _, local_env) return pvm.once(Sem.ConstStmtFallsThrough(local_env)) end,
+        [Tr.StmtAtomicStore] = function(_, _, local_env) return pvm.once(Sem.ConstStmtFallsThrough(local_env)) end,
+        [Tr.StmtAtomicFence] = function(_, _, local_env) return pvm.once(Sem.ConstStmtFallsThrough(local_env)) end,
         [Tr.StmtExpr] = function(self, const_env, local_env) eval_expr(self.expr, const_env, local_env); return pvm.once(Sem.ConstStmtFallsThrough(local_env)) end,
         [Tr.StmtAssert] = function(_, _, local_env) return pvm.once(Sem.ConstStmtFallsThrough(local_env)) end,
         [Tr.StmtIf] = function(self, const_env, local_env)

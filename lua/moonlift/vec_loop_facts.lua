@@ -284,6 +284,9 @@ function M.Define(T)
         [Tr.ExprBlock] = function(expr, env, path) return pvm.once(reject_expr(expr, path, "block expr facts deferred")) end,
         [Tr.ExprClosure] = function(expr, env, path) return pvm.once(reject_expr(expr, path, "closure facts deferred")) end,
         [Tr.ExprView] = function(expr, env, path) return pvm.once(reject_expr(expr, path, "view facts deferred")) end,
+        [Tr.ExprAtomicLoad] = function(expr, env, path) return pvm.once(reject_expr(expr, path, "atomic load prevents vector recognition")) end,
+        [Tr.ExprAtomicRmw] = function(expr, env, path) return pvm.once(reject_expr(expr, path, "atomic read-modify-write prevents vector recognition")) end,
+        [Tr.ExprAtomicCas] = function(expr, env, path) return pvm.once(reject_expr(expr, path, "atomic compare-and-swap prevents vector recognition")) end,
         [Tr.ExprSlotValue] = function(expr, env, path) return pvm.once(reject_expr(expr, path, "slot facts deferred")) end,
         [Tr.ExprUseExprFrag] = function(expr, env, path) return pvm.once(reject_expr(expr, path, "fragment facts deferred")) end,
     }, { args_cache = "last" })
@@ -321,6 +324,8 @@ function M.Define(T)
             local value = pvm.one(expr_facts(stmt.value, env, path .. ".value"))
             return store_place_facts(stmt.place, value, env, path .. ".store")
         end,
+        [Tr.StmtAtomicStore] = function(_, _, path) return pvm.once(reject_stmt(path, "atomic store prevents vector recognition")) end,
+        [Tr.StmtAtomicFence] = function(_, _, path) return pvm.once(reject_stmt(path, "atomic fence prevents vector recognition")) end,
         [Tr.StmtAssert] = function(stmt, env, path) local value = pvm.one(expr_facts(stmt.cond, env, path .. ".cond")); return pvm.once(V.VecStmtIgnored(value.facts, value.memory, value.ranges, value.rejects)) end,
         [Tr.StmtReturnVoid] = function() return pvm.once(empty_stmt()) end,
         [Tr.StmtReturnValue] = function(stmt, env, path) local value = pvm.one(expr_facts(stmt.value, env, path .. ".ret")); return pvm.once(V.VecStmtIgnored(value.facts, value.memory, value.ranges, value.rejects)) end,

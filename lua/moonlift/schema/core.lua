@@ -179,6 +179,19 @@ return function(A)
             A.variant "IntrinsicAssume",
         },
 
+        A.sum "AtomicOrdering" {
+            A.variant "AtomicSeqCst",
+        },
+
+        A.sum "AtomicRmwOp" {
+            A.variant "AtomicRmwAdd",
+            A.variant "AtomicRmwSub",
+            A.variant "AtomicRmwAnd",
+            A.variant "AtomicRmwOr",
+            A.variant "AtomicRmwXor",
+            A.variant "AtomicRmwXchg",
+        },
+
         A.sum "UnaryOpClass" {
             A.variant "UnaryClassArithmetic",
             A.variant "UnaryClassLogical",

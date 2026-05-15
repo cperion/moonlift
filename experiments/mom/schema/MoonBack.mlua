@@ -1,0 +1,262 @@
+-- MoonBack: full ASDL schema — all types including all Cmd variants.
+
+local M = {}
+
+M.BackScalar = union BackScalar | BackVoid | BackBool | BackI8 | BackI16 | BackI32 | BackI64 | BackU8 | BackU16 | BackU32 | BackU64 | BackF32 | BackF64 | BackPtr | BackIndex end
+
+M.BackSigId = struct BackSigId text: ptr(u8) end
+M.BackFuncId = struct BackFuncId text: ptr(u8) end
+M.BackExternId = struct BackExternId text: ptr(u8) end
+M.BackDataId = struct BackDataId text: ptr(u8) end
+M.BackBlockId = struct BackBlockId text: ptr(u8) end
+M.BackValId = struct BackValId text: ptr(u8) end
+M.BackStackSlotId = struct BackStackSlotId text: ptr(u8) end
+M.BackAccessId = struct BackAccessId text: ptr(u8) end
+M.BackAliasScopeId = struct BackAliasScopeId text: ptr(u8) end
+
+M.BackVec = struct BackVec elem: M.BackScalar; lanes: i32 end
+
+M.BackShape = union BackShape | BackShapeScalar(scalar: M.BackScalar) | BackShapeVec(vec: M.BackVec) end
+
+M.BackTarget = union BackTarget | BackTargetNative | BackTargetCraneliftJit | BackTargetDynasmJit | BackTargetNamed(name: ptr(u8)) end
+
+M.BackEndian = union BackEndian | BackEndianLittle | BackEndianBig end
+
+M.BackTargetFeature = union BackTargetFeature | BackFeatureSSE2 | BackFeatureAVX2 | BackFeatureAVX512F | BackFeatureFMA | BackFeaturePOPCNT | BackFeatureBMI1 | BackFeatureBMI2 | BackFeatureUnknown(name: ptr(u8)) end
+
+M.BackTargetFact = union BackTargetFact | BackTargetPointerBits(bits: i32) | BackTargetIndexBits(bits: i32) | BackTargetEndian(endian: M.BackEndian) | BackTargetCacheLineBytes(bytes: i32) | BackTargetFeature(feature: M.BackTargetFeature) | BackTargetSupportsShape(shape: M.BackShape) | BackTargetSupportsVectorOp(vec: M.BackVec, op_class: ptr(u8)) | BackTargetSupportsMaskedTail | BackTargetPrefersUnroll(shape: M.BackShape, unroll: i32, rank: i32) end
+
+M.BackTargetModel = struct BackTargetModel target: M.BackTarget; facts: view(M.BackTargetFact) end
+
+M.BackAddressBase = union BackAddressBase | BackAddrValue(value: M.BackValId) | BackAddrStack(slot: M.BackStackSlotId) | BackAddrData(data: M.BackDataId) end
+
+M.BackPointerProvenance = union BackPointerProvenance | BackProvUnknown | BackProvStack(slot: M.BackStackSlotId) | BackProvData(data: M.BackDataId) | BackProvArg(name: ptr(u8)) | BackProvView(name: ptr(u8)) | BackProvDerived(reason: ptr(u8)) end
+
+M.BackPointerBounds = union BackPointerBounds | BackPtrBoundsUnknown | BackPtrInBounds(reason: ptr(u8)) | BackPtrMayLeaveObject(reason: ptr(u8)) end
+
+M.BackAddress = struct BackAddress base: M.BackAddressBase; byte_offset: M.BackValId; provenance: M.BackPointerProvenance; formation_bounds: M.BackPointerBounds end
+
+M.BackAlignment = union BackAlignment | BackAlignUnknown | BackAlignKnown(bytes: i32) | BackAlignAtLeast(bytes: i32) | BackAlignAssumed(bytes: i32, reason: ptr(u8)) end
+
+M.BackDereference = union BackDereference | BackDerefUnknown | BackDerefBytes(bytes: i32, reason: ptr(u8)) | BackDerefAssumed(bytes: i32, reason: ptr(u8)) end
+
+M.BackTrap = union BackTrap | BackMayTrap | BackNonTrapping(reason: ptr(u8)) | BackChecked(reason: ptr(u8)) end
+
+M.BackMotion = union BackMotion | BackMayNotMove | BackCanMove(reason: ptr(u8)) end
+
+M.BackAccessMode = union BackAccessMode | BackAccessRead | BackAccessWrite | BackAccessReadWrite end
+
+M.BackAtomicOrdering = union BackAtomicOrdering | BackAtomicSeqCst end
+
+M.BackAtomicRmwOp = union BackAtomicRmwOp | BackAtomicRmwAdd | BackAtomicRmwSub | BackAtomicRmwAnd | BackAtomicRmwOr | BackAtomicRmwXor | BackAtomicRmwXchg end
+
+M.BackMemoryInfo = struct BackMemoryInfo access: M.BackAccessId; alignment: M.BackAlignment; dereference: M.BackDereference; trap: M.BackTrap; motion: M.BackMotion; mode: M.BackAccessMode end
+
+M.BackAliasFact = union BackAliasFact | BackAliasUnknown(a: M.BackAccessId, b: M.BackAccessId, reason: ptr(u8)) | BackMayAlias(a: M.BackAccessId, b: M.BackAccessId, reason: ptr(u8)) | BackNoAlias(a: M.BackAccessId, b: M.BackAccessId, reason: ptr(u8)) | BackSameBaseSameIndexSafe(a: M.BackAccessId, b: M.BackAccessId, reason: ptr(u8)) | BackAliasScope(access: M.BackAccessId, scope: M.BackAliasScopeId) end
+
+M.BackIntOverflow = union BackIntOverflow | BackIntWrap | BackIntNoSignedWrap(reason: ptr(u8)) | BackIntNoUnsignedWrap(reason: ptr(u8)) | BackIntNoWrap(reason: ptr(u8)) end
+
+M.BackIntExact = union BackIntExact | BackIntMayLose | BackIntExact(reason: ptr(u8)) end
+
+M.BackIntSemantics = struct BackIntSemantics overflow: M.BackIntOverflow; exact: M.BackIntExact end
+
+M.BackIntOp = union BackIntOp | BackIntAdd | BackIntSub | BackIntMul | BackIntSDiv | BackIntUDiv | BackIntSRem | BackIntURem end
+
+M.BackBitOp = union BackBitOp | BackBitAnd | BackBitOr | BackBitXor end
+
+M.BackShiftOp = union BackShiftOp | BackShiftLeft | BackShiftLogicalRight | BackShiftArithmeticRight end
+
+M.BackRotateOp = union BackRotateOp | BackRotateLeft | BackRotateRight end
+
+M.BackFloatOp = union BackFloatOp | BackFloatAdd | BackFloatSub | BackFloatMul | BackFloatDiv end
+
+M.BackFloatSemantics = union BackFloatSemantics | BackFloatStrict | BackFloatReassoc(reason: ptr(u8)) | BackFloatFastMath(reason: ptr(u8)) end
+
+M.BackLiteral = union BackLiteral | BackLitInt(raw: ptr(u8)) | BackLitFloat(raw: ptr(u8)) | BackLitBool(value: bool) | BackLitNull end
+
+M.BackUnaryOp = union BackUnaryOp | BackUnaryIneg | BackUnaryFneg | BackUnaryBnot | BackUnaryBoolNot end
+
+M.BackIntrinsicOp = union BackIntrinsicOp | BackIntrinsicPopcount | BackIntrinsicClz | BackIntrinsicCtz | BackIntrinsicBswap | BackIntrinsicSqrt | BackIntrinsicAbs | BackIntrinsicFloor | BackIntrinsicCeil | BackIntrinsicTruncFloat | BackIntrinsicRound end
+
+M.BackCompareOp = union BackCompareOp | BackIcmpEq | BackIcmpNe | BackSIcmpLt | BackSIcmpLe | BackSIcmpGt | BackSIcmpGe | BackUIcmpLt | BackUIcmpLe | BackUIcmpGt | BackUIcmpGe | BackFCmpEq | BackFCmpNe | BackFCmpLt | BackFCmpLe | BackFCmpGt | BackFCmpGe end
+
+M.BackVecBinaryOp = union BackVecBinaryOp | BackVecIntAdd | BackVecIntSub | BackVecIntMul | BackVecBitAnd | BackVecBitOr | BackVecBitXor end
+
+M.BackVecCompareOp = union BackVecCompareOp | BackVecIcmpEq | BackVecIcmpNe | BackVecSIcmpLt | BackVecSIcmpLe | BackVecSIcmpGt | BackVecSIcmpGe | BackVecUIcmpLt | BackVecUIcmpLe | BackVecUIcmpGt | BackVecUIcmpGe end
+
+M.BackVecMaskOp = union BackVecMaskOp | BackVecMaskNot | BackVecMaskAnd | BackVecMaskOr end
+
+M.BackCastOp = union BackCastOp | BackBitcast | BackIreduce | BackSextend | BackUextend | BackFpromote | BackFdemote | BackSToF | BackUToF | BackFToS | BackFToU end
+
+M.BackCallTarget = union BackCallTarget | BackCallDirect(func: M.BackFuncId) | BackCallExtern(func: M.BackExternId) | BackCallIndirect(callee: M.BackValId) end
+
+M.BackCallResult = union BackCallResult | BackCallStmt | BackCallValue(dst: M.BackValId, ty: M.BackScalar) end
+
+M.BackSwitchCase = struct BackSwitchCase raw: ptr(u8); dest: M.BackBlockId end
+
+M.BackShapeRequirement = union BackShapeRequirement | BackShapeRequiresScalar | BackShapeRequiresVector | BackShapeAllowsScalarOrVector end
+
+-- Full Cmd: ~60+ variants
+M.Cmd = union Cmd
+    | CmdTargetModel(target: M.BackTargetModel)
+    | CmdCreateSig(sig: M.BackSigId, params: view(M.BackScalar), results: view(M.BackScalar))
+    | CmdDeclareData(data: M.BackDataId, size: i32, align: i32)
+    | CmdDataInitZero(data: M.BackDataId, offset: i32, size: i32)
+    | CmdDataInit(data: M.BackDataId, offset: i32, ty: M.BackScalar, value: M.BackLiteral)
+    | CmdDataAddr(dst: M.BackValId, data: M.BackDataId)
+    | CmdFuncAddr(dst: M.BackValId, func: M.BackFuncId)
+    | CmdExternAddr(dst: M.BackValId, func: M.BackExternId)
+    | CmdDeclareFunc(visibility: i32, func: M.BackFuncId, sig: M.BackSigId)
+    | CmdDeclareExtern(func: M.BackExternId, symbol: ptr(u8), sig: M.BackSigId)
+    | CmdBeginFunc(func: M.BackFuncId)
+    | CmdCreateBlock(block: M.BackBlockId)
+    | CmdSwitchToBlock(block: M.BackBlockId)
+    | CmdSealBlock(block: M.BackBlockId)
+    | CmdBindEntryParams(block: M.BackBlockId, values: view(M.BackValId))
+    | CmdAppendBlockParam(block: M.BackBlockId, value: M.BackValId, ty: M.BackShape)
+    | CmdCreateStackSlot(slot: M.BackStackSlotId, size: i32, align: i32)
+    | CmdAlias(dst: M.BackValId, src: M.BackValId)
+    | CmdStackAddr(dst: M.BackValId, slot: M.BackStackSlotId)
+    | CmdConst(dst: M.BackValId, ty: M.BackScalar, value: M.BackLiteral)
+    | CmdUnary(dst: M.BackValId, op: M.BackUnaryOp, ty: M.BackShape, value: M.BackValId)
+    | CmdIntrinsic(dst: M.BackValId, op: M.BackIntrinsicOp, ty: M.BackShape, args: view(M.BackValId))
+    | CmdCompare(dst: M.BackValId, op: M.BackCompareOp, ty: M.BackShape, lhs: M.BackValId, rhs: M.BackValId)
+    | CmdCast(dst: M.BackValId, op: M.BackCastOp, ty: M.BackScalar, value: M.BackValId)
+    | CmdPtrOffset(dst: M.BackValId, base: M.BackAddressBase, index: M.BackValId, elem_size: i32, const_offset: i32, provenance: M.BackPointerProvenance, bounds: M.BackPointerBounds)
+    | CmdLoadInfo(dst: M.BackValId, ty: M.BackShape, addr: M.BackAddress, memory: M.BackMemoryInfo)
+    | CmdStoreInfo(ty: M.BackShape, addr: M.BackAddress, value: M.BackValId, memory: M.BackMemoryInfo)
+    | CmdAtomicLoad(dst: M.BackValId, ty: M.BackScalar, addr: M.BackAddress, memory: M.BackMemoryInfo, ordering: M.BackAtomicOrdering)
+    | CmdAtomicStore(ty: M.BackScalar, addr: M.BackAddress, value: M.BackValId, memory: M.BackMemoryInfo, ordering: M.BackAtomicOrdering)
+    | CmdAtomicRmw(dst: M.BackValId, op: M.BackAtomicRmwOp, ty: M.BackScalar, addr: M.BackAddress, value: M.BackValId, memory: M.BackMemoryInfo, ordering: M.BackAtomicOrdering)
+    | CmdAtomicCas(dst: M.BackValId, ty: M.BackScalar, addr: M.BackAddress, expected: M.BackValId, replacement: M.BackValId, memory: M.BackMemoryInfo, ordering: M.BackAtomicOrdering)
+    | CmdAtomicFence(ordering: M.BackAtomicOrdering)
+    | CmdIntBinary(dst: M.BackValId, op: M.BackIntOp, scalar: M.BackScalar, semantics: M.BackIntSemantics, lhs: M.BackValId, rhs: M.BackValId)
+    | CmdBitBinary(dst: M.BackValId, op: M.BackBitOp, scalar: M.BackScalar, lhs: M.BackValId, rhs: M.BackValId)
+    | CmdBitNot(dst: M.BackValId, scalar: M.BackScalar, value: M.BackValId)
+    | CmdShift(dst: M.BackValId, op: M.BackShiftOp, scalar: M.BackScalar, lhs: M.BackValId, rhs: M.BackValId)
+    | CmdRotate(dst: M.BackValId, op: M.BackRotateOp, scalar: M.BackScalar, lhs: M.BackValId, rhs: M.BackValId)
+    | CmdFloatBinary(dst: M.BackValId, op: M.BackFloatOp, scalar: M.BackScalar, semantics: M.BackFloatSemantics, lhs: M.BackValId, rhs: M.BackValId)
+    | CmdAliasFact(fact: M.BackAliasFact)
+    | CmdMemcpy(dst: M.BackValId, src: M.BackValId, len: M.BackValId)
+    | CmdMemset(dst: M.BackValId, byte: M.BackValId, len: M.BackValId)
+    | CmdSelect(dst: M.BackValId, ty: M.BackShape, cond: M.BackValId, then_value: M.BackValId, else_value: M.BackValId)
+    | CmdFma(dst: M.BackValId, ty: M.BackScalar, semantics: M.BackFloatSemantics, a: M.BackValId, b: M.BackValId, c: M.BackValId)
+    | CmdVecSplat(dst: M.BackValId, ty: M.BackVec, value: M.BackValId)
+    | CmdVecBinary(dst: M.BackValId, op: M.BackVecBinaryOp, ty: M.BackVec, lhs: M.BackValId, rhs: M.BackValId)
+    | CmdVecCompare(dst: M.BackValId, op: M.BackVecCompareOp, ty: M.BackVec, lhs: M.BackValId, rhs: M.BackValId)
+    | CmdVecSelect(dst: M.BackValId, ty: M.BackVec, mask: M.BackValId, then_value: M.BackValId, else_value: M.BackValId)
+    | CmdVecMask(dst: M.BackValId, op: M.BackVecMaskOp, ty: M.BackVec, args: view(M.BackValId))
+    | CmdVecInsertLane(dst: M.BackValId, ty: M.BackVec, value: M.BackValId, lane_value: M.BackValId, lane: i32)
+    | CmdVecExtractLane(dst: M.BackValId, ty: M.BackScalar, value: M.BackValId, lane: i32)
+    | CmdCall(result: M.BackCallResult, target: M.BackCallTarget, sig: M.BackSigId, args: view(M.BackValId))
+    | CmdJump(dest: M.BackBlockId, args: view(M.BackValId))
+    | CmdBrIf(cond: M.BackValId, then_block: M.BackBlockId, then_args: view(M.BackValId), else_block: M.BackBlockId, else_args: view(M.BackValId))
+    | CmdSwitchInt(value: M.BackValId, ty: M.BackScalar, cases: view(M.BackSwitchCase), default_dest: M.BackBlockId)
+    | CmdReturnVoid | CmdReturnValue(value: M.BackValId)
+    | CmdTrap
+    | CmdFinishFunc(func: M.BackFuncId)
+    | CmdFinalizeModule
+end
+
+M.BackFlow = union BackFlow | BackFallsThrough | BackTerminates end
+
+M.BackProgram = struct BackProgram cmds: view(M.Cmd) end
+
+M.BackSigSpec = struct BackSigSpec params: view(M.BackScalar); results: view(M.BackScalar) end
+M.BackStackSlotSpec = struct BackStackSlotSpec size: i32; align: i32 end
+M.BackCommandTape = struct BackCommandTape version: i32; command_count: i32; payload: ptr(u8) end
+
+M.BackExprLowering = union BackExprLowering | BackExprPlan(cmds: view(M.Cmd), value: M.BackValId, ty: M.BackScalar) | BackExprTerminated(cmds: view(M.Cmd)) end
+
+M.BackAddrLowering = union BackAddrLowering | BackAddrWrites(cmds: view(M.Cmd)) | BackAddrTerminated(cmds: view(M.Cmd)) end
+
+M.BackViewLowering = union BackViewLowering | BackViewPlan(cmds: view(M.Cmd), data: M.BackValId, len: M.BackValId, stride: M.BackValId) | BackViewTerminated(cmds: view(M.Cmd)) end
+
+M.BackReturnTarget = union BackReturnTarget | BackReturnValue | BackReturnSret(addr: M.BackValId) end
+
+M.BackStmtPlan = struct BackStmtPlan cmds: view(M.Cmd); flow: M.BackFlow end
+M.BackFuncPlan = struct BackFuncPlan cmds: view(M.Cmd) end
+M.BackItemPlan = struct BackItemPlan cmds: view(M.Cmd) end
+
+M.BackProgramFact = union BackProgramFact
+    | BackFactCreateSig(index: i32, sig: M.BackSigId)
+    | BackFactSigRef(index: i32, sig: M.BackSigId)
+    | BackFactDeclareData(index: i32, data: M.BackDataId)
+    | BackFactDataRef(index: i32, data: M.BackDataId)
+    | BackFactDeclareFunc(index: i32, func: M.BackFuncId)
+    | BackFactFuncRef(index: i32, func: M.BackFuncId)
+    | BackFactDeclareExtern(index: i32, func: M.BackExternId)
+    | BackFactExternRef(index: i32, func: M.BackExternId)
+    | BackFactBeginFunc(index: i32, func: M.BackFuncId)
+    | BackFactFinishFunc(index: i32, func: M.BackFuncId)
+    | BackFactFinalizeModule(index: i32)
+    | BackFactCreateBlock(index: i32, block: M.BackBlockId)
+    | BackFactBlockRef(index: i32, block: M.BackBlockId)
+    | BackFactStackSlotDef(index: i32, slot: M.BackStackSlotId)
+    | BackFactStackSlotRef(index: i32, slot: M.BackStackSlotId)
+    | BackFactValueDef(index: i32, value: M.BackValId)
+    | BackFactValueUse(index: i32, value: M.BackValId)
+    | BackFactAccessDef(index: i32, access: M.BackAccessId)
+    | BackFactAccessRef(index: i32, access: M.BackAccessId)
+    | BackFactAliasAccessRef(index: i32, access: M.BackAccessId)
+    | BackFactShapeUse(index: i32, shape: M.BackShape, requirement: M.BackShapeRequirement)
+    | BackFactFunctionBodyCommand(index: i32)
+end
+
+M.BackValidationIssue = union BackValidationIssue
+    | BackIssueEmptyProgram | BackIssueMissingFinalize
+    | BackIssueCommandAfterFinalize(index: i32)
+    | BackIssueCommandOutsideFunction(index: i32)
+    | BackIssueNestedFunction(index: i32, active: M.BackFuncId, next: M.BackFuncId)
+    | BackIssueFinishWithoutBegin(index: i32, func: M.BackFuncId)
+    | BackIssueFinishWrongFunction(index: i32, expected: M.BackFuncId, actual: M.BackFuncId)
+    | BackIssueUnfinishedFunction(func: M.BackFuncId)
+    | BackIssueDuplicateSig(index: i32, sig: M.BackSigId)
+    | BackIssueDuplicateData(index: i32, data: M.BackDataId)
+    | BackIssueDuplicateFunc(index: i32, func: M.BackFuncId)
+    | BackIssueDuplicateExtern(index: i32, func: M.BackExternId)
+    | BackIssueDuplicateBlock(index: i32, block: M.BackBlockId)
+    | BackIssueDuplicateStackSlot(index: i32, slot: M.BackStackSlotId)
+    | BackIssueDuplicateValue(index: i32, value: M.BackValId)
+    | BackIssueMissingSig(index: i32, sig: M.BackSigId)
+    | BackIssueMissingData(index: i32, data: M.BackDataId)
+    | BackIssueMissingFunc(index: i32, func: M.BackFuncId)
+    | BackIssueMissingExtern(index: i32, func: M.BackExternId)
+    | BackIssueMissingBlock(index: i32, block: M.BackBlockId)
+    | BackIssueMissingStackSlot(index: i32, slot: M.BackStackSlotId)
+    | BackIssueMissingValue(index: i32, value: M.BackValId)
+    | BackIssueDuplicateAccess(index: i32, access: M.BackAccessId)
+    | BackIssueMissingAccess(index: i32, access: M.BackAccessId)
+    | BackIssueInvalidAlignment(index: i32, bytes: i32)
+    | BackIssueLoadAccessMode(index: i32, mode: M.BackAccessMode)
+    | BackIssueStoreAccessMode(index: i32, mode: M.BackAccessMode)
+    | BackIssueDereferenceTooSmall(index: i32, dereference_bytes: i32, access_bytes: i32)
+    | BackIssueTargetUnsupportedShape(index: i32, shape: M.BackShape)
+    | BackIssueIntScalarExpected(index: i32, scalar: M.BackScalar)
+    | BackIssueFloatScalarExpected(index: i32, scalar: M.BackScalar)
+    | BackIssueBitScalarExpected(index: i32, scalar: M.BackScalar)
+    | BackIssueShiftScalarExpected(index: i32, scalar: M.BackScalar)
+    | BackIssueNonTrappingWithoutDereference(index: i32)
+    | BackIssueCanMoveWithoutNonTrapping(index: i32)
+    | BackIssueShapeRequiresScalar(index: i32, shape: M.BackShape)
+    | BackIssueShapeRequiresVector(index: i32, shape: M.BackShape)
+end
+
+M.BackValidationReport = struct BackValidationReport issues: view(M.BackValidationIssue) end
+
+M.BackCommandCount = struct BackCommandCount command_kind: ptr(u8); count: i32 end
+M.BackMemoryInspection = struct BackMemoryInspection index: i32; access: M.BackAccessId; alignment: M.BackAlignment; dereference: M.BackDereference; trap: M.BackTrap; motion: M.BackMotion; mode: M.BackAccessMode end
+M.BackAddressInspection = struct BackAddressInspection index: i32; address: M.BackAddress end
+M.BackPointerOffsetInspection = struct BackPointerOffsetInspection index: i32; dst: M.BackValId; base: M.BackAddressBase; index_value: M.BackValId; elem_size: i32; const_offset: i32; provenance: M.BackPointerProvenance; bounds: M.BackPointerBounds end
+M.BackAliasInspection = struct BackAliasInspection index: i32; fact: M.BackAliasFact end
+M.BackIntSemanticsInspection = struct BackIntSemanticsInspection index: i32; dst: M.BackValId; op: M.BackIntOp; scalar: M.BackScalar; semantics: M.BackIntSemantics end
+
+M.BackFloatSemanticOp = union BackFloatSemanticOp | BackFloatSemanticBinary(op: M.BackFloatOp) | BackFloatSemanticFma end
+M.BackFloatSemanticsInspection = struct BackFloatSemanticsInspection index: i32; dst: M.BackValId; op: M.BackFloatSemanticOp; scalar: M.BackScalar; semantics: M.BackFloatSemantics end
+
+M.BackInspectionReport = struct BackInspectionReport command_counts: view(M.BackCommandCount); targets: view(M.BackTargetModel); memory: view(M.BackMemoryInspection); addresses: view(M.BackAddressInspection); pointer_offsets: view(M.BackPointerOffsetInspection); aliases: view(M.BackAliasInspection); int_semantics: view(M.BackIntSemanticsInspection); float_semantics: view(M.BackFloatSemanticsInspection) end
+
+M.BackDisasmInspection = struct BackDisasmInspection func: M.BackFuncId; text: ptr(u8) end
+M.BackDiagnosticsReport = struct BackDiagnosticsReport inspection: M.BackInspectionReport; vector: i32; disassembly: view(M.BackDisasmInspection) end
+
+return M

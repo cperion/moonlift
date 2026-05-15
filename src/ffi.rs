@@ -1,9 +1,9 @@
 use crate::{
-    Artifact, BackAccessId, BackAccessMode, BackAlignment, BackBlockId, BackCmd, BackDataId,
-    BackDereference, BackExternId, BackFloatSemantics, BackFuncId, BackIntExact,
-    BackIntOverflow, BackIntSemantics, BackMemoryInfo, BackMotion, BackProgram, BackScalar,
-    BackSigId, BackStackSlotId, BackSwitchCase, BackTrap, BackValId, BackVec, Jit, MoonliftError,
-    compile_object,
+    Artifact, BackAccessId, BackAccessMode, BackAlignment, BackAtomicOrdering, BackAtomicRmwOp,
+    BackBlockId, BackCmd, BackDataId, BackDereference, BackExternId, BackFloatSemantics,
+    BackFuncId, BackIntExact, BackIntOverflow, BackIntSemantics, BackMemoryInfo, BackMotion,
+    BackProgram, BackScalar, BackSigId, BackStackSlotId, BackSwitchCase, BackTrap, BackValId,
+    BackVec, Jit, MoonliftError, compile_object,
 };
 use crate::host_arena::{HostSession, MoonHostFieldInit, MoonHostPtr, MoonHostRecordSpec, MoonHostRef};
 use std::cell::RefCell;
@@ -177,6 +177,25 @@ fn read_access_mode(kind: u32) -> Result<BackAccessMode, MoonliftError> {
     }
 }
 
+fn read_atomic_ordering(text: &str) -> Result<BackAtomicOrdering, MoonliftError> {
+    match text {
+        "BackAtomicSeqCst" => Ok(BackAtomicOrdering::SeqCst),
+        other => Err(MoonliftError(format!("unknown BackAtomicOrdering {other}"))),
+    }
+}
+
+fn read_atomic_rmw_op(text: &str) -> Result<BackAtomicRmwOp, MoonliftError> {
+    match text {
+        "BackAtomicRmwAdd" => Ok(BackAtomicRmwOp::Add),
+        "BackAtomicRmwSub" => Ok(BackAtomicRmwOp::Sub),
+        "BackAtomicRmwAnd" => Ok(BackAtomicRmwOp::And),
+        "BackAtomicRmwOr" => Ok(BackAtomicRmwOp::Or),
+        "BackAtomicRmwXor" => Ok(BackAtomicRmwOp::Xor),
+        "BackAtomicRmwXchg" => Ok(BackAtomicRmwOp::Xchg),
+        other => Err(MoonliftError(format!("unknown BackAtomicRmwOp {other}"))),
+    }
+}
+
 fn tape_unescape(text: &str) -> Result<String, MoonliftError> {
     let mut out = String::new();
     let mut chars = text.chars();
@@ -342,6 +361,11 @@ pub(crate) fn parse_back_command_tape(payload: &str) -> Result<Vec<BackCmd>, Moo
             "CmdPtrOffset" => { let dst = line.take_val("dst")?; let base = tape_base_cmds(&mut line, &format!("__moonlift_tape:ptr:{}", dst.as_str()), &mut out)?; let index = line.take_val("index")?; let elem = line.take_u32("elem size")?; let co = line.take_i64("const offset")?; out.push(BackCmd::PtrOffset(dst, base, index, elem, co)); }
             "CmdLoadInfo" => { let dst = line.take_val("dst")?; let shape = line.take_shape()?; let addr = tape_addr_cmds(&mut line, &format!("__moonlift_tape:load:{}", dst.as_str()), &mut out)?; let mem = line.take_memory()?; match shape { TapeShape::Scalar(s) => out.push(BackCmd::LoadInfo(dst, s, addr, mem)), TapeShape::Vec(v) => out.push(BackCmd::VecLoadInfo(dst, v, addr, mem)) } }
             "CmdStoreInfo" => { let shape = line.take_shape()?; let prefix = format!("__moonlift_tape:store:{}", line.line); let addr = tape_addr_cmds(&mut line, &prefix, &mut out)?; let val = line.take_val("store value")?; let mem = line.take_memory()?; match shape { TapeShape::Scalar(s) => out.push(BackCmd::StoreInfo(s, addr, val, mem)), TapeShape::Vec(v) => out.push(BackCmd::VecStoreInfo(v, addr, val, mem)) } }
+            "CmdAtomicLoad" => { let dst = line.take_val("dst")?; let ty = line.take_scalar()?; let addr = tape_addr_cmds(&mut line, &format!("__moonlift_tape:atomic_load:{}", dst.as_str()), &mut out)?; let mem = line.take_memory()?; let ordering = read_atomic_ordering(&line.take("atomic ordering")?)?; out.push(BackCmd::AtomicLoad(dst, ty, addr, mem, ordering)); }
+            "CmdAtomicStore" => { let ty = line.take_scalar()?; let prefix = format!("__moonlift_tape:atomic_store:{}", line.line); let addr = tape_addr_cmds(&mut line, &prefix, &mut out)?; let val = line.take_val("atomic store value")?; let mem = line.take_memory()?; let ordering = read_atomic_ordering(&line.take("atomic ordering")?)?; out.push(BackCmd::AtomicStore(ty, addr, val, mem, ordering)); }
+            "CmdAtomicRmw" => { let dst = line.take_val("dst")?; let op = read_atomic_rmw_op(&line.take("atomic rmw op")?)?; let ty = line.take_scalar()?; let addr = tape_addr_cmds(&mut line, &format!("__moonlift_tape:atomic_rmw:{}", dst.as_str()), &mut out)?; let val = line.take_val("atomic rmw value")?; let mem = line.take_memory()?; let ordering = read_atomic_ordering(&line.take("atomic ordering")?)?; out.push(BackCmd::AtomicRmw(dst, op, ty, addr, val, mem, ordering)); }
+            "CmdAtomicCas" => { let dst = line.take_val("dst")?; let ty = line.take_scalar()?; let addr = tape_addr_cmds(&mut line, &format!("__moonlift_tape:atomic_cas:{}", dst.as_str()), &mut out)?; let expected = line.take_val("atomic cas expected")?; let replacement = line.take_val("atomic cas replacement")?; let mem = line.take_memory()?; let ordering = read_atomic_ordering(&line.take("atomic ordering")?)?; out.push(BackCmd::AtomicCas(dst, ty, addr, expected, replacement, mem, ordering)); }
+            "CmdAtomicFence" => { let ordering = read_atomic_ordering(&line.take("atomic ordering")?)?; out.push(BackCmd::AtomicFence(ordering)); }
             "CmdIntBinary" => { let dst = line.take_val("dst")?; let opk = line.take("op")?; let ty = line.take_scalar()?; let sem = read_int_semantics(line.take_u32("overflow")?, line.take_u32("exact")?)?; let lhs = line.take_val("lhs")?; let rhs = line.take_val("rhs")?; out.push(tape_int_op(&opk, dst, ty, sem, lhs, rhs)?); }
             "CmdBitBinary" => { let dst = line.take_val("dst")?; let opk = line.take("op")?; let ty = line.take_scalar()?; let lhs = line.take_val("lhs")?; let rhs = line.take_val("rhs")?; out.push(match opk.as_str() { "BackBitAnd" => BackCmd::Band(dst, ty, lhs, rhs), "BackBitOr" => BackCmd::Bor(dst, ty, lhs, rhs), "BackBitXor" => BackCmd::Bxor(dst, ty, lhs, rhs), _ => return Err(MoonliftError(format!("unsupported bit op {opk}"))) }); }
             "CmdBitNot" => { let dst = line.take_val("dst")?; let ty = line.take_scalar()?; let v = line.take_val("value")?; out.push(BackCmd::Bnot(dst, ty, v)); }

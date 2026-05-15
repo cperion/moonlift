@@ -147,6 +147,14 @@ function M.Install(api, session)
         return self:emit_stmt(Tr.StmtExpr(Tr.StmtSurface, e.expr))
     end
 
+    function BlockBuilder:atomic_store(addr, value, ty)
+        return self:emit_stmt(api.atomic_store(addr, value, ty))
+    end
+
+    function BlockBuilder:atomic_fence()
+        return self:emit_stmt(api.atomic_fence())
+    end
+
     function BlockBuilder:return_(expr)
         if expr == nil then return self:emit_stmt(Tr.StmtReturnVoid(Tr.StmtSurface)) end
         return self:emit_stmt(Tr.StmtReturnValue(Tr.StmtSurface, api.as_moonlift_expr(expr, "return expects expression")))

@@ -841,6 +841,33 @@ function Parser:led(k, left)
     local C, Sem, Tr, B = self.C, self.Sem, self.Tr, self.B
 
     if k == TK.lparen then
+        local pvm = require("moonlift.pvm")
+        local atomic_rmw_by_name = {
+            atomic_fetch_add = C.AtomicRmwAdd,
+            atomic_fetch_sub = C.AtomicRmwSub,
+            atomic_fetch_and = C.AtomicRmwAnd,
+            atomic_fetch_or = C.AtomicRmwOr,
+            atomic_fetch_xor = C.AtomicRmwXor,
+            atomic_xchg = C.AtomicRmwXchg,
+        }
+        local left_name = nil
+        if pvm.classof(left) == Tr.ExprRef and pvm.classof(left.ref) == B.ValueRefName then left_name = left.ref.name end
+        if left_name == "atomic_load" then
+            self:skip_nl(); local ty = self:parse_type(); self:skip_nl(); self:expect(TK.comma)
+            local addr = self:parse_expr(0); self:skip_nl(); self:expect(TK.rparen)
+            return Tr.ExprAtomicLoad(Tr.ExprSurface, ty, addr, C.AtomicSeqCst)
+        elseif atomic_rmw_by_name[left_name] ~= nil then
+            self:skip_nl(); local ty = self:parse_type(); self:skip_nl(); self:expect(TK.comma)
+            local addr = self:parse_expr(0); self:skip_nl(); self:expect(TK.comma)
+            local value = self:parse_expr(0); self:skip_nl(); self:expect(TK.rparen)
+            return Tr.ExprAtomicRmw(Tr.ExprSurface, atomic_rmw_by_name[left_name], ty, addr, value, C.AtomicSeqCst)
+        elseif left_name == "atomic_cas" then
+            self:skip_nl(); local ty = self:parse_type(); self:skip_nl(); self:expect(TK.comma)
+            local addr = self:parse_expr(0); self:skip_nl(); self:expect(TK.comma)
+            local expected = self:parse_expr(0); self:skip_nl(); self:expect(TK.comma)
+            local replacement = self:parse_expr(0); self:skip_nl(); self:expect(TK.rparen)
+            return Tr.ExprAtomicCas(Tr.ExprSurface, ty, addr, expected, replacement, C.AtomicSeqCst)
+        end
         local args = {}
         self:skip_nl()
         if self:kind() ~= TK.rparen then
@@ -859,7 +886,6 @@ function Parser:led(k, left)
         end
         self:expect(TK.rparen)
         -- select(cond, a, b) special form
-        local pvm = require("moonlift.pvm")
         if pvm.classof(left) == Tr.ExprRef and pvm.classof(left.ref) == B.ValueRefName
            and left.ref.name == "select" and #args == 3 then
             return Tr.ExprSelect(Tr.ExprSurface, args[1], args[2], args[3])
@@ -1248,9 +1274,32 @@ function Parser:next_region_id(prefix)
     return "control." .. prefix .. "." .. tostring(self.region_seq)
 end
 
+function Parser:parse_atomic_stmt_if_present()
+    local Tr, C = self.Tr, self.C
+    if self:kind() ~= TK.name then return nil end
+    local name = self:text()
+    if name == "atomic_store" then
+        self.i = self.i + 1
+        self:expect(TK.lparen, "expected '(' after atomic_store")
+        self:skip_nl(); local ty = self:parse_type(); self:skip_nl(); self:expect(TK.comma)
+        local addr = self:parse_expr(0); self:skip_nl(); self:expect(TK.comma)
+        local value = self:parse_expr(0); self:skip_nl(); self:expect(TK.rparen)
+        return Tr.StmtAtomicStore(Tr.StmtSurface, ty, addr, value, C.AtomicSeqCst)
+    elseif name == "atomic_fence" then
+        self.i = self.i + 1
+        self:expect(TK.lparen, "expected '(' after atomic_fence")
+        self:skip_nl(); self:expect(TK.rparen)
+        return Tr.StmtAtomicFence(Tr.StmtSurface, C.AtomicSeqCst)
+    end
+    return nil
+end
+
 function Parser:parse_stmt()
     local Tr, B, C = self.Tr, self.B, self.C
     self:skip_nl()
+
+    local atomic_stmt = self:parse_atomic_stmt_if_present()
+    if atomic_stmt ~= nil then return atomic_stmt end
 
     -- Hole: @{stmt_source} in statement position (region body splice)
     if self:kind() == TK.hole then

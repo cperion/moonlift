@@ -1,21 +1,20 @@
 # Moonlift — Agent Guidance
 
-Moonlift is a typed, jump-first compiled language embedded in LuaJIT that
+Moonlift is a **typed, jump-first compiled language embedded in LuaJIT** that
 generates native code through Cranelift. Lua is the metaprogramming layer;
 Moonlift is the monomorphic native output.
 
 ## Build
 
 ```sh
-cargo build --release          # produces target/release/libmoonlift.so
+make                                    # produces fully static 9MB target/release/moonlift
+cargo build --release                   # produces target/release/libmoonlift.so
 ```
 
-The Rust crate uses `edition = "2024"` (requires nightly). No rust-toolchain
-file — the system Rust 1.95+ works.
-
-libmoonlift.so is loaded by `lua/moonlift/back_jit.lua` via FFI. It searches
-`target/release/`, `target/debug/`, then system paths. Build `--release` before
-running tests.
+`libmoonlift.so` is loaded by `lua/moonlift/back_jit.lua` via FFI. Build
+`--release` before running tests. The standalone `moonlift` binary embeds the
+compiler (195 Lua sources via `include_str!`) + vendored LuaJIT — zero runtime
+deps.
 
 ## Setup
 
@@ -24,62 +23,70 @@ git submodule update --init    # for .vendor/LuaJIT
 luajit -v                      # must have FFI support
 ```
 
-All scripts set `package.path` to include `./lua/?.lua`. Custom scripts calling
-into the compiler must do the same.
+All scripts set `package.path` to include `./lua/?.lua`.
 
 ## Run .mlua files
 
 ```sh
-luajit run_mlua.lua path/to/file.mlua       # run in LuaJIT (calls main/run/test)
-luajit emit_object.lua input.mlua -o out.o  # compile to .o
-luajit emit_shared.lua input.mlua -o out.so # compile to .so
-luajit lsp.lua                              # LSP server (stdio)
+target/release/moonlift file.mlua              # standalone binary
+luajit run_mlua.lua file.mlua                  # via LuaJIT runner
+luajit emit_object.lua input.mlua -o out.o     # compile to .o
+luajit emit_shared.lua input.mlua -o out.so    # compile to .so
+luajit lsp.lua                                 # LSP server (stdio)
 ```
 
 ## Test
 
-No test framework — each file is a standalone script:
+~130+ tests under `tests/`. No test framework — each is a standalone script:
 
 ```sh
-luajit tests/test_back_add_i32.lua         # single test
-luajit tests/test_mlua_host_pipeline.lua   # integration test
+luajit tests/test_back_add_i32.lua           # Cranelift JIT path
+luajit tests/test_back_object_emit.lua        # Object file emission
+luajit tests/test_mlua_host_pipeline.lua      # .mlua hosted island bridge
+luajit tests/test_parse_typecheck.lua         # Parse + typecheck pipeline
+luajit tests/test_parse_kernels.lua           # Jump-first kernel suite
+luajit tests/test_lsp_integrated.lua          # Full LSP integration
 ```
-
-The test suite is ~228 files under `tests/`. Tests that use the Rust backend
-require `libmoonlift.so` built first. No ordering constraints — run any subset.
 
 ## Benchmarks
 
 ```sh
-luajit benchmarks/bench_*.lua
-benchmarks/run_vs_terra.sh [quick]         # compare with Terra
+luajit benchmarks/bench_json_stack_decode.lua [full]   # JSON decoder benchmark
+luajit benchmarks/bench_compile_back_validate_ll.lua     # Compilation profiling
+benchmarks/run_vs_terra.sh [quick]                      # Compare with Terra
+luajit benchmarks/bench_host_arena_abi.lua               # Arena ABI performance
+luajit benchmarks/bench_host_arena_native.lua            # Native host type access
 ```
 
 ## Architecture
 
-- **`lua/moonlift/`** — compiler frontend: PVM/ASDL framework, parser, typechecker,
-  tree-to-back lowering, validation, LSP
-- **`src/`** — Rust Cranelift backend: JIT (`lib.rs`) + object emission + FFI surface
-- **`lua/moonlift/pvm.lua`** — recording phase boundary: the framework driving all phases
-- **`lua/moonlift/back_jit.lua`** — Lua-side JIT bridge (loads libmoonlift.so via FFI)
-- **`tests/`** — ~228 standalone test scripts, each self-contained, run with `luajit`
-- **`lib/`** — standard library (`region_compose.lua`, `grammar.lua`, etc.)
-- **`benchmarks/`** — performance benchmarks
+- **`lua/moonlift/`** — compiler frontend: PVM/ASDL framework (~80+ modules),
+  parser, typechecker, tree-to-back lowering, validation, LSP, linker
+- **`src/`** — Rust Cranelift backend: JIT (`lib.rs`), standalone binary
+  (`main.rs`), object emission (`lib.rs`), host arena, FFI surface (`ffi.rs`)
+- **`lua/moonlift/pvm.lua`** — recording phase boundary: ASDL context, phases,
+  triplets driving all compilation
+- **`lua/moonlift/back_jit.lua`** — Lua-side JIT bridge (loads libmoonlift.so)
+- **`lua/moonlift/host.lua`** — high-level Lua builder API
+- **`lua/moonlift/ast.lua`** — low-level ASDL node constructor API
+- **`lib/`** — standard library (`region_compose.lua` PEG combinators)
+- **`build.rs`** — generates `src/embedded_lua.rs` (all Lua sources via
+  `include_str!`)
 
 Compilation pipeline:
-`.mlua` → parse → typecheck → lower (tree-to-back) → validate → JIT/object
+`.mlua` → parse/scan_document → tree_typecheck → tree_to_back →
+back_validate → back_jit / back_object / back_object + link_target
 
-## Conventions
+## Key documentation
 
-- Jump-first control: no `for`/`while`/`break`/`continue` — only
-  `block`/`jump`/`yield`/`return`/`emit`/`switch`
-- `@{lua_expr}` splices Lua values into Moonlift source positions
-- ASDL is the architecture: all meaningful compilation state is interned,
-  immutable ASDL values (not strings, callbacks, or side tables)
-- `moonlift.host` = high-level builder API; `moonlift.ast` = low-level ASDL
-  constructor API; both produce the same ASDL values
-- Regions are typed control fragments with named continuation exits composed
-  via `emit`. The `region_compose` module provides PEG-style combinators.
+| Doc | Description |
+|-----|-------------|
+| `README.md` | Full project README with examples, benchmarks, philosophy |
+| `LANGUAGE_REFERENCE.md` | **Complete language reference** (3057 lines) — types, modules, functions, control regions, fragments, host decls, view ABI, vectorization, builder API, metaprogramming guide |
+| `SOURCE_GRAMMAR.md` | Jump-first source grammar contract |
+| `PROTOCOL_SYNTAX.md` | Named protocol exits (tagged-union region exit protocols) |
+| `PVM_GUIDE.md` | Complete PVM guide — ASDL contexts, structural update, triplets |
+| `COMPILER_PATTERN.md` | Interactive software as compilers philosophy |
 
 ## Language cheatsheet
 
@@ -91,6 +98,7 @@ Views:    view(T)         -- (data, len, stride) descriptor
 Structs:  struct Name f: T; ... end
 Unions:   union Name a(T) | b(T) end
 Func:     func(i32, i32) -> i32        -- function pointer type
+Closure:  closure(i32) -> i32          -- closure type (function + context)
 ```
 
 ### Functions
@@ -99,6 +107,7 @@ func add(a: i32, b: i32) -> i32
     return a + b
 end
 ```
+
 Parameters may carry modifiers: `noalias readonly writeonly`.
 
 ### Control — no for/while/break/continue
@@ -161,19 +170,84 @@ as(i32, u8_val)    -- only conversion form: extend/truncate/bitcast/fp convert
 ```
 
 ### Splices — `@{lua_expr}` embeds Lua values into Moonlift source
-Evaluated at `.mlua` load time. Role is checked by parser:
+Evaluated at `.mlua` load time:
 - Type position: `let x: @{T} = 0`
 - Fragment position: `emit @{frag}(args; ok = done)`
 - Name position: `region @{name}(...)` (must be whole token)
 - Expression: `if x > @{limit} then ...`
+- Spread: `@{list...}` expands a Lua array into a syntactic list
 
-### Design philosophy
-- **Co-author two typed structures**: data types (type forest) + control types (continuation signatures). Both are checked.
-- **Regions bridge the two**: runtime params are data types; continuations are control types.
-- **Compose with regions, seal with functions**: `emit` is zero-cost CFG splicing (inline, no call overhead).
-- **Lua is metaprogramming**: generics, templates, codegen live in Lua. Moonlift receives monomorphic result.
-- **ASDL is the architecture**: all meaningful compilation state is interned, immutable ASDL values. No hidden state in strings, callbacks, or side tables.
-- **PVM phases are auto-cached memoization boundaries**: edit one subtree, only that subtree recompiles.
+### Extern imports
+```moonlift
+extern write(fd: i32, buf: ptr(u8), count: index) -> index end
+extern host_add7(x: i32) -> i32 as "host_add7_impl" end
+```
+
+### JIT: Compile and call native functions from Lua
+```lua
+local Host = require("moonlift.mlua_run")
+local chunk = Host.loadstring([[
+local add = func(a: i32, b: i32) -> i32
+    return a + b
+end
+return add
+]], "demo.mlua")
+local add_val = chunk()
+local compiled = add_val:compile()
+print(compiled(3, 4))  -- 7, running as native machine code
+compiled:free()
+```
+
+## Design philosophy
+- **Co-author two typed structures**: data types (type forest) + control types
+  (continuation signatures). Both are checked.
+- **Regions bridge the two**: runtime params are data types; continuations are
+  control types.
+- **Compose with regions, seal with functions**: `emit` is zero-cost CFG splicing
+  (inline, no call overhead).
+- **Lua is metaprogramming**: generics, templates, codegen live in Lua. Moonlift
+  receives monomorphic result. No source-level generics (no angle brackets).
+- **ASDL is the architecture**: all meaningful compilation state is interned,
+  immutable ASDL values. No hidden state in strings, callbacks, or side tables.
+- **PVM phases are auto-cached memoization boundaries**: edit one subtree, only
+  that subtree recompiles.
+- **Flat backend commands**: compilation target is `BackCmd[]` — flat, verifiable,
+  no nested IR trees.
+- **Fail fast, fail loud**: assertions at boundaries, no silent fallbacks.
+
+## Why Moonlift is grep-shaped
+
+Because control structure is syntactic, dumb text tools become smart:
+
+```bash
+rg '^region '           # API surface: every operation that exists
+rg '^\s*block '         # States: every state machine state
+rg '\bjump '            # Transitions: every CFG edge in the system
+rg '\bemit '            # Composition: who uses which region
+```
+
+Each answer is complete, not a heuristic. No hidden exception edges,
+no implicit async state machines, no callback conventions, no vtable
+dispatch. The control graph is in the source text, not behind compiler
+passes or runtime dispatch tables.
+
+This means you can:
+- Map error paths from source alone: `rg '\b(err|bad|fail|closed)\b'`
+- Trace composition: `rg 'emit read_loop'` finds every user of that region
+- Extract state machines: `rg '^\s*block '` lists all states with their params
+- Verify protocol completeness: every continuation at an `emit` site is named
+
+Explicit programming makes plain-text tooling powerful again.
+
+## Non-negotiable rules
+1. No Moonlift source generics — Lua is where genericity lives
+2. No angle-bracket type arguments — only `as(T, value)` for conversions
+3. Explicit ASDL meaning — no hiding semantics in strings or callbacks
+4. Monomorphic object code — all types resolved before backend
+5. No for/while/break/continue — jump-first control only
+6. Every block path must terminate (jump/yield/return)
+7. No fallthrough in switch — every case is an independent branch
+8. Switch requires a default arm
 
 ## Key files
 
@@ -184,5 +258,8 @@ Evaluated at `.mlua` load time. Role is checked by parser:
 | `lsp.lua` | LSP server entry point |
 | `lua/moonlift/pvm.lua` | Phase Virtual Machine — recording triplet framework |
 | `lua/moonlift/back_jit.lua` | Lua→Rust JIT FFI bridge |
+| `lua/moonlift/host.lua` | High-level Lua builder API |
+| `lua/moonlift/ast.lua` | Low-level ASDL node constructor API |
 | `src/lib.rs` | Full Cranelift backend (JIT + object emission) |
+| `src/main.rs` | Standalone `moonlift` binary (embeds Lua compiler) |
 | `src/ffi.rs` | C FFI exports for LuaJIT interop |

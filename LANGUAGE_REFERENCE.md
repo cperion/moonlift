@@ -2710,6 +2710,52 @@ Every load and store carries memory access facts:
 These facts are consumed by the optimizer for bounds-check elimination,
 alias analysis, and instruction scheduling.
 
+### 21.4 Atomic memory operations
+
+Moonlift atomics are explicit memory commands, not hidden effects on ordinary
+loads/stores.  The current backend-supported ordering is `seq_cst`, matching
+Cranelift's atomic operations and fence semantics.
+
+Source forms:
+
+```moonlift
+let x: i32 = atomic_load(i32, p)
+atomic_store(i32, p, 42)
+let old: i32 = atomic_fetch_add(i32, p, 1)
+let old2: i32 = atomic_fetch_sub(i32, p, 1)
+let mask_old: i32 = atomic_fetch_and(i32, p, mask)
+let bits_old: i32 = atomic_fetch_or(i32, p, bits)
+let xor_old: i32 = atomic_fetch_xor(i32, p, bits)
+let swapped: i32 = atomic_xchg(i32, p, value)
+let seen: i32 = atomic_cas(i32, p, expected, replacement)
+atomic_fence()
+```
+
+All atomic read-modify-write operations return the old value. `atomic_cas`
+returns the old value regardless of success; compare it with `expected` to test
+whether the replacement happened.
+
+Supported atomic load/store/CAS value types are integer-like scalar types,
+`bool`, `index`, and pointers. Atomic arithmetic/bitwise RMW operations are for
+integer-like values; `atomic_xchg` also supports `bool` and pointers.
+Floating-point atomics are not part of the Moonlift source contract. Lua
+factories should generate monomorphic variants exactly as with ordinary memory
+kernels.
+
+Builder API equivalents:
+
+```lua
+moon.atomic_load(addr, T)
+moon.atomic_store(addr, value, T)
+moon.atomic_rmw("add", addr, value, T)   -- add/sub/band/bor/bxor/xchg
+moon.atomic_cas(addr, expected, replacement, T)
+moon.atomic_fence()
+```
+
+In ASDL/backend form these lower to explicit `CmdAtomicLoad`,
+`CmdAtomicStore`, `CmdAtomicRmw`, `CmdAtomicCas`, and `CmdAtomicFence` commands
+with `BackAtomicSeqCst` ordering and ordinary `BackMemoryInfo` facts.
+
 ---
 
 ## 22. Complete examples

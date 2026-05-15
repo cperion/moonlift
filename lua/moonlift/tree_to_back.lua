@@ -47,6 +47,10 @@ function M.Define(T)
     local control_api
     local append_load_info
     local append_store_info
+    local memory_info
+    local address_from_ptr
+    local atomic_ordering
+    local atomic_rmw_op
     local global_data_addr
     local load_global_data
     local store_global_data
@@ -178,7 +182,9 @@ function M.Define(T)
         if cls == Tr.ExprAddrOf then mark_addressed_place(expr.place, out); collect_address_taken_place(expr.place, out)
         elseif cls == Tr.ExprUnary or cls == Tr.ExprDeref or cls == Tr.ExprLen then collect_address_taken_expr(expr.value or expr.base, out)
         elseif cls == Tr.ExprBinary or cls == Tr.ExprCompare or cls == Tr.ExprLogic then collect_address_taken_expr(expr.lhs, out); collect_address_taken_expr(expr.rhs, out)
-        elseif cls == Tr.ExprCast or cls == Tr.ExprMachineCast or cls == Tr.ExprLoad then collect_address_taken_expr(expr.value or expr.addr, out)
+        elseif cls == Tr.ExprCast or cls == Tr.ExprMachineCast or cls == Tr.ExprLoad or cls == Tr.ExprAtomicLoad then collect_address_taken_expr(expr.value or expr.addr, out)
+        elseif cls == Tr.ExprAtomicRmw then collect_address_taken_expr(expr.addr, out); collect_address_taken_expr(expr.value, out)
+        elseif cls == Tr.ExprAtomicCas then collect_address_taken_expr(expr.addr, out); collect_address_taken_expr(expr.expected, out); collect_address_taken_expr(expr.replacement, out)
         elseif cls == Tr.ExprCall then
             if expr.target and expr.target.callee then collect_address_taken_expr(expr.target.callee, out) end
             for i = 1, #expr.args do collect_address_taken_expr(expr.args[i], out) end
@@ -210,6 +216,7 @@ function M.Define(T)
             local cls = pvm.classof(stmt)
             if cls == Tr.StmtLet or cls == Tr.StmtVar then collect_address_taken_expr(stmt.init, out)
             elseif cls == Tr.StmtSet then collect_address_taken_place(stmt.place, out); collect_address_taken_expr(stmt.value, out)
+            elseif cls == Tr.StmtAtomicStore then collect_address_taken_expr(stmt.addr, out); collect_address_taken_expr(stmt.value, out)
             elseif cls == Tr.StmtExpr or cls == Tr.StmtAssert or cls == Tr.StmtYieldValue or cls == Tr.StmtReturnValue then collect_address_taken_expr(stmt.expr or stmt.cond or stmt.value, out)
             elseif cls == Tr.StmtIf then collect_address_taken_expr(stmt.cond, out); collect_address_taken_stmts(stmt.then_body, out); collect_address_taken_stmts(stmt.else_body, out)
             elseif cls == Tr.StmtSwitch then collect_address_taken_expr(stmt.value, out); for j = 1, #stmt.arms do collect_address_taken_stmts(stmt.arms[j].body, out) end; collect_address_taken_stmts(stmt.default_body or {}, out)
@@ -849,6 +856,48 @@ function M.Define(T)
             local env3 = append_load_info(cmds, env2, dst, shape_scalar(scalar), addr.value, dst.text)
             return pvm.once(Tr.TreeBackExprValue(env3, cmds, dst, scalar))
         end,
+        [Tr.ExprAtomicLoad] = function(self, env)
+            local addr = expr_value(expr_to_back:one_uncached(self.addr, env))
+            if addr == nil then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "unsupported atomic_load address")) end
+            local scalar = back_scalar(self.ty)
+            if scalar == nil then return pvm.once(Tr.TreeBackExprUnsupported(addr.env, addr.cmds, "atomic_load result has non-scalar type")) end
+            local cmds = {}; append_all(cmds, addr.cmds)
+            local env1, zero = env_next_value(addr.env, "v")
+            local env2, dst = env_next_value(env1, "v")
+            cmds[#cmds + 1] = Back.CmdConst(zero, Back.BackIndex, Back.BackLitInt("0"))
+            cmds[#cmds + 1] = Back.CmdAtomicLoad(dst, scalar, address_from_ptr(addr.value, zero), memory_info("tree:atomic:load:" .. tostring(dst.text), Back.BackAccessRead), atomic_ordering(self.ordering))
+            return pvm.once(Tr.TreeBackExprValue(env2, cmds, dst, scalar))
+        end,
+        [Tr.ExprAtomicRmw] = function(self, env)
+            local addr = expr_value(expr_to_back:one_uncached(self.addr, env))
+            if addr == nil then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "unsupported atomic_rmw address")) end
+            local value = expr_value(expr_to_back:one_uncached(self.value, addr.env))
+            if value == nil then return pvm.once(Tr.TreeBackExprUnsupported(addr.env, addr.cmds, "unsupported atomic_rmw value")) end
+            local scalar = back_scalar(self.ty)
+            if scalar == nil then return pvm.once(Tr.TreeBackExprUnsupported(value.env, value.cmds, "atomic_rmw result has non-scalar type")) end
+            local cmds = {}; append_all(cmds, addr.cmds); append_all(cmds, value.cmds)
+            local env1, zero = env_next_value(value.env, "v")
+            local env2, dst = env_next_value(env1, "v")
+            cmds[#cmds + 1] = Back.CmdConst(zero, Back.BackIndex, Back.BackLitInt("0"))
+            cmds[#cmds + 1] = Back.CmdAtomicRmw(dst, atomic_rmw_op(self.op), scalar, address_from_ptr(addr.value, zero), value.value, memory_info("tree:atomic:rmw:" .. tostring(dst.text), Back.BackAccessReadWrite), atomic_ordering(self.ordering))
+            return pvm.once(Tr.TreeBackExprValue(env2, cmds, dst, scalar))
+        end,
+        [Tr.ExprAtomicCas] = function(self, env)
+            local addr = expr_value(expr_to_back:one_uncached(self.addr, env))
+            if addr == nil then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "unsupported atomic_cas address")) end
+            local expected = expr_value(expr_to_back:one_uncached(self.expected, addr.env))
+            if expected == nil then return pvm.once(Tr.TreeBackExprUnsupported(addr.env, addr.cmds, "unsupported atomic_cas expected")) end
+            local replacement = expr_value(expr_to_back:one_uncached(self.replacement, expected.env))
+            if replacement == nil then return pvm.once(Tr.TreeBackExprUnsupported(expected.env, expected.cmds, "unsupported atomic_cas replacement")) end
+            local scalar = back_scalar(self.ty)
+            if scalar == nil then return pvm.once(Tr.TreeBackExprUnsupported(replacement.env, replacement.cmds, "atomic_cas result has non-scalar type")) end
+            local cmds = {}; append_all(cmds, addr.cmds); append_all(cmds, expected.cmds); append_all(cmds, replacement.cmds)
+            local env1, zero = env_next_value(replacement.env, "v")
+            local env2, dst = env_next_value(env1, "v")
+            cmds[#cmds + 1] = Back.CmdConst(zero, Back.BackIndex, Back.BackLitInt("0"))
+            cmds[#cmds + 1] = Back.CmdAtomicCas(dst, scalar, address_from_ptr(addr.value, zero), expected.value, replacement.value, memory_info("tree:atomic:cas:" .. tostring(dst.text), Back.BackAccessReadWrite), atomic_ordering(self.ordering))
+            return pvm.once(Tr.TreeBackExprValue(env2, cmds, dst, scalar))
+        end,
         [Tr.ExprSlotValue] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "slot expr lowering deferred")) end,
         [Tr.ExprUseExprFrag] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "frag expr lowering deferred")) end,
     }, { args_cache = "last" })
@@ -871,8 +920,23 @@ function M.Define(T)
         return Back.BackLitInt(tostring(raw))
     end
 
-    local function memory_info(access_text, mode)
+    memory_info = function(access_text, mode)
         return Back.BackMemoryInfo(Back.BackAccessId(access_text), Back.BackAlignUnknown, Back.BackDerefUnknown, Back.BackMayTrap, Back.BackMayNotMove, mode)
+    end
+
+    atomic_ordering = function(ordering)
+        if ordering == C.AtomicSeqCst then return Back.BackAtomicSeqCst end
+        return Back.BackAtomicSeqCst
+    end
+
+    atomic_rmw_op = function(op)
+        if op == C.AtomicRmwAdd then return Back.BackAtomicRmwAdd end
+        if op == C.AtomicRmwSub then return Back.BackAtomicRmwSub end
+        if op == C.AtomicRmwAnd then return Back.BackAtomicRmwAnd end
+        if op == C.AtomicRmwOr then return Back.BackAtomicRmwOr end
+        if op == C.AtomicRmwXor then return Back.BackAtomicRmwXor end
+        if op == C.AtomicRmwXchg then return Back.BackAtomicRmwXchg end
+        return Back.BackAtomicRmwXchg
     end
 
     local function append_zero_offset(cmds, current)
@@ -881,7 +945,7 @@ function M.Define(T)
         return env1, zero
     end
 
-    local function address_from_ptr(ptr, offset)
+    address_from_ptr = function(ptr, offset)
         return Back.BackAddress(Back.BackAddrValue(ptr), offset, Back.BackProvUnknown, Back.BackPtrBoundsUnknown)
     end
 
@@ -1483,6 +1547,20 @@ function M.Define(T)
             return pvm.once(Tr.TreeBackStmtResult(env3, cmds, Back.BackFallsThrough))
         end,
         [Tr.StmtSet] = function(self, env) return pvm.once(place_store_to_back:one_uncached(self.place, self.value, env)) end,
+        [Tr.StmtAtomicStore] = function(self, env)
+            local addr = expr_value(expr_to_back:one_uncached(self.addr, env))
+            if addr == nil then return pvm.once(Tr.TreeBackStmtResult(env, { Back.CmdTrap }, Back.BackTerminates)) end
+            local value = expr_value(expr_to_back:one_uncached(self.value, addr.env))
+            if value == nil then return pvm.once(Tr.TreeBackStmtResult(addr.env, addr.cmds, Back.BackTerminates)) end
+            local scalar = back_scalar(self.ty)
+            if scalar == nil then return pvm.once(Tr.TreeBackStmtResult(value.env, value.cmds, Back.BackTerminates)) end
+            local cmds = {}; append_all(cmds, addr.cmds); append_all(cmds, value.cmds)
+            local env1, zero = env_next_value(value.env, "v")
+            cmds[#cmds + 1] = Back.CmdConst(zero, Back.BackIndex, Back.BackLitInt("0"))
+            cmds[#cmds + 1] = Back.CmdAtomicStore(scalar, address_from_ptr(addr.value, zero), value.value, memory_info("tree:atomic:store:" .. tostring(addr.value.text), Back.BackAccessWrite), atomic_ordering(self.ordering))
+            return pvm.once(Tr.TreeBackStmtResult(env1, cmds, Back.BackFallsThrough))
+        end,
+        [Tr.StmtAtomicFence] = function(self, env) return pvm.once(Tr.TreeBackStmtResult(env, { Back.CmdAtomicFence(atomic_ordering(self.ordering)) }, Back.BackFallsThrough)) end,
         [Tr.StmtAssert] = function(_, env) return pvm.once(Tr.TreeBackStmtResult(env, {}, Back.BackFallsThrough)) end,
         [Tr.StmtIf] = lower_if_stmt,
         [Tr.StmtSwitch] = lower_switch_stmt,

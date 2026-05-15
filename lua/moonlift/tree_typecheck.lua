@@ -136,6 +136,21 @@ function M.Define(T)
             or s == C.ScalarIndex
     end
 
+    local function is_atomic_value_type(ty)
+        return is_integer_scalar(ty) or is_bool(ty) or pvm.classof(ty) == Ty.TPtr
+    end
+
+    local function check_atomic_value_type(site, ty, issues)
+        if not is_atomic_value_type(ty) then issues[#issues + 1] = Tr.TypeIssueInvalidUnary(site, ty) end
+    end
+
+    local function check_atomic_rmw_value_type(op, ty, issues)
+        check_atomic_value_type("atomic_rmw", ty, issues)
+        if op == C.AtomicRmwXchg then return end
+        if pvm.classof(ty) == Ty.TPtr then issues[#issues + 1] = Tr.TypeIssueInvalidUnary("atomic_rmw pointer op", ty); return end
+        if is_bool(ty) and (op == C.AtomicRmwAdd or op == C.AtomicRmwSub) then issues[#issues + 1] = Tr.TypeIssueInvalidUnary("atomic_rmw bool add/sub", ty) end
+    end
+
     local function result_expr(expr, ty, issues)
         return Tr.TypeExprResult(expr, ty, issues or {})
     end
@@ -441,6 +456,22 @@ function M.Define(T)
         [Tr.ExprAgg] = function(self, ctx) return pvm.once(result_expr(pvm.with(self, { h = Tr.ExprTyped(self.ty) }), self.ty, {})) end,
         [Tr.ExprView] = function(self, ctx) local view = pvm.one(type_view(self.view, ctx)); local ty = Ty.TView(view_elem(view.view)); return pvm.once(result_expr(Tr.ExprView(Tr.ExprTyped(ty), view.view), ty, view.issues)) end,
         [Tr.ExprLoad] = function(self, ctx) local addr = pvm.one(type_expr(self.addr, ctx)); return pvm.once(result_expr(Tr.ExprLoad(Tr.ExprTyped(self.ty), self.ty, addr.expr), self.ty, addr.issues)) end,
+        [Tr.ExprAtomicLoad] = function(self, ctx)
+            local addr = type_expr_expect(self.addr, ctx, Ty.TPtr(self.ty)); local issues = {}; append_all(issues, addr.issues)
+            check_expected("atomic_load addr", Ty.TPtr(self.ty), addr.ty, issues); check_atomic_value_type("atomic_load", self.ty, issues)
+            return pvm.once(result_expr(Tr.ExprAtomicLoad(Tr.ExprTyped(self.ty), self.ty, addr.expr, self.ordering), self.ty, issues))
+        end,
+        [Tr.ExprAtomicRmw] = function(self, ctx)
+            local addr = type_expr_expect(self.addr, ctx, Ty.TPtr(self.ty)); local value = type_expr_expect(self.value, ctx, self.ty); local issues = {}; append_all(issues, addr.issues); append_all(issues, value.issues)
+            check_expected("atomic_rmw addr", Ty.TPtr(self.ty), addr.ty, issues); check_expected("atomic_rmw value", self.ty, value.ty, issues); check_atomic_rmw_value_type(self.op, self.ty, issues)
+            return pvm.once(result_expr(Tr.ExprAtomicRmw(Tr.ExprTyped(self.ty), self.op, self.ty, addr.expr, value.expr, self.ordering), self.ty, issues))
+        end,
+        [Tr.ExprAtomicCas] = function(self, ctx)
+            local addr = type_expr_expect(self.addr, ctx, Ty.TPtr(self.ty)); local expected = type_expr_expect(self.expected, ctx, self.ty); local replacement = type_expr_expect(self.replacement, ctx, self.ty); local issues = {}
+            append_all(issues, addr.issues); append_all(issues, expected.issues); append_all(issues, replacement.issues)
+            check_expected("atomic_cas addr", Ty.TPtr(self.ty), addr.ty, issues); check_expected("atomic_cas expected", self.ty, expected.ty, issues); check_expected("atomic_cas replacement", self.ty, replacement.ty, issues); check_atomic_value_type("atomic_cas", self.ty, issues)
+            return pvm.once(result_expr(Tr.ExprAtomicCas(Tr.ExprTyped(self.ty), self.ty, addr.expr, expected.expr, replacement.expr, self.ordering), self.ty, issues))
+        end,
         [Tr.ExprDot] = function(self, ctx)
             local base = pvm.one(type_expr(self.base, ctx)); local issues = {}; append_all(issues, base.issues)
             local base_ty = base.ty
@@ -551,6 +582,12 @@ function M.Define(T)
             return pvm.once(Tr.TypeStmtResult(ctx_with_env(ctx, env), { Tr.StmtVar(Tr.StmtTyped, binding, init.expr) }, issues))
         end,
         [Tr.StmtSet] = function(self, ctx) local place = pvm.one(type_place(self.place, ctx)); local value = type_expr_expect(self.value, ctx, place.ty); local issues = {}; append_all(issues, place.issues); append_all(issues, value.issues); check_expected("set", place.ty, value.ty, issues); return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtSet(Tr.StmtTyped, place.place, value.expr) }, issues)) end,
+        [Tr.StmtAtomicStore] = function(self, ctx)
+            local addr = type_expr_expect(self.addr, ctx, Ty.TPtr(self.ty)); local value = type_expr_expect(self.value, ctx, self.ty); local issues = {}; append_all(issues, addr.issues); append_all(issues, value.issues)
+            check_expected("atomic_store addr", Ty.TPtr(self.ty), addr.ty, issues); check_expected("atomic_store value", self.ty, value.ty, issues); check_atomic_value_type("atomic_store", self.ty, issues)
+            return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtAtomicStore(Tr.StmtTyped, self.ty, addr.expr, value.expr, self.ordering) }, issues))
+        end,
+        [Tr.StmtAtomicFence] = function(self, ctx) return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtAtomicFence(Tr.StmtTyped, self.ordering) }, {})) end,
         [Tr.StmtExpr] = function(self, ctx) local expr = pvm.one(type_expr(self.expr, ctx)); return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtExpr(Tr.StmtTyped, expr.expr) }, expr.issues)) end,
         [Tr.StmtAssert] = function(self, ctx) local cond = type_expr_expect(self.cond, ctx, bool_ty()); local issues = {}; append_all(issues, cond.issues); check_expected("assert", bool_ty(), cond.ty, issues); return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtAssert(Tr.StmtTyped, cond.expr) }, issues)) end,
         [Tr.StmtReturnVoid] = function(self, ctx) local issues = {}; check_expected("return", void_ty(), ctx.return_ty, issues); return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtReturnVoid(Tr.StmtTyped) }, issues)) end,

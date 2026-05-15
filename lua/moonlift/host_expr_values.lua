@@ -191,6 +191,43 @@ function M.Install(api, session)
         return expr_value(Tr.ExprLoad(Tr.ExprSurface, tv.ty, a.expr), tv, "load(...)")
     end
 
+    local atomic_rmw_ops = {
+        add = C.AtomicRmwAdd, sub = C.AtomicRmwSub, band = C.AtomicRmwAnd, and_ = C.AtomicRmwAnd, ["and"] = C.AtomicRmwAnd,
+        bor = C.AtomicRmwOr, or_ = C.AtomicRmwOr, ["or"] = C.AtomicRmwOr, bxor = C.AtomicRmwXor, xor = C.AtomicRmwXor, xchg = C.AtomicRmwXchg,
+    }
+
+    function api.atomic_load(addr, ty)
+        local a = coerce(addr, "atomic_load expects address expression")
+        local tv = api.as_type_value(ty, "atomic_load expects result type")
+        return expr_value(Tr.ExprAtomicLoad(Tr.ExprSurface, tv.ty, a.expr, C.AtomicSeqCst), tv, "atomic_load(...)")
+    end
+
+    function api.atomic_rmw(op, addr, value, ty)
+        local a = coerce(addr, "atomic_rmw expects address expression")
+        local v = coerce(value, "atomic_rmw expects value expression")
+        local tv = api.as_type_value(ty or v.type, "atomic_rmw expects type value")
+        return expr_value(Tr.ExprAtomicRmw(Tr.ExprSurface, assert(atomic_rmw_ops[op], "unknown atomic rmw op: " .. tostring(op)), tv.ty, a.expr, v.expr, C.AtomicSeqCst), tv, "atomic_rmw(...)")
+    end
+
+    function api.atomic_cas(addr, expected, replacement, ty)
+        local a = coerce(addr, "atomic_cas expects address expression")
+        local e = coerce(expected, "atomic_cas expects expected expression")
+        local r = coerce(replacement, "atomic_cas expects replacement expression")
+        local tv = api.as_type_value(ty or e.type or r.type, "atomic_cas expects type value")
+        return expr_value(Tr.ExprAtomicCas(Tr.ExprSurface, tv.ty, a.expr, e.expr, r.expr, C.AtomicSeqCst), tv, "atomic_cas(...)")
+    end
+
+    function api.atomic_store(addr, value, ty)
+        local a = coerce(addr, "atomic_store expects address expression")
+        local v = coerce(value, "atomic_store expects value expression")
+        local tv = api.as_type_value(ty or v.type, "atomic_store expects type value")
+        return Tr.StmtAtomicStore(Tr.StmtSurface, tv.ty, a.expr, v.expr, C.AtomicSeqCst)
+    end
+
+    function api.atomic_fence()
+        return Tr.StmtAtomicFence(Tr.StmtSurface, C.AtomicSeqCst)
+    end
+
     function api.addr_of(place)
         local p = api.as_place_value(place, "addr_of expects place value")
         local ty = p.type and api.ptr(p.type) or nil
@@ -199,6 +236,18 @@ function M.Install(api, session)
 
     function ExprValue:load(ty)
         return api.load(self, ty)
+    end
+
+    function ExprValue:atomic_load(ty)
+        return api.atomic_load(self, ty)
+    end
+
+    function ExprValue:atomic_rmw(op, value, ty)
+        return api.atomic_rmw(op, self, value, ty)
+    end
+
+    function ExprValue:atomic_cas(expected, replacement, ty)
+        return api.atomic_cas(self, expected, replacement, ty)
     end
 
     function api.intrinsic(op, args, ty)

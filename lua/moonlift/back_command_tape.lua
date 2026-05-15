@@ -65,6 +65,7 @@ local function int_sem_parts(s)
 end
 
 local function float_sem(s) return s.kind == "BackFloatFastMath" and "1" or "0" end
+local function atomic_ordering(o) return o.kind end
 local function append(out, xs) for i = 1, #xs do out[#out + 1] = xs[i] end end
 local function line(op, fields) local out = { op }; append(out, fields or {}); return table.concat(out, "\t") end
 
@@ -99,6 +100,11 @@ function M.Define(T)
         if k == "CmdPtrOffset" then local f = { id(cmd.dst) }; append(f, base_parts(cmd.base)); f[#f + 1] = id(cmd.index); f[#f + 1] = tostring(cmd.elem_size); f[#f + 1] = tostring(cmd.const_offset); return line(k, f) end
         if k == "CmdLoadInfo" then local f = { id(cmd.dst) }; append(f, shape_parts(cmd.ty)); append(f, addr_parts(cmd.addr)); append(f, mem_parts(cmd.memory)); return line(k, f) end
         if k == "CmdStoreInfo" then local f = {}; append(f, shape_parts(cmd.ty)); append(f, addr_parts(cmd.addr)); f[#f + 1] = id(cmd.value); append(f, mem_parts(cmd.memory)); return line(k, f) end
+        if k == "CmdAtomicLoad" then local f = { id(cmd.dst), scalar(cmd.ty) }; append(f, addr_parts(cmd.addr)); append(f, mem_parts(cmd.memory)); f[#f + 1] = atomic_ordering(cmd.ordering); return line(k, f) end
+        if k == "CmdAtomicStore" then local f = { scalar(cmd.ty) }; append(f, addr_parts(cmd.addr)); f[#f + 1] = id(cmd.value); append(f, mem_parts(cmd.memory)); f[#f + 1] = atomic_ordering(cmd.ordering); return line(k, f) end
+        if k == "CmdAtomicRmw" then local f = { id(cmd.dst), cmd.op.kind, scalar(cmd.ty) }; append(f, addr_parts(cmd.addr)); f[#f + 1] = id(cmd.value); append(f, mem_parts(cmd.memory)); f[#f + 1] = atomic_ordering(cmd.ordering); return line(k, f) end
+        if k == "CmdAtomicCas" then local f = { id(cmd.dst), scalar(cmd.ty) }; append(f, addr_parts(cmd.addr)); f[#f + 1] = id(cmd.expected); f[#f + 1] = id(cmd.replacement); append(f, mem_parts(cmd.memory)); f[#f + 1] = atomic_ordering(cmd.ordering); return line(k, f) end
+        if k == "CmdAtomicFence" then return line(k, { atomic_ordering(cmd.ordering) }) end
         if k == "CmdIntBinary" then local f = { id(cmd.dst), cmd.op.kind, scalar(cmd.scalar) }; append(f, int_sem_parts(cmd.semantics)); f[#f + 1] = id(cmd.lhs); f[#f + 1] = id(cmd.rhs); return line(k, f) end
         if k == "CmdBitBinary" or k == "CmdShift" or k == "CmdRotate" then return line(k, { id(cmd.dst), cmd.op.kind, scalar(cmd.scalar), id(cmd.lhs), id(cmd.rhs) }) end
         if k == "CmdBitNot" then return line(k, { id(cmd.dst), scalar(cmd.scalar), id(cmd.value) }) end

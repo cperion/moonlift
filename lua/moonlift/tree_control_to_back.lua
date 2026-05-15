@@ -331,6 +331,8 @@ function M.Define(T, base)
         [Tr.StmtLet] = function(self, env) return pvm.once(base.stmt_to_back:one_uncached(self, env)) end,
         [Tr.StmtVar] = function(self, env) return pvm.once(base.stmt_to_back:one_uncached(self, env)) end,
         [Tr.StmtSet] = function(self, env) return pvm.once(base.stmt_to_back:one_uncached(self, env)) end,
+        [Tr.StmtAtomicStore] = function(self, env) return pvm.once(base.stmt_to_back:one_uncached(self, env)) end,
+        [Tr.StmtAtomicFence] = function(self, env) return pvm.once(base.stmt_to_back:one_uncached(self, env)) end,
         [Tr.StmtExpr] = function(self, env) return pvm.once(base.stmt_to_back:one_uncached(self, env)) end,
         [Tr.StmtAssert] = function(self, env) return pvm.once(base.stmt_to_back:one_uncached(self, env)) end,
         [Tr.StmtReturnVoid] = function(self, env) return pvm.once(base.stmt_to_back:one_uncached(self, env)) end,

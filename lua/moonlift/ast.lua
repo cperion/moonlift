@@ -99,6 +99,10 @@ local intrinsic_ops = {
     fma = "IntrinsicFma", sqrt = "IntrinsicSqrt", abs = "IntrinsicAbs", floor = "IntrinsicFloor", ceil = "IntrinsicCeil", trunc_float = "IntrinsicTruncFloat", round = "IntrinsicRound",
     trap = "IntrinsicTrap", assume = "IntrinsicAssume",
 }
+local atomic_rmw_ops = {
+    add = "AtomicRmwAdd", sub = "AtomicRmwSub", band = "AtomicRmwAnd", and_ = "AtomicRmwAnd", ["and"] = "AtomicRmwAnd",
+    bor = "AtomicRmwOr", or_ = "AtomicRmwOr", ["or"] = "AtomicRmwOr", bxor = "AtomicRmwXor", xor = "AtomicRmwXor", xchg = "AtomicRmwXchg",
+}
 local cast_ops = {
     surface = "SurfaceCast", cast = "SurfaceCast", as = "SurfaceCast",
     trunc = "SurfaceTrunc", zext = "SurfaceZExt", sext = "SurfaceSExt", bitcast = "SurfaceBitcast", satcast = "SurfaceSatCast",
@@ -641,6 +645,9 @@ local function install(api, T)
     ---@param addr moonlift.ast.Expr Address expression.
     ---@return moonlift.ast.Expr
     function api.load(ty, addr) return Tr.ExprLoad(Tr.ExprSurface, as_type(ty, "load type"), as_expr(addr, "load addr")) end
+    function api.atomic_load(ty, addr) return Tr.ExprAtomicLoad(Tr.ExprSurface, as_type(ty, "atomic_load type"), as_expr(addr, "atomic_load addr"), C.AtomicSeqCst) end
+    function api.atomic_rmw(op, ty, addr, value) return Tr.ExprAtomicRmw(Tr.ExprSurface, C[assert(atomic_rmw_ops[op], "unknown atomic rmw op: " .. tostring(op))], as_type(ty, "atomic_rmw type"), as_expr(addr, "atomic_rmw addr"), as_expr(value, "atomic_rmw value"), C.AtomicSeqCst) end
+    function api.atomic_cas(ty, addr, expected, replacement) return Tr.ExprAtomicCas(Tr.ExprSurface, as_type(ty, "atomic_cas type"), as_expr(addr, "atomic_cas addr"), as_expr(expected, "atomic_cas expected"), as_expr(replacement, "atomic_cas replacement"), C.AtomicSeqCst) end
 
     -- View/domain nodes ----------------------------------------------------
 
@@ -753,6 +760,8 @@ local function install(api, T)
     ---@param value moonlift.ast.Expr Assigned value.
     ---@return moonlift.ast.Stmt
     function api.set(place, value) return Tr.StmtSet(Tr.StmtSurface, as_place(place, "set place"), as_expr(value, "set value")) end
+    function api.atomic_store(ty, addr, value) return Tr.StmtAtomicStore(Tr.StmtSurface, as_type(ty, "atomic_store type"), as_expr(addr, "atomic_store addr"), as_expr(value, "atomic_store value"), C.AtomicSeqCst) end
+    function api.atomic_fence() return Tr.StmtAtomicFence(Tr.StmtSurface, C.AtomicSeqCst) end
 
     ---Expression statement.
     ---@param expr moonlift.ast.Expr Expression to evaluate for effect.

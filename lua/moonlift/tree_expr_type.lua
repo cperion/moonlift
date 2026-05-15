@@ -114,6 +114,9 @@ function M.Define(T)
         [Tr.ExprClosure] = function(self) return header_or(self.h, Ty.TClosure(self.params, self.result)) end,
         [Tr.ExprView] = function(self) return header_or(self.h) end,
         [Tr.ExprLoad] = function(self) return pvm.once(self.ty) end,
+        [Tr.ExprAtomicLoad] = function(self) return pvm.once(self.ty) end,
+        [Tr.ExprAtomicRmw] = function(self) return pvm.once(self.ty) end,
+        [Tr.ExprAtomicCas] = function(self) return pvm.once(self.ty) end,
         [Tr.ExprSlotValue] = function(self) return header_or(self.h, self.slot.ty) end,
         [Tr.ExprUseExprFrag] = function(self) return header_or(self.h) end,
     })

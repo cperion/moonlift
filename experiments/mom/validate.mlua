@@ -1,0 +1,48 @@
+-- MOM validation: load all schema modules and report type counts.
+
+package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./experiments/?/?.lua;./experiments/?/init.lua;" .. package.path
+local Host = require("moonlift.mlua_run")
+local S = Host.dofile("experiments/mom/schema/init.lua")
+
+local function count_types(mod)
+    local n = 0
+    for k in pairs(mod) do
+        if type(k) == "string" and not k:match("^_") then
+            n = n + 1
+        end
+    end
+    return n
+end
+
+print("MOM schema — type counts")
+for name, mod in pairs(S) do
+    if type(name) == "string" and type(mod) == "table" then
+        print(string.format("  %-16s %3d types", name, count_types(mod)))
+    end
+end
+
+-- Validate specific expected types
+local C = S.MoonCore
+local B = S.MoonBack
+local CY = S.MoonCyclic
+
+assert(C.Scalar, "MoonCore.Scalar")
+assert(C.BinaryOp, "MoonCore.BinaryOp")
+assert(C.FuncSym, "MoonCore.FuncSym")
+
+assert(B.BackScalar, "MoonBack.BackScalar")
+assert(B.Cmd, "MoonBack.Cmd")
+assert(B.BackProgram, "MoonBack.BackProgram")
+
+assert(CY.Type, "MoonCyclic.Type")
+assert(CY.Expr, "MoonCyclic.Expr")
+assert(CY.Stmt, "MoonCyclic.Stmt")
+assert(CY.Binding, "MoonCyclic.Binding")
+assert(CY.MemLayout, "MoonCyclic.MemLayout")
+assert(CY.Func, "MoonCyclic.Func")
+assert(CY.Module, "MoonCyclic.Module")
+assert(CY.VecLoopFacts, "MoonCyclic.VecLoopFacts")
+assert(CY.HostTypeLayout, "MoonCyclic.HostTypeLayout")
+assert(CY.RegionFrag, "MoonCyclic.RegionFrag")
+
+print("All validations passed")

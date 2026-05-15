@@ -1,0 +1,3 @@
+-- MoonEditor: editor protocol types (stub)
+local M = {}
+return M

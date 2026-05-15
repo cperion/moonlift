@@ -1,0 +1,485 @@
+-- MOM native lexer core.
+--
+-- This is compiler-core code, not a Lua parser. Lua only stages this module.
+-- The exported lexer operates on a caller-provided source buffer and token
+-- output buffers. It returns the total token count required; callers allocate
+-- exactly or retry when returned count > capacity.
+
+local M = moon.module("mom_native_lexer")
+
+-- Token kind values intentionally mirror lua/moonlift/parse.lua TK for the
+-- current bootstrap bridge.
+local TK_EOF = 0
+local TK_NAME = 1
+local TK_INT = 2
+local TK_FLOAT = 3
+local TK_STRING = 4
+local TK_NL = 5
+local TK_HOLE = 6
+local TK_INVALID = 7
+local TK_LPAREN = 10
+local TK_RPAREN = 11
+local TK_LBRACK = 12
+local TK_RBRACK = 13
+local TK_LBRACE = 14
+local TK_RBRACE = 15
+local TK_COMMA = 16
+local TK_COLON = 17
+local TK_DOT = 18
+local TK_SEMI = 19
+local TK_PLUS = 20
+local TK_MINUS = 21
+local TK_STAR = 22
+local TK_SLASH = 23
+local TK_PERCENT = 24
+local TK_EQ = 25
+local TK_ARROW = 26
+local TK_EQEQ = 27
+local TK_NE = 28
+local TK_LT = 29
+local TK_LE = 30
+local TK_GT = 31
+local TK_GE = 32
+local TK_AMP = 33
+local TK_PIPE = 34
+local TK_CARET = 35
+local TK_TILDE = 36
+local TK_SHL = 37
+local TK_LSHR = 38
+local TK_ASHR = 39
+local TK_FUNC = 102
+local TK_TYPE = 106
+local TK_LET = 110
+local TK_VAR = 111
+local TK_IF = 112
+local TK_THEN = 113
+local TK_ELSEIF = 114
+local TK_ELSE = 115
+local TK_SWITCH = 116
+local TK_CASE = 117
+local TK_DEFAULT = 118
+local TK_DO = 119
+local TK_END = 120
+local TK_BLOCK = 130
+local TK_JUMP = 132
+local TK_YIELD = 133
+local TK_RETURN = 134
+local TK_REGION = 135
+local TK_ENTRY = 136
+local TK_EMIT = 137
+local TK_EXPR = 138
+local TK_TRUE = 140
+local TK_FALSE = 141
+local TK_NIL = 142
+local TK_AND = 143
+local TK_OR = 144
+local TK_NOT = 145
+local TK_VIEW = 150
+local TK_NOALIAS = 151
+local TK_READONLY = 152
+local TK_WRITEONLY = 153
+local TK_REQUIRES = 154
+local TK_BOUNDS = 155
+local TK_DISJOINT = 156
+local TK_LEN = 157
+local TK_SAME_LEN = 158
+local TK_WINDOW_BOUNDS = 159
+local TK_AS = 170
+local TK_STRUCT = 180
+local TK_UNION = 181
+local TK_EXTERN = 182
+
+local mom_is_alpha = func(c: i32) -> bool
+    return (c >= 65 and c <= 90) or (c >= 97 and c <= 122) or c == 95
+end
+
+local mom_is_digit = func(c: i32) -> bool
+    return c >= 48 and c <= 57
+end
+
+local mom_is_alnum = func(c: i32) -> bool
+    return mom_is_alpha(c) or mom_is_digit(c)
+end
+
+local mom_is_hex = func(c: i32) -> bool
+    return mom_is_digit(c) or (c >= 65 and c <= 70) or (c >= 97 and c <= 102)
+end
+
+local mom_byte_eq = func(p: ptr(u8), i: index, c: i32) -> bool
+    return as(i32, p[i]) == c
+end
+
+local mom_keyword_kind = func(p: ptr(u8), start: index, len: i32) -> i32
+    -- 2-byte keywords: if, do, or, as
+    if len == 2 then
+        if mom_byte_eq(p, start, 105) and mom_byte_eq(p, start + 1, 102) then return @{TK_IF} end
+        if mom_byte_eq(p, start, 100) and mom_byte_eq(p, start + 1, 111) then return @{TK_DO} end
+        if mom_byte_eq(p, start, 111) and mom_byte_eq(p, start + 1, 114) then return @{TK_OR} end
+        if mom_byte_eq(p, start, 97) and mom_byte_eq(p, start + 1, 115) then return @{TK_AS} end
+        return @{TK_NAME}
+    end
+
+    -- 3-byte keywords: end, let, var, nil, and, not
+    if len == 3 then
+        if mom_byte_eq(p, start, 101) and mom_byte_eq(p, start + 1, 110) and mom_byte_eq(p, start + 2, 100) then return @{TK_END} end
+        if mom_byte_eq(p, start, 108) and mom_byte_eq(p, start + 1, 101) and mom_byte_eq(p, start + 2, 116) then return @{TK_LET} end
+        if mom_byte_eq(p, start, 118) and mom_byte_eq(p, start + 1, 97) and mom_byte_eq(p, start + 2, 114) then return @{TK_VAR} end
+        if mom_byte_eq(p, start, 110) and mom_byte_eq(p, start + 1, 105) and mom_byte_eq(p, start + 2, 108) then return @{TK_NIL} end
+        if mom_byte_eq(p, start, 97) and mom_byte_eq(p, start + 1, 110) and mom_byte_eq(p, start + 2, 100) then return @{TK_AND} end
+        if mom_byte_eq(p, start, 110) and mom_byte_eq(p, start + 1, 111) and mom_byte_eq(p, start + 2, 116) then return @{TK_NOT} end
+        return @{TK_NAME}
+    end
+
+    -- 4-byte keywords: func, then, else, case, jump, view, true, type, emit, expr
+    if len == 4 then
+        if mom_byte_eq(p, start, 102) and mom_byte_eq(p, start + 1, 117) and mom_byte_eq(p, start + 2, 110) and mom_byte_eq(p, start + 3, 99) then return @{TK_FUNC} end
+        if mom_byte_eq(p, start, 116) and mom_byte_eq(p, start + 1, 104) and mom_byte_eq(p, start + 2, 101) and mom_byte_eq(p, start + 3, 110) then return @{TK_THEN} end
+        if mom_byte_eq(p, start, 101) and mom_byte_eq(p, start + 1, 108) and mom_byte_eq(p, start + 2, 115) and mom_byte_eq(p, start + 3, 101) then return @{TK_ELSE} end
+        if mom_byte_eq(p, start, 99) and mom_byte_eq(p, start + 1, 97) and mom_byte_eq(p, start + 2, 115) and mom_byte_eq(p, start + 3, 101) then return @{TK_CASE} end
+        if mom_byte_eq(p, start, 106) and mom_byte_eq(p, start + 1, 117) and mom_byte_eq(p, start + 2, 109) and mom_byte_eq(p, start + 3, 112) then return @{TK_JUMP} end
+        if mom_byte_eq(p, start, 118) and mom_byte_eq(p, start + 1, 105) and mom_byte_eq(p, start + 2, 101) and mom_byte_eq(p, start + 3, 119) then return @{TK_VIEW} end
+        if mom_byte_eq(p, start, 116) and mom_byte_eq(p, start + 1, 114) and mom_byte_eq(p, start + 2, 117) and mom_byte_eq(p, start + 3, 101) then return @{TK_TRUE} end
+        if mom_byte_eq(p, start, 116) and mom_byte_eq(p, start + 1, 121) and mom_byte_eq(p, start + 2, 112) and mom_byte_eq(p, start + 3, 101) then return @{TK_TYPE} end
+        if mom_byte_eq(p, start, 101) and mom_byte_eq(p, start + 1, 109) and mom_byte_eq(p, start + 2, 105) and mom_byte_eq(p, start + 3, 116) then return @{TK_EMIT} end
+        if mom_byte_eq(p, start, 101) and mom_byte_eq(p, start + 1, 120) and mom_byte_eq(p, start + 2, 112) and mom_byte_eq(p, start + 3, 114) then return @{TK_EXPR} end
+        return @{TK_NAME}
+    end
+
+    -- 5-byte keywords: elseif, false, block, yield, entry, union
+    if len == 5 then
+        if mom_byte_eq(p, start, 102) and mom_byte_eq(p, start + 1, 97) and mom_byte_eq(p, start + 2, 108) and mom_byte_eq(p, start + 3, 115) and mom_byte_eq(p, start + 4, 101) then return @{TK_FALSE} end
+        if mom_byte_eq(p, start, 98) and mom_byte_eq(p, start + 1, 108) and mom_byte_eq(p, start + 2, 111) and mom_byte_eq(p, start + 3, 99) and mom_byte_eq(p, start + 4, 107) then return @{TK_BLOCK} end
+        if mom_byte_eq(p, start, 121) and mom_byte_eq(p, start + 1, 105) and mom_byte_eq(p, start + 2, 101) and mom_byte_eq(p, start + 3, 108) and mom_byte_eq(p, start + 4, 100) then return @{TK_YIELD} end
+        if mom_byte_eq(p, start, 101) and mom_byte_eq(p, start + 1, 110) and mom_byte_eq(p, start + 2, 116) and mom_byte_eq(p, start + 3, 114) and mom_byte_eq(p, start + 4, 121) then return @{TK_ENTRY} end
+        if mom_byte_eq(p, start, 117) and mom_byte_eq(p, start + 1, 110) and mom_byte_eq(p, start + 2, 105) and mom_byte_eq(p, start + 3, 111) and mom_byte_eq(p, start + 4, 110) then return @{TK_UNION} end
+        return @{TK_NAME}
+    end
+
+    -- 6-byte keywords: switch, return, region, struct, extern, bounds
+    if len == 6 then
+        if mom_byte_eq(p, start, 115) and mom_byte_eq(p, start + 1, 119) and mom_byte_eq(p, start + 2, 105) and mom_byte_eq(p, start + 3, 116) and mom_byte_eq(p, start + 4, 99) and mom_byte_eq(p, start + 5, 104) then return @{TK_SWITCH} end
+        if mom_byte_eq(p, start, 114) and mom_byte_eq(p, start + 1, 101) and mom_byte_eq(p, start + 2, 116) and mom_byte_eq(p, start + 3, 117) and mom_byte_eq(p, start + 4, 114) and mom_byte_eq(p, start + 5, 110) then return @{TK_RETURN} end
+        if mom_byte_eq(p, start, 114) and mom_byte_eq(p, start + 1, 101) and mom_byte_eq(p, start + 2, 103) and mom_byte_eq(p, start + 3, 105) and mom_byte_eq(p, start + 4, 111) and mom_byte_eq(p, start + 5, 110) then return @{TK_REGION} end
+        if mom_byte_eq(p, start, 115) and mom_byte_eq(p, start + 1, 116) and mom_byte_eq(p, start + 2, 114) and mom_byte_eq(p, start + 3, 117) and mom_byte_eq(p, start + 4, 99) and mom_byte_eq(p, start + 5, 116) then return @{TK_STRUCT} end
+        if mom_byte_eq(p, start, 101) and mom_byte_eq(p, start + 1, 120) and mom_byte_eq(p, start + 2, 116) and mom_byte_eq(p, start + 3, 101) and mom_byte_eq(p, start + 4, 114) and mom_byte_eq(p, start + 5, 110) then return @{TK_EXTERN} end
+        if mom_byte_eq(p, start, 98) and mom_byte_eq(p, start + 1, 111) and mom_byte_eq(p, start + 2, 117) and mom_byte_eq(p, start + 3, 110) and mom_byte_eq(p, start + 4, 100) and mom_byte_eq(p, start + 5, 115) then return @{TK_BOUNDS} end
+        return @{TK_NAME}
+    end
+
+    -- 7-byte keywords: default, noalias
+    if len == 7 then
+        if mom_byte_eq(p, start, 100) and mom_byte_eq(p, start + 1, 101) and mom_byte_eq(p, start + 2, 102) and mom_byte_eq(p, start + 3, 97) and mom_byte_eq(p, start + 4, 117) and mom_byte_eq(p, start + 5, 108) and mom_byte_eq(p, start + 6, 116) then return @{TK_DEFAULT} end
+        if mom_byte_eq(p, start, 110) and mom_byte_eq(p, start + 1, 111) and mom_byte_eq(p, start + 2, 97) and mom_byte_eq(p, start + 3, 108) and mom_byte_eq(p, start + 4, 105) and mom_byte_eq(p, start + 5, 97) and mom_byte_eq(p, start + 6, 115) then return @{TK_NOALIAS} end
+        return @{TK_NAME}
+    end
+
+    -- 8-byte keywords: readonly, requires, disjoint, same_len
+    if len == 8 then
+        if mom_byte_eq(p, start, 114) and mom_byte_eq(p, start + 1, 101) and mom_byte_eq(p, start + 2, 97) and mom_byte_eq(p, start + 3, 100) and mom_byte_eq(p, start + 4, 111) and mom_byte_eq(p, start + 5, 110) and mom_byte_eq(p, start + 6, 108) and mom_byte_eq(p, start + 7, 121) then return @{TK_READONLY} end
+        if mom_byte_eq(p, start, 114) and mom_byte_eq(p, start + 1, 101) and mom_byte_eq(p, start + 2, 113) and mom_byte_eq(p, start + 3, 117) and mom_byte_eq(p, start + 4, 105) and mom_byte_eq(p, start + 5, 114) and mom_byte_eq(p, start + 6, 101) and mom_byte_eq(p, start + 7, 115) then return @{TK_REQUIRES} end
+        if mom_byte_eq(p, start, 100) and mom_byte_eq(p, start + 1, 105) and mom_byte_eq(p, start + 2, 115) and mom_byte_eq(p, start + 3, 106) and mom_byte_eq(p, start + 4, 111) and mom_byte_eq(p, start + 5, 105) and mom_byte_eq(p, start + 6, 110) and mom_byte_eq(p, start + 7, 116) then return @{TK_DISJOINT} end
+        if mom_byte_eq(p, start, 115) and mom_byte_eq(p, start + 1, 97) and mom_byte_eq(p, start + 2, 109) and mom_byte_eq(p, start + 3, 101) and mom_byte_eq(p, start + 4, 95) and mom_byte_eq(p, start + 5, 108) and mom_byte_eq(p, start + 6, 101) and mom_byte_eq(p, start + 7, 110) then return @{TK_SAME_LEN} end
+        return @{TK_NAME}
+    end
+
+    -- 9-byte keyword: writeonly
+    if len == 9 then
+        if mom_byte_eq(p, start, 119) and mom_byte_eq(p, start + 1, 114) and mom_byte_eq(p, start + 2, 105) and mom_byte_eq(p, start + 3, 116) and mom_byte_eq(p, start + 4, 101) and mom_byte_eq(p, start + 5, 111) and mom_byte_eq(p, start + 6, 110) and mom_byte_eq(p, start + 7, 108) and mom_byte_eq(p, start + 8, 121) then return @{TK_WRITEONLY} end
+        return @{TK_NAME}
+    end
+
+    -- 14-byte keyword: window_bounds
+    if len == 13 then
+        if mom_byte_eq(p, start, 119) and mom_byte_eq(p, start + 1, 105) and mom_byte_eq(p, start + 2, 110) and mom_byte_eq(p, start + 3, 100) and mom_byte_eq(p, start + 4, 111) and mom_byte_eq(p, start + 5, 119) and mom_byte_eq(p, start + 6, 95) and mom_byte_eq(p, start + 7, 98) and mom_byte_eq(p, start + 8, 111) and mom_byte_eq(p, start + 9, 117) and mom_byte_eq(p, start + 10, 110) and mom_byte_eq(p, start + 11, 100) and mom_byte_eq(p, start + 12, 115) then return @{TK_WINDOW_BOUNDS} end
+        return @{TK_NAME}
+    end
+
+    return @{TK_NAME}
+end
+
+local mom_scan_string_stop = func(p: ptr(u8), n: index, i0: index, quote: i32) -> index
+    return block loop(i: index = i0 + 1) -> index
+        if i >= n then yield n end
+        let c: i32 = as(i32, p[i])
+        if c == 92 then
+            if i + 1 >= n then yield n end
+            jump loop(i = i + 2)
+        end
+        if c == quote then yield i + 1 end
+        if c == 10 then yield i end
+        jump loop(i = i + 1)
+    end
+end
+
+local mom_scan_line_comment_stop = func(p: ptr(u8), n: index, i0: index) -> index
+    return block loop(i: index = i0 + 2) -> index
+        if i >= n then yield n end
+        if as(i32, p[i]) == 10 then yield i end
+        jump loop(i = i + 1)
+    end
+end
+
+local mom_scan_antiquote_close = func(p: ptr(u8), n: index, brace_i: index) -> index
+    return block loop(i: index = brace_i + 1, depth: i32 = 1) -> index
+        if i >= n then yield n end
+        let c: i32 = as(i32, p[i])
+        if c == 34 or c == 39 then
+            jump loop(i = mom_scan_string_stop(p, n, i, c), depth = depth)
+        end
+        if c == 45 then
+            if i + 1 < n then
+                if as(i32, p[i + 1]) == 45 then
+                    jump loop(i = mom_scan_line_comment_stop(p, n, i), depth = depth)
+                end
+            end
+        end
+        if c == 123 then jump loop(i = i + 1, depth = depth + 1) end
+        if c == 125 then
+            if depth == 1 then yield i end
+            jump loop(i = i + 1, depth = depth - 1)
+        end
+        jump loop(i = i + 1, depth = depth)
+    end
+end
+
+local mom_scan_ident_stop = func(p: ptr(u8), n: index, i0: index) -> index
+    return block loop(i: index = i0 + 1) -> index
+        if i >= n then yield n end
+        let c: i32 = as(i32, p[i])
+        if not mom_is_alnum(c) then yield i end
+        jump loop(i = i + 1)
+    end
+end
+
+local mom_scan_number_stop = func(p: ptr(u8), n: index, i0: index) -> index
+    return region -> index
+    entry start()
+        if i0 + 1 < n then
+            if as(i32, p[i0]) == 48 then
+                let c1: i32 = as(i32, p[i0 + 1])
+                if c1 == 120 or c1 == 88 then jump hex(i = i0 + 2) end
+            end
+        end
+        jump int_part(i = i0 + 1)
+    end
+    block hex(i: index)
+        if i >= n then yield i end
+        let c: i32 = as(i32, p[i])
+        if mom_is_hex(c) or c == 95 then jump hex(i = i + 1) end
+        yield i
+    end
+    block int_part(i: index)
+        if i >= n then yield i end
+        let c: i32 = as(i32, p[i])
+        if mom_is_digit(c) or c == 95 then jump int_part(i = i + 1) end
+        if c == 46 then
+            if i + 1 < n then
+                if as(i32, p[i + 1]) == 46 then yield i end
+            end
+            jump frac(i = i + 1)
+        end
+        if c == 101 or c == 69 then jump exp_sign(i = i + 1) end
+        yield i
+    end
+    block frac(i: index)
+        if i >= n then yield i end
+        let c: i32 = as(i32, p[i])
+        if mom_is_digit(c) or c == 95 then jump frac(i = i + 1) end
+        if c == 101 or c == 69 then jump exp_sign(i = i + 1) end
+        yield i
+    end
+    block exp_sign(i: index)
+        if i >= n then yield i end
+        let c: i32 = as(i32, p[i])
+        if c == 43 or c == 45 then jump exp_digits(i = i + 1) end
+        jump exp_digits(i = i)
+    end
+    block exp_digits(i: index)
+        if i >= n then yield i end
+        let c: i32 = as(i32, p[i])
+        if mom_is_digit(c) or c == 95 then jump exp_digits(i = i + 1) end
+        yield i
+    end
+    end
+end
+
+local mom_number_kind = func(p: ptr(u8), start: index, stop: index) -> i32
+    return block loop(i: index = start) -> i32
+        if i >= stop then yield @{TK_INT} end
+        let c: i32 = as(i32, p[i])
+        if c == 46 or c == 101 or c == 69 then yield @{TK_FLOAT} end
+        jump loop(i = i + 1)
+    end
+end
+
+local mom_emit_token = func(kind: i32, start: index, stop: index, line: i32, col: i32,
+                            count: index, cap: index,
+                            kinds: ptr(i32), starts: ptr(i32), stops: ptr(i32), lines: ptr(i32), cols: ptr(i32)) -> index
+    if count < cap then
+        kinds[count] = kind
+        starts[count] = as(i32, start)
+        stops[count] = as(i32, stop)
+        lines[count] = line
+        cols[count] = col
+    end
+    return count + 1
+end
+
+local mom_lex_into = func(p: ptr(u8), n: index,
+                          kinds: ptr(i32), starts: ptr(i32), stops: ptr(i32), lines: ptr(i32), cols: ptr(i32),
+                          cap: index) -> index
+    return region -> index
+    entry loop(i: index = 0, line: i32 = 1, col: i32 = 1, count: index = 0)
+        if i >= n then
+            yield mom_emit_token(@{TK_EOF}, i, i, line, col, count, cap, kinds, starts, stops, lines, cols)
+        end
+
+        let c: i32 = as(i32, p[i])
+
+        -- horizontal whitespace
+        if c == 32 or c == 9 or c == 13 then
+            jump loop(i = i + 1, line = line, col = col + 1, count = count)
+        end
+
+        -- newline is significant to the parser
+        if c == 10 then
+            let count2: index = mom_emit_token(@{TK_NL}, i, i + 1, line, col, count, cap, kinds, starts, stops, lines, cols)
+            jump loop(i = i + 1, line = line + 1, col = 1, count = count2)
+        end
+
+        -- comments
+        if c == 45 then
+            if i + 1 < n then
+                if as(i32, p[i + 1]) == 45 then
+                    let j: index = mom_scan_line_comment_stop(p, n, i)
+                    jump loop(i = j, line = line, col = col + as(i32, j - i), count = count)
+                end
+            end
+        end
+
+        -- antiquote hole: @{...}
+        if c == 64 then
+            if i + 1 < n then
+                if as(i32, p[i + 1]) == 123 then
+                    let close: index = mom_scan_antiquote_close(p, n, i + 1)
+                    if close < n then
+                        let count2: index = mom_emit_token(@{TK_HOLE}, i, close + 1, line, col, count, cap, kinds, starts, stops, lines, cols)
+                        jump loop(i = close + 1, line = line, col = col + as(i32, close + 1 - i), count = count2)
+                    end
+                    let count_bad: index = mom_emit_token(@{TK_INVALID}, i, n, line, col, count, cap, kinds, starts, stops, lines, cols)
+                    jump loop(i = n, line = line, col = col + as(i32, n - i), count = count_bad)
+                end
+            end
+        end
+
+        -- identifiers / keywords
+        if mom_is_alpha(c) then
+            let j: index = mom_scan_ident_stop(p, n, i)
+            let kind: i32 = mom_keyword_kind(p, i, as(i32, j - i))
+            let count2: index = mom_emit_token(kind, i, j, line, col, count, cap, kinds, starts, stops, lines, cols)
+            jump loop(i = j, line = line, col = col + as(i32, j - i), count = count2)
+        end
+
+        -- numbers
+        if mom_is_digit(c) then
+            let j: index = mom_scan_number_stop(p, n, i)
+            let kind: i32 = mom_number_kind(p, i, j)
+            let count2: index = mom_emit_token(kind, i, j, line, col, count, cap, kinds, starts, stops, lines, cols)
+            jump loop(i = j, line = line, col = col + as(i32, j - i), count = count2)
+        end
+
+        -- strings
+        if c == 34 or c == 39 then
+            let j: index = mom_scan_string_stop(p, n, i, c)
+            let count2: index = mom_emit_token(@{TK_STRING}, i, j, line, col, count, cap, kinds, starts, stops, lines, cols)
+            jump loop(i = j, line = line, col = col + as(i32, j - i), count = count2)
+        end
+
+        -- three-byte operator >>>
+        if c == 62 then
+            if i + 2 < n then
+                if as(i32, p[i + 1]) == 62 and as(i32, p[i + 2]) == 62 then
+                    let count2: index = mom_emit_token(@{TK_LSHR}, i, i + 3, line, col, count, cap, kinds, starts, stops, lines, cols)
+                    jump loop(i = i + 3, line = line, col = col + 3, count = count2)
+                end
+            end
+        end
+
+        -- two-byte operators
+        if i + 1 < n then
+            let d: i32 = as(i32, p[i + 1])
+            if c == 45 and d == 62 then
+                let count2: index = mom_emit_token(@{TK_ARROW}, i, i + 2, line, col, count, cap, kinds, starts, stops, lines, cols)
+                jump loop(i = i + 2, line = line, col = col + 2, count = count2)
+            end
+            if c == 61 and d == 61 then
+                let count2: index = mom_emit_token(@{TK_EQEQ}, i, i + 2, line, col, count, cap, kinds, starts, stops, lines, cols)
+                jump loop(i = i + 2, line = line, col = col + 2, count = count2)
+            end
+            if c == 126 and d == 61 then
+                let count2: index = mom_emit_token(@{TK_NE}, i, i + 2, line, col, count, cap, kinds, starts, stops, lines, cols)
+                jump loop(i = i + 2, line = line, col = col + 2, count = count2)
+            end
+            if c == 60 and d == 61 then
+                let count2: index = mom_emit_token(@{TK_LE}, i, i + 2, line, col, count, cap, kinds, starts, stops, lines, cols)
+                jump loop(i = i + 2, line = line, col = col + 2, count = count2)
+            end
+            if c == 62 and d == 61 then
+                let count2: index = mom_emit_token(@{TK_GE}, i, i + 2, line, col, count, cap, kinds, starts, stops, lines, cols)
+                jump loop(i = i + 2, line = line, col = col + 2, count = count2)
+            end
+            if c == 60 and d == 60 then
+                let count2: index = mom_emit_token(@{TK_SHL}, i, i + 2, line, col, count, cap, kinds, starts, stops, lines, cols)
+                jump loop(i = i + 2, line = line, col = col + 2, count = count2)
+            end
+            if c == 62 and d == 62 then
+                let count2: index = mom_emit_token(@{TK_ASHR}, i, i + 2, line, col, count, cap, kinds, starts, stops, lines, cols)
+                jump loop(i = i + 2, line = line, col = col + 2, count = count2)
+            end
+        end
+
+        -- one-byte tokens and invalid fallback
+        let kind1: i32 = select(c == 40, @{TK_LPAREN},
+                          select(c == 41, @{TK_RPAREN},
+                          select(c == 91, @{TK_LBRACK},
+                          select(c == 93, @{TK_RBRACK},
+                          select(c == 123, @{TK_LBRACE},
+                          select(c == 125, @{TK_RBRACE},
+                          select(c == 44, @{TK_COMMA},
+                          select(c == 58, @{TK_COLON},
+                          select(c == 46, @{TK_DOT},
+                          select(c == 59, @{TK_SEMI},
+                          select(c == 43, @{TK_PLUS},
+                          select(c == 45, @{TK_MINUS},
+                          select(c == 42, @{TK_STAR},
+                          select(c == 47, @{TK_SLASH},
+                          select(c == 37, @{TK_PERCENT},
+                          select(c == 61, @{TK_EQ},
+                          select(c == 60, @{TK_LT},
+                          select(c == 62, @{TK_GT},
+                          select(c == 38, @{TK_AMP},
+                          select(c == 124, @{TK_PIPE},
+                          select(c == 94, @{TK_CARET},
+                          select(c == 126, @{TK_TILDE}, @{TK_INVALID}))))))))))))))))))))))
+        let count2: index = mom_emit_token(kind1, i, i + 1, line, col, count, cap, kinds, starts, stops, lines, cols)
+        jump loop(i = i + 1, line = line, col = col + 1, count = count2)
+    end
+    end
+end
+
+M:add_func(mom_is_alpha)
+M:add_func(mom_is_digit)
+M:add_func(mom_is_alnum)
+M:add_func(mom_is_hex)
+M:add_func(mom_byte_eq)
+M:add_func(mom_keyword_kind)
+M:add_func(mom_scan_string_stop)
+M:add_func(mom_scan_line_comment_stop)
+M:add_func(mom_scan_antiquote_close)
+M:add_func(mom_scan_ident_stop)
+M:add_func(mom_scan_number_stop)
+M:add_func(mom_number_kind)
+M:add_func(mom_emit_token)
+M:add_func(mom_lex_into)
+
+return M

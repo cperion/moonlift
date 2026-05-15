@@ -167,6 +167,9 @@ function M.Define(T)
         [Tr.ExprClosure] = function(self) return each(stmt_facts, self.body) end,
         [Tr.ExprView] = function(self) return view_facts(self.view) end,
         [Tr.ExprLoad] = function(self) return expr_facts(self.addr) end,
+        [Tr.ExprAtomicLoad] = function(self) return expr_facts(self.addr) end,
+        [Tr.ExprAtomicRmw] = function(self) return cat({ pack(expr_facts(self.addr)), pack(expr_facts(self.value)) }) end,
+        [Tr.ExprAtomicCas] = function(self) return cat({ pack(expr_facts(self.addr)), pack(expr_facts(self.expected)), pack(expr_facts(self.replacement)) }) end,
         [Tr.ExprSlotValue] = function() return pvm.empty() end,
         [Tr.ExprUseExprFrag] = function(self) return each(expr_facts, self.args) end,
     })
@@ -175,6 +178,8 @@ function M.Define(T)
         [Tr.StmtLet] = function(self) return cat({ pack(binding_facts(self.binding)), pack(expr_facts(self.init)) }) end,
         [Tr.StmtVar] = function(self) return cat({ pack(binding_facts(self.binding)), pack(pvm.once(B.ResidenceFactMutableCell(self.binding))), pack(expr_facts(self.init)) }) end,
         [Tr.StmtSet] = function(self) return cat({ pack(place_facts(self.place)), pack(expr_facts(self.value)) }) end,
+        [Tr.StmtAtomicStore] = function(self) return cat({ pack(expr_facts(self.addr)), pack(expr_facts(self.value)) }) end,
+        [Tr.StmtAtomicFence] = function() return pvm.empty() end,
         [Tr.StmtExpr] = function(self) return expr_facts(self.expr) end,
         [Tr.StmtAssert] = function(self) return expr_facts(self.cond) end,
         [Tr.StmtIf] = function(self) return cat({ pack(expr_facts(self.cond)), pack(each(stmt_facts, self.then_body)), pack(each(stmt_facts, self.else_body)) }) end,

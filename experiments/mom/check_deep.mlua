@@ -1,0 +1,168 @@
+-- Deep correctness: compare every ASDL product/sum field-by-field against MOM.
+
+package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./experiments/?/?.lua;./experiments/?/init.lua;" .. package.path
+
+local Host = require("moonlift.mlua_run")
+local pvm = require("moonlift.pvm")
+local A2 = require("moonlift.asdl")
+local Builder = require("moonlift.asdl_builder")
+
+-- Build reference ASDL schema
+local T = pvm.context()
+A2.Define(T)
+local A = Builder.Define(T)
+local Schema = require("moonlift.schema")
+local schema = Schema.schema(T)
+
+-- Build module-name -> decl map from Lua schema
+local function build_lua_schema_index()
+    local idx = {}
+    for i = 1, #schema.modules do
+        local mod = schema.modules[i]
+        local decls = {}
+        for j = 1, #mod.decls do
+            decls[mod.decls[j].name] = mod.decls[j]
+        end
+        idx[mod.name] = decls
+    end
+    return idx
+end
+
+local lua_idx = build_lua_schema_index()
+
+-- Load MOM types
+local S = Host.dofile("experiments/mom/schema/init.lua")
+
+-- Map Lua module names to MOM module tables
+local mom_map = {
+    MoonCore = S.MoonCore,
+    MoonBack = S.MoonBack,
+    MoonSource = S.MoonSource,
+    MoonLink = S.MoonLink,
+    MoonOpen = S.MoonCyclic,
+    MoonType = S.MoonCyclic,
+    MoonBind = S.MoonCyclic,
+    MoonSem = S.MoonCyclic,
+    MoonTree = S.MoonCyclic,
+    MoonVec = S.MoonCyclic,
+    MoonHost = S.MoonCyclic,
+    MoonParse = S.MoonCyclic,
+    MoonDasm = S.MoonDasm,
+    MoonMlua = S.MoonMlua,
+    MoonEditor = S.MoonEditorLspRpc,
+    MoonLsp = S.MoonEditorLspRpc,
+    MoonRpc = S.MoonEditorLspRpc,
+}
+
+-- Convert Lua schema type expr to a readable name
+local function type_expr_name(ty)
+    local cls = pvm.classof(ty)
+    if cls == T.MoonAsdl.TypeBuiltin then return ty.name end
+    if cls == T.MoonAsdl.TypeName then return ty.module_name .. "." .. ty.name end
+    if cls == T.MoonAsdl.TypeRelativeName then return ty.name end
+    if cls == T.MoonAsdl.TypeList then return type_expr_name(ty.elem) .. "*" end
+    if cls == T.MoonAsdl.TypeOptional then return type_expr_name(ty.elem) .. "?" end
+    return "?"
+end
+
+-- Find a MOM type value by name
+local function mom_type_value(name)
+    for _, mod in pairs(mom_map) do
+        if mod and mod[name] ~= nil then return mod[name] end
+    end
+    return nil, "not found anywhere"
+end
+
+local total = 0
+local passed = 0
+local failed = 0
+local failures = {}
+
+local function check(cond, msg)
+    total = total + 1
+    if cond then
+        passed = passed + 1
+    else
+        failed = failed + 1
+        failures[#failures + 1] = msg
+    end
+end
+
+print("=== Deep field-by-field validation ===\n")
+
+-- Process each Lua schema module
+for i = 1, #schema.modules do
+    local mod = schema.modules[i]
+    local modname = mod.name
+    local mom_mod = mom_map[modname]
+
+    if mom_mod == nil then
+        check(false, modname .. ": no MOM module mapped")
+        goto continue
+    end
+
+    for j = 1, #mod.decls do
+        local decl = mod.decls[j]
+        local dname = decl.name
+        local cls = pvm.classof(decl)
+
+        local mom_val = mom_type_value(dname)
+        if mom_val == nil then
+            check(false, modname .. "." .. dname .. ": MOM type not found")
+            goto next_decl
+        end
+
+        if cls == T.MoonAsdl.ProductDecl then
+            -- Struct: check all fields exist on MOM value
+            local mom_fields = (mom_val.decl and mom_val.decl.fields) or {}
+            -- Build MOM field name set
+            local mom_field_names = {}
+            for f = 1, #mom_fields do
+                if type(mom_fields[f]) == "table" and mom_fields[f].field_name then
+                    mom_field_names[mom_fields[f].field_name] = true
+                end
+            end
+            for f = 1, #decl.fields do
+                local field = decl.fields[f]
+                local ok = mom_field_names[field.name] == true
+                check(ok, modname .. "." .. dname .. ": missing field '" .. field.name .. "' (" .. type_expr_name(field.ty) .. ") in MOM")
+            end
+
+        elseif cls == T.MoonAsdl.SumDecl then
+            -- Union: check all variants exist on MOM value
+            local pv = mom_val.protocol_variants
+            if not pv then
+                check(false, modname .. "." .. dname .. ": no protocol_variants in MOM")
+            else
+                -- Build name set from MOM protocol_variants
+                local mom_vnames = {}
+                for v = 1, #pv do
+                    mom_vnames[pv[v].name] = true
+                end
+                for v = 1, #decl.variants do
+                    local variant = decl.variants[v]
+                    local ok = mom_vnames[variant.name] == true
+                    check(ok, modname .. "." .. dname .. ": missing variant '" .. variant.name .. "' in MOM")
+                end
+            end
+        end
+    end
+    ::continue::
+    ::next_decl::
+end
+
+print("Results: " .. passed .. " passed, " .. failed .. " failed, " .. total .. " total\n")
+
+if #failures > 0 then
+    print("Failures:")
+    for _, msg in ipairs(failures) do
+        print("  " .. msg)
+    end
+    print()
+end
+
+if failed == 0 then
+    print("=== ALL CHECKS PASSED ===")
+else
+    print("=== " .. failed .. "/" .. total .. " FAILURES ===")
+end

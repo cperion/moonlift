@@ -1,0 +1,199 @@
+-- MoonDasm: DynASM backend lowering types
+
+local Bk = require("mom.schema.MoonBack")
+
+local M = {}
+
+M.DModuleId = struct DModuleId text: ptr(u8) end
+M.DBlockId = struct DBlockId text: ptr(u8) end
+M.DValId = struct DValId text: ptr(u8) end
+M.DLabelId = struct DLabelId text: ptr(u8) end
+M.DVirtualRegId = struct DVirtualRegId text: ptr(u8) end
+M.DPhysRegId = struct DPhysRegId number: i32 end
+
+M.DRegClass = union DRegClass | DGpr | DXmm | DFlags end
+
+M.DValueClass = union DValueClass
+    | DValueGpr(scalar: Bk.BackScalar)
+    | DValueXmm(scalar: Bk.BackScalar)
+    | DValueFlags
+    | DValueVector(elem: Bk.BackScalar, lanes: i32)
+end
+
+M.DSigEntry = struct DSigEntry key: ptr(u8); params: view(Bk.BackScalar); results: view(Bk.BackScalar) end
+M.DFuncEntry = struct DFuncEntry key: ptr(u8); sig: ptr(u8); visibility: ptr(u8); body: view(Bk.Cmd) end
+M.DExternEntry = struct DExternEntry key: ptr(u8); symbol: ptr(u8); sig: ptr(u8) end
+M.DDataEntry = struct DDataEntry key: ptr(u8); buf: i32; size: i32; align: i32 end
+
+M.DLabelPair = struct DLabelPair key: ptr(u8); label: ptr(u8) end
+
+M.DLabelMap = struct DLabelMap funcs: view(M.DLabelPair); externs: view(M.DLabelPair); datas: view(M.DLabelPair) end
+
+M.DPhaseModule = struct DPhaseModule
+    sigs: view(M.DSigEntry)
+    funcs: view(M.DFuncEntry)
+    externs: view(M.DExternEntry)
+    datas: view(M.DDataEntry)
+    func_order: view(ptr(u8))
+    extern_order: view(ptr(u8))
+    data_order: view(ptr(u8))
+    labels: M.DLabelMap
+end
+
+M.DTargetFacts = struct DTargetFacts target: Bk.BackTargetModel; pointer_bits: i32; index_bits: i32; endianness: ptr(u8); features: view(ptr(u8)) end
+
+M.DFuncBody = struct DFuncBody func: Bk.BackFuncId; cmds: view(Bk.Cmd) end
+M.DPhaseFunc = struct DPhaseFunc func: Bk.BackFuncId; cmds: view(Bk.Cmd) end
+M.DScalarMapEntry = struct DScalarMapEntry key: ptr(u8); scalar: ptr(u8) end
+
+M.DTypedFunc = struct DTypedFunc func: Bk.BackFuncId; cmds: view(Bk.Cmd); value_scalars: view(M.DScalarMapEntry) end
+
+M.DBlockParam = struct DBlockParam value: Bk.BackValId; ty: Bk.BackShape end
+M.DEdgeArg = struct DEdgeArg src: Bk.BackValId; dst_param: Bk.BackValId end
+M.DSwitchCase = struct DSwitchCase raw: ptr(u8); dest: Bk.BackBlockId end
+
+M.DTerminator = union DTerminator
+    | DTermJump(dest: Bk.BackBlockId, args: view(M.DEdgeArg))
+    | DTermBrIf(cond: Bk.BackValId, then_block: Bk.BackBlockId, then_args: view(M.DEdgeArg), else_block: Bk.BackBlockId, else_args: view(M.DEdgeArg))
+    | DTermSwitch(value: Bk.BackValId, ty: Bk.BackScalar, cases: view(M.DSwitchCase), default_dest: Bk.BackBlockId)
+    | DTermReturnVoid
+    | DTermReturnValue(value: Bk.BackValId)
+    | DTermTrap
+end
+
+M.DCfgBlock = struct DCfgBlock id: Bk.BackBlockId; params: view(M.DBlockParam); body: view(Bk.Cmd); term: M.DTerminator end
+
+M.DFuncCFG = struct DFuncCFG func: Bk.BackFuncId; sig: Bk.BackSigId; entry: Bk.BackBlockId; blocks: view(M.DCfgBlock); stack_slots: view(Bk.BackStackSlotId) end
+
+M.DValueFact = union DValueFact
+    | DValueShapeFact(value: Bk.BackValId, shape: Bk.BackShape)
+    | DValueClassFact(value: Bk.BackValId, class: M.DValueClass)
+    | DValueDefFact(value: Bk.BackValId, block: Bk.BackBlockId, index: i32)
+    | DValueUseFact(value: Bk.BackValId, block: Bk.BackBlockId, index: i32, slot: i32)
+    | DValueConstIntFact(value: Bk.BackValId, raw: ptr(u8))
+    | DValueConstFloatFact(value: Bk.BackValId, raw: ptr(u8))
+end
+
+M.DEdgeKind = union DEdgeKind | DEdgeEntry | DEdgeJump | DEdgeThen | DEdgeElse | DEdgeSwitchCase | DEdgeSwitchDefault | DEdgeCriticalSplit end
+
+M.DEdgeRef = struct DEdgeRef pred: Bk.BackBlockId; succ: Bk.BackBlockId; kind: M.DEdgeKind; ordinal: i32 end
+
+M.DParallelMove = struct DParallelMove dst: Bk.BackValId; src: Bk.BackValId; class: M.DValueClass end
+M.DParallelCopy = struct DParallelCopy edge: M.DEdgeRef; moves: view(M.DParallelMove) end
+
+M.DControlFact = union DControlFact
+    | DControlEdgeFact(edge: M.DEdgeRef, args: view(M.DEdgeArg))
+    | DParallelCopyFact(copy: M.DParallelCopy)
+end
+
+M.DMemoryFact = union DMemoryFact
+    | DMemoryLoadFact(dst: Bk.BackValId, addr: Bk.BackAddress, memory: Bk.BackMemoryInfo, ty: Bk.BackShape)
+    | DMemoryStoreFact(addr: Bk.BackAddress, value: Bk.BackValId, memory: Bk.BackMemoryInfo, ty: Bk.BackShape)
+    | DMemoryAliasFact(fact: Bk.BackAliasFact)
+end
+
+M.DCallFact = union DCallFact
+    | DCallSiteFact(index: i32, sig: Bk.BackSigId, target: Bk.BackCallTarget, args: view(Bk.BackValId))
+    | DCallClobberFact(index: i32, clobbers: view(M.DPhysRegId))
+end
+
+M.DFuncFacts = struct DFuncFacts cfg: M.DFuncCFG; value_facts: view(M.DValueFact); control_facts: view(M.DControlFact); memory_facts: view(M.DMemoryFact); call_facts: view(M.DCallFact) end
+
+M.DConstKind = union DConstKind | DConstUnknown | DConstInt(raw: ptr(u8)) | DConstFloat(raw: ptr(u8)) | DConstBool(value: bool) | DConstNull end
+M.DAddrBaseKind = union DAddrBaseKind | DBaseValue | DBaseStack | DBaseData | DBaseUnknown end
+
+M.DFamilyKind = union DFamilyKind | DFamilyCopy | DFamilyIntBin | DFamilyBitBin | DFamilyShiftRotate | DFamilyCompareBranch | DFamilyLoadStore | DFamilyAddress | DFamilyCall | DFamilyControl | DFamilyReturn | DFamilyOther end
+
+M.DFamilyKey = union DFamilyKey
+    | DKeyCopy(class: M.DValueClass, src_const: M.DConstKind, same_value: bool)
+    | DKeyIntBin(op: ptr(u8), scalar: Bk.BackScalar, lhs_const: M.DConstKind, rhs_const: M.DConstKind, commutative: bool, rhs_pow2: bool)
+    | DKeyBitBin(op: ptr(u8), scalar: Bk.BackScalar, rhs_const: M.DConstKind)
+    | DKeyShiftRotate(op: ptr(u8), scalar: Bk.BackScalar, rhs_const: M.DConstKind, rhs_small_imm: bool)
+    | DKeyCompareBranch(op: ptr(u8), scalar: Bk.BackScalar, rhs_const: M.DConstKind, fused_branch: bool, rhs_is_zero: bool)
+    | DKeyLoadStore(is_load: bool, shape: Bk.BackShape, base_kind: M.DAddrBaseKind, has_index: bool, const_disp: bool, align_bytes: i32)
+    | DKeyAddress(base_kind: M.DAddrBaseKind, elem_size: i32, const_offset: i32)
+    | DKeyCall(target_kind: ptr(u8), argc: i32, has_result: bool, result_class: M.DValueClass)
+    | DKeyControl(kind: ptr(u8))
+    | DKeyReturn(has_value: bool, class: M.DValueClass)
+    | DKeyOther(kind: ptr(u8))
+end
+
+M.DFamilyInstance = struct DFamilyInstance cmd_index: i32; block: Bk.BackBlockId; family: M.DFamilyKind; key: M.DFamilyKey end
+
+M.DFactAtom = union DFactAtom
+    | DFactCmdKind(cmd_index: i32, kind: ptr(u8))
+    | DFactValueShape(value: Bk.BackValId, shape: Bk.BackShape)
+    | DFactValueClass(value: Bk.BackValId, class: M.DValueClass)
+    | DFactValueConst(value: Bk.BackValId, const_kind: M.DConstKind)
+    | DFactUse(value: Bk.BackValId, cmd_index: i32, slot: i32)
+    | DFactDef(value: Bk.BackValId, cmd_index: i32)
+    | DFactBlockAt(cmd_index: i32, block: Bk.BackBlockId)
+end
+
+M.DFactSet = struct DFactSet func: Bk.BackFuncId; cmds: view(Bk.Cmd); atoms: view(M.DFactAtom); families: view(M.DFamilyInstance) end
+
+M.DLowerDecision = struct DLowerDecision cmd_index: i32; rule: ptr(u8); cost: i32; shape: M.DAsmShape end
+
+M.DLoweredFunc = struct DLoweredFunc func: Bk.BackFuncId; cmds: view(Bk.Cmd); facts: M.DFactSet; decisions: view(M.DLowerDecision); asm: M.DAsmFunc end
+
+M.DAsmShape = union DAsmShape
+    | DAsmLabel(label: M.DLabelId)
+    | DAsmMove(dst: M.DOperand, src: M.DOperand, class: M.DValueClass)
+    | DAsmUnary(op: ptr(u8), dst: M.DOperand, src: M.DOperand, scalar: Bk.BackScalar)
+    | DAsmBinary(op: ptr(u8), dst: M.DOperand, lhs: M.DOperand, rhs: M.DOperand, scalar: Bk.BackScalar)
+    | DAsmCompareSet(cc: M.DCondCode, dst: M.DOperand, lhs: M.DOperand, rhs: M.DOperand, scalar: Bk.BackScalar)
+    | DAsmLoad(dst: M.DOperand, addr: M.DOperand, ty: Bk.BackShape)
+    | DAsmStore(addr: M.DOperand, value: M.DOperand, ty: Bk.BackShape)
+    | DAsmLea(dst: M.DOperand, addr: M.DOperand)
+    | DAsmJump(dest: M.DLabelId)
+    | DAsmBrIf(cond: M.DOperand, then_label: M.DLabelId, else_label: M.DLabelId)
+    | DAsmCall(target: M.DOperand, args: view(M.DOperand), result: M.DOperand)
+    | DAsmRetVoid
+    | DAsmRetValue(value: M.DOperand)
+    | DAsmPrologue | DAsmEpilogue | DAsmTrap
+    | DAsmComment(text: ptr(u8))
+end
+
+M.DAddress = struct DAddress base: M.DPhysRegId; index: M.DPhysRegId; scale: i32; disp: i32 end
+
+M.DOperand = union DOperand
+    | DOpVReg(vreg: M.DVirtualRegId)
+    | DOpPReg(preg: M.DPhysRegId)
+    | DOpImmI64(raw: ptr(u8))
+    | DOpLabel(label: M.DLabelId)
+    | DOpMem(addr: M.DAddress)
+end
+
+M.DCondCode = union DCondCode
+    | DccE | DccNE | DccL | DccLE | DccG | DccGE
+    | DccB | DccBE | DccA | DccAE | DccP | DccNP
+end
+
+M.DAsmInst = struct DAsmInst shape: M.DAsmShape; defs: view(M.DVirtualRegId); uses: view(M.DVirtualRegId); clobbers: view(M.DPhysRegId) end
+
+M.DAsmBlock = struct DAsmBlock id: Bk.BackBlockId; insts: view(M.DAsmInst) end
+
+M.DAsmFunc = struct DAsmFunc func: Bk.BackFuncId; blocks: view(M.DAsmBlock) end
+
+M.DAllocLoc = union DAllocLoc
+    | DLocReg(preg: M.DPhysRegId)
+    | DLocStack(offset: i32, size: i32, align: i32)
+end
+
+M.DValueAlloc = struct DValueAlloc vreg: M.DVirtualRegId; loc: M.DAllocLoc; class: M.DValueClass end
+
+M.DBankedRegalloc = struct DBankedRegalloc allocs: view(M.DValueAlloc); used_callee_saved: view(M.DPhysRegId); spill_size: i32 end
+
+M.DFrameSlot = struct DFrameSlot slot: Bk.BackStackSlotId; offset: i32; size: i32; align: i32 end
+
+M.DFramePlan = struct DFramePlan stack_size: i32; spill_size: i32; slot_size: i32; callee_saved: view(M.DPhysRegId); slots: view(M.DFrameSlot) end
+
+M.DFragment = struct DFragment offset: i32; args: view(i32); bytes: ptr(u8) end
+M.DFragmentBundle = struct DFragmentBundle fragments: view(M.DFragment) end
+
+M.DGlobalEntry = struct DGlobalEntry kind: ptr(u8); key: ptr(u8); label: ptr(u8); slot_index: i32 end
+M.DFuncPtrEntry = struct DFuncPtrEntry func: Bk.BackFuncId; global_slot: i32 end
+
+M.DEmitPlan = struct DEmitPlan globals: view(M.DGlobalEntry); fragments: view(M.DFragment); func_ptrs: view(M.DFuncPtrEntry); code_size_hint: i32 end
+
+return M

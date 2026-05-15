@@ -12,6 +12,8 @@ function M.Define(T)
         [Tr.StmtLet] = function(self) return pvm.once(B.StmtEnvAddBinding(B.ValueEntry(self.binding.name, self.binding))) end,
         [Tr.StmtVar] = function(self) return pvm.once(B.StmtEnvAddBinding(B.ValueEntry(self.binding.name, self.binding))) end,
         [Tr.StmtSet] = function() return pvm.once(B.StmtEnvNoBinding) end,
+        [Tr.StmtAtomicStore] = function() return pvm.once(B.StmtEnvNoBinding) end,
+        [Tr.StmtAtomicFence] = function() return pvm.once(B.StmtEnvNoBinding) end,
         [Tr.StmtExpr] = function() return pvm.once(B.StmtEnvNoBinding) end,
         [Tr.StmtAssert] = function() return pvm.once(B.StmtEnvNoBinding) end,
         [Tr.StmtIf] = function() return pvm.once(B.StmtEnvNoBinding) end,

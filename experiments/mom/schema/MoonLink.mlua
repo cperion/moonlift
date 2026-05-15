@@ -1,0 +1,100 @@
+-- MoonLink: linker types
+
+local M = {}
+
+M.LinkPath = struct LinkPath text: ptr(u8) end
+M.LinkSymbol = struct LinkSymbol name: ptr(u8) end
+
+M.LinkPlatform = union LinkPlatform | LinkPlatformLinux | LinkPlatformMacOS | LinkPlatformWindows | LinkPlatformWasm | LinkPlatformUnknown(name: ptr(u8)) end
+
+M.LinkArch = union LinkArch | LinkArchX86_64 | LinkArchAArch64 | LinkArchX86 | LinkArchArm | LinkArchWasm32 | LinkArchUnknown(name: ptr(u8)) end
+
+M.LinkObjectFormat = union LinkObjectFormat | LinkFormatElf | LinkFormatMachO | LinkFormatCoff | LinkFormatWasm | LinkFormatUnknown(name: ptr(u8)) end
+
+M.LinkRelocationModel = union LinkRelocationModel | LinkRelocStatic | LinkRelocPic | LinkRelocPie end
+
+M.LinkTargetModel = struct LinkTargetModel
+    backend: i32
+    platform: M.LinkPlatform
+    arch: M.LinkArch
+    object_format: M.LinkObjectFormat
+    relocation: M.LinkRelocationModel
+end
+
+M.LinkArtifactKind = union LinkArtifactKind | LinkArtifactObject | LinkArtifactStaticArchive | LinkArtifactSharedLibrary | LinkArtifactExecutable end
+
+M.LinkerKind = union LinkerKind | LinkerSystemCc | LinkerCc | LinkerClang | LinkerGcc | LinkerLd | LinkerLld | LinkerAr | LinkerLibtool | LinkerCustom(name: ptr(u8)) end
+
+M.LinkTool = struct LinkTool
+    kind: M.LinkerKind
+    path: M.LinkPath
+end
+
+M.LinkInput = union LinkInput
+    | LinkInputObject(path: i32)
+    | LinkInputStaticArchive(path: i32)
+    | LinkInputSharedLibrary(path: i32)
+    | LinkInputSystemLibrary(name: ptr(u8))
+    | LinkInputFramework(name: ptr(u8))
+    | LinkInputLibrarySearchPath(path: i32)
+    | LinkInputLinkerScript(path: i32)
+end
+
+M.LinkPlan = struct LinkPlan
+    target: M.LinkTargetModel
+    kind: M.LinkArtifactKind
+    tool: M.LinkTool
+    output: M.LinkPath
+    inputs: view(M.LinkInput)
+    exports: M.LinkExportPolicy
+    externs: M.LinkExternPolicy
+    options: view(M.LinkOption)
+end
+
+M.LinkIssue = union LinkIssue
+    | LinkIssueMissingOutput
+    | LinkIssueNoInputs
+    | LinkIssueMissingInput(path: M.LinkPath)
+    | LinkIssueUnsupportedPlatform(platform: M.LinkPlatform, kind: M.LinkArtifactKind)
+    | LinkIssueUnsupportedInput(input: M.LinkInput, reason: ptr(u8))
+    | LinkIssueUnsupportedOption(option: M.LinkOption, reason: ptr(u8))
+    | LinkIssueUnresolvedSymbol(symbol: M.LinkSymbol)
+    | LinkIssueDuplicateSymbol(symbol: M.LinkSymbol)
+    | LinkIssueToolUnavailable(tool: M.LinkTool)
+    | LinkIssueCommandFailed(index: i32, code: i32, stderr: ptr(u8))
+end
+
+M.LinkReport = struct LinkReport issues: view(M.LinkIssue) end
+
+M.LinkCommand = union LinkCommand
+    | LinkCmdRun(tool: M.LinkTool, args: view(ptr(u8)), env: view(M.LinkEnv))
+    | LinkCmdWriteFile(path: M.LinkPath, contents: ptr(u8))
+    | LinkCmdRemoveFile(path: M.LinkPath)
+end
+
+M.LinkCommandPlan = struct LinkCommandPlan plan: M.LinkPlan; commands: view(M.LinkCommand) end
+
+M.LinkResult = union LinkResult | LinkOk(output: M.LinkPath) | LinkFailed(report: M.LinkReport) end
+
+M.LinkDebugPolicy = union LinkDebugPolicy | LinkDebugDefault | LinkDebugKeep | LinkDebugNone | LinkDebugStrip | LinkDebugFull end
+
+M.LinkRuntimePath = union LinkRuntimePath
+    | LinkRpath(path: M.LinkPath)
+    | LinkRunpath(path: M.LinkPath)
+end
+
+M.LinkOption = union LinkOption
+    | LinkOptRuntimePath(path: M.LinkRuntimePath)
+    | LinkOptEntry(symbol: M.LinkSymbol)
+    | LinkOptSoname(name: ptr(u8))
+    | LinkOptInstallName(name: ptr(u8))
+    | LinkOptOutputImplib(path: M.LinkPath)
+    | LinkOptDebug(policy: M.LinkDebugPolicy)
+    | LinkOptWholeArchiveBegin
+    | LinkOptWholeArchiveEnd
+    | LinkOptNoDefaultLibs
+    | LinkOptStaticLibgcc
+    | LinkOptCustomArg(arg: ptr(u8))
+end
+
+return M

@@ -257,6 +257,9 @@ function M.Define(T)
         [Tr.ExprClosure] = function(self, env) return pvm.once(pvm.with(self, { body = map_stmts(self.body, env) })) end,
         [Tr.ExprView] = function(self, env) return pvm.once(pvm.with(self, { view = one(resolve_view, self.view, env) })) end,
         [Tr.ExprLoad] = function(self, env) return pvm.once(pvm.with(self, { addr = one(resolve_expr, self.addr, env) })) end,
+        [Tr.ExprAtomicLoad] = function(self, env) return pvm.once(pvm.with(self, { addr = one(resolve_expr, self.addr, env) })) end,
+        [Tr.ExprAtomicRmw] = function(self, env) return pvm.once(pvm.with(self, { addr = one(resolve_expr, self.addr, env), value = one(resolve_expr, self.value, env) })) end,
+        [Tr.ExprAtomicCas] = function(self, env) return pvm.once(pvm.with(self, { addr = one(resolve_expr, self.addr, env), expected = one(resolve_expr, self.expected, env), replacement = one(resolve_expr, self.replacement, env) })) end,
         [Tr.ExprSlotValue] = function(self) return pvm.once(self) end,
         [Tr.ExprUseExprFrag] = function(self, env) return pvm.once(pvm.with(self, { args = map_exprs(self.args, env) })) end,
     }, { args_cache = "last" })
@@ -291,6 +294,8 @@ function M.Define(T)
         [Tr.StmtLet] = function(self, env) return pvm.once(pvm.with(self, { init = one(resolve_expr, self.init, env) })) end,
         [Tr.StmtVar] = function(self, env) return pvm.once(pvm.with(self, { init = one(resolve_expr, self.init, env) })) end,
         [Tr.StmtSet] = function(self, env) return pvm.once(pvm.with(self, { place = one(resolve_place, self.place, env), value = one(resolve_expr, self.value, env) })) end,
+        [Tr.StmtAtomicStore] = function(self, env) return pvm.once(pvm.with(self, { addr = one(resolve_expr, self.addr, env), value = one(resolve_expr, self.value, env) })) end,
+        [Tr.StmtAtomicFence] = function(self) return pvm.once(self) end,
         [Tr.StmtExpr] = function(self, env) return pvm.once(pvm.with(self, { expr = one(resolve_expr, self.expr, env) })) end,
         [Tr.StmtAssert] = function(self, env) return pvm.once(pvm.with(self, { cond = one(resolve_expr, self.cond, env) })) end,
         [Tr.StmtIf] = function(self, env) return pvm.once(pvm.with(self, { cond = one(resolve_expr, self.cond, env), then_body = map_stmts(self.then_body, env), else_body = map_stmts(self.else_body, env) })) end,

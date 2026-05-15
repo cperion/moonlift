@@ -96,7 +96,8 @@ The compiler type-checks the control graph:
 
 A region links the two typing systems. Its runtime parameters are data
 types. Its continuations are control types. The body contains both — data
-operations (arithmetic, loads, stores) and control operations (jumps, emits).
+operations (arithmetic, loads, stores, explicit atomics) and control operations
+(jumps, emits).
 
 ```
 region my_region(
@@ -156,7 +157,9 @@ completion, hover — all query the phase cache.
 
 The final output is a BackCmd tape — a flat, verifiable array of typed
 operations. A VM (Cranelift, or the Moonlift VM after bootstrap) executes it.
-The loop is the only thing that runs.
+Atomics follow the same rule: they are typed commands with explicit memory facts
+and ordering, not magic annotations on variables. The loop is the only thing
+that runs.
 
 ---
 

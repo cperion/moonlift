@@ -815,6 +815,9 @@ function M.Define(T)
         [Tr.ExprClosure] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_expr_header, self.h, env), params = expand_params(self.params, env), result = one(expand_type, self.result, env), body = expand_stmts(self.body, env) })) end,
         [Tr.ExprView] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_expr_header, self.h, env), view = one(expand_view, self.view, env) })) end,
         [Tr.ExprLoad] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_expr_header, self.h, env), ty = one(expand_type, self.ty, env), addr = one(expand_expr, self.addr, env) })) end,
+        [Tr.ExprAtomicLoad] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_expr_header, self.h, env), ty = one(expand_type, self.ty, env), addr = one(expand_expr, self.addr, env) })) end,
+        [Tr.ExprAtomicRmw] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_expr_header, self.h, env), ty = one(expand_type, self.ty, env), addr = one(expand_expr, self.addr, env), value = one(expand_expr, self.value, env) })) end,
+        [Tr.ExprAtomicCas] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_expr_header, self.h, env), ty = one(expand_type, self.ty, env), addr = one(expand_expr, self.addr, env), expected = one(expand_expr, self.expected, env), replacement = one(expand_expr, self.replacement, env) })) end,
         [Tr.ExprSlotValue] = function(self, env)
             local values = pvm.drain(lookup_slot_value(O.SlotExpr(self.slot), env))
             if #values == 1 and pvm.classof(values[1]) == O.SlotValueExpr then
@@ -836,6 +839,8 @@ function M.Define(T)
         [Tr.StmtLet] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_stmt_header, self.h, env), binding = one(expand_binding, self.binding, env), init = one(expand_expr, self.init, env) })) end,
         [Tr.StmtVar] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_stmt_header, self.h, env), binding = one(expand_binding, self.binding, env), init = one(expand_expr, self.init, env) })) end,
         [Tr.StmtSet] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_stmt_header, self.h, env), place = one(expand_place, self.place, env), value = one(expand_expr, self.value, env) })) end,
+        [Tr.StmtAtomicStore] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_stmt_header, self.h, env), ty = one(expand_type, self.ty, env), addr = one(expand_expr, self.addr, env), value = one(expand_expr, self.value, env) })) end,
+        [Tr.StmtAtomicFence] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_stmt_header, self.h, env) })) end,
         [Tr.StmtExpr] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_stmt_header, self.h, env), expr = one(expand_expr, self.expr, env) })) end,
         [Tr.StmtAssert] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_stmt_header, self.h, env), cond = one(expand_expr, self.cond, env) })) end,
         [Tr.StmtIf] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_stmt_header, self.h, env), cond = one(expand_expr, self.cond, env), then_body = expand_stmts(self.then_body, env), else_body = expand_stmts(self.else_body, env) })) end,

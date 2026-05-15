@@ -179,6 +179,10 @@ function M.Define(T, cb)
                 out[i] = pvm.with(stmt, { init = rewrite_runtime_expr(stmt.init, names) })
             elseif cls == Tr.StmtSet then
                 out[i] = pvm.with(stmt, { value = rewrite_runtime_expr(stmt.value, names) })
+            elseif cls == Tr.StmtAtomicStore then
+                out[i] = pvm.with(stmt, { addr = rewrite_runtime_expr(stmt.addr, names), value = rewrite_runtime_expr(stmt.value, names) })
+            elseif cls == Tr.StmtAtomicFence then
+                out[i] = stmt
             elseif cls == Tr.StmtAssert then
                 out[i] = pvm.with(stmt, { cond = rewrite_runtime_expr(stmt.cond, names) })
             elseif cls == Tr.StmtIf then

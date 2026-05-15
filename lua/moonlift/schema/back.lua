@@ -278,6 +278,22 @@ return function(A)
             A.variant "BackAccessReadWrite",
         },
 
+        A.sum "BackAtomicOrdering" {
+            -- Cranelift 0.131 exposes sequentially-consistent atomics/fence.
+            -- Keep the ordering explicit in ASDL instead of pretending weaker
+            -- orderings exist before the backend can preserve them.
+            A.variant "BackAtomicSeqCst",
+        },
+
+        A.sum "BackAtomicRmwOp" {
+            A.variant "BackAtomicRmwAdd",
+            A.variant "BackAtomicRmwSub",
+            A.variant "BackAtomicRmwAnd",
+            A.variant "BackAtomicRmwOr",
+            A.variant "BackAtomicRmwXor",
+            A.variant "BackAtomicRmwXchg",
+        },
+
         A.product "BackMemoryInfo" {
             A.field "access" "MoonBack.BackAccessId",
             A.field "alignment" "MoonBack.BackAlignment",
@@ -673,6 +689,46 @@ return function(A)
                 A.field "addr" "MoonBack.BackAddress",
                 A.field "value" "MoonBack.BackValId",
                 A.field "memory" "MoonBack.BackMemoryInfo",
+                A.variant_unique,
+            },
+            A.variant "CmdAtomicLoad" {
+                A.field "dst" "MoonBack.BackValId",
+                A.field "ty" "MoonBack.BackScalar",
+                A.field "addr" "MoonBack.BackAddress",
+                A.field "memory" "MoonBack.BackMemoryInfo",
+                A.field "ordering" "MoonBack.BackAtomicOrdering",
+                A.variant_unique,
+            },
+            A.variant "CmdAtomicStore" {
+                A.field "ty" "MoonBack.BackScalar",
+                A.field "addr" "MoonBack.BackAddress",
+                A.field "value" "MoonBack.BackValId",
+                A.field "memory" "MoonBack.BackMemoryInfo",
+                A.field "ordering" "MoonBack.BackAtomicOrdering",
+                A.variant_unique,
+            },
+            A.variant "CmdAtomicRmw" {
+                A.field "dst" "MoonBack.BackValId",
+                A.field "op" "MoonBack.BackAtomicRmwOp",
+                A.field "ty" "MoonBack.BackScalar",
+                A.field "addr" "MoonBack.BackAddress",
+                A.field "value" "MoonBack.BackValId",
+                A.field "memory" "MoonBack.BackMemoryInfo",
+                A.field "ordering" "MoonBack.BackAtomicOrdering",
+                A.variant_unique,
+            },
+            A.variant "CmdAtomicCas" {
+                A.field "dst" "MoonBack.BackValId",
+                A.field "ty" "MoonBack.BackScalar",
+                A.field "addr" "MoonBack.BackAddress",
+                A.field "expected" "MoonBack.BackValId",
+                A.field "replacement" "MoonBack.BackValId",
+                A.field "memory" "MoonBack.BackMemoryInfo",
+                A.field "ordering" "MoonBack.BackAtomicOrdering",
+                A.variant_unique,
+            },
+            A.variant "CmdAtomicFence" {
+                A.field "ordering" "MoonBack.BackAtomicOrdering",
                 A.variant_unique,
             },
             A.variant "CmdIntBinary" {

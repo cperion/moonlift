@@ -1,0 +1,71 @@
+package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
+
+local ffi = require("ffi")
+local Host = require("moonlift.mlua_run")
+
+local mod = Host.dofile("experiments/mom/parser/native_lexer.mlua")
+local unit = mod:compile()
+local lex = unit:get("mom_lex_into")
+
+local function bytes(s)
+    local a = ffi.new("uint8_t[?]", #s)
+    ffi.copy(a, s, #s)
+    return a, #s
+end
+
+local function lex_all(src)
+    local p, n = bytes(src)
+    local cap = 256
+    local kinds = ffi.new("int32_t[?]", cap)
+    local starts = ffi.new("int32_t[?]", cap)
+    local stops = ffi.new("int32_t[?]", cap)
+    local lines = ffi.new("int32_t[?]", cap)
+    local cols = ffi.new("int32_t[?]", cap)
+    local count = tonumber(lex(p, n, kinds, starts, stops, lines, cols, cap))
+    assert(count <= cap, "increase test token cap")
+    local out = {}
+    for i = 0, count - 1 do
+        out[#out + 1] = {
+            kind = kinds[i],
+            text = src:sub(starts[i] + 1, stops[i]),
+            start = starts[i],
+            stop = stops[i],
+            line = lines[i],
+            col = cols[i],
+        }
+    end
+    return out
+end
+
+local TK = {
+    eof = 0, name = 1, int = 2, float = 3, string = 4, nl = 5, hole = 6,
+    lparen = 10, rparen = 11, comma = 16, colon = 17, plus = 20, arrow = 26,
+    func = 102, let = 110, return_kw = 134, as_kw = 170,
+}
+
+local toks = lex_all("func add(x: i32, y: i32) -> i32\n    return x + y\nend")
+local kinds = {}
+for i, t in ipairs(toks) do kinds[i] = t.kind end
+assert(kinds[1] == TK.func)
+assert(kinds[2] == TK.name and toks[2].text == "add")
+assert(kinds[3] == TK.lparen)
+assert(kinds[5] == TK.colon)
+assert(kinds[12] == TK.arrow)
+assert(kinds[#kinds] == TK.eof)
+
+local nums = lex_all("0 123 0xff 1.5 2e10 3.0e-2")
+assert(nums[1].kind == TK.int and nums[1].text == "0")
+assert(nums[2].kind == TK.int and nums[2].text == "123")
+assert(nums[3].kind == TK.int and nums[3].text == "0xff")
+assert(nums[4].kind == TK.float and nums[4].text == "1.5")
+assert(nums[5].kind == TK.float and nums[5].text == "2e10")
+assert(nums[6].kind == TK.float and nums[6].text == "3.0e-2")
+
+local holes = lex_all("let x: @{T} = @{expr...}")
+local hole_count = 0
+for _, t in ipairs(holes) do if t.kind == TK.hole then hole_count = hole_count + 1 end end
+assert(hole_count == 2)
+
+unit.artifact:free()
+print("mom native lexer ok")
+return "mom native lexer ok"

@@ -1,8 +1,8 @@
 use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
 use cranelift_codegen::ir::immediates::{Ieee32, Ieee64};
 use cranelift_codegen::ir::{
-    AbiParam, Block, BlockArg, InstBuilder, MemFlags, Signature, StackSlot, StackSlotData,
-    StackSlotKind, TrapCode, Type, UserFuncName, Value, types,
+    AbiParam, AtomicRmwOp, Block, BlockArg, InstBuilder, MemFlags, Signature, StackSlot,
+    StackSlotData, StackSlotKind, TrapCode, Type, UserFuncName, Value, types,
 };
 use cranelift_codegen::settings::{self, Configurable};
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Switch};
@@ -112,6 +112,10 @@ impl BackScalar {
             Self::Ptr | Self::Index => ptr_bytes,
         }
     }
+
+    fn supports_atomic(self) -> bool {
+        !matches!(self, Self::F32 | Self::F64)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -215,6 +219,42 @@ pub enum BackAccessMode {
     Read,
     Write,
     ReadWrite,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum BackAtomicOrdering {
+    SeqCst,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum BackAtomicRmwOp {
+    Add,
+    Sub,
+    And,
+    Or,
+    Xor,
+    Xchg,
+}
+
+impl BackAtomicRmwOp {
+    fn clif(self) -> AtomicRmwOp {
+        match self {
+            Self::Add => AtomicRmwOp::Add,
+            Self::Sub => AtomicRmwOp::Sub,
+            Self::And => AtomicRmwOp::And,
+            Self::Or => AtomicRmwOp::Or,
+            Self::Xor => AtomicRmwOp::Xor,
+            Self::Xchg => AtomicRmwOp::Xchg,
+        }
+    }
+
+    fn supports_scalar(self, ty: BackScalar) -> bool {
+        match self {
+            Self::Xchg => ty.supports_atomic(),
+            Self::Add | Self::Sub => matches!(ty, BackScalar::I8 | BackScalar::I16 | BackScalar::I32 | BackScalar::I64 | BackScalar::U8 | BackScalar::U16 | BackScalar::U32 | BackScalar::U64 | BackScalar::Index),
+            Self::And | Self::Or | Self::Xor => matches!(ty, BackScalar::Bool | BackScalar::I8 | BackScalar::I16 | BackScalar::I32 | BackScalar::I64 | BackScalar::U8 | BackScalar::U16 | BackScalar::U32 | BackScalar::U64 | BackScalar::Index),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -357,6 +397,11 @@ pub enum BackCmd {
     PtrOffset(BackValId, BackValId, BackValId, u32, i64),
     LoadInfo(BackValId, BackScalar, BackValId, BackMemoryInfo),
     StoreInfo(BackScalar, BackValId, BackValId, BackMemoryInfo),
+    AtomicLoad(BackValId, BackScalar, BackValId, BackMemoryInfo, BackAtomicOrdering),
+    AtomicStore(BackScalar, BackValId, BackValId, BackMemoryInfo, BackAtomicOrdering),
+    AtomicRmw(BackValId, BackAtomicRmwOp, BackScalar, BackValId, BackValId, BackMemoryInfo, BackAtomicOrdering),
+    AtomicCas(BackValId, BackScalar, BackValId, BackValId, BackValId, BackMemoryInfo, BackAtomicOrdering),
+    AtomicFence(BackAtomicOrdering),
     Memcpy(BackValId, BackValId, BackValId),
     Memset(BackValId, BackValId, BackValId),
     Select(BackValId, BackScalar, BackValId, BackValId, BackValId),
@@ -1537,6 +1582,66 @@ impl<'a, 'b, M: Module> FunctionLowerer<'a, 'b, M> {
                 let ptr_bytes = self.ptr_ty.bytes();
                 let flags = memory.memflags(ty.byte_size(ptr_bytes), ty.byte_size(ptr_bytes));
                 self.builder.ins().store(flags, value, addr, 0);
+                Ok(())
+            }
+            BackCmd::AtomicLoad(dst, ty, addr, memory, BackAtomicOrdering::SeqCst) => {
+                if !ty.supports_atomic() {
+                    return Err(MoonliftError::new(format!("BackCmdAtomicLoad requires integer/pointer type, got {:?}", ty)));
+                }
+                let addr_value = self.value(addr)?;
+                self.require_value_type(addr, addr_value, self.ptr_ty, "BackCmdAtomicLoad addr")?;
+                let clif_ty = ty.clif_type(self.ptr_ty);
+                let ptr_bytes = self.ptr_ty.bytes();
+                let flags = memory.memflags(ty.byte_size(ptr_bytes), ty.byte_size(ptr_bytes));
+                let out = self.builder.ins().atomic_load(clif_ty, flags, addr_value);
+                self.bind_value(dst, out)
+            }
+            BackCmd::AtomicStore(ty, addr, value, memory, BackAtomicOrdering::SeqCst) => {
+                if !ty.supports_atomic() {
+                    return Err(MoonliftError::new(format!("BackCmdAtomicStore requires integer/pointer type, got {:?}", ty)));
+                }
+                let addr_value = self.value(addr)?;
+                let store_value = self.value(value)?;
+                let clif_ty = ty.clif_type(self.ptr_ty);
+                self.require_value_type(addr, addr_value, self.ptr_ty, "BackCmdAtomicStore addr")?;
+                self.require_value_type(value, store_value, clif_ty, "BackCmdAtomicStore value")?;
+                let ptr_bytes = self.ptr_ty.bytes();
+                let flags = memory.memflags(ty.byte_size(ptr_bytes), ty.byte_size(ptr_bytes));
+                self.builder.ins().atomic_store(flags, store_value, addr_value);
+                Ok(())
+            }
+            BackCmd::AtomicRmw(dst, op, ty, addr, value, memory, BackAtomicOrdering::SeqCst) => {
+                if !op.supports_scalar(*ty) {
+                    return Err(MoonliftError::new(format!("BackCmdAtomicRmw op {:?} does not support type {:?}", op, ty)));
+                }
+                let addr_value = self.value(addr)?;
+                let input_value = self.value(value)?;
+                let clif_ty = ty.clif_type(self.ptr_ty);
+                self.require_value_type(addr, addr_value, self.ptr_ty, "BackCmdAtomicRmw addr")?;
+                self.require_value_type(value, input_value, clif_ty, "BackCmdAtomicRmw value")?;
+                let ptr_bytes = self.ptr_ty.bytes();
+                let flags = memory.memflags(ty.byte_size(ptr_bytes), ty.byte_size(ptr_bytes));
+                let out = self.builder.ins().atomic_rmw(clif_ty, flags, op.clif(), addr_value, input_value);
+                self.bind_value(dst, out)
+            }
+            BackCmd::AtomicCas(dst, ty, addr, expected, replacement, memory, BackAtomicOrdering::SeqCst) => {
+                if !ty.supports_atomic() {
+                    return Err(MoonliftError::new(format!("BackCmdAtomicCas requires integer/pointer type, got {:?}", ty)));
+                }
+                let addr_value = self.value(addr)?;
+                let expected_value = self.value(expected)?;
+                let replacement_value = self.value(replacement)?;
+                let clif_ty = ty.clif_type(self.ptr_ty);
+                self.require_value_type(addr, addr_value, self.ptr_ty, "BackCmdAtomicCas addr")?;
+                self.require_value_type(expected, expected_value, clif_ty, "BackCmdAtomicCas expected")?;
+                self.require_value_type(replacement, replacement_value, clif_ty, "BackCmdAtomicCas replacement")?;
+                let ptr_bytes = self.ptr_ty.bytes();
+                let flags = memory.memflags(ty.byte_size(ptr_bytes), ty.byte_size(ptr_bytes));
+                let out = self.builder.ins().atomic_cas(flags, addr_value, expected_value, replacement_value);
+                self.bind_value(dst, out)
+            }
+            BackCmd::AtomicFence(BackAtomicOrdering::SeqCst) => {
+                self.builder.ins().fence();
                 Ok(())
             }
             BackCmd::Memcpy(dst, src, len) => {

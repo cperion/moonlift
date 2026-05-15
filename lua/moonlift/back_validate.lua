@@ -231,6 +231,11 @@ function M.Define(T)
         if cls == B.CmdPtrOffset then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.index); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); append_address_base_uses(out, index, cmd.base); return end
         if cls == B.CmdLoadInfo then out[#out + 1] = body(index); out[#out + 1] = shape(index, cmd.ty, B.BackShapeAllowsScalarOrVector); out[#out + 1] = B.BackFactAccessDef(index, cmd.memory.access); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); append_address_uses(out, index, cmd.addr); return end
         if cls == B.CmdStoreInfo then out[#out + 1] = body(index); out[#out + 1] = shape(index, cmd.ty, B.BackShapeAllowsScalarOrVector); out[#out + 1] = B.BackFactAccessDef(index, cmd.memory.access); out[#out + 1] = B.BackFactValueUse(index, cmd.value); append_address_uses(out, index, cmd.addr); return end
+        if cls == B.CmdAtomicLoad then out[#out + 1] = body(index); out[#out + 1] = shape(index, B.BackShapeScalar(cmd.ty), B.BackShapeRequiresScalar); out[#out + 1] = B.BackFactAccessDef(index, cmd.memory.access); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); append_address_uses(out, index, cmd.addr); return end
+        if cls == B.CmdAtomicStore then out[#out + 1] = body(index); out[#out + 1] = shape(index, B.BackShapeScalar(cmd.ty), B.BackShapeRequiresScalar); out[#out + 1] = B.BackFactAccessDef(index, cmd.memory.access); out[#out + 1] = B.BackFactValueUse(index, cmd.value); append_address_uses(out, index, cmd.addr); return end
+        if cls == B.CmdAtomicRmw then out[#out + 1] = body(index); out[#out + 1] = shape(index, B.BackShapeScalar(cmd.ty), B.BackShapeRequiresScalar); out[#out + 1] = B.BackFactAccessDef(index, cmd.memory.access); out[#out + 1] = B.BackFactValueUse(index, cmd.value); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); append_address_uses(out, index, cmd.addr); return end
+        if cls == B.CmdAtomicCas then out[#out + 1] = body(index); out[#out + 1] = shape(index, B.BackShapeScalar(cmd.ty), B.BackShapeRequiresScalar); out[#out + 1] = B.BackFactAccessDef(index, cmd.memory.access); out[#out + 1] = B.BackFactValueUse(index, cmd.expected); out[#out + 1] = B.BackFactValueUse(index, cmd.replacement); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); append_address_uses(out, index, cmd.addr); return end
+        if cls == B.CmdAtomicFence then out[#out + 1] = body(index); return end
         if cls == B.CmdIntBinary or cls == B.CmdBitBinary or cls == B.CmdShift or cls == B.CmdRotate or cls == B.CmdFloatBinary then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.lhs); out[#out + 1] = B.BackFactValueUse(index, cmd.rhs); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
         if cls == B.CmdBitNot then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.value); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
         if cls == B.CmdAliasFact then out[#out + 1] = body(index); append_alias_access_refs(out, index, cmd.fact); return end
@@ -361,6 +366,29 @@ function M.Define(T)
             local out = { body(index), shape(index, self.ty, B.BackShapeAllowsScalarOrVector), B.BackFactAccessDef(index, self.memory.access), B.BackFactValueUse(index, self.value) }
             append_address_uses(out, index, self.addr)
             return facts_triplet(out)
+        end,
+        [B.CmdAtomicLoad] = function(self, index)
+            local out = { body(index), shape(index, B.BackShapeScalar(self.ty), B.BackShapeRequiresScalar), B.BackFactAccessDef(index, self.memory.access), B.BackFactValueDef(index, self.dst) }
+            append_address_uses(out, index, self.addr)
+            return facts_triplet(out)
+        end,
+        [B.CmdAtomicStore] = function(self, index)
+            local out = { body(index), shape(index, B.BackShapeScalar(self.ty), B.BackShapeRequiresScalar), B.BackFactAccessDef(index, self.memory.access), B.BackFactValueUse(index, self.value) }
+            append_address_uses(out, index, self.addr)
+            return facts_triplet(out)
+        end,
+        [B.CmdAtomicRmw] = function(self, index)
+            local out = { body(index), shape(index, B.BackShapeScalar(self.ty), B.BackShapeRequiresScalar), B.BackFactAccessDef(index, self.memory.access), B.BackFactValueUse(index, self.value), B.BackFactValueDef(index, self.dst) }
+            append_address_uses(out, index, self.addr)
+            return facts_triplet(out)
+        end,
+        [B.CmdAtomicCas] = function(self, index)
+            local out = { body(index), shape(index, B.BackShapeScalar(self.ty), B.BackShapeRequiresScalar), B.BackFactAccessDef(index, self.memory.access), B.BackFactValueUse(index, self.expected), B.BackFactValueUse(index, self.replacement), B.BackFactValueDef(index, self.dst) }
+            append_address_uses(out, index, self.addr)
+            return facts_triplet(out)
+        end,
+        [B.CmdAtomicFence] = function(_, index)
+            return facts_triplet({ body(index) })
         end,
         [B.CmdIntBinary] = function(self, index)
             return facts_triplet({ body(index), B.BackFactValueUse(index, self.lhs), B.BackFactValueUse(index, self.rhs), B.BackFactValueDef(index, self.dst) })
@@ -586,6 +614,26 @@ function M.Define(T)
             elseif cls == B.CmdStoreInfo then
                 validate_memory_info(issues, index, cmd.ty, cmd.memory, B.BackAccessWrite)
                 if supported_shapes ~= nil and not supported_shapes[shape_key(cmd.ty)] then add_issue(issues, B.BackIssueTargetUnsupportedShape(index, cmd.ty)) end
+            elseif cls == B.CmdAtomicLoad then
+                validate_memory_info(issues, index, B.BackShapeScalar(cmd.ty), cmd.memory, B.BackAccessRead)
+                if not is_bit_scalar(cmd.ty) and cmd.ty ~= B.BackPtr then add_issue(issues, B.BackIssueBitScalarExpected(index, cmd.ty)) end
+                if supported_shapes ~= nil and not supported_shapes[shape_key(B.BackShapeScalar(cmd.ty))] then add_issue(issues, B.BackIssueTargetUnsupportedShape(index, B.BackShapeScalar(cmd.ty))) end
+            elseif cls == B.CmdAtomicStore then
+                validate_memory_info(issues, index, B.BackShapeScalar(cmd.ty), cmd.memory, B.BackAccessWrite)
+                if not is_bit_scalar(cmd.ty) and cmd.ty ~= B.BackPtr then add_issue(issues, B.BackIssueBitScalarExpected(index, cmd.ty)) end
+                if supported_shapes ~= nil and not supported_shapes[shape_key(B.BackShapeScalar(cmd.ty))] then add_issue(issues, B.BackIssueTargetUnsupportedShape(index, B.BackShapeScalar(cmd.ty))) end
+            elseif cls == B.CmdAtomicRmw then
+                validate_memory_info(issues, index, B.BackShapeScalar(cmd.ty), cmd.memory, B.BackAccessReadWrite)
+                local ok = false
+                if cmd.op == B.BackAtomicRmwXchg then ok = is_bit_scalar(cmd.ty) or cmd.ty == B.BackPtr
+                elseif cmd.op == B.BackAtomicRmwAdd or cmd.op == B.BackAtomicRmwSub then ok = is_int_scalar(cmd.ty)
+                elseif cmd.op == B.BackAtomicRmwAnd or cmd.op == B.BackAtomicRmwOr or cmd.op == B.BackAtomicRmwXor then ok = is_bit_scalar(cmd.ty) and cmd.ty ~= B.BackPtr end
+                if not ok then add_issue(issues, B.BackIssueBitScalarExpected(index, cmd.ty)) end
+                if supported_shapes ~= nil and not supported_shapes[shape_key(B.BackShapeScalar(cmd.ty))] then add_issue(issues, B.BackIssueTargetUnsupportedShape(index, B.BackShapeScalar(cmd.ty))) end
+            elseif cls == B.CmdAtomicCas then
+                validate_memory_info(issues, index, B.BackShapeScalar(cmd.ty), cmd.memory, B.BackAccessReadWrite)
+                if not is_bit_scalar(cmd.ty) and cmd.ty ~= B.BackPtr then add_issue(issues, B.BackIssueBitScalarExpected(index, cmd.ty)) end
+                if supported_shapes ~= nil and not supported_shapes[shape_key(B.BackShapeScalar(cmd.ty))] then add_issue(issues, B.BackIssueTargetUnsupportedShape(index, B.BackShapeScalar(cmd.ty))) end
             elseif cls == B.CmdAppendBlockParam then
                 if supported_shapes ~= nil and not supported_shapes[shape_key(cmd.ty)] then add_issue(issues, B.BackIssueTargetUnsupportedShape(index, cmd.ty)) end
             elseif cls == B.CmdUnary or cls == B.CmdIntrinsic or cls == B.CmdCompare or cls == B.CmdSelect then

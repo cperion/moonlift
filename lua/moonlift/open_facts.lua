@@ -298,6 +298,9 @@ function M.Define(T)
         [Tr.ExprClosure] = function(self) return cat({ pack(expr_header_facts(self.h)), pack(each(stmt_facts, self.body)) }) end,
         [Tr.ExprView] = function(self) return cat({ pack(expr_header_facts(self.h)), pack(view_facts(self.view)) }) end,
         [Tr.ExprLoad] = function(self) return cat({ pack(expr_header_facts(self.h)), pack(expr_facts(self.addr)) }) end,
+        [Tr.ExprAtomicLoad] = function(self) return cat({ pack(expr_header_facts(self.h)), pack(expr_facts(self.addr)) }) end,
+        [Tr.ExprAtomicRmw] = function(self) return cat({ pack(expr_header_facts(self.h)), pack(expr_facts(self.addr)), pack(expr_facts(self.value)) }) end,
+        [Tr.ExprAtomicCas] = function(self) return cat({ pack(expr_header_facts(self.h)), pack(expr_facts(self.addr)), pack(expr_facts(self.expected)), pack(expr_facts(self.replacement)) }) end,
         [Tr.ExprSlotValue] = function(self) return cat({ pack(expr_header_facts(self.h)), pack(pvm.once(O.MetaFactSlot(O.SlotExpr(self.slot)))) }) end,
         [Tr.ExprUseExprFrag] = function(self)
             local ref_trip
@@ -314,6 +317,8 @@ function M.Define(T)
         [Tr.StmtLet] = function(self) return cat({ pack(stmt_header_facts(self.h)), pack(binding_facts(self.binding)), pack(expr_facts(self.init)) }) end,
         [Tr.StmtVar] = function(self) return cat({ pack(stmt_header_facts(self.h)), pack(binding_facts(self.binding)), pack(expr_facts(self.init)) }) end,
         [Tr.StmtSet] = function(self) return cat({ pack(stmt_header_facts(self.h)), pack(place_facts(self.place)), pack(expr_facts(self.value)) }) end,
+        [Tr.StmtAtomicStore] = function(self) return cat({ pack(stmt_header_facts(self.h)), pack(expr_facts(self.addr)), pack(expr_facts(self.value)) }) end,
+        [Tr.StmtAtomicFence] = function(self) return stmt_header_facts(self.h) end,
         [Tr.StmtExpr] = function(self) return cat({ pack(stmt_header_facts(self.h)), pack(expr_facts(self.expr)) }) end,
         [Tr.StmtAssert] = function(self) return cat({ pack(stmt_header_facts(self.h)), pack(expr_facts(self.cond)) }) end,
         [Tr.StmtIf] = function(self) return cat({ pack(stmt_header_facts(self.h)), pack(expr_facts(self.cond)), pack(each(stmt_facts, self.then_body)), pack(each(stmt_facts, self.else_body)) }) end,

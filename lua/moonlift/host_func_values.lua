@@ -200,6 +200,14 @@ function M.Install(api, session)
         return self:emit(Tr.StmtSet(Tr.StmtSurface, p.place, v.expr))
     end
 
+    function FuncBuilder:atomic_store(addr, value, ty)
+        return self:emit(api.atomic_store(addr, value, ty))
+    end
+
+    function FuncBuilder:atomic_fence()
+        return self:emit(api.atomic_fence())
+    end
+
     function FuncBuilder:if_(cond, then_fn, else_fn)
         local c = api.as_expr_value(cond, "if_ expects condition expression")
         assert(type(then_fn) == "function", "if_ expects then builder function")
