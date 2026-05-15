@@ -79,6 +79,11 @@ back_validate → back_jit / back_object / back_object + link_target
 
 ## Key documentation
 
+When working under `experiments/mom/`, also read `experiments/mom/AGENTS.md`.
+It contains stricter MOM-specific discipline for the native compiler port,
+including the no-escape-hatch/no-"for now" framing rule, module organization,
+and required verification boundaries.
+
 | Doc | Description |
 |-----|-------------|
 | `README.md` | Full project README with examples, benchmarks, philosophy |

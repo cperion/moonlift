@@ -7,8 +7,8 @@
 
 local M = moon.module("mom_native_lexer")
 
--- Token kind values intentionally mirror lua/moonlift/parse.lua TK for the
--- current bootstrap bridge.
+-- Token kind values intentionally mirror lua/moonlift/parse.lua TK so native
+-- parser output can be compared directly against the existing pipeline.
 local TK_EOF = 0
 local TK_NAME = 1
 local TK_INT = 2
@@ -467,6 +467,608 @@ local mom_lex_into = func(p: ptr(u8), n: index,
     end
 end
 
+local mom_emit_event = func(kind: i32, token_index: index, aux: i32,
+                            count: index, cap: index,
+                            event_kinds: ptr(i32), event_tokens: ptr(i32), event_aux: ptr(i32)) -> index
+    if count < cap then
+        event_kinds[count] = kind
+        event_tokens[count] = as(i32, token_index)
+        event_aux[count] = aux
+    end
+    return count + 1
+end
+
+local mom_skip_seps = func(kinds: ptr(i32), n_tokens: index, i0: index) -> index
+    return block loop(i: index = i0) -> index
+        if i >= n_tokens then yield i end
+        let k: i32 = kinds[i]
+        if k == @{TK_NL} or k == @{TK_SEMI} then jump loop(i = i + as(index, 1)) end
+        yield i
+    end
+end
+
+local mom_find_simple_end = func(kinds: ptr(i32), n_tokens: index, i0: index) -> index
+    return block loop(i: index = i0 + as(index, 1)) -> index
+        if i >= n_tokens then yield n_tokens end
+        if kinds[i] == @{TK_END} then yield i end
+        if kinds[i] == @{TK_EOF} then yield i end
+        jump loop(i = i + as(index, 1))
+    end
+end
+
+local mom_is_nested_end_opener = func(k: i32) -> bool
+    return k == @{TK_IF} or k == @{TK_SWITCH} or k == @{TK_BLOCK} or k == @{TK_ENTRY} or k == @{TK_REGION} or k == @{TK_EXPR}
+end
+
+local mom_find_nested_end = func(kinds: ptr(i32), n_tokens: index, i0: index) -> index
+    return block loop(i: index = i0 + as(index, 1), depth: i32 = 1) -> index
+        if i >= n_tokens then yield n_tokens end
+        let k: i32 = kinds[i]
+        if k == @{TK_EOF} then yield i end
+        if mom_is_nested_end_opener(k) then jump loop(i = i + as(index, 1), depth = depth + 1) end
+        if k == @{TK_END} then
+            if depth == 1 then yield i end
+            jump loop(i = i + as(index, 1), depth = depth - 1)
+        end
+        jump loop(i = i + as(index, 1), depth = depth)
+    end
+end
+
+local mom_find_lparen_after_name = func(kinds: ptr(i32), n_tokens: index, i0: index, limit: index) -> index
+    return block loop(i: index = i0 + as(index, 1)) -> index
+        if i >= n_tokens or i > limit then yield n_tokens end
+        let k: i32 = kinds[i]
+        if k == @{TK_LPAREN} then yield i end
+        if k == @{TK_NL} or k == @{TK_END} or k == @{TK_EOF} then yield n_tokens end
+        jump loop(i = i + as(index, 1))
+    end
+end
+
+local mom_parse_param_events = func(kinds: ptr(i32), n_tokens: index, lparen: index, limit: index,
+                                    count: index, cap: index,
+                                    event_kinds: ptr(i32), event_tokens: ptr(i32), event_aux: ptr(i32)) -> index
+    return block loop(i: index = lparen + as(index, 1), out: index = count) -> index
+        if i >= n_tokens or i >= limit then yield out end
+        let k: i32 = kinds[i]
+        if k == @{TK_RPAREN} then yield out end
+        if k == @{TK_NAME} then
+            if i + as(index, 1) < n_tokens then
+                if kinds[i + as(index, 1)] == @{TK_COLON} then
+                    let out2: index = mom_emit_event(30, i, 0, out, cap, event_kinds, event_tokens, event_aux)
+                    jump loop(i = i + as(index, 2), out = out2)
+                end
+            end
+        end
+        jump loop(i = i + as(index, 1), out = out)
+    end
+end
+
+local mom_parse_struct_field_events = func(kinds: ptr(i32), n_tokens: index, begin_i: index, end_i: index,
+                                           count: index, cap: index,
+                                           event_kinds: ptr(i32), event_tokens: ptr(i32), event_aux: ptr(i32)) -> index
+    return block loop(i: index = begin_i + as(index, 1), out: index = count) -> index
+        if i >= n_tokens or i >= end_i then yield out end
+        let k: i32 = kinds[i]
+        if k == @{TK_NAME} then
+            if i + as(index, 1) < n_tokens then
+                if kinds[i + as(index, 1)] == @{TK_COLON} then
+                    let out2: index = mom_emit_event(31, i, 0, out, cap, event_kinds, event_tokens, event_aux)
+                    jump loop(i = i + as(index, 2), out = out2)
+                end
+            end
+        end
+        jump loop(i = i + as(index, 1), out = out)
+    end
+end
+
+local mom_parse_union_variant_events = func(kinds: ptr(i32), n_tokens: index, begin_i: index, end_i: index,
+                                            count: index, cap: index,
+                                            event_kinds: ptr(i32), event_tokens: ptr(i32), event_aux: ptr(i32)) -> index
+    return block loop(i: index = begin_i + as(index, 1), expect_variant: bool = true, out: index = count) -> index
+        if i >= n_tokens or i >= end_i then yield out end
+        let k: i32 = kinds[i]
+        if k == @{TK_PIPE} then jump loop(i = i + as(index, 1), expect_variant = true, out = out) end
+        if expect_variant and k == @{TK_NAME} then
+            let out2: index = mom_emit_event(32, i, 0, out, cap, event_kinds, event_tokens, event_aux)
+            jump loop(i = i + as(index, 1), expect_variant = false, out = out2)
+        end
+        if k == @{TK_NL} or k == @{TK_COMMA} then jump loop(i = i + as(index, 1), expect_variant = expect_variant, out = out) end
+        jump loop(i = i + as(index, 1), expect_variant = false, out = out)
+    end
+end
+
+local mom_parse_module_events = func(kinds: ptr(i32), n_tokens: index,
+                                     event_kinds: ptr(i32), event_tokens: ptr(i32), event_aux: ptr(i32),
+                                     cap: index) -> index
+    return region -> index
+    entry start()
+        let out0: index = mom_emit_event(1, 0, 0, 0, cap, event_kinds, event_tokens, event_aux)
+        jump loop(i = as(index, 0), out = out0)
+    end
+    block loop(i: index, out: index)
+        let j: index = mom_skip_seps(kinds, n_tokens, i)
+        if j >= n_tokens then
+            yield mom_emit_event(2, j, 0, out, cap, event_kinds, event_tokens, event_aux)
+        end
+        let k: i32 = kinds[j]
+        if k == @{TK_EOF} then
+            yield mom_emit_event(2, j, 0, out, cap, event_kinds, event_tokens, event_aux)
+        end
+
+        if k == @{TK_FUNC} then
+            let end_i: index = mom_find_nested_end(kinds, n_tokens, j)
+            let out1: index = mom_emit_event(10, j, as(i32, end_i), out, cap, event_kinds, event_tokens, event_aux)
+            let lp: index = mom_find_lparen_after_name(kinds, n_tokens, j, end_i)
+            let out2: index = select(lp < n_tokens, mom_parse_param_events(kinds, n_tokens, lp, end_i, out1, cap, event_kinds, event_tokens, event_aux), out1)
+            let out3: index = mom_emit_event(11, end_i, as(i32, j), out2, cap, event_kinds, event_tokens, event_aux)
+            jump loop(i = end_i + as(index, 1), out = out3)
+        end
+
+        if k == @{TK_EXTERN} then
+            let end_i: index = mom_find_simple_end(kinds, n_tokens, j)
+            let out1: index = mom_emit_event(12, j, as(i32, end_i), out, cap, event_kinds, event_tokens, event_aux)
+            let lp: index = mom_find_lparen_after_name(kinds, n_tokens, j, end_i)
+            let out2: index = select(lp < n_tokens, mom_parse_param_events(kinds, n_tokens, lp, end_i, out1, cap, event_kinds, event_tokens, event_aux), out1)
+            let out3: index = mom_emit_event(13, end_i, as(i32, j), out2, cap, event_kinds, event_tokens, event_aux)
+            jump loop(i = end_i + as(index, 1), out = out3)
+        end
+
+        if k == @{TK_STRUCT} then
+            let end_i: index = mom_find_simple_end(kinds, n_tokens, j)
+            let out1: index = mom_emit_event(14, j, as(i32, end_i), out, cap, event_kinds, event_tokens, event_aux)
+            let out2: index = mom_parse_struct_field_events(kinds, n_tokens, j, end_i, out1, cap, event_kinds, event_tokens, event_aux)
+            let out3: index = mom_emit_event(15, end_i, as(i32, j), out2, cap, event_kinds, event_tokens, event_aux)
+            jump loop(i = end_i + as(index, 1), out = out3)
+        end
+
+        if k == @{TK_UNION} then
+            let end_i: index = mom_find_simple_end(kinds, n_tokens, j)
+            let out1: index = mom_emit_event(16, j, as(i32, end_i), out, cap, event_kinds, event_tokens, event_aux)
+            let out2: index = mom_parse_union_variant_events(kinds, n_tokens, j, end_i, out1, cap, event_kinds, event_tokens, event_aux)
+            let out3: index = mom_emit_event(17, end_i, as(i32, j), out2, cap, event_kinds, event_tokens, event_aux)
+            jump loop(i = end_i + as(index, 1), out = out3)
+        end
+
+        if k == @{TK_REGION} then
+            let end_i: index = mom_find_nested_end(kinds, n_tokens, j)
+            let out1: index = mom_emit_event(18, j, as(i32, end_i), out, cap, event_kinds, event_tokens, event_aux)
+            let lp: index = mom_find_lparen_after_name(kinds, n_tokens, j, end_i)
+            let out2: index = select(lp < n_tokens, mom_parse_param_events(kinds, n_tokens, lp, end_i, out1, cap, event_kinds, event_tokens, event_aux), out1)
+            let out3: index = mom_emit_event(19, end_i, as(i32, j), out2, cap, event_kinds, event_tokens, event_aux)
+            jump loop(i = end_i + as(index, 1), out = out3)
+        end
+
+        if k == @{TK_EXPR} then
+            let end_i: index = mom_find_nested_end(kinds, n_tokens, j)
+            let out1: index = mom_emit_event(20, j, as(i32, end_i), out, cap, event_kinds, event_tokens, event_aux)
+            let lp: index = mom_find_lparen_after_name(kinds, n_tokens, j, end_i)
+            let out2: index = select(lp < n_tokens, mom_parse_param_events(kinds, n_tokens, lp, end_i, out1, cap, event_kinds, event_tokens, event_aux), out1)
+            let out3: index = mom_emit_event(21, end_i, as(i32, j), out2, cap, event_kinds, event_tokens, event_aux)
+            jump loop(i = end_i + as(index, 1), out = out3)
+        end
+
+        let out_bad: index = mom_emit_event(40, j, k, out, cap, event_kinds, event_tokens, event_aux)
+        jump loop(i = j + as(index, 1), out = out_bad)
+    end
+    end
+end
+
+local mom_event = func(kind: i32, token_index: index, aux: i32,
+                       state: ptr(i32), cap: index,
+                       event_kinds: ptr(i32), event_tokens: ptr(i32), event_aux: ptr(i32))
+    let out: index = as(index, state[1])
+    let out2: index = mom_emit_event(kind, token_index, aux, out, cap, event_kinds, event_tokens, event_aux)
+    state[1] = as(i32, out2)
+end
+
+local mom_peek_state = func(kinds: ptr(i32), n_tokens: index, state: ptr(i32)) -> i32
+    let i: index = as(index, state[0])
+    if i >= n_tokens then return @{TK_EOF} end
+    return kinds[i]
+end
+
+local mom_advance_state = func(n_tokens: index, state: ptr(i32)) -> index
+    let i: index = as(index, state[0])
+    if i < n_tokens then state[0] = state[0] + 1 end
+    return i
+end
+
+local mom_accept_state = func(kinds: ptr(i32), n_tokens: index, state: ptr(i32), want: i32) -> bool
+    if mom_peek_state(kinds, n_tokens, state) == want then
+        mom_advance_state(n_tokens, state)
+        return true
+    end
+    return false
+end
+
+local mom_skip_sep_state = func(kinds: ptr(i32), n_tokens: index, state: ptr(i32))
+    block loop()
+        let k: i32 = mom_peek_state(kinds, n_tokens, state)
+        if k == @{TK_NL} or k == @{TK_SEMI} then
+            mom_advance_state(n_tokens, state)
+            jump loop()
+        end
+        yield
+    end
+end
+
+local mom_lbp = func(k: i32) -> i32
+    if k == @{TK_OR} then return 10 end
+    if k == @{TK_AND} then return 20 end
+    if k == @{TK_EQEQ} or k == @{TK_NE} or k == @{TK_LT} or k == @{TK_LE} or k == @{TK_GT} or k == @{TK_GE} then return 30 end
+    if k == @{TK_PIPE} then return 40 end
+    if k == @{TK_CARET} then return 50 end
+    if k == @{TK_AMP} then return 60 end
+    if k == @{TK_SHL} or k == @{TK_ASHR} or k == @{TK_LSHR} then return 70 end
+    if k == @{TK_PLUS} or k == @{TK_MINUS} then return 80 end
+    if k == @{TK_STAR} or k == @{TK_SLASH} or k == @{TK_PERCENT} then return 90 end
+    if k == @{TK_LPAREN} or k == @{TK_LBRACK} or k == @{TK_DOT} then return 100 end
+    return 0
+end
+
+local mom_parse_type_state = func(kinds: ptr(i32), n_tokens: index, state: ptr(i32), cap: index,
+                                  event_kinds: ptr(i32), event_tokens: ptr(i32), event_aux: ptr(i32))
+    mom_skip_sep_state(kinds, n_tokens, state)
+    let start_i: index = as(index, state[0])
+    mom_event(33, start_i, 0, state, cap, event_kinds, event_tokens, event_aux)
+    let k: i32 = mom_peek_state(kinds, n_tokens, state)
+
+    if k == @{TK_FUNC} then
+        mom_advance_state(n_tokens, state)
+        if mom_accept_state(kinds, n_tokens, state, @{TK_LPAREN}) then
+            block params()
+                mom_skip_sep_state(kinds, n_tokens, state)
+                let pk: i32 = mom_peek_state(kinds, n_tokens, state)
+                if pk == @{TK_RPAREN} or pk == @{TK_EOF} then yield end
+                mom_parse_type_state(kinds, n_tokens, state, cap, event_kinds, event_tokens, event_aux)
+                mom_skip_sep_state(kinds, n_tokens, state)
+                if mom_accept_state(kinds, n_tokens, state, @{TK_COMMA}) then jump params() end
+                yield
+            end
+            mom_accept_state(kinds, n_tokens, state, @{TK_RPAREN})
+        end
+        if mom_accept_state(kinds, n_tokens, state, @{TK_ARROW}) then
+            mom_parse_type_state(kinds, n_tokens, state, cap, event_kinds, event_tokens, event_aux)
+        end
+        return
+    end
+
+    if k == @{TK_VIEW} then
+        mom_advance_state(n_tokens, state)
+        if mom_accept_state(kinds, n_tokens, state, @{TK_LPAREN}) then
+            mom_parse_type_state(kinds, n_tokens, state, cap, event_kinds, event_tokens, event_aux)
+            mom_accept_state(kinds, n_tokens, state, @{TK_RPAREN})
+        end
+        return
+    end
+
+    if k == @{TK_NAME} then
+        mom_advance_state(n_tokens, state)
+        if mom_accept_state(kinds, n_tokens, state, @{TK_LPAREN}) then
+            mom_parse_type_state(kinds, n_tokens, state, cap, event_kinds, event_tokens, event_aux)
+            mom_accept_state(kinds, n_tokens, state, @{TK_RPAREN})
+        else
+            block path()
+                if mom_accept_state(kinds, n_tokens, state, @{TK_DOT}) then
+                    if mom_peek_state(kinds, n_tokens, state) == @{TK_NAME} then mom_advance_state(n_tokens, state) end
+                    jump path()
+                end
+                yield
+            end
+        end
+        return
+    end
+
+    if k == @{TK_HOLE} then
+        mom_advance_state(n_tokens, state)
+        return
+    end
+
+    mom_event(40, start_i, k, state, cap, event_kinds, event_tokens, event_aux)
+    mom_advance_state(n_tokens, state)
+end
+
+local mom_parse_expr_bp = func(kinds: ptr(i32), n_tokens: index, state: ptr(i32), rbp: i32, cap: index,
+                               event_kinds: ptr(i32), event_tokens: ptr(i32), event_aux: ptr(i32))
+    mom_skip_sep_state(kinds, n_tokens, state)
+    let start_i: index = as(index, state[0])
+    mom_event(34, start_i, rbp, state, cap, event_kinds, event_tokens, event_aux)
+    let k: i32 = mom_peek_state(kinds, n_tokens, state)
+
+    if k == @{TK_MINUS} or k == @{TK_NOT} or k == @{TK_TILDE} or k == @{TK_STAR} or k == @{TK_AMP} then
+        mom_advance_state(n_tokens, state)
+        mom_parse_expr_bp(kinds, n_tokens, state, 95, cap, event_kinds, event_tokens, event_aux)
+    elseif k == @{TK_AS} then
+        mom_advance_state(n_tokens, state)
+        if mom_accept_state(kinds, n_tokens, state, @{TK_LPAREN}) then
+            mom_parse_type_state(kinds, n_tokens, state, cap, event_kinds, event_tokens, event_aux)
+            mom_accept_state(kinds, n_tokens, state, @{TK_COMMA})
+            mom_parse_expr_bp(kinds, n_tokens, state, 0, cap, event_kinds, event_tokens, event_aux)
+            mom_accept_state(kinds, n_tokens, state, @{TK_RPAREN})
+        end
+    elseif k == @{TK_LPAREN} then
+        mom_advance_state(n_tokens, state)
+        mom_parse_expr_bp(kinds, n_tokens, state, 0, cap, event_kinds, event_tokens, event_aux)
+        mom_accept_state(kinds, n_tokens, state, @{TK_RPAREN})
+    elseif k == @{TK_SWITCH} or k == @{TK_BLOCK} or k == @{TK_REGION} then
+        let end_i: index = mom_find_nested_end(kinds, n_tokens, start_i)
+        state[0] = as(i32, end_i + as(index, 1))
+    elseif k == @{TK_NAME} or k == @{TK_INT} or k == @{TK_FLOAT} or k == @{TK_STRING} or k == @{TK_TRUE} or k == @{TK_FALSE} or k == @{TK_NIL} or k == @{TK_HOLE} then
+        mom_advance_state(n_tokens, state)
+    else
+        mom_event(40, start_i, k, state, cap, event_kinds, event_tokens, event_aux)
+        mom_advance_state(n_tokens, state)
+    end
+
+    block led_loop()
+        mom_skip_sep_state(kinds, n_tokens, state)
+        let op: i32 = mom_peek_state(kinds, n_tokens, state)
+        let bp: i32 = mom_lbp(op)
+        if bp <= rbp then yield end
+
+        if op == @{TK_LPAREN} then
+            mom_advance_state(n_tokens, state)
+            block args()
+                mom_skip_sep_state(kinds, n_tokens, state)
+                let ak: i32 = mom_peek_state(kinds, n_tokens, state)
+                if ak == @{TK_RPAREN} or ak == @{TK_EOF} then yield end
+                mom_parse_expr_bp(kinds, n_tokens, state, 0, cap, event_kinds, event_tokens, event_aux)
+                mom_skip_sep_state(kinds, n_tokens, state)
+                if mom_accept_state(kinds, n_tokens, state, @{TK_COMMA}) then jump args() end
+                yield
+            end
+            mom_accept_state(kinds, n_tokens, state, @{TK_RPAREN})
+            jump led_loop()
+        end
+
+        if op == @{TK_LBRACK} then
+            mom_advance_state(n_tokens, state)
+            mom_parse_expr_bp(kinds, n_tokens, state, 0, cap, event_kinds, event_tokens, event_aux)
+            mom_accept_state(kinds, n_tokens, state, @{TK_RBRACK})
+            jump led_loop()
+        end
+
+        if op == @{TK_DOT} then
+            mom_advance_state(n_tokens, state)
+            if mom_peek_state(kinds, n_tokens, state) == @{TK_NAME} then mom_advance_state(n_tokens, state) end
+            jump led_loop()
+        end
+
+        mom_advance_state(n_tokens, state)
+        mom_parse_expr_bp(kinds, n_tokens, state, bp, cap, event_kinds, event_tokens, event_aux)
+        jump led_loop()
+    end
+end
+
+local mom_stmt_stop = func(k: i32, stop_else: bool, stop_case: bool, stop_end: bool) -> bool
+    if stop_end and (k == @{TK_END} or k == @{TK_EOF}) then return true end
+    if stop_else and (k == @{TK_ELSE} or k == @{TK_ELSEIF}) then return true end
+    if stop_case and (k == @{TK_CASE} or k == @{TK_DEFAULT}) then return true end
+    return false
+end
+
+local mom_parse_stmt_list_state = func(kinds: ptr(i32), n_tokens: index, state: ptr(i32), stop_else: bool, stop_case: bool, stop_end: bool, cap: index,
+                                       event_kinds: ptr(i32), event_tokens: ptr(i32), event_aux: ptr(i32))
+    block loop()
+        mom_skip_sep_state(kinds, n_tokens, state)
+        let k: i32 = mom_peek_state(kinds, n_tokens, state)
+        if mom_stmt_stop(k, stop_else, stop_case, stop_end) then yield end
+        let stmt_i: index = as(index, state[0])
+        mom_event(35, stmt_i, k, state, cap, event_kinds, event_tokens, event_aux)
+
+        if k == @{TK_LET} or k == @{TK_VAR} then
+            mom_advance_state(n_tokens, state)
+            if mom_peek_state(kinds, n_tokens, state) == @{TK_NAME} then mom_advance_state(n_tokens, state) end
+            if mom_accept_state(kinds, n_tokens, state, @{TK_COLON}) then mom_parse_type_state(kinds, n_tokens, state, cap, event_kinds, event_tokens, event_aux) end
+            if mom_accept_state(kinds, n_tokens, state, @{TK_EQ}) then mom_parse_expr_bp(kinds, n_tokens, state, 0, cap, event_kinds, event_tokens, event_aux) end
+            jump loop()
+        end
+
+        if k == @{TK_RETURN} or k == @{TK_YIELD} then
+            mom_advance_state(n_tokens, state)
+            let nk: i32 = mom_peek_state(kinds, n_tokens, state)
+            if not mom_stmt_stop(nk, true, true, true) and nk ~= @{TK_NL} and nk ~= @{TK_SEMI} then
+                mom_parse_expr_bp(kinds, n_tokens, state, 0, cap, event_kinds, event_tokens, event_aux)
+            end
+            jump loop()
+        end
+
+        if k == @{TK_IF} then
+            mom_advance_state(n_tokens, state)
+            mom_parse_expr_bp(kinds, n_tokens, state, 0, cap, event_kinds, event_tokens, event_aux)
+            mom_accept_state(kinds, n_tokens, state, @{TK_THEN})
+            mom_parse_stmt_list_state(kinds, n_tokens, state, true, false, true, cap, event_kinds, event_tokens, event_aux)
+            if mom_accept_state(kinds, n_tokens, state, @{TK_ELSEIF}) then
+                state[0] = state[0] - 1
+                mom_parse_stmt_list_state(kinds, n_tokens, state, false, false, true, cap, event_kinds, event_tokens, event_aux)
+            elseif mom_accept_state(kinds, n_tokens, state, @{TK_ELSE}) then
+                mom_parse_stmt_list_state(kinds, n_tokens, state, false, false, true, cap, event_kinds, event_tokens, event_aux)
+            end
+            mom_accept_state(kinds, n_tokens, state, @{TK_END})
+            jump loop()
+        end
+
+        if k == @{TK_SWITCH} then
+            mom_advance_state(n_tokens, state)
+            mom_parse_expr_bp(kinds, n_tokens, state, 0, cap, event_kinds, event_tokens, event_aux)
+            mom_accept_state(kinds, n_tokens, state, @{TK_DO})
+            block arms()
+                mom_skip_sep_state(kinds, n_tokens, state)
+                let ak: i32 = mom_peek_state(kinds, n_tokens, state)
+                if ak == @{TK_CASE} then
+                    mom_advance_state(n_tokens, state)
+                    mom_parse_expr_bp(kinds, n_tokens, state, 0, cap, event_kinds, event_tokens, event_aux)
+                    mom_accept_state(kinds, n_tokens, state, @{TK_THEN})
+                    mom_parse_stmt_list_state(kinds, n_tokens, state, false, true, true, cap, event_kinds, event_tokens, event_aux)
+                    jump arms()
+                end
+                if ak == @{TK_DEFAULT} then
+                    mom_advance_state(n_tokens, state)
+                    mom_accept_state(kinds, n_tokens, state, @{TK_THEN})
+                    mom_parse_stmt_list_state(kinds, n_tokens, state, false, false, true, cap, event_kinds, event_tokens, event_aux)
+                end
+                yield
+            end
+            mom_accept_state(kinds, n_tokens, state, @{TK_END})
+            jump loop()
+        end
+
+        if k == @{TK_JUMP} then
+            mom_advance_state(n_tokens, state)
+            if mom_peek_state(kinds, n_tokens, state) == @{TK_NAME} then mom_advance_state(n_tokens, state) end
+            if mom_accept_state(kinds, n_tokens, state, @{TK_LPAREN}) then
+                block jargs()
+                    mom_skip_sep_state(kinds, n_tokens, state)
+                    let jk: i32 = mom_peek_state(kinds, n_tokens, state)
+                    if jk == @{TK_RPAREN} or jk == @{TK_EOF} then yield end
+                    if jk == @{TK_NAME} then mom_advance_state(n_tokens, state) end
+                    mom_accept_state(kinds, n_tokens, state, @{TK_EQ})
+                    mom_parse_expr_bp(kinds, n_tokens, state, 0, cap, event_kinds, event_tokens, event_aux)
+                    mom_skip_sep_state(kinds, n_tokens, state)
+                    if mom_accept_state(kinds, n_tokens, state, @{TK_COMMA}) then jump jargs() end
+                    yield
+                end
+                mom_accept_state(kinds, n_tokens, state, @{TK_RPAREN})
+            end
+            jump loop()
+        end
+
+        if k == @{TK_BLOCK} or k == @{TK_REGION} then
+            let end_i: index = mom_find_nested_end(kinds, n_tokens, stmt_i)
+            state[0] = as(i32, end_i + as(index, 1))
+            jump loop()
+        end
+
+        if k == @{TK_EMIT} then
+            mom_advance_state(n_tokens, state)
+            mom_parse_expr_bp(kinds, n_tokens, state, 0, cap, event_kinds, event_tokens, event_aux)
+            jump loop()
+        end
+
+        mom_parse_expr_bp(kinds, n_tokens, state, 0, cap, event_kinds, event_tokens, event_aux)
+        if mom_accept_state(kinds, n_tokens, state, @{TK_EQ}) then
+            mom_parse_expr_bp(kinds, n_tokens, state, 0, cap, event_kinds, event_tokens, event_aux)
+        end
+        jump loop()
+    end
+end
+
+local mom_skip_balanced_parens = func(kinds: ptr(i32), n_tokens: index, state: ptr(i32))
+    block loop(depth: i32 = 1)
+        let k: i32 = mom_peek_state(kinds, n_tokens, state)
+        if k == @{TK_EOF} then yield end
+        if k == @{TK_LPAREN} then
+            mom_advance_state(n_tokens, state)
+            jump loop(depth = depth + 1)
+        end
+        if k == @{TK_RPAREN} then
+            mom_advance_state(n_tokens, state)
+            if depth == 1 then yield end
+            jump loop(depth = depth - 1)
+        end
+        mom_advance_state(n_tokens, state)
+        jump loop(depth = depth)
+    end
+end
+
+local mom_parse_decl_state = func(kinds: ptr(i32), n_tokens: index, state: ptr(i32), cap: index,
+                                  event_kinds: ptr(i32), event_tokens: ptr(i32), event_aux: ptr(i32))
+    let i: index = as(index, state[0])
+    let k: i32 = mom_peek_state(kinds, n_tokens, state)
+
+    if k == @{TK_FUNC} then
+        let begin_i: index = i
+        mom_event(10, begin_i, 0, state, cap, event_kinds, event_tokens, event_aux)
+        mom_advance_state(n_tokens, state)
+        if mom_peek_state(kinds, n_tokens, state) == @{TK_NAME} then mom_advance_state(n_tokens, state) end
+        if mom_accept_state(kinds, n_tokens, state, @{TK_LPAREN}) then
+            block params()
+                mom_skip_sep_state(kinds, n_tokens, state)
+                let pk: i32 = mom_peek_state(kinds, n_tokens, state)
+                if pk == @{TK_RPAREN} or pk == @{TK_EOF} then yield end
+                let pi: index = as(index, state[0])
+                if pk == @{TK_NAME} then
+                    mom_advance_state(n_tokens, state)
+                    if mom_accept_state(kinds, n_tokens, state, @{TK_COLON}) then
+                        mom_event(30, pi, 0, state, cap, event_kinds, event_tokens, event_aux)
+                        mom_parse_type_state(kinds, n_tokens, state, cap, event_kinds, event_tokens, event_aux)
+                    end
+                else
+                    mom_advance_state(n_tokens, state)
+                end
+                mom_skip_sep_state(kinds, n_tokens, state)
+                if mom_accept_state(kinds, n_tokens, state, @{TK_COMMA}) then jump params() end
+                yield
+            end
+            mom_accept_state(kinds, n_tokens, state, @{TK_RPAREN})
+        end
+        if mom_accept_state(kinds, n_tokens, state, @{TK_ARROW}) then mom_parse_type_state(kinds, n_tokens, state, cap, event_kinds, event_tokens, event_aux) end
+        mom_parse_stmt_list_state(kinds, n_tokens, state, false, false, true, cap, event_kinds, event_tokens, event_aux)
+        let end_i: index = as(index, state[0])
+        mom_accept_state(kinds, n_tokens, state, @{TK_END})
+        mom_event(11, end_i, as(i32, begin_i), state, cap, event_kinds, event_tokens, event_aux)
+        return
+    end
+
+    if k == @{TK_STRUCT} then
+        let end_i: index = mom_find_simple_end(kinds, n_tokens, i)
+        mom_event(14, i, as(i32, end_i), state, cap, event_kinds, event_tokens, event_aux)
+        let struct_out: index = mom_parse_struct_field_events(kinds, n_tokens, i, end_i, as(index, state[1]), cap, event_kinds, event_tokens, event_aux)
+        state[1] = as(i32, struct_out)
+        state[0] = as(i32, end_i + as(index, 1))
+        mom_event(15, end_i, as(i32, i), state, cap, event_kinds, event_tokens, event_aux)
+        return
+    end
+
+    if k == @{TK_UNION} then
+        let end_i: index = mom_find_simple_end(kinds, n_tokens, i)
+        mom_event(16, i, as(i32, end_i), state, cap, event_kinds, event_tokens, event_aux)
+        let union_out: index = mom_parse_union_variant_events(kinds, n_tokens, i, end_i, as(index, state[1]), cap, event_kinds, event_tokens, event_aux)
+        state[1] = as(i32, union_out)
+        state[0] = as(i32, end_i + as(index, 1))
+        mom_event(17, end_i, as(i32, i), state, cap, event_kinds, event_tokens, event_aux)
+        return
+    end
+
+    if k == @{TK_EXTERN} then
+        let end_i: index = mom_find_simple_end(kinds, n_tokens, i)
+        mom_event(12, i, as(i32, end_i), state, cap, event_kinds, event_tokens, event_aux)
+        state[0] = as(i32, end_i + as(index, 1))
+        mom_event(13, end_i, as(i32, i), state, cap, event_kinds, event_tokens, event_aux)
+        return
+    end
+
+    if k == @{TK_REGION} or k == @{TK_EXPR} then
+        let end_i: index = mom_find_nested_end(kinds, n_tokens, i)
+        mom_event(select(k == @{TK_REGION}, 18, 20), i, as(i32, end_i), state, cap, event_kinds, event_tokens, event_aux)
+        state[0] = as(i32, end_i + as(index, 1))
+        mom_event(select(k == @{TK_REGION}, 19, 21), end_i, as(i32, i), state, cap, event_kinds, event_tokens, event_aux)
+        return
+    end
+
+    mom_event(40, i, k, state, cap, event_kinds, event_tokens, event_aux)
+    mom_advance_state(n_tokens, state)
+end
+
+local mom_parse_full_events = func(kinds: ptr(i32), n_tokens: index, state: ptr(i32),
+                                   event_kinds: ptr(i32), event_tokens: ptr(i32), event_aux: ptr(i32),
+                                   cap: index) -> index
+    state[0] = 0
+    state[1] = 0
+    mom_event(1, 0, 0, state, cap, event_kinds, event_tokens, event_aux)
+    return block loop() -> index
+        mom_skip_sep_state(kinds, n_tokens, state)
+        let cur_i: index = as(index, state[0])
+        let cur_k: i32 = mom_peek_state(kinds, n_tokens, state)
+        if cur_k == @{TK_EOF} or cur_i >= n_tokens then
+            mom_event(2, cur_i, 0, state, cap, event_kinds, event_tokens, event_aux)
+            yield as(index, state[1])
+        end
+        mom_parse_decl_state(kinds, n_tokens, state, cap, event_kinds, event_tokens, event_aux)
+        jump loop()
+    end
+end
+
 M:add_func(mom_is_alpha)
 M:add_func(mom_is_digit)
 M:add_func(mom_is_alnum)
@@ -481,5 +1083,28 @@ M:add_func(mom_scan_number_stop)
 M:add_func(mom_number_kind)
 M:add_func(mom_emit_token)
 M:add_func(mom_lex_into)
+M:add_func(mom_emit_event)
+M:add_func(mom_skip_seps)
+M:add_func(mom_find_simple_end)
+M:add_func(mom_is_nested_end_opener)
+M:add_func(mom_find_nested_end)
+M:add_func(mom_find_lparen_after_name)
+M:add_func(mom_parse_param_events)
+M:add_func(mom_parse_struct_field_events)
+M:add_func(mom_parse_union_variant_events)
+M:add_func(mom_parse_module_events)
+M:add_func(mom_event)
+M:add_func(mom_peek_state)
+M:add_func(mom_advance_state)
+M:add_func(mom_accept_state)
+M:add_func(mom_skip_sep_state)
+M:add_func(mom_lbp)
+M:add_func(mom_parse_type_state)
+M:add_func(mom_parse_expr_bp)
+M:add_func(mom_stmt_stop)
+M:add_func(mom_parse_stmt_list_state)
+M:add_func(mom_skip_balanced_parens)
+M:add_func(mom_parse_decl_state)
+M:add_func(mom_parse_full_events)
 
 return M

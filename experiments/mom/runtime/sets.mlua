@@ -1,0 +1,105 @@
+-- MOM runtime integer maps.
+--
+-- Explicit open-addressed maps for interned symbol ids, backend ids, and phase
+-- facts. The map owns no storage; callers provide arrays. Key id 0 is valid
+-- because occupancy is tracked separately in `state`.
+
+local M = moon.module("mom_runtime_sets")
+
+local i32p = moon.ptr(moon.i32)
+
+local MR_MAP_EMPTY = 0
+local MR_MAP_OCCUPIED = 1
+
+local MomI32Map = M:struct("MomI32Map", {
+    moon.field("key", i32p),
+    moon.field("value", i32p),
+    moon.field("state", i32p),
+    moon.field("len", moon.index),
+    moon.field("cap", moon.index),
+})
+
+local mr_i32_map_reset = func(m: ptr(@{MomI32Map}))
+    block loop(i: index = 0)
+        if i >= m.cap then
+            m.len = 0
+            return
+        end
+        m.state[i] = @{MR_MAP_EMPTY}
+        jump loop(i = i + as(index, 1))
+    end
+end
+
+local mr_i32_map_hash = func(key: i32) -> i32
+    let mixed: i32 = key * 1103515245 + 12345
+    if mixed < 0 then return -mixed end
+    return mixed
+end
+
+local mr_i32_map_probe_start = func(m: ptr(@{MomI32Map}), key: i32) -> index
+    if m.cap == as(index, 0) then return as(index, 0) end
+    return as(index, mr_i32_map_hash(key)) % m.cap
+end
+
+local mr_i32_map_find_slot = func(m: ptr(@{MomI32Map}), key: i32) -> i32
+    if m.cap == as(index, 0) then return -1 end
+    let start: index = mr_i32_map_probe_start(m, key)
+    block loop(step: index = 0, pos: index = start)
+        if step >= m.cap then return -1 end
+        if m.state[pos] == @{MR_MAP_EMPTY} then return -1 end
+        if m.state[pos] == @{MR_MAP_OCCUPIED} and m.key[pos] == key then return as(i32, pos) end
+        let next: index = pos + as(index, 1)
+        jump loop(step = step + as(index, 1), pos = select(next >= m.cap, as(index, 0), next))
+    end
+end
+
+local mr_i32_map_find_insert_slot = func(m: ptr(@{MomI32Map}), key: i32) -> i32
+    if m.cap == as(index, 0) then return -1 end
+    let start: index = mr_i32_map_probe_start(m, key)
+    block loop(step: index = 0, pos: index = start)
+        if step >= m.cap then return -1 end
+        if m.state[pos] == @{MR_MAP_EMPTY} then return as(i32, pos) end
+        if m.state[pos] == @{MR_MAP_OCCUPIED} and m.key[pos] == key then return as(i32, pos) end
+        let next: index = pos + as(index, 1)
+        jump loop(step = step + as(index, 1), pos = select(next >= m.cap, as(index, 0), next))
+    end
+end
+
+local mr_i32_map_put = func(m: ptr(@{MomI32Map}), key: i32, value: i32) -> bool
+    let slot_i32: i32 = mr_i32_map_find_insert_slot(m, key)
+    if slot_i32 < 0 then return false end
+    let slot: index = as(index, slot_i32)
+    if m.state[slot] == @{MR_MAP_EMPTY} then
+        m.state[slot] = @{MR_MAP_OCCUPIED}
+        m.key[slot] = key
+        m.len = m.len + as(index, 1)
+    end
+    m.value[slot] = value
+    return true
+end
+
+local mr_i32_map_get_or = func(m: ptr(@{MomI32Map}), key: i32, missing: i32) -> i32
+    let slot_i32: i32 = mr_i32_map_find_slot(m, key)
+    if slot_i32 < 0 then return missing end
+    return m.value[as(index, slot_i32)]
+end
+
+local mr_i32_map_contains = func(m: ptr(@{MomI32Map}), key: i32) -> bool
+    return mr_i32_map_find_slot(m, key) >= 0
+end
+
+local mr_i32_map_full = func(m: ptr(@{MomI32Map})) -> bool
+    return m.len >= m.cap
+end
+
+M:add_func(mr_i32_map_reset)
+M:add_func(mr_i32_map_hash)
+M:add_func(mr_i32_map_probe_start)
+M:add_func(mr_i32_map_find_slot)
+M:add_func(mr_i32_map_find_insert_slot)
+M:add_func(mr_i32_map_put)
+M:add_func(mr_i32_map_get_or)
+M:add_func(mr_i32_map_contains)
+M:add_func(mr_i32_map_full)
+
+return M

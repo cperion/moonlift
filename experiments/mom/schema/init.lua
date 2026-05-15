@@ -27,6 +27,7 @@ preload("MoonBack")
 preload("MoonSource")
 preload("MoonLink")
 preload("MoonCyclic")  -- uses package.preload for its require() calls
+preload("MoonParse")
 preload("MoonDasm")
 preload("MoonMlua")
 preload("MoonEditorLspRpc")

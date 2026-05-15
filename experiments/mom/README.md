@@ -18,12 +18,15 @@ See [PORTING_GUIDE.md](PORTING_GUIDE.md) for the full porting strategy and
 
 ## Current status
 
-The schema seed exists. The major missing front-end piece is the native parser
-layer: `ptr(u8)+len` source buffers, token tape, island scanner, Pratt
-expression parser, recursive-descent statement/type parser, and AST builders
-that produce MoonTree ASDL directly. OS integration can be done through
-Moonlift `extern` calls to libc; the parser core itself should remain a pure
-buffer-to-AST component.
+The schema seed exists and native parser work has started. `parser/native_lexer.mlua`
+is a native token tape lexer over `ptr(u8)+len`, plus native parse-event passes.
+`parser/native_ast.lua` is a verification harness that materializes today's
+Lua/PVM MoonTree values from the native token tape to compare against the
+existing pipeline; it is outside the compiler dependency graph. The MOM parser
+core is `parser/native_core.mlua`: compiled Moonlift parser functions/regions
+that write native AST tapes into caller-provided buffers. OS integration can be
+done through Moonlift `extern` calls to libc; the parser core itself remains a
+pure buffer-to-AST component.
 
 ## Schema seed
 
@@ -35,7 +38,8 @@ Current translated schema files:
 | `schema/MoonBack.mlua` | backend command/fact/validation types | ✓ seed |
 | `schema/MoonSource.mlua` | source ranges/anchors/document types | ✓ seed |
 | `schema/MoonLink.mlua` | link plan/result types | ✓ seed |
-| `schema/MoonCyclic.mlua` | combined cyclic group: MoonOpen/MoonType/MoonBind/MoonSem/MoonTree/MoonVec/MoonHost/MoonParse extras | ✓ seed |
+| `schema/MoonCyclic.mlua` | combined cyclic group: MoonOpen/MoonType/MoonBind/MoonSem/MoonTree/MoonVec/MoonHost extras | ✓ seed |
+| `schema/MoonParse.mlua` | native parser token tape/island/splice/output types | ✓ seed |
 | `schema/MoonMlua.mlua` | mlua document parse/analysis types | ✓ seed |
 | `schema/MoonDasm.mlua` | disassembly/inspection types | ✓ seed |
 | `schema/MoonEditorLspRpc.mlua` | editor/LSP/RPC combined types | ✓ seed |
@@ -45,9 +49,8 @@ Moonlift code for the pipeline.
 
 ## Immediate design work
 
-1. Add/expand a real `MoonParse` schema: `SourceBuffer`, `TokenKind`, `Token`,
-   `TokenTape`, `Island`, `ParseCursor`, `SpliceSlot`, builders/freeze results.
-2. Implement native scanner/lexer regions over `ptr(u8)+len`.
+1. Keep expanding `MoonParse` as implementation needs demand.
+2. Extend native scanner/lexer coverage and document scanner/island handling.
 3. Implement Pratt expression parsing and recursive-descent statement/type/top
    level parsing that constructs MoonTree ASDL directly.
 4. Then port phases in dependency order: open/bind/typecheck → tree lowering →

@@ -43,9 +43,9 @@ lowerings, validation, inspection, control analysis, vectorization, link plans.
 Every module becomes Moonlift `func` and `region` declarations.
 
 The schema files (`experiments/mom/schema/`) are the seed — ASDL types as
-Moonlift struct/union declarations. The next missing layer is the parser:
-`ptr(u8)+len` source bytes must become typed MoonTree AST values before the
-existing phase pipeline can run.
+Moonlift struct/union declarations. The parser contract is explicit:
+`ptr(u8)+len` source bytes become typed MoonTree AST values before semantic
+phases run.
 
 The parser produces ASDL output (`Module`, `Func`, `Stmt`, `Expr`, `Type`,
 `RegionFrag`, `ExprFrag`, parse issues, anchors). The lowerings then consume
@@ -200,12 +200,11 @@ SourceBuffer(data: ptr(u8), len: index, uri)
   -> anchors/issues      -- Source ranges, names, diagnostics
 ```
 
-For pure `.moon` input, `scan_document` can produce one hosted module island.
-For `.mlua`, MOM should scan Lua-opaque regions only enough to find Moonlift
-islands. If the long-term goal is **no Lua runtime for user programs either**,
-then `.mlua` staging must be handled before the native compiler core or by a
-separate staged evaluator. MOM phase one should make the native Moonlift
-island parser independent of Lua.
+For pure `.moon` input, `scan_document` produces one hosted module island. For
+`.mlua`, MOM scans Lua-opaque regions enough to find Moonlift islands and typed
+splice holes. `.mlua` staging is an explicit separate stage that resolves splice
+values before the closed native compiler core runs. The Moonlift island parser is
+independent of Lua by design.
 
 Moonlift can call libc through `extern`, so OS-level integration is not a
 blocker: adapters can use `open`/`read`/`close`, `malloc`/`realloc`/`free`,
@@ -247,10 +246,9 @@ struct ParseCursor
 end
 ```
 
-The current Lua parser uses parallel arrays (`kind`, `text`, `start`, `stop`,
-`line`, `col`). MOM can use either SoA for maximum scanner speed or `view(Token)`
-for simplicity. The important part is that all token spans are retained so AST
-nodes, anchors, and errors can point back to source without string side tables.
+MOM uses SoA storage for scanner writes and parser-facing accessors that expose
+`Token` values/views. All token spans are retained so AST nodes, anchors, and
+errors can point back to source without string side tables.
 
 ### 4.3 Lexer as Jump-First State Machine
 
@@ -300,9 +298,9 @@ Recommended design:
 3. **Keep spans outside semantic nodes.** Emit `AnchorSpan`/diagnostics keyed by
    token offsets and generated ids. Do not pollute semantic AST variants with
    editor-only trivia.
-4. **Use an optional CST only for editor/recovery needs.** If LSP needs exact
-   malformed-tree recovery, add a shallow concrete syntax tree later. The core
-   compiler should not wait for it.
+4. **Separate semantic AST from concrete/editor data.** The compiler consumes
+   MoonTree. Editor recovery consumes TokenTape/AnchorSpan plus a shallow CST
+   product when exact malformed trivia is required.
 5. **Intern names and slices once.** `Name`, `Path`, ids, and literal raw text
    should reference interned source slices or arena strings. No hidden Lua
    string tables at runtime.
@@ -314,11 +312,9 @@ Recommended design:
    blocks, variants, contracts, issues, anchors all append to typed builders and
    freeze to `view(T)`.
 
-The first schema addition MOM needs is therefore a real `MoonParse` model:
-`SourceBuffer`, `TokenKind`, `Token`, `TokenTape`, `Island`, `ParseCursor`,
-`ParseIssue`, `SpliceSlot`, and builder/freeze result types. The current
-`ParseIssue`-only model is enough for validation experiments but not enough for
-native parsing.
+MOM needs a real `MoonParse` model: `SourceBuffer`, `TokenKind`, `Token`,
+`TokenTape`, `Island`, `ParseCursor`, `ParseIssue`, `SpliceSlot`, and
+builder/freeze result types. A `ParseIssue`-only model is not a parser model.
 
 ### 4.5 Pratt Expressions, Recursive Statements
 
@@ -477,8 +473,9 @@ end
 ```
 
 The float/int decision is compiler control over compiler data (`scalar`), not
-target-program control. If union-valued `select` becomes supported everywhere,
-this can be written as dataflow; until then, compiler `if` is clearer and safe.
+target-program control. The canonical spelling for union-valued command
+construction is compiler `if`/`switch`; `select` is reserved for scalar compiler
+values.
 
 ### 5.4 Logic Lowering → Emit `CmdSelect`
 
@@ -504,14 +501,8 @@ user program, `lhs` and `rhs` are `BackValId`s, so the compiler constructs a
 
 ### 5.5 ExprIf → Emit `CmdSelect` (The Big Unlock)
 
-**Lua (current):**
-```lua
-[Tr.ExprIf] = function(_, env)
-    return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "if expression lowering deferred"))
-end,
-```
-
-**Deferred** because building blocks + phis for a ternary is ~90 lines.
+**Lua (current):** the current lowerer reports that if-expression lowering is
+not implemented. That is an implementation gap, not a MOM design choice.
 
 **Moonlift (ported):**
 ```moonlift
@@ -769,7 +760,7 @@ let result: i32 = select(cond, a, b)
 Lua `if` chooses **which compiler code exists**. Moonlift `select` chooses
 **which value the compiler produces while it runs**. Moonlift `if` chooses
 **which compiler path runs**. `CmdSelect`/`CmdBrIf` describe choices that the
-compiled user program will make later.
+compiled user program makes at its runtime.
 
 ---
 
@@ -867,8 +858,8 @@ Source bytes → token tape → MoonTree AST.
 - `parse_module(source) -> Module + ParseIssue + AnchorSet`
 - token/splice/name interning and arena-backed list builders
 
-This is the missing layer. Build it before porting lowerings so every later
-phase consumes real native ASDL values.
+This layer is the front door. Lowerings consume real native ASDL values from
+this boundary; they do not consume Lua materialized ASTs.
 
 ### Phase 2: Pure Dispatch Functions
 
@@ -896,7 +887,7 @@ Variant → Cmd construction. These become `func` with `switch` and compiler
 
 Still pure functions, but they construct `Back.Cmd` union values. If the
 choice is over scalar enum values, use `select`; if the result is an aggregate
-union command, compiler `if` is the safe spelling.
+union command, use compiler `if`/`switch`.
 
 ### Phase 4: Expression Lowering Regions
 
@@ -1025,3 +1016,711 @@ or dispatches becomes a Moonlift region with typed block params and
 continuation protocols.
 
 No Lua in the compiler core runtime. Pure Moonlift. Native code.
+
+---
+
+## 13. Lowering Audit: What the Lua Pipeline Actually Does
+
+This section is the implementation checklist for porting the current Lua
+lowerers into clean, idiomatic native Moonlift/MOM.  The rule is: port the
+*compiler meaning*, not the Lua/PVM mechanics.
+
+### 13.1 Current Lowering Stack
+
+| Lua module | Role today | MOM port shape |
+|---|---|---|
+| `open_expand.lua` | Resolve open slots, splices, fragment use sites, imported names | `func`/`region` pass over parsed AST + splice environment; outputs closed AST plus typed open issues |
+| `open_facts.lua`, `open_validate.lua` | Gather open-slot facts and validate fills/imports | fact extraction region + validator region over fact tape |
+| `tree_typecheck.lua` | Bind/check expressions, statements, regions, functions, contracts | typed recursive-descent over AST tags; env is a typed stack/view, issues append to builder |
+| `sem_layout_resolve.lua` | Resolve named/struct/union layout-dependent fields and storage | post-typecheck rewrite pass; mostly pure functions plus list-walk regions |
+| `type_to_back_scalar.lua`, `type_abi_classify.lua`, `type_func_abi_plan.lua` | Type-to-back scalar and ABI classification | small `switch` funcs and ABI-plan builders |
+| `tree_control_facts.lua` | Extract/decide control-region facts | region fact walker + deterministic decision function |
+| `tree_control_to_back.lua` | Lower `block`/`region` source control into target `Back.Cmd` CFG | compiler regions that emit target block/cmd data |
+| `tree_contract_facts.lua` | Extract vectorization/alias contract facts | fact extraction region over contract AST |
+| `tree_to_back.lua` | Main MoonTree → MoonBack lowering | split into stateful expression/stmt/function/module lowerers, not one mega-file |
+| `vec_loop_facts.lua` | Recognize vectorizable control regions | fact extraction + recognizer funcs over typed facts |
+| `vec_loop_decide.lua` | Decide vector legality for target model | pure decision funcs over fact tape and target capabilities |
+| `vec_kernel_plan.lua` | Build vector kernel plan from facts/contracts | staged planner + native plan builder funcs |
+| `vec_kernel_to_back.lua`, `vec_to_back.lua` | Lower vector plans/IR to `Back.Cmd` | command-emitting regions with explicit block/value id allocators |
+| `back_validate.lua` | Validate backend program invariants | one validation region over `Cmd` tape; separate symbol tables for sig/func/block/value/access scopes |
+| `link_*`, `host_*_emit_plan.lua`, `back_diagnostics.lua` | Drivers/adapters/diagnostics | after core compiler: thin native adapters, not part of semantic lowering core |
+
+The immediate MOM lowering target is the path:
+
+```text
+closed MoonTree.Module
+  -> typecheck
+  -> sem/layout resolve
+  -> tree/control/vector lowering
+  -> BackProgram
+  -> back_validate
+```
+
+Open/splice expansion stays ahead of typecheck.  Link/JIT/object drivers stay
+after validation.
+
+### 13.2 Cross-Cutting Runtime Data Structures
+
+Do not port Lua tables directly.  Use a few typed state records everywhere:
+
+```moonlift
+struct IssueBuilder
+    tags: ptr(i32)
+    a: ptr(i32)
+    b: ptr(i32)
+    count: index
+    cap: index
+end
+
+struct CmdBuilder
+    cmds: ptr(BackCmd)      -- typed command storage; SoA is an internal storage choice behind accessors
+    count: index
+    cap: index
+end
+
+struct IdAllocator
+    next_value: i32
+    next_block: i32
+    next_access: i32
+    next_slot: i32
+end
+
+struct LowerState
+    cmds: ptr(CmdBuilder)
+    ids: IdAllocator
+    locals: LocalEnv
+    ret: ReturnMode
+    module_name: NameId
+    current_func: NameId
+end
+```
+
+Idiomatic MOM lowerers thread `LowerState` through region block parameters:
+
+```moonlift
+region lower_stmt_list(stmts: view(Stmt), st: LowerState;
+                       done: cont(st: LowerState, flow: Flow))
+entry loop(i: index = 0, st0: LowerState = st)
+    if i >= len(stmts) then jump done(st = st0, flow = FallsThrough) end
+    emit lower_stmt(stmts[i], st0; done = next)
+end
+block next(st1: LowerState, flow1: Flow)
+    if flow1 == Terminates then jump done(st = st1, flow = Terminates) end
+    jump loop(i = i + 1, st0 = st1)
+end
+end
+```
+
+The target program's control flow is still `Back.Cmd` data.  MOM's own
+`block`/`jump` only controls the native compiler.
+
+### 13.3 Non-Negotiable Porting Rules Found During Audit
+
+1. **Region ids must be globally unique within a module.**  The Lua parser used
+   per-island `region_seq`; identical `block loop()` islands collided and PVM
+   reused lowerings across functions.  MOM must allocate region ids from a
+   module-level/id-arena allocator, never from a per-function local counter.
+2. **Backend ids must be scoped by function or by allocator.**  `v1`, `v2`,
+   `ctl.if.then1`, access ids, and stack slots are target-function local.  The
+   allocator must reset only at `BeginFunc`, and cached/generated code must not
+   smuggle ids from another function.
+3. **Do not memoize lowering by structurally interned AST alone when env
+   matters.**  Env-sensitive phases (`expr_to_back`, `stmt_to_back`, layout
+   resolve, control lowering) are plain native functions/regions in MOM, not
+   PVM cache boundaries.
+4. **Facts are tapes, not implicit Lua arrays.**  Every facts phase appends
+   typed fact records into a builder, then validates/decides from the tape.
+5. **Unsupported cases become explicit issues or `CmdTrap`, never silent
+   fallback.**  Keep the current fail-loud behavior, but make the reason a typed
+   diagnostic payload.
+
+### 13.4 Open Expansion Port
+
+Current files: `open_expand.lua`, `open_facts.lua`, `open_validate.lua`.
+
+Port as three native stages:
+
+```text
+Open AST + SpliceEnv
+  -> OpenFact tape
+  -> OpenIssue tape
+  -> Closed AST
+```
+
+Implementation shape:
+
+- `expand_type`, `expand_expr`, `expand_stmt`, `expand_item`, `expand_module`
+  are `func`s switching on variant tags.
+- List expansion (`expand_exprs`, `expand_stmts`, `expand_items`) is a region
+  over `view(T)` with output builders.
+- Slot lookup is an explicit typed map lookup (`SlotKey -> SlotValue`) in
+  `SpliceEnv`, not a Lua table lookup.
+- Fragment expansion (`StmtUseRegionFrag`, `ExprUseExprFrag`) should first
+  produce typed slot/fill facts, then splice the resolved fragment body with a
+  fresh region id and fresh local ids.
+
+Open expansion is a required phase whenever parsed input contains slots,
+fragments, imports, or staged `.mlua` holes. Closed `.moon` modules still pass
+through the same phase boundary; it is an identity transform when no open
+constructs are present.
+
+### 13.5 Typecheck Port
+
+Current file: `tree_typecheck.lua`.
+
+Split into these MOM units:
+
+```text
+mom_type_env.mlua          -- Env, lookup, module bindings, field layouts
+mom_type_expr.mlua         -- Expr -> typed Expr + Type + issues
+mom_type_stmt.mlua         -- Stmt -> typed Stmt + issues + flow/yield checks
+mom_type_control.mlua      -- region param bindings + control validation call
+mom_type_module.mlua       -- item/function/module orchestration
+```
+
+Port pattern:
+
+- `type_expr(expr, ctx) -> TypeExprResult`
+- `type_place(place, ctx) -> TypePlaceResult`
+- `type_stmt(stmt, ctx; done: cont(ctx, typed_stmt, issues, flow))`
+- `type_func(func, module_env) -> TypeFuncResult`
+
+Important Lua semantics to preserve:
+
+- integer literal adoption to expected scalar type
+- pointer/view indexing normalization
+- struct/union field resolution hooks
+- call target decision via `sem_call_decide.lua`
+- region block param bindings use region id + label + param index
+- every path in block/region must terminate with jump/yield/return
+- `yield` mode differs between statement regions and expression regions
+
+Type equality and scalar predicates are pure `func`s. Env lookup is a reverse
+scan over a typed local stack; module/global lookup uses the shared symbol map
+from `runtime/sets.mlua`.
+
+### 13.6 Semantic Layout Resolve Port
+
+Current file: `sem_layout_resolve.lua`.
+
+This pass should stay separate from typecheck.  It rewrites typed AST nodes that
+need concrete layout knowledge:
+
+- named type refs -> layout entries
+- struct/union fields -> `FieldByOffset` / resolved storage metadata
+- view/domain/index/place nodes -> layout-aware forms
+- globals/statics -> storage/data refs
+
+Port as pure rewrite functions plus list-walk regions.  It should not allocate
+backend `BackValId`s and should not emit `Back.Cmd`; it produces a more concrete
+MoonTree/MoonSem tree for backend lowering.
+
+### 13.7 Type/ABI Helper Port
+
+Current files: `type_to_back_scalar.lua`, `type_abi_classify.lua`,
+`type_func_abi_plan.lua`, plus helper logic duplicated in `tree_to_back.lua`.
+
+This is a foundational module because every backend lowering uses it:
+
+```moonlift
+func scalar_to_back(s: Scalar) -> BackScalar
+func type_to_back_scalar(ty: Type) -> BackScalarResult
+func abi_classify(ty: Type, layouts: LayoutEnv) -> AbiClass
+func func_abi_plan(name: NameId, params: view(Param), result: Type) -> FuncAbiPlan
+```
+
+These are mostly `switch` + simple layout queries.  Keep all ABI lowering in one
+module so tree lowering, vector lowering, extern lowering, and host wrappers use
+the same rules.
+
+### 13.8 Main Tree-to-Back Port
+
+Current file: `tree_to_back.lua` should not become one huge `.mlua` file.  Port
+it as modules with one responsibility each:
+
+```text
+mom_back_ids.mlua          -- BackValId/BlockId/AccessId/StackSlot allocators
+mom_back_env.mlua          -- Local env, stack/view/scalar locals, globals
+mom_back_ops.mlua          -- unary/binary/compare/cast op selection
+mom_back_address.mlua      -- view/place/index/field address lowering
+mom_back_expr.mlua         -- expression lowering
+mom_back_stmt.mlua         -- statement lowering
+mom_back_func.mlua         -- ABI, entry params, returns, wrappers
+mom_back_module.mlua       -- items, hoisting, finalize module
+```
+
+#### Expression lowering inventory
+
+Port these as command-emitting regions/functions:
+
+| Lua handler | MOM lowering |
+|---|---|
+| `ExprLit` | const/literal command or direct constant value |
+| `ExprRef` | env/global lookup; scalar/view/data refs |
+| `ExprUnary` | lower operand, emit unary cmd |
+| `ExprBinary` | lower operands, emit int/float cmd |
+| `ExprCompare` | lower operands, emit compare cmd |
+| `ExprCast` | semantic/surface cast op, emit cast/copy as needed |
+| `ExprSelect` | lower cond/a/b, emit `CmdSelect` |
+| `ExprLogic` | lower lhs/rhs, emit bool `CmdSelect` |
+| `ExprCall` | lower args, choose direct/extern/indirect target, emit call |
+| `ExprLen` | view/local len lookup |
+| `ExprSwitch` | emit target `CmdSwitchInt` plus arm blocks/join param |
+| `ExprControl` | delegate to control-region lowerer |
+| `ExprDeref`, `ExprLoad`, atomics | address lowering + load/atomic cmds |
+| `ExprField`, `ExprIndex` | address lowering + load/store scalar |
+
+Deferred Lua lowerings to explicitly decide in MOM:
+
+- `ExprIf`: scalar/effect-free case must lower to `CmdSelect`; effectful case
+  lowers with target blocks and join param.
+- `ExprBlock`: lower statement prefix then final expression.
+- `ExprDot`/`PlaceDot`: layout resolve converts these to field/offset forms;
+  unresolved dot nodes are typed backend issues.
+- aggregates/arrays/closures: require explicit runtime representation specs
+  before lowering; without that spec they are typed backend issues.
+- slot/fragment expressions: open expansion eliminates them before backend.
+
+#### Statement lowering inventory
+
+| Lua handler | MOM lowering |
+|---|---|
+| `StmtLet` | lower init, bind scalar/view local in env |
+| `StmtVar` | create stack slot if address-taken/mutable; otherwise same as let |
+| `StmtSet` | lower place address and value, emit store |
+| `StmtIf` | emit target blocks, branch, join, phi-like block params |
+| `StmtSwitch` | emit target switch and arm/default/join blocks |
+| `StmtExpr` | lower call-as-statement specially; otherwise lower/discard value |
+| `StmtReturn*` | emit return value/view ABI stores or void return |
+| `StmtAtomicStore/Fence` | emit atomic store/fence cmd |
+| `StmtControl` | delegate to control-region lowerer |
+| `StmtJump/Yield*` outside control lowerer | backend trap/typed issue |
+
+Use `Flow = FallsThrough | Terminates` in `LowerState` results.  Never infer
+fallthrough from missing commands.
+
+### 13.9 Control Lowering Port
+
+Current files: `tree_control_facts.lua`, `tree_control_to_back.lua`.
+
+Keep two phases:
+
+1. `control_facts(region) -> ControlFact tape`
+2. `lower_control_region(region, st; done)` emits target CFG
+
+Do not merge validation and lowering.  The current Lua validates reducibility,
+labels, jump args, yield modes, and terminators before emitting.  MOM should do
+the same, then lower.
+
+Lowering model:
+
+- allocate a fresh nonce/block prefix from `LowerState.ids`
+- create all target blocks and target block params up front
+- lower entry initializers to target jump args
+- for each control block: switch to target block, bind block params into local
+  env, lower body, require termination or emit `CmdTrap`
+- seal blocks and switch to exit block
+- expression regions append an exit block param as the yielded value
+
+This is where the parser collision bug matters most: region ids are semantic
+identity and must be allocated by the module parser/AST builder, not inferred
+from a local label alone.
+
+### 13.10 Vectorization Port
+
+Current files: `vec_loop_facts.lua`, `vec_loop_decide.lua`,
+`vec_kernel_plan.lua`, `vec_kernel_to_back.lua`, `vec_to_back.lua`,
+`vec_kernel_safety.lua`, `vec_inspect.lua`.
+
+Dependency order:
+
+1. **Fact extraction**: recognize counted loops, access patterns, aliases,
+   reductions, terminal exits. Output `VecFact`/`VecLoopFacts` tapes.
+2. **Decision**: pure legality check over facts and target model.
+3. **Plan**: construct `VecKernelPlan` for map/reduce/algebraic kernels.
+4. **Lower plan to Back**: emit vector blocks/cmds.
+
+`vec_kernel_to_back` depends on facts and plans; it is not an independent entry
+point. Vector lowering calls the shared ABI/type/address helpers. Vector IR
+forms without a defined backend mapping (`ramp`, horizontal reduce, vector
+select for unsupported shapes) produce explicit typed rejects.
+
+### 13.11 Back Validation Port
+
+Current file: `back_validate.lua`.
+
+Port as two native passes over the command tape:
+
+1. `cmd_facts(cmds) -> BackFact tape`
+2. `validate_back_facts(facts, cmds) -> BackValidationIssue tape`
+
+State required:
+
+```moonlift
+struct BackValidateState
+    active_func: BackFuncId
+    seen_sig: SymbolSet
+    seen_func: SymbolSet
+    seen_extern: SymbolSet
+    seen_data: SymbolSet
+    seen_block: SymbolSet        -- reset per function
+    seen_value: SymbolSet        -- reset per function
+    seen_slot: SymbolSet         -- reset per function
+    seen_access: SymbolSet       -- reset per function
+    finalized: bool
+end
+```
+
+The Lua validator uses string/table sets; MOM should start with sorted symbol
+tapes or open-addressed hash tables.  Keep per-function reset semantics exactly:
+value/block/access uniqueness is function-local, not module-global.
+
+Also port memory checks as small pure funcs:
+
+- scalar/shape byte size
+- alignment power-of-two and minimum-size checks
+- dereference/trap/motion/mode invariants
+- target-supported-shape checks
+
+### 13.12 Lowering Milestones
+
+Implement lowerings in this order, with tests after each milestone:
+
+1. `mom_back_ops.mlua`: scalar/type/op/ABI helpers.
+2. `mom_back_env.mlua` + id allocators.
+3. `mom_back_expr.mlua`: literals, refs, unary/binary/compare/cast/select/logic.
+4. `mom_back_address.mlua`: ptr/view/index/field load/store.
+5. `mom_back_stmt.mlua`: let/var/set/return/if/switch/call-stmt/atomics.
+6. `mom_control_facts.mlua` + `mom_control_to_back.mlua`.
+7. `mom_back_func.mlua` + `mom_back_module.mlua`.
+8. `mom_back_validate.mlua`.
+9. Vector facts/decision/plan/lowering.
+10. Link/JIT/object driver.
+
+Each milestone must have a native test that compares MOM output to the current
+Lua pipeline for the same source or validates through `back_validate` and JIT.
+Tests compare the strongest available contract at that boundary: exact typed
+results for pure helpers, fact/command tape shapes for lowering stages, full
+`BackProgram` command tapes modulo fresh id names for complete backend paths,
+and executed results for JIT-capable programs.
+
+---
+
+## 14. MOM Code Organization and Implementation Pattern
+
+MOM should be organized as a native compiler, not as a mirror of the Lua module
+layout.  Lua modules often combine schemas, ad-hoc tables, PVM phase boundaries,
+helpers, tests, and driver code in one file.  MOM files should have one narrow
+compiler responsibility and one explicit native data interface.
+
+### 14.1 Directory Layout
+
+Use this layout under `experiments/mom/`. This is the intended compiler source
+shape; moving it under `lua/moonlift/mom/` or embedding it is a packaging
+operation, not a redesign.
+
+```text
+experiments/mom/
+  schema/
+    MoonCore.mlua          -- scalar/op/name/id data
+    MoonType.mlua          -- types and ABI helper data
+    MoonBind.mlua          -- bindings/env-visible symbols
+    MoonSem.mlua           -- typed semantic decisions
+    MoonTree.mlua          -- AST/control/typing/lowering result data
+    MoonBack.mlua          -- backend command/fact/validation data
+    MoonParse.mlua         -- source/token/parser data
+    MoonVec.mlua           -- vector facts/plans
+
+  runtime/
+    arena.mlua             -- bump arena, typed array/view builders
+    strings.mlua           -- interned names/slices/ids
+    sets.mlua              -- small symbol sets / open-addressed maps
+    diag.mlua              -- issue builders and source spans
+
+  parser/
+    native_lexer.mlua      -- token tape scanner over ptr(u8)+len
+    native_core.mlua       -- native AST tape parser core
+    source_scan.mlua       -- .mlua/.moon document island scanner
+    parse_cursor.mlua      -- cursor helpers, expect/accept/recover
+    parse_type.mlua
+    parse_expr.mlua
+    parse_stmt.mlua
+    parse_item.mlua
+    parse_module.mlua
+    parse_splice.mlua
+
+  open/
+    open_facts.mlua
+    open_validate.mlua
+    open_expand.mlua
+
+  typecheck/
+    type_env.mlua
+    type_scalar.mlua
+    type_expr.mlua
+    type_place.mlua
+    type_stmt.mlua
+    type_control.mlua
+    type_func.mlua
+    type_module.mlua
+
+  layout/
+    layout_env.mlua
+    layout_type.mlua
+    layout_field.mlua
+    layout_resolve.mlua
+
+  back/
+    back_ids.mlua
+    back_env.mlua
+    back_ops.mlua
+    back_abi.mlua
+    back_memory.mlua
+    back_address.mlua
+    back_expr.mlua
+    back_stmt.mlua
+    back_control_facts.mlua
+    back_control_lower.mlua
+    back_func.mlua
+    back_module.mlua
+    back_validate_facts.mlua
+    back_validate.mlua
+
+  vec/
+    vec_facts.mlua
+    vec_decide.mlua
+    vec_plan.mlua
+    vec_lower.mlua
+    vec_validate.mlua
+
+  driver/
+    compile_module.mlua    -- source/module -> BackProgram
+    jit_driver.mlua        -- validated BackProgram -> backend FFI
+    object_driver.mlua
+    diagnostics.mlua
+
+  tests/
+    test_parser_*.lua
+    test_type_*.lua
+    test_back_*.lua
+    test_vec_*.lua
+```
+
+Verification harnesses such as `parser/native_ast.lua` belong outside the native
+compiler dependency graph, e.g. `parser/verify/`. They may compare native output
+against the Lua pipeline, but compiler modules must not import them.
+
+### 14.2 Module Boundary Rule
+
+Every `.mlua` compiler module should export one of these shapes:
+
+1. **Data schema module** — only `struct`, `union`, constants, no phase logic.
+2. **Pure helper module** — `func`s only, no builders except returned values.
+3. **Builder/runtime module** — typed mutable buffers, append/freeze helpers.
+4. **Compiler phase module** — public entry function/region plus private helpers.
+5. **Driver module** — connects phases and backend FFI, no semantic decisions.
+
+Do not mix parser, typecheck, lowering, validation, and driver concerns in a
+single file.  If a function needs both type and backend knowledge, it belongs in
+an adapter module (`back_abi`, `back_address`), not in general typecheck.
+
+### 14.3 File Template
+
+Use the same file shape everywhere:
+
+```lua
+-- mom/back/back_ops.mlua
+-- Pure backend op selection helpers. No builders, no env mutation.
+
+local M = moon.module("mom_back_ops")
+
+local BackIntAdd = 1
+local BackFloatAdd = 1
+-- constants generated/staged from schema tags
+
+local is_float_scalar = func(s: i32) -> bool
+    return s == @{BACK_F32} or s == @{BACK_F64}
+end
+
+local lower_binary_op = func(op: i32, scalar: i32) -> i32
+    let is_float: bool = is_float_scalar(scalar)
+    switch op do
+    case @{BIN_ADD} then return select(is_float, @{FLOAT_ADD}, @{INT_ADD})
+    case @{BIN_SUB} then return select(is_float, @{FLOAT_SUB}, @{INT_SUB})
+    default then return 0
+    end
+end
+
+M:add_func(is_float_scalar)
+M:add_func(lower_binary_op)
+return M
+```
+
+Rules:
+
+- Constants at top, generated by Lua staging from schema where possible.
+- Private helpers first, public entry points last.
+- `M:add_func(...)` order follows dependency order.
+- No hidden side tables.  If state is needed, pass a pointer/state struct.
+- No stringly dispatch in runtime code; use enum/tag integers or interned ids.
+
+### 14.4 Naming Convention
+
+Use stable prefixes by layer:
+
+| Layer | Prefix | Example |
+|---|---|---|
+| parser | `mp_` | `mp_parse_expr`, `mp_accept` |
+| open | `mo_` | `mo_expand_stmt` |
+| typecheck | `mt_` | `mt_type_expr` |
+| layout | `ml_` | `ml_resolve_field` |
+| backend lowering | `mb_` | `mb_lower_expr` |
+| control lowering | `mc_` | `mc_lower_region` |
+| vector | `mv_` | `mv_plan_kernel` |
+| validation | `mvb_` or `mbv_` | `mbv_validate_cmds` |
+| runtime/util | `mr_` | `mr_push_issue` |
+
+Avoid generic exported names like `parse`, `lower`, `loop`, `env`, `state`.
+The recent region-id collision showed why stable, scoped identity matters.
+Generic names are fine only for local block labels inside a single function, and
+module-level region ids must still come from an allocator.
+
+### 14.5 Data Ownership Pattern
+
+MOM has three lifetimes:
+
+1. **Source lifetime** — source bytes and token spans; never copied unless
+   interned as a name/literal.
+2. **Compiler arena lifetime** — AST, typed AST, facts, plans, diagnostics;
+   lives for one compilation/session.
+3. **Backend program lifetime** — `BackProgram` command/data tapes passed to
+   validation and backend FFI.
+
+Pattern:
+
+```moonlift
+func phase(input: InputView, arena: ptr(Arena), issues: ptr(IssueBuilder)) -> OutputView
+```
+
+or for stateful output:
+
+```moonlift
+region phase(input: InputView, st: PhaseState;
+             done: cont(st: PhaseState, out: OutputView))
+```
+
+No phase should allocate with libc directly except arena/runtime modules.  Phase
+code appends through builders and freezes views.
+
+### 14.6 Builder Pattern
+
+Every variable-length output uses the same append/freeze interface:
+
+```moonlift
+struct BuilderI32
+    data: ptr(i32)
+    len: index
+    cap: index
+end
+
+func push_i32(b: ptr(BuilderI32), value: i32) -> index
+    let i: index = b.len
+    if i < b.cap then b.data[i] = value end
+    b.len = i + 1
+    return i
+end
+```
+
+For hot parser/lowering builders, SoA tapes are a valid native representation
+when paired with typed accessors and a documented schema:
+
+```moonlift
+expr_tag[i], expr_a[i], expr_b[i], expr_c[i]
+```
+
+The design choice is explicit: either a phase consumes the typed SoA accessor
+API, or it consumes arena-owned union values. It never consumes Lua
+materializers.
+
+### 14.7 Dispatch Pattern
+
+Port every PVM dispatch table to a `switch`:
+
+```moonlift
+func mb_lower_expr_tag(tag: i32, expr_id: i32, st: ptr(LowerState)) -> i32
+    switch tag do
+    case @{EXPR_LIT} then return mb_lower_lit(expr_id, st)
+    case @{EXPR_REF} then return mb_lower_ref(expr_id, st)
+    case @{EXPR_BINARY} then return mb_lower_binary(expr_id, st)
+    default then
+        mr_issue(st.issues, @{ISSUE_UNSUPPORTED_EXPR}, expr_id)
+        return 0
+    end
+end
+```
+
+Use `select` only for scalar compiler values.  If each arm performs different
+work or constructs different union variants, use `switch`/`if`.
+
+### 14.8 Region Pattern for Walkers
+
+Use regions for loops that thread compiler state:
+
+```moonlift
+region mb_lower_expr_list(xs: view(Expr), st: LowerState;
+                          done: cont(st: LowerState, values: view(BackValId)))
+entry loop(i: index = 0, st0: LowerState = st, vals: ValBuilder = empty_vals())
+    if i >= len(xs) then jump done(st = st0, values = freeze_vals(vals)) end
+    let r: LowerExprResult = mb_lower_expr(xs[i], st0)
+    let vals2: ValBuilder = push_val(vals, r.value)
+    jump loop(i = i + 1, st0 = r.st, vals = vals2)
+end
+end
+```
+
+This replaces Lua `for` + `append_all`.  Region block params are the visible,
+typed form of env threading.
+
+### 14.9 Error/Issue Pattern
+
+Every phase has a typed issue enum.  Do not return strings from native compiler
+logic except as interned/source-slice ids.
+
+```moonlift
+func issue_type_mismatch(issues: ptr(IssueBuilder), site: NodeId,
+                         expected: TypeId, actual: TypeId)
+    push_issue4(issues, @{ISSUE_TYPE_MISMATCH}, site, expected, actual, 0)
+end
+```
+
+When a phase can recover, append an issue and produce an error node/result.  When
+backend lowering cannot recover, emit `CmdTrap` plus an issue if one is in scope.
+Validation should report all issues it can find in one pass.
+
+### 14.10 Testing Organization
+
+Each module gets tests at the same layer:
+
+```text
+tests/mom_parser_*       -- token/AST tape/parser behavior
+tests/mom_type_*         -- typecheck results and issue tags
+tests/mom_back_ops_*     -- pure op mapping
+tests/mom_back_expr_*    -- expression lowering command tags
+tests/mom_back_stmt_*    -- CFG command shape
+tests/mom_control_*      -- facts + lowering
+tests/mom_validate_*     -- validator issues
+tests/mom_pipeline_*     -- source -> JIT behavior
+```
+
+Test progression for each new native phase:
+
+1. Compile the `.mlua` module.
+2. Unit-test pure functions directly through FFI.
+3. Feed small typed tapes/AST fixtures.
+4. Compare command/fact tags to the Lua pipeline.
+5. Run `back_validate`.
+6. JIT and execute if the phase reaches `BackProgram`.
+
+Do not wait for the full compiler to test a module. Every helper module is
+callable independently from a small harness that loads the native artifact and
+exercises its exported functions.

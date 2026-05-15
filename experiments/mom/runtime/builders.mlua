@@ -1,0 +1,71 @@
+-- MOM runtime builders.
+--
+-- Small typed append-only buffers used by parser, typecheck, lowering, and
+-- validation. Builders never allocate; allocation belongs to arena/driver code.
+-- Append functions always advance length and conditionally store when capacity
+-- is available, so callers can detect required capacity by comparing len > cap.
+
+local M = moon.module("mom_runtime_builders")
+
+local i32p = moon.ptr(moon.i32)
+
+local MomI32Builder = M:struct("MomI32Builder", {
+    moon.field("data", i32p),
+    moon.field("len", moon.index),
+    moon.field("cap", moon.index),
+})
+
+local MomIssueBuilder = M:struct("MomIssueBuilder", {
+    moon.field("tag", i32p),
+    moon.field("a", i32p),
+    moon.field("b", i32p),
+    moon.field("c", i32p),
+    moon.field("d", i32p),
+    moon.field("len", moon.index),
+    moon.field("cap", moon.index),
+})
+
+local mr_i32_builder_reset = func(b: ptr(@{MomI32Builder}))
+    b.len = 0
+end
+
+local mr_i32_builder_push = func(b: ptr(@{MomI32Builder}), value: i32) -> index
+    let i: index = b.len
+    if i < b.cap then b.data[i] = value end
+    b.len = i + as(index, 1)
+    return i
+end
+
+local mr_i32_builder_overflowed = func(b: ptr(@{MomI32Builder})) -> bool
+    return b.len > b.cap
+end
+
+local mr_issue_builder_reset = func(b: ptr(@{MomIssueBuilder}))
+    b.len = 0
+end
+
+local mr_issue_push4 = func(b: ptr(@{MomIssueBuilder}), tag: i32, a: i32, bb: i32, c: i32, d: i32) -> index
+    let i: index = b.len
+    if i < b.cap then
+        b.tag[i] = tag
+        b.a[i] = a
+        b.b[i] = bb
+        b.c[i] = c
+        b.d[i] = d
+    end
+    b.len = i + as(index, 1)
+    return i
+end
+
+local mr_issue_builder_overflowed = func(b: ptr(@{MomIssueBuilder})) -> bool
+    return b.len > b.cap
+end
+
+M:add_func(mr_i32_builder_reset)
+M:add_func(mr_i32_builder_push)
+M:add_func(mr_i32_builder_overflowed)
+M:add_func(mr_issue_builder_reset)
+M:add_func(mr_issue_push4)
+M:add_func(mr_issue_builder_overflowed)
+
+return M

@@ -1,0 +1,123 @@
+-- MoonParse: native parser/token-tape schema for MOM.
+--
+-- These are the concrete front-door data structures for source bytes -> token
+-- tape -> typed parse output. They intentionally complement, not replace,
+-- MoonSource ranges/anchors and MoonTree semantic nodes.
+
+local S = require("mom.schema.MoonSource")
+local MC = require("mom.schema.MoonCyclic")
+
+local M = {}
+
+M.SourceBuffer = struct SourceBuffer
+    data: ptr(u8)
+    len: index
+    uri: S.DocUri
+end
+
+M.SourceSpan = struct SourceSpan
+    start_offset: index
+    stop_offset: index  -- exclusive
+    line: i32
+    col: i32
+end
+
+M.TokenKind = union TokenKind
+    | TokEof | TokName | TokInt | TokFloat | TokString | TokNewline
+    | TokHole | TokInvalid
+    | TokLParen | TokRParen | TokLBrack | TokRBrack | TokLBrace | TokRBrace
+    | TokComma | TokColon | TokDot | TokSemi
+    | TokPlus | TokMinus | TokStar | TokSlash | TokPercent | TokEq | TokArrow
+    | TokEqEq | TokNe | TokLt | TokLe | TokGt | TokGe
+    | TokAmp | TokPipe | TokCaret | TokTilde | TokShl | TokLShr | TokAShr
+    | TokFunc | TokType | TokLet | TokVar | TokIf | TokThen | TokElseIf | TokElse
+    | TokSwitch | TokCase | TokDefault | TokDo | TokEnd
+    | TokBlock | TokJump | TokYield | TokReturn | TokRegion | TokEntry | TokEmit | TokExpr
+    | TokTrue | TokFalse | TokNil | TokAnd | TokOr | TokNot
+    | TokView | TokNoAlias | TokReadonly | TokWriteonly
+    | TokRequires | TokBounds | TokDisjoint | TokLen | TokSameLen | TokWindowBounds | TokAs
+    | TokStruct | TokUnion | TokExtern
+end
+
+M.Token = struct Token
+    kind: M.TokenKind
+    span: M.SourceSpan
+    text_id: i32        -- interned slice/splice id, or -1
+end
+
+M.TokenTape = struct TokenTape
+    source: M.SourceBuffer
+    tokens: view(M.Token)
+end
+
+M.ParseCursor = struct ParseCursor
+    tape: M.TokenTape
+    i: index
+end
+
+M.SpliceRole = union SpliceRole
+    | SpliceExpr | SpliceType | SpliceName | SpliceStmtList
+    | SpliceParamList | SpliceFieldList | SpliceVariantList
+    | SpliceBlockList | SpliceContList | SpliceSwitchArmList
+end
+
+M.SpliceSlot = struct SpliceSlot
+    id: i32
+    role: M.SpliceRole
+    spread: bool
+    span: M.SourceSpan
+end
+
+M.IslandKind = union ParseIslandKind
+    | ParseIslandModule | ParseIslandFunc | ParseIslandRegion | ParseIslandExpr
+    | ParseIslandStruct | ParseIslandUnion | ParseIslandExtern
+end
+
+M.Island = struct ParseIsland
+    kind: M.IslandKind
+    span: M.SourceSpan
+    name_hint: i32      -- interned name id, or -1
+end
+
+M.DocumentScan = struct DocumentScan
+    source: M.SourceBuffer
+    islands: view(M.Island)
+    issues: view(MC.ParseIssue)
+    anchors: S.AnchorSet
+end
+
+M.ParseOutput = struct ParseOutput
+    module: MC.Module
+    region_frags: view(MC.RegionFrag)
+    expr_frags: view(MC.ExprFrag)
+    issues: view(MC.ParseIssue)
+    anchors: S.AnchorSet
+    splices: view(M.SpliceSlot)
+end
+
+M.TokenBuffer = struct TokenBuffer data: ptr(M.Token); len: index; cap: index end
+M.IssueBuffer = struct ParseIssueBuffer data: ptr(MC.ParseIssue); len: index; cap: index end
+M.AnchorBuffer = struct ParseAnchorBuffer data: ptr(S.AnchorSpan); len: index; cap: index end
+M.SpliceBuffer = struct SpliceBuffer data: ptr(M.SpliceSlot); len: index; cap: index end
+
+-- Native parser event tape used for recovery/editor diagnostics and as a
+-- stable debugging view of parsing. The semantic compiler path still builds
+-- MoonTree nodes; events make parser tests and incremental diagnostics cheap.
+M.ParseEventKind = union ParseEventKind
+    | EventModuleBegin | EventModuleEnd
+    | EventFuncBegin | EventFuncEnd | EventExternBegin | EventExternEnd
+    | EventStructBegin | EventStructEnd | EventUnionBegin | EventUnionEnd
+    | EventRegionBegin | EventRegionEnd | EventExprFragBegin | EventExprFragEnd
+    | EventParam | EventField | EventVariant | EventStmt | EventExpr | EventType
+    | EventIssue
+end
+
+M.ParseEvent = struct ParseEvent
+    kind: M.ParseEventKind
+    token_index: index
+    aux: i32
+end
+
+M.ParseEventTape = struct ParseEventTape events: view(M.ParseEvent) end
+
+return M

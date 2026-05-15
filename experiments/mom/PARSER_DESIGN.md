@@ -25,8 +25,10 @@ memory buffers; adapters acquire buffers from files/stdin/mmap/etc.
 6. **Editor-ready spans:** AST stays semantic; anchors/source ranges are emitted
    side-by-side as typed data.
 
-Non-goal for phase 1: a full concrete syntax tree. Add a CST later only if LSP
-recovery needs exact malformed trivia.
+Concrete syntax is a real design choice, not a deferral. MOM keeps semantic AST
+and concrete/editor data as separate products: the compiler consumes MoonTree;
+the editor consumes AnchorSpan/TokenTape plus a shallow recovery CST when exact
+malformed trivia is required.
 
 ---
 
@@ -39,14 +41,14 @@ OS adapter / host buffer
   -> lex_island          -- bytes -> TokenTape
   -> parse_island        -- TokenTape -> AST/frags/decls
   -> parse_module        -- combined MoonTree.Module + issues + anchors
-  -> open/bind/typecheck -- existing semantic pipeline, ported later
+  -> open/bind/typecheck -- native semantic pipeline
 ```
 
-Pure `.moon` files can skip Lua-aware segmentation and become one module island.
-`.mlua` files use a lightweight scanner that skips Lua strings/comments/long
-brackets and finds hosted Moonlift islands (`func`, `region`, `expr`, `struct`,
-`union`, `extern`). Splice evaluation is a staging concern; the native parser
-represents splices as typed holes.
+Pure `.moon` files are represented as one module island. `.mlua` files use a
+scanner that skips Lua strings/comments/long brackets and finds hosted Moonlift
+islands (`func`, `region`, `expr`, `struct`, `union`, `extern`). Splice
+evaluation is a staging concern; the native parser represents splices as typed
+holes.
 
 ---
 
@@ -72,7 +74,7 @@ extern close(fd: i32) -> i32 as "close" end
 extern write(fd: i32, buf: ptr(u8), count: index) -> index as "write" end
 ```
 
-Optional later adapters:
+OS adapter set:
 
 - `mmap`/`munmap` for large files
 - `fstat` for pre-sized allocation
@@ -108,8 +110,9 @@ Convert to existing `SourceRange` at API boundaries.
 
 ### Token tape
 
-For first implementation, use array-of-structs for clarity. If profiling says
-lexer/parser wants SoA, split later.
+Use a deliberate representation per boundary: token scanning writes SoA for hot
+append paths; parser-facing APIs expose `Token` views/accessors so consumers do
+not depend on storage layout.
 
 ```moonlift
 union TokenKind
@@ -178,15 +181,16 @@ Use two levels:
 2. **Parse arena lifetime:** AST values, interned names, token tape, issues,
    anchors, and builders live until the compile session ends.
 
-Recommended initial allocator:
+Allocator contract:
 
 ```moonlift
 struct ArenaChunk next: ptr(ArenaChunk); used: index; cap: index; data: ptr(u8) end
 struct Arena head: ptr(ArenaChunk) end
 ```
 
-Use libc `malloc/free` for arena chunks. Later, switch file buffers to `mmap`
-when useful.
+Use libc `malloc/free` for arena chunks. File-buffer ownership is explicit in
+`SourceBuffer`; OS adapters may provide malloc-backed or mmap-backed buffers
+without changing parser semantics.
 
 ---
 
@@ -226,8 +230,8 @@ For pure `.moon`, create one synthetic module island spanning the whole file.
 
 ## 7. Lexer Regions
 
-The lexer is the highest-value early port: a jump-first native byte scanner.
-Every helper has a typed continuation back to the main loop.
+The lexer is a jump-first native byte scanner. Every helper has a typed
+continuation back to the main loop.
 
 ```moonlift
 region lex(source: SourceBuffer, toks: ptr(TokenBuilder), issues: ptr(IssueBuilder);
@@ -440,11 +444,14 @@ This preserves the clean ASDL tree while still supporting LSP.
 ## 14. Initial Milestones
 
 1. **Core schema:** add `TokenKind`, `Token`, `TokenTape`, `SourceBuffer`,
-   `Island`, `SpliceSlot`, `ParseOutput`.
+   `Island`, `SpliceSlot`, `ParseOutput`. ✅ `schema/MoonParse.mlua`
 2. **Buffer parser harness:** `parse_buffer(ptr, len, uri)` returning issues.
-3. **Lexer:** identifiers, keywords, ints, operators, strings, comments, eof.
+3. **Lexer:** identifiers, keywords, ints, operators, strings, comments, eof. ✅
+   `parser/native_lexer.mlua` exposes `mom_lex_into` over caller-provided buffers.
 4. **Type parser:** enough for struct/union/function signatures.
 5. **Struct/union/extern parser:** easiest AST output, validates builders.
+   A shallow native parse-event pass now recognizes top-level declarations,
+   params, struct fields, and union variants; next step is semantic AST builders.
 6. **Pratt expressions:** literals, refs, calls, unary/binary/compare/select.
 7. **Statements:** let/var/set/if/switch/return/block/jump/yield/emit.
 8. **Function parser:** produce `Module` for pure `.moon` files.

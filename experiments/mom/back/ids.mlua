@@ -1,0 +1,50 @@
+-- MOM backend id allocators.
+--
+-- Numeric allocation core for backend value/block/access/slot ids. String
+-- materialization ("v12", "ctl.if.then3", etc.) is a separate formatting layer;
+-- lowering logic uses this allocator so freshness and function scoping are
+-- explicit and testable.
+
+local M = moon.module("mom_back_ids")
+
+local MomBackIdAllocator = M:struct("MomBackIdAllocator", {
+    moon.field("next_value", moon.i32),
+    moon.field("next_block", moon.i32),
+    moon.field("next_access", moon.i32),
+    moon.field("next_slot", moon.i32),
+})
+
+local mb_ids_reset_func = func(ids: ptr(@{MomBackIdAllocator}))
+    ids.next_value = 0
+    ids.next_block = 0
+    ids.next_access = 0
+    ids.next_slot = 0
+end
+
+local mb_fresh_value = func(ids: ptr(@{MomBackIdAllocator})) -> i32
+    ids.next_value = ids.next_value + 1
+    return ids.next_value
+end
+
+local mb_fresh_block = func(ids: ptr(@{MomBackIdAllocator})) -> i32
+    ids.next_block = ids.next_block + 1
+    return ids.next_block
+end
+
+local mb_fresh_access = func(ids: ptr(@{MomBackIdAllocator})) -> i32
+    ids.next_access = ids.next_access + 1
+    return ids.next_access
+end
+
+local mb_fresh_slot = func(ids: ptr(@{MomBackIdAllocator})) -> i32
+    ids.next_slot = ids.next_slot + 1
+    return ids.next_slot
+end
+
+M:add_func(mb_ids_reset_func)
+M:add_func(mb_fresh_value)
+M:add_func(mb_fresh_block)
+M:add_func(mb_fresh_access)
+M:add_func(mb_fresh_slot)
+
+return M

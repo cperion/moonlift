@@ -417,11 +417,15 @@ local function new_parser_internal(T, toks, first, limit, opts)
         splice_slots = {},
         splice_slots_by_id = {},
         region_seq = 0,
+        region_scope = opts.region_scope,
         anonymous = false,
         anon_counter = 0,
     }, Parser)
     local window_start = toks.start[p.first] or 0
     local window_stop = toks.stop[p.limit] or math.huge
+    if not p.region_scope then
+        p.region_scope = tostring(p.first or 1) .. "_" .. tostring(window_start or 0) .. "_" .. tostring(p.limit or 0) .. "_" .. tostring(window_stop or 0)
+    end
     for _, issue in ipairs(toks.lex_issues or {}) do
         local off = issue.offset or 0
         if off >= window_start and off <= window_stop then
@@ -1271,7 +1275,7 @@ end
 
 function Parser:next_region_id(prefix)
     self.region_seq = self.region_seq + 1
-    return "control." .. prefix .. "." .. tostring(self.region_seq)
+    return "control." .. tostring(self.region_scope or "document") .. "." .. prefix .. "." .. tostring(self.region_seq)
 end
 
 function Parser:parse_atomic_stmt_if_present()

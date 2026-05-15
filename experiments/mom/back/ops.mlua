@@ -1,0 +1,222 @@
+-- MOM backend op selection helpers.
+--
+-- Pure functions only: no builders, no env, no command emission. Numeric tags
+-- mirror declaration order in experiments/mom/schema/MoonCore.mlua and
+-- MoonBack.mlua. Command construction layers consume these tags through typed
+-- accessors or schema-generated constants.
+
+local M = moon.module("mom_back_ops")
+
+-- Core Scalar tags.
+local C_VOID = 1
+local C_BOOL = 2
+local C_I8 = 3
+local C_I16 = 4
+local C_I32 = 5
+local C_I64 = 6
+local C_U8 = 7
+local C_U16 = 8
+local C_U32 = 9
+local C_U64 = 10
+local C_F32 = 11
+local C_F64 = 12
+local C_RAWPTR = 13
+local C_INDEX = 14
+
+-- BackScalar tags.
+local B_VOID = 1
+local B_BOOL = 2
+local B_I8 = 3
+local B_I16 = 4
+local B_I32 = 5
+local B_I64 = 6
+local B_U8 = 7
+local B_U16 = 8
+local B_U32 = 9
+local B_U64 = 10
+local B_F32 = 11
+local B_F64 = 12
+local B_PTR = 13
+local B_INDEX = 14
+
+-- Core op tags.
+local U_NEG = 1
+local U_NOT = 2
+local U_BIT_NOT = 3
+
+local BIN_ADD = 1
+local BIN_SUB = 2
+local BIN_MUL = 3
+local BIN_DIV = 4
+local BIN_REM = 5
+local BIN_BIT_AND = 6
+local BIN_BIT_OR = 7
+local BIN_BIT_XOR = 8
+local BIN_SHL = 9
+local BIN_LSHR = 10
+local BIN_ASHR = 11
+
+local CMP_EQ = 1
+local CMP_NE = 2
+local CMP_LT = 3
+local CMP_LE = 4
+local CMP_GT = 5
+local CMP_GE = 6
+
+-- Back op tags.
+local BACK_UNARY_INEG = 1
+local BACK_UNARY_FNEG = 2
+local BACK_UNARY_BNOT = 3
+local BACK_UNARY_BOOL_NOT = 4
+
+local BACK_INT_ADD = 1
+local BACK_INT_SUB = 2
+local BACK_INT_MUL = 3
+local BACK_INT_SDIV = 4
+local BACK_INT_UDIV = 5
+local BACK_INT_SREM = 6
+local BACK_INT_UREM = 7
+
+local BACK_BIT_AND = 1
+local BACK_BIT_OR = 2
+local BACK_BIT_XOR = 3
+
+local BACK_SHIFT_LEFT = 1
+local BACK_SHIFT_LOGICAL_RIGHT = 2
+local BACK_SHIFT_ARITHMETIC_RIGHT = 3
+
+local BACK_FLOAT_ADD = 1
+local BACK_FLOAT_SUB = 2
+local BACK_FLOAT_MUL = 3
+local BACK_FLOAT_DIV = 4
+
+local BACK_ICMP_EQ = 1
+local BACK_ICMP_NE = 2
+local BACK_SICMP_LT = 3
+local BACK_SICMP_LE = 4
+local BACK_SICMP_GT = 5
+local BACK_SICMP_GE = 6
+local BACK_UICMP_LT = 7
+local BACK_UICMP_LE = 8
+local BACK_UICMP_GT = 9
+local BACK_UICMP_GE = 10
+local BACK_FCMP_EQ = 11
+local BACK_FCMP_NE = 12
+local BACK_FCMP_LT = 13
+local BACK_FCMP_LE = 14
+local BACK_FCMP_GT = 15
+local BACK_FCMP_GE = 16
+
+-- Binary command classes. The command builder chooses CmdIntBinary,
+-- CmdFloatBinary, CmdBitBinary, or CmdShift from this class + op pair.
+local MB_BIN_INVALID = 0
+local MB_BIN_INT = 1
+local MB_BIN_FLOAT = 2
+local MB_BIN_BIT = 3
+local MB_BIN_SHIFT = 4
+
+local mb_is_float_scalar = func(s: i32) -> bool
+    return s == @{B_F32} or s == @{B_F64}
+end
+
+local mb_is_signed_int_scalar = func(s: i32) -> bool
+    return s == @{B_I8} or s == @{B_I16} or s == @{B_I32} or s == @{B_I64}
+end
+
+local mb_is_unsigned_int_scalar = func(s: i32) -> bool
+    return s == @{B_U8} or s == @{B_U16} or s == @{B_U32} or s == @{B_U64} or s == @{B_INDEX} or s == @{B_PTR}
+end
+
+local mb_is_integer_scalar = func(s: i32) -> bool
+    return mb_is_signed_int_scalar(s) or mb_is_unsigned_int_scalar(s)
+end
+
+local mb_core_scalar_to_back = func(s: i32) -> i32
+    switch s do
+    case 1 then return @{B_VOID}
+    case 2 then return @{B_BOOL}
+    case 3 then return @{B_I8}
+    case 4 then return @{B_I16}
+    case 5 then return @{B_I32}
+    case 6 then return @{B_I64}
+    case 7 then return @{B_U8}
+    case 8 then return @{B_U16}
+    case 9 then return @{B_U32}
+    case 10 then return @{B_U64}
+    case 11 then return @{B_F32}
+    case 12 then return @{B_F64}
+    case 13 then return @{B_PTR}
+    case 14 then return @{B_INDEX}
+    default then return 0
+    end
+end
+
+local mb_lower_unary_op = func(op: i32, scalar: i32) -> i32
+    switch op do
+    case 1 then return select(mb_is_float_scalar(scalar), @{BACK_UNARY_FNEG}, @{BACK_UNARY_INEG})
+    case 2 then return @{BACK_UNARY_BOOL_NOT}
+    case 3 then return @{BACK_UNARY_BNOT}
+    default then return 0
+    end
+end
+
+local mb_lower_compare_op = func(op: i32, scalar: i32) -> i32
+    let is_float: bool = mb_is_float_scalar(scalar)
+    switch op do
+    case 1 then return select(is_float, @{BACK_FCMP_EQ}, @{BACK_ICMP_EQ})
+    case 2 then return select(is_float, @{BACK_FCMP_NE}, @{BACK_ICMP_NE})
+    case 3 then return select(is_float, @{BACK_FCMP_LT}, @{BACK_SICMP_LT})
+    case 4 then return select(is_float, @{BACK_FCMP_LE}, @{BACK_SICMP_LE})
+    case 5 then return select(is_float, @{BACK_FCMP_GT}, @{BACK_SICMP_GT})
+    case 6 then return select(is_float, @{BACK_FCMP_GE}, @{BACK_SICMP_GE})
+    default then return 0
+    end
+end
+
+local mb_binary_class = func(op: i32, scalar: i32) -> i32
+    let is_float: bool = mb_is_float_scalar(scalar)
+    switch op do
+    case 1 then return select(is_float, @{MB_BIN_FLOAT}, @{MB_BIN_INT})
+    case 2 then return select(is_float, @{MB_BIN_FLOAT}, @{MB_BIN_INT})
+    case 3 then return select(is_float, @{MB_BIN_FLOAT}, @{MB_BIN_INT})
+    case 4 then return select(is_float, @{MB_BIN_FLOAT}, @{MB_BIN_INT})
+    case 5 then return @{MB_BIN_INT}
+    case 6 then return @{MB_BIN_BIT}
+    case 7 then return @{MB_BIN_BIT}
+    case 8 then return @{MB_BIN_BIT}
+    case 9 then return @{MB_BIN_SHIFT}
+    case 10 then return @{MB_BIN_SHIFT}
+    case 11 then return @{MB_BIN_SHIFT}
+    default then return @{MB_BIN_INVALID}
+    end
+end
+
+local mb_binary_op_code = func(op: i32, scalar: i32) -> i32
+    let is_float: bool = mb_is_float_scalar(scalar)
+    switch op do
+    case 1 then return select(is_float, @{BACK_FLOAT_ADD}, @{BACK_INT_ADD})
+    case 2 then return select(is_float, @{BACK_FLOAT_SUB}, @{BACK_INT_SUB})
+    case 3 then return select(is_float, @{BACK_FLOAT_MUL}, @{BACK_INT_MUL})
+    case 4 then return select(is_float, @{BACK_FLOAT_DIV}, @{BACK_INT_SDIV})
+    case 5 then return @{BACK_INT_SREM}
+    case 6 then return @{BACK_BIT_AND}
+    case 7 then return @{BACK_BIT_OR}
+    case 8 then return @{BACK_BIT_XOR}
+    case 9 then return @{BACK_SHIFT_LEFT}
+    case 10 then return @{BACK_SHIFT_LOGICAL_RIGHT}
+    case 11 then return @{BACK_SHIFT_ARITHMETIC_RIGHT}
+    default then return 0
+    end
+end
+
+M:add_func(mb_is_float_scalar)
+M:add_func(mb_is_signed_int_scalar)
+M:add_func(mb_is_unsigned_int_scalar)
+M:add_func(mb_is_integer_scalar)
+M:add_func(mb_core_scalar_to_back)
+M:add_func(mb_lower_unary_op)
+M:add_func(mb_lower_compare_op)
+M:add_func(mb_binary_class)
+M:add_func(mb_binary_op_code)
+
+return M

@@ -6,6 +6,8 @@ local Host = require("moonlift.mlua_run")
 local mod = Host.dofile("experiments/mom/parser/native_lexer.mlua")
 local unit = mod:compile()
 local lex = unit:get("mom_lex_into")
+local parse_events = unit:get("mom_parse_module_events")
+local parse_full_events = unit:get("mom_parse_full_events")
 
 local function bytes(s)
     local a = ffi.new("uint8_t[?]", #s)
@@ -65,6 +67,78 @@ local holes = lex_all("let x: @{T} = @{expr...}")
 local hole_count = 0
 for _, t in ipairs(holes) do if t.kind == TK.hole then hole_count = hole_count + 1 end end
 assert(hole_count == 2)
+
+local function parse_event_kinds(src)
+    local p, n = bytes(src)
+    local cap = 256
+    local kinds = ffi.new("int32_t[?]", cap)
+    local starts = ffi.new("int32_t[?]", cap)
+    local stops = ffi.new("int32_t[?]", cap)
+    local lines = ffi.new("int32_t[?]", cap)
+    local cols = ffi.new("int32_t[?]", cap)
+    local ntok = tonumber(lex(p, n, kinds, starts, stops, lines, cols, cap))
+    local ek = ffi.new("int32_t[?]", cap)
+    local et = ffi.new("int32_t[?]", cap)
+    local ea = ffi.new("int32_t[?]", cap)
+    local nev = tonumber(parse_events(kinds, ntok, ek, et, ea, cap))
+    local out = {}
+    for i = 0, nev - 1 do
+        out[#out + 1] = { kind = ek[i], token = et[i], aux = ea[i] }
+    end
+    return out
+end
+
+local evs = parse_event_kinds([[struct Pair
+  a: i32
+  b: i32
+end
+func add(x: i32, y: i32) -> i32
+  return x + y
+end]])
+local seen = {}
+for _, e in ipairs(evs) do seen[e.kind] = (seen[e.kind] or 0) + 1 end
+assert(seen[1] == 1)   -- module begin
+assert(seen[2] == 1)   -- module end
+assert(seen[14] == 1)  -- struct begin
+assert(seen[15] == 1)  -- struct end
+assert(seen[31] == 2)  -- fields
+assert(seen[10] == 1)  -- func begin
+assert(seen[11] == 1)  -- func end
+assert(seen[30] == 2)  -- params
+
+local function parse_full_event_kinds(src)
+    local p, n = bytes(src)
+    local cap = 512
+    local kinds = ffi.new("int32_t[?]", cap)
+    local starts = ffi.new("int32_t[?]", cap)
+    local stops = ffi.new("int32_t[?]", cap)
+    local lines = ffi.new("int32_t[?]", cap)
+    local cols = ffi.new("int32_t[?]", cap)
+    local ntok = tonumber(lex(p, n, kinds, starts, stops, lines, cols, cap))
+    local state = ffi.new("int32_t[2]")
+    local ek = ffi.new("int32_t[?]", cap)
+    local et = ffi.new("int32_t[?]", cap)
+    local ea = ffi.new("int32_t[?]", cap)
+    local nev = tonumber(parse_full_events(kinds, ntok, state, ek, et, ea, cap))
+    local out = {}
+    for i = 0, nev - 1 do out[#out + 1] = { kind = ek[i], token = et[i], aux = ea[i] } end
+    return out
+end
+
+local full = parse_full_event_kinds([[func abs_i32(x: i32) -> i32
+    if x < 0 then
+        return 0 - x
+    else
+        return x
+    end
+end]])
+local fseen = {}
+for _, e in ipairs(full) do fseen[e.kind] = (fseen[e.kind] or 0) + 1 end
+assert(fseen[10] == 1 and fseen[11] == 1) -- func begin/end
+assert(fseen[30] == 1)                    -- parameter
+assert((fseen[33] or 0) >= 2)             -- param/result types
+assert((fseen[35] or 0) >= 3)             -- if + returns
+assert((fseen[34] or 0) >= 4)             -- expressions
 
 unit.artifact:free()
 print("mom native lexer ok")

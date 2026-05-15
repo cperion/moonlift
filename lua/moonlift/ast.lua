@@ -139,6 +139,12 @@ local function install(api, T)
     api.raw = T
     api.builders = T:Builders()
     api.fast_builders = T:FastBuilders()
+    api._region_seq = api._region_seq or 0
+
+    local function next_region_id(prefix)
+        api._region_seq = api._region_seq + 1
+        return "control.hosted." .. tostring(prefix or "region") .. "." .. tostring(api._region_seq)
+    end
 
     local function is_a(cls, v)
         return type(cls) == "table" and cls.isclassof and cls:isclassof(v) or false
@@ -850,12 +856,12 @@ local function install(api, T)
     ---Statement control region.
     ---@param spec table `{ id/region_id, entry, blocks }`.
     ---@return MoonTree.ControlStmtRegion
-    function api.control_stmt_region(spec) return Tr.ControlStmtRegion(spec.id or spec.region_id or "control.hosted.1", spec.entry, spec.blocks or {}) end
+    function api.control_stmt_region(spec) return Tr.ControlStmtRegion(spec.id or spec.region_id or next_region_id("stmt"), spec.entry, spec.blocks or {}) end
 
     ---Expression control region.
     ---@param spec table `{ id/region_id, result_ty, entry, blocks }`.
     ---@return MoonTree.ControlExprRegion
-    function api.control_expr_region(spec) return Tr.ControlExprRegion(spec.id or spec.region_id or "control.hosted.1", as_type(spec.result_ty or spec.result, "control result type"), spec.entry, spec.blocks or {}) end
+    function api.control_expr_region(spec) return Tr.ControlExprRegion(spec.id or spec.region_id or next_region_id("expr"), as_type(spec.result_ty or spec.result, "control result type"), spec.entry, spec.blocks or {}) end
 
     ---Control-region statement.
     ---@param region MoonTree.ControlStmtRegion Statement control region.
