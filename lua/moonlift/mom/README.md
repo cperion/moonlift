@@ -25,15 +25,13 @@ Lua/PVM MoonTree values from the native token tape to compare against the
 existing pipeline; it is outside the compiler dependency graph. The MOM parser
 core is `parser/native_core.mlua`: compiled Moonlift parser functions/regions
 that write native AST tapes into caller-provided buffers. `driver/wire.mlua`
-writes MLBT v3 BackProgram buffers directly into caller-provided memory, and
-`driver/lower_wire.mlua` lowers native parser tapes into that binary BackProgram,
-and `driver/backend_ffi.mlua` invokes the Rust backend through the same binary C
-ABI. `tests/test_mom_source_to_binary.lua` exercises the current native source →
-lexer → parser → MLBT → executable path. The standalone `mom` binary links
-LuaJIT, embedded Moonlift/MOM sources, and the Rust Cranelift backend; it can run
-MOM-compiled source files or emit relocatable objects. OS integration can be done
-through Moonlift `extern` calls to libc; the parser core itself remains a pure
-buffer-to-AST component.
+writes MLBT v3 buffers directly into caller-provided memory for fully checked
+BackProgram data. Parser tapes must not be serialized directly to backend
+commands. The standalone `mom` binary links LuaJIT, embedded Moonlift/MOM
+sources, and the Rust Cranelift backend; its CLI uses the production semantic
+pipeline while native MOM semantic phases continue to be ported. OS integration
+can be done through Moonlift `extern` calls to libc; the parser core itself
+remains a pure buffer-to-AST component.
 
 ## Schema seed
 
@@ -58,7 +56,7 @@ Moonlift code for the pipeline.
 
 1. Keep expanding `MoonParse` as implementation needs demand.
 2. Extend native scanner/lexer coverage and document scanner/island handling.
-3. Extend native parser-tape lowering beyond the current scalar function subset:
-   local bindings, calls, control regions, memory/view operations, and externs.
-4. Then port phases in dependency order: open/bind/typecheck → tree lowering →
-   control facts → back validation/inspection → vectorization/link/execution.
+3. Implement native typed AST/open/typecheck phases and parity tests against the
+   Lua frontend.
+4. Implement tree_to_back-equivalent lowering only after typed semantics are
+   available, then serialize checked BackProgram data through MLBT v3.

@@ -120,8 +120,10 @@ local EX_DEREF = 12
 local EX_ADDR = 13
 local EX_LEN = 14
 local EX_VIEW = 15
-local EX_CONTROL_SKIP = 16
+local EX_IF = 16
 local EX_HOLE = 17
+local EX_SWITCH = 18
+local EX_CONTROL = 19
 
 -- Stmt tags.
 local ST_BAD = 0
@@ -135,9 +137,9 @@ local ST_RETURN_VALUE = 7
 local ST_YIELD_VOID = 8
 local ST_YIELD_VALUE = 9
 local ST_JUMP = 10
-local ST_CONTROL_SKIP = 11
-local ST_EMIT_SKIP = 12
-local ST_SWITCH_SKIP = 13
+local ST_CONTROL = 11
+local ST_EMIT = 12
+local ST_SWITCH = 13
 
 -- Item tags.
 local IT_FUNC = 1
@@ -161,6 +163,10 @@ local S_JARGS = 8
 local S_ELISTS = 9
 local S_SLISTS = 10
 local S_TLISTS = 11
+local S_SWITCH_ARMS = 12
+local S_CTRL_BLOCKS = 13
+local S_ENTRY_PARAMS = 14
+local S_CONT_FILLS = 15
 
 local i32p = moon.ptr(moon.i32)
 local NativeParseOut = M:struct("NativeParseOut", {
@@ -174,6 +180,10 @@ local NativeParseOut = M:struct("NativeParseOut", {
     moon.field("jarg_name", i32p), moon.field("jarg_expr", i32p),
     moon.field("expr_list", i32p), moon.field("stmt_list", i32p), moon.field("type_list", i32p),
     moon.field("issue_tag", i32p), moon.field("issue_tok", i32p),
+    moon.field("switch_arm_key", i32p), moon.field("switch_arm_body_start", i32p), moon.field("switch_arm_body_count", i32p),
+    moon.field("ctrl_block_label", i32p), moon.field("ctrl_block_param_start", i32p), moon.field("ctrl_block_param_count", i32p), moon.field("ctrl_block_body_start", i32p), moon.field("ctrl_block_body_count", i32p),
+    moon.field("entry_param_name", i32p), moon.field("entry_param_type", i32p), moon.field("entry_param_init", i32p),
+    moon.field("cont_fill_name", i32p), moon.field("cont_fill_label", i32p),
     moon.field("cap_nodes", moon.index), moon.field("cap_lists", moon.index),
 })
 local np_byte_eq = func(src: ptr(u8), starts: ptr(i32), tok: index, offset: i32, c: i32) -> bool
@@ -207,7 +217,7 @@ end
 local np_skip_sep = func(kinds: ptr(i32), ntok: index, out: ptr(@{NativeParseOut}))
     block skip_loop()
         let k: i32 = np_peek(kinds, ntok, out)
-        if k == @{TK_NL} or k == @{TK_SEMI} then
+        if k == @{TK_NL} then
             np_advance(ntok, out)
             jump skip_loop()
         end
@@ -299,6 +309,51 @@ local np_push_jarg = func(out: ptr(@{NativeParseOut}), name_tok: index, value_ex
     let n: index = as(index, out.state[@{S_JARGS}])
     if n < out.cap_lists then out.jarg_name[n] = as(i32, name_tok); out.jarg_expr[n] = value_expr end
     out.state[@{S_JARGS}] = out.state[@{S_JARGS}] + 1
+    return as(i32, n)
+end
+
+local np_push_switch_arm = func(out: ptr(@{NativeParseOut}), key_expr: i32, body_start: i32, body_count: i32) -> i32
+    let n: index = as(index, out.state[@{S_SWITCH_ARMS}])
+    if n < out.cap_lists then
+        out.switch_arm_key[n] = key_expr
+        out.switch_arm_body_start[n] = body_start
+        out.switch_arm_body_count[n] = body_count
+    end
+    out.state[@{S_SWITCH_ARMS}] = out.state[@{S_SWITCH_ARMS}] + 1
+    return as(i32, n)
+end
+
+local np_push_ctrl_block = func(out: ptr(@{NativeParseOut}), label_tok: i32, param_start: i32, param_count: i32, body_start: i32, body_count: i32) -> i32
+    let n: index = as(index, out.state[@{S_CTRL_BLOCKS}])
+    if n < out.cap_lists then
+        out.ctrl_block_label[n] = label_tok
+        out.ctrl_block_param_start[n] = param_start
+        out.ctrl_block_param_count[n] = param_count
+        out.ctrl_block_body_start[n] = body_start
+        out.ctrl_block_body_count[n] = body_count
+    end
+    out.state[@{S_CTRL_BLOCKS}] = out.state[@{S_CTRL_BLOCKS}] + 1
+    return as(i32, n)
+end
+
+local np_push_entry_param = func(out: ptr(@{NativeParseOut}), name_tok: i32, type_idx: i32, init_expr: i32) -> i32
+    let n: index = as(index, out.state[@{S_ENTRY_PARAMS}])
+    if n < out.cap_lists then
+        out.entry_param_name[n] = name_tok
+        out.entry_param_type[n] = type_idx
+        out.entry_param_init[n] = init_expr
+    end
+    out.state[@{S_ENTRY_PARAMS}] = out.state[@{S_ENTRY_PARAMS}] + 1
+    return as(i32, n)
+end
+
+local np_push_cont_fill = func(out: ptr(@{NativeParseOut}), name_tok: i32, label_tok: i32) -> i32
+    let n: index = as(index, out.state[@{S_CONT_FILLS}])
+    if n < out.cap_lists then
+        out.cont_fill_name[n] = name_tok
+        out.cont_fill_label[n] = label_tok
+    end
+    out.state[@{S_CONT_FILLS}] = out.state[@{S_CONT_FILLS}] + 1
     return as(i32, n)
 end
 
@@ -452,10 +507,15 @@ local np_parse_expr = func(src: ptr(u8), kinds: ptr(i32), starts: ptr(i32), stop
         np_advance(ntok, out)
         left = np_parse_expr(src, kinds, starts, stops, ntok, out, 0)
         np_accept(kinds, ntok, out, @{TK_RPAREN})
-    elseif k == @{TK_BLOCK} or k == @{TK_REGION} or k == @{TK_SWITCH} then
-        let end_i: index = np_find_nested_end(kinds, ntok, tok)
-        out.state[@{S_CURSOR}] = as(i32, end_i + as(index, 1))
-        left = np_add_expr(out, @{EX_CONTROL_SKIP}, tok, as(i32, end_i), 0, 0, 0)
+    elseif k == @{TK_IF} then
+        let expr_idx: i32 = np_parse_if_expr(src, kinds, starts, stops, ntok, out)
+        left = expr_idx
+    elseif k == @{TK_BLOCK} or k == @{TK_REGION} then
+        let expr_idx: i32 = np_parse_control_expr(src, kinds, starts, stops, ntok, out)
+        left = expr_idx
+    elseif k == @{TK_SWITCH} then
+        let expr_idx: i32 = np_parse_switch_expr(src, kinds, starts, stops, ntok, out)
+        left = expr_idx
     else
         np_issue(out, 2, tok)
         np_advance(ntok, out)
@@ -561,11 +621,20 @@ local np_parse_stmt_list = func(src: ptr(u8), kinds: ptr(i32), starts: ptr(i32),
             jump loop()
         end
 
-        if k == @{TK_SWITCH} or k == @{TK_BLOCK} or k == @{TK_REGION} or k == @{TK_EMIT} then
-            let end_i: index = np_find_nested_end(kinds, ntok, tok)
-            out.state[@{S_CURSOR}] = as(i32, end_i + as(index, 1))
-            let tag: i32 = select(k == @{TK_SWITCH}, @{ST_SWITCH_SKIP}, select(k == @{TK_EMIT}, @{ST_EMIT_SKIP}, @{ST_CONTROL_SKIP}))
-            let st: i32 = np_add_stmt(out, tag, tok, as(i32, end_i), 0, 0, 0, 0)
+        if k == @{TK_SWITCH} then
+            let st: i32 = np_parse_switch_stmt(src, kinds, starts, stops, ntok, out)
+            np_push_stmt_list(out, st)
+            jump loop()
+        end
+
+        if k == @{TK_BLOCK} or k == @{TK_REGION} then
+            let st: i32 = np_parse_control_stmt(src, kinds, starts, stops, ntok, out)
+            np_push_stmt_list(out, st)
+            jump loop()
+        end
+
+        if k == @{TK_EMIT} then
+            let st: i32 = np_parse_emit_stmt(src, kinds, starts, stops, ntok, out)
             np_push_stmt_list(out, st)
             jump loop()
         end
@@ -667,6 +736,240 @@ local np_parse_if = func(src: ptr(u8), kinds: ptr(i32), starts: ptr(i32), stops:
     let tok: index = as(index, out.state[@{S_CURSOR}])
     np_advance(ntok, out)
     return np_parse_if_after_kw(src, kinds, starts, stops, ntok, out, tok, false)
+end
+
+local np_parse_if_expr = func(src: ptr(u8), kinds: ptr(i32), starts: ptr(i32), stops: ptr(i32), ntok: index, out: ptr(@{NativeParseOut})) -> i32
+    let tok: index = as(index, out.state[@{S_CURSOR}])
+    np_advance(ntok, out)
+    np_skip_sep(kinds, ntok, out)
+    let cond: i32 = np_parse_expr(src, kinds, starts, stops, ntok, out, 0)
+    np_skip_sep(kinds, ntok, out)
+    np_accept(kinds, ntok, out, @{TK_THEN})
+    np_skip_sep(kinds, ntok, out)
+    let then_expr: i32 = np_parse_expr(src, kinds, starts, stops, ntok, out, 0)
+    np_skip_sep(kinds, ntok, out)
+    np_accept(kinds, ntok, out, @{TK_ELSE})
+    np_skip_sep(kinds, ntok, out)
+    let else_expr: i32 = np_parse_expr(src, kinds, starts, stops, ntok, out, 0)
+    np_skip_sep(kinds, ntok, out)
+    np_accept(kinds, ntok, out, @{TK_END})
+    return np_add_expr(out, @{EX_IF}, tok, cond, then_expr, else_expr, 0)
+end
+
+local np_parse_switch_stmt = func(src: ptr(u8), kinds: ptr(i32), starts: ptr(i32), stops: ptr(i32), ntok: index, out: ptr(@{NativeParseOut})) -> i32
+    let tok: index = as(index, out.state[@{S_CURSOR}])
+    np_advance(ntok, out)
+    np_skip_sep(kinds, ntok, out)
+    let value: i32 = np_parse_expr(src, kinds, starts, stops, ntok, out, 0)
+    np_skip_sep(kinds, ntok, out)
+    np_accept(kinds, ntok, out, @{TK_DO})
+    np_skip_sep(kinds, ntok, out)
+    let arm_start: i32 = out.state[@{S_SWITCH_ARMS}]
+    block arm_loop()
+        np_skip_sep(kinds, ntok, out)
+        let k: i32 = np_peek(kinds, ntok, out)
+        if k == @{TK_DEFAULT} then yield end
+        np_accept(kinds, ntok, out, @{TK_CASE})
+        let key: i32 = np_parse_expr(src, kinds, starts, stops, ntok, out, 0)
+        np_skip_sep(kinds, ntok, out)
+        np_accept(kinds, ntok, out, @{TK_THEN})
+        let body_start: i32 = out.state[@{S_SLISTS}]
+        np_parse_stmt_list(src, kinds, starts, stops, ntok, out, false, true, true)
+        let body_count: i32 = out.state[@{S_SLISTS}] - body_start
+        np_push_switch_arm(out, key, body_start, body_count)
+        jump arm_loop()
+    end
+    np_skip_sep(kinds, ntok, out)
+    np_accept(kinds, ntok, out, @{TK_DEFAULT})
+    np_accept(kinds, ntok, out, @{TK_THEN})
+    let default_start: i32 = out.state[@{S_SLISTS}]
+    np_parse_stmt_list(src, kinds, starts, stops, ntok, out, false, false, true)
+    let default_count: i32 = out.state[@{S_SLISTS}] - default_start
+    np_accept(kinds, ntok, out, @{TK_END})
+    let arm_count: i32 = out.state[@{S_SWITCH_ARMS}] - arm_start
+    return np_add_stmt(out, @{ST_SWITCH}, tok, value, arm_start, arm_count, default_start, default_count)
+end
+
+local np_parse_switch_expr = func(src: ptr(u8), kinds: ptr(i32), starts: ptr(i32), stops: ptr(i32), ntok: index, out: ptr(@{NativeParseOut})) -> i32
+    let tok: index = as(index, out.state[@{S_CURSOR}])
+    np_advance(ntok, out)
+    np_skip_sep(kinds, ntok, out)
+    let value: i32 = np_parse_expr(src, kinds, starts, stops, ntok, out, 0)
+    np_skip_sep(kinds, ntok, out)
+    np_accept(kinds, ntok, out, @{TK_DO})
+    np_skip_sep(kinds, ntok, out)
+    let arm_start: i32 = out.state[@{S_SWITCH_ARMS}]
+    block arm_loop()
+        np_skip_sep(kinds, ntok, out)
+        let k: i32 = np_peek(kinds, ntok, out)
+        if k == @{TK_DEFAULT} then yield end
+        np_accept(kinds, ntok, out, @{TK_CASE})
+        let key: i32 = np_parse_expr(src, kinds, starts, stops, ntok, out, 0)
+        np_skip_sep(kinds, ntok, out)
+        np_accept(kinds, ntok, out, @{TK_THEN})
+        let body_start: i32 = out.state[@{S_SLISTS}]
+        np_parse_stmt_list(src, kinds, starts, stops, ntok, out, false, true, true)
+        let body_count: i32 = out.state[@{S_SLISTS}] - body_start
+        np_push_switch_arm(out, key, body_start, body_count)
+        jump arm_loop()
+    end
+    np_skip_sep(kinds, ntok, out)
+    np_accept(kinds, ntok, out, @{TK_DEFAULT})
+    np_accept(kinds, ntok, out, @{TK_THEN})
+    let default_body_start: i32 = out.state[@{S_SLISTS}]
+    np_parse_stmt_list(src, kinds, starts, stops, ntok, out, false, false, true)
+    let default_body_count: i32 = out.state[@{S_SLISTS}] - default_body_start
+    np_skip_sep(kinds, ntok, out)
+    let default_expr: i32 = np_parse_expr(src, kinds, starts, stops, ntok, out, 0)
+    np_accept(kinds, ntok, out, @{TK_END})
+    let arm_count: i32 = out.state[@{S_SWITCH_ARMS}] - arm_start
+    return np_add_expr(out, @{EX_SWITCH}, tok, value, arm_start, arm_count, default_expr)
+end
+
+local np_parse_block_params = func(src: ptr(u8), kinds: ptr(i32), starts: ptr(i32), stops: ptr(i32), ntok: index, out: ptr(@{NativeParseOut}), is_entry: bool) -> i32
+    var param_start: i32 = 0
+    if is_entry then
+        param_start = out.state[@{S_ENTRY_PARAMS}]
+    else
+        param_start = out.state[@{S_PARAMS}]
+    end
+    if not np_accept(kinds, ntok, out, @{TK_LPAREN}) then
+        return 0
+    end
+    np_skip_sep(kinds, ntok, out)
+    block ploop()
+        if np_peek(kinds, ntok, out) == @{TK_RPAREN} then yield end
+        let name_tok: index = as(index, out.state[@{S_CURSOR}])
+        if np_peek(kinds, ntok, out) == @{TK_NAME} then np_advance(ntok, out) else np_issue(out, 8, name_tok) end
+        np_accept(kinds, ntok, out, @{TK_COLON})
+        let ty: i32 = np_parse_type(src, kinds, starts, stops, ntok, out)
+        if is_entry then
+            if np_peek(kinds, ntok, out) == @{TK_EQ} then
+                np_advance(ntok, out)
+                let init_tok: index = as(index, out.state[@{S_CURSOR}])
+                let init_kind: i32 = np_peek(kinds, ntok, out)
+                let is_lit: bool = init_kind == @{TK_INT} or init_kind == @{TK_TRUE} or init_kind == @{TK_FALSE}
+                if is_lit then np_advance(ntok, out) end
+                let init_expr: i32 = np_add_expr(out, @{EX_LIT}, init_tok, init_kind, 0, 0, 0)
+                np_push_entry_param(out, as(i32, name_tok), ty, init_expr)
+            else
+                np_push_entry_param(out, as(i32, name_tok), ty, 0)
+            end
+        else
+            np_push_param(out, name_tok, ty)
+        end
+        np_skip_sep(kinds, ntok, out)
+        if np_accept(kinds, ntok, out, @{TK_COMMA}) then jump ploop() end
+        yield
+    end
+    np_accept(kinds, ntok, out, @{TK_RPAREN})
+    if is_entry then
+        return out.state[@{S_ENTRY_PARAMS}] - param_start
+    else
+        return out.state[@{S_PARAMS}] - param_start
+    end
+end
+
+local np_parse_control_stmt = func(src: ptr(u8), kinds: ptr(i32), starts: ptr(i32), stops: ptr(i32), ntok: index, out: ptr(@{NativeParseOut})) -> i32
+    let tok: index = as(index, out.state[@{S_CURSOR}])
+    np_advance(ntok, out)
+    np_skip_sep(kinds, ntok, out)
+    let label_tok: index = as(index, out.state[@{S_CURSOR}])
+    if np_peek(kinds, ntok, out) == @{TK_NAME} then np_advance(ntok, out) else np_issue(out, 8, label_tok) end
+    let param_count: i32 = np_parse_block_params(src, kinds, starts, stops, ntok, out, true)
+    let body_start: i32 = out.state[@{S_SLISTS}]
+    np_parse_stmt_list(src, kinds, starts, stops, ntok, out, false, false, true)
+    let body_count: i32 = out.state[@{S_SLISTS}] - body_start
+    np_accept(kinds, ntok, out, @{TK_END})
+    let entry_param_start: i32 = out.state[@{S_ENTRY_PARAMS}] - param_count
+    let ctrl_start: i32 = out.state[@{S_CTRL_BLOCKS}]
+    np_push_ctrl_block(out, as(i32, label_tok), entry_param_start, param_count, body_start, body_count)
+    return np_add_stmt(out, @{ST_CONTROL}, tok, as(i32, label_tok), entry_param_start, param_count, ctrl_start, 1)
+end
+
+local np_parse_control_expr = func(src: ptr(u8), kinds: ptr(i32), starts: ptr(i32), stops: ptr(i32), ntok: index, out: ptr(@{NativeParseOut})) -> i32
+    let tok: index = as(index, out.state[@{S_CURSOR}])
+    np_advance(ntok, out)
+    np_skip_sep(kinds, ntok, out)
+    let result_ty: i32 = 0
+    if np_accept(kinds, ntok, out, @{TK_ARROW}) then
+        result_ty = np_parse_type(src, kinds, starts, stops, ntok, out)
+    end
+    np_skip_sep(kinds, ntok, out)
+    np_accept(kinds, ntok, out, @{TK_ENTRY})
+    np_skip_sep(kinds, ntok, out)
+    let label_tok: index = as(index, out.state[@{S_CURSOR}])
+    if np_peek(kinds, ntok, out) == @{TK_NAME} then np_advance(ntok, out) else np_issue(out, 8, label_tok) end
+    let param_count: i32 = np_parse_block_params(src, kinds, starts, stops, ntok, out, true)
+    let body_start: i32 = out.state[@{S_SLISTS}]
+    np_parse_stmt_list(src, kinds, starts, stops, ntok, out, false, false, true)
+    let body_count: i32 = out.state[@{S_SLISTS}] - body_start
+    np_accept(kinds, ntok, out, @{TK_END})
+    let entry_param_start: i32 = out.state[@{S_ENTRY_PARAMS}] - param_count
+    let ctrl_start: i32 = out.state[@{S_CTRL_BLOCKS}]
+    np_push_ctrl_block(out, as(i32, label_tok), entry_param_start, param_count, body_start, body_count)
+    return np_add_expr(out, @{EX_CONTROL}, tok, result_ty, ctrl_start, 1, 0)
+end
+
+local np_parse_emit_stmt = func(src: ptr(u8), kinds: ptr(i32), starts: ptr(i32), stops: ptr(i32), ntok: index, out: ptr(@{NativeParseOut})) -> i32
+    let tok: index = as(index, out.state[@{S_CURSOR}])
+    np_advance(ntok, out)
+    np_skip_sep(kinds, ntok, out)
+    let frag_name_tok: index = as(index, out.state[@{S_CURSOR}])
+    if np_peek(kinds, ntok, out) == @{TK_NAME} then np_advance(ntok, out) else np_issue(out, 8, frag_name_tok) end
+    let arg_start: i32 = out.state[@{S_ELISTS}]
+    let cont_start: i32 = out.state[@{S_CONT_FILLS}]
+    if np_accept(kinds, ntok, out, @{TK_LPAREN}) then
+        block aloop()
+            block skip_arg_nl()
+                if np_peek(kinds, ntok, out) ~= @{TK_NL} then yield end
+                np_advance(ntok, out)
+                jump skip_arg_nl()
+            end
+            if np_peek(kinds, ntok, out) == @{TK_RPAREN} or np_peek(kinds, ntok, out) == @{TK_SEMI} then yield end
+            let arg: i32 = np_parse_expr(src, kinds, starts, stops, ntok, out, 0)
+            np_push_expr_list(out, arg)
+            block skip_arg_nl2()
+                if np_peek(kinds, ntok, out) ~= @{TK_NL} then yield end
+                np_advance(ntok, out)
+                jump skip_arg_nl2()
+            end
+            if np_accept(kinds, ntok, out, @{TK_COMMA}) then jump aloop() end
+            yield
+        end
+        if np_accept(kinds, ntok, out, @{TK_SEMI}) then
+            block cloop()
+                block skip_cont_nl()
+                    if np_peek(kinds, ntok, out) ~= @{TK_NL} then yield end
+                    np_advance(ntok, out)
+                    jump skip_cont_nl()
+                end
+                if np_peek(kinds, ntok, out) == @{TK_RPAREN} then yield end
+                let name_tok: index = as(index, out.state[@{S_CURSOR}])
+                if np_peek(kinds, ntok, out) == @{TK_NAME} then np_advance(ntok, out) else np_issue(out, 8, name_tok) end
+                np_accept(kinds, ntok, out, @{TK_EQ})
+                block skip_cont_nl2()
+                    if np_peek(kinds, ntok, out) ~= @{TK_NL} then yield end
+                    np_advance(ntok, out)
+                    jump skip_cont_nl2()
+                end
+                let label_tok: index = as(index, out.state[@{S_CURSOR}])
+                if np_peek(kinds, ntok, out) == @{TK_NAME} then np_advance(ntok, out) else np_issue(out, 8, label_tok) end
+                np_push_cont_fill(out, as(i32, name_tok), as(i32, label_tok))
+                block skip_cont_nl3()
+                    if np_peek(kinds, ntok, out) ~= @{TK_NL} then yield end
+                    np_advance(ntok, out)
+                    jump skip_cont_nl3()
+                end
+                if np_accept(kinds, ntok, out, @{TK_COMMA}) then jump cloop() end
+                yield
+            end
+        end
+        np_accept(kinds, ntok, out, @{TK_RPAREN})
+    end
+    let arg_count: i32 = out.state[@{S_ELISTS}] - arg_start
+    let cont_count: i32 = out.state[@{S_CONT_FILLS}] - cont_start
+    return np_add_stmt(out, @{ST_EMIT}, tok, as(i32, frag_name_tok), arg_start, arg_count, cont_start, cont_count)
 end
 
 local np_find_simple_end = func(kinds: ptr(i32), ntok: index, i0: index) -> index
@@ -774,7 +1077,7 @@ local mom_parse_native_core = func(src: ptr(u8), n: index,
                                    out: ptr(@{NativeParseOut})) -> i32
     return region -> i32
     entry clear(i: index = 0)
-        if i >= 12 then jump parse() end
+        if i >= 16 then jump parse() end
         out.state[i] = 0
         jump clear(i = i + as(index, 1))
     end
@@ -805,6 +1108,10 @@ M:add_func(np_push_type_list)
 M:add_func(np_push_param)
 M:add_func(np_push_field)
 M:add_func(np_push_jarg)
+M:add_func(np_push_switch_arm)
+M:add_func(np_push_ctrl_block)
+M:add_func(np_push_entry_param)
+M:add_func(np_push_cont_fill)
 M:add_func(np_scalar_code)
 M:add_func(np_name_is)
 M:add_func(np_parse_type)
@@ -817,6 +1124,13 @@ M:add_func(np_parse_param_list)
 M:add_func(np_find_simple_end)
 M:add_func(np_parse_if_after_kw)
 M:add_func(np_parse_if)
+M:add_func(np_parse_if_expr)
+M:add_func(np_parse_switch_stmt)
+M:add_func(np_parse_switch_expr)
+M:add_func(np_parse_block_params)
+M:add_func(np_parse_control_stmt)
+M:add_func(np_parse_control_expr)
+M:add_func(np_parse_emit_stmt)
 M:add_func(np_parse_decl)
 M:add_func(mom_parse_native_core)
 

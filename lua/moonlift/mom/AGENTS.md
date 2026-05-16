@@ -157,7 +157,7 @@ Existing native MOM modules:
 | `back/ops.mlua` | pure backend op/scalar selection helpers |
 | `driver/wire.mlua` | allocation-free MLBT v3 binary backend ABI writer |
 | `driver/backend_ffi.mlua` | native MLBT v3 Rust backend FFI adapter |
-| `driver/lower_wire.mlua` | native parser-tape to MLBT v3 BackProgram lowering |
+| `driver/lower_wire.mlua` | wire boundary; parser tapes must not bypass semantic phases |
 | `parser/native_lexer.mlua` | native lexer and parse-event scanner |
 | `parser/native_core.mlua` | native AST tape parser core |
 | `vec/vec_facts.mlua` | Phase 8a: loop recognition → VecFact tape |
@@ -185,7 +185,7 @@ luajit tests/test_mom_native_ast.lua            # Native AST verification
 luajit tests/test_mom_check_correctness.mlua    # Schema correctness
 luajit tests/test_mom_vec.lua                   # Vectorization pipeline
 luajit tests/test_mom_wire.lua                  # MLBT v3 wire format
-luajit tests/test_mom_source_to_binary.lua      # End-to-end: source to executable
+luajit tests/test_mom_source_to_binary.lua      # MOM API source → MLBT → execute
 luajit tests/test_mom_cli.lua                   # Standalone MOM binary run/object paths
 ```
 

@@ -28,18 +28,18 @@ local CmdEntry = M:struct("CmdEntry", {
     moon.field("f", moon.i32),
 })
 
--- Cmd variant tags (from MoonBack schema declaration order).
-local CMD_UNARY = 21
-local CMD_COMPARE = 23
-local CMD_CAST = 24
-local CMD_INT_BINARY = 33
-local CMD_BIT_BINARY = 34
-local CMD_BIT_NOT = 35
-local CMD_SHIFT = 36
-local CMD_ROTATE = 37
-local CMD_FLOAT_BINARY = 38
+-- Cmd variant tags (matching wire format).
+local CMD_UNARY = 22
+local CMD_COMPARE = 24
+local CMD_CAST = 25
+local CMD_INT_BINARY = 34
+local CMD_BIT_BINARY = 35
+local CMD_BIT_NOT = 36
+local CMD_SHIFT = 37
+local CMD_ROTATE = 38
+local CMD_FLOAT_BINARY = 39
 local CMD_SELECT = 42
-local CMD_TRAP = 57
+local CMD_TRAP = 59
 
 -- Core Scalar tags (mirror back/ops.mlua).
 local B_F32 = 11

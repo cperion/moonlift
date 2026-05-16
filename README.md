@@ -8,17 +8,15 @@ or `.mlua` (Lua with Moonlift value islands) — and Moonlift turns them into
 JIT-ed function pointers, relocatable `.o` files, or `.so`/`.dylib` shared
 libraries.
 
-Two compiler frontends share a single binary protocol:
+The `moonlift` and `mom` binaries use the production semantic pipeline:
+parse → typecheck → tree_to_back → back_validate → MLBT v3 → Cranelift. MOM
+parser/runtime modules remain under `lua/moonlift/mom/` for the native compiler
+port.
 
-| Frontend | Entry point | Best for |
+| Frontend | Entry point | Status |
 |---|---|---|
-| **MOM** | `moon.native_loadstring(source)` | Default path. Compile pure Moonlift source directly to native code. End-user compilation, production. |
-| **Lua** | `moon.loadstring(source)` / builder API | Metaprogramming host, `.mlua` staging, conformance oracle. |
-
-MOM is the default — native Moonlift-on-Moonlift compiler, zero Lua in the hot
-path. The Lua frontend is the bootstrap seed and conformance oracle: two
-implementations converging on the same ABI means every bug in one is a test case
-for the other.
+| **Lua** | `moon.loadstring(source)` / builder API | Metaprogramming host, `.mlua` staging, object/JIT/shared emission. |
+| **MOM** | `moon.native_loadstring(source)` | Standalone binary/API using the production semantic pipeline. |
 
 ---
 
@@ -69,21 +67,16 @@ metaprogramming, and who believe semantics should be data, not strings.
 
 ## At a Glance
 
-### MOM: compile Moonlift source directly (default path)
+### MOM binary/API
 
 ```lua
 local moon = require("moonlift")
-local add_val = moon.native_loadstring([[
-  func add(x: i32, y: i32) -> i32
-    return x + y
-  end
-]])
-print(add_val:get("add")(3, 4))  -- 7, running as native machine code
-add_val:free()
+local ffi = require("ffi")
+local compiled = moon.native_loadstring([[func f() -> i32 return 7 end]])
+local f = ffi.cast("int32_t (*)()", compiled:get("f"))
+print(f())
+compiled:free()
 ```
-
-No Lua in the compiler core — source goes directly to native code through the
-MOM pipeline: lex → parse → lower → MLBT binary → Rust/LuaJIT backend.
 
 ### `.mlua` source: Lua host + typed islands (Lua frontend)
 
@@ -252,21 +245,21 @@ Produces fully static binaries at `target/release/moonlift` and `target/release/
 # Hosted-Lua pipeline (default)
 target/release/moonlift examples/protocols/resp_parser.mlua
 
-# MOM native pipeline
+# MOM binary/API
 target/release/mom run --call main my_program.mlua
 ```
 
 ### Compile to a native object file
 
 ```bash
-target/release/mom --emit-object -o build/resp_parser.o examples/protocols/resp_parser.mlua
+luajit emit_object.lua examples/protocols/resp_parser.mlua -o build/resp_parser.o
 # Or from Lua: moon.emit_object(source, "build/resp_parser.o")
 ```
 
 ### Compile to a shared library
 
 ```bash
-target/release/mom --emit-object -o build/resp_parser.o examples/protocols/resp_parser.mlua
+luajit emit_shared.lua examples/protocols/resp_parser.mlua -o build/libresp_parser.so
 # Or from Lua: moon.emit_shared(source, "build/libresp_parser.so")
 ```
 
@@ -488,39 +481,21 @@ end
 
 ### Two compiler frontends
 
-| Frontend | Entry point | Compiler core runtime | Best for |
+| Frontend | Entry point | Compiler core runtime | Status |
 |---|---|---|---|
-| **MOM** | `moon.native_loadstring(source)` | Pure Moonlift (native) | End-user compilation, production |
-| **Lua** | `moon.loadstring(source)` / builder API | Lua + PVM phases | Metaprogramming, `.mlua` staging, cross-check oracle |
+| **Lua** | `moon.loadstring(source)` / builder API | Lua + PVM phases | Production compiler path |
+| **MOM** | `moon.native_loadstring(source)` | Production semantic pipeline | Standalone binary/API |
 
-Both frontends produce the same MLBT v3 binary format consumed by the same
-Rust Cranelift backend. MOM is the default path — faster to compile, no Lua
-materialization step. The Lua frontend is the reference oracle: every MOM bug
-gets caught by a cross-check test against the Lua pipeline.
+Both entry points emit MLBT v3 binary format consumed by the Rust Cranelift
+backend.
 
 ---
 
 ## Compilation Pipeline
 
-Moonlift has two compilation pipelines that converge on the same backend:
+Moonlift's production compilation pipeline:
 
-### MOM pipeline (default)
-
-```
-.moon / .mlua source
-  │
-  ├─► mom_lex_into              ──► token tape
-  ├─► mom_parse_native_core     ──► native AST tape
-  ├─► mom_lower_native_core_to_wire  ──► MLBT v3 binary
-  │
-  ├─► moonlift_jit_compile_binary    ──► Cranelift JIT → function pointers (Rust)
-  └─► moonlift_object_compile_binary ──► Cranelift → .o relocatable object (Rust)
-```
-
-All compiler phases run as native Moonlift code. The only Lua involvement is
-allocating FFI-compatible buffers.
-
-### Lua frontend pipeline (bootstrap / oracle)
+### Lua frontend pipeline (production / oracle)
 
 ```
 .mlua source
@@ -535,9 +510,24 @@ allocating FFI-compatible buffers.
   └─► moonlift_object_compile_binary ──► Cranelift → .o relocatable object (Rust)
 ```
 
-Both pipelines produce the same MLBT v3 binary wire format consumed by the
-same Rust Cranelift backend. The Lua frontend is the conformance oracle and
-metaprogramming host; MOM is the default compilation path.
+This pipeline produces MLBT v3 binary wire format consumed by the same Rust
+Cranelift backend used by MOM runtime experiments.
+
+### MOM pipeline target
+
+```
+source bytes
+  ├─► mom_lex_into              ──► token tape
+  ├─► mom_parse_native_core     ──► native AST tape
+  ├─► typed AST / open / bind / typecheck
+  ├─► tree_to_back-equivalent lowering
+  ├─► validation
+  └─► MLBT v3 binary            ──► Cranelift backend
+```
+
+The parser/runtime groundwork exists. The semantic phases and tree_to_back parity
+boundary are not complete, so `moon.native_loadstring` and `target/release/mom`
+reject source compilation explicitly.
 
 ### PVM: the phase framework
 
@@ -619,10 +609,9 @@ make
 # Hosted-Lua pipeline (default)
 target/release/moonlift file.mlua
 
-# MOM native pipeline
-target/release/moonlift --native file.mlua
-target/release/mom run --call main my_program.mlua
-target/release/mom --emit-object -o out.o my_program.mlua
+# MOM binary/API
+target/release/mom run --call main file.mlua
+target/release/mom --emit-object -o out.o file.mlua
 ```
 
 The `mom` and `moonlift` binaries are fully static with zero runtime dependencies.
@@ -858,7 +847,7 @@ luajit tests/test_mom_groundwork.lua        # Runtime builders, maps, id allocat
 luajit tests/test_mom_native_lexer.mlua     # Native lexer
 luajit tests/test_mom_native_core.lua       # Native parser core (AST tapes)
 luajit tests/test_mom_native_ast.lua        # Native AST vs Lua AST cross-check
-luajit tests/test_mom_source_to_binary.lua  # Source → lex → parse → MLBT → execute
+luajit tests/test_mom_source_to_binary.lua  # MOM API source → MLBT → execute
 luajit tests/test_mom_cli.lua               # Standalone mom run/object CLI
 
 # Schema validation
@@ -871,7 +860,7 @@ luajit tests/test_mom_vec.lua               # Vec facts → decide → plan → 
 luajit tests/test_mom_wire.lua              # MLBT v3 wire builder
 
 # Frontend API
-luajit -e 'local m=require("moonlift"); print(m.native_loadstring("func f()->i32 return 7 end"):get("f"))'
+target/release/mom status
 ```
 
 ### Lua frontend tests (bootstrap / oracle)

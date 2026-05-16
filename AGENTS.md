@@ -8,7 +8,6 @@ Moonlift is the monomorphic native output.
 
 ```sh
 make                                    # produces fully static target/release/moonlift and target/release/mom
-                                        # also pre-compiles MOM .mlua modules to .o and links into mom
 cargo build --release                   # produces target/release/libmoonlift.so plus binaries
 ```
 
@@ -17,25 +16,11 @@ cargo build --release                   # produces target/release/libmoonlift.so
 compiler (195 Lua sources via `include_str!`) + vendored LuaJIT — zero runtime
 deps.
 
-### Pre-compiled MOM modules
+### MOM status
 
-The `mom` binary links pre-compiled MOM `.mlua` modules as native `.o` files.
-This eliminates JIT compilation of the compiler itself at startup.
-
-```sh
-make mom-objs                           # emit .o files for MOM modules
-                                        # requires: built moonlift binary
-                                        # produces:  target/mom_objs/*.o
-                                        #            target/mom_objs/libmom_precompiled.a
-```
-
-`scripts/emit_mom_objects.lua` compiles each MOM `.mlua` module through the
-hosted pipeline (`ModuleValue:emit_object()`) and writes `.o` files. The
-`mom` binary links against `target/mom_objs/libmom_precompiled.a`.
-
-At runtime, `host_mom.lua` tries to resolve pre-compiled symbols from
-`ffi.C` first (linked into the binary). If unavailable (e.g. running under
-plain `luajit`), it falls back to JIT compilation of the MOM modules.
+The `mom` binary links LuaJIT, embedded Moonlift/MOM sources, and the Rust
+backend. Its run/object CLI uses the production semantic pipeline. Do not route
+compilation through parser-tape shortcuts.
 
 ## Setup
 
@@ -53,17 +38,16 @@ All scripts set `package.path` to include `./lua/?.lua`.
 target/release/moonlift file.mlua
 target/release/moonlift run --call main file.mlua
 
-# Native pipeline (MOM — standalone executable)
-target/release/moonlift --native file.mlua
-target/release/mom run file.mlua
+# MOM binary/API
+target/release/mom run --call main file.mlua
 target/release/mom --emit-object -o out.o file.mlua
 
 # From Lua
 local moon = require("moonlift")
 moon.loadstring(src)            -- hosted JIT
 moon.loadfile(path)            -- hosted JIT
-moon.native_loadstring(src)    -- MOM native
-moon.native_loadfile(path)     -- MOM native
+moon.native_loadstring(src)    -- MOM native status/error path
+moon.native_loadfile(path)     -- MOM native status/error path
 moon.emit_object(src, path)    -- emit .o bytes
 moon.emit_shared(src, path)    -- emit .so/.dylib bytes
 
@@ -92,7 +76,8 @@ luajit tests/test_mom_native_ast.lua            # Native AST verification
 luajit tests/test_mom_check_correctness.mlua    # Schema correctness
 luajit tests/test_mom_vec.lua                   # Vectorization pipeline
 luajit tests/test_mom_wire.lua                  # MLBT v3 wire format
-luajit tests/test_mom_source_to_binary.lua      # End-to-end: source to executable
+luajit tests/test_mom_source_to_binary.lua      # MOM API source → MLBT → execute
+luajit tests/test_mom_cli.lua                   # Standalone mom run/object CLI
 ```
 
 ## Benchmarks
@@ -252,9 +237,10 @@ compiled:free()
 ### Native: compile to standalone executable
 ```lua
 local moon = require("moonlift")
-moon.native_loadstring([[
-func main() -> i32 return 0 end
-]], "demo.mlua")
+-- MOM status/error path; production compilation uses moon.loadstring
+local ok, err = pcall(function()
+    moon.native_loadstring([[func main() -> i32 return 0 end]], "demo.mlua")
+end)
 ```
 
 ### Unified API — `require("moonlift")` module
@@ -265,8 +251,8 @@ Hosted-Lua pipeline:
 - `moon.dofile(path [, opts, ...])` — compile, load, and call
 - `moon.eval(src, ...)` — shorthand: compile string, call immediately
 
-MOM native pipeline:
-- `moon.native_loadstring(src [, name])` — compile to native executable
+MOM binary/API pipeline:
+- `moon.native_loadstring(src [, name])` — compile source to native executable
 - `moon.native_loadfile(path)` — compile file to native executable
 - `moon.native_dofile(path [, opts])` — compile and run native executable
 
@@ -278,8 +264,7 @@ Inside `.mlua` files, the `moon` table provides:
 `moon.require`, `moon.native_loadstring`, `moon.native_loadfile`,
 `moon.native_dofile`, `moon.emit_object`
 
-Backward compat: `moon.mount_mom` / `require("moonlift.host_mom")` still
-works as alias for `moon.host_mom`.
+`require("moonlift.host_mom")` exposes MOM status/error entry points.
 
 ## Design philosophy
 - **Co-author two typed structures**: data types (type forest) + control types

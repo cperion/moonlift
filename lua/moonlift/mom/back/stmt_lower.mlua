@@ -7,22 +7,22 @@
 local M = moon.module("mom_back_stmt_lower")
 
 -- ── Cmd variant tags (from MoonBack schema) ──────────────────────────
-local CMD_CONST = 20
-local CMD_UNARY = 21
-local CMD_COMPARE = 23
-local CMD_CAST = 24
-local CMD_INT_BINARY = 33
-local CMD_BIT_BINARY = 34
-local CMD_SHIFT = 36
-local CMD_FLOAT_BINARY = 38
+local CMD_CONST = 21
+local CMD_UNARY = 22
+local CMD_COMPARE = 24
+local CMD_CAST = 25
+local CMD_INT_BINARY = 34
+local CMD_BIT_BINARY = 35
+local CMD_SHIFT = 37
+local CMD_FLOAT_BINARY = 39
 local CMD_SELECT = 42
-local CMD_CREATE_BLOCK = 12
-local CMD_SWITCH_TO_BLOCK = 13
-local CMD_BR_IF = 53
-local CMD_JUMP = 52
-local CMD_RETURN_VOID = 55
-local CMD_RETURN_VALUE = 56
-local CMD_TRAP = 57
+local CMD_CREATE_BLOCK = 13
+local CMD_SWITCH_TO_BLOCK = 14
+local CMD_BR_IF = 55
+local CMD_JUMP = 54
+local CMD_RETURN_VOID = 57
+local CMD_RETURN_VALUE = 58
+local CMD_TRAP = 59
 
 -- ── Token kind constants (must match native_lexer.mlua) ─────────────
 local TK_INT = 2
@@ -70,12 +70,12 @@ local ST_IF = 5
 local ST_LET = 1
 
 -- ── BackScalar tags ────────────────────────────────────────────────
-local B_BOOL = 2
-local B_I32 = 5
-local B_I64 = 6
-local B_F64 = 12
-local B_PTR = 13
-local B_U32 = 9
+local B_BOOL = 1
+local B_I32 = 4
+local B_I64 = 5
+local B_F64 = 11
+local B_PTR = 12
+local B_U32 = 8
 
 -- ── Core op tags ───────────────────────────────────────────────────
 local U_NEG = 1
@@ -184,11 +184,11 @@ end
 -- ── Expression lowering ────────────────────────────────────────────
 
 local mb_is_float = func(s: i32) -> bool
-    return s == 11 or s == @{B_F64}
+    return s == 10 or s == @{B_F64}
 end
 
 local mb_is_signed = func(s: i32) -> bool
-    return s == 3 or s == 4 or s == @{B_I32} or s == @{B_I64}
+    return s == 2 or s == 3 or s == @{B_I32} or s == @{B_I64}
 end
 
 -- Lower a literal (EX_LIT): emit CmdConst, return value ID.

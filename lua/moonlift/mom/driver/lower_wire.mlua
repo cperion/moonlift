@@ -1,9 +1,13 @@
--- MOM native parser tape → MLBT v3 writer.
+-- MOM native BackProgram tape → MLBT v3 writer.
 --
--- This module is a native compiler phase: it consumes native parser-core tapes
--- and writes a binary BackProgram into caller-provided memory.  Lua test code
--- may allocate buffers and call the phase, but lowering decisions and command
--- emission happen here.
+-- This module owns the binary serialization boundary for native MOM phases.  It
+-- does not lower parser tapes. Semantic phases must construct a checked command
+-- tape first; this module serializes that tape without interpreting source AST.
+--
+-- Command tape layout: each command occupies 18 i32 words:
+--   word[0]      = MLBT command tag
+--   word[1..17]  = command slots; only the prefix defined by slot_count(tag) is
+--                  serialized.
 
 local M = moon.module("mom_driver_lower_wire")
 
@@ -12,86 +16,11 @@ local u8p = moon.ptr(moon.u8)
 
 local MW_OK = 0
 local MW_OVERFLOW = 1
-local MW_UNSUPPORTED = 2
+local MW_BAD_TAG = 2
 
 local MLBT_MAGIC = 1296843348 -- 0x4d4c4254, bytes "TBLM" little-endian
 local MLBT_VERSION = 3
-
--- Native parser-core constants.
-local S_EXPRS = 2
-local IT_FUNC = 1
-local TY_SCALAR = 1
-local TY_PTR = 3
-local TY_FUNC = 5
-local EX_LIT = 1
-local EX_REF = 2
-local EX_UNARY = 3
-local EX_BINARY = 4
-local EX_COMPARE = 5
-local ST_RETURN_VOID = 6
-local ST_RETURN_VALUE = 7
-local TK_INT = 2
-local TK_FLOAT = 3
-local TK_TRUE = 140
-local TK_FALSE = 141
-local TK_NIL = 142
-local TK_PLUS = 20
-local TK_MINUS = 21
-local TK_STAR = 22
-local TK_SLASH = 23
-local TK_EQEQ = 27
-local TK_NE = 28
-local TK_LT = 29
-local TK_LE = 30
-local TK_GT = 31
-local TK_GE = 32
-
--- Native scalar codes from parser/native_core.mlua.
-local SC_VOID = 1
-local SC_BOOL = 2
-local SC_I8 = 3
-local SC_I16 = 4
-local SC_I32 = 5
-local SC_I64 = 6
-local SC_U8 = 7
-local SC_U16 = 8
-local SC_U32 = 9
-local SC_U64 = 10
-local SC_F32 = 11
-local SC_F64 = 12
-local SC_INDEX = 13
-
--- MLBT scalar tags.
-local WB_BOOL = 1
-local WB_I8 = 2
-local WB_I16 = 3
-local WB_I32 = 4
-local WB_I64 = 5
-local WB_U8 = 6
-local WB_U16 = 7
-local WB_U32 = 8
-local WB_U64 = 9
-local WB_F32 = 10
-local WB_F64 = 11
-local WB_PTR = 12
-local WB_INDEX = 13
-
--- MLBT command tags.
-local CMD_CREATE_SIG = 3
-local CMD_DECLARE_FUNC = 10
-local CMD_BEGIN_FUNC = 12
-local CMD_CREATE_BLOCK = 13
-local CMD_SWITCH_TO_BLOCK = 14
-local CMD_BIND_ENTRY_PARAMS = 16
-local CMD_CONST = 21
-local CMD_UNARY = 22
-local CMD_COMPARE = 24
-local CMD_INT_BINARY = 34
-local CMD_FLOAT_BINARY = 39
-local CMD_RETURN_VOID = 57
-local CMD_RETURN_VALUE = 58
-local CMD_FINISH_FUNC = 60
-local CMD_FINALIZE_MODULE = 61
+local CMD_STRIDE = 18
 
 local MomWireBuilder = M:struct("MomWireBuilder", {
     moon.field("data", u8p),
@@ -100,20 +29,6 @@ local MomWireBuilder = M:struct("MomWireBuilder", {
     moon.field("string_count", moon.i32),
     moon.field("aux_count", moon.i32),
     moon.field("error", moon.i32),
-})
-
-local NativeParseOut = M:struct("NativeParseOut", {
-    moon.field("state", i32p),
-    moon.field("type_tag", i32p), moon.field("type_tok", i32p), moon.field("type_a", i32p), moon.field("type_b", i32p), moon.field("type_c", i32p),
-    moon.field("expr_tag", i32p), moon.field("expr_tok", i32p), moon.field("expr_a", i32p), moon.field("expr_b", i32p), moon.field("expr_c", i32p), moon.field("expr_d", i32p),
-    moon.field("stmt_tag", i32p), moon.field("stmt_tok", i32p), moon.field("stmt_a", i32p), moon.field("stmt_b", i32p), moon.field("stmt_c", i32p), moon.field("stmt_d", i32p), moon.field("stmt_e", i32p),
-    moon.field("item_tag", i32p), moon.field("item_tok", i32p), moon.field("item_a", i32p), moon.field("item_b", i32p), moon.field("item_c", i32p), moon.field("item_d", i32p), moon.field("item_e", i32p),
-    moon.field("param_name", i32p), moon.field("param_type", i32p),
-    moon.field("field_name", i32p), moon.field("field_type", i32p),
-    moon.field("jarg_name", i32p), moon.field("jarg_expr", i32p),
-    moon.field("expr_list", i32p), moon.field("stmt_list", i32p), moon.field("type_list", i32p),
-    moon.field("issue_tag", i32p), moon.field("issue_tok", i32p),
-    moon.field("cap_nodes", moon.index), moon.field("cap_lists", moon.index),
 })
 
 local mw_mark = func(w: ptr(@{MomWireBuilder}), code: i32)
@@ -155,7 +70,12 @@ local mw_align4 = func(w: ptr(@{MomWireBuilder}))
 end
 
 local mw_init = func(w: ptr(@{MomWireBuilder}), data: ptr(u8), cap: index)
-    w.data = data; w.len = 0; w.cap = cap; w.string_count = 0; w.aux_count = 0; w.error = @{MW_OK}
+    w.data = data
+    w.len = 0
+    w.cap = cap
+    w.string_count = 0
+    w.aux_count = 0
+    w.error = @{MW_OK}
     mw_write_u32(w, @{MLBT_MAGIC})
     mw_write_u32(w, @{MLBT_VERSION})
     mw_write_u32(w, 0)
@@ -166,6 +86,17 @@ local mw_finish = func(w: ptr(@{MomWireBuilder})) -> index
     mw_patch_u32(w, as(index, 8), w.string_count)
     mw_patch_u32(w, as(index, 12), w.aux_count)
     return w.len
+end
+
+local mw_write_pool_string = func(w: ptr(@{MomWireBuilder}), text: ptr(u8), len: index) -> i32
+    let idx: i32 = w.string_count
+    w.string_count = idx + 1
+    mw_write_u32(w, as(i32, len))
+    block loop(i: index = 0)
+        if i >= len then mw_align4(w); return idx end
+        mw_put_u8(w, text[i])
+        jump loop(i = i + as(index, 1))
+    end
 end
 
 local mw_write_pool_slice = func(w: ptr(@{MomWireBuilder}), src: ptr(u8), starts: ptr(i32), stops: ptr(i32), tok: i32) -> i32
@@ -203,262 +134,139 @@ local mw_begin_aux = func(w: ptr(@{MomWireBuilder}), count: i32) -> i32
     return idx
 end
 
-local mw_cmd0 = func(w: ptr(@{MomWireBuilder}), tag: i32)
-    mw_write_u32(w, tag)
-end
-
-local mw_cmd1 = func(w: ptr(@{MomWireBuilder}), tag: i32, a: i32)
-    mw_write_u32(w, tag); mw_write_u32(w, a)
-end
-
-local mw_cmd3 = func(w: ptr(@{MomWireBuilder}), tag: i32, a: i32, b: i32, c: i32)
-    mw_write_u32(w, tag); mw_write_u32(w, a); mw_write_u32(w, b); mw_write_u32(w, c)
-end
-
-local mw_cmd5 = func(w: ptr(@{MomWireBuilder}), tag: i32, a: i32, b: i32, c: i32, d: i32, e: i32)
-    mw_write_u32(w, tag); mw_write_u32(w, a); mw_write_u32(w, b); mw_write_u32(w, c); mw_write_u32(w, d); mw_write_u32(w, e)
-end
-
-local mw_cmd6 = func(w: ptr(@{MomWireBuilder}), tag: i32, a: i32, b: i32, c: i32, d: i32, e: i32, f: i32)
-    mw_write_u32(w, tag); mw_write_u32(w, a); mw_write_u32(w, b); mw_write_u32(w, c); mw_write_u32(w, d); mw_write_u32(w, e); mw_write_u32(w, f)
-end
-
-local mw_cmd7 = func(w: ptr(@{MomWireBuilder}), tag: i32, a: i32, b: i32, c: i32, d: i32, e: i32, f: i32, g: i32)
-    mw_write_u32(w, tag); mw_write_u32(w, a); mw_write_u32(w, b); mw_write_u32(w, c); mw_write_u32(w, d); mw_write_u32(w, e); mw_write_u32(w, f); mw_write_u32(w, g)
-end
-
-local mom_wire_scalar_from_native = func(type_tag: ptr(i32), type_a: ptr(i32), ty: i32) -> i32
-    if type_tag[as(index, ty)] == @{TY_PTR} or type_tag[as(index, ty)] == @{TY_FUNC} then return @{WB_PTR} end
-    if type_tag[as(index, ty)] ~= @{TY_SCALAR} then return 0 end
-    let s: i32 = type_a[as(index, ty)]
-    if s == @{SC_BOOL} then return @{WB_BOOL} end
-    if s == @{SC_I8} then return @{WB_I8} end
-    if s == @{SC_I16} then return @{WB_I16} end
-    if s == @{SC_I32} then return @{WB_I32} end
-    if s == @{SC_I64} then return @{WB_I64} end
-    if s == @{SC_U8} then return @{WB_U8} end
-    if s == @{SC_U16} then return @{WB_U16} end
-    if s == @{SC_U32} then return @{WB_U32} end
-    if s == @{SC_U64} then return @{WB_U64} end
-    if s == @{SC_F32} then return @{WB_F32} end
-    if s == @{SC_F64} then return @{WB_F64} end
-    if s == @{SC_INDEX} then return @{WB_INDEX} end
-    return 0
-end
-
-local mom_type_is_void = func(type_tag: ptr(i32), type_a: ptr(i32), ty: i32) -> bool
-    return type_tag[as(index, ty)] == @{TY_SCALAR} and type_a[as(index, ty)] == @{SC_VOID}
-end
-
-local mom_parse_i32_lit = func(src: ptr(u8), starts: ptr(i32), stops: ptr(i32), tok: i32) -> i32
-    let start: index = as(index, starts[as(index, tok)])
-    let stop: index = as(index, stops[as(index, tok)])
-    return block loop(i: index = start, acc: i32 = 0) -> i32
-        if i >= stop then yield acc end
-        let c: i32 = as(i32, src[i])
-        if c >= 48 and c <= 57 then jump loop(i = i + as(index, 1), acc = acc * 10 + (c - 48)) end
-        jump loop(i = i + as(index, 1), acc = acc)
-    end
-end
-
-local mom_token_equal = func(src: ptr(u8), starts: ptr(i32), stops: ptr(i32), a: i32, b: i32) -> bool
-    let as0: index = as(index, starts[as(index, a)])
-    let ae: index = as(index, stops[as(index, a)])
-    let bs0: index = as(index, starts[as(index, b)])
-    let be: index = as(index, stops[as(index, b)])
-    let an: index = ae - as0
-    if an ~= be - bs0 then return false end
-    return block loop(i: index = 0) -> bool
-        if i >= an then yield true end
-        if src[as0 + i] ~= src[bs0 + i] then yield false end
+local mw_write_aux_i32s = func(w: ptr(@{MomWireBuilder}), words: ptr(i32), count: index) -> i32
+    let idx: i32 = mw_begin_aux(w, as(i32, count))
+    block loop(i: index = 0)
+        if i >= count then return idx end
+        mw_write_u32(w, words[i])
         jump loop(i = i + as(index, 1))
     end
 end
 
-local mom_param_pool_lookup = func(src: ptr(u8), starts: ptr(i32), stops: ptr(i32), out: ptr(@{NativeParseOut}), param_start: i32, param_count: i32, param_pool_base: i32, name_tok: i32) -> i32
-    return block loop(i: i32 = 0) -> i32
-        if i >= param_count then yield -1 end
-        let ptok: i32 = out.param_name[as(index, param_start + i)]
-        if mom_token_equal(src, starts, stops, ptok, name_tok) then yield param_pool_base + i end
+local mom_wire_slot_count = func(tag: i32) -> i32
+    if tag == 1 then return 0 end
+    if tag == 2 then return 0 end
+    if tag == 3 then return 5 end
+    if tag == 4 then return 3 end
+    if tag == 5 then return 3 end
+    if tag == 6 then return 6 end
+    if tag == 7 then return 2 end
+    if tag == 8 then return 2 end
+    if tag == 9 then return 2 end
+    if tag == 10 then return 3 end
+    if tag == 11 then return 3 end
+    if tag == 12 then return 1 end
+    if tag == 13 then return 1 end
+    if tag == 14 then return 1 end
+    if tag == 15 then return 1 end
+    if tag == 16 then return 3 end
+    if tag == 17 then return 5 end
+    if tag == 18 then return 3 end
+    if tag == 19 then return 2 end
+    if tag == 20 then return 2 end
+    if tag == 21 then return 5 end
+    if tag == 22 then return 6 end
+    if tag == 23 then return 7 end
+    if tag == 24 then return 7 end
+    if tag == 25 then return 4 end
+    if tag == 26 then return 7 end
+    if tag == 27 then return 15 end
+    if tag == 28 then return 15 end
+    if tag == 29 then return 15 end
+    if tag == 30 then return 14 end
+    if tag == 31 then return 16 end
+    if tag == 32 then return 17 end
+    if tag == 33 then return 1 end
+    if tag == 34 then return 7 end
+    if tag == 35 then return 5 end
+    if tag == 36 then return 3 end
+    if tag == 37 then return 5 end
+    if tag == 38 then return 5 end
+    if tag == 39 then return 6 end
+    if tag == 40 then return 3 end
+    if tag == 41 then return 3 end
+    if tag == 42 then return 7 end
+    if tag == 43 then return 6 end
+    if tag == 44 then return 4 end
+    if tag == 45 then return 6 end
+    if tag == 46 then return 6 end
+    if tag == 47 then return 6 end
+    if tag == 48 then return 6 end
+    if tag == 49 then return 6 end
+    if tag == 50 then return 4 end
+    if tag == 51 then return 15 end
+    if tag == 52 then return 14 end
+    if tag == 53 then return 8 end
+    if tag == 54 then return 3 end
+    if tag == 55 then return 7 end
+    if tag == 56 then return 5 end
+    if tag == 57 then return 0 end
+    if tag == 58 then return 1 end
+    if tag == 59 then return 0 end
+    if tag == 60 then return 1 end
+    if tag == 61 then return 0 end
+    return -1
+end
+
+local mom_cmd_tape_set = func(cmds: ptr(i32), cmd_index: i32, word: i32, value: i32)
+    cmds[as(index, cmd_index * @{CMD_STRIDE} + word)] = value
+end
+
+local mom_cmd_tape_clear = func(cmds: ptr(i32), cmd_index: i32)
+    block loop(i: i32 = 0)
+        if i >= @{CMD_STRIDE} then return end
+        mom_cmd_tape_set(cmds, cmd_index, i, 0)
         jump loop(i = i + 1)
     end
 end
 
-local mom_lower_expr_to_wire = func(src: ptr(u8), starts: ptr(i32), stops: ptr(i32), out: ptr(@{NativeParseOut}), expr_pool_base: i32, param_start: i32, param_count: i32, param_pool_base: i32, expr_idx: i32, w: ptr(@{MomWireBuilder})) -> i32
-    let idx: index = as(index, expr_idx)
-    let tag: i32 = out.expr_tag[idx]
-    let dst: i32 = expr_pool_base + expr_idx
-    if tag == @{EX_LIT} then
-        let tok_kind: i32 = out.expr_a[idx]
-        let lit_tok: i32 = out.expr_tok[idx]
-        if tok_kind == @{TK_TRUE} then mw_cmd5(w, @{CMD_CONST}, dst, @{WB_BOOL}, 1, 1, 0); return dst end
-        if tok_kind == @{TK_FALSE} then mw_cmd5(w, @{CMD_CONST}, dst, @{WB_BOOL}, 1, 0, 0); return dst end
-        if tok_kind == @{TK_NIL} then mw_cmd5(w, @{CMD_CONST}, dst, @{WB_PTR}, 0, 0, 0); return dst end
-        if tok_kind == @{TK_INT} then
-            let raw: i32 = mom_parse_i32_lit(src, starts, stops, lit_tok)
-            mw_cmd5(w, @{CMD_CONST}, dst, @{WB_I32}, 2, raw, 0)
-            return dst
-        end
-        mw_mark(w, @{MW_UNSUPPORTED})
-        mw_cmd5(w, @{CMD_CONST}, dst, @{WB_I32}, 2, 0, 0)
-        return dst
-    end
-    if tag == @{EX_REF} then
-        let p: i32 = mom_param_pool_lookup(src, starts, stops, out, param_start, param_count, param_pool_base, out.expr_a[idx])
-        if p >= 0 then return p end
-        mw_mark(w, @{MW_UNSUPPORTED})
-        mw_cmd5(w, @{CMD_CONST}, dst, @{WB_I32}, 2, 0, 0)
-        return dst
-    end
-    if tag == @{EX_UNARY} then
-        let child: i32 = mom_lower_expr_to_wire(src, starts, stops, out, expr_pool_base, param_start, param_count, param_pool_base, out.expr_b[idx], w)
-        if out.expr_a[idx] == @{TK_MINUS} then mw_cmd6(w, @{CMD_UNARY}, dst, 1, 0, @{WB_I32}, 0, child); return dst end
-        mw_mark(w, @{MW_UNSUPPORTED})
-        return child
-    end
-    if tag == @{EX_BINARY} then
-        let lhs: i32 = mom_lower_expr_to_wire(src, starts, stops, out, expr_pool_base, param_start, param_count, param_pool_base, out.expr_b[idx], w)
-        let rhs: i32 = mom_lower_expr_to_wire(src, starts, stops, out, expr_pool_base, param_start, param_count, param_pool_base, out.expr_c[idx], w)
-        let op: i32 = out.expr_a[idx]
-        let bop: i32 = select(op == @{TK_PLUS}, 1, select(op == @{TK_MINUS}, 2, select(op == @{TK_STAR}, 3, select(op == @{TK_SLASH}, 4, 0))))
-        if bop == 0 then mw_mark(w, @{MW_UNSUPPORTED}) end
-        mw_cmd7(w, @{CMD_INT_BINARY}, dst, bop, @{WB_I32}, 0, 0, lhs, rhs)
-        return dst
-    end
-    if tag == @{EX_COMPARE} then
-        let lhs: i32 = mom_lower_expr_to_wire(src, starts, stops, out, expr_pool_base, param_start, param_count, param_pool_base, out.expr_b[idx], w)
-        let rhs: i32 = mom_lower_expr_to_wire(src, starts, stops, out, expr_pool_base, param_start, param_count, param_pool_base, out.expr_c[idx], w)
-        let op: i32 = out.expr_a[idx]
-        let cop: i32 = select(op == @{TK_EQEQ}, 1, select(op == @{TK_NE}, 2, select(op == @{TK_LT}, 3, select(op == @{TK_LE}, 4, select(op == @{TK_GT}, 5, select(op == @{TK_GE}, 6, 0))))))
-        if cop == 0 then mw_mark(w, @{MW_UNSUPPORTED}) end
-        mw_cmd7(w, @{CMD_COMPARE}, dst, cop, 0, @{WB_I32}, 0, lhs, rhs)
-        return dst
-    end
-    mw_mark(w, @{MW_UNSUPPORTED})
-    mw_cmd5(w, @{CMD_CONST}, dst, @{WB_I32}, 2, 0, 0)
-    return dst
-end
-
-local mom_write_function_aux = func(w: ptr(@{MomWireBuilder}), out: ptr(@{NativeParseOut}), item_idx: i32, func_pool_base: i32)
-    let ii: index = as(index, item_idx)
-    let param_start: i32 = out.item_b[ii]
-    let param_count: i32 = out.item_c[ii]
-    mw_begin_aux(w, param_count)
-    block ps(i: i32 = 0)
-        if i >= param_count then yield end
-        let ty: i32 = out.param_type[as(index, param_start + i)]
-        mw_write_u32(w, mom_wire_scalar_from_native(out.type_tag, out.type_a, ty))
-        jump ps(i = i + 1)
-    end
-    let result_ty: i32 = out.item_d[ii]
-    if mom_type_is_void(out.type_tag, out.type_a, result_ty) then
-        mw_begin_aux(w, 0)
-    else
-        mw_begin_aux(w, 1)
-        mw_write_u32(w, mom_wire_scalar_from_native(out.type_tag, out.type_a, result_ty))
-    end
-    mw_begin_aux(w, param_count)
-    block pv(i: i32 = 0)
-        if i >= param_count then return end
-        mw_write_u32(w, func_pool_base + 3 + i)
-        jump pv(i = i + 1)
-    end
-end
-
-local mom_lower_function_commands = func(src: ptr(u8), starts: ptr(i32), stops: ptr(i32), out: ptr(@{NativeParseOut}), item_idx: i32, func_pool_base: i32, aux_base: i32, expr_pool_base: i32, w: ptr(@{MomWireBuilder}))
-    let ii: index = as(index, item_idx)
-    let func_id: i32 = func_pool_base
-    let sig_id: i32 = func_pool_base + 1
-    let block_id: i32 = func_pool_base + 2
-    let param_start: i32 = out.item_b[ii]
-    let param_count: i32 = out.item_c[ii]
-    let result_ty: i32 = out.item_d[ii]
-    let result_count: i32 = select(mom_type_is_void(out.type_tag, out.type_a, result_ty), 0, 1)
-    mw_cmd5(w, @{CMD_CREATE_SIG}, sig_id, aux_base, param_count, aux_base + 1, result_count)
-    mw_cmd3(w, @{CMD_DECLARE_FUNC}, 1, func_id, sig_id)
-    mw_cmd1(w, @{CMD_BEGIN_FUNC}, func_id)
-    mw_cmd1(w, @{CMD_CREATE_BLOCK}, block_id)
-    mw_cmd1(w, @{CMD_SWITCH_TO_BLOCK}, block_id)
-    if param_count > 0 then mw_cmd3(w, @{CMD_BIND_ENTRY_PARAMS}, block_id, aux_base + 2, param_count) end
-    let body_start: i32 = out.item_e[ii]
-    let body_end: i32 = select(item_idx + 1 < out.state[4] and out.item_tag[as(index, item_idx + 1)] == @{IT_FUNC}, out.item_e[as(index, item_idx + 1)], out.state[10])
-    block stmts(i: i32 = body_start)
-        if i >= body_end then
-            mw_cmd1(w, @{CMD_FINISH_FUNC}, func_id)
-            return
-        end
-        let sidx: i32 = out.stmt_list[as(index, i)]
-        let stag: i32 = out.stmt_tag[as(index, sidx)]
-        if stag == @{ST_RETURN_VOID} then
-            mw_cmd0(w, @{CMD_RETURN_VOID})
-            mw_cmd1(w, @{CMD_FINISH_FUNC}, func_id)
-            return
-        end
-        if stag == @{ST_RETURN_VALUE} then
-            let val: i32 = mom_lower_expr_to_wire(src, starts, stops, out, expr_pool_base, param_start, param_count, func_pool_base + 3, out.stmt_a[as(index, sidx)], w)
-            mw_cmd1(w, @{CMD_RETURN_VALUE}, val)
-            mw_cmd1(w, @{CMD_FINISH_FUNC}, func_id)
-            return
-        end
-        jump stmts(i = i + 1)
-    end
-end
-
-local mom_lower_native_core_to_wire = func(src: ptr(u8), starts: ptr(i32), stops: ptr(i32), out: ptr(@{NativeParseOut}), nitems: i32, w: ptr(@{MomWireBuilder}), data: ptr(u8), cap: index) -> index
-    return region -> index
-    entry start()
-        mw_init(w, data, cap)
-        jump pool_funcs(i = 0)
-    end
-
-    -- String pool: per function (func, sig, entry, params), then one generated
-    -- value id per expression node.
-    block pool_funcs(i: i32)
-        if i >= nitems then jump pool_exprs(e = 0, expr_base = w.string_count) end
-        if out.item_tag[as(index, i)] == @{IT_FUNC} then
-            mw_write_pool_slice(w, src, starts, stops, out.item_a[as(index, i)])
-            mw_write_pool_generated(w, 115, i) -- 's'
-            mw_write_pool_generated(w, 98, i)  -- 'b'
-            let ps: i32 = out.item_b[as(index, i)]
-            let pc: i32 = out.item_c[as(index, i)]
-            let params_done: i32 = block params(j: i32 = 0) -> i32
-                if j >= pc then yield 0 end
-                mw_write_pool_slice(w, src, starts, stops, out.param_name[as(index, ps + j)])
-                jump params(j = j + 1)
+local mom_cmd_tape_push = func(cmds: ptr(i32), count: ptr(i32), cap: i32, tag: i32, slots: ptr(i32)) -> i32
+    let i: i32 = count[0]
+    if i < cap then
+        mom_cmd_tape_clear(cmds, i)
+        mom_cmd_tape_set(cmds, i, 0, tag)
+        let n: i32 = mom_wire_slot_count(tag)
+        if n >= 0 then
+            block loop(j: i32 = 0)
+                if j >= n then yield end
+                mom_cmd_tape_set(cmds, i, j + 1, slots[as(index, j)])
+                jump loop(j = j + 1)
             end
         end
-        jump pool_funcs(i = i + 1)
     end
-    block pool_exprs(e: i32, expr_base: i32)
-        if e >= out.state[@{S_EXPRS}] then jump aux_funcs(i = 0, pool_base = 0, aux_base = 0, expr_base = expr_base) end
-        mw_write_pool_generated(w, 118, e) -- 'v'
-        jump pool_exprs(e = e + 1, expr_base = expr_base)
-    end
+    count[0] = i + 1
+    return i
+end
 
-    -- Aux entries are three per function: parameter scalars, result scalars,
-    -- entry parameter value ids.
-    block aux_funcs(i: i32, pool_base: i32, aux_base: i32, expr_base: i32)
-        if i >= nitems then jump cmd_funcs(j = 0, cmd_pool_base = 0, cmd_aux_base = 0, cmd_expr_base = expr_base) end
-        if out.item_tag[as(index, i)] == @{IT_FUNC} then
-            mom_write_function_aux(w, out, i, pool_base)
-            jump aux_funcs(i = i + 1, pool_base = pool_base + 3 + out.item_c[as(index, i)], aux_base = aux_base + 3, expr_base = expr_base)
+local mom_lower_cmd_tape_to_wire = func(cmds: ptr(i32), ncmds: i32, w: ptr(@{MomWireBuilder})) -> index
+    block cmds_loop(i: i32 = 0)
+        if i >= ncmds then return w.len end
+        let base: index = as(index, i * @{CMD_STRIDE})
+        let tag: i32 = cmds[base]
+        let nslots: i32 = mom_wire_slot_count(tag)
+        if nslots < 0 then
+            mw_mark(w, @{MW_BAD_TAG})
+            return w.len
         end
-        jump aux_funcs(i = i + 1, pool_base = pool_base, aux_base = aux_base, expr_base = expr_base)
-    end
-
-    -- Command stream.
-    block cmd_funcs(j: i32, cmd_pool_base: i32, cmd_aux_base: i32, cmd_expr_base: i32)
-        if j >= nitems then jump done() end
-        if out.item_tag[as(index, j)] == @{IT_FUNC} then
-            mom_lower_function_commands(src, starts, stops, out, j, cmd_pool_base, cmd_aux_base, cmd_expr_base, w)
-            jump cmd_funcs(j = j + 1, cmd_pool_base = cmd_pool_base + 3 + out.item_c[as(index, j)], cmd_aux_base = cmd_aux_base + 3, cmd_expr_base = cmd_expr_base)
-        end
-        jump cmd_funcs(j = j + 1, cmd_pool_base = cmd_pool_base, cmd_aux_base = cmd_aux_base, cmd_expr_base = cmd_expr_base)
-    end
-    block done()
-        mw_cmd0(w, @{CMD_FINALIZE_MODULE})
-        yield mw_finish(w)
-    end
+        mw_write_u32(w, tag)
+        if nslots >= 1 then mw_write_u32(w, cmds[base + as(index, 1)]) end
+        if nslots >= 2 then mw_write_u32(w, cmds[base + as(index, 2)]) end
+        if nslots >= 3 then mw_write_u32(w, cmds[base + as(index, 3)]) end
+        if nslots >= 4 then mw_write_u32(w, cmds[base + as(index, 4)]) end
+        if nslots >= 5 then mw_write_u32(w, cmds[base + as(index, 5)]) end
+        if nslots >= 6 then mw_write_u32(w, cmds[base + as(index, 6)]) end
+        if nslots >= 7 then mw_write_u32(w, cmds[base + as(index, 7)]) end
+        if nslots >= 8 then mw_write_u32(w, cmds[base + as(index, 8)]) end
+        if nslots >= 9 then mw_write_u32(w, cmds[base + as(index, 9)]) end
+        if nslots >= 10 then mw_write_u32(w, cmds[base + as(index, 10)]) end
+        if nslots >= 11 then mw_write_u32(w, cmds[base + as(index, 11)]) end
+        if nslots >= 12 then mw_write_u32(w, cmds[base + as(index, 12)]) end
+        if nslots >= 13 then mw_write_u32(w, cmds[base + as(index, 13)]) end
+        if nslots >= 14 then mw_write_u32(w, cmds[base + as(index, 14)]) end
+        if nslots >= 15 then mw_write_u32(w, cmds[base + as(index, 15)]) end
+        if nslots >= 16 then mw_write_u32(w, cmds[base + as(index, 16)]) end
+        if nslots >= 17 then mw_write_u32(w, cmds[base + as(index, 17)]) end
+        jump cmds_loop(i = i + 1)
     end
 end
 
@@ -469,23 +277,15 @@ M:add_func(mw_patch_u32)
 M:add_func(mw_align4)
 M:add_func(mw_init)
 M:add_func(mw_finish)
+M:add_func(mw_write_pool_string)
 M:add_func(mw_write_pool_slice)
 M:add_func(mw_write_pool_generated)
 M:add_func(mw_begin_aux)
-M:add_func(mw_cmd0)
-M:add_func(mw_cmd1)
-M:add_func(mw_cmd3)
-M:add_func(mw_cmd5)
-M:add_func(mw_cmd6)
-M:add_func(mw_cmd7)
-M:add_func(mom_wire_scalar_from_native)
-M:add_func(mom_type_is_void)
-M:add_func(mom_parse_i32_lit)
-M:add_func(mom_token_equal)
-M:add_func(mom_param_pool_lookup)
-M:add_func(mom_lower_expr_to_wire)
-M:add_func(mom_write_function_aux)
-M:add_func(mom_lower_function_commands)
-M:add_func(mom_lower_native_core_to_wire)
+M:add_func(mw_write_aux_i32s)
+M:add_func(mom_wire_slot_count)
+M:add_func(mom_cmd_tape_set)
+M:add_func(mom_cmd_tape_clear)
+M:add_func(mom_cmd_tape_push)
+M:add_func(mom_lower_cmd_tape_to_wire)
 
 return M

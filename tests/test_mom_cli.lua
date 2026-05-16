@@ -21,7 +21,11 @@ local function capture(cmd)
     return ok, code, out
 end
 
-local ok, _, out = capture("./target/release/mom --call add --arg-i32 20 --arg-i32 22 " .. src_path)
+local ok, _, out = capture("./target/release/mom status")
+assert(ok, out)
+assert(out:match("tree_to_back"), out)
+
+ok, _, out = capture("./target/release/mom --call add --arg-i32 20 --arg-i32 22 " .. src_path)
 assert(ok, out)
 assert(out:match("42"), out)
 

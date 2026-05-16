@@ -117,7 +117,7 @@ local backend_mod = compile_mod("lua/moonlift/mom/driver/backend_ffi.mlua")
 
 local mom_lex = lexer_mod:get("mom_lex_into")
 local mom_parse = parser_mod:get("mom_parse_native_core")
-local mom_lower = lower_mod:get("mom_lower_native_core_to_wire")
+local mom_lower = lower_mod:get("mom_lower_cmd_tape_to_wire")
 local mom_compile = backend_mod:get("mom_backend_compile_binary")
 local mom_free = backend_mod:get("mom_backend_free_artifact")
 

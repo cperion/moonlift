@@ -15,14 +15,14 @@ local i32p = moon.ptr(moon.i32)
 local i32pp = moon.ptr(i32p)
 
 -- Cmd variant tags (from MoonBack schema).
-local CMD_CONST = 20
-local CMD_UNARY = 21
-local CMD_COMPARE = 23
-local CMD_CAST = 24
-local CMD_INT_BINARY = 33
-local CMD_BIT_BINARY = 34
-local CMD_SHIFT = 36
-local CMD_FLOAT_BINARY = 38
+local CMD_CONST = 21
+local CMD_UNARY = 22
+local CMD_COMPARE = 24
+local CMD_CAST = 25
+local CMD_INT_BINARY = 34
+local CMD_BIT_BINARY = 35
+local CMD_SHIFT = 37
+local CMD_FLOAT_BINARY = 39
 local CMD_SELECT = 42
 
 -- Token kind constants (must match native_lexer.mlua).
@@ -53,11 +53,11 @@ local TK_ASHR = 39
 local TK_NOT = 145
 
 -- BackScalar tags.
-local B_BOOL = 2
-local B_I32 = 5
-local B_I64 = 6
-local B_F64 = 12
-local B_PTR = 13
+local B_BOOL = 1
+local B_I32 = 4
+local B_I64 = 5
+local B_F64 = 11
+local B_PTR = 12
 
 -- Core op tags.
 local U_NEG = 1

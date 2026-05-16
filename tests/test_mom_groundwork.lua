@@ -300,7 +300,7 @@ local CmdEntry_t = ffi.typeof("CmdEntry")
 -- sem_packed: BackIntWrap=1, BackIntMayLose=1 → (1<<16)|1 = 65537
 local e = CmdEntry_t()
 lower_binary(1, 5, 10, 20, 30, 65537, e)
-assert(e.tag == 33, "binary add i32 tag: " .. tonumber(e.tag))
+assert(e.tag == 34, "binary add i32 tag: " .. tonumber(e.tag))
 assert(e.a == 10 and e.b == 1 and e.c == 5, "binary add i32 fields")
 assert(e.d == 65537 and e.e == 20 and e.f == 30, "binary add i32 sem/lhs/rhs")
 
@@ -308,38 +308,38 @@ assert(e.d == 65537 and e.e == 20 and e.f == 30, "binary add i32 sem/lhs/rhs")
 -- Float sem = BackFloatStrict = 1
 e = CmdEntry_t()
 lower_binary(1, 11, 11, 21, 31, 1, e)
-assert(e.tag == 38, "binary add f32 tag: " .. tonumber(e.tag))
+assert(e.tag == 39, "binary add f32 tag: " .. tonumber(e.tag))
 assert(e.a == 11 and e.b == 1 and e.c == 11, "binary add f32 fields")
 assert(e.e == 21 and e.f == 31, "binary add f32 lhs/rhs")
 
 -- BIN_BIT_AND=6 → CmdBitBinary(CMD_BIT_BINARY=34, dst=12, BACK_BIT_AND=1, scalar=5, lhs=22, rhs=32)
 e = CmdEntry_t()
 lower_binary(6, 5, 12, 22, 32, 0, e)
-assert(e.tag == 34, "binary bit and tag: " .. tonumber(e.tag))
+assert(e.tag == 35, "binary bit and tag: " .. tonumber(e.tag))
 assert(e.a == 12 and e.b == 1 and e.c == 5 and e.d == 22 and e.e == 32, "binary bit and fields")
 
 -- BIN_SHL=9 → CmdShift(CMD_SHIFT=36, dst=13, BACK_SHIFT_LEFT=1, scalar=5, lhs=23, rhs=33)
 e = CmdEntry_t()
 lower_binary(9, 5, 13, 23, 33, 0, e)
-assert(e.tag == 36, "binary shl tag: " .. tonumber(e.tag))
+assert(e.tag == 37, "binary shl tag: " .. tonumber(e.tag))
 assert(e.a == 13 and e.b == 1 and e.c == 5 and e.d == 23 and e.e == 33, "binary shl fields")
 
 -- Invalid binary op → CmdTrap(CMD_TRAP=57)
 e = CmdEntry_t()
 lower_binary(99, 5, 0, 0, 0, 0, e)
-assert(e.tag == 57, "binary invalid trap: " .. tonumber(e.tag))
+assert(e.tag == 59, "binary invalid trap: " .. tonumber(e.tag))
 
 -- Test lower_unary_cmd:
 -- U_NEG=1, I32=5 → CmdUnary(21, dst=10, BACK_UNARY_INEG=1, shape_tag=1, scalar=5, value=20)
 e = CmdEntry_t()
 lower_unary(1, 5, 10, 20, 1, e)
-assert(e.tag == 21, "unary neg i32 tag: " .. tonumber(e.tag))
+assert(e.tag == 22, "unary neg i32 tag: " .. tonumber(e.tag))
 assert(e.a == 10 and e.b == 1 and e.c == 1 and e.d == 5 and e.e == 20, "unary neg i32 fields")
 
 -- U_NEG=1, F32=11 → CmdUnary(21, dst=11, BACK_UNARY_FNEG=2)
 e = CmdEntry_t()
 lower_unary(1, 11, 11, 21, 1, e)
-assert(e.tag == 21, "unary neg f32 tag: " .. tonumber(e.tag))
+assert(e.tag == 22, "unary neg f32 tag: " .. tonumber(e.tag))
 assert(e.b == 2, "unary neg f32 op: " .. tonumber(e.b))
 
 -- U_NOT=2 → BACK_UNARY_BOOL_NOT=4
@@ -356,7 +356,7 @@ assert(e.b == 3, "unary bitnot op: " .. tonumber(e.b))
 -- CMP_EQ=1, I32=5 → CmdCompare(23, dst=10, BACK_ICMP_EQ=1, shape_tag=1, scalar=5, lhs=20, rhs=30)
 e = CmdEntry_t()
 lower_compare(1, 5, 10, 20, 30, 1, e)
-assert(e.tag == 23, "compare eq i32 tag: " .. tonumber(e.tag))
+assert(e.tag == 24, "compare eq i32 tag: " .. tonumber(e.tag))
 assert(e.a == 10 and e.b == 1 and e.c == 1 and e.d == 5 and e.e == 20 and e.f == 30, "compare eq i32 fields")
 
 -- CMP_EQ=1, F32=11 → BACK_FCMP_EQ=11
@@ -383,7 +383,7 @@ assert(e.b == 13, "compare lt f32 op: " .. tonumber(e.b))
 -- MC_BITCAST=2 → CmdCast(CMD_CAST=24, dst=10, BACK_BITCAST=1, scalar=5, value=20)
 e = CmdEntry_t()
 lower_cast(2, 5, 10, 20, e)
-assert(e.tag == 24, "cast bitcast tag: " .. tonumber(e.tag))
+assert(e.tag == 25, "cast bitcast tag: " .. tonumber(e.tag))
 assert(e.a == 10 and e.b == 1 and e.c == 5 and e.d == 20, "cast bitcast fields")
 
 -- MC_SEXTEND=4 → BACK_SEXTEND=3
@@ -404,7 +404,7 @@ assert(e.b == 7, "cast stof op: " .. tonumber(e.b))
 -- MC_IDENTITY=1 → CmdTrap (no backend op)
 e = CmdEntry_t()
 lower_cast(1, 5, 10, 20, e)
-assert(e.tag == 57, "cast identity trap: " .. tonumber(e.tag))
+assert(e.tag == 59, "cast identity trap: " .. tonumber(e.tag))
 
 cmd_mod.artifact:free()
 
@@ -428,18 +428,18 @@ local val = lower_lit(2, st, cmds)
 assert(val == 1, "lit val: " .. tonumber(val))
 assert(st[0] == 1, "cmd count after lit: " .. tonumber(st[0]))
 assert(st[1] == 1, "next val after lit: " .. tonumber(st[1]))
-assert(cmds[0] == 20, "cmd tag: " .. tonumber(cmds[0]))  -- CMD_CONST
+assert(cmds[0] == 21, "cmd tag: " .. tonumber(cmds[0]))  -- CMD_CONST
 assert(cmds[1] == 1, "cmd dst: " .. tonumber(cmds[1]))   -- val=1
-assert(cmds[2] == 5, "cmd scalar: " .. tonumber(cmds[2])) -- B_I32
+assert(cmds[2] == 4, "cmd scalar: " .. tonumber(cmds[2])) -- B_I32
 
--- Test lower_lit with bool: TK_TRUE=140 → scalar=B_BOOL=2
+-- Test lower_lit with bool: TK_TRUE=140 → scalar=B_BOOL=1
 local st2 = ffi.new("int32_t[3]", 1, 1, cap)
 local cmds2 = ffi.new("int32_t[?]", cap * 7)
 cmds2[0] = -1  -- sentinel
 lower_lit(140, st2, cmds2)
 -- new entry at index 1 (offset 7)
-assert(cmds2[7] == 20, "bool cmd tag")
-assert(cmds2[9] == 2, "bool scalar: " .. tonumber(cmds2[9]))
+assert(cmds2[7] == 21, "bool cmd tag")
+assert(cmds2[9] == 1, "bool scalar: " .. tonumber(cmds2[9]))
 
 -- Test lower_binary_expr: TK_PLUS=20, scalar=B_I32=5, left=2, right=3
 -- Should emit CmdIntBinary(33, dst=2, BACK_INT_ADD=1, scalar=5, sem=65537, lhs=2, rhs=3)
@@ -447,7 +447,7 @@ local st3 = ffi.new("int32_t[3]", 0, 1, cap)
 local cmds3 = ffi.new("int32_t[?]", cap * 7)
 local r = lower_binary(20, 5, 2, 3, st3, cmds3)
 assert(r == 2, "binary result val: " .. tonumber(r))
-assert(cmds3[0] == 33, "binary tag: " .. tonumber(cmds3[0]))  -- CMD_INT_BINARY
+assert(cmds3[0] == 34, "binary tag: " .. tonumber(cmds3[0]))  -- CMD_INT_BINARY
 assert(cmds3[1] == 2, "binary dst: " .. tonumber(cmds3[1]))
 assert(cmds3[2] == 1, "binary op: " .. tonumber(cmds3[2]))    -- BACK_INT_ADD
 assert(cmds3[3] == 5, "binary scalar: " .. tonumber(cmds3[3]))
@@ -461,7 +461,7 @@ local st4 = ffi.new("int32_t[3]", 0, 2, cap)
 local cmds4 = ffi.new("int32_t[?]", cap * 7)
 r = lower_compare(27, 5, 4, 5, st4, cmds4)
 assert(r == 3, "compare result val: " .. tonumber(r))
-assert(cmds4[0] == 23, "compare tag: " .. tonumber(cmds4[0]))
+assert(cmds4[0] == 24, "compare tag: " .. tonumber(cmds4[0]))
 assert(cmds4[1] == 3, "compare dst: " .. tonumber(cmds4[1]))
 assert(cmds4[2] == 1, "compare op: " .. tonumber(cmds4[2]))   -- BACK_ICMP_EQ
 assert(cmds4[3] == 1, "compare shape: " .. tonumber(cmds4[3]))
@@ -473,7 +473,7 @@ local st5 = ffi.new("int32_t[3]", 0, 3, cap)
 local cmds5 = ffi.new("int32_t[?]", cap * 7)
 r = lower_unary(21, 5, 6, st5, cmds5)
 assert(r == 4, "unary result val: " .. tonumber(r))
-assert(cmds5[0] == 21, "unary tag: " .. tonumber(cmds5[0]))
+assert(cmds5[0] == 22, "unary tag: " .. tonumber(cmds5[0]))
 assert(cmds5[1] == 4, "unary dst: " .. tonumber(cmds5[1]))
 assert(cmds5[2] == 1, "unary op: " .. tonumber(cmds5[2]))    -- BACK_UNARY_INEG
 assert(cmds5[3] == 1, "unary shape: " .. tonumber(cmds5[3]))
@@ -505,7 +505,7 @@ local st_rv = ffi.new("int32_t[3]", 0, 0, cap)
 local cmds_rv = ffi.new("int32_t[?]", cap * 7)
 lower_return_void(st_rv, cmds_rv)
 assert(st_rv[0] == 1, "return void cmd count: " .. tonumber(st_rv[0]))
-assert(cmds_rv[0] == 55, "return void tag: " .. tonumber(cmds_rv[0]))
+assert(cmds_rv[0] == 57, "return void tag: " .. tonumber(cmds_rv[0]))
 
 -- Test ST_RETURN_VALUE with a literal expr
 -- Create an expr tape with EX_LIT(1), tok_kind=TK_INT(2)
@@ -518,17 +518,17 @@ local st_rv2 = ffi.new("int32_t[3]", 0, 0, cap)
 local cmds_rv2 = ffi.new("int32_t[?]", cap * 7)
 lower_return_value(etag, ea, eb, ec, ed, 0, st_rv2, cmds_rv2)
 assert(st_rv2[0] >= 2, "return value cmd count: " .. tonumber(st_rv2[0]))
--- First cmd should be CMD_CONST(20) for the literal
-assert(cmds_rv2[0] == 20, "return value const tag: " .. tonumber(cmds_rv2[0]))
--- Last cmd should be CMD_RETURN_VALUE(56)
-assert(cmds_rv2[7] == 56, "return value cmd tag: " .. tonumber(cmds_rv2[7]))
+-- First cmd should be CMD_CONST(21) for the literal
+assert(cmds_rv2[0] == 21, "return value const tag: " .. tonumber(cmds_rv2[0]))
+-- Last cmd should be CMD_RETURN_VALUE(58)
+assert(cmds_rv2[7] == 58, "return value cmd tag: " .. tonumber(cmds_rv2[7]))
 
 -- Test ST_EXPR with a literal expr
 local st_ex = ffi.new("int32_t[3]", 0, 0, cap)
 local cmds_ex = ffi.new("int32_t[?]", cap * 7)
 lower_expr_stmt(etag, ea, eb, ec, ed, 0, st_ex, cmds_ex)
 assert(st_ex[0] == 1, "expr stmt cmd count: " .. tonumber(st_ex[0]))
-assert(cmds_ex[0] == 20, "expr stmt const tag: " .. tonumber(cmds_ex[0]))
+assert(cmds_ex[0] == 21, "expr stmt const tag: " .. tonumber(cmds_ex[0]))
 
 -- Test lower_if_stmt: if with else
 -- Build: 
@@ -557,23 +557,23 @@ lower_if(0, 0, 1, 1, 1, e_tag, e_a, e_b, e_c, e_d, s_tag, s_tok, s_a, s_b, s_c, 
 -- First cmd is the condition literal, after that block cmds follow.
 -- Condition: CMD_CONST(20, val=11, B_I32=5, TK_INT=2)
 local ci = 1  -- skip condition const
-assert(cmds_rv[ci*7+0] == 12, "if create then: " .. tonumber(cmds_rv[ci*7+0])); ci = ci + 1
-assert(cmds_rv[ci*7+0] == 12, "if create else: " .. tonumber(cmds_rv[ci*7+0])); ci = ci + 1
-assert(cmds_rv[ci*7+0] == 12, "if create join: " .. tonumber(cmds_rv[ci*7+0])); ci = ci + 1
-assert(cmds_rv[ci*7+0] == 53, "if br_if: " .. tonumber(cmds_rv[ci*7+0])); ci = ci + 1
-assert(cmds_rv[ci*7+0] == 13, "if switch then: " .. tonumber(cmds_rv[ci*7+0])); ci = ci + 1
+assert(cmds_rv[ci*7+0] == 13, "if create then: " .. tonumber(cmds_rv[ci*7+0])); ci = ci + 1
+assert(cmds_rv[ci*7+0] == 13, "if create else: " .. tonumber(cmds_rv[ci*7+0])); ci = ci + 1
+assert(cmds_rv[ci*7+0] == 13, "if create join: " .. tonumber(cmds_rv[ci*7+0])); ci = ci + 1
+assert(cmds_rv[ci*7+0] == 55, "if br_if: " .. tonumber(cmds_rv[ci*7+0])); ci = ci + 1
+assert(cmds_rv[ci*7+0] == 14, "if switch then: " .. tonumber(cmds_rv[ci*7+0])); ci = ci + 1
 -- then-body: CMD_RETURN_VOID
-assert(cmds_rv[ci*7+0] == 55, "if then return void: " .. tonumber(cmds_rv[ci*7+0])); ci = ci + 1
+assert(cmds_rv[ci*7+0] == 57, "if then return void: " .. tonumber(cmds_rv[ci*7+0])); ci = ci + 1
 -- jump to join
-assert(cmds_rv[ci*7+0] == 52, "if then->join: " .. tonumber(cmds_rv[ci*7+0])); ci = ci + 1
+assert(cmds_rv[ci*7+0] == 54, "if then->join: " .. tonumber(cmds_rv[ci*7+0])); ci = ci + 1
 -- switch to else
-assert(cmds_rv[ci*7+0] == 13, "if switch else: " .. tonumber(cmds_rv[ci*7+0])); ci = ci + 1
+assert(cmds_rv[ci*7+0] == 14, "if switch else: " .. tonumber(cmds_rv[ci*7+0])); ci = ci + 1
 -- else-body: CMD_RETURN_VOID
-assert(cmds_rv[ci*7+0] == 55, "if else return void: " .. tonumber(cmds_rv[ci*7+0])); ci = ci + 1
+assert(cmds_rv[ci*7+0] == 57, "if else return void: " .. tonumber(cmds_rv[ci*7+0])); ci = ci + 1
 -- jump to join
-assert(cmds_rv[ci*7+0] == 52, "if else->join: " .. tonumber(cmds_rv[ci*7+0])); ci = ci + 1
+assert(cmds_rv[ci*7+0] == 54, "if else->join: " .. tonumber(cmds_rv[ci*7+0])); ci = ci + 1
 -- switch to join
-assert(cmds_rv[ci*7+0] == 13, "if switch join: " .. tonumber(cmds_rv[ci*7+0])); ci = ci + 1
+assert(cmds_rv[ci*7+0] == 14, "if switch join: " .. tonumber(cmds_rv[ci*7+0])); ci = ci + 1
 
 -- Test lower_if_stmt: if with NO else
 local st_if2 = ffi.new("int32_t[4]", 0, 10, cap, 100)
@@ -582,19 +582,19 @@ local slist2 = ffi.new("int32_t[1]", 0)
 lower_if(0, 0, 1, -1, 0, e_tag, e_a, e_b, e_c, e_d, s_tag, s_tok, s_a, s_b, s_c, s_d, s_e, slist2, st_if2, cmds_if2)
 -- Skip condition (CMD_CONST), then: 3x create, 1x br_if, switch then, return void, jump join, switch else, jump join, switch join
 local ci2 = 1  -- skip condition const
-assert(cmds_if2[ci2*7+0] == 12, "if2 create then"); ci2 = ci2 + 1
-assert(cmds_if2[ci2*7+0] == 12, "if2 create else"); ci2 = ci2 + 1
-assert(cmds_if2[ci2*7+0] == 12, "if2 create join"); ci2 = ci2 + 1
-assert(cmds_if2[ci2*7+0] == 53, "if2 br_if"); ci2 = ci2 + 1
-assert(cmds_if2[ci2*7+0] == 13, "if2 switch then"); ci2 = ci2 + 1
-assert(cmds_if2[ci2*7+0] == 55, "if2 then return void"); ci2 = ci2 + 1
-assert(cmds_if2[ci2*7+0] == 52, "if2 then->join"); ci2 = ci2 + 1
+assert(cmds_if2[ci2*7+0] == 13, "if2 create then"); ci2 = ci2 + 1
+assert(cmds_if2[ci2*7+0] == 13, "if2 create else"); ci2 = ci2 + 1
+assert(cmds_if2[ci2*7+0] == 13, "if2 create join"); ci2 = ci2 + 1
+assert(cmds_if2[ci2*7+0] == 55, "if2 br_if"); ci2 = ci2 + 1
+assert(cmds_if2[ci2*7+0] == 14, "if2 switch then"); ci2 = ci2 + 1
+assert(cmds_if2[ci2*7+0] == 57, "if2 then return void"); ci2 = ci2 + 1
+assert(cmds_if2[ci2*7+0] == 54, "if2 then->join"); ci2 = ci2 + 1
 -- Else block switch always emitted (CFG completeness)
-assert(cmds_if2[ci2*7+0] == 13, "if2 switch else"); ci2 = ci2 + 1
+assert(cmds_if2[ci2*7+0] == 14, "if2 switch else"); ci2 = ci2 + 1
 -- No else body (else_start=-1), so jump to join immediately
-assert(cmds_if2[ci2*7+0] == 52, "if2 else->join"); ci2 = ci2 + 1
+assert(cmds_if2[ci2*7+0] == 54, "if2 else->join"); ci2 = ci2 + 1
 -- Join block
-assert(cmds_if2[ci2*7+0] == 13, "if2 switch join"); ci2 = ci2 + 1
+assert(cmds_if2[ci2*7+0] == 14, "if2 switch join"); ci2 = ci2 + 1
 
 -- Total cmds for if-no-else: 1 cond + 3 create + 1 br_if + 1 then_switch + 1 then_body + 1 then_jump + 1 else_switch + 1 else_jump + 1 join_switch = 11
 -- Total cmds for if-with-else: 1 cond + 3 create + 1 br_if + 1 then_switch + 1 then_body + 1 then_jump + 1 else_switch + 1 else_body + 1 else_jump + 1 join_switch = 12
