@@ -76,6 +76,20 @@ fn build_luajit() -> PathBuf {
 }
 
 
+fn link_mom_precompiled() {
+    let mom_obj = PathBuf::from("target/libmom_precompiled.o");
+
+    if mom_obj.exists() {
+        let mom_obj_abs = std::fs::canonicalize(&mom_obj).unwrap_or_else(|_| mom_obj.clone());
+        println!("cargo:rustc-link-search=native=target/");
+        println!("cargo:rustc-link-arg-bin=mom=-Wl,--whole-archive");
+        println!("cargo:rustc-link-arg-bin=mom={}", mom_obj_abs.display());
+        println!("cargo:rustc-link-arg-bin=mom=-Wl,--no-whole-archive");
+    } else {
+        println!("cargo:warning=libmom_precompiled.o not found; generate it with: ./target/release/moonlift scripts/emit_mom_precompiled.mlua");
+    }
+}
+
 fn main() {
     println!("cargo::rerun-if-changed=lua/");
     println!("cargo::rerun-if-changed=.vendor/LuaJIT/src");
@@ -87,6 +101,19 @@ fn main() {
     let mut modules = Vec::new();
     collect(lua_dir, lua_dir, "lua", &mut modules);
     modules.sort_by(|a, b| a.0.cmp(&b.0));
+
+    // Also include MOM modules that need to be available via require() in scripts
+    let mom_modules_to_embed = vec![
+        ("moonlift.mom.init", "lua/moonlift/mom/init.lua"),
+        ("moonlift.mom.back.back_tags", "lua/moonlift/mom/back/back_tags.lua"),
+    ];
+    for (name, path) in mom_modules_to_embed {
+        if !modules.iter().any(|(n, _)| n == name) {
+            if Path::new(path).exists() {
+                modules.push((name.to_string(), path.to_string()));
+            }
+        }
+    }
 
     let mut mlua_sources = Vec::new();
     collect_paths(Path::new("lua/moonlift/mom"), "mlua", &mut mlua_sources);
@@ -113,4 +140,6 @@ fn main() {
     code.push_str("}\n");
 
     std::fs::write("src/embedded_lua.rs", &code).unwrap();
+
+    link_mom_precompiled();
 }

@@ -1,0 +1,18 @@
+-- TEMPORARY: This script is a placeholder to indicate the compilation path.
+--
+-- To generate the precompiled MOM object file:
+-- 1. Build the mom binary: cargo build --release --bin mom
+-- 2. The mom binary will have all MOM modules compiled internally
+-- 3. Extract or recompile as needed
+--
+-- For now, the build system can proceed without the precompiled .o file.
+-- The mom binary embeds the .mlua sources and compiles them at runtime.
+
+print("✓ This is the emit_mom_precompiled.mlua script")
+print("  Currently, the build system supports two approaches:")
+print("  1. Linking a precompiled libmom_precompiled.o if it exists")
+print("  2. Embedding .mlua sources for runtime compilation in mom_main.rs")
+print("")
+print("  To generate a precompiled object file in the future:")
+print("  - Use the moonlift binary with the --native flag")
+print("  - Or use the Mom.compile() API directly from Rust")
