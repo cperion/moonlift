@@ -2,9 +2,10 @@
 
 **Last Updated: 2026-05-16 24:XX UTC**
 
-**Phase 3 Session Complete (2026-05-16)**
-- ✅ Phase 2 COMPLETE: All 32 modules converted to function(M) pattern
+**Phase 4 Rust integration checkpoint (2026-05-16)**
+- ✅ Phase 2 COMPLETE: modules now use assignment-style `M.name = decl`, `M.export.name = decl`, `M.extern.name = decl`
 - ✅ Phase 3 COMPLETE: All core driver/runtime infrastructure implemented
+- ✅ Phase 4 PARTIAL: `mom` is now a product binary that links and calls `target/libmom_precompiled.o`; it no longer embeds hosted compiler Lua
   - runtime/diag.mlua: Complete with MomDiag struct and diagnostic builders
   - driver/compile_source.mlua: Skeleton orchestrator with main entry point
   - driver/native_entry.mlua: C ABI exports fully implemented
@@ -14,11 +15,14 @@
 - Build verification: Successful, no regressions, all modules compile standalone
 - Git status: 3 commits (2b47d7a, eccad80, 7b70f76)
 
-**🔴 BLOCKER IDENTIFIED: Moonlift Module Assembly Bug**
-- Issue: "attempt to call method 'as_item' (a nil value)" in moonlift.host_module_values
-- Impact: Cannot generate target/libmom_precompiled.o
-- Scope: Pre-existing bug, not caused by Phase 3 modules (verified with previous manifest)
-- Status: Requires Moonlift compiler fix or workaround
+**✅ BLOCKER RESOLVED: Unified MOM assembly now emits object**
+- Fixed assembly registration for regular Moonlift `struct ... end` TypeValue declarations.
+- Switched MOM assembly to assignment-style declarations: `M.Name = struct ... end`, `M.fn = func ... end`, `M.export.fn = ...`, `M.extern.fn = ...`.
+- Removed duplicate registered product definitions; the assembler now treats duplicate declarations as hard errors.
+- Product manifest keeps one typecheck implementation (`type_check.mlua`) until split modules fully replace it.
+- `target/libmom_precompiled.o` now generates successfully and exports `mom_compile_source_to_wire`, `mom_compile_source_to_object`, `mom_compile_source_to_artifact`, `mom_luaopen_moonlift`, and `mom_hello`.
+- `src/mom_main.rs` was rewritten as a native product CLI with no embedded hosted Lua.
+- `make test-mom` now builds `moonlift -> libmoonlift.so -> libmom_precompiled.o -> mom` and passes the status/symbol/no-hosted-embed checks.
 
 **Phase 3 Progress: 6 of 6 core tasks complete (100%)**
 - ✅ Task #34 (11): runtime/diag.mlua - diagnostic types and builders
@@ -226,54 +230,27 @@ The most efficient path forward is to:
 
 ## Known Blockers
 
-### 🔴 BLOCKER: Moonlift Module Assembly Infrastructure
-**Issue:** Module assembly fails when trying to add types to modules
-```
-Error: attempt to call method 'as_item' (a nil value)
-Location: moonlift.host_module_values:29
-Phase: When adding first type (MomDiag) to assembled module
-```
+No build blocker remains for producing and linking `target/libmom_precompiled.o`.
 
-**Analysis:**
-- NOT caused by Phase 3 modules (verified with previous commit)
-- Pre-existing issue in Moonlift compiler infrastructure
-- Prevents `make mom-obj` from running successfully
-- Blocks full product binary generation
-
-**Impact:**
-- Phase 3 modules cannot be assembled into single object file
-- Object file generation (make mom-obj) blocked
-- Rust integration (mom_main.rs) cannot complete
-- Full build cycle cannot succeed
-
-**Workarounds:**
-1. Fix Moonlift compiler (investigate host_module_values)
-2. Load modules individually instead of assembly
-3. Implement compilation in Rust directly
-4. Defer object generation, focus on Rust integration
-
-**Next Actions:**
-- Investigate moonlift.host_module_values:29 for nil reference
-- Test if modules load individually without assembly
-- Consider Rust-based compilation workaround
+Current implementation gap: the native source-to-wire/source-to-object/source-to-artifact functions are product ABI stubs. They are linked and callable from `mom`, but the full native semantic pipeline still has to replace the placeholder status returns.
 
 ## Verification Checklist for Completion
 
 - [x] All 32 modules converted to function(M) pattern
 - [x] Phase 3 core infrastructure modules created (diag, compile_source, native_entry, lua_api)
-- [ ] `make mom-obj` generates precompiled object (BLOCKED - infrastructure bug)
-- [ ] `cargo build --release` produces both moonlift and mom binaries
-- [ ] `mom status` reports precompiled native MOM
-- [ ] `nm -g target/release/mom | grep mom_compile_source_to_wire` shows symbol
-- [ ] `strings target/release/mom | grep moonlift.tree_typecheck` returns empty
-- [ ] All tests pass: `make test-mom`
+- [x] `make mom-obj` generates precompiled object
+- [x] `cargo build --release --bin moonlift` and `cargo build --release --bin mom` succeed when `MOM_OBJ_PATH` is set
+- [x] `mom status` reports precompiled native MOM
+- [x] `nm -g target/release/mom | grep mom_compile_source_to_wire` shows symbol
+- [x] `strings target/release/mom | grep moonlift.tree_typecheck` returns empty
+- [x] `make test-mom` passes
 - [ ] Final grep checks pass (see plan section 17)
 - [ ] No broken imports in product path
 
 ## Phase 3 Status
 
 **Objective:** Implement native driver layer for compilation pipeline
-**Status:** ✅ INFRASTRUCTURE COMPLETE (blocked on assembly)
+**Status:** ✅ INFRASTRUCTURE COMPLETE; native semantic pipeline implementation remains
 
 **Completed:**
 - ✅ Diagnostic infrastructure (MomDiag, MomDiagBuilder)
@@ -283,7 +260,6 @@ Phase: When adding first type (MomDiag) to assembled module
 - ✅ Build manifest updated with new modules
 - ✅ All modules compile successfully as standalone
 
-**Blocked:**
-- ❌ Module assembly (infrastructure bug in moonlift.host_module_values)
-- ❌ Object file generation (make mom-obj)
-- ❌ Rust integration (depends on object generation)
+**Remaining:**
+- Fill in `driver/compile_source.mlua` with the real native semantic pipeline instead of placeholder status returns.
+- Replace the placeholder artifact/object ABI with real handles/bytes once native source-to-wire is complete.

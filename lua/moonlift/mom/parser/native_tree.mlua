@@ -9,45 +9,24 @@
 return function(M)
 local i32p = moon.ptr(moon.i32)
 
-local NativeParseOut = M:type("NativeParseOut", struct NativeParseOut
-    state: i32p
-    type_tag: i32p; type_tok: i32p; type_a: i32p; type_b: i32p; type_c: i32p
-    expr_tag: i32p; expr_tok: i32p; expr_a: i32p; expr_b: i32p; expr_c: i32p; expr_d: i32p
-    stmt_tag: i32p; stmt_tok: i32p; stmt_a: i32p; stmt_b: i32p; stmt_c: i32p; stmt_d: i32p; stmt_e: i32p
-    item_tag: i32p; item_tok: i32p; item_a: i32p; item_b: i32p; item_c: i32p; item_d: i32p; item_e: i32p; item_f: i32p
-    param_name: i32p; param_type: i32p
-    field_name: i32p; field_type: i32p
-    jarg_name: i32p; jarg_expr: i32p
-    expr_list: i32p; stmt_list: i32p; type_list: i32p
-    issue_tag: i32p; issue_tok: i32p
-    switch_arm_key: i32p; switch_arm_body_start: i32p; switch_arm_body_count: i32p
-    ctrl_block_label: i32p; ctrl_block_param_start: i32p; ctrl_block_param_count: i32p; ctrl_block_body_start: i32p; ctrl_block_body_count: i32p
-    entry_param_name: i32p; entry_param_type: i32p; entry_param_init: i32p
-    cont_fill_name: i32p; cont_fill_label: i32p
-    cap_nodes: moon.index; cap_lists: moon.index
-end)
+local NativeParseOut = M.NativeParseOut
 
-local MomTreeOut = M:struct("MomTreeOut", {
-    moon.field("counts", i32p),
-    -- Type arena: tag + semantic fields.
-    moon.field("type_tag", i32p), moon.field("type_tok", i32p), moon.field("type_scalar", i32p), moon.field("type_name_tok", i32p), moon.field("type_elem", i32p), moon.field("type_list_start", i32p), moon.field("type_list_count", i32p), moon.field("type_result", i32p),
-    -- Param/field arenas.
-    moon.field("param_name", i32p), moon.field("param_type", i32p),
-    moon.field("field_name", i32p), moon.field("field_type", i32p),
-    -- Expr arena: tag + semantic fields. Children remain arena ids, matching MoonCyclic Expr child-id design.
-    moon.field("expr_tag", i32p), moon.field("expr_tok", i32p), moon.field("expr_op", i32p), moon.field("expr_lhs", i32p), moon.field("expr_rhs", i32p), moon.field("expr_aux0", i32p), moon.field("expr_aux1", i32p), moon.field("expr_aux2", i32p),
-    -- Stmt arena.
-    moon.field("stmt_tag", i32p), moon.field("stmt_tok", i32p), moon.field("stmt_name", i32p), moon.field("stmt_type", i32p), moon.field("stmt_value", i32p), moon.field("stmt_body_start", i32p), moon.field("stmt_body_count", i32p), moon.field("stmt_aux", i32p),
-    -- Item arena.
-    moon.field("item_tag", i32p), moon.field("item_tok", i32p), moon.field("item_name", i32p), moon.field("item_member_start", i32p), moon.field("item_member_count", i32p), moon.field("item_result", i32p), moon.field("item_body_start", i32p), moon.field("item_body_count", i32p),
-    -- Shared list arenas copied as semantic id lists.
-    moon.field("expr_list", i32p), moon.field("stmt_list", i32p), moon.field("type_list", i32p),
-    moon.field("jump_arg_name", i32p), moon.field("jump_arg_expr", i32p),
-    moon.field("switch_arm_key", i32p), moon.field("switch_arm_body_start", i32p), moon.field("switch_arm_body_count", i32p),
-    moon.field("ctrl_block_label", i32p), moon.field("ctrl_block_param_start", i32p), moon.field("ctrl_block_param_count", i32p), moon.field("ctrl_block_body_start", i32p), moon.field("ctrl_block_body_count", i32p),
-    moon.field("entry_param_name", i32p), moon.field("entry_param_type", i32p), moon.field("entry_param_init", i32p),
-    moon.field("cap_nodes", moon.index), moon.field("cap_lists", moon.index),
-})
+M.MomTreeOut = struct MomTreeOut
+    counts: ptr(i32)
+    type_tag: ptr(i32); type_tok: ptr(i32); type_scalar: ptr(i32); type_name_tok: ptr(i32); type_elem: ptr(i32); type_list_start: ptr(i32); type_list_count: ptr(i32); type_result: ptr(i32)
+    param_name: ptr(i32); param_type: ptr(i32)
+    field_name: ptr(i32); field_type: ptr(i32)
+    expr_tag: ptr(i32); expr_tok: ptr(i32); expr_op: ptr(i32); expr_lhs: ptr(i32); expr_rhs: ptr(i32); expr_aux0: ptr(i32); expr_aux1: ptr(i32); expr_aux2: ptr(i32)
+    stmt_tag: ptr(i32); stmt_tok: ptr(i32); stmt_name: ptr(i32); stmt_type: ptr(i32); stmt_value: ptr(i32); stmt_body_start: ptr(i32); stmt_body_count: ptr(i32); stmt_aux: ptr(i32)
+    item_tag: ptr(i32); item_tok: ptr(i32); item_name: ptr(i32); item_member_start: ptr(i32); item_member_count: ptr(i32); item_result: ptr(i32); item_body_start: ptr(i32); item_body_count: ptr(i32)
+    expr_list: ptr(i32); stmt_list: ptr(i32); type_list: ptr(i32)
+    jump_arg_name: ptr(i32); jump_arg_expr: ptr(i32)
+    switch_arm_key: ptr(i32); switch_arm_body_start: ptr(i32); switch_arm_body_count: ptr(i32)
+    ctrl_block_label: ptr(i32); ctrl_block_param_start: ptr(i32); ctrl_block_param_count: ptr(i32); ctrl_block_body_start: ptr(i32); ctrl_block_body_count: ptr(i32)
+    entry_param_name: ptr(i32); entry_param_type: ptr(i32); entry_param_init: ptr(i32)
+    cap_nodes: index; cap_lists: index
+end
+local MomTreeOut = M.MomTreeOut
 
 -- Parser tags from native_core.
 local TY_BAD = 0
@@ -343,11 +322,11 @@ local mom_materialize_tree = func(p: ptr(@{NativeParseOut}), t: ptr(@{MomTreeOut
     return nitems
 end
 
-M:local_func("mt_type_tag", mt_type_tag)
-M:local_func("mt_expr_tag", mt_expr_tag)
-M:local_func("mt_stmt_tag", mt_stmt_tag)
-M:local_func("mt_copy_i32", mt_copy_i32)
-M:local_func("mom_materialize_tree", mom_materialize_tree)
+M.mt_type_tag = mt_type_tag
+M.mt_expr_tag = mt_expr_tag
+M.mt_stmt_tag = mt_stmt_tag
+M.mt_copy_i32 = mt_copy_i32
+M.mom_materialize_tree = mom_materialize_tree
 
 return M
 end

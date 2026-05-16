@@ -17,7 +17,7 @@ use std::sync::{Arc, OnceLock};
 
 pub mod host_arena;
 pub mod lua_api;
-mod ffi;
+pub mod ffi;
 
 macro_rules! id_type {
     ($name:ident) => {

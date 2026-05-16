@@ -35,14 +35,11 @@ M.compiler_sources = {
     "lua/moonlift/mom/back/back_abi.mlua",
 
     -- Phase 2: type system
-    "lua/moonlift/mom/typecheck/type_scalar.mlua",
-    "lua/moonlift/mom/typecheck/type_env.mlua",
+    -- Keep one typecheck implementation in the product object.  The split
+    -- type_expr/type_stmt/type_place/type_module files remain focused test
+    -- fixtures until they replace the monolithic checker completely.
     "lua/moonlift/mom/typecheck/type_check.mlua",
-    "lua/moonlift/mom/typecheck/type_expr.mlua",
-    "lua/moonlift/mom/typecheck/type_stmt.mlua",
     "lua/moonlift/mom/typecheck/type_control.mlua",
-    "lua/moonlift/mom/typecheck/type_place.mlua",
-    "lua/moonlift/mom/typecheck/type_module.mlua",
 
     -- Phase 3: layout resolution
     "lua/moonlift/mom/layout/layout_env.mlua",

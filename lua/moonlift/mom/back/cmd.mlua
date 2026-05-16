@@ -14,26 +14,27 @@ local T = require("moonlift.mom.tags.mom_tags")
 return function(M)
 local i32p = moon.ptr(moon.i32)
 
-local CmdEntry = M:type("CmdEntry", struct CmdEntry
-    tag: moon.i32
-    w0: moon.i32
-    w1: moon.i32
-    w2: moon.i32
-    w3: moon.i32
-    w4: moon.i32
-    w5: moon.i32
-    w6: moon.i32
-    w7: moon.i32
-    w8: moon.i32
-    w9: moon.i32
-    w10: moon.i32
-    w11: moon.i32
-    w12: moon.i32
-    w13: moon.i32
-    w14: moon.i32
-    w15: moon.i32
-    w16: moon.i32
-end)
+M.CmdEntry = struct CmdEntry
+    tag: i32
+    w0: i32
+    w1: i32
+    w2: i32
+    w3: i32
+    w4: i32
+    w5: i32
+    w6: i32
+    w7: i32
+    w8: i32
+    w9: i32
+    w10: i32
+    w11: i32
+    w12: i32
+    w13: i32
+    w14: i32
+    w15: i32
+    w16: i32
+end
+local CmdEntry = M.CmdEntry
 
 -- Zero all fields and set tag to CMD_TRAP.
 local mb_cmd_clear = func(out: ptr(@{CmdEntry}))
@@ -51,19 +52,7 @@ local mb_cmd_trap = func(out: ptr(@{CmdEntry}))
     out.tag = @{T.CmdTrap}
 end
 
--- ── Helper predicates ──────────────────────────────────────────────
-
-local mb_is_float = func(s: i32) -> bool
-    return s == @{T.BackF32} or s == @{T.BackF64}
-end
-
-local mb_is_signed = func(s: i32) -> bool
-    return s == @{T.BackI8} or s == @{T.BackI16} or s == @{T.BackI32} or s == @{T.BackI64}
-end
-
-local mb_is_unsigned = func(s: i32) -> bool
-    return s == @{T.BackU8} or s == @{T.BackU16} or s == @{T.BackU32} or s == @{T.BackU64} or s == @{T.BackIndex}
-end
+-- Scalar predicates live in back/ops.mlua and are shared by backend modules.
 
 -- ── Structural commands ────────────────────────────────────────────
 
@@ -544,7 +533,7 @@ end
 -- overflow: 0=Wrap, 1=NoSignedWrap, 2=NoUnsignedWrap, 3=NoWrap.
 -- exact: 0=MayLose, 1=Exact.
 local mb_lower_binary = func(op: i32, scalar: i32, dst: i32, lhs: i32, rhs: i32, overflow: i32, exact: i32, out: ptr(@{CmdEntry}))
-    let is_float: bool = mb_is_float(scalar)
+    let is_float: bool = mb_is_float_scalar(scalar)
     switch op do
     case @{T.BinAdd} then
         if is_float then
@@ -594,7 +583,7 @@ end
 local mb_lower_unary_cmd = func(op: i32, scalar: i32, dst: i32, value: i32, shape_tag: i32, out: ptr(@{CmdEntry}))
     switch op do
     case @{T.UnaryNeg} then
-        let back_op: i32 = select(mb_is_float(scalar), @{T.BackUnaryFneg}, @{T.BackUnaryIneg})
+        let back_op: i32 = select(mb_is_float_scalar(scalar), @{T.BackUnaryFneg}, @{T.BackUnaryIneg})
         mb_cmd_unary(out, dst, back_op, shape_tag, scalar, 0, value)
     case @{T.UnaryNot} then
         mb_cmd_unary(out, dst, @{T.BackUnaryBoolNot}, shape_tag, scalar, 0, value)
@@ -607,7 +596,7 @@ end
 
 -- Lower a compare operation to CmdCompare.
 local mb_lower_compare = func(op: i32, scalar: i32, dst: i32, lhs: i32, rhs: i32, shape_tag: i32, out: ptr(@{CmdEntry}))
-    let is_float: bool = mb_is_float(scalar)
+    let is_float: bool = mb_is_float_scalar(scalar)
     let is_signed: bool = mb_is_signed(scalar)
     switch op do
     case @{T.CmpEq} then
@@ -652,75 +641,72 @@ end
 
 -- ── Exports ────────────────────────────────────────────────────────
 
-M:local_func("mb_cmd_clear", mb_cmd_clear)
-M:local_func("mb_cmd_trap", mb_cmd_trap)
-M:local_func("mb_is_float", mb_is_float)
-M:local_func("mb_is_signed", mb_is_signed)
-M:local_func("mb_is_unsigned", mb_is_unsigned)
-M:local_func("mb_cmd_create_sig", mb_cmd_create_sig)
-M:local_func("mb_cmd_declare_data", mb_cmd_declare_data)
-M:local_func("mb_cmd_data_init_zero", mb_cmd_data_init_zero)
-M:local_func("mb_cmd_data_init", mb_cmd_data_init)
-M:local_func("mb_cmd_data_addr", mb_cmd_data_addr)
-M:local_func("mb_cmd_func_addr", mb_cmd_func_addr)
-M:local_func("mb_cmd_extern_addr", mb_cmd_extern_addr)
-M:local_func("mb_cmd_declare_func", mb_cmd_declare_func)
-M:local_func("mb_cmd_declare_extern", mb_cmd_declare_extern)
-M:local_func("mb_cmd_begin_func", mb_cmd_begin_func)
-M:local_func("mb_cmd_create_block", mb_cmd_create_block)
-M:local_func("mb_cmd_switch_to_block", mb_cmd_switch_to_block)
-M:local_func("mb_cmd_seal_block", mb_cmd_seal_block)
-M:local_func("mb_cmd_bind_entry_params", mb_cmd_bind_entry_params)
-M:local_func("mb_cmd_append_block_param", mb_cmd_append_block_param)
-M:local_func("mb_cmd_create_stack_slot", mb_cmd_create_stack_slot)
-M:local_func("mb_cmd_alias", mb_cmd_alias)
-M:local_func("mb_cmd_alias_fact", mb_cmd_alias_fact)
-M:local_func("mb_cmd_stack_addr", mb_cmd_stack_addr)
-M:local_func("mb_cmd_const", mb_cmd_const)
-M:local_func("mb_cmd_intrinsic", mb_cmd_intrinsic)
-M:local_func("mb_cmd_ptr_offset", mb_cmd_ptr_offset)
-M:local_func("mb_cmd_int_binary", mb_cmd_int_binary)
-M:local_func("mb_cmd_float_binary", mb_cmd_float_binary)
-M:local_func("mb_cmd_bit_binary", mb_cmd_bit_binary)
-M:local_func("mb_cmd_bit_not", mb_cmd_bit_not)
-M:local_func("mb_cmd_shift", mb_cmd_shift)
-M:local_func("mb_cmd_rotate", mb_cmd_rotate)
-M:local_func("mb_cmd_unary", mb_cmd_unary)
-M:local_func("mb_cmd_compare", mb_cmd_compare)
-M:local_func("mb_cmd_cast", mb_cmd_cast)
-M:local_func("mb_cmd_load_info", mb_cmd_load_info)
-M:local_func("mb_cmd_store_info", mb_cmd_store_info)
-M:local_func("mb_cmd_memcpy", mb_cmd_memcpy)
-M:local_func("mb_cmd_memset", mb_cmd_memset)
-M:local_func("mb_cmd_select", mb_cmd_select)
-M:local_func("mb_cmd_fma", mb_cmd_fma)
-M:local_func("mb_cmd_atomic_load", mb_cmd_atomic_load)
-M:local_func("mb_cmd_atomic_store", mb_cmd_atomic_store)
-M:local_func("mb_cmd_atomic_rmw", mb_cmd_atomic_rmw)
-M:local_func("mb_cmd_atomic_cas", mb_cmd_atomic_cas)
-M:local_func("mb_cmd_atomic_fence", mb_cmd_atomic_fence)
-M:local_func("mb_cmd_vec_splat", mb_cmd_vec_splat)
-M:local_func("mb_cmd_vec_binary", mb_cmd_vec_binary)
-M:local_func("mb_cmd_vec_compare", mb_cmd_vec_compare)
-M:local_func("mb_cmd_vec_select", mb_cmd_vec_select)
-M:local_func("mb_cmd_vec_mask", mb_cmd_vec_mask)
-M:local_func("mb_cmd_vec_insert_lane", mb_cmd_vec_insert_lane)
-M:local_func("mb_cmd_vec_extract_lane", mb_cmd_vec_extract_lane)
-M:local_func("mb_cmd_vec_load_info", mb_cmd_vec_load_info)
-M:local_func("mb_cmd_vec_store_info", mb_cmd_vec_store_info)
-M:local_func("mb_cmd_call", mb_cmd_call)
-M:local_func("mb_cmd_jump", mb_cmd_jump)
-M:local_func("mb_cmd_br_if", mb_cmd_br_if)
-M:local_func("mb_cmd_switch_int", mb_cmd_switch_int)
-M:local_func("mb_cmd_return_void", mb_cmd_return_void)
-M:local_func("mb_cmd_return_value", mb_cmd_return_value)
-M:local_func("mb_cmd_finish_func", mb_cmd_finish_func)
-M:local_func("mb_cmd_finalize_module", mb_cmd_finalize_module)
-M:local_func("mb_cmd_target_model", mb_cmd_target_model)
-M:local_func("mb_lower_binary", mb_lower_binary)
-M:local_func("mb_lower_unary_cmd", mb_lower_unary_cmd)
-M:local_func("mb_lower_compare", mb_lower_compare)
-M:local_func("mb_lower_cast_cmd", mb_lower_cast_cmd)
+M.mb_cmd_clear = mb_cmd_clear
+M.mb_cmd_trap = mb_cmd_trap
+M.mb_cmd_create_sig = mb_cmd_create_sig
+M.mb_cmd_declare_data = mb_cmd_declare_data
+M.mb_cmd_data_init_zero = mb_cmd_data_init_zero
+M.mb_cmd_data_init = mb_cmd_data_init
+M.mb_cmd_data_addr = mb_cmd_data_addr
+M.mb_cmd_func_addr = mb_cmd_func_addr
+M.mb_cmd_extern_addr = mb_cmd_extern_addr
+M.mb_cmd_declare_func = mb_cmd_declare_func
+M.mb_cmd_declare_extern = mb_cmd_declare_extern
+M.mb_cmd_begin_func = mb_cmd_begin_func
+M.mb_cmd_create_block = mb_cmd_create_block
+M.mb_cmd_switch_to_block = mb_cmd_switch_to_block
+M.mb_cmd_seal_block = mb_cmd_seal_block
+M.mb_cmd_bind_entry_params = mb_cmd_bind_entry_params
+M.mb_cmd_append_block_param = mb_cmd_append_block_param
+M.mb_cmd_create_stack_slot = mb_cmd_create_stack_slot
+M.mb_cmd_alias = mb_cmd_alias
+M.mb_cmd_alias_fact = mb_cmd_alias_fact
+M.mb_cmd_stack_addr = mb_cmd_stack_addr
+M.mb_cmd_const = mb_cmd_const
+M.mb_cmd_intrinsic = mb_cmd_intrinsic
+M.mb_cmd_ptr_offset = mb_cmd_ptr_offset
+M.mb_cmd_int_binary = mb_cmd_int_binary
+M.mb_cmd_float_binary = mb_cmd_float_binary
+M.mb_cmd_bit_binary = mb_cmd_bit_binary
+M.mb_cmd_bit_not = mb_cmd_bit_not
+M.mb_cmd_shift = mb_cmd_shift
+M.mb_cmd_rotate = mb_cmd_rotate
+M.mb_cmd_unary = mb_cmd_unary
+M.mb_cmd_compare = mb_cmd_compare
+M.mb_cmd_cast = mb_cmd_cast
+M.mb_cmd_load_info = mb_cmd_load_info
+M.mb_cmd_store_info = mb_cmd_store_info
+M.mb_cmd_memcpy = mb_cmd_memcpy
+M.mb_cmd_memset = mb_cmd_memset
+M.mb_cmd_select = mb_cmd_select
+M.mb_cmd_fma = mb_cmd_fma
+M.mb_cmd_atomic_load = mb_cmd_atomic_load
+M.mb_cmd_atomic_store = mb_cmd_atomic_store
+M.mb_cmd_atomic_rmw = mb_cmd_atomic_rmw
+M.mb_cmd_atomic_cas = mb_cmd_atomic_cas
+M.mb_cmd_atomic_fence = mb_cmd_atomic_fence
+M.mb_cmd_vec_splat = mb_cmd_vec_splat
+M.mb_cmd_vec_binary = mb_cmd_vec_binary
+M.mb_cmd_vec_compare = mb_cmd_vec_compare
+M.mb_cmd_vec_select = mb_cmd_vec_select
+M.mb_cmd_vec_mask = mb_cmd_vec_mask
+M.mb_cmd_vec_insert_lane = mb_cmd_vec_insert_lane
+M.mb_cmd_vec_extract_lane = mb_cmd_vec_extract_lane
+M.mb_cmd_vec_load_info = mb_cmd_vec_load_info
+M.mb_cmd_vec_store_info = mb_cmd_vec_store_info
+M.mb_cmd_call = mb_cmd_call
+M.mb_cmd_jump = mb_cmd_jump
+M.mb_cmd_br_if = mb_cmd_br_if
+M.mb_cmd_switch_int = mb_cmd_switch_int
+M.mb_cmd_return_void = mb_cmd_return_void
+M.mb_cmd_return_value = mb_cmd_return_value
+M.mb_cmd_finish_func = mb_cmd_finish_func
+M.mb_cmd_finalize_module = mb_cmd_finalize_module
+M.mb_cmd_target_model = mb_cmd_target_model
+M.mb_lower_binary = mb_lower_binary
+M.mb_lower_unary_cmd = mb_lower_unary_cmd
+M.mb_lower_compare = mb_lower_compare
+M.mb_lower_cast_cmd = mb_lower_cast_cmd
 
 return M
 end

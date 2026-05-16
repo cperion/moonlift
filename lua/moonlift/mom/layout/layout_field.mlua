@@ -63,9 +63,9 @@ local mt_struct_field_offsets = func(field_type: ptr(i32), nfields: i32,
     end
 end
 
-M:local_func("mt_field_size", mt_field_size)
-M:local_func("mt_field_align", mt_field_align)
-M:local_func("mt_struct_field_offsets", mt_struct_field_offsets)
+M.mt_field_size = mt_field_size
+M.mt_field_align = mt_field_align
+M.mt_struct_field_offsets = mt_struct_field_offsets
 
 return M
 end

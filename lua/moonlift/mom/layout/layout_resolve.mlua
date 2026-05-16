@@ -28,7 +28,7 @@ local mt_resolve_field = func(type_idx: i32, field_name: i32,
     return -1
 end
 
-M:local_func("mt_resolve_field", mt_resolve_field)
+M.mt_resolve_field = mt_resolve_field
 
 return M
 end

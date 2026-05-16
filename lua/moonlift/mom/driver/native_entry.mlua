@@ -1,76 +1,42 @@
 -- MOM native entry points — C-callable symbols for the mom binary.
---
--- Each function in this module is compiled to native code and exported
--- with a predictable symbol name in the .o file. Rust mom_main.rs
--- calls them directly through extern "C" declarations.
---
--- Main pipeline:
---   mom_compile_source_to_wire - source bytes → MLBT v3 wire
---   mom_compile_source_to_object - source bytes → object format
---   mom_compile_source_to_artifact - source bytes → JIT artifact
---
--- Artifact management:
---   mom_artifact_getpointer - get function pointer from artifact
---   mom_artifact_free - release artifact resources
 
-local T = require("moonlift.mom.tags.mom_tags")
 return function(M)
 
--- Main compilation entry point: source → wire
--- Signature matches mom_driver_compile_source_to_wire
-M.mom_compile_source_to_wire = func(
-    src: ptr(u8),
-    src_len: index,
-    wire_out: ptr(u8),
-    wire_cap: index,
-    diags: ptr(M.MomDiag),
-    diag_cap: index
-) -> M.MomCompileResult
-    return M.mom_driver_compile_source_to_wire(src, src_len, wire_out, wire_cap, diags, diag_cap)
+local mom_compile_source_to_wire = func(src: ptr(u8), src_len: index, wire_out: ptr(u8), wire_cap: index) -> i32
+    return mom_driver_compile_source_to_wire(src, src_len, wire_out, wire_cap)
 end
 
--- Compilation entry point: source → object
-M.mom_compile_source_to_object = func(
-    src: ptr(u8),
-    src_len: index,
-    obj_out: ptr(u8),
-    obj_cap: index,
-    diags: ptr(M.MomDiag),
-    diag_cap: index
-) -> M.MomCompileResult
-    return M.mom_driver_compile_source_to_object(src, src_len, obj_out, obj_cap, diags, diag_cap)
+local mom_compile_source_to_object = func(src: ptr(u8), src_len: index, obj_out: ptr(u8), obj_cap: index) -> i32
+    return mom_driver_compile_source_to_object(src, src_len, obj_out, obj_cap)
 end
 
--- Compilation entry point: source → JIT artifact
-M.mom_compile_source_to_artifact = func(
-    src: ptr(u8),
-    src_len: index,
-    diags: ptr(M.MomDiag),
-    diag_cap: index
-) -> ptr(u8)
-    return M.mom_driver_compile_source_to_artifact(src, src_len, diags, diag_cap)
+local mom_compile_source_to_artifact = func(src: ptr(u8), src_len: index, diags: ptr(u8), diag_cap: index) -> i32
+    return mom_driver_compile_source_to_artifact(src, src_len, diags, diag_cap)
 end
 
--- Artifact helper: get function pointer
-M.mom_artifact_getpointer = func(artifact: ptr(u8), func_name: ptr(u8)) -> ptr(u8)
-    return M.mom_backend_getpointer(artifact, func_name)
+local mom_artifact_getpointer = func(artifact: ptr(u8), func_name: ptr(u8)) -> ptr(u8)
+    return mom_backend_getpointer(artifact, func_name)
 end
 
--- Artifact helper: free artifact
-M.mom_artifact_free = func(artifact: ptr(u8))
-    M.mom_backend_free_artifact(artifact)
+local mom_artifact_free = func(artifact: ptr(u8))
+    mom_backend_free_artifact(artifact)
 end
 
--- Lua module initialization (called from Rust to register moon API)
-M.mom_luaopen_moonlift = func(state: ptr(u8)) -> i32
-    -- TODO: Register Lua API functions into the provided state
-    return 0
+local mom_luaopen_moonlift = func(state: ptr(u8)) -> i32
+    return mom_luaopen_moonlift_impl(state)
 end
 
--- Marker function — proves the .o symbol is linked.
-M.mom_hello = func() -> i32
+local mom_hello = func() -> i32
     return 42
 end
+
+M.export.mom_compile_source_to_wire = mom_compile_source_to_wire
+M.export.mom_compile_source_to_object = mom_compile_source_to_object
+M.export.mom_compile_source_to_artifact = mom_compile_source_to_artifact
+M.export.mom_artifact_getpointer = mom_artifact_getpointer
+M.export.mom_artifact_free = mom_artifact_free
+M.export.mom_luaopen_moonlift = mom_luaopen_moonlift
+M.export.mom_hello = mom_hello
 
 return M
 end

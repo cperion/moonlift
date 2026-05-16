@@ -11,13 +11,14 @@ local i32p = moon.ptr(moon.i32)
 local MR_MAP_EMPTY = 0
 local MR_MAP_OCCUPIED = 1
 
-local MomI32Map = M:type("MomI32Map", struct MomI32Map
+M.MomI32Map = struct MomI32Map
     key: ptr(i32)
     value: ptr(i32)
     state: ptr(i32)
     len: index
     cap: index
-end)
+end
+local MomI32Map = M.MomI32Map
 
 local mr_i32_map_reset = func(m: ptr(@{MomI32Map}))
     block loop(i: index = 0)
@@ -92,15 +93,15 @@ local mr_i32_map_full = func(m: ptr(@{MomI32Map})) -> bool
     return m.len >= m.cap
 end
 
-M:local_func("mr_i32_map_reset", mr_i32_map_reset)
-M:local_func("mr_i32_map_hash", mr_i32_map_hash)
-M:local_func("mr_i32_map_probe_start", mr_i32_map_probe_start)
-M:local_func("mr_i32_map_find_slot", mr_i32_map_find_slot)
-M:local_func("mr_i32_map_find_insert_slot", mr_i32_map_find_insert_slot)
-M:local_func("mr_i32_map_put", mr_i32_map_put)
-M:local_func("mr_i32_map_get_or", mr_i32_map_get_or)
-M:local_func("mr_i32_map_contains", mr_i32_map_contains)
-M:local_func("mr_i32_map_full", mr_i32_map_full)
+M.mr_i32_map_reset = mr_i32_map_reset
+M.mr_i32_map_hash = mr_i32_map_hash
+M.mr_i32_map_probe_start = mr_i32_map_probe_start
+M.mr_i32_map_find_slot = mr_i32_map_find_slot
+M.mr_i32_map_find_insert_slot = mr_i32_map_find_insert_slot
+M.mr_i32_map_put = mr_i32_map_put
+M.mr_i32_map_get_or = mr_i32_map_get_or
+M.mr_i32_map_contains = mr_i32_map_contains
+M.mr_i32_map_full = mr_i32_map_full
 
 return M
 end

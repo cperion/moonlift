@@ -4,14 +4,15 @@ return function(M)
 local i32p = moon.ptr(moon.i32)
 local indexp = moon.ptr(moon.index)
 
-local TypeEnv = M:type("TypeEnv", struct TypeEnv
-    names: i32p
-    types: i32p
-    scope_starts: indexp
-    count: moon.index
-    scope_depth: moon.index
-    cap: moon.index
-end)
+M.TypeEnv = struct TypeEnv
+    names: ptr(i32)
+    types: ptr(i32)
+    scope_starts: ptr(index)
+    count: index
+    scope_depth: index
+    cap: index
+end
+local TypeEnv = M.TypeEnv
 
 local mt_env_push_scope = func(env: ptr(@{TypeEnv}))
     env.scope_starts[env.scope_depth] = env.count
@@ -23,7 +24,7 @@ local mt_env_pop_scope = func(env: ptr(@{TypeEnv}))
     env.count = env.scope_starts[env.scope_depth]
 end
 
-local mt_env_bind = func(env: ptr(@{TypeEnv}), name: i32, type_idx: i32) -> index
+local typeenv_mt_env_bind = func(env: ptr(@{TypeEnv}), name: i32, type_idx: i32) -> index
     let slot: index = env.count
     if slot < env.cap then
         env.names[slot] = name
@@ -33,7 +34,7 @@ local mt_env_bind = func(env: ptr(@{TypeEnv}), name: i32, type_idx: i32) -> inde
     return slot
 end
 
-local mt_env_lookup = func(env: ptr(@{TypeEnv}), name: i32) -> index
+local typeenv_mt_env_lookup = func(env: ptr(@{TypeEnv}), name: i32) -> index
     let count: index = env.count
     block loop(i0: index = count)
         if i0 == as(index, 0) then return as(index, -1) end
@@ -43,10 +44,10 @@ local mt_env_lookup = func(env: ptr(@{TypeEnv}), name: i32) -> index
     end
 end
 
-M:local_func("mt_env_push_scope", mt_env_push_scope)
-M:local_func("mt_env_pop_scope", mt_env_pop_scope)
-M:local_func("mt_env_bind", mt_env_bind)
-M:local_func("mt_env_lookup", mt_env_lookup)
+M.mt_env_push_scope = mt_env_push_scope
+M.mt_env_pop_scope = mt_env_pop_scope
+M.typeenv_mt_env_bind = typeenv_mt_env_bind
+M.typeenv_mt_env_lookup = typeenv_mt_env_lookup
 
 return M
 end

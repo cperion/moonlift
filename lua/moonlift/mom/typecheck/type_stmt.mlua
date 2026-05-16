@@ -35,7 +35,7 @@ local TI_EXPECTED = 3
 local TI_NOT_POINTER = 7
 local TI_UNRESOLVED_VALUE = 1
 
-local mt_push_issue = func(tag: i32, d0: i32, d1: i32,
+local typestmt_mt_push_issue = func(tag: i32, d0: i32, d1: i32,
                            tag_arr: ptr(i32), d0_arr: ptr(i32), d1_arr: ptr(i32),
                            cnt: ptr(i32), cap: index)
     let i: index = as(index, cnt[0])
@@ -45,7 +45,7 @@ local mt_push_issue = func(tag: i32, d0: i32, d1: i32,
     cnt[0] = cnt[0] + 1
 end
 
-local mt_env_bind = func(env_name: ptr(i32), env_type: ptr(i32), env_count: ptr(i32),
+local typestmt_mt_env_bind = func(env_name: ptr(i32), env_type: ptr(i32), env_count: ptr(i32),
                           name: i32, type_idx: i32, cap: index)
     let i: index = as(index, env_count[0])
     if i < cap then
@@ -54,7 +54,7 @@ local mt_env_bind = func(env_name: ptr(i32), env_type: ptr(i32), env_count: ptr(
     env_count[0] = env_count[0] + 1
 end
 
-local mt_type_stmt = func(si: i32,
+local typestmt_mt_type_stmt = func(si: i32,
                           type_tag: ptr(i32), type_scalar: ptr(i32), type_elem: ptr(i32),
                           expr_tag: ptr(i32), expr_tok: ptr(i32), expr_op: ptr(i32),
                           expr_lhs: ptr(i32), expr_rhs: ptr(i32), expr_aux0: ptr(i32),
@@ -76,12 +76,12 @@ local mt_type_stmt = func(si: i32,
         if decl_type >= 0 then
             let decl_s: i32 = type_scalar[as(index, decl_type)]
             if decl_s >= 0 and decl_s ~= init_s then
-                mt_push_issue(@{TI_EXPECTED}, decl_s, init_s, issue_tag, issue_d0, issue_d1, issue_cnt, cap)
+                typestmt_mt_push_issue(@{TI_EXPECTED}, decl_s, init_s, issue_tag, issue_d0, issue_d1, issue_cnt, cap)
             end
         end
         let name: i32 = stmt_name[i]
         if name >= 0 then
-            mt_env_bind(env_name, env_type, env_count, name, init_s, cap)
+            typestmt_mt_env_bind(env_name, env_type, env_count, name, init_s, cap)
         end
         out_flow[i] = @{FLOW_FALLS}
         return @{FLOW_FALLS}
@@ -145,9 +145,9 @@ local mt_type_stmt = func(si: i32,
     return @{FLOW_FALLS}
 end
 
-M:local_func("mt_push_issue", mt_push_issue)
-M:local_func("mt_env_bind", mt_env_bind)
-M:local_func("mt_type_stmt", mt_type_stmt)
+M.typestmt_mt_push_issue = typestmt_mt_push_issue
+M.typestmt_mt_env_bind = typestmt_mt_env_bind
+M.typestmt_mt_type_stmt = typestmt_mt_type_stmt
 
 return M
 end

@@ -80,9 +80,9 @@ local mv_lower_kernel = func(
     end
 end
 
-M:local_func("mv_push_cmd", mv_push_cmd)
-M:local_func("mv_lower_reduce", mv_lower_reduce)
-M:local_func("mv_lower_kernel", mv_lower_kernel)
+M.mv_push_cmd = mv_push_cmd
+M.mv_lower_reduce = mv_lower_reduce
+M.mv_lower_kernel = mv_lower_kernel
 
 return M
 end

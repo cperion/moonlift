@@ -168,23 +168,25 @@ local S_ENTRY_PARAMS = 14
 local S_CONT_FILLS = 15
 
 local i32p = moon.ptr(moon.i32)
-local NativeParseOut = M:struct("NativeParseOut", {
-    moon.field("state", i32p),
-    moon.field("type_tag", i32p), moon.field("type_tok", i32p), moon.field("type_a", i32p), moon.field("type_b", i32p), moon.field("type_c", i32p),
-    moon.field("expr_tag", i32p), moon.field("expr_tok", i32p), moon.field("expr_a", i32p), moon.field("expr_b", i32p), moon.field("expr_c", i32p), moon.field("expr_d", i32p),
-    moon.field("stmt_tag", i32p), moon.field("stmt_tok", i32p), moon.field("stmt_a", i32p), moon.field("stmt_b", i32p), moon.field("stmt_c", i32p), moon.field("stmt_d", i32p), moon.field("stmt_e", i32p),
-    moon.field("item_tag", i32p), moon.field("item_tok", i32p), moon.field("item_a", i32p), moon.field("item_b", i32p), moon.field("item_c", i32p), moon.field("item_d", i32p), moon.field("item_e", i32p), moon.field("item_f", i32p),
-    moon.field("param_name", i32p), moon.field("param_type", i32p),
-    moon.field("field_name", i32p), moon.field("field_type", i32p),
-    moon.field("jarg_name", i32p), moon.field("jarg_expr", i32p),
-    moon.field("expr_list", i32p), moon.field("stmt_list", i32p), moon.field("type_list", i32p),
-    moon.field("issue_tag", i32p), moon.field("issue_tok", i32p),
-    moon.field("switch_arm_key", i32p), moon.field("switch_arm_body_start", i32p), moon.field("switch_arm_body_count", i32p),
-    moon.field("ctrl_block_label", i32p), moon.field("ctrl_block_param_start", i32p), moon.field("ctrl_block_param_count", i32p), moon.field("ctrl_block_body_start", i32p), moon.field("ctrl_block_body_count", i32p),
-    moon.field("entry_param_name", i32p), moon.field("entry_param_type", i32p), moon.field("entry_param_init", i32p),
-    moon.field("cont_fill_name", i32p), moon.field("cont_fill_label", i32p),
-    moon.field("cap_nodes", moon.index), moon.field("cap_lists", moon.index),
-})
+M.NativeParseOut = struct NativeParseOut
+    state: ptr(i32)
+    type_tag: ptr(i32); type_tok: ptr(i32); type_a: ptr(i32); type_b: ptr(i32); type_c: ptr(i32)
+    expr_tag: ptr(i32); expr_tok: ptr(i32); expr_a: ptr(i32); expr_b: ptr(i32); expr_c: ptr(i32); expr_d: ptr(i32)
+    stmt_tag: ptr(i32); stmt_tok: ptr(i32); stmt_a: ptr(i32); stmt_b: ptr(i32); stmt_c: ptr(i32); stmt_d: ptr(i32); stmt_e: ptr(i32)
+    item_tag: ptr(i32); item_tok: ptr(i32); item_a: ptr(i32); item_b: ptr(i32); item_c: ptr(i32); item_d: ptr(i32); item_e: ptr(i32); item_f: ptr(i32)
+    param_name: ptr(i32); param_type: ptr(i32)
+    field_name: ptr(i32); field_type: ptr(i32)
+    jarg_name: ptr(i32); jarg_expr: ptr(i32)
+    expr_list: ptr(i32); stmt_list: ptr(i32); type_list: ptr(i32)
+    issue_tag: ptr(i32); issue_tok: ptr(i32)
+    switch_arm_key: ptr(i32); switch_arm_body_start: ptr(i32); switch_arm_body_count: ptr(i32)
+    ctrl_block_label: ptr(i32); ctrl_block_param_start: ptr(i32); ctrl_block_param_count: ptr(i32); ctrl_block_body_start: ptr(i32); ctrl_block_body_count: ptr(i32)
+    entry_param_name: ptr(i32); entry_param_type: ptr(i32); entry_param_init: ptr(i32)
+    cont_fill_name: ptr(i32); cont_fill_label: ptr(i32)
+    cap_nodes: index; cap_lists: index
+end
+local NativeParseOut = M.NativeParseOut
+
 local np_byte_eq = func(src: ptr(u8), starts: ptr(i32), tok: index, offset: i32, c: i32) -> bool
     return as(i32, src[as(index, starts[tok]) + as(index, offset)]) == c
 end
@@ -1182,51 +1184,51 @@ local mom_parse_native_core = func(src: ptr(u8), n: index,
     end
 end
 
-M:add_func(np_byte_eq)
-M:add_func(np_tok_len)
-M:add_func(np_peek)
-M:add_func(np_advance)
-M:add_func(np_accept)
-M:add_func(np_skip_sep)
-M:add_func(np_issue)
-M:add_func(np_add_type)
-M:add_func(np_add_expr)
-M:add_func(np_add_stmt)
-M:add_func(np_add_item)
-M:add_func(np_push_expr_list)
-M:add_func(np_push_stmt_list)
-M:add_func(np_push_type_list)
-M:add_func(np_push_param)
-M:local_func("np_push_field", np_push_field)
-M:local_func("np_push_jarg", np_push_jarg)
-M:local_func("np_push_switch_arm", np_push_switch_arm)
-M:local_func("np_push_ctrl_block", np_push_ctrl_block)
-M:local_func("np_push_entry_param", np_push_entry_param)
-M:local_func("np_push_cont_fill", np_push_cont_fill)
-M:local_func("np_scalar_code", np_scalar_code)
-M:local_func("np_name_is", np_name_is)
-M:local_func("np_parse_type", np_parse_type)
-M:local_func("np_lbp", np_lbp)
-M:local_func("np_find_nested_end", np_find_nested_end)
-M:local_func("np_parse_expr", np_parse_expr)
-M:local_func("np_stop_stmt", np_stop_stmt)
-M:local_func("np_parse_stmt_list", np_parse_stmt_list)
-M:local_func("np_parse_param_list", np_parse_param_list)
-M:local_func("np_find_simple_end", np_find_simple_end)
-M:local_func("np_parse_region_param_list", np_parse_region_param_list)
-M:local_func("np_skip_cont_decls", np_skip_cont_decls)
-M:local_func("np_parse_region_blocks", np_parse_region_blocks)
-M:local_func("np_parse_if_after_kw", np_parse_if_after_kw)
-M:local_func("np_parse_if", np_parse_if)
-M:local_func("np_parse_if_expr", np_parse_if_expr)
-M:local_func("np_parse_switch_stmt", np_parse_switch_stmt)
-M:local_func("np_parse_switch_expr", np_parse_switch_expr)
-M:local_func("np_parse_block_params", np_parse_block_params)
-M:local_func("np_parse_control_stmt", np_parse_control_stmt)
-M:local_func("np_parse_control_expr", np_parse_control_expr)
-M:local_func("np_parse_emit_stmt", np_parse_emit_stmt)
-M:local_func("np_parse_decl", np_parse_decl)
-M:local_func("mom_parse_native_core", mom_parse_native_core)
+M.np_byte_eq = np_byte_eq
+M.np_tok_len = np_tok_len
+M.np_peek = np_peek
+M.np_advance = np_advance
+M.np_accept = np_accept
+M.np_skip_sep = np_skip_sep
+M.np_issue = np_issue
+M.np_add_type = np_add_type
+M.np_add_expr = np_add_expr
+M.np_add_stmt = np_add_stmt
+M.np_add_item = np_add_item
+M.np_push_expr_list = np_push_expr_list
+M.np_push_stmt_list = np_push_stmt_list
+M.np_push_type_list = np_push_type_list
+M.np_push_param = np_push_param
+M.np_push_field = np_push_field
+M.np_push_jarg = np_push_jarg
+M.np_push_switch_arm = np_push_switch_arm
+M.np_push_ctrl_block = np_push_ctrl_block
+M.np_push_entry_param = np_push_entry_param
+M.np_push_cont_fill = np_push_cont_fill
+M.np_scalar_code = np_scalar_code
+M.np_name_is = np_name_is
+M.np_parse_type = np_parse_type
+M.np_lbp = np_lbp
+M.np_find_nested_end = np_find_nested_end
+M.np_parse_expr = np_parse_expr
+M.np_stop_stmt = np_stop_stmt
+M.np_parse_stmt_list = np_parse_stmt_list
+M.np_parse_param_list = np_parse_param_list
+M.np_find_simple_end = np_find_simple_end
+M.np_parse_region_param_list = np_parse_region_param_list
+M.np_skip_cont_decls = np_skip_cont_decls
+M.np_parse_region_blocks = np_parse_region_blocks
+M.np_parse_if_after_kw = np_parse_if_after_kw
+M.np_parse_if = np_parse_if
+M.np_parse_if_expr = np_parse_if_expr
+M.np_parse_switch_stmt = np_parse_switch_stmt
+M.np_parse_switch_expr = np_parse_switch_expr
+M.np_parse_block_params = np_parse_block_params
+M.np_parse_control_stmt = np_parse_control_stmt
+M.np_parse_control_expr = np_parse_control_expr
+M.np_parse_emit_stmt = np_parse_emit_stmt
+M.np_parse_decl = np_parse_decl
+M.mom_parse_native_core = mom_parse_native_core
 
 return M
 end

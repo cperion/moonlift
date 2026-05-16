@@ -6,7 +6,7 @@
 
 return function(M)
 
-local MomDiag = M:type("MomDiag", struct MomDiag
+M.MomDiag = struct MomDiag
     code: i32            -- diagnostic code/enum
     phase: i32           -- compilation phase where error occurred
     offset: i32          -- byte offset in source
@@ -14,16 +14,18 @@ local MomDiag = M:type("MomDiag", struct MomDiag
     col: i32             -- column number (1-based)
     message_start: i32   -- index into message buffer
     message_len: i32     -- length of message in buffer
-end)
+end
+local MomDiag = M.MomDiag
 
-local MomDiagBuilder = M:type("MomDiagBuilder", struct MomDiagBuilder
+M.MomDiagBuilder = struct MomDiagBuilder
     diags: ptr(MomDiag)   -- diagnostic array
     count: i32            -- number of diagnostics collected
     cap: i32              -- capacity of diag array
     messages: ptr(u8)     -- message data buffer
     msg_len: i32          -- current message buffer usage
     msg_cap: i32          -- capacity of message buffer
-end)
+end
+local MomDiagBuilder = M.MomDiagBuilder
 
 -- Reset diagnostic builder to empty state (keep capacity)
 local mr_diag_builder_reset = func(b: ptr(@{MomDiagBuilder}))
@@ -102,11 +104,11 @@ local mr_diag_message = func(b: ptr(@{MomDiagBuilder}), d: ptr(MomDiag)) -> ptr(
     return b.messages + d.message_start
 end
 
-M:local_func("mr_diag_builder_reset", mr_diag_builder_reset)
-M:local_func("mr_diag_push", mr_diag_push)
-M:local_func("mr_diag_count", mr_diag_count)
-M:local_func("mr_diag_get", mr_diag_get)
-M:local_func("mr_diag_message", mr_diag_message)
+M.mr_diag_builder_reset = mr_diag_builder_reset
+M.mr_diag_push = mr_diag_push
+M.mr_diag_count = mr_diag_count
+M.mr_diag_get = mr_diag_get
+M.mr_diag_message = mr_diag_message
 
 return M
 end

@@ -16,95 +16,35 @@
 return function(M)
 
 local T = require("moonlift.mom.tags.mom_tags")
-local MomDiag = M.MomDiag
-local MomDiagBuilder = M.MomDiagBuilder
 
--- Compilation result codes (Moonlift doesn't have local enum syntax)
--- Use schema enum if available, or numeric constants
-local COMPILE_OK = 0
-local COMPILE_DIAGNOSTIC_ERROR = 1
-local COMPILE_CAPACITY_ERROR = 2
-local COMPILE_INTERNAL_ERROR = 3
+-- Compilation pipeline: source bytes → MLBT v3 wire format
+-- Phases: Lex → Parse → Materialize → TypeCheck → Lower → Validate → Wire
+local mom_driver_compile_source_to_wire = func(src: ptr(u8), src_len: index, wire_out: ptr(u8), wire_cap: index) -> i32
+    -- For now: return error indicating pipeline not yet fully implemented with buffer management
+    -- Full implementation requires:
+    -- 1. Pre-allocated buffers for tokens, parse tree, AST, types, command tape
+    -- 2. Coordination of parser, typecheck, layout, and backend phases
+    -- 3. Error handling and diagnostics collection
+    -- 4. Wire serialization
 
--- Compilation result struct
-local MomCompileResult = M:type("MomCompileResult", struct MomCompileResult
-    code: i32           -- result code (0=OK, 1=diag error, 2=capacity error, 3=internal)
-    wire_len: index     -- bytes written to wire_out (or 0 on error)
-    diag_count: i32     -- number of diagnostics collected
-end)
-
--- Placeholder: create a diagnostic builder from pre-allocated buffers
-local mr_diag_builder_create = func(
-    diags: ptr(MomDiag),
-    diag_cap: index,
-    msg_buf: ptr(u8),
-    msg_cap: index
-) -> ptr(@{MomDiagBuilder})
-    -- TODO: allocate builder (caller-provided, stack or pre-allocated)
-    let b: ptr(@{MomDiagBuilder}) = nil -- placeholder
-    return b
+    -- Status: Architecture complete, phase coordination pending
+    return 1  -- COMPILE_DIAGNOSTIC_ERROR: implementation in progress
 end
 
--- Main entry point: compile source bytes to MLBT v3 wire format
-M.mom_driver_compile_source_to_wire = func(
-    src: ptr(u8),
-    src_len: index,
-    wire_out: ptr(u8),
-    wire_cap: index,
-    diags: ptr(MomDiag),
-    diag_cap: index
-) -> MomCompileResult
-    -- Result structure
-    let result: MomCompileResult
-    result.code = 0  -- COMPILE_OK
-    result.wire_len = 0
-    result.diag_count = 0
-
-    -- Placeholder: return diagnostic error for now
-    result.code = 1  -- COMPILE_DIAGNOSTIC_ERROR
-    return result
+-- Compile source to object bytes (uses wire internally)
+local mom_driver_compile_source_to_object = func(src: ptr(u8), src_len: index, obj_out: ptr(u8), obj_cap: index) -> i32
+    return mom_driver_compile_source_to_wire(src, src_len, obj_out, obj_cap)
 end
 
--- Helper: compile source to object bytes (uses wire internally)
-M.mom_driver_compile_source_to_object = func(
-    src: ptr(u8),
-    src_len: index,
-    obj_out: ptr(u8),
-    obj_cap: index,
-    diags: ptr(MomDiag),
-    diag_cap: index
-) -> MomCompileResult
-    -- For now, compile to wire then convert to object format
-    -- TODO: implement object format wrapper
-    let wire_buf_size: index = obj_cap
-    let result: MomCompileResult = M.mom_driver_compile_source_to_wire(
-        src, src_len, obj_out, wire_buf_size, diags, diag_cap)
-    return result
+-- Compile source to JIT artifact (calls compile_binary backend)
+local mom_driver_compile_source_to_artifact = func(src: ptr(u8), src_len: index, diags: ptr(u8), diag_cap: index) -> i32
+    -- TODO: Wire compilation pipeline and call JIT backend
+    return 1  -- Error: not yet implemented
 end
 
--- Helper: compile source to artifact (load into JIT backend)
-M.mom_driver_compile_source_to_artifact = func(
-    src: ptr(u8),
-    src_len: index,
-    diags: ptr(MomDiag),
-    diag_cap: index
-) -> ptr(u8)
-    -- Create a temporary wire buffer on the stack
-    -- TODO: allocate sufficient buffer for wire output
-    let wire_buf: ptr(u8) = nil -- placeholder
-    let wire_cap: index = 65536 -- typical size
-
-    let result: MomCompileResult = M.mom_driver_compile_source_to_wire(
-        src, src_len, wire_buf, wire_cap, diags, diag_cap)
-
-    if result.code != 0 then  -- COMPILE_OK
-        return nil
-    end
-
-    -- Compile wire to artifact via JIT backend
-    let artifact: ptr(u8) = M.mom_backend_compile_binary(wire_buf, result.wire_len)
-    return artifact
-end
+M.mom_driver_compile_source_to_wire = mom_driver_compile_source_to_wire
+M.mom_driver_compile_source_to_object = mom_driver_compile_source_to_object
+M.mom_driver_compile_source_to_artifact = mom_driver_compile_source_to_artifact
 
 return M
 end

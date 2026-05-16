@@ -25,14 +25,14 @@ local mom_backend_free_artifact = func(artifact: ptr(u8))
     moonlift_artifact_free(artifact)
 end
 
-M:extern_func("moonlift_jit_new", moonlift_jit_new)
-M:extern_func("moonlift_jit_free", moonlift_jit_free)
-M:extern_func("moonlift_jit_compile_binary", moonlift_jit_compile_binary)
-M:extern_func("moonlift_artifact_getpointer", moonlift_artifact_getpointer)
-M:extern_func("moonlift_artifact_free", moonlift_artifact_free)
-M:local_func("mom_backend_compile_binary", mom_backend_compile_binary)
-M:local_func("mom_backend_getpointer", mom_backend_getpointer)
-M:local_func("mom_backend_free_artifact", mom_backend_free_artifact)
+M.extern.moonlift_jit_new = moonlift_jit_new
+M.extern.moonlift_jit_free = moonlift_jit_free
+M.extern.moonlift_jit_compile_binary = moonlift_jit_compile_binary
+M.extern.moonlift_artifact_getpointer = moonlift_artifact_getpointer
+M.extern.moonlift_artifact_free = moonlift_artifact_free
+M.mom_backend_compile_binary = mom_backend_compile_binary
+M.mom_backend_getpointer = mom_backend_getpointer
+M.mom_backend_free_artifact = mom_backend_free_artifact
 
 return M
 end

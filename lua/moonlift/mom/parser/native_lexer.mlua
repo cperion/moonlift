@@ -1069,43 +1069,43 @@ local mom_parse_full_events = func(kinds: ptr(i32), n_tokens: index, state: ptr(
     end
 end
 
-M:local_func("mom_is_alpha", mom_is_alpha)
-M:local_func("mom_is_digit", mom_is_digit)
-M:local_func("mom_is_alnum", mom_is_alnum)
-M:local_func("mom_is_hex", mom_is_hex)
-M:local_func("mom_byte_eq", mom_byte_eq)
-M:local_func("mom_keyword_kind", mom_keyword_kind)
-M:local_func("mom_scan_string_stop", mom_scan_string_stop)
-M:local_func("mom_scan_line_comment_stop", mom_scan_line_comment_stop)
-M:local_func("mom_scan_antiquote_close", mom_scan_antiquote_close)
-M:local_func("mom_scan_ident_stop", mom_scan_ident_stop)
-M:local_func("mom_scan_number_stop", mom_scan_number_stop)
-M:local_func("mom_number_kind", mom_number_kind)
-M:local_func("mom_emit_token", mom_emit_token)
-M:local_func("mom_lex_into", mom_lex_into)
-M:local_func("mom_emit_event", mom_emit_event)
-M:local_func("mom_skip_seps", mom_skip_seps)
-M:local_func("mom_find_simple_end", mom_find_simple_end)
-M:local_func("mom_is_nested_end_opener", mom_is_nested_end_opener)
-M:local_func("mom_find_nested_end", mom_find_nested_end)
-M:local_func("mom_find_lparen_after_name", mom_find_lparen_after_name)
-M:local_func("mom_parse_param_events", mom_parse_param_events)
-M:local_func("mom_parse_struct_field_events", mom_parse_struct_field_events)
-M:local_func("mom_parse_union_variant_events", mom_parse_union_variant_events)
-M:local_func("mom_parse_module_events", mom_parse_module_events)
-M:local_func("mom_event", mom_event)
-M:local_func("mom_peek_state", mom_peek_state)
-M:local_func("mom_advance_state", mom_advance_state)
-M:local_func("mom_accept_state", mom_accept_state)
-M:local_func("mom_skip_sep_state", mom_skip_sep_state)
-M:local_func("mom_lbp", mom_lbp)
-M:local_func("mom_parse_type_state", mom_parse_type_state)
-M:local_func("mom_parse_expr_bp", mom_parse_expr_bp)
-M:local_func("mom_stmt_stop", mom_stmt_stop)
-M:local_func("mom_parse_stmt_list_state", mom_parse_stmt_list_state)
-M:local_func("mom_skip_balanced_parens", mom_skip_balanced_parens)
-M:local_func("mom_parse_decl_state", mom_parse_decl_state)
-M:local_func("mom_parse_full_events", mom_parse_full_events)
+M.mom_is_alpha = mom_is_alpha
+M.mom_is_digit = mom_is_digit
+M.mom_is_alnum = mom_is_alnum
+M.mom_is_hex = mom_is_hex
+M.mom_byte_eq = mom_byte_eq
+M.mom_keyword_kind = mom_keyword_kind
+M.mom_scan_string_stop = mom_scan_string_stop
+M.mom_scan_line_comment_stop = mom_scan_line_comment_stop
+M.mom_scan_antiquote_close = mom_scan_antiquote_close
+M.mom_scan_ident_stop = mom_scan_ident_stop
+M.mom_scan_number_stop = mom_scan_number_stop
+M.mom_number_kind = mom_number_kind
+M.mom_emit_token = mom_emit_token
+M.mom_lex_into = mom_lex_into
+M.mom_emit_event = mom_emit_event
+M.mom_skip_seps = mom_skip_seps
+M.mom_find_simple_end = mom_find_simple_end
+M.mom_is_nested_end_opener = mom_is_nested_end_opener
+M.mom_find_nested_end = mom_find_nested_end
+M.mom_find_lparen_after_name = mom_find_lparen_after_name
+M.mom_parse_param_events = mom_parse_param_events
+M.mom_parse_struct_field_events = mom_parse_struct_field_events
+M.mom_parse_union_variant_events = mom_parse_union_variant_events
+M.mom_parse_module_events = mom_parse_module_events
+M.mom_event = mom_event
+M.mom_peek_state = mom_peek_state
+M.mom_advance_state = mom_advance_state
+M.mom_accept_state = mom_accept_state
+M.mom_skip_sep_state = mom_skip_sep_state
+M.mom_lbp = mom_lbp
+M.mom_parse_type_state = mom_parse_type_state
+M.mom_parse_expr_bp = mom_parse_expr_bp
+M.mom_stmt_stop = mom_stmt_stop
+M.mom_parse_stmt_list_state = mom_parse_stmt_list_state
+M.mom_skip_balanced_parens = mom_skip_balanced_parens
+M.mom_parse_decl_state = mom_parse_decl_state
+M.mom_parse_full_events = mom_parse_full_events
 
 return M
 end

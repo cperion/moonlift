@@ -10,7 +10,7 @@ local TI_INVALID_UNARY = 8
 local TI_INVALID_BINARY = 9
 local TI_INVALID_LOGIC = 11
 
-local mt_is_float_scalar = func(s: i32) -> bool
+local typeexpr_mt_is_float_scalar = func(s: i32) -> bool
     return s == @{T.ScalarF32} or s == @{T.ScalarF64}
 end
 
@@ -23,19 +23,19 @@ local mt_is_unsigned_int = func(s: i32) -> bool
     or s == @{T.ScalarIndex} or s == @{T.ScalarRawPtr}
 end
 
-local mt_is_integer_scalar = func(s: i32) -> bool
+local typeexpr_mt_is_integer_scalar = func(s: i32) -> bool
     return mt_is_signed_int(s) or mt_is_unsigned_int(s)
 end
 
-local mt_is_numeric_scalar = func(s: i32) -> bool
-    return mt_is_integer_scalar(s) or mt_is_float_scalar(s)
+local typeexpr_mt_is_numeric_scalar = func(s: i32) -> bool
+    return typeexpr_mt_is_integer_scalar(s) or typeexpr_mt_is_float_scalar(s)
 end
 
-local mt_is_bool_scalar = func(s: i32) -> bool
+local typeexpr_mt_is_bool_scalar = func(s: i32) -> bool
     return s == @{T.ScalarBool}
 end
 
-local mt_push_issue = func(tag: i32, d0: i32, d1: i32,
+local typeexpr_mt_push_issue = func(tag: i32, d0: i32, d1: i32,
                            tag_arr: ptr(i32), d0_arr: ptr(i32), d1_arr: ptr(i32),
                            cnt: ptr(i32), cap: index)
     let i: index = as(index, cnt[0])
@@ -45,7 +45,7 @@ local mt_push_issue = func(tag: i32, d0: i32, d1: i32,
     cnt[0] = cnt[0] + 1
 end
 
-local mt_literal_scalar = func(tok: i32) -> i32
+local typeexpr_mt_literal_scalar = func(tok: i32) -> i32
     if tok == @{T.TK_INT} then return @{T.ScalarI32} end
     if tok == @{T.TK_TRUE} or tok == @{T.TK_FALSE} then return @{T.ScalarBool} end
     if tok == @{T.TK_FLOAT} then return @{T.ScalarF64} end
@@ -62,14 +62,14 @@ local mt_type_class = func(tg: i32) -> i32
     return 0
 end
 
-local mt_type_scalar = func(type_tag: ptr(i32), type_scalar: ptr(i32), ti: i32) -> i32
+local typeexpr_mt_type_scalar = func(type_tag: ptr(i32), type_scalar: ptr(i32), ti: i32) -> i32
     if ti < 0 then return -1 end
     let i: index = as(index, ti)
     if type_tag[i] == @{T.TY_SCALAR} then return type_scalar[i] end
     return -1
 end
 
-local mt_type_elem = func(type_tag: ptr(i32), type_elem: ptr(i32), ti: i32) -> i32
+local typeexpr_mt_type_elem = func(type_tag: ptr(i32), type_elem: ptr(i32), ti: i32) -> i32
     if ti < 0 then return -1 end
     let i: index = as(index, ti)
     let tg: i32 = type_tag[i]
@@ -77,7 +77,7 @@ local mt_type_elem = func(type_tag: ptr(i32), type_elem: ptr(i32), ti: i32) -> i
     return -1
 end
 
-local mt_type_expr = func(ei: i32,
+local typeexpr_mt_type_expr = func(ei: i32,
                           type_tag: ptr(i32), type_scalar: ptr(i32), type_elem: ptr(i32),
                           expr_tag: ptr(i32), expr_tok: ptr(i32), expr_op: ptr(i32),
                           expr_lhs: ptr(i32), expr_rhs: ptr(i32), expr_aux0: ptr(i32),
@@ -90,7 +90,7 @@ local mt_type_expr = func(ei: i32,
     let tg: i32 = expr_tag[i]
 
     if tg == @{T.ME_LIT} then
-        let s: i32 = mt_literal_scalar(expr_tok[i])
+        let s: i32 = typeexpr_mt_literal_scalar(expr_tok[i])
         out_scalar[i] = s
         return s
     end
@@ -108,7 +108,7 @@ local mt_type_expr = func(ei: i32,
             out_scalar[i] = found
             return found
         end
-        mt_push_issue(@{TI_UNRESOLVED_VALUE}, name, 0, issue_tag, issue_d0, issue_d1, issue_cnt, cap)
+        typeexpr_mt_push_issue(@{TI_UNRESOLVED_VALUE}, name, 0, issue_tag, issue_d0, issue_d1, issue_cnt, cap)
         out_scalar[i] = @{T.ScalarVoid}
         return @{T.ScalarVoid}
     end
@@ -117,8 +117,8 @@ local mt_type_expr = func(ei: i32,
         let child: i32 = expr_lhs[i]
         let child_s: i32 = out_scalar[as(index, child)]
         if expr_op[i] == @{T.UnaryNot} then
-            if not mt_is_bool_scalar(child_s) then
-                mt_push_issue(@{TI_INVALID_UNARY}, @{T.UnaryNot}, child_s, issue_tag, issue_d0, issue_d1, issue_cnt, cap)
+            if not typeexpr_mt_is_bool_scalar(child_s) then
+                typeexpr_mt_push_issue(@{TI_INVALID_UNARY}, @{T.UnaryNot}, child_s, issue_tag, issue_d0, issue_d1, issue_cnt, cap)
             end
             out_scalar[i] = @{T.ScalarBool}
             return @{T.ScalarBool}
@@ -142,7 +142,7 @@ local mt_type_expr = func(ei: i32,
 
     if tg == @{T.ME_CAST} then
         let type_idx: i32 = expr_lhs[i]
-        let s: i32 = mt_type_scalar(type_tag, type_scalar, type_idx)
+        let s: i32 = typeexpr_mt_type_scalar(type_tag, type_scalar, type_idx)
         out_scalar[i] = s
         if type_idx >= 0 then out_type_idx[i] = type_idx end
         return s
@@ -173,9 +173,9 @@ local mt_type_expr = func(ei: i32,
         let base: i32 = expr_lhs[i]
         let base_type: i32 = out_type_idx[as(index, base)]
         if base_type >= 0 then
-            let elem: i32 = mt_type_elem(type_tag, type_elem, base_type)
+            let elem: i32 = typeexpr_mt_type_elem(type_tag, type_elem, base_type)
             if elem >= 0 then
-                let elem_s: i32 = mt_type_scalar(type_tag, type_scalar, elem)
+                let elem_s: i32 = typeexpr_mt_type_scalar(type_tag, type_scalar, elem)
                 out_scalar[i] = elem_s
                 out_type_idx[i] = elem
                 return elem_s
@@ -194,14 +194,14 @@ local mt_type_expr = func(ei: i32,
             if ctag == @{T.TY_PTR} then
                 let elem: i32 = type_elem[as(index, child_type)]
                 if elem >= 0 then
-                    let elem_s: i32 = mt_type_scalar(type_tag, type_scalar, elem)
+                    let elem_s: i32 = typeexpr_mt_type_scalar(type_tag, type_scalar, elem)
                     out_scalar[i] = elem_s
                     out_type_idx[i] = elem
                     return elem_s
                 end
             end
         end
-        mt_push_issue(@{TI_NOT_POINTER}, child, 0, issue_tag, issue_d0, issue_d1, issue_cnt, cap)
+        typeexpr_mt_push_issue(@{TI_NOT_POINTER}, child, 0, issue_tag, issue_d0, issue_d1, issue_cnt, cap)
         out_scalar[i] = @{T.ScalarVoid}
         return @{T.ScalarVoid}
     end
@@ -238,18 +238,18 @@ local mt_type_expr = func(ei: i32,
     return @{T.ScalarVoid}
 end
 
-M:add_func(mt_is_float_scalar)
-M:add_func(mt_is_signed_int)
-M:add_func(mt_is_unsigned_int)
-M:add_func(mt_is_integer_scalar)
-M:add_func(mt_is_numeric_scalar)
-M:add_func(mt_is_bool_scalar)
-M:add_func(mt_push_issue)
-M:add_func(mt_literal_scalar)
-M:add_func(mt_type_class)
-M:add_func(mt_type_scalar)
-M:local_func("mt_type_elem", mt_type_elem)
-M:local_func("mt_type_expr", mt_type_expr)
+M.typeexpr_mt_is_float_scalar = typeexpr_mt_is_float_scalar
+M.mt_is_signed_int = mt_is_signed_int
+M.mt_is_unsigned_int = mt_is_unsigned_int
+M.typeexpr_mt_is_integer_scalar = typeexpr_mt_is_integer_scalar
+M.typeexpr_mt_is_numeric_scalar = typeexpr_mt_is_numeric_scalar
+M.typeexpr_mt_is_bool_scalar = typeexpr_mt_is_bool_scalar
+M.typeexpr_mt_push_issue = typeexpr_mt_push_issue
+M.typeexpr_mt_literal_scalar = typeexpr_mt_literal_scalar
+M.mt_type_class = mt_type_class
+M.typeexpr_mt_type_scalar = typeexpr_mt_type_scalar
+M.typeexpr_mt_type_elem = typeexpr_mt_type_elem
+M.typeexpr_mt_type_expr = typeexpr_mt_type_expr
 
 return M
 end

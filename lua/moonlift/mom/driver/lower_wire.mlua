@@ -21,14 +21,9 @@ local MLBT_MAGIC = 1296843348 -- 0x4d4c4254, bytes "TBLM" little-endian
 local MLBT_VERSION = 3
 local CMD_STRIDE = 18
 
-local MomWireBuilder = M:type("MomWireBuilder", struct MomWireBuilder
-    data: u8p
-    len: moon.index
-    cap: moon.index
-    string_count: moon.i32
-    aux_count: moon.i32
-    error: moon.i32
-end)
+-- MomWireBuilder is owned by driver/wire.mlua.  lower_wire only adds the
+-- command-tape serialization helpers that operate on the canonical builder.
+local MomWireBuilder = M.MomWireBuilder
 
 local mw_mark = func(w: ptr(@{MomWireBuilder}), code: i32)
     if w.error == @{MW_OK} then w.error = code end
@@ -269,23 +264,23 @@ local mom_lower_cmd_tape_to_wire = func(cmds: ptr(i32), ncmds: i32, w: ptr(@{Mom
     end
 end
 
-M:add_func(mw_mark)
-M:add_func(mw_put_u8)
-M:add_func(mw_write_u32)
-M:add_func(mw_patch_u32)
-M:add_func(mw_align4)
-M:add_func(mw_init)
-M:add_func(mw_finish)
-M:add_func(mw_write_pool_string)
-M:add_func(mw_write_pool_slice)
-M:add_func(mw_write_pool_generated)
-M:add_func(mw_begin_aux)
-M:add_func(mw_write_aux_i32s)
-M:local_func("mom_wire_slot_count", mom_wire_slot_count)
-M:local_func("mom_cmd_tape_set", mom_cmd_tape_set)
-M:local_func("mom_cmd_tape_clear", mom_cmd_tape_clear)
-M:local_func("mom_cmd_tape_push", mom_cmd_tape_push)
-M:local_func("mom_lower_cmd_tape_to_wire", mom_lower_cmd_tape_to_wire)
+M.mw_mark = mw_mark
+M.mw_put_u8 = mw_put_u8
+M.mw_write_u32 = mw_write_u32
+M.mw_patch_u32 = mw_patch_u32
+M.mw_align4 = mw_align4
+M.mw_init = mw_init
+M.mw_finish = mw_finish
+M.mw_write_pool_string = mw_write_pool_string
+M.mw_write_pool_slice = mw_write_pool_slice
+M.mw_write_pool_generated = mw_write_pool_generated
+M.mw_begin_aux = mw_begin_aux
+M.mw_write_aux_i32s = mw_write_aux_i32s
+M.mom_wire_slot_count = mom_wire_slot_count
+M.mom_cmd_tape_set = mom_cmd_tape_set
+M.mom_cmd_tape_clear = mom_cmd_tape_clear
+M.mom_cmd_tape_push = mom_cmd_tape_push
+M.mom_lower_cmd_tape_to_wire = mom_lower_cmd_tape_to_wire
 
 return M
 end

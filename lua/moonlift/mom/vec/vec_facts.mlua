@@ -69,8 +69,8 @@ local mv_extract_vec_facts = func(
     return 1
 end
 
-M:local_func("mv_push_fact", mv_push_fact)
-M:local_func("mv_extract_vec_facts", mv_extract_vec_facts)
+M.mv_push_fact = mv_push_fact
+M.mv_extract_vec_facts = mv_extract_vec_facts
 
 return M
 end

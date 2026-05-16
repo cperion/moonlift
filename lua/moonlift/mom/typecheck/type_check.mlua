@@ -1,4 +1,4 @@
-local T = require("moonlift.mom.back.back_tags")
+local T = require("moonlift.mom.tags.mom_tags")
 
 return function(M)
 
@@ -77,7 +77,7 @@ local mt_env_lookup = func(env_name: ptr(i32), env_type: ptr(i32),
 end
 
 -- Type arena helpers
-local mt_type_tag = func(type_tag: ptr(i32), ti: i32) -> i32
+local typecheck_mt_type_tag = func(type_tag: ptr(i32), ti: i32) -> i32
     if ti < 0 then return -1 end
     return type_tag[as(index, ti)]
 end
@@ -221,7 +221,7 @@ local mt_type_expr = func(ei: i32,
         let op: i32 = expr_op[i]
         -- Pointer arithmetic: ptr(T) + int -> ptr(T)
         let lhs_type: i32 = out_type_idx[as(index, lhs)]
-        if lhs_type >= 0 and mt_type_tag(type_tag, lhs_type) == @{T.TY_PTR}
+        if lhs_type >= 0 and typecheck_mt_type_tag(type_tag, lhs_type) == @{T.TY_PTR}
            and (op == @{T.BinAdd} or op == @{T.BinSub})
            and mt_is_integer_scalar(rhs_s) then
             out_scalar[i] = lhs_s
@@ -334,7 +334,7 @@ local mt_type_expr = func(ei: i32,
         if base_type >= 0 then
             -- Check if base is a pointer, then look at elem type
             var lookup_type: i32 = base_type
-            if mt_type_tag(type_tag, base_type) == @{T.TY_PTR} then
+            if typecheck_mt_type_tag(type_tag, base_type) == @{T.TY_PTR} then
                 lookup_type = mt_type_elem(type_tag, type_elem, base_type)
             end
             -- Search struct/union items for the field
@@ -359,7 +359,7 @@ local mt_type_expr = func(ei: i32,
         let base: i32 = expr_lhs[i]
         let base_type: i32 = out_type_idx[as(index, base)]
         if base_type >= 0 then
-            let btg: i32 = mt_type_tag(type_tag, base_type)
+            let btg: i32 = typecheck_mt_type_tag(type_tag, base_type)
             if btg == @{T.TY_PTR} or btg == @{T.TY_VIEW} then
                 let elem: i32 = mt_type_elem(type_tag, type_elem, base_type)
                 if elem >= 0 then
@@ -379,7 +379,7 @@ local mt_type_expr = func(ei: i32,
     if tg == @{T.ME_DEREF} then
         let child: i32 = expr_lhs[i]
         let child_type: i32 = out_type_idx[as(index, child)]
-        if child_type >= 0 and mt_type_tag(type_tag, child_type) == @{T.TY_PTR} then
+        if child_type >= 0 and typecheck_mt_type_tag(type_tag, child_type) == @{T.TY_PTR} then
             let elem: i32 = mt_type_elem(type_tag, type_elem, child_type)
             if elem >= 0 then
                 let elem_s: i32 = mt_type_scalar(type_tag, type_scalar_arr, elem)
@@ -406,7 +406,7 @@ local mt_type_expr = func(ei: i32,
     if tg == @{T.ME_LEN} then
         let child: i32 = expr_lhs[i]
         let child_type: i32 = out_type_idx[as(index, child)]
-        if child_type < 0 or mt_type_tag(type_tag, child_type) ~= @{T.TY_VIEW} then
+        if child_type < 0 or typecheck_mt_type_tag(type_tag, child_type) ~= @{T.TY_VIEW} then
             mt_push_issue(@{TI_EXPECTED}, @{T.TY_VIEW}, child_type, issue_tag, issue_d0, issue_d1, issue_cnt, cap)
         end
         out_scalar[i] = @{T.ScalarIndex}
@@ -494,7 +494,7 @@ local mt_type_place = func(ei: i32,
     if tg == @{T.ME_DEREF} then
         let child: i32 = expr_lhs[i]
         let child_type: i32 = out_type_idx[as(index, child)]
-        if child_type >= 0 and mt_type_tag(type_tag, child_type) == @{T.TY_PTR} then
+        if child_type >= 0 and typecheck_mt_type_tag(type_tag, child_type) == @{T.TY_PTR} then
             let elem: i32 = mt_type_elem(type_tag, type_elem, child_type)
             if elem >= 0 then
                 let elem_s: i32 = mt_type_scalar(type_tag, type_scalar_arr, elem)
@@ -515,7 +515,7 @@ local mt_type_place = func(ei: i32,
         let base_type: i32 = out_type_idx[as(index, base)]
         if base_type >= 0 then
             var lookup_type: i32 = base_type
-            if mt_type_tag(type_tag, base_type) == @{T.TY_PTR} then
+            if typecheck_mt_type_tag(type_tag, base_type) == @{T.TY_PTR} then
                 lookup_type = mt_type_elem(type_tag, type_elem, base_type)
             end
             let ft: i32 = mt_find_field_type(field_name_tok,
@@ -538,7 +538,7 @@ local mt_type_place = func(ei: i32,
         let base: i32 = expr_lhs[i]
         let base_type: i32 = out_type_idx[as(index, base)]
         if base_type >= 0 then
-            let btg: i32 = mt_type_tag(type_tag, base_type)
+            let btg: i32 = typecheck_mt_type_tag(type_tag, base_type)
             if btg == @{T.TY_PTR} or btg == @{T.TY_VIEW} then
                 let elem: i32 = mt_type_elem(type_tag, type_elem, base_type)
                 if elem >= 0 then
@@ -739,26 +739,26 @@ local mt_type_module = func(
 end
 
 -- Exports: all functions that are called from other functions
-M:add_func(mt_is_float_scalar)
-M:add_func(mt_is_signed_int_scalar)
-M:add_func(mt_is_unsigned_int_scalar)
-M:add_func(mt_is_integer_scalar)
-M:add_func(mt_is_bool_scalar)
-M:add_func(mt_is_numeric_scalar)
-M:add_func(mt_push_issue)
-M:add_func(mt_env_bind)
-M:add_func(mt_env_lookup)
-M:add_func(mt_type_tag)
-M:add_func(mt_type_scalar)
-M:add_func(mt_type_elem)
-M:add_func(mt_literal_scalar)
-M:add_func(mt_find_field_type)
-M:add_func(mt_func_result)
-M:add_func(mt_func_nparams)
-M:add_func(mt_type_expr)
-M:local_func("mt_type_place", mt_type_place)
-M:local_func("mt_type_stmt", mt_type_stmt)
-M:local_func("mt_type_module", mt_type_module)
+M.mt_is_float_scalar = mt_is_float_scalar
+M.mt_is_signed_int_scalar = mt_is_signed_int_scalar
+M.mt_is_unsigned_int_scalar = mt_is_unsigned_int_scalar
+M.mt_is_integer_scalar = mt_is_integer_scalar
+M.mt_is_bool_scalar = mt_is_bool_scalar
+M.mt_is_numeric_scalar = mt_is_numeric_scalar
+M.mt_push_issue = mt_push_issue
+M.mt_env_bind = mt_env_bind
+M.mt_env_lookup = mt_env_lookup
+M.typecheck_mt_type_tag = typecheck_mt_type_tag
+M.mt_type_scalar = mt_type_scalar
+M.mt_type_elem = mt_type_elem
+M.mt_literal_scalar = mt_literal_scalar
+M.mt_find_field_type = mt_find_field_type
+M.mt_func_result = mt_func_result
+M.mt_func_nparams = mt_func_nparams
+M.mt_type_expr = mt_type_expr
+M.mt_type_place = mt_type_place
+M.mt_type_stmt = mt_type_stmt
+M.mt_type_module = mt_type_module
 
 return M
 end

@@ -232,24 +232,24 @@ local mb_type_to_back_scalar = func(ty_tag: i32, scalar: i32) -> i32
     end
 end
 
-M:local_func("mb_is_float_scalar", mb_is_float_scalar)
-M:local_func("mb_is_signed_int_scalar", mb_is_signed_int_scalar)
-M:local_func("mb_is_unsigned_int_scalar", mb_is_unsigned_int_scalar)
-M:local_func("mb_is_signed", mb_is_signed)
-M:local_func("mb_is_unsigned", mb_is_unsigned)
-M:local_func("mb_is_integer_scalar", mb_is_integer_scalar)
-M:local_func("mb_scalar_bits", mb_scalar_bits)
-M:local_func("mb_semantic_cast_op", mb_semantic_cast_op)
-M:local_func("mb_core_scalar_to_back", mb_core_scalar_to_back)
-M:local_func("mb_lower_unary_op", mb_lower_unary_op)
-M:local_func("mb_lower_compare_op", mb_lower_compare_op)
-M:local_func("mb_binary_class", mb_binary_class)
-M:local_func("mb_binary_op_code", mb_binary_op_code)
-M:local_func("mb_lower_surface_cast_op", mb_lower_surface_cast_op)
-M:local_func("mb_lower_cast_op", mb_lower_cast_op)
-M:local_func("mb_lower_atomic_ordering", mb_lower_atomic_ordering)
-M:local_func("mb_lower_atomic_rmw_op", mb_lower_atomic_rmw_op)
-M:local_func("mb_type_to_back_scalar", mb_type_to_back_scalar)
+M.mb_is_float_scalar = mb_is_float_scalar
+M.mb_is_signed_int_scalar = mb_is_signed_int_scalar
+M.mb_is_unsigned_int_scalar = mb_is_unsigned_int_scalar
+M.mb_is_signed = mb_is_signed
+M.mb_is_unsigned = mb_is_unsigned
+M.mb_is_integer_scalar = mb_is_integer_scalar
+M.mb_scalar_bits = mb_scalar_bits
+M.mb_semantic_cast_op = mb_semantic_cast_op
+M.mb_core_scalar_to_back = mb_core_scalar_to_back
+M.mb_lower_unary_op = mb_lower_unary_op
+M.mb_lower_compare_op = mb_lower_compare_op
+M.mb_binary_class = mb_binary_class
+M.mb_binary_op_code = mb_binary_op_code
+M.mb_lower_surface_cast_op = mb_lower_surface_cast_op
+M.mb_lower_cast_op = mb_lower_cast_op
+M.mb_lower_atomic_ordering = mb_lower_atomic_ordering
+M.mb_lower_atomic_rmw_op = mb_lower_atomic_rmw_op
+M.mb_type_to_back_scalar = mb_type_to_back_scalar
 
 return M
 end

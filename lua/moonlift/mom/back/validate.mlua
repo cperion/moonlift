@@ -267,9 +267,9 @@ local mb_validate = func(ct: ptr(i32), ca: ptr(i32), cb: ptr(i32), cc: ptr(i32),
     return icnt[0]
 end
 
-M:local_func("mb_push", mb_push)
-M:local_func("mb_has", mb_has)
-M:local_func("mb_add", mb_add)
-M:local_func("mb_validate", mb_validate)
+M.mb_push = mb_push
+M.mb_has = mb_has
+M.mb_add = mb_add
+M.mb_validate = mb_validate
 return M
 end

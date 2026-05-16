@@ -1,25 +1,25 @@
 local T = require("moonlift.mom.tags.mom_tags")
 
 return function(M)
-local mt_is_float_scalar = func(s: i32) -> bool
+local typescalar_mt_is_float_scalar = func(s: i32) -> bool
     return s == @{T.ScalarF32} or s == @{T.ScalarF64}
 end
 
-local mt_is_signed_int_scalar = func(s: i32) -> bool
+local typescalar_mt_is_signed_int_scalar = func(s: i32) -> bool
     return s == @{T.ScalarI8} or s == @{T.ScalarI16} or s == @{T.ScalarI32} or s == @{T.ScalarI64}
     or s == @{T.ScalarIndex}
 end
 
-local mt_is_unsigned_int_scalar = func(s: i32) -> bool
+local typescalar_mt_is_unsigned_int_scalar = func(s: i32) -> bool
     return s == @{T.ScalarU8} or s == @{T.ScalarU16} or s == @{T.ScalarU32} or s == @{T.ScalarU64}
     or s == @{T.ScalarRawPtr}
 end
 
-local mt_is_integer_scalar = func(s: i32) -> bool
-    return mt_is_signed_int_scalar(s) or mt_is_unsigned_int_scalar(s)
+local typescalar_mt_is_integer_scalar = func(s: i32) -> bool
+    return typescalar_mt_is_signed_int_scalar(s) or typescalar_mt_is_unsigned_int_scalar(s)
 end
 
-local mt_is_bool_scalar = func(s: i32) -> bool
+local typescalar_mt_is_bool_scalar = func(s: i32) -> bool
     return s == @{T.ScalarBool}
 end
 
@@ -27,8 +27,8 @@ local mt_is_void_scalar = func(s: i32) -> bool
     return s == @{T.ScalarVoid}
 end
 
-local mt_is_numeric_scalar = func(s: i32) -> bool
-    return mt_is_integer_scalar(s) or mt_is_float_scalar(s)
+local typescalar_mt_is_numeric_scalar = func(s: i32) -> bool
+    return typescalar_mt_is_integer_scalar(s) or typescalar_mt_is_float_scalar(s)
 end
 
 local mt_scalar_bit_width = func(s: i32) -> i32
@@ -41,21 +41,21 @@ end
 
 local mt_adopt_literal_to_scalar = func(lit_scalar: i32, expected: i32) -> i32
     if lit_scalar == expected then return expected end
-    if mt_is_integer_scalar(lit_scalar) and mt_is_integer_scalar(expected) then return expected end
-    if mt_is_integer_scalar(lit_scalar) and mt_is_float_scalar(expected) then return expected end
-    if mt_is_integer_scalar(lit_scalar) and mt_is_bool_scalar(expected) then return expected end
+    if typescalar_mt_is_integer_scalar(lit_scalar) and typescalar_mt_is_integer_scalar(expected) then return expected end
+    if typescalar_mt_is_integer_scalar(lit_scalar) and typescalar_mt_is_float_scalar(expected) then return expected end
+    if typescalar_mt_is_integer_scalar(lit_scalar) and typescalar_mt_is_bool_scalar(expected) then return expected end
     return lit_scalar
 end
 
-M:local_func("mt_is_float_scalar", mt_is_float_scalar)
-M:local_func("mt_is_signed_int_scalar", mt_is_signed_int_scalar)
-M:local_func("mt_is_unsigned_int_scalar", mt_is_unsigned_int_scalar)
-M:local_func("mt_is_integer_scalar", mt_is_integer_scalar)
-M:local_func("mt_is_bool_scalar", mt_is_bool_scalar)
-M:local_func("mt_is_void_scalar", mt_is_void_scalar)
-M:local_func("mt_is_numeric_scalar", mt_is_numeric_scalar)
-M:local_func("mt_scalar_bit_width", mt_scalar_bit_width)
-M:local_func("mt_adopt_literal_to_scalar", mt_adopt_literal_to_scalar)
+M.typescalar_mt_is_float_scalar = typescalar_mt_is_float_scalar
+M.typescalar_mt_is_signed_int_scalar = typescalar_mt_is_signed_int_scalar
+M.typescalar_mt_is_unsigned_int_scalar = typescalar_mt_is_unsigned_int_scalar
+M.typescalar_mt_is_integer_scalar = typescalar_mt_is_integer_scalar
+M.typescalar_mt_is_bool_scalar = typescalar_mt_is_bool_scalar
+M.mt_is_void_scalar = mt_is_void_scalar
+M.typescalar_mt_is_numeric_scalar = typescalar_mt_is_numeric_scalar
+M.mt_scalar_bit_width = mt_scalar_bit_width
+M.mt_adopt_literal_to_scalar = mt_adopt_literal_to_scalar
 
 return M
 end

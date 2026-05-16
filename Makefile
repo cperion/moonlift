@@ -2,6 +2,7 @@ MOONLIFT  = target/release/moonlift
 MOM       = target/release/mom
 LUAJIT    = .vendor/LuaJIT/src
 MOM_OBJ   = target/libmom_precompiled.o
+MOONLIB   = target/release/libmoonlift.so
 
 .PHONY: all clean mom-obj mom-tags test-mom
 
@@ -19,7 +20,12 @@ $(MOONLIFT): $(LUAJIT)/libluajit.a
 mom-tags: $(MOONLIFT)
 	$(MOONLIFT) scripts/generate_mom_tags.lua
 
-$(MOM_OBJ): $(MOONLIFT) mom-tags
+$(MOONLIB): $(LUAJIT)/libluajit.a
+	LUAJIT_LIB=$(CURDIR)/$(LUAJIT)/libluajit-5.1.a \
+	LUAJIT_INCLUDE=$(CURDIR)/$(LUAJIT) \
+	cargo build --release --lib
+
+$(MOM_OBJ): $(MOONLIFT) $(MOONLIB) mom-tags
 	@mkdir -p target
 	MOM_OBJ_PATH=$(MOM_OBJ) $(MOONLIFT) scripts/emit_mom_precompiled.lua
 

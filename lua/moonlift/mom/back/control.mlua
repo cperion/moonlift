@@ -223,13 +223,13 @@ local mb_validate_control = func(fact_tag: ptr(i32), fact_a: ptr(i32), fact_b: p
     return @{T.CD_REDUCIBLE}
 end
 
-M:local_func("mb_push_fact", mb_push_fact)
-M:local_func("mb_push_reject", mb_push_reject)
-M:local_func("a_val_hash", a_val_hash)
-M:local_func("mb_pass1", mb_pass1)
-M:local_func("mb_pass2", mb_pass2)
-M:local_func("mb_extract_jump_facts", mb_extract_jump_facts)
-M:local_func("mb_validate_control", mb_validate_control)
+M.mb_push_fact = mb_push_fact
+M.mb_push_reject = mb_push_reject
+M.a_val_hash = a_val_hash
+M.mb_pass1 = mb_pass1
+M.mb_pass2 = mb_pass2
+M.mb_extract_jump_facts = mb_extract_jump_facts
+M.mb_validate_control = mb_validate_control
 
 return M
 end

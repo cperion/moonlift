@@ -22,14 +22,9 @@ local T = require("moonlift.mom.tags.mom_tags")
 return function(M)
 local i32p = moon.ptr(moon.i32)
 
--- LowerState struct definition (must match builders.mlua)
-local LowerState = M:type("LowerState", struct LowerState
-    cmds: moon.ptr(i32p)
-    cmd_count: moon.index
-    cmd_cap: moon.index
-    next_value: moon.i32
-    next_block: moon.i32
-end)
+-- LowerState is owned by runtime/builders.mlua.  Do not redeclare it in the
+-- unified MOM object; use the canonical type installed by the runtime module.
+local LowerState = M.LowerState
 
 -- Command buffer stride (tag + w0..w16 = 18 words per entry).
 local CMD_STRIDE = 18
@@ -135,24 +130,6 @@ local mb_fresh_val = func(st: ptr(@{LowerState})) -> i32
 end
 
 -- ── Type-scalar helpers ──────────────────────────────────────────────
-
-local mb_is_float = func(s: i32) -> bool
-    return s == @{T.BackF32} or s == @{T.BackF64}
-end
-
-local mb_is_signed = func(s: i32) -> bool
-    return s == @{T.BackI8} or s == @{T.BackI16} or s == @{T.BackI32} or s == @{T.BackI64}
-end
-
-local mb_is_integer = func(s: i32) -> bool
-    return s == @{T.BackI8} or s == @{T.BackI16} or s == @{T.BackI32} or s == @{T.BackI64} or
-           s == @{T.BackU8} or s == @{T.BackU16} or s == @{T.BackU32} or s == @{T.BackU64} or
-           s == @{T.BackIndex} or s == @{T.BackPtr}
-end
-
-local mb_is_ptr = func(s: i32) -> bool
-    return s == @{T.BackPtr}
-end
 
 -- Map token kind to unary op tag.
 local mb_token_to_unary_op = func(tok: i32) -> i32
@@ -272,7 +249,7 @@ local mb_lower_unary_expr = func(expr_op: i32, scalar: i32, child_val: i32, st: 
     let dst: i32 = mb_fresh_val(st)
     let unary_op: i32 = mb_token_to_unary_op(expr_op)
     let back_op: i32 = select(unary_op == @{T.UnaryNeg},
-                         select(mb_is_float(scalar), @{T.BackUnaryFneg}, @{T.BackUnaryIneg}),
+                         select(mb_is_float_scalar(scalar), @{T.BackUnaryFneg}, @{T.BackUnaryIneg}),
                          select(unary_op == @{T.UnaryNot}, @{T.BackUnaryBoolNot},
                          select(unary_op == @{T.UnaryBitNot}, @{T.BackUnaryBnot}, 0)))
     mb_push_cmd(@{T.CmdUnary}, dst, back_op, 1, scalar, child_val, 0, st, cmds)
@@ -283,7 +260,7 @@ end
 -- produce the correct Cmd variant (IntBinary, FloatBinary, BitBinary, Shift).
 local mb_lower_binary_expr = func(expr_op: i32, scalar: i32, left_val: i32, right_val: i32, st: ptr(@{LowerState}), cmds: ptr(i32)) -> i32
     let dst: i32 = mb_fresh_val(st)
-    let is_float: bool = mb_is_float(scalar)
+    let is_float: bool = mb_is_float_scalar(scalar)
     if expr_op == @{T.TK_PLUS} then
         if is_float then
             mb_push_cmd(@{T.CmdFloatBinary}, dst, @{T.BackFloatAdd}, scalar, 1, left_val, right_val, st, cmds)
@@ -332,7 +309,7 @@ end
 -- produce the correct BackCompareOp with CmdCompare.
 local mb_lower_compare_expr = func(cmp_tok: i32, scalar: i32, lhs_val: i32, rhs_val: i32, st: ptr(@{LowerState}), cmds: ptr(i32)) -> i32
     let dst: i32 = mb_fresh_val(st)
-    let is_float: bool = mb_is_float(scalar)
+    let is_float: bool = mb_is_float_scalar(scalar)
     let is_signed: bool = mb_is_signed(scalar)
     if cmp_tok == @{T.TK_EQEQ} then
         let back_op: i32 = select(is_float, @{T.BackFCmpEq}, @{T.BackIcmpEq})
@@ -603,38 +580,34 @@ end
 
 -- ── Exports ──────────────────────────────────────────────────────────
 
-M:local_func("mb_push_cmd", mb_push_cmd)
-M:local_func("mb_push_cmd_w10", mb_push_cmd_w10)
-M:local_func("mb_push_cmd_w15", mb_push_cmd_w15)
-M:local_func("mb_fresh_val", mb_fresh_val)
-M:local_func("mb_is_float", mb_is_float)
-M:local_func("mb_is_signed", mb_is_signed)
-M:local_func("mb_is_integer", mb_is_integer)
-M:local_func("mb_is_ptr", mb_is_ptr)
-M:local_func("mb_token_to_unary_op", mb_token_to_unary_op)
-M:local_func("mb_token_to_binary_op", mb_token_to_binary_op)
-M:local_func("mb_token_to_cmp_op", mb_token_to_cmp_op)
-M:local_func("mb_lower_surface_cast", mb_lower_surface_cast)
-M:local_func("mb_lower_lit", mb_lower_lit)
-M:local_func("mb_lower_ref", mb_lower_ref)
-M:local_func("mb_lower_unary_expr", mb_lower_unary_expr)
-M:local_func("mb_lower_binary_expr", mb_lower_binary_expr)
-M:local_func("mb_lower_compare_expr", mb_lower_compare_expr)
-M:local_func("mb_lower_select_expr", mb_lower_select_expr)
-M:local_func("mb_lower_logic_expr", mb_lower_logic_expr)
-M:local_func("mb_lower_cast_expr", mb_lower_cast_expr)
-M:local_func("mb_lower_call_expr", mb_lower_call_expr)
-M:local_func("mb_lower_dot_expr", mb_lower_dot_expr)
-M:local_func("mb_lower_index_expr", mb_lower_index_expr)
-M:local_func("mb_lower_deref_expr", mb_lower_deref_expr)
-M:local_func("mb_lower_addr_expr", mb_lower_addr_expr)
-M:local_func("mb_lower_len_expr", mb_lower_len_expr)
-M:local_func("mb_lower_view_expr", mb_lower_view_expr)
-M:local_func("mb_lower_if_expr", mb_lower_if_expr)
-M:local_func("mb_lower_hole_expr", mb_lower_hole_expr)
-M:local_func("mb_lower_switch_expr", mb_lower_switch_expr)
-M:local_func("mb_lower_control_expr", mb_lower_control_expr)
-M:local_func("mb_lower_expr", mb_lower_expr)
+M.mb_push_cmd = mb_push_cmd
+M.mb_push_cmd_w10 = mb_push_cmd_w10
+M.mb_push_cmd_w15 = mb_push_cmd_w15
+M.mb_fresh_val = mb_fresh_val
+M.mb_token_to_unary_op = mb_token_to_unary_op
+M.mb_token_to_binary_op = mb_token_to_binary_op
+M.mb_token_to_cmp_op = mb_token_to_cmp_op
+M.mb_lower_surface_cast = mb_lower_surface_cast
+M.mb_lower_lit = mb_lower_lit
+M.mb_lower_ref = mb_lower_ref
+M.mb_lower_unary_expr = mb_lower_unary_expr
+M.mb_lower_binary_expr = mb_lower_binary_expr
+M.mb_lower_compare_expr = mb_lower_compare_expr
+M.mb_lower_select_expr = mb_lower_select_expr
+M.mb_lower_logic_expr = mb_lower_logic_expr
+M.mb_lower_cast_expr = mb_lower_cast_expr
+M.mb_lower_call_expr = mb_lower_call_expr
+M.mb_lower_dot_expr = mb_lower_dot_expr
+M.mb_lower_index_expr = mb_lower_index_expr
+M.mb_lower_deref_expr = mb_lower_deref_expr
+M.mb_lower_addr_expr = mb_lower_addr_expr
+M.mb_lower_len_expr = mb_lower_len_expr
+M.mb_lower_view_expr = mb_lower_view_expr
+M.mb_lower_if_expr = mb_lower_if_expr
+M.mb_lower_hole_expr = mb_lower_hole_expr
+M.mb_lower_switch_expr = mb_lower_switch_expr
+M.mb_lower_control_expr = mb_lower_control_expr
+M.mb_lower_expr = mb_lower_expr
 
 return M
 end

@@ -2,7 +2,7 @@ local T = require("moonlift.mom.tags.mom_tags")
 
 return function(M)
 
-local mt_type_module = func(
+local typemodule_mt_type_module = func(
     type_tag: ptr(i32), type_scalar_arr: ptr(i32), type_elem: ptr(i32),
     expr_tag: ptr(i32), expr_tok: ptr(i32), expr_op: ptr(i32),
     expr_lhs: ptr(i32), expr_rhs: ptr(i32), expr_aux0: ptr(i32),
@@ -183,7 +183,7 @@ local mt_type_module = func(
     return out_issue_cnt[0]
 end
 
-M:local_func("mt_type_module", mt_type_module)
+M.typemodule_mt_type_module = typemodule_mt_type_module
 
 return M
 end

@@ -16,10 +16,10 @@
 local T = require("moonlift.mom.tags.mom_tags")
 
 return function(M)
--- Inline scalar→BackScalar mapping (same as ops.mlua mb_core_scalar_to_back
+-- Inline scalar→BackScalar mapping (same as ops.mlua backabi_mb_core_scalar_to_back
 -- but self-contained since compiled Moonlift modules don't share imports).
 
-local mb_core_scalar_to_back = func(s: i32) -> i32
+local backabi_mb_core_scalar_to_back = func(s: i32) -> i32
     switch s do
     case @{T.ScalarVoid} then return @{T.BackVoid}
     case @{T.ScalarBool} then return @{T.BackBool}
@@ -58,7 +58,7 @@ end
 local mb_abi_classify = func(ty_tag: i32, scalar: i32, out_bs: ptr(i32)) -> i32
     switch ty_tag do
     case @{T.TY_SCALAR} then
-        let bs: i32 = mb_core_scalar_to_back(scalar)
+        let bs: i32 = backabi_mb_core_scalar_to_back(scalar)
         if bs == @{T.BackVoid} then return @{T.ABI_IGNORE} end
         out_bs[0] = bs
         return @{T.ABI_DIRECT}
@@ -109,7 +109,7 @@ local mb_abi_param_classify = func(ty_tag: i32, scalar: i32, out_bs: ptr(i32)) -
     case @{T.TY_VIEW} then
         return @{T.ABI_PARAM_VIEW}
     case @{T.TY_SCALAR} then
-        let bs: i32 = mb_core_scalar_to_back(scalar)
+        let bs: i32 = backabi_mb_core_scalar_to_back(scalar)
         if bs == @{T.BackVoid} then return @{T.ABI_PARAM_REJECTED} end
         out_bs[0] = bs
         return @{T.ABI_PARAM_SCALAR}
@@ -134,7 +134,7 @@ local mb_abi_result_classify = func(ty_tag: i32, scalar: i32, out_bs: ptr(i32)) 
     switch ty_tag do
     case @{T.TY_SCALAR} then
         if scalar == @{T.ScalarVoid} then return @{T.ABI_RESULT_VOID} end
-        let bs: i32 = mb_core_scalar_to_back(scalar)
+        let bs: i32 = backabi_mb_core_scalar_to_back(scalar)
         out_bs[0] = bs
         return @{T.ABI_RESULT_SCALAR}
     case @{T.TY_VIEW} then
@@ -153,7 +153,7 @@ end
 
 local mb_abi_type_to_back_scalar = func(ty_tag: i32, scalar: i32) -> i32
     switch ty_tag do
-    case @{T.TY_SCALAR} then return mb_core_scalar_to_back(scalar)
+    case @{T.TY_SCALAR} then return backabi_mb_core_scalar_to_back(scalar)
     case @{T.TY_PTR} then return @{T.BackPtr}
     case @{T.TY_FUNC} then return @{T.BackPtr}
     case @{T.TY_CFUNC_PTR} then return @{T.BackPtr}
@@ -161,11 +161,11 @@ local mb_abi_type_to_back_scalar = func(ty_tag: i32, scalar: i32) -> i32
     end
 end
 
-M:local_func("mb_core_scalar_to_back", mb_core_scalar_to_back)
-M:local_func("mb_abi_classify", mb_abi_classify)
-M:local_func("mb_abi_param_classify", mb_abi_param_classify)
-M:local_func("mb_abi_result_classify", mb_abi_result_classify)
-M:local_func("mb_abi_type_to_back_scalar", mb_abi_type_to_back_scalar)
+M.backabi_mb_core_scalar_to_back = backabi_mb_core_scalar_to_back
+M.mb_abi_classify = mb_abi_classify
+M.mb_abi_param_classify = mb_abi_param_classify
+M.mb_abi_result_classify = mb_abi_result_classify
+M.mb_abi_type_to_back_scalar = mb_abi_type_to_back_scalar
 
 return M
 end

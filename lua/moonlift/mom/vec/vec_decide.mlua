@@ -68,10 +68,10 @@ local mv_decide = func(vt: ptr(i32), va: ptr(i32), vb: ptr(i32), vc: ptr(i32),
     dec_count[0] = dec_count[0] + 1
 end
 
-M:local_func("mv_count_tag", mv_count_tag)
-M:local_func("mv_find_first", mv_find_first)
-M:local_func("mv_elem_bits", mv_elem_bits)
-M:local_func("mv_decide", mv_decide)
+M.mv_count_tag = mv_count_tag
+M.mv_find_first = mv_find_first
+M.mv_elem_bits = mv_elem_bits
+M.mv_decide = mv_decide
 
 return M
 end

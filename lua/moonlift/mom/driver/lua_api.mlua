@@ -17,28 +17,14 @@ local T = require("moonlift.mom.tags.mom_tags")
 -- Lua-callable compilation wrapper: source bytes → artifact
 -- This function is exposed to Lua as moon.native_loadstring()
 -- Returns an opaque artifact handle (ptr(u8)) that Lua holds as a userdata
-M.mom_lua_native_loadstring = func(
-    src: ptr(u8),
-    src_len: index,
-    module_name: ptr(u8),
-    module_name_len: index,
-    lua_state: ptr(u8)
-) -> ptr(u8)
-    -- TODO: Stack allocation for diagnostic buffer
-    -- For now, return nil to indicate error
-    return nil
+local mom_lua_native_loadstring = func(src: ptr(u8), src_len: index, module_name: ptr(u8), module_name_len: index, lua_state: ptr(u8)) -> i32
+    return 0
 end
 
 -- Lua-callable object emission wrapper: source bytes → object file bytes
 -- This function is exposed to Lua as moon.emit_object()
 -- Returns pointer to allocated byte buffer (or nil on error)
-M.mom_lua_emit_object = func(
-    src: ptr(u8),
-    src_len: index,
-    module_name: ptr(u8),
-    module_name_len: index,
-    out_buf: ptr(ptr(u8))
-) -> index
+local mom_lua_emit_object = func(src: ptr(u8), src_len: index, module_name: ptr(u8), module_name_len: index, out_buf: ptr(ptr(u8))) -> index
     -- TODO: Allocate output buffer, compile source to object
     -- Return length written, or 0 on error
     return 0
@@ -46,24 +32,20 @@ end
 
 -- Helper: get function pointer from artifact
 -- Called from Lua as artifact:get(func_name)
-M.mom_lua_artifact_get = func(
-    artifact: ptr(u8),
-    func_name: ptr(u8),
-    func_name_len: index
-) -> ptr(u8)
+local mom_lua_artifact_get = func(artifact: ptr(u8), func_name: ptr(u8), func_name_len: index) -> ptr(u8)
     -- Forward to backend FFI
-    return M.mom_backend_getpointer(artifact, func_name)
+    return mom_backend_getpointer(artifact, func_name)
 end
 
 -- Helper: free artifact after use
-M.mom_lua_artifact_free = func(artifact: ptr(u8))
-    M.mom_backend_free_artifact(artifact)
+local mom_lua_artifact_free = func(artifact: ptr(u8))
+    mom_backend_free_artifact(artifact)
 end
 
 -- Registry entry for Lua module initialization
 -- Called from Rust when LuaJIT state is set up
 -- Registers the moonlift table with compilation functions
-M.mom_luaopen_moonlift_impl = func(lua_state: ptr(u8)) -> i32
+local mom_luaopen_moonlift_impl = func(lua_state: ptr(u8)) -> i32
     -- TODO: Register Lua functions:
     -- - moonlift.native_loadstring
     -- - moonlift.emit_object
@@ -72,6 +54,12 @@ M.mom_luaopen_moonlift_impl = func(lua_state: ptr(u8)) -> i32
     -- For now, just return success
     return 0
 end
+
+M.mom_lua_native_loadstring = mom_lua_native_loadstring
+M.mom_lua_emit_object = mom_lua_emit_object
+M.mom_lua_artifact_get = mom_lua_artifact_get
+M.mom_lua_artifact_free = mom_lua_artifact_free
+M.export.mom_luaopen_moonlift_impl = mom_luaopen_moonlift_impl
 
 return M
 end

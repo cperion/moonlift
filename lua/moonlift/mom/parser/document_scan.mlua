@@ -214,28 +214,28 @@ local mom_scan_document = func(p: ptr(u8), n: index,
     end
 end
 
-M:local_func("md_is_alpha", md_is_alpha)
-M:local_func("md_is_digit", md_is_digit)
-M:local_func("md_is_alnum", md_is_alnum)
-M:local_func("md_byte", md_byte)
-M:local_func("md_word_boundary", md_word_boundary)
-M:local_func("md_match2", md_match2)
-M:local_func("md_match3", md_match3)
-M:local_func("md_match4", md_match4)
-M:local_func("md_match5", md_match5)
-M:local_func("md_match6", md_match6)
-M:local_func("md_is_end_kw", md_is_end_kw)
-M:local_func("md_opens_end", md_opens_end)
-M:local_func("md_is_island_start", md_is_island_start)
-M:local_func("md_skip_short_string", md_skip_short_string)
-M:local_func("md_long_open_eqs", md_long_open_eqs)
-M:local_func("md_long_close_at", md_long_close_at)
-M:local_func("md_skip_long_bracket", md_skip_long_bracket)
-M:local_func("md_skip_line_comment", md_skip_line_comment)
-M:local_func("md_skip_name", md_skip_name)
-M:local_func("md_name_start_after_keyword", md_name_start_after_keyword)
-M:local_func("md_find_island_end", md_find_island_end)
-M:local_func("mom_scan_document", mom_scan_document)
+M.md_is_alpha = md_is_alpha
+M.md_is_digit = md_is_digit
+M.md_is_alnum = md_is_alnum
+M.md_byte = md_byte
+M.md_word_boundary = md_word_boundary
+M.md_match2 = md_match2
+M.md_match3 = md_match3
+M.md_match4 = md_match4
+M.md_match5 = md_match5
+M.md_match6 = md_match6
+M.md_is_end_kw = md_is_end_kw
+M.md_opens_end = md_opens_end
+M.md_is_island_start = md_is_island_start
+M.md_skip_short_string = md_skip_short_string
+M.md_long_open_eqs = md_long_open_eqs
+M.md_long_close_at = md_long_close_at
+M.md_skip_long_bracket = md_skip_long_bracket
+M.md_skip_line_comment = md_skip_line_comment
+M.md_skip_name = md_skip_name
+M.md_name_start_after_keyword = md_name_start_after_keyword
+M.md_find_island_end = md_find_island_end
+M.mom_scan_document = mom_scan_document
 
 return M
 end

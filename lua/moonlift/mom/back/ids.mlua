@@ -7,12 +7,13 @@
 
 return function(M)
 
-local MomBackIdAllocator = M:type("MomBackIdAllocator", struct MomBackIdAllocator
+M.MomBackIdAllocator = struct MomBackIdAllocator
     next_value: i32
     next_block: i32
     next_access: i32
     next_slot: i32
-end)
+end
+local MomBackIdAllocator = M.MomBackIdAllocator
 
 local mb_ids_reset_func = func(ids: ptr(@{MomBackIdAllocator}))
     ids.next_value = 0
@@ -41,11 +42,11 @@ local mb_fresh_slot = func(ids: ptr(@{MomBackIdAllocator})) -> i32
     return ids.next_slot
 end
 
-M:local_func("mb_ids_reset_func", mb_ids_reset_func)
-M:local_func("mb_fresh_value", mb_fresh_value)
-M:local_func("mb_fresh_block", mb_fresh_block)
-M:local_func("mb_fresh_access", mb_fresh_access)
-M:local_func("mb_fresh_slot", mb_fresh_slot)
+M.mb_ids_reset_func = mb_ids_reset_func
+M.mb_fresh_value = mb_fresh_value
+M.mb_fresh_block = mb_fresh_block
+M.mb_fresh_access = mb_fresh_access
+M.mb_fresh_slot = mb_fresh_slot
 
 return M
 end

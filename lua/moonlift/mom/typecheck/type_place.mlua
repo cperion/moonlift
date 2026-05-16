@@ -4,7 +4,7 @@ return function(M)
 local TI_UNRESOLVED_VALUE = 1
 local TI_NOT_POINTER = 7
 
-local mt_push_issue = func(tag: i32, d0: i32, d1: i32,
+local typeplace_mt_push_issue = func(tag: i32, d0: i32, d1: i32,
                            tag_arr: ptr(i32), d0_arr: ptr(i32), d1_arr: ptr(i32),
                            cnt: ptr(i32), cap: index)
     let i: index = as(index, cnt[0])
@@ -51,7 +51,7 @@ local mt_place_type = func(ei: i32,
                 return elem_s
             end
         end
-        mt_push_issue(@{TI_NOT_POINTER}, child, 0, issue_tag, issue_d0, issue_d1, issue_cnt, cap)
+        typeplace_mt_push_issue(@{TI_NOT_POINTER}, child, 0, issue_tag, issue_d0, issue_d1, issue_cnt, cap)
         out_scalar[i] = @{T.ScalarVoid}
         return @{T.ScalarVoid}
     end
@@ -94,8 +94,8 @@ local mt_place_type = func(ei: i32,
     return @{T.ScalarVoid}
 end
 
-M:local_func("mt_push_issue", mt_push_issue)
-M:local_func("mt_place_type", mt_place_type)
+M.typeplace_mt_push_issue = typeplace_mt_push_issue
+M.mt_place_type = mt_place_type
 
 return M
 end

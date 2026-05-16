@@ -9,13 +9,14 @@ return function(M)
 
 local i32p = moon.ptr(moon.i32)
 
-local MomI32Builder = M:type("MomI32Builder", struct MomI32Builder
+M.MomI32Builder = struct MomI32Builder
     data: ptr(i32)
     len: index
     cap: index
-end)
+end
+local MomI32Builder = M.MomI32Builder
 
-local MomIssueBuilder = M:type("MomIssueBuilder", struct MomIssueBuilder
+M.MomIssueBuilder = struct MomIssueBuilder
     tag: ptr(i32)
     a: ptr(i32)
     b: ptr(i32)
@@ -23,9 +24,10 @@ local MomIssueBuilder = M:type("MomIssueBuilder", struct MomIssueBuilder
     d: ptr(i32)
     len: index
     cap: index
-end)
+end
+local MomIssueBuilder = M.MomIssueBuilder
 
-local MomCmdBuffer = M:type("MomCmdBuffer", struct MomCmdBuffer
+M.MomCmdBuffer = struct MomCmdBuffer
     tag: ptr(i32)
     a: ptr(i32)
     b: ptr(i32)
@@ -35,17 +37,19 @@ local MomCmdBuffer = M:type("MomCmdBuffer", struct MomCmdBuffer
     f: ptr(i32)
     len: index
     cap: index
-end)
+end
+local MomCmdBuffer = M.MomCmdBuffer
 
 local cmd_buffer_p = moon.ptr(MomCmdBuffer)
 
-local LowerState = M:type("LowerState", struct LowerState
+M.LowerState = struct LowerState
     cmds: ptr(@{MomCmdBuffer})
     cmd_count: index
     cmd_cap: index
     next_value: i32
     next_block: i32
-end)
+end
+local LowerState = M.LowerState
 
 local mr_cmd_buffer_reset = func(b: ptr(@{MomCmdBuffer}))
     b.len = 0
@@ -112,17 +116,17 @@ local mr_issue_builder_overflowed = func(b: ptr(@{MomIssueBuilder})) -> bool
     return b.len > b.cap
 end
 
-M:local_func("mr_cmd_buffer_reset", mr_cmd_buffer_reset)
-M:local_func("mr_cmd_buffer_push", mr_cmd_buffer_push)
-M:local_func("mr_cmd_buffer_overflowed", mr_cmd_buffer_overflowed)
-M:local_func("mr_fresh_value", mr_fresh_value)
-M:local_func("mr_fresh_block", mr_fresh_block)
-M:local_func("mr_i32_builder_reset", mr_i32_builder_reset)
-M:local_func("mr_i32_builder_push", mr_i32_builder_push)
-M:local_func("mr_i32_builder_overflowed", mr_i32_builder_overflowed)
-M:local_func("mr_issue_builder_reset", mr_issue_builder_reset)
-M:local_func("mr_issue_push4", mr_issue_push4)
-M:local_func("mr_issue_builder_overflowed", mr_issue_builder_overflowed)
+M.mr_cmd_buffer_reset = mr_cmd_buffer_reset
+M.mr_cmd_buffer_push = mr_cmd_buffer_push
+M.mr_cmd_buffer_overflowed = mr_cmd_buffer_overflowed
+M.mr_fresh_value = mr_fresh_value
+M.mr_fresh_block = mr_fresh_block
+M.mr_i32_builder_reset = mr_i32_builder_reset
+M.mr_i32_builder_push = mr_i32_builder_push
+M.mr_i32_builder_overflowed = mr_i32_builder_overflowed
+M.mr_issue_builder_reset = mr_issue_builder_reset
+M.mr_issue_push4 = mr_issue_push4
+M.mr_issue_builder_overflowed = mr_issue_builder_overflowed
 
 return M
 end
