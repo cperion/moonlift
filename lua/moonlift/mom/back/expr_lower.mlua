@@ -181,16 +181,64 @@ local mb_token_to_cmp_op = func(tok: i32) -> i32
            select(tok == @{T.TK_GE}, @{T.CmpGe}, 0))))))
 end
 
--- Map SurfaceCastOp tag to BackCastOp tag.
-local mb_lower_surface_cast = func(op: i32) -> i32
+-- Map SurfaceCastOp tag and scalar types to BackCastOp tag.
+-- Uses switch statements and direct comparisons to avoid forward references.
+local mb_lower_surface_cast = func(op: i32, src_scalar: i32, dst_scalar: i32) -> i32
+    -- For semantic casts, compute the appropriate back op
+    if op == @{T.SC_SURFACE_CAST} or op == @{T.SC_SAT_CAST} then
+        if src_scalar == dst_scalar then return 0 end
+        -- Compute bit widths
+        let src_bits: i32 = select(src_scalar == @{T.BackI8} or src_scalar == @{T.BackU8}, 8,
+                            select(src_scalar == @{T.BackI16} or src_scalar == @{T.BackU16}, 16,
+                            select(src_scalar == @{T.BackI32} or src_scalar == @{T.BackU32} or src_scalar == @{T.BackF32}, 32,
+                            select(src_scalar == @{T.BackI64} or src_scalar == @{T.BackU64} or src_scalar == @{T.BackF64} or src_scalar == @{T.BackIndex} or src_scalar == @{T.BackPtr}, 64, 0))))
+        let dst_bits: i32 = select(dst_scalar == @{T.BackI8} or dst_scalar == @{T.BackU8}, 8,
+                            select(dst_scalar == @{T.BackI16} or dst_scalar == @{T.BackU16}, 16,
+                            select(dst_scalar == @{T.BackI32} or dst_scalar == @{T.BackU32} or dst_scalar == @{T.BackF32}, 32,
+                            select(dst_scalar == @{T.BackI64} or dst_scalar == @{T.BackU64} or dst_scalar == @{T.BackF64} or dst_scalar == @{T.BackIndex} or dst_scalar == @{T.BackPtr}, 64, 0))))
+        -- Check if types are int/float
+        let src_is_int: bool = (src_scalar == @{T.BackI8} or src_scalar == @{T.BackI16} or src_scalar == @{T.BackI32} or src_scalar == @{T.BackI64} or
+                               src_scalar == @{T.BackU8} or src_scalar == @{T.BackU16} or src_scalar == @{T.BackU32} or src_scalar == @{T.BackU64} or src_scalar == @{T.BackIndex})
+        let dst_is_int: bool = (dst_scalar == @{T.BackI8} or dst_scalar == @{T.BackI16} or dst_scalar == @{T.BackI32} or dst_scalar == @{T.BackI64} or
+                               dst_scalar == @{T.BackU8} or dst_scalar == @{T.BackU16} or dst_scalar == @{T.BackU32} or dst_scalar == @{T.BackU64} or dst_scalar == @{T.BackIndex})
+        let src_is_float: bool = (src_scalar == @{T.BackF32} or src_scalar == @{T.BackF64})
+        let dst_is_float: bool = (dst_scalar == @{T.BackF32} or dst_scalar == @{T.BackF64})
+        let src_is_signed: bool = (src_scalar == @{T.BackI8} or src_scalar == @{T.BackI16} or src_scalar == @{T.BackI32} or src_scalar == @{T.BackI64} or src_scalar == @{T.BackIndex})
+        let dst_is_signed: bool = (dst_scalar == @{T.BackI8} or dst_scalar == @{T.BackI16} or dst_scalar == @{T.BackI32} or dst_scalar == @{T.BackI64} or dst_scalar == @{T.BackIndex})
+        -- Int to int
+        if src_is_int and dst_is_int then
+            if dst_bits < src_bits then return @{T.BackIreduce} end
+            if dst_bits > src_bits then
+                if src_is_signed then return @{T.BackSextend} end
+                return @{T.BackUextend}
+            end
+            return @{T.BackBitcast}
+        end
+        -- Float to float
+        if src_is_float and dst_is_float then
+            if dst_bits > src_bits then return @{T.BackFpromote} end
+            if dst_bits < src_bits then return @{T.BackFdemote} end
+            return 0
+        end
+        -- Int to float
+        if src_is_int and dst_is_float then
+            if src_is_signed then return @{T.BackSToF} end
+            return @{T.BackUToF}
+        end
+        -- Float to int
+        if src_is_float and dst_is_int then
+            if dst_is_signed then return @{T.BackFToS} end
+            return @{T.BackFToU}
+        end
+        return @{T.BackBitcast}
+    end
+    -- Other explicit cast ops
     switch op do
-    case @{T.SC_SURFACE_CAST} then return @{T.BackBitcast}
     case @{T.SC_TRUNC} then return @{T.BackIreduce}
     case @{T.SC_ZEXT} then return @{T.BackUextend}
     case @{T.SC_SEXT} then return @{T.BackSextend}
     case @{T.SC_BITCAST} then return @{T.BackBitcast}
-    case @{T.SC_SAT_CAST} then return @{T.BackBitcast}
-    default then return 0
+    default then return @{T.BackBitcast}
     end
 end
 
@@ -343,10 +391,12 @@ end
 
 -- Lower a cast expression: apply SurfaceCastOp → BackCastOp dispatch.
 -- expr_a = cast_op (SurfaceCastOp tag), expr_b = child_idx.
-local mb_lower_cast_expr = func(cast_op: i32, scalar: i32, child_val: i32, st: ptr(i32), cmds: ptr(i32)) -> i32
+-- src_scalar: the BackScalar type of the source expression.
+-- scalar (dst_scalar): the BackScalar type of the destination.
+local mb_lower_cast_expr = func(cast_op: i32, src_scalar: i32, dst_scalar: i32, child_val: i32, st: ptr(i32), cmds: ptr(i32)) -> i32
     let dst: i32 = mb_fresh_val(st)
-    let back_op: i32 = mb_lower_surface_cast(cast_op)
-    mb_push_cmd(@{T.CmdCast}, dst, back_op, scalar, child_val, 0, 0, st, cmds)
+    let back_op: i32 = mb_lower_surface_cast(cast_op, src_scalar, dst_scalar)
+    mb_push_cmd(@{T.CmdCast}, dst, back_op, dst_scalar, child_val, 0, 0, st, cmds)
     return dst
 end
 
@@ -486,8 +536,13 @@ local mb_lower_expr = func(expr_tag: ptr(i32), expr_a: ptr(i32), expr_b: ptr(i32
         return mb_lower_logic_expr(expr_a[idx], scalar, left, right, st, cmds)
     end
     if tag == @{T.EX_CAST} then
-        let child: i32 = mb_lower_expr(expr_tag, expr_a, expr_b, expr_c, expr_d, expr_b[idx], e_scalar, st, cmds)
-        return mb_lower_cast_expr(expr_a[idx], scalar, child, st, cmds)
+        let child_idx: i32 = expr_b[idx]
+        let child: i32 = mb_lower_expr(expr_tag, expr_a, expr_b, expr_c, expr_d, child_idx, e_scalar, st, cmds)
+        let src_scalar: i32 = e_scalar[child_idx]
+        -- Normalize cast_op: TK_AS (170) and other opcodes map to SC_SURFACE_CAST (1)
+        let cast_op: i32 = expr_a[idx]
+        if cast_op == @{T.TK_AS} then cast_op = @{T.SC_SURFACE_CAST} end
+        return mb_lower_cast_expr(cast_op, src_scalar, scalar, child, st, cmds)
     end
     if tag == @{T.EX_CALL} then
         let func_val: i32 = mb_lower_expr(expr_tag, expr_a, expr_b, expr_c, expr_d, expr_a[idx], e_scalar, st, cmds)

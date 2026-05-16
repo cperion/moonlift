@@ -32,7 +32,7 @@ local md_byte = func(p: ptr(u8), n: index, i: index) -> i32
 end
 
 local md_word_boundary = func(p: ptr(u8), n: index, start: index, stop: index) -> bool
-    if start > as(index, 0) then
+    if start > 0 then
         if md_is_alnum(md_byte(p, n, start - as(index, 1))) then return false end
     end
     if stop < n then

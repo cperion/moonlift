@@ -98,7 +98,7 @@ local mt_type_expr = func(ei: i32,
         let name: i32 = expr_tok[i]
         let found: i32 = -1
         block scan(j: index = as(index, env_count[0]))
-            if j <= as(index, 0) then yield end
+            if j == as(index, 0) then yield end
             let k: index = j - as(index, 1)
             if env_name[k] == name then found = env_type[k]; yield end
             jump scan(j = k)

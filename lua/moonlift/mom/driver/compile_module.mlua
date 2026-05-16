@@ -1,0 +1,113 @@
+-- MOM full-module compiler driver.
+--
+-- Orchestrates: materialized AST + typecheck output → lower → validate → wire → backend.
+-- This module provides the post-typecheck stages.
+
+local T = require("moonlift.mom.back.back_tags")
+return function(M)
+local LowerState = M.LowerState
+local MomWireBuilder = M.MomWireBuilder
+
+-- Bridge MomTreeOut expr arrays to lowerer-compatible format.
+M.mc_bridge_expr_arrays = func(
+    expr_tag: ptr(i32), expr_op: ptr(i32), expr_tok: ptr(i32),
+    expr_lhs: ptr(i32), expr_rhs: ptr(i32), expr_aux0: ptr(i32),
+    ne: index,
+    out_a: ptr(i32), out_b: ptr(i32), out_c: ptr(i32), out_d: ptr(i32))
+    block loop(i: index = 0)
+        if i >= ne then return end
+        let tag: i32 = expr_tag[i]
+        if tag == @{T.ME_LIT} or tag == @{T.ME_REF} or tag == @{T.ME_HOLE} then
+            out_a[i] = expr_tok[i]
+            out_b[i] = 0; out_c[i] = 0
+            out_d[i] = expr_aux0[i]
+        elseif tag == @{T.ME_CAST} then
+            out_a[i] = @{T.SC_SURFACE_CAST}
+            out_b[i] = expr_lhs[i]
+            out_c[i] = expr_rhs[i]
+            out_d[i] = expr_aux0[i]
+        else
+            out_a[i] = expr_op[i]
+            out_b[i] = expr_lhs[i]
+            out_c[i] = expr_rhs[i]
+            out_d[i] = expr_aux0[i]
+        end
+        jump loop(i = i + 1)
+    end
+end
+
+-- Bridge MomTreeOut stmt fields to lowerer stmt format.
+M.mc_bridge_stmt_arrays = func(
+    stmt_tag: ptr(i32), stmt_tok: ptr(i32), stmt_name: ptr(i32),
+    stmt_type: ptr(i32), stmt_value: ptr(i32),
+    stmt_body_start: ptr(i32), stmt_body_count: ptr(i32), stmt_aux: ptr(i32),
+    ns: index,
+    out_tok: ptr(i32), out_a: ptr(i32), out_b: ptr(i32),
+    out_c: ptr(i32), out_d: ptr(i32), out_e: ptr(i32))
+    block loop(i: index = 0)
+        if i >= ns then return end
+        out_tok[i] = stmt_tok[i]
+        out_a[i] = stmt_name[i]
+        out_b[i] = stmt_type[i]
+        out_c[i] = stmt_value[i]
+        out_d[i] = stmt_body_start[i]
+        out_e[i] = stmt_body_count[i]
+        jump loop(i = i + 1)
+    end
+end
+
+-- Lower a module: walk all expressions then all statements, produce cmd tape.
+-- ls must have cmd_cap set; cmds must have capacity for cmd_cap * 18 int32_ts.
+M.mc_lower_module = func(
+    expr_tag: ptr(i32), expr_a: ptr(i32), expr_b: ptr(i32),
+    expr_c: ptr(i32), expr_d: ptr(i32),
+    ne: index,
+    stmt_tag: ptr(i32), stmt_tok: ptr(i32),
+    stmt_a: ptr(i32), stmt_b: ptr(i32), stmt_c: ptr(i32),
+    stmt_d: ptr(i32), stmt_e: ptr(i32),
+    ns: index,
+    slist: ptr(i32),
+    e_scalar: ptr(i32),
+    env_name: ptr(i32), env_val: ptr(i32), env_len: index, env_cap: index,
+    ls: ptr(@{LowerState}), cmds: ptr(i32))
+
+    -- Lower all expressions to populate env and cmd tape
+    block ei(i: index = 0)
+        if i >= ne then yield end
+        mb_lower_expr(expr_tag, expr_a, expr_b, expr_c, expr_d,
+                      as(i32, i), e_scalar, env_name, env_val, env_len, ls, cmds)
+        jump ei(i = i + 1)
+    end
+
+    -- Lower all statements
+    block si(i: index = 0)
+        if i >= ns then yield end
+        let sidx: i32 = slist[i]
+        mb_lower_stmt(expr_tag, expr_a, expr_b, expr_c, expr_d,
+                      stmt_tag, stmt_tok, stmt_a, stmt_b, stmt_c, stmt_d, stmt_e,
+                      slist, sidx, e_scalar, env_name, env_val, env_len, ls, cmds)
+        jump si(i = i + 1)
+    end
+end
+
+-- Validate a command tape. Returns 0 on success, issue count on failure.
+M.mc_validate_tape = func(
+    ct: ptr(i32), ca: ptr(i32), cb: ptr(i32), cc: ptr(i32),
+    cd: ptr(i32), ce: ptr(i32), cf: ptr(i32), ncmds: index,
+    it: ptr(i32), ia: ptr(i32), ib: ptr(i32), ic: ptr(i32),
+    icnt: ptr(i32), icap: i32,
+    ms: ptr(i32), mk: ptr(i32), mcap: i32) -> i32
+    mb_validate(ct, ca, cb, cc, cd, ce, cf, as(i32, ncmds),
+                it, ia, ib, ic, icnt, icap, ms, mk, mcap)
+    return icnt[0]
+end
+
+-- Encode a command tape to MLBT v3 wire format.
+-- Returns wire length on success, 0 on failure.
+M.mc_wire_tape = func(
+    ct: ptr(i32), ca: ptr(i32), ncmds: index,
+    w: ptr(@{MomWireBuilder})) -> index
+    return mom_lower_cmd_tape_to_wire(ct, ncmds, w)
+end
+
+end

@@ -12,9 +12,9 @@ local M = moon.module("mom_vec_facts")
 local mv_push_fact = func(tag: i32, a: i32, b: i32, c: i32, d: i32, e: i32, f: i32,
                            vtag: ptr(i32), va: ptr(i32), vb: ptr(i32), vc: ptr(i32),
                            vd: ptr(i32), ve: ptr(i32), vf: ptr(i32),
-                           count: ptr(i32), cap: i32)
+                           count: ptr(i32), cap: index)
     let i: index = as(index, count[0])
-    if i < as(index, cap) then
+    if i < cap then
         vtag[i] = tag; va[i] = a; vb[i] = b; vc[i] = c
         vd[i] = d; ve[i] = e; vf[i] = f
     end
@@ -25,11 +25,11 @@ end
 -- Returns 1=recognized (with facts emitted), 0=not recognized.
 local mv_extract_vec_facts = func(
     ft: ptr(i32), fa: ptr(i32), fb: ptr(i32), fc: ptr(i32),
-    fd: ptr(i32), fe: ptr(i32), ff: ptr(i32), nf: i32,
-    pb: ptr(i32), ps: ptr(i32), np: i32,
+    fd: ptr(i32), fe: ptr(i32), ff: ptr(i32), nf: index,
+    pb: ptr(i32), ps: ptr(i32), np: index,
     vt: ptr(i32), va: ptr(i32), vb: ptr(i32), vc: ptr(i32),
     vd: ptr(i32), ve: ptr(i32), vf: ptr(i32),
-    vcount: ptr(i32), vcap: i32) -> i32
+    vcount: ptr(i32), vcap: index) -> i32
     -- Find backedge, return 0 if none
     block scan2(idx: index = 0)
         if idx >= as(index, nf) then return 0 end

@@ -1,0 +1,20 @@
+-- MOM native entry points — C-callable symbols for the mom binary.
+--
+-- Each function in this module is compiled to native code and exported
+-- with a predictable symbol name in the .o file. Rust mom_main.rs
+-- calls them directly through extern "C" declarations.
+--
+-- Individual pipeline functions that work standalone:
+--   mom_lex_into, np_parse_module, mom_materialize_tree,
+--   mc_lower_module, mc_validate_tape, mc_wire_tape,
+--   mb_push_cmd, mb_validate, mom_backend_compile_binary
+
+local T = require("moonlift.mom.back.back_tags")
+return function(M)
+
+-- Marker function — proves the .o symbol is linked.
+M.mom_hello = func() -> i32
+    return 42
+end
+
+end

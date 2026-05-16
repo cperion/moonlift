@@ -13,15 +13,80 @@ local mb_is_float_scalar = func(s: i32) -> bool
 end
 
 local mb_is_signed_int_scalar = func(s: i32) -> bool
-    return s == @{T.BackI8} or s == @{T.BackI16} or s == @{T.BackI32} or s == @{T.BackI64}
+    return s == @{T.BackI8} or s == @{T.BackI16} or s == @{T.BackI32} or s == @{T.BackI64} or s == @{T.BackIndex}
 end
 
 local mb_is_unsigned_int_scalar = func(s: i32) -> bool
-    return s == @{T.BackU8} or s == @{T.BackU16} or s == @{T.BackU32} or s == @{T.BackU64} or s == @{T.BackIndex} or s == @{T.BackPtr}
+    return s == @{T.BackU8} or s == @{T.BackU16} or s == @{T.BackU32} or s == @{T.BackU64} or s == @{T.BackPtr}
+end
+
+local mb_is_signed = func(s: i32) -> bool
+    return mb_is_signed_int_scalar(s)
+end
+
+local mb_is_unsigned = func(s: i32) -> bool
+    return mb_is_unsigned_int_scalar(s)
 end
 
 local mb_is_integer_scalar = func(s: i32) -> bool
     return mb_is_signed_int_scalar(s) or mb_is_unsigned_int_scalar(s)
+end
+
+local mb_scalar_bits = func(s: i32) -> i32
+    switch s do
+    case @{T.BackBool} then return 1
+    case @{T.BackI8} then return 8
+    case @{T.BackI16} then return 16
+    case @{T.BackI32} then return 32
+    case @{T.BackI64} then return 64
+    case @{T.BackU8} then return 8
+    case @{T.BackU16} then return 16
+    case @{T.BackU32} then return 32
+    case @{T.BackU64} then return 64
+    case @{T.BackIndex} then return 64
+    case @{T.BackF32} then return 32
+    case @{T.BackF64} then return 64
+    case @{T.BackPtr} then return 64
+    default then return 0
+    end
+end
+
+local mb_semantic_cast_op = func(src_scalar: i32, dst_scalar: i32) -> i32
+    -- Identity: same type
+    if src_scalar == dst_scalar then return @{T.MC_IDENTITY} end
+    -- Classify source and destination
+    let src_bits: i32 = mb_scalar_bits(src_scalar)
+    let dst_bits: i32 = mb_scalar_bits(dst_scalar)
+    let src_is_int: bool = mb_is_integer_scalar(src_scalar)
+    let dst_is_int: bool = mb_is_integer_scalar(dst_scalar)
+    let src_is_float: bool = mb_is_float_scalar(src_scalar)
+    let dst_is_float: bool = mb_is_float_scalar(dst_scalar)
+    -- Int to int
+    if src_is_int and dst_is_int then
+        if dst_bits < src_bits then return @{T.MC_IREDUCE} end
+        if dst_bits > src_bits then
+            if mb_is_signed(src_scalar) then return @{T.MC_SEXTEND} end
+            return @{T.MC_UEXTEND}
+        end
+        return @{T.MC_BITCAST}
+    end
+    -- Float to float
+    if src_is_float and dst_is_float then
+        if dst_bits > src_bits then return @{T.MC_FPROMOTE} end
+        if dst_bits < src_bits then return @{T.MC_FDEMOTE} end
+        return @{T.MC_IDENTITY}
+    end
+    -- Int to float
+    if src_is_int and dst_is_float then
+        if mb_is_signed(src_scalar) then return @{T.MC_STOF} end
+        return @{T.MC_UTOF}
+    end
+    -- Float to int
+    if src_is_float and dst_is_int then
+        if mb_is_signed(dst_scalar) then return @{T.MC_FTOS} end
+        return @{T.MC_FTOU}
+    end
+    return @{T.MC_BITCAST}
 end
 
 local mb_core_scalar_to_back = func(s: i32) -> i32
@@ -102,16 +167,16 @@ local mb_binary_op_code = func(op: i32, scalar: i32) -> i32
     end
 end
 
--- SurfaceCastOp → MachineCastOp. Identity (1) returns 0 (no lowering needed).
-local mb_lower_surface_cast_op = func(op: i32) -> i32
+-- SurfaceCastOp → MachineCastOp. For SC_SURFACE_CAST, must call with src/dst scalars.
+local mb_lower_surface_cast_op = func(op: i32, src_scalar: i32, dst_scalar: i32) -> i32
     switch op do
-    case @{T.SC_SURFACE_CAST} then return @{T.MC_BITCAST}
+    case @{T.SC_SURFACE_CAST} then return mb_semantic_cast_op(src_scalar, dst_scalar)
     case @{T.SC_TRUNC} then return @{T.MC_IREDUCE}
     case @{T.SC_ZEXT} then return @{T.MC_UEXTEND}
     case @{T.SC_SEXT} then return @{T.MC_SEXTEND}
     case @{T.SC_BITCAST} then return @{T.MC_BITCAST}
-    case @{T.SC_SAT_CAST} then return @{T.MC_BITCAST}
-    default then return 0
+    case @{T.SC_SAT_CAST} then return mb_semantic_cast_op(src_scalar, dst_scalar)
+    default then return @{T.MC_BITCAST}
     end
 end
 
@@ -170,7 +235,11 @@ end
 M:add_func(mb_is_float_scalar)
 M:add_func(mb_is_signed_int_scalar)
 M:add_func(mb_is_unsigned_int_scalar)
+M:add_func(mb_is_signed)
+M:add_func(mb_is_unsigned)
 M:add_func(mb_is_integer_scalar)
+M:add_func(mb_scalar_bits)
+M:add_func(mb_semantic_cast_op)
 M:add_func(mb_core_scalar_to_back)
 M:add_func(mb_lower_unary_op)
 M:add_func(mb_lower_compare_op)

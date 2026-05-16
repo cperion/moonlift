@@ -18,13 +18,13 @@ local mt_type_module = func(
     out_issue_tag: ptr(i32), out_issue_d0: ptr(i32), out_issue_d1: ptr(i32),
     out_issue_cnt: ptr(i32), out_issue_cap: index) -> i32
 
-    let ne: i32 = counts[1]
-    let ns: i32 = counts[2]
-    let ni: i32 = counts[3]
+    let ne: index = as(index, counts[1])
+    let ns: index = as(index, counts[2])
+    let ni: index = as(index, counts[3])
 
     -- Phase 1: Build env from items (function names, externs, types)
     block items(ij: index = as(index, 0))
-        if ij >= as(index, ni) then yield end
+        if ij >= ni then yield end
         let tg: i32 = item_tag[ij]
         let name: i32 = item_tok[ij]
         if name >= 0 then
@@ -40,7 +40,7 @@ local mt_type_module = func(
 
     -- Phase 2: Typecheck all expressions (linear order = children before parents)
     block exprs(ei: index = as(index, 0))
-        if ei >= as(index, ne) then yield end
+        if ei >= ne then yield end
         let tg: i32 = expr_tag[ei]
         if tg == @{T.ME_LIT} then
             let tok: i32 = expr_tok[ei]
@@ -53,7 +53,7 @@ local mt_type_module = func(
             let name: i32 = expr_tok[ei]
             let found: i32 = -1
             block scan(sj: index = as(index, env_count[0]))
-                if sj <= as(index, 0) then yield end
+                if sj == as(index, 0) then yield end
                 let sk: index = sj - as(index, 1)
                 if env_name[sk] == name then found = env_type[sk]; yield end
                 jump scan(sj = sk)
@@ -139,7 +139,7 @@ local mt_type_module = func(
 
     -- Phase 3: Typecheck all statements
     block stmts(si: index = as(index, 0))
-        if si >= as(index, ns) then yield end
+        if si >= ns then yield end
         let tg: i32 = stmt_tag[si]
         if tg == @{T.MS_LET} or tg == @{T.MS_VAR} then
             let init_expr: i32 = stmt_value[si]
