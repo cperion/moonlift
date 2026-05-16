@@ -200,10 +200,9 @@ SourceBuffer(data: ptr(u8), len: index, uri)
   -> anchors/issues      -- Source ranges, names, diagnostics
 ```
 
-For pure `.moon` input, `scan_document` produces one hosted module island. For
-`.mlua`, MOM scans Lua-opaque regions enough to find Moonlift islands and typed
-splice holes. `.mlua` staging is an explicit separate stage that resolves splice
-values before the closed native compiler core runs. The Moonlift island parser is
+All Moonlift input is `.mlua`. MOM scans Lua-opaque regions enough to find
+Moonlift islands and typed splice holes. Lua staging resolves splice values
+before the closed native compiler core runs. The Moonlift island parser is
 independent of Lua by design.
 
 Moonlift can call libc through `extern`, so OS-level integration is not a
@@ -1160,9 +1159,9 @@ Implementation shape:
   fresh region id and fresh local ids.
 
 Open expansion is a required phase whenever parsed input contains slots,
-fragments, imports, or staged `.mlua` holes. Closed `.moon` modules still pass
-through the same phase boundary; it is an identity transform when no open
-constructs are present.
+fragments, imports, or staged `.mlua` holes. Closed `.mlua` modules (no
+open constructs) still pass through the same phase boundary; it is an identity
+transform.
 
 ### 13.5 Typecheck Port
 
@@ -1440,7 +1439,7 @@ lua/moonlift/mom/
   parser/
     native_lexer.mlua      -- token tape scanner over ptr(u8)+len
     native_core.mlua       -- native AST tape parser core
-    source_scan.mlua       -- .mlua/.moon document island scanner
+    source_scan.mlua       -- .mlua document island scanner
     parse_cursor.mlua      -- cursor helpers, expect/accept/recover
     parse_type.mlua
     parse_expr.mlua

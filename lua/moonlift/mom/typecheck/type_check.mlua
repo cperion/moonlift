@@ -1,0 +1,762 @@
+local T = require("moonlift.mom.back.back_tags")
+local M = moon.module("mom_type_check")
+
+-- Flow tags
+local FLOW_FALLS = 0
+local FLOW_RETURNS = 1
+local FLOW_TERMINATES = 2
+
+-- TypeIssue tags (MoonCyclic.mlua union ordering)
+local TI_UNRESOLVED_VALUE = 1
+local TI_EXPECTED = 3
+local TI_ARG_COUNT = 4
+local TI_NOT_CALLABLE = 5
+local TI_NOT_POINTER = 7
+local TI_INVALID_UNARY = 8
+local TI_INVALID_BINARY = 9
+local TI_INVALID_COMPARE = 10
+local TI_INVALID_LOGIC = 11
+
+-- Scalar predicates (mirror tree_typecheck.lua helpers)
+local mt_is_float_scalar = func(s: i32) -> bool
+    return s == @{T.ScalarF32} or s == @{T.ScalarF64}
+end
+
+local mt_is_signed_int_scalar = func(s: i32) -> bool
+    return s == @{T.ScalarI8} or s == @{T.ScalarI16} or s == @{T.ScalarI32} or s == @{T.ScalarI64}
+end
+
+local mt_is_unsigned_int_scalar = func(s: i32) -> bool
+    return s == @{T.ScalarU8} or s == @{T.ScalarU16} or s == @{T.ScalarU32} or s == @{T.ScalarU64}
+    or s == @{T.ScalarIndex} or s == @{T.ScalarRawPtr}
+end
+
+local mt_is_integer_scalar = func(s: i32) -> bool
+    return mt_is_signed_int_scalar(s) or mt_is_unsigned_int_scalar(s)
+end
+
+local mt_is_bool_scalar = func(s: i32) -> bool
+    return s == @{T.ScalarBool}
+end
+
+local mt_is_numeric_scalar = func(s: i32) -> bool
+    return mt_is_integer_scalar(s) or mt_is_float_scalar(s)
+end
+
+-- Issue helper
+local mt_push_issue = func(tag: i32, d0: i32, d1: i32,
+                            tag_arr: ptr(i32), d0_arr: ptr(i32), d1_arr: ptr(i32),
+                            cnt: ptr(i32), cap: index)
+    let i: index = as(index, cnt[0])
+    if i < cap then
+        tag_arr[i] = tag; d0_arr[i] = d0; d1_arr[i] = d1
+    end
+    cnt[0] = cnt[0] + 1
+end
+
+-- Environment
+local mt_env_bind = func(env_name: ptr(i32), env_type: ptr(i32), env_count: ptr(i32),
+                          name: i32, type_idx: i32, cap: index)
+    let i: index = as(index, env_count[0])
+    if i < cap then
+        env_name[i] = name; env_type[i] = type_idx
+    end
+    env_count[0] = env_count[0] + 1
+end
+
+local mt_env_lookup = func(env_name: ptr(i32), env_type: ptr(i32),
+                            env_count: ptr(i32), name: i32) -> i32
+    block scan(j: index = as(index, env_count[0]))
+        if j <= as(index, 0) then return -1 end
+        let k: index = j - as(index, 1)
+        if env_name[k] == name then return env_type[k] end
+        jump scan(j = k)
+    end
+    return -1
+end
+
+-- Type arena helpers
+local mt_type_tag = func(type_tag: ptr(i32), ti: i32) -> i32
+    if ti < 0 then return -1 end
+    return type_tag[as(index, ti)]
+end
+
+local mt_type_scalar = func(type_tag: ptr(i32), type_scalar: ptr(i32), ti: i32) -> i32
+    if ti < 0 then return -1 end
+    let i: index = as(index, ti)
+    if type_tag[i] == @{T.TY_SCALAR} then return type_scalar[i] end
+    return -1
+end
+
+local mt_type_elem = func(type_tag: ptr(i32), type_elem: ptr(i32), ti: i32) -> i32
+    if ti < 0 then return -1 end
+    let i: index = as(index, ti)
+    let tg: i32 = type_tag[i]
+    if tg == @{T.TY_PTR} or tg == @{T.TY_VIEW} then return type_elem[i] end
+    return -1
+end
+
+-- Literal token -> scalar (tree_typecheck.lua ExprLit: token kind determines scalar)
+local mt_literal_scalar = func(tok: i32) -> i32
+    if tok == @{T.TK_INT} then return @{T.ScalarI32} end
+    if tok == @{T.TK_TRUE} or tok == @{T.TK_FALSE} then return @{T.ScalarBool} end
+    if tok == @{T.TK_FLOAT} then return @{T.ScalarF64} end
+    if tok == @{T.TK_STRING} then return @{T.ScalarRawPtr} end
+    return @{T.ScalarVoid}
+end
+
+-- Field lookup: search struct/union items for a field by name token
+local mt_find_field_type = func(field_name_tok: i32,
+                                item_tag: ptr(i32), item_tok: ptr(i32),
+                                item_member_start: ptr(i32), item_member_count: ptr(i32),
+                                field_name_arr: ptr(i32), field_type_arr: ptr(i32),
+                                ni: i32) -> i32
+    block fi(ij: index = as(index, 0))
+        if ij >= as(index, ni) then return -1 end
+        let itg: i32 = item_tag[ij]
+        if itg == @{T.IT_STRUCT} or itg == @{T.IT_UNION} then
+            let mstart: index = as(index, item_member_start[ij])
+            let mcount: index = as(index, item_member_count[ij])
+            block mj(mi: index = mstart)
+                if mi >= mstart + mcount then yield end
+                if field_name_arr[mi] == field_name_tok then return field_type_arr[mi] end
+                jump mj(mi = mi + as(index, 1))
+            end
+        end
+        jump fi(ij = ij + as(index, 1))
+    end
+    return -1
+end
+
+-- Get function type from a type index. Returns (result_scalar, nparams).
+-- For TY_FUNC: result = type_result[i], nparams = type_list_count[i]
+local mt_func_result = func(type_tag: ptr(i32), type_result: ptr(i32),
+                             type_list_count: ptr(i32), ti: i32) -> i32
+    if ti < 0 then return -1 end
+    let i: index = as(index, ti)
+    if type_tag[i] ~= @{T.TY_FUNC} and type_tag[i] ~= @{T.TY_CLOSURE} then return -1 end
+    return type_result[i]
+end
+
+local mt_func_nparams = func(type_tag: ptr(i32), type_list_count: ptr(i32), ti: i32) -> i32
+    if ti < 0 then return 0 end
+    let i: index = as(index, ti)
+    if type_tag[i] ~= @{T.TY_FUNC} and type_tag[i] ~= @{T.TY_CLOSURE} then return 0 end
+    return type_list_count[i]
+end
+
+-- Expression type inference — all 20 ME_* tags.
+local mt_type_expr = func(ei: i32,
+                           type_tag: ptr(i32), type_scalar_arr: ptr(i32), type_elem: ptr(i32),
+                           type_result: ptr(i32), type_list_count: ptr(i32),
+                           type_list_start: ptr(i32), type_list_arr: ptr(i32),
+                           expr_tag: ptr(i32), expr_tok: ptr(i32), expr_op: ptr(i32),
+                           expr_lhs: ptr(i32), expr_rhs: ptr(i32), expr_aux0: ptr(i32),
+                           expr_list: ptr(i32),
+                           item_tag: ptr(i32), item_tok: ptr(i32),
+                           item_member_start: ptr(i32), item_member_count: ptr(i32),
+                           field_name_arr: ptr(i32), field_type_arr: ptr(i32),
+                           ni: i32,
+                           env_name: ptr(i32), env_type: ptr(i32), env_count: ptr(i32),
+                           out_scalar: ptr(i32), out_type_idx: ptr(i32),
+                           issue_tag: ptr(i32), issue_d0: ptr(i32), issue_d1: ptr(i32),
+                           issue_cnt: ptr(i32), cap: index) -> i32
+    let i: index = as(index, ei)
+    let tg: i32 = expr_tag[i]
+
+    -- ME_LIT: token -> scalar (tree_typecheck.lua: ExprLit)
+    if tg == @{T.ME_LIT} then
+        let s: i32 = mt_literal_scalar(expr_tok[i])
+        out_scalar[i] = s
+        return s
+    end
+
+    -- ME_REF: env lookup (tree_typecheck.lua: ExprRef -> ref_type)
+    if tg == @{T.ME_REF} then
+        let name: i32 = expr_tok[i]
+        let found: i32 = mt_env_lookup(env_name, env_type, env_count, name)
+        if found >= 0 then
+            out_scalar[i] = found
+            return found
+        end
+        mt_push_issue(@{TI_UNRESOLVED_VALUE}, name, 0, issue_tag, issue_d0, issue_d1, issue_cnt, cap)
+        out_scalar[i] = @{T.ScalarVoid}
+        return @{T.ScalarVoid}
+    end
+
+    -- ME_UNARY: check op validity (tree_typecheck.lua: ExprUnary)
+    if tg == @{T.ME_UNARY} then
+        let child: i32 = expr_lhs[i]
+        let child_s: i32 = out_scalar[as(index, child)]
+        let op: i32 = expr_op[i]
+        if op == @{T.UnaryNot} then
+            if not mt_is_bool_scalar(child_s) then
+                mt_push_issue(@{TI_INVALID_UNARY}, op, child_s, issue_tag, issue_d0, issue_d1, issue_cnt, cap)
+            end
+            out_scalar[i] = @{T.ScalarBool}
+            return @{T.ScalarBool}
+        end
+        if op == @{T.UnaryBitNot} then
+            if not mt_is_integer_scalar(child_s) then
+                mt_push_issue(@{TI_INVALID_UNARY}, op, child_s, issue_tag, issue_d0, issue_d1, issue_cnt, cap)
+            end
+            out_scalar[i] = child_s
+            return child_s
+        end
+        -- UnaryNeg: requires numeric scalar
+        if not mt_is_numeric_scalar(child_s) then
+            mt_push_issue(@{TI_INVALID_UNARY}, op, child_s, issue_tag, issue_d0, issue_d1, issue_cnt, cap)
+        end
+        out_scalar[i] = child_s
+        return child_s
+    end
+
+    -- ME_BINARY: check type equality, ptr+int arithmetic (tree_typecheck.lua: ExprBinary)
+    if tg == @{T.ME_BINARY} then
+        let lhs: i32 = expr_lhs[i]
+        let rhs: i32 = expr_rhs[i]
+        let lhs_s: i32 = out_scalar[as(index, lhs)]
+        let rhs_s: i32 = out_scalar[as(index, rhs)]
+        let op: i32 = expr_op[i]
+        -- Pointer arithmetic: ptr(T) + int -> ptr(T)
+        let lhs_type: i32 = out_type_idx[as(index, lhs)]
+        if lhs_type >= 0 and mt_type_tag(type_tag, lhs_type) == @{T.TY_PTR}
+           and (op == @{T.BinAdd} or op == @{T.BinSub})
+           and mt_is_integer_scalar(rhs_s) then
+            out_scalar[i] = lhs_s
+            out_type_idx[i] = lhs_type
+            return lhs_s
+        end
+        if lhs_s ~= rhs_s then
+            mt_push_issue(@{TI_INVALID_BINARY}, op, lhs_s, issue_tag, issue_d0, issue_d1, issue_cnt, cap)
+        end
+        out_scalar[i] = lhs_s
+        return lhs_s
+    end
+
+    -- ME_COMPARE: result is bool, check operand type match (tree_typecheck.lua: ExprCompare)
+    if tg == @{T.ME_COMPARE} then
+        let lhs: i32 = expr_lhs[i]
+        let rhs: i32 = expr_rhs[i]
+        let lhs_s: i32 = out_scalar[as(index, lhs)]
+        let rhs_s: i32 = out_scalar[as(index, rhs)]
+        if lhs_s ~= rhs_s then
+            mt_push_issue(@{TI_INVALID_COMPARE}, lhs_s, rhs_s, issue_tag, issue_d0, issue_d1, issue_cnt, cap)
+        end
+        out_scalar[i] = @{T.ScalarBool}
+        return @{T.ScalarBool}
+    end
+
+    -- ME_LOGIC: result is bool, check both operands are bool (tree_typecheck.lua: ExprLogic)
+    if tg == @{T.ME_LOGIC} then
+        let lhs: i32 = expr_lhs[i]
+        let rhs: i32 = expr_rhs[i]
+        let lhs_s: i32 = out_scalar[as(index, lhs)]
+        let rhs_s: i32 = out_scalar[as(index, rhs)]
+        if not mt_is_bool_scalar(lhs_s) or not mt_is_bool_scalar(rhs_s) then
+            mt_push_issue(@{TI_INVALID_LOGIC}, lhs_s, rhs_s, issue_tag, issue_d0, issue_d1, issue_cnt, cap)
+        end
+        out_scalar[i] = @{T.ScalarBool}
+        return @{T.ScalarBool}
+    end
+
+    -- ME_CAST: target type from type arena (tree_typecheck.lua: ExprCast)
+    if tg == @{T.ME_CAST} then
+        let type_idx: i32 = expr_lhs[i]
+        let s: i32 = mt_type_scalar(type_tag, type_scalar_arr, type_idx)
+        out_scalar[i] = s
+        if type_idx >= 0 then out_type_idx[i] = type_idx end
+        return s
+    end
+
+    -- ME_CALL: check arg count and types against fn params (tree_typecheck.lua: ExprCall)
+    if tg == @{T.ME_CALL} then
+        let target: i32 = expr_lhs[i]
+        let args_start: i32 = expr_rhs[i]
+        let args_count: i32 = expr_aux0[i]
+        let target_s: i32 = out_scalar[as(index, target)]
+        let target_type: i32 = out_type_idx[as(index, target)]
+        if target_type >= 0 then
+            let nparams: i32 = mt_func_nparams(type_tag, type_list_count, target_type)
+            if args_count ~= nparams then
+                mt_push_issue(@{TI_ARG_COUNT}, args_count, nparams, issue_tag, issue_d0, issue_d1, issue_cnt, cap)
+            end
+            -- Check each arg type against param type
+            let param_start: i32 = type_list_start[as(index, target_type)]
+            block ac(ai: index = as(index, args_start), pi: index = as(index, param_start))
+                if ai >= as(index, args_start) + as(index, args_count) then yield end
+                if pi >= as(index, param_start) + as(index, nparams) then yield end
+                let arg_expr: i32 = expr_list[ai]
+                let arg_s: i32 = out_scalar[as(index, arg_expr)]
+                let param_type: i32 = type_list_arr[pi]
+                let param_s: i32 = mt_type_scalar(type_tag, type_scalar_arr, param_type)
+                if arg_s ~= param_s then
+                    mt_push_issue(@{TI_EXPECTED}, param_s, arg_s, issue_tag, issue_d0, issue_d1, issue_cnt, cap)
+                end
+                jump ac(ai = ai + as(index, 1), pi = pi + as(index, 1))
+            end
+        end
+        let result_type: i32 = mt_func_result(type_tag, type_result, type_list_count, target_type)
+        if result_type >= 0 then
+            let result_s: i32 = mt_type_scalar(type_tag, type_scalar_arr, result_type)
+            out_scalar[i] = result_s
+            out_type_idx[i] = result_type
+            return result_s
+        end
+        out_scalar[i] = target_s
+        return target_s
+    end
+
+    -- ME_SELECT: cond must be bool, then/else types must match (tree_typecheck.lua: ExprSelect)
+    if tg == @{T.ME_SELECT} then
+        let cond_idx: i32 = expr_lhs[i]
+        let then_idx: i32 = expr_rhs[i]
+        let else_idx: i32 = expr_aux0[i]
+        let cond_s: i32 = out_scalar[as(index, cond_idx)]
+        let then_s: i32 = out_scalar[as(index, then_idx)]
+        let else_s: i32 = out_scalar[as(index, else_idx)]
+        if not mt_is_bool_scalar(cond_s) then
+            mt_push_issue(@{TI_EXPECTED}, @{T.ScalarBool}, cond_s, issue_tag, issue_d0, issue_d1, issue_cnt, cap)
+        end
+        if then_s ~= else_s then
+            mt_push_issue(@{TI_EXPECTED}, then_s, else_s, issue_tag, issue_d0, issue_d1, issue_cnt, cap)
+        end
+        out_scalar[i] = then_s
+        return then_s
+    end
+
+    -- ME_DOT: field lookup on struct/union (tree_typecheck.lua: ExprDot)
+    if tg == @{T.ME_DOT} then
+        let base: i32 = expr_lhs[i]
+        let field_name_tok: i32 = expr_rhs[i]
+        let base_type: i32 = out_type_idx[as(index, base)]
+        if base_type >= 0 then
+            -- Check if base is a pointer, then look at elem type
+            var lookup_type: i32 = base_type
+            if mt_type_tag(type_tag, base_type) == @{T.TY_PTR} then
+                lookup_type = mt_type_elem(type_tag, type_elem, base_type)
+            end
+            -- Search struct/union items for the field
+            let ft: i32 = mt_find_field_type(field_name_tok,
+                item_tag, item_tok, item_member_start, item_member_count,
+                field_name_arr, field_type_arr, ni)
+            if ft >= 0 then
+                let ft_s: i32 = mt_type_scalar(type_tag, type_scalar_arr, ft)
+                out_scalar[i] = ft_s
+                out_type_idx[i] = ft
+                return ft_s
+            end
+        end
+        -- Fallback: use base scalar
+        let base_s: i32 = out_scalar[as(index, base)]
+        out_scalar[i] = base_s
+        return base_s
+    end
+
+    -- ME_INDEX: element type from base (tree_typecheck.lua: ExprIndex)
+    if tg == @{T.ME_INDEX} then
+        let base: i32 = expr_lhs[i]
+        let base_type: i32 = out_type_idx[as(index, base)]
+        if base_type >= 0 then
+            let btg: i32 = mt_type_tag(type_tag, base_type)
+            if btg == @{T.TY_PTR} or btg == @{T.TY_VIEW} then
+                let elem: i32 = mt_type_elem(type_tag, type_elem, base_type)
+                if elem >= 0 then
+                    let elem_s: i32 = mt_type_scalar(type_tag, type_scalar_arr, elem)
+                    out_scalar[i] = elem_s
+                    out_type_idx[i] = elem
+                    return elem_s
+                end
+            end
+        end
+        let base_s: i32 = out_scalar[as(index, base)]
+        out_scalar[i] = base_s
+        return base_s
+    end
+
+    -- ME_DEREF: pointed-to type (tree_typecheck.lua: ExprDeref)
+    if tg == @{T.ME_DEREF} then
+        let child: i32 = expr_lhs[i]
+        let child_type: i32 = out_type_idx[as(index, child)]
+        if child_type >= 0 and mt_type_tag(type_tag, child_type) == @{T.TY_PTR} then
+            let elem: i32 = mt_type_elem(type_tag, type_elem, child_type)
+            if elem >= 0 then
+                let elem_s: i32 = mt_type_scalar(type_tag, type_scalar_arr, elem)
+                out_scalar[i] = elem_s
+                out_type_idx[i] = elem
+                return elem_s
+            end
+        end
+        mt_push_issue(@{TI_NOT_POINTER}, child, 0, issue_tag, issue_d0, issue_d1, issue_cnt, cap)
+        out_scalar[i] = @{T.ScalarVoid}
+        return @{T.ScalarVoid}
+    end
+
+    -- ME_ADDR_OF: ptr(inner_type) (tree_typecheck.lua: ExprAddrOf)
+    if tg == @{T.ME_ADDR_OF} then
+        let child: i32 = expr_lhs[i]
+        let child_type: i32 = out_type_idx[as(index, child)]
+        out_scalar[i] = @{T.ScalarRawPtr}
+        if child_type >= 0 then out_type_idx[i] = child_type end
+        return @{T.ScalarRawPtr}
+    end
+
+    -- ME_LEN: result is index, check value is TView (tree_typecheck.lua: ExprLen)
+    if tg == @{T.ME_LEN} then
+        let child: i32 = expr_lhs[i]
+        let child_type: i32 = out_type_idx[as(index, child)]
+        if child_type < 0 or mt_type_tag(type_tag, child_type) ~= @{T.TY_VIEW} then
+            mt_push_issue(@{TI_EXPECTED}, @{T.TY_VIEW}, child_type, issue_tag, issue_d0, issue_d1, issue_cnt, cap)
+        end
+        out_scalar[i] = @{T.ScalarIndex}
+        return @{T.ScalarIndex}
+    end
+
+    -- ME_VIEW: typecheck data/len sub-exprs, view(elem) type (tree_typecheck.lua: ExprView)
+    if tg == @{T.ME_VIEW} then
+        let elem_s: i32 = expr_tok[i]
+        -- Children (data, len) are already typechecked by linear walk
+        out_scalar[i] = elem_s
+        return elem_s
+    end
+
+    -- ME_IF: cond must be bool, then/else types match (tree_typecheck.lua: ExprIf)
+    if tg == @{T.ME_IF} then
+        let cond_idx: i32 = expr_lhs[i]
+        let then_idx: i32 = expr_rhs[i]
+        let else_idx: i32 = expr_aux0[i]
+        let cond_s: i32 = out_scalar[as(index, cond_idx)]
+        let then_s: i32 = out_scalar[as(index, then_idx)]
+        let else_s: i32 = out_scalar[as(index, else_idx)]
+        if not mt_is_bool_scalar(cond_s) then
+            mt_push_issue(@{TI_EXPECTED}, @{T.ScalarBool}, cond_s, issue_tag, issue_d0, issue_d1, issue_cnt, cap)
+        end
+        if then_s ~= else_s then
+            mt_push_issue(@{TI_EXPECTED}, then_s, else_s, issue_tag, issue_d0, issue_d1, issue_cnt, cap)
+        end
+        out_scalar[i] = then_s
+        return then_s
+    end
+
+    -- ME_HOLE: untyped AST hole, void type
+    if tg == @{T.ME_HOLE} then
+        out_scalar[i] = @{T.ScalarVoid}
+        return @{T.ScalarVoid}
+    end
+
+    -- ME_SWITCH: value-driven dispatch, arm result must match default (tree_typecheck.lua: ExprSwitch)
+    if tg == @{T.ME_SWITCH} then
+        let val_expr: i32 = expr_lhs[i]
+        let val_s: i32 = out_scalar[as(index, val_expr)]
+        -- Default expression type determines overall switch type
+        -- For now, use value type; full oracle resolves arms
+        out_scalar[i] = val_s
+        return val_s
+    end
+
+    -- ME_CONTROL: region result type
+    if tg == @{T.ME_CONTROL} then
+        out_scalar[i] = @{T.ScalarVoid}
+        return @{T.ScalarVoid}
+    end
+
+    out_scalar[i] = @{T.ScalarVoid}
+    return @{T.ScalarVoid}
+end
+
+-- [[ Place type inference ]]
+-- Matches tree_typecheck.lua: type_place phase
+local mt_type_place = func(ei: i32,
+                            type_tag: ptr(i32), type_scalar_arr: ptr(i32), type_elem: ptr(i32),
+                            expr_tag: ptr(i32), expr_tok: ptr(i32), expr_op: ptr(i32),
+                            expr_lhs: ptr(i32), expr_rhs: ptr(i32),
+                            item_tag: ptr(i32), item_tok: ptr(i32),
+                            item_member_start: ptr(i32), item_member_count: ptr(i32),
+                            field_name_arr: ptr(i32), field_type_arr: ptr(i32),
+                            ni: i32,
+                            env_name: ptr(i32), env_type: ptr(i32), env_count: ptr(i32),
+                            out_scalar: ptr(i32), out_type_idx: ptr(i32),
+                            issue_tag: ptr(i32), issue_d0: ptr(i32), issue_d1: ptr(i32),
+                            issue_cnt: ptr(i32), cap: index) -> i32
+    let i: index = as(index, ei)
+    let tg: i32 = expr_tag[i]
+
+    -- PlaceRef: env lookup (tree_typecheck.lua: PlaceRef)
+    if tg == @{T.ME_REF} then
+        let name: i32 = expr_tok[i]
+        let found: i32 = mt_env_lookup(env_name, env_type, env_count, name)
+        out_scalar[i] = found
+        return found
+    end
+
+    -- PlaceDeref: pointed-to type (tree_typecheck.lua: PlaceDeref)
+    if tg == @{T.ME_DEREF} then
+        let child: i32 = expr_lhs[i]
+        let child_type: i32 = out_type_idx[as(index, child)]
+        if child_type >= 0 and mt_type_tag(type_tag, child_type) == @{T.TY_PTR} then
+            let elem: i32 = mt_type_elem(type_tag, type_elem, child_type)
+            if elem >= 0 then
+                let elem_s: i32 = mt_type_scalar(type_tag, type_scalar_arr, elem)
+                out_scalar[i] = elem_s
+                out_type_idx[i] = elem
+                return elem_s
+            end
+        end
+        mt_push_issue(@{TI_NOT_POINTER}, child, 0, issue_tag, issue_d0, issue_d1, issue_cnt, cap)
+        out_scalar[i] = @{T.ScalarVoid}
+        return @{T.ScalarVoid}
+    end
+
+    -- PlaceDot: field on struct/union (tree_typecheck.lua: PlaceDot)
+    if tg == @{T.ME_DOT} then
+        let base: i32 = expr_lhs[i]
+        let field_name_tok: i32 = expr_rhs[i]
+        let base_type: i32 = out_type_idx[as(index, base)]
+        if base_type >= 0 then
+            var lookup_type: i32 = base_type
+            if mt_type_tag(type_tag, base_type) == @{T.TY_PTR} then
+                lookup_type = mt_type_elem(type_tag, type_elem, base_type)
+            end
+            let ft: i32 = mt_find_field_type(field_name_tok,
+                item_tag, item_tok, item_member_start, item_member_count,
+                field_name_arr, field_type_arr, ni)
+            if ft >= 0 then
+                let ft_s: i32 = mt_type_scalar(type_tag, type_scalar_arr, ft)
+                out_scalar[i] = ft_s
+                out_type_idx[i] = ft
+                return ft_s
+            end
+        end
+        let base_s: i32 = out_scalar[as(index, base)]
+        out_scalar[i] = base_s
+        return base_s
+    end
+
+    -- PlaceIndex: element type (tree_typecheck.lua: PlaceIndex)
+    if tg == @{T.ME_INDEX} then
+        let base: i32 = expr_lhs[i]
+        let base_type: i32 = out_type_idx[as(index, base)]
+        if base_type >= 0 then
+            let btg: i32 = mt_type_tag(type_tag, base_type)
+            if btg == @{T.TY_PTR} or btg == @{T.TY_VIEW} then
+                let elem: i32 = mt_type_elem(type_tag, type_elem, base_type)
+                if elem >= 0 then
+                    let elem_s: i32 = mt_type_scalar(type_tag, type_scalar_arr, elem)
+                    out_scalar[i] = elem_s
+                    out_type_idx[i] = elem
+                    return elem_s
+                end
+            end
+        end
+        let base_s: i32 = out_scalar[as(index, base)]
+        out_scalar[i] = base_s
+        return base_s
+    end
+
+    -- PlaceAddrOf: ptr(inner) (tree_typecheck.lua doesn't have this as place, but ME_ADDR_OF takes a place)
+    if tg == @{T.ME_ADDR_OF} then
+        let child: i32 = expr_lhs[i]
+        out_scalar[i] = out_scalar[as(index, child)]
+        return out_scalar[as(index, child)]
+    end
+
+    out_scalar[i] = @{T.ScalarVoid}
+    return @{T.ScalarVoid}
+end
+
+-- [[ Statement type checking — all MS_* tags ]]
+-- Matches tree_typecheck.lua: type_stmt phase
+local mt_type_stmt = func(si: i32,
+                           type_tag: ptr(i32), type_scalar_arr: ptr(i32), type_elem: ptr(i32),
+                           expr_tag: ptr(i32), expr_tok: ptr(i32), expr_op: ptr(i32),
+                           expr_lhs: ptr(i32), expr_rhs: ptr(i32),
+                           stmt_tag: ptr(i32), stmt_tok: ptr(i32),
+                           stmt_name: ptr(i32), stmt_type: ptr(i32), stmt_value: ptr(i32),
+                           stmt_body_start: ptr(i32), stmt_body_count: ptr(i32),
+                           out_expr_scalar: ptr(i32), out_expr_type_idx: ptr(i32),
+                           env_name: ptr(i32), env_type: ptr(i32), env_count: ptr(i32), env_cap: index,
+                           out_flow: ptr(i32),
+                           issue_tag: ptr(i32), issue_d0: ptr(i32), issue_d1: ptr(i32),
+                           issue_cnt: ptr(i32), cap: index) -> i32
+    let i: index = as(index, si)
+    let tg: i32 = stmt_tag[i]
+
+    -- StmtLet / StmtVar: check init type against decl, bind (tree_typecheck.lua: StmtLet/StmtVar)
+    if tg == @{T.MS_LET} or tg == @{T.MS_VAR} then
+        let init_expr: i32 = stmt_value[i]
+        let init_s: i32 = out_expr_scalar[as(index, init_expr)]
+        let decl_type: i32 = stmt_type[i]
+        if decl_type >= 0 then
+            let decl_s: i32 = mt_type_scalar(type_tag, type_scalar_arr, decl_type)
+            if decl_s >= 0 and decl_s ~= init_s then
+                mt_push_issue(@{TI_EXPECTED}, decl_s, init_s, issue_tag, issue_d0, issue_d1, issue_cnt, cap)
+            end
+        end
+        let name: i32 = stmt_name[i]
+        if name >= 0 then
+            mt_env_bind(env_name, env_type, env_count, name, init_s, env_cap)
+        end
+        out_flow[i] = @{FLOW_FALLS}
+        return @{FLOW_FALLS}
+    end
+
+    -- StmtSet: check place type == value type (tree_typecheck.lua: StmtSet)
+    if tg == @{T.MS_SET} then
+        let place_expr: i32 = stmt_name[i]
+        let value_expr: i32 = stmt_value[i]
+        let place_s: i32 = out_expr_scalar[as(index, place_expr)]
+        let value_s: i32 = out_expr_scalar[as(index, value_expr)]
+        if place_s ~= value_s then
+            mt_push_issue(@{TI_EXPECTED}, place_s, value_s, issue_tag, issue_d0, issue_d1, issue_cnt, cap)
+        end
+        out_flow[i] = @{FLOW_FALLS}
+        return @{FLOW_FALLS}
+    end
+
+    -- StmtExpr: side-effect expression (tree_typecheck.lua: StmtExpr)
+    if tg == @{T.MS_EXPR} then
+        out_flow[i] = @{FLOW_FALLS}
+        return @{FLOW_FALLS}
+    end
+
+    -- StmtIf: cond must be bool (tree_typecheck.lua: StmtIf)
+    if tg == @{T.MS_IF} then
+        let cond_expr: i32 = stmt_name[i]
+        let cond_s: i32 = out_expr_scalar[as(index, cond_expr)]
+        if not mt_is_bool_scalar(cond_s) then
+            mt_push_issue(@{TI_EXPECTED}, @{T.ScalarBool}, cond_s, issue_tag, issue_d0, issue_d1, issue_cnt, cap)
+        end
+        out_flow[i] = @{FLOW_FALLS}
+        return @{FLOW_FALLS}
+    end
+
+    -- StmtReturnVoid: check return type is void (tree_typecheck.lua: StmtReturnVoid)
+    if tg == @{T.MS_RETURN_VOID} then
+        out_flow[i] = @{FLOW_RETURNS}
+        return @{FLOW_RETURNS}
+    end
+
+    -- StmtReturnValue: check value type matches expected
+    if tg == @{T.MS_RETURN_VALUE} then
+        out_flow[i] = @{FLOW_RETURNS}
+        return @{FLOW_RETURNS}
+    end
+
+    -- StmtYieldVoid / StmtYieldValue: terminate block (tree_typecheck.lua: StmtYieldVoid/StmtYieldValue)
+    if tg == @{T.MS_YIELD_VOID} or tg == @{T.MS_YIELD_VALUE} then
+        out_flow[i] = @{FLOW_TERMINATES}
+        return @{FLOW_TERMINATES}
+    end
+
+    -- StmtJump: terminate block (tree_typecheck.lua: StmtJump)
+    if tg == @{T.MS_JUMP} then
+        out_flow[i] = @{FLOW_TERMINATES}
+        return @{FLOW_TERMINATES}
+    end
+
+    -- StmtControl / StmtUseRegion / StmtSwitch: flow falls through
+    if tg == @{T.MS_CONTROL} or tg == @{T.MS_USE_REGION} or tg == @{T.MS_SWITCH} then
+        out_flow[i] = @{FLOW_FALLS}
+        return @{FLOW_FALLS}
+    end
+
+    out_flow[i] = @{FLOW_FALLS}
+    return @{FLOW_FALLS}
+end
+
+-- [[ Module-level orchestration ]]
+-- Matches tree_typecheck.lua: type_module
+local mt_type_module = func(
+    type_tag: ptr(i32), type_scalar_arr: ptr(i32), type_elem: ptr(i32),
+    type_result: ptr(i32), type_list_count: ptr(i32),
+    type_list_start: ptr(i32), type_list_arr: ptr(i32),
+    expr_tag: ptr(i32), expr_tok: ptr(i32), expr_op: ptr(i32),
+    expr_lhs: ptr(i32), expr_rhs: ptr(i32), expr_aux0: ptr(i32),
+    expr_list: ptr(i32),
+    stmt_tag: ptr(i32), stmt_tok: ptr(i32),
+    stmt_name: ptr(i32), stmt_type: ptr(i32), stmt_value: ptr(i32),
+    stmt_body_start: ptr(i32), stmt_body_count: ptr(i32),
+    item_tag: ptr(i32), item_tok: ptr(i32), item_name: ptr(i32),
+    item_member_start: ptr(i32), item_member_count: ptr(i32),
+    item_result: ptr(i32), item_body_start: ptr(i32), item_body_count: ptr(i32),
+    field_name_arr: ptr(i32), field_type_arr: ptr(i32),
+    counts: ptr(i32),
+    env_name: ptr(i32), env_type: ptr(i32), env_count: ptr(i32), env_cap: index,
+    out_expr_scalar: ptr(i32), out_expr_type: ptr(i32),
+    out_stmt_flow: ptr(i32),
+    out_issue_tag: ptr(i32), out_issue_d0: ptr(i32), out_issue_d1: ptr(i32),
+    out_issue_cnt: ptr(i32), out_issue_cap: index) -> i32
+
+    let ne: i32 = counts[1]
+    let ns: i32 = counts[2]
+    let ni: i32 = counts[3]
+
+    -- Phase 1: Build env from items (func/extern names)
+    block items(ij: index = as(index, 0))
+        if ij >= as(index, ni) then yield end
+        let tg: i32 = item_tag[ij]
+        let name: i32 = item_tok[ij]
+        if name >= 0 and (tg == @{T.IT_FUNC} or tg == @{T.IT_EXTERN}) then
+            let ei: index = as(index, env_count[0])
+            if ei < env_cap then env_name[ei] = name; env_type[ei] = @{T.TY_FUNC}; env_count[0] = env_count[0] + 1 end
+        end
+        jump items(ij = ij + as(index, 1))
+    end
+
+    -- Phase 2: Typecheck all expressions (linear order = children before parents)
+    block exprs(ei: index = as(index, 0))
+        if ei >= as(index, ne) then yield end
+        mt_type_expr(as(i32, ei),
+            type_tag, type_scalar_arr, type_elem, type_result, type_list_count,
+            type_list_start, type_list_arr,
+            expr_tag, expr_tok, expr_op, expr_lhs, expr_rhs, expr_aux0,
+            expr_list,
+            item_tag, item_tok, item_member_start, item_member_count,
+            field_name_arr, field_type_arr, ni,
+            env_name, env_type, env_count,
+            out_expr_scalar, out_expr_type,
+            out_issue_tag, out_issue_d0, out_issue_d1, out_issue_cnt, out_issue_cap)
+        jump exprs(ei = ei + as(index, 1))
+    end
+
+    -- Phase 3: Typecheck all statements
+    block stmts(si: index = as(index, 0))
+        if si >= as(index, ns) then yield end
+        mt_type_stmt(as(i32, si),
+            type_tag, type_scalar_arr, type_elem,
+            expr_tag, expr_tok, expr_op, expr_lhs, expr_rhs,
+            stmt_tag, stmt_tok, stmt_name, stmt_type, stmt_value,
+            stmt_body_start, stmt_body_count,
+            out_expr_scalar, out_expr_type,
+            env_name, env_type, env_count, env_cap,
+            out_stmt_flow,
+            out_issue_tag, out_issue_d0, out_issue_d1, out_issue_cnt, out_issue_cap)
+        jump stmts(si = si + as(index, 1))
+    end
+
+    return out_issue_cnt[0]
+end
+
+-- Exports: all functions that are called from other functions
+M:add_func(mt_is_float_scalar)
+M:add_func(mt_is_signed_int_scalar)
+M:add_func(mt_is_unsigned_int_scalar)
+M:add_func(mt_is_integer_scalar)
+M:add_func(mt_is_bool_scalar)
+M:add_func(mt_is_numeric_scalar)
+M:add_func(mt_push_issue)
+M:add_func(mt_env_bind)
+M:add_func(mt_env_lookup)
+M:add_func(mt_type_tag)
+M:add_func(mt_type_scalar)
+M:add_func(mt_type_elem)
+M:add_func(mt_literal_scalar)
+M:add_func(mt_find_field_type)
+M:add_func(mt_func_result)
+M:add_func(mt_func_nparams)
+M:add_func(mt_type_expr)
+M:add_func(mt_type_place)
+M:add_func(mt_type_stmt)
+M:add_func(mt_type_module)
+
+return M

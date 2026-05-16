@@ -1,0 +1,253 @@
+local T = require("moonlift.mom.back.back_tags")
+local M = moon.module("mom_type_expr")
+
+local TI_UNRESOLVED_VALUE = 1
+local TI_EXPECTED = 3
+local TI_NOT_POINTER = 7
+local TI_NOT_INDEXABLE = 6
+local TI_INVALID_UNARY = 8
+local TI_INVALID_BINARY = 9
+local TI_INVALID_LOGIC = 11
+
+local mt_is_float_scalar = func(s: i32) -> bool
+    return s == @{T.ScalarF32} or s == @{T.ScalarF64}
+end
+
+local mt_is_signed_int = func(s: i32) -> bool
+    return s == @{T.ScalarI8} or s == @{T.ScalarI16} or s == @{T.ScalarI32} or s == @{T.ScalarI64}
+end
+
+local mt_is_unsigned_int = func(s: i32) -> bool
+    return s == @{T.ScalarU8} or s == @{T.ScalarU16} or s == @{T.ScalarU32} or s == @{T.ScalarU64}
+    or s == @{T.ScalarIndex} or s == @{T.ScalarRawPtr}
+end
+
+local mt_is_integer_scalar = func(s: i32) -> bool
+    return mt_is_signed_int(s) or mt_is_unsigned_int(s)
+end
+
+local mt_is_numeric_scalar = func(s: i32) -> bool
+    return mt_is_integer_scalar(s) or mt_is_float_scalar(s)
+end
+
+local mt_is_bool_scalar = func(s: i32) -> bool
+    return s == @{T.ScalarBool}
+end
+
+local mt_push_issue = func(tag: i32, d0: i32, d1: i32,
+                           tag_arr: ptr(i32), d0_arr: ptr(i32), d1_arr: ptr(i32),
+                           cnt: ptr(i32), cap: index)
+    let i: index = as(index, cnt[0])
+    if i < cap then
+        tag_arr[i] = tag; d0_arr[i] = d0; d1_arr[i] = d1
+    end
+    cnt[0] = cnt[0] + 1
+end
+
+local mt_literal_scalar = func(tok: i32) -> i32
+    if tok == @{T.TK_INT} then return @{T.ScalarI32} end
+    if tok == @{T.TK_TRUE} or tok == @{T.TK_FALSE} then return @{T.ScalarBool} end
+    if tok == @{T.TK_FLOAT} then return @{T.ScalarF64} end
+    if tok == @{T.TK_STRING} then return @{T.ScalarRawPtr} end
+    return @{T.ScalarVoid}
+end
+
+local mt_type_class = func(tg: i32) -> i32
+    if tg == @{T.TY_SCALAR} then return 1 end
+    if tg == @{T.TY_PTR} then return 2 end
+    if tg == @{T.TY_VIEW} then return 3 end
+    if tg == @{T.TY_FUNC} or tg == @{T.TY_CLOSURE} then return 4 end
+    if tg == @{T.TY_NAMED} then return 5 end
+    return 0
+end
+
+local mt_type_scalar = func(type_tag: ptr(i32), type_scalar: ptr(i32), ti: i32) -> i32
+    if ti < 0 then return -1 end
+    let i: index = as(index, ti)
+    if type_tag[i] == @{T.TY_SCALAR} then return type_scalar[i] end
+    return -1
+end
+
+local mt_type_elem = func(type_tag: ptr(i32), type_elem: ptr(i32), ti: i32) -> i32
+    if ti < 0 then return -1 end
+    let i: index = as(index, ti)
+    let tg: i32 = type_tag[i]
+    if tg == @{T.TY_PTR} or tg == @{T.TY_VIEW} then return type_elem[i] end
+    return -1
+end
+
+local mt_type_expr = func(ei: i32,
+                          type_tag: ptr(i32), type_scalar: ptr(i32), type_elem: ptr(i32),
+                          expr_tag: ptr(i32), expr_tok: ptr(i32), expr_op: ptr(i32),
+                          expr_lhs: ptr(i32), expr_rhs: ptr(i32), expr_aux0: ptr(i32),
+                          stmt_name: ptr(i32), stmt_type: ptr(i32),
+                          env_name: ptr(i32), env_type: ptr(i32), env_count: ptr(i32),
+                          out_scalar: ptr(i32), out_type_idx: ptr(i32),
+                          issue_tag: ptr(i32), issue_d0: ptr(i32), issue_d1: ptr(i32),
+                          issue_cnt: ptr(i32), cap: index) -> i32
+    let i: index = as(index, ei)
+    let tg: i32 = expr_tag[i]
+
+    if tg == @{T.ME_LIT} then
+        let s: i32 = mt_literal_scalar(expr_tok[i])
+        out_scalar[i] = s
+        return s
+    end
+
+    if tg == @{T.ME_REF} then
+        let name: i32 = expr_tok[i]
+        let found: i32 = -1
+        block scan(j: index = as(index, env_count[0]))
+            if j <= as(index, 0) then yield end
+            let k: index = j - as(index, 1)
+            if env_name[k] == name then found = env_type[k]; yield end
+            jump scan(j = k)
+        end
+        if found >= 0 then
+            out_scalar[i] = found
+            return found
+        end
+        mt_push_issue(@{TI_UNRESOLVED_VALUE}, name, 0, issue_tag, issue_d0, issue_d1, issue_cnt, cap)
+        out_scalar[i] = @{T.ScalarVoid}
+        return @{T.ScalarVoid}
+    end
+
+    if tg == @{T.ME_UNARY} then
+        let child: i32 = expr_lhs[i]
+        let child_s: i32 = out_scalar[as(index, child)]
+        if expr_op[i] == @{T.UnaryNot} then
+            if not mt_is_bool_scalar(child_s) then
+                mt_push_issue(@{TI_INVALID_UNARY}, @{T.UnaryNot}, child_s, issue_tag, issue_d0, issue_d1, issue_cnt, cap)
+            end
+            out_scalar[i] = @{T.ScalarBool}
+            return @{T.ScalarBool}
+        end
+        out_scalar[i] = child_s
+        return child_s
+    end
+
+    if tg == @{T.ME_BINARY} then
+        let lhs: i32 = expr_lhs[i]
+        let rhs: i32 = expr_rhs[i]
+        let lhs_s: i32 = out_scalar[as(index, lhs)]
+        out_scalar[i] = lhs_s
+        return lhs_s
+    end
+
+    if tg == @{T.ME_COMPARE} or tg == @{T.ME_LOGIC} then
+        out_scalar[i] = @{T.ScalarBool}
+        return @{T.ScalarBool}
+    end
+
+    if tg == @{T.ME_CAST} then
+        let type_idx: i32 = expr_lhs[i]
+        let s: i32 = mt_type_scalar(type_tag, type_scalar, type_idx)
+        out_scalar[i] = s
+        if type_idx >= 0 then out_type_idx[i] = type_idx end
+        return s
+    end
+
+    if tg == @{T.ME_CALL} then
+        let target: i32 = expr_lhs[i]
+        let target_s: i32 = out_scalar[as(index, target)]
+        out_scalar[i] = target_s
+        return target_s
+    end
+
+    if tg == @{T.ME_SELECT} or tg == @{T.ME_IF} then
+        let branch: i32 = expr_rhs[i]
+        let branch_s: i32 = out_scalar[as(index, branch)]
+        out_scalar[i] = branch_s
+        return branch_s
+    end
+
+    if tg == @{T.ME_DOT} then
+        let base: i32 = expr_lhs[i]
+        let base_s: i32 = out_scalar[as(index, base)]
+        out_scalar[i] = base_s
+        return base_s
+    end
+
+    if tg == @{T.ME_INDEX} then
+        let base: i32 = expr_lhs[i]
+        let base_type: i32 = out_type_idx[as(index, base)]
+        if base_type >= 0 then
+            let elem: i32 = mt_type_elem(type_tag, type_elem, base_type)
+            if elem >= 0 then
+                let elem_s: i32 = mt_type_scalar(type_tag, type_scalar, elem)
+                out_scalar[i] = elem_s
+                out_type_idx[i] = elem
+                return elem_s
+            end
+        end
+        let base_s: i32 = out_scalar[as(index, base)]
+        out_scalar[i] = base_s
+        return base_s
+    end
+
+    if tg == @{T.ME_DEREF} then
+        let child: i32 = expr_lhs[i]
+        let child_type: i32 = out_type_idx[as(index, child)]
+        if child_type >= 0 then
+            let ctag: i32 = type_tag[as(index, child_type)]
+            if ctag == @{T.TY_PTR} then
+                let elem: i32 = type_elem[as(index, child_type)]
+                if elem >= 0 then
+                    let elem_s: i32 = mt_type_scalar(type_tag, type_scalar, elem)
+                    out_scalar[i] = elem_s
+                    out_type_idx[i] = elem
+                    return elem_s
+                end
+            end
+        end
+        mt_push_issue(@{TI_NOT_POINTER}, child, 0, issue_tag, issue_d0, issue_d1, issue_cnt, cap)
+        out_scalar[i] = @{T.ScalarVoid}
+        return @{T.ScalarVoid}
+    end
+
+    if tg == @{T.ME_ADDR_OF} then
+        let child: i32 = expr_lhs[i]
+        let child_s: i32 = out_scalar[as(index, child)]
+        out_scalar[i] = child_s
+        return child_s
+    end
+
+    if tg == @{T.ME_LEN} then
+        out_scalar[i] = @{T.ScalarIndex}
+        return @{T.ScalarIndex}
+    end
+
+    if tg == @{T.ME_VIEW} then
+        let elem_s: i32 = expr_tok[i]
+        out_scalar[i] = elem_s
+        return elem_s
+    end
+
+    if tg == @{T.ME_SWITCH} then
+        out_scalar[i] = @{T.ScalarI32}
+        return @{T.ScalarI32}
+    end
+
+    if tg == @{T.ME_CONTROL} or tg == @{T.ME_HOLE} then
+        out_scalar[i] = @{T.ScalarVoid}
+        return @{T.ScalarVoid}
+    end
+
+    out_scalar[i] = @{T.ScalarVoid}
+    return @{T.ScalarVoid}
+end
+
+M:add_func(mt_is_float_scalar)
+M:add_func(mt_is_signed_int)
+M:add_func(mt_is_unsigned_int)
+M:add_func(mt_is_integer_scalar)
+M:add_func(mt_is_numeric_scalar)
+M:add_func(mt_is_bool_scalar)
+M:add_func(mt_push_issue)
+M:add_func(mt_literal_scalar)
+M:add_func(mt_type_class)
+M:add_func(mt_type_scalar)
+M:add_func(mt_type_elem)
+M:add_func(mt_type_expr)
+
+return M

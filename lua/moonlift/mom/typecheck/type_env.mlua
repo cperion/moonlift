@@ -1,0 +1,50 @@
+local T = require("moonlift.mom.back.back_tags")
+local M = moon.module("mom_type_env")
+
+local i32p = moon.ptr(moon.i32)
+
+local TypeEnv = M:struct("TypeEnv", {
+    moon.field("names", i32p),
+    moon.field("types", i32p),
+    moon.field("scope_starts", i32p),
+    moon.field("count", moon.i32),
+    moon.field("scope_depth", moon.i32),
+    moon.field("cap", moon.index),
+})
+
+local mt_env_push_scope = func(env: ptr(@{TypeEnv}))
+    env.scope_starts[as(index, env.scope_depth)] = env.count
+    env.scope_depth = env.scope_depth + 1
+end
+
+local mt_env_pop_scope = func(env: ptr(@{TypeEnv}))
+    env.scope_depth = env.scope_depth - 1
+    env.count = env.scope_starts[as(index, env.scope_depth)]
+end
+
+local mt_env_bind = func(env: ptr(@{TypeEnv}), name: i32, type_idx: i32) -> i32
+    let i: index = as(index, env.count)
+    if i < env.cap then
+        env.names[i] = name
+        env.types[i] = type_idx
+    end
+    env.count = env.count + 1
+    return env.count - 1
+end
+
+local mt_env_lookup = func(env: ptr(@{TypeEnv}), name: i32) -> i32
+    let i: index = as(index, env.count)
+    block loop(i0: index = i)
+        if i0 <= as(index, 0) then return -1 end
+        let j: index = i0 - as(index, 1)
+        if env.names[j] == name then return env.types[j] end
+        jump loop(i0 = j)
+    end
+end
+
+M:add_func(mt_env_push_scope)
+M:add_func(mt_env_pop_scope)
+M:add_func(mt_env_bind)
+M:add_func(mt_env_lookup)
+
+return M

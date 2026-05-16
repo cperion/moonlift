@@ -1,18 +1,15 @@
 -- MOM backend command-producing functions.
 --
 -- Phase 3: pure functions that construct Cmd variant entries. Each takes raw
--- op/scalar/value ID parameters and fills a CmdEntry output struct. Callers
--- (Phase 4 expression regions) append the entry to a CmdBuffer.
+-- op/scalar/value ID parameters and fills a CmdEntry output struct.
 --
--- Field layout for CmdEntry (tag + 6 data fields a-f):
---   CmdIntBinary:   a=dst b=op c=scalar d=sem(e<<16|o) e=lhs f=rhs
---   CmdFloatBinary: a=dst b=op c=scalar d=sem      e=lhs f=rhs
---   CmdBitBinary:   a=dst b=op c=scalar d=lhs      e=rhs f=0
---   CmdShift:       a=dst b=op c=scalar d=lhs      e=rhs f=0
---   CmdUnary:       a=dst b=op c=shape_tag d=scalar e=value f=0
---   CmdCompare:     a=dst b=op c=shape_tag d=scalar e=lhs  f=rhs
---   CmdCast:        a=dst b=back_cast_op c=scalar d=value  e=0    f=0
---   CmdTrap:        a=0 b=0 c=0 d=0 e=0 f=0
+-- CmdEntry layout matches MLBT v3 wire format (see BACK_WIRE_FORMAT.md):
+--   18 i32 words per entry: tag + w0..w16
+--   Only the prefix defined by slot_count(tag) is serialized; unused words are 0.
+--
+-- Field mapping per command variant uses slot names from BACK_WIRE_FORMAT.md §7.
+
+local T = require("moonlift.mom.back.back_tags")
 
 local M = moon.module("mom_back_cmd")
 
@@ -20,323 +17,707 @@ local i32p = moon.ptr(moon.i32)
 
 local CmdEntry = M:struct("CmdEntry", {
     moon.field("tag", moon.i32),
-    moon.field("a", moon.i32),
-    moon.field("b", moon.i32),
-    moon.field("c", moon.i32),
-    moon.field("d", moon.i32),
-    moon.field("e", moon.i32),
-    moon.field("f", moon.i32),
+    moon.field("w0", moon.i32),
+    moon.field("w1", moon.i32),
+    moon.field("w2", moon.i32),
+    moon.field("w3", moon.i32),
+    moon.field("w4", moon.i32),
+    moon.field("w5", moon.i32),
+    moon.field("w6", moon.i32),
+    moon.field("w7", moon.i32),
+    moon.field("w8", moon.i32),
+    moon.field("w9", moon.i32),
+    moon.field("w10", moon.i32),
+    moon.field("w11", moon.i32),
+    moon.field("w12", moon.i32),
+    moon.field("w13", moon.i32),
+    moon.field("w14", moon.i32),
+    moon.field("w15", moon.i32),
+    moon.field("w16", moon.i32),
 })
 
--- Cmd variant tags (matching wire format).
-local CMD_UNARY = 22
-local CMD_COMPARE = 24
-local CMD_CAST = 25
-local CMD_INT_BINARY = 34
-local CMD_BIT_BINARY = 35
-local CMD_BIT_NOT = 36
-local CMD_SHIFT = 37
-local CMD_ROTATE = 38
-local CMD_FLOAT_BINARY = 39
-local CMD_SELECT = 42
-local CMD_TRAP = 59
+-- Zero all fields and set tag to CMD_TRAP.
+local mb_cmd_clear = func(out: ptr(@{CmdEntry}))
+    out.tag = 0
+    out.w0 = 0; out.w1 = 0; out.w2 = 0; out.w3 = 0
+    out.w4 = 0; out.w5 = 0; out.w6 = 0; out.w7 = 0
+    out.w8 = 0; out.w9 = 0; out.w10 = 0; out.w11 = 0
+    out.w12 = 0; out.w13 = 0; out.w14 = 0; out.w15 = 0
+    out.w16 = 0
+end
 
--- Core Scalar tags (mirror back/ops.mlua).
-local B_F32 = 11
-local B_F64 = 12
-local B_I8 = 3
-local B_I16 = 4
-local B_I32 = 5
-local B_I64 = 6
-local B_U8 = 7
-local B_U16 = 8
-local B_U32 = 9
-local B_U64 = 10
-local B_INDEX = 14
+-- Zero all fields and set tag to CMD_TRAP.
+local mb_cmd_trap = func(out: ptr(@{CmdEntry}))
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdTrap}
+end
 
--- Core binary op tags.
-local BIN_ADD = 1
-local BIN_SUB = 2
-local BIN_MUL = 3
-local BIN_DIV = 4
-local BIN_REM = 5
-local BIN_BIT_AND = 6
-local BIN_BIT_OR = 7
-local BIN_BIT_XOR = 8
-local BIN_SHL = 9
-local BIN_LSHR = 10
-local BIN_ASHR = 11
+-- ── Helper predicates ──────────────────────────────────────────────
 
--- Core compare op tags.
-local CMP_EQ = 1
-local CMP_NE = 2
-local CMP_LT = 3
-local CMP_LE = 4
-local CMP_GT = 5
-local CMP_GE = 6
-
--- Core unary op tags.
-local U_NEG = 1
-local U_NOT = 2
-local U_BIT_NOT = 3
-
--- MachineCastOp tags.
-local MC_IDENTITY = 1
-local MC_BITCAST = 2
-local MC_IREDUCE = 3
-local MC_SEXTEND = 4
-local MC_UEXTEND = 5
-local MC_FPROMOTE = 6
-local MC_FDEMOTE = 7
-local MC_STOF = 8
-local MC_UTOF = 9
-local MC_FTOS = 10
-local MC_FTOU = 11
-
--- Back op tags.
-local BACK_INT_ADD = 1
-local BACK_INT_SUB = 2
-local BACK_INT_MUL = 3
-local BACK_INT_SDIV = 4
-local BACK_INT_UDIV = 5
-local BACK_INT_SREM = 6
-local BACK_INT_UREM = 7
-
-local BACK_BIT_AND = 1
-local BACK_BIT_OR = 2
-local BACK_BIT_XOR = 3
-
-local BACK_SHIFT_LEFT = 1
-local BACK_SHIFT_LOGICAL_RIGHT = 2
-local BACK_SHIFT_ARITHMETIC_RIGHT = 3
-
-local BACK_FLOAT_ADD = 1
-local BACK_FLOAT_SUB = 2
-local BACK_FLOAT_MUL = 3
-local BACK_FLOAT_DIV = 4
-
-local BACK_UNARY_INEG = 1
-local BACK_UNARY_FNEG = 2
-local BACK_UNARY_BNOT = 3
-local BACK_UNARY_BOOL_NOT = 4
-
-local BACK_ICMP_EQ = 1
-local BACK_ICMP_NE = 2
-local BACK_SICMP_LT = 3
-local BACK_SICMP_LE = 4
-local BACK_SICMP_GT = 5
-local BACK_SICMP_GE = 6
-local BACK_UICMP_LT = 7
-local BACK_UICMP_LE = 8
-local BACK_UICMP_GT = 9
-local BACK_UICMP_GE = 10
-local BACK_FCMP_EQ = 11
-local BACK_FCMP_NE = 12
-local BACK_FCMP_LT = 13
-local BACK_FCMP_LE = 14
-local BACK_FCMP_GT = 15
-local BACK_FCMP_GE = 16
-
-local BACK_BITCAST = 1
-local BACK_IREDUCE = 2
-local BACK_SEXTEND = 3
-local BACK_UEXTEND = 4
-local BACK_FPROMOTE = 5
-local BACK_FDEMOTE = 6
-local BACK_STOF = 7
-local BACK_UTOF = 8
-local BACK_FTOS = 9
-local BACK_FTOU = 10
-
--- BackShape tags.
-local BACK_SHAPE_SCALAR = 1
-local BACK_SHAPE_VEC = 2
-
--- Helpers.
 local mb_is_float = func(s: i32) -> bool
-    return s == @{B_F32} or s == @{B_F64}
+    return s == @{T.BackF32} or s == @{T.BackF64}
 end
 
 local mb_is_signed = func(s: i32) -> bool
-    return s == @{B_I8} or s == @{B_I16} or s == @{B_I32} or s == @{B_I64}
+    return s == @{T.BackI8} or s == @{T.BackI16} or s == @{T.BackI32} or s == @{T.BackI64}
 end
 
 local mb_is_unsigned = func(s: i32) -> bool
-    return s == @{B_U8} or s == @{B_U16} or s == @{B_U32} or s == @{B_U64} or s == @{B_INDEX}
+    return s == @{T.BackU8} or s == @{T.BackU16} or s == @{T.BackU32} or s == @{T.BackU64} or s == @{T.BackIndex}
 end
 
--- Clear a CmdEntry to CmdTrap (zeroed).
-local mb_cmd_trap = func(out: ptr(@{CmdEntry}))
-    out.tag = @{CMD_TRAP}
-    out.a = 0; out.b = 0; out.c = 0
-    out.d = 0; out.e = 0; out.f = 0
+-- ── Structural commands ────────────────────────────────────────────
+
+-- CmdCreateSig: [sig, params_aux, n_params, results_aux, n_results] = 5 slots
+local mb_cmd_create_sig = func(out: ptr(@{CmdEntry}), sig: i32, params_aux: i32, n_params: i32, results_aux: i32, n_results: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdCreateSig}
+    out.w0 = sig; out.w1 = params_aux; out.w2 = n_params; out.w3 = results_aux; out.w4 = n_results
 end
 
--- Fill a CmdEntry for CmdIntBinary.
-local mb_cmd_int_binary = func(out: ptr(@{CmdEntry}), dst: i32, op: i32, scalar: i32, sem_packed: i32, lhs: i32, rhs: i32)
-    out.tag = @{CMD_INT_BINARY}
-    out.a = dst; out.b = op; out.c = scalar; out.d = sem_packed; out.e = lhs; out.f = rhs
+-- CmdDeclareData: [data, size, align] = 3 slots
+local mb_cmd_declare_data = func(out: ptr(@{CmdEntry}), data: i32, size: i32, align: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdDeclareData}
+    out.w0 = data; out.w1 = size; out.w2 = align
 end
 
--- Fill a CmdEntry for CmdFloatBinary.
-local mb_cmd_float_binary = func(out: ptr(@{CmdEntry}), dst: i32, op: i32, scalar: i32, sem_packed: i32, lhs: i32, rhs: i32)
-    out.tag = @{CMD_FLOAT_BINARY}
-    out.a = dst; out.b = op; out.c = scalar; out.d = sem_packed; out.e = lhs; out.f = rhs
+-- CmdDataInitZero: [data, offset, size] = 3 slots
+local mb_cmd_data_init_zero = func(out: ptr(@{CmdEntry}), data: i32, offset: i32, size: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdDataInitZero}
+    out.w0 = data; out.w1 = offset; out.w2 = size
 end
 
--- Fill a CmdEntry for CmdBitBinary.
+-- CmdDataInit: [data, offset, scalar, lit_tag, lit_lo, lit_hi] = 6 slots
+local mb_cmd_data_init = func(out: ptr(@{CmdEntry}), data: i32, offset: i32, scalar: i32, lit_tag: i32, lit_lo: i32, lit_hi: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdDataInit}
+    out.w0 = data; out.w1 = offset; out.w2 = scalar; out.w3 = lit_tag; out.w4 = lit_lo; out.w5 = lit_hi
+end
+
+-- CmdDataAddr: [dst, data] = 2 slots
+local mb_cmd_data_addr = func(out: ptr(@{CmdEntry}), dst: i32, data: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdDataAddr}
+    out.w0 = dst; out.w1 = data
+end
+
+-- CmdFuncAddr: [dst, func] = 2 slots
+local mb_cmd_func_addr = func(out: ptr(@{CmdEntry}), dst: i32, func_id: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdFuncAddr}
+    out.w0 = dst; out.w1 = func_id
+end
+
+-- CmdExternAddr: [dst, extern_id] = 2 slots
+local mb_cmd_extern_addr = func(out: ptr(@{CmdEntry}), dst: i32, extern_id: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdExternAddr}
+    out.w0 = dst; out.w1 = extern_id
+end
+
+-- CmdDeclareFunc: [visibility, func, sig] = 3 slots
+local mb_cmd_declare_func = func(out: ptr(@{CmdEntry}), visibility: i32, func_id: i32, sig: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdDeclareFunc}
+    out.w0 = visibility; out.w1 = func_id; out.w2 = sig
+end
+
+-- CmdDeclareExtern: [extern_id, symbol, sig] = 3 slots
+local mb_cmd_declare_extern = func(out: ptr(@{CmdEntry}), extern_id: i32, symbol: i32, sig: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdDeclareExtern}
+    out.w0 = extern_id; out.w1 = symbol; out.w2 = sig
+end
+
+-- CmdBeginFunc: [func] = 1 slot
+local mb_cmd_begin_func = func(out: ptr(@{CmdEntry}), func_id: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdBeginFunc}
+    out.w0 = func_id
+end
+
+-- CmdCreateBlock: [block] = 1 slot
+local mb_cmd_create_block = func(out: ptr(@{CmdEntry}), blk: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdCreateBlock}
+    out.w0 = blk
+end
+
+-- CmdSwitchToBlock: [block] = 1 slot
+local mb_cmd_switch_to_block = func(out: ptr(@{CmdEntry}), blk: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdSwitchToBlock}
+    out.w0 = blk
+end
+
+-- CmdSealBlock: [block] = 1 slot
+local mb_cmd_seal_block = func(out: ptr(@{CmdEntry}), blk: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdSealBlock}
+    out.w0 = blk
+end
+
+-- CmdBindEntryParams: [block, vals_aux, count] = 3 slots
+local mb_cmd_bind_entry_params = func(out: ptr(@{CmdEntry}), blk: i32, vals_aux: i32, n_vals: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdBindEntryParams}
+    out.w0 = blk; out.w1 = vals_aux; out.w2 = n_vals
+end
+
+-- CmdAppendBlockParam: [block, value, shape_tag, scalar, lanes] = 5 slots
+local mb_cmd_append_block_param = func(out: ptr(@{CmdEntry}), blk: i32, value: i32, shape_tag: i32, scalar: i32, lanes: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdAppendBlockParam}
+    out.w0 = blk; out.w1 = value; out.w2 = shape_tag; out.w3 = scalar; out.w4 = lanes
+end
+
+-- CmdCreateStackSlot: [slot, size, align] = 3 slots
+local mb_cmd_create_stack_slot = func(out: ptr(@{CmdEntry}), slot: i32, size: i32, align: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdCreateStackSlot}
+    out.w0 = slot; out.w1 = size; out.w2 = align
+end
+
+-- ── Value commands ─────────────────────────────────────────────────
+
+-- CmdAlias: [dst, src] = 2 slots
+local mb_cmd_alias = func(out: ptr(@{CmdEntry}), dst: i32, src: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdAlias}
+    out.w0 = dst; out.w1 = src
+end
+
+-- CmdStackAddr: [dst, slot] = 2 slots
+local mb_cmd_stack_addr = func(out: ptr(@{CmdEntry}), dst: i32, slot: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdStackAddr}
+    out.w0 = dst; out.w1 = slot
+end
+
+-- CmdConst: [dst, scalar, lit_tag, lit_lo, lit_hi] = 5 slots
+local mb_cmd_const = func(out: ptr(@{CmdEntry}), dst: i32, scalar: i32, lit_tag: i32, lit_lo: i32, lit_hi: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdConst}
+    out.w0 = dst; out.w1 = scalar; out.w2 = lit_tag; out.w3 = lit_lo; out.w4 = lit_hi
+end
+
+-- CmdIntrinsic: [dst, op, shape_tag, scalar, lanes, args_aux, count] = 7 slots
+local mb_cmd_intrinsic = func(out: ptr(@{CmdEntry}), dst: i32, op: i32, shape_tag: i32, scalar: i32, lanes: i32, args_aux: i32, count: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdIntrinsic}
+    out.w0 = dst; out.w1 = op; out.w2 = shape_tag; out.w3 = scalar; out.w4 = lanes; out.w5 = args_aux; out.w6 = count
+end
+
+-- CmdPtrOffset: [dst, base_tag, base_id, index, elem_size, offset_lo, offset_hi] = 7 slots
+local mb_cmd_ptr_offset = func(out: ptr(@{CmdEntry}), dst: i32, base_tag: i32, base_id: i32, index: i32, elem_size: i32, offset_lo: i32, offset_hi: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdPtrOffset}
+    out.w0 = dst; out.w1 = base_tag; out.w2 = base_id; out.w3 = index; out.w4 = elem_size; out.w5 = offset_lo; out.w6 = offset_hi
+end
+
+-- ── Arithmetic commands ────────────────────────────────────────────
+
+-- CmdIntBinary: [dst, op, scalar, overflow, exact, lhs, rhs] = 7 slots
+local mb_cmd_int_binary = func(out: ptr(@{CmdEntry}), dst: i32, op: i32, scalar: i32, overflow: i32, exact: i32, lhs: i32, rhs: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdIntBinary}
+    out.w0 = dst; out.w1 = op; out.w2 = scalar; out.w3 = overflow; out.w4 = exact; out.w5 = lhs; out.w6 = rhs
+end
+
+-- CmdFloatBinary: [dst, op, scalar, semantics, lhs, rhs] = 6 slots
+local mb_cmd_float_binary = func(out: ptr(@{CmdEntry}), dst: i32, op: i32, scalar: i32, semantics: i32, lhs: i32, rhs: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdFloatBinary}
+    out.w0 = dst; out.w1 = op; out.w2 = scalar; out.w3 = semantics; out.w4 = lhs; out.w5 = rhs
+end
+
+-- CmdBitBinary: [dst, op, scalar, lhs, rhs] = 5 slots
 local mb_cmd_bit_binary = func(out: ptr(@{CmdEntry}), dst: i32, op: i32, scalar: i32, lhs: i32, rhs: i32)
-    out.tag = @{CMD_BIT_BINARY}
-    out.a = dst; out.b = op; out.c = scalar; out.d = lhs; out.e = rhs; out.f = 0
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdBitBinary}
+    out.w0 = dst; out.w1 = op; out.w2 = scalar; out.w3 = lhs; out.w4 = rhs
 end
 
--- Fill a CmdEntry for CmdShift.
+-- CmdBitNot: [dst, scalar, value] = 3 slots
+local mb_cmd_bit_not = func(out: ptr(@{CmdEntry}), dst: i32, scalar: i32, value: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdBitNot}
+    out.w0 = dst; out.w1 = scalar; out.w2 = value
+end
+
+-- CmdShift: [dst, op, scalar, lhs, rhs] = 5 slots
 local mb_cmd_shift = func(out: ptr(@{CmdEntry}), dst: i32, op: i32, scalar: i32, lhs: i32, rhs: i32)
-    out.tag = @{CMD_SHIFT}
-    out.a = dst; out.b = op; out.c = scalar; out.d = lhs; out.e = rhs; out.f = 0
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdShift}
+    out.w0 = dst; out.w1 = op; out.w2 = scalar; out.w3 = lhs; out.w4 = rhs
 end
 
--- Fill a CmdEntry for CmdUnary.
-local mb_cmd_unary = func(out: ptr(@{CmdEntry}), dst: i32, op: i32, shape_tag: i32, scalar: i32, value: i32)
-    out.tag = @{CMD_UNARY}
-    out.a = dst; out.b = op; out.c = shape_tag; out.d = scalar; out.e = value; out.f = 0
+-- CmdRotate: [dst, op, scalar, lhs, rhs] = 5 slots
+local mb_cmd_rotate = func(out: ptr(@{CmdEntry}), dst: i32, op: i32, scalar: i32, lhs: i32, rhs: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdRotate}
+    out.w0 = dst; out.w1 = op; out.w2 = scalar; out.w3 = lhs; out.w4 = rhs
 end
 
--- Fill a CmdEntry for CmdCompare.
-local mb_cmd_compare = func(out: ptr(@{CmdEntry}), dst: i32, op: i32, shape_tag: i32, scalar: i32, lhs: i32, rhs: i32)
-    out.tag = @{CMD_COMPARE}
-    out.a = dst; out.b = op; out.c = shape_tag; out.d = scalar; out.e = lhs; out.f = rhs
+-- CmdUnary: [dst, op, shape_tag, scalar, lanes, value] = 6 slots
+local mb_cmd_unary = func(out: ptr(@{CmdEntry}), dst: i32, op: i32, shape_tag: i32, scalar: i32, lanes: i32, value: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdUnary}
+    out.w0 = dst; out.w1 = op; out.w2 = shape_tag; out.w3 = scalar; out.w4 = lanes; out.w5 = value
 end
 
--- Fill a CmdEntry for CmdCast.
+-- CmdCompare: [dst, op, shape_tag, scalar, lanes, lhs, rhs] = 7 slots
+local mb_cmd_compare = func(out: ptr(@{CmdEntry}), dst: i32, op: i32, shape_tag: i32, scalar: i32, lanes: i32, lhs: i32, rhs: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdCompare}
+    out.w0 = dst; out.w1 = op; out.w2 = shape_tag; out.w3 = scalar; out.w4 = lanes; out.w5 = lhs; out.w6 = rhs
+end
+
+-- CmdCast: [dst, op, scalar, value] = 4 slots
 local mb_cmd_cast = func(out: ptr(@{CmdEntry}), dst: i32, op: i32, scalar: i32, value: i32)
-    out.tag = @{CMD_CAST}
-    out.a = dst; out.b = op; out.c = scalar; out.d = value; out.e = 0; out.f = 0
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdCast}
+    out.w0 = dst; out.w1 = op; out.w2 = scalar; out.w3 = value
 end
+
+-- ── Memory commands ────────────────────────────────────────────────
+
+-- CmdLoadInfo: [dst, shape_tag, scalar, lanes, base_tag, base_id, byte_offset,
+--   access, align_k, align_b, deref_k, deref_b, trap_k, motion_k, mode_k] = 15 slots
+local mb_cmd_load_info = func(out: ptr(@{CmdEntry}), dst: i32, shape_tag: i32, scalar: i32, lanes: i32,
+    base_tag: i32, base_id: i32, byte_offset: i32, access: i32, align_k: i32, align_b: i32,
+    deref_k: i32, deref_b: i32, trap_k: i32, motion_k: i32, mode_k: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdLoadInfo}
+    out.w0 = dst; out.w1 = shape_tag; out.w2 = scalar; out.w3 = lanes; out.w4 = base_tag
+    out.w5 = base_id; out.w6 = byte_offset; out.w7 = access; out.w8 = align_k; out.w9 = align_b
+    out.w10 = deref_k; out.w11 = deref_b; out.w12 = trap_k; out.w13 = motion_k; out.w14 = mode_k
+end
+
+-- CmdStoreInfo: [shape_tag, scalar, lanes, base_tag, base_id, byte_offset, value,
+--   access, align_k, align_b, deref_k, deref_b, trap_k, motion_k, mode_k] = 14 slots
+local mb_cmd_store_info = func(out: ptr(@{CmdEntry}), shape_tag: i32, scalar: i32, lanes: i32,
+    base_tag: i32, base_id: i32, byte_offset: i32, value: i32, access: i32, align_k: i32, align_b: i32,
+    deref_k: i32, deref_b: i32, trap_k: i32, motion_k: i32, mode_k: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdStoreInfo}
+    out.w0 = shape_tag; out.w1 = scalar; out.w2 = lanes; out.w3 = base_tag; out.w4 = base_id
+    out.w5 = byte_offset; out.w6 = value; out.w7 = access; out.w8 = align_k; out.w9 = align_b
+    out.w10 = deref_k; out.w11 = deref_b; out.w12 = trap_k; out.w13 = motion_k
+    out.w14 = mode_k
+end
+
+-- CmdAliasFact: [kind, a, b, c] = 3 slots
+local mb_cmd_alias_fact = func(out: ptr(@{CmdEntry}), kind: i32, a: i32, b: i32, c: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdAliasFact}
+    out.w0 = kind; out.w1 = a; out.w2 = b; out.w3 = c
+end
+
+-- CmdMemcpy: [dst, src, len] = 3 slots
+local mb_cmd_memcpy = func(out: ptr(@{CmdEntry}), dst: i32, src: i32, len: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdMemcpy}
+    out.w0 = dst; out.w1 = src; out.w2 = len
+end
+
+-- CmdMemset: [dst, byte, len] = 3 slots
+local mb_cmd_memset = func(out: ptr(@{CmdEntry}), dst: i32, byte: i32, len: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdMemset}
+    out.w0 = dst; out.w1 = byte; out.w2 = len
+end
+
+-- ── Select and FMA ────────────────────────────────────────────────
+
+-- CmdSelect: [dst, shape_tag, scalar, lanes, cond, then_val, else_val] = 7 slots
+local mb_cmd_select = func(out: ptr(@{CmdEntry}), dst: i32, shape_tag: i32, scalar: i32, lanes: i32, cond: i32, then_val: i32, else_val: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdSelect}
+    out.w0 = dst; out.w1 = shape_tag; out.w2 = scalar; out.w3 = lanes; out.w4 = cond; out.w5 = then_val; out.w6 = else_val
+end
+
+-- CmdFma: [dst, scalar, semantics, a, b, c] = 6 slots
+local mb_cmd_fma = func(out: ptr(@{CmdEntry}), dst: i32, scalar: i32, semantics: i32, a: i32, b: i32, c: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdFma}
+    out.w0 = dst; out.w1 = scalar; out.w2 = semantics; out.w3 = a; out.w4 = b; out.w5 = c
+end
+
+-- ── Control flow commands ──────────────────────────────────────────
+
+-- CmdCall: [result_tag, result_dst, result_scalar, target_tag, target_id, sig, args_aux, count] = 8 slots
+local mb_cmd_call = func(out: ptr(@{CmdEntry}), result_tag: i32, result_dst: i32, result_scalar: i32,
+    target_tag: i32, target_id: i32, sig: i32, args_aux: i32, count: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdCall}
+    out.w0 = result_tag; out.w1 = result_dst; out.w2 = result_scalar; out.w3 = target_tag
+    out.w4 = target_id; out.w5 = sig; out.w6 = args_aux; out.w7 = count
+end
+
+-- CmdJump: [dest, args_aux, count] = 3 slots
+local mb_cmd_jump = func(out: ptr(@{CmdEntry}), dest: i32, args_aux: i32, count: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdJump}
+    out.w0 = dest; out.w1 = args_aux; out.w2 = count
+end
+
+-- CmdBrIf: [cond, then_block, then_aux, then_count, else_block, else_aux, else_count] = 7 slots
+local mb_cmd_br_if = func(out: ptr(@{CmdEntry}), cond: i32, then_block: i32, then_aux: i32, then_count: i32, else_block: i32, else_aux: i32, else_count: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdBrIf}
+    out.w0 = cond; out.w1 = then_block; out.w2 = then_aux; out.w3 = then_count
+    out.w4 = else_block; out.w5 = else_aux; out.w6 = else_count
+end
+
+-- CmdSwitchInt: [value, scalar, cases_aux, n_cases, default] = 5 slots
+local mb_cmd_switch_int = func(out: ptr(@{CmdEntry}), value: i32, scalar: i32, cases_aux: i32, n_cases: i32, default_blk: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdSwitchInt}
+    out.w0 = value; out.w1 = scalar; out.w2 = cases_aux; out.w3 = n_cases; out.w4 = default_blk
+end
+
+-- CmdReturnVoid: [] = 0 slots
+local mb_cmd_return_void = func(out: ptr(@{CmdEntry}))
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdReturnVoid}
+end
+
+-- CmdReturnValue: [value] = 1 slot
+local mb_cmd_return_value = func(out: ptr(@{CmdEntry}), value: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdReturnValue}
+    out.w0 = value
+end
+
+-- CmdFinishFunc: [func] = 1 slot
+local mb_cmd_finish_func = func(out: ptr(@{CmdEntry}), func_id: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdFinishFunc}
+    out.w0 = func_id
+end
+
+-- CmdFinalizeModule: [] = 0 slots
+local mb_cmd_finalize_module = func(out: ptr(@{CmdEntry}))
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdFinalizeModule}
+end
+
+-- CmdTargetModel: [] = 0 slots (reserved)
+local mb_cmd_target_model = func(out: ptr(@{CmdEntry}))
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdTargetModel}
+end
+
+-- ── Atomic commands ─────────────────────────────────────────────────
+
+-- CmdAtomicLoad: [dst, scalar, base_tag, base_id, byte_offset, access, align_k, align_b, deref_k, deref_b, trap_k, motion_k, mode_k, ordering, _pad] = 15 slots
+local mb_cmd_atomic_load = func(out: ptr(@{CmdEntry}), dst: i32, scalar: i32, base_tag: i32, base_id: i32,
+    byte_offset: i32, access: i32, align_k: i32, align_b: i32, deref_k: i32, deref_b: i32,
+    trap_k: i32, motion_k: i32, mode_k: i32, ordering: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdAtomicLoad}
+    out.w0 = dst; out.w1 = scalar; out.w2 = base_tag; out.w3 = base_id; out.w4 = byte_offset
+    out.w5 = access; out.w6 = align_k; out.w7 = align_b; out.w8 = deref_k; out.w9 = deref_b
+    out.w10 = trap_k; out.w11 = motion_k; out.w12 = mode_k; out.w13 = ordering
+end
+
+-- CmdAtomicStore: [scalar, base_tag, base_id, byte_offset, value, access, align_k, align_b, deref_k, deref_b, trap_k, motion_k, mode_k, ordering] = 14 slots
+local mb_cmd_atomic_store = func(out: ptr(@{CmdEntry}), scalar: i32, base_tag: i32, base_id: i32,
+    byte_offset: i32, value: i32, access: i32, align_k: i32, align_b: i32,
+    deref_k: i32, deref_b: i32, trap_k: i32, motion_k: i32, mode_k: i32, ordering: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdAtomicStore}
+    out.w0 = scalar; out.w1 = base_tag; out.w2 = base_id; out.w3 = byte_offset; out.w4 = value
+    out.w5 = access; out.w6 = align_k; out.w7 = align_b; out.w8 = deref_k; out.w9 = deref_b
+    out.w10 = trap_k; out.w11 = motion_k; out.w12 = mode_k; out.w13 = ordering
+end
+
+-- CmdAtomicRmw: [dst, op, scalar, base_tag, base_id, byte_offset, value, access, align_k, align_b, deref_k, deref_b, trap_k, motion_k, mode_k, ordering] = 16 slots
+local mb_cmd_atomic_rmw = func(out: ptr(@{CmdEntry}), dst: i32, op: i32, scalar: i32, base_tag: i32, base_id: i32,
+    byte_offset: i32, value: i32, access: i32, align_k: i32, align_b: i32,
+    deref_k: i32, deref_b: i32, trap_k: i32, motion_k: i32, mode_k: i32, ordering: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdAtomicRmw}
+    out.w0 = dst; out.w1 = op; out.w2 = scalar; out.w3 = base_tag; out.w4 = base_id
+    out.w5 = byte_offset; out.w6 = value; out.w7 = access; out.w8 = align_k; out.w9 = align_b
+    out.w10 = deref_k; out.w11 = deref_b; out.w12 = trap_k; out.w13 = motion_k
+    out.w14 = mode_k; out.w15 = ordering
+end
+
+-- CmdAtomicCas: [dst, scalar, base_tag, base_id, byte_offset, expected, replacement, access, align_k, align_b, deref_k, deref_b, trap_k, motion_k, mode_k, ordering, _pad] = 17 slots
+local mb_cmd_atomic_cas = func(out: ptr(@{CmdEntry}), dst: i32, scalar: i32, base_tag: i32, base_id: i32,
+    byte_offset: i32, expected: i32, replacement: i32, access: i32, align_k: i32, align_b: i32,
+    deref_k: i32, deref_b: i32, trap_k: i32, motion_k: i32, mode_k: i32, ordering: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdAtomicCas}
+    out.w0 = dst; out.w1 = scalar; out.w2 = base_tag; out.w3 = base_id; out.w4 = byte_offset
+    out.w5 = expected; out.w6 = replacement; out.w7 = access; out.w8 = align_k; out.w9 = align_b
+    out.w10 = deref_k; out.w11 = deref_b; out.w12 = trap_k; out.w13 = motion_k
+    out.w14 = mode_k; out.w15 = ordering
+end
+
+-- CmdAtomicFence: [ordering] = 1 slot
+local mb_cmd_atomic_fence = func(out: ptr(@{CmdEntry}), ordering: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdAtomicFence}
+    out.w0 = ordering
+end
+
+-- ── Vector commands ─────────────────────────────────────────────────
+
+-- CmdVecSplat: [dst, elem_scalar, lanes, value] = 4 slots
+local mb_cmd_vec_splat = func(out: ptr(@{CmdEntry}), dst: i32, elem_scalar: i32, lanes: i32, value: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdVecSplat}
+    out.w0 = dst; out.w1 = elem_scalar; out.w2 = lanes; out.w3 = value
+end
+
+-- CmdVecBinary: [dst, op, elem_scalar, lanes, lhs, rhs] = 6 slots
+local mb_cmd_vec_binary = func(out: ptr(@{CmdEntry}), dst: i32, op: i32, elem_scalar: i32, lanes: i32, lhs: i32, rhs: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdVecBinary}
+    out.w0 = dst; out.w1 = op; out.w2 = elem_scalar; out.w3 = lanes; out.w4 = lhs; out.w5 = rhs
+end
+
+-- CmdVecCompare: [dst, op, elem_scalar, lanes, lhs, rhs] = 6 slots
+local mb_cmd_vec_compare = func(out: ptr(@{CmdEntry}), dst: i32, op: i32, elem_scalar: i32, lanes: i32, lhs: i32, rhs: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdVecCompare}
+    out.w0 = dst; out.w1 = op; out.w2 = elem_scalar; out.w3 = lanes; out.w4 = lhs; out.w5 = rhs
+end
+
+-- CmdVecSelect: [dst, elem_scalar, lanes, mask, then_val, else_val] = 6 slots
+local mb_cmd_vec_select = func(out: ptr(@{CmdEntry}), dst: i32, elem_scalar: i32, lanes: i32, mask: i32, then_val: i32, else_val: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdVecSelect}
+    out.w0 = dst; out.w1 = elem_scalar; out.w2 = lanes; out.w3 = mask; out.w4 = then_val; out.w5 = else_val
+end
+
+-- CmdVecMask: [dst, op, elem_scalar, lanes, args_aux, count] = 6 slots
+local mb_cmd_vec_mask = func(out: ptr(@{CmdEntry}), dst: i32, op: i32, elem_scalar: i32, lanes: i32, args_aux: i32, count: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdVecMask}
+    out.w0 = dst; out.w1 = op; out.w2 = elem_scalar; out.w3 = lanes; out.w4 = args_aux; out.w5 = count
+end
+
+-- CmdVecInsertLane: [dst, elem_scalar, lanes, value, lane_value, lane] = 6 slots
+local mb_cmd_vec_insert_lane = func(out: ptr(@{CmdEntry}), dst: i32, elem_scalar: i32, lanes: i32, value: i32, lane_value: i32, lane: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdVecInsertLane}
+    out.w0 = dst; out.w1 = elem_scalar; out.w2 = lanes; out.w3 = value; out.w4 = lane_value; out.w5 = lane
+end
+
+-- CmdVecExtractLane: [dst, scalar, value, lane] = 4 slots
+local mb_cmd_vec_extract_lane = func(out: ptr(@{CmdEntry}), dst: i32, scalar: i32, value: i32, lane: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdVecExtractLane}
+    out.w0 = dst; out.w1 = scalar; out.w2 = value; out.w3 = lane
+end
+
+-- CmdVecLoadInfo: [dst, elem_scalar, lanes, base_tag, base_id, byte_offset, access, align_k, align_b, deref_k, deref_b, trap_k, motion_k, mode_k, _pad] = 15 slots
+local mb_cmd_vec_load_info = func(out: ptr(@{CmdEntry}), dst: i32, elem_scalar: i32, lanes: i32,
+    base_tag: i32, base_id: i32, byte_offset: i32, access: i32, align_k: i32, align_b: i32,
+    deref_k: i32, deref_b: i32, trap_k: i32, motion_k: i32, mode_k: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdVecLoadInfo}
+    out.w0 = dst; out.w1 = elem_scalar; out.w2 = lanes; out.w3 = base_tag; out.w4 = base_id
+    out.w5 = byte_offset; out.w6 = access; out.w7 = align_k; out.w8 = align_b; out.w9 = deref_k
+    out.w10 = deref_b; out.w11 = trap_k; out.w12 = motion_k; out.w13 = mode_k
+end
+
+-- CmdVecStoreInfo: [elem_scalar, lanes, base_tag, base_id, byte_offset, value, access, align_k, align_b, deref_k, deref_b, trap_k, motion_k, mode_k] = 14 slots
+local mb_cmd_vec_store_info = func(out: ptr(@{CmdEntry}), elem_scalar: i32, lanes: i32,
+    base_tag: i32, base_id: i32, byte_offset: i32, value: i32, access: i32, align_k: i32, align_b: i32,
+    deref_k: i32, deref_b: i32, trap_k: i32, motion_k: i32, mode_k: i32)
+    mb_cmd_clear(out)
+    out.tag = @{T.CmdVecStoreInfo}
+    out.w0 = elem_scalar; out.w1 = lanes; out.w2 = base_tag; out.w3 = base_id; out.w4 = byte_offset
+    out.w5 = value; out.w6 = access; out.w7 = align_k; out.w8 = align_b; out.w9 = deref_k
+    out.w10 = deref_b; out.w11 = trap_k; out.w12 = motion_k; out.w13 = mode_k
+end
+
+-- ── Dispatch helpers ──────────────────────────────────────────────
 
 -- Lower a binary operation to the appropriate Cmd variant.
--- op: Core BinaryOp tag. sem_packed: (exact << 16) | overflow.
-local mb_lower_binary = func(op: i32, scalar: i32, dst: i32, lhs: i32, rhs: i32, sem_packed: i32, out: ptr(@{CmdEntry}))
+-- overflow: 0=Wrap, 1=NoSignedWrap, 2=NoUnsignedWrap, 3=NoWrap.
+-- exact: 0=MayLose, 1=Exact.
+local mb_lower_binary = func(op: i32, scalar: i32, dst: i32, lhs: i32, rhs: i32, overflow: i32, exact: i32, out: ptr(@{CmdEntry}))
     let is_float: bool = mb_is_float(scalar)
     switch op do
-    case @{BIN_ADD} then
+    case @{T.BinAdd} then
         if is_float then
-            mb_cmd_float_binary(out, dst, @{BACK_FLOAT_ADD}, scalar, 1, lhs, rhs)
+            mb_cmd_float_binary(out, dst, @{T.BackFloatAdd}, scalar, 1, lhs, rhs)
             return
         end
-        mb_cmd_int_binary(out, dst, @{BACK_INT_ADD}, scalar, sem_packed, lhs, rhs)
-    case @{BIN_SUB} then
+        mb_cmd_int_binary(out, dst, @{T.BackIntAdd}, scalar, overflow, exact, lhs, rhs)
+    case @{T.BinSub} then
         if is_float then
-            mb_cmd_float_binary(out, dst, @{BACK_FLOAT_SUB}, scalar, 1, lhs, rhs)
+            mb_cmd_float_binary(out, dst, @{T.BackFloatSub}, scalar, 1, lhs, rhs)
             return
         end
-        mb_cmd_int_binary(out, dst, @{BACK_INT_SUB}, scalar, sem_packed, lhs, rhs)
-    case @{BIN_MUL} then
+        mb_cmd_int_binary(out, dst, @{T.BackIntSub}, scalar, overflow, exact, lhs, rhs)
+    case @{T.BinMul} then
         if is_float then
-            mb_cmd_float_binary(out, dst, @{BACK_FLOAT_MUL}, scalar, 1, lhs, rhs)
+            mb_cmd_float_binary(out, dst, @{T.BackFloatMul}, scalar, 1, lhs, rhs)
             return
         end
-        mb_cmd_int_binary(out, dst, @{BACK_INT_MUL}, scalar, sem_packed, lhs, rhs)
-    case @{BIN_DIV} then
+        mb_cmd_int_binary(out, dst, @{T.BackIntMul}, scalar, overflow, exact, lhs, rhs)
+    case @{T.BinDiv} then
         if is_float then
-            mb_cmd_float_binary(out, dst, @{BACK_FLOAT_DIV}, scalar, 1, lhs, rhs)
+            mb_cmd_float_binary(out, dst, @{T.BackFloatDiv}, scalar, 1, lhs, rhs)
             return
         end
-        mb_cmd_int_binary(out, dst, @{BACK_INT_SDIV}, scalar, sem_packed, lhs, rhs)
-    case @{BIN_REM} then
-        mb_cmd_int_binary(out, dst, @{BACK_INT_SREM}, scalar, sem_packed, lhs, rhs)
-    case @{BIN_BIT_AND} then
-        mb_cmd_bit_binary(out, dst, @{BACK_BIT_AND}, scalar, lhs, rhs)
-    case @{BIN_BIT_OR} then
-        mb_cmd_bit_binary(out, dst, @{BACK_BIT_OR}, scalar, lhs, rhs)
-    case @{BIN_BIT_XOR} then
-        mb_cmd_bit_binary(out, dst, @{BACK_BIT_XOR}, scalar, lhs, rhs)
-    case @{BIN_SHL} then
-        mb_cmd_shift(out, dst, @{BACK_SHIFT_LEFT}, scalar, lhs, rhs)
-    case @{BIN_LSHR} then
-        mb_cmd_shift(out, dst, @{BACK_SHIFT_LOGICAL_RIGHT}, scalar, lhs, rhs)
-    case @{BIN_ASHR} then
-        mb_cmd_shift(out, dst, @{BACK_SHIFT_ARITHMETIC_RIGHT}, scalar, lhs, rhs)
+        mb_cmd_int_binary(out, dst, @{T.BackIntSDiv}, scalar, overflow, exact, lhs, rhs)
+    case @{T.BinRem} then
+        mb_cmd_int_binary(out, dst, @{T.BackIntSRem}, scalar, overflow, exact, lhs, rhs)
+    case @{T.BinBitAnd} then
+        mb_cmd_bit_binary(out, dst, @{T.BackBitAnd}, scalar, lhs, rhs)
+    case @{T.BinBitOr} then
+        mb_cmd_bit_binary(out, dst, @{T.BackBitOr}, scalar, lhs, rhs)
+    case @{T.BinBitXor} then
+        mb_cmd_bit_binary(out, dst, @{T.BackBitXor}, scalar, lhs, rhs)
+    case @{T.BinShl} then
+        mb_cmd_shift(out, dst, @{T.BackShiftLeft}, scalar, lhs, rhs)
+    case @{T.BinLShr} then
+        mb_cmd_shift(out, dst, @{T.BackShiftLogicalRight}, scalar, lhs, rhs)
+    case @{T.BinAShr} then
+        mb_cmd_shift(out, dst, @{T.BackShiftArithmeticRight}, scalar, lhs, rhs)
     default then
         mb_cmd_trap(out)
     end
 end
 
 -- Lower a unary operation to CmdUnary.
--- op: Core UnaryOp tag. shape_tag=1 for scalar shape.
+-- shape_tag: 1 for scalar shape. lanes: 0 for scalar.
 local mb_lower_unary_cmd = func(op: i32, scalar: i32, dst: i32, value: i32, shape_tag: i32, out: ptr(@{CmdEntry}))
     switch op do
-    case @{U_NEG} then
-        let back_op: i32 = select(mb_is_float(scalar), @{BACK_UNARY_FNEG}, @{BACK_UNARY_INEG})
-        mb_cmd_unary(out, dst, back_op, shape_tag, scalar, value)
-    case @{U_NOT} then
-        mb_cmd_unary(out, dst, @{BACK_UNARY_BOOL_NOT}, shape_tag, scalar, value)
-    case @{U_BIT_NOT} then
-        mb_cmd_unary(out, dst, @{BACK_UNARY_BNOT}, shape_tag, scalar, value)
+    case @{T.UnaryNeg} then
+        let back_op: i32 = select(mb_is_float(scalar), @{T.BackUnaryFneg}, @{T.BackUnaryIneg})
+        mb_cmd_unary(out, dst, back_op, shape_tag, scalar, 0, value)
+    case @{T.UnaryNot} then
+        mb_cmd_unary(out, dst, @{T.BackUnaryBoolNot}, shape_tag, scalar, 0, value)
+    case @{T.UnaryBitNot} then
+        mb_cmd_bit_not(out, dst, scalar, value)
     default then
         mb_cmd_trap(out)
     end
 end
 
 -- Lower a compare operation to CmdCompare.
--- Handles signed-int, unsigned-int, and float comparisons correctly.
 local mb_lower_compare = func(op: i32, scalar: i32, dst: i32, lhs: i32, rhs: i32, shape_tag: i32, out: ptr(@{CmdEntry}))
     let is_float: bool = mb_is_float(scalar)
     let is_signed: bool = mb_is_signed(scalar)
     switch op do
-    case @{CMP_EQ} then
-        let back_op: i32 = select(is_float, @{BACK_FCMP_EQ}, @{BACK_ICMP_EQ})
-        mb_cmd_compare(out, dst, back_op, shape_tag, scalar, lhs, rhs)
-    case @{CMP_NE} then
-        let back_op: i32 = select(is_float, @{BACK_FCMP_NE}, @{BACK_ICMP_NE})
-        mb_cmd_compare(out, dst, back_op, shape_tag, scalar, lhs, rhs)
-    case @{CMP_LT} then
-        let back_op: i32 = select(is_float, @{BACK_FCMP_LT}, select(is_signed, @{BACK_SICMP_LT}, @{BACK_UICMP_LT}))
-        mb_cmd_compare(out, dst, back_op, shape_tag, scalar, lhs, rhs)
-    case @{CMP_LE} then
-        let back_op: i32 = select(is_float, @{BACK_FCMP_LE}, select(is_signed, @{BACK_SICMP_LE}, @{BACK_UICMP_LE}))
-        mb_cmd_compare(out, dst, back_op, shape_tag, scalar, lhs, rhs)
-    case @{CMP_GT} then
-        let back_op: i32 = select(is_float, @{BACK_FCMP_GT}, select(is_signed, @{BACK_SICMP_GT}, @{BACK_UICMP_GT}))
-        mb_cmd_compare(out, dst, back_op, shape_tag, scalar, lhs, rhs)
-    case @{CMP_GE} then
-        let back_op: i32 = select(is_float, @{BACK_FCMP_GE}, select(is_signed, @{BACK_SICMP_GE}, @{BACK_UICMP_GE}))
-        mb_cmd_compare(out, dst, back_op, shape_tag, scalar, lhs, rhs)
+    case @{T.CmpEq} then
+        let back_op: i32 = select(is_float, @{T.BackFCmpEq}, @{T.BackIcmpEq})
+        mb_cmd_compare(out, dst, back_op, shape_tag, scalar, 0, lhs, rhs)
+    case @{T.CmpNe} then
+        let back_op: i32 = select(is_float, @{T.BackFCmpNe}, @{T.BackIcmpNe})
+        mb_cmd_compare(out, dst, back_op, shape_tag, scalar, 0, lhs, rhs)
+    case @{T.CmpLt} then
+        let back_op: i32 = select(is_float, @{T.BackFCmpLt}, select(is_signed, @{T.BackSIcmpLt}, @{T.BackUIcmpLt}))
+        mb_cmd_compare(out, dst, back_op, shape_tag, scalar, 0, lhs, rhs)
+    case @{T.CmpLe} then
+        let back_op: i32 = select(is_float, @{T.BackFCmpLe}, select(is_signed, @{T.BackSIcmpLe}, @{T.BackUIcmpLe}))
+        mb_cmd_compare(out, dst, back_op, shape_tag, scalar, 0, lhs, rhs)
+    case @{T.CmpGt} then
+        let back_op: i32 = select(is_float, @{T.BackFCmpGt}, select(is_signed, @{T.BackSIcmpGt}, @{T.BackUIcmpGt}))
+        mb_cmd_compare(out, dst, back_op, shape_tag, scalar, 0, lhs, rhs)
+    case @{T.CmpGe} then
+        let back_op: i32 = select(is_float, @{T.BackFCmpGe}, select(is_signed, @{T.BackSIcmpGe}, @{T.BackUIcmpGe}))
+        mb_cmd_compare(out, dst, back_op, shape_tag, scalar, 0, lhs, rhs)
     default then
         mb_cmd_trap(out)
     end
 end
 
--- Lower a MachineCastOp to CmdCast. cast_op is MachineCastOp tag (not BackCastOp).
+-- Lower a MachineCastOp to CmdCast. cast_op is MachineCastOp tag.
 local mb_lower_cast_cmd = func(cast_op: i32, scalar: i32, dst: i32, value: i32, out: ptr(@{CmdEntry}))
     switch cast_op do
-    case @{MC_BITCAST} then mb_cmd_cast(out, dst, @{BACK_BITCAST}, scalar, value)
-    case @{MC_IREDUCE} then mb_cmd_cast(out, dst, @{BACK_IREDUCE}, scalar, value)
-    case @{MC_SEXTEND} then mb_cmd_cast(out, dst, @{BACK_SEXTEND}, scalar, value)
-    case @{MC_UEXTEND} then mb_cmd_cast(out, dst, @{BACK_UEXTEND}, scalar, value)
-    case @{MC_FPROMOTE} then mb_cmd_cast(out, dst, @{BACK_FPROMOTE}, scalar, value)
-    case @{MC_FDEMOTE} then mb_cmd_cast(out, dst, @{BACK_FDEMOTE}, scalar, value)
-    case @{MC_STOF} then mb_cmd_cast(out, dst, @{BACK_STOF}, scalar, value)
-    case @{MC_UTOF} then mb_cmd_cast(out, dst, @{BACK_UTOF}, scalar, value)
-    case @{MC_FTOS} then mb_cmd_cast(out, dst, @{BACK_FTOS}, scalar, value)
-    case @{MC_FTOU} then mb_cmd_cast(out, dst, @{BACK_FTOU}, scalar, value)
+    case @{T.MC_BITCAST} then mb_cmd_cast(out, dst, @{T.BackBitcast}, scalar, value)
+    case @{T.MC_IREDUCE} then mb_cmd_cast(out, dst, @{T.BackIreduce}, scalar, value)
+    case @{T.MC_SEXTEND} then mb_cmd_cast(out, dst, @{T.BackSextend}, scalar, value)
+    case @{T.MC_UEXTEND} then mb_cmd_cast(out, dst, @{T.BackUextend}, scalar, value)
+    case @{T.MC_FPROMOTE} then mb_cmd_cast(out, dst, @{T.BackFpromote}, scalar, value)
+    case @{T.MC_FDEMOTE} then mb_cmd_cast(out, dst, @{T.BackFdemote}, scalar, value)
+    case @{T.MC_STOF} then mb_cmd_cast(out, dst, @{T.BackSToF}, scalar, value)
+    case @{T.MC_UTOF} then mb_cmd_cast(out, dst, @{T.BackUToF}, scalar, value)
+    case @{T.MC_FTOS} then mb_cmd_cast(out, dst, @{T.BackFToS}, scalar, value)
+    case @{T.MC_FTOU} then mb_cmd_cast(out, dst, @{T.BackFToU}, scalar, value)
     default then mb_cmd_trap(out)
     end
 end
 
--- Internal helpers must be registered via M:add_func so the typechecker
--- can resolve them when called from other functions in the same module.
+-- ── Exports ────────────────────────────────────────────────────────
+
+M:add_func(mb_cmd_clear)
+M:add_func(mb_cmd_trap)
 M:add_func(mb_is_float)
 M:add_func(mb_is_signed)
 M:add_func(mb_is_unsigned)
-M:add_func(mb_cmd_trap)
+M:add_func(mb_cmd_create_sig)
+M:add_func(mb_cmd_declare_data)
+M:add_func(mb_cmd_data_init_zero)
+M:add_func(mb_cmd_data_init)
+M:add_func(mb_cmd_data_addr)
+M:add_func(mb_cmd_func_addr)
+M:add_func(mb_cmd_extern_addr)
+M:add_func(mb_cmd_declare_func)
+M:add_func(mb_cmd_declare_extern)
+M:add_func(mb_cmd_begin_func)
+M:add_func(mb_cmd_create_block)
+M:add_func(mb_cmd_switch_to_block)
+M:add_func(mb_cmd_seal_block)
+M:add_func(mb_cmd_bind_entry_params)
+M:add_func(mb_cmd_append_block_param)
+M:add_func(mb_cmd_create_stack_slot)
+M:add_func(mb_cmd_alias)
+M:add_func(mb_cmd_alias_fact)
+M:add_func(mb_cmd_stack_addr)
+M:add_func(mb_cmd_const)
+M:add_func(mb_cmd_intrinsic)
+M:add_func(mb_cmd_ptr_offset)
 M:add_func(mb_cmd_int_binary)
 M:add_func(mb_cmd_float_binary)
 M:add_func(mb_cmd_bit_binary)
+M:add_func(mb_cmd_bit_not)
 M:add_func(mb_cmd_shift)
+M:add_func(mb_cmd_rotate)
 M:add_func(mb_cmd_unary)
 M:add_func(mb_cmd_compare)
 M:add_func(mb_cmd_cast)
+M:add_func(mb_cmd_load_info)
+M:add_func(mb_cmd_store_info)
+M:add_func(mb_cmd_memcpy)
+M:add_func(mb_cmd_memset)
+M:add_func(mb_cmd_select)
+M:add_func(mb_cmd_fma)
+M:add_func(mb_cmd_atomic_load)
+M:add_func(mb_cmd_atomic_store)
+M:add_func(mb_cmd_atomic_rmw)
+M:add_func(mb_cmd_atomic_cas)
+M:add_func(mb_cmd_atomic_fence)
+M:add_func(mb_cmd_vec_splat)
+M:add_func(mb_cmd_vec_binary)
+M:add_func(mb_cmd_vec_compare)
+M:add_func(mb_cmd_vec_select)
+M:add_func(mb_cmd_vec_mask)
+M:add_func(mb_cmd_vec_insert_lane)
+M:add_func(mb_cmd_vec_extract_lane)
+M:add_func(mb_cmd_vec_load_info)
+M:add_func(mb_cmd_vec_store_info)
+M:add_func(mb_cmd_call)
+M:add_func(mb_cmd_jump)
+M:add_func(mb_cmd_br_if)
+M:add_func(mb_cmd_switch_int)
+M:add_func(mb_cmd_return_void)
+M:add_func(mb_cmd_return_value)
+M:add_func(mb_cmd_finish_func)
+M:add_func(mb_cmd_finalize_module)
+M:add_func(mb_cmd_target_model)
 M:add_func(mb_lower_binary)
 M:add_func(mb_lower_unary_cmd)
 M:add_func(mb_lower_compare)

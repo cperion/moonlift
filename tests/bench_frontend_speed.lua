@@ -68,7 +68,7 @@ typedef struct NativeParseOut {
     int32_t *type_tag, *type_tok, *type_a, *type_b, *type_c;
     int32_t *expr_tag, *expr_tok, *expr_a, *expr_b, *expr_c, *expr_d;
     int32_t *stmt_tag, *stmt_tok, *stmt_a, *stmt_b, *stmt_c, *stmt_d, *stmt_e;
-    int32_t *item_tag, *item_tok, *item_a, *item_b, *item_c, *item_d, *item_e;
+    int32_t *item_tag, *item_tok, *item_a, *item_b, *item_c, *item_d, *item_e, *item_f;
     int32_t *param_name, *param_type;
     int32_t *field_name, *field_type;
     int32_t *jarg_name, *jarg_expr;
@@ -100,7 +100,7 @@ local function alloc_parse_out(cap)
         "type_tag", "type_tok", "type_a", "type_b", "type_c",
         "expr_tag", "expr_tok", "expr_a", "expr_b", "expr_c", "expr_d",
         "stmt_tag", "stmt_tok", "stmt_a", "stmt_b", "stmt_c", "stmt_d", "stmt_e",
-        "item_tag", "item_tok", "item_a", "item_b", "item_c", "item_d", "item_e",
+        "item_tag", "item_tok", "item_a", "item_b", "item_c", "item_d", "item_e", "item_f",
         "param_name", "param_type", "field_name", "field_type", "jarg_name", "jarg_expr",
         "expr_list", "stmt_list", "type_list", "issue_tag", "issue_tok",
     }) do arr(name) end

@@ -1,0 +1,353 @@
+-- MOM native typed tree materializer.
+--
+-- The parser may use compact SoA storage internally while it is recognizing
+-- syntax. This module is the parser output boundary for subsequent compiler
+-- phases: it rewrites parser records into a typed arena-shaped AST with node
+-- families matching the MoonCyclic surface concepts (Type/Expr/Stmt/Item), not
+-- token-tape payload slots.
+
+local M = moon.module("mom_native_tree")
+
+local i32p = moon.ptr(moon.i32)
+
+local NativeParseOut = M:struct("NativeParseOut", {
+    moon.field("state", i32p),
+    moon.field("type_tag", i32p), moon.field("type_tok", i32p), moon.field("type_a", i32p), moon.field("type_b", i32p), moon.field("type_c", i32p),
+    moon.field("expr_tag", i32p), moon.field("expr_tok", i32p), moon.field("expr_a", i32p), moon.field("expr_b", i32p), moon.field("expr_c", i32p), moon.field("expr_d", i32p),
+    moon.field("stmt_tag", i32p), moon.field("stmt_tok", i32p), moon.field("stmt_a", i32p), moon.field("stmt_b", i32p), moon.field("stmt_c", i32p), moon.field("stmt_d", i32p), moon.field("stmt_e", i32p),
+    moon.field("item_tag", i32p), moon.field("item_tok", i32p), moon.field("item_a", i32p), moon.field("item_b", i32p), moon.field("item_c", i32p), moon.field("item_d", i32p), moon.field("item_e", i32p), moon.field("item_f", i32p),
+    moon.field("param_name", i32p), moon.field("param_type", i32p),
+    moon.field("field_name", i32p), moon.field("field_type", i32p),
+    moon.field("jarg_name", i32p), moon.field("jarg_expr", i32p),
+    moon.field("expr_list", i32p), moon.field("stmt_list", i32p), moon.field("type_list", i32p),
+    moon.field("issue_tag", i32p), moon.field("issue_tok", i32p),
+    moon.field("switch_arm_key", i32p), moon.field("switch_arm_body_start", i32p), moon.field("switch_arm_body_count", i32p),
+    moon.field("ctrl_block_label", i32p), moon.field("ctrl_block_param_start", i32p), moon.field("ctrl_block_param_count", i32p), moon.field("ctrl_block_body_start", i32p), moon.field("ctrl_block_body_count", i32p),
+    moon.field("entry_param_name", i32p), moon.field("entry_param_type", i32p), moon.field("entry_param_init", i32p),
+    moon.field("cont_fill_name", i32p), moon.field("cont_fill_label", i32p),
+    moon.field("cap_nodes", moon.index), moon.field("cap_lists", moon.index),
+})
+
+local MomTreeOut = M:struct("MomTreeOut", {
+    moon.field("counts", i32p),
+    -- Type arena: tag + semantic fields.
+    moon.field("type_tag", i32p), moon.field("type_tok", i32p), moon.field("type_scalar", i32p), moon.field("type_name_tok", i32p), moon.field("type_elem", i32p), moon.field("type_list_start", i32p), moon.field("type_list_count", i32p), moon.field("type_result", i32p),
+    -- Param/field arenas.
+    moon.field("param_name", i32p), moon.field("param_type", i32p),
+    moon.field("field_name", i32p), moon.field("field_type", i32p),
+    -- Expr arena: tag + semantic fields. Children remain arena ids, matching MoonCyclic Expr child-id design.
+    moon.field("expr_tag", i32p), moon.field("expr_tok", i32p), moon.field("expr_op", i32p), moon.field("expr_lhs", i32p), moon.field("expr_rhs", i32p), moon.field("expr_aux0", i32p), moon.field("expr_aux1", i32p), moon.field("expr_aux2", i32p),
+    -- Stmt arena.
+    moon.field("stmt_tag", i32p), moon.field("stmt_tok", i32p), moon.field("stmt_name", i32p), moon.field("stmt_type", i32p), moon.field("stmt_value", i32p), moon.field("stmt_body_start", i32p), moon.field("stmt_body_count", i32p), moon.field("stmt_aux", i32p),
+    -- Item arena.
+    moon.field("item_tag", i32p), moon.field("item_tok", i32p), moon.field("item_name", i32p), moon.field("item_member_start", i32p), moon.field("item_member_count", i32p), moon.field("item_result", i32p), moon.field("item_body_start", i32p), moon.field("item_body_count", i32p),
+    -- Shared list arenas copied as semantic id lists.
+    moon.field("expr_list", i32p), moon.field("stmt_list", i32p), moon.field("type_list", i32p),
+    moon.field("jump_arg_name", i32p), moon.field("jump_arg_expr", i32p),
+    moon.field("switch_arm_key", i32p), moon.field("switch_arm_body_start", i32p), moon.field("switch_arm_body_count", i32p),
+    moon.field("ctrl_block_label", i32p), moon.field("ctrl_block_param_start", i32p), moon.field("ctrl_block_param_count", i32p), moon.field("ctrl_block_body_start", i32p), moon.field("ctrl_block_body_count", i32p),
+    moon.field("entry_param_name", i32p), moon.field("entry_param_type", i32p), moon.field("entry_param_init", i32p),
+    moon.field("cap_nodes", moon.index), moon.field("cap_lists", moon.index),
+})
+
+-- Parser tags from native_core.
+local TY_BAD = 0
+local TY_SCALAR = 1
+local TY_NAMED = 2
+local TY_PTR = 3
+local TY_VIEW = 4
+local TY_FUNC = 5
+local TY_CLOSURE = 6
+local TY_SLOT = 7
+
+local EX_BAD = 0
+local EX_LIT = 1
+local EX_REF = 2
+local EX_UNARY = 3
+local EX_BINARY = 4
+local EX_COMPARE = 5
+local EX_LOGIC = 6
+local EX_CAST = 7
+local EX_CALL = 8
+local EX_SELECT = 9
+local EX_DOT = 10
+local EX_INDEX = 11
+local EX_DEREF = 12
+local EX_ADDR = 13
+local EX_LEN = 14
+local EX_VIEW = 15
+local EX_IF = 16
+local EX_HOLE = 17
+local EX_SWITCH = 18
+local EX_CONTROL = 19
+
+local ST_BAD = 0
+local ST_LET = 1
+local ST_VAR = 2
+local ST_SET = 3
+local ST_EXPR = 4
+local ST_IF = 5
+local ST_RETURN_VOID = 6
+local ST_RETURN_VALUE = 7
+local ST_YIELD_VOID = 8
+local ST_YIELD_VALUE = 9
+local ST_JUMP = 10
+local ST_CONTROL = 11
+local ST_EMIT = 12
+local ST_SWITCH = 13
+
+-- Typed arena tags. These are stable semantic-node tags, not parser token tags.
+local MT_BAD = 0
+local MT_SCALAR = 1
+local MT_NAMED = 2
+local MT_PTR = 3
+local MT_VIEW = 4
+local MT_FUNC = 5
+local MT_CLOSURE = 6
+local MT_SLOT = 7
+
+local ME_BAD = 0
+local ME_LIT = 1
+local ME_REF = 2
+local ME_UNARY = 3
+local ME_BINARY = 4
+local ME_COMPARE = 5
+local ME_LOGIC = 6
+local ME_CAST = 7
+local ME_CALL = 8
+local ME_SELECT = 9
+local ME_DOT = 10
+local ME_INDEX = 11
+local ME_DEREF = 12
+local ME_ADDR_OF = 13
+local ME_LEN = 14
+local ME_VIEW = 15
+local ME_IF = 16
+local ME_HOLE = 17
+local ME_SWITCH = 18
+local ME_CONTROL = 19
+
+local MS_BAD = 0
+local MS_LET = 1
+local MS_VAR = 2
+local MS_SET = 3
+local MS_EXPR = 4
+local MS_IF = 5
+local MS_RETURN_VOID = 6
+local MS_RETURN_VALUE = 7
+local MS_YIELD_VOID = 8
+local MS_YIELD_VALUE = 9
+local MS_JUMP = 10
+local MS_CONTROL = 11
+local MS_USE_REGION = 12
+local MS_SWITCH = 13
+
+local IT_FUNC = 1
+local IT_EXTERN = 2
+local IT_STRUCT = 3
+local IT_UNION = 4
+local IT_REGION = 5
+local IT_EXPR_FRAG = 6
+
+local COUNT_TYPES = 1
+local COUNT_EXPRS = 2
+local COUNT_STMTS = 3
+local COUNT_ITEMS = 4
+local COUNT_PARAMS = 6
+local COUNT_FIELDS = 7
+local COUNT_JARGS = 8
+local COUNT_ELISTS = 9
+local COUNT_SLISTS = 10
+local COUNT_TLISTS = 11
+local COUNT_SWITCH_ARMS = 12
+local COUNT_CTRL_BLOCKS = 13
+local COUNT_ENTRY_PARAMS = 14
+
+local mt_type_tag = func(tag: i32) -> i32
+    if tag == @{TY_SCALAR} then return @{MT_SCALAR} end
+    if tag == @{TY_NAMED} then return @{MT_NAMED} end
+    if tag == @{TY_PTR} then return @{MT_PTR} end
+    if tag == @{TY_VIEW} then return @{MT_VIEW} end
+    if tag == @{TY_FUNC} then return @{MT_FUNC} end
+    if tag == @{TY_CLOSURE} then return @{MT_CLOSURE} end
+    if tag == @{TY_SLOT} then return @{MT_SLOT} end
+    return @{MT_BAD}
+end
+
+local mt_expr_tag = func(tag: i32) -> i32
+    if tag == @{EX_LIT} then return @{ME_LIT} end
+    if tag == @{EX_REF} then return @{ME_REF} end
+    if tag == @{EX_UNARY} then return @{ME_UNARY} end
+    if tag == @{EX_BINARY} then return @{ME_BINARY} end
+    if tag == @{EX_COMPARE} then return @{ME_COMPARE} end
+    if tag == @{EX_LOGIC} then return @{ME_LOGIC} end
+    if tag == @{EX_CAST} then return @{ME_CAST} end
+    if tag == @{EX_CALL} then return @{ME_CALL} end
+    if tag == @{EX_SELECT} then return @{ME_SELECT} end
+    if tag == @{EX_DOT} then return @{ME_DOT} end
+    if tag == @{EX_INDEX} then return @{ME_INDEX} end
+    if tag == @{EX_DEREF} then return @{ME_DEREF} end
+    if tag == @{EX_ADDR} then return @{ME_ADDR_OF} end
+    if tag == @{EX_LEN} then return @{ME_LEN} end
+    if tag == @{EX_VIEW} then return @{ME_VIEW} end
+    if tag == @{EX_IF} then return @{ME_IF} end
+    if tag == @{EX_HOLE} then return @{ME_HOLE} end
+    if tag == @{EX_SWITCH} then return @{ME_SWITCH} end
+    if tag == @{EX_CONTROL} then return @{ME_CONTROL} end
+    return @{ME_BAD}
+end
+
+local mt_stmt_tag = func(tag: i32) -> i32
+    if tag == @{ST_LET} then return @{MS_LET} end
+    if tag == @{ST_VAR} then return @{MS_VAR} end
+    if tag == @{ST_SET} then return @{MS_SET} end
+    if tag == @{ST_EXPR} then return @{MS_EXPR} end
+    if tag == @{ST_IF} then return @{MS_IF} end
+    if tag == @{ST_RETURN_VOID} then return @{MS_RETURN_VOID} end
+    if tag == @{ST_RETURN_VALUE} then return @{MS_RETURN_VALUE} end
+    if tag == @{ST_YIELD_VOID} then return @{MS_YIELD_VOID} end
+    if tag == @{ST_YIELD_VALUE} then return @{MS_YIELD_VALUE} end
+    if tag == @{ST_JUMP} then return @{MS_JUMP} end
+    if tag == @{ST_CONTROL} then return @{MS_CONTROL} end
+    if tag == @{ST_EMIT} then return @{MS_USE_REGION} end
+    if tag == @{ST_SWITCH} then return @{MS_SWITCH} end
+    return @{MS_BAD}
+end
+
+local mt_copy_i32 = func(dst: ptr(i32), src: ptr(i32), count: i32, cap: index)
+    block loop(i: index = 0)
+        if i >= as(index, count) then return end
+        if i < cap then dst[i] = src[i] end
+        jump loop(i = i + as(index, 1))
+    end
+end
+
+local mom_materialize_tree = func(p: ptr(@{NativeParseOut}), t: ptr(@{MomTreeOut})) -> i32
+    let ntypes: i32 = p.state[@{COUNT_TYPES}]
+    let nexprs: i32 = p.state[@{COUNT_EXPRS}]
+    let nstmts: i32 = p.state[@{COUNT_STMTS}]
+    let nitems: i32 = p.state[@{COUNT_ITEMS}]
+    t.counts[0] = ntypes
+    t.counts[1] = nexprs
+    t.counts[2] = nstmts
+    t.counts[3] = nitems
+    t.counts[4] = p.state[@{COUNT_PARAMS}]
+    t.counts[5] = p.state[@{COUNT_FIELDS}]
+    t.counts[6] = p.state[@{COUNT_JARGS}]
+    t.counts[7] = p.state[@{COUNT_ELISTS}]
+    t.counts[8] = p.state[@{COUNT_SLISTS}]
+    t.counts[9] = p.state[@{COUNT_TLISTS}]
+    t.counts[10] = p.state[@{COUNT_SWITCH_ARMS}]
+    t.counts[11] = p.state[@{COUNT_CTRL_BLOCKS}]
+    t.counts[12] = p.state[@{COUNT_ENTRY_PARAMS}]
+
+    block types(i: index = 0)
+        if i >= as(index, ntypes) then yield end
+        if i < t.cap_nodes then
+            let tag: i32 = p.type_tag[i]
+            t.type_tag[i] = mt_type_tag(tag)
+            t.type_tok[i] = p.type_tok[i]
+            t.type_scalar[i] = select(tag == @{TY_SCALAR}, p.type_a[i], 0)
+            t.type_name_tok[i] = select(tag == @{TY_NAMED}, p.type_a[i], -1)
+            t.type_elem[i] = select(tag == @{TY_PTR} or tag == @{TY_VIEW}, p.type_a[i], -1)
+            t.type_list_start[i] = select(tag == @{TY_FUNC} or tag == @{TY_CLOSURE}, p.type_a[i], -1)
+            t.type_list_count[i] = select(tag == @{TY_FUNC} or tag == @{TY_CLOSURE}, p.type_b[i], 0)
+            t.type_result[i] = select(tag == @{TY_FUNC} or tag == @{TY_CLOSURE}, p.type_c[i], -1)
+        end
+        jump types(i = i + as(index, 1))
+    end
+
+    block params(i: index = 0)
+        if i >= as(index, p.state[@{COUNT_PARAMS}]) then yield end
+        if i < t.cap_lists then t.param_name[i] = p.param_name[i]; t.param_type[i] = p.param_type[i] end
+        jump params(i = i + as(index, 1))
+    end
+    block fields(i: index = 0)
+        if i >= as(index, p.state[@{COUNT_FIELDS}]) then yield end
+        if i < t.cap_lists then t.field_name[i] = p.field_name[i]; t.field_type[i] = p.field_type[i] end
+        jump fields(i = i + as(index, 1))
+    end
+
+    block exprs(i: index = 0)
+        if i >= as(index, nexprs) then yield end
+        if i < t.cap_nodes then
+            t.expr_tag[i] = mt_expr_tag(p.expr_tag[i])
+            t.expr_tok[i] = p.expr_tok[i]
+            t.expr_op[i] = p.expr_a[i]
+            t.expr_lhs[i] = p.expr_b[i]
+            t.expr_rhs[i] = p.expr_c[i]
+            t.expr_aux0[i] = p.expr_d[i]
+            t.expr_aux1[i] = 0
+            t.expr_aux2[i] = 0
+        end
+        jump exprs(i = i + as(index, 1))
+    end
+
+    block stmts(i: index = 0)
+        if i >= as(index, nstmts) then yield end
+        if i < t.cap_nodes then
+            let tag: i32 = p.stmt_tag[i]
+            t.stmt_tag[i] = mt_stmt_tag(tag)
+            t.stmt_tok[i] = p.stmt_tok[i]
+            t.stmt_name[i] = p.stmt_a[i]
+            t.stmt_type[i] = p.stmt_b[i]
+            t.stmt_value[i] = p.stmt_c[i]
+            t.stmt_body_start[i] = p.stmt_d[i]
+            t.stmt_body_count[i] = p.stmt_e[i]
+            t.stmt_aux[i] = 0
+        end
+        jump stmts(i = i + as(index, 1))
+    end
+
+    block items(i: index = 0)
+        if i >= as(index, nitems) then yield end
+        if i < t.cap_nodes then
+            let tag: i32 = p.item_tag[i]
+            t.item_tag[i] = tag
+            t.item_tok[i] = p.item_tok[i]
+            t.item_name[i] = p.item_a[i]
+            t.item_member_start[i] = p.item_b[i]
+            t.item_member_count[i] = p.item_c[i]
+            if tag == @{IT_REGION} then
+                t.item_result[i] = -1
+                t.item_body_start[i] = p.item_d[i]
+                t.item_body_count[i] = p.item_e[i]
+            elseif tag == @{IT_EXPR_FRAG} then
+                t.item_result[i] = p.item_d[i]
+                t.item_body_start[i] = p.item_e[i]
+                t.item_body_count[i] = 1
+            else
+                t.item_result[i] = p.item_d[i]
+                t.item_body_start[i] = p.item_e[i]
+                t.item_body_count[i] = p.item_f[i]
+            end
+        end
+        jump items(i = i + as(index, 1))
+    end
+
+    mt_copy_i32(t.expr_list, p.expr_list, p.state[@{COUNT_ELISTS}], t.cap_lists)
+    mt_copy_i32(t.stmt_list, p.stmt_list, p.state[@{COUNT_SLISTS}], t.cap_lists)
+    mt_copy_i32(t.type_list, p.type_list, p.state[@{COUNT_TLISTS}], t.cap_lists)
+    mt_copy_i32(t.jump_arg_name, p.jarg_name, p.state[@{COUNT_JARGS}], t.cap_lists)
+    mt_copy_i32(t.jump_arg_expr, p.jarg_expr, p.state[@{COUNT_JARGS}], t.cap_lists)
+    mt_copy_i32(t.switch_arm_key, p.switch_arm_key, p.state[@{COUNT_SWITCH_ARMS}], t.cap_lists)
+    mt_copy_i32(t.switch_arm_body_start, p.switch_arm_body_start, p.state[@{COUNT_SWITCH_ARMS}], t.cap_lists)
+    mt_copy_i32(t.switch_arm_body_count, p.switch_arm_body_count, p.state[@{COUNT_SWITCH_ARMS}], t.cap_lists)
+    mt_copy_i32(t.ctrl_block_label, p.ctrl_block_label, p.state[@{COUNT_CTRL_BLOCKS}], t.cap_lists)
+    mt_copy_i32(t.ctrl_block_param_start, p.ctrl_block_param_start, p.state[@{COUNT_CTRL_BLOCKS}], t.cap_lists)
+    mt_copy_i32(t.ctrl_block_param_count, p.ctrl_block_param_count, p.state[@{COUNT_CTRL_BLOCKS}], t.cap_lists)
+    mt_copy_i32(t.ctrl_block_body_start, p.ctrl_block_body_start, p.state[@{COUNT_CTRL_BLOCKS}], t.cap_lists)
+    mt_copy_i32(t.ctrl_block_body_count, p.ctrl_block_body_count, p.state[@{COUNT_CTRL_BLOCKS}], t.cap_lists)
+    mt_copy_i32(t.entry_param_name, p.entry_param_name, p.state[@{COUNT_ENTRY_PARAMS}], t.cap_lists)
+    mt_copy_i32(t.entry_param_type, p.entry_param_type, p.state[@{COUNT_ENTRY_PARAMS}], t.cap_lists)
+    mt_copy_i32(t.entry_param_init, p.entry_param_init, p.state[@{COUNT_ENTRY_PARAMS}], t.cap_lists)
+    return nitems
+end
+
+M:add_func(mt_type_tag)
+M:add_func(mt_expr_tag)
+M:add_func(mt_stmt_tag)
+M:add_func(mt_copy_i32)
+M:add_func(mom_materialize_tree)
+
+return M

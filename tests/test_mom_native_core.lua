@@ -9,7 +9,7 @@ typedef struct NativeParseOut {
     int32_t *type_tag; int32_t *type_tok; int32_t *type_a; int32_t *type_b; int32_t *type_c;
     int32_t *expr_tag; int32_t *expr_tok; int32_t *expr_a; int32_t *expr_b; int32_t *expr_c; int32_t *expr_d;
     int32_t *stmt_tag; int32_t *stmt_tok; int32_t *stmt_a; int32_t *stmt_b; int32_t *stmt_c; int32_t *stmt_d; int32_t *stmt_e;
-    int32_t *item_tag; int32_t *item_tok; int32_t *item_a; int32_t *item_b; int32_t *item_c; int32_t *item_d; int32_t *item_e;
+    int32_t *item_tag; int32_t *item_tok; int32_t *item_a; int32_t *item_b; int32_t *item_c; int32_t *item_d; int32_t *item_e; int32_t *item_f;
     int32_t *param_name; int32_t *param_type;
     int32_t *field_name; int32_t *field_type;
     int32_t *jarg_name; int32_t *jarg_expr;
@@ -90,7 +90,7 @@ local function run(src)
         "type_tag", "type_tok", "type_a", "type_b", "type_c",
         "expr_tag", "expr_tok", "expr_a", "expr_b", "expr_c", "expr_d",
         "stmt_tag", "stmt_tok", "stmt_a", "stmt_b", "stmt_c", "stmt_d", "stmt_e",
-        "item_tag", "item_tok", "item_a", "item_b", "item_c", "item_d", "item_e",
+        "item_tag", "item_tok", "item_a", "item_b", "item_c", "item_d", "item_e", "item_f",
         "param_name", "param_type", "field_name", "field_type", "jarg_name", "jarg_expr",
         "expr_list", "stmt_list", "type_list", "issue_tag", "issue_tok",
         "switch_arm_key", "switch_arm_body_start", "switch_arm_body_count",
@@ -216,6 +216,37 @@ for i = 0, out5.state[2] - 1 do
     if out5.expr_tag[i] == EX_IF then found_if_expr = true end
 end
 assert(found_if_expr, "expected EX_IF in if-expr test")
+
+-- Test 6: native parsing of top-level union, region fragment, expr fragment.
+local src6 = [[
+union Maybe
+  none
+  some(i32)
+end
+region scan(p: ptr(u8); hit: cont(pos: i32), miss: cont())
+entry start()
+  jump miss()
+end
+block done(pos: i32)
+  jump hit(pos = pos)
+end
+end
+expr inc(x: i32) -> i32
+  x + 1
+end
+]]
+
+local out6, nitems6 = run(src6)
+assert(nitems6 == 3, "fragment items: " .. nitems6)
+assert(out6.state[5] == 0, "fragment issues: " .. tonumber(out6.state[5]))
+assert(out6.item_tag[0] == IT_UNION, "union item parsed")
+assert(out6.item_tag[1] == IT_REGION, "region fragment parsed")
+assert(out6.item_tag[2] == IT_EXPR_FRAG, "expr fragment parsed")
+assert(out6.item_b[0] == 0 and out6.item_c[0] == 2, "union variant range/count")
+assert(out6.item_b[1] >= 0 and out6.item_c[1] == 1, "region param range/count")
+assert(out6.item_e[1] == 2, "region control block count: " .. tonumber(out6.item_e[1]))
+assert(out6.item_c[2] == 1, "expr fragment param count")
+assert(out6.expr_tag[out6.item_e[2]] == EX_BINARY, "expr fragment body")
 
 parser_unit.artifact:free()
 lexer_unit.artifact:free()

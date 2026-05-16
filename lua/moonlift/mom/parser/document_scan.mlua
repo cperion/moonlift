@@ -1,0 +1,241 @@
+-- MOM native document scanner.
+--
+-- Input is a full source buffer. The scanner skips Lua-opaque regions (short
+-- strings, long brackets, line comments, long comments) and records Moonlift
+-- islands as byte ranges. It is a native compiler-core boundary: ptr(u8)+len in,
+-- typed SoA island tape out. Lua is not involved at runtime.
+
+local M = moon.module("mom_document_scan")
+
+local ISLAND_FUNC = 1
+local ISLAND_REGION = 2
+local ISLAND_EXPR = 3
+local ISLAND_STRUCT = 4
+local ISLAND_UNION = 5
+local ISLAND_EXTERN = 6
+
+local md_is_alpha = func(c: i32) -> bool
+    return (c >= 65 and c <= 90) or (c >= 97 and c <= 122) or c == 95
+end
+
+local md_is_digit = func(c: i32) -> bool
+    return c >= 48 and c <= 57
+end
+
+local md_is_alnum = func(c: i32) -> bool
+    return md_is_alpha(c) or md_is_digit(c)
+end
+
+local md_byte = func(p: ptr(u8), n: index, i: index) -> i32
+    if i >= n then return -1 end
+    return as(i32, p[i])
+end
+
+local md_word_boundary = func(p: ptr(u8), n: index, start: index, stop: index) -> bool
+    if start > as(index, 0) then
+        if md_is_alnum(md_byte(p, n, start - as(index, 1))) then return false end
+    end
+    if stop < n then
+        if md_is_alnum(md_byte(p, n, stop)) then return false end
+    end
+    return true
+end
+
+local md_match2 = func(p: ptr(u8), n: index, i: index, c0: i32, c1: i32) -> bool
+    return i + as(index, 2) <= n and md_byte(p, n, i) == c0 and md_byte(p, n, i + as(index, 1)) == c1
+end
+
+local md_match3 = func(p: ptr(u8), n: index, i: index, c0: i32, c1: i32, c2: i32) -> bool
+    return i + as(index, 3) <= n and md_byte(p, n, i) == c0 and md_byte(p, n, i + as(index, 1)) == c1 and md_byte(p, n, i + as(index, 2)) == c2
+end
+
+local md_match4 = func(p: ptr(u8), n: index, i: index, c0: i32, c1: i32, c2: i32, c3: i32) -> bool
+    return i + as(index, 4) <= n and md_byte(p, n, i) == c0 and md_byte(p, n, i + as(index, 1)) == c1 and md_byte(p, n, i + as(index, 2)) == c2 and md_byte(p, n, i + as(index, 3)) == c3
+end
+
+local md_match5 = func(p: ptr(u8), n: index, i: index, c0: i32, c1: i32, c2: i32, c3: i32, c4: i32) -> bool
+    return i + as(index, 5) <= n and md_byte(p, n, i) == c0 and md_byte(p, n, i + as(index, 1)) == c1 and md_byte(p, n, i + as(index, 2)) == c2 and md_byte(p, n, i + as(index, 3)) == c3 and md_byte(p, n, i + as(index, 4)) == c4
+end
+
+local md_match6 = func(p: ptr(u8), n: index, i: index, c0: i32, c1: i32, c2: i32, c3: i32, c4: i32, c5: i32) -> bool
+    return i + as(index, 6) <= n and md_byte(p, n, i) == c0 and md_byte(p, n, i + as(index, 1)) == c1 and md_byte(p, n, i + as(index, 2)) == c2 and md_byte(p, n, i + as(index, 3)) == c3 and md_byte(p, n, i + as(index, 4)) == c4 and md_byte(p, n, i + as(index, 5)) == c5
+end
+
+local md_is_end_kw = func(p: ptr(u8), n: index, i: index) -> bool
+    return md_match3(p, n, i, 101, 110, 100) and md_word_boundary(p, n, i, i + as(index, 3))
+end
+
+local md_opens_end = func(p: ptr(u8), n: index, i: index) -> bool
+    if md_match2(p, n, i, 105, 102) and md_word_boundary(p, n, i, i + as(index, 2)) then return true end
+    if md_match4(p, n, i, 102, 117, 110, 99) and md_word_boundary(p, n, i, i + as(index, 4)) then return true end
+    if md_match4(p, n, i, 101, 120, 112, 114) and md_word_boundary(p, n, i, i + as(index, 4)) then return true end
+    if md_match5(p, n, i, 98, 108, 111, 99, 107) and md_word_boundary(p, n, i, i + as(index, 5)) then return true end
+    if md_match5(p, n, i, 117, 110, 105, 111, 110) and md_word_boundary(p, n, i, i + as(index, 5)) then return true end
+    if md_match6(p, n, i, 114, 101, 103, 105, 111, 110) and md_word_boundary(p, n, i, i + as(index, 6)) then return true end
+    if md_match6(p, n, i, 115, 119, 105, 116, 99, 104) and md_word_boundary(p, n, i, i + as(index, 6)) then return true end
+    if md_match6(p, n, i, 115, 116, 114, 117, 99, 116) and md_word_boundary(p, n, i, i + as(index, 6)) then return true end
+    if md_match6(p, n, i, 101, 120, 116, 101, 114, 110) and md_word_boundary(p, n, i, i + as(index, 6)) then return true end
+    return false
+end
+
+local md_is_island_start = func(p: ptr(u8), n: index, i: index) -> i32
+    if md_match4(p, n, i, 102, 117, 110, 99) and md_word_boundary(p, n, i, i + as(index, 4)) then return @{ISLAND_FUNC} end
+    if md_match4(p, n, i, 101, 120, 112, 114) and md_word_boundary(p, n, i, i + as(index, 4)) then return @{ISLAND_EXPR} end
+    if md_match5(p, n, i, 117, 110, 105, 111, 110) and md_word_boundary(p, n, i, i + as(index, 5)) then return @{ISLAND_UNION} end
+    if md_match6(p, n, i, 114, 101, 103, 105, 111, 110) and md_word_boundary(p, n, i, i + as(index, 6)) then return @{ISLAND_REGION} end
+    if md_match6(p, n, i, 115, 116, 114, 117, 99, 116) and md_word_boundary(p, n, i, i + as(index, 6)) then return @{ISLAND_STRUCT} end
+    if md_match6(p, n, i, 101, 120, 116, 101, 114, 110) and md_word_boundary(p, n, i, i + as(index, 6)) then return @{ISLAND_EXTERN} end
+    return 0
+end
+
+local md_skip_short_string = func(p: ptr(u8), n: index, i: index, quote: i32) -> index
+    block loop(j: index = i + as(index, 1))
+        if j >= n then return n end
+        let c: i32 = md_byte(p, n, j)
+        if c == 92 then jump loop(j = j + as(index, 2)) end
+        if c == quote then return j + as(index, 1) end
+        jump loop(j = j + as(index, 1))
+    end
+end
+
+local md_long_open_eqs = func(p: ptr(u8), n: index, i: index) -> i32
+    if md_byte(p, n, i) ~= 91 then return -1 end
+    return block loop(j: index = i + as(index, 1), eqs: i32 = 0) -> i32
+        if j >= n then yield -1 end
+        let c: i32 = md_byte(p, n, j)
+        if c == 61 then jump loop(j = j + as(index, 1), eqs = eqs + 1) end
+        if c == 91 then yield eqs end
+        yield -1
+    end
+end
+
+local md_long_close_at = func(p: ptr(u8), n: index, i: index, eqs: i32) -> bool
+    if md_byte(p, n, i) ~= 93 then return false end
+    return block loop(j: index = i + as(index, 1), k: i32 = 0) -> bool
+        if k >= eqs then yield md_byte(p, n, j) == 93 end
+        if md_byte(p, n, j) ~= 61 then yield false end
+        jump loop(j = j + as(index, 1), k = k + 1)
+    end
+end
+
+local md_skip_long_bracket = func(p: ptr(u8), n: index, i: index, eqs: i32) -> index
+    let body: index = i + as(index, 2) + as(index, eqs)
+    return block loop(j: index = body) -> index
+        if j >= n then yield n end
+        if md_long_close_at(p, n, j, eqs) then yield j + as(index, 2) + as(index, eqs) end
+        jump loop(j = j + as(index, 1))
+    end
+end
+
+local md_skip_line_comment = func(p: ptr(u8), n: index, i: index) -> index
+    return block loop(j: index = i + as(index, 2)) -> index
+        if j >= n then yield n end
+        if md_byte(p, n, j) == 10 then yield j + as(index, 1) end
+        jump loop(j = j + as(index, 1))
+    end
+end
+
+local md_skip_name = func(p: ptr(u8), n: index, i: index) -> index
+    return block loop(j: index = i) -> index
+        if j >= n then yield j end
+        if not md_is_alnum(md_byte(p, n, j)) then yield j end
+        jump loop(j = j + as(index, 1))
+    end
+end
+
+local md_name_start_after_keyword = func(p: ptr(u8), n: index, start: index) -> index
+    let after_kw: index = md_skip_name(p, n, start)
+    return block ws(i: index = after_kw) -> index
+        if i >= n then yield n end
+        let c: i32 = md_byte(p, n, i)
+        if c == 32 or c == 9 or c == 10 or c == 13 then jump ws(i = i + as(index, 1)) end
+        yield i
+    end
+end
+
+local md_find_island_end = func(p: ptr(u8), n: index, start: index) -> index
+    return block loop(i: index = start, depth: i32 = 0) -> index
+        if i >= n then yield n end
+        let c: i32 = md_byte(p, n, i)
+        if c == 34 or c == 39 then jump loop(i = md_skip_short_string(p, n, i, c), depth = depth) end
+        if c == 91 then
+            let eqs: i32 = md_long_open_eqs(p, n, i)
+            if eqs >= 0 then jump loop(i = md_skip_long_bracket(p, n, i, eqs), depth = depth) end
+        end
+        if c == 45 and md_byte(p, n, i + as(index, 1)) == 45 then
+            if md_byte(p, n, i + as(index, 2)) == 91 then
+                let ceqs: i32 = md_long_open_eqs(p, n, i + as(index, 2))
+                if ceqs >= 0 then jump loop(i = md_skip_long_bracket(p, n, i + as(index, 2), ceqs), depth = depth) end
+            end
+            jump loop(i = md_skip_line_comment(p, n, i), depth = depth)
+        end
+        if md_is_end_kw(p, n, i) then
+            if depth == 1 then yield i + as(index, 3) end
+            jump loop(i = i + as(index, 3), depth = depth - 1)
+        end
+        if md_opens_end(p, n, i) then jump loop(i = md_skip_name(p, n, i), depth = depth + 1) end
+        jump loop(i = i + as(index, 1), depth = depth)
+    end
+end
+
+local mom_scan_document = func(p: ptr(u8), n: index,
+                               kinds: ptr(i32), starts: ptr(i32), stops: ptr(i32),
+                               name_starts: ptr(i32), name_stops: ptr(i32), cap: index) -> i32
+    return block loop(i: index = 0, count: i32 = 0) -> i32
+        if i >= n then yield count end
+        let c: i32 = md_byte(p, n, i)
+        if c == 34 or c == 39 then jump loop(i = md_skip_short_string(p, n, i, c), count = count) end
+        if c == 91 then
+            let eqs: i32 = md_long_open_eqs(p, n, i)
+            if eqs >= 0 then jump loop(i = md_skip_long_bracket(p, n, i, eqs), count = count) end
+        end
+        if c == 45 and md_byte(p, n, i + as(index, 1)) == 45 then
+            if md_byte(p, n, i + as(index, 2)) == 91 then
+                let ceqs: i32 = md_long_open_eqs(p, n, i + as(index, 2))
+                if ceqs >= 0 then jump loop(i = md_skip_long_bracket(p, n, i + as(index, 2), ceqs), count = count) end
+            end
+            jump loop(i = md_skip_line_comment(p, n, i), count = count)
+        end
+        let kind: i32 = md_is_island_start(p, n, i)
+        if kind ~= 0 then
+            let stop: index = md_find_island_end(p, n, i)
+            let name_start: index = md_name_start_after_keyword(p, n, i)
+            let name_stop: index = md_skip_name(p, n, name_start)
+            let out_i: index = as(index, count)
+            if out_i < cap then
+                kinds[out_i] = kind
+                starts[out_i] = as(i32, i)
+                stops[out_i] = as(i32, stop)
+                name_starts[out_i] = as(i32, name_start)
+                name_stops[out_i] = as(i32, name_stop)
+            end
+            jump loop(i = stop, count = count + 1)
+        end
+        jump loop(i = i + as(index, 1), count = count)
+    end
+end
+
+M:add_func(md_is_alpha)
+M:add_func(md_is_digit)
+M:add_func(md_is_alnum)
+M:add_func(md_byte)
+M:add_func(md_word_boundary)
+M:add_func(md_match2)
+M:add_func(md_match3)
+M:add_func(md_match4)
+M:add_func(md_match5)
+M:add_func(md_match6)
+M:add_func(md_is_end_kw)
+M:add_func(md_opens_end)
+M:add_func(md_is_island_start)
+M:add_func(md_skip_short_string)
+M:add_func(md_long_open_eqs)
+M:add_func(md_long_close_at)
+M:add_func(md_skip_long_bracket)
+M:add_func(md_skip_line_comment)
+M:add_func(md_skip_name)
+M:add_func(md_name_start_after_keyword)
+M:add_func(md_find_island_end)
+M:add_func(mom_scan_document)
+
+return M

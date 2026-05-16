@@ -1,0 +1,151 @@
+local T = require("moonlift.mom.back.back_tags")
+local M = moon.module("mom_type_stmt")
+
+local mt_is_float_scalar = func(s: i32) -> bool
+    return s == @{T.ScalarF32} or s == @{T.ScalarF64}
+end
+
+local mt_is_signed_int = func(s: i32) -> bool
+    return s == @{T.ScalarI8} or s == @{T.ScalarI16} or s == @{T.ScalarI32} or s == @{T.ScalarI64}
+end
+
+local mt_is_unsigned_int = func(s: i32) -> bool
+    return s == @{T.ScalarU8} or s == @{T.ScalarU16} or s == @{T.ScalarU32} or s == @{T.ScalarU64}
+    or s == @{T.ScalarIndex} or s == @{T.ScalarRawPtr}
+end
+
+local mt_is_integer_scalar = func(s: i32) -> bool
+    return mt_is_signed_int(s) or mt_is_unsigned_int(s)
+end
+
+local mt_is_numeric_scalar = func(s: i32) -> bool
+    return mt_is_integer_scalar(s) or mt_is_float_scalar(s)
+end
+
+local mt_is_bool_scalar = func(s: i32) -> bool
+    return s == @{T.ScalarBool}
+end
+
+local FLOW_FALLS = 0
+local FLOW_RETURNS = 1
+local FLOW_TERMINATES = 2
+
+local TI_EXPECTED = 3
+local TI_NOT_POINTER = 7
+local TI_UNRESOLVED_VALUE = 1
+
+local mt_push_issue = func(tag: i32, d0: i32, d1: i32,
+                           tag_arr: ptr(i32), d0_arr: ptr(i32), d1_arr: ptr(i32),
+                           cnt: ptr(i32), cap: index)
+    let i: index = as(index, cnt[0])
+    if i < cap then
+        tag_arr[i] = tag; d0_arr[i] = d0; d1_arr[i] = d1
+    end
+    cnt[0] = cnt[0] + 1
+end
+
+local mt_env_bind = func(env_name: ptr(i32), env_type: ptr(i32), env_count: ptr(i32),
+                          name: i32, type_idx: i32, cap: index)
+    let i: index = as(index, env_count[0])
+    if i < cap then
+        env_name[i] = name; env_type[i] = type_idx
+    end
+    env_count[0] = env_count[0] + 1
+end
+
+local mt_type_stmt = func(si: i32,
+                          type_tag: ptr(i32), type_scalar: ptr(i32), type_elem: ptr(i32),
+                          expr_tag: ptr(i32), expr_tok: ptr(i32), expr_op: ptr(i32),
+                          expr_lhs: ptr(i32), expr_rhs: ptr(i32), expr_aux0: ptr(i32),
+                          stmt_tag: ptr(i32), stmt_tok: ptr(i32),
+                          stmt_name: ptr(i32), stmt_type: ptr(i32), stmt_value: ptr(i32),
+                          stmt_body_start: ptr(i32), stmt_body_count: ptr(i32),
+                          expr_scalar: ptr(i32), expr_type_idx: ptr(i32),
+                          env_name: ptr(i32), env_type: ptr(i32), env_count: ptr(i32),
+                          out_flow: ptr(i32),
+                          issue_tag: ptr(i32), issue_d0: ptr(i32), issue_d1: ptr(i32),
+                          issue_cnt: ptr(i32), cap: index) -> i32
+    let i: index = as(index, si)
+    let tg: i32 = stmt_tag[i]
+
+    if tg == @{T.MS_LET} or tg == @{T.MS_VAR} then
+        let init_expr: i32 = stmt_value[i]
+        let init_s: i32 = expr_scalar[as(index, init_expr)]
+        let decl_type: i32 = stmt_type[i]
+        if decl_type >= 0 then
+            let decl_s: i32 = type_scalar[as(index, decl_type)]
+            if decl_s >= 0 and decl_s ~= init_s then
+                mt_push_issue(@{TI_EXPECTED}, decl_s, init_s, issue_tag, issue_d0, issue_d1, issue_cnt, cap)
+            end
+        end
+        let name: i32 = stmt_name[i]
+        if name >= 0 then
+            mt_env_bind(env_name, env_type, env_count, name, init_s, cap)
+        end
+        out_flow[i] = @{FLOW_FALLS}
+        return @{FLOW_FALLS}
+    end
+
+    if tg == @{T.MS_SET} then
+        out_flow[i] = @{FLOW_FALLS}
+        return @{FLOW_FALLS}
+    end
+
+    if tg == @{T.MS_EXPR} then
+        out_flow[i] = @{FLOW_FALLS}
+        return @{FLOW_FALLS}
+    end
+
+    if tg == @{T.MS_IF} then
+        out_flow[i] = @{FLOW_FALLS}
+        return @{FLOW_FALLS}
+    end
+
+    if tg == @{T.MS_RETURN_VOID} then
+        out_flow[i] = @{FLOW_RETURNS}
+        return @{FLOW_RETURNS}
+    end
+
+    if tg == @{T.MS_RETURN_VALUE} then
+        let val_expr: i32 = stmt_value[i]
+        let val_s: i32 = expr_scalar[as(index, val_expr)]
+        out_flow[i] = @{FLOW_RETURNS}
+        return @{FLOW_RETURNS}
+    end
+
+    if tg == @{T.MS_YIELD_VOID} then
+        out_flow[i] = @{FLOW_TERMINATES}
+        return @{FLOW_TERMINATES}
+    end
+
+    if tg == @{T.MS_YIELD_VALUE} then
+        let val_expr: i32 = stmt_value[i]
+        let val_s: i32 = expr_scalar[as(index, val_expr)]
+        out_flow[i] = @{FLOW_TERMINATES}
+        return @{FLOW_TERMINATES}
+    end
+
+    if tg == @{T.MS_JUMP} then
+        out_flow[i] = @{FLOW_TERMINATES}
+        return @{FLOW_TERMINATES}
+    end
+
+    if tg == @{T.MS_CONTROL} or tg == @{T.MS_USE_REGION} then
+        out_flow[i] = @{FLOW_FALLS}
+        return @{FLOW_FALLS}
+    end
+
+    if tg == @{T.MS_SWITCH} then
+        out_flow[i] = @{FLOW_FALLS}
+        return @{FLOW_FALLS}
+    end
+
+    out_flow[i] = @{FLOW_FALLS}
+    return @{FLOW_FALLS}
+end
+
+M:add_func(mt_push_issue)
+M:add_func(mt_env_bind)
+M:add_func(mt_type_stmt)
+
+return M

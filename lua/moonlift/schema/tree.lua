@@ -1126,6 +1126,7 @@ return function(A)
                 A.variant_unique,
             },
             A.variant "TypeIssueInvalidLogic" {
+                A.field "op" "string",
                 A.field "lhs" "MoonType.Type",
                 A.field "rhs" "MoonType.Type",
                 A.variant_unique,

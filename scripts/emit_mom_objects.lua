@@ -7,8 +7,10 @@
 package.path = "./lua/?.lua;" .. package.path
 
 local mom_modules = {
-    { path = "lua/moonlift/mom/parser/native_lexer.mlua",  name = "mom_native_lexer" },
+    { path = "lua/moonlift/mom/parser/document_scan.mlua",  name = "mom_document_scan" },
+    { path = "lua/moonlift/mom/parser/native_lexer.mlua",   name = "mom_native_lexer" },
     { path = "lua/moonlift/mom/parser/native_core.mlua",    name = "mom_native_core" },
+    { path = "lua/moonlift/mom/parser/native_tree.mlua",    name = "mom_native_tree" },
     { path = "lua/moonlift/mom/driver/lower_wire.mlua",    name = "mom_lower_wire" },
     { path = "lua/moonlift/mom/driver/backend_ffi.mlua",   name = "mom_backend_ffi" },
     { path = "lua/moonlift/mom/driver/wire.mlua",          name = "mom_wire" },

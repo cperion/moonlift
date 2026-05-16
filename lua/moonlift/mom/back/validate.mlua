@@ -4,48 +4,9 @@
 -- maintains declaration tables for all symbol classes.
 -- All mutable state via block loop parameters (Moonlift SSA discipline).
 
+local T = require("moonlift.mom.back.back_tags")
+
 local M = moon.module("mom_back_validate")
-
--- Issue tags from MoonBack BackValidationIssue.
-local ISS_EMPTY_PROGRAM = 1
-local ISS_MISSING_FINALIZE = 2
-local ISS_CMD_AFTER_FINALIZE = 3
-local ISS_CMD_OUTSIDE_FUNC = 4
-local ISS_NESTED_FUNC = 5
-local ISS_FINISH_WITHOUT_BEGIN = 6
-local ISS_FINISH_WRONG_FUNC = 7
-local ISS_UNFINISHED_FUNC = 8
-local ISS_DUP_SIG = 9
-local ISS_DUP_DATA = 10
-local ISS_DUP_FUNC = 11
-local ISS_DUP_EXTERN = 12
-local ISS_DUP_BLOCK = 13
-local ISS_DUP_SLOT = 14
-local ISS_DUP_VALUE = 15
-local ISS_DUP_ACCESS = 16
-local ISS_MISSING_SIG = 17
-local ISS_MISSING_DATA = 18
-local ISS_MISSING_FUNC = 19
-local ISS_MISSING_EXTERN = 20
-local ISS_MISSING_BLOCK = 21
-local ISS_MISSING_SLOT = 22
-local ISS_MISSING_VALUE = 23
-local ISS_MISSING_ACCESS = 24
-
--- Cmd variant tags (from MoonBack schema declaration order).
-local C_TM = 1
-local C_CSIG = 2; local C_DECD = 3; local C_DIZ = 4; local C_DI = 5; local C_DA = 6
-local C_FA = 7; local C_EA = 8; local C_DF = 9; local C_DE = 10; local C_BF = 11
-local C_CB = 12; local C_STB = 13; local C_SLB = 14; local C_BEP = 15; local C_ABP = 16
-local C_CSS = 17; local C_AL = 18; local C_SA = 19; local C_CO = 20; local C_UN = 21
-local C_IN = 22; local C_CP = 23; local C_CA = 24; local C_PO = 25; local C_LI = 26
-local C_SI = 27; local C_ALO = 28; local C_ASO = 29; local C_ARM = 30; local C_ACA = 31
-local C_AF = 32; local C_IB = 33; local C_BB = 34; local C_BN = 35; local C_SH = 36
-local C_RO = 37; local C_FB = 38; local C_AFT = 39; local C_MC = 40; local C_MS = 41
-local C_SE = 42; local C_FM = 43; local C_VS = 44; local C_VB = 45; local C_VC = 46
-local C_VSE = 47; local C_VM = 48; local C_VIL = 49; local C_VEL = 50; local C_CL = 51
-local C_JU = 52; local C_BI = 53; local C_SWI = 54; local C_RV = 55; local C_RVV = 56
-local C_TR = 57; local C_FF = 58; local C_FMZ = 59
 
 -- Push an issue entry.
 local mb_push = func(tag: i32, a: i32, b: i32, c: i32,
@@ -88,19 +49,19 @@ local mb_validate = func(ct: ptr(i32), ca: ptr(i32), cb: ptr(i32), cc: ptr(i32),
     let MB = 4; let MSL = 5; let MV = 6; let MA = 7
 
     if n == 0 then
-        mb_push(@{ISS_EMPTY_PROGRAM}, 0,0,0, it,ia,ib,ic, icnt,icap)
-        mb_push(@{ISS_MISSING_FINALIZE}, 0,0,0, it,ia,ib,ic, icnt,icap)
+        mb_push(@{T.BackIssueEmptyProgram}, 0,0,0, it,ia,ib,ic, icnt,icap)
+        mb_push(@{T.BackIssueMissingFinalize}, 0,0,0, it,ia,ib,ic, icnt,icap)
         return icnt[0]
     end
 
     block lp(i: i32 = 0, act: i32 = -1, fin: i32 = 0)
         if i >= n then
-            if act >= 0 then mb_push(@{ISS_UNFINISHED_FUNC}, act,0,0, it,ia,ib,ic, icnt,icap) end
-            if fin == 0 then mb_push(@{ISS_MISSING_FINALIZE}, 0,0,0, it,ia,ib,ic, icnt,icap) end
+            if act >= 0 then mb_push(@{T.BackIssueUnfinishedFunction}, act,0,0, it,ia,ib,ic, icnt,icap) end
+            if fin == 0 then mb_push(@{T.BackIssueMissingFinalize}, 0,0,0, it,ia,ib,ic, icnt,icap) end
             return icnt[0]
         end
         if fin ~= 0 then
-            mb_push(@{ISS_CMD_AFTER_FINALIZE}, i,0,0, it,ia,ib,ic, icnt,icap)
+            mb_push(@{T.BackIssueCommandAfterFinalize}, i,0,0, it,ia,ib,ic, icnt,icap)
             jump lp(i = i+1, act=act, fin=fin)
         end
 
@@ -109,196 +70,196 @@ local mb_validate = func(ct: ptr(i32), ca: ptr(i32), cb: ptr(i32), cc: ptr(i32),
         let d: i32 = cd[i]; let e: i32 = ce[i]; let f: i32 = cf[i]
 
         -- CmdFinalizeModule (59)
-        if tg == @{C_FMZ} then jump lp(i = i+1, act=act, fin=1) end
+        if tg == @{T.CmdFinalizeModule} then jump lp(i = i+1, act=act, fin=1) end
 
         -- ── Sig declarations/references ──
-        if tg == @{C_CSIG} then
+        if tg == @{T.CmdCreateSig} then
             if mb_add(ms+MS*mcap, mk+MS*mcap, a, mcap) ~= 0 then
-                mb_push(@{ISS_DUP_SIG}, i,a,0, it,ia,ib,ic, icnt,icap)
+                mb_push(@{T.BackIssueDuplicateSig}, i,a,0, it,ia,ib,ic, icnt,icap)
             end
             jump lp(i = i+1, act=act, fin=fin)
         end
         -- CmdDeclareFunc references sig via c
-        if tg == @{C_DF} then
+        if tg == @{T.CmdDeclareFunc} then
             if mb_has(ms+MS*mcap, mk+MS*mcap, c, mcap) == 0 then
-                mb_push(@{ISS_MISSING_SIG}, i,c,0, it,ia,ib,ic, icnt,icap)
+                mb_push(@{T.BackIssueMissingSig}, i,c,0, it,ia,ib,ic, icnt,icap)
             end
             -- Declare func via b
             if mb_add(ms+MF*mcap, mk+MF*mcap, b, mcap) ~= 0 then
-                mb_push(@{ISS_DUP_FUNC}, i,b,0, it,ia,ib,ic, icnt,icap)
+                mb_push(@{T.BackIssueDuplicateFunc}, i,b,0, it,ia,ib,ic, icnt,icap)
             end
             jump lp(i = i+1, act=act, fin=fin)
         end
         -- CmdDeclareExtern references sig via c
-        if tg == @{C_DE} then
+        if tg == @{T.CmdDeclareExtern} then
             if mb_has(ms+MS*mcap, mk+MS*mcap, c, mcap) == 0 then
-                mb_push(@{ISS_MISSING_SIG}, i,c,0, it,ia,ib,ic, icnt,icap)
+                mb_push(@{T.BackIssueMissingSig}, i,c,0, it,ia,ib,ic, icnt,icap)
             end
             -- Declare extern via a
             if mb_add(ms+ME*mcap, mk+ME*mcap, a, mcap) ~= 0 then
-                mb_push(@{ISS_DUP_EXTERN}, i,a,0, it,ia,ib,ic, icnt,icap)
+                mb_push(@{T.BackIssueDuplicateExtern}, i,a,0, it,ia,ib,ic, icnt,icap)
             end
             jump lp(i = i+1, act=act, fin=fin)
         end
 
         -- ── Data declarations/references ──
-        if tg == @{C_DECD} then
+        if tg == @{T.CmdDeclareData} then
             if mb_add(ms+MD*mcap, mk+MD*mcap, a, mcap) ~= 0 then
-                mb_push(@{ISS_DUP_DATA}, i,a,0, it,ia,ib,ic, icnt,icap)
+                mb_push(@{T.BackIssueDuplicateData}, i,a,0, it,ia,ib,ic, icnt,icap)
             end
             jump lp(i = i+1, act=act, fin=fin)
         end
         -- CmdDataAddr, CmdDataInitZero, CmdDataInit reference data
-        if tg == @{C_DA} or tg == @{C_DIZ} or tg == @{C_DI} then
-            let did: i32 = select(tg == @{C_DA}, b, a)  -- CmdDataAddr uses b, Init variants use a
+        if tg == @{T.CmdDataAddr} or tg == @{T.CmdDataInitZero} or tg == @{T.CmdDataInit} then
+            let did: i32 = select(tg == @{T.CmdDataAddr}, b, a)  -- CmdDataAddr uses b, Init variants use a
             if mb_has(ms+MD*mcap, mk+MD*mcap, did, mcap) == 0 then
-                mb_push(@{ISS_MISSING_DATA}, i,did,0, it,ia,ib,ic, icnt,icap)
+                mb_push(@{T.BackIssueMissingData}, i,did,0, it,ia,ib,ic, icnt,icap)
             end
             jump lp(i = i+1, act=act, fin=fin)
         end
 
         -- ── Func/extern addr references ──
-        if tg == @{C_FA} then
+        if tg == @{T.CmdFuncAddr} then
             if mb_has(ms+MF*mcap, mk+MF*mcap, b, mcap) == 0 then
-                mb_push(@{ISS_MISSING_FUNC}, i,b,0, it,ia,ib,ic, icnt,icap)
+                mb_push(@{T.BackIssueMissingFunc}, i,b,0, it,ia,ib,ic, icnt,icap)
             end
             jump lp(i = i+1, act=act, fin=fin)
         end
-        if tg == @{C_EA} then
+        if tg == @{T.CmdExternAddr} then
             if mb_has(ms+ME*mcap, mk+ME*mcap, b, mcap) == 0 then
-                mb_push(@{ISS_MISSING_EXTERN}, i,b,0, it,ia,ib,ic, icnt,icap)
+                mb_push(@{T.BackIssueMissingExtern}, i,b,0, it,ia,ib,ic, icnt,icap)
             end
             jump lp(i = i+1, act=act, fin=fin)
         end
 
         -- ── Function scoping ──
-        if tg == @{C_BF} then
-            if act >= 0 then mb_push(@{ISS_NESTED_FUNC}, i,act,a, it,ia,ib,ic, icnt,icap) end
+        if tg == @{T.CmdBeginFunc} then
+            if act >= 0 then mb_push(@{T.BackIssueNestedFunction}, i,act,a, it,ia,ib,ic, icnt,icap) end
             jump lp(i = i+1, act=a, fin=fin)
         end
-        if tg == @{C_FF} then
+        if tg == @{T.CmdFinishFunc} then
             if act < 0 then
-                mb_push(@{ISS_FINISH_WITHOUT_BEGIN}, i,a,0, it,ia,ib,ic, icnt,icap)
+                mb_push(@{T.BackIssueFinishWithoutBegin}, i,a,0, it,ia,ib,ic, icnt,icap)
             elseif act ~= a then
-                mb_push(@{ISS_FINISH_WRONG_FUNC}, i,act,a, it,ia,ib,ic, icnt,icap)
+                mb_push(@{T.BackIssueFinishWrongFunction}, i,act,a, it,ia,ib,ic, icnt,icap)
             end
             jump lp(i = i+1, act=-1, fin=fin)
         end
 
         -- ── Block declarations/references ──
-        if tg == @{C_CB} then
-            if act < 0 then mb_push(@{ISS_CMD_OUTSIDE_FUNC}, i,0,0, it,ia,ib,ic, icnt,icap)
+        if tg == @{T.CmdCreateBlock} then
+            if act < 0 then mb_push(@{T.BackIssueCommandOutsideFunction}, i,0,0, it,ia,ib,ic, icnt,icap)
             elseif mb_add(ms+MB*mcap, mk+MB*mcap, a, mcap) ~= 0 then
-                mb_push(@{ISS_DUP_BLOCK}, i,a,0, it,ia,ib,ic, icnt,icap)
+                mb_push(@{T.BackIssueDuplicateBlock}, i,a,0, it,ia,ib,ic, icnt,icap)
             end
             jump lp(i = i+1, act=act, fin=fin)
         end
-        if tg == @{C_STB} or tg == @{C_SLB} then
-            if act < 0 then mb_push(@{ISS_CMD_OUTSIDE_FUNC}, i,0,0, it,ia,ib,ic, icnt,icap)
+        if tg == @{T.CmdSwitchToBlock} or tg == @{T.CmdSealBlock} then
+            if act < 0 then mb_push(@{T.BackIssueCommandOutsideFunction}, i,0,0, it,ia,ib,ic, icnt,icap)
             elseif mb_has(ms+MB*mcap, mk+MB*mcap, a, mcap) == 0 then
-                mb_push(@{ISS_MISSING_BLOCK}, i,a,0, it,ia,ib,ic, icnt,icap)
+                mb_push(@{T.BackIssueMissingBlock}, i,a,0, it,ia,ib,ic, icnt,icap)
             end
             jump lp(i = i+1, act=act, fin=fin)
         end
         -- CmdJump, CmdSwitchInt default_block, CmdBrIf then/else blocks
-        if tg == @{C_JU} then
-            if act < 0 then mb_push(@{ISS_CMD_OUTSIDE_FUNC}, i,0,0, it,ia,ib,ic, icnt,icap)
+        if tg == @{T.CmdJump} then
+            if act < 0 then mb_push(@{T.BackIssueCommandOutsideFunction}, i,0,0, it,ia,ib,ic, icnt,icap)
             elseif mb_has(ms+MB*mcap, mk+MB*mcap, a, mcap) == 0 then
-                mb_push(@{ISS_MISSING_BLOCK}, i,a,0, it,ia,ib,ic, icnt,icap)
+                mb_push(@{T.BackIssueMissingBlock}, i,a,0, it,ia,ib,ic, icnt,icap)
             end
             jump lp(i = i+1, act=act, fin=fin)
         end
-        if tg == @{C_BI} then
-            if act < 0 then mb_push(@{ISS_CMD_OUTSIDE_FUNC}, i,0,0, it,ia,ib,ic, icnt,icap)
+        if tg == @{T.CmdBrIf} then
+            if act < 0 then mb_push(@{T.BackIssueCommandOutsideFunction}, i,0,0, it,ia,ib,ic, icnt,icap)
             else
                 if mb_has(ms+MB*mcap, mk+MB*mcap, b, mcap) == 0 then
-                    mb_push(@{ISS_MISSING_BLOCK}, i,b,0, it,ia,ib,ic, icnt,icap)
+                    mb_push(@{T.BackIssueMissingBlock}, i,b,0, it,ia,ib,ic, icnt,icap)
                 end
                 if mb_has(ms+MB*mcap, mk+MB*mcap, d, mcap) == 0 then
-                    mb_push(@{ISS_MISSING_BLOCK}, i,d,0, it,ia,ib,ic, icnt,icap)
+                    mb_push(@{T.BackIssueMissingBlock}, i,d,0, it,ia,ib,ic, icnt,icap)
                 end
             end
             jump lp(i = i+1, act=act, fin=fin)
         end
-        if tg == @{C_SWI} then
-            if act < 0 then mb_push(@{ISS_CMD_OUTSIDE_FUNC}, i,0,0, it,ia,ib,ic, icnt,icap)
+        if tg == @{T.CmdSwitchInt} then
+            if act < 0 then mb_push(@{T.BackIssueCommandOutsideFunction}, i,0,0, it,ia,ib,ic, icnt,icap)
             elseif mb_has(ms+MB*mcap, mk+MB*mcap, d, mcap) == 0 then
-                mb_push(@{ISS_MISSING_BLOCK}, i,d,0, it,ia,ib,ic, icnt,icap)
+                mb_push(@{T.BackIssueMissingBlock}, i,d,0, it,ia,ib,ic, icnt,icap)
             end
             jump lp(i = i+1, act=act, fin=fin)
         end
 
         -- ── Stack slot ──
-        if tg == @{C_CSS} then
-            if act < 0 then mb_push(@{ISS_CMD_OUTSIDE_FUNC}, i,0,0, it,ia,ib,ic, icnt,icap)
+        if tg == @{T.CmdCreateStackSlot} then
+            if act < 0 then mb_push(@{T.BackIssueCommandOutsideFunction}, i,0,0, it,ia,ib,ic, icnt,icap)
             elseif mb_add(ms+MSL*mcap, mk+MSL*mcap, a, mcap) ~= 0 then
-                mb_push(@{ISS_DUP_SLOT}, i,a,0, it,ia,ib,ic, icnt,icap)
+                mb_push(@{T.BackIssueDuplicateStackSlot}, i,a,0, it,ia,ib,ic, icnt,icap)
             end
             jump lp(i = i+1, act=act, fin=fin)
         end
-        if tg == @{C_SA} then
-            if act < 0 then mb_push(@{ISS_CMD_OUTSIDE_FUNC}, i,0,0, it,ia,ib,ic, icnt,icap)
+        if tg == @{T.CmdStackAddr} then
+            if act < 0 then mb_push(@{T.BackIssueCommandOutsideFunction}, i,0,0, it,ia,ib,ic, icnt,icap)
             elseif mb_has(ms+MSL*mcap, mk+MSL*mcap, b, mcap) == 0 then
-                mb_push(@{ISS_MISSING_SLOT}, i,b,0, it,ia,ib,ic, icnt,icap)
+                mb_push(@{T.BackIssueMissingStackSlot}, i,b,0, it,ia,ib,ic, icnt,icap)
             end
             jump lp(i = i+1, act=act, fin=fin)
         end
 
         -- ── Value-defining cmds (dst in a) ──
-        if tg == @{C_CO} or tg == @{C_UN} or tg == @{C_IN} or tg == @{C_CP}
-            or tg == @{C_CA} or tg == @{C_IB} or tg == @{C_BB} or tg == @{C_BN}
-            or tg == @{C_SH} or tg == @{C_RO} or tg == @{C_FB} or tg == @{C_SE}
-            or tg == @{C_FM} or tg == @{C_VS} or tg == @{C_VB} or tg == @{C_VC}
-            or tg == @{C_VSE} or tg == @{C_VM} or tg == @{C_VIL} or tg == @{C_VEL}
-            or tg == @{C_AL} or tg == @{C_PO} or tg == @{C_LI} or tg == @{C_ALO}
-            or tg == @{C_ARM} or tg == @{C_ACA}
+        if tg == @{T.CmdConst} or tg == @{T.CmdIntrinsic} or tg == @{T.CmdUnary} or tg == @{T.CmdPtrOffset}
+            or tg == @{T.CmdCompare} or tg == @{T.CmdIntBinary} or tg == @{T.CmdBitBinary} or tg == @{T.CmdBitNot}
+            or tg == @{T.CmdShift} or tg == @{T.CmdRotate} or tg == @{T.CmdFloatBinary} or tg == @{T.CmdSelect}
+            or tg == @{T.CmdFma} or tg == @{T.CmdVecSplat} or tg == @{T.CmdVecBinary} or tg == @{T.CmdVecCompare}
+            or tg == @{T.CmdVecSelect} or tg == @{T.CmdVecInsertLane} or tg == @{T.CmdVecExtractLane}
+            or tg == @{T.CmdAlias} or tg == @{T.CmdLoadInfo} or tg == @{T.CmdAtomicLoad} or tg == @{T.CmdAtomicRmw}
+            or tg == @{T.CmdAtomicCas}
         then
-            if act < 0 then mb_push(@{ISS_CMD_OUTSIDE_FUNC}, i,0,0, it,ia,ib,ic, icnt,icap)
+            if act < 0 then mb_push(@{T.BackIssueCommandOutsideFunction}, i,0,0, it,ia,ib,ic, icnt,icap)
             elseif mb_add(ms+MV*mcap, mk+MV*mcap, a, mcap) ~= 0 then
-                mb_push(@{ISS_DUP_VALUE}, i,a,0, it,ia,ib,ic, icnt,icap)
+                mb_push(@{T.BackIssueDuplicateValue}, i,a,0, it,ia,ib,ic, icnt,icap)
             end
             jump lp(i = i+1, act=act, fin=fin)
         end
 
         -- ── Value-referencing cmds (value use in various fields) ──
         -- CmdReturnValue
-        if tg == @{C_RVV} then
-            if act < 0 then mb_push(@{ISS_CMD_OUTSIDE_FUNC}, i,0,0, it,ia,ib,ic, icnt,icap)
+        if tg == @{T.CmdReturnValue} then
+            if act < 0 then mb_push(@{T.BackIssueCommandOutsideFunction}, i,0,0, it,ia,ib,ic, icnt,icap)
             elseif mb_has(ms+MV*mcap, mk+MV*mcap, a, mcap) == 0 then
-                mb_push(@{ISS_MISSING_VALUE}, i,a,0, it,ia,ib,ic, icnt,icap)
+                mb_push(@{T.BackIssueMissingValue}, i,a,0, it,ia,ib,ic, icnt,icap)
             end
             jump lp(i = i+1, act=act, fin=fin)
         end
         -- CmdBindEntryParams: values view in b
-        if tg == @{C_BEP} then
-            if act < 0 then mb_push(@{ISS_CMD_OUTSIDE_FUNC}, i,0,0, it,ia,ib,ic, icnt,icap) end
+        if tg == @{T.CmdBindEntryParams} then
+            if act < 0 then mb_push(@{T.BackIssueCommandOutsideFunction}, i,0,0, it,ia,ib,ic, icnt,icap) end
             jump lp(i = i+1, act=act, fin=fin)
         end
         -- CmdCall: sig ref in c
-        if tg == @{C_CL} then
-            if act < 0 then mb_push(@{ISS_CMD_OUTSIDE_FUNC}, i,0,0, it,ia,ib,ic, icnt,icap)
+        if tg == @{T.CmdCall} then
+            if act < 0 then mb_push(@{T.BackIssueCommandOutsideFunction}, i,0,0, it,ia,ib,ic, icnt,icap)
             elseif mb_has(ms+MS*mcap, mk+MS*mcap, c, mcap) == 0 then
-                mb_push(@{ISS_MISSING_SIG}, i,c,0, it,ia,ib,ic, icnt,icap)
+                mb_push(@{T.BackIssueMissingSig}, i,c,0, it,ia,ib,ic, icnt,icap)
             end
             jump lp(i = i+1, act=act, fin=fin)
         end
         -- CmdStoreInfo: value in c, CmdAtomicStore: value in c
-        if tg == @{C_SI} or tg == @{C_ASO} then
-            if act < 0 then mb_push(@{ISS_CMD_OUTSIDE_FUNC}, i,0,0, it,ia,ib,ic, icnt,icap) end
+        if tg == @{T.CmdStoreInfo} or tg == @{T.CmdAtomicStore} then
+            if act < 0 then mb_push(@{T.BackIssueCommandOutsideFunction}, i,0,0, it,ia,ib,ic, icnt,icap) end
             jump lp(i = i+1, act=act, fin=fin)
         end
 
         -- Cmds valid inside or outside a function
-        if tg == @{C_TM} then jump lp(i = i+1, act=act, fin=fin) end
-        if tg == @{C_RV} or tg == @{C_TR} then
-            if act < 0 then mb_push(@{ISS_CMD_OUTSIDE_FUNC}, i,0,0, it,ia,ib,ic, icnt,icap) end
+        if tg == @{T.CmdTargetModel} then jump lp(i = i+1, act=act, fin=fin) end
+        if tg == @{T.CmdReturnVoid} or tg == @{T.CmdTrap} then
+            if act < 0 then mb_push(@{T.BackIssueCommandOutsideFunction}, i,0,0, it,ia,ib,ic, icnt,icap) end
             jump lp(i = i+1, act=act, fin=fin)
         end
         -- CmdBpp: AppendBlockParam, CmdAliasFact, CmdMemcpy/Memset
-        if tg == @{C_ABP} or tg == @{C_AFT} or tg == @{C_MC} or tg == @{C_MS}
-            or tg == @{C_AF}
+        if tg == @{T.CmdAppendBlockParam} or tg == @{T.CmdAliasFact} or tg == @{T.CmdMemcpy} or tg == @{T.CmdMemset}
+            or tg == @{T.CmdAtomicFence}
         then
-            if act < 0 then mb_push(@{ISS_CMD_OUTSIDE_FUNC}, i,0,0, it,ia,ib,ic, icnt,icap) end
+            if act < 0 then mb_push(@{T.BackIssueCommandOutsideFunction}, i,0,0, it,ia,ib,ic, icnt,icap) end
             jump lp(i = i+1, act=act, fin=fin)
         end
 

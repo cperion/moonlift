@@ -80,7 +80,15 @@ function M.run(argv)
         if opts.help then usage(io.stdout); return 0 end
         if opts.mode == "status" then
             local status = moon.host_mom.status()
-            io.stdout:write("mom pipeline: ", tostring(status.pipeline), "\n")
+            io.stdout:write("mom integration ready: ", tostring(status.integration_ready), "\n")
+            io.stdout:write("mom native compiler ready: ", tostring(status.native_compiler_ready), "\n")
+            io.stdout:write("mom active pipeline: ", tostring(status.pipeline), "\n")
+            if status.not_done then
+                io.stdout:write("mom native compiler remaining work:\n")
+                for i = 1, #status.not_done do
+                    io.stdout:write("  - ", tostring(status.not_done[i]), "\n")
+                end
+            end
             return status.ready and 0 or 1
         end
         if not opts.input then usage(io.stderr); return 2 end

@@ -134,7 +134,20 @@ function M.emit_object(source, path, module_name)
 end
 
 function M.status()
-    return { ready = true, pipeline = "parse/typecheck/tree_to_back/back_validate/mlbt/cranelift" }
+    return {
+        ready = true,
+        integration_ready = true,
+        native_compiler_ready = false,
+        pipeline = "production Lua semantic pipeline: parse/typecheck/tree_to_back/back_validate/mlbt/cranelift",
+        not_done = {
+            "native .mlua source scanner/island pipeline",
+            "native MoonTree AST materialization",
+            "native open/bind/typecheck/layout phases",
+            "native tree_to_back and control-region lowering parity",
+            "native validation/diagnostics/vectorization parity",
+            "replacement of Lua semantic compiler modules",
+        },
+    }
 end
 
 return setmetatable(M, {

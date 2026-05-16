@@ -11,6 +11,9 @@ MOM.
 
 ## Source of Truth
 
+**THE FIRST SOT FOR IMPLEMENTATION IS THE ACTUAL MOONLIFT LUA CODE ALREADY PRESENT IT WORKS WELL THATS WHY WE CAN BUILD THE MOM ON IT.**
+Always go look at /home/cedric/dev/moonlift/lua/moonlift
+
 Read these before changing direction:
 
 | File | Purpose |
@@ -158,8 +161,10 @@ Existing native MOM modules:
 | `driver/wire.mlua` | allocation-free MLBT v3 binary backend ABI writer |
 | `driver/backend_ffi.mlua` | native MLBT v3 Rust backend FFI adapter |
 | `driver/lower_wire.mlua` | wire boundary; parser tapes must not bypass semantic phases |
+| `parser/document_scan.mlua` | native `.mlua`/document island scanner over `ptr(u8)+len` |
 | `parser/native_lexer.mlua` | native lexer and parse-event scanner |
-| `parser/native_core.mlua` | native AST tape parser core |
+| `parser/native_core.mlua` | native parser recognition core with internal compact storage |
+| `parser/native_tree.mlua` | native typed AST arena materializer for the parser output boundary |
 | `vec/vec_facts.mlua` | Phase 8a: loop recognition → VecFact tape |
 | `vec/vec_decide.mlua` | Phase 8b: VecFact → legal/illegal decision |
 | `vec/vec_plan.mlua` | Phase 8c: decision → VecKernelPlan |
@@ -179,8 +184,10 @@ Run focused tests after edits:
 
 ```sh
 luajit tests/test_mom_groundwork.lua            # MOM compiler foundation
+luajit tests/test_mom_document_scan.lua         # Native document/island scanner
 luajit tests/test_mom_native_lexer.mlua         # Native lexer
 luajit tests/test_mom_native_core.lua           # Native parser core
+luajit tests/test_mom_native_tree.lua           # Native typed AST output boundary
 luajit tests/test_mom_native_ast.lua            # Native AST verification
 luajit tests/test_mom_check_correctness.mlua    # Schema correctness
 luajit tests/test_mom_vec.lua                   # Vectorization pipeline

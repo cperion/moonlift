@@ -1,0 +1,59 @@
+local T = require("moonlift.mom.back.back_tags")
+local M = moon.module("mom_type_scalar")
+
+local mt_is_float_scalar = func(s: i32) -> bool
+    return s == @{T.ScalarF32} or s == @{T.ScalarF64}
+end
+
+local mt_is_signed_int_scalar = func(s: i32) -> bool
+    return s == @{T.ScalarI8} or s == @{T.ScalarI16} or s == @{T.ScalarI32} or s == @{T.ScalarI64}
+end
+
+local mt_is_unsigned_int_scalar = func(s: i32) -> bool
+    return s == @{T.ScalarU8} or s == @{T.ScalarU16} or s == @{T.ScalarU32} or s == @{T.ScalarU64}
+    or s == @{T.ScalarIndex} or s == @{T.ScalarRawPtr}
+end
+
+local mt_is_integer_scalar = func(s: i32) -> bool
+    return mt_is_signed_int_scalar(s) or mt_is_unsigned_int_scalar(s)
+end
+
+local mt_is_bool_scalar = func(s: i32) -> bool
+    return s == @{T.ScalarBool}
+end
+
+local mt_is_void_scalar = func(s: i32) -> bool
+    return s == @{T.ScalarVoid}
+end
+
+local mt_is_numeric_scalar = func(s: i32) -> bool
+    return mt_is_integer_scalar(s) or mt_is_float_scalar(s)
+end
+
+local mt_scalar_bit_width = func(s: i32) -> i32
+    if s == @{T.ScalarI8} or s == @{T.ScalarU8} then return 8 end
+    if s == @{T.ScalarI16} or s == @{T.ScalarU16} then return 16 end
+    if s == @{T.ScalarI32} or s == @{T.ScalarU32} or s == @{T.ScalarF32} or s == @{T.ScalarIndex} then return 32 end
+    if s == @{T.ScalarI64} or s == @{T.ScalarU64} or s == @{T.ScalarF64} or s == @{T.ScalarRawPtr} then return 64 end
+    return 0
+end
+
+local mt_adopt_literal_to_scalar = func(lit_scalar: i32, expected: i32) -> i32
+    if lit_scalar == expected then return expected end
+    if mt_is_integer_scalar(lit_scalar) and mt_is_integer_scalar(expected) then return expected end
+    if mt_is_integer_scalar(lit_scalar) and mt_is_float_scalar(expected) then return expected end
+    if mt_is_integer_scalar(lit_scalar) and mt_is_bool_scalar(expected) then return expected end
+    return lit_scalar
+end
+
+M:add_func(mt_is_float_scalar)
+M:add_func(mt_is_signed_int_scalar)
+M:add_func(mt_is_unsigned_int_scalar)
+M:add_func(mt_is_integer_scalar)
+M:add_func(mt_is_bool_scalar)
+M:add_func(mt_is_void_scalar)
+M:add_func(mt_is_numeric_scalar)
+M:add_func(mt_scalar_bit_width)
+M:add_func(mt_adopt_literal_to_scalar)
+
+return M

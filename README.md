@@ -1,22 +1,24 @@
 # Moonlift
 
 **A typed, jump-first compiled language that generates native code through Cranelift.
-Two compiler frontends, one ABI, one runtime.**
+One production compiler pipeline, one in-progress native compiler port, one binary ABI.**
 
 Moonlift compiles to machine code. You write Moonlift source — plain `.moon` files
 or `.mlua` (Lua with Moonlift value islands) — and Moonlift turns them into
 JIT-ed function pointers, relocatable `.o` files, or `.so`/`.dylib` shared
 libraries.
 
-The `moonlift` and `mom` binaries use the production semantic pipeline:
-parse → typecheck → tree_to_back → back_validate → MLBT v3 → Cranelift. MOM
-parser/runtime modules remain under `lua/moonlift/mom/` for the native compiler
-port.
+The `moonlift` and `mom` binaries currently use the production semantic pipeline:
+parse → typecheck → tree_to_back → back_validate → MLBT v3 → Cranelift. The
+MOM native compiler port is not complete: its parser/runtime/backend ABI modules
+live under `lua/moonlift/mom/`, but the semantic compiler phases have not yet
+replaced the Lua implementation.
 
-| Frontend | Entry point | Status |
+| Path | Entry point | Status |
 |---|---|---|
-| **Lua** | `moon.loadstring(source)` / builder API | Metaprogramming host, `.mlua` staging, object/JIT/shared emission. |
-| **MOM** | `moon.native_loadstring(source)` | Standalone binary/API using the production semantic pipeline. |
+| **Production Lua semantic pipeline** | `moon.loadstring(source)` / builder API | Production path: metaprogramming host, `.mlua` staging, object/JIT/shared emission. |
+| **MOM integration shell** | `moon.native_loadstring(source)` / `target/release/mom` | Uses the production semantic pipeline plus MLBT v3 binary ABI; this is not a completed native compiler port. |
+| **MOM native compiler port** | `lua/moonlift/mom/` modules | In progress; parser/backend wire groundwork exists, semantic phase parity is remaining work. |
 
 ---
 

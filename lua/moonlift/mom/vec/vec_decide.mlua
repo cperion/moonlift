@@ -3,32 +3,19 @@
 -- Phase 8b: accept vec-fact tape, check target capabilities,
 -- produce decision tape (legal/illegal + shape/schedule).
 
+local T = require("moonlift.mom.back.back_tags")
+
 local M = moon.module("mom_vec_decide")
-
-local VF_PRIMARY_INDUCTION = 2
-local VF_MEMORY_LOAD = 20
-local VF_MEMORY_STORE = 21
-local VF_REJECT = 99
-
-local VD_LEGAL = 1
-local VD_ILLEGAL = 2
-
-local B_BOOL = 2
-local B_I32 = 5
-local B_I64 = 6
-local B_F32 = 11
-local B_F64 = 12
-local B_INDEX = 14
 
 local DEFAULT_VECTOR_BITS = 128
 
 local mv_elem_bits = func(scalar: i32) -> i32
-    if scalar == @{B_BOOL} then return 8 end
-    if scalar == @{B_I32} then return 32 end
-    if scalar == @{B_I64} then return 64 end
-    if scalar == @{B_F32} then return 32 end
-    if scalar == @{B_F64} then return 64 end
-    if scalar == @{B_INDEX} then return 64 end
+    if scalar == @{T.BackBool} then return 8 end
+    if scalar == @{T.BackI32} then return 32 end
+    if scalar == @{T.BackI64} then return 64 end
+    if scalar == @{T.BackF32} then return 32 end
+    if scalar == @{T.BackF64} then return 64 end
+    if scalar == @{T.BackIndex} then return 64 end
     return 32
 end
 
@@ -56,27 +43,27 @@ local mv_decide = func(vt: ptr(i32), va: ptr(i32), vb: ptr(i32), vc: ptr(i32),
                         vd: ptr(i32), ve: ptr(i32), vf: ptr(i32),
                         nv: i32, target_bits: i32,
                         dec: ptr(i32), dec_count: ptr(i32), dec_cap: i32)
-    let nrejects: i32 = mv_count_tag(@{VF_REJECT}, vt, nv)
+    let nrejects: i32 = mv_count_tag(@{T.VF_REJECT}, vt, nv)
     if nrejects > 0 then
         if dec_count[0] < dec_cap then
-            dec[0] = @{VD_ILLEGAL}; dec[1] = nrejects
+            dec[0] = @{T.VD_ILLEGAL}; dec[1] = nrejects
         end
         dec_count[0] = dec_count[0] + 1
         return
     end
-    let elem_scalar: i32 = @{B_I32}
+    let elem_scalar: i32 = @{T.BackI32}
     let ebits: i32 = mv_elem_bits(elem_scalar)
     let bits: i32 = target_bits
     if bits <= 0 then bits = @{DEFAULT_VECTOR_BITS} end
     let lanes: i32 = bits / ebits
     if lanes < 2 then lanes = 2 end
     if lanes > 8 then lanes = 8 end
-    let has_store: i32 = mv_count_tag(@{VF_MEMORY_STORE}, vt, nv)
-    let has_load: i32 = mv_count_tag(@{VF_MEMORY_LOAD}, vt, nv)
+    let has_store: i32 = mv_count_tag(@{T.VF_MEMORY_STORE}, vt, nv)
+    let has_load: i32 = mv_count_tag(@{T.VF_MEMORY_LOAD}, vt, nv)
     let tail_mode: i32 = 1
     if has_load == 0 and has_store == 0 then tail_mode = 0 end
     if dec_count[0] < dec_cap then
-        dec[0] = @{VD_LEGAL}; dec[1] = elem_scalar; dec[2] = lanes
+        dec[0] = @{T.VD_LEGAL}; dec[1] = elem_scalar; dec[2] = lanes
         dec[3] = 1; dec[4] = tail_mode; dec[5] = 0
     end
     dec_count[0] = dec_count[0] + 1

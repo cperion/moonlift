@@ -148,6 +148,8 @@ M.Cmd = union Cmd
     | CmdVecMask(dst: M.BackValId, op: M.BackVecMaskOp, ty: M.BackVec, args: view(M.BackValId))
     | CmdVecInsertLane(dst: M.BackValId, ty: M.BackVec, value: M.BackValId, lane_value: M.BackValId, lane: i32)
     | CmdVecExtractLane(dst: M.BackValId, ty: M.BackScalar, value: M.BackValId, lane: i32)
+    | CmdVecLoadInfo(dst: M.BackValId, ty: M.BackVec, addr: M.BackAddress, memory: M.BackMemoryInfo)
+    | CmdVecStoreInfo(ty: M.BackVec, addr: M.BackAddress, value: M.BackValId, memory: M.BackMemoryInfo)
     | CmdCall(result: M.BackCallResult, target: M.BackCallTarget, sig: M.BackSigId, args: view(M.BackValId))
     | CmdJump(dest: M.BackBlockId, args: view(M.BackValId))
     | CmdBrIf(cond: M.BackValId, then_block: M.BackBlockId, then_args: view(M.BackValId), else_block: M.BackBlockId, else_args: view(M.BackValId))

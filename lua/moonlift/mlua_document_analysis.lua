@@ -32,6 +32,8 @@ local keyword_set = {
     ["let"] = true, ["var"] = true, ["requires"] = true, ["noalias"] = true, ["readonly"] = true,
     ["writeonly"] = true, ["as"] = true, ["select"] = true, ["true"] = true, ["false"] = true,
     ["nil"] = true, ["and"] = true, ["or"] = true, ["not"] = true,
+    ["assert"] = true, ["len"] = true, ["view"] = true,
+    ["bounds"] = true, ["window_bounds"] = true, ["disjoint"] = true, ["same_len"] = true,
 }
 
 local function island_kind(Mlua, kind)
@@ -223,7 +225,9 @@ function M.Define(T)
                         else
                             add_anchor(anchors, index, tid("value.use", i), S.AnchorBindingUse, text, start, stop)
                         end
-                    elseif text == "+" or text == "-" or text == "*" or text == "/" or text == "%" or text == "==" or text == "~=" or text == "<" or text == ">" or text == "<=" or text == ">=" then
+                    elseif text == "[" or text == "]" or text == "=" or text == "(" or text == ")" then
+                        add_anchor(anchors, index, tid("punct", i), S.AnchorOpaque("operator"), text, start, stop)
+                    elseif text == "+" or text == "-" or text == "*" or text == "/" or text == "%" or text == "==" or text == "~=" or text == "<" or text == ">" or text == "<=" or text == ">=" or text == "&" or text == "|" or text == "~" or text == "^" or text == "<<" or text == ">>>" or text == ">>" then
                         add_anchor(anchors, index, tid("op", i), S.AnchorOpaque("operator"), text, start, stop)
                     end
                 end
@@ -330,7 +334,10 @@ function M.Define(T)
                 local d = combined.decls.decls[i]
                 if pvm.classof(d) == H.HostDeclStruct then
                     local ok, layout = pcall(function() return HostL.resolve_layout(d.decl) end)
-                    if ok and layout then layouts[#layouts + 1] = layout end
+                    if ok and layout then layouts[#layouts + 1] = layout
+                    elseif not ok then
+                        issues[#issues + 1] = Pm.ParseIssue("internal: layout resolution error: " .. tostring(layout), 0, 1, 1)
+                    end
                 end
             end
         end
@@ -344,6 +351,8 @@ function M.Define(T)
             if ok_tc and checked then
                 checked_module = checked.module
                 type_issues = checked.issues or {}
+            elseif not ok_tc then
+                issues[#issues + 1] = Pm.ParseIssue("internal: typecheck panic: " .. tostring(checked), 0, 1, 1)
             end
         end
 
@@ -354,7 +363,11 @@ function M.Define(T)
                 local program = ToBack.module(resolved)
                 return BackV.validate(program)
             end)
-            if ok_back and report_or_err then back_report = report_or_err end
+            if ok_back and report_or_err then
+                back_report = report_or_err
+            elseif not ok_back then
+                issues[#issues + 1] = Pm.ParseIssue("internal: backend pipeline error: " .. tostring(report_or_err), 0, 1, 1)
+            end
         end
 
         return Mlua.DocumentAnalysis(parse, host, open_report, type_issues, control_facts, {}, {}, back_report, anchors)

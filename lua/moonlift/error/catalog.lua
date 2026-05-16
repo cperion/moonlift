@@ -95,12 +95,21 @@ local op_symbols = {
     BinBitAnd = "&", BinBitOr = "|", BinBitXor = "~", BinShl = "<<", BinLShr = ">>>", BinAShr = ">>",
     CmpEq = "==", CmpNe = "~=", CmpLt = "<", CmpLe = "<=", CmpGt = ">", CmpGe = ">=",
     LogicAnd = "&&", LogicOr = "||", UnaryNot = "not", UnaryNeg = "-", UnaryBitNot = "~",
+    ["MoonCore.BinAdd"] = "+", ["MoonCore.BinSub"] = "-", ["MoonCore.BinMul"] = "*", ["MoonCore.BinDiv"] = "/", ["MoonCore.BinRem"] = "%",
+    ["MoonCore.BinBitAnd"] = "&", ["MoonCore.BinBitOr"] = "|", ["MoonCore.BinBitXor"] = "~", ["MoonCore.BinShl"] = "<<", ["MoonCore.BinLShr"] = ">>>", ["MoonCore.BinAShr"] = ">>",
+    ["MoonCore.CmpEq"] = "==", ["MoonCore.CmpNe"] = "~=", ["MoonCore.CmpLt"] = "<", ["MoonCore.CmpLe"] = "<=", ["MoonCore.CmpGt"] = ">", ["MoonCore.CmpGe"] = ">=",
+    ["MoonCore.LogicAnd"] = "and", ["MoonCore.LogicOr"] = "or",
+    ["MoonCore.UnaryNot"] = "not", ["MoonCore.UnaryNeg"] = "-", ["MoonCore.UnaryBitNot"] = "~",
 }
 
 local function op_symbol(op)
     if not op then return "?" end
     local s = tostring(op)
-    return op_symbols[s] or s
+    if op_symbols[s] then return op_symbols[s] end
+    -- Strip "MoonCore." prefix if present and retry
+    local short = s:match("^MoonCore%.(.+)$")
+    if short and op_symbols[short] then return op_symbols[short] end
+    return s
 end
 
 -------------------------------------------------------------------------------
@@ -351,10 +360,10 @@ register("E0301", "error", function(issue, analysis)
     local notes = {}
     local suggestions = {}
 
-    -- Context-specific notes
+    -- Context-specific notes — exhaustive over all site strings from tree_typecheck.lua
     if site:find("call") then
         notes[#notes + 1] = { message = "this argument has type `" .. actual .. "`, but the function expects `" .. expected .. "`" }
-    elseif site:find("let") or site:find("var") then
+    elseif site:find("let ") or site:find("var ") then
         local var_name = site:match("let (%w+)") or site:match("var (%w+)") or ""
         notes[#notes + 1] = { message = "the initializer has type `" .. actual .. "`, but the variable is declared as `" .. expected .. "`" }
     elseif site:find("return") then
@@ -363,8 +372,40 @@ register("E0301", "error", function(issue, analysis)
         notes[#notes + 1] = { message = "the yielded value has type `" .. actual .. "`, but the region yields `" .. expected .. "`" }
     elseif site:find("set") then
         notes[#notes + 1] = { message = "the assigned value has type `" .. actual .. "`, but the target has type `" .. expected .. "`" }
+    elseif site:find("if cond") or site:find("select cond") then
+        notes[#notes + 1] = { message = "the condition has type `" .. actual .. "`, but the condition must be `bool`" }
+    elseif site:find("if branches") or site:find("select branches") then
+        notes[#notes + 1] = { message = "both branches must have the same type; the then-branch is `" .. actual .. "`, the else-branch is `" .. expected .. "`" }
     elseif site:find("index") then
         notes[#notes + 1] = { message = "indexing requires an integer type, got `" .. actual .. "`" }
+    elseif site:find("view data") then
+        notes[#notes + 1] = { message = "view data must be a `ptr` or `view`, got `" .. actual .. "`" }
+    elseif site:find("view len") or site:find("view stride")
+        or site:find("view window") or site:find("bounds")
+        or site:find("window_bounds") then
+        notes[#notes + 1] = { message = "expected `" .. expected .. "`, got `" .. actual .. "`" }
+    elseif site:find("disjoint") then
+        notes[#notes + 1] = { message = "disjoint contract requires `ptr` or `view`, got `" .. actual .. "`" }
+    elseif site:find("same_len") then
+        notes[#notes + 1] = { message = "same_len contract requires `view`, got `" .. actual .. "`" }
+    elseif site:find("memory contract") then
+        notes[#notes + 1] = { message = "memory contract requires `ptr` or `view`, got `" .. actual .. "`" }
+    elseif site:find("atomic") then
+        notes[#notes + 1] = { message = "expected `" .. expected .. "`, got `" .. actual .. "`" }
+    elseif site:find("block param") then
+        notes[#notes + 1] = { message = "block parameter initializer has type `" .. actual .. "`, but the parameter is declared as `" .. expected .. "`" }
+    elseif site:find("assert") then
+        notes[#notes + 1] = { message = "assert condition must be `bool`, got `" .. actual .. "`" }
+    elseif site:find("switch key") then
+        notes[#notes + 1] = { message = "switch key has type `" .. actual .. "`, but the switch expression is `" .. expected .. "`" }
+    elseif site:find("switch arm") then
+        notes[#notes + 1] = { message = "switch arm has type `" .. actual .. "`, but the default arm is `" .. expected .. "`" }
+    elseif site:find("array elem") then
+        notes[#notes + 1] = { message = "array element has type `" .. actual .. "`, but the array expects `" .. expected .. "`" }
+    elseif site:find("len") then
+        notes[#notes + 1] = { message = "`len` requires a `view`, got `" .. actual .. "`" }
+    elseif site:find("const") or site:find("static") then
+        notes[#notes + 1] = { message = "the initializer has type `" .. actual .. "`, but the declaration is `" .. expected .. "`" }
     else
         notes[#notes + 1] = { message = "expected `" .. expected .. "`, got `" .. actual .. "`" }
     end

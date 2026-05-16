@@ -2,32 +2,14 @@
 --
 -- Phase 8d: accept kernel plan, emit BackCmd vector commands.
 
+local T = require("moonlift.mom.back.back_tags")
+
 local M = moon.module("mom_vec_lower")
 
-local VP_REDUCE = 2
-local VP_MAP = 3
-local VP_ALGEBRAIC = 4
-
-local CMD_CONST = 20
-local CMD_INT_BINARY = 33
-local CMD_FLOAT_BINARY = 38
-local CMD_COMPARE = 23
-local CMD_RETURN_VOID = 55
-local CMD_CREATE_BLOCK = 12
-local CMD_SWITCH_TO_BLOCK = 13
-local CMD_BR_IF = 53
-local CMD_JUMP = 52
-
-local B_BOOL = 2
-local B_I32 = 5
-local B_INDEX = 14
-
-local BOP_ADD = 1
-
 local mv_push_cmd = func(tag: i32, a: i32, b: i32, c: i32, d: i32, e: i32, f: i32,
-                          ct: ptr(i32), ca: ptr(i32), cb: ptr(i32), cc: ptr(i32),
-                          cd: ptr(i32), ce: ptr(i32), cf: ptr(i32),
-                          count: ptr(i32), cap: i32)
+                           ct: ptr(i32), ca: ptr(i32), cb: ptr(i32), cc: ptr(i32),
+                           cd: ptr(i32), ce: ptr(i32), cf: ptr(i32),
+                           count: ptr(i32), cap: i32)
     let i: index = as(index, count[0])
     if i < as(index, cap) then
         ct[i] = tag; ca[i] = a; cb[i] = b; cc[i] = c
@@ -47,39 +29,39 @@ local mv_lower_reduce = func(
     let blk_loop: i32 = st[1]; st[1] = st[1] + 1
     let blk_body: i32 = st[1]; st[1] = st[1] + 1
     let blk_exit: i32 = st[1]; st[1] = st[1] + 1
-    mv_push_cmd(@{CMD_CREATE_BLOCK}, blk_entry, 0, 0, 0, 0, 0,
+    mv_push_cmd(@{T.CmdCreateBlock}, blk_entry, 0, 0, 0, 0, 0,
                 ct, ca, cb, cc, cd, ce, cf, count, cap)
-    mv_push_cmd(@{CMD_CREATE_BLOCK}, blk_loop, 0, 0, 0, 0, 0,
+    mv_push_cmd(@{T.CmdCreateBlock}, blk_loop, 0, 0, 0, 0, 0,
                 ct, ca, cb, cc, cd, ce, cf, count, cap)
-    mv_push_cmd(@{CMD_CREATE_BLOCK}, blk_body, 0, 0, 0, 0, 0,
+    mv_push_cmd(@{T.CmdCreateBlock}, blk_body, 0, 0, 0, 0, 0,
                 ct, ca, cb, cc, cd, ce, cf, count, cap)
-    mv_push_cmd(@{CMD_CREATE_BLOCK}, blk_exit, 0, 0, 0, 0, 0,
+    mv_push_cmd(@{T.CmdCreateBlock}, blk_exit, 0, 0, 0, 0, 0,
                 ct, ca, cb, cc, cd, ce, cf, count, cap)
-    mv_push_cmd(@{CMD_SWITCH_TO_BLOCK}, blk_entry, 0, 0, 0, 0, 0,
+    mv_push_cmd(@{T.CmdSwitchToBlock}, blk_entry, 0, 0, 0, 0, 0,
                 ct, ca, cb, cc, cd, ce, cf, count, cap)
-    mv_push_cmd(@{CMD_SWITCH_TO_BLOCK}, blk_loop, 0, 0, 0, 0, 0,
+    mv_push_cmd(@{T.CmdSwitchToBlock}, blk_loop, 0, 0, 0, 0, 0,
                 ct, ca, cb, cc, cd, ce, cf, count, cap)
     let vi0: i32 = st[0]; st[0] = st[0] + 1
     let vi1: i32 = st[0]; st[0] = st[0] + 1
     let cmp: i32 = st[0]; st[0] = st[0] + 1
-    mv_push_cmd(@{CMD_CONST}, vi0, @{B_INDEX}, 0, 0, 0, 0,
+    mv_push_cmd(@{T.CmdConst}, vi0, @{T.BackIndex}, 0, 0, 0, 0,
                 ct, ca, cb, cc, cd, ce, cf, count, cap)
-    mv_push_cmd(@{CMD_CONST}, vi1, @{B_INDEX}, lanes, 0, 0, 0,
+    mv_push_cmd(@{T.CmdConst}, vi1, @{T.BackIndex}, lanes, 0, 0, 0,
                 ct, ca, cb, cc, cd, ce, cf, count, cap)
-    mv_push_cmd(@{CMD_COMPARE}, cmp, @{B_BOOL}, 1, vi0, vi1, 0,
+    mv_push_cmd(@{T.CmdCompare}, cmp, @{T.BackBool}, 1, vi0, vi1, 0,
                 ct, ca, cb, cc, cd, ce, cf, count, cap)
-    mv_push_cmd(@{CMD_BR_IF}, cmp, blk_body, blk_exit, 0, 0, 0,
+    mv_push_cmd(@{T.CmdBrIf}, cmp, blk_body, blk_exit, 0, 0, 0,
                 ct, ca, cb, cc, cd, ce, cf, count, cap)
-    mv_push_cmd(@{CMD_SWITCH_TO_BLOCK}, blk_body, 0, 0, 0, 0, 0,
+    mv_push_cmd(@{T.CmdSwitchToBlock}, blk_body, 0, 0, 0, 0, 0,
                 ct, ca, cb, cc, cd, ce, cf, count, cap)
     let vi_new: i32 = st[0]; st[0] = st[0] + 1
-    mv_push_cmd(@{CMD_INT_BINARY}, vi_new, @{B_I32}, @{BOP_ADD}, vi0, vi1, 0,
+    mv_push_cmd(@{T.CmdIntBinary}, vi_new, @{T.BackI32}, @{T.BinAdd}, vi0, vi1, 0,
                 ct, ca, cb, cc, cd, ce, cf, count, cap)
-    mv_push_cmd(@{CMD_JUMP}, blk_loop, vi_new, 0, 0, 0, 0,
+    mv_push_cmd(@{T.CmdJump}, blk_loop, vi_new, 0, 0, 0, 0,
                 ct, ca, cb, cc, cd, ce, cf, count, cap)
-    mv_push_cmd(@{CMD_SWITCH_TO_BLOCK}, blk_exit, 0, 0, 0, 0, 0,
+    mv_push_cmd(@{T.CmdSwitchToBlock}, blk_exit, 0, 0, 0, 0, 0,
                 ct, ca, cb, cc, cd, ce, cf, count, cap)
-    mv_push_cmd(@{CMD_RETURN_VOID}, 0, 0, 0, 0, 0, 0,
+    mv_push_cmd(@{T.CmdReturnVoid}, 0, 0, 0, 0, 0, 0,
                 ct, ca, cb, cc, cd, ce, cf, count, cap)
 end
 
@@ -93,7 +75,7 @@ local mv_lower_kernel = func(
     count: ptr(i32), cap: i32, st: ptr(i32))
     if nplan <= 0 then return end
     let plan_tag: i32 = pt[0]
-    if plan_tag == @{VP_REDUCE} or plan_tag == @{VP_MAP} or plan_tag == @{VP_ALGEBRAIC} then
+    if plan_tag == @{T.VP_REDUCE} or plan_tag == @{T.VP_MAP} or plan_tag == @{T.VP_ALGEBRAIC} then
         mv_lower_reduce(pa[0], 4,
                         ct, ca, cb, cc, cd, ce, cf, count, cap, st)
     end

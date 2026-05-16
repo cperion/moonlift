@@ -4,40 +4,9 @@
 -- The validation engine checks labels, jump args, yield modes, and termination.
 -- Uses i32-based fact tape: fact_tag[i], fact_a[i]..fact_f[i].
 
+local T = require("moonlift.mom.back.back_tags")
+
 local M = moon.module("mom_back_control")
-
--- ── ControlFact variant tags (from MoonCyclic) ─────────────────────
-local CF_ENTRY_BLOCK = 1
-local CF_BLOCK = 2
-local CF_ENTRY_PARAM = 3
-local CF_BLOCK_PARAM = 4
-local CF_JUMP = 5
-local CF_JUMP_ARG = 6
-local CF_YIELD_VOID = 7
-local CF_YIELD_VALUE = 8
-local CF_RETURN = 9
-local CF_BACKEDGE = 10
-
--- ── ControlReject variant tags (from MoonCyclic) ───────────────────
-local CR_DUPLICATE_LABEL = 1
-local CR_MISSING_LABEL = 2
-local CR_MISSING_JUMP_ARG = 3
-local CR_EXTRA_JUMP_ARG = 4
-local CR_DUPLICATE_JUMP_ARG = 5
-local CR_JUMP_TYPE = 6
-local CR_YIELD_OUTSIDE = 7
-local CR_YIELD_TYPE = 8
-local CR_UNTERMINATED_BLOCK = 9
-
--- ── ControlDecision variant tags ──────────────────────────────────
-local CD_REDUCIBLE = 1
-local CD_IRREDUCIBLE = 2
-
--- Stmt tags.
-local ST_JUMP = 10
-local ST_RETURN_VOID = 6
-local ST_RETURN_VALUE = 7
-local ST_IF = 5
 
 -- ── Helpers ────────────────────────────────────────────────────────
 
@@ -86,22 +55,22 @@ local mb_extract_jump_facts = func(stmt_tag: ptr(i32), stmt_tok: ptr(i32),
         let sidx: i32 = slist[i]
         let tag: i32 = stmt_tag[as(index, sidx)]
         let a_val: i32 = stmt_a[as(index, sidx)]
-        if tag == @{ST_JUMP} then
+        if tag == @{T.ST_JUMP} then
             -- Emit block fact for implicit enclosing block.
-            mb_push_fact(@{CF_BLOCK}, region_id, cur_label, 0, 0, 0, 0,
+            mb_push_fact(@{T.CF_BLOCK}, region_id, cur_label, 0, 0, 0, 0,
                          fact_tag, fact_a, fact_b, fact_c, fact_d, fact_e, fact_f, f_count, f_cap)
-            mb_push_fact(@{CF_JUMP}, region_id, cur_label, a_val, 0, 0, 0,
+            mb_push_fact(@{T.CF_JUMP}, region_id, cur_label, a_val, 0, 0, 0,
                          fact_tag, fact_a, fact_b, fact_c, fact_d, fact_e, fact_f, f_count, f_cap)
-            mb_push_fact(@{CF_RETURN}, region_id, cur_label, 0, 0, 0, 0,
-                         fact_tag, fact_a, fact_b, fact_c, fact_d, fact_e, fact_f, f_count, f_cap)
-            jump loop(i = i + as(index, 1), cur_label = cur_label)
-        end
-        if tag == @{ST_RETURN_VOID} or tag == @{ST_RETURN_VALUE} then
-            mb_push_fact(@{CF_RETURN}, region_id, cur_label, 0, 0, 0, 0,
+            mb_push_fact(@{T.CF_RETURN}, region_id, cur_label, 0, 0, 0, 0,
                          fact_tag, fact_a, fact_b, fact_c, fact_d, fact_e, fact_f, f_count, f_cap)
             jump loop(i = i + as(index, 1), cur_label = cur_label)
         end
-        if tag == @{ST_IF} then
+        if tag == @{T.ST_RETURN_VOID} or tag == @{T.ST_RETURN_VALUE} then
+            mb_push_fact(@{T.CF_RETURN}, region_id, cur_label, 0, 0, 0, 0,
+                         fact_tag, fact_a, fact_b, fact_c, fact_d, fact_e, fact_f, f_count, f_cap)
+            jump loop(i = i + as(index, 1), cur_label = cur_label)
+        end
+        if tag == @{T.ST_IF} then
             -- For if, recursively extract from then/else bodies.
             let then_start: i32 = stmt_b[as(index, sidx)]
             let then_count: i32 = stmt_c[as(index, sidx)]
@@ -112,8 +81,8 @@ local mb_extract_jump_facts = func(stmt_tag: ptr(i32), stmt_tok: ptr(i32),
                 if j >= as(index, then_start + then_count) then yield end
                 let inner_sidx: i32 = slist[j]
                 let inner_tag: i32 = stmt_tag[as(index, inner_sidx)]
-                if inner_tag == @{ST_RETURN_VOID} or inner_tag == @{ST_RETURN_VALUE} then
-                    mb_push_fact(@{CF_RETURN}, region_id, cur_label, 0, 0, 0, 0,
+                if inner_tag == @{T.ST_RETURN_VOID} or inner_tag == @{T.ST_RETURN_VALUE} then
+                    mb_push_fact(@{T.CF_RETURN}, region_id, cur_label, 0, 0, 0, 0,
                                  fact_tag, fact_a, fact_b, fact_c, fact_d, fact_e, fact_f, f_count, f_cap)
                 end
                 jump tl(j = j + as(index, 1))
@@ -124,8 +93,8 @@ local mb_extract_jump_facts = func(stmt_tag: ptr(i32), stmt_tok: ptr(i32),
                     if j >= as(index, else_start + else_count) then yield end
                     let inner_sidx: i32 = slist[j]
                     let inner_tag: i32 = stmt_tag[as(index, inner_sidx)]
-                    if inner_tag == @{ST_RETURN_VOID} or inner_tag == @{ST_RETURN_VALUE} then
-                        mb_push_fact(@{CF_RETURN}, region_id, cur_label, 0, 0, 0, 0,
+                    if inner_tag == @{T.ST_RETURN_VOID} or inner_tag == @{T.ST_RETURN_VALUE} then
+                        mb_push_fact(@{T.CF_RETURN}, region_id, cur_label, 0, 0, 0, 0,
                                      fact_tag, fact_a, fact_b, fact_c, fact_d, fact_e, fact_f, f_count, f_cap)
                     end
                     jump el(j = j + as(index, 1))
@@ -160,11 +129,11 @@ local mb_pass1 = func(start: i32, n_facts: i32,
         let a: i32 = fact_a[as(index, v)]
         let b: i32 = fact_b[as(index, v)]
         let c: i32 = fact_c[as(index, v)]
-        if tag == @{CF_BLOCK} then
+        if tag == @{T.CF_BLOCK} then
             block dc(s: index = 0)
                 if s >= as(index, map_cap) then yield end
                 if map_state[s] == 1 and map_key[s] == a then
-                    mb_push_reject(@{CR_DUPLICATE_LABEL}, a, b, 0,
+                    mb_push_reject(@{T.CR_DUPLICATE_LABEL}, a, b, 0,
                                    r_tag, r_a, r_b, r_c, r_count, r_cap)
                     return 1
                 end
@@ -181,20 +150,20 @@ local mb_pass1 = func(start: i32, n_facts: i32,
             end
             jump loop(v = v + 1)
         end
-        if tag == @{CF_YIELD_VOID} then
+        if tag == @{T.CF_YIELD_VOID} then
             if is_expr_region then
-                mb_push_reject(@{CR_YIELD_OUTSIDE}, 0, 0, 1, r_tag, r_a, r_b, r_c, r_count, r_cap)
+                mb_push_reject(@{T.CR_YIELD_OUTSIDE}, 0, 0, 1, r_tag, r_a, r_b, r_c, r_count, r_cap)
                 return 1
             end
             jump loop(v = v + 1)
         end
-        if tag == @{CF_YIELD_VALUE} then
+        if tag == @{T.CF_YIELD_VALUE} then
             if not is_expr_region then
-                mb_push_reject(@{CR_YIELD_OUTSIDE}, 0, 0, 2, r_tag, r_a, r_b, r_c, r_count, r_cap)
+                mb_push_reject(@{T.CR_YIELD_OUTSIDE}, 0, 0, 2, r_tag, r_a, r_b, r_c, r_count, r_cap)
                 return 1
             end
             if c ~= result_scalar then
-                mb_push_reject(@{CR_YIELD_TYPE}, a, result_scalar, c, r_tag, r_a, r_b, r_c, r_count, r_cap)
+                mb_push_reject(@{T.CR_YIELD_TYPE}, a, result_scalar, c, r_tag, r_a, r_b, r_c, r_count, r_cap)
                 return 1
             end
             jump loop(v = v + 1)
@@ -213,11 +182,11 @@ local mb_pass2 = func(start: i32, n_facts: i32,
     block loop(v: i32 = start)
         if v >= n_facts then return 0 end
         let tag: i32 = fact_tag[as(index, v)]
-        if tag == @{CF_JUMP} then
+        if tag == @{T.CF_JUMP} then
             let target: i32 = fact_b[as(index, v)]
             block sc(s: index = 0)
                 if s >= as(index, map_cap) then
-                    mb_push_reject(@{CR_MISSING_LABEL}, fact_a[as(index, v)], target, 0,
+                    mb_push_reject(@{T.CR_MISSING_LABEL}, fact_a[as(index, v)], target, 0,
                                    r_tag, r_a, r_b, r_c, r_count, r_cap)
                     return 1
                 end
@@ -246,13 +215,13 @@ local mb_validate_control = func(fact_tag: ptr(i32), fact_a: ptr(i32), fact_b: p
                             is_expr_region, result_scalar,
                             map_key, map_val, map_state, map_cap,
                             r_tag, r_a, r_b, r_c, r_count, r_cap)
-    if p1 ~= 0 then return @{CD_IRREDUCIBLE} end
+    if p1 ~= 0 then return @{T.CD_IRREDUCIBLE} end
     let p2: i32 = mb_pass2(0, n_facts,
                             fact_tag, fact_a, fact_b,
                             map_key, map_state, map_cap,
                             r_tag, r_a, r_b, r_c, r_count, r_cap)
-    if p2 ~= 0 then return @{CD_IRREDUCIBLE} end
-    return @{CD_REDUCIBLE}
+    if p2 ~= 0 then return @{T.CD_IRREDUCIBLE} end
+    return @{T.CD_REDUCIBLE}
 end
 
 M:add_func(mb_push_fact)

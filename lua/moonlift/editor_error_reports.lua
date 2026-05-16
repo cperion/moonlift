@@ -60,7 +60,7 @@ function M.Define(T)
 
     local function range_for_label(analysis, label)
         local a = first_anchor_with_label(analysis, label)
-        return a and a.range or full_range(analysis)
+        return a and a.range or nil
     end
 
     local function first_anchor_kind_label(analysis, kind, label)
@@ -87,7 +87,8 @@ function M.Define(T)
         ["MoonCore.BinAdd"] = "+", ["MoonCore.BinSub"] = "-", ["MoonCore.BinMul"] = "*", ["MoonCore.BinDiv"] = "/", ["MoonCore.BinRem"] = "%",
         ["MoonCore.BinBitAnd"] = "&", ["MoonCore.BinBitOr"] = "|", ["MoonCore.BinBitXor"] = "~", ["MoonCore.BinShl"] = "<<", ["MoonCore.BinLShr"] = ">>>", ["MoonCore.BinAShr"] = ">>",
         ["MoonCore.CmpEq"] = "==", ["MoonCore.CmpNe"] = "~=", ["MoonCore.CmpLt"] = "<", ["MoonCore.CmpLe"] = "<=", ["MoonCore.CmpGt"] = ">", ["MoonCore.CmpGe"] = ">=",
-        ["MoonCore.LogicAnd"] = "&&", ["MoonCore.LogicOr"] = "||", ["MoonCore.UnaryNot"] = "not", ["MoonCore.UnaryNeg"] = "-", ["MoonCore.UnaryBitNot"] = "~",
+        ["MoonCore.LogicAnd"] = "and", ["MoonCore.LogicOr"] = "or",
+        ["MoonCore.UnaryNot"] = "not", ["MoonCore.UnaryNeg"] = "-", ["MoonCore.UnaryBitNot"] = "~",
     }
 
     local function op_symbol(op)
@@ -95,23 +96,91 @@ function M.Define(T)
     end
 
     local function operator_range(analysis, op, ordinal)
-        local a = nth_anchor_kind_label(analysis, S.AnchorOpaque("operator"), op_symbol(op), ordinal or 1)
-        return a and a.range or full_range(analysis)
+        local sym = op_symbol(op)
+        -- Logic operators "and"/"or" are keywords, not operator tokens
+        local a
+        if sym == "and" or sym == "or" then
+            a = nth_anchor_kind_label(analysis, S.AnchorKeyword, sym, ordinal or 1)
+        else
+            a = nth_anchor_kind_label(analysis, S.AnchorOpaque("operator"), sym, ordinal or 1)
+        end
+        return a and a.range or nil
     end
 
     local function site_range(analysis, site)
         site = tostring(site or "")
-        local name = site:match("^let%s+([_%a][_%w]*)") or site:match("^var%s+([_%a][_%w]*)") or site:match("^block param%s+([_%a][_%w]*)")
-        if name then return range_for_label(analysis, name) end
-        local keyword = site:match("^(return)") or site:match("^(yield)") or site:match("^(if)") or site:match("^(select)") or site:match("^(switch)")
-        if keyword == "select" then keyword = "if" end
-        local a = keyword and first_anchor_kind_label(analysis, S.AnchorKeyword, keyword)
-        if a then return a.range end
-        if site == "call" or site == "call arg" then
-            a = first_anchor_kind_label(analysis, S.AnchorFunctionUse)
+
+        -- 1. Variable/param bindings: "let x", "var x", "block param x"
+        local name = site:match("^let%s+([_%a][_%w]*)")
+                  or site:match("^var%s+([_%a][_%w]*)")
+                  or site:match("^block param%s+([_%a][_%w]*)")
+        if name then
+            local a = first_anchor_with_label(analysis, name)
             if a then return a.range end
         end
-        return full_range(analysis)
+
+        -- 2. Keyword sites: direct keyword anchor lookup
+        local keyword_sites = {
+            ["return"] = "return", ["yield"] = "yield", ["yield value"] = "yield",
+            ["if cond"] = "if", ["if branches"] = "if",
+            ["select cond"] = "if", ["select branches"] = "if",
+            ["switch key"] = "switch", ["switch arm"] = "switch",
+            ["assert"] = "assert", ["not"] = "not",
+            ["const"] = "const", ["static"] = "static",
+            ["view data"] = "view", ["view len"] = "view", ["view stride"] = "view",
+            ["view window start"] = "view", ["view window len"] = "view",
+        }
+        local kw = keyword_sites[site]
+        if kw then
+            local a = first_anchor_kind_label(analysis, S.AnchorKeyword, kw)
+            if a then return a.range end
+        end
+
+        -- 3. Function-like sites: names used as builtins or function calls
+        local func_sites = {
+            ["call"] = true, ["call arg"] = true,
+            ["len"] = true,
+            ["bounds base"] = true, ["bounds len"] = true,
+            ["window_bounds base"] = true, ["window_bounds base_len"] = true,
+            ["window_bounds start"] = true, ["window_bounds len"] = true,
+            ["disjoint lhs"] = true, ["disjoint rhs"] = true,
+            ["same_len lhs"] = true, ["same_len rhs"] = true,
+            ["memory contract base"] = true,
+            ["atomic_load"] = true, ["atomic_load addr"] = true,
+            ["atomic_rmw"] = true, ["atomic_rmw addr"] = true,
+            ["atomic_rmw value"] = true,
+            ["atomic_rmw pointer op"] = true, ["atomic_rmw bool add/sub"] = true,
+            ["atomic_store"] = true, ["atomic_store addr"] = true,
+            ["atomic_store value"] = true,
+            ["atomic_cas"] = true, ["atomic_cas addr"] = true,
+            ["atomic_cas expected"] = true, ["atomic_cas replacement"] = true,
+        }
+        if func_sites[site] then
+            local fn_name = site:match("^([_%a][_%w]*)") or site
+            local a = first_anchor_kind_label(analysis, S.AnchorFunctionUse, fn_name)
+                   or first_anchor_kind_label(analysis, S.AnchorKeyword, fn_name)
+            if a then return a.range end
+        end
+
+        -- 4. Operator/punctuation sites
+        local op_sites = {
+            ["set"] = "=",
+            ["index"] = "[",
+        }
+        local op = op_sites[site]
+        if op then
+            local a = first_anchor_kind_label(analysis, S.AnchorOpaque("operator"), op)
+            if a then return a.range end
+        end
+
+        -- 5. Named ref sites (resolve via binding-use or function-use anchors)
+        if site:match("^[_%a][_%w]*$") then
+            local a = first_anchor_kind_label(analysis, S.AnchorBindingUse, site)
+                   or first_anchor_kind_label(analysis, S.AnchorFunctionUse, site)
+            if a then return a.range end
+        end
+
+        return nil
     end
 
     local function control_reject_issue(analysis, reject)
@@ -125,7 +194,7 @@ function M.Define(T)
         if cls == Tr.ControlRejectDuplicateLabel then
             return { kind = "ControlRejectDuplicateLabel", error_code = "E0406", label = reject.label, span = span_from_range(range_for_label(analysis, reject.label.name)) }
         end
-        return { kind = "TypeIssueInvalidControl", error_code = "E0405", reason = reject.reason or class_name(reject), span = span_from_range(full_range(analysis)) }
+        return { kind = "TypeIssueInvalidControl", error_code = "E0405", reason = reject.reason or class_name(reject), span = nil }
     end
 
     local function type_issue_for_report(issue, analysis, ordinal)
@@ -144,9 +213,9 @@ function M.Define(T)
         elseif cls == Tr.TypeIssueNotCallable then
             return { kind = "TypeIssueNotCallable", ty = issue.ty, span = span_from_range(site_range(analysis, "call")) }
         elseif cls == Tr.TypeIssueNotIndexable then
-            return { kind = "TypeIssueNotIndexable", ty = issue.ty, span = span_from_range(full_range(analysis)) }
+            return { kind = "TypeIssueNotIndexable", ty = issue.ty, span = span_from_range(site_range(analysis, "index")) }
         elseif cls == Tr.TypeIssueNotPointer then
-            return { kind = "TypeIssueNotPointer", ty = issue.ty, span = span_from_range(full_range(analysis)) }
+            return { kind = "TypeIssueNotPointer", ty = issue.ty, span = span_from_range(site_range(analysis, "set")) }
         elseif cls == Tr.TypeIssueInvalidUnary then
             return { kind = "TypeIssueInvalidUnary", op_kind = "unary", op = issue.op, ty = issue.ty, span = span_from_range(operator_range(analysis, issue.op, ordinal)) }
         elseif cls == Tr.TypeIssueInvalidBinary then
@@ -154,7 +223,7 @@ function M.Define(T)
         elseif cls == Tr.TypeIssueInvalidCompare then
             return { kind = "TypeIssueInvalidCompare", op_kind = "binary", op = issue.op, lhs = issue.lhs, rhs = issue.rhs, span = span_from_range(operator_range(analysis, issue.op, ordinal)) }
         elseif cls == Tr.TypeIssueInvalidLogic then
-            return { kind = "TypeIssueInvalidLogic", op_kind = "binary", op = issue.op, lhs = issue.lhs, rhs = issue.rhs, span = span_from_range(operator_range(analysis, "MoonCore.LogicAnd", ordinal)) }
+            return { kind = "TypeIssueInvalidLogic", op_kind = "binary", op = issue.op, lhs = issue.lhs, rhs = issue.rhs, span = span_from_range(operator_range(analysis, issue.op, ordinal)) }
         elseif cls == Tr.TypeIssueMissingJumpTarget then
             return { kind = "TypeIssueMissingJumpTarget", label = issue.label, span = span_from_range(range_for_label(analysis, issue.label.name)) }
         elseif cls == Tr.TypeIssueUnexpectedYield then
@@ -162,7 +231,7 @@ function M.Define(T)
         elseif cls == Tr.TypeIssueInvalidControl then
             return control_reject_issue(analysis, issue.reject)
         end
-        return { kind = class_name(issue), message = class_name(issue), span = span_from_range(full_range(analysis)) }
+        return { kind = class_name(issue), message = class_name(issue), span = nil }
     end
 
     local function host_issue_for_report(issue, analysis)
@@ -181,15 +250,15 @@ function M.Define(T)
         elseif cls == H.HostIssueInvalidName then
             return { kind = "HostIssueInvalidName", site = issue.site, name = issue.name, span = span_from_range(range_for_label(analysis, issue.name)) }
         elseif cls == H.HostIssueExpected then
-            return { kind = "HostIssueExpected", site = issue.site, expected = issue.expected, actual = issue.actual, span = span_from_range(full_range(analysis)) }
+            return { kind = "HostIssueExpected", site = issue.site, expected = issue.expected, actual = issue.actual, span = span_from_range(site_range(analysis, issue.site)) }
         elseif cls == H.HostIssueArgCount then
-            return { kind = "HostIssueArgCount", site = issue.site, expected = issue.expected, actual = issue.actual, span = span_from_range(full_range(analysis)) }
+            return { kind = "HostIssueArgCount", site = issue.site, expected = issue.expected, actual = issue.actual, span = span_from_range(site_range(analysis, issue.site)) }
         elseif cls == H.HostIssueUnknownBinding then
             return { kind = "HostIssueUnknownBinding", name = issue.name, span = span_from_range(range_for_label(analysis, issue.name)) }
         elseif cls == H.HostIssueInvalidEmitFill or cls == H.HostIssueMissingEmitFill then
-            return { kind = class_name(issue), fill_name = issue.fill_name, fragment_name = issue.fragment_name, span = span_from_range(full_range(analysis)) }
+            return { kind = class_name(issue), fill_name = issue.fill_name, fragment_name = issue.fragment_name, span = nil }
         end
-        return { kind = class_name(issue), message = class_name(issue), span = span_from_range(full_range(analysis)) }
+        return { kind = class_name(issue), message = class_name(issue), span = nil }
     end
 
     local function back_issue_for_report(issue, analysis)
@@ -198,11 +267,11 @@ function M.Define(T)
         local name = issue.func or issue.block or issue.value or issue.sig or issue.data or issue.extern or issue.slot
         local text = name and ((name.text) or tostring(name)) or k
         if k:match("Duplicate") then
-            return { kind = k, def_kind = "backend definition", name = text, span = span_from_range(full_range(analysis)) }
+            return { kind = k, def_kind = "backend definition", name = text, span = nil }
         elseif k:match("Missing") or k:match("Unfinished") then
-            return { kind = k, def_kind = "backend definition", name = text, span = span_from_range(full_range(analysis)) }
+            return { kind = k, def_kind = "backend definition", name = text, span = nil }
         end
-        return { kind = k, violation = k, span = span_from_range(full_range(analysis)) }
+        return { kind = k, violation = k, span = nil }
     end
 
     local function reports(analysis)

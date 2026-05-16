@@ -1,0 +1,33 @@
+local T = require("moonlift.mom.back.back_tags")
+local M = moon.module("mom_layout_resolve")
+
+-- Resolve a field access on a struct/union type.
+-- Takes the type index and field name token, looks up the field in the item arena.
+-- Returns the field's type index from the field_type array.
+local mt_resolve_field = func(type_idx: i32, field_name: i32,
+                               item_tag: ptr(i32), item_name: ptr(i32),
+                               item_member_start: ptr(i32), item_member_count: ptr(i32),
+                               field_name_arr: ptr(i32), field_type_arr: ptr(i32),
+                               ni: i32) -> i32
+    block fi(ij: index = as(index, 0))
+        if ij >= as(index, ni) then return -1 end
+        let itg: i32 = item_tag[ij]
+        if (itg == @{T.IT_STRUCT} or itg == @{T.IT_UNION}) then
+            let mstart: i32 = item_member_start[ij]
+            let mcount: i32 = item_member_count[ij]
+            block mj(mi: index = as(index, mstart))
+                if mi >= as(index, mstart) + as(index, mcount) then yield end
+                if field_name_arr[mi] == field_name then
+                    return field_type_arr[mi]
+                end
+                jump mj(mi = mi + as(index, 1))
+            end
+        end
+        jump fi(ij = ij + as(index, 1))
+    end
+    return -1
+end
+
+M:add_func(mt_resolve_field)
+
+return M
