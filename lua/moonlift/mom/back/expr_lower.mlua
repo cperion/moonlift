@@ -23,6 +23,15 @@ local M = moon.module("mom_back_expr_lower")
 
 local i32p = moon.ptr(moon.i32)
 
+-- LowerState struct definition (must match builders.mlua)
+local LowerState = M:struct("LowerState", {
+    moon.field("cmds", moon.ptr(i32p)),
+    moon.field("cmd_count", moon.index),
+    moon.field("cmd_cap", moon.index),
+    moon.field("next_value", moon.i32),
+    moon.field("next_block", moon.i32),
+})
+
 -- Command buffer stride (tag + w0..w16 = 18 words per entry).
 local CMD_STRIDE = 18
 
@@ -33,15 +42,14 @@ local CMD_STRIDE = 18
 -- motion: 0=volatile, 1=nonvolatile.
 
 -- ── Cmd buffer push ──────────────────────────────────────────────────
--- st layout: st[0]=cmd_count, st[1]=next_value, st[2]=cap
+-- st: LowerState struct with cmd_count, cmd_cap, cmds buffer, next_value/block.
 -- Zeros all 17 data slots after the 6 explicitly provided, ensuring
 -- no stale data leaks between entries.
 
 local mb_push_cmd = func(cmd_tag: i32, w0: i32, w1: i32, w2: i32, w3: i32, w4: i32, w5: i32,
-                           st: ptr(i32), cmds: ptr(i32))
-    let i: index = as(index, st[0])
-    let cap: i32 = st[2]
-    if i < as(index, cap) then
+                           st: ptr(@{LowerState}), cmds: ptr(i32))
+    let i: index = st.cmd_count
+    if i < st.cmd_cap then
         let base: index = i * as(index, @{CMD_STRIDE})
         cmds[base] = cmd_tag
         cmds[base + as(index, 1)] = w0
@@ -61,16 +69,15 @@ local mb_push_cmd = func(cmd_tag: i32, w0: i32, w1: i32, w2: i32, w3: i32, w4: i
         cmds[base + as(index, 15)] = 0
         cmds[base + as(index, 16)] = 0
     end
-    st[0] = st[0] + 1
+    st.cmd_count = i + as(index, 1)
 end
 
 -- Push a wide Cmd entry with 10 data words (tag + w0..w9, zeros w10..w16).
 local mb_push_cmd_w10 = func(cmd_tag: i32, w0: i32, w1: i32, w2: i32, w3: i32, w4: i32,
                                w5: i32, w6: i32, w7: i32, w8: i32, w9: i32,
-                               st: ptr(i32), cmds: ptr(i32))
-    let i: index = as(index, st[0])
-    let cap: i32 = st[2]
-    if i < as(index, cap) then
+                               st: ptr(@{LowerState}), cmds: ptr(i32))
+    let i: index = st.cmd_count
+    if i < st.cmd_cap then
         let base: index = i * as(index, @{CMD_STRIDE})
         cmds[base] = cmd_tag
         cmds[base + as(index, 1)] = w0
@@ -90,17 +97,16 @@ local mb_push_cmd_w10 = func(cmd_tag: i32, w0: i32, w1: i32, w2: i32, w3: i32, w
         cmds[base + as(index, 15)] = 0
         cmds[base + as(index, 16)] = 0
     end
-    st[0] = st[0] + 1
+    st.cmd_count = i + as(index, 1)
 end
 
 -- Push a wide Cmd entry with 15 data words (tag + w0..w14, zero w15..w16).
 local mb_push_cmd_w15 = func(cmd_tag: i32, w0: i32, w1: i32, w2: i32, w3: i32, w4: i32,
                                w5: i32, w6: i32, w7: i32, w8: i32, w9: i32,
                                w10: i32, w11: i32, w12: i32, w13: i32, w14: i32,
-                               st: ptr(i32), cmds: ptr(i32))
-    let i: index = as(index, st[0])
-    let cap: i32 = st[2]
-    if i < as(index, cap) then
+                               st: ptr(@{LowerState}), cmds: ptr(i32))
+    let i: index = st.cmd_count
+    if i < st.cmd_cap then
         let base: index = i * as(index, @{CMD_STRIDE})
         cmds[base] = cmd_tag
         cmds[base + as(index, 1)] = w0
@@ -120,13 +126,13 @@ local mb_push_cmd_w15 = func(cmd_tag: i32, w0: i32, w1: i32, w2: i32, w3: i32, w
         cmds[base + as(index, 15)] = w14
         cmds[base + as(index, 16)] = 0
     end
-    st[0] = st[0] + 1
+    st.cmd_count = i + as(index, 1)
 end
 
 -- Fresh value ID.
-local mb_fresh_val = func(st: ptr(i32)) -> i32
-    st[1] = st[1] + 1
-    return st[1]
+local mb_fresh_val = func(st: ptr(@{LowerState})) -> i32
+    st.next_value = st.next_value + 1
+    return st.next_value
 end
 
 -- ── Type-scalar helpers ──────────────────────────────────────────────
@@ -245,7 +251,7 @@ end
 -- ── Expression lowerers ──────────────────────────────────────────────
 
 -- Lower a literal expression: emit CmdConst.
-local mb_lower_lit = func(tok_kind: i32, st: ptr(i32), cmds: ptr(i32)) -> i32
+local mb_lower_lit = func(tok_kind: i32, st: ptr(@{LowerState}), cmds: ptr(i32)) -> i32
     let dst: i32 = mb_fresh_val(st)
     let scalar: i32 = select(tok_kind == @{T.TK_TRUE} or tok_kind == @{T.TK_FALSE}, @{T.BackBool},
                        select(tok_kind == @{T.TK_FLOAT}, @{T.BackF64},
@@ -257,13 +263,13 @@ end
 -- Lower a ref expression: emit CmdTrap — env lookup not yet wired.
 -- This is a documented implementation gap: value references require phase 9
 -- type env to resolve names to value IDs.
-local mb_lower_ref = func(st: ptr(i32), cmds: ptr(i32)) -> i32
+local mb_lower_ref = func(st: ptr(@{LowerState}), cmds: ptr(i32)) -> i32
     mb_push_cmd(@{T.CmdTrap}, 0, 0, 0, 0, 0, 0, st, cmds)
     return mb_fresh_val(st)
 end
 
 -- Lower a unary expression.
-local mb_lower_unary_expr = func(expr_op: i32, scalar: i32, child_val: i32, st: ptr(i32), cmds: ptr(i32)) -> i32
+local mb_lower_unary_expr = func(expr_op: i32, scalar: i32, child_val: i32, st: ptr(@{LowerState}), cmds: ptr(i32)) -> i32
     let dst: i32 = mb_fresh_val(st)
     let unary_op: i32 = mb_token_to_unary_op(expr_op)
     let back_op: i32 = select(unary_op == @{T.UnaryNeg},
@@ -276,7 +282,7 @@ end
 
 -- Lower a binary expression: dispatch on operator and scalar kind to
 -- produce the correct Cmd variant (IntBinary, FloatBinary, BitBinary, Shift).
-local mb_lower_binary_expr = func(expr_op: i32, scalar: i32, left_val: i32, right_val: i32, st: ptr(i32), cmds: ptr(i32)) -> i32
+local mb_lower_binary_expr = func(expr_op: i32, scalar: i32, left_val: i32, right_val: i32, st: ptr(@{LowerState}), cmds: ptr(i32)) -> i32
     let dst: i32 = mb_fresh_val(st)
     let is_float: bool = mb_is_float(scalar)
     if expr_op == @{T.TK_PLUS} then
@@ -325,7 +331,7 @@ end
 
 -- Lower a compare expression: dispatch on operator and signedness to
 -- produce the correct BackCompareOp with CmdCompare.
-local mb_lower_compare_expr = func(cmp_tok: i32, scalar: i32, lhs_val: i32, rhs_val: i32, st: ptr(i32), cmds: ptr(i32)) -> i32
+local mb_lower_compare_expr = func(cmp_tok: i32, scalar: i32, lhs_val: i32, rhs_val: i32, st: ptr(@{LowerState}), cmds: ptr(i32)) -> i32
     let dst: i32 = mb_fresh_val(st)
     let is_float: bool = mb_is_float(scalar)
     let is_signed: bool = mb_is_signed(scalar)
@@ -364,7 +370,7 @@ local mb_lower_compare_expr = func(cmp_tok: i32, scalar: i32, lhs_val: i32, rhs_
 end
 
 -- Lower a select expression: CmdSelect.
-local mb_lower_select_expr = func(scalar: i32, cond_val: i32, then_val: i32, else_val: i32, st: ptr(i32), cmds: ptr(i32)) -> i32
+local mb_lower_select_expr = func(scalar: i32, cond_val: i32, then_val: i32, else_val: i32, st: ptr(@{LowerState}), cmds: ptr(i32)) -> i32
     let dst: i32 = mb_fresh_val(st)
     mb_push_cmd(@{T.CmdSelect}, dst, 1, cond_val, then_val, else_val, 0, st, cmds)
     return dst
@@ -373,7 +379,7 @@ end
 -- Lower a logic expression (and/or): emit CmdSelect for short-circuit.
 -- x and y => select(x, y, false_const)
 -- x or y  => select(x, true_const, y)
-local mb_lower_logic_expr = func(op_tok: i32, scalar: i32, left_val: i32, right_val: i32, st: ptr(i32), cmds: ptr(i32)) -> i32
+local mb_lower_logic_expr = func(op_tok: i32, scalar: i32, left_val: i32, right_val: i32, st: ptr(@{LowerState}), cmds: ptr(i32)) -> i32
     let dst: i32 = mb_fresh_val(st)
     if op_tok == @{T.TK_AND} then
         let false_val: i32 = mb_fresh_val(st)
@@ -393,7 +399,7 @@ end
 -- expr_a = cast_op (SurfaceCastOp tag), expr_b = child_idx.
 -- src_scalar: the BackScalar type of the source expression.
 -- scalar (dst_scalar): the BackScalar type of the destination.
-local mb_lower_cast_expr = func(cast_op: i32, src_scalar: i32, dst_scalar: i32, child_val: i32, st: ptr(i32), cmds: ptr(i32)) -> i32
+local mb_lower_cast_expr = func(cast_op: i32, src_scalar: i32, dst_scalar: i32, child_val: i32, st: ptr(@{LowerState}), cmds: ptr(i32)) -> i32
     let dst: i32 = mb_fresh_val(st)
     let back_op: i32 = mb_lower_surface_cast(cast_op, src_scalar, dst_scalar)
     mb_push_cmd(@{T.CmdCast}, dst, back_op, dst_scalar, child_val, 0, 0, st, cmds)
@@ -405,7 +411,7 @@ end
 -- Argument lowering requires the expression list tape (elist stores child
 -- value IDs sequentially). The wire format packs arguments as an aux
 -- array; this implementation stores the callee value and arg count.
-local mb_lower_call_expr = func(func_val: i32, scalar: i32, st: ptr(i32), cmds: ptr(i32)) -> i32
+local mb_lower_call_expr = func(func_val: i32, scalar: i32, st: ptr(@{LowerState}), cmds: ptr(i32)) -> i32
     let dst: i32 = mb_fresh_val(st)
     -- CmdCall: dst, func, shape_tag, scalar, args_aux, args_count
     mb_push_cmd_w10(@{T.CmdCall}, dst, func_val, @{T.BackShapeScalar}, scalar, 0, 0, 0, 0, 0, 0, st, cmds)
@@ -416,7 +422,7 @@ end
 -- expr_a = base value, expr_b = field token.
 -- Field offset requires layout resolve (Phase 9c). The byte_offset is set
 -- to 0 pending layout information.
-local mb_lower_dot_expr = func(scalar: i32, base_val: i32, st: ptr(i32), cmds: ptr(i32)) -> i32
+local mb_lower_dot_expr = func(scalar: i32, base_val: i32, st: ptr(@{LowerState}), cmds: ptr(i32)) -> i32
     let dst: i32 = mb_fresh_val(st)
     -- CmdLoadInfo: dst, shape_tag, scalar, lanes, base_tag, base_id, byte_offset,
     --              access, align_k, align_b, deref_k, deref_b, trap_k, motion_k, mode_k
@@ -427,7 +433,7 @@ end
 -- Lower an index expression (array element access): emit CmdPtrOffset then CmdLoadInfo.
 -- expr_a = base value, expr_b = index value.
 -- Element size requires layout resolve (Phase 9c); defaults to 4 (sizeof(i32)).
-local mb_lower_index_expr = func(scalar: i32, base_val: i32, index_val: i32, st: ptr(i32), cmds: ptr(i32)) -> i32
+local mb_lower_index_expr = func(scalar: i32, base_val: i32, index_val: i32, st: ptr(@{LowerState}), cmds: ptr(i32)) -> i32
     let dst: i32 = mb_fresh_val(st)
     -- Emit CmdPtrOffset to compute element address: dst, base_tag, base_id, index, elem_size, offset_lo, offset_hi
     let addr: i32 = mb_fresh_val(st)
@@ -438,7 +444,7 @@ local mb_lower_index_expr = func(scalar: i32, base_val: i32, index_val: i32, st:
 end
 
 -- Lower a deref expression (*p): emit CmdLoadInfo with the pointer as base.
-local mb_lower_deref_expr = func(scalar: i32, child_val: i32, st: ptr(i32), cmds: ptr(i32)) -> i32
+local mb_lower_deref_expr = func(scalar: i32, child_val: i32, st: ptr(@{LowerState}), cmds: ptr(i32)) -> i32
     let dst: i32 = mb_fresh_val(st)
     mb_push_cmd_w15(@{T.CmdLoadInfo}, dst, @{T.BackShapeScalar}, scalar, 1, 0, child_val, 0, 0, 1, 4, 0, 4, 0, 0, 1, st, cmds)
     return dst
@@ -448,7 +454,7 @@ end
 -- Design note: should emit CmdStackAddr for stack values or CmdAlias for
 -- SSA values with known address. Since env lookup is not yet wired,
 -- CmdAlias is the correct lowering for known value aliases.
-local mb_lower_addr_expr = func(scalar: i32, child_val: i32, st: ptr(i32), cmds: ptr(i32)) -> i32
+local mb_lower_addr_expr = func(scalar: i32, child_val: i32, st: ptr(@{LowerState}), cmds: ptr(i32)) -> i32
     let dst: i32 = mb_fresh_val(st)
     mb_push_cmd(@{T.CmdAlias}, dst, child_val, 0, 0, 0, 0, st, cmds)
     return dst
@@ -457,7 +463,7 @@ end
 -- Lower a length expression (#x): read the len field from a view descriptor.
 -- Implementation gap: view descriptor fields are not yet available through
 -- the expression tape. Emit CmdTrap until view construction is wired.
-local mb_lower_len_expr = func(st: ptr(i32), cmds: ptr(i32)) -> i32
+local mb_lower_len_expr = func(st: ptr(@{LowerState}), cmds: ptr(i32)) -> i32
     mb_push_cmd(@{T.CmdTrap}, 0, 0, 0, 0, 0, 0, st, cmds)
     return mb_fresh_val(st)
 end
@@ -465,7 +471,7 @@ end
 -- Lower a view expression: construct a (data, len, stride) descriptor.
 -- Implementation gap: view fields are not yet available through the
 -- expression tape. Emit CmdTrap until view construction is wired.
-local mb_lower_view_expr = func(st: ptr(i32), cmds: ptr(i32)) -> i32
+local mb_lower_view_expr = func(st: ptr(@{LowerState}), cmds: ptr(i32)) -> i32
     mb_push_cmd(@{T.CmdTrap}, 0, 0, 0, 0, 0, 0, st, cmds)
     return mb_fresh_val(st)
 end
@@ -473,7 +479,7 @@ end
 -- Lower an if-expression: emit CmdSelect for scalar values.
 -- expr_a = cond, expr_b = then_expr, expr_c = else_expr.
 local mb_lower_if_expr = func(expr_tag: ptr(i32), expr_a: ptr(i32), expr_b: ptr(i32), expr_c: ptr(i32), expr_d: ptr(i32),
-                               idx: i32, e_scalar: ptr(i32), st: ptr(i32), cmds: ptr(i32)) -> i32
+                               idx: i32, e_scalar: ptr(i32), st: ptr(@{LowerState}), cmds: ptr(i32)) -> i32
     let cond_val: i32 = mb_lower_expr(expr_tag, expr_a, expr_b, expr_c, expr_d, expr_a[idx], e_scalar, st, cmds)
     let then_val: i32 = mb_lower_expr(expr_tag, expr_a, expr_b, expr_c, expr_d, expr_b[idx], e_scalar, st, cmds)
     let else_val: i32 = mb_lower_expr(expr_tag, expr_a, expr_b, expr_c, expr_d, expr_c[idx], e_scalar, st, cmds)
@@ -481,7 +487,7 @@ local mb_lower_if_expr = func(expr_tag: ptr(i32), expr_a: ptr(i32), expr_b: ptr(
 end
 
 -- Lower a hole expression (open splice): emit CmdTrap.
-local mb_lower_hole_expr = func(st: ptr(i32), cmds: ptr(i32)) -> i32
+local mb_lower_hole_expr = func(st: ptr(@{LowerState}), cmds: ptr(i32)) -> i32
     mb_push_cmd(@{T.CmdTrap}, 0, 0, 0, 0, 0, 0, st, cmds)
     return mb_fresh_val(st)
 end
@@ -490,14 +496,14 @@ end
 -- which needs the statement-level block allocator. The switch expression
 -- lowering will be fully implemented when Phase 8 (control lowering) is
 -- complete. Emit CmdTrap as placeholder.
-local mb_lower_switch_expr = func(scalar: i32, value_idx: i32, st: ptr(i32), cmds: ptr(i32)) -> i32
+local mb_lower_switch_expr = func(scalar: i32, value_idx: i32, st: ptr(@{LowerState}), cmds: ptr(i32)) -> i32
     mb_push_cmd(@{T.CmdTrap}, 0, 0, 0, 0, 0, 0, st, cmds)
     return mb_fresh_val(st)
 end
 
 -- Lower a control region expression: Phase 8 (control lowering) produces
 -- the CFG, not the expression lowerer. Emit CmdTrap as placeholder.
-local mb_lower_control_expr = func(scalar: i32, st: ptr(i32), cmds: ptr(i32)) -> i32
+local mb_lower_control_expr = func(scalar: i32, st: ptr(@{LowerState}), cmds: ptr(i32)) -> i32
     mb_push_cmd(@{T.CmdTrap}, 0, 0, 0, 0, 0, 0, st, cmds)
     return mb_fresh_val(st)
 end
@@ -507,7 +513,7 @@ end
 -- Lower an expression from the expression tape. Dispatches on tag.
 -- e_scalar provides the BackScalar type tag for each expression node.
 local mb_lower_expr = func(expr_tag: ptr(i32), expr_a: ptr(i32), expr_b: ptr(i32), expr_c: ptr(i32), expr_d: ptr(i32),
-                           idx: i32, e_scalar: ptr(i32), st: ptr(i32), cmds: ptr(i32)) -> i32
+                           idx: i32, e_scalar: ptr(i32), st: ptr(@{LowerState}), cmds: ptr(i32)) -> i32
     let tag: i32 = expr_tag[idx]
     let scalar: i32 = e_scalar[idx]
     if tag == @{T.EX_LIT} then

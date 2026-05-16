@@ -41,6 +41,8 @@ local cmd_buffer_p = moon.ptr(MomCmdBuffer)
 
 local LowerState = M:struct("LowerState", {
     moon.field("cmds", cmd_buffer_p),
+    moon.field("cmd_count", moon.index),
+    moon.field("cmd_cap", moon.index),
     moon.field("next_value", moon.i32),
     moon.field("next_block", moon.i32),
 })
