@@ -1,0 +1,229 @@
+-- MOM function lowering (port_map section 13 lines 879-913).
+
+local T = require("moonlift.mom.tags.mom_tags")
+
+return function(M)
+local i32p = moon.ptr(moon.i32)
+
+local MomBackLowerCtx = M.MomBackLowerCtx
+local mb_ctx_fresh_value = M.mb_ctx_fresh_value
+local mb_ctx_fresh_block = M.mb_ctx_fresh_block
+local mb_ctx_fresh_data = M.mb_ctx_fresh_data
+local mb_ctx_push_aux_i32 = M.mb_ctx_push_aux_i32
+
+local mb_env_bind_scalar = M.mb_env_bind_scalar
+local mb_env_bind_strided_view = M.mb_env_bind_view
+local mb_lower_stmt_list = M.mb_lower_stmt_list
+
+local mb_emit_create_sig = M.mb_emit_create_sig
+local mb_emit_declare_func = M.mb_emit_declare_func
+local mb_emit_declare_extern = M.mb_emit_declare_extern
+local mb_emit_begin_func = M.mb_emit_begin_func
+local mb_emit_finish_func = M.mb_emit_finish_func
+local mb_emit_return_void = M.mb_emit_return_void
+local mb_emit_return_value = M.mb_emit_return_value
+local mb_emit_declare_data = M.mb_emit_declare_data
+local mb_emit_data_init = M.mb_emit_data_init
+
+local mb_core_scalar_to_back = M.mb_core_scalar_to_back
+local mb_type_to_back_scalar = M.mb_type_to_back_scalar
+local mb_scalar_size_align = M.mb_scalar_size_align
+
+-- Forward‑declare lowering regions for each item kind.
+local mb_lower_func
+local mb_lower_extern
+local mb_lower_data_init
+
+-- ── Helper: push param scalars for a set of parameters ───────────────
+local push_param_scalars = func(ctx: ptr(@{MomBackLowerCtx}), start: index, count: index) -> i32
+    let aux_start: i32 = as(i32, ctx.aux_i32.len)
+    block loop(i: index = 0)
+        if i >= count then return aux_start end
+        let ty_idx: i32 = ctx.tree.param_type[start + i]
+        let ty_tag: i32 = ctx.tree.type_tag[ty_idx]
+        let scalar_sub: i32 = ctx.tree.type_scalar[ty_idx]
+        let bs: i32 = mb_type_to_back_scalar(ty_tag, scalar_sub)
+        mb_ctx_push_aux_i32(ctx, bs)
+        jump loop(i = i + as(index, 1))
+    end
+end
+
+-- ── Helper: push a single result scalar ──────────────────────────────
+local push_result_scalar = func(ctx: ptr(@{MomBackLowerCtx}), result_type_idx: i32) -> i32
+    if result_type_idx < 0 then
+        mb_ctx_push_aux_i32(ctx, @{T.BackVoid})
+        return as(i32, ctx.aux_i32.len) - as(i32, 1)
+    end
+    let ty_tag: i32 = ctx.tree.type_tag[result_type_idx]
+    let scalar_sub: i32 = ctx.tree.type_scalar[result_type_idx]
+    let bs: i32 = mb_type_to_back_scalar(ty_tag, scalar_sub)
+    let aux_start: i32 = as(i32, ctx.aux_i32.len)
+    mb_ctx_push_aux_i32(ctx, bs)
+    return aux_start
+end
+
+-- ── mb_lower_func ───────────────────────────────────────────────────
+-- Lowers a function item (IT_FUNC).
+local mb_lower_func = region(ctx: ptr(@{MomBackLowerCtx}), item_idx: i32;
+                             done: cont(status: i32))
+entry start()
+    let tree: ptr = ctx.tree
+    let fi: index = as(index, item_idx)
+    let func_name_tok: i32 = tree.item_name[fi]
+    let param_start: index = as(index, tree.item_member_start[fi])
+    let param_count: index = as(index, tree.item_member_count[fi])
+    let result_type_idx: i32 = tree.item_result[fi]
+    let body_start: index = as(index, tree.item_body_start[fi])
+    let body_count: index = as(index, tree.item_body_count[fi])
+
+    -- 1. Compute param scalars and result scalar, push to aux_i32.
+    let params_aux: i32 = push_param_scalars(ctx, param_start, param_count)
+    let n_params: i32 = as(i32, param_count)
+    let result_aux: i32 = push_result_scalar(ctx, result_type_idx)
+    let n_results: i32 = select(result_type_idx < 0, 0, 1)
+
+    -- 2. Create signature and declare function.
+    let sig_id: i32 = mb_ctx_fresh_value(ctx)
+    mb_emit_create_sig(ctx, sig_id, params_aux, n_params, result_aux, n_results)
+
+    let func_id: i32 = mb_ctx_fresh_value(ctx)
+    mb_emit_declare_func(ctx, 0, func_id, sig_id)
+
+    -- 3. Begin function.
+    mb_emit_begin_func(ctx, func_id)
+
+    -- 4. Bind parameters to environment.
+    block bind(i: index = 0)
+        if i >= param_count then yield end
+        let name_tok: i32 = tree.param_name[param_start + i]
+        let ty_idx: i32 = tree.param_type[param_start + i]
+        let ty_tag: i32 = tree.type_tag[ty_idx]
+        let scalar_sub: i32 = tree.type_scalar[ty_idx]
+        let bs: i32 = mb_type_to_back_scalar(ty_tag, scalar_sub)
+
+        -- Only scalar parameters for now (ABI param scalar).
+        if bs != 0 then
+            let val: i32 = mb_ctx_fresh_value(ctx)
+            mb_env_bind_scalar(ctx.env, name_tok, bs, val)
+        end
+        jump bind(i = i + as(index, 1))
+    end
+
+    -- 5. Lower the function body.
+    local flow: i32; local body_ok: bool
+    emit mb_lower_stmt_list(ctx, body_start, body_count, flow, body_ok)
+    if body_ok == false then
+        jump done(status = -1)
+    end
+
+    -- 6. If the body did not terminate, emit return void (for void functions)
+    --    or report unsupported (for non‑void functions).
+    if flow != @{T.BackTerminates} then
+        if n_results == 0 then
+            mb_emit_return_void(ctx)
+        else
+            -- Falling off a non‑void function is unsupported.
+            jump done(status = -2)
+        end
+    end
+
+    -- 7. Finish the function.
+    mb_emit_finish_func(ctx, func_id)
+    jump done(status = 0)
+end
+end
+
+-- ── mb_lower_extern ────────────────────────────────────────────────
+local mb_lower_extern = region(ctx: ptr(@{MomBackLowerCtx}), item_idx: i32;
+                               done: cont(status: i32))
+entry start()
+    let tree: ptr = ctx.tree
+    let fi: index = as(index, item_idx)
+    let param_start: index = as(index, tree.item_member_start[fi])
+    let param_count: index = as(index, tree.item_member_count[fi])
+    let result_type_idx: i32 = tree.item_result[fi]
+    let body_start: index = as(index, tree.item_body_start[fi])
+    let body_count: index = as(index, tree.item_body_count[fi])
+
+    let params_aux: i32 = push_param_scalars(ctx, param_start, param_count)
+    let n_params: i32 = as(i32, param_count)
+    let result_aux: i32 = push_result_scalar(ctx, result_type_idx)
+    let n_results: i32 = select(result_type_idx < 0, 0, 1)
+
+    let sig_id: i32 = mb_ctx_fresh_value(ctx)
+    mb_emit_create_sig(ctx, sig_id, params_aux, n_params, result_aux, n_results)
+
+    let extern_id: i32 = mb_ctx_fresh_value(ctx)
+    let symbol_tok: i32 = tree.item_name[fi]
+    mb_emit_declare_extern(ctx, extern_id, symbol_tok, sig_id)
+
+    -- Optional body lowering (same as function).
+    if body_count > 0 then
+        let func_id: i32 = mb_ctx_fresh_value(ctx)
+        mb_emit_begin_func(ctx, func_id)
+
+        block bind(i: index = 0)
+            if i >= param_count then yield end
+            let name_tok: i32 = tree.param_name[param_start + i]
+            let ty_idx: i32 = tree.param_type[param_start + i]
+            let ty_tag: i32 = tree.type_tag[ty_idx]
+            let scalar_sub: i32 = tree.type_scalar[ty_idx]
+            let bs: i32 = mb_type_to_back_scalar(ty_tag, scalar_sub)
+            if bs != 0 then
+                let val: i32 = mb_ctx_fresh_value(ctx)
+                mb_env_bind_scalar(ctx.env, name_tok, bs, val)
+            end
+            jump bind(i = i + as(index, 1))
+        end
+
+        local flow: i32; local body_ok: bool
+        emit mb_lower_stmt_list(ctx, body_start, body_count, flow, body_ok)
+        if body_ok == false then
+            jump done(status = -1)
+        end
+        if flow != @{T.BackTerminates} then
+            if n_results == 0 then
+                mb_emit_return_void(ctx)
+            else
+                jump done(status = -2)
+            end
+        end
+        mb_emit_finish_func(ctx, func_id)
+    end
+    jump done(status = 0)
+end
+end
+
+-- ── mb_lower_data_init ─────────────────────────────────────────────
+local mb_lower_data_init = region(ctx: ptr(@{MomBackLowerCtx}), item_idx: i32;
+                                  done: cont(status: i32))
+entry start()
+    let tree: ptr = ctx.tree
+    let fi: index = as(index, item_idx)
+    let ty_idx: i32 = tree.item_result[fi]
+    let ty_tag: i32 = tree.type_tag[ty_idx]
+    let scalar_sub: i32 = tree.type_scalar[ty_idx]
+    let bs: i32 = mb_type_to_back_scalar(ty_tag, scalar_sub)
+    if bs == 0 then
+        jump done(status = -3)
+    end
+
+    let size: i32; let align: i32
+    mb_scalar_size_align(bs, size, align)
+    let data_id: i32 = mb_ctx_fresh_data(ctx)
+    mb_emit_declare_data(ctx, data_id, size, align)
+
+    -- Initialise with zero (simplified). For a proper lowering we would
+    -- evaluate the tree.item_body start as a constant expression.
+    mb_emit_data_init(ctx, data_id, 0, bs, 0, 0, 0)
+    jump done(status = 0)
+end
+end
+
+-- ── Exports ────────────────────────────────────────────────────────
+M.mb_lower_func = mb_lower_func
+M.mb_lower_extern = mb_lower_extern
+M.mb_lower_data_init = mb_lower_data_init
+
+return M
+end

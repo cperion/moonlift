@@ -1,120 +1,16 @@
--- MOM full-module compiler driver.
+-- MOM full-module compiler driver (orchestration only).
 --
 -- Orchestrates: materialized AST + typecheck output → lower → validate → wire → backend.
--- This module provides the post-typecheck stages.
+-- This module now delegates to back/func.mlua and back/module.mlua.
+-- LowerState has been replaced by MomBackLowerCtx.
 
 local T = require("moonlift.mom.tags.mom_tags")
 return function(M)
-local LowerState = M.LowerState
+local MomBackLowerCtx = M.MomBackLowerCtx
 local MomWireBuilder = M.MomWireBuilder
 
--- Bridge MomTreeOut expr arrays to lowerer-compatible format.
-local mc_bridge_expr_arrays = func(
-    expr_tag: ptr(i32), expr_op: ptr(i32), expr_tok: ptr(i32),
-    expr_lhs: ptr(i32), expr_rhs: ptr(i32), expr_aux0: ptr(i32),
-    ne: index,
-    out_a: ptr(i32), out_b: ptr(i32), out_c: ptr(i32), out_d: ptr(i32))
-    block loop(i: index = 0)
-        if i >= ne then return end
-        let tag: i32 = expr_tag[i]
-        if tag == @{T.ME_LIT} then
-            out_a[i] = expr_op[i]
-            out_b[i] = 0; out_c[i] = 0
-            out_d[i] = expr_aux0[i]
-        elseif tag == @{T.ME_REF} or tag == @{T.ME_HOLE} then
-            out_a[i] = expr_tok[i]
-            out_b[i] = 0; out_c[i] = 0
-            out_d[i] = expr_aux0[i]
-        elseif tag == @{T.ME_CAST} then
-            out_a[i] = @{T.SC_SURFACE_CAST}
-            out_b[i] = expr_lhs[i]
-            out_c[i] = expr_rhs[i]
-            out_d[i] = expr_aux0[i]
-        else
-            out_a[i] = expr_op[i]
-            out_b[i] = expr_lhs[i]
-            out_c[i] = expr_rhs[i]
-            out_d[i] = expr_aux0[i]
-        end
-        jump loop(i = i + 1)
-    end
-end
-
--- Bridge MomTreeOut stmt fields to lowerer stmt format.
-local mc_bridge_stmt_arrays = func(
-    stmt_tag: ptr(i32), stmt_tok: ptr(i32), stmt_name: ptr(i32),
-    stmt_type: ptr(i32), stmt_value: ptr(i32),
-    stmt_body_start: ptr(i32), stmt_body_count: ptr(i32), stmt_aux: ptr(i32),
-    ns: index,
-    out_tok: ptr(i32), out_a: ptr(i32), out_b: ptr(i32),
-    out_c: ptr(i32), out_d: ptr(i32), out_e: ptr(i32))
-    block loop(i: index = 0)
-        if i >= ns then return end
-        out_tok[i] = stmt_tok[i]
-        out_a[i] = stmt_name[i]
-        out_b[i] = stmt_type[i]
-        out_c[i] = stmt_value[i]
-        out_d[i] = stmt_body_start[i]
-        out_e[i] = stmt_body_count[i]
-        jump loop(i = i + 1)
-    end
-end
-
--- Lower a module: walk all expressions then all statements, produce cmd tape.
--- ls must have cmd_cap set; cmds must have capacity for cmd_cap * 18 int32_ts.
-local mc_lower_module_region = region(
-    expr_tag: ptr(i32), expr_a: ptr(i32), expr_b: ptr(i32),
-    expr_c: ptr(i32), expr_d: ptr(i32),
-    ne: index,
-    stmt_tag: ptr(i32), stmt_tok: ptr(i32),
-    stmt_a: ptr(i32), stmt_b: ptr(i32), stmt_c: ptr(i32),
-    stmt_d: ptr(i32), stmt_e: ptr(i32),
-    ns: index,
-    slist: ptr(i32),
-    e_scalar: ptr(i32),
-    env_name: ptr(i32), env_val: ptr(i32), env_len: index, env_cap: index,
-    ls: ptr(@{LowerState}), cmds: ptr(i32);
-    done: cont())
-entry expr_loop(i: index = as(index, 0))
-    if i >= ne then jump stmt_loop(i = as(index, 0), env_cur = env_len) end
-    mb_stmt_lower_expr(expr_tag, expr_a, expr_b, expr_c, expr_d,
-                       as(i32, i), env_name, env_val, env_len, ls, cmds)
-    jump expr_loop(i = i + as(index, 1))
-end
-block stmt_loop(i: index, env_cur: index)
-    if i >= ns then jump done() end
-    let sidx: i32 = slist[i]
-    let next_env: index = mb_lower_stmt(expr_tag, expr_a, expr_b, expr_c, expr_d,
-                                        stmt_tag, stmt_tok, stmt_a, stmt_b, stmt_c, stmt_d, stmt_e,
-                                        slist, sidx, env_name, env_val, env_cur, ls, cmds)
-    jump stmt_loop(i = i + as(index, 1), env_cur = next_env)
-end
-end
-
-local mc_lower_module = func(
-    expr_tag: ptr(i32), expr_a: ptr(i32), expr_b: ptr(i32),
-    expr_c: ptr(i32), expr_d: ptr(i32),
-    ne: index,
-    stmt_tag: ptr(i32), stmt_tok: ptr(i32),
-    stmt_a: ptr(i32), stmt_b: ptr(i32), stmt_c: ptr(i32),
-    stmt_d: ptr(i32), stmt_e: ptr(i32),
-    ns: index,
-    slist: ptr(i32),
-    e_scalar: ptr(i32),
-    env_name: ptr(i32), env_val: ptr(i32), env_len: index, env_cap: index,
-    ls: ptr(@{LowerState}), cmds: ptr(i32))
-    let lowered: i32 = region -> i32
-    entry start()
-        emit mc_lower_module_region(expr_tag, expr_a, expr_b, expr_c, expr_d, ne,
-                                    stmt_tag, stmt_tok, stmt_a, stmt_b, stmt_c, stmt_d, stmt_e,
-                                    ns, slist, e_scalar, env_name, env_val, env_len, env_cap,
-                                    ls, cmds; done = finished)
-    end
-    block finished()
-        yield 0
-    end
-    end
-end
+local mb_collect_module_context = M.mb_collect_module_context
+local mb_lower_module = M.mb_lower_module
 
 -- Validate a command tape. Returns 0 on success, issue count on failure.
 local mc_validate_tape = func(
@@ -143,9 +39,22 @@ local mc_wire_tape = func(
     return mom_lower_cmd_tape_to_wire(ct, as(i32, ncmds), w)
 end
 
-M.mc_bridge_expr_arrays = mc_bridge_expr_arrays
-M.mc_bridge_stmt_arrays = mc_bridge_stmt_arrays
-M.mc_lower_module_region = mc_lower_module_region
+-- Lower the whole module using the new back/module.mlua lowering.
+local mc_lower_module = func(ctx: ptr(@{MomBackLowerCtx})) -> i32
+    return region -> i32
+    entry start()
+        emit mb_collect_module_context(ctx; collected)
+    end
+    block collected(status: i32)
+        if status != 0 then yield status end
+        emit mb_lower_module(ctx; lowered)
+    end
+    block lowered(status: i32)
+        yield status
+    end
+    end
+end
+
 M.mc_lower_module = mc_lower_module
 M.mc_validate_tape = mc_validate_tape
 M.mc_wire_tape = mc_wire_tape
