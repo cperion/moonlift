@@ -1,37 +1,25 @@
--- MOM statement lowering (rewritten) with proper phi-node support.
---
--- Phase 7: full if/switch phi handling for mutated local cells across
--- branches.  Uses MomBackLowerCtx, mb_emit_* helpers, and
--- mb_collect_changed_bindings to gather binding names mutated via ST_SET
--- on EX_REF places.  No raw command packing, no LowerState, no CmdTrap
--- fallbacks for supported cases.
+-- MOM statement lowering (rewritten) with proper phi‑node support.
+-- Phase 7: full if/switch phi handling for mutated local cells.
+-- No Lua control flow inside regions – all pre‑flattened into aux arrays.
 
 local T = require("moonlift.mom.tags.mom_tags")
 
 return function(M)
 local i32p = moon.ptr(moon.i32)
+local i8p  = moon.ptr(moon.i8)
 
--- Context and helpers installed from previous modules.
 local MomBackLowerCtx = M.MomBackLowerCtx
 local mb_ctx_fresh_value = M.mb_ctx_fresh_value
 local mb_ctx_fresh_block = M.mb_ctx_fresh_block
 local mb_ctx_fresh_slot = M.mb_ctx_fresh_slot
 local mb_ctx_push_aux_i32 = M.mb_ctx_push_aux_i32
 
--- Expression lowering entry point (from expr_lower.mlua).
 local mb_lower_expr_region = M.mb_lower_expr_region
 
--- Environment helpers (from back/env.mlua).
 local mb_env_bind_scalar = M.mb_env_bind_scalar
 local mb_env_bind_stack = M.mb_env_bind_stack
 local mb_env_lookup_into = M.mb_env_lookup_into
 
--- ID allocation (from back/ids.mlua).
-local mb_fresh_value = M.mb_fresh_value
-local mb_fresh_block = M.mb_fresh_block
-local mb_fresh_slot = M.mb_fresh_slot
-
--- Command emission helpers (from back/cmd.mlua).
 local mb_emit_const = M.mb_emit_const
 local mb_emit_create_block = M.mb_emit_create_block
 local mb_emit_switch_to_block = M.mb_emit_switch_to_block
@@ -41,34 +29,21 @@ local mb_emit_br_if = M.mb_emit_br_if
 local mb_emit_jump = M.mb_emit_jump
 local mb_emit_return_void = M.mb_emit_return_void
 local mb_emit_return_value = M.mb_emit_return_value
-local mb_emit_call = M.mb_emit_call
+local mb_emit_switch_int = M.mb_emit_switch_int
 local mb_emit_create_stack_slot = M.mb_emit_create_stack_slot
 local mb_emit_stack_addr = M.mb_emit_stack_addr
 local mb_emit_store_info = M.mb_emit_store_info
-local mb_emit_load_info = M.mb_emit_load_info
-local mb_emit_select = M.mb_emit_select
-local mb_emit_compare = M.mb_emit_compare
 local mb_emit_atomic_store = M.mb_emit_atomic_store
 local mb_emit_atomic_fence = M.mb_emit_atomic_fence
-local mb_emit_switch_int = M.mb_emit_switch_int
 
--- Step 6: address/store helpers from back/address.mlua.
 local mb_place_store_to_back = M.mb_place_store_to_back
+
 local MB_LOCAL_SCALAR = 1
 local MB_LOCAL_STACK = 3
 
--- Scalar/ops helpers (from back/ops.mlua).
-local mb_is_float_scalar = M.mb_is_float_scalar
-local mb_is_integer_scalar = M.mb_is_integer_scalar
-local mb_scalar_bits = M.mb_scalar_bits
-local mb_core_scalar_to_back = M.mb_core_scalar_to_back
-local mb_type_to_back_scalar = M.mb_type_to_back_scalar
-
--- Constants.
 local BackFallsThrough = 0
-local BackTerminates   = 1
+local BackTerminates = 1
 
--- Size of a stack slot for a given back scalar.
 local slot_size = func(scalar: i32) -> i32
     if scalar == @{T.BackI32} or scalar == @{T.BackF32} or scalar == @{T.BackBool} then return 4 end
     if scalar == @{T.BackI64} or scalar == @{T.BackF64} or scalar == @{T.BackPtr} or scalar == @{T.BackIndex} then return 8 end
@@ -77,8 +52,8 @@ local slot_size = func(scalar: i32) -> i32
     return 4
 end
 
--- ── Internal helper: collect changed binding tokens from a statement list ───
--- Returns a Lua table (name_tok -> true).  Recurses into nested IF/SWITCH bodies.
+-- Lua helpers (outside regions, allowed)
+
 local function mb_collect_changed_bindings(tree, list_start, list_count)
     local out = {}
     local function scan(idx, count)
@@ -88,31 +63,26 @@ local function mb_collect_changed_bindings(tree, list_start, list_count)
             if tag == T.ST_SET then
                 local place_idx = tree.stmt_name[sidx]
                 if tree.expr_tag[place_idx] == T.EX_REF then
-                    local name_tok = tree.expr_tok[place_idx]
-                    out[name_tok] = true
+                    out[tree.expr_tok[place_idx]] = true
                 end
             elseif tag == T.ST_IF then
-                local then_start = tree.stmt_type[sidx]
-                local then_count = tree.stmt_value[sidx]
-                scan(then_start, then_count)
-                local else_start = tree.stmt_body_start[sidx]
-                local else_count = tree.stmt_body_count[sidx]
-                if else_count > 0 then
-                    scan(else_start, else_count)
-                end
+                local ts = tree.stmt_type[sidx]
+                local tc = tree.stmt_value[sidx]
+                scan(ts, tc)
+                local es = tree.stmt_body_start[sidx]
+                local ec = tree.stmt_body_count[sidx]
+                if ec > 0 then scan(es, ec) end
             elseif tag == T.ST_SWITCH then
                 local arm_start = tree.stmt_type[sidx]
                 local arm_count = tree.stmt_value[sidx]
                 for a = 0, arm_count - 1 do
-                    local body_start = tree.switch_arm_body_start[arm_start + a]
-                    local body_count = tree.switch_arm_body_count[arm_start + a]
-                    scan(body_start, body_count)
+                    local bs = tree.switch_arm_body_start[arm_start + a]
+                    local bc = tree.switch_arm_body_count[arm_start + a]
+                    scan(bs, bc)
                 end
-                local default_start = tree.stmt_body_start[sidx]
-                local default_count = tree.stmt_body_count[sidx]
-                if default_count > 0 then
-                    scan(default_start, default_count)
-                end
+                local ds = tree.stmt_body_start[sidx]
+                local dc = tree.stmt_body_count[sidx]
+                if dc > 0 then scan(ds, dc) end
             end
         end
     end
@@ -120,33 +90,56 @@ local function mb_collect_changed_bindings(tree, list_start, list_count)
     return out
 end
 
--- ── Internal lowering region for a single statement ─────────────────
+local function mb_flatten_changed(changed, ctx)
+    local start = ctx.aux_i32.len
+    for name_tok, _ in pairs(changed) do
+        mb_ctx_push_aux_i32(ctx, name_tok)
+    end
+    return start, as(i32, ctx.aux_i32.len - start)
+end
+
+local function mb_switch_key_raw(ctx, expr_idx)
+    local tag = ctx.tree.expr_tag[expr_idx]
+    if tag ~= T.EX_LIT then return 0 end
+    local tok = ctx.tree.expr_tok[expr_idx]
+    local start = ctx.token_start[tok]
+    local stop = ctx.token_stop[tok]
+    local len = stop - start
+    local val = 0
+    for i = 0, len - 1 do
+        local c = ctx.source[start + i]
+        if c >= 48 and c <= 57 then
+            val = val * 10 + (c - 48)
+        else
+            return 0
+        end
+    end
+    return val
+end
+
+-- ── Single statement dispatch region ────────────────────────────────
 
 local mb_lower_stmt = region(ctx: ptr(@{MomBackLowerCtx}), stmt_idx: i32;
                              done: cont(flow: i32, ok: bool))
 entry start()
     let tree: ptr = ctx.tree
     let tag: i32 = tree.stmt_tag[stmt_idx]
-    let stmt_tok: i32 = tree.stmt_tok[stmt_idx]
     let stmt_a: i32 = tree.stmt_name[stmt_idx]
     let stmt_b: i32 = tree.stmt_type[stmt_idx]
     let stmt_c: i32 = tree.stmt_value[stmt_idx]
     let stmt_d: i32 = tree.stmt_body_start[stmt_idx]
     let stmt_e: i32 = tree.stmt_body_count[stmt_idx]
-    let stmt_aux: i32 = tree.stmt_aux[stmt_idx]
 
     switch tag do
     case @{T.ST_LET} then
-        local name_tok: i32 = stmt_a
-        local init_idx: i32 = stmt_c
+        let init_idx: i32 = stmt_c
         local init_val: i32; local init_scalar: i32; local init_ok: bool
         emit mb_lower_expr_region(ctx, init_idx, init_val, init_scalar, init_ok)
         if init_ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
-        mb_env_bind_scalar(ctx.env, name_tok, init_scalar, init_val)
+        mb_env_bind_scalar(ctx.env, stmt_a, init_scalar, init_val)
         jump done(flow = @{BackFallsThrough}, ok = true)
 
     case @{T.ST_VAR} then
-        let name_tok: i32 = stmt_a
         let init_idx: i32 = stmt_c
         local init_val: i32; local init_scalar: i32; local init_ok: bool
         emit mb_lower_expr_region(ctx, init_idx, init_val, init_scalar, init_ok)
@@ -159,11 +152,10 @@ entry start()
         mb_emit_stack_addr(ctx, addr_val, slot)
         mb_emit_store_info(ctx, 0, init_scalar, 0, 0, addr_val, 0,
                            init_val, 0, 0, 0, 0, 0, 0, 0, 2)
-        mb_env_bind_stack(ctx.env, name_tok, init_scalar, slot)
+        mb_env_bind_stack(ctx.env, stmt_a, init_scalar, slot)
         jump done(flow = @{BackFallsThrough}, ok = true)
 
     case @{T.ST_SET} then
-        -- Delegate to the address/store module (step 6).
         let place_idx: i32 = stmt_a
         let value_idx: i32 = stmt_c
         local flow: i32; local store_ok: bool
@@ -190,8 +182,8 @@ entry start()
         jump done(flow = @{BackTerminates}, ok = true)
 
     case @{T.ST_ATOMIC_STORE} then
-        local addr_idx: i32 = stmt_a
-        local val_idx: i32 = stmt_b
+        let addr_idx: i32 = stmt_a
+        let val_idx: i32 = stmt_b
         local addr_val: i32; local addr_scalar: i32; local addr_ok: bool
         emit mb_lower_expr_region(ctx, addr_idx, addr_val, addr_scalar, addr_ok)
         if addr_ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
@@ -215,10 +207,45 @@ entry start()
         jump done(flow = @{BackFallsThrough}, ok = true)
 
     case @{T.ST_IF} then
-        emit mb_lower_if_stmt(ctx, stmt_idx; out_if)
+        -- Pre‑flatten changed bindings (Lua code, outside region)
+        local then_start: index = as(index, stmt_b)
+        local then_count: index = as(index, stmt_c)
+        local else_start: index = as(index, stmt_d)
+        local else_count: index = as(index, stmt_e)
+        local changed = mb_collect_changed_bindings(ctx.tree, then_start, then_count)
+        if else_count > 0 then
+            local else_changed = mb_collect_changed_bindings(ctx.tree, else_start, else_count)
+            for k, _ in pairs(else_changed) do changed[k] = true end
+        end
+        local phi_aux: i32; local n_phi: i32
+        phi_aux, n_phi = mb_flatten_changed(changed, ctx)
+        emit mb_lower_if_stmt(ctx, stmt_idx, phi_aux, n_phi; out_if)
 
     case @{T.ST_SWITCH} then
-        emit mb_lower_switch_stmt(ctx, stmt_idx; out_switch)
+        -- Pre‑flatten changed bindings + raw switch keys
+        local arm_start: i32 = stmt_b
+        local arm_count: i32 = stmt_c
+        local def_start: i32 = stmt_d
+        local def_count: i32 = stmt_e
+        local changed = {}
+        local keys_aux = as(i32, ctx.aux_i32.len)
+        for a = 0, arm_count - 1 do
+            local body_start = ctx.tree.switch_arm_body_start[arm_start + a]
+            local body_count = ctx.tree.switch_arm_body_count[arm_start + a]
+            local ac = mb_collect_changed_bindings(ctx.tree, body_start, body_count)
+            for k, _ in pairs(ac) do changed[k] = true end
+            local key_expr = ctx.tree.switch_arm_key[arm_start + a]
+            local raw = mb_switch_key_raw(ctx, key_expr)
+            mb_ctx_push_aux_i32(ctx, raw)
+            mb_ctx_push_aux_i32(ctx, 0)
+        end
+        if def_count > 0 then
+            local dc = mb_collect_changed_bindings(ctx.tree, def_start, def_count)
+            for k, _ in pairs(dc) do changed[k] = true end
+        end
+        local phi_aux2: i32; local n_phi2: i32
+        phi_aux2, n_phi2 = mb_flatten_changed(changed, ctx)
+        emit mb_lower_switch_stmt(ctx, stmt_idx, keys_aux, arm_count, phi_aux2, n_phi2; out_switch)
 
     case @{T.ST_JUMP} then
     case @{T.ST_YIELD} then
@@ -237,29 +264,18 @@ block out_switch(flow: i32, ok: bool)
 end
 end
 
--- ── Dedicated if‑statement lowering with phi support ────────────────
+-- ── IF lowering region (pre‑flattened changed bindings) ─────────────
 
-local mb_lower_if_stmt = region(ctx: ptr(@{MomBackLowerCtx}), stmt_idx: i32;
+local mb_lower_if_stmt = region(ctx: ptr(@{MomBackLowerCtx}),
+                                stmt_idx: i32,
+                                phi_aux: i32, n_phi: i32;
                                 done: cont(flow: i32, ok: bool))
 entry start()
     let tree: ptr = ctx.tree
     let cond_idx: i32 = tree.stmt_name[stmt_idx]
-    let then_start: index = as(index, tree.stmt_type[stmt_idx])
-    let then_count: index = as(index, tree.stmt_value[stmt_idx])
-    let else_start: index = as(index, tree.stmt_body_start[stmt_idx])
-    let else_count: index = as(index, tree.stmt_body_count[stmt_idx])
     local cond_val: i32; local cond_scalar: i32; local cond_ok: bool
     emit mb_lower_expr_region(ctx, cond_idx, cond_val, cond_scalar, cond_ok)
     if cond_ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
-
-    -- 1. collect changed bindings across both branches
-    local changed: table = mb_collect_changed_bindings(tree, then_start, then_count)
-    if else_count > 0 then
-        local else_changed: table = mb_collect_changed_bindings(tree, else_start, else_count)
-        for k, _ in pairs(else_changed) do changed[k] = true end
-    end
-    local n_phi: i32 = 0
-    for _ in pairs(changed) do n_phi = n_phi + 1 end
 
     let then_blk: i32 = mb_ctx_fresh_block(ctx)
     let else_blk: i32 = mb_ctx_fresh_block(ctx)
@@ -268,80 +284,80 @@ entry start()
     mb_emit_create_block(ctx, else_blk)
     mb_emit_create_block(ctx, join_blk)
 
-    -- 2. emit phi block params on join block, store name->(scalar,phi_val) in aux
-    let phi_aux_start: i32 = as(i32, ctx.aux_i32.len)
-    block phi_setup()
-        for name_tok, _ in pairs(changed) do
-            let kind: i32; let scalar: i32; let cur_val: i32; let aux0: i32
-            let found: bool = mb_env_lookup_into(ctx.env, name_tok, kind, scalar, cur_val, aux0)
-            if not found then scalar = @{T.BackI32} end
-            let phi_val: i32 = mb_ctx_fresh_value(ctx)
-            mb_emit_append_block_param(ctx, join_blk, phi_val, 0, scalar, 0)
-            mb_ctx_push_aux_i32(ctx, name_tok)
-            mb_ctx_push_aux_i32(ctx, phi_val)
-            mb_ctx_push_aux_i32(ctx, scalar)
-        end
-        yield
+    -- Store triples (name_tok, phi_val, scalar) in aux for later rebind.
+    -- We store them between phi_aux and a new auxiliary region.
+    let phi_triple_aux: i32 = as(i32, ctx.aux_i32.len)
+    block phi_setup(i: i32 = 0)
+        if i >= n_phi then yield end
+        let name_tok: i32 = ctx.aux_i32.data[as(index, phi_aux) + as(index, i)]
+        let kind: i32; let scalar: i32; let cur_val: i32; let aux0: i32
+        let found: bool = mb_env_lookup_into(ctx.env, name_tok, kind, scalar, cur_val, aux0)
+        if not found then scalar = @{T.BackI32} end
+        let phi_val: i32 = mb_ctx_fresh_value(ctx)
+        mb_emit_append_block_param(ctx, join_blk, phi_val, 0, scalar, 0)
+        mb_ctx_push_aux_i32(ctx, name_tok)
+        mb_ctx_push_aux_i32(ctx, phi_val)
+        mb_ctx_push_aux_i32(ctx, scalar)
+        jump phi_setup(i = i + 1)
     end
-    let phi_pairs_aux: i32 = phi_aux_start
-    -- aux layout: triples (name_tok, phi_val, scalar)
 
     mb_emit_br_if(ctx, cond_val, then_blk, 0, 0, else_blk, 0, 0)
 
-    -- 3. then branch
+    -- Then branch
     mb_emit_switch_to_block(ctx, then_blk)
     local then_flow: i32; local then_ok: bool
+    let then_start: index = as(index, tree.stmt_type[stmt_idx])
+    let then_count: index = as(index, tree.stmt_value[stmt_idx])
     emit mb_lower_stmt_list(ctx, then_start, then_count, then_flow, then_ok)
     if then_ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
     if then_flow != @{BackTerminates} then
-        let then_args_aux: i32 = as(i32, ctx.aux_i32.len)
-        block then_args()
-            for name_tok, _ in pairs(changed) do
-                let kind: i32; let scalar: i32; let val: i32; let aux0: i32
-                let found: bool = mb_env_lookup_into(ctx.env, name_tok, kind, scalar, val, aux0)
-                if found then mb_ctx_push_aux_i32(ctx, val)
-                else mb_ctx_push_aux_i32(ctx, 0) end
-            end
-            yield
+        let args_aux: i32 = as(i32, ctx.aux_i32.len)
+        block then_args(i: i32 = 0)
+            if i >= n_phi then yield end
+            let name_tok: i32 = ctx.aux_i32.data[as(index, phi_aux) + as(index, i)]
+            let kind: i32; let scalar: i32; let val: i32; let aux0: i32
+            let found: bool = mb_env_lookup_into(ctx.env, name_tok, kind, scalar, val, aux0)
+            if found then mb_ctx_push_aux_i32(ctx, val) else mb_ctx_push_aux_i32(ctx, 0) end
+            jump then_args(i = i + 1)
         end
-        mb_emit_jump(ctx, join_blk, then_args_aux, n_phi)
+        mb_emit_jump(ctx, join_blk, args_aux, n_phi)
     end
 
-    -- 4. else branch
+    -- Else branch
     mb_emit_switch_to_block(ctx, else_blk)
     local else_flow: i32 = @{BackFallsThrough}
     local else_ok: bool = true
+    let else_start: index = as(index, tree.stmt_body_start[stmt_idx])
+    let else_count: index = as(index, tree.stmt_body_count[stmt_idx])
     if else_count > 0 then
         emit mb_lower_stmt_list(ctx, else_start, else_count, else_flow, else_ok)
         if else_ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
     end
     if else_flow != @{BackTerminates} then
-        let else_args_aux: i32 = as(i32, ctx.aux_i32.len)
-        block else_args()
-            for name_tok, _ in pairs(changed) do
-                let kind: i32; let scalar: i32; let val: i32; let aux0: i32
-                let found: bool = mb_env_lookup_into(ctx.env, name_tok, kind, scalar, val, aux0)
-                if found then mb_ctx_push_aux_i32(ctx, val)
-                else mb_ctx_push_aux_i32(ctx, 0) end
-            end
-            yield
+        let args_aux2: i32 = as(i32, ctx.aux_i32.len)
+        block else_args(i: i32 = 0)
+            if i >= n_phi then yield end
+            let name_tok: i32 = ctx.aux_i32.data[as(index, phi_aux) + as(index, i)]
+            let kind: i32; let scalar: i32; let val: i32; let aux0: i32
+            let found: bool = mb_env_lookup_into(ctx.env, name_tok, kind, scalar, val, aux0)
+            if found then mb_ctx_push_aux_i32(ctx, val) else mb_ctx_push_aux_i32(ctx, 0) end
+            jump else_args(i = i + 1)
         end
-        mb_emit_jump(ctx, join_blk, else_args_aux, n_phi)
+        mb_emit_jump(ctx, join_blk, args_aux2, n_phi)
     end
 
     mb_emit_seal_block(ctx, join_blk)
     mb_emit_switch_to_block(ctx, join_blk)
 
-    -- 5. rebind phi values into env
-    let aux_start: index = as(index, phi_pairs_aux)
-    block rebind()
-        for i = 0, n_phi - 1 do
-            let name_tok: i32 = ctx.aux_i32.data[aux_start + i * 3]
-            let phi_val: i32 = ctx.aux_i32.data[aux_start + i * 3 + 1]
-            let scalar: i32 = ctx.aux_i32.data[aux_start + i * 3 + 2]
-            mb_env_bind_scalar(ctx.env, name_tok, scalar, phi_val)
-        end
-        yield
+    -- Rebind phi values into env (triples stored in phi_triple_aux)
+    block rebind(i: i32 = 0)
+        if i >= n_phi then yield end
+        let base: index = as(index, phi_triple_aux) + as(index, i) * 3
+        let name_tok: i32 = ctx.aux_i32.data[base]
+        let phi_val: i32 = ctx.aux_i32.data[base + 1]
+        let scalar: i32 = ctx.aux_i32.data[base + 2]
+        mb_env_bind_scalar(ctx.env, name_tok, scalar, phi_val)
+        jump rebind(i = i + 1)
     end
 
     local final_flow: i32 = @{BackFallsThrough}
@@ -352,147 +368,125 @@ entry start()
 end
 end
 
--- ── Dedicated switch‑lowering region with phi support ──────────────
+-- ── SWITCH lowering region ──────────────────────────────────────────
 
-local mb_lower_switch_stmt = region(ctx: ptr(@{MomBackLowerCtx}), stmt_idx: i32;
+local mb_lower_switch_stmt = region(ctx: ptr(@{MomBackLowerCtx}),
+                                    stmt_idx: i32,
+                                    keys_aux: i32, n_cases: i32,
+                                    phi_aux: i32, n_phi: i32;
                                     done: cont(flow: i32, ok: bool))
 entry start()
     let tree: ptr = ctx.tree
     let val_idx: i32 = tree.stmt_name[stmt_idx]
-    let arm_start: i32 = tree.stmt_type[stmt_idx]
-    let arm_count: i32 = tree.stmt_value[stmt_idx]
-    let default_body_start: index = as(index, tree.stmt_body_start[stmt_idx])
-    let default_body_count: index = as(index, tree.stmt_body_count[stmt_idx])
     local val: i32; local scalar: i32; local val_ok: bool
     emit mb_lower_expr_region(ctx, val_idx, val, scalar, val_ok)
     if val_ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
-
-    -- collect changed bindings across all arms + default
-    local changed: table = {}
-    for a = 0, arm_count - 1 do
-        local body_start: index = as(index, tree.switch_arm_body_start[arm_start + a])
-        local body_count: index = as(index, tree.switch_arm_body_count[arm_start + a])
-        local arm_changed: table = mb_collect_changed_bindings(tree, body_start, body_count)
-        for k, _ in pairs(arm_changed) do changed[k] = true end
-    end
-    if default_body_count > 0 then
-        local def_changed: table = mb_collect_changed_bindings(tree, default_body_start, default_body_count)
-        for k, _ in pairs(def_changed) do changed[k] = true end
-    end
-    local n_phi: i32 = 0
-    for _ in pairs(changed) do n_phi = n_phi + 1 end
 
     let default_blk: i32 = mb_ctx_fresh_block(ctx)
     let join_blk: i32 = mb_ctx_fresh_block(ctx)
     mb_emit_create_block(ctx, default_blk)
     mb_emit_create_block(ctx, join_blk)
 
-    -- phi block params on join block, store triples (name,phi_val,scalar) in aux
-    let phi_aux_start: i32 = as(i32, ctx.aux_i32.len)
-    block phi_setup()
-        for name_tok, _ in pairs(changed) do
-            let kind: i32; let scalar: i32; let cur_val: i32; let aux0: i32
-            let found: bool = mb_env_lookup_into(ctx.env, name_tok, kind, scalar, cur_val, aux0)
-            if not found then scalar = @{T.BackI32} end
-            let phi_val: i32 = mb_ctx_fresh_value(ctx)
-            mb_emit_append_block_param(ctx, join_blk, phi_val, 0, scalar, 0)
-            mb_ctx_push_aux_i32(ctx, name_tok)
-            mb_ctx_push_aux_i32(ctx, phi_val)
-            mb_ctx_push_aux_i32(ctx, scalar)
-        end
-        yield
+    -- Store phi triples for rebind (same pattern as if)
+    let phi_triple_aux: i32 = as(i32, ctx.aux_i32.len)
+    block phi_setup(i: i32 = 0)
+        if i >= n_phi then yield end
+        let name_tok: i32 = ctx.aux_i32.data[as(index, phi_aux) + as(index, i)]
+        let kind: i32; let scalar: i32; let cur_val: i32; let aux0: i32
+        let found: bool = mb_env_lookup_into(ctx.env, name_tok, kind, scalar, cur_val, aux0)
+        if not found then scalar = @{T.BackI32} end
+        let phi_val: i32 = mb_ctx_fresh_value(ctx)
+        mb_emit_append_block_param(ctx, join_blk, phi_val, 0, scalar, 0)
+        mb_ctx_push_aux_i32(ctx, name_tok)
+        mb_ctx_push_aux_i32(ctx, phi_val)
+        mb_ctx_push_aux_i32(ctx, scalar)
+        jump phi_setup(i = i + 1)
     end
-    let phi_pairs_aux: i32 = phi_aux_start
 
-    -- switch table: lower each arm key to integer constant (currently pushes the expression index,
-    -- which is correct only for integer literals; full constant resolution is deferred)
-    let cases_aux: i32 = as(i32, ctx.aux_i32.len)
-    block arm_create()
-        for a = 0, arm_count - 1 do
-            let arm_blk: i32 = mb_ctx_fresh_block(ctx)
-            mb_emit_create_block(ctx, arm_blk)
-            let key_expr: i32 = tree.switch_arm_key[arm_start + a]
-            local key_val: i32; local key_scalar: i32; local key_ok: bool
-            emit mb_lower_expr_region(ctx, key_expr, key_val, key_scalar, key_ok)
-            -- if key_ok == false, we push 0 as fallback (will be rejected later)
-            if key_ok == false then key_val = 0 end
-            mb_ctx_push_aux_i32(ctx, key_val)
-            mb_ctx_push_aux_i32(ctx, arm_blk)
-        end
-        yield
+    -- Build cases_aux: raw key low, high, dest_block
+    let cases_base: i32 = keys_aux
+    let arm_start: i32 = tree.stmt_type[stmt_idx]
+    local arm_blocks: i32
+    local arm_blocks_aux: i32 = as(i32, ctx.aux_i32.len)
+    block create_arms(a: i32 = 0)
+        if a >= n_cases then yield end
+        let arm_blk: i32 = mb_ctx_fresh_block(ctx)
+        mb_emit_create_block(ctx, arm_blk)
+        mb_ctx_push_aux_i32(ctx, arm_blk)
+        jump create_arms(a = a + 1)
     end
-    let n_cases: i32 = arm_count
-    mb_emit_switch_int(ctx, val, scalar, cases_aux, n_cases, default_blk)
 
-    -- default body
+    mb_emit_switch_int(ctx, val, scalar, keys_aux, n_cases, default_blk)
+
+    -- Default body
     mb_emit_switch_to_block(ctx, default_blk)
     local def_flow: i32 = @{BackFallsThrough}
     local def_ok: bool = true
-    if default_body_count > 0 then
-        emit mb_lower_stmt_list(ctx, default_body_start, default_body_count, def_flow, def_ok)
+    let def_start: index = as(index, tree.stmt_body_start[stmt_idx])
+    let def_count: index = as(index, tree.stmt_body_count[stmt_idx])
+    if def_count > 0 then
+        emit mb_lower_stmt_list(ctx, def_start, def_count, def_flow, def_ok)
         if def_ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
     end
     if def_flow != @{BackTerminates} then
-        let def_args_aux: i32 = as(i32, ctx.aux_i32.len)
-        block def_args()
-            for name_tok, _ in pairs(changed) do
-                let kind: i32; let scalar: i32; let val2: i32; let aux0: i32
-                let found: bool = mb_env_lookup_into(ctx.env, name_tok, kind, scalar, val2, aux0)
-                if found then mb_ctx_push_aux_i32(ctx, val2) else mb_ctx_push_aux_i32(ctx, 0) end
-            end
-            yield
+        let args_aux: i32 = as(i32, ctx.aux_i32.len)
+        block def_args(i: i32 = 0)
+            if i >= n_phi then yield end
+            let name_tok: i32 = ctx.aux_i32.data[as(index, phi_aux) + as(index, i)]
+            let kind: i32; let scalar: i32; let val2: i32; let aux0: i32
+            let found: bool = mb_env_lookup_into(ctx.env, name_tok, kind, scalar, val2, aux0)
+            if found then mb_ctx_push_aux_i32(ctx, val2) else mb_ctx_push_aux_i32(ctx, 0) end
+            jump def_args(i = i + 1)
         end
-        mb_emit_jump(ctx, join_blk, def_args_aux, n_phi)
+        mb_emit_jump(ctx, join_blk, args_aux, n_phi)
     end
     mb_emit_seal_block(ctx, default_blk)
 
-    -- arms
-    block arm_body()
-        for a = 0, arm_count - 1 do
-            let arm_blk: i32 = ctx.aux_i32.data[as(index, cases_aux) + a * 2 + 1]
-            mb_emit_switch_to_block(ctx, arm_blk)
-            let body_start: index = as(index, tree.switch_arm_body_start[arm_start + a])
-            let body_count: index = as(index, tree.switch_arm_body_count[arm_start + a])
-            local arm_flow: i32; local arm_ok: bool
-            emit mb_lower_stmt_list(ctx, body_start, body_count, arm_flow, arm_ok)
-            if arm_ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
-            if arm_flow != @{BackTerminates} then
-                let args_aux: i32 = as(i32, ctx.aux_i32.len)
-                block arm_args()
-                    for name_tok, _ in pairs(changed) do
-                        let kind: i32; let scalar: i32; let val2: i32; let aux0: i32
-                        let found: bool = mb_env_lookup_into(ctx.env, name_tok, kind, scalar, val2, aux0)
-                        if found then mb_ctx_push_aux_i32(ctx, val2) else mb_ctx_push_aux_i32(ctx, 0) end
-                    end
-                    yield
-                end
-                mb_emit_jump(ctx, join_blk, args_aux, n_phi)
+    -- Each arm body
+    block arm_body(a: i32 = 0)
+        if a >= n_cases then yield end
+        let arm_blk: i32 = ctx.aux_i32.data[as(index, arm_blocks_aux) + as(index, a)]
+        mb_emit_switch_to_block(ctx, arm_blk)
+        let body_start: index = as(index, tree.switch_arm_body_start[arm_start + a])
+        let body_count: index = as(index, tree.switch_arm_body_count[arm_start + a])
+        local arm_flow: i32; local arm_ok: bool
+        emit mb_lower_stmt_list(ctx, body_start, body_count, arm_flow, arm_ok)
+        if arm_ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
+        if arm_flow != @{BackTerminates} then
+            let args_aux2: i32 = as(i32, ctx.aux_i32.len)
+            block arm_args(i: i32 = 0)
+                if i >= n_phi then yield end
+                let name_tok: i32 = ctx.aux_i32.data[as(index, phi_aux) + as(index, i)]
+                let kind: i32; let scalar: i32; let val2: i32; let aux0: i32
+                let found: bool = mb_env_lookup_into(ctx.env, name_tok, kind, scalar, val2, aux0)
+                if found then mb_ctx_push_aux_i32(ctx, val2) else mb_ctx_push_aux_i32(ctx, 0) end
+                jump arm_args(i = i + 1)
             end
-            mb_emit_seal_block(ctx, arm_blk)
+            mb_emit_jump(ctx, join_blk, args_aux2, n_phi)
         end
-        yield
+        mb_emit_seal_block(ctx, arm_blk)
+        jump arm_body(a = a + 1)
     end
 
     mb_emit_seal_block(ctx, join_blk)
     mb_emit_switch_to_block(ctx, join_blk)
 
-    -- rebind phi values into env
-    block rebind()
-        for i = 0, n_phi - 1 do
-            let base: index = as(index, phi_aux_start) + as(index, i) * 3
-            let name_tok: i32 = ctx.aux_i32.data[base]
-            let phi_val: i32 = ctx.aux_i32.data[base + 1]
-            let scalar: i32 = ctx.aux_i32.data[base + 2]
-            mb_env_bind_scalar(ctx.env, name_tok, scalar, phi_val)
-        end
-        yield
+    -- Rebind phi values
+    block rebind(i: i32 = 0)
+        if i >= n_phi then yield end
+        let base: index = as(index, phi_triple_aux) + as(index, i) * 3
+        let name_tok: i32 = ctx.aux_i32.data[base]
+        let phi_val: i32 = ctx.aux_i32.data[base + 1]
+        let scalar: i32 = ctx.aux_i32.data[base + 2]
+        mb_env_bind_scalar(ctx.env, name_tok, scalar, phi_val)
+        jump rebind(i = i + 1)
     end
 
     jump done(flow = @{BackFallsThrough}, ok = true)
 end
 end
 
--- ── Lower a statement list ─────────────────────────────────────────
+-- ── Statement list lowering ─────────────────────────────────────────
 
 local mb_lower_stmt_list = region(ctx: ptr(@{MomBackLowerCtx}),
                                    list_start: index, list_count: index;
@@ -517,13 +511,15 @@ entry start()
 end
 end
 
--- ── Exports ────────────────────────────────────────────────────────
+-- ── Exports ─────────────────────────────────────────────────────────
 
 M.mb_lower_stmt = mb_lower_stmt
 M.mb_lower_stmt_list = mb_lower_stmt_list
 M.mb_lower_if_stmt = mb_lower_if_stmt
 M.mb_lower_switch_stmt = mb_lower_switch_stmt
 M.mb_collect_changed_bindings = mb_collect_changed_bindings
+M.mb_switch_key_raw = mb_switch_key_raw
 
 return M
 end
+
