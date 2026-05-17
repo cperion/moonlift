@@ -180,17 +180,19 @@ local mb_ctx_push_issue = func(ctx: ptr(@{MomBackLowerCtx}), tag: i32, a: i32, b
 end
 
 local mb_ctx_fresh_phi_table = func(ctx: ptr(@{MomBackLowerCtx}), n_changed: i32) -> M.MomIfPhiTable
-    -- Use aux_i32 as the backing store for the phi entries array.
     let entry_base: i32 = as(i32, ctx.aux_i32.len)
     block alloc(i: i32 = 0)
         if i >= n_changed then yield end
-        -- Reserve three i32 slots per entry (name_tok, param_val, scalar)
         ctx.aux_i32.len = ctx.aux_i32.len + as(index, 3)
         jump alloc(i = i + 1)
     end
     let entries_ptr: ptr(i32) = ctx.aux_i32.data + as(index, entry_base)
     return M.MomIfPhiTable(
-        entries = as(ptr(ptr(i32)?), entries_ptr) ???, wait
+        entries = as(ptr(??), entries_ptr),
+        n_changed = n_changed,
+        then_blk = 0,
+        else_blk = 0,
+        join_blk = 0
     )
 end
 
@@ -198,13 +200,14 @@ local mb_ctx_fresh_switch_table = func(ctx: ptr(@{MomBackLowerCtx}), n_cases: i3
     let entry_base: i32 = as(i32, ctx.aux_i32.len)
     block alloc(i: i32 = 0)
         if i >= n_cases then yield end
-        -- Reserve two i32 slots per entry (key_val, target_blk)
         ctx.aux_i32.len = ctx.aux_i32.len + as(index, 2)
         jump alloc(i = i + 1)
     end
     let entries_ptr: ptr(i32) = ctx.aux_i32.data + as(index, entry_base)
     return M.MomSwitchCaseTable(
-        entries = as(ptr(ptr(i32)?), entries_ptr) ???
+        entries = as(ptr(??), entries_ptr),
+        n_cases = n_cases,
+        default_blk = 0
     )
 end
 

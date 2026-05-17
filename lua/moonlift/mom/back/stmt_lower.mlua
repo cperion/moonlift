@@ -339,7 +339,7 @@ entry start()
     end
 
     let switch_table: M.MomSwitchCaseTable = M.MomSwitchCaseTable(
-        entries = ???,
+        entries = as(ptr(??), ctx.aux_i32.data + as(index, cases_aux)),
         n_cases = arm_count,
         default_blk = default_blk
     )
