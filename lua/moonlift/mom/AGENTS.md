@@ -2,6 +2,15 @@
 
 This is the only MOM-specific agent contract. Keep it short and executable.
 
+Before implementation, load the executable port map:
+
+```lua
+local port_map = require("moonlift.mom.build.port_map")
+```
+
+The port map is the complete Lua-to-MOM module/signature mapping. If a change is
+not represented there, update the mapping first and stop before implementation.
+
 ## Source of truth
 
 1. Hosted compiler behavior is the semantic oracle. Read the relevant file under `lua/moonlift/` before changing MOM behavior.
@@ -39,10 +48,12 @@ Driver bootstrap code may use compact raw emission only at the product ABI bound
 
 For any implementation change:
 
-1. Read the hosted source of truth.
-2. State the exact input/output contract in the commit/response, not in a new doc.
-3. Use or add named helpers before changing lowerers.
-4. Add or run a focused test.
-5. Report exact commands run.
+1. Read `lua/moonlift/mom/build/port_map.lua`.
+2. Read the hosted source of truth named in the relevant map entry.
+3. State the exact input/output contract in the commit/response, not in a new doc.
+4. Use or add named helpers before changing lowerers.
+5. Add or run a focused test.
+6. Run `lua scripts/check_mom_hygiene.lua`.
+7. Report exact commands run.
 
 If unsure, stop. Do not guess.
