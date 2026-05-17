@@ -5,6 +5,7 @@
 -- expr/stmt/address/control/module lowering phases.
 
 return function(M)
+local i32p = moon.ptr(moon.i32)
 
 local MomTreeOut = M.MomTreeOut
 local MomBackLocalEnv = M.MomBackLocalEnv
@@ -13,12 +14,28 @@ local MomCmdBuffer = M.MomCmdBuffer
 local MomI32Builder = M.MomI32Builder
 local MomIssueBuilder = M.MomIssueBuilder
 
+-- Builders from runtime/builders.mlua
+local mr_cmd_buffer_push = M.mr_cmd_buffer_push
+local mr_cmd_buffer_overflowed = M.mr_cmd_buffer_overflowed
+local mr_i32_builder_push = M.mr_i32_builder_push
+local mr_i32_builder_overflowed = M.mr_i32_builder_overflowed
+local mr_issue_push4 = M.mr_issue_push4
+local mr_issue_builder_overflowed = M.mr_issue_builder_overflowed
+
+-- Environment and ID allocator helpers from back/env.mlua and back/ids.mlua
+local mb_env_reset = M.mb_env_reset
+local mb_ids_reset_func = M.mb_ids_reset_func
+local mb_fresh_value = M.mb_fresh_value
+local mb_fresh_block = M.mb_fresh_block
+local mb_fresh_access = M.mb_fresh_access
+local mb_fresh_slot = M.mb_fresh_slot
+
 M.MomBackLowerCtx = struct MomBackLowerCtx
     -- Core tree and type information
     tree: ptr(@{MomTreeOut})
     expr_type: ptr(i32)
     expr_scalar: ptr(i32)
-    
+
     -- Layout information from layout phase
     type_size: ptr(i32)
     type_align: ptr(i32)
@@ -26,24 +43,24 @@ M.MomBackLowerCtx = struct MomBackLowerCtx
     field_size: ptr(i32)
     item_size: ptr(i32)
     item_align: ptr(i32)
-    
+
     -- Local environment and ID allocation
     env: ptr(@{MomBackLocalEnv})
     ids: ptr(@{MomBackIdAllocator})
-    
+
     -- Command and auxiliary builders
     cmd_buffer: ptr(@{MomCmdBuffer})
     aux_i32: ptr(@{MomI32Builder})
-    
+
     -- String/symbol interning (pool IDs)
     string_pool_count: i32
     symbol_pool_count: i32
-    
+
     -- Current compilation context
     current_module_id: i32
     current_func_id: i32
     current_return_mode: i32
-    
+
     -- Diagnostic/issue writer
     issues: ptr(@{MomIssueBuilder})
 end
@@ -115,12 +132,18 @@ local mb_ctx_fresh_slot = func(ctx: ptr(@{MomBackLowerCtx})) -> i32
     return mb_fresh_slot(ctx.ids)
 end
 
--- Push an auxiliary i32 value and return its ID.
+-- Get a fresh data ID (separate counter; we reuse the value ID allocator,
+-- which is safe because data IDs are only used in DeclareData commands).
+local mb_ctx_fresh_data = func(ctx: ptr(@{MomBackLowerCtx})) -> i32
+    return mb_fresh_value(ctx.ids)
+end
+
+-- Push an auxiliary i32 value and return its index.
 local mb_ctx_push_aux_i32 = func(ctx: ptr(@{MomBackLowerCtx}), value: i32) -> i32
     return as(i32, mr_i32_builder_push(ctx.aux_i32, value))
 end
 
--- Push multiple auxiliary i32 values and return the starting ID.
+-- Push multiple auxiliary i32 values and return the starting index.
 local mb_ctx_push_aux_i32_array = func(ctx: ptr(@{MomBackLowerCtx}), values: ptr(i32), count: index) -> i32
     let start_id: i32 = as(i32, ctx.aux_i32.len)
     block loop(i: index = 0)
@@ -131,7 +154,7 @@ local mb_ctx_push_aux_i32_array = func(ctx: ptr(@{MomBackLowerCtx}), values: ptr
     return start_id
 end
 
--- Push a command to the context's command buffer.
+-- Push a command to the context's command buffer using the 6‑word push.
 local mb_ctx_push_cmd = func(ctx: ptr(@{MomBackLowerCtx}), tag: i32, a: i32, b: i32, c: i32, d: i32, e: i32, f: i32) -> index
     return mr_cmd_buffer_push(ctx.cmd_buffer, tag, a, b, c, d, e, f)
 end
@@ -143,11 +166,12 @@ end
 
 -- Check if the context has overflowed any of its buffers.
 local mb_ctx_overflowed = func(ctx: ptr(@{MomBackLowerCtx})) -> bool
-    return mr_cmd_buffer_overflowed(ctx.cmd_buffer) or 
+    return mr_cmd_buffer_overflowed(ctx.cmd_buffer) or
            mr_i32_builder_overflowed(ctx.aux_i32) or
            mr_issue_builder_overflowed(ctx.issues)
 end
 
+-- Export all helper functions.
 M.mb_ctx_init = mb_ctx_init
 M.mb_ctx_reset_func = mb_ctx_reset_func
 M.mb_ctx_set_module = mb_ctx_set_module
@@ -155,6 +179,7 @@ M.mb_ctx_fresh_value = mb_ctx_fresh_value
 M.mb_ctx_fresh_block = mb_ctx_fresh_block
 M.mb_ctx_fresh_access = mb_ctx_fresh_access
 M.mb_ctx_fresh_slot = mb_ctx_fresh_slot
+M.mb_ctx_fresh_data = mb_ctx_fresh_data
 M.mb_ctx_push_aux_i32 = mb_ctx_push_aux_i32
 M.mb_ctx_push_aux_i32_array = mb_ctx_push_aux_i32_array
 M.mb_ctx_push_cmd = mb_ctx_push_cmd
