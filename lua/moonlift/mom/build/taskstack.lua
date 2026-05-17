@@ -161,11 +161,13 @@ local state = {}
 local function load_state()
   local f = io.open(STATE_FILE, "r")
   if f then
-    local ok, chunk = pcall(loadstring(f:read("*a")))
+    local content = f:read("*a")
     f:close()
-    if ok and type(chunk) == "function" then
-      local ok2, result = pcall(chunk)
-      if ok2 and type(result) == "table" then
+    -- loadstring returns a function; we need to execute it to get the table
+    local chunk = loadstring(content)
+    if chunk then
+      local ok, result = pcall(chunk)
+      if ok and type(result) == "table" then
         state = result
         return
       end
@@ -560,6 +562,7 @@ local function cmd_next()
     print("All tasks complete!")
   end
 end
+
 
 local function cmd_json()
   load_state()
