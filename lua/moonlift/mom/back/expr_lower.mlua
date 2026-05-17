@@ -24,6 +24,7 @@ local i32p = moon.ptr(moon.i32)
 -- Import context and helpers installed by previously loaded modules.
 local MomTreeOut = M.MomTreeOut
 local MomBackLowerCtx = M.MomBackLowerCtx
+local MomExprResult = M.MomExprResult
 local mb_ctx_fresh_value = M.mb_ctx_fresh_value
 local mb_ctx_push_aux_i32 = M.mb_ctx_push_aux_i32
 
@@ -467,10 +468,12 @@ end
 -- Delegates to mb_lower_expr_fn (func-based, no region emits).
 -- Safe to emit from other regions since this region emits no sub-regions.
 local mb_lower_expr_region = region(ctx: ptr(@{MomBackLowerCtx}), idx: i32;
-                                    done: cont(value: i32, scalar: i32, ok: bool))
+                                    done: cont(result: MomExprResult))
 entry start()
     let ok: bool = mb_lower_expr_fn(ctx, ctx.tree, idx)
-    jump done(value = ctx.last_expr_value, scalar = ctx.last_expr_scalar, ok = ok)
+    jump done(result = MomExprResult(value = ctx.last_expr_value,
+                                     scalar = ctx.last_expr_scalar,
+                                     ok = ok))
 end
 end
 
