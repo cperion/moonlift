@@ -40,7 +40,10 @@ local mb_lower_surface_cast_op = M.mb_lower_surface_cast_op
 -- Command emission helpers from back/cmd.mlua.
 local mb_emit_const = M.mb_emit_const
 local mb_emit_unary = M.mb_emit_unary
-local mb_emit_binary = M.mb_emit_binary
+local mb_emit_int_binary = M.mb_emit_int_binary
+local mb_emit_float_binary = M.mb_emit_float_binary
+local mb_emit_bit_binary = M.mb_emit_bit_binary
+local mb_emit_shift = M.mb_emit_shift
 local mb_emit_compare = M.mb_emit_compare
 local mb_emit_cast = M.mb_emit_cast
 local mb_emit_select = M.mb_emit_select
@@ -124,7 +127,7 @@ entry start()
     let back_op: i32 = mb_lower_unary_op(unary_op, child_scalar)
     if back_op == 0 then jump done(value = 0, scalar = 0, ok = false) end
 
-    mb_emit_unary(ctx, dst, back_op, 1, child_scalar, 0, child_value)
+    mb_emit_unary(ctx, dst, back_op, 0, child_scalar, 0, child_value)
     jump done(value = dst, scalar = child_scalar, ok = true)
 end
 end
@@ -155,18 +158,18 @@ entry start()
     let overflow: i32 = 0  -- wrap
     let exact: i32 = 0
 
-    -- Append the appropriate command.
+    -- Append the appropriate command using the correct family helper.
     if op == @{T.BinBitAnd} or op == @{T.BinBitOr} or op == @{T.BinBitXor} then
         local bit_op: i32 = select(op == @{T.BinBitAnd}, @{T.BackBitAnd},
                             select(op == @{T.BinBitOr}, @{T.BackBitOr}, @{T.BackBitXor}))
-        mb_emit_binary(ctx, 1, scalar, dst, left_val, right_val, bit_op, overflow, exact)
+        mb_emit_bit_binary(ctx, dst, bit_op, scalar, left_val, right_val)
         jump done(value = dst, scalar = scalar, ok = true)
     end
     if op == @{T.BinShl} or op == @{T.BinLShr} or op == @{T.BinAShr} then
         local shift_op: i32 = select(op == @{T.BinShl}, @{T.BackShiftLeft},
                              select(op == @{T.BinLShr}, @{T.BackShiftLogicalRight},
                                     @{T.BackShiftArithmeticRight}))
-        mb_emit_binary(ctx, 1, scalar, dst, left_val, right_val, shift_op, overflow, exact)
+        mb_emit_shift(ctx, dst, shift_op, scalar, left_val, right_val)
         jump done(value = dst, scalar = scalar, ok = true)
     end
     if is_float then
@@ -175,7 +178,7 @@ entry start()
                            select(op == @{T.BinMul}, @{T.BackFloatMul},
                            select(op == @{T.BinDiv}, @{T.BackFloatDiv}, 0))))
         if float_op == 0 then jump done(value = 0, scalar = 0, ok = false) end
-        mb_emit_binary(ctx, 1, scalar, dst, left_val, right_val, float_op, overflow, exact)
+        mb_emit_float_binary(ctx, dst, float_op, scalar, 1, left_val, right_val)
         jump done(value = dst, scalar = scalar, ok = true)
     end
     -- Fallback to integer binary.
@@ -185,7 +188,7 @@ entry start()
                    select(op == @{T.BinDiv}, @{T.BackIntSDiv},
                    select(op == @{T.BinRem}, @{T.BackIntSRem}, 0)))))
     if int_op == 0 then jump done(value = 0, scalar = 0, ok = false) end
-    mb_emit_binary(ctx, 1, scalar, dst, left_val, right_val, int_op, overflow, exact)
+    mb_emit_int_binary(ctx, dst, int_op, scalar, overflow, exact, left_val, right_val)
     jump done(value = dst, scalar = scalar, ok = true)
 end
 end
@@ -210,7 +213,7 @@ entry start()
     if cmp_op == 0 then jump done(value = 0, scalar = 0, ok = false) end
 
     let dst: i32 = mb_ctx_fresh_value(ctx)
-    mb_emit_compare(ctx, dst, cmp_op, 1, lhs_scalar, 0, lhs_val, rhs_val)
+    mb_emit_compare(ctx, dst, cmp_op, 0, lhs_scalar, 0, lhs_val, rhs_val)
     jump done(value = dst, scalar = @{T.BackBool}, ok = true)
 end
 end
@@ -236,13 +239,13 @@ entry start()
     if tok == @{T.TK_AND} then
         let false_val: i32 = mb_ctx_fresh_value(ctx)
         mb_emit_const(ctx, false_val, @{T.BackBool}, 0, 0, 0)
-        mb_emit_select(ctx, dst, 1, @{T.BackBool}, 0, left_val, right_val, false_val)
+        mb_emit_select(ctx, dst, 0, @{T.BackBool}, 0, left_val, right_val, false_val)
         jump done(value = dst, scalar = @{T.BackBool}, ok = true)
     end
     if tok == @{T.TK_OR} then
         let true_val: i32 = mb_ctx_fresh_value(ctx)
         mb_emit_const(ctx, true_val, @{T.BackBool}, 1, 0, 0)
-        mb_emit_select(ctx, dst, 1, @{T.BackBool}, 0, left_val, true_val, right_val)
+        mb_emit_select(ctx, dst, 0, @{T.BackBool}, 0, left_val, true_val, right_val)
         jump done(value = dst, scalar = @{T.BackBool}, ok = true)
     end
     jump done(value = 0, scalar = 0, ok = false)
@@ -296,7 +299,7 @@ entry start()
 
     let result_scalar: i32 = ctx.expr_scalar[idx]
     let dst: i32 = mb_ctx_fresh_value(ctx)
-    mb_emit_select(ctx, dst, 1, result_scalar, 0, cond_val, then_val, else_val)
+    mb_emit_select(ctx, dst, 0, result_scalar, 0, cond_val, then_val, else_val)
     jump done(value = dst, scalar = result_scalar, ok = true)
 end
 end
@@ -330,7 +333,7 @@ entry start()
 
     let result_scalar: i32 = ctx.expr_scalar[idx]
     let dst: i32 = mb_ctx_fresh_value(ctx)
-    mb_emit_load_info(ctx, dst, 1, result_scalar, 0, 0, child_val, 0, 0, 1, 4, 0, 4, 0, 0, 1)
+    mb_emit_load_info(ctx, dst, 0, result_scalar, 0, 0, child_val, 0, 0, 1, 4, 0, 4, 0, 0, 1)
     jump done(value = dst, scalar = result_scalar, ok = true)
 end
 end
