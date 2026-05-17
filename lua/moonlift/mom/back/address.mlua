@@ -8,7 +8,6 @@
 --   mb_place_store_to_back   (lower store via place)
 --   mb_memory_info_read / mb_memory_info_write
 --   mb_address_from_ptr
---   mb_place_addr_to_back_fn / mb_index_addr_to_back_fn (func wraps)
 
 return function(M)
 local i32p = moon.ptr(moon.i32)
@@ -16,7 +15,6 @@ local i32p = moon.ptr(moon.i32)
 local T = require("moonlift.mom.tags.mom_tags")
 
 local MomBackLowerCtx = M.MomBackLowerCtx
-local MomAddressResult = M.MomAddressResult
 local mb_ctx_fresh_value = M.mb_ctx_fresh_value
 local mb_ctx_fresh_slot = M.mb_ctx_fresh_slot
 local mb_ctx_push_aux_i32 = M.mb_ctx_push_aux_i32
@@ -90,7 +88,7 @@ end
 
 local mb_index_addr_to_back = region(ctx: ptr(@{MomBackLowerCtx}),
                                      base_idx: i32, index_expr: i32, elem_type: i32;
-                                     done: cont(result: MomAddressResult))
+                                     done: cont(addr: i32, elem_scalar: i32, ok: bool))
 entry start()
     let tree: ptr = ctx.tree
     let base_tag: i32 = tree.expr_tag[base_idx]
@@ -98,7 +96,7 @@ entry start()
     var idx_scalar: i32 = 0
     var idx_ok: bool = false
     emit mb_lower_expr_region(ctx, index_expr, idx_val, idx_scalar, idx_ok)
-    if idx_ok == false then jump done(result = MomAddressResult(addr = 0, pointee_scalar = 0, ok = false)) end
+    if idx_ok == false then jump done(addr = 0, elem_scalar = 0, ok = false) end
 
     -- Compute element size from elem_type scalar stored by typecheck.
     let elem_scalar: i32 = ctx.expr_scalar[as(i32, elem_type)]
@@ -111,17 +109,17 @@ entry start()
         var base_scalar: i32 = 0
         var addr_ok: bool = false
         emit mb_place_addr_to_back(ctx, child_base, base_addr, base_scalar, addr_ok)
-        if addr_ok == false then jump done(result = MomAddressResult(addr = 0, pointee_scalar = 0, ok = false)) end
+        if addr_ok == false then jump done(addr = 0, elem_scalar = 0, ok = false) end
         -- Scale index by element size.
         let mul_dst: i32 = mb_ctx_fresh_value(ctx)
         mb_emit_int_binary(ctx, mul_dst, @{T.BackIntMul}, @{T.BackIndex}, 0, 0, idx_val, const_elem_size(ctx, elem_byte_size))
         let addr_dst: i32 = mb_ctx_fresh_value(ctx)
         mb_emit_ptr_offset(ctx, addr_dst, 0, base_addr, mul_dst, 1, 0, 0)
-        jump done(result = MomAddressResult(addr = addr_dst, pointee_scalar = elem_scalar, ok = true))
+        jump done(addr = addr_dst, elem_scalar = elem_scalar, ok = true)
     end
     if base_tag == @{T.EX_REF} then
         -- EX_REF view locals require EX_VIEW dispatch (not emitted by parser).
-        jump done(result = MomAddressResult(addr = 0, pointee_scalar = 0, ok = false))
+        jump done(addr = 0, elem_scalar = 0, ok = false)
     end
     if base_tag == @{T.EX_INDEX} or base_tag == @{T.EX_DOT} then
         -- Recursive lowering.
@@ -129,14 +127,14 @@ entry start()
         var base_scalar: i32 = 0
         var addr_ok: bool = false
         emit mb_place_addr_to_back(ctx, base_idx, base_addr, base_scalar, addr_ok)
-        if addr_ok == false then jump done(result = MomAddressResult(addr = 0, pointee_scalar = 0, ok = false)) end
+        if addr_ok == false then jump done(addr = 0, elem_scalar = 0, ok = false) end
         let mul_dst: i32 = mb_ctx_fresh_value(ctx)
         mb_emit_int_binary(ctx, mul_dst, @{T.BackIntMul}, @{T.BackIndex}, 0, 0, idx_val, const_elem_size(ctx, elem_byte_size))
         let addr_dst: i32 = mb_ctx_fresh_value(ctx)
         mb_emit_ptr_offset(ctx, addr_dst, 0, base_addr, mul_dst, 1, 0, 0)
-        jump done(result = MomAddressResult(addr = addr_dst, pointee_scalar = elem_scalar, ok = true))
+        jump done(addr = addr_dst, elem_scalar = elem_scalar, ok = true)
     end
-    jump done(result = MomAddressResult(addr = 0, pointee_scalar = 0, ok = false))
+    jump done(addr = 0, elem_scalar = 0, ok = false)
 end
 end
 
@@ -153,7 +151,7 @@ end
 -- ── mb_place_addr_to_back ─────────────────────────────────────────
 
 local mb_place_addr_to_back = region(ctx: ptr(@{MomBackLowerCtx}), place_idx: i32;
-                                     done: cont(result: MomAddressResult))
+                                     done: cont(addr: i32, pointee_scalar: i32, ok: bool))
 entry start()
     let tree: ptr = ctx.tree
     let place_tag: i32 = tree.expr_tag[place_idx]
@@ -165,17 +163,18 @@ entry start()
         let kind: i32 = select(slot >= 0, ctx.env.kind[as(index, slot)], 0)
         let scalar: i32 = select(slot >= 0, ctx.env.scalar[as(index, slot)], 0)
         let val: i32 = select(slot >= 0, ctx.env.val[as(index, slot)], 0)
-        if slot < 0 then jump done(result = MomAddressResult(addr = 0, pointee_scalar = 0, ok = false)) end
+        let aux0: i32 = select(slot >= 0, ctx.env.aux0[as(index, slot)], 0)
+        if slot < 0 then jump done(addr = 0, pointee_scalar = 0, ok = false) end
         if kind == @{MB_LOCAL_STACK} then
             let addr_val: i32 = mb_ctx_fresh_value(ctx)
             mb_emit_stack_addr(ctx, addr_val, val)
-            jump done(result = MomAddressResult(addr = addr_val, pointee_scalar = scalar, ok = true))
+            jump done(addr = addr_val, pointee_scalar = scalar, ok = true)
         end
         if kind == @{MB_LOCAL_SCALAR} then
             -- Not addressable.
-            jump done(result = MomAddressResult(addr = 0, pointee_scalar = 0, ok = false))
+            jump done(addr = 0, pointee_scalar = 0, ok = false)
         end
-        jump done(result = MomAddressResult(addr = 0, pointee_scalar = 0, ok = false))
+        jump done(addr = 0, pointee_scalar = 0, ok = false)
     end
 
     if place_tag == @{T.EX_DEREF} then
@@ -185,9 +184,9 @@ entry start()
         var child_scalar: i32 = 0
         var child_ok: bool = false
         emit mb_lower_expr_region(ctx, child_idx, child_val, child_scalar, child_ok)
-        if child_ok == false then jump done(result = MomAddressResult(addr = 0, pointee_scalar = 0, ok = false)) end
+        if child_ok == false then jump done(addr = 0, pointee_scalar = 0, ok = false) end
         let pointee_scalar: i32 = ctx.expr_scalar[place_idx]
-        jump done(result = MomAddressResult(addr = child_val, pointee_scalar = pointee_scalar, ok = true))
+        jump done(addr = child_val, pointee_scalar = pointee_scalar, ok = true)
     end
 
     if place_tag == @{T.EX_INDEX} then
@@ -195,19 +194,20 @@ entry start()
         let base_idx: i32 = tree.expr_op[place_idx]
         let index_expr: i32 = tree.expr_lhs[place_idx]
         let elem_type: i32 = ctx.expr_type[place_idx]
-        var addr_res: MomAddressResult = _
-        emit mb_index_addr_to_back(ctx, base_idx, index_expr, elem_type, result = after_index)
-    end
-    block after_index(result: MomAddressResult)
-        jump done(result = result)
+        var addr: i32 = 0
+        var elem_scalar: i32 = 0
+        var idx_ok: bool = false
+        emit mb_index_addr_to_back(ctx, base_idx, index_expr, elem_type, addr, elem_scalar, idx_ok)
+        if idx_ok == false then jump done(addr = 0, pointee_scalar = 0, ok = false) end
+        jump done(addr = addr, pointee_scalar = elem_scalar, ok = true)
     end
 
     if place_tag == @{T.EX_DOT} then
         -- PlaceField – field offset resolution deferred; return unsupported.
-        jump done(result = MomAddressResult(addr = 0, pointee_scalar = 0, ok = false))
+        jump done(addr = 0, pointee_scalar = 0, ok = false)
     end
 
-    jump done(result = MomAddressResult(addr = 0, pointee_scalar = 0, ok = false))
+    jump done(addr = 0, pointee_scalar = 0, ok = false)
 end
 end
 
@@ -227,6 +227,7 @@ entry start()
         let kind: i32 = select(slot >= 0, ctx.env.kind[as(index, slot)], 0)
         let scalar: i32 = select(slot >= 0, ctx.env.scalar[as(index, slot)], 0)
         let val: i32 = select(slot >= 0, ctx.env.val[as(index, slot)], 0)
+        let aux0: i32 = select(slot >= 0, ctx.env.aux0[as(index, slot)], 0)
         if slot >= 0 and kind == @{MB_LOCAL_SCALAR} then
             -- SSA rebind.
             var rhs_val: i32 = 0
@@ -240,13 +241,11 @@ entry start()
     end
 
     -- General path: compute address then emit store.
-    var addr_res: MomAddressResult = _
-    emit mb_place_addr_to_back(ctx, place_idx, result = after_addr)
-end
-block after_addr(result: MomAddressResult)
-    if result.ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
-    let addr_val: i32 = result.addr
-    let pointee_scalar: i32 = result.pointee_scalar
+    var addr_val: i32 = 0
+    var pointee_scalar: i32 = 0
+    var addr_ok: bool = false
+    emit mb_place_addr_to_back(ctx, place_idx, addr_val, pointee_scalar, addr_ok)
+    if addr_ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
     var rhs_val: i32 = 0
     var rhs_scalar: i32 = 0
     var rhs_ok: bool = false
@@ -258,49 +257,12 @@ block after_addr(result: MomAddressResult)
 end
 end
 
--- ── Function wrappers for use from expr_lower.mlua ────────────────
-
--- Wrapper that calls mb_place_addr_to_back and stores results in ctx fields.
--- Returns ok bool.
-local mb_place_addr_to_back_fn = func(ctx: ptr(@{MomBackLowerCtx}), place_idx: i32) -> bool
-    var res_addr: i32 = 0
-    var res_pointee: i32 = 0
-    var res_ok: bool = false
-    emit mb_place_addr_to_back(ctx, place_idx,
-                                result = addr_cont)
-end
-block addr_cont(result: MomAddressResult)
-    ctx.last_addr = result.addr
-    ctx.last_pointee_scalar = result.pointee_scalar
-    return result.ok
-end
-end
-
--- Wrapper that calls mb_index_addr_to_back and stores results in ctx fields.
--- Returns ok bool.
-local mb_index_addr_to_back_fn = func(ctx: ptr(@{MomBackLowerCtx}),
-                                       base_idx: i32, index_expr: i32, elem_type: i32) -> bool
-    var res_addr: i32 = 0
-    var res_pointee: i32 = 0
-    var res_ok: bool = false
-    emit mb_index_addr_to_back(ctx, base_idx, index_expr, elem_type,
-                                result = index_cont)
-end
-block index_cont(result: MomAddressResult)
-    ctx.last_addr = result.addr
-    ctx.last_pointee_scalar = result.pointee_scalar
-    return result.ok
-end
-end
-
 -- ── Exports ────────────────────────────────────────────────────────
 
 M.mb_view_to_back = mb_view_to_back
 M.mb_index_addr_to_back = mb_index_addr_to_back
 M.mb_place_addr_to_back = mb_place_addr_to_back
 M.mb_place_store_to_back = mb_place_store_to_back
-M.mb_place_addr_to_back_fn = mb_place_addr_to_back_fn
-M.mb_index_addr_to_back_fn = mb_index_addr_to_back_fn
 M.mb_memory_info_read = mb_memory_info_read
 M.mb_memory_info_write = mb_memory_info_write
 M.mb_address_from_ptr = mb_address_from_ptr
