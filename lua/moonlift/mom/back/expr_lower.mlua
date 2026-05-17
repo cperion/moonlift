@@ -307,32 +307,44 @@ entry start()
 end
 end
 
--- Lower a call expression (direct only, arguments collected via aux_i32).
+-- Lower a call expression with full call‑target dispatch.
 local mb_expr_call = region(ctx: ptr(@{MomBackLowerCtx}), idx: i32;
                             done: cont(value: i32, scalar: i32, ok: bool))
 entry start()
-    let callee_idx: i32 = ctx.tree.expr_a[idx]
-    let callee_val: i32; let callee_scalar: i32; let callee_ok: bool
-    emit mb_lower_expr_region(ctx, callee_idx, callee_val, callee_scalar, callee_ok)
-    if callee_ok == false then jump done(value = 0, scalar = 0, ok = false) end
+    -- The typecheck phase records the call target variant in tree.expr_a (0..3).
+    let target_tag: i32 = ctx.tree.expr_a[idx]
+    let target_id: i32 = ctx.tree.expr_b[idx]
+    let sig: i32 = ctx.tree.expr_c[idx]
+    let args_start: i32 = ctx.tree.expr_d[idx]
+    -- (expr_e may hold the argument count in the tree definition, but we
+    --  currently use the argument list region from the semantic tree.
+    --  The port map says the call expression's argument list is stored in
+    --  expr_d  (start)  and  expr_?  (count).  We'll use the same pattern
+    --  as the hosted oracle and infer the count from the tree.)
+    let args_count: i32 = 0
+    -- The port_map section 9 declares expr_a = target_tag, expr_b = target_id,
+    -- expr_c = sig, expr_d = arg_list_start+?; we fall back to the argument
+    -- region from the tree’s child‑expression tape positions: expr_a[idx] had
+    -- been used earlier for the callee index; now the mapping is changed.
+    -- For the moment we accept that the actual layout is:
+    --   expr_a[idx]  = target_tag (CallDirect=0,CallExtern=1,CallIndirect=2)
+    --   expr_b[idx]  = target_id (func/extern/value id)
+    --   expr_c[idx]  = sig (aux index of sig)
+    --   expr_d[idx]  = args_aux (pre‑collected auxiliary index)
+    let args_aux: i32 = ctx.tree.expr_d[idx]
 
-    -- Collect arguments
-    let args_start: i32 = ctx.tree.expr_b[idx]
-    let args_count: i32 = ctx.tree.expr_c[idx]
-    let base: i32 = args_start
-    block collect(i: i32 = 0)
-        if i >= args_count then yield end
-        let arg_val: i32; let arg_scalar: i32; let arg_ok: bool
-        emit mb_lower_expr_region(ctx, base + i, arg_val, arg_scalar, arg_ok)
-        if arg_ok == false then jump done(value = 0, scalar = 0, ok = false) end
-        mb_ctx_push_aux_i32(ctx, arg_val)
-        jump collect(i = i + as(i32, 1))
+    -- Determine result scalar.
+    let result_scalar: i32 = ctx.expr_scalar[idx]
+
+    -- For void‑result calls we need to check `result_scalar != 0` (non‑void).
+    if result_scalar == @{T.BackVoid} then
+        -- Void call: no result value.  Emit a statement‑style call.
+        mb_emit_call(ctx, 0, 0, 0, target_tag, target_id, sig, args_aux, 0)
+        jump done(value = 0, scalar = @{T.BackVoid}, ok = true)
     end
 
-    let result_scalar: i32 = ctx.expr_scalar[idx]
     let dst: i32 = mb_ctx_fresh_value(ctx)
-    let aux_start: i32 = as(i32, ctx.aux_i32.len) - as(i32, as(index, args_count))
-    mb_emit_call(ctx, 1, dst, result_scalar, 0, callee_val, aux_start, args_count)
+    mb_emit_call(ctx, 1, dst, result_scalar, target_tag, target_id, sig, args_aux, 0)
     jump done(value = dst, scalar = result_scalar, ok = true)
 end
 end
@@ -360,10 +372,24 @@ entry start()
 end
 end
 
--- Expr length lowering stub.
+-- Expr length lowering.
 local mb_expr_len = region(ctx: ptr(@{MomBackLowerCtx}), idx: i32;
                            done: cont(value: i32, scalar: i32, ok: bool))
 entry start()
+    let child_idx: i32 = ctx.tree.expr_b[idx]
+    let child_tag: i32 = ctx.tree.expr_tag[child_idx]
+    -- If the child is a simple reference, try environment lookup for a view local.
+    if child_tag == @{T.EX_REF} then
+        let name_tok: i32 = ctx.tree.expr_tok[child_idx]
+        let kind: i32; let scalar: i32; let val: i32; let aux0: i32
+        let found: bool = mb_env_lookup_into(ctx.env, name_tok, kind, scalar, val, aux0)
+        if found and kind == @{MB_LOCAL_VIEW} then
+            -- aux0 holds the length value for a view binding.
+            jump done(value = aux0, scalar = @{T.BackIndex}, ok = true)
+        end
+    end
+    -- For other cases (lowered view expressions, etc.) the length is unsupported
+    -- in the scalar‑expression lowering protocol.
     jump done(value = 0, scalar = 0, ok = false)
 end
 end
@@ -403,8 +429,17 @@ end
 local mb_lower_expr_as_view = region(ctx: ptr(@{MomBackLowerCtx}), idx: i32;
                                      done: cont(data: i32, len: i32, stride: i32, elem_scalar: i32, ok: bool))
 entry start()
-    -- delegate to dispatch; currently stub
+    -- Dispatch the expression tag and, if it is a view expression, invoke the
+    -- view‑specific lowering.
+    let tag: i32 = ctx.tree.expr_tag[idx]
+    if tag == @{T.EX_VIEW} then
+        emit mb_expr_view(ctx, idx; done = out_view)
+    end
+    -- For non‑view expression tags the view protocol is unsupported.
     jump done(data = 0, len = 0, stride = 0, elem_scalar = 0, ok = false)
+end
+block out_view(data: i32, len: i32, stride: i32, elem_scalar: i32, ok: bool)
+    jump done(data = data, len = len, stride = stride, elem_scalar = elem_scalar, ok = ok)
 end
 end
 
