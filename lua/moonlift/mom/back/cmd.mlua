@@ -539,14 +539,6 @@ local mb_emit_cmd = func(ctx: ptr(@{MomBackLowerCtx}), tag: i32, w0: i32, w1: i3
     mr_cmd_buffer_push(ctx.cmd_buffer, tag, w0, w1, w2, w3, w4, w5)
 end
 
-local mb_emit_cmd_entry = func(ctx: ptr(@{MomBackLowerCtx}), entry: ptr(@{CmdEntry}))
-    mr_cmd_buffer_push_entry(ctx.cmd_buffer, entry.tag,
-                             entry.w0, entry.w1, entry.w2, entry.w3,
-                             entry.w4, entry.w5, entry.w6, entry.w7,
-                             entry.w8, entry.w9, entry.w10, entry.w11,
-                             entry.w12, entry.w13, entry.w14, entry.w15,
-                             entry.w16)
-end
 
 local mb_emit_cmd_entry = func(ctx: ptr(@{MomBackLowerCtx}), entry: ptr(@{CmdEntry}))
     mr_cmd_buffer_push_entry(ctx.cmd_buffer, entry.tag,
@@ -600,19 +592,27 @@ local mb_emit_int_binary = func(ctx: ptr(@{MomBackLowerCtx}), dst: i32, op: i32,
 end
 
 local mb_emit_float_binary = func(ctx: ptr(@{MomBackLowerCtx}), dst: i32, op: i32, scalar: i32, semantics: i32, lhs: i32, rhs: i32)
-    mb_emit_cmd(ctx, @{T.CmdFloatBinary}, dst, op, scalar, semantics, lhs, rhs)
+    let e: CmdEntry
+    mb_cmd_float_binary(e, dst, op, scalar, semantics, lhs, rhs)
+    mb_emit_cmd_entry(ctx, e)
 end
 
 local mb_emit_bit_binary = func(ctx: ptr(@{MomBackLowerCtx}), dst: i32, op: i32, scalar: i32, lhs: i32, rhs: i32)
-    mb_emit_cmd(ctx, @{T.CmdBitBinary}, dst, op, scalar, lhs, rhs, 0)
+    let e: CmdEntry
+    mb_cmd_bit_binary(e, dst, op, scalar, lhs, rhs)
+    mb_emit_cmd_entry(ctx, e)
 end
 
 local mb_emit_shift = func(ctx: ptr(@{MomBackLowerCtx}), dst: i32, op: i32, scalar: i32, lhs: i32, rhs: i32)
-    mb_emit_cmd(ctx, @{T.CmdShift}, dst, op, scalar, lhs, rhs, 0)
+    let e: CmdEntry
+    mb_cmd_shift(e, dst, op, scalar, lhs, rhs)
+    mb_emit_cmd_entry(ctx, e)
 end
 
 local mb_emit_rotate = func(ctx: ptr(@{MomBackLowerCtx}), dst: i32, op: i32, scalar: i32, lhs: i32, rhs: i32)
-    mb_emit_cmd(ctx, @{T.CmdRotate}, dst, op, scalar, lhs, rhs, 0)
+    let e: CmdEntry
+    mb_cmd_rotate(e, dst, op, scalar, lhs, rhs)
+    mb_emit_cmd_entry(ctx, e)
 end
 
 local mb_emit_compare = func(ctx: ptr(@{MomBackLowerCtx}), dst: i32, op: i32, shape_tag: i32, scalar: i32, lanes: i32, lhs: i32, rhs: i32)
@@ -660,84 +660,124 @@ local mb_emit_store_info = func(ctx: ptr(@{MomBackLowerCtx}), shape_tag: i32, sc
 end
 
 local mb_emit_create_sig = func(ctx: ptr(@{MomBackLowerCtx}), sig: i32, params_aux: i32, n_params: i32, results_aux: i32, n_results: i32)
-    mb_emit_cmd(ctx, @{T.CmdCreateSig}, sig, params_aux, n_params, results_aux, n_results, 0)
+    let e: CmdEntry
+    mb_cmd_create_sig(e, sig, params_aux, n_params, results_aux, n_results)
+    mb_emit_cmd_entry(ctx, e)
 end
 
 local mb_emit_declare_func = func(ctx: ptr(@{MomBackLowerCtx}), visibility: i32, func_id: i32, sig: i32)
-    mb_emit_cmd(ctx, @{T.CmdDeclareFunc}, visibility, func_id, sig, 0, 0, 0)
+    let e: CmdEntry
+    mb_cmd_declare_func(e, visibility, func_id, sig)
+    mb_emit_cmd_entry(ctx, e)
 end
 
 local mb_emit_declare_extern = func(ctx: ptr(@{MomBackLowerCtx}), extern_id: i32, symbol: i32, sig: i32)
-    mb_emit_cmd(ctx, @{T.CmdDeclareExtern}, extern_id, symbol, sig, 0, 0, 0)
+    let e: CmdEntry
+    mb_cmd_declare_extern(e, extern_id, symbol, sig)
+    mb_emit_cmd_entry(ctx, e)
 end
 
 local mb_emit_begin_func = func(ctx: ptr(@{MomBackLowerCtx}), func_id: i32)
-    mb_emit_cmd(ctx, @{T.CmdBeginFunc}, func_id, 0, 0, 0, 0, 0)
+    let e: CmdEntry
+    mb_cmd_begin_func(e, func_id)
+    mb_emit_cmd_entry(ctx, e)
 end
 
 local mb_emit_create_block = func(ctx: ptr(@{MomBackLowerCtx}), blk: i32)
-    mb_emit_cmd(ctx, @{T.CmdCreateBlock}, blk, 0, 0, 0, 0, 0)
+    let e: CmdEntry
+    mb_cmd_create_block(e, blk)
+    mb_emit_cmd_entry(ctx, e)
 end
 
 local mb_emit_switch_to_block = func(ctx: ptr(@{MomBackLowerCtx}), blk: i32)
-    mb_emit_cmd(ctx, @{T.CmdSwitchToBlock}, blk, 0, 0, 0, 0, 0)
+    let e: CmdEntry
+    mb_cmd_switch_to_block(e, blk)
+    mb_emit_cmd_entry(ctx, e)
 end
 
 local mb_emit_seal_block = func(ctx: ptr(@{MomBackLowerCtx}), blk: i32)
-    mb_emit_cmd(ctx, @{T.CmdSealBlock}, blk, 0, 0, 0, 0, 0)
+    let e: CmdEntry
+    mb_cmd_seal_block(e, blk)
+    mb_emit_cmd_entry(ctx, e)
 end
 
 local mb_emit_bind_entry_params = func(ctx: ptr(@{MomBackLowerCtx}), blk: i32, vals_aux: i32, n_vals: i32)
-    mb_emit_cmd(ctx, @{T.CmdBindEntryParams}, blk, vals_aux, n_vals, 0, 0, 0)
+    let e: CmdEntry
+    mb_cmd_bind_entry_params(e, blk, vals_aux, n_vals)
+    mb_emit_cmd_entry(ctx, e)
 end
 
 local mb_emit_append_block_param = func(ctx: ptr(@{MomBackLowerCtx}), blk: i32, value: i32, shape_tag: i32, scalar: i32, lanes: i32)
-    mb_emit_cmd(ctx, @{T.CmdAppendBlockParam}, blk, value, shape_tag, scalar, lanes, 0)
+    let e: CmdEntry
+    mb_cmd_append_block_param(e, blk, value, shape_tag, scalar, lanes)
+    mb_emit_cmd_entry(ctx, e)
 end
 
 local mb_emit_finish_func = func(ctx: ptr(@{MomBackLowerCtx}), func_id: i32)
-    mb_emit_cmd(ctx, @{T.CmdFinishFunc}, func_id, 0, 0, 0, 0, 0)
+    let e: CmdEntry
+    mb_cmd_finish_func(e, func_id)
+    mb_emit_cmd_entry(ctx, e)
 end
 
 local mb_emit_finalize_module = func(ctx: ptr(@{MomBackLowerCtx}))
-    mb_emit_cmd(ctx, @{T.CmdFinalizeModule}, 0, 0, 0, 0, 0, 0)
+    let e: CmdEntry
+    mb_cmd_finalize_module(e)
+    mb_emit_cmd_entry(ctx, e)
 end
 
 local mb_emit_target_model = func(ctx: ptr(@{MomBackLowerCtx}))
-    mb_emit_cmd(ctx, @{T.CmdTargetModel}, 0, 0, 0, 0, 0, 0)
+    let e: CmdEntry
+    mb_cmd_target_model(e)
+    mb_emit_cmd_entry(ctx, e)
 end
 
 local mb_emit_declare_data = func(ctx: ptr(@{MomBackLowerCtx}), data: i32, size: i32, align: i32)
-    mb_emit_cmd(ctx, @{T.CmdDeclareData}, data, size, align, 0, 0, 0)
+    let e: CmdEntry
+    mb_cmd_declare_data(e, data, size, align)
+    mb_emit_cmd_entry(ctx, e)
 end
 
 local mb_emit_data_init_zero = func(ctx: ptr(@{MomBackLowerCtx}), data: i32, offset: i32, size: i32)
-    mb_emit_cmd(ctx, @{T.CmdDataInitZero}, data, offset, size, 0, 0, 0)
+    let e: CmdEntry
+    mb_cmd_data_init_zero(e, data, offset, size)
+    mb_emit_cmd_entry(ctx, e)
 end
 
 local mb_emit_data_init = func(ctx: ptr(@{MomBackLowerCtx}), data: i32, offset: i32, scalar: i32, lit_tag: i32, lit_lo: i32, lit_hi: i32)
-    mb_emit_cmd(ctx, @{T.CmdDataInit}, data, offset, scalar, lit_tag, lit_lo, lit_hi)
+    let e: CmdEntry
+    mb_cmd_data_init(e, data, offset, scalar, lit_tag, lit_lo, lit_hi)
+    mb_emit_cmd_entry(ctx, e)
 end
 
 local mb_emit_create_stack_slot = func(ctx: ptr(@{MomBackLowerCtx}), slot: i32, size: i32, align: i32)
-    mb_emit_cmd(ctx, @{T.CmdCreateStackSlot}, slot, size, align, 0, 0, 0)
+    let e: CmdEntry
+    mb_cmd_create_stack_slot(e, slot, size, align)
+    mb_emit_cmd_entry(ctx, e)
 end
 
 local mb_emit_alias_fact = func(ctx: ptr(@{MomBackLowerCtx}), kind: i32, a: i32, b: i32, c: i32)
-    mb_emit_cmd(ctx, @{T.CmdAliasFact}, kind, a, b, c, 0, 0)
+    let e: CmdEntry
+    mb_cmd_alias_fact(e, kind, a, b, c)
+    mb_emit_cmd_entry(ctx, e)
 end
 
 local mb_emit_jump = func(ctx: ptr(@{MomBackLowerCtx}), dest: i32, args_aux: i32, count: i32)
-    mb_emit_cmd(ctx, @{T.CmdJump}, dest, args_aux, count, 0, 0, 0)
+    let e: CmdEntry
+    mb_cmd_jump(e, dest, args_aux, count)
+    mb_emit_cmd_entry(ctx, e)
 end
 
 local mb_emit_br_if = func(ctx: ptr(@{MomBackLowerCtx}), cond: i32, then_block: i32, then_aux: i32, then_count: i32,
                            else_block: i32, else_aux: i32, else_count: i32)
-    mb_emit_cmd(ctx, @{T.CmdBrIf}, cond, then_block, then_aux, then_count, else_block, else_aux)
+    let e: CmdEntry
+    mb_cmd_br_if(e, cond, then_block, then_aux, then_count, else_block, else_aux, else_count)
+    mb_emit_cmd_entry(ctx, e)
 end
 
 local mb_emit_switch_int = func(ctx: ptr(@{MomBackLowerCtx}), value: i32, scalar: i32, switch_table: ptr(@{MomSwitchCaseTable}))
-    mb_emit_cmd(ctx, @{T.CmdSwitchInt}, value, scalar, switch_table.n_cases, switch_table.default_blk, 0, 0)
+    let e: CmdEntry
+    mb_cmd_switch_int(e, value, scalar, switch_table.n_cases, switch_table.default_blk, 0)
+    mb_emit_cmd_entry(ctx, e)
 end
 
 local mb_emit_return_void = func(ctx: ptr(@{MomBackLowerCtx}))

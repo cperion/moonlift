@@ -273,7 +273,6 @@ end
 M.mr_cmd_buffer_reset = mr_cmd_buffer_reset
 M.mr_cmd_buffer_push = mr_cmd_buffer_push
 M.mr_cmd_buffer_push_entry = mr_cmd_buffer_push_entry
-M.mr_cmd_buffer_push_entry = mr_cmd_buffer_push_entry
 M.mr_cmd_buffer_overflowed = mr_cmd_buffer_overflowed
 M.mr_fresh_value = mr_fresh_value
 M.mr_fresh_block = mr_fresh_block
