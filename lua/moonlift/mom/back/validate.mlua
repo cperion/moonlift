@@ -214,7 +214,12 @@ local mb_validate = func(tagp: ptr(i32), a_arr: ptr(i32), b_arr: ptr(i32), c_arr
             if act < 0 then mb_push(@{T.BackIssueCommandOutsideFunction}, i, 0, 0, it, ia, ib, ic, icnt, icap) end
             jump lp(i = i + 1, act = act, fin = fin)
         end
-        if tg == @{T.CmdAppendBlockParam} or tg == @{T.CmdAliasFact} or tg == @{T.CmdMemcpy} or tg == @{T.CmdMemset}
+        if tg == @{T.CmdAppendBlockParam} then
+            if act < 0 then mb_push(@{T.BackIssueCommandOutsideFunction}, i, 0, 0, it, ia, ib, ic, icnt, icap)
+            elseif mb_add(ms + MV * mcap, mk + MV * mcap, b, mcap) ~= 0 then mb_push(@{T.BackIssueDuplicateValue}, i, b, 0, it, ia, ib, ic, icnt, icap) end
+            jump lp(i = i + 1, act = act, fin = fin)
+        end
+        if tg == @{T.CmdAliasFact} or tg == @{T.CmdMemcpy} or tg == @{T.CmdMemset}
             or tg == @{T.CmdAtomicFence}
         then
             if act < 0 then mb_push(@{T.BackIssueCommandOutsideFunction}, i, 0, 0, it, ia, ib, ic, icnt, icap) end

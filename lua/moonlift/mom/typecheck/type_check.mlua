@@ -167,7 +167,7 @@ local mt_type_expr = func(ei: i32,
 
     -- ME_LIT: token -> scalar (tree_typecheck.lua: ExprLit)
     if tg == @{T.ME_LIT} then
-        let s: i32 = mt_literal_scalar(expr_tok[i])
+        let s: i32 = mt_literal_scalar(expr_op[i])
         out_scalar[i] = s
         return s
     end

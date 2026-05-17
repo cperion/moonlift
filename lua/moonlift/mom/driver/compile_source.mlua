@@ -415,10 +415,6 @@ end
 local mc_normalize_param_refs = func(src: ptr(u8), work_buf: ptr(u8))
     let tree: ptr(@{MomTreeOut}) = mc_tree_out_ptr(work_buf)
     let func_item: i32 = mc_first_func_item(tree)
-    if func_item < 0 then return end
-    let fi: index = as(index, func_item)
-    let pstart: index = as(index, tree.item_member_start[fi])
-    let pcount: index = as(index, tree.item_member_count[fi])
     let ne: index = as(index, tree.counts[as(index, 1)])
     let starts: ptr(i32) = mc_lex_starts(work_buf)
     let stops: ptr(i32) = mc_lex_stops(work_buf)
@@ -426,15 +422,42 @@ local mc_normalize_param_refs = func(src: ptr(u8), work_buf: ptr(u8))
         if ei >= ne then return end
         if tree.expr_tag[ei] == @{T.ME_REF} then
             let ref_tok: i32 = tree.expr_tok[ei]
-            block params(pi: index = 0)
-                if pi >= pcount then yield end
-                let param_tok: i32 = tree.param_name[pstart + pi]
+            if func_item >= 0 then
+                let fi: index = as(index, func_item)
+                let pstart: index = as(index, tree.item_member_start[fi])
+                let pcount: index = as(index, tree.item_member_count[fi])
+                block params(pi: index = 0)
+                    if pi >= pcount then yield end
+                    let param_tok: i32 = tree.param_name[pstart + pi]
+                    if mc_token_text_eq(src, starts, stops, ref_tok, param_tok) then
+                        tree.expr_tok[ei] = param_tok
+                        tree.expr_op[ei] = param_tok
+                        yield
+                    end
+                    jump params(pi = pi + as(index, 1))
+                end
+            end
+            let n_entry: index = as(index, tree.counts[12])
+            block entry_params(pi: index = 0)
+                if pi >= n_entry then yield end
+                let param_tok: i32 = tree.entry_param_name[pi]
                 if mc_token_text_eq(src, starts, stops, ref_tok, param_tok) then
                     tree.expr_tok[ei] = param_tok
                     tree.expr_op[ei] = param_tok
                     yield
                 end
-                jump params(pi = pi + as(index, 1))
+                jump entry_params(pi = pi + as(index, 1))
+            end
+            let n_params: index = as(index, tree.counts[4])
+            block block_params(pi: index = 0)
+                if pi >= n_params then yield end
+                let param_tok: i32 = tree.param_name[pi]
+                if mc_token_text_eq(src, starts, stops, ref_tok, param_tok) then
+                    tree.expr_tok[ei] = param_tok
+                    tree.expr_op[ei] = param_tok
+                    yield
+                end
+                jump block_params(pi = pi + as(index, 1))
             end
         end
         jump exprs(ei = ei + as(index, 1))
