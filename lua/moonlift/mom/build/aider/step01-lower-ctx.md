@@ -2,6 +2,10 @@
 
 Create `lua/moonlift/mom/back/lower_ctx.mlua` — the typed lowering context.
 
+**Policy: Hard rewrite. No backward compat shims. No placeholder code. Every function complete.**
+
+
+
 ## Pattern
 ```moonlift
 return function(M)

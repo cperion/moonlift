@@ -2,6 +2,10 @@
 
 Add `mb_emit_*` append helpers to `lua/moonlift/mom/back/cmd.mlua`.
 
+**Policy: Hard rewrite. No backward compat shims. No placeholder code. Every helper complete.**
+
+
+
 ## Pattern
 
 Each helper combines CmdEntry construction with MomCmdBuffer push:

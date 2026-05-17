@@ -2,6 +2,10 @@
 
 Replace `lua/moonlift/mom/back/expr_lower.mlua` with a clean implementation that uses `MomBackLowerCtx` and `mb_emit_*` helpers.
 
+**Policy: Hard rewrite. No backward compat shims. No placeholder code. Every case complete.**
+
+
+
 ## Pattern
 
 ```moonlift

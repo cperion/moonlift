@@ -2,6 +2,10 @@
 
 Replace `lua/moonlift/mom/back/stmt_lower.mlua` to use `MomBackLowerCtx` and `mb_emit_*` helpers.
 
+**Policy: Hard rewrite. No backward compat shims. No placeholder code. Every case complete.**
+
+
+
 ## Entrypoints (port_map section 11 lines 758-762)
 
 ```moonlift

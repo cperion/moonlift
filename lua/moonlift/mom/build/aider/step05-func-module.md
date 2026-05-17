@@ -4,6 +4,10 @@ Create `lua/moonlift/mom/back/func.mlua` and `lua/moonlift/mom/back/module.mlua`
 
 Take lowering orchestration out of `compile_module.mlua` (reduce to phase calling) and put semantics in `back/`.
 
+**Policy: Hard rewrite. No backward compat shims. No placeholder code. Every function complete.**
+
+
+
 ## func.mlua — Function lowering (port_map section 13 lines 879-900, 907-913)
 
 ```moonlift
