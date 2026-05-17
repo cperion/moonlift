@@ -116,9 +116,8 @@ entry start()
         jump done(flow = @{BackFallsThrough}, ok = true)
 
     case @{T.ST_SET} then
-        -- Place store → currently unsupported in scalar‑only lowering.
-        -- We emit a trap and return unsupported.
-        mb_emit_const(ctx, mb_ctx_fresh_value(ctx), @{T.BackI32}, 0, 0, 0)   -- dummy
+        -- Place store: delegate to mb_place_store_to_back.
+        -- Currently unsupported in scalar‑only lowering (address module not yet wired).
         jump done(flow = @{BackFallsThrough}, ok = false)
 
     case @{T.ST_EXPR} then
@@ -139,6 +138,36 @@ entry start()
         if ret_ok == false then jump done(flow = @{BackTerminates}, ok = false) end
         mb_emit_return_value(ctx, ret_val)
         jump done(flow = @{BackTerminates}, ok = true)
+
+    case @{T.ST_ATOMIC_STORE} then
+        -- Atomic store: lower addr and value, emit CmdAtomicStore.
+        local addr_idx: i32 = stmt_a
+        local val_idx: i32 = stmt_b
+        local addr_val: i32; local addr_scalar: i32; local addr_ok: bool
+        emit mb_lower_expr_region(ctx, addr_idx, addr_val, addr_scalar, addr_ok)
+        if addr_ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
+        local value_val: i32; local value_scalar: i32; local value_ok: bool
+        emit mb_lower_expr_region(ctx, val_idx, value_val, value_scalar, value_ok)
+        if value_ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
+        let zero: i32 = mb_ctx_fresh_value(ctx)
+        mb_emit_const(ctx, zero, @{T.BackIndex}, 0, 0, 0)
+        mb_emit_atomic_store(ctx, value_scalar, addr_val, zero, value_val, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+        jump done(flow = @{BackFallsThrough}, ok = true)
+
+    case @{T.ST_ATOMIC_FENCE} then
+        let ordering_idx: i32 = stmt_a
+        -- ordering token not yet wired; emit default seq-cst fence.
+        mb_emit_atomic_fence(ctx, @{T.AtomicSeqCst})
+        jump done(flow = @{BackFallsThrough}, ok = true)
+
+    case @{T.ST_ASSERT} then
+        -- No backend commands, falls through.
+        jump done(flow = @{BackFallsThrough}, ok = true)
+
+    case @{T.ST_USEREGIONSLOT} then
+    case @{T.ST_USEREGIONFRAG} then
+        -- No‑op after open expansion.
+        jump done(flow = @{BackFallsThrough}, ok = true)
 
     case @{T.ST_IF} then
         -- Delegate to dedicated if‑lowering region.
@@ -213,6 +242,85 @@ entry start()
         jump done(flow = @{BackFallsThrough}, ok = false)
     end
 end
+
+-- ── Dedicated if‑statement lowering region ─────────────────────────
+
+local mb_lower_if_stmt = region(ctx: ptr(@{MomBackLowerCtx}), stmt_idx: i32;
+                                done: cont(flow: i32, ok: bool))
+entry start()
+    let tree: ptr = ctx.tree
+    let cond_idx: i32 = tree.stmt_name[stmt_idx]
+    let then_start: i32 = as(i32, tree.stmt_value[stmt_idx])
+    let then_count: i32 = as(i32, tree.stmt_aux[stmt_idx])
+    local else_start: i32 = tree.stmt_body_start[stmt_idx]
+    local else_count: i32 = tree.stmt_body_count[stmt_idx]
+    local else_start_i32: i32 = else_start
+    local else_count_i32: i32 = else_count
+    local cond_val: i32; local cond_scalar: i32; local cond_ok: bool
+    emit mb_lower_expr_region(ctx, cond_idx, cond_val, cond_scalar, cond_ok)
+    if cond_ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
+    let then_blk: i32 = mb_ctx_fresh_block(ctx)
+    let else_blk: i32 = mb_ctx_fresh_block(ctx)
+    let join_blk: i32 = mb_ctx_fresh_block(ctx)
+    mb_emit_create_block(ctx, then_blk)
+    mb_emit_create_block(ctx, else_blk)
+    mb_emit_create_block(ctx, join_blk)
+    mb_emit_br_if(ctx, cond_val, then_blk, 0, 0, else_blk, 0, 0)
+    mb_emit_switch_to_block(ctx, then_blk)
+    local then_flow: i32; local then_ok: bool
+    emit mb_lower_stmt_list(ctx, then_start, then_count, then_flow, then_ok)
+    if then_ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
+    if then_flow != @{BackTerminates} then
+        mb_emit_jump(ctx, join_blk, 0, 0)
+    end
+    mb_emit_switch_to_block(ctx, else_blk)
+    if else_count_i32 > 0 then
+        local else_flow: i32; local else_ok: bool
+        emit mb_lower_stmt_list(ctx, else_start_i32, else_count_i32, else_flow, else_ok)
+        if else_ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
+        if else_flow != @{BackTerminates} then
+            mb_emit_jump(ctx, join_blk, 0, 0)
+        end
+    else
+        mb_emit_jump(ctx, join_blk, 0, 0)
+    end
+    mb_emit_seal_block(ctx, join_blk)
+    mb_emit_switch_to_block(ctx, join_blk)
+    jump done(flow = @{BackFallsThrough}, ok = true)
+end
+end
+
+-- ── Dedicated switch‑lowering region ───────────────────────────────
+
+local mb_lower_switch_stmt = region(ctx: ptr(@{MomBackLowerCtx}), stmt_idx: i32;
+                                    done: cont(flow: i32, ok: bool))
+entry start()
+    let tree: ptr = ctx.tree
+    let val_idx: i32 = tree.stmt_name[stmt_idx]
+    local arm_start: i32 = tree.stmt_value[stmt_idx]
+    local arm_count: i32 = tree.stmt_aux[stmt_idx]
+    local val: i32; local scalar: i32; local val_ok: bool
+    emit mb_lower_expr_region(ctx, val_idx, val, scalar, val_ok)
+    if val_ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
+    let default_blk: i32 = mb_ctx_fresh_block(ctx)
+    let join_blk: i32 = mb_ctx_fresh_block(ctx)
+    mb_emit_create_block(ctx, default_blk)
+    mb_emit_create_block(ctx, join_blk)
+    mb_emit_switch_int(ctx, val, scalar, 0, arm_count, default_blk)
+    mb_emit_switch_to_block(ctx, default_blk)
+    local def_flow: i32; local def_ok: bool
+    local default_start: i32 = tree.stmt_body_start[stmt_idx]
+    local default_count: i32 = tree.stmt_body_count[stmt_idx]
+    emit mb_lower_stmt_list(ctx, default_start, default_count, def_flow, def_ok)
+    if def_ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
+    if def_flow != @{BackTerminates} then
+        mb_emit_jump(ctx, join_blk, 0, 0)
+    end
+    mb_emit_seal_block(ctx, join_blk)
+    mb_emit_switch_to_block(ctx, join_blk)
+    jump done(flow = @{BackFallsThrough}, ok = true)
+end
+end
 end
 
 -- ── Lower a statement list ─────────────────────────────────────────
@@ -244,6 +352,8 @@ end
 
 M.mb_lower_stmt = mb_lower_stmt
 M.mb_lower_stmt_list = mb_lower_stmt_list
+M.mb_lower_if_stmt = mb_lower_if_stmt
+M.mb_lower_switch_stmt = mb_lower_switch_stmt
 
 return M
 end
