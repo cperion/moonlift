@@ -122,15 +122,28 @@ M.MomCmdSlice = struct MomCmdSlice
     n: i32
 end
 
-M.MomVecFactSlice = struct MomVecFactSlice
-    tag: ptr(i32)
-    a: ptr(i32)
-    b: ptr(i32)
-    c: ptr(i32)
-    d: ptr(i32)
-    e: ptr(i32)
-    f: ptr(i32)
-    n: i32
+M.MomVecFactsResult = struct MomVecFactsResult
+    facts_aux: i32
+    fact_count: i32
+    ok: bool
+end
+
+M.MomVecDecideResult = struct MomVecDecideResult
+    decision_aux: i32
+    decision_tag: i32
+    elem_scalar: i32
+    lanes: i32
+    ok: bool
+end
+
+M.MomVecPlanResult = struct MomVecPlanResult
+    plan_aux: i32
+    plan_count: i32
+    ok: bool
+end
+
+M.MomVecLowerStatus = struct MomVecLowerStatus
+    status: i32
 end
 
 M.BackScalar = union BackScalar | BackVoid | BackBool | BackI8 | BackI16 | BackI32 | BackI64 | BackU8 | BackU16 | BackU32 | BackU64 | BackF32 | BackF64 | BackPtr | BackIndex end

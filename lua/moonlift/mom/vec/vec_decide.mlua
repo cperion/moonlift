@@ -1,77 +1,23 @@
--- MOM vectorization legality decision.
---
--- Phase 8b: accept vec-fact tape, check target capabilities,
--- produce decision tape (legal/illegal + shape/schedule).
+-- MOM vector integration Phase 8b – struct‑based decision.
 
 local T = require("moonlift.mom.tags.mom_tags")
 
 return function(M)
-local DEFAULT_VECTOR_BITS = 128
+local MomBackLowerCtx = M.MomBackLowerCtx
+local MomVecDecideResult = M.MomVecDecideResult
 
-local mv_elem_bits = func(scalar: i32) -> i32
-    if scalar == @{T.BackBool} then return 8 end
-    if scalar == @{T.BackI32} then return 32 end
-    if scalar == @{T.BackI64} then return 64 end
-    if scalar == @{T.BackF32} then return 32 end
-    if scalar == @{T.BackF64} then return 64 end
-    if scalar == @{T.BackIndex} then return 64 end
-    return 32
+local mv_decide = region(ctx: ptr(@{MomBackLowerCtx}),
+                         facts_aux: i32, fact_count: i32;
+                         done: cont(result: MomVecDecideResult))
+entry start()
+    -- Stub: return VD_ILLEGAL, ok=true.
+    let aux_start: i32 = as(i32, ctx.aux_i32.len)
+    jump done(result = MomVecDecideResult{decision_aux = aux_start,
+                                          decision_tag = @{T.VD_ILLEGAL},
+                                          elem_scalar = 0, lanes = 0, ok = true})
+end
 end
 
-local mv_count_tag = func(tag: i32, vt: ptr(i32), nv: i32) -> i32
-    block lp(n: i32 = 0, i: i32 = 0)
-        if i >= nv then return n end
-        if vt[as(index, i)] == tag then jump lp(n = n + 1, i = i + 1) end
-        jump lp(n = n, i = i + 1)
-    end
-    return 0
-end
-
-local mv_find_first = func(tag: i32, vt: ptr(i32), nv: i32) -> i32
-    block lp(i: i32 = 0)
-        if i >= nv then return -1 end
-        if vt[as(index, i)] == tag then return i end
-        jump lp(i = i + 1)
-    end
-    return -1
-end
-
--- Output: dec[0]=tag, dec[1]=elem, dec[2]=lanes, dec[3]=unroll,
---         dec[4]=tail_mode, dec[5]=proofs
-local mv_decide = func(vt: ptr(i32), va: ptr(i32), vb: ptr(i32), vc: ptr(i32),
-                        vd: ptr(i32), ve: ptr(i32), vf: ptr(i32),
-                        nv: i32, target_bits: i32,
-                        dec: ptr(i32), dec_count: ptr(i32), dec_cap: i32)
-    let nrejects: i32 = mv_count_tag(@{T.VF_REJECT}, vt, nv)
-    if nrejects > 0 then
-        if dec_count[0] < dec_cap then
-            dec[0] = @{T.VD_ILLEGAL}; dec[1] = nrejects
-        end
-        dec_count[0] = dec_count[0] + 1
-        return
-    end
-    let elem_scalar: i32 = @{T.BackI32}
-    let ebits: i32 = mv_elem_bits(elem_scalar)
-    let bits: i32 = target_bits
-    if bits <= 0 then bits = @{DEFAULT_VECTOR_BITS} end
-    let lanes: i32 = bits / ebits
-    if lanes < 2 then lanes = 2 end
-    if lanes > 8 then lanes = 8 end
-    let has_store: i32 = mv_count_tag(@{T.VF_MEMORY_STORE}, vt, nv)
-    let has_load: i32 = mv_count_tag(@{T.VF_MEMORY_LOAD}, vt, nv)
-    let tail_mode: i32 = 1
-    if has_load == 0 and has_store == 0 then tail_mode = 0 end
-    if dec_count[0] < dec_cap then
-        dec[0] = @{T.VD_LEGAL}; dec[1] = elem_scalar; dec[2] = lanes
-        dec[3] = 1; dec[4] = tail_mode; dec[5] = 0
-    end
-    dec_count[0] = dec_count[0] + 1
-end
-
-M.mv_count_tag = mv_count_tag
-M.mv_find_first = mv_find_first
-M.mv_elem_bits = mv_elem_bits
 M.mv_decide = mv_decide
-
 return M
 end

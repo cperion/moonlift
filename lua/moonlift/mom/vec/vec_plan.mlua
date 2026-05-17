@@ -1,79 +1,24 @@
--- MOM vector kernel planner.
---
--- Phase 8c: accept vec-facts + decision, produce kernel plan tape
--- (map/reduce/algebraic).
+-- MOM vector integration Phase 8c – struct‑based planner.
 
 local T = require("moonlift.mom.tags.mom_tags")
 
 return function(M)
-local vecplan_mv_count_tag = func(tag: i32, vt: ptr(i32), nv: i32) -> i32
-    block lp(n: i32 = 0, i: i32 = 0)
-        if i >= nv then return n end
-        if vt[as(index, i)] == tag then jump lp(n = n + 1, i = i + 1) end
-        jump lp(n = n, i = i + 1)
-    end
-    return 0
+local MomBackLowerCtx = M.MomBackLowerCtx
+local MomVecPlanResult = M.MomVecPlanResult
+
+local mv_plan_kernel = region(ctx: ptr(@{MomBackLowerCtx}),
+                              facts_aux: i32, fact_count: i32,
+                              decision_aux: i32, decision_tag: i32,
+                              elem_scalar: i32, lanes: i32;
+                              done: cont(result: MomVecPlanResult))
+entry start()
+    -- Stub: return no plan, ok=true.
+    let aux_start: i32 = as(i32, ctx.aux_i32.len)
+    jump done(result = MomVecPlanResult{plan_aux = aux_start,
+                                        plan_count = 0, ok = true})
+end
 end
 
-local vecplan_mv_find_first = func(tag: i32, vt: ptr(i32), nv: i32) -> i32
-    block lp(i: i32 = 0)
-        if i >= nv then return -1 end
-        if vt[as(index, i)] == tag then return i end
-        jump lp(i = i + 1)
-    end
-    return -1
-end
-
--- Output: pt[0]=tag, pa[0]=elem, pb[0]=stop, pc[0]=counter, pd[0]=extra
-local mv_plan_kernel = func(
-    vt: ptr(i32), va: ptr(i32), vb: ptr(i32), vc: ptr(i32),
-    vd: ptr(i32), ve: ptr(i32), vf: ptr(i32), nv: i32,
-    dec: ptr(i32), ndec: i32,
-    pt: ptr(i32), pa: ptr(i32), pb: ptr(i32), pc: ptr(i32),
-    pd: ptr(i32), pcount: ptr(i32), pcap: i32)
-    let nrejects: i32 = vecplan_mv_count_tag(@{T.VF_REJECT}, vt, nv)
-    if nrejects > 0 or ndec <= 0 then
-        if pcount[0] < pcap then pt[0] = @{T.VP_NO_PLAN}; pa[0] = nrejects end
-        pcount[0] = pcount[0] + 1; return
-    end
-    if dec[0] ~= @{T.VD_LEGAL} then
-        if pcount[0] < pcap then pt[0] = @{T.VP_NO_PLAN}; pa[0] = 1 end
-        pcount[0] = pcount[0] + 1; return
-    end
-    let elem_scalar: i32 = dec[1]
-    let nloads: i32 = vecplan_mv_count_tag(@{T.VF_MEMORY_LOAD}, vt, nv)
-    let nstores: i32 = vecplan_mv_count_tag(@{T.VF_MEMORY_STORE}, vt, nv)
-    let nreductions: i32 = vecplan_mv_count_tag(@{T.VF_REDUCTION_ADD}, vt, nv)
-
-    let nreductions2: i32 = block reducc(rt: i32 = @{T.VF_REDUCTION_MUL}, acc: i32 = nreductions) -> i32
-        if rt > @{T.VF_REDUCTION_XOR} then yield acc end
-        jump reducc(rt = rt + 1, acc = acc + vecplan_mv_count_tag(rt, vt, nv))
-    end
-    if nloads == 0 and nstores == 0 and nreductions2 > 0 then
-        if pcount[0] < pcap then
-            pt[0] = @{T.VP_ALGEBRAIC}; pa[0] = elem_scalar; pc[0] = 1
-        end
-        pcount[0] = pcount[0] + 1; return
-    end
-    if nreductions2 > 0 then
-        if pcount[0] < pcap then
-            pt[0] = @{T.VP_REDUCE}; pa[0] = elem_scalar
-        end
-        pcount[0] = pcount[0] + 1; return
-    end
-    if nstores > 0 then
-        if pcount[0] < pcap then
-            pt[0] = @{T.VP_MAP}; pa[0] = elem_scalar
-        end
-        pcount[0] = pcount[0] + 1; return
-    end
-    if pcount[0] < pcap then pt[0] = @{T.VP_NO_PLAN}; pa[0] = 0 end
-    pcount[0] = pcount[0] + 1
-end
-
-M.vecplan_mv_count_tag = vecplan_mv_count_tag
-M.vecplan_mv_find_first = vecplan_mv_find_first
 M.mv_plan_kernel = mv_plan_kernel
-
 return M
 end

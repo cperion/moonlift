@@ -275,10 +275,49 @@ end
 end
 
 -- ── Exports ────────────────────────────────────────────────────────
+local mv_extract_vec_facts = M.mv_extract_vec_facts
+local mv_decide = M.mv_decide
+local mv_plan_kernel = M.mv_plan_kernel
+local mv_lower_kernel = M.mv_lower_kernel
+
+local mb_try_vector_func = region(ctx: ptr(@{MomBackLowerCtx}), item_idx: i32;
+                                  done: cont(result: i32))
+entry start()
+    emit mv_extract_vec_facts(ctx, item_idx; done = after_facts)
+end
+block after_facts(facts_result: MomVecFactsResult)
+    if facts_result.ok == false or facts_result.fact_count == 0 then
+        jump done(result = 0)  -- scalar path
+    end
+    emit mv_decide(ctx, facts_result.facts_aux, facts_result.fact_count;
+                   done = after_decide)
+end
+block after_decide(decide_result: MomVecDecideResult)
+    if decide_result.ok == false or decide_result.decision_tag ~= @{T.VD_LEGAL} then
+        jump done(result = 0)  -- scalar path
+    end
+    emit mv_plan_kernel(ctx, facts_result.facts_aux, facts_result.fact_count,
+                        decide_result.decision_aux, decide_result.decision_tag,
+                        decide_result.elem_scalar, decide_result.lanes;
+                        done = after_plan)
+end
+block after_plan(plan_result: MomVecPlanResult)
+    if plan_result.ok == false or plan_result.plan_count == 0 then
+        jump done(result = 0)  -- scalar path
+    end
+    emit mv_lower_kernel(ctx, plan_result.plan_aux, plan_result.plan_count;
+                        done = after_lower)
+end
+block after_lower(lower_result: MomVecLowerStatus)
+    jump done(result = select(lower_result.status == 0, 1, 0))
+end
+end
+
 M.mb_lower_func = mb_lower_func
 M.mb_lower_extern = mb_lower_extern
 M.mb_lower_data_init = mb_lower_data_init
 M.mb_scalar_size_align = mb_scalar_size_align
+M.mb_try_vector_func = mb_try_vector_func
 
 return M
 end

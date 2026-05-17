@@ -43,6 +43,15 @@ M.compiler_sources = {
     "lua/moonlift/mom/back/stmt_lower.mlua",
     "lua/moonlift/mom/back/control_lower.mlua",
 
+    -- Phase 6: vectorization (struct‑based, must load before func.mlua)
+    "lua/moonlift/mom/vec/vec_facts.mlua",
+    "lua/moonlift/mom/vec/vec_decide.mlua",
+    "lua/moonlift/mom/vec/vec_plan.mlua",
+    "lua/moonlift/mom/vec/vec_lower.mlua",
+
+    -- Backend function/module lowering (depends on vec modules)
+    "lua/moonlift/mom/back/func.mlua",
+
     -- Phase 3: type system
     -- Keep one typecheck implementation in the product object.  The split
     -- type_expr/type_stmt/type_place/type_module files remain focused test
@@ -64,11 +73,6 @@ M.compiler_sources = {
     "lua/moonlift/mom/driver/lua_api.mlua",
     "lua/moonlift/mom/driver/native_entry.mlua",
 
-    -- Phase 6: vectorization (skeletons)
-    "lua/moonlift/mom/vec/vec_facts.mlua",
-    "lua/moonlift/mom/vec/vec_decide.mlua",
-    "lua/moonlift/mom/vec/vec_lower.mlua",
-    "lua/moonlift/mom/vec/vec_plan.mlua",
 }
 
 return M
