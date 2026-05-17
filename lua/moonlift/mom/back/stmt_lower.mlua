@@ -503,9 +503,10 @@ entry start()
     let ok: bool = true
     block loop(i: index = 0)
         if i >= list_count then jump done(flow = flow, ok = ok) end
-        let sidx: i32 = as(i32, list_start + i)
         let tree: ptr = ctx.tree
-        let tag: i32 = tree.stmt_tag[sidx]
+        let stmt_index: i32 = tree.stmt_list[as(index, list_start + i)]
+        let tag: i32 = tree.stmt_tag[stmt_index]
+        let sidx: i32 = stmt_index  -- alias used in the rest of the block
 
         if tag == @{T.ST_IF} then
             local then_start: i32 = tree.stmt_type[sidx]
