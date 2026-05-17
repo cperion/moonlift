@@ -1,0 +1,250 @@
+-- MOM address/store/model lowering.
+--
+-- Step 6 implementation.
+-- Contains:
+--   mb_view_to_back          (always returns ok=false for now)
+--   mb_index_addr_to_back    (lower index base + index expression)
+--   mb_place_addr_to_back    (lower place → pointer address)
+--   mb_place_store_to_back   (lower store via place)
+--   mb_memory_info_read / mb_memory_info_write
+--   mb_address_from_ptr
+
+return function(M)
+local i32p = moon.ptr(moon.i32)
+
+local T = require("moonlift.mom.tags.mom_tags")
+
+local MomBackLowerCtx = M.MomBackLowerCtx
+local mb_ctx_fresh_value = M.mb_ctx_fresh_value
+local mb_ctx_fresh_slot = M.mb_ctx_fresh_slot
+local mb_ctx_push_aux_i32 = M.mb_ctx_push_aux_i32
+local mb_ctx_fresh_block = M.mb_ctx_fresh_block
+
+-- Env helpers (same calling convention as expr_lower.mlua).
+local mb_env_lookup_into = M.mb_env_lookup_into
+local mb_env_bind_scalar = M.mb_env_bind_scalar
+
+-- Expr lowering entry (needed by store).
+local mb_lower_expr_region = M.mb_lower_expr_region
+
+-- Command emission helpers.
+local mb_emit_const = M.mb_emit_const
+local mb_emit_ptr_offset = M.mb_emit_ptr_offset
+local mb_emit_int_binary = M.mb_emit_int_binary
+local mb_emit_store_info = M.mb_emit_store_info
+local mb_emit_stack_addr = M.mb_emit_stack_addr
+local mb_emit_cast = M.mb_emit_cast
+
+-- Ops helpers.
+local mb_is_float_scalar = M.mb_is_float_scalar
+local mb_is_integer_scalar = M.mb_is_integer_scalar
+local mb_scalar_bits = M.mb_scalar_bits
+local mb_core_scalar_to_back = M.mb_core_scalar_to_back
+
+-- Constants from env.mlua.
+local MB_LOCAL_SCALAR = 1
+local MB_LOCAL_VIEW = 2
+local MB_LOCAL_STACK = 3
+
+local BackFallsThrough = 0
+local BackTerminates   = 1
+
+-- Helper: scalar → byte width (mirrors slot_size logic).
+local scalar_size = func(scalar: i32) -> i32
+    if scalar == @{T.BackI32} or scalar == @{T.BackU32} or scalar == @{T.BackF32} then return 4 end
+    if scalar == @{T.BackI64} or scalar == @{T.BackU64} or scalar == @{T.BackF64} or
+       scalar == @{T.BackPtr} or scalar == @{T.BackIndex} then return 8 end
+    if scalar == @{T.BackI16} or scalar == @{T.BackU16} then return 2 end
+    if scalar == @{T.BackI8} or scalar == @{T.BackU8} then return 1 end
+    return 4
+end
+
+-- ── mb_memory_info_read / mb_memory_info_write ────────────────────
+
+local mb_memory_info_read = func() -> i32
+    return 0   -- Read, Known, 4, Default, 4, NoTrap, NonVolatile, Normal
+end
+
+local mb_memory_info_write = func() -> i32
+    return 2   -- Write access
+end
+
+-- ── mb_address_from_ptr ───────────────────────────────────────────
+
+local mb_address_from_ptr = func(ptr_value: i32) -> i32, i32
+    -- base_tag = 0 (BackAddrValue), base_id = ptr_value
+    return 0, ptr_value
+end
+
+-- ── mb_view_to_back (always false for now) ────────────────────────
+
+local mb_view_to_back = region(ctx: ptr(@{MomBackLowerCtx}), view_idx: i32;
+                               done: cont(data: i32, len: i32, stride: i32, elem_scalar: i32, ok: bool))
+entry start()
+    jump done(data = 0, len = 0, stride = 0, elem_scalar = 0, ok = false)
+end
+end
+
+-- ── mb_index_addr_to_back ─────────────────────────────────────────
+
+local mb_index_addr_to_back = region(ctx: ptr(@{MomBackLowerCtx}),
+                                     base_idx: i32, index_expr: i32, elem_type: i32;
+                                     done: cont(addr: i32, elem_scalar: i32, ok: bool))
+entry start()
+    let tree: ptr = ctx.tree
+    let base_tag: i32 = tree.expr_tag[base_idx]
+    let idx_val: i32; let idx_scalar: i32; let idx_ok: bool
+    emit mb_lower_expr_region(ctx, index_expr, idx_val, idx_scalar, idx_ok)
+    if idx_ok == false then jump done(addr = 0, elem_scalar = 0, ok = false) end
+
+    -- Compute element size from elem_type scalar stored by typecheck.
+    let elem_scalar: i32 = ctx.expr_scalar[as(i32, elem_type)]
+    let elem_byte_size: i32 = scalar_size(elem_scalar)
+
+    if base_tag == @{T.EX_DEREF} then
+        -- IndexBasePlace via deref
+        let child_base: i32 = tree.expr_lhs[base_idx]
+        local base_addr: i32; local base_scalar: i32; local addr_ok: bool
+        emit mb_place_addr_to_back(ctx, child_base, base_addr, base_scalar, addr_ok)
+        if addr_ok == false then jump done(addr = 0, elem_scalar = 0, ok = false) end
+        -- Scale index by element size.
+        let mul_dst: i32 = mb_ctx_fresh_value(ctx)
+        mb_emit_int_binary(ctx, mul_dst, @{T.BackIntMul}, @{T.BackIndex}, 0, 0, idx_val, const_elem_size(ctx, elem_byte_size))
+        let addr_dst: i32 = mb_ctx_fresh_value(ctx)
+        mb_emit_ptr_offset(ctx, addr_dst, 0, base_addr, mul_dst, 1, 0, 0)
+        jump done(addr = addr_dst, elem_scalar = elem_scalar, ok = true)
+    end
+    if base_tag == @{T.EX_REF} then
+        -- Could be a view local; unsupported for now.
+        jump done(addr = 0, elem_scalar = 0, ok = false)
+    end
+    if base_tag == @{T.EX_INDEX} or base_tag == @{T.EX_DOT} then
+        -- Recursive lowering.
+        local base_addr: i32; local base_scalar: i32; local addr_ok: bool
+        emit mb_place_addr_to_back(ctx, base_idx, base_addr, base_scalar, addr_ok)
+        if addr_ok == false then jump done(addr = 0, elem_scalar = 0, ok = false) end
+        let mul_dst: i32 = mb_ctx_fresh_value(ctx)
+        mb_emit_int_binary(ctx, mul_dst, @{T.BackIntMul}, @{T.BackIndex}, 0, 0, idx_val, const_elem_size(ctx, elem_byte_size))
+        let addr_dst: i32 = mb_ctx_fresh_value(ctx)
+        mb_emit_ptr_offset(ctx, addr_dst, 0, base_addr, mul_dst, 1, 0, 0)
+        jump done(addr = addr_dst, elem_scalar = elem_scalar, ok = true)
+    end
+    jump done(addr = 0, elem_scalar = 0, ok = false)
+end
+end
+
+-- Small internal region to create a constant i32 for element size.
+local const_elem_size = region(ctx: ptr(@{MomBackLowerCtx}), size: i32;
+                               done: cont(val: i32))
+entry start()
+    let dst: i32 = mb_ctx_fresh_value(ctx)
+    mb_emit_const(ctx, dst, @{T.BackI32}, 2, size, 0)
+    jump done(val = dst)
+end
+end
+
+-- ── mb_place_addr_to_back ─────────────────────────────────────────
+
+local mb_place_addr_to_back = region(ctx: ptr(@{MomBackLowerCtx}), place_idx: i32;
+                                     done: cont(addr: i32, pointee_scalar: i32, ok: bool))
+entry start()
+    let tree: ptr = ctx.tree
+    let place_tag: i32 = tree.expr_tag[place_idx]
+
+    if place_tag == @{T.EX_REF} then
+        -- PlaceRef
+        let name_tok: i32 = tree.expr_tok[place_idx]
+        local kind: i32; local scalar: i32; local val: i32; local aux0: i32
+        let found: bool = mb_env_lookup_into(ctx.env, name_tok, kind, scalar, val, aux0)
+        if found == false then jump done(addr = 0, pointee_scalar = 0, ok = false) end
+        if kind == @{MB_LOCAL_STACK} then
+            let addr_val: i32 = mb_ctx_fresh_value(ctx)
+            mb_emit_stack_addr(ctx, addr_val, val)
+            jump done(addr = addr_val, pointee_scalar = scalar, ok = true)
+        end
+        if kind == @{MB_LOCAL_SCALAR} then
+            -- Not addressable.
+            jump done(addr = 0, pointee_scalar = 0, ok = false)
+        end
+        jump done(addr = 0, pointee_scalar = 0, ok = false)
+    end
+
+    if place_tag == @{T.EX_DEREF} then
+        -- PlaceDeref: child is pointer value.
+        let child_idx: i32 = tree.expr_lhs[place_idx]
+        local child_val: i32; local child_scalar: i32; local child_ok: bool
+        emit mb_lower_expr_region(ctx, child_idx, child_val, child_scalar, child_ok)
+        if child_ok == false then jump done(addr = 0, pointee_scalar = 0, ok = false) end
+        let pointee_scalar: i32 = ctx.expr_scalar[place_idx]
+        jump done(addr = child_val, pointee_scalar = pointee_scalar, ok = true)
+    end
+
+    if place_tag == @{T.EX_INDEX} then
+        -- PlaceIndex -> delegate to mb_index_addr_to_back.
+        let base_idx: i32 = tree.expr_op[place_idx]
+        let index_expr: i32 = tree.expr_lhs[place_idx]
+        let elem_type: i32 = ctx.expr_type[place_idx]
+        local addr: i32; local elem_scalar: i32; local idx_ok: bool
+        emit mb_index_addr_to_back(ctx, base_idx, index_expr, elem_type, addr, elem_scalar, idx_ok)
+        if idx_ok == false then jump done(addr = 0, pointee_scalar = 0, ok = false) end
+        jump done(addr = addr, pointee_scalar = elem_scalar, ok = true)
+    end
+
+    if place_tag == @{T.EX_DOT} then
+        -- PlaceField – field offset resolution deferred; return unsupported.
+        jump done(addr = 0, pointee_scalar = 0, ok = false)
+    end
+
+    jump done(addr = 0, pointee_scalar = 0, ok = false)
+end
+end
+
+-- ── mb_place_store_to_back ────────────────────────────────────────
+
+local mb_place_store_to_back = region(ctx: ptr(@{MomBackLowerCtx}),
+                                      place_idx: i32, value_expr: i32;
+                                      done: cont(flow: i32, ok: bool))
+entry start()
+    let tree: ptr = ctx.tree
+    let place_tag: i32 = tree.expr_tag[place_idx]
+
+    -- Special case: PlaceRef that is a value‑backed local (MB_LOCAL_SCALAR)
+    if place_tag == @{T.EX_REF} then
+        let name_tok: i32 = tree.expr_tok[place_idx]
+        local kind: i32; local scalar: i32; local val: i32; local aux0: i32
+        let found: bool = mb_env_lookup_into(ctx.env, name_tok, kind, scalar, val, aux0)
+        if found and kind == @{MB_LOCAL_SCALAR} then
+            -- SSA rebind.
+            local rhs_val: i32; local rhs_scalar: i32; local rhs_ok: bool
+            emit mb_lower_expr_region(ctx, value_expr, rhs_val, rhs_scalar, rhs_ok)
+            if rhs_ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
+            mb_env_bind_scalar(ctx.env, name_tok, rhs_scalar, rhs_val)
+            jump done(flow = @{BackFallsThrough}, ok = true)
+        end
+    end
+
+    -- General path: compute address then emit store.
+    local addr_val: i32; local pointee_scalar: i32; local addr_ok: bool
+    emit mb_place_addr_to_back(ctx, place_idx, addr_val, pointee_scalar, addr_ok)
+    if addr_ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
+    local rhs_val: i32; local rhs_scalar: i32; local rhs_ok: bool
+    emit mb_lower_expr_region(ctx, value_expr, rhs_val, rhs_scalar, rhs_ok)
+    if rhs_ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
+    mb_emit_store_info(ctx, 0, pointee_scalar, 0, 0, addr_val, 0,
+                       rhs_val, 2, 0, 0, 0, 0, 0, 0, 2)
+    jump done(flow = @{BackFallsThrough}, ok = true)
+end
+end
+
+-- ── Exports ────────────────────────────────────────────────────────
+
+M.mb_view_to_back = mb_view_to_back
+M.mb_index_addr_to_back = mb_index_addr_to_back
+M.mb_place_addr_to_back = mb_place_addr_to_back
+M.mb_place_store_to_back = mb_place_store_to_back
+M.mb_memory_info_read = mb_memory_info_read
+M.mb_memory_info_write = mb_memory_info_write
+M.mb_address_from_ptr = mb_address_from_ptr
+
+return M
+end

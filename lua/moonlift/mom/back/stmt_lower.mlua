@@ -53,6 +53,10 @@ local mb_emit_atomic_store = M.mb_emit_atomic_store
 local mb_emit_atomic_fence = M.mb_emit_atomic_fence
 local mb_emit_switch_int = M.mb_emit_switch_int
 
+-- Step 6: address/store helpers from back/address.mlua.
+local mb_place_store_to_back = M.mb_place_store_to_back
+local MB_LOCAL_SCALAR = 1
+
 -- Scalar/ops helpers (from back/ops.mlua).
 local mb_is_float_scalar = M.mb_is_float_scalar
 local mb_is_integer_scalar = M.mb_is_integer_scalar
@@ -104,7 +108,6 @@ entry start()
         local init_val: i32; local init_scalar: i32; local init_ok: bool
         emit mb_lower_expr_region(ctx, init_idx, init_val, init_scalar, init_ok)
         if init_ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
-        -- Always allocate a stack slot for var (addressable).
         let slot: i32 = mb_ctx_fresh_slot(ctx)
         let size: i32 = slot_size(init_scalar)
         let align: i32 = select(size > 4, 8, 4)
@@ -117,11 +120,15 @@ entry start()
         jump done(flow = @{BackFallsThrough}, ok = true)
 
     case @{T.ST_SET} then
-        -- Place store: delegate to future address module (still unsupported in scalar‑only lowering).
-        jump done(flow = @{BackFallsThrough}, ok = false)
+        -- Delegate to the address/store module (step 6).
+        let place_idx: i32 = stmt_a
+        let value_idx: i32 = stmt_c
+        local flow: i32; local store_ok: bool
+        emit mb_place_store_to_back(ctx, place_idx, value_idx, flow, store_ok)
+        if store_ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
+        jump done(flow = flow, ok = true)
 
     case @{T.ST_EXPR} then
-        -- Expression statement: lower and discard value.
         let expr_idx: i32 = stmt_a
         local val: i32; local scalar: i32; local ok: bool
         emit mb_lower_expr_region(ctx, expr_idx, val, scalar, ok)
@@ -140,7 +147,6 @@ entry start()
         jump done(flow = @{BackTerminates}, ok = true)
 
     case @{T.ST_ATOMIC_STORE} then
-        -- Atomic store: lower addr and value, emit CmdAtomicStore.
         local addr_idx: i32 = stmt_a
         local val_idx: i32 = stmt_b
         local addr_val: i32; local addr_scalar: i32; local addr_ok: bool
@@ -159,12 +165,10 @@ entry start()
         jump done(flow = @{BackFallsThrough}, ok = true)
 
     case @{T.ST_ASSERT} then
-        -- No backend commands, falls through.
         jump done(flow = @{BackFallsThrough}, ok = true)
 
     case @{T.ST_USEREGIONSLOT} then
     case @{T.ST_USEREGIONFRAG} then
-        -- No‑op after open expansion.
         jump done(flow = @{BackFallsThrough}, ok = true)
 
     case @{T.ST_IF} then
@@ -176,7 +180,6 @@ entry start()
     case @{T.ST_JUMP} then
     case @{T.ST_YIELD} then
     case @{T.ST_EMIT} then
-        -- Outside control region → unsupported.
         jump done(flow = @{BackTerminates}, ok = false)
 
     default then
@@ -251,13 +254,11 @@ entry start()
     emit mb_lower_expr_region(ctx, val_idx, val, scalar, val_ok)
     if val_ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
 
-    -- Create default and join blocks
     let default_blk: i32 = mb_ctx_fresh_block(ctx)
     let join_blk: i32 = mb_ctx_fresh_block(ctx)
     mb_emit_create_block(ctx, default_blk)
     mb_emit_create_block(ctx, join_blk)
 
-    -- Push case keys and arm block IDs to auxiliary i32 array
     let aux_start: i32 = as(i32, ctx.aux_i32.len)
     block arm_create(i: index = 0)
         if i >= as(index, arm_count) then yield end
@@ -271,7 +272,6 @@ entry start()
     let n_cases: i32 = arm_count
     mb_emit_switch_int(ctx, val, scalar, aux_start, n_cases, default_blk)
 
-    -- Lower default body
     mb_emit_switch_to_block(ctx, default_blk)
     local default_body_start: i32 = tree.stmt_body_start[stmt_idx]
     local default_body_count: i32 = tree.stmt_body_count[stmt_idx]
@@ -282,7 +282,6 @@ entry start()
         mb_emit_jump(ctx, join_blk, 0, 0)
     end
 
-    -- Lower each arm
     block arm_body(i: index = 0)
         if i >= as(index, arm_count) then yield end
         local arm_blk: i32 = ctx.aux_i32.data[as(index, aux_start) + as(index, i) * 2 + 1]
