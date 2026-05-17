@@ -182,6 +182,7 @@ entry start()
     default then
         jump done(flow = @{BackFallsThrough}, ok = false)
     end
+end
 block out_if(flow: i32, ok: bool)
     jump done(flow = flow, ok = ok)
 end
