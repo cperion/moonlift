@@ -30,6 +30,62 @@ M.MomControlRegionWorkspace = struct MomControlRegionWorkspace
     result_val: i32
 end
 
+M.MomIfPhiEntry = struct MomIfPhiEntry
+    name_tok: i32
+    param_val: i32
+    scalar: i32
+end
+
+M.MomIfPhiTable = struct MomIfPhiTable
+    entries: view(M.MomIfPhiEntry)
+    n_changed: i32
+    then_blk: i32
+    else_blk: i32
+    join_blk: i32
+end
+
+M.MomSwitchCaseEntry = struct MomSwitchCaseEntry
+    key_val: i32
+    target_blk: i32
+end
+
+M.MomSwitchCaseTable = struct MomSwitchCaseTable
+    entries: view(M.MomSwitchCaseEntry)
+    n_cases: i32
+    default_blk: i32
+end
+
+M.MomFuncSig = struct MomFuncSig
+    params_aux: i32
+    n_params: i32
+    result_aux: i32
+    n_results: i32
+    sig_id: i32
+    func_id: i32
+end
+
+M.MomCmdSlice = struct MomCmdSlice
+    tag: ptr(i32)
+    a: ptr(i32)
+    b: ptr(i32)
+    c: ptr(i32)
+    d: ptr(i32)
+    e: ptr(i32)
+    f: ptr(i32)
+    n: i32
+end
+
+M.MomVecFactSlice = struct MomVecFactSlice
+    tag: ptr(i32)
+    a: ptr(i32)
+    b: ptr(i32)
+    c: ptr(i32)
+    d: ptr(i32)
+    e: ptr(i32)
+    f: ptr(i32)
+    n: i32
+end
+
 M.BackScalar = union BackScalar | BackVoid | BackBool | BackI8 | BackI16 | BackI32 | BackI64 | BackU8 | BackU16 | BackU32 | BackU64 | BackF32 | BackF64 | BackPtr | BackIndex end
 
 M.BackSigId = struct BackSigId text: ptr(u8) end
