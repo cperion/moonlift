@@ -695,8 +695,8 @@ local mb_emit_br_if = func(ctx: ptr(@{MomBackLowerCtx}), cond: i32, then_block: 
     mb_emit_cmd(ctx, @{T.CmdBrIf}, cond, then_block, then_aux, then_count, else_block, else_aux)
 end
 
-local mb_emit_switch_int = func(ctx: ptr(@{MomBackLowerCtx}), value: i32, scalar: i32, cases_aux: i32, n_cases: i32, default_blk: i32)
-    mb_emit_cmd(ctx, @{T.CmdSwitchInt}, value, scalar, cases_aux, n_cases, default_blk, 0)
+local mb_emit_switch_int = func(ctx: ptr(@{MomBackLowerCtx}), value: i32, scalar: i32, switch_table: ptr(@{M.MomSwitchCaseTable}))
+    mb_emit_cmd(ctx, @{T.CmdSwitchInt}, value, scalar, switch_table.n_cases, switch_table.default_blk, 0, 0)
 end
 
 local mb_emit_return_void = func(ctx: ptr(@{MomBackLowerCtx}))

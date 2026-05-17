@@ -338,7 +338,12 @@ entry start()
         jump build_cases(ci = ci + as(index, 1))
     end
 
-    mb_emit_switch_int(ctx, value_val, value_scalar, cases_aux, arm_count, default_blk)
+    let switch_table: M.MomSwitchCaseTable = M.MomSwitchCaseTable(
+        entries = ???,
+        n_cases = arm_count,
+        default_blk = default_blk
+    )
+    mb_emit_switch_int(ctx, value_val, value_scalar, switch_table)
 
     block seal_arms(ai: index = as(index, 0))
         if ai >= as(index, arm_count) then yield end

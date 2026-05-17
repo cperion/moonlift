@@ -124,23 +124,25 @@ block after_collect(status: i32)
         if i >= ni then yield end
         let tag: i32 = tree.item_tag[i]
         if tag == @{IT_FUNC} or tag == @{IT_EXTERN} then
-            let params_aux: i32 = push_item_params(ctx, as(i32, i))
-            let n_params: i32 = as(i32, tree.item_member_count[i])
-            let result_aux: i32 = push_item_result(ctx, as(i32, i))
-            let n_results: i32 = select(tree.item_result[i] < 0, 0, 1)
-            let sig_id: i32 = mb_ctx_fresh_value(ctx)
-            mb_emit_create_sig(ctx, sig_id, params_aux, n_params, result_aux, n_results)
+            let sig: MomFuncSig = _
+            sig.params_aux = push_item_params(ctx, as(i32, i))
+            sig.n_params = as(i32, tree.item_member_count[i])
+            sig.result_aux = push_item_result(ctx, as(i32, i))
+            sig.n_results = select(tree.item_result[i] < 0, 0, 1)
+            sig.sig_id = mb_ctx_fresh_value(ctx)
+            sig.func_id = 0  -- filled in declaration loop below
+            mb_emit_create_sig(ctx, sig.sig_id, sig.params_aux, sig.n_params, sig.result_aux, sig.n_results)
             -- store sig_id in aux_i32 for retrieval later
             let store_index: index = as(index, sig_offset_base) + i
-            ctx.aux_i32.data[store_index] = sig_id
+            ctx.aux_i32.data[store_index] = sig.sig_id
             -- declare the function/extern now
             if tag == @{IT_FUNC} then
-                let func_id: i32 = mb_ctx_fresh_value(ctx)
-                mb_emit_declare_func(ctx, 0, func_id, sig_id)
+                sig.func_id = mb_ctx_fresh_value(ctx)
+                mb_emit_declare_func(ctx, 0, sig.func_id, sig.sig_id)
             else
-                let extern_id: i32 = mb_ctx_fresh_value(ctx)
+                sig.func_id = mb_ctx_fresh_value(ctx)
                 let name_tok: i32 = tree.item_name[i]
-                mb_emit_declare_extern(ctx, extern_id, name_tok, sig_id)
+                mb_emit_declare_extern(ctx, sig.func_id, name_tok, sig.sig_id)
             end
         end
         jump hoist_decl(i = i + as(index, 1))

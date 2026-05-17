@@ -1009,8 +1009,17 @@ local mc_validate_phase = func(work_buf: ptr(u8), work_cap: index) -> i32
     if st.cmd_count > as(index, @{VALIDATE_CAP}) then return -@{MC_WORK_OVERFLOW} end
     mc_validate_clear(work_buf, as(index, @{VALIDATE_COUNTER_I32S + VALIDATE_ARRAY_COUNT * VALIDATE_CAP + 2 * 8 * VALIDATE_MAP_CAP}))
     mc_validate_bridge(mc_lower_cmds(work_buf), st.cmd_count, work_buf)
-    let issues: i32 = mb_validate(mc_v_tag(work_buf), mc_v_a(work_buf), mc_v_b(work_buf), mc_v_c(work_buf),
-                                  mc_v_d(work_buf), mc_v_e(work_buf), mc_v_f(work_buf), as(i32, st.cmd_count),
+    let cmds_slice: M.MomCmdSlice = M.MomCmdSlice(
+        tag = mc_v_tag(work_buf),
+        a   = mc_v_a(work_buf),
+        b   = mc_v_b(work_buf),
+        c   = mc_v_c(work_buf),
+        d   = mc_v_d(work_buf),
+        e   = mc_v_e(work_buf),
+        f   = mc_v_f(work_buf),
+        n   = as(i32, st.cmd_count)
+    )
+    let issues: i32 = mb_validate(cmds_slice,
                                   mc_v_issue_tag(work_buf), mc_v_issue_a(work_buf), mc_v_issue_b(work_buf), mc_v_issue_c(work_buf),
                                   mc_validate_issue_count(work_buf), as(i32, @{VALIDATE_CAP}),
                                   mc_v_map_state(work_buf), mc_v_map_key(work_buf), as(i32, @{VALIDATE_MAP_CAP}))

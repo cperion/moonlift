@@ -35,8 +35,7 @@ local mb_add = func(st: ptr(i32), key: ptr(i32), k: i32, cap: i32) -> i32
 end
 
 -- Maps: 0=sig 1=data 2=func 3=extern 4=block 5=slot 6=value 7=access.
-local mb_validate = func(ct: ptr(i32), ca: ptr(i32), cb: ptr(i32), cc: ptr(i32),
-                          cd: ptr(i32), ce: ptr(i32), cf: ptr(i32), n: i32,
+local mb_validate = func(cmds: ptr(@{MomCmdSlice}),
                           it: ptr(i32), ia: ptr(i32), ib: ptr(i32), ic: ptr(i32),
                           icnt: ptr(i32), icap: i32,
                           ms: ptr(i32), mk: ptr(i32), mcap: i32) -> i32
