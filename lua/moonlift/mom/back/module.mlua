@@ -125,7 +125,6 @@ block after_collect(status: i32)
             mb_emit_create_sig(ctx, sig_id, params_aux, n_params, result_aux, n_results)
             -- store sig_id in aux_i32 for retrieval later
             let store_index: index = as(index, sig_offset_base) + i
-            -- ensure there is space (simplified: we trust capacity)
             ctx.aux_i32.data[store_index] = sig_id
             -- declare the function/extern now
             if tag == @{IT_FUNC} then
