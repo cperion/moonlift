@@ -88,6 +88,17 @@ local mb_lower_stmt_fn = func(ctx: ptr(@{MomBackLowerCtx}), stmt_idx: i32) -> bo
     return mb_set_stmt_result(ctx, @{BackFallsThrough}, false)
 end
 
+local mb_lower_stmt_list_fn = func(ctx: ptr(@{MomBackLowerCtx}), list_start: index, list_count: index) -> bool
+    block loop(i: index = 0, flow: i32 = @{BackFallsThrough})
+        if i >= list_count then return mb_set_stmt_result(ctx, flow, true) end
+        let stmt_idx: i32 = ctx.tree.stmt_list[list_start + i]
+        let ok: bool = mb_lower_stmt_fn(ctx, stmt_idx)
+        if not ok then return mb_set_stmt_result(ctx, @{BackFallsThrough}, false) end
+        if ctx.last_stmt_flow == @{BackTerminates} then return mb_set_stmt_result(ctx, @{BackTerminates}, true) end
+        jump loop(i = i + as(index, 1), flow = ctx.last_stmt_flow)
+    end
+end
+
 local mb_lower_stmt = region(ctx: ptr(@{MomBackLowerCtx}), stmt_idx: i32; done: cont(result: MomStmtResult))
 entry start()
     let ok: bool = mb_lower_stmt_fn(ctx, stmt_idx)
@@ -129,6 +140,7 @@ end
 M.slot_size = slot_size
 M.mb_set_stmt_result = mb_set_stmt_result
 M.mb_lower_stmt_fn = mb_lower_stmt_fn
+M.mb_lower_stmt_list_fn = mb_lower_stmt_list_fn
 M.mb_lower_stmt = mb_lower_stmt
 M.mb_lower_stmt_list = mb_lower_stmt_list
 M.mb_lower_control_stmt_list = mb_lower_control_stmt_list

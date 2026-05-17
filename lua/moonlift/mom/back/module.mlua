@@ -1,185 +1,74 @@
--- MOM module lowering (port_map section 13 lines 879-889, 915-930).
+-- MOM module lowering.
 
 local T = require("moonlift.mom.tags.mom_tags")
 
 return function(M)
 local MomModuleStatus = M.MomModuleStatus
-local i32p = moon.ptr(moon.i32)
-
 local MomBackLowerCtx = M.MomBackLowerCtx
 local MomTreeOut = M.MomTreeOut
-local mb_ctx_fresh_value = M.mb_ctx_fresh_value
-local mb_ctx_fresh_block = M.mb_ctx_fresh_block
-local mb_ctx_fresh_data = M.mb_ctx_fresh_data
-local mb_ctx_push_aux_i32 = M.mb_ctx_push_aux_i32
-
 local mb_emit_target_model = M.mb_emit_target_model
-local mb_emit_create_sig = M.mb_emit_create_sig
-local mb_emit_declare_func = M.mb_emit_declare_func
-local mb_emit_declare_extern = M.mb_emit_declare_extern
-local mb_emit_declare_data = M.mb_emit_declare_data
 local mb_emit_finalize_module = M.mb_emit_finalize_module
-local mb_emit_alias_fact = M.mb_emit_alias_fact
+local mb_lower_func_fn = M.mb_lower_func_fn
+local mb_lower_extern_fn = M.mb_lower_extern_fn
+local mb_lower_data_init_fn = M.mb_lower_data_init_fn
 
-local mb_lower_func = M.mb_lower_func
-local mb_lower_extern = M.mb_lower_extern
-local mb_lower_data_init = M.mb_lower_data_init
-
-local mb_type_to_back_scalar = M.mb_type_to_back_scalar
-
--- IT_* constants from mom_tags (mirrored from native_tree.mlua).
 local IT_FUNC   = 1
 local IT_EXTERN = 2
 local IT_STRUCT = 3
 local IT_UNION  = 4
-local IT_REGION = 5
-local IT_EXPR_FRAG = 6
 
--- ── mb_collect_module_context ──────────────────────────────────────
--- Walks all items in the module and classifies them.
--- Returns 0 on success, negative on error.
-local mb_collect_module_context = region(ctx: ptr(@{MomBackLowerCtx});
-                                          done: cont(result: MomModuleStatus))
-entry start()
+local mb_collect_module_context_fn = func(ctx: ptr(@{MomBackLowerCtx})) -> i32
     let tree: ptr(@{MomTreeOut}) = ctx.tree
-    let ni: index = as(index, tree.counts[3])   -- item count
+    let ni: index = as(index, tree.counts[3])
     block walk(i: index = 0)
-        if i >= ni then jump done(result = MomModuleStatus{status = 0}) end
+        if i >= ni then return 0 end
         let tag: i32 = tree.item_tag[i]
-        if tag == @{IT_FUNC} or tag == @{IT_EXTERN} then
-            -- func/extern binding during body lowering
-        elseif tag == @{IT_STRUCT} or tag == @{IT_UNION} then
-        else
-            -- const/static etc. (ignore)
+        if tag == @{IT_FUNC} or tag == @{IT_EXTERN} or tag == @{IT_STRUCT} or tag == @{IT_UNION} then
+            jump walk(i = i + as(index, 1))
         end
         jump walk(i = i + as(index, 1))
     end
 end
-end
 
--- ── Helper push_param_scalars for a single item ─────────────────────
-local push_item_params = func(ctx: ptr(@{MomBackLowerCtx}), item_idx: i32) -> i32
-    let tree: ptr(@{MomTreeOut}) = ctx.tree
-    let fi: index = as(index, item_idx)
-    let param_start: index = as(index, tree.item_member_start[fi])
-    let param_count: index = as(index, tree.item_member_count[fi])
-    let aux_start: i32 = as(i32, ctx.aux_i32.len)
-    block loop(i: index = 0)
-        if i >= param_count then return aux_start end
-        let ty_idx: i32 = tree.param_type[param_start + i]
-        let ty_tag: i32 = tree.type_tag[ty_idx]
-        let scalar_sub: i32 = tree.type_scalar[ty_idx]
-        let bs: i32 = mb_type_to_back_scalar(ty_tag, scalar_sub)
-        mb_ctx_push_aux_i32(ctx, bs)
-        jump loop(i = i + as(index, 1))
-    end
-end
-
-local push_item_result = func(ctx: ptr(@{MomBackLowerCtx}), item_idx: i32) -> i32
-    let tree: ptr(@{MomTreeOut}) = ctx.tree
-    let result_ty: i32 = tree.item_result[item_idx]
-    if result_ty < 0 then
-        mb_ctx_push_aux_i32(ctx, @{T.BackVoid})
-        return as(i32, ctx.aux_i32.len) - as(i32, 1)
-    end
-    let ty_tag: i32 = tree.type_tag[result_ty]
-    let scalar_sub: i32 = tree.type_scalar[result_ty]
-    let bs: i32 = mb_type_to_back_scalar(ty_tag, scalar_sub)
-    let aux_start: i32 = as(i32, ctx.aux_i32.len)
-    mb_ctx_push_aux_i32(ctx, bs)
-    return aux_start
-end
-
--- ── mb_lower_module ────────────────────────────────────────────────
-local mb_lower_module = region(ctx: ptr(@{MomBackLowerCtx});
-                                done: cont(result: MomModuleStatus))
+local mb_collect_module_context = region(ctx: ptr(@{MomBackLowerCtx}); done: cont(result: MomModuleStatus))
 entry start()
-    -- 1. Collect module context.
-    emit mb_collect_module_context(ctx; after_collect)
+    jump done(result = MomModuleStatus{status = mb_collect_module_context_fn(ctx)})
 end
-block after_collect(status: i32)
-    if status ~= 0 then jump done(result = MomModuleStatus{status = status}) end
+end
 
+local mb_lower_module_fn = func(ctx: ptr(@{MomBackLowerCtx})) -> i32
+    let status0: i32 = mb_collect_module_context_fn(ctx)
+    if status0 ~= 0 then return status0 end
     let tree: ptr(@{MomTreeOut}) = ctx.tree
-    let ni: index = as(index, tree.counts[3])   -- item count
-
-    -- 2. Emit target model.
+    let ni: index = as(index, tree.counts[3])
     mb_emit_target_model(ctx)
-
-    -- 3. Single hoisting loop: create sig and declare function/extern together.
-    --    Store sig_id for each item so body lowering can reuse it.
-    --    We store sig_ids in a parallel i32 array created via aux_i32.
-    --    The layout for each item i will be:
-    --        aux_i32[ ... ] = sig_id
-    --    We record the starting offset of the sig_id block per item.
-    let sig_offset_base: i32 = as(i32, ctx.aux_i32.len)
-
-    -- Pre-allocate sig_id slots so hoidting loop writes do not overlap
-    -- with param/result data pushed by push_item_params/push_item_result.
-    block reserve_sig_slots(i: index = 0)
-        if i >= ni then yield end
-        mb_ctx_push_aux_i32(ctx, 0)
-        jump reserve_sig_slots(i = i + as(index, 1))
-    end
-
-    block hoist_decl(i: index = 0)
-        if i >= ni then yield end
-        let tag: i32 = tree.item_tag[i]
-        if tag == @{IT_FUNC} or tag == @{IT_EXTERN} then
-            let sig: MomFuncSig = _
-            sig.params_aux = push_item_params(ctx, as(i32, i))
-            sig.n_params = as(i32, tree.item_member_count[i])
-            sig.result_aux = push_item_result(ctx, as(i32, i))
-            sig.n_results = select(tree.item_result[i] < 0, 0, 1)
-            sig.sig_id = mb_ctx_fresh_value(ctx)
-            sig.func_id = 0  -- filled in declaration loop below
-            mb_emit_create_sig(ctx, sig.sig_id, sig.params_aux, sig.n_params, sig.result_aux, sig.n_results)
-            -- store sig_id in aux_i32 for retrieval later
-            let store_index: index = as(index, sig_offset_base) + i
-            ctx.aux_i32.data[store_index] = sig.sig_id
-            -- declare the function/extern now
-            if tag == @{IT_FUNC} then
-                sig.func_id = mb_ctx_fresh_value(ctx)
-                mb_emit_declare_func(ctx, 0, sig.func_id, sig.sig_id)
-            else
-                sig.func_id = mb_ctx_fresh_value(ctx)
-                let name_tok: i32 = tree.item_name[i]
-                mb_emit_declare_extern(ctx, sig.func_id, name_tok, sig.sig_id)
-            end
-        end
-        jump hoist_decl(i = i + as(index, 1))
-    end
-
-    -- 4. Declare data items (const/static). Deferred.
-
-    -- 5. Lower function bodies in item order.
     block bodyloop(i: index = 0)
         if i >= ni then yield end
         let tag: i32 = tree.item_tag[i]
-        let sig_id: i32 = as(i32, ctx.aux_i32.data[as(index, sig_offset_base) + i])
+        var status: i32 = 0
         if tag == @{IT_FUNC} then
-            emit mb_lower_func(ctx, as(i32, i), sig_id; func_done = cont_loop(i = i + as(index, 1)))
+            status = mb_lower_func_fn(ctx, as(i32, i), -1)
         elseif tag == @{IT_EXTERN} then
-            emit mb_lower_extern(ctx, as(i32, i), sig_id; extern_done = cont_loop(i = i + as(index, 1)))
+            status = mb_lower_extern_fn(ctx, as(i32, i), -1)
         else
-            jump bodyloop(i = i + as(index, 1))
+            status = 0
         end
+        if status ~= 0 then return status end
+        jump bodyloop(i = i + as(index, 1))
     end
-block cont_loop(i: index)
-    jump bodyloop(i = i)
-end
-
-    -- 6. Emit global alias facts (deferred).
-
-    -- 7. Finalize module.
     mb_emit_finalize_module(ctx)
-    jump done(result = MomModuleStatus{status = 0})
+    return 0
+end
+
+local mb_lower_module = region(ctx: ptr(@{MomBackLowerCtx}); done: cont(result: MomModuleStatus))
+entry start()
+    jump done(result = MomModuleStatus{status = mb_lower_module_fn(ctx)})
 end
 end
 
--- ── Exports ────────────────────────────────────────────────────────
+M.mb_collect_module_context_fn = mb_collect_module_context_fn
 M.mb_collect_module_context = mb_collect_module_context
+M.mb_lower_module_fn = mb_lower_module_fn
 M.mb_lower_module = mb_lower_module
-
 return M
 end

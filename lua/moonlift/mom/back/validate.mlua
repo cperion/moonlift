@@ -7,7 +7,6 @@
 local T = require("moonlift.mom.tags.mom_tags")
 
 return function(M)
-local MomCmdSlice = M.MomCmdSlice
 local mb_push = func(tag: i32, a: i32, b: i32, c: i32,
                       it: ptr(i32), ia: ptr(i32), ib: ptr(i32), ic: ptr(i32),
                       cnt: ptr(i32), cap: i32)
@@ -36,14 +35,14 @@ local mb_add = func(st: ptr(i32), key: ptr(i32), k: i32, cap: i32) -> i32
 end
 
 -- Maps: 0=sig 1=data 2=func 3=extern 4=block 5=slot 6=value 7=access.
-local mb_validate = func(cmds: MomCmdSlice,
+local mb_validate = func(tagp: ptr(i32), a_arr: ptr(i32), b_arr: ptr(i32), c_arr: ptr(i32),
+                          d_arr: ptr(i32), e_arr: ptr(i32), f_arr: ptr(i32), n: i32,
                           it: ptr(i32), ia: ptr(i32), ib: ptr(i32), ic: ptr(i32),
                           icnt: ptr(i32), icap: i32,
                           ms: ptr(i32), mk: ptr(i32), mcap: i32) -> i32
     let MS: i32 = 0; let MD: i32 = 1; let MF: i32 = 2; let ME: i32 = 3
     let MB: i32 = 4; let MSL: i32 = 5; let MV: i32 = 6; let MA: i32 = 7
 
-    let n: i32 = cmds.n
     if n == 0 then
         mb_push(@{T.BackIssueEmptyProgram}, 0, 0, 0, it, ia, ib, ic, icnt, icap)
         mb_push(@{T.BackIssueMissingFinalize}, 0, 0, 0, it, ia, ib, ic, icnt, icap)
@@ -61,9 +60,9 @@ local mb_validate = func(cmds: MomCmdSlice,
             jump lp(i = i + 1, act = act, fin = fin)
         end
 
-        let tg: i32 = cmds.tag[i]
-        let a: i32 = cmds.a[i]; let b: i32 = cmds.b[i]; let c: i32 = cmds.c[i]
-        let d: i32 = cmds.d[i]; let e: i32 = cmds.e[i]; let f: i32 = cmds.f[i]
+        let tg: i32 = tagp[i]
+        let a: i32 = a_arr[i]; let b: i32 = b_arr[i]; let c: i32 = c_arr[i]
+        let d: i32 = d_arr[i]; let e: i32 = e_arr[i]; let f: i32 = f_arr[i]
 
         if tg == @{T.CmdFinalizeModule} then jump lp(i = i + 1, act = act, fin = 1) end
 
