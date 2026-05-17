@@ -554,21 +554,21 @@ entry start()
 
     end
 end
-block out_if(flow: i32, ok: bool)
+block out_if(f: i32, ok: bool)
     if ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
-    flow = flow
+    flow = f
     if flow == @{BackTerminates} then jump done(flow = flow, ok = true) end
     jump loop(i = i + as(index, 1))
 end
-block out_switch(flow: i32, ok: bool)
+block out_switch(f: i32, ok: bool)
     if ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
-    flow = flow
+    flow = f
     if flow == @{BackTerminates} then jump done(flow = flow, ok = true) end
     jump loop(i = i + as(index, 1))
 end
-block out_simple(flow: i32, ok: bool)
+block out_simple(f: i32, ok: bool)
     if ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
-    flow = flow
+    flow = f
     if flow == @{BackTerminates} then jump done(flow = flow, ok = true) end
     jump loop(i = i + as(index, 1))
 end
@@ -576,7 +576,7 @@ end
 
 -- ── Exports ─────────────────────────────────────────────────────────
 
-M.mb_lower_stmt = mb_lower_stmt
+M.mb_lower_stmt = mb_lower_stmt_simple
 M.mb_lower_stmt_list = mb_lower_stmt_list
 M.mb_lower_if_stmt = mb_lower_if_stmt
 M.mb_lower_switch_stmt = mb_lower_switch_stmt
