@@ -7,6 +7,7 @@
 /read lua/moonlift/mom/schema/MoonBack.mlua
 /read lua/moonlift/mom/runtime/builders.mlua
 /read lua/moonlift/mom/parser/native_tree.mlua
+/read lua/moonlift/mom/parser/native_core.mlua
 /read lua/moonlift/mom/back/lower_ctx.mlua
 /read lua/moonlift/mom/back/cmd.mlua
 /read lua/moonlift/mom/back/ops.mlua
@@ -18,5 +19,8 @@
 /read lua/moonlift/type_size_align.lua
 /read lua/moonlift/type_classify.lua
 /read lua/moonlift/type_to_back_scalar.lua
+/read BACK_WIRE_FORMAT.md
 /read lua/moonlift/mom/build/aider/step06-address-view-store.md
 /add lua/moonlift/mom/back/address.mlua
+/add lua/moonlift/mom/back/expr_lower.mlua
+/add lua/moonlift/mom/back/stmt_lower.mlua

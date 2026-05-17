@@ -45,9 +45,8 @@ entry start()
         if i >= ni then jump done(status = 0) end
         let tag: i32 = tree.item_tag[i]
         if tag == @{IT_FUNC} or tag == @{IT_EXTERN} then
-            -- register func/extern binding (no-op for now)
+            -- func/extern binding during body lowering
         elseif tag == @{IT_STRUCT} or tag == @{IT_UNION} then
-            -- type declarations are ignored at this stage
         else
             -- const/static etc. (ignore)
         end
@@ -113,6 +112,14 @@ block after_collect(status: i32)
     --    We record the starting offset of the sig_id block per item.
     let sig_offset_base: i32 = as(i32, ctx.aux_i32.len)
 
+    -- Pre-allocate sig_id slots so hoidting loop writes do not overlap
+    -- with param/result data pushed by push_item_params/push_item_result.
+    block reserve_sig_slots(i: index = 0)
+        if i >= ni then yield end
+        mb_ctx_push_aux_i32(ctx, 0)
+        jump reserve_sig_slots(i = i + as(index, 1))
+    end
+
     block hoist_decl(i: index = 0)
         if i >= ni then yield end
         let tag: i32 = tree.item_tag[i]
@@ -139,7 +146,7 @@ block after_collect(status: i32)
         jump hoist_decl(i = i + as(index, 1))
     end
 
-    -- 4. Declare data items (const/static). We skip for now.
+    -- 4. Declare data items (const/static). Deferred.
 
     -- 5. Lower function bodies in item order.
     block bodyloop(i: index = 0)
@@ -158,7 +165,7 @@ block cont_loop(i: index)
     jump bodyloop(i = i)
 end
 
-    -- 6. Emit global alias facts (none for now).
+    -- 6. Emit global alias facts (deferred).
 
     -- 7. Finalize module.
     mb_emit_finalize_module(ctx)

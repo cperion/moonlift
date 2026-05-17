@@ -7,5 +7,6 @@ return {
     ["step2"] = true,
     ["step3"] = true,
     ["step4"] = true,
+    ["step5"] = true,
   },
 }

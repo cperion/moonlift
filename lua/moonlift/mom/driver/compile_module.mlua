@@ -37,7 +37,7 @@ end
 local mc_wire_tape = func(
     ct: ptr(i32), ca: ptr(i32), ncmds: index,
     w: ptr(@{MomWireBuilder})) -> index
-    -- Wire encoder not yet connected; returns 0 (failure).
+    -- Wire encoder stub; returns 0 (failure).
     return 0
 end
 

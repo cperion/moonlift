@@ -7,6 +7,7 @@
 /read lua/moonlift/mom/schema/MoonBack.mlua
 /read lua/moonlift/mom/runtime/builders.mlua
 /read lua/moonlift/mom/parser/native_tree.mlua
+/read lua/moonlift/mom/parser/native_core.mlua
 /read lua/moonlift/mom/back/lower_ctx.mlua
 /read lua/moonlift/mom/back/cmd.mlua
 /read lua/moonlift/mom/back/ops.mlua
@@ -26,6 +27,7 @@
 /read lua/moonlift/vec_kernel_plan.lua
 /read lua/moonlift/vec_kernel_to_back.lua
 /read lua/moonlift/tree_to_back.lua
+/read BACK_WIRE_FORMAT.md
 /read lua/moonlift/mom/build/aider/step10-vector-integration.md
 /add lua/moonlift/mom/vec/vec_facts.mlua
 /add lua/moonlift/mom/vec/vec_decide.mlua

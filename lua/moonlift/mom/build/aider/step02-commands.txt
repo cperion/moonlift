@@ -9,6 +9,7 @@
 /read lua/moonlift/mom/back/lower_ctx.mlua
 /read lua/moonlift/mom/back/cmd.mlua
 /read lua/moonlift/back_command_binary.lua
+/read BACK_WIRE_FORMAT.md
 /read lua/moonlift/tree_to_back.lua
 /read lua/moonlift/mom/build/aider/step02-emit-helpers.md
 /add lua/moonlift/mom/back/cmd.mlua

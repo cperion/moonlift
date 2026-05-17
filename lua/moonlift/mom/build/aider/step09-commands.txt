@@ -7,6 +7,7 @@
 /read lua/moonlift/mom/schema/MoonBack.mlua
 /read lua/moonlift/mom/runtime/builders.mlua
 /read lua/moonlift/mom/parser/native_tree.mlua
+/read lua/moonlift/mom/parser/native_core.mlua
 /read lua/moonlift/mom/back/lower_ctx.mlua
 /read lua/moonlift/mom/back/cmd.mlua
 /read lua/moonlift/mom/back/ops.mlua
@@ -23,6 +24,7 @@
 /read lua/moonlift/sem_const_eval.lua
 /read lua/moonlift/tree_module_type.lua
 /read lua/moonlift/back_command_binary.lua
+/read BACK_WIRE_FORMAT.md
 /read lua/moonlift/mom/build/aider/step09-memory-atomic-globals.md
 /add lua/moonlift/mom/back/expr_lower.mlua
 /add lua/moonlift/mom/back/stmt_lower.mlua
