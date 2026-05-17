@@ -96,7 +96,7 @@ entry start()
     emit mb_collect_module_context(ctx; after_collect)
 end
 block after_collect(status: i32)
-    if status != 0 then jump done(status = status) end
+    if status ~= 0 then jump done(status = status) end
 
     let tree: ptr = ctx.tree
     let ni: index = as(index, tree.counts[3])   -- item count

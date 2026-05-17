@@ -23,29 +23,31 @@ M.compiler_sources = {
     "lua/moonlift/mom/runtime/builders.mlua",
     "lua/moonlift/mom/runtime/sets.mlua",
 
-    -- Phase 1: backend infrastructure
+    -- Phase 1: parser (native compiler frontend) - provides MomTreeOut.
+    "lua/moonlift/mom/parser/document_scan.mlua",
+    "lua/moonlift/mom/parser/native_lexer.mlua",
+    "lua/moonlift/mom/parser/native_core.mlua",
+    "lua/moonlift/mom/parser/native_tree.mlua",
+
+    -- Phase 2: backend infrastructure
     "lua/moonlift/mom/back/ids.mlua",
     "lua/moonlift/mom/back/ops.mlua",
     "lua/moonlift/mom/back/env.mlua",
+    "lua/moonlift/mom/back/lower_ctx.mlua",
     "lua/moonlift/mom/back/cmd.mlua",
     "lua/moonlift/mom/back/control.mlua",
     "lua/moonlift/mom/back/validate.mlua",
-    "lua/moonlift/mom/back/expr_lower.mlua",
-    "lua/moonlift/mom/back/stmt_lower.mlua",
     "lua/moonlift/mom/back/back_abi.mlua",
+    "lua/moonlift/mom/back/expr_lower.mlua",
+    "lua/moonlift/mom/back/address.mlua",
+    "lua/moonlift/mom/back/stmt_lower.mlua",
 
-    -- Phase 2: type system
+    -- Phase 3: type system
     -- Keep one typecheck implementation in the product object.  The split
     -- type_expr/type_stmt/type_place/type_module files remain focused test
     -- fixtures until they replace the monolithic checker completely.
     "lua/moonlift/mom/typecheck/type_check.mlua",
     "lua/moonlift/mom/typecheck/type_control.mlua",
-
-    -- Phase 3: parser (native compiler frontend) - must come before driver
-    "lua/moonlift/mom/parser/document_scan.mlua",
-    "lua/moonlift/mom/parser/native_lexer.mlua",
-    "lua/moonlift/mom/parser/native_core.mlua",
-    "lua/moonlift/mom/parser/native_tree.mlua",
 
     -- Phase 4: layout resolution
     "lua/moonlift/mom/layout/layout_env.mlua",

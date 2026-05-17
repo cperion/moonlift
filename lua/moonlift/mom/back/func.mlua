@@ -81,8 +81,8 @@ local push_result_scalar = func(ctx: ptr(@{MomBackLowerCtx}), result_type_idx: i
 end
 
 -- ── Helper: create entry block and bind entry params ─────────────────
-local emit_entry_block = func(ctx: ptr(@{MomBackLowerCtx}), param_count: index)
-    local entry_id: i32 = mb_ctx_fresh_block(ctx)
+local emit_entry_block = func(ctx: ptr(@{MomBackLowerCtx}), param_count: index) -> i32
+    var entry_id: i32 = mb_ctx_fresh_block(ctx)
     mb_emit_create_block(ctx, entry_id)
     mb_emit_switch_to_block(ctx, entry_id)
 
@@ -97,7 +97,7 @@ local emit_entry_block = func(ctx: ptr(@{MomBackLowerCtx}), param_count: index)
 
     -- Bind entry params using the allocated value ids.
     mb_emit_bind_entry_params(ctx, entry_id, aux_start, as(i32, param_count))
-    return entry_id, aux_start
+    return entry_id
 end
 
 -- ── mb_lower_func ───────────────────────────────────────────────────
@@ -133,9 +133,8 @@ entry start()
     mb_emit_begin_func(ctx, func_id)
 
     -- 4. Create entry block, bind entry params, and fill environment.
-    let entry_id: i32
-    let param_val_aux: i32
-    entry_id, param_val_aux = emit_entry_block(ctx, param_count)
+    let param_val_aux: i32 = as(i32, ctx.aux_i32.len)
+    let entry_id: i32 = emit_entry_block(ctx, param_count)
 
     block bind(i: index = 0)
         if i >= param_count then yield end
@@ -144,7 +143,7 @@ entry start()
         let ty_tag: i32 = tree.type_tag[ty_idx]
         let scalar_sub: i32 = tree.type_scalar[ty_idx]
         let bs: i32 = mb_type_to_back_scalar(ty_tag, scalar_sub)
-        if bs != 0 then
+        if bs ~= 0 then
             let val: i32 = ctx.aux_i32.data[as(index, param_val_aux) + i]
             mb_env_bind_scalar(ctx.env, name_tok, bs, val)
         end
@@ -152,7 +151,8 @@ entry start()
     end
 
     -- 5. Lower the function body.
-    local flow: i32; local body_ok: bool
+    var flow: i32 = 0
+    var body_ok: bool = false
     emit mb_lower_stmt_list(ctx, body_start, body_count, flow, body_ok)
     if body_ok == false then
         jump done(status = -1)
@@ -163,7 +163,7 @@ entry start()
 
     -- 7. If the body did not terminate, emit return void (for void functions)
     --    or report unsupported (for non‑void functions).
-    if flow != @{T.BackTerminates} then
+    if flow ~= @{T.BackTerminates} then
         if n_results == 0 then
             mb_emit_return_void(ctx)
         else
@@ -209,9 +209,8 @@ entry start()
         let func_id: i32 = mb_ctx_fresh_value(ctx)
         mb_emit_begin_func(ctx, func_id)
 
-        let entry_id: i32
-        let param_val_aux: i32
-        entry_id, param_val_aux = emit_entry_block(ctx, param_count)
+        let param_val_aux: i32 = as(i32, ctx.aux_i32.len)
+        let entry_id: i32 = emit_entry_block(ctx, param_count)
 
         block bind(i: index = 0)
             if i >= param_count then yield end
@@ -220,20 +219,21 @@ entry start()
             let ty_tag: i32 = tree.type_tag[ty_idx]
             let scalar_sub: i32 = tree.type_scalar[ty_idx]
             let bs: i32 = mb_type_to_back_scalar(ty_tag, scalar_sub)
-            if bs != 0 then
+            if bs ~= 0 then
                 let val: i32 = ctx.aux_i32.data[as(index, param_val_aux) + i]
                 mb_env_bind_scalar(ctx.env, name_tok, bs, val)
             end
             jump bind(i = i + as(index, 1))
         end
 
-        local flow: i32; local body_ok: bool
+        var flow: i32 = 0
+        var body_ok: bool = false
         emit mb_lower_stmt_list(ctx, body_start, body_count, flow, body_ok)
         if body_ok == false then
             jump done(status = -1)
         end
         mb_emit_seal_block(ctx, entry_id)
-        if flow != @{T.BackTerminates} then
+        if flow ~= @{T.BackTerminates} then
             if n_results == 0 then
                 mb_emit_return_void(ctx)
             else

@@ -1,65 +1,171 @@
--- MOM full-module compiler driver (orchestration only).
---
--- Orchestrates: materialized AST + typecheck output → lower → validate → wire → backend.
--- This module now delegates to back/func.mlua and back/module.mlua.
--- LowerState has been replaced by MomBackLowerCtx.
+-- MOM compatibility lowering bridge used by compile_source.mlua.
 
 local T = require("moonlift.mom.tags.mom_tags")
 return function(M)
-local MomBackLowerCtx = M.MomBackLowerCtx
-local MomWireBuilder = M.MomWireBuilder
+local LowerState = M.LowerState
 
-local mb_collect_module_context = M.mb_collect_module_context
-local mb_lower_module = M.mb_lower_module
+local ST_EXPR = 4
+local ST_RETURN_VALUE = 7
+local ST_RETURN_VOID = 6
+local ST_LET = 1
 
--- Validate a command tape. Returns 0 on success, issue count on failure.
-local mc_validate_tape = func(
-    ct: ptr(i32), ca: ptr(i32), cb: ptr(i32), cc: ptr(i32),
-    cd: ptr(i32), ce: ptr(i32), cf: ptr(i32), ncmds: index,
-    it: ptr(i32), ia: ptr(i32), ib: ptr(i32), ic: ptr(i32),
-    icnt: ptr(i32), icap: i32,
-    ms: ptr(i32), mk: ptr(i32), mcap: i32) -> i32
-    return region -> i32
-    entry start()
-        emit mb_validate_region(ct, ca, cb, cc, cd, ce, cf, as(i32, ncmds),
-                                it, ia, ib, ic, icnt, icap, ms, mk, mcap;
-                                done = checked)
+local mcm_cmd_set = func(cmds: ptr(i32), cmd_index: index, word: index, value: i32)
+    cmds[(cmd_index * as(index, 18)) + word] = value
+end
+
+local mcm_push_cmd6 = func(cmds: ptr(i32), st: ptr(@{LowerState}), tag: i32, a: i32, b: i32, c: i32, d: i32, e: i32, f: i32)
+    let i: index = st.cmd_count
+    if i < st.cmd_cap then
+        mcm_cmd_set(cmds, i, as(index, 0), tag)
+        mcm_cmd_set(cmds, i, as(index, 1), a)
+        mcm_cmd_set(cmds, i, as(index, 2), b)
+        mcm_cmd_set(cmds, i, as(index, 3), c)
+        mcm_cmd_set(cmds, i, as(index, 4), d)
+        mcm_cmd_set(cmds, i, as(index, 5), e)
+        mcm_cmd_set(cmds, i, as(index, 6), f)
+        block clear(j: index = as(index, 7))
+            if j >= as(index, 18) then yield end
+            mcm_cmd_set(cmds, i, j, 0)
+            jump clear(j = j + as(index, 1))
+        end
     end
-    block checked(issue_count: i32)
-        yield issue_count
-    end
+    st.cmd_count = i + as(index, 1)
+end
+
+local mcm_fresh_value = func(st: ptr(@{LowerState})) -> i32
+    st.next_value = st.next_value + 1
+    return st.next_value
+end
+
+local mc_bridge_expr_arrays = func(expr_tag: ptr(i32), expr_op: ptr(i32), expr_tok: ptr(i32),
+                                   expr_lhs: ptr(i32), expr_rhs: ptr(i32), expr_aux0: ptr(i32), ne: index,
+                                   out_a: ptr(i32), out_b: ptr(i32), out_c: ptr(i32), out_d: ptr(i32))
+    block loop(i: index = 0)
+        if i >= ne then return end
+        out_a[i] = expr_op[i]
+        out_b[i] = expr_lhs[i]
+        out_c[i] = expr_rhs[i]
+        out_d[i] = expr_aux0[i]
+        jump loop(i = i + as(index, 1))
     end
 end
 
--- Encode a command tape to MLBT v3 wire format.
--- Returns wire length on success, 0 on failure.  (Stub – actual
--- encoding belongs in lower_wire.mlua, not here.)
-local mc_wire_tape = func(
-    ct: ptr(i32), ca: ptr(i32), ncmds: index,
-    w: ptr(@{MomWireBuilder})) -> index
-    -- Wire encoder stub; returns 0 (failure).
+local mc_bridge_stmt_arrays = func(stmt_tag: ptr(i32), stmt_tok: ptr(i32), stmt_name: ptr(i32),
+                                   stmt_type: ptr(i32), stmt_value: ptr(i32), stmt_body_start: ptr(i32),
+                                   stmt_body_count: ptr(i32), stmt_aux: ptr(i32), ns: index,
+                                   out_tok: ptr(i32), out_a: ptr(i32), out_b: ptr(i32), out_c: ptr(i32), out_d: ptr(i32), out_e: ptr(i32))
+    block loop(i: index = 0)
+        if i >= ns then return end
+        out_tok[i] = stmt_tok[i]
+        out_a[i] = stmt_name[i]
+        out_b[i] = stmt_type[i]
+        out_c[i] = stmt_value[i]
+        out_d[i] = stmt_body_start[i]
+        out_e[i] = stmt_body_count[i]
+        jump loop(i = i + as(index, 1))
+    end
+end
+
+local mcm_env_lookup = func(env_name: ptr(i32), env_val: ptr(i32), env_len: index, name: i32) -> i32
+    block scan(i: index = env_len)
+        if i == as(index, 0) then return -1 end
+        let j: index = i - as(index, 1)
+        if env_name[j] == name then return env_val[j] end
+        jump scan(i = j)
+    end
+end
+
+local mcm_lower_expr_leaf = func(expr_tag: ptr(i32), ea: ptr(i32), ed: ptr(i32), expr_scalar: ptr(i32),
+                                env_name: ptr(i32), env_val: ptr(i32), env_len: index,
+                                st: ptr(@{LowerState}), cmds: ptr(i32), idx: i32) -> i32
+    let i: index = as(index, idx)
+    let tag: i32 = expr_tag[i]
+    if tag == @{T.ME_LIT} then
+        let dst: i32 = mcm_fresh_value(st)
+        let scalar: i32 = select(expr_scalar[i] == 0, @{T.BackI32}, expr_scalar[i])
+        let lit_tag: i32 = select(ea[i] == @{T.TK_TRUE} or ea[i] == @{T.TK_FALSE}, 1, select(ea[i] == @{T.TK_FLOAT}, 3, 2))
+        mcm_push_cmd6(cmds, st, @{T.CmdConst}, dst, scalar, lit_tag, ed[i], 0, 0)
+        return dst
+    end
+    if tag == @{T.ME_REF} then
+        let found: i32 = mcm_env_lookup(env_name, env_val, env_len, ea[i])
+        if found >= 0 then return found end
+    end
     return 0
 end
 
--- Lower the whole module using the new back/module.mlua lowering.
-local mc_lower_module = func(ctx: ptr(@{MomBackLowerCtx})) -> i32
-    return block -> i32
-    entry start()
-        emit mb_collect_module_context(ctx; collected)
+local mcm_lower_expr = func(expr_tag: ptr(i32), ea: ptr(i32), eb: ptr(i32), ec: ptr(i32), ed: ptr(i32),
+                           expr_scalar: ptr(i32), env_name: ptr(i32), env_val: ptr(i32), env_len: index,
+                           st: ptr(@{LowerState}), cmds: ptr(i32), idx: i32) -> i32
+    let i: index = as(index, idx)
+    let tag: i32 = expr_tag[i]
+    if tag == @{T.ME_LIT} then
+        let dst: i32 = mcm_fresh_value(st)
+        let scalar: i32 = select(expr_scalar[i] == 0, @{T.BackI32}, expr_scalar[i])
+        let lit_tag: i32 = select(ea[i] == @{T.TK_TRUE} or ea[i] == @{T.TK_FALSE}, 1, select(ea[i] == @{T.TK_FLOAT}, 3, 2))
+        mcm_push_cmd6(cmds, st, @{T.CmdConst}, dst, scalar, lit_tag, ed[i], 0, 0)
+        return dst
     end
-    block collected(s: i32)
-        if s != 0 then yield s end
-        emit mb_lower_module(ctx; lowered)
+    if tag == @{T.ME_REF} then
+        let found: i32 = mcm_env_lookup(env_name, env_val, env_len, ea[i])
+        if found >= 0 then return found end
+        return 0
     end
-    block lowered(s: i32)
-        yield s
+    if tag == @{T.ME_BINARY} then
+        let lhs: i32 = mcm_lower_expr_leaf(expr_tag, ea, ed, expr_scalar, env_name, env_val, env_len, st, cmds, eb[i])
+        let rhs: i32 = mcm_lower_expr_leaf(expr_tag, ea, ed, expr_scalar, env_name, env_val, env_len, st, cmds, ec[i])
+        let dst: i32 = mcm_fresh_value(st)
+        let op_tok: i32 = ea[i]
+        let op: i32 = select(op_tok == @{T.TK_MINUS}, @{T.BackIntSub}, select(op_tok == @{T.TK_STAR}, @{T.BackIntMul}, @{T.BackIntAdd}))
+        let scalar: i32 = select(expr_scalar[i] == 0, @{T.BackI32}, expr_scalar[i])
+        mcm_push_cmd6(cmds, st, @{T.CmdIntBinary}, dst, op, scalar, 0, 0, lhs)
+        return dst
     end
+    return 0
+end
+
+local mc_lower_module = func(expr_tag: ptr(i32), ea: ptr(i32), eb: ptr(i32), ec: ptr(i32), ed: ptr(i32), ne: index,
+                             stmt_tag: ptr(i32), stmt_tok: ptr(i32), sa: ptr(i32), sb: ptr(i32), sc: ptr(i32), sd: ptr(i32), se: ptr(i32), ns: index,
+                             stmt_list: ptr(i32), expr_scalar: ptr(i32), env_name: ptr(i32), env_val: ptr(i32), env_len: index, env_cap: index,
+                             st: ptr(@{LowerState}), cmds: ptr(i32))
+    block loop(pos: index = 0, nenv: index = env_len)
+        if pos >= ns then return end
+        let sidx: i32 = stmt_list[pos]
+        let si: index = as(index, sidx)
+        let tag: i32 = stmt_tag[si]
+        if tag == @{ST_RETURN_VALUE} then
+            let v: i32 = mcm_lower_expr(expr_tag, ea, eb, ec, ed, expr_scalar, env_name, env_val, nenv, st, cmds, sa[si])
+            mcm_push_cmd6(cmds, st, @{T.CmdReturnValue}, v, 0, 0, 0, 0, 0)
+            return
+        end
+        if tag == @{ST_RETURN_VOID} then
+            mcm_push_cmd6(cmds, st, @{T.CmdReturnVoid}, 0, 0, 0, 0, 0, 0)
+            return
+        end
+        if tag == @{ST_LET} then
+            let v: i32 = mcm_lower_expr(expr_tag, ea, eb, ec, ed, expr_scalar, env_name, env_val, nenv, st, cmds, sc[si])
+            if nenv < env_cap then
+                env_name[nenv] = sa[si]
+                env_val[nenv] = v
+            end
+            jump loop(pos = pos + as(index, 1), nenv = nenv + as(index, 1))
+        end
+        if tag == @{ST_EXPR} then
+            mcm_lower_expr(expr_tag, ea, eb, ec, ed, expr_scalar, env_name, env_val, nenv, st, cmds, sa[si])
+        end
+        jump loop(pos = pos + as(index, 1), nenv = nenv)
     end
 end
 
+M.mcm_cmd_set = mcm_cmd_set
+M.mcm_push_cmd6 = mcm_push_cmd6
+M.mcm_fresh_value = mcm_fresh_value
+M.mcm_env_lookup = mcm_env_lookup
+M.mc_bridge_expr_arrays = mc_bridge_expr_arrays
+M.mc_bridge_stmt_arrays = mc_bridge_stmt_arrays
+M.mcm_lower_expr_leaf = mcm_lower_expr_leaf
+M.mcm_lower_expr = mcm_lower_expr
 M.mc_lower_module = mc_lower_module
-M.mc_validate_tape = mc_validate_tape
-M.mc_wire_tape = mc_wire_tape
 
 return M
 end

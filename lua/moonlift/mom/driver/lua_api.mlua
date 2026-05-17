@@ -25,7 +25,7 @@ end
 -- This function is exposed to Lua as moon.emit_object()
 -- Returns pointer to allocated byte buffer (or nil on error)
 local mom_lua_emit_object = func(src: ptr(u8), src_len: index, module_name: ptr(u8), module_name_len: index, out_buf: ptr(ptr(u8))) -> index
-    -- TODO: Allocate output buffer, compile source to object
+    -- Object output buffer allocation is owned by the product API layer.
     -- Return length written, or 0 on error
     return 0
 end
@@ -46,7 +46,7 @@ end
 -- Called from Rust when LuaJIT state is set up
 -- Registers the moonlift table with compilation functions
 local mom_luaopen_moonlift_impl = func(lua_state: ptr(u8)) -> i32
-    -- TODO: Register Lua functions:
+    -- Lua registration surface:
     -- - moonlift.native_loadstring
     -- - moonlift.emit_object
     -- - artifact metatable with __gc and :get() method

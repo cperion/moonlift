@@ -37,7 +37,7 @@ end
 -- ── Fact extraction from stmt tape ─────────────────────────────────
 
 -- Extract facts from the stmt tape for jump/return/yield statements.
--- This is a simplified fact extractor for non-region function bodies.
+-- Covers straight-line function bodies and nested if/else return facts.
 -- st[0]=next_block_id (for synthesizing block labels)
 local mb_extract_jump_facts = func(stmt_tag: ptr(i32), stmt_tok: ptr(i32),
                                     stmt_a: ptr(i32), stmt_b: ptr(i32),
