@@ -2,6 +2,12 @@
 
 local M = {}
 
+M.MomExprResult = struct MomExprResult
+    value: i32
+    scalar: i32
+    ok: bool
+end
+
 M.BackScalar = union BackScalar | BackVoid | BackBool | BackI8 | BackI16 | BackI32 | BackI64 | BackU8 | BackU16 | BackU32 | BackU64 | BackF32 | BackF64 | BackPtr | BackIndex end
 
 M.BackSigId = struct BackSigId text: ptr(u8) end
