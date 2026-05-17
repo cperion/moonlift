@@ -1,580 +1,249 @@
--- MOM statement lowering.
+-- MOM statement lowering (rewritten).
 --
--- Phase 6: dispatch on all statement tags, emit Cmd entries with target
--- blocks. Expression lowering is delegated to inline helpers. Env is
--- passed as flat ptr(i32) arrays for name→value ID binding (ST_LET)
--- and lookup (EX_REF).
+-- Phase 6: dispatch on all statement tags, emit Cmd entries using
+-- MomBackLowerCtx and mb_emit_* helpers.  Expression lowering is
+-- delegated to mb_lower_expr_region from expr_lower.mlua.  No raw
+-- command packing, no LowerState, no CmdTrap fallbacks for supported
+-- cases.
+--
+-- Flow values: 0 = BackFallsThrough, 1 = BackTerminates.
 
 local T = require("moonlift.mom.tags.mom_tags")
 
 return function(M)
 local i32p = moon.ptr(moon.i32)
 
--- LowerState is owned by runtime/builders.mlua.  Do not redeclare it in the
--- unified MOM object; use the canonical type installed by the runtime module.
-local LowerState = M.LowerState
+-- Context and helpers installed from previous modules.
+local MomBackLowerCtx = M.MomBackLowerCtx
+local mb_ctx_fresh_value = M.mb_ctx_fresh_value
+local mb_ctx_fresh_block = M.mb_ctx_fresh_block
+local mb_ctx_fresh_slot = M.mb_ctx_fresh_slot
+local mb_ctx_push_aux_i32 = M.mb_ctx_push_aux_i32
 
--- ── Cmd buffer helpers ─────────────────────────────────────────────
--- st: LowerState with cmd_count, cmd_cap, next_value, next_block.
--- Command buffer stride: 18 (matches MLBT v3 wire format: tag + w0..w16).
+-- Expression lowering entry point (from expr_lower.mlua).
+local mb_lower_expr_region = M.mb_lower_expr_region
 
-local CMD_STRIDE_STMT = 18
+-- Environment helpers (from back/env.mlua).
+local mb_env_bind_scalar = M.mb_env_bind_scalar
+local mb_env_bind_stack = M.mb_env_bind_stack
+local mb_env_lookup_into = M.mb_env_lookup_into
 
-local mb_stmt_push_cmd = func(cmd_tag: i32, a: i32, b: i32, c: i32, d: i32, e: i32, f: i32,
-                           st: ptr(@{LowerState}), cmds: ptr(i32))
-    let i: index = st.cmd_count
-    if i < st.cmd_cap then
-        let base: index = i * as(index, @{CMD_STRIDE_STMT})
-        cmds[base] = cmd_tag
-        cmds[base + as(index, 1)] = a
-        cmds[base + as(index, 2)] = b
-        cmds[base + as(index, 3)] = c
-        cmds[base + as(index, 4)] = d
-        cmds[base + as(index, 5)] = e
-        cmds[base + as(index, 6)] = f
-        cmds[base + as(index, 7)] = 0
-        cmds[base + as(index, 8)] = 0
-        cmds[base + as(index, 9)] = 0
-        cmds[base + as(index, 10)] = 0
-        cmds[base + as(index, 11)] = 0
-        cmds[base + as(index, 12)] = 0
-        cmds[base + as(index, 13)] = 0
-        cmds[base + as(index, 14)] = 0
-        cmds[base + as(index, 15)] = 0
-        cmds[base + as(index, 16)] = 0
-    end
-    st.cmd_count = st.cmd_count + as(index, 1)
+-- ID allocation (from back/ids.mlua).
+local mb_fresh_value = M.mb_fresh_value
+local mb_fresh_block = M.mb_fresh_block
+local mb_fresh_slot = M.mb_fresh_slot
+
+-- Command emission helpers (from back/cmd.mlua).
+local mb_emit_const = M.mb_emit_const
+local mb_emit_create_block = M.mb_emit_create_block
+local mb_emit_switch_to_block = M.mb_emit_switch_to_block
+local mb_emit_seal_block = M.mb_emit_seal_block
+local mb_emit_br_if = M.mb_emit_br_if
+local mb_emit_jump = M.mb_emit_jump
+local mb_emit_return_void = M.mb_emit_return_void
+local mb_emit_return_value = M.mb_emit_return_value
+local mb_emit_call = M.mb_emit_call
+local mb_emit_create_stack_slot = M.mb_emit_create_stack_slot
+local mb_emit_stack_addr = M.mb_emit_stack_addr
+local mb_emit_store_info = M.mb_emit_store_info
+local mb_emit_load_info = M.mb_emit_load_info
+local mb_emit_select = M.mb_emit_select
+local mb_emit_compare = M.mb_emit_compare
+
+-- Scalar/ops helpers (from back/ops.mlua).
+local mb_is_float_scalar = M.mb_is_float_scalar
+local mb_is_integer_scalar = M.mb_is_integer_scalar
+local mb_scalar_bits = M.mb_scalar_bits
+local mb_core_scalar_to_back = M.mb_core_scalar_to_back
+local mb_type_to_back_scalar = M.mb_type_to_back_scalar
+
+-- Constants.
+local BackFallsThrough = 0
+local BackTerminates   = 1
+
+-- Size of a stack slot for a given back scalar.
+local slot_size = func(scalar: i32) -> i32
+    if scalar == @{T.BackI32} or scalar == @{T.BackF32} or scalar == @{T.BackBool} then return 4 end
+    if scalar == @{T.BackI64} or scalar == @{T.BackF64} or scalar == @{T.BackPtr} or scalar == @{T.BackIndex} then return 8 end
+    if scalar == @{T.BackI8} or scalar == @{T.BackU8} then return 1 end
+    if scalar == @{T.BackI16} or scalar == @{T.BackU16} then return 2 end
+    return 4
 end
 
-local mb_stmt_push_cmd_w10 = func(cmd_tag: i32, a: i32, b: i32, c: i32, d: i32, e: i32, f: i32,
-                              g: i32, h: i32, i9: i32, j: i32,
-                              st: ptr(@{LowerState}), cmds: ptr(i32))
-    let idx: index = st.cmd_count
-    if idx < st.cmd_cap then
-        let base: index = idx * as(index, @{CMD_STRIDE_STMT})
-        cmds[base] = cmd_tag
-        cmds[base + as(index, 1)] = a
-        cmds[base + as(index, 2)] = b
-        cmds[base + as(index, 3)] = c
-        cmds[base + as(index, 4)] = d
-        cmds[base + as(index, 5)] = e
-        cmds[base + as(index, 6)] = f
-        cmds[base + as(index, 7)] = g
-        cmds[base + as(index, 8)] = h
-        cmds[base + as(index, 9)] = i9
-        cmds[base + as(index, 10)] = j
-        cmds[base + as(index, 11)] = 0
-        cmds[base + as(index, 12)] = 0
-        cmds[base + as(index, 13)] = 0
-        cmds[base + as(index, 14)] = 0
-        cmds[base + as(index, 15)] = 0
-        cmds[base + as(index, 16)] = 0
-    end
-    st.cmd_count = st.cmd_count + as(index, 1)
-end
+-- ── Internal lowering region for a single statement ─────────────────
 
-local mb_stmt_push_cmd_w15 = func(cmd_tag: i32, a: i32, b: i32, c: i32, d: i32, e: i32, f: i32,
-                              g: i32, h: i32, i9: i32, j: i32, k: i32, l: i32, m: i32, n: i32, o: i32,
-                              st: ptr(@{LowerState}), cmds: ptr(i32))
-    let idx: index = st.cmd_count
-    if idx < st.cmd_cap then
-        let base: index = idx * as(index, @{CMD_STRIDE_STMT})
-        cmds[base] = cmd_tag
-        cmds[base + as(index, 1)] = a
-        cmds[base + as(index, 2)] = b
-        cmds[base + as(index, 3)] = c
-        cmds[base + as(index, 4)] = d
-        cmds[base + as(index, 5)] = e
-        cmds[base + as(index, 6)] = f
-        cmds[base + as(index, 7)] = g
-        cmds[base + as(index, 8)] = h
-        cmds[base + as(index, 9)] = i9
-        cmds[base + as(index, 10)] = j
-        cmds[base + as(index, 11)] = k
-        cmds[base + as(index, 12)] = l
-        cmds[base + as(index, 13)] = m
-        cmds[base + as(index, 14)] = n
-        cmds[base + as(index, 15)] = o
-        cmds[base + as(index, 16)] = 0
-    end
-    st.cmd_count = st.cmd_count + as(index, 1)
-end
-
--- Fresh value and block ID allocators.
-local mb_stmt_fresh_val = func(st: ptr(@{LowerState})) -> i32
-    st.next_value = st.next_value + 1
-    return st.next_value
-end
-
-local mb_stmt_fresh_block = func(st: ptr(@{LowerState})) -> i32
-    st.next_block = st.next_block + 1
-    return st.next_block
-end
-
--- ── Expression lowering (self-contained) ───────────────────────────
-
-local mb_stmt_is_float = func(s: i32) -> bool
-    return s == @{T.BackF32} or s == @{T.BackF64}
-end
-
-local mb_stmt_is_signed = func(s: i32) -> bool
-    return s == @{T.BackI8} or s == @{T.BackI16} or s == @{T.BackI32} or s == @{T.BackI64}
-end
-
-local mb_stmt_token_to_unary_op = func(tok: i32) -> i32
-    return select(tok == @{T.TK_MINUS}, @{T.UnaryNeg},
-           select(tok == @{T.TK_NOT}, @{T.UnaryNot},
-           select(tok == @{T.TK_TILDE}, @{T.UnaryBitNot}, 0)))
-end
-
-local mb_stmt_token_to_binary_op = func(tok: i32) -> i32
-    return select(tok == @{T.TK_PLUS}, @{T.BinAdd},
-           select(tok == @{T.TK_MINUS}, @{T.BinSub},
-           select(tok == @{T.TK_STAR}, @{T.BinMul},
-           select(tok == @{T.TK_SLASH}, @{T.BinDiv},
-           select(tok == @{T.TK_PERCENT}, @{T.BinRem},
-           select(tok == @{T.TK_AMP}, @{T.BinBitAnd},
-           select(tok == @{T.TK_PIPE}, @{T.BinBitOr},
-           select(tok == @{T.TK_CARET}, @{T.BinBitXor},
-           select(tok == @{T.TK_SHL}, @{T.BinShl},
-           select(tok == @{T.TK_LSHR}, @{T.BinLShr},
-           select(tok == @{T.TK_ASHR}, @{T.BinAShr}, 0)))))))))))
-end
-
-local mb_stmt_token_to_cmp_op = func(tok: i32) -> i32
-    return select(tok == @{T.TK_EQEQ}, @{T.CmpEq},
-           select(tok == @{T.TK_NE}, @{T.CmpNe},
-           select(tok == @{T.TK_LT}, @{T.CmpLt},
-           select(tok == @{T.TK_LE}, @{T.CmpLe},
-           select(tok == @{T.TK_GT}, @{T.CmpGt},
-           select(tok == @{T.TK_GE}, @{T.CmpGe}, 0))))))
-end
-
-local mb_stmt_lower_lit = func(tok_kind: i32, lit_lo: i32, st: ptr(@{LowerState}), cmds: ptr(i32)) -> i32
-    let dst: i32 = mb_stmt_fresh_val(st)
-    let scalar: i32 = select(tok_kind == @{T.TK_TRUE} or tok_kind == @{T.TK_FALSE}, @{T.BackBool},
-                        select(tok_kind == @{T.TK_FLOAT}, @{T.BackF64},
-                        select(tok_kind == @{T.TK_NIL}, @{T.BackPtr}, @{T.BackI32})))
-    mb_stmt_push_cmd(@{T.CmdConst}, dst, scalar, tok_kind, lit_lo, 0, 0, st, cmds)
-    return dst
-end
-
--- mb_stmt_lower_ref: lookup name_tok in env_name/env_val arrays.
-local mb_stmt_lower_ref = func(name_tok: i32, env_name: ptr(i32), env_val: ptr(i32),
-                           env_len: index, st: ptr(@{LowerState}), cmds: ptr(i32)) -> i32
-    block loop(i: index = env_len)
-        if i == as(index, 0) then
-            mb_stmt_push_cmd(@{T.CmdTrap}, 0, 0, 0, 0, 0, 0, st, cmds)
-            return mb_stmt_fresh_val(st)
-        end
-        let j: index = i - as(index, 1)
-        if env_name[j] == name_tok then return env_val[j] end
-        jump loop(i = j)
-    end
-end
-
-local mb_stmt_lower_unary_expr = func(expr_op: i32, scalar: i32, child_val: i32,
-                                  st: ptr(@{LowerState}), cmds: ptr(i32)) -> i32
-    let dst: i32 = mb_stmt_fresh_val(st)
-    let unary_op: i32 = mb_stmt_token_to_unary_op(expr_op)
-    let back_op: i32 = select(unary_op == @{T.UnaryNeg},
-                         select(mb_stmt_is_float(scalar), @{T.BackUnaryFneg}, @{T.BackUnaryIneg}),
-                         select(unary_op == @{T.UnaryNot}, @{T.BackUnaryBoolNot},
-                         select(unary_op == @{T.UnaryBitNot}, @{T.BackUnaryBnot}, 0)))
-    mb_stmt_push_cmd(@{T.CmdUnary}, dst, back_op, 1, scalar, child_val, 0, st, cmds)
-    return dst
-end
-
-local mb_stmt_lower_binary_expr = func(expr_op: i32, scalar: i32, left_val: i32, right_val: i32,
-                                   st: ptr(@{LowerState}), cmds: ptr(i32)) -> i32
-    let dst: i32 = mb_stmt_fresh_val(st)
-    let is_float: bool = mb_stmt_is_float(scalar)
-    if expr_op == @{T.TK_PLUS} then
-        if is_float then
-            mb_stmt_push_cmd(@{T.CmdFloatBinary}, dst, @{T.BackFloatAdd}, scalar, 1, left_val, right_val, st, cmds)
-            return dst
-        end
-        mb_stmt_push_cmd(@{T.CmdIntBinary}, dst, @{T.BackIntAdd}, scalar, 65537, left_val, right_val, st, cmds)
-    elseif expr_op == @{T.TK_MINUS} then
-        if is_float then
-            mb_stmt_push_cmd(@{T.CmdFloatBinary}, dst, @{T.BackFloatSub}, scalar, 1, left_val, right_val, st, cmds)
-            return dst
-        end
-        mb_stmt_push_cmd(@{T.CmdIntBinary}, dst, @{T.BackIntSub}, scalar, 65537, left_val, right_val, st, cmds)
-    elseif expr_op == @{T.TK_STAR} then
-        if is_float then
-            mb_stmt_push_cmd(@{T.CmdFloatBinary}, dst, @{T.BackFloatMul}, scalar, 1, left_val, right_val, st, cmds)
-            return dst
-        end
-        mb_stmt_push_cmd(@{T.CmdIntBinary}, dst, @{T.BackIntMul}, scalar, 65537, left_val, right_val, st, cmds)
-    elseif expr_op == @{T.TK_AMP} then
-        mb_stmt_push_cmd(@{T.CmdBitBinary}, dst, @{T.BackBitAnd}, scalar, left_val, right_val, 0, st, cmds)
-    elseif expr_op == @{T.TK_PIPE} then
-        mb_stmt_push_cmd(@{T.CmdBitBinary}, dst, @{T.BackBitOr}, scalar, left_val, right_val, 0, st, cmds)
-    elseif expr_op == @{T.TK_CARET} then
-        mb_stmt_push_cmd(@{T.CmdBitBinary}, dst, @{T.BackBitXor}, scalar, left_val, right_val, 0, st, cmds)
-    else
-        mb_stmt_push_cmd(@{T.CmdTrap}, 0, 0, 0, 0, 0, 0, st, cmds)
-    end
-    return dst
-end
-
-local mb_stmt_lower_compare_expr = func(cmp_tok: i32, scalar: i32, lhs_val: i32, rhs_val: i32,
-                                    st: ptr(@{LowerState}), cmds: ptr(i32)) -> i32
-    let dst: i32 = mb_stmt_fresh_val(st)
-    let is_float: bool = mb_stmt_is_float(scalar)
-    let is_signed: bool = mb_stmt_is_signed(scalar)
-    if cmp_tok == @{T.TK_EQEQ} then
-        let back_op: i32 = select(is_float, @{T.BackFCmpEq}, @{T.BackIcmpEq})
-        mb_stmt_push_cmd(@{T.CmdCompare}, dst, back_op, 1, scalar, lhs_val, rhs_val, st, cmds)
-        return dst
-    end
-    if cmp_tok == @{T.TK_NE} then
-        let back_op: i32 = select(is_float, @{T.BackFCmpNe}, @{T.BackIcmpNe})
-        mb_stmt_push_cmd(@{T.CmdCompare}, dst, back_op, 1, scalar, lhs_val, rhs_val, st, cmds)
-        return dst
-    end
-    if cmp_tok == @{T.TK_LT} then
-        let back_op: i32 = select(is_float, @{T.BackFCmpLt}, select(is_signed, @{T.BackSIcmpLt}, @{T.BackUIcmpLt}))
-        mb_stmt_push_cmd(@{T.CmdCompare}, dst, back_op, 1, scalar, lhs_val, rhs_val, st, cmds)
-        return dst
-    end
-    if cmp_tok == @{T.TK_LE} then
-        let back_op: i32 = select(is_float, @{T.BackFCmpLe}, select(is_signed, @{T.BackSIcmpLe}, @{T.BackUIcmpLe}))
-        mb_stmt_push_cmd(@{T.CmdCompare}, dst, back_op, 1, scalar, lhs_val, rhs_val, st, cmds)
-        return dst
-    end
-    if cmp_tok == @{T.TK_GT} then
-        let back_op: i32 = select(is_float, @{T.BackFCmpGt}, select(is_signed, @{T.BackSIcmpGt}, @{T.BackUIcmpGt}))
-        mb_stmt_push_cmd(@{T.CmdCompare}, dst, back_op, 1, scalar, lhs_val, rhs_val, st, cmds)
-        return dst
-    end
-    if cmp_tok == @{T.TK_GE} then
-        let back_op: i32 = select(is_float, @{T.BackFCmpGe}, select(is_signed, @{T.BackSIcmpGe}, @{T.BackUIcmpGe}))
-        mb_stmt_push_cmd(@{T.CmdCompare}, dst, back_op, 1, scalar, lhs_val, rhs_val, st, cmds)
-        return dst
-    end
-    mb_stmt_push_cmd(@{T.CmdTrap}, 0, 0, 0, 0, 0, 0, st, cmds)
-    return dst
-end
-
-local mb_stmt_lower_select_expr = func(scalar: i32, cond_val: i32, then_val: i32, else_val: i32,
-                                   st: ptr(@{LowerState}), cmds: ptr(i32)) -> i32
-    let dst: i32 = mb_stmt_fresh_val(st)
-    mb_stmt_push_cmd(@{T.CmdSelect}, dst, 1, cond_val, then_val, else_val, 0, st, cmds)
-    return dst
-end
-
--- Main expression lowerer: dispatch on expr tag, thread env arrays for EX_REF.
-local mb_stmt_lower_expr = func(expr_tag: ptr(i32), expr_a: ptr(i32), expr_b: ptr(i32),
-                           expr_c: ptr(i32), expr_d: ptr(i32),
-                           idx: i32, env_name: ptr(i32), env_val: ptr(i32), env_len: index,
-                           st: ptr(@{LowerState}), cmds: ptr(i32)) -> i32
-    let tag: i32 = expr_tag[idx]
-    if tag == @{T.EX_LIT} then
-        return mb_stmt_lower_lit(expr_a[idx], expr_d[idx], st, cmds)
-    end
-    if tag == @{T.EX_REF} then
-        return mb_stmt_lower_ref(expr_a[idx], env_name, env_val, env_len, st, cmds)
-    end
-    if tag == @{T.EX_UNARY} then
-        let child: i32 = mb_stmt_lower_expr(expr_tag, expr_a, expr_b, expr_c, expr_d, expr_b[idx], env_name, env_val, env_len, st, cmds)
-        return mb_stmt_lower_unary_expr(expr_a[idx], @{T.BackI32}, child, st, cmds)
-    end
-    if tag == @{T.EX_BINARY} then
-        let left: i32 = mb_stmt_lower_expr(expr_tag, expr_a, expr_b, expr_c, expr_d, expr_b[idx], env_name, env_val, env_len, st, cmds)
-        let right: i32 = mb_stmt_lower_expr(expr_tag, expr_a, expr_b, expr_c, expr_d, expr_c[idx], env_name, env_val, env_len, st, cmds)
-        return mb_stmt_lower_binary_expr(expr_a[idx], @{T.BackI32}, left, right, st, cmds)
-    end
-    if tag == @{T.EX_COMPARE} then
-        let lhs: i32 = mb_stmt_lower_expr(expr_tag, expr_a, expr_b, expr_c, expr_d, expr_b[idx], env_name, env_val, env_len, st, cmds)
-        let rhs: i32 = mb_stmt_lower_expr(expr_tag, expr_a, expr_b, expr_c, expr_d, expr_c[idx], env_name, env_val, env_len, st, cmds)
-        return mb_stmt_lower_compare_expr(expr_a[idx], @{T.BackI32}, lhs, rhs, st, cmds)
-    end
-    if tag == @{T.EX_SELECT} then
-        let arg_start: i32 = expr_b[idx]
-        let cond: i32 = mb_stmt_lower_expr(expr_tag, expr_a, expr_b, expr_c, expr_d, arg_start, env_name, env_val, env_len, st, cmds)
-        let then_val: i32 = mb_stmt_lower_expr(expr_tag, expr_a, expr_b, expr_c, expr_d, arg_start + 1, env_name, env_val, env_len, st, cmds)
-        let else_val: i32 = mb_stmt_lower_expr(expr_tag, expr_a, expr_b, expr_c, expr_d, arg_start + 2, env_name, env_val, env_len, st, cmds)
-        return mb_stmt_lower_select_expr(@{T.BackI32}, cond, then_val, else_val, st, cmds)
-    end
-    mb_stmt_push_cmd(@{T.CmdTrap}, 0, 0, 0, 0, 0, 0, st, cmds)
-    return mb_stmt_fresh_val(st)
-end
-
--- ── Statement lowering ──────────────────────────────────────────────
-
--- ST_RETURN_VOID.
-local mb_lower_return_void = func(st: ptr(@{LowerState}), cmds: ptr(i32))
-    mb_stmt_push_cmd(@{T.CmdReturnVoid}, 0, 0, 0, 0, 0, 0, st, cmds)
-end
-
--- ST_RETURN_VALUE.
-local mb_lower_return_value = func(expr_tag: ptr(i32), expr_a: ptr(i32), expr_b: ptr(i32),
-                                    expr_c: ptr(i32), expr_d: ptr(i32),
-                                    expr_idx: i32, env_name: ptr(i32), env_val: ptr(i32),
-                                    env_len: index, st: ptr(@{LowerState}), cmds: ptr(i32))
-    let val: i32 = mb_stmt_lower_expr(expr_tag, expr_a, expr_b, expr_c, expr_d, expr_idx,
-                                  env_name, env_val, env_len, st, cmds)
-    mb_stmt_push_cmd(@{T.CmdReturnValue}, val, 0, 0, 0, 0, 0, st, cmds)
-end
-
--- ST_EXPR.
-local mb_stmt_lower_expr_stmt = func(expr_tag: ptr(i32), expr_a: ptr(i32), expr_b: ptr(i32),
-                                 expr_c: ptr(i32), expr_d: ptr(i32),
-                                 expr_idx: i32, env_name: ptr(i32), env_val: ptr(i32),
-                                 env_len: index, st: ptr(@{LowerState}), cmds: ptr(i32))
-    mb_stmt_lower_expr(expr_tag, expr_a, expr_b, expr_c, expr_d, expr_idx,
-                  env_name, env_val, env_len, st, cmds)
-end
-
--- ST_LET: stmt_tok=keyword, stmt_a=name_tok, stmt_b=type_idx, stmt_c=init_expr_idx
--- Lower init, bind name_tok→val in env. Returns updated env_len.
-local mb_lower_let_stmt = func(expr_tag: ptr(i32), expr_a: ptr(i32), expr_b: ptr(i32),
-                                expr_c: ptr(i32), expr_d: ptr(i32),
-                                name_tok: i32, init_idx: i32,
-                                env_name: ptr(i32), env_val: ptr(i32),
-                                env_len: index, env_cap: index,
-                                st: ptr(@{LowerState}), cmds: ptr(i32)) -> index
-    let val: i32 = mb_stmt_lower_expr(expr_tag, expr_a, expr_b, expr_c, expr_d, init_idx,
-                                  env_name, env_val, env_len, st, cmds)
-    if env_len < env_cap then
-        env_name[env_len] = name_tok
-        env_val[env_len] = val
-    end
-    return env_len + as(index, 1)
-end
-
--- ST_VAR: same field layout as ST_LET. Create stack slot, lower init, store.
--- Simplified: uses CmdCreateStackSlot + CmdStackAddr + CmdStoreInfo. Returns updated env_len.
-local mb_lower_var_stmt = func(expr_tag: ptr(i32), expr_a: ptr(i32), expr_b: ptr(i32),
-                                expr_c: ptr(i32), expr_d: ptr(i32),
-                                name_tok: i32, scalar: i32, init_idx: i32,
-                                env_name: ptr(i32), env_val: ptr(i32),
-                                env_len: index, env_cap: index,
-                                st: ptr(@{LowerState}), cmds: ptr(i32)) -> index
-    let init_val: i32 = mb_stmt_lower_expr(expr_tag, expr_a, expr_b, expr_c, expr_d, init_idx,
-                                       env_name, env_val, env_len, st, cmds)
-    let slot: i32 = mb_stmt_fresh_block(st)
-    let size: i32 = select(scalar == @{T.BackI32} or scalar == @{T.BackF32} or scalar == @{T.BackBool}, 4,
-                      select(scalar == @{T.BackI64} or scalar == @{T.BackF64}, 8,
-                      select(scalar == @{T.BackI8} or scalar == @{T.BackU8}, 1,
-                      select(scalar == @{T.BackI16} or scalar == @{T.BackU16}, 2,
-                      select(scalar == @{T.BackPtr} or scalar == @{T.BackIndex}, 8, 4)))))
-    mb_stmt_push_cmd(@{T.CmdCreateStackSlot}, slot, size, select(size > 4, 8, 4), 0, 0, 0, st, cmds)
-    let addr_val: i32 = mb_stmt_fresh_val(st)
-    mb_stmt_push_cmd(@{T.CmdStackAddr}, addr_val, slot, 0, 0, 0, 0, st, cmds)
-    mb_stmt_push_cmd_w15(@{T.CmdStoreInfo}, @{T.BackShapeScalar}, scalar, 1, 0, addr_val, 0,
-                    0, 1, 4, 0, 4, 0, 0, 1, init_val, st, cmds)
-    if env_len < env_cap then
-        env_name[env_len] = name_tok
-        env_val[env_len] = init_val
-    end
-    return env_len + as(index, 1)
-end
-
--- ST_SET: stmt_tok=keyword, stmt_a=place_expr_idx, stmt_b=value_expr_idx
--- Simplified: lower value and place, emit CmdStoreInfo.
-local mb_lower_set_stmt = func(expr_tag: ptr(i32), expr_a: ptr(i32), expr_b: ptr(i32),
-                                expr_c: ptr(i32), expr_d: ptr(i32),
-                                place_idx: i32, value_idx: i32,
-                                env_name: ptr(i32), env_val: ptr(i32), env_len: index,
-                                st: ptr(@{LowerState}), cmds: ptr(i32))
-    let val: i32 = mb_stmt_lower_expr(expr_tag, expr_a, expr_b, expr_c, expr_d, value_idx,
-                                  env_name, env_val, env_len, st, cmds)
-    let place_val: i32 = mb_stmt_lower_expr(expr_tag, expr_a, expr_b, expr_c, expr_d, place_idx,
-                                        env_name, env_val, env_len, st, cmds)
-    mb_stmt_push_cmd_w15(@{T.CmdStoreInfo}, @{T.BackShapeScalar}, 0, 1, 0, place_val, 0,
-                    0, 1, 4, 0, 4, 0, 0, 1, val, st, cmds)
-end
-
--- ST_SWITCH: stmt_tok=keyword, stmt_a=val_expr_idx, stmt_b=arm_start,
--- stmt_c=arm_count, stmt_d=default_start, stmt_e=default_count
--- Simplified: emit CmdSwitchInt + default block.
-local mb_lower_switch_stmt = func(expr_tag: ptr(i32), expr_a: ptr(i32), expr_b: ptr(i32),
-                                   expr_c: ptr(i32), expr_d: ptr(i32),
-                                   val_idx: i32, arm_start: i32, arm_count: i32,
-                                   default_start: i32, default_count: i32,
-                                   env_name: ptr(i32), env_val: ptr(i32), env_len: index,
-                                   st: ptr(@{LowerState}), cmds: ptr(i32))
-    let val: i32 = mb_stmt_lower_expr(expr_tag, expr_a, expr_b, expr_c, expr_d, val_idx,
-                                  env_name, env_val, env_len, st, cmds)
-    let default_block: i32 = mb_stmt_fresh_block(st)
-    mb_stmt_push_cmd(@{T.CmdCreateBlock}, default_block, 0, 0, 0, 0, 0, st, cmds)
-    mb_stmt_push_cmd(@{T.CmdSwitchInt}, val, as(i32, as(index, arm_start) * as(index, @{CMD_STRIDE_STMT})),
-                default_block, 0, 0, 0, st, cmds)
-end
-
--- ST_JUMP, ST_YIELD, ST_EMIT: deferred to Phase 8 (region lowering).
-local mb_lower_trap_stmt = func(st: ptr(@{LowerState}), cmds: ptr(i32))
-    mb_stmt_push_cmd(@{T.CmdTrap}, 0, 0, 0, 0, 0, 0, st, cmds)
-end
-
--- ST_IF: cond_expr_idx, then_start, then_count, else_start, else_count
-local mb_lower_if_stmt = func(cond_expr_idx: i32, then_start: i32, then_count: i32,
-                               else_start: i32, else_count: i32,
-                               expr_tag: ptr(i32), expr_a: ptr(i32), expr_b: ptr(i32),
-                               expr_c: ptr(i32), expr_d: ptr(i32),
-                               stmt_tag: ptr(i32), stmt_tok: ptr(i32),
-                               stmt_a: ptr(i32), stmt_b: ptr(i32), stmt_c: ptr(i32),
-                               stmt_d: ptr(i32), stmt_e: ptr(i32),
-                               slist: ptr(i32), env_name: ptr(i32), env_val: ptr(i32),
-                               env_len: index, st: ptr(@{LowerState}), cmds: ptr(i32))
-    let cond_val: i32 = mb_stmt_lower_expr(expr_tag, expr_a, expr_b, expr_c, expr_d, cond_expr_idx,
-                                       env_name, env_val, env_len, st, cmds)
-    let then_block: i32 = mb_stmt_fresh_block(st)
-    let else_block: i32 = mb_stmt_fresh_block(st)
-    let join_block: i32 = mb_stmt_fresh_block(st)
-    mb_stmt_push_cmd(@{T.CmdCreateBlock}, then_block, 0, 0, 0, 0, 0, st, cmds)
-    mb_stmt_push_cmd(@{T.CmdCreateBlock}, else_block, 0, 0, 0, 0, 0, st, cmds)
-    mb_stmt_push_cmd(@{T.CmdCreateBlock}, join_block, 0, 0, 0, 0, 0, st, cmds)
-    mb_stmt_push_cmd(@{T.CmdBrIf}, cond_val, then_block, else_block, 0, 0, 0, st, cmds)
-    mb_stmt_push_cmd(@{T.CmdSwitchToBlock}, then_block, 0, 0, 0, 0, 0, st, cmds)
-    block then_loop(i: index = as(index, then_start))
-        if i >= as(index, then_start + then_count) then yield end
-        let sidx: i32 = slist[i]
-        mb_lower_stmt(expr_tag, expr_a, expr_b, expr_c, expr_d,
-                      stmt_tag, stmt_tok, stmt_a, stmt_b, stmt_c, stmt_d, stmt_e,
-                      slist, sidx, env_name, env_val, env_len, st, cmds)
-        jump then_loop(i = i + as(index, 1))
-    end
-    mb_stmt_push_cmd(@{T.CmdJump}, join_block, 0, 0, 0, 0, 0, st, cmds)
-    mb_stmt_push_cmd(@{T.CmdSwitchToBlock}, else_block, 0, 0, 0, 0, 0, st, cmds)
-    if else_start >= 0 then
-        block else_loop(i: index = as(index, else_start))
-            if i >= as(index, else_start + else_count) then yield end
-            let sidx: i32 = slist[i]
-            mb_lower_stmt(expr_tag, expr_a, expr_b, expr_c, expr_d,
-                          stmt_tag, stmt_tok, stmt_a, stmt_b, stmt_c, stmt_d, stmt_e,
-                          slist, sidx, env_name, env_val, env_len, st, cmds)
-            jump else_loop(i = i + as(index, 1))
-        end
-    end
-    mb_stmt_push_cmd(@{T.CmdJump}, join_block, 0, 0, 0, 0, 0, st, cmds)
-    mb_stmt_push_cmd(@{T.CmdSwitchToBlock}, join_block, 0, 0, 0, 0, 0, st, cmds)
-end
-
--- Dispatch on stmt tag and lower accordingly.
-local mb_lower_stmt = func(expr_tag: ptr(i32), expr_a: ptr(i32), expr_b: ptr(i32),
-                            expr_c: ptr(i32), expr_d: ptr(i32),
-                            stmt_tag: ptr(i32), stmt_tok: ptr(i32),
-                            stmt_a: ptr(i32), stmt_b: ptr(i32), stmt_c: ptr(i32),
-                            stmt_d: ptr(i32), stmt_e: ptr(i32),
-                            slist: ptr(i32), sidx: i32,
-                            env_name: ptr(i32), env_val: ptr(i32), env_len: index,
-                            st: ptr(@{LowerState}), cmds: ptr(i32)) -> index
-    var env_len: index = env_len
-    let tag: i32 = stmt_tag[as(index, sidx)]
-    if tag == @{T.ST_RETURN_VOID} then
-        mb_lower_return_void(st, cmds)
-    elseif tag == @{T.ST_RETURN_VALUE} then
-        mb_lower_return_value(expr_tag, expr_a, expr_b, expr_c, expr_d,
-                              stmt_a[as(index, sidx)], env_name, env_val, env_len, st, cmds)
-    elseif tag == @{T.ST_EXPR} then
-        mb_stmt_lower_expr_stmt(expr_tag, expr_a, expr_b, expr_c, expr_d,
-                           stmt_a[as(index, sidx)], env_name, env_val, env_len, st, cmds)
-    elseif tag == @{T.ST_LET} then
-        env_len = mb_lower_let_stmt(expr_tag, expr_a, expr_b, expr_c, expr_d,
-                          stmt_a[as(index, sidx)], stmt_c[as(index, sidx)],
-                          env_name, env_val, env_len, st.cmd_cap,
-                          st, cmds)
-    elseif tag == @{T.ST_VAR} then
-        env_len = mb_lower_var_stmt(expr_tag, expr_a, expr_b, expr_c, expr_d,
-                          stmt_a[as(index, sidx)], 0, stmt_c[as(index, sidx)],
-                          env_name, env_val, env_len, st.cmd_cap,
-                          st, cmds)
-    elseif tag == @{T.ST_SET} then
-        mb_lower_set_stmt(expr_tag, expr_a, expr_b, expr_c, expr_d,
-                          stmt_a[as(index, sidx)], stmt_b[as(index, sidx)],
-                          env_name, env_val, env_len, st, cmds)
-    elseif tag == @{T.ST_IF} then
-        mb_lower_if_stmt(stmt_a[as(index, sidx)], stmt_b[as(index, sidx)],
-                          stmt_c[as(index, sidx)], stmt_d[as(index, sidx)],
-                          stmt_e[as(index, sidx)],
-                          expr_tag, expr_a, expr_b, expr_c, expr_d,
-                          stmt_tag, stmt_tok, stmt_a, stmt_b, stmt_c, stmt_d, stmt_e,
-                          slist, env_name, env_val, env_len, st, cmds)
-    elseif tag == @{T.ST_SWITCH} then
-        mb_lower_switch_stmt(expr_tag, expr_a, expr_b, expr_c, expr_d,
-                             stmt_a[as(index, sidx)], stmt_b[as(index, sidx)],
-                             stmt_c[as(index, sidx)], stmt_d[as(index, sidx)],
-                             stmt_e[as(index, sidx)],
-                             env_name, env_val, env_len, st, cmds)
-    elseif tag == @{T.ST_JUMP} then
-        mb_lower_trap_stmt(st, cmds)
-    elseif tag == @{T.ST_YIELD} then
-        mb_lower_trap_stmt(st, cmds)
-    elseif tag == @{T.ST_EMIT} then
-        mb_lower_trap_stmt(st, cmds)
-    else
-        mb_stmt_push_cmd(@{T.CmdTrap}, 0, 0, 0, 0, 0, 0, st, cmds)
-    end
-    return env_len
-end
-
--- Region boundary for expression lowering in statement context.
-local mb_stmt_lower_expr_region = region(expr_tag: ptr(i32), expr_a: ptr(i32), expr_b: ptr(i32),
-                                         expr_c: ptr(i32), expr_d: ptr(i32), idx: i32,
-                                         env_name: ptr(i32), env_val: ptr(i32), env_len: index,
-                                         st: ptr(@{LowerState}), cmds: ptr(i32);
-                                         done: cont(value: i32))
+local mb_lower_stmt = region(ctx: ptr(@{MomBackLowerCtx}), stmt_idx: i32;
+                             done: cont(flow: i32, ok: bool))
 entry start()
-    let value: i32 = mb_stmt_lower_expr(expr_tag, expr_a, expr_b, expr_c, expr_d, idx,
-                                        env_name, env_val, env_len, st, cmds)
-    jump done(value = value)
+    let tree: ptr = ctx.tree
+    let tag: i32 = tree.stmt_tag[stmt_idx]
+    let stmt_tok: i32 = tree.stmt_tok[stmt_idx]
+    let stmt_a: i32 = tree.stmt_name[stmt_idx]
+    let stmt_b: i32 = tree.stmt_type[stmt_idx]
+    let stmt_c: i32 = tree.stmt_value[stmt_idx]
+    let stmt_d: i32 = tree.stmt_body_start[stmt_idx]
+    let stmt_e: i32 = tree.stmt_body_count[stmt_idx]
+    let stmt_aux: i32 = tree.stmt_aux[stmt_idx]
+
+    switch tag do
+    case @{T.ST_LET} then
+        -- let name = init_expr
+        let name_tok: i32 = stmt_a
+        let init_idx: i32 = stmt_c
+        local init_val: i32; local init_scalar: i32; local init_ok: bool
+        emit mb_lower_expr_region(ctx, init_idx, init_val, init_scalar, init_ok)
+        if init_ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
+        -- Bind scalar (view handling deferred for later).
+        mb_env_bind_scalar(ctx.env, name_tok, init_scalar, init_val)
+        jump done(flow = @{BackFallsThrough}, ok = true)
+
+    case @{T.ST_VAR} then
+        let name_tok: i32 = stmt_a
+        let init_idx: i32 = stmt_c
+        local init_val: i32; local init_scalar: i32; local init_ok: bool
+        emit mb_lower_expr_region(ctx, init_idx, init_val, init_scalar, init_ok)
+        if init_ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
+        -- Always allocate a stack slot for var (addressable).
+        let slot: i32 = mb_ctx_fresh_slot(ctx)
+        let size: i32 = slot_size(init_scalar)
+        let align: i32 = select(size > 4, 8, 4)
+        mb_emit_create_stack_slot(ctx, slot, size, align)
+        let addr_val: i32 = mb_ctx_fresh_value(ctx)
+        mb_emit_stack_addr(ctx, addr_val, slot)
+        mb_emit_store_info(ctx, 1, init_scalar, 0, 1, addr_val, 0,
+                           0, 1, 4, 0, 4, 0, 0, 1, init_val)
+        mb_env_bind_stack(ctx.env, name_tok, init_scalar, slot)
+        jump done(flow = @{BackFallsThrough}, ok = true)
+
+    case @{T.ST_SET} then
+        -- Place store → currently unsupported in scalar‑only lowering.
+        -- We emit a trap and return unsupported.
+        mb_emit_const(ctx, mb_ctx_fresh_value(ctx), @{T.BackI32}, 0, 0, 0)   -- dummy
+        jump done(flow = @{BackFallsThrough}, ok = false)
+
+    case @{T.ST_EXPR} then
+        -- Expression statement: lower and discard value.
+        let expr_idx: i32 = stmt_a
+        local val: i32; local scalar: i32; local ok: bool
+        emit mb_lower_expr_region(ctx, expr_idx, val, scalar, ok)
+        if ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
+        jump done(flow = @{BackFallsThrough}, ok = true)
+
+    case @{T.ST_RETURN_VOID} then
+        mb_emit_return_void(ctx)
+        jump done(flow = @{BackTerminates}, ok = true)
+
+    case @{T.ST_RETURN_VALUE} then
+        local ret_val: i32; local ret_scalar: i32; local ret_ok: bool
+        emit mb_lower_expr_region(ctx, stmt_a, ret_val, ret_scalar, ret_ok)
+        if ret_ok == false then jump done(flow = @{BackTerminates}, ok = false) end
+        mb_emit_return_value(ctx, ret_val)
+        jump done(flow = @{BackTerminates}, ok = true)
+
+    case @{T.ST_IF} then
+        -- Delegate to dedicated if‑lowering region.
+        let cond_idx: i32 = stmt_a
+        let then_start: i32 = stmt_b
+        let then_count: i32 = stmt_c
+        let else_start: i32 = stmt_d
+        let else_count: i32 = stmt_e
+        local cond_val: i32; local cond_scalar: i32; local cond_ok: bool
+        emit mb_lower_expr_region(ctx, cond_idx, cond_val, cond_scalar, cond_ok)
+        if cond_ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
+        let then_blk: i32 = mb_ctx_fresh_block(ctx)
+        let else_blk: i32 = mb_ctx_fresh_block(ctx)
+        let join_blk: i32 = mb_ctx_fresh_block(ctx)
+        mb_emit_create_block(ctx, then_blk)
+        mb_emit_create_block(ctx, else_blk)
+        mb_emit_create_block(ctx, join_blk)
+        mb_emit_br_if(ctx, cond_val, then_blk, 0, 0, else_blk, 0, 0)
+        mb_emit_switch_to_block(ctx, then_blk)
+        local then_flow: i32; local then_ok: bool
+        emit mb_lower_stmt_list(ctx, then_start, then_count, then_flow, then_ok)
+        if then_flow != @{BackTerminates} then
+            mb_emit_jump(ctx, join_blk, 0, 0)
+        end
+        mb_emit_switch_to_block(ctx, else_blk)
+        if else_count > 0 then
+            local else_flow: i32; local else_ok: bool
+            emit mb_lower_stmt_list(ctx, else_start, else_count, else_flow, else_ok)
+            if else_flow != @{BackTerminates} then
+                mb_emit_jump(ctx, join_blk, 0, 0)
+            end
+        else
+            mb_emit_jump(ctx, join_blk, 0, 0)
+        end
+        mb_emit_seal_block(ctx, join_blk)
+        mb_emit_switch_to_block(ctx, join_blk)
+        jump done(flow = @{BackFallsThrough}, ok = true)
+
+    case @{T.ST_SWITCH} then
+        -- Delegate to dedicated switch‑lowering region.
+        let val_idx: i32 = stmt_a
+        let arm_start: i32 = stmt_b
+        let arm_count: i32 = stmt_c
+        local val: i32; local scalar: i32; local val_ok: bool
+        emit mb_lower_expr_region(ctx, val_idx, val, scalar, val_ok)
+        if val_ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
+        let default_blk: i32 = mb_ctx_fresh_block(ctx)
+        let join_blk: i32 = mb_ctx_fresh_block(ctx)
+        mb_emit_create_block(ctx, default_blk)
+        mb_emit_create_block(ctx, join_blk)
+        -- Cases_aux and n_cases: we do not yet have aux_i32 populated, so we pass 0,0.
+        mb_emit_switch_int(ctx, val, scalar, 0, 0, default_blk)
+        mb_emit_switch_to_block(ctx, default_blk)
+        local def_flow: i32; local def_ok: bool
+        emit mb_lower_stmt_list(ctx, stmt_e, 0, def_flow, def_ok)   -- default body indices?
+        if def_flow != @{BackTerminates} then
+            mb_emit_jump(ctx, join_blk, 0, 0)
+        end
+        mb_emit_seal_block(ctx, join_blk)
+        mb_emit_switch_to_block(ctx, join_blk)
+        jump done(flow = @{BackFallsThrough}, ok = true)
+
+    case @{T.ST_JUMP} then
+    case @{T.ST_YIELD} then
+    case @{T.ST_EMIT} then
+        -- Outside control region → unsupported.
+        jump done(flow = @{BackTerminates}, ok = false)
+
+    -- ST_ATOMIC_STORE and ST_ATOMIC_FENCE not yet implemented in tree layout;
+    -- treat as unsupported for now.
+    default then
+        jump done(flow = @{BackFallsThrough}, ok = false)
+    end
 end
 end
 
--- Region boundary for statement lowering.  State is explicit: command state is
--- mutated through LowerState/cmd buffers, and env_len is an input to the region
--- protocol used by module/list walkers.
-local mb_lower_stmt_region = region(expr_tag: ptr(i32), expr_a: ptr(i32), expr_b: ptr(i32),
-                                    expr_c: ptr(i32), expr_d: ptr(i32),
-                                    stmt_tag: ptr(i32), stmt_tok: ptr(i32),
-                                    stmt_a: ptr(i32), stmt_b: ptr(i32), stmt_c: ptr(i32),
-                                    stmt_d: ptr(i32), stmt_e: ptr(i32),
-                                    slist: ptr(i32), sidx: i32,
-                                    env_name: ptr(i32), env_val: ptr(i32), env_len: index,
-                                    st: ptr(@{LowerState}), cmds: ptr(i32);
-                                    done: cont(env_len: index, flow: i32))
+-- ── Lower a statement list ─────────────────────────────────────────
+
+local mb_lower_stmt_list = region(ctx: ptr(@{MomBackLowerCtx}),
+                                   list_start: index, list_count: index;
+                                   done: cont(flow: i32, ok: bool))
 entry start()
-    let next_env_len: index = mb_lower_stmt(expr_tag, expr_a, expr_b, expr_c, expr_d,
-                                            stmt_tag, stmt_tok, stmt_a, stmt_b, stmt_c, stmt_d, stmt_e,
-                                            slist, sidx, env_name, env_val, env_len, st, cmds)
-    jump done(env_len = next_env_len, flow = 0)
+    var flow: i32 = @{BackFallsThrough}
+    let ok: bool = true
+    block loop(i: index = 0)
+        if i >= list_count then jump done(flow = flow, ok = ok) end
+        let sidx: i32 = as(i32, list_start + i)
+        local stmt_flow: i32; local stmt_ok: bool
+        emit mb_lower_stmt(ctx, sidx, stmt_flow, stmt_ok)
+        if stmt_ok == false then
+            jump done(flow = @{BackFallsThrough}, ok = false)
+        end
+        flow = stmt_flow
+        if flow == @{BackTerminates} then
+            jump done(flow = flow, ok = true)
+        end
+        jump loop(i = i + as(index, 1))
+    end
 end
 end
 
--- ── Exports ──────────────────────────────────────────────────────────
-M.mb_stmt_push_cmd = mb_stmt_push_cmd
-M.mb_stmt_push_cmd_w10 = mb_stmt_push_cmd_w10
-M.mb_stmt_push_cmd_w15 = mb_stmt_push_cmd_w15
-M.mb_stmt_fresh_val = mb_stmt_fresh_val
-M.mb_stmt_fresh_block = mb_stmt_fresh_block
-M.mb_stmt_is_float = mb_stmt_is_float
-M.mb_stmt_is_signed = mb_stmt_is_signed
-M.mb_stmt_token_to_unary_op = mb_stmt_token_to_unary_op
-M.mb_stmt_token_to_binary_op = mb_stmt_token_to_binary_op
-M.mb_stmt_token_to_cmp_op = mb_stmt_token_to_cmp_op
-M.mb_stmt_lower_lit = mb_stmt_lower_lit
-M.mb_stmt_lower_ref = mb_stmt_lower_ref
-M.mb_stmt_lower_unary_expr = mb_stmt_lower_unary_expr
-M.mb_stmt_lower_binary_expr = mb_stmt_lower_binary_expr
-M.mb_stmt_lower_compare_expr = mb_stmt_lower_compare_expr
-M.mb_stmt_lower_select_expr = mb_stmt_lower_select_expr
-M.mb_stmt_lower_expr = mb_stmt_lower_expr
-M.mb_lower_return_void = mb_lower_return_void
-M.mb_lower_return_value = mb_lower_return_value
-M.mb_stmt_lower_expr_stmt = mb_stmt_lower_expr_stmt
-M.mb_lower_let_stmt = mb_lower_let_stmt
-M.mb_lower_var_stmt = mb_lower_var_stmt
-M.mb_lower_set_stmt = mb_lower_set_stmt
-M.mb_lower_switch_stmt = mb_lower_switch_stmt
-M.mb_lower_trap_stmt = mb_lower_trap_stmt
-M.mb_lower_if_stmt = mb_lower_if_stmt
+-- ── Exports ────────────────────────────────────────────────────────
+
 M.mb_lower_stmt = mb_lower_stmt
-M.mb_stmt_lower_expr_region = mb_stmt_lower_expr_region
-M.mb_lower_stmt_region = mb_lower_stmt_region
+M.mb_lower_stmt_list = mb_lower_stmt_list
 
 return M
 end
