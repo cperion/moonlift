@@ -288,9 +288,77 @@ entry start()
         jump done(flow = @{BackTerminates}, ok = true)
     end
 
-    -- If/switch inside a control region require region‑aware phi lowering
-    -- (step 8). Until then, return unsupported.
-    if tag == 5 or tag == 13 then
+    if tag == 5 then
+        -- Region‑aware if lowering.
+        let tree: ptr = ctx.tree
+        let cond_idx: i32 = tree.stmt_name[stmt_idx]
+        let then_start: i32 = tree.stmt_type[stmt_idx]
+        let then_count: i32 = tree.stmt_value[stmt_idx]
+        var else_start: i32 = tree.stmt_body_start[stmt_idx]
+        let else_count: i32 = tree.stmt_body_count[stmt_idx]
+
+        var cond_val: i32 = 0
+        var cond_scalar: i32 = 0
+        var cond_ok: bool = false
+        emit mb_lower_expr_region(ctx, cond_idx, cond_val, cond_scalar, cond_ok)
+        if cond_ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
+
+        let then_blk: i32 = mb_ctx_fresh_block(ctx)
+        let else_blk: i32 = mb_ctx_fresh_block(ctx)
+        let join_blk: i32 = mb_ctx_fresh_block(ctx)
+        mb_emit_create_block(ctx, then_blk)
+        mb_emit_create_block(ctx, else_blk)
+        mb_emit_create_block(ctx, join_blk)
+
+        mb_emit_br_if(ctx, cond_val, then_blk, 0, 0, else_blk, 0, 0)
+        mb_emit_seal_block(ctx, then_blk)
+        mb_emit_seal_block(ctx, else_blk)
+
+        var any_falls: bool = false
+
+        mb_emit_switch_to_block(ctx, then_blk)
+        var then_flow: i32 = @{BackFallsThrough}
+        if then_count > 0 then
+            var then_ok: bool = false
+            emit mb_lower_control_stmt_list(ctx, then_start, then_count,
+                                            ctrl_start, n_blocks,
+                                            block_ids_aux, exit_blk,
+                                            is_expr, result_scalar,
+                                            then_flow, then_ok)
+            if then_ok == false then then_flow = @{BackFallsThrough} end
+        end
+        if then_flow ~= @{BackTerminates} then
+            mb_emit_jump(ctx, join_blk, 0, 0)
+            any_falls = true
+        end
+
+        mb_emit_switch_to_block(ctx, else_blk)
+        var else_flow: i32 = @{BackFallsThrough}
+        if else_start >= 0 and else_count > 0 then
+            var else_ok: bool = false
+            emit mb_lower_control_stmt_list(ctx, else_start, else_count,
+                                            ctrl_start, n_blocks,
+                                            block_ids_aux, exit_blk,
+                                            is_expr, result_scalar,
+                                            else_flow, else_ok)
+            if else_ok == false then else_flow = @{BackFallsThrough} end
+        end
+        if else_flow ~= @{BackTerminates} then
+            mb_emit_jump(ctx, join_blk, 0, 0)
+            any_falls = true
+        end
+
+        if any_falls then
+            mb_emit_seal_block(ctx, join_blk)
+            mb_emit_switch_to_block(ctx, join_blk)
+        end
+
+        let overall_flow: i32 = select(any_falls, @{BackFallsThrough}, @{BackTerminates})
+        jump done(flow = overall_flow, ok = true)
+    end
+
+    -- Switch inside a control region remains unsupported.
+    if tag == 13 then
         jump done(flow = @{BackFallsThrough}, ok = false)
     end
 
