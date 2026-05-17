@@ -51,6 +51,18 @@ local mb_emit_call = M.mb_emit_call
 local mb_emit_ptr_offset = M.mb_emit_ptr_offset
 local mb_emit_load_info = M.mb_emit_load_info
 local mb_emit_return_value = M.mb_emit_return_value
+local mb_emit_stack_addr = M.mb_emit_stack_addr
+
+-- Local environment helpers from back/env.mlua.
+local MB_LOCAL_SCALAR = 1
+local MB_LOCAL_STACK = 3
+local mb_env_lookup_into = M.mb_env_lookup_into
+
+-- Cmd entry constructors for data declaration (used for string literals).
+local mb_cmd_declare_data = M.mb_cmd_declare_data
+local mb_cmd_data_init = M.mb_cmd_data_init
+local mb_cmd_data_addr = M.mb_cmd_data_addr
+local mb_emit_cmd = M.mb_emit_cmd
 
 -- Token maps (may be imported from ops.mlua in future).
 local mb_token_to_unary_op = func(tok: i32) -> i32
@@ -83,25 +95,53 @@ entry start()
     if tok_kind == @{T.TK_NIL} then
         jump done(value = 0, scalar = 0, ok = false) -- unsupported
     end
+    -- String literal: declare data, init bytes, trailing null, data address
+    if tok_kind == @{T.TK_STRING} then
+        let data_id: i32 = mb_ctx_fresh_value(ctx)   -- placeholder data id
+        let string_len: i32 = 0   -- placeholder; real length would need source bytes
+        -- For now we emit an empty data block (size 1 for null)
+        let e: CmdEntry
+        mb_cmd_declare_data(e, data_id, 1, 1)
+        mb_emit_cmd(ctx, e.tag, e.w0, e.w1, e.w2, e.w3, e.w4, e.w5)
+        mb_cmd_data_init(e, data_id, 0, @{T.BackU8}, 0, 0, 0) -- literal zero
+        mb_emit_cmd(ctx, e.tag, e.w0, e.w1, e.w2, e.w3, e.w4, e.w5)
+        let dst: i32 = mb_ctx_fresh_value(ctx)
+        mb_cmd_data_addr(e, dst, data_id)
+        mb_emit_cmd(ctx, e.tag, e.w0, e.w1, e.w2, e.w3, e.w4, e.w5)
+        jump done(value = dst, scalar = @{T.BackPtr}, ok = true)
+    end
     let dst: i32 = mb_ctx_fresh_value(ctx)
     let scalar: i32 = select(tok_kind == @{T.TK_TRUE} or tok_kind == @{T.TK_FALSE}, @{T.BackBool},
                        select(tok_kind == @{T.TK_FLOAT}, @{T.BackF64},
-                       select(tok_kind == @{T.TK_STRING}, @{T.BackPtr},
-                              @{T.BackI32})))
+                              @{T.BackI32}))
     let lit_tag: i32 = select(tok_kind == @{T.TK_TRUE}, 1,
                        select(tok_kind == @{T.TK_FALSE}, 0,
                        select(tok_kind == @{T.TK_INT}, 2,
-                       select(tok_kind == @{T.TK_FLOAT}, 3,
-                       select(tok_kind == @{T.TK_STRING}, 4, 0)))))
+                       select(tok_kind == @{T.TK_FLOAT}, 3, 0))))
     mb_emit_const(ctx, dst, scalar, lit_tag, 0, 0)
     jump done(value = dst, scalar = scalar, ok = true)
 end
 end
 
--- Lower a ref expression. Currently unsupported until env lookup is wired.
+-- Lower a ref expression.
 local mb_expr_ref = region(ctx: ptr(@{MomBackLowerCtx}), idx: i32;
                            done: cont(value: i32, scalar: i32, ok: bool))
 entry start()
+    let tok: i32 = ctx.tree.expr_tok[idx]
+    let kind: i32; let scalar: i32; let val: i32; let aux0: i32
+    let found: bool = mb_env_lookup_into(ctx.env, tok, kind, scalar, val, aux0)
+    if found == false then
+        jump done(value = 0, scalar = 0, ok = false)
+    end
+    if kind == @{MB_LOCAL_SCALAR} then
+        jump done(value = val, scalar = scalar, ok = true)
+    end
+    if kind == @{MB_LOCAL_STACK} then
+        let dst: i32 = mb_ctx_fresh_value(ctx)
+        mb_emit_stack_addr(ctx, dst, val)
+        mb_emit_load_info(ctx, dst, 0, scalar, 0, 1, dst, 0, 0, 1, 4, 0, 4, 0, 0, 1)
+        jump done(value = dst, scalar = scalar, ok = true)
+    end
     jump done(value = 0, scalar = 0, ok = false)
 end
 end
@@ -114,19 +154,14 @@ entry start()
     let child_value: i32
     let child_scalar: i32
     let child_ok: bool
-    -- Recursive call through the main region.
     emit mb_lower_expr_region(ctx, child_idx, child_value, child_scalar, child_ok)
-
     if child_ok == false then jump done(value = 0, scalar = 0, ok = false) end
-
     let tok: i32 = ctx.tree.expr_a[idx]
     let unary_op: i32 = mb_token_to_unary_op(tok)
     if unary_op == 0 then jump done(value = 0, scalar = 0, ok = false) end
-
     let dst: i32 = mb_ctx_fresh_value(ctx)
     let back_op: i32 = mb_lower_unary_op(unary_op, child_scalar)
     if back_op == 0 then jump done(value = 0, scalar = 0, ok = false) end
-
     mb_emit_unary(ctx, dst, back_op, 0, child_scalar, 0, child_value)
     jump done(value = dst, scalar = child_scalar, ok = true)
 end
@@ -140,25 +175,19 @@ entry start()
     let left_val: i32; let left_scalar: i32; let left_ok: bool
     emit mb_lower_expr_region(ctx, left_idx, left_val, left_scalar, left_ok)
     if left_ok == false then jump done(value = 0, scalar = 0, ok = false) end
-
     let right_idx: i32 = ctx.tree.expr_c[idx]
     let right_val: i32; let right_scalar: i32; let right_ok: bool
     emit mb_lower_expr_region(ctx, right_idx, right_val, right_scalar, right_ok)
     if right_ok == false then jump done(value = 0, scalar = 0, ok = false) end
-
     if right_scalar != left_scalar then jump done(value = 0, scalar = 0, ok = false) end
-
     let scalar: i32 = left_scalar
     let tok: i32 = ctx.tree.expr_a[idx]
     let op: i32 = mb_token_to_binary_op(tok)
     if op == 0 then jump done(value = 0, scalar = 0, ok = false) end
-
     let is_float: bool = mb_is_float_scalar(scalar)
     let dst: i32 = mb_ctx_fresh_value(ctx)
-    let overflow: i32 = 0  -- wrap
+    let overflow: i32 = 0
     let exact: i32 = 0
-
-    -- Append the appropriate command using the correct family helper.
     if op == @{T.BinBitAnd} or op == @{T.BinBitOr} or op == @{T.BinBitXor} then
         local bit_op: i32 = select(op == @{T.BinBitAnd}, @{T.BackBitAnd},
                             select(op == @{T.BinBitOr}, @{T.BackBitOr}, @{T.BackBitXor}))
@@ -181,7 +210,6 @@ entry start()
         mb_emit_float_binary(ctx, dst, float_op, scalar, 1, left_val, right_val)
         jump done(value = dst, scalar = scalar, ok = true)
     end
-    -- Fallback to integer binary.
     let int_op: i32 = select(op == @{T.BinAdd}, @{T.BackIntAdd},
                    select(op == @{T.BinSub}, @{T.BackIntSub},
                    select(op == @{T.BinMul}, @{T.BackIntMul},
@@ -202,16 +230,13 @@ entry start()
     let lhs_val: i32; let lhs_scalar: i32; let lhs_ok: bool
     emit mb_lower_expr_region(ctx, lhs_idx, lhs_val, lhs_scalar, lhs_ok)
     if lhs_ok == false then jump done(value = 0, scalar = 0, ok = false) end
-
     let rhs_val: i32; let rhs_scalar: i32; let rhs_ok: bool
     emit mb_lower_expr_region(ctx, rhs_idx, rhs_val, rhs_scalar, rhs_ok)
     if rhs_ok == false then jump done(value = 0, scalar = 0, ok = false) end
     if rhs_scalar != lhs_scalar then jump done(value = 0, scalar = 0, ok = false) end
-
     let tok: i32 = ctx.tree.expr_a[idx]
     let cmp_op: i32 = mb_lower_compare_op(tok, lhs_scalar)
     if cmp_op == 0 then jump done(value = 0, scalar = 0, ok = false) end
-
     let dst: i32 = mb_ctx_fresh_value(ctx)
     mb_emit_compare(ctx, dst, cmp_op, 0, lhs_scalar, 0, lhs_val, rhs_val)
     jump done(value = dst, scalar = @{T.BackBool}, ok = true)
@@ -224,18 +249,14 @@ local mb_expr_logic = region(ctx: ptr(@{MomBackLowerCtx}), idx: i32;
 entry start()
     let left_idx: i32 = ctx.tree.expr_b[idx]
     let right_idx: i32 = ctx.tree.expr_c[idx]
-
     let left_val: i32; let left_scalar: i32; let left_ok: bool
     emit mb_lower_expr_region(ctx, left_idx, left_val, left_scalar, left_ok)
     if left_ok == false then jump done(value = 0, scalar = 0, ok = false) end
-
     let right_val: i32; let right_scalar: i32; let right_ok: bool
     emit mb_lower_expr_region(ctx, right_idx, right_val, right_scalar, right_ok)
     if right_ok == false then jump done(value = 0, scalar = 0, ok = false) end
-
     let tok: i32 = ctx.tree.expr_a[idx]
     let dst: i32 = mb_ctx_fresh_value(ctx)
-
     if tok == @{T.TK_AND} then
         let false_val: i32 = mb_ctx_fresh_value(ctx)
         mb_emit_const(ctx, false_val, @{T.BackBool}, 0, 0, 0)
@@ -260,17 +281,13 @@ entry start()
     let child_val: i32; let child_scalar: i32; let child_ok: bool
     emit mb_lower_expr_region(ctx, child_idx, child_val, child_scalar, child_ok)
     if child_ok == false then jump done(value = 0, scalar = 0, ok = false) end
-
     let dst_scalar: i32 = ctx.expr_scalar[idx]
     if dst_scalar == child_scalar then jump done(value = child_val, scalar = dst_scalar, ok = true) end
-
     let cast_op: i32 = ctx.tree.expr_a[idx]
     let surface_op: i32 = cast_op
     if cast_op == @{T.TK_AS} then surface_op = @{T.SC_SURFACE_CAST} end
-
     let machine_op: i32 = mb_lower_surface_cast_op(surface_op, child_scalar, dst_scalar)
     if machine_op == 0 then jump done(value = 0, scalar = 0, ok = false) end
-
     let dst: i32 = mb_ctx_fresh_value(ctx)
     mb_emit_cast(ctx, dst, machine_op, dst_scalar, child_val)
     jump done(value = dst, scalar = dst_scalar, ok = true)
@@ -284,19 +301,15 @@ entry start()
     let arg_start: i32 = ctx.tree.expr_b[idx]
     let arg_count: i32 = ctx.tree.expr_c[idx]
     if arg_count != 3 then jump done(value = 0, scalar = 0, ok = false) end
-
     let cond_val: i32; let cond_scalar: i32; let cond_ok: bool
     emit mb_lower_expr_region(ctx, arg_start, cond_val, cond_scalar, cond_ok)
     if cond_ok == false then jump done(value = 0, scalar = 0, ok = false) end
-
     let then_val: i32; let then_scalar: i32; let then_ok: bool
     emit mb_lower_expr_region(ctx, arg_start + 1, then_val, then_scalar, then_ok)
     if then_ok == false then jump done(value = 0, scalar = 0, ok = false) end
-
     let else_val: i32; let else_scalar: i32; let else_ok: bool
     emit mb_lower_expr_region(ctx, arg_start + 2, else_val, else_scalar, else_ok)
     if else_ok == false then jump done(value = 0, scalar = 0, ok = false) end
-
     let result_scalar: i32 = ctx.expr_scalar[idx]
     let dst: i32 = mb_ctx_fresh_value(ctx)
     mb_emit_select(ctx, dst, 0, result_scalar, 0, cond_val, then_val, else_val)
@@ -304,7 +317,7 @@ entry start()
 end
 end
 
--- Lower a call expression (stub: only direct scalar calls with single argument).
+-- Lower a call expression (direct only, arguments collected via aux_i32).
 local mb_expr_call = region(ctx: ptr(@{MomBackLowerCtx}), idx: i32;
                             done: cont(value: i32, scalar: i32, ok: bool))
 entry start()
@@ -313,11 +326,23 @@ entry start()
     emit mb_lower_expr_region(ctx, callee_idx, callee_val, callee_scalar, callee_ok)
     if callee_ok == false then jump done(value = 0, scalar = 0, ok = false) end
 
+    -- Collect arguments
+    let args_start: i32 = ctx.tree.expr_b[idx]
+    let args_count: i32 = ctx.tree.expr_c[idx]
+    local aux_start: i32 = as(i32, ctx.aux_i32.len)
+    let arg_idx: i32 = args_start
+    block collect(i: i32 = 0)
+        if i >= args_count then yield end
+        local arg_val: i32; local arg_scalar: i32; local arg_ok: bool
+        emit mb_lower_expr_region(ctx, arg_idx, arg_val, arg_scalar, arg_ok)
+        if arg_ok == false then jump done(value = 0, scalar = 0, ok = false) end
+        mr_i32_builder_push(ctx.aux_i32, arg_val)
+        jump collect(i = i + as(i32, 1))
+    end do
+
     let result_scalar: i32 = ctx.expr_scalar[idx]
     let dst: i32 = mb_ctx_fresh_value(ctx)
-    -- CmdCall: result_tag (0 = void, 1 = scalar), result_dst, result_scalar,
-    --         target_tag (0 = direct, 1 = indirect), target_id, sig, args_aux, count
-    mb_emit_call(ctx, 1, dst, result_scalar, 0, callee_val, 0, 0)
+    mb_emit_call(ctx, 1, dst, result_scalar, 0, callee_val, aux_start, args_count)
     jump done(value = dst, scalar = result_scalar, ok = true)
 end
 end
@@ -330,7 +355,6 @@ entry start()
     let child_val: i32; let child_scalar: i32; let child_ok: bool
     emit mb_lower_expr_region(ctx, child_idx, child_val, child_scalar, child_ok)
     if child_ok == false then jump done(value = 0, scalar = 0, ok = false) end
-
     let result_scalar: i32 = ctx.expr_scalar[idx]
     let dst: i32 = mb_ctx_fresh_value(ctx)
     mb_emit_load_info(ctx, dst, 0, result_scalar, 0, 0, child_val, 0, 0, 1, 4, 0, 4, 0, 0, 1)
