@@ -2,5 +2,6 @@
 return {
   done = {
     ["runtime-build-assembly"] = true,
+    ["schema-tags"] = true,
   },
 }
