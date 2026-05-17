@@ -4,6 +4,7 @@ local T = require("moonlift.mom.tags.mom_tags")
 
 return function(M)
 local MomBackLowerCtx = M.MomBackLowerCtx
+local MomStmtResult = M.MomStmtResult
 
 local mb_ctx_fresh_value = M.mb_ctx_fresh_value
 local mb_ctx_fresh_block = M.mb_ctx_fresh_block
@@ -55,7 +56,6 @@ local slot_size = func(scalar: i32) -> i32
 end
 
 -- ── helper: collect changed binding name tokens in a given stmt range ──
--- pushes tokens to aux_i32 and returns (aux_start, count)
 local collect_changed_bindings = region(ctx: ptr(@{MomBackLowerCtx}),
                                         body_start: i32, body_count: i32;
                                         done: cont(aux_start: i32, count: i32))
@@ -70,7 +70,6 @@ block scan(i: index)
     if tag == @{ST_SET} then
         if ctx.tree.expr_tag[ctx.tree.stmt_name[stmt_idx]] == @{T.EX_REF} then
             let name_tok: i32 = ctx.tree.expr_tok[ctx.tree.stmt_name[stmt_idx]]
-            -- deduplicate (linear scan)
             var dup: bool = false
             block dedup(j: index = as(index, aux_start))
                 if j >= as(index, ctx.aux_i32.len) then yield end
@@ -80,7 +79,6 @@ block scan(i: index)
             if not dup then mb_ctx_push_aux_i32(ctx, name_tok) end
         end
     end
-    -- recurse into nested if/switch bodies to collect changes there
     if tag == @{ST_IF} then
         let then_start: i32 = ctx.tree.stmt_type[stmt_idx]
         let then_count: i32 = ctx.tree.stmt_value[stmt_idx]
@@ -89,7 +87,6 @@ block scan(i: index)
         emit collect_changed_bindings(ctx, then_start, then_count, then_aux, then_cnt)
     end
     if tag == @{ST_SWITCH} then
-        -- iterate arms
         let arm_start: i32 = ctx.tree.stmt_type[stmt_idx]
         let arm_count: i32 = ctx.tree.stmt_value[stmt_idx]
         let default_start: i32 = ctx.tree.stmt_body_start[stmt_idx]
@@ -115,7 +112,7 @@ end
 
 -- ── if statement phi lowering ────────────────────────────────────────
 local mb_lower_if_stmt = region(ctx: ptr(@{MomBackLowerCtx}), stmt_idx: i32;
-                                done: cont(flow: i32, ok: bool))
+                                done: cont(result: MomStmtResult))
 entry start()
     let tree: ptr = ctx.tree
     let cond_idx: i32 = tree.stmt_name[stmt_idx]
@@ -128,9 +125,8 @@ entry start()
     var cond_scalar: i32 = 0
     var cond_ok: bool = false
     emit mb_lower_expr_region(ctx, cond_idx, cond_val, cond_scalar, cond_ok)
-    if cond_ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
+    if cond_ok == false then jump done(result = MomStmtResult(flow = @{BackFallsThrough}, ok = false)) end
 
-    -- collect changed bindings across both branches
     var changed_then_aux: i32 = 0
     var changed_then_cnt: i32 = 0
     if then_count > 0 then
@@ -141,7 +137,7 @@ entry start()
     if else_start >= 0 and else_count > 0 then
         emit collect_changed_bindings(ctx, else_start, else_count, changed_else_aux, changed_else_cnt)
     end
-    -- merge unique names – store them in a new area
+    -- merge unique names
     let merged_aux: i32 = as(i32, ctx.aux_i32.len)
     block merge_scan(ii: index = as(index, changed_then_aux))
         if ii >= as(index, changed_then_aux + changed_then_cnt) then yield end
@@ -171,7 +167,6 @@ entry start()
     end
     let n_changed: i32 = as(i32, ctx.aux_i32.len) - merged_aux
 
-    -- create blocks
     let then_blk: i32 = mb_ctx_fresh_block(ctx)
     let else_blk: i32 = mb_ctx_fresh_block(ctx)
     let join_blk: i32 = mb_ctx_fresh_block(ctx)
@@ -179,8 +174,6 @@ entry start()
     mb_emit_create_block(ctx, else_blk)
     mb_emit_create_block(ctx, join_blk)
 
-    -- For each changed binding, create a phi param on join block
-    -- Store phi mappings: (name_tok, param_val, scalar) in aux after merged names
     let phi_info_aux: i32 = as(i32, ctx.aux_i32.len)
     block create_phi(pi: index = as(index, 0))
         if pi >= as(index, n_changed) then yield end
@@ -195,12 +188,10 @@ entry start()
         jump create_phi(pi = pi + as(index, 1))
     end
 
-    -- conditional branch to then/else
     mb_emit_br_if(ctx, cond_val, then_blk, 0, 0, else_blk, 0, 0)
     mb_emit_seal_block(ctx, then_blk)
     mb_emit_seal_block(ctx, else_blk)
 
-    -- lower then-body
     mb_emit_switch_to_block(ctx, then_blk)
     var then_flow: i32 = @{BackFallsThrough}
     var then_ok: bool = false
@@ -209,7 +200,6 @@ entry start()
     end
     if then_ok == false and then_count > 0 then then_flow = @{BackFallsThrough} end
     if then_flow ~= @{BackTerminates} then
-        -- collect current values for phi targets
         let then_args_aux: i32 = as(i32, ctx.aux_i32.len)
         block then_args(pi: index = as(index, 0))
             if pi >= as(index, n_changed) then yield end
@@ -217,8 +207,7 @@ entry start()
             let env_slot: i32 = mb_env_lookup(ctx.env, name_tok)
             let kind: i32 = select(env_slot >= 0, ctx.env.kind[as(index, env_slot)], 0)
             if env_slot >= 0 and kind == @{MB_LOCAL_SCALAR} then
-                let val: i32 = ctx.env.val[as(index, env_slot)]
-                mb_ctx_push_aux_i32(ctx, val)
+                mb_ctx_push_aux_i32(ctx, ctx.env.val[as(index, env_slot)])
             else
                 mb_ctx_push_aux_i32(ctx, 0)
             end
@@ -227,7 +216,6 @@ entry start()
         mb_emit_jump(ctx, join_blk, then_args_aux, n_changed)
     end
 
-    -- lower else-body (or empty else)
     mb_emit_switch_to_block(ctx, else_blk)
     var else_flow: i32 = @{BackFallsThrough}
     if else_start >= 0 and else_count > 0 then
@@ -243,8 +231,7 @@ entry start()
             let env_slot: i32 = mb_env_lookup(ctx.env, name_tok)
             let kind: i32 = select(env_slot >= 0, ctx.env.kind[as(index, env_slot)], 0)
             if env_slot >= 0 and kind == @{MB_LOCAL_SCALAR} then
-                let val: i32 = ctx.env.val[as(index, env_slot)]
-                mb_ctx_push_aux_i32(ctx, val)
+                mb_ctx_push_aux_i32(ctx, ctx.env.val[as(index, env_slot)])
             else
                 mb_ctx_push_aux_i32(ctx, 0)
             end
@@ -253,14 +240,12 @@ entry start()
         mb_emit_jump(ctx, join_blk, else_args_aux, n_changed)
     end
 
-    -- determine overall flow
     let any_falls: bool = (then_flow ~= @{BackTerminates} or else_flow ~= @{BackTerminates})
     if any_falls then
         mb_emit_seal_block(ctx, join_blk)
         mb_emit_switch_to_block(ctx, join_blk)
     end
 
-    -- rebind env with phi values
     block rebind(pi: index = as(index, 0))
         if pi >= as(index, n_changed) then yield end
         let base: index = as(index, phi_info_aux) + pi * as(index, 3)
@@ -272,13 +257,13 @@ entry start()
     end
 
     let final_flow: i32 = select(any_falls, @{BackFallsThrough}, @{BackTerminates})
-    jump done(flow = final_flow, ok = true)
+    jump done(result = MomStmtResult(flow = final_flow, ok = true))
 end
 end
 
 -- ── switch statement phi lowering ────────────────────────────────────
 local mb_lower_switch_stmt = region(ctx: ptr(@{MomBackLowerCtx}), stmt_idx: i32;
-                                    done: cont(flow: i32, ok: bool))
+                                    done: cont(result: MomStmtResult))
 entry start()
     let tree: ptr = ctx.tree
     let value_idx: i32 = tree.stmt_name[stmt_idx]
@@ -291,9 +276,8 @@ entry start()
     var value_scalar: i32 = 0
     var value_ok: bool = false
     emit mb_lower_expr_region(ctx, value_idx, value_val, value_scalar, value_ok)
-    if value_ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
+    if value_ok == false then jump done(result = MomStmtResult(flow = @{BackFallsThrough}, ok = false)) end
 
-    -- Collect changed bindings across all arms + default
     let merged_aux: i32 = as(i32, ctx.aux_i32.len)
     block scan_arms(ai: index = as(index, 0))
         if ai >= as(index, arm_count) then yield end
@@ -313,7 +297,6 @@ entry start()
     end
     let n_changed: i32 = as(i32, ctx.aux_i32.len) - merged_aux
 
-    -- Create arm blocks + default block + join block
     let arm_blocks_aux: i32 = as(i32, ctx.aux_i32.len)
     block alloc_arms(ai: index = as(index, 0))
         if ai >= as(index, arm_count) then yield end
@@ -327,7 +310,6 @@ entry start()
     let join_blk: i32 = mb_ctx_fresh_block(ctx)
     mb_emit_create_block(ctx, join_blk)
 
-    -- Append block params on join for changed bindings
     let phi_info_aux: i32 = as(i32, ctx.aux_i32.len)
     block create_phi(pi: index = as(index, 0))
         if pi >= as(index, n_changed) then yield end
@@ -342,7 +324,6 @@ entry start()
         jump create_phi(pi = pi + as(index, 1))
     end
 
-    -- Build cases aux for mb_emit_switch_int: key_val + target block per case
     let cases_aux: i32 = as(i32, ctx.aux_i32.len)
     block build_cases(ci: index = as(index, 0))
         if ci >= as(index, arm_count) then yield end
@@ -351,7 +332,7 @@ entry start()
         var key_scalar: i32 = 0
         var key_ok: bool = false
         emit mb_lower_expr_region(ctx, key_expr, key_val, key_scalar, key_ok)
-        if key_ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
+        if key_ok == false then jump done(result = MomStmtResult(flow = @{BackFallsThrough}, ok = false)) end
         mb_ctx_push_aux_i32(ctx, key_val)
         mb_ctx_push_aux_i32(ctx, ctx.aux_i32.data[as(index, arm_blocks_aux) + ci])
         jump build_cases(ci = ci + as(index, 1))
@@ -359,7 +340,6 @@ entry start()
 
     mb_emit_switch_int(ctx, value_val, value_scalar, cases_aux, arm_count, default_blk)
 
-    -- Seal arm blocks and default block
     block seal_arms(ai: index = as(index, 0))
         if ai >= as(index, arm_count) then yield end
         mb_emit_seal_block(ctx, ctx.aux_i32.data[as(index, arm_blocks_aux) + ai])
@@ -367,7 +347,6 @@ entry start()
     end
     mb_emit_seal_block(ctx, default_blk)
 
-    -- Lower each arm
     var any_falls: bool = false
     block lower_arms(ai: index = as(index, 0))
         if ai >= as(index, arm_count) then yield end
@@ -400,7 +379,6 @@ entry start()
         jump lower_arms(ai = ai + as(index, 1))
     end
 
-    -- Lower default
     mb_emit_switch_to_block(ctx, default_blk)
     var def_flow: i32 = @{BackFallsThrough}
     if default_count > 0 then
@@ -430,7 +408,6 @@ entry start()
         mb_emit_switch_to_block(ctx, join_blk)
     end
 
-    -- rebind env with phi values
     block rebind(pi: index = as(index, 0))
         if pi >= as(index, n_changed) then yield end
         let base: index = as(index, phi_info_aux) + pi * as(index, 3)
@@ -442,13 +419,13 @@ entry start()
     end
 
     let final_flow: i32 = select(any_falls, @{BackFallsThrough}, @{BackTerminates})
-    jump done(flow = final_flow, ok = true)
+    jump done(result = MomStmtResult(flow = final_flow, ok = true))
 end
 end
 
 -- ── main statement dispatcher ────────────────────────────────────────
 local mb_lower_stmt = region(ctx: ptr(@{MomBackLowerCtx}), stmt_idx: i32;
-                             done: cont(flow: i32, ok: bool))
+                             done: cont(result: MomStmtResult))
 entry start()
     let tree: ptr = ctx.tree
     let tag: i32 = tree.stmt_tag[stmt_idx]
@@ -461,16 +438,16 @@ entry start()
         var init_scalar: i32 = 0
         var init_ok: bool = false
         emit mb_lower_expr_region(ctx, stmt_c, init_val, init_scalar, init_ok)
-        if init_ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
+        if init_ok == false then jump done(result = MomStmtResult(flow = @{BackFallsThrough}, ok = false)) end
         mb_env_bind_scalar(ctx.env, stmt_a, init_scalar, init_val)
-        jump done(flow = @{BackFallsThrough}, ok = true)
+        jump done(result = MomStmtResult(flow = @{BackFallsThrough}, ok = true))
 
     case @{ST_VAR} then
         var init_val: i32 = 0
         var init_scalar: i32 = 0
         var init_ok: bool = false
         emit mb_lower_expr_region(ctx, stmt_c, init_val, init_scalar, init_ok)
-        if init_ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
+        if init_ok == false then jump done(result = MomStmtResult(flow = @{BackFallsThrough}, ok = false)) end
         let slot: i32 = mb_ctx_fresh_slot(ctx)
         let size: i32 = slot_size(init_scalar)
         let align: i32 = select(size > 4, 8, 4)
@@ -479,7 +456,7 @@ entry start()
         mb_emit_stack_addr(ctx, addr_val, slot)
         mb_emit_store_info(ctx, 0, init_scalar, 0, 0, addr_val, 0, init_val, 1, 0, align, 0, size, 0, 0, 0)
         mb_env_bind_stack(ctx.env, stmt_a, init_scalar, slot)
-        jump done(flow = @{BackFallsThrough}, ok = true)
+        jump done(result = MomStmtResult(flow = @{BackFallsThrough}, ok = true))
 
     case @{ST_SET} then
         let place_idx: i32 = stmt_a
@@ -493,56 +470,62 @@ entry start()
                 var value_scalar: i32 = 0
                 var value_ok: bool = false
                 emit mb_lower_expr_region(ctx, value_idx, value_val, value_scalar, value_ok)
-                if value_ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
+                if value_ok == false then jump done(result = MomStmtResult(flow = @{BackFallsThrough}, ok = false)) end
                 mb_env_bind_scalar(ctx.env, name_tok, value_scalar, value_val)
-                jump done(flow = @{BackFallsThrough}, ok = true)
+                jump done(result = MomStmtResult(flow = @{BackFallsThrough}, ok = true))
             end
         end
         var store_flow: i32 = @{BackFallsThrough}
         var store_ok: bool = false
         emit mb_place_store_to_back(ctx, place_idx, value_idx, store_flow, store_ok)
-        jump done(flow = store_flow, ok = store_ok)
+        jump done(result = MomStmtResult(flow = store_flow, ok = store_ok))
 
     case @{ST_EXPR} then
         var value: i32 = 0
         var scalar: i32 = 0
         var expr_ok: bool = false
         emit mb_lower_expr_region(ctx, stmt_a, value, scalar, expr_ok)
-        jump done(flow = @{BackFallsThrough}, ok = expr_ok)
+        jump done(result = MomStmtResult(flow = @{BackFallsThrough}, ok = expr_ok))
 
     case @{ST_RETURN_VOID} then
         mb_emit_return_void(ctx)
-        jump done(flow = @{BackTerminates}, ok = true)
+        jump done(result = MomStmtResult(flow = @{BackTerminates}, ok = true))
 
     case @{ST_RETURN_VALUE} then
         var ret_val: i32 = 0
         var ret_scalar: i32 = 0
         var ret_ok: bool = false
         emit mb_lower_expr_region(ctx, stmt_a, ret_val, ret_scalar, ret_ok)
-        if ret_ok == false then jump done(flow = @{BackTerminates}, ok = false) end
+        if ret_ok == false then jump done(result = MomStmtResult(flow = @{BackTerminates}, ok = false)) end
         mb_emit_return_value(ctx, ret_val)
-        jump done(flow = @{BackTerminates}, ok = true)
+        jump done(result = MomStmtResult(flow = @{BackTerminates}, ok = true))
 
     case @{ST_IF} then
-        var if_flow: i32 = 0
-        var if_ok: bool = false
-        emit mb_lower_if_stmt(ctx, stmt_idx, if_flow, if_ok)
-        jump done(flow = if_flow, ok = if_ok)
+        var if_result: MomStmtResult = _
+        emit mb_lower_if_stmt(ctx, stmt_idx, result = after_if)
+    end
+    block after_if(result: MomStmtResult)
+        jump done(result = result)
+    end
 
     case @{ST_SWITCH} then
-        var sw_flow: i32 = 0
-        var sw_ok: bool = false
-        emit mb_lower_switch_stmt(ctx, stmt_idx, sw_flow, sw_ok)
-        jump done(flow = sw_flow, ok = sw_ok)
+        var sw_result: MomStmtResult = _
+        emit mb_lower_switch_stmt(ctx, stmt_idx, result = after_sw)
+    end
+    block after_sw(result: MomStmtResult)
+        jump done(result = result)
+    end
 
     case @{ST_CONTROL} then
-        var ctrl_flow: i32 = @{BackFallsThrough}
-        var ctrl_ok: bool = false
-        emit mb_lower_control_stmt(ctx, stmt_idx, ctrl_flow, ctrl_ok)
-        jump done(flow = ctrl_flow, ok = ctrl_ok)
+        var ctrl_result: MomStmtResult = _
+        emit mb_lower_control_stmt(ctx, stmt_idx, result = after_ctrl)
+    end
+    block after_ctrl(result: MomStmtResult)
+        jump done(result = result)
+    end
 
     default then
-        jump done(flow = @{BackFallsThrough}, ok = false)
+        jump done(result = MomStmtResult(flow = @{BackFallsThrough}, ok = false))
     end
 end
 end
@@ -559,31 +542,37 @@ end
 block loop(i: index, flow: i32)
     if i >= as(index, body_count) then jump done(flow = flow, ok = true) end
     let stmt_idx: i32 = ctx.tree.stmt_list[as(index, body_start) + i]
-    var stmt_flow: i32 = @{BackFallsThrough}
-    var stmt_ok: bool = false
-    emit mb_lower_stmt(ctx, stmt_idx, stmt_flow, stmt_ok)
-    if stmt_ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
-    if stmt_flow == @{BackTerminates} then jump done(flow = stmt_flow, ok = true) end
-    jump loop(i = i + as(index, 1), flow = stmt_flow)
+    var stmt_result: MomStmtResult = _
+    emit mb_lower_stmt(ctx, stmt_idx, result = after_one)
+end
+block after_one(result: MomStmtResult)
+    if result.ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
+    if result.flow == @{BackTerminates} then jump done(flow = result.flow, ok = true) end
+    jump loop(i = i + as(index, 1), flow = result.flow)
 end
 end
 
 local mb_lower_stmt_list = region(ctx: ptr(@{MomBackLowerCtx}), list_start: index, list_count: index;
-                                  done: cont(flow: i32, ok: bool))
+                                  done: cont(result: MomStmtResult))
 entry start()
     jump loop(i = as(index, 0), flow = @{BackFallsThrough})
 end
 block loop(i: index, flow: i32)
-    if i >= list_count then jump done(flow = flow, ok = true) end
+    if i >= list_count then jump done(result = MomStmtResult(flow = flow, ok = true)) end
     let stmt_idx: i32 = ctx.tree.stmt_list[list_start + i]
-    var stmt_flow: i32 = @{BackFallsThrough}
-    var stmt_ok: bool = false
-    emit mb_lower_stmt(ctx, stmt_idx, stmt_flow, stmt_ok)
-    if stmt_ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
-    if stmt_flow == @{BackTerminates} then jump done(flow = stmt_flow, ok = true) end
-    jump loop(i = i + as(index, 1), flow = stmt_flow)
+    var stmt_result: MomStmtResult = _
+    emit mb_lower_stmt(ctx, stmt_idx, result = after_one)
+end
+block after_one(result: MomStmtResult)
+    if result.ok == false then jump done(result = MomStmtResult(flow = @{BackFallsThrough}, ok = false)) end
+    if result.flow == @{BackTerminates} then jump done(result = MomStmtResult(flow = result.flow, ok = true)) end
+    jump loop(i = i + as(index, 1), flow = result.flow)
 end
 end
+
+-- Note: mb_lower_control_stmt_list and mb_lower_stmt_list are still used with separate flow/ok output
+-- when called from control_lower.mlua.  For the top-level statement list (used by func.mlua)
+-- the new MomStmtResult version is exported.
 
 M.mb_lower_stmt = mb_lower_stmt
 M.mb_lower_stmt_list = mb_lower_stmt_list
