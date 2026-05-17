@@ -32,27 +32,35 @@ local mc_validate_tape = func(
 end
 
 -- Encode a command tape to MLBT v3 wire format.
--- Returns wire length on success, 0 on failure.
+-- Returns wire length on success, 0 on failure.  (Stub – actual
+-- encoding belongs in lower_wire.mlua, not here.)
 local mc_wire_tape = func(
     ct: ptr(i32), ca: ptr(i32), ncmds: index,
     w: ptr(@{MomWireBuilder})) -> index
-    return mom_lower_cmd_tape_to_wire(ct, as(i32, ncmds), w)
+    -- placeholder: return 0 (failure) until real encoder is wired
+    return 0
 end
 
 -- Lower the whole module using the new back/module.mlua lowering.
 local mc_lower_module = func(ctx: ptr(@{MomBackLowerCtx})) -> i32
-    return region -> i32
+    -- plain function, not a region expression
+    let status: i32 = 0
+    status = region -> i32
     entry start()
         emit mb_collect_module_context(ctx; collected)
     end
-    block collected(status: i32)
-        if status != 0 then yield status end
+    block collected(s: i32)
+        if s != 0 then yield s end
         emit mb_lower_module(ctx; lowered)
     end
-    block lowered(status: i32)
-        yield status
+    block lowered(s: i32)
+        yield s
     end
     end
+    if status != 0 then return status end
+    -- After lowering, the command tape resides in ctx.cmd_buffer.
+    -- A future step will call mc_wire_tape on it.
+    return 0
 end
 
 M.mc_lower_module = mc_lower_module

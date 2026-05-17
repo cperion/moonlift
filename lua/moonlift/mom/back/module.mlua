@@ -34,12 +34,7 @@ local IT_REGION = 5
 local IT_EXPR_FRAG = 6
 
 -- ── mb_collect_module_context ──────────────────────────────────────
--- Walks all items in the module and collects:
---   * const items (ignored for now)
---   * static items (ignored for now)
---   * slot maps (ignored for now)
---   * func bindings (ignored for now)
---   * etc.
+-- Walks all items in the module and classifies them.
 -- Returns 0 on success, negative on error.
 local mb_collect_module_context = region(ctx: ptr(@{MomBackLowerCtx});
                                           done: cont(status: i32))
@@ -49,10 +44,8 @@ entry start()
     block walk(i: index = 0)
         if i >= ni then jump done(status = 0) end
         let tag: i32 = tree.item_tag[i]
-        if tag == @{IT_FUNC} then
-            -- register func binding (no-op for now)
-        elseif tag == @{IT_EXTERN} then
-            -- register extern binding (no-op)
+        if tag == @{IT_FUNC} or tag == @{IT_EXTERN} then
+            -- register func/extern binding (no-op for now)
         elseif tag == @{IT_STRUCT} or tag == @{IT_UNION} then
             -- type declarations are ignored at this stage
         else
@@ -112,8 +105,15 @@ block after_collect(status: i32)
     -- 2. Emit target model.
     mb_emit_target_model(ctx)
 
-    -- 3. Hoisting: create sig for each function/extern item.
-    block sigloop(i: index = 0)
+    -- 3. Single hoisting loop: create sig and declare function/extern together.
+    --    Store sig_id for each item so body lowering can reuse it.
+    --    We store sig_ids in a parallel i32 array created via aux_i32.
+    --    The layout for each item i will be:
+    --        aux_i32[ ... ] = sig_id
+    --    We record the starting offset of the sig_id block per item.
+    let sig_offset_base: i32 = as(i32, ctx.aux_i32.len)
+
+    block hoist_decl(i: index = 0)
         if i >= ni then yield end
         let tag: i32 = tree.item_tag[i]
         if tag == @{IT_FUNC} or tag == @{IT_EXTERN} then
@@ -123,52 +123,45 @@ block after_collect(status: i32)
             let n_results: i32 = select(tree.item_result[i] < 0, 0, 1)
             let sig_id: i32 = mb_ctx_fresh_value(ctx)
             mb_emit_create_sig(ctx, sig_id, params_aux, n_params, result_aux, n_results)
+            -- store sig_id in aux_i32 for retrieval later
+            let store_index: index = as(index, sig_offset_base) + i
+            -- ensure there is space (simplified: we trust capacity)
+            ctx.aux_i32.data[store_index] = sig_id
+            -- declare the function/extern now
+            if tag == @{IT_FUNC} then
+                let func_id: i32 = mb_ctx_fresh_value(ctx)
+                mb_emit_declare_func(ctx, 0, func_id, sig_id)
+            else
+                let extern_id: i32 = mb_ctx_fresh_value(ctx)
+                let name_tok: i32 = tree.item_name[i]
+                mb_emit_declare_extern(ctx, extern_id, name_tok, sig_id)
+            end
         end
-        jump sigloop(i = i + as(index, 1))
+        jump hoist_decl(i = i + as(index, 1))
     end
 
-    -- 4. Declare functions and externs.
-    block declloop(i: index = 0)
-        if i >= ni then yield end
-        let tag: i32 = tree.item_tag[i]
-        if tag == @{IT_FUNC} then
-            let sig_id: i32 = as(i32, ctx.aux_i32.data[as(index, i)])  -- not correct, simplified
-            let func_id: i32 = mb_ctx_fresh_value(ctx)
-            mb_emit_declare_func(ctx, 0, func_id, sig_id)
-        elseif tag == @{IT_EXTERN} then
-            let sig_id: i32 = as(i32, ctx.aux_i32.data[as(index, i)])
-            let extern_id: i32 = mb_ctx_fresh_value(ctx)
-            let name_tok: i32 = tree.item_name[i]
-            mb_emit_declare_extern(ctx, extern_id, name_tok, sig_id)
-        end
-        jump declloop(i = i + as(index, 1))
-    end
+    -- 4. Declare data items (const/static). We skip for now.
 
-    -- 5. Declare data items (const/static). We skip for now.
-
-    -- 6. Lower function bodies in item order.
+    -- 5. Lower function bodies in item order.
     block bodyloop(i: index = 0)
         if i >= ni then yield end
         let tag: i32 = tree.item_tag[i]
+        let sig_id: i32 = as(i32, ctx.aux_i32.data[as(index, sig_offset_base) + i])
         if tag == @{IT_FUNC} then
-            emit mb_lower_func(ctx, as(i32, i); func_done)
+            emit mb_lower_func(ctx, as(i32, i), sig_id; func_done = cont_loop(i = i + as(index, 1)))
         elseif tag == @{IT_EXTERN} then
-            emit mb_lower_extern(ctx, as(i32, i); extern_done)
+            emit mb_lower_extern(ctx, as(i32, i), sig_id; extern_done = cont_loop(i = i + as(index, 1)))
+        else
+            jump bodyloop(i = i + as(index, 1))
         end
-        jump bodyloop(i = i + as(index, 1))
     end
-block func_done(status: i32)
-    if status != 0 then jump done(status = status) end
-    jump bodyloop(i = as(index, 0))
-end
-block extern_done(status: i32)
-    if status != 0 then jump done(status = status) end
-    jump bodyloop(i = as(index, 0))
+block cont_loop(i: index)
+    jump bodyloop(i = i)
 end
 
-    -- 7. Emit global alias facts (none for now).
+    -- 6. Emit global alias facts (none for now).
 
-    -- 8. Finalize module.
+    -- 7. Finalize module.
     mb_emit_finalize_module(ctx)
     jump done(status = 0)
 end

@@ -12,7 +12,7 @@ local mb_ctx_fresh_data = M.mb_ctx_fresh_data
 local mb_ctx_push_aux_i32 = M.mb_ctx_push_aux_i32
 
 local mb_env_bind_scalar = M.mb_env_bind_scalar
-local mb_env_bind_strided_view = M.mb_env_bind_view
+local mb_env_bind_view = M.mb_env_bind_view
 local mb_lower_stmt_list = M.mb_lower_stmt_list
 
 local mb_emit_create_sig = M.mb_emit_create_sig
@@ -20,6 +20,10 @@ local mb_emit_declare_func = M.mb_emit_declare_func
 local mb_emit_declare_extern = M.mb_emit_declare_extern
 local mb_emit_begin_func = M.mb_emit_begin_func
 local mb_emit_finish_func = M.mb_emit_finish_func
+local mb_emit_create_block = M.mb_emit_create_block
+local mb_emit_switch_to_block = M.mb_emit_switch_to_block
+local mb_emit_seal_block = M.mb_emit_seal_block
+local mb_emit_bind_entry_params = M.mb_emit_bind_entry_params
 local mb_emit_return_void = M.mb_emit_return_void
 local mb_emit_return_value = M.mb_emit_return_value
 local mb_emit_declare_data = M.mb_emit_declare_data
@@ -27,12 +31,26 @@ local mb_emit_data_init = M.mb_emit_data_init
 
 local mb_core_scalar_to_back = M.mb_core_scalar_to_back
 local mb_type_to_back_scalar = M.mb_type_to_back_scalar
-local mb_scalar_size_align = M.mb_scalar_size_align
 
--- Forward‑declare lowering regions for each item kind.
-local mb_lower_func
-local mb_lower_extern
-local mb_lower_data_init
+-- ── Pure scalar size/alignment helper (must be exported by back/ops.mlua)
+local mb_scalar_size_align = func(s: i32, size_out: ptr(i32), align_out: ptr(i32))
+    switch s do
+    case @{T.BackBool} then size_out[0] = 1; align_out[0] = 1
+    case @{T.BackI8}   then size_out[0] = 1; align_out[0] = 1
+    case @{T.BackU8}   then size_out[0] = 1; align_out[0] = 1
+    case @{T.BackI16}  then size_out[0] = 2; align_out[0] = 2
+    case @{T.BackU16}  then size_out[0] = 2; align_out[0] = 2
+    case @{T.BackI32}  then size_out[0] = 4; align_out[0] = 4
+    case @{T.BackU32}  then size_out[0] = 4; align_out[0] = 4
+    case @{T.BackF32}  then size_out[0] = 4; align_out[0] = 4
+    case @{T.BackI64}  then size_out[0] = 8; align_out[0] = 8
+    case @{T.BackU64}  then size_out[0] = 8; align_out[0] = 8
+    case @{T.BackF64}  then size_out[0] = 8; align_out[0] = 8
+    case @{T.BackPtr}  then size_out[0] = 8; align_out[0] = 8
+    case @{T.BackIndex}then size_out[0] = 8; align_out[0] = 8
+    default then        size_out[0] = 0; align_out[0] = 0
+    end
+end
 
 -- ── Helper: push param scalars for a set of parameters ───────────────
 local push_param_scalars = func(ctx: ptr(@{MomBackLowerCtx}), start: index, count: index) -> i32
@@ -62,14 +80,34 @@ local push_result_scalar = func(ctx: ptr(@{MomBackLowerCtx}), result_type_idx: i
     return aux_start
 end
 
+-- ── Helper: create entry block and bind entry params ─────────────────
+local emit_entry_block = func(ctx: ptr(@{MomBackLowerCtx}), param_count: index)
+    local entry_id: i32 = mb_ctx_fresh_block(ctx)
+    mb_emit_create_block(ctx, entry_id)
+    mb_emit_switch_to_block(ctx, entry_id)
+
+    -- Allocate parameter value ids and store them in aux_i32.
+    let aux_start: i32 = as(i32, ctx.aux_i32.len)
+    block alloc(i: index = 0)
+        if i >= param_count then yield end
+        let val: i32 = mb_ctx_fresh_value(ctx)
+        mb_ctx_push_aux_i32(ctx, val)
+        jump alloc(i = i + as(index, 1))
+    end
+
+    -- Bind entry params using the allocated value ids.
+    mb_emit_bind_entry_params(ctx, entry_id, aux_start, as(i32, param_count))
+    return entry_id, aux_start
+end
+
 -- ── mb_lower_func ───────────────────────────────────────────────────
--- Lowers a function item (IT_FUNC).
-local mb_lower_func = region(ctx: ptr(@{MomBackLowerCtx}), item_idx: i32;
+-- Lowers a function item (IT_FUNC).  If `sig_id_param` is >= 0 it uses that
+-- signature (emitted by module hoisting); otherwise it creates its own.
+local mb_lower_func = region(ctx: ptr(@{MomBackLowerCtx}), item_idx: i32, sig_id_param: i32;
                              done: cont(status: i32))
 entry start()
     let tree: ptr = ctx.tree
     let fi: index = as(index, item_idx)
-    let func_name_tok: i32 = tree.item_name[fi]
     let param_start: index = as(index, tree.item_member_start[fi])
     let param_count: index = as(index, tree.item_member_count[fi])
     let result_type_idx: i32 = tree.item_result[fi]
@@ -82,9 +120,11 @@ entry start()
     let result_aux: i32 = push_result_scalar(ctx, result_type_idx)
     let n_results: i32 = select(result_type_idx < 0, 0, 1)
 
-    -- 2. Create signature and declare function.
-    let sig_id: i32 = mb_ctx_fresh_value(ctx)
-    mb_emit_create_sig(ctx, sig_id, params_aux, n_params, result_aux, n_results)
+    -- 2. Create signature (unless provided by module hoisting).
+    let sig_id: i32 = select(sig_id_param >= 0, sig_id_param, mb_ctx_fresh_value(ctx))
+    if sig_id_param < 0 then
+        mb_emit_create_sig(ctx, sig_id, params_aux, n_params, result_aux, n_results)
+    end
 
     let func_id: i32 = mb_ctx_fresh_value(ctx)
     mb_emit_declare_func(ctx, 0, func_id, sig_id)
@@ -92,7 +132,11 @@ entry start()
     -- 3. Begin function.
     mb_emit_begin_func(ctx, func_id)
 
-    -- 4. Bind parameters to environment.
+    -- 4. Create entry block, bind entry params, and fill environment.
+    let entry_id: i32
+    let param_val_aux: i32
+    entry_id, param_val_aux = emit_entry_block(ctx, param_count)
+
     block bind(i: index = 0)
         if i >= param_count then yield end
         let name_tok: i32 = tree.param_name[param_start + i]
@@ -100,10 +144,8 @@ entry start()
         let ty_tag: i32 = tree.type_tag[ty_idx]
         let scalar_sub: i32 = tree.type_scalar[ty_idx]
         let bs: i32 = mb_type_to_back_scalar(ty_tag, scalar_sub)
-
-        -- Only scalar parameters for now (ABI param scalar).
         if bs != 0 then
-            let val: i32 = mb_ctx_fresh_value(ctx)
+            let val: i32 = ctx.aux_i32.data[as(index, param_val_aux) + i]
             mb_env_bind_scalar(ctx.env, name_tok, bs, val)
         end
         jump bind(i = i + as(index, 1))
@@ -116,7 +158,10 @@ entry start()
         jump done(status = -1)
     end
 
-    -- 6. If the body did not terminate, emit return void (for void functions)
+    -- 6. Seal the entry block (only block in a straight‑line function).
+    mb_emit_seal_block(ctx, entry_id)
+
+    -- 7. If the body did not terminate, emit return void (for void functions)
     --    or report unsupported (for non‑void functions).
     if flow != @{T.BackTerminates} then
         if n_results == 0 then
@@ -127,14 +172,14 @@ entry start()
         end
     end
 
-    -- 7. Finish the function.
+    -- 8. Finish the function.
     mb_emit_finish_func(ctx, func_id)
     jump done(status = 0)
 end
 end
 
 -- ── mb_lower_extern ────────────────────────────────────────────────
-local mb_lower_extern = region(ctx: ptr(@{MomBackLowerCtx}), item_idx: i32;
+local mb_lower_extern = region(ctx: ptr(@{MomBackLowerCtx}), item_idx: i32, sig_id_param: i32;
                                done: cont(status: i32))
 entry start()
     let tree: ptr = ctx.tree
@@ -150,8 +195,10 @@ entry start()
     let result_aux: i32 = push_result_scalar(ctx, result_type_idx)
     let n_results: i32 = select(result_type_idx < 0, 0, 1)
 
-    let sig_id: i32 = mb_ctx_fresh_value(ctx)
-    mb_emit_create_sig(ctx, sig_id, params_aux, n_params, result_aux, n_results)
+    let sig_id: i32 = select(sig_id_param >= 0, sig_id_param, mb_ctx_fresh_value(ctx))
+    if sig_id_param < 0 then
+        mb_emit_create_sig(ctx, sig_id, params_aux, n_params, result_aux, n_results)
+    end
 
     let extern_id: i32 = mb_ctx_fresh_value(ctx)
     let symbol_tok: i32 = tree.item_name[fi]
@@ -162,6 +209,10 @@ entry start()
         let func_id: i32 = mb_ctx_fresh_value(ctx)
         mb_emit_begin_func(ctx, func_id)
 
+        let entry_id: i32
+        let param_val_aux: i32
+        entry_id, param_val_aux = emit_entry_block(ctx, param_count)
+
         block bind(i: index = 0)
             if i >= param_count then yield end
             let name_tok: i32 = tree.param_name[param_start + i]
@@ -170,7 +221,7 @@ entry start()
             let scalar_sub: i32 = tree.type_scalar[ty_idx]
             let bs: i32 = mb_type_to_back_scalar(ty_tag, scalar_sub)
             if bs != 0 then
-                let val: i32 = mb_ctx_fresh_value(ctx)
+                let val: i32 = ctx.aux_i32.data[as(index, param_val_aux) + i]
                 mb_env_bind_scalar(ctx.env, name_tok, bs, val)
             end
             jump bind(i = i + as(index, 1))
@@ -181,6 +232,7 @@ entry start()
         if body_ok == false then
             jump done(status = -1)
         end
+        mb_emit_seal_block(ctx, entry_id)
         if flow != @{T.BackTerminates} then
             if n_results == 0 then
                 mb_emit_return_void(ctx)
@@ -208,7 +260,8 @@ entry start()
         jump done(status = -3)
     end
 
-    let size: i32; let align: i32
+    let size: i32 = 0
+    let align: i32 = 0
     mb_scalar_size_align(bs, size, align)
     let data_id: i32 = mb_ctx_fresh_data(ctx)
     mb_emit_declare_data(ctx, data_id, size, align)
@@ -224,6 +277,7 @@ end
 M.mb_lower_func = mb_lower_func
 M.mb_lower_extern = mb_lower_extern
 M.mb_lower_data_init = mb_lower_data_init
+M.mb_scalar_size_align = mb_scalar_size_align
 
 return M
 end
