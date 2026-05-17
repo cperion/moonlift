@@ -6,6 +6,7 @@ return function(M)
 local MomBackLowerCtx = M.MomBackLowerCtx
 
 local mb_ctx_fresh_value = M.mb_ctx_fresh_value
+local mb_ctx_fresh_block = M.mb_ctx_fresh_block
 local mb_ctx_fresh_slot = M.mb_ctx_fresh_slot
 local mb_lower_expr_region = M.mb_lower_expr_region
 local mb_env_bind_scalar = M.mb_env_bind_scalar
@@ -16,6 +17,11 @@ local mb_emit_stack_addr = M.mb_emit_stack_addr
 local mb_emit_store_info = M.mb_emit_store_info
 local mb_emit_return_void = M.mb_emit_return_void
 local mb_emit_return_value = M.mb_emit_return_value
+local mb_emit_create_block = M.mb_emit_create_block
+local mb_emit_br_if = M.mb_emit_br_if
+local mb_emit_jump = M.mb_emit_jump
+local mb_emit_switch_to_block = M.mb_emit_switch_to_block
+local mb_emit_seal_block = M.mb_emit_seal_block
 local mb_place_store_to_back = M.mb_place_store_to_back
 local mb_lower_control_stmt = M.mb_lower_control_stmt
 
@@ -121,6 +127,71 @@ entry start()
         mb_emit_return_value(ctx, ret_val)
         jump done(flow = @{BackTerminates}, ok = true)
 
+    case @{ST_IF} then
+        -- Lower condition.
+        let cond_idx: i32 = stmt_a
+        var cond_val: i32 = 0
+        var cond_scalar: i32 = 0
+        var cond_ok: bool = false
+        emit mb_lower_expr_region(ctx, cond_idx, cond_val, cond_scalar, cond_ok)
+        if cond_ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
+
+        -- Parser stmt layout for if: a=cond, b=then_start, c=then_count, d=else_start, e=else_count.
+        let then_start: i32 = tree.stmt_type[stmt_idx]
+        let then_count: i32 = tree.stmt_value[stmt_idx]
+        var else_start: i32 = tree.stmt_aux[stmt_idx]
+        let else_count: i32 = tree.stmt_aux2[stmt_idx]
+
+        -- Create then/else/join blocks.
+        let then_blk: i32 = mb_ctx_fresh_block(ctx)
+        let else_blk: i32 = mb_ctx_fresh_block(ctx)
+        let join_blk: i32 = mb_ctx_fresh_block(ctx)
+
+        mb_emit_create_block(ctx, then_blk)
+        mb_emit_create_block(ctx, else_blk)
+        mb_emit_create_block(ctx, join_blk)
+
+        mb_emit_br_if(ctx, cond_val, then_blk, 0, 0, else_blk, 0, 0)
+
+        mb_emit_seal_block(ctx, then_blk)
+        mb_emit_seal_block(ctx, else_blk)
+
+        -- Lower then‑body.
+        mb_emit_switch_to_block(ctx, then_blk)
+        var then_flow: i32 = @{BackFallsThrough}
+        var then_ok: bool = false
+        if then_count > 0 then
+            emit mb_lower_control_stmt_list(ctx, then_start, then_count, ctrl_start: 0, n_blocks: 0,
+                                            block_ids_aux: 0, exit_blk: 0, is_expr: false, result_scalar: 0,
+                                            then_flow, then_ok)
+        end
+        if then_ok == false then then_flow = @{BackFallsThrough} end
+        if then_flow ~= @{BackTerminates} then
+            mb_emit_jump(ctx, join_blk, 0, 0)
+        end
+
+        -- Lower else‑body (if present).
+        mb_emit_switch_to_block(ctx, else_blk)
+        var else_flow: i32 = @{BackFallsThrough}
+        var else_ok: bool = false
+        if else_start >= 0 and else_count > 0 then
+            emit mb_lower_control_stmt_list(ctx, else_start, else_count, ctrl_start: 0, n_blocks: 0,
+                                            block_ids_aux: 0, exit_blk: 0, is_expr: false, result_scalar: 0,
+                                            else_flow, else_ok)
+        end
+        if else_ok == false then else_flow = @{BackFallsThrough} end
+        if else_flow ~= @{BackTerminates} then
+            mb_emit_jump(ctx, join_blk, 0, 0)
+        end
+
+        -- Determine overall flow.
+        let overall_terminates: bool = (then_flow == @{BackTerminates} and else_flow == @{BackTerminates})
+        if not overall_terminates then
+            mb_emit_seal_block(ctx, join_blk)
+            mb_emit_switch_to_block(ctx, join_blk)
+        end
+        jump done(flow = select(overall_terminates, @{BackTerminates}, @{BackFallsThrough}), ok = true)
+
     case @{ST_CONTROL} then
         var ctrl_flow: i32 = @{BackFallsThrough}
         var ctrl_ok: bool = false
@@ -130,6 +201,27 @@ entry start()
     default then
         jump done(flow = @{BackFallsThrough}, ok = false)
     end
+end
+end
+
+local mb_lower_control_stmt_list = region(ctx: ptr(@{MomBackLowerCtx}),
+                                          body_start: i32, body_count: i32,
+                                          ctrl_start: i32, n_blocks: i32,
+                                          block_ids_aux: i32, exit_blk: i32,
+                                          is_expr: bool, result_scalar: i32;
+                                          done: cont(flow: i32, ok: bool))
+entry start()
+    jump loop(i = as(index, 0), flow = @{BackFallsThrough})
+end
+block loop(i: index, flow: i32)
+    if i >= as(index, body_count) then jump done(flow = flow, ok = true) end
+    let stmt_idx: i32 = ctx.tree.stmt_list[as(index, body_start) + i]
+    var stmt_flow: i32 = @{BackFallsThrough}
+    var stmt_ok: bool = false
+    emit mb_lower_stmt(ctx, stmt_idx, stmt_flow, stmt_ok)
+    if stmt_ok == false then jump done(flow = @{BackFallsThrough}, ok = false) end
+    if stmt_flow == @{BackTerminates} then jump done(flow = stmt_flow, ok = true) end
+    jump loop(i = i + as(index, 1), flow = stmt_flow)
 end
 end
 
