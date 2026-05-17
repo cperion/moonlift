@@ -69,7 +69,6 @@ M.compiler_sources = {
     "lua/moonlift/mom/driver/wire.mlua",
     "lua/moonlift/mom/driver/lower_wire.mlua",
     "lua/moonlift/mom/driver/backend_ffi.mlua",
-    "lua/moonlift/mom/driver/compile_module.mlua",
     "lua/moonlift/mom/driver/compile_source.mlua",
     "lua/moonlift/mom/driver/lua_api.mlua",
     "lua/moonlift/mom/driver/native_entry.mlua",
