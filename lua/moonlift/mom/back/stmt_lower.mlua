@@ -111,8 +111,8 @@ entry start()
         mb_emit_create_stack_slot(ctx, slot, size, align)
         let addr_val: i32 = mb_ctx_fresh_value(ctx)
         mb_emit_stack_addr(ctx, addr_val, slot)
-        mb_emit_store_info(ctx, 1, init_scalar, 0, 1, addr_val, 0,
-                           0, 1, 4, 0, 4, 0, 0, 1, init_val)
+        mb_emit_store_info(ctx, 0, init_scalar, 0, 0, addr_val, 0,
+                           init_val, 0, 0, 0, 0, 0, 0, 0, 2)
         mb_env_bind_stack(ctx.env, name_tok, init_scalar, slot)
         jump done(flow = @{BackFallsThrough}, ok = true)
 

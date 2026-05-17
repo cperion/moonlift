@@ -48,13 +48,8 @@ local mb_emit_compare = M.mb_emit_compare
 local mb_emit_cast = M.mb_emit_cast
 local mb_emit_select = M.mb_emit_select
 local mb_emit_call = M.mb_emit_call
-local mb_emit_ptr_offset = M.mb_emit_ptr_offset
 local mb_emit_load_info = M.mb_emit_load_info
 local mb_emit_stack_addr = M.mb_emit_stack_addr
-local mb_emit_declare_data = M.mb_emit_declare_data
-local mb_emit_data_init = M.mb_emit_data_init
-local mb_emit_data_addr = M.mb_emit_data_addr
-
 -- Local environment helpers from back/env.mlua.
 local MB_LOCAL_SCALAR = 1
 local MB_LOCAL_STACK = 3
@@ -91,14 +86,8 @@ entry start()
     if tok_kind == @{T.TK_NIL} then
         jump done(value = 0, scalar = 0, ok = false) -- unsupported
     end
-    -- String literal: declare data, init bytes, trailing null, data address
     if tok_kind == @{T.TK_STRING} then
-        let data_id: i32 = mb_ctx_fresh_value(ctx)
-        mb_emit_declare_data(ctx, data_id, 1, 1)
-        mb_emit_data_init(ctx, data_id, 0, @{T.BackU8}, 0, 0, 0)
-        let dst: i32 = mb_ctx_fresh_value(ctx)
-        mb_emit_data_addr(ctx, dst, data_id)
-        jump done(value = dst, scalar = @{T.BackPtr}, ok = true)
+        jump done(value = 0, scalar = 0, ok = false)
     end
     let dst: i32 = mb_ctx_fresh_value(ctx)
     let scalar: i32 = select(tok_kind == @{T.TK_TRUE} or tok_kind == @{T.TK_FALSE}, @{T.BackBool},
@@ -129,7 +118,7 @@ entry start()
     if kind == @{MB_LOCAL_STACK} then
         let dst: i32 = mb_ctx_fresh_value(ctx)
         mb_emit_stack_addr(ctx, dst, val)
-        mb_emit_load_info(ctx, dst, 0, scalar, 0, 1, dst, 0, 0, 1, 4, 0, 4, 0, 0, 1)
+        mb_emit_load_info(ctx, dst, 0, scalar, 0, 0, dst, 0, 0, 0, 0, 0, 0, 0, 0, 1)
         jump done(value = dst, scalar = scalar, ok = true)
     end
     jump done(value = 0, scalar = 0, ok = false)
@@ -315,23 +304,9 @@ entry start()
     let target_tag: i32 = ctx.tree.expr_a[idx]
     let target_id: i32 = ctx.tree.expr_b[idx]
     let sig: i32 = ctx.tree.expr_c[idx]
-    let args_start: i32 = ctx.tree.expr_d[idx]
-    -- (expr_e may hold the argument count in the tree definition, but we
-    --  currently use the argument list region from the semantic tree.
-    --  The port map says the call expression's argument list is stored in
-    --  expr_d  (start)  and  expr_?  (count).  We'll use the same pattern
-    --  as the hosted oracle and infer the count from the tree.)
-    let args_count: i32 = 0
-    -- The port_map section 9 declares expr_a = target_tag, expr_b = target_id,
-    -- expr_c = sig, expr_d = arg_list_start+?; we fall back to the argument
-    -- region from the tree’s child‑expression tape positions: expr_a[idx] had
-    -- been used earlier for the callee index; now the mapping is changed.
-    -- For the moment we accept that the actual layout is:
-    --   expr_a[idx]  = target_tag (CallDirect=0,CallExtern=1,CallIndirect=2)
-    --   expr_b[idx]  = target_id (func/extern/value id)
-    --   expr_c[idx]  = sig (aux index of sig)
-    --   expr_d[idx]  = args_aux (pre‑collected auxiliary index)
     let args_aux: i32 = ctx.tree.expr_d[idx]
+    -- Arg count wired from tree by func lowering (step 5).
+    let args_count: i32 = 0
 
     -- Determine result scalar.
     let result_scalar: i32 = ctx.expr_scalar[idx]

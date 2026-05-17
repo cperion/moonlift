@@ -23,6 +23,9 @@
 /read lua/moonlift/mom/vec/vec_decide.mlua
 /read lua/moonlift/mom/vec/vec_plan.mlua
 /read lua/moonlift/mom/vec/vec_lower.mlua
+/read lua/moonlift/vec_kernel_plan.lua
+/read lua/moonlift/vec_kernel_to_back.lua
+/read lua/moonlift/tree_to_back.lua
 /read lua/moonlift/mom/build/aider/step10-vector-integration.md
 /add lua/moonlift/mom/vec/vec_facts.mlua
 /add lua/moonlift/mom/vec/vec_decide.mlua

@@ -16,6 +16,8 @@
 /read lua/moonlift/mom/back/stmt_lower.mlua
 /read lua/moonlift/mom/back/address.mlua
 /read lua/moonlift/mom/back/control.mlua
+/read lua/moonlift/tree_control_to_back.lua
+/read lua/moonlift/tree_to_back.lua
 /read lua/moonlift/mom/build/aider/step08-control-lowering.md
 /add lua/moonlift/mom/back/control_lower.mlua
 /add lua/moonlift/mom/back/control.mlua

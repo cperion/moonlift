@@ -17,6 +17,12 @@
 /read lua/moonlift/mom/back/address.mlua
 /read lua/moonlift/mom/back/func.mlua
 /read lua/moonlift/mom/back/module.mlua
+/read lua/moonlift/tree_to_back.lua
+/read lua/moonlift/type_classify.lua
+/read lua/moonlift/type_to_back_scalar.lua
+/read lua/moonlift/sem_const_eval.lua
+/read lua/moonlift/tree_module_type.lua
+/read lua/moonlift/back_command_binary.lua
 /read lua/moonlift/mom/build/aider/step09-memory-atomic-globals.md
 /add lua/moonlift/mom/back/expr_lower.mlua
 /add lua/moonlift/mom/back/stmt_lower.mlua

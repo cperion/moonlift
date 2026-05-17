@@ -16,6 +16,12 @@
 /read lua/moonlift/mom/back/stmt_lower.mlua
 /read lua/moonlift/mom/driver/compile_module.mlua
 /read lua/moonlift/mom/driver/compile_source.mlua
+/read lua/moonlift/tree_to_back.lua
+/read lua/moonlift/type_func_abi_plan.lua
+/read lua/moonlift/type_to_back_scalar.lua
+/read lua/moonlift/type_size_align.lua
+/read lua/moonlift/type_abi_classify.lua
+/read lua/moonlift/sem_const_eval.lua
 /read lua/moonlift/mom/build/aider/step05-func-module.md
 /add lua/moonlift/mom/back/func.mlua
 /add lua/moonlift/mom/back/module.mlua

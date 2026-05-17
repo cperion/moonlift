@@ -3,8 +3,9 @@ return {
   done = {
     ["runtime-build-assembly"] = true,
     ["schema-tags"] = true,
-    step1 = true,
-    step2 = true,
-    step3 = true,
+    ["step1"] = true,
+    ["step2"] = true,
+    ["step3"] = true,
+    ["step4"] = true,
   },
 }

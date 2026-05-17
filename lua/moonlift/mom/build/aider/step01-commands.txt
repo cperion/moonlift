@@ -12,5 +12,8 @@
 /read lua/moonlift/mom/back/cmd.mlua
 /read lua/moonlift/mom/driver/compile_module.mlua
 /read lua/moonlift/mom/driver/compile_source.mlua
+/read lua/moonlift/tree_to_back.lua
+/read lua/moonlift/type_size_align.lua
+/read lua/moonlift/type_to_back_scalar.lua
 /read lua/moonlift/mom/build/aider/step01-lower-ctx.md
 /add lua/moonlift/mom/back/lower_ctx.mlua

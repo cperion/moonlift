@@ -14,5 +14,7 @@
 /read lua/moonlift/mom/back/ids.mlua
 /read lua/moonlift/mom/back/expr_lower.mlua
 /read lua/moonlift/mom/back/stmt_lower.mlua
+/read lua/moonlift/tree_to_back.lua
+/read lua/moonlift/type_to_back_scalar.lua
 /read lua/moonlift/mom/build/aider/step04-stmt-lower.md
 /add lua/moonlift/mom/back/stmt_lower.mlua
