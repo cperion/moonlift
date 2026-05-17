@@ -50,19 +50,15 @@ local mb_emit_select = M.mb_emit_select
 local mb_emit_call = M.mb_emit_call
 local mb_emit_ptr_offset = M.mb_emit_ptr_offset
 local mb_emit_load_info = M.mb_emit_load_info
-local mb_emit_return_value = M.mb_emit_return_value
 local mb_emit_stack_addr = M.mb_emit_stack_addr
+local mb_emit_declare_data = M.mb_emit_declare_data
+local mb_emit_data_init = M.mb_emit_data_init
+local mb_emit_data_addr = M.mb_emit_data_addr
 
 -- Local environment helpers from back/env.mlua.
 local MB_LOCAL_SCALAR = 1
 local MB_LOCAL_STACK = 3
 local mb_env_lookup_into = M.mb_env_lookup_into
-
--- Cmd entry constructors for data declaration (used for string literals).
-local mb_cmd_declare_data = M.mb_cmd_declare_data
-local mb_cmd_data_init = M.mb_cmd_data_init
-local mb_cmd_data_addr = M.mb_cmd_data_addr
-local mb_emit_cmd = M.mb_emit_cmd
 
 -- Token maps (may be imported from ops.mlua in future).
 local mb_token_to_unary_op = func(tok: i32) -> i32
@@ -97,17 +93,11 @@ entry start()
     end
     -- String literal: declare data, init bytes, trailing null, data address
     if tok_kind == @{T.TK_STRING} then
-        let data_id: i32 = mb_ctx_fresh_value(ctx)   -- placeholder data id
-        let string_len: i32 = 0   -- placeholder; real length would need source bytes
-        -- For now we emit an empty data block (size 1 for null)
-        let e: CmdEntry
-        mb_cmd_declare_data(e, data_id, 1, 1)
-        mb_emit_cmd(ctx, e.tag, e.w0, e.w1, e.w2, e.w3, e.w4, e.w5)
-        mb_cmd_data_init(e, data_id, 0, @{T.BackU8}, 0, 0, 0) -- literal zero
-        mb_emit_cmd(ctx, e.tag, e.w0, e.w1, e.w2, e.w3, e.w4, e.w5)
+        let data_id: i32 = mb_ctx_fresh_value(ctx)
+        mb_emit_declare_data(ctx, data_id, 1, 1)
+        mb_emit_data_init(ctx, data_id, 0, @{T.BackU8}, 0, 0, 0)
         let dst: i32 = mb_ctx_fresh_value(ctx)
-        mb_cmd_data_addr(e, dst, data_id)
-        mb_emit_cmd(ctx, e.tag, e.w0, e.w1, e.w2, e.w3, e.w4, e.w5)
+        mb_emit_data_addr(ctx, dst, data_id)
         jump done(value = dst, scalar = @{T.BackPtr}, ok = true)
     end
     let dst: i32 = mb_ctx_fresh_value(ctx)
@@ -329,19 +319,19 @@ entry start()
     -- Collect arguments
     let args_start: i32 = ctx.tree.expr_b[idx]
     let args_count: i32 = ctx.tree.expr_c[idx]
-    local aux_start: i32 = as(i32, ctx.aux_i32.len)
-    let arg_idx: i32 = args_start
+    let base: i32 = args_start
     block collect(i: i32 = 0)
         if i >= args_count then yield end
-        local arg_val: i32; local arg_scalar: i32; local arg_ok: bool
-        emit mb_lower_expr_region(ctx, arg_idx, arg_val, arg_scalar, arg_ok)
+        let arg_val: i32; let arg_scalar: i32; let arg_ok: bool
+        emit mb_lower_expr_region(ctx, base + i, arg_val, arg_scalar, arg_ok)
         if arg_ok == false then jump done(value = 0, scalar = 0, ok = false) end
-        mr_i32_builder_push(ctx.aux_i32, arg_val)
+        mb_ctx_push_aux_i32(ctx, arg_val)
         jump collect(i = i + as(i32, 1))
-    end do
+    end
 
     let result_scalar: i32 = ctx.expr_scalar[idx]
     let dst: i32 = mb_ctx_fresh_value(ctx)
+    let aux_start: i32 = as(i32, ctx.aux_i32.len) - as(i32, as(index, args_count))
     mb_emit_call(ctx, 1, dst, result_scalar, 0, callee_val, aux_start, args_count)
     jump done(value = dst, scalar = result_scalar, ok = true)
 end
@@ -362,7 +352,25 @@ entry start()
 end
 end
 
--- Dispatch region: dispatches on expression tag.
+-- Expr view lowering stub (view result protocol).
+local mb_expr_view = region(ctx: ptr(@{MomBackLowerCtx}), idx: i32;
+                            done: cont(data: i32, len: i32, stride: i32, elem_scalar: i32, ok: bool))
+entry start()
+    jump done(data = 0, len = 0, stride = 0, elem_scalar = 0, ok = false)
+end
+end
+
+-- Expr length lowering stub.
+local mb_expr_len = region(ctx: ptr(@{MomBackLowerCtx}), idx: i32;
+                           done: cont(value: i32, scalar: i32, ok: bool))
+entry start()
+    jump done(value = 0, scalar = 0, ok = false)
+end
+end
+
+-- ── Required protocol entrypoints ───────────────────────────────────
+
+-- Lower an expression returning ExprResult protocol.
 local mb_lower_expr_region = region(ctx: ptr(@{MomBackLowerCtx}), idx: i32;
                                     done: cont(value: i32, scalar: i32, ok: bool))
 entry start()
@@ -378,17 +386,51 @@ entry start()
     case @{T.EX_CALL} then emit mb_expr_call(ctx, idx; done = out)
     case @{T.EX_SELECT} then emit mb_expr_select(ctx, idx; done = out)
     case @{T.EX_DEREF} then emit mb_expr_deref(ctx, idx; done = out)
+    case @{T.EX_LEN} then emit mb_expr_len(ctx, idx; done = out)
+    case @{T.EX_VIEW} then emit mb_expr_view(ctx, idx; done = out_view)
     default then jump done(value = 0, scalar = 0, ok = false)
     end
 end
 block out(value: i32, scalar: i32, ok: bool)
     jump done(value = value, scalar = scalar, ok = ok)
 end
+block out_view(data: i32, len: i32, stride: i32, elem_scalar: i32, ok: bool)
+    jump done(value = 0, scalar = 0, ok = false)
+end
+end
+
+-- Lower an expression returning ViewResult protocol.
+local mb_lower_expr_as_view = region(ctx: ptr(@{MomBackLowerCtx}), idx: i32;
+                                     done: cont(data: i32, len: i32, stride: i32, elem_scalar: i32, ok: bool))
+entry start()
+    -- delegate to dispatch; currently stub
+    jump done(data = 0, len = 0, stride = 0, elem_scalar = 0, ok = false)
+end
+end
+
+-- Lower call arguments: collect expression values into aux_i32 and return starting index.
+local mb_lower_call_args = region(ctx: ptr(@{MomBackLowerCtx}), list_start: i32, list_count: i32;
+                                  done: cont(aux: i32, count: i32, ok: bool))
+entry start()
+    let base: i32 = list_start
+    block collect(i: i32 = 0)
+        if i >= list_count then yield end
+        let arg_val: i32; let arg_scalar: i32; let arg_ok: bool
+        emit mb_lower_expr_region(ctx, base + i, arg_val, arg_scalar, arg_ok)
+        if arg_ok == false then jump done(aux = 0, count = 0, ok = false) end
+        mb_ctx_push_aux_i32(ctx, arg_val)
+        jump collect(i = i + as(i32, 1))
+    end
+    let aux_start: i32 = as(i32, ctx.aux_i32.len) - as(i32, as(index, list_count))
+    jump done(aux = aux_start, count = list_count, ok = true)
+end
 end
 
 -- ── Exports ────────────────────────────────────────────────────────
 
 M.mb_lower_expr_region = mb_lower_expr_region
+M.mb_lower_expr_as_view = mb_lower_expr_as_view
+M.mb_lower_call_args = mb_lower_call_args
 M.mb_expr_lit = mb_expr_lit
 M.mb_expr_ref = mb_expr_ref
 M.mb_expr_unary = mb_expr_unary
@@ -399,6 +441,8 @@ M.mb_expr_cast = mb_expr_cast
 M.mb_expr_select = mb_expr_select
 M.mb_expr_call = mb_expr_call
 M.mb_expr_deref = mb_expr_deref
+M.mb_expr_view = mb_expr_view
+M.mb_expr_len = mb_expr_len
 
 return M
 end
