@@ -142,9 +142,9 @@ local VERIFICATION = {
 -- ── Lowering step descriptions ────────────────────────────────────────
 
 local LOWERING_STEPS = {
-  "MomBackLowerCtx struct — typed lowering context (not yet created)",
-  "mb_emit_* append helpers — in cmd.mlua (not yet created)",
-  "Replace expr_lower.mlua — lit, ref, unary, binary, compare, cast, select, logic",
+  "MomBackLowerCtx struct — typed lowering context (done)",
+  "mb_emit_* append helpers — in cmd.mlua (done)",
+  "Replace expr_lower.mlua — lit, ref, unary, binary, compare, cast, select, logic (done)",
   "Replace stmt_lower.mlua — let, expr, scalar/void return, stmt list",
   "Function/module lowering — move from compile_module.mlua to back/func.mlua",
   "Address/view/store module — back/address.mlua (new)",
