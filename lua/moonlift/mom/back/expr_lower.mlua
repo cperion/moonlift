@@ -25,6 +25,8 @@ local i32p = moon.ptr(moon.i32)
 local MomTreeOut = M.MomTreeOut
 local MomBackLowerCtx = M.MomBackLowerCtx
 local MomExprResult = M.MomExprResult
+local MomViewResult = M.MomViewResult
+local MomCallArgsResult = M.MomCallArgsResult
 local mb_ctx_fresh_value = M.mb_ctx_fresh_value
 local mb_ctx_push_aux_i32 = M.mb_ctx_push_aux_i32
 
@@ -96,14 +98,14 @@ end
 
 -- Lower a literal expression.
 local mb_expr_lit = region(ctx: ptr(@{MomBackLowerCtx}), idx: i32;
-                           done: cont(value: i32, scalar: i32, ok: bool))
+                           done: cont(result: MomExprResult))
 entry start()
     let tok_kind: i32 = ctx.tree.expr_op[idx]
     if tok_kind == @{T.TK_NIL} then
-        jump done(value = 0, scalar = 0, ok = false) -- unsupported
+        jump done(result = MomExprResult{value = 0, scalar = 0, ok = false})
     end
     if tok_kind == @{T.TK_STRING} then
-        jump done(value = 0, scalar = 0, ok = false)
+        jump done(result = MomExprResult{value = 0, scalar = 0, ok = false})
     end
     let dst: i32 = mb_ctx_fresh_value(ctx)
     let scalar: i32 = select(tok_kind == @{T.TK_TRUE} or tok_kind == @{T.TK_FALSE}, @{T.BackBool},
@@ -115,13 +117,13 @@ entry start()
                        select(tok_kind == @{T.TK_FLOAT}, 3, 0))))
     let lit_lo: i32 = select(tok_kind == @{T.TK_TRUE}, 1, 0)
     mb_emit_const(ctx, dst, scalar, lit_tag, lit_lo, 0)
-    jump done(value = dst, scalar = scalar, ok = true)
+    jump done(result = MomExprResult{value = dst, scalar = scalar, ok = true})
 end
 end
 
 -- Lower a ref expression.
 local mb_expr_ref = region(ctx: ptr(@{MomBackLowerCtx}), idx: i32;
-                           done: cont(value: i32, scalar: i32, ok: bool))
+                           done: cont(result: MomExprResult))
 entry start()
     let tok: i32 = ctx.tree.expr_tok[idx]
     let slot: i32 = mb_env_lookup(ctx.env, tok)
@@ -130,40 +132,40 @@ entry start()
     let val: i32 = select(slot >= 0, ctx.env.val[as(index, slot)], 0)
     let aux0: i32 = select(slot >= 0, ctx.env.aux0[as(index, slot)], 0)
     if slot < 0 then
-        jump done(value = 0, scalar = 0, ok = false)
+        jump done(result = MomExprResult{value = 0, scalar = 0, ok = false})
     end
     if kind == @{MB_LOCAL_SCALAR} then
-        jump done(value = val, scalar = scalar, ok = true)
+        jump done(result = MomExprResult{value = val, scalar = scalar, ok = true})
     end
     if kind == @{MB_LOCAL_STACK} then
         let dst: i32 = mb_ctx_fresh_value(ctx)
         mb_emit_stack_addr(ctx, dst, val)
         mb_emit_load_info(ctx, dst, 0, scalar, 0, 0, dst, 0, 0, 0, 0, 0, 0, 0, 0, 1)
-        jump done(value = dst, scalar = scalar, ok = true)
+        jump done(result = MomExprResult{value = dst, scalar = scalar, ok = true})
     end
-    jump done(value = 0, scalar = 0, ok = false)
+    jump done(result = MomExprResult{value = 0, scalar = 0, ok = false})
 end
 end
 
 -- Lower a call expression stub.
 local mb_expr_call = region(ctx: ptr(@{MomBackLowerCtx}), idx: i32;
-                            done: cont(value: i32, scalar: i32, ok: bool))
+                            done: cont(result: MomExprResult))
 entry start()
-    jump done(value = 0, scalar = 0, ok = false)
+    jump done(result = MomExprResult{value = 0, scalar = 0, ok = false})
 end
 end
 
 -- Expr view lowering stub (view result protocol).
 local mb_expr_view = region(ctx: ptr(@{MomBackLowerCtx}), idx: i32;
-                            done: cont(data: i32, len: i32, stride: i32, elem_scalar: i32, ok: bool))
+                            done: cont(result: MomViewResult))
 entry start()
-    jump done(data = 0, len = 0, stride = 0, elem_scalar = 0, ok = false)
+    jump done(result = MomViewResult{data = 0, len = 0, stride = 0, elem_scalar = 0, ok = false})
 end
 end
 
 -- Expr length lowering.
 local mb_expr_len = region(ctx: ptr(@{MomBackLowerCtx}), idx: i32;
-                           done: cont(value: i32, scalar: i32, ok: bool))
+                           done: cont(result: MomExprResult))
 entry start()
     let child_idx: i32 = ctx.tree.expr_lhs[idx]
     let child_tag: i32 = ctx.tree.expr_tag[child_idx]
@@ -175,10 +177,10 @@ entry start()
         let val: i32 = select(slot >= 0, ctx.env.val[as(index, slot)], 0)
         let aux0: i32 = select(slot >= 0, ctx.env.aux0[as(index, slot)], 0)
         if slot >= 0 and kind == @{MB_LOCAL_VIEW} then
-            jump done(value = aux0, scalar = @{T.BackIndex}, ok = true)
+            jump done(result = MomExprResult{value = aux0, scalar = @{T.BackIndex}, ok = true})
         end
     end
-    jump done(value = 0, scalar = 0, ok = false)
+    jump done(result = MomExprResult{value = 0, scalar = 0, ok = false})
 end
 end
 
@@ -186,37 +188,37 @@ end
 
 -- Expr addr‑of: delegate to mb_place_addr_to_back_fn.
 local mb_expr_addr_of = region(ctx: ptr(@{MomBackLowerCtx}), idx: i32;
-                               done: cont(value: i32, scalar: i32, ok: bool))
+                               done: cont(result: MomExprResult))
 entry start()
     let child_idx: i32 = ctx.tree.expr_lhs[idx]
     let ok: bool = mb_place_addr_to_back_fn(ctx, child_idx)
-    if not ok then jump done(value = 0, scalar = 0, ok = false) end
+    if not ok then jump done(result = MomExprResult{value = 0, scalar = 0, ok = false}) end
     let result_scalar: i32 = ctx.expr_scalar[idx]
-    jump done(value = ctx.last_addr, scalar = result_scalar, ok = true)
+    jump done(result = MomExprResult{value = ctx.last_addr, scalar = result_scalar, ok = true})
 end
 end
 
 -- Expr index: compute address via func, then load scalar.
 local mb_expr_index = region(ctx: ptr(@{MomBackLowerCtx}), idx: i32;
-                             done: cont(value: i32, scalar: i32, ok: bool))
+                             done: cont(result: MomExprResult))
 entry start()
     let base_idx: i32 = ctx.tree.expr_op[idx]
     let index_expr: i32 = ctx.tree.expr_lhs[idx]
     let elem_type: i32 = ctx.expr_type[idx]
     let ok: bool = mb_index_addr_to_back_fn(ctx, base_idx, index_expr, elem_type)
-    if not ok then jump done(value = 0, scalar = 0, ok = false) end
+    if not ok then jump done(result = MomExprResult{value = 0, scalar = 0, ok = false}) end
     let result_scalar: i32 = ctx.expr_scalar[idx]
     let dst: i32 = mb_ctx_fresh_value(ctx)
     mb_emit_load_info(ctx, dst, 0, result_scalar, 0, 0, ctx.last_addr, 0, 0, 1, 4, 0, 4, 0, 0, 1)
-    jump done(value = dst, scalar = result_scalar, ok = true)
+    jump done(result = MomExprResult{value = dst, scalar = result_scalar, ok = true})
 end
 end
 
 -- Expr dot (field access): result unsupported until layout resolution.
 local mb_expr_dot = region(ctx: ptr(@{MomBackLowerCtx}), idx: i32;
-                           done: cont(value: i32, scalar: i32, ok: bool))
+                           done: cont(result: MomExprResult))
 entry start()
-    jump done(value = 0, scalar = 0, ok = false)
+    jump done(result = MomExprResult{value = 0, scalar = 0, ok = false})
 end
 end
 
@@ -268,7 +270,7 @@ local mb_lower_expr_fn = func(ctx: ptr(@{MomBackLowerCtx}), tree: ptr(@{MomTreeO
         let child_value: i32 = ctx.last_expr_value
         let child_scalar: i32 = ctx.last_expr_scalar
         let tok: i32 = tree.expr_op[idx]
-        let unary_op: i32 = mb_token_to_unary_op(tok)
+        let unary_op: i32 = select(tok == @{T.TK_MINUS}, @{T.UnaryNeg}, select(tok == @{T.TK_NOT}, @{T.UnaryNot}, select(tok == @{T.TK_TILDE}, @{T.UnaryBitNot}, 0)))
         if unary_op == 0 then ctx.last_expr_ok = false; return false end
         let back_op: i32 = mb_lower_unary_op(unary_op, child_scalar)
         if back_op == 0 then ctx.last_expr_ok = false; return false end
@@ -289,7 +291,7 @@ local mb_lower_expr_fn = func(ctx: ptr(@{MomBackLowerCtx}), tree: ptr(@{MomTreeO
         if right_scalar ~= left_scalar then ctx.last_expr_ok = false; return false end
         let scalar: i32 = left_scalar
         let tok: i32 = tree.expr_op[idx]
-        let op: i32 = mb_token_to_binary_op(tok)
+        let op: i32 = select(tok == @{T.TK_PLUS}, @{T.BinAdd}, select(tok == @{T.TK_MINUS}, @{T.BinSub}, select(tok == @{T.TK_STAR}, @{T.BinMul}, select(tok == @{T.TK_SLASH}, @{T.BinDiv}, select(tok == @{T.TK_PERCENT}, @{T.BinRem}, select(tok == @{T.TK_AMP}, @{T.BinBitAnd}, select(tok == @{T.TK_PIPE}, @{T.BinBitOr}, select(tok == @{T.TK_CARET}, @{T.BinBitXor}, select(tok == @{T.TK_SHL}, @{T.BinShl}, select(tok == @{T.TK_LSHR}, @{T.BinLShr}, select(tok == @{T.TK_ASHR}, @{T.BinAShr}, 0)))))))))))
         if op == 0 then ctx.last_expr_ok = false; return false end
         let is_float: bool = mb_is_float_scalar(scalar)
         let dst: i32 = mb_ctx_fresh_value(ctx)
@@ -341,7 +343,7 @@ local mb_lower_expr_fn = func(ctx: ptr(@{MomBackLowerCtx}), tree: ptr(@{MomTreeO
         let rhs_scalar: i32 = ctx.last_expr_scalar
         if rhs_scalar ~= lhs_scalar then ctx.last_expr_ok = false; return false end
         let tok: i32 = tree.expr_op[idx]
-        let sem_op: i32 = mb_token_to_compare_op(tok)
+        let sem_op: i32 = select(tok == @{T.TK_EQEQ}, @{T.CmpEq}, select(tok == @{T.TK_NE}, @{T.CmpNe}, select(tok == @{T.TK_LT}, @{T.CmpLt}, select(tok == @{T.TK_LE}, @{T.CmpLe}, select(tok == @{T.TK_GT}, @{T.CmpGt}, select(tok == @{T.TK_GE}, @{T.CmpGe}, 0))))))
         if sem_op == 0 then ctx.last_expr_ok = false; return false end
         let cmp_op: i32 = mb_lower_compare_op(sem_op, lhs_scalar)
         if cmp_op == 0 then ctx.last_expr_ok = false; return false end
@@ -471,46 +473,45 @@ local mb_lower_expr_region = region(ctx: ptr(@{MomBackLowerCtx}), idx: i32;
                                     done: cont(result: MomExprResult))
 entry start()
     let ok: bool = mb_lower_expr_fn(ctx, ctx.tree, idx)
-    jump done(result = MomExprResult(value = ctx.last_expr_value,
+    jump done(result = MomExprResult{value = ctx.last_expr_value,
                                      scalar = ctx.last_expr_scalar,
-                                     ok = ok))
+                                     ok = ok})
 end
 end
 
 local mb_lower_expr_ops_view = region(ctx: ptr(@{MomBackLowerCtx}), idx: i32;
-                                     done: cont(data: i32, len: i32, stride: i32, elem_scalar: i32, ok: bool))
+                                     done: cont(result: MomViewResult))
 entry start()
     let tag: i32 = ctx.tree.expr_tag[idx]
     if tag == @{T.EX_VIEW} then
         emit mb_expr_view(ctx, idx; done = out_view)
     end
-    jump done(data = 0, len = 0, stride = 0, elem_scalar = 0, ok = false)
+    jump done(result = MomViewResult{data = 0, len = 0, stride = 0, elem_scalar = 0, ok = false})
 end
-block out_view(data: i32, len: i32, stride: i32, elem_scalar: i32, ok: bool)
-    jump done(data = data, len = len, stride = stride, elem_scalar = elem_scalar, ok = ok)
+block out_view(result: MomViewResult)
+    jump done(result = result)
 end
 end
 
 -- Lower call arguments: collect expression values into aux_i32 and return starting index.
 local mb_lower_call_args = region(ctx: ptr(@{MomBackLowerCtx}), list_start: i32, list_count: i32;
-                                  done: cont(aux: i32, n_args: i32, ok: bool))
+                                  done: cont(result: MomCallArgsResult))
 entry start()
     let base: i32 = list_start
     jump loop(i = as(index, 0))
 end
 block loop(i: index)
     if i >= as(index, list_count) then jump finish() end
-    var arg_val: i32 = 0
-    var arg_scalar: i32 = 0
-    var arg_ok: bool = false
-    emit mb_lower_expr_region(ctx, base + as(i32, i), arg_val, arg_scalar, arg_ok)
-    if arg_ok == false then jump done(aux = 0, n_args = 0, ok = false) end
-    mb_ctx_push_aux_i32(ctx, arg_val)
+    emit mb_lower_expr_region(ctx, base + as(i32, i); done = after_expr)
+end
+block after_expr(result: MomExprResult)
+    if result.ok == false then jump done(result = MomCallArgsResult{aux = 0, n_args = 0, ok = false}) end
+    mb_ctx_push_aux_i32(ctx, result.value)
     jump loop(i = i + as(index, 1))
 end
 block finish()
     let aux_start: i32 = as(i32, ctx.aux_i32.len) - as(i32, as(index, list_count))
-    jump done(aux = aux_start, n_args = list_count, ok = true)
+    jump done(result = MomCallArgsResult{aux = aux_start, n_args = list_count, ok = true})
 end
 end
 

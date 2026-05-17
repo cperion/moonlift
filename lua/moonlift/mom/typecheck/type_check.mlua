@@ -455,10 +455,14 @@ local mt_type_expr = func(ei: i32,
         return val_s
     end
 
-    -- ME_CONTROL: region result type
+    -- ME_CONTROL: scalar result type is stored in expr_op as a type index.
     if tg == @{T.ME_CONTROL} then
-        out_scalar[i] = @{T.ScalarVoid}
-        return @{T.ScalarVoid}
+        let result_type: i32 = expr_op[i]
+        let result_scalar: i32 = select(result_type >= 0, mt_type_scalar(type_tag, type_scalar_arr, result_type), @{T.ScalarI32})
+        if result_scalar <= 0 then result_scalar = @{T.ScalarI32} end
+        out_type_idx[i] = result_type
+        out_scalar[i] = result_scalar
+        return result_scalar
     end
 
     out_scalar[i] = @{T.ScalarVoid}

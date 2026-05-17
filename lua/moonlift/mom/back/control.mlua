@@ -7,6 +7,8 @@
 local T = require("moonlift.mom.tags.mom_tags")
 
 return function(M)
+local MomTreeOut = M.MomTreeOut
+local mb_core_scalar_to_back = M.mb_core_scalar_to_back
 -- ── Helpers ────────────────────────────────────────────────────────
 
 -- Push a control fact entry to the fact tape.
@@ -242,17 +244,17 @@ local mb_control_find_block_by_label = func(ctrl_label: ptr(i32), start: i32, co
     return -1
 end
 
-local mb_control_block_param_start = func(tree: ptr, ctrl_start: i32, block_idx: i32) -> i32
+local mb_control_block_param_start = func(tree: ptr(@{MomTreeOut}), ctrl_start: i32, block_idx: i32) -> i32
     let idx: index = as(index, ctrl_start) + as(index, block_idx)
     return tree.ctrl_block_param_start[idx]
 end
 
-local mb_control_block_param_count = func(tree: ptr, ctrl_start: i32, block_idx: i32) -> i32
+local mb_control_block_param_count = func(tree: ptr(@{MomTreeOut}), ctrl_start: i32, block_idx: i32) -> i32
     let idx: index = as(index, ctrl_start) + as(index, block_idx)
     return tree.ctrl_block_param_count[idx]
 end
 
-local mb_control_block_param_name = func(tree: ptr, ctrl_start: i32, block_idx: i32, param_i: i32) -> i32
+local mb_control_block_param_name = func(tree: ptr(@{MomTreeOut}), ctrl_start: i32, block_idx: i32, param_i: i32) -> i32
     let base: index = as(index, mb_control_block_param_start(tree, ctrl_start, block_idx))
     if block_idx == 0 then
         return tree.entry_param_name[base + as(index, param_i)]
@@ -260,7 +262,7 @@ local mb_control_block_param_name = func(tree: ptr, ctrl_start: i32, block_idx: 
     return tree.param_name[base + as(index, param_i)]
 end
 
-local mb_control_block_param_type = func(tree: ptr, ctrl_start: i32, block_idx: i32, param_i: i32) -> i32
+local mb_control_block_param_type = func(tree: ptr(@{MomTreeOut}), ctrl_start: i32, block_idx: i32, param_i: i32) -> i32
     let base: index = as(index, mb_control_block_param_start(tree, ctrl_start, block_idx))
     if block_idx == 0 then
         return tree.entry_param_type[base + as(index, param_i)]
@@ -268,12 +270,12 @@ local mb_control_block_param_type = func(tree: ptr, ctrl_start: i32, block_idx: 
     return tree.param_type[base + as(index, param_i)]
 end
 
-local mb_control_type_to_scalar = func(tree: ptr, type_idx: i32) -> i32
+local mb_control_type_to_scalar = func(tree: ptr(@{MomTreeOut}), type_idx: i32) -> i32
     if type_idx < 0 then return 0 end
     let tag: i32 = tree.type_tag[as(index, type_idx)]
     if tag == @{T.TY_SCALAR} then
         let sub: i32 = tree.type_scalar[as(index, type_idx)]
-        return M.mb_core_scalar_to_back(sub)
+        return mb_core_scalar_to_back(sub)
     end
     if tag == @{T.TY_PTR} then return @{T.BackPtr} end
     return 0

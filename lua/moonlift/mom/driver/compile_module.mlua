@@ -82,7 +82,7 @@ local mcm_lower_expr_leaf = func(expr_tag: ptr(i32), ea: ptr(i32), ed: ptr(i32),
     let tag: i32 = expr_tag[i]
     if tag == @{T.ME_LIT} then
         let dst: i32 = mcm_fresh_value(st)
-        let scalar: i32 = select(expr_scalar[i] == 0, @{T.BackI32}, expr_scalar[i])
+        let scalar: i32 = select(expr_scalar[i] <= 1, @{T.BackI32}, expr_scalar[i])
         let lit_tag: i32 = select(ea[i] == @{T.TK_TRUE} or ea[i] == @{T.TK_FALSE}, 1, select(ea[i] == @{T.TK_FLOAT}, 3, 2))
         mcm_push_cmd6(cmds, st, @{T.CmdConst}, dst, scalar, lit_tag, ed[i], 0, 0)
         return dst
@@ -101,7 +101,7 @@ local mcm_lower_expr = func(expr_tag: ptr(i32), ea: ptr(i32), eb: ptr(i32), ec: 
     let tag: i32 = expr_tag[i]
     if tag == @{T.ME_LIT} then
         let dst: i32 = mcm_fresh_value(st)
-        let scalar: i32 = select(expr_scalar[i] == 0, @{T.BackI32}, expr_scalar[i])
+        let scalar: i32 = select(expr_scalar[i] <= 1, @{T.BackI32}, expr_scalar[i])
         let lit_tag: i32 = select(ea[i] == @{T.TK_TRUE} or ea[i] == @{T.TK_FALSE}, 1, select(ea[i] == @{T.TK_FLOAT}, 3, 2))
         mcm_push_cmd6(cmds, st, @{T.CmdConst}, dst, scalar, lit_tag, ed[i], 0, 0)
         return dst
@@ -117,8 +117,8 @@ local mcm_lower_expr = func(expr_tag: ptr(i32), ea: ptr(i32), eb: ptr(i32), ec: 
         let dst: i32 = mcm_fresh_value(st)
         let op_tok: i32 = ea[i]
         let op: i32 = select(op_tok == @{T.TK_MINUS}, @{T.BackIntSub}, select(op_tok == @{T.TK_STAR}, @{T.BackIntMul}, @{T.BackIntAdd}))
-        let scalar: i32 = select(expr_scalar[i] == 0, @{T.BackI32}, expr_scalar[i])
-        mcm_push_cmd6(cmds, st, @{T.CmdIntBinary}, dst, op, scalar, 0, 0, lhs)
+        let scalar: i32 = select(expr_scalar[i] <= 1, @{T.BackI32}, expr_scalar[i])
+        mcm_push_cmd6(cmds, st, @{T.CmdIntBinary}, dst, op, scalar, 0, lhs, rhs)
         return dst
     end
     return 0

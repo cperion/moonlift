@@ -3,7 +3,7 @@
 /read BACK_WIRE_FORMAT.md
 /read lua/moonlift/mom/build/port_map.lua
 /read lua/moonlift/mom/build/lua-map.md
-/read lua/moonlift/mom/build/aider/step10-vector-integration.md
+/read lua/moonlift/mom/build/aider/step10-vector-integration-REBASED.md
 /read lua/moonlift/vec_kernel_plan.lua
 /read lua/moonlift/vec_kernel_to_back.lua
 /read lua/moonlift/tree_to_back.lua

@@ -3,9 +3,11 @@
 local T = require("moonlift.mom.tags.mom_tags")
 
 return function(M)
+local MomModuleStatus = M.MomModuleStatus
 local i32p = moon.ptr(moon.i32)
 
 local MomBackLowerCtx = M.MomBackLowerCtx
+local MomTreeOut = M.MomTreeOut
 local mb_ctx_fresh_value = M.mb_ctx_fresh_value
 local mb_ctx_fresh_block = M.mb_ctx_fresh_block
 local mb_ctx_fresh_data = M.mb_ctx_fresh_data
@@ -37,12 +39,12 @@ local IT_EXPR_FRAG = 6
 -- Walks all items in the module and classifies them.
 -- Returns 0 on success, negative on error.
 local mb_collect_module_context = region(ctx: ptr(@{MomBackLowerCtx});
-                                          done: cont(status: i32))
+                                          done: cont(result: MomModuleStatus))
 entry start()
-    let tree: ptr = ctx.tree
+    let tree: ptr(@{MomTreeOut}) = ctx.tree
     let ni: index = as(index, tree.counts[3])   -- item count
     block walk(i: index = 0)
-        if i >= ni then jump done(status = 0) end
+        if i >= ni then jump done(result = MomModuleStatus{status = 0}) end
         let tag: i32 = tree.item_tag[i]
         if tag == @{IT_FUNC} or tag == @{IT_EXTERN} then
             -- func/extern binding during body lowering
@@ -57,7 +59,7 @@ end
 
 -- ── Helper push_param_scalars for a single item ─────────────────────
 local push_item_params = func(ctx: ptr(@{MomBackLowerCtx}), item_idx: i32) -> i32
-    let tree: ptr = ctx.tree
+    let tree: ptr(@{MomTreeOut}) = ctx.tree
     let fi: index = as(index, item_idx)
     let param_start: index = as(index, tree.item_member_start[fi])
     let param_count: index = as(index, tree.item_member_count[fi])
@@ -74,7 +76,7 @@ local push_item_params = func(ctx: ptr(@{MomBackLowerCtx}), item_idx: i32) -> i3
 end
 
 local push_item_result = func(ctx: ptr(@{MomBackLowerCtx}), item_idx: i32) -> i32
-    let tree: ptr = ctx.tree
+    let tree: ptr(@{MomTreeOut}) = ctx.tree
     let result_ty: i32 = tree.item_result[item_idx]
     if result_ty < 0 then
         mb_ctx_push_aux_i32(ctx, @{T.BackVoid})
@@ -90,15 +92,15 @@ end
 
 -- ── mb_lower_module ────────────────────────────────────────────────
 local mb_lower_module = region(ctx: ptr(@{MomBackLowerCtx});
-                                done: cont(status: i32))
+                                done: cont(result: MomModuleStatus))
 entry start()
     -- 1. Collect module context.
     emit mb_collect_module_context(ctx; after_collect)
 end
 block after_collect(status: i32)
-    if status ~= 0 then jump done(status = status) end
+    if status ~= 0 then jump done(result = MomModuleStatus{status = status}) end
 
-    let tree: ptr = ctx.tree
+    let tree: ptr(@{MomTreeOut}) = ctx.tree
     let ni: index = as(index, tree.counts[3])   -- item count
 
     -- 2. Emit target model.
@@ -171,7 +173,7 @@ end
 
     -- 7. Finalize module.
     mb_emit_finalize_module(ctx)
-    jump done(status = 0)
+    jump done(result = MomModuleStatus{status = 0})
 end
 end
 

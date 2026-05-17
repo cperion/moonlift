@@ -7,6 +7,7 @@
 local T = require("moonlift.mom.tags.mom_tags")
 
 return function(M)
+local MomCmdSlice = M.MomCmdSlice
 local mb_push = func(tag: i32, a: i32, b: i32, c: i32,
                       it: ptr(i32), ia: ptr(i32), ib: ptr(i32), ic: ptr(i32),
                       cnt: ptr(i32), cap: i32)
@@ -35,7 +36,7 @@ local mb_add = func(st: ptr(i32), key: ptr(i32), k: i32, cap: i32) -> i32
 end
 
 -- Maps: 0=sig 1=data 2=func 3=extern 4=block 5=slot 6=value 7=access.
-local mb_validate = func(cmds: ptr(@{MomCmdSlice}),
+local mb_validate = func(cmds: MomCmdSlice,
                           it: ptr(i32), ia: ptr(i32), ib: ptr(i32), ic: ptr(i32),
                           icnt: ptr(i32), icap: i32,
                           ms: ptr(i32), mk: ptr(i32), mcap: i32) -> i32

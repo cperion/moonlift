@@ -10,6 +10,7 @@ return function(M)
 local NativeParseOut = M.NativeParseOut
 local MomTreeOut = M.MomTreeOut
 local MomCmdBuffer = M.MomCmdBuffer
+local MomCmdSlice = M.MomCmdSlice
 local MomWireBuilder = M.MomWireBuilder
 local LowerState = M.LowerState
 
@@ -457,21 +458,40 @@ local mc_typecheck_clear = func(work_buf: ptr(u8), count: index)
 end
 
 local mc_typecheck_bind_params = func(tree: ptr(@{MomTreeOut}), work_buf: ptr(u8))
-    let func_item: i32 = mc_first_func_item(tree)
-    if func_item < 0 then return end
-    let fi: index = as(index, func_item)
-    let start: index = as(index, tree.item_member_start[fi])
-    let count: index = as(index, tree.item_member_count[fi])
     let env_name: ptr(i32) = mc_tc_env_name(work_buf)
     let env_type: ptr(i32) = mc_tc_env_type(work_buf)
     let env_count: ptr(i32) = mc_tc_env_count(work_buf)
-    block loop(i: index = 0)
-        if i >= count then return end
+    let func_item: i32 = mc_first_func_item(tree)
+    if func_item >= 0 then
+        let fi: index = as(index, func_item)
+        let start: index = as(index, tree.item_member_start[fi])
+        let count: index = as(index, tree.item_member_count[fi])
+        block loop(i: index = 0)
+            if i >= count then yield end
+            let slot: index = as(index, env_count[0])
+            env_name[slot] = tree.param_name[start + i]
+            env_type[slot] = mc_back_scalar_from_type(tree, tree.param_type[start + i])
+            env_count[0] = env_count[0] + 1
+            jump loop(i = i + as(index, 1))
+        end
+    end
+    let n_entry: index = as(index, tree.counts[12])
+    block entry_params(i: index = 0)
+        if i >= n_entry then yield end
         let slot: index = as(index, env_count[0])
-        env_name[slot] = tree.param_name[start + i]
-        env_type[slot] = mc_back_scalar_from_type(tree, tree.param_type[start + i])
+        env_name[slot] = tree.entry_param_name[i]
+        env_type[slot] = mc_back_scalar_from_type(tree, tree.entry_param_type[i])
         env_count[0] = env_count[0] + 1
-        jump loop(i = i + as(index, 1))
+        jump entry_params(i = i + as(index, 1))
+    end
+    let n_params: index = as(index, tree.counts[4])
+    block block_params(i: index = 0)
+        if i >= n_params then return end
+        let slot: index = as(index, env_count[0])
+        env_name[slot] = tree.param_name[i]
+        env_type[slot] = mc_back_scalar_from_type(tree, tree.param_type[i])
+        env_count[0] = env_count[0] + 1
+        jump block_params(i = i + as(index, 1))
     end
 end
 
@@ -1009,16 +1029,16 @@ local mc_validate_phase = func(work_buf: ptr(u8), work_cap: index) -> i32
     if st.cmd_count > as(index, @{VALIDATE_CAP}) then return -@{MC_WORK_OVERFLOW} end
     mc_validate_clear(work_buf, as(index, @{VALIDATE_COUNTER_I32S + VALIDATE_ARRAY_COUNT * VALIDATE_CAP + 2 * 8 * VALIDATE_MAP_CAP}))
     mc_validate_bridge(mc_lower_cmds(work_buf), st.cmd_count, work_buf)
-    let cmds_slice: M.MomCmdSlice = M.MomCmdSlice(
+    let cmds_slice: MomCmdSlice = MomCmdSlice{
         tag = mc_v_tag(work_buf),
-        a   = mc_v_a(work_buf),
-        b   = mc_v_b(work_buf),
-        c   = mc_v_c(work_buf),
-        d   = mc_v_d(work_buf),
-        e   = mc_v_e(work_buf),
-        f   = mc_v_f(work_buf),
-        n   = as(i32, st.cmd_count)
-    )
+        a = mc_v_a(work_buf),
+        b = mc_v_b(work_buf),
+        c = mc_v_c(work_buf),
+        d = mc_v_d(work_buf),
+        e = mc_v_e(work_buf),
+        f = mc_v_f(work_buf),
+        n = as(i32, st.cmd_count)
+    }
     let issues: i32 = mb_validate(cmds_slice,
                                   mc_v_issue_tag(work_buf), mc_v_issue_a(work_buf), mc_v_issue_b(work_buf), mc_v_issue_c(work_buf),
                                   mc_validate_issue_count(work_buf), as(i32, @{VALIDATE_CAP}),

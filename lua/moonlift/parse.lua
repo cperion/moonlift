@@ -13,6 +13,7 @@
 local byte = string.byte
 local sub  = string.sub
 local find = string.find
+local pvm  = require("moonlift.pvm")
 
 local M = {}
 

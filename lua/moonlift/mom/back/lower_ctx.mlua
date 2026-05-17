@@ -14,6 +14,10 @@ local MomBackIdAllocator = M.MomBackIdAllocator
 local MomCmdBuffer = M.MomCmdBuffer
 local MomI32Builder = M.MomI32Builder
 local MomIssueBuilder = M.MomIssueBuilder
+local MomIfPhiEntry = M.MomIfPhiEntry
+local MomIfPhiTable = M.MomIfPhiTable
+local MomSwitchCaseEntry = M.MomSwitchCaseEntry
+local MomSwitchCaseTable = M.MomSwitchCaseTable
 
 local mr_cmd_buffer_push = M.mr_cmd_buffer_push
 local mr_cmd_buffer_overflowed = M.mr_cmd_buffer_overflowed
@@ -74,6 +78,8 @@ M.MomBackLowerCtx = struct MomBackLowerCtx
     last_expr_ok: bool
     last_addr: i32
     last_pointee_scalar: i32
+    last_stmt_flow: i32
+    last_stmt_ok: bool
 
     -- Typed arenas for control structures (Phase 4)
     phi_entries: ptr(@{MomI32Builder})
@@ -122,8 +128,10 @@ local mb_ctx_init = func(ctx: ptr(@{MomBackLowerCtx}),
     ctx.last_expr_ok = false
     ctx.last_addr = 0
     ctx.last_pointee_scalar = 0
-    ctx.phi_entries = nil
-    ctx.switch_entries = nil
+    ctx.last_stmt_flow = 0
+    ctx.last_stmt_ok = false
+    ctx.phi_entries = aux_i32
+    ctx.switch_entries = aux_i32
 end
 
 local mb_ctx_reset_func = func(ctx: ptr(@{MomBackLowerCtx}), func_id: i32, return_mode: i32)
@@ -177,38 +185,6 @@ end
 
 local mb_ctx_push_issue = func(ctx: ptr(@{MomBackLowerCtx}), tag: i32, a: i32, b: i32, c: i32, d: i32) -> index
     return mr_issue_push4(ctx.issues, tag, a, b, c, d)
-end
-
-local mb_ctx_fresh_phi_table = func(ctx: ptr(@{MomBackLowerCtx}), n_changed: i32) -> M.MomIfPhiTable
-    let entry_base: i32 = as(i32, ctx.aux_i32.len)
-    block alloc(i: i32 = 0)
-        if i >= n_changed then yield end
-        ctx.aux_i32.len = ctx.aux_i32.len + as(index, 3)
-        jump alloc(i = i + 1)
-    end
-    let entries_ptr: ptr(i32) = ctx.aux_i32.data + as(index, entry_base)
-    return M.MomIfPhiTable(
-        entries = view(as(ptr(M.MomIfPhiEntry), entries_ptr), n_changed),
-        n_changed = n_changed,
-        then_blk = 0,
-        else_blk = 0,
-        join_blk = 0
-    )
-end
-
-local mb_ctx_fresh_switch_table = func(ctx: ptr(@{MomBackLowerCtx}), n_cases: i32) -> M.MomSwitchCaseTable
-    let entry_base: i32 = as(i32, ctx.aux_i32.len)
-    block alloc(i: i32 = 0)
-        if i >= n_cases then yield end
-        ctx.aux_i32.len = ctx.aux_i32.len + as(index, 2)
-        jump alloc(i = i + 1)
-    end
-    let entries_ptr: ptr(i32) = ctx.aux_i32.data + as(index, entry_base)
-    return M.MomSwitchCaseTable(
-        entries = view(as(ptr(M.MomSwitchCaseEntry), entries_ptr), n_cases),
-        n_cases = n_cases,
-        default_blk = 0
-    )
 end
 
 local mb_ctx_overflowed = func(ctx: ptr(@{MomBackLowerCtx})) -> bool

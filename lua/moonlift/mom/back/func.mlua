@@ -3,9 +3,11 @@
 local T = require("moonlift.mom.tags.mom_tags")
 
 return function(M)
+local MomFuncStatus = M.MomFuncStatus
 local i32p = moon.ptr(moon.i32)
 
 local MomBackLowerCtx = M.MomBackLowerCtx
+local MomTreeOut = M.MomTreeOut
 local mb_ctx_fresh_value = M.mb_ctx_fresh_value
 local mb_ctx_fresh_block = M.mb_ctx_fresh_block
 local mb_ctx_fresh_data = M.mb_ctx_fresh_data
@@ -104,9 +106,9 @@ end
 -- Lowers a function item (IT_FUNC).  If `sig_id_param` is >= 0 it uses that
 -- signature (emitted by module hoisting); otherwise it creates its own.
 local mb_lower_func = region(ctx: ptr(@{MomBackLowerCtx}), item_idx: i32, sig_id_param: i32;
-                             done: cont(status: i32))
+                             done: cont(result: MomFuncStatus))
 entry start()
-    let tree: ptr = ctx.tree
+    let tree: ptr(@{MomTreeOut}) = ctx.tree
     let fi: index = as(index, item_idx)
     let param_start: index = as(index, tree.item_member_start[fi])
     let param_count: index = as(index, tree.item_member_count[fi])
@@ -155,7 +157,7 @@ entry start()
     var body_ok: bool = false
     emit mb_lower_stmt_list(ctx, body_start, body_count, flow, body_ok)
     if body_ok == false then
-        jump done(status = -1)
+        jump done(result = MomFuncStatus{status = -1})
     end
 
     -- 6. Seal the entry block (only block in a straight‑line function).
@@ -168,21 +170,21 @@ entry start()
             mb_emit_return_void(ctx)
         else
             -- Falling off a non‑void function is unsupported.
-            jump done(status = -2)
+            jump done(result = MomFuncStatus{status = -2})
         end
     end
 
     -- 8. Finish the function.
     mb_emit_finish_func(ctx, func_id)
-    jump done(status = 0)
+    jump done(result = MomFuncStatus{status = 0})
 end
 end
 
 -- ── mb_lower_extern ────────────────────────────────────────────────
 local mb_lower_extern = region(ctx: ptr(@{MomBackLowerCtx}), item_idx: i32, sig_id_param: i32;
-                               done: cont(status: i32))
+                               done: cont(result: MomFuncStatus))
 entry start()
-    let tree: ptr = ctx.tree
+    let tree: ptr(@{MomTreeOut}) = ctx.tree
     let fi: index = as(index, item_idx)
     let param_start: index = as(index, tree.item_member_start[fi])
     let param_count: index = as(index, tree.item_member_count[fi])
@@ -230,34 +232,34 @@ entry start()
         var body_ok: bool = false
         emit mb_lower_stmt_list(ctx, body_start, body_count, flow, body_ok)
         if body_ok == false then
-            jump done(status = -1)
+            jump done(result = MomFuncStatus{status = -1})
         end
         mb_emit_seal_block(ctx, entry_id)
         if flow ~= @{T.BackTerminates} then
             if n_results == 0 then
                 mb_emit_return_void(ctx)
             else
-                jump done(status = -2)
+                jump done(result = MomFuncStatus{status = -2})
             end
         end
         mb_emit_finish_func(ctx, func_id)
     end
-    jump done(status = 0)
+    jump done(result = MomFuncStatus{status = 0})
 end
 end
 
 -- ── mb_lower_data_init ─────────────────────────────────────────────
 local mb_lower_data_init = region(ctx: ptr(@{MomBackLowerCtx}), item_idx: i32;
-                                  done: cont(status: i32))
+                                  done: cont(result: MomFuncStatus))
 entry start()
-    let tree: ptr = ctx.tree
+    let tree: ptr(@{MomTreeOut}) = ctx.tree
     let fi: index = as(index, item_idx)
     let ty_idx: i32 = tree.item_result[fi]
     let ty_tag: i32 = tree.type_tag[ty_idx]
     let scalar_sub: i32 = tree.type_scalar[ty_idx]
     let bs: i32 = mb_type_to_back_scalar(ty_tag, scalar_sub)
     if bs == 0 then
-        jump done(status = -3)
+        jump done(result = MomFuncStatus{status = -3})
     end
 
     let size: i32 = 0
@@ -268,7 +270,7 @@ entry start()
 
     -- Zero‑initialise the data (constant zero literal).
     mb_emit_data_init(ctx, data_id, 0, bs, 0, 0, 0)
-    jump done(status = 0)
+    jump done(result = MomFuncStatus{status = 0})
 end
 end
 

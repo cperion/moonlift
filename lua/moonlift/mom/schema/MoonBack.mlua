@@ -19,6 +19,53 @@ M.MomAddressResult = struct MomAddressResult
     ok: bool
 end
 
+M.MomViewResult = struct MomViewResult
+    data: i32
+    len: i32
+    stride: i32
+    elem_scalar: i32
+    ok: bool
+end
+
+M.MomIndexAddrResult = struct MomIndexAddrResult
+    addr: i32
+    elem_scalar: i32
+    ok: bool
+end
+
+M.MomCallArgsResult = struct MomCallArgsResult
+    aux: i32
+    n_args: i32
+    ok: bool
+end
+
+M.MomListResult = struct MomListResult
+    aux_start: i32
+    count: i32
+end
+
+M.MomConstResult = struct MomConstResult
+    val: i32
+end
+
+M.MomControlReturnValue = struct MomControlReturnValue
+    value: i32
+    flow: i32
+    ok: bool
+end
+
+M.MomFuncStatus = struct MomFuncStatus
+    status: i32
+end
+
+M.MomModuleStatus = struct MomModuleStatus
+    status: i32
+end
+
+M.MomValidateResult = struct MomValidateResult
+    issue_count: i32
+end
+
 M.MomControlRegionWorkspace = struct MomControlRegionWorkspace
     ctrl_start: i32
     n_blocks: i32

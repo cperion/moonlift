@@ -16,6 +16,7 @@ local i32p = moon.ptr(moon.i32)
 
 local MomBackLowerCtx = M.MomBackLowerCtx
 local MomCmdBuffer = M.MomCmdBuffer
+local MomSwitchCaseTable = M.MomSwitchCaseTable
 local mr_cmd_buffer_push = M.mr_cmd_buffer_push
 
 M.CmdEntry = struct CmdEntry
@@ -695,7 +696,7 @@ local mb_emit_br_if = func(ctx: ptr(@{MomBackLowerCtx}), cond: i32, then_block: 
     mb_emit_cmd(ctx, @{T.CmdBrIf}, cond, then_block, then_aux, then_count, else_block, else_aux)
 end
 
-local mb_emit_switch_int = func(ctx: ptr(@{MomBackLowerCtx}), value: i32, scalar: i32, switch_table: ptr(@{M.MomSwitchCaseTable}))
+local mb_emit_switch_int = func(ctx: ptr(@{MomBackLowerCtx}), value: i32, scalar: i32, switch_table: ptr(@{MomSwitchCaseTable}))
     mb_emit_cmd(ctx, @{T.CmdSwitchInt}, value, scalar, switch_table.n_cases, switch_table.default_blk, 0, 0)
 end
 
