@@ -180,8 +180,14 @@ block seal_exit(exit_blk: i32)
     mb_emit_switch_to_block(ctx, exit_blk)
 
     if is_expr then
-        -- result_val was pushed after exit block params; retrieve from stored offset.
-        let result_val: i32 = ctx.aux_i32.data[as(index, block_ids_aux) + as(index, n_blocks)]
+        -- Compute total param values placed before the exit‑block result value.
+        var total_params: i32 = 0
+        block sum(bi: i32 = 0)
+            if bi >= n_blocks then yield end
+            total_params = total_params + mb_control_block_param_count(tree, ctrl_start, bi)
+            jump sum(bi = bi + 1)
+        end
+        let result_val: i32 = ctx.aux_i32.data[as(index, block_ids_aux) + as(index, n_blocks) + as(index, total_params)]
         jump done(value = result_val, flow = @{BackFallsThrough}, ok = true)
     end
     jump done(value = 0, flow = @{BackFallsThrough}, ok = true)
