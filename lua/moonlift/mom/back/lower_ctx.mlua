@@ -1,0 +1,166 @@
+-- MOM backend lowering context.
+--
+-- Single typed lowering context that replaces repeated raw parameter lists
+-- and expression prepasses. This context carries all state needed by
+-- expr/stmt/address/control/module lowering phases.
+
+return function(M)
+
+local MomTreeOut = M.MomTreeOut
+local MomBackLocalEnv = M.MomBackLocalEnv
+local MomBackIdAllocator = M.MomBackIdAllocator
+local MomCmdBuffer = M.MomCmdBuffer
+local MomI32Builder = M.MomI32Builder
+local MomIssueBuilder = M.MomIssueBuilder
+
+M.MomBackLowerCtx = struct MomBackLowerCtx
+    -- Core tree and type information
+    tree: ptr(@{MomTreeOut})
+    expr_type: ptr(i32)
+    expr_scalar: ptr(i32)
+    
+    -- Layout information from layout phase
+    type_size: ptr(i32)
+    type_align: ptr(i32)
+    field_offset: ptr(i32)
+    field_size: ptr(i32)
+    item_size: ptr(i32)
+    item_align: ptr(i32)
+    
+    -- Local environment and ID allocation
+    env: ptr(@{MomBackLocalEnv})
+    ids: ptr(@{MomBackIdAllocator})
+    
+    -- Command and auxiliary builders
+    cmd_buffer: ptr(@{MomCmdBuffer})
+    aux_i32: ptr(@{MomI32Builder})
+    
+    -- String/symbol interning (pool IDs)
+    string_pool_count: i32
+    symbol_pool_count: i32
+    
+    -- Current compilation context
+    current_module_id: i32
+    current_func_id: i32
+    current_return_mode: i32
+    
+    -- Diagnostic/issue writer
+    issues: ptr(@{MomIssueBuilder})
+end
+local MomBackLowerCtx = M.MomBackLowerCtx
+
+-- Initialize a lowering context with all required arrays and builders.
+local mb_ctx_init = func(ctx: ptr(@{MomBackLowerCtx}),
+                         tree: ptr(@{MomTreeOut}),
+                         expr_type: ptr(i32), expr_scalar: ptr(i32),
+                         type_size: ptr(i32), type_align: ptr(i32),
+                         field_offset: ptr(i32), field_size: ptr(i32),
+                         item_size: ptr(i32), item_align: ptr(i32),
+                         env: ptr(@{MomBackLocalEnv}),
+                         ids: ptr(@{MomBackIdAllocator}),
+                         cmd_buffer: ptr(@{MomCmdBuffer}),
+                         aux_i32: ptr(@{MomI32Builder}),
+                         issues: ptr(@{MomIssueBuilder}))
+    ctx.tree = tree
+    ctx.expr_type = expr_type
+    ctx.expr_scalar = expr_scalar
+    ctx.type_size = type_size
+    ctx.type_align = type_align
+    ctx.field_offset = field_offset
+    ctx.field_size = field_size
+    ctx.item_size = item_size
+    ctx.item_align = item_align
+    ctx.env = env
+    ctx.ids = ids
+    ctx.cmd_buffer = cmd_buffer
+    ctx.aux_i32 = aux_i32
+    ctx.issues = issues
+    ctx.string_pool_count = 0
+    ctx.symbol_pool_count = 0
+    ctx.current_module_id = 0
+    ctx.current_func_id = 0
+    ctx.current_return_mode = 0
+end
+
+-- Reset the context for a new function while preserving module-level state.
+local mb_ctx_reset_func = func(ctx: ptr(@{MomBackLowerCtx}), func_id: i32, return_mode: i32)
+    mb_env_reset(ctx.env)
+    mb_ids_reset_func(ctx.ids)
+    ctx.current_func_id = func_id
+    ctx.current_return_mode = return_mode
+end
+
+-- Set the current module context.
+local mb_ctx_set_module = func(ctx: ptr(@{MomBackLowerCtx}), module_id: i32)
+    ctx.current_module_id = module_id
+end
+
+-- Get a fresh value ID from the context.
+local mb_ctx_fresh_value = func(ctx: ptr(@{MomBackLowerCtx})) -> i32
+    return mb_fresh_value(ctx.ids)
+end
+
+-- Get a fresh block ID from the context.
+local mb_ctx_fresh_block = func(ctx: ptr(@{MomBackLowerCtx})) -> i32
+    return mb_fresh_block(ctx.ids)
+end
+
+-- Get a fresh access ID from the context.
+local mb_ctx_fresh_access = func(ctx: ptr(@{MomBackLowerCtx})) -> i32
+    return mb_fresh_access(ctx.ids)
+end
+
+-- Get a fresh slot ID from the context.
+local mb_ctx_fresh_slot = func(ctx: ptr(@{MomBackLowerCtx})) -> i32
+    return mb_fresh_slot(ctx.ids)
+end
+
+-- Push an auxiliary i32 value and return its ID.
+local mb_ctx_push_aux_i32 = func(ctx: ptr(@{MomBackLowerCtx}), value: i32) -> i32
+    return as(i32, mr_i32_builder_push(ctx.aux_i32, value))
+end
+
+-- Push multiple auxiliary i32 values and return the starting ID.
+local mb_ctx_push_aux_i32_array = func(ctx: ptr(@{MomBackLowerCtx}), values: ptr(i32), count: index) -> i32
+    let start_id: i32 = as(i32, ctx.aux_i32.len)
+    block loop(i: index = 0)
+        if i >= count then return start_id end
+        mr_i32_builder_push(ctx.aux_i32, values[i])
+        jump loop(i = i + 1)
+    end
+    return start_id
+end
+
+-- Push a command to the context's command buffer.
+local mb_ctx_push_cmd = func(ctx: ptr(@{MomBackLowerCtx}), tag: i32, a: i32, b: i32, c: i32, d: i32, e: i32, f: i32) -> index
+    return mr_cmd_buffer_push(ctx.cmd_buffer, tag, a, b, c, d, e, f)
+end
+
+-- Push an issue to the context's issue builder.
+local mb_ctx_push_issue = func(ctx: ptr(@{MomBackLowerCtx}), tag: i32, a: i32, b: i32, c: i32, d: i32) -> index
+    return mr_issue_push4(ctx.issues, tag, a, b, c, d)
+end
+
+-- Check if the context has overflowed any of its buffers.
+local mb_ctx_overflowed = func(ctx: ptr(@{MomBackLowerCtx})) -> bool
+    return mr_cmd_buffer_overflowed(ctx.cmd_buffer) or 
+           mr_i32_builder_overflowed(ctx.aux_i32) or
+           mr_issue_builder_overflowed(ctx.issues) or
+           mb_env_overflowed(ctx.env)
+end
+
+M.mb_ctx_init = mb_ctx_init
+M.mb_ctx_reset_func = mb_ctx_reset_func
+M.mb_ctx_set_module = mb_ctx_set_module
+M.mb_ctx_fresh_value = mb_ctx_fresh_value
+M.mb_ctx_fresh_block = mb_ctx_fresh_block
+M.mb_ctx_fresh_access = mb_ctx_fresh_access
+M.mb_ctx_fresh_slot = mb_ctx_fresh_slot
+M.mb_ctx_push_aux_i32 = mb_ctx_push_aux_i32
+M.mb_ctx_push_aux_i32_array = mb_ctx_push_aux_i32_array
+M.mb_ctx_push_cmd = mb_ctx_push_cmd
+M.mb_ctx_push_issue = mb_ctx_push_issue
+M.mb_ctx_overflowed = mb_ctx_overflowed
+
+return M
+end
