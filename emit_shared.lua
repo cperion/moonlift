@@ -3,10 +3,7 @@ package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.p
 
 local pvm = require("moonlift.pvm")
 local A2 = require("moonlift.asdl")
-local Parse = require("moonlift.parse")
-local Typecheck = require("moonlift.tree_typecheck")
-local TreeToBack = require("moonlift.tree_to_back")
-local Validate = require("moonlift.back_validate")
+local Pipeline = require("moonlift.frontend_pipeline")
 local Object = require("moonlift.back_object")
 local LinkTarget = require("moonlift.link_target_model")
 local LinkValidate = require("moonlift.link_plan_validate")
@@ -40,10 +37,6 @@ f:close()
 
 local T = pvm.context()
 A2.Define(T)
-local P = Parse.Define(T)
-local TC = Typecheck.Define(T)
-local Lower = TreeToBack.Define(T)
-local V = Validate.Define(T)
 local O = Object.Define(T)
 local LT = LinkTarget.Define(T)
 local LV = LinkValidate.Define(T)
@@ -55,13 +48,11 @@ local function issue_list(issues)
     for j = 1, #issues do io.stderr:write(tostring(issues[j].message or issues[j]), "\n") end
 end
 
-local parsed = P.parse_module(source)
-if #parsed.issues ~= 0 then issue_list(parsed.issues); os.exit(1) end
-local checked = TC.check_module(parsed.module)
-if #checked.issues ~= 0 then issue_list(checked.issues); os.exit(1) end
-local program = Lower.module(checked.module)
-local report = V.validate(program)
-if #report.issues ~= 0 then issue_list(report.issues); os.exit(1) end
+local ok, lowered_or_err = pcall(function()
+    return Pipeline.Define(T).parse_and_lower(source, { site = "emit_shared.lua" })
+end)
+if not ok then io.stderr:write(tostring(lowered_or_err), "\n"); os.exit(1) end
+local program = lowered_or_err.program
 
 local object_path = keep_object or (os.tmpname() .. ".o")
 local object = O.compile(program, { module_name = module_name })

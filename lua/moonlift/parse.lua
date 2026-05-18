@@ -666,6 +666,19 @@ end
 -- Type parsing
 ---------------------------------------------------------------------------
 
+function Parser:type_from_value(v)
+    if type(v) == "table" then
+        if type(v.as_moonlift_type) == "function" then return v:as_moonlift_type() end
+        if type(v.as_type_value) == "function" then
+            local tv = v:as_type_value()
+            if type(tv) == "table" and type(tv.as_moonlift_type) == "function" then return tv:as_moonlift_type() end
+            if type(tv) == "table" and tv.ty ~= nil then return tv.ty end
+        end
+        if v.ty ~= nil and (v.__moonlift_host_type_value or (getmetatable(v) and getmetatable(v).__moonlift_host_type_value)) then return v.ty end
+    end
+    return nil
+end
+
 function Parser:type_name(name)
     local C, Ty = self.C, self.Ty
     local m = { void=C.ScalarVoid, bool=C.ScalarBool, i8=C.ScalarI8, i16=C.ScalarI16,
@@ -673,6 +686,8 @@ function Parser:type_name(name)
         u32=C.ScalarU32, u64=C.ScalarU64, f32=C.ScalarF32, f64=C.ScalarF64,
         index=C.ScalarIndex, ptr=C.ScalarRawPtr }
     if m[name] then return Ty.TScalar(m[name]) end
+    local ambient = self:type_from_value(self:splice_value(name))
+    if ambient ~= nil then return ambient end
     return Ty.TNamed(Ty.TypeRefPath(C.Path({ C.Name(name) })))
 end
 
@@ -709,6 +724,16 @@ function Parser:parse_type()
         local slot = O.TypeSlot(self:splice_key("type", id), id)
         self:record_splice_slot(id, O.SlotType(slot), "type")
         return Ty.TSlot(slot)
+    end
+
+    if self:accept(TK.lbrack) then
+        self:skip_nl()
+        local count = 0
+        if self:kind() == TK.int then count = tonumber(self:text()) or 0; self.i = self.i + 1
+        else self:issue("expected array length") end
+        self:skip_nl(); self:expect(TK.rbrack)
+        local elem = self:parse_type()
+        return Ty.TArray(Ty.ArrayLenConst(count), elem)
     end
 
     if self:accept(TK.view_kw) then
@@ -882,9 +907,9 @@ end
 
 function Parser:led(k, left)
     local C, Sem, Tr, B = self.C, self.Sem, self.Tr, self.B
+    local pvm = require("moonlift.pvm")
 
     if k == TK.lparen then
-        local pvm = require("moonlift.pvm")
         local atomic_rmw_by_name = {
             atomic_fetch_add = C.AtomicRmwAdd,
             atomic_fetch_sub = C.AtomicRmwSub,
@@ -961,7 +986,7 @@ function Parser:led(k, left)
         self:expect(TK.rbrace)
         local ty
         if left_name then
-            ty = self.Ty.TNamed(self.Ty.TypeRefPath(self.C.Path({ self.C.Name(left_name) })))
+            ty = self:type_from_value(self:splice_value(left_name)) or self.Ty.TNamed(self.Ty.TypeRefPath(self.C.Path({ self.C.Name(left_name) })))
         else
             ty = self.Ty.TScalar(self.C.ScalarVoid)
         end

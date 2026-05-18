@@ -27,6 +27,7 @@ function M.Define(T)
     local unary_op
     local binary_cmd
     local compare_op
+    local intrinsic_op
     local machine_cast_op
     local surface_cast_op
     local call_target
@@ -36,6 +37,7 @@ function M.Define(T)
     local view_to_back
     local index_addr_to_back
     local place_addr_to_back
+    local expr_base_addr_to_back
     local place_store_to_back
     local stmt_to_back
     local lower_body
@@ -56,6 +58,9 @@ function M.Define(T)
     local global_data_addr
     local load_global_data
     local store_global_data
+    local append_memcpy
+    local descriptor_field_load
+    local lower_closure_call
 
     local function env_empty(ret)
         return Tr.TreeBackEnv({}, 0, 0, ret or Tr.TreeBackReturnScalar)
@@ -156,7 +161,7 @@ function M.Define(T)
         local cls = pvm.classof(place)
         if cls == Tr.PlaceRef and pvm.classof(place.ref) == Bn.ValueRefBinding then
             local binding = place.ref.binding
-            if binding.class == Bn.BindingClassLocalCell then out[binding_key(binding)] = true end
+            if binding.class == Bn.BindingClassLocalCell or binding.class == Bn.BindingClassLocalValue then out[binding_key(binding)] = true end
         elseif cls == Tr.PlaceField or cls == Tr.PlaceDot then
             mark_addressed_place(place.base, out)
         elseif cls == Tr.PlaceIndex then
@@ -336,13 +341,13 @@ function M.Define(T)
     end
 
     local function elem_size(ty)
-        local result = layout_api.result(ty)
+        local result = layout_api.result(ty, lower_context.layout_env or Sem.LayoutEnv({}))
         if pvm.classof(result) == Ty.TypeMemLayoutKnown then return result.layout.size end
         return nil
     end
 
     local function elem_align(ty)
-        local result = layout_api.result(ty)
+        local result = layout_api.result(ty, lower_context.layout_env or Sem.LayoutEnv({}))
         if pvm.classof(result) == Ty.TypeMemLayoutKnown then return result.layout.align end
         return nil
     end
@@ -509,6 +514,24 @@ function M.Define(T)
         [C.CmpGe] = function(_, scalar) if scalar == Back.BackF32 or scalar == Back.BackF64 then return pvm.once(Back.BackFCmpGe) end return pvm.once(Back.BackSIcmpGe) end,
     }, { args_cache = "last" })
 
+    intrinsic_op = pvm.phase("moonlift_tree_intrinsic_to_back_op", {
+        [C.IntrinsicPopcount] = function() return pvm.once(Back.BackIntrinsicPopcount) end,
+        [C.IntrinsicClz] = function() return pvm.once(Back.BackIntrinsicClz) end,
+        [C.IntrinsicCtz] = function() return pvm.once(Back.BackIntrinsicCtz) end,
+        [C.IntrinsicBswap] = function() return pvm.once(Back.BackIntrinsicBswap) end,
+        [C.IntrinsicSqrt] = function() return pvm.once(Back.BackIntrinsicSqrt) end,
+        [C.IntrinsicAbs] = function() return pvm.once(Back.BackIntrinsicAbs) end,
+        [C.IntrinsicFloor] = function() return pvm.once(Back.BackIntrinsicFloor) end,
+        [C.IntrinsicCeil] = function() return pvm.once(Back.BackIntrinsicCeil) end,
+        [C.IntrinsicTruncFloat] = function() return pvm.once(Back.BackIntrinsicTruncFloat) end,
+        [C.IntrinsicRound] = function() return pvm.once(Back.BackIntrinsicRound) end,
+        [C.IntrinsicRotl] = function() return pvm.empty() end,
+        [C.IntrinsicRotr] = function() return pvm.empty() end,
+        [C.IntrinsicFma] = function() return pvm.empty() end,
+        [C.IntrinsicTrap] = function() return pvm.empty() end,
+        [C.IntrinsicAssume] = function() return pvm.empty() end,
+    })
+
     machine_cast_op = pvm.phase("moonlift_tree_machine_cast_to_back_op", {
         [C.MachineCastBitcast] = function() return pvm.once(Back.BackBitcast) end,
         [C.MachineCastIreduce] = function() return pvm.once(Back.BackIreduce) end,
@@ -543,6 +566,44 @@ function M.Define(T)
         [Sem.CallClosure] = function() return pvm.empty() end,
         [Sem.CallUnresolved] = function() return pvm.empty() end,
     }, { args_cache = "last" })
+
+    lower_closure_call = function(call_expr, env, want_value)
+        local closure_target = call_expr.target
+        local closure = expr_value(expr_to_back:one_uncached(closure_target.closure, env))
+        if closure == nil then return Tr.TreeBackExprUnsupported(env, {}, "unsupported closure callee") end
+        local cmds = {}; append_all(cmds, closure.cmds)
+        local current = closure.env
+        local fn, ctx
+        current, fn = descriptor_field_load(cmds, current, closure.value, "fn", 0, Back.BackPtr)
+        current, ctx = descriptor_field_load(cmds, current, closure.value, "ctx", 8, Back.BackPtr)
+        local args, params = { ctx }, { Back.BackPtr }
+        for i = 1, #call_expr.args do
+            local arg = expr_value(expr_to_back:one_uncached(call_expr.args[i], current))
+            if arg == nil then return Tr.TreeBackExprUnsupported(current, cmds, "unsupported closure call arg") end
+            append_all(cmds, arg.cmds)
+            args[#args + 1] = arg.value
+            params[#params + 1] = arg.ty
+            current = arg.env
+        end
+        local result_ty = expr_ty(call_expr)
+        local result_scalar = back_scalar(result_ty)
+        local sig_results = {}
+        if want_value then
+            if result_scalar == nil then return Tr.TreeBackExprUnsupported(current, cmds, "closure call result has non-scalar type") end
+            sig_results[1] = result_scalar
+        end
+        local sig_prefix = "sig:closure:" .. tostring(lower_context.module_name or "") .. ":" .. tostring(lower_context.current_func or "") .. ":"
+        lower_context.closure_call_seq = (lower_context.closure_call_seq or 0) + 1
+        local sig = Back.BackSigId(sig_prefix .. tostring(lower_context.closure_call_seq))
+        cmds[#cmds + 1] = Back.CmdCreateSig(sig, params, sig_results)
+        if want_value then
+            local env2, dst = env_next_value(current, "v")
+            cmds[#cmds + 1] = Back.CmdCall(Back.BackCallValue(dst, result_scalar), Back.BackCallIndirect(fn), sig, args)
+            return Tr.TreeBackExprValue(env2, cmds, dst, result_scalar)
+        end
+        cmds[#cmds + 1] = Back.CmdCall(Back.BackCallStmt, Back.BackCallIndirect(fn), sig, args)
+        return Tr.TreeBackStmtResult(current, cmds, Back.BackFallsThrough)
+    end
 
     local function add_ptr_offset(value, offset)
         if offset == 0 then return value end
@@ -721,6 +782,7 @@ function M.Define(T)
             return pvm.once(Tr.TreeBackExprValue(env2, cmds, dst, scalar))
         end,
         [Tr.ExprCall] = function(self, env)
+            if pvm.classof(self.target) == Sem.CallClosure then return pvm.once(lower_closure_call(self, env, true)) end
             local args = {}; local params = {}; local cmds = {}; local current = env
             for i = 1, #self.args do
                 local arg = expr_value(expr_to_back:one_uncached(self.args[i], current))
@@ -747,6 +809,11 @@ function M.Define(T)
         end,
         [Tr.ExprCast] = function(self, env) return pvm.once(expr_to_back:one_uncached(Tr.ExprMachineCast(self.h, surface_cast_to_machine_op(self.op, expr_ty(self.value), self.ty), self.ty, self.value), env)) end,
         [Tr.ExprLen] = function(self, env)
+            local value_ty = expr_ty(self.value)
+            if pvm.classof(value_ty) == Ty.TArray and pvm.classof(value_ty.count) == Ty.ArrayLenConst then
+                local env2, dst = env_next_value(env, "v")
+                return pvm.once(Tr.TreeBackExprValue(env2, { Back.CmdConst(dst, Back.BackIndex, Back.BackLitInt(tostring(value_ty.count.count))) }, dst, Back.BackIndex))
+            end
             local lowered = expr_to_back:one_uncached(self.value, env)
             local view = expr_view_value(lowered)
             if view ~= nil then return pvm.once(Tr.TreeBackExprValue(view.env, view.cmds, view.len, Back.BackIndex)) end
@@ -754,7 +821,7 @@ function M.Define(T)
                 local local_entry = env_lookup(env, self.value.ref.binding)
                 if local_entry ~= nil and (pvm.classof(local_entry) == Tr.TreeBackViewLocal or pvm.classof(local_entry) == Tr.TreeBackStridedViewLocal) then return pvm.once(Tr.TreeBackExprValue(env, {}, local_entry.len, Back.BackIndex)) end
             end
-            return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "len lowering requires view binding"))
+            return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "len lowering requires view or array binding"))
         end,
         [Tr.ExprLogic] = function(self, env)
             local lhs = expr_value(expr_to_back:one_uncached(self.lhs, env))
@@ -779,7 +846,48 @@ function M.Define(T)
             end
             return pvm.once(Tr.TreeBackExprUnsupported(rhs.env, cmds, "unsupported logic op"))
         end,
-        [Tr.ExprIf] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "if expression lowering deferred")) end,
+        [Tr.ExprIf] = function(self, env)
+            local cond = expr_value(expr_to_back:one_uncached(self.cond, env))
+            if cond == nil then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "unsupported if expression cond")) end
+            local result_scalar = back_scalar(expr_ty(self))
+            if result_scalar == nil then return pvm.once(Tr.TreeBackExprUnsupported(cond.env, cond.cmds, "if expression result has non-scalar type")) end
+
+            local current = cond.env
+            local then_block; current, then_block = env_next_block(current, "if.expr.then")
+            local else_block; current, else_block = env_next_block(current, "if.expr.else")
+            local join_block; current, join_block = env_next_block(current, "if.expr.join")
+            local result_value; current, result_value = env_next_value(current, "ifexpr")
+
+            local cmds = {}
+            append_all(cmds, cond.cmds)
+            cmds[#cmds + 1] = Back.CmdCreateBlock(then_block)
+            cmds[#cmds + 1] = Back.CmdCreateBlock(else_block)
+            cmds[#cmds + 1] = Back.CmdCreateBlock(join_block)
+            cmds[#cmds + 1] = Back.CmdAppendBlockParam(join_block, result_value, shape_scalar(result_scalar))
+            cmds[#cmds + 1] = Back.CmdBrIf(cond.value, then_block, {}, else_block, {})
+            cmds[#cmds + 1] = Back.CmdSealBlock(then_block)
+            cmds[#cmds + 1] = Back.CmdSealBlock(else_block)
+
+            cmds[#cmds + 1] = Back.CmdSwitchToBlock(then_block)
+            local then_start = env_with_counters(cond.env, current)
+            local then_result = expr_value(expr_to_back:one_uncached(self.then_expr, then_start))
+            if then_result == nil then return pvm.once(Tr.TreeBackExprUnsupported(then_start, cmds, "unsupported if expression then")) end
+            append_all(cmds, then_result.cmds)
+            cmds[#cmds + 1] = Back.CmdJump(join_block, { then_result.value })
+            current = env_with_counters(current, then_result.env)
+
+            cmds[#cmds + 1] = Back.CmdSwitchToBlock(else_block)
+            local else_start = env_with_counters(cond.env, current)
+            local else_result = expr_value(expr_to_back:one_uncached(self.else_expr, else_start))
+            if else_result == nil then return pvm.once(Tr.TreeBackExprUnsupported(else_start, cmds, "unsupported if expression else")) end
+            append_all(cmds, else_result.cmds)
+            cmds[#cmds + 1] = Back.CmdJump(join_block, { else_result.value })
+            current = env_with_counters(current, else_result.env)
+
+            cmds[#cmds + 1] = Back.CmdSealBlock(join_block)
+            cmds[#cmds + 1] = Back.CmdSwitchToBlock(join_block)
+            return pvm.once(Tr.TreeBackExprValue(Tr.TreeBackEnv(cond.env.locals, current.next_value, current.next_block, cond.env.ret), cmds, result_value, result_scalar))
+        end,
         [Tr.ExprSwitch] = function(self, env)
             local value = expr_value(expr_to_back:one_uncached(self.value, env))
             if value == nil then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "unsupported switch expression value")) end
@@ -846,9 +954,44 @@ function M.Define(T)
             return pvm.once(Tr.TreeBackExprValue(Tr.TreeBackEnv(value.env.locals, current.next_value, current.next_block, value.env.ret), cmds, result_value, result_scalar))
         end,
         [Tr.ExprControl] = function(self, env) return pvm.once(control_api.expr_region_to_back:one_uncached(self.region, env)) end,
-        [Tr.ExprBlock] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "block expression lowering deferred")) end,
-        [Tr.ExprDot] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "dot lowering deferred")) end,
-        [Tr.ExprIntrinsic] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "intrinsic lowering deferred")) end,
+        [Tr.ExprBlock] = function(self, env)
+            local body_env, body_cmds, flow = lower_body(self.stmts, env)
+            if flow == Back.BackTerminates then return pvm.once(Tr.TreeBackExprUnsupported(body_env, body_cmds, "block expression body terminates before result")) end
+            local result = expr_to_back:one_uncached(self.result, body_env)
+            local value = expr_value(result)
+            if value ~= nil then
+                local cmds = {}; append_all(cmds, body_cmds); append_all(cmds, value.cmds)
+                return pvm.once(Tr.TreeBackExprValue(value.env, cmds, value.value, value.ty))
+            end
+            local view = expr_view_value(result)
+            if view ~= nil then
+                local cmds = {}; append_all(cmds, body_cmds); append_all(cmds, view.cmds)
+                if pvm.classof(view) == Tr.TreeBackExprStridedView then return pvm.once(Tr.TreeBackExprStridedView(view.env, cmds, view.data, view.len, view.stride)) end
+                return pvm.once(Tr.TreeBackExprView(view.env, cmds, view.data, view.len))
+            end
+            return pvm.once(Tr.TreeBackExprUnsupported(body_env, body_cmds, "unsupported block expression result"))
+        end,
+        [Tr.ExprDot] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "dot lowering requires layout resolution")) end,
+        [Tr.ExprIntrinsic] = function(self, env)
+            local result_scalar = back_scalar(expr_ty(self))
+            if result_scalar == nil then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "intrinsic result has non-scalar type")) end
+            local args = {}; local cmds = {}; local current = env
+            for i = 1, #self.args do
+                local arg = expr_value(expr_to_back:one_uncached(self.args[i], current))
+                if arg == nil then return pvm.once(Tr.TreeBackExprUnsupported(current, cmds, "unsupported intrinsic arg")) end
+                append_all(cmds, arg.cmds); args[#args + 1] = arg.value; current = arg.env
+            end
+            if self.op == C.IntrinsicFma and #args == 3 then
+                local env2, dst = env_next_value(current, "v")
+                cmds[#cmds + 1] = Back.CmdFma(dst, result_scalar, Back.BackFloatStrict, args[1], args[2], args[3])
+                return pvm.once(Tr.TreeBackExprValue(env2, cmds, dst, result_scalar))
+            end
+            local ops = intrinsic_op:drain_uncached(self.op)
+            if #ops ~= 1 then return pvm.once(Tr.TreeBackExprUnsupported(current, cmds, "unsupported intrinsic op")) end
+            local env2, dst = env_next_value(current, "v")
+            cmds[#cmds + 1] = Back.CmdIntrinsic(dst, ops[1], shape_scalar(result_scalar), args)
+            return pvm.once(Tr.TreeBackExprValue(env2, cmds, dst, result_scalar))
+        end,
         [Tr.ExprAddrOf] = function(self, env) return pvm.once(place_addr_to_back:one_uncached(self.place, env)) end,
         [Tr.ExprDeref] = function(self, env)
             local addr = expr_value(expr_to_back:one_uncached(self.value, env))
@@ -862,7 +1005,7 @@ function M.Define(T)
         end,
         [Tr.ExprField] = function(self, env)
             if pvm.classof(self.field) ~= Sem.FieldByOffset then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "field expression requires resolved offset")) end
-            local base = expr_value(expr_to_back:one_uncached(self.base, env))
+            local base = expr_base_addr_to_back(self.base, env)
             if base == nil then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "unsupported field expression base")) end
             local addr = field_addr_from_base_ptr(base, self.field)
             return pvm.once(load_from_field_addr(addr, self.field))
@@ -878,6 +1021,58 @@ function M.Define(T)
             return pvm.once(Tr.TreeBackExprValue(env3, cmds, dst, scalar))
         end,
         [Tr.ExprAgg] = function(self, env)
+            if pvm.classof(self.ty) == Ty.TClosure then
+                local env_size = 0
+                for i = 1, #self.fields do
+                    local fi = self.fields[i]
+                    if fi.name ~= "__moon_fn" then
+                        local sz = elem_size(expr_ty(fi.value))
+                        if sz == nil then
+                            local s = back_scalar(expr_ty(fi.value))
+                            sz = s and scalar_size_align(s) or nil
+                        end
+                        if sz == nil then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "closure capture has unsupported layout")) end
+                        if fi.offset + sz > env_size then env_size = fi.offset + sz end
+                    end
+                end
+                local total_size = 16 + env_size
+                local func = tostring(lower_context.current_func or "anon")
+                local slot = Back.BackStackSlotId("slot:" .. func .. ":closure:" .. tostring(env.next_value))
+                local cmds = { Back.CmdCreateStackSlot(slot, total_size, 8) }
+                local env1, desc = env_next_value(env, "v")
+                cmds[#cmds + 1] = Back.CmdStackAddr(desc, slot)
+                local current = env1
+                local fn_field = nil
+                for i = 1, #self.fields do if self.fields[i].name == "__moon_fn" then fn_field = self.fields[i]; break end end
+                if fn_field == nil then return pvm.once(Tr.TreeBackExprUnsupported(current, cmds, "closure descriptor missing function pointer")) end
+                local fn_val = expr_value(expr_to_back:one_uncached(fn_field.value, current))
+                if fn_val == nil then return pvm.once(Tr.TreeBackExprUnsupported(current, cmds, "closure function pointer unsupported")) end
+                append_all(cmds, fn_val.cmds); current = fn_val.env
+                current = append_store_info(cmds, current, shape_scalar(Back.BackPtr), desc, fn_val.value, "closure:fn")
+                local ctx_value
+                if env_size == 0 then
+                    current, ctx_value = env_next_value(current, "v")
+                    cmds[#cmds + 1] = Back.CmdConst(ctx_value, Back.BackPtr, Back.BackLitNull)
+                else
+                    local ctx_ptr = add_ptr_offset(Tr.TreeBackExprValue(current, {}, desc, Back.BackPtr), 16)
+                    append_all(cmds, ctx_ptr.cmds); current = ctx_ptr.env; ctx_value = ctx_ptr.value
+                end
+                local ctx_addr = add_ptr_offset(Tr.TreeBackExprValue(current, {}, desc, Back.BackPtr), 8)
+                append_all(cmds, ctx_addr.cmds); current = ctx_addr.env
+                current = append_store_info(cmds, current, shape_scalar(Back.BackPtr), ctx_addr.value, ctx_value, "closure:ctx")
+                for i = 1, #self.fields do
+                    local fi = self.fields[i]
+                    if fi.name ~= "__moon_fn" then
+                        local cap_val = expr_value(expr_to_back:one_uncached(fi.value, current))
+                        if cap_val == nil then return pvm.once(Tr.TreeBackExprUnsupported(current, cmds, "closure capture unsupported")) end
+                        append_all(cmds, cap_val.cmds); current = cap_val.env
+                        local cap_addr = add_ptr_offset(Tr.TreeBackExprValue(current, {}, desc, Back.BackPtr), 16 + fi.offset)
+                        append_all(cmds, cap_addr.cmds); current = cap_addr.env
+                        current = append_store_info(cmds, current, shape_scalar(cap_val.ty), cap_addr.value, cap_val.value, "closure:cap:" .. fi.name)
+                    end
+                end
+                return pvm.once(Tr.TreeBackExprValue(current, cmds, desc, Back.BackPtr))
+            end
             local size = elem_size(self.ty)
             local align = elem_align(self.ty)
             if size == nil or align == nil then
@@ -902,29 +1097,35 @@ function M.Define(T)
             local current = env1
             for i = 1, #self.fields do
                 local fi = self.fields[i]
+                local prev_target_slot = lower_context.target_agg_slot
+                lower_context.target_agg_slot = nil
                 local field_val = expr_value(expr_to_back:one_uncached(fi.value, current))
+                lower_context.target_agg_slot = prev_target_slot
                 if field_val == nil then
                     return pvm.once(Tr.TreeBackExprUnsupported(current, cmds, "struct field value unsupported"))
                 end
                 append_all(cmds, field_val.cmds)
                 current = field_val.env
-                if fi.offset == 0 then
-                    current = append_store_info(cmds, current, shape_scalar(field_val.ty), addr, field_val.value, "agg:" .. fi.name)
-                else
+                local dst_addr_val = addr
+                if fi.offset ~= 0 then
                     local off = add_ptr_offset(Tr.TreeBackExprValue(current, {}, addr, Back.BackPtr), fi.offset)
-                    append_all(cmds, off.cmds); current = off.env
-                    local dst_addr_val = off.value
+                    append_all(cmds, off.cmds); current = off.env; dst_addr_val = off.value
+                end
+                if is_aggregate_type(expr_ty(fi.value)) then
+                    local sz = elem_size(expr_ty(fi.value))
+                    if sz == nil then return pvm.once(Tr.TreeBackExprUnsupported(current, cmds, "struct aggregate field has unknown size")) end
+                    current = append_memcpy(cmds, current, dst_addr_val, field_val.value, sz, "agg:" .. tostring(dst_addr_val.text) .. ":" .. fi.name)
+                elseif fi.offset == 0 then
+                    current = append_store_info(cmds, current, shape_scalar(field_val.ty), addr, field_val.value, "agg:" .. tostring(addr.text) .. ":" .. fi.name)
+                else
                     local env_s, zero = append_zero_offset(cmds, current)
-                    cmds[#cmds + 1] = Back.CmdStoreInfo(shape_scalar(field_val.ty), address_from_ptr(dst_addr_val, zero), field_val.value, memory_info("tree:agg:" .. fi.name, Back.BackAccessWrite))
+                    cmds[#cmds + 1] = Back.CmdStoreInfo(shape_scalar(field_val.ty), address_from_ptr(dst_addr_val, zero), field_val.value, memory_info("tree:agg:" .. tostring(dst_addr_val.text) .. ":" .. fi.name, Back.BackAccessWrite))
                     current = env_s
                 end
             end
             return pvm.once(Tr.TreeBackExprValue(current, cmds, addr, Back.BackPtr))
         end,
         [Tr.ExprArray] = function(self, env)
-            if #self.elems == 0 then
-                return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "empty array literal"))
-            end
             local elem_sz = elem_size(self.elem_ty)
             local elem_al = elem_align(self.elem_ty)
             if elem_sz == nil or elem_al == nil then
@@ -932,32 +1133,50 @@ function M.Define(T)
             end
             local total_size = elem_sz * #self.elems
             local func = tostring(lower_context.current_func or "anon")
-            local slot = Back.BackStackSlotId("slot:" .. func .. ":arr:" .. tostring(env.next_value))
-            local cmds = { Back.CmdCreateStackSlot(slot, total_size, elem_al) }
-            local env1, addr = env_next_value(env, "v")
-            cmds[#cmds + 1] = Back.CmdStackAddr(addr, slot)
+            local slot
+            local cmds
+            local env1, addr
+            if lower_context.target_agg_slot then
+                slot = lower_context.target_agg_slot
+                cmds = {}
+                env1, addr = env_next_value(env, "v")
+                cmds[#cmds + 1] = Back.CmdStackAddr(addr, slot)
+            else
+                slot = Back.BackStackSlotId("slot:" .. func .. ":arr:" .. tostring(env.next_value))
+                cmds = { Back.CmdCreateStackSlot(slot, total_size, elem_al) }
+                env1, addr = env_next_value(env, "v")
+                cmds[#cmds + 1] = Back.CmdStackAddr(addr, slot)
+            end
             local current = env1
             for i = 1, #self.elems do
+                local prev_target_slot = lower_context.target_agg_slot
+                lower_context.target_agg_slot = nil
                 local elem_val = expr_value(expr_to_back:one_uncached(self.elems[i], current))
+                lower_context.target_agg_slot = prev_target_slot
                 if elem_val == nil then
                     return pvm.once(Tr.TreeBackExprUnsupported(current, cmds, "array element unsupported"))
                 end
                 append_all(cmds, elem_val.cmds)
                 current = elem_val.env
                 local off = (i - 1) * elem_sz
-                if off == 0 then
+                local dst_addr_val = addr
+                if off ~= 0 then
+                    local off_ptr = add_ptr_offset(Tr.TreeBackExprValue(current, {}, addr, Back.BackPtr), off)
+                    append_all(cmds, off_ptr.cmds); current = off_ptr.env; dst_addr_val = off_ptr.value
+                end
+                if is_aggregate_type(expr_ty(self.elems[i])) then
+                    current = append_memcpy(cmds, current, dst_addr_val, elem_val.value, elem_sz, "arr:" .. tostring(i))
+                elseif off == 0 then
                     current = append_store_info(cmds, current, shape_scalar(elem_val.ty), addr, elem_val.value, "arr:" .. tostring(i))
                 else
-                    local off_ptr = add_ptr_offset(Tr.TreeBackExprValue(current, {}, addr, Back.BackPtr), off)
-                    append_all(cmds, off_ptr.cmds); current = off_ptr.env
                     local env_s, zero = append_zero_offset(cmds, current)
-                    cmds[#cmds + 1] = Back.CmdStoreInfo(shape_scalar(elem_val.ty), address_from_ptr(off_ptr.value, zero), elem_val.value, memory_info("tree:arr:" .. tostring(i), Back.BackAccessWrite))
+                    cmds[#cmds + 1] = Back.CmdStoreInfo(shape_scalar(elem_val.ty), address_from_ptr(dst_addr_val, zero), elem_val.value, memory_info("tree:arr:" .. tostring(i), Back.BackAccessWrite))
                     current = env_s
                 end
             end
             return pvm.once(Tr.TreeBackExprValue(current, cmds, addr, Back.BackPtr))
         end,
-        [Tr.ExprClosure] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "closure lowering deferred")) end,
+        [Tr.ExprClosure] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "closure literals require closure-conversion before backend lowering")) end,
         [Tr.ExprView] = function(self, env) return pvm.once(view_to_back:one_uncached(self.view, env)) end,
         [Tr.ExprLoad] = function(self, env)
             local addr = expr_value(expr_to_back:one_uncached(self.addr, env))
@@ -1011,8 +1230,8 @@ function M.Define(T)
             cmds[#cmds + 1] = Back.CmdAtomicCas(dst, scalar, address_from_ptr(addr.value, zero), expected.value, replacement.value, memory_info("tree:atomic:cas:" .. tostring(dst.text), Back.BackAccessReadWrite), atomic_ordering(self.ordering))
             return pvm.once(Tr.TreeBackExprValue(env2, cmds, dst, scalar))
         end,
-        [Tr.ExprSlotValue] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "slot expr lowering deferred")) end,
-        [Tr.ExprUseExprFrag] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "frag expr lowering deferred")) end,
+        [Tr.ExprSlotValue] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "open expr slot reached backend; run open_expand/open_validate before lowering")) end,
+        [Tr.ExprUseExprFrag] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "expr fragment use reached backend; run open_expand before lowering")) end,
     }, { args_cache = "last" })
 
     local function cast_to_index(value, current, cmds)
@@ -1138,6 +1357,25 @@ function M.Define(T)
         return Tr.TreeBackExprStridedView(env3, cmds, data_val, len.value, base_view.stride)
     end
 
+    local function offset_view_data(base_view, offset_expr, elem_ty, scale_by_base_stride, reason)
+        local cmds = {}; append_all(cmds, base_view.cmds); append_all(cmds, offset_expr.cmds)
+        local current, elem_index = cast_to_index(offset_expr, offset_expr.env, cmds)
+        if scale_by_base_stride then
+            local env_mul, scaled = env_next_value(current, "v")
+            cmds[#cmds + 1] = Back.CmdIntBinary(scaled, Back.BackIntMul, Back.BackIndex, int_sem_wrap(), elem_index, base_view.stride)
+            current = env_mul; elem_index = scaled
+        end
+        local size = elem_size(elem_ty)
+        if size == nil then return nil, current, cmds, "unknown view element size" end
+        local env1, size_val = env_next_value(current, "v")
+        local env2, off_val = env_next_value(env1, "v")
+        local env3, data_val = env_next_value(env2, "v")
+        cmds[#cmds + 1] = Back.CmdConst(size_val, Back.BackIndex, Back.BackLitInt(tostring(size)))
+        cmds[#cmds + 1] = Back.CmdIntBinary(off_val, Back.BackIntMul, Back.BackIndex, int_sem_wrap(), elem_index, size_val)
+        cmds[#cmds + 1] = Back.CmdPtrOffset(data_val, Back.BackAddrValue(base_view.data), off_val, 1, 0, Back.BackProvDerived(reason or "view data offset"), Back.BackPtrBoundsUnknown)
+        return data_val, env3, cmds, nil
+    end
+
     view_to_back = pvm.phase("moonlift_tree_view_to_back", {
         [Tr.ViewFromExpr] = function(self, env)
             if pvm.classof(self.base) == Tr.ExprRef and pvm.classof(self.base.ref) == Bn.ValueRefBinding then
@@ -1189,10 +1427,59 @@ function M.Define(T)
             if len == nil then local cmds = {}; append_all(cmds, base_view.cmds); append_all(cmds, start.cmds); return pvm.once(Tr.TreeBackExprUnsupported(start.env, cmds, "unsupported window len")) end
             return pvm.once(add_scaled_offset(base_view, start, len, view_elem(self)))
         end,
-        [Tr.ViewRestrided] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "restrided view lowering deferred")) end,
-        [Tr.ViewRowBase] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "row-base view lowering deferred")) end,
-        [Tr.ViewInterleaved] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "interleaved view lowering deferred")) end,
-        [Tr.ViewInterleavedView] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "interleaved-view lowering deferred")) end,
+        [Tr.ViewRestrided] = function(self, env)
+            local base_view = expr_view_value(view_to_back:one_uncached(self.base, env))
+            if base_view == nil then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "unsupported restrided base view")) end
+            local stride = expr_value(expr_to_back:one_uncached(self.stride, base_view.env))
+            if stride == nil then return pvm.once(Tr.TreeBackExprUnsupported(base_view.env, base_view.cmds, "unsupported restrided stride")) end
+            local cmds = {}; append_all(cmds, base_view.cmds); append_all(cmds, stride.cmds)
+            local current, stride_value = cast_to_index(stride, stride.env, cmds)
+            return pvm.once(Tr.TreeBackExprStridedView(current, cmds, base_view.data, base_view.len, stride_value))
+        end,
+        [Tr.ViewRowBase] = function(self, env)
+            local base_view = expr_view_value(view_to_back:one_uncached(self.base, env))
+            if base_view == nil then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "unsupported row-base base view")) end
+            local row = expr_value(expr_to_back:one_uncached(self.row_offset, base_view.env))
+            if row == nil then return pvm.once(Tr.TreeBackExprUnsupported(base_view.env, base_view.cmds, "unsupported row-base offset")) end
+            local data, current, cmds, err = offset_view_data(base_view, row, view_elem(self), true, "view row base")
+            if data == nil then return pvm.once(Tr.TreeBackExprUnsupported(current, cmds, err)) end
+            return pvm.once(Tr.TreeBackExprStridedView(current, cmds, data, base_view.len, base_view.stride))
+        end,
+        [Tr.ViewInterleaved] = function(self, env)
+            local data = expr_value(expr_to_back:one_uncached(self.data, env))
+            if data == nil then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "unsupported interleaved data")) end
+            local len = expr_value(expr_to_back:one_uncached(self.len, data.env))
+            if len == nil then return pvm.once(Tr.TreeBackExprUnsupported(data.env, data.cmds, "unsupported interleaved len")) end
+            local stride = expr_value(expr_to_back:one_uncached(self.stride, len.env))
+            if stride == nil then return pvm.once(Tr.TreeBackExprUnsupported(len.env, len.cmds, "unsupported interleaved stride")) end
+            local cmds = {}; append_all(cmds, data.cmds); append_all(cmds, len.cmds); append_all(cmds, stride.cmds)
+            local current, len_value = cast_to_index(len, stride.env, cmds)
+            local current2, stride_value = cast_to_index(stride, current, cmds)
+            local lane = expr_value(expr_to_back:one_uncached(self.lane, current2))
+            if lane == nil then return pvm.once(Tr.TreeBackExprUnsupported(current2, cmds, "unsupported interleaved lane")) end
+            local base_view = Tr.TreeBackExprStridedView(current2, cmds, data.value, len_value, stride_value)
+            local lane_expr = Tr.TreeBackExprValue(lane.env, lane.cmds, lane.value, lane.ty)
+            local data_value, current3, out_cmds, err = offset_view_data(base_view, lane_expr, self.elem, false, "view interleaved lane")
+            if data_value == nil then return pvm.once(Tr.TreeBackExprUnsupported(current3, out_cmds, err)) end
+            return pvm.once(Tr.TreeBackExprStridedView(current3, out_cmds, data_value, len_value, stride_value))
+        end,
+        [Tr.ViewInterleavedView] = function(self, env)
+            local base_view = expr_view_value(view_to_back:one_uncached(self.base, env))
+            if base_view == nil then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "unsupported interleaved-view base")) end
+            local stride = expr_value(expr_to_back:one_uncached(self.stride, base_view.env))
+            if stride == nil then return pvm.once(Tr.TreeBackExprUnsupported(base_view.env, base_view.cmds, "unsupported interleaved-view stride")) end
+            local base_cmds = {}; append_all(base_cmds, base_view.cmds); append_all(base_cmds, stride.cmds)
+            local current2, stride_value = cast_to_index(stride, stride.env, base_cmds)
+            local lane = expr_value(expr_to_back:one_uncached(self.lane, current2))
+            if lane == nil then return pvm.once(Tr.TreeBackExprUnsupported(current2, base_cmds, "unsupported interleaved-view lane")) end
+            local base_for_offset = Tr.TreeBackExprStridedView(current2, base_cmds, base_view.data, base_view.len, base_view.stride)
+            local lane_expr = Tr.TreeBackExprValue(lane.env, lane.cmds, lane.value, lane.ty)
+            local data_value, current, cmds, err = offset_view_data(base_for_offset, lane_expr, self.elem, true, "view interleaved-view lane")
+            if data_value == nil then return pvm.once(Tr.TreeBackExprUnsupported(current, cmds, err)) end
+            local env_mul, composed_stride = env_next_value(current, "v")
+            cmds[#cmds + 1] = Back.CmdIntBinary(composed_stride, Back.BackIntMul, Back.BackIndex, int_sem_wrap(), base_view.stride, stride_value)
+            return pvm.once(Tr.TreeBackExprStridedView(env_mul, cmds, data_value, base_view.len, composed_stride))
+        end,
     }, { args_cache = "last" })
 
     local function view_base_expr(view)
@@ -1253,7 +1540,30 @@ function M.Define(T)
             cmds[#cmds + 1] = Back.CmdPtrOffset(addr_val, Back.BackAddrValue(view.data), off_val, 1, 0, Back.BackProvDerived("view index address"), Back.BackPtrBoundsUnknown)
             return pvm.once(Tr.TreeBackExprValue(env3, cmds, addr_val, Back.BackPtr))
         end,
-        [Tr.IndexBasePlace] = function(_, _, _, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "place index address lowering deferred")) end,
+        [Tr.IndexBasePlace] = function(self, index, elem_ty, env)
+            local base = expr_value(place_addr_to_back:one_uncached(self.base, env))
+            if base == nil then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "unsupported place index base")) end
+            local idx = expr_value(expr_to_back:one_uncached(index, base.env))
+            if idx == nil then return pvm.once(Tr.TreeBackExprUnsupported(base.env, base.cmds, "unsupported place index value")) end
+            local size = elem_size(elem_ty)
+            if size == nil then return pvm.once(Tr.TreeBackExprUnsupported(idx.env, idx.cmds, "unknown place-indexed element size")) end
+            local current = idx.env
+            local index_value = idx.value
+            local cmds = {}; append_all(cmds, base.cmds); append_all(cmds, idx.cmds)
+            if idx.ty ~= Back.BackIndex then
+                local cast_env, cast_val = env_next_value(current, "v")
+                cmds[#cmds + 1] = Back.CmdCast(cast_val, Back.BackSextend, Back.BackIndex, idx.value)
+                current = cast_env
+                index_value = cast_val
+            end
+            local env1, size_val = env_next_value(current, "v")
+            local env2, off_val = env_next_value(env1, "v")
+            local env3, addr_val = env_next_value(env2, "v")
+            cmds[#cmds + 1] = Back.CmdConst(size_val, Back.BackIndex, Back.BackLitInt(tostring(size)))
+            cmds[#cmds + 1] = Back.CmdIntBinary(off_val, Back.BackIntMul, Back.BackIndex, int_sem_wrap(), index_value, size_val)
+            cmds[#cmds + 1] = Back.CmdPtrOffset(addr_val, Back.BackAddrValue(base.value), off_val, 1, 0, Back.BackProvDerived("place index address"), Back.BackPtrBoundsUnknown)
+            return pvm.once(Tr.TreeBackExprValue(env3, cmds, addr_val, Back.BackPtr))
+        end,
         [Tr.IndexBaseExpr] = function(_, _, _, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "untyped index base reached backend")) end,
     }, { args_cache = "last" })
 
@@ -1297,6 +1607,19 @@ function M.Define(T)
                     local env1, addr = env_next_value(env, "addr")
                     return pvm.once(Tr.TreeBackExprValue(env1, { Back.CmdStackAddr(addr, local_entry.slot) }, addr, Back.BackPtr))
                 end
+                if local_entry ~= nil and pvm.classof(local_entry) == Tr.TreeBackScalarLocal then
+                    local scalar = back_scalar(self.ref.binding.ty) or local_entry.ty
+                    local size, align = elem_size(self.ref.binding.ty), elem_align(self.ref.binding.ty)
+                    if size == nil or align == nil then size, align = scalar_size_align(scalar) end
+                    if size ~= nil and align ~= nil then
+                        local slot = stack_slot_for_binding(self.ref.binding)
+                        local env1, addr = env_next_value(env, "addr")
+                        local cmds = { Back.CmdCreateStackSlot(slot, size, align), Back.CmdStackAddr(addr, slot) }
+                        local env2 = append_store_info(cmds, env1, shape_scalar(scalar), addr, local_entry.value, "stack:addr:" .. tostring(self.ref.binding.name))
+                        local env3 = env_add_stack(env2, self.ref.binding, slot, scalar)
+                        return pvm.once(Tr.TreeBackExprValue(env3, cmds, addr, Back.BackPtr))
+                    end
+                end
                 local class = self.ref.binding.class
                 local class_cls = pvm.classof(class)
                 if class_cls == Bn.BindingClassGlobalStatic or class_cls == Bn.BindingClassGlobalConst then
@@ -1309,23 +1632,61 @@ function M.Define(T)
                 local data = lower_context.slot_consts_data and lower_context.slot_consts_data[self.ref.slot.key] or nil
                 if data ~= nil then return pvm.once(global_data_addr(env, data)) end
             end
-            return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "address of scalar binding lowering deferred"))
+            return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "address of binding requires a stack/global storage location"))
         end,
-        [Tr.PlaceDot] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "dot place address lowering deferred")) end,
-        [Tr.PlaceSlotValue] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "slot place address lowering deferred")) end,
+        [Tr.PlaceDot] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "dot place reached backend; run semantic layout resolution before lowering")) end,
+        [Tr.PlaceSlotValue] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "open place slot reached backend; run open_expand/open_validate before lowering")) end,
     }, { args_cache = "last" })
+
+    expr_base_addr_to_back = function(expr, env)
+        local ty = expr_ty(expr)
+        if pvm.classof(ty) == Ty.TPtr then return expr_value(expr_to_back:one_uncached(expr, env)) end
+        local cls = pvm.classof(expr)
+        if cls == Tr.ExprRef then
+            return expr_value(place_addr_to_back:one_uncached(Tr.PlaceRef(Tr.PlaceTyped(ty), expr.ref), env))
+        end
+        if cls == Tr.ExprDeref then
+            return expr_value(expr_to_back:one_uncached(expr.value, env))
+        end
+        if cls == Tr.ExprField and pvm.classof(expr.field) == Sem.FieldByOffset then
+            local base = expr_base_addr_to_back(expr.base, env)
+            if base == nil then return nil end
+            return field_addr_from_base_ptr(base, expr.field)
+        end
+        if cls == Tr.ExprIndex then
+            return expr_value(index_addr_to_back:one_uncached(expr.base, expr.index, expr_ty(expr), env))
+        end
+        return expr_value(expr_to_back:one_uncached(expr, env))
+    end
+
+    local function lowering_unsupported(reason)
+        error("moonlift tree_to_back unsupported lowering: " .. tostring(reason), 2)
+    end
+
+    append_memcpy = function(cmds, current, dst, src, size, tag)
+        local env1, len = env_next_value(current, "v")
+        cmds[#cmds + 1] = Back.CmdConst(len, Back.BackIndex, Back.BackLitInt(tostring(size)))
+        cmds[#cmds + 1] = Back.CmdMemcpy(dst, src, len)
+        return env1
+    end
 
     local function store_at_addr(place, value, env)
         local addr = expr_value(place_addr_to_back:one_uncached(place, env))
-        if addr == nil then return pvm.once(Tr.TreeBackStmtResult(env, { Back.CmdTrap }, Back.BackTerminates)) end
+        if addr == nil then lowering_unsupported("store address could not be lowered") end
         local rhs = expr_value(expr_to_back:one_uncached(value, addr.env))
         if rhs == nil then return pvm.once(Tr.TreeBackStmtResult(addr.env, addr.cmds, Back.BackTerminates)) end
         local field = pvm.classof(place) == Tr.PlaceField and place.field or nil
         local scalar = field and field_storage_scalar(field) or back_scalar(place.h.ty)
-        if scalar == nil then return pvm.once(Tr.TreeBackStmtResult(rhs.env, rhs.cmds, Back.BackTerminates)) end
         local cmds = {}; append_all(cmds, addr.cmds); append_all(cmds, rhs.cmds)
-        local store_value = rhs.value
         local current = rhs.env
+        if scalar == nil and is_aggregate_type(place.h.ty) then
+            local sz = elem_size(place.h.ty)
+            if sz == nil then return pvm.once(Tr.TreeBackStmtResult(rhs.env, rhs.cmds, Back.BackTerminates)) end
+            current = append_memcpy(cmds, current, addr.value, rhs.value, sz, tostring(addr.value.text) .. ":copy")
+            return pvm.once(Tr.TreeBackStmtResult(current, cmds, Back.BackFallsThrough))
+        end
+        if scalar == nil then return pvm.once(Tr.TreeBackStmtResult(rhs.env, rhs.cmds, Back.BackTerminates)) end
+        local store_value = rhs.value
         if field ~= nil and field_is_stored_bool(field) and scalar ~= Back.BackBool then
             local env1, one_val = env_next_value(current, "v")
             local env2, zero_val = env_next_value(env1, "v")
@@ -1372,13 +1733,13 @@ function M.Define(T)
             end
             return pvm.once(Tr.TreeBackStmtResult(env, {}, Back.BackFallsThrough))
         end,
-        [Tr.PlaceDot] = function(_, _, env) return pvm.once(Tr.TreeBackStmtResult(env, { Back.CmdTrap }, Back.BackTerminates)) end,
-        [Tr.PlaceSlotValue] = function(_, _, env) return pvm.once(Tr.TreeBackStmtResult(env, { Back.CmdTrap }, Back.BackTerminates)) end,
+        [Tr.PlaceDot] = function() lowering_unsupported("dot place reached backend; run semantic layout resolution before lowering") end,
+        [Tr.PlaceSlotValue] = function() lowering_unsupported("open place slot reached backend; run open_expand/open_validate before lowering") end,
     }, { args_cache = "last" })
 
     local function lower_if_stmt(self, env)
         local cond = expr_value(expr_to_back:one_uncached(self.cond, env))
-        if cond == nil then return pvm.once(Tr.TreeBackStmtResult(env, { Back.CmdTrap }, Back.BackTerminates)) end
+        if cond == nil then lowering_unsupported("if statement condition could not be lowered") end
 
         local env1, then_block = env_next_block(cond.env, "if.then")
         local env2, else_block = env_next_block(env1, "if.else")
@@ -1466,10 +1827,10 @@ function M.Define(T)
     end
 
     local function lower_switch_stmt(self, env)
-        if #self.variant_arms > 0 then return pvm.once(Tr.TreeBackStmtResult(env, { Back.CmdTrap }, Back.BackTerminates)) end
+        if #self.variant_arms > 0 then lowering_unsupported("variant switch statement lowering is not implemented") end
 
         local value = expr_value(expr_to_back:one_uncached(self.value, env))
-        if value == nil then return pvm.once(Tr.TreeBackStmtResult(env, { Back.CmdTrap }, Back.BackTerminates)) end
+        if value == nil then lowering_unsupported("switch statement value could not be lowered") end
 
         local case_raws = {}
         for i = 1, #self.arms do
@@ -1581,17 +1942,34 @@ function M.Define(T)
                 return pvm.once(Tr.TreeBackStmtResult(lowered.env, cmds, Back.BackFallsThrough))
             end
 
+            if binding_is_stack_local(self.binding) then
+                local init = expr_value(expr_to_back:one_uncached(self.init, env))
+                if init == nil then lowering_unsupported("stack local initializer could not be lowered") end
+                local scalar = back_scalar(self.binding.ty) or init.ty
+                local size, align = elem_size(self.binding.ty), elem_align(self.binding.ty)
+                if size == nil or align == nil then size, align = scalar_size_align(scalar) end
+                if size == nil or align == nil then return pvm.once(Tr.TreeBackStmtResult(init.env, init.cmds, Back.BackTerminates)) end
+                local slot = stack_slot_for_binding(self.binding)
+                local env1, addr = env_next_value(init.env, "addr")
+                local cmds = { Back.CmdCreateStackSlot(slot, size, align) }
+                append_all(cmds, init.cmds)
+                cmds[#cmds + 1] = Back.CmdStackAddr(addr, slot)
+                local env2 = append_store_info(cmds, env1, shape_scalar(scalar), addr, init.value, "stack:init:" .. tostring(self.binding.name))
+                local env3 = env_add_stack(env2, self.binding, slot, scalar)
+                return pvm.once(Tr.TreeBackStmtResult(env3, cmds, Back.BackFallsThrough))
+            end
+
             local lowered = expr_to_back:one_uncached(self.init, env)
             local view_init = expr_view_value(lowered)
             if view_init ~= nil then
-                if not is_view_type(self.binding.ty) then return pvm.once(Tr.TreeBackStmtResult(view_init.env, { Back.CmdTrap }, Back.BackTerminates)) end
+                if not is_view_type(self.binding.ty) then lowering_unsupported("view initializer assigned to non-view binding") end
                 local env2
                 if pvm.classof(view_init) == Tr.TreeBackExprStridedView then env2 = env_add_strided_view(view_init.env, self.binding, view_init.data, view_init.len, view_init.stride)
                 else env2 = env_add_view(view_init.env, self.binding, view_init.data, view_init.len) end
                 return pvm.once(Tr.TreeBackStmtResult(env2, view_init.cmds, Back.BackFallsThrough))
             end
             local init = expr_value(lowered)
-            if init == nil then return pvm.once(Tr.TreeBackStmtResult(env, { Back.CmdTrap }, Back.BackTerminates)) end
+            if init == nil then lowering_unsupported("let initializer could not be lowered") end
             local scalar = back_scalar(self.binding.ty) or init.ty
             local env2 = env_add(init.env, self.binding, init.value, scalar)
             return pvm.once(Tr.TreeBackStmtResult(env2, init.cmds, Back.BackFallsThrough))
@@ -1599,6 +1977,9 @@ function M.Define(T)
         [Tr.StmtExpr] = function(self, env)
             if pvm.classof(self.expr) == Tr.ExprCall then
                 local ty = expr_ty(self.expr)
+                if pvm.classof(ty) == Ty.TScalar and ty.scalar == C.ScalarVoid and pvm.classof(self.expr.target) == Sem.CallClosure then
+                    return pvm.once(lower_closure_call(self.expr, env, false))
+                end
                 if pvm.classof(ty) == Ty.TScalar and ty.scalar == C.ScalarVoid then
                     local args, params, cmds, current = {}, {}, {}, env
                     for i = 1, #self.expr.args do
@@ -1644,7 +2025,7 @@ function M.Define(T)
                 return pvm.once(Tr.TreeBackStmtResult(current, cmds, Back.BackTerminates))
             end
             local value = expr_value(lowered)
-            if value == nil then return pvm.once(Tr.TreeBackStmtResult(env, { Back.CmdTrap }, Back.BackTerminates)) end
+            if value == nil then lowering_unsupported("return value could not be lowered") end
             local cmds = {}; append_all(cmds, value.cmds); cmds[#cmds + 1] = Back.CmdReturnValue(value.value)
             return pvm.once(Tr.TreeBackStmtResult(value.env, cmds, Back.BackTerminates))
         end,
@@ -1675,7 +2056,7 @@ function M.Define(T)
                 return pvm.once(Tr.TreeBackStmtResult(lowered.env, cmds, Back.BackFallsThrough))
             end
             local init = expr_value(expr_to_back:one_uncached(self.init, env))
-            if init == nil then return pvm.once(Tr.TreeBackStmtResult(env, { Back.CmdTrap }, Back.BackTerminates)) end
+            if init == nil then lowering_unsupported("var initializer could not be lowered") end
             local scalar = back_scalar(self.binding.ty) or init.ty
             local size, align = elem_size(self.binding.ty), elem_align(self.binding.ty)
             if size == nil or align == nil then
@@ -1694,7 +2075,7 @@ function M.Define(T)
         [Tr.StmtSet] = function(self, env) return pvm.once(place_store_to_back:one_uncached(self.place, self.value, env)) end,
         [Tr.StmtAtomicStore] = function(self, env)
             local addr = expr_value(expr_to_back:one_uncached(self.addr, env))
-            if addr == nil then return pvm.once(Tr.TreeBackStmtResult(env, { Back.CmdTrap }, Back.BackTerminates)) end
+            if addr == nil then lowering_unsupported("atomic_store address could not be lowered") end
             local value = expr_value(expr_to_back:one_uncached(self.value, addr.env))
             if value == nil then return pvm.once(Tr.TreeBackStmtResult(addr.env, addr.cmds, Back.BackTerminates)) end
             local scalar = back_scalar(self.ty)
@@ -1709,10 +2090,10 @@ function M.Define(T)
         [Tr.StmtAssert] = function(_, env) return pvm.once(Tr.TreeBackStmtResult(env, {}, Back.BackFallsThrough)) end,
         [Tr.StmtIf] = lower_if_stmt,
         [Tr.StmtSwitch] = lower_switch_stmt,
-        [Tr.StmtJump] = function(_, env) return pvm.once(Tr.TreeBackStmtResult(env, { Back.CmdTrap }, Back.BackTerminates)) end,
-        [Tr.StmtJumpCont] = function(_, env) return pvm.once(Tr.TreeBackStmtResult(env, { Back.CmdTrap }, Back.BackTerminates)) end,
-        [Tr.StmtYieldVoid] = function(_, env) return pvm.once(Tr.TreeBackStmtResult(env, { Back.CmdTrap }, Back.BackTerminates)) end,
-        [Tr.StmtYieldValue] = function(_, env) return pvm.once(Tr.TreeBackStmtResult(env, { Back.CmdTrap }, Back.BackTerminates)) end,
+        [Tr.StmtJump] = function() lowering_unsupported("jump statement reached function-body lowerer; control regions must lower jumps") end,
+        [Tr.StmtJumpCont] = function() lowering_unsupported("continuation jump reached function-body lowerer; control regions must lower jumps") end,
+        [Tr.StmtYieldVoid] = function() lowering_unsupported("yield statement reached function-body lowerer; control expressions must lower yields") end,
+        [Tr.StmtYieldValue] = function() lowering_unsupported("yield value reached function-body lowerer; control expressions must lower yields") end,
         [Tr.StmtControl] = function(self, env) return pvm.once(control_api.stmt_region_to_back:one_uncached(self.region, env)) end,
         [Tr.StmtUseRegionSlot] = function(_, env) return pvm.once(Tr.TreeBackStmtResult(env, {}, Back.BackFallsThrough)) end,
         [Tr.StmtUseRegionFrag] = function(_, env) return pvm.once(Tr.TreeBackStmtResult(env, {}, Back.BackFallsThrough)) end,
@@ -1823,7 +2204,7 @@ function M.Define(T)
         return ps
     end
 
-    local function descriptor_field_load(cmds, current, desc, field_name, offset, scalar)
+    descriptor_field_load = function(cmds, current, desc, field_name, offset, scalar)
         local addr = desc
         if offset ~= 0 then
             local env1, off_val = env_next_value(current, "v")
@@ -1944,7 +2325,7 @@ function M.Define(T)
         }
         append_all(cmds, body_cmds)
         if flow ~= Back.BackTerminates then
-            if #result_scalars == 0 then cmds[#cmds + 1] = Back.CmdReturnVoid else cmds[#cmds + 1] = Back.CmdTrap end
+            if #result_scalars == 0 then cmds[#cmds + 1] = Back.CmdReturnVoid else lowering_unsupported("non-void function can fall through without return: " .. tostring(name)) end
         end
         cmds[#cmds + 1] = Back.CmdSealBlock(entry)
         cmds[#cmds + 1] = Back.CmdFinishFunc(func)
@@ -2108,6 +2489,7 @@ function M.Define(T)
         collect_global_context(module, const_entries, globals, slot_consts, slot_statics, slot_consts_data)
         lower_context = {
             module_name = module_name_of(module),
+            layout_env = Sem.LayoutEnv(module_type_api.env(module).layouts),
             const_env = Bn.ConstEnv(const_entries),
             globals = globals,
             slot_consts = slot_consts,

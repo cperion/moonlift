@@ -139,38 +139,12 @@ function M.emit_object(src, path, name)
     local _ = _mlua_run
     local pvm = require("moonlift.pvm")
     local A2 = require("moonlift.asdl")
-    local Parse = require("moonlift.parse")
-    local Typecheck = require("moonlift.tree_typecheck")
-    local TreeToBack = require("moonlift.tree_to_back")
-    local Validate = require("moonlift.back_validate")
+    local Pipeline = require("moonlift.frontend_pipeline")
     local Object = require("moonlift.back_object")
 
     local T = pvm.context(); A2.Define(T)
-    local P = Parse.Define(T)
-    local TC = Typecheck.Define(T)
-    local Lower = TreeToBack.Define(T)
-    local V = Validate.Define(T)
     local O = Object.Define(T)
-
-    local parsed = P.parse_module(src)
-    if #parsed.issues ~= 0 then
-        local msgs = {}
-        for j = 1, #parsed.issues do msgs[#msgs + 1] = tostring(parsed.issues[j].message or parsed.issues[j]) end
-        error("emit_object parse failed: " .. table.concat(msgs, "\n"), 2)
-    end
-    local checked = TC.check_module(parsed.module)
-    if #checked.issues ~= 0 then
-        local msgs = {}
-        for j = 1, #checked.issues do msgs[#msgs + 1] = tostring(checked.issues[j].message or checked.issues[j]) end
-        error("emit_object typecheck failed: " .. table.concat(msgs, "\n"), 2)
-    end
-    local program = Lower.module(checked.module)
-    local report = V.validate(program)
-    if #report.issues ~= 0 then
-        local msgs = {}
-        for j = 1, #report.issues do msgs[#msgs + 1] = tostring(report.issues[j].message or report.issues[j]) end
-        error("emit_object validate failed: " .. table.concat(msgs, "\n"), 2)
-    end
+    local program = Pipeline.Define(T).parse_and_lower(src, { site = "emit_object" }).program
     name = name or "moonlift_object"
     local artifact = O.compile(program, { module_name = name })
     local bytes = artifact:bytes()
@@ -186,47 +160,21 @@ function M.emit_shared(src, path, name, opts)
     local _ = _mlua_run
     local pvm = require("moonlift.pvm")
     local A2 = require("moonlift.asdl")
-    local Parse = require("moonlift.parse")
-    local Typecheck = require("moonlift.tree_typecheck")
-    local TreeToBack = require("moonlift.tree_to_back")
-    local Validate = require("moonlift.back_validate")
+    local Pipeline = require("moonlift.frontend_pipeline")
     local Object = require("moonlift.back_object")
     local LinkTarget = require("moonlift.link_target_model")
     local LinkValidate = require("moonlift.link_plan_validate")
     local LinkCommand = require("moonlift.link_command_plan")
     local LinkExecute = require("moonlift.link_execute")
-    local Link = require("moonlift.pvm").context().MoonLink or A2.Define(pvm.context()).MoonLink
 
     local T = pvm.context(); A2.Define(T)
-    local P = Parse.Define(T)
-    local TC = Typecheck.Define(T)
-    local Lower = TreeToBack.Define(T)
-    local V = Validate.Define(T)
+    local Link = T.MoonLink
     local O = Object.Define(T)
     local LT = LinkTarget.Define(T)
     local LV = LinkValidate.Define(T)
     local LC = LinkCommand.Define(T)
     local LE = LinkExecute.Define(T)
-
-    local parsed = P.parse_module(src)
-    if #parsed.issues ~= 0 then
-        local msgs = {}
-        for j = 1, #parsed.issues do msgs[#msgs + 1] = tostring(parsed.issues[j].message or parsed.issues[j]) end
-        error("emit_shared parse failed: " .. table.concat(msgs, "\n"), 2)
-    end
-    local checked = TC.check_module(parsed.module)
-    if #checked.issues ~= 0 then
-        local msgs = {}
-        for j = 1, #checked.issues do msgs[#msgs + 1] = tostring(checked.issues[j].message or checked.issues[j]) end
-        error("emit_shared typecheck failed: " .. table.concat(msgs, "\n"), 2)
-    end
-    local program = Lower.module(checked.module)
-    local report = V.validate(program)
-    if #report.issues ~= 0 then
-        local msgs = {}
-        for j = 1, #report.issues do msgs[#msgs + 1] = tostring(report.issues[j].message or report.issues[j]) end
-        error("emit_shared validate failed: " .. table.concat(msgs, "\n"), 2)
-    end
+    local program = Pipeline.Define(T).parse_and_lower(src, { site = "emit_shared" }).program
 
     name = name or "moonlift_shared"
     local keep_object = opts and opts.keep_object

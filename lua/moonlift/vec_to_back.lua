@@ -296,7 +296,7 @@ function M.Define(T)
             local env = env_empty()
             local out = { Back.CmdCreateSig(sig, ps, rs), Back.CmdDeclareFunc(func.visibility, fid, sig), Back.CmdBeginFunc(fid) }
             if #func.blocks == 0 then
-                out[#out + 1] = Back.CmdTrap
+                return pvm.once(V.VecBackReject(env, V.VecRejectUnsupportedLoop(V.VecLoopId(func.name), "vector function has no entry block")))
             else
                 local entry = func.blocks[1]
                 local entry_values = {}

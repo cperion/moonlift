@@ -55,6 +55,27 @@ function M.Define(T)
         return nil
     end
 
+    local function layout_for_named_ref(ref, env)
+        env = env or Sem.LayoutEnv({})
+        local ref_cls = pvm.classof(ref)
+        for i = 1, #env.layouts do
+            local layout = env.layouts[i]
+            local layout_cls = pvm.classof(layout)
+            if ref_cls == Ty.TypeRefGlobal and layout_cls == Sem.LayoutNamed
+                and layout.module_name == ref.module_name and layout.type_name == ref.type_name then
+                return layout
+            end
+            if ref_cls == Ty.TypeRefPath and layout_cls == Sem.LayoutNamed
+                and #ref.path.parts == 1 and layout.type_name == ref.path.parts[1].text then
+                return layout
+            end
+            if ref_cls == Ty.TypeRefLocal and layout_cls == Sem.LayoutLocal and layout.sym == ref.sym then
+                return layout
+            end
+        end
+        return nil
+    end
+
     class_layout = pvm.phase("moonlift_type_class_mem_layout", {
         [Ty.TypeClassScalar] = function(self)
             return scalar_layout(self.scalar)
@@ -95,8 +116,13 @@ function M.Define(T)
     })
 
     type_layout_result = pvm.phase("moonlift_type_mem_layout_result", function(ty, env)
+        env = env or Sem.LayoutEnv({})
+        if pvm.classof(ty) == Ty.TNamed then
+            local layout = layout_for_named_ref(ty.ref, env)
+            if layout ~= nil then return Ty.TypeMemLayoutKnown(Sem.MemLayout(layout.size, layout.align)) end
+        end
         local class = classify_api.classify(ty)
-        return pvm.one(class_layout(class, ty, env or Sem.LayoutEnv({})))
+        return pvm.one(class_layout(class, ty, env))
     end)
 
     local api = {

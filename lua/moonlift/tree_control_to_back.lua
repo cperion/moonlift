@@ -36,11 +36,8 @@ function M.Define(T, base)
     local control_stmt_region_to_back
     local control_expr_region_to_back
 
-    local function unsupported_stmt(env, cmds)
-        local out = {}
-        append_all(out, cmds or {})
-        out[#out + 1] = Back.CmdTrap
-        return Tr.TreeBackStmtResult(env, out, Back.BackTerminates)
+    local function unsupported_stmt(_, _, reason)
+        error("moonlift tree_control_to_back unsupported lowering: " .. tostring(reason or "control statement could not be lowered"), 2)
     end
 
     local function expr_value(result)
@@ -316,13 +313,15 @@ function M.Define(T, base)
             return pvm.once(Tr.TreeBackStmtResult(env2, cmds, Back.BackTerminates))
         end,
         [Tr.StmtYieldVoid] = function(_, env, ctx)
-            if ctx.exit_value ~= nil then return pvm.once(unsupported_stmt(env, {})) end
+            if ctx.exit_value ~= nil then return pvm.once(unsupported_stmt(env, {}, "void yield in value-producing control region")) end
+            ctx.has_exit_jump = true
             return pvm.once(Tr.TreeBackStmtResult(env, { Back.CmdJump(ctx.exit_block, {}) }, Back.BackTerminates))
         end,
         [Tr.StmtYieldValue] = function(self, env, ctx)
-            if ctx.exit_value == nil then return pvm.once(unsupported_stmt(env, {})) end
+            if ctx.exit_value == nil then return pvm.once(unsupported_stmt(env, {}, "value yield in statement control region")) end
             local value = expr_value(base.expr_to_back:one_uncached(self.value, env))
-            if value == nil then return pvm.once(unsupported_stmt(env, {})) end
+            if value == nil then return pvm.once(unsupported_stmt(env, {}, "yield value could not be lowered")) end
+            ctx.has_exit_jump = true
             local cmds = {}; append_all(cmds, value.cmds); cmds[#cmds + 1] = Back.CmdJump(ctx.exit_block, { value.value })
             return pvm.once(Tr.TreeBackStmtResult(value.env, cmds, Back.BackTerminates))
         end,
@@ -361,7 +360,7 @@ function M.Define(T, base)
         local exit_block = synthetic_block_id(nonce, region_id, "exit")
         local exit_value = nil
         if result_scalar ~= nil then exit_value = synthetic_value_id(nonce, region_id, "result") end
-        local ctx = { region_id = region_id, labels = labels, exit_block = exit_block, exit_value = exit_value }
+        local ctx = { region_id = region_id, labels = labels, exit_block = exit_block, exit_value = exit_value, has_exit_jump = false }
 
         local cmds = {}
         declare_blocks(cmds, records, exit_block, exit_value, result_scalar)
@@ -375,7 +374,7 @@ function M.Define(T, base)
             local start = add_param_locals(current, outside_locals, records[i].params)
             local body_env, body_cmds, flow = lower_body(records[i].body, start, ctx)
             append_all(cmds, body_cmds)
-            if flow ~= Back.BackTerminates then cmds[#cmds + 1] = Back.CmdTrap end
+            if flow ~= Back.BackTerminates then unsupported_stmt(body_env, body_cmds, "control block can fall through without jump/yield/return") end
             current = base.env_with_counters(current, body_env)
         end
         for i = 1, #records do cmds[#cmds + 1] = Back.CmdSealBlock(records[i].block) end
@@ -383,14 +382,15 @@ function M.Define(T, base)
         cmds[#cmds + 1] = Back.CmdSwitchToBlock(exit_block)
 
         local out_env = base.env_with_locals(current, outside_locals)
-        return { env = out_env, cmds = cmds, flow = Back.BackFallsThrough, value = exit_value, scalar = result_scalar }, nil
+        local flow = ctx.has_exit_jump and Back.BackFallsThrough or Back.BackTerminates
+        return { env = out_env, cmds = cmds, flow = flow, value = exit_value, scalar = result_scalar }, nil
     end
 
     control_stmt_region_to_back = pvm.phase("moonlift_tree_control_stmt_region_to_back", {
         [Tr.ControlStmtRegion] = function(self, env)
             local lowered, err = lower_region(self, self.region_id, self.entry, self.blocks, nil, env)
             if lowered == nil then return pvm.once(unsupported_stmt(env, {})) end
-            return pvm.once(Tr.TreeBackStmtResult(lowered.env, lowered.cmds, Back.BackFallsThrough))
+            return pvm.once(Tr.TreeBackStmtResult(lowered.env, lowered.cmds, lowered.flow))
         end,
     }, { args_cache = "last" })
 

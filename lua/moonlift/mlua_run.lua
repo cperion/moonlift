@@ -245,6 +245,17 @@ local function deps_of(value)
     return empty_deps()
 end
 
+local function assert_no_cmd_trap(T, program, site)
+    local Back = T.MoonBack
+    for i = 1, #(program and program.cmds or {}) do
+        local cmd = program.cmds[i]
+        if cmd == Back.CmdTrap or pvm.classof(cmd) == Back.CmdTrap or cmd.kind == "CmdTrap" then
+            error((site or "moonlift lowering") .. " produced CmdTrap at command #" .. tostring(i)
+                .. "; this is an unsupported lowering path and would become a native illegal instruction", 3)
+        end
+    end
+end
+
 local function extern_deps_from_runtime(runtime)
     local out = empty_deps()
     if runtime and runtime.extern_funcs then
@@ -304,10 +315,7 @@ end
 
 function FuncValue:compile()
     local T = self.T
-    local Typecheck = require("moonlift.tree_typecheck").Define(T)
-    local Layout = require("moonlift.sem_layout_resolve").Define(T)
-    local TreeToBack = require("moonlift.tree_to_back").Define(T)
-    local Validate = require("moonlift.back_validate").Define(T)
+    local Pipeline = require("moonlift.frontend_pipeline").Define(T)
     local Tr = T.MoonTree
 
     -- Collect all sibling func items from this compilation unit so
@@ -337,10 +345,8 @@ function FuncValue:compile()
         items[#items + 1] = ex.item or (ex.func and Tr.ItemExtern(ex.func)) or ex
     end
 
-    local mod = Tr.Module(Tr.ModuleSurface, items)
-
-    local checked = Typecheck.check_module(mod)
-    if #checked.issues ~= 0 then error("func " .. tostring(self.name) .. " typecheck failed: " .. tostring(checked.issues[1]), 2) end
+    local lowered = Pipeline.lower_module(Tr.Module(Tr.ModuleSurface, items), { site = "func " .. tostring(self.name) })
+    local checked = lowered.checked
 
     -- Extract the function from the checked module
     local checked_func
@@ -352,9 +358,7 @@ function FuncValue:compile()
     end
     if not checked_func then error("internal: no func in compiled module", 2) end
 
-    local resolved = Layout.module(checked.module)
-    local program = TreeToBack.module(resolved)
-    if not program then error("tree_to_back produced nil module", 2) end
+    local program = lowered.program
 
     -- Convert BackProgram ASDL to flat cmd table for dynasm
     local flat
@@ -749,6 +753,30 @@ function M.loadstring(src, chunk_name, opts)
         end)
     end
 
+    local moonlift_keywords = {
+        ["as"] = true, ["block"] = true, ["case"] = true, ["cont"] = true, ["default"] = true,
+        ["do"] = true, ["else"] = true, ["elseif"] = true, ["emit"] = true, ["end"] = true,
+        ["entry"] = true, ["extern"] = true, ["false"] = true, ["func"] = true, ["if"] = true,
+        ["jump"] = true, ["let"] = true, ["local"] = true, ["nil"] = true, ["region"] = true,
+        ["return"] = true, ["select"] = true, ["struct"] = true, ["switch"] = true, ["then"] = true,
+        ["true"] = true, ["union"] = true, ["var"] = true, ["view"] = true, ["yield"] = true,
+        ["and"] = true, ["break"] = true, ["for"] = true, ["function"] = true, ["goto"] = true,
+        ["in"] = true, ["not"] = true, ["or"] = true, ["repeat"] = true, ["until"] = true,
+        ["while"] = true,
+    }
+
+    local function island_ambient_names(island)
+        local text = src:sub(island.start, island.stop)
+        local names, seen = {}, {}
+        for name in text:gmatch("[_%a][_%w]*") do
+            if not moonlift_keywords[name] and not seen[name] then
+                seen[name] = true
+                names[#names + 1] = name
+            end
+        end
+        return names
+    end
+
     emit_block("return function(...)", function() return { origin = "carrier_prelude" } end)
     emit_block(string.format("local __moonlift_runtime = %s", rt), function() return { origin = "carrier_prelude" } end)
     emit_block("local moon = setmetatable({ require = function(name) return __moonlift_runtime:require(name) end, native_loadstring = function(source) return require('moonlift.host_mom').native_loadstring(source) end, native_loadfile = function(path) return require('moonlift.host_mom').native_loadfile(path) end, native_dofile = function(path, opts, ...) return require('moonlift.host_mom').native_dofile(path, opts, ...) end, emit_object = function(source, path, name) return require('moonlift.host_mom').emit_object(source, path, name) end }, { __index = __moonlift_runtime.session:api() })", function()
@@ -763,12 +791,23 @@ function M.loadstring(src, chunk_name, opts)
             emit_source_segment(lua_part, cursor)
         end
 
-        -- Build closure table for this island's holes.
+        -- Build closure table for this island's holes plus bare Lua identifiers.
+        -- Bare identifiers allow Moonlift type positions like `ptr(Foo)` and
+        -- constructors like `Foo{...}` to resolve host type values in lexical
+        -- Lua scope without forcing `@{Foo}` at every use.
         local entries = {}
+        local keyed = {}
         for _, hid in ipairs(island.holes) do
             local expr = scan.splice_map[hid]
             if expr then
                 entries[#entries + 1] = string.format("[%q] = function() return (%s) end", hid, expr)
+                keyed[hid] = true
+            end
+        end
+        for _, name in ipairs(island_ambient_names(island)) do
+            if not keyed[name] then
+                entries[#entries + 1] = string.format("[%q] = function() return %s end", name, name)
+                keyed[name] = true
             end
         end
 
@@ -838,18 +877,32 @@ function M.loadfile(path, opts)
     return M.loadstring(src, path, opts)
 end
 
+local function maybe_mom_installer_module(path, value, opts)
+    if type(value) ~= "function" then return value end
+    if type(path) ~= "string" or not path:match("^lua/moonlift/mom/") or path:match("/schema/") then return value end
+    if type(opts) == "table" and opts.raw_installer then return value end
+    local Assemble = require("moonlift.mom.build.assemble")
+    return Assemble.load_until(path, {
+        name = (type(opts) == "table" and opts.module_name) or "mom",
+        verbose = type(opts) == "table" and opts.verbose or nil,
+    }).module
+end
+
 function M.dofile(path, opts, ...)
     if type(opts) == "table" and (opts.runtime or opts.T or opts.session) then
-        return assert(M.loadfile(path, opts))(...)
+        local value = assert(M.loadfile(path, opts))(...)
+        return maybe_mom_installer_module(path, value, opts)
     end
     if not opts and path:match("%.mlua$") then
         local parent = M.current_runtime()
         if parent then
-            return assert(M.loadfile(path, {runtime = parent}))(...)
+            local value = assert(M.loadfile(path, {runtime = parent}))(...)
+            return maybe_mom_installer_module(path, value, { runtime = parent })
         end
     end
     local fn = assert(M.loadfile(path))
-    return fn(opts, ...)
+    local value = fn(opts, ...)
+    return maybe_mom_installer_module(path, value, opts)
 end
 
 function M.eval(src, chunk_name, ...)

@@ -155,11 +155,14 @@ function M.Define(T)
                     if pvm.classof(entries[j]) == B.TypeEntry then types[#types + 1] = entries[j] end
                 end
             end
-            local layout_env = Sem.LayoutEnv(layouts)
-            for i = 1, #module.items do
-                local ls = pvm.drain(item_layout(module.items[i], mod_name, layout_env))
-                for j = 1, #ls do layouts[#layouts + 1] = ls[j] end
-                layout_env = Sem.LayoutEnv(layouts)
+            for _ = 1, math.max(1, #module.items) do
+                local pass_layouts = {}
+                local layout_env = Sem.LayoutEnv(layouts)
+                for i = 1, #module.items do
+                    local ls = pvm.drain(item_layout(module.items[i], mod_name, layout_env))
+                    for j = 1, #ls do pass_layouts[#pass_layouts + 1] = ls[j] end
+                end
+                layouts = pass_layouts
             end
             return pvm.once(B.Env(mod_name, values, types, layouts))
         end,

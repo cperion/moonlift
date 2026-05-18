@@ -140,11 +140,11 @@ function A.new(opts)
     return self, carrier
 end
 
--- Load all compiler sources and install into assembly.
-function A.load(opts)
+local function load_sources(opts, stop_path)
     opts = opts or {}
     local verbose = opts.verbose or os.getenv("MOM_ASSEMBLE_TRACE") == "1"
     local assembly, first_carrier = A.new(opts)
+    local found_stop = stop_path == nil
 
     for i, path in ipairs(Manifest.compiler_sources) do
         if verbose then io.stderr:write(string.format("mom assemble [%02d/%02d] %s\n", i, #Manifest.compiler_sources, path)) end
@@ -168,9 +168,22 @@ function A.load(opts)
                 end
             end
         end
+
+        if stop_path ~= nil and path == stop_path then found_stop = true; break end
     end
 
+    if not found_stop then error("MOM assembly source is not in manifest: " .. tostring(stop_path), 2) end
     return assembly
+end
+
+-- Load all compiler sources and install into assembly.
+function A.load(opts)
+    return load_sources(opts, nil)
+end
+
+-- Load compiler sources through one requested installer file.
+function A.load_until(path, opts)
+    return load_sources(opts, path)
 end
 
 -- Emit precompiled object.

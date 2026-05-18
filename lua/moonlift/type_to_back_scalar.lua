@@ -55,8 +55,11 @@ function M.Define(T)
         [Ty.TypeClassView] = function(self, ty)
             return pvm.once(Ty.TypeBackScalarUnavailable(ty, self))
         end,
-        [Ty.TypeClassClosure] = function(self, ty)
-            return pvm.once(Ty.TypeBackScalarUnavailable(ty, self))
+        [Ty.TypeClassClosure] = function()
+            -- Tree-to-back represents closure values as addresses of the
+            -- two-word { fn, ctx } descriptor while preserving the source
+            -- type as Ty.TClosure in semantic IR.
+            return pvm.once(Ty.TypeBackScalarKnown(Back.BackPtr))
         end,
         [Ty.TypeClassAggregate] = function(self, ty)
             return pvm.once(Ty.TypeBackScalarUnavailable(ty, self))

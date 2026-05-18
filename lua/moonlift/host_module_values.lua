@@ -178,35 +178,11 @@ end
 
 function ModuleValue:_lower_program(opts)
     opts = opts or {}
-    local pvm = require("moonlift.pvm")
-    local OpenFacts = require("moonlift.open_facts")
-    local OpenValidate = require("moonlift.open_validate")
-    local OpenExpand = require("moonlift.open_expand")
-    local Typecheck = require("moonlift.tree_typecheck")
-    local SemLayout = require("moonlift.sem_layout_resolve")
-    local TreeToBack = require("moonlift.tree_to_back")
-    local Validate = require("moonlift.back_validate")
-
-    local T = self.session.T
-    local OF = OpenFacts.Define(T)
-    local OV = OpenValidate.Define(T)
-    local OE = OpenExpand.Define(T)
-    local TC = Typecheck.Define(T)
-    local Layout = SemLayout.Define(T)
-    local Lower = TreeToBack.Define(T)
-    local V = Validate.Define(T)
-
-    local module = self:to_asdl()
-    local expanded = OE.module(module)
-    local open_report = OV.validate(OF.facts_of_module(expanded))
-    if #open_report.issues ~= 0 then error("host module open validation failed: " .. tostring(open_report.issues[1]), 2) end
-    local checked = TC.check_module(expanded)
-    if #checked.issues ~= 0 then error("host module typecheck failed: " .. tostring(checked.issues[1]), 2) end
-    local resolved_module = Layout.module(checked.module, self:layout_env())
-    local program = Lower.module(resolved_module)
-    local report = V.validate(program)
-    if #report.issues ~= 0 then error("host module back validation failed: " .. tostring(report.issues[1]), 2) end
-    return program
+    local Pipeline = require("moonlift.frontend_pipeline").Define(self.session.T)
+    return Pipeline.lower_module(self:to_asdl(), {
+        site = "host module",
+        layout_env = self:layout_env(),
+    }).program
 end
 
 function ModuleValue:compile(opts)

@@ -1,47 +1,24 @@
 -- moonlift/host_mom.lua — executable source compiler entry point used by the
 -- standalone mom binary.
 --
--- This path uses the production Moonlift semantic pipeline: parse → typecheck →
--- tree_to_back → back_validate → MLBT v3 → Cranelift.  It intentionally does
+-- This path uses the production Moonlift semantic pipeline: parse → open_expand →
+-- open_validate → closure_convert → typecheck → layout → lower → validate → Cranelift.  It intentionally does
 -- not use the incomplete parser-tape lowering path.
 
 local pvm = require("moonlift.pvm")
 local A2 = require("moonlift.asdl")
-local Parse = require("moonlift.parse")
-local Typecheck = require("moonlift.tree_typecheck")
-local TreeToBack = require("moonlift.tree_to_back")
-local Validate = require("moonlift.back_validate")
+local FrontendPipeline = require("moonlift.frontend_pipeline")
 local BackJit = require("moonlift.back_jit")
 local Object = require("moonlift.back_object")
 
 local M = {}
 
-local function issue_text(issue)
-    return tostring(issue.message or issue)
-end
-
-local function fail_issues(phase, issues)
-    local msgs = {}
-    for i = 1, #issues do msgs[#msgs + 1] = issue_text(issues[i]) end
-    error("MOM " .. phase .. " failed:\n" .. table.concat(msgs, "\n"), 3)
-end
-
 local function compile_program(source)
     local T = pvm.context()
     A2.Define(T)
-    local P = Parse.Define(T)
-    local TC = Typecheck.Define(T)
-    local Lower = TreeToBack.Define(T)
-    local V = Validate.Define(T)
-
-    local parsed = P.parse_module(source)
-    if #parsed.issues ~= 0 then fail_issues("parse", parsed.issues) end
-    local checked = TC.check_module(parsed.module)
-    if #checked.issues ~= 0 then fail_issues("typecheck", checked.issues) end
-    local program = Lower.module(checked.module)
-    local report = V.validate(program)
-    if #report.issues ~= 0 then fail_issues("back validation", report.issues) end
-    return T, program
+    local pipeline = FrontendPipeline.Define(T)
+    local result = pipeline.parse_and_lower(source, { site = "MOM host pipeline" })
+    return T, result.program
 end
 
 local Compiled = {}
@@ -138,7 +115,7 @@ function M.status()
         ready = true,
         integration_ready = true,
         native_compiler_ready = false,
-        pipeline = "production Lua semantic pipeline: parse/typecheck/tree_to_back/back_validate/mlbt/cranelift",
+        pipeline = "production Lua semantic pipeline: parse/open_expand/open_validate/closure_convert/typecheck/layout/lower/validate/mlbt/cranelift",
         not_done = {
             "native .mlua source scanner/island pipeline",
             "native MoonTree AST materialization",

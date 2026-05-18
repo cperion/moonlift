@@ -165,7 +165,31 @@ function M.Define(T)
             and is_integer_scalar(expected)
     end
 
+    local function array_len_const(len)
+        if pvm.classof(len) == Ty.ArrayLenConst then return len.count end
+        return nil
+    end
+
     type_expr_expect = function(expr, ctx, expected)
+        if expected ~= nil and pvm.classof(expr) == Tr.ExprAgg and pvm.classof(expected) == Ty.TNamed then
+            return pvm.one(type_expr(pvm.with(expr, { ty = expected }), ctx))
+        end
+        if expected ~= nil and pvm.classof(expr) == Tr.ExprArray and pvm.classof(expected) == Ty.TArray then
+            local expected_count = array_len_const(expected.count)
+            local issues = {}
+            if expected_count ~= nil and expected_count ~= #expr.elems then
+                issues[#issues + 1] = Tr.TypeIssueExpected("array length", expected, Ty.TArray(Ty.ArrayLenConst(#expr.elems), expected.elem))
+            end
+            local elems = {}
+            for i = 1, #expr.elems do
+                local e = type_expr_expect(expr.elems[i], ctx, expected.elem)
+                append_all(issues, e.issues)
+                if not type_eq(expected.elem, e.ty) then issues[#issues + 1] = Tr.TypeIssueExpected("array elem", expected.elem, e.ty) end
+                elems[#elems + 1] = e.expr
+            end
+            local ty = Ty.TArray(Ty.ArrayLenConst(#elems), expected.elem)
+            return result_expr(Tr.ExprArray(Tr.ExprTyped(ty), expected.elem, elems), ty, issues)
+        end
         local result = pvm.one(type_expr(expr, ctx))
         if expected ~= nil and int_literal_can_adopt(expr, expected) then
             return result_expr(Tr.ExprLit(Tr.ExprTyped(expected), expr.value), expected, result.issues)
@@ -300,6 +324,13 @@ function M.Define(T)
             if pvm.classof(base.ty) == Ty.TView or pvm.classof(base.ty) == Ty.TPtr then
                 return pvm.once(Tr.TypeIndexBaseResult(Tr.IndexBaseView(Tr.ViewFromExpr(base.expr, base.ty.elem)), base.ty.elem, issues))
             end
+            if pvm.classof(base.ty) == Ty.TArray then
+                if pvm.classof(base.expr) == Tr.ExprRef then
+                    return pvm.once(Tr.TypeIndexBaseResult(Tr.IndexBasePlace(Tr.PlaceRef(Tr.PlaceTyped(base.ty), base.expr.ref), base.ty.elem), base.ty.elem, issues))
+                end
+                issues[#issues + 1] = Tr.TypeIssueNotIndexable(base.ty)
+                return pvm.once(Tr.TypeIndexBaseResult(Tr.IndexBaseView(Tr.ViewFromExpr(base.expr, base.ty.elem)), base.ty.elem, issues))
+            end
             issues[#issues + 1] = Tr.TypeIssueNotIndexable(base.ty)
             return pvm.once(Tr.TypeIndexBaseResult(Tr.IndexBaseView(Tr.ViewFromExpr(base.expr, void_ty())), void_ty(), issues))
         end,
@@ -396,7 +427,7 @@ function M.Define(T)
         [Tr.ExprMachineCast] = function(self, ctx) local value = pvm.one(type_expr(self.value, ctx)); return pvm.once(result_expr(Tr.ExprMachineCast(Tr.ExprTyped(self.ty), self.op, self.ty, value.expr), self.ty, value.issues)) end,
         [Tr.ExprLen] = function(self, ctx)
             local value = pvm.one(type_expr(self.value, ctx)); local issues = {}; append_all(issues, value.issues)
-            if pvm.classof(value.ty) ~= Ty.TView then issues[#issues + 1] = Tr.TypeIssueExpected("len", Ty.TView(void_ty()), value.ty) end
+            if pvm.classof(value.ty) ~= Ty.TView and pvm.classof(value.ty) ~= Ty.TArray then issues[#issues + 1] = Tr.TypeIssueExpected("len", Ty.TView(void_ty()), value.ty) end
             return pvm.once(result_expr(Tr.ExprLen(Tr.ExprTyped(index_ty()), value.expr), index_ty(), issues))
         end,
         [Tr.ExprCall] = function(self, ctx)
@@ -404,7 +435,9 @@ function M.Define(T)
             local fn_ty, target = nil, self.target
             if pvm.classof(self.target) == Sem.CallUnresolved then
                 local callee = pvm.one(type_expr(self.target.callee, ctx)); append_all(issues, callee.issues); fn_ty = callee.ty
-                if pvm.classof(self.target.callee) == Tr.ExprRef and pvm.classof(callee.expr.ref) == B.ValueRefBinding then
+                if pvm.classof(fn_ty) == Ty.TClosure then
+                    target = Sem.CallClosure(callee.expr, fn_ty)
+                elseif pvm.classof(self.target.callee) == Tr.ExprRef and pvm.classof(callee.expr.ref) == B.ValueRefBinding then
                     local cls = pvm.classof(callee.expr.ref.binding.class)
                     if cls == B.BindingClassGlobalFunc then target = Sem.CallDirect(callee.expr.ref.binding.class.module_name, callee.expr.ref.binding.class.item_name, fn_ty)
                     elseif cls == B.BindingClassExtern then target = Sem.CallExtern(callee.expr.ref.binding.class.symbol, fn_ty)
@@ -455,6 +488,16 @@ function M.Define(T)
         end,
         [Tr.ExprAgg] = function(self, ctx)
             local issues = {}
+            if pvm.classof(self.ty) == Ty.TClosure then
+                local field_exprs = {}
+                for j = 1, #self.fields do
+                    local fi = self.fields[j]
+                    local ev = pvm.one(type_expr(fi.value, ctx))
+                    append_all(issues, ev.issues)
+                    field_exprs[j] = Tr.FieldInit(fi.name, ev.expr, fi.offset)
+                end
+                return pvm.once(result_expr(Tr.ExprAgg(Tr.ExprTyped(self.ty), self.ty, field_exprs), self.ty, issues))
+            end
             local ref = named_ref(self.ty)
             local layout
             if ref then
@@ -468,7 +511,8 @@ function M.Define(T)
                     if matches then layout = l; break end
                 end
                 if not layout then
-                    issues[#issues + 1] = Pm.TypeIssue("unknown struct type: " .. (ref.path and ref.path.parts[1].text or "?"), self.h)
+                    if pvm.classof(ref) == Ty.TypeRefPath then issues[#issues + 1] = Tr.TypeIssueUnresolvedPath(ref.path)
+                    else issues[#issues + 1] = Tr.TypeIssueExpected("struct literal", self.ty, void_ty()) end
                 end
             end
             if layout then
@@ -479,7 +523,7 @@ function M.Define(T)
                     local fi = self.fields[j]
                     local decl = field_map[fi.name]
                     if not decl then
-                        issues[#issues + 1] = Pm.TypeIssue("unknown field '" .. fi.name .. "'", self.h)
+                        issues[#issues + 1] = Tr.TypeIssueUnresolvedValue(fi.name)
                     else
                         local ev = type_expr_expect(fi.value, ctx, decl.ty)
                         append_all(issues, ev.issues)
@@ -493,7 +537,8 @@ function M.Define(T)
         end,
         [Tr.ExprArray] = function(self, ctx)
             if #self.elems == 0 then
-                return pvm.once(result_expr(pvm.with(self, { h = Tr.ExprTyped(self.ty) }), self.ty, {}))
+                local ty = Ty.TArray(Ty.ArrayLenConst(0), self.elem_ty)
+                return pvm.once(result_expr(Tr.ExprArray(Tr.ExprTyped(ty), self.elem_ty, {}), ty, { Tr.TypeIssueExpected("empty array literal", ty, void_ty()) }))
             end
             local issues = {}
             local first_ty = pvm.one(type_expr(self.elems[1], ctx)).ty
@@ -541,7 +586,18 @@ function M.Define(T)
             end
             return pvm.once(result_expr(Tr.ExprDot(Tr.ExprTyped(base.ty), base.expr, self.name), base.ty, issues))
         end,
-        [Tr.ExprIntrinsic] = function(self, ctx) local issues = {}; local args = {}; for i = 1, #self.args do local a = pvm.one(type_expr(self.args[i], ctx)); args[#args + 1] = a.expr; append_all(issues, a.issues) end; local ty = void_ty(); return pvm.once(result_expr(Tr.ExprIntrinsic(Tr.ExprTyped(ty), self.op, args), ty, issues)) end,
+        [Tr.ExprIntrinsic] = function(self, ctx)
+            local issues = {}; local args = {}
+            for i = 1, #self.args do local a = pvm.one(type_expr(self.args[i], ctx)); args[#args + 1] = a.expr; append_all(issues, a.issues) end
+            local h_cls = pvm.classof(self.h)
+            local ty = nil
+            if h_cls == Tr.ExprTyped or h_cls == Tr.ExprOpen or h_cls == Tr.ExprSem or h_cls == Tr.ExprCode then ty = self.h.ty end
+            if ty == nil or (pvm.classof(ty) == Ty.TScalar and ty.scalar == C.ScalarVoid and self.op ~= C.IntrinsicTrap and self.op ~= C.IntrinsicAssume) then
+                ty = (#self.args > 0) and pvm.one(type_expr(self.args[1], ctx)).ty or void_ty()
+            end
+            if self.op == C.IntrinsicTrap or self.op == C.IntrinsicAssume then ty = void_ty() end
+            return pvm.once(result_expr(Tr.ExprIntrinsic(Tr.ExprTyped(ty), self.op, args), ty, issues))
+        end,
         [Tr.ExprAddrOf] = function(self, ctx) local place = pvm.one(type_place(self.place, ctx)); local ty = Ty.TPtr(place.ty); return pvm.once(result_expr(Tr.ExprAddrOf(Tr.ExprTyped(ty), place.place), ty, place.issues)) end,
         [Tr.ExprDeref] = function(self, ctx) local value = pvm.one(type_expr(self.value, ctx)); local issues = {}; append_all(issues, value.issues); local ty = void_ty(); if pvm.classof(value.ty) == Ty.TPtr then ty = value.ty.elem else issues[#issues + 1] = Tr.TypeIssueNotPointer(value.ty) end; return pvm.once(result_expr(Tr.ExprDeref(Tr.ExprTyped(ty), value.expr), ty, issues)) end,
         [Tr.ExprSwitch] = function(self, ctx)
