@@ -41,12 +41,12 @@ fn clear_last_error() {
 
 fn ok_int() -> c_int {
     clear_last_error();
-    0
+    1
 }
 
 fn fail_int(msg: String) -> c_int {
     set_last_error(msg);
-    -1
+    0
 }
 
 fn fail_ptr(msg: String) -> *mut c_void {

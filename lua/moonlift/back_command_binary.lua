@@ -16,6 +16,7 @@ local T = {
     AppendBlockParam = 3,
     CreateStackSlot  = 4,
     Alias            = 190,
+    BoolNot          = 191,
     -- Constants
     ConstI32 = 10,  ConstI64 = 11,  ConstF32 = 12,  ConstF64 = 13,
     ConstBool= 14,  ConstNull= 15,  ConstInt = 16,
@@ -169,9 +170,9 @@ local function encode_body(cmds, b)
         elseif k == "CmdDataAddr" then
             w4(buf, T.GlobalValue); w4(buf, b:nid(cmd.dst)); w4(buf, 12); w4(buf, (b.data_map or {})[id(cmd.data)] or 0)
         elseif k == "CmdFuncAddr" then
-            w4(buf, T.FuncAddr); w4(buf, b:nid(cmd.dst)); w4(buf, 12); w4(buf, b:nid(cmd.func))
+            w4(buf, T.FuncAddr); w4(buf, b:nid(cmd.dst)); w4(buf, 12); w4(buf, (b.func_map or {})[id(cmd.func)] or 0)
         elseif k == "CmdExternAddr" then
-            w4(buf, T.ExternAddr); w4(buf, b:nid(cmd.dst)); w4(buf, 12); w4(buf, b:nid(cmd.func))
+            w4(buf, T.ExternAddr); w4(buf, b:nid(cmd.dst)); w4(buf, 12); w4(buf, (b.extern_map or {})[id(cmd.func)] or 0)
 
         -- Constants
         elseif k == "CmdConst" then
@@ -348,7 +349,7 @@ local function encode_body(cmds, b)
             if ok == "BackUnaryIneg" then w4(buf, T.Ineg)
             elseif ok == "BackUnaryFneg" then w4(buf, T.Fneg)
             elseif ok == "BackUnaryBnot" then w4(buf, T.Bnot)
-            elseif ok == "BackUnaryBoolNot" then w4(buf, T.Band) -- composite
+            elseif ok == "BackUnaryBoolNot" then w4(buf, T.BoolNot) -- composite: icmp + bfc
             else w4(buf, T.Ineg) end
             w4(buf, b:nid(cmd.dst)); w4(buf, b:nid(cmd.value))
 
@@ -596,12 +597,19 @@ function M.encode(program)
         func_map[id(cmd.func)] = i - 1
     end
 
+    -- Build extern_id mapping (text -> wire_id)
+    local extern_map = {}
+    for i, cmd in ipairs(externs) do
+        extern_map[id(cmd.func)] = i - 1
+    end
+
     -- Encode each body to compute lengths
     local body_data = {}
     local total_body = 0
     for i, b in ipairs(bodies) do
         b.func_map = func_map
         b.data_map = data_map
+        b.extern_map = extern_map
         local bytes = encode_body(b.cmds, b)
         body_data[i] = { bytes = bytes, offset = total_body }
         total_body = total_body + #bytes
