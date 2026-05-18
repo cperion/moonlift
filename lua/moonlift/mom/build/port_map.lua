@@ -977,7 +977,7 @@ M.sections = {
     id = "wire-backend-boundary",
     order = 15,
     manifest = { "driver/wire.mlua", "driver/lower_wire.mlua", "driver/backend_ffi.mlua", "driver/native_entry.mlua", "driver/lua_api.mlua" },
-    hosted_oracles = { "lua/moonlift/back_command_binary.lua", "lua/moonlift/back_command_tape.lua", "lua/moonlift/back_program.lua", "lua/moonlift/back_jit.lua", "lua/moonlift/back_object.lua", "BACK_WIRE_FORMAT.md", "src/ffi.rs" },
+    hosted_oracles = { "lua/moonlift/back_command_binary.lua", "lua/moonlift/back_program.lua", "lua/moonlift/back_jit.lua", "lua/moonlift/back_object.lua", "BACK_WIRE_FORMAT.md", "src/ffi.rs" },
     native_targets = { "lua/moonlift/mom/driver/wire.mlua", "lua/moonlift/mom/driver/lower_wire.mlua", "lua/moonlift/mom/driver/backend_ffi.mlua", "lua/moonlift/mom/driver/native_entry.mlua", "src/mom_main.rs", "src/ffi.rs" },
     responsibilities = {
       "serialize checked command tape to MLBT v3 bytes",
