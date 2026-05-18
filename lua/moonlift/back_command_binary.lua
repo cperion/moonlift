@@ -158,6 +158,16 @@ local function encode_body(cmds, b)
             -- Emit as Alias tag (decoder just does HashMap insert)
             w4(buf, T.Alias); w4(buf, b:nid(cmd.dst)); w4(buf, b:nid(cmd.src))
 
+        -- Address commands
+        elseif k == "CmdStackAddr" then
+            w4(buf, T.StackAddr); w4(buf, b:nid(cmd.dst)); w4(buf, 12); w4(buf, b:nid(cmd.slot))
+        elseif k == "CmdDataAddr" then
+            w4(buf, T.GlobalValue); w4(buf, b:nid(cmd.dst)); w4(buf, 12); w4(buf, (b.data_map or {})[id(cmd.data)] or 0)
+        elseif k == "CmdFuncAddr" then
+            w4(buf, T.FuncAddr); w4(buf, b:nid(cmd.dst)); w4(buf, 12); w4(buf, b:nid(cmd.func))
+        elseif k == "CmdExternAddr" then
+            w4(buf, T.ExternAddr); w4(buf, b:nid(cmd.dst)); w4(buf, 12); w4(buf, b:nid(cmd.func))
+
         -- Constants
         elseif k == "CmdConst" then
             local v = cmd.value
@@ -552,6 +562,18 @@ function M.encode(program)
 
     renumber(bodies)
 
+    -- Build data_id mapping (text -> wire_id)
+    local data_map = {}
+    for i, cmd in ipairs(datas) do
+        data_map[id(cmd.data)] = i - 1
+    end
+
+    -- Build sig_id mapping (text -> index)
+    local sig_idx = {}
+    for i, cmd in ipairs(sigs) do
+        sig_idx[id(cmd.sig)] = i - 1
+    end
+
     -- Build func_id mapping (text -> wire_id)
     local func_map = {}
     for i, cmd in ipairs(funcs) do
@@ -563,6 +585,7 @@ function M.encode(program)
     local total_body = 0
     for i, b in ipairs(bodies) do
         b.func_map = func_map
+        b.data_map = data_map
         local bytes = encode_body(b.cmds, b)
         body_data[i] = { bytes = bytes, offset = total_body }
         total_body = total_body + #bytes
@@ -585,8 +608,8 @@ function M.encode(program)
     local dbuf = {}
     -- Sigs
     w4(dbuf, #sigs)
-    for _, cmd in ipairs(sigs) do
-        w4(dbuf, 0) -- sig_id placeholder
+    for i, cmd in ipairs(sigs) do
+        w4(dbuf, i - 1) -- sig_id
         local params = cmd.params
         w4(dbuf, #params)
         for _, p in ipairs(params) do w4(dbuf, st(p)) end
@@ -603,7 +626,7 @@ function M.encode(program)
     -- Funcs
     w4(dbuf, #funcs)
     for i, cmd in ipairs(funcs) do
-        w4(dbuf, i - 1); w4(dbuf, 0); -- func_id, sig_id (placeholders)
+        w4(dbuf, i - 1); w4(dbuf, sig_idx[id(cmd.sig)] or 0); -- func_id, sig_id
         local v = cmd.visibility
         local vis = (type(v) == "table" and v.kind == "VisibilityExport") and 1 or 0
         w4(dbuf, vis)
