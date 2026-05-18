@@ -77,7 +77,14 @@ local S = { BackBool=1, BackI8=2, BackI16=3, BackI32=4, BackI64=5,
     BackU8=6, BackU16=7, BackU32=8, BackU64=9, BackF32=10,
     BackF64=11, BackPtr=12, BackIndex=13 }
 
-local function st(s) return assert(S[s.kind], "bad scalar "..tostring(s.kind)) end
+local function st(s)
+    if s.kind == "BackShapeScalar" then
+        return assert(S[s.scalar.kind], "bad scalar "..tostring(s.scalar.kind))
+    elseif s.kind == "BackShapeVec" then
+        return assert(S[s.vec.elem.kind], "bad vec elem "..tostring(s.vec.elem.kind))
+    end
+    return assert(S[s.kind], "bad scalar "..tostring(s.kind))
+end
 
 -- Helper: write 4 bytes LE
 local function w4(buf, v)
@@ -690,8 +697,13 @@ function M.encode(program)
     end
     -- Externs
     w4(dbuf, #externs)
-    for _, cmd in ipairs(externs) do
-        w4(dbuf, 0); w4(dbuf, 0); w4(dbuf, 0)
+    for i, cmd in ipairs(externs) do
+        w4(dbuf, i - 1); w4(dbuf, 0); -- extern_id, sig_id (placeholders)
+        local name = cmd.symbol
+        w4(dbuf, #name)
+        dbuf[#dbuf+1] = name
+        local pad = (4 - (#name % 4)) % 4
+        if pad > 0 then dbuf[#dbuf+1] = ("\0"):rep(pad) end
     end
 
     local decl_bytes = table.concat(dbuf)

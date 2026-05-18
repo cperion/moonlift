@@ -233,11 +233,21 @@ fn read_declarations<M: Module>(buf: &[u8], pos: &mut usize, end: usize, module:
         for _ in 0..n {
             let eid = read_u32(buf, pos)?;
             let sig_id = read_u32(buf, pos)?;
-            let _ni = read_u32(buf, pos)?;
+            let nlen = read_u32(buf, pos)? as usize;
+            let sym = if nlen > 0 {
+                let end = *pos + nlen;
+                if end > buf.len() { return Err(MoonliftError(format!("extern {eid} name overflows"))); }
+                let s = String::from_utf8_lossy(&buf[*pos..end]).to_string();
+                *pos = end;
+                let pad = (4 - (nlen % 4)) % 4;
+                *pos += pad;
+                s
+            } else {
+                format!("extern_{eid}")
+            };
             let (p, r) = sig_types.get(&sig_id)
                 .ok_or_else(|| MoonliftError(format!("extern {eid}: unknown sig {sig_id}")))?;
             let sig = mk_sig(module, p, r);
-            let sym = format!("moonlift_extern_{eid:08x}");
             let cfid = module.declare_function(&sym, Linkage::Import, &sig)
                 .map_err(|e| MoonliftError(format!("declare extern {sym}: {e:?}")))?;
             externs.insert(eid, cfid);
@@ -588,9 +598,9 @@ fn decode_body(buf: &[u8], ptr_ty: Type, ctx: &mut BodyCtx<'_>, refs: &FuncRefs)
             t if t == WireTag::Alias as u32 => { let v = ctx.val(s[1])?; ctx.bind(s[0], v)?; }
             t if t == WireTag::BoolNot as u32 => { let v = ctx.val(s[1])?; let cond = ctx.builder.ins().icmp_imm(IntCC::Equal, v, 0); let bv = bfc(&mut ctx.builder, cond); ctx.bind(s[0], bv)?; }
 
-            // Memcpy / Memset — currently skipped (handled by module-level data init)
-            t if t == WireTag::Memcpy as u32 => { /* data init handled at module level */ }
-            t if t == WireTag::Memset as u32 => { /* data init handled at module level */ }
+            // Memcpy / Memset — no-ops for now (need proper Cranelift call_memcpy)
+            t if t == WireTag::Memcpy as u32 => { /* no-op */ }
+            t if t == WireTag::Memset as u32 => { /* no-op */ }
 
             _ => return Err(MoonliftError(format!("unhandled wire tag {tag}"))),
         }
