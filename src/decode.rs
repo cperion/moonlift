@@ -465,7 +465,7 @@ fn decode_body(buf: &[u8], ptr_ty: Type, ctx: &mut BodyCtx<'_>, refs: &FuncRefs)
             }
 
             // Vector
-            t if t == WireTag::Splat as u32 => { let lt = st(s[1], ptr_ty)?; let src = ctx.val(s[2])?; let r = ctx.builder.ins().splat(lt.by(4).unwrap(), src); ctx.bind(s[0], r)?; }
+            t if t == WireTag::Splat as u32 => { let lt = st(s[1], ptr_ty)?; let ln = s[2] as u32; let src = ctx.val(s[3])?; let r = ctx.builder.ins().splat(lt.by(ln).unwrap(), src); ctx.bind(s[0], r)?; }
             t if t == WireTag::InsertLane as u32 => { let vec = ctx.val(s[1])?; let lv = ctx.val(s[2])?; let r = ctx.builder.ins().insertlane(vec, lv, s[3] as u8); ctx.bind(s[0], r)?; }
             t if t == WireTag::ExtractLane as u32 => { let vec = ctx.val(s[2])?; let r = ctx.builder.ins().extractlane(vec, s[3] as u8); ctx.bind(s[0], r)?; }
             t if t == WireTag::VecIadd as u32 => binop!(0, 1, 2, iadd),

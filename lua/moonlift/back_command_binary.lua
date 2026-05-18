@@ -125,6 +125,12 @@ end
 -- Encode one function body into a byte buffer
 local function encode_body(cmds, b)
     local buf = {}
+    local addr_counter = 0
+    local function fresh_id()
+        local s = "__a" .. tostring(addr_counter)
+        addr_counter = addr_counter + 1
+        return s
+    end
     for _, cmd in ipairs(cmds) do
         local k = cmd.kind
 
@@ -264,55 +270,60 @@ local function encode_body(cmds, b)
         -- Memory
         elseif k == "CmdLoadInfo" then
             local base = cmd.addr.base
-            -- Emit address computation for stack/data bases
-            if base.kind == "BackAddrStack" then
-                local at = "_a" .. tostring(b:nid(base.slot))
+            local is_vec = cmd.ty.kind ~= "BackShapeScalar"
+            local elem_st, lanes, mem
+            if is_vec then
+                elem_st = st(cmd.ty.vec.elem)
+                lanes = cmd.ty.vec.lanes
+                mem = memflags(cmd.memory)
+            else
+                elem_st = st(cmd.ty.scalar)
+                lanes = 0
+                mem = memflags(cmd.memory)
+            end
+            -- Emit address computation for non-value bases
+            local addr_id
+            if base.kind == "BackAddrValue" then
+                addr_id = base.value
+            elseif base.kind == "BackAddrStack" then
+                local at = fresh_id()
                 w4(buf, T.StackAddr); w4(buf, b:nid(at)); w4(buf, 12); w4(buf, b:nid(base.slot))
-                local boff = cmd.addr.byte_offset
-                if boff and b:nid(boff) ~= 0 then
-                    local apt = "_ap" .. tostring(b:nid(base.slot))
-                    w4(buf, T.PtrAdd); w4(buf, b:nid(apt)); w4(buf, b:nid(at)); w4(buf, b:nid(boff))
-                    base = nil; w4(buf, T.Load); w4(buf, b:nid(cmd.dst))
-                    local ty = cmd.ty
-                    w4(buf, ty.kind == "BackShapeScalar" and st(ty.scalar) or st(ty.vec.elem))
-                    w4(buf, memflags(cmd.memory))
-                    w4(buf, b:nid(apt))
-                else
-                    base = nil; w4(buf, T.Load); w4(buf, b:nid(cmd.dst))
-                    local ty = cmd.ty
-                    w4(buf, ty.kind == "BackShapeScalar" and st(ty.scalar) or st(ty.vec.elem))
-                    w4(buf, memflags(cmd.memory))
-                    w4(buf, b:nid(at))
-                end
-            elseif base.kind == "BackAddrData" then
-                local at = "_d" .. tostring(b:nid(base.data))
+                addr_id = at
+            else
+                local at = fresh_id()
                 w4(buf, T.GlobalValue); w4(buf, b:nid(at)); w4(buf, 12); w4(buf, b:nid(base.data))
-                base = nil; w4(buf, T.Load); w4(buf, b:nid(cmd.dst))
-                local ty = cmd.ty
-                w4(buf, ty.kind == "BackShapeScalar" and st(ty.scalar) or st(ty.vec.elem))
-                w4(buf, memflags(cmd.memory))
-                w4(buf, b:nid(at))
+                addr_id = at
+            end
+            if is_vec then
+                w4(buf, T.VecLoad); w4(buf, b:nid(cmd.dst))
+                w4(buf, elem_st); w4(buf, lanes); w4(buf, mem); w4(buf, b:nid(addr_id))
             else
                 w4(buf, T.Load); w4(buf, b:nid(cmd.dst))
-                local ty = cmd.ty
-                w4(buf, ty.kind == "BackShapeScalar" and st(ty.scalar) or st(ty.vec.elem))
-                w4(buf, memflags(cmd.memory))
-                w4(buf, b:nid(base.value))
+                w4(buf, elem_st); w4(buf, mem); w4(buf, b:nid(addr_id))
             end
         elseif k == "CmdStoreInfo" then
-            w4(buf, T.Store); w4(buf, b:nid(cmd.value))
-            local ty = cmd.ty
-            w4(buf, ty.kind == "BackShapeScalar" and st(ty.scalar) or st(ty.vec.elem))
-            w4(buf, memflags(cmd.memory))
+            local is_vec = cmd.ty.kind ~= "BackShapeScalar"
             local base = cmd.addr.base
+            -- Emit address computation for non-value bases
+            local addr_id
             if base.kind == "BackAddrValue" then
-                w4(buf, 0); w4(buf, b:nid(base.value))
+                addr_id = base.value
             elseif base.kind == "BackAddrStack" then
-                w4(buf, 1); w4(buf, b:nid(base.slot))
+                local at = fresh_id()
+                w4(buf, T.StackAddr); w4(buf, b:nid(at)); w4(buf, 12); w4(buf, b:nid(base.slot))
+                addr_id = at
             else
-                w4(buf, 2); w4(buf, b:nid(base.data))
+                local at = fresh_id()
+                w4(buf, T.GlobalValue); w4(buf, b:nid(at)); w4(buf, 12); w4(buf, b:nid(base.data))
+                addr_id = at
             end
-            w4(buf, b:nid(cmd.addr.byte_offset))
+            if is_vec then
+                w4(buf, T.VecStore); w4(buf, st(cmd.ty.vec.elem)); w4(buf, cmd.ty.vec.lanes)
+                w4(buf, memflags(cmd.memory)); w4(buf, b:nid(addr_id)); w4(buf, b:nid(cmd.value))
+            else
+                w4(buf, T.Store); w4(buf, st(cmd.ty.scalar)); w4(buf, memflags(cmd.memory))
+                w4(buf, b:nid(addr_id)); w4(buf, b:nid(cmd.value))
+            end
 
         -- Unary
         elseif k == "CmdUnary" then
@@ -374,7 +385,7 @@ local function encode_body(cmds, b)
         -- Vector splat
         elseif k == "CmdVecSplat" then
             w4(buf, T.Splat); w4(buf, b:nid(cmd.dst))
-            w4(buf, st(cmd.ty.elem)); w4(buf, b:nid(cmd.value))
+            w4(buf, st(cmd.ty.elem)); w4(buf, cmd.ty.lanes); w4(buf, b:nid(cmd.value))
 
         -- Vector insert lane
         elseif k == "CmdVecInsertLane" then

@@ -252,7 +252,7 @@ pub static TAG_SLOTS: [u8; 256] = {
     t[WireTag::PtrOffset as usize] = 6; // [dst, base, index, elem_size, const_lo, const_hi]
 
     // Vector
-    t[WireTag::Splat as usize] = 3;        // [dst, scalar_type, src]
+    t[WireTag::Splat as usize] = 4;             // [dst, scalar_type, lanes, src]
     t[WireTag::InsertLane as usize] = 4;   // [dst, vector, lane_value, lane_idx]
     t[WireTag::ExtractLane as usize] = 4;  // [dst, scalar_type, vector, lane_idx]
     t[WireTag::VecIadd as usize] = 3;
