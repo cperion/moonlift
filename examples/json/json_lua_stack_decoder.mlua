@@ -251,7 +251,8 @@ end
 
 local function literal_arm(text, push_src)
     local bytes = { text:byte(1, #text) }
-    return moon.switch_arm(bytes[1], byte_checks(text, push_src))
+    local body = moon.stmts(byte_checks(text, push_src))
+    return { raw_key = tostring(bytes[1]), body = body }
 end
 
 local literal_arms = {

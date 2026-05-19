@@ -94,6 +94,27 @@ do
 end
 
 -- ---------------------------------------------------------------------------
+-- Moonlift .mlua decoder (carrier bridge)
+-- ---------------------------------------------------------------------------
+
+local Host = require("moonlift.mlua_run")
+local mlua_src = io.open("examples/json/json_lua_stack_decoder.mlua"):read("*a")
+-- Strip the test section, return the artifact
+local cut = mlua_src:find("local L, parsed = decode_into_new_state")
+local mlua_bench_src = mlua_src:sub(1, cut - 1) .. "return compiled_module, compiled\n"
+local mlua_module, mlua_compiled = Host.loadstring(mlua_bench_src, "bench_mlua")()
+
+-- Verify
+local mlua_json_p = ffi.cast("uint8_t *", JSON)
+do
+    local L = C.luaL_newstate()
+    local buf = ffi.new("uint8_t[?]", JSON_LEN + 1)
+    local endpos = mlua_compiled(L, mlua_json_p, JSON_LEN, buf)
+    assert(tonumber(endpos) == JSON_LEN, ".mlua decoder failed")
+    C.lua_close(L)
+end
+
+-- ---------------------------------------------------------------------------
 -- Generated Lua decoder (codegen via string building + loadstring)
 -- ---------------------------------------------------------------------------
 
@@ -300,6 +321,18 @@ for _ = 1, math.max(1, math.floor(ITERS / 10)) do moonlift_decode() end
 
 local t_moonlift = bench("moonlift_json_stack", moonlift_decode, ITERS)
 
+-- .mlua decoder benchmark
+-- Reuse the same lua_State as the .lua decoder (same externs, same ABI)
+local function mlua_decode()
+    local endpos = mlua_compiled(moonlift_L, json_p, JSON_LEN, decode_buf)
+    C.lua_settop(moonlift_L, 0)
+    return endpos == JSON_LEN and 1 or 0
+end
+
+for _ = 1, math.max(1, math.floor(ITERS / 10)) do mlua_decode() end
+
+local t_mlua = bench("moonlift_mlua", mlua_decode, ITERS)
+
 -- Generated Lua benchmark
 local gen_state = C.luaL_newstate()
 
@@ -368,3 +401,4 @@ if t_dkjson then print(string.format("  moonlift / dkjson speedup: %.2fx", t_dkj
 C.lua_close(moonlift_L)
 C.lua_close(gen_state)
 compiled_module:free()
+mlua_module:free()
