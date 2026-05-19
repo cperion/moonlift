@@ -395,7 +395,6 @@ end]]
 local bundle = moon.bundle("json_lua_stack_decoder")
 bundle:pack(lua_createtable, lua_pushlstring, lua_pushnumber, lua_pushboolean,
            lua_pushnil, lua_settable, lua_rawseti)
-bundle:pack(skip_ws, parse_string, parse_number)
 bundle:pack(parse_array, parse_object, parse_value, decode_json_to_lua_stack)
 local artifact = bundle:jit()
 local compiled = artifact:get("decode_json_to_lua_stack")
