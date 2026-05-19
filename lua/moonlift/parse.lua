@@ -606,7 +606,8 @@ function Parser:record_splice_slot(splice_id, slot_sum, role)
     local key = tostring(role) .. ":" .. tostring(splice_id)
     local existing = self.splice_slots_by_id[key]
     if existing then return existing end
-    local entry = { splice_id = splice_id, slot = slot_sum, role = role, spread = self.toks.splice_spread[splice_id] or false }
+    local splice_text = self.toks.splice_map[splice_id] or splice_id
+    local entry = { splice_id = splice_id, splice_text = splice_text, slot = slot_sum, role = role, spread = self.toks.splice_spread[splice_id] or false }
     self.splice_slots[#self.splice_slots + 1] = entry
     self.splice_slots_by_id[key] = entry
     return entry
@@ -2329,6 +2330,89 @@ function M.parse_stmt_string(T, src, opts)
              issues = p.issues, protocol_types = p.protocol_types }
 end
 
+function M.parse_expr_string(T, src, opts)
+    local toks = M.lex(src)
+    local p = new_parser_internal(T, toks, 1, toks.n, opts or {})
+    p:skip_sep()
+    local expr = p:parse_expr(0)
+    p:skip_sep()
+    if p:kind() ~= TK.eof then p:issue("unexpected token after expression") end
+    return { kind = "expr", value = expr, splice_slots = p.splice_slots,
+             issues = p.issues, protocol_types = p.protocol_types }
+end
+
+function M.parse_func_string(T, src, opts)
+    local toks = M.lex(src)
+    local p = new_parser_internal(T, toks, 1, toks.n, opts or {})
+    p:skip_sep()
+    p:expect(TK.func_kw)
+    local value = p:parse_func()
+    p:skip_sep()
+    if p:kind() ~= TK.eof then p:issue("unexpected token after function") end
+    return { kind = "func", value = value, splice_slots = p.splice_slots,
+             issues = p.issues, protocol_types = p.protocol_types }
+end
+
+function M.parse_region_string(T, src, opts)
+    local toks = M.lex(src)
+    local p = new_parser_internal(T, toks, 1, toks.n, opts or {})
+    p:skip_sep()
+    p:expect(TK.region_kw)
+    local value = p:parse_region_frag()
+    p:skip_sep()
+    if p:kind() ~= TK.eof then p:issue("unexpected token after region") end
+    return { kind = "region", value = value, splice_slots = p.splice_slots,
+             issues = p.issues, protocol_types = p.protocol_types }
+end
+
+function M.parse_struct_string(T, src, opts)
+    local toks = M.lex(src)
+    local p = new_parser_internal(T, toks, 1, toks.n, opts or {})
+    p:skip_sep()
+    p:expect(TK.struct_kw)
+    local value = p:parse_struct_island()
+    p:skip_sep()
+    if p:kind() ~= TK.eof then p:issue("unexpected token after struct") end
+    return { kind = "struct", value = value, splice_slots = p.splice_slots,
+             issues = p.issues, protocol_types = p.protocol_types }
+end
+
+function M.parse_union_string(T, src, opts)
+    local toks = M.lex(src)
+    local p = new_parser_internal(T, toks, 1, toks.n, opts or {})
+    p:skip_sep()
+    p:expect(TK.union_kw)
+    local value = p:parse_union_island()
+    p:skip_sep()
+    if p:kind() ~= TK.eof then p:issue("unexpected token after union") end
+    return { kind = "union", value = value, splice_slots = p.splice_slots,
+             issues = p.issues, protocol_types = p.protocol_types }
+end
+
+function M.parse_extern_string(T, src, opts)
+    local toks = M.lex(src)
+    local p = new_parser_internal(T, toks, 1, toks.n, opts or {})
+    p:skip_sep()
+    p:expect(TK.extern_kw)
+    local value = p:parse_extern()
+    p:skip_sep()
+    if p:kind() ~= TK.eof then p:issue("unexpected token after extern") end
+    return { kind = "extern", value = value, splice_slots = p.splice_slots,
+             issues = p.issues, protocol_types = p.protocol_types }
+end
+
+function M.parse_expr_frag_string(T, src, opts)
+    local toks = M.lex(src)
+    local p = new_parser_internal(T, toks, 1, toks.n, opts or {})
+    p:skip_sep()
+    p:expect(TK.expr_kw)
+    local value = p:parse_expr_frag()
+    p:skip_sep()
+    if p:kind() ~= TK.eof then p:issue("unexpected token after expr fragment") end
+    return { kind = "expr_frag", value = value, splice_slots = p.splice_slots,
+             issues = p.issues, protocol_types = p.protocol_types }
+end
+
 function M.parse_module_document(T, src, opts)
     opts = opts or {}
     local pvm = require("moonlift.pvm")
@@ -2374,6 +2458,13 @@ function M.Define(T)
         parse_island = function(scan, island_index, opts) return M.parse_island(T, scan, island_index, opts) end,
         parse_type = function(src, opts) return M.parse_type_string(T, src, opts) end,
         parse_stmts = function(src, opts) return M.parse_stmt_string(T, src, opts) end,
+        parse_expr = function(src, opts) return M.parse_expr_string(T, src, opts) end,
+        parse_func = function(src, opts) return M.parse_func_string(T, src, opts) end,
+        parse_region = function(src, opts) return M.parse_region_string(T, src, opts) end,
+        parse_struct = function(src, opts) return M.parse_struct_string(T, src, opts) end,
+        parse_union = function(src, opts) return M.parse_union_string(T, src, opts) end,
+        parse_extern = function(src, opts) return M.parse_extern_string(T, src, opts) end,
+        parse_expr_frag = function(src, opts) return M.parse_expr_frag_string(T, src, opts) end,
         parse_module = function(src, opts) return M.parse_module_document(T, src, opts) end,
     }
 end

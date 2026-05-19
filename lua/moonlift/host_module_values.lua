@@ -42,6 +42,13 @@ function ModuleValue:add_func(value)
     return append_item(self, value)
 end
 
+function ModuleValue:add_region(value)
+    if value.frag then
+        self.region_frags[#self.region_frags + 1] = value.frag
+    end
+    return value
+end
+
 local function reserve_type_name(self, name)
     assert_name(name, "type")
     if self.type_names[name] ~= nil then self.api.raise_host_issue(self.session.T.MoonHost.HostIssueDuplicateType(self.name, name)) end
@@ -179,10 +186,18 @@ end
 function ModuleValue:_lower_program(opts)
     opts = opts or {}
     local Pipeline = require("moonlift.frontend_pipeline").Define(self.session.T)
-    return Pipeline.lower_module(self:to_asdl(), {
+    local lower_opts = {
         site = "host module",
         layout_env = self:layout_env(),
-    }).program
+    }
+    -- Inject region fragments into the expansion env
+    if self.region_frags and #self.region_frags > 0 then
+        local T = self.session.T
+        local OpenExpand = require("moonlift.open_expand").Define(T)
+        local O = T.MoonOpen
+        lower_opts.expand_env = O.ExpandEnv(self.region_frags, {}, O.FillSet({}), {}, {}, "")
+    end
+    return Pipeline.lower_module(self:to_asdl(), lower_opts).program
 end
 
 function ModuleValue:compile(opts)
@@ -232,6 +247,7 @@ end
 
 function CompiledFunction:__call(...)
     if not self.module or not self.module.artifact then error("compiled Moonlift function called after artifact was freed", 2) end
+    -- In a : method call, self is NOT in ... — ... is just the actual args
     return self.fn(...)
 end
 
@@ -254,6 +270,7 @@ function M.Install(api, session)
             type_names = {},
             func_names = {},
             extern_symbols = {},
+            region_frags = {},
         }, ModuleValue)
     end
 

@@ -4,9 +4,9 @@ local ffi = require("ffi")
 local moon = require("moonlift.host")
 
 local M = moon.module("HostExternSymbol")
-M:extern_func("host_add7", { moon.param("x", moon.i32) }, moon.i32)
-M:export_func("call_add7", { moon.param("x", moon.i32) }, moon.i32, function(f)
-    f:return_(moon.call("host_add7", { f:param("x") }, moon.i32))
+M:extern_func("host_add7", { {name="x", type=moon.i32} }, moon.i32)
+M:export_func("call_add7", { {name="x", type=moon.i32} }, moon.i32, function(f)
+    f:return_(moon.expr[[host_add7(x)]])
 end)
 
 local cb = ffi.cast("int32_t (*)(int32_t)", function(x) return x + 7 end)

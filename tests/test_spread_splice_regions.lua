@@ -3,10 +3,13 @@ package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.p
 local Host = require("moonlift.mlua_run")
 
 local r = Host.eval [[
-local params = { moon.param("p", moon.ptr(moon.u8)), moon.param("n", moon.i32) }
+local params = moon.params {
+    {name="p", type=moon.ptr(moon.u8)},
+    {name="n", type=moon.i32},
+}
 local conts = {
-    moon.cont_decl("ok", { moon.param("pos", moon.i32) }),
-    moon.cont_decl("fail", { moon.param("code", moon.i32) }),
+    {name="ok", params=moon.params{ {name="pos", type=moon.i32} }},
+    {name="fail", params=moon.params{ {name="code", type=moon.i32} }},
 }
 return region scan(@{params...}; @{conts...})
 entry start()
@@ -26,8 +29,10 @@ assert(r.frag.conts[2].pretty_name == "fail")
 assert(r.frag.conts[2].params[1].name == "code")
 
 local r2 = Host.eval [[
-local eparams = { moon.entry_param("i", moon.i32, 0) }
-local bparams = { moon.param("acc", moon.i32) }
+local eparams = moon.entry_params {
+    {name="i", type=moon.i32, init=moon.int(0)}
+}
+local bparams = moon.params { {name="acc", type=moon.i32} }
 return region with_params()
 entry start(@{eparams...})
 end
@@ -41,7 +46,7 @@ assert(#r2.frag.blocks == 1)
 assert(r2.frag.blocks[1].params[1].name == "acc")
 
 local r3 = Host.eval [[
-local blocks = { moon.control_block("extra", {}, {}) }
+local blocks = moon.blocks { {label="extra", params={}, body={}} }
 return region with_blocks()
 entry start()
 end

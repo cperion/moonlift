@@ -245,26 +245,40 @@ function M.fill_variant_list(session, slot, value, site)
     return O.SlotBinding(O.SlotRegion(slot), O.SlotValueVariants(out))
 end
 
+local function as_switch_stmt_arm(session, v, site, i)
+    local Tr = session.T.MoonTree
+    if pvm.classof(v) == Tr.SwitchStmtArm then return v end
+    if type(v) == "table" and v.raw_key ~= nil and type(v.body) == "table" then
+        return Tr.SwitchStmtArm(tostring(v.raw_key), v.body)
+    end
+    error((site or "splice") .. "[" .. i .. "]: expected switch statement arm (SwitchStmtArm or {raw_key, body}), got " .. M.kind_of(v), 2)
+end
+
+local function as_switch_expr_arm(session, v, site, i)
+    local Tr = session.T.MoonTree
+    if pvm.classof(v) == Tr.SwitchExprArm then return v end
+    if type(v) == "table" and v.raw_key ~= nil and type(v.body) == "table" then
+        return Tr.SwitchExprArm(tostring(v.raw_key), v.body, v.result)
+    end
+    error((site or "splice") .. "[" .. i .. "]: expected switch expression arm (SwitchExprArm or {raw_key, body, result?}), got " .. M.kind_of(v), 2)
+end
+
 function M.fill_switch_stmt_arm_list(session, slot, value, site)
-    local O, Tr = session.T.MoonOpen, session.T.MoonTree
+    local O = session.T.MoonOpen
     local xs = as_array(value, site, "switch_stmt_arm_list")
     local out = {}
     for i = 1, #xs do
-        local v = xs[i]
-        if pvm.classof(v) == Tr.SwitchStmtArm then out[#out + 1] = v
-        else error((site or "splice") .. "[" .. i .. "]: expected switch statement arm, got " .. M.kind_of(v), 2) end
+        out[#out + 1] = as_switch_stmt_arm(session, xs[i], site, i)
     end
     return O.SlotBinding(O.SlotRegion(slot), O.SlotValueSwitchStmtArms(out))
 end
 
 function M.fill_switch_expr_arm_list(session, slot, value, site)
-    local O, Tr = session.T.MoonOpen, session.T.MoonTree
+    local O = session.T.MoonOpen
     local xs = as_array(value, site, "switch_expr_arm_list")
     local out = {}
     for i = 1, #xs do
-        local v = xs[i]
-        if pvm.classof(v) == Tr.SwitchExprArm then out[#out + 1] = v
-        else error((site or "splice") .. "[" .. i .. "]: expected switch expression arm, got " .. M.kind_of(v), 2) end
+        out[#out + 1] = as_switch_expr_arm(session, xs[i], site, i)
     end
     return O.SlotBinding(O.SlotRegion(slot), O.SlotValueSwitchExprArms(out))
 end

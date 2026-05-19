@@ -132,12 +132,6 @@ fn init_lua(lua: &Lua) -> mlua::Result<()> {
         preload.set(name, loader)?;
     }
 
-    let embedded_mlua = lua.create_table()?;
-    for (path, source) in embedded_hosted_lua::embedded_mlua_sources() {
-        embedded_mlua.set(path, source)?;
-    }
-    lua.globals().set("_MOONLIFT_EMBEDDED_MLUA", embedded_mlua)?;
-
     // Override back_jit so the hosted (in-process Rust) backend is used
     // instead of loading libmoonlift.so via FFI.
     lua.load(

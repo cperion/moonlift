@@ -45,7 +45,7 @@ function M.Define(T)
         opts = opts or {}
         local site = opts.site or "frontend"
 
-        local expanded = OpenExpand.module(module)
+        local expanded = OpenExpand.module(module, opts.expand_env)
         local open_report = OpenValidate.validate(OpenFacts.facts_of_module(expanded))
         assert_no_issues(site, "open validation", open_report.issues)
 

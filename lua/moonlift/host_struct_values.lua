@@ -166,18 +166,48 @@ function M.Install(api, session)
         }, FieldValue)
     end
 
+    function api.fields(specs)
+        local out = {}
+        for i = 1, #specs do
+            local spec = specs[i]
+            local tv = api.as_type_value(spec.type, "fields element expects type value")
+            out[i] = setmetatable({
+                kind = "field",
+                session = session,
+                name = spec.name,
+                type = tv,
+                decl = Ty.FieldDecl(spec.name, tv.ty),
+            }, FieldValue)
+        end
+        return out
+    end
+
     function api.variant(name, ty)
         assert_name(name, "variant")
         local tv = api.as_type_value(ty or api.void, "variant expects a type value")
         return { kind = "variant", name = name, type = tv, decl = Ty.VariantDecl(name, tv.ty, {}) }
     end
 
-    function api.struct(name, fields)
-        return make_struct(name, fields, nil)
-    end
-
-    function api.union(name, fields)
-        return make_union(name, fields, nil)
+    function api.variants(specs)
+        local out = {}
+        for i = 1, #specs do
+            local spec = specs[i]
+            if spec.fields then
+                local fields = {}
+                for j = 1, #spec.fields do
+                    local f = spec.fields[j]
+                    local ftv = api.as_type_value(f.type, "variant field type")
+                    fields[j] = Ty.FieldDecl(f.name, ftv.ty)
+                end
+                out[i] = { kind = "variant", name = spec.name, payload = nil, fields = fields,
+                           decl = Ty.VariantDecl(spec.name, api.void.ty, fields) }
+            else
+                local tv = api.as_type_value(spec.payload or api.void, "variant payload expects type value")
+                out[i] = { kind = "variant", name = spec.name, type = tv, payload = tv,
+                           decl = Ty.VariantDecl(spec.name, tv.ty, {}) }
+            end
+        end
+        return out
     end
 
     function api._module_struct(module_value, name, fields)

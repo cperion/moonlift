@@ -91,6 +91,10 @@ function RegionFragValue:moonlift_splice_source() return self.name end
 function RegionFragValue:__tostring() return "MoonRegionFragValue(" .. tostring(self.name) .. ")" end
 
 function ExprFragValue:moonlift_splice_source() return self.name end
+function ExprFragValue:moonlift_splice(role, session, site)
+    if role == "expr_frag" then return self.frag end
+    error((site or "splice") .. ": expression fragment value cannot splice as " .. role, 2)
+end
 function ExprFragValue:__tostring() return "MoonExprFragValue(" .. tostring(self.name) .. ")" end
 
 function M.region_frag_value(session, frag, opts)

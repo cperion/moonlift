@@ -28,6 +28,16 @@ function M.Install(api, session)
 
     local function as_param(v, site)
         if type(v) == "table" and getmetatable(v) == ParamValue then return v end
+        if type(v) == "table" and v.name and v.type then
+            local tv = api.as_type_value(v.type, site)
+            return setmetatable({
+                kind = "param",
+                session = session,
+                name = v.name,
+                type = tv,
+                decl = Ty.Param(v.name, tv.ty),
+            }, ParamValue)
+        end
         error((site or "expected param value") .. ": got " .. type(v), 3)
     end
 
@@ -90,6 +100,25 @@ function M.Install(api, session)
             type = tv,
             decl = Ty.Param(name, tv.ty),
         }, ParamValue)
+    end
+
+    function api.params(specs)
+        if type(specs) == "table" and #specs > 0 and type(specs[1]) == "table" and specs[1].name ~= nil then
+            local out = {}
+            for i = 1, #specs do
+                local spec = specs[i]
+                local tv = api.as_type_value(spec.type, "params element expects type value")
+                out[i] = setmetatable({
+                    kind = "param",
+                    session = session,
+                    name = spec.name,
+                    type = tv,
+                    decl = Ty.Param(spec.name, tv.ty),
+                }, ParamValue)
+            end
+            return out
+        end
+        error("moon.params{table} expects array of {name, type} records", 2)
     end
 
     function FuncBuilder:param(name)
@@ -223,40 +252,6 @@ function M.Install(api, session)
         return self:emit(Tr.StmtIf(Tr.StmtSurface, c.expr, then_builder.body, else_body))
     end
 
-    local function switch_key(value)
-        if type(value) == "table" and (value.kind == "raw" or value.kind == "expr" or value.kind == "const") then return value end
-        if type(value) == "number" or type(value) == "string" then return { kind = "raw", raw = tostring(value) } end
-        if type(value) == "boolean" then return { kind = "raw", raw = value and "true" or "false" } end
-        if type(value) == "table" and type(value.as_expr_value) == "function" then
-            return { kind = "expr", expr = value:as_expr_value().expr }
-        end
-        error("switch key expects raw number/string/boolean, SwitchKey, or expression value", 3)
-    end
-
-    function FuncBuilder:switch_(value, arms, default_fn)
-        local v = api.as_expr_value(value, "switch_ expects value expression")
-        assert(type(arms) == "table", "switch_ expects an ordered arm list")
-        local out_arms = {}
-        for i = 1, #arms do
-            local arm = arms[i]
-            assert(type(arm) == "table", "switch_ arm must be a table")
-            assert(arm.key ~= nil, "switch_ arm requires key")
-            assert(type(arm.body) == "function", "switch_ arm requires body builder function")
-            local ab = child_builder(self)
-            arm.body(ab)
-            local key_tab = switch_key(arm.key)
-            out_arms[#out_arms + 1] = Tr.SwitchStmtArm(key_tab.raw or "", ab.body)
-        end
-        local default_body = {}
-        if default_fn ~= nil then
-            assert(type(default_fn) == "function", "switch_ default expects builder function")
-            local db = child_builder(self)
-            default_fn(db)
-            default_body = db.body
-        end
-        return self:emit(Tr.StmtSwitch(Tr.StmtSurface, v.expr, out_arms, {}, default_body))
-    end
-
     function FuncBuilder:let(name, ty, init)
         assert_name(name, "let")
         local tv = api.as_type_value(ty, "let expects a type value")
@@ -353,92 +348,80 @@ function M.Install(api, session)
         return make_func(module_value, "export", name, params, result, builder_fn)
     end
 
-    local function parse_stmt_snippet(src)
-        local parsed = require("moonlift.parse").Define(T).parse_stmts(src)
-        if #parsed.issues ~= 0 then error(parsed.issues[1].message or tostring(parsed.issues[1]), 3) end
-        if #parsed.splice_slots ~= 0 then error("moon.stmts string snippets do not evaluate @{} splices; pass values with builder form or splice outside with @{...}", 3) end
+    function api._stmts_quote(src)
+        local Parse = require("moonlift.parse").Define(T)
+        local parsed = Parse.parse_stmts(src)
+        if #parsed.issues ~= 0 then error(parsed.issues[1].message, 3) end
+        if #parsed.splice_slots ~= 0 then
+            error("moon.stmts[[]] does not evaluate @{}; use moon.stmts{values}[[src]] instead", 3)
+        end
         return parsed.value
     end
 
-    function api.stmts(bindings, builder_fn)
-        if type(bindings) == "string" and builder_fn == nil then
-            return parse_stmt_snippet(bindings)
-        end
-        if type(bindings) == "function" and builder_fn == nil then
-            builder_fn = bindings
-            bindings = nil
-        elseif type(builder_fn) == "string" then
-            return parse_stmt_snippet(builder_fn)
-        elseif type(bindings) == "table" and builder_fn == nil and #bindings > 0 and pvm.classof(bindings[1]) ~= false then
-            return bindings
-        end
-        assert(builder_fn == nil or type(builder_fn) == "function", "stmts expects a source string, statement list, or builder function")
-        local b = setmetatable({
-            session = session,
-            module = nil,
-            name = "stmt_list",
-            params = {},
-            result = api.void,
-            body = {},
-            bindings = {},
-        }, FuncBuilder)
-        for name, ty in pairs(bindings or {}) do
-            assert_name(name, "stmts binding")
-            b.bindings[name] = api.ref(name, ty)
-        end
-        if builder_fn then builder_fn(b) end
-        return b.body
-    end
-
-    local function block_param_decl(v, site)
-        if pvm.classof(v) == Tr.BlockParam then return v end
-        local p = as_param(v, site)
-        return Tr.BlockParam(p.name, p.type.ty)
-    end
-
-    local function block_binding_map(params)
-        local bindings = {}
-        for i = 1, #(params or {}) do
-            local p = params[i]
-            if pvm.classof(p) == Tr.BlockParam then
-                bindings[p.name] = api.type_from_asdl(p.ty, p.name)
-            else
-                local pv = as_param(p, "block param")
-                bindings[pv.name] = pv.type
+    function api._stmts_values_binder(values)
+        local Parse = require("moonlift.parse")
+        local hs = require("moonlift.host_splice")
+        local expand = require("moonlift.open_expand")
+        return function(src)
+            local T_local = T
+            local parsed = Parse.Define(T_local).parse_stmts(src)
+            if #parsed.issues ~= 0 then error(parsed.issues[1].message, 3) end
+            if #parsed.splice_slots == 0 then return parsed.value end
+            local bindings = {}
+            for _, ss in ipairs(parsed.splice_slots) do
+                local splice_key = ss.splice_text or ss.splice_id
+                local v = values[splice_key]
+                if v == nil then
+                    error("no value bound for @" .. tostring(splice_key) .. " in values table", 3)
+                end
+                local binding = hs.fill(session, ss.slot, v, "splice " .. splice_key, ss.role, ss.spread)
+                bindings[#bindings + 1] = binding
             end
+            local e = expand.Define(T_local)
+            local env = e.empty_env()
+            env = e.env_with_fills(env, bindings)
+            return e.stmts(parsed.value, env)
         end
-        return bindings
     end
 
-    function api.control_block(name, params, body)
-        assert_name(name, "control_block")
-        params = params or {}
-        local decls = {}
-        for i = 1, #params do decls[i] = block_param_decl(params[i], "control_block param") end
-        local stmts
-        if type(body) == "function" then
-            stmts = api.stmts(block_binding_map(params), body)
-        elseif type(body) == "string" then
-            stmts = parse_stmt_snippet(body)
-        else
-            stmts = body or {}
+
+
+    -- ── api.stmts — unified quoting + values binder ────────────────────────
+    -- Supports three forms:
+    --   api.stmts(src)               — pure quote (no @{} allowed)
+    --   api.stmts{values}(src)       — values binder (quote with @{})
+    --   api.stmts{array}             — ASDL pass-through (raw Stmt[])
+    --
+    -- The dispatch object is a table with __call for pure quotes and
+    -- __index for the table-argument forms.
+    local stmts_mt = {}
+    function stmts_mt.__call(_, arg)
+        if type(arg) == "string" then
+            -- Pure quote: moon.stmts[[src]]
+            local Parse = require("moonlift.parse").Define(T)
+            local parsed = Parse.parse_stmts(arg)
+            if #parsed.issues ~= 0 then error(parsed.issues[1].message, 3) end
+            if #parsed.splice_slots ~= 0 then
+                error("moon.stmts[[]] does not evaluate @{}; use moon.stmts{values}[[src]] instead", 3)
+            end
+            return parsed.value
         end
-        return Tr.ControlBlock(Tr.BlockLabel(name), decls, stmts)
+        if type(arg) == "table" then
+            -- Table argument: values binder or ASDL pass-through
+            if #arg > 0 then
+                local pvm = require("moonlift.pvm")
+                if pvm.classof(arg[1]) ~= false then return arg end
+            end
+            for k in pairs(arg) do
+                if type(k) == "string" then
+                    return api._stmts_values_binder(arg)
+                end
+            end
+            error("moon.stmts{...}: table has no string keys nor ASDL elements", 3)
+        end
+        error("moon.stmts expects a string [[]] or table {}", 3)
     end
-
-    function api.switch_arm(key, body)
-        local stmts
-        if type(body) == "function" then stmts = api.stmts(body)
-        elseif type(body) == "string" then stmts = parse_stmt_snippet(body)
-        else stmts = body or {} end
-        local key_tab = switch_key(key)
-        return Tr.SwitchStmtArm(key_tab.raw or "", stmts)
-    end
-
-    function api.cont_decl(name, params)
-        assert_name(name, "cont_decl")
-        return { kind = "cont_decl", name = name, params = params or {} }
-    end
+    api.stmts = setmetatable({}, stmts_mt)
 
     api.ParamValue = ParamValue
     api.FuncValue = FuncValue

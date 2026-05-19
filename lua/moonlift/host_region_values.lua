@@ -69,16 +69,6 @@ function M.Install(api, session)
         return out
     end
 
-    local function switch_key(value)
-        if type(value) == "table" and (value.kind == "raw" or value.kind == "expr" or value.kind == "const") then return value end
-        if type(value) == "number" or type(value) == "string" then return { kind = "raw", raw = tostring(value) } end
-        if type(value) == "boolean" then return { kind = "raw", raw = value and "1" or "0" } end
-        if type(value) == "table" and type(value.as_expr_value) == "function" then
-            return { kind = "expr", expr = value:as_expr_value().expr }
-        end
-        error("switch key expects raw number/string/boolean, SwitchKey, or expression value", 3)
-    end
-
     local function binding_extra_for_type(tv)
         local extra = {}
         if tv.pointee then extra.pointee_type = tv.pointee; extra.element_type = tv.pointee end
@@ -112,11 +102,15 @@ function M.Install(api, session)
         return setmetatable({ region = region, block = block_value, body = {}, bindings = bindings }, BlockBuilder)
     end
 
-    function api.entry_param(name, ty, init)
-        assert_name(name, "entry_param")
-        local tv = api.as_type_value(ty, "entry_param expects type value")
-        local e = api.as_expr_value(init, "entry_param expects init expression")
-        return setmetatable({ kind = "entry_param", name = name, type = tv, init = e, decl = Tr.EntryBlockParam(name, tv.ty, e.expr) }, EntryParamValue)
+    function api.entry_params(specs)
+        local out = {}
+        for i = 1, #specs do
+            local spec = specs[i]
+            local tv = api.as_type_value(spec.type, "entry_params element expects type value")
+            local init_expr = spec.init and api.as_expr_value(spec.init, "entry_params init expects expression") or nil
+            out[i] = Tr.EntryBlockParam(spec.name, tv.ty, init_expr and init_expr.expr or nil)
+        end
+        return out
     end
 
     function api.cont(params)
@@ -127,6 +121,41 @@ function M.Install(api, session)
             block_params[i] = Tr.BlockParam(p.name, p.type.ty)
         end
         return setmetatable({ kind = "cont", params = params, block_params = block_params }, ContValue)
+    end
+
+    function api.conts(specs)
+        local out = {}
+        for name, spec in pairs(specs) do
+            local block_params = {}
+            for j = 1, #(spec.params or {}) do
+                local p = spec.params[j]
+                local tv = api.as_type_value(p.type, "cont param type")
+                block_params[j] = Tr.BlockParam(p.name, tv.ty)
+            end
+            out[name] = setmetatable({ kind = "cont", params = spec.params or {}, block_params = block_params }, ContValue)
+        end
+        return out
+    end
+
+    function api.blocks(specs)
+        local out = {}
+        for i = 1, #specs do
+            local spec = specs[i]
+            local decls = {}
+            for j = 1, #(spec.params or {}) do
+                local p = spec.params[j]
+                local tv = api.as_type_value(p.type, "block param type")
+                decls[j] = Tr.BlockParam(p.name, tv.ty)
+            end
+            local body_stmts = spec.body or {}
+            if type(body_stmts) == "string" then
+                local parsed = require("moonlift.parse").Define(T).parse_stmts(body_stmts)
+                if #parsed.issues ~= 0 then error(parsed.issues[1].message, 3) end
+                body_stmts = parsed.value
+            end
+            out[i] = Tr.ControlBlock(Tr.BlockLabel(spec.label), decls, body_stmts)
+        end
+        return out
     end
 
     function BlockBuilder:param(name)
@@ -219,30 +248,6 @@ function M.Install(api, session)
             else_body = eb.body
         end
         return self:emit_stmt(Tr.StmtIf(Tr.StmtSurface, c.expr, tb.body, else_body))
-    end
-
-    function BlockBuilder:switch_(value, arms, default_fn)
-        local v = api.as_expr_value(value, "switch_ expects value expression")
-        assert(type(arms) == "table", "switch_ expects an ordered arm list")
-        local out_arms = {}
-        for i = 1, #arms do
-            local arm = arms[i]
-            assert(type(arm) == "table", "switch_ arm must be a table")
-            assert(arm.key ~= nil, "switch_ arm requires key")
-            assert(type(arm.body) == "function", "switch_ arm requires body builder function")
-            local ab = child_block_builder(self)
-            arm.body(ab)
-            local key_tab = switch_key(arm.key)
-            out_arms[#out_arms + 1] = Tr.SwitchStmtArm(key_tab.raw or "", ab.body)
-        end
-        local default_body = {}
-        if default_fn ~= nil then
-            assert(type(default_fn) == "function", "switch_ default expects builder function")
-            local db = child_block_builder(self)
-            default_fn(db)
-            default_body = db.body
-        end
-        return self:emit_stmt(Tr.StmtSwitch(Tr.StmtSurface, v.expr, out_arms, {}, default_body))
     end
 
     function RegionBuilder:param(name)
@@ -396,6 +401,8 @@ function M.Install(api, session)
     end
 
     api.EntryParamValue = EntryParamValue
+    -- note: EntryParamValue is kept for backward compat but entry_param was removed.
+    -- Use entry_params{} table builder instead.
     api.ContValue = ContValue
     api.BlockValue = BlockValue
     api.RegionFragValue = RegionFragValue

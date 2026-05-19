@@ -226,4 +226,30 @@ function M.Define(T)
     return require("moonlift.asdl").Define(T)
 end
 
+--- Expose the unified moon.XXX quoting API (host.lua).
+-- These override the backward-compatible mlua_run functions
+-- with the new quoting/shaping API.
+local host_api = require("moonlift.host")
+for k, v in pairs(host_api) do
+    if M[k] == nil then
+        M[k] = v
+    end
+end
+-- Explicitly re-export the unified stmts
+M.stmts = host_api.stmts
+M.func = host_api.func
+M.region = host_api.region
+M.expr_frag = host_api.expr_frag
+M.struct = host_api.struct
+M.union = host_api.union
+M.extern = host_api.extern
+M.type = host_api.type
+M.expr = host_api.expr
+M.params = host_api.params
+M.fields = host_api.fields
+M.variants = host_api.variants
+M.conts = host_api.conts
+M.blocks = host_api.blocks
+M.entry_params = host_api.entry_params
+
 return M

@@ -3,27 +3,22 @@ package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.p
 local Host = require("moonlift.mlua_run")
 
 local mod = Host.eval [=[
-local source_body = moon.stmts [[
-    let z: i32 = x + 2
-    return z * 2
+local body = moon.stmts [[
+    let y: i32 = x + 1
+    return y * 2
 ]]
 
-local body = moon.stmts({ x = moon.i32 }, function(b)
-    local x = b:param("x")
-    local y = b:let("y", moon.i32, x + 1)
-    b:return_(y * 2)
-end)
-
-local region_body = moon.stmts({ n = moon.i32 }, function(b)
-    b:yield_(b:param("n") + 5)
-end)
+local region_body = moon.stmts [[
+    yield n + 5
+]]
 
 local f = func f(x: i32) -> i32
     @{body...}
 end
 
 local h = func h(x: i32) -> i32
-    @{source_body...}
+    let z: i32 = x + 2
+    return z * 2
 end
 
 local g = func g(n: i32) -> i32
