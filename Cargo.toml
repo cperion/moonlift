@@ -12,9 +12,6 @@ crate-type = ["rlib", "cdylib"]
 name = "moonlift"
 path = "src/main.rs"
 
-[[bin]]
-name = "mom"
-path = "src/mom_main.rs"
 
 [dependencies]
 cranelift-codegen = { version = "0.131.0", default-features = true }

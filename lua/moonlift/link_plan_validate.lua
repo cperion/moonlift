@@ -41,4 +41,50 @@ function M.Define(T)
     }
 end
 
+-----------------------------------------------------------------------------
+-- explain_link_issue: explains a single LinkIssue
+-----------------------------------------------------------------------------
+
+function M.explain_link_issue(issue, analysis)
+    local pvm = require("moonlift.pvm")
+    local cls = pvm.classof(issue)
+    if not cls then return { code = "E9999", severity = "error", primary = { span = nil, message = tostring(issue) } } end
+    local kind = cls.kind
+
+    if kind == "LinkIssueMissingOutput" then
+        return { code = "E0901", severity = "error", phase_context = "while checking link plan", primary = { span = nil, message = "link plan has no output path" } }
+    elseif kind == "LinkIssueNoInputs" then
+        return { code = "E0901", severity = "error", phase_context = "while checking link plan", primary = { span = nil, message = "link plan has no input files" } }
+    elseif kind == "LinkIssueMissingInput" then
+        local path = issue.path and issue.path.text or "?"
+        return { code = "E0901", severity = "error", phase_context = "while checking link plan", primary = { span = nil, message = "missing input file `" .. path .. "`" } }
+    elseif kind == "LinkIssueUnsupportedPlatform" then
+        return { code = "E0902", severity = "error", phase_context = "while checking link plan", primary = { span = nil, message = "unsupported platform for this link target" } }
+    elseif kind == "LinkIssueUnsupportedInput" then
+        return { code = "E0902", severity = "error", phase_context = "while checking link plan", primary = { span = nil, message = "unsupported input: " .. tostring(issue.reason or "?") } }
+    elseif kind == "LinkIssueUnsupportedOption" then
+        return { code = "E0902", severity = "error", phase_context = "while checking link plan", primary = { span = nil, message = "unsupported link option: " .. tostring(issue.reason or "?") } }
+    elseif kind == "LinkIssueUnresolvedSymbol" then
+        local sym = issue.symbol and issue.symbol.name or "?"
+        return { code = "E0903", severity = "error", phase_context = "while checking link plan",
+            primary = { span = nil, message = "unresolved symbol `" .. sym .. "`" },
+            notes = { { message = "ensure the object file defining `" .. sym .. "` is included in the link plan" } } }
+    elseif kind == "LinkIssueDuplicateSymbol" then
+        local sym = issue.symbol and issue.symbol.name or "?"
+        return { code = "E0203", severity = "error", phase_context = "while checking link plan",
+            primary = { span = nil, message = "duplicate symbol `" .. sym .. "`" },
+            notes = { { message = "the symbol `" .. sym .. "` is defined in multiple input files" } } }
+    elseif kind == "LinkIssueToolUnavailable" then
+        local tool_name = issue.tool and (issue.tool.text or tostring(issue.tool)) or "linker"
+        return { code = "E0904", severity = "error", phase_context = "while checking link plan",
+            primary = { span = nil, message = "linker tool `" .. tool_name .. "` is not available" },
+            notes = { { message = "ensure " .. tool_name .. " is installed and on the system PATH" } } }
+    elseif kind == "LinkIssueCommandFailed" then
+        return { code = "E0905", severity = "error", phase_context = "while checking link plan", primary = { span = nil, message = "linker command failed (exit " .. tostring(issue.code or "?") .. ")" },
+            notes = { { message = "stderr: " .. tostring(issue.stderr or "") } } }
+    else
+        return { code = "E9999", severity = "error", primary = { span = nil, message = kind or tostring(issue) } }
+    end
+end
+
 return M

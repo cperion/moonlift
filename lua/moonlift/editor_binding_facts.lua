@@ -331,4 +331,31 @@ function M.Define(T)
     }
 end
 
+-----------------------------------------------------------------------------
+-- explain_binding_issue: explains a single BindingUnresolved
+-----------------------------------------------------------------------------
+
+function M.explain_binding_issue(issue, analysis)
+    local resolvers = require("moonlift.error.span_resolvers")
+    local span = resolvers.binding_resolver(issue, analysis)
+    local use = issue.use
+    local label = use and use.anchor and use.anchor.label or "?"
+    local candidates = (analysis and analysis.in_scope_names) or {}
+    local dym = require("moonlift.error.suggest").did_you_mean(label, candidates)
+    local notes = {
+        { message = "`" .. label .. "` is not defined in this scope" },
+    }
+    local suggestions = {}
+    if dym then suggestions[#suggestions + 1] = { message = dym } end
+
+    return {
+        code = "E0201",
+        severity = "error",
+        phase_context = "while resolving names",
+        primary = { span = span, message = "unresolved name `" .. label .. "`" },
+        notes = notes,
+        suggestions = suggestions,
+    }
+end
+
 return M

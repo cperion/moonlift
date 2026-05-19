@@ -2051,32 +2051,136 @@ local body = moon.stmts [[ let y: i32 = x + 1; return y ]]
 
 ## 15. Quoting and table builder API reference
 
-The unified `require("moonlift")` module exposes three API shapes:
+The unified `require("moonlift")` module exposes a small set of quoting forms
+that turn Moonlift source strings into live Lua values. The central abstraction
+is the **signature closure**: a Lua closure that carries a typed Moonlift signature
+and lazily compiles to native code when its body is provided.
 
-| Form | Meaning |
+| Form | Returns |
 |---|---|
-| `moon.XXX[[]]` | Pure quote — parse Moonlift string, return typed ASDL. Errors if `@{}` is present. |
-| `moon.XXX{values}[[src]]` | Values binder — bind Lua values first, then quote. Evaluates `@{}` from values table. |
-| `moon.XXX{array}` | Table builder — pass an array of record tables, get typed ASDL back. |
+| `moon.XXX[[src]]` | Parsed ASDL value — a type, expression, func, region, etc. |
+| `moon.XXX{values}[[src]]` | Same, with `@{}` splices filled from values table |
+| `moon.XXX[[sig]][[body]]` | **Signature closure** if body omitted; `CallableFunc` if body provided |
+| `moon.XXX{array}` | Table builder — array of record tables → typed ASDL |
 
-The `function(b)` builder pattern has been retired. All builder methods
-(`b:let`, `b:if_`, `b:return_`, etc.) are no longer available. Use `moon.stmts[[]]`
-quotes instead.
+The third form is the key insight: **a Moonlift function signature is a first-class
+Lua value** that can be stored, passed, specialized, and compiled independently
+from its body.
 
-### 15.1 Callable functions — auto-compile on first call
+```lua
+-- Pure signature, no body — returns a closure
+local add = moon.func[[ add(a: i32, b: i32) -> i32 ]]
+-- add is a Lua closure carrying a typed ASDL signature
+-- It stores: name, params, result — no compiled code yet
 
-`moon.func[[]]` and `moon.extern[[]]` return **callable tables**. The first
-invocation lazily compiles an ephemeral module, caches the native function
-pointer, and calls it. Subsequent calls use the cached pointer directly.
+-- Provide the body — returns a callable native function
+local compiled = add[[ return a + b end ]]
+print(compiled(3, 4))  -- 7
+compiled:free()
+
+-- One-shot: both sig and body at once
+local f = moon.func[[ sub(a: i32, b: i32) -> i32 ]][[ return a - b end ]]
+print(f(10, 3))  -- 7
+f:free()
+```
+
+### 15.1 Signature closures — func, region, extern
+
+Every `moon.*` quote form follows the same pattern: parse the source, detect
+whether it has a body or not. If no body, return a **signature closure**.
+If body present, return a **CallableFunc** (lazily compiles on first call).
+
+```lua
+-- func signature closure
+local h = moon.func[[ load(id: i32) -> ptr(User) ]]
+h.kind   -- "func_header"
+h.name   -- "load"
+
+-- region signature closure
+local r = moon.region[[ scan(p: ptr(u8), n: i32;
+                              hit: cont(pos: i32),
+                              miss: cont(pos: i32)) ]]
+r.kind   -- "region_header"
+r.name   -- "scan"
+
+-- extern — always bodyless, always a signature (no closure needed)
+local e = moon.extern[[ write(fd: i32, buf: ptr(u8), count: index) -> index ]]
+e.kind   -- "extern_func"
+```
+
+A signature closure can be:
+- **Stored**: put it in a table, return it from a module, pass it to a function
+- **Compiled**: `h[[ return value end ]]` returns a CallableFunc
+- **Specialized**: `h{ T = f64 }[[ return a end ]]` overrides bindings, then compiles
+- **Composed**: pass it in a values table to another function as a dependency
+- **Ignored**: never called, never compiles, produces no code, no error
+
+### 15.2 Bindings and specialization
+
+The `{values}[[src]]` pattern fills `@{}` holes in the source. When applied
+to a signature closure, the bindings can **override** the closure's captured
+signature before compiling the body.
+
+```lua
+-- Generic header with type binding
+local h = moon.func{ T = moon.i32 }[[ add(a: @{T}, b: @{T}) -> @{T} ]]
+
+-- Same bindings, provide body
+local f = h{}[[ return a + b end ]]
+-- equivalent to: h{ T = moon.i32 }[[ return a + b end ]]
+print(f(3, 4))  -- 7
+f:free()
+
+-- Override bindings to specialize
+local g = h{ T = moon.f64 }[[ return a + b end ]]
+print(g(3.5, 2.5))  -- 6.0
+g:free()
+
+-- The override pattern follows Lua's variable shadowing rule:
+-- new bindings shadow old ones with the same key
+```
+
+### 15.3 Module pattern — headers and implementations
+
+Because signature closures are Lua values, a Lua module can export them
+as a **header** — declarations without implementations:
+
+```lua
+-- types.lua — header module
+local moon = require("moonlift")
+return {
+    Vec3 = moon.struct[[ x: f32; y: f32; z: f32 end ]],
+    load = moon.func[[ load(id: i32) -> ptr(Vec3) ]],
+    mul  = moon.func{ T = moon.f32 }[[ mul(a: @{T}, b: @{T}) -> @{T} ]],
+}
+```
+
+```lua
+-- app.mlua — implementation
+local T = require("types")
+local load = T.load[[ return some_calc(id) end ]]
+local mul_f32 = T.mul{}[[ return a * b end ]]
+local mul_f64 = T.mul{ T = moon.f64 }[[ return a * b end ]]
+```
+
+The header module carries the **product graph** (structs) and **protocol graph**
+(region signatures, function signatures). The implementation module provides
+the bodies. The compiler type-checks each implementation independently — if
+a signature closure is never compiled, it produces no code and no error.
+
+### 15.4 Callable functions — auto-compile on first call
+
+When a complete function (signature + body) is provided, `moon.func` returns
+a **CallableFunc** — a callable table that lazily compiles on first invocation.
 
 ```lua
 local add = moon.func [[add(a: i32, b: i32) -> i32 return a + b end]]
-print(add(3, 4))  -- 7 — first call compiles, caches, runs native
-print(add(10, 20)) -- 30 — cached, no compilation
-add:free()         -- release the compiled artifact
+print(add(3, 4))  -- 7 — first call compiles ephemeral module
+print(add(10, 20)) -- 30 — cached pointer, no compilation
+add:free()
 ```
 
-### Values table as module — cross-function dependencies
+### 15.5 Values table as module — cross-function dependencies
 
 When a function calls another function by name, declare the dependency in the
 values table. The function is registered in the ephemeral module's item list,
@@ -2094,120 +2198,89 @@ main:free()
 dep:free()
 ```
 
-The `@{fn}(args)` syntax is explicit: the `@{}` shows that `fn` comes from the
-values table (a Lua value), not from Moonlift scope. The expression filler
-creates a name reference, and the typechecker resolves it against the module's
-items.
+The `@{fn}(args)` syntax makes the dependency explicit: the `@{}` shows that
+`fn` comes from the values table (a Lua value), not from Moonlift scope.
 
-### Module dependencies — funcs, regions, structs
+### 15.6 Module path — explicit bundle
 
-The values table accepts any kind of Moonlift value. Each is registered in the
-ephemeral module before compilation:
-
-```lua
-local r = moon.region [[r(p: ptr(u8); ok: cont(v: i32))
-    entry start() jump ok(v = 42) end
-end]]
-
-local s = moon.struct [[Point x: i32; y: i32 end]]
-
-local f = moon.func { r = r, Point = s } [[
-f(p: ptr(u8)) -> i32
-    return region -> i32
-    entry start() emit r(p; ok = done) end
-    block done(v: i32) yield v end
-    end
-end
-]]
-print(f(buf))  -- 42
-f:free()
-```
-
-### When to use the module path instead
-
-The explicit `moon.bundle()` path is still available for complex cases:
-- Large multi-function artifacts that need to be compiled together
-- When you need a shared compilation artifact across multiple call sites
-- When you need explicit export control
+For complex multi-function artifacts:
 
 ```lua
 local b = moon.bundle("decoder")
-m:add_func(parse_array)
-m:add_func(parse_value)
-m:add_func(decode)
-m:add_region(skip_ws)
-local compiled = m:compile()
+b:add_func(parse_array)
+b:add_func(parse_value)
+b:add_region(skip_ws)
+local compiled = b:compile()
 local fn = compiled:get("decode")
 ```
 
-### 15.3 Sessions
+### 15.7 Expressions
 
 ```lua
-local moon = require("moonlift")
-local session = moon.new_session({ prefix = "demo" })
-local api = session:api()
+-- Quote form
+moon.expr [[x + 1]]                            -- → ExprValue
+moon.expr [[select(x < 0, 0, x)]]              -- → ExprValue
+moon.expr [[as(i32, val)]]                     -- → ExprValue
+
+-- Literal constructors
+moon.int(42)
+moon.bool_lit(true)
+moon.string_lit("hello")
+moon.nil_lit(ty)
+
+-- Arithmetic (on expression values)
+expr:neg()
+expr:add(other)
+expr:sub(other)
+expr:mul(other)
+expr:div(other)
+
+-- Bitwise
+expr:band(other)
+expr:bor(other)
+expr:bxor(other)
+expr:shl(other)
+expr:ashr(other)
+expr:lshr(other)
 ```
 
-The session manages name generation, symbol prefixes, and compilation context.
-The default `moon` object uses a session with prefix `"default"`. The unified
-`require("moonlift")` module re-exports the `moonlift.host` quoting and table builder surface.
-
-### 15.4 Types
+### 15.8 Statements
 
 ```lua
--- Scalar types (direct properties on the API object)
-moon.void   moon.bool
-moon.i8     moon.i16   moon.i32   moon.i64
-moon.u8     moon.u16   moon.u32   moon.u64
-moon.f32    moon.f64
-moon.index
+moon.stmts[[let x: i32 = 42]]
+moon.stmts[[return a + b]]
+```
 
--- Quote form (any type expression)
+### 15.9 Types
+
+```lua
+-- Scalar type constants
+moon.i8  moon.i16  moon.i32  moon.i64
+moon.u8  moon.u16  moon.u32  moon.u64
+moon.f32 moon.f64  moon.bool  moon.void  moon.index
+
+-- Quote form
 moon.type [[i32]]               -- → TypeValue
 moon.type [[ptr(u8)]]           -- → TypeValue
 moon.type [[func(i32) -> i32]]  -- → TypeValue
 
--- Compound type constructors (for programmatic construction)
-moon.ptr(T)                    -- pointer to T
-moon.view(T)                   -- view of T
-moon.named(module, name)       -- named type from module
-moon.path_named("Foo")         -- named type from path
-moon.func_type(params, result) -- function type
-moon.closure_type(params, result) -- closure type
-moon.array_type(count, T)      -- array type
-moon.slice(T)                  -- slice type
+-- Compound type constructors
+moon.ptr(T)
+moon.view(T)
+moon.named(module, name)
+moon.func_type(params, result)
+moon.closure_type(params, result)
 ```
 
-### 15.5 Expressions
+### 15.10 Structs and unions
 
 ```lua
--- Quote form (any expression)
-moon.expr [[x + 1]]                      -- → ExprValue
-moon.expr [[select(x < 0, 0, x)]]        -- → ExprValue
-moon.expr [[as(i32, val)]]               -- → ExprValue
+moon.struct[[Point x: i32; y: i32 end]]  -- returns StructValue
+moon.union[[ok(i32) | err(string) end]]  -- returns UnionValue
+```
 
--- Literal constructors
-moon.int(42)
-moon.float("1.5")
-moon.bool_lit(true)
-moon.string_lit("hello\n")
-moon.nil_lit(ty)
-
--- Arithmetic (on expression values)
-expr:neg()              -- unary negation
-expr:add(other)         -- addition (also + operator when both are ExprValue)
-expr:sub(other)         -- subtraction
-expr:mul(other)         -- multiplication
-expr:div(other)         -- division
-expr:rem(other)         -- remainder
-
--- Bitwise (on expression values)
-expr:band(other)        -- bitwise and
-expr:bor(other)         -- bitwise or
-expr:bxor(other)        -- bitwise xor
-expr:shl(other)         -- left shift
-expr:ashr(other)        -- arithmetic right shift
-expr:lshr(other)        -- logical right shift
+Structs and unions are already declarations (no body). They always return
+complete ASDL values, never closures.
 
 -- Comparisons (on expression values)
 expr:eq(other)          -- equality
@@ -2464,7 +2537,209 @@ inside Lua. Table builders (`moon.params{...}`, `moon.fields{...}`, etc.)
 handle the data-shaped things where Lua iteration is natural. The two work
 together: build a Lua array with a `for` loop, then splice it into a quote.
 
-### 16.1 The three composition levels
+### 16.0 The signature closure pattern
+
+The fundamental metaprogramming primitive is the **signature closure** —
+a Moonlift declaration (function, region, extern) carried as a Lua closure.
+
+```lua
+-- A function signature is a Lua value:
+local add = moon.func[[ add(a: i32, b: i32) -> i32 ]]
+-- Not compiled. Not callable. Just a typed signature in a closure.
+```
+
+The closure decouples **signature** from **implementation** into two separate
+Lua values. This enables a clean module boundary between headers and bodies:
+
+```lua
+-- ============ types.lua ============
+-- This module IS the header. It exports ONLY signatures.
+-- Products (structs, unions) and protocols (func, region signatures).
+local moon = require("moonlift")
+return {
+    Vec3 = moon.struct[[ x: f32; y: f32; z: f32 end ]],
+    load = moon.func[[ load(id: i32) -> ptr(Vec3) ]],
+    mul  = moon.func{ T = moon.i32 }[[ mul(a: @{T}, b: @{T}) -> @{T} ]],
+}
+
+-- ============ app.mlua ============
+-- This module provides the bodies.
+local types = require("types")
+local load = types.load[[ return some_op(id) end ]]
+local mul = types.mul{}[[ return a * b end ]]
+```
+
+The header closure can be:
+- **Stored in a table**, returned from a Lua module, passed to a function
+- **Compiled**: `h[[body]]` returns a CallableFunc that lazily compiles
+- **Specialized**: `h{ T = f64 }[[body]]` overrides type bindings before compiling
+- **Composed**: passed as a dependency in another function's values table
+- **Ignored**: never compiled, produces no code, no error
+
+This means the **product graph** (structs, unions) and **protocol graph**
+(function signatures, region protocols) are first-class Lua values that can
+live in a separate module from the implementations. The Lua module system
+handles the file boundaries — no new parser, no new pipeline, no new syntax.
+
+### 16.1 Real-world patterns with signature closures
+
+The closure pattern unlocks several architectural patterns that were
+previously impractical. Here are the most important ones.
+
+#### Generic data structures (one algorithm, any type)
+
+A header declares operations with a type binding. Each specialization
+compiles to separate monomorphic native code:
+
+```lua
+local Stack = {
+    new  = moon.func{ T = moon.i32 }[[ new(capacity: i32) -> ptr(@{T}) ]],
+    push = moon.func{ T = moon.i32 }[[ push(s: ptr(ptr(@{T})), v: @{T}) ]],
+    pop  = moon.func{ T = moon.i32 }[[ pop(s: ptr(ptr(@{T}))) -> @{T} ]],
+}
+
+-- Specialize to i32
+local push_i32 = Stack.push{}[[
+    local sp: ptr(i32) = s[0]
+    sp[0] = v
+    s[0] = sp + 1
+end
+]]
+
+-- Specialize to f64 — same algorithm, checked against same signature
+local push_f64 = Stack.push{ T = moon.f64 }[[
+    local sp: ptr(f64) = s[0]
+    sp[0] = v
+    s[0] = sp + 1
+end
+]]
+```
+
+No generics system, no type parameter erasure, no monomorphization pass.
+The bindings table IS the type parameter. Each specialization is a separate
+Lua closure call that produces a distinct native function.
+
+#### Multi-backend systems (same protocol, different implementations)
+
+A header module defines the interface. Multiple implementations provide
+bodies, all checked against the same signatures at compile time:
+
+```lua
+-- render.lua — product graph + protocol graph (the architecture)
+local moon = require("moonlift")
+return {
+    Mesh = moon.struct[[ verts: ptr(Vec3); count: i32 end ]],
+    render = moon.func[[ render(m: ptr(Mesh)) ]],
+    load   = moon.func[[ load(path: ptr(u8)) -> ptr(Mesh) ]],
+}
+```
+
+```lua
+-- opengl.mlua — OpenGL backend
+local R = require("render")
+local render_gl = R.render[[ glDrawElements(m.verts, m.count) end ]]
+local load_gl   = R.load[[ return loadObj(path) end ]]
+```
+
+```lua
+-- vulkan.mlua — Vulkan backend (same header, different specialization)
+local R = require("render")
+local render_vk = R.render[[ vkCmdDraw(m.verts, m.count) end ]]
+local load_vk   = R.load[[ return loadVkMesh(path) end ]]
+```
+
+The header is the contract. A backend that provides a body with mismatched
+parameter types or return type is rejected at compile time. A backend that
+forgets to implement a function is caught at link time.
+
+#### Test mocks and dependency injection
+
+Because signatures are closures, they can be replaced for testing:
+
+```lua
+-- Database interface (header module)
+local DB = {
+    query = moon.func[[ query(db: i32, sql: ptr(u8)) -> ptr(u8) ]],
+    close = moon.func[[ close(db: i32) ]],
+}
+
+-- Production implementation
+local prod = {
+    query = DB.query[[ return pg_query(db, sql) end ]],
+    close = DB.close[[ pg_close(db) end ]],
+}
+
+-- Mock implementation — same header, different bodies
+-- Both are type-checked against the same signatures
+local mock = {
+    query = DB.query[[ return "mock_result" end ]],
+    close = DB.close[[ end ]],
+}
+
+-- Swap at load time, not at compile time
+local impl = os.getenv("TEST") and mock or prod
+```
+
+#### Bindings override for specialization
+
+A header can declare defaults. Implementations override them to specialize:
+
+```lua
+-- Generic transform (default: f32)
+local transform = moon.func{ T = moon.f32 }[[
+    transform(m: ptr(Mesh), mat: @{T}) -> @{T}
+]]
+
+-- Double-precision variant (override T)
+local transform_f64 = transform{ T = moon.f64 }[[
+    return mat * m.verts[0]
+end
+]]
+```
+
+Override follows Lua's variable shadowing rule: inner bindings shadow outer
+bindings with the same key. The header provides defaults, the implementation
+overrides what it needs.
+
+#### Plugin systems
+
+A plugin API is a table of function headers. Each plugin provides bodies.
+The host verifies all plugins implement the same protocol:
+
+```lua
+-- Plugin API (declared by host)
+local Plugin = {
+    on_load = moon.func[[ on_load(ctx: ptr(u8)) ]],
+    on_tick = moon.func[[ on_tick(dt: f32) ]],
+    on_draw = moon.func[[ on_draw() ]],
+}
+
+-- Plugin A
+local plugin_a = {
+    on_load = Plugin.on_load[[ init_plugin_a(ctx) end ]],
+    on_tick = Plugin.on_tick[[ update_a(dt) end ]],
+    on_draw = Plugin.on_draw[[ draw_a() end ]],
+}
+
+-- Plugin B — added later, same signatures, compiler checks both
+local plugin_b = {
+    on_load = Plugin.on_load[[ init_plugin_b(ctx) end ]],
+    on_tick = Plugin.on_tick[[ update_b(dt) end ]],
+    on_draw = Plugin.on_draw[[ draw_b() end ]],
+}
+```
+
+#### Summary of the pattern
+
+The signature closure unifies five concerns that were previously separate:
+
+| Concern | Before | After |
+|---|---|---|
+| Interface definition | Documentation, convention, or OOP | Lua table of function headers |
+| Implementation | Same file, coupled | Separate closure call, same signature checked |
+| Generics | No Moonlift support — Lua string generation | Bindings table with `@{}` splices |
+| Dependency injection | Manual registration or callbacks | Values table passed through `{}` |
+| Testing | Monkey-patching or separate build | Swap bodies at `require` time |
 
 Use the lowest level that expresses the pattern cleanly.
 
@@ -2945,39 +3220,76 @@ Vectorization produces explicit rejects for unsupported shapes, including:
 
 ## 19. Error and diagnostic model
 
-Moonlift diagnostics are ASDL values, not format strings. Every phase that
-can fail produces typed issue values.
+Moonlift errors are structured, typed, and span-resolved. Every error condition
+in every compiler phase produces a stable E0xxx error code through a
+domain-specific **explainer** function. Explainers are co-located with the
+phase that produces the error — a typecheck explainer knows about site strings
+and type names, a backend explainer knows about the provenance map and entity IDs.
 
-### 19.1 Diagnostic categories
+### 19.1 Error codes
 
-| Category | Phase | Examples |
+| Code range | Phase | Examples |
 |---|---|---|
-| Parse issues | `parse`, `scan_document`, `parse_island` | Unexpected token, unclosed block, invalid literal |
-| Host declaration rejects | `host_decl_validate` | Invalid struct field type, ambiguous bool storage |
-| Open slot/fill issues | `open_validate` | Missing continuation fill, extra fill, type mismatch |
-| Type issues | `tree_typecheck` | Type mismatch, unknown identifier, invalid conversion |
-| Control rejects | `tree_control_facts` | Unterminated block, duplicate label, missing jump arg |
-| Contract issues | `tree_contract_facts` | Invalid bounds expression, conflicting modifiers |
-| Vector rejects | `vec_loop_facts`, `vec_kernel_safety` | Non-counted loop, unsafe memory pattern |
-| Backend issues | `back_validate` | Mismatched operand types, invalid switch cases |
+| E0101–E0103 | Parse | Unexpected token, unterminated construct, missing keyword |
+| E0201–E0203 | Name resolution | Unresolved name, unresolved path, duplicate name |
+| E0301–E0305 | Type checking | Type mismatch, not callable, invalid operator, arg count |
+| E0401–E0407 | Control flow | Unterminated block, missing jump target, yield outside region |
+| E0501–E0506 | Host declarations | Duplicate field, invalid packed align, boundary bool |
+| E0601–E0603 | Backend validation | Missing definition, duplicate definition, order violation |
+| E0701–E0703 | Splice/metaprogramming | Splice type mismatch, missing fill, splice eval error |
+| E0801–E0804 | Open/fragment expansion | Unfilled slot, unexpanded fragment use |
+| E0901–E0905 | Link planning | Missing input, tool unavailable, command failed |
+| E1001–E1005 | Vectorization | Loop not vectorized, dependence, target shape |
+| E1101–E1105 | Source text apply | Wrong document, stale version, overlapping ranges |
 
-### 19.2 Diagnostic structure
+### 19.2 Error pipeline
 
-Each diagnostic carries:
+Errors flow through a multi-stage pipeline:
 
-```text
-- category (error, warning, info)
-- message (human-readable)
-- source location (file, line, column span)
-- optional related locations ("see declaration here")
-- optional fix suggestion (for code actions)
+```
+compiler phase  → collector:emit(issue, phase)  → ResolvedIssue
+  → CascadeFilter (suppresses cascading errors from unresolved names)
+  → phase explainer (constructs ErrorReport from ASDL issue)
+  → present_terminal or present_lsp
 ```
 
-### 19.3 Consuming diagnostics
+Every issue has a **non-nil source span** (enforced by the collector). Spans are
+resolved by static per-phase span resolvers that use anchor indices, provenance
+maps, or offset-to-line conversions depending on the phase.
 
-Tools and LSP features consume diagnostic facts directly as ASDL values. They
-should not rediscover language semantics from raw text or re-parse source
-files to create diagnostics.
+### 19.3 Terminal output
+
+```
+ERROR[E0301]: type mismatch
+  ┌─ file.mlua:2:9
+   1 │ func main() -> i32
+   2 │     let x: i32 = "hello"
+     │         ^
+   3 │     return x
+   4 │ end
+
+  = note: the initializer has type `ptr(u8)`, but the variable is declared as `i32`
+```
+
+- Color is disabled by default; set `MOONLIGHT_COLOR=1` or `CLICOLOR_FORCE=1`
+- Notes use `= note:` prefix (in blue, if color enabled)
+- Suggestions use `= help:` prefix (in green)
+- Source context shows 3 lines before/after the error
+- Underline uses `^^^` for primary, `~~~` for secondary spans
+
+### 19.4 LSP diagnostics
+
+Each ErrorReport maps to an LSP Diagnostic with:
+- Primary span → `range`
+- Secondary spans → `relatedInformation`
+- Notes and suggestions → concatenated in `message`
+- Code → `code` field for IDE filtering
+
+### 19.5 Cascade suppression
+
+When an unresolved name causes downstream type errors (void-typed expressions),
+the CascadeFilter suppresses the cascading errors. The user sees only the root
+cause: `"unresolved name 'foo'"`, not the 47 type mismatches it causes.
 
 ---
 

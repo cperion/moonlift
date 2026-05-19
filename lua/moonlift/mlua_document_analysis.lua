@@ -7,8 +7,16 @@ local OpenFacts = require("moonlift.open_facts")
 local OpenValidate = require("moonlift.open_validate")
 local Pipeline_mod = require("moonlift.frontend_pipeline")
 local BackValidate = require("moonlift.back_validate")
+local Errors = require("moonlift.error")
+local Session = require("moonlift.host_session")
 
 local M = {}
+
+local resolved_by_analysis = setmetatable({}, { __mode = "k" })
+
+function M.resolved_issues(analysis)
+    return resolved_by_analysis[analysis] or {}
+end
 
 local function append_all(dst, xs)
     for i = 1, #(xs or {}) do dst[#dst + 1] = xs[i] end
@@ -166,6 +174,27 @@ function M.Define(T)
         local n = toks.n or 0
         local counter = 0
         local function tid(prefix, i) counter = counter + 1; return prefix .. "." .. tostring(i) .. "." .. tostring(counter) end
+        local TK = Parse.TK
+        local function add_emit_use_anchor(i, start)
+            local j = i + 1
+            while toks.kind[j] == TK.nl do j = j + 1 end
+            if j > n then return end
+            local frag = (toks.kind[j] == TK.hole) and "nil" or tostring(toks.text[j] or "")
+            while j <= n and toks.kind[j] ~= TK.lparen do j = j + 1 end
+            if j > n then return end
+            local depth = 0
+            while j <= n do
+                if toks.kind[j] == TK.lparen then depth = depth + 1
+                elseif toks.kind[j] == TK.rparen then
+                    depth = depth - 1
+                    if depth == 0 then
+                        add_anchor(anchors, index, tid("emit-use", i), S.AnchorOpaque("emit-use"), "emit." .. frag .. "." .. tostring(j + 1), start, toks.stop[j] or start)
+                        return
+                    end
+                end
+                j = j + 1
+            end
+        end
         for si, island in ipairs(scan.islands) do
             add_anchor(anchors, index, "island." .. si, S.AnchorHostedIsland, island.kind, island.start - 1, island.stop)
             for i = island.first_tok, island.last_tok do
@@ -175,6 +204,7 @@ function M.Define(T)
                 if text and text ~= "" then
                     if keyword_set[text] then
                         add_anchor(anchors, index, tid("kw", i), S.AnchorKeyword, text, start, stop)
+                        if text == "emit" then add_emit_use_anchor(i, start) end
                     end
                     if text == "struct" then after_struct = true
                     elseif text == "func" then after_func = true
@@ -271,6 +301,21 @@ function M.Define(T)
         local anchors = build_anchors(document, scan, index)
         local parts = document_parts(document, scan, anchors)
 
+        -- Create collector for this analysis cycle
+        local analysis_ctx = {
+            parse = nil,
+            anchors = anchors,
+            uri = document.uri and document.uri.text,
+            source_text = document.text,
+            back_provenance = nil,
+        }
+        local collector = Errors.CollectingCollector(Errors.SpanResolvers.RESOLVERS, analysis_ctx)
+
+        -- Attach collector to the default session so host builders emit to it
+        local session = require("moonlift.host").session()
+        if session then session:set_issue_collector(collector) end
+        require("moonlift.host_splice").set_collector(collector)
+
         local decls, items, region_frags, expr_frags, issues, island_parses = {}, {}, {}, {}, {}, {}
         local protocol_types = {}
         for i, island in ipairs(scan.islands) do
@@ -319,8 +364,11 @@ function M.Define(T)
 
         local combined = H.MluaParseResult(H.HostDeclSet(decls), Tr.Module(Tr.ModuleSurface, items), region_frags, expr_frags, issues)
         local parse = Mlua.DocumentParse(parts, combined, island_parses, anchors)
+        analysis_ctx.parse = parse
+        for i = 1, #issues do collector:emit(issues[i], "parse") end
 
         local host_report = HostV.validate(combined.decls)
+        for i = 1, #host_report.issues do collector:emit(host_report.issues[i], "host") end
         local layouts = {}
         -- Invalid host declarations can make layout computation nonsensical
         -- (for example packed(3)); publish validation diagnostics first and
@@ -346,7 +394,11 @@ function M.Define(T)
         local result_or_err = nil
         if #combined.module.items > 0 then
             local ok_tc, res = pcall(function()
-                local r = Pipeline.lower_module(combined.module, { site = "mlua_document_analysis" })
+                local r = Pipeline.lower_module(combined.module, {
+                    site = "mlua_document_analysis",
+                    collector = collector,
+                    analysis_ctx = analysis_ctx,
+                })
                 return r
             end)
             result_or_err = res
@@ -363,14 +415,27 @@ function M.Define(T)
         if #type_issues == 0 and #checked_module.items > 0 then
             if result_or_err and result_or_err.back_report then
                 back_report = result_or_err.back_report
+                -- Provenance map is already attached to analysis_ctx.back_provenance
+                -- by Pipeline.lower_module (frontend_pipeline.lua)
             end
         end
 
-        return Mlua.DocumentAnalysis(parse, host, open_report, type_issues, control_facts, {}, {}, back_report, anchors)
+        -- Get resolved issues from the collector and run cascade filter
+        local resolved = collector:resolved_issues()
+        local filtered = Errors.CascadeFilter.filter(resolved)
+
+        -- Clear collector from session to avoid leaking between analyses
+        if session then session:set_issue_collector(nil) end
+        require("moonlift.host_splice").set_collector(nil)
+
+        local analysis = Mlua.DocumentAnalysis(parse, host, open_report, type_issues, control_facts, {}, {}, back_report, anchors)
+        resolved_by_analysis[analysis] = filtered
+        return analysis
     end
 
     return {
         analyze_document = analyze_document,
+        resolved_issues = M.resolved_issues,
     }
 end
 

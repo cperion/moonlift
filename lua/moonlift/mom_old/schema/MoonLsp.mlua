@@ -1,3 +1,0 @@
--- MoonLsp: LSP protocol types (stub)
-local M = {}
-return M

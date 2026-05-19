@@ -1,3 +1,0 @@
--- MoonRpc: RPC transport types (stub)
-local M = {}
-return M

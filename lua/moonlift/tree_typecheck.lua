@@ -889,8 +889,315 @@ function M.Define(T)
         func = type_func,
         item = type_item,
         module = type_module,
-        check_module = function(module) return pvm.one(type_module(module)) end,
+        check_module = function(module, opts)
+            opts = opts or {}
+            local result = pvm.one(type_module(module))
+            local collector = opts.collector
+            if collector then
+                for i = 1, #result.issues do
+                    collector:emit(result.issues[i], "typecheck")
+                end
+            end
+            return result
+        end,
     }
 end
+
+-----------------------------------------------------------------------------
+-- explain_type_issue: explains a single TypeIssue
+-----------------------------------------------------------------------------
+
+local Format = require("moonlift.error.format")
+
+local function site_description(site)
+    -- Produces a human-readable context string from a site string
+    if not site or site == "" then return "expression" end
+    -- Check specific site types
+    if site:find("let ") then return "variable initializer" end
+    if site:find("var ") then return "variable initializer" end
+    if site:find("return") then return "return value" end
+    if site:find("yield") then return "yielded value" end
+    if site:find("set") then return "assignment" end
+    if site:find("if cond") then return "if condition" end
+    if site:find("select cond") then return "select condition" end
+    if site:find("if branches") then return "if branches" end
+    if site:find("select branches") then return "select branches" end
+    if site:find("call") then return "call argument" end
+    if site:find("index") then return "index expression" end
+    if site:find("view data") then return "view data" end
+    if site:find("view len") or site:find("view stride") or site:find("view window") then return "view" end
+    if site:find("bounds") then return "bounds" end
+    if site:find("window_bounds") then return "window_bounds" end
+    if site:find("disjoint") then return "disjoint" end
+    if site:find("same_len") then return "same_len" end
+    if site:find("memory contract") then return "memory contract" end
+    if site:find("atomic") then return "atomic" end
+    if site:find("block param") then return "block parameter" end
+    if site:find("assert") then return "assert" end
+    if site:find("switch key") then return "switch key" end
+    if site:find("switch arm") then return "switch arm" end
+    if site:find("array elem") then return "array element" end
+    if site:find("len") then return "len" end
+    if site:find("const") or site:find("static") then return "constant initializer" end
+    return site
+end
+
+local function explain_type_issue(issue, analysis)
+    local resolvers = require("moonlift.error.span_resolvers")
+    local pvm = require("moonlift.pvm")
+    local span = resolvers.typecheck_resolver(issue, analysis)
+    local cls = pvm.classof(issue)
+    if not cls then return { code = "E9999", severity = "error", primary = { span = span, message = tostring(issue) } } end
+    local kind = cls.kind
+
+    if kind == "TypeIssueExpected" then
+        -- Port of E0301 builder logic
+        local site = issue.site or "expression"
+        local expected = Format.type_name(issue.expected)
+        local actual = Format.type_name(issue.actual)
+        local expected_raw = issue.expected
+        local actual_raw = issue.actual
+        local notes = {}
+        local suggestions = {}
+
+        -- Context-specific notes
+        if site:find("call") then
+            notes[#notes + 1] = { message = "this argument has type `" .. actual .. "`, but the function expects `" .. expected .. "`" }
+        elseif site:find("let ") or site:find("var ") then
+            local var_name = site:match("let (%w+)") or site:match("var (%w+)") or ""
+            notes[#notes + 1] = { message = "the initializer has type `" .. actual .. "`, but the variable is declared as `" .. expected .. "`" }
+        elseif site:find("return") then
+            notes[#notes + 1] = { message = "the return value has type `" .. actual .. "`, but the function returns `" .. expected .. "`" }
+        elseif site:find("yield") then
+            notes[#notes + 1] = { message = "the yielded value has type `" .. actual .. "`, but the region yields `" .. expected .. "`" }
+        elseif site:find("set") then
+            notes[#notes + 1] = { message = "the assigned value has type `" .. actual .. "`, but the target has type `" .. expected .. "`" }
+        elseif site:find("if cond") or site:find("select cond") then
+            notes[#notes + 1] = { message = "the condition has type `" .. actual .. "`, but the condition must be `bool`" }
+        elseif site:find("if branches") or site:find("select branches") then
+            notes[#notes + 1] = { message = "both branches must have the same type; the then-branch is `" .. actual .. "`, the else-branch is `" .. expected .. "`" }
+        elseif site:find("index") then
+            notes[#notes + 1] = { message = "indexing requires an integer type, got `" .. actual .. "`" }
+        elseif site:find("view data") then
+            notes[#notes + 1] = { message = "view data must be a `ptr` or `view`, got `" .. actual .. "`" }
+        elseif site:find("view len") or site:find("view stride") or site:find("view window") or site:find("bounds") or site:find("window_bounds") then
+            notes[#notes + 1] = { message = "expected `" .. expected .. "`, got `" .. actual .. "`" }
+        elseif site:find("disjoint") then
+            notes[#notes + 1] = { message = "disjoint contract requires `ptr` or `view`, got `" .. actual .. "`" }
+        elseif site:find("same_len") then
+            notes[#notes + 1] = { message = "same_len contract requires `view`, got `" .. actual .. "`" }
+        elseif site:find("memory contract") then
+            notes[#notes + 1] = { message = "memory contract requires `ptr` or `view`, got `" .. actual .. "`" }
+        elseif site:find("atomic") then
+            notes[#notes + 1] = { message = "expected `" .. expected .. "`, got `" .. actual .. "`" }
+        elseif site:find("block param") then
+            notes[#notes + 1] = { message = "block parameter initializer has type `" .. actual .. "`, but the parameter is declared as `" .. expected .. "`" }
+        elseif site:find("assert") then
+            notes[#notes + 1] = { message = "assert condition must be `bool`, got `" .. actual .. "`" }
+        elseif site:find("switch key") then
+            notes[#notes + 1] = { message = "switch key has type `" .. actual .. "`, but the switch expression is `" .. expected .. "`" }
+        elseif site:find("switch arm") then
+            notes[#notes + 1] = { message = "switch arm has type `" .. actual .. "`, but the default arm is `" .. expected .. "`" }
+        elseif site:find("array elem") then
+            notes[#notes + 1] = { message = "array element has type `" .. actual .. "`, but the array expects `" .. expected .. "`" }
+        elseif site:find("len") then
+            notes[#notes + 1] = { message = "`len` requires a `view`, got `" .. actual .. "`" }
+        elseif site:find("const") or site:find("static") then
+            notes[#notes + 1] = { message = "the initializer has type `" .. actual .. "`, but the declaration is `" .. expected .. "`" }
+        else
+            notes[#notes + 1] = { message = "expected `" .. expected .. "`, got `" .. actual .. "`" }
+        end
+
+        -- Numeric conversion hint
+        local function is_integer(ty)
+            if not ty then return false end
+            local tcls = pvm.classof(ty)
+            if tcls and tcls.kind == "TScalar" and ty.scalar then
+                local scls = pvm.classof(ty.scalar)
+                return scls and (scls.kind == "ScalarI32" or scls.kind == "ScalarI64"
+                    or scls.kind == "ScalarU32" or scls.kind == "ScalarU8"
+                    or scls.kind == "ScalarI8" or scls.kind == "ScalarI16"
+                    or scls.kind == "ScalarU16" or scls.kind == "ScalarU64"
+                    or scls.kind == "ScalarIndex")
+            end
+            return false
+        end
+
+        if actual == "bool" and expected ~= "bool" then
+            suggestions[#suggestions + 1] = { message = "to convert a boolean to an integer, use a conditional: `select(flag, 1, 0)`" }
+        elseif actual == "f64" and is_integer(expected_raw) then
+            suggestions[#suggestions + 1] = { message = "to convert a float to an integer, use `as(i32, value)`" }
+        elseif is_integer(actual_raw) and expected == "f64" then
+            suggestions[#suggestions + 1] = { message = "to convert an integer to a float, use `as(f64, value)`" }
+        end
+
+        return {
+            code = "E0301",
+            severity = "error",
+            phase_context = "while type-checking",
+            primary = { span = span, message = "type mismatch" },
+            notes = notes,
+            suggestions = suggestions,
+        }
+    end
+
+    if kind == "TypeIssueNotCallable" then
+        local ty = Format.type_name(issue.ty)
+        return { code = "E0302", severity = "error", phase_context = "while type-checking a call",
+            primary = { span = span, message = "type `" .. ty .. "` is not callable" },
+            notes = { { message = "only `func` and `closure` types can be called" } },
+            suggestions = { { message = "did you mean to index? write `expr[idx]` for element access" } } }
+    end
+
+    if kind == "TypeIssueNotIndexable" or kind == "TypeIssueNotPointer" then
+        local ty = Format.type_name(issue.ty)
+        return { code = "E0303", severity = "error", phase_context = "while type-checking an index",
+            primary = { span = span, message = "type `" .. ty .. "` is not indexable" },
+            notes = { { message = "only `view`, `ptr`, and `array` types support indexing" } },
+            suggestions = { { message = "if you meant to access a field, use `.` syntax: `expr.field`" } } }
+    end
+
+    if kind == "TypeIssueArgCount" then
+        return { code = "E0305", severity = "error", phase_context = "while type-checking",
+            primary = { span = span, message = (issue.site or "call") .. " expected " .. tostring(issue.expected) .. " arguments, got " .. tostring(issue.actual) },
+            suggestions = { { message = "check the function signature and add or remove arguments" } } }
+    end
+
+    if kind == "TypeIssueInvalidUnary" then
+        local op = Format.op_symbol(issue.op)
+        local ty = Format.type_name(issue.ty)
+        local unotes = {}
+        local usuggestions = {}
+        if op == "not" then
+            unotes[#unotes + 1] = { message = "`not` requires a `bool` operand, got `" .. ty .. "`" }
+        else
+            unotes[#unotes + 1] = { message = "operator `" .. op .. "` is not defined for type `" .. ty .. "`" }
+            unotes[#unotes + 1] = { message = "arithmetic operators require numeric types (i8, i16, i32, ...)" }
+        end
+        if ty == "bool" and op ~= "not" then
+            usuggestions[#usuggestions + 1] = { message = "for boolean logic, use `not`: `not value`" }
+        end
+        return { code = "E0304", severity = "error", phase_context = "while type-checking an expression",
+            primary = { span = span, message = "invalid unary operator `" .. op .. "` for type `" .. ty .. "`" },
+            notes = unotes, suggestions = usuggestions }
+    end
+
+    if kind == "TypeIssueInvalidBinary" then
+        local op = Format.op_symbol(issue.op)
+        local lhs = Format.type_name(issue.lhs)
+        local rhs = Format.type_name(issue.rhs)
+        local bnotes = { { message = "operator `" .. op .. "` is not defined for `" .. lhs .. "` and `" .. rhs .. "`" } }
+        local bsuggestions = {}
+        if lhs == "bool" and rhs == "bool" then
+            if op == "+" or op == "-" or op == "*" or op == "/" then
+                bnotes[#bnotes + 1] = { message = "arithmetic operators require numeric types (i8, i16, i32, ...)" }
+                bsuggestions[#bsuggestions + 1] = { message = "for boolean logic, use `and` / `or`: `a and b` or `a or b`" }
+            end
+        end
+        if lhs ~= rhs then
+            bnotes[#bnotes + 1] = { message = "both operands must have the same type" }
+        end
+        return { code = "E0304", severity = "error", phase_context = "while type-checking an expression",
+            primary = { span = span, message = "invalid operator `" .. op .. "`" },
+            notes = bnotes, suggestions = bsuggestions }
+    end
+
+    if kind == "TypeIssueInvalidCompare" or kind == "TypeIssueInvalidLogic" then
+        local op = Format.op_symbol(issue.op)
+        local lhs = Format.type_name(issue.lhs)
+        local rhs = Format.type_name(issue.rhs)
+        local cnotes = { { message = "operator `" .. op .. "` is not defined for `" .. lhs .. "` and `" .. rhs .. "`" } }
+        if lhs ~= rhs then
+            cnotes[#cnotes + 1] = { message = "both operands must have the same type" }
+        end
+        return { code = "E0304", severity = "error", phase_context = "while type-checking an expression",
+            primary = { span = span, message = "invalid operator `" .. op .. "`" },
+            notes = cnotes }
+    end
+
+    if kind == "TypeIssueUnresolvedValue" then
+        return { code = "E0201", severity = "error", phase_context = "while resolving names",
+            primary = { span = span, message = "unresolved name `" .. tostring(issue.name or "?") .. "`" },
+            notes = { { message = "`" .. tostring(issue.name or "?") .. "` is not defined in this scope" } } }
+    end
+
+    if kind == "TypeIssueUnresolvedPath" then
+        local path_text = tostring(issue.path_text or "?")
+        local first_segment = issue.first_name or path_text:match("^([%w_]+)") or "?"
+        -- Try did_you_mean on the first path segment
+        local dym = nil
+        local analysis_scope = analysis and analysis.in_scope_names or {}
+        if #analysis_scope > 0 then
+            local suggest = require("moonlift.error.suggest")
+            dym = suggest.did_you_mean(first_segment, analysis_scope)
+        end
+        local suggestions = {}
+        if dym then suggestions[#suggestions + 1] = { message = dym } end
+        return { code = "E0202", severity = "error", phase_context = "while resolving names",
+            primary = { span = span, message = "unresolved path `" .. path_text .. "`" },
+            notes = { { message = "the first segment `" .. first_segment .. "` could not be resolved" } },
+            suggestions = suggestions }
+    end
+
+    if kind == "TypeIssueInvalidControl" then
+        local reason = issue.reason or "irreducible cycle detected"
+        return { code = "E0405", severity = "error", phase_context = "while checking control flow",
+            primary = { span = span, message = "irreducible control flow" },
+            notes = { { message = reason },
+                     { message = "control flow is irreducible when no block dominates the others — restructure so one block is the single entry point" } },
+            suggestions = { { message = "add a dispatch block that dominates all other blocks in this region" } } }
+    end
+
+    if kind == "TypeIssueMissingJumpTarget" then
+        local label = (issue.label and issue.label.name) or (issue.label_name) or "?"
+        local candidates = issue.block_names or {}
+        local dym = Format.Suggest.did_you_mean(label, candidates)
+        local mnotes = { { message = "block `" .. label .. "` is not defined in this region" } }
+        local msuggestions = {}
+        if dym then msuggestions[#msuggestions + 1] = { message = dym } end
+        return { code = "E0402", severity = "error", phase_context = "while checking control flow",
+            primary = { span = span, message = "missing jump target `" .. label .. "`" },
+            notes = mnotes, suggestions = msuggestions }
+    end
+
+    if kind == "TypeIssueMissingJumpArg" or kind == "TypeIssueExtraJumpArg" then
+        return { code = "E0404", severity = "error", phase_context = "while checking control flow",
+            primary = { span = span, message = "jump argument count mismatch for `" .. tostring(issue.name or "?") .. "`" },
+            notes = { { message = "check that the number of arguments passed to the jump matches the block parameters" } } }
+    end
+
+    if kind == "TypeIssueDuplicateJumpArg" then
+        return { code = "E0203", severity = "error", phase_context = "while checking control flow",
+            primary = { span = span, message = "duplicate jump argument `" .. tostring(issue.name or "?") .. "`" },
+            suggestions = { { message = "remove the duplicate argument or rename one of them" } } }
+    end
+
+    if kind == "TypeIssueUnexpectedYield" then
+        return { code = "E0407", severity = "error", phase_context = "while type-checking",
+            primary = { span = span, message = "`yield` used outside a region" },
+            notes = { { message = "`yield` can only be used inside a `region` or a `return region -> T` expression" } },
+            suggestions = { { message = "did you mean `return`? Functions use `return`, not `yield`" } } }
+    end
+
+    if kind == "TypeIssueUnknownVariant" then
+        return { code = "E0201", severity = "error", phase_context = "while resolving names",
+            primary = { span = span, message = "unknown variant `" .. tostring(issue.variant_name or "?") .. "` in type `" .. Format.type_name(issue.type_name) .. "`" } }
+    end
+
+    if kind == "TypeIssueVariantPayloadMismatch" then
+        return { code = "E0301", severity = "error", phase_context = "while type-checking",
+            primary = { span = span, message = "variant payload mismatch for `" .. tostring(issue.variant_name or "?") .. "`" } }
+    end
+
+    if kind == "TypeIssueDuplicateVariant" then
+        return { code = "E0203", severity = "error", phase_context = "while checking declarations",
+            primary = { span = span, message = "duplicate variant `" .. tostring(issue.variant_name or "?") .. "`" } }
+    end
+
+    -- Fallback
+    return { code = "E9999", severity = "error", primary = { span = span, message = kind or tostring(issue) } }
+end
+
+M.explain_type_issue = explain_type_issue
 
 return M

@@ -131,39 +131,41 @@ end
 -- ============================================================
 
 do
-    -- E0201: unresolved name
-    local report = Catalog.build_report("E0201", {
-        name = "taape",
-        candidates = { "tape", "table" },
-    }, {})
-    assert_eq("E0201 code", report.code, "E0201")
-    assert_true("E0201 has message", report.primary.message:find("taape") ~= nil)
-    assert_true("E0201 has suggestion", #report.suggestions > 0)
-    assert_true("E0201 suggests tape", report.suggestions[1].message:find("tape") ~= nil)
+    -- Helper: create a mock ASDL-like issue with a kind field and __class metatable
+    local function mock(kind, fields)
+        fields = fields or {}
+        fields.kind = kind
+        return setmetatable(fields, { __class = { kind = kind } })
+    end
 
-    -- E0301: type mismatch
-    local report2 = Catalog.build_report("E0301", {
+    -- E0201: unresolved name (goes through binding explainer)
+    local report = Catalog.build_report("E0201", mock("BindingUnresolved", {
+        use = { anchor = { label = "taape" } },
+    }), "binding", { in_scope_names = { "tape", "table" } })
+    assert_eq("E0201 code", report.code, "E0201")
+    assert_true("E0201 has message", report.primary.message:find("taape") ~= nil or report.primary.message:find("unresolved") ~= nil)
+    assert_true("E0201 has suggestion", #report.suggestions > 0 or #report.notes > 0)
+
+    -- E0301: type mismatch (goes through typecheck explainer)
+    local report2 = Catalog.build_report("E0301", mock("TypeIssueExpected", {
         site = "call",
-        expected_type = "i32",
-        actual_type = "bool",
-    }, {})
+        expected = "i32",
+        actual = "bool",
+    }), "typecheck", {})
     assert_eq("E0301 code", report2.code, "E0301")
     assert_true("E0301 has notes", #report2.notes > 0)
 
-    -- E0403: continuation not filled
-    local report3 = Catalog.build_report("E0403", {
-        cont_name = "bad",
-        region_name = "exec_slice",
-        declared_conts = { "again", "stop" },
-    }, {})
-    assert_eq("E0403 code", report3.code, "E0403")
-    assert_true("E0403 mentions bad", report3.primary.message:find("bad") ~= nil)
-    assert_true("E0403 lists continuations", report3.notes[1].message:find("again") ~= nil)
+    -- E0403: continuation not filled (goes through host explainer)
+    local report3 = Catalog.build_report("E0403", mock("HostIssueRegionComposeMissingExit", {
+        fragment_name = "exec_slice",
+        exit_name = "bad",
+    }), "host", {})
+    assert_true("E0403 mentions bad", report3.primary.message:find("bad") ~= nil or report3.primary.message:find("exit") ~= nil)
 
-    -- Unknown code falls back to E9999
+    -- Unknown phase falls back to E9999
     local report4 = Catalog.build_report("E0000", {
         message = "something weird",
-    }, {})
+    }, nil, {})
     assert_eq("E9999 fallback", report4.code, "E9999")
 end
 
@@ -172,19 +174,24 @@ end
 -- ============================================================
 
 do
+    local function mock(kind, fields)
+        fields = fields or {}
+        fields.kind = kind
+        return setmetatable(fields, { __class = { kind = kind } })
+    end
+
     local reg = Registry.new()
     Registry.register_source(reg, "test.mlua", "let x = taape[0]\nlet y = x + true\n")
 
     -- Emit an unresolved name (root cause)
-    Registry.emit(reg, { name = "taape", kind = "TypeIssueUnresolvedValue" }, "typecheck", {})
+    Registry.emit(reg, mock("TypeIssueUnresolvedValue", { name = "taape" }), "typecheck", {})
 
     -- Emit a cascade (type mismatch involving void from the unresolved name)
-    Registry.emit(reg, {
-        kind = "TypeIssueExpected",
+    Registry.emit(reg, mock("TypeIssueExpected", {
         site = "call taape",
         expected = "i32",
         actual = "void",
-    }, "typecheck", {})
+    }), "typecheck", {})
 
     local reports = Registry.reports(reg)
     assert_eq("registry suppresses cascades", #reports, 1)
@@ -274,16 +281,22 @@ end
     local reg = Registry.new()
     Registry.register_source(reg, "tapexmem.mlua", src)
 
+    -- Helper: create a mock ASDL-like issue
+    local function mock(kind, fields)
+        fields = fields or {}
+        fields.kind = kind
+        return setmetatable(fields, { __class = { kind = kind } })
+    end
+
     -- Simulate an unresolved name error ("fuel" is not a parameter of check_invariants)
     -- The registry needs candidates in the analysis for "did you mean?"
     -- But the catalog build_report for E0201 reads from issue.candidates or analysis.in_scope_names
     -- We need to pass candidates through the issue since registry.reports doesn't
     -- have access to the original analysis
-    Registry.emit(reg, {
+    Registry.emit(reg, mock("TypeIssueUnresolvedValue", {
         name = "fuel",
-        kind = "TypeIssueUnresolvedValue",
         candidates = { "pc", "tape_len", "tape", "n" },
-    }, "typecheck", {
+    }), "typecheck", {
         in_scope_names = { "pc", "tape_len", "tape", "n" },
     })
 

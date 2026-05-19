@@ -17,10 +17,10 @@ local Report = require("moonlift.error.report")
 local M = {}
 
 -------------------------------------------------------------------------------
--- Color support
+-- Color support — disabled by default; enable with MOONLIFT_COLOR=1 or CLICOLOR_FORCE=1
 -------------------------------------------------------------------------------
 
-local NO_COLOR = os.getenv("NO_COLOR")
+local NO_COLOR = not (os.getenv("MOONLIFT_COLOR") or os.getenv("CLICOLOR_FORCE"))
 
 local colors = {
     reset   = "\27[0m",

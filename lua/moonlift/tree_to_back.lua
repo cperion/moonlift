@@ -20,8 +20,9 @@ function M.Define(T)
     local abi_api = require("moonlift.type_func_abi_plan").Define(T)
     local module_type_api = require("moonlift.tree_module_type").Define(T)
     local const_eval_api = require("moonlift.sem_const_eval").Define(T)
+    local BackProvenance = require("moonlift.back_provenance")
 
-    local lower_context = { const_env = Bn.ConstEnv({}), globals = {} }
+    local lower_context = { const_env = Bn.ConstEnv({}), globals = {}, provenance = nil }
 
     local expr_type
     local scalar_literal
@@ -2518,6 +2519,7 @@ function M.Define(T)
             slot_consts = slot_consts,
             slot_statics = slot_statics,
             slot_consts_data = slot_consts_data,
+            provenance = BackProvenance.new(),
         }
         local ok, result = pcall(fn)
         lower_context = previous
@@ -2525,14 +2527,71 @@ function M.Define(T)
         return result
     end
 
+    local function item_name(item)
+        local cls = pvm.classof(item)
+        if cls == Tr.ItemFunc then
+            local f = item.func
+            local fc = pvm.classof(f)
+            if fc == Tr.FuncLocal or fc == Tr.FuncExport
+               or fc == Tr.FuncLocalContract or fc == Tr.FuncExportContract then
+                return f.name
+            elseif fc == Tr.FuncOpen then
+                return f.sym and f.sym.name or nil
+            end
+        elseif cls == Tr.ItemExtern then
+            local f = item.func
+            local fc = pvm.classof(f)
+            if fc == Tr.ExternFunc then
+                return f.name or f.symbol
+            elseif fc == Tr.ExternFuncOpen then
+                return f.sym and f.sym.name or nil
+            end
+        elseif cls == Tr.ItemConst then
+            local c = item.c
+            if pvm.classof(c) == Tr.ConstItem then return c.name end
+            if pvm.classof(c) == Tr.ConstItemOpen then return c.sym and c.sym.name end
+        elseif cls == Tr.ItemStatic then
+            local s = item.s
+            if pvm.classof(s) == Tr.StaticItem then return s.name end
+            if pvm.classof(s) == Tr.StaticItemOpen then return s.sym and s.sym.name end
+        elseif cls == Tr.ItemType then
+            local t = item.t
+            local tc = pvm.classof(t)
+            if tc == Tr.TypeDeclStruct or tc == Tr.TypeDeclUnion
+               or tc == Tr.TypeDeclEnumSugar or tc == Tr.TypeDeclTaggedUnionSugar then
+                return t.name
+            elseif tc == Tr.TypeDeclOpenStruct or tc == Tr.TypeDeclOpenUnion then
+                return t.sym and t.sym.name end
+        elseif cls == Tr.ItemUseModule then
+            return item.use_id
+        elseif cls == Tr.ItemImport then
+            local p = item.imp and item.imp.path
+            return p and p.text or nil
+        end
+        return nil
+    end
+
     lower_module_direct = function(module)
-        return with_module_context(module, function()
+        local provenance  -- captured inside fn, survives pcall
+        local prog = with_module_context(module, function()
             local cmds = {}
-            for i = 1, #module.items do append_all(cmds, lower_item_direct(module.items[i]).cmds) end
+            for i = 1, #module.items do
+                local start_idx = #cmds + 1
+                append_all(cmds, lower_item_direct(module.items[i]).cmds)
+                local end_idx = #cmds
+                if start_idx <= end_idx and lower_context.provenance then
+                    local name = item_name(module.items[i])
+                    if name then
+                        lower_context.provenance:record(start_idx, end_idx, nil, nil, name)
+                    end
+                end
+            end
             cmds = hoist_module_cmds(cmds)
             cmds[#cmds + 1] = Back.CmdFinalizeModule
+            provenance = lower_context.provenance
             return Back.BackProgram(cmds)
         end)
+        return prog, provenance
     end
 
     func_to_back = pvm.phase("moonlift_tree_func_to_back", function(self) return lower_func_direct(self) end)

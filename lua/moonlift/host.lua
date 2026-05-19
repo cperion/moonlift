@@ -57,7 +57,7 @@ local function make_quote(parse_fn, wrap_fn, expand_fn)
                 if #parsed.splice_slots ~= 0 then
                     error("moon.XXX[[]] does not evaluate @{}; use moon.XXX{values}[[src]] instead", 2)
                 end
-                return wrap_fn(parsed.value, parsed, T)
+                return wrap_fn(parsed.value, parsed, T, arg)
             end
             if type(arg) == "table" then
                 -- Values binder: moon.XXX{values} returns a quote function
@@ -72,7 +72,7 @@ local function make_quote(parse_fn, wrap_fn, expand_fn)
                     local T = default_session.T
                     local parsed = parse_fn(T, src)
                     if #parsed.issues ~= 0 then error(parsed.issues[1].message, 2) end
-                    if #parsed.splice_slots == 0 then return wrap_fn(parsed.value, parsed, T) end
+                    if #parsed.splice_slots == 0 then return wrap_fn(parsed.value, parsed, T, src, bound_values) end
                     local hs = require("moonlift.host_splice")
                     local open_expand = require("moonlift.open_expand")
                     local bindings = {}
@@ -90,7 +90,7 @@ local function make_quote(parse_fn, wrap_fn, expand_fn)
                     local env = e.empty_env()
                     env = e.env_with_fills(env, bindings)
                     local expanded = expand_fn(e, parsed.value, env)
-                    local result = wrap_fn(expanded, parsed, T)
+                    local result = wrap_fn(expanded, parsed, T, src, bound_values)
                     -- Attach deps for lazy compilation in CallableFunc:__call
                     if type(result) == "table" then
                         local mt = getmetatable(result)
@@ -109,7 +109,7 @@ end
 CallableFunc = {}
 CallableFunc.__index = CallableFunc
 
-function CallableFunc:__call(...)
+function CallableFunc:compile(opts)
     if not self._compiled then
         local api = self._api
         local b = api.bundle(self.name .. "_auto")
@@ -130,11 +130,15 @@ function CallableFunc:__call(...)
         end
 
         b:pack(self)
-        local artifact = b:jit()
+        local artifact = b:jit(opts or {})
         self._compiled = artifact
         self._fn = artifact:get(self.name)
     end
-    return self._fn(...)
+    return self._fn
+end
+
+function CallableFunc:__call(...)
+    return self:compile()(...)
 end
 
 function CallableFunc:free()
@@ -191,22 +195,96 @@ M.expr = make_quote(
 
 M.func = make_quote(
     function(T, src) return require("moonlift.parse").Define(T).parse_func(src) end,
-    function(value, parsed, T)
+    function(value, parsed, T, src, bindings)
         local pvm = require("moonlift.pvm")
         local Tr = T.MoonTree
-        -- Accept both raw FuncLocal and expanded ItemFunc
+        local function type_name_for(ty)
+            return require("moonlift.error.format").type_name(ty)
+        end
         local func_val = value
         if pvm.classof(value) == Tr.ItemFunc then
             func_val = value.func
         end
-        if pvm.classof(func_val) == Tr.FuncLocal then
+        -- Bodyless func declaration — return a header closure
+        if pvm.classof(func_val) == Tr.FuncDecl then
             local params = {}
             for i = 1, #(func_val.params or {}) do
                 local p = func_val.params[i]
                 params[i] = setmetatable({ kind = "param", name = p.name,
                     type = api.type_from_asdl(p.ty, p.name), decl = p }, {})
             end
-            return setmetatable({ kind = "func", session = default_session, name = func_val.name,
+            local result_val = api.type_from_asdl(func_val.result, func_val.name)
+            local function make_header(sig, bindings, src)
+                return setmetatable({
+                    kind = "func_header", name = sig.name,
+                    params = params, result = result_val,
+                    _sig = sig, _bindings = bindings or {}, _src = src,
+                }, {
+                    __call = function(self, arg)
+                        if type(arg) == "string" then
+                            -- Body provided: reconstruct full func from sig + body
+                            local T2 = default_session.T
+                            local pvm2 = require("moonlift.pvm")
+                            local Tr2 = T2.MoonTree
+                            local merged = self._bindings or {}
+                            -- Reconstruct the func signature from the raw header source,
+                            -- replacing @{key} with types from merged bindings
+                            local sig_src = self._src or (self._sig.name .. "(...)")
+                            -- Replace @{key} with type names from merged bindings
+                            local function resolve_bindings(s)
+                                return (s:gsub("@{(%w+)}", function(k)
+                                    local v = merged[k]
+                                    if v then
+                                        local ty = type(v) == "table" and (v.ty or v) or v
+                                        return require("moonlift.error.format").type_name(ty)
+                                    end
+                                    return "@{" .. k .. "}"
+                                end))
+                            end
+                            -- Add "func" prefix if not present in the source
+                            local header_src = resolve_bindings(sig_src)
+                            if not header_src:match("^func") then
+                                header_src = "func " .. header_src
+                            end
+                            local full = header_src .. "\n" .. arg .. "\nend"
+                            local res = require("moonlift.parse").Define(T2).parse_func(full)
+                            local fv = res.value or res
+                            if pvm2.classof(fv) == Tr2.ItemFunc then fv = fv.func end
+                            -- Build params from the COMPILED FuncLocal (fv) — these have the overridden types
+                            local new_params = {}
+                            local new_result = fv.result
+                            for pi = 1, #(fv.params or {}) do
+                                local pp = fv.params[pi]
+                                new_params[pi] = setmetatable({ kind = "param", name = pp.name,
+                                    type = api.type_from_asdl(pp.ty, pp.name), decl = pp }, {})
+                            end
+                            return setmetatable({ kind = "func", session = default_session, T = T2,
+                                name = fv.name, params = new_params, result = api.type_from_asdl(new_result, fv.name),
+                                func = fv, item = Tr2.ItemFunc(fv), visibility = "export",
+                                _api = api, _session = default_session }, CallableFunc)
+                        elseif type(arg) == "table" then
+                            -- Bindings override: merge and return new header
+                            local merged = {}
+                            for k, v in pairs(self._bindings) do merged[k] = v end
+                            for k, v in pairs(arg) do merged[k] = v end
+                            return make_header(self._sig, merged, self._src)
+                        end
+                        error("moon.func header expects body string [[]] or binding table {}", 2)
+                    end,
+                })
+            end
+            return make_header(func_val, bindings or {}, src)
+        end
+        local func_cls = pvm.classof(func_val)
+        if func_cls == Tr.FuncLocal or func_cls == Tr.FuncExport
+           or func_cls == Tr.FuncLocalContract or func_cls == Tr.FuncExportContract then
+            local params = {}
+            for i = 1, #(func_val.params or {}) do
+                local p = func_val.params[i]
+                params[i] = setmetatable({ kind = "param", name = p.name,
+                    type = api.type_from_asdl(p.ty, p.name), decl = p }, {})
+            end
+            return setmetatable({ kind = "func", session = default_session, T = T, name = func_val.name,
                 params = params, result = api.type_from_asdl(func_val.result, func_val.name),
                 func = func_val, item = Tr.ItemFunc(func_val), visibility = "export",
                 _api = api, _session = default_session }, CallableFunc)
@@ -224,29 +302,53 @@ M.func = make_quote(
 M.region = make_quote(
     function(T, src) return require("moonlift.parse").Define(T).parse_region(src) end,
     function(value, parsed)
+        local pvm = require("moonlift.pvm")
+        local O = default_session.T.MoonOpen
+        -- Bodyless region decl — return a header closure
+        if pvm.classof(value) == O.RegionFragDecl then
+            local header = setmetatable({
+                kind = "region_header",
+                name = value.name,
+                _src_cont = parsed and parsed.src,
+                _O = O,
+            }, {
+                __call = function(self, body_src)
+                    if type(body_src) ~= "string" then
+                        error("moon.region header expects a body string [[]] or nil", 2)
+                    end
+                    local T2 = default_session.T
+                    local full = body_src
+                    local parsed = require("moonlift.parse").Define(T2).parse_region(full)
+                    local v = parsed.value or parsed
+                    local rfv = api.CanonicalRegionFragValue or {}
+                    return setmetatable({ kind = "region_frag", moonlift_quote_kind = "region_frag",
+                        session = default_session, name = v.name, frag = v, conts = {},
+                        params = {}, blocks = {} }, rfv)
+                end,
+            })
+            return header
+        end
         local rfv = api.CanonicalRegionFragValue or {}
+        local name = (type(value.name) == "table" and (value.name.text or value.name.name)) or value.name
         return setmetatable({ kind = "region_frag", moonlift_quote_kind = "region_frag",
-            session = default_session, name = value.name, frag = value, conts = {},
+            session = default_session, name = name, frag = value, conts = {},
             params = {}, blocks = {} }, rfv)
     end,
     function(e, value, env)
-        local pvm = require("moonlift.pvm")
-        local g, p, c = e.expand_open_set(value, env)
-        return pvm.one(g, p, c)
+        return e.expand_region_frag(value, env)
     end
 )
 
 M.expr_frag = make_quote(
     function(T, src) return require("moonlift.parse").Define(T).parse_expr_frag(src) end,
     function(value, parsed)
+        local name = (type(value.name) == "table" and (value.name.text or value.name.name)) or value.name
         return setmetatable({ kind = "expr_frag", moonlift_quote_kind = "expr_frag",
-            name = value.name, frag = value, params = {} },
+            name = name, frag = value, params = {} },
             require("moonlift.host_values").ExprFragValue or {})
     end,
     function(e, value, env)
-        local pvm = require("moonlift.pvm")
-        local g, p, c = e.expand_open_set(value, env)
-        return pvm.one(g, p, c)
+        return e.expand_expr_frag(value, env)
     end
 )
 

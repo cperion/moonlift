@@ -332,6 +332,13 @@ function CompiledFunction:__tostring()
     return "CompiledMoonFunction(" .. self.func.name .. ": " .. self.c_sig .. ")"
 end
 
+function CompiledFunction:free()
+    if self.module then
+        self.module:free()
+        self.module = nil
+    end
+end
+
 function M.Install(api, session)
     local function new_bundle(name)
         assert_name(name, "bundle")

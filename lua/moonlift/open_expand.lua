@@ -882,6 +882,9 @@ function M.Define(T)
         [Tr.FuncExportContract] = function(self, env)
             return pvm.once(pvm.with(self, { params = expand_params(self.params, env), result = one(expand_type, self.result, env), body = expand_stmts(self.body, env) }))
         end,
+        [Tr.FuncDecl] = function(self, env)
+            return pvm.once(pvm.with(self, { params = expand_params(self.params, env), result = one(expand_type, self.result, env) }))
+        end,
         [Tr.FuncOpen] = function(self, env)
             local local_env = merge_fills(env, {})
             return pvm.once(pvm.with(self, { open = one(expand_open_set, self.open, env), result = one(expand_type, self.result, env), body = expand_stmts(self.body, local_env) }))

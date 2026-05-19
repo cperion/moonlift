@@ -872,6 +872,12 @@ return function(A)
                 A.field "body" (A.many "MoonTree.Stmt"),
                 A.variant_unique,
             },
+            A.variant "FuncDecl" {
+                A.field "name" "string",
+                A.field "params" (A.many "MoonType.Param"),
+                A.field "result" "MoonType.Type",
+                A.variant_unique,
+            },
             A.variant "FuncOpen" {
                 A.field "sym" "MoonCore.FuncSym",
                 A.field "visibility" "MoonCore.Visibility",

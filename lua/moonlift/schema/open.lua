@@ -397,6 +397,12 @@ return function(A)
             A.field "blocks" (A.many "MoonTree.ControlBlock"),
             A.unique,
         },
+        A.product "RegionFragDecl" {
+            A.field "name" "MoonOpen.NameRef",
+            A.field "params" (A.many "MoonOpen.OpenParam"),
+            A.field "conts" (A.many "MoonOpen.ContSlot"),
+            A.unique,
+        },
 
         A.sum "SlotValue" {
             A.variant "SlotValueType" {

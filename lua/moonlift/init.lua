@@ -6,11 +6,6 @@
 --   moon.dofile(path [, opts, ...])         — load and immediately execute
 --   moon.eval(src, ...)                     — loadstring + immediate call
 --
--- Native (MOM) pipeline (explicit opt-in):
---   moon.native_loadstring(src [, name])    — compile through MOM native path
---   moon.native_loadfile(path)              — compile through MOM native path
---   moon.native_dofile(path [, opts, ...])  — compile and execute through MOM
---
 -- Object emission:
 --   moon.emit_object(src [, path [, name]])  — emit .o bytes (hosted pipeline)
 --   moon.emit_shared(src [, path [, name]])  — emit .so/.dylib (hosted pipeline)
@@ -53,7 +48,6 @@ M.vec_inspect = require("moonlift.vec_inspect")
 M.region_compose = require("moonlift.region_compose")
 
 local _mlua_run = require("moonlift.mlua_run")
-local _host_mom = require("moonlift.host_mom")
 
 M.std = require("moonlift.std")
 M.views = M.std.views
@@ -81,55 +75,6 @@ end
 
 function M.current_runtime()
     return _mlua_run.current_runtime()
-end
-
---- Native (MOM) pipeline.
-
-function M.native_loadstring(src, name)
-    return _host_mom.native_loadstring(src, name)
-end
-
-function M.native_loadfile(path)
-    local f, err = io.open(path, "rb")
-    if not f then error("native_loadfile: " .. tostring(err), 2) end
-    local src = f:read("*a")
-    f:close()
-    return _host_mom.native_loadstring(src, path)
-end
-
-function M.native_dofile(path, opts, ...)
-    local call = opts and opts.call or "main"
-    local ret = opts and opts.ret or "i32"
-    local args_i32 = opts and opts.args_i32 or {}
-    local compiled = M.native_loadfile(path)
-    local ptr = compiled:get(call)
-    local ffi = require("ffi")
-    local nargs = #args_i32
-    if ret == "void" then
-        if nargs == 0 then ffi.cast("void (*)()", ptr)()
-        elseif nargs == 1 then ffi.cast("void (*)(int32_t)", ptr)(args_i32[1])
-        elseif nargs == 2 then ffi.cast("void (*)(int32_t,int32_t)", ptr)(args_i32[1], args_i32[2])
-        elseif nargs == 3 then ffi.cast("void (*)(int32_t,int32_t,int32_t)", ptr)(args_i32[1], args_i32[2], args_i32[3])
-        elseif nargs == 4 then ffi.cast("void (*)(int32_t,int32_t,int32_t,int32_t)", ptr)(args_i32[1], args_i32[2], args_i32[3], args_i32[4])
-        else error("native_dofile supports up to four i32 arguments")
-        end
-        compiled:free()
-        return
-    end
-    if ret == "i32" then
-        local fn
-        if nargs == 0 then fn = ffi.cast("int32_t (*)()", ptr)
-        elseif nargs == 1 then fn = ffi.cast("int32_t (*)(int32_t)", ptr)
-        elseif nargs == 2 then fn = ffi.cast("int32_t (*)(int32_t,int32_t)", ptr)
-        elseif nargs == 3 then fn = ffi.cast("int32_t (*)(int32_t,int32_t,int32_t)", ptr)
-        elseif nargs == 4 then fn = ffi.cast("int32_t (*)(int32_t,int32_t,int32_t,int32_t)", ptr)
-        else error("native_dofile supports up to four i32 arguments")
-        end
-        local result = fn(args_i32[1], args_i32[2], args_i32[3], args_i32[4])
-        compiled:free()
-        return tonumber(result)
-    end
-    error("native_dofile: unsupported ret type " .. tostring(ret))
 end
 
 --- Object/shared emission through the hosted (PVM) pipeline.
@@ -207,10 +152,6 @@ function M.emit_shared(src, path, name, opts)
     end
     return path
 end
-
---- Internal: backward-compatible aliases.
-
-M.host_mom = _host_mom
 
 --- Internal: CLI entry point for standalone binaries.
 

@@ -112,4 +112,52 @@ function M.Define(T)
     }
 end
 
+-----------------------------------------------------------------------------
+-- explain_source_issue: explains a single SourceApplyIssue
+-----------------------------------------------------------------------------
+
+function M.explain_source_issue(issue, analysis)
+    local pvm = require("moonlift.pvm")
+    local cls = pvm.classof(issue)
+    if not cls then
+        return { code = "E9999", severity = "error", primary = { span = nil, message = tostring(issue) } }
+    end
+    local kind = cls.kind
+
+    if kind == "SourceIssueWrongDocument" then
+        local expected = issue.expected and issue.expected.text or "?"
+        local actual = issue.actual and issue.actual.text or "?"
+        return {
+            code = "E1101", severity = "error", phase_context = "while applying text edits",
+            primary = { span = nil, message = "edit applied to wrong document: expected `" .. expected .. "`, got `" .. actual .. "`" },
+        }
+    elseif kind == "SourceIssueStaleVersion" then
+        return {
+            code = "E1102", severity = "error", phase_context = "while applying text edits",
+            primary = { span = nil, message = "stale document version: expected after " .. tostring(issue.expected_after or "?") .. ", got " .. tostring(issue.actual or "?") },
+        }
+    elseif kind == "SourceIssueInvalidRange" then
+        return {
+            code = "E1103", severity = "error", phase_context = "while applying text edits",
+            primary = { span = nil, message = "invalid source range: " .. tostring(issue.reason or "?") },
+        }
+    elseif kind == "SourceIssueOverlappingRanges" then
+        local function range_str(r)
+            if not r then return "?" end
+            return tostring(r.start_offset or 0) .. "-" .. tostring(r.stop_offset or 0)
+        end
+        return {
+            code = "E1104", severity = "error", phase_context = "while applying text edits",
+            primary = { span = nil, message = "overlapping edit ranges: " .. range_str(issue.previous) .. " overlaps " .. range_str(issue.current) },
+        }
+    elseif kind == "SourceIssueMixedReplaceAll" then
+        return {
+            code = "E1105", severity = "error", phase_context = "while applying text edits",
+            primary = { span = nil, message = "mixed `ReplaceAll` and `ReplaceRange` in the same edit" },
+        }
+    else
+        return { code = "E9999", severity = "error", primary = { span = nil, message = kind or tostring(issue) } }
+    end
+end
+
 return M

@@ -13,6 +13,7 @@ function M.new(opts)
     T._moonlift_host_expr_frags = {}
     return setmetatable({
         T = T,
+        issue_collector = opts.issue_collector or nil,
         prefix = opts.prefix or "host",
         next_id = 0,
         _api = nil,
@@ -23,6 +24,14 @@ end
 function Session:symbol_key(kind, name)
     self.next_id = self.next_id + 1
     return table.concat({ self.prefix, kind, tostring(self.next_id), tostring(name) }, ":")
+end
+
+function Session:set_issue_collector(collector)
+    self.issue_collector = collector
+    -- Also update already-created api if it exists
+    if self._api and self._api.set_issue_collector then
+        self._api:set_issue_collector(collector)
+    end
 end
 
 function Session:type_sym(name)
@@ -53,7 +62,7 @@ end
 function Session:api()
     if self._api then return self._api end
     local api = { session = self, T = self.T }
-    require("moonlift.host_issue_values").Install(api, self)
+    require("moonlift.host_issue_values").Install(api, self, self.issue_collector)
     require("moonlift.host_type_values").Install(api, self)
     require("moonlift.host_values").Install(api, self)
     require("moonlift.host_expr_values").Install(api, self)

@@ -1,6 +1,13 @@
+-- moonlift/editor_code_actions.lua
+-- Code action providers for the LSP.
+--
+-- Refactored to use the Issue Stream pipeline: reads ResolvedIssue[]
+-- from the document-analysis resolved issue side table instead of the old
+-- editor_diagnostic_facts path.
+
 local pvm = require("moonlift.pvm")
-local Diagnostics = require("moonlift.editor_diagnostic_facts")
 local PositionIndex = require("moonlift.source_position_index")
+local AnalysisStore = require("moonlift.mlua_document_analysis")
 
 local M = {}
 
@@ -8,19 +15,27 @@ local function uri_eq(a, b)
     return a == b or (a and b and a.text == b.text)
 end
 
-local function overlaps(a, b)
-    if not uri_eq(a.uri, b.uri) then return false end
-    if a.start_offset == a.stop_offset then
-        return a.start_offset >= b.start_offset and a.start_offset <= b.stop_offset
+local function span_overlaps(span_a, span_b)
+    local a_uri = span_a.uri or ""
+    local b_uri = span_b.uri or (span_b.uri and span_b.uri.text) or ""
+    local a_start = span_a.start_offset or 0
+    local a_stop = span_a.end_offset or span_a.start_offset or 0
+    local b_start = span_b.start_offset or 0
+    local b_stop = span_b.end_offset or span_b.start_offset or 0
+    if a_uri ~= b_uri then return false end
+    if a_start == a_stop then
+        return a_start >= b_start and a_start <= b_stop
     end
-    if b.start_offset == b.stop_offset then
-        return b.start_offset >= a.start_offset and b.start_offset <= a.stop_offset
+    if b_start == b_stop then
+        return b_start >= a_start and b_start <= a_stop
     end
-    return a.start_offset < b.stop_offset and b.start_offset < a.stop_offset
+    return a_start < b_stop and b_start < a_stop
 end
 
 local function range_contains(outer, inner)
-    return uri_eq(outer.uri, inner.uri) and inner.start_offset >= outer.start_offset and inner.stop_offset <= outer.stop_offset
+    local outer_uri = outer.uri and outer.uri.text or ""
+    local inner_uri = inner.uri and inner.uri.text or ""
+    return outer_uri == inner_uri and (inner.start_offset or 0) >= (outer.start_offset or 0) and (inner.stop_offset or 0) <= (outer.stop_offset or 0)
 end
 
 local function class_is(node, cls)
@@ -32,7 +47,6 @@ function M.Define(T)
     local E = T.MoonEditor
     local H = T.MoonHost
     local Mlua = T.MoonMlua
-    local Diag = Diagnostics.Define(T)
     local P = PositionIndex.Define(T)
 
     local function struct_segment_range(analysis, type_name)
@@ -85,12 +99,23 @@ function M.Define(T)
         return nil
     end
 
+    -- Get diagnostics at the query position from resolved issues
     local function candidate_diagnostics(query, analysis)
         if #query.diagnostics > 0 then return query.diagnostics end
-        local all = Diag.diagnostics(analysis)
+        local resolved = AnalysisStore.resolved_issues(analysis)
         local out = {}
-        for i = 1, #all do
-            if overlaps(all[i].range, query.range.range) then out[#out + 1] = all[i] end
+        for i = 1, #resolved do
+            local ri = resolved[i]
+            if ri.span then
+                -- Create a diagnostic-like proxy for overlap checking
+                local d = {
+                    range = ri.span,
+                    origin = ri.issue,
+                }
+                if span_overlaps(ri.span, query.range.range) then
+                    out[#out + 1] = d
+                end
+            end
         end
         return out
     end
@@ -123,7 +148,7 @@ function M.Define(T)
         for i = 1, #analysis.anchors.anchors do
             local a = analysis.anchors.anchors[i]
             if a.kind == S.AnchorFieldName and a.label == issue.field_name and range_contains(struct_range, a.range) then
-                if overlaps(a.range, diag.range) then target = a; break end
+                if span_overlaps(diag.range, a.range) then target = a; break end
                 target = a
             end
         end
@@ -177,12 +202,11 @@ function M.Define(T)
         return lua_index - 1
     end
 
-    local function unresolved_binding_actions(diag, resolution, analysis)
-        if pvm.classof(resolution) ~= E.BindingUnresolved then return {} end
-        local name = resolution.use.anchor.label
-        if not tostring(name):match("^[_%a][_%w]*$") then return {} end
+    local function unresolved_binding_actions(diag, issue, analysis)
+        local name = issue.name or (issue.use and issue.use.anchor and issue.use.anchor.label)
+        if not name or not tostring(name):match("^[_%a][_%w]*$") then return {} end
         local text = analysis.parse.parts.document.text
-        local insert_offset = line_start_offset(text, diag.range.start_offset)
+        local insert_offset = line_start_offset(text, diag.range.start_offset or 0)
         local line = text:sub(insert_offset + 1, text:find("\n", insert_offset + 1, true) or #text)
         local indent = line:match("^[ \t]*") or ""
         local index = P.build_index(analysis.parse.parts.document)
@@ -203,25 +227,21 @@ function M.Define(T)
             local diagnostics = candidate_diagnostics(query, analysis)
             for i = 1, #diagnostics do
                 local d = diagnostics[i]
-                local origin_cls = pvm.classof(d.origin)
-                if origin_cls == E.DiagFromHost then
-                    local issue = d.origin.issue
-                    local cls = pvm.classof(issue)
-                    local actions = {}
-                    if cls == H.HostIssueBareBoolInBoundaryStruct then
-                        actions = bool_storage_actions(d, issue, analysis)
-                    elseif cls == H.HostIssueInvalidPackedAlign then
-                        actions = packed_align_actions(d, issue, analysis)
-                    elseif cls == H.HostIssueDuplicateField then
-                        actions = duplicate_field_actions(d, issue, analysis)
-                    elseif cls == H.HostIssueDuplicateDecl then
-                        actions = duplicate_decl_actions(d, issue)
-                    end
-                    for j = 1, #actions do out[#out + 1] = actions[j] end
-                elseif origin_cls == E.DiagFromBindingResolution then
-                    local actions = unresolved_binding_actions(d, d.origin.resolution, analysis)
-                    for j = 1, #actions do out[#out + 1] = actions[j] end
+                local issue = d.origin
+                local cls = pvm.classof(issue)
+                local actions = {}
+                if cls == H.HostIssueBareBoolInBoundaryStruct then
+                    actions = bool_storage_actions(d, issue, analysis)
+                elseif cls == H.HostIssueInvalidPackedAlign then
+                    actions = packed_align_actions(d, issue, analysis)
+                elseif cls == H.HostIssueDuplicateField then
+                    actions = duplicate_field_actions(d, issue, analysis)
+                elseif cls == H.HostIssueDuplicateDecl then
+                    actions = duplicate_decl_actions(d, issue)
+                elseif cls == E.BindingUnresolved then
+                    actions = unresolved_binding_actions(d, issue, analysis)
                 end
+                for j = 1, #actions do out[#out + 1] = actions[j] end
             end
             return pvm.seq(out)
         end,

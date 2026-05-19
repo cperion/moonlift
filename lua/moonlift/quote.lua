@@ -22,7 +22,7 @@
 
 local M = {}
 local unpack = table.unpack or unpack
-local Diag = require("moonlift.diagnostic")
+-- (error handling uses inline error() calls -- no diagnostic module needed)
 
 local mt = {}; mt.__index = mt
 local NEXT_QUOTE_ID = 0
@@ -133,20 +133,12 @@ function M.compile_source(src, env, name)
     if loadstring then
         fn, err = loadstring(wrapper, name or "=(quote)")
         if not fn then
-            Diag.raise(Diag.from_error(err, {
-                phase = "compile_lua_chunk",
-                file = name or "=(quote)",
-                generated_source = wrapper,
-            }), 2)
+            error("compile_lua_chunk failed in " .. (name or "=(quote)") .. ": " .. tostring(err), 2)
         end
     else
         fn, err = load(wrapper, name or "=(quote)", "t")
         if not fn then
-            Diag.raise(Diag.from_error(err, {
-                phase = "compile_lua_chunk",
-                file = name or "=(quote)",
-                generated_source = wrapper,
-            }), 2)
+            error("compile_lua_chunk failed in " .. (name or "=(quote)") .. ": " .. tostring(err), 2)
         end
     end
 

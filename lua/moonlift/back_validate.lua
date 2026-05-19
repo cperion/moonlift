@@ -489,12 +489,15 @@ function M.Define(T)
         end,
     })
 
-    local function validate_program_impl(program, use_flat)
+    local function validate_program_impl(program, use_flat, collector)
         local issues = {}
         local cmds = program.cmds
         if #cmds == 0 then
             add_issue(issues, B.BackIssueEmptyProgram)
             add_issue(issues, B.BackIssueMissingFinalize)
+            if collector then
+                for i = 1, #issues do collector:emit(issues[i], "backend") end
+            end
             return B.BackValidationReport(issues)
         end
 
@@ -668,11 +671,17 @@ function M.Define(T)
             end
         end
 
+        if collector then
+            for i = 1, #issues do
+                collector:emit(issues[i], "backend")
+            end
+        end
+
         return B.BackValidationReport(issues)
     end
 
-    local validate_program = pvm.phase("moonlift_back_validate_program", function(program)
-        return validate_program_impl(program, true)
+    local validate_program = pvm.phase("moonlift_back_validate_program", function(program, collector)
+        return validate_program_impl(program, true, collector)
     end)
 
     return {
@@ -682,20 +691,20 @@ function M.Define(T)
             return out
         end,
         validate_program = validate_program,
-        validate_pvm_cold = function(program)
-            return validate_program_impl(program, false)
+        validate_pvm_cold = function(program, collector)
+            return validate_program_impl(program, false, collector)
         end,
-        validate_lua_cold = function(program)
-            return validate_program_impl(program, false)
+        validate_lua_cold = function(program, collector)
+            return validate_program_impl(program, false, collector)
         end,
-        validate_lua = function(program)
-            return validate_program_impl(program, false)
+        validate_lua = function(program, collector)
+            return validate_program_impl(program, false, collector)
         end,
-        validate_ll = function(program)
-            return validate_program_impl(program, true)
+        validate_ll = function(program, collector)
+            return validate_program_impl(program, true, collector)
         end,
-        validate = function(program)
-            return pvm.one(validate_program(program))
+        validate = function(program, collector)
+            return pvm.one(validate_program(program, collector))
         end,
 
         validate_verify = function(program)
@@ -721,5 +730,240 @@ function M.Define(T)
         end,
     }
 end
+
+-----------------------------------------------------------------------------
+-- explain_back_issue: explains a single BackIssue
+--
+-- CRITICAL: This FIXES E0601/E0602/E0603 — no longer reads non-existent
+-- .def_kind/.name/.violation fields. Each variant reads its ACTUAL schema
+-- fields (.sig, .func, .block, etc.) and produces a distinct message.
+-----------------------------------------------------------------------------
+
+local Format = require("moonlift.error.format")
+
+local function explain_back_issue(issue, analysis)
+    local resolvers = require("moonlift.error.span_resolvers")
+    local pvm = require("moonlift.pvm")
+    local span = resolvers.backend_resolver(issue, analysis)
+    local cls = pvm.classof(issue)
+    if not cls then return { code = "E9999", severity = "error", primary = { span = span, message = tostring(issue) } } end
+    local kind = cls.kind
+
+    -- Entity name helper: extracts a user-visible name from an ASDL identifier
+    local function entity_name(field)
+        if not field then return "?" end
+        if type(field) == "table" then
+            if field.text then return field.text end
+            local s = tostring(field)
+            if s and s ~= "" and s ~= "table: " .. tostring(field):match("0x%x+") then return s end
+        end
+        return tostring(field) or "?"
+    end
+
+    -- Helper to get the most specific entity name from an issue
+    local function issue_entity()
+        return entity_name(issue.func)
+            or entity_name(issue.block)
+            or entity_name(issue.value)
+            or entity_name(issue.sig)
+            or entity_name(issue.data)
+            or entity_name(issue.extern)
+            or entity_name(issue.slot)
+            or entity_name(issue.access)
+            or entity_name(issue.scalar)
+            or tostring(issue.index or "?")
+    end
+
+    --===== Missing definitions (E0601) =====--
+    if kind == "BackIssueMissingSig" then
+        return { code = "E0601", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "missing signature `" .. entity_name(issue.sig) .. "`" },
+            notes = { { message = "this signature is referenced but never defined" } } }
+    end
+    if kind == "BackIssueMissingFunc" then
+        return { code = "E0601", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "missing function `" .. entity_name(issue.func) .. "`" },
+            notes = { { message = "function " .. entity_name(issue.func) .. " is referenced but never defined" } } }
+    end
+    if kind == "BackIssueMissingBlock" then
+        return { code = "E0402", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "missing block `" .. entity_name(issue.block) .. "`" },
+            notes = { { message = "block " .. entity_name(issue.block) .. " is referenced but never defined" } } }
+    end
+    if kind == "BackIssueMissingValue" then
+        return { code = "E0601", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "missing value `" .. entity_name(issue.value) .. "`" },
+            notes = { { message = "value " .. entity_name(issue.value) .. " is referenced but never defined" } } }
+    end
+    if kind == "BackIssueMissingData" then
+        return { code = "E0601", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "missing data `" .. entity_name(issue.data) .. "`" },
+            notes = { { message = "data " .. entity_name(issue.data) .. " is referenced but never defined" } } }
+    end
+    if kind == "BackIssueMissingExtern" then
+        return { code = "E0601", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "missing extern `" .. entity_name(issue.func) .. "`" },
+            notes = { { message = "extern " .. entity_name(issue.func) .. " is referenced but never defined" } } }
+    end
+    if kind == "BackIssueMissingStackSlot" then
+        return { code = "E0601", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "missing stack slot `" .. entity_name(issue.slot) .. "`" },
+            notes = { { message = "stack slot " .. entity_name(issue.slot) .. " is referenced but never defined" } } }
+    end
+    if kind == "BackIssueMissingAccess" then
+        return { code = "E0601", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "missing access `" .. entity_name(issue.access) .. "`" },
+            notes = { { message = "access " .. entity_name(issue.access) .. " is referenced but never defined" } } }
+    end
+
+    --===== Duplicate definitions (E0602) =====--
+    local function dup_suggestion(name)
+        return { message = "rename or remove the duplicate `" .. name .. "`" }
+    end
+    if kind == "BackIssueDuplicateSig" then
+        return { code = "E0602", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "duplicate signature `" .. entity_name(issue.sig) .. "`" },
+            suggestions = { dup_suggestion(entity_name(issue.sig)) } }
+    end
+    if kind == "BackIssueDuplicateFunc" then
+        return { code = "E0602", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "duplicate function `" .. entity_name(issue.func) .. "`" },
+            suggestions = { dup_suggestion(entity_name(issue.func)) } }
+    end
+    if kind == "BackIssueDuplicateData" then
+        return { code = "E0602", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "duplicate data `" .. entity_name(issue.data) .. "`" },
+            suggestions = { dup_suggestion(entity_name(issue.data)) } }
+    end
+    if kind == "BackIssueDuplicateExtern" then
+        return { code = "E0602", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "duplicate extern `" .. entity_name(issue.func) .. "`" },
+            suggestions = { dup_suggestion(entity_name(issue.func)) } }
+    end
+    if kind == "BackIssueDuplicateBlock" then
+        return { code = "E0406", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "duplicate block `" .. entity_name(issue.block) .. "`" },
+            suggestions = { dup_suggestion(entity_name(issue.block)) } }
+    end
+    if kind == "BackIssueDuplicateStackSlot" then
+        return { code = "E0602", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "duplicate stack slot `" .. entity_name(issue.slot) .. "`" },
+            suggestions = { dup_suggestion(entity_name(issue.slot)) } }
+    end
+    if kind == "BackIssueDuplicateValue" then
+        return { code = "E0602", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "duplicate value `" .. entity_name(issue.value) .. "`" },
+            suggestions = { dup_suggestion(entity_name(issue.value)) } }
+    end
+    if kind == "BackIssueDuplicateAccess" then
+        return { code = "E0602", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "duplicate access `" .. entity_name(issue.access) .. "`" } }
+    end
+
+    --===== Command order violations (E0603) =====--
+    -- Each variant gets a DISTINCT message instead of generic "command order violation"
+    if kind == "BackIssueEmptyProgram" then
+        return { code = "E0603", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "no backend commands were emitted" } }
+    end
+    if kind == "BackIssueMissingFinalize" then
+        return { code = "E0603", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "program is not finalized" } }
+    end
+    if kind == "BackIssueCommandAfterFinalize" then
+        return { code = "E0603", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "command after program finalization" } }
+    end
+    if kind == "BackIssueCommandOutsideFunction" then
+        return { code = "E0603", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "command outside a function block" } }
+    end
+    if kind == "BackIssueNestedFunction" then
+        return { code = "E0603", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "nested function definition" } }
+    end
+    if kind == "BackIssueFinishWithoutBegin" then
+        return { code = "E0603", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "function block ends without a matching begin" } }
+    end
+    if kind == "BackIssueFinishWrongFunction" then
+        return { code = "E0603", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "function block ends in the wrong function" } }
+    end
+    if kind == "BackIssueUnfinishedFunction" then
+        return { code = "E0603", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "function block is unfinished" } }
+    end
+    if kind == "BackIssueNonTrappingWithoutDereference" then
+        return { code = "E0603", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "non-trapping access requires a dereference" } }
+    end
+    if kind == "BackIssueCanMoveWithoutNonTrapping" then
+        return { code = "E0603", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "`can_move` requires non-trapping access" } }
+    end
+
+    --===== Type-related back issues =====--
+    if kind == "BackIssueLoadAccessMode" then
+        return { code = "E0301", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "type mismatch for load access mode `" .. Format.access_mode_name(issue.mode) .. "`" },
+            notes = { { message = "the loaded value type does not match the expected type for this access mode" } } }
+    end
+    if kind == "BackIssueStoreAccessMode" then
+        return { code = "E0301", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "type mismatch for store access mode `" .. Format.access_mode_name(issue.mode) .. "`" },
+            notes = { { message = "the stored value type does not match the expected type for this access mode" } } }
+    end
+    if kind == "BackIssueDereferenceTooSmall" then
+        return { code = "E0301", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "dereference size is too small (" .. tostring(issue.bytes or "?") .. " bytes)" } }
+    end
+    if kind == "BackIssueTargetUnsupportedShape" then
+        return { code = "E0301", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "unsupported shape for target" } }
+    end
+    if kind == "BackIssueShapeRequiresScalar" then
+        return { code = "E0301", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "scalar type expected for this operation" },
+            notes = { { message = "this operation requires a scalar type (i8, i16, i32, i64, f32, f64, etc.), not a vector" } } }
+    end
+    if kind == "BackIssueShapeRequiresVector" then
+        return { code = "E0301", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "vector type expected for this operation" },
+            notes = { { message = "this operation requires a vector type, not a scalar" } } }
+    end
+
+    --===== Scalar type issues (E0304) =====--
+    if kind == "BackIssueIntScalarExpected" then
+        return { code = "E0304", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "expected integer type, got scalar `" .. Format.scalar_name(issue.scalar) .. "`" },
+            notes = { { message = "integer types: i8, i16, i32, i64, u8, u16, u32, u64, index" } } }
+    end
+    if kind == "BackIssueFloatScalarExpected" then
+        return { code = "E0304", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "expected float type, got scalar `" .. Format.scalar_name(issue.scalar) .. "`" },
+            notes = { { message = "float types: f32, f64" } } }
+    end
+    if kind == "BackIssueBitScalarExpected" then
+        return { code = "E0304", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "expected bit type, got scalar `" .. Format.scalar_name(issue.scalar) .. "`" },
+            notes = { { message = "bit types: bool, i8 (for bitwise operations)" } } }
+    end
+    if kind == "BackIssueShiftScalarExpected" then
+        return { code = "E0304", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "expected integer type for shift, got scalar `" .. Format.scalar_name(issue.scalar) .. "`" } }
+    end
+
+    --===== Alignment issues =====--
+    if kind == "BackIssueInvalidAlignment" then
+        return { code = "E0506", severity = "error", phase_context = "while compiling",
+            primary = { span = span, message = "invalid alignment for access mode `" .. Format.access_mode_name(issue.mode) .. "`" } }
+    end
+
+    -- Fallback
+    return { code = "E9999", severity = "error", primary = { span = span, message = kind or tostring(issue) } }
+end
+
+M.explain_back_issue = explain_back_issue
 
 return M

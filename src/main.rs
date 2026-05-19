@@ -207,7 +207,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     lua.load(r#"require("moonlift.mlua_run")"#).exec()?;
 
     if let Some(path) = file_path {
-        run_mlua_file(&lua, path, native)?;
+        if let Err(err) = run_mlua_file(&lua, path, native) {
+            let msg = err.to_string();
+            // Extract just the formatted error (before "stack traceback:")
+            let clean = msg.split("\nstack traceback:").next().unwrap_or(&msg);
+            // Strip "runtime error: " prefix if present
+            let clean = clean.strip_prefix("runtime error: ").unwrap_or(clean);
+            eprintln!("{}", clean);
+            std::process::exit(1);
+        }
     } else if args.len() == 1 {
         println!("MoonLift host ready. usage: moonlift [--native] file.mlua");
     }

@@ -1551,7 +1551,13 @@ function Parser:parse_extern()
         symbol = self:expect_string("expected extern symbol string")
     end
     self:skip_nl()
-    self:expect(TK.end_kw, "expected end after extern declaration")
+    -- Bodyless extern — accept without `end`
+    if self:kind() == TK.end_kw then
+        self.i = self.i + 1
+    elseif self:kind() ~= TK.eof then
+        -- Fallback: try `end` if not EOF
+        self:expect(TK.end_kw, "expected end after extern declaration")
+    end
     return Tr.ExternFunc(name, symbol, params, result)
 end
 
@@ -1569,6 +1575,12 @@ function Parser:parse_func()
     while self:kind() == TK.requires_kw do
         contracts[#contracts + 1] = self:parse_contract()
         self:skip_nl()
+    end
+    -- Bodyless declaration (header mode) — accept `func ... end` or `func ...` (EOF) without body
+    if self:kind() == TK.end_kw or self:kind() == TK.eof or self:kind() == TK.nl then
+        if self:kind() == TK.end_kw then self.i = self.i + 1 end
+        self:skip_nl()
+        return Tr.FuncDecl(name, params, result)
     end
     local body = self:parse_stmt_until({ [TK.end_kw]=true })
     self:expect(TK.end_kw, "expected end after function")
@@ -1751,6 +1763,13 @@ function Parser:parse_region_frag()
         local protocol_ty = self:parse_type()
         cont_slots, slots = self:cont_slots_from_protocol(protocol_ty, name_key)
         self:skip_nl()
+    end
+
+    -- Bodyless declaration (header mode) — just signature, no entry/blocks
+    if self:kind() == TK.end_kw or self:kind() == TK.eof or self:kind() == TK.nl then
+        if self:kind() == TK.end_kw then self.i = self.i + 1 end
+        self:skip_nl()
+        return O.RegionFragDecl(name_ref, params, slots)
     end
 
     local saved_value_env, saved_cont_env = self.value_env, self.cont_env
@@ -2420,9 +2439,14 @@ function M.parse_module_document(T, src, opts)
     local scan = M.scan_document(src)
     local items, issues, splice_slots = {}, {}, {}
     local protocol_types = opts.protocol_types or {}
+    local collector = opts.collector
     for i = 1, #scan.islands do
         local parsed = M.parse_island(T, scan, i, { protocol_types = protocol_types })
-        for j = 1, #parsed.issues do issues[#issues + 1] = parsed.issues[j] end
+        for j = 1, #parsed.issues do
+            local issue = parsed.issues[j]
+            issues[#issues + 1] = issue
+            if collector then collector:emit(issue, "parse") end
+        end
         for j = 1, #parsed.splice_slots do splice_slots[#splice_slots + 1] = parsed.splice_slots[j] end
         protocol_types = parsed.protocol_types or protocol_types
         if parsed.kind == "func" then
@@ -2468,6 +2492,104 @@ function M.Define(T)
         parse_module = function(src, opts) return M.parse_module_document(T, src, opts) end,
     }
 end
+
+-----------------------------------------------------------------------------
+-- explain_parse_issue: explains a single ParseIssue
+-----------------------------------------------------------------------------
+
+local function explain_parse_issue(issue, analysis)
+    local resolvers = require("moonlift.error.span_resolvers")
+    local span = resolvers.parse_resolver(issue, analysis)
+    local msg = issue.message or "unexpected token"
+
+    -- Enrich the message with construct context if available
+    local notes = {}
+    local suggestions = {}
+
+    -- Detect common Moonlift-specific parse situations
+    local m = msg:match("expected '(.-)', got")
+    if m then
+        if m == "end" then
+            notes[#notes + 1] = { message = "an open construct has not been closed" }
+            notes[#notes + 1] = { message = "check that every `region`, `func`, `if`, `switch`, or `block` has a matching `end`" }
+        elseif m == "then" then
+            notes[#notes + 1] = { message = "`if` and `case` expressions require `then` before the body" }
+            suggestions[#suggestions + 1] = { message = "add `then` after the condition" }
+        elseif m == "do" then
+            notes[#notes + 1] = { message = "`switch` requires `do` before the first `case`: `switch expr do case ... end`" }
+            suggestions[#suggestions + 1] = { message = "add `do` after the switch expression" }
+        elseif m == "'='" then
+            notes[#notes + 1] = { message = "assignment and block parameter initialization require `=`" }
+        elseif m == "')" then
+            notes[#notes + 1] = { message = "there may be a missing comma or extra argument in this list" }
+        end
+    end
+
+    -- Unterminated construct (E0102)
+    if issue.construct then
+        local construct = issue.construct
+        local name = issue.name or ""
+        return {
+            code = "E0102",
+            severity = "error",
+            phase_context = "while parsing this file",
+            primary = {
+                span = span,
+                message = construct .. " " .. (name ~= "" and ("`" .. name .. "` ") or "") .. "is not terminated",
+            },
+            notes = {
+                { message = "every " .. construct .. " must be closed with `end`" },
+            },
+            suggestions = {
+                { message = "add `end` at the end of this " .. construct },
+            },
+        }
+    end
+
+    -- Missing keyword (E0103)
+    if issue.keyword or issue.expected then
+        local keyword = issue.keyword or issue.expected or "?"
+        local context = issue.context or ""
+        local knotes = {}
+        local ksuggestions = {}
+        if keyword == "do" and context == "switch" then
+            knotes[#knotes + 1] = { message = "`switch` requires `do` before the first `case`: `switch expr do case ... end`" }
+            ksuggestions[#ksuggestions + 1] = { message = "write `switch ... do`" }
+        elseif keyword == "then" then
+            knotes[#knotes + 1] = { message = "`if` and `case` require `then` before the body" }
+            ksuggestions[#ksuggestions + 1] = { message = "add `then` after the condition" }
+        elseif keyword == "end" then
+            knotes[#knotes + 1] = { message = "this construct must be closed with `end`" }
+            ksuggestions[#ksuggestions + 1] = { message = "add `end` to close the " .. (context ~= "" and context or "construct") }
+        else
+            knotes[#knotes + 1] = { message = "expected `" .. keyword .. "` here" }
+            ksuggestions[#ksuggestions + 1] = { message = "insert `" .. keyword .. "`" }
+        end
+        return {
+            code = "E0103",
+            severity = "error",
+            phase_context = "while parsing this file",
+            primary = {
+                span = span,
+                message = "expected `" .. keyword .. "`" .. (context ~= "" and (" in " .. context) or ""),
+            },
+            notes = knotes,
+            suggestions = ksuggestions,
+        }
+    end
+
+    -- Default: parse error (E0101)
+    return {
+        code = "E0101",
+        severity = "error",
+        phase_context = "while parsing this file",
+        primary = { span = span, message = msg },
+        notes = notes,
+        suggestions = suggestions,
+    }
+end
+
+M.explain_parse_issue = explain_parse_issue
 
 M.TK = TK
 

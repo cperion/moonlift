@@ -214,7 +214,7 @@ function M.reports(registry)
         end
         -- Additional scope names can be added via analysis
 
-        local report = Catalog.build_report(data.code, issue, analysis)
+        local report = Catalog.build_report(data.code, issue, data.phase, analysis)
 
         -- Add phase context if not already set
         if not report.phase_context and data.phase then

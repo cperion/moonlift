@@ -28,6 +28,21 @@ function M.kind_of(value)
     return "table"
 end
 
+-- ── Error helper ──────────────────────────────────────────────────────────────
+
+-- Raise a splice error to the collector if one is active, otherwise error().
+local function raise(site, msg, level)
+    if _collector then
+        -- Construct a HostIssueExpected with a descriptive message
+        local H = require("moonlift.pvm").context().MoonHost
+        if H and H.HostIssueSpliceExpected then
+            _collector:emit(H.HostIssueSpliceExpected(site or "splice", "?", msg), "host")
+        end
+    else
+        error((site or "splice") .. ": " .. msg, level or 2)
+    end
+end
+
 -- ── Protocol helper ───────────────────────────────────────────────────────────
 
 -- Ask a host value to splice itself into the given role.
@@ -43,6 +58,12 @@ end
 -- ── Top-level dispatch ────────────────────────────────────────────────────────
 
 -- Fill a parser-produced Slot sum wrapper with a Lua value.
+local _collector = nil  -- thread-local collector set per analysis cycle
+
+function M.set_collector(c)
+    _collector = c
+end
+
 function M.fill(session, slot, value, site, role, spread)
     local O = session.T.MoonOpen
     local cls = pvm.classof(slot)
@@ -67,7 +88,8 @@ function M.fill(session, slot, value, site, role, spread)
     if cls == O.SlotExprFrag   then return M.fill_expr_frag(session, slot.slot, value, site) end
     if cls == O.SlotName       then return M.fill_name(session, slot.slot, value, site) end
 
-    error((site or "splice") .. ": unsupported splice slot class " .. tostring(cls), 2)
+    raise(site, "unsupported splice slot class " .. tostring(cls), 2)
+    return nil
 end
 
 -- ── Type slot ─────────────────────────────────────────────────────────────────
@@ -95,14 +117,16 @@ function M.fill_type(session, slot, value, site)
     end
 
     if not ty then
-        error((site or "splice") .. ": expected type value for @{} type splice, got " .. M.kind_of(value), 2)
+        raise(site, "expected type value for @{} type splice, got " .. M.kind_of(value))
+        return nil
     end
 
     local ok, binding = pcall(function()
         return O.SlotBinding(O.SlotType(slot), O.SlotValueType(ty))
     end)
     if ok then return binding end
-    error((site or "splice") .. ": type value context mismatch; use the active session's moon.* API", 2)
+    raise(site, "type value context mismatch; use the active session's moon.* API")
+    return nil
 end
 
 -- ── Expression slot ───────────────────────────────────────────────────────────
@@ -165,7 +189,8 @@ function M.fill_expr(session, slot, value, site)
     end
 
     if not expr then
-        error((site or "splice") .. ": expected expression value for @{} expr splice, got " .. M.kind_of(value), 2)
+        raise(site, "expected expression value for @{} expr splice, got " .. M.kind_of(value))
+        return nil
     end
 
     return O.SlotBinding(O.SlotExpr(slot), O.SlotValueExpr(expr))
@@ -173,7 +198,8 @@ end
 
 local function as_array(value, site, role)
     if type(value) ~= "table" then
-        error((site or "splice") .. ": expected list for @{} " .. role .. " splice, got " .. M.kind_of(value), 3)
+        raise(site, "expected list for @{} " .. role .. " splice, got " .. M.kind_of(value), 3)
+        return nil
     end
     return value
 end
@@ -215,8 +241,10 @@ function M.fill_param_list(session, slot, value, site)
         elseif pvm.classof(v) == Ty.Param then
             out[#out + 1] = v
         else
-            error((site or "splice") .. "[" .. i .. "]: expected parameter value, got " .. M.kind_of(v), 2)
+            raise(site .. "[" .. i .. "]", "expected parameter value, got " .. M.kind_of(v))
+            goto continue
         end
+        ::continue::
     end
     return O.SlotBinding(O.SlotRegion(slot), O.SlotValueParams(out))
 end
@@ -232,8 +260,10 @@ function M.fill_field_list(session, slot, value, site)
         elseif pvm.classof(v) == Ty.FieldDecl then
             out[#out + 1] = v
         else
-            error((site or "splice") .. "[" .. i .. "]: expected field value, got " .. M.kind_of(v), 2)
+            raise(site .. "[" .. i .. "]", "expected field value, got " .. M.kind_of(v))
+            goto continue
         end
+        ::continue::
     end
     return O.SlotBinding(O.SlotRegion(slot), O.SlotValueFields(out))
 end
@@ -249,8 +279,10 @@ function M.fill_variant_list(session, slot, value, site)
         elseif pvm.classof(v) == Ty.VariantDecl then
             out[#out + 1] = v
         else
-            error((site or "splice") .. "[" .. i .. "]: expected variant value, got " .. M.kind_of(v), 2)
+            raise(site .. "[" .. i .. "]", "expected variant value, got " .. M.kind_of(v))
+            goto continue
         end
+        ::continue::
     end
     return O.SlotBinding(O.SlotRegion(slot), O.SlotValueVariants(out))
 end
@@ -261,7 +293,8 @@ local function as_switch_stmt_arm(session, v, site, i)
     if type(v) == "table" and v.raw_key ~= nil and type(v.body) == "table" then
         return Tr.SwitchStmtArm(tostring(v.raw_key), v.body)
     end
-    error((site or "splice") .. "[" .. i .. "]: expected switch statement arm (SwitchStmtArm or {raw_key, body}), got " .. M.kind_of(v), 2)
+    raise(site .. "[" .. i .. "]", "expected switch statement arm (SwitchStmtArm or {raw_key, body}), got " .. M.kind_of(v))
+    return nil
 end
 
 local function as_switch_expr_arm(session, v, site, i)
@@ -270,7 +303,8 @@ local function as_switch_expr_arm(session, v, site, i)
     if type(v) == "table" and v.raw_key ~= nil and type(v.body) == "table" then
         return Tr.SwitchExprArm(tostring(v.raw_key), v.body, v.result)
     end
-    error((site or "splice") .. "[" .. i .. "]: expected switch expression arm (SwitchExprArm or {raw_key, body, result?}), got " .. M.kind_of(v), 2)
+    raise(site .. "[" .. i .. "]", "expected switch expression arm (SwitchExprArm or {raw_key, body, result?}), got " .. M.kind_of(v))
+    return nil
 end
 
 function M.fill_switch_stmt_arm_list(session, slot, value, site)
@@ -297,7 +331,8 @@ local function param_decl(session, v, site)
     local Ty = session.T.MoonType
     if type(v) == "table" and v.decl and pvm.classof(v.decl) == Ty.Param then return v.decl end
     if pvm.classof(v) == Ty.Param then return v end
-    error((site or "splice") .. ": expected parameter value, got " .. M.kind_of(v), 3)
+    raise(site, "expected parameter value, got " .. M.kind_of(v), 3)
+    return nil
 end
 
 local function block_param_decl(session, v, site)
@@ -340,7 +375,7 @@ function M.fill_entry_param_list(session, slot, value, site)
         local v = xs[i]
         if type(v) == "table" and v.decl and pvm.classof(v.decl) == Tr.EntryBlockParam then out[#out + 1] = v.decl
         elseif pvm.classof(v) == Tr.EntryBlockParam then out[#out + 1] = v
-        else error((site or "splice") .. "[" .. i .. "]: expected entry parameter value, got " .. M.kind_of(v), 2) end
+        else raise(site .. "[" .. i .. "]", "expected entry parameter value, got " .. M.kind_of(v)) end
     end
     return O.SlotBinding(O.SlotRegion(slot), O.SlotValueEntryParams(out))
 end
@@ -359,7 +394,7 @@ function M.fill_cont_slot_list(session, slot, value, site)
             for j = 1, #src do params[j] = block_param_decl(session, src[j], (site or "splice") .. "[" .. i .. "].params[" .. j .. "]") end
             out[#out + 1] = O.ContSlot(session:symbol_key("cont_splice", v.name), v.name, params)
         else
-            error((site or "splice") .. "[" .. i .. "]: expected continuation slot or {name=..., params=...}, got " .. M.kind_of(v), 2)
+            raise(site .. "[" .. i .. "]", "expected continuation slot or {name=..., params=...}, got " .. M.kind_of(v))
         end
     end
     return O.SlotBinding(O.SlotRegion(slot), O.SlotValueContSlots(out))
@@ -373,7 +408,7 @@ function M.fill_control_block_list(session, slot, value, site)
         local v = xs[i]
         if pvm.classof(v) == Tr.ControlBlock then out[#out + 1] = v
         elseif type(v) == "table" and v.kind == "block" and v.label then out[#out + 1] = Tr.ControlBlock(v.label, v.params or {}, v.body or {})
-        else error((site or "splice") .. "[" .. i .. "]: expected control block value, got " .. M.kind_of(v), 2) end
+        else raise(site .. "[" .. i .. "]", "expected control block value, got " .. M.kind_of(v)) end
     end
     return O.SlotBinding(O.SlotRegion(slot), O.SlotValueControlBlocks(out))
 end
@@ -393,7 +428,8 @@ function M.fill_region_body(session, slot, value, site)
     end
 
     if not stmts then
-        error((site or "splice") .. ": expected statement list for region_body splice, got " .. M.kind_of(value), 2)
+        raise(site, "expected statement list for region_body splice, got " .. M.kind_of(value))
+        return nil
     end
 
     return O.SlotBinding(O.SlotRegion(slot), O.SlotValueRegion(stmts))
@@ -420,7 +456,8 @@ function M.fill_region_frag(session, slot, value, site)
     end
 
     if not frag then
-        error((site or "splice") .. ": expected region fragment for emit target splice, got " .. M.kind_of(value), 2)
+        raise(site, "expected region fragment for emit target splice, got " .. M.kind_of(value))
+        return nil
     end
 
     return O.SlotBinding(O.SlotRegionFrag(slot), O.SlotValueRegionFrag(frag))
@@ -447,7 +484,8 @@ function M.fill_expr_frag(session, slot, value, site)
     end
 
     if not frag then
-        error((site or "splice") .. ": expected expression fragment for emit-expr target splice, got " .. M.kind_of(value), 2)
+        raise(site, "expected expression fragment for emit-expr target splice, got " .. M.kind_of(value))
+        return nil
     end
 
     return O.SlotBinding(O.SlotExprFrag(slot), O.SlotValueExprFrag(frag))
@@ -469,10 +507,12 @@ function M.fill_name(session, slot, value, site)
     if not name and type(value) == "string" then name = value end
 
     if not name then
-        error((site or "splice") .. ": expected identifier string for name splice, got " .. M.kind_of(value), 2)
+        raise(site, "expected identifier string for name splice, got " .. M.kind_of(value))
+        return nil
     end
     if not name:match(ident_pat) then
-        error((site or "splice") .. ": invalid Moonlift identifier: " .. string.format("%q", name), 2)
+        raise(site, "invalid Moonlift identifier: " .. string.format("%q", name))
+        return nil
     end
 
     return O.SlotBinding(O.SlotName(slot), O.SlotValueName(name))

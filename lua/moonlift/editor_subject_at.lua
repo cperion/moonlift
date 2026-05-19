@@ -1,8 +1,8 @@
 local pvm = require("moonlift.pvm")
 local PositionIndex = require("moonlift.source_position_index")
 local AnchorIndex = require("moonlift.source_anchor_index")
-local Diagnostics = require("moonlift.editor_diagnostic_facts")
 local BindingFacts = require("moonlift.editor_binding_facts")
+local AnalysisStore = require("moonlift.mlua_document_analysis")
 
 local M = {}
 
@@ -34,7 +34,6 @@ function M.Define(T)
     local Mlua = T.MoonMlua
     local P = PositionIndex.Define(T)
     local AI = AnchorIndex.Define(T)
-    local Diag = Diagnostics.Define(T)
     local Bindings = BindingFacts.Define(T)
 
     local function find_struct(analysis, name)
@@ -111,10 +110,17 @@ function M.Define(T)
     end
 
     local function diagnostic_at(analysis, offset)
-        local diags = Diag.diagnostics(analysis)
-        for i = 1, #diags do
-            local d = diags[i]
-            if uri_eq(d.range.uri, analysis.parse.parts.document.uri) and range_contains(d.range, offset) then return d end
+        local resolved = AnalysisStore.resolved_issues(analysis)
+        for i = 1, #resolved do
+            local ri = resolved[i]
+            if ri.span then
+                -- Create a range proxy compatible with range_contains
+                local proxy = {
+                    start_offset = ri.span.start_offset or 0,
+                    stop_offset = ri.span.end_offset or ri.span.start_offset or 0,
+                }
+                if range_contains(proxy, offset) then return ri.issue end
+            end
         end
         return nil
     end

@@ -622,4 +622,40 @@ function M.Define(T)
     }
 end
 
+-----------------------------------------------------------------------------
+-- explain_vec_reject: explains a single VecReject
+-----------------------------------------------------------------------------
+
+function M.explain_vec_reject(issue, analysis)
+    local pvm = require("moonlift.pvm")
+    local resolvers = require("moonlift.error.span_resolvers")
+    local span = resolvers.vec_resolver(issue, analysis)
+    local cls = pvm.classof(issue)
+    if not cls then return { code = "E9999", severity = "info", primary = { span = span, message = tostring(issue) } } end
+    local kind = cls.kind
+
+    -- All 8 VecReject variants carry a `reason` field (human-readable string)
+    local reason = issue.reason or "reason not specified"
+
+    if kind == "VecRejectUnsupportedLoop" then
+        return { code = "E1001", severity = "info", phase_context = "while checking vectorization", primary = { span = span, message = "loop not vectorized: " .. reason } }
+    elseif kind == "VecRejectUnsupportedExpr" then
+        return { code = "E1001", severity = "info", phase_context = "while checking vectorization", primary = { span = span, message = "expression not vectorized: " .. reason } }
+    elseif kind == "VecRejectUnsupportedStmt" then
+        return { code = "E1001", severity = "info", phase_context = "while checking vectorization", primary = { span = span, message = "statement not vectorized: " .. reason } }
+    elseif kind == "VecRejectUnsupportedMemory" then
+        return { code = "E1002", severity = "info", phase_context = "while checking vectorization", primary = { span = span, message = "memory access not vectorized: " .. reason } }
+    elseif kind == "VecRejectDependence" then
+        return { code = "E1003", severity = "info", phase_context = "while checking vectorization", primary = { span = span, message = "vectorization rejected due to dependence: " .. reason } }
+    elseif kind == "VecRejectRange" then
+        return { code = "E1001", severity = "info", phase_context = "while checking vectorization", primary = { span = span, message = "range not vectorized: " .. reason } }
+    elseif kind == "VecRejectTarget" then
+        return { code = "E1004", severity = "info", phase_context = "while checking vectorization", primary = { span = span, message = "target shape not supported: " .. reason } }
+    elseif kind == "VecRejectCost" then
+        return { code = "E1005", severity = "info", phase_context = "while checking vectorization", primary = { span = span, message = "vectorization not profitable: " .. reason } }
+    else
+        return { code = "E9999", severity = "info", phase_context = "while checking vectorization", primary = { span = span, message = "vectorization rejected: " .. reason } }
+    end
+end
+
 return M
