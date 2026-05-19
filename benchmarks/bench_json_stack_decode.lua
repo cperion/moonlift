@@ -94,6 +94,22 @@ do
 end
 
 -- ---------------------------------------------------------------------------
+-- Generated Lua decoder (codegen via string building + loadstring)
+-- ---------------------------------------------------------------------------
+
+local gen_result = dofile("examples/json/json_lua_stack_decoder_quote.lua")
+local gen_decode = gen_result.fn
+
+-- Verify
+local gen_buf = ffi.new("uint8_t[?]", JSON_LEN + 1)
+do
+    local L = C.luaL_newstate()
+    local endpos = gen_decode(L, JSON, JSON_LEN, gen_buf)
+    assert(tonumber(endpos) == JSON_LEN, "generated decoder failed")
+    C.lua_close(L)
+end
+
+-- ---------------------------------------------------------------------------
 -- Pure-Lua JSON decoder (recursive descent, no lpeg, no cjson)
 -- ---------------------------------------------------------------------------
 
@@ -275,13 +291,24 @@ for _ = 1, math.max(1, math.floor(ITERS / 10)) do moonlift_decode() end
 
 local t_moonlift = bench("moonlift_json_stack", moonlift_decode, ITERS)
 
+-- Generated Lua benchmark
+local gen_state = C.luaL_newstate()
+local function gen_decode_run()
+    local endpos = gen_decode(gen_state, JSON, JSON_LEN, gen_buf)
+    C.lua_settop(gen_state, 0)
+    return endpos == JSON_LEN and 1 or 0
+end
+
+for _ = 1, math.max(1, math.floor(ITERS / 10)) do gen_decode_run() end
+
+local t_gen = bench("generated_lua_json", gen_decode_run, ITERS)
+
 -- Pure-Lua benchmark
 local function lua_decode()
     local result, endpos = lua_json_decode(JSON)
     return endpos
 end
 
--- Warmup
 for _ = 1, math.max(1, math.floor(ITERS / 10)) do lua_decode() end
 
 local t_lua = bench("pure_lua_json", lua_decode, ITERS)
@@ -321,4 +348,5 @@ if t_dkjson then print(string.format("  moonlift / dkjson speedup: %.2fx", t_dkj
 
 -- Cleanup
 C.lua_close(moonlift_L)
+C.lua_close(gen_state)
 compiled_module:free()
