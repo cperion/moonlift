@@ -33,12 +33,12 @@ local region = Tr.ControlExprRegion(
         Tr.EntryBlockParam("i", i32, lit("0")),
         Tr.EntryBlockParam("acc", i32, lit("0")),
     }, {
-        Tr.StmtIf(Tr.StmtTyped,
+        Tr.StmtIf(Tr.StmtSurface,
             Tr.ExprCompare(Tr.ExprTyped(bool), C.CmpGe, ref(i), ref(n)),
-            { Tr.StmtYieldValue(Tr.StmtTyped, ref(acc)) },
+            { Tr.StmtYieldValue(Tr.StmtSurface, ref(acc)) },
             {}
         ),
-        Tr.StmtJump(Tr.StmtTyped, Tr.BlockLabel("loop"), {
+        Tr.StmtJump(Tr.StmtSurface, Tr.BlockLabel("loop"), {
             Tr.JumpArg("i", Tr.ExprBinary(Tr.ExprTyped(i32), C.BinAdd, ref(i), lit("1"))),
             Tr.JumpArg("acc", Tr.ExprBinary(Tr.ExprTyped(i32), C.BinAdd, ref(acc), xs_i)),
         }),
@@ -77,7 +77,7 @@ assert(#unsupported.chosen.vector_rejects == 1)
 local unsupported_region = Tr.ControlExprRegion(
     "control.unsupported",
     i32,
-    Tr.EntryControlBlock(Tr.BlockLabel("entry"), {}, { Tr.StmtYieldValue(Tr.StmtTyped, lit("0")) }),
+    Tr.EntryControlBlock(Tr.BlockLabel("entry"), {}, { Tr.StmtYieldValue(Tr.StmtSurface, lit("0")) }),
     {}
 )
 local rejected = F.facts(unsupported_region)
@@ -94,12 +94,12 @@ local swapped = Tr.ControlExprRegion(
         Tr.EntryBlockParam("acc", i32, lit("0")),
         Tr.EntryBlockParam("i", i32, lit("0")),
     }, {
-        Tr.StmtIf(Tr.StmtTyped,
+        Tr.StmtIf(Tr.StmtSurface,
             Tr.ExprCompare(Tr.ExprTyped(bool), C.CmpLe, ref(n), ref(i_second)),
-            { Tr.StmtYieldValue(Tr.StmtTyped, ref(acc_first)) },
+            { Tr.StmtYieldValue(Tr.StmtSurface, ref(acc_first)) },
             {}
         ),
-        Tr.StmtJump(Tr.StmtTyped, Tr.BlockLabel("loop"), {
+        Tr.StmtJump(Tr.StmtSurface, Tr.BlockLabel("loop"), {
             Tr.JumpArg("acc", Tr.ExprBinary(Tr.ExprTyped(i32), C.BinAdd, ref(acc_first), ref(i_second))),
             Tr.JumpArg("i", Tr.ExprBinary(Tr.ExprTyped(i32), C.BinAdd, ref(i_second), lit("1"))),
         }),
@@ -119,13 +119,13 @@ local map_ys_i = Tr.PlaceIndex(Tr.PlaceTyped(i32), Tr.IndexBaseView(Tr.ViewConti
 local map_region = Tr.ControlStmtRegion(
     "control.map",
     Tr.EntryControlBlock(Tr.BlockLabel("loop"), { Tr.EntryBlockParam("i", i32, lit("0")) }, {
-        Tr.StmtIf(Tr.StmtTyped,
+        Tr.StmtIf(Tr.StmtSurface,
             Tr.ExprCompare(Tr.ExprTyped(bool), C.CmpGe, ref(map_i), ref(n)),
-            { Tr.StmtYieldVoid(Tr.StmtTyped) },
+            { Tr.StmtYieldVoid(Tr.StmtSurface) },
             {}
         ),
-        Tr.StmtSet(Tr.StmtTyped, map_ys_i, map_xs_i),
-        Tr.StmtJump(Tr.StmtTyped, Tr.BlockLabel("loop"), {
+        Tr.StmtSet(Tr.StmtSurface, map_ys_i, map_xs_i),
+        Tr.StmtJump(Tr.StmtSurface, Tr.BlockLabel("loop"), {
             Tr.JumpArg("i", Tr.ExprBinary(Tr.ExprTyped(i32), C.BinAdd, ref(map_i), lit("1"))),
         }),
     }),
@@ -152,13 +152,13 @@ local inplace_ys_i = Tr.PlaceIndex(Tr.PlaceTyped(i32), Tr.IndexBaseView(Tr.ViewC
 local inplace_region = Tr.ControlStmtRegion(
     "control.inplace",
     Tr.EntryControlBlock(Tr.BlockLabel("loop"), { Tr.EntryBlockParam("i", i32, lit("0")) }, {
-        Tr.StmtIf(Tr.StmtTyped,
+        Tr.StmtIf(Tr.StmtSurface,
             Tr.ExprCompare(Tr.ExprTyped(bool), C.CmpGe, ref(inplace_i), ref(n)),
-            { Tr.StmtYieldVoid(Tr.StmtTyped) },
+            { Tr.StmtYieldVoid(Tr.StmtSurface) },
             {}
         ),
-        Tr.StmtSet(Tr.StmtTyped, inplace_ys_i, Tr.ExprBinary(Tr.ExprTyped(i32), C.BinAdd, Tr.ExprIndex(Tr.ExprTyped(i32), Tr.IndexBaseView(Tr.ViewContiguous(ref(ys), i32, ref(n))), ref(inplace_i)), lit("1"))),
-        Tr.StmtJump(Tr.StmtTyped, Tr.BlockLabel("loop"), {
+        Tr.StmtSet(Tr.StmtSurface, inplace_ys_i, Tr.ExprBinary(Tr.ExprTyped(i32), C.BinAdd, Tr.ExprIndex(Tr.ExprTyped(i32), Tr.IndexBaseView(Tr.ViewContiguous(ref(ys), i32, ref(n))), ref(inplace_i)), lit("1"))),
+        Tr.StmtJump(Tr.StmtSurface, Tr.BlockLabel("loop"), {
             Tr.JumpArg("i", Tr.ExprBinary(Tr.ExprTyped(i32), C.BinAdd, ref(inplace_i), lit("1"))),
         }),
     }),
@@ -182,12 +182,12 @@ local stride_region = Tr.ControlExprRegion(
         Tr.EntryBlockParam("i", i32, lit("0")),
         Tr.EntryBlockParam("acc", i32, lit("0")),
     }, {
-        Tr.StmtIf(Tr.StmtTyped,
+        Tr.StmtIf(Tr.StmtSurface,
             Tr.ExprCompare(Tr.ExprTyped(bool), C.CmpGe, ref(stride_i), ref(n)),
-            { Tr.StmtYieldValue(Tr.StmtTyped, ref(stride_acc)) },
+            { Tr.StmtYieldValue(Tr.StmtSurface, ref(stride_acc)) },
             {}
         ),
-        Tr.StmtJump(Tr.StmtTyped, Tr.BlockLabel("loop"), {
+        Tr.StmtJump(Tr.StmtSurface, Tr.BlockLabel("loop"), {
             Tr.JumpArg("i", Tr.ExprBinary(Tr.ExprTyped(i32), C.BinAdd, ref(stride_i), lit("1"))),
             Tr.JumpArg("acc", Tr.ExprBinary(Tr.ExprTyped(i32), C.BinAdd, ref(stride_acc), stride_xs_i)),
         }),
@@ -212,12 +212,12 @@ local unit_stride_region = Tr.ControlExprRegion(
         Tr.EntryBlockParam("i", i32, lit("0")),
         Tr.EntryBlockParam("acc", i32, lit("0")),
     }, {
-        Tr.StmtIf(Tr.StmtTyped,
+        Tr.StmtIf(Tr.StmtSurface,
             Tr.ExprCompare(Tr.ExprTyped(bool), C.CmpGe, ref(unit_stride_i), ref(n)),
-            { Tr.StmtYieldValue(Tr.StmtTyped, ref(unit_stride_acc)) },
+            { Tr.StmtYieldValue(Tr.StmtSurface, ref(unit_stride_acc)) },
             {}
         ),
-        Tr.StmtJump(Tr.StmtTyped, Tr.BlockLabel("loop"), {
+        Tr.StmtJump(Tr.StmtSurface, Tr.BlockLabel("loop"), {
             Tr.JumpArg("i", Tr.ExprBinary(Tr.ExprTyped(i32), C.BinAdd, ref(unit_stride_i), lit("1"))),
             Tr.JumpArg("acc", Tr.ExprBinary(Tr.ExprTyped(i32), C.BinAdd, ref(unit_stride_acc), unit_stride_xs_i)),
         }),

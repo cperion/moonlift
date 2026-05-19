@@ -28,8 +28,6 @@ function M.Define(T)
     expr_type = pvm.phase("moonlift_tree_control_expr_type", {
         [Tr.ExprTyped] = function(self) return pvm.once(self.ty) end,
         [Tr.ExprOpen] = function(self) return pvm.once(self.ty) end,
-        [Tr.ExprSem] = function(self) return pvm.once(self.ty) end,
-        [Tr.ExprCode] = function(self) return pvm.once(self.ty) end,
         [Tr.ExprSurface] = function() return pvm.empty() end,
     })
 

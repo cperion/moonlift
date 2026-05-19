@@ -45,22 +45,22 @@ function M.Define(T)
         [Tr.FuncExport] = function(self, mod_name) return pvm.once(B.ValueEntry(self.name, B.Binding(C.Id("func:" .. mod_name .. ":" .. self.name), self.name, params_type(self.params, self.result), B.BindingClassGlobalFunc(mod_name, self.name)))) end,
         [Tr.FuncLocalContract] = function(self, mod_name) return pvm.once(B.ValueEntry(self.name, B.Binding(C.Id("func:" .. mod_name .. ":" .. self.name), self.name, params_type(self.params, self.result), B.BindingClassGlobalFunc(mod_name, self.name)))) end,
         [Tr.FuncExportContract] = function(self, mod_name) return pvm.once(B.ValueEntry(self.name, B.Binding(C.Id("func:" .. mod_name .. ":" .. self.name), self.name, params_type(self.params, self.result), B.BindingClassGlobalFunc(mod_name, self.name)))) end,
-        [Tr.FuncOpen] = function(self, mod_name) return pvm.once(B.ValueEntry(self.sym.name, B.Binding(C.Id("func:" .. self.sym.key), self.sym.name, Ty.TFunc({}, self.result), B.BindingClassFuncSym(self.sym)))) end,
+        [Tr.FuncOpen] = function(self, mod_name) return pvm.once(B.ValueEntry(self.sym.name, B.Binding(C.Id("func:" .. self.sym.key), self.sym.name, Ty.TFunc({}, self.result), B.BindingClassOpenSym(C.OpenSym(C.SymKindFunc, self.sym.key, self.sym.name, ""))))) end,
     }, { args_cache = "last" })
 
     extern_entry = pvm.phase("moonlift_tree_extern_value_entry", {
         [Tr.ExternFunc] = function(self) return pvm.once(B.ValueEntry(self.name, B.Binding(C.Id("extern:" .. self.name), self.name, params_type(self.params, self.result), B.BindingClassExtern(self.symbol)))) end,
-        [Tr.ExternFuncOpen] = function(self) return pvm.once(B.ValueEntry(self.sym.name, B.Binding(C.Id("extern:" .. self.sym.key), self.sym.name, Ty.TFunc({}, self.result), B.BindingClassExternSym(self.sym)))) end,
+        [Tr.ExternFuncOpen] = function(self) return pvm.once(B.ValueEntry(self.sym.name, B.Binding(C.Id("extern:" .. self.sym.key), self.sym.name, Ty.TFunc({}, self.result), B.BindingClassOpenSym(C.OpenSym(C.SymKindExtern, self.sym.key, self.sym.name, self.sym.symbol))))) end,
     })
 
     const_entry = pvm.phase("moonlift_tree_const_value_entry", {
         [Tr.ConstItem] = function(self, mod_name) return pvm.once(B.ValueEntry(self.name, B.Binding(C.Id("const:" .. mod_name .. ":" .. self.name), self.name, self.ty, B.BindingClassGlobalConst(mod_name, self.name)))) end,
-        [Tr.ConstItemOpen] = function(self) return pvm.once(B.ValueEntry(self.sym.name, B.Binding(C.Id("const:" .. self.sym.key), self.sym.name, self.ty, B.BindingClassConstSym(self.sym)))) end,
+        [Tr.ConstItemOpen] = function(self) return pvm.once(B.ValueEntry(self.sym.name, B.Binding(C.Id("const:" .. self.sym.key), self.sym.name, self.ty, B.BindingClassOpenSym(C.OpenSym(C.SymKindConst, self.sym.key, self.sym.name, ""))))) end,
     }, { args_cache = "last" })
 
     static_entry = pvm.phase("moonlift_tree_static_value_entry", {
         [Tr.StaticItem] = function(self, mod_name) return pvm.once(B.ValueEntry(self.name, B.Binding(C.Id("static:" .. mod_name .. ":" .. self.name), self.name, self.ty, B.BindingClassGlobalStatic(mod_name, self.name)))) end,
-        [Tr.StaticItemOpen] = function(self) return pvm.once(B.ValueEntry(self.sym.name, B.Binding(C.Id("static:" .. self.sym.key), self.sym.name, self.ty, B.BindingClassStaticSym(self.sym)))) end,
+        [Tr.StaticItemOpen] = function(self) return pvm.once(B.ValueEntry(self.sym.name, B.Binding(C.Id("static:" .. self.sym.key), self.sym.name, self.ty, B.BindingClassOpenSym(C.OpenSym(C.SymKindStatic, self.sym.key, self.sym.name, ""))))) end,
     }, { args_cache = "last" })
 
     type_entry = pvm.phase("moonlift_tree_type_entry", {

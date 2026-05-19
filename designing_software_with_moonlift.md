@@ -1,373 +1,180 @@
 # Designing Software with Moonlift
 
-## A Type-First Methodology for Explicit Machines
+## Products, Protocols, Regions, and the Discipline of Explicit Machines
 
-**Status:** draft paper  
-**Audience:** Moonlift users, systems programmers, compiler-minded application designers  
-**Thesis:** Moonlift is not only an implementation language. It is a design language for executable machines. Its native type system is expressive enough to replace a separate ASDL/modeling layer: structs, unions, regions, continuations, blocks, jumps, functions, and Lua factories together form a complete methodology for designing software.
+**Status:** revised methodology paper  
+**Core thesis:** Moonlift software is designed with two semantic primitives: **products** and **protocols**. Products are data that exists together. Protocols are choices consumed by control. A region consumes product data and a continuation protocol, then transfers control to exactly one continuation with a product payload. A function is a sealed one-continuation region. Lua generates families of concrete machines.
 
 ---
 
 ## Abstract
 
-Most software design methods split a system into separate artifacts: diagrams, schemas, code, runtime conventions, callback graphs, build scripts, and documentation. These artifacts drift. The real system becomes the behavior of a running program, while the design lives elsewhere.
+Most typed languages give programmers product types and sum types, then organize computation around functions. This makes “choice” appear to be data. The programmer creates a sum value, returns it, stores it, passes it around, and eventually some consumer inspects the tag and dispatches.
 
-Moonlift offers another approach. Design is written in the same typed language that implements the system. Products are `struct`s. Stored alternatives are `union`s. Immediate behavioral alternatives are continuation protocols. States are blocks with typed parameters. Transitions are jumps. Compositions are emits. Stable boundaries are functions. Families of repeated machines are Lua factories that emit monomorphic Moonlift declarations.
+Moonlift suggests a stricter design discipline.
 
-This paper describes a complete methodology for designing software with Moonlift in the unified type-system view. In this view, ASDL is not a required external modeling layer. ASDL is the historical antecedent: it taught the discipline of explicit products, sums, named variants, and phase boundaries. Moonlift internalizes that discipline. The Moonlift declaration graph is the schema; the region graph is the control design; Lua is the generator; Cranelift is the backend; the C ABI is the boundary with the world.
+In Moonlift, choice is not data by default. Choice is control. If a system must decide between alternatives, that decision should be represented as a continuation protocol: a set of named, typed exits that the caller must fill. If no dispatch is needed, no choice type should exist. If a choice appears to need storage, the designer should first ask whether they are merely delaying a dispatch point that should be named as a region.
 
-The method is called **Typed Machine Design**. Its central rule is:
+This paper presents a full methodology for designing software with Moonlift under this stricter view. The design vocabulary is:
 
-> Design the data tree and the control tree first.  
-> Relate them with regions.  
-> Compose internally with `emit`.  
-> Seal externally with `func`.  
-> Generate families with Lua.
+```text
+Product      = data that exists together
+Protocol     = named alternatives of control
+Region       = product + protocol -> selected continuation payload
+Function     = sealed region with one implicit continuation
+Block        = named state carrying a product
+Jump         = typed state transition
+Emit         = graph composition by protocol filling
+Lua factory  = generator of concrete products, protocols, regions, and functions
+```
+
+The result is a design method where the architecture is not a diagram, not a schema file, and not a convention. It is the Moonlift declaration graph itself.
 
 ---
 
-## Table of Contents
+## 1. Why the previous framing was wrong
 
-1. [The Problem: Design Drift](#1-the-problem-design-drift)
-2. [The Unified Moonlift View](#2-the-unified-moonlift-view)
-3. [The Two Type Systems](#3-the-two-type-systems)
-4. [Products, Sums, Protocols, and States](#4-products-sums-protocols-and-states)
-5. [The Dual Tree](#5-the-dual-tree)
-6. [Regions as Relations Between Data and Control](#6-regions-as-relations-between-data-and-control)
-7. [Unions and Protocols: Stored Choice vs Immediate Choice](#7-unions-and-protocols-stored-choice-vs-immediate-choice)
-8. [Functions as Sealed Regions](#8-functions-as-sealed-regions)
-9. [Lua as the Design-Time Abstraction Layer](#9-lua-as-the-design-time-abstraction-layer)
-10. [The Full Design Procedure](#10-the-full-design-procedure)
-11. [Phase Design Without a Separate ASDL Layer](#11-phase-design-without-a-separate-asdl-layer)
-12. [Memory and Resources in the Methodology](#12-memory-and-resources-in-the-methodology)
-13. [Foreign Capabilities and Platform Design](#13-foreign-capabilities-and-platform-design)
-14. [Worked Example I: JSON Parsing](#14-worked-example-i-json-parsing)
-15. [Worked Example II: HTTP Request Lifecycle](#15-worked-example-ii-http-request-lifecycle)
-16. [Worked Example III: Text Editor Core](#16-worked-example-iii-text-editor-core)
-17. [Worked Example IV: Scheduler and Channels](#17-worked-example-iv-scheduler-and-channels)
-18. [Review Method](#18-review-method)
-19. [Testing Method](#19-testing-method)
-20. [Tooling Implications](#20-tooling-implications)
-21. [Anti-Patterns](#21-anti-patterns)
-22. [Design Checklist](#22-design-checklist)
-23. [What This Means for Software Architecture](#23-what-this-means-for-software-architecture)
-24. [Conclusion](#24-conclusion)
-
----
-
-## 1. The Problem: Design Drift
-
-Traditional software design usually separates the design from the executable artifact.
-
-A system may have:
+A tempting first formulation of Moonlift design is:
 
 ```text
-UML diagrams
-database schemas
-protocol documents
-callback conventions
-runtime registries
-interface definitions
-build scripts
-implementation code
-documentation
+Data types:
+  products = structs
+  sums     = unions
+
+Control types:
+  protocols = region continuations
 ```
 
-The problem is not that these artifacts are useless. The problem is that they are separate. They can disagree. They can go stale. They can describe intentions that the compiler cannot check.
+This is still too close to ordinary algebraic data type thinking.
 
-A diagram can say that an operation has four outcomes. The implementation can return a boolean. A schema can say a value has three variants. The code can use strings. A design document can say a resource must be closed. The implementation can forget. A callback graph can exist only as runtime registration side effects. A build script can select a platform backend whose capabilities are not visible in the source.
-
-This creates **design drift**:
+It treats `union` as a legitimate semantic data primitive. It says there are two ways to represent alternatives:
 
 ```text
-what the design says
-    diverges from
-what the code says
-    diverges from
-what the running program does
+union        -> choice stored as data
+continuation -> choice consumed as control
 ```
 
-The Moonlift methodology attacks design drift by refusing to separate design from typed structure.
+That framing misses the deeper point.
 
-The design of a Moonlift system is the Moonlift declaration graph:
+A union does not contain “more data.” It contains a tag plus one payload shape. Its entire purpose is that some later consumer will inspect the tag and dispatch. That means the semantic content of a union is not data. It is delayed control.
+
+The corrected framing is:
 
 ```text
-structs
-unions
-externs
-regions
-continuations
-blocks
-functions
-contracts
-Lua-generated declarations
+There are products.
+There are protocols.
+There are no semantic unions.
 ```
 
-These are not comments and not diagrams. They are source-level artifacts that the compiler can typecheck, lower, validate, emit, and expose to tooling.
+A stored tag can exist as a low-level encoding. A byte field can encode a kind. A table index can refer to one of several record arrays. A serialized stream can contain variant markers. But those are facts. They are not the semantic design.
 
-The goal is not to eliminate documentation. The goal is to make the primary design artifact executable and checkable.
-
----
-
-## 2. The Unified Moonlift View
-
-Moonlift inherits an important lesson from ASDL: good system design is made of explicit products, explicit sums, named fields, named variants, and no hidden structure.
-
-But in the unified Moonlift view, ASDL is no longer the primary modeling language. It is the historical antecedent and an optional interchange format.
-
-The primary modeling language is Moonlift itself.
-
-```text
-ASDL product      -> Moonlift struct
-ASDL sum          -> Moonlift union
-ASDL tree         -> Moonlift declaration graph
-ASDL phase facts  -> Moonlift fact structs/unions/protocols
-Control outcomes -> Moonlift continuation protocols
-State machines    -> Moonlift regions, blocks, jumps
-```
-
-This is the crucial collapse:
-
-> The Moonlift source language is the schema.
-
-A system's persistent model, events, phase facts, intermediate records, handles, result variants, and control protocols can all be expressed with Moonlift declarations. There is no need to design a separate ASDL schema and then implement it in Moonlift.
-
-The unified view has three consequences.
-
-### 2.1 The design language and implementation language are the same
-
-A design declaration is already an implementation declaration.
+The semantic design is the consumer:
 
 ```moonlift
-struct Document
-    blocks: view(Block)
-    selection: Selection
-    revision: u64
-end
-
-union EditorEvent
-    insert_text(pos: Cursor, bytes: view(u8))
-    delete_range(range: Range)
-    move_cursor(pos: Cursor)
-    save()
-end
-
-region apply_event(
-    doc: ptr(Document),
-    event: ptr(EditorEvent);
-
-    changed: cont(new_revision: u64),
-    unchanged: cont(),
+region consume_expr(ast: ptr(Ast), expr: ExprRef;
+    int_lit: cont(e: ptr(IntLitExpr)),
+    name: cont(e: ptr(NameExpr)),
+    call: cont(e: ptr(CallExpr)),
     invalid: cont(code: i32))
 ```
 
-This is not a sketch. It is the system's schema and protocol.
+The important thing is not that some value is “one of int/name/call.” The important thing is that a machine consumes an encoded fact and routes control to one of several continuations.
 
-### 2.2 Tooling can inspect the actual design
+This is the new rule:
 
-Because the design is in the source, an IDE can answer real architectural queries:
-
-```text
-Which regions can exit through `invalid`?
-Which blocks fill `closed`?
-Which structs are reachable from `Document`?
-Which regions consume `EditorEvent`?
-Which functions seal `parse_value`?
-Which continuations carry `ptr(Buffer)`?
-```
-
-The design is not hidden in a diagram. It is queryable structure.
-
-### 2.3 Design review can happen before body review
-
-A reviewer can read only type declarations and region signatures and still understand the architecture.
-
-Bodies matter, but the most expensive mistakes are usually not inside bodies. They are in the choice of types and protocols. Moonlift makes those choices explicit early.
+> Every “or” in the design is presumed to be a protocol.  
+> If there is no dispatch, there is no “or.”  
+> If there is dispatch, name the consumer as a region.
 
 ---
 
-## 3. The Two Type Systems
+## 2. The basic algebra
 
-Every system has two structures:
+Moonlift design has two semantic type forms.
 
-1. **The data structure** — what exists.
-2. **The control structure** — what can happen.
+### 2.1 Product
 
-Most languages type the first structure and leave the second one informal. They offer good tools for values, records, enums, and generics, but they treat control flow as a mixture of function calls, returns, exceptions, callbacks, loops, hidden state machines, and conventions.
+A product is data that exists together.
 
-Moonlift types both structures.
-
-### 3.1 The data type system
-
-The data type system contains:
-
-```text
-scalars
-pointers
-views
-structs
-unions
-function types
-extern-facing values
-```
-
-It answers:
-
-```text
-What shape does this value have?
-What fields exist?
-Which variant is this?
-What memory does this pointer/view describe?
-What type flows through this operation?
-```
-
-### 3.2 The control type system
-
-The control type system contains:
-
-```text
-regions
-continuations
-blocks
-jumps
-emits
-switches
-yields
-returns
-```
-
-It answers:
-
-```text
-What can happen next?
-Where can execution go?
-What state does the transition carry?
-Which exits must the caller handle?
-Which blocks are valid targets?
-Which paths terminate?
-```
-
-The control type system is not a metaphor. It is a real type system:
-
-```text
-A region declares its continuation protocol.
-An emit site must fill every continuation.
-A jump must target a block that exists.
-A jump must provide the target block's parameters.
-A block parameter has a concrete type.
-Every control path must terminate explicitly.
-```
-
-This is the central advantage of Moonlift as a design medium.
-
----
-
-## 4. Products, Sums, Protocols, and States
-
-Moonlift's design algebra has four primary forms.
-
-### 4.1 Data products: `struct`
-
-A `struct` is a product of named fields.
+Examples:
 
 ```moonlift
-struct User
-    id: u64
-    age: i32
-    active: bool
+struct Cursor
+    byte: index
+    line: index
+    column: index
+end
+
+struct BufferView
+    data: ptr(u8)
+    len: index
+    stride: index
+end
+
+struct Job
+    fn: ptr(u8)
+    arg: ptr(u8)
+    state: i32
 end
 ```
 
-Use structs when several facts exist together.
-
-Design question:
-
-```text
-What things must be present at the same time?
-```
-
-### 4.2 Data sums: `union`
-
-A `union` is a stored alternative.
+A function parameter list is also a product:
 
 ```moonlift
-union AuthState
-    unauthenticated()
-    authenticated(user_id: u64)
-    expired(last_seen: i64)
-end
+func add(a: i32, b: i32) -> i32
 ```
 
-Use unions when a value must be one of several alternatives and that alternative must exist as data.
-
-Design question:
+means:
 
 ```text
-What possible shapes can this value take?
+input product  = (a: i32, b: i32)
+output product = (result: i32)
 ```
 
-### 4.3 Control sums: continuation protocols
-
-A region's continuation set is a control sum.
+A block parameter list is also a product:
 
 ```moonlift
-region authenticate(
-    creds: ptr(Credentials),
-    store: ptr(SessionStore);
-
-    success: cont(user_id: u64, token: ptr(u8)),
-    invalid_credentials: cont(),
-    account_locked: cont(unlock_at: i64),
-    rate_limited: cont(retry_after_seconds: i32))
+block loop(i: index, acc: i32)
 ```
 
-Use continuation protocols when the caller should branch immediately on the outcome.
-
-Design question:
+means:
 
 ```text
-What can happen next, and what does each outcome carry?
+state product = (i: index, acc: i32)
 ```
 
-### 4.4 Control states: blocks with typed parameters
+Products are the semantic data structure in the design method. Data can be nested, referenced, indexed, viewed, and encoded, but it remains product-shaped: fields that exist together.
 
-A block is a named state. Its parameters are the state payload.
+### 2.2 Protocol
+
+A protocol is a set of named possible continuations.
 
 ```moonlift
-block scan(i: index, acc: i32)
-    ...
-    jump scan(i = i + 1, acc = acc + 1)
-end
+region parse_number(
+    p: ptr(u8),
+    n: index,
+    i: index;
+
+    ok: cont(value: f64, next: index),
+    err: cont(pos: index, code: i32))
 ```
 
-Use blocks when a machine has internal states.
-
-Design question:
+The input before the semicolon is a product:
 
 ```text
-What named states does this operation pass through?
-What data is carried by each state?
+(p, n, i)
 ```
 
-### 4.5 Transitions: jumps
-
-A jump is a typed transition between states.
-
-```moonlift
-jump scan(i = next_i, acc = next_acc)
-```
-
-Use jumps when control moves from one state to another.
-
-Design question:
+The protocol after the semicolon is a control interface:
 
 ```text
-What state do we enter next, and with what payload?
+ok(value, next)
+err(pos, code)
 ```
 
-### 4.6 Composition: emit
+Each continuation payload is itself a product.
 
-An emit composes control graphs.
+The protocol is not returned. It is not allocated. It is not a runtime object. It is a set of control obligations. An emit site must fill it:
 
 ```moonlift
 emit parse_number(p, n, i;
@@ -375,1042 +182,562 @@ emit parse_number(p, n, i;
     err = bad_number)
 ```
 
-Use emit when one control machine should be inserted into another.
+The caller says where each possible exit goes.
 
-Design question:
+### 2.3 Region
 
-```text
-How do this region's exits map into my local states?
-```
+A region relates products to protocols.
 
----
-
-## 5. The Dual Tree
-
-The result of designing a Moonlift system is a **dual tree**.
-
-It has two halves:
+A precise but readable formulation:
 
 ```text
-Data tree     = structs, unions, views, handles, stored facts
-Control tree  = regions, continuations, blocks, jumps, emits
+region R(input_product; protocol)
+    consumes the input product
+    executes a control machine
+    chooses exactly one continuation in the protocol
+    passes that continuation a product payload
 ```
 
-The two halves are not independent. Region parameters come from the data tree. Continuation payloads come from the data tree. Blocks carry data-tree values. Regions transform, inspect, and route data-tree values.
-
-The design of a system is the relationship between the two trees.
-
-### 5.1 Data tree
-
-The data tree contains everything the system can hold.
-
-Examples:
+So a region is not:
 
 ```text
-persistent state
-events
-configuration
-resources
-buffers
-handles
-phase facts
-intermediate records
-output commands
-diagnostics
+Product -> Union
 ```
 
-### 5.2 Control tree
-
-The control tree contains everything the system can do.
-
-Examples:
+A region is:
 
 ```text
-parse value
-apply event
-schedule job
-receive message
-render frame
-open file
-close connection
-allocate resource
-recover from error
+Product + Protocol -> selected continuation with Product payload
 ```
 
-Each operation is described first by its protocol, not by its body.
+The protocol is supplied by the caller. The region consumes it by jumping into one of its continuations.
 
-### 5.3 The dual-tree invariant
+### 2.4 Function
 
-A design is incomplete if some meaningful distinction appears in neither tree.
-
-If a behavior matters, it must be:
-
-```text
-a field
-a variant
-a continuation
-a block
-a jump
-a contract
-a phase fact
-a Lua generation choice
-```
-
-If it is only a convention, string, callback name, side table, comment, or undocumented runtime path, the design is not yet explicit.
-
----
-
-## 6. Regions as Relations Between Data and Control
-
-A region is the bridge between the data tree and the control tree.
+A function is a sealed region with one implicit continuation.
 
 ```moonlift
-region read_line(
-    buffer: ptr(u8),
-    buffer_len: index,
-    start: index;
-
-    found: cont(start: index, len: index, terminator: u8, next: index),
-    eof: cont(start: index, len: index),
-    invalid: cont(pos: index, code: i32))
+func f(a: i32, b: i32) -> i32
 ```
 
-Before the semicolon:
-
-```text
-data entering the machine
-```
-
-After the semicolon:
-
-```text
-control leaving the machine
-```
-
-The body relates them.
-
-A region signature is therefore a design statement:
-
-```text
-Given this data,
-this operation can exit in exactly these ways,
-carrying exactly these values.
-```
-
-This is why region signatures should be designed before bodies.
-
-If the protocol is wrong, the implementation will fight you. If the protocol is right, the implementation tends to become mechanical.
-
-### 6.1 Region signatures as architecture
-
-A body tells you how an operation works.
-
-A region signature tells you what the operation is.
-
-Example:
+is equivalent in spirit to:
 
 ```moonlift
-region recv(
-    ch: ptr(Channel);
-
-    got: cont(value: i32),
-    parked: cont(waiter: ptr(Waiter)),
-    closed: cont(),
-    would_block: cont())
+region f_region(a: i32, b: i32;
+    return: cont(result: i32))
 ```
 
-This signature says more than a function returning `i32` or `bool` ever could. It exposes the control design:
-
-```text
-receive may produce a value
-receive may park the task
-receive may observe a closed channel
-receive may fail immediately in nonblocking mode
-```
-
-### 6.2 Region composition
-
-Because emits fill continuations, region composition is checked.
-
-```moonlift
-emit recv(ch;
-    got = handle_value,
-    parked = suspend_current_task,
-    closed = finish_closed,
-    would_block = retry_later)
-```
-
-The caller must decide what every outcome means. No outcome leaks implicitly.
-
-This is how Moonlift replaces many ad hoc patterns:
-
-```text
-exceptions
-callbacks
-Result enums
-status codes
-virtual dispatch
-async hidden state machines
-```
-
-Not because those patterns are impossible, but because their useful parts are more directly expressed as typed control protocols.
-
----
-
-## 7. Unions and Protocols: Stored Choice vs Immediate Choice
-
-A union and a continuation protocol have the same algebraic shape:
-
-```text
-one of several named alternatives,
-each carrying typed payloads
-```
-
-But they differ in consumption mode.
-
-### 7.1 Union: choice stored as data
-
-```moonlift
-union ParseResult
-    ok(value: i32, next: index)
-    err(pos: index, code: i32)
-end
-```
-
-Use a union when the result must be:
-
-```text
-stored
-returned across a function boundary
-queued
-serialized
-logged
-inspected later
-matched in multiple places
-passed to another subsystem
-```
-
-### 7.2 Protocol: choice consumed as control
-
-```moonlift
-region parse_i32(
-    p: ptr(u8),
-    n: index,
-    i: index;
-
-    ok: cont(value: i32, next: index),
-    err: cont(pos: index, code: i32))
-```
-
-Use a continuation protocol when the caller will branch immediately.
-
-The caller's blocks are the match arms:
-
-```moonlift
-emit parse_i32(p, n, i;
-    ok = got_number,
-    err = bad_number)
-```
-
-### 7.3 The rule
-
-The central design rule:
-
-```text
-If the outcome must live, make it a union.
-If the outcome should route control now, make it a protocol.
-```
-
-Sometimes both are correct. A region may construct a union and return through one continuation:
-
-```moonlift
-region parse_result(...;
-    done: cont(result: ParseResult))
-```
-
-But internally, immediate control protocols are usually more direct and more efficient.
-
-### 7.4 Why this matters
-
-In many languages, the designer is forced to encode control as data because functions have only one return path.
-
-Moonlift does not force this.
-
-This avoids the pattern:
-
-```text
-operation returns Result
-caller immediately matches Result
-branches into local states
-```
-
-Moonlift can express the branch directly:
-
-```text
-operation exits through continuation
-caller fills continuation with local block
-```
-
-This removes temporary values, reduces ceremony, and makes control explicit.
-
----
-
-## 8. Functions as Sealed Regions
-
-A function is a sealed control boundary.
-
-It has:
-
-```text
-one entry
-one return path
-a stable callable symbol or function pointer
-an ABI-facing shape when exported
-```
-
-Use functions when the control protocol is settled.
-
-Good uses of functions:
-
-```text
-C ABI exports
-JIT call targets
-library entry points
-stable internal APIs
-operations that genuinely have one return protocol
-places where separate compilation matters
-```
-
-Bad uses of functions:
-
-```text
-internal parser fragments with many outcomes
-scheduler transitions
-channel send/recv
-operations with retry/park/cancel/closed outcomes
-error-heavy local composition
-```
-
-For those, use regions.
+The difference is that the continuation is sealed into an ABI/call boundary. A function has one entry and one return convention. It is useful when the machine must be callable from Lua, C, another function, or an external consumer.
 
 The design law:
 
 > Compose with regions.  
 > Seal with functions.
 
-### 8.1 Sealing example
+---
 
-Internal design:
+## 3. Why union disappears as a design primitive
+
+A union appears to be a data sum:
 
 ```moonlift
-region parse_value(
-    L: ptr(lua_State),
-    p: ptr(u8),
-    n: index,
-    i: index;
+union ParseResult
+    ok(value: f64, next: index)
+    err(pos: index, code: i32)
+end
+```
 
-    ok: cont(next: index),
+But why does this value exist?
+
+If the next operation is:
+
+```moonlift
+switch result.tag do
+case ok then ...
+case err then ...
+end
+```
+
+then the union was only a boxed branch. The correct Moonlift form is the protocol:
+
+```moonlift
+region parse_number(...;
+    ok: cont(value: f64, next: index),
     err: cont(pos: index, code: i32))
 ```
 
-Exported API:
+The union adds:
+
+```text
+tag storage
+payload storage
+construction
+later destruction
+switch
+indirection
+```
+
+The region protocol gives:
+
+```text
+named exits
+typed payloads
+caller-filled destinations
+direct jumps
+no box
+```
+
+The union therefore hides a control edge inside data.
+
+### 3.1 “But what if I need to store it?”
+
+Then the question is not “which union should I store?”
+
+The question is:
+
+> What concrete fact am I storing, and which region consumes that fact later?
+
+For example, an AST node does not need to be a semantic union. It can be encoded as product facts:
 
 ```moonlift
-func decode_json(L: ptr(lua_State), p: ptr(u8), n: index) -> i32
-    return region -> i32
-    entry start()
-        emit parse_value(L, p, n, 0; ok = parsed, err = failed)
-    end
+struct ExprRef
+    kind: u8
+    index: u32
+end
 
-    block parsed(next: index)
-        return 1
-    end
+struct IntLitExpr
+    value: i64
+end
 
-    block failed(pos: index, code: i32)
-        return 0 - code
-    end
-    end
+struct NameExpr
+    symbol: u32
+end
+
+struct CallExpr
+    fn: ExprRef
+    args_data: ptr(ExprRef)
+    args_len: index
 end
 ```
 
-The internal parser is a continuation machine. The exported decoder is a function.
+Then dispatch is a consuming region:
 
----
+```moonlift
+region visit_expr(
+    ast: ptr(Ast),
+    expr: ExprRef;
 
-## 9. Lua as the Design-Time Abstraction Layer
-
-Moonlift source has no source-level generics. This is not a lack. It is a design choice.
-
-Lua is where genericity lives.
-
-Use Lua for:
-
-```text
-specialization
-families of regions
-families of structs/unions
-platform selection
-constant computation
-layout computation
-dispatch table construction
-switch arm generation
-parser grammar compilation
-runtime policy selection
-extern availability probing
-object/shared emission
-packaging
+    int_lit: cont(e: ptr(IntLitExpr)),
+    name: cont(e: ptr(NameExpr)),
+    call: cont(e: ptr(CallExpr)),
+    invalid: cont(code: i32))
 ```
 
-Moonlift receives only concrete monomorphic declarations.
+The stored thing is not a semantic sum. It is an encoded fact. The protocol is where meaning happens.
 
-### 9.1 Why this is cleaner
+### 3.2 “But what if many consumers inspect it?”
 
-Many languages overload one type system with too many jobs:
-
-```text
-runtime data
-compile-time computation
-generic abstraction
-dispatch
-effect tracking
-module configuration
-platform selection
-build logic
-FFI
-optimization facts
-```
-
-Moonlift separates the roles:
-
-```text
-Lua:
-  abstraction and generation
-
-Moonlift:
-  concrete typed machine
-
-C ABI:
-  world boundary
-
-Cranelift:
-  code generation
-```
-
-This keeps Moonlift small.
-
-### 9.2 Factories
-
-A Lua factory returns Moonlift declarations.
+Then each consumer is a region, or a shared visitor protocol is generated by Lua.
 
 ```lua
-local function make_expect_byte(name, byte, err_code)
-    return region @{name}(
-        p: ptr(u8),
-        n: index,
-        i: index;
-
-        ok: cont(next: index),
-        err: cont(pos: index, code: i32))
-    entry start()
-        if i >= n then jump err(pos = i, code = @{err_code}) end
-        if p[i] == @{byte} then jump ok(next = i + 1) end
-        jump err(pos = i, code = @{err_code})
-    end
-    end
-end
+local ExprProtocol = make_expr_protocol({
+    "int_lit",
+    "name",
+    "call",
+})
 ```
 
-The generated result is concrete. There is no runtime generic dispatch.
+The repeated dispatch shape is real, but it is still a protocol shape. Lua can generate the dispatch regions, the encoded storage helpers, and the continuation lists. The semantic object is the consumer protocol, not the stored union.
 
-### 9.3 When to abstract
+### 3.3 “But what about events?”
 
-Do not start with a factory.
-
-Start with one concrete machine. Then abstract repeated structure.
-
-The procedure:
+Events are often modeled as unions:
 
 ```text
-write one concrete region
-write a second similar region
-identify what varies
-move variation to Lua parameters
-return a concrete region
+KeyPressed | MouseMoved | SaveRequested
 ```
 
-This prevents premature metaprogramming.
+In the stricter Moonlift design, that is not the semantic model. The semantic model is the event consumer:
+
+```moonlift
+region consume_event(
+    ev: RawEvent;
+
+    key_pressed: cont(code: i32, mods: i32),
+    mouse_moved: cont(x: i32, y: i32),
+    save_requested: cont(),
+    invalid: cont(code: i32))
+```
+
+The event queue may store bytes, tags, payload indexes, or platform records. Those are products. The meaning is realized when `consume_event` dispatches to the protocol.
+
+### 3.4 The hard rule
+
+The methodology therefore uses this rule:
+
+```text
+If I need to dispatch:
+    design a region protocol.
+
+If I do not need to dispatch:
+    design only products.
+
+If I think I need a union:
+    I have probably found a delayed dispatch.
+    Name the consumer region.
+```
 
 ---
 
-## 10. The Full Design Procedure
+## 4. Products are real data
 
-This section gives the complete methodology.
+This doctrine does not mean “everything is control.” It means choice is control.
 
-### Step 1 — Name the machine
+Products remain real data.
 
-Write one sentence:
+A product is any group of facts that coexist:
+
+```moonlift
+struct Window
+    x: i32
+    y: i32
+    w: i32
+    h: i32
+end
+
+struct ThreadHandle
+    raw: ptr(u8)
+end
+
+struct SourceSpan
+    file_id: u32
+    start: index
+    len: index
+end
+
+struct DiagnosticPayload
+    code: i32
+    span: SourceSpan
+    arg0: u64
+    arg1: u64
+end
+```
+
+A product does not ask the consumer to choose. It simply exists.
+
+The product test:
 
 ```text
-This system is a machine that consumes _____ and produces _____ by repeatedly _____.
+Do all fields exist at the same time?
+Can the consumer use the fields without first choosing a semantic branch?
+Is this a concrete memory shape?
+```
+
+If yes, it is product data.
+
+---
+
+## 5. Protocols are real choice
+
+A protocol is any meaningful choice that a machine must consume.
+
+Examples:
+
+```moonlift
+region authenticate(
+    creds: ptr(Credentials);
+
+    success: cont(user_id: u64),
+    invalid: cont(),
+    locked: cont(unlock_at: i64),
+    rate_limited: cont(retry_after: i32))
+```
+
+```moonlift
+region recv_i32(
+    ch: ptr(Channel);
+
+    got: cont(value: i32),
+    empty: cont(),
+    closed: cont(),
+    parked: cont(waiter: ptr(Waiter)))
+```
+
+```moonlift
+region resolve_name(
+    ctx: ptr(Context),
+    symbol: u32;
+
+    local: cont(binding: u32),
+    global: cont(item: u32),
+    missing: cont(),
+    ambiguous: cont(a: u32, b: u32))
+```
+
+The protocol test:
+
+```text
+Will some consumer branch on this?
+Does the branch carry different payloads?
+Would a boolean/status code/result object hide what can happen?
+```
+
+If yes, it is a protocol.
+
+---
+
+## 6. Regions consume protocols
+
+The wording matters.
+
+A region does not “return” one of several alternatives. It consumes a protocol. The caller gives the region a continuation environment:
+
+```moonlift
+emit recv_i32(ch;
+    got = handle_value,
+    empty = try_other_work,
+    closed = stop_worker,
+    parked = suspend_task)
+```
+
+From the caller's perspective, this is not a result to inspect. It is a wiring operation.
+
+The region says:
+
+```text
+I may exit by `got`, `empty`, `closed`, or `parked`.
+```
+
+The caller says:
+
+```text
+Here is what each exit means in my local machine.
+```
+
+This is more precise than return values because every exit is wired at the composition site.
+
+---
+
+## 7. Blocks are product states
+
+A block is a state point with a product payload.
+
+```moonlift
+block scan(i: index, acc: i32)
+```
+
+This means:
+
+```text
+state name = scan
+state data = (i, acc)
+```
+
+A jump constructs the next state product:
+
+```moonlift
+jump scan(i = i + 1, acc = acc + value)
+```
+
+A loop is therefore just a self-transition:
+
+```moonlift
+block loop(i: index, acc: i32)
+    if i >= n then jump done(total = acc) end
+    jump loop(i = i + 1, acc = acc + xs[i])
+end
+```
+
+No `for`, `while`, `break`, or `continue` is needed as a semantic primitive. Those are surface conveniences over state transitions.
+
+The block design rule:
+
+> Name the state.  
+> Name the state product.  
+> Make every transition explicit.
+
+---
+
+## 8. Functions are product-to-product only
+
+Because a function has one implicit continuation, its shape is product-to-product.
+
+```text
+function : Product -> Product
+```
+
+This is why functions are excellent at boundaries:
+
+```text
+C ABI export
+Lua callable native function
+object-file symbol
+stable library entry point
+foreign callback
+```
+
+But functions are poor as the universal internal composition primitive. A function with many possible outcomes must either:
+
+```text
+return a status code
+return a union/result
+throw an exception
+call callbacks
+mutate side tables
+```
+
+All of these are ways to smuggle protocols through a product-only interface.
+
+Moonlift gives the internal protocol directly. Therefore:
+
+```text
+Internal multi-outcome operation -> region
+External sealed callable unit    -> function
+```
+
+---
+
+## 9. The design methodology
+
+The design procedure is now simpler than the earlier dual-tree version.
+
+You do not search for products and sums. You search for products and protocols.
+
+### Step 1 — State the machine
+
+Write:
+
+```text
+This system consumes _____ and produces _____ by repeatedly _____.
 ```
 
 Examples:
 
 ```text
-A JSON decoder consumes bytes and produces Lua stack values by repeatedly parsing values and filling continuations.
+The parser consumes bytes and produces Lua stack values by dispatching grammar states.
 
-A text editor consumes input events and produces render facts by applying events to a document and compiling the document to display operations.
+The editor consumes input events and produces render commands by applying edits and compiling the document view.
 
-A scheduler consumes submitted jobs and wakeups and produces worker execution by repeatedly claiming, running, parking, and completing tasks.
+The scheduler consumes jobs and wakeups and produces worker execution by moving tasks through explicit states.
 ```
 
-If this sentence is vague, the design is not ready.
+If this sentence is unclear, do not code yet.
 
-### Step 2 — Identify the world boundary
+### Step 2 — List the products
 
-List what the system touches outside itself:
-
-```text
-files
-sockets
-libuv
-threads
-Lua stack
-C library
-GPU
-terminal
-GUI
-allocator
-clock
-```
-
-Each boundary becomes one of:
-
-```text
-extern
-LuaJIT FFI capability
-resource handle
-function export
-C ABI artifact
-```
-
-Do not hide the boundary.
-
-### Step 3 — Build the data tree
-
-List nouns.
-
-Then classify:
-
-```text
-product       -> struct
-stored choice -> union
-sequence      -> view or buffer
-external thing -> handle/pointer/resource wrapper
-temporary fact -> phase output type
-input action  -> event union
-```
+Find all concrete facts that exist together.
 
 Ask:
 
 ```text
-What must be stored?
-What survives save/load?
-What is derived?
-What is temporary?
-What is a handle to external reality?
-What is a view into memory?
+What is stored?
+What is passed?
+What is pointed to?
+What is viewed?
+What is owned?
+What is a handle?
+What is a byte-level encoding?
+What is a phase fact?
 ```
 
-### Step 4 — Build the control tree
+Write structs and views for these.
 
-List verbs and outcomes.
+Examples:
 
-Then classify:
+```moonlift
+struct Token
+    kind: u16
+    start: index
+    len: index
+end
 
-```text
-operation -> region
-possible immediate outcome -> continuation
-internal state -> block
-transition -> jump
-composition -> emit
-stable boundary -> function
+struct Task
+    id: u64
+    state: i32
+    stack: ptr(u8)
+    stack_len: index
+end
+
+struct EventRecord
+    kind: u16
+    payload_index: u32
+end
 ```
+
+Notice: `kind` fields are allowed. A tag as a concrete fact is fine. The semantic mistake is treating the tag as if it were the design. The design is the consumer region that interprets it.
+
+### Step 3 — List the protocols
+
+Find every meaningful dispatch.
 
 Ask:
 
 ```text
 What can happen next?
-What must the caller handle?
-What outcomes are impossible?
-What state is carried between states?
-Where can execution park, retry, fail, close, or complete?
+Where does control branch?
+What outcomes must the caller handle?
+What errors are actually distinct paths?
+What waits, parks, retries, closes, or succeeds?
 ```
 
-### Step 5 — Write region signatures first
-
-Do not start with bodies.
-
-For each operation, write:
+Write region protocols.
 
 ```moonlift
-region operation(data_in...;
-    outcome_a: cont(...),
-    outcome_b: cont(...),
-    outcome_c: cont(...))
-```
+region consume_token(
+    tokens: ptr(Token),
+    i: index;
 
-Review only these signatures.
-
-Questions:
-
-```text
-Are all outcomes named?
-Are there too many outcomes?
-Are different outcomes collapsed into one?
-Are payloads minimal?
-Are payloads typed correctly?
-Should this be a union instead?
-Should this be a function instead?
-```
-
-### Step 6 — Decide union vs protocol
-
-For each outcome:
-
-```text
-stored later?      -> union
-routed now?        -> continuation
-crosses ABI?       -> function return / struct / union
-hot internal path? -> continuation
-```
-
-### Step 7 — Design blocks as states
-
-Inside each region, write the block list.
-
-Before filling code, name states:
-
-```moonlift
-entry start()
-block scan(i: index)
-block got_digit(i: index, value: i32)
-block finish(value: i32, next: index)
-block fail(pos: index, code: i32)
-```
-
-This is the local state machine.
-
-### Step 8 — Fill transitions
-
-Only now write comparisons, loads, stores, calls, jumps, and emits.
-
-The body should feel like connecting a state machine already designed.
-
-### Step 9 — Compose regions
-
-Use `emit` to compose machines.
-
-Each emit must map the callee's protocol into local states.
-
-Design question:
-
-```text
-What does this callee outcome mean in this caller?
-```
-
-### Step 10 — Seal with functions
-
-Only after internal control is stable, create function boundaries.
-
-Questions:
-
-```text
-Does this need to be called from Lua?
-Does this need a C ABI symbol?
-Does this need object/shared emission?
-Does this need a simple return code?
-```
-
-### Step 11 — Lift repetition into Lua
-
-Find repeated shapes:
-
-```text
-same protocol, different payload type
-same parser fragment, different byte
-same scheduler machine, different job type
-same switch dispatch, different table
-same platform behavior, different extern set
-```
-
-Generate them with Lua.
-
-### Step 12 — Define phase boundaries if the system is interactive or compiler-like
-
-Ask what knowledge must be resolved when:
-
-```text
-parse
-resolve names
-typecheck
-layout
-schedule
-validate
-emit facts
-draw
-run
-```
-
-Each phase consumes typed Moonlift values and produces typed Moonlift values or protocols.
-
-No separate ASDL layer is required.
-
-### Step 13 — Write the review checklist
-
-For the finished design, answer:
-
-```text
-What are the data types?
-What are the control protocols?
-What are the state blocks?
-What are the sealed functions?
-What does Lua generate?
-What crosses the C ABI?
-What owns memory?
-What facts does the final loop consume?
-```
-
-If any answer is "it is implicit," the design is incomplete.
-
----
-
-## 11. Phase Design Without a Separate ASDL Layer
-
-The compiler pattern remains essential, but in the unified view its nouns are Moonlift nouns.
-
-Old view:
-
-```text
-Source ASDL
-Event ASDL
-Apply
-Phase
-Facts
-Loop
-```
-
-Unified Moonlift view:
-
-```text
-Source types
-Event unions
-Apply regions/functions
-Phase functions/regions
-Fact structs/unions/protocols
-Loop blocks/functions/host loops
-```
-
-### 11.1 Source types
-
-Source types are the authored model.
-
-```moonlift
-struct Document
-    blocks: view(Block)
-    selection: Selection
-    revision: u64
-end
-```
-
-This is the saveable, undoable state.
-
-Derived data does not belong here.
-
-### 11.2 Event unions
-
-Events are input language.
-
-```moonlift
-union EditorEvent
-    insert_text(pos: Cursor, bytes: view(u8))
-    delete_range(range: Range)
-    move_cursor(pos: Cursor)
-    save()
-end
-```
-
-This turns callbacks into data.
-
-### 11.3 Apply
-
-Apply is the state transition from source and event to next source or outcome.
-
-```moonlift
-region apply_event(
-    doc: ptr(Document),
-    event: ptr(EditorEvent);
-
-    changed: cont(new_revision: u64),
-    unchanged: cont(),
+    identifier: cont(start: index, len: index),
+    number: cont(start: index, len: index),
+    punctuation: cont(byte: u8),
+    eof: cont(),
     invalid: cont(code: i32))
 ```
 
-Apply may be pure at the architecture level even if implemented with mutation under controlled ownership.
+### Step 4 — Delete fake choices
 
-### 11.4 Phase facts
-
-A phase answers a named knowledge question.
+For every proposed union/result/status object, ask:
 
 ```text
-layout_blocks
-resolve_styles
-shape_text
-emit_render_facts
-schedule_jobs
-lower_regions
-validate_control
+Who consumes this?
 ```
 
-A phase output is just another Moonlift type:
+If the answer is “the next piece of code,” delete the union and make a region protocol.
+
+If the answer is “some later phase,” name that later phase as a region and store only the concrete facts needed for it.
+
+If the answer is “nobody,” delete the distinction.
+
+### Step 5 — Design regions as product/protocol machines
+
+Each region should have:
+
+```text
+input product
+continuation protocol
+internal block states
+explicit jumps
+emits to subregions
+```
+
+Write signatures before bodies.
 
 ```moonlift
-union RenderFact
-    clear(color: u32)
-    rect(x: i32, y: i32, w: i32, h: i32, color: u32)
-    text(x: i32, y: i32, bytes: view(u8))
-end
-```
-
-Or a control protocol:
-
-```moonlift
-region emit_render_facts(
-    doc: ptr(Document);
-
-    fact: cont(f: RenderFact),
-    done: cont(),
-    invalid: cont(code: i32))
-```
-
-### 11.5 The loop
-
-The loop is the consumer.
-
-It can be Lua:
-
-```lua
-for _, fact in render(doc) do
-    draw(fact)
-end
-```
-
-Or Moonlift:
-
-```moonlift
-block loop(i: index)
-    if i >= n then return end
-    ...
-    jump loop(i = i + 1)
-end
-```
-
-The important rule is:
-
-> The loop consumes facts.  
-> Phases produce facts.  
-> Source and events are typed Moonlift values.  
-> No separate modeling language is required.
-
----
-
-## 12. Memory and Resources in the Methodology
-
-Moonlift should not make memory ownership implicit.
-
-The methodology treats memory as part of the design.
-
-### 12.1 Classify memory
-
-For every pointer/view, answer:
-
-```text
-Who owns the memory?
-How long is it valid?
-Can Moonlift store the pointer?
-Can Moonlift mutate it?
-Can it alias another pointer?
-Does it cross a thread boundary?
-```
-
-### 12.2 Common ownership modes
-
-```text
-LuaJIT-owned temporary memory
-LuaJIT-owned long-lived buffer
-arena-owned temporary allocation
-C-owned malloc/resource
-caller-owned pointer
-foreign library-owned handle
-```
-
-### 12.3 Borrowing rule
-
-A pointer passed to Moonlift is usually a borrow.
-
-Design rule:
-
-```text
-The owner must remain reachable for the entire dynamic extent of the borrow.
-The pointer may escape only if the owner escapes with it.
-```
-
-### 12.4 Arena rule
-
-Arena allocations are valid until:
-
-```text
-arena reset
-arena rewind before allocation
-scope exit
-arena close
-```
-
-This can be represented by Lua library discipline, not by adding ownership syntax to Moonlift.
-
-### 12.5 Resource rule
-
-Scarce resources should have explicit close/defer discipline.
-
-```text
-file descriptors
-thread handles
-sockets
-libuv handles
-mutexes
-mmap regions
-```
-
-`__gc` or `ffi.gc` may be backup cleanup, not primary control flow.
-
-### 12.6 Why this belongs in the methodology
-
-Memory is not an implementation detail. It is part of the type/control design.
-
-A region that receives `ptr(Buffer)` should make the contract visible:
-
-```moonlift
-region fill_buffer(
-    writeonly noalias dst: ptr(u8),
+region parse_value(
+    L: ptr(lua_State),
+    p: ptr(u8),
     n: index,
-    byte: u8;
+    i: index;
 
-    done: cont(),
-    invalid: cont(code: i32))
+    string: cont(next: index),
+    number: cont(next: index),
+    array: cont(next: index),
+    object: cont(next: index),
+    literal: cont(next: index),
+    err: cont(pos: index, code: i32))
 ```
 
-The type says what flows. The modifiers/contracts say what memory facts are assumed. The Lua scope/arena/resource layer says who owns the memory.
-
----
-
-## 13. Foreign Capabilities and Platform Design
-
-Moonlift uses the C ABI as the world boundary, but LuaJIT is the capability layer.
-
-The methodology:
-
-```text
-Lua probes the world.
-Lua chooses a backend.
-Lua generates the Moonlift externs.
-Moonlift calls only selected externs.
-```
-
-### 13.1 Example
-
-```lua
-local ffi = require("ffi")
-
-local have_uv = pcall(function()
-    ffi.cdef[[
-    typedef struct uv_loop_s uv_loop_t;
-    uv_loop_t *uv_default_loop(void);
-    int uv_run(uv_loop_t *loop, int mode);
-    ]]
-    assert(ffi.C.uv_default_loop ~= nil)
-end)
-
-local backend = have_uv
-    and require("runtime.uv")
-    or require("runtime.fallback")
-
-return backend.make()
-```
-
-The selected backend emits the correct Moonlift externs.
-
-### 13.2 Why this matters
-
-No separate build system is needed for ordinary platform selection.
-
-```text
-configure scripts -> Lua
-platform macros   -> Lua
-feature probing   -> Lua
-backend selection -> Lua
-extern generation -> Lua
-```
-
-Moonlift compiles the answer.
-
-### 13.3 Design rule
-
-Do not wrap C access unless the wrapper adds an invariant.
-
-Good wrappers:
-
-```text
-scope
-arena
-resource
-thread pool protocol
-channel machine
-parser generator
-```
-
-Bad wrappers:
-
-```text
-libc functions copied into a parallel namespace without new guarantees
-```
-
----
-
-## 14. Worked Example I: JSON Parsing
-
-JSON parsing demonstrates the methodology well because it is branch-heavy, recursive, and full of immediate outcomes.
-
-### 14.1 Name the machine
-
-```text
-The JSON decoder consumes bytes and produces Lua stack values by parsing a value grammar and exiting through typed parse outcomes.
-```
-
-### 14.2 Data tree
-
-```moonlift
-union JsonError
-    unexpected_eof(pos: index)
-    unexpected_byte(pos: index, byte: u8)
-    invalid_number(pos: index)
-    invalid_escape(pos: index)
-    stack_error(code: i32)
-end
-```
-
-If the decoder reports errors as codes, this union may stay design-level or be used in tests. If the hot path only needs immediate branching, errors become continuations.
-
-### 14.3 Control protocols
+Maybe this protocol is too fine-grained for the caller. If the caller does not need to know which kind of value was parsed, collapse it:
 
 ```moonlift
 region parse_value(
@@ -1423,50 +750,32 @@ region parse_value(
     err: cont(pos: index, code: i32))
 ```
 
-Specialized fragments:
+The protocol belongs to the consumer. Do not expose distinctions the consumer does not need.
+
+### Step 6 — Compose with emit
+
+Composition is protocol filling.
 
 ```moonlift
-region parse_string(...;
-    ok: cont(next: index),
-    err: cont(pos: index, code: i32))
-
-region parse_number(...;
-    ok: cont(next: index),
-    err: cont(pos: index, code: i32))
-
-region parse_array(...;
-    ok: cont(next: index),
-    err: cont(pos: index, code: i32))
-
-region parse_object(...;
-    ok: cont(next: index),
-    err: cont(pos: index, code: i32))
+emit parse_value(L, p, n, i;
+    ok = after_value,
+    err = bad_json)
 ```
 
-### 14.4 Lua factory axis
+This is the point where design becomes executable. Every outcome must be handled.
 
-Literal arms are data-driven:
+### Step 7 — Seal with functions
 
-```lua
-local literal_arms = {
-    make_literal("true",  push_true),
-    make_literal("false", push_false),
-    make_literal("null",  push_null),
-}
-```
-
-Lua generates switch arms. Moonlift compiles the chosen machine.
-
-### 14.5 Sealed function
+Only when a machine must become a callable unit:
 
 ```moonlift
 func decode_json(L: ptr(lua_State), p: ptr(u8), n: index) -> i32
     return region -> i32
     entry start()
-        emit parse_value(L, p, n, 0; ok = parsed, err = failed)
+        emit parse_value(L, p, n, 0; ok = done, err = failed)
     end
 
-    block parsed(next: index)
+    block done(next: index)
         return 1
     end
 
@@ -1477,291 +786,252 @@ func decode_json(L: ptr(lua_State), p: ptr(u8), n: index) -> i32
 end
 ```
 
-The internal parser is a continuation machine. The exported decoder is a function.
+The function returns a product. The region inside handles protocol-rich control.
+
+### Step 8 — Generate repeated machines with Lua
+
+Lua owns abstraction.
+
+If many protocols have the same shape, generate them.
+
+If many encoded tags dispatch similarly, generate the switch arms.
+
+If many types need the same channel/scheduler/parser machine, generate monomorphic variants.
+
+```lua
+local function make_channel(name, T)
+    -- returns concrete structs and regions:
+    -- send_T, recv_T, close_T, etc.
+end
+```
+
+Moonlift receives only concrete products, protocols, regions, and functions.
 
 ---
 
-## 15. Worked Example II: HTTP Request Lifecycle
+## 10. Worked example: compiler AST without semantic unions
 
-### 15.1 Name the machine
+A normal compiler design starts with a sum type:
 
 ```text
-The HTTP server consumes socket events and bytes, parses requests, routes them, and emits response writes or connection transitions.
+Expr = IntLit | Name | Call | Binary
 ```
 
-### 15.2 Data tree
+Moonlift's stricter design starts with storage facts and a consumer protocol.
+
+### 10.1 Products
 
 ```moonlift
-struct Connection
-    fd: i32
-    input: view(u8)
-    output: view(u8)
-    state: ConnectionState
+struct ExprRef
+    kind: u8
+    index: u32
 end
 
-union ConnectionState
-    reading_headers()
-    reading_body(expected: index, received: index)
-    ready()
-    writing()
-    closed()
+struct IntLitExpr
+    value: i64
 end
 
-struct Request
-    method: Method
-    path: view(u8)
-    headers: view(Header)
-    body: view(u8)
+struct NameExpr
+    symbol: u32
 end
 
-union Method
-    get()
-    post()
-    put()
-    delete()
-    other(bytes: view(u8))
+struct CallExpr
+    fn: ExprRef
+    args_data: ptr(ExprRef)
+    args_len: index
 end
-```
 
-### 15.3 Event union
+struct BinaryExpr
+    op: u8
+    lhs: ExprRef
+    rhs: ExprRef
+end
 
-```moonlift
-union ServerEvent
-    readable(conn: ptr(Connection))
-    writable(conn: ptr(Connection))
-    timeout(conn: ptr(Connection))
-    accepted(fd: i32)
-    shutdown()
+struct Ast
+    int_lits: ptr(IntLitExpr)
+    names: ptr(NameExpr)
+    calls: ptr(CallExpr)
+    binaries: ptr(BinaryExpr)
 end
 ```
 
-### 15.4 Control protocols
+This is concrete data. No polymorphism. No semantic union.
+
+### 10.2 Protocol
 
 ```moonlift
-region parse_request(
-    conn: ptr(Connection);
+region visit_expr(
+    ast: ptr(Ast),
+    expr: ExprRef;
 
-    complete: cont(req: ptr(Request)),
-    need_more: cont(),
-    bad_request: cont(code: i32),
-    close: cont())
-
-region route_request(
-    req: ptr(Request);
-
-    response: cont(status: i32, body: view(u8)),
-    not_found: cont(),
-    internal_error: cont(code: i32))
-
-region write_response(
-    conn: ptr(Connection),
-    status: i32,
-    body: view(u8);
-
-    done: cont(),
-    partial: cont(written: index),
-    closed: cont(),
-    error: cont(code: i32))
+    int_lit: cont(e: ptr(IntLitExpr)),
+    name: cont(e: ptr(NameExpr)),
+    call: cont(e: ptr(CallExpr)),
+    binary: cont(e: ptr(BinaryExpr)),
+    invalid: cont(code: i32))
 ```
 
-### 15.5 Composition
+This is where the choice lives.
+
+### 10.3 Typechecking as protocol composition
 
 ```moonlift
-emit parse_request(conn;
-    complete = route,
-    need_more = wait_read,
-    bad_request = send_400,
-    close = close_conn)
-```
+region typecheck_expr(
+    ctx: ptr(TypeContext),
+    ast: ptr(Ast),
+    expr: ExprRef;
 
-Each outcome is explicit. There is no hidden exception or callback.
+    ok: cont(typed: TypedExprRef, ty: TypeId),
+    missing_symbol: cont(symbol: u32),
+    type_mismatch: cont(found: TypeId, expected: TypeId),
+    invalid_expr: cont(code: i32))
+entry start()
+    emit visit_expr(ast, expr;
+        int_lit = tc_int_lit,
+        name = tc_name,
+        call = tc_call,
+        binary = tc_binary,
+        invalid = invalid_expr)
+end
 
-### 15.6 Function boundary
+block tc_int_lit(e: ptr(IntLitExpr))
+    jump ok(typed = ..., ty = ...)
+end
 
-The event-loop integration may be Lua/libuv. The hot transitions are Moonlift regions. The sealed function may be:
-
-```moonlift
-func handle_event(ev: ptr(ServerEvent)) -> i32
+block tc_name(e: ptr(NameExpr))
     ...
 end
+end
 ```
+
+The AST is stored as products. The semantic alternatives are consumed as a protocol.
+
+### 10.4 Diagnostics
+
+Diagnostics are often modeled as unions. Under this discipline, diagnostics can be encoded as products plus render/consume protocols.
+
+```moonlift
+struct DiagnosticRecord
+    code: i32
+    span_start: index
+    span_len: index
+    arg0: u64
+    arg1: u64
+end
+
+region render_diagnostic(
+    diag: ptr(DiagnosticRecord);
+
+    missing_symbol: cont(symbol: u32, span_start: index, span_len: index),
+    type_mismatch: cont(found: TypeId, expected: TypeId, span_start: index, span_len: index),
+    invalid: cont(code: i32))
+```
+
+The stored diagnostic record is a compact fact. The semantic meaning is the rendering/consuming protocol.
 
 ---
 
-## 16. Worked Example III: Text Editor Core
+## 11. Worked example: editor events without event unions
 
-A text editor is a strong test because it is not just a kernel. It is a whole interactive system.
+A typical editor might model events as a union. In the strict Moonlift method, the event queue stores encoded facts, and a consumer region dispatches.
 
-### 16.1 Name the machine
-
-```text
-The editor consumes user events and file events, applies them to a document model, compiles the document to render facts, and sends those facts to a terminal or GUI loop.
-```
-
-### 16.2 Source types
+### 11.1 Products
 
 ```moonlift
-struct Document
-    pieces: view(Piece)
-    selection: Selection
-    revision: u64
+struct RawEvent
+    kind: u16
+    payload_index: u32
 end
 
-struct Piece
-    source: PieceSource
-    start: index
-    len: index
+struct KeyPayload
+    code: i32
+    mods: i32
 end
 
-union PieceSource
-    original()
-    add_buffer()
+struct MousePayload
+    x: i32
+    y: i32
+    button: i32
 end
 
-struct Selection
-    anchor: Cursor
-    focus: Cursor
-end
-
-struct Cursor
-    byte: index
-    line: index
-    column: index
+struct EventStore
+    keys: ptr(KeyPayload)
+    mice: ptr(MousePayload)
+    raws: ptr(RawEvent)
 end
 ```
 
-### 16.3 Event union
+### 11.2 Protocol
 
 ```moonlift
-union EditorEvent
-    insert_text(bytes: view(u8))
-    delete_selection()
-    move_left()
-    move_right()
-    move_to(pos: Cursor)
-    save()
-    open_file(path: view(u8))
-end
+region consume_event(
+    store: ptr(EventStore),
+    ev: RawEvent;
+
+    key: cont(p: ptr(KeyPayload)),
+    mouse: cont(p: ptr(MousePayload)),
+    save: cont(),
+    quit: cont(),
+    invalid: cont(code: i32))
 ```
 
-### 16.4 Apply protocol
+### 11.3 Apply as protocol consumer
 
 ```moonlift
 region apply_event(
     doc: ptr(Document),
-    ev: ptr(EditorEvent);
+    store: ptr(EventStore),
+    ev: RawEvent;
 
-    changed: cont(revision: u64),
+    changed: cont(new_revision: u64),
     unchanged: cont(),
-    invalid: cont(code: i32),
-    needs_io: cont(kind: i32))
-```
-
-### 16.5 Phase facts
-
-```moonlift
-union RenderFact
-    clear()
-    cursor(line: i32, col: i32)
-    text(line: i32, col: i32, bytes: view(u8), style: u32)
-    rect(x: i32, y: i32, w: i32, h: i32, color: u32)
+    needs_io: cont(code: i32),
+    invalid: cont(code: i32))
+entry start()
+    emit consume_event(store, ev;
+        key = handle_key,
+        mouse = handle_mouse,
+        save = save_doc,
+        quit = unchanged,
+        invalid = invalid)
+end
+...
 end
 ```
 
-### 16.6 Render protocol
-
-```moonlift
-region render_document(
-    doc: ptr(Document),
-    viewport: Viewport;
-
-    fact: cont(f: RenderFact),
-    done: cont(),
-    invalid: cont(code: i32))
-```
-
-This is the compiler pattern in Moonlift form:
-
-```text
-Document + EditorEvent
-  -> apply_event
-  -> Document'
-  -> render_document
-  -> RenderFact stream
-  -> draw loop
-```
-
-No separate ASDL is necessary. The source model, events, apply protocol, render facts, and final loop are all typed Moonlift design artifacts.
+The design says exactly where dispatch happens. The stored event is just a fact.
 
 ---
 
-## 17. Worked Example IV: Scheduler and Channels
+## 12. Worked example: scheduler
 
-### 17.1 Name the machine
+A scheduler is naturally product/protocol shaped.
 
-```text
-The scheduler consumes submitted jobs, wakeups, timers, and channel operations, and repeatedly transitions tasks between runnable, parked, running, and completed states.
-```
-
-### 17.2 Data tree
+### 12.1 Products
 
 ```moonlift
 struct Task
     id: u64
-    state: TaskState
+    state: i32
     stack: ptr(u8)
     stack_len: index
     next: ptr(Task)
 end
 
-union TaskState
-    new()
-    runnable()
-    running(worker: i32)
-    parked(reason: ParkReason)
-    done(code: i32)
-end
-
-union ParkReason
-    channel_send(ch: ptr(Channel))
-    channel_recv(ch: ptr(Channel))
-    timer(deadline: i64)
-    io(handle: ptr(u8))
-end
-
-struct Channel
-    buffer: ptr(u8)
-    cap: index
-    head: index
-    tail: index
+struct Queue
+    head: ptr(Task)
+    tail: ptr(Task)
     closed: bool
-    send_waiters: ptr(Task)
-    recv_waiters: ptr(Task)
+end
+
+struct Scheduler
+    runnable: Queue
+    parked: Queue
+    shutting_down: bool
 end
 ```
 
-### 17.3 Channel protocols
-
-```moonlift
-region send_i32(
-    ch: ptr(Channel),
-    value: i32;
-
-    sent: cont(),
-    parked: cont(task: ptr(Task)),
-    closed: cont(),
-    would_block: cont())
-
-region recv_i32(
-    ch: ptr(Channel);
-
-    got: cont(value: i32),
-    parked: cont(task: ptr(Task)),
-    closed: cont(),
-    would_block: cont())
-```
-
-### 17.4 Scheduler protocols
+### 12.2 Protocols
 
 ```moonlift
 region claim_task(
@@ -1775,247 +1045,17 @@ region run_task(
     task: ptr(Task);
 
     yielded: cont(task: ptr(Task)),
-    parked: cont(task: ptr(Task), reason: ParkReason),
+    parked: cont(task: ptr(Task), reason: i32),
     completed: cont(task: ptr(Task), code: i32),
     faulted: cont(task: ptr(Task), code: i32))
 ```
 
-### 17.5 Lua factory axis
+No `TaskState` union is required as the semantic design. A `state: i32` may exist as an encoded fact. The scheduler regions consume that fact and route control.
 
-Channels are generated by type:
-
-```lua
-local I32Chan = make_channel("I32Chan", moon.i32)
-local JobChan = make_channel("JobChan", Job)
-```
-
-Each channel is monomorphic. No runtime type erasure is needed.
-
-### 17.6 Platform axis
-
-Threading backends are selected by Lua:
-
-```lua
-if ffi.os == "Windows" then
-    return require("sched.windows").make()
-else
-    return require("sched.pthread").make()
-end
-```
-
-The selected backend generates the correct externs. The scheduler machines remain Moonlift.
-
----
-
-## 18. Review Method
-
-Moonlift changes code review.
-
-Review should happen in layers.
-
-### 18.1 Review the data tree
-
-Questions:
-
-```text
-Are the nouns correct?
-Are products represented as structs?
-Are stored choices represented as unions?
-Is derived data excluded from persistent state?
-Are views/pointers clear about ownership?
-Are handles explicit?
-```
-
-### 18.2 Review the control tree
-
-Questions:
-
-```text
-Are operations represented as regions?
-Are all outcomes explicit?
-Are continuation names precise?
-Are payloads minimal and sufficient?
-Are any booleans hiding protocols?
-Are any status codes hiding variants?
-```
-
-### 18.3 Review region relationships
-
-Questions:
-
-```text
-Which regions emit which?
-Are exits forwarded intentionally?
-Are local blocks named as states?
-Are any functions used prematurely?
-```
-
-### 18.4 Review sealing
-
-Questions:
-
-```text
-Which functions are ABI boundaries?
-Which functions are merely internal convenience?
-Could internal functions be regions?
-Does each exported function hide a clean internal protocol?
-```
-
-### 18.5 Review Lua generation
-
-Questions:
-
-```text
-What does Lua generate?
-Are generated names stable?
-Are generated variants monomorphic?
-Are platform choices explicit?
-Are externs selected after capability probing?
-```
-
-### 18.6 Review memory/resource ownership
-
-Questions:
-
-```text
-Who owns each pointer?
-How long is each view valid?
-Can the pointer escape?
-Is cleanup explicit?
-Are scarce resources closed deterministically?
-```
-
----
-
-## 19. Testing Method
-
-Moonlift testing should follow the dual-tree structure.
-
-### 19.1 Type/protocol tests
-
-These test that invalid designs are rejected:
-
-```text
-missing continuation fill
-wrong continuation payload type
-jump missing block parameter
-duplicate case
-unreachable control path
-invalid conversion
-```
-
-### 19.2 Region behavior tests
-
-Each region can be tested by filling its continuations with test blocks.
-
-```text
-parse_i32 exits ok for "123"
-parse_i32 exits err for "-"
-recv exits closed when channel is closed
-send exits would_block when nonblocking and full
-```
-
-### 19.3 Lua oracle tests
-
-Lua is ideal for reference behavior.
-
-```text
-generate random input
-run Lua reference
-run Moonlift compiled function
-compare outputs / continuations / side effects
-```
-
-### 19.4 Phase tests
-
-For compiler-like or interactive systems:
-
-```text
-source + event -> expected source'
-source -> expected facts
-changed subtree -> only affected phase recomputes
-invalid source -> diagnostic facts
-```
-
-### 19.5 ABI tests
-
-If emitting object/shared artifacts:
-
-```text
-C caller can call symbol
-struct layout matches
-view ABI matches
-extern calls resolve
-error codes stable
-```
-
----
-
-## 20. Tooling Implications
-
-Because the design is in the Moonlift declaration graph, tools can be architectural.
-
-Possible queries:
-
-```text
-Find all emit sites of region R.
-Find all blocks that fill continuation C.
-Find all regions with protocol P.
-Find all continuations carrying type T.
-Find all functions sealing region R.
-Find all Lua factories generating region family F.
-Find all structs reachable from root type T.
-Find all protocols that can exit through `err`.
-Find all callbacks replaced by continuation protocols.
-```
-
-This is more powerful than ordinary "find references" because the design concepts are first-class.
-
-### 20.1 Design browser
-
-A Moonlift IDE can show:
-
-```text
-Data tree
-Control tree
-Region graph
-Emit graph
-Continuation fill graph
-Function seal graph
-Lua factory outputs
-C ABI boundary map
-```
-
-This is the replacement for stale architecture diagrams.
-
-### 20.2 Refactoring
-
-Renaming a continuation should update every fill.
-
-Changing a continuation payload should reveal every affected block.
-
-Changing a union variant should reveal every stored-consumption site.
-
-Changing a struct field should reveal every data dependency.
-
-The design is refactorable because it is typed.
-
----
-
-## 21. Anti-Patterns
-
-### 21.1 Boolean return where a protocol belongs
-
-Bad:
+### 12.3 Channel protocols
 
 ```moonlift
-func send(ch: ptr(Channel), value: i32) -> bool
-```
-
-Good:
-
-```moonlift
-region send(
+region send_i32(
     ch: ptr(Channel),
     value: i32;
 
@@ -2023,9 +1063,369 @@ region send(
     closed: cont(),
     would_block: cont(),
     parked: cont(task: ptr(Task)))
+
+region recv_i32(
+    ch: ptr(Channel);
+
+    got: cont(value: i32),
+    closed: cont(),
+    would_block: cont(),
+    parked: cont(task: ptr(Task)))
 ```
 
-### 21.2 Status code soup
+A channel operation is not a return value. It is a protocol.
+
+---
+
+## 13. How this changes compiler design
+
+A compiler designed this way does not primarily consist of tree unions and passes returning results.
+
+It consists of:
+
+```text
+product storage facts
+visitor/consumer protocols
+phase regions
+diagnostic/output protocols
+sealed functions at tooling/ABI boundaries
+```
+
+### 13.1 Phase example
+
+```moonlift
+region resolve_name(
+    ctx: ptr(BindContext),
+    symbol: u32;
+
+    local: cont(binding: u32),
+    global: cont(item: u32),
+    missing: cont(),
+    ambiguous: cont(a: u32, b: u32))
+```
+
+No `ResolveResult` union.
+
+### 13.2 Validation example
+
+```moonlift
+region validate_jump(
+    r: ptr(TypedRegion),
+    jump_id: u32;
+
+    valid: cont(),
+    missing_target: cont(target: u32),
+    wrong_args: cont(expected: u32, found: u32),
+    type_error: cont(arg: u32, expected: TypeId, found: TypeId))
+```
+
+No `ValidationResult` union.
+
+### 13.3 Backend lowering
+
+```moonlift
+region lower_region(
+    r: ptr(TypedRegion),
+    out: ptr(BackBuilder);
+
+    emitted: cont(first_cmd: index, count: index),
+    invalid_control: cont(code: i32),
+    unsupported: cont(feature: i32))
+```
+
+The compiler phase API is explicit. Every meaningful outcome is a continuation.
+
+The compiler can still store facts. But stored facts are products: IDs, spans, tables, records, command arrays, diagnostic records. Their semantic interpretation is done by protocols.
+
+---
+
+## 14. Phase design in the product/protocol model
+
+Interactive software and compilers both have phases. The phase model becomes:
+
+```text
+Source products
+Event products
+Apply protocol
+Phase protocols
+Fact products
+Final loop
+```
+
+### 14.1 Source products
+
+A source product is authored or persistent state.
+
+```moonlift
+struct Document
+    pieces: ptr(Piece)
+    piece_count: index
+    revision: u64
+end
+```
+
+### 14.2 Event products
+
+Events are encoded facts, not semantic unions.
+
+```moonlift
+struct RawEvent
+    kind: u16
+    payload_index: u32
+end
+```
+
+### 14.3 Apply protocol
+
+```moonlift
+region apply_event(
+    doc: ptr(Document),
+    events: ptr(EventStore),
+    ev: RawEvent;
+
+    changed: cont(revision: u64),
+    unchanged: cont(),
+    invalid: cont(code: i32))
+```
+
+### 14.4 Fact products
+
+A render fact can be encoded as product data:
+
+```moonlift
+struct RenderCmd
+    kind: u16
+    x: i32
+    y: i32
+    a: u64
+    b: u64
+end
+```
+
+The consumer protocol interprets it:
+
+```moonlift
+region consume_render_cmd(
+    cmd: RenderCmd;
+
+    clear: cont(color: u32),
+    text: cont(x: i32, y: i32, data: ptr(u8), len: index),
+    rect: cont(x: i32, y: i32, w: i32, h: i32, color: u32),
+    invalid: cont(code: i32))
+```
+
+Again: the stored command is a product. The semantic alternatives are protocols.
+
+---
+
+## 15. Memory and resource design
+
+Memory also follows products/protocols.
+
+A pointer is product data:
+
+```moonlift
+struct Buffer
+    data: ptr(u8)
+    len: index
+end
+```
+
+Ownership is not hidden in the pointer. It is a design fact outside or around the pointer:
+
+```text
+LuaJIT owns this buffer.
+An arena owns this allocation.
+A C library owns this handle.
+The caller owns this view.
+```
+
+Operations on memory are protocols when they have meaningful outcomes:
+
+```moonlift
+region reserve_bytes(
+    arena: ptr(Arena),
+    n: index;
+
+    ok: cont(ptr: ptr(u8), len: index),
+    oom: cont(),
+    invalid: cont(code: i32))
+```
+
+Resource operations are protocols:
+
+```moonlift
+region close_handle(
+    h: ptr(Handle);
+
+    closed: cont(),
+    already_closed: cont(),
+    error: cont(code: i32))
+```
+
+No resource result union is needed.
+
+---
+
+## 16. Platform and foreign design
+
+Lua selects capabilities. Moonlift consumes the selected externs.
+
+The product/protocol method still applies:
+
+```text
+foreign handle       -> product
+foreign operation    -> region/function
+foreign outcomes     -> protocol
+sealed ABI call      -> function/extern
+platform variation   -> Lua factory
+```
+
+Example:
+
+```lua
+if ffi.os == "Windows" then
+    return require("thread.windows").make()
+else
+    return require("thread.pthread").make()
+end
+```
+
+Both backends generate the same conceptual protocols:
+
+```moonlift
+region start_thread(
+    entry: ptr(u8),
+    arg: ptr(u8);
+
+    started: cont(handle: ptr(ThreadHandle)),
+    failed: cont(code: i32))
+```
+
+Platform differences are generated by Lua. Runtime choices are protocols.
+
+---
+
+## 17. Design review checklist
+
+A Moonlift design review should now ask:
+
+### Products
+
+```text
+What concrete facts exist?
+Which fields coexist?
+Which values are handles, pointers, views, or encoded records?
+Are any products secretly carrying a semantic choice?
+```
+
+### Protocols
+
+```text
+Where does control branch?
+Are all outcomes named?
+Are payload products minimal?
+Does every dispatch have a named consumer region?
+```
+
+### Fake unions
+
+```text
+Is there a result object whose only purpose is later switching?
+Is there a kind/tag treated as the design instead of as an encoding?
+Is there a stored choice with no named future consumer?
+Is there polymorphism hidden in a value?
+```
+
+### Regions
+
+```text
+Does each region have a clear input product?
+Does each region have a clear protocol?
+Are internal states blocks with typed products?
+Are sub-machines composed with emit?
+```
+
+### Functions
+
+```text
+Is this function really a sealed boundary?
+Should this internal function be a region?
+Is it returning a status/result because it lacks a protocol?
+```
+
+### Lua
+
+```text
+What is generated?
+What are the axes of variation?
+Are generated machines monomorphic?
+Is platform selection explicit?
+```
+
+---
+
+## 18. Anti-patterns
+
+### 18.1 Result object
+
+Bad:
+
+```moonlift
+func parse(...) -> ParseResult
+```
+
+Good:
+
+```moonlift
+region parse(...;
+    ok: cont(...),
+    err: cont(...))
+```
+
+### 18.2 Semantic union
+
+Bad:
+
+```moonlift
+union Expr
+    int_lit(...)
+    call(...)
+end
+```
+
+Better:
+
+```moonlift
+struct ExprRef
+    kind: u8
+    index: u32
+end
+
+region visit_expr(...;
+    int_lit: cont(...),
+    call: cont(...),
+    invalid: cont(...))
+```
+
+### 18.3 Boolean protocol
+
+Bad:
+
+```moonlift
+func try_recv(...) -> bool
+```
+
+Good:
+
+```moonlift
+region recv(...;
+    got: cont(...),
+    empty: cont(),
+    closed: cont())
+```
+
+### 18.4 Status code soup
 
 Bad:
 
@@ -2033,373 +1433,135 @@ Bad:
 return -7
 ```
 
-Better at boundaries:
+Good internally:
+
+```moonlift
+timeout: cont(...)
+```
+
+Acceptable at a sealed function boundary:
 
 ```moonlift
 return ERROR_TIMEOUT
 ```
 
-Better internally:
-
-```moonlift
-timeout: cont(deadline: i64)
-```
-
-### 21.3 Stringly exits
-
-Bad:
-
-```text
-status = "closed"
-```
-
-Good:
-
-```moonlift
-closed: cont()
-```
-
-### 21.4 Callback registry as architecture
+### 18.5 Callback registry
 
 Bad:
 
 ```lua
-handlers["closed"] = function(...) ... end
-```
-
-Good:
-
-```moonlift
-region operation(...;
-    closed: cont(),
-    error: cont(code: i32))
-```
-
-Callbacks can exist at boundaries, but the internal protocol should be typed.
-
-### 21.5 Premature functions
-
-Bad:
-
-```moonlift
-func parse_string(...) -> ParseResult
+handlers["closed"] = function() ... end
 ```
 
 Good internally:
 
 ```moonlift
-region parse_string(...;
-    ok: cont(next: index),
-    err: cont(pos: index, code: i32))
+closed: cont()
 ```
 
-Seal later if needed.
-
-### 21.6 Overusing unions for immediate control
+### 18.6 Stored choice with no consumer
 
 Bad:
 
 ```text
-region result stored only so caller can immediately switch on it
+A tag field exists because maybe someone will need it later.
 ```
 
 Good:
 
 ```text
-make it a continuation protocol
-```
-
-### 21.7 Overusing protocols for stored results
-
-Bad:
-
-```text
-continuation protocol used where result must be queued/logged/stored
-```
-
-Good:
-
-```text
-make it a union
-```
-
-### 21.8 Derived data in source
-
-Bad:
-
-```text
-Document stores both text and rendered glyph positions
-```
-
-Good:
-
-```text
-Document stores authored text.
-Layout/render phases produce glyph/render facts.
-```
-
-### 21.9 Moonlift generics
-
-Bad:
-
-```text
-Trying to add type parameters to Moonlift source.
-```
-
-Good:
-
-```lua
-local Vec_i32 = make_vec("Vec_i32", moon.i32)
-```
-
-Lua is the generator.
-
-### 21.10 Parallel type universes
-
-Bad:
-
-```text
-A memory library recreates mem.i32, mem.struct, mem.ptr.
-```
-
-Good:
-
-```text
-Moonlift owns types.
-Libraries own patterns: scope, arena, resource, parser, scheduler.
+Delete it until a consumer protocol exists.
 ```
 
 ---
 
-## 22. Design Checklist
+## 19. Tooling implications
 
-Use this before implementing a subsystem.
+If Moonlift design is products and protocols, tooling should show those directly.
 
-### 22.1 Machine statement
-
-```text
-This system consumes:
-This system produces:
-The main loop is:
-```
-
-### 22.2 Data tree
+Useful views:
 
 ```text
-Persistent source types:
-Event unions:
-Fact types:
-Resource/handle types:
-Temporary/intermediate types:
-Stored result unions:
+Product graph
+Protocol graph
+Region graph
+Emit/fill graph
+Function seal graph
+Tag-consumer graph
+Lua factory output graph
+Foreign capability graph
 ```
 
-### 22.3 Control tree
+Important queries:
 
 ```text
-Regions:
-Continuations:
-Blocks/states:
-Jumps/transitions:
-Emits/compositions:
+Which regions consume this encoded kind?
+Which products contain tag-like fields?
+Which functions return status codes?
+Which regions expose `err`?
+Which emit sites fill `closed`?
+Which internal functions should be regions?
 ```
 
-### 22.4 Union vs protocol decisions
+A particularly useful linter:
 
 ```text
-Outcome:
-Stored or immediate?
-Union or continuation?
-Reason:
+Flag every function returning a tag/status/result-like product.
+Ask whether it should be a region protocol.
 ```
 
-### 22.5 Phase tower
+Another:
 
 ```text
-Phase:
-Question answered:
-Input type:
-Output type/protocol:
-Consumer:
+Flag every product with `kind`, `tag`, or `type` field that lacks an obvious consuming region.
 ```
 
-### 22.6 Sealed boundaries
-
-```text
-Function:
-Internal region sealed:
-ABI/API consumer:
-Return convention:
-```
-
-### 22.7 Lua generation
-
-```text
-Factory:
-Parameters:
-Generated declarations:
-Monomorphic variants:
-Naming rule:
-```
-
-### 22.8 Foreign/world boundary
-
-```text
-Extern:
-Capability probe:
-Fallback:
-Ownership:
-Cleanup:
-```
-
-### 22.9 Memory
-
-```text
-Pointer/view:
-Owner:
-Lifetime:
-Can escape?
-Mutable?
-Alias facts:
-```
-
-### 22.10 Review result
-
-```text
-All meaningful distinctions are represented as:
-  field / variant / continuation / block / jump / phase fact / contract / Lua choice
-
-No meaningful distinction is hidden in:
-  string / callback / side table / convention / undocumented status code
-```
+The goal is not to forbid encodings. The goal is to ensure encodings have named consumers.
 
 ---
 
-## 23. What This Means for Software Architecture
+## 20. Final doctrine
 
-Moonlift architecture is not object-oriented, functional, or MVC in the usual sense.
-
-It is **typed machine architecture**.
-
-A system is designed as:
+The final methodology is:
 
 ```text
-data tree
-control tree
-phase tower
-memory/resource discipline
-foreign boundary
-Lua generation layer
-sealed function/API boundary
+1. Products are data.
+2. Protocols are choice.
+3. Regions consume products and protocols.
+4. Functions are sealed product-to-product boundaries.
+5. Blocks are product states.
+6. Jumps are typed transitions.
+7. Emits compose protocols.
+8. Lua generates concrete machines.
+9. Tags are encodings, not semantic design.
+10. Unions are not a design primitive.
 ```
 
-This creates a new kind of architecture document: the source declarations themselves.
+The most compact statement:
 
-### 23.1 More precise than UML
+> If I need to dispatch, I need a protocol.  
+> If I do not need to dispatch, I do not need a union.
 
-UML can show relationships, but it usually cannot type the execution paths.
+Or:
 
-Moonlift can:
-
-```text
-this operation exits through exactly these continuations
-this exit carries exactly these values
-this emit fills exactly these exits
-this block receives exactly these parameters
-```
-
-### 23.2 Less premature than full bodies
-
-A region signature is not a full implementation, but it is more precise than a diagram.
-
-It is the design sweet spot:
-
-```text
-not vague documentation
-not full algorithm yet
-typed enough to review
-executable enough to implement directly
-```
-
-### 23.3 Better for onboarding
-
-A new engineer can read the declaration graph:
-
-```text
-types tell what exists
-unions tell stored alternatives
-regions tell operations
-continuations tell outcomes
-blocks tell states
-functions tell boundaries
-Lua factories tell generated families
-```
-
-This is the system's map.
-
-### 23.4 Better for performance
-
-When the source describes the machine directly, the compiler removes less semantic fog.
-
-Moonlift avoids:
-
-```text
-hidden allocation
-control encoded as data when not needed
-callback dispatch for local control
-runtime generic dispatch
-function boundaries where control splicing is better
-```
-
-The design method is also a performance method.
+> Choice is control.  
+> Data is product.  
+> Moonlift is the language that lets the source say that directly.
 
 ---
 
-## 24. Conclusion
+## 21. Conclusion
 
-Designing software with Moonlift means designing explicit machines.
+Moonlift design is not object-oriented design, not functional design, and not algebraic-data-type design in the usual sense.
 
-The old view needed a separate modeling language:
+It is **explicit machine design**.
 
-```text
-ASDL schema -> compiler/framework -> implementation
-```
+The architecture is made of products and protocols. Products describe the concrete facts that exist. Protocols describe the choices that machines consume. Regions relate the two. Blocks name internal states. Jumps name state transitions. Emits compose machines. Functions seal machines at boundaries. Lua generates families of machines without adding runtime polymorphism.
 
-The unified Moonlift view collapses this:
+This is why Moonlift can feel both lower-level and more expressive than conventional systems languages. It does not force the programmer to encode control as data. It does not require a separate modeling language. It does not hide the state machine behind functions, callbacks, exceptions, or unions.
 
-```text
-Moonlift declaration graph = schema
-Moonlift region graph      = control design
-Moonlift functions         = sealed boundaries
-Lua factories              = abstraction/generation
-C ABI                      = world boundary
-Cranelift                  = native code
-```
+The design is the product graph plus the protocol graph.
 
-The methodology is:
+The implementation is the same graph lowered to native code.
 
-```text
-1. Name the machine.
-2. Build the data tree.
-3. Build the control tree.
-4. Relate them with regions.
-5. Choose union for stored choice, continuation for immediate choice.
-6. Design blocks as states and jumps as transitions.
-7. Compose with emit.
-8. Seal with functions.
-9. Generate families with Lua.
-10. Keep memory/resource/world boundaries explicit.
-```
-
-This is a complete design discipline.
-
-It gives the programmer a way to move from an idea to a typed system without leaving the implementation language. It makes the architecture reviewable before bodies exist. It lets the compiler check the design. It lets tools browse the real structure. It lets Lua generate repeated machines without polluting Moonlift with source generics. It lets functions remain simple C ABI surfaces while the internal system keeps rich typed control.
-
-The final doctrine:
-
-> The design is the Moonlift type graph.  
-> The behavior is the Moonlift control graph.  
-> The relation between them is the region graph.  
-> The implementation is the same artifact lowered to native code.
-
-Moonlift is therefore not merely a language for writing programs. It is a language for designing executable machines.
+That is the Moonlift method.

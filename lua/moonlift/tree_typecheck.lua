@@ -22,6 +22,7 @@ function M.Define(T)
     local C = T.MoonCore
     local Ty = T.MoonType
     local B = T.MoonBind
+    local O = T.MoonOpen
     local Sem = T.MoonSem
     local Tr = T.MoonTree
 
@@ -200,10 +201,13 @@ function M.Define(T)
     local function ref_type(ref, env)
         local cls = pvm.classof(ref)
         if cls == B.ValueRefBinding then return ref.binding.ty, ref, {} end
-        if cls == B.ValueRefSlot then return ref.slot.ty, ref, {} end
-        if cls == B.ValueRefFuncSlot then return ref.slot.fn_ty, ref, {} end
-        if cls == B.ValueRefConstSlot then return ref.slot.ty, ref, {} end
-        if cls == B.ValueRefStaticSlot then return ref.slot.ty, ref, {} end
+        if cls == B.ValueRefHole then
+            local slot_cls = pvm.classof(ref.slot)
+            if slot_cls == O.SlotFunc then return ref.slot.slot.fn_ty, ref, {} end
+            if slot_cls == O.SlotValue or slot_cls == O.SlotConst or slot_cls == O.SlotStatic then return ref.slot.slot.ty, ref, {} end
+            if slot_cls == O.SlotExpr or slot_cls == O.SlotPlace then return ref.slot.slot.ty or void_ty(), ref, {} end
+            return void_ty(), ref, {}
+        end
         if cls == B.ValueRefName then
             local binding = env_lookup_value(env, ref.name)
             if binding ~= nil then return binding.ty, B.ValueRefBinding(binding), {} end
@@ -431,31 +435,21 @@ function M.Define(T)
             return pvm.once(result_expr(Tr.ExprLen(Tr.ExprTyped(index_ty()), value.expr), index_ty(), issues))
         end,
         [Tr.ExprCall] = function(self, ctx)
-            local issues = {}; local args = {}
-            local fn_ty, target = nil, self.target
-            if pvm.classof(self.target) == Sem.CallUnresolved then
-                local callee = pvm.one(type_expr(self.target.callee, ctx)); append_all(issues, callee.issues); fn_ty = callee.ty
-                if pvm.classof(fn_ty) == Ty.TClosure then
-                    target = Sem.CallClosure(callee.expr, fn_ty)
-                elseif pvm.classof(self.target.callee) == Tr.ExprRef and pvm.classof(callee.expr.ref) == B.ValueRefBinding then
-                    local cls = pvm.classof(callee.expr.ref.binding.class)
-                    if cls == B.BindingClassGlobalFunc then target = Sem.CallDirect(callee.expr.ref.binding.class.module_name, callee.expr.ref.binding.class.item_name, fn_ty)
-                    elseif cls == B.BindingClassExtern then target = Sem.CallExtern(callee.expr.ref.binding.class.symbol, fn_ty)
-                    else target = Sem.CallIndirect(callee.expr, fn_ty) end
-                else
-                    target = Sem.CallIndirect(callee.expr, fn_ty)
-                end
-            else
-                if pvm.classof(self.target) == Sem.CallDirect or pvm.classof(self.target) == Sem.CallExtern or pvm.classof(self.target) == Sem.CallIndirect or pvm.classof(self.target) == Sem.CallClosure then fn_ty = self.target.fn_ty end
+            local issues = {}; local typed_args = {}
+            -- self.callee is the callee expression, self.args is the argument list
+            local callee_r = pvm.one(type_expr(self.callee, ctx)); append_all(issues, callee_r.issues)
+            local fn_ty = callee_r.ty
+            if pvm.classof(fn_ty) ~= Ty.TFunc and pvm.classof(fn_ty) ~= Ty.TClosure then
+                issues[#issues + 1] = Tr.TypeIssueNotCallable(fn_ty or void_ty())
+                return pvm.once(result_expr(Tr.ExprCall(Tr.ExprTyped(void_ty()), callee_r.expr, {}), void_ty(), issues))
             end
-            local result_ty, param_tys = callable_result(fn_ty or void_ty())
-            if result_ty == nil then issues[#issues + 1] = Tr.TypeIssueNotCallable(fn_ty or void_ty()); result_ty = void_ty(); param_tys = {} end
+            local result_ty, param_tys = callable_result(fn_ty)
             if #param_tys ~= #self.args then issues[#issues + 1] = Tr.TypeIssueArgCount("call", #param_tys, #self.args) end
             for i = 1, #self.args do
-                local arg = type_expr_expect(self.args[i], ctx, param_tys[i]); append_all(issues, arg.issues); args[#args + 1] = arg.expr
+                local arg = type_expr_expect(self.args[i], ctx, param_tys[i]); append_all(issues, arg.issues); typed_args[#typed_args + 1] = arg.expr
                 if param_tys[i] ~= nil then check_expected("call arg", param_tys[i], arg.ty, issues) end
             end
-            return pvm.once(result_expr(Tr.ExprCall(Tr.ExprTyped(result_ty), target, args), result_ty, issues))
+            return pvm.once(result_expr(Tr.ExprCall(Tr.ExprTyped(result_ty), callee_r.expr, typed_args), result_ty, issues))
         end,
         [Tr.ExprField] = function(self, ctx) local base = pvm.one(type_expr(self.base, ctx)); local issues = {}; append_all(issues, base.issues); return pvm.once(result_expr(Tr.ExprField(Tr.ExprTyped(self.field.ty), base.expr, self.field), self.field.ty, issues)) end,
         [Tr.ExprIndex] = function(self, ctx)
@@ -591,7 +585,7 @@ function M.Define(T)
             for i = 1, #self.args do local a = pvm.one(type_expr(self.args[i], ctx)); args[#args + 1] = a.expr; append_all(issues, a.issues) end
             local h_cls = pvm.classof(self.h)
             local ty = nil
-            if h_cls == Tr.ExprTyped or h_cls == Tr.ExprOpen or h_cls == Tr.ExprSem or h_cls == Tr.ExprCode then ty = self.h.ty end
+            if h_cls == Tr.ExprTyped or h_cls == Tr.ExprOpen then ty = self.h.ty end
             if ty == nil or (pvm.classof(ty) == Ty.TScalar and ty.scalar == C.ScalarVoid and self.op ~= C.IntrinsicTrap and self.op ~= C.IntrinsicAssume) then
                 ty = (#self.args > 0) and pvm.one(type_expr(self.args[1], ctx)).ty or void_ty()
             end
@@ -607,12 +601,11 @@ function M.Define(T)
             local issues = {}; append_all(issues, value.issues); append_all(issues, default_body.issues); append_all(issues, default.issues)
             local arms = {}
             for i = 1, #self.arms do
-                local key = type_switch_key(self.arms[i].key, ctx, value.ty, issues)
                 local body = type_stmt_body(self.arms[i].body, ctx)
                 local result = pvm.one(type_expr(self.arms[i].result, body.env))
                 append_all(issues, body.issues); append_all(issues, result.issues)
                 check_expected("switch arm", default.ty, result.ty, issues)
-                arms[#arms + 1] = Tr.SwitchExprArm(key, body.stmts, result.expr)
+                arms[#arms + 1] = Tr.SwitchExprArm(self.arms[i].raw_key, body.stmts, result.expr)
             end
             return pvm.once(result_expr(Tr.ExprSwitch(Tr.ExprTyped(default.ty), value.expr, arms, default_body.stmts, default.expr), default.ty, issues))
         end,
@@ -622,16 +615,15 @@ function M.Define(T)
     }, { args_cache = "last" })
 
     type_switch_key = function(key, ctx, value_ty, issues)
-        local cls = pvm.classof(key)
-        if cls == Sem.SwitchKeyExpr then
+        if key.kind == "expr" then
             local expr = pvm.one(type_expr(key.expr, ctx))
             append_all(issues, expr.issues)
             check_expected("switch key", value_ty, expr.ty, issues)
-            return Sem.SwitchKeyExpr(expr.expr)
+            return { kind = "expr", expr = expr.expr }
         end
         -- SwitchKeyRaw: if the raw string is a bare name (not a literal number),
         -- re-typecheck it as an expression so named constants resolve to their values.
-        if cls == Sem.SwitchKeyRaw then
+        if key.kind == "raw" then
             local raw = key.raw
             -- Check if it looks like a non-numeric identifier
             if raw:match("^[%a_][%w_]*$") then
@@ -639,7 +631,7 @@ function M.Define(T)
                 local expr = pvm.one(type_expr(ref_expr, ctx))
                 if #expr.issues == 0 then
                     check_expected("switch key", value_ty, expr.ty, issues)
-                    return Sem.SwitchKeyExpr(expr.expr)
+                    return { kind = "expr", expr = expr.expr }
                 end
                 -- Name not found — fall through to keep raw (will fail at backend with clear error)
             end
@@ -679,7 +671,7 @@ function M.Define(T)
             if not is_inferred then check_expected("let " .. self.binding.name, actual_ty, init.ty, issues) end
             local binding = pvm.with(self.binding, { ty = actual_ty, class = B.BindingClassLocalValue })
             local env = env_add_value(ctx.env, B.ValueEntry(binding.name, binding))
-            return pvm.once(Tr.TypeStmtResult(ctx_with_env(ctx, env), { Tr.StmtLet(Tr.StmtTyped, binding, init.expr) }, issues))
+            return pvm.once(Tr.TypeStmtResult(ctx_with_env(ctx, env), { Tr.StmtLet(Tr.StmtSurface, binding, init.expr) }, issues))
         end,
         [Tr.StmtVar] = function(self, ctx)
             local is_inferred = pvm.classof(self.binding.ty) == Ty.TScalar and self.binding.ty.scalar == C.ScalarVoid
@@ -689,45 +681,44 @@ function M.Define(T)
             if not is_inferred then check_expected("var " .. self.binding.name, actual_ty, init.ty, issues) end
             local binding = pvm.with(self.binding, { ty = actual_ty, class = B.BindingClassLocalCell })
             local env = env_add_value(ctx.env, B.ValueEntry(binding.name, binding))
-            return pvm.once(Tr.TypeStmtResult(ctx_with_env(ctx, env), { Tr.StmtVar(Tr.StmtTyped, binding, init.expr) }, issues))
+            return pvm.once(Tr.TypeStmtResult(ctx_with_env(ctx, env), { Tr.StmtVar(Tr.StmtSurface, binding, init.expr) }, issues))
         end,
-        [Tr.StmtSet] = function(self, ctx) local place = pvm.one(type_place(self.place, ctx)); local value = type_expr_expect(self.value, ctx, place.ty); local issues = {}; append_all(issues, place.issues); append_all(issues, value.issues); check_expected("set", place.ty, value.ty, issues); return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtSet(Tr.StmtTyped, place.place, value.expr) }, issues)) end,
+        [Tr.StmtSet] = function(self, ctx) local place = pvm.one(type_place(self.place, ctx)); local value = type_expr_expect(self.value, ctx, place.ty); local issues = {}; append_all(issues, place.issues); append_all(issues, value.issues); check_expected("set", place.ty, value.ty, issues); return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtSet(Tr.StmtSurface, place.place, value.expr) }, issues)) end,
         [Tr.StmtAtomicStore] = function(self, ctx)
             local addr = type_expr_expect(self.addr, ctx, Ty.TPtr(self.ty)); local value = type_expr_expect(self.value, ctx, self.ty); local issues = {}; append_all(issues, addr.issues); append_all(issues, value.issues)
             check_expected("atomic_store addr", Ty.TPtr(self.ty), addr.ty, issues); check_expected("atomic_store value", self.ty, value.ty, issues); check_atomic_value_type("atomic_store", self.ty, issues)
-            return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtAtomicStore(Tr.StmtTyped, self.ty, addr.expr, value.expr, self.ordering) }, issues))
+            return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtAtomicStore(Tr.StmtSurface, self.ty, addr.expr, value.expr, self.ordering) }, issues))
         end,
-        [Tr.StmtAtomicFence] = function(self, ctx) return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtAtomicFence(Tr.StmtTyped, self.ordering) }, {})) end,
-        [Tr.StmtExpr] = function(self, ctx) local expr = pvm.one(type_expr(self.expr, ctx)); return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtExpr(Tr.StmtTyped, expr.expr) }, expr.issues)) end,
-        [Tr.StmtAssert] = function(self, ctx) local cond = type_expr_expect(self.cond, ctx, bool_ty()); local issues = {}; append_all(issues, cond.issues); check_expected("assert", bool_ty(), cond.ty, issues); return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtAssert(Tr.StmtTyped, cond.expr) }, issues)) end,
-        [Tr.StmtReturnVoid] = function(self, ctx) local issues = {}; check_expected("return", void_ty(), ctx.return_ty, issues); return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtReturnVoid(Tr.StmtTyped) }, issues)) end,
-        [Tr.StmtReturnValue] = function(self, ctx) local value = type_expr_expect(self.value, ctx, ctx.return_ty); local issues = {}; append_all(issues, value.issues); check_expected("return", ctx.return_ty, value.ty, issues); return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtReturnValue(Tr.StmtTyped, value.expr) }, issues)) end,
-        [Tr.StmtYieldVoid] = function(self, ctx) local issues = {}; if ctx.yield ~= Tr.TypeYieldVoid then issues[#issues + 1] = Tr.TypeIssueUnexpectedYield("yield") end; return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtYieldVoid(Tr.StmtTyped) }, issues)) end,
-        [Tr.StmtYieldValue] = function(self, ctx) local expected = pvm.classof(ctx.yield) == Tr.TypeYieldValue and ctx.yield.ty or nil; local value = type_expr_expect(self.value, ctx, expected); local issues = {}; append_all(issues, value.issues); if pvm.classof(ctx.yield) == Tr.TypeYieldValue then check_expected("yield", ctx.yield.ty, value.ty, issues) else issues[#issues + 1] = Tr.TypeIssueUnexpectedYield("yield value") end; return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtYieldValue(Tr.StmtTyped, value.expr) }, issues)) end,
+        [Tr.StmtAtomicFence] = function(self, ctx) return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtAtomicFence(Tr.StmtSurface, self.ordering) }, {})) end,
+        [Tr.StmtExpr] = function(self, ctx) local expr = pvm.one(type_expr(self.expr, ctx)); return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtExpr(Tr.StmtSurface, expr.expr) }, expr.issues)) end,
+        [Tr.StmtAssert] = function(self, ctx) local cond = type_expr_expect(self.cond, ctx, bool_ty()); local issues = {}; append_all(issues, cond.issues); check_expected("assert", bool_ty(), cond.ty, issues); return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtAssert(Tr.StmtSurface, cond.expr) }, issues)) end,
+        [Tr.StmtReturnVoid] = function(self, ctx) local issues = {}; check_expected("return", void_ty(), ctx.return_ty, issues); return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtReturnVoid(Tr.StmtSurface) }, issues)) end,
+        [Tr.StmtReturnValue] = function(self, ctx) local value = type_expr_expect(self.value, ctx, ctx.return_ty); local issues = {}; append_all(issues, value.issues); check_expected("return", ctx.return_ty, value.ty, issues); return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtReturnValue(Tr.StmtSurface, value.expr) }, issues)) end,
+        [Tr.StmtYieldVoid] = function(self, ctx) local issues = {}; if ctx.yield ~= Tr.TypeYieldVoid then issues[#issues + 1] = Tr.TypeIssueUnexpectedYield("yield") end; return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtYieldVoid(Tr.StmtSurface) }, issues)) end,
+        [Tr.StmtYieldValue] = function(self, ctx) local expected = pvm.classof(ctx.yield) == Tr.TypeYieldValue and ctx.yield.ty or nil; local value = type_expr_expect(self.value, ctx, expected); local issues = {}; append_all(issues, value.issues); if pvm.classof(ctx.yield) == Tr.TypeYieldValue then check_expected("yield", ctx.yield.ty, value.ty, issues) else issues[#issues + 1] = Tr.TypeIssueUnexpectedYield("yield value") end; return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtYieldValue(Tr.StmtSurface, value.expr) }, issues)) end,
         [Tr.StmtIf] = function(self, ctx)
             local cond = type_expr_expect(self.cond, ctx, bool_ty()); local then_r = type_stmt_body(self.then_body, ctx); local else_r = type_stmt_body(self.else_body, ctx); local issues = {}
             append_all(issues, cond.issues); append_all(issues, then_r.issues); append_all(issues, else_r.issues); check_expected("if cond", bool_ty(), cond.ty, issues)
-            return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtIf(Tr.StmtTyped, cond.expr, then_r.stmts, else_r.stmts) }, issues))
+            return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtIf(Tr.StmtSurface, cond.expr, then_r.stmts, else_r.stmts) }, issues))
         end,
-        [Tr.StmtJump] = function(self, ctx) local args = {}; local issues = {}; for i = 1, #self.args do local value = pvm.one(type_expr(self.args[i].value, ctx)); args[#args + 1] = Tr.JumpArg(self.args[i].name, value.expr); append_all(issues, value.issues) end; return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtJump(Tr.StmtTyped, self.target, args) }, issues)) end,
-        [Tr.StmtJumpCont] = function(self, ctx) local args = {}; local issues = {}; for i = 1, #self.args do local value = pvm.one(type_expr(self.args[i].value, ctx)); args[#args + 1] = Tr.JumpArg(self.args[i].name, value.expr); append_all(issues, value.issues) end; return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtJumpCont(Tr.StmtTyped, self.slot, args) }, issues)) end,
+        [Tr.StmtJump] = function(self, ctx) local args = {}; local issues = {}; for i = 1, #self.args do local value = pvm.one(type_expr(self.args[i].value, ctx)); args[#args + 1] = Tr.JumpArg(self.args[i].name, value.expr); append_all(issues, value.issues) end; return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtJump(Tr.StmtSurface, self.target, args) }, issues)) end,
+        [Tr.StmtJumpCont] = function(self, ctx) local args = {}; local issues = {}; for i = 1, #self.args do local value = pvm.one(type_expr(self.args[i].value, ctx)); args[#args + 1] = Tr.JumpArg(self.args[i].name, value.expr); append_all(issues, value.issues) end; return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtJumpCont(Tr.StmtSurface, self.slot, args) }, issues)) end,
         [Tr.StmtSwitch] = function(self, ctx)
             local value = pvm.one(type_expr(self.value, ctx))
             local issues = {}; append_all(issues, value.issues)
             local arms = {}
             for i = 1, #self.arms do
-                local key = type_switch_key(self.arms[i].key, ctx, value.ty, issues)
                 local body = type_stmt_body(self.arms[i].body, ctx)
                 append_all(issues, body.issues)
-                arms[#arms + 1] = Tr.SwitchStmtArm(key, body.stmts)
+                arms[#arms + 1] = Tr.SwitchStmtArm(self.arms[i].raw_key, body.stmts)
             end
             local default = type_stmt_body(self.default_body, ctx)
             append_all(issues, default.issues)
-            return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtSwitch(Tr.StmtTyped, value.expr, arms, {}, default.stmts) }, issues))
+            return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtSwitch(Tr.StmtSurface, value.expr, arms, {}, default.stmts) }, issues))
         end,
-        [Tr.StmtControl] = function(self, ctx) local region = pvm.one(type_control_stmt_region(self.region, ctx)); return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtControl(Tr.StmtTyped, region.region) }, region.issues)) end,
-        [Tr.StmtUseRegionSlot] = function(self, ctx) return pvm.once(Tr.TypeStmtResult(ctx, { pvm.with(self, { h = Tr.StmtTyped }) }, {})) end,
-        [Tr.StmtUseRegionFrag] = function(self, ctx) return pvm.once(Tr.TypeStmtResult(ctx, { pvm.with(self, { h = Tr.StmtTyped }) }, {})) end,
+        [Tr.StmtControl] = function(self, ctx) local region = pvm.one(type_control_stmt_region(self.region, ctx)); return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtControl(Tr.StmtSurface, region.region) }, region.issues)) end,
+        [Tr.StmtUseRegionSlot] = function(self, ctx) return pvm.once(Tr.TypeStmtResult(ctx, { pvm.with(self, { h = Tr.StmtSurface }) }, {})) end,
+        [Tr.StmtUseRegionFrag] = function(self, ctx) return pvm.once(Tr.TypeStmtResult(ctx, { pvm.with(self, { h = Tr.StmtSurface }) }, {})) end,
     }, { args_cache = "last" })
 
     type_stmt_body = function(stmts, ctx)

@@ -84,23 +84,18 @@ function M.Define(T)
         [Tr.ExprSurface] = function() return pvm.empty() end,
         [Tr.ExprTyped] = function() return pvm.empty() end,
         [Tr.ExprOpen] = function(self) return open_set_facts(self.open) end,
-        [Tr.ExprSem] = function() return pvm.empty() end,
-        [Tr.ExprCode] = function() return pvm.empty() end,
     })
 
     place_header_facts = pvm.phase("moonlift_open_place_header_facts", {
         [Tr.PlaceSurface] = function() return pvm.empty() end,
         [Tr.PlaceTyped] = function() return pvm.empty() end,
         [Tr.PlaceOpen] = function(self) return open_set_facts(self.open) end,
-        [Tr.PlaceSem] = function() return pvm.empty() end,
     })
 
     stmt_header_facts = pvm.phase("moonlift_open_stmt_header_facts", {
         [Tr.StmtSurface] = function() return pvm.empty() end,
-        [Tr.StmtTyped] = function() return pvm.empty() end,
         [Tr.StmtOpen] = function(self) return open_set_facts(self.open) end,
-        [Tr.StmtSem] = function() return pvm.empty() end,
-        [Tr.StmtCode] = function() return pvm.empty() end,
+        [Tr.StmtFlow] = function() return pvm.empty() end,
     })
 
     module_header_facts = pvm.phase("moonlift_open_module_header_facts", {
@@ -131,14 +126,8 @@ function M.Define(T)
         [B.BindingClassExtern] = function(self) return pvm.once(O.MetaFactExtern(self.symbol)) end,
         [B.BindingClassOpenParam] = function(self) return pvm.once(O.MetaFactParamUse(self.param)) end,
         [B.BindingClassImport] = function(self) return value_import_fact(self.import) end,
-        [B.BindingClassFuncSym] = function() return pvm.empty() end,
-        [B.BindingClassExternSym] = function() return pvm.empty() end,
-        [B.BindingClassConstSym] = function() return pvm.empty() end,
-        [B.BindingClassStaticSym] = function() return pvm.empty() end,
-        [B.BindingClassFuncSlot] = function(self) return pvm.once(O.MetaFactSlot(O.SlotFunc(self.slot))) end,
-        [B.BindingClassConstSlot] = function(self) return pvm.once(O.MetaFactSlot(O.SlotConst(self.slot))) end,
-        [B.BindingClassStaticSlot] = function(self) return pvm.once(O.MetaFactSlot(O.SlotStatic(self.slot))) end,
-        [B.BindingClassValueSlot] = function(self) return pvm.once(O.MetaFactSlot(O.SlotValue(self.slot))) end,
+        [B.BindingClassOpenSym] = function() return pvm.empty() end,
+        [B.BindingClassOpenSlot] = function(self) return pvm.once(O.MetaFactSlot(self.slot)) end,
     })
 
     binding_facts = pvm.phase("moonlift_open_binding_facts", {
@@ -151,10 +140,7 @@ function M.Define(T)
         [B.ValueRefName] = function() return pvm.empty() end,
         [B.ValueRefPath] = function() return pvm.empty() end,
         [B.ValueRefBinding] = function(self) return binding_facts(self.binding) end,
-        [B.ValueRefSlot] = function(self) return pvm.once(O.MetaFactSlot(O.SlotValue(self.slot))) end,
-        [B.ValueRefFuncSlot] = function(self) return pvm.once(O.MetaFactSlot(O.SlotFunc(self.slot))) end,
-        [B.ValueRefConstSlot] = function(self) return pvm.once(O.MetaFactSlot(O.SlotConst(self.slot))) end,
-        [B.ValueRefStaticSlot] = function(self) return pvm.once(O.MetaFactSlot(O.SlotStatic(self.slot))) end,
+        [B.ValueRefHole] = function(self) return pvm.once(O.MetaFactSlot(self.slot)) end,
     })
 
     slot_value_facts = pvm.phase("moonlift_open_slot_value_facts", {

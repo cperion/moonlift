@@ -150,7 +150,7 @@ function M.Define(T)
     local function type_of_place(place)
         local h = place.h
         local cls = pvm.classof(h)
-        if cls == Tr.PlaceTyped or cls == Tr.PlaceOpen or cls == Tr.PlaceSem then return h.ty end
+        if cls == Tr.PlaceTyped or cls == Tr.PlaceOpen then return h.ty end
         return nil
     end
 
@@ -215,7 +215,7 @@ function M.Define(T)
             local h = base.h
             local base_ty = nil
             local h_cls = pvm.classof(h)
-            if h_cls == Tr.ExprTyped or h_cls == Tr.ExprOpen or h_cls == Tr.ExprSem or h_cls == Tr.ExprCode then base_ty = h.ty end
+            if h_cls == Tr.ExprTyped or h_cls == Tr.ExprOpen then base_ty = h.ty end
             local lookup_ty = base_ty
             if lookup_ty ~= nil and pvm.classof(lookup_ty) == Ty.TPtr then lookup_ty = lookup_ty.elem end
             if lookup_ty ~= nil then
@@ -240,7 +240,7 @@ function M.Define(T)
             local h = base.h
             local base_ty = nil
             local h_cls = pvm.classof(h)
-            if h_cls == Tr.ExprTyped or h_cls == Tr.ExprOpen or h_cls == Tr.ExprSem or h_cls == Tr.ExprCode then base_ty = h.ty end
+            if h_cls == Tr.ExprTyped or h_cls == Tr.ExprOpen then base_ty = h.ty end
             if base_ty ~= nil and pvm.classof(base_ty) == Ty.TPtr then base_ty = base_ty.elem end
             local field = self.field
             if base_ty ~= nil then field = pvm.one(resolve_field_ref(self.field, base_ty, env)) end

@@ -31,11 +31,11 @@ local function ref(binding, ty)
 end
 
 local add = Tr.FuncExport("add_i32_tree", { Ty.Param("a", i32), Ty.Param("b", i32) }, i32, {
-    Tr.StmtReturnValue(Tr.StmtTyped, Tr.ExprBinary(Tr.ExprTyped(i32), C.BinAdd, ref(a), ref(b))),
+    Tr.StmtReturnValue(Tr.StmtSurface, Tr.ExprBinary(Tr.ExprTyped(i32), C.BinAdd, ref(a), ref(b))),
 })
 
 local max = Tr.FuncExport("max_i32_tree", { Ty.Param("a", i32), Ty.Param("b", i32) }, i32, {
-    Tr.StmtReturnValue(Tr.StmtTyped,
+    Tr.StmtReturnValue(Tr.StmtSurface,
         Tr.ExprSelect(Tr.ExprTyped(i32),
             Tr.ExprCompare(Tr.ExprTyped(bool), C.CmpGt, ref(a), ref(b)),
             ref(a),

@@ -31,7 +31,7 @@ local function call_expr(api, func_name, args, result_ty, hint)
     local exprs = {}
     for i = 1, #args do exprs[i] = api.as_moonlift_expr(args[i], "call arg expects expression") end
     local callee = Tr.ExprRef(Tr.ExprSurface, B.ValueRefName(func_name))
-    local expr = Tr.ExprCall(Tr.ExprSurface, Sem.CallUnresolved(callee), exprs)
+    local expr = Tr.ExprCall(Tr.ExprSurface, callee, exprs)
     return api.expr_from_asdl(expr, result_ty, hint or (func_name .. "(...)"))
 end
 

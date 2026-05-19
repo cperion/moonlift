@@ -166,9 +166,7 @@ function M.Define(T)
         elseif cls == Tr.ExprIntrinsic then for i = 1, #expr.args do collect_captures_expr(expr.args[i], locals, out, seen) end
         elseif cls == Tr.ExprAddrOf then collect_captures_place(expr.place, locals, out, seen)
         elseif cls == Tr.ExprCall then
-            if pvm.classof(expr.target) == Sem.CallUnresolved then collect_captures_expr(expr.target.callee, locals, out, seen)
-            elseif pvm.classof(expr.target) == Sem.CallIndirect then collect_captures_expr(expr.target.callee, locals, out, seen)
-            elseif pvm.classof(expr.target) == Sem.CallClosure then collect_captures_expr(expr.target.closure, locals, out, seen) end
+            collect_captures_expr(expr.callee, locals, out, seen)
             for i = 1, #expr.args do collect_captures_expr(expr.args[i], locals, out, seen) end
         elseif cls == Tr.ExprField or cls == Tr.ExprDot then collect_captures_expr(expr.base, locals, out, seen)
         elseif cls == Tr.ExprIndex then collect_captures_index_base(expr.base, locals, out, seen); collect_captures_expr(expr.index, locals, out, seen)
@@ -289,24 +287,9 @@ function M.Define(T)
             if cap ~= nil and scope_get(expr.ref.name) == nil then return captured_load(cap) end
         end
         if cls == Tr.ExprCall then
+            local callee = rewrite_expr(expr.callee)
             local args = rewrite_exprs(expr.args)
-            local target = expr.target
-            if pvm.classof(target) == Sem.CallUnresolved and pvm.classof(target.callee) == Tr.ExprClosure then
-                local helper_name, captures = helper_for_closure(target.callee)
-                for i = 1, #captures do args[#args + 1] = Tr.ExprRef(Tr.ExprSurface, B.ValueRefName(captures[i].name)) end
-                local callee = Tr.ExprRef(Tr.ExprSurface, B.ValueRefName(helper_name))
-                return Tr.ExprCall(expr.h, Sem.CallUnresolved(callee), args)
-            end
-            if pvm.classof(target) == Sem.CallClosure and pvm.classof(target.closure) == Tr.ExprClosure then
-                local helper_name, captures = helper_for_closure(target.closure)
-                for i = 1, #captures do args[#args + 1] = Tr.ExprRef(Tr.ExprSurface, B.ValueRefName(captures[i].name)) end
-                local tys = {}; for i = 1, #target.closure.params do tys[i] = target.closure.params[i].ty end; for i = 1, #captures do tys[#tys + 1] = captures[i].ty end
-                return Tr.ExprCall(expr.h, Sem.CallDirect(state.module_name or "", helper_name, Ty.TFunc(tys, target.closure.result)), args)
-            end
-            if pvm.classof(target) == Sem.CallUnresolved then target = Sem.CallUnresolved(rewrite_expr(target.callee))
-            elseif pvm.classof(target) == Sem.CallIndirect then target = Sem.CallIndirect(rewrite_expr(target.callee), target.fn_ty)
-            elseif pvm.classof(target) == Sem.CallClosure then target = Sem.CallClosure(rewrite_expr(target.closure), target.fn_ty) end
-            return pvm.with(expr, { target = target, args = args })
+            return pvm.with(expr, { callee = callee, args = args })
         end
         if cls == Tr.ExprUnary or cls == Tr.ExprDeref or cls == Tr.ExprLen then return pvm.with(expr, { value = rewrite_expr(expr.value) }) end
         if cls == Tr.ExprBinary or cls == Tr.ExprCompare or cls == Tr.ExprLogic then return pvm.with(expr, { lhs = rewrite_expr(expr.lhs), rhs = rewrite_expr(expr.rhs) }) end

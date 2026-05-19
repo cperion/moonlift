@@ -10,6 +10,7 @@ function M.Define(T)
     local Tr = T.MoonTree
     local Back = T.MoonBack
     local Host = T.MoonHost
+    local O = T.MoonOpen
 
     local scalar_api = require("moonlift.type_to_back_scalar").Define(T)
     local layout_api = require("moonlift.type_size_align").Define(T)
@@ -193,7 +194,7 @@ function M.Define(T)
         elseif cls == Tr.ExprAtomicRmw then collect_address_taken_expr(expr.addr, out); collect_address_taken_expr(expr.value, out)
         elseif cls == Tr.ExprAtomicCas then collect_address_taken_expr(expr.addr, out); collect_address_taken_expr(expr.expected, out); collect_address_taken_expr(expr.replacement, out)
         elseif cls == Tr.ExprCall then
-            if expr.target and expr.target.callee then collect_address_taken_expr(expr.target.callee, out) end
+            collect_address_taken_expr(expr.callee, out)
             for i = 1, #expr.args do collect_address_taken_expr(expr.args[i], out) end
         elseif cls == Tr.ExprField or cls == Tr.ExprDot then collect_address_taken_expr(expr.base, out)
         elseif cls == Tr.ExprIndex then
@@ -386,8 +387,7 @@ function M.Define(T)
     expr_type = pvm.phase("moonlift_tree_expr_type_from_header", {
         [Tr.ExprTyped] = function(self) return pvm.once(self.ty) end,
         [Tr.ExprOpen] = function(self) return pvm.once(self.ty) end,
-        [Tr.ExprSem] = function(self) return pvm.once(self.ty) end,
-        [Tr.ExprCode] = function(self) return pvm.once(self.ty) end,
+
         [Tr.ExprSurface] = function() return pvm.empty() end,
     })
 
@@ -407,23 +407,11 @@ function M.Define(T)
         return nil
     end
 
-    local switch_key_raw = pvm.phase("moonlift_tree_switch_key_raw", {
-        [Sem.SwitchKeyRaw] = function(self) return pvm.once(self.raw) end,
-        [Sem.SwitchKeyConst] = function(self)
-            local cls = pvm.classof(self.value)
-            if cls == Sem.ConstInt then return pvm.once(self.value.raw) end
-            if cls == Sem.ConstBool then return pvm.once(self.value.value and "1" or "0") end
-            return pvm.empty()
-        end,
-        [Sem.SwitchKeyExpr] = function(self)
-            local value = const_eval_api.value(self.expr, lower_context.const_env, const_eval_api.empty_local_env())
-            if value == nil then return pvm.empty() end
-            local cls = pvm.classof(value)
-            if cls == Sem.ConstInt then return pvm.once(value.raw) end
-            if cls == Sem.ConstBool then return pvm.once(value.value and "1" or "0") end
-            return pvm.empty()
-        end,
-    })
+    local switch_key_raw = pvm.phase("moonlift_tree_switch_key_raw", function(key_raw)
+        if type(key_raw) == "string" then return pvm.once(key_raw) end
+        if type(key_raw) == "number" then return pvm.once(tostring(key_raw)) end
+        return pvm.empty()
+    end)
 
     local function scalar_size_align(scalar)
         local ii = int_scalar_info[scalar]
@@ -555,21 +543,42 @@ function M.Define(T)
         [C.SurfaceSatCast] = function() return pvm.once(C.MachineCastBitcast) end,
     })
 
-    call_target = pvm.phase("moonlift_tree_call_target_to_back", {
-        [Sem.CallDirect] = function(self) return pvm.once(Back.BackCallDirect(Back.BackFuncId(self.func_name))) end,
-        [Sem.CallExtern] = function(self) return pvm.once(Back.BackCallExtern(Back.BackExternId(self.symbol))) end,
-        [Sem.CallIndirect] = function(self, env)
-            local callee = expr_value(expr_to_back:one_uncached(self.callee, env))
-            if callee == nil then return pvm.empty() end
-            return pvm.once(Back.BackCallIndirect(callee.value))
-        end,
-        [Sem.CallClosure] = function() return pvm.empty() end,
-        [Sem.CallUnresolved] = function() return pvm.empty() end,
-    }, { args_cache = "last" })
+    call_target = function(callee_expr, env)
+        local cls = pvm.classof(callee_expr)
+        if cls == Tr.ExprRef then
+            local ref_cls = pvm.classof(callee_expr.ref)
+            if ref_cls == Bn.ValueRefName or ref_cls == Bn.ValueRefPath then
+                -- Try to resolve from environment
+                local resolved = expr_value(expr_to_back:one_uncached(callee_expr, env))
+                if resolved ~= nil then return Back.BackCallIndirect(resolved.value) end
+                return nil
+            end
+            if ref_cls == Bn.ValueRefBinding then
+                local class_cls = pvm.classof(callee_expr.ref.binding.class)
+                if class_cls == Bn.BindingClassGlobalFunc then
+                    return Back.BackCallDirect(Back.BackFuncId(callee_expr.ref.binding.class.item_name))
+                end
+                if class_cls == Bn.BindingClassExtern then
+                    return Back.BackCallExtern(Back.BackExternId(callee_expr.ref.binding.class.symbol))
+                end
+                if class_cls == Bn.BindingClassOpenSym then
+                    if callee_expr.ref.binding.class.sym.kind == C.SymKindExtern then
+                        return Back.BackCallExtern(Back.BackExternId(callee_expr.ref.binding.class.sym.symbol))
+                    end
+                    if callee_expr.ref.binding.class.sym.kind == C.SymKindFunc then
+                        return Back.BackCallDirect(Back.BackFuncId(callee_expr.ref.binding.class.sym.name))
+                    end
+                end
+            end
+        end
+        -- Indirect call via expression
+        local callee = expr_value(expr_to_back:one_uncached(callee_expr, env))
+        if callee == nil then return nil end
+        return Back.BackCallIndirect(callee.value)
+    end
 
     lower_closure_call = function(call_expr, env, want_value)
-        local closure_target = call_expr.target
-        local closure = expr_value(expr_to_back:one_uncached(closure_target.closure, env))
+        local closure = expr_value(expr_to_back:one_uncached(call_expr.callee, env))
         if closure == nil then return Tr.TreeBackExprUnsupported(env, {}, "unsupported closure callee") end
         local cmds = {}; append_all(cmds, closure.cmds)
         local current = closure.env
@@ -679,20 +688,26 @@ function M.Define(T)
                     local env2, dst = env_next_value(env, "v")
                     return pvm.once(Tr.TreeBackExprValue(env2, { Back.CmdExternAddr(dst, Back.BackExternId(class.symbol)) }, dst, Back.BackPtr))
                 end
-            elseif ref_cls == Bn.ValueRefConstSlot then
-                local value = lower_context.slot_consts and lower_context.slot_consts[self.ref.slot.key] or nil
-                local lit = value and sem_const_literal(value) or nil
-                local scalar = back_scalar(self.ref.slot.ty)
-                if lit ~= nil and scalar ~= nil then
+            elseif ref_cls == Bn.ValueRefHole then
+                local slot_cls = pvm.classof(self.ref.slot)
+                if slot_cls == O.SlotConst then
+                    local slot = self.ref.slot.slot
+                    local value = lower_context.slot_consts and lower_context.slot_consts[slot.key] or nil
+                    local lit = value and sem_const_literal(value) or nil
+                    local scalar = back_scalar(slot.ty)
+                    if lit ~= nil and scalar ~= nil then
+                        local env2, dst = env_next_value(env, "v")
+                        return pvm.once(Tr.TreeBackExprValue(env2, { Back.CmdConst(dst, scalar, lit) }, dst, scalar))
+                    end
+                elseif slot_cls == O.SlotStatic then
+                    local slot = self.ref.slot.slot
+                    local data = lower_context.slot_statics and lower_context.slot_statics[slot.key] or nil
+                    if data ~= nil then return pvm.once(load_global_data(env, data, slot.ty, slot.pretty_name)) end
+                elseif slot_cls == O.SlotFunc then
+                    local slot = self.ref.slot.slot
                     local env2, dst = env_next_value(env, "v")
-                    return pvm.once(Tr.TreeBackExprValue(env2, { Back.CmdConst(dst, scalar, lit) }, dst, scalar))
+                    return pvm.once(Tr.TreeBackExprValue(env2, { Back.CmdFuncAddr(dst, Back.BackFuncId(slot.pretty_name)) }, dst, Back.BackPtr))
                 end
-            elseif ref_cls == Bn.ValueRefStaticSlot then
-                local data = lower_context.slot_statics and lower_context.slot_statics[self.ref.slot.key] or nil
-                if data ~= nil then return pvm.once(load_global_data(env, data, self.ref.slot.ty, self.ref.slot.pretty_name)) end
-            elseif ref_cls == Bn.ValueRefFuncSlot then
-                local env2, dst = env_next_value(env, "v")
-                return pvm.once(Tr.TreeBackExprValue(env2, { Back.CmdFuncAddr(dst, Back.BackFuncId(self.ref.slot.pretty_name)) }, dst, Back.BackPtr))
             end
             return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "unsupported ref"))
         end,
@@ -782,7 +797,7 @@ function M.Define(T)
             return pvm.once(Tr.TreeBackExprValue(env2, cmds, dst, scalar))
         end,
         [Tr.ExprCall] = function(self, env)
-            if pvm.classof(self.target) == Sem.CallClosure then return pvm.once(lower_closure_call(self, env, true)) end
+            if pvm.classof(self.callee) == Tr.ExprClosure then return pvm.once(lower_closure_call(self, env, true)) end
             local args = {}; local params = {}; local cmds = {}; local current = env
             for i = 1, #self.args do
                 local arg = expr_value(expr_to_back:one_uncached(self.args[i], current))
@@ -793,7 +808,8 @@ function M.Define(T)
             local scalar = back_scalar(ty)
             if scalar == nil then return pvm.once(Tr.TreeBackExprUnsupported(current, cmds, "call result has non-scalar type")) end
             local env2, dst = env_next_value(current, "v")
-            local target = call_target:one_uncached(self.target, env2)
+            local target = call_target(self.callee, env2)
+            if target == nil then return pvm.once(Tr.TreeBackExprUnsupported(current, cmds, "unsupported call target")) end
             local sig_prefix = "sig:call:" .. tostring(lower_context.module_name or "") .. ":" .. tostring(lower_context.current_func or "") .. ":"
             local sig, declare_call_sig = Back.BackSigId(sig_prefix .. tostring(dst.text)), true
             if pvm.classof(target) == Back.BackCallExtern then
@@ -895,7 +911,7 @@ function M.Define(T)
             if result_scalar == nil then return pvm.once(Tr.TreeBackExprUnsupported(value.env, value.cmds, "switch expression result has non-scalar type")) end
             local case_raws = {}
             for i = 1, #self.arms do
-                local raws = switch_key_raw:drain_uncached(self.arms[i].key)
+                local raws = switch_key_raw:drain_uncached(self.arms[i].raw_key)
                 if #raws ~= 1 then return pvm.once(Tr.TreeBackExprUnsupported(value.env, value.cmds, "switch expression case is not an integer/bool constant")) end
                 case_raws[#case_raws + 1] = raws[1]
             end
@@ -1625,12 +1641,17 @@ function M.Define(T)
                 if class_cls == Bn.BindingClassGlobalStatic or class_cls == Bn.BindingClassGlobalConst then
                     return pvm.once(global_data_addr(env, data_id_for_global(class.module_name, class.item_name)))
                 end
-            elseif ref_cls == Bn.ValueRefStaticSlot then
-                local data = lower_context.slot_statics and lower_context.slot_statics[self.ref.slot.key] or nil
-                if data ~= nil then return pvm.once(global_data_addr(env, data)) end
-            elseif ref_cls == Bn.ValueRefConstSlot then
-                local data = lower_context.slot_consts_data and lower_context.slot_consts_data[self.ref.slot.key] or nil
-                if data ~= nil then return pvm.once(global_data_addr(env, data)) end
+            elseif ref_cls == Bn.ValueRefHole then
+                local slot_cls = pvm.classof(self.ref.slot)
+                if slot_cls == O.SlotStatic then
+                    local slot = self.ref.slot.slot
+                    local data = lower_context.slot_statics and lower_context.slot_statics[slot.key] or nil
+                    if data ~= nil then return pvm.once(global_data_addr(env, data)) end
+                elseif slot_cls == O.SlotConst then
+                    local slot = self.ref.slot.slot
+                    local data = lower_context.slot_consts_data and lower_context.slot_consts_data[slot.key] or nil
+                    if data ~= nil then return pvm.once(global_data_addr(env, data)) end
+                end
             end
             return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "address of binding requires a stack/global storage location"))
         end,
@@ -1710,9 +1731,10 @@ function M.Define(T)
                 local class = self.ref.binding.class
                 return pvm.once(store_global_data(env, data_id_for_global(class.module_name, class.item_name), self.ref.binding.ty, value, class.item_name))
             end
-            if pvm.classof(self.ref) == Bn.ValueRefStaticSlot then
-                local data = lower_context.slot_statics and lower_context.slot_statics[self.ref.slot.key] or nil
-                if data ~= nil then return pvm.once(store_global_data(env, data, self.ref.slot.ty, value, self.ref.slot.pretty_name)) end
+            if pvm.classof(self.ref) == Bn.ValueRefHole and pvm.classof(self.ref.slot) == O.SlotStatic then
+                local slot = self.ref.slot.slot
+                local data = lower_context.slot_statics and lower_context.slot_statics[slot.key] or nil
+                if data ~= nil then return pvm.once(store_global_data(env, data, slot.ty, value, slot.pretty_name)) end
             end
             -- Local cell mutation. Stack-backed cells update their slot;
             -- value-backed cells (legacy/non-addressed) rebind through SSA.
@@ -1834,7 +1856,7 @@ function M.Define(T)
 
         local case_raws = {}
         for i = 1, #self.arms do
-            local raws = switch_key_raw:drain_uncached(self.arms[i].key)
+            local raws = switch_key_raw:drain_uncached(self.arms[i].raw_key)
             if #raws ~= 1 then return pvm.once(Tr.TreeBackStmtResult(value.env, value.cmds, Back.BackTerminates)) end
             case_raws[#case_raws + 1] = raws[1]
         end
@@ -1977,7 +1999,7 @@ function M.Define(T)
         [Tr.StmtExpr] = function(self, env)
             if pvm.classof(self.expr) == Tr.ExprCall then
                 local ty = expr_ty(self.expr)
-                if pvm.classof(ty) == Ty.TScalar and ty.scalar == C.ScalarVoid and pvm.classof(self.expr.target) == Sem.CallClosure then
+                if pvm.classof(ty) == Ty.TScalar and ty.scalar == C.ScalarVoid and pvm.classof(self.expr.callee) == Tr.ExprClosure then
                     return pvm.once(lower_closure_call(self.expr, env, false))
                 end
                 if pvm.classof(ty) == Ty.TScalar and ty.scalar == C.ScalarVoid then
@@ -1987,7 +2009,8 @@ function M.Define(T)
                         if arg == nil then return pvm.once(Tr.TreeBackStmtResult(current, cmds, Back.BackFallsThrough)) end
                         append_all(cmds, arg.cmds); args[#args + 1] = arg.value; params[#params + 1] = arg.ty; current = arg.env
                     end
-                    local target = call_target:one_uncached(self.expr.target, current)
+                    local target = call_target(self.expr.callee, current)
+                    if target == nil then return pvm.once(Tr.TreeBackStmtResult(current, cmds, Back.BackFallsThrough)) end
                     lower_context.callstmt_seq = (lower_context.callstmt_seq or 0) + 1
                     local sig_prefix = "sig:callstmt:" .. tostring(lower_context.module_name or "") .. ":" .. tostring(lower_context.current_func or "") .. ":"
                     local sig, declare_call_sig = Back.BackSigId(sig_prefix .. tostring(lower_context.callstmt_seq)), true

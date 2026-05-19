@@ -115,14 +115,8 @@ function M.Define(T, cb)
         return out
     end
 
-    local function rewrite_call_target(target, names)
-        local cls = pvm.classof(target)
-        if cls == Sem.CallUnresolved then
-            return Sem.CallUnresolved(rewrite_runtime_expr(target.callee, names))
-        elseif cls == Sem.CallIndirect then
-            return pvm.with(target, { callee = rewrite_runtime_expr(target.callee, names) })
-        end
-        return target
+    local function rewrite_call_target(callee_expr, names)
+        return rewrite_runtime_expr(callee_expr, names)
     end
 
     rewrite_runtime_expr = function(expr, names)
@@ -138,7 +132,7 @@ function M.Define(T, cb)
         elseif cls == Tr.ExprCast or cls == Tr.ExprMachineCast then
             return pvm.with(expr, { value = rewrite_runtime_expr(expr.value, names) })
         elseif cls == Tr.ExprCall then
-            return pvm.with(expr, { target = rewrite_call_target(expr.target, names), args = rewrite_runtime_args(expr.args, names) })
+            return pvm.with(expr, { callee = rewrite_call_target(expr.callee, names), args = rewrite_runtime_args(expr.args, names) })
         elseif cls == Tr.ExprIntrinsic then
             return pvm.with(expr, { args = rewrite_runtime_args(expr.args, names) })
         elseif cls == Tr.ExprLen then

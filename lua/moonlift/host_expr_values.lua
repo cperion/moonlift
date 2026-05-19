@@ -182,7 +182,7 @@ function M.Install(api, session)
         local exprs = {}
         for i = 1, #(args or {}) do exprs[i] = moon_expr(args[i], "call arg") end
         local callee = Tr.ExprRef(Tr.ExprSurface, B.ValueRefName(name))
-        return expr_value(Tr.ExprCall(Tr.ExprSurface, Sem.CallUnresolved(callee), exprs), tv, name .. "(...)")
+        return expr_value(Tr.ExprCall(Tr.ExprSurface, callee, exprs), tv, name .. "(...)")
     end
 
     function api.load(addr, ty)

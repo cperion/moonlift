@@ -188,7 +188,7 @@ function M.Define(T)
     end
 
     local function spread_slot_from_switch_key(role, key)
-        if pvm.classof(key) == Sem.SwitchKeyRaw then return spread_region_slot(role, key.raw) end
+        if key ~= nil and key ~= "" then return spread_region_slot(role, key) end
         return nil
     end
 
@@ -296,28 +296,23 @@ function M.Define(T)
     end
 
     local function expand_switch_key(key, env)
-        local Sem = T.MoonSem
-        if pvm.classof(key) == Sem.SwitchKeyExpr then
-            local expanded = one(expand_expr, key.expr, env)
-            return Sem.SwitchKeyExpr(expanded)
-        end
         return key
     end
 
     local function expand_switch_stmt_arms(xs, env)
         local out = {}
         for i = 1, #xs do
-            local slot = spread_slot_from_switch_key("switch_stmt_arm_list", xs[i].key)
+            local slot = spread_slot_from_switch_key("switch_stmt_arm_list", xs[i].raw_key)
             if slot then
                 local values = pvm.drain(lookup_slot_value(O.SlotRegion(slot), env))
                 if #values == 1 and pvm.classof(values[1]) == O.SlotValueSwitchStmtArms then
                     for j = 1, #values[1].arms do
                         local a = values[1].arms[j]
-                        out[#out + 1] = pvm.with(a, { key = expand_switch_key(a.key, env), body = expand_stmts(a.body, env) })
+                        out[#out + 1] = pvm.with(a, { raw_key = expand_switch_key(a.raw_key, env), body = expand_stmts(a.body, env) })
                     end
                 end
             else
-                out[#out + 1] = pvm.with(xs[i], { key = expand_switch_key(xs[i].key, env), body = expand_stmts(xs[i].body, env) })
+                out[#out + 1] = pvm.with(xs[i], { raw_key = expand_switch_key(xs[i].raw_key, env), body = expand_stmts(xs[i].body, env) })
             end
         end
         return out
@@ -326,17 +321,17 @@ function M.Define(T)
     local function expand_switch_expr_arms(xs, env)
         local out = {}
         for i = 1, #xs do
-            local slot = spread_slot_from_switch_key("switch_expr_arm_list", xs[i].key)
+            local slot = spread_slot_from_switch_key("switch_expr_arm_list", xs[i].raw_key)
             if slot then
                 local values = pvm.drain(lookup_slot_value(O.SlotRegion(slot), env))
                 if #values == 1 and pvm.classof(values[1]) == O.SlotValueSwitchExprArms then
                     for j = 1, #values[1].arms do
                         local a = values[1].arms[j]
-                        out[#out + 1] = pvm.with(a, { key = expand_switch_key(a.key, env), body = expand_stmts(a.body, env), result = one(expand_expr, a.result, env) })
+                        out[#out + 1] = pvm.with(a, { raw_key = expand_switch_key(a.raw_key, env), body = expand_stmts(a.body, env), result = one(expand_expr, a.result, env) })
                     end
                 end
             else
-                out[#out + 1] = pvm.with(xs[i], { key = expand_switch_key(xs[i].key, env), body = expand_stmts(xs[i].body, env), result = one(expand_expr, xs[i].result, env) })
+                out[#out + 1] = pvm.with(xs[i], { raw_key = expand_switch_key(xs[i].raw_key, env), body = expand_stmts(xs[i].body, env), result = one(expand_expr, xs[i].result, env) })
             end
         end
         return out
@@ -603,8 +598,6 @@ function M.Define(T)
             if open_empty(open) then return pvm.once(Tr.ExprTyped(ty)) end
             return pvm.once(Tr.ExprOpen(ty, open))
         end,
-        [Tr.ExprSem] = function(self, env) return pvm.once(pvm.with(self, { ty = one(expand_type, self.ty, env) })) end,
-        [Tr.ExprCode] = function(self, env) return pvm.once(pvm.with(self, { ty = one(expand_type, self.ty, env) })) end,
     }, { args_cache = "last" })
 
     expand_place_header = pvm.phase("moonlift_open_expand_place_header", {
@@ -616,19 +609,16 @@ function M.Define(T)
             if open_empty(open) then return pvm.once(Tr.PlaceTyped(ty)) end
             return pvm.once(Tr.PlaceOpen(ty, open))
         end,
-        [Tr.PlaceSem] = function(self, env) return pvm.once(pvm.with(self, { ty = one(expand_type, self.ty, env) })) end,
     }, { args_cache = "last" })
 
     expand_stmt_header = pvm.phase("moonlift_open_expand_stmt_header", {
         [Tr.StmtSurface] = function(self) return pvm.once(self) end,
-        [Tr.StmtTyped] = function(self) return pvm.once(self) end,
         [Tr.StmtOpen] = function(self, env)
             local open = one(expand_open_set, self.open, env)
-            if open_empty(open) then return pvm.once(Tr.StmtTyped) end
+            if open_empty(open) then return pvm.once(Tr.StmtSurface) end
             return pvm.once(Tr.StmtOpen(open))
         end,
-        [Tr.StmtSem] = function(self) return pvm.once(self) end,
-        [Tr.StmtCode] = function(self) return pvm.once(self) end,
+        [Tr.StmtFlow] = function(self) return pvm.once(self) end,
     }, { args_cache = "last" })
 
     expand_module_header = pvm.phase("moonlift_open_expand_module_header", {
@@ -660,8 +650,8 @@ function M.Define(T)
             end
             return pvm.empty()
         end,
-        [B.ValueRefSlot] = function(self, h, env)
-            local values = pvm.drain(lookup_slot_value(O.SlotValue(self.slot), env))
+        [B.ValueRefHole] = function(self, h, env)
+            local values = pvm.drain(lookup_slot_value(self.slot, env))
             if #values == 1 and pvm.classof(values[1]) == O.SlotValueExpr then
                 return expand_expr(values[1].expr, env)
             end
@@ -669,19 +659,13 @@ function M.Define(T)
         end,
         [B.ValueRefName] = function() return pvm.empty() end,
         [B.ValueRefPath] = function() return pvm.empty() end,
-        [B.ValueRefFuncSlot] = function() return pvm.empty() end,
-        [B.ValueRefConstSlot] = function() return pvm.empty() end,
-        [B.ValueRefStaticSlot] = function() return pvm.empty() end,
     }, { args_cache = "last" })
 
     expand_value_ref = pvm.phase("moonlift_open_expand_value_ref", {
         [B.ValueRefBinding] = function(self, env) return pvm.once(pvm.with(self, { binding = one(expand_binding, self.binding, env) })) end,
         [B.ValueRefName] = function(self) return pvm.once(self) end,
         [B.ValueRefPath] = function(self) return pvm.once(self) end,
-        [B.ValueRefSlot] = function(self) return pvm.once(self) end,
-        [B.ValueRefFuncSlot] = function(self) return pvm.once(self) end,
-        [B.ValueRefConstSlot] = function(self) return pvm.once(self) end,
-        [B.ValueRefStaticSlot] = function(self) return pvm.once(self) end,
+        [B.ValueRefHole] = function(self) return pvm.once(self) end,
     }, { args_cache = "last" })
 
     expand_view = pvm.phase("moonlift_open_expand_view", {
@@ -799,11 +783,7 @@ function M.Define(T)
         [Tr.ExprAddrOf] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_expr_header, self.h, env), place = one(expand_place, self.place, env) })) end,
         [Tr.ExprDeref] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_expr_header, self.h, env), value = one(expand_expr, self.value, env) })) end,
         [Tr.ExprCall] = function(self, env)
-            local target = self.target
-            if pvm.classof(target) == Sem.CallUnresolved then
-                target = Sem.CallUnresolved(one(expand_expr, target.callee, env))
-            end
-            return pvm.once(pvm.with(self, { h = one(expand_expr_header, self.h, env), target = target, args = expand_exprs(self.args, env) }))
+            return pvm.once(pvm.with(self, { h = one(expand_expr_header, self.h, env), callee = one(expand_expr, self.callee, env), args = expand_exprs(self.args, env) }))
         end,
         [Tr.ExprLen] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_expr_header, self.h, env), value = one(expand_expr, self.value, env) })) end,
         [Tr.ExprField] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_expr_header, self.h, env), base = one(expand_expr, self.base, env) })) end,

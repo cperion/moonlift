@@ -22,7 +22,7 @@ local function int_lit(n)
 end
 
 local function call(callee, args)
-    return Tr.ExprCall(Tr.ExprSurface, Sem.CallUnresolved(callee), args or {})
+    return Tr.ExprCall(Tr.ExprSurface, callee, args or {})
 end
 
 local function plus(a, b)

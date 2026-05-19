@@ -610,7 +610,25 @@ When a tagged union is used as a region result protocol (`region r(...) -> Scann
 its variants become exits and named variant fields become continuation
 parameters. Protocol variants must use named fields.
 
-### 5.7 Function and closure types (source syntax)
+### 5.7 Array types
+
+```moonlift
+[T; N]       -- fixed-length array of T with N elements
+```
+
+Array types carry a compile-time constant length and an element type. They are
+value types — the array data is stored inline (not behind a pointer). Arrays are
+used with array literals and for struct fields that need inline storage.
+
+In the type system, arrays are represented as `TArray(count, elem)`. The count
+can be a constant integer (`ArrayLenConst`) or a computed value (`ArrayLenExpr`).
+
+**Comparison to views:** Arrays are fixed-size value types; views are
+runtime-sized descriptors (pointer + length + stride). Use arrays when the size
+is known at compile time and you want inline storage. Use views for
+runtime-sized or dynamically allocated sequences.
+
+### 5.8 Function and closure types (source syntax)
 
 In type position:
 
@@ -636,7 +654,7 @@ end
 
 The builder API uses `moon.func_type(params, result)` and `moon.closure_type(params, result)`.
 
-### 5.11 Source-level genericity
+### 5.9 Source-level genericity
 
 There is none. Use Lua to generate specialized concrete types/functions/fragments.
 
@@ -1093,6 +1111,8 @@ expr ::= literal
        | select_expr (dataflow choice)
        | len_expr    (view length)
        | view_expr   (view construction)
+       | agg_expr    (struct literal construction)
+       | array_expr  (array literal construction)
        | emit_expr   (expression fragment emit)
        | region_expr (multi-block region expression)
        | switch_expr (switch expression)
@@ -1267,7 +1287,93 @@ view(data_ptr, count, stride)
 - `view(ptr, count)` creates a contiguous view with `stride = 1`.
 - `view(ptr, count, stride)` creates a strided view.
 
-### 9.13 Unary operators
+### 9.13 Struct literals (aggregate construction)
+
+```moonlift
+{ field1 = expr1, field2 = expr2, ... }         -- anonymous struct literal
+TypeName{ field1 = expr1, field2 = expr2, ... }  -- named struct literal
+```
+
+Struct literals construct a value of struct type with named field initializers.
+
+**Anonymous form** `{ field = expr, ... }` produces a value whose type is
+inferred from context. The expected type at that position must be a struct type
+with matching field names. Each field must be initialized exactly once.
+
+**Named form** `TypeName{ field = expr, ... }` specifies the struct type
+explicitly. `TypeName` can be a locally declared struct, an imported type, or a
+fully qualified path.
+
+Fields are initialized in source order but matched by name at typecheck time.
+Missing fields or extra fields produce a type error. Field order in the literal
+need not match declaration order — the compiler resolves by name.
+
+Examples:
+
+```moonlift
+struct Vec3 x: f32; y: f32; z: f32 end
+
+func magnitude(v: Vec3) -> f32
+    return sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
+end
+
+func example() -> Vec3
+    -- Anonymous struct literal, type inferred from return type
+    return { x = 1.0, y = 2.0, z = 3.0 }
+end
+
+func example2() -> f32
+    -- Named struct literal
+    let v = Vec3{ x = 3.0, y = 4.0, z = 0.0 }
+    return magnitude(v)
+end
+```
+
+Struct literals may also be used in `let` and `var` bindings with explicit type:
+
+```moonlift
+let v: Vec3 = { x = 1.0, y = 0.0, z = 0.0 }
+```
+
+At the ASDL level, struct literals are `ExprAgg` nodes containing a type and a
+list of `FieldInit(name, value, offset)` records. Field offsets are computed
+during semantic layout resolution.
+
+### 9.14 Array literals
+
+```moonlift
+[elem1, elem2, ...]          -- array literal
+```
+
+Array literals construct a fixed-length array value. The element type is
+inferred from the expected type context or from the element expressions. All
+elements must have the same type.
+
+Examples:
+
+```moonlift
+func sum(xs: [i32; 4]) -> i32
+    return xs[0] + xs[1] + xs[2] + xs[3]
+end
+
+func example() -> [i32; 3]
+    return [1, 2, 3]
+end
+
+let a: [i32; 4] = [10, 20, 30, 40]
+```
+
+Array literal vs view construction:
+
+| Expression | Type | Semantics |
+|---|---|---|
+| `[1, 2, 3]` | `[i32; 3]` | Inline array value (value type) |
+| `view(ptr, 3)` | `view(i32)` | Runtime descriptor (pointer + length) |
+
+At the ASDL level, array literals are `ExprArray` nodes containing an element
+type and a list of element expressions.
+
+### 9.15 Unary operators
 
 ```text
 - expr       numeric negation (integers and floats)
@@ -1278,7 +1384,7 @@ not expr     boolean not (expects bool, returns bool)
 Negation on unsigned types is rejected. Negation on signed types is wrapping.
 Floating-point negation is IEEE 754 `fneg`.
 
-### 9.14 Binary arithmetic operators
+### 9.16 Binary arithmetic operators
 
 ```text
 +            addition
@@ -1294,7 +1400,7 @@ Integer arithmetic is wrapping by default. Float arithmetic uses strict IEEE
 Division `/` on integers is NOT defined. Use explicit integer division through
 the lowering path or through the builder API (`BackCmd.Sdiv` / `BackCmd.Udiv`).
 
-### 9.15 Bitwise operators
+### 9.17 Bitwise operators
 
 ```text
 &            bitwise and
@@ -1308,7 +1414,7 @@ the lowering path or through the builder API (`BackCmd.Sdiv` / `BackCmd.Udiv`).
 Bitwise operators require integer operands. Shift amounts are masked to the
 bit width of the shifted type.
 
-### 9.16 Comparison operators
+### 9.18 Comparison operators
 
 ```text
 ==           equality
@@ -1328,7 +1434,7 @@ comparisons require explicit `as` conversions.
 Float comparisons follow IEEE 754: `NaN ~= NaN` is true, `NaN < x` and `NaN > x`
 are false.
 
-### 9.17 Logical operators
+### 9.19 Logical operators
 
 ```text
 and          logical and (short-circuit)
@@ -1340,7 +1446,7 @@ the right operand is evaluated only if needed.
 
 For dataflow choice without control flow, use `select(cond, a, b)`.
 
-### 9.18 Operator precedence
+### 9.20 Operator precedence
 
 From lowest to highest:
 
@@ -1360,7 +1466,7 @@ From lowest to highest:
 
 Parentheses `(expr)` override precedence as usual.
 
-### 9.19 Emit expression
+### 9.21 Emit expression
 
 ```moonlift
 emit fragment(arg1, arg2)
@@ -1370,7 +1476,7 @@ Expression fragment emit. Expression fragments return a typed expression result
 and lower through `ExprUseExprFrag`. Unlike region fragment emits, expression
 fragment emits produce a value (not a control-flow splice).
 
-### 9.20 Switch expression
+### 9.22 Switch expression
 
 ```moonlift
 switch value do
@@ -1984,7 +2090,17 @@ moon.len(view_expr)            -- view length
 moon.view(data, len)           -- create contiguous view
 moon.view(data, len, stride)   -- create strided view
 moon.call(callee, args)        -- function call
+moon.agg(ty, fields)           -- struct literal (aggregate) with field init list
+moon.array_expr(elem_ty, elems) -- array literal with element list
 ```
+
+Where `moon.agg` takes:
+- `ty` — the struct type (MoonType.Type)
+- `fields` — an array of `FieldInit` values (each `{ name = string, value = expr, offset = number }`)
+
+And `moon.array_expr` takes:
+- `elem_ty` — the element type (MoonType.Type)
+- `elems` — an array of expression values
 
 ### 15.4 Parameters and functions
 

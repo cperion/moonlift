@@ -563,7 +563,7 @@ local function install(api, T)
             callee = callee.callee or callee.fn or callee[1]
         end
         if type(callee) == "string" then callee = api.name(callee) end
-        return Tr.ExprCall(Tr.ExprSurface, Sem.CallUnresolved(as_expr(callee, "call callee")), exprs(args or {}, "call args"))
+        return Tr.ExprCall(Tr.ExprSurface, as_expr(callee, "call callee"), exprs(args or {}, "call args"))
     end
 
     ---Length expression, currently used for `len(view)`.

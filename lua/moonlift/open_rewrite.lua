@@ -182,10 +182,7 @@ function M.Define(T)
         [B.ValueRefBinding] = function(self, set) return pvm.once(pvm.with(self, { binding = one(rewrite_binding, self.binding, set) })) end,
         [B.ValueRefName] = function(self) return pvm.once(self) end,
         [B.ValueRefPath] = function(self) return pvm.once(self) end,
-        [B.ValueRefSlot] = function(self) return pvm.once(self) end,
-        [B.ValueRefFuncSlot] = function(self) return pvm.once(self) end,
-        [B.ValueRefConstSlot] = function(self) return pvm.once(self) end,
-        [B.ValueRefStaticSlot] = function(self) return pvm.once(self) end,
+        [B.ValueRefHole] = function(self) return pvm.once(self) end,
     }, { args_cache = "last" })
 
     rewrite_view = pvm.phase("moonlift_open_rewrite_view", {

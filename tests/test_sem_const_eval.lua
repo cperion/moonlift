@@ -27,14 +27,14 @@ assert(E.value(Tr.ExprSelect(Tr.ExprTyped(i32), boolean(false), int("1"), int("9
 
 local x = B.Binding(C.Id("x"), "x", i32, B.BindingClassLocalValue)
 local block = Tr.ExprBlock(Tr.ExprTyped(i32), {
-    Tr.StmtLet(Tr.StmtTyped, x, int("10")),
+    Tr.StmtLet(Tr.StmtSurface, x, int("10")),
 }, Tr.ExprBinary(Tr.ExprTyped(i32), C.BinAdd, Tr.ExprRef(Tr.ExprTyped(i32), B.ValueRefBinding(x)), int("5")))
 assert(E.value(block) == Sem.ConstInt(i32, "15"))
 
 local agg_ty = Ty.TNamed(Ty.TypeRefGlobal("Demo", "Pair"))
 local agg = Tr.ExprAgg(Tr.ExprTyped(agg_ty), agg_ty, {
-    Tr.FieldInit("left", int("1")),
-    Tr.FieldInit("right", int("2")),
+    Tr.FieldInit("left", int("1"), 0),
+    Tr.FieldInit("right", int("2"), 0),
 })
 assert(E.value(Tr.ExprField(Tr.ExprTyped(i32), agg, Sem.FieldByName("right", i32))) == Sem.ConstInt(i32, "2"))
 
@@ -43,9 +43,9 @@ local const_env = B.ConstEnv({ B.ConstEntry("Demo", "answer", i32, int("99")) })
 assert(E.value(Tr.ExprRef(Tr.ExprTyped(i32), B.ValueRefBinding(global_binding)), const_env) == Sem.ConstInt(i32, "99"))
 
 local result = E.stmts({
-    Tr.StmtLet(Tr.StmtTyped, x, int("4")),
-    Tr.StmtReturnValue(Tr.StmtTyped, Tr.ExprBinary(Tr.ExprTyped(i32), C.BinAdd, Tr.ExprRef(Tr.ExprTyped(i32), B.ValueRefBinding(x)), int("6"))),
+    Tr.StmtLet(Tr.StmtSurface, x, int("4")),
+    Tr.StmtReturnValue(Tr.StmtSurface, Tr.ExprBinary(Tr.ExprTyped(i32), C.BinAdd, Tr.ExprRef(Tr.ExprTyped(i32), B.ValueRefBinding(x)), int("6"))),
 })
-assert(result == Sem.ConstStmtReturnValue(Sem.ConstLocalEnv({ Sem.ConstLocalEntry(x, Sem.ConstInt(i32, "4")) }), Sem.ConstInt(i32, "10")))
+assert(result.kind == "return_value" and result.value == Sem.ConstInt(i32, "10"))
 
 print("moonlift sem_const_eval ok")

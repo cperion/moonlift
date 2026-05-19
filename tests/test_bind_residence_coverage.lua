@@ -22,7 +22,7 @@ local fn_ty = Ty.TFunc({ i32 }, i32)
 local function lit(raw) return Tr.ExprLit(Tr.ExprTyped(i32), C.LitInt(raw)) end
 local function binding(id, name, ty, class) return B.Binding(C.Id(id), name, ty, class) end
 local function use(binding_node)
-    return Tr.StmtExpr(Tr.StmtTyped, Tr.ExprRef(Tr.ExprTyped(binding_node.ty), B.ValueRefBinding(binding_node)))
+    return Tr.StmtExpr(Tr.StmtSurface, Tr.ExprRef(Tr.ExprTyped(binding_node.ty), B.ValueRefBinding(binding_node)))
 end
 local function has(xs, needle)
     for i = 1, #xs do if xs[i] == needle then return true end end
@@ -50,19 +50,19 @@ local bindings = {
     binding("open.param", "p", i32, B.BindingClassOpenParam(open_param)),
     binding("import.value", "iv", i32, B.BindingClassImport(import_value)),
     binding("import.func", "if", fn_ty, B.BindingClassImport(import_func)),
-    binding("func.sym", "fsym", fn_ty, B.BindingClassFuncSym(C.FuncSym("fk", "fsym"))),
-    binding("extern.sym", "esym", fn_ty, B.BindingClassExternSym(C.ExternSym("ek", "esym", "c_esym"))),
-    binding("const.sym", "csym", i32, B.BindingClassConstSym(C.ConstSym("ck", "csym"))),
-    binding("static.sym", "ssym", i32, B.BindingClassStaticSym(C.StaticSym("sk", "ssym"))),
-    binding("func.slot", "fslot", fn_ty, B.BindingClassFuncSlot(func_slot)),
-    binding("const.slot", "cslot", i32, B.BindingClassConstSlot(const_slot)),
-    binding("static.slot", "sslot", i32, B.BindingClassStaticSlot(static_slot)),
-    binding("value.slot", "vslot", i32, B.BindingClassValueSlot(value_slot)),
+    binding("func.sym", "fsym", fn_ty, B.BindingClassOpenSym(C.OpenSym(C.SymKindFunc, "fk", "fsym", ""))),
+    binding("extern.sym", "esym", fn_ty, B.BindingClassOpenSym(C.OpenSym(C.SymKindExtern, "ek", "esym", "c_esym"))),
+    binding("const.sym", "csym", i32, B.BindingClassOpenSym(C.OpenSym(C.SymKindConst, "ck", "csym", ""))),
+    binding("static.sym", "ssym", i32, B.BindingClassOpenSym(C.OpenSym(C.SymKindStatic, "sk", "ssym", ""))),
+    binding("func.slot", "fslot", fn_ty, B.BindingClassOpenSlot(O.SlotFunc(func_slot))),
+    binding("const.slot", "cslot", i32, B.BindingClassOpenSlot(O.SlotConst(const_slot))),
+    binding("static.slot", "sslot", i32, B.BindingClassOpenSlot(O.SlotStatic(static_slot))),
+    binding("value.slot", "vslot", i32, B.BindingClassOpenSlot(O.SlotValue(value_slot))),
 }
 
 local stmts = {
-    Tr.StmtLet(Tr.StmtTyped, bindings[1], lit("1")),
-    Tr.StmtVar(Tr.StmtTyped, bindings[2], lit("2")),
+    Tr.StmtLet(Tr.StmtSurface, bindings[1], lit("1")),
+    Tr.StmtVar(Tr.StmtSurface, bindings[2], lit("2")),
 }
 for i = 3, #bindings do stmts[#stmts + 1] = use(bindings[i]) end
 

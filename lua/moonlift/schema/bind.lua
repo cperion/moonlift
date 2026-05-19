@@ -55,36 +55,12 @@ return function(A)
                 A.field "import" "MoonOpen.ValueImport",
                 A.variant_unique,
             },
-            A.variant "BindingClassFuncSym" {
-                A.field "sym" "MoonCore.FuncSym",
+            A.variant "BindingClassOpenSym" {
+                A.field "sym" "MoonCore.OpenSym",
                 A.variant_unique,
             },
-            A.variant "BindingClassExternSym" {
-                A.field "sym" "MoonCore.ExternSym",
-                A.variant_unique,
-            },
-            A.variant "BindingClassConstSym" {
-                A.field "sym" "MoonCore.ConstSym",
-                A.variant_unique,
-            },
-            A.variant "BindingClassStaticSym" {
-                A.field "sym" "MoonCore.StaticSym",
-                A.variant_unique,
-            },
-            A.variant "BindingClassFuncSlot" {
-                A.field "slot" "MoonOpen.FuncSlot",
-                A.variant_unique,
-            },
-            A.variant "BindingClassConstSlot" {
-                A.field "slot" "MoonOpen.ConstSlot",
-                A.variant_unique,
-            },
-            A.variant "BindingClassStaticSlot" {
-                A.field "slot" "MoonOpen.StaticSlot",
-                A.variant_unique,
-            },
-            A.variant "BindingClassValueSlot" {
-                A.field "slot" "MoonOpen.ValueSlot",
+            A.variant "BindingClassOpenSlot" {
+                A.field "slot" "MoonOpen.Slot",
                 A.variant_unique,
             },
         },
@@ -181,20 +157,8 @@ return function(A)
                 A.field "binding" "MoonBind.Binding",
                 A.variant_unique,
             },
-            A.variant "ValueRefSlot" {
-                A.field "slot" "MoonOpen.ValueSlot",
-                A.variant_unique,
-            },
-            A.variant "ValueRefFuncSlot" {
-                A.field "slot" "MoonOpen.FuncSlot",
-                A.variant_unique,
-            },
-            A.variant "ValueRefConstSlot" {
-                A.field "slot" "MoonOpen.ConstSlot",
-                A.variant_unique,
-            },
-            A.variant "ValueRefStaticSlot" {
-                A.field "slot" "MoonOpen.StaticSlot",
+            A.variant "ValueRefHole" {
+                A.field "slot" "MoonOpen.Slot",
                 A.variant_unique,
             },
         },

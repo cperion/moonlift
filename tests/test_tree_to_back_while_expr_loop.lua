@@ -35,12 +35,12 @@ local region = Tr.ControlExprRegion(
         Tr.EntryBlockParam("x", i32, ref(n)),
         Tr.EntryBlockParam("acc", i32, lit("1")),
     }, {
-        Tr.StmtIf(Tr.StmtTyped,
+        Tr.StmtIf(Tr.StmtSurface,
             Tr.ExprCompare(Tr.ExprTyped(bool), C.CmpLe, ref(x), lit("1")),
-            { Tr.StmtYieldValue(Tr.StmtTyped, ref(acc)) },
+            { Tr.StmtYieldValue(Tr.StmtSurface, ref(acc)) },
             {}
         ),
-        Tr.StmtJump(Tr.StmtTyped, Tr.BlockLabel("loop"), {
+        Tr.StmtJump(Tr.StmtSurface, Tr.BlockLabel("loop"), {
             Tr.JumpArg("x", Tr.ExprBinary(Tr.ExprTyped(i32), C.BinSub, ref(x), lit("1"))),
             Tr.JumpArg("acc", Tr.ExprBinary(Tr.ExprTyped(i32), C.BinMul, ref(acc), ref(x))),
         }),
@@ -49,7 +49,7 @@ local region = Tr.ControlExprRegion(
 )
 
 local fact = Tr.FuncExport("fact_control_expr", { Ty.Param("n", i32) }, i32, {
-    Tr.StmtReturnValue(Tr.StmtTyped, Tr.ExprControl(Tr.ExprTyped(i32), region)),
+    Tr.StmtReturnValue(Tr.StmtSurface, Tr.ExprControl(Tr.ExprTyped(i32), region)),
 })
 
 local module = Tr.Module(Tr.ModuleTyped("Demo"), { Tr.ItemFunc(fact) })

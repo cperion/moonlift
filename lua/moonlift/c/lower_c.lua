@@ -981,7 +981,7 @@ function M.Define(T)
             for _, a in ipairs(c_expr.args or {}) do
                 args[#args + 1] = lower_expr(a, ctx)
             end
-            return Tr.ExprCall(Tr.ExprSurface, Sem.CallUnresolved(callee), args)
+            return Tr.ExprCall(Tr.ExprSurface, callee, args)
         end
 
         -- Member access.  Resolve C layout facts here, because Tree Dot is a
@@ -1593,7 +1593,7 @@ function M.Define(T)
                     table.insert(case_stmts, Tr.StmtJump(Tr.StmtSurface, after_label, {}))
                 end
                 blocks[#blocks + 1] = Tr.ControlBlock(case_label, {}, case_stmts)
-                arms[#arms + 1] = Tr.SwitchStmtArm(Sem.SwitchKeyExpr(lower_expr(cs.value, ctx)), { Tr.StmtJump(Tr.StmtSurface, case_label, {}) })
+                arms[#arms + 1] = Tr.SwitchStmtArm("", { Tr.StmtJump(Tr.StmtSurface, case_label, {}) })
             end
             if ctx.switch_default then
                 local def_label = fresh_label(ctx, "default")

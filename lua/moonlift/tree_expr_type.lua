@@ -9,6 +9,7 @@ function M.Define(T)
     local C = T.MoonCore
     local Ty = T.MoonType
     local B = T.MoonBind
+    local O = T.MoonOpen
     local Sem = T.MoonSem
     local Tr = T.MoonTree
 
@@ -34,27 +35,24 @@ function M.Define(T)
         [Tr.ExprSurface] = function() return pvm.empty() end,
         [Tr.ExprTyped] = function(self) return pvm.once(self.ty) end,
         [Tr.ExprOpen] = function(self) return pvm.once(self.ty) end,
-        [Tr.ExprSem] = function(self) return pvm.once(self.ty) end,
-        [Tr.ExprCode] = function(self) return pvm.once(self.ty) end,
     })
 
     value_ref_type = pvm.phase("moonlift_tree_value_ref_type", {
         [B.ValueRefBinding] = function(self) return pvm.once(self.binding.ty) end,
-        [B.ValueRefSlot] = function(self) return pvm.once(self.slot.ty) end,
-        [B.ValueRefFuncSlot] = function(self) return pvm.once(self.slot.fn_ty) end,
-        [B.ValueRefConstSlot] = function(self) return pvm.once(self.slot.ty) end,
-        [B.ValueRefStaticSlot] = function(self) return pvm.once(self.slot.ty) end,
+        [B.ValueRefHole] = function(self)
+            local slot_cls = pvm.classof(self.slot)
+            if slot_cls == O.SlotFunc then return pvm.once(self.slot.slot.fn_ty) end
+            if slot_cls == O.SlotValue or slot_cls == O.SlotConst or slot_cls == O.SlotStatic then return pvm.once(self.slot.slot.ty) end
+            if slot_cls == O.SlotExpr or slot_cls == O.SlotPlace then return pvm.once(self.slot.slot.ty or nil) end
+            return pvm.empty()
+        end,
         [B.ValueRefName] = function() return pvm.empty() end,
         [B.ValueRefPath] = function() return pvm.empty() end,
     })
 
-    call_target_type = pvm.phase("moonlift_tree_call_target_type", {
-        [Sem.CallDirect] = function(self) return pvm.once(self.fn_ty) end,
-        [Sem.CallExtern] = function(self) return pvm.once(self.fn_ty) end,
-        [Sem.CallIndirect] = function(self) return pvm.once(self.fn_ty) end,
-        [Sem.CallClosure] = function(self) return pvm.once(self.fn_ty) end,
-        [Sem.CallUnresolved] = function() return pvm.empty() end,
-    })
+    call_target_type = function(target)
+        return target.fn_ty
+    end
 
     local function header_or(h, fallback)
         local ty = first(header_type(h))
@@ -96,9 +94,6 @@ function M.Define(T)
         [Tr.ExprCall] = function(self)
             local ty = first(header_type(self.h))
             if ty ~= nil then return pvm.once(ty) end
-            local fn_ty = first(call_target_type(self.target))
-            local result = fn_ty and result_of_callable(fn_ty)
-            if result ~= nil then return pvm.once(result) end
             return pvm.empty()
         end,
         [Tr.ExprLen] = function(self) return header_or(self.h, Ty.TScalar(C.ScalarIndex)) end,

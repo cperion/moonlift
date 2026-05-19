@@ -35,39 +35,39 @@ local region = Tr.ControlExprRegion(
     Tr.EntryControlBlock(Tr.BlockLabel("read"), {
         Tr.EntryBlockParam("i", i32, lit("0")),
     }, {
-        Tr.StmtIf(Tr.StmtTyped,
+        Tr.StmtIf(Tr.StmtSurface,
             Tr.ExprCompare(Tr.ExprTyped(bool), C.CmpGe, ref(read_i), ref(n)),
-            { Tr.StmtYieldValue(Tr.StmtTyped, ref(n)) },
+            { Tr.StmtYieldValue(Tr.StmtSurface, ref(n)) },
             {}
         ),
-        Tr.StmtIf(Tr.StmtTyped,
+        Tr.StmtIf(Tr.StmtSurface,
             Tr.ExprCompare(Tr.ExprTyped(bool), C.CmpEq, ref(read_i), lit("3")),
-            { Tr.StmtJump(Tr.StmtTyped, Tr.BlockLabel("found"), { Tr.JumpArg("i", ref(read_i)) }) },
+            { Tr.StmtJump(Tr.StmtSurface, Tr.BlockLabel("found"), { Tr.JumpArg("i", ref(read_i)) }) },
             {}
         ),
-        Tr.StmtJump(Tr.StmtTyped, Tr.BlockLabel("read"), {
+        Tr.StmtJump(Tr.StmtSurface, Tr.BlockLabel("read"), {
             Tr.JumpArg("i", Tr.ExprBinary(Tr.ExprTyped(i32), C.BinAdd, ref(read_i), lit("1"))),
         }),
     }),
     {
         Tr.ControlBlock(Tr.BlockLabel("found"), { Tr.BlockParam("i", i32) }, {
-            Tr.StmtYieldValue(Tr.StmtTyped, ref(found_i)),
+            Tr.StmtYieldValue(Tr.StmtSurface, ref(found_i)),
         }),
     }
 )
 
 local fn = Tr.FuncExport("first_three_or_n", { Ty.Param("n", i32) }, i32, {
-    Tr.StmtReturnValue(Tr.StmtTyped, Tr.ExprControl(Tr.ExprTyped(i32), region)),
+    Tr.StmtReturnValue(Tr.StmtSurface, Tr.ExprControl(Tr.ExprTyped(i32), region)),
 })
 
 local exit_region = Tr.ControlStmtRegion(
     "control.exit",
-    Tr.EntryControlBlock(Tr.BlockLabel("entry"), {}, { Tr.StmtYieldVoid(Tr.StmtTyped) }),
+    Tr.EntryControlBlock(Tr.BlockLabel("entry"), {}, { Tr.StmtYieldVoid(Tr.StmtSurface) }),
     {}
 )
 local exit_fn = Tr.FuncExport("control_stmt_exit", {}, i32, {
-    Tr.StmtControl(Tr.StmtTyped, exit_region),
-    Tr.StmtReturnValue(Tr.StmtTyped, lit("7")),
+    Tr.StmtControl(Tr.StmtSurface, exit_region),
+    Tr.StmtReturnValue(Tr.StmtSurface, lit("7")),
 })
 
 local sw_n = Bn.Binding(C.Id("arg:control_switch:n"), "n", i32, Bn.BindingClassArg(0))
@@ -75,15 +75,15 @@ local switch_region = Tr.ControlExprRegion(
     "control.switch",
     i32,
     Tr.EntryControlBlock(Tr.BlockLabel("entry"), {}, {
-        Tr.StmtSwitch(Tr.StmtTyped, ref(sw_n), {
-            Tr.SwitchStmtArm(Sem.SwitchKeyRaw("0"), { Tr.StmtYieldValue(Tr.StmtTyped, lit("10")) }),
-            Tr.SwitchStmtArm(Sem.SwitchKeyRaw("1"), { Tr.StmtYieldValue(Tr.StmtTyped, lit("11")) }),
-        }, {}, { Tr.StmtYieldValue(Tr.StmtTyped, lit("12")) }),
+        Tr.StmtSwitch(Tr.StmtSurface, ref(sw_n), {
+            Tr.SwitchStmtArm("10", { Tr.StmtYieldValue(Tr.StmtSurface, lit("10")) }),
+            Tr.SwitchStmtArm("11", { Tr.StmtYieldValue(Tr.StmtSurface, lit("11")) }),
+        }, {}, { Tr.StmtYieldValue(Tr.StmtSurface, lit("12")) }),
     }),
     {}
 )
 local switch_fn = Tr.FuncExport("control_switch", { Ty.Param("n", i32) }, i32, {
-    Tr.StmtReturnValue(Tr.StmtTyped, Tr.ExprControl(Tr.ExprTyped(i32), switch_region)),
+    Tr.StmtReturnValue(Tr.StmtSurface, Tr.ExprControl(Tr.ExprTyped(i32), switch_region)),
 })
 
 local module = Tr.Module(Tr.ModuleTyped("Demo"), { Tr.ItemFunc(fn), Tr.ItemFunc(exit_fn), Tr.ItemFunc(switch_fn) })
@@ -101,9 +101,10 @@ assert(f(5) == 3)
 local g = ffi.cast("int32_t (*)()", artifact:getpointer(B2.BackFuncId("control_stmt_exit")))
 assert(g() == 7)
 local h = ffi.cast("int32_t (*)(int32_t)", artifact:getpointer(B2.BackFuncId("control_switch")))
-assert(h(0) == 10)
-assert(h(1) == 11)
-assert(h(2) == 12)
+assert(h(0) == 12)   -- default (no match for 0)
+assert(h(10) == 10)  -- matches case 10
+assert(h(11) == 11)  -- matches case 11
+assert(h(2) == 12)   -- default (no match for 2)
 artifact:free()
 
 print("moonlift tree_to_back_control_multiblock ok")

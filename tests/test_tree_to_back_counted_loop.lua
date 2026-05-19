@@ -34,12 +34,12 @@ local region = Tr.ControlStmtRegion(
         Tr.EntryBlockParam("i", i32, lit("0")),
         Tr.EntryBlockParam("acc", i32, lit("0")),
     }, {
-        Tr.StmtIf(Tr.StmtTyped,
+        Tr.StmtIf(Tr.StmtSurface,
             Tr.ExprCompare(Tr.ExprTyped(bool), C.CmpGe, ref(i), ref(n)),
-            { Tr.StmtReturnValue(Tr.StmtTyped, ref(acc)) },
+            { Tr.StmtReturnValue(Tr.StmtSurface, ref(acc)) },
             {}
         ),
-        Tr.StmtJump(Tr.StmtTyped, Tr.BlockLabel("loop"), {
+        Tr.StmtJump(Tr.StmtSurface, Tr.BlockLabel("loop"), {
             Tr.JumpArg("i", Tr.ExprBinary(Tr.ExprTyped(i32), C.BinAdd, ref(i), lit("1"))),
             Tr.JumpArg("acc", Tr.ExprBinary(Tr.ExprTyped(i32), C.BinAdd, ref(acc), ref(i))),
         }),
@@ -48,7 +48,7 @@ local region = Tr.ControlStmtRegion(
 )
 
 local sum = Tr.FuncExport("sum_to_n_control", { Ty.Param("n", i32) }, i32, {
-    Tr.StmtControl(Tr.StmtTyped, region),
+    Tr.StmtControl(Tr.StmtSurface, region),
 })
 
 local module = Tr.Module(Tr.ModuleTyped("Demo"), { Tr.ItemFunc(sum) })

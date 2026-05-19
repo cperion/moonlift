@@ -153,7 +153,7 @@ local function encode_body(cmds, b)
         elseif k == "CmdSwitchToBlock" then
             w4(buf, T.SwitchToBlock); w4(buf, b:nid(cmd.block))
         elseif k == "CmdAppendBlockParam" then
-            w4(buf, T.AppendBlockParam); w4(buf, b:nid(cmd.block)); w4(buf, st(cmd.ty))
+            w4(buf, T.AppendBlockParam); w4(buf, b:nid(cmd.block)); w4(buf, st(cmd.ty)); w4(buf, b:nid(cmd.value))
         elseif k == "CmdCreateStackSlot" then
             w4(buf, T.CreateStackSlot); w4(buf, b:nid(cmd.slot)); w4(buf, cmd.size); w4(buf, cmd.align or 0)
         elseif k == "CmdSealBlock" or k == "CmdBindEntryParams" then
@@ -180,6 +180,12 @@ local function encode_body(cmds, b)
             w4(buf, T.FuncAddr); w4(buf, b:nid(cmd.dst)); w4(buf, 12); w4(buf, (b.func_map or {})[id(cmd.func)] or 0)
         elseif k == "CmdExternAddr" then
             w4(buf, T.ExternAddr); w4(buf, b:nid(cmd.dst)); w4(buf, 12); w4(buf, (b.extern_map or {})[id(cmd.func)] or 0)
+        elseif k == "CmdPtrOffset" then
+            local base_val = cmd.base.value or cmd.base or Back.BackValId("")
+            local coff = cmd.const_offset or 0
+            local coff_lo = coff % 0x100000000
+            local coff_hi = math.floor(coff / 0x100000000)
+            w4(buf, T.PtrOffset); w4(buf, b:nid(cmd.dst)); w4(buf, b:nid(base_val)); w4(buf, b:nid(cmd.index)); w4(buf, cmd.elem_size or 1); w4(buf, coff_lo); w4(buf, coff_hi)
 
         -- Constants
         elseif k == "CmdConst" then
@@ -203,11 +209,12 @@ local function encode_body(cmds, b)
                     w4(buf, lo); w4(buf, hi)
                 end
             elseif v.kind == "BackLitFloat" then
+                local ty_code = st(cmd.ty)
                 local bits = ffi.new("union { double d; uint32_t w[2]; }")
                 bits.d = tonumber(v.raw) or 0.0
-                if tonumber(bits.w[1]) == 0 then
+                if ty_code == 10 then -- BackF32
                     w4(buf, T.ConstF32); w4(buf, b:nid(cmd.dst)); w4(buf, tonumber(bits.w[0]))
-                else
+                else -- BackF64 or unknown: default to F64
                     w4(buf, T.ConstF64); w4(buf, b:nid(cmd.dst))
                     w4(buf, tonumber(bits.w[0])); w4(buf, tonumber(bits.w[1]))
                 end
@@ -497,7 +504,7 @@ local function encode_body(cmds, b)
                 target_id = b.func_map[id(tgt.func)] or 0
             elseif tgt.kind == "BackCallExtern" then
                 tag = T.CallExtern
-                target_id = b.func_map[id(tgt.func)] or 0
+                target_id = b.extern_map[id(tgt.func)] or 0
             else
                 tag = T.CallIndirect
                 target_id = b:nid(tgt.callee)
@@ -698,7 +705,7 @@ function M.encode(program)
     -- Externs
     w4(dbuf, #externs)
     for i, cmd in ipairs(externs) do
-        w4(dbuf, i - 1); w4(dbuf, 0); -- extern_id, sig_id (placeholders)
+        w4(dbuf, i - 1); w4(dbuf, sig_idx[id(cmd.sig)] or 0); -- extern_id, sig_id
         local name = cmd.symbol
         w4(dbuf, #name)
         dbuf[#dbuf+1] = name

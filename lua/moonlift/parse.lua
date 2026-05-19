@@ -958,7 +958,7 @@ function Parser:led(k, left)
            and left.ref.name == "select" and #args == 3 then
             return Tr.ExprSelect(Tr.ExprSurface, args[1], args[2], args[3])
         end
-        return Tr.ExprCall(Tr.ExprSurface, Sem.CallUnresolved(left), args)
+        return Tr.ExprCall(Tr.ExprSurface, left, args)
     end
 
     if k == TK.lbrack then
@@ -1063,13 +1063,13 @@ function Parser:switch_key_from_expr(expr)
     local cls = pvm.classof(expr)
     if cls == Tr.ExprLit then
         local lit = pvm.classof(expr.value)
-        if lit == C.LitInt  then return Sem.SwitchKeyRaw(expr.value.raw) end
-        if lit == C.LitBool then return Sem.SwitchKeyRaw(expr.value.value and "true" or "false") end
+        if lit == C.LitInt  then return { kind = "raw", raw = expr.value.raw } end
+        if lit == C.LitBool then return { kind = "raw", raw = expr.value.value and "true" or "false" } end
     end
     if cls == Tr.ExprRef and pvm.classof(expr.ref) == B.ValueRefName then
-        return Sem.SwitchKeyRaw(expr.ref.name)
+        return { kind = "raw", raw = expr.ref.name }
     end
-    return Sem.SwitchKeyExpr(expr)
+    return { kind = "expr", expr = expr }
 end
 
 function Parser:parse_switch_stmt()
@@ -1083,14 +1083,15 @@ function Parser:parse_switch_stmt()
         if self:kind() == TK.hole then
             local id = self:text(); self.i = self.i + 1
             local slot = self:spread_region_slot("switch_stmt_arm_list", id)
-            arms[#arms + 1] = Tr.SwitchStmtArm(Sem.SwitchKeyRaw(spread_sentinel("switch_stmt_arm_list", slot)), {})
+            arms[#arms + 1] = Tr.SwitchStmtArm(spread_sentinel("switch_stmt_arm_list", slot), {})
         else
             self.i = self.i + 1  -- consume 'case'
             local key_expr = self:parse_expr(0)
             self:skip_nl()
             self:expect(TK.then_kw, "expected then after case expression")
             local body = self:parse_stmt_until({ [TK.case_kw]=true, [TK.default_kw]=true, [TK.end_kw]=true })
-            arms[#arms + 1] = Tr.SwitchStmtArm(self:switch_key_from_expr(key_expr), body)
+            local stmt_key = self:switch_key_from_expr(key_expr)
+            arms[#arms + 1] = Tr.SwitchStmtArm(stmt_key.raw or "", body)
         end
         self:skip_nl()
     end
@@ -1112,14 +1113,15 @@ function Parser:parse_switch_expr()
         if self:kind() == TK.hole then
             local id = self:text(); self.i = self.i + 1
             local slot = self:spread_region_slot("switch_expr_arm_list", id)
-            arms[#arms + 1] = Tr.SwitchExprArm(Sem.SwitchKeyRaw(spread_sentinel("switch_expr_arm_list", slot)), {}, Tr.ExprLit(Tr.ExprSurface, self.C.LitInt("0")))
+            arms[#arms + 1] = Tr.SwitchExprArm(spread_sentinel("switch_expr_arm_list", slot), {}, Tr.ExprLit(Tr.ExprSurface, self.C.LitInt("0")))
         else
             self.i = self.i + 1
             local key_expr = self:parse_expr(0)
             self:skip_nl()
             self:expect(TK.then_kw, "expected then after case expression")
             local body, result = self:parse_expr_block({ [TK.case_kw]=true, [TK.default_kw]=true, [TK.end_kw]=true })
-            arms[#arms + 1] = Tr.SwitchExprArm(self:switch_key_from_expr(key_expr), body, result)
+            local expr_key = self:switch_key_from_expr(key_expr)
+            arms[#arms + 1] = Tr.SwitchExprArm(expr_key.raw or "", body, result)
         end
         self:skip_nl()
     end

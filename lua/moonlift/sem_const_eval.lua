@@ -20,13 +20,12 @@ function M.Define(T)
     local expr_const_class
     local stmt_const_result
 
-    local function const_value(class)
-        if pvm.classof(class) == Sem.ConstClassYes then return class.value end
-        return nil
+    local function const_value(v)
+        return v
     end
 
-    local function no() return Sem.ConstClassNo end
-    local function yes(v) return Sem.ConstClassYes(v) end
+    local function no() return nil end
+    local function yes(v) return v end
 
     local function int_raw(v)
         if pvm.classof(v) == Sem.ConstInt then return v.raw end
@@ -72,13 +71,13 @@ function M.Define(T)
         for i = 1, #stmts do
             local result = pvm.one(stmt_const_result(stmts[i], const_env, current))
             local cls = pvm.classof(result)
-            if cls == Sem.ConstStmtFallsThrough then
-                current = result.local_env
+            if result.kind == "falls_through" then
+                current = result.env
             else
                 return result
             end
         end
-        return Sem.ConstStmtFallsThrough(current)
+        return { kind = "falls_through", env = current }
     end
 
     local function field_value(fields, name)
@@ -89,10 +88,7 @@ function M.Define(T)
     end
 
     local function switch_key_value(key)
-        local cls = pvm.classof(key)
-        if cls == Sem.SwitchKeyConst then return key.value end
-        if cls == Sem.SwitchKeyRaw then return key.raw end
-        return nil
+        return key
     end
 
     local function same_const(a, b)
@@ -103,8 +99,6 @@ function M.Define(T)
         [Tr.ExprSurface] = function() return pvm.empty() end,
         [Tr.ExprTyped] = function(self) return pvm.once(self.ty) end,
         [Tr.ExprOpen] = function(self) return pvm.once(self.ty) end,
-        [Tr.ExprSem] = function(self) return pvm.once(self.ty) end,
-        [Tr.ExprCode] = function(self) return pvm.once(self.ty) end,
     })
 
     literal_const = pvm.phase("moonlift_sem_literal_const", {
@@ -178,10 +172,7 @@ function M.Define(T)
         end,
         [B.ValueRefName] = function() return pvm.once(no()) end,
         [B.ValueRefPath] = function() return pvm.once(no()) end,
-        [B.ValueRefSlot] = function() return pvm.once(no()) end,
-        [B.ValueRefFuncSlot] = function() return pvm.once(no()) end,
-        [B.ValueRefConstSlot] = function() return pvm.once(no()) end,
-        [B.ValueRefStaticSlot] = function() return pvm.once(no()) end,
+        [B.ValueRefHole] = function() return pvm.once(nil) end,
     }, { args_cache = "last" })
 
     expr_const_class = pvm.phase("moonlift_sem_expr_const_class", {
@@ -281,11 +272,11 @@ function M.Define(T)
             local value = eval_value(self.value, const_env, local_env)
             if value == nil then return pvm.once(no()) end
             for i = 1, #self.arms do
-                local key = switch_key_value(self.arms[i].key)
+                local key = switch_key_value(self.arms[i].raw_key)
                 if key == value or (type(key) == "string" and int_raw(value) == key) then
                     local stmt_result = eval_stmts(self.arms[i].body, const_env, local_env)
-                    if pvm.classof(stmt_result) == Sem.ConstStmtFallsThrough then
-                        return expr_const_class(self.arms[i].result, const_env, stmt_result.local_env)
+                    if stmt_result.kind == "falls_through" then
+                        return expr_const_class(self.arms[i].result, const_env, stmt_result.env)
                     end
                     return pvm.once(no())
                 end
@@ -295,8 +286,8 @@ function M.Define(T)
         [Tr.ExprControl] = function() return pvm.once(no()) end,
         [Tr.ExprBlock] = function(self, const_env, local_env)
             local result = eval_stmts(self.stmts, const_env, local_env)
-            if pvm.classof(result) ~= Sem.ConstStmtFallsThrough then return pvm.once(no()) end
-            return expr_const_class(self.result, const_env, result.local_env)
+            if result.kind ~= "falls_through" then return pvm.once(no()) end
+            return expr_const_class(self.result, const_env, result.env)
         end,
         [Tr.ExprClosure] = function() return pvm.once(no()) end,
         [Tr.ExprView] = function() return pvm.once(no()) end,
@@ -311,44 +302,44 @@ function M.Define(T)
     stmt_const_result = pvm.phase("moonlift_sem_stmt_const_result", {
         [Tr.StmtLet] = function(self, const_env, local_env)
             local v = eval_value(self.init, const_env, local_env)
-            if v == nil then return pvm.once(Sem.ConstStmtFallsThrough(local_env)) end
-            return pvm.once(Sem.ConstStmtFallsThrough(local_put(local_env, self.binding, v)))
+            if v == nil then return pvm.once({ kind = "falls_through", env = local_env }) end
+            return pvm.once({ kind = "falls_through", env = local_put(local_env, self.binding, v) })
         end,
         [Tr.StmtVar] = function(self, const_env, local_env)
             local v = eval_value(self.init, const_env, local_env)
-            if v == nil then return pvm.once(Sem.ConstStmtFallsThrough(local_env)) end
-            return pvm.once(Sem.ConstStmtFallsThrough(local_put(local_env, self.binding, v)))
+            if v == nil then return pvm.once({ kind = "falls_through", env = local_env }) end
+            return pvm.once({ kind = "falls_through", env = local_put(local_env, self.binding, v) })
         end,
-        [Tr.StmtSet] = function(_, _, local_env) return pvm.once(Sem.ConstStmtFallsThrough(local_env)) end,
-        [Tr.StmtAtomicStore] = function(_, _, local_env) return pvm.once(Sem.ConstStmtFallsThrough(local_env)) end,
-        [Tr.StmtAtomicFence] = function(_, _, local_env) return pvm.once(Sem.ConstStmtFallsThrough(local_env)) end,
-        [Tr.StmtExpr] = function(self, const_env, local_env) eval_expr(self.expr, const_env, local_env); return pvm.once(Sem.ConstStmtFallsThrough(local_env)) end,
-        [Tr.StmtAssert] = function(_, _, local_env) return pvm.once(Sem.ConstStmtFallsThrough(local_env)) end,
+        [Tr.StmtSet] = function(_, _, local_env) return pvm.once({ kind = "falls_through", env = local_env }) end,
+        [Tr.StmtAtomicStore] = function(_, _, local_env) return pvm.once({ kind = "falls_through", env = local_env }) end,
+        [Tr.StmtAtomicFence] = function(_, _, local_env) return pvm.once({ kind = "falls_through", env = local_env }) end,
+        [Tr.StmtExpr] = function(self, const_env, local_env) eval_expr(self.expr, const_env, local_env); return pvm.once({ kind = "falls_through", env = local_env }) end,
+        [Tr.StmtAssert] = function(_, _, local_env) return pvm.once({ kind = "falls_through", env = local_env }) end,
         [Tr.StmtIf] = function(self, const_env, local_env)
             local cond = eval_value(self.cond, const_env, local_env)
             local b = cond and bool_value(cond)
-            if b == nil then return pvm.once(Sem.ConstStmtFallsThrough(local_env)) end
+            if b == nil then return pvm.once({ kind = "falls_through", env = local_env }) end
             if b then return pvm.once(eval_stmts(self.then_body, const_env, local_env)) end
             return pvm.once(eval_stmts(self.else_body, const_env, local_env))
         end,
-        [Tr.StmtSwitch] = function(_, _, local_env) return pvm.once(Sem.ConstStmtFallsThrough(local_env)) end,
-        [Tr.StmtReturnVoid] = function(_, _, local_env) return pvm.once(Sem.ConstStmtReturnVoid(local_env)) end,
+        [Tr.StmtSwitch] = function(_, _, local_env) return pvm.once({ kind = "falls_through", env = local_env }) end,
+        [Tr.StmtReturnVoid] = function(_, _, local_env) return pvm.once({ kind = "return_void", env = local_env }) end,
         [Tr.StmtReturnValue] = function(self, const_env, local_env)
             local v = eval_value(self.value, const_env, local_env)
-            if v == nil then return pvm.once(Sem.ConstStmtReturnVoid(local_env)) end
-            return pvm.once(Sem.ConstStmtReturnValue(local_env, v))
+            if v == nil then return pvm.once({ kind = "return_void", env = local_env }) end
+            return pvm.once({ kind = "return_value", env = local_env, value = v })
         end,
-        [Tr.StmtJump] = function(self, _, local_env) return pvm.once(Sem.ConstStmtJump(local_env, self.target.name)) end,
-        [Tr.StmtJumpCont] = function(_, _, local_env) return pvm.once(Sem.ConstStmtFallsThrough(local_env)) end,
-        [Tr.StmtYieldVoid] = function(_, _, local_env) return pvm.once(Sem.ConstStmtYieldVoid(local_env)) end,
+        [Tr.StmtJump] = function(self, _, local_env) return pvm.once({ kind = "jump", env = local_env, target = self.target.name }) end,
+        [Tr.StmtJumpCont] = function(_, _, local_env) return pvm.once({ kind = "falls_through", env = local_env }) end,
+        [Tr.StmtYieldVoid] = function(_, _, local_env) return pvm.once({ kind = "yield_void", env = local_env }) end,
         [Tr.StmtYieldValue] = function(self, const_env, local_env)
             local v = eval_value(self.value, const_env, local_env)
-            if v == nil then return pvm.once(Sem.ConstStmtYieldVoid(local_env)) end
-            return pvm.once(Sem.ConstStmtYieldValue(local_env, v))
+            if v == nil then return pvm.once({ kind = "yield_void", env = local_env }) end
+            return pvm.once({ kind = "yield_value", env = local_env, value = v })
         end,
-        [Tr.StmtControl] = function(_, _, local_env) return pvm.once(Sem.ConstStmtFallsThrough(local_env)) end,
-        [Tr.StmtUseRegionSlot] = function(_, _, local_env) return pvm.once(Sem.ConstStmtFallsThrough(local_env)) end,
-        [Tr.StmtUseRegionFrag] = function(_, _, local_env) return pvm.once(Sem.ConstStmtFallsThrough(local_env)) end,
+        [Tr.StmtControl] = function(_, _, local_env) return pvm.once({ kind = "falls_through", env = local_env }) end,
+        [Tr.StmtUseRegionSlot] = function(_, _, local_env) return pvm.once({ kind = "falls_through", env = local_env }) end,
+        [Tr.StmtUseRegionFrag] = function(_, _, local_env) return pvm.once({ kind = "falls_through", env = local_env }) end,
     }, { args_cache = "last" })
 
     local function empty_const_env() return B.ConstEnv({}) end

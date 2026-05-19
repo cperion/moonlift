@@ -27,12 +27,12 @@ local addressed = B.Binding(C.Id("addressed"), "addressed", i32, B.BindingClassL
 
 local module = Tr.Module(Tr.ModuleTyped("Demo"), {
     Tr.ItemFunc(Tr.FuncLocal("f", {}, i32, {
-        Tr.StmtLet(Tr.StmtTyped, scalar, lit("1")),
-        Tr.StmtVar(Tr.StmtTyped, cell, lit("2")),
-        Tr.StmtLet(Tr.StmtTyped, aggregate, Tr.ExprArray(Tr.ExprTyped(arr4), i32, { lit("1"), lit("2"), lit("3"), lit("4") })),
-        Tr.StmtLet(Tr.StmtTyped, addressed, lit("3")),
-        Tr.StmtExpr(Tr.StmtTyped, Tr.ExprAddrOf(Tr.ExprTyped(Ty.TPtr(i32)), Tr.PlaceRef(Tr.PlaceTyped(i32), B.ValueRefBinding(addressed)))),
-        Tr.StmtReturnValue(Tr.StmtTyped, Tr.ExprRef(Tr.ExprTyped(i32), B.ValueRefBinding(scalar))),
+        Tr.StmtLet(Tr.StmtSurface, scalar, lit("1")),
+        Tr.StmtVar(Tr.StmtSurface, cell, lit("2")),
+        Tr.StmtLet(Tr.StmtSurface, aggregate, Tr.ExprArray(Tr.ExprTyped(arr4), i32, { lit("1"), lit("2"), lit("3"), lit("4") })),
+        Tr.StmtLet(Tr.StmtSurface, addressed, lit("3")),
+        Tr.StmtExpr(Tr.StmtSurface, Tr.ExprAddrOf(Tr.ExprTyped(Ty.TPtr(i32)), Tr.PlaceRef(Tr.PlaceTyped(i32), B.ValueRefBinding(addressed)))),
+        Tr.StmtReturnValue(Tr.StmtSurface, Tr.ExprRef(Tr.ExprTyped(i32), B.ValueRefBinding(scalar))),
     })),
 })
 

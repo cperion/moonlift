@@ -46,10 +46,7 @@ function M.Define(T)
         [B.ValueRefBinding] = function(self) return binding_facts(self.binding) end,
         [B.ValueRefName] = function() return pvm.empty() end,
         [B.ValueRefPath] = function() return pvm.empty() end,
-        [B.ValueRefSlot] = function() return pvm.empty() end,
-        [B.ValueRefFuncSlot] = function() return pvm.empty() end,
-        [B.ValueRefConstSlot] = function() return pvm.empty() end,
-        [B.ValueRefStaticSlot] = function() return pvm.empty() end,
+        [B.ValueRefHole] = function() return pvm.empty() end,
     })
 
     place_address_facts = pvm.phase("moonlift_bind_residence_place_address_facts", {

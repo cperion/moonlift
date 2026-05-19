@@ -3,6 +3,7 @@ local pvm = require("moonlift.pvm")
 local M = {}
 
 function M.Define(T)
+    local C = T.MoonCore
     local Ty = T.MoonType
     local O = T.MoonOpen
     local B = T.MoonBind
@@ -19,17 +20,17 @@ function M.Define(T)
     local function closure_or_indirect(callee, fn_ty)
         local class = classify_api.classify(fn_ty)
         if pvm.classof(class) == Ty.TypeClassClosure then
-            return Sem.CallClosure(callee, fn_ty)
+            return { kind = "closure", closure = callee, fn_ty = fn_ty }
         end
-        return Sem.CallIndirect(callee, fn_ty)
+        return { kind = "indirect", callee = callee, fn_ty = fn_ty }
     end
 
     import_call_target = pvm.phase("moonlift_sem_import_call_target", {
         [O.ImportGlobalFunc] = function(import, callee, fn_ty)
-            return pvm.once(Sem.CallDirect(import.module_name, import.item_name, fn_ty))
+            return pvm.once({ kind = "direct", module_name = import.module_name, item_name = import.item_name, fn_ty = fn_ty })
         end,
         [O.ImportExtern] = function(import, callee, fn_ty)
-            return pvm.once(Sem.CallExtern(import.symbol, fn_ty))
+            return pvm.once({ kind = "extern", symbol = import.symbol, fn_ty = fn_ty })
         end,
         [O.ImportValue] = function(_, callee, fn_ty)
             return pvm.once(closure_or_indirect(callee, fn_ty))
@@ -44,16 +45,16 @@ function M.Define(T)
 
     binding_class_call_target = pvm.phase("moonlift_sem_binding_class_call_target", {
         [B.BindingClassGlobalFunc] = function(self, callee, fn_ty)
-            return pvm.once(Sem.CallDirect(self.module_name, self.item_name, fn_ty))
+            return pvm.once({ kind = "direct", module_name = self.module_name, item_name = self.item_name, fn_ty = fn_ty })
         end,
         [B.BindingClassExtern] = function(self, callee, fn_ty)
-            return pvm.once(Sem.CallExtern(self.symbol, fn_ty))
+            return pvm.once({ kind = "extern", symbol = self.symbol, fn_ty = fn_ty })
         end,
-        [B.BindingClassFuncSym] = function(self, callee, fn_ty)
-            return pvm.once(Sem.CallDirect("", self.sym.name, fn_ty))
-        end,
-        [B.BindingClassExternSym] = function(self, callee, fn_ty)
-            return pvm.once(Sem.CallExtern(self.sym.symbol, fn_ty))
+        [B.BindingClassOpenSym] = function(self, callee, fn_ty)
+            if pvm.classof(self.sym.kind) == C.SymKindFunc then
+                return pvm.once({ kind = "direct", module_name = "", item_name = self.sym.name, fn_ty = fn_ty })
+            end
+            return pvm.once({ kind = "extern", symbol = self.sym.symbol, fn_ty = fn_ty })
         end,
         [B.BindingClassImport] = function(self, callee, fn_ty)
             return import_call_target(self.import, callee, fn_ty)
@@ -66,31 +67,37 @@ function M.Define(T)
         [B.BindingClassGlobalConst] = function(_, callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
         [B.BindingClassGlobalStatic] = function(_, callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
         [B.BindingClassOpenParam] = function(_, callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
-        [B.BindingClassConstSym] = function(_, callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
-        [B.BindingClassStaticSym] = function(_, callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
-        [B.BindingClassFuncSlot] = function(_, callee, fn_ty) return pvm.once(Sem.CallUnresolved(callee)) end,
-        [B.BindingClassConstSlot] = function(_, callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
-        [B.BindingClassStaticSlot] = function(_, callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
-        [B.BindingClassValueSlot] = function(_, callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
+        [B.BindingClassOpenSym] = function(self, callee, fn_ty)
+            local kind_cls = pvm.classof(self.sym.kind)
+            if kind_cls == C.SymKindFunc then
+                return pvm.once({ kind = "direct", module_name = "", func_name = self.sym.name, fn_ty = fn_ty })
+            elseif kind_cls == C.SymKindExtern then
+                return pvm.once({ kind = "extern", symbol = self.sym.symbol, fn_ty = fn_ty })
+            end
+            return pvm.once(closure_or_indirect(callee, fn_ty))
+        end,
+        [B.BindingClassOpenSlot] = function(self, callee, fn_ty)
+            if pvm.classof(self.slot) == O.SlotFunc then
+                return pvm.once({ kind = "unresolved", callee = callee })
+            end
+            return pvm.once(closure_or_indirect(callee, fn_ty))
+        end,
     }, { args_cache = "last" })
 
     value_ref_call_target = pvm.phase("moonlift_sem_value_ref_call_target", {
         [B.ValueRefBinding] = function(ref, callee, fn_ty)
             return binding_class_call_target(ref.binding.class, callee, fn_ty)
         end,
-        [B.ValueRefFuncSlot] = function(_, callee) return pvm.once(Sem.CallUnresolved(callee)) end,
-        [B.ValueRefName] = function(_, callee) return pvm.once(Sem.CallUnresolved(callee)) end,
-        [B.ValueRefPath] = function(_, callee) return pvm.once(Sem.CallUnresolved(callee)) end,
-        [B.ValueRefSlot] = function(_, callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
-        [B.ValueRefConstSlot] = function(_, callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
-        [B.ValueRefStaticSlot] = function(_, callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
+        [B.ValueRefHole] = function(_, callee) return pvm.once({ kind = "unresolved", callee = callee }) end,
+        [B.ValueRefName] = function(_, callee) return pvm.once({ kind = "unresolved", callee = callee }) end,
+        [B.ValueRefPath] = function(_, callee) return pvm.once({ kind = "unresolved", callee = callee }) end,
     }, { args_cache = "last" })
 
     callee_call_target = pvm.phase("moonlift_sem_call_decide", {
         [Tr.ExprRef] = function(callee, fn_ty)
             return value_ref_call_target(callee.ref, callee, fn_ty)
         end,
-        [Tr.ExprLit] = function(callee) return pvm.once(Sem.CallUnresolved(callee)) end,
+        [Tr.ExprLit] = function(callee) return pvm.once({ kind = "unresolved", callee = callee }) end,
         [Tr.ExprDot] = function(callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
         [Tr.ExprUnary] = function(callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
         [Tr.ExprBinary] = function(callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
@@ -111,11 +118,11 @@ function M.Define(T)
         [Tr.ExprSwitch] = function(callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
         [Tr.ExprControl] = function(callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
         [Tr.ExprBlock] = function(callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
-        [Tr.ExprClosure] = function(callee, fn_ty) return pvm.once(Sem.CallClosure(callee, fn_ty)) end,
+        [Tr.ExprClosure] = function(callee, fn_ty) return pvm.once({ kind = "closure", closure = callee, fn_ty = fn_ty }) end,
         [Tr.ExprView] = function(callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
         [Tr.ExprLoad] = function(callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
-        [Tr.ExprSlotValue] = function(callee) return pvm.once(Sem.CallUnresolved(callee)) end,
-        [Tr.ExprUseExprFrag] = function(callee) return pvm.once(Sem.CallUnresolved(callee)) end,
+        [Tr.ExprSlotValue] = function(callee) return pvm.once({ kind = "unresolved", callee = callee }) end,
+        [Tr.ExprUseExprFrag] = function(callee) return pvm.once({ kind = "unresolved", callee = callee }) end,
     }, { args_cache = "last" })
 
     return {

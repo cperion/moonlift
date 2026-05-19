@@ -36,7 +36,7 @@ assert(P.type(Tr.PlaceDeref(Tr.PlaceSurface, ptr_ref)) == i32)
 assert(P.type(Tr.PlaceRef(Tr.PlaceSurface, B.ValueRefBinding(binding))) == i32)
 assert(P.type(Tr.PlaceField(Tr.PlaceSurface, Tr.PlaceRef(Tr.PlaceTyped(i32), B.ValueRefBinding(binding)), Sem.FieldByName("field", bool))) == bool)
 
-local effect = S.effect(Tr.StmtLet(Tr.StmtTyped, binding, ref))
+local effect = S.effect(Tr.StmtLet(Tr.StmtSurface, binding, ref))
 assert(effect == B.StmtEnvAddBinding(B.ValueEntry("x", binding)))
 
 local module = Tr.Module(Tr.ModuleTyped("Demo"), {

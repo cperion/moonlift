@@ -48,8 +48,8 @@ local func = Tr.FuncExport("set_active", {
     Ty.Param("p", user_ptr_ty),
     Ty.Param("flag", bool_ty),
 }, bool_ty, {
-    Tr.StmtSet(Tr.StmtTyped, active_place, flag_expr),
-    Tr.StmtReturnValue(Tr.StmtTyped, active_expr),
+    Tr.StmtSet(Tr.StmtSurface, active_place, flag_expr),
+    Tr.StmtReturnValue(Tr.StmtSurface, active_expr),
 })
 local module = Tr.Module(Tr.ModuleTyped("BoolStorage"), { Tr.ItemFunc(func) })
 local program = Lowerer.module(module)

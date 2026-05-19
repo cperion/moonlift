@@ -224,12 +224,11 @@ function M.Install(api, session)
     end
 
     local function switch_key(value)
-        local cls = pvm.classof(value)
-        if cls == Sem.SwitchKeyRaw or cls == Sem.SwitchKeyConst or cls == Sem.SwitchKeyExpr then return value end
-        if type(value) == "number" or type(value) == "string" then return Sem.SwitchKeyRaw(tostring(value)) end
-        if type(value) == "boolean" then return Sem.SwitchKeyRaw(value and "true" or "false") end
+        if type(value) == "table" and (value.kind == "raw" or value.kind == "expr" or value.kind == "const") then return value end
+        if type(value) == "number" or type(value) == "string" then return { kind = "raw", raw = tostring(value) } end
+        if type(value) == "boolean" then return { kind = "raw", raw = value and "true" or "false" } end
         if type(value) == "table" and type(value.as_expr_value) == "function" then
-            return Sem.SwitchKeyExpr(value:as_expr_value().expr)
+            return { kind = "expr", expr = value:as_expr_value().expr }
         end
         error("switch key expects raw number/string/boolean, SwitchKey, or expression value", 3)
     end
@@ -245,7 +244,8 @@ function M.Install(api, session)
             assert(type(arm.body) == "function", "switch_ arm requires body builder function")
             local ab = child_builder(self)
             arm.body(ab)
-            out_arms[#out_arms + 1] = Tr.SwitchStmtArm(switch_key(arm.key), ab.body)
+            local key_tab = switch_key(arm.key)
+            out_arms[#out_arms + 1] = Tr.SwitchStmtArm(key_tab.raw or "", ab.body)
         end
         local default_body = {}
         if default_fn ~= nil then
@@ -431,7 +431,8 @@ function M.Install(api, session)
         if type(body) == "function" then stmts = api.stmts(body)
         elseif type(body) == "string" then stmts = parse_stmt_snippet(body)
         else stmts = body or {} end
-        return Tr.SwitchStmtArm(switch_key(key), stmts)
+        local key_tab = switch_key(key)
+        return Tr.SwitchStmtArm(key_tab.raw or "", stmts)
     end
 
     function api.cont_decl(name, params)

@@ -58,7 +58,7 @@ assert(pvm.classof(checked.module.h) == Tr.ModuleTyped)
 local typed_func = checked.module.items[1].func
 local typed_region = typed_func.body[1].region
 local typed_jump = typed_region.entry.body[2]
-assert(typed_jump.h == Tr.StmtTyped)
+assert(typed_jump.h == Tr.StmtSurface)
 assert(pvm.classof(typed_jump.args[1].value.h) == Tr.ExprTyped)
 assert(pvm.classof(typed_region.entry.body[1].cond.h) == Tr.ExprTyped)
 

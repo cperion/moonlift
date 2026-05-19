@@ -40,7 +40,7 @@ assert(L.expr(field_expr, env) == Tr.ExprField(Tr.ExprTyped(i32), base_expr, Sem
 
 local module = Tr.Module(Tr.ModuleTyped("Demo"), {
     Tr.ItemFunc(Tr.FuncLocal("get_right", {}, i32, {
-        Tr.StmtReturnValue(Tr.StmtTyped, field_expr),
+        Tr.StmtReturnValue(Tr.StmtSurface, field_expr),
     })),
 })
 local resolved = L.module(module, env)

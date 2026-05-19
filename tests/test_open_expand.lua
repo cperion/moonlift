@@ -31,8 +31,8 @@ local env = O.ExpandEnv({}, {}, O.FillSet({
     O.SlotBinding(O.SlotType(type_slot), O.SlotValueType(u64)),
     O.SlotBinding(O.SlotExpr(expr_slot), O.SlotValueExpr(lit("7"))),
     O.SlotBinding(O.SlotRegion(region_slot), O.SlotValueRegion({
-        Tr.StmtExpr(Tr.StmtTyped, lit("1")),
-        Tr.StmtExpr(Tr.StmtTyped, lit("2")),
+        Tr.StmtExpr(Tr.StmtSurface, lit("1")),
+        Tr.StmtExpr(Tr.StmtSurface, lit("2")),
     })),
     O.SlotBinding(O.SlotItems(items_slot), O.SlotValueItems({
         Tr.ItemConst(Tr.ConstItem("a", i32, lit("3"))),
@@ -46,10 +46,10 @@ local env = O.ExpandEnv({}, {}, O.FillSet({
 assert(E.type(Ty.TSlot(type_slot), env) == u64)
 assert(E.expr(Tr.ExprSlotValue(Tr.ExprTyped(i32), expr_slot), env) == lit("7"))
 
-local expanded_region = E.stmts({ Tr.StmtUseRegionSlot(Tr.StmtTyped, region_slot) }, env)
+local expanded_region = E.stmts({ Tr.StmtUseRegionSlot(Tr.StmtSurface, region_slot) }, env)
 assert(#expanded_region == 2)
-assert(expanded_region[1] == Tr.StmtExpr(Tr.StmtTyped, lit("1")))
-assert(expanded_region[2] == Tr.StmtExpr(Tr.StmtTyped, lit("2")))
+assert(expanded_region[1] == Tr.StmtExpr(Tr.StmtSurface, lit("1")))
+assert(expanded_region[2] == Tr.StmtExpr(Tr.StmtSurface, lit("2")))
 
 local item_stream = pvm.drain(E.item_stream(Tr.ItemUseItemsSlot(items_slot), env))
 assert(#item_stream == 2)
@@ -82,7 +82,7 @@ assert(expanded_module.h == Tr.ModuleTyped("Demo"))
 assert(#expanded_module.items == 4)
 local func_item = expanded_module.items[1]
 assert(pvm.classof(func_item) == Tr.ItemFunc)
-assert(func_item.func.body[1].h == Tr.StmtTyped)
+assert(func_item.func.body[1].h == Tr.StmtSurface)
 assert(func_item.func.body[1].expr == lit("7"))
 
 local report = V.validate(F.facts_of_module(expanded_module))

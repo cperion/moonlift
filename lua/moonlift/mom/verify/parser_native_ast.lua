@@ -224,7 +224,7 @@ function Parser:led(k, left)
         if pvm.classof(left) == Tr.ExprRef and pvm.classof(left.ref) == B.ValueRefName and left.ref.name == "select" and #args == 3 then
             return Tr.ExprSelect(Tr.ExprSurface, args[1], args[2], args[3])
         end
-        return Tr.ExprCall(Tr.ExprSurface, Sem.CallUnresolved(left), args)
+        return Tr.ExprCall(Tr.ExprSurface, left, args)
     end
     if k == TK.lbrack then local idx = self:parse_expr(0); self:skip_nl(); self:expect(TK.rbrack); return Tr.ExprIndex(Tr.ExprSurface, Tr.IndexBaseExpr(left), idx) end
     if k == TK.dot then local name = self:expect_name("expected field name"); return Tr.ExprDot(Tr.ExprSurface, left, name) end

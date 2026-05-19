@@ -21,17 +21,6 @@ return function(A)
                 A.field "open" "MoonOpen.OpenSet",
                 A.variant_unique,
             },
-            A.variant "ExprSem" {
-                A.field "ty" "MoonType.Type",
-                A.field "value_class" "MoonSem.ValueClass",
-                A.field "const_class" "MoonSem.ConstClass",
-                A.variant_unique,
-            },
-            A.variant "ExprCode" {
-                A.field "ty" "MoonType.Type",
-                A.field "shape" "MoonSem.CodeShapeClass",
-                A.variant_unique,
-            },
         },
 
         A.sum "PlaceHeader" {
@@ -45,25 +34,15 @@ return function(A)
                 A.field "open" "MoonOpen.OpenSet",
                 A.variant_unique,
             },
-            A.variant "PlaceSem" {
-                A.field "ty" "MoonType.Type",
-                A.field "address_class" "MoonSem.AddressClass",
-                A.variant_unique,
-            },
         },
 
         A.sum "StmtHeader" {
             A.variant "StmtSurface",
-            A.variant "StmtTyped",
             A.variant "StmtOpen" {
                 A.field "open" "MoonOpen.OpenSet",
                 A.variant_unique,
             },
-            A.variant "StmtSem" {
-                A.field "flow" "MoonSem.FlowClass",
-                A.variant_unique,
-            },
-            A.variant "StmtCode" {
+            A.variant "StmtFlow" {
                 A.field "flow" "MoonSem.FlowClass",
                 A.variant_unique,
             },
@@ -83,13 +62,13 @@ return function(A)
         },
 
         A.product "SwitchStmtArm" {
-            A.field "key" "MoonSem.SwitchKey",
+            A.field "raw_key" "string",
             A.field "body" (A.many "MoonTree.Stmt"),
             A.unique,
         },
 
         A.product "SwitchExprArm" {
-            A.field "key" "MoonSem.SwitchKey",
+            A.field "raw_key" "string",
             A.field "body" (A.many "MoonTree.Stmt"),
             A.field "result" "MoonTree.Expr",
             A.unique,
@@ -623,7 +602,7 @@ return function(A)
             },
             A.variant "ExprCall" {
                 A.field "h" "MoonTree.ExprHeader",
-                A.field "target" "MoonSem.CallTarget",
+                A.field "callee" "MoonTree.Expr",
                 A.field "args" (A.many "MoonTree.Expr"),
                 A.variant_unique,
             },

@@ -35,7 +35,7 @@ local func = Tr.FuncExport("make_view", {
     Ty.Param("data", ptr_i32),
     Ty.Param("n", index),
 }, view_i32, {
-    Tr.StmtReturnValue(Tr.StmtTyped, view_expr),
+    Tr.StmtReturnValue(Tr.StmtSurface, view_expr),
 })
 local module = Tr.Module(Tr.ModuleTyped("ViewReturn"), { Tr.ItemFunc(func) })
 local program = Lowerer.module(module)

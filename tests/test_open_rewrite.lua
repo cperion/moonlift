@@ -22,9 +22,9 @@ local function lit(raw) return Tr.ExprLit(Tr.ExprTyped(i32), C.LitInt(raw)) end
 local one = lit("1")
 local two = lit("2")
 local three = lit("3")
-local stmt_one = Tr.StmtExpr(Tr.StmtTyped, one)
-local stmt_two = Tr.StmtExpr(Tr.StmtTyped, two)
-local stmt_three = Tr.StmtExpr(Tr.StmtTyped, three)
+local stmt_one = Tr.StmtExpr(Tr.StmtSurface, one)
+local stmt_two = Tr.StmtExpr(Tr.StmtSurface, two)
+local stmt_three = Tr.StmtExpr(Tr.StmtSurface, three)
 local item_a = Tr.ItemConst(Tr.ConstItem("a", i32, one))
 local item_b = Tr.ItemConst(Tr.ConstItem("b", i32, two))
 local item_c = Tr.ItemConst(Tr.ConstItem("c", i32, three))
@@ -64,7 +64,7 @@ assert(stmts[2] == stmt_three)
 local module = Tr.Module(Tr.ModuleTyped("Demo"), {
     item_a,
     Tr.ItemFunc(Tr.FuncLocal("f", {}, i32, {
-        Tr.StmtReturnValue(Tr.StmtTyped, one),
+        Tr.StmtReturnValue(Tr.StmtSurface, one),
     })),
 })
 local rewritten = R.module(module, set)
@@ -72,6 +72,6 @@ assert(#rewritten.items == 3)
 assert(rewritten.items[1] == item_b)
 assert(rewritten.items[2] == item_c)
 local func_item = rewritten.items[3]
-assert(func_item.func.body[1] == Tr.StmtReturnValue(Tr.StmtTyped, two))
+assert(func_item.func.body[1] == Tr.StmtReturnValue(Tr.StmtSurface, two))
 
 print("moonlift open_rewrite ok")

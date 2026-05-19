@@ -161,29 +161,30 @@ function M.Define(T, base)
         return args, current, cmds, nil
     end
 
-    switch_key_raw = pvm.phase("moonlift_tree_control_switch_key_raw", {
-        [Sem.SwitchKeyRaw] = function(self) return pvm.once(self.raw) end,
-        [Sem.SwitchKeyConst] = function(self)
-            local cls = pvm.classof(self.value)
-            if cls == Sem.ConstInt then return pvm.once(self.value.raw) end
-            if cls == Sem.ConstBool then return pvm.once(self.value.value and "1" or "0") end
-            return pvm.empty()
-        end,
-        [Sem.SwitchKeyExpr] = function(self)
+    switch_key_raw = function(key)
+        if key.kind == "raw" then return key.raw end
+        if key.kind == "const" then
+            local cls = pvm.classof(key.value)
+            if cls == Sem.ConstInt then return key.value.raw end
+            if cls == Sem.ConstBool then return key.value.value and "1" or "0" end
+            return nil
+        end
+        if key.kind == "expr" then
             -- A SwitchKeyExpr arises when a named const is used as a case label.
             -- Evaluate the expression as a compile-time constant to get its integer.
             local const_eval = base.const_eval
             local get_const_env = base.get_const_env
-            if const_eval == nil or get_const_env == nil then return pvm.empty() end
+            if const_eval == nil or get_const_env == nil then return nil end
             local const_env = get_const_env()
-            local value = const_eval.value(self.expr, const_env, const_eval.empty_local_env())
-            if value == nil then return pvm.empty() end
+            local value = const_eval.value(key.expr, const_env, const_eval.empty_local_env())
+            if value == nil then return nil end
             local cls = pvm.classof(value)
-            if cls == Sem.ConstInt  then return pvm.once(value.raw) end
-            if cls == Sem.ConstBool then return pvm.once(value.value and "1" or "0") end
-            return pvm.empty()
-        end,
-    })
+            if cls == Sem.ConstInt  then return value.raw end
+            if cls == Sem.ConstBool then return value.value and "1" or "0" end
+            return nil
+        end
+        return nil
+    end
 
     local function lower_body(stmts, env, ctx)
         local current = env
@@ -290,9 +291,9 @@ function M.Define(T, base)
         if value == nil then return pvm.once(unsupported_stmt(env, {})) end
         local case_raws = {}
         for i = 1, #stmt.arms do
-            local raws = switch_key_raw:drain_uncached(stmt.arms[i].key)
-            if #raws ~= 1 then return pvm.once(unsupported_stmt(value.env, value.cmds)) end
-            case_raws[#case_raws + 1] = raws[1]
+            local raw = stmt.arms[i].raw_key
+            if raw == nil or raw == "" then return pvm.once(unsupported_stmt(value.env, value.cmds)) end
+            case_raws[#case_raws + 1] = raw
         end
         local result = lower_joining_arms(stmt.arms, stmt.default_body, value.env, ctx, function(arm_blocks, default_block)
             local cases = {}

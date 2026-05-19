@@ -5,6 +5,7 @@ local M = {}
 function M.Define(T)
     local Ty = T.MoonType
     local B = T.MoonBind
+    local O = T.MoonOpen
     local Tr = T.MoonTree
 
     local expr_api = require("moonlift.tree_expr_type").Define(T)
@@ -23,15 +24,17 @@ function M.Define(T)
         [Tr.PlaceSurface] = function() return pvm.empty() end,
         [Tr.PlaceTyped] = function(self) return pvm.once(self.ty) end,
         [Tr.PlaceOpen] = function(self) return pvm.once(self.ty) end,
-        [Tr.PlaceSem] = function(self) return pvm.once(self.ty) end,
     })
 
     value_ref_type = pvm.phase("moonlift_tree_place_value_ref_type", {
         [B.ValueRefBinding] = function(self) return pvm.once(self.binding.ty) end,
-        [B.ValueRefSlot] = function(self) return pvm.once(self.slot.ty) end,
-        [B.ValueRefFuncSlot] = function(self) return pvm.once(self.slot.fn_ty) end,
-        [B.ValueRefConstSlot] = function(self) return pvm.once(self.slot.ty) end,
-        [B.ValueRefStaticSlot] = function(self) return pvm.once(self.slot.ty) end,
+        [B.ValueRefHole] = function(self)
+            local slot_cls = pvm.classof(self.slot)
+            if slot_cls == O.SlotFunc then return pvm.once(self.slot.slot.fn_ty) end
+            if slot_cls == O.SlotValue or slot_cls == O.SlotConst or slot_cls == O.SlotStatic then return pvm.once(self.slot.slot.ty) end
+            if slot_cls == O.SlotExpr or slot_cls == O.SlotPlace then return pvm.once(self.slot.slot.ty or nil) end
+            return pvm.empty()
+        end,
         [B.ValueRefName] = function() return pvm.empty() end,
         [B.ValueRefPath] = function() return pvm.empty() end,
     })
