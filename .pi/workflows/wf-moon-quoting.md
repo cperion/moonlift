@@ -2709,3 +2709,677 @@ Implemented all 11 phases of the unified `moon.XXX` metaprogramming API. The `fu
 - `tests/test_host_struct_values.lua` — Replaced `moon.struct("Pair",{moon.field(...)})` with `moon.struct[[]]`
 - `tests/test_spread_splice_regions.lua` — Replaced `moon.param`, `moon.cont_decl` with table builders
 - `tests/test_spread_splice_lists.lua` — Replaced `moon.param`/`moon.field`/`moon.variant` with table builders
+
+## Documenter Output — 2026-05-19 11:43:04
+
+Now I have a thorough understanding of the architecture. Here is the self-sustaining document.
+
+---
+
+# Values Table as Module System — Architectural Decision Record
+
+**Date**: 2026-05-19  
+**Phase**: Architecture  
+**Workflow**: wf-meta-ergo (continuation of the unified `moon.XXX` metaprogramming API)
+
+---
+
+## Goal
+
+Enable **cross-function dependencies** in `moon.func { values } [[ src ]]` so that functions can reference each other by plain Moonlift name (not just via `@{}`). The values table serves double duty: it registers every entry as a module-level name **and** fills `@{}` splice slots. The module API becomes a lower-level tool — no longer required for the interdependent-function case.
+
+---
+
+## Incentives
+
+The current unified API (`moon.func { values } [[ src ]]`) has a gap: the values table works for `@{}` splices but not for plain Moonlift name references.
+
+**Concrete problems**:
+
+1. **Forced `@{}` on every dependency**: If function A calls function B, the source must write `@{B}(args)` rather than `B(args)`. This is visually noisy and breaks the expectation that Moonlift code inside a quote should look like Moonlift code.
+
+2. **Module API is the only escape**: To use plain name references (`parse_array(args)`), users must drop down to the module API:
+   ```lua
+   local m = moon.module("parser")
+   m:add_func(parse_array)
+   m:add_func(parse_value)
+   local compiled = m:compile()
+   local fn = compiled:get("parse_value")
+   ```
+   This is the old `module/compile/get/free` dance — exactly what the unified API was meant to replace.
+
+3. **`moon.func { }` and `moon.module()` are two ways to say "compile this with deps"**: The values table already contains all dependency information — it's an explicit key-value map of `name → value`. Forcing users to also construct a `ModuleValue` object duplicates that information and defeats the purpose of the unified API.
+
+4. **The `CallableFunc` lazy-compile pattern is half-built**: Currently `CallableFunc:__call` creates an ephemeral module with just the one function, compiles it, and calls it. It has no mechanism to include dependencies — so cross-function calls cannot work.
+
+---
+
+## Current State
+
+### How `moon.func { values } [[ src ]]` works today
+
+The flow is in `lua/moonlift/host.lua`, inside `make_quote`:
+
+```
+moon.func { parse_array = func_val, skip_ws = region_val, literal_arms = stmts_val }
+  ──→ values binder detects string keys
+  ──→ returns function(src) ... end  (a closure capturing bound_values)
+```
+
+When the returned function is called with `[[ src ]]`:
+
+1. **Parse** `src` with `parse_func_string(T, src)` → produces `parsed` with `splice_slots` array
+2. **If no `@{}`**: wrap the raw ASDL and return a `CallableFunc` (via `wrap_fn`)
+3. **If `@{}` present**: iterate `parsed.splice_slots`:
+   - Look up each splice key in `bound_values`
+   - Call `host_splice.fill(session, slot, value, site, role, spread)` for each
+   - Call `open_expand.Define(T).env_with_fills(env, bindings)`
+   - Call `expand_fn(e, parsed.value, env)` to resolve slots in the AST
+   - Wrap the expanded ASDL and return a `CallableFunc`
+
+### How `CallableFunc:__call` works today
+
+From `lua/moonlift/host.lua`:
+
+```lua
+function CallableFunc:__call(...)
+    if not self._compiled then
+        local api = self._api
+        local m = api.module(self.name .. "_auto")
+        m:add_func(self)
+        local compiled = m:compile()
+        self._compiled = compiled
+        self._fn = compiled:get(self.name)
+    end
+    return self._fn(...)
+end
+```
+
+The ephemeral module has:
+- A single function (`self`) added via `m:add_func(self)`
+- No other items (no dependency funcs, no regions, no structs)
+
+If the function body calls `parse_array(args)` by name, the Moonlift typechecker (`lua/moonlift/tree_typecheck.lua`) needs to resolve `parse_array` in the module scope — but `parse_array` is not in the module's items.
+
+### How name resolution works in Moonlift modules
+
+A `Tr.Module` in `lua/moonlift/ast.lua` carries a list of items:
+
+```
+Tr.Module(ModuleTyped("module_name"), [ItemFunc(f1), ItemFunc(f2), ...])
+```
+
+The typechecker (`tree_typecheck.lua`) resolves function calls by looking up names in the module's item list. `FuncLocal` with `name = "parse_array"` becomes available as a name target for calls within the same module. This is how `.mlua` files work — all functions in a `.mlua` document share a module, and cross-references resolve during typechecking.
+
+The gap is architectural, not in the typechecker: the ephemeral module inside `CallableFunc:__call` simply doesn't include the dependency functions.
+
+### The `@{}` expansion path is separate from module name resolution
+
+- **`@{}` splices** expand via `open_expand.lua` — the slot is filled with an ASDL node, and the expander substitutes it into the AST before typechecking. This happens at the `open_expand` phase, which is before `closure_convert` and `tree_typecheck`.
+
+- **Plain name references** (`parse_array(args)`) produce `Tr.ExprCall(...)` nodes whose callee is a `ValueRefName("parse_array")`. These are resolved during `tree_typecheck` by looking up the name in the function's module scope.
+
+These are two entirely different resolution mechanisms at different pipeline phases. The values table currently feeds only the first mechanism.
+
+---
+
+## Chosen Target
+
+### Core decision: The values table IS the module system
+
+Every key-value pair in `moon.func { key = value }` serves two roles:
+
+1. **Module registration**: `value` is registered in the compilation module's environment under `key` as a named item (func, region, extern, type, etc.)
+2. **Splice filling**: If `@{key}` appears in the source, the slot is filled from the values table (existing behavior, unchanged)
+
+Values not referenced by `@{}` are still registered — they are dependencies, just ones resolved by name rather than by splice.
+
+### How it works end-to-end
+
+```lua
+local parse_array = moon.func [[parse_array(buf: ptr(u8), n: i32) -> i32 ... end]]
+local skip_ws = moon.region [[skip_ws(buf: ptr(u8), pos: i32; next: cont(next: i32)) ... end]]
+
+local parse_value = moon.func {
+    parse_array = parse_array,   -- registered in ephemeral module as func "parse_array"
+    skip_ws     = skip_ws,       -- registered as region "skip_ws"
+    literal_arms = literal_arms, -- fills @{} splice (not a named dep)
+} [[
+parse_value(buf: ptr(u8), n: i32, i: i32) -> i32
+    let x = parse_array(buf, n)       -- resolved by module name lookup
+    emit skip_ws(buf, i; next = cont) -- resolved by module name lookup
+    switch ... do
+    @{literal_arms...}
+    end
+end
+]]
+```
+
+**When the quote function is called with the source string:**
+
+1. **Parse** `src` → produces `parsed` with `splice_slots` and a raw `FuncLocal` ASDL node
+2. **Fill `@{}` splices** (existing mechanism): each `@{key}` in parsed is filled from `bound_values` via `host_splice.fill` → produces `bindings[]`
+3. **Build ephemeral module** (new mechanism):
+   - Create `ModuleValue` with name derived from the function name (or a generated name)
+   - For each key in `bound_values`, if the value is a hosted func/region/extern/struct:
+     - Call `m:add_func(value)` or `m:add_region(value)` etc.
+     - The item is registered in the module's item list under its key name
+   - Add the function itself: `m:add_func(self_func_value)`
+4. **Expand** via `open_expand` using the fill env (same as today)
+5. **Compile** the module (same as `CallableFunc:__call` does today):
+   - Lower the module: `expand → closure_convert → typecheck → layout → back`
+   - Cross-function name references resolve during typechecking because all deps are in the module's items
+6. **Cache** the compiled pointer → subsequent calls use it directly
+
+### What changes in `CallableFunc:__call`
+
+The current implementation builds an ephemeral module with only `self`:
+
+```lua
+function CallableFunc:__call(...)
+    if not self._compiled then
+        local m = api.module(self.name .. "_auto")
+        m:add_func(self)
+        ...
+    end
+end
+```
+
+The new implementation receives the values binder's `bound_values` table and adds each dependency:
+
+```lua
+function CallableFunc:__call(...)
+    if not self._compiled then
+        local m = api.module(self.name .. "_auto")
+        -- Register all values-table entries as module items
+        if self._dep_values then
+            for name, value in pairs(self._dep_values) do
+                if value.kind == "func" or value.kind == "extern_func" then
+                    m:add_func(value)
+                elseif value.kind == "region_frag" or value.moonlift_quote_kind == "region_frag" then
+                    m:add_region(value)
+                elseif value.kind == "struct" or value.kind == "union" then
+                    m:add_type(value)
+                end
+            end
+        end
+        -- Add the function itself
+        m:add_func(self)
+        local compiled = m:compile()
+        self._compiled = compiled
+        self._fn = compiled:get(self.name)
+    end
+    return self._fn(...)
+end
+```
+
+The `_dep_values` field stores the bound values table, set when the `CallableFunc` is created from a values-binder call. For pure quotes (`moon.func[[src]]`), `_dep_values` is nil and the behavior is unchanged.
+
+### What changes in `make_quote`
+
+In `lua/moonlift/host.lua`, the values-binder path stores `bound_values` on the resulting `CallableFunc`:
+
+```lua
+-- In the __call metatable for values binder:
+return function(src)
+    -- ... parse, fill, expand ...
+    local result = wrap_fn(expanded, parsed, T)
+    -- Store deps for lazy compilation
+    if type(result) == "table" and result._api and result.__call then
+        result._dep_values = bound_values
+    end
+    return result
+end
+```
+
+### What changes in `CallableFunc` construction
+
+The `CallableFunc` metatable gets a new field:
+
+```lua
+local CallableFunc = {}
+CallableFunc.__index = CallableFunc
+
+function CallableFunc:__call(...)
+    if not self._compiled then
+        local api = self._api
+        local m = api.module(self.name .. "_auto")
+        
+        -- Register dependency values as module items
+        if self._dep_values then
+            for name, value in pairs(self._dep_values) do
+                local mt = getmetatable(value)
+                if mt == api.FuncValue or rawget(value, "kind") == "func" then
+                    -- ModuleValue:add_func expects the value to have an .item or :as_item()
+                    pcall(function() m:add_func(value) end)
+                elseif rawget(value, "moonlift_quote_kind") == "region_frag"
+                    or rawget(value, "kind") == "region_frag" then
+                    pcall(function() m:add_region(value) end)
+                elseif rawget(value, "kind") == "struct" or rawget(value, "kind") == "union" then
+                    pcall(function() m:add_type(value) end)
+                end
+            end
+        end
+        
+        m:add_func(self)
+        local compiled = m:compile()
+        self._compiled = compiled
+        self._fn = compiled:get(self.name)
+    end
+    return self._fn(...)
+end
+```
+
+### The two reference styles
+
+| Reference style | Source example | Resolution mechanism | Phase |
+|---|---|---|---|
+| `@{parse_array}(args)` | Explicit Lua dependency | `@{}` slot fill → `open_expand` → resolved before typechecking | Open expansion |
+| `parse_array(args)` | Plain Moonlift name | Module item lookup during `tree_typecheck` | Typechecking |
+
+Both resolve correctly because the values table registers `parse_array` in the module's items, AND the parser creates a `Slot*` for `@{parse_array}` that gets filled by the same values table.
+
+**The user chooses which style to use** — they are not mutually exclusive. `@{fn}(args)` makes the dependency visually explicit at the call site. `fn(args)` looks like standard Moonlift code and relies on module-level resolution. Both work with the same values table.
+
+### When `@{}` is used, it resolves at expansion time (pre-typecheck)
+
+The `@{fn}(args)` form has a subtle difference from `fn(args)`: the `@{}` slot is filled during open expansion, which happens **before** closure conversion and typechecking. This means the function reference is resolved into the AST before the typechecker sees it. The typechecker then sees a `Call` to a resolved function reference, not an unresolved name.
+
+The `fn(args)` form (no `@{}`) produces a `ValueRefName("fn")` node in the AST, which the typechecker resolves by looking up `fn` in the module's items.
+
+Both converge to the same result — the only difference is which pipeline phase resolves the reference.
+
+### Values table entries without `@{}` references
+
+If a value in the table is not referenced by `@{}` in the source (but IS referenced by plain name), it is still **registered in the ephemeral module** — that's the entire point of this change. The `@{}` splices are optional; the module registration is not.
+
+If a value in the table is neither referenced by `@{}` nor by plain name, it is registered in the module but unused. The typechecker will ignore it. This is harmless — the module compiles with unreferenced items (they just don't produce any native code if not called from the entry point).
+
+### What stays the same
+
+| Aspect | Status |
+|---|---|
+| `moon.func[[]]` pure quote (no values table) | Unchanged. No deps, no ephemeral module changes. |
+| `moon.module()` explicit module construction | Unchanged. Still works for large multi-function artifacts, explicit export control, shared compilation. |
+| `@{}` fill + expand pipeline | Unchanged. `host_splice.fill()` → `open_expand.env_with_fills()` → `expand_fn()`. |
+| `CallableFunc:free()` | Unchanged. Frees the compiled artifact. |
+| `ModuleValue:add_func()`, `:add_region()`, `:add_type()` | Unchanged. These are the same registration methods the ephemeral module calls. |
+| Cross-function name resolution during typechecking | Unchanged — it already works when functions share a module. The change is simply adding deps to the module before compilation. |
+| Error on `@{}` in pure quote (no values table) | Unchanged. Still errors with "moon.XXX[[]] does not evaluate @{}". |
+
+---
+
+## Tradeoffs Acknowledged
+
+1. **All values table entries become module items, not just `@{}`-referenced ones**: If a user puts a large value in the table but doesn't reference it (neither via `@{}` nor by name), it gets compiled into the module unnecessarily. **Acceptable because** the user controls the table contents — unused entries are a user error, not an architectural problem.
+
+2. **The `pcall` wrappers around `m:add_func`/`:add_region`/`:add_type`**: Not all values in the table are Moonlift items. Scalar values, expression values, and raw ASDL arrays are in the table for `@{}` filling but have no module-level name registration. The `pcall` catches cases where the value doesn't support the `add_*` interface. **Acceptable because** `pcall` is a pragmatic guard, and the registration is best-effort — missing a registration is recoverable (the function just won't be findable by name).
+
+3. **Duplicate dependency handling**: If the same value is passed under two different keys, it's registered twice in the module. ModuleValue reserves names and errors on duplicates. **Acceptable because** this is a user error, and the error message is descriptive.
+
+4. **`@{}` references bypass module name resolution entirely**: A user could write `@{parse_array}(args)` where `parse_array` is the function name, and it would work without `parse_array` being registered in the module — because the `@{}` fill substitutes the function reference directly into the AST. This means `@{fn}(args)` works even without the module registration change. **Acceptable because** the module registration is needed only for the plain-name `fn(args)` path, and having both paths adds robustness.
+
+5. **Increased compilation latency on first call**: The ephemeral module now compiles not just one function but potentially many (all registered deps). **Acceptable because** (a) the module is ephemeral and the result is cached for subsequent calls, (b) individual functions in the module are small, and (c) the previous alternative was the manual module/compile/get dance, which had the same cost.
+
+---
+
+## Risks Acknowledged
+
+1. **ModuleValue's name reservation conflicts**: Each `m:add_func(value)` calls `reserve_func_name(self, value.name)`, which checks `self.func_names[name]`. If two values in the table have the same `.name` field (but different keys in the values table), the second registration errors. **Mitigation**: The ephemeral module's name space is per-compile, so conflicts are limited to the values table itself. Clear error message.
+
+2. **`m:add_region` does not register a name** (no `reserve_func_name` equivalent): `ModuleValue:add_region` (in `host_module_values.lua`) appends to `self.region_frags` but does not call any name reservation. This means name-based region lookup during typechecking uses the `region_frags` list, not the func/type name maps. **Acceptable** — the typechecker's region lookup path is separate from the func/type path.
+
+3. **Circular dependencies**: If function A calls function B in plain Moonlift, and function B calls function A, both must be in the same values table. But creating func A requires func B to be already created, and vice versa. **Mitigation**: Both functions must be created first (as pure quotes or table builders), then the values table binds them together. Forward references in Moonlift are supported as long as both items are in the same module — the typechecker handles this because all items are collected before typechecking starts.
+
+4. **`pcall` as guard swallows errors**: If `m:add_func(value)` errors for a reason other than "value is not a func" (e.g., an actual bug in `add_func`), the `pcall` swallows it. **Mitigation**: Use a more specific check — check for `value.kind == "func"` explicitly before calling `m:add_func`, rather than using `pcall`. Only use `pcall` for truly uncertain cases like the region metatable check.
+
+5. **Name collision between values table key and function's own name**: If the values table has `{ add = some_func }` but the function being defined is also named `add`, the ephemeral module has two items named `add`. **Mitigation**: `reserve_func_name` errors on duplicate. The error message should help debugging.
+
+6. **Expansion env vs. module env are separate worlds**: The `@{}` fill mechanism uses `open_expand` env (fills in a `FillSet`). The module-level name resolution uses the module's item list. These are managed by different subsystems. If both are in play (`@{fn}(args)` and `fn(args)` in the same function body), the `@{}`-filled references resolve during expansion and the name-based ones resolve during typechecking. Both converge because `open_expand` substitutes the slot with the actual function reference ASDL node, and the typechecker sees the resolved node. **Acceptable** — the two mechanisms are independent and converge to the same result.
+
+---
+
+## Implementation sketch
+
+### `lua/moonlift/host.lua` — `CallableFunc` changes
+
+Add `_dep_values` field to `CallableFunc` instances created by values binders:
+
+```lua
+-- In make_quote, inside the values-binder's returned function:
+local result = wrap_fn(expanded, parsed, T)
+if type(result) == "table" and result._api and result.__call then
+    result._dep_values = bound_values
+end
+```
+
+Modify `CallableFunc:__call` to register deps before compilation:
+
+```lua
+function CallableFunc:__call(...)
+    if not self._compiled then
+        local api = self._api
+        local m = api.module(self.name .. "_auto")
+        
+        -- Register dependency values as module items
+        if self._dep_values then
+            for name, value in pairs(self._dep_values) do
+                local kind = rawget(value, "kind")
+                local qkind = rawget(value, "moonlift_quote_kind")
+                if kind == "func" then
+                    m:add_func(value)
+                elseif kind == "extern_func" then
+                    m:add_func(value)
+                elseif kind == "region_frag" or qkind == "region_frag" then
+                    m:add_region(value)
+                elseif kind == "struct" or kind == "union" then
+                    m:add_type(value)
+                end
+            end
+        end
+        
+        m:add_func(self)
+        local compiled = m:compile()
+        self._compiled = compiled
+        self._fn = compiled:get(self.name)
+    end
+    return self._fn(...)
+end
+```
+
+### `lua/moonlift/host.lua` — `make_quote` changes
+
+In the values-binder path, store `bound_values` on the result before returning:
+
+```lua
+return function(src)
+    local T = default_session.T
+    local parsed = parse_fn(T, src)
+    if #parsed.issues ~= 0 then error(parsed.issues[1].message, 2) end
+    if #parsed.splice_slots == 0 then return wrap_fn(parsed.value, parsed, T) end
+    
+    local hs = require("moonlift.host_splice")
+    local open_expand = require("moonlift.open_expand")
+    local bindings = {}
+    for _, ss in ipairs(parsed.splice_slots) do
+        local key = ss.splice_text or ss.splice_id
+        local v = bound_values[key]
+        if v == nil then
+            error("no value bound for @" .. tostring(key) .. " in values table", 2)
+        end
+        local binding = hs.fill(default_session, ss.slot, v,
+            "splice " .. ss.splice_id, ss.role, ss.spread)
+        bindings[#bindings + 1] = binding
+    end
+    
+    local e = open_expand.Define(T)
+    local env = e.empty_env()
+    env = e.env_with_fills(env, bindings)
+    local expanded = expand_fn(e, parsed.value, env)
+    local result = wrap_fn(expanded, parsed, T)
+    
+    -- ⬇ NEW: attach deps for lazy compilation
+    if type(result) == "table" and result._api and result.__call then
+        result._dep_values = bound_values
+    end
+    
+    return result
+end
+```
+
+### `lua/moonlift/host_module_values.lua` — verify `add_region` signature
+
+`ModuleValue:add_region` (line ~41):
+
+```lua
+function ModuleValue:add_region(value)
+    if value.frag then
+        self.region_frags[#self.region_frags + 1] = value.frag
+    end
+    return value
+end
+```
+
+This is already compatible — it accepts the kind of value produced by `moon.region[[]]` (which sets `moonlift_quote_kind = "region_frag"` and `.frag = value`).
+
+### Test expectations
+
+```lua
+-- Pure quote: no deps needed
+local f = moon.func [[add(a: i32, b: i32) -> i32 return a + b end]]
+f:free()
+
+-- Values binder with cross-function reference via plain name
+local parse_number = moon.func [[parse_number(s: ptr(u8), n: i32) -> i32 ... end]]
+
+local parse_value = moon.func {
+    parse_number = parse_number,
+} [[
+parse_value(s: ptr(u8), n: i32) -> i32
+    return parse_number(s, n)  -- plain name reference, no @{}
+end
+]]
+-- First call compiles: parse_number is registered in the ephemeral module
+assert(parse_value(buf, len) == expected)
+parse_value:free()
+```
+
+## Edit-planner Output — 2026-05-19 11:50:36
+
+Now I have all the exact line numbers and text. Here is the complete implementation plan.
+
+---
+
+# Implementation Plan: `@{}` with Function Calls in Values Binder
+
+## Precondition Checks
+
+1. **`host_splice.lua` line 113-173**: `M.fill_expr(session, slot, value, site)` — expression filler function, ends with error at line ~162
+2. **`host.lua` lines 69-79**: `CallableFunc:__call` — lazy compilation, calls `m:add_func(self)` at line 73
+3. **`host.lua` lines 95-130**: `make_quote` values binder — inner `return function(src)` at line 105, calls `expand_fn` and `wrap_fn` at lines 127-128
+4. **`host.lua` lines 62-65**: `CallableFunc` metatable = `{ __index = CallableFunc }` — checking with `getmetatable(result) == CallableFunc` is the correct identity check
+
+---
+
+## File 1: `lua/moonlift/host_splice.lua`
+
+### Change 1.1: Add `B` (MoonBind) to `fill_expr` locals
+
+**Goal**: Extract `B` (MoonBind) from `session.T` so it's available for constructing `ValueRefName`.
+
+**Location**: Line 115
+
+**oldText**:
+```lua
+function M.fill_expr(session, slot, value, site)
+    local T  = session.T
+    local C, Tr, O = T.MoonCore, T.MoonTree, T.MoonOpen
+```
+
+**newText**:
+```lua
+function M.fill_expr(session, slot, value, site)
+    local T  = session.T
+    local C, Tr, O, B = T.MoonCore, T.MoonTree, T.MoonOpen, T.MoonBind
+```
+
+**Rationale**: The `fill_expr` function needs `B.ValueRefName` to construct a name reference for FuncValue-based expressions. `T.MoonBind` is already available via `session.T` — it just wasn't destructured before.
+
+---
+
+### Change 1.2: Add FuncValue/ExternFunc handling to `fill_expr`
+
+**Goal**: When `@{fn}` fills an expression slot and the value is a hosted function (FuncValue, CallableFunc with `kind == "func"`), produce an `ExprRef(ValueRefName(name))` instead of erroring.
+
+**Location**: Lines 160-163. Insert after the host-ExprValue check and before the `if not expr then error(...)` guard.
+
+**oldText** (lines 156-167):
+```lua
+    -- 3. Host ExprValue or direct ASDL Expr node.
+    if not expr and type(value) == "table" then
+        if type(value.as_expr_value) == "function" then
+            expr = value:as_expr_value().expr
+        elseif pvm.classof(value) ~= false then
+            expr = value
+        end
+    end
+
+    if not expr then
+        error((site or "splice") .. ": expected expression value for @{} expr splice, got " .. M.kind_of(value), 2)
+    end
+
+    return O.SlotBinding(O.SlotExpr(slot), O.SlotValueExpr(expr))
+```
+
+**newText** (lines 156-172):
+```lua
+    -- 3. Host ExprValue or direct ASDL Expr node.
+    if not expr and type(value) == "table" then
+        if type(value.as_expr_value) == "function" then
+            expr = value:as_expr_value().expr
+        elseif pvm.classof(value) ~= false then
+            expr = value
+        end
+    end
+
+    -- 4. Host function-like value → name reference expression.
+    -- The function is registered in the ephemeral module by CallableFunc:__call,
+    -- so the typechecker can resolve this name reference.
+    if not expr and type(value) == "table" then
+        local kind = rawget(value, "kind")
+        if kind == "func" or kind == "extern_func" then
+            expr = Tr.ExprRef(Tr.ExprSurface, B.ValueRefName(rawget(value, "name") or "?"))
+        end
+    end
+
+    if not expr then
+        error((site or "splice") .. ": expected expression value for @{} expr splice, got " .. M.kind_of(value), 2)
+    end
+
+    return O.SlotBinding(O.SlotExpr(slot), O.SlotValueExpr(expr))
+```
+
+**Rationale**: The expression filler currently handles numbers, booleans, strings, ExprValues, and raw ASDL nodes — but not hosted function values. When `@{fn}` appears in expression position (e.g., `@{fn}(args)`), the filler sees `cls == O.SlotExpr` and calls `fill_expr`. The value is a FuncValue/CallableFunc with `kind == "func"`. Instead of erroring, we emit `ValueRefName(fn_name)` — a name reference that the typechecker resolves against the module's item list. The function will have been registered in the ephemeral module by `CallableFunc:__call`.
+
+**Danger zone**: Use `rawget(value, "kind")` and `rawget(value, "name")` — NOT `value.kind`/`value.name` (metatable `__index` may interfere, and rawget is the pattern used throughout this file — see `kind_of` at line 20).
+
+---
+
+## File 2: `lua/moonlift/host.lua`
+
+### Change 2.1: Attach `_dep_values` in `make_quote` values binder
+
+**Goal**: After expanding and wrapping the result, store the bound values table on the output so `CallableFunc:__call` can register them as module items.
+
+**Location**: Lines 127-130. Inside the values binder's inner `return function(src)`, after `local expanded = expand_fn(e, parsed.value, env)` and `return wrap_fn(expanded, parsed, T)`.
+
+**oldText** (lines 124-131):
+```lua
+                    local e = open_expand.Define(T)
+                    local env = e.empty_env()
+                    env = e.env_with_fills(env, bindings)
+                    local expanded = expand_fn(e, parsed.value, env)
+                    return wrap_fn(expanded, parsed, T)
+                end
+            end
+```
+
+**newText** (lines 124-140):
+```lua
+                    local e = open_expand.Define(T)
+                    local env = e.empty_env()
+                    env = e.env_with_fills(env, bindings)
+                    local expanded = expand_fn(e, parsed.value, env)
+                    local result = wrap_fn(expanded, parsed, T)
+                    -- Attach deps for lazy compilation in CallableFunc:__call
+                    if type(result) == "table" then
+                        local mt = getmetatable(result)
+                        if mt == CallableFunc then
+                            result._dep_values = bound_values
+                        end
+                    end
+                    return result
+                end
+            end
+```
+
+**Rationale**: The values binder returns either a raw ASDL value (via `wrap_fn`) or a `CallableFunc`. If it's a `CallableFunc`, we attach `_dep_values` so that `CallableFunc:__call` can register each dependency in the ephemeral module before compilation. This is what enables typechecker name resolution for `@{fn}(args)` — the function `fn` is registered in the module, and the `@{}` fill produces a name reference.
+
+**Danger zone**: The `getmetatable(result) == CallableFunc` check uses identity comparison with the `CallableFunc` table defined at line 62. This is correct because `CallableFunc` is a module-local table. The check must be `mt == CallableFunc`, not a string comparison.
+
+---
+
+### Change 2.2: Register deps in `CallableFunc:__call`
+
+**Goal**: Before compiling the ephemeral module, register all values from `_dep_values` as module items so the typechecker can resolve plain Moonlift name references.
+
+**Location**: Lines 69-79. Inside `CallableFunc:__call`, before `m:add_func(self)`.
+
+**oldText** (lines 69-79):
+```lua
+function CallableFunc:__call(...)
+    if not self._compiled then
+        local api = self._api
+        local m = api.module(self.name .. "_auto")
+        m:add_func(self)
+        local compiled = m:compile()
+        self._compiled = compiled
+        self._fn = compiled:get(self.name)
+    end
+    return self._fn(...)
+end
+```
+
+**newText** (lines 69-95):
+```lua
+function CallableFunc:__call(...)
+    if not self._compiled then
+        local api = self._api
+        local m = api.module(self.name .. "_auto")
+
+        -- Register dependency values as module items so the typechecker
+        -- can resolve cross-function name references (plain Moonlift names).
+        if self._dep_values then
+            for _, value in pairs(self._dep_values) do
+                local kind = rawget(value, "kind")
+                if kind == "func" or kind == "extern_func" then
+                    pcall(function() m:add_func(value) end)
+                elseif kind == "region_frag" or rawget(value, "moonlift_quote_kind") == "region_frag" then
+                    pcall(function() m:add_region(value) end)
+                elseif kind == "struct" or kind == "union" then
+                    pcall(function() m:add_type(value) end)
+                end
+            end
+        end
+
+        m:add_func(self)
+        local compiled = m:compile()
+        self._compiled = compiled
+        self._fn = compiled:get(self.name)
+    end
+    return self._fn(...)
+end
+```
+
+**Rationale**: The ephemeral module created by `CallableFunc:__call` must contain all dependency functions/regions/structs that the function's body references by name. The typechecker resolves `ValueRefName("parse_array")` by scanning the module's item list — if the item isn't there, the reference fails. By registering each dep before `m:add_func(self)`, we ensure all cross-references resolve.
+
+**Danger zone 1**: Order matters — deps must be registered BEFORE `m:add_func(self)` because `ModuleValue:add_func` may need to resolve names from already-registered items for contract checking.
+**Danger zone 2**: `pcall` is used because not all values in `_dep_values` are Moonlift items — some are scalars, expressions, or raw ASDL arrays used for `@{}` filling only. The `pcall` silently skips values that don't support `:add_func()`. This is intentional.
+**Danger zone 3**: `rawget(value, "kind")` — use rawget, NOT `value.kind`, to avoid metatable interference. This matches the pattern in `host_splice.lua`.
+**Danger zone 4**: `ModuleValue:add_region` (in `host_module_values.lua`) does NOT reserve a name — it appends to `self.region_frags`. This is fine: the typechecker resolves region references from the region_frags list, not from a name map. `ModuleValue:add_type` similarly appends to `self.types`.
+
+---
+
+## Testing Strategy
+
+After applying all three changes:
+
+1. **Smoke test**: `moon.func { dep = f } [[ @{dep}(args) ]]` where `f` is a FuncValue and the body calls `dep(x, y)` via `@{dep}(x, y)`, registered in ephemeral module.
+
+2. **Plain name reference test**: `moon.func { dep = f } [[ dep(args) ]]` where the body uses plain Moonlift name `dep(x, y)` — relies on module registration, NOT on `@{}` filling.
+
+3. **Mixed test**: `moon.func { dep = f, val = moon.int(42) } [[ let x = @{dep}(@{val}) end ]]` — both `@{}` for expression and function reference.
+
+4. **Negative test**: `moon.func[[]]` (pure quote) still errors on `@{}`.
+
+5. **Full regression**: `for f in tests/test_*.lua; do luajit $f; done`

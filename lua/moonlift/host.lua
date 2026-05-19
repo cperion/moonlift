@@ -39,6 +39,11 @@ function M.layout_of(ty)
     return default_session:layout_of(ty)
 end
 
+-- ── Callable function — lazy compile on first call ────────────────────────
+-- MUST be declared before make_quote (LuaJIT upvalue capture quirk)
+
+local CallableFunc
+
 -- ── Helper: create a quoting entry point ──────────────────────────────────────
 
 local function make_quote(parse_fn, wrap_fn, expand_fn)
@@ -85,7 +90,15 @@ local function make_quote(parse_fn, wrap_fn, expand_fn)
                     local env = e.empty_env()
                     env = e.env_with_fills(env, bindings)
                     local expanded = expand_fn(e, parsed.value, env)
-                    return wrap_fn(expanded, parsed, T)
+                    local result = wrap_fn(expanded, parsed, T)
+                    -- Attach deps for lazy compilation in CallableFunc:__call
+                    if type(result) == "table" then
+                        local mt = getmetatable(result)
+                        if mt == CallableFunc then
+                            result._dep_values = bound_values
+                        end
+                    end
+                    return result
                 end
             end
             error("moon.XXX expects a string [[]] or table {}", 2)
@@ -93,15 +106,29 @@ local function make_quote(parse_fn, wrap_fn, expand_fn)
     })
 end
 
--- ── Callable function — lazy compile on first call ────────────────────────
-
-local CallableFunc = {}
+CallableFunc = {}
 CallableFunc.__index = CallableFunc
 
 function CallableFunc:__call(...)
     if not self._compiled then
         local api = self._api
         local m = api.module(self.name .. "_auto")
+
+        -- Register dependency values as module items so the typechecker
+        -- can resolve cross-function @{} name references.
+        if self._dep_values then
+            for _, value in pairs(self._dep_values) do
+                local kind = rawget(value, "kind")
+                if kind == "func" or kind == "extern_func" then
+                    m:add_func(value)
+                elseif kind == "region_frag" or rawget(value, "moonlift_quote_kind") == "region_frag" then
+                    m:add_region(value)
+                elseif kind == "struct" or kind == "union" then
+                    m:add_type(value)
+                end
+            end
+        end
+
         m:add_func(self)
         local compiled = m:compile()
         self._compiled = compiled

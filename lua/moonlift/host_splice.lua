@@ -112,7 +112,7 @@ end
 --            direct Expr ASDL node.
 function M.fill_expr(session, slot, value, site)
     local T  = session.T
-    local C, Tr, O = T.MoonCore, T.MoonTree, T.MoonOpen
+    local C, Tr, O, B = T.MoonCore, T.MoonTree, T.MoonOpen, T.MoonBind
 
     local expr = nil
 
@@ -151,6 +151,16 @@ function M.fill_expr(session, slot, value, site)
             expr = value:as_expr_value().expr
         elseif pvm.classof(value) ~= false then
             expr = value
+        end
+    end
+
+    -- 4. Host function-like value → name reference expression.
+    -- The function is registered in the ephemeral module by CallableFunc:__call,
+    -- so the typechecker resolves this name reference.
+    if not expr and type(value) == "table" then
+        local kind = rawget(value, "kind")
+        if kind == "func" or kind == "extern_func" then
+            expr = Tr.ExprRef(Tr.ExprSurface, B.ValueRefName(rawget(value, "name") or "?"))
         end
     end
 
