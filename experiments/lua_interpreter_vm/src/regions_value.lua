@@ -1,0 +1,212 @@
+-- Lua Interpreter VM — Value protocol regions
+-- All value dispatch: truth, type checks, comparisons, equality.
+
+local moon = require("moonlift")
+local host = require("moonlift.host")
+local const = require("experiments.lua_interpreter_vm.src.constants")
+
+-- Splice helpers: convert Lua integers to Moonlift expression values
+local I = {}
+for k, v in pairs(const.Tag) do I["TAG_" .. k] = moon.int(v) end
+for k, v in pairs(const.Err) do I["ERR_" .. k] = moon.int(v) end
+
+-- value_truth: TAG_NIL or TAG_FALSE → falsey, else truthy
+local value_truth = host.region { TAG_NIL = I.TAG_NIL, TAG_FALSE = I.TAG_FALSE } [[
+region value_truth(v: Value; truthy: cont(), falsey: cont())
+entry start()
+    if v.tag == @{TAG_NIL} or v.tag == @{TAG_FALSE} then
+        jump falsey()
+    end
+    jump truthy()
+end
+end
+]]
+
+-- value_as_number: check TAG_NUM
+local value_as_number = host.region { TAG_NUM = I.TAG_NUM } [[
+region value_as_number(v: Value; number: cont(x: f64), not_number: cont())
+entry start()
+    if v.tag == @{TAG_NUM} then
+        jump number(x = as(f64, v.bits))
+    end
+    jump not_number()
+end
+end
+]]
+
+-- value_to_number: check TAG_NUM. String coercion requires a parser helper and is rejected explicitly.
+local value_to_number = host.region { TAG_NUM = I.TAG_NUM } [[
+region value_to_number(L: ptr(LuaThread), v: Value; number: cont(x: f64), not_number: cont(), oom: cont())
+entry start()
+    if v.tag == @{TAG_NUM} then
+        jump number(x = as(f64, v.bits))
+    end
+    jump not_number()
+end
+end
+]]
+
+-- value_as_string: check TAG_STR
+local value_as_string = host.region { TAG_STR = I.TAG_STR } [[
+region value_as_string(v: Value; string: cont(s: ptr(String)), not_string: cont())
+entry start()
+    if v.tag == @{TAG_STR} then
+        jump string(s = as(ptr(String), v.bits))
+    end
+    jump not_string()
+end
+end
+]]
+
+-- value_to_string: accepts strings. Number formatting requires allocation and is rejected explicitly.
+local value_to_string = host.region { TAG_STR = I.TAG_STR, TAG_NUM = I.TAG_NUM, ERR_RUNTIME = I.ERR_RUNTIME } [[
+region value_to_string(L: ptr(LuaThread), v: Value; string: cont(s: ptr(String)), error: cont(code: i32), oom: cont())
+entry start()
+    if v.tag == @{TAG_STR} then
+        jump string(s = as(ptr(String), v.bits))
+    end
+    jump error(code = @{ERR_RUNTIME})
+end
+end
+]]
+
+-- value_as_table: check TAG_TABLE
+local value_as_table = host.region { TAG_TABLE = I.TAG_TABLE } [[
+region value_as_table(v: Value; table: cont(t: ptr(Table)), not_table: cont())
+entry start()
+    if v.tag == @{TAG_TABLE} then
+        jump table(t = as(ptr(Table), v.bits))
+    end
+    jump not_table()
+end
+end
+]]
+
+-- value_as_function: check TAG_LCLOSURE or TAG_CCLOSURE
+local value_as_function = host.region { TAG_LCLOSURE = I.TAG_LCLOSURE, TAG_CCLOSURE = I.TAG_CCLOSURE } [[
+region value_as_function(v: Value; lua: cont(cl: ptr(LClosure)), native: cont(cl: ptr(CClosure)), not_function: cont())
+entry start()
+    if v.tag == @{TAG_LCLOSURE} then
+        jump lua(cl = as(ptr(LClosure), v.bits))
+    end
+    if v.tag == @{TAG_CCLOSURE} then
+        jump native(cl = as(ptr(CClosure), v.bits))
+    end
+    jump not_function()
+end
+end
+]]
+
+-- value_raw_equal: tag-based dispatch, pointer equality for strings/objects, bit equality for numbers
+local value_raw_equal = host.region {
+    TAG_NIL = I.TAG_NIL, TAG_FALSE = I.TAG_FALSE, TAG_TRUE = I.TAG_TRUE,
+    TAG_NUM = I.TAG_NUM, TAG_STR = I.TAG_STR, TAG_LIGHTUD = I.TAG_LIGHTUD,
+} [[
+region value_raw_equal(a: Value, b: Value; equal: cont(), not_equal: cont())
+entry start()
+    if a.tag ~= b.tag then jump not_equal() end
+    switch a.tag do
+    case @{TAG_NIL} then jump equal()
+    case @{TAG_FALSE} then jump equal()
+    case @{TAG_TRUE} then jump equal()
+    case @{TAG_NUM} then
+        if as(f64, a.bits) == as(f64, b.bits) then
+            jump equal()
+        end
+        jump not_equal()
+    case @{TAG_STR} then
+        if a.bits == b.bits then jump equal() end
+        jump not_equal()
+    case @{TAG_LIGHTUD} then
+        if a.bits == b.bits then jump equal() end
+        jump not_equal()
+    default then
+        if a.bits == b.bits then jump equal() end
+        jump not_equal()
+    end
+end
+end
+]]
+
+-- value_equal: raw_equal, then primitive false for unequal values.
+local value_equal = host.region { ERR_RUNTIME = I.ERR_RUNTIME } [[
+region value_equal(L: ptr(LuaThread), a: Value, b: Value; result: cont(is_equal: bool), call_mm: cont(mm: Value), error: cont(code: i32), oom: cont())
+entry try_raw()
+    emit value_raw_equal(a, b; equal = yes, not_equal = check_meta)
+end
+block yes()
+    jump result(is_equal = true)
+end
+block check_meta()
+    jump result(is_equal = false)
+end
+end
+]]
+
+-- value_less_than: number fast path, string compare, else error
+local value_less_than = host.region { TAG_NUM = I.TAG_NUM, TAG_STR = I.TAG_STR, ERR_COMPARE = I.ERR_COMPARE } [[
+region value_less_than(L: ptr(LuaThread), a: Value, b: Value; result: cont(is_lt: bool), call_mm: cont(mm: Value), error: cont(code: i32), oom: cont())
+entry start()
+    if a.tag == @{TAG_NUM} and b.tag == @{TAG_NUM} then
+        jump result(is_lt = as(f64, a.bits) < as(f64, b.bits))
+    end
+    if a.tag == @{TAG_STR} and b.tag == @{TAG_STR} then
+        let sa: ptr(String) = as(ptr(String), a.bits)
+        let sb: ptr(String) = as(ptr(String), b.bits)
+        jump str_loop(i = 0, sa = sa, sb = sb)
+    end
+    jump error(code = @{ERR_COMPARE})
+end
+block str_loop(i: index, sa: ptr(String), sb: ptr(String))
+    if i >= sa.len or i >= sb.len then
+        jump result(is_lt = sa.len < sb.len)
+    end
+    let ca: u8 = sa.bytes[i]
+    let cb: u8 = sb.bytes[i]
+    if ca < cb then jump result(is_lt = true) end
+    if ca > cb then jump result(is_lt = false) end
+    jump str_loop(i = i + 1, sa = sa, sb = sb)
+end
+end
+]]
+
+-- value_less_equal: number fast path, then error
+local value_less_equal = host.region { TAG_NUM = I.TAG_NUM, TAG_STR = I.TAG_STR, ERR_COMPARE = I.ERR_COMPARE } [[
+region value_less_equal(L: ptr(LuaThread), a: Value, b: Value; result: cont(is_le: bool), call_mm: cont(mm: Value, fallback_lt: bool), error: cont(code: i32), oom: cont())
+entry start()
+    if a.tag == @{TAG_NUM} and b.tag == @{TAG_NUM} then
+        jump result(is_le = as(f64, a.bits) <= as(f64, b.bits))
+    end
+    if a.tag == @{TAG_STR} and b.tag == @{TAG_STR} then
+        let sa: ptr(String) = as(ptr(String), a.bits)
+        let sb: ptr(String) = as(ptr(String), b.bits)
+        jump str_le_loop(i = 0, sa = sa, sb = sb)
+    end
+    jump error(code = @{ERR_COMPARE})
+end
+block str_le_loop(i: index, sa: ptr(String), sb: ptr(String))
+    if i >= sa.len or i >= sb.len then
+        jump result(is_le = sa.len <= sb.len)
+    end
+    let ca: u8 = sa.bytes[i]
+    let cb: u8 = sb.bytes[i]
+    if ca < cb then jump result(is_le = true) end
+    if ca > cb then jump result(is_le = false) end
+    jump str_le_loop(i = i + 1, sa = sa, sb = sb)
+end
+end
+]]
+
+return {
+    value_truth = value_truth,
+    value_as_number = value_as_number,
+    value_to_number = value_to_number,
+    value_as_string = value_as_string,
+    value_to_string = value_to_string,
+    value_as_table = value_as_table,
+    value_as_function = value_as_function,
+    value_raw_equal = value_raw_equal,
+    value_equal = value_equal,
+    value_less_than = value_less_than,
+    value_less_equal = value_less_equal,
+}

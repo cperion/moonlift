@@ -430,11 +430,11 @@ M.expr_frag = make_quote(
 
 M.struct = make_quote(
     function(T, src) return require("moonlift.parse").Define(T).parse_struct(src) end,
-    function(value, parsed)
+    function(value, parsed, T)
         local name = value.name or "_anon"
         local ty = api.path_named(name)
         return setmetatable({ kind = "struct", session = default_session, name = name,
-            fields = {}, fields_by_name = {}, decl = value.decl, type = ty }, api.StructValue or {})
+            fields = {}, fields_by_name = {}, decl = value.decl, item = T.MoonTree.ItemType(value.decl), type = ty }, api.StructValue or {})
     end,
     function(e, value, env)
         return { name = value.name, decl = e.expand_type_decl(value.decl or value, env) }
@@ -443,11 +443,11 @@ M.struct = make_quote(
 
 M.union = make_quote(
     function(T, src) return require("moonlift.parse").Define(T).parse_union(src) end,
-    function(value, parsed)
+    function(value, parsed, T)
         local name = value.name or "_anon"
         local ty = api.path_named(name)
         return setmetatable({ kind = "union", session = default_session, name = name,
-            decl = value.decl, type = ty }, api.StructValue or {})
+            decl = value.decl, item = T.MoonTree.ItemType(value.decl), type = ty }, api.StructValue or {})
     end,
     function(e, value, env)
         return { name = value.name, decl = e.expand_type_decl(value.decl or value, env) }

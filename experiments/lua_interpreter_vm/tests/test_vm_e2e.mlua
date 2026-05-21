@@ -1,0 +1,116 @@
+-- VM end-to-end test via moonlift binary
+-- Uses bundle API: add_region then emit by name in func body
+package.path = "./lua/?.lua;./lua/?/init.lua;" .. package.path
+
+local moon = require("moonlift")
+local vm = require("experiments.lua_interpreter_vm.src.init")
+local const = vm.const
+local ffi = require("ffi")
+
+extern func moonlift_scratch_raw(slot: i32, elem_size: i32, count: i32) -> ptr(u8)
+
+-- Bundle API: add vm_resume as a named region, emit it by name
+local M = moon.bundle("VME2E")
+M:add_region(vm.vm_loop.vm_resume)
+
+-- Export a function that emits vm_resume
+-- In the bundle context, regions added via add_region are visible by name
+M:func("run_vm", {
+    {"L", moon.ptr(vm.products.LuaThread)},
+    {"nargs", moon.i32},
+}, moon.i32, function(fn)
+    -- Use the builder API to construct the emit
+    -- fn:emit_region("vm_resume", {fn:param("L"), fn:param("nargs")}, {
+    --     ok = ... 
+    -- })
+    -- For now, just return 0 as a placeholder
+    fn:return_(moon.int(0))
+end)
+
+-- Simpler: use moon.func with explicit wrapper
+local run_vm_wrapper = moon.func { vm_resume = vm.vm_loop.vm_resume } [[
+run_vm(L: ptr(LuaThread), nargs: i32) -> i32
+    return region -> i32
+    entry start()
+        emit @{vm_resume}(L, nargs;
+            ok = fin,
+            yielded = yld,
+            runtime_error = err_exit,
+            oom = oom_exit)
+    end
+    block fin(nres: i32) return nres end
+    block yld(nres: i32) return -100 - nres end
+    block err_exit(code: i32) return -200 - code end
+    block oom_exit() return -999 end
+    end
+end
+]]
+
+-- Check if compilation works
+local ok, compiled = pcall(function() return run_vm_wrapper:compile() end)
+if ok then
+    print("Wrapper compiled successfully!")
+    
+    -- Now build Proto + Thread via scratch
+    
+    -- We need libmoonlift for scratch_raw or __ml_alloc
+    -- Check if moonlift_scratch_raw is accessible as an extern
+    -- In the moonlift binary, it's registered via sym!
+    -- When running .mlua through moonlift, the binary links libmoonlift
+    
+    -- Define Instr/Value layouts for FFI access in compiled code
+    -- Actually, let the Moonlift code handle memory via scratch_raw extern
+    
+    compiled:free()
+    
+    -- Now try calling run_vm with a manually constructed thread
+    -- Use moonlift to build the data
+    
+    -- But first verify scratch_raw works
+    local scratch_test = moon.func [[
+test_scratch_raw() -> i32
+    let p: ptr(u8) = moonlift_scratch_raw(0, 4, 10)
+    let xs: ptr(i32) = as(ptr(i32), p)
+    xs[0] = 42
+    xs[5] = 99
+    if xs[0] == 42 and xs[5] == 99 then
+        return 1
+    end
+    return 0
+end
+]]
+    local ok2, c2 = pcall(function() return scratch_test:compile() end)
+    if ok2 then
+        print("scratch_test result:", c2:get("test_scratch_raw")())
+        c2:free()
+    else
+        print("scratch_test compilation:", c2)
+    end
+else
+    print("Wrapper compilation failed:", compiled)
+end
+
+-- Final: try to run the actual VM via bundle compilation
+-- Use the bundle to compile vm_resume with the scratch-allocated data
+local M2 = moon.bundle("VME2EFull")
+M2:add_region(vm.vm_loop.vm_resume)
+
+-- Export a test that allocates via scratch and vm_resume
+local test_body = moon.stmts [[
+    // We need to construct Proto + Thread using scratch_raw
+    // Then emit vm_resume
+    return 0
+]]
+M2:export_func("test_all", {}, moon.i32, function(fn)
+    fn:return_(moon.int(0))
+end)
+
+local ok3, c3 = pcall(function() return M2:compile() end)
+if ok3 then
+    print("Full bundle compiled")
+    c3:free()
+else
+    print("Full bundle compilation:", c3)
+end
+
+return 0

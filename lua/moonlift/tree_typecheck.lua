@@ -160,6 +160,26 @@ function M.Define(T)
         return Tr.TypePlaceResult(place, ty, issues or {})
     end
 
+    local function typed_expr_header_ty(h)
+        local cls = pvm.classof(h)
+        if cls == Tr.ExprTyped or cls == Tr.ExprOpen then return h.ty end
+        return nil
+    end
+
+    local function typed_place_header_ty(h)
+        local cls = pvm.classof(h)
+        if cls == Tr.PlaceTyped or cls == Tr.PlaceOpen then return h.ty end
+        return nil
+    end
+
+    local function merge_env_layouts(env, extra_layout_env)
+        local extra = extra_layout_env and extra_layout_env.layouts
+        if extra == nil or #extra == 0 then return env end
+        local layouts = clone_values(env.layouts)
+        for i = 1, #extra do layouts[#layouts + 1] = extra[i] end
+        return B.Env(env.module_name, env.values, env.types, layouts)
+    end
+
     local function int_literal_can_adopt(expr, expected)
         return pvm.classof(expr) == Tr.ExprLit
             and pvm.classof(expr.value) == C.LitInt
@@ -369,7 +389,8 @@ function M.Define(T)
             if layout ~= nil then
                 return pvm.once(result_place(Tr.PlaceField(Tr.PlaceTyped(layout.ty), base.place, Sem.FieldByName(layout.field_name, layout.ty)), layout.ty, issues))
             end
-            return pvm.once(result_place(Tr.PlaceDot(Tr.PlaceTyped(base.ty), base.place, self.name), base.ty, issues))
+            local preserved_ty = typed_place_header_ty(self.h) or base.ty
+            return pvm.once(result_place(Tr.PlaceDot(Tr.PlaceTyped(preserved_ty), base.place, self.name), preserved_ty, issues))
         end,
         [Tr.PlaceField] = function(self, ctx)
             local base = pvm.one(type_place(self.base, ctx)); local issues = {}; append_all(issues, base.issues)
@@ -578,7 +599,8 @@ function M.Define(T)
             if layout ~= nil then
                 return pvm.once(result_expr(Tr.ExprField(Tr.ExprTyped(layout.ty), base.expr, Sem.FieldByName(layout.field_name, layout.ty)), layout.ty, issues))
             end
-            return pvm.once(result_expr(Tr.ExprDot(Tr.ExprTyped(base.ty), base.expr, self.name), base.ty, issues))
+            local preserved_ty = typed_expr_header_ty(self.h) or base.ty
+            return pvm.once(result_expr(Tr.ExprDot(Tr.ExprTyped(preserved_ty), base.expr, self.name), preserved_ty, issues))
         end,
         [Tr.ExprIntrinsic] = function(self, ctx)
             local issues = {}; local args = {}
@@ -893,13 +915,17 @@ function M.Define(T)
         [Tr.ItemUseModuleSlot] = function(self) return pvm.once(Tr.TypeItemResult({ self }, {})) end,
     }, { args_cache = "last" })
 
+    local function type_module_with_layout_env(module, extra_layout_env)
+        local module_env = merge_env_layouts(module_type_api.env(module), extra_layout_env)
+        local items = {}
+        local issues = {}
+        for i = 1, #module.items do local r = pvm.one(type_item(module.items[i], module_env)); append_all(items, r.items); append_all(issues, r.issues) end
+        return Tr.TypeModuleResult(Tr.Module(Tr.ModuleTyped(module_env.module_name), items), issues)
+    end
+
     type_module = pvm.phase("moonlift_tree_typecheck_module", {
         [Tr.Module] = function(module)
-            local module_env = module_type_api.env(module)
-            local items = {}
-            local issues = {}
-            for i = 1, #module.items do local r = pvm.one(type_item(module.items[i], module_env)); append_all(items, r.items); append_all(issues, r.issues) end
-            return pvm.once(Tr.TypeModuleResult(Tr.Module(Tr.ModuleTyped(module_env.module_name), items), issues))
+            return pvm.once(type_module_with_layout_env(module, nil))
         end,
     })
 
@@ -915,7 +941,7 @@ function M.Define(T)
         module = type_module,
         check_module = function(module, opts)
             opts = opts or {}
-            local result = pvm.one(type_module(module))
+            local result = opts.layout_env and type_module_with_layout_env(module, opts.layout_env) or pvm.one(type_module(module))
             local collector = opts.collector
             if collector then
                 for i = 1, #result.issues do

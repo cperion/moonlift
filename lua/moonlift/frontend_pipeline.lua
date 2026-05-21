@@ -53,7 +53,7 @@ function M.Define(T)
         -- ThrowingCollector throws on first issue — no assert_no_issues needed
 
         local closed = ClosureConvert.module(expanded)
-        local checked = Typecheck.check_module(closed, { collector = collector })
+        local checked = Typecheck.check_module(closed, { collector = collector, layout_env = opts.layout_env })
 
         local resolved = Layout.module(checked.module, opts.layout_env)
         local program, provenance = Lower.module(resolved)
