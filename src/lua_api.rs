@@ -159,4 +159,11 @@ pub fn register_symbols(jit: &mut crate::Jit) {
     sym!("moonlift_artifact_free", crate::ffi::moonlift_artifact_free);
 
     sym!("memcmp", memcmp);
+
+    sym!("__ml_memcpy", crate::rt::__ml_memcpy);
+    sym!("__ml_memset", crate::rt::__ml_memset);
+    sym!("__ml_memcmp", crate::rt::__ml_memcmp);
+    sym!("__ml_alloc", crate::rt::__ml_alloc);
+    sym!("__ml_free", crate::rt::__ml_free);
+    sym!("__ml_realloc", crate::rt::__ml_realloc);
 }

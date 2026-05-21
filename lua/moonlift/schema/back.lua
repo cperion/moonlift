@@ -795,6 +795,13 @@ return function(A)
                 A.field "len" "MoonBack.BackValId",
                 A.variant_unique,
             },
+            A.variant "CmdMemcmp" {
+                A.field "dst" "MoonBack.BackValId",
+                A.field "left" "MoonBack.BackValId",
+                A.field "right" "MoonBack.BackValId",
+                A.field "len" "MoonBack.BackValId",
+                A.variant_unique,
+            },
             A.variant "CmdSelect" {
                 A.field "dst" "MoonBack.BackValId",
                 A.field "ty" "MoonBack.BackShape",

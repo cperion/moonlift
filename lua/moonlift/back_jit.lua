@@ -22,6 +22,13 @@ moonlift_artifact_t* moonlift_jit_compile_binary(moonlift_jit_t*, const uint8_t*
 
 void moonlift_artifact_free(moonlift_artifact_t*);
 const void* moonlift_artifact_getpointer(const moonlift_artifact_t*, const char* func);
+
+void* __ml_memcpy(void* dst, const void* src, size_t n);
+void* __ml_memset(void* dst, int byte, size_t n);
+int __ml_memcmp(const void* left, const void* right, size_t n);
+void* __ml_alloc(size_t size, size_t align);
+void __ml_free(void* ptr, size_t size, size_t align);
+void* __ml_realloc(void* ptr, size_t old_size, size_t new_size, size_t align);
 ]])
 
 local M = {}
@@ -167,7 +174,14 @@ function M.Define(T, opts)
     return {
         lib = lib,
         jit = function()
-            return setmetatable({ _raw = check_ptr(lib.moonlift_jit_new(), "moonlift.back_jit jit_new") }, Jit)
+            local j = setmetatable({ _raw = check_ptr(lib.moonlift_jit_new(), "moonlift.back_jit jit_new") }, Jit)
+            j:symbol("__ml_memcpy", ffi.cast("const void*", lib.__ml_memcpy))
+            j:symbol("__ml_memset", ffi.cast("const void*", lib.__ml_memset))
+            j:symbol("__ml_memcmp", ffi.cast("const void*", lib.__ml_memcmp))
+            j:symbol("__ml_alloc", ffi.cast("const void*", lib.__ml_alloc))
+            j:symbol("__ml_free", ffi.cast("const void*", lib.__ml_free))
+            j:symbol("__ml_realloc", ffi.cast("const void*", lib.__ml_realloc))
+            return j
         end,
     }
 end

@@ -46,7 +46,7 @@ local T = {
     Load = 110, Store = 111,
     AtomicLoad = 112, AtomicStore = 113, AtomicRmw = 114, AtomicCas = 115,
     Fence = 116,
-    Memcpy = 117, Memset = 118,
+    Memcpy = 117, Memset = 118, Memcmp = 119,
     -- Pointer
     PtrAdd = 120, PtrOffset = 121,
     -- Vector
@@ -388,6 +388,8 @@ local function encode_body(cmds, b)
             w4(buf, T.Memcpy); w4(buf, b:nid(cmd.dst)); w4(buf, b:nid(cmd.src)); w4(buf, b:nid(cmd.len))
         elseif k == "CmdMemset" then
             w4(buf, T.Memset); w4(buf, b:nid(cmd.dst)); w4(buf, b:nid(cmd.byte)); w4(buf, b:nid(cmd.len))
+        elseif k == "CmdMemcmp" then
+            w4(buf, T.Memcmp); w4(buf, b:nid(cmd.dst)); w4(buf, b:nid(cmd.left)); w4(buf, b:nid(cmd.right)); w4(buf, b:nid(cmd.len))
 
         -- Control flow
         elseif k == "CmdReturnVoid" then

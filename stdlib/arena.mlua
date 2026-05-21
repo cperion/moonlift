@@ -1,0 +1,36 @@
+-- stdlib/arena.mlua — Bump arena allocator
+
+require "stdlib.memory"
+
+struct Arena
+    start: ptr(u8)
+    ptr: ptr(u8)       -- current bump position
+    end_ptr: ptr(u8)
+end
+
+func arena_new(size: index) -> Arena
+    let start = alloc(size, 16)
+    return Arena { start = start, ptr = start, end_ptr = start + size }
+end
+
+func arena_alloc(a: ptr(Arena), size: index, align: index) -> ptr(u8)
+    -- Round up current ptr to alignment
+    let misalign = as(index, a.ptr) % align
+    let aligned = select(misalign == 0, a.ptr, a.ptr + (align - misalign))
+    -- Bounds check
+    if aligned + size > a.end_ptr then
+        return null(ptr(u8))   -- OOM
+    end
+    -- Bump and return
+    let old = aligned
+    a.ptr = aligned + size
+    return old
+end
+
+func arena_reset(a: ptr(Arena))
+    a.ptr = a.start
+end
+
+func arena_free(a: ptr(Arena), p: ptr(u8), size: index, align: index)
+    -- No-op for bump allocator
+end

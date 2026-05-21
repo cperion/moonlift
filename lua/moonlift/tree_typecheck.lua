@@ -610,6 +610,27 @@ function M.Define(T)
             return pvm.once(result_expr(Tr.ExprSwitch(Tr.ExprTyped(default.ty), value.expr, arms, default_body.stmts, default.expr), default.ty, issues))
         end,
         [Tr.ExprClosure] = function(self, ctx) local ty = Ty.TClosure(self.params, self.result); return pvm.once(result_expr(pvm.with(self, { h = Tr.ExprTyped(ty) }), ty, {})) end,
+        [Tr.ExprNull] = function(self, ctx)
+            local issues = {}
+            if pvm.classof(self.elem) ~= Ty.TPtr then
+                issues[#issues + 1] = Tr.TypeIssueExpected("null", Ty.TPtr(Ty.TVoid), self.elem)
+            end
+            return pvm.once(result_expr(Tr.ExprNull(Tr.ExprTyped(self.elem), self.elem), self.elem, issues))
+        end,
+        [Tr.ExprSizeOf] = function(self, ctx)
+            return pvm.once(result_expr(Tr.ExprSizeOf(Tr.ExprTyped(index_ty()), self.ty), index_ty(), {}))
+        end,
+        [Tr.ExprAlignOf] = function(self, ctx)
+            return pvm.once(result_expr(Tr.ExprAlignOf(Tr.ExprTyped(index_ty()), self.ty), index_ty(), {}))
+        end,
+        [Tr.ExprIsNull] = function(self, ctx)
+            local value = pvm.one(type_expr(self.value, ctx))
+            local issues = {}; append_all(issues, value.issues)
+            if pvm.classof(value.ty) ~= Ty.TPtr then
+                issues[#issues + 1] = Tr.TypeIssueNotPointer(value.ty)
+            end
+            return pvm.once(result_expr(Tr.ExprIsNull(Tr.ExprTyped(bool_ty()), value.expr), bool_ty(), issues))
+        end,
         [Tr.ExprSlotValue] = function(self, ctx) return pvm.once(result_expr(Tr.ExprSlotValue(Tr.ExprTyped(self.slot.ty), self.slot), self.slot.ty, {})) end,
         [Tr.ExprUseExprFrag] = function(self, ctx) local ty = void_ty(); return pvm.once(result_expr(pvm.with(self, { h = Tr.ExprTyped(ty) }), ty, {})) end,
     }, { args_cache = "last" })
@@ -717,6 +738,9 @@ function M.Define(T)
             return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtSwitch(Tr.StmtSurface, value.expr, arms, {}, default.stmts) }, issues))
         end,
         [Tr.StmtControl] = function(self, ctx) local region = pvm.one(type_control_stmt_region(self.region, ctx)); return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtControl(Tr.StmtSurface, region.region) }, region.issues)) end,
+        [Tr.StmtTrap] = function(self, ctx)
+            return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtTrap(Tr.StmtTyped(void_ty())) }, {}))
+        end,
         [Tr.StmtUseRegionSlot] = function(self, ctx) return pvm.once(Tr.TypeStmtResult(ctx, { pvm.with(self, { h = Tr.StmtSurface }) }, {})) end,
         [Tr.StmtUseRegionFrag] = function(self, ctx) return pvm.once(Tr.TypeStmtResult(ctx, { pvm.with(self, { h = Tr.StmtSurface }) }, {})) end,
     }, { args_cache = "last" })

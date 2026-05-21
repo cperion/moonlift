@@ -1247,6 +1247,22 @@ function M.Define(T)
             cmds[#cmds + 1] = Back.CmdAtomicCas(dst, scalar, address_from_ptr(addr.value, zero), expected.value, replacement.value, memory_info("tree:atomic:cas:" .. tostring(dst.text), Back.BackAccessReadWrite), atomic_ordering(self.ordering))
             return pvm.once(Tr.TreeBackExprValue(env2, cmds, dst, scalar))
         end,
+        [Tr.ExprNull] = function(self, env)
+            local ty = expr_ty(self)
+            local scalar = back_scalar(ty)
+            local env2, dst = env_next_value(env, "v")
+            return pvm.once(Tr.TreeBackExprValue(env2, { Back.CmdConst(dst, scalar, Back.BackLitNull) }, dst, scalar))
+        end,
+        [Tr.ExprIsNull] = function(self, env)
+            local value_env = pvm.one(expr_to_back(self.value, env))
+            local env2, dst = env_next_value(value_env.env, "b")
+            local _, zero_dst = env_next_value(env2, "z")
+            local zero_cmds = { Back.CmdConst(zero_dst, Back.BackIndex, Back.BackLitInt("0")) }
+            local cmds = pvm.cmds(value_env.cmds, zero_cmds, {
+                Back.CmdCompare(dst, Back.BackIcmpEq, Back.BackBool, value_env.dst, zero_dst)
+            })
+            return pvm.once(Tr.TreeBackExprValue(value_env.env, cmds, dst, Back.BackBool))
+        end,
         [Tr.ExprSlotValue] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "open expr slot reached backend; run open_expand/open_validate before lowering")) end,
         [Tr.ExprUseExprFrag] = function(_, env) return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "expr fragment use reached backend; run open_expand before lowering")) end,
     }, { args_cache = "last" })
@@ -2119,6 +2135,9 @@ function M.Define(T)
         [Tr.StmtYieldVoid] = function() lowering_unsupported("yield statement reached function-body lowerer; control expressions must lower yields") end,
         [Tr.StmtYieldValue] = function() lowering_unsupported("yield value reached function-body lowerer; control expressions must lower yields") end,
         [Tr.StmtControl] = function(self, env) return pvm.once(control_api.stmt_region_to_back:one_uncached(self.region, env)) end,
+        [Tr.StmtTrap] = function(_, env)
+            return pvm.once(Tr.TreeBackStmtResult(env, { Back.CmdTrap }, Back.BackTerminates))
+        end,
         [Tr.StmtUseRegionSlot] = function(_, env) return pvm.once(Tr.TreeBackStmtResult(env, {}, Back.BackFallsThrough)) end,
         [Tr.StmtUseRegionFrag] = function(_, env) return pvm.once(Tr.TreeBackStmtResult(env, {}, Back.BackFallsThrough)) end,
     }, { args_cache = "last" })

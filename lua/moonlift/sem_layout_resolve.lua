@@ -260,6 +260,26 @@ function M.Define(T)
         [Tr.ExprAtomicLoad] = function(self, env) return pvm.once(pvm.with(self, { addr = one(resolve_expr, self.addr, env) })) end,
         [Tr.ExprAtomicRmw] = function(self, env) return pvm.once(pvm.with(self, { addr = one(resolve_expr, self.addr, env), value = one(resolve_expr, self.value, env) })) end,
         [Tr.ExprAtomicCas] = function(self, env) return pvm.once(pvm.with(self, { addr = one(resolve_expr, self.addr, env), expected = one(resolve_expr, self.expected, env), replacement = one(resolve_expr, self.replacement, env) })) end,
+        [Tr.ExprSizeOf] = function(self, env)
+            local layout_api = require("moonlift.type_size_align").Define(T)
+            local result = layout_api.result(self.ty, env)
+            if pvm.classof(result) == Ty.TypeMemLayoutKnown then
+                local size = tostring(result.layout.size)
+                return pvm.once(Tr.ExprLit(Tr.ExprTyped(index_ty()), C.LitInt(size)))
+            end
+            return pvm.once(Tr.ExprLit(Tr.ExprTyped(index_ty()), C.LitInt("0")))
+        end,
+        [Tr.ExprAlignOf] = function(self, env)
+            local layout_api = require("moonlift.type_size_align").Define(T)
+            local result = layout_api.result(self.ty, env)
+            if pvm.classof(result) == Ty.TypeMemLayoutKnown then
+                local align = tostring(result.layout.align)
+                return pvm.once(Tr.ExprLit(Tr.ExprTyped(index_ty()), C.LitInt(align)))
+            end
+            return pvm.once(Tr.ExprLit(Tr.ExprTyped(index_ty()), C.LitInt("1")))
+        end,
+        [Tr.ExprNull] = function(self) return pvm.once(self) end,
+        [Tr.ExprIsNull] = function(self, env) return pvm.once(pvm.with(self, { value = one(resolve_expr, self.value, env) })) end,
         [Tr.ExprSlotValue] = function(self) return pvm.once(self) end,
         [Tr.ExprUseExprFrag] = function(self, env) return pvm.once(pvm.with(self, { args = map_exprs(self.args, env) })) end,
     }, { args_cache = "last" })
@@ -307,6 +327,7 @@ function M.Define(T)
         [Tr.StmtReturnVoid] = function(self) return pvm.once(self) end,
         [Tr.StmtReturnValue] = function(self, env) return pvm.once(pvm.with(self, { value = one(resolve_expr, self.value, env) })) end,
         [Tr.StmtControl] = function(self, env) return pvm.once(pvm.with(self, { region = one(resolve_control_stmt_region, self.region, env) })) end,
+        [Tr.StmtTrap] = function(self) return pvm.once(self) end,
         [Tr.StmtUseRegionSlot] = function(self) return pvm.once(self) end,
         [Tr.StmtUseRegionFrag] = function(self, env) return pvm.once(pvm.with(self, { args = map_exprs(self.args, env) })) end,
     }, { args_cache = "last" })

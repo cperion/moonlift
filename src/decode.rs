@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::wire_tags::{WireTag, TAG_SLOTS};
 use crate::{BackScalar, MoonliftError};
 use cranelift_codegen::ir::condcodes::{FloatCC, IntCC};
@@ -10,7 +12,6 @@ use cranelift_codegen::Context;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Switch};
 use cranelift_module::{DataDescription, DataId, FuncId, Linkage, Module};
 use cranelift_codegen::ir::{FuncRef, GlobalValue};
-use std::collections::HashMap;
 
 fn read_u32(buf: &[u8], pos: &mut usize) -> Result<u32, MoonliftError> {
     if *pos + 4 > buf.len() {
@@ -313,6 +314,22 @@ struct FuncRefs {
     sigs: HashMap<u32, Signature>,
 }
 
+/// Create a FuncRef for a LibCall by importing the signature and function into the builder.
+fn libcall_funcref(bctx: &mut FunctionBuilder, libcall: cranelift_codegen::ir::LibCall, sig_params: Vec<Type>, sig_returns: Vec<Type>) -> FuncRef {
+    use cranelift_codegen::ir::ExtFuncData;
+    let mut sig = cranelift_codegen::ir::Signature::new(bctx.func.signature.call_conv);
+    for t in sig_params { sig.params.push(AbiParam::new(t)); }
+    for t in sig_returns { sig.returns.push(AbiParam::new(t)); }
+    let sig_ref = bctx.import_signature(sig);
+    let ext = ExtFuncData {
+        name: cranelift_codegen::ir::ExternalName::LibCall(libcall),
+        signature: sig_ref,
+        colocated: false,
+        patchable: false,
+    };
+    bctx.import_function(ext)
+}
+
 fn precompute_refs(f: &mut cranelift_codegen::ir::Function, module: &mut impl Module, state: &ModuleState) -> FuncRefs {
     let mut fr = HashMap::new();
     let mut er = HashMap::new();
@@ -598,9 +615,42 @@ fn decode_body(buf: &[u8], ptr_ty: Type, ctx: &mut BodyCtx<'_>, refs: &FuncRefs)
             t if t == WireTag::Alias as u32 => { let v = ctx.val(s[1])?; ctx.bind(s[0], v)?; }
             t if t == WireTag::BoolNot as u32 => { let v = ctx.val(s[1])?; let cond = ctx.builder.ins().icmp_imm(IntCC::Equal, v, 0); let bv = bfc(&mut ctx.builder, cond); ctx.bind(s[0], bv)?; }
 
-            // Memcpy / Memset — no-ops for now (need proper Cranelift call_memcpy)
-            t if t == WireTag::Memcpy as u32 => { /* no-op */ }
-            t if t == WireTag::Memset as u32 => { /* no-op */ }
+            // Memcpy: 3 slots [dst_ptr, src_ptr, len] — all inputs, side-effect only
+            // Uses LibCall::Memcpy which Cranelift resolves to libc memcpy (or JIT symbol override)
+            t if t == WireTag::Memcpy as u32 => {
+                let dst = ctx.val(s[0])?;
+                let src = ctx.val(s[1])?;
+                let len = ctx.val(s[2])?;
+                let ptr_ty = types::I64;
+                let fr = libcall_funcref(&mut ctx.builder, cranelift_codegen::ir::LibCall::Memcpy,
+                    vec![ptr_ty, ptr_ty, ptr_ty], vec![ptr_ty]);
+                ctx.builder.ins().call(fr, &[dst, src, len]);
+            }
+            // Memset: 3 slots [dst_ptr, byte_val, len] — all inputs
+            // byte_val may be i8/u8; extend to i32 for the libcall
+            t if t == WireTag::Memset as u32 => {
+                let dst = ctx.val(s[0])?;
+                let byte = ctx.val(s[1])?;
+                let byte_i32 = if ctx.builder.func.dfg.value_type(byte) == types::I8 {
+                    ctx.builder.ins().uextend(types::I32, byte)
+                } else { byte };
+                let len = ctx.val(s[2])?;
+                let ptr_ty = types::I64;
+                let fr = libcall_funcref(&mut ctx.builder, cranelift_codegen::ir::LibCall::Memset,
+                    vec![ptr_ty, types::I32, ptr_ty], vec![ptr_ty]);
+                ctx.builder.ins().call(fr, &[dst, byte_i32, len]);
+            }
+            // Memcmp: 4 slots [dst_out, left, right, len]
+            t if t == WireTag::Memcmp as u32 => {
+                let left = ctx.val(s[1])?;
+                let right = ctx.val(s[2])?;
+                let len = ctx.val(s[3])?;
+                let ptr_ty = types::I64;
+                let fr = libcall_funcref(&mut ctx.builder, cranelift_codegen::ir::LibCall::Memcmp,
+                    vec![ptr_ty, ptr_ty, ptr_ty], vec![types::I32]);
+                let call = ctx.builder.ins().call(fr, &[left, right, len]);
+                ctx.bind(s[0], ctx.builder.inst_results(call)[0])?;
+            }
 
             _ => return Err(MoonliftError(format!("unhandled wire tag {tag}"))),
         }

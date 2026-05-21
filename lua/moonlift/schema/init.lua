@@ -10,7 +10,6 @@ function M.schema(T)
     return A.schema {
         require("moonlift.schema.core")(A),
         require("moonlift.schema.back")(A),
-        require("moonlift.schema.dasm")(A),
         require("moonlift.schema.link")(A),
         require("moonlift.c.c_type")(A),
         require("moonlift.schema.type")(A),

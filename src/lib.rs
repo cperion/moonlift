@@ -12,6 +12,7 @@ use std::sync::{Arc, OnceLock};
 pub mod host_arena;
 pub mod lua_api;
 pub mod ffi;
+pub mod rt;
 pub mod wire_tags;
 pub mod decode;
 

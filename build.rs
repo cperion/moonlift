@@ -85,6 +85,10 @@ fn main() {
     let lua_dir = Path::new("lua");
     let mut modules = Vec::new();
     collect(lua_dir, lua_dir, "lua", &mut modules);
+    let stdlib_dir = Path::new("stdlib");
+    if stdlib_dir.exists() {
+        collect(stdlib_dir, stdlib_dir.parent().unwrap(), "mlua", &mut modules);
+    }
     modules.sort_by(|a, b| a.0.cmp(&b.0));
 
     let mut code = String::new();

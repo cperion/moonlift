@@ -94,6 +94,7 @@ pub enum WireTag {
     Fence = 116,       // (no slots)
     Memcpy = 117,      // [dst_ptr, src_ptr, len]
     Memset = 118,      // [dst_ptr, byte_val, len]
+    Memcmp = 119,      // [dst, left, right, len]
 
     // ── Pointer ────
     PtrAdd = 120,      // [dst, base, offset]
@@ -246,6 +247,7 @@ pub static TAG_SLOTS: [u8; 256] = {
     t[WireTag::Fence as usize] = 0;
     t[WireTag::Memcpy as usize] = 3;
     t[WireTag::Memset as usize] = 3;
+    t[WireTag::Memcmp as usize] = 4;
 
     // Pointer
     t[WireTag::PtrAdd as usize] = 3;

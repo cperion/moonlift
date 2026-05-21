@@ -45,6 +45,11 @@ local TK = {
     view_kw    = 150, noalias_kw = 151, readonly_kw= 152, writeonly_kw=153,
     requires_kw= 154, bounds_kw  = 155, disjoint_kw= 156, len_kw     = 157,
     same_len_kw= 158, window_bounds_kw = 159,
+    sizeof_kw  = 160,
+    alignof_kw = 161,
+    null_kw    = 162,
+    is_null_kw = 163,
+    trap_kw    = 164,
     as_kw      = 170,
     struct_kw  = 180,
     union_kw   = 181,
@@ -73,6 +78,11 @@ local keywords = {
     ["requires"] = TK.requires_kw, ["bounds"]   = TK.bounds_kw,
     ["disjoint"] = TK.disjoint_kw, ["len"]      = TK.len_kw,
     ["same_len"] = TK.same_len_kw, ["window_bounds"] = TK.window_bounds_kw,
+    ["sizeof"]     = TK.sizeof_kw,
+    ["alignof"]    = TK.alignof_kw,
+    ["null"]       = TK.null_kw,
+    ["is_null"]    = TK.is_null_kw,
+    ["trap"]       = TK.trap_kw,
     ["as"]       = TK.as_kw,
     ["struct"]   = TK.struct_kw,
     ["union"]    = TK.union_kw,
@@ -549,6 +559,8 @@ local ident_kw = {
     [TK.noalias_kw]=true, [TK.readonly_kw]=true, [TK.writeonly_kw]=true,
     [TK.requires_kw]=true, [TK.bounds_kw]=true, [TK.disjoint_kw]=true,
     [TK.len_kw]=true, [TK.same_len_kw]=true, [TK.window_bounds_kw]=true, [TK.as_kw]=true,
+    [TK.sizeof_kw]=true, [TK.alignof_kw]=true, [TK.null_kw]=true,
+    [TK.is_null_kw]=true, [TK.trap_kw]=true,
     [TK.struct_kw]=true,
     [TK.union_kw]=true,
     [TK.extern_kw]=true,
@@ -847,6 +859,23 @@ function Parser:nud()
         end
         self.i = self.i + 1; local v = self:parse_expr(0); self:skip_nl(); self:expect(TK.rparen)
         return Tr.ExprLen(Tr.ExprSurface, v)
+    end
+
+    if k == TK.sizeof_kw then
+        self:expect(TK.lparen); self:skip_nl(); local ty = self:parse_type(); self:skip_nl(); self:expect(TK.rparen)
+        return Tr.ExprSizeOf(Tr.ExprSurface, ty)
+    end
+    if k == TK.alignof_kw then
+        self:expect(TK.lparen); self:skip_nl(); local ty = self:parse_type(); self:skip_nl(); self:expect(TK.rparen)
+        return Tr.ExprAlignOf(Tr.ExprSurface, ty)
+    end
+    if k == TK.null_kw then
+        self:expect(TK.lparen); self:skip_nl(); local ty = self:parse_type(); self:skip_nl(); self:expect(TK.rparen)
+        return Tr.ExprNull(Tr.ExprSurface, ty)
+    end
+    if k == TK.is_null_kw then
+        self:expect(TK.lparen); local v = self:parse_expr(0); self:skip_nl(); self:expect(TK.rparen)
+        return Tr.ExprIsNull(Tr.ExprSurface, v)
     end
 
     if k == TK.lparen then local e = self:parse_expr(0); self:skip_nl(); self:expect(TK.rparen); return e end
@@ -1449,6 +1478,10 @@ function Parser:parse_stmt()
     end
 
     if self:accept(TK.block_kw) then return self:parse_stmt_control_after_block() end
+
+    if self:accept(TK.trap_kw) then
+        return Tr.StmtTrap(Tr.StmtSurface)
+    end
 
     -- Expression or assignment
     local e = self:parse_expr(0)

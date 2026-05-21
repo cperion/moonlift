@@ -731,6 +731,26 @@ return function(A)
                 A.field "args" (A.many "MoonTree.Expr"),
                 A.variant_unique,
             },
+            A.variant "ExprNull" {
+                A.field "h" "MoonTree.ExprHeader",
+                A.field "elem" "MoonType.Type",
+                A.variant_unique,
+            },
+            A.variant "ExprSizeOf" {
+                A.field "h" "MoonTree.ExprHeader",
+                A.field "ty" "MoonType.Type",
+                A.variant_unique,
+            },
+            A.variant "ExprAlignOf" {
+                A.field "h" "MoonTree.ExprHeader",
+                A.field "ty" "MoonType.Type",
+                A.variant_unique,
+            },
+            A.variant "ExprIsNull" {
+                A.field "h" "MoonTree.ExprHeader",
+                A.field "value" "MoonTree.Expr",
+                A.variant_unique,
+            },
         },
 
         A.sum "Stmt" {
@@ -837,6 +857,10 @@ return function(A)
                 A.field "args" (A.many "MoonTree.Expr"),
                 A.field "fills" (A.many "MoonOpen.SlotBinding"),
                 A.field "cont_fills" (A.many "MoonOpen.ContBinding"),
+                A.variant_unique,
+            },
+            A.variant "StmtTrap" {
+                A.field "h" "MoonTree.StmtHeader",
                 A.variant_unique,
             },
         },

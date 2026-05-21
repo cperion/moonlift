@@ -35,8 +35,10 @@ pub fn embedded_modules() -> Vec<(&'static str, &'static str)> {
         ("moonlift.c.cpp_expand", include_str!("../lua/moonlift/c/cpp_expand.lua")),
         ("moonlift.c.lower_c", include_str!("../lua/moonlift/c/lower_c.lua")),
         ("moonlift.c.vfs", include_str!("../lua/moonlift/c/vfs.lua")),
+        ("moonlift.chain", include_str!("../lua/moonlift/chain.lua")),
         ("moonlift.closure_convert", include_str!("../lua/moonlift/closure_convert.lua")),
         ("moonlift.context_define_schema", include_str!("../lua/moonlift/context_define_schema.lua")),
+        ("moonlift.control", include_str!("../lua/moonlift/control.lua")),
         ("moonlift.core_operator", include_str!("../lua/moonlift/core_operator.lua")),
         ("moonlift.core_scalar", include_str!("../lua/moonlift/core_scalar.lua")),
         ("moonlift.editor_binding_facts", include_str!("../lua/moonlift/editor_binding_facts.lua")),
@@ -199,5 +201,8 @@ pub fn embedded_modules() -> Vec<(&'static str, &'static str)> {
         ("moonlift.vec_loop_decide", include_str!("../lua/moonlift/vec_loop_decide.lua")),
         ("moonlift.vec_loop_facts", include_str!("../lua/moonlift/vec_loop_facts.lua")),
         ("moonlift.vec_to_back", include_str!("../lua/moonlift/vec_to_back.lua")),
+        ("stdlib.arena", include_str!("../stdlib/arena.mlua")),
+        ("stdlib.memory", include_str!("../stdlib/memory.mlua")),
+        ("stdlib.view", include_str!("../stdlib/view.mlua")),
     ]
 }

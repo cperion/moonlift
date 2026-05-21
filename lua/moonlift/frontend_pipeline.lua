@@ -58,7 +58,9 @@ function M.Define(T)
         local resolved = Layout.module(checked.module, opts.layout_env)
         local program, provenance = Lower.module(resolved)
         if program == nil then error(site .. " lowering failed: tree_to_back produced nil program", 2) end
-        assert_no_cmd_trap(T, program, site)
+        if not _G.MOONLIFT_ALLOW_TRAP then
+            assert_no_cmd_trap(T, program, site)
+        end
         -- Attach provenance map to analysis context for span resolution
         if provenance then
             analysis_ctx.back_provenance = provenance
