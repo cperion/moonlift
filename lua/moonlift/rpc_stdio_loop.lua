@@ -5,6 +5,7 @@ local LspDecode = require("moonlift.rpc_lsp_decode")
 local LspEncode = require("moonlift.rpc_lsp_encode")
 local Workspace = require("moonlift.editor_workspace_apply")
 local OutCommands = require("moonlift.rpc_out_commands")
+local Dap = require("moonlift.dap_server")
 
 local M = {}
 
@@ -48,6 +49,9 @@ function M.run(opts)
     local Out = OutCommands.Define(T)
     local R = T.MoonRpc
 
+    -- Optional DAP handler for shared STDIO loop
+    local dap_handler = opts.dap_handler
+
     local state = opts.state or WorkspaceApply.initial_state()
     local running = true
     while running do
@@ -57,19 +61,27 @@ function M.run(opts)
             break
         end
         local incoming = Json.decode_message(body)
-        local event = Decode.decode(incoming, state)
-        local transition = WorkspaceApply.apply_event(state, event)
-        state = transition.after
-        local commands = Out.commands(transition)
-        for i = 1, #commands do
-            local cmd = commands[i]
-            local cls = pvm.classof(cmd)
-            if cls == R.SendMessage then
-                write_message(output, Encode.encode_outgoing(cmd.outgoing))
-            elseif cls == R.LogMessage then
-                if err then err:write(cmd.level, ": ", cmd.message, "\n") end
-            elseif cmd == R.StopServer or cls == pvm.classof(R.StopServer) then
-                running = false
+        local method = incoming.method or incoming.command or ""
+
+        -- Check if this is a DAP message (if a DAP handler is registered)
+        if dap_handler and Dap.is_dap_method(method) then
+            dap_handler:handle(incoming, output)
+        else
+            -- Existing LSP dispatch
+            local event = Decode.decode(incoming, state)
+            local transition = WorkspaceApply.apply_event(state, event)
+            state = transition.after
+            local commands = Out.commands(transition)
+            for i = 1, #commands do
+                local cmd = commands[i]
+                local cls = pvm.classof(cmd)
+                if cls == R.SendMessage then
+                    write_message(output, Encode.encode_outgoing(cmd.outgoing))
+                elseif cls == R.LogMessage then
+                    if err then err:write(cmd.level, ": ", cmd.message, "\n") end
+                elseif cmd == R.StopServer or cls == pvm.classof(R.StopServer) then
+                    running = false
+                end
             end
         end
     end

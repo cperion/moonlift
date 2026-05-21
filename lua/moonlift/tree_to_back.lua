@@ -2166,6 +2166,7 @@ function M.Define(T)
         back_scalar = back_scalar,
         const_eval = const_eval_api,
         get_const_env = function() return lower_context.const_env end,
+        get_provenance = function() return lower_context.provenance end,
     })
 
     local function abi_param_scalars(plan)

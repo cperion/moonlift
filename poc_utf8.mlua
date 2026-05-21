@@ -1,0 +1,129 @@
+-- poc_utf8.mlua — Native UTF-8 validator
+-- Single-block state machine. Function params (data, len) are in scope
+-- inside the block; we only pass the changing state (pos, state) as entry params.
+-- Returns: validate_bytes(data: ptr(u8), len: index) -> i32
+--   0 = valid, 1 = invalid
+
+local moon = require("moonlift")
+
+return moon.func [[
+validate_bytes(data: ptr(u8), len: index) -> i32
+    block decode_state(pos: index = 0, state: i32 = 0)
+        if pos >= len then
+            return select(state == 0, 0, 1)
+        end
+
+        let byte: i32 = as(i32, data[pos])
+        let next_pos: index = pos + 1
+
+        switch state do
+        case 0 then
+            if byte < 128 then
+                jump decode_state(pos = next_pos, state = 0)
+            end
+            if byte < 192 then
+                return 1
+            end
+            if byte < 224 then
+                if byte < 194 then
+                    return 1
+                end
+                jump decode_state(pos = next_pos, state = 1)
+            end
+            if byte < 240 then
+                jump decode_state(pos = next_pos, state = 2)
+            end
+            if byte < 248 then
+                jump decode_state(pos = next_pos, state = 3)
+            end
+            return 1
+
+        case 1 then
+            if byte < 128 then
+                return 1
+            end
+            if byte >= 192 then
+                return 1
+            end
+            jump decode_state(pos = next_pos, state = 0)
+
+        case 2 then
+            if byte < 128 then
+                return 1
+            end
+            if byte >= 192 then
+                return 1
+            end
+            jump decode_state(pos = next_pos, state = 4)
+
+        case 3 then
+            if byte < 128 then
+                return 1
+            end
+            if byte >= 192 then
+                return 1
+            end
+            jump decode_state(pos = next_pos, state = 5)
+
+        case 4 then
+            if byte < 128 then
+                return 1
+            end
+            if byte >= 192 then
+                return 1
+            end
+            let start_byte: i32 = as(i32, data[pos - 2])
+            if start_byte == 224 then
+                let first_cont: i32 = as(i32, data[pos - 1])
+                if first_cont < 160 then
+                    return 1
+                end
+            end
+            if start_byte == 237 then
+                let first_cont: i32 = as(i32, data[pos - 1])
+                if first_cont > 159 then
+                    return 1
+                end
+            end
+            jump decode_state(pos = next_pos, state = 0)
+
+        case 5 then
+            if byte < 128 then
+                return 1
+            end
+            if byte >= 192 then
+                return 1
+            end
+            jump decode_state(pos = next_pos, state = 6)
+
+        case 6 then
+            if byte < 128 then
+                return 1
+            end
+            if byte >= 192 then
+                return 1
+            end
+            let start_byte: i32 = as(i32, data[pos - 3])
+            if start_byte == 240 then
+                let first_cont: i32 = as(i32, data[pos - 2])
+                if first_cont < 144 then
+                    return 1
+                end
+            end
+            if start_byte == 244 then
+                let first_cont: i32 = as(i32, data[pos - 2])
+                if first_cont > 143 then
+                    return 1
+                end
+            end
+            if start_byte > 244 then
+                return 1
+            end
+            jump decode_state(pos = next_pos, state = 0)
+
+        default then
+            return 1
+        end
+    end
+end
+]]

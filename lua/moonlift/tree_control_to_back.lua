@@ -121,11 +121,21 @@ function M.Define(T, base)
     local function declare_blocks(cmds, records, exit_block, exit_value, exit_scalar)
         for i = 1, #records do
             cmds[#cmds + 1] = Back.CmdCreateBlock(records[i].block)
+            local provenance = base.get_provenance()
+            if provenance then
+                provenance:record(#cmds, #cmds, nil, nil,
+                    "block:" .. tostring(records[i].label.name))
+            end
             for j = 1, #records[i].params do
                 cmds[#cmds + 1] = Back.CmdAppendBlockParam(records[i].block, records[i].params[j].value, shape_scalar(records[i].params[j].scalar))
             end
         end
         cmds[#cmds + 1] = Back.CmdCreateBlock(exit_block)
+        local provenance = base.get_provenance()
+        if provenance then
+            provenance:record(#cmds, #cmds, nil, nil,
+                "block:" .. tostring(exit_block.text))
+        end
         if exit_value ~= nil then
             cmds[#cmds + 1] = Back.CmdAppendBlockParam(exit_block, exit_value, shape_scalar(exit_scalar))
         end
@@ -372,6 +382,11 @@ function M.Define(T, base)
         local outside_locals = env.locals
         for i = 1, #records do
             cmds[#cmds + 1] = Back.CmdSwitchToBlock(records[i].block)
+            local provenance = base.get_provenance()
+            if provenance then
+                provenance:record(#cmds, #cmds, nil, nil,
+                    "switch:" .. tostring(records[i].label.name))
+            end
             local start = add_param_locals(current, outside_locals, records[i].params)
             local body_env, body_cmds, flow = lower_body(records[i].body, start, ctx)
             append_all(cmds, body_cmds)
