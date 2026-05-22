@@ -10,14 +10,13 @@ for k, v in pairs(const.Err) do I["ERR_" .. k] = moon.int(v) end
 for k, v in pairs(const.TM) do I["TM_" .. k] = moon.int(v) end
 
 -- table_raw_get: direct array or hash lookup
-local table_raw_get = host.region { TAG_NUM = I.TAG_NUM, TAG_NIL = I.TAG_NIL } [[
+local table_raw_get = host.region { TAG_INTEGER = I.TAG_INTEGER, TAG_NIL = I.TAG_NIL } [[
 region table_raw_get(t: ptr(Table), key: Value; hit: cont(value: Value), miss: cont())
 entry start()
-    -- Try array part first
-    if key.tag == @{TAG_NUM} and t.array_len > 0 then
-        let x: f64 = as(f64, key.bits)
-        let int_part: i64 = as(i64, x)
-        if as(f64, int_part) == x and int_part >= 1 then
+    -- Try array part first (Lua 5.5 integer keys address the array part)
+    if key.tag == @{TAG_INTEGER} and t.array_len > 0 then
+        let int_part: i64 = as(i64, key.bits)
+        if int_part >= 1 then
             let idx: index = as(index, int_part)
             if idx <= t.array_len then
                 let v: Value = t.array[idx - 1]
@@ -53,15 +52,14 @@ end
 ]]
 
 -- table_raw_set: direct array or hash store
-local table_raw_set = host.region { TAG_NUM = I.TAG_NUM, TAG_NIL = I.TAG_NIL, ERR_INDEX = I.ERR_INDEX } [[
+local table_raw_set = host.region { TAG_INTEGER = I.TAG_INTEGER, TAG_NIL = I.TAG_NIL, ERR_INDEX = I.ERR_INDEX } [[
 region table_raw_set(L: ptr(LuaThread), t: ptr(Table), key: Value, value: Value;
                      stored: cont(), resized: cont(), error: cont(code: i32), oom: cont())
 entry start()
-    -- Try array part first
-    if key.tag == @{TAG_NUM} and t.array_len > 0 then
-        let x: f64 = as(f64, key.bits)
-        let int_part: i64 = as(i64, x)
-        if as(f64, int_part) == x and int_part >= 1 then
+    -- Try array part first (Lua 5.5 integer keys address the array part)
+    if key.tag == @{TAG_INTEGER} and t.array_len > 0 then
+        let int_part: i64 = as(i64, key.bits)
+        if int_part >= 1 then
             let idx: index = as(index, int_part)
             if idx <= t.array_len then
                 t.array[idx - 1] = value

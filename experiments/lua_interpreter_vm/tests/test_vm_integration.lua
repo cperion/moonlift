@@ -1,7 +1,11 @@
 -- VM region composition test
 -- Workaround: pass frames/stack as direct params (field access bug in emit)
 
+package.path = "./lua/?.lua;./lua/?/init.lua;" .. package.path
+
 local moon = require("moonlift")
+local vm = require("experiments.lua_interpreter_vm.src.init")
+local const = vm.const
 
 -- Region: takes frames+stack directly, not through L.frames/L.stack
 local vm_run = moon.region [[
@@ -13,10 +17,10 @@ entry start()
     let dst: u16 = inst.a
     let kidx: u32 = inst.bx
     switch op do
-    case 1 then  -- LOADK
+    case 3 then  -- LOADK
         stack[as(index, dst)] = consts[kidx]
         jump ok(nres = 1)
-    case 30 then  -- RETURN
+    case 70 then  -- RETURN
         jump ok(nres = 1)
     default then
         jump err(code = 6)

@@ -1,4 +1,4 @@
--- Lua Interpreter VM — Metamethod regions
+-- Lua Interpreter VM — Metamethod regions (Lua 5.5)
 
 local moon = require("moonlift")
 local host = require("moonlift.host")
@@ -60,15 +60,21 @@ end
 end
 ]]
 
--- binop_dispatch: check if both operands are numbers (fast path), else metamethod
-local binop_dispatch = host.region { TAG_NUM = I.TAG_NUM } [[
+-- binop_dispatch: check integer, then float, then metamethod
+local binop_dispatch = host.region {
+    TAG_INTEGER = I.TAG_INTEGER, TAG_NUM = I.TAG_NUM,
+} [[
 region binop_dispatch(L: ptr(LuaThread), lhs: Value, rhs: Value, event: u8;
-                      fast_number: cont(x: f64, y: f64),
+                      fast_integer: cont(x: i64, y: i64),
+                      fast_float: cont(x: f64, y: f64),
                       call_mm: cont(mm: Value),
                       type_error: cont())
 entry start()
+    if lhs.tag == @{TAG_INTEGER} and rhs.tag == @{TAG_INTEGER} then
+        jump fast_integer(x = as(i64, lhs.bits), y = as(i64, rhs.bits))
+    end
     if lhs.tag == @{TAG_NUM} and rhs.tag == @{TAG_NUM} then
-        jump fast_number(x = as(f64, lhs.bits), y = as(f64, rhs.bits))
+        jump fast_float(x = as(f64, lhs.bits), y = as(f64, rhs.bits))
     end
     emit get_metamethod(L.global, lhs, event;
         found = left_mm,
@@ -92,14 +98,20 @@ end
 ]]
 
 -- unop_dispatch: same for unary ops
-local unop_dispatch = host.region { TAG_NUM = I.TAG_NUM } [[
+local unop_dispatch = host.region {
+    TAG_INTEGER = I.TAG_INTEGER, TAG_NUM = I.TAG_NUM,
+} [[
 region unop_dispatch(L: ptr(LuaThread), v: Value, event: u8;
-                     fast_number: cont(x: f64),
-                     call_mm: cont(mm: Value),
-                     type_error: cont())
+                      fast_integer: cont(x: i64),
+                      fast_float: cont(x: f64),
+                      call_mm: cont(mm: Value),
+                      type_error: cont())
 entry start()
+    if v.tag == @{TAG_INTEGER} then
+        jump fast_integer(x = as(i64, v.bits))
+    end
     if v.tag == @{TAG_NUM} then
-        jump fast_number(x = as(f64, v.bits))
+        jump fast_float(x = as(f64, v.bits))
     end
     emit get_metamethod(L.global, v, event;
         found = have_mm,

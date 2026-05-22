@@ -1,44 +1,170 @@
--- Lua Interpreter VM — Dispatch instruction region
--- Single region: fetch instruction, switch on opcode, emit handler.
-
--- This is a hand-written region, not generated. If opcodes change,
--- update the switch arms and handler effects here.
+-- Lua Interpreter VM — Dispatch instruction (Lua 5.5)
+-- Uses @{arms...} switch spread + moon.stmts for typed handler bodies.
 
 local moon = require("moonlift")
 local host = require("moonlift.host")
 local const = require("experiments.lua_interpreter_vm.src.constants")
+local handlers = require("experiments.lua_interpreter_vm.src.op_handlers")
 
--- Build values table for all opcode constants
-local I = {}
-for k, v in pairs(const.Op) do I["OP_" .. k] = moon.int(v) end
-for k, v in pairs(const.Err) do I["ERR_" .. k] = moon.int(v) end
-for k, v in pairs(const.Tag) do I["TAG_" .. k] = moon.int(v) end
+-- Effect sets per handler: which continuations the handler uses.
+local E = {}
+local function e(t) return t end
+E.op_move          = e { next = true }
+E.op_loadi         = e { next = true }
+E.op_loadf         = e { next = true }
+E.op_loadk         = e { next = true }
+E.op_loadkx        = e { next = true }
+E.op_loadfalse     = e { next = true }
+E.op_lfalseskip    = e { next = true }
+E.op_loadtrue      = e { next = true }
+E.op_loadnil       = e { next = true }
+E.op_getupval      = e { next = true }
+E.op_setupval      = e { next = true }
+E.op_gettabup      = e { next = true, call = true, yield = true, error = true, oom = true }
+E.op_gettable      = e { next = true, call = true, yield = true, error = true, oom = true }
+E.op_geti          = e { next = true, call = true, yield = true, error = true, oom = true }
+E.op_getfield      = e { next = true, call = true, yield = true, error = true, oom = true }
+E.op_settabup      = e { next = true, call = true, yield = true, error = true, oom = true }
+E.op_settable      = e { next = true, call = true, yield = true, error = true, oom = true }
+E.op_setti         = e { next = true, call = true, yield = true, error = true, oom = true }
+E.op_setfield      = e { next = true, call = true, yield = true, error = true, oom = true }
+E.op_newtable      = e { next = true, oom = true }
+E.op_self          = e { next = true, call = true, yield = true, error = true, oom = true }
+E.op_addi          = e { next = true, error = true }
+E.op_addk          = e { next = true, error = true }
+E.op_subk          = e { next = true, error = true }
+E.op_mulk          = e { next = true, error = true }
+E.op_modk          = e { next = true, error = true }
+E.op_powk          = e { next = true, error = true }
+E.op_divk          = e { next = true, error = true }
+E.op_idivk         = e { next = true, error = true }
+E.op_bandk         = e { next = true, error = true }
+E.op_bork          = e { next = true, error = true }
+E.op_bxork         = e { next = true, error = true }
+E.op_shli          = e { next = true, error = true }
+E.op_shri          = e { next = true, error = true }
+E.op_add           = e { next = true, error = true }
+E.op_sub           = e { next = true, error = true }
+E.op_mul           = e { next = true, error = true }
+E.op_mod           = e { next = true, error = true }
+E.op_pow           = e { next = true, error = true }
+E.op_div           = e { next = true, error = true }
+E.op_idiv          = e { next = true, error = true }
+E.op_band          = e { next = true, error = true }
+E.op_bor           = e { next = true, error = true }
+E.op_bxor          = e { next = true, error = true }
+E.op_shl           = e { next = true, error = true }
+E.op_shr           = e { next = true, error = true }
+E.op_mmbin         = e { call = true, error = true, oom = true }
+E.op_mmbini        = e { call = true, error = true, oom = true }
+E.op_mmbink        = e { call = true, error = true, oom = true }
+E.op_unm           = e { next = true, error = true }
+E.op_bnot          = e { next = true, error = true }
+E.op_not           = e { next = true }
+E.op_len           = e { next = true, call = true, yield = true, error = true, oom = true }
+E.op_concat        = e { next = true, call = true, yield = true, error = true, oom = true }
+E.op_close         = e { next = true, oom = true }
+E.op_tbc           = e { next = true, error = true, oom = true }
+E.op_jmp           = e { jump = true }
+E.op_eq            = e { next = true, jump = true, call = true, error = true, oom = true }
+E.op_lt            = e { next = true, jump = true, call = true, error = true, oom = true }
+E.op_le            = e { next = true, jump = true, call = true, error = true, oom = true }
+E.op_eqk           = e { next = true, error = true, oom = true }
+E.op_eqi           = e { next = true, error = true, oom = true }
+E.op_lti           = e { next = true, error = true, oom = true }
+E.op_lei           = e { next = true, error = true, oom = true }
+E.op_gti           = e { next = true, error = true, oom = true }
+E.op_gei           = e { next = true, error = true, oom = true }
+E.op_test          = e { next = true, jump = true }
+E.op_testset       = e { next = true, jump = true }
+E.op_call          = e { next = true, call = true, yield = true, error = true, oom = true }
+E.op_tailcall      = e { next = true, call = true, yield = true, error = true, oom = true }
+E.op_return        = e { returns = true, finished = true, error = true, oom = true }
+E.op_return0       = e { returns = true, finished = true, error = true, oom = true }
+E.op_return1       = e { returns = true, finished = true, error = true, oom = true }
+E.op_forloop       = e { next = true, jump = true, error = true }
+E.op_forprep       = e { jump = true, error = true }
+E.op_tforprep      = e { jump = true }
+E.op_tforcall      = e { call = true, yield = true, error = true, oom = true }
+E.op_tforloop      = e { next = true, jump = true }
+E.op_setlist       = e { next = true, oom = true }
+E.op_closure       = e { next = true, error = true, oom = true }
+E.op_vararg        = e { next = true, error = true, oom = true }
+E.op_getvarg       = e { next = true, error = true, oom = true }
+E.op_errnnil       = e { next = true, error = true, oom = true }
+E.op_varargprep    = e { next = true, oom = true }
+E.op_extraarg      = e { next = true }
+E.op_loadk_fast    = e { next = true }
+E.op_move_fast     = e { next = true }
+E.op_add_num       = e { next = true }
 
-local QUICKEN_WARMUP = tonumber(os.getenv("MOONLIFT_VM_QUICKEN_WARMUP")) or 64
+-- Map opcode value → handler name
+local by_op = {}
+for k, v in pairs(const.Op) do
+    local lname = k:lower()
+    if lname ~= "loadk_fast" and lname ~= "move_fast" and lname ~= "add_num" then
+        if lname == "seti" then
+            by_op[v] = "op_setti"
+        else
+            by_op[v] = "op_" .. lname
+        end
+    end
+end
+by_op[const.Op.LOADK_FAST] = "op_loadk_fast"
+by_op[const.Op.MOVE_FAST] = "op_move_fast"
+by_op[const.Op.ADD_NUM] = "op_add_num"
 
-local dispatch_instruction = host.region {
-    QUICKEN_WARMUP = moon.int(QUICKEN_WARMUP),
-    OP_MOVE = I.OP_MOVE, OP_LOADK = I.OP_LOADK, OP_LOADBOOL = I.OP_LOADBOOL,
-    OP_LOADNIL = I.OP_LOADNIL, OP_GETUPVAL = I.OP_GETUPVAL,
-    OP_GETGLOBAL = I.OP_GETGLOBAL, OP_GETTABLE = I.OP_GETTABLE,
-    OP_SETGLOBAL = I.OP_SETGLOBAL, OP_SETUPVAL = I.OP_SETUPVAL,
-    OP_SETTABLE = I.OP_SETTABLE, OP_NEWTABLE = I.OP_NEWTABLE,
-    OP_SELF = I.OP_SELF, OP_ADD = I.OP_ADD, OP_SUB = I.OP_SUB,
-    OP_MUL = I.OP_MUL, OP_DIV = I.OP_DIV, OP_MOD = I.OP_MOD,
-    OP_POW = I.OP_POW, OP_UNM = I.OP_UNM, OP_NOT = I.OP_NOT,
-    OP_LEN = I.OP_LEN, OP_CONCAT = I.OP_CONCAT, OP_JMP = I.OP_JMP,
-    OP_EQ = I.OP_EQ, OP_LT = I.OP_LT, OP_LE = I.OP_LE,
-    OP_TEST = I.OP_TEST, OP_TESTSET = I.OP_TESTSET,
-    OP_CALL = I.OP_CALL, OP_TAILCALL = I.OP_TAILCALL,
-    OP_RETURN = I.OP_RETURN, OP_FORLOOP = I.OP_FORLOOP,
-    OP_FORPREP = I.OP_FORPREP, OP_TFORLOOP = I.OP_TFORLOOP,
-    OP_SETLIST = I.OP_SETLIST, OP_CLOSE = I.OP_CLOSE,
-    OP_CLOSURE = I.OP_CLOSURE, OP_VARARG = I.OP_VARARG,
-    OP_LOADK_FAST = I.OP_LOADK_FAST, OP_MOVE_FAST = I.OP_MOVE_FAST,
-    OP_ADD_NUM = I.OP_ADD_NUM,
-    TAG_NUM = I.TAG_NUM,
-    ERR_BAD_OPCODE = I.ERR_BAD_OPCODE,
-} [[
+-- Gather all needed opcodes
+local all_ops = {}
+for op = 0, 84 do
+    local hname = by_op[op]
+    if hname then table.insert(all_ops, { op = op, handler = hname, region = handlers[hname] }) end
+end
+for _, extra in ipairs({ { op = const.Op.LOADK_FAST, h = "op_loadk_fast" },
+                         { op = const.Op.MOVE_FAST,  h = "op_move_fast" },
+                         { op = const.Op.ADD_NUM,    h = "op_add_num" } }) do
+    table.insert(all_ops, { op = extra.op, handler = extra.h, region = handlers[extra.h] })
+end
+
+-- Build switch arms as concrete Moonlift source.  The semantic values are the
+-- typed handler region names; the generated text is only structural glue.
+local function build_continuation_src(eff)
+    local parts = {}
+    if eff.next     then parts[#parts+1] = "next = do_next" end
+    if eff.jump     then parts[#parts+1] = "do_jump = forward_jump" end
+    if eff.call     then parts[#parts+1] = "enter_lua = dispatch_lua, enter_native = dispatch_native" end
+    if eff.yield    then parts[#parts+1] = "yielded = dispatch_yielded" end
+    if eff.error    then parts[#parts+1] = "error = dispatch_error" end
+    if eff.oom      then parts[#parts+1] = "oom = dispatch_oom" end
+    if eff.returns  then parts[#parts+1] = "resume_parent = dispatch_resume" end
+    if eff.finished then parts[#parts+1] = "finished = dispatch_finished" end
+    return table.concat(parts, ",\n            ")
+end
+
+local function make_arm_src(entry, eff)
+    local conts = build_continuation_src(eff)
+    return string.format([[
+    case %d then
+        emit %s(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx;
+            %s)
+]], entry.op, entry.handler, conts)
+end
+
+local dispatch_arm_src = {}
+for _, entry in ipairs(all_ops) do
+    local eff = E[entry.handler] or { next = true, error = true, oom = true }
+    dispatch_arm_src[#dispatch_arm_src + 1] = make_arm_src(entry, eff)
+end
+
+-- Build values table with ALL needed constants
+local VALS = {}
+for k, v in pairs(const.Tag) do VALS["TAG_" .. k] = moon.int(v) end
+for k, v in pairs(const.Err) do VALS["ERR_" .. k] = moon.int(v) end
+for k, v in pairs(const.Op) do VALS["OP_" .. k] = moon.int(v) end
+for k, v in pairs(const.Resume) do VALS["RESUME_" .. k] = moon.int(v) end
+for k, v in pairs(const.ProtoFlag) do VALS["PF_" .. k] = moon.int(v) end
+
+local dispatch_src = [[
 region dispatch_instruction(
     L: ptr(LuaThread),
     cur_frame: ptr(Frame),
@@ -63,151 +189,11 @@ entry decode()
     let bx: u32 = instr.bx
     let sbx: i32 = instr.sbx
     switch instr.op do
-    case 0 then
-        let ip_move: ptr(Instr) = cl.proto.code + cur_pc
-        if ip_move.sbx <= 0 then
-            ip_move.sbx = @{QUICKEN_WARMUP}
-        else
-            if ip_move.sbx == 1 then
-                ip_move.op = as(u16, @{OP_MOVE_FAST})
-                ip_move.sbx = -1
-            else
-                if ip_move.sbx > 1 then
-                    ip_move.sbx = ip_move.sbx - 1
-                end
-            end
-        end
-        emit op_move(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx; next = do_next)
-    case 1 then
-        let ip_loadk: ptr(Instr) = cl.proto.code + cur_pc
-        if ip_loadk.sbx <= 0 then
-            ip_loadk.sbx = @{QUICKEN_WARMUP}
-        else
-            if ip_loadk.sbx == 1 then
-                ip_loadk.op = as(u16, @{OP_LOADK_FAST})
-                ip_loadk.sbx = -1
-            else
-                if ip_loadk.sbx > 1 then
-                    ip_loadk.sbx = ip_loadk.sbx - 1
-                end
-            end
-        end
-        emit op_loadk(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx; next = do_next)
-    case 2 then
-        emit op_loadbool(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx; next = do_next)
-    case 3 then
-        emit op_loadnil(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx; next = do_next)
-    case 4 then
-        emit op_getupval(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx; next = do_next)
-    case 5 then
-        emit op_getglobal(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx; next = do_next, enter_lua = dispatch_lua, enter_native = dispatch_native, yielded = dispatch_yielded, error = dispatch_error, oom = dispatch_oom)
-    case 6 then
-        emit op_gettable(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx; next = do_next, enter_lua = dispatch_lua, enter_native = dispatch_native, yielded = dispatch_yielded, error = dispatch_error, oom = dispatch_oom)
-    case 7 then
-        emit op_setglobal(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx; next = do_next, enter_lua = dispatch_lua, enter_native = dispatch_native, yielded = dispatch_yielded, error = dispatch_error, oom = dispatch_oom)
-    case 8 then
-        emit op_setupval(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx; next = do_next)
-    case 9 then
-        emit op_settable(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx; next = do_next, enter_lua = dispatch_lua, enter_native = dispatch_native, yielded = dispatch_yielded, error = dispatch_error, oom = dispatch_oom)
-    case 10 then
-        emit op_newtable(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx; next = do_next, oom = dispatch_oom)
-    case 11 then
-        emit op_self(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx; next = do_next, enter_lua = dispatch_lua, enter_native = dispatch_native, yielded = dispatch_yielded, error = dispatch_error, oom = dispatch_oom)
-    case 12 then
-        let ip_add: ptr(Instr) = cl.proto.code + cur_pc
-        let lhs_obs: Value = L.stack[cur_base + as(index, b)]
-        let rhs_obs: Value = L.stack[cur_base + as(index, c)]
-        if ip_add.sbx <= 0 then
-            ip_add.sbx = @{QUICKEN_WARMUP}
-        else
-            if ip_add.sbx == 1 then
-                if lhs_obs.tag == @{TAG_NUM} and rhs_obs.tag == @{TAG_NUM} then
-                    ip_add.op = as(u16, @{OP_ADD_NUM})
-                    ip_add.sbx = -1
-                else
-                    ip_add.sbx = @{QUICKEN_WARMUP}
-                end
-            else
-                if ip_add.sbx > 1 then
-                    ip_add.sbx = ip_add.sbx - 1
-                end
-            end
-        end
-        emit op_add(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx; next = do_next, enter_lua = dispatch_lua, enter_native = dispatch_native, yielded = dispatch_yielded, error = dispatch_error)
-    case 13 then
-        emit op_sub(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx; next = do_next, enter_lua = dispatch_lua, enter_native = dispatch_native, yielded = dispatch_yielded, error = dispatch_error)
-    case 14 then
-        emit op_mul(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx; next = do_next, enter_lua = dispatch_lua, enter_native = dispatch_native, yielded = dispatch_yielded, error = dispatch_error)
-    case 15 then
-        emit op_div(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx; next = do_next, enter_lua = dispatch_lua, enter_native = dispatch_native, yielded = dispatch_yielded, error = dispatch_error)
-    case 16 then
-        emit op_mod(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx; next = do_next, enter_lua = dispatch_lua, enter_native = dispatch_native, yielded = dispatch_yielded, error = dispatch_error)
-    case 17 then
-        emit op_pow(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx; next = do_next, enter_lua = dispatch_lua, enter_native = dispatch_native, yielded = dispatch_yielded, error = dispatch_error)
-    case 18 then
-        emit op_unm(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx; next = do_next, enter_lua = dispatch_lua, enter_native = dispatch_native, yielded = dispatch_yielded, error = dispatch_error)
-    case 19 then
-        emit op_not(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx; next = do_next)
-    case 20 then
-        emit op_len(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx; next = do_next, enter_lua = dispatch_lua, enter_native = dispatch_native, yielded = dispatch_yielded, error = dispatch_error, oom = dispatch_oom)
-    case 21 then
-        emit op_concat(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx; next = do_next, enter_lua = dispatch_lua, enter_native = dispatch_native, yielded = dispatch_yielded, error = dispatch_error, oom = dispatch_oom)
-    case 22 then
-        emit op_jmp(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx; do_jump = forward_jump)
-    case 23 then
-        emit op_eq(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx; next = do_next, do_jump = forward_jump, enter_lua = dispatch_lua, enter_native = dispatch_native, yielded = dispatch_yielded, error = dispatch_error, oom = dispatch_oom)
-    case 24 then
-        emit op_lt(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx; next = do_next, do_jump = forward_jump, enter_lua = dispatch_lua, enter_native = dispatch_native, yielded = dispatch_yielded, error = dispatch_error, oom = dispatch_oom)
-    case 25 then
-        emit op_le(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx; next = do_next, do_jump = forward_jump, enter_lua = dispatch_lua, enter_native = dispatch_native, yielded = dispatch_yielded, error = dispatch_error, oom = dispatch_oom)
-    case 26 then
-        emit op_test(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx; next = do_next, do_jump = forward_jump)
-    case 27 then
-        emit op_testset(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx; next = do_next, do_jump = forward_jump)
-    case 28 then
-        emit op_call(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx; next = do_next, enter_lua = dispatch_lua, enter_native = dispatch_native, yielded = dispatch_yielded, error = dispatch_error, oom = dispatch_oom)
-    case 29 then
-        emit op_tailcall(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx; next = do_next, enter_lua = dispatch_lua, enter_native = dispatch_native, yielded = dispatch_yielded, error = dispatch_error, oom = dispatch_oom)
-    case 30 then
-        emit op_return(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx; resume_parent = dispatch_resume, finished = dispatch_finished, error = dispatch_error, oom = dispatch_oom)
-    case 31 then
-        emit op_forloop(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx; next = do_next, do_jump = forward_jump, error = dispatch_error)
-    case 32 then
-        emit op_forprep(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx; do_jump = forward_jump, error = dispatch_error)
-    case 33 then
-        emit op_tforloop(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx; next = do_next, do_jump = forward_jump, enter_lua = dispatch_lua, enter_native = dispatch_native, yielded = dispatch_yielded, error = dispatch_error, oom = dispatch_oom)
-    case 34 then
-        emit op_setlist(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx; next = do_next, oom = dispatch_oom)
-    case 35 then
-        emit op_close(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx; next = do_next, oom = dispatch_oom)
-    case 36 then
-        emit op_closure(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx; next = do_next, error = dispatch_error, oom = dispatch_oom)
-    case 37 then
-        emit op_vararg(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx; next = do_next, error = dispatch_error, oom = dispatch_oom)
-    case 100 then
-        let cl_fast: ptr(LClosure) = as(ptr(LClosure), cur_frame.closure.bits)
-        L.stack[cur_base + as(index, a)] = cl_fast.proto.constants[bx]
-        jump next(frame = cur_frame, pc = cur_pc + 1, base = cur_base, top = cur_top)
-    case 101 then
-        L.stack[cur_base + as(index, a)] = L.stack[cur_base + as(index, b)]
-        jump next(frame = cur_frame, pc = cur_pc + 1, base = cur_base, top = cur_top)
-    case 102 then
-        let lhs_fast: Value = L.stack[cur_base + as(index, b)]
-        let rhs_fast: Value = L.stack[cur_base + as(index, c)]
-        if lhs_fast.tag == @{TAG_NUM} and rhs_fast.tag == @{TAG_NUM} then
-            let sum_fast: f64 = as(f64, lhs_fast.bits) + as(f64, rhs_fast.bits)
-            L.stack[cur_base + as(index, a)] = { tag = @{TAG_NUM}, aux = 0, bits = as(u64, sum_fast) }
-            jump next(frame = cur_frame, pc = cur_pc + 1, base = cur_base, top = cur_top)
-        end
-        let ip_addnum: ptr(Instr) = cl.proto.code + cur_pc
-        ip_addnum.op = as(u16, @{OP_ADD})
-        ip_addnum.sbx = @{QUICKEN_WARMUP}
-        emit op_add(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, bx, sbx; next = do_next, enter_lua = dispatch_lua, enter_native = dispatch_native, yielded = dispatch_yielded, error = dispatch_error)
+]] .. table.concat(dispatch_arm_src, "\n") .. [[
     default then
         jump error(code = @{ERR_BAD_OPCODE})
     end
 end
--- Continuation forwarding blocks
 block do_next(frame: ptr(Frame), pc: index, base: index, top: index)
     jump next(frame = frame, pc = pc, base = base, top = top)
 end
@@ -241,54 +227,61 @@ end
 end
 ]]
 
--- opcodes metadata (still useful for other tooling)
-local opcodes = {
-    { name = "MOVE",     mode = "ABC",  handler = "op_move",     effects = {"next"} },
-    { name = "LOADK",    mode = "ABx",  handler = "op_loadk",    effects = {"next"} },
-    { name = "LOADBOOL", mode = "ABC",  handler = "op_loadbool", effects = {"next"} },
-    { name = "LOADNIL",  mode = "ABC",  handler = "op_loadnil",  effects = {"next"} },
-    { name = "GETUPVAL", mode = "ABC",  handler = "op_getupval", effects = {"next"} },
-    { name = "GETGLOBAL",mode = "ABx",  handler = "op_getglobal",effects = {"next", "call", "error", "oom"} },
-    { name = "GETTABLE", mode = "ABC",  handler = "op_gettable", effects = {"next", "call", "yield", "error", "oom"} },
-    { name = "SETGLOBAL",mode = "ABx",  handler = "op_setglobal",effects = {"next", "error", "oom"} },
-    { name = "SETUPVAL", mode = "ABC",  handler = "op_setupval", effects = {"next"} },
-    { name = "SETTABLE", mode = "ABC",  handler = "op_settable", effects = {"next", "call", "yield", "error", "oom"} },
-    { name = "NEWTABLE", mode = "ABC",  handler = "op_newtable", effects = {"next", "oom"} },
-    { name = "SELF",     mode = "ABC",  handler = "op_self",     effects = {"next", "call", "yield", "error", "oom"} },
-    { name = "ADD",      mode = "ABC",  handler = "op_add",      effects = {"next", "call", "yield", "error"} },
-    { name = "SUB",      mode = "ABC",  handler = "op_sub",      effects = {"next", "call", "yield", "error"} },
-    { name = "MUL",      mode = "ABC",  handler = "op_mul",      effects = {"next", "call", "yield", "error"} },
-    { name = "DIV",      mode = "ABC",  handler = "op_div",      effects = {"next", "call", "yield", "error"} },
-    { name = "MOD",      mode = "ABC",  handler = "op_mod",      effects = {"next", "call", "yield", "error"} },
-    { name = "POW",      mode = "ABC",  handler = "op_pow",      effects = {"next", "call", "yield", "error"} },
-    { name = "UNM",      mode = "ABC",  handler = "op_unm",      effects = {"next", "call", "yield", "error"} },
-    { name = "NOT",      mode = "ABC",  handler = "op_not",      effects = {"next"} },
-    { name = "LEN",      mode = "ABC",  handler = "op_len",      effects = {"next", "call", "yield", "error", "oom"} },
-    { name = "CONCAT",   mode = "ABC",  handler = "op_concat",   effects = {"next", "call", "yield", "error", "oom"} },
-    { name = "JMP",      mode = "AsBx", handler = "op_jmp",      effects = {"jump"} },
-    { name = "EQ",       mode = "ABC",  handler = "op_eq",       effects = {"next", "jump", "call", "yield", "error"} },
-    { name = "LT",       mode = "ABC",  handler = "op_lt",       effects = {"next", "jump", "call", "yield", "error"} },
-    { name = "LE",       mode = "ABC",  handler = "op_le",       effects = {"next", "jump", "call", "yield", "error"} },
-    { name = "TEST",     mode = "ABC",  handler = "op_test",     effects = {"next", "jump"} },
-    { name = "TESTSET",  mode = "ABC",  handler = "op_testset",  effects = {"next", "jump"} },
-    { name = "CALL",     mode = "ABC",  handler = "op_call",     effects = {"next", "call", "yield", "error", "oom"} },
-    { name = "TAILCALL", mode = "ABC",  handler = "op_tailcall", effects = {"next", "call", "yield", "error", "oom"} },
-    { name = "RETURN",   mode = "ABC",  handler = "op_return",   effects = {"return", "finished", "error", "oom"} },
-    { name = "FORLOOP",  mode = "AsBx", handler = "op_forloop",  effects = {"next", "jump", "error"} },
-    { name = "FORPREP",  mode = "AsBx", handler = "op_forprep",  effects = {"jump", "error"} },
-    { name = "TFORLOOP", mode = "ABC",  handler = "op_tforloop", effects = {"next", "jump", "call", "yield", "error", "oom"} },
-    { name = "SETLIST",  mode = "ABC",  handler = "op_setlist",  effects = {"next", "oom"} },
-    { name = "CLOSE",    mode = "A",    handler = "op_close",    effects = {"next", "oom"} },
-    { name = "CLOSURE",  mode = "ABx",  handler = "op_closure",  effects = {"next", "oom"} },
-    { name = "VARARG",   mode = "ABC",  handler = "op_vararg",   effects = {"next", "oom"} },
+local dispatch_instruction = host.region(VALS)(dispatch_src)
 
-    -- Quickened/specialized variants.
-    { name = "LOADK_FAST", mode = "ABx", handler = "op_loadk_fast", effects = {"next"} },
-    { name = "MOVE_FAST",  mode = "ABC", handler = "op_move_fast",  effects = {"next"} },
-    { name = "ADD_NUM",    mode = "ABC", handler = "op_add_num",    effects = {"next"} },
-}
+-- Opcode metadata (for tooling, disassembly, etc.)
+local opcodes_meta = {}
+for name, val in pairs(const.Op) do if val <= 84 then
+    local hname = "op_" .. name:lower()
+    if name == "SETI" then hname = "op_setti" end
+    local entry = { name = name, op = val, handler = hname }
+    if name == "MOVE"       then entry.mode = "ABC" elseif name == "LOADI"      then entry.mode = "AsBx"
+    elseif name == "LOADF"   then entry.mode = "AsBx" elseif name == "LOADK"     then entry.mode = "ABx"
+    elseif name == "LOADKX"  then entry.mode = "ABx"  elseif name == "LOADFALSE" then entry.mode = "A"
+    elseif name == "LFALSESKIP" then entry.mode = "A" elseif name == "LOADTRUE" then entry.mode = "A"
+    elseif name == "LOADNIL" then entry.mode = "AB"   elseif name == "GETUPVAL"  then entry.mode = "ABC"
+    elseif name == "SETUPVAL" then entry.mode = "ABC" elseif name == "GETTABUP"  then entry.mode = "ABC"
+    elseif name == "GETTABLE" then entry.mode = "ABC" elseif name == "GETI"      then entry.mode = "ABC"
+    elseif name == "GETFIELD" then entry.mode = "ABC" elseif name == "SETTABUP"  then entry.mode = "ABC"
+    elseif name == "SETTABLE" then entry.mode = "ABC" elseif name == "SETTI"     then entry.mode = "ABC"
+    elseif name == "SETFIELD" then entry.mode = "ABC" elseif name == "NEWTABLE"  then entry.mode = "ABC"
+    elseif name == "SELF"    then entry.mode = "ABC"  elseif name == "ADDI"      then entry.mode = "ABC"
+    elseif name == "ADDK"    then entry.mode = "ABx"  elseif name == "SUBK"      then entry.mode = "ABx"
+    elseif name == "MULK"    then entry.mode = "ABx"  elseif name == "MODK"      then entry.mode = "ABx"
+    elseif name == "POWK"    then entry.mode = "ABx"  elseif name == "DIVK"      then entry.mode = "ABx"
+    elseif name == "IDIVK"   then entry.mode = "ABx"  elseif name == "BANDK"     then entry.mode = "ABx"
+    elseif name == "BORK"    then entry.mode = "ABx"  elseif name == "BXORK"     then entry.mode = "ABx"
+    elseif name == "SHLI"    then entry.mode = "ABC"  elseif name == "SHRI"      then entry.mode = "ABC"
+    elseif name == "ADD"     then entry.mode = "ABC"  elseif name == "SUB"       then entry.mode = "ABC"
+    elseif name == "MUL"     then entry.mode = "ABC"  elseif name == "MOD"       then entry.mode = "ABC"
+    elseif name == "POW"     then entry.mode = "ABC"  elseif name == "DIV"       then entry.mode = "ABC"
+    elseif name == "IDIV"    then entry.mode = "ABC"  elseif name == "BAND"      then entry.mode = "ABC"
+    elseif name == "BOR"     then entry.mode = "ABC"  elseif name == "BXOR"      then entry.mode = "ABC"
+    elseif name == "SHL"     then entry.mode = "ABC"  elseif name == "SHR"       then entry.mode = "ABC"
+    elseif name == "MMBIN"   then entry.mode = "ABC"  elseif name == "MMBINI"    then entry.mode = "ABC"
+    elseif name == "MMBINK"  then entry.mode = "ABx"  elseif name == "UNM"       then entry.mode = "ABC"
+    elseif name == "BNOT"    then entry.mode = "ABC"  elseif name == "NOT"       then entry.mode = "ABC"
+    elseif name == "LEN"     then entry.mode = "ABC"  elseif name == "CONCAT"    then entry.mode = "ABC"
+    elseif name == "CLOSE"   then entry.mode = "A"    elseif name == "TBC"       then entry.mode = "A"
+    elseif name == "JMP"     then entry.mode = "AsBx" elseif name == "EQ"        then entry.mode = "ABC"
+    elseif name == "LT"      then entry.mode = "ABC"  elseif name == "LE"        then entry.mode = "ABC"
+    elseif name == "EQK"     then entry.mode = "ABx"  elseif name == "EQI"       then entry.mode = "AsBx"
+    elseif name == "LTI"     then entry.mode = "AsBx" elseif name == "LEI"       then entry.mode = "AsBx"
+    elseif name == "GTI"     then entry.mode = "AsBx" elseif name == "GEI"       then entry.mode = "AsBx"
+    elseif name == "TEST"    then entry.mode = "ABC"  elseif name == "TESTSET"   then entry.mode = "ABC"
+    elseif name == "CALL"    then entry.mode = "ABC"  elseif name == "TAILCALL"  then entry.mode = "ABC"
+    elseif name == "RETURN"  then entry.mode = "ABC"  elseif name == "RETURN0"   then entry.mode = "A"
+    elseif name == "RETURN1" then entry.mode = "A"    elseif name == "FORLOOP"   then entry.mode = "AsBx"
+    elseif name == "FORPREP" then entry.mode = "AsBx" elseif name == "TFORPREP"  then entry.mode = "AsBx"
+    elseif name == "TFORCALL" then entry.mode = "ABC" elseif name == "TFORLOOP"  then entry.mode = "ABC"
+    elseif name == "SETLIST" then entry.mode = "ABC"  elseif name == "CLOSURE"   then entry.mode = "ABx"
+    elseif name == "VARARG"  then entry.mode = "ABC"  elseif name == "GETVARG"   then entry.mode = "ABC"
+    elseif name == "ERRNNIL" then entry.mode = "AsBx" elseif name == "VARARGPREP" then entry.mode = "A"
+    elseif name == "EXTRAARG" then entry.mode = "Ax"  end
+    opcodes_meta[val] = entry
+end end
 
 return {
     dispatch_instruction = dispatch_instruction,
-    opcodes = opcodes,
+    opcodes = opcodes_meta,
 }

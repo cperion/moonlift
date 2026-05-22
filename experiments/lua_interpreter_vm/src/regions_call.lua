@@ -1,4 +1,4 @@
--- Lua Interpreter VM — Call and return engine
+-- Lua Interpreter VM — Call and return engine (Lua 5.5)
 
 local moon = require("moonlift")
 local host = require("moonlift.host")
@@ -8,14 +8,15 @@ local I = {}
 for k, v in pairs(const.Tag) do I["TAG_" .. k] = moon.int(v) end
 for k, v in pairs(const.Err) do I["ERR_" .. k] = moon.int(v) end
 for k, v in pairs(const.Resume) do I["RESUME_" .. k] = moon.int(v) end
+for k, v in pairs(const.ProtoFlag) do I[k] = moon.int(v) end
 
 -- prepare_call: central call dispatcher
--- Evaluates the function at func_slot, dispatches LClosure/CClosure/metamethod
 local prepare_call = host.region {
     TAG_LCLOSURE = I.TAG_LCLOSURE,
     TAG_CCLOSURE = I.TAG_CCLOSURE,
     ERR_STACK_OVERFLOW = I.ERR_STACK_OVERFLOW,
     ERR_CALL = I.ERR_CALL,
+    PF_VAHID = I.PF_VAHID,
 } [[
 region prepare_call(L: ptr(LuaThread), func_slot: index, nargs: i32, wanted: i32, resume_mode: u16;
                     enter_lua: cont(child: ptr(Frame)),
@@ -30,33 +31,30 @@ entry start()
         let cl: ptr(LClosure) = as(ptr(LClosure), func_val.bits)
         let proto: ptr(Proto) = cl.proto
         let base: index = func_slot + 1
-        let needed: index = base + as(index, proto.maxstack)
-        emit stack_check(L, needed;
-            ok = do_push_lua,
-            grown = do_push_lua,
-            overflow = stack_err,
-            oom = out_of_mem)
+        if as(bool, proto.flag & @{PF_VAHID}) then
+            emit adjust_varargs(L, cl, func_slot, nargs;
+                ok = do_push_lua,
+                oom = out_of_mem)
+        else
+            let needed: index = base + as(index, proto.maxstack)
+            emit stack_check(L, needed;
+                ok = stack_ready,
+                grown = stack_ready,
+                overflow = stack_err,
+                oom = out_of_mem)
+        end
     end
     if func_val.tag == @{TAG_CCLOSURE} then
         let cl: ptr(CClosure) = as(ptr(CClosure), func_val.bits)
         jump enter_native(cl = cl)
     end
-    -- Not a function: try __call metamethod
     jump error(code = @{ERR_CALL})
 end
-block do_push_lua()
-    let func_val: Value = L.stack[func_slot]
-    let cl: ptr(LClosure) = as(ptr(LClosure), func_val.bits)
-    let proto: ptr(Proto) = cl.proto
-    let base: index = func_slot + 1
-    -- Adjust for vararg if needed
-    if as(bool, proto.is_vararg) then
-        emit adjust_varargs(L, cl, func_slot, nargs;
-            ok = push_frame,
-            oom = out_of_mem)
-    else
-        jump push_frame(base = base)
-    end
+block do_push_lua(base: index)
+    jump push_frame(base = base)
+end
+block stack_ready()
+    jump push_frame(base = func_slot + 1)
 end
 block push_frame(base: index)
     let func_val: Value = L.stack[func_slot]
@@ -105,7 +103,9 @@ end
 end
 ]]
 
--- return_from_lua: close upvalues, pop frame, dispatch return
+-- return_from_lua: pop frame and dispatch return.
+-- Keep return payload in entry-scope control; do not rely on block access to
+-- region parameters, which is not a valid Moonlift data path for scalars.
 local return_from_lua = host.region { ERR_RUNTIME = I.ERR_RUNTIME } [[
 region return_from_lua(L: ptr(LuaThread), frame: ptr(Frame), first_result: index, nres: i32;
                        resume_parent: cont(parent: ptr(Frame), pc: index, base: index, top: index),
@@ -114,17 +114,15 @@ region return_from_lua(L: ptr(LuaThread), frame: ptr(Frame), first_result: index
                        error: cont(code: i32),
                        oom: cont())
 entry start()
-    emit close_upvalues(L, frame.base;
-        done = pop_it,
-        oom = out_of_mem)
-end
-block pop_it()
-    emit frame_pop(L;
-        parent = do_return,
-        empty = no_parent)
-end
-block do_return(frame: ptr(Frame))
-    emit handle_return_mode(L, frame, first_result, nres;
+    if L.frame_count == 0 then
+        jump finished(nres = nres)
+    end
+    L.frame_count = L.frame_count - 1
+    if L.frame_count == 0 then
+        jump finished(nres = nres)
+    end
+    let parent: ptr(Frame) = L.frames + (L.frame_count - 1)
+    emit handle_return_mode(L, parent, first_result, nres;
         normal = cont_normal,
         resume_gettable_mm = cont_gettable,
         resume_settable_mm = cont_settable,
@@ -133,6 +131,7 @@ block do_return(frame: ptr(Frame))
         resume_compare_mm = cont_compare,
         resume_concat_mm = cont_concat,
         resume_tforloop = cont_tforloop,
+        resume_tbc_close = cont_tbc_close,
         pcall_success = cont_pcall_ok,
         pcall_failure = cont_pcall_err,
         finished = ret_finished,
@@ -164,6 +163,9 @@ end
 block cont_tforloop(parent: ptr(Frame), pc: index, base: index, top: index)
     jump resume_parent(parent = parent, pc = pc, base = base, top = top)
 end
+block cont_tbc_close(parent: ptr(Frame), pc: index, base: index, top: index)
+    jump resume_parent(parent = parent, pc = pc, base = base, top = top)
+end
 block cont_pcall_ok(parent: ptr(Frame), pc: index, base: index, top: index)
     jump resume_parent(parent = parent, pc = pc, base = base, top = top)
 end
@@ -189,9 +191,9 @@ end
 ]]
 
 -- handle_return_mode: big switch on parent.resume_mode
--- Each resume mode corresponds to a dynamic Lua continuation target
 local handle_return_mode = host.region {
     RESUME_NORMAL = I.RESUME_NORMAL,
+    RESUME_TAILCALL = I.RESUME_TAILCALL,
     RESUME_GETTABLE_MM = I.RESUME_GETTABLE_MM,
     RESUME_SETTABLE_MM = I.RESUME_SETTABLE_MM,
     RESUME_BINOP_MM = I.RESUME_BINOP_MM,
@@ -202,7 +204,7 @@ local handle_return_mode = host.region {
     RESUME_CONCAT_MM = I.RESUME_CONCAT_MM,
     RESUME_TFORLOOP_CALL = I.RESUME_TFORLOOP_CALL,
     RESUME_PCALL = I.RESUME_PCALL,
-    RESUME_TAILCALL = I.RESUME_TAILCALL,
+    RESUME_TBC_CLOSE = I.RESUME_TBC_CLOSE,
     ERR_RUNTIME = I.ERR_RUNTIME,
 } [[
 region handle_return_mode(L: ptr(LuaThread), parent: ptr(Frame), first_result: index, nres: i32;
@@ -214,6 +216,7 @@ region handle_return_mode(L: ptr(LuaThread), parent: ptr(Frame), first_result: i
                           resume_compare_mm: cont(parent: ptr(Frame), pc: index, base: index, top: index),
                           resume_concat_mm: cont(parent: ptr(Frame), pc: index, base: index, top: index),
                           resume_tforloop: cont(parent: ptr(Frame), pc: index, base: index, top: index),
+                          resume_tbc_close: cont(parent: ptr(Frame), pc: index, base: index, top: index),
                           pcall_success: cont(parent: ptr(Frame), pc: index, base: index, top: index),
                           pcall_failure: cont(parent: ptr(Frame), pc: index, base: index, top: index),
                           finished: cont(nres: i32),
@@ -230,8 +233,11 @@ entry start()
         emit adjust_results(L, first_result, nres, parent.wanted, parent.base;
             done = adj_normal,
             oom = hm_oom)
+    case 2 then
+        emit adjust_results(L, first_result, nres, parent.wanted, parent.base;
+            done = adj_normal,
+            oom = hm_oom)
     case 4 then
-        -- Result goes into resume_a register
         L.stack[parent.base + as(index, parent.resume_a)] = L.stack[first_result]
         jump normal(parent = parent, pc = parent.resume_pc, base = parent.base, top = parent.top)
     case 5 then
@@ -252,10 +258,8 @@ entry start()
         jump normal(parent = parent, pc = parent.resume_pc, base = parent.base, top = parent.top)
     case 14 then
         jump normal(parent = parent, pc = parent.resume_pc, base = parent.base, top = parent.top)
-    case 2 then
-        emit adjust_results(L, first_result, nres, parent.wanted, parent.base;
-            done = adj_normal,
-            oom = hm_oom)
+    case 16 then
+        jump resume_tbc_close(parent = parent, pc = parent.resume_pc, base = parent.base, top = parent.top)
     default then
         jump error(code = @{ERR_RUNTIME})
     end

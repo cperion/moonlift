@@ -437,13 +437,128 @@ end
 
 ### The single dispatch rule
 
-Every `moon.XXX` inspects its first argument:
+Every `moon.XXX` is a **chain object** (see `lua/moonlift/chain.lua`). Its
+`__call` dispatches on the type of the first argument:
 
 | Input | Means | Returns |
 |---|---|---|
-| `moon.XXX[[]]` | Pure quote (no `@{}` needed) | Typed ASDL directly |
-| `moon.XXX { string keys }` | Values binder — `@{key}` from table | Quote function `fn(src)` → typed ASDL |
-| `moon.XXX { integer keys }` | Table builder — records from data | Typed ASDL array |
+| `moon.XXX [[src]]` | Pure quote — `@{}` in `src` is an error (no bindings) | Typed ASDL directly |
+| `moon.XXX { string keys }` | Values binder — `@{key}` in the next string resolves from table | Quote closure `fn(src)` |
+| `moon.XXX { string keys } [[src]]` | Binder + quote — `@{key}` in `src` bound from table | Typed ASDL directly |
+| `moon.XXX { int keys }` | Table builder — records from data | Typed ASDL array |
+| `moon.XXX [[header only]]` | Bodyless decl (`func`/`region`) — `@{}` is an error (no bindings yet) | **Header closure** (callable) |
+| `moon.XXX {b} [[header with @{}]]` | Binder → header — `@{}` in header resolved from `b` | **Header closure** carrying `b` |
+| `header [[body with @{}]]` | Body string — `@{}` resolved from header's accumulated bindings | Typed ASDL directly |
+| `header { more } [[body with @{}]]` | Merge more bindings, then body — `@{}` resolved from merged set | Typed ASDL directly |
+
+### The `chain.lua` monoid — composable call steps
+
+Because every step returns something callable, calls compose left-to-right
+without extra variables. This is the monoid property of `chain.lua`: each
+returned value is either typed ASDL (terminal) or something that continues
+accepting calls.
+
+**`@{}` resolves from the accumulated bindings at each string.**  Any string
+passed to a chain step — whether a header string or a body string — is parsed
+and `@{key}` holes are filled from the bindings table accumulated so far in
+the chain.  Two separate strings in the same chain share the same binding
+scope.
+
+```lua
+-- ① Pure quote — one call, one result
+local add = moon.func [[add(a: i32, b: i32) -> i32
+    return a + b
+end]]
+
+-- ② Binder + quote — {values} then [[src]]
+--    The {values} call returns a closure; [[src]] calls it immediately.
+local add = moon.func { T = moon.i32 } [[
+add(a: @{T}, b: @{T}) -> @{T}
+    return a + b
+end]]
+
+-- ③ Header closure — split declaration from body
+--    moon.func sees a bodyless `func` (no body, no `end`), returns a
+--    header closure instead of ASDL. The closure is then called with
+--    the body string. @{} is NOT available here (no bindings table).
+local header = moon.func [[add(a: i32, b: i32) -> i32]]
+local add    = header [[return a + b end]]
+
+-- The two steps collapse into one expression:
+local add = moon.func [[add(a: i32, b: i32) -> i32]]
+                      [[return a + b end]]
+
+-- ④ Binder → header closure → body  (all three in one expression)
+--    {bindings} seeds the binding scope. Both the header string and the
+--    body string can use @{key} — they share the same accumulated bindings.
+local add = moon.func { T = moon.i32 }
+                      [[add(a: @{T}, b: @{T}) -> @{T}]]   -- @{T} resolved here
+                      [[return a + b end]]                 -- @{T} also available here
+
+-- ⑤ Header closure + extra bindings injected mid-chain
+--    The header itself has no bindings yet (plain [[...]] call), so @{}
+--    would error there. Bindings are supplied on the header closure, and
+--    then @{} in the body string resolves from those bindings.
+local generic_header = moon.func [[add(a: @{T}, b: @{T}) -> @{T}]]
+--                              ^^^ no @{} resolved yet — parsed but slots left open
+
+local add_i32 = generic_header { T = moon.i32 } [[return a + b end]]
+--                             ^^^^^^^^^^^^^^ bindings provided here, @{T} resolved
+local add_f64 = generic_header { T = moon.f64 } [[return a + b end]]
+
+-- ⑥ Table builder — integer-keyed, no quotes involved
+--    moon.params / moon.fields / moon.variants etc. use this path.
+local params = moon.params {
+    { name = "x", type = moon.i32 },
+    { name = "y", type = moon.i32 },
+}
+
+-- ⑦ region follows the same pattern (header → body)
+--    @{} works in both the header and the body; both share the bindings.
+local scan = moon.region { target = moon.i32 }
+                         [[scan(p: ptr(u8), n: i32; hit: cont(pos: i32), miss: cont())]]
+                         [[
+entry loop(i: i32 = 0)
+    if i >= n then jump miss() end
+    if as(i32, p[i]) == @{target} then jump hit(pos = i) end
+    jump loop(i = i + 1)
+end
+end]]
+```
+
+**Why it works.**  `moon.XXX` is a table with `__call`. Calling it with
+`{string keys}` returns a plain Lua `function` that carries the bindings.
+Calling that function with a string resolves `@{key}` holes from those
+bindings.  Calling `moon.XXX` directly with a string (`[[...]]`) or with
+`{int keys}` returns typed ASDL — `@{}` in a bare string with no prior
+bindings table is a parse error.  For `moon.func` and `moon.region`, when
+the parsed result is a *bodyless declaration*, `wrap_fn` returns a
+**header closure** — a table with its own `__call` — instead of typed ASDL.
+That closure carries the accumulated bindings from all `{...}` steps so far.
+Calling the header closure with a body string resolves any `@{key}` in
+that string from the same accumulated bindings, then produces final ASDL.
+Calling it with a `{table}` merges more bindings and returns a new header
+closure.  The chain terminates exactly once, when a fully-resolved ASDL
+value is produced.
+
+The implementation lives entirely in two files:
+- `lua/moonlift/chain.lua` — the generic chain/dispatch machinery
+- `lua/moonlift/host.lua` — all `moon.XXX` instances wired up via `make_quote`
+
+Extending with your own chain:
+
+```lua
+local moon = require("moonlift")
+-- moon.chain is make_chain bound to the default session
+local my_api = moon.chain {
+    name    = "my_api",
+    parse   = function(T, src) ... end,
+    wrap    = function(value, parsed, T, src, bindings) ... end,
+    expand  = function(e, value, env) ... end,  -- for @{} splice support
+    table_fn = function(arr) ... end,            -- for {int-key} builder form
+}
+-- my_api then has the same moon.XXX calling conventions
+```
 
 ### No buildr API, no `function(b) ... end`
 

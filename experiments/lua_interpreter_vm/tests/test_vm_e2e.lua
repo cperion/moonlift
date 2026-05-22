@@ -1,5 +1,6 @@
--- VM end-to-end test: memory via ffi.load(libmoonlift) scratch, construct Proto, run vm_resume
--- Uses the Rust backend's scratch allocator
+-- VM end-to-end test (Lua 5.5): memory via ffi.load(libmoonlift) scratch, construct Proto, run vm_resume
+
+package.path = "./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local ffi = require("ffi")
 local moon = require("moonlift")
@@ -12,7 +13,6 @@ local ok, err = pcall(function()
     libmoon = ffi.load("libmoonlift")
 end)
 if not ok then
-    -- Try alternative paths
     local paths = {"./target/release/libmoonlift.so", "./target/debug/libmoonlift.so"}
     for _, p in ipairs(paths) do
         local ok2 = pcall(function() libmoon = ffi.load(p) end)
@@ -22,30 +22,26 @@ end
 
 if not libmoon then
     print("FAIL: Could not load libmoonlift.so. Build with 'cargo build --release' first.")
-    return nil
+    os.exit(1)
 end
 
 ffi.cdef [[
     void* moonlift_scratch_raw(int slot, int elem_size, int count);
 ]]
-
--- Get scratch function
 local scratch_raw = libmoon.moonlift_scratch_raw
 
--- Build Proto struct layouts (must match products.lua declarations)
--- GCHeader: next:ptr(8) + tt:u8(1) + marked:u8(1) = 16 bytes (with padding)
--- Proto: GCHeader(16) + code:ptr(8) + code_len:index(8) +
---        constants:ptr(8) + constants_len:index(8) +
---        children:ptr(8) + children_len:index(8) +
---        lineinfo:ptr(8) + lineinfo_len:index(8) +
---        locvars:ptr(8) + locvars_len:index(8) +
---        upvals:ptr(8) + upvals_len:index(8) +
---        source:ptr(8) +
---        linedefined:i32(4) + lastlinedefined:i32(4) +
---        numparams:u8(1) + is_vararg:u8(1) + maxstack:u16(2) = 134 bytes
+-- Struct layouts matching products.lua (Lua 5.5)
+-- Instr: op(2)+a(2)+b(2)+c(2)+k(1)+pad(3)+bx(4)+sbx(4) = 20 bytes
+-- LuaThread: added tbc_head: index (8 bytes) at the end
+-- Proto: is_vararg → flag
 
 ffi.cdef [[
     typedef struct { void* next; uint8_t tt; uint8_t marked; } GCHeader;
+    typedef struct {
+        uint16_t op; uint16_t a; uint16_t b; uint16_t c;
+        uint8_t  k;    uint32_t bx; int32_t sbx;
+    } Instr;
+    typedef struct { uint32_t tag; uint32_t aux; uint64_t bits; } Value;
     typedef struct {
         GCHeader gc;
         void* code; uint64_t code_len;
@@ -56,12 +52,8 @@ ffi.cdef [[
         void* upvals; uint64_t upvals_len;
         void* source;
         int32_t linedefined; int32_t lastlinedefined;
-        uint8_t numparams; uint8_t is_vararg; uint16_t maxstack;
+        uint8_t numparams; uint8_t flag; uint16_t maxstack;
     } Proto;
-    typedef struct {
-        uint16_t op; uint16_t a; uint16_t b; uint16_t c; uint32_t bx; int32_t sbx;
-    } Instr;
-    typedef struct { uint32_t tag; uint32_t aux; uint64_t bits; } Value;
     typedef struct {
         void* gc_next; uint8_t tt; uint8_t marked;
         void* env; Proto* proto;
@@ -75,6 +67,7 @@ ffi.cdef [[
         void* global; Value err_value;
         uint8_t hookmask; uint8_t allowhook;
         int32_t hookcount; int32_t basehookcount; Value hook;
+        uint64_t tbc_head;
     } LuaThread;
     typedef struct {
         Value closure; uint64_t base; uint64_t top; uint64_t pc;
@@ -86,14 +79,13 @@ ffi.cdef [[
     typedef struct { void* allocator; Value registry; void* mainthread; } GlobalState;
 ]]
 
--- Allocate memory
 local scratch = function(slot, elem_size, count)
     return ffi.cast("uint8_t*", scratch_raw(slot, elem_size, count))
 end
 
-print("=== Building Proto === ")
+print("=== Building Proto (Lua 5.5) === ")
 
--- Constants: [42.0]
+-- Constants: [42.0] (TAG_NUM = 5 in Lua 5.5)
 local consts_mem = scratch(1, 16, 1)
 local consts = ffi.cast("Value(*)[1]", consts_mem)
 consts[0][0].tag = const.Tag.NUM
@@ -102,20 +94,20 @@ local num_bits = ffi.new("union { double d; uint64_t u; }")
 num_bits.d = 42.0
 consts[0][0].bits = num_bits.u
 
--- Instructions: LOADK R0 K0, RETURN R0 2
-local code_mem = scratch(2, 16, 2)
+-- Instructions: LOADK R0 K0, RETURN R0 2  (Instr = 20 bytes in Lua 5.5)
+local code_mem = scratch(2, 20, 2)
 local code = ffi.cast("Instr(*)[2]", code_mem)
-code[0][0].op = const.Op.LOADK; code[0][0].a = 0; code[0][0].bx = 0
-code[0][1].op = const.Op.RETURN; code[0][1].a = 0; code[0][1].b = 2
+code[0][0].op = const.Op.LOADK; code[0][0].a = 0; code[0][0].bx = 0; code[0][0].k = 0
+code[0][1].op = const.Op.RETURN; code[0][1].a = 0; code[0][1].b = 2; code[0][1].k = 0
 
--- Proto (allocate via big scratch)
+-- Proto
 local proto_mem = scratch(3, 1, 256)
 local proto = ffi.cast("Proto*", proto_mem)
 proto.code = ffi.cast("void*", code)
 proto.code_len = 2
 proto.constants = ffi.cast("void*", consts)
 proto.constants_len = 1
-proto.maxstack = 1; proto.numparams = 0
+proto.maxstack = 1; proto.numparams = 0; proto.flag = 0
 proto.linedefined = -1; proto.lastlinedefined = -1
 
 -- LClosure
@@ -142,7 +134,7 @@ frames[0].closure.bits = ffi.cast("uint64_t", closure)
 frames[0].base = 1; frames[0].top = 1; frames[0].pc = 0
 frames[0].wanted = 1; frames[0].resume_mode = const.Resume.NORMAL
 
--- Global state (minimal)
+-- Global state
 local gstate_mem = scratch(7, 1, 64)
 local gstate = ffi.cast("GlobalState*", gstate_mem)
 
@@ -152,6 +144,7 @@ local thread = ffi.cast("LuaThread*", thread_mem)
 thread.stack = stack; thread.stack_size = STACK_N; thread.top = 1
 thread.frames = frames; thread.frame_count = 1; thread.frame_cap = 8
 thread.global = gstate; thread.status = const.Status.OK
+thread.tbc_head = 0
 
 print("Proto built. Instructions:")
 print("  [0] LOADK  R0 K0")
@@ -183,7 +176,7 @@ end
 local ok, compiled = pcall(function() return runner:compile() end)
 if not ok then
     print("FAIL: wrapper compilation error:", compiled)
-    return
+    os.exit(1)
 end
 
 print("Calling vm_resume...")
@@ -193,8 +186,9 @@ compiled:free()
 print()
 if result >= 0 then
     print("SUCCESS: vm_resume returned", result)
-    print("Stack[1] tag:", stack[1].tag, "(expect", const.Tag.NUM, "= 4)")
-    if stack[1].tag == const.Tag.NUM then
+    local expect_tag = const.Tag.NUM
+    print("Stack[1] tag:", stack[1].tag, "(expect", expect_tag, "= TAG_NUM)")
+    if stack[1].tag == expect_tag then
         local out_bits = ffi.new("union { double d; uint64_t u; }")
         out_bits.u = stack[1].bits
         local val = out_bits.d
@@ -206,5 +200,4 @@ if result >= 0 then
 else
     print("FAIL: vm_resume returned error code", result)
     print("Thread status:", thread.status)
-    print("Thread err_value tag:", thread.err_value.tag)
 end

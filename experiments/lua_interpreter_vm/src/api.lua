@@ -4,10 +4,15 @@
 local moon = require("moonlift")
 local const = require("experiments.lua_interpreter_vm.src.constants")
 
+local VALS = {}
+for k, v in pairs(const.Tag) do VALS["TAG_" .. k] = moon.int(v) end
+for k, v in pairs(const.Status) do VALS["THREAD_" .. k] = moon.int(v) end
+for k, v in pairs(const.Err) do VALS["ERR_" .. k] = moon.int(v) end
+
 -- API functions are Moonlift funcs (not regions) — sealed external boundaries.
 
 -- lua_type_api: return type code for value at index, or -1 for invalid indices.
-local lua_type_api = moon.func [[
+local lua_type_api = moon.func(VALS) [[
 lua_type_api(L: ptr(LuaThread), idx: i32) -> i32
     if idx > 0 then
         let slot: index = as(index, idx - 1)
@@ -24,7 +29,7 @@ end
 ]]
 
 -- lua_settop_api: set top of stack
-local lua_settop_api = moon.func [[
+local lua_settop_api = moon.func(VALS) [[
 lua_settop_api(L: ptr(LuaThread), idx: i32)
     if idx >= 0 then
         if as(index, idx) <= L.stack_size then
@@ -40,7 +45,7 @@ end
 ]]
 
 -- lua_pushvalue_api: push value at index when capacity allows.
-local lua_pushvalue_api = moon.func [[
+local lua_pushvalue_api = moon.func(VALS) [[
 lua_pushvalue_api(L: ptr(LuaThread), idx: i32)
     if L.top >= L.stack_size then return end
     if idx > 0 then
@@ -62,14 +67,14 @@ end
 ]]
 
 -- lua_tolstring_api: direct string access only; coercive formatting belongs to value_to_string.
-local lua_tolstring_api = moon.func [[
+local lua_tolstring_api = moon.func(VALS) [[
 lua_tolstring_api(L: ptr(LuaThread), idx: i32, len_out: ptr(index)) -> ptr(u8)
     if len_out ~= nil then len_out[0] = 0 end
     if idx > 0 then
         let slot: index = as(index, idx - 1)
         if slot < L.top then
             let v: Value = L.stack[slot]
-            if v.tag == 5 then
+            if v.tag == @{TAG_STR} then
                 let s: ptr(String) = as(ptr(String), v.bits)
                 if len_out ~= nil then len_out[0] = s.len end
                 return s.bytes
@@ -80,7 +85,7 @@ lua_tolstring_api(L: ptr(LuaThread), idx: i32, len_out: ptr(index)) -> ptr(u8)
         let n: index = as(index, 0 - idx)
         if n <= L.top then
             let v: Value = L.stack[L.top - n]
-            if v.tag == 5 then
+            if v.tag == @{TAG_STR} then
                 let s: ptr(String) = as(ptr(String), v.bits)
                 if len_out ~= nil then len_out[0] = s.len end
                 return s.bytes
@@ -92,32 +97,32 @@ end
 ]]
 
 -- lua_gettable_api: full table lookup may allocate/call metamethods, so reject at this sealed boundary.
-local lua_gettable_api = moon.func [[
+local lua_gettable_api = moon.func(VALS) [[
 lua_gettable_api(L: ptr(LuaThread), idx: i32) -> i32
-    L.status = 2
+    L.status = @{THREAD_RUNTIME_ERROR}
     return -1
 end
 ]]
 
 -- lua_settable_api: full table assignment may allocate/call metamethods; mark runtime error instead of no-op.
-local lua_settable_api = moon.func [[
+local lua_settable_api = moon.func(VALS) [[
 lua_settable_api(L: ptr(LuaThread), idx: i32)
-    L.status = 2
+    L.status = @{THREAD_RUNTIME_ERROR}
 end
 ]]
 
 -- lua_call_api: the sealed native call bridge is not wired; mark runtime error instead of no-op.
-local lua_call_api = moon.func [[
+local lua_call_api = moon.func(VALS) [[
 lua_call_api(L: ptr(LuaThread), nargs: i32, nresults: i32)
-    L.status = 2
+    L.status = @{THREAD_RUNTIME_ERROR}
 end
 ]]
 
 -- lua_pcall_api: protected frames require allocator support; report runtime error.
-local lua_pcall_api = moon.func [[
+local lua_pcall_api = moon.func(VALS) [[
 lua_pcall_api(L: ptr(LuaThread), nargs: i32, nresults: i32, errfunc: i32) -> i32
-    L.status = 2
-    return 1
+    L.status = @{THREAD_RUNTIME_ERROR}
+    return @{ERR_RUNTIME}
 end
 ]]
 

@@ -1,11 +1,10 @@
--- Lua Interpreter VM — Value protocol regions
--- All value dispatch: truth, type checks, comparisons, equality.
+-- Lua Interpreter VM — Value protocol regions (Lua 5.5)
+-- Value dispatch: truth, type checks, integer/float split, comparisons.
 
 local moon = require("moonlift")
 local host = require("moonlift.host")
 local const = require("experiments.lua_interpreter_vm.src.constants")
 
--- Splice helpers: convert Lua integers to Moonlift expression values
 local I = {}
 for k, v in pairs(const.Tag) do I["TAG_" .. k] = moon.int(v) end
 for k, v in pairs(const.Err) do I["ERR_" .. k] = moon.int(v) end
@@ -22,24 +21,39 @@ end
 end
 ]]
 
--- value_as_number: check TAG_NUM
-local value_as_number = host.region { TAG_NUM = I.TAG_NUM } [[
-region value_as_number(v: Value; number: cont(x: f64), not_number: cont())
+-- value_as_integer: check TAG_INTEGER
+local value_as_integer = host.region { TAG_INTEGER = I.TAG_INTEGER } [[
+region value_as_integer(v: Value; integer: cont(n: i64), not_integer: cont())
 entry start()
-    if v.tag == @{TAG_NUM} then
-        jump number(x = as(f64, v.bits))
+    if v.tag == @{TAG_INTEGER} then
+        jump integer(n = as(i64, v.bits))
     end
-    jump not_number()
+    jump not_integer()
 end
 end
 ]]
 
--- value_to_number: check TAG_NUM. String coercion requires a parser helper and is rejected explicitly.
-local value_to_number = host.region { TAG_NUM = I.TAG_NUM } [[
-region value_to_number(L: ptr(LuaThread), v: Value; number: cont(x: f64), not_number: cont(), oom: cont())
+-- value_as_float: check TAG_NUM
+local value_as_float = host.region { TAG_NUM = I.TAG_NUM } [[
+region value_as_float(v: Value; float: cont(n: f64), not_float: cont())
 entry start()
     if v.tag == @{TAG_NUM} then
-        jump number(x = as(f64, v.bits))
+        jump float(n = as(f64, v.bits))
+    end
+    jump not_float()
+end
+end
+]]
+
+-- value_to_number: dual-arm integer | float | not_number
+local value_to_number = host.region { TAG_INTEGER = I.TAG_INTEGER, TAG_NUM = I.TAG_NUM } [[
+region value_to_number(v: Value; integer: cont(n: i64), float: cont(n: f64), not_number: cont())
+entry start()
+    if v.tag == @{TAG_INTEGER} then
+        jump integer(n = as(i64, v.bits))
+    end
+    if v.tag == @{TAG_NUM} then
+        jump float(n = as(f64, v.bits))
     end
     jump not_number()
 end
@@ -58,8 +72,8 @@ end
 end
 ]]
 
--- value_to_string: accepts strings. Number formatting requires allocation and is rejected explicitly.
-local value_to_string = host.region { TAG_STR = I.TAG_STR, TAG_NUM = I.TAG_NUM, ERR_RUNTIME = I.ERR_RUNTIME } [[
+-- value_to_string: accepts strings. Number formatting requires allocation, rejected explicitly.
+local value_to_string = host.region { TAG_STR = I.TAG_STR, ERR_RUNTIME = I.ERR_RUNTIME } [[
 region value_to_string(L: ptr(LuaThread), v: Value; string: cont(s: ptr(String)), error: cont(code: i32), oom: cont())
 entry start()
     if v.tag == @{TAG_STR} then
@@ -97,10 +111,13 @@ end
 end
 ]]
 
--- value_raw_equal: tag-based dispatch, pointer equality for strings/objects, bit equality for numbers
+-- value_raw_equal: tag-based dispatch
+-- Numbers: integer vs integer (exact i64 compare), float vs float (f64 compare).
+-- Different tag = not equal (no int/float coercion in raw equality).
 local value_raw_equal = host.region {
     TAG_NIL = I.TAG_NIL, TAG_FALSE = I.TAG_FALSE, TAG_TRUE = I.TAG_TRUE,
-    TAG_NUM = I.TAG_NUM, TAG_STR = I.TAG_STR, TAG_LIGHTUD = I.TAG_LIGHTUD,
+    TAG_INTEGER = I.TAG_INTEGER, TAG_NUM = I.TAG_NUM,
+    TAG_STR = I.TAG_STR, TAG_LIGHTUD = I.TAG_LIGHTUD,
 } [[
 region value_raw_equal(a: Value, b: Value; equal: cont(), not_equal: cont())
 entry start()
@@ -110,11 +127,14 @@ entry start()
     case 1 then jump equal()
     case 2 then jump equal()
     case 4 then
+        if a.bits == b.bits then jump equal() end
+        jump not_equal()
+    case 5 then
         if as(f64, a.bits) == as(f64, b.bits) then
             jump equal()
         end
         jump not_equal()
-    case 5 then
+    case 6 then
         if a.bits == b.bits then jump equal() end
         jump not_equal()
     case 3 then
@@ -143,10 +163,16 @@ end
 end
 ]]
 
--- value_less_than: number fast path, string compare, else error
-local value_less_than = host.region { TAG_NUM = I.TAG_NUM, TAG_STR = I.TAG_STR, ERR_COMPARE = I.ERR_COMPARE } [[
+-- value_less_than: integer fast path, float fast path, string compare, else error
+local value_less_than = host.region {
+    TAG_INTEGER = I.TAG_INTEGER, TAG_NUM = I.TAG_NUM,
+    TAG_STR = I.TAG_STR, ERR_COMPARE = I.ERR_COMPARE,
+} [[
 region value_less_than(L: ptr(LuaThread), a: Value, b: Value; result: cont(is_lt: bool), call_mm: cont(mm: Value), error: cont(code: i32), oom: cont())
 entry start()
+    if a.tag == @{TAG_INTEGER} and b.tag == @{TAG_INTEGER} then
+        jump result(is_lt = as(i64, a.bits) < as(i64, b.bits))
+    end
     if a.tag == @{TAG_NUM} and b.tag == @{TAG_NUM} then
         jump result(is_lt = as(f64, a.bits) < as(f64, b.bits))
     end
@@ -170,10 +196,16 @@ end
 end
 ]]
 
--- value_less_equal: number fast path, then error
-local value_less_equal = host.region { TAG_NUM = I.TAG_NUM, TAG_STR = I.TAG_STR, ERR_COMPARE = I.ERR_COMPARE } [[
+-- value_less_equal: integer fast path, float fast path, string compare, then error
+local value_less_equal = host.region {
+    TAG_INTEGER = I.TAG_INTEGER, TAG_NUM = I.TAG_NUM,
+    TAG_STR = I.TAG_STR, ERR_COMPARE = I.ERR_COMPARE,
+} [[
 region value_less_equal(L: ptr(LuaThread), a: Value, b: Value; result: cont(is_le: bool), call_mm: cont(mm: Value, fallback_lt: bool), error: cont(code: i32), oom: cont())
 entry start()
+    if a.tag == @{TAG_INTEGER} and b.tag == @{TAG_INTEGER} then
+        jump result(is_le = as(i64, a.bits) <= as(i64, b.bits))
+    end
     if a.tag == @{TAG_NUM} and b.tag == @{TAG_NUM} then
         jump result(is_le = as(f64, a.bits) <= as(f64, b.bits))
     end
@@ -197,9 +229,28 @@ end
 end
 ]]
 
+-- make_integer: construct an integer Value from i64
+-- Inline expressions; no separate function needed.
+
+-- make_float: construct a float Value from f64
+
+-- resolve_rk: resolve a register-or-constant operand.
+-- Used by SETTABUP, SETTABLE, SETTI, SETFIELD, MMBINI, MMBINK.
+local resolve_rk = host.region [[
+region resolve_rk(L: ptr(LuaThread), base: index, k: u8, c: u16, constants: ptr(Value); value: cont(v: Value))
+entry start()
+    if k == 1 then
+        jump value(v = constants[as(index, c)])
+    end
+    jump value(v = L.stack[base + as(index, c)])
+end
+end
+]]
+
 return {
     value_truth = value_truth,
-    value_as_number = value_as_number,
+    value_as_integer = value_as_integer,
+    value_as_float = value_as_float,
     value_to_number = value_to_number,
     value_as_string = value_as_string,
     value_to_string = value_to_string,
@@ -209,4 +260,5 @@ return {
     value_equal = value_equal,
     value_less_than = value_less_than,
     value_less_equal = value_less_equal,
+    resolve_rk = resolve_rk,
 }

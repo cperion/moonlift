@@ -2,6 +2,8 @@
 -- Confirms all VM modules load, link, and key regions compile.
 -- The VM requires a Moonlift-level allocator to run (next step).
 
+package.path = "./lua/?.lua;./lua/?/init.lua;" .. package.path
+
 local vm = require("experiments.lua_interpreter_vm.src.init")
 local moon = require("moonlift")
 
@@ -25,18 +27,18 @@ for _, mod in pairs(vm) do
 end
 ok("22 source files loaded", true)
 ok(string.format("%d region fragments", region_count), region_count >= 100)
-ok(string.format("%d struct definitions", struct_count), struct_count == 23)
+ok(string.format("%d struct definitions", struct_count), struct_count == 42)
 
 -- Verify key architectural paths
 ok("dispatch_instruction has 8 continuations", #vm.opcodes.dispatch_instruction.frag.conts == 8)
-ok("handle_return_mode has 14 continuations", #vm.regions_call.handle_return_mode.frag.conts == 14)
+ok("handle_return_mode has 15 continuations", #vm.regions_call.handle_return_mode.frag.conts == 15)
 ok("prepare_call has 6 continuations", #vm.regions_call.prepare_call.frag.conts == 6)
 ok("38 opcode handlers", #vm.op_handlers.op_move.frag.params >= 10)
 
 -- Verify specific critical structs
 ok("Value has 3 fields", #vm.products.Value.decl.fields == 3)
 ok("Frame has 13 fields", #vm.products.Frame.decl.fields == 13)
-ok("LuaThread has 17 fields", #vm.products.LuaThread.decl.fields == 17)
+ok("LuaThread has 18 fields", #vm.products.LuaThread.decl.fields == 18)
 ok("Proto has 19 fields", #vm.products.Proto.decl.fields == 19)
 
 -- Test that compiling a function that uses VM regions works
