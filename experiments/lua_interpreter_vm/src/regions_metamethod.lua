@@ -74,7 +74,7 @@ entry start()
         jump fast_integer(x = as(i64, lhs.bits), y = as(i64, rhs.bits))
     end
     if lhs.tag == @{TAG_NUM} and rhs.tag == @{TAG_NUM} then
-        jump fast_float(x = as(f64, lhs.bits), y = as(f64, rhs.bits))
+        jump fast_float(x = bitcast(f64, lhs.bits), y = bitcast(f64, rhs.bits))
     end
     emit get_metamethod(L.global, lhs, event;
         found = left_mm,
@@ -111,7 +111,7 @@ entry start()
         jump fast_integer(x = as(i64, v.bits))
     end
     if v.tag == @{TAG_NUM} then
-        jump fast_float(x = as(f64, v.bits))
+        jump fast_float(x = bitcast(f64, v.bits))
     end
     emit get_metamethod(L.global, v, event;
         found = have_mm,

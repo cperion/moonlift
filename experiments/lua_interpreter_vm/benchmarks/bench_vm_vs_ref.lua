@@ -33,7 +33,10 @@ local scratch_raw = libmoon.moonlift_scratch_raw
 ffi.cdef [[
     typedef struct { void* next; uint8_t tt; uint8_t marked; } GCHeader;
     typedef struct { uint32_t tag; uint32_t aux; uint64_t bits; } Value;
-    typedef struct { uint16_t op; uint16_t a; uint16_t b; uint16_t c; uint32_t bx; int32_t sbx; } Instr;
+    typedef struct {
+        uint16_t op; uint16_t a; uint16_t b; uint16_t c;
+        uint8_t k; uint32_t bx; int32_t sbx;
+    } Instr;
     typedef struct {
         GCHeader gc;
         void* code; uint64_t code_len;
@@ -95,7 +98,7 @@ local function build_thread()
     consts[1].tag = const.Tag.NUM; consts[1].aux = 0; consts[1].bits = double_bits(99.0)
 
     -- Code: LOADK R0 K0, RETURN R0 2
-    local code = scratch(11, 16, 2, "Instr*")
+    local code = scratch(11, ffi.sizeof("Instr"), 2, "Instr*")
     code[0].op = const.Op.LOADK; code[0].a = 0; code[0].b = 0; code[0].c = 0; code[0].bx = 0; code[0].sbx = 0
     code[1].op = const.Op.RETURN; code[1].a = 0; code[1].b = 2; code[1].c = 0; code[1].bx = 0; code[1].sbx = 0
 

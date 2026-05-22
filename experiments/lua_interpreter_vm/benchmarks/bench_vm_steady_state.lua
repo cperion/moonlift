@@ -101,6 +101,8 @@ end
 
 local BITS_42 = double_bits(42.0)
 local BITS_99 = double_bits(99.0)
+local BITS_42_INT = ffi.cast("uint64_t", 42)
+local BITS_99_INT = ffi.cast("uint64_t", 99)
 local STACK_N = 64
 local NEXT_SLOT = 40
 
@@ -178,6 +180,10 @@ local function make_thread(case)
     set_num(stack[2], BITS_42) -- R1
     set_nil(stack[3])          -- R2 scratch destination
 
+    if case.stack_init then
+        case.stack_init(stack)
+    end
+
     local frames = scratch(slot + 5, 1, 512, "Frame*")
     frames[0].closure.tag = const.Tag.LCLOSURE
     frames[0].closure.aux = 0
@@ -244,6 +250,9 @@ local function reset(case)
     set_num(stack[1], BITS_42)
     set_num(stack[2], BITS_42)
     set_nil(stack[3])
+    if case.stack_init then
+        case.stack_init(stack)
+    end
 end
 
 local function put_return(code, pc)
@@ -287,17 +296,27 @@ local function fill_move_self(code, hot_ops)
     put_return(code, hot_ops)
 end
 
-local function fill_add_with_mmbin(code, hot_ops)
+local function fill_add_int_mmbin(code, hot_ops)
     for i = 0, hot_ops - 1 do
         local pc = i * 2
         code[pc].op = const.Op.ADD
-        code[pc].a = 2       -- R2 scratch; leave R0 as the returned 42
-        code[pc].b = 0       -- R0
-        code[pc].c = 1       -- R1
+        code[pc].a = 2; code[pc].b = 0; code[pc].c = 1
         code[pc + 1].op = const.Op.MMBIN
-        code[pc + 1].a = 0
-        code[pc + 1].b = const.TM.ADD
-        code[pc + 1].c = 0
+        code[pc + 1].a = 0; code[pc + 1].b = const.TM.ADD; code[pc + 1].c = 0
+    end
+    put_return(code, hot_ops * 2)
+end
+
+local function stack_init_int(st)
+    st[1].tag = const.Tag.INTEGER; st[1].aux = 0; st[1].bits = BITS_42_INT
+    st[2].tag = const.Tag.INTEGER; st[2].aux = 0; st[2].bits = BITS_99_INT
+end
+
+local function fill_add_with_mmbin(code, hot_ops)
+    for i = 0, hot_ops - 1 do
+        local pc = i * 2
+        code[pc].op = const.Op.ADD; code[pc].a = 2; code[pc].b = 0; code[pc].c = 1
+        code[pc + 1].op = const.Op.MMBIN; code[pc + 1].a = 0; code[pc + 1].b = const.TM.ADD; code[pc + 1].c = 0
     end
     put_return(code, hot_ops * 2)
 end
@@ -333,6 +352,7 @@ local cases = {
     make_thread({ name = "LOADK", group = "load", hot_ops = STEPS, fill = fill_loadk, maxstack = 2, ref = "LOADK" }),
     make_thread({ name = "MOVE", group = "move", hot_ops = STEPS, fill = fill_move_self, maxstack = 2, ref = "MOVE" }),
     make_thread({ name = "ADD", group = "arith", hot_ops = STEPS, code_slots = STEPS * 2 + 1, exec_dispatches = STEPS + 1, fill = fill_add_with_mmbin, maxstack = 4, ref = "ADD" }),
+    make_thread({ name = "ADD_int", group = "arith", hot_ops = STEPS, code_slots = STEPS * 2 + 1, exec_dispatches = STEPS + 1, fill = fill_add_int_mmbin, stack_init = stack_init_int, maxstack = 4, ref = "ADD" }),
 }
 
 local function verify(case)

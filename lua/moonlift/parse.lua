@@ -988,6 +988,19 @@ function Parser:led(k, left)
            and left.ref.name == "select" and #args == 3 then
             return Tr.ExprSelect(Tr.ExprSurface, args[1], args[2], args[3])
         end
+        -- bitcast(T, value): explicit reinterpret cast.  `as(T, value)` is the
+        -- semantic conversion form; VM value-payload code needs a guaranteed
+        -- no-conversion bit reinterpret for float payloads.
+        if pvm.classof(left) == Tr.ExprRef and pvm.classof(left.ref) == B.ValueRefName
+           and left.ref.name == "bitcast" and #args == 2 then
+            local ty_expr = args[1]
+            if pvm.classof(ty_expr) ~= Tr.ExprRef or pvm.classof(ty_expr.ref) ~= B.ValueRefName then
+                self:issue("bitcast first argument must be a type name")
+                return Tr.ExprCall(Tr.ExprSurface, left, args)
+            end
+            local ty = self:type_name(ty_expr.ref.name)
+            return Tr.ExprCast(Tr.ExprSurface, C.SurfaceBitcast, ty, args[2])
+        end
         return Tr.ExprCall(Tr.ExprSurface, left, args)
     end
 
@@ -1310,7 +1323,7 @@ function Parser:parse_region_frag_ref()
         local id = self:text(); self.i = self.i + 1
         local slot = O.RegionFragSlot(self:splice_key("region_frag", id), id)
         self:record_splice_slot(id, O.SlotRegionFrag(slot), "region_frag")
-        return O.RegionFragRefSlot(slot)
+        return O.RegionFragRefSlot(slot), "@" .. id
     end
     local name = self:expect_name("expected region fragment name after emit")
     return O.RegionFragRefName(name), name

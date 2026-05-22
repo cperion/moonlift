@@ -17,7 +17,7 @@ entry start()
     let step_val: Value = L.stack[step_slot]
     if idx_val.tag == @{TAG_INTEGER} and limit_val.tag == @{TAG_INTEGER} and step_val.tag == @{TAG_INTEGER} then
         let idx: i64 = as(i64, idx_val.bits) + as(i64, step_val.bits)
-        L.stack[idx_slot] = { tag = @{TAG_INTEGER}, aux = 0, bits = as(u64, idx) }
+        L.stack[idx_slot] = { tag = @{TAG_INTEGER}, aux = 0, bits = bitcast(u64, idx) }
         let limit: i64 = as(i64, limit_val.bits)
         let step: i64 = as(i64, step_val.bits)
         if (step >= 0 and idx <= limit) or (step < 0 and idx >= limit) then
@@ -28,10 +28,10 @@ entry start()
         jump next(frame = frame, pc = pc + 1, base = base, top = top)
     end
     if idx_val.tag == @{TAG_NUM} and limit_val.tag == @{TAG_NUM} and step_val.tag == @{TAG_NUM} then
-        let idx: f64 = as(f64, idx_val.bits) + as(f64, step_val.bits)
-        L.stack[idx_slot] = { tag = @{TAG_NUM}, aux = 0, bits = as(u64, idx) }
-        let limit: f64 = as(f64, limit_val.bits)
-        let step: f64 = as(f64, step_val.bits)
+        let idx: f64 = bitcast(f64, idx_val.bits) + bitcast(f64, step_val.bits)
+        L.stack[idx_slot] = { tag = @{TAG_NUM}, aux = 0, bits = bitcast(u64, idx) }
+        let limit: f64 = bitcast(f64, limit_val.bits)
+        let step: f64 = bitcast(f64, step_val.bits)
         if (step >= 0.0 and idx <= limit) or (step < 0.0 and idx >= limit) then
             L.stack[base + as(index, a + 3)] = L.stack[idx_slot]
             let new_pc: index = as(index, as(i32, pc) + sbx)
@@ -57,13 +57,13 @@ entry start()
     let step_val: Value = L.stack[step_slot]
     if init_val.tag == @{TAG_INTEGER} and limit_val.tag == @{TAG_INTEGER} and step_val.tag == @{TAG_INTEGER} then
         let prepared: i64 = as(i64, init_val.bits) - as(i64, step_val.bits)
-        L.stack[init_slot] = { tag = @{TAG_INTEGER}, aux = 0, bits = as(u64, prepared) }
+        L.stack[init_slot] = { tag = @{TAG_INTEGER}, aux = 0, bits = bitcast(u64, prepared) }
         let new_pc: index = as(index, as(i32, pc) + sbx)
         jump do_jump(frame = frame, pc = new_pc, base = base, top = top)
     end
     if init_val.tag == @{TAG_NUM} and limit_val.tag == @{TAG_NUM} and step_val.tag == @{TAG_NUM} then
-        let prepared: f64 = as(f64, init_val.bits) - as(f64, step_val.bits)
-        L.stack[init_slot] = { tag = @{TAG_NUM}, aux = 0, bits = as(u64, prepared) }
+        let prepared: f64 = bitcast(f64, init_val.bits) - bitcast(f64, step_val.bits)
+        L.stack[init_slot] = { tag = @{TAG_NUM}, aux = 0, bits = bitcast(u64, prepared) }
         let new_pc: index = as(index, as(i32, pc) + sbx)
         jump do_jump(frame = frame, pc = new_pc, base = base, top = top)
     end

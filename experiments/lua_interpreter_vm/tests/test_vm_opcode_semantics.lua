@@ -65,6 +65,11 @@ local function dblbits(x)
     u.d = x
     return u.u
 end
+local function bitsdbl(x)
+    local u = ffi.new("union { double d; uint64_t u; }")
+    u.u = x
+    return tonumber(u.d)
+end
 
 local function setnil(v) v.tag = const.Tag.NIL; v.aux = 0; v.bits = 0 end
 local function setint(v, x) v.tag = const.Tag.INTEGER; v.aux = 0; v.bits = ffi.cast("uint64_t", x) end
@@ -171,6 +176,19 @@ do
     c.code[2].op = const.Op.RETURN; c.code[2].a = 0; c.code[2].b = 2
     local n = runner(c.L)
     check("ADDK uses constant operand", n == 1 and c.stack[1].tag == const.Tag.INTEGER and tonumber(ffi.cast("int64_t", c.stack[1].bits)) == 42)
+end
+
+-- ADD on TAG_NUM reinterprets f64 payload bits; it must not numerically
+-- convert the u64 payload to f64.
+do
+    local c = make_case(3, 0)
+    setnum(c.stack[1], 1.5); setnum(c.stack[2], 2.25)
+    c.code[0].op = const.Op.ADD; c.code[0].a = 2; c.code[0].b = 0; c.code[0].c = 1
+    c.code[1].op = const.Op.MMBIN; c.code[1].a = 0; c.code[1].b = const.TM.ADD; c.code[1].c = 0
+    c.code[2].op = const.Op.RETURN; c.code[2].a = 2; c.code[2].b = 2
+    local n = runner(c.L)
+    local got = bitsdbl(c.stack[3].bits)
+    check("ADD preserves f64 payload semantics", n == 1 and c.stack[3].tag == const.Tag.NUM and math.abs(got - 3.75) < 1e-12, "got " .. tostring(got))
 end
 
 -- RETURN1 carries A through the return path.

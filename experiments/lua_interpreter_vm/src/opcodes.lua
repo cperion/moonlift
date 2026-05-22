@@ -10,165 +10,183 @@ local handlers = require("experiments.lua_interpreter_vm.src.op_handlers")
 -- Build switch arms as explicit Moonlift case blocks.
 -- Each arm is a visible string in the dispatch source.
 local arms = {}
-local function arm(op_num, handler_name, conts)
+local DEFAULT_ARGS = "ip.a, ip.b, ip.c, ip.k, ip.bx, ip.sbx"
+local ZERO_U16 = "as(u16, 0)"
+local ZERO_U8 = "as(u8, 0)"
+local ZERO_U32 = "as(u32, 0)"
+local ZERO_I32 = "0"
+
+local function args(a, b, c, k, bx, sbx)
+    return table.concat({ a or ZERO_U16, b or ZERO_U16, c or ZERO_U16, k or ZERO_U8, bx or ZERO_U32, sbx or ZERO_I32 }, ", ")
+end
+
+local ARG_A     = args("ip.a")
+local ARG_AB    = args("ip.a", "ip.b")
+local ARG_ABC   = args("ip.a", "ip.b", "ip.c")
+local ARG_ABC_K = args("ip.a", "ip.b", "ip.c", "ip.k")
+local ARG_ABX   = args("ip.a", nil, nil, nil, "ip.bx")
+local ARG_ASBX  = args("ip.a", nil, nil, nil, nil, "ip.sbx")
+local ARG_EXTRA = args("ip.a")
+
+local function arm(op_num, handler_name, conts, arg_exprs)
     arms[#arms + 1] = string.format([[
     case %d then
-        emit %s(L, cur_frame, cur_pc, cur_base, cur_top, a, b, c, k, bx, sbx;
-            %s)]], op_num, handler_name, conts)
+        emit %s(L, cur_frame, cur_pc, cur_base, cur_top, %s;
+            %s)]], op_num, handler_name, arg_exprs or DEFAULT_ARGS, conts)
 end
 
 -- All 85 opcodes with literal continuation routing.
-arm(0,  "op_move",       "next = do_next")
-arm(1,  "op_loadi",      "next = do_next")
-arm(2,  "op_loadf",      "next = do_next")
-arm(3,  "op_loadk",      "next = do_next")
-arm(4,  "op_loadkx",     "next = do_next")
-arm(5,  "op_loadfalse",  "next = do_next")
-arm(6,  "op_lfalseskip", "next = do_next")
-arm(7,  "op_loadtrue",   "next = do_next")
-arm(8,  "op_loadnil",    "next = do_next")
-arm(9,  "op_getupval",   "next = do_next")
-arm(10, "op_setupval",   "next = do_next")
-arm(11, "op_gettabup",   [[next = do_next,
-            enter_lua = dispatch_lua, enter_native = dispatch_native,
-            yielded = dispatch_yielded, error = dispatch_error, oom = dispatch_oom]])
-arm(12, "op_gettable",   [[next = do_next,
-            enter_lua = dispatch_lua, enter_native = dispatch_native,
-            yielded = dispatch_yielded, error = dispatch_error, oom = dispatch_oom]])
-arm(13, "op_geti",       [[next = do_next,
-            enter_lua = dispatch_lua, enter_native = dispatch_native,
-            yielded = dispatch_yielded, error = dispatch_error, oom = dispatch_oom]])
-arm(14, "op_getfield",   [[next = do_next,
-            enter_lua = dispatch_lua, enter_native = dispatch_native,
-            yielded = dispatch_yielded, error = dispatch_error, oom = dispatch_oom]])
-arm(15, "op_settabup",   [[next = do_next,
-            enter_lua = dispatch_lua, enter_native = dispatch_native,
-            yielded = dispatch_yielded, error = dispatch_error, oom = dispatch_oom]])
-arm(16, "op_settable",   [[next = do_next,
-            enter_lua = dispatch_lua, enter_native = dispatch_native,
-            yielded = dispatch_yielded, error = dispatch_error, oom = dispatch_oom]])
-arm(17, "op_setti",      [[next = do_next,
-            enter_lua = dispatch_lua, enter_native = dispatch_native,
-            yielded = dispatch_yielded, error = dispatch_error, oom = dispatch_oom]])
-arm(18, "op_setfield",   [[next = do_next,
-            enter_lua = dispatch_lua, enter_native = dispatch_native,
-            yielded = dispatch_yielded, error = dispatch_error, oom = dispatch_oom]])
-arm(19, "op_newtable",   [[next = do_next,
-            oom = dispatch_oom]])
-arm(20, "op_self",       [[next = do_next,
-            enter_lua = dispatch_lua, enter_native = dispatch_native,
-            yielded = dispatch_yielded, error = dispatch_error, oom = dispatch_oom]])
-arm(21, "op_addi",       [[next = do_next,
-            error = dispatch_error]])
-arm(22, "op_addk",       [[next = do_next,
-            error = dispatch_error]])
-arm(23, "op_subk",       [[next = do_next,
-            error = dispatch_error]])
-arm(24, "op_mulk",       [[next = do_next,
-            error = dispatch_error]])
-arm(25, "op_modk",       [[next = do_next,
-            error = dispatch_error]])
-arm(26, "op_powk",       [[next = do_next,
-            error = dispatch_error]])
-arm(27, "op_divk",       [[next = do_next,
-            error = dispatch_error]])
-arm(28, "op_idivk",      [[next = do_next,
-            error = dispatch_error]])
-arm(29, "op_bandk",      [[next = do_next,
-            error = dispatch_error]])
-arm(30, "op_bork",       [[next = do_next,
-            error = dispatch_error]])
-arm(31, "op_bxork",      [[next = do_next,
-            error = dispatch_error]])
-arm(32, "op_shli",       [[next = do_next,
-            error = dispatch_error]])
-arm(33, "op_shri",       [[next = do_next,
-            error = dispatch_error]])
-arm(34, "op_add",        [[next = do_next,
-            error = dispatch_error]])
-arm(35, "op_sub",        [[next = do_next,
-            error = dispatch_error]])
-arm(36, "op_mul",        [[next = do_next,
-            error = dispatch_error]])
-arm(37, "op_mod",        [[next = do_next,
-            error = dispatch_error]])
-arm(38, "op_pow",        [[next = do_next,
-            error = dispatch_error]])
-arm(39, "op_div",        [[next = do_next,
-            error = dispatch_error]])
-arm(40, "op_idiv",       [[next = do_next,
-            error = dispatch_error]])
-arm(41, "op_band",       [[next = do_next,
-            error = dispatch_error]])
-arm(42, "op_bor",        [[next = do_next,
-            error = dispatch_error]])
-arm(43, "op_bxor",       [[next = do_next,
-            error = dispatch_error]])
-arm(44, "op_shl",        [[next = do_next,
-            error = dispatch_error]])
-arm(45, "op_shr",        [[next = do_next,
-            error = dispatch_error]])
-arm(46, "op_mmbin",      [[enter_lua = dispatch_lua, enter_native = dispatch_native,
-            yielded = dispatch_yielded, error = dispatch_error, oom = dispatch_oom]])
-arm(47, "op_mmbini",     [[enter_lua = dispatch_lua, enter_native = dispatch_native,
-            yielded = dispatch_yielded, error = dispatch_error, oom = dispatch_oom]])
-arm(48, "op_mmbink",     [[enter_lua = dispatch_lua, enter_native = dispatch_native,
-            yielded = dispatch_yielded, error = dispatch_error, oom = dispatch_oom]])
-arm(49, "op_unm",        [[next = do_next,
-            error = dispatch_error]])
-arm(50, "op_bnot",       [[next = do_next,
-            error = dispatch_error]])
-arm(51, "op_not",        "next = do_next")
-arm(52, "op_len",        [[next = do_next,
-            enter_lua = dispatch_lua, enter_native = dispatch_native,
-            yielded = dispatch_yielded, error = dispatch_error, oom = dispatch_oom]])
-arm(53, "op_concat",     [[next = do_next,
-            enter_lua = dispatch_lua, enter_native = dispatch_native,
-            yielded = dispatch_yielded, error = dispatch_error, oom = dispatch_oom]])
-arm(54, "op_close",      [[next = do_next,
-            oom = dispatch_oom]])
-arm(55, "op_tbc",        [[next = do_next,
-            error = dispatch_error, oom = dispatch_oom]])
-arm(56, "op_jmp",        "do_jump = forward_jump")
-arm(57, "op_eq",         [[next = do_next, do_jump = forward_jump,
-            enter_lua = dispatch_lua, enter_native = dispatch_native,
-            error = dispatch_error, oom = dispatch_oom]])
-arm(58, "op_lt",         [[next = do_next, do_jump = forward_jump,
-            enter_lua = dispatch_lua, enter_native = dispatch_native,
-            error = dispatch_error, oom = dispatch_oom]])
-arm(59, "op_le",         [[next = do_next, do_jump = forward_jump,
-            enter_lua = dispatch_lua, enter_native = dispatch_native,
-            error = dispatch_error, oom = dispatch_oom]])
-arm(60, "op_eqk",        "next = do_next, error = dispatch_error, oom = dispatch_oom")
-arm(61, "op_eqi",        "next = do_next, error = dispatch_error, oom = dispatch_oom")
-arm(62, "op_lti",        "next = do_next, error = dispatch_error, oom = dispatch_oom")
-arm(63, "op_lei",        "next = do_next, error = dispatch_error, oom = dispatch_oom")
-arm(64, "op_gti",        "next = do_next, error = dispatch_error, oom = dispatch_oom")
-arm(65, "op_gei",        "next = do_next, error = dispatch_error, oom = dispatch_oom")
-arm(66, "op_test",       "next = do_next, do_jump = forward_jump")
-arm(67, "op_testset",    "next = do_next, do_jump = forward_jump")
-arm(68, "op_call",       [[next = do_next,
-            enter_lua = dispatch_lua, enter_native = dispatch_native,
-            yielded = dispatch_yielded, error = dispatch_error, oom = dispatch_oom]])
-arm(69, "op_tailcall",   [[next = do_next,
-            enter_lua = dispatch_lua, enter_native = dispatch_native,
-            yielded = dispatch_yielded, error = dispatch_error, oom = dispatch_oom]])
-arm(70, "op_return",     "resume_parent = dispatch_resume, finished = dispatch_finished, error = dispatch_error, oom = dispatch_oom")
-arm(71, "op_return0",    "resume_parent = dispatch_resume, finished = dispatch_finished, error = dispatch_error, oom = dispatch_oom")
-arm(72, "op_return1",    "resume_parent = dispatch_resume, finished = dispatch_finished, error = dispatch_error, oom = dispatch_oom")
-arm(73, "op_forloop",    "next = do_next, do_jump = forward_jump, error = dispatch_error")
-arm(74, "op_forprep",    "do_jump = forward_jump, error = dispatch_error")
-arm(75, "op_tforprep",   "do_jump = forward_jump")
-arm(76, "op_tforcall",   [[enter_lua = dispatch_lua, enter_native = dispatch_native,
-            yielded = dispatch_yielded, error = dispatch_error, oom = dispatch_oom]])
-arm(77, "op_tforloop",   "next = do_next, do_jump = forward_jump")
-arm(78, "op_setlist",    "next = do_next, oom = dispatch_oom")
-arm(79, "op_closure",    "next = do_next, error = dispatch_error, oom = dispatch_oom")
-arm(80, "op_vararg",     "next = do_next, error = dispatch_error, oom = dispatch_oom")
-arm(81, "op_getvarg",    "next = do_next, error = dispatch_error, oom = dispatch_oom")
-arm(82, "op_errnnil",    "next = do_next, error = dispatch_error, oom = dispatch_oom")
-arm(83, "op_varargprep", "next = do_next, oom = dispatch_oom")
-arm(84, "op_extraarg",   "next = do_next")
+arm(0,  "op_move",       "next = next", ARG_AB)
+arm(1,  "op_loadi",      "next = next", ARG_ASBX)
+arm(2,  "op_loadf",      "next = next", ARG_ASBX)
+arm(3,  "op_loadk",      "next = next", ARG_ABX)
+arm(4,  "op_loadkx",     "next = next", ARG_EXTRA)
+arm(5,  "op_loadfalse",  "next = next", ARG_A)
+arm(6,  "op_lfalseskip", "next = next", ARG_A)
+arm(7,  "op_loadtrue",   "next = next", ARG_A)
+arm(8,  "op_loadnil",    "next = next", ARG_AB)
+arm(9,  "op_getupval",   "next = next", ARG_AB)
+arm(10, "op_setupval",   "next = next", ARG_AB)
+arm(11, "op_gettabup",   [[next = next,
+            enter_lua = enter_lua, enter_native = enter_native,
+            yielded = yielded, error = error, oom = oom]])
+arm(12, "op_gettable",   [[next = next,
+            enter_lua = enter_lua, enter_native = enter_native,
+            yielded = yielded, error = error, oom = oom]])
+arm(13, "op_geti",       [[next = next,
+            enter_lua = enter_lua, enter_native = enter_native,
+            yielded = yielded, error = error, oom = oom]])
+arm(14, "op_getfield",   [[next = next,
+            enter_lua = enter_lua, enter_native = enter_native,
+            yielded = yielded, error = error, oom = oom]])
+arm(15, "op_settabup",   [[next = next,
+            enter_lua = enter_lua, enter_native = enter_native,
+            yielded = yielded, error = error, oom = oom]])
+arm(16, "op_settable",   [[next = next,
+            enter_lua = enter_lua, enter_native = enter_native,
+            yielded = yielded, error = error, oom = oom]])
+arm(17, "op_setti",      [[next = next,
+            enter_lua = enter_lua, enter_native = enter_native,
+            yielded = yielded, error = error, oom = oom]])
+arm(18, "op_setfield",   [[next = next,
+            enter_lua = enter_lua, enter_native = enter_native,
+            yielded = yielded, error = error, oom = oom]])
+arm(19, "op_newtable",   [[next = next,
+            oom = oom]])
+arm(20, "op_self",       [[next = next,
+            enter_lua = enter_lua, enter_native = enter_native,
+            yielded = yielded, error = error, oom = oom]])
+arm(21, "op_addi",       [[next = next,
+            error = error]], ARG_ABC)
+arm(22, "op_addk",       [[next = next,
+            error = error]], ARG_ABC)
+arm(23, "op_subk",       [[next = next,
+            error = error]], ARG_ABC)
+arm(24, "op_mulk",       [[next = next,
+            error = error]], ARG_ABC)
+arm(25, "op_modk",       [[next = next,
+            error = error]])
+arm(26, "op_powk",       [[next = next,
+            error = error]])
+arm(27, "op_divk",       [[next = next,
+            error = error]], ARG_ABC)
+arm(28, "op_idivk",      [[next = next,
+            error = error]])
+arm(29, "op_bandk",      [[next = next,
+            error = error]], ARG_ABC)
+arm(30, "op_bork",       [[next = next,
+            error = error]], ARG_ABC)
+arm(31, "op_bxork",      [[next = next,
+            error = error]], ARG_ABC)
+arm(32, "op_shli",       [[next = next,
+            error = error]], ARG_ABC)
+arm(33, "op_shri",       [[next = next,
+            error = error]], ARG_ABC)
+arm(34, "op_add",        [[next = next,
+            error = error]], ARG_ABC)
+arm(35, "op_sub",        [[next = next,
+            error = error]], ARG_ABC)
+arm(36, "op_mul",        [[next = next,
+            error = error]], ARG_ABC)
+arm(37, "op_mod",        [[next = next,
+            error = error]])
+arm(38, "op_pow",        [[next = next,
+            error = error]])
+arm(39, "op_div",        [[next = next,
+            error = error]], ARG_ABC)
+arm(40, "op_idiv",       [[next = next,
+            error = error]])
+arm(41, "op_band",       [[next = next,
+            error = error]], ARG_ABC)
+arm(42, "op_bor",        [[next = next,
+            error = error]], ARG_ABC)
+arm(43, "op_bxor",       [[next = next,
+            error = error]], ARG_ABC)
+arm(44, "op_shl",        [[next = next,
+            error = error]], ARG_ABC)
+arm(45, "op_shr",        [[next = next,
+            error = error]], ARG_ABC)
+arm(46, "op_mmbin",      [[enter_lua = enter_lua, enter_native = enter_native,
+            yielded = yielded, error = error, oom = oom]])
+arm(47, "op_mmbini",     [[enter_lua = enter_lua, enter_native = enter_native,
+            yielded = yielded, error = error, oom = oom]])
+arm(48, "op_mmbink",     [[enter_lua = enter_lua, enter_native = enter_native,
+            yielded = yielded, error = error, oom = oom]])
+arm(49, "op_unm",        [[next = next,
+            error = error]], ARG_AB)
+arm(50, "op_bnot",       [[next = next,
+            error = error]], ARG_AB)
+arm(51, "op_not",        "next = next", ARG_AB)
+arm(52, "op_len",        [[next = next,
+            enter_lua = enter_lua, enter_native = enter_native,
+            yielded = yielded, error = error, oom = oom]])
+arm(53, "op_concat",     [[next = next,
+            enter_lua = enter_lua, enter_native = enter_native,
+            yielded = yielded, error = error, oom = oom]])
+arm(54, "op_close",      [[next = next,
+            oom = oom]])
+arm(55, "op_tbc",        [[next = next,
+            error = error, oom = oom]])
+arm(56, "op_jmp",        "do_jump = do_jump")
+arm(57, "op_eq",         [[next = next, do_jump = do_jump,
+            enter_lua = enter_lua, enter_native = enter_native,
+            error = error, oom = oom]])
+arm(58, "op_lt",         [[next = next, do_jump = do_jump,
+            enter_lua = enter_lua, enter_native = enter_native,
+            error = error, oom = oom]])
+arm(59, "op_le",         [[next = next, do_jump = do_jump,
+            enter_lua = enter_lua, enter_native = enter_native,
+            error = error, oom = oom]])
+arm(60, "op_eqk",        "next = next, error = error, oom = oom")
+arm(61, "op_eqi",        "next = next, error = error, oom = oom")
+arm(62, "op_lti",        "next = next, error = error, oom = oom")
+arm(63, "op_lei",        "next = next, error = error, oom = oom")
+arm(64, "op_gti",        "next = next, error = error, oom = oom")
+arm(65, "op_gei",        "next = next, error = error, oom = oom")
+arm(66, "op_test",       "next = next, do_jump = do_jump")
+arm(67, "op_testset",    "next = next, do_jump = do_jump")
+arm(68, "op_call",       [[next = next,
+            enter_lua = enter_lua, enter_native = enter_native,
+            yielded = yielded, error = error, oom = oom]])
+arm(69, "op_tailcall",   [[next = next,
+            enter_lua = enter_lua, enter_native = enter_native,
+            yielded = yielded, error = error, oom = oom]])
+arm(70, "op_return",     "resume_parent = dispatch_resume, finished = returned, error = error, oom = oom")
+arm(71, "op_return0",    "resume_parent = dispatch_resume, finished = returned, error = error, oom = oom")
+arm(72, "op_return1",    "resume_parent = dispatch_resume, finished = returned, error = error, oom = oom")
+arm(73, "op_forloop",    "next = next, do_jump = do_jump, error = error")
+arm(74, "op_forprep",    "do_jump = do_jump, error = error")
+arm(75, "op_tforprep",   "do_jump = do_jump")
+arm(76, "op_tforcall",   [[enter_lua = enter_lua, enter_native = enter_native,
+            yielded = yielded, error = error, oom = oom]])
+arm(77, "op_tforloop",   "next = next, do_jump = do_jump")
+arm(78, "op_setlist",    "next = next, oom = oom")
+arm(79, "op_closure",    "next = next, error = error, oom = oom")
+arm(80, "op_vararg",     "next = next, error = error, oom = oom")
+arm(81, "op_getvarg",    "next = next, error = error, oom = oom")
+arm(82, "op_errnnil",    "next = next, error = error, oom = oom")
+arm(83, "op_varargprep", "next = next, oom = oom")
+arm(84, "op_extraarg",   "next = next")
 
 -- Build values table
 local VALS = {}
@@ -197,44 +215,11 @@ entry decode()
     let cl: ptr(LClosure) = as(ptr(LClosure), cur_frame.closure.bits)
     let ip: ptr(Instr) = cl.proto.code + cur_pc
     let op: u16 = ip.op
-    let a: u16 = ip.a
-    let b: u16 = ip.b
-    let c: u16 = ip.c
-    let k: u8 = ip.k
-    let bx: u32 = ip.bx
-    let sbx: i32 = ip.sbx
     switch op do
 ]] .. table.concat(arms, "\n") .. [[
     default then
         jump error(code = @{ERR_BAD_OPCODE})
     end
-end
-block do_next(frame: ptr(Frame), pc: index, base: index, top: index)
-    jump next(frame = frame, pc = pc, base = base, top = top)
-end
-block forward_jump(frame: ptr(Frame), pc: index, base: index, top: index)
-    jump do_jump(frame = frame, pc = pc, base = base, top = top)
-end
-block dispatch_lua(child: ptr(Frame))
-    jump enter_lua(child = child)
-end
-block dispatch_native(cl: ptr(CClosure))
-    jump enter_native(cl = cl)
-end
-block dispatch_returned(nres: i32)
-    jump returned(nres = nres)
-end
-block dispatch_yielded(nres: i32)
-    jump yielded(nres = nres)
-end
-block dispatch_error(code: i32)
-    jump error(code = code)
-end
-block dispatch_oom()
-    jump oom()
-end
-block dispatch_finished(nres: i32)
-    jump returned(nres = nres)
 end
 block dispatch_resume(parent: ptr(Frame), pc: index, base: index, top: index)
     jump next(frame = parent, pc = pc, base = base, top = top)

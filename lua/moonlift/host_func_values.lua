@@ -430,44 +430,29 @@ function M.Install(api, session)
         return setmetatable(result, stmts_concat_mt)
     end
 
-    -- ── api.stmts — unified quoting + values binder ────────────────────────
-    -- Supports three forms:
-    --   api.stmts(src)               — pure quote (no @{} allowed)
-    --   api.stmts{values}(src)       — values binder (quote with @{})
-    --   api.stmts{array}             — ASDL pass-through (raw Stmt[])
-    --
-    -- The dispatch object is a table with __call for pure quotes and
-    -- __index for the table-argument forms.
-    local stmts_mt = {}
-    function stmts_mt.__call(_, arg)
-        if type(arg) == "string" then
-            -- Pure quote: moon.stmts[[src]]
+    -- ── api.stmts — chain-based quote through frontend pipeline ────────────
+    -- Uses chain.lua so that @{} bindings and expand/env are handled correctly.
+    local chain_mod = require("moonlift.chain")
+    local chain_binding = chain_mod.bind(session)
+    api.stmts = chain_binding.make_quote(
+        -- parse_fn
+        function(T, src)
             local Parse = require("moonlift.parse").Define(T)
-            local parsed = Parse.parse_stmts(arg)
-            if #parsed.issues ~= 0 then error(parsed.issues[1].message, 3) end
-            if #parsed.splice_slots ~= 0 then
-                error("moon.stmts[[]] does not evaluate @{}; use moon.stmts{values}[[src]] instead", 3)
-            end
-            return setmetatable(parsed.value, stmts_concat_mt)
+            return Parse.parse_stmts(src)
+        end,
+        -- wrap_fn
+        function(value, parsed, T, src, bindings)
+            return setmetatable(value, stmts_concat_mt)
+        end,
+        -- expand_fn
+        function(e, value, env)
+            return e.stmts(value, env)
+        end,
+        -- table_fn (ASDL pass-through)
+        function(arg)
+            return setmetatable(arg, stmts_concat_mt)
         end
-        if type(arg) == "table" then
-            -- Table argument: values binder or ASDL pass-through
-            if #arg > 0 then
-                local pvm = require("moonlift.pvm")
-                if pvm.classof(arg[1]) ~= false then
-                    return setmetatable(arg, stmts_concat_mt)
-                end
-            end
-            for k in pairs(arg) do
-                if type(k) == "string" then
-                    return api._stmts_values_binder(arg)
-                end
-            end
-            error("moon.stmts{...}: table has no string keys nor ASDL elements", 3)
-        end
-        error("moon.stmts expects a string [[]] or table {}", 3)
-    end
-    api.stmts = setmetatable({}, stmts_mt)
+    )
 
     function api.switch_stmt_arm(raw_key, body)
         return { kind = "switch_stmt_arm", raw_key = tostring(raw_key), body = body }

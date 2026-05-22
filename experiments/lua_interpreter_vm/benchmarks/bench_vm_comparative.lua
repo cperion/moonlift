@@ -28,7 +28,10 @@ local scratch_raw = lib.moonlift_scratch_raw
 ffi.cdef [[
 typedef struct { void* next; uint8_t tt; uint8_t marked; } GCHeader;
 typedef struct { uint32_t tag; uint32_t aux; uint64_t bits; } Value;
-typedef struct { uint16_t op; uint16_t a; uint16_t b; uint16_t c; uint32_t bx; int32_t sbx; } Instr;
+typedef struct {
+    uint16_t op; uint16_t a; uint16_t b; uint16_t c;
+    uint8_t k; uint32_t bx; int32_t sbx;
+} Instr;
 typedef struct {
     GCHeader gc;
     void* code; uint64_t code_len;
@@ -39,7 +42,7 @@ typedef struct {
     void* upvals; uint64_t upvals_len;
     void* source;
     int32_t linedefined; int32_t lastlinedefined;
-    uint8_t numparams; uint8_t is_vararg; uint16_t maxstack;
+    uint8_t numparams; uint8_t flag; uint16_t maxstack;
 } Proto;
 typedef struct { GCHeader gc; void* env; Proto* proto; void** upvals; uint8_t nupvals; } LClosure;
 typedef struct {
@@ -74,24 +77,25 @@ end
 local BITS_42 = d2b(42.0)
 local BITS_99 = d2b(99.0)
 
-local function build_thread(steps, fill_code, init_stack)
-    local slot = 40 + steps
+local function build_thread(steps, fill_code, init_stack, code_slots)
+    code_slots = code_slots or steps
+    local slot = 40 + code_slots
 
     local consts = S(slot + 0, 16, 2, "Value*")
     consts[0].tag = const.Tag.NUM; consts[0].aux = 0; consts[0].bits = BITS_42
     consts[1].tag = const.Tag.NUM; consts[1].aux = 0; consts[1].bits = BITS_99
 
-    local code = S(slot + 1, 16, steps + 1, "Instr*")
-    for i = 0, steps do
+    local code = S(slot + 1, ffi.sizeof("Instr"), code_slots + 1, "Instr*")
+    for i = 0, code_slots do
         code[i].op = 0; code[i].a = 0; code[i].b = 0; code[i].c = 0; code[i].bx = 0; code[i].sbx = 0
     end
     fill_code(code, steps)
-    code[steps].op = const.Op.RETURN
-    code[steps].a = 0
-    code[steps].b = 2
+    code[code_slots].op = const.Op.RETURN
+    code[code_slots].a = 0
+    code[code_slots].b = 2
 
     local proto = S(slot + 2, 1, 256, "Proto*")
-    proto.code = ffi.cast("void*", code); proto.code_len = steps + 1
+    proto.code = ffi.cast("void*", code); proto.code_len = code_slots + 1
     proto.constants = ffi.cast("void*", consts); proto.constants_len = 2
     proto.maxstack = 4
 
@@ -179,9 +183,10 @@ end
 local STEPS = tonumber(os.getenv("MOONLIFT_VM_STEPS")) or 10000
 local RUNS = tonumber(os.getenv("MOONLIFT_VM_RUNS")) or 1000
 
-local function run_bench(name, fill_code, init_stack, steps_override)
+local function run_bench(name, fill_code, init_stack, steps_override, code_slots_override)
     local steps = steps_override or STEPS
-    local thread, stack, frames = build_thread(steps, fill_code, init_stack)
+    local code_slots = code_slots_override or steps
+    local thread, stack, frames = build_thread(steps, fill_code, init_stack, code_slots)
 
     reset(thread, stack, frames)
     local verify = runner_fn(thread, 0)
@@ -230,14 +235,20 @@ local ops = {
     {
         name = "ADD",
         ref = "ADD",
+        code_slots = STEPS * 2,
         fill = function(code, steps)
             for i = 0, steps - 1 do
-                code[i].op = const.Op.ADD
-                -- Keep sources stable in R0/R1; write result to R2.
-                -- This avoids value blow-up from repeated as(u64, f64) conversions.
-                code[i].a = 2
-                code[i].b = 0
-                code[i].c = 1
+                local pc = i * 2
+                code[pc].op = const.Op.ADD
+                -- Lua 5.5 arithmetic instructions skip over the following MMBIN
+                -- on the fast path, so lay the stream out as ADD/MMBIN pairs.
+                code[pc].a = 2
+                code[pc].b = 0
+                code[pc].c = 1
+                code[pc + 1].op = const.Op.MMBIN
+                code[pc + 1].a = 0
+                code[pc + 1].b = const.TM.ADD
+                code[pc + 1].c = 0
             end
         end,
     },
@@ -245,7 +256,7 @@ local ops = {
 
 local results = {}
 for _, op in ipairs(ops) do
-    local elapsed = run_bench(op.name, op.fill, op.init_stack)
+    local elapsed = run_bench(op.name, op.fill, op.init_stack, nil, op.code_slots)
     results[op.name] = math.max(0, ((elapsed / RUNS) * 1e9 - ret_ns) / STEPS)
 end
 

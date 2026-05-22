@@ -153,7 +153,7 @@ Moonlift receives only the monomorphic result with all types resolved.
 Moonlift source does not use angle brackets for type arguments or casts.
 This applies everywhere: declarations, calls, and conversions.
 
-The single source-level conversion form is:
+The normal source-level conversion form is:
 
 ```moonlift
 as(T, value)
@@ -170,10 +170,19 @@ let p: f32 = as(f32, double_value)     -- f64 → f32 demotion
 
 `as(T, value)` is a semantic conversion request. It is not a generic call and
 not an explicit machine operation. The compiler chooses the concrete machine
-operation (extend, truncate, float conversion, bitcast, or identity) from the
-source and target scalar types. All combinations of supported scalars are
-defined. Invalid combinations (e.g. `as(ptr(u8), f64_value)`) are rejected at
-typecheck time.
+operation (extend, truncate, float conversion, or identity) from the source and
+target scalar types.
+
+For representation-level code that must reinterpret bits without numeric
+conversion, use explicit same-width `bitcast(T, value)`:
+
+```moonlift
+let n: f64 = bitcast(f64, bits)
+let bits2: u64 = bitcast(u64, n)
+```
+
+All combinations of supported scalar `as` conversions are defined. Invalid
+combinations (e.g. `as(ptr(u8), f64_value)`) are rejected at typecheck time.
 
 ### 2.3 Explicit ASDL meaning
 
@@ -1255,7 +1264,7 @@ the source and target scalar types:
 | float → smaller float | `fdemote` |
 | float → larger float | `fpromote` |
 | same-size int ↔ same-size int | `bitcast` (reinterpret bits) |
-| same-size int ↔ float | `bitcast` |
+| int ↔ float | numeric conversion (`as`) or explicit same-width reinterpret (`bitcast`) |
 | same type | Identity (no-op) |
 
 All valid conversions between supported scalars are defined. Conversions
@@ -1268,7 +1277,7 @@ Examples:
 let c: i32 = as(i32, p[i])          -- u8 → i32 (unsigned extend)
 let x: f64 = as(f64, count)         -- i32 → f64 (int to float)
 let byte: u8 = as(u8, word)         -- i32 → u8 (truncate)
-let bits: i32 = as(i32, float_val)  -- f32 → i32 (bitcast)
+let bits: i32 = bitcast(i32, float_val) -- f32 bits → i32 bits
 ```
 
 ### 9.10 Select expression

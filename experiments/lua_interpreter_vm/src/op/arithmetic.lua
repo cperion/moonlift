@@ -13,12 +13,21 @@ region op_add(]] .. H .. [[;]] .. B.ARITH_CONT .. [[)
 entry start()
     let lhs: ptr(Value) = L.stack + (base + as(index, b))
     let rhs: ptr(Value) = L.stack + (base + as(index, c))
-    if lhs.tag == @{TAG_INTEGER} and rhs.tag == @{TAG_INTEGER} then
-        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = as(u64, as(i64, lhs.bits) + as(i64, rhs.bits)) }
+    let lt: u32 = lhs.tag
+    let rt: u32 = rhs.tag
+    let lb: u64 = lhs.bits
+    let rb: u64 = rhs.bits
+    let dst: index = base + as(index, a)
+    if lt == @{TAG_INTEGER} and rt == @{TAG_INTEGER} then
+        L.stack[dst].tag = @{TAG_INTEGER}
+        L.stack[dst].aux = 0
+        L.stack[dst].bits = as(u64, as(i64, lb) + as(i64, rb))
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
-    if lhs.tag == @{TAG_NUM} and rhs.tag == @{TAG_NUM} then
-        L.stack[base + as(index, a)] = { tag = @{TAG_NUM}, aux = 0, bits = as(u64, as(f64, lhs.bits) + as(f64, rhs.bits)) }
+    if lt == @{TAG_NUM} and rt == @{TAG_NUM} then
+        L.stack[dst].tag = @{TAG_NUM}
+        L.stack[dst].aux = 0
+        L.stack[dst].bits = bitcast(u64, bitcast(f64, lb) + bitcast(f64, rb))
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
     frame.resume_a = a
@@ -37,7 +46,7 @@ entry start()
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
     if lhs.tag == @{TAG_NUM} and rhs.tag == @{TAG_NUM} then
-        L.stack[base + as(index, a)] = { tag = @{TAG_NUM}, aux = 0, bits = as(u64, as(f64, lhs.bits) - as(f64, rhs.bits)) }
+        L.stack[base + as(index, a)] = { tag = @{TAG_NUM}, aux = 0, bits = bitcast(u64, bitcast(f64, lhs.bits) - bitcast(f64, rhs.bits)) }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
     frame.resume_a = a
@@ -56,7 +65,7 @@ entry start()
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
     if lhs.tag == @{TAG_NUM} and rhs.tag == @{TAG_NUM} then
-        L.stack[base + as(index, a)] = { tag = @{TAG_NUM}, aux = 0, bits = as(u64, as(f64, lhs.bits) * as(f64, rhs.bits)) }
+        L.stack[base + as(index, a)] = { tag = @{TAG_NUM}, aux = 0, bits = bitcast(u64, bitcast(f64, lhs.bits) * bitcast(f64, rhs.bits)) }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
     frame.resume_a = a
@@ -71,7 +80,7 @@ entry start()
     let lhs: ptr(Value) = L.stack + (base + as(index, b))
     let rhs: ptr(Value) = L.stack + (base + as(index, c))
     if lhs.tag == @{TAG_NUM} and rhs.tag == @{TAG_NUM} then
-        L.stack[base + as(index, a)] = { tag = @{TAG_NUM}, aux = 0, bits = as(u64, as(f64, lhs.bits) / as(f64, rhs.bits)) }
+        L.stack[base + as(index, a)] = { tag = @{TAG_NUM}, aux = 0, bits = bitcast(u64, bitcast(f64, lhs.bits) / bitcast(f64, rhs.bits)) }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
     frame.resume_a = a
@@ -191,7 +200,7 @@ entry start()
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
     if lhs.tag == @{TAG_NUM} then
-        L.stack[base + as(index, a)] = { tag = @{TAG_NUM}, aux = 0, bits = as(u64, as(f64, lhs.bits) + as(f64, as(i64, as(i32, c)))) }
+        L.stack[base + as(index, a)] = { tag = @{TAG_NUM}, aux = 0, bits = bitcast(u64, bitcast(f64, lhs.bits) + as(f64, as(i64, as(i32, c)))) }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
     frame.resume_a = a
@@ -239,7 +248,7 @@ entry start()
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
     if lhs.tag == @{TAG_NUM} and rhs.tag == @{TAG_NUM} then
-        L.stack[base + as(index, a)] = { tag = @{TAG_NUM}, aux = 0, bits = as(u64, as(f64, lhs.bits) + as(f64, rhs.bits)) }
+        L.stack[base + as(index, a)] = { tag = @{TAG_NUM}, aux = 0, bits = bitcast(u64, bitcast(f64, lhs.bits) + bitcast(f64, rhs.bits)) }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
     frame.resume_a = a
@@ -259,7 +268,7 @@ entry start()
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
     if lhs.tag == @{TAG_NUM} and rhs.tag == @{TAG_NUM} then
-        L.stack[base + as(index, a)] = { tag = @{TAG_NUM}, aux = 0, bits = as(u64, as(f64, lhs.bits) - as(f64, rhs.bits)) }
+        L.stack[base + as(index, a)] = { tag = @{TAG_NUM}, aux = 0, bits = bitcast(u64, bitcast(f64, lhs.bits) - bitcast(f64, rhs.bits)) }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
     frame.resume_a = a
@@ -279,7 +288,7 @@ entry start()
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
     if lhs.tag == @{TAG_NUM} and rhs.tag == @{TAG_NUM} then
-        L.stack[base + as(index, a)] = { tag = @{TAG_NUM}, aux = 0, bits = as(u64, as(f64, lhs.bits) * as(f64, rhs.bits)) }
+        L.stack[base + as(index, a)] = { tag = @{TAG_NUM}, aux = 0, bits = bitcast(u64, bitcast(f64, lhs.bits) * bitcast(f64, rhs.bits)) }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
     frame.resume_a = a
@@ -295,7 +304,7 @@ entry start()
     let lhs: ptr(Value) = L.stack + (base + as(index, b))
     let rhs: ptr(Value) = cl.proto.constants + as(index, c)
     if lhs.tag == @{TAG_NUM} and rhs.tag == @{TAG_NUM} then
-        L.stack[base + as(index, a)] = { tag = @{TAG_NUM}, aux = 0, bits = as(u64, as(f64, lhs.bits) / as(f64, rhs.bits)) }
+        L.stack[base + as(index, a)] = { tag = @{TAG_NUM}, aux = 0, bits = bitcast(u64, bitcast(f64, lhs.bits) / bitcast(f64, rhs.bits)) }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
     frame.resume_a = a
@@ -388,7 +397,7 @@ entry start()
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
     if src.tag == @{TAG_NUM} then
-        L.stack[base + as(index, a)] = { tag = @{TAG_NUM}, aux = 0, bits = as(u64, -(as(f64, src.bits))) }
+        L.stack[base + as(index, a)] = { tag = @{TAG_NUM}, aux = 0, bits = bitcast(u64, -(bitcast(f64, src.bits))) }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
     frame.resume_a = a

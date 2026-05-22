@@ -38,7 +38,7 @@ local value_as_float = host.region { TAG_NUM = I.TAG_NUM } [[
 region value_as_float(v: Value; float: cont(n: f64), not_float: cont())
 entry start()
     if v.tag == @{TAG_NUM} then
-        jump float(n = as(f64, v.bits))
+        jump float(n = bitcast(f64, v.bits))
     end
     jump not_float()
 end
@@ -53,7 +53,7 @@ entry start()
         jump integer(n = as(i64, v.bits))
     end
     if v.tag == @{TAG_NUM} then
-        jump float(n = as(f64, v.bits))
+        jump float(n = bitcast(f64, v.bits))
     end
     jump not_number()
 end
@@ -130,7 +130,7 @@ entry start()
         if a.bits == b.bits then jump equal() end
         jump not_equal()
     case 5 then
-        if as(f64, a.bits) == as(f64, b.bits) then
+        if bitcast(f64, a.bits) == bitcast(f64, b.bits) then
             jump equal()
         end
         jump not_equal()
@@ -174,7 +174,7 @@ entry start()
         jump result(is_lt = as(i64, a.bits) < as(i64, b.bits))
     end
     if a.tag == @{TAG_NUM} and b.tag == @{TAG_NUM} then
-        jump result(is_lt = as(f64, a.bits) < as(f64, b.bits))
+        jump result(is_lt = bitcast(f64, a.bits) < bitcast(f64, b.bits))
     end
     if a.tag == @{TAG_STR} and b.tag == @{TAG_STR} then
         let sa: ptr(String) = as(ptr(String), a.bits)
@@ -207,7 +207,7 @@ entry start()
         jump result(is_le = as(i64, a.bits) <= as(i64, b.bits))
     end
     if a.tag == @{TAG_NUM} and b.tag == @{TAG_NUM} then
-        jump result(is_le = as(f64, a.bits) <= as(f64, b.bits))
+        jump result(is_le = bitcast(f64, a.bits) <= bitcast(f64, b.bits))
     end
     if a.tag == @{TAG_STR} and b.tag == @{TAG_STR} then
         let sa: ptr(String) = as(ptr(String), a.bits)

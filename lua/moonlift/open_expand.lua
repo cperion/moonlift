@@ -364,6 +364,26 @@ function M.Define(T)
         local merged = {}
         for i = 1, #env.conts do merged[#merged + 1] = env.conts[i] end
         for i = 1, #conts do merged[#merged + 1] = conts[i] end
+
+        -- Legacy SlotCont fills are accepted only when the fill slot is
+        -- actually a continuation slot.  Do not promote arbitrary fill slots
+        -- into continuation bindings: region emit cont_fills are already
+        -- represented directly in `conts`, and broad promotion can create
+        -- inner-cont -> outer-cont -> inner-cont cycles for direct routing
+        -- such as `next = next`.
+        for i = 1, #env.fills.bindings do
+            local binding = env.fills.bindings[i]
+            if pvm.classof(binding.slot) == O.SlotCont then
+                local key = binding.slot.slot.key
+                local v = binding.value
+                local vcls = pvm.classof(v)
+                if vcls == O.SlotValueCont then
+                    merged[#merged + 1] = O.ContBinding(key, O.ContTargetLabel(v.label))
+                elseif vcls == O.SlotValueContSlot and v.slot.key ~= key then
+                    merged[#merged + 1] = O.ContBinding(key, O.ContTargetSlot(v.slot))
+                end
+            end
+        end
         return O.ExpandEnv(env.region_frags, env.expr_frags, env.fills, merged, env.params, env.rebase_prefix)
     end
 
@@ -727,20 +747,43 @@ function M.Define(T)
         end,
     }, { args_cache = "last" })
 
-    local function resolve_cont_target(slot, env, seen)
-        seen = seen or {}
-        if seen[slot.key] then return nil end
-        seen[slot.key] = true
-        for i = #env.conts, 1, -1 do
-            local binding = env.conts[i]
-            if binding.name == slot.key then
-                local target = binding.target
-                local cls = pvm.classof(target)
-                if cls == O.ContTargetLabel then return target
-                elseif cls == O.ContTargetSlot then return resolve_cont_target(target.slot, env, seen) or target end
+    local function resolve_cont_target(slot, env)
+        local original_key = slot.key
+        local current = slot
+        local seen = {}
+        while true do
+            if seen[current.key] then return nil end
+            seen[current.key] = true
+
+            local target = nil
+            for i = #env.conts, 1, -1 do
+                local binding = env.conts[i]
+                if binding.name == current.key then
+                    target = binding.target
+                    break
+                end
+            end
+            if target == nil then
+                if current.key == original_key then return nil end
+                return O.ContTargetSlot(current)
+            end
+
+            local cls = pvm.classof(target)
+            if cls == O.ContTargetLabel then return target end
+            if cls == O.ContTargetSlot then
+                if seen[target.slot.key] then
+                    -- A cycle means a direct continuation route was rebound
+                    -- back through the current environment.  Collapse to the
+                    -- last non-cycling slot when possible; leave true
+                    -- self-cycles unresolved so expansion remains finite.
+                    if current.key ~= original_key then return O.ContTargetSlot(current) end
+                    return nil
+                end
+                current = target.slot
+            else
+                return nil
             end
         end
-        return nil
     end
 
     -- Region emit composition is handled by region_normal_form.lua.

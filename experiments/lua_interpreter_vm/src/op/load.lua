@@ -1,6 +1,5 @@
 -- Moonlift VM — Load/store opcode handlers.
--- Dispatch is scalarized; Value stores currently use aggregate assignment where
--- the backend does not yet accept multiple scalar field stores to the same slot.
+-- Hot load paths use scalar field stores to avoid 16-byte aggregate memcpy.
 
 local B = require("experiments.lua_interpreter_vm.src.op._init")
 local R, H = B.R, B.H
@@ -8,7 +7,14 @@ local R, H = B.R, B.H
 local op_move = R([[
 region op_move(]] .. H .. [[;]] .. B.next_only .. [[)
 entry start()
-    L.stack[base + as(index, a)] = L.stack[base + as(index, b)]
+    let src: index = base + as(index, b)
+    let dst: index = base + as(index, a)
+    let tag: u32 = L.stack[src].tag
+    let aux: u32 = L.stack[src].aux
+    let bits: u64 = L.stack[src].bits
+    L.stack[dst].tag = tag
+    L.stack[dst].aux = aux
+    L.stack[dst].bits = bits
     jump next(frame = frame, pc = pc + 1, base = base, top = top)
 end
 end
@@ -17,7 +23,10 @@ end
 local op_loadi = R([[
 region op_loadi(]] .. H .. [[;]] .. B.next_only .. [[)
 entry start()
-    L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = as(u64, as(i64, sbx)) }
+    let dst: index = base + as(index, a)
+    L.stack[dst].tag = @{TAG_INTEGER}
+    L.stack[dst].aux = 0
+    L.stack[dst].bits = as(u64, as(i64, sbx))
     jump next(frame = frame, pc = pc + 1, base = base, top = top)
 end
 end
@@ -26,7 +35,10 @@ end
 local op_loadf = R([[
 region op_loadf(]] .. H .. [[;]] .. B.next_only .. [[)
 entry start()
-    L.stack[base + as(index, a)] = { tag = @{TAG_NUM}, aux = 0, bits = as(u64, as(f64, as(i64, sbx))) }
+    let dst: index = base + as(index, a)
+    L.stack[dst].tag = @{TAG_NUM}
+    L.stack[dst].aux = 0
+    L.stack[dst].bits = bitcast(u64, as(f64, as(i64, sbx)))
     jump next(frame = frame, pc = pc + 1, base = base, top = top)
 end
 end
@@ -36,7 +48,14 @@ local op_loadk = R([[
 region op_loadk(]] .. H .. [[;]] .. B.next_only .. [[)
 entry start()
     let cl: ptr(LClosure) = as(ptr(LClosure), frame.closure.bits)
-    L.stack[base + as(index, a)] = cl.proto.constants[bx]
+    let src: ptr(Value) = cl.proto.constants + as(index, bx)
+    let dst: index = base + as(index, a)
+    let tag: u32 = src.tag
+    let aux: u32 = src.aux
+    let bits: u64 = src.bits
+    L.stack[dst].tag = tag
+    L.stack[dst].aux = aux
+    L.stack[dst].bits = bits
     jump next(frame = frame, pc = pc + 1, base = base, top = top)
 end
 end
@@ -47,7 +66,14 @@ region op_loadkx(]] .. H .. [[;]] .. B.next_only .. [[)
 entry start()
     let cl: ptr(LClosure) = as(ptr(LClosure), frame.closure.bits)
     let extra: ptr(Instr) = cl.proto.code + (pc + 1)
-    L.stack[base + as(index, a)] = cl.proto.constants[extra.bx]
+    let src: ptr(Value) = cl.proto.constants + as(index, extra.bx)
+    let dst: index = base + as(index, a)
+    let tag: u32 = src.tag
+    let aux: u32 = src.aux
+    let bits: u64 = src.bits
+    L.stack[dst].tag = tag
+    L.stack[dst].aux = aux
+    L.stack[dst].bits = bits
     jump next(frame = frame, pc = pc + 2, base = base, top = top)
 end
 end
@@ -56,7 +82,10 @@ end
 local op_loadfalse = R([[
 region op_loadfalse(]] .. H .. [[;]] .. B.next_only .. [[)
 entry start()
-    L.stack[base + as(index, a)] = { tag = @{TAG_FALSE}, aux = 0, bits = 0 }
+    let dst: index = base + as(index, a)
+    L.stack[dst].tag = @{TAG_FALSE}
+    L.stack[dst].aux = 0
+    L.stack[dst].bits = 0
     jump next(frame = frame, pc = pc + 1, base = base, top = top)
 end
 end
@@ -65,7 +94,10 @@ end
 local op_loadtrue = R([[
 region op_loadtrue(]] .. H .. [[;]] .. B.next_only .. [[)
 entry start()
-    L.stack[base + as(index, a)] = { tag = @{TAG_TRUE}, aux = 0, bits = 0 }
+    let dst: index = base + as(index, a)
+    L.stack[dst].tag = @{TAG_TRUE}
+    L.stack[dst].aux = 0
+    L.stack[dst].bits = 0
     jump next(frame = frame, pc = pc + 1, base = base, top = top)
 end
 end
@@ -74,7 +106,10 @@ end
 local op_lfalseskip = R([[
 region op_lfalseskip(]] .. H .. [[;]] .. B.next_only .. [[)
 entry start()
-    L.stack[base + as(index, a)] = { tag = @{TAG_FALSE}, aux = 0, bits = 0 }
+    let dst: index = base + as(index, a)
+    L.stack[dst].tag = @{TAG_FALSE}
+    L.stack[dst].aux = 0
+    L.stack[dst].bits = 0
     jump next(frame = frame, pc = pc + 2, base = base, top = top)
 end
 end
@@ -89,7 +124,9 @@ entry start()
 end
 block loop(i: index, last: index, ret_pc: index, ret_base: index, ret_top: index)
     if i > last then jump next(frame = frame, pc = ret_pc, base = ret_base, top = ret_top) end
-    L.stack[i] = { tag = @{TAG_NIL}, aux = 0, bits = 0 }
+    L.stack[i].tag = @{TAG_NIL}
+    L.stack[i].aux = 0
+    L.stack[i].bits = 0
     jump loop(i = i + 1, last = last, ret_pc = ret_pc, ret_base = ret_base, ret_top = ret_top)
 end
 end

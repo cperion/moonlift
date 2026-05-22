@@ -126,10 +126,14 @@ function M.Define(T, cb)
         return rewrite_runtime_expr(callee_expr, names)
     end
 
+    local rewrite_runtime_place
+
     rewrite_runtime_expr = function(expr, names)
         local cls = pvm.classof(expr)
         if cls == Tr.ExprRef and pvm.classof(expr.ref) == B.ValueRefName and names[expr.ref.name] then
             return pvm.with(expr, { ref = B.ValueRefName(names[expr.ref.name]) })
+        elseif cls == Tr.ExprRef and pvm.classof(expr.ref) == B.ValueRefBinding and names[expr.ref.binding.var_name or expr.ref.binding.name] then
+            return pvm.with(expr, { ref = B.ValueRefName(names[expr.ref.binding.var_name or expr.ref.binding.name]) })
         elseif cls == Tr.ExprRef and pvm.classof(expr.ref) == B.ValueRefBinding and pvm.classof(expr.ref.binding.class) == B.BindingClassOpenParam and names[expr.ref.binding.class.param.name] then
             return pvm.with(expr, { ref = B.ValueRefName(names[expr.ref.binding.class.param.name]) })
         elseif cls == Tr.ExprUnary then
@@ -168,6 +172,24 @@ function M.Define(T, cb)
         return out
     end
 
+    rewrite_runtime_place = function(place, names)
+        local cls = pvm.classof(place)
+        if cls == Tr.PlaceRef and pvm.classof(place.ref) == B.ValueRefName and names[place.ref.name] then
+            return pvm.with(place, { ref = B.ValueRefName(names[place.ref.name]) })
+        elseif cls == Tr.PlaceRef and pvm.classof(place.ref) == B.ValueRefBinding and names[place.ref.binding.var_name or place.ref.binding.name] then
+            return pvm.with(place, { ref = B.ValueRefName(names[place.ref.binding.var_name or place.ref.binding.name]) })
+        elseif cls == Tr.PlaceIndex then
+            return pvm.with(place, { index = rewrite_runtime_expr(place.index, names) })
+        elseif cls == Tr.PlaceDeref then
+            return pvm.with(place, { base = rewrite_runtime_expr(place.base, names) })
+        elseif cls == Tr.PlaceDot then
+            return pvm.with(place, { base = rewrite_runtime_place(place.base, names) })
+        elseif cls == Tr.PlaceField then
+            return pvm.with(place, { base = rewrite_runtime_place(place.base, names) })
+        end
+        return place
+    end
+
     rewrite_runtime_stmts = function(stmts, frag)
         local names = runtime_name_map(frag)
         local out = {}
@@ -179,7 +201,7 @@ function M.Define(T, cb)
             elseif cls == Tr.StmtLet or cls == Tr.StmtVar then
                 out[i] = pvm.with(stmt, { init = rewrite_runtime_expr(stmt.init, names) })
             elseif cls == Tr.StmtSet then
-                out[i] = pvm.with(stmt, { value = rewrite_runtime_expr(stmt.value, names) })
+                out[i] = pvm.with(stmt, { value = rewrite_runtime_expr(stmt.value, names), place = rewrite_runtime_place(stmt.place, names) })
             elseif cls == Tr.StmtAtomicStore then
                 out[i] = pvm.with(stmt, { addr = rewrite_runtime_expr(stmt.addr, names), value = rewrite_runtime_expr(stmt.value, names) })
             elseif cls == Tr.StmtAtomicFence then
@@ -194,6 +216,8 @@ function M.Define(T, cb)
                 local variant_arms = {}
                 for j = 1, #(stmt.variant_arms or {}) do variant_arms[j] = pvm.with(stmt.variant_arms[j], { body = rewrite_runtime_stmts(stmt.variant_arms[j].body, frag) }) end
                 out[i] = pvm.with(stmt, { value = rewrite_runtime_expr(stmt.value, names), arms = arms, variant_arms = variant_arms, default_body = rewrite_runtime_stmts(stmt.default_body, frag) })
+            elseif cls == Tr.StmtUseRegionFrag then
+                out[i] = pvm.with(stmt, { args = rewrite_runtime_args(stmt.args, names) })
             elseif cls == Tr.StmtJump or cls == Tr.StmtJumpCont then
                 out[i] = pvm.with(stmt, { args = rewrite_jump_args(stmt.args, names) })
             elseif cls == Tr.StmtYieldValue or cls == Tr.StmtReturnValue then
