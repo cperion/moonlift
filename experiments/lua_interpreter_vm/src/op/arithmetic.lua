@@ -4,6 +4,12 @@
 -- handlers by substituting expression strings into Moonlift source templates;
 -- that hid opcode semantics and kept hot Value accesses in aggregate-copy form.
 -- The handlers below read/write Value fields through pointers in the hot path.
+--
+-- Integer arithmetic on Value.bits (u64) uses u64 ops directly — no identity
+-- casts through i64.  u64 + u64, u64 & u64, etc. all compile to the same
+-- iadd.i64 / band.i64 CLIF as their i64 counterparts because u64 and i64
+-- share the same machine representation.  Right shift uses >>> (BinLShr) to
+-- match Lua's unsigned shift semantics.
 
 local B = require("experiments.lua_interpreter_vm.src.op._init")
 local R, H = B.R, B.H
@@ -21,7 +27,7 @@ entry start()
     if lt == @{TAG_INTEGER} and rt == @{TAG_INTEGER} then
         L.stack[dst].tag = @{TAG_INTEGER}
         L.stack[dst].aux = 0
-        L.stack[dst].bits = as(u64, as(i64, lb) + as(i64, rb))
+        L.stack[dst].bits = lb + rb
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
     if lt == @{TAG_NUM} and rt == @{TAG_NUM} then
@@ -42,7 +48,7 @@ entry start()
     let lhs: ptr(Value) = L.stack + (base + as(index, b))
     let rhs: ptr(Value) = L.stack + (base + as(index, c))
     if lhs.tag == @{TAG_INTEGER} and rhs.tag == @{TAG_INTEGER} then
-        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = as(u64, as(i64, lhs.bits) - as(i64, rhs.bits)) }
+        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = lhs.bits - rhs.bits }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
     if lhs.tag == @{TAG_NUM} and rhs.tag == @{TAG_NUM} then
@@ -61,7 +67,7 @@ entry start()
     let lhs: ptr(Value) = L.stack + (base + as(index, b))
     let rhs: ptr(Value) = L.stack + (base + as(index, c))
     if lhs.tag == @{TAG_INTEGER} and rhs.tag == @{TAG_INTEGER} then
-        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = as(u64, as(i64, lhs.bits) * as(i64, rhs.bits)) }
+        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = lhs.bits * rhs.bits }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
     if lhs.tag == @{TAG_NUM} and rhs.tag == @{TAG_NUM} then
@@ -119,7 +125,7 @@ entry start()
     let lhs: ptr(Value) = L.stack + (base + as(index, b))
     let rhs: ptr(Value) = L.stack + (base + as(index, c))
     if lhs.tag == @{TAG_INTEGER} and rhs.tag == @{TAG_INTEGER} then
-        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = as(u64, as(i64, lhs.bits) & as(i64, rhs.bits)) }
+        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = lhs.bits & rhs.bits }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
     frame.resume_a = a
@@ -134,7 +140,7 @@ entry start()
     let lhs: ptr(Value) = L.stack + (base + as(index, b))
     let rhs: ptr(Value) = L.stack + (base + as(index, c))
     if lhs.tag == @{TAG_INTEGER} and rhs.tag == @{TAG_INTEGER} then
-        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = as(u64, as(i64, lhs.bits) | as(i64, rhs.bits)) }
+        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = lhs.bits | rhs.bits }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
     frame.resume_a = a
@@ -149,10 +155,7 @@ entry start()
     let lhs: ptr(Value) = L.stack + (base + as(index, b))
     let rhs: ptr(Value) = L.stack + (base + as(index, c))
     if lhs.tag == @{TAG_INTEGER} and rhs.tag == @{TAG_INTEGER} then
-        let x: i64 = as(i64, lhs.bits)
-        let y: i64 = as(i64, rhs.bits)
-        let r: i64 = x ~ y
-        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = as(u64, r) }
+        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = lhs.bits ^ rhs.bits }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
     frame.resume_a = a
@@ -167,7 +170,7 @@ entry start()
     let lhs: ptr(Value) = L.stack + (base + as(index, b))
     let rhs: ptr(Value) = L.stack + (base + as(index, c))
     if lhs.tag == @{TAG_INTEGER} and rhs.tag == @{TAG_INTEGER} then
-        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = as(u64, as(i64, lhs.bits) << as(i64, rhs.bits)) }
+        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = lhs.bits << rhs.bits }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
     frame.resume_a = a
@@ -182,7 +185,7 @@ entry start()
     let lhs: ptr(Value) = L.stack + (base + as(index, b))
     let rhs: ptr(Value) = L.stack + (base + as(index, c))
     if lhs.tag == @{TAG_INTEGER} and rhs.tag == @{TAG_INTEGER} then
-        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = as(u64, as(i64, lhs.bits) >> as(i64, rhs.bits)) }
+        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = lhs.bits >>> rhs.bits }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
     frame.resume_a = a
@@ -196,7 +199,7 @@ region op_addi(]] .. H .. [[;]] .. B.ARITH_CONT .. [[)
 entry start()
     let lhs: ptr(Value) = L.stack + (base + as(index, b))
     if lhs.tag == @{TAG_INTEGER} then
-        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = as(u64, as(i64, lhs.bits) + as(i64, as(i32, c))) }
+        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = lhs.bits + as(u64, as(i32, c)) }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
     if lhs.tag == @{TAG_NUM} then
@@ -214,7 +217,7 @@ region op_shli(]] .. H .. [[;]] .. B.ARITH_CONT .. [[)
 entry start()
     let lhs: ptr(Value) = L.stack + (base + as(index, b))
     if lhs.tag == @{TAG_INTEGER} then
-        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = as(u64, as(i64, as(i32, c)) << as(i64, lhs.bits)) }
+        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = as(u64, as(i32, c)) << lhs.bits }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
     frame.resume_a = a
@@ -228,7 +231,7 @@ region op_shri(]] .. H .. [[;]] .. B.ARITH_CONT .. [[)
 entry start()
     let lhs: ptr(Value) = L.stack + (base + as(index, b))
     if lhs.tag == @{TAG_INTEGER} then
-        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = as(u64, as(i64, lhs.bits) >> as(i64, as(i32, c))) }
+        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = lhs.bits >>> as(u64, as(i32, c)) }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
     frame.resume_a = a
@@ -244,7 +247,7 @@ entry start()
     let lhs: ptr(Value) = L.stack + (base + as(index, b))
     let rhs: ptr(Value) = cl.proto.constants + as(index, c)
     if lhs.tag == @{TAG_INTEGER} and rhs.tag == @{TAG_INTEGER} then
-        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = as(u64, as(i64, lhs.bits) + as(i64, rhs.bits)) }
+        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = lhs.bits + rhs.bits }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
     if lhs.tag == @{TAG_NUM} and rhs.tag == @{TAG_NUM} then
@@ -264,7 +267,7 @@ entry start()
     let lhs: ptr(Value) = L.stack + (base + as(index, b))
     let rhs: ptr(Value) = cl.proto.constants + as(index, c)
     if lhs.tag == @{TAG_INTEGER} and rhs.tag == @{TAG_INTEGER} then
-        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = as(u64, as(i64, lhs.bits) - as(i64, rhs.bits)) }
+        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = lhs.bits - rhs.bits }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
     if lhs.tag == @{TAG_NUM} and rhs.tag == @{TAG_NUM} then
@@ -284,7 +287,7 @@ entry start()
     let lhs: ptr(Value) = L.stack + (base + as(index, b))
     let rhs: ptr(Value) = cl.proto.constants + as(index, c)
     if lhs.tag == @{TAG_INTEGER} and rhs.tag == @{TAG_INTEGER} then
-        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = as(u64, as(i64, lhs.bits) * as(i64, rhs.bits)) }
+        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = lhs.bits * rhs.bits }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
     if lhs.tag == @{TAG_NUM} and rhs.tag == @{TAG_NUM} then
@@ -344,7 +347,7 @@ entry start()
     let lhs: ptr(Value) = L.stack + (base + as(index, b))
     let rhs: ptr(Value) = cl.proto.constants + as(index, c)
     if lhs.tag == @{TAG_INTEGER} and rhs.tag == @{TAG_INTEGER} then
-        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = as(u64, as(i64, lhs.bits) & as(i64, rhs.bits)) }
+        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = lhs.bits & rhs.bits }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
     frame.resume_a = a
@@ -360,7 +363,7 @@ entry start()
     let lhs: ptr(Value) = L.stack + (base + as(index, b))
     let rhs: ptr(Value) = cl.proto.constants + as(index, c)
     if lhs.tag == @{TAG_INTEGER} and rhs.tag == @{TAG_INTEGER} then
-        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = as(u64, as(i64, lhs.bits) | as(i64, rhs.bits)) }
+        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = lhs.bits | rhs.bits }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
     frame.resume_a = a
@@ -376,10 +379,7 @@ entry start()
     let lhs: ptr(Value) = L.stack + (base + as(index, b))
     let rhs: ptr(Value) = cl.proto.constants + as(index, c)
     if lhs.tag == @{TAG_INTEGER} and rhs.tag == @{TAG_INTEGER} then
-        let x: i64 = as(i64, lhs.bits)
-        let y: i64 = as(i64, rhs.bits)
-        let r: i64 = x ~ y
-        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = as(u64, r) }
+        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = lhs.bits ^ rhs.bits }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
     frame.resume_a = a
@@ -393,7 +393,7 @@ region op_unm(]] .. H .. [[;]] .. B.ARITH_CONT .. [[)
 entry start()
     let src: ptr(Value) = L.stack + (base + as(index, b))
     if src.tag == @{TAG_INTEGER} then
-        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = as(u64, -(as(i64, src.bits))) }
+        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = -(src.bits) }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
     if src.tag == @{TAG_NUM} then
@@ -411,9 +411,7 @@ region op_bnot(]] .. H .. [[;]] .. B.ARITH_CONT .. [[)
 entry start()
     let src: ptr(Value) = L.stack + (base + as(index, b))
     if src.tag == @{TAG_INTEGER} then
-        let x: i64 = as(i64, src.bits)
-        let r: i64 = ~x
-        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = as(u64, r) }
+        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = ~src.bits }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
     frame.resume_a = a
