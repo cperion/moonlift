@@ -1,4 +1,6 @@
 -- Lua Interpreter VM — Main loop and entry point
+-- Hot state threaded through block params: frame, pc, base, top, code, constants.
+-- code and constants are cached pointers (not reloaded from frame->closure->proto on every op).
 
 local moon = require("moonlift")
 local host = require("moonlift.host")
@@ -8,12 +10,9 @@ local I = {}
 for k, v in pairs(const.Err) do I["ERR_" .. k] = moon.int(v) end
 for k, v in pairs(const.Status) do I["THREAD_" .. k] = moon.int(v) end
 
--- dispatch_instruction from opcodes module
 local opcodes_mod = require("experiments.lua_interpreter_vm.src.opcodes")
 local dispatch_instruction = opcodes_mod.dispatch_instruction
 
--- commit_vm_state: write hot state back to frame/LuaThread before potentially
--- re-entering VM, yielding, allocating, or raising errors
 local commit_vm_state = host.region [[
 region commit_vm_state(L: ptr(LuaThread), frame: ptr(Frame), pc: index, top: index; done: cont())
 entry start()
@@ -25,7 +24,6 @@ end
 end
 ]]
 
--- vm_resume: entry point from API or coroutine resume
 local vm_resume = host.region {
     ERR_RUNTIME = I.ERR_RUNTIME,
     THREAD_OK = I.THREAD_OK,
@@ -69,8 +67,6 @@ end
 end
 ]]
 
--- vm_loop: the main interpreter loop
--- Hot state kept in block parameters: frame, pc, base, top
 local vm_loop = host.region {
     ERR_RUNTIME = I.ERR_RUNTIME,
     ERR_BAD_OPCODE = I.ERR_BAD_OPCODE,
@@ -88,12 +84,17 @@ entry start()
     let pc: index = frame.pc
     let base: index = frame.base
     let top: index = frame.top
-    jump loop(frame = frame, pc = pc, base = base, top = top)
+    let cl: ptr(LClosure) = as(ptr(LClosure), frame.closure.bits)
+    let code: ptr(Instr) = cl.proto.code
+    let constants: ptr(Value) = cl.proto.constants
+    jump loop(frame = frame, pc = pc, base = base, top = top, code = code, constants = constants)
 end
-block loop(frame: ptr(Frame), pc: index, base: index, top: index)
-    emit dispatch_instruction(L, frame, pc, base, top;
+block loop(frame: ptr(Frame), pc: index, base: index, top: index,
+           code: ptr(Instr), constants: ptr(Value))
+    emit dispatch_instruction(L, frame, pc, base, top, code, constants;
         next = cont_loop,
         do_jump = cont_jump,
+        resume_parent = cont_resume_parent,
         enter_lua = do_lua,
         enter_native = do_native,
         returned = do_returned,
@@ -101,14 +102,24 @@ block loop(frame: ptr(Frame), pc: index, base: index, top: index)
         error = do_error,
         oom = out_of_mem)
 end
-block cont_loop(frame: ptr(Frame), pc: index, base: index, top: index)
-    jump loop(frame = frame, pc = pc, base = base, top = top)
+block cont_loop(frame: ptr(Frame), pc: index, base: index, top: index,
+                code: ptr(Instr), constants: ptr(Value))
+    jump loop(frame = frame, pc = pc, base = base, top = top, code = code, constants = constants)
 end
-block cont_jump(frame: ptr(Frame), pc: index, base: index, top: index)
-    jump loop(frame = frame, pc = pc, base = base, top = top)
+block cont_jump(frame: ptr(Frame), pc: index, base: index, top: index,
+                code: ptr(Instr), constants: ptr(Value))
+    jump loop(frame = frame, pc = pc, base = base, top = top, code = code, constants = constants)
+end
+block cont_resume_parent(parent: ptr(Frame), pc: index, base: index, top: index,
+                         code: ptr(Instr), constants: ptr(Value))
+    jump loop(frame = parent, pc = pc, base = base, top = top, code = code, constants = constants)
 end
 block do_lua(child: ptr(Frame))
-    jump loop(frame = child, pc = child.pc, base = child.base, top = child.top)
+    let cl: ptr(LClosure) = as(ptr(LClosure), child.closure.bits)
+    let code: ptr(Instr) = cl.proto.code
+    let constants: ptr(Value) = cl.proto.constants
+    jump loop(frame = child, pc = child.pc, base = child.base, top = child.top,
+              code = code, constants = constants)
 end
 block do_native(cl: ptr(CClosure))
     let frame: ptr(Frame) = L.frames + (L.frame_count - 1)
@@ -120,8 +131,6 @@ block do_native(cl: ptr(CClosure))
         oom = out_of_mem)
 end
 block native_ret(nres: i32)
-    -- call_native only reaches this path for native ABIs that have already placed results on the Lua stack.
-    -- Caller frame return reshaping must be explicit; reject instead of resuming with corrupt state.
     jump error(code = @{ERR_RUNTIME})
 end
 block do_returned(nres: i32)

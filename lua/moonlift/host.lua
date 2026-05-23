@@ -241,12 +241,9 @@ M.variants = make_quote(parse_variants_quote, wrap_variants_quote, expand_varian
 M.exits = make_quote(parse_exits_quote, wrap_exits_quote, expand_exits_quote, api.exits)
 
 local function parse_switch_arms_quote(T, src)
-    -- Switch-arm keys are backend raw keys; keep the builder source-shaped but
-    -- require concrete keys here.  Generated dynamic keys are better expressed
-    -- with table form: moon.switch_arms { {key, body}, ... }.
-    if src:find("@{", 1, true) then
-        error("moon.switch_arms[[]] does not support @{} in case keys; use table form for generated keys", 3)
-    end
+    -- Switch-arm keys are backend raw keys.  Splices are allowed in arm bodies
+    -- and as spread arm lists; generated keys are best expressed with table
+    -- form: moon.switch_arms { {key, body}, ... }.
     local P = require("moonlift.parse").Define(T)
     local parsed = P.parse_stmts("switch __moon_key do\n" .. src .. "\ndefault then\nend")
     if parsed.issues and #parsed.issues ~= 0 then error(parsed.issues[1].message, 3) end

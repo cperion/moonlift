@@ -915,7 +915,21 @@ function M.Define(T)
             return pvm.once(pvm.with(self, { h = one(expand_stmt_header, self.h, env) }))
         end,
         [Tr.StmtUseRegionFrag] = function(self, env)
-            return pvm.once(pvm.with(self, { h = one(expand_stmt_header, self.h, env), args = expand_exprs(self.args, env) }))
+            local frag_ref = self.frag
+            local frag = lookup_region_frag_ref(self.frag, env)
+            -- Preserve emit as a region-fragment reference, but collapse a filled
+            -- @{frag} slot to the concrete fragment name.  Leaving the slot in
+            -- expanded statement lists lets unrelated later binders with the same
+            -- splice key capture the emit target.
+            local use_id = self.use_id
+            if frag ~= pvm.NIL then
+                local name = frag.name
+                if type(name) == "table" then name = name.text or name.name end
+                name = tostring(name)
+                frag_ref = O.RegionFragRefName(name)
+                use_id = tostring(use_id):gsub("@splice%.%d+", name)
+            end
+            return pvm.once(pvm.with(self, { h = one(expand_stmt_header, self.h, env), use_id = use_id, frag = frag_ref, args = expand_exprs(self.args, env) }))
         end,
     }, { args_cache = "last" })
 

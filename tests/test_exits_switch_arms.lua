@@ -34,4 +34,28 @@ local arms2 = moon.switch_arms { {34, moon.stmts[[ return 1 ]]}, {91, moon.stmts
 assert(#arms2 == 2)
 assert(arms2[1].raw_key == "34")
 
+local spliced_body = moon.stmts[[ return 7 ]]
+local arms3 = moon.switch_arms { spliced_body = spliced_body } [[
+case 7 then @{spliced_body...}
+]]
+assert(#arms3 == 1)
+assert(arms3[1].raw_key == "7")
+assert(#arms3[1].body == 1)
+
+local pvm = require("moonlift.pvm")
+local O = moon.default_session.T.MoonOpen
+local emit_done = moon.region[[
+region emit_done(; done: cont())
+entry start()
+    jump done()
+end
+end
+]]
+local body = moon.stmts { emit_done = emit_done } [[
+    emit @{emit_done}(; done = after)
+]]
+assert(pvm.classof(body[1].frag) == O.RegionFragRefName)
+assert(body[1].frag.name == "emit_done")
+assert(body[1].use_id:match("emit_done"))
+
 print("moonlift exits/switch_arms ok")

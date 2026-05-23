@@ -30,7 +30,7 @@ ok(string.format("%d region fragments", region_count), region_count >= 100)
 ok(string.format("%d struct definitions", struct_count), struct_count == 42)
 
 -- Verify key architectural paths
-ok("dispatch_instruction has 8 continuations", #vm.opcodes.dispatch_instruction.frag.conts == 8)
+ok("dispatch_instruction has 9 continuations", #vm.opcodes.dispatch_instruction.frag.conts == 9)
 ok("handle_return_mode has 15 continuations", #vm.regions_call.handle_return_mode.frag.conts == 15)
 ok("prepare_call has 6 continuations", #vm.regions_call.prepare_call.frag.conts == 6)
 ok("38 opcode handlers", #vm.op_handlers.op_move.frag.params >= 10)
@@ -46,20 +46,27 @@ ok("Proto has 19 fields", #vm.products.Proto.decl.fields == 19)
 local di = vm.opcodes.dispatch_instruction
 local wrapper = moon.func { di = di } [[
 verify_di(L: ptr(LuaThread), frame: ptr(Frame),
-          pc: index, base: index, top: index) -> i32
+          pc: index, base: index, top: index,
+          code: ptr(Instr), constants: ptr(Value)) -> i32
     return region -> i32
     entry start()
-        emit @{di}(L, frame, pc, base, top;
-            next = ok_n, do_jump = ok_j,
+        emit @{di}(L, frame, pc, base, top, code, constants;
+            next = ok_n, do_jump = ok_j, resume_parent = ok_rp,
             enter_lua = ok_l, enter_native = ok_c,
             returned = ok_r, yielded = ok_y,
             error = ok_e, oom = ok_o)
     end
-    block ok_n(frame: ptr(Frame), pc: index, base: index, top: index)
+    block ok_n(frame: ptr(Frame), pc: index, base: index, top: index,
+               code: ptr(Instr), constants: ptr(Value))
         yield 0
     end
-    block ok_j(frame: ptr(Frame), pc: index, base: index, top: index)
+    block ok_j(frame: ptr(Frame), pc: index, base: index, top: index,
+               code: ptr(Instr), constants: ptr(Value))
         yield 1
+    end
+    block ok_rp(parent: ptr(Frame), pc: index, base: index, top: index,
+                code: ptr(Instr), constants: ptr(Value))
+        yield 6
     end
     block ok_l(child: ptr(Frame)) yield 2 end
     block ok_c(cl: ptr(CClosure)) yield 3 end

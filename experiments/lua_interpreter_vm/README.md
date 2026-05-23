@@ -1,11 +1,13 @@
-# Moonlift Lua Interpreter VM — Final Type-First Design
+# Moonlift Lua Interpreter VM
 
-Status: architectural design document.  
-Scope: a complete Moonlift-native design for a PUC-Lua-compatible register-bytecode interpreter VM.  
-Audience: implementers who know Lua, Moonlift regions, and explicit-programming discipline.  
-Primary inputs: PUC Lua 5.5 (`.vendor/Lua`), LuaJIT `host/minilua.c`, `explicit_programming.md`, `rewriting_c_to_idiomatic_moonlift.md`.
+Scope: a Moonlift-native PUC-Lua-5.5-compatible register-bytecode interpreter VM.
+Status: 47 of 85 opcodes fully implemented; 19 partial (metamethod/GC gaps); 19 stubbed.
+Steady-state dispatch: ~278–370 Mop/s (2.7–3.6 ns/op for hottest opcodes).
 
-This document is self-contained. It does not specify a temporary subset of Lua. It specifies the complete VM architecture. Implementation may be staged, but the design here is the final target shape.
+This document describes the VM architecture as it exists in `src/` and `tests/`.
+Sections marked "(target)" describe final-target regions not yet fully connected.
+
+Primary inputs: PUC Lua 5.5 (`.vendor/Lua`), LuaJIT `host/minilua.c`.
 
 ---
 
@@ -857,10 +859,13 @@ region dispatch_instruction(
     frame: ptr(Frame),
     pc: index,
     base: index,
-    top: index;
+    top: index,
+    code: ptr(Instr),
+    constants: ptr(Value);
 
-    next: cont(frame: ptr(Frame), pc: index, base: index, top: index),
-    jump: cont(frame: ptr(Frame), pc: index, base: index, top: index),
+    next: cont(frame: ptr(Frame), pc: index, base: index, top: index, code: ptr(Instr), constants: ptr(Value)),
+    do_jump: cont(frame: ptr(Frame), pc: index, base: index, top: index, code: ptr(Instr), constants: ptr(Value)),
+    resume_parent: cont(parent: ptr(Frame), pc: index, base: index, top: index, code: ptr(Instr), constants: ptr(Value)),
     enter_lua: cont(child: ptr(Frame)),
     enter_native: cont(cl: ptr(CClosure)),
     returned: cont(nres: i32),
@@ -868,6 +873,8 @@ region dispatch_instruction(
     error: cont(code: i32),
     oom: cont())
 ```
+
+Implementation note: `code` and `constants` are cached in the VM loop block parameters to avoid the dependent memory chain `cur_frame -> closure -> proto -> code/constants` on every instruction. The `vm_loop` loads them once at frame entry and threads them through continuations. `dispatch_resume`, `arm_next_*`, and `arm_jump_*` translation blocks pack the additional parameters for handler regions that were written before this threading was added.
 
 `dispatch_instruction` is generated from the opcode table. It loads `Instr`, switches on `op`, and emits the corresponding opcode region.
 
@@ -1944,6 +1951,8 @@ The baseline target is **PUC-style interpreter execution**: generic opcodes with
 
 ## 28. Instruction products (baseline)
 
+### Design (this document):
+
 ```moonlift
 struct Instr
     op: u16
@@ -1956,7 +1965,19 @@ struct Instr
 end
 ```
 
-`Proto.code` points to `Instr[]` in the baseline design. The `k` field is decoded by the loader from the wire bit; the dispatch loop sees it as a clean 0/1 value.
+### Implementation (actual):
+
+```moonlift
+struct Instr
+    word: u32  -- compact Lua 5.5-style 32-bit word
+end
+```
+
+The design calls for decoded `Instr` products. The implementation uses a single 32-bit `word` field. Dispatch decodes operand fields on-demand from the word via shift/mask rather than reading pre-decoded fields. The `k` bit (wire bit 15) is decoded inline by each handler that needs it. This eliminates the 20-byte aggregate copy of a fully decoded `Instr` on every dispatch cycle.
+
+Operand decode is performed at each emit site in `opcodes.lua` using expressions like `as(u16, (word >> 7) & 255)` for register A, `(word >> 15) & 131071` for Bx, etc. The dispatch switch arms pass these decoded values as named parameters to opcode handler regions, which receive them as `a: u16`, `b: u16`, `c: u16`, `k: u8`, `bx: u32`, `sbx: i32`.
+
+`Proto.code` points to `Instr[]` where each `Instr` is 4 bytes (a single `u32`). The `k` field is decoded by dispatch from wire bit 15; handlers see it as a clean 0/1 `u8` value.
 
 Optional experimental products (e.g. inline cache records) may be added without changing VM semantics, as long as fallback to generic behavior is explicit.
 
@@ -1978,7 +1999,7 @@ CALL: direct closure/native path -> call metamethod path
 
 ## 30. Runtime specialization
 
-Runtime specialization (quickening/deopt) was removed as an architectural prerequisite for the scalarization refactor (see ARCHITECTURE_FIX_PLAN.md). It may be reconsidered after the baseline interpreter shape is correct and measurable.
+Runtime specialization (quickening/deopt) has been removed. The baseline interpreter shape is the only shape. There are no quickened pseudo-opcodes, no inline caches, no deoptimization paths.
 
 ---
 
@@ -2274,11 +2295,11 @@ The final VM is a PUC-compatible Lua register interpreter re-authored in Moonlif
 The data tree is:
 
 ```text
-Value (integer/float split at tag level)
+Value (integer/float split at tag level: TAG_INTEGER=4, TAG_NUM=5)
 GCHeader + heap objects
 String, Table, Proto, Closure, UpVal, UserData
 LuaThread, Frame, ProtectedFrame, GlobalState
-Instr (k-bit decoded), DebugInfo (optional cache products may be added)
+Instr (compact 32-bit word, 4 bytes)
 ```
 
 The control tree is:
@@ -2286,7 +2307,7 @@ The control tree is:
 ```text
 vm_resume
 vm_loop
-opcode handlers
+opcode handlers (src/op/*.lua — 8 submodules)
 table get/set
 metamethod dispatch
 call/return engine
@@ -2295,11 +2316,83 @@ protected error engine
 coroutine yield/resume
 GC allocation/barrier/step
 API sealing
-optional specialization/deopt
 ```
 
 The deepest rule:
 
 > The Lua machine stays a register VM. The C conventions disappear. Every meaningful outcome becomes a continuation, every persistent shape becomes a product, and every dynamic script continuation becomes explicit frame data.
 
-That is the Moonlift Lua interpreter VM.
+---
+
+# Appendix A — Implementation Module Map
+
+The VM implementation lives in `experiments/lua_interpreter_vm/src/`. Each file is a single Lua module returning a table of regions and/or structs.
+
+| File | Contents |
+|------|----------|
+| `constants.lua` | All integer constants: Tag, Op, TM, Resume, Status, Err, ProtoFlag, GCColor, GCState |
+| `products.lua` | All `moon.struct[[]]` definitions (23 structs) |
+| `opcodes.lua` | `dispatch_instruction` region — instruction fetch/decode/switch; opcode metadata |
+| `op_handlers.lua` | Aggregates all `src/op/*.lua` modules |
+| `vm_loop.lua` | `vm_resume`, `vm_loop`, `commit_vm_state` — the main interpreter loop |
+| `regions_value.lua` | Value type dispatch: truth, integer/float split, comparisons, resolve_rk |
+| `regions_stack.lua` | Stack check, frame push/pop, result adjustment, vararg adjustment |
+| `regions_call.lua` | Prepare call, try call MM, native call, return from lua, handle return mode |
+| `regions_table.lua` | Raw get/set, table_get, table_set, table_next, table_resize |
+| `regions_metamethod.lua` | Metamethod lookup, binop/unop dispatch, metamethod call preparation |
+| `regions_upvalue.lua` | Find upvalue, close upvalues, make lclosure |
+| `regions_error.lua` | Build error, TBC close chain, raise error, protected call |
+| `regions_string.lua` | String hash, intern, concat range |
+| `regions_gc.lua` | Alloc, GC check/step, mark, sweep, write barriers |
+| `regions_coroutine.lua` | Coroutine resume/yield |
+| `regions_api.lua` | API boundary (stack index decoding, sealed API functions) |
+| `api.lua` | Public C API compatibility layer |
+| `gc_impl.lua` | GC implementation details |
+| `validate.lua` | Proto validation at the VM trust boundary |
+| `op/_init.lua` | Shared boilerplate: VALS table, R() helper, continuation strings |
+| `op/load.lua` | Load/store opcodes (12 handlers) |
+| `op/arithmetic.lua` | All arithmetic/bitwise/unary + MMBIN variants (22 handlers) |
+| `op/table.lua` | Table access opcodes (11 handlers) |
+| `op/compare.lua` | Comparison opcodes (11 handlers) |
+| `op/call.lua` | Call/return opcodes (5 handlers) |
+| `op/loop.lua` | For-loop opcodes (5 handlers) |
+| `op/closure.lua` | Closure/vararg opcodes (4 handlers) |
+| `op/misc.lua` | Misc opcodes (6 handlers) |
+| `init.lua` | Module loader — requires all 28 modules |
+
+## Test files
+
+| File | What it tests |
+|------|---------------|
+| `test_vm_smoke.lua` | Module loading, struct/field counts, compilation of key regions |
+| `test_vm_components.lua` | Individual Moonlift type/value operations without region composition |
+| `test_vm_integration.lua` | Region emit composition with direct pointer params |
+| `test_vm_e2e.lua` | Full end-to-end: build Proto in FFI memory, run vm_resume |
+| `test_vm_opcode_semantics.lua` | Per-opcode semantic checks (LOADNIL, LOADKX, ADDI, ADDK, ADD, RETURN1) |
+| `test_parser_compile.lua` | Parser module compilation smoke test |
+
+## Benchmarks
+
+Steady-state dispatch benchmark (`MOONLIFT_VM_COMPARE_REFS=0 luajit benchmarks/bench_vm_steady_state.lua`):
+
+```
+RETURN  ~10.4 ns/resume
+LOADI   ~2.9 ns/op
+LOADK   ~2.7 ns/op
+MOVE    ~2.8 ns/op
+ADD     ~3.2–3.4 ns/op
+ADD_int ~3.6 ns/op
+```
+
+~278–370 Mop/s for the hottest inline opcodes (MOVE, LOADK, ADD) on a single core.
+
+## Key design-implementation divergences
+
+1. **Instr layout:** Design specifies 20-byte decoded product; implementation uses compact 4-byte `word: u32` with inline decode at dispatch.
+2. **Tag encoding:** `TAG_INTEGER` = 4, `TAG_NUM` = 5 (split at tag level per Lua 5.5 spec).
+3. **Integer representation:** `Value.bits` is `u64`. Integer payloads use `as(i64, bits)` / `as(u64, i64_val)`. Float payloads use `bitcast(f64, bits)` / `bitcast(u64, f64_val)`.
+4. **Register threading:** `code` and `constants` pointers are cached in VM loop block parameters to avoid the dependent memory chain `cur_frame -> closure -> proto -> code/constants` on every instruction.
+5. **Handler signatures:** Opcode handlers carry only the continuations they actually use. Fast arithmetic handlers expose only `next` and `error`; slow handlers expose `enter_lua`, `enter_native`, `yielded`, and `oom` as needed.
+6. **No runtime specialization:** Quickening/deopt and quickened pseudo-opcodes were removed.
+7. **MMBIN skip pattern:** Arithmetic handlers advance `pc + 2` on success (skipping MMBIN) and `pc + 1` on failure. Fallback stores `frame.resume_a = a`.
+8. **dispatch_instruction signature:** 9 continuations (design shows 8) — `resume_parent` was added for return-mode dispatch to resume parent frames with correct `code`/`constants`.
