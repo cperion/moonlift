@@ -238,35 +238,66 @@ function M.Define(T, base)
         for i = 1, #arm_blocks do cmds[#cmds + 1] = Back.CmdSealBlock(arm_blocks[i]) end
         cmds[#cmds + 1] = Back.CmdSealBlock(default_block)
 
-        local any_falls = false
+        local fallers = {}
         for i = 1, #arms do
             cmds[#cmds + 1] = Back.CmdSwitchToBlock(arm_blocks[i])
-            local start = base.env_with_counters(env, env_current)
+            local start = base.env_with_locals(base.env_with_counters(env, env_current), env.locals)
             local arm_env, arm_cmds, arm_flow = lower_body(arms[i].body, start, ctx)
             append_all(cmds, arm_cmds)
             if arm_flow ~= Back.BackTerminates then
-                any_falls = true
-                cmds[#cmds + 1] = Back.CmdJump(join_block, {})
+                local jump_pos = #cmds + 1
+                cmds[jump_pos] = Back.CmdJump(join_block, {})
+                fallers[#fallers + 1] = { env = arm_env, jump_pos = jump_pos, args = {} }
             end
             env_current = base.env_with_counters(env_current, arm_env)
         end
 
         cmds[#cmds + 1] = Back.CmdSwitchToBlock(default_block)
-        local default_start = base.env_with_counters(env, env_current)
+        local default_start = base.env_with_locals(base.env_with_counters(env, env_current), env.locals)
         local default_env, default_cmds, default_flow = lower_body(default_body, default_start, ctx)
         append_all(cmds, default_cmds)
         if default_flow ~= Back.BackTerminates then
-            any_falls = true
-            cmds[#cmds + 1] = Back.CmdJump(join_block, {})
+            local jump_pos = #cmds + 1
+            cmds[jump_pos] = Back.CmdJump(join_block, {})
+            fallers[#fallers + 1] = { env = default_env, jump_pos = jump_pos, args = {} }
         end
         env_current = base.env_with_counters(env_current, default_env)
 
-        cmds[#cmds + 1] = Back.CmdSealBlock(join_block)
-        if any_falls then
-            cmds[#cmds + 1] = Back.CmdSwitchToBlock(join_block)
-            return Tr.TreeBackStmtResult(base.env_with_counters(env, env_current), cmds, Back.BackFallsThrough)
+        local out_locals = {}
+        for i = 1, #env.locals do out_locals[#out_locals + 1] = env.locals[i] end
+        local pre_counters = env_current
+        if #fallers > 0 then
+            for i = 1, #env.locals do
+                local local_entry = env.locals[i]
+                if pvm.classof(local_entry) == Tr.TreeBackScalarLocal
+                    and local_entry.binding.class == Bn.BindingClassLocalCell then
+                    local changed = false
+                    local vals = {}
+                    for j = 1, #fallers do
+                        local found = base.env_lookup(fallers[j].env, local_entry.binding)
+                        local v = found and found.value or local_entry.value
+                        vals[j] = v
+                        if v ~= local_entry.value then changed = true end
+                    end
+                    if changed then
+                        local phi_env, phi_val = base.env_next_value(pre_counters, "ctl.phi")
+                        pre_counters = phi_env
+                        cmds[#cmds + 1] = Back.CmdAppendBlockParam(join_block, phi_val, shape_scalar(local_entry.ty))
+                        for j = 1, #fallers do fallers[j].args[#fallers[j].args + 1] = vals[j] end
+                        out_locals[#out_locals + 1] = Tr.TreeBackScalarLocal(local_entry.binding, phi_val, local_entry.ty)
+                    end
+                end
+            end
+            for i = 1, #fallers do cmds[fallers[i].jump_pos] = Back.CmdJump(join_block, fallers[i].args) end
         end
-        return Tr.TreeBackStmtResult(base.env_with_counters(env, env_current), cmds, Back.BackTerminates)
+
+        local out_env = Tr.TreeBackEnv(out_locals, pre_counters.next_value, pre_counters.next_block, env.ret)
+        cmds[#cmds + 1] = Back.CmdSealBlock(join_block)
+        if #fallers > 0 then
+            cmds[#cmds + 1] = Back.CmdSwitchToBlock(join_block)
+            return Tr.TreeBackStmtResult(out_env, cmds, Back.BackFallsThrough)
+        end
+        return Tr.TreeBackStmtResult(out_env, cmds, Back.BackTerminates)
     end
 
     local function lower_if(stmt, env, ctx)
@@ -286,23 +317,57 @@ function M.Define(T, base)
         cmds[#cmds + 1] = Back.CmdSealBlock(else_block)
 
         cmds[#cmds + 1] = Back.CmdSwitchToBlock(then_block)
-        local then_env, then_cmds, then_flow = lower_body(stmt.then_body, env3, ctx)
+        local then_start = base.env_with_locals(env3, env.locals)
+        local then_env, then_cmds, then_flow = lower_body(stmt.then_body, then_start, ctx)
+        if then_flow ~= Back.BackTerminates then then_cmds[#then_cmds + 1] = Back.CmdJump(join_block, {}) end
+        local then_cmds_start = #cmds + 1
         append_all(cmds, then_cmds)
-        if then_flow ~= Back.BackTerminates then cmds[#cmds + 1] = Back.CmdJump(join_block, {}) end
+        local then_jump_pos = then_flow ~= Back.BackTerminates and (then_cmds_start + #then_cmds - 1) or nil
 
         cmds[#cmds + 1] = Back.CmdSwitchToBlock(else_block)
-        local else_start = base.env_with_counters(env3, then_env)
+        local else_start = base.env_with_locals(base.env_with_counters(env, then_env), env.locals)
         local else_env, else_cmds, else_flow = lower_body(stmt.else_body, else_start, ctx)
+        if else_flow ~= Back.BackTerminates then else_cmds[#else_cmds + 1] = Back.CmdJump(join_block, {}) end
+        local else_cmds_start = #cmds + 1
         append_all(cmds, else_cmds)
-        if else_flow ~= Back.BackTerminates then cmds[#cmds + 1] = Back.CmdJump(join_block, {}) end
+        local else_jump_pos = else_flow ~= Back.BackTerminates and (else_cmds_start + #else_cmds - 1) or nil
 
-        if then_flow ~= Back.BackTerminates or else_flow ~= Back.BackTerminates then
-            cmds[#cmds + 1] = Back.CmdSealBlock(join_block)
-            cmds[#cmds + 1] = Back.CmdSwitchToBlock(join_block)
-            return pvm.once(Tr.TreeBackStmtResult(base.env_with_counters(env, else_env), cmds, Back.BackFallsThrough))
+        local out_locals = {}
+        for i = 1, #env.locals do out_locals[#out_locals + 1] = env.locals[i] end
+        local phi_then_args = {}
+        local phi_else_args = {}
+        local pre_counters = base.env_with_counters(env, else_env)
+        for i = 1, #env.locals do
+            local local_entry = env.locals[i]
+            if pvm.classof(local_entry) == Tr.TreeBackScalarLocal
+                and local_entry.binding.class == Bn.BindingClassLocalCell then
+                local then_val = base.env_lookup(then_env, local_entry.binding)
+                local else_val = base.env_lookup(else_env, local_entry.binding)
+                local then_v = then_val and then_val.value or local_entry.value
+                local else_v = else_val and else_val.value or local_entry.value
+                local changed = (then_v ~= local_entry.value) or (else_v ~= local_entry.value)
+                if changed then
+                    local phi_env, phi_val = base.env_next_value(pre_counters, "ctl.phi")
+                    pre_counters = phi_env
+                    cmds[#cmds + 1] = Back.CmdAppendBlockParam(join_block, phi_val, shape_scalar(local_entry.ty))
+                    phi_then_args[#phi_then_args + 1] = then_v
+                    phi_else_args[#phi_else_args + 1] = else_v
+                    out_locals[#out_locals + 1] = Tr.TreeBackScalarLocal(local_entry.binding, phi_val, local_entry.ty)
+                end
+            end
         end
+        if #phi_then_args > 0 then
+            if then_jump_pos ~= nil then cmds[then_jump_pos] = Back.CmdJump(join_block, phi_then_args) end
+            if else_jump_pos ~= nil then cmds[else_jump_pos] = Back.CmdJump(join_block, phi_else_args) end
+        end
+
+        local out_env = Tr.TreeBackEnv(out_locals, pre_counters.next_value, pre_counters.next_block, env.ret)
         cmds[#cmds + 1] = Back.CmdSealBlock(join_block)
-        return pvm.once(Tr.TreeBackStmtResult(base.env_with_counters(env, else_env), cmds, Back.BackTerminates))
+        if then_flow ~= Back.BackTerminates or else_flow ~= Back.BackTerminates then
+            cmds[#cmds + 1] = Back.CmdSwitchToBlock(join_block)
+            return pvm.once(Tr.TreeBackStmtResult(out_env, cmds, Back.BackFallsThrough))
+        end
+        return pvm.once(Tr.TreeBackStmtResult(out_env, cmds, Back.BackTerminates))
     end
 
     local function lower_switch(stmt, env, ctx)

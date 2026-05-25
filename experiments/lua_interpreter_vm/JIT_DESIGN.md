@@ -8,8 +8,8 @@ frontends:
 ```text
 Interpreter regions define semantics.
 The stencil library is derived from those regions or checked against their contracts.
-A baseline bytecode-range planner builds StencilPlans now.
-A future trace recorder may build better StencilPlans later.
+A trace recorder builds fact-rich StencilPlans from concrete executed paths.
+A baseline bytecode-range planner may still build conservative StencilPlans for simple ranges.
 Every executable unit is materialized by copy/stamp/payload/fixup/publish/link.
 VirtualState selects legal stencil variants.
 Effects select boundary/projection stencils.
@@ -24,10 +24,10 @@ There are not many JIT backends.
 There is one JIT backend: copy-and-patch stencil materialization.
 
 There are not many tiers to implement now.
-There is the interpreter and a baseline stencil planner.
+There is the interpreter and one or more StencilPlan producers.
 
 Tracing is not a second backend.
-A trace recorder, if added later, is only another StencilPlan producer.
+A trace recorder is a fact-acquisition frontend: it records one concrete path, guards the facts that made that path legal, and emits a StencilPlan for the same copy-and-patch materializer.
 ```
 
 ---
@@ -136,7 +136,9 @@ code be discarded without repairing bytecode.
 
 Cranelift may compile stencil generators ahead of time.
 Moonlift/Lua may generate monomorphic stencil candidate regions ahead of time.
-The runtime JIT does not invoke Cranelift and does not encode arbitrary instructions.
+The runtime JIT does not invoke Cranelift, does not encode arbitrary instructions, and does not generate new stencil shapes.
+
+Stencil generation/promotion is an offline library-construction process. Runtime tracing may collect evidence for later promotion, but hot JIT compilation only selects from an already finite explicit library.
 
 At runtime the JIT performs:
 
@@ -154,9 +156,10 @@ link
 If a runtime code shape matters, the architectural answer is:
 
 ```text
-add a stencil variant
-add a supernode
-improve stencil selection
+record evidence
+promote a primitive/compound/rewrite stencil offline
+ship it in the explicit StencilLibrary / StencilPatternLibrary
+improve runtime selection over existing products
 or decline compilation
 ```
 
@@ -183,15 +186,31 @@ Meaning:
 | Mode | Purpose | Required now? |
 |---|---|---|
 | `interpreter` | semantic scheduler and fallback | yes |
-| `baseline` | copy-and-patch compiled bytecode range | yes |
-| `trace` | future hot-path StencilPlan producer | no |
+| `baseline` | conservative copy-and-patch bytecode range producer | useful fallback |
+| `trace` | hot-path fact-rich StencilPlan producer | yes |
 
 `baseline` and `trace` do not imply different machine-code backends. Both point to an
 `ExecutableUnit` materialized from a `StencilPlan`.
 
-## 2.2 Baseline first
+## 2.2 Trace-first where facts matter
 
-The first compiler frontend is a bytecode-range planner:
+Tracing is preferred for the first profitable native execution path because it gives runtime stencil selection the facts exactly when they are needed, while still selecting only existing promoted stencils:
+
+```text
+executed path
+  + observed tags/shapes/call targets
+  + branch outcomes
+  + guards
+  + snapshots
+  -> maximal legal stencil matching
+  -> StencilPlan
+```
+
+This avoids growing a broad static bytecode optimizer just to discover dynamic-language facts. The trace planner is still bounded: it performs local matching over a concrete linear record and existing `StencilPattern` products, not arbitrary global IR optimization and not runtime stencil generation. The same trace records can also be persisted/mined as evidence for offline library promotion.
+
+## 2.3 Conservative baseline remains useful
+
+A bytecode-range planner remains useful for simple straight-line/range cases and as a fallback producer:
 
 ```text
 SemanticRange + profile + liveness
@@ -225,15 +244,16 @@ FORLOOP_i64
 
 This is still baseline. Specialization does not create a new tier.
 
-## 2.3 Tracing later
+## 2.4 Tracing record shape
 
-Tracing is an optional future frontend:
+Tracing is a frontend:
 
 ```text
 hot loop / hot side exit
   -> record executed path
   -> collect guards and snapshots
   -> build TraceRecord
+  -> select existing StencilPattern / CodeStencil products
   -> lower TraceRecord to StencilPlan
   -> materialize ExecutableUnit
 ```
@@ -311,7 +331,33 @@ many specialized variants as facts justify them
 Not every Lua opcode must have a stencil before the first JIT runs. Unsupported opcodes terminate
 the compiled range and return to the interpreter.
 
-## 3.2 Supernodes are stencil variants
+## 3.2 Library layers: primitive, compound, rewrite
+
+The stencil library has three product classes:
+
+```text
+Primitive CodeStencils
+  physical machine-code fragments for opcode bodies, guards, projections, boundaries, and edges
+
+Compound CodeStencils
+  larger physical fragments promoted from common semantic patterns and trace motifs
+
+RewriteStencils
+  plan-level transformations such as DCE, redundant guard elimination, fallthrough coalescing,
+  projection bundling, and primitive-sequence replacement by compound CodeStencils
+```
+
+DCE is represented as a zero-output rewrite stencil:
+
+```text
+pattern:     pure node produces ValueId v
+required:    v has no users, effect == PURE
+replacement: empty
+```
+
+This keeps classic optimizer behavior explicit and typed instead of hiding it in an unbounded backend pass.
+
+## 3.3 Supernodes are compound stencil variants
 
 A supernode is a larger physical stencil for a frequent local pattern:
 
@@ -334,7 +380,145 @@ promote a supernode only if it preserves the expanded semantic contract
 and reduces hot bytes, hot branches, or materialization overhead enough to justify library size
 ```
 
-## 3.3 Stencil naming
+## 3.4 StencilPlan is the IR
+
+A `StencilPlan` is the JIT IR. It is already close to machine code because every node names a
+physical stencil or rewrite product, but it still carries enough semantic structure to refine safely:
+
+```text
+StencilPlan
+  nodes
+  facts / value IDs / liveness summaries
+  exits and snapshots
+  dependencies
+  projections and boundaries
+  estimated size / granularity metrics
+```
+
+Optimization is repeated rewriting of this IR toward larger, more specialized existing stencil
+nodes:
+
+```text
+small stencil sequence
+  -> RewriteStencil / StencilPattern match
+  -> larger existing CodeStencil or empty replacement
+  -> new StencilPlan
+  -> rematerialized ExecutableUnit
+  -> EntryCell/EdgeCell relink
+```
+
+This gives continuous improvement without runtime stencil generation and without a second backend.
+
+## 3.5 Iterative stencil closure
+
+The offline library grows by bounded-arity closure, not by unbounded bytecode n-grams:
+
+```text
+L0 = primitive stencils
+L1 = close_k(L0), k <= 4
+L2 = close_k(L1), k <= 4
+L3 = close_k(L2), k <= 4
+```
+
+Each round treats the current stencil library as the alphabet. A compound promoted in one round
+becomes an atom in the next round. With `max_arity = 4`, closure depth gives increasing coverage:
+
+```text
+depth 0: up to 1 original op
+depth 1: up to 4 original ops
+depth 2: up to 16 original ops
+depth 3: up to 64 original ops
+```
+
+This is the absorption ladder: we can keep generation arity small while allowing stencils to absorb
+larger and larger semantic regions over offline promotion rounds. Budgets are mandatory:
+
+```text
+max_arity
+max_depth
+max_covered_ops
+max_code_size
+max_holes
+max_exits
+max_variants_per_canonical_pattern
+```
+
+The current product surface names this explicitly with `StencilSummary`, `StencilClosurePolicy`,
+`StencilClosureRound`, `StencilPlanMetrics`, and `StencilPlanRefinement`.
+
+Generation is evidence-guided rather than exhaustive. The first implementation is
+`src/jit/library_builder.lua` plus `tools/generate_stencil_library.lua`: each closure round enumerates
+adjacent or trace-observed compositions over the current library, composes their summaries,
+canonicalizes the expanded semantic pattern, and then emits a promotion plan. Complete mined manifest
+entries become primitive physical atoms; compounds are marked `needs_physical_fixture` until an AOT
+fixture/promotion step gives them real bytes/holes/relocs.
+
+Pruning is multi-stage:
+
+```text
+hard gates:
+  structural composition, precise exits, projection safety, dependency coverage, budgets,
+  equivalence proof/check
+
+Pareto pruning:
+  execution cost, materialization cost, code size, holes/fixups, exit risk, dependency risk,
+  motif coverage
+
+promotion:
+  top K per canonical pattern/fact-key/depth, mandatory safety stencils, primitive fallbacks
+```
+
+No compound is promoted unless it beats or strategically covers its expansion. The expansion remains
+available as fallback.
+
+## 3.6 Emergent granular tiers
+
+Runtime tiering is emergent. The VM does not need separate baseline/optimizing/trace backends. A
+unit's optimization level is the largest verified stencil granularity selectable for current facts:
+
+```text
+unit_v0: primitive n=1 stencils
+unit_v1: pair/triple/quad compounds
+unit_v2: deeper closure compounds
+unit_v3: trace-shaped loop/body compound
+```
+
+All versions are just `ExecutableUnit`s produced by the same selector and materializer. Upgrading is:
+
+```text
+replan -> rematerialize -> relink EntryCell/EdgeCell -> reclaim old unit later
+```
+
+The tier is stencil density, not compiler identity.
+
+## 3.7 Trace stencil selection is bounded maximal matching
+
+Stencil selection may be recursive/coalescing, but only over explicit products:
+
+```text
+TraceRecord + Fact stream + Snapshot stream
+  -> candidates starting at op i
+  -> filter by VirtualState, guards, effects, deps, projections
+  -> choose largest profitable legal stencil
+  -> append StencilNode(s)
+  -> update VirtualState
+```
+
+This machine is `TraceStencilSelector`, not a general optimizer. It may match:
+
+```text
+single op      ADD
+small phrase   guard_int + guard_int + add_int
+bytecode motif LOADK + ADD, TEST + JMP
+loop motif     FORLOOP + GETTABLE_ARRAY + ADD_ACC
+trace shape    whole hot path with guards and snapshots
+```
+
+Larger stencils are promoted offline library products. Promotion requires evidence, semantic contracts,
+projection-correct exits, dependency coverage, and materialization tests. The selector must decline
+when no promoted stencil matches; it must not invent ad-hoc runtime code.
+
+## 3.8 Stencil naming
 
 Stencil names encode semantic shape, not backend trivia.
 
@@ -363,7 +547,23 @@ Names like `OP_ADD_1` or `FAST_GETTABLE_2` are not stable design names.
 
 # 4. Where stencils come from
 
-The stencil library grows from evidence.
+The stencil library grows from evidence, but library growth is not a hot runtime JIT activity.
+
+```text
+OFFLINE / BUILD-TIME / PROMOTION TIME
+  traces + motifs + facts + candidate kernels + rewrite rules
+  -> primitive CodeStencils
+  -> compound CodeStencils
+  -> RewriteStencils
+  -> verified finite library
+
+RUNTIME / HOT JIT TIME
+  TraceRecord or conservative range
+  -> select existing CodeStencils / StencilPatterns / RewriteStencils
+  -> layout/copy/stamp/payload/fixup/publish/link
+```
+
+Runtime traces are evidence and selection inputs. They are not permission to synthesize new stencil shapes on the hot path.
 
 ## 4.1 Derivation path
 
@@ -400,7 +600,8 @@ dump AOT machine code
 classify recurring instruction byte ranges
 turn stable byte ranges into StencilFixture records
 promote verified fixtures to CodeStencil records
-promote frequent adjacent patterns to supernodes
+promote frequent adjacent patterns to compound CodeStencils / supernodes
+promote safe local eliminations/fusions/bundles to RewriteStencils
 ```
 
 Initial evidence sources:
@@ -412,7 +613,7 @@ bounded dynamic traces keyed by (proto, pc, opcode)
 loop/motif spectra
 interpreter handler bodies
 partial-evaluated block candidates
-future recorded traces
+runtime recorded traces used as offline promotion evidence
 side-exit profiles
 boundary/effect profiles
 ```
@@ -1230,6 +1431,17 @@ struct TraceRecord
     snapshot_count: index
     deps: DependencySet
 end
+
+struct StencilPattern
+    id: u32
+    ops: ptr(u16)
+    op_count: index
+    required_effects: u64
+    forbidden_effects: u64
+    stencil: ptr(CodeStencil)
+    score: u32
+    flags: u32
+end
 ```
 
 Trace recording sources:
@@ -1552,6 +1764,20 @@ StencilPayload
 CodeStencil
 StencilLibrary
 StencilConfig
+StencilPattern
+StencilPatternLibrary
+TraceStencilMatch
+TraceMotif
+PromotionEvidence
+StencilReplacement
+StencilEquivalence
+RewriteStencil
+StencilPromotion
+StencilSummary
+StencilClosurePolicy
+StencilClosureRound
+StencilPlanMetrics
+StencilPlanRefinement
 StencilNode
 StencilPlan
 CodeFixup
@@ -1589,6 +1815,7 @@ Machines:
 
 ```text
 SelectStencilPlan
+TraceStencilSelector
 LayoutStencilPlan
 MaterializeStencil
 PublishUnit
@@ -1606,18 +1833,20 @@ LowerTraceToStencilPlan
 The Moonlift Lua VM JIT is a copy-and-patch compiler.
 
 The interpreter is the semantic source. The stencil library is derived from interpreter regions or
-checked against interpreter-derived contracts. The first compiler frontend is a baseline bytecode
-range planner. A future trace recorder may produce more specialized plans, but it reuses the same
-`CodeStencil` library, `Projection` system, `EdgeCell` linking, dependency tracking, code arena, and
-materializer.
+checked against interpreter-derived contracts. The first profitable compiler frontend is a trace
+recorder plus trace stencil selector: it records a concrete hot path, attaches guards/snapshots, and
+performs maximal legal matching over promoted stencil products. A conservative baseline range planner
+may still produce simple plans, but both frontends reuse the same `CodeStencil` library, `Projection`
+system, `EdgeCell` linking, dependency tracking, code arena, and materializer.
 
 The architecture is:
 
 ```text
 derive stencils from Moonlift region semantics
 mine and promote stencil fixtures from evidence
-select baseline StencilPlans from VirtualState
-optionally select trace StencilPlans from recorded path facts
+record hot paths into TraceRecord products with guards and snapshots
+select trace StencilPlans from recorded path facts by bounded maximal matching
+select conservative baseline StencilPlans from VirtualState where useful
 materialize every unit by copy/stamp/payload/fixup/publish/link
 recover VM state through projection stencils
 link hot control with EdgeCells and data ICs

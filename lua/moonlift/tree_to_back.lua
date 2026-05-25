@@ -414,11 +414,11 @@ function M.Define(T)
         return nil
     end
 
-    local switch_key_raw = pvm.phase("moonlift_tree_switch_key_raw", function(key_raw)
-        if type(key_raw) == "string" then return pvm.once(key_raw) end
-        if type(key_raw) == "number" then return pvm.once(tostring(key_raw)) end
-        return pvm.empty()
-    end)
+    local function switch_key_raw_value(key_raw)
+        if type(key_raw) == "string" then return key_raw end
+        if type(key_raw) == "number" then return tostring(key_raw) end
+        return nil
+    end
 
     local function scalar_size_align(scalar)
         local ii = int_scalar_info[scalar]
@@ -939,9 +939,9 @@ function M.Define(T)
             if result_scalar == nil then return pvm.once(Tr.TreeBackExprUnsupported(value.env, value.cmds, "switch expression result has non-scalar type")) end
             local case_raws = {}
             for i = 1, #self.arms do
-                local raws = switch_key_raw:drain_uncached(self.arms[i].raw_key)
-                if #raws ~= 1 then return pvm.once(Tr.TreeBackExprUnsupported(value.env, value.cmds, "switch expression case is not an integer/bool constant")) end
-                case_raws[#case_raws + 1] = raws[1]
+                local raw = switch_key_raw_value(self.arms[i].raw_key)
+                if raw == nil then return pvm.once(Tr.TreeBackExprUnsupported(value.env, value.cmds, "switch expression case is not an integer/bool constant")) end
+                case_raws[#case_raws + 1] = raw
             end
 
             local current = value.env
@@ -1932,9 +1932,9 @@ function M.Define(T)
 
         local case_raws = {}
         for i = 1, #self.arms do
-            local raws = switch_key_raw:drain_uncached(self.arms[i].raw_key)
-            if #raws ~= 1 then return pvm.once(Tr.TreeBackStmtResult(value.env, value.cmds, Back.BackTerminates)) end
-            case_raws[#case_raws + 1] = raws[1]
+            local raw = switch_key_raw_value(self.arms[i].raw_key)
+            if raw == nil then return pvm.once(Tr.TreeBackStmtResult(value.env, value.cmds, Back.BackTerminates)) end
+            case_raws[#case_raws + 1] = raw
         end
 
         local current = value.env
@@ -2225,8 +2225,10 @@ function M.Define(T)
 
     control_api = require("moonlift.tree_control_to_back").Define(T, {
         env_add = env_add,
+        env_lookup = env_lookup,
         env_with_locals = env_with_locals,
         env_with_counters = env_with_counters,
+        env_next_value = env_next_value,
         env_next_block = env_next_block,
         expr_to_back = expr_to_back,
         stmt_to_back = stmt_to_back,
@@ -2258,6 +2260,19 @@ function M.Define(T)
     local function abi_result_scalars(plan)
         if pvm.classof(plan.result) == Ty.AbiResultScalar then return { plan.result.scalar } end
         return {}
+    end
+
+    local function abi_plan_error(plan)
+        for i = 1, #plan.params do
+            local param = plan.params[i]
+            if pvm.classof(param) == Ty.AbiParamRejected then
+                return "function parameter `" .. tostring(param.name) .. "` has no executable ABI: " .. tostring(param.reason)
+            end
+        end
+        if pvm.classof(plan.result) == Ty.AbiResultRejected then
+            return "function result has no executable ABI: " .. tostring(plan.result.reason)
+        end
+        return nil
     end
 
     local function abi_param_values(plan)
@@ -2415,6 +2430,8 @@ function M.Define(T)
         local func = Back.BackFuncId(name)
         local entry = Back.BackBlockId("entry:" .. name)
         local abi_plan = abi_api.plan(name, params, result_ty)
+        local abi_err = abi_plan_error(abi_plan)
+        if abi_err ~= nil then lowering_unsupported(abi_err .. " in `" .. tostring(name) .. "`") end
         local param_scalars, result_scalars = abi_param_scalars(abi_plan), abi_result_scalars(abi_plan)
         local env = env_from_abi_params(abi_plan)
         local param_vals = abi_param_values(abi_plan)

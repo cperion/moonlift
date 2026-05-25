@@ -12,6 +12,7 @@ function M.Define(T)
     local Back = T.MoonBack
 
     local scalar_api = require("moonlift.type_to_back_scalar").Define(T)
+    local classify_api = require("moonlift.type_classify").Define(T)
 
     local function arg_binding_for_param(func_name, param, index)
         return B.Binding(C.Id("arg:" .. func_name .. ":" .. param.name), param.name, param.ty, B.BindingClassArg(index - 1))
@@ -37,6 +38,17 @@ function M.Define(T)
         local scalar = back_scalar(param.ty)
         if scalar ~= nil and scalar ~= Back.BackVoid then
             return Ty.AbiParamScalar(param.name, binding, scalar, Back.BackValId("arg:" .. func_name .. ":" .. param.name))
+        end
+        -- Aggregate values have an executable ABI as an immutable by-address
+        -- argument.  The source-level product remains a named aggregate; the
+        -- lowered calling convention passes a pointer to the aggregate storage.
+        -- Tree-to-back already treats aggregate bindings whose local value is a
+        -- BackPtr as addressable aggregate values for field/index access.
+        if pvm.classof(param.ty) == Ty.TNamed or pvm.classof(classify_api.classify(param.ty)) == Ty.TypeClassAggregate then
+            return Ty.AbiParamScalar(param.name, binding, Back.BackPtr, Back.BackValId("arg:" .. func_name .. ":" .. param.name))
+        end
+        if pvm.classof(param.ty) == Ty.TArray then
+            return Ty.AbiParamScalar(param.name, binding, Back.BackPtr, Back.BackValId("arg:" .. func_name .. ":" .. param.name))
         end
         return Ty.AbiParamRejected(param.name, param.ty, "parameter type has no direct executable ABI yet")
     end
