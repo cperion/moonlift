@@ -1,92 +1,113 @@
 # Moonlift Lua Interpreter VM — Copy-and-Patch JIT Design
 
-Scope: a Moonlift-native JIT architecture for `experiments/lua_interpreter_vm`.
+Scope: Moonlift-native JIT architecture for `experiments/lua_interpreter_vm`.
 
-This design has one top-level idea:
-
-> The JIT is a copy-and-patch compiler whose stencil library is derived from the interpreter.
-
-Everything else exists to support that idea.
+This rewrite collapses the previous multi-tier story into one backend and two possible plan
+frontends:
 
 ```text
 Interpreter regions define semantics.
-Partial evaluation derives stencils.
-Runtime JIT builds a StencilPlan.
-StencilPlan materializes to code by copy/stamp/payload/fixup/publish/link.
-VirtualState selects variants.
+The stencil library is derived from those regions or checked against their contracts.
+A baseline bytecode-range planner builds StencilPlans now.
+A future trace recorder may build better StencilPlans later.
+Every executable unit is materialized by copy/stamp/payload/fixup/publish/link.
+VirtualState selects legal stencil variants.
 Effects select boundary/projection stencils.
 EdgeCells link compiled units.
 Proto.code remains immutable semantic bytecode.
 ```
 
----
-
-# 1. The whole JIT as copy-and-patch
-
-Runtime code generation is not instruction encoding. Runtime code generation is stencil
-materialization.
-
-The runtime pipeline:
+The important simplification:
 
 ```text
-select stencils
-layout stencil graph
-copy stencil bytes
-stamp holes
-write payloads
-resolve fixups
-publish code
-link edge cells
+There are not many JIT backends.
+There is one JIT backend: copy-and-patch stencil materialization.
+
+There are not many tiers to implement now.
+There is the interpreter and a baseline stencil planner.
+
+Tracing is not a second backend.
+A trace recorder, if added later, is only another StencilPlan producer.
 ```
-
-This applies to the whole JIT:
-
-```text
-opcode bodies       -> stencils
-supernodes          -> stencils
-guards              -> stencils
-side exits          -> stencils
-projections         -> stencils
-runtime boundaries  -> stencils
-entry/exit adapters -> stencils
-```
-
-So the design is not:
-
-```text
-copy-and-patch for tier 1, encoder for the real JIT
-```
-
-It is:
-
-```text
-copy-and-patch is the JIT backend
-```
-
-A direct machine-code encoder may exist as an engineering escape hatch, but it is not part of the
-architecture. If a code shape matters, add a stencil or supernode for it.
 
 ---
 
-# 2. First principles
+# 1. Design doctrine
 
-## 2.1 The interpreter is the semantic source
+## 1.1 The JIT is a Moonlift explicit-programming system
 
-The current VM already defines Lua semantics in Moonlift regions:
+The JIT is not a bag of runtime tricks hidden behind mutable side tables. It is a Moonlift system
+whose data tree and control tree are explicit.
+
+Data products:
 
 ```text
-vm_loop
-  -> dispatch_instruction
-  -> opcode handlers
-  -> runtime/helper regions
+SpecializationContext
+VirtualState
+TypedValue
+FactSet
+Effect
+Projection
+CodeStencil
+StencilPlan
+ExecImage
+ExecutableUnit
+EntryCell
+EdgeCell
+TraceRecord
 ```
 
-The JIT should not re-author these semantics by hand. The stencil library is derived from the
-interpreter or checked against interpreter-derived contracts.
+Control products:
 
-## 2.2 `Proto.code` is immutable
+```text
+SelectPlan
+MaterializePlan
+PublishUnit
+ExecuteJitOutcome
+ProjectToInterpreter
+EnterBoundary
+ResolveEdge
+InvalidateDependency
+RecordTrace
+```
 
-The bytecode remains the semantic program.
+Every distinction that matters to correctness or code generation must appear as a product, a fact,
+a continuation, or a declared protocol. If a fact only lives in a comment, callback convention,
+magic number, backend-only pass, or mutable global map, it is not part of the design yet.
+
+## 1.2 The interpreter is the semantic source
+
+The interpreter already encodes Lua semantics as Moonlift regions:
+
+```text
+vm_resume
+  -> vm_loop
+      -> dispatch_instruction
+          -> opcode handlers
+          -> runtime/helper regions
+```
+
+The JIT must not re-author Lua semantics by hand. It may compile, specialize, or mine code shapes
+from interpreter regions, but the semantic authority remains the region graph.
+
+A stencil is valid only if it implements an interpreter-derived contract:
+
+```text
+input state shape
+output state shape
+effect flags
+projection requirements
+dependency requirements
+ABI assumptions
+continuation shape
+```
+
+Hand-written stencils are allowed during bootstrapping, but only as implementations of such
+contracts. They are never semantic authorities.
+
+## 1.3 `Proto.code` is immutable
+
+`Proto.code` is the semantic program.
 
 ```text
 no quickened bytecode
@@ -94,25 +115,33 @@ no inserted deopt opcodes
 no semantic bytecode mutation
 ```
 
-All optimization state lives beside it:
+All mutable execution state lives beside the bytecode:
 
 ```text
 ExecImage
 EntryCell
 EdgeCell
 ExecutableUnit
-profiles
-dependencies
+UnitProfile
+ExitProfile
+DependencyIndex
+InlineCacheRecord
+TraceAnchor
 ```
 
-## 2.3 Runtime compilation does not run Cranelift
+This keeps the interpreter simple, keeps debug/error/recovery semantics grounded, and lets compiled
+code be discarded without repairing bytecode.
+
+## 1.4 Runtime compilation does not run a general compiler
 
 Cranelift may compile stencil generators ahead of time.
+Moonlift/Lua may generate monomorphic stencil candidate regions ahead of time.
+The runtime JIT does not invoke Cranelift and does not encode arbitrary instructions.
 
-At runtime the JIT only performs:
+At runtime the JIT performs:
 
 ```text
-selection
+select
 layout
 copy
 stamp
@@ -122,52 +151,332 @@ publish
 link
 ```
 
-## 2.4 Copy-and-patch is rich, not dumb templates
-
-The stencil library contains variants:
+If a runtime code shape matters, the architectural answer is:
 
 ```text
-stack/register/immediate operand forms
-output-to-stack/output-to-register forms
-pass-through register forms
-branch/fallthrough forms
-projection/boundary forms
-supernode forms
+add a stencil variant
+add a supernode
+improve stencil selection
+or decline compilation
 ```
 
-Register allocation and local optimization happen by selecting stencil variants, not by encoding
-arbitrary instructions at runtime.
+A direct encoder may exist as a debugging or emergency tool. It is not the architecture.
 
 ---
 
-# 3. Where stencils come from
+# 2. Execution model
 
-The preferred derivation path:
+## 2.1 Modes, not a tower of tiers
+
+The VM has three execution modes. Only the first two are required for the first implementation.
+
+```moonlift
+union ExecutionMode
+    interpreter()
+    baseline(unit: ptr(ExecutableUnit))
+    trace(unit: ptr(ExecutableUnit))
+end
+```
+
+Meaning:
+
+| Mode | Purpose | Required now? |
+|---|---|---|
+| `interpreter` | semantic scheduler and fallback | yes |
+| `baseline` | copy-and-patch compiled bytecode range | yes |
+| `trace` | future hot-path StencilPlan producer | no |
+
+`baseline` and `trace` do not imply different machine-code backends. Both point to an
+`ExecutableUnit` materialized from a `StencilPlan`.
+
+## 2.2 Baseline first
+
+The first compiler frontend is a bytecode-range planner:
+
+```text
+SemanticRange + profile + liveness
+  -> VirtualState
+  -> StencilPlan
+  -> ExecutableUnit
+```
+
+A baseline plan usually starts from generic opcode-family stencils:
+
+```text
+MOVE_generic
+LOADK_generic
+ADD_generic
+GETTABLE_generic
+CALL_generic
+RETURN_generic
+```
+
+As facts appear, the same planner chooses specialized variants:
+
+```text
+ADD_int_guarded
+ADD_int_known
+ADDI_int_guarded
+GETTABLE_array_i64_ic1
+GETTABLE_string_shape_ic1
+CALL_known_lclosure
+FORLOOP_i64
+```
+
+This is still baseline. Specialization does not create a new tier.
+
+## 2.3 Tracing later
+
+Tracing is an optional future frontend:
+
+```text
+hot loop / hot side exit
+  -> record executed path
+  -> collect guards and snapshots
+  -> build TraceRecord
+  -> lower TraceRecord to StencilPlan
+  -> materialize ExecutableUnit
+```
+
+The trace recorder is allowed to produce better plans because it has path facts that the baseline
+planner does not:
+
+```text
+this branch direction was taken
+this slot stayed integer
+this table shape stayed stable
+this call target stayed monomorphic
+this side exit is frequent enough to link
+```
+
+But tracing must reuse the same backend:
+
+```text
+CodeStencil
+Projection
+Boundary
+DependencySet
+EdgeCell
+CodeArena
+MaterializeStencil
+PublishUnit
+```
+
+A trace is a plan shape, not a different compiler.
+
+---
+
+# 3. Stencil families
+
+## 3.1 Generic opcode-family roots
+
+The first stencil family for a bytecode opcode is a dispatch-erased version of the interpreter
+handler.
+
+It is not the whole interpreter loop. It is:
+
+```text
+interpreter opcode handler semantics
+minus fetch/decode/switch dispatch
+plus holes for operands/continuations/helpers
+plus explicit effects and projections
+```
+
+Example root family:
+
+```text
+OP_ADD
+  st_add_generic_stack
+```
+
+Then facts grow the family:
+
+```text
+OP_ADD
+  st_add_generic_stack
+  st_add_int_guarded_stack
+  st_add_int_known_stack
+  st_add_float_guarded_stack
+  st_addi_int_guarded_stack
+  st_add_reg_reg_to_reg
+```
+
+So the rule is:
+
+```text
+one generic stencil root per supported opcode/opcode family
+many specialized variants as facts justify them
+```
+
+Not every Lua opcode must have a stencil before the first JIT runs. Unsupported opcodes terminate
+the compiled range and return to the interpreter.
+
+## 3.2 Supernodes are stencil variants
+
+A supernode is a larger physical stencil for a frequent local pattern:
+
+```text
+LOADK + ADD
+MOVE + CALL
+GETTABUP + CALL
+FORLOOP + ADD
+projection bundle
+runtime boundary prelude + root projection bundle
+```
+
+A supernode is not a semantic opcode and not a JIT tier. It is a stencil whose contract is equal to
+the expanded sequence of smaller state operations.
+
+Promotion rule:
+
+```text
+promote a supernode only if it preserves the expanded semantic contract
+and reduces hot bytes, hot branches, or materialization overhead enough to justify library size
+```
+
+## 3.3 Stencil naming
+
+Stencil names encode semantic shape, not backend trivia.
+
+```text
+<domain>.<operation>.<input_shape>.<output_shape>.<continuation_shape>
+```
+
+Examples:
+
+```text
+value.load_i64.imm_to_sA.fall
+value.move.sB_to_sA.fall
+guard.int.sA.next_or_exit
+arith.add_i64.sB_sC_to_sA.fall
+arith.add_i64_guarded.sB_sC_to_sA.next_or_exit
+branch.truthy.sA.true_or_false
+table.get_array_i64.ic1.sT_sK_to_sA.next_or_slow
+call.known_lclosure.sF_args.enter_lua
+projection.interpreter.live_slots
+edge.jump_indirect.target
+```
+
+Names like `OP_ADD_1` or `FAST_GETTABLE_2` are not stable design names.
+
+---
+
+# 4. Where stencils come from
+
+The stencil library grows from evidence.
+
+## 4.1 Derivation path
+
+Preferred path:
 
 ```text
 Moonlift interpreter region
-  -> specialization context
+  -> SpecializationContext
   -> partial evaluation / context specialization
   -> bytecode-erased specialized region
   -> AOT Cranelift object code
-  -> CodeStencil bytes + holes + relocations + payload metadata
+  -> CandidateFunction
+  -> StencilFixture
+  -> CodeStencil
 ```
 
-A stencil is valid only if it has a semantic contract:
+A candidate is not a stencil yet.
 
 ```text
-input state shape
-output state shape
-effect flags
-projection requirements
-dependencies
-ABI assumptions
+CandidateFunction = compiled symbol from Moonlift/Cranelift
+StencilFixture   = classified useful byte range with holes/relocs/ABI/clobbers
+CodeStencil      = fixture promoted to library product with semantic contract and tests
 ```
 
-Hand-written stencils may exist only as implementations of such contracts. They are not semantic
-authorities.
+## 4.2 Stencil mining
 
-## 3.1 SpecializationContext
+The mining loop:
+
+```text
+run representative Lua VM programs
+observe hot opcode/pattern distributions
+generate Moonlift candidate kernels
+dump AOT machine code
+classify recurring instruction byte ranges
+turn stable byte ranges into StencilFixture records
+promote verified fixtures to CodeStencil records
+promote frequent adjacent patterns to supernodes
+```
+
+Initial evidence sources:
+
+```text
+opcode histograms
+opcode pair/triple histograms
+bounded dynamic traces keyed by (proto, pc, opcode)
+loop/motif spectra
+interpreter handler bodies
+partial-evaluated block candidates
+future recorded traces
+side-exit profiles
+boundary/effect profiles
+```
+
+## 4.3 Promotion gate
+
+A candidate may enter the real stencil library only after it has:
+
+```text
+name
+semantic contract
+input StateShape
+output StateShape
+Effect
+BoundaryRequirement if any
+ProjectionRequirement if any
+StencilConfig axes
+body byte range
+holes
+relocs
+payloads
+ABI metadata
+clobber metadata
+negative tests
+materialization test
+execution test
+```
+
+Promotion must be ruthless. The library is executable specification, not a dump folder.
+
+---
+
+# 5. Semantic addressing and ranges
+
+```moonlift
+struct SemanticAddr
+    proto: ptr(Proto)
+    pc: index
+    frame: u32
+end
+
+struct SemanticRange
+    proto: ptr(Proto)
+    start_pc: index
+    end_pc: index
+    shape: u8
+end
+```
+
+Range shapes:
+
+```text
+BLOCK       single-entry bytecode range with explicit exits
+LOOP        loop-header anchored range
+TRACE       recorded hot path range
+CALL_ENTRY  child-frame entry range
+RESUME      resume-parent pc range
+```
+
+`TRACE` is a range shape. It is not a backend.
+
+---
+
+# 6. SpecializationContext
 
 ```moonlift
 struct SpecializationContext
@@ -181,10 +490,11 @@ struct SpecializationContext
 end
 ```
 
-Conceptually, a specialization context contains:
+A specialization context contains:
 
 ```text
 known opcode
+known raw instruction word
 known decoded operands
 known continuation shape
 known effect class
@@ -197,15 +507,18 @@ Context specialization erases interpreter dispatch:
 ```text
 switch opcode -> selected opcode body
 bytecode operands -> constants or holes
-continuations -> relocations / EdgeCells
+continuations -> labels / relocs / EdgeCells
 ```
+
+For the first baseline compiler, `SpecializationContext` may be built directly from bytecode decode
+instead of from full partial evaluation. The contract remains the same.
 
 ---
 
-# 4. Runtime selection state: VirtualState
+# 7. VirtualState
 
-`VirtualState` is not a heavyweight runtime object. It is the selection/recording state that tells
-the runtime compiler which stencils are legal and profitable.
+`VirtualState` is the planner's current knowledge of semantic VM state. It is not a heavyweight VM
+runtime object.
 
 ```moonlift
 struct VirtualState
@@ -225,22 +538,23 @@ end
 It tracks:
 
 ```text
-slot R0 currently has ValueId v0
+slot R0 contains ValueId v0
 v0 is proven Int
-slot R2 can be represented in a register
+v1 is loaded in a pass-through register
 this guard depends on table shape epoch
-this branch path is selected
+this inline cache depends on global table generation
+this path selected the true branch
 ```
 
-So `VirtualState` is the input to stencil selection:
+Selection rule:
 
 ```text
-VirtualState + opcode/effect/profile
-  -> StencilConfig
-  -> CodeStencil
+VirtualState + opcode + profile + effect requirement
+  -> legal StencilConfig choices
+  -> cheapest profitable CodeStencil
 ```
 
-## 4.1 TypedValue
+## 7.1 TypedValue
 
 ```moonlift
 struct TypedValue
@@ -255,21 +569,71 @@ struct TypedValue
 end
 ```
 
-Typed values make illegal stencil selection impossible:
+Examples:
 
 ```text
 add_wrap_i64(Int, Int) -> Int
-add_wrap_i64(Unknown, Int) -> no legal stencil
+add_wrap_i64(Unknown, Int) -> no known-int stencil
+load_const(K42) -> ConstInt(42)
+guard_int(v0) success -> Fact(v0 is Int)
 ```
 
-Lua integer arithmetic wraps. There is no overflow-exit stencil for ordinary integer `+`, `-`, or
-`*`.
+Lua integer arithmetic wraps. There is no overflow exit for ordinary integer `+`, `-`, or `*`.
+Operations that can fail for semantic reasons, such as division by zero, metamethod dispatch, or
+conversion failure, must encode that possibility in effects/continuations.
 
 ---
 
-# 5. Effects choose boundary stencils
+# 8. Facts and dependencies
 
-Every stencil has an effect contract.
+Facts describe what the planner may assume.
+Dependencies describe what can invalidate those assumptions.
+
+```moonlift
+struct Fact
+    kind: u16
+    value: u32
+    aux0: u64
+    aux1: u64
+end
+
+struct DependencyKey
+    kind: u16
+    ptr0: ptr(u8)
+    aux0: u64
+    generation: u64
+end
+```
+
+Fact examples:
+
+```text
+ValueId v0 is TAG_INTEGER
+ValueId v1 is TAG_TABLE
+slot R3 aliases ValueId v3
+table T has shape_epoch E
+metatable of T is absent
+call target is closure C
+branch condition is true on this path
+```
+
+Dependency examples:
+
+```text
+table shape epoch
+metatable epoch
+global table generation
+closure/proto generation
+native function identity
+```
+
+No speculative stencil may be selected without recording the dependency that makes its fact valid.
+
+---
+
+# 9. Effects choose boundaries
+
+Every stencil carries an `Effect`.
 
 ```moonlift
 struct Effect
@@ -300,26 +664,25 @@ MAY_NEED_BARRIER
 MAY_INVALIDATE_DEPS
 ```
 
-Effects select required boundary/projection stencils:
+Boundary selection:
 
 ```text
-MAY_GC             -> root projection stencil
-MAY_ALLOC          -> root projection stencil
-MAY_CALL_LUA       -> root + resume projection stencils
-MAY_YIELD          -> resume projection stencil
-MAY_RUN_HOOK       -> debug + resume + root projection stencils
-MAY_OBSERVE_STACK  -> interpreter projection stencil
-MAY_THROW          -> error projection stencil
-MAY_NEED_BARRIER   -> barrier stencil
-side exit          -> target/interpreter projection stencil
+MAY_GC             -> ROOTS projection
+MAY_ALLOC          -> ROOTS projection
+MAY_CALL_LUA       -> ROOTS + RESUME projections
+MAY_YIELD          -> RESUME projection
+MAY_RUN_HOOK       -> DEBUG + RESUME + ROOTS projections
+MAY_OBSERVE_STACK  -> INTERPRETER projection
+MAY_THROW          -> ERROR projection
+MAY_NEED_BARRIER   -> BARRIER projection/stencil
+side exit          -> TARGET or INTERPRETER projection
 ```
 
-This eliminates informal safepoint lists. Allocation cannot be forgotten as a GC boundary because
-allocator stencils/helpers carry `MAY_ALLOC | MAY_GC`.
+This is the safepoint system. There is no informal list of safepoints elsewhere.
 
 ---
 
-# 6. Projections are recovery stencils
+# 10. Projections
 
 A projection is a semantic contract for making VM state visible.
 
@@ -353,36 +716,39 @@ BARRIER
 TARGET
 ```
 
-A projection does not mention physical registers. It says:
+A projection speaks in semantic values, not physical registers:
 
 ```text
 slot R2 must contain ValueId v17
 ValueId v9 must be visible as a GC root
-frame.resume_pc must be pc 42
+frame.pc must be pc 42
+frame.resume_pc must be pc 43
+L.top must equal top
 ```
 
 Projection lowering selects recovery stencils:
 
 ```text
-write Value slot
-write frame.pc
-write frame.top
-write L.top
-write root area slot
-write resume field
-write error field
-call barrier
-reload pinned state
+project.write_slot_value
+project.write_frame_pc
+project.write_frame_top
+project.write_thread_top
+project.write_root_value
+project.write_resume_mode
+project.write_resume_payload
+project.write_error_value
+project.call_barrier
+project.reload_pinned_state
 ```
 
-Thus deopt, GC roots, debug visibility, error state, and resume state are all copy-and-patchable
+Deoptimization, GC roots, debug visibility, error state, and resume state are all copy-and-patchable
 recovery code.
 
 ---
 
-# 7. Stencil products
+# 11. Stencil products
 
-## 7.1 CodeStencil
+## 11.1 CodeStencil
 
 ```moonlift
 struct StencilHole
@@ -423,41 +789,46 @@ struct CodeStencil
 end
 ```
 
-A stencil is precompiled bytes plus metadata.
-
-Holes:
+Hole kinds:
 
 ```text
 slot displacement
-immediate
-constant index
-Value tag
+constant address
+immediate integer/float bits
+Value tag/aux/bits
 EdgeCell pointer
+InlineCacheRecord pointer
 runtime helper pointer
 projection id
 boundary id
+literal-pool offset
 ```
 
-Relocations:
+Relocation kinds:
 
 ```text
 fallthrough continuation
 branch target
+side exit
 boundary stub
 runtime helper call
 edge-cell load site
+trace-link target
 ```
 
-Payloads:
+Payload kinds:
 
 ```text
 literal bytes
 literal Value
-side table record
-projection/boundary metadata
+inline-cache metadata
+side-exit metadata
+projection metadata
+boundary metadata
+debug metadata
 ```
 
-## 7.2 StencilConfig
+## 11.2 StencilConfig
 
 ```moonlift
 struct StencilConfig
@@ -472,21 +843,24 @@ struct StencilConfig
 end
 ```
 
-Configuration axes:
+Axes:
 
 ```text
 operation kind
 value type
-lhs/rhs locations
+lhs/rhs location
 output location
+continuation form
 pass-through register mask
+projection form
+boundary form
 supernode pattern
-boundary/projection form
 ```
 
-This is the lightweight register-allocation protocol.
+This is the lightweight register-allocation protocol. The runtime planner chooses variants; it does
+not solve a full global register-allocation problem.
 
-## 7.3 StencilPlan
+## 11.3 StencilPlan
 
 ```moonlift
 struct StencilNode
@@ -515,13 +889,13 @@ struct StencilPlan
 end
 ```
 
-The runtime compiler builds a `StencilPlan`, then materializes it.
+The planner builds a `StencilPlan`. The materializer turns it into bytes.
 
 ---
 
-# 8. Materialization pipeline
+# 12. Materialization pipeline
 
-The engineering names are precise:
+The names are precise:
 
 ```text
 select    choose stencil variants
@@ -538,53 +912,61 @@ Terminology:
 
 ```text
 stamp  = fill stencil holes during materialization
-fixup  = resolve code-layout-dependent addresses before publication
+fixup  = resolve layout-dependent addresses before publication
 link   = mutate EdgeCells after publication
-patch  = reserved for post-publication mutable updates
+patch  = reserved for post-publication instruction-stream mutation
 ```
 
-Machines:
+Core machines:
 
 ```text
 SelectStencilPlan
+LayoutStencilPlan
 AllocateCodeBuffer
 MaterializeStencil
 FinalizeCodeBuffer
+PublishUnit
 PatchEdgeCell
 RevertEdgeCell
 ```
 
-`MaterializeStencil` handles copy/stamp/payload/fixup for one stencil instance. `PatchEdgeCell`
-links or repairs published edges.
+The v1 rule:
+
+```text
+Post-publication mutation is data mutation only: EdgeCells and IC records.
+Instruction-stream patching is not required for v1.
+```
 
 ---
 
-# 9. CPS and fallthrough
+# 13. CPS and fallthrough
 
-Stencils compose through continuation-passing style.
+Stencils compose through continuation-passing structure.
 
-A stencil node has continuations:
+A `StencilNode` may have:
 
 ```text
 next
 alt / branch
 boundary
 runtime helper
+side exit
 edge exit
 ```
 
-During layout, adjacent continuations can fall through. Unnecessary jumps between consecutive
+During layout, adjacent continuations may fall through. Unnecessary jumps between consecutive
 stencil nodes are elided.
 
-This is how copy-and-patch becomes more than concatenating tiny fragments:
+This is the critical difference between copy-and-patch as toy concatenation and copy-and-patch as a
+real backend:
 
 ```text
-CPS stencil graph -> layout -> fallthrough-optimized code
+CPS stencil graph -> layout -> fallthrough-optimized native code
 ```
 
 ---
 
-# 10. Executable image
+# 14. Executable image
 
 ```moonlift
 struct ExecImage
@@ -605,11 +987,52 @@ end
 
 `ExecImage` is the mutable executable overlay for one immutable `Proto`.
 
+It owns:
+
+```text
+entry cells
+edge cells
+published units
+profiles
+liveness summaries
+dependency index
+code arena
+```
+
+It does not own or mutate semantic bytecode.
+
 ---
 
-# 11. Edge cells
+# 15. EntryCells and EdgeCells
 
-Edge cells are mutable data edges.
+## 15.1 EntryCell
+
+```moonlift
+struct EntryCell
+    addr: SemanticAddr
+    target: ptr(u8)
+    fallback: ptr(u8)
+    unit: ptr(ExecutableUnit)
+    counter: u32
+    status: u8
+    generation: u64
+end
+```
+
+An entry cell is the mutable gate from interpreter scheduling into compiled code.
+
+Entry gates:
+
+```text
+function entry
+loop header/backedge
+branch target
+call-entry child frame
+resume-parent pc
+hot side-exit target
+```
+
+## 15.2 EdgeCell
 
 ```moonlift
 struct EdgeCell
@@ -622,13 +1045,13 @@ struct EdgeCell
 end
 ```
 
-Baseline inter-unit transfer:
+Baseline transfer form:
 
 ```asm
 jmp qword ptr [edge.target]
 ```
 
-So hot control repair is a data update:
+Hot control repair is a data update:
 
 ```text
 edge.target = target_unit.code.entry
@@ -639,16 +1062,15 @@ No `Proto.code` mutation. No required instruction-stream patching.
 
 ---
 
-# 12. ExecutableUnit
+# 16. ExecutableUnit
 
 ```moonlift
 struct ExecutableUnit
     id: u32
-    tier: u8
+    mode: u8              -- baseline or trace
     version: u32
     status: u8
     range: SemanticRange
-    shape: u8
     abi: UnitABI
     input_state: StateShape
     output_state: StateShape
@@ -661,8 +1083,10 @@ struct ExecutableUnit
     lowerings: ptr(ProjectionLowering)
     lowering_count: index
     code: ptr(CompiledCode)
-    entries: ptr(ptr(EdgeCell))
+    entries: ptr(ptr(EntryCell))
     entry_count: index
+    edges: ptr(ptr(EdgeCell))
+    edge_count: index
     exits: ptr(UnitExit)
     exit_count: index
     profile: UnitProfile
@@ -670,21 +1094,220 @@ struct ExecutableUnit
 end
 ```
 
-An executable unit is a published stencil plan plus semantic side tables.
+A unit is a published `StencilPlan` plus semantic side tables.
 
-Unit shapes:
+Modes:
 
 ```text
-BLOCK
-TRACE
-REGION
+BASELINE  generated from bytecode range planner
+TRACE     generated from trace recorder/planner
 ```
 
-These are not different backends. All are copy-and-patch units with different stencil-plan shapes.
+Again: modes are planner provenance, not backend tiers.
 
 ---
 
-# 13. Code memory
+# 17. VM integration
+
+The interpreter loop remains the semantic scheduler.
+
+Compiled code may return a `JitOutcome`:
+
+```moonlift
+struct JitOutcome
+    status: u8
+    frame: ptr(Frame)
+    pc: index
+    base: index
+    top: index
+    code: ptr(Instr)
+    constants: ptr(Value)
+    nres: i32
+    err: i32
+    target_unit: ptr(ExecutableUnit)
+    native_closure: ptr(CClosure)
+    lua_frame: ptr(Frame)
+end
+```
+
+`ExecuteJitOutcome` maps the outcome back into existing VM continuations:
+
+```text
+next
+do_jump
+resume_parent
+enter_lua
+enter_native
+returned
+yielded
+error
+oom
+```
+
+The JIT is therefore a participant in the existing control tree. It is not a separate control
+universe.
+
+---
+
+# 18. Baseline planner
+
+The baseline planner compiles validated bytecode ranges.
+
+Input:
+
+```text
+Proto
+SemanticRange
+UnitProfile
+LivenessInfo
+StencilLibrary
+```
+
+Output:
+
+```text
+StencilPlan
+Projection list
+Boundary list
+DependencySet
+UnitProfile hooks
+```
+
+Algorithm:
+
+```text
+initialize VirtualState at range entry
+for each bytecode pc in range:
+    decode word
+    build SpecializationContext
+    choose generic or specialized stencil family
+    update VirtualState from stencil output contract
+    add projections at boundaries and side exits
+    terminate range when unsupported effect/opcode appears
+verify plan
+materialize unit
+link entry cell
+```
+
+First supported opcode families:
+
+```text
+MOVE
+LOADI / LOADF / LOADK / LOADNIL / LOADTRUE / LOADFALSE
+ADD / SUB / MUL integer guarded/known
+EQ / LT / LE integer guarded
+TEST / truthiness branch
+JMP
+FORPREP / FORLOOP i64
+RETURN0 / RETURN1
+projection/interpreter-exit
+edge jump
+```
+
+Unsupported bytecodes end the compiled range or exit to the interpreter.
+
+---
+
+# 19. Trace planner, future
+
+Tracing is optional. When it exists, it records path facts and snapshots, then emits a `StencilPlan`.
+
+```moonlift
+struct TraceAnchor
+    addr: SemanticAddr
+    kind: u8
+    counter: u32
+    blacklist: u32
+end
+
+struct TraceRecord
+    anchor: TraceAnchor
+    ops: ptr(StateOp)
+    op_count: index
+    guards: ptr(Guard)
+    guard_count: index
+    snapshots: ptr(Projection)
+    snapshot_count: index
+    deps: DependencySet
+end
+```
+
+Trace recording sources:
+
+```text
+loop header hot count
+side exit hot count
+branch target hot count
+call target hot count
+```
+
+Trace plan lowering:
+
+```text
+TraceRecord + VirtualState + StencilLibrary
+  -> specialized StencilPlan
+  -> ExecutableUnit(mode = TRACE)
+```
+
+Trace aborts return to the interpreter and may blacklist the anchor.
+
+Trace rules:
+
+```text
+No trace has authority over semantics.
+Every guard has a projection snapshot.
+Every speculative fact has a dependency.
+Every side exit has a target/interpreter projection.
+Trace linking uses EdgeCells first.
+Instruction-stream patching is optional later.
+```
+
+---
+
+# 20. Inline caches
+
+Inline caches are mutable data first.
+
+```moonlift
+struct InlineCacheRecord
+    kind: u16
+    status: u8
+    hit_count: u32
+    miss_count: u32
+    key0: u64
+    key1: u64
+    value0: u64
+    value1: u64
+    dep: DependencyKey
+    fallback: ptr(u8)
+end
+```
+
+Fast IC stencils read an `InlineCacheRecord*` and branch to a slow boundary on miss.
+
+Examples:
+
+```text
+table.get_array_i64.ic1
+table.get_string_shape.ic1
+table.set_string_shape.ic1
+global.get_string.ic1
+call.known_lclosure.ic1
+call.known_cclosure.ic1
+```
+
+Mutation policy:
+
+```text
+v1: update IC records only
+later: optional inline slabs or instruction-stream patching
+```
+
+This keeps v1 coherent with the EdgeCell data-linking model.
+
+---
+
+# 21. Code memory
 
 ```moonlift
 struct CodeSlab
@@ -709,105 +1332,25 @@ Policy:
 allocate by slabs
 prefer RW/RX dual mapping
 avoid per-unit mprotect
-publish through architecture boundary
+publish through architecture icache boundary
 reclaim only at quiescence
 ```
 
----
-
-# 14. VM integration
-
-The current VM loop remains the semantic scheduler.
-
-JIT entry gates:
-
-```text
-function entry
-loop header/backedge
-branch target
-call-entry child frame
-resume-parent pc
-hot side-exit target
-```
-
-Cold exits return a `JitOutcome`:
-
-```moonlift
-struct JitOutcome
-    status: u8
-    frame: ptr(Frame)
-    pc: index
-    base: index
-    top: index
-    code: ptr(Instr)
-    constants: ptr(Value)
-    nres: i32
-    err: i32
-    target_unit: ptr(ExecutableUnit)
-    native_closure: ptr(CClosure)
-    lua_frame: ptr(Frame)
-end
-```
-
-`ExecuteJitOutcome` maps this to existing VM continuations:
-
-```text
-next
-do_jump
-resume_parent
-enter_lua
-enter_native
-returned
-yielded
-error
-oom
-```
+Compiled code must be reclaimable without changing `Proto.code`.
 
 ---
 
-# 15. Unit shapes as stencil-plan policies
+# 22. Verification
 
-## 15.1 Block
-
-```text
-short range
-low compile latency
-mostly opcode/supernode stencils
-frequent/simple projections
-compiled landing pads
-```
-
-## 15.2 Trace
-
-```text
-linear hot path
-pass-through register variants
-supernode stencils
-side-exit projection stencils
-fallthrough-optimized CPS layout
-```
-
-## 15.3 Region
-
-```text
-multi-block stencil graph
-internal labels and fixups
-join/phi-like state handling via VirtualState
-projection stencils at effect boundaries
-```
-
----
-
-# 16. Verification
-
-Verification checks the plan, not a hand-written second semantics.
+Verification checks plans and products, not a second hand-written semantics.
 
 Checks:
 
 ```text
 selected stencils satisfy typed inputs
-stencil effect covers StateOp/effect contract
-boundary effects have projection stencils
+stencil output contract updates VirtualState correctly
+stencil effects cover StateOp/effect contract
+boundary effects have required projection stencils
 projection stencils cover live slots/roots/resume/debug/error needs
 supernode contract equals expanded StateOp contract
 holes are all stamped
@@ -815,24 +1358,26 @@ payloads are all written
 fixups are all resolved
 edge cells have fallbacks
 dependencies cover speculative facts
+trace guards have snapshots
+published unit has valid entry and exit ABI
 ```
+
+If a plan cannot be verified, it is not compiled.
 
 ---
 
-# 17. Performance contract
+# 23. Performance contract
 
-Hot runtime code contains no JIT architecture interpreter.
-
-Runtime compile cost:
+Hot runtime compile cost:
 
 ```text
-select + layout + memcpy + stamp + fixup + publish + link
+select + layout + memcpy + stamp + payload + fixup + publish + link
 ```
 
-Execution cost:
+Hot execution cost:
 
 ```text
-hot raw stencil code + exit_rate * projection_stencil_cost
+raw stencil code + exit_rate * projection_stencil_cost
 ```
 
 Compile threshold:
@@ -841,32 +1386,34 @@ Compile threshold:
 compile_latency < expected_iterations * per_iteration_savings
 ```
 
-Copy-and-patch attacks compile latency. Variants, pass-throughs, and supernodes attack emitted-code
-quality.
+Copy-and-patch attacks compile latency.
+Stencil variants, pass-through forms, inline caches, and supernodes attack emitted-code quality.
+Tracing, if added, attacks path quality by producing better facts for the same materializer.
 
 ---
 
-# 18. Machines
+# 24. Machines
 
-Build/AOT machines:
+AOT/build machines:
 
 ```text
 DeriveOpcodeContracts
+GenerateOpcodeStencilCandidates
 SpecializeInterpreterRegion
 BuildStencilLibrary
-ExtractCodeStencils
+ExtractStencilFixtures
 ValidateStencilContracts
 ```
 
 Runtime machines:
 
 ```text
-DiscoverBlocks
-AnalyzeLiveness
-RecordStateProgram
+DiscoverHotEntries
+AnalyzeRangeLiveness
+BuildVirtualState
 BuildProjection
-VerifyUnit
 SelectStencilPlan
+VerifyUnit
 AllocateCodeBuffer
 MaterializeStencil
 FinalizeCodeBuffer
@@ -874,7 +1421,7 @@ PublishUnit
 TryEnterJit
 ExecuteJitOutcome
 ExecuteBoundary
-ResolveAddr
+ResolveEdge
 PatchEdgeCell
 RevertEdgeCell
 InvalidateDependency
@@ -885,47 +1432,91 @@ RecordHotEntry
 MarkJitRoots
 ```
 
----
-
-# 19. Direct encoder status
-
-A direct x64 encoder is not part of the core architecture.
-
-If runtime code generation needs a shape, the architectural answer is:
+Future trace machines:
 
 ```text
-add a stencil variant
-add a supernode
-improve stencil selection
-fall back if not worth compiling
+RecordTrace
+AbortTrace
+BuildTraceSnapshots
+LowerTraceToStencilPlan
+LinkTraceExit
+BlacklistTraceAnchor
 ```
-
-A direct encoder may exist as a debugging tool or emergency implementation detail, but it is not
-the JIT's primary or defining backend.
 
 ---
 
-# 20. Why this covers the hard cases
+# 25. MVP slice
+
+The first executable milestone should be small.
+
+Compile this shape:
+
+```lua
+local s = 0
+for i = 1, n do
+  s = s + i
+end
+return s
+```
+
+Required products:
+
+```text
+CodeStencil fixtures for load/move/add/branch/return/projection
+StencilPlan layout
+CodeArena allocation
+hole stamping
+branch fixups
+publish boundary
+EntryCell link
+JitOutcome return/interpreter exit
+```
+
+Required stencils:
+
+```text
+abi.unit_entry_interpreter_state
+abi.unit_leave_to_vm
+value.load_i64.imm_to_sA.fall
+value.move.sB_to_sA.fall
+guard.int.sA.next_or_exit
+arith.add_i64.sB_sC_to_sA.fall
+arith.add_i64_guarded.sB_sC_to_sA.next_or_exit
+branch.jump.pc_relative
+branch.truthy.sA.true_or_false
+loop.forprep_i64.sA.next_or_exit
+loop.forloop_i64.sA.loop_or_exit
+projection.interpreter.live_slots
+edge.jump_indirect.target
+return.one.sA
+```
+
+Everything else exits or declines compilation.
+
+---
+
+# 26. Why this covers the hard cases
 
 | Hard case | Structural answer |
 |---|---|
 | JIT/interpreter semantic drift | Stencils derive from interpreter regions or interpreter-derived contracts. |
-| Slow runtime encoding | Runtime emits by select/copy/stamp/payload/fixup/link. |
+| Runtime encoder complexity | Runtime emits by select/copy/stamp/payload/fixup/link. |
+| Too many tiers | Baseline and trace are StencilPlan producers, not separate backends. |
 | Register allocation cost | Variant selection + pass-through masks encode lightweight allocation. |
 | Stack ceremony | VirtualState lifts stack slots; stencils carry selected values physically. |
-| GC missing roots | Effects demand RootProjection; root projection materializes via stencils. |
+| GC missing roots | Effects demand ROOTS projection; root projection materializes via stencils. |
 | Allocation hidden safepoint | Allocator/helper stencils carry MAY_ALLOC/MAY_GC. |
-| Yield/call/debug observation | Effects demand resume/debug/interpreter projection stencils. |
+| Yield/call/debug observation | Effects demand RESUME/DEBUG/INTERPRETER projections. |
 | Snapshot incompleteness | Projection is built from VirtualState + liveness + requirement. |
 | Type unsoundness | No stencil is selectable without required TypedValue inputs. |
 | Regalloc/materialization mismatch | Projection is semantic; stencil lowering is physical. |
 | Edge invalidation | EdgeCells link/revert compiled units without bytecode mutation. |
 | Code reclamation | Code freed only at quiescence. |
-| Unstable traces | Profiles blacklist shapes/anchors. |
+| Unstable traces | Trace anchors can abort and blacklist; interpreter remains source of truth. |
 
 ---
 
-# 21. Complete product list
+# 27. Complete product list
 
 Semantic products:
 
@@ -948,6 +1539,8 @@ DebugProjection
 DependencyKey
 DependencySet
 DependencyIndex
+TraceAnchor
+TraceRecord
 ```
 
 Stencil products:
@@ -962,6 +1555,7 @@ StencilConfig
 StencilNode
 StencilPlan
 CodeFixup
+StencilFixture
 ```
 
 Runtime products:
@@ -969,6 +1563,7 @@ Runtime products:
 ```text
 ExecImage
 ExecutableUnit
+ExecutionMode
 UnitABI
 StateShape
 StateOp
@@ -976,6 +1571,7 @@ Boundary
 UnitExit
 EntryCell
 EdgeCell
+InlineCacheRecord
 JitOutcome
 JitRootArea
 JitRuntime
@@ -989,24 +1585,41 @@ UnitProfile
 ExitProfile
 ```
 
+Machines:
+
+```text
+SelectStencilPlan
+LayoutStencilPlan
+MaterializeStencil
+PublishUnit
+PatchEdgeCell
+ProjectToVmState
+ExecuteJitOutcome
+RecordTrace
+LowerTraceToStencilPlan
+```
+
 ---
 
-# 22. Final statement
+# 28. Final statement
 
 The Moonlift Lua VM JIT is a copy-and-patch compiler.
 
-Its stencil library is derived from interpreter regions by specialization/partial evaluation. Its
-runtime compiler builds stencil plans from `VirtualState`, profiles, and effect contracts. It emits
-code by copy/stamp/payload/fixup/publish/link. Effects select projection stencils so the VM, GC,
-resume, debug, error, and interpreter views are exact at every boundary. Edge cells link and repair
-compiled control flow without mutating `Proto.code`.
+The interpreter is the semantic source. The stencil library is derived from interpreter regions or
+checked against interpreter-derived contracts. The first compiler frontend is a baseline bytecode
+range planner. A future trace recorder may produce more specialized plans, but it reuses the same
+`CodeStencil` library, `Projection` system, `EdgeCell` linking, dependency tracking, code arena, and
+materializer.
 
-The whole architecture is:
+The architecture is:
 
 ```text
-derive stencils from interpreter semantics
-select stencil plans from VirtualState
-materialize by copy-and-patch
-recover VM state by projection stencils
-link hot control with EdgeCells
+derive stencils from Moonlift region semantics
+mine and promote stencil fixtures from evidence
+select baseline StencilPlans from VirtualState
+optionally select trace StencilPlans from recorded path facts
+materialize every unit by copy/stamp/payload/fixup/publish/link
+recover VM state through projection stencils
+link hot control with EdgeCells and data ICs
+keep Proto.code immutable forever
 ```

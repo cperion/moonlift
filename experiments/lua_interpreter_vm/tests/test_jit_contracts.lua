@@ -1,10 +1,14 @@
 -- JIT contract surface smoke test.
--- Verifies that the canonical contracts module exposes all product types,
--- region headers, and function headers from JIT_DESIGN.md.
+--
+-- The current simplified JIT has one concrete contract surface: the empirical
+-- miner products plus the curated stencil-library catalog.  Older placeholder
+-- region/product headers were removed with the multi-tier prototype.
 
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local jit = require("experiments.lua_interpreter_vm.src.jit")
+local miner = require("experiments.lua_interpreter_vm.src.jit.miner_contracts")
+local stencils = require("experiments.lua_interpreter_vm.src.jit.stencil_library")
+local fixtures = require("experiments.lua_interpreter_vm.src.jit.stencil_fixtures")
 
 local pass, fail = 0, 0
 local function check(name, cond)
@@ -16,52 +20,65 @@ local function check(name, cond)
     end
 end
 
-local function kind_is(v, prefix)
-    return tostring(v):match("^" .. prefix) ~= nil or (type(v) == "table" and v.kind)
-end
-
-local product_names = {
-    "SemanticAddr", "SemanticRange", "Effect", "BoundaryRequirement", "Fact", "FactSet",
-    "DependencyKey", "DependencySet", "TypedValue", "VirtualState", "Guard",
-    "ProjectedSlot", "ResumeProjection", "ErrorProjection", "DebugProjection", "Projection",
-    "MachineLoc", "LoweringAction", "ProjectionLowering", "StateOp", "StencilHole",
-    "StencilReloc", "StencilPayload", "CodeStencil", "StencilLibrary", "StencilConfig",
-    "StencilNode", "CodeFixup", "StencilPlan", "CodeSlab", "CodeArena",
-    "X64Mem", "X64Operand", "X64Inst", "CompiledCode", "BlockInfo", "LiveSet", "LivenessInfo", "UnitABI",
-    "StateShape", "UnitProfile", "ExitProfile", "EdgeCell", "EntryCell", "Boundary",
-    "UnitExit", "JitOutcome", "JitRootArea", "JitRuntime", "ExecutableUnit", "DependencyEntry", "DependencyIndex", "ExecImage",
+local p = miner.StatePattern {
+    name = "smoke.pattern",
+    class = "smoke",
+    ops = {
+        miner.StateOp("ReadSlot", { slot = "a" }),
+        miner.StateOp("WriteSlot", { slot = "b" }),
+    },
+    effects = { "PURE" },
 }
 
-local region_names = {
-    "discover_blocks", "analyze_liveness", "record_state_program", "build_projection",
-    "verify_unit", "allocate_and_lower", "allocate_code_buffer", "materialize_stencil",
-    "finalize_code_buffer", "publish_unit", "enter_addr", "execute_boundary",
-    "resolve_addr", "patch_edge_cell", "revert_edge_cell", "invalidate_dependency", "reclaim_code",
-    "try_enter_jit", "execute_jit_outcome", "project_to_vm_state", "project_roots",
-    "record_hot_entry", "mark_jit_roots",
+local c = miner.StencilCandidate {
+    name = "smoke.candidate",
+    implements = "value.move.sB_to_sA.fall",
+    pattern = p,
+    source = "func smoke() -> void return end",
 }
 
-local func_names = {
-    "effect_to_requirement", "effect_has_flag", "requirement_has_flag", "liveset_contains",
-    "typed_value_is_gc_ref", "typed_value_is_numeric", "unit_covers_addr", "edge_current_target",
-    "projection_slot_count", "stencil_size", "code_offset_to_rx", "code_offset_to_rw",
+local manifest = miner.CandidateManifest {
+    target = "smoke",
+    candidates = {
+        {
+            name = c.name,
+            pattern_key = p.canonical_key,
+            extracted = { size = 0 },
+            score = miner.CandidateScore { status = "complete" },
+        },
+    },
 }
 
-for _, name in ipairs(product_names) do
-    check("product " .. name, jit.products[name] ~= nil and tostring(jit.products[name]):match("^MoonStructValue") ~= nil)
+local ok, errors = miner.validate_manifest(manifest)
+check("StateOp", p.ops[1].kind == "StateOp")
+check("StatePattern canonical key", type(p.canonical_key) == "string" and p.canonical_key:match("ReadSlot") ~= nil)
+check("StencilCandidate", c.kind == "StencilCandidate" and c.implements == "value.move.sB_to_sA.fall")
+check("CandidateManifest validate", ok and #errors == 0)
+check("JSON encoder", miner.encode_json(manifest):match('"CandidateManifest"') ~= nil)
+
+local required_stencils = {
+    "entry.vm_state_to_unit",
+    "edge.jump_indirect",
+    "project.live_slots.bundle",
+    "value.move.sB_to_sA.fall",
+    "value.load_i64.imm_to_sA.fall",
+    "arith.add_i64_guarded.sB_sC_to_sA.next_or_exit",
+    "loop.forloop_i64.sA_Bx.loop_or_exit",
+    "table.getfield_shape_ic1.sT_kName_to_sA.next_or_slow",
+    "call.known_lclosure.sF_args.enter_lua",
+    "super.method_self_move_call.ic1",
+}
+
+for _, name in ipairs(required_stencils) do
+    local s = stencils.by_name[name]
+    check("stencil " .. name, type(s) == "table" and s.kind == "CodeStencilSpec")
 end
 
-for _, name in ipairs(region_names) do
-    local r = jit.regions[name]
-    check("region " .. name, type(r) == "table" and r.kind == "region_header")
-end
-
-for _, name in ipairs(func_names) do
-    local f = jit.funcs[name]
-    check("func " .. name, type(f) == "table" and f.kind == "func_header")
-end
-
-check("constants present", type(jit.constants) == "table" and type(jit.constants.Effect.MAY_GC) == "number")
+check("semantic entries present", #stencils.semantic_entries() >= 10)
+check("catalog entries present", #stencils.catalog_entries() >= 10)
+check("seed fixtures present", #fixtures.seed_fixtures >= 4)
+check("fixture maps to spec", fixtures.first_fixture("value.load_i64.imm_to_sA.fall").spec_name == "value.load_i64.imm_to_sA.fall")
+check("constants present", type(stencils.Tag.INTEGER) == "number" and type(stencils.Op.ADD) == "number")
 
 print(string.format("JIT contracts: %d passed, %d failed", pass, fail))
 if fail > 0 then os.exit(1) end

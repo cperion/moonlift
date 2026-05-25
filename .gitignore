@@ -6,5 +6,6 @@
 *.exe
 luajit_host/luajit_host
 src/embedded_lua.rs
+experiments/lua_interpreter_vm/build/
 .cargo/
 .aider*
