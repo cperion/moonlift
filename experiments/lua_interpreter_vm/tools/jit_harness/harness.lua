@@ -11,6 +11,14 @@ function M.init()
     M.fact_trace = require("tools.jit_harness.fact_trace")
     M.seed_l0 = require("tools.jit_harness.seed_l0")
     M.layer_closure = require("tools.jit_harness.layer_closure")
+    M.candidate_emit = require("tools.jit_harness.candidate_emit")
+    M.candidate_compile = require("tools.jit_harness.candidate_compile")
+    M.object_mine = require("tools.jit_harness.object_mine")
+    M.verify = require("tools.jit_harness.verify")
+    M.bench = require("tools.jit_harness.bench")
+    M.select = require("tools.jit_harness.select")
+    M.export_runtime = require("tools.jit_harness.export_runtime")
+    M.report = require("tools.jit_harness.report")
 end
 
 -- Profile AWFY corpus
@@ -144,20 +152,87 @@ Commands:
         return 0
 
     elseif command == "test" then
-        -- Simple test pipeline
-        print("\n=== Running Harness Test Pipeline ===")
+        -- Full test pipeline
+        print("\n=== Running Full Harness Test Pipeline ===")
         local awfy_root = argv[2] or "."
+        local output_dir = awfy_root .. "/build/harness_output"
+        os.execute("mkdir -p " .. output_dir)
 
-        print("\nStep 1: Profile AWFY")
+        print("\n[Step 1] Profile AWFY corpus")
         local corpus = M.profile_awfy(awfy_root)
 
-        print("\nStep 2: Build L0 seeds")
-        local manifest = M.seed_l0_manifest(corpus, awfy_root .. "/build/harness_output")
+        print("\n[Step 2] Build L0 seed manifest")
+        local manifest = M.seed_l0_manifest(corpus, output_dir)
 
-        print("\nStep 3: Build L1 candidates")
-        local l1 = M.build_l1_layer(manifest, awfy_root .. "/build/harness_output")
+        print("\n[Step 3] Generate L1 candidates (pairs)")
+        local l1 = M.build_l1_layer(manifest, output_dir)
 
-        print("\n=== Test Pipeline Complete ===")
+        print("\n[Step 4] Emit Moonlift kernels")
+        local emit_result = M.candidate_emit.emit_kernel_batch(l1.candidates, {
+            output_dir = output_dir .. "/kernels",
+        })
+        if emit_result then
+            M.candidate_emit.report_emission(emit_result)
+        end
+
+        print("\n[Step 5] Compile kernels through Moonlift")
+        local compile_result = M.candidate_compile.compile_kernel_batch(emit_result.kernels or {}, {
+            output_dir = output_dir .. "/objects",
+        })
+        if compile_result then
+            M.candidate_compile.report_compilation(compile_result)
+        end
+
+        print("\n[Step 6] Mine object files")
+        local mined = {}
+        if compile_result and compile_result.results then
+            for _, obj_result in ipairs(compile_result.results) do
+                local mined_obj = M.object_mine.mine_object(obj_result, {}, {})
+                table.insert(mined, mined_obj)
+                M.object_mine.report_mining(mined_obj)
+            end
+        end
+
+        print("\n[Step 7] Verify candidates")
+        local verified_candidates = {}
+        for i, cand in ipairs(l1.candidates or {}) do
+            local verification = M.verify.verify_candidate(cand, {})
+            if verification.valid then
+                table.insert(verified_candidates, cand)
+            end
+        end
+        print(string.format("Verified: %d / %d candidates", #verified_candidates, #(l1.candidates or {})))
+
+        print("\n[Step 8] Benchmark verified candidates")
+        local bench_results = M.bench.benchmark_layer(
+            {candidates = verified_candidates},
+            {awfy = true},
+            {bench_runs = 3}
+        )
+        M.bench.report_benchmark_results(bench_results)
+
+        print("\n[Step 9] Score and select winners")
+        local scores = M.select.score_for_selection(verified_candidates, {
+            frequency_weight = 10,
+            size_penalty = 0.01,
+            arity_penalty = 2,
+        })
+        M.select.report_selection(scores)
+
+        print("\n[Step 10] Export runtime library")
+        local selector = M.select.build_selector_table({l1}, {})
+        local library = M.export_runtime.export_runtime_library({l1}, selector, {
+            version = "1.0",
+            source = "test-harness",
+        })
+        local export_result = M.export_runtime.write_runtime_library(library, output_dir .. "/runtime")
+        M.export_runtime.report_export(export_result)
+
+        print("\n[Step 11] Generate reports")
+        M.report.generate_all_reports(corpus, manifest, {l1}, output_dir .. "/reports")
+
+        print("\n=== Full Pipeline Complete ===")
+        print(string.format("Output directory: %s", output_dir))
         return 0
 
     else
