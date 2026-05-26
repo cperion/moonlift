@@ -38,6 +38,16 @@ function M.verify_candidate(candidate, config)
         end
     end
 
+    -- Check shape/legalization metadata. Native object compilation only proves
+    -- syntax/codegen; the candidate must also declare its VM continuation shape.
+    local shape_check = M.verify_shape(candidate)
+    if not shape_check.valid then
+        result.valid = false
+        for _, err in ipairs(shape_check.errors) do
+            table.insert(result.errors, err)
+        end
+    end
+
     -- Check relocations
     if candidate.relocs then
         local relocs_check = M.verify_relocs(candidate)
@@ -49,6 +59,37 @@ function M.verify_candidate(candidate, config)
         end
     end
 
+    return result
+end
+
+function M.verify_shape(candidate)
+    local result = { valid = true, errors = {} }
+    if not candidate.shape_kind then
+        result.valid = false
+        table.insert(result.errors, "Missing shape_kind")
+    end
+    if not candidate.lowering then
+        result.valid = false
+        table.insert(result.errors, "Missing lowering")
+    end
+    if not candidate.continuation then
+        result.valid = false
+        table.insert(result.errors, "Missing continuation")
+    end
+    if candidate.rewrite_kind then
+        if candidate.kind ~= "REWRITE_STENCIL" then
+            result.valid = false
+            table.insert(result.errors, "rewrite_kind requires kind=REWRITE_STENCIL")
+        end
+        if not candidate.facts or #candidate.facts == 0 then
+            result.valid = false
+            table.insert(result.errors, "rewrite candidate missing required facts")
+        end
+        if not candidate.legalization_source then
+            result.valid = false
+            table.insert(result.errors, "rewrite candidate missing legalization_source")
+        end
+    end
     return result
 end
 

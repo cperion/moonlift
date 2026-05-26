@@ -3,6 +3,7 @@
 -- Per LUA_STENCIL_HARNESS_DESIGN.md §4.12
 
 local M = {}
+local util = require("tools.jit_harness.util")
 
 -- Mine a compiled object file
 function M.mine_object(obj, spec, config)
@@ -11,45 +12,34 @@ function M.mine_object(obj, spec, config)
     local result = {
         object_id = obj.id,
         symbol = obj.symbol,
-        valid = true,
+        valid = obj.compiled ~= false,
         errors = {},
+        object_path = obj.object_path,
     }
 
-    -- In production, would parse ELF/Mach-O and extract:
-    -- - byte ranges
-    -- - hole markers (for runtime value fills)
-    -- - relocations (for runtime fixups)
-    -- - clobber information
-    -- - register liveness
-
-    -- For now, return mock data
-    result.body_range = {
-        offset = 0,
-        size = obj.size_bytes or 100,
-    }
-
-    result.holes = {}
-    result.relocs = {}
-    result.clobbers = {}
-
-    -- Mock holes (placeholders for values to fill at runtime)
-    for i = 1, math.random(1, 3) do
-        table.insert(result.holes, {
-            offset = i * 16,
-            size = 8,
-            kind = i == 1 and "immediate" or "data",
-        })
+    if obj.compiled == false then
+        result.valid = false
+        table.insert(result.errors, obj.error or "object was not compiled")
+        result.body_range = { offset = 0, size = 0 }
+        result.holes = {}
+        result.relocs = {}
+        result.clobbers = { registers = {}, mask = 0 }
+        return result
     end
 
-    -- Mock relocations
-    for i = 1, math.random(0, 2) do
-        table.insert(result.relocs, {
-            offset = 32 + (i * 8),
-            kind = "rel32",
-            symbol = "extern_func_" .. i,
-        })
+    local bytes, read_err
+    if obj.object_path then bytes, read_err = util.read_file(obj.object_path) end
+    if not bytes then
+        result.valid = false
+        table.insert(result.errors, read_err or "object file not readable")
+        bytes = ""
     end
 
+    result.body_range = M.find_body_range(obj, obj.symbol, config)
+    result.holes = M.find_holes(bytes, spec and spec.hole_markers or {})
+    result.relocs = M.normalize_relocs(M.find_relocations(obj, obj.symbol))
+    result.clobbers = M.classify_clobbers(obj, result.body_range)
+    result.object_size = #bytes
     return result
 end
 
@@ -57,18 +47,14 @@ end
 function M.find_body_range(obj, symbol, config)
     config = config or {}
 
-    -- In production, would:
-    -- 1. Parse ELF/Mach-O
-    -- 2. Find symbol in symbol table
-    -- 3. Locate section containing symbol
-    -- 4. Return byte range
-
-    -- For now, return mock range
-    return {
-        symbol = symbol,
-        offset = 0,
-        size = obj.size_bytes or 100,
-    }
+    local size = obj.size_bytes or 0
+    if obj.object_path then
+        local bytes = util.read_file(obj.object_path)
+        if bytes then size = #bytes end
+    end
+    -- Until a full ELF/Mach-O section parser lands, the safe mined range is the
+    -- object payload as an opaque artifact. This is deterministic and explicit.
+    return { symbol = symbol, offset = 0, size = size }
 end
 
 -- Find hole markers in compiled bytes
@@ -77,67 +63,44 @@ function M.find_holes(bytes, markers)
 
     local holes = {}
 
-    -- In production, would:
-    -- 1. Scan bytes for hole marker patterns
-    -- 2. Extract offset, size, type
-    -- 3. Verify against expected markers
-
-    -- For now, generate mock holes
-    for i = 1, math.random(1, 4) do
-        table.insert(holes, {
-            offset = i * 16,
-            size = 8,
-            kind = "immediate",
-        })
+    -- Candidate kernels currently do not emit marker payloads. Recognize only
+    -- explicit marker strings supplied by the emitter/spec.
+    for _, marker in ipairs(markers) do
+        local needle = marker.bytes or marker.marker or marker.name
+        if needle and bytes then
+            local start = 1
+            while true do
+                local i = bytes:find(needle, start, true)
+                if not i then break end
+                table.insert(holes, { offset = i - 1, size = #needle, kind = marker.kind or "marker", name = marker.name })
+                start = i + 1
+            end
+        end
     end
-
     return holes
 end
 
 -- Find relocations in compiled object
 function M.find_relocations(obj, symbol)
-    -- In production, would:
-    -- 1. Parse relocation table
-    -- 2. Filter by symbol or all
-    -- 3. Extract offset, type, target symbol
-
     local relocs = {}
-
-    for i = 1, math.random(0, 3) do
-        table.insert(relocs, {
-            offset = 40 + (i * 8),
-            kind = i % 2 == 0 and "rel32" or "abs64",
-            symbol = "symbol_" .. i,
-        })
+    if not obj.object_path then return relocs end
+    local cmd = "objdump -r " .. util.shell_quote(obj.object_path)
+    local ok, out = util.run_capture(cmd)
+    if not ok then return relocs end
+    for line in out:gmatch("[^\n]+") do
+        local off, kind, sym = line:match("^%s*([0-9a-fA-F]+)%s+([%w_%-]+)%s+(.+)$")
+        if off and kind and sym then
+            table.insert(relocs, { offset = tonumber(off, 16) or 0, kind = kind, symbol = sym:gsub("%s+$", "") })
+        end
     end
-
     return relocs
 end
 
 -- Classify clobber set (registers written by stencil)
 function M.classify_clobbers(obj, body)
-    -- In production, would:
-    -- 1. Analyze instruction stream
-    -- 2. Track register writes
-    -- 3. Generate clobber mask
-
-    -- x86_64 register names
-    local x86_64_regs = {
-        "rax", "rcx", "rdx", "rsi", "rdi", "r8", "r9", "r10",
-        "r11", "r12", "r13", "r14", "r15", "rbx"
-    }
-
-    local clobbers = {}
-
-    -- Mock: assume some registers are clobbered
-    for i = 1, math.random(2, 5) do
-        table.insert(clobbers, x86_64_regs[math.random(1, #x86_64_regs)])
-    end
-
-    return {
-        registers = clobbers,
-        mask = 0xFF,  -- Placeholder: would be actual register bitmask
-    }
+    -- Unknown until instruction analysis lands. Empty means "not classified",
+    -- not "preserves all"; verification/export keep that distinction via mask=0.
+    return { registers = {}, mask = 0, classified = false }
 end
 
 -- Normalize relocations to canonical form

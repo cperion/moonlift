@@ -2,7 +2,9 @@
 -- test_jit_harness.lua
 -- Test JIT harness pipeline
 
-package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
+local source = debug.getinfo(1, "S").source
+local base = source and source:sub(1, 1) == "@" and source:sub(2):match("^(.*)/tests/test_jit_harness%.lua$") or "."
+package.path = base .. "/?.lua;" .. base .. "/?/init.lua;" .. base .. "/../../?.lua;" .. base .. "/../../?/init.lua;" .. base .. "/../../lua/?.lua;" .. base .. "/../../lua/?/init.lua;./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local function test_fact_trace()
     print("\n=== Test: fact_trace ===")
@@ -73,6 +75,51 @@ local function test_corpus()
     print("  ✓ All corpus tests passed")
 end
 
+local function test_compile_static_profile()
+    print("\n=== Test: compile + static profile ===")
+
+    local compile = require("tools.jit_harness.compile")
+    local profile_static = require("tools.jit_harness.profile_static")
+
+    local bundle, err = compile.compile_lua_unit({ id = "inline", source = "return 1 + 2" }, {
+        repo_root = base .. "/../..",
+        allow_fallback = false,
+    })
+    assert(bundle, err and err.detail or "compile failed")
+    assert(bundle.compiler == "moonlift-lua-vm")
+    assert(#bundle.protos[1].code == 5)
+
+    local profile = profile_static.profile_proto_static(bundle, { max_arity = 4 })
+    assert(profile.total_opcodes == 5)
+    assert(profile.window_counts["LOADI"] == 2)
+    assert(profile.window_counts["LOADI|LOADI"] == 1)
+
+    print("  ✓ Real VM bytecode compile and static profile")
+end
+
+local function test_candidate_vm_stencil_compile()
+    print("\n=== Test: candidate VM stencil compile ===")
+
+    local emit = require("tools.jit_harness.candidate_emit")
+    local compile = require("tools.jit_harness.candidate_compile")
+    local mine = require("tools.jit_harness.object_mine")
+
+    local out = "/tmp/moonlift_jit_harness_test"
+    os.execute("rm -rf " .. out)
+    local kernel = emit.emit_candidate_kernel({ id = "LOADI_MOVE_smoke", arity = 2, ops = { "LOADI", "MOVE" } }, { output_dir = out .. "/kernels" })
+    assert(kernel.abi == "jit_stencil_v0")
+    assert(kernel.source:find("ptr%(LuaThread%)"))
+    assert(emit.write_kernel_source(kernel, out .. "/kernels"))
+
+    local obj = compile.compile_kernel(kernel, { output_dir = out .. "/objects", repo_root = base .. "/../.." })
+    assert(obj.compiled, obj.error)
+    local mined = mine.mine_object(obj, {}, {})
+    assert(mined.valid)
+    assert((mined.object_size or 0) > 0)
+
+    print("  ✓ VM-shaped stencil emits, compiles, and mines deterministically")
+end
+
 local function test_seed_l0()
     print("\n=== Test: seed_l0 ===")
 
@@ -138,10 +185,28 @@ local function test_layer_closure()
     assert(#pairs > 0)
     print(string.format("  ✓ Pair generation (%d pairs)", #pairs))
 
-    -- Test candidate key assignment
+    -- Test candidate key assignment and shape metadata
+    lc.apply_shape_metadata(candidate)
     lc.assign_candidate_key(candidate)
     assert(candidate.id == "LOADI|ADD|MOVE")
-    print("  ✓ Candidate key assignment")
+    assert(candidate.shape_kind == "fallthrough")
+    assert(candidate.lowering == "generic_opcode_sequence")
+    print("  ✓ Candidate key assignment and shape metadata")
+
+    -- Test rewrite variants carry explicit legalization/shape metadata
+    local expanded = lc.expand_fact_variants({ { arity = 2, ops = { "MOVE", "MOVE" }, cost = { opcodes = 2, estimated_size = 100, estimated_holes = 4, estimated_relocs = 2 } } }, {})
+    local found_rewrite = false
+    for _, cand in ipairs(expanded) do
+        if cand.rewrite_kind == "move_move_forward" then
+            found_rewrite = true
+            assert(cand.kind == "REWRITE_STENCIL")
+            assert(cand.shape_kind == "pure_rewrite")
+            assert(cand.lowering == "move_move_forward")
+            assert(cand.legalization_source == "operand_fact_rewrite_schema")
+        end
+    end
+    assert(found_rewrite)
+    print("  ✓ Rewrite shape legalization metadata")
 
     print("  ✓ All layer_closure tests passed")
 end
@@ -167,19 +232,25 @@ end
 -- Run all tests
 print("=== JIT Harness Test Suite ===")
 
-local ok, err = pcall(test_fact_trace)
-if not ok then print("✗ fact_trace error: " .. tostring(err)) end
+local failures = 0
+local function run(name, fn)
+    local ok, err = pcall(fn)
+    if not ok then
+        failures = failures + 1
+        print("✗ " .. name .. " error: " .. tostring(err))
+    end
+end
 
-ok, err = pcall(test_corpus)
-if not ok then print("✗ corpus error: " .. tostring(err)) end
-
-ok, err = pcall(test_seed_l0)
-if not ok then print("✗ seed_l0 error: " .. tostring(err)) end
-
-ok, err = pcall(test_layer_closure)
-if not ok then print("✗ layer_closure error: " .. tostring(err)) end
-
-ok, err = pcall(test_harness_integration)
-if not ok then print("✗ harness error: " .. tostring(err)) end
+run("fact_trace", test_fact_trace)
+run("corpus", test_corpus)
+run("compile_static_profile", test_compile_static_profile)
+run("candidate_vm_stencil_compile", test_candidate_vm_stencil_compile)
+run("seed_l0", test_seed_l0)
+run("layer_closure", test_layer_closure)
+run("harness", test_harness_integration)
 
 print("\n=== All Tests Complete ===")
+if failures > 0 then
+    print(string.format("FAILURES: %d", failures))
+    os.exit(1)
+end

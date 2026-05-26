@@ -1,24 +1,122 @@
 -- candidate_compile.lua
--- Compiles candidate kernels through the Moonlift/Cranelift path
+-- Compiles candidate kernels through Moonlift/Cranelift
 -- Per LUA_STENCIL_HARNESS_DESIGN.md §4.11
 
 local M = {}
+local util = require("tools.jit_harness.util")
 
--- Compile a single kernel through Moonlift
+local function compile_kernel_gcc(kernel, config, output_dir, obj_path)
+    local src = kernel.path or kernel.source
+    if not kernel.path and kernel.source then
+        local temp_src = output_dir .. "/" .. kernel.id .. ".c"
+        local f = io.open(temp_src, "w")
+        if f then f:write(kernel.source); f:close(); src = temp_src end
+    end
+    if not src then
+        return { id = kernel.id, compiled = false, error = "no C kernel source" }
+    end
+    local cc = config.cc or os.getenv("CC") or "gcc"
+    local flags = config.cflags or "-O3 -std=c11 -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables -fomit-frame-pointer -fno-ident -fPIC"
+    local cmd = string.format("%s %s -c %s -o %s",
+        util.shell_quote(cc), flags, util.shell_quote(util.abspath(src)), util.shell_quote(util.abspath(obj_path)))
+    local ok, output, why, code = util.run_capture(cmd)
+    local abs_obj = util.abspath(obj_path)
+    if ok and util.path_exists(abs_obj) then
+        local f = io.open(abs_obj, "rb")
+        local bytes = f and f:read("*a") or ""
+        if f then f:close() end
+        return {
+            id = kernel.id,
+            kernel_id = kernel.id,
+            compiled = true,
+            backend = "gcc",
+            object_path = abs_obj,
+            source_path = util.abspath(src),
+            symbol = "stencil_" .. kernel.id,
+            size_bytes = #bytes,
+            command = cmd,
+            output = output,
+        }
+    end
+    return { id = kernel.id, compiled = false, backend = "gcc", error = output or "gcc compilation failed", command = cmd, status = why, code = code }
+end
+
+-- Compile a single kernel through Moonlift or GCC
 function M.compile_kernel(kernel, config)
     config = config or {}
 
-    -- In production, would invoke: moonlift --emit-object kernel.mlua -o kernel.o
-    -- For now, return a mock compiled object
+    local output_dir = config.output_dir or "build/candidate_objects"
+    util.mkdir_p(output_dir)
+
+    local obj_path = output_dir .. "/" .. kernel.id .. ".o"
+    local backend = config.backend or kernel.backend or (kernel.language == "c" and "gcc") or "moonlift"
+    if backend == "gcc" or backend == "c" then
+        return compile_kernel_gcc(kernel, config, output_dir, obj_path)
+    end
+
+    local kernel_src = kernel.path or kernel.source
+
+    -- If kernel is just source string, write it to temp file first
+    if not kernel.path and kernel.source then
+        local temp_src = output_dir .. "/" .. kernel.id .. ".mlua"
+        local f = io.open(temp_src, "w")
+        if f then
+            f:write(kernel.source)
+            f:close()
+            kernel_src = temp_src
+        end
+    end
+
+    if not kernel_src then
+        return {
+            id = kernel.id,
+            compiled = false,
+            error = "no kernel source",
+        }
+    end
+
+    local repo_root = util.abspath(config.repo_root or util.find_repo_root(".") or ".")
+    local emitter = config.emit_object or (repo_root .. "/emit_object.lua")
+    local abs_obj = util.abspath(obj_path)
+    local abs_src = util.abspath(kernel_src)
+    local module_name = (config.module_name or kernel.id):gsub("[^%w_]", "_")
+
+    local cmd = string.format(
+        "cd %s && luajit %s %s -o %s --module-name %s",
+        util.shell_quote(repo_root),
+        util.shell_quote(emitter),
+        util.shell_quote(abs_src),
+        util.shell_quote(abs_obj),
+        util.shell_quote(module_name)
+    )
+
+    local ok, output, why, code = util.run_capture(cmd)
+    local success = ok and util.path_exists(abs_obj)
+
+    if success then
+        local f = io.open(abs_obj, "rb")
+        local bytes = f and f:read("*a") or ""
+        if f then f:close() end
+        return {
+            id = kernel.id,
+            kernel_id = kernel.id,
+            compiled = true,
+            object_path = abs_obj,
+            source_path = abs_src,
+            symbol = "stencil_" .. kernel.id,
+            size_bytes = #bytes,
+            command = cmd,
+            output = output,
+        }
+    end
 
     return {
         id = kernel.id,
-        kernel_id = kernel.id,
-        input_path = kernel.path,
-        output_path = config.output_dir and (config.output_dir .. "/" .. kernel.id .. ".o") or nil,
-        compiled = true,
-        size_bytes = math.random(100, 1000),  -- Placeholder
-        symbol = "stencil_" .. kernel.id,
+        compiled = false,
+        error = output or "compilation failed",
+        command = cmd,
+        status = why,
+        code = code,
     }
 end
 
@@ -55,14 +153,11 @@ function M.dump_candidate_object(obj, output_dir)
     output_dir = output_dir or "build/candidate_objects"
     os.execute("mkdir -p " .. output_dir)
 
-    -- In production, would copy .o file or extract from cache
-    -- For now, create a metadata file
-
+    -- Create metadata file
     local manifest = "{\n"
     manifest = manifest .. '  "id": "' .. obj.id .. '",\n'
-    manifest = manifest .. '  "kernel_id": "' .. obj.kernel_id .. '",\n'
-    manifest = manifest .. '  "symbol": "' .. obj.symbol .. '",\n'
-    manifest = manifest .. '  "size_bytes": ' .. obj.size_bytes .. ",\n"
+    manifest = manifest .. '  "symbol": "' .. (obj.symbol or "unknown") .. '",\n'
+    manifest = manifest .. '  "object_path": "' .. (obj.object_path or "") .. '",\n'
     manifest = manifest .. '  "timestamp": ' .. os.time() .. "\n"
     manifest = manifest .. "}\n"
 
@@ -90,10 +185,15 @@ function M.report_compilation(batch_result)
 
     if batch_result.failed and batch_result.failed > 0 then
         print("\n  Failed kernels:")
+        local count = 0
         for _, result in ipairs(batch_result.results or {}) do
-            if not result.compiled then
-                print(string.format("    - %s", result.id or "unknown"))
+            if not result.compiled and count < 5 then
+                print(string.format("    - %s: %s", result.id, result.error or "unknown"))
+                count = count + 1
             end
+        end
+        if #batch_result.results > 5 then
+            print(string.format("    ... and %d more", #batch_result.results - 5))
         end
     end
 end

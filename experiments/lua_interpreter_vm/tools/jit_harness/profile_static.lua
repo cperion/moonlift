@@ -4,6 +4,8 @@
 
 local M = {}
 
+local util = require("tools.jit_harness.util")
+
 -- Analyze opcode sequences in a function proto
 function M.analyze_proto_bytecode(proto)
     if not proto or not proto.code then
@@ -16,7 +18,7 @@ function M.analyze_proto_bytecode(proto)
     -- Extract opcodes from proto.code
     -- proto.code is expected to be a list of instructions
     for i, instruction in ipairs(proto.code) do
-        local op_name = instruction.op or instruction[1]
+        local op_name = instruction.op or instruction.name or instruction[1]
         table.insert(opcodes, {
             pc = i - 1,
             name = op_name,
@@ -32,7 +34,7 @@ function M.analyze_proto_bytecode(proto)
     }
 end
 
--- Count opcode windows (pairs, triples, quads)
+-- Count opcode windows (singles, pairs, triples, quads, up to max_arity)
 function M.count_opcode_windows(opcodes, max_arity)
     max_arity = max_arity or 4
 
@@ -40,7 +42,7 @@ function M.count_opcode_windows(opcodes, max_arity)
     local window_counts = {}
 
     -- Generate all n-ary windows
-    for arity = 2, math.min(max_arity, 4) do
+    for arity = 1, math.min(max_arity, 8) do
         local arity_windows = {}
 
         for i = 1, #opcodes - (arity - 1) do
@@ -239,11 +241,50 @@ function M.profile_proto_static(bundle, config)
         -- Aggregate window counts
         for window_key, count in pairs(windows.window_counts) do
             profile.window_counts[window_key] = (profile.window_counts[window_key] or 0) + count
-            profile.total_windows = profile.total_windows + 1
+            profile.total_windows = profile.total_windows + count
         end
     end
 
     return profile
+end
+
+-- Profile all bundles produced by compile.lua.
+function M.profile_bundle_db(bundle_db, config)
+    config = config or {}
+    local profile = {
+        corpus_id = bundle_db.corpus_id or "unknown",
+        compile_config_hash = bundle_db.compile_config_hash or "unknown",
+        max_window = config.max_arity or config.max_window or 4,
+        proto_profiles = {},
+        protos = {},
+        total_opcodes = 0,
+        total_windows = 0,
+        opcode_counts = {},
+        window_counts = {},
+        rejects = bundle_db.rejects or {},
+    }
+
+    for _, bundle in ipairs(bundle_db.bundles or {}) do
+        local p = M.profile_proto_static(bundle, { max_arity = profile.max_window })
+        profile.protos[#profile.protos + 1] = p
+        profile.total_opcodes = profile.total_opcodes + (p.total_opcodes or 0)
+        profile.total_windows = profile.total_windows + (p.total_windows or 0)
+        for _, proto_profile in ipairs(p.protos or {}) do
+            table.insert(profile.proto_profiles, proto_profile)
+            for _, op in ipairs(proto_profile.bytecode.opcodes or {}) do
+                profile.opcode_counts[op.name] = (profile.opcode_counts[op.name] or 0) + 1
+            end
+        end
+        for key, count in pairs(p.window_counts or {}) do
+            profile.window_counts[key] = (profile.window_counts[key] or 0) + count
+        end
+    end
+
+    return profile
+end
+
+function M.write_static_profile(profile, path)
+    return util.write_json(path, profile)
 end
 
 -- Report static profile statistics

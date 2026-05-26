@@ -568,6 +568,115 @@ struct FactSet
 end
 ```
 
+### 6.6.1 FactSet as the optimizer center
+
+The primary runtime/JIT design problem is the fact vocabulary.
+Arity exploration does not invent semantic knowledge; it exploits knowledge that
+is represented in `FactSet` and preserved in the selector key.
+
+```text
+rich facts
+  -> more legal candidate stencils
+  -> arity/closure exploration discovers useful forms
+  -> measurement selects survivors
+  -> runtime selector climbs library layers
+```
+
+A LuaJIT-class rewrite falls out automatically only when all legality conditions
+are visible as facts. Examples:
+
+```text
+DCE                  requires liveness + Effect == PURE
+redundant guard      requires fact dominance / guard_success
+raw table access     requires table shape + metatable absence + dependency
+known call           requires callee target + arg/ret shape + boundary projection
+allocation sinking   requires virtual object + escape fact + materialization projection
+loop specialization  requires loop-carried induction/accumulator facts
+```
+
+Thus:
+
+```text
+No fact, no discovery.
+Wrong fact, wrong code.
+Rich fact, large optimization space.
+```
+
+Every promoted fact must carry its dependency, invalidation, and projection
+obligations. For example, `table_shape(value, epoch)` is not just a hint; it
+requires a dependency on the table/metatable epoch and a side-exit projection if
+the guard fails.
+
+### 6.6.2 Peephole as fact-backed shape selection
+
+Peephole optimization is not a blind pass over emitted native instructions. In
+this VM it must happen before codegen, while opcode operands, liveness, and VM
+continuation shape are visible.
+
+```text
+peephole candidate = small PatternWindow × FactSet × ShapeKind × Lowering
+```
+
+Examples:
+
+```text
+MOVE|MOVE @ move_def;move_uses_previous_def
+  -> shape_kind=pure_rewrite
+  -> lowering=move_move_forward
+
+LOADI|MOVE @ load_def;move_uses_previous_def
+  -> shape_kind=pure_rewrite
+  -> lowering=load_move_final_dst
+
+ADDI|RETURN1 @ i64;returns_previous_def
+  -> shape_kind=terminal_return
+  -> lowering=op_return1
+```
+
+The retained rewrite view/layer is therefore a legalization and lowering-shape
+classification pass over normal candidates. It is not a later optional peephole
+cleanup. Object compilation proves that the Moonlift source is compilable; shape
+legalization proves that the candidate has the right VM continuation/effect
+contract.
+
+Each candidate records:
+
+```text
+shape_kind
+lowering
+continuation
+effect_context
+legalization_source
+```
+
+### 6.6.3 Selection before layer climbing
+
+The runtime library and higher layers must be built from selected winners, not
+from all discovered candidates. Layer closure is cumulative: L3 is built from
+L0, selected L1, and selected L2 atoms together. Selection requires both
+semantic legality and profitability evidence:
+
+```text
+candidate generated
+  -> shape verified
+  -> kernel emitted
+  -> object compiled
+  -> profitability benchmarked
+  -> selected or rejected
+```
+
+The current offline benchmark is `profitability_model_v1`. It scores candidates
+with observed frequency, baseline opcode cost, candidate shape/lowering, native
+artifact size, guard/side-exit risk, and whether the candidate has a concrete
+lowering path. Boundary-only candidates are kept for legality/debugging but are
+not profitable L2 atoms.
+
+Facts must pass through a lowering-plan step before codegen. Missing lowerings
+are fail-closed: the candidate is unsupported, not emitted as a side-exit stub.
+For L2+, selected lower atoms are already native artifacts; opcode lists are
+matching/profile metadata only. Higher-layer composition uses native artifact
+budgets rather than re-lowering flattened opcode sequences.
+
 ### 6.7 CanonicalFactKey
 
 The runtime selector does not inspect arbitrary `FactSet`s directly. Facts are canonicalized into a compact key.

@@ -84,13 +84,24 @@ function M.write_layer_report(layer, path)
     report = report .. string.format("Generated candidates: %d\n", layer.total_candidates or 0)
     report = report .. string.format("Input seeds: %d\n", #(layer.seeds or {}))
 
-    report = report .. "\n## Candidates by Arity\n\n"
+    report = report .. "\n## Candidates by Unit Arity\n\n"
 
     if layer.by_arity then
-        for arity = 2, 4 do
-            if layer.by_arity[arity] then
-                report = report .. string.format("- Arity %d: %d candidates\n", arity, layer.by_arity[arity])
-            end
+        local keys = {}
+        for k in pairs(layer.by_arity) do keys[#keys + 1] = tonumber(k) or k end
+        table.sort(keys)
+        for _, arity in ipairs(keys) do
+            report = report .. string.format("- Unit arity %s: %d candidates\n", tostring(arity), layer.by_arity[arity] or layer.by_arity[tostring(arity)])
+        end
+    end
+
+    report = report .. "\n## Candidates by Opcode Span\n\n"
+    if layer.by_opcode_span then
+        local keys = {}
+        for k in pairs(layer.by_opcode_span) do keys[#keys + 1] = tonumber(k) or k end
+        table.sort(keys)
+        for _, arity in ipairs(keys) do
+            report = report .. string.format("- Opcode span %s: %d candidates\n", tostring(arity), layer.by_opcode_span[arity] or layer.by_opcode_span[tostring(arity)])
         end
     end
 
@@ -211,6 +222,51 @@ function M.write_speed_report(results, path)
         return false, "cannot write to " .. path
     end
 
+    f:write(report)
+    f:close()
+    return true
+end
+
+function M.write_selection_report(selection, bench, path)
+    local report = "# Stencil Selection Report\n\n"
+    report = report .. "## Summary\n\n"
+    report = report .. string.format("Benchmarked: %d\n", selection.benchmarked or 0)
+    report = report .. string.format("Profitable winners before quota: %d\n", selection.winner_candidates or 0)
+    report = report .. string.format("Selected: %d\n", selection.selected_count or 0)
+    if bench and bench.summary then
+        report = report .. string.format("Compiled: %d\n", bench.summary.compiled or 0)
+        report = report .. string.format("Profitable: %d\n", bench.summary.profitable or 0)
+        if bench.summary.best then
+            report = report .. string.format("Best: `%s` score=%.0f\n", bench.summary.best.candidate_id, bench.summary.best.score or 0)
+        end
+    end
+
+    report = report .. "\n## Selected by unit arity\n\n"
+    for arity = 1, 8 do
+        local n = selection.by_arity and (selection.by_arity[arity] or selection.by_arity[tostring(arity)])
+        if n then report = report .. string.format("- %d: %d\n", arity, n) end
+    end
+
+    report = report .. "\n## Selected by shape\n\n"
+    if selection.by_shape then
+        local keys = {}
+        for k in pairs(selection.by_shape) do table.insert(keys, k) end
+        table.sort(keys)
+        for _, k in ipairs(keys) do report = report .. string.format("- %s: %d\n", k, selection.by_shape[k]) end
+    end
+
+    report = report .. "\n## Top selected\n\n"
+    report = report .. "| # | Candidate | Score | Freq | Saved/call | Unit arity | Opcode span | Shape | Lowering |\n"
+    report = report .. "|---:|---|---:|---:|---:|---:|---:|---|---|\n"
+    for i, c in ipairs(selection.selected or {}) do
+        if i > 50 then break end
+        report = report .. string.format("| %d | `%s` | %.0f | %d | %d | %d | %d | %s | %s |\n",
+            i, c.id or c.name or "unknown", c.selection_score or 0, c.frequency or 0,
+            c.cycles_saved or 0, c.unit_arity or #(c.nodes or {}), #(c.ops or {}), c.shape_kind or "", c.lowering or c.rewrite_kind or "")
+    end
+
+    local f = io.open(path, "w")
+    if not f then return false, "cannot write to " .. path end
     f:write(report)
     f:close()
     return true

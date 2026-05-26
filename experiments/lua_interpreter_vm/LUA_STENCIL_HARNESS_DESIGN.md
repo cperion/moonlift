@@ -1424,6 +1424,180 @@ Algorithm:
   10. Emit layer manifest and report.
 ```
 
+### 9.2.1 Fact-combinatorial closure
+
+The closure generator enumerates facts as part of the candidate space.
+A stencil is not merely an opcode composition. It is an opcode composition under
+a canonical fact class.
+
+```text
+Candidate =
+  PatternWindow
+  × OperandShape
+  × CanonicalFactSet
+  × ContinuationShape
+  × EffectContext
+```
+
+For every arity window, the harness tries all relevant declared fact axes.
+For example, `GETTABLE; ADD` is not one candidate. It can produce:
+
+```text
+GETTABLE_generic_ADD_generic
+GETARRAY_i64_ADD_i64
+GETTABLE_string_slot_ADD_i64
+GETTABLE_may_metamethod_boundary_ADD
+GETTABLE_result_dead_but_effectful
+```
+
+Only contract-valid combinations are emitted. Each fact axis must provide:
+
+```text
+1. consistency rules
+2. legality rules
+3. dependency rules
+4. projection rules
+5. invalidation rules
+```
+
+This is the central optimizer rule:
+
+```text
+No fact, no discovery.
+Wrong fact, wrong code.
+Rich fact, larger optimization space.
+```
+
+Local physical fusions require only operand and liveness facts. LuaJIT-class
+rewrites require richer products: table shape, metatable absence, known call
+targets, loop-carried values, escape state, and side-exit materialization
+projections.
+
+Layer generation therefore uses:
+
+```text
+CandidateSpace(Lk) =
+  compose_arity_le_4(
+    stencils from L0..L{k-1},
+    all declared canonical FactSet combinations,
+    all valid operand/continuation/effect shapes)
+```
+
+Then selection keeps the fastest verified survivor for each:
+
+```text
+PatternKey × FactKey × StateShape × EffectContext × LayerId
+```
+
+### 9.2.2 Rewrite/shape legalization is not a later peephole pass
+
+The harness keeps a rewrite-shaped view/pass, but it is not a separate
+post-hoc optimizer that runs after ordinary stencil generation. It is the
+semantic legalization point for:
+
+```text
+PatternWindow × OperandShape × CanonicalFactSet
+```
+
+A candidate can compile as native code and still have the wrong VM shape. For
+example, branches, returns, calls, table writes, metamethod boundaries, and
+producer-consumer rewrites all have different continuation/effect contracts.
+Therefore every candidate carries explicit shape metadata:
+
+```text
+shape_kind          fallthrough | pure_rewrite | guarded_pure_rewrite |
+                    branch_or_control_boundary | call_boundary |
+                    effect_boundary | terminal_return
+lowering            generic_opcode_sequence | move_move_forward | ...
+continuation        fallthrough_pc_plus_arity | fallthrough_pc_plus_2 |
+                    branch_pc_or_side_exit | return_boundary | ...
+legalization_source default_opcode_shape | operand_fact_rewrite_schema | ...
+```
+
+Classic peephole optimization is represented as a small observed window plus
+facts plus a specialized lowering, not as native-code patching:
+
+```text
+MOVE|MOVE @ MOVE:move_def;MOVE:move_uses_previous_def
+  shape_kind   = pure_rewrite
+  lowering     = move_move_forward
+  continuation = fallthrough_pc_plus_2
+
+ADDI|RETURN1 @ ADDI:i64;RETURN1:returns_previous_def
+  shape_kind   = terminal_return
+  lowering     = op_return1
+  continuation = return_boundary_pc_plus_2
+```
+
+So the rewrite view is useful and retained, but the invariant is:
+
+```text
+The rewrite layer is a legalization/lowering-shape view over normal candidates,
+not an optional later peephole optimizer.
+```
+
+### 9.2.3 Selection and benchmarking gate
+
+Layer generation is discovery. It does not mean every generated candidate is a
+runtime stencil or an atom for the next layer. A layer must pass an explicit
+selection gate:
+
+```text
+verified shape
+  × concrete codegen support
+  × object compilation
+  × profile frequency
+  × profitability benchmark
+  -> selected[]
+```
+
+The harness writes `selected_layer.json`; only `selected[]` may seed L2. This
+prevents the L2 generator from composing thousands of legal-but-useless or
+boundary-only L1 candidates.
+
+Layer closure is cumulative, not previous-layer-only and not motif-tiling-only:
+
+```text
+L1 atoms = combinations from {L0}
+L2 atoms = combinations from {L0, selected L1}
+L3 atoms = combinations from {L0, selected L1, selected L2}
+LN atoms = combinations from {L0, selected L1, ..., selected L(N-1)}
+```
+
+`max_arity = 4` means four composed units. The resulting opcode span can be
+larger and is controlled by a separate budget such as `max_opcodes`. Profile and
+motif data are filters/schedulers for slow or unobserved spans; they do not
+replace the cumulative candidate-space definition.
+
+Current offline benchmarking mode is `profitability_model_v1`. It is not a fake
+random benchmark. It is a deterministic VM-shaped profitability estimate using:
+
+```text
+baseline opcode/interpreter cycles
+candidate shape_kind/lowering
+observed profile frequency or rewrite-fact frequency
+native artifact size after compilation/composition
+side-exit / guard risk
+concrete lowering support
+```
+
+A stencil that compiles but only side-exits to the interpreter is classified as
+legal but unprofitable. Native execution benchmarking can replace or calibrate
+this model later; the selection interface remains the same.
+
+Facts feed a lowering-plan step before emission. The lowering plan is fail-closed:
+if a `FactSet` has no lowering for the selected backend, the candidate is
+unsupported and must not be emitted as a placeholder stencil. For GCC this
+currently includes concrete lowering for raw table reads, integer arithmetic,
+returns, local rewrites, and branch facts (`EQ`/`EQK` primitive or i64 equality,
+`LT` i64 compare).
+
+For L2+, lower-layer atoms are already compiled native units. Their opcode lists
+are selector/profile metadata only, not codegen input. Higher-layer composition
+uses native artifacts and native budgets (`bytes`, holes, relocs, exits), while
+`max_profile_span` may bound profile lookup over flattened opcode metadata.
+`max_opcodes` is not a semantic validity rule for native-composed layers.
+
 ### 9.3 Speed-max scheduling
 
 Speed-max mode does not prune by size before measurement.

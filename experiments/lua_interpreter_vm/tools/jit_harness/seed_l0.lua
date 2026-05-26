@@ -3,6 +3,8 @@
 -- Per LUA_STENCIL_HARNESS_DESIGN.md §4.8
 
 local M = {}
+local util = require("tools.jit_harness.util")
+local FactSchema = require("tools.jit_harness.fact_schema")
 
 -- Manual L0 seed templates
 -- These are examples of obviously useful stencil families to seed L0 with
@@ -53,24 +55,97 @@ M.MANUAL_SEEDS = {
     {name = "PROJECT_slots_3", arities = {3}},
 }
 
+local function infer_seed_ops(name)
+    name = tostring(name or "")
+    if name:find("LOADI") then return { "LOADI" } end
+    if name:find("LOADK") then return { "LOADK" } end
+    if name:find("MOVE") then return { "MOVE" } end
+    if name:find("ADD") then return { "ADD" } end
+    if name:find("SUB") then return { "SUB" } end
+    if name:find("MUL") then return { "MUL" } end
+    if name:find("DIV") then return { "DIV" } end
+    if name:find("EQ") then return { "EQ" } end
+    if name:find("LT") then return { "LT" } end
+    if name:find("LE") then return { "LE" } end
+    if name:find("COMPARE_BRANCH") then return { "EQ", "JMP" } end
+    if name:find("TEST_JMP") then return { "TEST", "JMP" } end
+    if name:find("JMP") then return { "JMP" } end
+    if name:find("FORLOOP") then return { "FORLOOP" } end
+    if name:find("FORPREP") then return { "FORPREP" } end
+    if name:find("GETTABLE") then return { "GETTABLE" } end
+    if name:find("SETTABLE") then return { "SETTABLE" } end
+    if name:find("GETFIELD") then return { "GETFIELD" } end
+    if name:find("SETFIELD") then return { "SETFIELD" } end
+    if name:find("CALL_CALL") then return { "CALL", "CALL" } end
+    if name:find("CALL") then return { "CALL" } end
+    if name:find("RETURN1") then return { "RETURN1" } end
+    if name:find("RETURN") then return { "RETURN" } end
+    if name:find("PROJECT") then return { "PROJECT" } end
+    return { name }
+end
+
+for _, schema in ipairs(FactSchema.L0_REWRITE_SCHEMAS) do
+    table.insert(M.MANUAL_SEEDS, {
+        name = schema.name,
+        arities = {1},
+        ops = { schema.name },
+        kind = schema.kind,
+        comments = schema.unlocks,
+        fact_schema = schema,
+    })
+end
+
 -- Load manual L0 seeds from configuration
 function M.load_manual_l0_seeds(config)
+    if type(config) == "string" then config = { path = config } end
     config = config or {}
 
-    local seeds = {}
+    if config.path then
+        local parsed, err = util.read_json(config.path)
+        if parsed and parsed.seeds then
+            local seeds = {}
+            for _, seed in ipairs(parsed.seeds) do
+                seed.id = seed.id or seed.name
+                seed.ops = seed.ops or infer_seed_ops(seed.name or seed.id)
+                seed.arity = seed.arity or #(seed.ops or {})
+                seed.source = seed.source or "manual"
+                seed.priority = seed.priority or config.manual_priority or 100
+                table.insert(seeds, seed)
+            end
+            return seeds
+        elseif config.require_file then
+            error("could not read manual seed file " .. config.path .. ": " .. tostring(err))
+        end
+        -- Non-JSON YAML-like files are accepted with a tiny `- name:` extractor
+        -- so humans can begin with the format from the design doc before the
+        -- full schema parser lands.
+        local text = util.read_file(config.path)
+        if text then
+            local seeds = {}
+            for name in text:gmatch("[%-%s]name:%s*([%w_%-]+)") do
+                table.insert(seeds, { id = name, name = name, ops = infer_seed_ops(name), arity = #infer_seed_ops(name), arities = {1}, source = "manual", priority = config.manual_priority or 100 })
+            end
+            if #seeds > 0 then return seeds end
+        end
+    end
 
+    local seeds = {}
     for _, seed_spec in ipairs(M.MANUAL_SEEDS) do
         if not config.exclude or not config.exclude[seed_spec.name] then
             table.insert(seeds, {
                 id = seed_spec.name,
                 name = seed_spec.name,
                 arities = seed_spec.arities,
+                ops = seed_spec.ops or infer_seed_ops(seed_spec.name),
+                arity = #(seed_spec.ops or infer_seed_ops(seed_spec.name)),
+                kind = seed_spec.kind or "MANUAL_COMPOUND",
+                fact_schema = seed_spec.fact_schema,
+                comments = seed_spec.comments,
                 source = "manual",
                 priority = config.manual_priority or 100,
             })
         end
     end
-
     return seeds
 end
 
@@ -205,35 +280,7 @@ end
 
 -- Write L0 seed manifest
 function M.write_l0_seed_manifest(manifest, output_path)
-    -- Simple JSON-like output
-    local json_str = "{\n"
-    json_str = json_str .. '  "timestamp": ' .. manifest.timestamp .. ",\n"
-    json_str = json_str .. '  "seed_count": ' .. #manifest.seeds .. ",\n"
-    json_str = json_str .. '  "manual": ' .. manifest.manual_seed_count .. ",\n"
-    json_str = json_str .. '  "corpus": ' .. manifest.corpus_seed_count .. ",\n"
-    json_str = json_str .. '  "seeds": [\n'
-
-    for i, seed in ipairs(manifest.seeds) do
-        json_str = json_str .. '    {\n'
-        json_str = json_str .. '      "id": "' .. seed.id .. '",\n'
-        json_str = json_str .. '      "name": "' .. seed.name .. '",\n'
-        json_str = json_str .. '      "arity": ' .. (seed.arity or 1) .. ",\n"
-        json_str = json_str .. '      "source": "' .. (seed.source or "unknown") .. '",\n'
-        json_str = json_str .. '      "priority": ' .. (seed.priority or 0) .. '\n'
-        json_str = json_str .. '    }' .. (i < #manifest.seeds and "," or "") .. '\n'
-    end
-
-    json_str = json_str .. '  ]\n'
-    json_str = json_str .. '}\n'
-
-    local f = io.open(output_path, "w")
-    if not f then
-        return false, "cannot write to " .. output_path
-    end
-
-    f:write(json_str)
-    f:close()
-    return true
+    return util.write_json(output_path, manifest)
 end
 
 -- Report L0 seeds

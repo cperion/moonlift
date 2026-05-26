@@ -3,6 +3,7 @@
 -- Per LUA_STENCIL_HARNESS_DESIGN.md §4.2
 
 local M = {}
+local util = require("tools.jit_harness.util")
 
 -- Generate a unique ID based on path
 local function path_to_id(path)
@@ -10,32 +11,35 @@ local function path_to_id(path)
 end
 
 -- Normalize a Lua file from the corpus
-function M.normalize_lua_file(file_path)
-    -- Check file exists
-    local f = io.open(file_path, "r")
-    if not f then
-        return nil, "file not found: " .. file_path
+function M.normalize_lua_file(file_path, config)
+    config = config or {}
+    local content, err = util.read_file(file_path)
+    if not content then
+        return nil, "file not found: " .. file_path .. (err and (": " .. tostring(err)) or "")
     end
 
-    local content = f:read("*a")
-    f:close()
-
-    -- Try to load as Lua to check syntax
-    local chunk, err = load(content, file_path)
-    if not chunk then
-        return nil, "syntax error: " .. tostring(err)
+    -- Do not use LuaJIT syntax as the default corpus gate: the target corpus is
+    -- PUC Lua 5.5 and must be accepted/rejected by the Moonlift Lua VM compiler.
+    if config.syntax_check == "luajit" then
+        local chunk, syntax_err = load(content, file_path)
+        if not chunk then
+            return nil, "syntax error: " .. tostring(syntax_err)
+        end
     end
 
-    -- Build normalized unit
     local unit = {
         id = path_to_id(file_path),
         path = file_path,
+        name = util.basename(file_path),
         size_bytes = #content,
-        has_syntax_errors = false,
-        has_runtime_errors = false,
+        source_hash = util.stable_hash(content),
         content_hash = M.simple_hash(content),
+        lua_version = config.lua_version or "5.5",
+        dialect = config.dialect or "puc",
+        entry_kind = "file",
     }
 
+    if config.store_source_copy then unit.source = content end
     return unit
 end
 
@@ -51,8 +55,16 @@ end
 function M.discover_awfy(awfy_root)
     local files = {}
 
-    -- Look for testes directory
+    -- Look for a PUC Lua `testes` directory. Accept either the profiled AWFY
+    -- copy or the canonical checkout at .vendor/Lua/testes.
     local testes_dir = awfy_root .. "/build/awfy_puc_profile/puc_lua_profiled/testes"
+    if not util.path_exists(testes_dir) then
+        if util.path_exists(awfy_root .. "/testes") then
+            testes_dir = awfy_root .. "/testes"
+        elseif util.path_exists(awfy_root .. "/.vendor/Lua/testes") then
+            testes_dir = awfy_root .. "/.vendor/Lua/testes"
+        end
+    end
 
     -- Try lfs first if available
     local lfs_ok, lfs = pcall(require, "lfs")
@@ -74,17 +86,20 @@ function M.discover_awfy(awfy_root)
             "bwcoercion.lua", "calls.lua", "closure.lua", "code.lua",
             "constructs.lua", "coroutine.lua", "cstack.lua", "db.lua",
             "errors.lua", "events.lua", "files.lua", "gc.lua", "gengc.lua",
-            "goto.lua", "heavy.lua", "literals.lua", "locals.lua", "math.lua",
+            "goto.lua", "heavy.lua", "literals.lua", "locals.lua", "main.lua", "math.lua",
             "memerr.lua", "nextvar.lua", "pm.lua", "sort.lua", "strings.lua",
             "tpack.lua", "tracegc.lua", "utf8.lua", "vararg.lua", "verybig.lua",
         }
 
         for _, name in ipairs(awfy_files) do
-            table.insert(files, {
-                path = testes_dir .. "/" .. name,
-                name = name,
-                size = nil,
-            })
+            local path = testes_dir .. "/" .. name
+            if util.path_exists(path) then
+                table.insert(files, {
+                    path = path,
+                    name = name,
+                    size = nil,
+                })
+            end
         end
     end
 
@@ -92,7 +107,8 @@ function M.discover_awfy(awfy_root)
 end
 
 -- Load and normalize an AWFY corpus
-function M.load_awfy_corpus(awfy_root)
+function M.load_awfy_corpus(awfy_root, config)
+    config = config or {}
     print("\n=== Loading AWFY Corpus ===")
 
     local files = M.discover_awfy(awfy_root)
@@ -107,7 +123,7 @@ function M.load_awfy_corpus(awfy_root)
     }
 
     for _, file_info in ipairs(files) do
-        local unit, err = M.normalize_lua_file(file_info.path)
+        local unit, err = M.normalize_lua_file(file_info.path, config)
 
         if unit then
             table.insert(corpus.files, unit)
@@ -154,33 +170,7 @@ function M.write_corpus_db(corpus, output_path)
         files = corpus.files,
     }
 
-    -- Simple JSON-like output
-    local json_str = "{\n"
-    json_str = json_str .. '  "timestamp": ' .. db.timestamp .. ",\n"
-    json_str = json_str .. '  "kind": "' .. db.kind .. '",\n'
-    json_str = json_str .. '  "root": "' .. db.root .. '",\n'
-    json_str = json_str .. '  "file_count": ' .. #db.files .. ",\n"
-    json_str = json_str .. '  "files": [\n'
-
-    for i, file in ipairs(db.files) do
-        json_str = json_str .. '    {\n'
-        json_str = json_str .. '      "id": "' .. file.id .. '",\n'
-        json_str = json_str .. '      "path": "' .. file.path .. '",\n'
-        json_str = json_str .. '      "size_bytes": ' .. file.size_bytes .. '\n'
-        json_str = json_str .. '    }' .. (i < #db.files and "," or "") .. '\n'
-    end
-
-    json_str = json_str .. '  ]\n'
-    json_str = json_str .. '}\n'
-
-    local f = io.open(output_path, "w")
-    if not f then
-        return false, "cannot write to " .. output_path
-    end
-
-    f:write(json_str)
-    f:close()
-    return true
+    return util.write_json(output_path, db)
 end
 
 -- Report corpus statistics
