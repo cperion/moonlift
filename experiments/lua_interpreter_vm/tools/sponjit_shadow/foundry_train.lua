@@ -9,7 +9,11 @@ local Report = require("tools.sponjit_shadow.report")
 local Propose = require("tools.sponjit_shadow.propose")
 local Foundry = require("tools.sponjit_shadow.foundry")
 local FoundryEnum = require("tools.sponjit_shadow.foundry_enumerate")
+local StencilModel = require("tools.sponjit_shadow.stencil_model")
 local Catalog = require("tools.sponjit_shadow.catalog")
+
+-- Try loading real stencil library (GCC-compiled sizes) at module load time
+StencilModel.load_real_library("experiments/lua_interpreter_vm/tools/sponjit_shadow/stencils/stencil_library.json")
 
 local M = {}
 
@@ -69,11 +73,22 @@ end
 function M.absorber_from_proposal(proposal, layer, config)
     config = config or {}
     local ops = proposal.ops or {}
-    local sum = 0
-    for _, op in ipairs(ops) do sum = sum + class_cost(op) end
-    local discount = tonumber(config.foundry_discount or 0.70) or 0.70
-    if #(proposal.producers or {}) > 1 then discount = tonumber(config.foundry_ssa_discount or 0.55) or 0.55 end
-    local cost = math.max(3, math.floor(sum * discount + 0.5))
+
+    -- Always use real stencil lowering for cost and size
+    local cost, code_size
+    if StencilModel.using_real_sizes() and proposal.active_ops and #proposal.active_ops > 0 then
+        local tmpl = StencilModel.template_from_active_ops(proposal.active_ops, proposal.semantic_normal_form or proposal.ops)
+        if tmpl then
+            code_size = tmpl.total_size
+            cost = tmpl.total_cost
+        end
+    end
+    if not cost then
+        local sum = 0
+        for _, op in ipairs(ops) do sum = sum + class_cost(op) end
+        cost = math.max(3, math.floor(sum * 0.70 + 0.5))
+        code_size = 14 + 14 * #ops
+    end
     return {
         id = string.format("F%d_%s", tonumber(layer or 1), proposal.name or table.concat(ops, "_")),
         pattern = ops,

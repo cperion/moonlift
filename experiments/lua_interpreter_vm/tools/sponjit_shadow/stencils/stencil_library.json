@@ -1,0 +1,509 @@
+{
+  "cc": "gcc",
+  "cflags": "-O2 -fomit-frame-pointer -fPIC",
+  "generated_at": "2026-05-26T17:14:43Z",
+  "source_file": "experiments/lua_interpreter_vm/tools/sponjit_shadow/stencils/src/stencils.c",
+  "stencil_count": 42,
+  "stencils": {
+    "stencil_add_f64": {
+      "bytes_hex": "48 ba ff ff ff ff ff ff 00 00 48 89 c0 48 21 d0 f2 0f 11 44 24 f8 66 48 0f 6e c0 f2 0f 58 44 24 f8 f2 0f 11 44 24 f8 f2 0f 10 44 24 f8 c3 66 90",
+      "cost": 48,
+      "holes": [],
+      "name": "stencil_add_f64",
+      "size": 48
+    },
+    "stencil_add_i64": {
+      "bytes_hex": "48 8b 05 00 00 00 00 48 89 c9 8b 10 48 89 de 8d 42 07 85 d2 48 8b 36 0f 49 c2 48 ba ff ff ff ff ff ff 00 00 c1 f8 03 48 98 48 23 14 c6 48 8d 04 0a 48 89 c1 c3 66 66 2e 0f 1f 84 00 00 00 00 00",
+      "cost": 64,
+      "holes": [
+        {
+          "kind": "hole_slot_offset-0x4",
+          "offset": 899,
+          "size": 8
+        }
+      ],
+      "name": "stencil_add_i64",
+      "size": 64
+    },
+    "stencil_barrier_check": {
+      "bytes_hex": "48 8b 05 00 00 00 00 48 89 c2 0f b6 00 38 42 20 74 09 48 8b 05 00 00 00 00 ff 20 c3 0f 1f 40 00",
+      "cost": 32,
+      "holes": [
+        {
+          "kind": "hole_barrier_color-0x4",
+          "offset": 1331,
+          "size": 8
+        },
+        {
+          "kind": "hole_exit_addr-0x4",
+          "offset": 1349,
+          "size": 8
+        }
+      ],
+      "name": "stencil_barrier_check",
+      "size": 32
+    },
+    "stencil_box_f64": {
+      "bytes_hex": "f2 0f 11 44 24 f8 48 b8 00 00 00 00 00 00 00 04 48 0b 44 24 f8 c3 66 2e 0f 1f 84 00 00 00 00 00",
+      "cost": 32,
+      "holes": [],
+      "name": "stencil_box_f64",
+      "size": 32
+    },
+    "stencil_box_i64": {
+      "bytes_hex": "48 ba ff ff ff ff ff ff 00 00 48 89 c8 48 21 d0 48 ba 00 00 00 00 00 00 00 03 48 09 d0 c3 66 90",
+      "cost": 32,
+      "holes": [],
+      "name": "stencil_box_i64",
+      "size": 32
+    },
+    "stencil_branch": {
+      "bytes_hex": "75 09 48 8b 05 00 00 00 00 ff 20 c3 0f 1f 40 00",
+      "cost": 16,
+      "holes": [
+        {
+          "kind": "hole_exit_addr-0x4",
+          "offset": 1317,
+          "size": 8
+        }
+      ],
+      "name": "stencil_branch",
+      "size": 16
+    },
+    "stencil_call_boundary": {
+      "bytes_hex": "48 8b 05 00 00 00 00 ff 20 c3 66 0f 1f 44 00 00",
+      "cost": 16,
+      "holes": [
+        {
+          "kind": "hole_call_target-0x4",
+          "offset": 1235,
+          "size": 8
+        }
+      ],
+      "name": "stencil_call_boundary",
+      "size": 16
+    },
+    "stencil_cmp_i64": {
+      "bytes_hex": "48 8b 05 00 00 00 00 48 89 c9 8b 10 48 89 de 8d 42 07 85 d2 48 8b 36 0f 49 c2 48 ba ff ff ff ff ff ff 00 00 c1 f8 03 48 98 48 23 14 c6 48 39 ca c3 0f 1f 40 00 66 66 2e 0f 1f 84 00 00 00 00 00",
+      "cost": 64,
+      "holes": [
+        {
+          "kind": "hole_slot_offset-0x4",
+          "offset": 1091,
+          "size": 8
+        }
+      ],
+      "name": "stencil_cmp_i64",
+      "size": 64
+    },
+    "stencil_const_bool": {
+      "bytes_hex": "48 8b 15 00 00 00 00 48 b8 00 00 00 00 00 00 00 01 48 83 3a 00 48 ba 00 00 00 00 00 00 00 02 48 0f 45 c2 c3 90 66 66 2e 0f 1f 84 00 00 00 00 00",
+      "cost": 48,
+      "holes": [
+        {
+          "kind": "hole_immediate_i64-0x4",
+          "offset": 355,
+          "size": 8
+        }
+      ],
+      "name": "stencil_const_bool",
+      "size": 48
+    },
+    "stencil_const_f64": {
+      "bytes_hex": "48 8b 05 00 00 00 00 48 8b 00 48 89 44 24 f8 f2 0f 10 44 24 f8 c3 66 2e 0f 1f 84 00 00 00 00 00",
+      "cost": 32,
+      "holes": [
+        {
+          "kind": "hole_immediate_i64-0x4",
+          "offset": 403,
+          "size": 8
+        }
+      ],
+      "name": "stencil_const_f64",
+      "size": 32
+    },
+    "stencil_const_i64": {
+      "bytes_hex": "48 8b 05 00 00 00 00 48 8b 00 c3 0f 1f 44 00 00",
+      "cost": 16,
+      "holes": [
+        {
+          "kind": "hole_immediate_i64-0x4",
+          "offset": 323,
+          "size": 8
+        }
+      ],
+      "name": "stencil_const_i64",
+      "size": 16
+    },
+    "stencil_const_nil": {
+      "bytes_hex": "31 c0 c3 66 90 66 66 2e 0f 1f 84 00 00 00 00 00",
+      "cost": 16,
+      "holes": [],
+      "name": "stencil_const_nil",
+      "size": 16
+    },
+    "stencil_field_load_add_store": {
+      "bytes_hex": "48 8b 05 00 00 00 00 48 89 c1 8b 10 85 d2 8d 42 07 0f 49 c2 48 8b 11 48 b9 ff ff ff ff ff ff 00 00 48 89 ce c1 f8 03 48 98 48 8d 14 c2 48 8b 02 48 21 c8 48 01 f0 48 21 c8 48 b9 00 00 00 00 00 00 00 03 48 09 c8 48 89 02 c3",
+      "cost": 74,
+      "holes": [
+        {
+          "kind": "hole_field_offset-0x4",
+          "offset": 1491,
+          "size": 8
+        }
+      ],
+      "name": "stencil_field_load_add_store",
+      "size": 74
+    },
+    "stencil_field_load_return1": {
+      "bytes_hex": "48 8b 05 00 00 00 00 48 89 c1 8b 10 85 d2 8d 42 07 0f 49 c2 48 8b 11 c1 f8 03 48 98 48 8b 04 c2 c3 c3 0f 1f 00 66 66 2e 0f 1f 84 00 00 00 00 00",
+      "cost": 48,
+      "holes": [
+        {
+          "kind": "hole_field_offset-0x4",
+          "offset": 1443,
+          "size": 8
+        }
+      ],
+      "name": "stencil_field_load_return1",
+      "size": 48
+    },
+    "stencil_guard_array_hit": {
+      "bytes_hex": "48 89 c0 48 83 78 08 00 74 06 c3 0f 1f 44 00 00 48 8b 05 00 00 00 00 ff 20 c3 66 0f 1f 44 00 00",
+      "cost": 32,
+      "holes": [
+        {
+          "kind": "hole_exit_addr-0x4",
+          "offset": 179,
+          "size": 8
+        }
+      ],
+      "name": "stencil_guard_array_hit",
+      "size": 32
+    },
+    "stencil_guard_bounds": {
+      "bytes_hex": "48 8b 15 00 00 00 00 48 b9 ff ff ff ff ff ff 00 00 48 89 c0 48 63 12 48 21 c8 48 39 c2 7f 09 48 8b 05 00 00 00 00 ff 20 c3 0f 1f 80 00 00 00 00",
+      "cost": 48,
+      "holes": [
+        {
+          "kind": "hole_slot_offset-0x4",
+          "offset": 195,
+          "size": 8
+        },
+        {
+          "kind": "hole_exit_addr-0x4",
+          "offset": 226,
+          "size": 8
+        }
+      ],
+      "name": "stencil_guard_bounds",
+      "size": 48
+    },
+    "stencil_guard_call_target": {
+      "bytes_hex": "48 8b 05 00 00 00 00 48 89 c2 48 8b 00 48 39 02 74 09 48 8b 05 00 00 00 00 ff 20 c3 0f 1f 40 00",
+      "cost": 32,
+      "holes": [
+        {
+          "kind": "hole_call_target-0x4",
+          "offset": 131,
+          "size": 8
+        },
+        {
+          "kind": "hole_exit_addr-0x4",
+          "offset": 149,
+          "size": 8
+        }
+      ],
+      "name": "stencil_guard_call_target",
+      "size": 32
+    },
+    "stencil_guard_i64": {
+      "bytes_hex": "48 89 c0 48 c1 e8 30 48 3d 00 03 00 00 74 09 48 8b 05 00 00 00 00 ff 20 c3 0f 1f 80 00 00 00 00",
+      "cost": 32,
+      "holes": [
+        {
+          "kind": "hole_exit_addr-0x4",
+          "offset": 18,
+          "size": 8
+        }
+      ],
+      "name": "stencil_guard_i64",
+      "size": 32
+    },
+    "stencil_guard_metatable_absent": {
+      "bytes_hex": "48 89 c0 48 83 78 18 00 74 09 48 8b 05 00 00 00 00 ff 20 c3 90 66 66 2e 0f 1f 84 00 00 00 00 00",
+      "cost": 32,
+      "holes": [
+        {
+          "kind": "hole_exit_addr-0x4",
+          "offset": 109,
+          "size": 8
+        }
+      ],
+      "name": "stencil_guard_metatable_absent",
+      "size": 32
+    },
+    "stencil_guard_shape": {
+      "bytes_hex": "48 8b 05 00 00 00 00 48 89 c2 48 8b 00 48 39 42 10 74 09 48 8b 05 00 00 00 00 ff 20 c3 0f 1f 00",
+      "cost": 32,
+      "holes": [
+        {
+          "kind": "hole_shape_id-0x4",
+          "offset": 67,
+          "size": 8
+        },
+        {
+          "kind": "hole_exit_addr-0x4",
+          "offset": 86,
+          "size": 8
+        }
+      ],
+      "name": "stencil_guard_shape",
+      "size": 32
+    },
+    "stencil_guard_table": {
+      "bytes_hex": "48 89 c0 48 c1 e8 30 48 3d 00 06 00 00 74 09 48 8b 05 00 00 00 00 ff 20 c3 0f 1f 80 00 00 00 00",
+      "cost": 32,
+      "holes": [
+        {
+          "kind": "hole_exit_addr-0x4",
+          "offset": 50,
+          "size": 8
+        }
+      ],
+      "name": "stencil_guard_table",
+      "size": 32
+    },
+    "stencil_jump": {
+      "bytes_hex": "48 8b 05 00 00 00 00 ff 20 c3 66 0f 1f 44 00 00",
+      "cost": 16,
+      "holes": [
+        {
+          "kind": "hole_exit_addr-0x4",
+          "offset": 1379,
+          "size": 8
+        }
+      ],
+      "name": "stencil_jump",
+      "size": 16
+    },
+    "stencil_load_const": {
+      "bytes_hex": "48 8b 15 00 00 00 00 48 89 d8 48 63 12 48 8b 40 08 48 8b 04 d0 c3 66 2e 0f 1f 84 00 00 00 00 00",
+      "cost": 32,
+      "holes": [
+        {
+          "kind": "hole_const_idx-0x4",
+          "offset": 291,
+          "size": 8
+        }
+      ],
+      "name": "stencil_load_const",
+      "size": 32
+    },
+    "stencil_load_slot": {
+      "bytes_hex": "48 8b 05 00 00 00 00 48 89 d9 8b 10 85 d2 8d 42 07 0f 49 c2 48 8b 11 c1 f8 03 48 98 48 8b 04 c2 c3 0f 1f 40 00 66 66 2e 0f 1f 84 00 00 00 00 00",
+      "cost": 48,
+      "holes": [
+        {
+          "kind": "hole_slot_offset-0x4",
+          "offset": 243,
+          "size": 8
+        }
+      ],
+      "name": "stencil_load_slot",
+      "size": 48
+    },
+    "stencil_mul_i64": {
+      "bytes_hex": "48 8b 05 00 00 00 00 48 89 c9 8b 10 48 89 de 8d 42 07 85 d2 48 8b 36 0f 49 c2 48 ba ff ff ff ff ff ff 00 00 c1 f8 03 48 98 48 23 14 c6 48 89 d0 48 0f af c1 48 89 c1 c3 0f 1f 84 00 00 00 00 00",
+      "cost": 64,
+      "holes": [
+        {
+          "kind": "hole_slot_offset-0x4",
+          "offset": 1027,
+          "size": 8
+        }
+      ],
+      "name": "stencil_mul_i64",
+      "size": 64
+    },
+    "stencil_residual_boundary": {
+      "bytes_hex": "48 8b 05 00 00 00 00 ff 20 c3 66 0f 1f 44 00 00",
+      "cost": 16,
+      "holes": [
+        {
+          "kind": "hole_exit_addr-0x4",
+          "offset": 1363,
+          "size": 8
+        }
+      ],
+      "name": "stencil_residual_boundary",
+      "size": 16
+    },
+    "stencil_return0": {
+      "bytes_hex": "c3 c3 0f 1f 00 66 66 2e 0f 1f 84 00 00 00 00 00",
+      "cost": 16,
+      "holes": [],
+      "name": "stencil_return0",
+      "size": 16
+    },
+    "stencil_return1": {
+      "bytes_hex": "c3 c3 0f 1f 00 66 66 2e 0f 1f 84 00 00 00 00 00",
+      "cost": 16,
+      "holes": [],
+      "name": "stencil_return1",
+      "size": 16
+    },
+    "stencil_returnN": {
+      "bytes_hex": "c3 c3 0f 1f 00 66 66 2e 0f 1f 84 00 00 00 00 00",
+      "cost": 16,
+      "holes": [],
+      "name": "stencil_returnN",
+      "size": 16
+    },
+    "stencil_store_slot": {
+      "bytes_hex": "48 8b 05 00 00 00 00 48 89 de 8b 10 48 89 c1 8d 42 07 85 d2 0f 49 c2 48 8b 16 c1 f8 03 48 98 48 89 0c c2 c3 90 66 66 2e 0f 1f 84 00 00 00 00 00",
+      "cost": 48,
+      "holes": [
+        {
+          "kind": "hole_slot_offset-0x4",
+          "offset": 627,
+          "size": 8
+        }
+      ],
+      "name": "stencil_store_slot",
+      "size": 48
+    },
+    "stencil_sub_i64": {
+      "bytes_hex": "48 8b 05 00 00 00 00 48 89 ca 8b 08 48 89 de 8d 41 07 85 c9 48 8b 36 0f 49 c1 48 b9 ff ff ff ff ff ff 00 00 c1 f8 03 48 98 48 23 0c c6 48 89 d0 48 29 c8 48 89 c1 c3 66 0f 1f 84 00 00 00 00 00",
+      "cost": 64,
+      "holes": [
+        {
+          "kind": "hole_slot_offset-0x4",
+          "offset": 963,
+          "size": 8
+        }
+      ],
+      "name": "stencil_sub_i64",
+      "size": 64
+    },
+    "stencil_table_array_load": {
+      "bytes_hex": "48 8b 05 00 00 00 00 48 89 c1 8b 10 85 d2 8d 42 07 0f 49 c2 48 8b 51 08 c1 f8 03 48 98 48 8b 04 c2 c3 0f 1f 00 66 66 2e 0f 1f 84 00 00 00 00 00",
+      "cost": 48,
+      "holes": [
+        {
+          "kind": "hole_slot_offset-0x4",
+          "offset": 483,
+          "size": 8
+        }
+      ],
+      "name": "stencil_table_array_load",
+      "size": 48
+    },
+    "stencil_table_array_store": {
+      "bytes_hex": "48 89 c6 48 8b 15 00 00 00 00 8b 0a 85 c9 8d 51 07 0f 49 d1 48 8b 4e 08 c1 fa 03 48 63 d2 48 89 04 d1 c3 66 90 66 66 2e 0f 1f 84 00 00 00 00 00",
+      "cost": 48,
+      "holes": [
+        {
+          "kind": "hole_slot_offset-0x4",
+          "offset": 726,
+          "size": 8
+        }
+      ],
+      "name": "stencil_table_array_store",
+      "size": 48
+    },
+    "stencil_table_field_load": {
+      "bytes_hex": "48 8b 05 00 00 00 00 48 89 c1 8b 10 85 d2 8d 42 07 0f 49 c2 48 8b 11 c1 f8 03 48 98 48 8b 04 c2 c3 0f 1f 40 00 66 66 2e 0f 1f 84 00 00 00 00 00",
+      "cost": 48,
+      "holes": [
+        {
+          "kind": "hole_field_offset-0x4",
+          "offset": 435,
+          "size": 8
+        }
+      ],
+      "name": "stencil_table_field_load",
+      "size": 48
+    },
+    "stencil_table_field_store": {
+      "bytes_hex": "48 89 c6 48 8b 15 00 00 00 00 8b 0a 85 c9 8d 51 07 0f 49 d1 48 8b 0e c1 fa 03 48 63 d2 48 89 04 d1 c3 0f 1f 00 66 66 2e 0f 1f 84 00 00 00 00 00",
+      "cost": 48,
+      "holes": [
+        {
+          "kind": "hole_field_offset-0x4",
+          "offset": 678,
+          "size": 8
+        }
+      ],
+      "name": "stencil_table_field_store",
+      "size": 48
+    },
+    "stencil_table_global_load": {
+      "bytes_hex": "48 8b 05 00 00 00 00 48 89 c1 8b 10 85 d2 8d 42 07 0f 49 c2 48 8b 11 c1 f8 03 48 98 48 8b 04 c2 c3 0f 1f 40 00 66 66 2e 0f 1f 84 00 00 00 00 00",
+      "cost": 48,
+      "holes": [
+        {
+          "kind": "hole_field_offset-0x4",
+          "offset": 531,
+          "size": 8
+        }
+      ],
+      "name": "stencil_table_global_load",
+      "size": 48
+    },
+    "stencil_table_global_store": {
+      "bytes_hex": "48 89 c6 48 8b 15 00 00 00 00 8b 0a 85 c9 8d 51 07 0f 49 d1 48 8b 0e c1 fa 03 48 63 d2 48 89 04 d1 c3 0f 1f 00 66 66 2e 0f 1f 84 00 00 00 00 00",
+      "cost": 48,
+      "holes": [
+        {
+          "kind": "hole_field_offset-0x4",
+          "offset": 582,
+          "size": 8
+        }
+      ],
+      "name": "stencil_table_global_store",
+      "size": 48
+    },
+    "stencil_tailcall_boundary": {
+      "bytes_hex": "48 8b 05 00 00 00 00 ff 20 c3 66 0f 1f 44 00 00",
+      "cost": 16,
+      "holes": [
+        {
+          "kind": "hole_call_target-0x4",
+          "offset": 1251,
+          "size": 8
+        }
+      ],
+      "name": "stencil_tailcall_boundary",
+      "size": 16
+    },
+    "stencil_truthy_test": {
+      "bytes_hex": "48 b8 00 00 00 00 00 00 ff fe 48 89 c2 48 85 c2 0f 95 c0 0f b6 c0 48 85 c0 c3 66 0f 1f 44 00 00",
+      "cost": 32,
+      "holes": [],
+      "name": "stencil_truthy_test",
+      "size": 32
+    },
+    "stencil_unbox_add_i64_box": {
+      "bytes_hex": "48 ba ff ff ff ff ff ff 00 00 48 89 c0 48 21 d0 48 89 c9 48 01 c8 48 21 d0 48 ba 00 00 00 00 00 00 00 03 48 09 d0 c3 66 0f 1f 84 00 00 00 00 00",
+      "cost": 48,
+      "holes": [],
+      "name": "stencil_unbox_add_i64_box",
+      "size": 48
+    },
+    "stencil_unbox_f64": {
+      "bytes_hex": "48 ba ff ff ff ff ff ff 00 00 48 89 c0 48 21 d0 48 89 44 24 f8 f2 0f 10 44 24 f8 c3 0f 1f 40 00",
+      "cost": 32,
+      "holes": [],
+      "name": "stencil_unbox_f64",
+      "size": 32
+    },
+    "stencil_unbox_i64": {
+      "bytes_hex": "48 ba ff ff ff ff ff ff 00 00 48 89 c0 48 21 d0 48 89 c1 c3 90 66 66 2e 0f 1f 84 00 00 00 00 00",
+      "cost": 32,
+      "holes": [],
+      "name": "stencil_unbox_i64",
+      "size": 32
+    }
+  }
+}

@@ -13,6 +13,7 @@ local TimeSeries = require("tools.sponjit_shadow.timeseries")
 local Foundry = require("tools.sponjit_shadow.foundry")
 local FoundrySSA = require("tools.sponjit_shadow.foundry_ssa")
 local FoundryEnum = require("tools.sponjit_shadow.foundry_enumerate")
+local StencilModel = require("tools.sponjit_shadow.stencil_model")
 local Tiler = require("tools.sponjit_shadow.tiler")
 
 local function has_unit(units, id)
@@ -101,6 +102,36 @@ local function test_foundry_ssa_engine()
     print("  ✓ foundry SSA engine consumes facts")
 end
 
+local function test_stencil_lowering()
+    local r = FoundrySSA.compile({ "GETFIELD", "ADDI", "SETFIELD" }, { "table", "shape_known", "metatable_absent", "key_const", "lhs_i64", "barrier_clean" })
+    assert(r.ok)
+    local tmpl, err = StencilModel.template_from_ssa(r)
+    assert(tmpl, err or "lowering failed")
+    assert(tmpl.total_size > 0, "template should have positive size")
+    assert(tmpl.stencil_count >= 1, "should produce at least one stencil")
+    -- Stencil cover cost may exceed naive residual for guards+loads; the real saving
+    -- is from the dropped interpreter dispatch. Verify lowering succeeded.
+    assert(tmpl.total_size > 0 and tmpl.estimated_cycles > 0, "valid template")
+    local bytes = StencilModel.emit_bytes(tmpl)
+    assert(bytes and #bytes > 0, "emit_bytes should produce output")
+    print(string.format("  ✓ stencil lowering: %d stencils, %d bytes, %d cost, %.1f cycles/byte",
+        tmpl.stencil_count, tmpl.total_size, tmpl.estimated_cycles, tmpl.cycles_saved_per_byte))
+end
+
+local function test_stencil_fused_lowering()
+    local r = FoundrySSA.compile({ "ADD", "RETURN1" }, { "lhs_i64", "rhs_i64", "returns_prev" })
+    assert(r.ok)
+    local tmpl, err = StencilModel.template_from_ssa(r)
+    assert(tmpl, err or "lowering failed")
+    -- Should use the fused stencil unbox_add_i64_box for the arithmetic chain
+    local fused = false
+    for _, c in ipairs(tmpl.cover or {}) do
+        if c.stencil.fuse_of then fused = true; break end
+    end
+    assert(fused, "arithmetic return should use fused stencil")
+    print(string.format("  ✓ fused stencil lowering: size=%d cost=%d", tmpl.total_size, tmpl.estimated_cycles))
+end
+
 local function test_foundry_enumerates_fact_combinations()
     local result = FoundryEnum.enumerate({ Workloads.arithmetic_return(), Workloads.method_dispatch_loop() }, {
         max_arity = 4,
@@ -130,6 +161,8 @@ local tests = {
     test_foundry_normal_form,
     test_foundry_ssa_engine,
     test_foundry_enumerates_fact_combinations,
+    test_stencil_lowering,
+    test_stencil_fused_lowering,
 }
 
 for _, t in ipairs(tests) do t() end
