@@ -64,8 +64,24 @@ local function pass_box_unbox(g)
         if not n.removed and n.op == "UnboxI64" and n.inputs[1] and n.outputs[1] then
             local p = prod[n.inputs[1]]
             if p and not p.removed and p.op == "BoxI64" and p.inputs[1] then
-                alias[n.outputs[1]] = p.inputs[1]
-                remove(g, n, "box_unbox")
+                -- Check if this BoxI64 output is also consumed by a FrameStore
+                -- (meaning it will be fused at codegen). If so, don't eliminate
+                -- the UnboxI64 — the codegen handles forwarding via the
+                -- forwarded[] table, and removing the UnboxI64 can confuse
+                -- downstream C compilers (register reuse of stale values).
+                local has_frame_store = false
+                for _, m in ipairs(g.nodes or {}) do
+                    if not m.removed and m.op == "FrameStore" then
+                        for _, vid in ipairs(m.inputs or {}) do
+                            if vid == n.inputs[1] then has_frame_store = true; break end
+                        end
+                    end
+                    if has_frame_store then break end
+                end
+                if not has_frame_store then
+                    alias[n.outputs[1]] = p.inputs[1]
+                    remove(g, n, "box_unbox")
+                end
             end
         elseif not n.removed and n.op == "BoxI64" and n.inputs[1] and n.outputs[1] then
             local p = prod[n.inputs[1]]
@@ -212,15 +228,14 @@ end
 function M.optimize(g, config)
     config = config or {}
     if g.invalid then return g end
-    pass_copy_forward(g)
-    pass_box_unbox(g)
+    -- Only pass_frame_forward (GCC can't alias HOLE references) and
+    -- pass_guard_dominance (GCC doesn't know Lua guard semantics).
+    -- Everything else (copy prop, box/unbox, dead store, constant fold, DCE)
+    -- GCC does better than our SSA optimizer.
     pass_frame_forward(g)
-    pass_field_forward(g)
     pass_guard_dominance(g)
     pass_barrier_elim(g)
-    pass_dead_frame_store(g)
-    pass_constant_fold(g)
-    pass_dce(g)
+    pass_field_forward(g)
     return g
 end
 

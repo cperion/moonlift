@@ -1,12 +1,40 @@
-# SponJIT Foundry SSA
+# SponJIT Foundry — Grammar-Driven Enumeration
 
-**Type:** architecture description  
-**Audience:** VM / C / assembly engineers  
-**Status:** design plus initial shadow implementation  
+**Type:** architecture description
+**Audience:** VM / C / assembly engineers
+**Status:** prototype built, target design
 
-This document specifies the offline SSA engine used by the SponJIT absorber foundry.
+The foundry enumerates all valid PUC Lua 5.5 opcode sequences up to arity 4,
+compiles each to C with HOLEs, and produces a read-only bank of pre-compiled binary
+stencils via GCC. Selected stencils may also be enumerated under fact-env unions
+to produce multimorphic tiles for sites observed to be polymorphic in the training
+corpus.
 
-The initial shadow implementation lives at:
+The bank is the entire code-generation intelligence of the system. The runtime is a
+selector (`SPONJIT_RUNTIME_DESIGN.md`): it holds floor + active images, small
+tile-site memory, and walks precomputed candidate ladders from the bank. Anything
+semantic or code-generating lives offline, in the foundry, where it is bounded by
+wall-clock-of-the-build-machine rather than wall-clock-of-the-user-program.
+
+Terminology invariant:
+
+```text
+Bank          = read-only library of TileTemplates / stencils
+TileTemplate  = the foundry output: bytes, HOLE relocations, contracts, exits,
+                projection metadata, dependency metadata, and foundry identity
+Image         = runtime output: an executable cover assembled by selecting and
+                copy-patching TileTemplates from the bank
+
+The foundry never ships Images in the bank. It ships the stencil vocabulary used
+by the runtime to build Images.
+```
+
+The SSA layer (`ssa_lift.lua`, `ssa_ir.lua`) is the **fact-consuming semantic
+lowering layer**, not a general optimizer. It consumes opcode semantics plus a fact
+environment and chooses specialized core operations when the facts justify them;
+otherwise it emits structured exits. All scalar optimization is delegated to GCC
+-O2. The SSA optimizer runs only narrow passes that GCC cannot express, such as
+slot/HOLE-aware frame forwarding and Lua guard dominance.
 
 ```text
 experiments/lua_interpreter_vm/tools/sponjit_shadow/foundry_ssa.lua
@@ -16,42 +44,51 @@ It is not a runtime IR and not a general optimizing compiler. It is a small,
 VM-shaped, projection-aware SSA whose purpose is:
 
 ```text
-consume facts -> simplify tuple semantics -> produce absorber candidates
+consume facts -> simplify tuple semantics -> produce bank candidates
 ```
 
-The runtime never sees this SSA. Runtime SponJIT observes facts/exits, canonicalizes
-them into signatures, looks up prebuilt artifacts, and copy/patches holes. All fact
-consequence reasoning lives here, in Foundry SSA.
+The runtime never sees this SSA. The runtime observes facts, maintains local lease
+state, walks prebuilt candidate ladders in the bank, copy-patches selected templates
+into an Image, and swaps region.active. All fact-consequence reasoning lives here,
+in Foundry SSA; runtime fact handling is limited to subset checks, penalties, and
+ladder descent.
 
 ---
 
 ## 1. Role in SponJIT
 
-SponJIT's runtime model is bytecode absorption under assumptions. The foundry trains
-the absorber vocabulary AOT:
+SponJIT's runtime model is image materialization from a bank of TileTemplates. The foundry trains the bank
+exhaustively AOT:
 
 ```text
-A₀ = opcode absorbers
+A₀ = opcode atoms (L0 — the floor source)
 for k = 0..K:
     enumerate arity≤4 tuples over Aₖ
     expand tuple semantics
-    apply facts
+    enumerate applicable fact environments
     run Foundry SSA
-    lower to absorber candidate
+    lower to bank candidate
     verify / score / benchmark
     select top cap
     Aₖ₊₁ = Aₖ ∪ selected
+
+separately, for multimorphism (§13):
+    consume corpus pressure data on per-PC signature distributions
+    enumerate unions over fact environments where top-K signatures cluster
+    produce multimorphic tiles with internal discriminators
+    add to multimorphic directory in the bank
 ```
 
-Foundry SSA is the canonical fact consumer in this loop — in the current runtime
-design, it is the only fact-consuming optimizer. Runtime facts and guard failures are
-inputs to SSA jobs, not inputs to a second runtime optimizer.
+Foundry SSA is the canonical fact consumer in this loop — in the SponJIT design, it
+is **the only fact-consuming optimizer in the system**. The runtime does not
+optimize. Observed runtime facts and exit clusters are inputs to *next-run* foundry
+training, not to a runtime optimizer.
 
 ```text
 Facts do not directly select handwritten lowerings.
 Facts specialize a semantic graph.
 SSA turns those facts into consequences.
-Selection interns the useful consequences as new absorbers.
+Selection interns the useful consequences as bank tiles.
 ```
 
 ---
@@ -63,15 +100,29 @@ Foundry SSA does **not**:
 ```text
 - run on the hot runtime path;
 - synthesize arbitrary runtime instructions;
-- require a runtime tiler / cover-search optimizer;
+- require the runtime to build SSA, discover new tile shapes,
+  optimize effect graphs, synthesize code, or lower machine instructions;
+- require the runtime to maintain a cache, manage eviction, or detect megamorphism;
 - perform whole-program optimization;
 - require a general register allocator;
 - excuse missing projection metadata;
 - cross opaque Lua observable effect boundaries.
 ```
 
+Foundry SSA may rely on the runtime to:
+
+```text
+- select one TileTemplate per window from the bank by greedy candidate-ladder lookup
+- skip candidates whose required facts contradict local leases or site penalties
+- copy/patch/link the selected TileTemplates into an Image
+- atomically swap region.active to the new image
+- on tile exit, update local lease/site memory and reselect the failed span;
+  if same-span replacement misses, split the span; if arity reaches 1, use L0
+- on dep invalidation or extreme instability, fall back to the floor image
+```
+
 If a candidate cannot be projected, dependency-tracked, or lowered to the fixed
-stencil/absorber vocabulary, it is rejected.
+stencil vocabulary, it is rejected.
 
 ---
 
@@ -85,15 +136,22 @@ AtomTuple:
 
 FactEnv:
   applicable fact combination for the tuple
+    -- monomorphic: a single signature
+    -- multimorphic: a union of signatures (§13)
 
 AtomSemantics:
   semantic expansion for each atom
+
+CorpusPressure:
+  observed signature distributions per pattern, aggregated across runs;
+  drives multimorphic-union enumeration policy
 
 Budgets:
   register/residency budget
   code size budget
   projection metadata budget
   exit count budget
+  selection-cap budget per layer
 ```
 
 Atoms have two identities:
@@ -103,15 +161,15 @@ runtime identity: bytes/holes/contract/cost            opaque to runtime
 foundry identity: semantic expansion or SSA summary    transparent offline
 ```
 
-Selected absorbers must preserve the foundry identity so later layers can reopen
-them.
+Selected bank tiles must preserve the foundry identity so later layers can reopen
+them for further composition.
 
 ### 3.2 Output
 
 ```text
-CandidateAbsorber:
+CandidateBankTile:
   source tuple
-  fact environment
+  fact environment (monomorphic signature or multimorphic union)
   optimized semantic normal-form hash
   optimized SSA graph / lowering plan
   required / checked / produced / killed facts
@@ -126,7 +184,7 @@ The candidate then enters the normal foundry gates:
 
 ```text
 contract-valid -> projection-valid -> dependency-valid -> lowering-valid
--> materialize -> benchmark/score -> selection cap
+-> materialize -> benchmark/score -> selection cap -> bank
 ```
 
 ---
@@ -154,8 +212,8 @@ So the composition universe is always:
 raw ops + selected SSA normal forms from prior layers
 ```
 
-All SSA forms can be generated and deduped offline. Only selected forms become atoms;
-unselected forms are measurements, not basis pollution.
+All SSA forms can be generated and deduped offline. Only selected forms become atoms
+in the bank; unselected forms are measurements, not basis pollution.
 
 Concrete per-candidate loop:
 
@@ -172,7 +230,7 @@ for tuple in arity≤4(Aₖ):
       if not deps_valid(graph2): continue
       if not register_budget_ok(graph2): continue
 
-      candidate = lower_to_absorber(graph2)
+      candidate = lower_to_stencil(graph2)
       if not candidate: continue
 
       measure_or_model(candidate)
@@ -186,7 +244,7 @@ SSA is between tuple composition and scoring.
 ```
 
 Too early, it sees only single opcodes. Too late, the foundry may select the wrong
-candidates. Runtime is too late and too expensive.
+candidates. Runtime is too late and ruled out by design.
 
 ---
 
@@ -285,6 +343,7 @@ call_boundary
 tailcall_boundary
 residual_boundary
 loop_backedge
+multimorphic_dispatch   internal discriminator for §13 tiles
 ```
 
 ### 5.7 Projection nodes / metadata nodes
@@ -335,6 +394,13 @@ shape_known            -> table shape epoch
 metatable_absent       -> metatable epoch
 known_call_target      -> closure/proto target epoch
 barrier_clean          -> GC barrier protocol state
+```
+
+For multimorphic environments (§13), the fact environment is a *union*:
+
+```text
+fact_env = {S1: facts1, S2: facts2}
+SSA builds an internal discriminator + per-arm specialized bodies.
 ```
 
 ---
@@ -419,7 +485,7 @@ This rule is what prevents Foundry SSA from becoming an unsound mini-compiler.
 
 ## 9. Projection discipline
 
-Every guard failure, residual boundary, call/yield/error edge, and native→residual
+Every guard failure, residual boundary, call/yield/error edge, and image→floor
 seam needs a projection.
 
 Projection must reconstruct:
@@ -443,12 +509,16 @@ projection impossible => candidate rejected
 projection too large  => candidate loses in scoring or is budget-rejected
 ```
 
+The runtime's response to any guard failure is the same: project state, jump to
+floor at the corresponding PC, continue. Projection design lives entirely in the
+foundry; the runtime mechanism is one indirect jump to a stub.
+
 ---
 
 ## 10. Residency / register budget
 
-Foundry SSA does not assume a general runtime allocator. Lowering must fit the fixed
-SponJIT residency convention.
+Foundry SSA does not assume a general runtime allocator. Lowering must fit the
+fixed SponJIT residency convention.
 
 Initial residency classes:
 
@@ -477,12 +547,18 @@ else reject candidate
 
 This is the main constraint on scalar replacement and large SSA rewrites.
 
+Residency conventions are part of the bank's tile contracts. The runtime composes
+tiles by matching advertised entry/exit residency endpoints — selection sees
+residency as a property of a tile, not a search axis. Tiles whose residency
+contracts do not match at a boundary are not composed; an L0 tile (which sources
+all operands from canonical slots) is always a legal joiner.
+
 ---
 
-## 11. Lowering to absorber vocabulary
+## 11. Lowering to stencil vocabulary
 
-After SSA optimization, the graph must lower to the fixed absorber/stencil node
-vocabulary.
+After SSA optimization, the graph must lower to the fixed stencil/atom vocabulary
+the bank supports.
 
 Allowed output nodes are those with known materialization templates:
 
@@ -498,6 +574,7 @@ cmp_i64
 return1
 call_boundary_known
 jump / branch
+multimorphic_dispatch
 projection stubs
 ```
 
@@ -527,20 +604,119 @@ GETFIELD MOVE CALL   -> field_call
 GETFIELD ADDI SETFIELD -> field_i64_update
 ```
 
-The foundry should eventually key candidates by:
+The foundry keys candidates by:
 
 ```text
 optimized_semantic_normal_form_hash
 ```
 
-not only by source opcode tuple. This reduces basis pollution and helps absorbers
-transfer across superficial bytecode variation.
+not only by source opcode tuple. This reduces basis pollution and helps bank tiles
+transfer across superficial bytecode variation. ICF-style merging at GCC link time
+collapses identical machine code further.
 
 ---
 
-## 13. Interaction with recursive basis growth
+## 13. Multimorphic tile enumeration
 
-SSA makes recursive absorber learning stronger:
+A site that sees multiple stable fact environments is not handled by a runtime
+cache (there is none). It is handled by enumerating a **multimorphic tile** that
+covers the union, with an internal discriminator chosen for cheapness.
+
+### 13.1 Trigger condition
+
+The foundry enumerates a multimorphic tile only when corpus pressure justifies it:
+
+```text
+training corpus -> per-PC signature distribution
+for each (pattern, PC):
+    if top-K signatures cluster (e.g. top-2 ≥ 90% of observations, or top-3 ≥ 95%):
+        enumerate multimorphic tile T_{S1 ∨ ... ∨ SK}
+    else if signatures are flat across many shapes:
+        no multimorphic tile; runtime will fall to floor for unhit signatures
+```
+
+This bounds the multimorphic directory. The foundry does not enumerate every
+possible union — only unions the world actually exhibits.
+
+### 13.2 Internal structure
+
+A multimorphic tile is a single fused tile with an internal branch on a
+discriminator:
+
+```text
+multimorphic ADD over {i64, f64}:
+  load tag of lhs
+  jump-table or compare-branch on tag
+    arm i64:
+      guard_i64(rhs)
+      unbox_i64 lhs, rhs
+      add_i64
+      box_i64
+    arm f64:
+      guard_f64(rhs)
+      unbox_f64 lhs, rhs
+      add_f64
+      box_f64
+    default:
+      residual_boundary    -- projects to floor
+```
+
+The discriminator is the cheapest test that separates the union's arms. Each arm is
+a normal SSA lowering specialized for its signature, identical to the corresponding
+monomorphic tile's body. GCC compiles the whole thing as one function; the branch
+predictor sees a consistent pattern over short windows.
+
+### 13.3 Lowering
+
+A multimorphic tile lowers to a stencil with one HOLE per arm and one HOLE for the
+discriminator. The runtime patches in the actual operand slots and exit targets like
+any other tile. No new mechanism is needed — multimorphism is a tile shape, not a
+runtime feature.
+
+### 13.4 Selection from the runtime side
+
+The runtime canonicalizes observed facts into a signature. If the canonicalization
+yields a union over a known multimorphic directory entry, that entry is selected.
+If it yields a union not in the directory, lookup misses and the region stays at
+floor for the affected PCs.
+
+```text
+observed: {S1, S2}
+canonicalize: signature = "multimorphic-{S1, S2} over pattern P"
+bank lookup: hit -> select multimorphic tile T_{S1 ∨ S2}
+            miss -> floor
+
+observed: {S1, S2, S3, S4, S5}
+canonicalize: signature = "multimorphic-{...} over pattern P"
+bank lookup: probably miss; foundry rarely enumerates 5-way unions
+fallback: floor
+```
+
+### 13.5 Why this beats a runtime cache
+
+```text
+runtime cache:
+  per-iteration signature canonicalization
+  per-iteration cache lookup
+  per-iteration possible eviction
+  per-region cache key management
+  per-region eviction policy
+
+multimorphic tile:
+  one-time bank lookup at selection time (when hysteresis stabilizes)
+  per-iteration internal branch inside the tile (compiled by GCC)
+  no cache, no eviction, no per-iteration lookup, no per-region key management
+```
+
+The discriminator cost is bounded and predictable; the cache machinery is unbounded
+and a source of subtle bugs. Pushing polymorphism into the tile pushes it past the
+boundary where the runtime has to think.
+
+---
+
+## 14. Interaction with recursive basis growth
+
+SSA makes recursive basis learning stronger:
 
 ```text
 composition creates semantic material for SSA
@@ -564,11 +740,79 @@ L2/L3: GETTABLE_array_i64 + ADD_i64 + RETURN1
        -> array_load_add_return atom
 ```
 
-Runtime still sees only atoms.
+Multimorphic tiles enter the basis at a separate directory; they do not normally
+participate in higher-layer composition (composing two multimorphic tiles
+combinatorially multiplies their arms, which is bad). When a multimorphic tile
+appears in a window for which a higher-arity monomorphic tile exists for one of its
+arms, the monomorphic tile wins for that signature and the multimorphic tile covers
+the remaining union.
+
+Runtime still sees only TileTemplates drawn from the bank, never SSA forms or prebuilt Images.
 
 ---
 
-## 14. Implementation plan
+## 15. Selection cap and the bank size budget
+
+Enumeration may be large offline. Bank tiles are budgeted by selection.
+
+Current measurements (Lua 5.5, arity≤4, L0 + L1 + multimorphic over training corpus):
+
+```text
+Unique SSA forms enumerated:   ~471 K
+Clean stencils (compilable):     ~6.5 K
+Real stencils (>5 bytes):        ~6.5 K
+Total .text bytes:                ~1.04 MB
+Average stencil size:             ~136 bytes
+GCC ICF canonical bodies:         ~2 K (estimated)
+HOLE relocations total:          ~18 K
+```
+
+The pack budget is a soft constraint. The goal is not "fit in N MB" — the goal is to
+beat per-op stencil JITs by *fusing*. The 50 MB number cited earlier in design
+material was a soft ceiling, not a target. Selection retains tiles that demonstrate
+fusion wins over their child cover; rejection is driven by foundry-side measurement,
+not by a hard byte budget.
+
+Hard rules:
+
+```text
+dedupe semantic normal-form hash
+keep Pareto frontier over speed / bytes / exits / projection size
+longer tile must beat best composition of shorter tiles
+retire tiles whose signatures never appear in corpus or runtime exit logs
+```
+
+---
+
+## 16. Atom / SSA interaction
+
+Atoms are where the offline and runtime worlds meet.
+
+An atom carries:
+
+```text
+runtime identity:
+  bytes
+  patch holes
+  guard exits
+  projection metadata
+  dependency cells
+  cost / size
+
+foundry identity:
+  semantic expansion or SSA summary
+  required / checked / produced / killed facts
+  normal-form hash
+  effect summary
+  for multimorphic: arm structure, discriminator
+```
+
+Runtime treats TileTemplates as opaque artifacts. The foundry can reopen them for higher-
+layer composition or replay through SSA when corpus pressure changes.
+
+---
+
+## 17. Implementation plan
 
 ### Phase 1 — IR skeleton
 
@@ -602,7 +846,7 @@ normal-form recognition; real lowering still comes later.
 - live slot model
 - dirty lease model
 - guard exit projection
-- residual seam projection estimate
+- floor seam projection estimate
 ```
 
 Initial shadow status: projection obligations are counted and reported, but not yet
@@ -611,25 +855,48 @@ materialized into real exit stubs.
 ### Phase 4 — lowering plan
 
 ```text
-- lower optimized nodes to abstract absorber operations
+- lower optimized nodes to stencil operations
 - reject unsupported nodes
 - estimate cost / size / projection cost
+- emit real .o files with HOLE relocations
 ```
 
-Initial shadow status: semantic normal forms and active SSA ops are emitted. Real
-stencil lowering is still pending.
+Current status: real .o files emitted. ~6.5K real stencils, ~880 KB total, ~136 B
+avg, ~18 K HOLE relocations, GCC ICF merging duplicates.
 
-### Phase 5 — foundry integration
+### Phase 5 — multimorphic enumeration
 
 ```text
-- run SSA producer in absorber proposal/foundry pipeline
+- consume corpus pressure data (per-PC signature distributions)
+- compute top-K clustering per (pattern, PC)
+- enumerate unions where clustering crosses threshold
+- lower with internal discriminator
+- emit to multimorphic directory
+```
+
+### Phase 6 — bank export
+
+```text
+- selection cap policy
+- Pareto frontier maintenance
+- normal-form dedup
+- multimorphic directory layout
+- bank file format
+- runtime mmap reader
+```
+
+### Phase 7 — foundry integration
+
+```text
+- run SSA producer in bank training pipeline
 - compare direct tuple vs SSA-normalized candidate
 - report normal forms and projected wins
+- exit-log ingestion for next-run training
 ```
 
 ---
 
-## 15. Summary
+## 18. Summary
 
 ```text
 Foundry SSA is THE fact consumer of SponJIT.
@@ -644,14 +911,20 @@ forwarded values
 folded constants
 merged projections
 recognized semantic idioms
+multimorphic dispatch internalized into fused tiles
 ```
 
-The useful consequences are selected as absorbers and added to the recursive basis.
+The useful consequences are selected as bank tiles. Polymorphism that the runtime
+would otherwise handle via a cache is dissolved into multimorphic tiles enumerated
+here when corpus pressure justifies them. Recursive basis growth interns optimized
+semantic phrases as atoms, broadening higher layers without inflating the runtime.
+
 Runtime SponJIT remains mechanically simple:
 
 ```text
-observe facts/exits -> canonical signature -> cache lookup -> copy -> patch -> link
+observe facts -> canonicalize signature -> bank lookup -> copy/patch -> swap active.
+on failure: demote to floor. on persistent failure: stay at floor; log for next run.
 ```
 
-The intelligence moves offline into the foundry, where it can be exhaustive,
+The intelligence lives offline in the foundry, where it can be exhaustive,
 measured, verified, and capped.

@@ -67,12 +67,14 @@ local TYPE_PREDICATES = {
 local IMPLIED_BY_PREDICATE = {
     shape_known = { { predicate = "is_table" } },
     shape_eq = { { predicate = "is_table" }, { predicate = "shape_known" } },
-    field_offset = { { predicate = "is_table" }, { predicate = "key_const" } },
+    -- field_offset is a key/shape payload lease. Its subject is usually K<n>,
+    -- so it must not imply is_table (that belongs on the table slot).
+    field_offset = { { predicate = "key_const" } },
     metatable_absent = { { predicate = "no_metamethod", value = "__index" }, { predicate = "no_metamethod", value = "__newindex" } },
     array_hit = { { predicate = "is_table" } },
     bounds_ok = { { predicate = "array_hit" } },
+    array_base_offset = { { predicate = "array_hit" }, { predicate = "bounds_ok" } },
     target_eq = { { predicate = "known_call_target" }, { predicate = "is_closure" } },
-    key_i64 = { { predicate = "key_const" } },
 }
 
 local LEGACY = {
@@ -130,7 +132,19 @@ function M.guard_key(f)
 end
 
 function M.parse(x)
-    if type(x) == "table" and x.predicate then return x end
+    if type(x) == "table" and x.predicate then
+        local f = {}
+        for k, v in pairs(x) do f[k] = v end
+        if f.predicate == "i64" then f.predicate = "is_i64" end
+        if f.predicate == "table" then f.predicate = "is_table" end
+        if type(f.subject) == "table" and not f.subject.kind and f.subject.id then
+            local id = tostring(f.subject.id)
+            if id:match("^R%d+$") then f.subject = M.slot(id) else f.subject = M.value(id) end
+        elseif type(f.subject) == "string" then
+            if f.subject:match("^R%d+$") then f.subject = M.slot(f.subject) else f.subject = M.value(f.subject) end
+        end
+        return M.fact(f.kind, f.subject, f.predicate, f.value, f.source, f.confidence, f.deps)
+    end
     if type(x) == "string" and LEGACY[x] then return LEGACY[x]() end
     if type(x) == "string" then return M.fact("legacy", M.global_subject(), x, true, "observed") end
     return M.fact("unknown", M.global_subject(), tostring(x), true, "observed")

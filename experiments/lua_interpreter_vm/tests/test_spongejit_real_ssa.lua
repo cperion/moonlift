@@ -5,6 +5,7 @@ package.path = "./experiments/lua_interpreter_vm/spongejit/?.lua;" .. package.pa
 
 local Facts = require("src.facts")
 local SSA = require("src.ssa")
+local Contract = require("src.ssa_contract")
 local Enum = require("src.enumerate")
 
 local function assert_eq(a, b, msg)
@@ -80,6 +81,20 @@ do
     assert_true(r.ok, table.concat(r.errors or {}, "\n"))
     assert_eq(table.concat(r.normal_form, "|"), "FIELD_ADDI_UPDATE", "operand-specific field update should fuse semantically")
     assert_true(has(r.checked_facts, "shape_known"), "slot-specific shape fact should be guarded")
+end
+
+-- SSA contracts carry real fact lifetime: selector facts checked by tile guards
+-- become success-edge facts, writes kill prior slot leases, and stores produce
+-- fresh slot facts only when the SSA proves the stored value.
+do
+    local facts = { Facts.fact("type", Facts.slot("R1"), "is_i64", true) }
+    local r = SSA.compile({ { op = "ADDI", a = 1, b = 1, c = 1 } }, facts)
+    local c = Contract.from_result(r, facts)
+    assert_eq(c.selector_sig.literal, "0x0000000000000002ULL", "selector should include observed R1:i64")
+    assert_eq(c.required_sig.literal, "0x0000000000000000ULL", "guarded i64 is checked, not blindly required")
+    assert_eq(c.checked_sig.literal, "0x0000000000000002ULL", "ADDI guard establishes R1:i64 on success")
+    assert_eq(c.produced_sig.literal, "0x0000000000000002ULL", "ADDI store produces fresh R1:i64")
+    assert_true(c.killed_sig.literal ~= "0x0000000000000000ULL", "ADDI store must kill previous R1 leases")
 end
 
 -- Enumerator derives typed fact axes from instruction operands.

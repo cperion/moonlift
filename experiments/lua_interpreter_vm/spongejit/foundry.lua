@@ -26,6 +26,7 @@ local root = "."  -- repo root, always the CWD
 local Util = require("src.util")
 local SSA = require("src.ssa")
 local Enum = require("src.enumerate")
+local Grammar = require("src.grammar_enum")
 local StencilModel = require("src.stencil_model")
 local Loader = require("src.loader")
 
@@ -46,6 +47,7 @@ local DEFAULTS = {
     max_layers = 3,
     max_pack_bytes = 50 * 1024 * 1024,  -- 50 MB budget
     summary_only = false,
+    corpus_mode = false,
 }
 
 -- ── stencil build ───────────────────────────────────────────────────────
@@ -85,17 +87,29 @@ end
 -- ── SSA form enumeration ────────────────────────────────────────────────
 
 local function enumerate_forms(workloads, atoms, config)
-    print("[foundry] enumerating SSA forms...")
-    local result = Enum.enumerate(workloads, {
-        max_arity = config.max_arity,
-        max_windows = config.max_windows,
-        max_fact_axes = 12,
-        max_fact_combos = config.max_fact_combos,
-    }, atoms)
-    local s = result.stats
-    print(string.format("[foundry] %d windows → %d compiles → %d unique SSA forms",
-        s.windows or 0, s.compiles or 0, s.unique_forms or 0))
-    return result
+    if config.corpus_mode then
+        print("[foundry] enumerating SSA forms from corpus...")
+        local result = Enum.enumerate(workloads, {
+            max_arity = config.max_arity,
+            max_windows = config.max_windows,
+            max_fact_axes = 12,
+            max_fact_combos = config.max_fact_combos,
+        }, atoms)
+        local s = result.stats
+        print(string.format("[foundry] %d windows → %d compiles → %d unique SSA forms",
+            s.windows or 0, s.compiles or 0, s.unique_forms or 0))
+        return result
+    else
+        print("[foundry] enumerating SSA forms from grammar...")
+        local result = Grammar.enumerate_grammar({
+            max_arity = config.max_arity,
+            max_fact_combos = config.max_fact_combos,
+        })
+        local s = result.stats
+        print(string.format("[foundry] %d sequences → %d unique SSA forms (%d OK, %d failed)",
+            s.sequences or 0, s.unique_forms or 0, s.ok or 0, (s.compiles or 0) - (s.ok or 0)))
+        return result
+    end
 end
 
 -- ── lowering to stencils ────────────────────────────────────────────────
@@ -202,6 +216,32 @@ local function run_layer(workloads, atoms, layer_idx, config)
     return result
 end
 
+-- ── multi-layer orchestration ───────────────────────────────────────────
+
+local function run_all_layers(workloads, config)
+    local atoms = {}
+    local all_layers = {}
+    for l = 0, config.max_layers do
+        local result = run_layer(workloads, atoms, l, config)
+        all_layers[#all_layers + 1] = result
+        if l < config.max_layers then
+            for _, na in ipairs(result.new_atoms) do
+                if #atoms < config.layer_cap * (l + 1) then
+                    atoms[#atoms + 1] = na
+                end
+            end
+        end
+    end
+
+    Util.write_json(config.out_dir .. "/foundry_layers.json", all_layers)
+
+    print("\n[foundry] ========== DONE ==========")
+    for _, l in ipairs(all_layers) do
+        print(string.format("  Layer %d: %d atoms → %d templates (%d bytes selected)",
+            l.layer, l.atom_count_before, l.templates_selected, l.selected_bytes))
+    end
+end
+
 -- ── main ────────────────────────────────────────────────────────────────
 
 local function main(args)
@@ -222,36 +262,18 @@ local function main(args)
         elseif a == "--summary-only" then config.summary_only = true
         elseif a == "--layers" then config.max_layers = tonumber(args[i+1]); i = i + 1
         elseif a == "--layer-cap" then config.layer_cap = tonumber(args[i+1]); i = i + 1
+        elseif a == "--corpus-mode" then config.corpus_mode = true
         end
         i = i + 1
     end
 
     Util.mkdir_p(config.out_dir)
     build_stencils(config)
-    local workloads = load_corpus(config)
-
-    local atoms = {}
-    local all_layers = {}
-    for l = 0, config.max_layers do
-        local result = run_layer(workloads, atoms, l, config)
-        all_layers[#all_layers + 1] = result
-        if l < config.max_layers then
-            for _, na in ipairs(result.new_atoms) do
-                if #atoms < config.layer_cap * (l + 1) then  -- cumulative cap per layer
-                    atoms[#atoms + 1] = na
-                end
-            end
-        end
-    end
-
-    -- Write output
-    Util.write_json(config.out_dir .. "/foundry_layers.json", all_layers)
-
-    -- Summary
-    print("\n[foundry] ========== DONE ==========")
-    for _, l in ipairs(all_layers) do
-        print(string.format("  Layer %d: %d atoms → %d templates (%d bytes selected)",
-            l.layer, l.atom_count_before, l.templates_selected, l.selected_bytes))
+    if config.corpus_mode then
+        local workloads = load_corpus(config)
+        run_all_layers(workloads, config)
+    else
+        run_all_layers(nil, config)
     end
 end
 

@@ -42,6 +42,8 @@ local IMPORTANT = {
     AddI64 = "ADD_I64",
     SubI64 = "SUB_I64",
     MulI64 = "MUL_I64",
+    I64BinOp = "I64_BINOP",
+    I64UnaryOp = "I64_UNOP",
     CmpI64 = "CMP_I64",
     UnboxI64 = "UNBOX_I64",
     BoxI64 = "BOX_I64",
@@ -54,6 +56,7 @@ local IMPORTANT = {
     Return1 = "RETURN1",
     Return0 = "RETURN0",
     Residual = "RESIDUAL",
+    GenericExit = "GENERIC_EXIT",
     BarrierCheck = "BARRIER",
     FrameLoad = "FRAME_LOAD",
     FrameStore = "FRAME_STORE",
@@ -66,7 +69,7 @@ local COMPOSITE_PATTERNS = {
     -- writes explicitly for correct memory SSA.
     {
         name = "FIELD_ADDI_UPDATE",
-        seq = { "FrameLoad", "GuardTable", "GuardShape", "GuardMetatableAbsent", "FieldLoad", "FrameStore", "GuardTypeI64", "UnboxI64", "ConstI64", "AddI64", "BoxI64", "FrameLoad", "FieldStore" },
+        seq = { "FrameLoad", "GuardTable", "GuardShape", "GuardMetatableAbsent", "FieldLoad", "FrameStore", "GuardTypeI64", "UnboxI64", "ConstI64", "AddI64", "BoxI64", "FrameStore", "FrameLoad", "FieldStore" },
     },
     {
         name = "FIELD_LOAD_RETURN",

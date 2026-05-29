@@ -20,7 +20,7 @@ function M.validate(g, config)
                 if not n.guard or not n.guard.fact then add(errors, "guard node missing fact at " .. n.id) end
                 if not n.exit then add(errors, "guard node missing exit projection at " .. n.id) end
             end
-            if (n.op == "Residual" or n.op == "Call" or n.op == "KnownCall" or n.op == "TailCall") and not n.exit then
+            if (n.op == "Residual" or n.op == "GenericExit" or n.op == "Call" or n.op == "KnownCall" or n.op == "TailCall") and not n.exit then
                 add(errors, n.op .. " missing exit projection at " .. n.id)
             end
             if n.op == "FrameLoad" and not (n.args and n.args.slot) then add(errors, "FrameLoad missing slot at " .. n.id) end

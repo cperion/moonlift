@@ -49,6 +49,8 @@ local CODEGEN_OP = {
     AddI64 = "add_i64",
     SubI64 = "sub_i64",
     MulI64 = "mul_i64",
+    I64BinOp = "i64_binop",
+    I64UnaryOp = "i64_unop",
     CmpI64 = "cmp_i64",
     FieldLoad = "table_field_load",
     FieldStore = "table_field_store",
@@ -61,6 +63,7 @@ local CODEGEN_OP = {
     Return0 = "return0",
     Return1 = "return1",
     Residual = "residual_boundary",
+    GenericExit = "generic_exit",
     Jump = "jump",
     Branch = "branch",
 }
@@ -70,14 +73,14 @@ M.CODEGEN_OP = CODEGEN_OP
 local PURE_OP = {
     FrameLoad = true, LoadConst = true, ConstI64 = true, ConstNil = true,
     ConstBool = true, Move = true, UnboxI64 = true, BoxI64 = true,
-    AddI64 = true, SubI64 = true, MulI64 = true, CmpI64 = true,
+    AddI64 = true, SubI64 = true, MulI64 = true, I64BinOp = true, I64UnaryOp = true, CmpI64 = true,
     FieldLoad = true, ArrayLoad = true,
 }
 
 M.PURE_OP = PURE_OP
 
 local HARD_BARRIER = {
-    Call = true, KnownCall = true, TailCall = true, Residual = true,
+    Call = true, KnownCall = true, TailCall = true, Residual = true, GenericExit = true, Jump = true,
 }
 M.HARD_BARRIER = HARD_BARRIER
 
@@ -269,7 +272,21 @@ end
 function Graph:i64_arith(op, lhs, rhs, pc)
     local map = { ADD = "AddI64", ADDI = "AddI64", SUB = "SubI64", MUL = "MulI64" }
     local out = self:new_value("I64", nil, nil, "gpr0")
-    self:add(map[op] or op, { inputs = { lhs, rhs }, outputs = { out }, source = pc })
+    self:add(map[op] or op, { inputs = { lhs, rhs }, outputs = { out }, source = pc, args = { op = op } })
+    self.current = out
+    return out
+end
+
+function Graph:i64_binop(op, lhs, rhs, pc)
+    local out = self:new_value("I64", nil, nil, "gpr0")
+    self:add("I64BinOp", { inputs = { lhs, rhs }, outputs = { out }, source = pc, args = { op = op } })
+    self.current = out
+    return out
+end
+
+function Graph:i64_unop(op, x, pc)
+    local out = self:new_value("I64", nil, nil, "gpr0")
+    self:add("I64UnaryOp", { inputs = { x }, outputs = { out }, source = pc, args = { op = op } })
     self.current = out
     return out
 end
@@ -293,16 +310,16 @@ function Graph:field_store(tab, key, val, pc)
     self.mem.table = newm
 end
 
-function Graph:array_load(tab, pc)
+function Graph:array_load(tab, idx, pc)
     local out = self:new_value("TValue")
-    self:add("ArrayLoad", { inputs = { tab }, outputs = { out }, source = pc, effect = "heap_read", mem_in = { table = self.mem.table } })
+    self:add("ArrayLoad", { inputs = { tab, idx }, outputs = { out }, source = pc, effect = "heap_read", mem_in = { table = self.mem.table } })
     self.current = out
     return out
 end
 
-function Graph:array_store(tab, val, pc)
+function Graph:array_store(tab, idx, val, pc)
     local newm = self:new_memory("table", "array_store")
-    self:add("ArrayStore", { inputs = { tab, val }, source = pc, effect = "heap_write", mem_in = { table = self.mem.table }, mem_out = { table = newm } })
+    self:add("ArrayStore", { inputs = { tab, idx, val }, source = pc, effect = "heap_write", mem_in = { table = self.mem.table }, mem_out = { table = newm } })
     self.mem.table = newm
 end
 
@@ -348,6 +365,21 @@ end
 
 function Graph:return0(pc)
     self:add("Return0", { source = pc, effect = "return", exit = self:exit_projection("return", pc) })
+end
+
+function Graph:jump(pc, ev)
+    self:add("Jump", { source = pc, effect = "branch", args = { sj = ev and (ev.sj or ev.sbx or ev.sBx) }, exit = self:exit_projection("jump", pc) })
+end
+
+function Graph:generic_exit(opcode, pc, args)
+    args = args or {}
+    args.opcode = opcode
+    self:add("GenericExit", {
+        source = pc,
+        effect = "residual",
+        args = args,
+        exit = self:exit_projection("generic:" .. tostring(opcode), pc),
+    })
 end
 
 function Graph:active_nodes()
