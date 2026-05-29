@@ -1,81 +1,67 @@
 -- ssa_to_c.lua — Compile an optimized SSA graph to a monolithic C function
 -- in the StencilCtx ABI (compatible with stencils_puc.c / sponjit_block.h).
 --
--- ONE SSA sponge → ONE C function → gcc -O2 -c → ONE binary stencil → plug into real VM.
+-- ONE SSA sponge → ONE C function → gcc -O2 -c → ONE binary stencil.
+--
+-- Slot indices are decoded from the instruction(s) at runtime via GETARG_*
+-- so that ONE stencil serves ALL register assignments for a given opcode pattern.
+-- This matches how sponjit_scan_proto matches on opcode only (not registers).
 --
 -- ABI (from stencils_puc.c):
 --   void stencil_mono_HASH(StencilCtx *ctx)
---   - reads slots via ctx->base + slot_index  (slot index from source opcode operands)
+--   - reads slot indices via GETARG_*(ctx->pc[N]) from the instruction stream
 --   - TValue is struct { value_; tt_ } with separate tag byte
 --   - guards: ctx->status = SJ_GUARD_FAIL; return;
 --   - success: ctx->pc += n_absorbed; ctx->status = SJ_OK;
 --   - boundary ops (RETURN, CALL, JMP) are NOT absorbed; stencil stops before them.
---
--- No holes. No externs. Slot indices decoded from the known opcode operands at codegen time.
+--   - ctx->scratch is used for intermediate boxed values (no malloc)
 
 local IR = require("src.ssa_ir")
 
 local M = {}
 
--- ── PUC Lua opcode operand decoding ─────────────────────────────────────
--- Knowing the opcode and which operand position, we emit GETARG_* macros.
+-- ── PUC Lua opcode operand layout ───────────────────────────────────────
 
+-- Maps opcode → { out_pos, in_positions... }
+-- "out" means this operand is a destination slot (GETARG_A usually)
+-- "in" means this operand is a source slot (GETARG_B or GETARG_C)
+-- nil means "not a slot" (immediate, constant index, etc.)
 local OPCODE_OPERANDS = {
-    -- { out_slot, in_slots... }  where nil means "no slot" (constant/immediate)
-    MOVE     = {"A","B"},
-    LOADI    = {"A"},         -- sBx = immediate constant
-    LOADF    = {"A"},
-    LOADK    = {"A"},         -- Bx = constant table index
-    LOADTRUE = {"A"},
-    LOADFALSE= {"A"},
-    LOADNIL  = {"A"},
-    ADD      = {"A","B","C"},
-    ADDI     = {"A","B"},     -- sC = immediate
-    SUB      = {"A","B","C"},
-    MUL      = {"A","B","C"},
-    DIV      = {"A","B","C"},
-    MOD      = {"A","B","C"},
-    GETFIELD = {"A","B"},     -- C = constant key index
-    GETTABUP = {"A","B"},     -- C = constant key index
-    SELF     = {"A","B"},     -- C = constant key index
-    SETFIELD = {"A","B","C"}, -- A=table, B=field key, C=value
-    SETTABUP = {"A","B","C"},
-    GETTABLE = {"A","B","C"}, -- C = register key
-    GETI     = {"A","B"},     -- C = immediate?
-    SETTABLE = {"A","B","C"},
-    SETI     = {"A","B","C"},
-    CALL     = {"A"},         -- A = function + nresults
-    TAILCALL = {"A"},
-    RETURN   = {"A"},
+    MOVE     = {"A_out","B_in"},
+    LOADI    = {"A_out"},         -- sBx = immediate
+    LOADF    = {"A_out"},
+    LOADK    = {"A_out"},         -- Bx = constant index
+    LOADTRUE = {"A_out"},
+    LOADFALSE= {"A_out"},
+    LOADNIL  = {"A_out"},
+    ADD      = {"A_out","B_in","C_in"},
+    ADDI     = {"A_out","B_in"},  -- sC = immediate
+    SUB      = {"A_out","B_in","C_in"},
+    MUL      = {"A_out","B_in","C_in"},
+    DIV      = {"A_out","B_in","C_in"},
+    MOD      = {"A_out","B_in","C_in"},
+    GETFIELD = {"A_out","B_in"},  -- C = constant key
+    GETTABUP = {"A_out","B_in"},
+    SELF     = {"A_out","B_in"},
+    SETFIELD = {"A_in","B_in","C_in"},  -- A=table, B=key, C=value
+    SETTABUP = {"A_in","B_in","C_in"},
+    GETTABLE = {"A_out","B_in","C_in"},
+    GETI     = {"A_out","B_in"},  -- C = immediate?
+    SETTABLE = {"A_in","B_in","C_in"},
+    SETI     = {"A_in","B_in"},
+    CALL     = {"A_out"},
+    TAILCALL = {"A_out"},
+    RETURN   = {"A_in"},
     RETURN0  = {},
-    RETURN1  = {"A"},
-    JMP      = {},            -- sBx = offset (not a slot)
-    EQ       = {"A","B","C"}, -- A is bool output
-    LT       = {"A","B","C"},
-    LE       = {"A","B","C"},
-    TEST     = {"A"},         -- A = condition, C = 0/1
-    TESTSET  = {"A","B"},     -- C = 0/1
-    FORLOOP  = {"A"},         -- A = internal index (complex)
+    RETURN1  = {"A_in"},
+    JMP      = {},               -- sBx = offset
+    FORLOOP  = {"A"},
     FORPREP  = {"A"},
-    TFORCALL = {"A"},         -- C = nresults?
-    TFORLOOP = {"A"},
-    SETLIST  = {"A","B","C"}, -- complex, A=table, B=base, C=count
-    CONCAT   = {"A","B","C"},
-    CLOSURE  = {"A"},         -- Bx = proto index
-    VARARG   = {"A"},         -- B = nresults?
-    NEWTABLE = {"A"},         -- B/C = array/hash size hints
-    LEN      = {"A","B"},
-    GETUPVAL = {"A","B"},
-    SETUPVAL = {"A","B"},
-    NOT      = {"A","B"},
-    UNM      = {"A","B"},
-    BNOT     = {"A","B"},
-    CLOSE    = {"A"},
-    TBC      = {"A"},
-    MMBIN    = {"A","B","C"},
-    MMBINI   = {"A","B"},     -- sC = immediate
-    MMBINK   = {"A","B"},     -- C = constant
-    EXTRAARG = {},
+    EQ       = {"A_out","B_in","C_in"},
+    LT       = {"A_out","B_in","C_in"},
+    LE       = {"A_out","B_in","C_in"},
+    TEST     = {"A_in"},
+    TESTSET  = {"A_out","B_in"},
 }
 
 -- Which opcodes are boundaries (cannot be absorbed; left for interpreter)
@@ -86,97 +72,143 @@ local BOUNDARY_OPS = {
     TFORCALL=true, TFORLOOP=true,
 }
 
--- Which operand slot positions are the "output" (A) slot
-local function slot_arg_type(pos, opcode)
-    local slots = OPCODE_OPERANDS[opcode] or {}
-    if pos > #slots then return nil end
-    local arg = slots[pos]
-    if arg == "A" then return "out"
-    elseif arg == "B" or arg == "C" then return "in"
-    else return nil
+-- Helper: generate a GETARG expression for a given operand role
+local function getarg_for_role(role, ins_var)
+    if role == "A_in" or role == "A_out" then
+        return string.format("GETARG_A(%s)", ins_var)
+    elseif role == "B_in" then
+        return string.format("GETARG_B(%s)", ins_var)
+    elseif role == "C_in" then
+        return string.format("GETARG_C(%s)", ins_var)
     end
+    return nil
 end
 
--- GETARG macro for a specific operand position in the instruction
-local function getarg_expr(opcode, pos, ins_var)
-    local slots = OPCODE_OPERANDS[opcode] or {}
-    if pos > #slots then return nil end
-    local arg = slots[pos]
-    if arg == "A" then return string.format("GETARG_A(%s)", ins_var)
-    elseif arg == "B" then return string.format("GETARG_B(%s)", ins_var)
-    elseif arg == "C" then return string.format("GETARG_C(%s)", ins_var)
-    else return nil
-    end
-end
+-- Opcodes whose immediate field should be runtime-decoded (generic stencils)
+local OPCODE_IMMEDIATE = {
+    LOADI   = "GETARG_sBx(ctx->pc[%d])",
+    LOADF   = "GETARG_sBx(ctx->pc[%d])",
+    ADDI    = "GETARG_sC(ctx->pc[%d])",
+    SHLI    = "GETARG_sC(ctx->pc[%d])",
+    SHRI    = "GETARG_sC(ctx->pc[%d])",
+    FORPREP = "GETARG_sBx(ctx->pc[%d])",
+    JMP     = "GETARG_sBx(ctx->pc[%d])",
+}
 
--- ── collect the opcode window and slot info from the SSA graph ──────────
-
-local function analyze_graph(g, source_ops)
-    -- source_ops: array of {op="ADD", a=..., b=..., c=...} from the original bytecode window
-    -- Returns: { n_total = N, absorbed = M, slot_names = {[node_id]="R0"}, ... }
-
-    -- Find the first boundary opcode position (0-indexed within source_ops)
-    local first_boundary = #source_ops  -- default: absorb all
-    for i, op in ipairs(source_ops) do
-        local opname = type(op) == "table" and op.op or op
-        if BOUNDARY_OPS[opname] then
-            first_boundary = i - 1  -- ops before the boundary
-            break
+-- Resolve a slot name ("R0", "R1", etc.) to a GETARG expression by matching
+-- the slot index against the opcode's specific operand values (a=2, b=0, c=1, etc.)
+-- and consulting OPCODE_OPERANDS for the operand layout.
+--
+-- Example: ADD(a=2, b=0, c=1) with slot "R0" (idx=0) matches b=0 → GETARG_B
+--          ADD(a=2, b=0, c=1) with slot "R2" (idx=2) matches a=2 → GETARG_A
+-- node_op: "FrameLoad" (match _in roles) or "FrameStore" (match _out roles)
+local function slot_to_getarg(slot_name, source_op, op_idx, node_op)
+    local idx = tonumber(slot_name:match("^R(%d+)$"))
+    if idx == nil then return nil, nil end  -- "cur" or unknown
+    
+    local opcode = type(source_op) == "table" and source_op.op or source_op
+    local operands = OPCODE_OPERANDS[opcode] or {}
+    
+    -- Map operand role to the operand's actual register value and GETARG macro
+    local role_info = {
+        A_out = { val = source_op.a, macro = "GETARG_A" },
+        A_in  = { val = source_op.a, macro = "GETARG_A" },
+        B_in  = { val = source_op.b, macro = "GETARG_B" },
+        C_in  = { val = source_op.c, macro = "GETARG_C" },
+    }
+    
+    local match_suffix = (node_op == "FrameStore") and "_out" or "_in"
+    
+    for _, role in ipairs(operands) do
+        if role:match(match_suffix .. "$") then
+            local info = role_info[role]
+            if info and info.val ~= nil and info.val == idx then
+                return string.format("%s(ctx->pc[%d])", info.macro, op_idx), role
+            end
         end
     end
+    
+    -- Fallback: emit as hardcoded index
+    return tostring(idx), "hardcoded"
+end
 
-    -- Collect which source opcode each FrameLoad/FrameStore belongs to
-    -- FrameLoad/FrameStore nodes have args.slot with the decoded slot name
-    local slot_of_node = {}
+-- ── Analyze graph for opcode mapping ────────────────────────────────────
 
-    -- Map from source pc to opcode info
-    local ops_by_pc = {}
-    for i, op in ipairs(source_ops) do
-        ops_by_pc[i - 1] = op  -- pc is 0-indexed
-    end
-
-    -- Walk active nodes, find FrameLoad/FrameStore, determine their slot and opcode
-    local load_nodes = {}  -- {node_id = {slot_idx, opcode_name, pc}}
-    local store_nodes = {}
-
-    local current_pc = 0  -- rough heuristic: advance pc at FrameStore
+local function analyze_graph(g, source_ops)
+    -- Map each node to its source opcode position (pc index within the window)
+    local node_to_pc = {}  -- node.id -> { op_idx, opcode }
     for _, n in ipairs(g.nodes) do
-        if not n.removed then
-            local src = n.source  -- pc from SSA lift
-            if n.op == "FrameLoad" and n.args and n.args.slot then
-                local slot_name = n.args.slot
-                local idx = tonumber(slot_name:match("^R(%d+)$")) or 0
-                slot_of_node[n.id] = { idx = idx, name = slot_name }
-                load_nodes[#load_nodes + 1] = { node_id = n.id, slot_idx = idx, slot_name = slot_name }
-            elseif n.op == "FrameStore" and n.args and n.args.slot then
-                local slot_name = n.args.slot
-                local idx = tonumber(slot_name:match("^R(%d+)$")) or 0
-                slot_of_node[n.id] = { idx = idx, name = slot_name }
-                store_nodes[#store_nodes + 1] = { node_id = n.id, slot_idx = idx, slot_name = slot_name }
+        if not n.removed and n.source ~= nil then
+            local src = n.source  -- 1-indexed
+            local op_info = source_ops[src]  -- source_ops is 1-indexed
+            if op_info then
+                local oname = type(op_info) == "table" and op_info.op or tostring(op_info)
+                node_to_pc[n.id] = { op_idx = src - 1, opcode = oname, op_info = op_info }
             end
         end
     end
 
-    -- Collect all distinct slots used (for local variable naming)
-    local slots_used = {}
-    for _, info in pairs(slot_of_node) do
-        slots_used[info.name] = true
+    -- Find the first boundary in the opcode window
+    local first_boundary = #source_ops
+    for i, op in ipairs(source_ops) do
+        local oname = type(op) == "table" and op.op or op
+        if BOUNDARY_OPS[oname] then
+            first_boundary = i - 1
+            break
+        end
+    end
+
+    -- Collect FrameLoad/FrameStore node info
+    local load_store_info = {}
+    for _, n in ipairs(g.nodes) do
+        if not n.removed and (n.op == "FrameLoad" or n.op == "FrameStore") then
+            local pc_info = node_to_pc[n.id]
+            if pc_info then
+                local slot_name = n.args and n.args.slot or "cur"
+                local getarg_expr, arg_role = slot_to_getarg(slot_name, pc_info.op_info, pc_info.op_idx, n.op)
+                if getarg_expr then
+                    load_store_info[n.id] = {
+                        getarg = getarg_expr,
+                        role = arg_role,
+                        slot_name = slot_name,
+                        op_idx = pc_info.op_idx,
+                    }
+                else
+                    -- Fallback: use slot index directly
+                    local idx = tonumber(slot_name:match("^R(%d+)$")) or 0
+                    load_store_info[n.id] = {
+                        getarg = tostring(idx),
+                        role = "hardcoded",
+                        slot_name = slot_name,
+                        op_idx = pc_info.op_idx,
+                    }
+                end
+            else
+                -- No source info — use hardcoded slot index
+                local slot_name = n.args and n.args.slot or "cur"
+                local idx = tonumber(slot_name:match("^R(%d+)$")) or 0
+                load_store_info[n.id] = {
+                    getarg = tostring(idx),
+                    role = "hardcoded",
+                    slot_name = slot_name,
+                    op_idx = -1,
+                }
+            end
+        end
     end
 
     return {
         n_total = #source_ops,
         n_absorbed = math.max(0, first_boundary),
-        slot_of_node = slot_of_node,
-        load_nodes = load_nodes,
-        store_nodes = store_nodes,
-        slots_used = slots_used,
+        load_store_info = load_store_info,
+        node_to_pc = node_to_pc,
     }
 end
 
 -- ── C code generation ───────────────────────────────────────────────────
 
 local PUC_PREAMBLE = [[
-/* PUC-Lua SponJIT monolithic region stencil — StencilCtx ABI */
+/* PUC-Lua SponJIT monolithic stencil — StencilCtx ABI */
 #include <stdint.h>
 #include <stddef.h>
 
@@ -211,8 +243,8 @@ typedef unsigned int Instruction;
 #define GETARG_A(i)   ((int)(((i) >> POS_A) & 0xffu))
 #define GETARG_B(i)   ((int)(((i) >> POS_B) & 0xffu))
 #define GETARG_C(i)   ((int)(((i) >> POS_C) & 0xffu))
-#define GETARG_Bx(i)  ((int)(((i) >> POS_B) & ((1u << 17) - 1)))
-#define GETARG_sBx(i) (GETARG_Bx(i) - (((1u << 17) - 1) >> 1))
+#define GETARG_Bx(i)  ((int)(((i) >> 15) & ((1u << 17) - 1)))    /* Bx at bit 15 (POS_k) */
+#define GETARG_sBx(i) (GETARG_Bx(i) - 65535)    /* excess-K for 17-bit signed */
 #define GETARG_sC(i)  (GETARG_C(i) - (((1u << 8) - 1) >> 1))
 
 enum { SJ_OK = 0, SJ_GUARD_FAIL = 1, SJ_UNSUPPORTED = 2, SJ_BOUNDARY = 3 };
@@ -250,17 +282,23 @@ end
 function M.generate(ssa_result, source_ops, config)
     config = config or {}
     local g = ssa_result.graph
-    local info = analyze_graph(g, source_ops or ssa_result.source_ops or {})
+    source_ops = source_ops or ssa_result.source_ops or {}
+    local info = analyze_graph(g, source_ops)
 
     local lines = {}
     local function emit(s) lines[#lines + 1] = s end
 
-    -- Preamble
+    -- Header comments
     local nf = table.concat(ssa_result.normal_form or {}, "|")
-    local ops_str = table.concat(ssa_result.active_ops or {}, " ")
-    emit(string.format("/* SponJIT mono stencil  NF=%s  nops=%d/%d */", nf, info.n_absorbed, info.n_total))
-    emit(string.format("/* active: %s */", ops_str))
+    local opnames = {}
+    for _, op in ipairs(source_ops) do
+        opnames[#opnames + 1] = type(op) == "table" and op.op or tostring(op)
+    end
+    emit(string.format("/* SponJIT mono stencil  NF=%s  nops=%d/%d  opcodes=%s */",
+        nf, info.n_absorbed, info.n_total, table.concat(opnames, " ")))
     emit("")
+
+    -- Preamble
     emit(PUC_PREAMBLE)
     emit("")
 
@@ -281,31 +319,17 @@ function M.generate(ssa_result, source_ops, config)
             end
         end
     end
-
-    -- Declare slot pointer locals
-    for _, info_slot in pairs(info.slot_of_node) do
-        local vname = string.format("slot_%s", info_slot.name)
-        if not declared[vname] then
-            emit(string.format("    TValue *%s;", vname))
-            declared[vname] = true
-        end
-    end
     emit("")
 
-    -- Load instruction (first opcode)
-    local first_op = (source_ops or {})[1]
-    local first_opname = type(first_op) == "table" and first_op.op or "?"
-    emit(string.format("    Instruction ins = ctx->pc[0];  /* %s */", first_opname))
-    emit(string.format("    (void)ins;"))
-    emit("")
-
-    -- Early exit: if ctx->status != SJ_OK from a prior substencil miss, bail
-    emit("    if (ctx->status != SJ_OK) return;")
+    -- Add __builtin_expect hint for the status check
+    emit("    if (__builtin_expect(ctx->status != SJ_OK, 0)) return;")
     emit("")
 
     -- Emit nodes
-    for _, n in ipairs(g.nodes) do
-        if n.removed then goto continue end
+    local skip_nodes = {}
+    local forwarded = {}  -- boxed_value_vid -> raw_i64_expr_string
+    for idx, n in ipairs(g.nodes) do
+        if n.removed or skip_nodes[n.id] then goto continue end
         local op = n.op
         local args = n.args or {}
         local inputs = n.inputs or {}
@@ -313,44 +337,100 @@ function M.generate(ssa_result, source_ops, config)
         local indent = "    "
 
         if op == "FrameLoad" then
-            local slot_info = info.slot_of_node[n.id]
-            local sidx = slot_info and slot_info.idx or 0
-            local sname = slot_info and slot_info.name or "cur"
+            local ls = info.load_store_info[n.id]
+            local slot_expr = "0"
+            if ls then
+                slot_expr = ls.getarg
+            else
+                local slot_name = args.slot or "cur"
+                local sidx = tonumber(slot_name:match("^R(%d+)$")) or 0
+                slot_expr = tostring(sidx)
+            end
             local out_v = g.values[outputs[1]]
             local vn = var_name(out_v)
-            emit(string.format("%s%s = s2v(ctx->base + %d);  /* slot %s */", indent, vn, sidx, sname))
+            emit(string.format("%s%s = s2v(ctx->base + (%s));", indent, vn, slot_expr))
 
         elseif op == "FrameStore" then
-            local slot_info = info.slot_of_node[n.id]
-            local sidx = slot_info and slot_info.idx or 0
-            local sname = slot_info and slot_info.name or "cur"
+            local ls = info.load_store_info[n.id]
+            local slot_expr = "0"
+            if ls then
+                slot_expr = ls.getarg
+            else
+                local slot_name = args.slot or "cur"
+                local sidx = tonumber(slot_name:match("^R(%d+)$")) or 0
+                slot_expr = tostring(sidx)
+            end
             local vn = value_expr(g, inputs[1])
-            emit(string.format("%s*s2v(ctx->base + %d) = *%s;  /* slot %s */", indent, sidx, vn, sname))
+            emit(string.format("%s*s2v(ctx->base + (%s)) = *%s;", indent, slot_expr, vn))
 
         elseif op == "GuardTypeI64" then
             local vn = value_expr(g, inputs[1])
-            emit(string.format("%sif (!ttisinteger(%s)) { ctx->status = SJ_GUARD_FAIL; return; }", indent, vn))
+            emit(string.format("%sif (__builtin_expect(!ttisinteger(%s), 0)) { ctx->status = SJ_GUARD_FAIL; return; }", indent, vn))
 
         elseif op == "GuardTable" then
             local vn = value_expr(g, inputs[1])
-            emit(string.format("%sif (!ttistable(%s)) { ctx->status = SJ_GUARD_FAIL; return; }", indent, vn))
+            emit(string.format("%sif (__builtin_expect(!ttistable(%s), 0)) { ctx->status = SJ_GUARD_FAIL; return; }", indent, vn))
 
         elseif string.match(op, "^Guard") then
-            -- GuardShape, GuardMetatableAbsent, GuardCallTarget, GuardArrayHit, GuardBounds
-            emit(string.format("%s/* %s — unsupported, residualize */", indent, op))
+            emit(string.format("%s/* %s — unsupported */", indent, op))
             emit(string.format("%sctx->status = SJ_UNSUPPORTED; return;", indent))
 
         elseif op == "UnboxI64" then
             local vn = value_expr(g, inputs[1])
             local out_v = g.values[outputs[1]]
             local oname = var_name(out_v)
-            emit(string.format("%s%s = ivalue(%s);", indent, oname, vn))
+            -- If the boxed value was fused with its store, use raw value directly
+            local raw = forwarded[inputs[1]]
+            if raw then
+                emit(string.format("%s%s = %s;", indent, oname, raw))
+            else
+                emit(string.format("%s%s = ivalue(%s);", indent, oname, vn))
+            end
 
         elseif op == "BoxI64" then
             local in_v = value_expr(g, inputs[1])
             local out_v = g.values[outputs[1]]
             local oname = var_name(out_v)
-            emit(string.format("%ssetivalue(&ctx->scratch, %s); %s = &ctx->scratch;", indent, in_v, oname))
+            -- Check if the next active node is FrameStore consuming this value.
+            local store_slot_expr = nil
+            local store_id = nil
+            for j = idx + 1, #g.nodes do
+                local m = g.nodes[j]
+                if not m.removed then
+                    if m.op == "FrameStore" and m.inputs and m.inputs[1] == outputs[1] then
+                        store_id = m.id
+                        local ls = info.load_store_info[m.id]
+                        store_slot_expr = ls and ls.getarg or "0"
+                    end
+                    break
+                end
+            end
+            if store_slot_expr then
+                -- Fuse: direct field write. Keep scratch if other nodes consume the boxed value.
+                -- Check if any node other than FrameStore consumes this BoxI64 output
+                local has_other_consumer = false
+                for j = idx + 1, #g.nodes do
+                    local m = g.nodes[j]
+                    if not m.removed and m.id ~= store_id then
+                        for _, vid in ipairs(m.inputs or {}) do
+                            if vid == outputs[1] then has_other_consumer = true end
+                        end
+                        if has_other_consumer then break end
+                    end
+                end
+                if has_other_consumer then
+                    -- Need scratch for subsequent consumers (guards, etc.)
+                    emit(string.format("%ssetivalue(&ctx->scratch, %s); %s = &ctx->scratch;", indent, in_v, oname))
+                end
+                emit(string.format("%ss2v(ctx->base + (%s))->value_ = (unsigned long long)(%s);", indent, store_slot_expr, in_v))
+                emit(string.format("%ss2v(ctx->base + (%s))->tt_ = 3;", indent, store_slot_expr))
+                if outputs[1] then
+                    forwarded[outputs[1]] = in_v
+                end
+                skip_nodes[store_id] = true
+            else
+                emit(string.format("%ssetivalue(&ctx->scratch, %s); %s = &ctx->scratch;", indent, in_v, oname))
+            end
 
         elseif op == "AddI64" then
             local lhs = value_expr(g, inputs[1])
@@ -381,8 +461,19 @@ function M.generate(ssa_result, source_ops, config)
         elseif op == "ConstI64" then
             local out_v = g.values[outputs[1]]
             local oname = var_name(out_v)
+            -- Check if this came from an opcode with a runtime immediate field
+            local pc_info = info.node_to_pc[n.id]
+            if pc_info then
+                local imm_fmt = OPCODE_IMMEDIATE[pc_info.opcode]
+                if imm_fmt then
+                    emit(string.format("%s%s = %s;", indent, oname, string.format(imm_fmt, pc_info.op_idx)))
+                    goto handled
+                end
+            end
+            -- Fallback: use the decoded value from SSA
             local val = tonumber(args.value) or 0
             emit(string.format("%s%s = %dLL;", indent, oname, val))
+            ::handled::
 
         elseif op == "ConstNil" then
             local out_v = g.values[outputs[1]]
@@ -395,26 +486,22 @@ function M.generate(ssa_result, source_ops, config)
             emit(string.format("%sif (GET_OPCODE(ctx->pc[0]) == OP_LOADTRUE) setbtvalue(&ctx->scratch); else setbfvalue(&ctx->scratch); %s = &ctx->scratch;", indent, oname))
 
         elseif op == "Move" then
-            -- Value forwarding, usually eliminated by SSA. If present, copy pointer.
             local vn = value_expr(g, inputs[1])
             local out_v = g.values[outputs[1]]
             local oname = var_name(out_v)
             emit(string.format("%s%s = %s;", indent, oname, vn))
 
         elseif op == "Return1" or op == "Return0" or op == "Jump" or op == "Call" or op == "KnownCall" or op == "TailCall" then
-            -- Boundary: stop here. The interpreter handles this opcode.
             emit(string.format("%s/* boundary: %s — let interpreter handle it */", indent, op))
 
         elseif op == "Residual" then
-            emit(string.format("%s/* residual boundary */", indent))
             emit(string.format("%sctx->status = SJ_UNSUPPORTED; return;", indent))
 
         elseif op == "BarrierCheck" then
-            emit(string.format("%s/* barrier — unsupported */", indent))
             emit(string.format("%sctx->status = SJ_UNSUPPORTED; return;", indent))
 
         elseif op == "FieldLoad" or op == "FieldStore" or op == "ArrayLoad" or op == "ArrayStore" then
-            emit(string.format("%s/* %s — unsupported (table access) */", indent, op))
+            emit(string.format("%s/* %s — unsupported */", indent, op))
             emit(string.format("%sctx->status = SJ_UNSUPPORTED; return;", indent))
 
         else

@@ -131,7 +131,7 @@ local function pass_dead_frame_store(g)
             for j = i + 1, #g.nodes do
                 local m = g.nodes[j]
                 if m.removed then goto continue_dead end
-                if IR.HARD_BARRIER[m.op] or m.effect == "return_" or m.effect == "guard" then used = true; break end
+                if IR.HARD_BARRIER[m.op] or m.effect == "return_" or m.effect == "guard" or m.effect == "branch" then used = true; break end
                 if m.op == "FrameLoad" and tostring((m.args and m.args.slot) or "cur") == slot then used = true; break end
                 if m.op == "FrameStore" and tostring((m.args and m.args.slot) or "cur") == slot then break end
                 ::continue_dead::
