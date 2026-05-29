@@ -33,6 +33,12 @@ local function copy_array(xs)
     return out
 end
 
+local function copy_map(t)
+    local out = {}
+    for k, v in pairs(t or {}) do out[k] = v end
+    return out
+end
+
 local function budget_ok(g, config)
     config = config or {}
     local active = 0
@@ -55,9 +61,17 @@ local function active_node_specs(g)
     local out = {}
     for _, n in ipairs(g.nodes or {}) do
         if not n.removed then
-            local output_types = {}
+            local input_types, input_residencies = {}, {}
+            for _, v in ipairs(n.inputs or {}) do
+                local vv = g.values[v]
+                input_types[#input_types + 1] = vv and vv.ty or "Unknown"
+                input_residencies[#input_residencies + 1] = vv and vv.residency or false
+            end
+            local output_types, output_residencies = {}, {}
             for _, v in ipairs(n.outputs or {}) do
-                output_types[#output_types + 1] = g.values[v] and g.values[v].ty or "Unknown"
+                local vv = g.values[v]
+                output_types[#output_types + 1] = vv and vv.ty or "Unknown"
+                output_residencies[#output_residencies + 1] = vv and vv.residency or false
             end
             out[#out + 1] = {
                 op = n.op,
@@ -68,7 +82,14 @@ local function active_node_specs(g)
                 deps = n.deps or {},
                 inputs = n.inputs or {},
                 outputs = n.outputs or {},
+                input_types = input_types,
+                input_residencies = input_residencies,
                 output_types = output_types,
+                output_residencies = output_residencies,
+                source = n.source,
+                mem_in = copy_map(n.mem_in),
+                mem_out = copy_map(n.mem_out),
+                exit = n.exit and copy_map(n.exit) or nil,
             }
         end
     end

@@ -2,7 +2,9 @@
 
 **Type:** JIT architecture spine
 **Audience:** VM / C / assembly engineers
-**Status:** design; shadow validation in progress
+**Status:** design plus experimental PUC runtime prototype. This is not wired into
+the Moonlift interpreter VM in `src/`. Current runtime experiments live under
+`spongejit/puc/`; the current offline bank path uses semantic SSA → Stencil IR → C.
 
 SponJIT does not compile traces. It does not maintain a code cache of newly
 compiled artifacts. It does not run an optimizer. The runtime is a **bank selector**:
@@ -57,9 +59,9 @@ materialized from bank templates, not a recompilation.
 ```text
 Offline:
   the foundry enumerates bounded tile compositions,
-  consumes facts with SSA,
-  normalizes/dedupes semantic forms,
-  enumerates multimorphic fact-env unions where corpus pressure justifies them,
+  consumes facts with semantic SSA,
+  lowers to and dedupes hole-parametric Stencil IR shapes,
+  uses corpus/profile pressure to cap fact combinations and basis growth,
   and exports verified copy-and-patch tile templates as a read-only bank.
 
 Runtime:
@@ -69,7 +71,7 @@ Runtime:
   greedily select the largest / highest-score TileTemplates the current leases allow.
   copy-patch the tiles into a fresh image. atomically repoint active.
   on guard failure, record the exit fact delta and move the failed span down its
-  candidate ladder: weaker same-span tile -> multimorphic/generic same-span tile
+  candidate ladder: weaker same-span tile -> generic same-span tile
   -> split into lower-arity tiles -> L0 floor.
   because L0 is total, region cover replacement never misses.
 
@@ -93,7 +95,7 @@ It is the region's natural adaptive mesh:
 
 ```text
 coarse tiles where facts are stable,
-weaker or multimorphic tiles where facts alternate predictably,
+weaker/generic tiles where facts are unstable,
 fine tiles where only a small articulation point is polymorphic,
 L0 floor tiles where the bank has no useful specialization.
 ```
@@ -161,11 +163,10 @@ startup.
 Bank layout (sketch):
   header
     magic, version, target ABI, ISA flags
-    layer 0 directory  (raw-op tiles, arity 1..4; arity-1 is total)
-    layer 1 directory  (meta-tiles: arity 1..4 over L0 atoms)
-    layer 2 directory  (meta-tiles: arity 1..4 over L1 atoms)
-    layer 3 directory  (meta-tiles: arity 1..4 over L2 atoms)
-    multimorphic directory  (tiles enumerated over fact-env unions)
+    layer 0 directory  (raw-op tiles; total opcode floor)
+    layer 1 directory  (arity 2..4 compositions over L0)
+    layer 2 directory  (arity 2..4 compositions over L0 ∪ L1)
+    layer 3 directory  (further basis growth, only if measured useful)
   selector index
     key:   (pattern_hash, fact_signature)
     value: tile_id
@@ -192,24 +193,22 @@ for tile in candidates:
 
 A miss at one ladder level is not an error. It means the current span has no legal
 candidate under the local leases and penalties. The runtime then tries a weaker
-same-span candidate, then the tile's lower-layer child cover, and finally L0
-arity-1. There is fallback search over the finite bank; there is no cache promotion,
+same-span candidate, then the tile's lower-layer child cover, and finally L0.
+There is fallback search over the finite bank; there is no cache promotion,
 no synthesis, and no code generation.
 
 ### 2.1 Layered bank, single active selection
 
-The bank is layered by **recursive composition depth**, not by raw opcode arity.
-The arity limit is always 1..4. What changes per layer is the atom being composed:
-raw PUC opcode at L0, selected L0 atom at L1, selected L1 atom at L2, and so on.
-A separate directory may hold multimorphic tiles (§7).
+The bank is layered by **basis-growth depth**, not by raw opcode arity. L0 is the
+raw opcode floor. L1 composes short phrases over L0. L2 composes short phrases over
+the accumulated `L0 ∪ L1` basis. No separate special tile directory is assumed.
 
 ```text
 bank layers      (built by foundry, indexed offline)
-  L0  arity 1..4 over raw PUC opcodes; arity-1 is total and forms the floor
-  L1  arity 1..4 over L0 atoms       (up to 16 raw ops)
-  L2  arity 1..4 over L1 atoms       (up to 64 raw ops)
-  L3  arity 1..4 over L2 atoms       (up to 256 raw ops)
-  Lm  multimorphic fact-env unions   (§7)
+  L0  one raw PUC opcode; total and forms the floor
+  L1  arity 2..4 over L0                  (up to 4 raw ops)
+  L2  arity 2..4 over L0 ∪ L1             (up to ~16 raw ops)
+  L3  repeat over accumulated basis only if measurements justify it
 
 runtime image   (one per region, built by selection)
   a sequence of tiles/meta-tiles, each drawn from some bank layer,
@@ -218,11 +217,11 @@ runtime image   (one per region, built by selection)
 
 The runtime does not run four layers at once for a PC. It selects one cover. On a
 higher-layer tile exit, replacement descends to weaker same-span candidates or to
-that tile's child metaops; descent can repeat until L0 arity-1, which is total.
+smaller child covers; descent can repeat until L0, which is total.
 
 A region's active image is a heterogeneous sequence: a stretch of hot stable
 arithmetic might be covered by an L3 tile, an adjacent call boundary might fall to an
-L0 tile, an articulation between them might land on a multimorphic tile, the rest of
+L0 tile, an articulation between them might land on a generic/specialized tile, the rest of
 the function might stay at L0. The cover is what the bank can supply for the
 observed facts at each PC, no more.
 
@@ -431,7 +430,7 @@ no cache eviction (there is no cache)
 
 The cover the runtime produces is whatever the bank supplies for the observed
 signatures. If the bank's coverage is poor, the image is mostly L0. If the bank's
-coverage is rich, the image is mostly L2/L3/Lm. The runtime does not invent.
+coverage is rich, the image is mostly higher-basis tiles. The runtime does not invent.
 
 ---
 
@@ -518,23 +517,20 @@ a weaker candidate, a smaller cover, or the L0 floor.
 The traditional megamorphic response is to coarsen the signature: instead of
 specializing on each shape, specialize on "anything with this field at this offset"
 or "any numeric kind". In SponJIT this coarsening is a foundry-time tile-shape
-decision (multimorphic tiles, §7). The runtime does not coarsen on the fly. It
+decision. The runtime does not coarsen on the fly. It
 either finds a tile or doesn't.
 
 ```text
-foundry knows from corpus pressure: PC X often sees shapes {S1, S2, S3}.
-foundry enumerates: a multimorphic tile that branches internally on shape.
-foundry ships: that tile in the bank's multimorphic directory.
-runtime observes: shapes S1..S3 at PC X.
-runtime canonicalizes: signature = multimorphic-{S1,S2,S3}.
-runtime selects: the multimorphic tile.
+foundry sees from profile pressure: PC X often benefits from shape/table facts.
+foundry keeps ordinary fact-specialized variants if they pass budget/usefulness caps.
+runtime observes the current fact signature at PC X.
+runtime selects the best ordinary bank tile for that signature.
 done.
 
-if instead foundry never saw {S1,S2,S3} together:
-  runtime canonicalizes: signature = mixed-shape (unknown).
+if the current bank does not cover that signature:
   same-span specialized lookup misses.
   selector walks to weaker/generic same-span candidates, then smaller tiles, then L0.
-  the miss is logged. next foundry training run may add a better tile.
+  the miss is logged. next foundry run may cap facts differently or add a better tile.
 ```
 
 This is why the runtime can be so simple: every code shape is precomputed, and the
@@ -542,92 +538,18 @@ live response is only ladder descent over that finite vocabulary.
 
 ---
 
-## 7. Multimorphism is foundry-side
+## 7. Fact-space capping is foundry-side
 
-A PC that sees multiple stable signatures is not a runtime cache problem in
-SponJIT. It is a tile-shape problem solved offline.
-
-```text
-observed runtime pattern at PC X:
-  iteration 1: signature S1
-  iteration 2: signature S2
-  iteration 3: signature S1
-  iteration 4: signature S2
-  ...
-
-old (cache-based) response:
-  cache two monomorphic images, one for S1 and one for S2,
-  dispatch by per-iteration signature canonicalization.
-
-SponJIT response:
-  foundry enumerates a multimorphic tile T_{S1∨S2} with an internal branch
-    on a cheap discriminator (tag bits, shape epoch, call target id).
-  bank holds T_{S1∨S2} once.
-  runtime selects T_{S1∨S2}; the per-iteration branch lives inside the tile,
-    compiled by GCC, with both arms specialized for their respective signatures.
-```
-
-The runtime never sees "two signatures at one PC". It sees one multimorphic signature
-("any of {S1, S2}") and selects one tile.
-
-### 7.1 What the foundry enumerates
-
-The foundry does not enumerate every possible fact-env union — that is
-combinatorial. It enumerates unions that **the training corpus observed**:
+The runtime does not maintain a polymorphic cache and does not route through a
+special tile class. If a fact signature is not covered by the current bank, the
+selector walks to a weaker/generic tile or the L0 floor. Profile data from such
+misses can guide a later foundry build: cap facts differently, keep different
+variants, or grow the basis if measurements justify it.
 
 ```text
-corpus pressure data from AWFY + Moonlift (and any added workload):
-  per PC, distribution of observed signatures across runs.
-
-union enumeration policy:
-  if a PC's top-K signatures cluster (e.g. top-2 covers > 90%):
-      enumerate a multimorphic tile for the union of those K signatures.
-  if a PC's signatures are flat-distributed across many shapes:
-      no multimorphic tile. PC will fall to floor at runtime for that signature.
+runtime: observe facts -> select ordinary bank tile -> copy/patch -> execute
+foundry: use profile pressure to decide which fact combos and basis tiles to ship
 ```
-
-This keeps the bank's multimorphic directory bounded. The foundry only builds
-multimorphic tiles for unions the world actually exhibits.
-
-### 7.2 What multimorphic tiles look like inside
-
-A multimorphic tile is a single fused tile with an internal discriminator. The
-discriminator is the cheapest test that separates the union's arms — usually a
-single load + compare against an immediate or a small switch:
-
-```text
-multimorphic ADD over {i64, f64}:
-  load tag of lhs
-  jump-table or compare-branch
-    arm i64:  unboxed i64 add path
-    arm f64:  unboxed f64 add path
-    exit:     residual (state projection to floor)
-  store result
-```
-
-The discriminator is a few cycles. The arms are as specialized as their monomorphic
-counterparts would be. GCC compiled the whole thing in one go; the branch predictor
-sees a consistent pattern (one arm dominates per call site over a given window).
-
-From the runtime's perspective the tile is one selection, one swap, no cache lookup
-per iteration. The polymorphism is internal to the compiled code.
-
-### 7.3 Megamorphism is "no multimorphic tile available"
-
-When a PC sees so many signatures that no multimorphic tile in the bank covers them,
-the runtime falls to the floor for that PC. The foundry's selection cap is what
-draws the line; the runtime does not need to compute it.
-
-```text
-{S1, S2}     -> multimorphic tile in bank, runtime uses it.
-{S1, S2, S3} -> if foundry enumerated this union, runtime uses it; else floor.
-{S1..S20}    -> almost certainly not in bank, runtime stays on floor.
-```
-
-Megamorphic regions execute correctly on the floor. They are slow, but they are
-slow at the rate of the L0 baseline, not the interpreter's worst case.
-
----
 
 ## 8. Execution lifecycle
 
@@ -861,7 +783,7 @@ LuaJIT:
 SponJIT:
   region -> floor + (eventually) selected active image
   exit -> demote to floor + log fact delta
-  polymorphism becomes a multimorphic tile in the bank, selected as one tile
+  instability becomes weaker/generic selection now and profile-guided bank changes later
   runtime pays selection + copy/patch
   invalidation: atomic store of region.active = floor. drain. free.
 ```
@@ -907,7 +829,7 @@ runtime measurements:
 offline analysis measurements:
   bank coverage of corpus signatures
   bank size vs cycles saved
-  multimorphic tile hit rate (do enumerated unions match observed unions?)
+  fact-cap hit rate (do shipped fact variants match observed signatures?)
   signatures that occur often but are not covered (training gaps)
 ```
 
@@ -964,14 +886,11 @@ correct, just not better than its L0 layer would suggest.
 - local reselection by candidate ladder; whole-image rebuild with local replacement
 ```
 
-### Phase 4 — multimorphism
+### Phase 4 — fact metrics and caps
 
-```text
-- multimorphic directory in bank
-- internal-branch discriminator scheme
-- multimorphic signature canonicalization at runtime
-- foundry-side union enumeration policy
-```
+- record fact signatures that cause misses/exits
+- feed aggregate pressure into the next foundry run
+- adjust fact-combo caps and basis-growth candidates offline
 
 ### Phase 5 — exit log
 
@@ -999,7 +918,7 @@ SponJIT is:
 
 ```text
 a two-pointer adaptive selector over a precomputed bank of fused copy-and-patch
-tile templates, with the foundry handling enumeration, optimization, multimorphism,
+tile templates, with the foundry handling enumeration, optimization, fact capping,
 and selection caps offline.
 ```
 

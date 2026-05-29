@@ -604,7 +604,9 @@ region dispatch_instruction(
     resume_parent: cont(parent: ptr(Frame), pc: index, base: index, top: index,
                         code: ptr(Instr), constants: ptr(Value)),
     enter_lua: cont(child: ptr(Frame)),
-    enter_native: cont(cl: ptr(CClosure)),
+    enter_native: cont(cl: ptr(CClosure), func_slot: index,
+                       nargs: i32, wanted: i32,
+                       result_base: index, resume_mode: u16),
     returned: cont(nres: i32),
     yielded: cont(nres: i32),
     error: cont(code: i32),
@@ -628,14 +630,20 @@ block cont_jump(frame: ptr(Frame), pc: index, base: index, top: index)
                  code = cur_code, constants = cur_consts)
 end
 block cont_resume(parent: ptr(Frame), pc: index, base: index, top: index)
+    -- cur_code/cur_consts may belong to the returning child frame. vm_loop
+    -- must reload cached proto pointers when this continuation switches frames.
     jump resume_parent(parent = parent, pc = pc, base = base, top = top,
                        code = cur_code, constants = cur_consts)
 end
 block cont_enter_lua(child: ptr(Frame))
     jump enter_lua(child = child)
 end
-block cont_enter_native(cl: ptr(CClosure))
-    jump enter_native(cl = cl)
+block cont_enter_native(cl: ptr(CClosure), func_slot: index,
+                        nargs: i32, wanted: i32,
+                        result_base: index, resume_mode: u16)
+    jump enter_native(cl = cl, func_slot = func_slot, nargs = nargs,
+                      wanted = wanted, result_base = result_base,
+                      resume_mode = resume_mode)
 end
 block cont_returned(nres: i32)
     jump returned(nres = nres)

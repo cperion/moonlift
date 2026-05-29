@@ -1,34 +1,24 @@
-# SponJIT bank pipeline
+# SponJIT native-fragment foundation
 #
-# Current build path:
-#   make stencils  -> build/cp_lib/stencils.o + stencil_library.json
-#   make bank      -> build/cp_lib/libsponbank.so
-#   make puc-build -> patched PUC Lua linked against libsponbank.so
+# The legacy C-function stencil/tile bank pipeline has been removed. Maintained
+# build artifacts are abstract native-fragment metadata emitted by src/worker_compile.lua
+# from pre-split grammar chunks.
 
 SPONGEJIT := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
 SPONGEJIT := $(SPONGEJIT:%/=%)
 ROOT := $(SPONGEJIT)/../..
 LUA := luajit
 
-.PHONY: all pipeline stencils bank puc-build puc-bench clean
+.PHONY: all test clean
 
-all: pipeline
+all: test
 
-pipeline:
-	cd $(SPONGEJIT) && ./build_pipeline.sh
-
-stencils:
-	cd $(SPONGEJIT) && ./build_stencils.sh
-
-bank: stencils
-	cd $(SPONGEJIT) && ./build_bank.sh
-
-puc-build: bank
-	cd $(ROOT) && $(LUA) $(SPONGEJIT)/puc/build_puc_sponjit.lua
-
-puc-bench: puc-build
-	cd $(ROOT) && $(LUA) $(SPONGEJIT)/puc/bench_sponbank_puc.lua $${PUC_BENCH_ARGS:-}
+test:
+	cd $(ROOT)/.. && $(LUA) experiments/lua_interpreter_vm/tests/test_spongejit_real_ssa.lua
+	cd $(ROOT)/.. && $(LUA) experiments/lua_interpreter_vm/tests/test_spongejit_fragment_ir.lua
+	cd $(ROOT)/.. && $(LUA) experiments/lua_interpreter_vm/tests/test_spongejit_fragment_projection.lua
+	cd $(ROOT)/.. && $(LUA) experiments/lua_interpreter_vm/tests/test_spongejit_stencil_to_fragment.lua
+	cd $(ROOT)/.. && $(LUA) experiments/lua_interpreter_vm/tests/test_spongejit_retirement.lua
 
 clean:
 	rm -rf $(SPONGEJIT)/build
-	mkdir -p $(SPONGEJIT)/build/cp_lib

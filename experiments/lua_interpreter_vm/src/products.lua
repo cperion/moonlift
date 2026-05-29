@@ -39,7 +39,8 @@ local UpVal = host.struct [[struct UpVal gc: GCHeader; v: ptr(Value); closed: Va
 local LClosure = host.struct [[struct LClosure gc: GCHeader; env: ptr(Table); proto: ptr(Proto); upvals: ptr(ptr(UpVal)); nupvals: u8 end]]
 
 -- 12. Native function descriptor
-local NativeFunc = host.struct [[struct NativeFunc addr: ptr(u8); flags: u32 end]]
+local NativeFunc = host.struct [[struct NativeFunc abi_version: u32; flags: u32; addr: ptr(u8); name: ptr(String) end]]
+local NativeCallResult = host.struct [[struct NativeCallResult status: u8; nresults: i32; err: Value; continuation: ptr(u8) end]]
 
 -- 13. C closure (native function with upvalues)
 local CClosure = host.struct [[struct CClosure gc: GCHeader; env: ptr(Table); fn: ptr(NativeFunc); upvals: ptr(Value); nupvals: u8 end]]
@@ -59,23 +60,23 @@ local DebugInfo = host.struct [[struct DebugInfo event: i32; name: ptr(String); 
 -- 18. ApiIndex (decoded stack index)
 local ApiIndex = host.struct [[struct ApiIndex absolute: index end]]
 
--- 19. Allocator (opaque C type)
-local Allocator = host.struct [[struct Allocator _opaque: ptr(u8) end]]
+-- 19. Allocator hook table
+local Allocator = host.struct [[struct Allocator abi_version: u32; flags: u32; userdata: ptr(u8); alloc: ptr(u8); realloc: ptr(u8); free: ptr(u8) end]]
 
 -- 19. Protected frame (replaces setjmp)
-local ProtectedFrame = host.struct [[struct ProtectedFrame frame_index: index; stack_top: index; handler_slot: index; errfunc_slot: index; previous: ptr(ProtectedFrame) end]]
+local ProtectedFrame = host.struct [[struct ProtectedFrame status: u8; flags: u8; resume_mode: u16; saved_frame_count: index; frame_index: index; stack_top: index; handler_slot: index; errfunc_slot: index; previous: ptr(ProtectedFrame) end]]
 
 -- 20. Call frame
-local Frame = host.struct [[struct Frame closure: Value; base: index; top: index; pc: index; wanted: i32; tailcalls: i32; resume_mode: u16; resume_a: u16; resume_b: u16; resume_c: u16; resume_pc: index; resume_base: index; resume_value: Value end]]
+local Frame = host.struct [[struct Frame closure: Value; base: index; top: index; pc: index; wanted: i32; tailcalls: i32; resume_mode: u16; resume_a: u16; resume_b: u16; resume_c: u16; resume_pc: index; resume_base: index; resume_value: Value; result_base: index; call_top: index; yieldable: u8; flags: u8; reserved: u16 end]]
 
 -- 21. String table (hash buckets)
 local StringTable = host.struct [[struct StringTable buckets: ptr(ptr(String)); bucket_count: index; nuse: index end]]
 
 -- 22. Global VM state
-local GlobalState = host.struct [[struct GlobalState allocator: ptr(Allocator); registry: Value; mainthread: ptr(LuaThread); allgc: ptr(GCHeader); gray: ptr(GCHeader); grayagain: ptr(GCHeader); weak: ptr(GCHeader); tmudata: ptr(GCHeader); string_table: ptr(StringTable); tmname: ptr(ptr(String)); currentwhite: u8; gcstate: u8; sweep_cursor: ptr(ptr(GCHeader)); totalbytes: index; estimate: index; threshold: index; gcdebt: index; gcpause: i32; gcstepmul: i32; panic: Value end]]
+local GlobalState = host.struct [[struct GlobalState allocator: ptr(Allocator); registry: Value; mainthread: ptr(LuaThread); allgc: ptr(GCHeader); gray: ptr(GCHeader); grayagain: ptr(GCHeader); weak: ptr(GCHeader); tmudata: ptr(GCHeader); string_table: ptr(StringTable); tmname: ptr(ptr(String)); currentwhite: u8; gcstate: u8; sweep_cursor: ptr(ptr(GCHeader)); totalbytes: index; estimate: index; threshold: index; gcdebt: index; gcpause: i32; gcstepmul: i32; panic: Value; vm_abi_version: u32; native_abi_version: u32 end]]
 
 -- 23. Lua thread (coroutine)
-local LuaThread = host.struct [[struct LuaThread gc: GCHeader; status: u8; stack: ptr(Value); stack_size: index; top: index; frames: ptr(Frame); frame_count: index; frame_cap: index; open_upvals: ptr(UpVal); protected_top: ptr(ProtectedFrame); global: ptr(GlobalState); err_value: Value; hookmask: u8; allowhook: u8; hookcount: i32; basehookcount: i32; hook: Value; tbc_head: index end]]
+local LuaThread = host.struct [[struct LuaThread gc: GCHeader; status: u8; stack: ptr(Value); stack_size: index; top: index; frames: ptr(Frame); frame_count: index; frame_cap: index; open_upvals: ptr(UpVal); protected_top: ptr(ProtectedFrame); global: ptr(GlobalState); err_value: Value; hookmask: u8; allowhook: u8; hookcount: i32; basehookcount: i32; hook: Value; tbc_head: index; yieldable: i32; nonyieldable: i32; last_error_code: i32; flags: u32 end]]
 
 -- NOTE: LuaThread references GlobalState (ptr) and GlobalState references LuaThread (ptr).
 -- This circularity works because both are pointer types — no forward declaration needed
@@ -94,6 +95,7 @@ return {
     UpVal = UpVal,
     LClosure = LClosure,
     NativeFunc = NativeFunc,
+    NativeCallResult = NativeCallResult,
     CClosure = CClosure,
     UserData = UserData,
     InlineCache = InlineCache,

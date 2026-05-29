@@ -191,6 +191,7 @@ function Graph:guard(subject, fact, op, pc)
     end
     return self:add(guard_op, {
         inputs = { subject },
+        source = pc,
         effect = "guard",
         guard = { fact = fact, key = Facts.guard_key(fact) },
         exit = self:exit_projection("guard:" .. tostring(fact.predicate), pc),

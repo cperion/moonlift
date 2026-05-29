@@ -141,13 +141,13 @@ function M.lower(ssa_result_or_graph, source_ops, config)
     if not vid then return nil end
     if not vmap[vid] then
       local vv = g.values and g.values[vid]
-      vmap[vid] = st:new_value(vv and vv.ty or "Unknown", vid)
+      vmap[vid] = st:new_value(vv and vv.ty or "Unknown", vid, vv and vv.residency, vv and vv.facts)
     end
     return vmap[vid]
   end
   local function new_output(vid)
     local vv = g.values and g.values[vid]
-    local out = st:new_value(vv and vv.ty or "Unknown", vid)
+    local out = st:new_value(vv and vv.ty or "Unknown", vid, vv and vv.residency, vv and vv.facts)
     vmap[vid] = out
     return out
   end
@@ -195,29 +195,23 @@ function M.lower(ssa_result_or_graph, source_ops, config)
       end
 
     elseif op == "GuardTypeI64" then
-      local fh = st:hole({ role_kind = "fail", role = "fail", op_idx = math.max(0, pc - 1), ty = "exit", key = "fail:" .. tostring(pc) .. ":i64" })
-      st:add("GuardI64", { inputs = ins, source = pc, hole = fh, guard = canonical_guard(n.guard), deps = n.deps, exit = n.exit, effect = "guard" })
+      st:add("GuardI64", { inputs = ins, source = pc, guard = canonical_guard(n.guard), deps = n.deps, exit = n.exit, effect = "guard" })
     elseif op == "GuardTable" then
-      local fh = st:hole({ role_kind = "fail", role = "fail", op_idx = math.max(0, pc - 1), ty = "exit", key = "fail:" .. tostring(pc) .. ":table" })
-      st:add("GuardTable", { inputs = ins, source = pc, hole = fh, guard = canonical_guard(n.guard), deps = n.deps, exit = n.exit, effect = "guard" })
+      st:add("GuardTable", { inputs = ins, source = pc, guard = canonical_guard(n.guard), deps = n.deps, exit = n.exit, effect = "guard" })
     elseif op == "GuardShape" then
       local off = st:hole({ role_kind = "shape_offset", role = "shape_offset", op_idx = 0, ty = "offset", patchable = false, semantic = true })
       local sid = st:hole({ role_kind = "shape_id", role = "shape_id", op_idx = 0, ty = "u32", patchable = false, semantic = true })
-      local fh = st:hole({ role_kind = "fail", role = "fail", op_idx = math.max(0, pc - 1), ty = "exit", key = "fail:" .. tostring(pc) .. ":shape" })
-      st:add("GuardShape", { inputs = ins, source = pc, hole = fh, guard = canonical_guard(n.guard), deps = n.deps, exit = n.exit, effect = "guard", args = { shape_offset = off.id, shape_id = sid.id } })
+      st:add("GuardShape", { inputs = ins, source = pc, guard = canonical_guard(n.guard), deps = n.deps, exit = n.exit, effect = "guard", args = { shape_offset = off.id, shape_id = sid.id } })
     elseif op == "GuardMetatableAbsent" then
       local off = st:hole({ role_kind = "metatable_offset", role = "metatable_offset", op_idx = 0, ty = "offset", patchable = false, semantic = true })
-      local fh = st:hole({ role_kind = "fail", role = "fail", op_idx = math.max(0, pc - 1), ty = "exit", key = "fail:" .. tostring(pc) .. ":mt" })
-      st:add("GuardMetatableAbsent", { inputs = ins, source = pc, hole = fh, guard = canonical_guard(n.guard), deps = n.deps, exit = n.exit, effect = "guard", args = { metatable_offset = off.id } })
+      st:add("GuardMetatableAbsent", { inputs = ins, source = pc, guard = canonical_guard(n.guard), deps = n.deps, exit = n.exit, effect = "guard", args = { metatable_offset = off.id } })
     elseif op == "GuardArrayHit" then
       st:add("GuardArrayHit", { inputs = ins, source = pc, guard = canonical_guard(n.guard), deps = n.deps, exit = n.exit, effect = "guard" })
     elseif op == "GuardBounds" then
-      local fh = st:hole({ role_kind = "fail", role = "fail", op_idx = math.max(0, pc - 1), ty = "exit", key = "fail:" .. tostring(pc) .. ":bounds" })
-      st:add("GuardBounds", { inputs = ins, source = pc, hole = fh, guard = canonical_guard(n.guard), deps = n.deps, exit = n.exit, effect = "guard" })
+      st:add("GuardBounds", { inputs = ins, source = pc, guard = canonical_guard(n.guard), deps = n.deps, exit = n.exit, effect = "guard" })
     elseif op == "GuardCallTarget" then
       local target = st:hole({ role_kind = "call_target", role = "call_target", op_idx = 0, ty = "ptr", patchable = false, semantic = true })
-      local fh = st:hole({ role_kind = "fail", role = "fail", op_idx = math.max(0, pc - 1), ty = "exit", key = "fail:" .. tostring(pc) .. ":call" })
-      st:add("GuardCallTarget", { inputs = ins, source = pc, hole = fh, guard = canonical_guard(n.guard), deps = n.deps, exit = n.exit, effect = "guard", args = { call_target = target.id } })
+      st:add("GuardCallTarget", { inputs = ins, source = pc, guard = canonical_guard(n.guard), deps = n.deps, exit = n.exit, effect = "guard", args = { call_target = target.id } })
 
     elseif op == "ConstI64" then
       local rk, role = const_role_for_source(source_ops, pc, args)
@@ -254,17 +248,11 @@ function M.lower(ssa_result_or_graph, source_ops, config)
       local h = st:hole({ role_kind = "barrier", role = "barrier", op_idx = math.max(0, pc - 1), ty = "bool", patchable = false, semantic = true })
       st:add("BarrierCheck", { inputs = ins, source = pc, hole = h, exit = n.exit, effect = "gc_barrier" })
     elseif op == "GenericExit" or op == "Residual" then
-      local role = "exit_" .. tostring(args.opcode or op)
-      local h = st:hole({ role_kind = "exit", role = role, op_idx = math.max(0, pc - 1), ty = "exit", key = role .. ":" .. tostring(pc) })
-      st:add("ExitResidual", { inputs = ins, source = pc, hole = h, args = args, exit = n.exit, effect = "residual" })
+      st:add("ExitResidual", { inputs = ins, source = pc, args = args, exit = n.exit, effect = "residual" })
     elseif op == "Jump" or op == "Return1" or op == "Return0" or op == "Call" or op == "KnownCall" or op == "TailCall" then
-      local role = "exit_" .. tostring(op)
-      local h = st:hole({ role_kind = "exit", role = role, op_idx = math.max(0, pc - 1), ty = "exit", key = role .. ":" .. tostring(pc) })
-      st:add("ExitBoundary", { inputs = ins, source = pc, hole = h, args = { op = op }, exit = n.exit, effect = n.effect or "return" })
+      st:add("ExitBoundary", { inputs = ins, source = pc, args = { op = op }, exit = n.exit, effect = n.effect or "return" })
     else
-      local role = "unlowered_" .. tostring(op)
-      local h = st:hole({ role_kind = "exit", role = role, op_idx = math.max(0, pc - 1), ty = "exit", key = role .. ":" .. tostring(pc) })
-      st:add("ExitUnlowered", { inputs = ins, source = pc, hole = h, args = { op = op }, exit = n.exit, effect = "residual" })
+      st:add("ExitUnlowered", { inputs = ins, source = pc, args = { op = op }, exit = n.exit, effect = "residual" })
     end
     ::continue::
   end

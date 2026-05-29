@@ -3,6 +3,7 @@
 local vm = {}
 
 vm.const = require("experiments.lua_interpreter_vm.src.constants")
+vm.contract = require("experiments.lua_interpreter_vm.src.contract")
 vm.parser_const = require("experiments.lua_interpreter_vm.src.parser_constants")
 vm.products = require("experiments.lua_interpreter_vm.src.products")
 vm.parser_products = require("experiments.lua_interpreter_vm.src.parser_products")

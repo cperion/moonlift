@@ -21,19 +21,21 @@ local H = "L: ptr(LuaThread), frame: ptr(Frame), pc: index, base: index, top: in
 
 -- Shared continuation strings
 local next_only = "\n               next: cont(frame: ptr(Frame), pc: index, base: index, top: index)"
+local NATIVE_CONT = "enter_native: cont(cl: ptr(CClosure), func_slot: index, nargs: i32, wanted: i32, result_base: index, resume_mode: u16)"
 local TABLE_CONTS = [[
 next: cont(frame: ptr(Frame), pc: index, base: index, top: index),
                enter_lua: cont(child: ptr(Frame)),
-               enter_native: cont(cl: ptr(CClosure)),
+               enter_native: cont(cl: ptr(CClosure), func_slot: index, nargs: i32, wanted: i32, result_base: index, resume_mode: u16),
                yielded: cont(nres: i32),
                error: cont(code: i32),
                oom: cont()]]
 local TABLE_GET_MM_BLOCKS = [[
 block do_mm(mm: Value, self: Value, key: Value)
-    L.stack[base] = mm
-    L.stack[base + 1] = self
-    L.stack[base + 2] = key
-    emit prepare_call(L, base, 2, 1, as(u16, @{RESUME_GETTABLE_MM});
+    let scratch: index = top
+    L.stack[scratch] = mm
+    L.stack[scratch + 1] = self
+    L.stack[scratch + 2] = key
+    emit prepare_call(L, scratch, 2, 1, as(u16, @{RESUME_GETTABLE_MM}), pc, scratch, top, as(u8, 1);
         enter_lua = do_lua,
         enter_native = do_native,
         returned = mm_returned,
@@ -46,11 +48,12 @@ block do_lua(child: ptr(Frame))
     child.resume_pc = pc
     jump enter_lua(child = child)
 end
-block do_native(cl: ptr(CClosure))
-    jump enter_native(cl = cl)
+block do_native(cl: ptr(CClosure), func_slot: index, nargs: i32, wanted: i32, result_base: index, resume_mode: u16)
+    jump enter_native(cl = cl, func_slot = func_slot, nargs = nargs, wanted = wanted, result_base = result_base, resume_mode = resume_mode)
 end
 block mm_returned(nres: i32)
-    let v: Value = L.stack[base]
+    let scratch: index = top
+    let v: Value = L.stack[scratch]
     L.stack[base + as(index, a)] = v
     jump next(frame = frame, pc = pc + 1, base = base, top = top)
 end
@@ -72,11 +75,12 @@ end
 ]]
 local TABLE_SET_MM_BLOCKS = [[
 block do_mm(mm: Value, self: Value, key: Value, value: Value)
-    L.stack[base] = mm
-    L.stack[base + 1] = self
-    L.stack[base + 2] = key
-    L.stack[base + 3] = value
-    emit prepare_call(L, base, 3, 0, as(u16, @{RESUME_SETTABLE_MM});
+    let scratch: index = top
+    L.stack[scratch] = mm
+    L.stack[scratch + 1] = self
+    L.stack[scratch + 2] = key
+    L.stack[scratch + 3] = value
+    emit prepare_call(L, scratch, 3, 0, as(u16, @{RESUME_SETTABLE_MM}), pc, scratch, top, as(u8, 1);
         enter_lua = do_lua,
         enter_native = do_native,
         returned = mm_returned,
@@ -89,8 +93,8 @@ block do_lua(child: ptr(Frame))
     child.resume_pc = pc
     jump enter_lua(child = child)
 end
-block do_native(cl: ptr(CClosure))
-    jump enter_native(cl = cl)
+block do_native(cl: ptr(CClosure), func_slot: index, nargs: i32, wanted: i32, result_base: index, resume_mode: u16)
+    jump enter_native(cl = cl, func_slot = func_slot, nargs = nargs, wanted = wanted, result_base = result_base, resume_mode = resume_mode)
 end
 block mm_returned(nres: i32)
     jump next(frame = frame, pc = pc + 1, base = base, top = top)
@@ -115,14 +119,14 @@ local CMP_CONTS = [[
 next: cont(frame: ptr(Frame), pc: index, base: index, top: index),
                do_jump: cont(frame: ptr(Frame), pc: index, base: index, top: index),
                enter_lua: cont(child: ptr(Frame)),
-               enter_native: cont(cl: ptr(CClosure)),
+               enter_native: cont(cl: ptr(CClosure), func_slot: index, nargs: i32, wanted: i32, result_base: index, resume_mode: u16),
                yielded: cont(nres: i32),
                error: cont(code: i32),
                oom: cont()]]
 local CALL_CONTS = [[
 next: cont(frame: ptr(Frame), pc: index, base: index, top: index),
                enter_lua: cont(child: ptr(Frame)),
-               enter_native: cont(cl: ptr(CClosure)),
+               enter_native: cont(cl: ptr(CClosure), func_slot: index, nargs: i32, wanted: i32, result_base: index, resume_mode: u16),
                yielded: cont(nres: i32),
                error: cont(code: i32),
                oom: cont()]]
@@ -131,13 +135,14 @@ resume_parent: cont(parent: ptr(Frame), pc: index, base: index, top: index),
                  finished: cont(nres: i32),
                  error: cont(code: i32),
                  oom: cont()]]
-local MMBIN_CONTS = "enter_lua: cont(child: ptr(Frame)),\n               enter_native: cont(cl: ptr(CClosure)),\n               yielded: cont(nres: i32),\n               error: cont(code: i32),\n               oom: cont()"
+local MMBIN_CONTS = "enter_lua: cont(child: ptr(Frame)),\n               enter_native: cont(cl: ptr(CClosure), func_slot: index, nargs: i32, wanted: i32, result_base: index, resume_mode: u16),\n               yielded: cont(nres: i32),\n               error: cont(code: i32),\n               oom: cont()"
 local STUB_CALL_CONTS = TABLE_CONTS
 
 local ARITH_CONT = "next: cont(frame: ptr(Frame), pc: index, base: index, top: index),\n               error: cont(code: i32)"
 
 return {
     VALS = VALS, R = R, H = H,
+    NATIVE_CONT = NATIVE_CONT,
     next_only = next_only,
     TABLE_CONTS = TABLE_CONTS,
     TABLE_GET_MM_BLOCKS = TABLE_GET_MM_BLOCKS,

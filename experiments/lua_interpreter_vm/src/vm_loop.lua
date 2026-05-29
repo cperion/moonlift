@@ -112,7 +112,11 @@ block cont_jump(frame: ptr(Frame), pc: index, base: index, top: index,
 end
 block cont_resume_parent(parent: ptr(Frame), pc: index, base: index, top: index,
                          code: ptr(Instr), constants: ptr(Value))
-    jump loop(frame = parent, pc = pc, base = base, top = top, code = code, constants = constants)
+    let cl: ptr(LClosure) = as(ptr(LClosure), parent.closure.bits)
+    let parent_code: ptr(Instr) = cl.proto.code
+    let parent_constants: ptr(Value) = cl.proto.constants
+    jump loop(frame = parent, pc = pc, base = base, top = top,
+              code = parent_code, constants = parent_constants)
 end
 block do_lua(child: ptr(Frame))
     let cl: ptr(LClosure) = as(ptr(LClosure), child.closure.bits)
@@ -121,10 +125,8 @@ block do_lua(child: ptr(Frame))
     jump loop(frame = child, pc = child.pc, base = child.base, top = child.top,
               code = code, constants = constants)
 end
-block do_native(cl: ptr(CClosure))
-    let frame: ptr(Frame) = L.frames + (L.frame_count - 1)
-    let nargs: i32 = as(i32, frame.top - frame.base)
-    emit call_native(L, cl, nargs, frame.wanted;
+block do_native(cl: ptr(CClosure), func_slot: index, nargs: i32, wanted: i32, result_base: index, resume_mode: u16)
+    emit call_native(L, cl, func_slot, nargs, wanted, result_base, resume_mode;
         returned = native_ret,
         yielded = do_yielded,
         error = do_error,
@@ -140,6 +142,19 @@ block do_yielded(nres: i32)
     jump yielded(nres = nres)
 end
 block do_error(code: i32)
+    emit raise_code_error(L, code;
+        caught = error_caught,
+        uncaught = error_uncaught,
+        oom = out_of_mem)
+end
+block error_caught(frame: ptr(Frame))
+    let cl: ptr(LClosure) = as(ptr(LClosure), frame.closure.bits)
+    let code: ptr(Instr) = cl.proto.code
+    let constants: ptr(Value) = cl.proto.constants
+    jump loop(frame = frame, pc = frame.pc, base = frame.base, top = frame.top,
+              code = code, constants = constants)
+end
+block error_uncaught(code: i32)
     jump error(code = code)
 end
 block out_of_mem()

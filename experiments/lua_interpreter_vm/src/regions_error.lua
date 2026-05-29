@@ -15,7 +15,40 @@ local build_error_object = host.region { TAG_NIL = I.TAG_NIL, TAG_STR = I.TAG_ST
 region build_error_object(L: ptr(LuaThread), code: i32, culprit: Value;
                           built: cont(err: Value), oom: cont())
 entry start()
-    jump built(err = { tag = @{TAG_NIL}, aux = as(u32, code), bits = 0 })
+    let err: Value = { tag = @{TAG_NIL}, aux = as(u32, code), bits = 0 }
+    jump built(err = err)
+end
+end
+]]
+
+-- raise_code_error: canonical opcode/runtime error entry. It builds an error
+-- object, records explicit thread error state, then enters protected unwind.
+local raise_code_error = host.region { TAG_NIL = I.TAG_NIL } [[
+region raise_code_error(L: ptr(LuaThread), code: i32;
+                        caught: cont(frame: ptr(Frame)),
+                        uncaught: cont(code: i32),
+                        oom: cont())
+entry start()
+    let culprit: Value = { tag = @{TAG_NIL}, aux = 0, bits = 0 }
+    emit build_error_object(L, code, culprit;
+        built = have_error,
+        oom = out_of_mem)
+end
+block have_error(err: Value)
+    L.err_value = err
+    L.last_error_code = code
+    emit raise_error(L, err;
+        caught = was_caught,
+        uncaught = not_caught)
+end
+block was_caught(frame: ptr(Frame))
+    jump caught(frame = frame)
+end
+block not_caught(code: i32)
+    jump uncaught(code = code)
+end
+block out_of_mem()
+    jump oom()
 end
 end
 ]]
@@ -101,7 +134,7 @@ end
 -- raise_error: drain TBC chain, unwind frames looking for ProtectedFrame
 local raise_error = host.region { ERR_RUNTIME = I.ERR_RUNTIME } [[
 region raise_error(L: ptr(LuaThread), err: Value;
-                   caught: cont(frame: ptr(Frame), handler: ptr(ProtectedFrame)),
+                   caught: cont(frame: ptr(Frame)),
                    uncaught: cont(code: i32))
 entry start()
     let pf: ptr(ProtectedFrame) = L.protected_top
@@ -124,7 +157,7 @@ block found_pf()
     L.top = pf.stack_top
     L.protected_top = pf.previous
     L.stack[pf.handler_slot] = err
-    jump caught(frame = frame, handler = pf)
+    jump caught(frame = frame)
 end
 block uncaught_check()
     let pf: ptr(ProtectedFrame) = L.protected_top
@@ -137,13 +170,15 @@ block uncaught_check()
         L.top = pf.stack_top
         L.protected_top = pf.previous
         L.stack[pf.handler_slot] = err
-        jump caught(frame = frame, handler = pf)
+        jump caught(frame = frame)
     end
     L.err_value = err
-    jump uncaught(code = @{ERR_RUNTIME})
+    L.last_error_code = as(i32, err.aux)
+    jump uncaught(code = as(i32, err.aux))
 end
 block uncaught_err(code: i32)
     L.err_value = err
+    L.last_error_code = code
     jump uncaught(code = code)
 end
 block out_of_mem()
@@ -158,6 +193,8 @@ region enter_protected(L: ptr(LuaThread), frame_index: index, stack_top: index,
                        handler_slot: index, errfunc_slot: index;
                        done: cont(pf: ptr(ProtectedFrame)), oom: cont())
 entry start()
+    -- ProtectedFrame storage must be allocated by the VM allocator. Host stack
+    -- frames, setjmp, or PUC longjmp-style control are not part of this ABI.
     jump oom()
 end
 end
@@ -180,13 +217,16 @@ region protected_call(L: ptr(LuaThread), func_slot: index, nargs: i32, wanted: i
                       failure: cont(err: Value),
                       oom: cont())
 entry start()
-    jump failure(err = { tag = @{TAG_NIL}, aux = @{ERR_RUNTIME}, bits = 0 })
+    L.err_value = { tag = @{TAG_NIL}, aux = @{ERR_RUNTIME}, bits = 0 }
+    L.last_error_code = @{ERR_RUNTIME}
+    jump failure(err = L.err_value)
 end
 end
 ]]
 
 return {
     build_error_object = build_error_object,
+    raise_code_error = raise_code_error,
     tbc_close_chain = tbc_close_chain,
     raise_error = raise_error,
     enter_protected = enter_protected,

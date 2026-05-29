@@ -2,17 +2,16 @@
 -- foundry.lua — SponJIT absorber foundry (the real thing).
 --
 -- This is the production entry point. It:
---   1. Uses worker-generated Stencil IR C chunks (GCC → .o → bank)
---   2. Loads real bytecode from PUC Lua programs (AWFY + Moonlift corpus)
---   3. Extracts opcode windows
---   4. Enumerates all fact combinations
---   5. Runs semantic SSA + Stencil IR lowering to discover canonical stencil forms
---   6. Uses Stencil IR metadata directly for foundry atoms/templates
---   7. Selects the best absorbers under a byte budget
---   8. Emits the artifact pack
+--   1. Loads real bytecode from PUC Lua programs (AWFY + Moonlift corpus)
+--   2. Extracts opcode windows
+--   3. Enumerates fact combinations
+--   4. Runs semantic SSA + Stencil IR lowering to discover canonical forms
+--   5. Uses native-fragment metadata directly for foundry atoms/templates
+--   6. Selects the best absorbers under a metadata budget
+--   7. Emits the artifact pack
 --
--- Scoring uses REAL measurements (below), not estimates.
--- See bench/ for the PUC Lua instrumentation harness.
+-- Scoring uses metadata-derived estimates until executable native-fragment
+-- measurements exist. The removed C-function tile benchmarks are not a fallback.
 --
 -- Usage:
 --   luajit foundry.lua [--corpus-root DIR] [--out DIR] [--max-bytes N]
@@ -41,22 +40,12 @@ local DEFAULTS = {
     max_windows = 100000,
     max_fact_combos = 4096,
     max_arity = 4,
-    stencils_src = spongejit .. "/stencils/stencils.c",
-    stencils_out = spongejit .. "/build/stencil_library.json",
     layer_cap = 16,
     max_layers = 3,
     max_pack_bytes = 50 * 1024 * 1024,  -- 50 MB budget
     summary_only = false,
     corpus_mode = false,
 }
-
--- ── stencil build ───────────────────────────────────────────────────────
-
-local function build_stencils(config)
-    -- No-op: stencil images are generated from Stencil IR by worker_compile.lua
-    -- and assembled into the bank. The foundry no longer lowers through the
-    -- legacy active-op stencil model.
-end
 
 -- ── corpus loading ──────────────────────────────────────────────────────
 
@@ -110,10 +99,10 @@ local function enumerate_forms(workloads, atoms, config)
     end
 end
 
--- ── lowering to stencils ────────────────────────────────────────────────
+-- ── lowering to abstract fragment templates ─────────────────────────────
 
 local function lower_forms(stencil_forms)
-    print("[foundry] selecting Stencil IR forms directly...")
+    print("[foundry] selecting abstract native-fragment forms directly...")
     local templates = {}
     for _, f in ipairs(stencil_forms.forms or {}) do
         local ops_n = #(f.stencil_ops or {})
@@ -266,7 +255,6 @@ local function main(args)
     end
 
     Util.mkdir_p(config.out_dir)
-    build_stencils(config)
     if config.corpus_mode then
         local workloads = load_corpus(config)
         run_all_layers(workloads, config)

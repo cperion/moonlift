@@ -1,0 +1,14 @@
+{
+  "runId": "run-73a805a9",
+  "workflowId": "wf-lua-vm-completion",
+  "agent": "worker",
+  "task": "Implement the edit plan for Approach C: Explicit VM Contract / ABI First from the accumulated workflow context. There was no resumable subagent run recorded, so start a fresh worker using wf-lua-vm-completion as the shared context. Make the planned file edits, run relevant Lua VM tests as far as practical, and report changed files, test results, blockers, and deviations. Preserve Moonlift explicit-programming discipline: typed explicit contracts, no hidden libc/PUC behavior, SponJIT remains separate.",
+  "cwd": "/home/cedric/dev/moonlift",
+  "sessionFile": "/home/cedric/dev/moonlift/.pi/workflows/.sessions/run-73a805a9.jsonl",
+  "status": "aborted",
+  "created": "2026-05-29T17:44:15.937Z",
+  "updated": "2026-05-29T17:44:39.801Z",
+  "exitCode": 143,
+  "stopReason": "aborted",
+  "sessionEntriesAfter": 15
+}

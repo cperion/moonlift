@@ -8,6 +8,7 @@ local VALS = {}
 for k, v in pairs(const.Tag) do VALS["TAG_" .. k] = moon.int(v) end
 for k, v in pairs(const.Status) do VALS["THREAD_" .. k] = moon.int(v) end
 for k, v in pairs(const.Err) do VALS["ERR_" .. k] = moon.int(v) end
+for k, v in pairs(const.Abi) do VALS["ABI_" .. k] = moon.int(v) end
 
 -- API functions are Moonlift funcs (not regions) — sealed external boundaries.
 
@@ -96,10 +97,38 @@ lua_tolstring_api(L: ptr(LuaThread), idx: i32, len_out: ptr(index)) -> ptr(u8)
 end
 ]]
 
+-- Explicit ABI/status accessors for the sealed host boundary.
+local lua_vm_abi_version_api = moon.func(VALS) [[
+lua_vm_abi_version_api() -> i32
+    return @{ABI_VM_VERSION}
+end
+]]
+
+local lua_native_abi_version_api = moon.func(VALS) [[
+lua_native_abi_version_api() -> i32
+    return @{ABI_NATIVE_VERSION}
+end
+]]
+
+local lua_status_api = moon.func(VALS) [[
+lua_status_api(L: ptr(LuaThread)) -> i32
+    if L == nil then return @{THREAD_RUNTIME_ERROR} end
+    return as(i32, L.status)
+end
+]]
+
+local lua_last_error_api = moon.func(VALS) [[
+lua_last_error_api(L: ptr(LuaThread)) -> i32
+    if L == nil then return @{ERR_RUNTIME} end
+    return L.last_error_code
+end
+]]
+
 -- lua_gettable_api: full table lookup may allocate/call metamethods, so reject at this sealed boundary.
 local lua_gettable_api = moon.func(VALS) [[
 lua_gettable_api(L: ptr(LuaThread), idx: i32) -> i32
     L.status = @{THREAD_RUNTIME_ERROR}
+    L.last_error_code = @{ERR_INDEX}
     return -1
 end
 ]]
@@ -108,6 +137,7 @@ end
 local lua_settable_api = moon.func(VALS) [[
 lua_settable_api(L: ptr(LuaThread), idx: i32)
     L.status = @{THREAD_RUNTIME_ERROR}
+    L.last_error_code = @{ERR_INDEX}
 end
 ]]
 
@@ -115,6 +145,7 @@ end
 local lua_call_api = moon.func(VALS) [[
 lua_call_api(L: ptr(LuaThread), nargs: i32, nresults: i32)
     L.status = @{THREAD_RUNTIME_ERROR}
+    L.last_error_code = @{ERR_CALL}
 end
 ]]
 
@@ -122,6 +153,7 @@ end
 local lua_pcall_api = moon.func(VALS) [[
 lua_pcall_api(L: ptr(LuaThread), nargs: i32, nresults: i32, errfunc: i32) -> i32
     L.status = @{THREAD_RUNTIME_ERROR}
+    L.last_error_code = @{ERR_RUNTIME}
     return @{ERR_RUNTIME}
 end
 ]]
@@ -131,6 +163,10 @@ return {
     lua_settop_api = lua_settop_api,
     lua_pushvalue_api = lua_pushvalue_api,
     lua_tolstring_api = lua_tolstring_api,
+    lua_vm_abi_version_api = lua_vm_abi_version_api,
+    lua_native_abi_version_api = lua_native_abi_version_api,
+    lua_status_api = lua_status_api,
+    lua_last_error_api = lua_last_error_api,
     lua_gettable_api = lua_gettable_api,
     lua_settable_api = lua_settable_api,
     lua_call_api = lua_call_api,

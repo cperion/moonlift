@@ -30,10 +30,13 @@ An image is the installed sentence assembled from that vocabulary.
 
 **Type:** system architecture description (not a paper).
 **Audience:** VM / C / assembly engineers.
-**Status:** design, with the foundry partially built (≈6.5 K real stencils emitted
-to .o files; runtime selection pending). Claims marked `[UNVERIFIED]` are conjectures
-awaiting the experiments in §19. The mechanism is specified to MVP-buildable depth;
-the *numbers* do not yet exist for the runtime.
+**Status:** conceptual design plus active prototype. The current implementation work is
+under `spongejit/`: an offline foundry that lowers opcode windows through semantic
+SSA into a hole-parametric Stencil IR, emits C stencils, compiles them, mines
+relocations, and generates bank metadata. A separate experimental PUC Lua runtime
+integration exists under `spongejit/puc/`. The Moonlift interpreter VM in `src/`
+is **not** JIT-integrated today. Claims marked `[UNVERIFIED]` are conjectures or
+historical measurements; prefer current build logs/artifacts for numbers.
 
 SponJIT is a runtime compiler for a Lua VM built on one idea:
 
@@ -74,7 +77,7 @@ This unifies interpretation, baseline, and optimization:
 ```text
 interpreter equivalent = all-L0 image                          (0% absorbed)
 baseline               = image with mostly L0 + a few L1 tiles (some absorbed)
-optimizer              = the same image with L2/L3/multimorphic tiles selected
+optimizer              = the same image with higher-basis tiles selected
                          from the bank under richer facts
 ```
 
@@ -108,10 +111,10 @@ Absorption vocabulary:
 ```text
 ABSORBER         a native tile that consumes bytecode work under a contract
                  (legal-when, code, facts-out, exits, residual obligations)
-L0 / FLOOR       the base layer: raw PUC opcode tiles of arity 1..4, always enough
-                 to cover a region; arity-1 L0 is total over all opcodes
-L{k+1}           tiles formed by composing arity 1..4 tuples of L{k} atoms
-                 (so max raw span grows 4x per layer)
+L0 / FLOOR       the base layer: raw PUC opcode tiles; one-opcode coverage is total
+L1               arity 2..4 compositions over L0
+L2               arity 2..4 compositions over the basis L0 ∪ L1
+L{k+1}           further arity 2..4 compositions over the accumulated basis, only if measured useful
 IMAGE            an immutable, atomically-publishable cover of a region: a sequence
                  of tiles/meta-tiles each drawn from some bank layer
 BANK             the read-only library of tile templates and meta-tile templates
@@ -122,20 +125,20 @@ RE-SELECT        on exit or hysteresis re-trigger: build a new image from bank t
 THE LOOP         observe -> greedy select -> materialize -> run -> exits train local ladders -> reselect
 ```
 
-**Important terminology rule:** layers are **recursive composition depth**, not raw
-opcode arity. The arity bound is always 1..4 at every layer; what changes is the
-atom being composed.
+**Important terminology rule:** layers are **basis-growth depth**, not raw opcode
+arity. L0 is the raw opcode floor. L1 composes short phrases over L0. L2 composes
+short phrases over the accumulated L0 ∪ L1 basis.
 
 ```text
-L0 atom = raw opcode tile, arity 1..4 over PUC opcodes
-L1 atom = composition of 1..4 L0 atoms        (up to 16 raw ops)
-L2 atom = composition of 1..4 L1 atoms        (up to 64 raw ops)
-L3 atom = composition of 1..4 L2 atoms        (up to 256 raw ops)
+L0 atom = one raw opcode tile
+L1 atom = arity 2..4 composition over L0            (up to 4 raw ops)
+L2 atom = arity 2..4 composition over L0 ∪ L1       (up to ~16 raw ops)
+L3 atom = same idea over the accumulated basis, only if measurements justify it
 ...
 ```
 
-A failed higher-layer tile descends to its child metaops; if needed the descent
-continues until L0 arity-1, which is total.
+A failed higher-layer tile descends to weaker/smaller same-span candidates; if
+needed the descent continues until L0, which is total.
 
 The two-phase model `translate -> optimize` is rejected. There is one operation,
 run at increasing fact-richness:
@@ -180,7 +183,7 @@ The entire engine before any optimization-pressure machinery:
 
 ```text
 a tile        = (legal-when: FactMask, cost, code, facts-out, exits, residual obligations)
-a floor tile  = an L0 tile; base-layer arity 1..4 over raw opcodes, with arity-1 total
+a floor tile  = an L0 tile; one raw opcode, total over all opcodes
 an image      = ordered tiles; each tile legal under entry facts
 the bank      = read-only, offline-built table of all tile templates
 floor image   = an image composed entirely of L0 tiles; the always-installed baseline
@@ -212,28 +215,24 @@ and it is what makes the sponge absorb in patches instead of speckles.
 SponJIT does not sit beside the interpreter as a separate phase. Every region starts with an L0 cover:
 
 ```text
-Image 0 = [L0 tile covering raw ops 0..3] [L0 tile covering raw ops 4..7] ...
+Image 0 = [L0 A] [L0 B] [L0 C] [L0 D] ...
 ```
 
-L0 itself is an arity-1..4 raw-op layer; it is not only single-op. Arity-1 L0 is
-the total fallback. Then hot, fact-stable spans are replaced by recursive metaops
-materialized from bank templates:
+L0 is the total raw-opcode fallback. Then hot, fact-stable spans are replaced by
+basis-grown phrases materialized from bank templates:
 
 ```text
 raw ops:  A B C D | E F G H | I J K L | M N O P
-          │ L0 arity-4 tiles over raw opcodes
+          │ compose raw opcode atoms
           ▼
-image:   [L0 A..D] [L0 E..H] [L0 I..L] [L0 M..P]
-          │ compose four L0 atoms
+image:   [L1 A..D] [L1 E..H] [L1 I..L] [L1 M..P]
+          │ compose over the accumulated L0 ∪ L1 basis
           ▼
-image:   [L1 A..P]
-          │ compose four L1 atoms later
-          ▼
-image:   [L2 up to 64 raw ops]
+image:   [L2 A..P]
 ```
 
-The invariant is arity≤4 at every foundry step; the basis changes from raw opcodes
-to selected atoms from the previous layer.
+The foundry arity bound is 2..4 for growth layers; the basis expands from raw
+opcodes to selected atoms from previous layers.
 
 This gives a single continuum:
 
@@ -297,7 +296,7 @@ SNAPSHOT at a guard         ≡   PROJECTION at an exit            (the same obj
                                 LuaJIT delta-encodes snapshots — reuse that, §15)
 side exit                   ≡   tile exit → floor
 side trace at a hot exit    ≡   a separate bank tile selected on a different signature
-trace tree                  ≡   the bank's multimorphic directory (max-granularity case)
+trace tree                  ≈   a large prebuilt basis cover (max-granularity case)
 compile-once                ≡   retile budget = 0; bank is read-only at runtime
 ```
 
@@ -346,7 +345,7 @@ typedef uint32_t RegionId;
 typedef struct {
     TileId     id;
     PatternKey pattern;         /* bytecode window / control shape covered */
-    uint8_t    layer;           /* L0..L3, or LM (multimorphic) */
+    uint8_t    layer;           /* L0..L3 basis layer */
 
     FactMask   required;        /* must hold at entry (caller guarantees)   */
     FactMask   checked;         /* tile guards these; true on success        */
@@ -624,42 +623,45 @@ specialized islands first**: they pay twice (work removed + two seams deleted).
 
 ## 8. Absorber foundry — grammar-driven opcode enumeration
 
-The foundry enumerates all valid opcode sequences up to arity 4 over the
-PUC Lua 5.5 opcode set, then compiles each sequence to a binary stencil via
-SSA → C → GCC. Multi-layer recursive composition (atoms → higher arity)
-is the basis-growth strategy (§13). Multimorphic enumeration over fact-env
-unions (§14) is a separate enumeration axis driven by corpus pressure.
+The foundry enumerates valid opcode sequences over the PUC Lua 5.5 opcode set,
+then compiles candidates to binary stencils via semantic SSA → Stencil IR → C → GCC.
+Basis growth is the strategy: L0 is raw opcodes, L1 is arity 2..4 composition over
+L0, and L2 composes over the accumulated L0 ∪ L1 basis. Fact space is capped by
+grammar/profile/code-size pressure, not by a special runtime tile class.
 
 ```text
 L0 = all PUC Lua 5.5 opcodes, classified by instruction format
      (iABC, ivABC, iABx, iAsBx, iAx, isJ — see lopcodes.h)
      L0 is the floor source.
 
-for L = 1..4:
-    C_L = all valid sequences of L opcodes (continuers + optional terminator)
+current L0/L1 raw-opcode pass:
+    C = all valid sequences of 1..4 raw opcodes
+        (length 1 forms are the L0 floor; length 2..4 forms are L1 candidates)
     E   = deduplicate by SSA handler equivalence class
            (opcodes with same SSA lowering path -> same class)
     for each equivalence class:
         for each applicable fact combination:
-            ssa = compile(ops, facts)
-            if ssa has no RESIDUAL nodes:
-                c_code = ssa_to_c(ssa, ops, facts)
-                gcc -c -O2 -fno-pic -no-pie → .o
-                extract .text bytes and HOLE relocations
-                store: { name, text_bytes, hole_catalog, ops, facts }
+            ssa = compile_semantic_ssa(ops, facts)
+            stencil = lower_to_hole_parametric_stencil_ir(ssa)
+            key = canonical_stencil_hash(stencil, contract_shape)
+            fragment = stencil_to_fragment(stencil, contract)
+            validate endpoint locations, data relocs, control relocs, projections
+            store: { name, abstract_fragment_abi, ops, facts, contract }
 ```
 
 Key properties:
 
 ```text
-1. Enumeration is exhaustive at arity≤4 (AOT, not runtime)
-2. SSA handler equivalence class reduces 3.2M raw sequences to 472K classes
-   (6.8× reduction) — ADD and SUB share the same class because their SSA
-   lowering follows the same path, only the final C operator differs
-3. Fact combinations are enumerated per class (2^N where N = distinct slot axes)
-4. GCC does all scalar optimization — the SSA layer only lowers semantics
-5. Current measured result: ~6.5 K clean stencils, ~880 KB .text, ~136 B avg,
-   GCC ICF merges to ~2 K canonical machine code blobs, ~18 K HOLE relocations.
+1. Current raw-opcode bank pass covers length 1..4 sequences AOT, not runtime.
+2. Length 1 forms are L0; length 2..4 forms are L1 candidates.
+3. Future L2 enumerates arity 2..4 over the accumulated L0 ∪ L1 basis.
+4. Fact combinations are capped/profile-guided per class; blind powersets are avoided.
+5. Semantic SSA and Stencil IR handle Lua meaning, holes, contracts, and
+   materialization shape; native-fragment descriptors are abstract/non-executable
+   until a real assembler/linker backend supplies code offsets.
+6. Current measured results are configuration-dependent. Older numbers in this
+   document are historical; use `src/worker_compile.lua` fragment metadata outputs
+   and `foundry.lua` summaries as the source of truth for a given run.
 ```
 
 A selected tile is just another atom in the bank if it exposes the same contract
@@ -676,18 +678,18 @@ dependencies; residency endpoints; cost; code artifact or implementation plan.
 This split is load-bearing: runtime treats a tile as a black box, but the foundry
 can reopen selected tiles and compose their semantics in later layers.
 
-The foundry may enumerate the abstract universe exhaustively at arity≤4 because this
-is AOT. It must not realize every tuple as code. It runs a sieve:
+The foundry may enumerate a bounded abstract universe because this is AOT. It must
+not realize every tuple as code. It runs a sieve:
 
 ```text
-1. enumerate opcode/atom tuples arity≤4
+1. enumerate opcode/atom tuples in the current layer's arity range
 2. reject impossible shape/control/effect compositions
 3. expand only applicable fact axes
 4. expand tuple semantics into a small graph
 5. apply facts and build SSA
-6. run bounded SSA normalization / simplification (§8.1)
-7. lower surviving SSA nodes back to the fixed stencil vocabulary
-8. compose contracts and projections
+6. run bounded Lua-semantic SSA cleanup (§8.1)
+7. lower surviving SSA into hole-parametric Stencil IR
+8. canonicalize Stencil IR shape, hole contract, and fact-transfer contract
 9. score residual-pressure reduction and seam deletion
 10. check lowering/template availability
 11. compile/mine/verify only survivors
@@ -746,11 +748,14 @@ All other optimization (constant folding, DCE, dead store elimination, copy
 propagation) is delegated to GCC. This keeps the SSA layer simple, correct,
 and fast — its only job is translating bytecode semantics to C.
 
-SSA gives the foundry a semantic normal form. Different opcode tuples may reduce
-to the same C code (via SSA normalization), so tile identity is keyed by:
+Semantic SSA gives the foundry Lua meaning; Stencil IR gives it the reusable
+materialization shape. Different opcode tuples or fact bundles may reduce to the
+same C stencil shape, so compiled code identity is keyed by the canonical
+hole-parametric Stencil IR shape, while bank forms also retain contract shape:
 
 ```text
-optimized_semantic_normal_form_hash
+stencil_hash                 -- C/code shape
+stencil_hash + contract_key  -- bank form / selector contract identity
 ```
 
 not just by source opcode pattern. This is how the bank can hold reusable semantic
@@ -931,39 +936,30 @@ The covering framing hid this (a branch is just a branch); the absorption framin
 exposes it. So the default is:
 
 ```text
-stable simple case            -> monomorphic bank tile + exit to floor
-unstable / high-entropy case  -> L0 floor for that PC
-genuine clustered persistent  -> multimorphic bank tile (§14) with internal
-   low-arity polymorphism        discriminator compiled by GCC
+stable simple case            -> specialized bank tile + exit to floor
+unstable / high-entropy case  -> weaker/generic tile or L0 floor for that PC
+persistent useful facts       -> profile-guided fact caps in the next bank build
 ```
 
-### 10.2 When a selector IS allowed (the multimorphic exception)
+### 10.2 No runtime selector inside tiles
 
-Some sites are reliably *bimorphic or trimorphic* and *simultaneously* hot (not
-phase-separated): an L0 tile throws away both fast paths; a per-iteration cache
-lookup would thrash because both modes are hot at once. A bounded internal branch
-inside a multimorphic tile is then genuinely optimal. Permitted iff:
-
-```text
-- polymorphism is LOW-ARITY, LOCAL, and PERSISTENT in the training corpus, and
-- the branch is measurably cheaper than the exit it replaces, and
-- it is structured as a multimorphic tile (§14): one bank entry with internal
-  discriminator and specialized arms; selected once at runtime.
-Rule: do not route inside a tile unless the foundry enumerated the union from
-      observed corpus pressure. measurement-gated, never default.
-```
+The runtime selector chooses among prebuilt bank tiles at image-build time. It does
+not create an internal dispatch/cache inside a tile. If a site is unstable, current
+runtime behavior is to select a weaker/generic tile or fall back to L0. Offline
+profile data may influence future fact caps and basis growth, but that remains a
+foundry/build-time decision.
 
 ### 10.3 The three are one idea at three granularities
 
 ```text
 monomorphic specialization (baked) = a tile with one fact env
-multimorphic tile (§14)            = a tile with K fact envs joined by a discriminator
+profile-guided fact cap            = foundry chooses which fact combos to compile
 recursive-basis tile (§13)         = a tile composed from a previously-selected tile
                                      (a "phrase" tile, not a polymorphism device)
 ```
 
-Note: the old "plan-mode cache" granularity is **gone**. Multimorphism lives inside
-a single bank tile, not in a runtime cache of alternative plans.
+Note: the old "plan-mode cache" granularity is **gone**. Profile data only guides
+ordinary bank construction.
 
 ---
 
@@ -1186,97 +1182,23 @@ bounds-check elimination is a separate analysis and is out of scope.
 
 ---
 
-## 14. Multimorphism — handled in the bank, not the runtime
+## 14. Fact-space capping and basis growth
 
-A site that sees multiple stable fact environments is **not** a runtime cache
-problem. SponJIT has no runtime cache. Multimorphism is handled offline by enumerating
-a multimorphic tile that internalizes the dispatch:
-
-```text
-observed at PC X across the training corpus:
-  signature S1 covers 60% of hits
-  signature S2 covers 35% of hits
-  S3..Sn cover the remaining 5%
-
-foundry enumerates: multimorphic tile T_{S1 ∨ S2} with internal discriminator.
-bank stores: T_{S1 ∨ S2} in the multimorphic directory.
-runtime observes {S1, S2} at PC X.
-runtime canonicalizes: signature = "multimorphic-{S1, S2}".
-runtime selects: TileTemplate T_{S1 ∨ S2} from the bank and materializes it into the image.
-done. one selection. one image. no per-iteration cache lookup.
-```
-
-Compare to a trace JIT: this reads instability as a single bank tile whose internal
-branch is compiled by GCC, not as a tree of side traces.
+There is no separate special layer in the current design. The bank grows by basis
+saturation:
 
 ```text
-inline cache:  one SITE caches cases at runtime.    SponJIT: one BANK tile caches
-                                                              the cases offline.
+L0 = raw opcode floor
+L1 = arity 2..4 compositions over L0
+L2 = arity 2..4 compositions over (L0 ∪ L1), up to ~16 raw ops
+L3 = repeat only if measurements justify it
 ```
 
-### 14.1 Internal discriminator
-
-A multimorphic tile is a single fused tile with an internal branch on the cheapest
-test that separates the union's arms — usually a tag-bit compare or shape-epoch
-compare:
-
-```text
-multimorphic ADD over {i64, f64}:
-  load tag of lhs
-  jump-table or compare-branch on tag
-    arm i64:  guard rhs i64; unbox; add_i64; box
-    arm f64:  guard rhs f64; unbox; add_f64; box
-    default:  residual -> projects to floor (§15)
-```
-
-Both arms are as specialized as their monomorphic counterparts. GCC compiles the
-whole tile in one go.
-
-### 14.2 Enumeration trigger
-
-The foundry does not enumerate every possible union. It enumerates unions that the
-training corpus actually exhibits:
-
-```text
-for each (pattern, PC):
-    if top-K signatures cluster (top-2 ≥ 90% or top-3 ≥ 95% of hits):
-        enumerate multimorphic tile T over those K signatures.
-    else:
-        no multimorphic tile. runtime falls to floor for non-monomorphic hits.
-```
-
-This bounds the multimorphic directory size and ensures every multimorphic tile
-corresponds to a phenomenon the world has shown.
-
-### 14.3 Why this collapses the runtime cache
-
-```text
-runtime cache:        per-iteration canonicalization + lookup + possible eviction
-                      per-region cache key management
-                      megamorphic detection logic
-
-multimorphic tile:    one selection at hysteresis-stabilization time
-                      per-iteration internal branch inside the tile (GCC-compiled)
-                      no cache, no eviction, no detection logic
-                      megamorphic response = bank miss = stay at floor
-```
-
-The discriminator cost is bounded and predictable; cache machinery is unbounded and
-a source of bugs. Pushing polymorphism into the tile pushes it past the boundary
-where the runtime has to think.
-
-### 14.4 Image invariants
-
-```text
-- images are IMMUTABLE once published
-- image switching is ATOMIC w.r.t. executing threads & coroutines
-- old images stay valid until no frame can return to them
-- dep-epoch invalidation atomically resets region.active to the floor BEFORE freeing
-  the demoted image
-- the floor is never freed
-```
-
----
+Fact space is capped independently from structural saturation. The foundry may use
+profile pressure to decide which fact combinations are worth compiling, but that is
+a selection/capping policy over normal tiles, not a separate runtime cache or a
+special tile layer. Runtime selection remains: choose bank tiles, copy/patch,
+execute, and fall back/demote when assumptions fail.
 
 ## 15. Projection / deopt — the real cost, and the seam cost are the same object
 
@@ -1309,11 +1231,11 @@ compute. an exit and a seam are the same object differently typed.
 ```text
 OFFLINE (build time) — the expensive work:
   - enumerate base atom tuples arity≤4 (§8)
-  - apply fact-env combinations (monomorphic and multimorphic, §14)
+  - apply capped/profile-guided fact-env combinations
   - compile C templates; mine bytes, relocations, holes, hot/cold sections
   - VERIFY each tile contract against its semantic expansion (§17)
   - benchmark/estimate costs; export bank file
-    (preindexed by PatternKey, FactSignature; multimorphic in its own directory)
+    (preindexed by PatternKey and FactSignature)
 
 RUNTIME — selection and image swap only:
   1. on region first encounter: build floor image from bank L0 tiles
@@ -1405,8 +1327,8 @@ OUT OF SCOPE for the selector:
 ```text
 WHAT SPONJIT IS:  a baseline-plus / strong mid-tier absorption engine.
   absorbs: dispatch, boxing, tag guards, residency/seam traffic, redundant-check
-           elision, INVARIANT TYPE/SHAPE guard hoisting (§13.2), multimorphic
-           sites via foundry-enumerated tiles (§14).
+           elision, INVARIANT TYPE/SHAPE guard hoisting (§13.2), and useful
+           grammar/profile-selected opcode phrases.
   with:    zero runtime codegen; every emitted byte proven correct before run.
 WHAT IT IS NOT:  a trace optimizer. it does not beat allocation sinking + reassociation,
                  and must not pretend to. that is LuaJIT's tier (§2.2), past the
@@ -1446,17 +1368,26 @@ Prove SponJIT as a selection engine, not a full optimizing compiler.
 ### 19.1 Bank — current status
 
 ```text
-L0 generic:    every PUC Lua 5.5 opcode has a clean stencil (the floor source).
-L1 specialized: ADD_i64 SUB_i64 MUL_i64 LT_i64 EQ_i64
-                GETTABLE_array_guarded  GETFIELD_shape_guarded  CALL_known_boundary
-L2 curated:    ADD_i64_RETURN1  LT_i64_BRANCH  TEST_JMP  GETTABLE_array_i64_ADD_i64
-L3 curated:    selected arity-4 fused phrases from observed corpus pressure
-LM multimorphic: pending corpus pressure data; not yet enumerated.
+L0: raw PUC Lua 5.5 opcodes — the opcode floor.
+    One-opcode semantics are the atoms/fallback vocabulary.
 
-Current measured emission:
-  ~6.5 K real stencils, ~880 KB .text, ~136 B avg, ~18 K HOLE relocations.
-  GCC ICF collapses to ~2 K canonical machine code blobs (estimate).
+L1: arity 2..4 compositions over L0.
+    This is the current practical bank target: short opcode phrases lowered under
+    bounded/profiled fact combinations into Stencil IR/C stencils.
+
+L2: compositions over the basis L0 ∪ L1.
+    Enumerate arity 2..4 over that expanded basis, capped by grammar constraints,
+    profile/fact pressure, code-size budget, and usefulness. Conceptually this can
+    represent up to ~16 raw opcodes when four L1 phrases compose.
+
+L3+: repeat the same basis-growth idea only if measurements justify it.
+
 ```
+
+The current implemented/default bank is L0 plus an L1-style arity 2..4 raw-opcode
+bank under capped fact combinations. L2 is a design target, not the current build.
+Current size/count numbers are configuration-dependent; use `spongejit/build_*`
+logs and `build/cp_lib/` artifacts for the truth of a specific build.
 
 ### 19.2 Runtime MVP
 
@@ -1496,10 +1427,9 @@ Current measured emission:
       real workloads — i.e. whether you ever need the next tier.
 
 (4) bimorphic table access (same site sees two stable shapes)
-      tests the multimorphic-tile pipeline (§14). expect: foundry corpus pressure
-      data identifies the union; bank holds T_{S1∨S2}; runtime selects it; per-
-      iteration internal branch is cheap. confirms that multimorphism does not
-      require a runtime cache.
+      tests profile-guided fact capping and basis growth. expect: foundry corpus
+      pressure identifies useful fact combinations; bank contains the useful tile;
+      runtime selects it without a runtime code cache.
 ```
 
 ### 19.4 Initial training corpus
@@ -1545,7 +1475,7 @@ for the first foundry loop.
 3. a PRODUCED FACT enables a later tile not selected in image-build pass 0
 4. ISLANDS GROW BY ACCRETION (interior L0 tiles absorbed first; no confetti) —
    validates §7.3
-5. multimorphic tiles handle bimorphic sites without thrash or cache machinery
+5. unstable fact sites fall back cleanly or are handled by profile-guided fact caps in a later bank
 6. hysteresis prevents image thrash on a phase-changing workload
 7. guard exits and dirty residency leases project correctly
 8. demotion to floor preserves correctness in all failure modes
@@ -1566,9 +1496,10 @@ v2:     [L2 ADD_i64 -> rax] [L1 RETURN1 <- rax]     (residency seam absorbed; §
  OR     [L2 ADD_i64_RETURN1]                        (curated arity-2; §6)
 if i64 guard failures later rise:
   mark the i64 lease unstable at this tile site and reselect the span.
-  same span may choose a weaker/generic or multimorphic ADD tile; if none exists,
+  same span may choose a weaker/generic ADD tile; if none exists,
   the span splits until L0 covers the delicate opcode.
-  the exit is also logged so a later foundry cycle may add a better multimorphic ADD.
+  the exit is also logged so a later foundry cycle may choose better fact caps
+  or add a better basis tile.
 ```
 
 ### 20.2 Table access + arithmetic (absorption wave)
@@ -1584,7 +1515,7 @@ v2:     [L2 GETTABLE_array_i64 -> rax] [L2 ADD_i64 <- rax -> rax] [L1 RETURN1 <-
         (seams absorbed via residency-matching bank tiles)
 if shape alternates 17/23:
   foundry training observes this; next corpus aggregation enumerates a
-  multimorphic GETTABLE over shapes {17, 23}; bank holds T; runtime selects T;
+  profile-guided GETTABLE variants over observed shapes may be added in a later bank;
   per-iteration internal branch on shape epoch chooses the right arm.
 reached by FACT PROPAGATION ENABLING SELECTION, not by synthesizing code.
 ```
@@ -1620,25 +1551,13 @@ v2 candidate: absorb C with a shape-guarded bank tile + exit to floor on metamet
 this is §7.3 accretion in action: the sponge fills the gap between two patches first.
 ```
 
-### 20.5 Bimorphic site handled by a multimorphic tile
+### 20.5 Unstable fact site
 
-```text
-region with one hot GETFIELD on obj.x where obj has shape {S1, S2} bimorphically.
-training corpus observes: 55% S1, 42% S2, 3% other.
-foundry enumerates: T = multimorphic GETFIELD over {S1, S2} with internal
-  shape-epoch discriminator. T goes into the bank's multimorphic directory.
-
-runtime sees: shapes alternating S1/S2 in the hot loop.
-canonicalization: signature = multimorphic-{S1, S2}.
-bank lookup hits T.
-image-build inserts T at the GETFIELD position; surrounding tiles match T's
-  output residency endpoint.
-execution: GCC-compiled internal branch picks S1-arm or S2-arm based on
-  observed tag; both arms are as specialized as their monomorphic tiles
-  would have been. no runtime cache. no per-iteration lookup.
-```
-
----
+If a site alternates between fact signatures that the current bank does not cover
+profitably, runtime selection falls to a weaker/generic tile or the L0 floor. The
+exit/miss data is useful offline: a later foundry run can cap facts differently or
+add a better basis tile if measurements justify it. No runtime cache or special
+layer is implied.
 
 ## 21. Summary
 
@@ -1662,7 +1581,7 @@ THE BINDING TIME (the simplification):
   the runtime holds two pointers per region — floor + active — and a hysteresis
   counter. it observes, canonicalizes, looks up the bank, copy-patches, and swaps.
   no cache. no eviction. no runtime SSA. no runtime codegen.
-  multimorphism is a tile shape in the bank, not a runtime device.
+  fact specialization is a foundry/bank choice, not a runtime codegen device.
   exits are a cross-run training signal, not a runtime cache author.
 
 THE MECHANISM (added only as measured problems demanded it):
@@ -1670,7 +1589,7 @@ THE MECHANISM (added only as measured problems demanded it):
   - orthogonal specialization = patch-time decision holes on parameterized base tiles
     (product collapses to a sum; a propagated fact IS a hole value)
   - binding times: AOT (the bank) and patch-time (image build) are first-class;
-    the runtime selector is DEMOTED to a measurement-gated multimorphic-tile case
+    the runtime selector is limited to choosing prebuilt bank tiles
   - residency: a lease over a canonical home; dual of clobber; additive; out of
     the bank key; it is the mechanism that pays down the seam tax
   - hysteresis is the loop's termination condition, not a feature
@@ -1692,10 +1611,13 @@ THE BOUNDARY (a strength):
   computes an instruction. that boundary is the line LuaJIT sits on the far side of.
 
 STATUS:
-  foundry emits real .o files (~6.5 K stencils, ~880 KB, ~136 B avg, ~18 K HOLEs).
-  runtime selection mechanism is design-complete; implementation pending.
-  internally coherent; UNVERIFIED on real workloads — run the §19.4 AWFY+Moonlift
-  initial corpus first.
+  foundry emits real .o files from the semantic SSA → Stencil IR → C pipeline.
+  the current/default bank shape is L0 raw opcodes plus L1 arity 2..4 raw-opcode
+  compositions under capped fact combinations; L2 basis-growth is a design target.
+  runtime selection has an experimental PUC integration path, but the Moonlift
+  interpreter VM in `src/` is not JIT-integrated.
+  internally coherent; workload results are build/configuration-dependent — use
+  current `spongejit/build_*` logs and `build/cp_lib/` artifacts for numbers.
   if a shape-guard's produced fact flips the next window's selected bank tile on
   real bytecode, islands grow by accretion rather than confetti, and the combined
   miss report produces concrete bank-tile proposals, the thesis is demonstrated,

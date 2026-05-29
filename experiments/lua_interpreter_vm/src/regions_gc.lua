@@ -10,13 +10,26 @@ for k, v in pairs(const.Err) do I["ERR_" .. k] = moon.int(v) end
 for k, v in pairs(const.GCColor) do I["COLOR_" .. k] = moon.int(v) end
 for k, v in pairs(const.GCState) do I["GCSTATE_" .. k] = moon.int(v) end
 
--- alloc_object: attempt allocation, trigger GC if debt exceeds
+-- alloc_object: attempt allocation through the explicit VM allocator boundary.
+-- Raw libc/malloc semantics are intentionally not embedded here; allocation
+-- must eventually return through ok/step_required/oom explicitly.
 local alloc_object = host.region [[
 region alloc_object(G: ptr(GlobalState), size: index, tt: u8;
                     ok: cont(obj: ptr(GCHeader)),
                     step_required: cont(),
                     oom: cont())
 entry start()
+    if G == nil then
+        jump oom()
+    end
+    if G.allocator == nil then
+        jump oom()
+    end
+    if G.totalbytes > G.threshold then
+        jump step_required()
+    end
+    -- Allocator extern bridge is not wired yet. Fail loud instead of hiding
+    -- a null-pointer/errno/malloc convention in VM semantics.
     jump oom()
 end
 end

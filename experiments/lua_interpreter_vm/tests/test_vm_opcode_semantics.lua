@@ -54,6 +54,8 @@ typedef struct {
     uint16_t resume_mode;
     uint16_t resume_a; uint16_t resume_b; uint16_t resume_c;
     uint64_t resume_pc; uint64_t resume_base; Value resume_value;
+    uint64_t result_base; uint64_t call_top;
+    uint8_t yieldable; uint8_t flags; uint16_t reserved;
 } Frame;
 typedef struct {
     GCHeader gc; uint8_t status;
@@ -64,8 +66,9 @@ typedef struct {
     uint8_t hookmask; uint8_t allowhook;
     int32_t hookcount; int32_t basehookcount; Value hook;
     uint64_t tbc_head;
+    int32_t yieldable; int32_t nonyieldable; int32_t last_error_code; uint32_t flags;
 } LuaThread;
-typedef struct { void* allocator; Value registry; void* mainthread; } GlobalState;
+typedef struct { void* allocator; Value registry; void* mainthread; uint32_t vm_abi_version; uint32_t native_abi_version; } GlobalState;
 ]]
 
 local scratch_raw = libmoon.moonlift_scratch_raw
@@ -143,11 +146,14 @@ local function make_case(ncode, nconst)
     frames[0].resume_mode = const.Resume.NORMAL
     frames[0].resume_a = 0; frames[0].resume_b = 0; frames[0].resume_c = 0; frames[0].resume_pc = 0; frames[0].resume_base = 0
     setnil(frames[0].resume_value)
+    frames[0].result_base = frames[0].base; frames[0].call_top = frames[0].top
+    frames[0].yieldable = 1; frames[0].flags = 0; frames[0].reserved = 0
     local g = scratch(1, 128, "GlobalState*"); g.allocator = nil; setnil(g.registry)
     local L = scratch(1, 256, "LuaThread*")
     L.status = const.Status.OK; L.stack = stack; L.stack_size = 64; L.top = 1
     L.frames = frames; L.frame_count = 1; L.frame_cap = 8; L.open_upvals = nil; L.protected_top = nil; L.global = g
     setnil(L.err_value); L.hookmask = 0; L.allowhook = 0; L.hookcount = 0; L.basehookcount = 0; setnil(L.hook); L.tbc_head = 0
+    L.yieldable = 1; L.nonyieldable = 0; L.last_error_code = 0; L.flags = 0
     g.mainthread = L
     return { code = code, consts = consts, stack = stack, frames = frames, L = L }
 end

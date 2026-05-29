@@ -1,8 +1,8 @@
--- stencil_ir.lua -- hole-parametric, C-ready stencil shape IR.
+-- stencil_ir.lua -- semantic stencil shape IR for native fragment lowering.
 --
--- Semantic SSA remains the Lua semantics authority.  This module defines the
--- narrow materialization/canonicalization shape consumed by normalization,
--- C emission, contracts, and bank metadata.
+-- Semantic SSA remains the Lua semantics authority. This module defines
+-- hole-parametric operation shape consumed by normalization, contracts,
+-- fragment metadata validation, and native emission.
 
 local M = {}
 
@@ -18,11 +18,22 @@ local KNOWN_OP = {
 }
 M.KNOWN_OP = KNOWN_OP
 
-local PUC_PATCHABLE_ROLE = {
-  unknown = true, slot = true, imm = true, const = true, bool = true,
-  exit = true, fail = true, slot_store = true,
+local DATA_HOLE_ROLE = {
+  unknown = true,
+  slot = true,
+  slot_store = true,
+  imm = true,
+  const = true,
+  bool = true,
+  shape_offset = true,
+  shape_id = true,
+  metatable_offset = true,
+  field_offset = true,
+  array_base_offset = true,
+  call_target = true,
+  barrier = true,
 }
-M.PUC_PATCHABLE_ROLE = PUC_PATCHABLE_ROLE
+M.DATA_HOLE_ROLE = DATA_HOLE_ROLE
 
 local function copy_array(xs)
   local out = {}
@@ -33,7 +44,6 @@ end
 local function role_name(kind, arg)
   if kind == "slot" then return "R" .. tostring(arg or 0) end
   if kind == "slot_store" then return "slot_R" .. tostring(arg or 0) end
-  if kind == "exit" then return "exit" end
   return tostring(kind or "unknown")
 end
 
@@ -58,10 +68,10 @@ function M.new(source_ops, config)
   }, Stencil)
 end
 
-function Stencil:new_value(ty, source)
+function Stencil:new_value(ty, source, residency, facts)
   local id = "sv" .. tostring(self.next_value)
   self.next_value = self.next_value + 1
-  local v = { id = id, ty = ty or "Unknown", source = source }
+  local v = { id = id, ty = ty or "Unknown", source = source, residency = residency, facts = copy_array(facts) }
   self.values[id] = v
   self.value_order[#self.value_order + 1] = id
   return id
@@ -84,6 +94,7 @@ end
 
 function Stencil:hole(t)
   t = t or {}
+  assert(t.role_kind ~= "exit" and t.role_kind ~= "fail", "exit/fail are control endpoints, not data holes")
   local key = t.key or table.concat({t.role_kind or "unknown", tostring(t.role_arg or ""), tostring(t.op_idx or 0), t.ty or "Unknown", tostring(t.semantic and 1 or 0)}, ":")
   local existing = self.hole_by_key[key]
   if existing then return existing end
@@ -96,7 +107,7 @@ function Stencil:hole(t)
     role_arg = t.role_arg,
     op_idx = tonumber(t.op_idx or 0) or 0,
     ty = t.ty or "uintptr",
-    patchable = t.patchable ~= false and (t.patchable or PUC_PATCHABLE_ROLE[t.role_kind or "unknown"] or false),
+    patchable = t.patchable ~= false and (t.patchable or DATA_HOLE_ROLE[t.role_kind or "unknown"] or false),
     semantic = t.semantic and true or false,
     key = key,
   }
@@ -138,6 +149,9 @@ function M.validate(st)
   local def = defined_values(st)
   for i, h in ipairs(st.holes or {}) do
     if h.id ~= i - 1 then errors[#errors + 1] = "non-contiguous hole id at index " .. i end
+    if h.role_kind == "exit" or h.role_kind == "fail" then
+      errors[#errors + 1] = "control endpoint encoded as data hole: " .. tostring(h.role_kind)
+    end
     if (h.role_kind == "slot" or h.role_kind == "slot_store") then
       if h.role_arg == nil or tonumber(h.role_arg) == nil or tonumber(h.role_arg) < 0 or tonumber(h.role_arg) >= 8 then
         errors[#errors + 1] = "slot hole outside 0..7 canonical fact ABI: " .. tostring(h.role_arg)

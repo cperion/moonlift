@@ -1,0 +1,16 @@
+{
+  "runId": "run-911b4dca",
+  "workflowId": "wf-lua-vm-completion",
+  "agent": "worker",
+  "task": "Continue the in-progress implementation of Approach C for the Moonlift-native Lua 5.5 VM contract. Most of the work is already done in the working tree; do not restart from scratch. First inspect git status/diff and the workflow context, then continue from the current partial implementation. Focus on finishing remaining contract/ABI/frame/cache/call/error/validator/test work, fixing compile/test failures, and preserving existing completed edits. Keep SponJIT separate. Report exactly what was already present, what you changed, tests run, failures/blockers, and deviations from the edit plan.",
+  "cwd": "/home/cedric/dev/moonlift",
+  "sessionFile": "/home/cedric/dev/moonlift/.pi/workflows/.sessions/run-911b4dca.jsonl",
+  "status": "completed",
+  "created": "2026-05-29T17:45:02.261Z",
+  "updated": "2026-05-29T17:53:08.064Z",
+  "exitCode": 0,
+  "stopReason": "stop",
+  "lastOutputPreview": "## Completed\n\nInspected `git status`/diff and workflow `wf-lua-vm-completion`, then continued from the existing partial Approach C implementation without restarting or touching SponJIT work.\n\nAlready present in the working tree before my edits:\n- `VM_CONTRACT.md`\n- `src/contract.lua` exported via `src/init.lua`\n- ABI/version constants and expanded VM structs\n- explicit native/call/frame metadata plumbing\n- frame-cache reload in `vm_loop.lua`\n- explicit error state / `raise_code_error`\n- allocato",
+  "sessionEntriesBefore": 0,
+  "sessionEntriesAfter": 92
+}

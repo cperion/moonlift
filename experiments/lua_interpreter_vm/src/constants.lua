@@ -149,6 +149,7 @@ Resume.CALL_MM = 13
 Resume.TFORLOOP_CALL = 14
 Resume.NATIVE_CONT = 15
 Resume.TBC_CLOSE = 16
+Resume.N = 17
 
 local Status = {}
 Status.OK = 0
@@ -156,6 +157,13 @@ Status.YIELDED = 1
 Status.RUNTIME_ERROR = 2
 Status.OOM = 3
 Status.DEAD = 4
+
+local NativeResult = {}
+NativeResult.OK = 0
+NativeResult.ERROR = 1
+NativeResult.YIELD = 2
+NativeResult.OOM = 3
+NativeResult.STACK_GROW = 4
 
 local Err = {}
 Err.NONE = 0
@@ -181,6 +189,16 @@ ProtoFlag.PF_VAHID = 1  -- function has hidden vararg arguments (set by VARARGPR
 ProtoFlag.PF_VATAB = 2  -- vararg passed as table (cleared after VARARGPREP runs)
 ProtoFlag.PF_FIXED = 4  -- prototype has parts in fixed memory (read-only hint)
 
+local FrameFlag = {}
+FrameFlag.YIELDABLE = 1
+FrameFlag.PROTECTED = 2
+FrameFlag.NATIVE = 4
+
+local ThreadFlag = {}
+ThreadFlag.YIELDABLE = 1
+ThreadFlag.IN_PROTECTED = 2
+ThreadFlag.CLOSING = 4
+
 local GCColor = {}
 GCColor.WHITE0 = 0
 GCColor.WHITE1 = 1
@@ -196,16 +214,25 @@ GCState.FINALIZE = 3
 local MAX_STACK_SIZE = 1000000
 local MAX_FRAMES = 1000
 
+local Abi = {}
+Abi.VM_VERSION = 1
+Abi.NATIVE_VERSION = 1
+Abi.VALIDATOR_VERSION = 1
+
 return {
     Tag = Tag,
     Op = Op,
     TM = TM,
     Resume = Resume,
     Status = Status,
+    NativeResult = NativeResult,
     Err = Err,
     ProtoFlag = ProtoFlag,
+    FrameFlag = FrameFlag,
+    ThreadFlag = ThreadFlag,
     GCColor = GCColor,
     GCState = GCState,
+    Abi = Abi,
     MAX_STACK_SIZE = MAX_STACK_SIZE,
     MAX_FRAMES = MAX_FRAMES,
 }

@@ -1,18 +1,17 @@
--- worker_compile.lua — One parallel worker: SSA compile + C codegen in one pass
+-- worker_compile.lua — One parallel worker: SSA compile + native fragment metadata.
 -- Usage: luajit src/worker_compile.lua <chunk_id>
 --
--- This is intentionally a repo file, not a /tmp heredoc/script: downstream
--- bank generation relies on the exact identity between a grammar form and the
--- generated C function name. Every unique form written to grammar_result_N.json
--- carries its func name, and grammar_holes_N.json carries the same func name.
+-- C-function-shaped stencils are non-conforming. Workers emit the unified
+-- native fragment metadata artifacts consumed by floor selection and hotter
+-- online composition.
 
 package.path = 'src/?.lua;src/?/init.lua;' .. package.path
 
 local SSA = require("src.ssa")
-local StencilToC = require("src.stencil_to_c")
+local StencilToFragment = require("src.stencil_to_fragment")
+local FragmentIR = require("src.fragment_ir")
 local Util = require("src.util")
 local FactAxes = require("src.ssa_fact_axes")
-local Contract = require("src.ssa_contract")
 
 local ci = tonumber(arg[1])
 assert(ci, "usage: luajit src/worker_compile.lua <chunk_id>")
@@ -36,11 +35,20 @@ local function op_signature(ops)
   return table.concat(parts, "|")
 end
 
+local function contract_key(contract)
+  return table.concat({
+    tostring(contract.selector_sig and contract.selector_sig.literal or ""),
+    tostring(contract.required_sig and contract.required_sig.literal or ""),
+    tostring(contract.checked_sig and contract.checked_sig.literal or ""),
+    tostring(contract.produced_sig and contract.produced_sig.literal or ""),
+    tostring(contract.killed_sig and contract.killed_sig.literal or ""),
+  }, "|")
+end
+
 local forms_by_key = {}
-local code_by_key = {}
+local fragments_in_order = {}
 local forms_in_order = {}
-local lc, lok = 0, 0
-local c_blocks, all_holes = {}, {}
+local lc, lok, lssa_ok, lrejected = 0, 0, 0, 0
 
 for si, ops in ipairs(seqs) do
   local subsets = FactAxes.subsets(FactAxes.axes_for_ops(ops), config)
@@ -48,66 +56,53 @@ for si, ops in ipairs(seqs) do
     local r = SSA.compile(ops, facts, config)
     lc = lc + 1
     if r.ok then
-      lok = lok + 1
-      local normal_key = r.stencil_hash
-      local code_key = tostring(normal_key) .. "|" .. op_signature(ops)
-      local contract = Contract.from_result(r, facts)
-      local contract_key = table.concat({
-        tostring(contract.selector_sig and contract.selector_sig.literal or ""),
-        tostring(contract.required_sig and contract.required_sig.literal or ""),
-        tostring(contract.checked_sig and contract.checked_sig.literal or ""),
-        tostring(contract.produced_sig and contract.produced_sig.literal or ""),
-        tostring(contract.killed_sig and contract.killed_sig.literal or ""),
-      }, "|")
-      local dedupe_key = code_key .. "|" .. contract_key
-      local form = forms_by_key[dedupe_key]
-      if not form then
-        local c = code_by_key[code_key]
-        if not c then
-          c = StencilToC.generate(r, ops, {facts=facts, func_salt="c" .. tostring(ci)})
-          code_by_key[code_key] = c
-          c_blocks[#c_blocks+1] = c.c_code
-          all_holes[#all_holes+1] = {func=c.func_name, key=normal_key, code_key=code_key, holes=c.hole_catalog}
+      lssa_ok = lssa_ok + 1
+      local frag_result = StencilToFragment.generate(r, { facts = facts })
+      if frag_result.ok then
+        lok = lok + 1
+        local fragment = frag_result.fragment
+        local normal_key = r.stencil_hash
+        local code_key = tostring(normal_key) .. "|" .. op_signature(ops)
+        local dedupe_key = code_key .. "|" .. contract_key(fragment.fact_transfer)
+        local form = forms_by_key[dedupe_key]
+        if not form then
+          fragment.fragment_id = #fragments_in_order + 1
+          fragment.abi = FragmentIR.lower_to_abi(fragment)
+          fragments_in_order[#fragments_in_order + 1] = fragment
+          form = {
+            key = normal_key,
+            fragment_id = fragment.fragment_id,
+            fragment_name = fragment.name,
+            code_key = code_key,
+            dedupe_key = dedupe_key,
+            stencil_hash = r.stencil_hash,
+            stencil_form = r.stencil_form,
+            stencil_key = r.stencil_key,
+            stencil_ops = r.stencil_ops,
+            stencil_slotmaps = r.slotmaps,
+            ops = ops,
+            facts = facts,
+            contract = fragment.fact_transfer,
+            fragment_abi = fragment.abi.fragment,
+            count = 0,
+            changed = r.changed,
+            source_ops = ops,
+          }
+          forms_by_key[dedupe_key] = form
+          forms_in_order[#forms_in_order + 1] = form
         end
-        form = {
-          key=normal_key,
-          code_key=code_key,
-          dedupe_key=dedupe_key,
-          func=c.func_name,
-          stencil_hash=r.stencil_hash,
-          stencil_form=r.stencil_form,
-          stencil_key=r.stencil_key,
-          stencil_ops=r.stencil_ops,
-          stencil_slotmaps=r.slotmaps,
-          ops=ops,
-          facts=facts,
-          contract=contract,
-          count=0,
-          changed=r.changed,
-          source_ops=ops,
-        }
-        forms_by_key[dedupe_key] = form
-        forms_in_order[#forms_in_order+1] = form
+        form.count = form.count + 1
+      else
+        lrejected = lrejected + 1
       end
-      form.count = form.count + 1
     end
   end
   if progress_every > 0 and (si % progress_every == 0 or si == #seqs) then
-    io.stderr:write(string.format("[W%d] %d/%d compiles=%d ok=%d forms=%d\n", ci, si, #seqs, lc, lok, #forms_in_order))
+    io.stderr:write(string.format("[W%d] %d/%d compiles=%d ssa_ok=%d fragments=%d rejected=%d forms=%d\n", ci, si, #seqs, lc, lssa_ok, lok, lrejected, #forms_in_order))
   end
 end
 
--- Write C code chunk. Keep exactly one preamble, then every generated function.
-local combined = {}
-local first = c_blocks[1] or ""
-local pe = first:find("void z_")
-if pe then combined[#combined+1] = first:sub(1, pe-1) end
-for _, block in ipairs(c_blocks) do
-  local fs = block:find("void z_")
-  if fs then combined[#combined+1] = "\n" .. block:sub(fs) end
-end
-Util.write_file(tmp("grammar_c_code_" .. ci .. ".c"), table.concat(combined))
-Util.write_json(tmp("grammar_holes_" .. ci .. ".json"), all_holes)
-Util.write_json(tmp("grammar_result_" .. ci .. ".json"), {forms=forms_in_order, compiles=lc, ok=lok})
+Util.write_json(tmp("grammar_fragments_" .. ci .. ".json"), { fragments = fragments_in_order })
+Util.write_json(tmp("grammar_result_" .. ci .. ".json"), { forms = forms_in_order, compiles = lc, ok = lok, ssa_ok = lssa_ok, rejected = lrejected })
 
-io.stderr:write(string.format("[W%d] DONE seqs=%d compiles=%d ok=%d forms=%d\n", ci, #seqs, lc, lok, #forms_in_order))
+io.stderr:write(string.format("[W%d] DONE seqs=%d compiles=%d ssa_ok=%d fragments=%d rejected=%d forms=%d\n", ci, #seqs, lc, lssa_ok, lok, lrejected, #forms_in_order))

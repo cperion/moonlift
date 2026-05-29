@@ -47,7 +47,7 @@ local scratch_raw = libmoon.moonlift_scratch_raw
 
 -- Struct layouts matching products.lua (Lua 5.5)
 -- Instr: op(2)+a(2)+b(2)+c(2)+k(1)+pad(3)+bx(4)+sbx(4) = 20 bytes
--- LuaThread: added tbc_head: index (8 bytes) at the end
+-- LuaThread/Frame include explicit ABI/result/yield contract fields.
 -- Proto: is_vararg → flag
 
 ffi.cdef [[
@@ -80,6 +80,7 @@ ffi.cdef [[
         uint8_t hookmask; uint8_t allowhook;
         int32_t hookcount; int32_t basehookcount; Value hook;
         uint64_t tbc_head;
+        int32_t yieldable; int32_t nonyieldable; int32_t last_error_code; uint32_t flags;
     } LuaThread;
     typedef struct {
         Value closure; uint64_t base; uint64_t top; uint64_t pc;
@@ -87,8 +88,10 @@ ffi.cdef [[
         uint16_t resume_mode;
         uint16_t resume_a; uint16_t resume_b; uint16_t resume_c;
         uint64_t resume_pc; uint64_t resume_base; Value resume_value;
+        uint64_t result_base; uint64_t call_top;
+        uint8_t yieldable; uint8_t flags; uint16_t reserved;
     } Frame;
-    typedef struct { void* allocator; Value registry; void* mainthread; } GlobalState;
+    typedef struct { void* allocator; Value registry; void* mainthread; uint32_t vm_abi_version; uint32_t native_abi_version; } GlobalState;
 ]]
 
 local scratch = function(slot, elem_size, count)
@@ -145,6 +148,8 @@ frames[0].closure.aux = 0
 frames[0].closure.bits = ffi.cast("uint64_t", closure)
 frames[0].base = 1; frames[0].top = 1; frames[0].pc = 0
 frames[0].wanted = 1; frames[0].resume_mode = const.Resume.NORMAL
+frames[0].result_base = frames[0].base; frames[0].call_top = frames[0].top
+frames[0].yieldable = 1; frames[0].flags = 0; frames[0].reserved = 0
 
 -- Global state
 local gstate_mem = scratch(7, 1, 64)
@@ -157,6 +162,7 @@ thread.stack = stack; thread.stack_size = STACK_N; thread.top = 1
 thread.frames = frames; thread.frame_count = 1; thread.frame_cap = 8
 thread.global = gstate; thread.status = const.Status.OK
 thread.tbc_head = 0
+thread.yieldable = 1; thread.nonyieldable = 0; thread.last_error_code = 0; thread.flags = 0
 
 print("Proto built. Instructions:")
 print("  [0] LOADK  R0 K0")

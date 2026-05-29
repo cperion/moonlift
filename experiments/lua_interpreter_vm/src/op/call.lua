@@ -22,7 +22,7 @@ entry start()
     end
     frame.pc = pc
     L.top = top
-    emit prepare_call(L, func_slot, nargs, wanted, as(u16, @{RESUME_NORMAL});
+    emit prepare_call(L, func_slot, nargs, wanted, as(u16, @{RESUME_NORMAL}), pc, func_slot, top, as(u8, 1);
         enter_lua = do_lua,
         enter_native = do_native,
         returned = call_returned,
@@ -32,11 +32,10 @@ entry start()
 end
 block do_lua(child: ptr(Frame))
     child.resume_a = a
-    child.resume_pc = pc
     jump enter_lua(child = child)
 end
-block do_native(cl: ptr(CClosure))
-    jump enter_native(cl = cl)
+block do_native(cl: ptr(CClosure), func_slot: index, nargs: i32, wanted: i32, result_base: index, resume_mode: u16)
+    jump enter_native(cl = cl, func_slot = func_slot, nargs = nargs, wanted = wanted, result_base = result_base, resume_mode = resume_mode)
 end
 block call_returned(nres: i32)
     let func_slot: index = base + as(index, a)
@@ -79,7 +78,7 @@ entry start()
     end
     frame.pc = pc
     L.top = top
-    emit prepare_call(L, func_slot, nargs, frame.wanted, as(u16, @{RESUME_TAILCALL});
+    emit prepare_call(L, func_slot, nargs, frame.wanted, as(u16, @{RESUME_TAILCALL}), pc, frame.result_base, top, frame.yieldable;
         enter_lua = do_lua,
         enter_native = do_native,
         returned = call_returned,
@@ -90,8 +89,8 @@ end
 block do_lua(child: ptr(Frame))
     jump enter_lua(child = child)
 end
-block do_native(cl: ptr(CClosure))
-    jump enter_native(cl = cl)
+block do_native(cl: ptr(CClosure), func_slot: index, nargs: i32, wanted: i32, result_base: index, resume_mode: u16)
+    jump enter_native(cl = cl, func_slot = func_slot, nargs = nargs, wanted = wanted, result_base = result_base, resume_mode = resume_mode)
 end
 block call_returned(nres: i32)
     jump next(frame = frame, pc = pc + 1, base = base, top = top)
@@ -144,7 +143,7 @@ block after_tbc(first: index, nres: i32)
         oom = op_ret_oom)
 end
 block op_ret_resume(parent: ptr(Frame), pc: index, base: index, top: index)
-    jump resume_parent(parent = parent, pc = pc, base = base, top = top)
+    jump resume_parent(parent = parent, pc = parent.pc, base = parent.base, top = parent.top)
 end
 block op_ret_finished(nres: i32)
     jump finished(nres = nres)
@@ -186,7 +185,7 @@ block after_tbc(first: index)
         oom = op_ret_oom)
 end
 block op_ret_resume(parent: ptr(Frame), pc: index, base: index, top: index)
-    jump resume_parent(parent = parent, pc = pc, base = base, top = top)
+    jump resume_parent(parent = parent, pc = parent.pc, base = parent.base, top = parent.top)
 end
 block op_ret_finished(nres: i32)
     jump finished(nres = nres)
@@ -229,7 +228,7 @@ block after_tbc(first: index)
         oom = op_ret_oom)
 end
 block op_ret_resume(parent: ptr(Frame), pc: index, base: index, top: index)
-    jump resume_parent(parent = parent, pc = pc, base = base, top = top)
+    jump resume_parent(parent = parent, pc = parent.pc, base = parent.base, top = parent.top)
 end
 block op_ret_finished(nres: i32)
     jump finished(nres = nres)

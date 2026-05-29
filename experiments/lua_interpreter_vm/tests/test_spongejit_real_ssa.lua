@@ -49,10 +49,41 @@ end
 
 -- compile_nodes reopens typed semantic node specs; raw codegen-op reopening was removed.
 do
-    local base = SSA.compile({ { op = "LOADI", a = 0, sbx = 7 }, { op = "RETURN1", a = 0 } }, {})
+    local base = SSA.compile({ { op = "ADDI", a = 1, b = 1, c = 1 } }, { Facts.fact("type", Facts.slot("R1"), "is_i64", true) })
+    local saw_mem = false
+    local saw_residency = false
+    local saw_exit = false
+    for _, spec in ipairs(base.active_node_specs or {}) do
+        if spec.source ~= nil then assert_true(type(spec.source) == "number", "source must serialize as number") end
+        if spec.mem_in and spec.mem_in.frame then saw_mem = true end
+        for _, rloc in ipairs(spec.output_residencies or {}) do
+            if rloc == "gpr0" then saw_residency = true end
+        end
+        if spec.exit and spec.exit.reason then saw_exit = true end
+    end
+    assert_true(saw_mem, "active_node_specs must preserve memory input tokens")
+    assert_true(saw_residency, "active_node_specs must preserve value residency")
+    assert_true(saw_exit, "active_node_specs must preserve exit objects")
+
     local r = SSA.compile_nodes(base.active_node_specs, {})
     assert_true(r.ok, table.concat(r.errors or {}, "\n"))
     assert_true(has(r.stencil_ops, "store_i64_slot"), "typed node reopening should preserve lowered integer store")
+    local saw_reopened_residency = false
+    local saw_reopened_mem_in = false
+    local saw_reopened_mem_out = false
+    local saw_reopened_exit = false
+    for _, spec in ipairs(r.active_node_specs or {}) do
+        if spec.mem_in and spec.mem_in.frame then saw_reopened_mem_in = true end
+        if spec.mem_out and spec.mem_out.frame then saw_reopened_mem_out = true end
+        if spec.exit and spec.exit.reason then saw_reopened_exit = true end
+        for _, rloc in ipairs(spec.output_residencies or {}) do
+            if rloc == "gpr0" then saw_reopened_residency = true end
+        end
+    end
+    assert_true(saw_reopened_residency, "compile_nodes must round-trip residency")
+    assert_true(saw_reopened_mem_in, "compile_nodes must round-trip memory input tokens")
+    assert_true(saw_reopened_mem_out, "compile_nodes must round-trip memory output tokens")
+    assert_true(saw_reopened_exit, "compile_nodes must round-trip exit objects")
 end
 
 -- Barrier elimination requires a real GC fact.

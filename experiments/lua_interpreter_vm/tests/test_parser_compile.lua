@@ -61,6 +61,8 @@ typedef struct {
     uint16_t resume_mode;
     uint16_t resume_a; uint16_t resume_b; uint16_t resume_c;
     uint64_t resume_pc; uint64_t resume_base; Value resume_value;
+    uint64_t result_base; uint64_t call_top;
+    uint8_t yieldable; uint8_t flags; uint16_t reserved;
 } Frame;
 typedef struct {
     GCHeader gc; uint8_t status;
@@ -71,8 +73,9 @@ typedef struct {
     uint8_t hookmask; uint8_t allowhook;
     int32_t hookcount; int32_t basehookcount; Value hook;
     uint64_t tbc_head;
+    int32_t yieldable; int32_t nonyieldable; int32_t last_error_code; uint32_t flags;
 } LuaThread;
-typedef struct { void* allocator; Value registry; void* mainthread; } GlobalState;
+typedef struct { void* allocator; Value registry; void* mainthread; uint32_t vm_abi_version; uint32_t native_abi_version; } GlobalState;
 ]]
 
 local compile_region = vm.regions_compiler.compile_lua_source_into
@@ -178,10 +181,13 @@ local function make_thread(proto)
     local frames = ffi.new("Frame[8]")
     frames[0].closure = stack[0]
     frames[0].base = 1; frames[0].top = 1; frames[0].pc = 0; frames[0].wanted = 1; frames[0].resume_mode = const.Resume.NORMAL
+    frames[0].result_base = frames[0].base; frames[0].call_top = frames[0].top
+    frames[0].yieldable = 1; frames[0].flags = 0; frames[0].reserved = 0
     local global = ffi.new("GlobalState[1]")
     local L = ffi.new("LuaThread[1]")
     L[0].status = const.Status.OK; L[0].stack = stack; L[0].stack_size = 64; L[0].top = 1
     L[0].frames = frames; L[0].frame_count = 1; L[0].frame_cap = 8; L[0].global = global
+    L[0].yieldable = 1; L[0].nonyieldable = 0; L[0].last_error_code = 0; L[0].flags = 0
     global[0].mainthread = L
     return L, stack, closure, frames, global
 end

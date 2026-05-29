@@ -2,13 +2,15 @@
 
 **Type:** architecture description
 **Audience:** VM / C / assembly engineers
-**Status:** prototype built, target design
+**Status:** active prototype plus design notes. Current `spongejit/` foundry path is
+semantic SSA → hole-parametric Stencil IR → C stencil → object/relocation mining
+→ generated bank metadata. Older sections of this document still describe the
+pre-Stencil-IR `normal_form_hash`/`ssa_to_c` boundary and other removed ideas;
+read old sections as historical context, not exact current code.
 
-The foundry enumerates all valid PUC Lua 5.5 opcode sequences up to arity 4,
-compiles each to C with HOLEs, and produces a read-only bank of pre-compiled binary
-stencils via GCC. Selected stencils may also be enumerated under fact-env unions
-to produce multimorphic tiles for sites observed to be polymorphic in the training
-corpus.
+The foundry enumerates valid PUC Lua 5.5 opcode sequences, lowers them through
+semantic SSA into hole-parametric Stencil IR, emits C with HOLEs, and produces a
+read-only bank of pre-compiled binary stencils via GCC.
 
 The bank is the entire code-generation intelligence of the system. The runtime is a
 selector (`SPONJIT_RUNTIME_DESIGN.md`): it holds floor + active images, small
@@ -29,22 +31,19 @@ The foundry never ships Images in the bank. It ships the stencil vocabulary used
 by the runtime to build Images.
 ```
 
-The SSA layer (`ssa_lift.lua`, `ssa_ir.lua`) is the **fact-consuming semantic
-lowering layer**, not a general optimizer. It consumes opcode semantics plus a fact
-environment and chooses specialized core operations when the facts justify them;
-otherwise it emits structured exits. All scalar optimization is delegated to GCC
--O2. The SSA optimizer runs only narrow passes that GCC cannot express, such as
-slot/HOLE-aware frame forwarding and Lua guard dominance.
+The semantic SSA layer (`spongejit/src/ssa_lift.lua`, `ssa_ir.lua`, `ssa_opt.lua`)
+is the **fact-consuming semantic lowering layer**, not a general optimizer. It
+consumes opcode semantics plus a fact environment and chooses specialized core
+operations when the facts justify them; otherwise it emits structured exits. The
+Stencil IR layer (`ssa_to_stencil.lua`, `stencil_ir.lua`, `stencil_normalize.lua`)
+is the **canonical materialization shape**: typed data holes, slot classes,
+semantic exits, and native-fragment lowering inputs. `stencil_to_fragment.lua`
+emits abstract native-fragment descriptors from that Stencil IR.
+
+It is not a runtime IR and not a general optimizing compiler. The current boundary is:
 
 ```text
-experiments/lua_interpreter_vm/tools/sponjit_shadow/foundry_ssa.lua
-```
-
-It is not a runtime IR and not a general optimizing compiler. It is a small,
-VM-shaped, projection-aware SSA whose purpose is:
-
-```text
-consume facts -> simplify tuple semantics -> produce bank candidates
+consume facts -> semantic SSA -> Stencil IR shape -> abstract native-fragment descriptor
 ```
 
 The runtime never sees this SSA. The runtime observes facts, maintains local lease
@@ -61,33 +60,28 @@ SponJIT's runtime model is image materialization from a bank of TileTemplates. T
 exhaustively AOT:
 
 ```text
-A₀ = opcode atoms (L0 — the floor source)
+A₀ = raw opcode atoms (L0 — the floor source)
 for k = 0..K:
-    enumerate arity≤4 tuples over Aₖ
+    enumerate arity 2..4 tuples over Aₖ
     expand tuple semantics
     enumerate applicable fact environments
-    run Foundry SSA
-    lower to bank candidate
+    run semantic SSA
+    lower to Stencil IR / bank candidate
     verify / score / benchmark
     select top cap
     Aₖ₊₁ = Aₖ ∪ selected
-
-separately, for multimorphism (§13):
-    consume corpus pressure data on per-PC signature distributions
-    enumerate unions over fact environments where top-K signatures cluster
-    produce multimorphic tiles with internal discriminators
-    add to multimorphic directory in the bank
 ```
 
-Foundry SSA is the canonical fact consumer in this loop — in the SponJIT design, it
-is **the only fact-consuming optimizer in the system**. The runtime does not
-optimize. Observed runtime facts and exit clusters are inputs to *next-run* foundry
-training, not to a runtime optimizer.
+Semantic SSA is the canonical fact consumer in this loop. Stencil IR is the
+canonical code-shape/bank-shape representation. The runtime does not optimize.
+Observed runtime facts and exit clusters are inputs to *next-run* foundry training,
+not to a runtime optimizer.
 
 ```text
 Facts do not directly select handwritten lowerings.
 Facts specialize a semantic graph.
 SSA turns those facts into consequences.
+Stencil IR turns those consequences into reusable patchable shapes.
 Selection interns the useful consequences as bank tiles.
 ```
 
@@ -132,19 +126,19 @@ stencil vocabulary, it is rejected.
 
 ```text
 AtomTuple:
-  arity≤4 tuple over current foundry basis Aₖ
+  arity 2..4 tuple over current foundry basis Aₖ
 
 FactEnv:
   applicable fact combination for the tuple
     -- monomorphic: a single signature
-    -- multimorphic: a union of signatures (§13)
+    -- fact profile: observed signatures for capping
 
 AtomSemantics:
   semantic expansion for each atom
 
 CorpusPressure:
   observed signature distributions per pattern, aggregated across runs;
-  drives multimorphic-union enumeration policy
+  drives fact-combo capping policy
 
 Budgets:
   register/residency budget
@@ -169,9 +163,10 @@ them for further composition.
 ```text
 CandidateBankTile:
   source tuple
-  fact environment (monomorphic signature or multimorphic union)
-  optimized semantic normal-form hash
-  optimized SSA graph / lowering plan
+  fact environment / signature
+  stencil_hash                 -- canonical C/code shape
+  contract_key                 -- selector/fact-transfer identity
+  semantic SSA summary / Stencil IR lowering plan
   required / checked / produced / killed facts
   dependencies
   exits and projections
@@ -197,7 +192,7 @@ space:
 ```text
 A₀ = raw opcode atoms
 for layer k:
-    Cₖ = all arity≤4 tuples over Aₖ
+    Cₖ = all arity 2..4 tuples over Aₖ
     Sₖ = {}
     for tuple in Cₖ:
         for fact_env in applicable_fact_combinations(tuple):
@@ -209,7 +204,7 @@ for layer k:
 So the composition universe is always:
 
 ```text
-raw ops + selected SSA normal forms from prior layers
+raw ops + selected Stencil IR / SSA-normalized atoms from prior layers
 ```
 
 All SSA forms can be generated and deduped offline. Only selected forms become atoms
@@ -218,7 +213,7 @@ in the bank; unselected forms are measurements, not basis pollution.
 Concrete per-candidate loop:
 
 ```text
-for tuple in arity≤4(Aₖ):
+for tuple in arity2_to_4(Aₖ):
   for fact_env in applicable_fact_envs(tuple):
       graph0 = expand_semantics(tuple)
       graph1 = apply_facts(graph0, fact_env)
@@ -343,7 +338,7 @@ call_boundary
 tailcall_boundary
 residual_boundary
 loop_backedge
-multimorphic_dispatch   internal discriminator for §13 tiles
+fact_profile_note      optional offline metric for fact capping
 ```
 
 ### 5.7 Projection nodes / metadata nodes
@@ -396,7 +391,7 @@ known_call_target      -> closure/proto target epoch
 barrier_clean          -> GC barrier protocol state
 ```
 
-For multimorphic environments (§13), the fact environment is a *union*:
+For profile-guided fact capping, observed signatures are metrics, not runtime tile unions:
 
 ```text
 fact_env = {S1: facts1, S2: facts2}
@@ -574,7 +569,6 @@ cmp_i64
 return1
 call_boundary_known
 jump / branch
-multimorphic_dispatch
 projection stubs
 ```
 
@@ -588,131 +582,42 @@ This preserves the no-runtime-codegen invariant.
 
 ---
 
-## 12. Semantic normal forms
+## 12. Stencil IR canonical forms
 
-Foundry SSA gives candidate identity a semantic normal form.
+Semantic SSA gives candidate identity Lua meaning; Stencil IR gives candidate
+identity a reusable patchable code shape.
 
-Different opcode tuples can normalize to the same candidate:
+Different opcode tuples can normalize to the same Stencil IR candidate:
 
 ```text
-LOADK MOVE RETURN1   -> return_const
-LOADK RETURN1        -> return_const
+LOADK MOVE RETURN1   -> return_const-like stencil shape
+LOADK RETURN1        -> return_const-like stencil shape
 
-SELF MOVE CALL       -> self_call
-GETFIELD MOVE CALL   -> field_call
+SELF MOVE CALL       -> self_call-like stencil shape
+GETFIELD MOVE CALL   -> field_call-like stencil shape
 
-GETFIELD ADDI SETFIELD -> field_i64_update
+GETFIELD ADDI SETFIELD -> field_i64_update-like stencil shape
 ```
 
-The foundry keys candidates by:
+The foundry separates two keys:
 
 ```text
-optimized_semantic_normal_form_hash
+stencil_hash                 -- canonical C/code shape
+stencil_hash + contract_key  -- bank form / selector contract identity
 ```
 
 not only by source opcode tuple. This reduces basis pollution and helps bank tiles
 transfer across superficial bytecode variation. ICF-style merging at GCC link time
-collapses identical machine code further.
+may collapse identical machine code further.
 
 ---
 
-## 13. Multimorphic tile enumeration
+## 13. Fact-space capping
 
-A site that sees multiple stable fact environments is not handled by a runtime
-cache (there is none). It is handled by enumerating a **multimorphic tile** that
-covers the union, with an internal discriminator chosen for cheapness.
-
-### 13.1 Trigger condition
-
-The foundry enumerates a multimorphic tile only when corpus pressure justifies it:
-
-```text
-training corpus -> per-PC signature distribution
-for each (pattern, PC):
-    if top-K signatures cluster (e.g. top-2 ≥ 90% of observations, or top-3 ≥ 95%):
-        enumerate multimorphic tile T_{S1 ∨ ... ∨ SK}
-    else if signatures are flat across many shapes:
-        no multimorphic tile; runtime will fall to floor for unhit signatures
-```
-
-This bounds the multimorphic directory. The foundry does not enumerate every
-possible union — only unions the world actually exhibits.
-
-### 13.2 Internal structure
-
-A multimorphic tile is a single fused tile with an internal branch on a
-discriminator:
-
-```text
-multimorphic ADD over {i64, f64}:
-  load tag of lhs
-  jump-table or compare-branch on tag
-    arm i64:
-      guard_i64(rhs)
-      unbox_i64 lhs, rhs
-      add_i64
-      box_i64
-    arm f64:
-      guard_f64(rhs)
-      unbox_f64 lhs, rhs
-      add_f64
-      box_f64
-    default:
-      residual_boundary    -- projects to floor
-```
-
-The discriminator is the cheapest test that separates the union's arms. Each arm is
-a normal SSA lowering specialized for its signature, identical to the corresponding
-monomorphic tile's body. GCC compiles the whole thing as one function; the branch
-predictor sees a consistent pattern over short windows.
-
-### 13.3 Lowering
-
-A multimorphic tile lowers to a stencil with one HOLE per arm and one HOLE for the
-discriminator. The runtime patches in the actual operand slots and exit targets like
-any other tile. No new mechanism is needed — multimorphism is a tile shape, not a
-runtime feature.
-
-### 13.4 Selection from the runtime side
-
-The runtime canonicalizes observed facts into a signature. If the canonicalization
-yields a union over a known multimorphic directory entry, that entry is selected.
-If it yields a union not in the directory, lookup misses and the region stays at
-floor for the affected PCs.
-
-```text
-observed: {S1, S2}
-canonicalize: signature = "multimorphic-{S1, S2} over pattern P"
-bank lookup: hit -> select multimorphic tile T_{S1 ∨ S2}
-            miss -> floor
-
-observed: {S1, S2, S3, S4, S5}
-canonicalize: signature = "multimorphic-{...} over pattern P"
-bank lookup: probably miss; foundry rarely enumerates 5-way unions
-fallback: floor
-```
-
-### 13.5 Why this beats a runtime cache
-
-```text
-runtime cache:
-  per-iteration signature canonicalization
-  per-iteration cache lookup
-  per-iteration possible eviction
-  per-region cache key management
-  per-region eviction policy
-
-multimorphic tile:
-  one-time bank lookup at selection time (when hysteresis stabilizes)
-  per-iteration internal branch inside the tile (compiled by GCC)
-  no cache, no eviction, no per-iteration lookup, no per-region key management
-```
-
-The discriminator cost is bounded and predictable; the cache machinery is unbounded
-and a source of subtle bugs. Pushing polymorphism into the tile pushes it past the
-boundary where the runtime has to think.
-
----
+Fact combinations are a foundry-time selection problem: enumerate only the fact
+bundles justified by grammar constraints, profile pressure, and code-size/usefulness
+budgets. Runtime does not build a cache or route through a special tile class; it
+selects ordinary bank tiles by their contracts.
 
 ## 14. Interaction with recursive basis growth
 
@@ -740,14 +645,10 @@ L2/L3: GETTABLE_array_i64 + ADD_i64 + RETURN1
        -> array_load_add_return atom
 ```
 
-Multimorphic tiles enter the basis at a separate directory; they do not normally
-participate in higher-layer composition (composing two multimorphic tiles
-combinatorially multiplies their arms, which is bad). When a multimorphic tile
-appears in a window for which a higher-arity monomorphic tile exists for one of its
-arms, the monomorphic tile wins for that signature and the multimorphic tile covers
-the remaining union.
-
-Runtime still sees only TileTemplates drawn from the bank, never SSA forms or prebuilt Images.
+Higher layers compose the basis selected so far. Fact diversity is handled by
+capping/profile-guiding ordinary fact-specialized tiles, not by a separate tile
+kind. Runtime still sees only TileTemplates drawn from the bank, never SSA forms or
+prebuilt Images.
 
 ---
 
@@ -755,31 +656,41 @@ Runtime still sees only TileTemplates drawn from the bank, never SSA forms or pr
 
 Enumeration may be large offline. Bank tiles are budgeted by selection.
 
-Current measurements (Lua 5.5, arity≤4, L0 + L1 + multimorphic over training corpus):
+Measurements are configuration-dependent and have changed across prototypes. The
+old small shadow-foundry numbers are no longer representative of the current
+Stencil IR bank path. For current size/count data, use `src/worker_compile.lua` outputs and
+`foundry.lua` summaries, especially `grammar_fragments_N.json`,
+`grammar_result_N.json`, and `foundry_layers.json`.
+
+Important current metrics to track are:
 
 ```text
-Unique SSA forms enumerated:   ~471 K
-Clean stencils (compilable):     ~6.5 K
-Real stencils (>5 bytes):        ~6.5 K
-Total .text bytes:                ~1.04 MB
-Average stencil size:             ~136 bytes
-GCC ICF canonical bodies:         ~2 K (estimated)
-HOLE relocations total:          ~18 K
+source opcode sequences
+fact combinations compiled
+unique stencil_hash values
+unique contract shapes
+unique fragment descriptor/code keys
+abstract/non-executable fragment coverage
+average data relocs/fragment
+average control relocs/fragment
+average projections/fragment
+average Stencil IR ops/fragment
 ```
 
 The pack budget is a soft constraint. The goal is not "fit in N MB" — the goal is to
 beat per-op stencil JITs by *fusing*. The 50 MB number cited earlier in design
-material was a soft ceiling, not a target. Selection retains tiles that demonstrate
-fusion wins over their child cover; rejection is driven by foundry-side measurement,
-not by a hard byte budget.
+material was a soft ceiling, not a target. Selection retains fragments that
+demonstrate fusion wins over their child cover; rejection is driven by foundry-side
+measurement, not by a hard byte budget.
 
 Hard rules:
 
 ```text
-dedupe semantic normal-form hash
+dedupe abstract fragment descriptors by stencil_hash + op_signature + contract_key
+keep distinct bank forms by stencil_hash + contract_key
 keep Pareto frontier over speed / bytes / exits / projection size
-longer tile must beat best composition of shorter tiles
-retire tiles whose signatures never appear in corpus or runtime exit logs
+longer fragment must beat best composition of shorter fragments
+retire fragments whose signatures never appear in corpus or runtime exit logs
 ```
 
 ---
@@ -801,10 +712,11 @@ runtime identity:
 
 foundry identity:
   semantic expansion or SSA summary
+  Stencil IR shape/hash
   required / checked / produced / killed facts
-  normal-form hash
+  contract key
   effect summary
-  for multimorphic: arm structure, discriminator
+  for fact caps: observed signature/profile metadata
 ```
 
 Runtime treats TileTemplates as opaque artifacts. The foundry can reopen them for higher-
@@ -821,7 +733,7 @@ layer composition or replay through SSA when corpus pressure changes.
 - graph builder for a small opcode subset:
   MOVE, LOADK, LOADI, ADD, ADDI, RETURN1, GETFIELD, SETFIELD, CALL, SELF
 - fact application for i64, shape, metatable_absent, known_call_target
-- semantic normal-form hash
+- Stencil IR canonical hash
 ```
 
 Initial shadow status: implemented in `foundry_ssa.lua`.
@@ -861,17 +773,18 @@ materialized into real exit stubs.
 - emit real .o files with HOLE relocations
 ```
 
-Current status: real .o files emitted. ~6.5K real stencils, ~880 KB total, ~136 B
-avg, ~18 K HOLE relocations, GCC ICF merging duplicates.
+Current status: the production foundry path emits real `.o` files from Stencil IR,
+mines HOLE relocations, and generates bank metadata. Counts and sizes depend on
+`MAX_ARITY`, `MAX_FACT_COMBOS`, `FACT_AXIS_MODE`, corpus/fact axes, and whether a
+full or sampled bank is being built.
 
-### Phase 5 — multimorphic enumeration
+### Phase 5 — fact-space metrics and caps
 
 ```text
-- consume corpus pressure data (per-PC signature distributions)
-- compute top-K clustering per (pattern, PC)
-- enumerate unions where clustering crosses threshold
-- lower with internal discriminator
-- emit to multimorphic directory
+- measure fact-combo explosion per opcode pattern
+- keep structurally useful combinations
+- cap facts by profile pressure and code-size budget
+- report unique stencil_hash, contract shapes, emitted C functions, holes/tile
 ```
 
 ### Phase 6 — bank export
@@ -880,7 +793,7 @@ avg, ~18 K HOLE relocations, GCC ICF merging duplicates.
 - selection cap policy
 - Pareto frontier maintenance
 - normal-form dedup
-- multimorphic directory layout
+- fact-cap/profile metadata layout
 - bank file format
 - runtime mmap reader
 ```
@@ -911,13 +824,14 @@ forwarded values
 folded constants
 merged projections
 recognized semantic idioms
-multimorphic dispatch internalized into fused tiles
+profile-guided fact caps and fused tiles
 ```
 
-The useful consequences are selected as bank tiles. Polymorphism that the runtime
-would otherwise handle via a cache is dissolved into multimorphic tiles enumerated
-here when corpus pressure justifies them. Recursive basis growth interns optimized
-semantic phrases as atoms, broadening higher layers without inflating the runtime.
+The useful consequences are selected as bank tiles. Sites that the current bank does
+not cover profitably fall back to weaker/generic tiles or L0; profile pressure can
+then guide later fact caps and basis growth. Recursive basis growth interns
+optimized semantic phrases as atoms, broadening higher layers without inflating the
+runtime.
 
 Runtime SponJIT remains mechanically simple:
 

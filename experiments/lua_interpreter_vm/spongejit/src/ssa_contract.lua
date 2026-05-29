@@ -1,8 +1,8 @@
--- ssa_contract.lua -- Tile fact-transfer contracts from Stencil IR.
+-- ssa_contract.lua -- native fragment fact-transfer contracts from Stencil IR.
 --
 -- Contracts are over the same 64-bit ABI as runtime facts, but slot facts are
--- encoded in canonical stencil slot-class space.  Generated bank selector code
--- remaps these masks to actual runtime slots using stencil.slotmaps.
+-- encoded in canonical stencil slot-class space. Generated fragment selector
+-- code remaps these masks to actual runtime slots using stencil.slotmaps.
 
 local Sig = require("src.fact_signature")
 local Facts = require("src.facts")

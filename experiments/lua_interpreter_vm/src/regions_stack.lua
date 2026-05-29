@@ -31,7 +31,11 @@ end
 
 -- frame_push: allocate a new frame in L.frames[]
 local frame_push = host.region { TAG_NIL = I.TAG_NIL, ERR_STACK_OVERFLOW = I.ERR_STACK_OVERFLOW } [[
-region frame_push(L: ptr(LuaThread), closure: Value, base: index, top: index, wanted: i32, resume_mode: u16; ok: cont(frame: ptr(Frame)), overflow: cont(), oom: cont())
+region frame_push(L: ptr(LuaThread), closure: Value, base: index, top: index,
+                  result_base: index, call_top: index,
+                  wanted: i32, resume_mode: u16, resume_pc: index,
+                  yieldable: u8;
+                  ok: cont(frame: ptr(Frame)), overflow: cont(), oom: cont())
 entry start()
     if L.frame_count >= L.frame_cap then
         -- No frame-array growth backend is wired in this experiment; fail loud instead of writing past capacity.
@@ -50,9 +54,14 @@ entry start()
     f.resume_a = 0
     f.resume_b = 0
     f.resume_c = 0
-    f.resume_pc = 0
+    f.resume_pc = resume_pc
     f.resume_base = 0
     f.resume_value = { tag = @{TAG_NIL}, aux = 0, bits = 0 }
+    f.result_base = result_base
+    f.call_top = call_top
+    f.yieldable = yieldable
+    f.flags = 0
+    f.reserved = 0
     jump ok(frame = f)
 end
 end
@@ -75,7 +84,9 @@ end
 end
 ]]
 
--- adjust_results: copy and pad results for caller expectations
+-- adjust_results: copy and pad results for caller expectations.
+-- The dst parameter is the call's explicit result base; callers must never
+-- substitute parent.base for a call destination.
 local adjust_results = host.region { TAG_NIL = I.TAG_NIL } [[
 region adjust_results(L: ptr(LuaThread), first_result: index, nactual: i32, wanted: i32, dst: index; done: cont(nplaced: i32), oom: cont())
 entry start()

@@ -27,7 +27,7 @@ for _, mod in pairs(vm) do
 end
 ok("22 source files loaded", true)
 ok(string.format("%d region fragments", region_count), region_count >= 100)
-ok(string.format("%d struct definitions", struct_count), struct_count == 42)
+ok(string.format("%d struct definitions", struct_count), struct_count == 43)
 
 -- Verify key architectural paths
 ok("dispatch_instruction has 9 continuations", #vm.opcodes.dispatch_instruction.frag.conts == 9)
@@ -37,8 +37,11 @@ ok("38 opcode handlers", #vm.op_handlers.op_move.frag.params >= 10)
 
 -- Verify specific critical structs
 ok("Value has 3 fields", #vm.products.Value.decl.fields == 3)
-ok("Frame has 13 fields", #vm.products.Frame.decl.fields == 13)
-ok("LuaThread has 18 fields", #vm.products.LuaThread.decl.fields == 18)
+ok("Frame has 18 fields", #vm.products.Frame.decl.fields == 18)
+ok("LuaThread has 22 fields", #vm.products.LuaThread.decl.fields == 22)
+ok("NativeCallResult exists", vm.products.NativeCallResult ~= nil)
+ok("contract vm_abi_version == 1", vm.contract.vm_abi_version == 1)
+ok("contract gates SponJIT", vm.contract.sponjit_allowed == false)
 ok("Proto has 19 fields", #vm.products.Proto.decl.fields == 19)
 
 -- Test that compiling a function that uses VM regions works
@@ -69,7 +72,7 @@ verify_di(L: ptr(LuaThread), frame: ptr(Frame),
         yield 6
     end
     block ok_l(child: ptr(Frame)) yield 2 end
-    block ok_c(cl: ptr(CClosure)) yield 3 end
+    block ok_c(cl: ptr(CClosure), func_slot: index, nargs: i32, wanted: i32, result_base: index, resume_mode: u16) yield 3 end
     block ok_r(nres: i32) yield 4 end
     block ok_y(nres: i32) yield 5 end
     block ok_e(code: i32) yield 0 - code end
