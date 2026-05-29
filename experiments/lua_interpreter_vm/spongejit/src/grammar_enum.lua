@@ -7,6 +7,7 @@ local Util = require("src.util")
 local SSA = require("src.ssa")
 local Facts = require("src.facts")
 local FactAxes = require("src.ssa_fact_axes")
+local Contract = require("src.ssa_contract")
 
 local M = {}
 
@@ -397,7 +398,7 @@ function M.enumerate_grammar(config)
     local sequences = M.generate_all(max_arity)
     print(string.format("[grammar] Generated %d opcode sequences (arity 1-%d)", #sequences, max_arity))
 
-    local forms_by_hash, total_compiles, total_ok = {}, 0, 0
+    local forms_by_key, total_compiles, total_ok = {}, 0, 0
 
     for si, seq in ipairs(sequences) do
         local ops = seq.ops
@@ -409,37 +410,47 @@ function M.enumerate_grammar(config)
             total_compiles = total_compiles + 1
             if result.ok then
                 total_ok = total_ok + 1
-                local key = result.normal_form_hash
-                if not forms_by_hash[key] then
-                    forms_by_hash[key] = {
-                        key = key, normal_form = result.normal_form,
-                        active_ops = result.active_ops,
-                        ops = ops, facts = facts,
+                local contract = Contract.from_result(result, facts)
+                local contract_key = table.concat({
+                    tostring(contract.selector_sig and contract.selector_sig.literal or ""),
+                    tostring(contract.required_sig and contract.required_sig.literal or ""),
+                    tostring(contract.checked_sig and contract.checked_sig.literal or ""),
+                    tostring(contract.produced_sig and contract.produced_sig.literal or ""),
+                    tostring(contract.killed_sig and contract.killed_sig.literal or ""),
+                }, "|")
+                local key = result.stencil_hash .. "|" .. contract_key
+                if not forms_by_key[key] then
+                    forms_by_key[key] = {
+                        key = result.stencil_hash, dedupe_key = key, stencil_hash = result.stencil_hash,
+                        stencil_form = result.stencil_form,
+                        stencil_ops = result.stencil_ops,
+                        stencil_slotmaps = result.slotmaps,
+                        ops = ops, facts = facts, contract = contract,
                         count = 0, changed = result.changed, source_ops = ops,
                     }
                 end
-                forms_by_hash[key].count = forms_by_hash[key].count + 1
+                forms_by_key[key].count = forms_by_key[key].count + 1
             end
         end
         if si % 1000 == 0 then
             io.stderr:write(string.format("[grammar] %d/%d seq (x%d facts avg, %d OK, %d unique)...\n",
-                si, #sequences, total_compiles > 0 and math.floor(total_compiles / si) or 0, total_ok, #forms_by_hash))
+                si, #sequences, total_compiles > 0 and math.floor(total_compiles / si) or 0, total_ok, #forms_by_key))
         end
     end
 
     local unique_count = 0
-    for _ in pairs(forms_by_hash) do unique_count = unique_count + 1 end
+    for _ in pairs(forms_by_key) do unique_count = unique_count + 1 end
 
     local stats = {sequences = #sequences, compiles = total_compiles, ok = total_ok, unique_forms = unique_count}
 
     local forms = {}
-    for _, f in pairs(forms_by_hash) do forms[#forms + 1] = f end
+    for _, f in pairs(forms_by_key) do forms[#forms + 1] = f end
     table.sort(forms, function(a, b) return a.count > b.count end)
 
-    print(string.format("[grammar] %d unique SSA forms from %d compiles (%d OK, %d failed)",
+    print(string.format("[grammar] %d unique Stencil IR forms from %d compiles (%d OK, %d failed)",
         #forms, total_compiles, total_ok, total_compiles - total_ok))
 
-    return {forms = forms, forms_by_hash = forms_by_hash, stats = stats}
+    return {forms = forms, forms_by_key = forms_by_key, stats = stats}
 end
 
 -- Exact single-op floor set. This intentionally bypasses handler-class

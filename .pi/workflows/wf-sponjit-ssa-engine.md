@@ -1042,3 +1042,426 @@ Existing infrastructure to preserve as first-class constraints:
 Semantic rewrites currently hidden in `ssa_to_c.lua`, especially `BoxI64 + FrameStore` fusion and frame forwarding decisions, belong at the SSA-to-Stencil lowering boundary.
 
 Unsupported or unpatchable cases should remain explicit through exits, residuals, contracts, or patchability filtering. They should not be hidden by adding dynamic SSA behavior to the runtime.
+
+## Planner Output — 2026-05-29 01:49:35
+
+## Goal
+Replace SpongeJIT’s raw-SSA normalization/codegen boundary with a new hole-parametric Stencil IR that is the sole canonical hash, C emission, hole metadata, and bank materialization shape.
+
+## Plan
+
+1. Add `experiments/lua_interpreter_vm/spongejit/src/stencil_ir.lua`
+   - Define `Stencil` as a closed, C-ready IR:
+     - `ops`
+     - `values`
+     - `holes`
+     - `slotmaps`
+     - `exits`
+     - `facts`
+     - `source_ops`
+   - Define typed hole records:
+     - `id`
+     - `role_kind`
+     - `role`
+     - `role_arg`
+     - `op_idx`
+     - `ty`
+     - `patchable`
+     - `semantic`
+     - `key`
+   - Define C-ready ops, not raw SSA ops:
+     - `LoadSlot`
+     - `StoreSlot`
+     - `StoreI64Slot`
+     - `LoadConst`
+     - `ConstI64`
+     - `ConstI64Hole`
+     - `ConstNil`
+     - `ConstBool`
+     - `Move`
+     - `GuardI64`
+     - `GuardTable`
+     - `GuardShape`
+     - `GuardMetatableAbsent`
+     - `GuardCallTarget`
+     - `GuardArrayHit`
+     - `GuardBounds`
+     - `UnboxI64`
+     - `BoxI64Scratch`
+     - `AddI64`
+     - `SubI64`
+     - `MulI64`
+     - `I64BinOp`
+     - `I64UnaryOp`
+     - `CmpI64`
+     - `FieldLoad`
+     - `FieldStore`
+     - `ArrayLoad`
+     - `ArrayStore`
+     - `BarrierCheck`
+     - `ExitResidual`
+     - `ExitBoundary`
+     - `ExitUnlowered`
+   - Add `validate(stencil)`:
+     - hole ids contiguous
+     - all inputs/outputs defined
+     - only known ops
+     - no raw SSA op names leak through
+     - slot class ids fit current 0..7 fact ABI
+     - every slot hole has a matching canonical slotmap entry.
+
+2. Add `experiments/lua_interpreter_vm/spongejit/src/ssa_to_stencil.lua`
+   - Lower optimized semantic SSA graph into Stencil IR.
+   - Build a canonical slot-class map from source operand equality, not literal `R0/R1/...`.
+     - Example: concrete slots `{R3,R7,R3}` become canonical classes `{S0,S1,S0}`.
+   - Populate `stencil.slotmaps` as `{op_idx, logical_slot=<canonical class>, field_kind}`.
+   - Allocate holes during lowering, not during C generation.
+   - Hole allocation must be deterministic and keyed by role/source/slot-class.
+   - Convert patchable runtime operands to holes:
+     - slots
+     - slot stores
+     - immediates
+     - constants
+     - booleans
+     - fail/exit targets
+     - payload holes.
+   - Move current `ssa_to_c.lua` semantic rewrites here:
+     - fuse `BoxI64 + FrameStore` into `StoreI64Slot`
+     - preserve raw `BoxI64` only when another consumer needs a `TValue`
+     - preserve frame forwarding as Stencil-level value flow, not emitter state.
+   - Unsupported SSA ops become explicit `ExitUnlowered`, not emitter fallbacks.
+
+3. Add `experiments/lua_interpreter_vm/spongejit/src/stencil_normalize.lua`
+   - Hash and normalize Stencil IR, not raw SSA.
+   - Implement stable value numbering with an explicit counter, never `#map`.
+   - Canonical key includes:
+     - op sequence and def-use shape
+     - value types
+     - hole role/type/patchability
+     - hole equality keys
+     - canonical slot classes and slot equality constraints
+     - exit kind/reason/resume behavior
+     - fact contract shape
+   - Canonical key excludes:
+     - concrete slot numbers
+     - concrete immediates
+     - concrete constant indices
+     - representative source operand values unless they change stencil shape.
+   - Export:
+     - `form(stencil)`
+     - `key(stencil)`
+     - `hash(stencil)`
+     - `checked_facts(stencil)`
+     - `deps(stencil)`
+     - `projection(stencil)`.
+
+4. Rewrite `experiments/lua_interpreter_vm/spongejit/src/ssa.lua`
+   - Pipeline becomes:
+     ```lua
+     lift -> optimize -> validate semantic SSA -> lower to Stencil IR -> validate Stencil IR -> stencil normalize/hash
+     ```
+   - Remove dependency on `src.ssa_normalize`.
+   - Return new primary fields:
+     - `stencil`
+     - `stencil_form`
+     - `stencil_hash`
+     - `stencil_key`
+     - `stencil_ops`
+     - `stencil_holes`
+     - `slotmaps`
+   - Stop exposing old raw-SSA normalization API:
+     - remove `M.Normalize`
+     - remove `semantic_normal_form`
+     - remove `normal_form_hash`.
+   - Keep `graph` only as semantic debug/input to contracts, not as the canonical identity.
+
+5. Rewrite `experiments/lua_interpreter_vm/spongejit/src/ssa_contract.lua`
+   - Make contracts derive from Stencil IR, not raw SSA.
+   - Encode selector/required/checked/produced/killed facts in canonical slot-class space.
+   - Add mapping from rich fact subjects to canonical slot ids.
+   - `StoreI64Slot` produces i64 slot facts.
+   - Stencil memory/effect ops kill facts:
+     - slot stores kill slot facts for that canonical slot
+     - table writes/calls/barriers kill table/payload facts
+     - hard exits conservatively kill local leases.
+   - Keep output schema names used by bank:
+     - `selector_sig`
+     - `required_sig`
+     - `checked_sig`
+     - `produced_sig`
+     - `killed_sig`.
+
+6. Add helpers in `experiments/lua_interpreter_vm/spongejit/src/fact_signature.lua`
+   - Add slot fact group metadata:
+     - base bits for i64/table/shape/metatable/array/bounds/call-target.
+   - Add Lua-side helpers for canonical slot remapping:
+     - `slot_fact_bases()`
+     - `global_payload_mask()`
+     - `remap_slots(sig, slot_map)`.
+   - Keep 64-bit ABI size unchanged.
+
+7. Replace `experiments/lua_interpreter_vm/spongejit/src/ssa_to_c.lua` with `src/stencil_to_c.lua`
+   - C generator consumes `ssa_result.stencil` or a `Stencil` directly.
+   - It must not allocate holes.
+   - It must not decide semantic rewrites.
+   - It emits relocations only from preallocated `stencil.holes`.
+   - Port existing C emission cases to Stencil ops.
+   - Function name should derive from `stencil_hash`, not source opcode hash.
+   - Return:
+     - `c_code`
+     - `func_name`
+     - `hole_catalog`
+     - `hole_count`
+     - `stencil_op_count`
+     - `exit_count`.
+
+8. Delete stale modules after updating all callers
+   - Remove `src/ssa_normalize.lua`.
+   - Remove `src/ssa_to_c.lua`.
+   - Remove old codegen-op reopening in `src/ssa_atoms.lua`.
+   - Remove legacy `active_ops_list` / `semantic_normal_form` atom paths.
+
+9. Update foundry/enumeration call sites
+   - `src/worker_compile.lua`
+     - require `src.stencil_to_c`
+     - dedupe compiled C by `stencil_hash`
+     - keep separate bank forms by pattern/contract/slot constraints
+     - write `grammar_holes_N.json` from `stencil.holes`
+     - write `grammar_result_N.json` with:
+       - `stencil_hash`
+       - `stencil_form`
+       - `stencil_key`
+       - `stencil_ops`
+       - `stencil_slotmaps`
+       - `contract`
+       - `func`.
+   - `src/grammar_enum.lua`
+     - use `result.stencil_hash`.
+   - `src/enumerate.lua`
+     - use `stencil_form`, `stencil_hash`, `stencil_ops`.
+     - cross-atom optimization should reopen only typed `active_node_specs`.
+   - `foundry.lua`
+     - stop using `StencilModel.template_from_active_ops`.
+     - use Stencil IR metadata directly.
+   - `generate_all_c.lua`
+     - require `src.stencil_to_c`
+     - write files named by `stencil_form` / `stencil_hash`.
+
+10. Rewrite bank metadata generation in `src/build_bank.lua`
+    - Stop deriving slotmaps from concrete `form.ops`.
+    - Load `form.stencil_slotmaps`.
+    - Stop parsing hole roles from strings where structured fields exist.
+    - Prefer structured hole metadata:
+      - `role_kind`
+      - `role_arg`
+      - `op_idx`.
+    - Keep string parsing only if generated from current Stencil IR uses it internally; do not support old JSON.
+    - Generated selector C must remap canonical slot-class fact masks to actual runtime slots:
+      - remap `fact_sig`
+      - remap `required_sig`
+      - remap `checked_sig`
+      - remap `produced_sig`
+      - remap `killed_sig`.
+    - Replace:
+      ```c
+      (t->fact_sig & ~available_sig) == 0
+      ```
+      with checks using remapped tile signatures.
+    - Replace contract propagation with:
+      ```c
+      facts = (facts & ~remapped_killed) | remapped_produced | remapped_checked;
+      ```
+    - Keep runtime model simple: this is mask remapping inside selector/materialization, not SSA or dynamic lowering.
+
+11. Keep `puc/sponjit_runtime.c` mostly unchanged
+    - Verify existing `actual_slot_for_hole()` works with canonical slot classes as `role_arg`.
+    - Update comments only if needed.
+    - Do not add runtime SSA, runtime lowering, or runtime codegen.
+
+12. Update tests
+    - Replace `spongejit/test_ssa_to_c.lua` with `test_stencil_to_c.lua`.
+    - Add Stencil IR tests:
+      - same `LOADI` shape with different immediates has same `stencil_hash`
+      - same slot equality pattern with different concrete registers has same `stencil_hash`
+      - different slot alias pattern has different `stencil_hash`
+      - `BoxI64 + FrameStore` lowers to `StoreI64Slot`
+      - C generator emits no holes not present in `stencil.holes`
+      - unlowered raw SSA op becomes `ExitUnlowered`.
+    - Update `tests/test_spongejit_real_ssa.lua` expectations:
+      - use `stencil_form`
+      - use `stencil_ops`
+      - keep semantic SSA invariant checks where still relevant.
+    - Add bank-level regression:
+      - canonical slot fact masks remap to actual runtime slots
+      - selector rejects mismatched slot equality
+      - selector accepts same canonical stencil on different actual slots.
+
+13. Verification commands
+    - Run:
+      ```sh
+      luajit experiments/lua_interpreter_vm/tests/test_spongejit_real_ssa.lua
+      luajit experiments/lua_interpreter_vm/spongejit/test_stencil_to_c.lua
+      ```
+    - Then run the foundry worker path on a small chunk and rebuild bank:
+      ```sh
+      cd experiments/lua_interpreter_vm/spongejit
+      luajit src/worker_compile.lua 1
+      luajit src/build_bank.lua
+      ```
+
+## Files to Modify
+
+- `experiments/lua_interpreter_vm/spongejit/src/ssa.lua` - replace raw SSA normalize summary with Stencil IR lowering/summary.
+- `experiments/lua_interpreter_vm/spongejit/src/ssa_contract.lua` - derive contracts from Stencil IR and canonical slot classes.
+- `experiments/lua_interpreter_vm/spongejit/src/fact_signature.lua` - add slot-mask remapping helpers.
+- `experiments/lua_interpreter_vm/spongejit/src/ssa_atoms.lua` - remove codegen-op reopening; keep typed node-spec reopening only.
+- `experiments/lua_interpreter_vm/spongejit/src/worker_compile.lua` - switch to Stencil IR hash/codegen/hole metadata.
+- `experiments/lua_interpreter_vm/spongejit/src/build_bank.lua` - consume structured Stencil hole/slotmap metadata and remap canonical slot fact masks.
+- `experiments/lua_interpreter_vm/spongejit/src/grammar_enum.lua` - use `stencil_hash` / `stencil_form`.
+- `experiments/lua_interpreter_vm/spongejit/src/enumerate.lua` - use Stencil IR fields and typed atom reopening.
+- `experiments/lua_interpreter_vm/spongejit/foundry.lua` - remove old `StencilModel.template_from_active_ops` path.
+- `experiments/lua_interpreter_vm/spongejit/generate_all_c.lua` - switch to `stencil_to_c`.
+- `experiments/lua_interpreter_vm/tests/test_spongejit_real_ssa.lua` - update field names and add Stencil assertions.
+- `experiments/lua_interpreter_vm/spongejit/test_ssa_to_c.lua` - replace with Stencil C generator test.
+
+## New Files
+
+- `experiments/lua_interpreter_vm/spongejit/src/stencil_ir.lua` - Stencil IR data model, builders, hole records, validation.
+- `experiments/lua_interpreter_vm/spongejit/src/ssa_to_stencil.lua` - semantic SSA to Stencil IR lowering.
+- `experiments/lua_interpreter_vm/spongejit/src/stencil_normalize.lua` - canonical form/key/hash for Stencil IR.
+- `experiments/lua_interpreter_vm/spongejit/src/stencil_to_c.lua` - C emitter from Stencil IR.
+- `experiments/lua_interpreter_vm/spongejit/test_stencil_to_c.lua` - replacement C emission test.
+
+## Risks
+
+- Canonical slot abstraction requires fact-mask remapping in generated selector C; missing this would make hashes reusable but tiles unselectable or unsound.
+- Over-abstracting holes can merge incompatible stencils; include hole role/type/patchability/exits/contracts in the hash.
+- Moving `BoxI64 + FrameStore` fusion from codegen to lowering can break produced-fact contracts if `StoreI64Slot` is not handled explicitly.
+- Payload holes remain non-PUC-patchable unless runtime patching is expanded; keep patchability metadata explicit and bank filtering strict.
+
+## Worker Output — 2026-05-29 02:08:01
+
+## Completed
+Implemented the hard-yank SpongeJIT Stencil IR boundary:
+
+- Added hole-parametric Stencil IR as the canonical form/hash/emission shape.
+- Replaced raw SSA normalization/codegen pipeline with:
+  `ssa_lift -> ssa_opt -> ssa_to_stencil -> stencil_normalize -> stencil_to_c`
+- Moved `BoxI64 + FrameStore` fusion into Stencil lowering.
+- Canonicalized patchable immediates and slot equality classes.
+- Updated contracts to derive from Stencil IR in canonical slot-class space.
+- Updated bank metadata generation to consume structured Stencil holes/slotmaps and remap canonical fact masks to actual runtime slots.
+- Removed stale raw-SSA normalization/codegen/model files.
+- Updated foundry/enumeration/worker/generation/bench/test call sites.
+
+## Files Changed
+- `experiments/lua_interpreter_vm/spongejit/src/stencil_ir.lua` - new Stencil IR model/validation.
+- `experiments/lua_interpreter_vm/spongejit/src/ssa_to_stencil.lua` - new SSA → Stencil IR lowering.
+- `experiments/lua_interpreter_vm/spongejit/src/stencil_normalize.lua` - new canonical form/key/hash.
+- `experiments/lua_interpreter_vm/spongejit/src/stencil_to_c.lua` - new C emitter.
+- `experiments/lua_interpreter_vm/spongejit/src/ssa.lua` - rewired compile summary pipeline.
+- `experiments/lua_interpreter_vm/spongejit/src/ssa_contract.lua` - contracts now derive from Stencil IR.
+- `experiments/lua_interpreter_vm/spongejit/src/build_bank.lua` - structured holes/slotmaps + fact remapping.
+- `experiments/lua_interpreter_vm/spongejit/src/fact_signature.lua` - slot remap helpers.
+- `experiments/lua_interpreter_vm/spongejit/src/worker_compile.lua` - switched to Stencil IR hash/C generation.
+- `experiments/lua_interpreter_vm/spongejit/src/enumerate.lua`, `grammar_enum.lua`, `foundry.lua`, `generate_all_c.lua` - updated Stencil IR fields.
+- `experiments/lua_interpreter_vm/spongejit/src/ssa_atoms.lua` - removed codegen-op reopening.
+- Deleted stale files:
+  - `src/ssa_normalize.lua`
+  - `src/ssa_to_c.lua`
+  - `src/stencil_model.lua`
+  - `test_ssa_to_c.lua`
+- Added `experiments/lua_interpreter_vm/spongejit/test_stencil_to_c.lua`.
+- Updated relevant benches/tests/docs.
+
+## Verification
+Ran targeted checks:
+
+```sh
+luajit experiments/lua_interpreter_vm/spongejit/test_stencil_to_c.lua
+luajit experiments/lua_interpreter_vm/tests/test_spongejit_real_ssa.lua
+```
+
+Also syntax-checked key Lua files, compiled generated stencil C with `gcc`, and smoke-tested `worker_compile.lua` plus generated bank C compilation on a small chunk.
+
+## Notes
+`git status` also shows `.pi/workflows/...` and `museum/gps.lua`; those were not part of the SpongeJIT implementation changes.
+
+## Reviewer Output — 2026-05-29 02:15:17
+
+## Files Reviewed
+- `experiments/lua_interpreter_vm/spongejit/src/stencil_ir.lua` (lines 1-164)
+- `experiments/lua_interpreter_vm/spongejit/src/ssa_to_stencil.lua` (lines 1-281)
+- `experiments/lua_interpreter_vm/spongejit/src/stencil_normalize.lua` (lines 1-162)
+- `experiments/lua_interpreter_vm/spongejit/src/stencil_to_c.lua` (lines 1-260)
+- `experiments/lua_interpreter_vm/spongejit/src/ssa.lua` (lines 1-136)
+- `experiments/lua_interpreter_vm/spongejit/src/ssa_contract.lua` (lines 1-98)
+- `experiments/lua_interpreter_vm/spongejit/src/fact_signature.lua` (lines 1-203)
+- `experiments/lua_interpreter_vm/spongejit/src/build_bank.lua` (lines 1-710)
+- `experiments/lua_interpreter_vm/spongejit/src/worker_compile.lua` (lines 1-96)
+- `experiments/lua_interpreter_vm/benchmarks/bench_pipeline.lua` (lines 19-27)
+- `experiments/lua_interpreter_vm/spongejit/bench_real.lua` (lines 78-93)
+- `experiments/lua_interpreter_vm/spongejit/bench_stencil_vs_interp.lua` (lines 81-85)
+
+## Critical (must fix)
+- `experiments/lua_interpreter_vm/spongejit/src/build_bank.lua:528` / `:604` / `:633-646` - Slot/fact remapping uses tile-relative `sms[i].op_idx` directly against the full-region `actual_slots` stream. Inside `select_flow_impl`, candidate selection advances `pc`, but `tile_matches_actual_slots`, `remap_tile_sig`, and `apply_transfer` are called without a base offset. Any tile selected at `pc > 0` will match/remap against opcode 0’s actual slots, corrupting checked/produced/killed fact propagation and rejecting or mis-selecting valid tiles. Pass the current `pc` into lookup/remap/transfer and use `pc + sms[i].op_idx`.
+
+- `experiments/lua_interpreter_vm/spongejit/src/build_bank.lua:596-610` - `tile_matches_actual_slots` enforces “same logical slot maps consistently” but not “different logical slot classes remain distinct.” A stencil canonicalized with distinct classes `S0,S1` can match actual bytecode where both operands are the same register. That violates the alias/equality pattern encoded by Stencil IR and can collapse separate fact bits onto one runtime slot. Add an inverse actual→logical check, or explicitly encode when coalescing is allowed.
+
+- `experiments/lua_interpreter_vm/spongejit/src/stencil_normalize.lua:157-160` + `experiments/lua_interpreter_vm/spongejit/src/worker_compile.lua:51-67` - The chosen Approach B boundary says canonical identity includes fact contract shape, but `stencil_hash` only includes Stencil key + checked facts + deps. `worker_compile` then dedupes by `stencil_hash|op_signature` and keeps only the first `Contract.from_result`. Different selector/required/produced/killed contracts for the same C shape are silently merged/dropped. This can under-select valid variants or, worse, attach the wrong contract to a reusable stencil. Include contract literals in the bank-form dedupe key, while sharing the compiled C function when only the contract differs.
+
+## Warnings (should fix)
+- `experiments/lua_interpreter_vm/spongejit/src/stencil_normalize.lua:15-21` + `experiments/lua_interpreter_vm/spongejit/src/ssa_to_stencil.lua:230-232` - `LoadConst` is lowered to a patchable const hole, but `args.const` still enters `args_key`, so concrete constant indices diversify `stencil_hash` even though C emission uses `__H_N`. This violates patch-hole abstraction and will keep stencil diversity high. Strip non-semantic patch values from normalized args.
+
+- `experiments/lua_interpreter_vm/spongejit/src/stencil_to_c.lua:34` + `:236-242` / `bench_real.lua:80-93` / `bench_stencil_vs_interp.lua:83-84` - C emission references extern symbols `__H_N`, but `c.holes` exposes role names like `R0`, `slot_R0`, `imm`. Existing direct-call benchmark wrappers still define variables by role name, so they will not satisfy the generated externs. Either return/link against `__H_N` names for compatibility or update all wrappers to consume `hole_catalog`.
+
+- `experiments/lua_interpreter_vm/benchmarks/bench_pipeline.lua:21` - The benchmark still asserts `c.n_absorbed == 2`, but `stencil_to_c.generate` currently returns `n_absorbed = #source_ops` (`stencil_to_c.lua:247`). The benchmark will fail immediately for its 3-op input.
+
+## Suggestions (consider)
+- `experiments/lua_interpreter_vm/spongejit/src/grammar_enum.lua:412-418` - Enumeration dedupes only by `stencil_hash`, not opcode signature or contract. If used for anything beyond reporting, it can conflate forms the bank must keep separate.
+- `experiments/lua_interpreter_vm/spongejit/src/stencil_ir.lua:142-151` - Validation checks that values exist globally, but not def-before-use or that every declared value is produced by an op. Adding a stricter validation mode would catch lowering mistakes early.
+
+## Summary
+The new Stencil IR boundary is directionally aligned with Approach B, but the bank/runtime side is not yet sound for canonical slot classes. The highest-risk issues are missing `pc` offsets during slot/fact remapping and deduping bank forms without contract shape; both can produce incorrect runtime selection or fact propagation. Stale direct-call benchmark paths also need cleanup because generated holes are now `__H_N`-based while callers still expect role-named globals.
+
+## Reviewer Output — 2026-05-29 02:25:45
+
+## Files Reviewed
+- `experiments/lua_interpreter_vm/spongejit/src/build_bank.lua` (lines 516-651)
+- `experiments/lua_interpreter_vm/spongejit/src/worker_compile.lua` (lines 40-89)
+- `experiments/lua_interpreter_vm/spongejit/src/stencil_normalize.lua` (lines 15-153)
+- `experiments/lua_interpreter_vm/spongejit/src/ssa_to_stencil.lua` (lines 223-236)
+- `experiments/lua_interpreter_vm/spongejit/puc/sponjit_runtime.c` (lines 218-223)
+
+## Critical (must fix)
+- `experiments/lua_interpreter_vm/spongejit/src/build_bank.lua:528-537` - `remap_tile_sig` still becomes unsound when a canonical slot class maps to an actual runtime slot `>= 8`. The runtime fact ABI only represents slots 0..7 (`spon_observe_i64_slots` caps at 8), but the current code simply does not mark `seen[logical]` for `actual >= 8`, then falls back to `dst = slot`, leaving canonical bit `S0` as runtime bit `R0`. This can select a tile for actual `R10` using facts from `R0`, and can propagate checked/produced/killed facts onto the wrong runtime slot. Reject such mappings for fact-bearing tiles or clear/drop/remap them safely so canonical bits never alias unrelated actual slots.
+
+## Warnings (should fix)
+- `experiments/lua_interpreter_vm/spongejit/src/grammar_enum.lua:412` - Grammar enumeration still dedupes by `stencil_hash` only. The worker/bank path now includes contract literals in the dedupe key, so this is less urgent, but any future pipeline using grammar enumeration output as bank input could still collapse distinct contracts.
+
+## Suggestions (consider)
+- `experiments/lua_interpreter_vm/spongejit/src/build_bank.lua:638-651` - The previous `pc` base-offset issue appears fixed: `tile_matches_actual_slots`, `remap_tile_sig`, and `apply_transfer` all receive current `pc` and use `pc + sms[i].op_idx`.
+- `experiments/lua_interpreter_vm/spongejit/src/build_bank.lua:596-613` - The distinct canonical slot-class issue appears fixed for represented slots: the inverse `actual_seen/actual_map` check rejects `S0,S1 -> same actual`.
+- `experiments/lua_interpreter_vm/spongejit/src/worker_compile.lua:53-70` - Contract-aware form dedupe is now in place while sharing generated C by `code_key`.
+- `experiments/lua_interpreter_vm/spongejit/src/stencil_normalize.lua:15-16` - Patchable `LoadConst`/immediate args are now abstracted from the hash for non-semantic holes.
+
+## Summary
+The follow-up fixes address the four previously identified issues in the intended places. One high-risk remapping hole remains: actual slots outside the 0..7 fact ABI can currently alias back onto canonical fact bits, which can corrupt selection and fact transfer.
+
+## Reviewer Output — 2026-05-29 02:28:33
+
+## Files Reviewed
+- `experiments/lua_interpreter_vm/spongejit/src/build_bank.lua` (lines 518-641)
+- `experiments/lua_interpreter_vm/spongejit/src/grammar_enum.lua` (lines 401-453)
+
+## Critical (must fix)
+- None for the prior `actual >= 8` remapping issue. It appears resolved: strict remapping now rejects fact-bearing canonical slots mapped to runtime slots `>= 8` via the bit-63 sentinel, and non-strict transfer drops unrepresentable slot facts instead of aliasing them to `R0`.
+
+## Warnings (should fix)
+- `experiments/lua_interpreter_vm/spongejit/src/grammar_enum.lua:453` - Contract-aware dedupe is now implemented with `forms_by_key`, but the return still uses undefined `forms_by_hash`. Existing callers appear to use `forms`, so this may not block current flow, but the returned map is broken/stale.
+
+## Suggestions (consider)
+- None.
+
+## Summary
+The previous critical generated-selector remapping issue is fixed. Grammar enumeration now dedupes by `stencil_hash + contract_key`; the only remaining narrow issue is the stale `forms_by_hash` return field.

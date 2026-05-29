@@ -1,7 +1,7 @@
 #!/usr/bin/env luajit
 -- generate_all_c.lua — Full pipeline: corpus → SSA enumeration → C generation
 --
---   Load corpus → enumerate opcode windows + fact combos → SSA.compile → ssa_to_c.generate
+--   Load corpus → enumerate opcode windows + fact combos → SSA.compile → stencil_to_c.generate
 --
 -- Usage:
 --   luajit generate_all_c.lua [--max-forms N] [--out DIR]
@@ -12,7 +12,7 @@ package.path = spongejit .. "/?.lua;" .. spongejit .. "/?/init.lua;" .. package.
 
 local Util = require("src.util")
 local SSA = require("src.ssa")
-local SSAtoC = require("src.ssa_to_c")
+local StencilToC = require("src.stencil_to_c")
 local Enum = require("src.enumerate")
 local Loader = require("src.loader")
 
@@ -95,21 +95,21 @@ local function main(argv)
     end
     print(string.format("[gen_c] %d workload regions", #workloads))
 
-    -- ── 2. Enumerate SSA forms ──────────────────────────────────────────
-    print("[gen_c] enumerating SSA forms...")
-    local ssa_forms = Enum.enumerate(workloads, {
+    -- ── 2. Enumerate Stencil IR forms ──────────────────────────────────────────
+    print("[gen_c] enumerating Stencil IR forms...")
+    local stencil_forms = Enum.enumerate(workloads, {
         max_arity = config.max_arity,
         max_windows = config.max_windows,
         max_fact_axes = 12,
         max_fact_combos = config.max_fact_combos,
     })
     print(string.format("[gen_c] %d windows → %d compiles → %d unique forms",
-        ssa_forms.stats.windows or 0,
-        ssa_forms.stats.compiles or 0,
-        ssa_forms.stats.unique_forms or 0))
+        stencil_forms.stats.windows or 0,
+        stencil_forms.stats.compiles or 0,
+        stencil_forms.stats.unique_forms or 0))
 
     -- ── 3. Generate C for each unique form ──────────────────────────────
-    local forms = ssa_forms.forms or {}
+    local forms = stencil_forms.forms or {}
     if config.max_forms then
         local capped = {}
         for i = 1, math.min(config.max_forms, #forms) do capped[i] = forms[i] end
@@ -135,16 +135,16 @@ local function main(argv)
             goto continue
         end
 
-        local c_result = SSAtoC.generate(ssa_result)
+        local c_result = StencilToC.generate(ssa_result)
         if not c_result then
             failed = failed + 1
             goto continue
         end
 
         -- Safe filename
-        local nf = form.normal_form or form.ops or {}
+        local nf = form.stencil_form or form.ops or {}
         local name = table.concat(nf, "_"):gsub("[^%w_]", "_"):sub(1, 70)
-        local hash = (form.hash or form.normal_form_hash or ""):sub(1, 8)
+        local hash = (form.stencil_hash or form.hash or ""):sub(1, 8)
         local fname = string.format("%05d_%s_%s.c", generated + 1, name, hash)
         local out_path = config.out_dir .. "/" .. fname
 
@@ -201,7 +201,7 @@ local function main(argv)
 
     -- Markdown
     local md = {
-        "# SponJIT SSA → C Generation",
+        "# SponJIT Stencil IR → C Generation",
         "",
         "| Metric | Value |",
         "|---|---|",
@@ -227,7 +227,7 @@ local function main(argv)
     Util.write_file(config.out_dir .. "/summary.md", table.concat(md, "\n"))
 
     -- Index CSV (for tooling)
-    local csv = { "file,hash,normal_form,ops,facts,size,holes,nodes" }
+    local csv = { "file,hash,stencil_form,ops,facts,size,holes,nodes" }
     for _, e in ipairs(index_entries) do
         csv[#csv + 1] = string.format("%s,%s,%s,%s,%s,%d,%d,%d",
             e.file, e.hash, e.nf, e.ops, e.facts, e.size, e.holes, e.nodes)

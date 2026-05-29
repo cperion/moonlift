@@ -84,7 +84,9 @@ function M.stable_hash(text)
             h = bit.bxor(h, text:byte(i))
             h = bit.tobit(h * 16777619)
         end
-        return string.format("%08x", tonumber(bit.band(h, 0xffffffff)))
+        local u = tonumber(bit.band(h, 0xffffffff))
+        if u < 0 then u = u + 4294967296 end
+        return string.format("%08x", u)
     end
     local h = 2166136261
     for i = 1, #text do

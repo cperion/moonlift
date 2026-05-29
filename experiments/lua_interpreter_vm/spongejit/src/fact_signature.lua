@@ -32,6 +32,16 @@ M.GLOBAL_FACT_BIT = {
 
 local SLOT_FACT_BASES = {0, 8, 16, 24, 32, 40, 48}
 
+function M.slot_fact_bases()
+  local out = {}
+  for i, b in ipairs(SLOT_FACT_BASES) do out[i] = b end
+  return out
+end
+
+function M.global_payload_mask()
+  return M.from_bits({56, 57, 58, 59, 60, 61, 62})
+end
+
 local function u32(x)
   x = tonumber(x) or 0
   if x < 0 then x = x + 4294967296 end
@@ -180,6 +190,32 @@ function M.i64_slot(slot)
   slot = tonumber(slot)
   if not slot or slot < 0 or slot >= 8 then return M.empty() end
   return M.from_bits({M.SLOT_FACT_BASE.is_i64 + slot})
+end
+
+function M.remap_slots(sig, slot_map)
+  sig = M.normalize(sig)
+  slot_map = slot_map or {}
+  local out = M.empty()
+  for _, base in ipairs(SLOT_FACT_BASES) do
+    for slot = 0, 7 do
+      local bitpos = base + slot
+      local word = bitpos < 32 and sig.lo or sig.hi
+      local mask = bit.lshift(1, bitpos % 32)
+      if bit.band(word, mask) ~= 0 then
+        local dst = slot_map[slot]
+        if dst == nil then dst = slot end
+        dst = tonumber(dst)
+        if dst and dst >= 0 and dst < 8 then add_bit_mut(out, base + dst) end
+      end
+    end
+  end
+  for _, bitpos in pairs(M.GLOBAL_FACT_BIT) do
+    local word = bitpos < 32 and sig.lo or sig.hi
+    local mask = bit.lshift(1, bitpos % 32)
+    if bit.band(word, mask) ~= 0 then add_bit_mut(out, bitpos) end
+  end
+  out._seen = nil
+  return M.normalize(out)
 end
 
 return M

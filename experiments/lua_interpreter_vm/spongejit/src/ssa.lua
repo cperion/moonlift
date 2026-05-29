@@ -1,21 +1,26 @@
--- ssa.lua -- public facade for the real SponJIT fact + SSA layer.
+-- ssa.lua -- public facade for SpongeJIT semantic SSA + Stencil IR.
 --
--- The runtime JIT remains copy/patch/link. This module is offline foundry brain:
--- typed facts -> typed SSA with explicit memory/effects/exits -> optimization ->
--- semantic normal form -> lowerable codegen op stream.
+-- Offline foundry brain:
+--   facts/opcodes -> semantic SSA -> Lua-semantic optimization ->
+--   hole-parametric Stencil IR -> canonical stencil hash/form.
+--
+-- Runtime remains simple copy/patch/execute and never runs SSA/lowering.
 
 local Facts = require("src.facts")
 local Lift = require("src.ssa_lift")
 local Opt = require("src.ssa_opt")
-local Norm = require("src.ssa_normalize")
 local Atoms = require("src.ssa_atoms")
 local Validate = require("src.ssa_validate")
+local Lower = require("src.ssa_to_stencil")
+local StencilIR = require("src.stencil_ir")
+local StencilNorm = require("src.stencil_normalize")
 
 local M = {}
 
 M.Facts = Facts
-M.Normalize = Norm
 M.Validate = Validate
+M.StencilIR = StencilIR
+M.StencilNormalize = StencilNorm
 
 local function factset(facts)
     if getmetatable(facts) == Facts.FactSet then return facts end
@@ -70,32 +75,42 @@ local function active_node_specs(g)
     return out
 end
 
+local function semantic_ops(g)
+    local out = {}
+    for _, n in ipairs(g.nodes or {}) do if not n.removed then out[#out + 1] = n.op end end
+    return out
+end
+
 local function summarize(g, source_ops, facts, config)
     local ok_validate, errors = Validate.validate(g, config)
-    local ok = ok_validate and budget_ok(g, config)
-    local nf = Norm.semantic_normal_form(g)
-    local active_codegen = Norm.active_codegen_ops(g)
+    local st = Lower.lower(g, source_ops or {}, config)
+    local ok_stencil, st_errors = StencilIR.validate(st)
+    errors = errors or {}
+    for _, e in ipairs(st_errors or {}) do errors[#errors + 1] = e end
+    local ok = ok_validate and ok_stencil and budget_ok(g, config)
+    local form = StencilNorm.form(st)
+    local key = StencilNorm.key(st)
+    local hash = StencilNorm.hash(st)
     return {
         ok = ok,
         errors = errors,
         graph = g,
         factset = g.factset,
-        normal_form = nf,
-        normal_form_hash = Norm.hash(g),
-        active_ops = active_codegen,
+        stencil = st,
+        stencil_form = form,
+        stencil_hash = hash,
+        stencil_key = key,
+        stencil_ops = StencilNorm.active_codegen_ops(st),
+        stencil_holes = st.holes,
+        slotmaps = st.slotmaps,
         active_node_specs = active_node_specs(g),
-        semantic_ops = (function()
-            local out = {}
-            for _, n in ipairs(g.nodes or {}) do if not n.removed then out[#out + 1] = n.op end end
-            return out
-        end)(),
-        checked_facts = Norm.checked_fact_names(g),
-        checked_fact_objects = Norm.checked_facts(g),
-        deps = Norm.deps(g),
-        projection = Norm.projection(g),
+        semantic_ops = semantic_ops(g),
+        checked_facts = StencilNorm.checked_fact_names(st),
+        checked_fact_objects = StencilNorm.checked_facts(st),
+        deps = StencilNorm.deps(st),
+        projection = StencilNorm.projection(st),
         stats = g.stats,
         source_ops = copy_array(source_ops or {}),
-        canonical_graph = Norm.canonical_graph_key(g),
     }
 end
 
@@ -117,23 +132,10 @@ end
 function M.compile_nodes(node_ops, facts, config)
     local fs = factset(facts)
     local first = (node_ops or {})[1]
-    local g
-    if type(first) == "table" then
-        g = Atoms.reopen_node_specs(node_ops or {}, fs, config)
-    else
-        g = Atoms.reopen_codegen_ops(node_ops or {}, fs, config)
-    end
+    assert(type(first) == "table" or first == nil, "compile_nodes accepts semantic node specs only; codegen-op reopening was removed with Stencil IR")
+    local g = Atoms.reopen_node_specs(node_ops or {}, fs, config)
     Opt.optimize(g, config)
     return summarize(g, node_ops or {}, fs, config)
-end
-
-function M.semantic_normal_form(ops, facts, config)
-    return M.compile(ops, facts, config).normal_form
-end
-
-function M.normal_form_hash(ops, facts, config)
-    local r = M.compile(ops, facts, config)
-    return r.normal_form_hash, r.normal_form, r
 end
 
 return M

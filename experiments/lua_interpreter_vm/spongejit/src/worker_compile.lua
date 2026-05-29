@@ -9,7 +9,7 @@
 package.path = 'src/?.lua;src/?/init.lua;' .. package.path
 
 local SSA = require("src.ssa")
-local SSAtoC = require("src.ssa_to_c")
+local StencilToC = require("src.stencil_to_c")
 local Util = require("src.util")
 local FactAxes = require("src.ssa_fact_axes")
 local Contract = require("src.ssa_contract")
@@ -37,6 +37,7 @@ local function op_signature(ops)
 end
 
 local forms_by_key = {}
+local code_by_key = {}
 local forms_in_order = {}
 local lc, lok = 0, 0
 local c_blocks, all_holes = {}, {}
@@ -48,28 +49,45 @@ for si, ops in ipairs(seqs) do
     lc = lc + 1
     if r.ok then
       lok = lok + 1
-      local normal_key = r.normal_form_hash
-      local dedupe_key = tostring(normal_key) .. "|" .. op_signature(ops)
+      local normal_key = r.stencil_hash
+      local code_key = tostring(normal_key) .. "|" .. op_signature(ops)
+      local contract = Contract.from_result(r, facts)
+      local contract_key = table.concat({
+        tostring(contract.selector_sig and contract.selector_sig.literal or ""),
+        tostring(contract.required_sig and contract.required_sig.literal or ""),
+        tostring(contract.checked_sig and contract.checked_sig.literal or ""),
+        tostring(contract.produced_sig and contract.produced_sig.literal or ""),
+        tostring(contract.killed_sig and contract.killed_sig.literal or ""),
+      }, "|")
+      local dedupe_key = code_key .. "|" .. contract_key
       local form = forms_by_key[dedupe_key]
       if not form then
-        local c = SSAtoC.generate(r, ops, {facts=facts, func_salt="c" .. tostring(ci)})
+        local c = code_by_key[code_key]
+        if not c then
+          c = StencilToC.generate(r, ops, {facts=facts, func_salt="c" .. tostring(ci)})
+          code_by_key[code_key] = c
+          c_blocks[#c_blocks+1] = c.c_code
+          all_holes[#all_holes+1] = {func=c.func_name, key=normal_key, code_key=code_key, holes=c.hole_catalog}
+        end
         form = {
           key=normal_key,
+          code_key=code_key,
           dedupe_key=dedupe_key,
           func=c.func_name,
-          normal_form=r.normal_form,
-          active_ops=r.active_ops,
+          stencil_hash=r.stencil_hash,
+          stencil_form=r.stencil_form,
+          stencil_key=r.stencil_key,
+          stencil_ops=r.stencil_ops,
+          stencil_slotmaps=r.slotmaps,
           ops=ops,
           facts=facts,
-          contract=Contract.from_result(r, facts),
+          contract=contract,
           count=0,
           changed=r.changed,
           source_ops=ops,
         }
         forms_by_key[dedupe_key] = form
         forms_in_order[#forms_in_order+1] = form
-        c_blocks[#c_blocks+1] = c.c_code
-        all_holes[#all_holes+1] = {func=c.func_name, key=normal_key, dedupe_key=dedupe_key, holes=c.hole_catalog}
       end
       form.count = form.count + 1
     end

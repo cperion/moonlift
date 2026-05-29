@@ -1,5 +1,5 @@
--- Benchmark: our SSA→C→GCC→C+P pipeline vs Moonlift VM
--- Uses: ssa_to_c.lua, GCC compile, .text extract, mmap RWX, direct call
+-- Benchmark: our Stencil IR→C→GCC→C+P pipeline vs Moonlift VM
+-- Uses: stencil_to_c.lua, GCC compile, .text extract, mmap RWX, direct call
 -- Uses: Moonlift VM build_thread + runner_fn for baseline
 
 local ffi = require("ffi")
@@ -12,13 +12,13 @@ local const = vm.const
 -- ── Step 1: Generate monolithic stencil via our pipeline ──────────────
 package.path = "./experiments/lua_interpreter_vm/spongejit/?.lua;" .. package.path
 local SSA = require("src.ssa")
-local SSAtoC = require("src.ssa_to_c")
+local StencilToC = require("src.stencil_to_c")
 
--- MUL+ADD+JMP → absorbs 2 ops
+-- MUL+ADD+JMP → one Stencil IR image over the full source window
 local ops = {{op="MUL",a=2,b=0,c=1},{op="ADD",a=3,b=2,c=4},{op="JMP",sbx=-5}}
 local r = SSA.compile(ops, {"lhs_i64","rhs_i64","returns_prev"})
-local c = SSAtoC.generate(r, ops)
-assert(c and c.n_absorbed == 2, "generate failed")
+local c = StencilToC.generate(r, ops)
+assert(c and c.n_absorbed == #ops, "generate failed")
 io.popen("mkdir -p build","r"):read()
 local c_path = "experiments/lua_interpreter_vm/spongejit/build/bench_stencil.c"
 io.open(c_path,"w"):write(c.c_code):close()

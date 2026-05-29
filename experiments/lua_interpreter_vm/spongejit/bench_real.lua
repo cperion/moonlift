@@ -11,7 +11,7 @@ local spongejit = source and source:sub(1, 1) == "@" and source:sub(2):match("^(
 package.path = spongejit .. "/?.lua;" .. spongejit .. "/?/init.lua;" .. package.path
 
 local SSA = require("src.ssa")
-local SSAtoC = require("src.ssa_to_c")
+local StencilToC = require("src.stencil_to_c")
 local ffi = require("ffi")
 local Util = require("src.util")
 
@@ -73,7 +73,7 @@ local function build_so(pat)
     if not ssa_result or not ssa_result.ok then
         return nil, "SSA failed"
     end
-    local c = SSAtoC.generate(ssa_result)
+    local c = StencilToC.generate(ssa_result)
     if not c then return nil, "C gen failed" end
 
     -- Build wrapper C file: defines hole variables + includes the stencil

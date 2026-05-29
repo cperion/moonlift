@@ -206,7 +206,7 @@ function M.windows_from_workloads_with_atoms(workloads, atoms, config)
         for _, a in ipairs(atoms) do
             local pat = a.pattern or a.ops
             local src = a.source_ops or a.pattern or a.ops
-            local active = a.active_ops_list or a.source_ops or a.pattern or a.ops
+            local active = a.active_node_specs or a.source_ops or a.pattern or a.ops
             if pat and #pat >= 1 and #src >= 1 then
                 local k = join(pat, "|")
                 atom_by_pat[k] = atom_by_pat[k] or {}
@@ -247,7 +247,7 @@ function M.windows_from_workloads_with_atoms(workloads, atoms, config)
                             -- as a single op token, which gets annotated with the atom's facts for
                             -- enriched SSA re-compilation.
                             if obj then
-                                local nf = obj.semantic_normal_form
+                                local nf = obj.stencil_form
                                 -- Always create compact representation for cross-atom optimization
                                 if nf and #nf >= 1 then
                                     local compact = {}
@@ -293,7 +293,7 @@ end
 
 local function active_cost(ssa)
     local n = 0
-    for _, op in ipairs(ssa.active_ops or {}) do
+    for _, op in ipairs(ssa.stencil_ops or {}) do
         if op == "residual_boundary" then n = n + 30
         elseif op:match("^guard_") then n = n + 2
         elseif op == "store_slot" or op == "load_slot" then n = n + 2
@@ -306,7 +306,7 @@ local function active_cost(ssa)
 end
 
 local function has_residual(ssa)
-    for _, op in ipairs(ssa.active_ops or {}) do if op == "residual_boundary" then return true end end
+    for _, op in ipairs(ssa.stencil_ops or {}) do if op == "residual_boundary" or op == "unlowered_boundary" then return true end end
     return false
 end
 
@@ -344,12 +344,12 @@ function M.enumerate(workloads, config, atoms)
     local atoms_by_nf = {}
     if atoms and #atoms > 0 then
         for _, a in ipairs(atoms) do
-            local nf = a.semantic_normal_form or {}
+            local nf = a.stencil_form or {}
             if #nf >= 1 then
                 local nf_name = join(nf, "_")
                 atoms_by_nf[nf_name] = {
                     source_ops = a.source_ops or a.pattern or a.ops,
-                    active_ops_list = a.active_node_specs or a.active_ops_list,
+                    active_node_specs = a.active_node_specs,
                     produced = a.produced or {},
                     checked = a.checked or {},
                 }
@@ -388,8 +388,8 @@ function M.enumerate(workloads, config, atoms)
                     expanded_nodes = {}
                     for _, op in ipairs(w.ops) do
                         local info = atoms_by_nf[event_key(op)]
-                        if info and info.active_ops_list then
-                            for _, ao in ipairs(info.active_ops_list) do expanded_nodes[#expanded_nodes + 1] = ao end
+                        if info and info.active_node_specs then
+                            for _, ao in ipairs(info.active_node_specs) do expanded_nodes[#expanded_nodes + 1] = ao end
                         end
                     end
                 end
@@ -416,12 +416,12 @@ function M.enumerate(workloads, config, atoms)
 
             if ssa.ok then
                 total_ok = total_ok + 1
-                local nf_key = join(ssa.normal_form, "|")
+                local nf_key = join(ssa.stencil_form, "|")
                 local changed = nf_key ~= w.key
                 local residual = has_residual(ssa)
                 -- Keep all changed forms, plus fully-native same-shape forms that consume facts.
                 if changed or (not residual and #(ssa.checked_facts or {}) > 0) then
-                    local key = ssa.normal_form_hash
+                    local key = ssa.stencil_hash
                     local score = (tonumber(w.count) or 1) * math.max(1, base_cost(w.ops) - active_cost(ssa))
                     if changed then score = score * 1.25 end
                     if residual then score = score * 0.25 end
@@ -433,8 +433,10 @@ function M.enumerate(workloads, config, atoms)
                             ops = copy_array(w.ops),
                             facts = copy_array(facts),
                             fact_axes = axes,
-                            normal_form = ssa.normal_form,
-                            active_ops = ssa.active_ops,
+                            stencil_hash = ssa.stencil_hash,
+                            stencil_form = ssa.stencil_form,
+                            stencil_ops = ssa.stencil_ops,
+                            stencil_slotmaps = ssa.slotmaps,
                             active_node_specs = ssa.active_node_specs,
                             checked_facts = ssa.checked_facts,
                             deps = ssa.deps,
@@ -458,8 +460,8 @@ function M.enumerate(workloads, config, atoms)
     if atoms and #atoms > 0 then
         local atoms_by_nf_nodes = {}
         for _, a in ipairs(atoms) do
-            local nf = a.semantic_normal_form or {}
-            local active = a.active_ops_list or {}
+            local nf = a.stencil_form or {}
+            local active = a.active_node_specs or {}
             if #nf >= 1 and #active > 0 then
                 local nf_name = join(nf, "_")
                 atoms_by_nf_nodes[nf_name] = active
@@ -467,7 +469,7 @@ function M.enumerate(workloads, config, atoms)
         end
         if next(atoms_by_nf_nodes) then
             for _, w in ipairs(windows) do
-                -- Check if ALL ops in this window are compact atom names with active_ops
+                -- Check if ALL ops in this window are compact atom names with semantic node specs
                 local all_have_nodes = true
                 local node_seq = {}
                 for _, op in ipairs(w.ops) do
@@ -483,11 +485,11 @@ function M.enumerate(workloads, config, atoms)
                     total_compiles = total_compiles + 1
                     if nodes_ssa.ok then
                         total_ok = total_ok + 1
-                        local nf_key = join(nodes_ssa.normal_form, "|")
+                        local nf_key = join(nodes_ssa.stencil_form, "|")
                         local changed = nf_key ~= w.key
                         local residual = has_residual(nodes_ssa)
                         if changed or (not residual and #(nodes_ssa.checked_facts or {}) > 0) then
-                            local key = nodes_ssa.normal_form_hash
+                            local key = nodes_ssa.stencil_hash
                             local score = (tonumber(w.count) or 1) * math.max(1, base_cost(w.ops) - active_cost(nodes_ssa))
                             if changed then score = score * 1.25 end
                             if residual then score = score * 0.25 end
@@ -498,8 +500,10 @@ function M.enumerate(workloads, config, atoms)
                                     ops = copy_array(w.ops),
                                     facts = {},
                                     fact_axes = {},
-                                    normal_form = nodes_ssa.normal_form,
-                                    active_ops = nodes_ssa.active_ops,
+                                    stencil_hash = nodes_ssa.stencil_hash,
+                                    stencil_form = nodes_ssa.stencil_form,
+                                    stencil_ops = nodes_ssa.stencil_ops,
+                                    stencil_slotmaps = nodes_ssa.slotmaps,
                                     active_node_specs = nodes_ssa.active_node_specs,
                                     checked_facts = nodes_ssa.checked_facts,
                                     deps = nodes_ssa.deps,
@@ -524,12 +528,12 @@ function M.enumerate(workloads, config, atoms)
         return a.hash < b.hash
     end)
 
-    -- Dedupe fact-subset explosions: same (source_ops, normal_form) with
+    -- Dedupe fact-subset explosions: same (source_ops, stencil_form) with
     -- different fact subsets. Keep the richest-checked form per NF; drop
     -- the weaker subsets. "Richer" = superset of checked_facts.
     local nf_best = {}
     for _, f in ipairs(forms) do
-        local nf_key = join(f.ops, "|") .. "::" .. join(f.normal_form, "|")
+        local nf_key = join(f.ops, "|") .. "::" .. join(f.stencil_form, "|")
         local cur = nf_best[nf_key]
         if not cur then
             nf_best[nf_key] = f
@@ -568,23 +572,23 @@ end
 function M.write(result, out_dir, config)
     config = config or {}
     Util.mkdir_p(out_dir)
-    Util.write_json(out_dir .. "/ssa_forms.json", result)
+    Util.write_json(out_dir .. "/stencil_forms.json", result)
     local max_rows = tonumber(config.max_rows or 40) or 40
-    local md = { "# SponJIT SSA Form Enumeration", "" }
+    local md = { "# SponJIT Stencil Form Enumeration", "" }
     local s = result.stats or {}
-    md[#md + 1] = string.format("Windows: **%d**; SSA compiles: **%d**; ok: **%d**; unique forms: **%d**", s.windows or 0, s.compiles or 0, s.ok or 0, s.unique_forms or 0)
+    md[#md + 1] = string.format("Windows: **%d**; compiles: **%d**; ok: **%d**; unique stencil forms: **%d**", s.windows or 0, s.compiles or 0, s.ok or 0, s.unique_forms or 0)
     md[#md + 1] = ""
-    md[#md + 1] = "These are foundry candidates from `opcode/atom tuple × applicable fact subset -> SSA normal form`."
+    md[#md + 1] = "These are foundry candidates from `opcode/atom tuple × applicable fact subset -> Stencil IR form`."
     md[#md + 1] = ""
-    md[#md + 1] = "| Rank | Score | Source ops | SSA normal form | Facts | Checked | Residual? | Examples |"
+    md[#md + 1] = "| Rank | Score | Source ops | Stencil form | Facts | Checked | Residual? | Examples |"
     md[#md + 1] = "|---:|---:|---|---|---|---|---|---|"
     for i, f in ipairs(result.forms or {}) do
         if i > max_rows then break end
         md[#md + 1] = string.format("| %d | %.0f | `%s` | `%s` | `%s` | `%s` | `%s` | `%s` |",
-            i, f.score or 0, join(f.ops, " "), join(f.normal_form, " "), join_facts(f.facts, ", "), join_facts(f.checked_facts, ", "), tostring(f.residual), join(f.examples, ", "))
+            i, f.score or 0, join(f.ops, " "), join(f.stencil_form, " "), join_facts(f.facts, ", "), join_facts(f.checked_facts, ", "), tostring(f.residual), join(f.examples, ", "))
     end
     md[#md + 1] = ""
-    Util.write_file(out_dir .. "/ssa_forms.md", table.concat(md, "\n"))
+    Util.write_file(out_dir .. "/stencil_forms.md", table.concat(md, "\n"))
 end
 
 return M

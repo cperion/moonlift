@@ -31,14 +31,15 @@ experiments/lua_interpreter_vm/
 ├── spongejit/                   — JIT foundry + runtime prototype
 │   ├── src/
 │   │   ├── grammar_enum.lua     — Grammar-driven opcode enumeration (472K sequences)
-│   │   ├── ssa.lua              — SSA lowering facade
-│   │   ├── ssa_lift.lua         — Bytecode → SSA IR
+│   │   ├── ssa.lua              — Semantic SSA → Stencil IR facade
+│   │   ├── ssa_lift.lua         — Bytecode → semantic SSA IR
 │   │   ├── ssa_ir.lua           — SSA node types
-│   │   ├── ssa_opt.lua          — 2 SSA passes (frame_forward, guard_dominance)
-│   │   ├── ssa_to_c.lua         — SSA → C with extern-symbol HOLEs
+│   │   ├── ssa_opt.lua          — Lua-semantic SSA cleanup passes
+│   │   ├── ssa_to_stencil.lua   — SSA → hole-parametric Stencil IR
+│   │   ├── stencil_to_c.lua     — Stencil IR → C with extern-symbol HOLEs
+│   │   ├── stencil_normalize.lua — Stencil canonical forms/hashes
 │   │   ├── facts.lua            — Type/shape fact model
 │   │   ├── fact_schema.lua      — Fact schema definitions
-│   │   ├── stencil_model.lua    — Stencil cost model
 │   │   └── util.lua             — JSON I/O, helpers
 │   ├── build/
 │   │   └── cp_lib/              — Stencil library output

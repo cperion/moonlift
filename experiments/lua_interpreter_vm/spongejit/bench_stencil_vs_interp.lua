@@ -6,14 +6,14 @@
 --   2. Copy-and-patch stencil (memcpy + patch holes + execute)
 --   3. Direct compiled call (no copy-and-patch, just for baseline)
 --
--- Uses the generated C from ssa_to_c.lua, compiled as a .so.
+-- Uses generated C from Stencil IR, compiled as a .so.
 
 local source = debug.getinfo(1, "S").source
 local spongejit = source and source:sub(1, 1) == "@" and source:sub(2):match("^(.*/spongejit)") or "."
 package.path = spongejit .. "/?.lua;" .. spongejit .. "/?/init.lua;" .. package.path
 
 local SSA = require("src.ssa")
-local SSAtoC = require("src.ssa_to_c")
+local StencilToC = require("src.stencil_to_c")
 
 local ffi = require("ffi")
 
@@ -59,7 +59,7 @@ local function compile_pattern(pattern)
         return nil
     end
 
-    local c_result = SSAtoC.generate(ssa_result)
+    local c_result = StencilToC.generate(ssa_result)
     if not c_result then
         print(string.format("  SKIP %s: C gen failed", pattern.name))
         return nil
@@ -266,7 +266,7 @@ local function main()
         print(string.format("  stencil .so: %s", stencil.so_path))
         print(string.format("  C code:      %d bytes", #stencil.c_result.c_code))
         print(string.format("  holes:       %d", stencil.c_result.hole_count))
-        print(string.format("  active ops:  %s", table.concat(stencil.ssa_result.active_ops, " ")))
+        print(string.format("  stencil ops: %s", table.concat(stencil.ssa_result.stencil_ops, " ")))
 
         ::continue::
         print()

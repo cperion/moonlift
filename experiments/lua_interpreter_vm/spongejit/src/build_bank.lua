@@ -91,55 +91,6 @@ local function load_contract(form)
   }
 end
 
-local FIELD_KIND = { a = 1, b = 2, c = 3, dest = 4, aux = 5 }
-
-local SLOT_FIELDS_BY_OP = {
-  MOVE={"a","b"},
-  LOADI={"a"}, LOADF={"a"}, LOADK={"a"}, LOADKX={"a"}, LOADFALSE={"a"}, LFALSESKIP={"a"}, LOADTRUE={"a"}, LOADNIL={"a"},
-  GETUPVAL={"a"}, SETUPVAL={"a"},
-  GETTABLE={"a","b","c"}, GETI={"a","b"}, GETFIELD={"a","b"}, GETTABUP={"a"}, SELF={"a","b"},
-  SETTABLE={"a","b","c"}, SETI={"a","c"}, SETFIELD={"a","c"}, SETTABUP={"b","c"},
-  NEWTABLE={"a"},
-  ADD={"a","b","c"}, SUB={"a","b","c"}, MUL={"a","b","c"}, MOD={"a","b","c"}, POW={"a","b","c"}, DIV={"a","b","c"}, IDIV={"a","b","c"},
-  BAND={"a","b","c"}, BOR={"a","b","c"}, BXOR={"a","b","c"}, SHL={"a","b","c"}, SHR={"a","b","c"},
-  ADDI={"a","b"}, SHLI={"a","b"}, SHRI={"a","b"},
-  ADDK={"a","b"}, SUBK={"a","b"}, MULK={"a","b"}, MODK={"a","b"}, POWK={"a","b"}, DIVK={"a","b"}, IDIVK={"a","b"},
-  BANDK={"a","b"}, BORK={"a","b"}, BXORK={"a","b"},
-  UNM={"a","b"}, BNOT={"a","b"}, NOT={"a","b"}, LEN={"a","b"}, CONCAT={"a","b","c"},
-  EQ={"a","b","dest"}, LT={"a","b","dest"}, LE={"a","b","dest"}, EQK={"a"}, EQI={"a","dest"}, LTI={"a","dest"}, LEI={"a","dest"}, GTI={"a","dest"}, GEI={"a","dest"},
-  TEST={"a","b"}, TESTSET={"a","b"},
-  CALL={"a"}, TAILCALL={"a"}, RETURN={"a"}, RETURN1={"a"},
-  FORPREP={"a"}, FORLOOP={"a"}, TFORPREP={"a"}, TFORCALL={"a"}, TFORLOOP={"a"},
-  SETLIST={"a"}, CLOSURE={"a"}, VARARG={"a"}, GETVARG={"a"},
-  MMBIN={"a","b"}, MMBINI={"a"}, MMBINK={"a","b"},
-  CLOSE={"a"}, TBC={"a"}, ERRNNIL={"a"},
-}
-
-local function slotmaps_for_ops(ops)
-  local out, seen = {}, {}
-  for op_idx0, op in ipairs(ops or {}) do
-    if type(op) == "table" then
-      local fields = SLOT_FIELDS_BY_OP[tostring(op.op or "")] or {}
-      for _, field in ipairs(fields) do
-        local logical = tonumber(op[field])
-        if logical and logical >= 0 and logical < 256 then
-          local k = tostring(op_idx0 - 1) .. ":" .. tostring(logical) .. ":" .. field
-          if not seen[k] then
-            seen[k] = true
-            out[#out + 1] = {op_idx = op_idx0 - 1, logical_slot = logical, field_kind = FIELD_KIND[field] or 0}
-          end
-        end
-      end
-    end
-  end
-  table.sort(out, function(a, b)
-    if a.op_idx ~= b.op_idx then return a.op_idx < b.op_idx end
-    if a.logical_slot ~= b.logical_slot then return a.logical_slot < b.logical_slot end
-    return a.field_kind < b.field_kind
-  end)
-  return out
-end
-
 local function load_syms(path)
   local syms = {}
   local f = assert(io.open(path, "r"), "cannot open symbol table: " .. path)
@@ -268,7 +219,13 @@ local function load_tile_relocs(o_path, tiles, holes_by_func)
           local logical = holes_by_func[t.func] and holes_by_func[t.func].by_id and holes_by_func[t.func].by_id[hid]
           if not logical then n_missing_meta = n_missing_meta + 1 end
           local role = logical and logical.role or ""
-          local role_kind, role_arg = classify_role(role)
+          local role_kind, role_arg
+          if logical and logical.role_kind then
+            role_kind = ROLE_KIND[tostring(logical.role_kind)] or ROLE_KIND.unknown
+            role_arg = tonumber(logical.role_arg or 0) or 0
+          else
+            role_kind, role_arg = classify_role(role)
+          end
           t.relocs[#t.relocs + 1] = {
             code_offset = off - t.addr,
             hole_id = hid,
@@ -370,7 +327,7 @@ function M.build_bank(o_path, n_chunks, output_dir)
         pattern_lit = pattern_key_literal(f.ops or {}),
         fact = sig,
         contract = contract,
-        slotmaps = slotmaps_for_ops(f.ops or {}),
+        slotmaps = assert(f.stencil_slotmaps, "grammar_result JSON missing .stencil_slotmaps; rebuild with current Stencil IR worker"),
         n_holes = holes and #(holes.holes or {}) or 0,
       }
     end
@@ -556,11 +513,44 @@ function M.build_bank(o_path, n_chunks, output_dir)
   e("  return (((uint64_t)len) << 32) | (uint64_t)packed;")
   e("}")
   e("")
-  e("static SponFactSig apply_transfer(SponFactSig facts, const SponTileDesc *t) {")
+  e("static int actual_slot_lookup(const SponSlotMapEntry *actual_slots, uint32_t n_actual_slots, uint16_t op_idx, uint8_t field_kind, uint8_t *out_slot);")
+  e("")
+  e("static SponFactSig remap_tile_sig(const SponTileDesc *t, SponFactSig sig, const SponSlotMapEntry *actual_slots, uint32_t n_actual_slots, uint32_t pc_base, int strict_slots) {")
+  e("  if (!t || !actual_slots) return sig;")
+  e("  uint8_t seen[8] = {0};")
+  e("  uint8_t map[8] = {0};")
+  e("  uint32_t nsm = 0;")
+  e("  const SponSlotMapEntry *sms = spon_tile_slotmaps(t->tile_id, &nsm);")
+  e("  for (uint32_t i = 0; i < nsm; i++) {")
+  e("    uint8_t logical = sms[i].logical_slot;")
+  e("    if (logical >= 8) continue;")
+  e("    uint8_t actual = 0;")
+  e("    if (!actual_slot_lookup(actual_slots, n_actual_slots, (uint16_t)(pc_base + sms[i].op_idx), sms[i].field_kind, &actual)) continue;")
+  e("    seen[logical] = 1; map[logical] = actual;")
+  e("  }")
+  e("  SponFactSig out = sig & 0x7f00000000000000ULL;")
+  e("  static const uint8_t bases[] = {0,8,16,24,32,40,48};")
+  e("  for (uint32_t bi = 0; bi < sizeof(bases); bi++) {")
+  e("    uint8_t base = bases[bi];")
+  e("    for (uint8_t slot = 0; slot < 8; slot++) {")
+  e("      SponFactSig bit = ((SponFactSig)1) << (base + slot);")
+  e("      if ((sig & bit) == 0) continue;")
+  e("      if (!seen[slot] || map[slot] >= 8) { if (strict_slots) out |= 0x8000000000000000ULL; continue; }")
+  e("      uint8_t dst = map[slot];")
+  e("      out |= ((SponFactSig)1) << (base + dst);")
+  e("    }")
+  e("  }")
+  e("  return out;")
+  e("}")
+  e("")
+  e("static SponFactSig apply_transfer(SponFactSig facts, const SponTileDesc *t, const SponSlotMapEntry *actual_slots, uint32_t n_actual_slots, uint32_t pc_base) {")
   e("  if (!t) return facts;")
-  e("  facts &= ~t->killed_sig;")
-  e("  facts |= t->produced_sig;")
-  e("  facts |= t->checked_sig;")
+  e("  SponFactSig killed = remap_tile_sig(t, t->killed_sig, actual_slots, n_actual_slots, pc_base, 0);")
+  e("  SponFactSig produced = remap_tile_sig(t, t->produced_sig, actual_slots, n_actual_slots, pc_base, 0);")
+  e("  SponFactSig checked = remap_tile_sig(t, t->checked_sig, actual_slots, n_actual_slots, pc_base, 0);")
+  e("  facts &= ~killed;")
+  e("  facts |= produced;")
+  e("  facts |= checked;")
   e("  return facts;")
   e("}")
   e("")
@@ -604,24 +594,24 @@ function M.build_bank(o_path, n_chunks, output_dir)
   e("  return 0;")
   e("}")
   e("")
-  e("static int tile_matches_actual_slots(const SponTileDesc *t, const SponSlotMapEntry *actual_slots, uint32_t n_actual_slots) {")
+  e("static int tile_matches_actual_slots(const SponTileDesc *t, const SponSlotMapEntry *actual_slots, uint32_t n_actual_slots, uint32_t pc_base) {")
   e("  if (!actual_slots) return 1;")
   e("  uint8_t seen[256] = {0};")
   e("  uint8_t map[256] = {0};")
-  e("  uint16_t seen_op[256] = {0};")
+  e("  uint8_t actual_seen[256] = {0};")
+  e("  uint8_t actual_map[256] = {0};")
   e("  uint32_t nsm = 0;")
   e("  const SponSlotMapEntry *sms = spon_tile_slotmaps(t->tile_id, &nsm);")
   e("  for (uint32_t i = 0; i < nsm; i++) {")
   e("    uint8_t actual = 0;")
-  e("    if (!actual_slot_lookup(actual_slots, n_actual_slots, sms[i].op_idx, sms[i].field_kind, &actual)) return 0;")
+  e("    if (!actual_slot_lookup(actual_slots, n_actual_slots, (uint16_t)(pc_base + sms[i].op_idx), sms[i].field_kind, &actual)) return 0;")
   e("    uint8_t logical = sms[i].logical_slot;")
-  e("    if (seen[logical] && map[logical] != actual) {")
-  e("      if (seen_op[logical] != sms[i].op_idx) return 0;")
-  e("      continue;")
-  e("    }")
+  e("    if (seen[logical] && map[logical] != actual) return 0;")
+  e("    if (actual_seen[actual] && actual_map[actual] != logical) return 0;")
   e("    seen[logical] = 1;")
-  e("    seen_op[logical] = sms[i].op_idx;")
   e("    map[logical] = actual;")
+  e("    actual_seen[actual] = 1;")
+  e("    actual_map[actual] = logical;")
   e("  }")
   e("  return 1;")
   e("}")
@@ -646,7 +636,11 @@ function M.build_bank(o_path, n_chunks, output_dir)
   e("        checks++;")
   e("        SponTileId tid = spon_candidates[pe->start + i];")
   e("        const SponTileDesc *t = spon_get_tile(tid);")
-  e("        if (t && ((t->flags & required_tile_flags) == required_tile_flags) && ((t->fact_sig & ~available_sig) == 0) && ((t->required_sig & ~facts) == 0) && tile_matches_actual_slots(t, actual_slots, n_actual_slots)) { chosen = tid; chosen_len = (uint32_t)len; chosen_t = t; break; }")
+  e("        if (t && ((t->flags & required_tile_flags) == required_tile_flags) && tile_matches_actual_slots(t, actual_slots, n_actual_slots, pc)) {")
+  e("          SponFactSig tfact = remap_tile_sig(t, t->fact_sig, actual_slots, n_actual_slots, pc, 1);")
+  e("          SponFactSig treq = remap_tile_sig(t, t->required_sig, actual_slots, n_actual_slots, pc, 1);")
+  e("          if (((tfact & ~available_sig) == 0) && ((treq & ~facts) == 0)) { chosen = tid; chosen_len = (uint32_t)len; chosen_t = t; break; }")
+  e("        }")
   e("      }")
   e("      if (chosen) break;")
   e("    }")
@@ -655,7 +649,7 @@ function M.build_bank(o_path, n_chunks, output_dir)
   e("    choices[n].pc_start = pc;")
   e("    choices[n].pc_end = pc + chosen_len;")
   e("    n++;")
-  e("    facts = apply_transfer(facts, chosen_t);")
+  e("    facts = apply_transfer(facts, chosen_t, actual_slots, n_actual_slots, pc);")
   e("    pc += chosen_len;")
   e("  }")
   e("  if (out_n) *out_n = n;")

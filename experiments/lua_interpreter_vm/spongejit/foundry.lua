@@ -2,12 +2,12 @@
 -- foundry.lua — SponJIT absorber foundry (the real thing).
 --
 -- This is the production entry point. It:
---   1. Builds stencils from C sources (GCC → .o → ELF parse → stencil library)
+--   1. Uses worker-generated Stencil IR C chunks (GCC → .o → bank)
 --   2. Loads real bytecode from PUC Lua programs (AWFY + Moonlift corpus)
 --   3. Extracts opcode windows
 --   4. Enumerates all fact combinations
---   5. Runs Foundry SSA to discover normal forms
---   6. Lowers SSA forms to stencil templates (real bytes, real holes)
+--   5. Runs semantic SSA + Stencil IR lowering to discover canonical stencil forms
+--   6. Uses Stencil IR metadata directly for foundry atoms/templates
 --   7. Selects the best absorbers under a byte budget
 --   8. Emits the artifact pack
 --
@@ -27,7 +27,7 @@ local Util = require("src.util")
 local SSA = require("src.ssa")
 local Enum = require("src.enumerate")
 local Grammar = require("src.grammar_enum")
-local StencilModel = require("src.stencil_model")
+-- Stencil IR is now the materialization shape; no legacy active-op stencil model.
 local Loader = require("src.loader")
 
 -- ── config ──────────────────────────────────────────────────────────────
@@ -53,11 +53,9 @@ local DEFAULTS = {
 -- ── stencil build ───────────────────────────────────────────────────────
 
 local function build_stencils(config)
-    print("[foundry] loading stencil library...")
-    local lib_path = config.stencils_out
-    local ok = StencilModel.load_real_library(lib_path)
-    if not ok then error("failed to load stencil library at " .. lib_path .. "; run 'make stencils' first") end
-    print(string.format("[foundry] %d stencils loaded", StencilModel.stencil_count()))
+    -- No-op: stencil images are generated from Stencil IR by worker_compile.lua
+    -- and assembled into the bank. The foundry no longer lowers through the
+    -- legacy active-op stencil model.
 end
 
 -- ── corpus loading ──────────────────────────────────────────────────────
@@ -84,11 +82,11 @@ local function load_corpus(config)
     return workloads
 end
 
--- ── SSA form enumeration ────────────────────────────────────────────────
+-- ── Stencil IR form enumeration ────────────────────────────────────────────────
 
 local function enumerate_forms(workloads, atoms, config)
     if config.corpus_mode then
-        print("[foundry] enumerating SSA forms from corpus...")
+        print("[foundry] enumerating Stencil IR forms from corpus...")
         local result = Enum.enumerate(workloads, {
             max_arity = config.max_arity,
             max_windows = config.max_windows,
@@ -96,17 +94,17 @@ local function enumerate_forms(workloads, atoms, config)
             max_fact_combos = config.max_fact_combos,
         }, atoms)
         local s = result.stats
-        print(string.format("[foundry] %d windows → %d compiles → %d unique SSA forms",
+        print(string.format("[foundry] %d windows → %d compiles → %d unique Stencil IR forms",
             s.windows or 0, s.compiles or 0, s.unique_forms or 0))
         return result
     else
-        print("[foundry] enumerating SSA forms from grammar...")
+        print("[foundry] enumerating Stencil IR forms from grammar...")
         local result = Grammar.enumerate_grammar({
             max_arity = config.max_arity,
             max_fact_combos = config.max_fact_combos,
         })
         local s = result.stats
-        print(string.format("[foundry] %d sequences → %d unique SSA forms (%d OK, %d failed)",
+        print(string.format("[foundry] %d sequences → %d unique Stencil IR forms (%d OK, %d failed)",
             s.sequences or 0, s.unique_forms or 0, s.ok or 0, (s.compiles or 0) - (s.ok or 0)))
         return result
     end
@@ -114,30 +112,31 @@ end
 
 -- ── lowering to stencils ────────────────────────────────────────────────
 
-local function lower_forms(ssa_forms)
-    print("[foundry] lowering SSA forms to stencil templates...")
+local function lower_forms(stencil_forms)
+    print("[foundry] selecting Stencil IR forms directly...")
     local templates = {}
-    local lowered, failed = 0, 0
-    for _, f in ipairs(ssa_forms.forms or {}) do
-        local tmpl, err = StencilModel.template_from_active_ops(f.active_ops, f.normal_form)
-        if tmpl then
-            tmpl.source_key = f.source_key
-            tmpl.source_ops = f.ops  -- raw opcodes
-            tmpl.changed = f.changed
-            tmpl.count = f.count
-            tmpl.checked_facts = f.checked_facts
-            tmpl.deps = f.deps
-            tmpl.active_node_specs = f.active_node_specs
-            templates[#templates + 1] = tmpl
-            lowered = lowered + 1
-        else
-            failed = failed + 1
-        end
+    for _, f in ipairs(stencil_forms.forms or {}) do
+        local ops_n = #(f.stencil_ops or {})
+        local holes_n = #(f.stencil_holes or {})
+        templates[#templates + 1] = {
+            source_key = f.source_key,
+            source_ops = f.ops,
+            changed = f.changed,
+            count = f.count,
+            checked_facts = f.checked_facts,
+            deps = f.deps,
+            active_node_specs = f.active_node_specs,
+            stencil_hash = f.stencil_hash or f.hash or f.key,
+            stencil_form = f.stencil_form,
+            stencil_ops = f.stencil_ops,
+            stencil_slotmaps = f.stencil_slotmaps,
+            total_size = 32 + ops_n * 16 + holes_n * 8,
+            estimated_cycles = ops_n,
+            cycles_saved = f.score or 0,
+        }
     end
-    table.sort(templates, function(a, b)
-        return (a.cycles_saved or 0) > (b.cycles_saved or 0)
-    end)
-    print(string.format("[foundry] %d lowered, %d failed", lowered, failed))
+    table.sort(templates, function(a, b) return (a.cycles_saved or 0) > (b.cycles_saved or 0) end)
+    print(string.format("[foundry] %d Stencil IR templates", #templates))
     return templates
 end
 
@@ -163,8 +162,8 @@ local function run_layer(workloads, atoms, layer_idx, config)
     print(string.format("\n[foundry] ========== LAYER %d ==========", layer_idx))
     print(string.format("[foundry] atom basis size: %d", #(atoms or {})))
 
-    local ssa_forms = enumerate_forms(workloads, atoms, config)
-    local templates = lower_forms(ssa_forms)
+    local stencil_forms = enumerate_forms(workloads, atoms, config)
+    local templates = lower_forms(stencil_forms)
     local selected = select_templates(templates, config)
     local selected_bytes = 0
     for _, t in ipairs(selected) do selected_bytes = selected_bytes + (tonumber(t.total_size) or 0) end
@@ -180,10 +179,9 @@ local function run_layer(workloads, atoms, layer_idx, config)
         new_atoms[#new_atoms + 1] = {
             pattern = s.source_ops or s.ops,       -- what runtime matches against
             source_ops = s.source_ops or s.ops,     -- raw opcodes for expansion
-            active_ops_list = s.active_ops,          -- legacy/codegen node names for lowering compatibility
-            active_node_specs = s.active_node_specs,  -- typed SSA node specs for real semantic reopening
-            semantic_normal_form = s.normal_form,
-            normal_form_hash = s.normal_form_hash,
+            active_node_specs = s.active_node_specs,  -- typed SSA node specs for semantic reopening
+            stencil_form = s.stencil_form,
+            stencil_hash = s.stencil_hash,
             cost = s.estimated_cycles,
             code_size = s.total_size,
             checked = s.checked_facts or {},
@@ -200,9 +198,9 @@ local function run_layer(workloads, atoms, layer_idx, config)
         templates_selected = #selected,
         selected_bytes = selected_bytes,
         summary = {
-            windows = ssa_forms.stats and ssa_forms.stats.windows or 0,
-            compiles = ssa_forms.stats and ssa_forms.stats.compiles or 0,
-            unique_forms = ssa_forms.stats and ssa_forms.stats.unique_forms or 0,
+            windows = stencil_forms.stats and stencil_forms.stats.windows or 0,
+            compiles = stencil_forms.stats and stencil_forms.stats.compiles or 0,
+            unique_forms = stencil_forms.stats and stencil_forms.stats.unique_forms or 0,
             templates_generated = #templates,
             templates_selected = #selected,
             selected_bytes = selected_bytes,
@@ -210,7 +208,7 @@ local function run_layer(workloads, atoms, layer_idx, config)
         new_atoms = new_atoms,
     }
     if not config.summary_only then
-        result.forms = ssa_forms
+        result.forms = stencil_forms
         result.templates = selected
     end
     return result
