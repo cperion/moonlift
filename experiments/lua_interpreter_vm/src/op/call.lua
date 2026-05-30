@@ -22,7 +22,20 @@ entry start()
     end
     frame.pc = pc
     L.top = top
-    emit prepare_call(L, func_slot, nargs, wanted, as(u16, @{RESUME_NORMAL}), pc, func_slot, top, as(u8, 1);
+    let resume: ResumeState = {
+        kind = as(u16, @{RESUME_NORMAL}),
+        a = a,
+        b = b,
+        c = c,
+        pc = pc,
+        base = base,
+        result_base = func_slot,
+        call_top = top,
+        wanted = wanted,
+        value = { tag = @{TAG_NIL}, aux = 0, bits = 0 },
+        errfunc_slot = 0
+    }
+    emit prepare_call(L, func_slot, nargs, wanted, resume, func_slot, top, as(u8, 1);
         enter_lua = do_lua,
         enter_native = do_native,
         returned = call_returned,
@@ -31,11 +44,11 @@ entry start()
         oom = out_of_mem)
 end
 block do_lua(child: ptr(Frame))
-    child.resume_a = a
+    child.resume.a = a
     jump enter_lua(child = child)
 end
-block do_native(cl: ptr(CClosure), func_slot: index, nargs: i32, wanted: i32, result_base: index, resume_mode: u16)
-    jump enter_native(cl = cl, func_slot = func_slot, nargs = nargs, wanted = wanted, result_base = result_base, resume_mode = resume_mode)
+block do_native(cl: ptr(CClosure), ctx: NativeCallContext)
+    jump enter_native(cl = cl, ctx = ctx)
 end
 block call_returned(nres: i32)
     let func_slot: index = base + as(index, a)
@@ -78,7 +91,20 @@ entry start()
     end
     frame.pc = pc
     L.top = top
-    emit prepare_call(L, func_slot, nargs, frame.wanted, as(u16, @{RESUME_TAILCALL}), pc, frame.result_base, top, frame.yieldable;
+    let resume: ResumeState = {
+        kind = as(u16, @{RESUME_TAILCALL}),
+        a = a,
+        b = b,
+        c = c,
+        pc = pc,
+        base = base,
+        result_base = frame.result_base,
+        call_top = top,
+        wanted = frame.wanted,
+        value = { tag = @{TAG_NIL}, aux = 0, bits = 0 },
+        errfunc_slot = 0
+    }
+    emit prepare_call(L, func_slot, nargs, frame.wanted, resume, frame.result_base, top, frame.yieldable;
         enter_lua = do_lua,
         enter_native = do_native,
         returned = call_returned,
@@ -89,8 +115,8 @@ end
 block do_lua(child: ptr(Frame))
     jump enter_lua(child = child)
 end
-block do_native(cl: ptr(CClosure), func_slot: index, nargs: i32, wanted: i32, result_base: index, resume_mode: u16)
-    jump enter_native(cl = cl, func_slot = func_slot, nargs = nargs, wanted = wanted, result_base = result_base, resume_mode = resume_mode)
+block do_native(cl: ptr(CClosure), ctx: NativeCallContext)
+    jump enter_native(cl = cl, ctx = ctx)
 end
 block call_returned(nres: i32)
     jump next(frame = frame, pc = pc + 1, base = base, top = top)
@@ -121,18 +147,23 @@ entry start()
     jump do_return(first = first, nres = as(i32, b - 1))
 end
 block do_return(first: index, nres: i32)
+    frame.resume.base = first
+    frame.resume.a = as(u16, nres)
+    emit close_upvalues(L, frame.base;
+        done = after_close_saved,
+        oom = oom)
+end
+block after_close_saved()
     if k ~= 0 then
-        frame.resume_base = first
-        frame.resume_a = as(u16, nres)
         emit tbc_close_chain(L, frame.base;
             done = after_tbc_saved,
             error = error,
             oom = oom)
     end
-    jump after_tbc(first = first, nres = nres)
+    jump after_tbc_saved()
 end
 block after_tbc_saved()
-    jump after_tbc(first = frame.resume_base, nres = as(i32, frame.resume_a))
+    jump after_tbc(first = frame.resume.base, nres = as(i32, frame.resume.a))
 end
 block after_tbc(first: index, nres: i32)
     emit return_from_lua(L, frame, first, nres;
@@ -164,17 +195,22 @@ local op_return0 = R([[
 region op_return0(]] .. H .. [[;
                   ]] .. B.RET_CONTS .. [[)
 entry start()
+    frame.resume.base = base
+    emit close_upvalues(L, frame.base;
+        done = after_close_saved,
+        oom = oom)
+end
+block after_close_saved()
     if k ~= 0 then
-        frame.resume_base = base
         emit tbc_close_chain(L, frame.base;
             done = after_tbc_saved,
             error = error,
             oom = oom)
     end
-    jump after_tbc(first = base)
+    jump after_tbc_saved()
 end
 block after_tbc_saved()
-    jump after_tbc(first = frame.resume_base)
+    jump after_tbc(first = frame.resume.base)
 end
 block after_tbc(first: index)
     emit return_from_lua(L, frame, first, 0;
@@ -207,17 +243,22 @@ region op_return1(]] .. H .. [[;
                   ]] .. B.RET_CONTS .. [[)
 entry start()
     let first: index = base + as(index, a)
+    frame.resume.base = first
+    emit close_upvalues(L, frame.base;
+        done = after_close_saved,
+        oom = oom)
+end
+block after_close_saved()
     if k ~= 0 then
-        frame.resume_base = first
         emit tbc_close_chain(L, frame.base;
             done = after_tbc_saved,
             error = error,
             oom = oom)
     end
-    jump after_tbc(first = first)
+    jump after_tbc_saved()
 end
 block after_tbc_saved()
-    jump after_tbc(first = frame.resume_base)
+    jump after_tbc(first = frame.resume.base)
 end
 block after_tbc(first: index)
     emit return_from_lua(L, frame, first, 1;

@@ -16,6 +16,16 @@ Tag.USERDATA = 10
 Tag.THREAD = 11
 Tag.PROTO = 12
 
+local TypeMeta = {}
+TypeMeta.NIL = 0
+TypeMeta.BOOLEAN = 1
+TypeMeta.LIGHTUD = 2
+TypeMeta.NUMBER = 3
+TypeMeta.STRING = 4
+TypeMeta.FUNCTION = 5
+TypeMeta.THREAD = 6
+TypeMeta.N = 7
+
 local Op = {}
 Op.MOVE = 0
 Op.LOADI = 1
@@ -105,33 +115,40 @@ Op.VARARGPREP = 83
 Op.EXTRAARG = 84
 
 local TM = {}
+-- Lua 5.5 tag-method order. This is a VM bytecode/runtime ABI: MMBIN*
+-- operands, GlobalState.tmname indexes, and metamethod lookup all use these
+-- storage discriminants. Keep in lockstep with the Lua 5.5 oracle enum in
+-- .vendor/Lua/ltm.h; do not import PUC layouts or runtime state.
 TM.INDEX = 0
 TM.NEWINDEX = 1
 TM.GC = 2
 TM.MODE = 3
-TM.EQ = 4
-TM.ADD = 5
-TM.SUB = 6
-TM.MUL = 7
-TM.DIV = 8
+TM.LEN = 4
+TM.EQ = 5
+TM.ADD = 6
+TM.SUB = 7
+TM.MUL = 8
 TM.MOD = 9
 TM.POW = 10
-TM.UNM = 11
-TM.LEN = 12
-TM.LT = 13
-TM.LE = 14
-TM.CONCAT = 15
-TM.CALL = 16
-TM.IDIV = 17
-TM.BAND = 18
-TM.BOR = 19
-TM.BXOR = 20
-TM.SHL = 21
-TM.SHR = 22
-TM.CLOSE = 23
-TM.N = 24
+TM.DIV = 11
+TM.IDIV = 12
+TM.BAND = 13
+TM.BOR = 14
+TM.BXOR = 15
+TM.SHL = 16
+TM.SHR = 17
+TM.UNM = 18
+TM.BNOT = 19
+TM.LT = 20
+TM.LE = 21
+TM.CONCAT = 22
+TM.CALL = 23
+TM.CLOSE = 24
+TM.N = 25
 
 local Resume = {}
+-- Persisted ResumeState.kind values. These are storage discriminants;
+-- control must decode through regions_resume rather than ad hoc integers.
 Resume.NORMAL = 0
 Resume.TAILCALL = 1
 Resume.PCALL = 2
@@ -149,7 +166,10 @@ Resume.CALL_MM = 13
 Resume.TFORLOOP_CALL = 14
 Resume.NATIVE_CONT = 15
 Resume.TBC_CLOSE = 16
-Resume.N = 17
+Resume.FINALIZER_CALL = 17
+Resume.COROUTINE_RESUME = 18
+Resume.COROUTINE_YIELD = 19
+Resume.N = 20
 
 local Status = {}
 Status.OK = 0
@@ -164,6 +184,8 @@ NativeResult.ERROR = 1
 NativeResult.YIELD = 2
 NativeResult.OOM = 3
 NativeResult.STACK_GROW = 4
+NativeResult.REENTER_LUA = 5
+NativeResult.INVALID = 6
 
 local Err = {}
 Err.NONE = 0
@@ -183,6 +205,10 @@ Err.INDEX = 13
 Err.CALL = 14
 Err.LOOP = 15
 Err.API = 16
+Err.METAMETHOD = 17
+Err.FINALIZER = 18
+Err.COROUTINE = 19
+Err.BINARY_CHUNK = 20
 
 local ProtoFlag = {}
 ProtoFlag.PF_VAHID = 1  -- function has hidden vararg arguments (set by VARARGPREP)
@@ -199,6 +225,32 @@ ThreadFlag.YIELDABLE = 1
 ThreadFlag.IN_PROTECTED = 2
 ThreadFlag.CLOSING = 4
 
+local TableFlag = {}
+TableFlag.HAS_METATABLE = 1
+TableFlag.WEAK_VALUES = 2
+TableFlag.WEAK_KEYS = 4
+TableFlag.EPHEMERON = 8
+TableFlag.ALL_WEAK = 16
+TableFlag.FINALIZER_CANDIDATE = 32
+
+local FinalizerState = {}
+FinalizerState.NONE = 0
+FinalizerState.ELIGIBLE = 1
+FinalizerState.PENDING = 2
+FinalizerState.RUNNING = 3
+FinalizerState.DONE = 4
+
+local UserDataFlag = {}
+UserDataFlag.OWNS_PAYLOAD = 1
+UserDataFlag.HAS_USER_VALUES = 2
+UserDataFlag.FINALIZABLE = 4
+UserDataFlag.ALIGNED = 8
+
+local CompatFormat = {}
+CompatFormat.INTERNAL_PROTO = 0
+CompatFormat.LUA55_SOURCE = 1
+CompatFormat.LUA55_BINARY_CHUNK = 2
+
 local GCColor = {}
 GCColor.WHITE0 = 0
 GCColor.WHITE1 = 1
@@ -208,20 +260,24 @@ GCColor.BLACK = 3
 local GCState = {}
 GCState.PAUSE = 0
 GCState.PROPAGATE = 1
-GCState.SWEEP = 2
-GCState.FINALIZE = 3
+GCState.ATOMIC = 2
+GCState.SWEEP_STRINGS = 3
+GCState.SWEEP_OBJECTS = 4
+GCState.CLEAR_WEAK = 5
+GCState.FINALIZE = 6
 
 local MAX_STACK_SIZE = 1000000
 local MAX_FRAMES = 1000
 
 local Abi = {}
-Abi.VM_VERSION = 1
-Abi.NATIVE_VERSION = 1
-Abi.VALIDATOR_VERSION = 1
+Abi.VM_VERSION = 2
+Abi.NATIVE_VERSION = 2
+Abi.VALIDATOR_VERSION = 2
 
 return {
     Tag = Tag,
     Op = Op,
+    TypeMeta = TypeMeta,
     TM = TM,
     Resume = Resume,
     Status = Status,
@@ -230,6 +286,10 @@ return {
     ProtoFlag = ProtoFlag,
     FrameFlag = FrameFlag,
     ThreadFlag = ThreadFlag,
+    TableFlag = TableFlag,
+    FinalizerState = FinalizerState,
+    UserDataFlag = UserDataFlag,
+    CompatFormat = CompatFormat,
     GCColor = GCColor,
     GCState = GCState,
     Abi = Abi,

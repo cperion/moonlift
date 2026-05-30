@@ -213,6 +213,24 @@ region op_newtable(]] .. H .. [[;
                    next: cont(frame: ptr(Frame), pc: index, base: index, top: index),
                    oom: cont())
 entry start()
+    var arr: index = as(index, vb)
+    if vb >= 8 then
+        let mant: u16 = (vb & 7) + 8
+        let exp: u16 = (vb >> 3) - 1
+        arr = as(index, mant) << as(index, exp)
+    end
+    var hp: u32 = as(u32, vc)
+    if hp == 0 then hp = 1 end
+    if hp > 16 then hp = 16 end
+    emit table_new(L, arr, hp;
+        ok = made_table,
+        oom = out_of_mem)
+end
+block made_table(v: Value)
+    L.stack[base + as(index, a)] = v
+    jump next(frame = frame, pc = pc + 1 + as(index, k), base = base, top = top)
+end
+block out_of_mem()
     jump oom()
 end
 end
@@ -247,6 +265,47 @@ region op_setlist(]] .. H .. [[;
                   next: cont(frame: ptr(Frame), pc: index, base: index, top: index),
                   oom: cont())
 entry start()
+    jump prepare()
+end
+block prepare()
+    let tbl: Value = L.stack[base + as(index, a)]
+    if tbl.tag ~= @{TAG_TABLE} then jump out_of_mem() end
+    var block_index: u32 = as(u32, vc)
+    if k ~= 0 then
+        let cl: ptr(LClosure) = as(ptr(LClosure), frame.closure.bits)
+        let extra: ptr(Instr) = cl.proto.code + (pc + 1)
+        block_index = (extra.word >> 7) & 33554431
+    end
+    var n: index = as(index, b)
+    if b == 0 then
+        n = top - (base + as(index, a) + 1)
+    end
+    let start_index: index = (as(index, block_index) - 1) * 50
+    let t: ptr(Table) = as(ptr(Table), tbl.bits)
+    if start_index + n > t.array_cap then
+        let key: Value = { tag = @{TAG_INTEGER}, aux = 0, bits = as(u64, start_index + n) }
+        emit table_grow_for_key(L, t, key;
+            done = after_grow,
+            error = set_error,
+            oom = out_of_mem)
+    end
+    jump write_loop(i = as(index, 0), n = n, start_index = start_index, t = t)
+end
+block after_grow()
+    jump prepare()
+end
+block write_loop(i: index, n: index, start_index: index, t: ptr(Table))
+    if i >= n then
+        if start_index + n > t.array_len then t.array_len = start_index + n end
+        jump next(frame = frame, pc = pc + 1 + as(index, k), base = base, top = top)
+    end
+    t.array[start_index + i] = L.stack[base + as(index, a) + 1 + i]
+    jump write_loop(i = i + 1, n = n, start_index = start_index, t = t)
+end
+block set_error(code: i32)
+    jump out_of_mem()
+end
+block out_of_mem()
     jump oom()
 end
 end

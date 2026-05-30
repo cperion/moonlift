@@ -23,8 +23,19 @@ entry start()
     if needed_top > @{MAX_STACK_SIZE} then
         jump overflow()
     end
-    -- No allocator/growth backend is wired in this experiment; fail loud instead of executing past capacity.
+    emit grow_value_array(L, needed_top;
+        ok = did_grow,
+        overflow = did_overflow,
+        oom = out_of_mem)
+end
+block did_grow(data: ptr(Value), capacity: index)
+    jump grown()
+end
+block did_overflow()
     jump overflow()
+end
+block out_of_mem()
+    jump oom()
 end
 end
 ]]
@@ -33,14 +44,19 @@ end
 local frame_push = host.region { TAG_NIL = I.TAG_NIL, ERR_STACK_OVERFLOW = I.ERR_STACK_OVERFLOW } [[
 region frame_push(L: ptr(LuaThread), closure: Value, base: index, top: index,
                   result_base: index, call_top: index,
-                  wanted: i32, resume_mode: u16, resume_pc: index,
+                  wanted: i32, resume: ResumeState,
                   yieldable: u8;
                   ok: cont(frame: ptr(Frame)), overflow: cont(), oom: cont())
 entry start()
     if L.frame_count >= L.frame_cap then
-        -- No frame-array growth backend is wired in this experiment; fail loud instead of writing past capacity.
-        jump overflow()
+        emit grow_frame_array(L, L.frame_count + 1;
+            ok = frame_storage_ready,
+            overflow = frame_overflow,
+            oom = frame_oom)
     end
+    jump frame_storage_ready(data = L.frames, capacity = L.frame_cap)
+end
+block frame_storage_ready(data: ptr(Frame), capacity: index)
     let idx: index = L.frame_count
     L.frame_count = idx + 1
     let f: ptr(Frame) = L.frames + idx
@@ -50,19 +66,19 @@ entry start()
     f.pc = 0
     f.wanted = wanted
     f.tailcalls = 0
-    f.resume_mode = resume_mode
-    f.resume_a = 0
-    f.resume_b = 0
-    f.resume_c = 0
-    f.resume_pc = resume_pc
-    f.resume_base = 0
-    f.resume_value = { tag = @{TAG_NIL}, aux = 0, bits = 0 }
     f.result_base = result_base
     f.call_top = call_top
+    f.resume = resume
     f.yieldable = yieldable
     f.flags = 0
     f.reserved = 0
     jump ok(frame = f)
+end
+block frame_overflow()
+    jump overflow()
+end
+block frame_oom()
+    jump oom()
 end
 end
 ]]
@@ -114,14 +130,21 @@ end
 end
 ]]
 
--- adjust_varargs: set up base for vararg functions
-local adjust_varargs = host.region [[
+-- adjust_varargs: Lua 5.5 varargs are kept explicitly in the frame's incoming
+-- argument window. Fixed parameters occupy R[0..numparams-1]; extra arguments
+-- remain immediately after them and OP_VARARG copies from that range.
+local adjust_varargs = host.region { TAG_NIL = I.TAG_NIL } [[
 region adjust_varargs(L: ptr(LuaThread), cl: ptr(LClosure), func_slot: index, nargs: i32; ok: cont(base: index), oom: cont())
 entry start()
+    let base: index = func_slot + 1
     let np: i32 = as(i32, cl.proto.numparams)
-    let fixargs: index = as(index, np)
-    -- Vararg stack reshaping is intentionally rejected until the caller has provided an ABI-complete frame layout.
-    jump oom()
+    if nargs >= np then jump ok(base = base) end
+    jump fill_missing(i = nargs, np = np, base = base)
+end
+block fill_missing(i: i32, np: i32, base: index)
+    if i >= np then jump ok(base = base) end
+    L.stack[base + as(index, i)] = { tag = @{TAG_NIL}, aux = 0, bits = 0 }
+    jump fill_missing(i = i + 1, np = np, base = base)
 end
 end
 ]]

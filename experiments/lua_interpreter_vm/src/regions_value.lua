@@ -121,6 +121,14 @@ local value_raw_equal = host.region {
 } [[
 region value_raw_equal(a: Value, b: Value; equal: cont(), not_equal: cont())
 entry start()
+    if a.tag == @{TAG_INTEGER} and b.tag == @{TAG_NUM} then
+        if as(f64, as(i64, a.bits)) == bitcast(f64, b.bits) then jump equal() end
+        jump not_equal()
+    end
+    if a.tag == @{TAG_NUM} and b.tag == @{TAG_INTEGER} then
+        if bitcast(f64, a.bits) == as(f64, as(i64, b.bits)) then jump equal() end
+        jump not_equal()
+    end
     if a.tag ~= b.tag then jump not_equal() end
     switch a.tag do
     case 0 then jump equal()
@@ -176,6 +184,12 @@ entry start()
     if a.tag == @{TAG_NUM} and b.tag == @{TAG_NUM} then
         jump result(is_lt = bitcast(f64, a.bits) < bitcast(f64, b.bits))
     end
+    if a.tag == @{TAG_INTEGER} and b.tag == @{TAG_NUM} then
+        jump result(is_lt = as(f64, as(i64, a.bits)) < bitcast(f64, b.bits))
+    end
+    if a.tag == @{TAG_NUM} and b.tag == @{TAG_INTEGER} then
+        jump result(is_lt = bitcast(f64, a.bits) < as(f64, as(i64, b.bits)))
+    end
     if a.tag == @{TAG_STR} and b.tag == @{TAG_STR} then
         let sa: ptr(String) = as(ptr(String), a.bits)
         let sb: ptr(String) = as(ptr(String), b.bits)
@@ -208,6 +222,12 @@ entry start()
     end
     if a.tag == @{TAG_NUM} and b.tag == @{TAG_NUM} then
         jump result(is_le = bitcast(f64, a.bits) <= bitcast(f64, b.bits))
+    end
+    if a.tag == @{TAG_INTEGER} and b.tag == @{TAG_NUM} then
+        jump result(is_le = as(f64, as(i64, a.bits)) <= bitcast(f64, b.bits))
+    end
+    if a.tag == @{TAG_NUM} and b.tag == @{TAG_INTEGER} then
+        jump result(is_le = bitcast(f64, a.bits) <= as(f64, as(i64, b.bits)))
     end
     if a.tag == @{TAG_STR} and b.tag == @{TAG_STR} then
         let sa: ptr(String) = as(ptr(String), a.bits)

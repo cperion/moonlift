@@ -129,12 +129,16 @@ end
 -- prepare_metamethod_call: set up stack for metamethod invocation
 local prepare_metamethod_call = host.region [[
 region prepare_metamethod_call(L: ptr(LuaThread), frame: ptr(Frame), pc: index, base: index, top: index,
-                               mm: Value, nargs: i32, wanted: i32, resume_mode: u16;
+                               mm: Value, nargs: i32, wanted: i32, resume: ResumeState;
                                prepared: cont(), error: cont(code: i32), oom: cont())
 entry start()
     frame.pc = pc
-    frame.resume_mode = resume_mode
-    frame.resume_pc = pc + 1
+    frame.resume = resume
+    frame.resume.pc = pc + 1
+    frame.resume.base = base
+    frame.resume.result_base = base
+    frame.resume.call_top = top
+    frame.resume.wanted = wanted
     L.stack[base] = mm
     L.top = base + as(index, nargs) + 1
     jump prepared()

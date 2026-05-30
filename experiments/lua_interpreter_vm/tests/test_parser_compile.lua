@@ -8,75 +8,8 @@ local const = vm.const
 local pconst = vm.parser_const
 local function op_of(i) return bit.band(i.word, 127) end
 
-ffi.cdef [[
-typedef struct String String;
-typedef struct Proto Proto;
-typedef struct FuncBuilder FuncBuilder;
-typedef struct CompileArena CompileArena;
-typedef struct LabelDesc LabelDesc;
-typedef struct GCHeader { void* next; uint8_t tt; uint8_t marked; } GCHeader;
-typedef struct Value { uint32_t tag; uint32_t aux; uint64_t bits; } Value;
-typedef struct Instr { uint32_t word; } Instr;
-typedef struct LocVar { String* name; uint64_t startpc; uint64_t endpc; } LocVar;
-typedef struct UpValDesc { String* name; uint8_t instack; uint16_t index; } UpValDesc;
-struct Proto {
-    GCHeader gc;
-    Instr* code; uint64_t code_len;
-    Value* constants; uint64_t constants_len;
-    Proto** children; uint64_t children_len;
-    int32_t* lineinfo; uint64_t lineinfo_len;
-    LocVar* locvars; uint64_t locvars_len;
-    UpValDesc* upvals; uint64_t upvals_len;
-    String* source;
-    int32_t linedefined; int32_t lastlinedefined;
-    uint8_t numparams; uint8_t flag; uint16_t maxstack;
-};
-typedef struct SourceView { uint8_t* bytes; uint64_t len; String* source_name; } SourceView;
-typedef struct SourcePos { uint64_t offset; int32_t line; int32_t col; } SourcePos;
-typedef struct CompileError { int32_t code; SourcePos pos; uint16_t token; } CompileError;
-typedef struct Token { uint16_t kind; uint64_t start; uint64_t len; int32_t line; uint32_t aux; uint64_t bits; } Token;
-typedef struct Lexer { SourceView src; uint64_t pos; int32_t line; int32_t col; Token current; Token lookahead; uint8_t has_lookahead; } Lexer;
-typedef struct InstrVec { Instr* data; uint64_t len; uint64_t cap; } InstrVec;
-typedef struct ValueVec { Value* data; uint64_t len; uint64_t cap; } ValueVec;
-typedef struct ProtoPtrVec { Proto** data; uint64_t len; uint64_t cap; } ProtoPtrVec;
-typedef struct LocVarVec { LocVar* data; uint64_t len; uint64_t cap; } LocVarVec;
-typedef struct UpValDescVec { UpValDesc* data; uint64_t len; uint64_t cap; } UpValDescVec;
-typedef struct CompileLocal { uint64_t name_start; uint64_t name_len; uint32_t hash; uint16_t reg; uint8_t kind; } CompileLocal;
-struct LabelDesc { String* name; uint64_t pc; int32_t line; uint16_t nactvar; };
-struct FuncBuilder {
-    FuncBuilder* parent; Proto* out_proto;
-    InstrVec code; ValueVec constants; ProtoPtrVec children; LocVarVec locvars; UpValDescVec upvals;
-    CompileLocal* locals; uint64_t locals_len; uint64_t locals_cap;
-    LabelDesc* labels; uint64_t labels_len; uint64_t labels_cap;
-    LabelDesc* gotos; uint64_t gotos_len; uint64_t gotos_cap;
-    uint64_t firstlocal; uint16_t nactvar; uint16_t freereg; uint16_t maxstack;
-    uint64_t pc; uint64_t lasttarget; uint8_t numparams; uint8_t flag;
-};
-typedef struct ExpDesc { uint16_t kind; uint32_t info; uint32_t aux; uint64_t t; uint64_t f; Value value; } ExpDesc;
-typedef struct CompileUnit { CompileArena* arena; Lexer lexer; FuncBuilder* root; FuncBuilder* current; ExpDesc expr_tmp; ExpDesc expr_tmp2; ExpDesc expr_tmp3; Token token_tmp; uint16_t tmp_reg; } CompileUnit;
-typedef struct { GCHeader gc; void* env; Proto* proto; void** upvals; uint8_t nupvals; } LClosure;
-typedef struct {
-    Value closure; uint64_t base; uint64_t top; uint64_t pc;
-    int32_t wanted; int32_t tailcalls;
-    uint16_t resume_mode;
-    uint16_t resume_a; uint16_t resume_b; uint16_t resume_c;
-    uint64_t resume_pc; uint64_t resume_base; Value resume_value;
-    uint64_t result_base; uint64_t call_top;
-    uint8_t yieldable; uint8_t flags; uint16_t reserved;
-} Frame;
-typedef struct {
-    GCHeader gc; uint8_t status;
-    Value* stack; uint64_t stack_size; uint64_t top;
-    Frame* frames; uint64_t frame_count; uint64_t frame_cap;
-    void* open_upvals; void* protected_top;
-    void* global; Value err_value;
-    uint8_t hookmask; uint8_t allowhook;
-    int32_t hookcount; int32_t basehookcount; Value hook;
-    uint64_t tbc_head;
-    int32_t yieldable; int32_t nonyieldable; int32_t last_error_code; uint32_t flags;
-} LuaThread;
-typedef struct { void* allocator; Value registry; void* mainthread; uint32_t vm_abi_version; uint32_t native_abi_version; } GlobalState;
-]]
+require("experiments.lua_interpreter_vm.tools.vm_ffi_schema").apply(ffi)
+assert(ffi.sizeof("CompileUnit") >= 320, "CompileUnit FFI schema is stale")
 
 local compile_region = vm.regions_compiler.compile_lua_source_into
 local wrapper = moon.func { compile_lua_source_into = compile_region } [[
@@ -132,7 +65,11 @@ lex_kinds(cu: ptr(CompileUnit), bytes: ptr(u8), n: index, out: ptr(u16), max: in
 end
 ]]:compile()
 
-local runner = moon.func { validate_proto = validate_proto, vm_resume = vm_resume } [[
+local runner = moon.func {
+    validate_proto = validate_proto,
+    vm_resume = vm_resume,
+    sys_realloc = vm.regions_allocator.sys_realloc,
+} [[
 run_proto(L: ptr(LuaThread), p: ptr(Proto)) -> i32
     return region -> i32
     entry start()
@@ -180,7 +117,7 @@ local function make_thread(proto)
     stack[0].tag = const.Tag.LCLOSURE; stack[0].bits = ffi.cast("uint64_t", closure)
     local frames = ffi.new("Frame[8]")
     frames[0].closure = stack[0]
-    frames[0].base = 1; frames[0].top = 1; frames[0].pc = 0; frames[0].wanted = 1; frames[0].resume_mode = const.Resume.NORMAL
+    frames[0].base = 1; frames[0].top = 1; frames[0].pc = 0; frames[0].wanted = 1; frames[0].resume.kind = const.Resume.NORMAL
     frames[0].result_base = frames[0].base; frames[0].call_top = frames[0].top
     frames[0].yieldable = 1; frames[0].flags = 0; frames[0].reserved = 0
     local global = ffi.new("GlobalState[1]")
@@ -235,16 +172,41 @@ lex_case("-- comment\nreturn 'abc' == name ~= nil ... .. :: <= >= < > - * / ,", 
     pconst.Tok.LE, pconst.Tok.GE, pconst.Tok.LT, pconst.Tok.GT,
     pconst.Tok.MINUS, pconst.Tok.STAR, pconst.Tok.SLASH, pconst.Tok.COMMA, pconst.Tok.EOF,
 })
+lex_case("global goto ^", {
+    pconst.Kw.GLOBAL, pconst.Kw.GOTO, pconst.Tok.CARET, pconst.Tok.EOF,
+})
+lex_case("if then else elseif end while do for in repeat until break function and or not % // { } [ ] : & | ~ << >>", {
+    pconst.Kw.IF, pconst.Kw.THEN, pconst.Kw.ELSE, pconst.Kw.ELSEIF, pconst.Kw.END,
+    pconst.Kw.WHILE, pconst.Kw.DO, pconst.Kw.FOR, pconst.Kw.IN, pconst.Kw.REPEAT,
+    pconst.Kw.UNTIL, pconst.Kw.BREAK, pconst.Kw.FUNCTION, pconst.Kw.AND, pconst.Kw.OR,
+    pconst.Kw.NOT, pconst.Tok.PERCENT, pconst.Tok.SLASHSLASH, pconst.Tok.LBRACE,
+    pconst.Tok.RBRACE, pconst.Tok.LBRACKET, pconst.Tok.RBRACKET, pconst.Tok.COLON,
+    pconst.Tok.AMP, pconst.Tok.PIPE, pconst.Tok.TILDE, pconst.Tok.LTLT, pconst.Tok.GTGT,
+    pconst.Tok.EOF,
+})
 
+compile_case("return", { const.Op.RETURN0 })
+compile_case("local x = 1", { const.Op.LOADI, const.Op.RETURN0 })
 run_case("return 1 + 2", { const.Op.LOADI, const.Op.LOADI, const.Op.ADD, const.Op.MMBIN, const.Op.RETURN1 }, 3)
 run_case("local x = 41 return x + 1", { const.Op.LOADI, const.Op.LOADI, const.Op.ADD, const.Op.MMBIN, const.Op.RETURN1 }, 42)
 run_case("local x = 1; -- comment\nlocal y = 2 return x + y", { const.Op.LOADI, const.Op.LOADI, const.Op.ADD, const.Op.MMBIN, const.Op.RETURN1 }, 3)
 run_case("return 2 + 3 * 4", { const.Op.LOADI, const.Op.LOADI, const.Op.LOADI, const.Op.MUL, const.Op.MMBIN, const.Op.ADD, const.Op.MMBIN, const.Op.RETURN1 }, 14)
 run_case("return 9 - 3 * 2", { const.Op.LOADI, const.Op.LOADI, const.Op.LOADI, const.Op.MUL, const.Op.MMBIN, const.Op.SUB, const.Op.MMBIN, const.Op.RETURN1 }, 3)
+compile_case("local x return x", { const.Op.LOADNIL, const.Op.RETURN1 })
+run_case("local x = 1 x = x + 4 return x", { const.Op.LOADI, const.Op.LOADI, const.Op.ADD, const.Op.MMBIN, const.Op.RETURN1 }, 5)
+run_case("return 10 % 4", { const.Op.LOADI, const.Op.LOADI, const.Op.MOD, const.Op.MMBIN, const.Op.RETURN1 }, 2)
+run_case("return 10 // 4", { const.Op.LOADI, const.Op.LOADI, const.Op.IDIV, const.Op.MMBIN, const.Op.RETURN1 }, 2)
+run_case("local x = 0 x = x - 7 return x // 3", { const.Op.LOADI, const.Op.LOADI, const.Op.SUB, const.Op.MMBIN, const.Op.LOADI, const.Op.IDIV, const.Op.MMBIN, const.Op.RETURN1 }, -3)
+run_case("local x = 0 x = x - 7 return x % 3", { const.Op.LOADI, const.Op.LOADI, const.Op.SUB, const.Op.MMBIN, const.Op.LOADI, const.Op.MOD, const.Op.MMBIN, const.Op.RETURN1 }, 2)
+run_case("return 6 & 3", { const.Op.LOADI, const.Op.LOADI, const.Op.BAND, const.Op.MMBIN, const.Op.RETURN1 }, 2)
+run_case("local x = 0 for i = 1, 5 do x = x + i end return x", { const.Op.LOADI, const.Op.LOADI, const.Op.LOADI, const.Op.LOADI, const.Op.FORPREP, const.Op.ADD, const.Op.MMBIN, const.Op.FORLOOP, const.Op.RETURN1 }, 15)
+run_case("local x = 0 for i = 5, 1, 2 do x = x + i end return x", { const.Op.LOADI, const.Op.LOADI, const.Op.LOADI, const.Op.LOADI, const.Op.FORPREP, const.Op.ADD, const.Op.MMBIN, const.Op.FORLOOP, const.Op.RETURN1 }, 0)
 compile_case("return 9 / 3", { const.Op.LOADI, const.Op.LOADI, const.Op.DIV, const.Op.MMBIN, const.Op.RETURN1 })
+print("NEG trailing return check")
 assert(compile_status("return 1 local x = 2") < 0, "return must reject trailing statements")
+print("NEG done")
 
-compiled:free()
-lex_runner:free()
-runner:free()
+-- The compiled closures are process-lifetime test fixtures. Avoid explicit free
+-- here because larger compiler wrappers can spend unbounded time in backend
+-- teardown on some LuaJIT/libmoonlift builds; process exit reclaims them.
 return true

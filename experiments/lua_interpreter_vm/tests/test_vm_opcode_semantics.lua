@@ -8,18 +8,16 @@ local moon = require("moonlift")
 local vm = require("experiments.lua_interpreter_vm.src.init")
 local const = vm.const
 
-local function pack_ABC(op, a, b, c, k)
-    return bit.bor(op, bit.lshift(a or 0, 7), bit.lshift(k or 0, 15), bit.lshift(b or 0, 16), bit.lshift(c or 0, 24))
-end
-local function pack_ABx(op, a, bx)
-    return bit.bor(op, bit.lshift(a or 0, 7), bit.lshift(bx or 0, 15))
-end
-local function pack_AsBx(op, a, sbx)
-    return bit.bor(op, bit.lshift(a or 0, 7), bit.lshift((sbx or 0) + 65535, 15))
-end
+local bytecode = vm.bytecode
+local function pack_ABC(op, a, b, c, k) return bytecode.encode_ABC(op, a, b, c, k) end
+local function pack_ABx(op, a, bx) return bytecode.encode_ABx(op, a, bx) end
+local function pack_AsBx(op, a, sbx) return bytecode.encode_AsBx(op, a, sbx) end
+local function pack_Ax(op, ax) return bytecode.encode_Ax(op, ax) end
 local function set_ABC(i, op, a, b, c, k) i.word = pack_ABC(op, a, b, c, k) end
 local function set_ABx(i, op, a, bx) i.word = pack_ABx(op, a, bx) end
 local function set_AsBx(i, op, a, sbx) i.word = pack_AsBx(op, a, sbx) end
+local function set_Ax(i, op, ax) i.word = pack_Ax(op, ax) end
+local function set_AsC(i, op, a, b, sc, k) i.word = pack_ABC(op, a, b, sc + bytecode.OFFSET_SC, k) end
 local function op_of(i) return bit.band(i.word, 127) end
 
 local libmoon
@@ -49,12 +47,18 @@ typedef struct {
 } Proto;
 typedef struct { GCHeader gc; void* env; Proto* proto; void** upvals; uint8_t nupvals; } LClosure;
 typedef struct {
+    uint16_t kind;
+    uint16_t a; uint16_t b; uint16_t c;
+    uint64_t pc; uint64_t base; uint64_t result_base; uint64_t call_top;
+    int32_t wanted;
+    Value value;
+    uint64_t errfunc_slot;
+} ResumeState;
+typedef struct {
     Value closure; uint64_t base; uint64_t top; uint64_t pc;
     int32_t wanted; int32_t tailcalls;
-    uint16_t resume_mode;
-    uint16_t resume_a; uint16_t resume_b; uint16_t resume_c;
-    uint64_t resume_pc; uint64_t resume_base; Value resume_value;
     uint64_t result_base; uint64_t call_top;
+    ResumeState resume;
     uint8_t yieldable; uint8_t flags; uint16_t reserved;
 } Frame;
 typedef struct {
@@ -103,7 +107,10 @@ local function setstr(v, text)
     v.tag = const.Tag.STR; v.aux = 0; v.bits = ffi.cast("uint64_t", s)
 end
 
-local runner = moon.func { vm_resume = vm.vm_loop.vm_resume } [[
+local runner = moon.func {
+    vm_resume = vm.vm_loop.vm_resume,
+    sys_realloc = vm.regions_allocator.sys_realloc,
+} [[
 run(L: ptr(LuaThread)) -> i32
     return region -> i32
     entry start()
@@ -143,10 +150,11 @@ local function make_case(ncode, nconst)
     local frames = scratch(1, 512, "Frame*")
     frames[0].closure = stack[0]
     frames[0].base = 1; frames[0].top = 1; frames[0].pc = 0; frames[0].wanted = 1; frames[0].tailcalls = 0
-    frames[0].resume_mode = const.Resume.NORMAL
-    frames[0].resume_a = 0; frames[0].resume_b = 0; frames[0].resume_c = 0; frames[0].resume_pc = 0; frames[0].resume_base = 0
-    setnil(frames[0].resume_value)
     frames[0].result_base = frames[0].base; frames[0].call_top = frames[0].top
+    frames[0].resume.kind = const.Resume.NORMAL
+    frames[0].resume.a = 0; frames[0].resume.b = 0; frames[0].resume.c = 0; frames[0].resume.pc = 0; frames[0].resume.base = 0
+    frames[0].resume.result_base = frames[0].result_base; frames[0].resume.call_top = frames[0].call_top; frames[0].resume.wanted = frames[0].wanted
+    setnil(frames[0].resume.value); frames[0].resume.errfunc_slot = 0
     frames[0].yieldable = 1; frames[0].flags = 0; frames[0].reserved = 0
     local g = scratch(1, 128, "GlobalState*"); g.allocator = nil; setnil(g.registry)
     local L = scratch(1, 256, "LuaThread*")
@@ -181,7 +189,7 @@ do
     local c = make_case(3, 2)
     setint(c.consts[0], 111); setint(c.consts[1], 222)
     set_ABC(c.code[0], const.Op.LOADKX, 0, 0, 0, 0)
-    set_ABx(c.code[1], const.Op.EXTRAARG, 0, 1)
+    set_Ax(c.code[1], const.Op.EXTRAARG, 1)
     set_ABC(c.code[2], const.Op.RETURN, 0, 2, 0, 0)
     local n = runner(c.L)
     check("LOADKX reads EXTRAARG and advances pc by 2", n == 1 and c.stack[1].tag == const.Tag.INTEGER and tonumber(ffi.cast("int64_t", c.stack[1].bits)) == 222)
@@ -191,8 +199,8 @@ end
 do
     local c = make_case(3, 0)
     setint(c.stack[1], 40); setint(c.stack[2], 9000)
-    set_ABC(c.code[0], const.Op.ADDI, 0, 0, 2, 0)
-    set_ABC(c.code[1], const.Op.MMBINI, 0, 2, const.TM.ADD, 0)
+    set_AsC(c.code[0], const.Op.ADDI, 0, 0, 2, 0)
+    set_ABC(c.code[1], const.Op.MMBINI, 0, 2 + bytecode.OFFSET_SC, const.TM.ADD, 0)
     set_ABC(c.code[2], const.Op.RETURN, 0, 2, 0, 0)
     local n = runner(c.L)
     check("ADDI uses immediate operand", n == 1 and c.stack[1].tag == const.Tag.INTEGER and tonumber(ffi.cast("int64_t", c.stack[1].bits)) == 42)
@@ -215,11 +223,56 @@ do
     local c = make_case(3, 0)
     setnum(c.stack[1], 1.5); setnum(c.stack[2], 2.25)
     set_ABC(c.code[0], const.Op.ADD, 2, 0, 1, 0)
-    set_ABC(c.code[1], const.Op.MMBIN, 0, const.TM.ADD, 0, 0)
+    set_ABC(c.code[1], const.Op.MMBIN, 0, 1, const.TM.ADD, 0)
     set_ABC(c.code[2], const.Op.RETURN, 2, 2, 0, 0)
     local n = runner(c.L)
     local got = bitsdbl(c.stack[3].bits)
     check("ADD preserves f64 payload semantics", n == 1 and c.stack[3].tag == const.Tag.NUM and math.abs(got - 3.75) < 1e-12, "got " .. tostring(got))
+end
+
+-- Mixed integer/float arithmetic is primitive Lua numeric behavior, not a
+-- metamethod fallback.
+do
+    local c = make_case(3, 0)
+    setint(c.stack[1], 2); setnum(c.stack[2], 1.5)
+    set_ABC(c.code[0], const.Op.ADD, 2, 0, 1, 0)
+    set_ABC(c.code[1], const.Op.MMBIN, 0, 1, const.TM.ADD, 0)
+    set_ABC(c.code[2], const.Op.RETURN, 2, 2, 0, 0)
+    local n = runner(c.L)
+    check("ADD int+float is primitive numeric", n == 1 and c.stack[3].tag == const.Tag.NUM and math.abs(bitsdbl(c.stack[3].bits) - 3.5) < 1e-12)
+end
+
+-- Lua division always produces a float, including integer operands.
+do
+    local c = make_case(3, 0)
+    setint(c.stack[1], 9); setint(c.stack[2], 3)
+    set_ABC(c.code[0], const.Op.DIV, 2, 0, 1, 0)
+    set_ABC(c.code[1], const.Op.MMBIN, 0, 1, const.TM.DIV, 0)
+    set_ABC(c.code[2], const.Op.RETURN, 2, 2, 0, 0)
+    local n = runner(c.L)
+    check("DIV int/int returns numeric float", n == 1 and c.stack[3].tag == const.Tag.NUM and math.abs(bitsdbl(c.stack[3].bits) - 3.0) < 1e-12)
+end
+
+-- Integer modulo and integer floor-division opcode paths no longer fail loud
+-- for primitive integer operands.
+do
+    local c = make_case(3, 0)
+    setint(c.stack[1], 10); setint(c.stack[2], 4)
+    set_ABC(c.code[0], const.Op.MOD, 2, 0, 1, 0)
+    set_ABC(c.code[1], const.Op.MMBIN, 0, 1, const.TM.MOD, 0)
+    set_ABC(c.code[2], const.Op.RETURN, 2, 2, 0, 0)
+    local n = runner(c.L)
+    check("MOD integer primitive path", n == 1 and c.stack[3].tag == const.Tag.INTEGER and tonumber(ffi.cast("int64_t", c.stack[3].bits)) == 2)
+end
+
+do
+    local c = make_case(3, 1)
+    setint(c.stack[1], 10); setint(c.consts[0], 4)
+    set_ABC(c.code[0], const.Op.IDIVK, 2, 0, 0, 0)
+    set_ABC(c.code[1], const.Op.MMBINK, 0, 0, const.TM.IDIV, 0)
+    set_ABC(c.code[2], const.Op.RETURN, 2, 2, 0, 0)
+    local n = runner(c.L)
+    check("IDIVK integer primitive path", n == 1 and c.stack[3].tag == const.Tag.INTEGER and tonumber(ffi.cast("int64_t", c.stack[3].bits)) == 2)
 end
 
 -- Inlined scalar ops: LOADI/LOADF/LOADTRUE/NOT/TEST/JMP should preserve handler semantics.
@@ -260,6 +313,19 @@ do
 end
 
 do
+    local c = make_case(5, 0)
+    setint(c.stack[1], 42); setnum(c.stack[2], 42.0)
+    set_ABC(c.code[0], const.Op.EQ, 1, 0, 1, 0)
+    set_AsBx(c.code[1], const.Op.JMP, 0, 3)
+    set_AsBx(c.code[2], const.Op.LOADI, 2, 42)
+    set_ABC(c.code[3], const.Op.RETURN, 2, 2, 0, 0)
+    set_AsBx(c.code[4], const.Op.LOADI, 2, 13)
+    c.frames[0].top = 4; c.L.top = 4
+    local n = runner(c.L)
+    check("EQ int/float exact numeric equality", n == 1 and c.stack[3].tag == const.Tag.INTEGER and tonumber(ffi.cast("int64_t", c.stack[3].bits)) == 42)
+end
+
+do
     local c = make_case(6, 0)
     setstr(c.stack[1], "a"); setstr(c.stack[2], "b")
     set_ABC(c.code[0], const.Op.LT, 1, 0, 1, 0) -- string fallback true => success path
@@ -271,6 +337,16 @@ do
     c.frames[0].top = 4; c.L.top = 4
     local n = runner(c.L)
     check("LT string fallback semantics", n == 1 and c.stack[3].tag == const.Tag.INTEGER and tonumber(ffi.cast("int64_t", c.stack[3].bits)) == 42)
+end
+
+-- LEN on strings returns byte length without using a runtime side channel.
+do
+    local c = make_case(2, 0)
+    setstr(c.stack[1], "hello")
+    set_ABC(c.code[0], const.Op.LEN, 1, 0, 0, 0)
+    set_ABC(c.code[1], const.Op.RETURN1, 1, 0, 0, 0)
+    local n = runner(c.L)
+    check("LEN string primitive semantics", n == 1 and c.stack[2].tag == const.Tag.INTEGER and tonumber(ffi.cast("int64_t", c.stack[2].bits)) == 5)
 end
 
 -- RETURN1 carries A through the return path.

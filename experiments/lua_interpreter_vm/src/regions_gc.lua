@@ -10,30 +10,10 @@ for k, v in pairs(const.Err) do I["ERR_" .. k] = moon.int(v) end
 for k, v in pairs(const.GCColor) do I["COLOR_" .. k] = moon.int(v) end
 for k, v in pairs(const.GCState) do I["GCSTATE_" .. k] = moon.int(v) end
 
--- alloc_object: attempt allocation through the explicit VM allocator boundary.
--- Raw libc/malloc semantics are intentionally not embedded here; allocation
--- must eventually return through ok/step_required/oom explicitly.
-local alloc_object = host.region [[
-region alloc_object(G: ptr(GlobalState), size: index, tt: u8;
-                    ok: cont(obj: ptr(GCHeader)),
-                    step_required: cont(),
-                    oom: cont())
-entry start()
-    if G == nil then
-        jump oom()
-    end
-    if G.allocator == nil then
-        jump oom()
-    end
-    if G.totalbytes > G.threshold then
-        jump step_required()
-    end
-    -- Allocator extern bridge is not wired yet. Fail loud instead of hiding
-    -- a null-pointer/errno/malloc convention in VM semantics.
-    jump oom()
-end
-end
-]]
+-- alloc_object lives in regions_allocator so every allocation path crosses the
+-- same explicit Allocator.realloc boundary.
+local allocator_regions = require("experiments.lua_interpreter_vm.src.regions_allocator")
+local alloc_object = allocator_regions.alloc_object
 
 -- gc_check: check if GC step is needed
 local gc_check = host.region [[
@@ -146,7 +126,8 @@ local write_barrier = host.region {
 region write_barrier(G: ptr(GlobalState), parent: ptr(GCHeader), child: Value;
                      clean: cont(), barriered: cont())
 entry start()
-    if parent ~= nil and parent.marked == @{COLOR_BLACK} then
+    if parent == nil then jump clean() end
+    if parent.marked == @{COLOR_BLACK} then
         if child.tag == @{TAG_STR} or child.tag == @{TAG_TABLE} or child.tag == @{TAG_LCLOSURE} or child.tag == @{TAG_CCLOSURE} or child.tag == @{TAG_USERDATA} or child.tag == @{TAG_THREAD} or child.tag == @{TAG_PROTO} then
             jump barriered()
         end

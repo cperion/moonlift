@@ -59,15 +59,39 @@ local keyword_kind = host.region(V) [[
 region keyword_kind(bytes: ptr(u8), start: index, len: index;
                     keyword: cont(kind: u16), name: cont())
 entry check_len()
+    if len == 2 then
+        if bytes[start] == 105 and bytes[start + 1] == 102 then jump keyword(kind = as(u16, @{KW_IF})) end
+        if bytes[start] == 105 and bytes[start + 1] == 110 then jump keyword(kind = as(u16, @{KW_IN})) end
+        if bytes[start] == 100 and bytes[start + 1] == 111 then jump keyword(kind = as(u16, @{KW_DO})) end
+        if bytes[start] == 111 and bytes[start + 1] == 114 then jump keyword(kind = as(u16, @{KW_OR})) end
+    end
+    if len == 3 then
+        if bytes[start] == 110 and bytes[start + 1] == 105 and bytes[start + 2] == 108 then jump keyword(kind = as(u16, @{KW_NIL})) end
+        if bytes[start] == 101 and bytes[start + 1] == 110 and bytes[start + 2] == 100 then jump keyword(kind = as(u16, @{KW_END})) end
+        if bytes[start] == 102 and bytes[start + 1] == 111 and bytes[start + 2] == 114 then jump keyword(kind = as(u16, @{KW_FOR})) end
+        if bytes[start] == 97 and bytes[start + 1] == 110 and bytes[start + 2] == 100 then jump keyword(kind = as(u16, @{KW_AND})) end
+        if bytes[start] == 110 and bytes[start + 1] == 111 and bytes[start + 2] == 116 then jump keyword(kind = as(u16, @{KW_NOT})) end
+    end
+    if len == 4 then
+        if bytes[start] == 116 and bytes[start + 1] == 114 and bytes[start + 2] == 117 and bytes[start + 3] == 101 then jump keyword(kind = as(u16, @{KW_TRUE})) end
+        if bytes[start] == 101 and bytes[start + 1] == 108 and bytes[start + 2] == 115 and bytes[start + 3] == 101 then jump keyword(kind = as(u16, @{KW_ELSE})) end
+        if bytes[start] == 103 and bytes[start + 1] == 111 and bytes[start + 2] == 116 and bytes[start + 3] == 111 then jump keyword(kind = as(u16, @{KW_GOTO})) end
+    end
     if len == 5 then
-        if bytes[start] == 108 and bytes[start + 1] == 111 and bytes[start + 2] == 99 and bytes[start + 3] == 97 and bytes[start + 4] == 108 then
-            jump keyword(kind = as(u16, @{KW_LOCAL}))
-        end
+        if bytes[start] == 108 and bytes[start + 1] == 111 and bytes[start + 2] == 99 and bytes[start + 3] == 97 and bytes[start + 4] == 108 then jump keyword(kind = as(u16, @{KW_LOCAL})) end
+        if bytes[start] == 102 and bytes[start + 1] == 97 and bytes[start + 2] == 108 and bytes[start + 3] == 115 and bytes[start + 4] == 101 then jump keyword(kind = as(u16, @{KW_FALSE})) end
+        if bytes[start] == 119 and bytes[start + 1] == 104 and bytes[start + 2] == 105 and bytes[start + 3] == 108 and bytes[start + 4] == 101 then jump keyword(kind = as(u16, @{KW_WHILE})) end
+        if bytes[start] == 117 and bytes[start + 1] == 110 and bytes[start + 2] == 116 and bytes[start + 3] == 105 and bytes[start + 4] == 108 then jump keyword(kind = as(u16, @{KW_UNTIL})) end
+        if bytes[start] == 98 and bytes[start + 1] == 114 and bytes[start + 2] == 101 and bytes[start + 3] == 97 and bytes[start + 4] == 107 then jump keyword(kind = as(u16, @{KW_BREAK})) end
     end
     if len == 6 then
-        if bytes[start] == 114 and bytes[start + 1] == 101 and bytes[start + 2] == 116 and bytes[start + 3] == 117 and bytes[start + 4] == 114 and bytes[start + 5] == 110 then
-            jump keyword(kind = as(u16, @{KW_RETURN}))
-        end
+        if bytes[start] == 114 and bytes[start + 1] == 101 and bytes[start + 2] == 116 and bytes[start + 3] == 117 and bytes[start + 4] == 114 and bytes[start + 5] == 110 then jump keyword(kind = as(u16, @{KW_RETURN})) end
+        if bytes[start] == 101 and bytes[start + 1] == 108 and bytes[start + 2] == 115 and bytes[start + 3] == 101 and bytes[start + 4] == 105 and bytes[start + 5] == 102 then jump keyword(kind = as(u16, @{KW_ELSEIF})) end
+        if bytes[start] == 114 and bytes[start + 1] == 101 and bytes[start + 2] == 112 and bytes[start + 3] == 101 and bytes[start + 4] == 97 and bytes[start + 5] == 116 then jump keyword(kind = as(u16, @{KW_REPEAT})) end
+        if bytes[start] == 103 and bytes[start + 1] == 108 and bytes[start + 2] == 111 and bytes[start + 3] == 98 and bytes[start + 4] == 97 and bytes[start + 5] == 108 then jump keyword(kind = as(u16, @{KW_GLOBAL})) end
+    end
+    if len == 8 then
+        if bytes[start] == 102 and bytes[start + 1] == 117 and bytes[start + 2] == 110 and bytes[start + 3] == 99 and bytes[start + 4] == 116 and bytes[start + 5] == 105 and bytes[start + 6] == 111 and bytes[start + 7] == 110 then jump keyword(kind = as(u16, @{KW_FUNCTION})) end
     end
     jump name()
 end
@@ -133,28 +157,40 @@ end
 block finish_name(i: index, h: u32)
     let start_pos: index = cu.lexer.pos
     let l: index = i - start_pos
+    if l == 2 then
+        if cu.lexer.src.bytes[start_pos] == 105 and cu.lexer.src.bytes[start_pos + 1] == 102 then jump finish_name_token(i = i, h = h, kind = as(u16, @{KW_IF})) end
+        if cu.lexer.src.bytes[start_pos] == 105 and cu.lexer.src.bytes[start_pos + 1] == 110 then jump finish_name_token(i = i, h = h, kind = as(u16, @{KW_IN})) end
+        if cu.lexer.src.bytes[start_pos] == 100 and cu.lexer.src.bytes[start_pos + 1] == 111 then jump finish_name_token(i = i, h = h, kind = as(u16, @{KW_DO})) end
+        if cu.lexer.src.bytes[start_pos] == 111 and cu.lexer.src.bytes[start_pos + 1] == 114 then jump finish_name_token(i = i, h = h, kind = as(u16, @{KW_OR})) end
+    end
     if l == 3 then
-        if cu.lexer.src.bytes[start_pos] == 110 and cu.lexer.src.bytes[start_pos + 1] == 105 and cu.lexer.src.bytes[start_pos + 2] == 108 then
-            jump finish_name_token(i = i, h = h, kind = as(u16, @{KW_NIL}))
-        end
+        if cu.lexer.src.bytes[start_pos] == 110 and cu.lexer.src.bytes[start_pos + 1] == 105 and cu.lexer.src.bytes[start_pos + 2] == 108 then jump finish_name_token(i = i, h = h, kind = as(u16, @{KW_NIL})) end
+        if cu.lexer.src.bytes[start_pos] == 101 and cu.lexer.src.bytes[start_pos + 1] == 110 and cu.lexer.src.bytes[start_pos + 2] == 100 then jump finish_name_token(i = i, h = h, kind = as(u16, @{KW_END})) end
+        if cu.lexer.src.bytes[start_pos] == 102 and cu.lexer.src.bytes[start_pos + 1] == 111 and cu.lexer.src.bytes[start_pos + 2] == 114 then jump finish_name_token(i = i, h = h, kind = as(u16, @{KW_FOR})) end
+        if cu.lexer.src.bytes[start_pos] == 97 and cu.lexer.src.bytes[start_pos + 1] == 110 and cu.lexer.src.bytes[start_pos + 2] == 100 then jump finish_name_token(i = i, h = h, kind = as(u16, @{KW_AND})) end
+        if cu.lexer.src.bytes[start_pos] == 110 and cu.lexer.src.bytes[start_pos + 1] == 111 and cu.lexer.src.bytes[start_pos + 2] == 116 then jump finish_name_token(i = i, h = h, kind = as(u16, @{KW_NOT})) end
     end
     if l == 4 then
-        if cu.lexer.src.bytes[start_pos] == 116 and cu.lexer.src.bytes[start_pos + 1] == 114 and cu.lexer.src.bytes[start_pos + 2] == 117 and cu.lexer.src.bytes[start_pos + 3] == 101 then
-            jump finish_name_token(i = i, h = h, kind = as(u16, @{KW_TRUE}))
-        end
+        if cu.lexer.src.bytes[start_pos] == 116 and cu.lexer.src.bytes[start_pos + 1] == 114 and cu.lexer.src.bytes[start_pos + 2] == 117 and cu.lexer.src.bytes[start_pos + 3] == 101 then jump finish_name_token(i = i, h = h, kind = as(u16, @{KW_TRUE})) end
+        if cu.lexer.src.bytes[start_pos] == 116 and cu.lexer.src.bytes[start_pos + 1] == 104 and cu.lexer.src.bytes[start_pos + 2] == 101 and cu.lexer.src.bytes[start_pos + 3] == 110 then jump finish_name_token(i = i, h = h, kind = as(u16, @{KW_THEN})) end
+        if cu.lexer.src.bytes[start_pos] == 101 and cu.lexer.src.bytes[start_pos + 1] == 108 and cu.lexer.src.bytes[start_pos + 2] == 115 and cu.lexer.src.bytes[start_pos + 3] == 101 then jump finish_name_token(i = i, h = h, kind = as(u16, @{KW_ELSE})) end
+        if cu.lexer.src.bytes[start_pos] == 103 and cu.lexer.src.bytes[start_pos + 1] == 111 and cu.lexer.src.bytes[start_pos + 2] == 116 and cu.lexer.src.bytes[start_pos + 3] == 111 then jump finish_name_token(i = i, h = h, kind = as(u16, @{KW_GOTO})) end
     end
     if l == 5 then
-        if cu.lexer.src.bytes[start_pos] == 108 and cu.lexer.src.bytes[start_pos + 1] == 111 and cu.lexer.src.bytes[start_pos + 2] == 99 and cu.lexer.src.bytes[start_pos + 3] == 97 and cu.lexer.src.bytes[start_pos + 4] == 108 then
-            jump finish_name_token(i = i, h = h, kind = as(u16, @{KW_LOCAL}))
-        end
-        if cu.lexer.src.bytes[start_pos] == 102 and cu.lexer.src.bytes[start_pos + 1] == 97 and cu.lexer.src.bytes[start_pos + 2] == 108 and cu.lexer.src.bytes[start_pos + 3] == 115 and cu.lexer.src.bytes[start_pos + 4] == 101 then
-            jump finish_name_token(i = i, h = h, kind = as(u16, @{KW_FALSE}))
-        end
+        if cu.lexer.src.bytes[start_pos] == 108 and cu.lexer.src.bytes[start_pos + 1] == 111 and cu.lexer.src.bytes[start_pos + 2] == 99 and cu.lexer.src.bytes[start_pos + 3] == 97 and cu.lexer.src.bytes[start_pos + 4] == 108 then jump finish_name_token(i = i, h = h, kind = as(u16, @{KW_LOCAL})) end
+        if cu.lexer.src.bytes[start_pos] == 102 and cu.lexer.src.bytes[start_pos + 1] == 97 and cu.lexer.src.bytes[start_pos + 2] == 108 and cu.lexer.src.bytes[start_pos + 3] == 115 and cu.lexer.src.bytes[start_pos + 4] == 101 then jump finish_name_token(i = i, h = h, kind = as(u16, @{KW_FALSE})) end
+        if cu.lexer.src.bytes[start_pos] == 119 and cu.lexer.src.bytes[start_pos + 1] == 104 and cu.lexer.src.bytes[start_pos + 2] == 105 and cu.lexer.src.bytes[start_pos + 3] == 108 and cu.lexer.src.bytes[start_pos + 4] == 101 then jump finish_name_token(i = i, h = h, kind = as(u16, @{KW_WHILE})) end
+        if cu.lexer.src.bytes[start_pos] == 117 and cu.lexer.src.bytes[start_pos + 1] == 110 and cu.lexer.src.bytes[start_pos + 2] == 116 and cu.lexer.src.bytes[start_pos + 3] == 105 and cu.lexer.src.bytes[start_pos + 4] == 108 then jump finish_name_token(i = i, h = h, kind = as(u16, @{KW_UNTIL})) end
+        if cu.lexer.src.bytes[start_pos] == 98 and cu.lexer.src.bytes[start_pos + 1] == 114 and cu.lexer.src.bytes[start_pos + 2] == 101 and cu.lexer.src.bytes[start_pos + 3] == 97 and cu.lexer.src.bytes[start_pos + 4] == 107 then jump finish_name_token(i = i, h = h, kind = as(u16, @{KW_BREAK})) end
     end
     if l == 6 then
-        if cu.lexer.src.bytes[start_pos] == 114 and cu.lexer.src.bytes[start_pos + 1] == 101 and cu.lexer.src.bytes[start_pos + 2] == 116 and cu.lexer.src.bytes[start_pos + 3] == 117 and cu.lexer.src.bytes[start_pos + 4] == 114 and cu.lexer.src.bytes[start_pos + 5] == 110 then
-            jump finish_name_token(i = i, h = h, kind = as(u16, @{KW_RETURN}))
-        end
+        if cu.lexer.src.bytes[start_pos] == 114 and cu.lexer.src.bytes[start_pos + 1] == 101 and cu.lexer.src.bytes[start_pos + 2] == 116 and cu.lexer.src.bytes[start_pos + 3] == 117 and cu.lexer.src.bytes[start_pos + 4] == 114 and cu.lexer.src.bytes[start_pos + 5] == 110 then jump finish_name_token(i = i, h = h, kind = as(u16, @{KW_RETURN})) end
+        if cu.lexer.src.bytes[start_pos] == 101 and cu.lexer.src.bytes[start_pos + 1] == 108 and cu.lexer.src.bytes[start_pos + 2] == 115 and cu.lexer.src.bytes[start_pos + 3] == 101 and cu.lexer.src.bytes[start_pos + 4] == 105 and cu.lexer.src.bytes[start_pos + 5] == 102 then jump finish_name_token(i = i, h = h, kind = as(u16, @{KW_ELSEIF})) end
+        if cu.lexer.src.bytes[start_pos] == 114 and cu.lexer.src.bytes[start_pos + 1] == 101 and cu.lexer.src.bytes[start_pos + 2] == 112 and cu.lexer.src.bytes[start_pos + 3] == 101 and cu.lexer.src.bytes[start_pos + 4] == 97 and cu.lexer.src.bytes[start_pos + 5] == 116 then jump finish_name_token(i = i, h = h, kind = as(u16, @{KW_REPEAT})) end
+        if cu.lexer.src.bytes[start_pos] == 103 and cu.lexer.src.bytes[start_pos + 1] == 108 and cu.lexer.src.bytes[start_pos + 2] == 111 and cu.lexer.src.bytes[start_pos + 3] == 98 and cu.lexer.src.bytes[start_pos + 4] == 97 and cu.lexer.src.bytes[start_pos + 5] == 108 then jump finish_name_token(i = i, h = h, kind = as(u16, @{KW_GLOBAL})) end
+    end
+    if l == 8 then
+        if cu.lexer.src.bytes[start_pos] == 102 and cu.lexer.src.bytes[start_pos + 1] == 117 and cu.lexer.src.bytes[start_pos + 2] == 110 and cu.lexer.src.bytes[start_pos + 3] == 99 and cu.lexer.src.bytes[start_pos + 4] == 116 and cu.lexer.src.bytes[start_pos + 5] == 105 and cu.lexer.src.bytes[start_pos + 6] == 111 and cu.lexer.src.bytes[start_pos + 7] == 110 then jump finish_name_token(i = i, h = h, kind = as(u16, @{KW_FUNCTION})) end
     end
     jump finish_name_token(i = i, h = h, kind = as(u16, @{TOK_NAME}))
 end
@@ -207,11 +243,23 @@ block operator_dispatch(pos: index, c: u8)
     if c == 43 then jump one_byte(pos = pos, kind = as(u16, @{TOK_PLUS})) end
     if c == 45 then jump one_byte(pos = pos, kind = as(u16, @{TOK_MINUS})) end
     if c == 42 then jump one_byte(pos = pos, kind = as(u16, @{TOK_STAR})) end
+    if c == 47 and pos + 1 < cu.lexer.src.len then
+        if cu.lexer.src.bytes[pos + 1] == 47 then jump two_byte(pos = pos, kind = as(u16, @{TOK_SLASHSLASH})) end
+    end
     if c == 47 then jump one_byte(pos = pos, kind = as(u16, @{TOK_SLASH})) end
+    if c == 37 then jump one_byte(pos = pos, kind = as(u16, @{TOK_PERCENT})) end
+    if c == 35 then jump one_byte(pos = pos, kind = as(u16, @{TOK_HASH})) end
+    if c == 94 then jump one_byte(pos = pos, kind = as(u16, @{TOK_CARET})) end
     if c == 44 then jump one_byte(pos = pos, kind = as(u16, @{TOK_COMMA})) end
     if c == 59 then jump one_byte(pos = pos, kind = as(u16, @{TOK_SEMI})) end
     if c == 40 then jump one_byte(pos = pos, kind = as(u16, @{TOK_LPAREN})) end
     if c == 41 then jump one_byte(pos = pos, kind = as(u16, @{TOK_RPAREN})) end
+    if c == 123 then jump one_byte(pos = pos, kind = as(u16, @{TOK_LBRACE})) end
+    if c == 125 then jump one_byte(pos = pos, kind = as(u16, @{TOK_RBRACE})) end
+    if c == 91 then jump one_byte(pos = pos, kind = as(u16, @{TOK_LBRACKET})) end
+    if c == 93 then jump one_byte(pos = pos, kind = as(u16, @{TOK_RBRACKET})) end
+    if c == 38 then jump one_byte(pos = pos, kind = as(u16, @{TOK_AMP})) end
+    if c == 124 then jump one_byte(pos = pos, kind = as(u16, @{TOK_PIPE})) end
     if c == 61 and pos + 1 < cu.lexer.src.len then
         if cu.lexer.src.bytes[pos + 1] == 61 then jump two_byte(pos = pos, kind = as(u16, @{TOK_EQ})) end
     end
@@ -220,9 +268,11 @@ block operator_dispatch(pos: index, c: u8)
     end
     if c == 60 and pos + 1 < cu.lexer.src.len then
         if cu.lexer.src.bytes[pos + 1] == 61 then jump two_byte(pos = pos, kind = as(u16, @{TOK_LE})) end
+        if cu.lexer.src.bytes[pos + 1] == 60 then jump two_byte(pos = pos, kind = as(u16, @{TOK_LTLT})) end
     end
     if c == 62 and pos + 1 < cu.lexer.src.len then
         if cu.lexer.src.bytes[pos + 1] == 61 then jump two_byte(pos = pos, kind = as(u16, @{TOK_GE})) end
+        if cu.lexer.src.bytes[pos + 1] == 62 then jump two_byte(pos = pos, kind = as(u16, @{TOK_GTGT})) end
     end
     if c == 46 and pos + 2 < cu.lexer.src.len then
         if cu.lexer.src.bytes[pos + 1] == 46 and cu.lexer.src.bytes[pos + 2] == 46 then jump three_byte(pos = pos, kind = as(u16, @{TOK_DOTDOTDOT})) end
@@ -236,6 +286,8 @@ block operator_dispatch(pos: index, c: u8)
     if c == 61 then jump one_byte(pos = pos, kind = as(u16, @{TOK_ASSIGN})) end
     if c == 60 then jump one_byte(pos = pos, kind = as(u16, @{TOK_LT})) end
     if c == 62 then jump one_byte(pos = pos, kind = as(u16, @{TOK_GT})) end
+    if c == 58 then jump one_byte(pos = pos, kind = as(u16, @{TOK_COLON})) end
+    if c == 126 then jump one_byte(pos = pos, kind = as(u16, @{TOK_TILDE})) end
     if c == 46 then jump one_byte(pos = pos, kind = as(u16, @{TOK_DOT})) end
     emit make_lex_error(cu, @{PERR_UNEXPECTED_CHAR}, as(u16, 0); error = lex_err)
 end

@@ -25,12 +25,18 @@ typedef struct {
 } Proto;
 typedef struct { GCHeader gc; void* env; Proto* proto; void** upvals; uint8_t nupvals; } LClosure;
 typedef struct {
+    uint16_t kind;
+    uint16_t a; uint16_t b; uint16_t c;
+    uint64_t pc; uint64_t base; uint64_t result_base; uint64_t call_top;
+    int32_t wanted;
+    Value value;
+    uint64_t errfunc_slot;
+} ResumeState;
+typedef struct {
     Value closure; uint64_t base; uint64_t top; uint64_t pc;
     int32_t wanted; int32_t tailcalls;
-    uint16_t resume_mode;
-    uint16_t resume_a; uint16_t resume_b; uint16_t resume_c;
-    uint64_t resume_pc; uint64_t resume_base; Value resume_value;
     uint64_t result_base; uint64_t call_top;
+    ResumeState resume;
     uint8_t yieldable; uint8_t flags; uint16_t reserved;
 } Frame;
 typedef struct {
@@ -61,7 +67,10 @@ local function set_AsBx(i, op, a, sbx)
     set_ABx(i, op, a, (sbx or 0) + 65535)
 end
 
-local runner = moon.func { vm_resume = vm.vm_loop.vm_resume } [[
+local runner = moon.func {
+    vm_resume = vm.vm_loop.vm_resume,
+    sys_realloc = vm.regions_allocator.sys_realloc,
+} [[
 run(L: ptr(LuaThread)) -> i32
     return region -> i32
     entry start()
@@ -94,7 +103,7 @@ set_ABx(parent_code[0], const.Op.LOADK, 1, 0)
 set_ABC(parent_code[1], const.Op.CALL, 1, 1, 2, 0)
 set_ABx(parent_code[2], const.Op.LOADK, 2, 1)
 set_ABC(parent_code[3], const.Op.ADD, 0, 1, 2, 0)
-set_ABC(parent_code[4], const.Op.MMBIN, 0, const.TM.ADD, 0, 0)
+set_ABC(parent_code[4], const.Op.MMBIN, 1, 2, const.TM.ADD, 0)
 set_ABC(parent_code[5], const.Op.RETURN1, 0, 0, 0, 0)
 local parent_consts = ffi.new("Value[2]")
 setclosure(parent_consts[0], child_cl)
@@ -112,7 +121,8 @@ setint(stack[1], 999) -- must not receive child result directly
 local frames = ffi.new("Frame[8]")
 frames[0].closure = stack[0]
 frames[0].base = 1; frames[0].top = 1; frames[0].pc = 0; frames[0].wanted = 1
-frames[0].resume_mode = const.Resume.NORMAL; frames[0].result_base = 1; frames[0].call_top = 1; frames[0].yieldable = 1
+frames[0].result_base = 1; frames[0].call_top = 1; frames[0].yieldable = 1
+frames[0].resume.kind = const.Resume.NORMAL; frames[0].resume.result_base = 1; frames[0].resume.call_top = 1; frames[0].resume.wanted = 1
 local global = ffi.new("GlobalState[1]")
 local L = ffi.new("LuaThread[1]")
 L[0].status = const.Status.OK; L[0].stack = stack; L[0].stack_size = 64; L[0].top = 1
@@ -125,7 +135,7 @@ runner:free()
 if nres ~= 1 then
     print("debug nres", nres, "last_error", L[0].last_error_code, "err_aux", L[0].err_value.aux)
     print("debug stack tags", stack[1].tag, stack[2].tag, stack[3].tag)
-    print("debug frame", L[0].frame_count, frames[0].pc, frames[0].base, frames[0].top, "resume", frames[0].resume_pc, frames[0].resume_base, frames[0].resume_a)
+    print("debug frame", L[0].frame_count, frames[0].pc, frames[0].base, frames[0].top, "resume", frames[0].resume.pc, frames[0].resume.base, frames[0].resume.a)
     print("debug stack vals", bits_i64(stack[1].bits), bits_i64(stack[2].bits), bits_i64(stack[3].bits))
 end
 assert(nres == 1, "nested call nres mismatch: " .. tostring(nres))

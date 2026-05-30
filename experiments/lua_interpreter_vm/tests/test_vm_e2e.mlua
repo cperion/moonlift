@@ -28,7 +28,10 @@ M:func("run_vm", {
 end)
 
 -- Simpler: use moon.func with explicit wrapper
-local run_vm_wrapper = moon.func { vm_resume = vm.vm_loop.vm_resume } [[
+local run_vm_wrapper = moon.func {
+    vm_resume = vm.vm_loop.vm_resume,
+    sys_realloc = vm.regions_allocator.sys_realloc,
+} [[
 run_vm(L: ptr(LuaThread), nargs: i32) -> i32
     return region -> i32
     entry start()

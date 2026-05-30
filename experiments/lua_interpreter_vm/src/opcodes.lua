@@ -5,6 +5,7 @@
 
 local moon = require("moonlift")
 local const = require("experiments.lua_interpreter_vm.src.constants")
+local bytecode = require("experiments.lua_interpreter_vm.src.bytecode")
 local handlers = require("experiments.lua_interpreter_vm.src.op_handlers")
 
 local VALS = {}
@@ -23,19 +24,18 @@ local expr = moon.expr(VALS)
 local stmts = moon.stmts(VALS)
 
 -- Decode helpers — typed Moonlift expressions from the packed instruction word.
-local A     = expr [[as(u16, (word >> 7) & 255)]]
-local B     = expr [[as(u16, (word >> 16) & 255)]]
-local C     = expr [[as(u16, (word >> 24) & 255)]]
-local K     = expr [[as(u8, (word >> 15) & 1)]]
-local BX    = expr [[(word >> 15) & 131071]]
-local SBX   = expr [[as(i32, ((word >> 15) & 131071)) - 65535]]
+local D = bytecode.exprs(expr)
+local A, B, C, K = D.A, D.B, D.C, D.K
+local VB, VC = D.VB, D.VC
+local BX, SBX, AX, SJ, SC = D.BX, D.SBX, D.AX, D.SJ, D.SC
 local Z     = expr [[as(u16, 0)]]
 local Z8    = expr [[as(u8, 0)]]
 local Z32   = expr [[as(u32, 0)]]
 local ZI    = expr [[0]]
 
-local function args(a, b, c, k, bx, sbx)
-    return { a or Z, b or Z, c or Z, k or Z8, bx or Z32, sbx or ZI }
+local function args(a, b, c, k, bx, sbx, ax, sj, sc, vb, vc)
+    return { a or Z, b or Z, c or Z, k or Z8, bx or Z32, sbx or ZI,
+             ax or Z32, sj or ZI, sc or ZI, vb or Z, vc or Z }
 end
 
 local ARGS_A     = args(A)
@@ -43,7 +43,11 @@ local ARGS_AB    = args(A, B)
 local ARGS_ABC   = args(A, B, C)
 local ARGS_ABX   = args(A, nil, nil, nil, BX)
 local ARGS_ASBX  = args(A, nil, nil, nil, nil, SBX)
-local ARGS_EXTRA = args(A)
+local ARGS_AX    = args(nil, nil, nil, nil, nil, nil, AX)
+local ARGS_ASJ   = args(nil, nil, nil, nil, nil, nil, nil, SJ)
+local ARGS_ASC   = args(A, B, nil, nil, nil, nil, nil, nil, SC)
+local ARGS_AVBC  = args(A, nil, nil, K, nil, nil, AX, nil, nil, VB, VC)
+local ARGS_EXTRA = args(A, nil, nil, nil, nil, nil, AX)
 
 -- ── Switch arms built as { raw_key, body } ───────────────────────────────
 
@@ -69,6 +73,7 @@ local C_NEXT_ERR_OOM = "next_error_oom"
 local C_TABLE        = "table"
 local C_CMP          = "compare"
 local C_MMBIN        = "metamethod_binary"
+local C_TFORCALL     = "generic_for_call"
 local C_CALL         = "call"
 local C_RET          = "return"
 local C_JMP          = "jump"
@@ -113,6 +118,8 @@ emit_templates[C_MMBIN] = function(v) return moon.stmts(v) [[
         enter_lua = cont_enter_lua, enter_native = cont_enter_native, yielded = cont_yielded,
         error = cont_error, oom = cont_oom)
 ]] end
+
+emit_templates[C_TFORCALL] = emit_templates[C_MMBIN]
 
 emit_templates[C_CALL] = emit_templates[C_TABLE]
 
@@ -203,7 +210,19 @@ inline_arm(34, [[
         L.stack[dst].bits = as(u64, as(i64, lb) + as(i64, rb))
         jump cont_next(frame = cur_frame, pc = cur_pc + 2, base = cur_base, top = cur_top)
     end
-    cur_frame.resume_a = as(u16, (word >> 7) & 255)
+    if lt == @{TAG_INTEGER} and rt == @{TAG_NUM} then
+        L.stack[dst].tag = @{TAG_NUM}
+        L.stack[dst].aux = 0
+        L.stack[dst].bits = bitcast(u64, as(f64, as(i64, lb)) + bitcast(f64, rb))
+        jump cont_next(frame = cur_frame, pc = cur_pc + 2, base = cur_base, top = cur_top)
+    end
+    if lt == @{TAG_NUM} and rt == @{TAG_INTEGER} then
+        L.stack[dst].tag = @{TAG_NUM}
+        L.stack[dst].aux = 0
+        L.stack[dst].bits = bitcast(u64, bitcast(f64, lb) + as(f64, as(i64, rb)))
+        jump cont_next(frame = cur_frame, pc = cur_pc + 2, base = cur_base, top = cur_top)
+    end
+    cur_frame.resume.a = as(u16, (word >> 7) & 255)
     jump cont_next(frame = cur_frame, pc = cur_pc + 1, base = cur_base, top = cur_top)
 ]])
 
@@ -226,8 +245,8 @@ inline_arm(2, [[
 
 inline_arm(4, [[
     let extra: ptr(Instr) = cur_code + (cur_pc + 1)
-    let extra_bx: u32 = (extra.word >> 15) & 131071
-    let src: ptr(Value) = cur_consts + as(index, extra_bx)
+    let extra_ax: u32 = (extra.word >> 7) & 33554431
+    let src: ptr(Value) = cur_consts + as(index, extra_ax)
     let dst: index = cur_base + as(index, (word >> 7) & 255)
     L.stack[dst].tag = src.tag
     L.stack[dst].aux = src.aux
@@ -291,7 +310,7 @@ switch_arms[#switch_arms + 1] = {
 
 inline_arm(21, [[
     let lhs: ptr(Value) = L.stack + (cur_base + as(index, (word >> 16) & 255))
-    let imm: i32 = as(i32, (word >> 24) & 255)
+    let imm: i32 = as(i32, ((word >> 24) & 255)) - 127
     let dst: index = cur_base + as(index, (word >> 7) & 255)
     if lhs.tag == @{TAG_INTEGER} then
         L.stack[dst].tag = @{TAG_INTEGER}
@@ -305,7 +324,7 @@ inline_arm(21, [[
         L.stack[dst].bits = bitcast(u64, bitcast(f64, lhs.bits) + as(f64, as(i64, imm)))
         jump cont_next(frame = cur_frame, pc = cur_pc + 2, base = cur_base, top = cur_top)
     end
-    cur_frame.resume_a = as(u16, (word >> 7) & 255)
+    cur_frame.resume.a = as(u16, (word >> 7) & 255)
     jump cont_next(frame = cur_frame, pc = cur_pc + 1, base = cur_base, top = cur_top)
 ]])
 
@@ -325,7 +344,19 @@ inline_arm(22, [[
         L.stack[dst].bits = bitcast(u64, bitcast(f64, lhs.bits) + bitcast(f64, rhs.bits))
         jump cont_next(frame = cur_frame, pc = cur_pc + 2, base = cur_base, top = cur_top)
     end
-    cur_frame.resume_a = as(u16, (word >> 7) & 255)
+    if lhs.tag == @{TAG_INTEGER} and rhs.tag == @{TAG_NUM} then
+        L.stack[dst].tag = @{TAG_NUM}
+        L.stack[dst].aux = 0
+        L.stack[dst].bits = bitcast(u64, as(f64, as(i64, lhs.bits)) + bitcast(f64, rhs.bits))
+        jump cont_next(frame = cur_frame, pc = cur_pc + 2, base = cur_base, top = cur_top)
+    end
+    if lhs.tag == @{TAG_NUM} and rhs.tag == @{TAG_INTEGER} then
+        L.stack[dst].tag = @{TAG_NUM}
+        L.stack[dst].aux = 0
+        L.stack[dst].bits = bitcast(u64, bitcast(f64, lhs.bits) + as(f64, as(i64, rhs.bits)))
+        jump cont_next(frame = cur_frame, pc = cur_pc + 2, base = cur_base, top = cur_top)
+    end
+    cur_frame.resume.a = as(u16, (word >> 7) & 255)
     jump cont_next(frame = cur_frame, pc = cur_pc + 1, base = cur_base, top = cur_top)
 ]])
 
@@ -345,7 +376,19 @@ inline_arm(35, [[
         L.stack[dst].bits = bitcast(u64, bitcast(f64, lhs.bits) - bitcast(f64, rhs.bits))
         jump cont_next(frame = cur_frame, pc = cur_pc + 2, base = cur_base, top = cur_top)
     end
-    cur_frame.resume_a = as(u16, (word >> 7) & 255)
+    if lhs.tag == @{TAG_INTEGER} and rhs.tag == @{TAG_NUM} then
+        L.stack[dst].tag = @{TAG_NUM}
+        L.stack[dst].aux = 0
+        L.stack[dst].bits = bitcast(u64, as(f64, as(i64, lhs.bits)) - bitcast(f64, rhs.bits))
+        jump cont_next(frame = cur_frame, pc = cur_pc + 2, base = cur_base, top = cur_top)
+    end
+    if lhs.tag == @{TAG_NUM} and rhs.tag == @{TAG_INTEGER} then
+        L.stack[dst].tag = @{TAG_NUM}
+        L.stack[dst].aux = 0
+        L.stack[dst].bits = bitcast(u64, bitcast(f64, lhs.bits) - as(f64, as(i64, rhs.bits)))
+        jump cont_next(frame = cur_frame, pc = cur_pc + 2, base = cur_base, top = cur_top)
+    end
+    cur_frame.resume.a = as(u16, (word >> 7) & 255)
     jump cont_next(frame = cur_frame, pc = cur_pc + 1, base = cur_base, top = cur_top)
 ]])
 
@@ -365,7 +408,19 @@ inline_arm(36, [[
         L.stack[dst].bits = bitcast(u64, bitcast(f64, lhs.bits) * bitcast(f64, rhs.bits))
         jump cont_next(frame = cur_frame, pc = cur_pc + 2, base = cur_base, top = cur_top)
     end
-    cur_frame.resume_a = as(u16, (word >> 7) & 255)
+    if lhs.tag == @{TAG_INTEGER} and rhs.tag == @{TAG_NUM} then
+        L.stack[dst].tag = @{TAG_NUM}
+        L.stack[dst].aux = 0
+        L.stack[dst].bits = bitcast(u64, as(f64, as(i64, lhs.bits)) * bitcast(f64, rhs.bits))
+        jump cont_next(frame = cur_frame, pc = cur_pc + 2, base = cur_base, top = cur_top)
+    end
+    if lhs.tag == @{TAG_NUM} and rhs.tag == @{TAG_INTEGER} then
+        L.stack[dst].tag = @{TAG_NUM}
+        L.stack[dst].aux = 0
+        L.stack[dst].bits = bitcast(u64, bitcast(f64, lhs.bits) * as(f64, as(i64, rhs.bits)))
+        jump cont_next(frame = cur_frame, pc = cur_pc + 2, base = cur_base, top = cur_top)
+    end
+    cur_frame.resume.a = as(u16, (word >> 7) & 255)
     jump cont_next(frame = cur_frame, pc = cur_pc + 1, base = cur_base, top = cur_top)
 ]])
 
@@ -379,7 +434,25 @@ inline_arm(39, [[
         L.stack[dst].bits = bitcast(u64, bitcast(f64, lhs.bits) / bitcast(f64, rhs.bits))
         jump cont_next(frame = cur_frame, pc = cur_pc + 2, base = cur_base, top = cur_top)
     end
-    cur_frame.resume_a = as(u16, (word >> 7) & 255)
+    if lhs.tag == @{TAG_INTEGER} and rhs.tag == @{TAG_INTEGER} then
+        L.stack[dst].tag = @{TAG_NUM}
+        L.stack[dst].aux = 0
+        L.stack[dst].bits = bitcast(u64, as(f64, as(i64, lhs.bits)) / as(f64, as(i64, rhs.bits)))
+        jump cont_next(frame = cur_frame, pc = cur_pc + 2, base = cur_base, top = cur_top)
+    end
+    if lhs.tag == @{TAG_INTEGER} and rhs.tag == @{TAG_NUM} then
+        L.stack[dst].tag = @{TAG_NUM}
+        L.stack[dst].aux = 0
+        L.stack[dst].bits = bitcast(u64, as(f64, as(i64, lhs.bits)) / bitcast(f64, rhs.bits))
+        jump cont_next(frame = cur_frame, pc = cur_pc + 2, base = cur_base, top = cur_top)
+    end
+    if lhs.tag == @{TAG_NUM} and rhs.tag == @{TAG_INTEGER} then
+        L.stack[dst].tag = @{TAG_NUM}
+        L.stack[dst].aux = 0
+        L.stack[dst].bits = bitcast(u64, bitcast(f64, lhs.bits) / as(f64, as(i64, rhs.bits)))
+        jump cont_next(frame = cur_frame, pc = cur_pc + 2, base = cur_base, top = cur_top)
+    end
+    cur_frame.resume.a = as(u16, (word >> 7) & 255)
     jump cont_next(frame = cur_frame, pc = cur_pc + 1, base = cur_base, top = cur_top)
 ]])
 
@@ -398,7 +471,7 @@ inline_arm(49, [[
         L.stack[dst].bits = bitcast(u64, -(bitcast(f64, src.bits)))
         jump cont_next(frame = cur_frame, pc = cur_pc + 2, base = cur_base, top = cur_top)
     end
-    cur_frame.resume_a = as(u16, (word >> 7) & 255)
+    cur_frame.resume.a = as(u16, (word >> 7) & 255)
     jump cont_next(frame = cur_frame, pc = cur_pc + 1, base = cur_base, top = cur_top)
 ]])
 
@@ -418,7 +491,7 @@ inline_arm(51, [[
 ]])
 
 inline_arm(56, [[
-    let new_pc: index = as(index, as(i32, cur_pc) + (as(i32, ((word >> 15) & 131071)) - 65535))
+    let new_pc: index = as(index, as(i32, cur_pc) + (as(i32, ((word >> 7) & 33554431)) - 16777215))
     jump cont_jump(frame = cur_frame, pc = new_pc, base = cur_base, top = cur_top)
 ]])
 
@@ -434,6 +507,18 @@ inline_arm(57, [[
     end
     if lhs.tag == @{TAG_INTEGER} and rhs.tag == @{TAG_INTEGER} then
         if (lhs.bits == rhs.bits) == expect then
+            jump cont_next(frame = cur_frame, pc = cur_pc + 2, base = cur_base, top = cur_top)
+        end
+        jump cont_next(frame = cur_frame, pc = cur_pc + 1, base = cur_base, top = cur_top)
+    end
+    if lhs.tag == @{TAG_INTEGER} and rhs.tag == @{TAG_NUM} then
+        if (as(f64, as(i64, lhs.bits)) == bitcast(f64, rhs.bits)) == expect then
+            jump cont_next(frame = cur_frame, pc = cur_pc + 2, base = cur_base, top = cur_top)
+        end
+        jump cont_next(frame = cur_frame, pc = cur_pc + 1, base = cur_base, top = cur_top)
+    end
+    if lhs.tag == @{TAG_NUM} and rhs.tag == @{TAG_INTEGER} then
+        if (bitcast(f64, lhs.bits) == as(f64, as(i64, rhs.bits))) == expect then
             jump cont_next(frame = cur_frame, pc = cur_pc + 2, base = cur_base, top = cur_top)
         end
         jump cont_next(frame = cur_frame, pc = cur_pc + 1, base = cur_base, top = cur_top)
@@ -473,6 +558,18 @@ switch_arms[#switch_arms + 1] = {
         end
         if lhs.tag == @{TAG_INTEGER} and rhs.tag == @{TAG_INTEGER} then
             if (as(i64, lhs.bits) < as(i64, rhs.bits)) == expect then
+                jump cont_next(frame = cur_frame, pc = cur_pc + 2, base = cur_base, top = cur_top)
+            end
+            jump cont_next(frame = cur_frame, pc = cur_pc + 1, base = cur_base, top = cur_top)
+        end
+        if lhs.tag == @{TAG_INTEGER} and rhs.tag == @{TAG_NUM} then
+            if (as(f64, as(i64, lhs.bits)) < bitcast(f64, rhs.bits)) == expect then
+                jump cont_next(frame = cur_frame, pc = cur_pc + 2, base = cur_base, top = cur_top)
+            end
+            jump cont_next(frame = cur_frame, pc = cur_pc + 1, base = cur_base, top = cur_top)
+        end
+        if lhs.tag == @{TAG_NUM} and rhs.tag == @{TAG_INTEGER} then
+            if (bitcast(f64, lhs.bits) < as(f64, as(i64, rhs.bits))) == expect then
                 jump cont_next(frame = cur_frame, pc = cur_pc + 2, base = cur_base, top = cur_top)
             end
             jump cont_next(frame = cur_frame, pc = cur_pc + 1, base = cur_base, top = cur_top)
@@ -517,16 +614,16 @@ emit_arm(15, "op_settabup",   C_TABLE,      ARGS_ABC)
 emit_arm(16, "op_settable",   C_TABLE,      ARGS_ABC)
 emit_arm(17, "op_setti",      C_TABLE,      ARGS_ABC)
 emit_arm(18, "op_setfield",   C_TABLE,      ARGS_ABC)
-emit_arm(19, "op_newtable",   C_NEXT_OOM,   ARGS_ABC)
+emit_arm(19, "op_newtable",   C_NEXT_OOM,   ARGS_AVBC)
 emit_arm(20, "op_self",       C_TABLE,      ARGS_ABC)
 emit_arm(21, "op_addi",       C_NEXT_ERR,   ARGS_ABC)
 emit_arm(22, "op_addk",       C_NEXT_ERR,   ARGS_ABC)
 emit_arm(23, "op_subk",       C_NEXT_ERR,   ARGS_ABC)
 emit_arm(24, "op_mulk",       C_NEXT_ERR,   ARGS_ABC)
-emit_arm(25, "op_modk",       C_NEXT_ERR,   ARGS_ABX)
-emit_arm(26, "op_powk",       C_NEXT_ERR,   ARGS_ABX)
+emit_arm(25, "op_modk",       C_NEXT_ERR,   ARGS_ABC)
+emit_arm(26, "op_powk",       C_NEXT_ERR,   ARGS_ABC)
 emit_arm(27, "op_divk",       C_NEXT_ERR,   ARGS_ABC)
-emit_arm(28, "op_idivk",      C_NEXT_ERR,   ARGS_ABX)
+emit_arm(28, "op_idivk",      C_NEXT_ERR,   ARGS_ABC)
 emit_arm(29, "op_bandk",      C_NEXT_ERR,   ARGS_ABC)
 emit_arm(30, "op_bork",       C_NEXT_ERR,   ARGS_ABC)
 emit_arm(31, "op_bxork",      C_NEXT_ERR,   ARGS_ABC)
@@ -545,7 +642,7 @@ emit_arm(44, "op_shl",        C_NEXT_ERR,   ARGS_ABC)
 emit_arm(45, "op_shr",        C_NEXT_ERR,   ARGS_ABC)
 emit_arm(46, "op_mmbin",      C_MMBIN,      ARGS_ABC)
 emit_arm(47, "op_mmbini",     C_MMBIN,      ARGS_ABC)
-emit_arm(48, "op_mmbink",     C_MMBIN,      ARGS_ABX)
+emit_arm(48, "op_mmbink",     C_MMBIN,      ARGS_ABC)
 emit_arm(49, "op_unm",        C_NEXT_ERR,   ARGS_AB)
 emit_arm(50, "op_bnot",       C_NEXT_ERR,   ARGS_AB)
 emit_arm(51, "op_not",        C_NEXT,       ARGS_AB)
@@ -553,16 +650,16 @@ emit_arm(52, "op_len",        C_TABLE,      ARGS_ABC)
 emit_arm(53, "op_concat",     C_TABLE,      ARGS_ABC)
 emit_arm(54, "op_close",      C_NEXT_OOM,   ARGS_A)
 emit_arm(55, "op_tbc",        C_NEXT_ERR_OOM, ARGS_A)
-emit_arm(56, "op_jmp",        C_JMP,        ARGS_ASBX)
+emit_arm(56, "op_jmp",        C_JMP,        ARGS_ASJ)
 emit_arm(57, "op_eq",         C_CMP,        ARGS_ABC)
 emit_arm(58, "op_lt",         C_CMP,        ARGS_ABC)
 emit_arm(59, "op_le",         C_CMP,        ARGS_ABC)
 emit_arm(60, "op_eqk",        C_NEXT_ERR_OOM, ARGS_ABX)
-emit_arm(61, "op_eqi",        C_NEXT_ERR_OOM, ARGS_ASBX)
-emit_arm(62, "op_lti",        C_NEXT_ERR_OOM, ARGS_ASBX)
-emit_arm(63, "op_lei",        C_NEXT_ERR_OOM, ARGS_ASBX)
-emit_arm(64, "op_gti",        C_NEXT_ERR_OOM, ARGS_ASBX)
-emit_arm(65, "op_gei",        C_NEXT_ERR_OOM, ARGS_ASBX)
+emit_arm(61, "op_eqi",        C_NEXT_ERR_OOM, ARGS_ASC)
+emit_arm(62, "op_lti",        C_NEXT_ERR_OOM, ARGS_ASC)
+emit_arm(63, "op_lei",        C_NEXT_ERR_OOM, ARGS_ASC)
+emit_arm(64, "op_gti",        C_NEXT_ERR_OOM, ARGS_ASC)
+emit_arm(65, "op_gei",        C_NEXT_ERR_OOM, ARGS_ASC)
 emit_arm(66, "op_test",       C_JMP_NEXT,   ARGS_ABC)
 emit_arm(67, "op_testset",    C_JMP_NEXT,   ARGS_ABC)
 emit_arm(68, "op_call",       C_CALL,       ARGS_ABC)
@@ -570,18 +667,18 @@ emit_arm(69, "op_tailcall",   C_CALL,       ARGS_ABC)
 emit_arm(70, "op_return",     C_RET,        ARGS_ABC)
 emit_arm(71, "op_return0",    C_RET0,       ARGS_A)
 emit_arm(72, "op_return1",    C_RET0,       ARGS_A)
-emit_arm(73, "op_forloop",    C_LOOP,       ARGS_ASBX)
-emit_arm(74, "op_forprep",    C_JMP_ERR,    ARGS_ASBX)
-emit_arm(75, "op_tforprep",   C_JMP,        ARGS_ASBX)
-emit_arm(76, "op_tforcall",   C_MMBIN,      ARGS_ABC)
-emit_arm(77, "op_tforloop",   C_NEXT_JMP,   ARGS_ABC)
-emit_arm(78, "op_setlist",    C_NEXT_OOM,   ARGS_ABC)
+emit_arm(73, "op_forloop",    C_LOOP,       ARGS_ABX)
+emit_arm(74, "op_forprep",    C_JMP_ERR,    ARGS_ABX)
+emit_arm(75, "op_tforprep",   C_JMP,        ARGS_ABX)
+emit_arm(76, "op_tforcall",   C_TFORCALL,   ARGS_ABC)
+emit_arm(77, "op_tforloop",   C_NEXT_JMP,   ARGS_ABX)
+emit_arm(78, "op_setlist",    C_NEXT_OOM,   ARGS_AVBC)
 emit_arm(79, "op_closure",    C_NEXT_ERR_OOM, ARGS_ABX)
 emit_arm(80, "op_vararg",     C_NEXT_ERR_OOM, ARGS_ABC)
 emit_arm(81, "op_getvarg",    C_NEXT_ERR_OOM, ARGS_ABC)
 emit_arm(82, "op_errnnil",    C_NEXT_ERR_OOM, ARGS_ASBX)
 emit_arm(83, "op_varargprep", C_NEXT_OOM,   ARGS_A)
-emit_arm(84, "op_extraarg",   C_NEXT)
+emit_arm(84, "op_extraarg",   C_NEXT,       ARGS_AX)
 
 -- ── Region source with @{switch_arms...} splice ───────────────────────────
 -- Handler regions use simple continuation signatures.  Adapter blocks below
@@ -604,9 +701,7 @@ region dispatch_instruction(
     resume_parent: cont(parent: ptr(Frame), pc: index, base: index, top: index,
                         code: ptr(Instr), constants: ptr(Value)),
     enter_lua: cont(child: ptr(Frame)),
-    enter_native: cont(cl: ptr(CClosure), func_slot: index,
-                       nargs: i32, wanted: i32,
-                       result_base: index, resume_mode: u16),
+    enter_native: cont(cl: ptr(CClosure), ctx: NativeCallContext),
     returned: cont(nres: i32),
     yielded: cont(nres: i32),
     error: cont(code: i32),
@@ -638,12 +733,8 @@ end
 block cont_enter_lua(child: ptr(Frame))
     jump enter_lua(child = child)
 end
-block cont_enter_native(cl: ptr(CClosure), func_slot: index,
-                        nargs: i32, wanted: i32,
-                        result_base: index, resume_mode: u16)
-    jump enter_native(cl = cl, func_slot = func_slot, nargs = nargs,
-                      wanted = wanted, result_base = result_base,
-                      resume_mode = resume_mode)
+block cont_enter_native(cl: ptr(CClosure), ctx: NativeCallContext)
+    jump enter_native(cl = cl, ctx = ctx)
 end
 block cont_returned(nres: i32)
     jump returned(nres = nres)
@@ -682,13 +773,13 @@ for name, val in pairs(const.Op) do if val <= 84 then
     elseif name == "GETTABLE"   then entry.mode = "ABC"  elseif name == "GETI"       then entry.mode = "ABC"
     elseif name == "GETFIELD"   then entry.mode = "ABC"  elseif name == "SETTABUP"   then entry.mode = "ABC"
     elseif name == "SETTABLE"   then entry.mode = "ABC"  elseif name == "SETTI"      then entry.mode = "ABC"
-    elseif name == "SETFIELD"   then entry.mode = "ABC"  elseif name == "NEWTABLE"   then entry.mode = "ABC"
-    elseif name == "SELF"       then entry.mode = "ABC"  elseif name == "ADDI"       then entry.mode = "ABC"
-    elseif name == "ADDK"       then entry.mode = "ABx"  elseif name == "SUBK"       then entry.mode = "ABx"
-    elseif name == "MULK"       then entry.mode = "ABx"  elseif name == "MODK"       then entry.mode = "ABx"
-    elseif name == "POWK"       then entry.mode = "ABx"  elseif name == "DIVK"       then entry.mode = "ABx"
-    elseif name == "IDIVK"      then entry.mode = "ABx"  elseif name == "BANDK"      then entry.mode = "ABx"
-    elseif name == "BORK"       then entry.mode = "ABx"  elseif name == "BXORK"      then entry.mode = "ABx"
+    elseif name == "SETFIELD"   then entry.mode = "ABC"  elseif name == "NEWTABLE"   then entry.mode = "AvBCk"
+    elseif name == "SELF"       then entry.mode = "ABC"  elseif name == "ADDI"       then entry.mode = "AsC"
+    elseif name == "ADDK"       then entry.mode = "ABC"  elseif name == "SUBK"       then entry.mode = "ABC"
+    elseif name == "MULK"       then entry.mode = "ABC"  elseif name == "MODK"       then entry.mode = "ABC"
+    elseif name == "POWK"       then entry.mode = "ABC"  elseif name == "DIVK"       then entry.mode = "ABC"
+    elseif name == "IDIVK"      then entry.mode = "ABC"  elseif name == "BANDK"      then entry.mode = "ABC"
+    elseif name == "BORK"       then entry.mode = "ABC"  elseif name == "BXORK"      then entry.mode = "ABC"
     elseif name == "SHLI"       then entry.mode = "ABC"  elseif name == "SHRI"       then entry.mode = "ABC"
     elseif name == "ADD"        then entry.mode = "ABC"  elseif name == "SUB"        then entry.mode = "ABC"
     elseif name == "MUL"        then entry.mode = "ABC"  elseif name == "MOD"        then entry.mode = "ABC"
@@ -697,22 +788,22 @@ for name, val in pairs(const.Op) do if val <= 84 then
     elseif name == "BOR"        then entry.mode = "ABC"  elseif name == "BXOR"       then entry.mode = "ABC"
     elseif name == "SHL"        then entry.mode = "ABC"  elseif name == "SHR"        then entry.mode = "ABC"
     elseif name == "MMBIN"      then entry.mode = "ABC"  elseif name == "MMBINI"     then entry.mode = "ABC"
-    elseif name == "MMBINK"     then entry.mode = "ABx"  elseif name == "UNM"        then entry.mode = "ABC"
+    elseif name == "MMBINK"     then entry.mode = "ABC"  elseif name == "UNM"        then entry.mode = "ABC"
     elseif name == "BNOT"       then entry.mode = "ABC"  elseif name == "NOT"        then entry.mode = "ABC"
     elseif name == "LEN"        then entry.mode = "ABC"  elseif name == "CONCAT"     then entry.mode = "ABC"
     elseif name == "CLOSE"      then entry.mode = "A"    elseif name == "TBC"        then entry.mode = "A"
-    elseif name == "JMP"        then entry.mode = "AsBx" elseif name == "EQ"         then entry.mode = "ABC"
+    elseif name == "JMP"        then entry.mode = "sJ"   elseif name == "EQ"         then entry.mode = "ABC"
     elseif name == "LT"         then entry.mode = "ABC"  elseif name == "LE"         then entry.mode = "ABC"
-    elseif name == "EQK"        then entry.mode = "ABx"  elseif name == "EQI"        then entry.mode = "AsBx"
-    elseif name == "LTI"        then entry.mode = "AsBx" elseif name == "LEI"        then entry.mode = "AsBx"
-    elseif name == "GTI"        then entry.mode = "AsBx" elseif name == "GEI"        then entry.mode = "AsBx"
+    elseif name == "EQK"        then entry.mode = "ABx"  elseif name == "EQI"        then entry.mode = "AsC"
+    elseif name == "LTI"        then entry.mode = "AsC"  elseif name == "LEI"        then entry.mode = "AsC"
+    elseif name == "GTI"        then entry.mode = "AsC"  elseif name == "GEI"        then entry.mode = "AsC"
     elseif name == "TEST"       then entry.mode = "ABC"  elseif name == "TESTSET"    then entry.mode = "ABC"
     elseif name == "CALL"       then entry.mode = "ABC"  elseif name == "TAILCALL"   then entry.mode = "ABC"
     elseif name == "RETURN"     then entry.mode = "ABC"  elseif name == "RETURN0"    then entry.mode = "A"
-    elseif name == "RETURN1"    then entry.mode = "A"    elseif name == "FORLOOP"    then entry.mode = "AsBx"
-    elseif name == "FORPREP"    then entry.mode = "AsBx" elseif name == "TFORPREP"   then entry.mode = "AsBx"
-    elseif name == "TFORCALL"   then entry.mode = "ABC"  elseif name == "TFORLOOP"   then entry.mode = "ABC"
-    elseif name == "SETLIST"    then entry.mode = "ABC"  elseif name == "CLOSURE"    then entry.mode = "ABx"
+    elseif name == "RETURN1"    then entry.mode = "A"    elseif name == "FORLOOP"    then entry.mode = "ABx"
+    elseif name == "FORPREP"    then entry.mode = "ABx"  elseif name == "TFORPREP"   then entry.mode = "ABx"
+    elseif name == "TFORCALL"   then entry.mode = "ABC"  elseif name == "TFORLOOP"   then entry.mode = "ABx"
+    elseif name == "SETLIST"    then entry.mode = "AvBCk" elseif name == "CLOSURE"    then entry.mode = "ABx"
     elseif name == "VARARG"     then entry.mode = "ABC"  elseif name == "GETVARG"    then entry.mode = "ABC"
     elseif name == "ERRNNIL"    then entry.mode = "AsBx" elseif name == "VARARGPREP" then entry.mode = "A"
     elseif name == "EXTRAARG"   then entry.mode = "Ax"   end

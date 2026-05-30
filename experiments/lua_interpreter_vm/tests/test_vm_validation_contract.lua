@@ -6,6 +6,7 @@ local ffi = require("ffi")
 local moon = require("moonlift")
 local vm = require("experiments.lua_interpreter_vm.src.init")
 local const = vm.const
+local bytecode = vm.bytecode
 
 ffi.cdef [[
 typedef struct { void* next; uint8_t tt; uint8_t marked; } GCHeader;
@@ -26,15 +27,13 @@ typedef struct {
 } Proto;
 ]]
 
-local function set_ABC(i, op, a, b, c, k)
-    i.word = bit.bor(op, bit.lshift(a or 0, 7), bit.lshift(k or 0, 15), bit.lshift(b or 0, 16), bit.lshift(c or 0, 24))
-end
-local function set_ABx(i, op, a, bx)
-    i.word = bit.bor(op, bit.lshift(a or 0, 7), bit.lshift(bx or 0, 15))
-end
-local function set_AsBx(i, op, a, sbx)
-    set_ABx(i, op, a, (sbx or 0) + 65535)
-end
+local function set_ABC(i, op, a, b, c, k) i.word = bytecode.encode_ABC(op, a, b, c, k) end
+local function set_ABx(i, op, a, bx) i.word = bytecode.encode_ABx(op, a, bx) end
+local function set_AsBx(i, op, a, sbx) i.word = bytecode.encode_AsBx(op, a, sbx) end
+local function set_Ax(i, op, ax) i.word = bytecode.encode_Ax(op, ax) end
+local function set_sJ(i, op, sj) i.word = bytecode.encode_sJ(op, sj) end
+local function set_AvBCk(i, op, a, vb, vc, k) i.word = bytecode.encode_AvBCk(op, a, vb, vc, k) end
+local function set_AsC(i, op, a, b, sc, k) i.word = bytecode.encode_ABC(op, a, b, sc + bytecode.OFFSET_SC, k) end
 
 local validate = moon.func { validate_proto = vm.validate.validate_proto } [[
 validate_one(L: ptr(LuaThread), p: ptr(Proto)) -> i32
@@ -102,8 +101,60 @@ end)
 check("ADDK not followed by MMBINK", false, function(p, code)
     p.code_len = 2; p.constants_len = 1; set_ABC(code[0], const.Op.ADDK, 0, 0, 0, 0); set_ABC(code[1], const.Op.MMBIN, 0, 0, const.TM.ADD, 0)
 end)
+check("valid ADD paired with matching MMBIN", true, function(p, code)
+    p.code_len = 2; p.maxstack = 3
+    set_ABC(code[0], const.Op.ADD, 0, 1, 2, 0)
+    set_ABC(code[1], const.Op.MMBIN, 1, 2, const.TM.ADD, 0)
+end)
+check("ADD paired with wrong metamethod event", false, function(p, code)
+    p.code_len = 2; p.maxstack = 3
+    set_ABC(code[0], const.Op.ADD, 0, 1, 2, 0)
+    set_ABC(code[1], const.Op.MMBIN, 1, 2, const.TM.SUB, 0)
+end)
+check("ADD paired with wrong MMBIN operands", false, function(p, code)
+    p.code_len = 2; p.maxstack = 4
+    set_ABC(code[0], const.Op.ADD, 0, 1, 2, 0)
+    set_ABC(code[1], const.Op.MMBIN, 2, 1, const.TM.ADD, 0)
+end)
+check("valid ADDI paired with matching MMBINI", true, function(p, code)
+    p.code_len = 2; p.maxstack = 2
+    set_AsC(code[0], const.Op.ADDI, 0, 0, 2, 0)
+    set_ABC(code[1], const.Op.MMBINI, 0, 2 + bytecode.OFFSET_SC, const.TM.ADD, 0)
+end)
+check("ADDK paired with wrong metamethod event", false, function(p, code)
+    p.code_len = 2; p.constants_len = 1; p.maxstack = 2
+    set_ABC(code[0], const.Op.ADDK, 0, 0, 0, 0)
+    set_ABC(code[1], const.Op.MMBINK, 0, 0, const.TM.SUB, 0)
+end)
 check("jump target out of range", false, function(p, code)
-    p.code_len = 1; set_AsBx(code[0], const.Op.JMP, 0, 99)
+    p.code_len = 1; set_sJ(code[0], const.Op.JMP, 99)
+end)
+check("LOADKX Ax constant out of bounds", false, function(p, code)
+    p.code_len = 2; p.constants_len = 1; set_ABx(code[0], const.Op.LOADKX, 0, 0); set_Ax(code[1], const.Op.EXTRAARG, 1)
+end)
+check("comparison must be followed by JMP", false, function(p, code)
+    p.code_len = 2; set_ABC(code[0], const.Op.EQ, 0, 0, 1, 0); set_ABC(code[1], const.Op.RETURN1, 0, 0, 0, 0)
+end)
+check("TEST must be followed by JMP", false, function(p, code)
+    p.code_len = 2; set_ABC(code[0], const.Op.TEST, 0, 0, 0, 0); set_ABC(code[1], const.Op.RETURN1, 0, 0, 0, 0)
+end)
+check("NEWTABLE k=1 missing EXTRAARG", false, function(p, code)
+    p.code_len = 1; set_AvBCk(code[0], const.Op.NEWTABLE, 0, 1, 1, 1)
+end)
+check("SETLIST k=1 missing EXTRAARG", false, function(p, code)
+    p.code_len = 1; set_AvBCk(code[0], const.Op.SETLIST, 0, 1, 1, 1)
+end)
+check("EXTRAARG after NEWTABLE k=0 invalid", false, function(p, code)
+    p.code_len = 2; set_AvBCk(code[0], const.Op.NEWTABLE, 0, 1, 1, 0); set_Ax(code[1], const.Op.EXTRAARG, 3)
+end)
+check("valid NEWTABLE k=1 EXTRAARG", true, function(p, code)
+    p.code_len = 2; set_AvBCk(code[0], const.Op.NEWTABLE, 0, 1, 1, 1); set_Ax(code[1], const.Op.EXTRAARG, 3)
+end)
+check("valid JMP sJ in range", true, function(p, code)
+    p.code_len = 2; set_sJ(code[0], const.Op.JMP, 1); set_ABC(code[1], const.Op.RETURN1, 0, 0, 0, 0)
+end)
+check("valid FORLOOP Bx target", true, function(p, code)
+    p.code_len = 2; p.maxstack = 5; set_ABC(code[0], const.Op.RETURN1, 0, 0, 0, 0); set_ABx(code[1], const.Op.FORLOOP, 0, 1)
 end)
 check("CALL register window exceeds maxstack", false, function(p, code)
     p.code_len = 1; p.maxstack = 2; set_ABC(code[0], const.Op.CALL, 1, 3, 1, 0)

@@ -25,12 +25,18 @@ typedef struct {
 } Proto;
 typedef struct { GCHeader gc; void* env; Proto* proto; void** upvals; uint8_t nupvals; } LClosure;
 typedef struct {
+    uint16_t kind;
+    uint16_t a; uint16_t b; uint16_t c;
+    uint64_t pc; uint64_t base; uint64_t result_base; uint64_t call_top;
+    int32_t wanted;
+    Value value;
+    uint64_t errfunc_slot;
+} ResumeState;
+typedef struct {
     Value closure; uint64_t base; uint64_t top; uint64_t pc;
     int32_t wanted; int32_t tailcalls;
-    uint16_t resume_mode;
-    uint16_t resume_a; uint16_t resume_b; uint16_t resume_c;
-    uint64_t resume_pc; uint64_t resume_base; Value resume_value;
     uint64_t result_base; uint64_t call_top;
+    ResumeState resume;
     uint8_t yieldable; uint8_t flags; uint16_t reserved;
 } Frame;
 typedef struct {
@@ -52,7 +58,10 @@ local function set_ABC(i, op, a, b, c, k)
     i.word = bit.bor(op, bit.lshift(a or 0, 7), bit.lshift(k or 0, 15), bit.lshift(b or 0, 16), bit.lshift(c or 0, 24))
 end
 
-local runner = moon.func { vm_resume = vm.vm_loop.vm_resume } [[
+local runner = moon.func {
+    vm_resume = vm.vm_loop.vm_resume,
+    sys_realloc = vm.regions_allocator.sys_realloc,
+} [[
 run(L: ptr(LuaThread)) -> i32
     return region -> i32
     entry start()
@@ -82,7 +91,8 @@ stack[0].tag = const.Tag.LCLOSURE; stack[0].bits = ffi.cast("uint64_t", closure)
 local frames = ffi.new("Frame[2]")
 frames[0].closure = stack[0]
 frames[0].base = 1; frames[0].top = 1; frames[0].pc = 0; frames[0].wanted = 1
-frames[0].resume_mode = const.Resume.NORMAL; frames[0].result_base = 1; frames[0].call_top = 1; frames[0].yieldable = 1
+frames[0].result_base = 1; frames[0].call_top = 1; frames[0].yieldable = 1
+frames[0].resume.kind = const.Resume.NORMAL; frames[0].resume.result_base = 1; frames[0].resume.call_top = 1; frames[0].resume.wanted = frames[0].wanted
 local global = ffi.new("GlobalState[1]")
 local L = ffi.new("LuaThread[1]")
 L[0].status = const.Status.OK; L[0].stack = stack; L[0].stack_size = 16; L[0].top = 1

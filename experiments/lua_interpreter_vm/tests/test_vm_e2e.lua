@@ -83,12 +83,18 @@ ffi.cdef [[
         int32_t yieldable; int32_t nonyieldable; int32_t last_error_code; uint32_t flags;
     } LuaThread;
     typedef struct {
+        uint16_t kind;
+        uint16_t a; uint16_t b; uint16_t c;
+        uint64_t pc; uint64_t base; uint64_t result_base; uint64_t call_top;
+        int32_t wanted;
+        Value value;
+        uint64_t errfunc_slot;
+    } ResumeState;
+    typedef struct {
         Value closure; uint64_t base; uint64_t top; uint64_t pc;
         int32_t wanted; int32_t tailcalls;
-        uint16_t resume_mode;
-        uint16_t resume_a; uint16_t resume_b; uint16_t resume_c;
-        uint64_t resume_pc; uint64_t resume_base; Value resume_value;
         uint64_t result_base; uint64_t call_top;
+        ResumeState resume;
         uint8_t yieldable; uint8_t flags; uint16_t reserved;
     } Frame;
     typedef struct { void* allocator; Value registry; void* mainthread; uint32_t vm_abi_version; uint32_t native_abi_version; } GlobalState;
@@ -147,7 +153,7 @@ frames[0].closure.tag = const.Tag.LCLOSURE
 frames[0].closure.aux = 0
 frames[0].closure.bits = ffi.cast("uint64_t", closure)
 frames[0].base = 1; frames[0].top = 1; frames[0].pc = 0
-frames[0].wanted = 1; frames[0].resume_mode = const.Resume.NORMAL
+frames[0].wanted = 1; frames[0].resume.kind = const.Resume.NORMAL
 frames[0].result_base = frames[0].base; frames[0].call_top = frames[0].top
 frames[0].yieldable = 1; frames[0].flags = 0; frames[0].reserved = 0
 
@@ -176,7 +182,10 @@ print()
 -- Compile wrapper that calls vm_resume
 local vr = vm.vm_loop.vm_resume
 print("Compiling vm_resume wrapper...")
-local runner = moon.func { vm_resume = vr } [[
+local runner = moon.func {
+    vm_resume = vr,
+    sys_realloc = vm.regions_allocator.sys_realloc,
+} [[
 run_vm(L: ptr(LuaThread), nargs: i32) -> i32
     return region -> i32
     entry start()

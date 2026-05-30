@@ -20,6 +20,10 @@ region compile_lua_source_into(
     limit_error: cont(err: CompileError),
     oom: cont())
 entry start()
+    -- Legacy buffer ABI: callers still provide explicit code/local storage.
+    -- Allocation-owned source frontier work is kept separate from SponJIT and
+    -- must preserve this visible ownership boundary until the VM allocator is
+    -- threaded through the compiler entry.
     cu.arena = nil
     cu.root = builder
     cu.current = builder
@@ -48,11 +52,17 @@ entry start()
     builder.firstlocal = 0
     builder.nactvar = 0
     builder.freereg = 0
-    builder.maxstack = 0
+    builder.maxstack = 1
     builder.pc = 0
     builder.lasttarget = 0
     builder.numparams = 0
     builder.flag = 0
+    cu.tmp_reg = 0
+    cu.scratch_reg = 0
+    cu.scratch_count = 0
+    cu.scratch_op = 0
+    cu.scratch_index = 0
+    cu.scratch_index2 = 0
 
     emit compile_prepared_unit(cu;
         ok = compiled,

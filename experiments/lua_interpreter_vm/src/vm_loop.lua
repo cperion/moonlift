@@ -125,15 +125,22 @@ block do_lua(child: ptr(Frame))
     jump loop(frame = child, pc = child.pc, base = child.base, top = child.top,
               code = code, constants = constants)
 end
-block do_native(cl: ptr(CClosure), func_slot: index, nargs: i32, wanted: i32, result_base: index, resume_mode: u16)
-    emit call_native(L, cl, func_slot, nargs, wanted, result_base, resume_mode;
+block do_native(cl: ptr(CClosure), ctx: NativeCallContext)
+    emit call_native(L, cl, ctx;
         returned = native_ret,
         yielded = do_yielded,
         error = do_error,
         oom = out_of_mem)
 end
-block native_ret(nres: i32)
-    jump error(code = @{ERR_RUNTIME})
+block native_ret(frame: ptr(Frame), pc: index, base: index, top: index, nres: i32)
+    if frame == nil then
+        jump finished(nres = nres)
+    end
+    let cl: ptr(LClosure) = as(ptr(LClosure), frame.closure.bits)
+    let code: ptr(Instr) = cl.proto.code
+    let constants: ptr(Value) = cl.proto.constants
+    jump loop(frame = frame, pc = pc, base = base, top = top,
+              code = code, constants = constants)
 end
 block do_returned(nres: i32)
     jump finished(nres = nres)

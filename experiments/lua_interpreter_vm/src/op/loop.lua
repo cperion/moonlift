@@ -22,7 +22,7 @@ entry start()
         let step: i64 = as(i64, step_val.bits)
         if (step >= 0 and idx <= limit) or (step < 0 and idx >= limit) then
             L.stack[base + as(index, a + 3)] = L.stack[idx_slot]
-            let new_pc: index = as(index, as(i32, pc) + sbx)
+            let new_pc: index = as(index, as(i32, pc) - as(i32, bx))
             jump do_jump(frame = frame, pc = new_pc, base = base, top = top)
         end
         jump next(frame = frame, pc = pc + 1, base = base, top = top)
@@ -34,7 +34,7 @@ entry start()
         let step: f64 = bitcast(f64, step_val.bits)
         if (step >= 0.0 and idx <= limit) or (step < 0.0 and idx >= limit) then
             L.stack[base + as(index, a + 3)] = L.stack[idx_slot]
-            let new_pc: index = as(index, as(i32, pc) + sbx)
+            let new_pc: index = as(index, as(i32, pc) - as(i32, bx))
             jump do_jump(frame = frame, pc = new_pc, base = base, top = top)
         end
         jump next(frame = frame, pc = pc + 1, base = base, top = top)
@@ -58,13 +58,13 @@ entry start()
     if init_val.tag == @{TAG_INTEGER} and limit_val.tag == @{TAG_INTEGER} and step_val.tag == @{TAG_INTEGER} then
         let prepared: i64 = as(i64, init_val.bits) - as(i64, step_val.bits)
         L.stack[init_slot] = { tag = @{TAG_INTEGER}, aux = 0, bits = bitcast(u64, prepared) }
-        let new_pc: index = as(index, as(i32, pc) + sbx)
+        let new_pc: index = as(index, as(i32, pc) + as(i32, bx) + 1)
         jump do_jump(frame = frame, pc = new_pc, base = base, top = top)
     end
     if init_val.tag == @{TAG_NUM} and limit_val.tag == @{TAG_NUM} and step_val.tag == @{TAG_NUM} then
         let prepared: f64 = bitcast(f64, init_val.bits) - bitcast(f64, step_val.bits)
         L.stack[init_slot] = { tag = @{TAG_NUM}, aux = 0, bits = bitcast(u64, prepared) }
-        let new_pc: index = as(index, as(i32, pc) + sbx)
+        let new_pc: index = as(index, as(i32, pc) + as(i32, bx) + 1)
         jump do_jump(frame = frame, pc = new_pc, base = base, top = top)
     end
     jump error(code = @{ERR_RUNTIME})
@@ -76,7 +76,7 @@ local op_tforprep = R([[
 region op_tforprep(]] .. H .. [[;
                    do_jump: cont(frame: ptr(Frame), pc: index, base: index, top: index))
 entry start()
-    let new_pc: index = as(index, as(i32, pc) + sbx)
+    let new_pc: index = as(index, as(i32, pc) + as(i32, bx))
     jump do_jump(frame = frame, pc = new_pc, base = base, top = top)
 end
 end
@@ -84,7 +84,7 @@ end
 
 local op_tforcall = R([[
 region op_tforcall(]] .. H .. [[;
-                   ]] .. B.MMBIN_CONTS .. [[)
+                   ]] .. B.TFORCALL_CONTS .. [[)
 entry start()
     jump error(code = @{ERR_RUNTIME})
 end

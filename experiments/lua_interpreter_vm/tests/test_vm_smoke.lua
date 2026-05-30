@@ -25,22 +25,28 @@ for _, mod in pairs(vm) do
         end
     end
 end
-ok("22 source files loaded", true)
+ok("VM modules loaded", true)
 ok(string.format("%d region fragments", region_count), region_count >= 100)
-ok(string.format("%d struct definitions", struct_count), struct_count == 43)
+ok(string.format("%d struct definitions", struct_count), struct_count >= 47)
 
 -- Verify key architectural paths
 ok("dispatch_instruction has 9 continuations", #vm.opcodes.dispatch_instruction.frag.conts == 9)
 ok("handle_return_mode has 15 continuations", #vm.regions_call.handle_return_mode.frag.conts == 15)
+ok("resume_after_return alias is explicit", vm.regions_call.handle_return_mode == vm.regions_call.resume_after_return)
+ok("decode_resume_kind exists", vm.regions_resume.decode_resume_kind ~= nil)
 ok("prepare_call has 6 continuations", #vm.regions_call.prepare_call.frag.conts == 6)
 ok("38 opcode handlers", #vm.op_handlers.op_move.frag.params >= 10)
 
 -- Verify specific critical structs
 ok("Value has 3 fields", #vm.products.Value.decl.fields == 3)
-ok("Frame has 18 fields", #vm.products.Frame.decl.fields == 18)
-ok("LuaThread has 22 fields", #vm.products.LuaThread.decl.fields == 22)
+ok("Frame carries ResumeState", vm.products.Frame.decl.fields[9].field_name == "resume")
+ok("ResumeState exists", vm.products.ResumeState ~= nil)
+ok("LuaThread carries CoroutineState", vm.products.LuaThread.decl.fields[#vm.products.LuaThread.decl.fields].field_name == "coroutine")
+ok("NativeCallContext exists", vm.products.NativeCallContext ~= nil)
 ok("NativeCallResult exists", vm.products.NativeCallResult ~= nil)
-ok("contract vm_abi_version == 1", vm.contract.vm_abi_version == 1)
+ok("FinalizerQueue exists", vm.products.FinalizerQueue ~= nil)
+ok("binary chunk frontier is explicit", vm.compat.binary_chunk_frontier ~= nil)
+ok("contract vm_abi_version matches constants", vm.contract.vm_abi_version == vm.const.Abi.VM_VERSION)
 ok("contract gates SponJIT", vm.contract.sponjit_allowed == false)
 ok("Proto has 19 fields", #vm.products.Proto.decl.fields == 19)
 
@@ -72,7 +78,7 @@ verify_di(L: ptr(LuaThread), frame: ptr(Frame),
         yield 6
     end
     block ok_l(child: ptr(Frame)) yield 2 end
-    block ok_c(cl: ptr(CClosure), func_slot: index, nargs: i32, wanted: i32, result_base: index, resume_mode: u16) yield 3 end
+    block ok_c(cl: ptr(CClosure), ctx: NativeCallContext) yield 3 end
     block ok_r(nres: i32) yield 4 end
     block ok_y(nres: i32) yield 5 end
     block ok_e(code: i32) yield 0 - code end

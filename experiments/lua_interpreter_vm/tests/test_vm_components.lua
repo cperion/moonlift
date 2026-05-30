@@ -53,10 +53,11 @@ test_frame_new() -> i32
         closure = { tag = 0, aux = 0, bits = 0 },
         base = 0, top = 0, pc = 0,
         wanted = 0, tailcalls = 0,
-        resume_mode = 0,
-        resume_a = 0, resume_b = 0, resume_c = 0,
-        resume_pc = 0, resume_base = 0,
-        resume_value = { tag = 0, aux = 0, bits = 0 }
+        result_base = 0, call_top = 0,
+        resume = { kind = 0, a = 0, b = 0, c = 0, pc = 0, base = 0,
+                   result_base = 0, call_top = 0, wanted = 0,
+                   value = { tag = 0, aux = 0, bits = 0 }, errfunc_slot = 0 },
+        yieldable = 0, flags = 0, reserved = 0
     }
     return f.wanted
 end

@@ -36,7 +36,7 @@ entry start()
         L.stack[dst].bits = bitcast(u64, bitcast(f64, lb) + bitcast(f64, rb))
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
-    frame.resume_a = a
+    frame.resume.a = a
     jump next(frame = frame, pc = pc + 1, base = base, top = top)
 end
 end
@@ -55,7 +55,7 @@ entry start()
         L.stack[base + as(index, a)] = { tag = @{TAG_NUM}, aux = 0, bits = bitcast(u64, bitcast(f64, lhs.bits) - bitcast(f64, rhs.bits)) }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
-    frame.resume_a = a
+    frame.resume.a = a
     jump next(frame = frame, pc = pc + 1, base = base, top = top)
 end
 end
@@ -74,7 +74,7 @@ entry start()
         L.stack[base + as(index, a)] = { tag = @{TAG_NUM}, aux = 0, bits = bitcast(u64, bitcast(f64, lhs.bits) * bitcast(f64, rhs.bits)) }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
-    frame.resume_a = a
+    frame.resume.a = a
     jump next(frame = frame, pc = pc + 1, base = base, top = top)
 end
 end
@@ -89,7 +89,19 @@ entry start()
         L.stack[base + as(index, a)] = { tag = @{TAG_NUM}, aux = 0, bits = bitcast(u64, bitcast(f64, lhs.bits) / bitcast(f64, rhs.bits)) }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
-    frame.resume_a = a
+    if lhs.tag == @{TAG_INTEGER} and rhs.tag == @{TAG_INTEGER} then
+        L.stack[base + as(index, a)] = { tag = @{TAG_NUM}, aux = 0, bits = bitcast(u64, as(f64, as(i64, lhs.bits)) / as(f64, as(i64, rhs.bits))) }
+        jump next(frame = frame, pc = pc + 2, base = base, top = top)
+    end
+    if lhs.tag == @{TAG_INTEGER} and rhs.tag == @{TAG_NUM} then
+        L.stack[base + as(index, a)] = { tag = @{TAG_NUM}, aux = 0, bits = bitcast(u64, as(f64, as(i64, lhs.bits)) / bitcast(f64, rhs.bits)) }
+        jump next(frame = frame, pc = pc + 2, base = base, top = top)
+    end
+    if lhs.tag == @{TAG_NUM} and rhs.tag == @{TAG_INTEGER} then
+        L.stack[base + as(index, a)] = { tag = @{TAG_NUM}, aux = 0, bits = bitcast(u64, bitcast(f64, lhs.bits) / as(f64, as(i64, rhs.bits))) }
+        jump next(frame = frame, pc = pc + 2, base = base, top = top)
+    end
+    frame.resume.a = a
     jump next(frame = frame, pc = pc + 1, base = base, top = top)
 end
 end
@@ -98,7 +110,23 @@ end
 local op_mod = R([[
 region op_mod(]] .. H .. [[;]] .. B.ARITH_CONT .. [[)
 entry start()
-    jump error(code = @{ERR_ARITH})
+    let lhs: ptr(Value) = L.stack + (base + as(index, b))
+    let rhs: ptr(Value) = L.stack + (base + as(index, c))
+    if lhs.tag == @{TAG_INTEGER} and rhs.tag == @{TAG_INTEGER} then
+        if rhs.bits == 0 then jump error(code = @{ERR_ARITH}) end
+        let li: i64 = as(i64, lhs.bits)
+        let ri: i64 = as(i64, rhs.bits)
+        var rem: i64 = li % ri
+        if rem ~= 0 then
+            if (rem < 0 and ri > 0) or (rem > 0 and ri < 0) then
+                rem = rem + ri
+            end
+        end
+        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = as(u64, rem) }
+        jump next(frame = frame, pc = pc + 2, base = base, top = top)
+    end
+    frame.resume.a = a
+    jump next(frame = frame, pc = pc + 1, base = base, top = top)
 end
 end
 ]])
@@ -106,7 +134,24 @@ end
 local op_idiv = R([[
 region op_idiv(]] .. H .. [[;]] .. B.ARITH_CONT .. [[)
 entry start()
-    jump error(code = @{ERR_ARITH})
+    let lhs: ptr(Value) = L.stack + (base + as(index, b))
+    let rhs: ptr(Value) = L.stack + (base + as(index, c))
+    if lhs.tag == @{TAG_INTEGER} and rhs.tag == @{TAG_INTEGER} then
+        if rhs.bits == 0 then jump error(code = @{ERR_ARITH}) end
+        let li: i64 = as(i64, lhs.bits)
+        let ri: i64 = as(i64, rhs.bits)
+        var q: i64 = li / ri
+        let rem: i64 = li % ri
+        if rem ~= 0 then
+            if (rem < 0 and ri > 0) or (rem > 0 and ri < 0) then
+                q = q - 1
+            end
+        end
+        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = as(u64, q) }
+        jump next(frame = frame, pc = pc + 2, base = base, top = top)
+    end
+    frame.resume.a = a
+    jump next(frame = frame, pc = pc + 1, base = base, top = top)
 end
 end
 ]])
@@ -128,7 +173,7 @@ entry start()
         L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = lhs.bits & rhs.bits }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
-    frame.resume_a = a
+    frame.resume.a = a
     jump next(frame = frame, pc = pc + 1, base = base, top = top)
 end
 end
@@ -143,7 +188,7 @@ entry start()
         L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = lhs.bits | rhs.bits }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
-    frame.resume_a = a
+    frame.resume.a = a
     jump next(frame = frame, pc = pc + 1, base = base, top = top)
 end
 end
@@ -158,7 +203,7 @@ entry start()
         L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = lhs.bits ^ rhs.bits }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
-    frame.resume_a = a
+    frame.resume.a = a
     jump next(frame = frame, pc = pc + 1, base = base, top = top)
 end
 end
@@ -173,7 +218,7 @@ entry start()
         L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = lhs.bits << rhs.bits }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
-    frame.resume_a = a
+    frame.resume.a = a
     jump next(frame = frame, pc = pc + 1, base = base, top = top)
 end
 end
@@ -188,7 +233,7 @@ entry start()
         L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = lhs.bits >>> rhs.bits }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
-    frame.resume_a = a
+    frame.resume.a = a
     jump next(frame = frame, pc = pc + 1, base = base, top = top)
 end
 end
@@ -206,7 +251,7 @@ entry start()
         L.stack[base + as(index, a)] = { tag = @{TAG_NUM}, aux = 0, bits = bitcast(u64, bitcast(f64, lhs.bits) + as(f64, as(i64, as(i32, c)))) }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
-    frame.resume_a = a
+    frame.resume.a = a
     jump next(frame = frame, pc = pc + 1, base = base, top = top)
 end
 end
@@ -220,7 +265,7 @@ entry start()
         L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = as(u64, as(i32, c)) << lhs.bits }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
-    frame.resume_a = a
+    frame.resume.a = a
     jump next(frame = frame, pc = pc + 1, base = base, top = top)
 end
 end
@@ -234,7 +279,7 @@ entry start()
         L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = lhs.bits >>> as(u64, as(i32, c)) }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
-    frame.resume_a = a
+    frame.resume.a = a
     jump next(frame = frame, pc = pc + 1, base = base, top = top)
 end
 end
@@ -254,7 +299,7 @@ entry start()
         L.stack[base + as(index, a)] = { tag = @{TAG_NUM}, aux = 0, bits = bitcast(u64, bitcast(f64, lhs.bits) + bitcast(f64, rhs.bits)) }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
-    frame.resume_a = a
+    frame.resume.a = a
     jump next(frame = frame, pc = pc + 1, base = base, top = top)
 end
 end
@@ -274,7 +319,7 @@ entry start()
         L.stack[base + as(index, a)] = { tag = @{TAG_NUM}, aux = 0, bits = bitcast(u64, bitcast(f64, lhs.bits) - bitcast(f64, rhs.bits)) }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
-    frame.resume_a = a
+    frame.resume.a = a
     jump next(frame = frame, pc = pc + 1, base = base, top = top)
 end
 end
@@ -294,7 +339,7 @@ entry start()
         L.stack[base + as(index, a)] = { tag = @{TAG_NUM}, aux = 0, bits = bitcast(u64, bitcast(f64, lhs.bits) * bitcast(f64, rhs.bits)) }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
-    frame.resume_a = a
+    frame.resume.a = a
     jump next(frame = frame, pc = pc + 1, base = base, top = top)
 end
 end
@@ -310,7 +355,19 @@ entry start()
         L.stack[base + as(index, a)] = { tag = @{TAG_NUM}, aux = 0, bits = bitcast(u64, bitcast(f64, lhs.bits) / bitcast(f64, rhs.bits)) }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
-    frame.resume_a = a
+    if lhs.tag == @{TAG_INTEGER} and rhs.tag == @{TAG_INTEGER} then
+        L.stack[base + as(index, a)] = { tag = @{TAG_NUM}, aux = 0, bits = bitcast(u64, as(f64, as(i64, lhs.bits)) / as(f64, as(i64, rhs.bits))) }
+        jump next(frame = frame, pc = pc + 2, base = base, top = top)
+    end
+    if lhs.tag == @{TAG_INTEGER} and rhs.tag == @{TAG_NUM} then
+        L.stack[base + as(index, a)] = { tag = @{TAG_NUM}, aux = 0, bits = bitcast(u64, as(f64, as(i64, lhs.bits)) / bitcast(f64, rhs.bits)) }
+        jump next(frame = frame, pc = pc + 2, base = base, top = top)
+    end
+    if lhs.tag == @{TAG_NUM} and rhs.tag == @{TAG_INTEGER} then
+        L.stack[base + as(index, a)] = { tag = @{TAG_NUM}, aux = 0, bits = bitcast(u64, bitcast(f64, lhs.bits) / as(f64, as(i64, rhs.bits))) }
+        jump next(frame = frame, pc = pc + 2, base = base, top = top)
+    end
+    frame.resume.a = a
     jump next(frame = frame, pc = pc + 1, base = base, top = top)
 end
 end
@@ -319,7 +376,24 @@ end
 local op_modk = R([[
 region op_modk(]] .. H .. [[;]] .. B.ARITH_CONT .. [[)
 entry start()
-    jump error(code = @{ERR_ARITH})
+    let cl: ptr(LClosure) = as(ptr(LClosure), frame.closure.bits)
+    let lhs: ptr(Value) = L.stack + (base + as(index, b))
+    let rhs: ptr(Value) = cl.proto.constants + as(index, c)
+    if lhs.tag == @{TAG_INTEGER} and rhs.tag == @{TAG_INTEGER} then
+        if rhs.bits == 0 then jump error(code = @{ERR_ARITH}) end
+        let li: i64 = as(i64, lhs.bits)
+        let ri: i64 = as(i64, rhs.bits)
+        var rem: i64 = li % ri
+        if rem ~= 0 then
+            if (rem < 0 and ri > 0) or (rem > 0 and ri < 0) then
+                rem = rem + ri
+            end
+        end
+        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = as(u64, rem) }
+        jump next(frame = frame, pc = pc + 2, base = base, top = top)
+    end
+    frame.resume.a = a
+    jump next(frame = frame, pc = pc + 1, base = base, top = top)
 end
 end
 ]])
@@ -335,7 +409,25 @@ end
 local op_idivk = R([[
 region op_idivk(]] .. H .. [[;]] .. B.ARITH_CONT .. [[)
 entry start()
-    jump error(code = @{ERR_ARITH})
+    let cl: ptr(LClosure) = as(ptr(LClosure), frame.closure.bits)
+    let lhs: ptr(Value) = L.stack + (base + as(index, b))
+    let rhs: ptr(Value) = cl.proto.constants + as(index, c)
+    if lhs.tag == @{TAG_INTEGER} and rhs.tag == @{TAG_INTEGER} then
+        if rhs.bits == 0 then jump error(code = @{ERR_ARITH}) end
+        let li: i64 = as(i64, lhs.bits)
+        let ri: i64 = as(i64, rhs.bits)
+        var q: i64 = li / ri
+        let rem: i64 = li % ri
+        if rem ~= 0 then
+            if (rem < 0 and ri > 0) or (rem > 0 and ri < 0) then
+                q = q - 1
+            end
+        end
+        L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = as(u64, q) }
+        jump next(frame = frame, pc = pc + 2, base = base, top = top)
+    end
+    frame.resume.a = a
+    jump next(frame = frame, pc = pc + 1, base = base, top = top)
 end
 end
 ]])
@@ -350,7 +442,7 @@ entry start()
         L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = lhs.bits & rhs.bits }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
-    frame.resume_a = a
+    frame.resume.a = a
     jump next(frame = frame, pc = pc + 1, base = base, top = top)
 end
 end
@@ -366,7 +458,7 @@ entry start()
         L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = lhs.bits | rhs.bits }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
-    frame.resume_a = a
+    frame.resume.a = a
     jump next(frame = frame, pc = pc + 1, base = base, top = top)
 end
 end
@@ -382,7 +474,7 @@ entry start()
         L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = lhs.bits ^ rhs.bits }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
-    frame.resume_a = a
+    frame.resume.a = a
     jump next(frame = frame, pc = pc + 1, base = base, top = top)
 end
 end
@@ -400,7 +492,7 @@ entry start()
         L.stack[base + as(index, a)] = { tag = @{TAG_NUM}, aux = 0, bits = bitcast(u64, -(bitcast(f64, src.bits))) }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
-    frame.resume_a = a
+    frame.resume.a = a
     jump next(frame = frame, pc = pc + 1, base = base, top = top)
 end
 end
@@ -414,7 +506,7 @@ entry start()
         L.stack[base + as(index, a)] = { tag = @{TAG_INTEGER}, aux = 0, bits = ~src.bits }
         jump next(frame = frame, pc = pc + 2, base = base, top = top)
     end
-    frame.resume_a = a
+    frame.resume.a = a
     jump next(frame = frame, pc = pc + 1, base = base, top = top)
 end
 end

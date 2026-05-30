@@ -62,6 +62,11 @@ entry start()
         jump not_yieldable()
     end
     L.status = @{THREAD_YIELDED}
+    L.coroutine.nresults = nres
+    if L.frame_count > 0 then
+        let f: ptr(Frame) = L.frames + (L.frame_count - 1)
+        L.coroutine.resume = f.resume
+    end
     jump yielded(nres = nres)
 end
 end

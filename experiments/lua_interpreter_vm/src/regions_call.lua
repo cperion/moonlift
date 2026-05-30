@@ -3,13 +3,74 @@
 local moon = require("moonlift")
 local host = require("moonlift.host")
 local const = require("experiments.lua_interpreter_vm.src.constants")
+local resume_regions = require("experiments.lua_interpreter_vm.src.regions_resume")
+local native_regions = require("experiments.lua_interpreter_vm.src.regions_native")
 
 local I = {}
 for k, v in pairs(const.Tag) do I["TAG_" .. k] = moon.int(v) end
 for k, v in pairs(const.Err) do I["ERR_" .. k] = moon.int(v) end
 for k, v in pairs(const.Resume) do I["RESUME_" .. k] = moon.int(v) end
+for k, v in pairs(const.TM) do I["TM_" .. k] = moon.int(v) end
 for k, v in pairs(const.ProtoFlag) do I[k] = moon.int(v) end
 for k, v in pairs(const.Abi) do I["ABI_" .. k] = moon.int(v) end
+
+local stack_check_lua_call = host.region [[
+region stack_check_lua_call(L: ptr(LuaThread), base: index, ncall: i32, topcall: index, maxstack: u16;
+                            ready: cont(base: index, ncall: i32, topcall: index),
+                            overflow: cont(), oom: cont())
+entry start()
+    emit stack_check(L, base + as(index, maxstack);
+        ok = ok_ready,
+        grown = ok_ready,
+        overflow = overflow,
+        oom = oom)
+end
+block ok_ready()
+    jump ready(base = base, ncall = ncall, topcall = topcall)
+end
+end
+]]
+
+local adjust_varargs_call = host.region [[
+region adjust_varargs_call(L: ptr(LuaThread), cl: ptr(LClosure), func_slot: index, ncall: i32, topcall: index;
+                            ready: cont(base: index, ncall: i32, topcall: index), oom: cont())
+entry start()
+    emit adjust_varargs(L, cl, func_slot, ncall; ok = adjusted, oom = oom)
+end
+block adjusted(base: index)
+    jump ready(base = base, ncall = ncall, topcall = topcall)
+end
+end
+]]
+
+local get_call_metamethod_for_call = host.region { TM_CALL = I.TM_CALL } [[
+region get_call_metamethod_for_call(L: ptr(LuaThread), func_val: Value, ncall: i32, topcall: index;
+                                    found: cont(mm: Value, ncall: i32, topcall: index), missing: cont())
+entry start()
+    emit get_metamethod(L.global, func_val, as(u8, @{TM_CALL}); found = got, missing = missing)
+end
+block got(mm: Value)
+    jump found(mm = mm, ncall = ncall, topcall = topcall)
+end
+end
+]]
+
+local stack_check_call_metamethod = host.region [[
+region stack_check_call_metamethod(L: ptr(LuaThread), func_slot: index, ncall: i32, mm: Value;
+                                   ready: cont(ncall: i32, mm: Value), overflow: cont(), oom: cont())
+entry start()
+    let needed: index = func_slot + as(index, ncall) + 2
+    emit stack_check(L, needed;
+        ok = ok_ready,
+        grown = ok_ready,
+        overflow = overflow,
+        oom = oom)
+end
+block ok_ready()
+    jump ready(ncall = ncall, mm = mm)
+end
+end
+]]
 
 -- prepare_call: central call dispatcher. The caller supplies explicit return
 -- metadata; the child frame owns that metadata until return_from_lua consumes it.
@@ -18,63 +79,97 @@ local prepare_call = host.region {
     TAG_CCLOSURE = I.TAG_CCLOSURE,
     ERR_STACK_OVERFLOW = I.ERR_STACK_OVERFLOW,
     ERR_CALL = I.ERR_CALL,
+    TM_CALL = I.TM_CALL,
     PF_VAHID = I.PF_VAHID,
 } [[
 region prepare_call(L: ptr(LuaThread), func_slot: index, nargs: i32, wanted: i32,
-                    resume_mode: u16, caller_pc: index,
+                    resume: ResumeState,
                     result_base: index, call_top: index, yieldable: u8;
                     enter_lua: cont(child: ptr(Frame)),
-                    enter_native: cont(cl: ptr(CClosure), func_slot: index,
-                                       nargs: i32, wanted: i32,
-                                       result_base: index, resume_mode: u16),
+                    enter_native: cont(cl: ptr(CClosure), ctx: NativeCallContext),
                     returned: cont(nres: i32),
                     yielded: cont(nres: i32),
                     error: cont(code: i32),
                     oom: cont())
 entry start()
-    let func_val: Value = L.stack[func_slot]
+    jump classify(func_val = L.stack[func_slot], ncall = nargs, topcall = call_top)
+end
+block classify(func_val: Value, ncall: i32, topcall: index)
     if func_val.tag == @{TAG_LCLOSURE} then
-        jump dispatch_lua(func_val = func_val)
+        jump dispatch_lua(func_val = func_val, ncall = ncall, topcall = topcall)
     end
     if func_val.tag == @{TAG_CCLOSURE} then
-        jump dispatch_native(func_val = func_val)
+        jump dispatch_native(func_val = func_val, ncall = ncall, topcall = topcall)
     end
+    emit get_call_metamethod_for_call(L, func_val, ncall, topcall;
+        found = have_call_mm,
+        missing = no_call_mm)
+end
+block have_call_mm(mm: Value, ncall: i32, topcall: index)
+    emit stack_check_call_metamethod(L, func_slot, ncall, mm;
+        ready = shift_for_call_mm,
+        overflow = stack_err,
+        oom = out_of_mem)
+end
+block shift_for_call_mm(ncall: i32, mm: Value)
+    jump shift_loop(i = ncall, ncall = ncall, mm = mm)
+end
+block shift_loop(i: i32, ncall: i32, mm: Value)
+    if i < 0 then jump shifted_call_mm(ncall = ncall, mm = mm) end
+    L.stack[func_slot + as(index, i) + 1] = L.stack[func_slot + as(index, i)]
+    jump shift_loop(i = i - 1, ncall = ncall, mm = mm)
+end
+block shifted_call_mm(ncall: i32, mm: Value)
+    L.stack[func_slot] = mm
+    let new_nargs: i32 = ncall + 1
+    let new_top: index = func_slot + as(index, new_nargs) + 1
+    jump classify(func_val = mm, ncall = new_nargs, topcall = new_top)
+end
+block no_call_mm()
     L.last_error_code = @{ERR_CALL}
     jump error(code = @{ERR_CALL})
 end
-block dispatch_lua(func_val: Value)
+block dispatch_lua(func_val: Value, ncall: i32, topcall: index)
     let cl: ptr(LClosure) = as(ptr(LClosure), func_val.bits)
     let proto: ptr(Proto) = cl.proto
     let base: index = func_slot + 1
     if as(bool, proto.flag & @{PF_VAHID}) then
-        emit adjust_varargs(L, cl, func_slot, nargs;
-            ok = do_push_lua,
+        emit adjust_varargs_call(L, cl, func_slot, ncall, topcall;
+            ready = vararg_adjusted,
             oom = out_of_mem)
     end
-    let needed: index = base + as(index, proto.maxstack)
-    emit stack_check(L, needed;
-        ok = stack_ready,
-        grown = stack_ready,
+    emit stack_check_lua_call(L, base, ncall, topcall, proto.maxstack;
+        ready = push_frame,
         overflow = stack_err,
         oom = out_of_mem)
 end
-block dispatch_native(func_val: Value)
+block dispatch_native(func_val: Value, ncall: i32, topcall: index)
     let cl: ptr(CClosure) = as(ptr(CClosure), func_val.bits)
-    jump enter_native(cl = cl, func_slot = func_slot, nargs = nargs,
-                      wanted = wanted, result_base = result_base,
-                      resume_mode = resume_mode)
+    let ctx: NativeCallContext = {
+        func_slot = func_slot,
+        nargs = ncall,
+        wanted = wanted,
+        result_base = result_base,
+        stack_top = topcall,
+        yieldable = yieldable,
+        reserved = 0,
+        resume = resume
+    }
+    jump enter_native(cl = cl, ctx = ctx)
 end
-block do_push_lua(base: index)
-    jump push_frame(base = base)
-end
-block stack_ready()
-    jump push_frame(base = func_slot + 1)
-end
-block push_frame(base: index)
+block vararg_adjusted(base: index, ncall: i32, topcall: index)
     let func_val: Value = L.stack[func_slot]
-    let top: index = base + as(index, nargs)
+    let cl: ptr(LClosure) = as(ptr(LClosure), func_val.bits)
+    emit stack_check_lua_call(L, base, ncall, topcall, cl.proto.maxstack;
+        ready = push_frame,
+        overflow = stack_err,
+        oom = out_of_mem)
+end
+block push_frame(base: index, ncall: i32, topcall: index)
+    let func_val: Value = L.stack[func_slot]
+    let top: index = base + as(index, ncall)
     emit frame_push(L, func_val, base, top,
-                    result_base, call_top, wanted, resume_mode, caller_pc, yieldable;
+                    result_base, topcall, wanted, resume, yieldable;
         ok = got_frame,
         overflow = stack_err,
         oom = out_of_mem)
@@ -107,11 +202,11 @@ end
 ]]
 
 -- call_native: invoke a C closure through the explicit native ABI.
--- Invocation is not wired yet; version/null checks fail loudly with error state.
-local call_native = host.region { ERR_CALL = I.ERR_CALL, ABI_NATIVE_VERSION = I.ABI_NATIVE_VERSION } [[
-region call_native(L: ptr(LuaThread), cl: ptr(CClosure), func_slot: index,
-                   nargs: i32, wanted: i32, result_base: index, resume_mode: u16;
-                   returned: cont(nres: i32),
+-- The VM loop passes one NativeCallContext value; raw resume modes do not cross
+-- this boundary. Native invocation goes through regions_native.invoke_native.
+local call_native = host.region { ERR_CALL = I.ERR_CALL, ABI_NATIVE_VERSION = I.ABI_NATIVE_VERSION, invoke_native = native_regions.invoke_native, resume_after_return = resume_regions.resume_after_return } [[
+region call_native(L: ptr(LuaThread), cl: ptr(CClosure), ctx: NativeCallContext;
+                   returned: cont(frame: ptr(Frame), pc: index, base: index, top: index, nres: i32),
                    yielded: cont(nres: i32),
                    error: cont(code: i32),
                    oom: cont())
@@ -128,15 +223,88 @@ entry start()
         L.last_error_code = @{ERR_CALL}
         jump error(code = @{ERR_CALL})
     end
+    emit @{invoke_native}(L, cl, ctx;
+        returned = did_return,
+        yielded = did_yield,
+        error = native_error,
+        oom = out_of_mem,
+        stack_grow = need_stack,
+        reenter_lua = invalid_result,
+        invalid = invalid_result)
+end
+block did_return(nres: i32)
+    if L.frame_count == 0 then
+        L.last_error_code = @{ERR_CALL}
+        jump error(code = @{ERR_CALL})
+    end
+    let frame: ptr(Frame) = L.frames + (L.frame_count - 1)
+    emit @{resume_after_return}(L, frame, ctx.result_base, nres, ctx.resume;
+        normal = native_resumed,
+        resume_gettable_mm = native_resumed,
+        resume_settable_mm = native_resumed,
+        resume_binop_mm = native_resumed,
+        resume_unop_mm = native_resumed,
+        resume_compare_mm = native_resumed,
+        resume_concat_mm = native_resumed,
+        resume_tforloop = native_resumed,
+        resume_tbc_close = native_resumed,
+        pcall_success = native_resumed,
+        pcall_failure = native_resumed,
+        finished = native_finished,
+        yielded = did_yield,
+        error = native_resume_error,
+        oom = out_of_mem)
+end
+block native_resumed(parent: ptr(Frame), pc: index, base: index, top: index)
+    jump returned(frame = parent, pc = pc, base = base, top = top, nres = ctx.resume.wanted)
+end
+block native_finished(nres: i32)
+    jump returned(frame = as(ptr(Frame), as(u64, 0)), pc = as(index, 0), base = as(index, 0), top = L.top, nres = nres)
+end
+block native_resume_error(code: i32)
+    jump error(code = code)
+end
+block did_yield(nres: i32)
+    jump yielded(nres = nres)
+end
+block native_error(err: Value)
+    L.err_value = err
+    L.last_error_code = as(i32, err.aux)
+    jump error(code = as(i32, err.aux))
+end
+block need_stack(needed: index)
+    emit stack_check(L, needed;
+        ok = retry_after_stack,
+        grown = retry_after_stack,
+        overflow = invalid_result,
+        oom = out_of_mem)
+end
+block retry_after_stack()
+    emit @{invoke_native}(L, cl, ctx;
+        returned = did_return,
+        yielded = did_yield,
+        error = native_error,
+        oom = out_of_mem,
+        stack_grow = invalid_stack,
+        reenter_lua = invalid_result,
+        invalid = invalid_result)
+end
+block invalid_stack(needed: index)
+    jump invalid_result()
+end
+block invalid_result()
     L.last_error_code = @{ERR_CALL}
     jump error(code = @{ERR_CALL})
+end
+block out_of_mem()
+    jump oom()
 end
 end
 ]]
 
 -- return_from_lua: pop child frame and dispatch according to child-owned
 -- return metadata. The parent is resumed with its own frame state.
-local return_from_lua = host.region { ERR_RUNTIME = I.ERR_RUNTIME } [[
+local return_from_lua = host.region { ERR_RUNTIME = I.ERR_RUNTIME, resume_after_return = resume_regions.resume_after_return } [[
 region return_from_lua(L: ptr(LuaThread), frame: ptr(Frame), first_result: index, nres: i32;
                        resume_parent: cont(parent: ptr(Frame), pc: index, base: index, top: index),
                        finished: cont(nres: i32),
@@ -147,24 +315,13 @@ entry start()
     if L.frame_count == 0 then
         jump finished(nres = nres)
     end
-    let ret_result_base: index = frame.result_base
-    let ret_wanted: i32 = frame.wanted
-    let ret_resume_mode: u16 = frame.resume_mode
-    let ret_resume_a: u16 = frame.resume_a
-    let ret_resume_b: u16 = frame.resume_b
-    let ret_resume_c: u16 = frame.resume_c
-    let ret_resume_pc: index = frame.resume_pc
-    let ret_resume_base: index = frame.resume_base
-    let ret_resume_value: Value = frame.resume_value
+    let ret_state: ResumeState = frame.resume
     L.frame_count = L.frame_count - 1
     if L.frame_count == 0 then
         jump finished(nres = nres)
     end
     let parent: ptr(Frame) = L.frames + (L.frame_count - 1)
-    emit handle_return_mode(L, parent, first_result, nres,
-                            ret_result_base, ret_wanted, ret_resume_mode,
-                            ret_resume_a, ret_resume_b, ret_resume_c,
-                            ret_resume_pc, ret_resume_base, ret_resume_value;
+    emit @{resume_after_return}(L, parent, first_result, nres, ret_state;
         normal = cont_normal,
         resume_gettable_mm = cont_gettable,
         resume_settable_mm = cont_settable,
@@ -229,140 +386,15 @@ end
 end
 ]]
 
--- handle_return_mode: switch on captured child-frame resume_mode, not parent.resume_mode.
-local handle_return_mode = host.region {
-    TAG_NIL = I.TAG_NIL,
-    RESUME_NORMAL = I.RESUME_NORMAL,
-    RESUME_TAILCALL = I.RESUME_TAILCALL,
-    RESUME_GETTABLE_MM = I.RESUME_GETTABLE_MM,
-    RESUME_SETTABLE_MM = I.RESUME_SETTABLE_MM,
-    RESUME_BINOP_MM = I.RESUME_BINOP_MM,
-    RESUME_UNOP_MM = I.RESUME_UNOP_MM,
-    RESUME_EQ_MM = I.RESUME_EQ_MM,
-    RESUME_LT_MM = I.RESUME_LT_MM,
-    RESUME_LE_MM = I.RESUME_LE_MM,
-    RESUME_CONCAT_MM = I.RESUME_CONCAT_MM,
-    RESUME_TFORLOOP_CALL = I.RESUME_TFORLOOP_CALL,
-    RESUME_PCALL = I.RESUME_PCALL,
-    RESUME_TBC_CLOSE = I.RESUME_TBC_CLOSE,
-    ERR_RUNTIME = I.ERR_RUNTIME,
-} [[
-region handle_return_mode(L: ptr(LuaThread), parent: ptr(Frame), first_result: index, nres: i32,
-                          ret_result_base: index, ret_wanted: i32, ret_resume_mode: u16,
-                          ret_resume_a: u16, ret_resume_b: u16, ret_resume_c: u16,
-                          ret_resume_pc: index, ret_resume_base: index, ret_resume_value: Value;
-                          normal: cont(parent: ptr(Frame), pc: index, base: index, top: index),
-                          resume_gettable_mm: cont(parent: ptr(Frame), pc: index, base: index, top: index),
-                          resume_settable_mm: cont(parent: ptr(Frame), pc: index, base: index, top: index),
-                          resume_binop_mm: cont(parent: ptr(Frame), pc: index, base: index, top: index),
-                          resume_unop_mm: cont(parent: ptr(Frame), pc: index, base: index, top: index),
-                          resume_compare_mm: cont(parent: ptr(Frame), pc: index, base: index, top: index),
-                          resume_concat_mm: cont(parent: ptr(Frame), pc: index, base: index, top: index),
-                          resume_tforloop: cont(parent: ptr(Frame), pc: index, base: index, top: index),
-                          resume_tbc_close: cont(parent: ptr(Frame), pc: index, base: index, top: index),
-                          pcall_success: cont(parent: ptr(Frame), pc: index, base: index, top: index),
-                          pcall_failure: cont(parent: ptr(Frame), pc: index, base: index, top: index),
-                          finished: cont(nres: i32),
-                          yielded: cont(nres: i32),
-                          error: cont(code: i32),
-                          oom: cont())
-entry start()
-    switch ret_resume_mode do
-    case 0 then
-        let next_pc: index = ret_resume_pc + 1
-        jump adjust_start(parent = parent, dst = ret_result_base,
-                          first = first_result, nactual = nres,
-                          wanted = ret_wanted, target_pc = next_pc,
-                          is_pcall = as(u8, 0))
-    case 1 then
-        let next_pc: index = ret_resume_pc + 1
-        jump adjust_start(parent = parent, dst = ret_result_base,
-                          first = first_result, nactual = nres,
-                          wanted = ret_wanted, target_pc = next_pc,
-                          is_pcall = as(u8, 0))
-    case 2 then
-        let next_pc: index = ret_resume_pc + 1
-        jump adjust_start(parent = parent, dst = ret_result_base,
-                          first = first_result, nactual = nres,
-                          wanted = ret_wanted, target_pc = next_pc,
-                          is_pcall = as(u8, 1))
-    case 4 then
-        L.stack[parent.base + as(index, ret_resume_a)] = L.stack[first_result]
-        jump resume_gettable_mm(parent = parent, pc = ret_resume_pc + 1, base = parent.base, top = parent.top)
-    case 5 then
-        jump resume_settable_mm(parent = parent, pc = ret_resume_pc + 1, base = parent.base, top = parent.top)
-    case 6 then
-        L.stack[parent.base + as(index, ret_resume_a)] = L.stack[first_result]
-        jump resume_binop_mm(parent = parent, pc = ret_resume_pc + 1, base = parent.base, top = parent.top)
-    case 7 then
-        L.stack[parent.base + as(index, ret_resume_a)] = L.stack[first_result]
-        jump resume_unop_mm(parent = parent, pc = ret_resume_pc + 1, base = parent.base, top = parent.top)
-    case 10 then
-        jump resume_compare_mm(parent = parent, pc = ret_resume_pc + 1, base = parent.base, top = parent.top)
-    case 11 then
-        jump resume_compare_mm(parent = parent, pc = ret_resume_pc + 1, base = parent.base, top = parent.top)
-    case 12 then
-        jump resume_compare_mm(parent = parent, pc = ret_resume_pc + 1, base = parent.base, top = parent.top)
-    case 9 then
-        jump resume_concat_mm(parent = parent, pc = ret_resume_pc + 1, base = parent.base, top = parent.top)
-    case 14 then
-        jump resume_tforloop(parent = parent, pc = ret_resume_pc + 1, base = parent.base, top = parent.top)
-    case 16 then
-        jump resume_tbc_close(parent = parent, pc = ret_resume_pc, base = parent.base, top = parent.top)
-    default then
-        jump error(code = @{ERR_RUNTIME})
-    end
-end
-block adjust_start(parent: ptr(Frame), dst: index, first: index, nactual: i32,
-                   wanted: i32, target_pc: index, is_pcall: u8)
-    if wanted < 0 then
-        jump adjust_done(parent = parent, target_pc = target_pc, is_pcall = is_pcall)
-    end
-    var n: i32 = nactual
-    if n > wanted then n = wanted end
-    if n <= 0 then
-        jump fill_loop(parent = parent, dst = dst, i = 0, wanted = wanted,
-                       target_pc = target_pc, is_pcall = is_pcall)
-    end
-    jump copy_loop(parent = parent, dst = dst, first = first, i = 0, n = n,
-                   wanted = wanted, target_pc = target_pc, is_pcall = is_pcall)
-end
-block copy_loop(parent: ptr(Frame), dst: index, first: index, i: i32, n: i32,
-                wanted: i32, target_pc: index, is_pcall: u8)
-    if i >= n then
-        jump fill_loop(parent = parent, dst = dst, i = i, wanted = wanted,
-                       target_pc = target_pc, is_pcall = is_pcall)
-    end
-    L.stack[dst + as(index, i)] = L.stack[first + as(index, i)]
-    jump copy_loop(parent = parent, dst = dst, first = first, i = i + 1, n = n,
-                   wanted = wanted, target_pc = target_pc, is_pcall = is_pcall)
-end
-block fill_loop(parent: ptr(Frame), dst: index, i: i32, wanted: i32,
-                target_pc: index, is_pcall: u8)
-    if i >= wanted then
-        jump adjust_done(parent = parent, target_pc = target_pc, is_pcall = is_pcall)
-    end
-    L.stack[dst + as(index, i)].tag = @{TAG_NIL}
-    jump fill_loop(parent = parent, dst = dst, i = i + 1, wanted = wanted,
-                   target_pc = target_pc, is_pcall = is_pcall)
-end
-block adjust_done(parent: ptr(Frame), target_pc: index, is_pcall: u8)
-    parent.pc = target_pc
-    if is_pcall ~= 0 then
-        jump pcall_success(parent = parent, pc = target_pc, base = parent.base, top = parent.top)
-    end
-    jump normal(parent = parent, pc = target_pc, base = parent.base, top = parent.top)
-end
-block hm_oom()
-    jump oom()
-end
-end
-]]
+-- resume_after_return: switch on captured child-frame ResumeState, not parent state.
+local resume_after_return = resume_regions.resume_after_return
+local handle_return_mode = resume_after_return
 
 return {
     prepare_call = prepare_call,
     try_call_metamethod = try_call_metamethod,
     call_native = call_native,
     return_from_lua = return_from_lua,
+    resume_after_return = resume_after_return,
     handle_return_mode = handle_return_mode,
 }

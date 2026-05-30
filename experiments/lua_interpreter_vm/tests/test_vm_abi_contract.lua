@@ -33,14 +33,16 @@ local abi = moon.func {
     native_abi = vm.api.lua_native_abi_version_api,
     status_api = vm.api.lua_status_api,
     last_error_api = vm.api.lua_last_error_api,
+    ABI_VM_VERSION = moon.int(const.Abi.VM_VERSION),
+    ABI_NATIVE_VERSION = moon.int(const.Abi.NATIVE_VERSION),
 } [[
 abi_check(L: ptr(LuaThread)) -> i32
     let a: i32 = @{vm_abi}()
     let b: i32 = @{native_abi}()
     let s: i32 = @{status_api}(L)
     let e: i32 = @{last_error_api}(L)
-    if a ~= 1 then return -1 end
-    if b ~= 1 then return -2 end
+    if a ~= @{ABI_VM_VERSION} then return -1 end
+    if b ~= @{ABI_NATIVE_VERSION} then return -2 end
     if s ~= as(i32, L.status) then return -3 end
     if e ~= L.last_error_code then return -4 end
     return 0

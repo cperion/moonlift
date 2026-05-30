@@ -25,7 +25,7 @@ local FuncBuilder = host.struct [[struct FuncBuilder parent: ptr(FuncBuilder); o
 
 local ExpDesc = host.struct [[struct ExpDesc kind: u16; info: u32; aux: u32; t: index; f: index; value: Value end]]
 
-local CompileUnit = host.struct [[struct CompileUnit arena: ptr(CompileArena); lexer: Lexer; root: ptr(FuncBuilder); current: ptr(FuncBuilder); expr_tmp: ExpDesc; expr_tmp2: ExpDesc; expr_tmp3: ExpDesc; token_tmp: Token; tmp_reg: u16 end]]
+local CompileUnit = host.struct [[struct CompileUnit arena: ptr(CompileArena); lexer: Lexer; root: ptr(FuncBuilder); current: ptr(FuncBuilder); expr_tmp: ExpDesc; expr_tmp2: ExpDesc; expr_tmp3: ExpDesc; token_tmp: Token; tmp_reg: u16; scratch_reg: u16; scratch_count: u16; scratch_op: u16; scratch_index: index; scratch_index2: index end]]
 
 return {
     SourceView = SourceView,

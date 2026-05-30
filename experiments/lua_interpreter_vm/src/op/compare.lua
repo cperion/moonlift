@@ -122,7 +122,7 @@ end
 end
 ]])
 
--- Comparison-with-immediate: k inverts skip, sbx is immediate
+-- Comparison-with-immediate: k inverts skip, sc is Lua 5.5 signed C immediate
 local function _cmp_imm_handler(op_name, region_name, result_field, g_flip)
     local lhs, rhs
     if g_flip then
@@ -138,7 +138,7 @@ region ]] .. op_name .. "(" .. H .. [[;
               error: cont(code: i32),
               oom: cont())
 entry start()
-    let int_val: Value = { tag = @{TAG_INTEGER}, aux = 0, bits = as(u64, as(i64, sbx)) }
+    let int_val: Value = { tag = @{TAG_INTEGER}, aux = 0, bits = as(u64, as(i64, sc)) }
     emit ]] .. region_name .. [[(L, ]] .. lhs .. [[, ]] .. rhs .. [[;
         result = cmp_result,
         call_mm = do_mm,
