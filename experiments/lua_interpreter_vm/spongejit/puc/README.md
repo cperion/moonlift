@@ -1,17 +1,18 @@
-# SpongeJIT PUC integration status
+# SpongeJIT PUC Integration Notes
 
-There is no maintained PUC runtime integration here.
-
-SpongeJIT's maintained role is the **offline LuaCompile foundry**:
+PUC bytecode is a source input for SpongeJIT's explicit semantic compiler path.
 
 ```text
-PUC bytecode windows / grammar windows + evidence
-→ LuaCompile.Unit
-→ LuaNF + LuaContract
-→ MoonOut.Kernel + Moonlift source
-→ representative bank artifacts
+PUC bytecode windows
+→ LuaSrc
+→ LuaFact / LuaRT / LuaExec
+→ MoonCFG
+→ Stencil artifacts
+→ Moonlift-native copy/patch materialization
 ```
 
-PUC bytecode is currently used for side validation/profiling through full operand-bearing corpus windows. It is not a runtime JIT entry point.
+PUC opcode fields must be preserved faithfully in `LuaSrc`. Opcode meaning is
+then consumed by semantic lowering into explicit ASDL/MoonCFG structure.
 
-The old native-stencil descriptor/bank/materializer path has been retired and removed from maintained flow. Do not resurrect `SponStencilDesc`, `sponbank`, old copy-link-patch descriptors, or C-function tile benchmark APIs.
+PUC bytecode is also used for corpus validation and profiling through full
+operand-bearing windows.

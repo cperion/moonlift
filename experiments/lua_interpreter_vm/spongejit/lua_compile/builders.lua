@@ -6,7 +6,7 @@
 local Schema = require("lua_compile.schema")
 local T = Schema.get()
 
-local M = { T = T, LuaSrc = T.LuaSrc, LuaRegion = T.LuaRegion, LuaFact = T.LuaFact, LuaSem = T.LuaSem, LuaNF = T.LuaNF, LuaContract = T.LuaContract, MoonCFG = T.MoonCFG, MoonOut = T.MoonOut, LuaCompile = T.LuaCompile }
+local M = { T = T, LuaSrc = T.LuaSrc, LuaRegion = T.LuaRegion, LuaFact = T.LuaFact, LuaSem = T.LuaSem, LuaNF = T.LuaNF, LuaContract = T.LuaContract, LuaFFI = T.LuaFFI, LuaGC = T.LuaGC, LuaRT = T.LuaRT, LuaExec = T.LuaExec, MoonCFG = T.MoonCFG, Stencil = T.Stencil, LuaCompile = T.LuaCompile }
 
 local Src, Fact, Region = T.LuaSrc, T.LuaFact, T.LuaRegion
 

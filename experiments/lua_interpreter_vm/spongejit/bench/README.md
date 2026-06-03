@@ -1,25 +1,29 @@
-# SpongeJIT measurement notes
+# SpongeJIT Measurement Notes
 
-The old `sponjit_probe` / `libsponbank.so` benchmark harness belonged to the retired SSA/stencil/bank runtime path and is no longer maintained.
+SpongeJIT measurements should target the current ASDL/MoonCFG/stencil pipeline.
 
-Maintained SpongeJIT measurements should target the LuaCompile foundry:
+Useful commands:
 
 ```sh
 cd experiments/lua_interpreter_vm/spongejit
+make test
 make lua-compile-foundry
 make test-lua-compile-corpus100
 ```
 
-Current meaningful metrics are offline foundry metrics:
+Current useful metrics:
 
 ```text
-grammar windows examined
+source windows examined
 fact/evidence combinations attempted
-LuaCompile successes/rejections
-unique LuaNF + LuaContract representatives
-alias-map size
-MoonOut/Moonlift source compile coverage
-corpus full-operand window validation coverage
+LuaExec/MoonCFG products generated
+Stencil templates generated
+variant-key and bank-index sizes
+patch-hole / reloc counts
+materialization latency
+native fast-path execution latency
+corpus full-operand window coverage
 ```
 
-Future benchmarks should be named around LuaCompile/MoonOut representative execution, not old stencils, sponbank selectors, or copy-link-patch materializers.
+Benchmarks should be named around explicit semantic CFGs, stencil bank
+selection, Moonlift copy/patch materialization, and native fast-path execution.

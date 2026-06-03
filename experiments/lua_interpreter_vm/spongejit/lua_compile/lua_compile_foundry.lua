@@ -2,15 +2,18 @@
 --
 -- This is an offline foundry boundary. It consumes opcode windows plus foundry
 -- evidence bundles, compiles them through LuaCompile.Unit -> LuaNF/LuaContract
--- -> MoonCFG.Kernel, and dedupes by semantic representative key. It does not
--- emit or adapt the retired native-runtime artifact APIs.
+-- -> MoonCFG.Kernel, and dedupes by MoonCFG + LuaContract +
+-- Stencil.VariantKey representative identity. It does not emit fake binary
+-- stencils or adapt descriptor-runtime artifact APIs.
 
 local C = require("lua_compile")
 local FoundryEvidence = require("lua_compile.lua_fact_from_foundry_bundle")
 local NFKey = require("lua_compile.lua_nf_key")
 local ContractKey = require("lua_compile.lua_contract_key")
 local CFGKey = require("lua_compile.moon_cfg_key")
-local MoonEmit = require("lua_compile.moon_out_emit")
+local StencilKey = require("lua_compile.stencil_key")
+local StencilFoundry = require("lua_compile.stencil_foundry")
+local MoonEmit = require("lua_compile.moon_cfg_emit")
 local Diagnostics = require("lua_compile.diagnostics")
 
 local M = {}
@@ -330,7 +333,15 @@ function M.compile_window(ops, bundle, opts)
   end
   local kernel = moon_result.product.kernel
   local cfg_key = CFGKey.key(kernel)
-  local rep_key = cfg_key .. "\n-- LuaContract --\n" .. ckey
+  local variant = StencilFoundry.variant_for_kernel(kernel, contract, opts)
+  local stencil_variant_key = StencilKey.variant_key(variant)
+  local rep_key = table.concat({
+    cfg_key,
+    "-- LuaContract --",
+    ckey,
+    "-- Stencil.VariantKey --",
+    stencil_variant_key,
+  }, "\n")
   local ok, source_or_err = pcall(MoonEmit.emit, kernel, { name = opts.kernel_name or "lua_compile_foundry_kernel" })
   if not ok then
     return { ok = false, reason = "moon_cfg_emit_failed", error = tostring(source_or_err), source_ops = copy_array(ops) }
@@ -340,6 +351,8 @@ function M.compile_window(ops, bundle, opts)
     ok = true,
     representative_key = rep_key,
     moon_cfg_key = cfg_key,
+    stencil_variant = variant,
+    stencil_variant_key = stencil_variant_key,
     normal_form_key = normal_key,
     contract_key = ckey,
     normal_form = nf,
@@ -395,6 +408,7 @@ function M.run_windows(windows, config)
             representative_id = #reps + 1,
             representative_key = cr.representative_key,
             moon_cfg_key = cr.moon_cfg_key,
+            stencil_variant_key = cr.stencil_variant_key,
             normal_form_key = cr.normal_form_key,
             contract_key = cr.contract_key,
             moon_cfg_kernel = cr.moon_cfg_kernel_summary,
@@ -410,6 +424,7 @@ function M.run_windows(windows, config)
         map_entry.status = "ok"
         map_entry.representative_key = cr.representative_key
         map_entry.moon_cfg_key = cr.moon_cfg_key
+        map_entry.stencil_variant_key = cr.stencil_variant_key
         map_entry.normal_form_key = cr.normal_form_key
         map_entry.contract_key = cr.contract_key
         map_entry.moon_cfg_kind = cr.moon_cfg_kernel_summary and cr.moon_cfg_kernel_summary.kind
@@ -439,7 +454,7 @@ function M.run_windows(windows, config)
   end
   stats.unique_representatives = #reps
   return {
-    schema = "sponjit.lua_compile_foundry.v1",
+    schema = "sponjit.lua_compile_foundry.v2",
     representatives = reps,
     alias_map = alias_map,
     rejection_reasons = rejection_counts,
@@ -482,6 +497,7 @@ local function representative_index(result)
     out.representatives[#out.representatives + 1] = {
       representative_id = r.representative_id,
       moon_cfg_key = r.moon_cfg_key,
+      stencil_variant_key = r.stencil_variant_key,
       normal_form_key = r.normal_form_key,
       contract_key = r.contract_key,
       representative_key = r.representative_key,
@@ -528,7 +544,7 @@ function M.write_artifacts(result, out_dir)
   local s = result.stats or {}
   md[#md + 1] = string.format("Windows: **%d**; compiles: **%d**; ok: **%d**; rejected: **%d**; unique representatives: **%d**", s.windows or 0, s.compiles or 0, s.ok or 0, s.rejected or 0, s.unique_representatives or 0)
   md[#md + 1] = ""
-  md[#md + 1] = "Artifacts are `MoonCFG + LuaContract` semantic representatives with MoonCFG/Moonlift source. Source opcode windows are aliases only."
+  md[#md + 1] = "Artifacts are `MoonCFG + LuaContract + Stencil.VariantKey` representatives with MoonCFG/Moonlift source. Binary StencilTemplate banks are emitted only after object-byte extraction provides real CodeBlobRef data. Source opcode windows are aliases only."
   md[#md + 1] = ""
   md[#md + 1] = "| Rep | Count | Aliases | MoonCFG kind | Source preview |"
   md[#md + 1] = "|---:|---:|---:|---|---|"

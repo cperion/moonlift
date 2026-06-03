@@ -2,12 +2,10 @@
 -- Usage: luajit src/worker_compile.lua <chunk_id>
 --
 -- Maintained offline foundry path:
---   opcode sequence + foundry evidence -> LuaCompile.Unit -> LuaNF/LuaContract
---   -> MoonOut.Kernel/Moonlift source -> semantic representative key.
+--   opcode sequence + foundry evidence -> LuaCompile.Unit -> LuaRT/LuaExec/LuaNF/LuaContract
+--   -> MoonCFG.Kernel/Moonlift source -> MoonCFG + LuaContract + Stencil.VariantKey.
 --
--- The previous src.ssa -> stencil normal-form worker is quarantined historical
--- architecture. This worker deliberately does not require src.ssa, stencil
--- descriptors, banks, materializers, or compatibility adapters.
+-- This worker only uses the maintained ASDL/MoonCFG/stencil compiler path.
 
 package.path = '../?.lua;../?/init.lua;?.lua;?/init.lua;src/?.lua;src/?/init.lua;../../../lua/?.lua;../../../lua/?/init.lua;' .. package.path
 

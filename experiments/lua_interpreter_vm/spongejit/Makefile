@@ -1,7 +1,7 @@
 # SponJIT LuaCompile foundry foundation
 #
-# Maintained offline foundry artifacts are LuaNF + LuaContract semantic
-# representatives with MoonOut kernels/source. The old SSA/stencil/bank path is
+# Maintained offline foundry artifacts are MoonCFG + LuaContract +
+# Stencil.VariantKey representatives. The old SSA/stencil/sponbank path is
 # quarantined historical material and is not a maintained build/test path.
 
 SPONGEJIT := $(dir $(abspath $(lastword $(MAKEFILE_LIST))))
@@ -28,8 +28,8 @@ lua-compile-foundry:
 	cd $(SPONGEJIT) && ./build_lua_compile_foundry.sh
 
 stencils:
-	@printf '%s\n' 'ERROR: stencils belongs to the retired SSA/stencil path name.' >&2
-	@printf '%s\n' 'Use: make lua-compile-foundry.' >&2
+	@printf '%s\n' 'ERROR: stencils belongs to the retired old Copy-Link-Patch ABI target name.' >&2
+	@printf '%s\n' 'Use: make lua-compile-foundry for ASDL Stencil.VariantKey artifacts.' >&2
 	@exit 2
 
 test-lua-compile:
@@ -44,7 +44,7 @@ test-lua-compile-corpus100:
 
 no-old-imports:
 	cd $(ROOT)/.. && ! rg -n "require\\(['\"]src\\.(ssa|ssa_ir|ssa_lift|ssa_opt|ssa_atoms|ssa_validate|ssa_fact_axes|ssa_contract|ssa_to_stencil|stencil_|dedupe_normal_forms|build_bank|materialize_native_x64|enumerate|grammar_enum|facts|fact_signature|opcode_coverage)" experiments/lua_interpreter_vm/spongejit/lua_compile experiments/lua_interpreter_vm/spongejit/foundry.lua experiments/lua_interpreter_vm/spongejit/src/worker_compile.lua experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_*.lua
-	cd $(ROOT)/.. && ! rg -n "SponDesc|SponStencil|SponTile|sponbank|stencil_desc|materialize_native_x64|OpcodeHelper|HelperCall" experiments/lua_interpreter_vm/spongejit/lua_compile experiments/lua_interpreter_vm/spongejit/foundry.lua experiments/lua_interpreter_vm/spongejit/src/worker_compile.lua experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_*.lua
+	cd $(ROOT)/.. && ! rg -n "SponDesc|SponStencil|SponTile|sponbank|stencil_desc|materialize_native_x64|OpcodeHelper|HelperCall|copy_link_patch|CopyLinkPatch|SponBank|SponMaterializer" experiments/lua_interpreter_vm/spongejit/lua_compile experiments/lua_interpreter_vm/spongejit/foundry.lua experiments/lua_interpreter_vm/spongejit/src/worker_compile.lua experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_*.lua
 
 # Retired old-runtime targets. They intentionally fail instead of silently
 # rebuilding quarantined descriptor/bank/materializer artifacts.

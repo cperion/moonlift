@@ -1,60 +1,48 @@
-# Lua Interpreter VM Experiment
+# Lua VM + SpongeJIT Experiment
 
-This directory contains the Moonlift-hosted Lua interpreter VM experiment and the SpongeJIT offline foundry.
+This directory contains the Moonlift-native Lua VM experiment and SpongeJIT, a
+semantic compiler/foundry for generating native Lua fast paths.
 
-Important status note: **the interpreter in `src/` is not currently wired to a runtime JIT.** SpongeJIT is an adjacent offline foundry that generates LuaCompile semantic representatives and Moonlift kernels. It does not install native images into `src/vm_loop.lua`.
+## Current direction
+
+```text
+Lua bytecode / trace windows
+→ LuaSrc + LuaFact
+→ LuaRT / LuaExec semantic ASDL
+→ MoonCFG ASDL
+→ Stencil ASDL backend artifacts
+→ Moonlift-native fact collection, selection, copy/patch materialization
+→ executable native fast paths
+```
+
+The design goal is explicit Lua semantics first, then efficient generated
+copy-and-patch stencils. Runtime materialization is semantics-blind: it selects
+by typed facts/contracts/CFG keys, copies bytes, patches typed holes, resolves
+relocations, and publishes executable code.
 
 ## What is here
 
 ```text
 experiments/lua_interpreter_vm/
-├── src/                         Moonlift Lua VM/interpreter implementation
+├── src/                         Moonlift Lua VM implementation work
 ├── tests/                       standalone Lua/Moonlift tests
-├── benchmarks/                  interpreter and prototype benchmark scripts
-├── spongejit/                   SpongeJIT LuaCompile offline foundry
-│   ├── lua_compile/             maintained LuaCompile ASDL pipeline
-│   ├── ssa_asdl/                ASDL schema and rewrite plan
-│   ├── src/                     corpus/profiling bridge utilities only
-│   └── Makefile                 LuaCompile foundry/test entry point
-├── tools/                       bytecode/corpus harnesses
-├── SPONJIT_ARCHITECTURE.md      current SpongeJIT architecture overview
-├── SPONJIT_FOUNDRY_SSA.md       LuaCompile semantic foundry design
-├── SPONJIT_TIER2_PLANNER_SPEC.md retired stencil planner note
-├── SPONJIT_COPY_LINK_PATCH.md   retired copy-link-patch note
-└── SPONJIT_RUNTIME_DESIGN.md    MoonOut runtime-boundary design
+├── benchmarks/                  VM and SpongeJIT benchmarks
+├── spongejit/                   SpongeJIT ASDL/MoonCFG/stencil compiler work
+│   ├── lua_compile/             maintained LuaCompile pipeline
+│   ├── ssa_asdl/                ASDL schema
+│   ├── src/                     corpus/profiling bridge utilities
+│   └── Makefile                 test/foundry entry point
+├── tools/                       bytecode/corpus/shadow tools
+├── SPONJIT_ARCHITECTURE.md      current architecture map
+├── SPONJIT_MOONLIFT_COPY_PATCH_DESIGN.md
+├── SPONJIT_FFI_DESIGN.md
+├── SPONJIT_GC_DESIGN.md
+└── VM_CONTRACT.md
 ```
 
-## Current status
+## Tests
 
-### Interpreter VM (`src/`)
-
-The main VM is a Moonlift experiment for implementing Lua runtime structures and bytecode execution as typed regions. It does **not** currently call into SpongeJIT or install native images at runtime.
-
-### SpongeJIT (`spongejit/`)
-
-SpongeJIT is now an offline LuaCompile foundry. The maintained pipeline is:
-
-```text
-grammar enumeration + fact/evidence axes
-→ LuaCompile.Unit
-→ LuaSem / LuaNF / LuaContract
-→ MoonOut.Kernel + emitted Moonlift source
-→ semantic representative bank artifacts
-```
-
-Corpus bytecode is a side validation/profiling input, not the primary generation source. It checks that real full operand-bearing PUC bytecode windows decode and land in the LuaCompile pipeline.
-
-The old path:
-
-```text
-src.ssa* → ssa_to_stencil → stencil_* → sponbank/materializer/runtime
-```
-
-has been removed from the maintained build/test flow. Old descriptor/bank/materializer compatibility is not a target.
-
-## Running tests
-
-From the repository root, VM tests remain standalone, for example:
+VM tests are standalone, for example:
 
 ```sh
 luajit experiments/lua_interpreter_vm/tests/test_vm_components.lua
@@ -64,58 +52,36 @@ luajit experiments/lua_interpreter_vm/tests/test_vm_e2e.lua
 luajit experiments/lua_interpreter_vm/tests/test_parser_compile.lua
 ```
 
-SpongeJIT LuaCompile checks:
+SpongeJIT tests:
 
 ```sh
 cd experiments/lua_interpreter_vm/spongejit
-make test                         # maintained LuaCompile suite + no-old-import scan
-make lua-compile-foundry           # grammar-generated representative bank
-make test-lua-compile-corpus100    # side validation on real full-operand bytecode windows
+make test
+make lua-compile-foundry
+make test-lua-compile-corpus100
 ```
 
-## SpongeJIT generated artifacts
+`make test` is for the currently implemented honest scope. Completion gates for
+future generic Lua behavior must stay positive-only: valid behavior either works
+or the gate is red.
 
-The maintained foundry artifact directory is:
-
-```text
-spongejit/build/lua_compile_foundry/
-```
-
-Primary files:
-
-```text
-lua_compile_representatives.json        # full representative artifact
-lua_compile_representative_index.json   # compact representative index
-lua_compile_alias_map.json              # source/evidence attempt -> rep/rejection map
-lua_compile_grammar_coverage.json       # coverage and rejection ledger
-lua_compile_representatives.md          # human summary
-```
-
-These artifacts are keyed by `LuaNF + LuaContract`. Source opcode windows and fact bundles are aliases/members, not equivalence identity.
-
-Corpus side validation writes to:
-
-```text
-spongejit/build/lua_compile_corpus100/
-```
-
-It enforces full operand-bearing PUC events and rejects opcode-only aggregate aliases.
-
-## Documentation map
+## Current design documents
 
 | File | Purpose |
 |---|---|
-| `SPONJIT_ARCHITECTURE.md` | Current LuaCompile/MoonOut overview. |
-| `SPONJIT_FOUNDRY_SSA.md` | LuaCompile semantic foundry design. |
-| `SPONJIT_RUNTIME_DESIGN.md` | MoonOut runtime boundary; no old bank runtime. |
-| `SPONJIT_COPY_LINK_PATCH.md` | Retired old copy-link-patch architecture. |
-| `SPONJIT_TIER2_PLANNER_SPEC.md` | Retired old stencil fusion planner. |
-| `spongejit/ssa_asdl/spongejit_lua_ssa.asdl` | ASDL vocabulary source of truth. |
-| `spongejit/ssa_asdl/REWRITE_PLAN.md` | Rewrite/cutover plan. |
+| `SPONJIT_ARCHITECTURE.md` | Current high-level map and guardrails. |
+| `SPONJIT_MOONLIFT_COPY_PATCH_DESIGN.md` | Moonlift-native fact collector, selector, stencil bank, copy/patch executor. |
+| `SPONJIT_FFI_DESIGN.md` | First-class LuaJIT-quality FFI design. |
+| `SPONJIT_GC_DESIGN.md` | First-class GC, barriers, finalizers, facts, and stencil integration. |
+| `spongejit/ssa_asdl/spongejit_lua_ssa.asdl` | Current ASDL vocabulary source. |
+| `VM_CONTRACT.md` | VM contract notes. |
 
-## Non-goals / warnings
+## Guardrails
 
-- This directory is not a production Lua implementation.
-- The Moonlift interpreter VM and SpongeJIT are not one integrated runtime JIT system today.
-- Do not use old `make bank`, `sponbank`, stencil, or materializer terminology for the maintained path.
-- `tools/sponjit_shadow/` is historical/shadow analysis, not the maintained LuaCompile foundry.
+- Lua semantics belong in explicit ASDL / MoonCFG / Moonlift regions.
+- Copy-and-patch stencils are backend artifacts derived from semantic CFGs.
+- Stencil keys, holes, and relocations must not encode hidden Lua behavior.
+- Runtime selector/materializer must not inspect opcode semantics.
+- No protocol `out_tag` accepted execution path.
+- No rejection-as-success tests for valid Lua behavior.
+- FFI and GC are first-class typed subsystems, not side helpers.

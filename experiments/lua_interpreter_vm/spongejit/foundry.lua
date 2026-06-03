@@ -1,19 +1,17 @@
 #!/usr/bin/env luajit
 -- foundry.lua — maintained offline LuaCompile foundry entry point.
 --
--- This is not runtime integration. It does not emit retired native-runtime
--- descriptor artifacts or compatibility adapters.
---
 -- Maintained architecture:
 --   opcode windows + facts/evidence
 --   -> LuaCompile.Unit
---   -> LuaSem / LuaNF / LuaContract
---   -> MoonOut.Kernel + emitted Moonlift source
---   -> semantic representative key (`LuaNF + LuaContract`)
+--   -> LuaRT / LuaExec / LuaSem / LuaNF / LuaContract
+--   -> MoonCFG.Kernel + emitted Moonlift source
+--   -> ASDL StencilTemplate artifacts generated from MoonCFG/LuaExec shapes
+--   -> semantic representative key (`MoonCFG + LuaContract + Stencil.VariantKey`)
 --
 -- Source opcode windows are preserved as aliases/members of semantic
--- representatives. The quarantined old src.ssa/stencil path remains readable
--- historical code only and is not required here.
+-- representatives. Runtime materialization is handled by the Moonlift-native
+-- fact-selection and copy/patch design.
 --
 -- Usage:
 --   luajit foundry.lua [--corpus-mode] [--out DIR] [--max-files N]

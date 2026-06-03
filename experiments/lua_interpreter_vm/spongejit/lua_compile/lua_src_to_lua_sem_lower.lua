@@ -247,10 +247,9 @@ add_decision("LOADI", "semantic", function(ctx, op) write_slot(ctx, op.a, box_i6
 add_decision("LOADF", "semantic", function(ctx, op) write_slot(ctx, op.a, box_f64(Sem.ImmF64(op.value))) end)
 add_decision("LOADK", "semantic", function(ctx, op) write_slot(ctx, op.a, Sem.ConstValue(op.k)) end)
 add_decision("LOADKX", "semantic", function(ctx, op)
-  local extra = ctx.next_op
-  if not extra or extra.kind ~= "EXTRAARG" then return reject(op, "unsupported_semantic_case") end
-  write_slot(ctx, op.a, Sem.ConstValue(B.k(extra.ax.value)))
-  ctx.skip_next = true
+  if not op.has_extraarg then return reject(op, "unsupported_semantic_case") end
+  write_slot(ctx, op.a, Sem.ConstValue(B.k(op.extraarg.value)))
+  if ctx.next_op and ctx.next_op.kind == "EXTRAARG" then ctx.skip_next = true end
 end)
 add_decision("EXTRAARG", "semantic", function(_ctx, op)
   return reject(op, "unsupported_semantic_case")
@@ -404,6 +403,7 @@ add_decision("RETURN0", "semantic", function(ctx, op)
   ctx.effects[#ctx.effects + 1] = Sem.Observe(Sem.Return0Observation(op.pc))
 end)
 add_decision("RETURN", "semantic", function(ctx, op)
+  if op.close_upvalues or ((op.c and op.c.value or 0) ~= 0) then return reject(op, "unsupported_semantic_case") end
   local n = op.nresults and op.nresults.value or 0
   if n == 1 then
     ctx.effects[#ctx.effects + 1] = Sem.Observe(Sem.Return0Observation(op.pc))
@@ -463,6 +463,7 @@ end)
 local CMP_RI = { EQI=Src.EqI, LTI=Src.LtI, LEI=Src.LeI, GTI=Src.GtI, GEI=Src.GeI }
 for name, cmp_op in pairs(CMP_RI) do
   add_decision(name, "semantic", function(ctx, op)
+    if op.rhs_is_float then return reject(op, "unsupported_semantic_case") end
     local ok, miss = require_i64(ctx, op, op.lhs); if not ok then return reject(op, "missing_fact", { miss }) end
     conditional_jump(ctx, op, Sem.CmpI64(cmp_op, i64_atom_for_slot(ctx.env, op.lhs), i64_imm(op.rhs.value), op.polarity))
   end)
@@ -493,6 +494,7 @@ add_decision("GETUPVAL", "semantic", function(ctx, op)
   write_slot(ctx, op.a, Sem.UpvalueValue(op.up))
 end)
 add_decision("NEWTABLE", "semantic", function(ctx, op)
+  if op.uses_extraarg then return reject(op, "unsupported_semantic_case") end
   write_slot(ctx, op.a, Sem.TableObject(Sem.NewTable(op.array_hint, op.hash_hint)))
 end)
 add_decision("CLOSURE", "semantic", function(ctx, op)
@@ -509,7 +511,8 @@ local function write_vararg_results(ctx, op, dst, base, nresults)
   end
 end
 add_decision("VARARG", "semantic", function(ctx, op)
-  return write_vararg_results(ctx, op, op.a, B.slot(0), op.nresults)
+  if op.uses_vararg_table then return reject(op, "unsupported_semantic_case") end
+  return write_vararg_results(ctx, op, op.a, B.slot(0), op.wanted)
 end)
 add_decision("GETVARG", "semantic", function(_ctx, op)
   return reject(op, "unsupported_semantic_case")

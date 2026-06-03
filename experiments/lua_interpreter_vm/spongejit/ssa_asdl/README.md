@@ -1,6 +1,7 @@
-# SpongeJIT Lua SSA ASDL Rewrite
+# SpongeJIT ASDL Vocabulary
 
-This folder contains the Moonlift/PVM ASDL vocabulary for the planned rewrite of the SpongeJIT Lua SSA compiler.
+This folder contains the ASDL vocabulary for SpongeJIT's explicit semantic
+compiler path.
 
 Primary schema:
 
@@ -8,16 +9,20 @@ Primary schema:
 
 Design authority:
 
-- `COMPILER_PATTERN.md`
+- `explicit_programming.md`
 - `PVM_GUIDE.md`
+- `experiments/lua_interpreter_vm/SPONJIT_ARCHITECTURE.md`
+- `experiments/lua_interpreter_vm/SPONJIT_MOONLIFT_COPY_PATCH_DESIGN.md`
+- `experiments/lua_interpreter_vm/SPONJIT_FFI_DESIGN.md`
+- `experiments/lua_interpreter_vm/SPONJIT_GC_DESIGN.md`
 
 Core rule:
 
 ```text
-PUC opcode mechanics are source vocabulary.
-SSA consumes Lua semantics into canonical reduced meaning.
-Residency/placement is not semantic identity.
-Moonlift kernels are the execution output; old SponJIT descriptors are quarantined.
+Source mechanics are consumed into explicit semantic types.
+Semantic choices become ASDL/MoonCFG structure.
+Stencil artifacts are generated from semantic CFGs and contracts.
+Runtime materialization is semantics-blind copy/patch/publish.
 ```
 
 Layer questions:
@@ -25,22 +30,18 @@ Layer questions:
 | Module | Question |
 |---|---|
 | `LuaSrc` | What did PUC encode? |
-| `LuaRegion` | What structured control topology did the bytecode imply? |
 | `LuaFact` | What evidence/facts/payload leases are available? |
-| `LuaSem` | What does the bytecode mean under that evidence? |
-| `LuaNF` | What is the least equivalent semantic computation? |
-| `LuaContract` | What facts/exits/projections are required/transferred? |
-| `LuaPlace` | Where may already-reduced values live? Optional if Moonlift/Cranelift owns placement. |
-| `MoonOut` | What Moonlift kernel boundary is emitted? |
-| `LuaCompile` | Top-level compile unit/result vocabulary. |
+| `LuaRT` / `LuaExec` | What Lua runtime semantics and control states are represented? |
+| `LuaSem` / `LuaNF` / `LuaContract` | What semantic forms, normal forms, and obligations are derived? |
+| `MoonCFG` | What explicit Moonlift-compatible CFG is emitted? |
+| `Stencil` | What compiled artifact, patch holes, relocs, and bank keys are produced? |
+| `LuaCompile` | What compile product is produced? |
 
-Non-negotiables encoded by the schema:
+Guardrails:
 
-- No physical registers in semantic SSA.
-- Source opcode variants are dead after `LuaSem`.
-- Payload leases are distinct from observed facts and ABI bitmasks.
-- Projection obligations are typed exits, not a side string or default synced-frame assumption.
-- Boundary is exact language/VM control transfer, not fallback.
-- Normal form is the semantic identity/dedupe layer.
-- No backward compatibility layer exists in this schema.
-- Old SponJIT bank/materializer descriptors are not a target of the rewrite.
+- No opcode-shaped final IR.
+- No protocol `out_tag` accepted execution path.
+- No hidden external semantic handoff.
+- No strings or magic integers for semantic distinctions.
+- Facts specialize semantics; facts do not replace semantics.
+- Stencil metadata describes bytes/holes/relocs, not Lua behavior.

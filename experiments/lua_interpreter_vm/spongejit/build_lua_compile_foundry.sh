@@ -3,8 +3,8 @@
 #
 # Maintained offline foundry pipeline:
 #   LuaCompile grammar/window plan -> parallel LuaCompile workers
-#   -> LuaNF + LuaContract semantic representative dedupe
-#   -> MoonOut.Kernel summaries + emitted Moonlift source artifacts.
+#   -> MoonCFG + LuaContract + Stencil.VariantKey representative dedupe
+#   -> MoonCFG/Moonlift source artifacts; binary StencilTemplate banks are separate object-extraction artifacts.
 #
 # This script builds LuaCompile representatives, indexes, alias maps, and coverage manifests.
 
@@ -51,7 +51,7 @@ MAX_ARITY=$MAX_ARITY
 MAX_FACT_COMBOS=$MAX_FACT_COMBOS
 WORKER_PROGRESS_SEQS=$WORKER_PROGRESS_SEQS
 SPON_TMP=$SPON_TMP
-ARTIFACT_SCHEMA=sponjit.lua_compile_foundry.v1
+ARTIFACT_SCHEMA=sponjit.lua_compile_foundry.v2
 EOF
 
 log "config: chunks=$CHUNKS workers=$WORKERS max_arity=$MAX_ARITY max_fact_combos=$MAX_FACT_COMBOS out=$SPON_TMP"
@@ -108,7 +108,7 @@ end
 
 local reps_by_key, reps, alias_map = {}, {}, {}
 local merged = {
-  schema = "sponjit.lua_compile_foundry.v1",
+  schema = "sponjit.lua_compile_foundry.v2",
   representatives = reps,
   alias_map = alias_map,
   rejection_reasons = {},
@@ -134,9 +134,11 @@ for ci = 1, chunks do
       out = {
         representative_id = #reps + 1,
         representative_key = key,
+        moon_cfg_key = rep.moon_cfg_key,
+        stencil_variant_key = rep.stencil_variant_key,
         normal_form_key = rep.normal_form_key,
         contract_key = rep.contract_key,
-        moon_out_kernel = rep.moon_out_kernel,
+        moon_cfg_kernel = rep.moon_cfg_kernel,
         moonlift_source = rep.moonlift_source,
         aliases = {},
         count = 0,

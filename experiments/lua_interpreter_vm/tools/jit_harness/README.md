@@ -1,28 +1,24 @@
-# Archived Lua JIT Harness Notes
+# Lua Bytecode / Corpus Harness Notes
 
-**Status:** archived/experimental harness notes. This directory is not the current maintained SpongeJIT pipeline.
+This directory contains bytecode and corpus utilities that may feed SpongeJIT
+source-window discovery and profiling.
 
-The maintained SpongeJIT path is now the LuaCompile offline foundry:
+Current SpongeJIT path:
 
 ```text
-grammar enumeration + evidence axes
-→ LuaCompile.Unit
-→ LuaNF + LuaContract
-→ MoonOut.Kernel + Moonlift source
-→ representative index / alias map / coverage manifest
+PUC bytecode windows
+→ LuaSrc + LuaFact
+→ LuaRT / LuaExec
+→ MoonCFG
+→ Stencil artifacts
+→ Moonlift-native selection and copy/patch materialization
 ```
 
-The bytecode dump tools in this area may still be used as corpus/profiling bridges, but old stencil-bank/runtime-library notes are historical only.
+Use the harness only as a source of bytecode windows, profiles, or comparison
+measurements. It is not the architecture source for semantic lowering,
+stencil-bank layout, or runtime materialization.
 
-Do not treat this harness as evidence that the current tree has a maintained:
-
-- executable stencil bank;
-- `libsponbank.so` selector;
-- native image materializer;
-- PUC runtime JIT path;
-- Copy-Link-Patch backend.
-
-Use:
+Current checks:
 
 ```sh
 cd experiments/lua_interpreter_vm/spongejit
@@ -30,5 +26,3 @@ make test
 make lua-compile-foundry
 make test-lua-compile-corpus100
 ```
-
-for current SpongeJIT checks.

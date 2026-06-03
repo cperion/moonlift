@@ -9,8 +9,12 @@
 --   LuaNF       answers: what is the least equivalent semantic computation?
 --   LuaContract answers: what facts/exits/projections are required/transferred?
 --   LuaPlace    answers: where may already-reduced values live? (optional if Moonlift/Cranelift owns placement)
+--   LuaFFI      answers: what Lua-visible C FFI declarations/types/values/facts exist.
+--   LuaGC       answers: what explicit Lua GC objects/state/control facts exist.
+--   LuaRT       answers: what Lua runtime semantic objects/state exist.
+--   LuaExec     answers: what explicit semantic Lua CFG is executed over LuaRT.
 --   MoonCFG     answers: what explicit Moonlift CFG is emitted.
---   MoonOut     legacy/quarantined name; accepted kernels use MoonCFG.
+--   Stencil     answers: what typed copy-and-patch backend artifact is materialized from MoonCFG.
 --
 -- Source opcode mechanics are code-shaping in LuaSrc and must be dead after LuaSem.
 -- Physical residency is not semantic identity.
@@ -39,7 +43,7 @@ module LuaSrc {
        | LOADI(LuaSrc.Pc pc, LuaSrc.Slot a, LuaSrc.Imm value) unique
        | LOADF(LuaSrc.Pc pc, LuaSrc.Slot a, LuaSrc.Imm value) unique
        | LOADK(LuaSrc.Pc pc, LuaSrc.Slot a, LuaSrc.KRef k) unique
-       | LOADKX(LuaSrc.Pc pc, LuaSrc.Slot a) unique
+       | LOADKX(LuaSrc.Pc pc, LuaSrc.Slot a, boolean has_extraarg, LuaSrc.Ax extraarg) unique
        | LOADFALSE(LuaSrc.Pc pc, LuaSrc.Slot a) unique
        | LFALSESKIP(LuaSrc.Pc pc, LuaSrc.Slot a) unique
        | LOADTRUE(LuaSrc.Pc pc, LuaSrc.Slot a) unique
@@ -55,7 +59,7 @@ module LuaSrc {
        | SETTABLE(LuaSrc.Pc pc, LuaSrc.Slot table, LuaSrc.Slot key, LuaSrc.RK value) unique
        | SETI(LuaSrc.Pc pc, LuaSrc.Slot table, LuaSrc.Imm index, LuaSrc.RK value) unique
        | SETFIELD(LuaSrc.Pc pc, LuaSrc.Slot table, LuaSrc.KRef key, LuaSrc.RK value) unique
-       | NEWTABLE(LuaSrc.Pc pc, LuaSrc.Slot a, LuaSrc.Count array_hint, LuaSrc.Count hash_hint) unique
+       | NEWTABLE(LuaSrc.Pc pc, LuaSrc.Slot a, LuaSrc.Count array_hint, LuaSrc.Count hash_hint, boolean uses_extraarg, LuaSrc.Ax extraarg) unique
        | SELF(LuaSrc.Pc pc, LuaSrc.Slot a, LuaSrc.Slot receiver, LuaSrc.KRef key) unique
 
        | ADDI(LuaSrc.Pc pc, LuaSrc.Slot a, LuaSrc.Slot lhs, LuaSrc.Imm rhs) unique
@@ -86,8 +90,8 @@ module LuaSrc {
        | SHR(LuaSrc.Pc pc, LuaSrc.Slot a, LuaSrc.Slot lhs, LuaSrc.Slot rhs) unique
 
        | MMBIN(LuaSrc.Pc pc, LuaSrc.Slot lhs, LuaSrc.Slot rhs, LuaSrc.BinOp op) unique
-       | MMBINI(LuaSrc.Pc pc, LuaSrc.Slot lhs, LuaSrc.Imm rhs, LuaSrc.BinOp op) unique
-       | MMBINK(LuaSrc.Pc pc, LuaSrc.Slot lhs, LuaSrc.KRef rhs, LuaSrc.BinOp op) unique
+       | MMBINI(LuaSrc.Pc pc, LuaSrc.Slot lhs, LuaSrc.Imm rhs, LuaSrc.BinOp op, boolean operands_flipped) unique
+       | MMBINK(LuaSrc.Pc pc, LuaSrc.Slot lhs, LuaSrc.KRef rhs, LuaSrc.BinOp op, boolean operands_flipped) unique
        | UNM(LuaSrc.Pc pc, LuaSrc.Slot a, LuaSrc.Slot b) unique
        | BNOT(LuaSrc.Pc pc, LuaSrc.Slot a, LuaSrc.Slot b) unique
        | NOT(LuaSrc.Pc pc, LuaSrc.Slot a, LuaSrc.Slot b) unique
@@ -102,17 +106,17 @@ module LuaSrc {
        | LT(LuaSrc.Pc pc, LuaSrc.Slot lhs, LuaSrc.Slot rhs, boolean polarity) unique
        | LE(LuaSrc.Pc pc, LuaSrc.Slot lhs, LuaSrc.Slot rhs, boolean polarity) unique
        | EQK(LuaSrc.Pc pc, LuaSrc.Slot lhs, LuaSrc.KRef rhs, boolean polarity) unique
-       | EQI(LuaSrc.Pc pc, LuaSrc.Slot lhs, LuaSrc.Imm rhs, boolean polarity) unique
-       | LTI(LuaSrc.Pc pc, LuaSrc.Slot lhs, LuaSrc.Imm rhs, boolean polarity) unique
-       | LEI(LuaSrc.Pc pc, LuaSrc.Slot lhs, LuaSrc.Imm rhs, boolean polarity) unique
-       | GTI(LuaSrc.Pc pc, LuaSrc.Slot lhs, LuaSrc.Imm rhs, boolean polarity) unique
-       | GEI(LuaSrc.Pc pc, LuaSrc.Slot lhs, LuaSrc.Imm rhs, boolean polarity) unique
+       | EQI(LuaSrc.Pc pc, LuaSrc.Slot lhs, LuaSrc.Imm rhs, boolean polarity, boolean rhs_is_float) unique
+       | LTI(LuaSrc.Pc pc, LuaSrc.Slot lhs, LuaSrc.Imm rhs, boolean polarity, boolean rhs_is_float) unique
+       | LEI(LuaSrc.Pc pc, LuaSrc.Slot lhs, LuaSrc.Imm rhs, boolean polarity, boolean rhs_is_float) unique
+       | GTI(LuaSrc.Pc pc, LuaSrc.Slot lhs, LuaSrc.Imm rhs, boolean polarity, boolean rhs_is_float) unique
+       | GEI(LuaSrc.Pc pc, LuaSrc.Slot lhs, LuaSrc.Imm rhs, boolean polarity, boolean rhs_is_float) unique
        | TEST(LuaSrc.Pc pc, LuaSrc.Slot a, boolean polarity) unique
        | TESTSET(LuaSrc.Pc pc, LuaSrc.Slot a, LuaSrc.Slot b, boolean polarity) unique
 
        | CALL(LuaSrc.Pc pc, LuaSrc.Slot base, LuaSrc.Count nargs, LuaSrc.Count nresults) unique
-       | TAILCALL(LuaSrc.Pc pc, LuaSrc.Slot base, LuaSrc.Count nargs, LuaSrc.Count nresults) unique
-       | RETURN(LuaSrc.Pc pc, LuaSrc.Slot base, LuaSrc.Count nresults) unique
+       | TAILCALL(LuaSrc.Pc pc, LuaSrc.Slot base, LuaSrc.Count nargs, LuaSrc.Count hidden_vararg_count, boolean close_upvalues) unique
+       | RETURN(LuaSrc.Pc pc, LuaSrc.Slot base, LuaSrc.Count nresults, LuaSrc.Count c, boolean close_upvalues) unique
        | RETURN0(LuaSrc.Pc pc) unique
        | RETURN1(LuaSrc.Pc pc, LuaSrc.Slot value) unique
 
@@ -122,11 +126,11 @@ module LuaSrc {
        | TFORCALL(LuaSrc.Pc pc, LuaSrc.Slot base, LuaSrc.Count nresults) unique
        | TFORLOOP(LuaSrc.Pc pc, LuaSrc.Slot base, LuaSrc.Offset offset) unique
 
-       | SETLIST(LuaSrc.Pc pc, LuaSrc.Slot table, LuaSrc.Count narray, LuaSrc.Count start) unique
+       | SETLIST(LuaSrc.Pc pc, LuaSrc.Slot table, LuaSrc.Count narray, LuaSrc.Count start, boolean uses_extraarg, LuaSrc.Ax extraarg) unique
        | CLOSURE(LuaSrc.Pc pc, LuaSrc.Slot a, LuaSrc.KRef proto) unique
-       | VARARG(LuaSrc.Pc pc, LuaSrc.Slot a, LuaSrc.Count nresults) unique
+       | VARARG(LuaSrc.Pc pc, LuaSrc.Slot a, LuaSrc.Slot vararg_table, LuaSrc.Count wanted, boolean uses_vararg_table) unique
        | GETVARG(LuaSrc.Pc pc, LuaSrc.Slot a, LuaSrc.Slot base, LuaSrc.Slot index) unique
-       | ERRNNIL(LuaSrc.Pc pc, LuaSrc.Slot a) unique
+       | ERRNNIL(LuaSrc.Pc pc, LuaSrc.Slot a, LuaSrc.Ax name_index) unique
        | VARARGPREP(LuaSrc.Pc pc, LuaSrc.Count fixed_params) unique
        | EXTRAARG(LuaSrc.Pc pc, LuaSrc.Ax ax) unique
 
@@ -618,6 +622,1082 @@ module LuaPlace {
             LuaPlace.ProjectionPlan* projections) unique
 }
 
+module LuaFFI {
+    Name = (string text) unique
+    CName = (string text) unique
+
+    CTypeId = (number id) unique
+    CDeclId = (number id) unique
+    CLibId = (number id) unique
+    CSymbolId = (number id) unique
+    CCallbackId = (number id) unique
+    CMetatypeId = (number id) unique
+    CNameId = (number id) unique
+    CFinalizerId = (number id) unique
+
+    CScalarKind = CVoid
+                | CBool
+                | CChar
+                | CSChar
+                | CUChar
+                | CShort
+                | CUShort
+                | CInt
+                | CUInt
+                | CLong
+                | CULong
+                | CLongLong
+                | CULongLong
+                | CInt8
+                | CUInt8
+                | CInt16
+                | CUInt16
+                | CInt32
+                | CUInt32
+                | CInt64
+                | CUInt64
+                | CSizeT
+                | CSSizeT
+                | CPtrDiffT
+                | CFloat
+                | CDouble
+                | CLongDouble
+
+    CSignedness = Signed
+                | Unsigned
+                | Signless
+
+    CAbi = PlatformDefaultABI
+         | SystemVAMD64
+         | Win64
+         | AArch64SysV
+         | CDeclABI
+         | StdCallABI
+         | FastCallABI
+         | ThisCallABI
+         | VectorCallABI
+         | UnsupportedABI(string name) unique
+
+    CParamMode = CValueParam
+               | CPointerParam
+               | CArrayDecayParam
+               | CVarargParam
+
+    CType = ScalarType(LuaFFI.CTypeId id,
+                       LuaFFI.CScalarKind kind,
+                       LuaFFI.CSignedness signedness,
+                       number size_bytes,
+                       number align_bytes) unique
+          | PointerType(LuaFFI.CTypeId id,
+                        LuaFFI.CType pointee,
+                        boolean is_const,
+                        boolean is_volatile) unique
+          | ArrayType(LuaFFI.CTypeId id,
+                      LuaFFI.CType element,
+                      number count,
+                      number size_bytes,
+                      number align_bytes) unique
+          | IncompleteArrayType(LuaFFI.CTypeId id,
+                                LuaFFI.CType element) unique
+          | FunctionType(LuaFFI.CTypeId id,
+                         LuaFFI.CAbi abi,
+                         LuaFFI.CType return_type,
+                         LuaFFI.CParamList params) unique
+          | StructType(LuaFFI.CTypeId id,
+                       LuaFFI.CName name,
+                       LuaFFI.CRecordLayout layout) unique
+          | UnionType(LuaFFI.CTypeId id,
+                      LuaFFI.CName name,
+                      LuaFFI.CRecordLayout layout) unique
+          | EnumType(LuaFFI.CTypeId id,
+                     LuaFFI.CName name,
+                     LuaFFI.CEnumLayout layout) unique
+          | TypedefType(LuaFFI.CTypeId id,
+                        LuaFFI.CName name,
+                        LuaFFI.CType aliased) unique
+          | OpaqueTagType(LuaFFI.CTypeId id,
+                          LuaFFI.CName name) unique
+
+    CParam = (LuaFFI.CName name,
+              LuaFFI.CType type,
+              LuaFFI.CParamMode mode) unique
+
+    CParamList = (LuaFFI.CParam* params,
+                  boolean is_variadic) unique
+
+    CFieldKind = NormalField
+               | BitField
+               | FlexibleArrayMember
+
+    CField = (LuaFFI.CName name,
+              LuaFFI.CType type,
+              LuaFFI.CFieldKind kind,
+              number offset_bits,
+              number width_bits) unique
+
+    CRecordLayout = (LuaFFI.CName name,
+                     boolean is_union,
+                     boolean is_complete,
+                     number size_bytes,
+                     number align_bytes,
+                     LuaFFI.CField* fields,
+                     string layout_hash) unique
+
+    CEnumItem = (LuaFFI.CName name,
+                 number value) unique
+
+    CEnumLayout = (LuaFFI.CName name,
+                   LuaFFI.CScalarKind repr,
+                   number size_bytes,
+                   number align_bytes,
+                   LuaFFI.CEnumItem* items,
+                   string layout_hash) unique
+
+    CLibKind = ProcessLibrary
+             | DynamicLibrary
+             | StaticArchive
+             | FrameworkLibrary
+             | BuiltinLibrary
+
+    CLib = (LuaFFI.CLibId id,
+            LuaFFI.CName name,
+            LuaFFI.CLibKind kind,
+            string path,
+            boolean loaded) unique
+
+    CSymbolKind = FunctionSymbol
+                | DataSymbol
+                | CallbackSymbol
+
+    CSymbol = (LuaFFI.CSymbolId id,
+               LuaFFI.CName name,
+               LuaFFI.CLib library,
+               LuaFFI.CSymbolKind kind,
+               LuaFFI.CType type,
+               LuaFFI.CAbi abi,
+               boolean resolved,
+               string address_key) unique
+
+    CStorageKind = InlineStorageKind
+                 | ExternalPointerStorageKind
+                 | OwnedHeapStorageKind
+                 | BorrowedBufferStorageKind
+                 | StaticSymbolStorageKind
+
+    CStorage = InlineStorage(string content_hash, number byte_size) unique
+             | ExternalPointerStorage(string address_key, number byte_size) unique
+             | OwnedHeapStorage(string address_key, number byte_size) unique
+             | BorrowedBufferStorage(string owner_key, number byte_size) unique
+             | StaticSymbolStorage(LuaFFI.CSymbol symbol, number byte_size) unique
+
+    OwnershipState = BorrowedOwnership
+                   | OwnedOwnership
+                   | ReleasedOwnership
+                   | FinalizerAttachedOwnership
+                   | FinalizerRunningOwnership
+                   | FinalizedOwnership
+
+    CFinalizer = NoFinalizer unique
+               | CFunctionFinalizer(LuaFFI.CFinalizerId id,
+                                    LuaFFI.CSymbol symbol) unique
+               | LuaCallableFinalizer(LuaFFI.CFinalizerId id,
+                                      LuaFFI.CName lua_ref) unique
+
+    CData = (LuaFFI.CType type,
+             LuaFFI.CStorage storage,
+             LuaFFI.CFinalizer finalizer,
+             LuaFFI.OwnershipState ownership,
+             LuaFFI.CMetatypeId metatype) unique
+
+    CCallback = (LuaFFI.CCallbackId id,
+                 LuaFFI.CType function_type,
+                 LuaFFI.CAbi abi,
+                 LuaFFI.CName lua_ref,
+                 string thunk_key,
+                 boolean live) unique
+
+    FFIRegistry = (LuaFFI.CType* types,
+                   LuaFFI.CRecordLayout* records,
+                   LuaFFI.CEnumLayout* enums,
+                   LuaFFI.CLib* libraries,
+                   LuaFFI.CSymbol* symbols,
+                   LuaFFI.CCallback* callbacks,
+                   LuaFFI.CData* cdata,
+                   LuaFFI.CFinalizer* finalizers) unique
+
+    FFIErrorKind = CDefParseError
+                 | UnsupportedCDeclaration
+                 | UnknownCType
+                 | IncompleteCType
+                 | LayoutError
+                 | LibraryLoadError
+                 | SymbolResolutionError
+                 | AllocationError
+                 | CastError
+                 | FieldLookupError
+                 | IndexError
+                 | CallSignatureError
+                 | CallbackError
+                 | FinalizerError
+
+    FFIError = (LuaFFI.FFIErrorKind kind,
+                LuaFFI.CName message) unique
+
+    OperationOutcome = CDefOk(LuaFFI.CDeclId decl,
+                              LuaFFI.FFIRegistry registry) unique
+                     | TypeQueryOk(LuaFFI.CType type) unique
+                     | LayoutQueryOk(LuaFFI.CType type,
+                                     number size_bytes,
+                                     number align_bytes,
+                                     string layout_hash) unique
+                     | LoadLibraryOk(LuaFFI.CLib library) unique
+                     | ResolveSymbolOk(LuaFFI.CSymbol symbol) unique
+                     | NewCDataOk(LuaFFI.CData cdata) unique
+                     | CastOk(LuaFFI.CData cdata) unique
+                     | FieldAccessOk(LuaFFI.CData owner,
+                                     LuaFFI.CField field) unique
+                     | IndexAccessOk(LuaFFI.CData owner,
+                                     LuaFFI.CType element_type) unique
+                     | FFICallOk(LuaFFI.CType return_type) unique
+                     | CallbackOk(LuaFFI.CCallback callback) unique
+                     | FinalizerOk(LuaFFI.CFinalizer finalizer) unique
+                     | FFIErrorResult(LuaFFI.FFIError error) unique
+
+    Fact = FFITypeEq(LuaFFI.CTypeId type_id,
+                     LuaFFI.CType type) unique
+         | FFISymbolResolved(LuaFFI.CSymbolId symbol,
+                             string address_key) unique
+         | FFILayoutEq(LuaFFI.CTypeId type_id,
+                       string layout_hash) unique
+         | FFICallbackLive(LuaFFI.CCallbackId callback) unique
+}
+
+module LuaRT {
+    Name = (string text) unique
+    Pc = (number value) unique
+    Slot = (number index) unique
+    Count = (number value) unique
+    Ax = (number value) unique
+
+    ValueTag = NilTag
+             | EmptySlotTag
+             | AbsentKeyTag
+             | NoTableTag
+             | FalseTag
+             | TrueTag
+             | IntegerTag
+             | FloatTag
+             | ShortStringTag
+             | LongStringTag
+             | TableTag
+             | LuaClosureTag
+             | CClosureTag
+             | LightCFunctionTag
+             | UserdataTag
+             | LightUserdataTag
+             | ThreadTag
+             | CDataTag
+
+    NilKind = OrdinaryNil
+            | EmptySlotSentinel
+            | AbsentKeySentinel
+            | NoTableSentinel
+
+    BoolKind = LuaFalse | LuaTrue
+    NumberKind = IntegerNumber | FloatNumber
+    StringKind = ShortString | LongString
+    GCColor = White | Gray | Black
+
+    FrameRef = (LuaRT.Name name) unique
+    StackRef = (LuaRT.FrameRef frame) unique
+    ConstRef = (number index) unique
+    UpvalueRef = (number index) unique
+    VarargRef = (LuaRT.FrameRef frame) unique
+    TableRef = (LuaRT.Name name) unique
+    StringRef = (LuaRT.Name name) unique
+    ClosureRef = (LuaRT.Name name) unique
+    FunctionRef = (LuaRT.Name name) unique
+    UserdataRef = (LuaRT.Name name) unique
+    ThreadRef = (LuaRT.Name name) unique
+    PointerRef = (LuaRT.Name name) unique
+
+    ValueRef = StackValue(LuaRT.FrameRef frame, LuaRT.Slot slot) unique
+             | ConstValue(LuaRT.ConstRef const) unique
+             | UpvalueValue(LuaRT.UpvalueRef upvalue) unique
+             | VarargValue(LuaRT.VarargRef vararg, LuaRT.Count index) unique
+             | TempValue(LuaRT.Name name) unique
+             | TableValue(LuaRT.TableRef table) unique
+             | ClosureValue(LuaRT.ClosureRef closure) unique
+             | UserdataValue(LuaRT.UserdataRef userdata) unique
+             | ThreadValue(LuaRT.ThreadRef thread) unique
+
+    TValue = NilValue(LuaRT.NilKind kind) unique
+           | BoolValue(LuaRT.BoolKind kind) unique
+           | IntValue(number value) unique
+           | FloatValue(number value) unique
+           | StringValue(LuaRT.StringRef string, LuaRT.StringKind kind) unique
+           | TableValueNode(LuaRT.TableRef table) unique
+           | LuaClosureValue(LuaRT.ClosureRef closure) unique
+           | CClosureValue(LuaRT.ClosureRef closure) unique
+           | LightCFunctionValue(LuaRT.FunctionRef function) unique
+           | UserdataValueNode(LuaRT.UserdataRef userdata) unique
+           | LightUserdataValue(LuaRT.PointerRef pointer) unique
+           | ThreadValueNode(LuaRT.ThreadRef thread) unique
+           | CDataValueNode(LuaFFI.CData cdata) unique
+
+    ValueProjection = ProjectTag
+                    | ProjectNilKind
+                    | ProjectBool
+                    | ProjectInteger
+                    | ProjectFloat
+                    | ProjectStringRef
+                    | ProjectTableRef
+                    | ProjectClosureRef
+                    | ProjectUserdataRef
+                    | ProjectThreadRef
+                    | ProjectPayloadBits
+
+    TypeTest = IsNil
+             | IsOrdinaryNil
+             | IsFalse
+             | IsFalsey
+             | IsTruthy
+             | IsBoolean
+             | IsInteger
+             | IsFloat
+             | IsNumber
+             | IsString
+             | IsTable
+             | IsLuaClosure
+             | IsCClosure
+             | IsFunction
+             | IsUserdata
+             | IsThread
+             | IsCData
+             | IsCollectable
+             | IsAbsentKey
+             | IsEmptySlot
+
+    Truthiness = FalseyNil
+               | FalseyFalse
+               | TruthyValue
+
+    CountSpec = FixedCount(number count) unique
+              | OpenFromTop(LuaRT.TopRef top) unique
+              | OpenFromVarargs(LuaRT.VarargSource source) unique
+              | OpenFromVarargsAtBase(LuaRT.Slot base, LuaRT.VarargSource source) unique
+              | DynamicCount(LuaRT.ValueRef count_value) unique
+              | UnknownCount(string reason) unique
+
+    TopRef = (LuaRT.FrameRef frame) unique
+
+    StackWindowKind = CallWindow
+                    | ReturnWindow
+                    | VarargWindow
+                    | ConstructorWindow
+                    | IteratorWindow
+                    | AssignmentWindow
+
+    StackWindow = (LuaRT.StackWindowKind kind,
+                   LuaRT.FrameRef frame,
+                   LuaRT.Slot base,
+                   LuaRT.CountSpec count) unique
+
+    ValueSeqKind = FixedSeq
+                 | OpenSeq
+                 | AdjustedSeq
+                 | VarargSeq
+                 | CallResultSeq
+
+    ValueSeq = (LuaRT.ValueSeqKind kind,
+                LuaRT.ValueRef* values,
+                LuaRT.CountSpec count,
+                LuaRT.SequenceOrigin origin) unique
+
+    SequenceOrigin = FromStackWindow(LuaRT.StackWindow window) unique
+                   | FromCallResult(LuaRT.CallRef call) unique
+                   | FromVarargs(LuaRT.VarargSource source) unique
+                   | FromLiteralValues unique
+                   | FromAdjusted(LuaRT.ValueSeq source) unique
+
+    ResultAdjustment = ExactCount(LuaRT.Count count) unique
+                     | OpenResult unique
+                     | FillNilTo(LuaRT.Count count) unique
+                     | TruncateTo(LuaRT.Count count) unique
+                     | PropagateOpenTail unique
+
+    Frame = (LuaRT.FrameRef id,
+             LuaRT.StackRef stack,
+             LuaRT.TopRef top,
+             LuaRT.VarargSource varargs,
+             LuaRT.CloseChain close_chain,
+             LuaRT.Pc pc) unique
+
+    VarargSource = NoVarargs unique
+                 | HiddenFrameVarargs(LuaRT.FrameRef frame, LuaRT.Count count) unique
+                 | VarargTableSource(LuaRT.TableRef table, LuaRT.Count count) unique
+
+    VarargAccess = VarargIndex(LuaRT.VarargSource source, LuaRT.ValueRef key) unique
+                 | VarargFixedCopy(LuaRT.VarargSource source, LuaRT.Count count) unique
+                 | VarargOpenCopy(LuaRT.VarargSource source) unique
+                 | VarargNField(LuaRT.VarargSource source) unique
+
+    TableShape = ArrayOnly
+               | HashOnly
+               | MixedArrayHash
+               | UnknownShape
+
+    TableHashEntryState = HashEmpty
+                        | HashOccupied
+                        | HashTombstone
+
+    TableHashEntry = (LuaRT.TableHashEntryState state,
+                      LuaRT.ValueRef key,
+                      LuaRT.ValueRef value) unique
+
+    TableRefState = (LuaRT.TableRef table,
+                     LuaRT.TableShape shape,
+                     LuaRT.MetatableRef metatable) unique
+
+    MetatableRef = NoMetatable unique
+                 | TableMetatable(LuaRT.TableRef table) unique
+                 | UserdataMetatable(LuaRT.UserdataRef userdata) unique
+                 | TypeMetatable(LuaRT.ValueTag tag) unique
+                 | UnknownMetatable unique
+
+    RawGetResult = RawHit(LuaRT.ValueRef value) unique
+                 | RawMiss(LuaRT.NilKind absent_sentinel) unique
+
+    RawSetResult = RawUpdated unique
+                 | RawInserted unique
+                 | RawSetNilKeyError unique
+                 | RawSetNaNKeyError unique
+                 | RawSetBarrierRequired unique
+
+    TableLookupState = LookupStart(LuaRT.ValueRef table, LuaRT.ValueRef key) unique
+                     | LookupRawTable(LuaRT.TableRef table, LuaRT.ValueRef key) unique
+                     | LookupMetatable(LuaRT.ValueRef receiver, LuaRT.Metamethod method) unique
+                     | LookupIndexTableChain(LuaRT.TableRef next_table, LuaRT.Count depth) unique
+                     | LookupIndexFunctionCall(LuaRT.ValueRef function, LuaRT.ValueRef receiver, LuaRT.ValueRef key) unique
+                     | LookupComplete(LuaRT.ValueRef value) unique
+                     | LookupTypeError(LuaRT.ValueRef receiver, LuaRT.ValueRef key) unique
+                     | LookupLoopLimitExceeded unique
+
+    TableSetState = SetStart(LuaRT.ValueRef table, LuaRT.ValueRef key, LuaRT.ValueRef value) unique
+                  | SetRawTable(LuaRT.TableRef table, LuaRT.ValueRef key, LuaRT.ValueRef value) unique
+                  | SetMetatable(LuaRT.ValueRef receiver, LuaRT.Metamethod method) unique
+                  | SetNewIndexTableChain(LuaRT.TableRef next_table, LuaRT.Count depth) unique
+                  | SetNewIndexFunctionCall(LuaRT.ValueRef function, LuaRT.ValueRef receiver, LuaRT.ValueRef key, LuaRT.ValueRef value) unique
+                  | SetComplete unique
+                  | SetTypeError(LuaRT.ValueRef receiver, LuaRT.ValueRef key) unique
+                  | SetLoopLimitExceeded unique
+
+    -- PUC ltm.h order: INDEX, NEWINDEX, GC, MODE, LEN, EQ, arithmetic,
+    -- bitwise, unary, order, CONCAT, CALL, CLOSE.
+    Metamethod = TM_INDEX
+               | TM_NEWINDEX
+               | TM_GC
+               | TM_MODE
+               | TM_LEN
+               | TM_EQ
+               | TM_ADD
+               | TM_SUB
+               | TM_MUL
+               | TM_MOD
+               | TM_POW
+               | TM_DIV
+               | TM_IDIV
+               | TM_BAND
+               | TM_BOR
+               | TM_BXOR
+               | TM_SHL
+               | TM_SHR
+               | TM_UNM
+               | TM_BNOT
+               | TM_LT
+               | TM_LE
+               | TM_CONCAT
+               | TM_CALL
+               | TM_CLOSE
+
+    MetamethodLookup = LookupFirstOperand(LuaRT.ValueRef left, LuaRT.Metamethod method) unique
+                     | LookupSecondOperand(LuaRT.ValueRef right, LuaRT.Metamethod method) unique
+                     | LookupReceiver(LuaRT.ValueRef receiver, LuaRT.Metamethod method) unique
+                     | MetamethodFound(LuaRT.ValueRef function) unique
+                     | MetamethodMissing unique
+
+    CallRef = (LuaRT.Name name) unique
+
+    CallableKind = CallableLuaClosure
+                 | CallableCClosure
+                 | CallableLightCFunction
+                 | CallableViaCallMetamethod
+                 | NotCallable
+
+    CallShape = (LuaRT.ValueRef callee,
+                 LuaRT.StackWindow args,
+                 LuaRT.CountSpec wanted_results,
+                 boolean is_tailcall,
+                 boolean may_yield) unique
+
+    CallContinuationKind = CallReturn
+                         | CallError
+                         | CallYield
+                         | TailCallReplaceFrame
+                         | CallMetamethodRetry
+
+    CallResult = (LuaRT.CallRef call,
+                  LuaRT.ValueSeq results,
+                  LuaRT.CallContinuationKind continuation) unique
+
+    ErrorKind = TypeError
+              | ArithmeticError
+              | CompareError
+              | TableIndexNilError
+              | TableIndexNaNError
+              | NotCallableError
+              | CloseError
+              | RuntimeError
+              | ErrNnilError
+
+    ErrorState = (LuaRT.ErrorKind kind,
+                  LuaRT.ValueRef error_object,
+                  LuaRT.Pc saved_pc,
+                  LuaRT.TopRef saved_top) unique
+
+    YieldState = (LuaRT.Pc saved_pc,
+                  LuaRT.TopRef saved_top,
+                  LuaRT.ValueSeq yielded_values,
+                  LuaRT.ResumePoint resume_point) unique
+
+    ResumePoint = ResumeCall
+                | ResumeMetamethod
+                | ResumeTableGet
+                | ResumeTableSet
+                | ResumeArithmetic
+                | ResumeComparison
+                | ResumeConcat
+                | ResumeClose
+                | ResumeReturn
+                | ResumeTForCall
+
+    CloseChain = (LuaRT.FrameRef frame,
+                  LuaRT.CloseItem* items) unique
+
+    CloseItem = (LuaRT.Slot slot,
+                 LuaRT.ValueRef value,
+                 LuaRT.CloseState state) unique
+
+    CloseState = ClosePending
+               | CloseSkippedFalsey
+               | CloseMethodLookup
+               | CloseMethodFound(LuaRT.ValueRef method) unique
+               | CloseCallRunning
+               | CloseComplete
+               | CloseErrorState(LuaRT.ErrorState error) unique
+               | CloseYieldState(LuaRT.YieldState yield) unique
+
+    NumericForState = IntegerForState(LuaRT.Slot base,
+                                      LuaRT.ValueRef count,
+                                      LuaRT.ValueRef step,
+                                      LuaRT.ValueRef control) unique
+                    | FloatForState(LuaRT.Slot base,
+                                    LuaRT.ValueRef limit,
+                                    LuaRT.ValueRef step,
+                                    LuaRT.ValueRef control) unique
+
+    GenericForState = (LuaRT.Slot base,
+                       LuaRT.ValueRef iterator,
+                       LuaRT.ValueRef state,
+                       LuaRT.ValueRef control,
+                       LuaRT.ValueRef closing,
+                       LuaRT.Count wanted_results) unique
+
+    SetListState = (LuaRT.TableRef table,
+                    LuaRT.StackWindow values,
+                    LuaRT.CountSpec value_count,
+                    LuaRT.Count start_index,
+                    boolean uses_extraarg,
+                    LuaRT.Ax extraarg) unique
+
+    Guard = TypeGuard(LuaRT.ValueRef value, LuaRT.TypeTest test) unique
+          | TagGuard(LuaRT.ValueRef value, LuaRT.ValueTag tag) unique
+          | ShapeGuard(LuaRT.TableRef table, LuaRT.TableShape shape) unique
+          | MetatableGuard(LuaRT.ValueRef value, LuaRT.MetatableRef metatable) unique
+          | NonZeroGuard(LuaRT.ValueRef value) unique
+          | BoundsGuard(LuaRT.StackWindow window) unique
+          | CompanionGuard(LuaRT.Pc pc, LuaRT.CompanionKind kind) unique
+
+    CompanionKind = FollowingJmp
+                  | FollowingMMBIN
+                  | FollowingExtraArg
+
+    ArithmeticOp = ArithAdd
+                 | ArithSub
+                 | ArithMul
+                 | ArithMod
+                 | ArithPow
+                 | ArithDiv
+                 | ArithIDiv
+
+    ArithmeticFallback = NumericArithmetic
+                       | StringToNumberUnsupported
+                       | MetamethodCallUnsupported
+                       | ArithmeticTypeError
+
+    ArithmeticCompanion = (LuaRT.Pc arithmetic_pc,
+                           LuaRT.Pc companion_pc,
+                           LuaRT.ArithmeticOp op,
+                           boolean operands_flipped) unique
+}
+
+module LuaGC {
+    Name = (string text) unique
+
+    GCObjectRef = (LuaGC.Name name) unique
+
+    GCColor = White0
+            | White1
+            | Gray
+            | Black
+            | Fixed
+            | Dead
+
+    GCObjectKind = StringKind
+                 | TableKind
+                 | ClosureKind
+                 | ProtoKind
+                 | ThreadKind
+                 | UserdataKind
+                 | CDataKind
+                 | UpvalueKind
+
+    GCPhase = Pause
+            | Propagate
+            | Atomic
+            | SweepString
+            | SweepObjects
+            | CallFinalizers
+
+    GCRef = NoGCRef unique
+          | SomeGCRef(LuaGC.GCObjectRef object) unique
+
+    GCHeader = (LuaGC.GCObjectRef object,
+                LuaGC.GCRef next,
+                LuaGC.GCObjectKind kind,
+                LuaGC.GCColor color,
+                number flags,
+                number epoch) unique
+
+    GCLimits = (number pause_debt,
+                number step_multiplier,
+                number emergency_threshold) unique
+
+    GCLists = (LuaGC.GCRef all,
+               LuaGC.GCRef gray,
+               LuaGC.GCRef gray_again,
+               LuaGC.GCRef weak_tables,
+               LuaGC.GCRef ephemeron_tables,
+               LuaGC.GCRef finalizable,
+               LuaGC.GCRef to_finalize) unique
+
+    Allocator = (LuaGC.Name ctx,
+                 LuaGC.Name alloc_fn,
+                 LuaGC.Name realloc_fn,
+                 LuaGC.Name free_fn) unique
+
+    GCState = (LuaGC.GCPhase phase,
+               LuaGC.GCColor current_white,
+               LuaGC.GCLists lists,
+               number total_bytes,
+               number debt,
+               LuaGC.GCLimits limits,
+               number global_epoch,
+               number barrier_epoch,
+               LuaGC.Allocator allocator) unique
+
+    TValueTag = GCNilTag
+              | GCBoolTag
+              | GCI64Tag
+              | GCF64Tag
+              | GCStringTag
+              | GCTableTag
+              | GCClosureTag
+              | GCUserdataTag
+              | GCCDataTag
+              | GCThreadTag
+              | GCLightUserdataTag
+
+    LuaValueGCRef = (LuaRT.ValueRef value,
+                     LuaGC.TValueTag tag,
+                     LuaGC.GCRef ref) unique
+
+    LuaTValueGCRef = (LuaRT.TValue value,
+                      LuaGC.TValueTag tag,
+                      LuaGC.GCRef ref) unique
+
+    FinalizerKind = NoFinalizerKind
+                  | LuaGCMetamethodFinalizer(LuaRT.ValueRef method) unique
+                  | FFICFunctionFinalizer(LuaFFI.CSymbolId symbol) unique
+                  | FFILuaFinalizer(LuaFFI.CFinalizerId finalizer) unique
+                  | UserdataFinalizer(LuaRT.ValueRef method) unique
+
+    FinalizerRef = (LuaGC.Name id,
+                    LuaGC.FinalizerKind kind,
+                    boolean attached) unique
+
+    FinalizerResult = FinalizerCompleted unique
+                    | FinalizerYielded(LuaRT.YieldState yield) unique
+                    | FinalizerErrored(LuaRT.ErrorState error) unique
+
+    TString = (LuaGC.GCHeader header,
+               LuaRT.StringRef string,
+               number byte_len,
+               number hash,
+               string content_hash) unique
+
+    TableObject = (LuaGC.GCHeader header,
+                   LuaRT.TableRef table,
+                   LuaRT.TableShape shape,
+                   LuaRT.MetatableRef metatable,
+                   number array_size,
+                   number hash_size,
+                   number table_epoch,
+                   number shape_epoch) unique
+
+    LClosure = (LuaGC.GCHeader header,
+                LuaRT.ClosureRef closure,
+                LuaSrc.KRef proto,
+                LuaRT.UpvalueRef* upvalues) unique
+
+    UserdataObject = (LuaGC.GCHeader header,
+                      LuaRT.UserdataRef userdata,
+                      LuaRT.MetatableRef metatable,
+                      number payload_bytes,
+                      LuaGC.FinalizerRef finalizer) unique
+
+    CDataObject = (LuaGC.GCHeader header,
+                   LuaFFI.CData cdata,
+                   LuaFFI.CTypeId type_id,
+                   LuaFFI.CStorage storage,
+                   LuaGC.FinalizerRef finalizer) unique
+
+    CollectableObject = GCStringObject(LuaGC.TString string) unique
+                      | GCTableObject(LuaGC.TableObject table) unique
+                      | GCClosureObject(LuaGC.LClosure closure) unique
+                      | GCUserdataObject(LuaGC.UserdataObject userdata) unique
+                      | GCCDataObject(LuaGC.CDataObject cdata) unique
+
+    RootKind = StackRoot(LuaRT.FrameRef frame, LuaRT.Slot slot) unique
+             | RegistryRoot unique
+             | GlobalTableRoot unique
+             | MetatableCacheRoot unique
+             | OpenUpvalueRoot(LuaRT.UpvalueRef upvalue) unique
+             | CCallbackRoot(LuaFFI.CCallbackId callback) unique
+             | JitMaterializedCodeRoot(LuaGC.Name template_id) unique
+
+    GCRoot = (LuaGC.RootKind kind,
+              LuaGC.GCRef value) unique
+
+    RootSet = (LuaGC.GCRoot* roots) unique
+
+    BarrierKind = ObjectToObjectBarrier(LuaGC.GCRef parent, LuaGC.GCRef child) unique
+                | TableSlotBarrier(LuaRT.TableRef table, LuaRT.ValueRef value, LuaGC.GCRef child) unique
+                | UpvalueWriteBarrier(LuaRT.UpvalueRef upvalue, LuaRT.ValueRef value, LuaGC.GCRef child) unique
+                | CDataRefBarrier(LuaFFI.CData owner, LuaGC.GCRef child) unique
+
+    BarrierAction = NoBarrierAction unique
+                  | MarkChild(LuaGC.GCRef child) unique
+                  | RegrayParent(LuaGC.GCRef parent) unique
+                  | EnqueueGrayAgain(LuaGC.GCRef parent) unique
+
+    GCFact = BarrierClean(LuaGC.BarrierKind barrier) unique
+           | ObjectEpoch(LuaGC.GCRef object, number epoch) unique
+           | TableEpoch(LuaRT.TableRef table, number epoch) unique
+           | ShapeEpoch(string shape_key, number epoch) unique
+           | GCPhaseFact(LuaGC.GCPhase phase) unique
+           | NoFinalizerFact(LuaGC.GCRef object) unique
+           | FinalizerAttachedFact(LuaGC.GCRef object, LuaGC.FinalizerRef finalizer) unique
+           | LuaValueGCRefFact(LuaGC.LuaValueGCRef value_ref) unique
+           | LuaTValueGCRefFact(LuaGC.LuaTValueGCRef value_ref) unique
+
+    GCErrorKind = AllocationFailure
+                | InvalidObjectRef
+                | InvalidBarrier
+                | FinalizerFailure
+                | WeakProcessingFailure
+                | InvariantFailure
+
+    AllocRequest = (LuaGC.GCState state,
+                    LuaGC.GCObjectKind kind,
+                    number size_bytes,
+                    number align_bytes) unique
+
+    AllocResult = Allocated(LuaGC.GCHeader header) unique
+                | AllocStepRequired(number debt) unique
+                | AllocOutOfMemory(number size_bytes) unique
+                | AllocEmergencyCollectRequired unique
+
+    StepRequest = (LuaGC.GCState state,
+                   number budget) unique
+
+    StepResult = StepProgressed(number remaining_budget) unique
+               | StepCompletedCycle unique
+               | StepFinalizersPending(number count) unique
+               | StepOutOfMemory unique
+
+    MarkRequest = (LuaGC.GCState state,
+                   LuaGC.GCRef ref) unique
+
+    TraverseRequest = (LuaGC.GCState state,
+                       LuaGC.GCRef ref) unique
+
+    MarkResult = MarkSkipped(LuaGC.GCRef ref) unique
+               | MarkEnqueued(LuaGC.GCRef ref) unique
+               | TraverseChildren(LuaGC.GCRef parent, LuaGC.GCRef* children) unique
+               | MarkError(LuaGC.GCErrorKind error) unique
+
+    BarrierResult = BarrierCleanResult unique
+                  | BarrierChildMarked(LuaGC.GCRef child) unique
+                  | BarrierParentRegrayed(LuaGC.GCRef parent) unique
+                  | BarrierErrored(LuaGC.GCErrorKind error) unique
+
+    FinalizerRequest = (LuaGC.GCState state,
+                        LuaGC.FinalizerRef finalizer,
+                        LuaRT.ValueRef self,
+                        LuaRT.ErrorState error_context) unique
+
+    FinalizerProcessingResult = FinalizerProcessed(LuaGC.FinalizerResult result) unique
+                              | FinalizersPending(number count) unique
+                              | FinalizerProcessError(LuaGC.GCErrorKind error) unique
+
+    WeakProcessRequest = (LuaGC.GCState state,
+                          LuaRT.TableRef table) unique
+
+    WeakProcessResult = WeakProcessed(number removed) unique
+                      | WeakNeedsAnotherPass unique
+                      | WeakProcessError(LuaGC.GCErrorKind error) unique
+
+    EphemeronProcessRequest = (LuaGC.GCState state,
+                               LuaRT.TableRef table) unique
+
+    EphemeronProcessResult = EphemeronProcessed(number progressed) unique
+                           | EphemeronNeedsAnotherPass unique
+                           | EphemeronProcessError(LuaGC.GCErrorKind error) unique
+
+    Control = AllocControl(LuaGC.AllocRequest request, LuaGC.AllocResult result) unique
+            | StepControl(LuaGC.StepRequest request, LuaGC.StepResult result) unique
+            | MarkControl(LuaGC.MarkRequest request, LuaGC.MarkResult result) unique
+            | TraverseControl(LuaGC.TraverseRequest request, LuaGC.MarkResult result) unique
+            | BarrierControl(LuaGC.BarrierKind barrier, LuaGC.BarrierAction action, LuaGC.BarrierResult result) unique
+            | FinalizerControl(LuaGC.FinalizerRequest request, LuaGC.FinalizerProcessingResult result) unique
+            | WeakProcessControl(LuaGC.WeakProcessRequest request, LuaGC.WeakProcessResult result) unique
+            | EphemeronProcessControl(LuaGC.EphemeronProcessRequest request, LuaGC.EphemeronProcessResult result) unique
+}
+
+module LuaExec {
+    Name = (string text) unique
+
+    Module = (LuaExec.Region* regions,
+              LuaExec.Kernel* kernels) unique
+
+    Kernel = (LuaExec.Name id,
+              LuaRT.Frame frame,
+              LuaExec.Region body,
+              LuaExec.Contract contract) unique
+
+    Region = (LuaExec.Name id,
+              LuaExec.RegionKind kind,
+              LuaExec.Param* params,
+              LuaExec.Continuation* continuations,
+              LuaExec.BlockId entry,
+              LuaExec.Block* blocks) unique
+
+    RegionKind = ArithmeticRegion
+               | TableGetRegion
+               | TableSetRegion
+               | LenRegion
+               | ConcatRegion
+               | CallRegion
+               | TailCallRegion
+               | ReturnRegion
+               | VarargRegion
+               | SetListRegion
+               | CloseRegion
+               | NumericForRegion
+               | GenericForRegion
+               | ErrorRegion
+               | YieldRegion
+               | GuardRegion
+
+    BlockId = (LuaExec.Name name) unique
+    BlockRef = (LuaExec.BlockId id) unique
+
+    Type = LuaValueType
+         | LuaValueSeqType
+         | LuaFrameType
+         | LuaTableType
+         | LuaStringType
+         | LuaClosureType
+         | LuaErrorType
+         | LuaYieldType
+         | LuaCountType
+         | LuaBoolType
+         | LuaNumberType
+         | LuaValueWithTagType(LuaRT.ValueTag tag) unique
+         | LuaValueWithTypeTestType(LuaRT.TypeTest test) unique
+         | MoonType(string moon_type) unique
+
+    Param = (LuaExec.Name name,
+             LuaExec.Type type) unique
+
+    ContinuationKind = OkCont
+                     | ErrorCont
+                     | YieldCont
+                     | ReturnCont
+                     | GuardFailCont
+                     | TailCallCont
+                     | CloseCont
+                     | LocalCont
+
+    Continuation = (LuaExec.Name id,
+                    LuaExec.ContinuationKind kind,
+                    LuaExec.Param* params) unique
+
+    ContRef = (LuaExec.Name id) unique
+
+    ContBinding = (LuaExec.ContRef continuation,
+                   LuaExec.BlockRef target,
+                   LuaExec.Arg* args) unique
+
+    Arg = (LuaExec.Name name,
+           LuaExec.Value value) unique
+
+    Value = RuntimeValue(LuaRT.ValueRef value) unique
+          | RuntimeSeq(LuaRT.ValueSeq seq) unique
+          | RuntimeFrame(LuaRT.FrameRef frame) unique
+          | ConstTValue(LuaRT.TValue value) unique
+          | TempValue(LuaExec.Name name) unique
+          | UnitValue unique
+
+    Expr = ValueExpr(LuaExec.Value value) unique
+         | TypeTestExpr(LuaRT.ValueRef value, LuaRT.TypeTest test) unique
+         | TruthinessExpr(LuaRT.ValueRef value) unique
+         | NotTruthinessExpr(LuaRT.ValueRef value) unique
+         | ProjectExpr(LuaRT.ValueRef value, LuaRT.ValueProjection projection) unique
+         | StackLoadExpr(LuaRT.StackRef stack, LuaRT.Slot slot) unique
+         | TopValueExpr(LuaRT.TopRef top) unique
+         | CountExpr(LuaRT.CountSpec count) unique
+         | ValueSeqExpr(LuaRT.ValueSeq seq) unique
+         | VarargAccessExpr(LuaRT.VarargAccess access) unique
+         | RawGetExpr(LuaRT.TableRef table, LuaRT.ValueRef key) unique
+         | RawSetExpr(LuaRT.TableRef table, LuaRT.ValueRef key, LuaRT.ValueRef value) unique
+         | TableRawGetExpr(LuaRT.ValueRef table_value, LuaRT.ValueRef key) unique
+         | TableRawGetHitExpr(LuaExec.Value rawget) unique
+         | TableRawGetValueOrNilExpr(LuaExec.Value rawget) unique
+         | TableRawSetCanWriteExpr(LuaRT.ValueRef table_value, LuaRT.ValueRef key) unique
+         | TableWriteBarrierNeededExpr(LuaRT.ValueRef table_value, LuaRT.ValueRef value) unique
+         | TableLenExpr(LuaRT.ValueRef table_value) unique
+         | StringLenExpr(LuaRT.ValueRef value) unique
+         | LenNoMetaExpr(LuaRT.ValueRef value) unique
+         | StringConcat2Expr(LuaRT.ValueRef left, LuaRT.ValueRef right) unique
+         | CDataAccessOkExpr(LuaRT.ValueRef cdata,
+                             LuaFFI.CScalarKind scalar,
+                             LuaFFI.CTypeId type_id,
+                             number offset_bytes,
+                             number width_bytes) unique
+         | CDataScalarLoadExpr(LuaRT.ValueRef cdata,
+                               LuaFFI.CScalarKind scalar,
+                               LuaFFI.CTypeId type_id,
+                               number offset_bytes,
+                               number width_bytes) unique
+         | ArithmeticNumericOkExpr(LuaRT.ArithmeticOp op, LuaRT.ValueRef left, LuaRT.ValueRef right) unique
+         | ArithmeticNoMetaExpr(LuaRT.ArithmeticOp op, LuaRT.ValueRef left, LuaRT.ValueRef right) unique
+         | ArithmeticErrorValueExpr(LuaRT.ArithmeticOp op, LuaRT.ValueRef left, LuaRT.ValueRef right) unique
+         | MetamethodLookupExpr(LuaRT.MetamethodLookup lookup) unique
+         | AdjustResultsExpr(LuaRT.ValueSeq seq, LuaRT.ResultAdjustment adjustment) unique
+         | NumberOpExpr(LuaExec.NumberOp op, LuaRT.ValueRef left, LuaRT.ValueRef right) unique
+         | StringConcatExpr(LuaRT.ValueSeq values) unique
+
+    NumberOp = Add
+             | Sub
+             | Mul
+             | Mod
+             | Pow
+             | Div
+             | IDiv
+             | Band
+             | Bor
+             | Bxor
+             | Shl
+             | Shr
+             | Unm
+             | Bnot
+
+    Choice = BoolChoice(LuaExec.Value value) unique
+           | TypeChoice(LuaRT.ValueRef value, LuaRT.TypeTest test) unique
+           | TruthinessChoice(LuaRT.ValueRef value) unique
+           | NumericChoice(LuaExec.NumericTest test, LuaRT.ValueRef left, LuaRT.ValueRef right) unique
+           | EqualityChoice(LuaRT.ValueRef left, LuaRT.ValueRef right) unique
+           | RawGetHitChoice(LuaRT.RawGetResult result) unique
+           | ArithmeticNumericChoice(LuaRT.ArithmeticOp op, LuaRT.ValueRef left, LuaRT.ValueRef right) unique
+           | MetamethodPresentChoice(LuaRT.MetamethodLookup lookup) unique
+           | CountChoice(LuaRT.CountSpec count) unique
+           | GuardChoice(LuaRT.Guard guard) unique
+
+    NumericTest = Eq
+                | Lt
+                | Le
+                | Gt
+                | Ge
+                | NonZero
+
+    Op = Let(LuaExec.Name dst, LuaExec.Expr expr) unique
+       | AssignValue(LuaRT.ValueRef dst, LuaExec.Value src) unique
+       | AssignSeq(LuaRT.StackWindow dst, LuaRT.ValueSeq src, LuaRT.ResultAdjustment adjustment) unique
+       | SetTop(LuaRT.TopRef top, LuaRT.CountSpec count) unique
+       | TableRawSet(LuaRT.ValueRef table_value, LuaRT.ValueRef key, LuaRT.ValueRef value) unique
+       | TableWriteBarrier(LuaRT.ValueRef table_value, LuaRT.ValueRef value) unique
+       | CDataScalarStore(LuaRT.ValueRef cdata,
+                          LuaFFI.CScalarKind scalar,
+                          LuaFFI.CTypeId type_id,
+                          number offset_bytes,
+                          number width_bytes,
+                          LuaRT.ValueRef value) unique
+       | Project(LuaExec.Name dst, LuaRT.ValueRef src, LuaRT.ValueProjection projection) unique
+       | Guard(LuaRT.Guard guard, LuaExec.ContRef on_fail) unique
+       | EmitRegion(LuaExec.Name region, LuaExec.Arg* args, LuaExec.ContBinding* continuations) unique
+
+    Terminator = Jump(LuaExec.BlockRef target, LuaExec.Arg* args) unique
+               | Branch(LuaExec.Choice choice, LuaExec.BlockRef if_true, LuaExec.BlockRef if_false) unique
+               | BranchArgs(LuaExec.Choice choice,
+                            LuaExec.BlockRef if_true, LuaExec.Arg* true_args,
+                            LuaExec.BlockRef if_false, LuaExec.Arg* false_args) unique
+               | Continue(LuaExec.ContRef continuation, LuaExec.Arg* args) unique
+               | Return(LuaRT.ValueSeq values) unique
+               | Error(LuaRT.ErrorState error) unique
+               | Yield(LuaRT.YieldState yield) unique
+               | Unreachable unique
+
+    Block = (LuaExec.BlockId id,
+             LuaExec.Param* params,
+             LuaExec.Op* ops,
+             LuaExec.Terminator terminator) unique
+
+    Contract = (LuaExec.Obligation* obligations,
+                LuaExec.Guarantee* guarantees) unique
+
+    Obligation = RequiresGuard(LuaRT.Guard guard) unique
+               | RequiresResolvedRegion(LuaExec.Name region) unique
+               | RequiresContinuation(LuaExec.ContRef continuation) unique
+               | RequiresCompanion(LuaRT.Pc pc, LuaRT.CompanionKind kind) unique
+
+    Guarantee = ProducesValue(LuaRT.ValueRef value) unique
+              | PreservesFrame(LuaRT.FrameRef frame) unique
+              | UpdatesTop(LuaRT.TopRef top) unique
+              | ClosesChain(LuaRT.CloseChain chain) unique
+}
+
 module MoonCFG {
     Name = (string text) unique
     TypeRef = (string moon_type) unique
@@ -627,6 +1707,8 @@ module MoonCFG {
     ContId = (MoonCFG.Name name) unique
 
     KernelKind = InlineSpan | FunctionFastPath
+
+    OutcomeKind = NormalReturnOutcome | LuaErrorOutcome | LuaYieldOutcome
 
     ParamMode = ValueParam | ReadonlyPtr | WriteonlyPtr | NoaliasPtr
     Param = (MoonCFG.Name name, MoonCFG.TypeRef type, MoonCFG.ParamMode mode) unique
@@ -669,6 +1751,68 @@ module MoonCFG {
          | Load(MoonCFG.Place place) unique
          | AddressOf(MoonCFG.Place place) unique
          | Convert(MoonCFG.TypeRef type, MoonCFG.Value value) unique
+         | RuntimeBoxNil(LuaRT.NilKind kind) unique
+         | RuntimeBoxBool(MoonCFG.Value value) unique
+         | RuntimeBoxI64(MoonCFG.Value value) unique
+         | RuntimeBoxF64(MoonCFG.Value value) unique
+         | RuntimeBoxRef(LuaRT.ValueTag tag, MoonCFG.Value handle) unique
+         | RuntimeTag(MoonCFG.Value value) unique
+         | RuntimePayloadI64(MoonCFG.Value value) unique
+         | RuntimePayloadF64(MoonCFG.Value value) unique
+         | RuntimeTruthiness(MoonCFG.Value value) unique
+         | RuntimeTypeTest(MoonCFG.Value value, LuaRT.TypeTest test) unique
+         | RuntimeOutcomeReturn(MoonCFG.Value count, MoonCFG.Value* values, MoonCFG.Value value_buffer) unique
+         | RuntimeOutcomeError(LuaRT.ErrorKind kind, MoonCFG.Value error_value, MoonCFG.Value saved_pc, MoonCFG.Value saved_top) unique
+         | RuntimeOutcomeYield(LuaRT.ResumePoint resume_point, MoonCFG.Value count, MoonCFG.Value* values, MoonCFG.Value saved_pc, MoonCFG.Value saved_top) unique
+         | RuntimeStackLoad(MoonCFG.Value stack, MoonCFG.Value index) unique
+         | RuntimeTopLoad(MoonCFG.Value top_ptr) unique
+         | RuntimeOpenCountFromTop(MoonCFG.Value top, MoonCFG.Value base) unique
+         | RuntimeValueSeqFixed(MoonCFG.Value count, MoonCFG.Value* values) unique
+         | RuntimeValueSeqFromStack(MoonCFG.Value stack, MoonCFG.Value base, MoonCFG.Value count) unique
+         | RuntimeValueSeqFromVarargs(MoonCFG.Value varargs, MoonCFG.Value count) unique
+         | RuntimeValueSeqAdjust(MoonCFG.Value seq, LuaRT.ResultAdjustment adjustment) unique
+         | RuntimeValueSeqCount(MoonCFG.Value seq) unique
+         | RuntimeValueSeqValue(MoonCFG.Value seq, number index) unique
+         | RuntimeVarargSource(MoonCFG.Value values, MoonCFG.Value count, MoonCFG.Value table_handle) unique
+         | RuntimeVarargCount(MoonCFG.Value source) unique
+         | RuntimeVarargGet(MoonCFG.Value source, MoonCFG.Value key) unique
+         | RuntimeTableRawGet(MoonCFG.Value tables, MoonCFG.Value table_value, MoonCFG.Value key) unique
+         | RuntimeRawGetHit(MoonCFG.Value rawget) unique
+         | RuntimeRawGetValue(MoonCFG.Value rawget) unique
+         | RuntimeRawGetValueOrNil(MoonCFG.Value rawget) unique
+         | RuntimeTableRawSetCanWrite(MoonCFG.Value tables, MoonCFG.Value table_value, MoonCFG.Value key) unique
+         | RuntimeTableWriteBarrierNeeded(MoonCFG.Value tables, MoonCFG.Value table_value, MoonCFG.Value value) unique
+         | RuntimeTableArrayLen(MoonCFG.Value tables, MoonCFG.Value table_value) unique
+         | RuntimeStringLen(MoonCFG.Value strings, MoonCFG.Value value) unique
+         | RuntimeLenNoMeta(MoonCFG.Value strings, MoonCFG.Value tables, MoonCFG.Value value) unique
+         | RuntimeStringConcat2(MoonCFG.Value strings, MoonCFG.Value left, MoonCFG.Value right) unique
+         | RuntimeStringToNumberOk(MoonCFG.Value strings, MoonCFG.Value value) unique
+         | RuntimeStringToNumber(MoonCFG.Value strings, MoonCFG.Value value) unique
+         | RuntimeArithmeticNumericOk(LuaRT.ArithmeticOp op, MoonCFG.Value strings, MoonCFG.Value left, MoonCFG.Value right) unique
+         | RuntimeArithmeticNoMeta(LuaRT.ArithmeticOp op, MoonCFG.Value strings, MoonCFG.Value left, MoonCFG.Value right) unique
+         | RuntimeArithmeticErrorValue(LuaRT.ArithmeticOp op, MoonCFG.Value strings, MoonCFG.Value left, MoonCFG.Value right) unique
+         | RuntimeCDataAccessOk(MoonCFG.Value cdata_bank,
+                                MoonCFG.Value cdata_value,
+                                LuaFFI.CScalarKind scalar,
+                                LuaFFI.CTypeId type_id,
+                                number offset_bytes,
+                                number width_bytes) unique
+         | RuntimeCDataLoadScalar(MoonCFG.Value cdata_bank,
+                                  MoonCFG.Value cdata_value,
+                                  LuaFFI.CScalarKind scalar,
+                                  LuaFFI.CTypeId type_id,
+                                  number offset_bytes,
+                                  number width_bytes) unique
+         | RuntimeOutcomeKind(MoonCFG.Value outcome) unique
+         | RuntimeOutcomeCount(MoonCFG.Value outcome) unique
+         | RuntimeOutcomeValueTag(MoonCFG.Value outcome, number index) unique
+         | RuntimeOutcomeValuePayloadI64(MoonCFG.Value outcome, number index) unique
+         | RuntimeOutcomeValuePayloadF64(MoonCFG.Value outcome, number index) unique
+         | RuntimeOutcomeErrorKind(MoonCFG.Value outcome) unique
+         | RuntimeOutcomeErrorValueTag(MoonCFG.Value outcome) unique
+         | RuntimeOutcomeErrorValuePayloadI64(MoonCFG.Value outcome) unique
+         | RuntimeOutcomeSavedPc(MoonCFG.Value outcome) unique
+         | RuntimeOutcomeYieldKind(MoonCFG.Value outcome) unique
 
     Arg = (MoonCFG.Name name, MoonCFG.Value value) unique
 
@@ -698,6 +1842,17 @@ module MoonCFG {
     Op = Let(MoonCFG.Place dst, MoonCFG.Expr expr) unique
        | Assign(MoonCFG.Place dst, MoonCFG.Value src) unique
        | Store(MoonCFG.Place dst, MoonCFG.Value src) unique
+       | RuntimeStackStore(MoonCFG.Value stack, MoonCFG.Value index, MoonCFG.Value value) unique
+       | RuntimeTopStore(MoonCFG.Value top_ptr, MoonCFG.Value top) unique
+       | RuntimeTableRawSet(MoonCFG.Value tables, MoonCFG.Value table_value, MoonCFG.Value key, MoonCFG.Value value) unique
+       | RuntimeTableWriteBarrier(MoonCFG.Value tables, MoonCFG.Value table_value, MoonCFG.Value value) unique
+       | RuntimeCDataScalarStore(MoonCFG.Value cdata_bank,
+                                MoonCFG.Value cdata_value,
+                                LuaFFI.CScalarKind scalar,
+                                LuaFFI.CTypeId type_id,
+                                number offset_bytes,
+                                number width_bytes,
+                                MoonCFG.Value value) unique
        | EmitRegion(MoonCFG.RegionRef region, MoonCFG.Arg* args, MoonCFG.ContBinding* continuations) unique
        | Project(MoonCFG.Place dst, MoonCFG.Value src, MoonCFG.Projection projection) unique
        | Assert(MoonCFG.Expr condition, MoonCFG.ExitProtocol on_fail) unique
@@ -706,6 +1861,9 @@ module MoonCFG {
 
     Terminator = Jump(MoonCFG.BlockRef target, MoonCFG.Arg* args) unique
                | Branch(MoonCFG.Choice choice, MoonCFG.BlockRef if_true, MoonCFG.BlockRef if_false) unique
+               | BranchArgs(MoonCFG.Choice choice,
+                            MoonCFG.BlockRef if_true, MoonCFG.Arg* true_args,
+                            MoonCFG.BlockRef if_false, MoonCFG.Arg* false_args) unique
                | Switch(MoonCFG.Value value, MoonCFG.SwitchArm* arms, MoonCFG.BlockRef default) unique
                | Continue(MoonCFG.ContRef continuation, MoonCFG.Arg* args) unique
                | Return(MoonCFG.Value* values) unique
@@ -730,10 +1888,229 @@ module MoonCFG {
     Module = (MoonCFG.Region* regions, MoonCFG.Kernel* kernels) unique
 }
 
-module MoonOut {
-    -- Legacy compatibility vocabulary. Accepted LuaCompile kernels are
-    -- MoonCFG.Kernel values; this wrapper exists only for old require paths.
-    Kernel = (MoonCFG.Kernel cfg) unique
+module Stencil {
+    Name = (string text) unique
+
+    StencilModule = (Stencil.BankIndex bank,
+                     Stencil.StencilTemplate* templates,
+                     Stencil.Symbol* symbols,
+                     Stencil.Linkage linkage) unique
+
+    BankIndex = (Stencil.VariantKey* variants,
+                 Stencil.TemplateIndexEntry* entries) unique
+
+    TemplateIndexEntry = (Stencil.VariantKey key,
+                          Stencil.Name template_name) unique
+
+    StencilTemplate = (Stencil.Name name,
+                       Stencil.StencilKind kind,
+                       Stencil.VariantKey variant,
+                       Stencil.CodeBlobRef code,
+                       Stencil.PatchHole* holes,
+                       Stencil.Reloc* relocs,
+                       Stencil.Symbol* local_symbols,
+                       Stencil.MaterializationPlan plan) unique
+
+    StencilKind = KernelStencil
+                | RegionStencil
+                | BlockStencil
+                | BranchStencil
+                | CallStencil
+                | GuardStencil
+                | RuntimeBoundaryStencil
+
+    VariantKey = (Stencil.StencilKind stencil_kind,
+                  MoonCFG.KernelKind kernel_kind,
+                  LuaContract.Contract contract,
+                  Stencil.Placement placement,
+                  Stencil.TargetABI target_abi,
+                  Stencil.FeatureSet features) unique
+
+    FeatureSet = (string arch,
+                  string os,
+                  string cpu_features,
+                  string codegen_version) unique
+
+    TargetABI = (string triple,
+                 string calling_convention,
+                 string pointer_width,
+                 string endian) unique
+
+    CodeBlobRef = (Stencil.Name symbol,
+                   number byte_size,
+                   string content_hash) unique
+
+    Symbol = (Stencil.Name name,
+              Stencil.SymbolKind kind,
+              Stencil.SymbolVisibility visibility,
+              number offset) unique
+
+    SymbolKind = EntrySymbol
+               | LocalLabel
+               | ExternalTarget
+               | ContinuationTarget
+               | PatchAnchor
+
+    SymbolVisibility = Local
+                     | BankExported
+                     | ExternalImported
+
+    PatchHole = (Stencil.Name id,
+                 Stencil.PatchKind kind,
+                 number offset,
+                 number width_bytes,
+                 Stencil.PatchEncoding encoding,
+                 Stencil.PatchSource source) unique
+
+    PatchKind = ImmediatePatch
+              | StackOffsetPatch
+              | ConstAddressPatch
+              | BranchTargetPatch
+              | CallTargetPatch
+              | SymbolAddressPatch
+              | FrameLayoutPatch
+              | RegisterPatch
+              | VTablePatch
+              | FFISymbolAddr64Patch
+              | FFIFieldOffsetPatch
+              | FFISizeOfPatch
+              | FFIAlignOfPatch
+              | FFICallbackThunkPatch
+              | GCStatePtrPatch
+              | GCAllocatorFnPatch
+              | GCObjectLayoutOffsetPatch
+              | GCBarrierEntryAddrPatch
+              | GCFinalizerQueuePtrPatch
+              | GCEpochAddressPatch
+              | GCEpochExpectedPatch
+
+    PatchEncoding = U8
+                  | U16
+                  | U32
+                  | U64
+                  | I32
+                  | I64
+                  | PcRel32
+                  | PcRel64
+                  | Abs64
+                  | TargetSpecific(string encoding) unique
+
+    PatchSource = FromImmediate(Stencil.ImmediateOperand imm) unique
+                | FromStack(Stencil.StackOperand stack) unique
+                | FromRegister(Stencil.RegisterOperand reg) unique
+                | FromSymbol(Stencil.Symbol symbol) unique
+                | FromMaterializationValue(Stencil.Name name) unique
+                | FromFFISymbol(LuaFFI.CSymbol symbol) unique
+                | FromFFIFieldOffset(LuaFFI.CTypeId type_id, LuaFFI.CName field) unique
+                | FromFFITypeLayout(LuaFFI.CTypeId type_id) unique
+                | FromFFICallback(LuaFFI.CCallback callback) unique
+                | FromGCState(LuaGC.Name state) unique
+                | FromGCAllocator(LuaGC.Name allocator, LuaGC.Name function_name) unique
+                | FromGCObjectLayout(LuaGC.GCObjectKind kind, LuaGC.Name field) unique
+                | FromGCBarrierEntry(LuaGC.BarrierKind barrier) unique
+                | FromGCFinalizerQueue(LuaGC.Name state) unique
+                | FromGCEpoch(LuaGC.GCFact fact) unique
+
+    Reloc = (Stencil.Name id,
+             Stencil.RelocKind kind,
+             number offset,
+             Stencil.Symbol target,
+             number addend) unique
+
+    RelocKind = AbsAddr
+              | PcRel
+              | GotRelative
+              | PltRelative
+              | SectionRelative
+              | TargetReloc(string name) unique
+
+    RegisterClass = GPR
+                  | FPR
+                  | Vector
+                  | Predicate
+                  | TargetRegisterClass(string name) unique
+
+    RegisterOperand = (Stencil.RegisterClass class,
+                       Stencil.Name register) unique
+
+    StackOperand = (Stencil.Name frame,
+                    number slot,
+                    number byte_offset,
+                    number width_bytes) unique
+
+    ImmediateOperand = ImmI64(number value) unique
+                     | ImmF64(number value) unique
+                     | ImmBool(boolean value) unique
+                     | ImmSymbol(Stencil.Symbol symbol) unique
+                     | ImmBytes(string hash, number byte_size) unique
+
+    Operand = RegisterOp(Stencil.RegisterOperand reg) unique
+            | StackOp(Stencil.StackOperand stack) unique
+            | ImmediateOp(Stencil.ImmediateOperand imm) unique
+            | SymbolOp(Stencil.Symbol symbol) unique
+
+    Placement = (Stencil.RegisterOperand* fixed_registers,
+                 Stencil.StackOperand* stack_slots,
+                 Stencil.Operand* operands) unique
+
+    MaterializationPlan = (Stencil.PatchSite* patch_sites,
+                           Stencil.LinkStep* link_steps,
+                           Stencil.EntryPoint entry) unique
+
+    MaterializedImage = (Stencil.Name template_name,
+                         Stencil.CodeBlobRef code,
+                         string bytes,
+                         Stencil.Symbol entry,
+                         number entry_offset,
+                         Stencil.MaterializationRecord* records) unique
+
+    MaterializationRecord = AppliedPatch(Stencil.Name id,
+                                         number offset,
+                                         number width_bytes,
+                                         Stencil.PatchEncoding encoding,
+                                         string value) unique
+                          | AppliedReloc(Stencil.Name id,
+                                         number offset,
+                                         Stencil.RelocKind kind,
+                                         string value) unique
+
+    PublishEntryMetadata = (Stencil.VariantKey variant,
+                            Stencil.Name template_name,
+                            Stencil.Symbol entry,
+                            number entry_offset,
+                            string entry_address_placeholder,
+                            number image_size,
+                            string image_hash,
+                            Stencil.TargetABI target_abi,
+                            Stencil.FeatureSet features,
+                            string generation_id) unique
+
+    MaterializedBundle = (Stencil.Name id,
+                          string generation_id,
+                          string manifest_digest,
+                          Stencil.MaterializedImage* images,
+                          Stencil.PublishEntryMetadata* entries) unique
+
+    PatchSite = (Stencil.PatchHole hole,
+                 Stencil.PatchValue value) unique
+
+    PatchValue = PatchImmediate(Stencil.ImmediateOperand imm) unique
+               | PatchStack(Stencil.StackOperand stack) unique
+               | PatchRegister(Stencil.RegisterOperand reg) unique
+               | PatchSymbol(Stencil.Symbol symbol) unique
+               | PatchComputed(Stencil.Name name) unique
+
+    LinkStep = ResolveInternalBranch(Stencil.Symbol from, Stencil.Symbol to) unique
+             | ResolveInternalCall(Stencil.Symbol from, Stencil.Symbol to) unique
+             | ResolveExternalSymbol(Stencil.Symbol symbol) unique
+             | ApplyReloc(Stencil.Reloc reloc) unique
+
+    EntryPoint = (Stencil.Symbol symbol,
+                  Stencil.TargetABI abi) unique
+
+    Linkage = (Stencil.Symbol* exported,
+               Stencil.Symbol* imported,
+               Stencil.Reloc* required_relocs) unique
 }
 
 module LuaCompile {
