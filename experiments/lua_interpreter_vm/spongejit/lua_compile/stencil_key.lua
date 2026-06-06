@@ -2,6 +2,8 @@
 --
 -- Stencil keys are backend-artifact keys derived from ASDL values. They must
 -- not recover Lua semantics from opcode/protocol/old-backend descriptor names.
+-- Complete semantic identities (call/static-region/metatable/upvalue/GC/FFI/loop/close)
+-- are represented by typed PatchSource/CompileContract ASDL nodes, never strings.
 
 local pvm = require("moonlift.pvm")
 

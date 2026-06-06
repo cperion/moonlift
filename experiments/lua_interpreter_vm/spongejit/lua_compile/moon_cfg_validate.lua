@@ -9,9 +9,14 @@ local ValueModel = require("lua_compile.lua_rt_value_model")
 local OutcomeModel = require("lua_compile.lua_rt_outcome_model")
 local StackModel = require("lua_compile.lua_rt_stack_model")
 local ObjectModel = require("lua_compile.lua_rt_object_model")
+local CallModel = require("lua_compile.lua_rt_call_model")
 
 local M = {}
 
+-- Future typed semantic ASDL constructors are allowed as constructors, but
+-- lowercase semantic strings remain forbidden fallback tags. LuaExec static
+-- invocation must be typed/inlined before MoonCFG; MoonCFG.EmitRegion,
+-- Continue, and Exit remain unsupported guardrails here.
 local FORBIDDEN_STRINGS = {
   call = true,
   close = true,
@@ -27,6 +32,8 @@ local SUPPORTED_OPS = {
   [CFG.Assign] = true,
   [CFG.Store] = true,
   [CFG.RuntimeStackStore] = true,
+  [CFG.RuntimeValueSeqStore] = true,
+  [CFG.RuntimeCallFrameStoreArgs] = true,
   [CFG.RuntimeTopStore] = true,
   [CFG.RuntimeTableRawSet] = true,
   [CFG.RuntimeTableWriteBarrier] = true,
@@ -171,15 +178,18 @@ local function validate_runtime_expr(expr, env, where, errors)
     if not value_is_runtime_like(expr.value, env) then add(errors, where .. ":runtime_type_test_requires_runtime_value") end
     if not ValueModel.tags_for_type_test(expr.test) then add(errors, where .. ":unsupported_runtime_type_test:" .. tostring(expr.test and expr.test.kind)) end
   elseif cls == CFG.RuntimeOutcomeReturn then
-    if #(expr.values or {}) > 2 then add(errors, where .. ":runtime_outcome_return_supports_first_two_values") end
     for i, v in ipairs(expr.values or {}) do if not value_is_runtime_like(v, env) then add(errors, where .. ":runtime_outcome_value_" .. i .. "_requires_lua_rt_value") end end
+  elseif cls == CFG.RuntimeOutcomeReturnSeq then
+    if not value_is_seq_like(expr.seq, env) then add(errors, where .. ":runtime_outcome_return_seq_requires_seq") end
   elseif cls == CFG.RuntimeOutcomeError then
     if OutcomeModel.ERROR_KIND[expr.kind and expr.kind.kind] == nil then add(errors, where .. ":unsupported_error_kind:" .. tostring(expr.kind and expr.kind.kind)) end
     if not value_is_runtime_like(expr.error_value, env) then add(errors, where .. ":runtime_outcome_error_value_requires_lua_rt_value") end
   elseif cls == CFG.RuntimeOutcomeYield then
     if OutcomeModel.YIELD_KIND[expr.resume_point and expr.resume_point.kind] == nil then add(errors, where .. ":unsupported_yield_kind:" .. tostring(expr.resume_point and expr.resume_point.kind)) end
-    if #(expr.values or {}) > 2 then add(errors, where .. ":runtime_outcome_yield_supports_first_two_values") end
     for i, v in ipairs(expr.values or {}) do if not value_is_runtime_like(v, env) then add(errors, where .. ":runtime_outcome_yield_value_" .. i .. "_requires_lua_rt_value") end end
+  elseif cls == CFG.RuntimeOutcomeYieldSeq then
+    if OutcomeModel.YIELD_KIND[expr.resume_point and expr.resume_point.kind] == nil then add(errors, where .. ":unsupported_yield_kind:" .. tostring(expr.resume_point and expr.resume_point.kind)) end
+    if not value_is_seq_like(expr.seq, env) then add(errors, where .. ":runtime_outcome_yield_seq_requires_seq") end
   elseif cls == CFG.RuntimeStackLoad then
     -- Pointer/index values are Moonlift-level parameters/temps validated by typechecking.
   elseif cls == CFG.RuntimeTopLoad or cls == CFG.RuntimeOpenCountFromTop then
@@ -195,8 +205,27 @@ local function validate_runtime_expr(expr, env, where, errors)
     if not value_is_seq_like(expr.seq, env) then add(errors, where .. ":runtime_value_seq_adjust_requires_seq") end
     local ak = expr.adjustment and expr.adjustment.kind
     if ak ~= "ExactCount" and ak ~= "OpenResult" and ak ~= "FillNilTo" and ak ~= "TruncateTo" and ak ~= "PropagateOpenTail" then add(errors, where .. ":unsupported_result_adjustment:" .. tostring(ak)) end
-  elseif cls == CFG.RuntimeValueSeqCount or cls == CFG.RuntimeValueSeqValue then
+  elseif cls == CFG.RuntimeValueSeqNormalize then
+    if not value_is_seq_like(expr.seq, env) then add(errors, where .. ":runtime_value_seq_normalize_requires_seq") end
+    local ak = expr.shape and expr.shape.adjustment and expr.shape.adjustment.kind
+    if ak ~= "ExactCount" and ak ~= "OpenResult" and ak ~= "FillNilTo" and ak ~= "TruncateTo" and ak ~= "PropagateOpenTail" then add(errors, where .. ":unsupported_arity_normalization_adjustment:" .. tostring(ak)) end
+  elseif cls == CFG.RuntimeValueSeqCount or cls == CFG.RuntimeValueSeqValue or cls == CFG.RuntimeValueSeqBuffer or cls == CFG.RuntimeValueSeqBase then
     if not value_is_seq_like(expr.seq, env) then add(errors, where .. ":runtime_value_seq_projection_requires_seq") end
+  elseif cls == CFG.RuntimeClassifyCallee then
+    if not value_is_runtime_like(expr.callee, env) then add(errors, where .. ":runtime_classify_callee_requires_lua_rt_value") end
+  elseif cls == CFG.RuntimeCallTargetCheck then
+    if not value_is_runtime_like(expr.callee, env) then add(errors, where .. ":runtime_call_target_check_requires_lua_rt_value") end
+    local ok, errs = CallModel.validate_resolved_call_target(expr.target)
+    if not ok then for _, e in ipairs(errs) do add(errors, where .. ":runtime_call_target_check " .. e) end end
+  elseif cls == CFG.RuntimeCallFramePrepare then
+    if not value_is_seq_like(expr.args, env) then add(errors, where .. ":runtime_call_frame_prepare_requires_args_seq") end
+    local ok, errs = CallModel.validate_call_frame_layout(expr.layout)
+    if not ok then for _, e in ipairs(errs) do add(errors, where .. ":runtime_call_frame_prepare " .. e) end end
+  elseif cls == CFG.RuntimeCallFrameResultSeq then
+    local ok, errs = CallModel.validate_call_frame_layout(expr.layout)
+    if not ok then for _, e in ipairs(errs) do add(errors, where .. ":runtime_call_frame_result_seq_layout " .. e) end end
+    local rc_ok, rc_errs = CallModel.validate_call_result_channel(expr.channel)
+    if not rc_ok then for _, e in ipairs(rc_errs) do add(errors, where .. ":runtime_call_frame_result_seq_channel " .. e) end end
   elseif cls == CFG.RuntimeVarargSource then
     -- values/count/table_handle are explicit materialized data fields.
   elseif cls == CFG.RuntimeVarargCount then
@@ -242,19 +271,21 @@ end
 local function infer_let_type(expr)
   local cls = pvm.classof(expr)
   if cls == CFG.RuntimeBoxNil or cls == CFG.RuntimeBoxBool or cls == CFG.RuntimeBoxI64 or cls == CFG.RuntimeBoxF64 or cls == CFG.RuntimeBoxRef or cls == CFG.RuntimeStackLoad or cls == CFG.RuntimeVarargGet or cls == CFG.RuntimeValueSeqValue or cls == CFG.RuntimeRawGetValue or cls == CFG.RuntimeRawGetValueOrNil or cls == CFG.RuntimeStringConcat2 or cls == CFG.RuntimeArithmeticNoMeta or cls == CFG.RuntimeArithmeticErrorValue then return "LuaRTValue" end
-  if cls == CFG.RuntimeOutcomeReturn or cls == CFG.RuntimeOutcomeError or cls == CFG.RuntimeOutcomeYield then return "LuaRTOutcome" end
-  if cls == CFG.RuntimeValueSeqFixed or cls == CFG.RuntimeValueSeqFromStack or cls == CFG.RuntimeValueSeqFromVarargs or cls == CFG.RuntimeValueSeqAdjust then return StackModel.SEQ_TYPE_NAME end
+  if cls == CFG.RuntimeOutcomeReturn or cls == CFG.RuntimeOutcomeReturnSeq or cls == CFG.RuntimeOutcomeError or cls == CFG.RuntimeOutcomeYield or cls == CFG.RuntimeOutcomeYieldSeq then return "LuaRTOutcome" end
+  if cls == CFG.RuntimeValueSeqFixed or cls == CFG.RuntimeValueSeqFromStack or cls == CFG.RuntimeValueSeqFromVarargs or cls == CFG.RuntimeValueSeqAdjust or cls == CFG.RuntimeValueSeqNormalize or cls == CFG.RuntimeCallFrameResultSeq then return StackModel.SEQ_TYPE_NAME end
+  if cls == CFG.RuntimeCallFramePrepare then return CallModel.FRAME_TYPE_NAME end
   if cls == CFG.RuntimeTableRawGet then return ObjectModel.RAW_GET_TYPE_NAME end
   if cls == CFG.RuntimeVarargSource then return StackModel.VARARG_TYPE_NAME end
   if cls == CFG.RuntimePayloadF64 or cls == CFG.RuntimeOutcomeValuePayloadF64 then return "f64" end
-  if cls == CFG.RuntimeTruthiness or cls == CFG.RuntimeTypeTest or cls == CFG.RuntimeRawGetHit or cls == CFG.RuntimeTableRawSetCanWrite or cls == CFG.RuntimeTableWriteBarrierNeeded or cls == CFG.RuntimeLenNoMetaOk or cls == CFG.RuntimeArithmeticNumericOk then return "bool" end
-  if cls == CFG.RuntimeTag or cls == CFG.RuntimePayloadI64 or cls == CFG.RuntimeTopLoad or cls == CFG.RuntimeOpenCountFromTop or cls == CFG.RuntimeValueSeqCount or cls == CFG.RuntimeVarargCount
+  if cls == CFG.RuntimeTruthiness or cls == CFG.RuntimeTypeTest or cls == CFG.RuntimeRawGetHit or cls == CFG.RuntimeTableRawSetCanWrite or cls == CFG.RuntimeTableWriteBarrierNeeded or cls == CFG.RuntimeLenNoMetaOk or cls == CFG.RuntimeArithmeticNumericOk or cls == CFG.RuntimeCallTargetCheck then return "bool" end
+  if cls == CFG.RuntimeTag or cls == CFG.RuntimePayloadI64 or cls == CFG.RuntimeTopLoad or cls == CFG.RuntimeOpenCountFromTop or cls == CFG.RuntimeValueSeqCount or cls == CFG.RuntimeValueSeqBase or cls == CFG.RuntimeVarargCount or cls == CFG.RuntimeClassifyCallee
       or cls == CFG.RuntimeTableArrayLen or cls == CFG.RuntimeStringLen or cls == CFG.RuntimeLenNoMeta
       or cls == CFG.RuntimeOutcomeKind or cls == CFG.RuntimeOutcomeCount
       or cls == CFG.RuntimeOutcomeValueTag or cls == CFG.RuntimeOutcomeValuePayloadI64
       or cls == CFG.RuntimeOutcomeErrorKind or cls == CFG.RuntimeOutcomeErrorValueTag
       or cls == CFG.RuntimeOutcomeErrorValuePayloadI64 or cls == CFG.RuntimeOutcomeSavedPc
       or cls == CFG.RuntimeOutcomeYieldKind then return "i64" end
+  if cls == CFG.RuntimeValueSeqBuffer then return "ptr(LuaRTValue)" end
   return nil
 end
 
@@ -263,10 +294,12 @@ local function validate_expr(expr, env, where, errors)
   if cls == CFG.ValueExpr or cls == CFG.Primitive or cls == CFG.Load or cls == CFG.AddressOf or cls == CFG.Convert then return end
   if cls == CFG.RuntimeBoxNil or cls == CFG.RuntimeBoxBool or cls == CFG.RuntimeBoxI64 or cls == CFG.RuntimeBoxF64 or cls == CFG.RuntimeBoxRef
       or cls == CFG.RuntimeTag or cls == CFG.RuntimePayloadI64 or cls == CFG.RuntimePayloadF64 or cls == CFG.RuntimeTruthiness or cls == CFG.RuntimeTypeTest
-      or cls == CFG.RuntimeOutcomeReturn or cls == CFG.RuntimeOutcomeError or cls == CFG.RuntimeOutcomeYield
+      or cls == CFG.RuntimeOutcomeReturn or cls == CFG.RuntimeOutcomeReturnSeq or cls == CFG.RuntimeOutcomeError or cls == CFG.RuntimeOutcomeYield or cls == CFG.RuntimeOutcomeYieldSeq
       or cls == CFG.RuntimeStackLoad or cls == CFG.RuntimeTopLoad or cls == CFG.RuntimeOpenCountFromTop
-      or cls == CFG.RuntimeValueSeqFixed or cls == CFG.RuntimeValueSeqFromStack or cls == CFG.RuntimeValueSeqFromVarargs or cls == CFG.RuntimeValueSeqAdjust
-      or cls == CFG.RuntimeValueSeqCount or cls == CFG.RuntimeValueSeqValue or cls == CFG.RuntimeVarargSource or cls == CFG.RuntimeVarargCount or cls == CFG.RuntimeVarargGet
+      or cls == CFG.RuntimeValueSeqFixed or cls == CFG.RuntimeValueSeqFromStack or cls == CFG.RuntimeValueSeqFromVarargs or cls == CFG.RuntimeValueSeqAdjust or cls == CFG.RuntimeValueSeqNormalize
+      or cls == CFG.RuntimeValueSeqCount or cls == CFG.RuntimeValueSeqValue or cls == CFG.RuntimeValueSeqBuffer or cls == CFG.RuntimeValueSeqBase
+      or cls == CFG.RuntimeClassifyCallee or cls == CFG.RuntimeCallTargetCheck or cls == CFG.RuntimeCallFramePrepare or cls == CFG.RuntimeCallFrameResultSeq
+      or cls == CFG.RuntimeVarargSource or cls == CFG.RuntimeVarargCount or cls == CFG.RuntimeVarargGet
       or cls == CFG.RuntimeTableRawGet or cls == CFG.RuntimeRawGetHit or cls == CFG.RuntimeRawGetValue or cls == CFG.RuntimeRawGetValueOrNil
       or cls == CFG.RuntimeTableRawSetCanWrite or cls == CFG.RuntimeTableWriteBarrierNeeded
       or cls == CFG.RuntimeTableArrayLen or cls == CFG.RuntimeStringLen or cls == CFG.RuntimeLenNoMeta or cls == CFG.RuntimeLenNoMetaOk or cls == CFG.RuntimeStringConcat2
@@ -313,6 +346,12 @@ local function validate_region(region, kernel, errors)
           validate_expr(op.expr, env, "op:" .. key .. ":" .. tostring(j), errors)
           local ty = infer_let_type(op.expr)
           if ty then env[text_of_name(op.dst and op.dst.name)] = ty end
+        elseif cls == CFG.RuntimeValueSeqStore then
+          if not value_is_seq_like(op.seq, env) then add(errors, "op:" .. key .. ":" .. tostring(j) .. ":runtime_value_seq_store_requires_seq") end
+        elseif cls == CFG.RuntimeCallFrameStoreArgs then
+          local ok, errs = CallModel.validate_call_frame_layout(op.layout)
+          if not ok then for _, e in ipairs(errs) do add(errors, "op:" .. key .. ":" .. tostring(j) .. ":runtime_call_frame_store_args " .. e) end end
+          if not value_is_seq_like(op.args, env) then add(errors, "op:" .. key .. ":" .. tostring(j) .. ":runtime_call_frame_store_args_requires_seq") end
         elseif cls == CFG.RuntimeTableWriteBarrier then
           if not value_is_runtime_like(op.table_value, env) then add(errors, "op:" .. key .. ":" .. tostring(j) .. ":runtime_table_write_barrier_table_requires_lua_rt_value") end
           if not value_is_runtime_like(op.value, env) then add(errors, "op:" .. key .. ":" .. tostring(j) .. ":runtime_table_write_barrier_value_requires_lua_rt_value") end

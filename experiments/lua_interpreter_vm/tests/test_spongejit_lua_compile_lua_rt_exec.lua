@@ -86,17 +86,18 @@ local metamethod_order = {
   "TM_LT", "TM_LE", "TM_CONCAT", "TM_CALL", "TM_CLOSE",
 }
 for _, k in ipairs(metamethod_order) do assert(RT[k] and RT[k].kind == k, "missing metamethod " .. k) end
-local mm_lookup = RT.LookupReceiver(table_value, RT.TM_INDEX)
-local mm_found = RT.MetamethodFound(RT.TempValue(name("index_mm")))
-assert(mm_lookup.kind == "LookupReceiver")
-assert(mm_found.kind == "MetamethodFound")
+local mt_epoch = RT.MetatableEpoch(RT.TableMetatable(table_ref), 1)
+local mm_slot = RT.MetamethodSlot(RT.TableMetatable(table_ref), RT.TM_INDEX, RT.TempValue(name("index_mm")), 2)
+local mm_lookup = RT.MetamethodLookupPath(table_value, RT.TM_INDEX, { RT.CheckReceiverMetatable(table_value, mt_epoch), RT.CheckMetamethodSlot(mm_slot) }, RT.MetamethodFoundResult(RT.TempValue(name("index_mm"))), { T.LuaFact.MetatableEpoch })
+assert(pvm.classof(mm_lookup) == RT.MetamethodLookupPath)
+assert(mm_lookup.result.kind == "MetamethodFoundResult")
 
--- Calls have explicit shape and result-continuation categories.
+-- Calls have explicit CallRef-spined shape and result-continuation categories.
 local call_args = RT.StackWindow(RT.CallWindow, frame_ref, slot1, RT.FixedCount(2))
-local call_shape = RT.CallShape(RT.ClosureValue(RT.ClosureRef(name("callee"))), call_args, RT.FixedCount(1), false, true)
 local call_ref = RT.CallRef(name("call0"))
+local call_shape = RT.CallShape(call_ref, RT.ClosureValue(RT.ClosureRef(name("callee"))), call_args, RT.FixedCount(1), RT.NotTailCall, RT.YieldingCall)
 local call_result = RT.CallResult(call_ref, seq, RT.CallYield)
-assert(call_shape.may_yield == true)
+assert(call_shape.yield_policy.kind == "YieldingCall")
 assert(call_result.continuation.kind == "CallYield")
 
 -- Error/yield and close-chain states are ASDL-visible, not protocol tags.

@@ -7,6 +7,16 @@ local Schema = require("lua_compile.schema")
 local pvm = require("moonlift.pvm")
 local T = Schema.get()
 local RT = T.LuaRT
+local ArityModel = require("lua_compile.lua_rt_arity_model")
+local CallModel = require("lua_compile.lua_rt_call_model")
+local MetatableModel = require("lua_compile.lua_rt_metatable_model")
+local OperationModel = require("lua_compile.lua_rt_operation_model")
+local CloseModel = require("lua_compile.lua_rt_close_model")
+local ClosureUpvalueModel = require("lua_compile.lua_rt_closure_upvalue_model")
+local GCModel = require("lua_compile.lua_rt_gc_alloc_model")
+local LoopModel = require("lua_compile.lua_rt_loop_model")
+local CDataModel = require("lua_compile.lua_rt_cdata_model")
+local FFIValidate = require("lua_compile.lua_ffi_validate")
 
 local M = {}
 
@@ -50,6 +60,118 @@ function M.value_seq(seq)
     if not is_member(RT.ValueRef, value) then add(errors, "value sequence value " .. i .. " must be LuaRT.ValueRef") end
   end
   return #errors == 0, errors
+end
+
+function M.arity_shape(shape)
+  return ArityModel.validate_arity_shape(shape)
+end
+
+function M.result_channel(channel)
+  return ArityModel.validate_result_channel(channel)
+end
+
+function M.result_bundle(bundle)
+  return ArityModel.validate_result_bundle(bundle)
+end
+
+function M.frame_effect(effect)
+  return ArityModel.validate_frame_effect(effect)
+end
+
+function M.arity_normalization(normalization)
+  local ok, errors = ArityModel.validate_arity_normalization(normalization)
+  if not ok then return ok, errors end
+  local seq_ok, seq_errors = M.value_seq(normalization.source)
+  if not seq_ok then
+    errors = errors or {}
+    for _, e in ipairs(seq_errors) do add(errors, "source " .. e) end
+  end
+  local result_ok, result_errors = M.result_bundle(normalization.result)
+  if not result_ok then
+    errors = errors or {}
+    for _, e in ipairs(result_errors) do add(errors, "result " .. e) end
+  end
+  return #(errors or {}) == 0, errors or {}
+end
+
+function M.call_state(state)
+  return CallModel.validate_call_state(state)
+end
+
+function M.call_target_identity(identity)
+  return CallModel.validate_call_target_identity(identity)
+end
+
+function M.resolved_call_target(target)
+  return CallModel.validate_resolved_call_target(target)
+end
+
+function M.call_arg_channel(channel)
+  return CallModel.validate_call_arg_channel(channel)
+end
+
+function M.call_result_channel(channel)
+  return CallModel.validate_call_result_channel(channel)
+end
+
+function M.call_frame_layout(layout)
+  return CallModel.validate_call_frame_layout(layout)
+end
+
+function M.call_frame_state(frame)
+  return CallModel.validate_call_frame_state(frame)
+end
+
+function M.call_shape(shape)
+  return CallModel.validate_call_shape(shape)
+end
+
+function M.metamethod_lookup_path(path)
+  return MetatableModel.validate_metamethod_lookup_path(path)
+end
+
+function M.metamethod_dispatch(dispatch)
+  return MetatableModel.validate_metamethod_dispatch(dispatch)
+end
+
+function M.lua_operation(operation)
+  return OperationModel.validate_lua_operation(operation)
+end
+
+function M.upvalue_identity(identity)
+  return ClosureUpvalueModel.validate_upvalue_identity(identity)
+end
+
+function M.closure_identity(identity)
+  return ClosureUpvalueModel.validate_closure_identity(identity)
+end
+
+function M.loop_topology(topology)
+  return LoopModel.validate_loop_topology(topology)
+end
+
+function M.close_plan(plan)
+  return CloseModel.validate_close_plan(plan)
+end
+
+function M.outcome_cause(cause)
+  return CloseModel.validate_outcome_cause(cause)
+end
+
+function M.gc_effect(effect)
+  return GCModel.validate_gc_effect(effect)
+end
+
+function M.ffi_call_shape(call)
+  return FFIValidate.ffi_call_shape(call)
+end
+
+function M.ffi_callback_entry(entry)
+  return FFIValidate.ffi_callback_entry(entry)
+end
+
+function M.cdata_ownership_transition(transition)
+  return CDataModel.validate_ownership_transition(transition)
 end
 
 return M

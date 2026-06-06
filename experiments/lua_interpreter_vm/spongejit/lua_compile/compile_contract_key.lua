@@ -6,6 +6,10 @@ local T = Schema.get()
 
 local M = {}
 
+-- Semantic assumptions are intentionally keyed structurally through ASDL fields.
+-- Arity/result routes, call target identity, static region bindings, metatable
+-- lookup paths, upvalue identity, GC/FFI effects, loop topology, and close plans
+-- must never be encoded as variant strings.
 local function key_value(v, seen)
   local tv = type(v)
   if tv == "nil" then return "nil" end

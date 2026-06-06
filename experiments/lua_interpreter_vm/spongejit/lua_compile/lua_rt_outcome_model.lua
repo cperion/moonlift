@@ -15,8 +15,8 @@ local M = {}
 M.TYPE_NAME = "LuaRTOutcome"
 M.TYPE_DECL = table.concat({
   "struct LuaRTOutcome",
-  "  kind: i64; count: i64; value0: " .. ValueModel.TYPE_NAME .. "; value1: " .. ValueModel.TYPE_NAME .. "; value_buffer: i64;",
-  "  error_kind: i64; error_value: " .. ValueModel.TYPE_NAME .. "; saved_pc: i64; saved_top: i64; yield_kind: i64",
+  "  kind: i64; count: i64; value0: " .. ValueModel.TYPE_NAME .. "; value1: " .. ValueModel.TYPE_NAME .. ";",
+  "  error_kind: i64; error_value: " .. ValueModel.TYPE_NAME .. "; saved_pc: i64; saved_top: i64; yield_kind: i64; value_buffer: ptr(" .. ValueModel.TYPE_NAME .. "); value_base: i64",
   "end",
 }, "\n")
 

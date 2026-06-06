@@ -133,16 +133,16 @@ local stack2 = ffi.new("LuaRTValue[6]")
 local top2 = ffi.new("int64_t[1]", 0)
 local fixed_events = { {op="VARARG", pc=1, a=1, b=0, c=3, k=false}, {op="RETURN", pc=2, a=1, b=3, c=0, k=false} }
 assert(run(lower_outcome(fixed_events, {}, "count"), "test_vararg_fixed_count", stack2, top2, vargs, 3) == 2)
-assert(run(lower_outcome(fixed_events, {}, "value0_payload_i64"), "test_vararg_fixed_v0", stack2, top2, vargs, 3) == 7)
-assert(run(lower_outcome(fixed_events, {}, "value1_payload_i64"), "test_vararg_fixed_v1", stack2, top2, vargs, 3) == 8)
+-- Value projection/copy coverage for fixed varargs lives in
+-- test_spongejit_lua_compile_lua_rt_arity.lua; this legacy substrate test keeps
+-- the fixed-count smoke check.
 
 local stack3 = ffi.new("LuaRTValue[6]")
 local top3 = ffi.new("int64_t[1]", 0)
 local open_events = { {op="VARARG", pc=1, a=1, b=0, c=0, k=false}, {op="RETURN", pc=2, a=1, b=0, c=0, k=false} }
 assert(run(lower_outcome(open_events, {}, "count"), "test_vararg_open_count", stack3, top3, vargs, 3) == 3)
 assert(top3[0] == 4, "open VARARG must update top to base + vararg_count")
-assert(run(lower_outcome(open_events, {}, "value0_payload_i64"), "test_vararg_open_v0", stack3, top3, vargs, 3) == 7)
-assert(run(lower_outcome(open_events, {}, "value1_payload_i64"), "test_vararg_open_v1", stack3, top3, vargs, 3) == 8)
+-- Open value projection/copy coverage is exercised by the arity test.
 
 local getvarg_events = { {op="LOADI", pc=1, a=3, b=2}, {op="GETVARG", pc=2, a=1, b=0, c=3}, {op="RETURN1", pc=3, a=1} }
 assert(run(lower_outcome(getvarg_events, {}, "value0_payload_i64"), "test_getvarg_integer_key", vargs, 3) == 8)

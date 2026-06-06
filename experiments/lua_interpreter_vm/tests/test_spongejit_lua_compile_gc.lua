@@ -62,7 +62,7 @@ local lua_tvalue_ref = GC.LuaTValueGCRef(lua_string, GC.GCStringTag, obj)
 assert(pvm.classof(lua_value_ref) == GC.LuaValueGCRef)
 assert(pvm.classof(lua_tvalue_ref) == GC.LuaTValueGCRef)
 
--- FFI scaffolding for cdata/finalizer integration.
+-- FFI cdata/finalizer integration products.
 local void_t = FFI.ScalarType(FFI.CTypeId(1), FFI.CVoid, FFI.Signless, 0, 0)
 local int_t = FFI.ScalarType(FFI.CTypeId(2), FFI.CInt, FFI.Signed, 4, 4)
 local void_fn_t = FFI.FunctionType(FFI.CTypeId(3), FFI.PlatformDefaultABI, void_t, FFI.CParamList({}, false))
@@ -89,7 +89,13 @@ local table_header = GC.GCHeader(table_obj_ref, GC.NoGCRef, GC.TableKind, GC.Gra
 local table_ref = RT.TableRef(rname("table0"))
 local table_object = GC.TableObject(table_header, table_ref, RT.MixedArrayHash, RT.NoMetatable, 8, 2, 20, 21)
 local closure_header = GC.GCHeader(closure_obj_ref, GC.NoGCRef, GC.ClosureKind, GC.Black, 0, 3)
-local closure_object = GC.LClosure(closure_header, RT.ClosureRef(rname("closure0")), T.LuaSrc.KRef(1), { RT.UpvalueRef(0), RT.UpvalueRef(1) })
+local closure_ref = RT.ClosureRef(rname("closure0"))
+local proto_ref = RT.ProtoRef(T.LuaSrc.KRef(1))
+local uv0 = RT.UpvalueRef(rname("uv0"))
+local uv1 = RT.UpvalueRef(rname("uv1"))
+local uv0_id = RT.UpvalueIdentity(uv0, proto_ref, closure_ref, frame_ref, RT.Slot(0), RT.OpenStackUpvalue, 0, 0)
+local uv1_id = RT.UpvalueIdentity(uv1, proto_ref, closure_ref, frame_ref, RT.Slot(1), RT.OpenStackUpvalue, 0, 0)
+local closure_object = GC.LClosure(closure_header, closure_ref, proto_ref, { uv0_id, uv1_id })
 local userdata_header = GC.GCHeader(userdata_obj_ref, GC.NoGCRef, GC.UserdataKind, GC.White1, 0, 4)
 local userdata_object = GC.UserdataObject(userdata_header, RT.UserdataRef(rname("userdata0")), RT.UnknownMetatable, 64, userdata_finalizer)
 local cdata_header = GC.GCHeader(cdata_obj_ref, GC.NoGCRef, GC.CDataKind, GC.White1, 0, 5)
@@ -104,7 +110,7 @@ local roots = GC.RootSet({
   GC.GCRoot(GC.RegistryRoot, table_gc_ref),
   GC.GCRoot(GC.GlobalTableRoot, table_gc_ref),
   GC.GCRoot(GC.MetatableCacheRoot, table_gc_ref),
-  GC.GCRoot(GC.OpenUpvalueRoot(RT.UpvalueRef(0)), obj),
+  GC.GCRoot(GC.OpenUpvalueRoot(uv0), obj),
   GC.GCRoot(GC.CCallbackRoot(FFI.CCallbackId(1)), GC.SomeGCRef(closure_obj_ref)),
   GC.GCRoot(GC.JitMaterializedCodeRoot(name("template_1")), obj),
 })
@@ -114,7 +120,7 @@ assert_ok(C.validate.lua_gc_root_set(roots))
 -- Barriers and actions are typed obligations, not comments/side tables.
 local object_barrier = GC.ObjectToObjectBarrier(table_gc_ref, obj)
 local table_barrier = GC.TableSlotBarrier(table_ref, slot_value, obj)
-local upvalue_barrier = GC.UpvalueWriteBarrier(RT.UpvalueRef(1), slot_value, obj)
+local upvalue_barrier = GC.UpvalueWriteBarrier(uv1, slot_value, obj)
 local cdata_barrier = GC.CDataRefBarrier(cdata, obj)
 for _, barrier in ipairs({ object_barrier, table_barrier, upvalue_barrier, cdata_barrier }) do
   assert_ok(Validate.barrier_kind(barrier))

@@ -1,12 +1,13 @@
--- lua_src_to_lua_exec_lower.lua -- LuaSrc closed core-value window -> LuaExec.
+-- lua_src_to_lua_exec_lower.lua -- LuaSrc windows -> typed LuaExec static regions.
 --
--- This stage makes LuaExec an executable semantic IR for the bounded core Lua
--- value slice.  It lowers source windows into LuaRT stack/value operations and
--- LuaExec CFG control first; MoonCFG is produced by lua_exec_to_moon_cfg_lower.
--- No table/metamethod/call/FFI semantics or protocol handoff are introduced.
+-- This stage lowers LuaSrc windows into typed LuaExec static semantic regions.
+-- The ASDL architecture can represent full Lua semantics, but this lowerer only
+-- accepts the current executable slice; unsupported source semantics reject.
 
 local pvm = require("moonlift.pvm")
 local B = require("lua_compile.builders")
+local RegionModel = require("lua_compile.lua_exec_region_model")
+local ArityModel = require("lua_compile.lua_rt_arity_model")
 local T = B.T
 local Src, Fact, RT, Exec = T.LuaSrc, T.LuaFact, T.LuaRT, T.LuaExec
 
@@ -26,6 +27,9 @@ local ARITHMETIC_OP = {
   ADDI = { op = RT.ArithAdd, lhs = "slot", rhs = "imm", companion = "MMBINI" },
   ADDK = { op = RT.ArithAdd, lhs = "slot", rhs = "const", companion = "MMBINK" },
 }
+-- Complete call products do not expand accepted LuaSrc opcodes. Source
+-- CALL/TAILCALL remain rejected until callee invocation, close/yield/tailcall
+-- replacement, and target contracts are implemented end-to-end.
 local SUPPORTED_INSTR = { LOADNIL = true, LOADFALSE = true, LOADTRUE = true, LOADI = true, LOADK = true, MOVE = true, NOT = true, VARARG = true, GETVARG = true, GETTABLE = true, LEN = true, CONCAT = true, MMBIN = true, MMBINI = true, MMBINK = true }
 
 local function ename(s) return Exec.Name(tostring(s)) end
@@ -187,6 +191,16 @@ local function scan_shape(window)
       leaders[pc_of(fall)] = true
     elseif op.kind == "SETLIST" then
       return nil, { "lua_exec:setlist_table_write_semantics_future:" .. tostring(op.pc.id) }
+    elseif op.kind == "CALL" then
+      -- Complete call products are structural here; LuaSrc CALL still has no
+      -- callee invocation, close/yield, or source target contract path.
+      return nil, { "lua_exec:unsupported_source_semantics:CallRegion:" .. tostring(op.pc.id) }
+    elseif op.kind == "TAILCALL" then
+      return nil, { "lua_exec:unsupported_source_semantics:TailCallRegion:" .. tostring(op.pc.id) }
+    elseif op.kind == "CLOSE" or op.kind == "TBC" then
+      return nil, { "lua_exec:unsupported_source_semantics:CloseRegion:" .. tostring(op.pc.id) }
+    elseif op.kind == "NEWTABLE" or op.kind == "CLOSURE" then
+      return nil, { "lua_exec:unsupported_source_semantics:GCAllocRegion:" .. tostring(op.pc.id) }
     elseif TERMINAL_RETURN[op.kind] or TERMINAL_EFFECT[op.kind] then
       if ops[i + 1] then leaders[pc_of(ops[i + 1])] = true end
     elseif not SUPPORTED_INSTR[op.kind] then
@@ -372,7 +386,7 @@ local function analyze_block_io(shape)
 end
 
 local function new_builder(evidence, params_by_pc)
-  return { evidence = evidence, params_by_pc = params_by_pc or {}, forced_slot_ty = {}, kernel_params = {}, kernel_param_seen = {}, errors = {}, temp_id = 1 }
+  return { evidence = evidence, params_by_pc = params_by_pc or {}, forced_slot_ty = {}, kernel_params = {}, kernel_param_seen = {}, errors = {}, temp_id = 1, region_descriptors = {}, arity_normalizations = {} }
 end
 local function slot_ty(builder, sid)
   local s = B.slot(sid)
@@ -468,6 +482,35 @@ local function tvalue_for(ty, value)
   error("unsupported core tvalue type: " .. tostring(ty))
 end
 
+local function fixed_count(n) return RT.FixedCount(math.max(0, tonumber(n) or 0)) end
+local function adjustment_count(adjustment)
+  local k = adjustment and adjustment.kind
+  if k == "ExactCount" or k == "FillNilTo" or k == "TruncateTo" then
+    return adjustment.count and (adjustment.count.value or adjustment.count.count or adjustment.count.n) or 0
+  end
+  return nil
+end
+local function wanted_count_for_adjustment(seq, adjustment)
+  local target = adjustment_count(adjustment)
+  if target ~= nil then return fixed_count(target) end
+  return seq.count
+end
+local function add_arity_contract(builder, normalization)
+  builder.arity_normalizations[#builder.arity_normalizations + 1] = normalization
+end
+local function normalized_seq(builder, source, adjustment, channel_kind)
+  local wanted = wanted_count_for_adjustment(source, adjustment)
+  local shape = ArityModel.shape_for_adjustment(source.count, wanted, adjustment)
+  local channel = ArityModel.result_channel(channel_kind, source, wanted)
+  local normalization = ArityModel.normalization(source, shape, channel)
+  add_arity_contract(builder, normalization)
+  return RT.ValueSeq(RT.AdjustedSeq, {}, wanted, RT.FromArityNormalization(normalization)), normalization
+end
+local function empty_return_seq(builder)
+  local source = RT.ValueSeq(RT.FixedSeq, {}, RT.FixedCount(0), RT.FromLiteralValues)
+  return normalized_seq(builder, source, RT.ExactCount(RT.Count(0)), "OutcomeReturnChannel")
+end
+
 local function lower_instruction(builder, env, ops, op)
   local sid = op.a and op.a.id
   if op.kind == "LOADI" then
@@ -504,8 +547,10 @@ local function lower_instruction(builder, env, ops, op)
     local wanted = op.wanted and op.wanted.value or 0
     local count_spec = wanted == 0 and RT.OpenFromVarargs(vararg_source()) or RT.FixedCount(math.max(0, wanted - 1))
     local seq = RT.ValueSeq(RT.VarargSeq, {}, count_spec, RT.FromVarargs(vararg_source()))
+    local adjustment = wanted == 0 and RT.PropagateOpenTail or RT.ExactCount(RT.Count(math.max(0, wanted - 1)))
+    local adjusted_seq = normalized_seq(builder, seq, adjustment, "ContinuationReturnChannel")
     local dst_window = RT.StackWindow(RT.VarargWindow, frame_ref(), RT.Slot(op.a.id or 0), count_spec)
-    ops[#ops + 1] = Exec.AssignSeq(dst_window, seq, wanted == 0 and RT.PropagateOpenTail or RT.ExactCount(RT.Count(math.max(0, wanted - 1))))
+    ops[#ops + 1] = Exec.AssignSeq(dst_window, adjusted_seq, adjustment)
     if wanted == 0 then
       ops[#ops + 1] = Exec.SetTop(top_ref(), RT.OpenFromVarargsAtBase(RT.Slot(op.a.id or 0), vararg_source()))
       env.__open_top_base = op.a.id or 0
@@ -650,7 +695,7 @@ local function copy_env(env) local out = {}; for k, v in pairs(env) do out[k] = 
 
 local function return_seq_for(builder, env, ops, op)
   if op.kind == "RETURN0" then
-    return RT.ValueSeq(RT.FixedSeq, {}, RT.FixedCount(0), RT.FromLiteralValues)
+    return empty_return_seq(builder)
   elseif op.kind == "RETURN" then
     if op.close_upvalues or ((op.c and op.c.value or 0) ~= 0) then return add_error(builder.errors, "lua_exec:unsupported_return_close_or_c:" .. tostring(op.pc.id)) end
     local n = op.nresults and op.nresults.value or 0
@@ -658,23 +703,28 @@ local function return_seq_for(builder, env, ops, op)
       require_stack_params(builder)
       local count = RT.OpenFromTop(top_ref())
       local window = RT.StackWindow(RT.ReturnWindow, frame_ref(), RT.Slot(op.base.id), count)
-      return RT.ValueSeq(RT.OpenSeq, {}, count, RT.FromStackWindow(window))
+      local source = RT.ValueSeq(RT.OpenSeq, {}, count, RT.FromStackWindow(window))
+      return normalized_seq(builder, source, RT.OpenResult, "OutcomeReturnChannel")
     end
-    if n == 1 then return RT.ValueSeq(RT.FixedSeq, {}, RT.FixedCount(0), RT.FromLiteralValues) end
+    if n == 1 then return empty_return_seq(builder) end
     if n > 2 then
+      require_stack_params(builder)
       for i = 0, n - 2 do if not bind_slot(builder, ops, env, (op.base.id or 0) + i) then return nil end end
       local refs = {}
       for i = 0, n - 2 do refs[#refs + 1] = slot_ref((op.base.id or 0) + i) end
       local window = RT.StackWindow(RT.ReturnWindow, frame_ref(), RT.Slot(op.base.id), RT.FixedCount(n - 1))
-      return RT.ValueSeq(RT.FixedSeq, refs, RT.FixedCount(n - 1), RT.FromStackWindow(window))
+      local source = RT.ValueSeq(RT.FixedSeq, refs, RT.FixedCount(n - 1), RT.FromStackWindow(window))
+      return normalized_seq(builder, source, RT.ExactCount(RT.Count(n - 1)), "OutcomeReturnChannel")
     end
     if not bind_slot(builder, ops, env, op.base.id) then return nil end
     local window = RT.StackWindow(RT.ReturnWindow, frame_ref(), RT.Slot(op.base.id), RT.FixedCount(1))
-    return RT.ValueSeq(RT.FixedSeq, { slot_ref(op.base.id) }, RT.FixedCount(1), RT.FromStackWindow(window))
+    local source = RT.ValueSeq(RT.FixedSeq, { slot_ref(op.base.id) }, RT.FixedCount(1), RT.FromStackWindow(window))
+    return normalized_seq(builder, source, RT.ExactCount(RT.Count(1)), "OutcomeReturnChannel")
   elseif op.kind == "RETURN1" then
     if not bind_slot(builder, ops, env, op.value.id) then return nil end
     local window = RT.StackWindow(RT.ReturnWindow, frame_ref(), RT.Slot(op.value.id), RT.FixedCount(1))
-    return RT.ValueSeq(RT.FixedSeq, { slot_ref(op.value.id) }, RT.FixedCount(1), RT.FromStackWindow(window))
+    local source = RT.ValueSeq(RT.FixedSeq, { slot_ref(op.value.id) }, RT.FixedCount(1), RT.FromStackWindow(window))
+    return normalized_seq(builder, source, RT.ExactCount(RT.Count(1)), "OutcomeReturnChannel")
   end
   return add_error(builder.errors, "lua_exec:unsupported_return:" .. tostring(op.kind))
 end
@@ -856,7 +906,8 @@ local function lower_block(builder, block)
     if not bind_slot(builder, ops, env, op.table.id) then return nil end
     term = Exec.Error(RT.ErrorState(RT.RuntimeError, slot_ref(op.table.id), RT.Pc(op.pc.id or 0), top_ref()))
   elseif block.term.kind == "return0" then
-    term = Exec.Return(RT.ValueSeq(RT.FixedSeq, {}, RT.FixedCount(0), RT.FromLiteralValues))
+    local seq = empty_return_seq(builder)
+    term = Exec.Return(seq)
   elseif block.term.kind == "return" then
     local seq = return_seq_for(builder, env, ops, block.term.op); if not seq then return nil end
     term = Exec.Return(seq)
@@ -870,6 +921,19 @@ local function make_frame(entry_pc)
 end
 local function empty_contract() return Exec.Contract({}, {}) end
 
+local function contract_for_builder(descriptor, builder)
+  if not descriptor then return empty_contract() end
+  local obligations = { Exec.RequiresRegionDescriptor(descriptor) }
+  local guarantees = { Exec.DescribesRegion(descriptor) }
+  for _, normalization in ipairs(builder.arity_normalizations or {}) do
+    obligations[#obligations + 1] = Exec.RequiresArityShape(normalization.shape)
+    obligations[#obligations + 1] = Exec.RequiresResultChannel(normalization.result.channel)
+    guarantees[#guarantees + 1] = Exec.NormalizesArity(normalization)
+    guarantees[#guarantees + 1] = Exec.ProducesResultChannel(normalization.result.channel)
+  end
+  return Exec.Contract(obligations, guarantees)
+end
+
 local function lower_value(window, evidence)
   local shape, errors = scan_shape(window); if not shape then return nil, errors end
   local params_by_pc, io_errors = analyze_block_io(shape); if not params_by_pc then return nil, io_errors end
@@ -882,8 +946,11 @@ local function lower_value(window, evidence)
   end
   if #builder.errors > 0 then return nil, builder.errors end
   local entry = block_id_for_pc(shape.blocks[1].pc)
-  local region = Exec.Region(ename("lua_exec_core_body"), Exec.ReturnRegion, builder.kernel_params, {}, entry, blocks)
-  return Exec.Kernel(ename("lua_exec_core_kernel"), make_frame(shape.blocks[1].pc), region, empty_contract()), nil
+  local rkind = RegionModel.region_kind_for_existing_shape(shape) or Exec.CoreWindowRegion
+  local descriptor = RegionModel.descriptor_for_shape("lua_exec_core_body", shape)
+  builder.region_descriptors[#builder.region_descriptors + 1] = descriptor
+  local region = Exec.Region(ename("lua_exec_core_body"), rkind, builder.kernel_params, {}, entry, blocks)
+  return Exec.Kernel(ename("lua_exec_core_kernel"), make_frame(shape.blocks[1].pc), region, contract_for_builder(descriptor, builder)), nil
 end
 
 local phase = pvm.phase("spongejit_lua_src_to_lua_exec_lower", function(window, evidence)

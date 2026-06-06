@@ -5,10 +5,14 @@ local moon = require("moonlift")
 local C = require("lua_compile")
 local Validate = require("lua_compile.moon_cfg_validate")
 local Emit = require("lua_compile.moon_cfg_emit")
+local ContractKey = require("lua_compile.compile_contract_key")
+local ContractValidate = require("lua_compile.compile_contract_validate")
+local StencilKey = require("lua_compile.stencil_key")
+local ArityModel = require("lua_compile.lua_rt_arity_model")
 local Schema = require("lua_compile.schema")
 local pvm = require("moonlift.pvm")
 local T = Schema.get()
-local CFG, CC = T.MoonCFG, T.CompileContract
+local CFG, CC, RT, Exec, Stencil = T.MoonCFG, T.CompileContract, T.LuaRT, T.LuaExec, T.Stencil
 
 local function kernel_from(events, evidence)
   local r = C.compile_to_moon_kernel(C.unit_from_events(events, evidence or {}))
@@ -344,6 +348,59 @@ for _, op in ipairs({ "CALL", "TAILCALL", "CLOSE", "TBC", "TFORPREP", "TFORCALL"
   local r = C.compile_to_moon_kernel(C.unit_from_events({ sample_event(op) }, {}))
   assert(r.kind == "Reject", op .. " must not compile as protocol success")
 end
+
+local function assert_unsupported_reject(op, needle)
+  local r = C.compile_to_moon_kernel(C.unit_from_events({ sample_event(op), { op="RETURN0", pc=2 } }, {}))
+  assert(r.kind == "Reject", op .. " must reject")
+  local msg = r.diagnostic and r.diagnostic.message or ""
+  assert(msg:match(needle), op .. " expected " .. needle .. ", got " .. msg)
+end
+assert_unsupported_reject("CALL", "unsupported_source_semantics:CallRegion")
+assert_unsupported_reject("TAILCALL", "unsupported_source_semantics:TailCallRegion")
+assert_unsupported_reject("CLOSE", "unsupported_source_semantics:CloseRegion")
+assert_unsupported_reject("TBC", "unsupported_source_semantics:CloseRegion")
+assert_unsupported_reject("NEWTABLE", "unsupported_source_semantics:GCAllocRegion")
+assert_unsupported_reject("CLOSURE", "unsupported_source_semantics:GCAllocRegion")
+
+local descriptor = Exec.RegionDescriptor(
+  Exec.RegionId(Exec.Name("typed_region")),
+  Exec.CoreWindowRegion,
+  Exec.LoadMoveFamily,
+  RT.Pc(1),
+  RT.Pc(2)
+)
+local arity_seq = RT.ValueSeq(RT.FixedSeq, {}, RT.FixedCount(0), RT.FromLiteralValues)
+local arity_channel = ArityModel.result_channel("OutcomeReturnChannel", arity_seq, RT.FixedCount(0))
+local semantic_contract = CC.Contract(
+  CC.Transfer({}, {}),
+  {
+    CC.RequiresSemanticAssumption(CC.AssumesRegionDescriptor(descriptor)),
+    CC.RequiresSemanticAssumption(CC.AssumesResultChannel(arity_channel)),
+  },
+  {
+    CC.GuaranteesSemanticAssumption(CC.AssumesRegionDescriptor(descriptor)),
+    CC.GuaranteesSemanticAssumption(CC.AssumesResultChannel(arity_channel)),
+  },
+  {}
+)
+local contract_ok, contract_errors = ContractValidate.validate(semantic_contract)
+assert(contract_ok, table.concat(contract_errors or {}, "\n"))
+local contract_key = ContractKey.key(semantic_contract)
+assert(contract_key:match("AssumesRegionDescriptor"), "contract key must include typed semantic assumption")
+assert(contract_key:match("AssumesResultChannel"), "contract key must include typed result-channel assumption")
+local key_ok, key_errors = StencilKey.check_no_forbidden_strings({ Stencil.FromRegionDescriptor(descriptor) })
+assert(key_ok, table.concat(key_errors or {}, "\n"))
+local target = RT.UnknownCallTarget(RT.TempValue(RT.Name("callee0")))
+key_ok, key_errors = StencilKey.check_no_forbidden_strings({ Stencil.FromCallTarget(target) })
+assert(key_ok, table.concat(key_errors or {}, "\n"))
+local caller = RT.FrameRef(RT.Name("caller0"))
+local callee = RT.FrameRef(RT.Name("callee1"))
+local identity = RT.LuaClosureTargetIdentity(RT.ClosureRef(RT.Name("closure0")), T.LuaSrc.KRef(0), 9, {})
+local layout = RT.CallFrameLayout(RT.CallFrameRef(RT.Name("frame_layout0")), caller, callee, RT.Slot(0), RT.Slot(1), RT.FixedCount(1), RT.Slot(2), RT.FixedCount(1), RT.Count(4))
+key_ok, key_errors = StencilKey.check_no_forbidden_strings({ Stencil.FromCallTargetIdentity(identity), Stencil.FromCallFrameLayout(layout) })
+assert(key_ok, table.concat(key_errors or {}, "\n"))
+key_ok, key_errors = StencilKey.check_no_forbidden_strings({ "call" })
+assert(not key_ok and table.concat(key_errors or {}, "\n"):match("forbidden stencil key string: call"), "lowercase call string must remain forbidden")
 
 -- Direct validator negatives for tag ABI and forbidden protocol concepts.
 local empty_contract = CC.Contract(CC.Transfer({}, {}), {}, {}, {})

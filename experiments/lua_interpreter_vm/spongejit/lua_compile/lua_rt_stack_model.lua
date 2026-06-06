@@ -35,6 +35,9 @@ M.SEQ_KIND_ORDER = {
 M.SEQ_KIND = {}
 for i, name in ipairs(M.SEQ_KIND_ORDER) do M.SEQ_KIND[name] = i - 1 end
 
+M.INLINE_VALUE_COUNT = 2
+function M.requires_buffer_index(index) return index >= M.INLINE_VALUE_COUNT end
+
 M.VARARG_KIND_ORDER = {
   "NoVarargs",
   "HiddenFrameVarargs",

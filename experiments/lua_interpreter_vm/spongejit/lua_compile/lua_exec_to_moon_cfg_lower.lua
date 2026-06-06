@@ -14,6 +14,9 @@ local ValueModel = require("lua_compile.lua_rt_value_model")
 local OutcomeModel = require("lua_compile.lua_rt_outcome_model")
 local StackModel = require("lua_compile.lua_rt_stack_model")
 local ObjectModel = require("lua_compile.lua_rt_object_model")
+local RegionModel = require("lua_compile.lua_exec_region_model")
+local ArityModel = require("lua_compile.lua_rt_arity_model")
+local CallModel = require("lua_compile.lua_rt_call_model")
 
 local M = {}
 
@@ -29,10 +32,91 @@ end
 local function compile_contract(exec_contract)
   local obligations, guarantees = {}, {}
   for _, o in ipairs((exec_contract and exec_contract.obligations) or {}) do
-    obligations[#obligations + 1] = CC.RequiresExecObligation(o)
+    if pvm.classof(o) == Exec.RequiresRegionDescriptor then
+      obligations[#obligations + 1] = CC.RequiresSemanticAssumption(CC.AssumesRegionDescriptor(o.descriptor))
+    elseif pvm.classof(o) == Exec.RequiresArityShape then
+      obligations[#obligations + 1] = CC.RequiresSemanticAssumption(CC.AssumesArityShape(o.shape))
+    elseif pvm.classof(o) == Exec.RequiresResultChannel then
+      obligations[#obligations + 1] = CC.RequiresSemanticAssumption(CC.AssumesResultChannel(o.channel))
+    elseif pvm.classof(o) == Exec.RequiresResolvedCallTarget then
+      obligations[#obligations + 1] = CC.RequiresSemanticAssumption(CC.AssumesResolvedCallTarget(o.target))
+      obligations[#obligations + 1] = CC.RequiresSemanticAssumption(CC.AssumesCallTargetIdentity(o.target.identity))
+    elseif pvm.classof(o) == Exec.RequiresCallFrameLayout then
+      obligations[#obligations + 1] = CC.RequiresSemanticAssumption(CC.AssumesCallFrameLayout(o.layout))
+    elseif pvm.classof(o) == Exec.RequiresCallArgChannel then
+      obligations[#obligations + 1] = CC.RequiresSemanticAssumption(CC.AssumesCallArgChannel(o.channel))
+    elseif pvm.classof(o) == Exec.RequiresCallResultChannel then
+      obligations[#obligations + 1] = CC.RequiresSemanticAssumption(CC.AssumesCallResultChannel(o.channel))
+    elseif pvm.classof(o) == Exec.RequiresResultRoute then
+      obligations[#obligations + 1] = CC.RequiresSemanticAssumption(CC.AssumesResultRoute(o.channel))
+    elseif pvm.classof(o) == Exec.RequiresFrameEffect then
+      obligations[#obligations + 1] = CC.RequiresSemanticAssumption(CC.AssumesFrameEffect(o.effect))
+    elseif pvm.classof(o) == Exec.RequiresStaticRegion then
+      obligations[#obligations + 1] = CC.RequiresSemanticAssumption(CC.AssumesStaticRegion(o.binding))
+    elseif pvm.classof(o) == Exec.RequiresStaticRegionInvocation then
+      obligations[#obligations + 1] = CC.RequiresSemanticAssumption(CC.AssumesStaticRegionInvocation(o.invocation))
+    elseif pvm.classof(o) == Exec.RequiresCallContinuationRegion then
+      obligations[#obligations + 1] = CC.RequiresSemanticAssumption(CC.AssumesCallContinuationRegion(o.region))
+    elseif pvm.classof(o) == Exec.RequiresMetamethodLookupPath then
+      obligations[#obligations + 1] = CC.RequiresSemanticAssumption(CC.AssumesMetamethodLookupPath(o.path))
+    elseif pvm.classof(o) == Exec.RequiresUpvalueIdentity then
+      obligations[#obligations + 1] = CC.RequiresSemanticAssumption(CC.AssumesUpvalueIdentity(o.identity))
+    elseif pvm.classof(o) == Exec.RequiresGCEffect then
+      obligations[#obligations + 1] = CC.RequiresSemanticAssumption(CC.AssumesGCEffect(o.effect))
+    elseif pvm.classof(o) == Exec.RequiresFFICallShape then
+      obligations[#obligations + 1] = CC.RequiresSemanticAssumption(CC.AssumesFFICallShape(o.call))
+    elseif pvm.classof(o) == Exec.RequiresLuaOperation then
+      obligations[#obligations + 1] = CC.RequiresSemanticAssumption(CC.AssumesLuaOperation(o.operation))
+    elseif pvm.classof(o) == Exec.RequiresLoopTopology then
+      obligations[#obligations + 1] = CC.RequiresSemanticAssumption(CC.AssumesLoopTopology(o.topology))
+    elseif pvm.classof(o) == Exec.RequiresClosePlan then
+      obligations[#obligations + 1] = CC.RequiresSemanticAssumption(CC.AssumesClosePlan(o.plan))
+    else
+      obligations[#obligations + 1] = CC.RequiresExecObligation(o)
+    end
   end
   for _, g in ipairs((exec_contract and exec_contract.guarantees) or {}) do
-    guarantees[#guarantees + 1] = CC.GuaranteesExec(g)
+    if pvm.classof(g) == Exec.DescribesRegion then
+      guarantees[#guarantees + 1] = CC.GuaranteesSemanticAssumption(CC.AssumesRegionDescriptor(g.descriptor))
+    elseif pvm.classof(g) == Exec.NormalizesArity then
+      guarantees[#guarantees + 1] = CC.GuaranteesSemanticAssumption(CC.AssumesArityShape(g.normalization.shape))
+    elseif pvm.classof(g) == Exec.ProducesResultChannel then
+      guarantees[#guarantees + 1] = CC.GuaranteesSemanticAssumption(CC.AssumesResultChannel(g.channel))
+    elseif pvm.classof(g) == Exec.ResolvesCallTarget then
+      guarantees[#guarantees + 1] = CC.GuaranteesSemanticAssumption(CC.AssumesResolvedCallTarget(g.target))
+      guarantees[#guarantees + 1] = CC.GuaranteesSemanticAssumption(CC.AssumesCallTargetIdentity(g.target.identity))
+    elseif pvm.classof(g) == Exec.PreparesCallFrame then
+      guarantees[#guarantees + 1] = CC.GuaranteesSemanticAssumption(CC.AssumesCallFrameLayout(g.frame.layout))
+      guarantees[#guarantees + 1] = CC.GuaranteesSemanticAssumption(CC.AssumesCallArgChannel(g.frame.args))
+    elseif pvm.classof(g) == Exec.ProducesCallResults then
+      guarantees[#guarantees + 1] = CC.GuaranteesSemanticAssumption(CC.AssumesCallResultChannel(g.channel))
+    elseif pvm.classof(g) == Exec.ProducesResultRoute then
+      guarantees[#guarantees + 1] = CC.GuaranteesSemanticAssumption(CC.AssumesResultRoute(g.channel))
+    elseif pvm.classof(g) == Exec.AppliesFrameEffect then
+      guarantees[#guarantees + 1] = CC.GuaranteesSemanticAssumption(CC.AssumesFrameEffect(g.effect))
+    elseif pvm.classof(g) == Exec.ProvidesStaticRegion then
+      guarantees[#guarantees + 1] = CC.GuaranteesSemanticAssumption(CC.AssumesStaticRegion(g.binding))
+    elseif pvm.classof(g) == Exec.InvokesStaticRegion then
+      guarantees[#guarantees + 1] = CC.GuaranteesSemanticAssumption(CC.AssumesStaticRegionInvocation(g.invocation))
+    elseif pvm.classof(g) == Exec.BindsCallContinuationRegion then
+      guarantees[#guarantees + 1] = CC.GuaranteesSemanticAssumption(CC.AssumesCallContinuationRegion(g.region))
+    elseif pvm.classof(g) == Exec.ResolvesMetamethodLookupPath then
+      guarantees[#guarantees + 1] = CC.GuaranteesSemanticAssumption(CC.AssumesMetamethodLookupPath(g.path))
+    elseif pvm.classof(g) == Exec.UsesUpvalueIdentity then
+      guarantees[#guarantees + 1] = CC.GuaranteesSemanticAssumption(CC.AssumesUpvalueIdentity(g.identity))
+    elseif pvm.classof(g) == Exec.AppliesGCEffect then
+      guarantees[#guarantees + 1] = CC.GuaranteesSemanticAssumption(CC.AssumesGCEffect(g.effect))
+    elseif pvm.classof(g) == Exec.UsesFFICallShape then
+      guarantees[#guarantees + 1] = CC.GuaranteesSemanticAssumption(CC.AssumesFFICallShape(g.call))
+    elseif pvm.classof(g) == Exec.DescribesLuaOperation then
+      guarantees[#guarantees + 1] = CC.GuaranteesSemanticAssumption(CC.AssumesLuaOperation(g.operation))
+    elseif pvm.classof(g) == Exec.DescribesLoopTopology then
+      guarantees[#guarantees + 1] = CC.GuaranteesSemanticAssumption(CC.AssumesLoopTopology(g.topology))
+    elseif pvm.classof(g) == Exec.AppliesClosePlan then
+      guarantees[#guarantees + 1] = CC.GuaranteesSemanticAssumption(CC.AssumesClosePlan(g.plan))
+    else
+      guarantees[#guarantees + 1] = CC.GuaranteesExec(g)
+    end
   end
   if #obligations == 0 and #guarantees == 0 then return empty_contract() end
   return CC.Contract(CC.Transfer({}, {}), obligations, guarantees, {})
@@ -316,7 +400,7 @@ end
 
 function lower_value_seq_runtime(state, env, seq, label)
   label = label or "seq"
-  if fixed_count_value(seq) ~= nil and #((seq and seq.values) or {}) > 0 then
+  if fixed_count_value(seq) ~= nil and #((seq and seq.values) or {}) > 0 and #((seq and seq.values) or {}) <= 2 then
     local count = lower_count_spec(state, env, seq.count); if not count then return nil end
     local values = {}
     for _, ref in ipairs(seq.values or {}) do
@@ -350,11 +434,36 @@ function lower_value_seq_runtime(state, env, seq, label)
       values[#values + 1] = boxed.value
     end
     return emit_expr(state, label .. "_fixed_seq", CFG.RuntimeValueSeqFixed(count.value, values), "lua_seq")
+  elseif origin_cls == RT.FromArityNormalization then
+    local n = seq.origin.normalization
+    if not ArityModel.is_executable_normalization(n) then return add_error(state, label .. ":non_executable_arity_normalization") end
+    local src = lower_value_seq_runtime(state, env, n.source, label .. "_norm_src"); if not src then return nil end
+    return emit_expr(state, label .. "_normalized_seq", CFG.RuntimeValueSeqNormalize(src.value, n.shape), "lua_seq")
   elseif origin_cls == RT.FromAdjusted then
     local src = lower_value_seq_runtime(state, env, seq.origin.source, label .. "_adjust_src"); if not src then return nil end
     return emit_expr(state, label .. "_adjusted_seq", CFG.RuntimeValueSeqAdjust(src.value, RT.PropagateOpenTail), "lua_seq")
   end
   return add_error(state, label .. ":unsupported_sequence_origin:" .. tostring(seq and seq.origin and seq.origin.kind))
+end
+
+local function lower_call_args_seq(state, env, channel)
+  return lower_value_seq_runtime(state, env, channel.args, "call_args")
+end
+
+local function lower_call_frame_prepare(state, env, frame)
+  local ok, reason = CallModel.is_executable_call_frame_state(frame)
+  if not ok then return add_error(state, "unsupported_lua_exec_call_frame:" .. tostring(reason)) end
+  local caller_stack = stack_value_for_ref(state, env, RT.StackRef(frame.layout.caller)); if not caller_stack then return nil end
+  local callee_stack = stack_value_for_ref(state, env, RT.StackRef(frame.layout.callee)); if not callee_stack then return nil end
+  local args = lower_call_args_seq(state, env, frame.args); if not args then return nil end
+  return emit_expr(state, "call_frame", CFG.RuntimeCallFramePrepare(caller_stack.value, callee_stack.value, frame.layout, args.value), "lua_call_frame")
+end
+
+local function lower_call_result_seq(state, env, frame)
+  local ok, reason = CallModel.is_executable_call_frame_state(frame)
+  if not ok then return add_error(state, "unsupported_lua_exec_call_results:" .. tostring(reason)) end
+  local callee_stack = stack_value_for_ref(state, env, RT.StackRef(frame.layout.callee)); if not callee_stack then return nil end
+  return emit_expr(state, "call_result_seq", CFG.RuntimeCallFrameResultSeq(callee_stack.value, frame.layout, frame.results), "lua_seq")
 end
 
 local NUMERIC_TEST = { Eq = CFG.NumEq, Lt = CFG.NumLt, Le = CFG.NumLe, Gt = CFG.NumGt, Ge = CFG.NumGe, NonZero = CFG.NumNonZero }
@@ -391,6 +500,29 @@ local function lower_expr(state, env, expr)
   if cls == Exec.AdjustResultsExpr then
     local src = lower_value_seq_runtime(state, env, expr.seq, "adjust_src"); if not src then return nil end
     return emit_expr(state, "adjust_seq", CFG.RuntimeValueSeqAdjust(src.value, expr.adjustment), "lua_seq")
+  end
+  if cls == Exec.NormalizeResultsExpr then
+    local src = lower_value_seq_runtime(state, env, expr.seq, "normalize_src"); if not src then return nil end
+    return emit_expr(state, "normalize_seq", CFG.RuntimeValueSeqNormalize(src.value, expr.shape), "lua_seq")
+  end
+  if cls == Exec.ResultChannelExpr then
+    return add_error(state, "result_channel_expr_has_no_value_carrier_use_ResultBundle")
+  end
+  if cls == Exec.ResolvedCallTargetExpr then
+    local callee_ref = CallModel.call_target_callee(expr.target.target)
+    local callee = callee_ref and env.values[key_value_ref(callee_ref)]
+    if not callee then return add_error(state, "unbound_call_target_callee:" .. tostring(callee_ref and key_value_ref(callee_ref))) end
+    local boxed = box_scalar(state, callee); if not boxed then return nil end
+    return emit_expr(state, "call_target_ok", CFG.RuntimeCallTargetCheck(boxed.value, expr.target), "bool")
+  end
+  if cls == Exec.CallArgChannelExpr then
+    return lower_call_args_seq(state, env, expr.channel)
+  end
+  if cls == Exec.CallFrameStateExpr then
+    return lower_call_frame_prepare(state, env, expr.frame)
+  end
+  if cls == Exec.CallResultChannelExpr then
+    return lower_value_seq_runtime(state, env, expr.channel.normalization.result.values, "call_result_channel_seq")
   end
   if cls == Exec.VarargAccessExpr then
     local acls = pvm.classof(expr.access)
@@ -518,6 +650,27 @@ local function lower_expr(state, env, expr)
     local rbox = box_scalar(state, right); if not rbox then return nil end
     return emit_runtime_expr(state, "arith_error_value", CFG.RuntimeArithmeticErrorValue(expr.op, strings.value, lbox.value, rbox.value))
   end
+  if cls == Exec.CallStateExpr then
+    return add_error(state, "unsupported_lua_exec_call_state:fixed_call_frame_required")
+  end
+  if cls == Exec.MetamethodDispatchExpr then
+    return add_error(state, "unsupported_semantic_expr:MetamethodDispatchExpr")
+  end
+  if cls == Exec.ClosePlanExpr then
+    return add_error(state, "unsupported_semantic_expr:ClosePlanExpr")
+  end
+  if cls == Exec.GCEffectExpr then
+    return add_error(state, "unsupported_semantic_expr:GCEffectExpr")
+  end
+  if cls == Exec.StaticRegionBindingExpr or cls == Exec.StaticRegionInvocationExpr then
+    return add_error(state, "unsupported_semantic_expr:StaticRegion")
+  end
+  if cls == Exec.LuaOperationExpr then
+    return add_error(state, "unsupported_semantic_expr:LuaOperationExpr")
+  end
+  if cls == Exec.RegionDescriptorExpr then
+    return add_error(state, "unsupported_semantic_expr:RegionDescriptorExpr")
+  end
   if cls == Exec.NumberOpExpr then
     return add_error(state, "unsupported_lua_exec_number_expr_until_arithmetic_region_migration")
   end
@@ -542,13 +695,13 @@ local function lower_op(state, env, op)
     return true
   elseif cls == Exec.AssignSeq then
     local seq = lower_value_seq_runtime(state, env, op.src, "assign_seq"); if not seq then return nil end
-    local adjusted = emit_expr(state, "assign_seq_adjust", CFG.RuntimeValueSeqAdjust(seq.value, op.adjustment), "lua_seq")
+    local adjusted = seq
+    if pvm.classof(op.src.origin) ~= RT.FromArityNormalization then
+      adjusted = emit_expr(state, "assign_seq_adjust", CFG.RuntimeValueSeqAdjust(seq.value, op.adjustment), "lua_seq")
+    end
     local stack = stack_value_for_ref(state, env, RT.StackRef(op.dst.frame)); if not stack then return nil end
     local base = op.dst.base and op.dst.base.index or 0
-    local v0 = emit_runtime_expr(state, "seq_store0", CFG.RuntimeValueSeqValue(adjusted.value, 0))
-    state.current_ops[#state.current_ops + 1] = CFG.RuntimeStackStore(stack.value, i64_const(base), v0.value)
-    local v1 = emit_runtime_expr(state, "seq_store1", CFG.RuntimeValueSeqValue(adjusted.value, 1))
-    state.current_ops[#state.current_ops + 1] = CFG.RuntimeStackStore(stack.value, i64_const(base + 1), v1.value)
+    state.current_ops[#state.current_ops + 1] = CFG.RuntimeValueSeqStore(stack.value, i64_const(base), adjusted.value)
     return true
   elseif cls == Exec.SetTop then
     local count = lower_count_spec(state, env, op.count); if not count then return nil end
@@ -579,8 +732,23 @@ local function lower_op(state, env, op)
     local projected = lower_expr(state, env, Exec.ProjectExpr(op.src, op.projection)); if not projected then return nil end
     env.temps[op.dst.text] = projected
     return true
-  elseif cls == Exec.Guard or cls == Exec.EmitRegion then
+  elseif cls == Exec.PrepareCallFrame then
+    local ok, reason = CallModel.is_executable_call_frame_state(op.frame)
+    if not ok then return add_error(state, "unsupported_lua_exec_op:PrepareCallFrame:" .. tostring(reason)) end
+    local callee_stack = stack_value_for_ref(state, env, RT.StackRef(op.frame.layout.callee)); if not callee_stack then return nil end
+    local args = lower_call_args_seq(state, env, op.frame.args); if not args then return nil end
+    state.current_ops[#state.current_ops + 1] = CFG.RuntimeCallFrameStoreArgs(callee_stack.value, op.frame.layout, args.value)
+    return true
+  elseif cls == Exec.ReceiveCallResults then
+    local result_seq = lower_call_result_seq(state, env, op.frame); if not result_seq then return nil end
+    local normalized = emit_expr(state, "call_results_normalized", CFG.RuntimeValueSeqNormalize(result_seq.value, op.frame.results.normalization.shape), "lua_seq")
+    local caller_stack = stack_value_for_ref(state, env, RT.StackRef(op.frame.layout.caller)); if not caller_stack then return nil end
+    state.current_ops[#state.current_ops + 1] = CFG.RuntimeValueSeqStore(caller_stack.value, i64_const(op.frame.layout.result_base and op.frame.layout.result_base.index or 0), normalized.value)
+    return true
+  elseif cls == Exec.Guard then
     return add_error(state, "unsupported_lua_exec_op:" .. tostring(op.kind))
+  elseif cls == Exec.EmitRegion then
+    return add_error(state, "unsupported_lua_exec_op:EmitRegion:requires_typed_static_region_lowering")
   end
   return add_error(state, "unsupported_or_missing_lua_exec_op:" .. tostring(op and op.kind))
 end
@@ -655,9 +823,13 @@ local function lower_return_entry(state, e)
 end
 
 local function lower_return_values(state, env, seq)
+  local return_seq = seq
+  if pvm.classof(seq and seq.origin) == RT.FromArityNormalization then
+    return_seq = seq.origin.normalization.source
+  end
   if seq.count and seq.count.kind == "FixedCount" and (seq.count.count or seq.count.value or 0) == 0 then return {} end
   local out = {}
-  for _, ref in ipairs(seq.values or {}) do
+  for _, ref in ipairs(return_seq.values or {}) do
     local v = env.values[key_value_ref(ref)]
     if not v then return add_error(state, "unbound_return_value:" .. key_value_ref(ref)) end
     local rv = lower_return_entry(state, v)
@@ -680,10 +852,7 @@ end
 local function lower_seq_runtime_values(state, env, seq, label)
   local seq_entry = lower_value_seq_runtime(state, env, seq, label .. "_runtime")
   if not seq_entry then return nil end
-  local count = emit_expr(state, label .. "_count", CFG.RuntimeValueSeqCount(seq_entry.value), "i64")
-  local v0 = emit_runtime_expr(state, label .. "_value0", CFG.RuntimeValueSeqValue(seq_entry.value, 0))
-  local v1 = emit_runtime_expr(state, label .. "_value1", CFG.RuntimeValueSeqValue(seq_entry.value, 1))
-  return { v0.value, v1.value }, count.value
+  return seq_entry
 end
 
 local OUTCOME_PROJECTION = {
@@ -705,6 +874,14 @@ local OUTCOME_PROJECTION = {
 local function project_outcome(state, outcome)
   local projection = state.outcome_projection or "kind"
   local spec = OUTCOME_PROJECTION[projection]
+  if not spec then
+    local idx = tostring(projection):match("^value(%d+)_tag$")
+    if idx then local n = tonumber(idx); spec = { ty = "i64", expr = function(out) return CFG.RuntimeOutcomeValueTag(out, n) end } end
+    idx = tostring(projection):match("^value(%d+)_payload_i64$")
+    if idx then local n = tonumber(idx); spec = { ty = "i64", expr = function(out) return CFG.RuntimeOutcomeValuePayloadI64(out, n) end } end
+    idx = tostring(projection):match("^value(%d+)_payload_f64$")
+    if idx then local n = tonumber(idx); spec = { ty = "f64", expr = function(out) return CFG.RuntimeOutcomeValuePayloadF64(out, n) end } end
+  end
   if not spec then return add_error(state, "unsupported_outcome_projection:" .. tostring(projection)) end
   local p = emit_expr(state, "outcome_" .. projection, spec.expr(outcome.value), spec.ty)
   if state.return_ty and state.return_ty ~= spec.ty then return add_error(state, "inconsistent_return_type:" .. tostring(state.return_ty) .. ":" .. spec.ty) end
@@ -713,9 +890,35 @@ local function project_outcome(state, outcome)
 end
 
 local function lower_return_outcome(state, env, seq)
-  local values, count = lower_seq_runtime_values(state, env, seq, "return")
-  if not values then return nil end
-  local out = emit_outcome_expr(state, "normal_outcome", CFG.RuntimeOutcomeReturn(count, values, i64_const(0)), { outcome_kind = "NormalReturnOutcome" })
+  local seq_entry = lower_seq_runtime_values(state, env, seq, "return")
+  if not seq_entry then return nil end
+  local projection = state.outcome_projection or "kind"
+  if projection == "kind" then
+    local p = emit_expr(state, "normal_outcome_kind", CFG.ValueExpr(i64_const(OutcomeModel.OUTCOME_KIND.NormalReturnOutcome)), "i64")
+    state.return_ty = state.return_ty or "i64"; return CFG.Return({ p.value })
+  elseif projection == "count" then
+    local p = emit_expr(state, "normal_outcome_count", CFG.RuntimeValueSeqCount(seq_entry.value), "i64")
+    state.return_ty = state.return_ty or "i64"; return CFG.Return({ p.value })
+  end
+  local idx = tostring(projection):match("^value(%d+)_tag$")
+  if idx then
+    local elem = emit_runtime_expr(state, "normal_outcome_value", CFG.RuntimeValueSeqValue(seq_entry.value, tonumber(idx)))
+    local p = emit_expr(state, "normal_outcome_value_tag", CFG.RuntimeTag(elem.value), "i64")
+    state.return_ty = state.return_ty or "i64"; return CFG.Return({ p.value })
+  end
+  idx = tostring(projection):match("^value(%d+)_payload_i64$")
+  if idx then
+    local elem = emit_runtime_expr(state, "normal_outcome_value", CFG.RuntimeValueSeqValue(seq_entry.value, tonumber(idx)))
+    local p = emit_expr(state, "normal_outcome_value_payload", CFG.RuntimePayloadI64(elem.value), "i64")
+    state.return_ty = state.return_ty or "i64"; return CFG.Return({ p.value })
+  end
+  idx = tostring(projection):match("^value(%d+)_payload_f64$")
+  if idx then
+    local elem = emit_runtime_expr(state, "normal_outcome_value", CFG.RuntimeValueSeqValue(seq_entry.value, tonumber(idx)))
+    local p = emit_expr(state, "normal_outcome_value_payload_f64", CFG.RuntimePayloadF64(elem.value), "f64")
+    state.return_ty = state.return_ty or "f64"; return CFG.Return({ p.value })
+  end
+  local out = emit_outcome_expr(state, "normal_outcome", CFG.RuntimeOutcomeReturnSeq(seq_entry.value), { outcome_kind = "NormalReturnOutcome" })
   return project_outcome(state, out)
 end
 
@@ -723,6 +926,32 @@ local function lower_error_outcome(state, env, err)
   local v = env.values[key_value_ref(err.error_object)]
   if not v then return add_error(state, "error_outcome_unbound_error_object:" .. key_value_ref(err.error_object)) end
   local boxed = box_scalar(state, v); if not boxed then return nil end
+  local projection = state.outcome_projection or "kind"
+  if projection == "kind" then
+    local p = emit_expr(state, "error_outcome_kind", CFG.ValueExpr(i64_const(OutcomeModel.OUTCOME_KIND.LuaErrorOutcome)), "i64")
+    state.return_ty = state.return_ty or "i64"; return CFG.Return({ p.value })
+  elseif projection == "error_kind" then
+    local p = emit_expr(state, "error_kind", CFG.ValueExpr(i64_const(OutcomeModel.error_kind_value(err.kind))), "i64")
+    state.return_ty = state.return_ty or "i64"; return CFG.Return({ p.value })
+  elseif projection == "error_value_tag" then
+    local p = emit_expr(state, "error_value_tag", CFG.RuntimeTag(boxed.value), "i64")
+    state.return_ty = state.return_ty or "i64"; return CFG.Return({ p.value })
+  elseif projection == "error_value_payload_i64" then
+    local p = emit_expr(state, "error_value_payload", CFG.RuntimePayloadI64(boxed.value), "i64")
+    state.return_ty = state.return_ty or "i64"; return CFG.Return({ p.value })
+  elseif projection == "saved_pc" then
+    local p = emit_expr(state, "error_saved_pc", CFG.ValueExpr(i64_const(err.saved_pc and err.saved_pc.value or 0)), "i64")
+    state.return_ty = state.return_ty or "i64"; return CFG.Return({ p.value })
+  elseif tostring(projection):match("^value%d+_tag$") then
+    local p = emit_expr(state, "error_empty_value_tag", CFG.ValueExpr(i64_const(ValueModel.TAG.NilTag)), "i64")
+    state.return_ty = state.return_ty or "i64"; return CFG.Return({ p.value })
+  elseif tostring(projection):match("^value%d+_payload_i64$") then
+    local p = emit_expr(state, "error_empty_value_payload", CFG.ValueExpr(i64_const(0)), "i64")
+    state.return_ty = state.return_ty or "i64"; return CFG.Return({ p.value })
+  elseif tostring(projection):match("^value%d+_payload_f64$") then
+    local p = emit_expr(state, "error_empty_value_payload_f64", CFG.ValueExpr(f64_const(0)), "f64")
+    state.return_ty = state.return_ty or "f64"; return CFG.Return({ p.value })
+  end
   local saved_pc = i64_const(err.saved_pc and err.saved_pc.value or 0)
   local saved_top = i64_const(0)
   local out = emit_outcome_expr(state, "error_outcome", CFG.RuntimeOutcomeError(err.kind, boxed.value, saved_pc, saved_top), { outcome_kind = "LuaErrorOutcome" })
@@ -730,9 +959,9 @@ local function lower_error_outcome(state, env, err)
 end
 
 local function lower_yield_outcome(state, env, y)
-  local values, count = lower_seq_runtime_values(state, env, y.yielded_values, "yield")
-  if not values then return nil end
-  local out = emit_outcome_expr(state, "yield_outcome", CFG.RuntimeOutcomeYield(y.resume_point, count, values, i64_const(y.saved_pc and y.saved_pc.value or 0), i64_const(0)), { outcome_kind = "LuaYieldOutcome" })
+  local seq_entry = lower_seq_runtime_values(state, env, y.yielded_values, "yield")
+  if not seq_entry then return nil end
+  local out = emit_outcome_expr(state, "yield_outcome", CFG.RuntimeOutcomeYieldSeq(y.resume_point, seq_entry.value, i64_const(y.saved_pc and y.saved_pc.value or 0), i64_const(0)), { outcome_kind = "LuaYieldOutcome" })
   return project_outcome(state, out)
 end
 
@@ -810,6 +1039,10 @@ local function lower_value(kernel, opts)
   if not ok then return nil, errs end
   local state = { errors = {}, temp_id = 1, return_ty = nil, current_ops = nil, outcome_mode = opts.outcome == true, outcome_projection = opts.outcome_projection or opts.projection }
   local region = kernel.body
+  local region_ok, region_reason = RegionModel.is_executable_region(region, kernel.contract)
+  if not region_ok then
+    return nil, { "lua_exec_to_moon_cfg:unsupported_semantic_region:" .. tostring(region.kind and region.kind.kind) .. ":" .. tostring(region_reason) }
+  end
   local region_env = base_env_for_region(region)
   local blocks = {}
   for _, block in ipairs(region.blocks or {}) do

@@ -491,6 +491,26 @@ module LuaFFI {
          | FFILayoutEq(LuaFFI.CTypeId type_id,
                        string layout_hash) unique
          | FFICallbackLive(LuaFFI.CCallbackId callback) unique
+
+    CValueConversion = LuaToCValue(LuaRT.ValueRef lua_value, LuaFFI.CType type) unique
+                     | CToLuaValue(LuaFFI.CType type, LuaRT.ValueRef lua_value) unique
+
+    FFICallShape = (LuaFFI.CSymbolId symbol,
+                    LuaFFI.CAbi abi,
+                    LuaFFI.CParamList params,
+                    LuaFFI.CType return_type,
+                    LuaFFI.CValueConversion* conversions,
+                    LuaRT.CallRef call) unique
+
+    CDataOwnershipTransition = (LuaFFI.CData cdata,
+                                LuaFFI.OwnershipState from_state,
+                                LuaFFI.OwnershipState to_state,
+                                LuaFact.Dependency* deps) unique
+
+    FFICallbackEntry = (LuaFFI.CCallbackId callback,
+                        LuaFFI.CAbi abi,
+                        LuaRT.CallShape call,
+                        LuaRT.OutcomeCause cause) unique
 }
 
 module LuaRT {
@@ -532,7 +552,8 @@ module LuaRT {
     FrameRef = (LuaRT.Name name) unique
     StackRef = (LuaRT.FrameRef frame) unique
     ConstRef = (number index) unique
-    UpvalueRef = (number index) unique
+    ProtoRef = (LuaSrc.KRef proto) unique
+    UpvalueRef = (LuaRT.Name name) unique
     VarargRef = (LuaRT.FrameRef frame) unique
     TableRef = (LuaRT.Name name) unique
     StringRef = (LuaRT.Name name) unique
@@ -541,6 +562,22 @@ module LuaRT {
     UserdataRef = (LuaRT.Name name) unique
     ThreadRef = (LuaRT.Name name) unique
     PointerRef = (LuaRT.Name name) unique
+
+    UpvalueStorageKind = OpenStackUpvalue | ClosedHeapUpvalue | DeadUpvalue
+
+    UpvalueIdentity = (LuaRT.UpvalueRef upvalue,
+                       LuaRT.ProtoRef proto,
+                       LuaRT.ClosureRef owner,
+                       LuaRT.FrameRef frame,
+                       LuaRT.Slot captured_slot,
+                       LuaRT.UpvalueStorageKind storage,
+                       number close_epoch,
+                       number alias_epoch) unique
+
+    ClosureIdentity = (LuaRT.ClosureRef closure,
+                       LuaRT.ProtoRef proto,
+                       LuaRT.UpvalueIdentity* upvalues,
+                       number closure_epoch) unique
 
     ValueRef = StackValue(LuaRT.FrameRef frame, LuaRT.Slot slot) unique
              | ConstValue(LuaRT.ConstRef const) unique
@@ -640,12 +677,59 @@ module LuaRT {
                    | FromVarargs(LuaRT.VarargSource source) unique
                    | FromLiteralValues unique
                    | FromAdjusted(LuaRT.ValueSeq source) unique
+                   | FromArityNormalization(LuaRT.ArityNormalization normalization) unique
 
     ResultAdjustment = ExactCount(LuaRT.Count count) unique
                      | OpenResult unique
                      | FillNilTo(LuaRT.Count count) unique
                      | TruncateTo(LuaRT.Count count) unique
                      | PropagateOpenTail unique
+
+    ArityKind = FixedArity
+              | OpenArity
+              | VarargArity
+              | UnknownArity
+
+    ArityShape = (LuaRT.CountSpec provided,
+                  LuaRT.CountSpec wanted,
+                  LuaRT.ResultAdjustment adjustment,
+                  LuaRT.ArityKind kind) unique
+
+    ResultRouteKind = DirectReturnRoute
+                    | OutcomeReturnRoute
+                    | StackWindowRoute
+                    | ContinuationRoute
+                    | TailCallFrameRoute
+                    | YieldRoute
+                    | ClosePendingRoute
+
+    ResultDestination = ReturnDestination unique
+                      | OutcomeDestination unique
+                      | StackWindowDestination(LuaRT.StackWindow window) unique
+                      | ContinuationDestination(LuaRT.Name continuation) unique
+                      | TailCallDestination(LuaRT.FrameRef frame) unique
+                      | YieldDestination(LuaRT.ResumePoint resume_point) unique
+                      | ClosePendingDestination(LuaRT.CloseChain chain) unique
+
+    ResultChannel = (LuaRT.Name id,
+                     LuaRT.ResultRouteKind kind,
+                     LuaRT.ResultDestination destination,
+                     LuaRT.CountSpec count) unique
+
+    ResultBundle = (LuaRT.ValueSeq values,
+                    LuaRT.ResultChannel channel) unique
+
+    FrameEffectKind = SetTopEffect | StoreSeqEffect | ReplaceFrameEffect | PreserveFrameEffect
+
+    FrameEffect = (LuaRT.FrameEffectKind kind,
+                   LuaRT.FrameRef frame,
+                   LuaRT.StackWindow window,
+                   LuaRT.CountSpec count) unique
+
+    ArityNormalization = (LuaRT.ValueSeq source,
+                          LuaRT.ArityShape shape,
+                          LuaRT.ResultBundle result,
+                          LuaRT.FrameEffect* effects) unique
 
     Frame = (LuaRT.FrameRef id,
              LuaRT.StackRef stack,
@@ -741,11 +825,33 @@ module LuaRT {
                | TM_CALL
                | TM_CLOSE
 
-    MetamethodLookup = LookupFirstOperand(LuaRT.ValueRef left, LuaRT.Metamethod method) unique
-                     | LookupSecondOperand(LuaRT.ValueRef right, LuaRT.Metamethod method) unique
-                     | LookupReceiver(LuaRT.ValueRef receiver, LuaRT.Metamethod method) unique
-                     | MetamethodFound(LuaRT.ValueRef function) unique
-                     | MetamethodMissing unique
+    MetatableEpoch = (LuaRT.MetatableRef metatable, number epoch) unique
+
+    MetamethodSlot = (LuaRT.MetatableRef metatable,
+                      LuaRT.Metamethod method,
+                      LuaRT.ValueRef slot_value,
+                      number slot_epoch) unique
+
+    MetamethodLookupStep = CheckReceiverMetatable(LuaRT.ValueRef receiver, LuaRT.MetatableEpoch epoch) unique
+                         | CheckTypeMetatable(LuaRT.ValueTag tag, LuaRT.MetatableEpoch epoch) unique
+                         | CheckMetamethodSlot(LuaRT.MetamethodSlot slot) unique
+                         | FollowIndexTable(LuaRT.TableRef table, number depth) unique
+                         | InvokeMetamethodCandidate(LuaRT.ValueRef function) unique
+
+    MetamethodLookupResult = MetamethodFoundResult(LuaRT.ValueRef function) unique
+                           | MetamethodMissingResult unique
+                           | MetamethodLookupTypeError(LuaRT.ValueRef receiver) unique
+                           | MetamethodLookupLoopLimitExceeded unique
+
+    MetamethodLookupPath = (LuaRT.ValueRef receiver,
+                            LuaRT.Metamethod method,
+                            LuaRT.MetamethodLookupStep* steps,
+                            LuaRT.MetamethodLookupResult result,
+                            LuaFact.Dependency* deps) unique
+
+    MetamethodDispatch = (LuaRT.MetamethodLookupPath path,
+                          LuaRT.CallShape call,
+                          LuaRT.ResultChannel result_channel) unique
 
     CallRef = (LuaRT.Name name) unique
 
@@ -755,11 +861,15 @@ module LuaRT {
                  | CallableViaCallMetamethod
                  | NotCallable
 
-    CallShape = (LuaRT.ValueRef callee,
+    TailCallMode = NotTailCall | TailCallReplace | TailCallWithClose
+    YieldPolicy = NonYieldingCall | YieldingCall | YieldForbidden
+
+    CallShape = (LuaRT.CallRef call,
+                 LuaRT.ValueRef callee,
                  LuaRT.StackWindow args,
                  LuaRT.CountSpec wanted_results,
-                 boolean is_tailcall,
-                 boolean may_yield) unique
+                 LuaRT.TailCallMode tail_mode,
+                 LuaRT.YieldPolicy yield_policy) unique
 
     CallContinuationKind = CallReturn
                          | CallError
@@ -770,6 +880,83 @@ module LuaRT {
     CallResult = (LuaRT.CallRef call,
                   LuaRT.ValueSeq results,
                   LuaRT.CallContinuationKind continuation) unique
+
+    CallTarget = UnknownCallTarget(LuaRT.ValueRef callee) unique
+               | DirectLuaClosureTarget(LuaRT.ValueRef callee, LuaRT.ClosureRef closure) unique
+               | DirectCClosureTarget(LuaRT.ValueRef callee, LuaRT.ClosureRef closure) unique
+               | DirectLightCFunctionTarget(LuaRT.ValueRef callee, LuaRT.FunctionRef function) unique
+               | MetamethodFunctionTarget(LuaRT.ValueRef callee, LuaRT.MetamethodLookupPath path) unique
+               | FFISymbolTarget(LuaRT.ValueRef callee, LuaFFI.CSymbolId symbol) unique
+
+    CallStateKind = CallStart
+                  | CallTargetResolved
+                  | CallFramePrepared
+                  | CallRunning
+                  | CallResultsReady
+                  | CallErrored
+                  | CallYielded
+                  | CallUnsupported
+
+    CallState = (LuaRT.CallRef call,
+                 LuaRT.CallShape shape,
+                 LuaRT.CallTarget target,
+                 LuaRT.CallStateKind state,
+                 LuaRT.ResultChannel result_channel) unique
+
+    CallFrameRef = (LuaRT.Name name) unique
+
+    CallTargetIdentity = UnknownTargetIdentity unique
+                       | LuaClosureTargetIdentity(LuaRT.ClosureRef closure,
+                                                   LuaSrc.KRef proto,
+                                                   number closure_handle,
+                                                   LuaFact.Dependency* deps) unique
+                       | CClosureTargetIdentity(LuaRT.ClosureRef closure,
+                                                 number function_handle,
+                                                 LuaFact.Dependency* deps) unique
+                       | LightCFunctionTargetIdentity(LuaRT.FunctionRef function,
+                                                        number function_handle,
+                                                        LuaFact.Dependency* deps) unique
+                       | MetamethodTargetIdentity(LuaRT.MetamethodLookupPath path,
+                                                  LuaFact.Dependency* deps) unique
+                       | FFISymbolTargetIdentity(LuaFFI.CSymbolId symbol,
+                                                 LuaFact.Dependency* deps) unique
+
+    ResolvedCallTarget = (LuaRT.CallRef call,
+                          LuaRT.CallTarget target,
+                          LuaRT.CallTargetIdentity identity,
+                          LuaRT.CallableKind callable) unique
+
+    CallArgChannel = (LuaRT.CallRef call,
+                      LuaRT.ValueSeq args,
+                      LuaRT.ArityShape shape) unique
+
+    CallFrameLayout = (LuaRT.CallFrameRef id,
+                       LuaRT.FrameRef caller,
+                       LuaRT.FrameRef callee,
+                       LuaRT.Slot callee_slot,
+                       LuaRT.Slot arg_base,
+                       LuaRT.CountSpec arg_count,
+                       LuaRT.Slot result_base,
+                       LuaRT.CountSpec result_count,
+                       LuaRT.Count frame_slots) unique
+
+    CallFrameStateKind = CallFrameUnprepared
+                       | CallFrameArgsStored
+                       | CallFrameActive
+                       | CallFrameResultsReady
+                       | CallFrameReleased
+                       | CallFrameUnsupported
+
+    CallResultChannel = (LuaRT.CallRef call,
+                         LuaRT.ResultChannel channel,
+                         LuaRT.ArityNormalization normalization) unique
+
+    CallFrameState = (LuaRT.CallRef call,
+                      LuaRT.CallFrameLayout layout,
+                      LuaRT.CallArgChannel args,
+                      LuaRT.CallResultChannel results,
+                      LuaRT.ResolvedCallTarget target,
+                      LuaRT.CallFrameStateKind state) unique
 
     ErrorKind = TypeError
               | ArithmeticError
@@ -817,6 +1004,30 @@ module LuaRT {
                | CloseComplete
                | CloseErrorState(LuaRT.ErrorState error) unique
                | CloseYieldState(LuaRT.YieldState yield) unique
+
+    OutcomeCause = DirectReturnCause
+                 | CallCause(LuaRT.CallRef call) unique
+                 | MetamethodCause(LuaRT.MetamethodLookupPath path) unique
+                 | IteratorCause(LuaRT.LoopTopology topology) unique
+                 | CloseCause(LuaRT.CloseChain chain) unique
+                 | FinalizerCause(LuaRT.Name finalizer) unique
+                 | AllocationCause(LuaRT.Name allocation) unique
+                 | FFICallbackCause(LuaFFI.CCallbackId callback) unique
+
+    CloseAction = CloseSkipFalsey(LuaRT.CloseItem item) unique
+                | CloseLookupMethod(LuaRT.CloseItem item, LuaRT.MetamethodLookupPath path) unique
+                | CloseInvokeMethod(LuaRT.CloseItem item, LuaRT.CallShape call) unique
+                | ClosePropagateOriginal(LuaRT.ResultBundle result) unique
+                | CloseReplaceWithError(LuaRT.ErrorState error) unique
+                | CloseYieldAndResume(LuaRT.YieldState yield) unique
+
+    ClosePlan = (LuaRT.CloseChain chain,
+                 LuaRT.OutcomeCause cause,
+                 LuaRT.CloseAction* actions,
+                 LuaRT.ResultBundle pending_result) unique
+
+    LoopTopology = NumericForTopology(LuaRT.Pc prep_pc, LuaRT.Pc loop_pc, LuaRT.Pc body_start, LuaRT.Pc exit_pc) unique
+                 | GenericForTopology(LuaRT.Pc prep_pc, LuaRT.Pc call_pc, LuaRT.Pc loop_pc, LuaRT.Pc body_start, LuaRT.Pc exit_pc) unique
 
     NumericForState = IntegerForState(LuaRT.Slot base,
                                       LuaRT.ValueRef count,
@@ -870,6 +1081,30 @@ module LuaRT {
                            LuaRT.Pc companion_pc,
                            LuaRT.ArithmeticOp op,
                            boolean operands_flipped) unique
+
+    OperationKind = OpAdd | OpSub | OpMul | OpMod | OpPow | OpDiv | OpIDiv
+                  | OpBand | OpBor | OpBXor | OpShl | OpShr
+                  | OpUnm | OpBNot | OpNot | OpLen | OpConcat
+                  | OpEq | OpLt | OpLe | OpTest | OpTestSet
+
+    OperandSourceKind = RegisterOperand | ImmediateOperand | ConstantOperand
+
+    OperationOperand = (LuaRT.OperandSourceKind source,
+                        LuaRT.ValueRef value,
+                        boolean flipped) unique
+
+    CompanionContext = NoCompanion unique
+                     | MMBINCompanion(LuaRT.Pc pc, LuaRT.Metamethod method) unique
+                     | MMBINICompanion(LuaRT.Pc pc, LuaRT.Metamethod method, boolean operands_flipped) unique
+                     | MMBINKCompanion(LuaRT.Pc pc, LuaRT.Metamethod method, boolean operands_flipped) unique
+                     | ExtraArgCompanion(LuaRT.Pc pc, LuaRT.Ax ax) unique
+
+    LuaOperation = (LuaRT.Pc pc,
+                    LuaRT.OperationKind kind,
+                    LuaRT.OperationOperand* operands,
+                    LuaRT.ValueRef* results,
+                    LuaRT.CompanionContext companion,
+                    LuaRT.MetamethodLookupPath metamethod_path) unique
 }
 
 module LuaGC {
@@ -988,8 +1223,8 @@ module LuaGC {
 
     LClosure = (LuaGC.GCHeader header,
                 LuaRT.ClosureRef closure,
-                LuaSrc.KRef proto,
-                LuaRT.UpvalueRef* upvalues) unique
+                LuaRT.ProtoRef proto,
+                LuaRT.UpvalueIdentity* upvalues) unique
 
     UserdataObject = (LuaGC.GCHeader header,
                       LuaRT.UserdataRef userdata,
@@ -1003,11 +1238,26 @@ module LuaGC {
                    LuaFFI.CStorage storage,
                    LuaGC.FinalizerRef finalizer) unique
 
+    ProtoObject = (LuaGC.GCHeader header,
+                   LuaRT.ProtoRef proto,
+                   string proto_hash) unique
+
+    ThreadObject = (LuaGC.GCHeader header,
+                    LuaRT.ThreadRef thread,
+                    LuaRT.FrameRef* frames) unique
+
+    UpvalueObject = (LuaGC.GCHeader header,
+                     LuaRT.UpvalueIdentity identity,
+                     LuaRT.ValueRef value) unique
+
     CollectableObject = GCStringObject(LuaGC.TString string) unique
                       | GCTableObject(LuaGC.TableObject table) unique
                       | GCClosureObject(LuaGC.LClosure closure) unique
                       | GCUserdataObject(LuaGC.UserdataObject userdata) unique
                       | GCCDataObject(LuaGC.CDataObject cdata) unique
+                      | GCProtoObject(LuaGC.ProtoObject proto) unique
+                      | GCThreadObject(LuaGC.ThreadObject thread) unique
+                      | GCUpvalueObject(LuaGC.UpvalueObject upvalue) unique
 
     RootKind = StackRoot(LuaRT.FrameRef frame, LuaRT.Slot slot) unique
              | RegistryRoot unique
@@ -1114,10 +1364,18 @@ module LuaGC {
             | FinalizerControl(LuaGC.FinalizerRequest request, LuaGC.FinalizerProcessingResult result) unique
             | WeakProcessControl(LuaGC.WeakProcessRequest request, LuaGC.WeakProcessResult result) unique
             | EphemeronProcessControl(LuaGC.EphemeronProcessRequest request, LuaGC.EphemeronProcessResult result) unique
+
+    GCEffect = GCAllocationEffect(LuaGC.AllocRequest request, LuaGC.AllocResult result) unique
+             | GCRootEffect(LuaGC.RootSet roots) unique
+             | GCBarrierEffect(LuaGC.BarrierKind barrier, LuaGC.BarrierAction action, LuaGC.BarrierResult result) unique
+             | GCFinalizerEffect(LuaGC.FinalizerRequest request, LuaGC.FinalizerProcessingResult result) unique
+             | GCEpochEffect(LuaGC.GCFact fact) unique
 }
 
 module LuaExec {
     Name = (string text) unique
+    RegionId = (LuaExec.Name name) unique
+    RegionRef = (LuaExec.RegionId id) unique
 
     Module = (LuaExec.Region* regions,
               LuaExec.Kernel* kernels) unique
@@ -1134,7 +1392,11 @@ module LuaExec {
               LuaExec.BlockId entry,
               LuaExec.Block* blocks) unique
 
-    RegionKind = ArithmeticRegion
+    RegionKind = CoreWindowRegion
+               | LoadMoveRegion
+               | BranchRegion
+               | ArithmeticRegion
+               | TableAccessRegion
                | TableGetRegion
                | TableSetRegion
                | LenRegion
@@ -1145,11 +1407,71 @@ module LuaExec {
                | VarargRegion
                | SetListRegion
                | CloseRegion
+               | MetatableRegion
+               | ClosureRegion
+               | UpvalueRegion
+               | GCAllocRegion
+               | FFIRegion
                | NumericForRegion
                | GenericForRegion
                | ErrorRegion
                | YieldRegion
                | GuardRegion
+               | OpcodeFamilyRegion
+
+    OpcodeFamily = LoadMoveFamily
+                 | ArithmeticFamily
+                 | CompareBranchFamily
+                 | ReturnFamily
+                 | CallFamily
+                 | TailCallFamily
+                 | TableAccessFamily
+                 | TableSetFamily
+                 | ConstructorFamily
+                 | VarargFamily
+                 | ClosureFamily
+                 | UpvalueFamily
+                 | NumericForFamily
+                 | GenericForFamily
+                 | CloseTBCFamily
+                 | MetatableFamily
+                 | GCFamily
+                 | FFIFamily
+                 | ErrorYieldFamily
+                 | UnsupportedFamily
+
+    RegionDescriptor = (LuaExec.RegionId id,
+                        LuaExec.RegionKind kind,
+                        LuaExec.OpcodeFamily family,
+                        LuaRT.Pc start_pc,
+                        LuaRT.Pc end_pc) unique
+
+    ModuleId = (LuaExec.Name name) unique
+
+    ModuleDescriptor = (LuaExec.ModuleId id,
+                        LuaExec.RegionDescriptor* regions,
+                        LuaExec.RegionDescriptor* kernels) unique
+
+    StaticRegionRole = StaticCalleeBodyRegion
+                     | StaticContinuationRegion
+                     | StaticInlineOnlyRegion
+                     | StaticKernelBodyRegion
+
+    StaticRegionBinding = (LuaExec.RegionRef region,
+                           LuaExec.RegionDescriptor descriptor,
+                           LuaExec.StaticRegionRole role) unique
+
+    CallContinuationRegion = (LuaRT.CallRef call,
+                              LuaExec.RegionRef callee_region,
+                              LuaExec.ContRef return_cont,
+                              LuaExec.ContRef error_cont,
+                              LuaExec.ContRef yield_cont) unique
+
+    StaticRegionInvocation = (LuaExec.Name id,
+                              LuaExec.StaticRegionBinding target,
+                              LuaExec.Arg* args,
+                              LuaExec.ContBinding* continuations,
+                              LuaExec.CallContinuationRegion call_continuation) unique
 
     BlockId = (LuaExec.Name name) unique
     BlockRef = (LuaExec.BlockId id) unique
@@ -1236,8 +1558,22 @@ module LuaExec {
          | ArithmeticNumericOkExpr(LuaRT.ArithmeticOp op, LuaRT.ValueRef left, LuaRT.ValueRef right) unique
          | ArithmeticNoMetaExpr(LuaRT.ArithmeticOp op, LuaRT.ValueRef left, LuaRT.ValueRef right) unique
          | ArithmeticErrorValueExpr(LuaRT.ArithmeticOp op, LuaRT.ValueRef left, LuaRT.ValueRef right) unique
-         | MetamethodLookupExpr(LuaRT.MetamethodLookup lookup) unique
+         | MetamethodLookupPathExpr(LuaRT.MetamethodLookupPath lookup) unique
+         | LuaOperationExpr(LuaRT.LuaOperation operation) unique
          | AdjustResultsExpr(LuaRT.ValueSeq seq, LuaRT.ResultAdjustment adjustment) unique
+         | NormalizeResultsExpr(LuaRT.ValueSeq seq, LuaRT.ArityShape shape) unique
+         | ResultChannelExpr(LuaRT.ResultChannel channel) unique
+         | CallStateExpr(LuaRT.CallState call) unique
+         | ResolvedCallTargetExpr(LuaRT.ResolvedCallTarget target) unique
+         | CallArgChannelExpr(LuaRT.CallArgChannel channel) unique
+         | CallFrameStateExpr(LuaRT.CallFrameState frame) unique
+         | CallResultChannelExpr(LuaRT.CallResultChannel channel) unique
+         | MetamethodDispatchExpr(LuaRT.MetamethodDispatch dispatch) unique
+         | ClosePlanExpr(LuaRT.ClosePlan plan) unique
+         | GCEffectExpr(LuaGC.GCEffect effect) unique
+         | RegionDescriptorExpr(LuaExec.RegionDescriptor descriptor) unique
+         | StaticRegionBindingExpr(LuaExec.StaticRegionBinding binding) unique
+         | StaticRegionInvocationExpr(LuaExec.StaticRegionInvocation invocation) unique
          | NumberOpExpr(LuaExec.NumberOp op, LuaRT.ValueRef left, LuaRT.ValueRef right) unique
          | StringConcatExpr(LuaRT.ValueSeq values) unique
 
@@ -1263,7 +1599,7 @@ module LuaExec {
            | EqualityChoice(LuaRT.ValueRef left, LuaRT.ValueRef right) unique
            | RawGetHitChoice(LuaRT.RawGetResult result) unique
            | ArithmeticNumericChoice(LuaRT.ArithmeticOp op, LuaRT.ValueRef left, LuaRT.ValueRef right) unique
-           | MetamethodPresentChoice(LuaRT.MetamethodLookup lookup) unique
+           | MetamethodPresentChoice(LuaRT.MetamethodLookupPath lookup) unique
            | CountChoice(LuaRT.CountSpec count) unique
            | GuardChoice(LuaRT.Guard guard) unique
 
@@ -1288,6 +1624,8 @@ module LuaExec {
                           LuaRT.ValueRef value) unique
        | Project(LuaExec.Name dst, LuaRT.ValueRef src, LuaRT.ValueProjection projection) unique
        | Guard(LuaRT.Guard guard, LuaExec.ContRef on_fail) unique
+       | PrepareCallFrame(LuaRT.CallFrameState frame) unique
+       | ReceiveCallResults(LuaRT.CallFrameState frame) unique
        | EmitRegion(LuaExec.Name region, LuaExec.Arg* args, LuaExec.ContBinding* continuations) unique
 
     Terminator = Jump(LuaExec.BlockRef target, LuaExec.Arg* args) unique
@@ -1313,11 +1651,48 @@ module LuaExec {
                | RequiresResolvedRegion(LuaExec.Name region) unique
                | RequiresContinuation(LuaExec.ContRef continuation) unique
                | RequiresCompanion(LuaRT.Pc pc, LuaRT.CompanionKind kind) unique
+               | RequiresRegionDescriptor(LuaExec.RegionDescriptor descriptor) unique
+               | RequiresArityShape(LuaRT.ArityShape shape) unique
+               | RequiresResultChannel(LuaRT.ResultChannel channel) unique
+               | RequiresResolvedCallTarget(LuaRT.ResolvedCallTarget target) unique
+               | RequiresCallFrameLayout(LuaRT.CallFrameLayout layout) unique
+               | RequiresCallArgChannel(LuaRT.CallArgChannel channel) unique
+               | RequiresCallResultChannel(LuaRT.CallResultChannel channel) unique
+               | RequiresResultRoute(LuaRT.ResultChannel channel) unique
+               | RequiresFrameEffect(LuaRT.FrameEffect effect) unique
+               | RequiresStaticRegion(LuaExec.StaticRegionBinding binding) unique
+               | RequiresStaticRegionInvocation(LuaExec.StaticRegionInvocation invocation) unique
+               | RequiresCallContinuationRegion(LuaExec.CallContinuationRegion region) unique
+               | RequiresMetamethodLookupPath(LuaRT.MetamethodLookupPath path) unique
+               | RequiresUpvalueIdentity(LuaRT.UpvalueIdentity identity) unique
+               | RequiresGCEffect(LuaGC.GCEffect effect) unique
+               | RequiresFFICallShape(LuaFFI.FFICallShape call) unique
+               | RequiresLuaOperation(LuaRT.LuaOperation operation) unique
+               | RequiresLoopTopology(LuaRT.LoopTopology topology) unique
+               | RequiresClosePlan(LuaRT.ClosePlan plan) unique
 
     Guarantee = ProducesValue(LuaRT.ValueRef value) unique
               | PreservesFrame(LuaRT.FrameRef frame) unique
               | UpdatesTop(LuaRT.TopRef top) unique
               | ClosesChain(LuaRT.CloseChain chain) unique
+              | DescribesRegion(LuaExec.RegionDescriptor descriptor) unique
+              | NormalizesArity(LuaRT.ArityNormalization normalization) unique
+              | ProducesResultChannel(LuaRT.ResultChannel channel) unique
+              | ResolvesCallTarget(LuaRT.ResolvedCallTarget target) unique
+              | PreparesCallFrame(LuaRT.CallFrameState frame) unique
+              | ProducesCallResults(LuaRT.CallResultChannel channel) unique
+              | ProducesResultRoute(LuaRT.ResultChannel channel) unique
+              | AppliesFrameEffect(LuaRT.FrameEffect effect) unique
+              | ProvidesStaticRegion(LuaExec.StaticRegionBinding binding) unique
+              | InvokesStaticRegion(LuaExec.StaticRegionInvocation invocation) unique
+              | BindsCallContinuationRegion(LuaExec.CallContinuationRegion region) unique
+              | ResolvesMetamethodLookupPath(LuaRT.MetamethodLookupPath path) unique
+              | UsesUpvalueIdentity(LuaRT.UpvalueIdentity identity) unique
+              | AppliesGCEffect(LuaGC.GCEffect effect) unique
+              | UsesFFICallShape(LuaFFI.FFICallShape call) unique
+              | DescribesLuaOperation(LuaRT.LuaOperation operation) unique
+              | DescribesLoopTopology(LuaRT.LoopTopology topology) unique
+              | AppliesClosePlan(LuaRT.ClosePlan plan) unique
 }
 
 module CompileContract {
@@ -1331,6 +1706,40 @@ module CompileContract {
 
     PayloadUse = (LuaFact.PayloadLease payload) unique
 
+    SemanticAssumption = AssumesCallTarget(LuaRT.CallTarget target) unique
+                       | AssumesCallTargetIdentity(LuaRT.CallTargetIdentity identity) unique
+                       | AssumesResolvedCallTarget(LuaRT.ResolvedCallTarget target) unique
+                       | AssumesCallFrameLayout(LuaRT.CallFrameLayout layout) unique
+                       | AssumesCallArgChannel(LuaRT.CallArgChannel channel) unique
+                       | AssumesCallResultChannel(LuaRT.CallResultChannel channel) unique
+                       | AssumesArityShape(LuaRT.ArityShape shape) unique
+                       | AssumesResultChannel(LuaRT.ResultChannel channel) unique
+                       | AssumesResultRoute(LuaRT.ResultChannel channel) unique
+                       | AssumesFrameEffect(LuaRT.FrameEffect effect) unique
+                       | AssumesMetatable(LuaRT.ValueRef value, LuaRT.MetatableRef metatable) unique
+                       | AssumesMetatableEpoch(LuaRT.MetatableEpoch epoch) unique
+                       | AssumesMetamethodLookupPath(LuaRT.MetamethodLookupPath path) unique
+                       | AssumesNoMetamethod(LuaRT.MetamethodLookupPath path) unique
+                       | AssumesClosureIdentity(LuaRT.ClosureIdentity identity) unique
+                       | AssumesUpvalueIdentity(LuaRT.UpvalueIdentity identity) unique
+                       | AssumesStaticRegion(LuaExec.StaticRegionBinding binding) unique
+                       | AssumesStaticRegionInvocation(LuaExec.StaticRegionInvocation invocation) unique
+                       | AssumesCallContinuationRegion(LuaExec.CallContinuationRegion region) unique
+                       | AssumesRegionDescriptor(LuaExec.RegionDescriptor descriptor) unique
+                       | AssumesModuleDescriptor(LuaExec.ModuleDescriptor descriptor) unique
+                       | AssumesLuaOperation(LuaRT.LuaOperation operation) unique
+                       | AssumesCompanionContext(LuaRT.CompanionContext companion) unique
+                       | AssumesLoopTopology(LuaRT.LoopTopology topology) unique
+                       | AssumesClosePlan(LuaRT.ClosePlan plan) unique
+                       | AssumesOutcomeCause(LuaRT.OutcomeCause cause) unique
+                       | AssumesGCEffect(LuaGC.GCEffect effect) unique
+                       | AssumesGCObjectEpoch(LuaGC.GCFact fact) unique
+                       | AssumesFinalizer(LuaGC.FinalizerRef finalizer) unique
+                       | AssumesFFILayout(LuaFFI.CTypeId type_id, string layout_hash) unique
+                       | AssumesFFICallShape(LuaFFI.FFICallShape call) unique
+                       | AssumesFFICallbackEntry(LuaFFI.FFICallbackEntry callback) unique
+                       | AssumesCDataOwnership(LuaFFI.CDataOwnershipTransition transition) unique
+
     Transfer = (CompileContract.FactUse* facts,
                 CompileContract.PayloadUse* payloads) unique
 
@@ -1341,12 +1750,14 @@ module CompileContract {
                | RequiresCompanion(LuaRT.Pc pc, LuaRT.CompanionKind kind) unique
                | RequiresResolvedRegion(LuaExec.Name region) unique
                | RequiresContinuation(LuaExec.ContRef continuation) unique
+               | RequiresSemanticAssumption(CompileContract.SemanticAssumption assumption) unique
 
     Guarantee = GuaranteesFact(CompileContract.FactUse fact) unique
               | GuaranteesExec(LuaExec.Guarantee guarantee) unique
               | ProducesRuntimeValue(LuaRT.ValueRef value) unique
               | PreservesRuntimeFrame(LuaRT.FrameRef frame) unique
               | UpdatesRuntimeTop(LuaRT.TopRef top) unique
+              | GuaranteesSemanticAssumption(CompileContract.SemanticAssumption assumption) unique
 
     Contract = (CompileContract.Transfer transfer,
                 CompileContract.Obligation* obligations,
@@ -1418,8 +1829,13 @@ module MoonCFG {
          | RuntimeTruthiness(MoonCFG.Value value) unique
          | RuntimeTypeTest(MoonCFG.Value value, LuaRT.TypeTest test) unique
          | RuntimeOutcomeReturn(MoonCFG.Value count, MoonCFG.Value* values, MoonCFG.Value value_buffer) unique
+         | RuntimeOutcomeReturnSeq(MoonCFG.Value seq) unique
          | RuntimeOutcomeError(LuaRT.ErrorKind kind, MoonCFG.Value error_value, MoonCFG.Value saved_pc, MoonCFG.Value saved_top) unique
          | RuntimeOutcomeYield(LuaRT.ResumePoint resume_point, MoonCFG.Value count, MoonCFG.Value* values, MoonCFG.Value saved_pc, MoonCFG.Value saved_top) unique
+         | RuntimeOutcomeYieldSeq(LuaRT.ResumePoint resume_point,
+                                  MoonCFG.Value seq,
+                                  MoonCFG.Value saved_pc,
+                                  MoonCFG.Value saved_top) unique
          | RuntimeStackLoad(MoonCFG.Value stack, MoonCFG.Value index) unique
          | RuntimeTopLoad(MoonCFG.Value top_ptr) unique
          | RuntimeOpenCountFromTop(MoonCFG.Value top, MoonCFG.Value base) unique
@@ -1427,8 +1843,21 @@ module MoonCFG {
          | RuntimeValueSeqFromStack(MoonCFG.Value stack, MoonCFG.Value base, MoonCFG.Value count) unique
          | RuntimeValueSeqFromVarargs(MoonCFG.Value varargs, MoonCFG.Value count) unique
          | RuntimeValueSeqAdjust(MoonCFG.Value seq, LuaRT.ResultAdjustment adjustment) unique
+         | RuntimeValueSeqNormalize(MoonCFG.Value seq, LuaRT.ArityShape shape) unique
          | RuntimeValueSeqCount(MoonCFG.Value seq) unique
          | RuntimeValueSeqValue(MoonCFG.Value seq, number index) unique
+         | RuntimeValueSeqBuffer(MoonCFG.Value seq) unique
+         | RuntimeValueSeqBase(MoonCFG.Value seq) unique
+         | RuntimeClassifyCallee(MoonCFG.Value callee) unique
+         | RuntimeCallTargetCheck(MoonCFG.Value callee,
+                                  LuaRT.ResolvedCallTarget target) unique
+         | RuntimeCallFramePrepare(MoonCFG.Value caller_stack,
+                                   MoonCFG.Value callee_stack,
+                                   LuaRT.CallFrameLayout layout,
+                                   MoonCFG.Value args) unique
+         | RuntimeCallFrameResultSeq(MoonCFG.Value callee_stack,
+                                      LuaRT.CallFrameLayout layout,
+                                      LuaRT.CallResultChannel channel) unique
          | RuntimeVarargSource(MoonCFG.Value values, MoonCFG.Value count, MoonCFG.Value table_handle) unique
          | RuntimeVarargCount(MoonCFG.Value source) unique
          | RuntimeVarargGet(MoonCFG.Value source, MoonCFG.Value key) unique
@@ -1500,6 +1929,12 @@ module MoonCFG {
        | Assign(MoonCFG.Place dst, MoonCFG.Value src) unique
        | Store(MoonCFG.Place dst, MoonCFG.Value src) unique
        | RuntimeStackStore(MoonCFG.Value stack, MoonCFG.Value index, MoonCFG.Value value) unique
+       | RuntimeValueSeqStore(MoonCFG.Value stack,
+                            MoonCFG.Value base,
+                            MoonCFG.Value seq) unique
+       | RuntimeCallFrameStoreArgs(MoonCFG.Value callee_stack,
+                                   LuaRT.CallFrameLayout layout,
+                                   MoonCFG.Value args) unique
        | RuntimeTopStore(MoonCFG.Value top_ptr, MoonCFG.Value top) unique
        | RuntimeTableRawSet(MoonCFG.Value tables, MoonCFG.Value table_value, MoonCFG.Value key, MoonCFG.Value value) unique
        | RuntimeTableWriteBarrier(MoonCFG.Value tables, MoonCFG.Value table_value, MoonCFG.Value value) unique
@@ -1667,6 +2102,23 @@ module Stencil {
                 | FromGCBarrierEntry(LuaGC.BarrierKind barrier) unique
                 | FromGCFinalizerQueue(LuaGC.Name state) unique
                 | FromGCEpoch(LuaGC.GCFact fact) unique
+                | FromCallTarget(LuaRT.CallTarget target) unique
+                | FromCallTargetIdentity(LuaRT.CallTargetIdentity identity) unique
+                | FromCallFrameLayout(LuaRT.CallFrameLayout layout) unique
+                | FromRegionDescriptor(LuaExec.RegionDescriptor descriptor) unique
+                | FromStaticRegion(LuaExec.StaticRegionBinding binding) unique
+                | FromStaticRegionInvocation(LuaExec.StaticRegionInvocation invocation) unique
+                | FromClosureIdentity(LuaRT.ClosureIdentity identity) unique
+                | FromUpvalueIdentity(LuaRT.UpvalueIdentity identity) unique
+                | FromMetatableEpoch(LuaRT.MetatableEpoch epoch) unique
+                | FromMetamethodLookupPath(LuaRT.MetamethodLookupPath path) unique
+                | FromLuaOperation(LuaRT.LuaOperation operation) unique
+                | FromLoopTopology(LuaRT.LoopTopology topology) unique
+                | FromGCEffect(LuaGC.GCEffect effect) unique
+                | FromFFICallShape(LuaFFI.FFICallShape call) unique
+                | FromFFICallbackEntry(LuaFFI.FFICallbackEntry callback) unique
+                | FromCDataOwnership(LuaFFI.CDataOwnershipTransition transition) unique
+                | FromUpvalueEpoch(LuaRT.UpvalueIdentity upvalue) unique
 
     Reloc = (Stencil.Name id,
              Stencil.RelocKind kind,

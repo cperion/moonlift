@@ -198,6 +198,37 @@ function M.callback(callback)
   return #errors == 0, errors
 end
 
+function M.ffi_call_shape(call)
+  local errors = {}
+  if not is(call, FFI.FFICallShape) then add(errors, "expected LuaFFI.FFICallShape"); return false, errors end
+  if not is(call.symbol, FFI.CSymbolId) then add(errors, "symbol must be CSymbolId") end
+  if not is_member(FFI.CAbi, call.abi) then add(errors, "abi must be CAbi") end
+  if not is(call.params, FFI.CParamList) then add(errors, "params must be CParamList") end
+  validate_ctype_into(call.return_type, errors, "return_type")
+  for i, conv in ipairs(call.conversions or {}) do
+    if not is_member(FFI.CValueConversion, conv) then add(errors, "conversions[" .. i .. "] must be CValueConversion") end
+  end
+  return #errors == 0, errors
+end
+
+function M.cdata_ownership_transition(transition)
+  local errors = {}
+  if not is(transition, FFI.CDataOwnershipTransition) then add(errors, "expected LuaFFI.CDataOwnershipTransition"); return false, errors end
+  local ok, cdata_errors = M.cdata(transition.cdata)
+  if not ok then for _, e in ipairs(cdata_errors) do add(errors, "cdata " .. e) end end
+  if not is_member(FFI.OwnershipState, transition.from_state) then add(errors, "from_state must be OwnershipState") end
+  if not is_member(FFI.OwnershipState, transition.to_state) then add(errors, "to_state must be OwnershipState") end
+  return #errors == 0, errors
+end
+
+function M.ffi_callback_entry(entry)
+  local errors = {}
+  if not is(entry, FFI.FFICallbackEntry) then add(errors, "expected LuaFFI.FFICallbackEntry"); return false, errors end
+  if not is(entry.callback, FFI.CCallbackId) then add(errors, "callback must be CCallbackId") end
+  if not is_member(FFI.CAbi, entry.abi) then add(errors, "abi must be CAbi") end
+  return #errors == 0, errors
+end
+
 function M.registry(registry)
   local errors = {}
   if not is(registry, FFI.FFIRegistry) then add(errors, "expected LuaFFI.FFIRegistry"); return false, errors end

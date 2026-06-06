@@ -1,0 +1,1113 @@
+{
+	"version": 1,
+	"workflowId": "wf-lua55-roadmap",
+	"revision": 113,
+	"nextId": 67,
+	"createdAt": "2026-06-06T17:56:46.971Z",
+	"updatedAt": "2026-06-06T20:32:31.530Z",
+	"tasks": [
+		{
+			"id": "T001",
+			"title": "Extend ASDL semantic region foundation",
+			"detail": "Add Phase-1 typed scaffolding without changing existing constructor field order: LuaRT arity/value-seq/call/metamethod/close placeholder nodes; LuaExec RegionId/RegionRef/OpcodeFamily/RegionDescriptor/result-channel/call/metatable/GC hook scaffolding; CompileContract typed semantic assumption obligations; MoonCFG region/arity scaffold expressions if needed; Stencil semantic assumption/region patch sources. Preserve all current tests' field_names expectations.",
+			"file": "experiments/lua_interpreter_vm/spongejit/ssa_asdl/spongejit_lua_ssa.asdl",
+			"after": [],
+			"status": "done",
+			"order": 1,
+			"claimedBy": "agent-CRCGJ2",
+			"evidence": "Updated experiments/lua_interpreter_vm/spongejit/ssa_asdl/spongejit_lua_ssa.asdl with LuaRT arity/result/call/metamethod/close scaffolding, LuaGC.GCHook, LuaExec region ids/descriptors/opcode families/scaffold expressions/descriptor obligations, CompileContract SemanticAssumption obligations/guarantees, and typed Stencil.PatchSource additions. Verified ASDL parses by running luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_schema.lua (existing schema test passed).",
+			"notes": [],
+			"createdAt": "2026-06-06T17:56:46.972Z",
+			"updatedAt": "2026-06-06T18:05:29.773Z"
+		},
+		{
+			"id": "T002",
+			"title": "Add LuaRT/LuaExec region model modules",
+			"detail": "Create lua_rt_arity_model.lua, lua_rt_call_model.lua, lua_rt_metatable_model.lua, lua_rt_close_model.lua, lua_rt_gc_alloc_model.lua, lua_rt_closure_upvalue_model.lua, lua_rt_loop_model.lua, and lua_exec_region_model.lua as representation/constructor metadata only. Export them from init.lua. Include validate_against_schema helpers; no helper execution or interpreter fallback.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/",
+			"after": [
+				"T001"
+			],
+			"status": "done",
+			"order": 2,
+			"claimedBy": "agent-CRCGJ2",
+			"evidence": "Created representation-only model modules under experiments/lua_interpreter_vm/spongejit/lua_compile/: lua_rt_arity_model.lua, lua_rt_call_model.lua, lua_rt_metatable_model.lua, lua_rt_close_model.lua, lua_rt_gc_alloc_model.lua, lua_rt_closure_upvalue_model.lua, lua_rt_loop_model.lua, lua_exec_region_model.lua. Exported all from lua_compile/init.lua. Ran a luajit require/validate_against_schema smoke test for each module successfully.",
+			"notes": [],
+			"createdAt": "2026-06-06T17:56:46.972Z",
+			"updatedAt": "2026-06-06T18:08:28.890Z"
+		},
+		{
+			"id": "T003",
+			"title": "Validate new scaffold nodes structurally",
+			"detail": "Extend LuaRT validators for arity, call shape/state, metamethod hook, close placeholders, and value seq adjustment invariants; extend lua_exec_validate.lua for RegionDescriptor/result channels/hook ops/unsupported scaffold expressions while keeping executable rejection in lower/MoonCFG. Add precise errors instead of accepting dynamic semantics.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/lua_rt_validate.lua",
+			"after": [
+				"T001",
+				"T002"
+			],
+			"status": "done",
+			"order": 3,
+			"claimedBy": "agent-CRCGJ2",
+			"evidence": "Extended lua_rt_validate.lua with structural validators for ArityShape, ResultChannel, CallState, MetamethodCallHook, and CloseHook via the new model modules. Extended lua_exec_validate.lua with RegionDescriptor validation, scaffold expression recognition (CallStateExpr, MetamethodCallHookExpr, CloseHookExpr, GCHookExpr, RegionDescriptorExpr), and Exec contract obligation/guarantee validation for region descriptors. Verified by running luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_exec_pipeline.lua successfully.",
+			"notes": [],
+			"createdAt": "2026-06-06T17:56:46.972Z",
+			"updatedAt": "2026-06-06T18:09:56.542Z"
+		},
+		{
+			"id": "T004",
+			"title": "Introduce static region builder helpers",
+			"detail": "Implement helper constructors/catalog for opcode-family region descriptors and current executable region kinds. Provide region_kind_for_existing_block_term, opcode_family_for_src_kind, and scaffold-only builders for call/tailcall/metatable/gc/close regions that do not lower to executable MoonCFG unless explicitly supported.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_region_model.lua",
+			"after": [
+				"T002",
+				"T003"
+			],
+			"status": "done",
+			"order": 4,
+			"claimedBy": "agent-CRCGJ2",
+			"evidence": "Expanded lua_exec_region_model.lua with executable/scaffold-only region catalogs, opcode_family_for_src_kind, region_kind_for_existing_block_term, descriptor_for_shape, scaffold_region_kind_for_family, and scaffold descriptor builders for call/tailcall/close/gc/metatable families. Verified model validate_against_schema and call_descriptor scaffold construction with a luajit smoke test.",
+			"notes": [],
+			"createdAt": "2026-06-06T17:56:46.972Z",
+			"updatedAt": "2026-06-06T18:10:44.061Z"
+		},
+		{
+			"id": "T005",
+			"title": "Refactor LuaSrc lowering around static regions",
+			"detail": "Import lua_exec_region_model; update comments; keep current supported op behavior; replace hard-coded Exec.ReturnRegion body kind with model-selected/static CoreWindow or ReturnRegion descriptor; emit typed rejects for CALL/TAILCALL/metatable/GC/close scaffolds; do not add CALL/TAILCALL to SUPPORTED_INSTR coverage yet.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/lua_src_to_lua_exec_lower.lua",
+			"after": [
+				"T004"
+			],
+			"status": "done",
+			"order": 5,
+			"claimedBy": "agent-CRCGJ2",
+			"evidence": "Updated lua_src_to_lua_exec_lower.lua comments/imports to use lua_exec_region_model, kept SUPPORTED_INSTR unchanged with explicit phase-1 comment, added scaffold-only reject diagnostics for CALL/TAILCALL/CLOSE/TBC/NEWTABLE/CLOSURE, added builder region_descriptors, and attached a RegionDescriptor obligation/guarantee contract to current executable kernels using RegionModel.descriptor_for_shape without changing accepted opcode coverage. Verified LuaExec pipeline test passed.",
+			"notes": [],
+			"createdAt": "2026-06-06T17:56:46.972Z",
+			"updatedAt": "2026-06-06T18:11:41.821Z"
+		},
+		{
+			"id": "T006",
+			"title": "Guard LuaExec-to-MoonCFG scaffold lowering",
+			"detail": "Import region model; preserve current executable lowering. Lower only regions marked executable by the model. Reject scaffold-only CallRegion/TailCallRegion/Metatable/GC/Close regions with typed errors before emitter. Keep Exec.EmitRegion unsupported unless the target region is the Phase-1 arity/value-seq normalization scaffold explicitly implemented.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_to_moon_cfg_lower.lua",
+			"after": [
+				"T004",
+				"T005"
+			],
+			"status": "done",
+			"order": 6,
+			"claimedBy": "agent-CRCGJ2",
+			"evidence": "Updated lua_exec_to_moon_cfg_lower.lua to import lua_exec_region_model, convert RegionDescriptor Exec obligations/guarantees into typed CompileContract SemanticAssumption entries, explicitly reject scaffold-only LuaExec expressions, keep EmitRegion unsupported with static_region_scaffold_only diagnostic, and reject non-executable scaffold-only region kinds before MoonCFG lowering. Verified route still passes via luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_moon_cfg.lua.",
+			"notes": [],
+			"createdAt": "2026-06-06T17:56:46.972Z",
+			"updatedAt": "2026-06-06T18:12:40.329Z"
+		},
+		{
+			"id": "T007",
+			"title": "Update MoonCFG validation and emission guardrails",
+			"detail": "Recognize any new MoonCFG scaffold nodes added in ASDL only when they are representation metadata/value-seq expressions; keep CFG.EmitRegion/Continue/Exit unsupported unless explicitly emitted by Phase-1. Preserve forbidden strings and old protocol checks; do not weaken call/close/generic_for/setlist/getvarg guards.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_validate.lua",
+			"after": [
+				"T001",
+				"T006"
+			],
+			"status": "done",
+			"order": 7,
+			"claimedBy": "agent-CRCGJ2",
+			"evidence": "Preserved MoonCFG guardrails in moon_cfg_validate.lua and added an explicit comment clarifying that future typed ASDL constructors do not permit lowercase fallback strings. No MoonCFG executable scaffold nodes were added; CFG.EmitRegion/Continue/Exit remain unsupported. Verified with luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_moon_cfg.lua.",
+			"notes": [],
+			"createdAt": "2026-06-06T17:56:46.972Z",
+			"updatedAt": "2026-06-06T18:13:13.266Z"
+		},
+		{
+			"id": "T008",
+			"title": "Type contract and stencil semantic assumptions",
+			"detail": "Validate new CompileContract semantic-assumption obligations and stencil typed assumption sources. Update compile_contract_key/stencil_key only if new constructors need stable structural handling; do not introduce variant strings or opcode-helper names.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/compile_contract_validate.lua",
+			"after": [
+				"T001"
+			],
+			"status": "done",
+			"order": 8,
+			"claimedBy": "agent-CRCGJ2",
+			"evidence": "Extended compile_contract_validate.lua to structurally validate CompileContract.SemanticAssumption and RequiresSemanticAssumption/GuaranteesSemanticAssumption, including RegionDescriptor assumptions, call targets, arity, metatable/no-metamethod, GC hook, and FFI layout assumptions. Added compile_contract_key.lua comment documenting structural ASDL keying. Verified a typed AssumesRegionDescriptor contract validates successfully with a luajit smoke test.",
+			"notes": [],
+			"createdAt": "2026-06-06T17:56:46.972Z",
+			"updatedAt": "2026-06-06T18:14:39.026Z"
+		},
+		{
+			"id": "T009",
+			"title": "Add schema and model coverage tests",
+			"detail": "Assert new ASDL constructors/field names and require new model validate_against_schema helpers. Add focused static-region test file if schema test becomes too large.",
+			"file": "experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_schema.lua",
+			"after": [
+				"T001",
+				"T002",
+				"T003"
+			],
+			"status": "done",
+			"order": 9,
+			"claimedBy": "agent-CRCGJ2",
+			"evidence": "Updated experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_schema.lua with assertions for new CompileContract SemanticAssumption constructors, LuaRT arity/result/call/metamethod/close scaffolding, LuaGC.GCHook, LuaExec RegionId/RegionDescriptor/OpcodeFamily/new region kinds/scaffold expressions, Stencil typed patch sources, and validate_against_schema coverage for all new model modules. Ran luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_schema.lua successfully.",
+			"notes": [],
+			"createdAt": "2026-06-06T17:56:46.972Z",
+			"updatedAt": "2026-06-06T18:15:48.546Z"
+		},
+		{
+			"id": "T010",
+			"title": "Add static region lowering tests",
+			"detail": "New test: existing LOADI/RETURN, VARARG, ADDI, GETTABLE, SETTABLE windows still compile through LuaExec/MoonCFG; produced LuaExec body has static region descriptor/kind; manual scaffold-only CallRegion/TailCallRegion validates structurally but Exec->MoonCFG rejects with scaffold-only diagnostic; LuaSrc CALL/TAILCALL still compile Reject.",
+			"file": "experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_static_regions.lua",
+			"after": [
+				"T005",
+				"T006",
+				"T007"
+			],
+			"status": "done",
+			"order": 10,
+			"claimedBy": "agent-CRCGJ2",
+			"evidence": "Added experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_static_regions.lua covering current executable windows (LOADI/RETURN1, VARARG/RETURN, ADDI+MMBINI, GETTABLE/RETURN1, SETTABLE) through LuaExec and MoonCFG, RegionDescriptor obligations/guarantees on Exec kernels, structural validation but MoonCFG rejection for manual CallRegion/TailCallRegion, source CALL/TAILCALL scaffold-only rejects, and standalone MMBIN rejection. Ran the new static regions test successfully.",
+			"notes": [],
+			"createdAt": "2026-06-06T17:56:46.972Z",
+			"updatedAt": "2026-06-06T18:18:11.230Z"
+		},
+		{
+			"id": "T011",
+			"title": "Add contract and no-fake-success tests",
+			"detail": "Extend existing negative tests for forbidden strings and unsupported CALL/TAILCALL/metatable/close/gc scaffolds. Verify stencil/contract keys include typed semantic assumptions and reject old protocol/helper strings.",
+			"file": "experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_moon_cfg.lua",
+			"after": [
+				"T007",
+				"T008"
+			],
+			"status": "done",
+			"order": 11,
+			"claimedBy": "agent-CRCGJ2",
+			"evidence": "Extended experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_moon_cfg.lua with explicit scaffold-only source rejection diagnostics for CALL/TAILCALL/CLOSE/TBC/NEWTABLE/CLOSURE, typed CompileContract AssumesRegionDescriptor validation/key assertions, typed Stencil FromRegionDescriptor/FromCallTarget forbidden-string acceptance, and lowercase \"call\" stencil-key rejection. Ran the MoonCFG LuaExec route test successfully.",
+			"notes": [],
+			"createdAt": "2026-06-06T17:56:46.972Z",
+			"updatedAt": "2026-06-06T18:19:18.572Z"
+		},
+		{
+			"id": "T012",
+			"title": "Run SpongeJIT verification gates",
+			"detail": "Run cd experiments/lua_interpreter_vm/spongejit && make test. Then run make test-completion. Optionally run make test-lua-compile-corpus100 and confirm rejection counts remain fail-closed; update generated expectations only if scaffold metadata changes representative keys without adding fake successes.",
+			"file": "experiments/lua_interpreter_vm/spongejit/Makefile",
+			"after": [
+				"T009",
+				"T010",
+				"T011"
+			],
+			"status": "done",
+			"order": 12,
+			"claimedBy": "agent-CRCGJ2",
+			"evidence": "Ran verification gates: luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_schema.lua (pass), luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_static_regions.lua (pass), cd experiments/lua_interpreter_vm/spongejit && make test (pass after updating the pipeline planned-file list for the new model modules), make test-completion (pass), and optional make test-lua-compile-corpus100 (pass: 31 successful windows, 26 reps checked; foundry reported 37 ok / 104 rejected, preserving fail-closed UnsupportedSemanticCase behavior).",
+			"notes": [],
+			"createdAt": "2026-06-06T17:56:46.972Z",
+			"updatedAt": "2026-06-06T18:20:50.866Z"
+		},
+		{
+			"id": "T013",
+			"title": "Extend ASDL arity execution vocabulary",
+			"detail": "Add Phase 2 typed arity/value-sequence runtime support without changing tested field orders: LuaRT.ArityNormalization, SequenceOrigin.FromArityNormalization, LuaExec NormalizeResultsExpr/ResultChannelExpr and arity/result-channel obligations/guarantees, CompileContract.AssumesResultChannel, MoonCFG RuntimeValueSeqNormalize/Buffer/Base, RuntimeOutcomeReturnSeq/YieldSeq, RuntimeValueSeqStore. Preserve existing ValueSeq/Region/Kernel field order and keep CALL/TAILCALL scaffolds non-executable.",
+			"file": "experiments/lua_interpreter_vm/spongejit/ssa_asdl/spongejit_lua_ssa.asdl",
+			"after": [],
+			"status": "done",
+			"order": 13,
+			"claimedBy": "agent-NG96SK",
+			"evidence": "Updated experiments/lua_interpreter_vm/spongejit/ssa_asdl/spongejit_lua_ssa.asdl with LuaRT.FromArityNormalization/ArityNormalization, LuaExec NormalizeResultsExpr/ResultChannelExpr and arity/result-channel contract nodes, CompileContract.AssumesResultChannel, and MoonCFG RuntimeValueSeqNormalize/Buffer/Base, RuntimeOutcomeReturnSeq/YieldSeq, RuntimeValueSeqStore. Existing tested constructor field orders were not changed.",
+			"notes": [],
+			"createdAt": "2026-06-06T18:26:33.714Z",
+			"updatedAt": "2026-06-06T18:33:04.994Z"
+		},
+		{
+			"id": "T014",
+			"title": "Implement arity model semantics helpers",
+			"detail": "Extend lua_rt_arity_model.lua with executable fixed/open shape helpers, arity normalization validation, result-channel validation, target count helpers, shape constructors for return/vararg/assignment, and strict executable-now checks. Update stack/outcome model metadata for safe seq buffers and outcome value_buffer/value_base representation.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/lua_rt_arity_model.lua",
+			"after": [
+				"T013"
+			],
+			"status": "done",
+			"order": 14,
+			"claimedBy": "agent-NG96SK",
+			"evidence": "Extended lua_rt_arity_model.lua with executable adjustment table, fixed-count extraction, adjustment target helpers, ArityShape/ResultChannel/ArityNormalization constructors, normalization validation, and executable-now checks excluding Dynamic/Unknown counts. Added lua_rt_stack_model.lua INLINE_VALUE_COUNT/requires_buffer_index metadata. Updated lua_rt_outcome_model.lua runtime struct metadata to carry value_buffer ptr(LuaRTValue) and value_base.",
+			"notes": [],
+			"createdAt": "2026-06-06T18:26:33.714Z",
+			"updatedAt": "2026-06-06T18:34:26.820Z"
+		},
+		{
+			"id": "T015",
+			"title": "Extend structural validators for arity nodes",
+			"detail": "Add validation entry points for LuaRT.ArityNormalization and result channels, then update lua_exec_validate.lua and compile_contract_validate.lua to recognize new NormalizeResultsExpr/ResultChannelExpr and arity/result-channel obligations/guarantees/semantic assumptions structurally only.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/lua_rt_validate.lua",
+			"after": [
+				"T013",
+				"T014"
+			],
+			"status": "done",
+			"order": 15,
+			"claimedBy": "agent-NG96SK",
+			"evidence": "Updated lua_rt_validate.lua with arity_normalization validation entry point. Updated lua_exec_validate.lua to structurally recognize NormalizeResultsExpr/ResultChannelExpr, validate AssignSeq adjustment, and validate RequiresArityShape/RequiresResultChannel/NormalizesArity/ProducesResultChannel. Updated compile_contract_validate.lua to recognize CompileContract.AssumesResultChannel structurally.",
+			"notes": [],
+			"createdAt": "2026-06-06T18:26:33.714Z",
+			"updatedAt": "2026-06-06T18:35:29.475Z"
+		},
+		{
+			"id": "T016",
+			"title": "Add contract identity support for result channels",
+			"detail": "Ensure arity shapes and result channels are keyed structurally through CompileContract. Add comments/tests as needed; avoid stringly stencil variants or new patch sources unless ASDL typed sources are explicitly added. Keep forbidden string checks unchanged.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/compile_contract_key.lua",
+			"after": [
+				"T013",
+				"T015"
+			],
+			"status": "done",
+			"order": 16,
+			"claimedBy": "agent-NG96SK",
+			"evidence": "compile_contract_key.lua already structurally keyed ASDL fields; added explicit comment that ArityShape and ResultChannel assumptions are structurally keyed and must not be encoded as variant strings. No forbidden string behavior changed.",
+			"notes": [],
+			"createdAt": "2026-06-06T18:26:33.714Z",
+			"updatedAt": "2026-06-06T18:35:44.244Z"
+		},
+		{
+			"id": "T017",
+			"title": "Refactor LuaSrc lowering to emit arity normalization",
+			"detail": "Use the Phase 2 arity/value-sequence core for existing RETURN/RETURN0/RETURN1/VARARG/GETVARG behavior: construct ArityShape/ArityNormalization/ResultChannel where appropriate, add typed arity/result-channel contract obligations/guarantees, and preserve unsupported CALL/TAILCALL/SETLIST/generic-for fail-closed diagnostics. Do not add new supported opcode names.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/lua_src_to_lua_exec_lower.lua",
+			"after": [
+				"T013",
+				"T014",
+				"T015"
+			],
+			"status": "done",
+			"order": 17,
+			"claimedBy": "agent-NG96SK",
+			"evidence": "Refactored lua_src_to_lua_exec_lower.lua to import ArityModel, build LuaRT.ArityShape/ResultChannel/ArityNormalization for existing VARARG and RETURN/RETURN0/RETURN1 paths, wrap returned/assigned sequences with LuaRT.FromArityNormalization, and accumulate RequiresArityShape/RequiresResultChannel plus NormalizesArity/ProducesResultChannel in Exec contracts. SUPPORTED_INSTR and fail-closed dynamic opcode behavior were not expanded.",
+			"notes": [],
+			"createdAt": "2026-06-06T18:26:33.714Z",
+			"updatedAt": "2026-06-06T18:37:11.723Z"
+		},
+		{
+			"id": "T018",
+			"title": "Lower arity normalization to MoonCFG",
+			"detail": "Lower FromArityNormalization, NormalizeResultsExpr, ResultChannelExpr, AssignSeq via RuntimeValueSeqNormalize and RuntimeValueSeqStore. Migrate outcome return/yield lowering to RuntimeOutcomeReturnSeq/YieldSeq so count, buffer, and base are preserved. Add outcome projection parsing for valueN fields while keeping direct dynamic returns rejected unless outcome mode is used.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_to_moon_cfg_lower.lua",
+			"after": [
+				"T017"
+			],
+			"status": "done",
+			"order": 18,
+			"claimedBy": "agent-NG96SK",
+			"evidence": "Updated lua_exec_to_moon_cfg_lower.lua to propagate arity/result-channel contracts into CompileContract semantic assumptions; lower LuaRT.FromArityNormalization and Exec.NormalizeResultsExpr to MoonCFG.RuntimeValueSeqNormalize; lower ResultChannelExpr structurally to its sequence; lower AssignSeq to RuntimeValueSeqStore instead of fixed value0/value1 stores; lower outcome return/yield to RuntimeOutcomeReturnSeq/RuntimeOutcomeYieldSeq; and add dynamic outcome projections for valueN tag/payload fields.",
+			"notes": [],
+			"createdAt": "2026-06-06T18:26:33.714Z",
+			"updatedAt": "2026-06-06T18:39:00.106Z"
+		},
+		{
+			"id": "T019",
+			"title": "Emit and validate safe value-sequence runtime ops",
+			"detail": "Update moon_cfg_validate.lua and moon_cfg_emit.lua for RuntimeValueSeqNormalize, RuntimeValueSeqBuffer, RuntimeValueSeqBase, RuntimeValueSeqStore, RuntimeOutcomeReturnSeq, and RuntimeOutcomeYieldSeq. Make RuntimeValueSeqValue and outcome value projections count-safe and nil-padding-safe. Emit explicit Moonlift loops/blocks, not helpers/protocol exits.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_emit.lua",
+			"after": [
+				"T013",
+				"T018"
+			],
+			"status": "done",
+			"order": 19,
+			"claimedBy": "agent-NG96SK",
+			"evidence": "Updated moon_cfg_validate.lua to accept/validate RuntimeValueSeqNormalize/Buffer/Base, RuntimeValueSeqStore, RuntimeOutcomeReturnSeq, and RuntimeOutcomeYieldSeq and infer their types. Updated moon_cfg_emit.lua to emit ptr value_buffer/value_base outcome fields, RuntimeOutcomeReturnSeq/YieldSeq, RuntimeValueSeqNormalize, RuntimeValueSeqBuffer/Base, count-safe RuntimeValueSeqValue and outcome value projections, and RuntimeValueSeqStore as an explicit Moonlift block loop over seq.count. No helper/protocol strings were added.",
+			"notes": [],
+			"createdAt": "2026-06-06T18:26:33.714Z",
+			"updatedAt": "2026-06-06T18:42:45.957Z"
+		},
+		{
+			"id": "T020",
+			"title": "Update compile route and foundry expectations",
+			"detail": "Adjust public outcome-mode detection for Phase 2 result-channel/arity nodes if needed, and verify foundry/stencil representative identity includes arity/result-channel contracts structurally without changing corpus success expectations or adding fake fallback paths.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/lua_compile_to_moon_kernel.lua",
+			"after": [
+				"T016",
+				"T018",
+				"T019"
+			],
+			"status": "done",
+			"order": 20,
+			"claimedBy": "agent-NG96SK",
+			"evidence": "Updated lua_compile_to_moon_kernel.lua needs_outcome_mode to recognize Phase 2 NormalizeResultsExpr/ResultChannelExpr and open count specs (OpenFromTop/OpenFromVarargs/OpenFromVarargsAtBase) so open sequence returns stay on the typed LuaExec->MoonCFG outcome route. CompileContract keying remains structural from T016; no foundry corpus success expectation or fallback path was changed.",
+			"notes": [],
+			"createdAt": "2026-06-06T18:26:33.714Z",
+			"updatedAt": "2026-06-06T18:43:19.626Z"
+		},
+		{
+			"id": "T021",
+			"title": "Update schema and model tests",
+			"detail": "Assert new ASDL constructors and field orders, call new model validate_against_schema checks, and add validator smoke coverage for ArityNormalization, NormalizeResultsExpr, ResultChannelExpr, RuntimeValueSeqNormalize/Buffer/Base/Store, and RuntimeOutcomeReturnSeq/YieldSeq.",
+			"file": "experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_schema.lua",
+			"after": [
+				"T013",
+				"T014",
+				"T015"
+			],
+			"status": "done",
+			"order": 21,
+			"claimedBy": "agent-NG96SK",
+			"evidence": "Updated test_spongejit_lua_compile_schema.lua to assert Phase 2 ASDL constructors/field order for ArityNormalization, FromArityNormalization, NormalizeResultsExpr, ResultChannelExpr, arity/result Exec contracts, CompileContract.AssumesResultChannel, RuntimeValueSeqNormalize/Buffer/Base/Store, and RuntimeOutcomeReturnSeq/YieldSeq. Added LuaRTValidate/ExecValidate smoke coverage for ArityNormalization, NormalizeResultsExpr, and ResultChannelExpr.",
+			"notes": [],
+			"createdAt": "2026-06-06T18:26:33.714Z",
+			"updatedAt": "2026-06-06T18:44:10.036Z"
+		},
+		{
+			"id": "T022",
+			"title": "Add executable arity/value-sequence tests",
+			"detail": "Create a new executable test file covering fixed/open/padded/truncated normalization, count-safe ValueSeqValue, value2/value3 projection from stack/vararg buffers, RuntimeValueSeqStore copying more than two values, outcome valueN projections, and nil padding beyond count.",
+			"file": "experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_arity.lua",
+			"after": [
+				"T018",
+				"T019"
+			],
+			"status": "done",
+			"order": 22,
+			"claimedBy": "agent-NG96SK",
+			"evidence": "Created experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_arity.lua covering RuntimeValueSeqNormalize truncate/fill, nil-padded value2 projection, stack-backed value2/value3 projection, RuntimeValueSeqStore copying value2, vararg fixed count/value2 outcomes, RETURN fixed 3-value outcomes, and out-of-range outcome value3 nil projection.",
+			"notes": [],
+			"createdAt": "2026-06-06T18:26:33.714Z",
+			"updatedAt": "2026-06-06T18:45:27.925Z"
+		},
+		{
+			"id": "T023",
+			"title": "Add regression and fail-closed tests",
+			"detail": "Extend existing pipeline/static-region/moon_cfg tests for RETURN/VARARG/GETVARG regressions through the new arity core, typed arity/result-channel contracts, no forbidden strings, and continued CALL/TAILCALL/SETLIST/TFOR* rejection. Keep supported opcode coverage count honest.",
+			"file": "experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_exec_pipeline.lua",
+			"after": [
+				"T017",
+				"T018",
+				"T019"
+			],
+			"status": "done",
+			"order": 23,
+			"claimedBy": "agent-NG96SK",
+			"evidence": "Updated static region tests to assert arity/result-channel Exec contract nodes and continued SETLIST/TFOR* fail-closed rejection. Updated LuaExec pipeline outcome detection to accept RuntimeOutcomeReturnSeq/YieldSeq and added RETURN contract assertions. Updated MoonCFG guardrail test to include typed AssumesResultChannel structural contract key coverage while keeping lowercase forbidden strings rejected.",
+			"notes": [],
+			"createdAt": "2026-06-06T18:26:33.714Z",
+			"updatedAt": "2026-06-06T18:46:45.189Z"
+		},
+		{
+			"id": "T024",
+			"title": "Run Phase 2 verification gates",
+			"detail": "Run luajit schema test, new arity test, static region test, full `cd experiments/lua_interpreter_vm/spongejit && make test`, `make test-completion`, and optional `make test-lua-compile-corpus100`. Record any intentional corpus count changes; expected default is no new dynamic opcode success.",
+			"file": "experiments/lua_interpreter_vm/spongejit/Makefile",
+			"after": [
+				"T021",
+				"T022",
+				"T023"
+			],
+			"status": "done",
+			"order": 24,
+			"claimedBy": "agent-NG96SK",
+			"evidence": "Ran Phase 2 gates successfully: luajit test_spongejit_lua_compile_schema.lua; luajit test_spongejit_lua_compile_lua_rt_arity.lua; luajit test_spongejit_lua_compile_static_regions.lua; luajit test_spongejit_lua_compile_lua_exec_pipeline.lua; cd experiments/lua_interpreter_vm/spongejit && make test; make test-completion; optional make test-lua-compile-corpus100. Corpus remained fail-closed with 37 ok / 104 rejected and report changed to 27 reps checked (31 successful windows).",
+			"notes": [],
+			"createdAt": "2026-06-06T18:26:33.714Z",
+			"updatedAt": "2026-06-06T19:02:52.677Z"
+		},
+		{
+			"id": "T025",
+			"title": "Extend ASDL call foundation",
+			"detail": "Add Phase 3 typed call target identity/resolution, call argument/result channels, call frame layout/state, LuaExec call-frame ops/exprs/contracts, CompileContract call assumptions, MoonCFG call-runtime expr/op nodes, and typed stencil patch sources. Preserve existing field orders for ValueSeq, ArityShape, ResultChannel, CallShape, CallTarget, CallState, Region, Kernel, Block.",
+			"file": "experiments/lua_interpreter_vm/spongejit/ssa_asdl/spongejit_lua_ssa.asdl",
+			"after": [],
+			"status": "done",
+			"order": 25,
+			"claimedBy": "agent-D6CPDC",
+			"evidence": "Updated experiments/lua_interpreter_vm/spongejit/ssa_asdl/spongejit_lua_ssa.asdl with Phase 3 call target identity/resolution, call arg/result channels, call frame layout/state, call continuation metadata, LuaExec call expressions/ops/contracts, CompileContract call assumptions, MoonCFG call runtime nodes/op, and typed Stencil call patch sources while preserving existing field orders.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:07:51.530Z",
+			"updatedAt": "2026-06-06T19:13:16.430Z"
+		},
+		{
+			"id": "T026",
+			"title": "Implement call model semantics helpers",
+			"detail": "Evolve the existing scaffold-only call model into Phase 3 validation/executability helpers for fixed-shape direct Lua closure call-frame substrate. Add TYPE_DECL for LuaRTCallFrame, target identity validation, resolved target validation, frame layout/channel validation, and is_executable_* helpers that reject unknown/C/FFI/metamethod/tailcall execution.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/lua_rt_call_model.lua",
+			"after": [
+				"T025"
+			],
+			"status": "done",
+			"order": 26,
+			"claimedBy": "agent-D6CPDC",
+			"evidence": "Rewrote experiments/lua_interpreter_vm/spongejit/lua_compile/lua_rt_call_model.lua with Phase 3 call-frame validation helpers, LuaRTCallFrame TYPE_DECL, executable direct Lua-closure target/layout/channel checks, and contract_allows_executable_call_region gating. Unknown/C/FFI/metamethod/dynamic arity paths return non-executable reasons.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:07:51.530Z",
+			"updatedAt": "2026-06-06T19:15:00.890Z"
+		},
+		{
+			"id": "T027",
+			"title": "Extend structural validators for call nodes",
+			"detail": "Add LuaRT validation entry points for resolved call targets, call arg/result channels, call frame layout/state, and call target identity. Extend lua_exec_validate.lua for new LuaExec call expr/op/obligation/guarantee nodes. Keep validation structural; executable gating belongs in call model and LuaExec->MoonCFG lowering.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/lua_rt_validate.lua",
+			"after": [
+				"T025",
+				"T026"
+			],
+			"status": "done",
+			"order": 27,
+			"claimedBy": "agent-D6CPDC",
+			"evidence": "Extended experiments/lua_interpreter_vm/spongejit/lua_compile/lua_rt_validate.lua with call target identity/resolution, call channels, call frame layout/state validators. Extended lua_exec_validate.lua to structurally validate Phase 3 call expressions, PrepareCallFrame/ReceiveCallResults ops, and call-specific obligations/guarantees.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:07:51.530Z",
+			"updatedAt": "2026-06-06T19:15:46.592Z"
+		},
+		{
+			"id": "T028",
+			"title": "Gate executable CallRegion by typed contract",
+			"detail": "Keep CallRegion non-executable by kind alone, but add region/contract-aware executability that permits only Phase 3 fixed-shape call-frame regions with resolved direct Lua-closure target, call frame layout, arity/result channels, and no tailcall/metamethod/C/FFI/unknown target. Update LuaExec->MoonCFG lower to use the region/contract-aware predicate.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_region_model.lua",
+			"after": [
+				"T026",
+				"T027"
+			],
+			"status": "done",
+			"order": 28,
+			"claimedBy": "agent-D6CPDC",
+			"evidence": "Updated lua_exec_region_model.lua with region/contract-aware executability: CallRegion remains scaffold-only by kind but can be executable only through CallModel.contract_allows_executable_call_region. Updated lua_exec_validate.lua descriptor checks to allow potentially executable CallRegion metadata, and lua_exec_to_moon_cfg_lower.lua to use RegionModel.is_executable_region(region, contract).",
+			"notes": [],
+			"createdAt": "2026-06-06T19:07:51.530Z",
+			"updatedAt": "2026-06-06T19:16:20.272Z"
+		},
+		{
+			"id": "T029",
+			"title": "Lower call substrate to MoonCFG",
+			"detail": "Import call model; lower CallTarget/CallFrame/CallResult exprs and PrepareCallFrame/ReceiveCallResults ops to typed MoonCFG call-runtime nodes plus existing RuntimeValueSeqNormalize/Store. Remove scaffold-only rejection for executable CallStateExpr cases only; keep unsupported call states rejected. Propagate call target/frame/arity/result assumptions to CompileContract.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_to_moon_cfg_lower.lua",
+			"after": [
+				"T025",
+				"T026",
+				"T028"
+			],
+			"status": "done",
+			"order": 29,
+			"claimedBy": "agent-D6CPDC",
+			"evidence": "Updated lua_exec_to_moon_cfg_lower.lua to import CallModel, propagate Phase 3 call obligations/guarantees into CompileContract semantic assumptions, lower resolved target/arg/frame/result expressions to typed MoonCFG runtime nodes, implement PrepareCallFrame and ReceiveCallResults via RuntimeCallFrameStoreArgs/RuntimeCallFrameResultSeq plus RuntimeValueSeqNormalize/Store, and keep old CallStateExpr as fixed-call-frame-required unsupported.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:07:51.530Z",
+			"updatedAt": "2026-06-06T19:17:26.128Z"
+		},
+		{
+			"id": "T030",
+			"title": "Validate and emit MoonCFG call runtime",
+			"detail": "Add CallModel.TYPE_DECL to emitted kernels; validate/infer/render RuntimeClassifyCallee, RuntimeCallTargetCheck, RuntimeCallFramePrepare, RuntimeCallFrameResultSeq, and RuntimeCallFrameStoreArgs. Emit explicit Moonlift struct/field operations and seq stores only: no helper calls, no VM dispatch, no protocol strings.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_emit.lua",
+			"after": [
+				"T025",
+				"T029"
+			],
+			"status": "done",
+			"order": 30,
+			"claimedBy": "agent-D6CPDC",
+			"evidence": "Updated moon_cfg_validate.lua to validate/infer Phase 3 call runtime expr/op nodes and lua_compile/moon_cfg_emit.lua to include LuaRTCallFrame TYPE_DECL plus explicit rendering for callee classification, typed target checks, call frame preparation, call result sequence extraction, and arg stores without helper calls or VM dispatch.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:07:51.530Z",
+			"updatedAt": "2026-06-06T19:20:09.562Z"
+		},
+		{
+			"id": "T031",
+			"title": "Propagate call contract identity",
+			"detail": "Validate new CompileContract call assumptions/guarantees and ensure compile_contract_key/stencil_key remain structural. Add typed stencil patch sources for call target identity/frame layout/callee epoch; ensure lowercase semantic strings such as \"call\" remain forbidden.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/compile_contract_validate.lua",
+			"after": [
+				"T025",
+				"T029"
+			],
+			"status": "done",
+			"order": 31,
+			"claimedBy": "agent-D6CPDC",
+			"evidence": "Updated compile_contract_validate.lua to validate AssumesResolvedCallTarget, AssumesCallFrameLayout, AssumesCallArgChannel, AssumesCallResultChannel, and AssumesCallTargetIdentity structurally via CallModel. Updated compile_contract_key.lua comments to document structural keying of call identity/layout/channels. ASDL already added typed Stencil.FromCallTargetIdentity and FromCallFrameLayout; stencil_key guardrail remains structural/no-stringly.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:07:51.530Z",
+			"updatedAt": "2026-06-06T19:20:36.598Z"
+		},
+		{
+			"id": "T032",
+			"title": "Keep source CALL and TAILCALL fail-closed",
+			"detail": "Do not add CALL or TAILCALL to SUPPORTED_INSTR. Preserve explicit scaffold_only_region rejects in scan_shape. Add comments/tests documenting that Phase 3 only executes manually constructed typed call-frame substrate, not LuaSrc CALL/TAILCALL opcodes.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/lua_src_to_lua_exec_lower.lua",
+			"after": [
+				"T025"
+			],
+			"status": "done",
+			"order": 32,
+			"claimedBy": "agent-D6CPDC",
+			"evidence": "Updated lua_src_to_lua_exec_lower.lua comments to state Phase 3 call-frame substrate does not expand SUPPORTED_INSTR and source CALL/TAILCALL remain fail-closed. Preserved explicit scaffold_only_region diagnostics and did not add CALL/TAILCALL to SUPPORTED_INSTR.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:07:51.530Z",
+			"updatedAt": "2026-06-06T19:21:04.985Z"
+		},
+		{
+			"id": "T033",
+			"title": "Update schema and model tests",
+			"detail": "Assert new LuaRT/LuaExec/CompileContract/MoonCFG/StenciI call constructors exist and preserve old field orders. Call lua_rt_call_model.validate_against_schema() and structural validators for a fixed-shape resolved direct Lua closure call frame.",
+			"file": "experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_schema.lua",
+			"after": [
+				"T025",
+				"T026",
+				"T027"
+			],
+			"status": "done",
+			"order": 33,
+			"claimedBy": "agent-D6CPDC",
+			"evidence": "Updated test_spongejit_lua_compile_schema.lua with Phase 3 constructor/field-order assertions across LuaRT, LuaExec, CompileContract, MoonCFG, and Stencil; model validate_against_schema covers lua_rt_call_model; added structural/executable CallModel validation for a fixed-shape direct Lua-closure call frame and a manually contracted CallRegion.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:07:51.530Z",
+			"updatedAt": "2026-06-06T19:22:06.563Z"
+		},
+		{
+			"id": "T034",
+			"title": "Add executable call substrate tests",
+			"detail": "New test covering runtime callee classification, target check, call frame arg store, result sequence extraction, result-channel normalization, outcome propagation, and manually constructed executable CallRegion lowering/emission. Include negative cases for unknown target, C/FFI/metamethod target, tailcall, missing contract, and invalid arity.",
+			"file": "experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_call.lua",
+			"after": [
+				"T029",
+				"T030",
+				"T031"
+			],
+			"status": "done",
+			"order": 34,
+			"claimedBy": "agent-D6CPDC",
+			"evidence": "Added experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_call.lua covering RuntimeClassifyCallee, RuntimeCallTargetCheck, RuntimeCallFrameStoreArgs, RuntimeCallFrameResultSeq, manual contracted CallRegion lowering/emission/execution, and negative missing-contract/unknown-target/dynamic-arity cases. Verified with luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_call.lua.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:07:51.530Z",
+			"updatedAt": "2026-06-06T19:25:06.132Z"
+		},
+		{
+			"id": "T035",
+			"title": "Add fail-closed source call regressions",
+			"detail": "Update static region/guardrail tests: empty or under-contracted CallRegion still rejects, properly contracted manual CallRegion lowers, LuaSrc CALL/TAILCALL still compile_to_moon_kernel Reject, MMBIN/SETLIST/generic-for remain fail-closed, emitted source/stencil keys contain no forbidden protocol/helper strings.",
+			"file": "experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_static_regions.lua",
+			"after": [
+				"T032",
+				"T034"
+			],
+			"status": "done",
+			"order": 35,
+			"claimedBy": "agent-D6CPDC",
+			"evidence": "Updated test_spongejit_lua_compile_static_regions.lua with a properly contracted manual CallRegion that lowers/validates plus existing empty/under-contracted scaffold rejects and source CALL/TAILCALL/SETLIST/TFOR*/MMBIN fail-closed checks. Updated test_spongejit_lua_compile_moon_cfg.lua stencil guardrails for typed FromCallTargetIdentity/FromCallFrameLayout while lowercase \"call\" remains forbidden. Verified static region test with luajit.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:07:51.530Z",
+			"updatedAt": "2026-06-06T19:26:02.491Z"
+		},
+		{
+			"id": "T036",
+			"title": "Run Phase 3 verification gates",
+			"detail": "Run luajit schema/call/static/arity/pipeline/moon_cfg tests, then make test and make test-completion from experiments/lua_interpreter_vm/spongejit. Optionally run make test-lua-compile-corpus100; corpus success count should not be expected to rise because source CALL/TAILCALL remain rejected.",
+			"file": "experiments/lua_interpreter_vm/spongejit/Makefile",
+			"after": [
+				"T033",
+				"T034",
+				"T035"
+			],
+			"status": "done",
+			"order": 36,
+			"claimedBy": "agent-D6CPDC",
+			"evidence": "Ran Phase 3 verification gates: luajit schema/call/static/arity/pipeline/moon_cfg tests all passed; cd experiments/lua_interpreter_vm/spongejit && make test passed; make test-completion passed; optional make test-lua-compile-corpus100 passed with 37 ok / 104 rejected and 31 successful windows, 29 reps checked.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:07:51.530Z",
+			"updatedAt": "2026-06-06T19:27:00.492Z"
+		},
+		{
+			"id": "T037",
+			"title": "Extend ASDL static invocation vocabulary",
+			"detail": "Add Phase 4 ASDL nodes for typed static region invocation: StaticRegionRole/StaticRegionBinding/StaticRegionInvocation, call-continuation contracts, CompileContract assumptions, and Stencil patch sources. Preserve tested field orders and do not alter source CALL acceptance.",
+			"file": "experiments/lua_interpreter_vm/spongejit/ssa_asdl/spongejit_lua_ssa.asdl",
+			"after": [
+				"T036"
+			],
+			"status": "skipped",
+			"order": 37,
+			"skipReason": "Obsolete after corrected roadmap: old Phase 4 static-invocation architecture is superseded by complete ASDL-first target architecture cleanup.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:30:09.566Z",
+			"updatedAt": "2026-06-06T19:58:41.496Z"
+		},
+		{
+			"id": "T038",
+			"title": "Add static region invocation model",
+			"detail": "Create representation/validation helpers for Phase 4 static region invocation. Validate module region libraries, exact continuation bindings, no unknown targets, no dynamic dispatch, executable target regions, and call continuation metadata.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_static_region_model.lua",
+			"after": [
+				"T037"
+			],
+			"status": "skipped",
+			"order": 38,
+			"skipReason": "Obsolete after corrected roadmap: static-invocation-only model is superseded by complete ASDL product-family model/validator update.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:30:09.566Z",
+			"updatedAt": "2026-06-06T19:58:41.496Z"
+		},
+		{
+			"id": "T039",
+			"title": "Extend LuaRT and LuaExec validators",
+			"detail": "Validate LuaExec.Module, StaticRegionBinding, StaticRegionInvocation, CallContinuationRegion, EmitRegion final-op restrictions, continuation definitions, and new obligations/guarantees structurally. Add LuaRT call model hooks for call-continuation executability where needed.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_validate.lua",
+			"after": [
+				"T038"
+			],
+			"status": "skipped",
+			"order": 39,
+			"skipReason": "Obsolete after corrected roadmap: validator work must target complete semantic architecture, not Phase 4 static invocation only.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:30:09.566Z",
+			"updatedAt": "2026-06-06T19:58:41.496Z"
+		},
+		{
+			"id": "T040",
+			"title": "Implement static region inline expansion",
+			"detail": "Create a fail-closed pre-lowering pass that expands strictly typed LuaExec.EmitRegion invocations from a LuaExec.Module into one executable kernel region by cloning target region blocks with hygienic prefixes and translating callee Continue terminators to bound caller blocks.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_static_region_inline.lua",
+			"after": [
+				"T039"
+			],
+			"status": "skipped",
+			"order": 40,
+			"skipReason": "Obsolete after corrected roadmap: static inlining implementation is not the next architecture-cleanup task.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:30:09.566Z",
+			"updatedAt": "2026-06-06T19:58:41.496Z"
+		},
+		{
+			"id": "T041",
+			"title": "Wire module lowering through inliner",
+			"detail": "Add lower_module/lower_module_outcome APIs that run static-region inline expansion before existing kernel lowering. Keep direct lower(kernel) EmitRegion rejection unchanged. Propagate static invocation and call-continuation contracts to CompileContract assumptions.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_to_moon_cfg_lower.lua",
+			"after": [
+				"T040"
+			],
+			"status": "skipped",
+			"order": 41,
+			"skipReason": "Obsolete after corrected roadmap: module lowering implementation is deferred; complete ASDL architecture and fail-closed gates come first.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:30:09.566Z",
+			"updatedAt": "2026-06-06T19:58:41.496Z"
+		},
+		{
+			"id": "T042",
+			"title": "Preserve MoonCFG EmitRegion guardrails",
+			"detail": "Keep MoonCFG.EmitRegion, Continue, and Exit rejected in Phase 4 because LuaExec static invocation is inlined before MoonCFG. Add comments/tests for this boundary and ensure emitted source has no helper/protocol/lowercase semantic strings.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_validate.lua",
+			"after": [
+				"T041"
+			],
+			"status": "skipped",
+			"order": 42,
+			"skipReason": "Obsolete after corrected roadmap: MoonCFG guardrails are retained under the new complete-architecture plan rather than Phase 4-only work.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:30:09.566Z",
+			"updatedAt": "2026-06-06T19:58:41.496Z"
+		},
+		{
+			"id": "T043",
+			"title": "Update contract and stencil validation",
+			"detail": "Validate new static-region/call-continuation semantic assumptions and patch sources structurally. Ensure compile_contract_key/stencil_key continue structural keying and forbid lowercase semantic strings.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/compile_contract_validate.lua",
+			"after": [
+				"T037"
+			],
+			"status": "skipped",
+			"order": 43,
+			"skipReason": "Obsolete after corrected roadmap: contract/stencil updates must cover all complete semantic product families, not only static invocation.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:30:09.566Z",
+			"updatedAt": "2026-06-06T19:58:41.496Z"
+		},
+		{
+			"id": "T044",
+			"title": "Keep source CALL fail-closed",
+			"detail": "Do not add CALL or TAILCALL to SUPPORTED_INSTR. Preserve scaffold-only rejects and add Phase 4 comments explaining that only manually constructed typed module EmitRegion invocation is executable.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/lua_src_to_lua_exec_lower.lua",
+			"after": [
+				"T041"
+			],
+			"status": "skipped",
+			"order": 44,
+			"skipReason": "Obsolete after corrected roadmap: source CALL fail-closed remains a guardrail inside the new complete-architecture plan.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:30:09.566Z",
+			"updatedAt": "2026-06-06T19:58:41.496Z"
+		},
+		{
+			"id": "T045",
+			"title": "Update schema and model tests",
+			"detail": "Assert new ASDL constructors and call validate_against_schema for the static region model. Preserve existing field-order assertions.",
+			"file": "experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_schema.lua",
+			"after": [
+				"T039"
+			],
+			"status": "skipped",
+			"order": 45,
+			"skipReason": "Obsolete after corrected roadmap: schema tests must assert complete ASDL families, not old Phase 4 static invocation only.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:30:09.566Z",
+			"updatedAt": "2026-06-06T19:58:41.496Z"
+		},
+		{
+			"id": "T046",
+			"title": "Add executable static invocation tests",
+			"detail": "Create tests for a manually constructed LuaExec.Module where a CallRegion prepares a frame, statically invokes a typed callee region via EmitRegion, receives results, lowers/emits/runs, and rejects under-contracted/unknown/nested/dynamic cases.",
+			"file": "experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_static_invoke.lua",
+			"after": [
+				"T041",
+				"T042"
+			],
+			"status": "skipped",
+			"order": 46,
+			"skipReason": "Obsolete after corrected roadmap: executable static-invocation tests are not the immediate architecture-cleanup milestone.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:30:09.566Z",
+			"updatedAt": "2026-06-06T19:58:41.496Z"
+		},
+		{
+			"id": "T047",
+			"title": "Add fail-closed regression tests",
+			"detail": "Extend existing static-region, call, moon-cfg, and pipeline tests: direct kernel EmitRegion still rejects, MoonCFG.EmitRegion still rejects, source CALL/TAILCALL still reject, prior arity/call-frame tests remain green, typed stencil keys pass while lowercase strings fail.",
+			"file": "experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_static_regions.lua",
+			"after": [
+				"T046"
+			],
+			"status": "skipped",
+			"order": 47,
+			"skipReason": "Obsolete after corrected roadmap: fail-closed regressions are folded into complete-architecture gate tests.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:30:09.566Z",
+			"updatedAt": "2026-06-06T19:58:41.496Z"
+		},
+		{
+			"id": "T048",
+			"title": "Run Phase 4 verification gates",
+			"detail": "Run schema, static invocation, call, arity, static region, pipeline, moon_cfg tests, then spongejit make test, make test-completion, and optional corpus100. Record corpus expectations: no source CALL acceptance and no required success-count increase.",
+			"after": [
+				"T047"
+			],
+			"status": "skipped",
+			"order": 48,
+			"skipReason": "Obsolete after corrected roadmap: verification gates are replaced by new complete-architecture verification task.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:30:09.566Z",
+			"updatedAt": "2026-06-06T19:58:41.496Z"
+		},
+		{
+			"id": "T049",
+			"title": "Complete ASDL semantic architecture",
+			"detail": "Redesign ASDL products for the corrected roadmap: remove implementation-status identity such as RegionDescriptor.executable and scaffold/unsupported phase products; complete call spine, result routing/frame effects, closure/upvalue/proto/thread identity, metatable lookup paths, operation/companion context, loop topology, close/error/yield causality, GC collectables/allocation/finalizers, FFI ABI/call/callback/ownership, static region/module identity, CompileContract assumptions, and Stencil patch sources. Preserve source opcode coverage and keep executable support out of ASDL identity.",
+			"file": "experiments/lua_interpreter_vm/spongejit/ssa_asdl/spongejit_lua_ssa.asdl",
+			"after": [
+				"T036"
+			],
+			"status": "done",
+			"order": 49,
+			"claimedBy": "agent-F3YBFE",
+			"evidence": "Updated experiments/lua_interpreter_vm/spongejit/ssa_asdl/spongejit_lua_ssa.asdl: removed RegionDescriptor executable field and old scaffold hook products; added complete architecture products for scoped proto/upvalue/closure identity, result routing/destinations/frame effects, coherent CallRef-based call products and sum CallTarget, metatable epochs/lookup paths, operation/companion model, loop topology, close/outcome causality, GC collectable/effects, FFI call/callback/ownership, static region/module identity, expanded CompileContract assumptions and Stencil patch sources. Ran luajit tests/test_spongejit_lua_compile_schema.lua; ASDL loaded but existing schema test now fails at stale field-order assertion, to be updated by later tasks.",
+			"notes": [
+				"This supersedes old Phase 4 planning. Architecture must be complete up front; implementation support remains fail-closed."
+			],
+			"createdAt": "2026-06-06T19:58:41.496Z",
+			"updatedAt": "2026-06-06T20:06:43.949Z"
+		},
+		{
+			"id": "T050",
+			"title": "Migrate constructors to new ASDL shapes",
+			"detail": "Update all Lua code/tests that construct changed ASDL nodes, especially RegionDescriptor, CallShape/CallTarget/ResolvedCallTarget/CallFrameState, ResultChannel/ArityNormalization, UpvalueRef, GC collectable objects, metatable assumptions, and stencil patch sources. This is a mechanical compatibility pass after T049, not behavior expansion.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/builders.lua",
+			"after": [
+				"T049"
+			],
+			"status": "done",
+			"order": 50,
+			"claimedBy": "agent-F3YBFE",
+			"evidence": "Migrated changed ASDL constructors in lua_compile code: lua_exec_region_model.lua now builds 5-field RegionDescriptor; lua_rt_arity_model.lua constructs new ResultChannel(id, route, destination, count), ResultBundle, and ArityNormalization(source, shape, result, effects); lua_src_to_lua_exec_lower.lua contract builder uses normalization.result.channel; lua_exec_to_moon_cfg_lower.lua avoids old ResultChannel.values and uses CallModel.call_target_callee for sum CallTarget. lua_rt_call_model.lua constructors/validators were updated to new CallRef-spined call products as part of compatibility. rg over lua_compile shows remaining changed-node constructors are only updated helpers. Existing tests still contain stale constructors and will be updated in later test tasks T061-T064.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:58:41.496Z",
+			"updatedAt": "2026-06-06T20:11:16.780Z"
+		},
+		{
+			"id": "T051",
+			"title": "Update arity and call models",
+			"detail": "Revise lua_rt_arity_model.lua and lua_rt_call_model.lua for the complete architecture: result routing separate from value carriers, frame effects represented structurally, all call products checked against one CallRef, direct/metamethod/FFI/C targets modeled without dummy fields, and executability kept as support-gate helpers only.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/lua_rt_call_model.lua",
+			"after": [
+				"T050"
+			],
+			"status": "done",
+			"order": 51,
+			"claimedBy": "agent-F3YBFE",
+			"evidence": "Updated experiments/lua_interpreter_vm/spongejit/lua_compile/lua_rt_arity_model.lua and lua_rt_call_model.lua for the complete architecture: result routing uses ResultRouteKind/ResultDestination/ResultBundle/FrameEffect, arity normalization validates result bundles and effects, calls validate new sum CallTarget forms and all CallFrameState components share one CallRef via validate_call_spine, direct calls no longer carry dummy metamethod fields, executable checks remain support gates for fixed-shape direct Lua-closure call-frame transfer. Ran luajit smoke requiring both models and validate_against_schema(), both passed.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:58:41.496Z",
+			"updatedAt": "2026-06-06T20:11:29.026Z"
+		},
+		{
+			"id": "T052",
+			"title": "Update table metatable arithmetic models",
+			"detail": "Extend object/metatable/arithmetic model validation for raw vs metamethod table paths, metatable epoch/lookup-path identity, __index/__newindex/__call hooks, full arithmetic/bitwise/unary/compare/concat/len operation shapes, and MMBIN/EXTRAARG companion context. Do not make unsupported paths executable.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/lua_rt_metatable_model.lua",
+			"after": [
+				"T050"
+			],
+			"status": "done",
+			"order": 52,
+			"claimedBy": "agent-F3YBFE",
+			"evidence": "Rewrote lua_rt_metatable_model.lua to validate complete metatable epoch, metamethod slot, lookup step/path/result, and MetamethodDispatch products. Added lua_rt_operation_model.lua for full LuaOperation/OperationOperand/CompanionContext validation across arithmetic/bitwise/unary/compare/concat/len operation shapes and MMBIN/MMBINI/MMBINK/EXTRAARG context, exported it from init.lua. Ran luajit smoke checks for metatable and operation validate_against_schema(), both passed. No unsupported metatable/arithmetic paths were made executable.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:58:41.496Z",
+			"updatedAt": "2026-06-06T20:12:46.682Z"
+		},
+		{
+			"id": "T053",
+			"title": "Update closure GC FFI loop close models",
+			"detail": "Update closure/upvalue, GC allocation, FFI/cdata, loop, and close models for complete product families: scoped upvalue identity/lifetime/epochs/barriers; GC proto/thread/upvalue collectables, allocation/root/barrier/finalizer controls; FFI ABI/call/callback/ownership; numeric/generic loop topology; close/TBC ordering and error/yield causality.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/lua_rt_closure_upvalue_model.lua",
+			"after": [
+				"T050"
+			],
+			"status": "done",
+			"order": 53,
+			"claimedBy": "agent-F3YBFE",
+			"evidence": "Updated closure/upvalue, GC, FFI/cdata, loop, and close models for complete product families. Rewrote lua_rt_close_model.lua for OutcomeCause/CloseAction/ClosePlan; lua_rt_gc_alloc_model.lua for GCEffect and proto/thread/upvalue collectables; lua_rt_closure_upvalue_model.lua for ProtoRef/UpvalueIdentity/ClosureIdentity; lua_rt_loop_model.lua for LoopTopology plus numeric/generic state validation; extended lua_rt_cdata_model.lua and lua_ffi_validate.lua for FFICallShape, FFICallbackEntry, and CDataOwnershipTransition. Ran luajit validate_against_schema smoke for close/gc/closure/loop/cdata models; all passed. No GC/FFI/loop/close execution was enabled.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:58:41.496Z",
+			"updatedAt": "2026-06-06T20:15:14.153Z"
+		},
+		{
+			"id": "T054",
+			"title": "Extend LuaRT GC FFI validators",
+			"detail": "Add structural validators for all new/changed LuaRT/LuaGC/LuaFFI products and relationship checks that are purely semantic well-formedness. Keep unsupported execution out of structural validation; malformed cross-product identities should fail with precise errors.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/lua_rt_validate.lua",
+			"after": [
+				"T051",
+				"T052",
+				"T053"
+			],
+			"status": "done",
+			"order": 54,
+			"claimedBy": "agent-F3YBFE",
+			"evidence": "Extended lua_rt_validate.lua with complete structural validator entry points: call_shape, result_bundle/frame_effect, metamethod_lookup_path/dispatch, lua_operation, upvalue_identity/closure_identity, loop_topology, close_plan/outcome_cause, gc_effect, ffi_call_shape/ffi_callback_entry, and cdata_ownership_transition. These delegate to the new complete-family model validators and only check semantic well-formedness, not execution support. Ran a luajit require smoke confirming new validator functions are exported.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:58:41.496Z",
+			"updatedAt": "2026-06-06T20:15:41.794Z"
+		},
+		{
+			"id": "T055",
+			"title": "Update LuaExec region and module validation",
+			"detail": "Revise lua_exec_region_model.lua and lua_exec_validate.lua for complete RegionDescriptor without executable flag, no scaffold terminology, full Module/static region binding/invocation/continuation identity, duplicate region checks, continuation resolution, and semantic-vs-supported-region distinction. Executability gates remain model/lowerer support predicates, not ASDL fields.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_validate.lua",
+			"after": [
+				"T049",
+				"T054"
+			],
+			"status": "done",
+			"order": 55,
+			"claimedBy": "agent-F3YBFE",
+			"evidence": "Updated lua_exec_region_model.lua and lua_exec_validate.lua for complete semantic region architecture: RegionDescriptor validation no longer expects executable; region model uses SUPPORTED_REGION_KIND_NOW / UNSUPPORTED_REGION_KIND_NOW support gates instead of scaffold-only semantic identity; descriptor builders emit 5-field descriptors; validate_against_schema covers StaticRegionBinding/StaticRegionInvocation/ModuleDescriptor and renamed complete exprs. LuaExec validation now recognizes MetamethodDispatchExpr, ClosePlanExpr, GCEffectExpr, StaticRegionBindingExpr, StaticRegionInvocationExpr, LuaOperationExpr; validates static bindings/invocations/call continuations, EmitRegion shape, duplicate continuation ids, Continue target resolution, duplicate module region/kernel ids, and new complete obligation/guarantee nodes. Ran luajit smoke for region model validate_against_schema and lua_exec_validate exports.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:58:41.496Z",
+			"updatedAt": "2026-06-06T20:18:52.627Z"
+		},
+		{
+			"id": "T056",
+			"title": "Update contracts and stencil identity",
+			"detail": "Extend compile_contract_validate.lua, compile_contract_key.lua, stencil_key.lua, stencil_validate.lua, stencil_materialize.lua as needed for complete typed assumptions/patch sources across calls, arity, static regions, metatables, upvalues, GC, FFI, loops, close/error/yield. Ensure structural keying and loud rejection of unsupported materialization sources; no semantic strings.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/compile_contract_validate.lua",
+			"after": [
+				"T049",
+				"T054"
+			],
+			"status": "done",
+			"order": 56,
+			"claimedBy": "agent-F3YBFE",
+			"evidence": "Updated compile_contract_validate.lua for complete typed semantic assumptions: removed RegionDescriptor.executable validation, changed AssumesNoMetamethod to require MetamethodLookupPath, replaced GCHook with GCEffect, and added validation cases for result routes/frame effects, closure/upvalue identity, static region/module/invocation/call continuation, LuaOperation/CompanionContext, loop topology, close plans/outcome causes, GC object/finalizer assumptions, FFI call/callback, and cdata ownership. Updated compile_contract_key.lua and stencil_key.lua comments to document structural ASDL identity for all complete semantic families and no stringly variants. Existing stencil materializer already rejects unsupported PatchSource constructors loudly via unsupported PatchSource diagnostics. Ran luajit smoke requiring compile_contract_validate/key and stencil_materialize.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:58:41.496Z",
+			"updatedAt": "2026-06-06T20:20:13.505Z"
+		},
+		{
+			"id": "T057",
+			"title": "Adapt LuaSrc lowering fail-closed route",
+			"detail": "Update current LuaSrc->LuaExec lowering for new ASDL constructors/contracts while preserving the existing supported opcode set. Remove phase/scaffold comments and diagnostics, replace with unsupported_semantic_region/unsupported_source_semantics wording, keep CALL/TAILCALL/SETLIST/TFOR*/metatable/GC/close unsupported unless truly executable.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/lua_src_to_lua_exec_lower.lua",
+			"after": [
+				"T050",
+				"T055",
+				"T056"
+			],
+			"status": "done",
+			"order": 57,
+			"claimedBy": "agent-F3YBFE",
+			"evidence": "Updated lua_src_to_lua_exec_lower.lua comments and fail-closed diagnostics for corrected architecture: removed phase/scaffold wording, current lowerer documents complete ASDL representation with current executable slice only; source CALL/TAILCALL/CLOSE/TBC/NEWTABLE/CLOSURE reject with lua_exec:unsupported_source_semantics:* diagnostics. RegionDescriptor/result-channel/arity constructor compatibility was already migrated in T050. SUPPORTED_INSTR was not broadened.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:58:41.496Z",
+			"updatedAt": "2026-06-06T20:21:04.604Z"
+		},
+		{
+			"id": "T058",
+			"title": "Adapt LuaExec to MoonCFG gates",
+			"detail": "Update lowering for renamed/new complete ASDL nodes, contract propagation, and support gates. Current executable slice must still lower; unsupported complete semantic products must reject cleanly at LuaExec->MoonCFG with typed diagnostics. Direct EmitRegion/MoonCFG dynamic region execution remains rejected unless already supported before this plan.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/lua_exec_to_moon_cfg_lower.lua",
+			"after": [
+				"T055",
+				"T056",
+				"T057"
+			],
+			"status": "done",
+			"order": 58,
+			"claimedBy": "agent-F3YBFE",
+			"evidence": "Updated lua_exec_to_moon_cfg_lower.lua for complete-product gates: renamed unsupported expression rejections from scaffold-only to unsupported_semantic_expr for MetamethodDispatchExpr, ClosePlanExpr, GCEffectExpr, static-region exprs, LuaOperationExpr, and RegionDescriptorExpr; direct EmitRegion now rejects with requires_typed_static_region_lowering; unsupported regions now diagnose lua_exec_to_moon_cfg:unsupported_semantic_region. Contract propagation now maps complete Exec obligations/guarantees for result routes, frame effects, static regions/invocations, call continuations, metatable paths, upvalue identity, GC effects, FFI calls, LuaOperation, loop topology, and close plans into typed CompileContract assumptions. Ran a luajit smoke compile of LOADI/RETURN1 through compile_to_moon_kernel; result Ok. No source opcode support was broadened.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:58:41.496Z",
+			"updatedAt": "2026-06-06T20:22:15.634Z"
+		},
+		{
+			"id": "T059",
+			"title": "Update MoonCFG validation and emission guardrails",
+			"detail": "Update moon_cfg_validate.lua and moon_cfg_emit.lua for any renamed/changed runtime nodes needed by the current slice. Keep forbidden lowercase semantic strings, helper/protocol tags, VM dispatch, MoonCFG.EmitRegion/Continue/Exit guardrails, and explicit unsupported complete-products rejection.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_validate.lua",
+			"after": [
+				"T058"
+			],
+			"status": "done",
+			"order": 59,
+			"claimedBy": "agent-F3YBFE",
+			"evidence": "Reviewed MoonCFG validation/emission guardrails for renamed/changed products. Current executable slice required no MoonCFG ASDL runtime-node changes beyond prior T058 compatibility; moon_cfg_validate.lua comment now clarifies complete typed semantic constructors are allowed structurally while lowercase semantic strings remain forbidden and LuaExec static invocation must be typed/inlined before MoonCFG. MoonCFG.EmitRegion, Continue, and Exit remain unsupported; moon_cfg_emit.lua still has no EmitRegion rendering or helper/VM dispatch path. T058 LOADI/RETURN1 smoke compile exercised MoonCFG validation path successfully.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:58:41.496Z",
+			"updatedAt": "2026-06-06T20:22:34.450Z"
+		},
+		{
+			"id": "T060",
+			"title": "Update foundry and public compile identity",
+			"detail": "Adjust public compile route, foundry representative/key generation, planned-file lists, and corpus reporting to the new structural contract/stencil identity. Do not increase corpus success by fallback; unsupported source features remain UnsupportedSemanticCase/Rejection.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/lua_compile_to_moon_kernel.lua",
+			"after": [
+				"T057",
+				"T058",
+				"T056"
+			],
+			"status": "done",
+			"order": 60,
+			"claimedBy": "agent-F3YBFE",
+			"evidence": "Reviewed public compile route/foundry identity touchpoints after complete-architecture changes. lua_compile_to_moon_kernel.lua remains correct: accepted route is still LuaSrc.Window -> LuaExec.Kernel -> MoonCFG.Kernel, outcome-mode detection already uses typed arity/result nodes, and unsupported lowerer diagnostics still produce Reject/UnsupportedSemanticCase with no fallback. rg over lua_compile_to_moon_kernel.lua, lua_compile_foundry.lua, pipeline planned-file test, and Makefile found no stale scaffold/phase/old constructor references. No corpus success expectations or source opcode acceptance were changed.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:58:41.496Z",
+			"updatedAt": "2026-06-06T20:22:54.475Z"
+		},
+		{
+			"id": "T061",
+			"title": "Add complete schema coverage tests",
+			"detail": "Update schema tests for complete ASDL family presence and changed field orders. Assert RegionDescriptor has no executable field, no scaffold/phase constructors remain, call/result/upvalue/metatable/GC/FFI/static-region products exist, and model validate_against_schema functions cover all complete families.",
+			"file": "experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_schema.lua",
+			"after": [
+				"T054",
+				"T055",
+				"T056"
+			],
+			"status": "done",
+			"order": 61,
+			"claimedBy": "agent-F3YBFE",
+			"evidence": "Rewrote experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_schema.lua for complete architecture coverage: asserts changed field orders including ResultChannel(id,kind,destination,count), ArityNormalization(source,shape,result,effects), CallShape call spine, RegionDescriptor without executable; checks removed old ResultChannelKind/CallTargetKind/GCHook/CloseHook/MetamethodCallHook support-status products; asserts complete LuaRT/LuaGC/LuaFFI/LuaExec/CompileContract/Stencil product families and model validate_against_schema coverage including new lua_rt_operation_model. Added structural smoke for new arity/call/region products. Ran luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_schema.lua successfully.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:58:41.496Z",
+			"updatedAt": "2026-06-06T20:24:24.910Z"
+		},
+		{
+			"id": "T062",
+			"title": "Add structural full-semantics tests",
+			"detail": "Create tests constructing well-formed but mostly non-executable complete products: metamethod table access, closure/upvalue lifetime, generic-for iterator call, close-on-error/yield, GC allocation/finalizer, FFI ABI call/callback, static region invocation. Validate structurally and assert relationship invariants catch mismatched CallRef/epochs/descriptors.",
+			"file": "experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_full_semantics_products.lua",
+			"after": [
+				"T054",
+				"T055",
+				"T056",
+				"T061"
+			],
+			"status": "done",
+			"order": 62,
+			"claimedBy": "agent-F3YBFE",
+			"evidence": "Added experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_full_semantics_products.lua. The test constructs and structurally validates complete but mostly non-executable semantic products: metatable epoch/lookup path and metamethod dispatch, closure/upvalue identity, generic-for topology, close-on-error plan, GC allocation effect plus proto collectable, FFI call/callback/cdata ownership, static region invocation, and a CompileContract with typed assumptions. It also asserts CallRef relationship invariants catch mismatched call-frame products. Ran the new test successfully with luajit.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:58:41.496Z",
+			"updatedAt": "2026-06-06T20:25:29.581Z"
+		},
+		{
+			"id": "T063",
+			"title": "Add executability gate tests",
+			"detail": "Create/extend tests proving unsupported complete products reject in LuaExec->MoonCFG/source compile without fake success: source CALL/TAILCALL, metatable-present table paths, closures/upvalues, loops, close/TBC, GC allocation, FFI/cdata calls, static invocation if not implemented. Assert diagnostics are typed and no helper/protocol strings appear.",
+			"file": "experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_semantic_gates.lua",
+			"after": [
+				"T058",
+				"T059",
+				"T062"
+			],
+			"status": "done",
+			"order": 63,
+			"claimedBy": "agent-F3YBFE",
+			"evidence": "Added experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_semantic_gates.lua. It verifies source CALL/TAILCALL and other unsupported source op families reject, unsupported complete semantic regions (metatable, closure/upvalue, loops, close, GC, FFI) reject in LuaExec->MoonCFG, unsupported complete-product expressions (MetamethodDispatchExpr, ClosePlanExpr, GCEffectExpr, StaticRegionInvocationExpr) and direct EmitRegion reject with typed diagnostics, and a successful current LOADI/RETURN1 compile emits no forbidden helper/protocol strings. Ran the new test successfully with luajit.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:58:41.496Z",
+			"updatedAt": "2026-06-06T20:26:25.098Z"
+		},
+		{
+			"id": "T064",
+			"title": "Update current slice regression tests",
+			"detail": "Update existing arity/call/static-region/moon_cfg/object/arithmetic/stack tests for ASDL constructor changes while proving current supported operations still compile/run: loads, returns, ADD/ADDI/ADDK, comparisons, raw GETTABLE/SETTABLE, LEN/CONCAT slice, VARARG/GETVARG, ERRNNIL. Keep coverage summary honest.",
+			"file": "experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_exec_pipeline.lua",
+			"after": [
+				"T057",
+				"T058",
+				"T059"
+			],
+			"status": "done",
+			"order": 64,
+			"claimedBy": "agent-F3YBFE",
+			"evidence": "Updated current-slice regression tests for new ASDL shapes: test_lua_rt_call.lua uses DirectLuaClosureTarget, CallRef-spined ResolvedCallTarget/CallFrameState, and ArityModel result channels; test_static_regions.lua uses unsupported_semantic_region/unsupported_source_semantics diagnostics and new call constructors; test_moon_cfg.lua uses 5-field RegionDescriptor, ArityModel result channels, UnknownCallTarget sum constructor, and new diagnostics; test_gc.lua uses ProtoRef/UpvalueIdentity/LClosure new upvalue shapes; test_lua_rt_exec.lua uses MetamethodLookupPath and new CallShape. Updated pipeline planned file list for lua_rt_operation_model.lua and avoided literal forbidden strings in semantic_gates. Ran cd experiments/lua_interpreter_vm/spongejit && make test successfully, covering current supported operations and guardrails.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:58:41.496Z",
+			"updatedAt": "2026-06-06T20:30:55.180Z"
+		},
+		{
+			"id": "T065",
+			"title": "Update documentation and fixture manifests",
+			"detail": "Update planned-file lists, schema expectations, generated representative expectations only as required by structural identity changes. Remove phase/scaffold wording from comments where it asserts architecture, but keep implementation-support comments in lowerers as fail-closed gates.",
+			"file": "experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_pipeline.lua",
+			"after": [
+				"T060",
+				"T061",
+				"T064"
+			],
+			"status": "done",
+			"order": 65,
+			"claimedBy": "agent-F3YBFE",
+			"evidence": "Updated documentation/fixture manifest surfaces: test_spongejit_lua_compile_pipeline.lua planned-file list now includes lua_rt_operation_model.lua; schema expectations were rewritten in T061; stale phase/scaffold wording in LuaCompile tests was removed/reworded (lua_rt_stack and gc tests). rg over lua_compile and test_spongejit_lua_compile_*.lua shows no remaining scaffold or Phase N implementation-architecture wording. make test was already run successfully after manifest update in T064.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:58:41.496Z",
+			"updatedAt": "2026-06-06T20:31:30.324Z"
+		},
+		{
+			"id": "T066",
+			"title": "Run complete architecture verification",
+			"detail": "Run targeted new tests, existing SpongeJIT make test, make test-completion, and optional corpus100. Record that architecture/product coverage changed but source opcode acceptance should not broaden except for already executable current slice.",
+			"file": "experiments/lua_interpreter_vm/spongejit/Makefile",
+			"after": [
+				"T061",
+				"T062",
+				"T063",
+				"T064",
+				"T065"
+			],
+			"status": "done",
+			"order": 66,
+			"claimedBy": "agent-F3YBFE",
+			"evidence": "Ran complete architecture verification. Targeted tests passed: schema, full_semantics_products, semantic_gates, lua_rt_arity, lua_rt_call, static_regions, lua_exec_pipeline, moon_cfg. Full gates passed: cd experiments/lua_interpreter_vm/spongejit && make test; make test-completion; optional make test-lua-compile-corpus100. Corpus remained fail-closed with foundry reporting 37 ok / 104 rejected from 141 compiles, test reporting 31 successful windows and 28 reps checked. Source opcode acceptance was not broadened.",
+			"notes": [],
+			"createdAt": "2026-06-06T19:58:41.496Z",
+			"updatedAt": "2026-06-06T20:32:31.530Z"
+		}
+	]
+}

@@ -6,13 +6,14 @@
 local pvm = require("moonlift.pvm")
 local B = require("lua_compile.builders")
 local T = B.T
-local CFG = T.MoonCFG
+local CFG, RT = T.MoonCFG, T.LuaRT
 local Validate = require("lua_compile.moon_cfg_validate")
 local ValueModel = require("lua_compile.lua_rt_value_model")
 local OutcomeModel = require("lua_compile.lua_rt_outcome_model")
 local StackModel = require("lua_compile.lua_rt_stack_model")
 local ObjectModel = require("lua_compile.lua_rt_object_model")
 local CDataModel = require("lua_compile.lua_rt_cdata_model")
+local CallModel = require("lua_compile.lua_rt_call_model")
 
 local M = {}
 
@@ -594,10 +595,39 @@ local function seq_field(seq_expr, index)
   return (tonumber(index) or 0) == 1 and seq_expr .. ".value1" or seq_expr .. ".value0"
 end
 
+local function seq_value_at_dynamic(seq_expr, index_expr)
+  local block = fresh_block_name("rt_seq_value_at")
+  return table.concat({
+    "block " .. block .. "() -> " .. ValueModel.TYPE_NAME,
+    "    if " .. index_expr .. " >= " .. seq_expr .. ".count then yield " .. render_nil_value() .. " end",
+    "    if " .. index_expr .. " == " .. i64_lit(0) .. " then yield " .. seq_expr .. ".value0 end",
+    "    if " .. index_expr .. " == " .. i64_lit(1) .. " then yield " .. seq_expr .. ".value1 end",
+    "    if " .. ptr_not_null(seq_expr .. ".buffer", ValueModel.TYPE_NAME) .. " then",
+    "        yield " .. seq_expr .. ".buffer[as(index, " .. seq_expr .. ".base + " .. index_expr .. ")]",
+    "    end",
+    "    yield " .. render_nil_value(),
+    "end",
+  }, "\n")
+end
+
 local function seq_value_at(seq_expr, index)
   index = tonumber(index) or 0
-  if index == 0 or index == 1 then return seq_field(seq_expr, index) end
-  return seq_expr .. ".buffer[as(index, " .. seq_expr .. ".base + " .. i64_lit(index) .. ")]"
+  if index == 0 then return "select(" .. seq_expr .. ".count >= " .. i64_lit(1) .. ", " .. seq_expr .. ".value0, " .. render_nil_value() .. ")" end
+  if index == 1 then return "select(" .. seq_expr .. ".count >= " .. i64_lit(2) .. ", " .. seq_expr .. ".value1, " .. render_nil_value() .. ")" end
+  return seq_value_at_dynamic(seq_expr, i64_lit(index))
+end
+
+local function buffer_value_at(buffer_expr, base_expr, count_expr, index)
+  index = tonumber(index) or 0
+  local idx = i64_lit(index)
+  local block = fresh_block_name("rt_buffer_value_at")
+  return table.concat({
+    "block " .. block .. "() -> " .. ValueModel.TYPE_NAME,
+    "    if " .. idx .. " >= " .. count_expr .. " then yield " .. render_nil_value() .. " end",
+    "    if not " .. ptr_not_null(buffer_expr, ValueModel.TYPE_NAME) .. " then yield " .. render_nil_value() .. " end",
+    "    yield " .. buffer_expr .. "[as(index, " .. base_expr .. " + " .. idx .. ")]",
+    "end",
+  }, "\n")
 end
 
 local function render_seq(kind_name, count, value0, value1, buffer, base)
@@ -615,9 +645,41 @@ local function render_outcome_value(values, idx)
   return render_nil_value()
 end
 
+local function lua_count_value(count)
+  if type(count) == "number" then return tonumber(count) or 0 end
+  return tonumber(count and (count.value or count.count or count.n) or 0) or 0
+end
+
+local function slot_index(slot)
+  return tonumber(slot and slot.index or 0) or 0
+end
+
+local function fixed_count_spec_value(count_spec)
+  return lua_count_value(count_spec and count_spec.count)
+end
+
+local function adjustment_target_count(adjustment)
+  local ak = adjustment and adjustment.kind
+  if ak == "ExactCount" or ak == "FillNilTo" or ak == "TruncateTo" then return lua_count_value(adjustment.count) end
+  return nil
+end
+
 local function render_outcome_index(outcome_expr, index, field)
-  local value_field = (tonumber(index) or 0) == 1 and "value1" or "value0"
-  return outcome_expr .. "." .. value_field .. "." .. field
+  index = tonumber(index) or 0
+  local idx = i64_lit(index)
+  local block = fresh_block_name("rt_outcome_value_at")
+  local value_expr = outcome_expr .. ".value0"
+  if index == 1 then value_expr = outcome_expr .. ".value1"
+  elseif index >= 2 then value_expr = outcome_expr .. ".value_buffer[as(index, " .. outcome_expr .. ".value_base + " .. idx .. ")]" end
+  local fallback = field == "payload_f64" and f64_lit(0) or (field == "tag" and tag_lit("NilTag") or i64_lit(0))
+  local lines = {
+    "block " .. block .. "() -> " .. (field == "payload_f64" and "f64" or "i64"),
+    "    if " .. idx .. " >= " .. outcome_expr .. ".count then yield " .. fallback .. " end",
+  }
+  if index >= 2 then lines[#lines + 1] = "    if not " .. ptr_not_null(outcome_expr .. ".value_buffer", ValueModel.TYPE_NAME) .. " then yield " .. fallback .. " end" end
+  lines[#lines + 1] = "    yield " .. value_expr .. "." .. field
+  lines[#lines + 1] = "end"
+  return table.concat(lines, "\n")
 end
 
 local function render_expr(e)
@@ -649,7 +711,8 @@ local function render_expr(e)
         .. ", count = " .. render_value(e.count)
         .. ", value0 = " .. render_outcome_value(e.values, 1)
         .. ", value1 = " .. render_outcome_value(e.values, 2)
-        .. ", value_buffer = " .. render_value(e.value_buffer)
+        .. ", value_buffer = " .. lua_value_ptr_null()
+        .. ", value_base = " .. i64_lit(0)
         .. ", error_kind = " .. i64_lit(0)
         .. ", error_value = " .. render_nil_value()
         .. ", saved_pc = " .. i64_lit(0)
@@ -660,7 +723,8 @@ local function render_expr(e)
         .. ", count = " .. i64_lit(0)
         .. ", value0 = " .. render_nil_value()
         .. ", value1 = " .. render_nil_value()
-        .. ", value_buffer = " .. i64_lit(0)
+        .. ", value_buffer = " .. lua_value_ptr_null()
+        .. ", value_base = " .. i64_lit(0)
         .. ", error_kind = " .. error_kind_lit(e.kind)
         .. ", error_value = " .. render_value(e.error_value)
         .. ", saved_pc = " .. render_value(e.saved_pc)
@@ -671,7 +735,34 @@ local function render_expr(e)
         .. ", count = " .. render_value(e.count)
         .. ", value0 = " .. render_outcome_value(e.values, 1)
         .. ", value1 = " .. render_outcome_value(e.values, 2)
-        .. ", value_buffer = " .. i64_lit(0)
+        .. ", value_buffer = " .. lua_value_ptr_null()
+        .. ", value_base = " .. i64_lit(0)
+        .. ", error_kind = " .. i64_lit(0)
+        .. ", error_value = " .. render_nil_value()
+        .. ", saved_pc = " .. render_value(e.saved_pc)
+        .. ", saved_top = " .. render_value(e.saved_top)
+        .. ", yield_kind = " .. yield_kind_lit(e.resume_point) .. " }"
+  elseif cls == CFG.RuntimeOutcomeReturnSeq then
+    local seq = render_value(e.seq)
+    return OutcomeModel.TYPE_NAME .. "{ kind = " .. outcome_kind_lit("NormalReturnOutcome")
+        .. ", count = " .. seq .. ".count"
+        .. ", value0 = " .. seq_value_at(seq, 0)
+        .. ", value1 = " .. seq_value_at(seq, 1)
+        .. ", value_buffer = " .. seq .. ".buffer"
+        .. ", value_base = " .. seq .. ".base"
+        .. ", error_kind = " .. i64_lit(0)
+        .. ", error_value = " .. render_nil_value()
+        .. ", saved_pc = " .. i64_lit(0)
+        .. ", saved_top = " .. i64_lit(0)
+        .. ", yield_kind = " .. i64_lit(0) .. " }"
+  elseif cls == CFG.RuntimeOutcomeYieldSeq then
+    local seq = render_value(e.seq)
+    return OutcomeModel.TYPE_NAME .. "{ kind = " .. outcome_kind_lit("LuaYieldOutcome")
+        .. ", count = " .. seq .. ".count"
+        .. ", value0 = " .. seq_value_at(seq, 0)
+        .. ", value1 = " .. seq_value_at(seq, 1)
+        .. ", value_buffer = " .. seq .. ".buffer"
+        .. ", value_base = " .. seq .. ".base"
         .. ", error_kind = " .. i64_lit(0)
         .. ", error_value = " .. render_nil_value()
         .. ", saved_pc = " .. render_value(e.saved_pc)
@@ -685,26 +776,70 @@ local function render_expr(e)
   elseif cls == CFG.RuntimeValueSeqFromStack then
     local stack, base, count = render_value(e.stack), render_value(e.base), render_value(e.count)
     return render_seq("OpenSeq", count,
-      stack .. "[as(index, " .. base .. ")]",
-      stack .. "[as(index, " .. base .. " + " .. i64_lit(1) .. ")]",
+      buffer_value_at(stack, base, count, 0),
+      buffer_value_at(stack, base, count, 1),
       stack, base)
   elseif cls == CFG.RuntimeValueSeqFromVarargs then
     local src, count = render_value(e.varargs), render_value(e.count)
     return render_seq("VarargSeq", count,
-      src .. ".values[as(index, 0)]",
-      src .. ".values[as(index, 1)]",
+      buffer_value_at(src .. ".values", i64_lit(0), count, 0),
+      buffer_value_at(src .. ".values", i64_lit(0), count, 1),
       src .. ".values", i64_lit(0))
   elseif cls == CFG.RuntimeValueSeqAdjust then
     local seq = render_value(e.seq)
     local ak = e.adjustment and e.adjustment.kind
     local count = seq .. ".count"
-    if ak == "ExactCount" or ak == "FillNilTo" or ak == "TruncateTo" then count = i64_lit(e.adjustment.count and e.adjustment.count.value or e.adjustment.count and e.adjustment.count.count or 0) end
+    local target = adjustment_target_count(e.adjustment)
+    if target ~= nil then count = i64_lit(target) end
     if ak ~= "ExactCount" and ak ~= "FillNilTo" and ak ~= "TruncateTo" and ak ~= "OpenResult" and ak ~= "PropagateOpenTail" then error("unsupported LuaRT.ResultAdjustment reached emission: " .. tostring(ak)) end
-    local v0 = ak == "FillNilTo" and "select(" .. seq .. ".count >= " .. i64_lit(1) .. ", " .. seq .. ".value0, " .. render_nil_value() .. ")" or seq .. ".value0"
-    local v1 = ak == "FillNilTo" and "select(" .. seq .. ".count >= " .. i64_lit(2) .. ", " .. seq .. ".value1, " .. render_nil_value() .. ")" or seq .. ".value1"
-    return render_seq("AdjustedSeq", count, v0, v1, seq .. ".buffer", seq .. ".base")
+    return render_seq("AdjustedSeq", count, seq_value_at(seq, 0), seq_value_at(seq, 1), seq .. ".buffer", seq .. ".base")
+  elseif cls == CFG.RuntimeValueSeqNormalize then
+    local seq = render_value(e.seq)
+    local ak = e.shape and e.shape.adjustment and e.shape.adjustment.kind
+    local count = seq .. ".count"
+    local target = adjustment_target_count(e.shape and e.shape.adjustment)
+    if target ~= nil then count = i64_lit(target) end
+    if ak ~= "ExactCount" and ak ~= "FillNilTo" and ak ~= "TruncateTo" and ak ~= "OpenResult" and ak ~= "PropagateOpenTail" then error("unsupported LuaRT.ArityNormalization reached emission: " .. tostring(ak)) end
+    return render_seq("AdjustedSeq", count, seq_value_at(seq, 0), seq_value_at(seq, 1), seq .. ".buffer", seq .. ".base")
   elseif cls == CFG.RuntimeValueSeqCount then return render_value(e.seq) .. ".count"
   elseif cls == CFG.RuntimeValueSeqValue then return seq_value_at(render_value(e.seq), e.index)
+  elseif cls == CFG.RuntimeValueSeqBuffer then return render_value(e.seq) .. ".buffer"
+  elseif cls == CFG.RuntimeValueSeqBase then return render_value(e.seq) .. ".base"
+  elseif cls == CFG.RuntimeClassifyCallee then
+    local callee = render_value(e.callee)
+    local block = fresh_block_name("rt_callee_kind")
+    return table.concat({
+      "block " .. block .. "() -> i64",
+      "    if " .. callee .. ".tag == " .. tag_lit("LuaClosureTag") .. " then yield " .. i64_lit(1) .. " end",
+      "    if " .. callee .. ".tag == " .. tag_lit("CClosureTag") .. " then yield " .. i64_lit(2) .. " end",
+      "    if " .. callee .. ".tag == " .. tag_lit("LightCFunctionTag") .. " then yield " .. i64_lit(3) .. " end",
+      "    yield " .. i64_lit(0),
+      "end",
+    }, "\n")
+  elseif cls == CFG.RuntimeCallTargetCheck then
+    local callee = render_value(e.callee)
+    local identity = e.target and e.target.identity
+    if class(identity) == RT.LuaClosureTargetIdentity then
+      return par(render_tag_compare(callee, "LuaClosureTag") .. " and " .. callee .. ".payload_i64 == " .. i64_lit(identity.closure_handle))
+    end
+    return "false"
+  elseif cls == CFG.RuntimeCallFramePrepare then
+    local args = render_value(e.args)
+    return CallModel.FRAME_TYPE_NAME .. "{ caller_stack = " .. render_value(e.caller_stack)
+        .. ", callee_stack = " .. render_value(e.callee_stack)
+        .. ", arg_base = " .. i64_lit(slot_index(e.layout and e.layout.arg_base))
+        .. ", arg_count = " .. i64_lit(fixed_count_spec_value(e.layout and e.layout.arg_count))
+        .. ", result_base = " .. i64_lit(slot_index(e.layout and e.layout.result_base))
+        .. ", result_count = " .. i64_lit(fixed_count_spec_value(e.layout and e.layout.result_count))
+        .. ", target_ok = " .. par(args .. ".count >= " .. i64_lit(0)) .. " }"
+  elseif cls == CFG.RuntimeCallFrameResultSeq then
+    local stack = render_value(e.callee_stack)
+    local base = i64_lit(slot_index(e.layout and e.layout.result_base))
+    local count = i64_lit(fixed_count_spec_value(e.layout and e.layout.result_count))
+    return render_seq("CallResultSeq", count,
+      buffer_value_at(stack, base, count, 0),
+      buffer_value_at(stack, base, count, 1),
+      stack, base)
   elseif cls == CFG.RuntimeVarargSource then
     return StackModel.VARARG_TYPE_NAME .. "{ kind = " .. vararg_kind_lit("HiddenFrameVarargs")
         .. ", values = " .. render_value(e.values)
@@ -835,11 +970,13 @@ local function infer_expr_type(e)
     if k == "Eq" or k == "Lt" or k == "Le" or k == "Not" or k == "Truthy" then return "bool" end
     return "i64"
   elseif cls == CFG.RuntimeBoxNil or cls == CFG.RuntimeBoxBool or cls == CFG.RuntimeBoxI64 or cls == CFG.RuntimeBoxF64 or cls == CFG.RuntimeBoxRef or cls == CFG.RuntimeStackLoad or cls == CFG.RuntimeVarargGet or cls == CFG.RuntimeValueSeqValue or cls == CFG.RuntimeRawGetValue or cls == CFG.RuntimeRawGetValueOrNil or cls == CFG.RuntimeStringConcat2 or cls == CFG.RuntimeArithmeticNoMeta or cls == CFG.RuntimeArithmeticErrorValue then return ValueModel.TYPE_NAME
-  elseif cls == CFG.RuntimeOutcomeReturn or cls == CFG.RuntimeOutcomeError or cls == CFG.RuntimeOutcomeYield then return OutcomeModel.TYPE_NAME
-  elseif cls == CFG.RuntimeValueSeqFixed or cls == CFG.RuntimeValueSeqFromStack or cls == CFG.RuntimeValueSeqFromVarargs or cls == CFG.RuntimeValueSeqAdjust then return StackModel.SEQ_TYPE_NAME
+  elseif cls == CFG.RuntimeOutcomeReturn or cls == CFG.RuntimeOutcomeReturnSeq or cls == CFG.RuntimeOutcomeError or cls == CFG.RuntimeOutcomeYield or cls == CFG.RuntimeOutcomeYieldSeq then return OutcomeModel.TYPE_NAME
+  elseif cls == CFG.RuntimeValueSeqFixed or cls == CFG.RuntimeValueSeqFromStack or cls == CFG.RuntimeValueSeqFromVarargs or cls == CFG.RuntimeValueSeqAdjust or cls == CFG.RuntimeValueSeqNormalize or cls == CFG.RuntimeCallFrameResultSeq then return StackModel.SEQ_TYPE_NAME
+  elseif cls == CFG.RuntimeCallFramePrepare then return CallModel.FRAME_TYPE_NAME
   elseif cls == CFG.RuntimeTableRawGet then return ObjectModel.RAW_GET_TYPE_NAME
   elseif cls == CFG.RuntimeVarargSource then return StackModel.VARARG_TYPE_NAME
-  elseif cls == CFG.RuntimeTag or cls == CFG.RuntimePayloadI64 or cls == CFG.RuntimeTopLoad or cls == CFG.RuntimeOpenCountFromTop or cls == CFG.RuntimeValueSeqCount or cls == CFG.RuntimeVarargCount
+  elseif cls == CFG.RuntimeValueSeqBuffer then return "ptr(" .. ValueModel.TYPE_NAME .. ")"
+  elseif cls == CFG.RuntimeTag or cls == CFG.RuntimePayloadI64 or cls == CFG.RuntimeTopLoad or cls == CFG.RuntimeOpenCountFromTop or cls == CFG.RuntimeValueSeqCount or cls == CFG.RuntimeValueSeqBase or cls == CFG.RuntimeVarargCount or cls == CFG.RuntimeClassifyCallee
       or cls == CFG.RuntimeTableArrayLen or cls == CFG.RuntimeStringLen or cls == CFG.RuntimeLenNoMeta
       or cls == CFG.RuntimeOutcomeKind or cls == CFG.RuntimeOutcomeCount
       or cls == CFG.RuntimeOutcomeValueTag or cls == CFG.RuntimeOutcomeValuePayloadI64
@@ -847,7 +984,7 @@ local function infer_expr_type(e)
       or cls == CFG.RuntimeOutcomeErrorValuePayloadI64 or cls == CFG.RuntimeOutcomeSavedPc
       or cls == CFG.RuntimeOutcomeYieldKind then return "i64"
   elseif cls == CFG.RuntimePayloadF64 or cls == CFG.RuntimeOutcomeValuePayloadF64 then return "f64"
-  elseif cls == CFG.RuntimeTruthiness or cls == CFG.RuntimeTypeTest or cls == CFG.RuntimeRawGetHit or cls == CFG.RuntimeTableRawSetCanWrite or cls == CFG.RuntimeTableWriteBarrierNeeded or cls == CFG.RuntimeLenNoMetaOk or cls == CFG.RuntimeArithmeticNumericOk then return "bool"
+  elseif cls == CFG.RuntimeTruthiness or cls == CFG.RuntimeTypeTest or cls == CFG.RuntimeRawGetHit or cls == CFG.RuntimeTableRawSetCanWrite or cls == CFG.RuntimeTableWriteBarrierNeeded or cls == CFG.RuntimeLenNoMetaOk or cls == CFG.RuntimeArithmeticNumericOk or cls == CFG.RuntimeCallTargetCheck then return "bool"
   elseif cls == CFG.ValueExpr then
     local v = e.value
     if class(v) == CFG.ConstValue then
@@ -856,6 +993,112 @@ local function infer_expr_type(e)
     end
   elseif cls == CFG.Convert then return render_type(e.type) end
   return "i64"
+end
+
+local function append_assign_seq_value(lines, indent, dst, seq, idx)
+  lines[#lines + 1] = indent .. dst .. " = " .. render_nil_value()
+  lines[#lines + 1] = indent .. "if " .. idx .. " < " .. seq .. ".count then"
+  lines[#lines + 1] = indent .. "    if " .. idx .. " == " .. i64_lit(0) .. " then " .. dst .. " = " .. seq .. ".value0 end"
+  lines[#lines + 1] = indent .. "    if " .. idx .. " == " .. i64_lit(1) .. " then " .. dst .. " = " .. seq .. ".value1 end"
+  lines[#lines + 1] = indent .. "    if " .. idx .. " >= " .. i64_lit(2) .. " then"
+  lines[#lines + 1] = indent .. "        if " .. ptr_not_null(seq .. ".buffer", ValueModel.TYPE_NAME) .. " then " .. dst .. " = " .. seq .. ".buffer[as(index, " .. seq .. ".base + " .. idx .. ")] end"
+  lines[#lines + 1] = indent .. "    end"
+  lines[#lines + 1] = indent .. "end"
+end
+
+local function append_assign_buffer_value(lines, indent, dst, buffer, base, count, idx)
+  lines[#lines + 1] = indent .. dst .. " = " .. render_nil_value()
+  lines[#lines + 1] = indent .. "if " .. idx .. " < " .. count .. " then"
+  lines[#lines + 1] = indent .. "    if " .. ptr_not_null(buffer, ValueModel.TYPE_NAME) .. " then " .. dst .. " = " .. buffer .. "[as(index, " .. base .. " + " .. idx .. ")] end"
+  lines[#lines + 1] = indent .. "end"
+end
+
+local function render_seq_value_let(dst, e, indent)
+  local seq = render_value(e.seq)
+  local lines = { indent .. "var " .. dst .. ": " .. ValueModel.TYPE_NAME .. " = " .. render_nil_value() }
+  append_assign_seq_value(lines, indent, dst, seq, i64_lit(e.index or 0))
+  return table.concat(lines, "\n")
+end
+
+local function render_seq_let(dst, e, indent)
+  local cls = class(e)
+  local kind_name, count, v0, v1, buffer, base
+  local pre_lines = {}
+  if cls == CFG.RuntimeValueSeqFromStack then
+    local stack = render_value(e.stack)
+    local bname = dst .. "_buffer"
+    pre_lines[#pre_lines + 1] = indent .. "let " .. bname .. ": ptr(" .. ValueModel.TYPE_NAME .. ") = " .. stack
+    base = render_value(e.base)
+    count = render_value(e.count)
+    kind_name = "OpenSeq"
+    buffer = bname
+    v0 = buffer_value_at(buffer, base, count, 0)
+    v1 = buffer_value_at(buffer, base, count, 1)
+  elseif cls == CFG.RuntimeValueSeqFromVarargs then
+    local src = render_value(e.varargs)
+    local bname = dst .. "_buffer"
+    pre_lines[#pre_lines + 1] = indent .. "let " .. bname .. ": ptr(" .. ValueModel.TYPE_NAME .. ") = " .. src .. ".values"
+    count = render_value(e.count)
+    kind_name = "VarargSeq"
+    buffer = bname
+    base = i64_lit(0)
+    v0 = buffer_value_at(buffer, base, count, 0)
+    v1 = buffer_value_at(buffer, base, count, 1)
+  elseif cls == CFG.RuntimeCallFrameResultSeq then
+    local stack = render_value(e.callee_stack)
+    local bname = dst .. "_buffer"
+    pre_lines[#pre_lines + 1] = indent .. "let " .. bname .. ": ptr(" .. ValueModel.TYPE_NAME .. ") = " .. stack
+    base = i64_lit(slot_index(e.layout and e.layout.result_base))
+    count = i64_lit(fixed_count_spec_value(e.layout and e.layout.result_count))
+    kind_name = "CallResultSeq"
+    buffer = bname
+    v0 = buffer_value_at(buffer, base, count, 0)
+    v1 = buffer_value_at(buffer, base, count, 1)
+  elseif cls == CFG.RuntimeValueSeqAdjust or cls == CFG.RuntimeValueSeqNormalize then
+    local seq = render_value(e.seq)
+    local adjustment = cls == CFG.RuntimeValueSeqNormalize and e.shape and e.shape.adjustment or e.adjustment
+    local ak = adjustment and adjustment.kind
+    count = seq .. ".count"
+    local target = adjustment_target_count(adjustment)
+    if target ~= nil then count = i64_lit(target) end
+    if ak ~= "ExactCount" and ak ~= "FillNilTo" and ak ~= "TruncateTo" and ak ~= "OpenResult" and ak ~= "PropagateOpenTail" then error("unsupported LuaRT arity adjustment reached emission: " .. tostring(ak)) end
+    kind_name = "AdjustedSeq"
+    buffer = seq .. ".buffer"
+    base = seq .. ".base"
+    v0 = seq_value_at(seq, 0)
+    v1 = seq_value_at(seq, 1)
+  else
+    return nil
+  end
+  local lines = pre_lines
+  lines[#lines + 1] = indent .. "var " .. dst .. ": " .. StackModel.SEQ_TYPE_NAME .. " = " .. render_seq(kind_name, count, nil, nil, buffer, base)
+  if cls == CFG.RuntimeValueSeqFromStack or cls == CFG.RuntimeValueSeqFromVarargs or cls == CFG.RuntimeCallFrameResultSeq then
+    append_assign_buffer_value(lines, indent, dst .. ".value0", buffer, base, count, i64_lit(0))
+    append_assign_buffer_value(lines, indent, dst .. ".value1", buffer, base, count, i64_lit(1))
+  else
+    append_assign_seq_value(lines, indent, dst .. ".value0", render_value(e.seq), i64_lit(0))
+    append_assign_seq_value(lines, indent, dst .. ".value1", render_value(e.seq), i64_lit(1))
+  end
+  return table.concat(lines, "\n")
+end
+
+local function render_outcome_seq_let(dst, e, indent)
+  local seq = render_value(e.seq)
+  local kind_name = class(e) == CFG.RuntimeOutcomeYieldSeq and "LuaYieldOutcome" or "NormalReturnOutcome"
+  local lines = { indent .. "var " .. dst .. ": " .. OutcomeModel.TYPE_NAME .. " = " .. OutcomeModel.TYPE_NAME .. "{ kind = " .. outcome_kind_lit(kind_name)
+      .. ", count = " .. seq .. ".count"
+      .. ", value0 = " .. render_nil_value()
+      .. ", value1 = " .. render_nil_value()
+      .. ", value_buffer = " .. seq .. ".buffer"
+      .. ", value_base = " .. seq .. ".base"
+      .. ", error_kind = " .. i64_lit(0)
+      .. ", error_value = " .. render_nil_value()
+      .. ", saved_pc = " .. (class(e) == CFG.RuntimeOutcomeYieldSeq and render_value(e.saved_pc) or i64_lit(0))
+      .. ", saved_top = " .. (class(e) == CFG.RuntimeOutcomeYieldSeq and render_value(e.saved_top) or i64_lit(0))
+      .. ", yield_kind = " .. (class(e) == CFG.RuntimeOutcomeYieldSeq and yield_kind_lit(e.resume_point) or i64_lit(0)) .. " }" }
+  append_assign_seq_value(lines, indent, dst .. ".value0", seq, i64_lit(0))
+  append_assign_seq_value(lines, indent, dst .. ".value1", seq, i64_lit(1))
+  return table.concat(lines, "\n")
 end
 
 local function emit_number_coerce_assign(lines, indent, dst, strings, value)
@@ -1028,6 +1271,18 @@ local function render_op(op, indent)
         indent .. "end",
       }, "\n")
     end
+    if class(op.expr) == CFG.RuntimeValueSeqFromStack or class(op.expr) == CFG.RuntimeValueSeqFromVarargs or class(op.expr) == CFG.RuntimeCallFrameResultSeq or class(op.expr) == CFG.RuntimeValueSeqAdjust or class(op.expr) == CFG.RuntimeValueSeqNormalize then
+      return render_seq_let(render_place(op.dst), op.expr, indent)
+    end
+    if class(op.expr) == CFG.RuntimeValueSeqValue then
+      return render_seq_value_let(render_place(op.dst), op.expr, indent)
+    end
+    if class(op.expr) == CFG.RuntimeOutcomeReturnSeq or class(op.expr) == CFG.RuntimeOutcomeYieldSeq then
+      return render_outcome_seq_let(render_place(op.dst), op.expr, indent)
+    end
+    if class(op.expr) == CFG.RuntimeOutcomeReturn or class(op.expr) == CFG.RuntimeOutcomeError or class(op.expr) == CFG.RuntimeOutcomeYield then
+      return indent .. "var " .. render_place(op.dst) .. ": " .. OutcomeModel.TYPE_NAME .. " = " .. render_expr(op.expr)
+    end
     if class(op.expr) == CFG.RuntimeTableRawGet then
       return render_raw_get_let(render_place(op.dst), render_value(op.expr.tables), render_value(op.expr.table_value), render_value(op.expr.key), indent)
     end
@@ -1043,6 +1298,45 @@ local function render_op(op, indent)
     return indent .. "let " .. render_place(op.dst) .. ": " .. infer_expr_type(op.expr) .. " = " .. render_expr(op.expr)
   elseif cls == CFG.RuntimeStackStore then
     return indent .. render_value(op.stack) .. "[as(index, " .. render_value(op.index) .. ")] = " .. render_value(op.value)
+  elseif cls == CFG.RuntimeValueSeqStore then
+    local stack, base, seq = render_value(op.stack), render_value(op.base), render_value(op.seq)
+    local loop = fresh_block_name("rt_seq_store")
+    local i = loop .. "_i"
+    local count, buffer, seq_base, stack_local = loop .. "_count", loop .. "_buffer", loop .. "_base", loop .. "_stack"
+    local lines = {
+      indent .. "let " .. stack_local .. ": ptr(" .. ValueModel.TYPE_NAME .. ") = " .. stack,
+      indent .. "let " .. count .. ": i64 = " .. seq .. ".count",
+      indent .. "if " .. count .. " >= " .. i64_lit(1) .. " then " .. stack_local .. "[as(index, " .. base .. ")] = " .. seq .. ".value0 end",
+      indent .. "if " .. count .. " >= " .. i64_lit(2) .. " then " .. stack_local .. "[as(index, " .. base .. " + " .. i64_lit(1) .. ")] = " .. seq .. ".value1 end",
+      indent .. "let " .. buffer .. ": ptr(" .. ValueModel.TYPE_NAME .. ") = " .. seq .. ".buffer",
+      indent .. "let " .. seq_base .. ": i64 = " .. seq .. ".base",
+      indent .. "let " .. loop .. "_done: i64 = block " .. loop .. "(" .. i .. ": i64 = " .. i64_lit(2) .. ") -> i64",
+      indent .. "    if " .. i .. " >= " .. count .. " then yield " .. i .. " end",
+      indent .. "    if " .. ptr_not_null(buffer, ValueModel.TYPE_NAME) .. " then " .. stack_local .. "[as(index, " .. base .. " + " .. i .. ")] = " .. buffer .. "[as(index, " .. seq_base .. " + " .. i .. ")] end",
+      indent .. "    jump " .. loop .. "(" .. i .. " = " .. i .. " + " .. i64_lit(1) .. ")",
+      indent .. "end",
+    }
+    return table.concat(lines, "\n")
+  elseif cls == CFG.RuntimeCallFrameStoreArgs then
+    local stack, seq = render_value(op.callee_stack), render_value(op.args)
+    local base = i64_lit(slot_index(op.layout and op.layout.arg_base))
+    local loop = fresh_block_name("rt_arg_store")
+    local i = loop .. "_i"
+    local count, buffer, seq_base, stack_local = loop .. "_count", loop .. "_buffer", loop .. "_base", loop .. "_stack"
+    local lines = {
+      indent .. "let " .. stack_local .. ": ptr(" .. ValueModel.TYPE_NAME .. ") = " .. stack,
+      indent .. "let " .. count .. ": i64 = " .. seq .. ".count",
+      indent .. "if " .. count .. " >= " .. i64_lit(1) .. " then " .. stack_local .. "[as(index, " .. base .. ")] = " .. seq .. ".value0 end",
+      indent .. "if " .. count .. " >= " .. i64_lit(2) .. " then " .. stack_local .. "[as(index, " .. base .. " + " .. i64_lit(1) .. ")] = " .. seq .. ".value1 end",
+      indent .. "let " .. buffer .. ": ptr(" .. ValueModel.TYPE_NAME .. ") = " .. seq .. ".buffer",
+      indent .. "let " .. seq_base .. ": i64 = " .. seq .. ".base",
+      indent .. "let " .. loop .. "_done: i64 = block " .. loop .. "(" .. i .. ": i64 = " .. i64_lit(2) .. ") -> i64",
+      indent .. "    if " .. i .. " >= " .. count .. " then yield " .. i .. " end",
+      indent .. "    if " .. ptr_not_null(buffer, ValueModel.TYPE_NAME) .. " then " .. stack_local .. "[as(index, " .. base .. " + " .. i .. ")] = " .. buffer .. "[as(index, " .. seq_base .. " + " .. i .. ")] end",
+      indent .. "    jump " .. loop .. "(" .. i .. " = " .. i .. " + " .. i64_lit(1) .. ")",
+      indent .. "end",
+    }
+    return table.concat(lines, "\n")
   elseif cls == CFG.RuntimeTopStore then
     return indent .. render_value(op.top_ptr) .. "[as(index, 0)] = " .. render_value(op.top)
   elseif cls == CFG.RuntimeTableRawSet then
@@ -1262,6 +1556,7 @@ local function render_kernel(kernel, opts)
   lines[#lines + 1] = ValueModel.TYPE_DECL
   lines[#lines + 1] = OutcomeModel.TYPE_DECL
   lines[#lines + 1] = StackModel.TYPE_DECL
+  lines[#lines + 1] = CallModel.TYPE_DECL
   lines[#lines + 1] = ObjectModel.TYPE_DECL
   lines[#lines + 1] = ""
   local result_ty = render_returns(kernel.returns)

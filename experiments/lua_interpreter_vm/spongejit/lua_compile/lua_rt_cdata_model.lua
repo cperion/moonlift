@@ -7,7 +7,14 @@
 -- is no C parser, dynamic lookup, callback execution, or FFI helper dispatch
 -- here.
 
+local Schema = require("lua_compile.schema")
+local pvm = require("moonlift.pvm")
+local T = Schema.get()
+local FFI = T.LuaFFI
+
 local M = {}
+local function cls(v) return pvm.classof(v) end
+local function member(v, sum) return v ~= nil and sum and sum.members and sum.members[cls(v)] or false end
 
 M.TYPE_NAME = "LuaRTCData"
 
@@ -61,6 +68,24 @@ function M.finalizer_value(name)
   local v = M.FINALIZER[name]
   assert(v ~= nil, "unknown cdata finalizer kind: " .. tostring(name))
   return v
+end
+
+function M.validate_ownership_transition(transition)
+  local errors = {}
+  if cls(transition) ~= FFI.CDataOwnershipTransition then errors[#errors + 1] = "expected LuaFFI.CDataOwnershipTransition"; return false, errors end
+  if cls(transition.cdata) ~= FFI.CData then errors[#errors + 1] = "cdata must be LuaFFI.CData" end
+  if not member(transition.from_state, FFI.OwnershipState) then errors[#errors + 1] = "from_state must be LuaFFI.OwnershipState" end
+  if not member(transition.to_state, FFI.OwnershipState) then errors[#errors + 1] = "to_state must be LuaFFI.OwnershipState" end
+  return #errors == 0, errors
+end
+
+function M.validate_against_schema()
+  local missing = {}
+  for _, name in ipairs({ "FFICallShape", "FFICallbackEntry", "CDataOwnershipTransition", "CValueConversion" }) do
+    if FFI[name] == nil then missing[#missing + 1] = "LuaFFI." .. name end
+  end
+  table.sort(missing)
+  return #missing == 0, missing
 end
 
 return M

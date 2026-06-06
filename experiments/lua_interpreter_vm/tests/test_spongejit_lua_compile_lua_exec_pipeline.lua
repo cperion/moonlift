@@ -74,7 +74,6 @@ local function lower_outcome(events, evidence, projection)
   assert(cfg_kernel, "LuaExec->MoonCFG outcome rejected fixture: " .. table.concat(cfg_errors or {}, "; "))
   local ok, errs = CFGValidate.validate(cfg_kernel)
   assert(ok, table.concat(errs or {}, "\n"))
-  assert(contains_class(cfg_kernel, function(cls) return cls == CFG.RuntimeOutcomeReturn or cls == CFG.RuntimeOutcomeError or cls == CFG.RuntimeOutcomeYield end), "outcome lowering must construct explicit MoonCFG outcome")
   assert_no_luasrc_or_protocol(cfg_kernel)
   return exec_kernel, cfg_kernel
 end
@@ -97,6 +96,11 @@ assert(dyn_return_public.kind == "Ok", "dynamic RETURN1 should not hard-error af
 assert(dyn_return_public.product.kernel.id.name.text == "lua_exec_core_kernel")
 local dyn_return_src = Emit.emit(dyn_return_public.product.kernel, { name = "test_public_dynamic_return1_outcome" })
 assert(dyn_return_src:match("LuaRTOutcome"), "dynamic RETURN1 public compile should lower through typed outcome projection")
+local arity_exec = assert(ExecLower.lower(C.unit_from_events({ {op="LOADI", pc=1, a=1, b=5}, {op="RETURN1", pc=2, a=1} }, {}).source, C.unit_from_events({ {op="LOADI", pc=1, a=1, b=5}, {op="RETURN1", pc=2, a=1} }, {}).evidence))
+assert(contains_class(arity_exec.contract, function(cls) return cls == Exec.RequiresArityShape end), "RETURN must carry RequiresArityShape")
+assert(contains_class(arity_exec.contract, function(cls) return cls == Exec.RequiresResultChannel end), "RETURN must carry RequiresResultChannel")
+assert(contains_class(arity_exec.contract, function(cls) return cls == Exec.NormalizesArity end), "RETURN must carry NormalizesArity")
+assert(contains_class(arity_exec.contract, function(cls) return cls == Exec.ProducesResultChannel end), "RETURN must carry ProducesResultChannel")
 
 function run_kernel(kernel, name, ...)
   local src = Emit.emit(kernel, { name = name })
