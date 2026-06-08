@@ -6,8 +6,8 @@ entry start()
 end
 end
 
-local run_inc = func(x: i32) -> i32
-    return region -> i32
+local run_inc = func(x: i32): i32
+    return region: i32
     entry start()
         emit @{inc}(x; next = done)
     end

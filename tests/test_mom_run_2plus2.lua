@@ -7,7 +7,7 @@ end
 
 local src_path = "/tmp/moonlift_mom_run_2plus2.mlua"
 local f = assert(io.open(src_path, "wb"))
-f:write([[func main() -> i32
+f:write([[func main(): i32
   return 2 + 2
 end
 ]])
@@ -19,7 +19,7 @@ assert(out:match("^%s*4%s*$"), out)
 
 local add_path = "/tmp/moonlift_mom_run_add_args.mlua"
 f = assert(io.open(add_path, "wb"))
-f:write([[func add(a: i32, b: i32) -> i32
+f:write([[func add(a: i32, b: i32): i32
   return a + b
 end
 ]])

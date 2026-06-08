@@ -51,7 +51,12 @@ local make_chain = chain_binding.make
 local make_quote = chain_binding.make_quote
 
 function CallableFunc:compile(opts)
-    if not self._compiled then
+    opts = opts or {}
+    local backend = opts.backend or opts.codegen or "cranelift"
+    local runner = opts.runner or opts.c_runner or ""
+    local cache_key = tostring(backend) .. ":" .. tostring(runner)
+    if self._compiled_key ~= cache_key then
+        if self._compiled and self._compiled.free then self._compiled:free() end
         local api = self._api
         local b = api.bundle(self.name .. "_auto")
 
@@ -71,8 +76,9 @@ function CallableFunc:compile(opts)
         end
 
         b:pack(self)
-        local artifact = b:jit(opts or {})
+        local artifact = b:jit(opts)
         self._compiled = artifact
+        self._compiled_key = cache_key
         self._fn = artifact:get(self.name)
     end
     return self._fn

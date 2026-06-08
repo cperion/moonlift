@@ -8,7 +8,7 @@ struct Pair
     x: i32
     y: i32
 end
-func main() -> i32
+func main(): i32
     let p: Pair = Pair{ x = 10, y = 32 }
     return p.x + p.y
 end
@@ -27,7 +27,7 @@ struct Inner
     x: i32
     y: i32
 end
-func main() -> i32
+func main(): i32
     let o: Outer = Outer{ z = 12, a = Inner{ x = 10, y = 20 } }
     return o.z + o.a.x + o.a.y
 end

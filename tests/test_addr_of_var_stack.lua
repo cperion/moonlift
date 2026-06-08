@@ -3,7 +3,7 @@ package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.p
 local Host = require("moonlift.mlua_run")
 
 local addr_var = Host.eval [[
-return func addr_var(v: i32) -> i32
+return func addr_var(v: i32): i32
     var x: i32 = v
     let p: ptr(i32) = &x
     p[0] = v + 1

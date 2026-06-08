@@ -1,0 +1,163 @@
+module MoonCore {
+    Name = (string text) unique
+
+    Path = (MoonCore.Name* parts) unique
+
+    Id = (string text) unique
+
+    ModuleId = (string text) unique
+
+    ItemId = (string text) unique
+
+    FieldId = (string text) unique
+
+    Phase = PhaseSurface
+         | PhaseTyped
+         | PhaseOpen
+         | PhaseSem
+         | PhaseCode
+
+    Visibility = VisibilityLocal
+         | VisibilityExport
+
+    Scalar = ScalarVoid
+         | ScalarBool
+         | ScalarI8
+         | ScalarI16
+         | ScalarI32
+         | ScalarI64
+         | ScalarU8
+         | ScalarU16
+         | ScalarU32
+         | ScalarU64
+         | ScalarF32
+         | ScalarF64
+         | ScalarRawPtr
+         | ScalarIndex
+
+    ScalarFamily = ScalarFamilyVoid
+         | ScalarFamilyBool
+         | ScalarFamilySignedInt
+         | ScalarFamilyUnsignedInt
+         | ScalarFamilyFloat
+         | ScalarFamilyRawPtr
+         | ScalarFamilyIndex
+
+    ScalarBits = (number bits) unique
+
+    ScalarInfo = (MoonCore.ScalarFamily family, MoonCore.ScalarBits bits) unique
+
+    Literal = LitInt(string raw) unique
+         | LitFloat(string raw) unique
+         | LitBool(boolean value) unique
+         | LitString(string bytes) unique
+         | LitNil
+
+    UnaryOp = UnaryNeg
+         | UnaryNot
+         | UnaryBitNot
+
+    BinaryOp = BinAdd
+         | BinSub
+         | BinMul
+         | BinDiv
+         | BinRem
+         | BinBitAnd
+         | BinBitOr
+         | BinBitXor
+         | BinShl
+         | BinLShr
+         | BinAShr
+
+    CmpOp = CmpEq
+         | CmpNe
+         | CmpLt
+         | CmpLe
+         | CmpGt
+         | CmpGe
+
+    LogicOp = LogicAnd
+         | LogicOr
+
+    SurfaceCastOp = SurfaceCast
+         | SurfaceTrunc
+         | SurfaceZExt
+         | SurfaceSExt
+         | SurfaceBitcast
+         | SurfaceSatCast
+
+    MachineCastOp = MachineCastIdentity
+         | MachineCastBitcast
+         | MachineCastIreduce
+         | MachineCastSextend
+         | MachineCastUextend
+         | MachineCastFpromote
+         | MachineCastFdemote
+         | MachineCastSToF
+         | MachineCastUToF
+         | MachineCastFToS
+         | MachineCastFToU
+
+    Intrinsic = IntrinsicPopcount
+         | IntrinsicClz
+         | IntrinsicCtz
+         | IntrinsicRotl
+         | IntrinsicRotr
+         | IntrinsicBswap
+         | IntrinsicFma
+         | IntrinsicSqrt
+         | IntrinsicAbs
+         | IntrinsicFloor
+         | IntrinsicCeil
+         | IntrinsicTruncFloat
+         | IntrinsicRound
+         | IntrinsicTrap
+         | IntrinsicAssume
+
+    AtomicOrdering = AtomicSeqCst
+
+    AtomicRmwOp = AtomicRmwAdd
+         | AtomicRmwSub
+         | AtomicRmwAnd
+         | AtomicRmwOr
+         | AtomicRmwXor
+         | AtomicRmwXchg
+
+    UnaryOpClass = UnaryClassArithmetic
+         | UnaryClassLogical
+         | UnaryClassBitwise
+
+    BinaryOpClass = BinaryClassArithmetic
+         | BinaryClassDivision
+         | BinaryClassRemainder
+         | BinaryClassBitwise
+         | BinaryClassShift
+
+    CmpOpClass = CmpClassEquality
+         | CmpClassOrdering
+
+    IntrinsicClass = IntrinsicClassBit
+         | IntrinsicClassFloat
+         | IntrinsicClassFused
+         | IntrinsicClassControl
+
+    TypeSym = (string key, string name) unique
+
+    FuncSym = (string key, string name) unique
+
+    ExternSym = (string key, string name, string symbol) unique
+
+    ConstSym = (string key, string name) unique
+
+    StaticSym = (string key, string name) unique
+
+    DataId = (string text) unique
+
+    SymKind = SymKindFunc
+         | SymKindExtern
+         | SymKindConst
+         | SymKindStatic
+         | SymKindType
+
+    OpenSym = (MoonCore.SymKind kind, string key, string name, string symbol) unique
+}

@@ -171,6 +171,7 @@ function M.Define(T)
         elseif cls == Tr.ExprField or cls == Tr.ExprDot then collect_captures_expr(expr.base, locals, out, seen)
         elseif cls == Tr.ExprIndex then collect_captures_index_base(expr.base, locals, out, seen); collect_captures_expr(expr.index, locals, out, seen)
         elseif cls == Tr.ExprAgg then for i = 1, #expr.fields do collect_captures_expr(expr.fields[i].value, locals, out, seen) end
+        elseif cls == Tr.ExprCtor then for i = 1, #(expr.args or {}) do collect_captures_expr(expr.args[i], locals, out, seen) end
         elseif cls == Tr.ExprArray then for i = 1, #expr.elems do collect_captures_expr(expr.elems[i], locals, out, seen) end
         elseif cls == Tr.ExprIf or cls == Tr.ExprSelect then collect_captures_expr(expr.cond, locals, out, seen); collect_captures_expr(expr.then_expr, locals, out, seen); collect_captures_expr(expr.else_expr, locals, out, seen)
         elseif cls == Tr.ExprBlock then local inner = {}; for k, v in pairs(locals) do inner[k] = v end; collect_captures_stmts(expr.stmts, inner, out, seen); collect_captures_expr(expr.result, inner, out, seen)
@@ -299,9 +300,10 @@ function M.Define(T)
         if cls == Tr.ExprField or cls == Tr.ExprDot then return pvm.with(expr, { base = rewrite_expr(expr.base) }) end
         if cls == Tr.ExprIndex then return pvm.with(expr, { base = rewrite_index_base(expr.base), index = rewrite_expr(expr.index) }) end
         if cls == Tr.ExprAgg then local fields = {}; for i = 1, #expr.fields do fields[i] = pvm.with(expr.fields[i], { value = rewrite_expr(expr.fields[i].value) }) end; return pvm.with(expr, { fields = fields }) end
+        if cls == Tr.ExprCtor then return pvm.with(expr, { args = rewrite_exprs(expr.args or {}) }) end
         if cls == Tr.ExprArray then return pvm.with(expr, { elems = rewrite_exprs(expr.elems) }) end
         if cls == Tr.ExprIf or cls == Tr.ExprSelect then return pvm.with(expr, { cond = rewrite_expr(expr.cond), then_expr = rewrite_expr(expr.then_expr), else_expr = rewrite_expr(expr.else_expr) }) end
-        if cls == Tr.ExprSwitch then local arms = {}; for i = 1, #expr.arms do arms[i] = pvm.with(expr.arms[i], { body = rewrite_stmts(expr.arms[i].body), result = rewrite_expr(expr.arms[i].result) }) end; return pvm.with(expr, { value = rewrite_expr(expr.value), arms = arms, default_body = rewrite_stmts(expr.default_body or {}), default_expr = rewrite_expr(expr.default_expr) }) end
+        if cls == Tr.ExprSwitch then local arms = {}; for i = 1, #expr.arms do arms[i] = pvm.with(expr.arms[i], { body = rewrite_stmts(expr.arms[i].body), result = rewrite_expr(expr.arms[i].result) }) end; local var_arms = {}; for i = 1, #(expr.variant_arms or {}) do var_arms[i] = pvm.with(expr.variant_arms[i], { body = rewrite_stmts(expr.variant_arms[i].body), result = rewrite_expr(expr.variant_arms[i].result) }) end; return pvm.with(expr, { value = rewrite_expr(expr.value), arms = arms, variant_arms = var_arms, default_body = rewrite_stmts(expr.default_body or {}), default_expr = rewrite_expr(expr.default_expr) }) end
         if cls == Tr.ExprControl then return pvm.with(expr, { region = rewrite_control_expr_region(expr.region) }) end
         if cls == Tr.ExprBlock then return pvm.with(expr, { stmts = rewrite_stmts(expr.stmts), result = rewrite_expr(expr.result) }) end
         if cls == Tr.ExprClosure then return descriptor_for_closure(expr) end

@@ -4,8 +4,8 @@ package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./lua/?.lua;./
 local Host = require("moonlift.mlua_run")
 
 local sum_to = Host.eval [[
-return func sum_to(n: i32) -> i32
-    return region -> i32
+return func sum_to(n: i32): i32
+    return region: i32
     entry loop(i: i32 = 0, acc: i32 = 0)
         if i >= n then yield acc end
         jump loop(i = i + 1, acc = acc + i)
@@ -28,8 +28,8 @@ local use_double = Host.eval [[
 local double = region(x: i32; out: cont(y: i32))
 entry start() jump out(y = x * 2) end
 end
-return func use_double(x: i32) -> i32
-    return region -> i32
+return func use_double(x: i32): i32
+    return region: i32
     entry start()
         emit @{double}(x; out = done)
     end

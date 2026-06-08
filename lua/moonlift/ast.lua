@@ -785,6 +785,26 @@ local function install(api, T)
     ---@return moonlift.ast.Stmt
     function api.if_stmt(spec) return Tr.StmtIf(Tr.StmtSurface, as_expr(spec.cond or spec[1], "if cond"), stmts(spec.then_body or spec[2] or {}, "if then_body"), stmts(spec.else_body or spec[3] or {}, "if else_body")) end
 
+    ---Tagged-union constructor expression.
+    ---@param type_name string Tagged-union type name.
+    ---@param variant_name string Variant name.
+    ---@param args moonlift.ast.Expr[]? Payload arguments.
+    ---@return moonlift.ast.Expr
+    function api.ctor(type_name, variant_name, args) local xs = {}; for i = 1, #array(args or {}, "ctor args") do xs[i] = as_expr((args or {})[i], "ctor arg") end; return Tr.ExprCtor(Tr.ExprSurface, assert_name(type_name, "ctor type"), assert_name(variant_name, "ctor variant"), xs) end
+
+    ---Variant payload bind used by variant switch arms.
+    ---@param name string Binding name.
+    ---@param ty moonlift.ast.Type? Payload type, inferred when omitted.
+    ---@return MoonTree.VariantBind
+    function api.variant_bind(name, ty) return Tr.VariantBind(assert_name(name, "variant_bind"), ty and as_type(ty, "variant_bind type") or Ty.TScalar(C.ScalarVoid)) end
+
+    function api.switch_stmt_arm(raw_key, body) return Tr.SwitchStmtArm(tostring(raw_key), stmts(body or {}, "switch stmt arm")) end
+    function api.switch_expr_arm(raw_key, body, result) return Tr.SwitchExprArm(tostring(raw_key), stmts(body or {}, "switch expr arm"), as_expr(result, "switch expr result")) end
+    function api.switch_variant_stmt_arm(spec) return Tr.SwitchVariantStmtArm(assert_name(spec.variant or spec.name or spec[1], "variant arm"), spec.binds or {}, stmts(spec.body or spec[2] or {}, "variant stmt arm")) end
+    function api.switch_variant_expr_arm(spec) return Tr.SwitchVariantExprArm(assert_name(spec.variant or spec.name or spec[1], "variant expr arm"), spec.binds or {}, stmts(spec.body or spec[2] or {}, "variant expr arm"), as_expr(spec.result or spec[3], "variant expr result")) end
+    function api.switch_stmt(spec) return Tr.StmtSwitch(Tr.StmtSurface, as_expr(spec.value or spec[1], "switch value"), spec.arms or {}, spec.variant_arms or {}, stmts(spec.default_body or spec.default or {}, "switch default")) end
+    function api.switch_expr(spec) return Tr.ExprSwitch(Tr.ExprSurface, as_expr(spec.value or spec[1], "switch value"), spec.arms or {}, spec.variant_arms or {}, stmts(spec.default_body or {}, "switch expr default body"), as_expr(spec.default_expr or spec.default or spec[2], "switch expr default")) end
+
     ---Jump argument for named block jumps.
     ---@param name string Target parameter name.
     ---@param value moonlift.ast.Expr Argument value.

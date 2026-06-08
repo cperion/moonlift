@@ -21,16 +21,16 @@ local P = PositionIndex.Define(T)
 
 local uri = S.DocUri("file:///signature.mlua")
 local src = [[
-func add(a: i32, b: i32) -> i32
+func add(a: i32, b: i32): i32
     return a
 end
-expr Twice(x: i32) -> i32
+expr Twice(x: i32): i32
     x
 end
-expr Use() -> i32
+expr Use(): i32
     add(1, 2)
 end
-expr UseFrag() -> i32
+expr UseFrag(): i32
     Twice(1)
 end
 
@@ -53,13 +53,13 @@ local help = Sig.help(q_after("add(1,"), analysis)
 assert(pvm.classof(help) == E.SignatureHelp)
 assert(#help.signatures == 1)
 assert(help.active_parameter == 1)
-assert(help.signatures[1].label == "add(a: i32, b: i32) -> i32")
+assert(help.signatures[1].label == "add(a: i32, b: i32): i32")
 assert(#help.signatures[1].params == 2)
 assert(help.signatures[1].params[2].label == "b: i32")
 
 
 local extern_src = [[
-expr UseExtern() -> i32
+expr UseExtern(): i32
     puts(0)
 end
 ]]
@@ -77,11 +77,11 @@ local extern_idx = P.build_index(extern_doc)
 local _, extern_e = assert(extern_src:find("puts(", 1, true))
 local extern_help = Sig.help(E.PositionQuery(uri, S.DocVersion(1), P.offset_to_pos(extern_idx, extern_e).pos), extern_analysis)
 assert(pvm.classof(extern_help) == E.SignatureHelp)
-assert(extern_help.signatures[1].label == "puts(x: ptr(u8)) -> i32")
+assert(extern_help.signatures[1].label == "puts(x: ptr(u8)): i32")
 
 local frag = Sig.help(q_after("Twice("), analysis)
 assert(pvm.classof(frag) == E.SignatureHelp)
-assert(frag.signatures[1].label == "Twice(x: i32) -> i32")
+assert(frag.signatures[1].label == "Twice(x: i32): i32")
 
 local lua_opaque_add = Sig.help(q_after("local lua_side = add(1,"), analysis)
 assert(pvm.classof(lua_opaque_add) == E.SignatureHelpMissing)

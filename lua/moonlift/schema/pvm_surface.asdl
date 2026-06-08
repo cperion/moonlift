@@ -1,0 +1,26 @@
+module MoonPvmSurface {
+    PhaseBody = (string name, MoonPhase.TypeRef input, MoonPhase.TypeRef output, MoonPhase.CachePolicy cache, MoonPhase.ResultShape result, MoonPvmSurface.Handler* handlers, MoonPvmSurface.Producer? default_body) unique
+
+    Handler = (string ctor_name, MoonPvmSurface.Bind* binds, MoonPvmSurface.Producer body) unique
+
+    Bind = (string name, string field_name) unique
+
+    Producer = ProducerEmpty
+         | ProducerOnce(MoonPvmSurface.Expr value) unique
+         | ProducerConcat(MoonPvmSurface.Producer* parts) unique
+         | ProducerCallPhase(string phase_name, MoonPvmSurface.Expr subject, MoonPvmSurface.Expr* args) unique
+         | ProducerChildren(string phase_name, MoonPvmSurface.Expr range) unique
+         | ProducerLet(string name, MoonPvmSurface.Expr value, MoonPvmSurface.Producer body) unique
+         | ProducerIf(MoonPvmSurface.Expr cond, MoonPvmSurface.Producer then_body, MoonPvmSurface.Producer else_body) unique
+
+    Expr = ExprSubject
+         | ExprLocal(string name) unique
+         | ExprName(string name) unique
+         | ExprField(MoonPvmSurface.Expr base, string field_name) unique
+         | ExprCtor(string type_name, string ctor_name, MoonPvmSurface.NamedExpr* fields) unique
+         | ExprCall(string func_name, MoonPvmSurface.Expr* args) unique
+         | ExprLiteralInt(string text) unique
+         | ExprLiteralBool(boolean value) unique
+
+    NamedExpr = (string name, MoonPvmSurface.Expr value) unique
+}

@@ -16,21 +16,21 @@ local C = T.MoonCore
 local Tr = T.MoonTree
 
 local src = [[
-func sum_i32(xs: ptr(i32), n: i32) -> i32
-    return block loop(i: i32 = 0, acc: i32 = 0) -> i32
+func sum_i32(xs: ptr(i32), n: i32): i32
+    return block loop(i: i32 = 0, acc: i32 = 0): i32
         if i >= n then yield acc end
         jump loop(i = i + 1, acc = acc + xs[i])
     end
 end
 
-func dot_i32(a: ptr(i32), b: ptr(i32), n: i32) -> i32
-    return block loop(i: i32 = 0, acc: i32 = 0) -> i32
+func dot_i32(a: ptr(i32), b: ptr(i32), n: i32): i32
+    return block loop(i: i32 = 0, acc: i32 = 0): i32
         if i >= n then yield acc end
         jump loop(i = i + 1, acc = acc + a[i] * b[i])
     end
 end
 
-func fill_i32(xs: ptr(i32), n: i32, value: i32) -> i32
+func fill_i32(xs: ptr(i32), n: i32, value: i32): i32
     block loop(i: i32 = 0)
         if i >= n then return 0 end
         xs[i] = value
@@ -38,7 +38,7 @@ func fill_i32(xs: ptr(i32), n: i32, value: i32) -> i32
     end
 end
 
-func copy_i32(dst: ptr(i32), src: ptr(i32), n: i32) -> i32
+func copy_i32(dst: ptr(i32), src: ptr(i32), n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then return 0 end
         dst[i] = src[i]
@@ -46,7 +46,7 @@ func copy_i32(dst: ptr(i32), src: ptr(i32), n: i32) -> i32
     end
 end
 
-func add_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32) -> i32
+func add_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then return 0 end
         dst[i] = a[i] + b[i]
@@ -54,7 +54,7 @@ func add_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32) -> i32
     end
 end
 
-func scale_i32(dst: ptr(i32), xs: ptr(i32), k: i32, n: i32) -> i32
+func scale_i32(dst: ptr(i32), xs: ptr(i32), k: i32, n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then return 0 end
         dst[i] = xs[i] * k
@@ -62,7 +62,7 @@ func scale_i32(dst: ptr(i32), xs: ptr(i32), k: i32, n: i32) -> i32
     end
 end
 
-func inc_i32(xs: ptr(i32), n: i32) -> i32
+func inc_i32(xs: ptr(i32), n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then return 0 end
         xs[i] = xs[i] + 1
@@ -70,7 +70,7 @@ func inc_i32(xs: ptr(i32), n: i32) -> i32
     end
 end
 
-func axpy_i32(y: ptr(i32), x: ptr(i32), a: i32, n: i32) -> i32
+func axpy_i32(y: ptr(i32), x: ptr(i32), a: i32, n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then return 0 end
         y[i] = y[i] + a * x[i]
@@ -78,7 +78,7 @@ func axpy_i32(y: ptr(i32), x: ptr(i32), a: i32, n: i32) -> i32
     end
 end
 
-func and_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32) -> i32
+func and_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then return 0 end
         dst[i] = a[i] & b[i]
@@ -86,7 +86,7 @@ func and_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32) -> i32
     end
 end
 
-func sub_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32) -> i32
+func sub_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then return 0 end
         dst[i] = a[i] - b[i]
@@ -94,7 +94,7 @@ func sub_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32) -> i32
     end
 end
 
-func or_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32) -> i32
+func or_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then return 0 end
         dst[i] = a[i] | b[i]
@@ -102,7 +102,7 @@ func or_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32) -> i32
     end
 end
 
-func xor_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32) -> i32
+func xor_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then return 0 end
         dst[i] = a[i] ^ b[i]

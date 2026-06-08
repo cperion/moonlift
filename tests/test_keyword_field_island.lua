@@ -5,7 +5,7 @@ local Run = require("moonlift.mlua_run")
 local src = [[
 local ExitWithKeywordFields = union mcode(entry: ptr(u8)) | block(yield: i32) | done end
 
-local sentinel = func() -> i32
+local sentinel = func(): i32
     return 1
 end
 

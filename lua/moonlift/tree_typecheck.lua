@@ -57,8 +57,13 @@ function M.Define(T)
         return void_ty()
     end
 
+    local function attach_variant_defs(env, defs)
+        if defs ~= nil then rawset(env, "__variant_defs", defs) end
+        return env
+    end
+
     local function env_with_values(env, values)
-        return B.Env(env.module_name, values, env.types, env.layouts)
+        return attach_variant_defs(B.Env(env.module_name, values, env.types, env.layouts), rawget(env, "__variant_defs"))
     end
 
     local function env_add_value(env, entry)
@@ -137,6 +142,55 @@ function M.Define(T)
             or s == C.ScalarIndex
     end
 
+    local int_scalar_info = {
+        [C.ScalarBool] = { bits = 1, signed = false },
+        [C.ScalarI8] = { bits = 8, signed = true },
+        [C.ScalarI16] = { bits = 16, signed = true },
+        [C.ScalarI32] = { bits = 32, signed = true },
+        [C.ScalarI64] = { bits = 64, signed = true },
+        [C.ScalarU8] = { bits = 8, signed = false },
+        [C.ScalarU16] = { bits = 16, signed = false },
+        [C.ScalarU32] = { bits = 32, signed = false },
+        [C.ScalarU64] = { bits = 64, signed = false },
+        [C.ScalarIndex] = { bits = 64, signed = true },
+    }
+
+    local float_scalar_bits = {
+        [C.ScalarF32] = 32,
+        [C.ScalarF64] = 64,
+    }
+
+    local function semantic_cast_op(src_ty, dst_ty)
+        local src, dst = scalar_kind(src_ty), scalar_kind(dst_ty)
+        if src == nil or dst == nil then return C.MachineCastBitcast end
+        if src == dst then return C.MachineCastIdentity end
+        local si, di = int_scalar_info[src], int_scalar_info[dst]
+        if si ~= nil and di ~= nil then
+            if di.bits < si.bits then return C.MachineCastIreduce end
+            if di.bits > si.bits then return si.signed and C.MachineCastSextend or C.MachineCastUextend end
+            return C.MachineCastIdentity
+        end
+        local sf, df = float_scalar_bits[src], float_scalar_bits[dst]
+        if sf ~= nil and df ~= nil then
+            if df > sf then return C.MachineCastFpromote end
+            if df < sf then return C.MachineCastFdemote end
+            return C.MachineCastIdentity
+        end
+        if si ~= nil and df ~= nil then return si.signed and C.MachineCastSToF or C.MachineCastUToF end
+        if sf ~= nil and di ~= nil then return di.signed and C.MachineCastFToS or C.MachineCastFToU end
+        return C.MachineCastBitcast
+    end
+
+    local function surface_cast_to_machine_op(surface_op, src_ty, dst_ty)
+        if surface_op == C.SurfaceCast then return semantic_cast_op(src_ty, dst_ty) end
+        if surface_op == C.SurfaceTrunc then return C.MachineCastIreduce end
+        if surface_op == C.SurfaceZExt then return C.MachineCastUextend end
+        if surface_op == C.SurfaceSExt then return C.MachineCastSextend end
+        if surface_op == C.SurfaceBitcast then return C.MachineCastBitcast end
+        if surface_op == C.SurfaceSatCast then return C.MachineCastBitcast end
+        return C.MachineCastBitcast
+    end
+
     local function is_atomic_value_type(ty)
         return is_integer_scalar(ty) or is_bool(ty) or pvm.classof(ty) == Ty.TPtr
     end
@@ -177,7 +231,7 @@ function M.Define(T)
         if extra == nil or #extra == 0 then return env end
         local layouts = clone_values(env.layouts)
         for i = 1, #extra do layouts[#layouts + 1] = extra[i] end
-        return B.Env(env.module_name, env.values, env.types, layouts)
+        return attach_variant_defs(B.Env(env.module_name, env.values, env.types, layouts), rawget(env, "__variant_defs"))
     end
 
     local function int_literal_can_adopt(expr, expected)
@@ -196,6 +250,108 @@ function M.Define(T)
     local function array_len_const(len)
         if pvm.classof(len) == Ty.ArrayLenConst then return len.count end
         return nil
+    end
+
+    local function check_type_policy(ty, issues, site)
+        local cls = pvm.classof(ty)
+        if cls == Ty.TArray then
+            if pvm.classof(ty.count) == Ty.ArrayLenExpr then
+                issues[#issues + 1] = Tr.TypeIssueExpected((site or "type") .. " array length", Ty.TArray(Ty.ArrayLenConst(0), ty.elem), ty)
+            end
+            check_type_policy(ty.elem, issues, site)
+        elseif cls == Ty.TPtr or cls == Ty.TSlice or cls == Ty.TView then
+            check_type_policy(ty.elem, issues, site)
+        elseif cls == Ty.TFunc or cls == Ty.TClosure then
+            for i = 1, #ty.params do check_type_policy(ty.params[i], issues, site) end
+            check_type_policy(ty.result, issues, site)
+        end
+    end
+
+    local function is_void_type(ty)
+        return pvm.classof(ty) == Ty.TScalar and ty.scalar == C.ScalarVoid
+    end
+
+    local function type_name_for_ctor(type_name)
+        return Ty.TNamed(Ty.TypeRefGlobal("", type_name))
+    end
+
+    local function variant_name_text(v)
+        if type(v) == "string" then return v end
+        return v and (v.text or v.name) or tostring(v)
+    end
+
+    local function build_variant_defs(module, module_name)
+        local defs = {}
+        local function add_type_decl(t, mod_name)
+            local cls = pvm.classof(t)
+            if cls == Tr.TypeDeclEnumSugar then
+                local variants = {}
+                for i = 1, #t.variants do
+                    local name = variant_name_text(t.variants[i])
+                    variants[name] = { name = name, tag = i - 1, payload = void_ty(), fields = {} }
+                end
+                defs[t.name] = { type_name = t.name, ty = Ty.TNamed(Ty.TypeRefGlobal(mod_name, t.name)), variants = variants }
+            elseif cls == Tr.TypeDeclTaggedUnionSugar then
+                local variants = {}
+                for i = 1, #t.variants do
+                    local v = t.variants[i]
+                    variants[v.name] = { name = v.name, tag = i - 1, payload = v.payload, fields = v.fields or {} }
+                end
+                defs[t.name] = { type_name = t.name, ty = Ty.TNamed(Ty.TypeRefGlobal(mod_name, t.name)), variants = variants }
+            end
+        end
+        for i = 1, #module.items do
+            local item = module.items[i]
+            local cls = pvm.classof(item)
+            if cls == Tr.ItemType then add_type_decl(item.t, module_name)
+            elseif cls == Tr.ItemUseModule then
+                local nested = build_variant_defs(item.module, module_name)
+                for k, v in pairs(nested) do defs[k] = v end
+            end
+        end
+        return defs
+    end
+
+    local function find_variant(ctx, type_name, variant_name)
+        local defs = rawget(ctx.env, "__variant_defs") or {}
+        local def = defs[type_name]
+        if def == nil then return nil, nil end
+        return def, def.variants[variant_name]
+    end
+
+    local function variant_def_for_value_ty(ctx, ty)
+        if pvm.classof(ty) ~= Ty.TNamed then return nil end
+        local defs = rawget(ctx.env, "__variant_defs") or {}
+        local ref = ty.ref
+        local rcls = pvm.classof(ref)
+        if rcls == Ty.TypeRefGlobal or rcls == Ty.TypeRefLocal then return defs[ref.type_name or ref.sym.name] end
+        if rcls == Ty.TypeRefPath and #ref.path.parts == 1 then return defs[ref.path.parts[1].text] end
+        return nil
+    end
+
+    local function bind_env_for_variant(ctx, region_id, variant, requested_binds)
+        local env = ctx.env
+        local binds = {}
+        if requested_binds ~= nil and #requested_binds > 0 then
+            for i = 1, #requested_binds do
+                local rb = requested_binds[i]
+                local ty = rb.ty
+                for j = 1, #(variant.fields or {}) do
+                    if variant.fields[j].field_name == rb.name then ty = variant.fields[j].ty end
+                end
+                if is_void_type(ty) and not is_void_type(variant.payload) then ty = variant.payload end
+                binds[#binds + 1] = { name = rb.name, ty = ty }
+            end
+        elseif #(variant.fields or {}) > 0 then
+            for i = 1, #variant.fields do binds[#binds + 1] = { name = variant.fields[i].field_name, ty = variant.fields[i].ty } end
+        elseif not is_void_type(variant.payload) then
+            binds[#binds + 1] = { name = "payload", ty = variant.payload }
+        end
+        for i = 1, #binds do
+            local b = B.Binding(C.Id("variant:" .. tostring(region_id or "switch") .. ":" .. variant.name .. ":" .. binds[i].name), binds[i].name, binds[i].ty, B.BindingClassLocalValue)
+            env = env_add_value(env, B.ValueEntry(b.name, b))
+        end
+        return env, binds
     end
 
     type_expr_expect = function(expr, ctx, expected)
@@ -458,8 +614,13 @@ function M.Define(T)
             if not is_bool(lhs.ty) or not is_bool(rhs.ty) then issues[#issues + 1] = Tr.TypeIssueInvalidLogic(tostring(self.op), lhs.ty, rhs.ty) end
             return pvm.once(result_expr(Tr.ExprLogic(Tr.ExprTyped(bool_ty()), self.op, lhs.expr, rhs.expr), bool_ty(), issues))
         end,
-        [Tr.ExprCast] = function(self, ctx) local value = pvm.one(type_expr(self.value, ctx)); return pvm.once(result_expr(Tr.ExprCast(Tr.ExprTyped(self.ty), self.op, self.ty, value.expr), self.ty, value.issues)) end,
-        [Tr.ExprMachineCast] = function(self, ctx) local value = pvm.one(type_expr(self.value, ctx)); return pvm.once(result_expr(Tr.ExprMachineCast(Tr.ExprTyped(self.ty), self.op, self.ty, value.expr), self.ty, value.issues)) end,
+        [Tr.ExprCast] = function(self, ctx)
+            local value = pvm.one(type_expr(self.value, ctx))
+            local issues = {}; append_all(issues, value.issues); check_type_policy(self.ty, issues, "cast")
+            local op = surface_cast_to_machine_op(self.op, value.ty, self.ty)
+            return pvm.once(result_expr(Tr.ExprMachineCast(Tr.ExprTyped(self.ty), op, self.ty, value.expr), self.ty, issues))
+        end,
+        [Tr.ExprMachineCast] = function(self, ctx) local value = pvm.one(type_expr(self.value, ctx)); local issues = {}; append_all(issues, value.issues); check_type_policy(self.ty, issues, "machine cast"); return pvm.once(result_expr(Tr.ExprMachineCast(Tr.ExprTyped(self.ty), self.op, self.ty, value.expr), self.ty, issues)) end,
         [Tr.ExprLen] = function(self, ctx)
             local value = pvm.one(type_expr(self.value, ctx)); local issues = {}; append_all(issues, value.issues)
             if pvm.classof(value.ty) ~= Ty.TView and pvm.classof(value.ty) ~= Ty.TArray then issues[#issues + 1] = Tr.TypeIssueExpected("len", Ty.TView(void_ty()), value.ty) end
@@ -639,9 +800,49 @@ function M.Define(T)
                 check_expected("switch arm", default.ty, result.ty, issues)
                 arms[#arms + 1] = Tr.SwitchExprArm(self.arms[i].raw_key, body.stmts, result.expr)
             end
-            return pvm.once(result_expr(Tr.ExprSwitch(Tr.ExprTyped(default.ty), value.expr, arms, default_body.stmts, default.expr), default.ty, issues))
+            local var_arms = {}
+            local def = variant_def_for_value_ty(ctx, value.ty)
+            for i = 1, #(self.variant_arms or {}) do
+                local arm = self.variant_arms[i]
+                local variant = def and def.variants[arm.variant_name] or nil
+                if variant == nil then issues[#issues + 1] = Tr.TypeIssueUnknownVariant(def and def.type_name or "?", arm.variant_name) end
+                local arm_ctx, typed_binds = ctx, arm.binds
+                if variant ~= nil then local env, binds = bind_env_for_variant(ctx, "expr_switch", variant, arm.binds); arm_ctx = ctx_with_env(ctx, env); typed_binds = {}; for j = 1, #binds do typed_binds[#typed_binds + 1] = Tr.VariantBind(binds[j].name, binds[j].ty) end end
+                local body = type_stmt_body(arm.body, arm_ctx)
+                local result = pvm.one(type_expr(arm.result, body.env))
+                append_all(issues, body.issues); append_all(issues, result.issues)
+                check_expected("variant switch arm", default.ty, result.ty, issues)
+                var_arms[#var_arms + 1] = Tr.SwitchVariantExprArm(arm.variant_name, typed_binds, body.stmts, result.expr)
+            end
+            return pvm.once(result_expr(Tr.ExprSwitch(Tr.ExprTyped(default.ty), value.expr, arms, var_arms, default_body.stmts, default.expr), default.ty, issues))
         end,
         [Tr.ExprClosure] = function(self, ctx) local ty = Ty.TClosure(self.params, self.result); return pvm.once(result_expr(pvm.with(self, { h = Tr.ExprTyped(ty) }), ty, {})) end,
+        [Tr.ExprCtor] = function(self, ctx)
+            local def, variant = find_variant(ctx, self.type_name, self.variant_name)
+            local ty = (def and def.ty) or type_name_for_ctor(self.type_name)
+            local args, issues = {}, {}
+            if variant == nil then
+                issues[#issues + 1] = Tr.TypeIssueUnknownVariant(self.type_name, self.variant_name)
+                for i = 1, #(self.args or {}) do local a = pvm.one(type_expr(self.args[i], ctx)); args[#args + 1] = a.expr; append_all(issues, a.issues) end
+                return pvm.once(result_expr(Tr.ExprCtor(Tr.ExprTyped(ty), self.type_name, self.variant_name, args), ty, issues))
+            end
+            local expected = {}
+            if #(variant.fields or {}) > 0 then
+                for i = 1, #variant.fields do expected[#expected + 1] = variant.fields[i].ty end
+            elseif not is_void_type(variant.payload) then
+                expected[#expected + 1] = variant.payload
+            end
+            if #expected ~= #(self.args or {}) then
+                issues[#issues + 1] = Tr.TypeIssueVariantPayloadMismatch(self.type_name, self.variant_name, expected[1] or void_ty(), self.args[1] and pvm.one(type_expr(self.args[1], ctx)).ty or void_ty())
+            end
+            for i = 1, #(self.args or {}) do
+                local a = expected[i] and type_expr_expect(self.args[i], ctx, expected[i]) or pvm.one(type_expr(self.args[i], ctx))
+                args[#args + 1] = a.expr
+                append_all(issues, a.issues)
+                if expected[i] then check_expected("variant payload", expected[i], a.ty, issues) end
+            end
+            return pvm.once(result_expr(Tr.ExprCtor(Tr.ExprTyped(ty), self.type_name, self.variant_name, args), ty, issues))
+        end,
         [Tr.ExprNull] = function(self, ctx)
             local issues = {}
             if pvm.classof(self.elem) ~= Ty.TPtr then
@@ -650,10 +851,12 @@ function M.Define(T)
             return pvm.once(result_expr(Tr.ExprNull(Tr.ExprTyped(self.elem), self.elem), self.elem, issues))
         end,
         [Tr.ExprSizeOf] = function(self, ctx)
-            return pvm.once(result_expr(Tr.ExprSizeOf(Tr.ExprTyped(index_ty()), self.ty), index_ty(), {}))
+            local issues = {}; check_type_policy(self.ty, issues, "sizeof")
+            return pvm.once(result_expr(Tr.ExprSizeOf(Tr.ExprTyped(index_ty()), self.ty), index_ty(), issues))
         end,
         [Tr.ExprAlignOf] = function(self, ctx)
-            return pvm.once(result_expr(Tr.ExprAlignOf(Tr.ExprTyped(index_ty()), self.ty), index_ty(), {}))
+            local issues = {}; check_type_policy(self.ty, issues, "alignof")
+            return pvm.once(result_expr(Tr.ExprAlignOf(Tr.ExprTyped(index_ty()), self.ty), index_ty(), issues))
         end,
         [Tr.ExprIsNull] = function(self, ctx)
             local value = pvm.one(type_expr(self.value, ctx))
@@ -765,9 +968,21 @@ function M.Define(T)
                 append_all(issues, body.issues)
                 arms[#arms + 1] = Tr.SwitchStmtArm(self.arms[i].raw_key, body.stmts)
             end
+            local variant_arms = {}
+            local def = variant_def_for_value_ty(ctx, value.ty)
+            for i = 1, #(self.variant_arms or {}) do
+                local arm = self.variant_arms[i]
+                local variant = def and def.variants[arm.variant_name] or nil
+                if variant == nil then issues[#issues + 1] = Tr.TypeIssueUnknownVariant(def and def.type_name or "?", arm.variant_name) end
+                local arm_ctx, typed_binds = ctx, arm.binds
+                if variant ~= nil then local env, binds = bind_env_for_variant(ctx, "stmt_switch", variant, arm.binds); arm_ctx = ctx_with_env(ctx, env); typed_binds = {}; for j = 1, #binds do typed_binds[#typed_binds + 1] = Tr.VariantBind(binds[j].name, binds[j].ty) end end
+                local body = type_stmt_body(arm.body, arm_ctx)
+                append_all(issues, body.issues)
+                variant_arms[#variant_arms + 1] = Tr.SwitchVariantStmtArm(arm.variant_name, typed_binds, body.stmts)
+            end
             local default = type_stmt_body(self.default_body, ctx)
             append_all(issues, default.issues)
-            return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtSwitch(Tr.StmtSurface, value.expr, arms, {}, default.stmts) }, issues))
+            return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtSwitch(Tr.StmtSurface, value.expr, arms, variant_arms, default.stmts) }, issues))
         end,
         [Tr.StmtControl] = function(self, ctx) local region = pvm.one(type_control_stmt_region(self.region, ctx)); return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtControl(Tr.StmtSurface, region.region) }, region.issues)) end,
         [Tr.StmtTrap] = function(self, ctx)
@@ -887,15 +1102,22 @@ function M.Define(T)
         return out, issues
     end
 
+    local function check_func_types(func, issues)
+        for i = 1, #(func.params or {}) do check_type_policy(func.params[i].ty, issues, "param " .. tostring(func.params[i].name)) end
+        check_type_policy(func.result, issues, "result")
+    end
+
     local function type_plain_func(self, module_env)
         local ctx = Tr.TypeCheckEnv(env_with_params(module_env, self.name, self.params), self.result, Tr.TypeYieldNone)
         local body = type_stmt_body(self.body, ctx)
-        return Tr.TypeFuncResult(pvm.with(self, { body = body.stmts }), body.issues)
+        local issues = {}; check_func_types(self, issues); append_all(issues, body.issues)
+        return Tr.TypeFuncResult(pvm.with(self, { body = body.stmts }), issues)
     end
 
     local function type_contract_func(self, module_env)
         local ctx = Tr.TypeCheckEnv(env_with_params(module_env, self.name, self.params), self.result, Tr.TypeYieldNone)
         local contracts, issues = type_contracts(self.contracts, ctx)
+        check_func_types(self, issues)
         local body = type_stmt_body(self.body, ctx)
         append_all(issues, body.issues)
         return Tr.TypeFuncResult(pvm.with(self, { contracts = contracts, body = body.stmts }), issues)
@@ -911,11 +1133,35 @@ function M.Define(T)
 
     type_item = pvm.phase("moonlift_tree_typecheck_item", {
         [Tr.ItemFunc] = function(self, module_env) local r = pvm.one(type_func(self.func, module_env)); return pvm.once(Tr.TypeItemResult({ Tr.ItemFunc(r.func) }, r.issues)) end,
-        [Tr.ItemConst] = function(self, module_env) local ctx = Tr.TypeCheckEnv(module_env, self.c.ty, Tr.TypeYieldNone); local value = pvm.one(type_expr(self.c.value, ctx)); local issues = {}; append_all(issues, value.issues); check_expected("const", self.c.ty, value.ty, issues); return pvm.once(Tr.TypeItemResult({ Tr.ItemConst(pvm.with(self.c, { value = value.expr })) }, issues)) end,
-        [Tr.ItemStatic] = function(self, module_env) local ctx = Tr.TypeCheckEnv(module_env, self.s.ty, Tr.TypeYieldNone); local value = pvm.one(type_expr(self.s.value, ctx)); local issues = {}; append_all(issues, value.issues); check_expected("static", self.s.ty, value.ty, issues); return pvm.once(Tr.TypeItemResult({ Tr.ItemStatic(pvm.with(self.s, { value = value.expr })) }, issues)) end,
-        [Tr.ItemExtern] = function(self) return pvm.once(Tr.TypeItemResult({ self }, {})) end,
+        [Tr.ItemConst] = function(self, module_env) local ctx = Tr.TypeCheckEnv(module_env, self.c.ty, Tr.TypeYieldNone); local value = pvm.one(type_expr(self.c.value, ctx)); local issues = {}; check_type_policy(self.c.ty, issues, "const"); append_all(issues, value.issues); check_expected("const", self.c.ty, value.ty, issues); return pvm.once(Tr.TypeItemResult({ Tr.ItemConst(pvm.with(self.c, { value = value.expr })) }, issues)) end,
+        [Tr.ItemStatic] = function(self, module_env) local ctx = Tr.TypeCheckEnv(module_env, self.s.ty, Tr.TypeYieldNone); local value = pvm.one(type_expr(self.s.value, ctx)); local issues = {}; check_type_policy(self.s.ty, issues, "static"); append_all(issues, value.issues); check_expected("static", self.s.ty, value.ty, issues); return pvm.once(Tr.TypeItemResult({ Tr.ItemStatic(pvm.with(self.s, { value = value.expr })) }, issues)) end,
+        [Tr.ItemExtern] = function(self) local issues = {}; check_func_types(self.func, issues); return pvm.once(Tr.TypeItemResult({ self }, issues)) end,
         [Tr.ItemImport] = function(self) return pvm.once(Tr.TypeItemResult({ self }, {})) end,
-        [Tr.ItemType] = function(self) return pvm.once(Tr.TypeItemResult({ self }, {})) end,
+        [Tr.ItemType] = function(self)
+            local issues = {}
+            local cls = pvm.classof(self.t)
+            if cls == Tr.TypeDeclStruct or cls == Tr.TypeDeclUnion then
+                for i = 1, #self.t.fields do check_type_policy(self.t.fields[i].ty, issues, "field " .. self.t.fields[i].field_name) end
+            elseif cls == Tr.TypeDeclEnumSugar then
+                local seen = {}
+                for i = 1, #self.t.variants do
+                    local name = variant_name_text(self.t.variants[i])
+                    if seen[name] then issues[#issues + 1] = Tr.TypeIssueDuplicateVariant(self.t.name, name) end
+                    seen[name] = true
+                end
+            elseif cls == Tr.TypeDeclTaggedUnionSugar then
+                local seen = {}
+                for i = 1, #self.t.variants do
+                    local v = self.t.variants[i]
+                    local name = v.name
+                    check_type_policy(v.payload, issues, "variant " .. name)
+                    for j = 1, #(v.fields or {}) do check_type_policy(v.fields[j].ty, issues, "variant field " .. v.fields[j].field_name) end
+                    if seen[name] then issues[#issues + 1] = Tr.TypeIssueDuplicateVariant(self.t.name, name) end
+                    seen[name] = true
+                end
+            end
+            return pvm.once(Tr.TypeItemResult({ self }, issues))
+        end,
         [Tr.ItemUseTypeDeclSlot] = function(self) return pvm.once(Tr.TypeItemResult({ self }, {})) end,
         [Tr.ItemUseItemsSlot] = function(self) return pvm.once(Tr.TypeItemResult({ self }, {})) end,
         [Tr.ItemUseModule] = function(self)
@@ -925,8 +1171,10 @@ function M.Define(T)
         [Tr.ItemUseModuleSlot] = function(self) return pvm.once(Tr.TypeItemResult({ self }, {})) end,
     }, { args_cache = "last" })
 
-    local function type_module_with_layout_env(module, extra_layout_env)
-        local module_env = merge_env_layouts(module_type_api.env(module), extra_layout_env)
+    local function type_module_with_layout_env(module, extra_layout_env, target)
+        local base_env = module_type_api.env(module, target)
+        attach_variant_defs(base_env, build_variant_defs(module, base_env.module_name))
+        local module_env = merge_env_layouts(base_env, extra_layout_env)
         local items = {}
         local issues = {}
         for i = 1, #module.items do local r = pvm.one(type_item(module.items[i], module_env)); append_all(items, r.items); append_all(issues, r.issues) end
@@ -935,7 +1183,7 @@ function M.Define(T)
 
     type_module = pvm.phase("moonlift_tree_typecheck_module", {
         [Tr.Module] = function(module)
-            return pvm.once(type_module_with_layout_env(module, nil))
+            return pvm.once(type_module_with_layout_env(module, nil, nil))
         end,
     })
 
@@ -951,7 +1199,7 @@ function M.Define(T)
         module = type_module,
         check_module = function(module, opts)
             opts = opts or {}
-            local result = opts.layout_env and type_module_with_layout_env(module, opts.layout_env) or pvm.one(type_module(module))
+            local result = opts.layout_env and type_module_with_layout_env(module, opts.layout_env, opts.target or opts.c_target) or type_module_with_layout_env(module, nil, opts.target or opts.c_target)
             local collector = opts.collector
             if collector then
                 for i = 1, #result.issues do
@@ -1290,7 +1538,7 @@ local function explain_type_issue(issue, analysis)
     if kind == "TypeIssueUnexpectedYield" then
         return { code = "E0407", severity = "error", phase_context = "while type-checking",
             primary = { span = span, message = "`yield` used outside a region" },
-            notes = { { message = "`yield` can only be used inside a `region` or a `return region -> T` expression" } },
+            notes = { { message = "`yield` can only be used inside a `region` or a `return region: T` expression" } },
             suggestions = { { message = "did you mean `return`? Functions use `return`, not `yield`" } } }
     end
 

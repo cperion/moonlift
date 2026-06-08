@@ -49,6 +49,17 @@ local function run(k, fname, ...)
   return out, src
 end
 
+local function run_quote(k, fname, ...)
+  local ok, errs = Validate.validate(k)
+  assert(ok, table.concat(errs, "\n"))
+  local native, compiled_or_errors = Emit.compile(k, { name = fname })
+  assert(native, table.concat(compiled_or_errors or {}, "; "))
+  local out = native(...)
+  if type(out) == "cdata" then out = tonumber(out) or tonumber(tostring(out):match("^-?%d+")) or out end
+  native:free()
+  return out
+end
+
 local function frame_ref(s) return RT.FrameRef(RT.Name(s)) end
 local function stack_value(frame, slot) return RT.StackValue(frame, RT.Slot(slot)) end
 local function fixed_seq_from_window(frame, base, count, kind)
@@ -90,6 +101,15 @@ assert(run(classify_kernel(), "test_call_classify_lua_closure", v) == 1)
 v.tag = ValueModel.TAG.IntegerTag; v.payload_i64 = 12
 assert(run(classify_kernel(), "test_call_classify_integer", v) == 0)
 
+local function classify_box_kernel(id, tag, handle)
+  return moon_kernel(id, {}, {
+    CFG.Let(temp("callee"), CFG.RuntimeBoxRef(tag, i64(handle or 0))),
+    CFG.Let(temp("out"), CFG.RuntimeClassifyCallee(place("callee"))),
+  }, "i64")
+end
+assert(run_quote(classify_box_kernel("classify_box_closure", RT.LuaClosureTag, 77), "quote_call_classify_lua_closure") == 1)
+assert(run_quote(classify_box_kernel("classify_box_table", RT.TableTag, 12), "quote_call_classify_table") == 0)
+
 local function target_check_kernel(target_to_check)
   local params = { cfg_param("callee", "LuaRTValue") }
   return moon_kernel("target_check", params, {
@@ -115,6 +135,18 @@ assert(run(target_check_bool_kernel(resolved), "test_call_target_mismatch", v) =
 local unknown_resolved = RT.ResolvedCallTarget(call_ref, RT.UnknownCallTarget(callee_value), RT.UnknownTargetIdentity, RT.NotCallable)
 assert(run(target_check_bool_kernel(unknown_resolved), "test_call_target_unknown_false", v) == false)
 
+local function target_check_box_kernel(id, target_to_check, tag, handle)
+  local block = CFG.Block(CFG.BlockId(cname("entry")), {}, {
+    CFG.Let(temp("callee"), CFG.RuntimeBoxRef(tag, i64(handle or 0))),
+    CFG.Let(temp("ok"), CFG.RuntimeCallTargetCheck(place("callee"), target_to_check)),
+  }, CFG.Return({ place("ok") }))
+  local region = CFG.Region(CFG.RegionId(cname(id .. "_body")), {}, {}, CFG.BlockId(cname("entry")), { block })
+  return CFG.Kernel(CFG.KernelId(cname(id)), CFG.InlineSpan, {}, { cty("bool") }, region, empty_contract())
+end
+assert(run_quote(target_check_box_kernel("target_check_box_match", resolved, RT.LuaClosureTag, 77), "quote_call_target_match") == true)
+assert(run_quote(target_check_box_kernel("target_check_box_mismatch", resolved, RT.LuaClosureTag, 78), "quote_call_target_mismatch") == false)
+assert(run_quote(target_check_box_kernel("target_check_box_unknown", unknown_resolved, RT.LuaClosureTag, 77), "quote_call_target_unknown_false") == false)
+
 local function arg_store_kernel()
   local params = { cfg_param("caller_stack", "ptr(LuaRTValue)"), cfg_param("callee_stack", "ptr(LuaRTValue)") }
   return moon_kernel("arg_store", params, {
@@ -130,6 +162,9 @@ local callee_stack = ffi.new("LuaRTValue[8]")
 for i = 1, 3 do caller_stack[i].tag = ValueModel.TAG.IntegerTag; caller_stack[i].payload_i64 = 100 + i end
 assert(run(arg_store_kernel(), "test_call_arg_store_value2", caller_stack, callee_stack) == 103)
 assert(callee_stack[2].payload_i64 == 103)
+local quote_callee_stack = ffi.new("LuaRTValue[8]")
+assert(run_quote(arg_store_kernel(), "quote_call_arg_store_value2", caller_stack, quote_callee_stack) == 103)
+assert(quote_callee_stack[2].payload_i64 == 103)
 
 local function result_seq_kernel()
   local params = { cfg_param("callee_stack", "ptr(LuaRTValue)") }
@@ -141,6 +176,7 @@ local function result_seq_kernel()
 end
 for i = 0, 2 do callee_stack[4 + i].tag = ValueModel.TAG.IntegerTag; callee_stack[4 + i].payload_i64 = 200 + i end
 assert(run(result_seq_kernel(), "test_call_result_seq_value2", callee_stack) == 202)
+assert(run_quote(result_seq_kernel(), "quote_call_result_seq_value2", callee_stack) == 202)
 
 local function manual_call_exec_kernel(contract)
   local ret_window = RT.StackWindow(RT.ReturnWindow, caller, RT.Slot(4), RT.FixedCount(3))
@@ -175,6 +211,11 @@ assert(ok_cfg, table.concat(cfg_validate_errors, ";"))
 for i = 0, 2 do callee_stack[4 + i].tag = ValueModel.TAG.IntegerTag; callee_stack[4 + i].payload_i64 = 300 + i end
 assert(run(cfg, "test_manual_call_region_value2", caller_stack, callee_stack) == 302)
 assert(caller_stack[6].payload_i64 == 302, "ReceiveCallResults must copy third callee result to caller result base")
+local quote_caller_stack = ffi.new("LuaRTValue[8]")
+local quote_callee_results = ffi.new("LuaRTValue[8]")
+for i = 0, 2 do quote_callee_results[4 + i].tag = ValueModel.TAG.IntegerTag; quote_callee_results[4 + i].payload_i64 = 310 + i end
+assert(run_quote(cfg, "quote_manual_call_region_value2", quote_caller_stack, quote_callee_results) == 312)
+assert(quote_caller_stack[6].payload_i64 == 312, "quote ReceiveCallResults must copy third callee result to caller result base")
 
 local missing_cfg, missing_errors = ExecToMoon.lower_outcome(manual_call_exec_kernel(Exec.Contract({}, {})), "value2_payload_i64")
 assert(not missing_cfg and table.concat(missing_errors or {}, ";"):match("missing_call_contract"), "under-contracted CallRegion must reject")

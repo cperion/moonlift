@@ -12,6 +12,12 @@ CompiledModule.__index = CompiledModule
 local CompiledFunction = {}
 CompiledFunction.__index = CompiledFunction
 
+local CCompiledModule = {}
+CCompiledModule.__index = CCompiledModule
+
+local CCompiledFunction = {}
+CCompiledFunction.__index = CCompiledFunction
+
 local scalar_ctype = {
     BackBool = "bool",
     BackI8 = "int8_t", BackI16 = "int16_t", BackI32 = "int32_t", BackI64 = "int64_t",
@@ -199,7 +205,7 @@ local function ctype_of_type(api, ty_value)
     return assert(scalar_ctype[name], "unsupported exported C type: " .. tostring(r.scalar))
 end
 
-local function c_sig_of(api, func_value)
+local function c_signature_parts(api, func_value)
     local pvm = require("moonlift.pvm")
     local Ty = api.T.MoonType
     local args = {}
@@ -208,7 +214,65 @@ local function c_sig_of(api, func_value)
     if result_is_view then args[#args + 1] = "void *" end
     for i = 1, #func_value.params do args[#args + 1] = ctype_of_type(api, func_value.params[i].type) end
     local ret = result_is_view and "void" or ctype_of_type(api, func_value.result)
+    return ret, args
+end
+
+local function c_sig_of(api, func_value)
+    local ret, args = c_signature_parts(api, func_value)
     return ret .. " (*)(" .. table.concat(args, ", ") .. ")"
+end
+
+local function c_decl_of(api, func_value, c_name)
+    local ret, args = c_signature_parts(api, func_value)
+    if #args == 0 then args[1] = "void" end
+    return "extern " .. ret .. " " .. c_name .. "(" .. table.concat(args, ", ") .. ");"
+end
+
+local function shell_quote(s)
+    s = tostring(s)
+    return "'" .. s:gsub("'", "'\\''") .. "'"
+end
+
+local function exec_ok(cmd)
+    local r = os.execute(cmd)
+    return r == true or r == 0
+end
+
+local function command_exists(cmd)
+    local word = tostring(cmd):match("^%s*(%S+)") or tostring(cmd)
+    return exec_ok("command -v " .. shell_quote(word) .. " >/dev/null 2>&1")
+end
+
+local function choose_c_compiler(opts)
+    opts = opts or {}
+    local explicit = opts.cc or opts.compiler or os.getenv("MOONLIFT_C_CC")
+    if explicit and explicit ~= "" then
+        assert(command_exists(explicit), "requested C compiler not found: " .. tostring(explicit))
+        return explicit
+    end
+    local candidates = { "tcc", "cc", "gcc", "clang" }
+    for i = 1, #candidates do if command_exists(candidates[i]) then return candidates[i] end end
+    error("no C compiler found (tried MOONLIFT_C_CC, tcc, cc, gcc, clang)", 3)
+end
+
+local function is_tcc_compiler(cc)
+    local word = tostring(cc):match("^%s*(%S+)") or tostring(cc)
+    word = word:gsub("\\", "/")
+    return word:match("(^|/)tcc$") ~= nil or word:match("(^|/)tinycc$") ~= nil
+end
+
+local function compile_shared_c_source(source, opts)
+    opts = opts or {}
+    local cc = choose_c_compiler(opts)
+    local base = opts.base or os.tmpname()
+    local c_path = opts.c_path or (base .. ".c")
+    local so_path = opts.so_path or (base .. ".so")
+    local f = assert(io.open(c_path, "wb")); f:write(source); f:close()
+    local cflags = opts.cflags or (is_tcc_compiler(cc) and "-std=c99 -shared" or "-std=c99 -fPIC -shared")
+    local ldflags = opts.ldflags or "-lm"
+    local cmd = table.concat({ cc, cflags, shell_quote(c_path), ldflags, "-o", shell_quote(so_path) }, " ")
+    assert(exec_ok(cmd), "C backend compiler failed: " .. cmd)
+    return { compiler = cc, c_path = c_path, so_path = so_path, cleanup = opts.cleanup ~= false }
 end
 
 function BundleValue:_lower_program(opts)
@@ -273,6 +337,10 @@ end
 
 function BundleValue:compile(opts)
     opts = opts or {}
+    local backend = opts.backend or opts.codegen or "cranelift"
+    if backend == "c" or backend == "tcc" or backend == "libtcc" then
+        return self:compile_c(opts)
+    end
     local program = self:_lower_program(opts)
     local Jit = require("moonlift.back_jit")
     local T = self.session.T
@@ -282,6 +350,38 @@ function BundleValue:compile(opts)
     for name, ptr in pairs(opts.symbols or {}) do jit:symbol(name, ptr) end
     local artifact = jit:compile(program)
     return setmetatable({ module = self, artifact = artifact, T = T, functions = {} }, CompiledModule)
+end
+
+function BundleValue:compile_c(opts)
+    opts = opts or {}
+    local source = self:emit_c(opts)
+    local runner = opts.runner or opts.c_runner or opts.backend
+    local symbols = {}
+    for name, ptr in pairs(self.extern_symbols or {}) do symbols[name] = ptr end
+    for name, ptr in pairs(opts.symbols or {}) do symbols[name] = ptr end
+
+    local prefer_libtcc = runner == nil or runner == "c" or runner == "libtcc" or runner == "tcc" or runner == "auto"
+    if prefer_libtcc then
+        local CTcc = require("moonlift.c_tcc")
+        local available = CTcc.available(opts.libtcc_opts)
+        if available then
+            local libtcc_opts = opts.libtcc_opts or {}
+            libtcc_opts.libraries = libtcc_opts.libraries or { "m" }
+            libtcc_opts.host_symbols = libtcc_opts.host_symbols or symbols
+            local session, err = CTcc.compile(source, libtcc_opts)
+            if session then
+                return setmetatable({ module = self, backend = "c", runner = "libtcc", source = source, session = session, T = self.session.T, functions = {} }, CCompiledModule)
+            end
+            if runner == "libtcc" or runner == "tcc" then error(err and err.message or "libtcc compile failed", 2) end
+        elseif runner == "libtcc" or runner == "tcc" then
+            local _, err = CTcc.available(opts.libtcc_opts)
+            error(err and err.message or "libtcc unavailable for callable C backend", 2)
+        end
+    end
+
+    local artifact = compile_shared_c_source(source, opts)
+    local lib = ffi.load(artifact.so_path)
+    return setmetatable({ module = self, backend = "c", runner = "shared", source = source, shared = artifact, lib = lib, T = self.session.T, functions = {} }, CCompiledModule)
 end
 
 function BundleValue:emit_object(opts)
@@ -393,6 +493,48 @@ end
 
 function CompiledModule:free()
     if self.artifact then self.artifact:free(); self.artifact = nil end
+end
+
+function CCompiledModule:get(name)
+    local cached = self.functions[name]
+    if cached then return cached end
+    local func = assert(self.module.exports[name], "compiled C module has no exported function: " .. tostring(name))
+    local c_sig = c_sig_of(self.module.api, func)
+    local c_name = tostring(name):gsub("[^%w_]", "_")
+    local fn
+    if self.runner == "libtcc" then
+        local ptr, err = self.session:symbol(c_name, c_sig)
+        if not ptr then error(err and err.message or ("C symbol not found: " .. c_name), 2) end
+        fn = ptr
+    else
+        pcall(ffi.cdef, c_decl_of(self.module.api, func, c_name))
+        fn = ffi.cast(c_sig, self.lib[c_name])
+    end
+    local wrapped = setmetatable({ module = self, func = func, fn = fn, c_sig = c_sig }, CCompiledFunction)
+    self.functions[name] = wrapped
+    return wrapped
+end
+
+function CCompiledModule:free()
+    if self.session then self.session:free(); self.session = nil end
+    if self.shared and self.shared.cleanup then
+        os.remove(self.shared.c_path)
+        os.remove(self.shared.so_path)
+        self.shared.cleanup = false
+    end
+end
+
+function CCompiledFunction:__call(...)
+    if not self.module then error("compiled C Moonlift function called after module was freed", 2) end
+    return self.fn(...)
+end
+
+function CCompiledFunction:free()
+    if self.module then self.module:free(); self.module = nil end
+end
+
+function CCompiledFunction:__tostring()
+    return "CompiledCMoonFunction(" .. self.func.name .. ": " .. self.c_sig .. ")"
 end
 
 function CompiledFunction:__call(...)

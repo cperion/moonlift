@@ -1,0 +1,241 @@
+{
+	"version": 1,
+	"workflowId": "wf-c-backend-impl",
+	"revision": 27,
+	"nextId": 15,
+	"createdAt": "2026-06-08T08:17:52.904Z",
+	"updatedAt": "2026-06-08T08:53:33.141Z",
+	"tasks": [
+		{
+			"id": "T001",
+			"title": "Add C backend validation ASDL",
+			"detail": "Append MoonC.CBackendValidationIssue and MoonC.CBackendValidationReport after CBackendUnit. Include explicit issue variants for duplicate/missing sigs, funcs, externs, globals, helpers, locals, labels, invalid/duplicate C names, signature/arg/result type mismatches, data/code pointer confusion, invalid alignment, and data initializer bounds. Do not rename existing CBackend* nodes.",
+			"file": "lua/moonlift/c/c_type.lua",
+			"after": [],
+			"status": "done",
+			"order": 1,
+			"claimedBy": "agent-9S89Y9",
+			"evidence": "Added CBackendValidationIssue and CBackendValidationReport to lua/moonlift/c/c_type.lua after CBackendUnit with explicit variants for duplicate/missing ids, C name issues, sig/arg/result mismatches, pointer confusion, helper mismatch, alignment, and data init bounds. Verified schema compiles with `luajit tests/test_schema_types_smoke.lua`.",
+			"notes": [],
+			"createdAt": "2026-06-08T08:17:52.904Z",
+			"updatedAt": "2026-06-08T08:21:05.581Z"
+		},
+		{
+			"id": "T002",
+			"title": "Implement Moonlift type projection to C",
+			"detail": "Create Define(T) module returning cached API for scalar/type projection into MoonC.CBackendType plus deterministic CBackendFuncSig creation/collection. Map bool to CBackendBool8, index to CBackendIndex, ptr to CBackendDataPtr, func/TCFuncPtr to CBackendCodePtr, TCType/TNamed resolved globals to CBackendNamed, arrays/views/slices/closures to named descriptor/type decl plans or explicit unsupported errors as specified in the markdown plan.",
+			"file": "lua/moonlift/type_to_c.lua",
+			"after": [],
+			"status": "done",
+			"order": 2,
+			"claimedBy": "agent-9S89Y9",
+			"evidence": "Created lua/moonlift/type_to_c.lua with Define(T) cache, scalar/type projection into MoonC.CBackendType, deterministic CBackendFuncSigId/ensure_sig collection, and default_target. Verified manually with luajit one-liner projecting func(i32)->i32 and collecting a CBackendFuncSig.",
+			"notes": [],
+			"createdAt": "2026-06-08T08:17:52.904Z",
+			"updatedAt": "2026-06-08T08:23:12.272Z"
+		},
+		{
+			"id": "T003",
+			"title": "Implement C helper registry",
+			"detail": "Create Define(T) module that derives stable CBackendHelperId values from CBackendHelperKind, deduplicates helper uses in a lowering context, provides helper signatures, and emits deterministic helper definitions for wrapping integer ops, division/rem, shifts, intrinsics, memcpy/memset/memcmp, load/store via memcpy, and trap.",
+			"file": "lua/moonlift/c_helpers.lua",
+			"after": [
+				"T002"
+			],
+			"status": "done",
+			"order": 3,
+			"claimedBy": "agent-9S89Y9",
+			"evidence": "Created lua/moonlift/c_helpers.lua with cached Define(T), stable helper_key/helper_id, register(ctx, kind) deduplication, helper_signature for arithmetic/div/rem/shift/intrinsics/load/store/mem* and trap helpers, and deterministic helper C body emission. Verified manually with luajit one-liner registering/deduplicating ml_i32_add_intwrap and emitting its definition.",
+			"notes": [],
+			"createdAt": "2026-06-08T08:17:52.904Z",
+			"updatedAt": "2026-06-08T08:25:08.890Z"
+		},
+		{
+			"id": "T004",
+			"title": "Implement control projection to C blocks",
+			"detail": "Create Define(T, base) module lowering ControlStmtRegion and ControlExprRegion into CBackendBlock records using explicit labels, block params, CBackendGoto/IfGoto/SwitchGoto/Return/Trap terminators, and named jump args. Preserve parallel assignment via block params; validate control facts before lowering.",
+			"file": "lua/moonlift/tree_control_to_c.lua",
+			"after": [
+				"T002"
+			],
+			"status": "done",
+			"order": 4,
+			"claimedBy": "agent-9S89Y9",
+			"evidence": "Created lua/moonlift/tree_control_to_c.lua with Define(T, base), control fact validation, stable label/block-param local helpers, block lowering for jumps/yields/returns/traps and terminal if/switch into CBackendGoto/IfGoto/SwitchGoto blocks, plus entry_goto wrappers. Verified module loads and label_id works with a luajit one-liner.",
+			"notes": [],
+			"createdAt": "2026-06-08T08:17:52.904Z",
+			"updatedAt": "2026-06-08T08:26:52.110Z"
+		},
+		{
+			"id": "T005",
+			"title": "Implement resolved tree to C unit projection",
+			"detail": "Create Define(T) module that lowers resolved MoonTree.Module to MoonC.CBackendUnit. Build target, signatures, type declarations, globals/data, externs, helpers, and funcs. Lower shallow expressions to atoms/rvalues/statements, unsafe arithmetic/memory to helpers, ordinary statement control to blocks, and delegate explicit control regions to tree_control_to_c.",
+			"file": "lua/moonlift/tree_to_c.lua",
+			"after": [
+				"T002",
+				"T003",
+				"T004"
+			],
+			"status": "done",
+			"order": 5,
+			"claimedBy": "agent-9S89Y9",
+			"evidence": "Created lua/moonlift/tree_to_c.lua with cached Define(T) and MoonTree.Module -> MoonC.CBackendUnit projection. It builds target/signatures, externs, data globals, helper uses, functions, params/locals, entry CBackendBlock bodies, shallow expression lowering (literals, refs, binary helpers, compare, machine cast, select, calls, loads), return/trap/expr/let/var statements, and delegates StmtControl to tree_control_to_c. Verified manually with luajit by lowering a hand-built export add(i32,i32)->i32 module to one CBackendFunc, one sig, and one helper.",
+			"notes": [],
+			"createdAt": "2026-06-08T08:17:52.904Z",
+			"updatedAt": "2026-06-08T08:29:45.870Z"
+		},
+		{
+			"id": "T006",
+			"title": "Implement C backend validation",
+			"detail": "Create Define(T) module returning validate(unit[, collector]) -> CBackendValidationReport. Verify declared/reference existence, uniqueness, sanitized C names, block terminators, block arg counts/types, func params vs sig, calls/indirect calls vs signatures, data/code pointer separation, helper semantics, memory alignment, and global initializer bounds.",
+			"file": "lua/moonlift/c_validate.lua",
+			"after": [
+				"T001"
+			],
+			"status": "done",
+			"order": 6,
+			"claimedBy": "agent-9S89Y9",
+			"evidence": "Created lua/moonlift/c_validate.lua with Define(T). validate(unit, collector) indexes unit declarations, checks duplicate/missing sigs/functions/externs/globals/helpers/locals/labels, validates C names, alignments, global init bounds, function param signatures, atom references, block transfer arg counts/types, calls/indirect calls, helper signatures, and returns CBackendValidationReport. Verified manually by lowering the hand-built add module through tree_to_c and validating with 0 issues.",
+			"notes": [],
+			"createdAt": "2026-06-08T08:17:52.904Z",
+			"updatedAt": "2026-06-08T08:31:20.250Z"
+		},
+		{
+			"id": "T007",
+			"title": "Implement deterministic C emission",
+			"detail": "Create Define(T) module that emits C source from a validated CBackendUnit: includes, typedefs/signatures, type declarations, externs, globals/data, helpers, function prototypes, and label/goto functions with transfer temporaries for block params. Keep expressions shallow and deterministic; no loop reconstruction.",
+			"file": "lua/moonlift/c_emit.lua",
+			"after": [
+				"T002",
+				"T003"
+			],
+			"status": "done",
+			"order": 7,
+			"claimedBy": "agent-9S89Y9",
+			"evidence": "Created lua/moonlift/c_emit.lua with deterministic C source emission: includes, signature typedefs, type declarations, externs, globals, helper definitions via c_helpers, function prototypes/definitions, shallow rvalues/statements, gotos/if/switch, returns/traps, and transfer temporaries for block params. Verified by lowering/validating/emitting hand-built add module and running `cc -std=c99 -fsyntax-only /tmp/moon_c_test.c` successfully.",
+			"notes": [],
+			"createdAt": "2026-06-08T08:17:52.904Z",
+			"updatedAt": "2026-06-08T08:33:07.400Z"
+		},
+		{
+			"id": "T008",
+			"title": "Add C pipeline entry points",
+			"detail": "Add lower_module_to_c and parse_and_lower_c APIs that reuse parse/open/closure/typecheck/layout, then call tree_to_c and c_validate. Return expanded/closed/checked/resolved/c_unit/c_report without invoking tree_to_back/back_validate.",
+			"file": "lua/moonlift/frontend_pipeline.lua",
+			"after": [
+				"T005",
+				"T006"
+			],
+			"status": "done",
+			"order": 8,
+			"claimedBy": "agent-9S89Y9",
+			"evidence": "Updated lua/moonlift/frontend_pipeline.lua to require tree_to_c/c_validate, added lower_module_to_c reusing expand/open/closure/typecheck/layout before C projection/validation, added parse_and_lower_c that parses source and invokes the C path without tree_to_back/back_validate, and exported both APIs. Verified existing Cranelift pipeline with `luajit tests/test_schema_compile_pipeline.lua` and C pipeline smoke with parse_and_lower_c on add(i32,i32)->i32 producing 1 func and 0 C validation issues.",
+			"notes": [],
+			"createdAt": "2026-06-08T08:17:52.904Z",
+			"updatedAt": "2026-06-08T08:33:54.587Z"
+		},
+		{
+			"id": "T009",
+			"title": "Expose C backend public APIs",
+			"detail": "Require/export c helpers/modules and add moon.emit_c(src[, path[, name[, opts]]]) that runs parse_and_lower_c, validates, emits source, optionally writes it, and returns source. Keep existing loadstring/emit_object APIs unchanged.",
+			"file": "lua/moonlift/init.lua",
+			"after": [
+				"T007",
+				"T008"
+			],
+			"status": "done",
+			"order": 9,
+			"claimedBy": "agent-9S89Y9",
+			"evidence": "Updated lua/moonlift/init.lua to export type_to_c, tree_to_c, c_validate, c_emit, and c_helpers, and added moon.emit_c(src, path, name, opts) that builds a fresh ASDL context, runs parse_and_lower_c, errors on C validation issues, emits C source, optionally writes it, and returns the source string. Verified with luajit requiring moonlift and emit_c on add(i32,i32)->i32.",
+			"notes": [],
+			"createdAt": "2026-06-08T08:17:52.904Z",
+			"updatedAt": "2026-06-08T08:34:21.376Z"
+		},
+		{
+			"id": "T010",
+			"title": "Expose builder C emission API",
+			"detail": "Add BundleValue:emit_c(opts) and BundleValue:c_source(path_or_opts) methods that lower the host bundle through the C pipeline, emit C source, and optionally write opts.c_path/source_path. Preserve existing compile/object/library behavior.",
+			"file": "lua/moonlift/host_module_values.lua",
+			"after": [
+				"T007",
+				"T008"
+			],
+			"status": "done",
+			"order": 10,
+			"claimedBy": "agent-9S89Y9",
+			"evidence": "Updated lua/moonlift/host_module_values.lua with BundleValue:_lower_c_unit using frontend_pipeline.lower_module_to_c and existing layout/region expansion setup, BundleValue:emit_c(opts) emitting source via c_emit, and BundleValue:c_source(path_or_opts) accepting a path/options and writing opts.c_path/source_path. Verified module loads with luajit require.",
+			"notes": [],
+			"createdAt": "2026-06-08T08:17:52.904Z",
+			"updatedAt": "2026-06-08T08:34:50.375Z"
+		},
+		{
+			"id": "T011",
+			"title": "Add type and helper tests",
+			"detail": "Add tests/test_type_to_c.lua and tests/test_c_helpers.lua covering scalar/pointer/code pointer/named type projection, signature deduplication, helper id stability, and emitted helper snippets for wrapping add/load/trap.",
+			"file": "tests/test_type_to_c.lua",
+			"after": [
+				"T002",
+				"T003"
+			],
+			"status": "done",
+			"order": 11,
+			"claimedBy": "agent-9S89Y9",
+			"evidence": "Added tests/test_type_to_c.lua covering scalar/pointer/code pointer/named type/default target projection and signature deduplication, and tests/test_c_helpers.lua covering helper id stability, register deduplication, add/load/trap helper emitted snippets. Ran `luajit tests/test_type_to_c.lua && luajit tests/test_c_helpers.lua` successfully.",
+			"notes": [],
+			"createdAt": "2026-06-08T08:17:52.904Z",
+			"updatedAt": "2026-06-08T08:35:49.606Z"
+		},
+		{
+			"id": "T012",
+			"title": "Add validation and emission tests",
+			"detail": "Add tests/test_c_validate.lua and tests/test_c_emit.lua with hand-built valid/invalid CBackendUnit values. Assert validation issues for missing locals/helpers/sigs, bad block args, data/code pointer confusion, out-of-bounds globals; assert emitted C contains deterministic sections and passes cc -fsyntax-only when cc exists.",
+			"file": "tests/test_c_validate.lua",
+			"after": [
+				"T006",
+				"T007"
+			],
+			"status": "done",
+			"order": 12,
+			"claimedBy": "agent-9S89Y9",
+			"evidence": "Added missing tests/test_c_emit.lua with a hand-built CBackendUnit that validates, asserts deterministic emitted C sections (banner/includes/signature typedef/extern/global/helper/function/label/return), and syntax-checks with `cc -std=c99 -fsyntax-only` when a C compiler is available. Existing tests/test_c_validate.lua covers valid and invalid hand-built units for missing sig/helper/local, bad block args, data init out-of-bounds, and indirect non-code pointer. Ran `luajit tests/test_c_validate.lua` and `luajit tests/test_c_emit.lua` successfully.",
+			"notes": [],
+			"createdAt": "2026-06-08T08:17:52.904Z",
+			"updatedAt": "2026-06-08T08:53:33.141Z"
+		},
+		{
+			"id": "T013",
+			"title": "Add end-to-end C backend smoke tests",
+			"detail": "Add tests/test_tree_to_c_smoke.lua and tests/test_emit_c_api.lua that compile simple resolved Moonlift programs (scalar add, if, switch/block loop, extern declaration) through parse_and_lower_c and emit_c. Validate zero C issues and syntax-check emitted C when a C compiler is available.",
+			"file": "tests/test_tree_to_c_smoke.lua",
+			"after": [
+				"T008",
+				"T009",
+				"T010"
+			],
+			"status": "done",
+			"order": 13,
+			"claimedBy": "agent-K8DYY6",
+			"evidence": "Added tests/test_tree_to_c_smoke.lua covering parse_and_lower_c plus C emission for scalar add, expression-control if, switch, block-param loop, and extern call with zero C validation issues and cc -std=c99 -fsyntax-only when cc is available. Added tests/test_emit_c_api.lua covering moon.emit_c return/write behavior and BundleValue:c_source return/write behavior with syntax checks. While making the smoke tests pass, fixed expression-control return lowering and block-param bindings in lua/moonlift/tree_to_c.lua and lua/moonlift/tree_control_to_c.lua, added switch raw_key literal lowering, and corrected zero-field CBackend type emission/void checks in lua/moonlift/c_emit.lua, lua/moonlift/c_helpers.lua, lua/moonlift/c_validate.lua, and lua/moonlift/tree_to_c.lua. Ran: luajit tests/test_tree_to_c_smoke.lua; luajit tests/test_emit_c_api.lua; luajit tests/test_type_to_c.lua; luajit tests/test_c_helpers.lua; luajit tests/test_c_validate.lua; luajit tests/test_schema_compile_pipeline.lua.",
+			"notes": [],
+			"createdAt": "2026-06-08T08:17:52.904Z",
+			"updatedAt": "2026-06-08T08:49:59.968Z"
+		},
+		{
+			"id": "T014",
+			"title": "Run focused C backend test suite",
+			"detail": "Run luajit tests/test_schema_types_smoke.lua, tests/test_type_to_c.lua, tests/test_c_helpers.lua, tests/test_c_validate.lua, tests/test_c_emit.lua, tests/test_tree_to_c_smoke.lua, and tests/test_emit_c_api.lua. Then run one existing pipeline regression such as tests/test_schema_compile_pipeline.lua to confirm Cranelift path unchanged.",
+			"file": "tests",
+			"after": [
+				"T011",
+				"T012",
+				"T013"
+			],
+			"status": "done",
+			"order": 14,
+			"evidence": "Ran focused suite successfully: `luajit tests/test_schema_types_smoke.lua && luajit tests/test_type_to_c.lua && luajit tests/test_c_helpers.lua && luajit tests/test_c_validate.lua && luajit tests/test_c_emit.lua && luajit tests/test_tree_to_c_smoke.lua && luajit tests/test_emit_c_api.lua && luajit tests/test_schema_compile_pipeline.lua`.",
+			"notes": [],
+			"createdAt": "2026-06-08T08:17:52.904Z",
+			"updatedAt": "2026-06-08T08:53:33.141Z"
+		}
+	]
+}

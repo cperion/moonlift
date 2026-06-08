@@ -6,7 +6,7 @@ local Host = require("moonlift.mlua_run")
 -- Returns iteration count clamped to 0..max_it.
 -- zx, zy, cr, ci all Q16.16. |z| > 2 check via (zx^2 + zy^2) > 4 * 65536^2
 local mandel = Host.eval [[
-local mandel = func(cr: i32, ci: i32, max_it: i32) -> i32
+local mandel = func(cr: i32, ci: i32, max_it: i32): i32
     block loop(i: i32 = 0, zx: i32 = 0, zy: i32 = 0)
         if i >= max_it then return i end
         let zx2: i32 = as(i32, (as(i64, zx) * as(i64, zx)) >> 16)

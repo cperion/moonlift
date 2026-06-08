@@ -18,7 +18,7 @@ local Tr = T.MoonTree
 local V = T.MoonVec
 
 local src = [[
-func add_raw_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32) -> i32
+func add_raw_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then
             return 0
@@ -28,7 +28,7 @@ func add_raw_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32) -> i32
     end
 end
 
-func add_noalias_i32(noalias dst: ptr(i32), readonly a: ptr(i32), readonly b: ptr(i32), n: i32) -> i32
+func add_noalias_i32(noalias dst: ptr(i32), readonly a: ptr(i32), readonly b: ptr(i32), n: i32): i32
     requires bounds(dst, n)
     requires bounds(a, n)
     requires bounds(b, n)

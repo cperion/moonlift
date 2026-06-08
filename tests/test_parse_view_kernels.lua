@@ -25,8 +25,8 @@ local C = T.MoonCore
 local Vec = T.MoonVec
 
 local src = [[
-func sum_view_i32(xs: view(i32)) -> i32
-    return block loop(i: index = 0, acc: i32 = 0) -> i32
+func sum_view_i32(xs: view(i32)): i32
+    return block loop(i: index = 0, acc: i32 = 0): i32
         if i >= len(xs) then
             yield acc
         end

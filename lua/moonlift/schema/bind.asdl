@@ -1,0 +1,66 @@
+module MoonBind {
+    BindingClass = BindingClassLocalValue
+         | BindingClassLocalCell
+         | BindingClassArg(number index) unique
+         | BindingClassBlockParam(string region_id, string block_name, number index) unique
+         | BindingClassEntryBlockParam(string region_id, string block_name, number index) unique
+         | BindingClassContParam(string region_id, string cont_name, number index) unique
+         | BindingClassGlobalFunc(string module_name, string item_name) unique
+         | BindingClassGlobalConst(string module_name, string item_name) unique
+         | BindingClassGlobalStatic(string module_name, string item_name) unique
+         | BindingClassExtern(string symbol) unique
+         | BindingClassOpenParam(MoonOpen.OpenParam param) unique
+         | BindingClassImport(MoonOpen.ValueImport import) unique
+         | BindingClassOpenSym(MoonCore.OpenSym sym) unique
+         | BindingClassOpenSlot(MoonOpen.Slot slot) unique
+
+    Binding = (MoonCore.Id id, string name, MoonType.Type ty, MoonBind.BindingClass class) unique
+
+    Residence = ResidenceUnknown
+         | ResidenceValue
+         | ResidenceStack
+         | ResidenceCell
+
+    ResidenceReason = ResidenceBecauseDefault
+         | ResidenceBecauseAddressTaken
+         | ResidenceBecauseMutableCell
+         | ResidenceBecauseNonScalarAbi
+         | ResidenceBecauseMaterializedTemporary
+         | ResidenceBecauseBackendRequired
+
+    ResidenceFact = ResidenceFactBinding(MoonBind.Binding binding) unique
+         | ResidenceFactAddressTaken(MoonBind.Binding binding) unique
+         | ResidenceFactMutableCell(MoonBind.Binding binding) unique
+         | ResidenceFactNonScalarAbi(MoonBind.Binding binding) unique
+         | ResidenceFactMaterializedTemporary(MoonBind.Binding binding) unique
+         | ResidenceFactBackendRequired(MoonBind.Binding binding) unique
+
+    ResidenceFactSet = (MoonBind.ResidenceFact* facts) unique
+
+    ResidenceDecision = (MoonBind.Binding binding, MoonBind.Residence residence, MoonBind.ResidenceReason reason) unique
+
+    ResidencePlan = (MoonBind.ResidenceDecision* decisions) unique
+
+    MachineBinding = (MoonBind.Binding binding, MoonBind.Residence residence) unique
+
+    MachineBindingSet = (MoonBind.MachineBinding* bindings) unique
+
+    ValueRef = ValueRefName(string name) unique
+         | ValueRefPath(MoonCore.Path path) unique
+         | ValueRefBinding(MoonBind.Binding binding) unique
+         | ValueRefHole(MoonOpen.Slot slot) unique
+
+    ValueEntry = (string name, MoonBind.Binding binding) unique
+
+    TypeEntry = (string name, MoonType.Type ty) unique
+
+    Env = (string module_name, MoonBind.ValueEntry* values, MoonBind.TypeEntry* types, MoonSem.TypeLayout* layouts) unique
+
+    ConstEntry = (string module_name, string item_name, MoonType.Type ty, MoonTree.Expr value) unique
+
+    ConstEnv = (MoonBind.ConstEntry* entries) unique
+
+    StmtEnvEffect = StmtEnvNoBinding
+         | StmtEnvAddBinding(MoonBind.ValueEntry entry) unique
+         | StmtEnvAddBindings(MoonBind.ValueEntry* entries) unique
+}

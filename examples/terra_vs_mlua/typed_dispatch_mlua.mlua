@@ -95,7 +95,7 @@ end
 
 local function positive_after(tag, pivot)
     local name = "positive_after_" .. tostring(tag)
-    return expr @{name}(x: i32) -> i32
+    return expr @{name}(x: i32): i32
         select(x > @{pivot}, x - @{pivot}, 0)
     end
 end
@@ -115,8 +115,8 @@ entry loop(i: i32 = 0, a: i32 = 0, b: i32 = 0)
 end
 end
 
-local parse_packet = func(p: ptr(u8), n: i32) -> i32
-    return region -> i32
+local parse_packet = func(p: ptr(u8), n: i32): i32
+    return region: i32
     entry start()
         if n <= 0 then yield -1 end
         switch as(i32, p[0]) do
@@ -145,8 +145,8 @@ local parse_packet = func(p: ptr(u8), n: i32) -> i32
     end
 end
 
-local score_pair = func(p: ptr(u8), n: i32) -> i32
-    return region -> i32
+local score_pair = func(p: ptr(u8), n: i32): i32
+    return region: i32
     entry start()
         emit score_pair_region(p, n; done = out)
     end

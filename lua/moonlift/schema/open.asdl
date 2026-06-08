@@ -1,0 +1,199 @@
+module MoonOpen {
+    TypeSlot = (string key, string pretty_name) unique
+
+    ValueSlot = (string key, string pretty_name, MoonType.Type ty) unique
+
+    ExprSlot = (string key, string pretty_name, MoonType.Type? ty) unique
+
+    PlaceSlot = (string key, string pretty_name, MoonType.Type? ty) unique
+
+    DomainSlot = (string key, string pretty_name) unique
+
+    RegionSlot = (string key, string pretty_name) unique
+
+    ContSlot = (string key, string pretty_name, MoonTree.BlockParam* params) unique
+
+    FuncSlot = (string key, string pretty_name, MoonType.Type fn_ty) unique
+
+    ConstSlot = (string key, string pretty_name, MoonType.Type ty) unique
+
+    StaticSlot = (string key, string pretty_name, MoonType.Type ty) unique
+
+    TypeDeclSlot = (string key, string pretty_name) unique
+
+    ItemsSlot = (string key, string pretty_name) unique
+
+    ModuleSlot = (string key, string pretty_name) unique
+
+    NameSlot = (string key, string pretty_name) unique
+
+    RegionFragSlot = (string key, string pretty_name) unique
+
+    ExprFragSlot = (string key, string pretty_name) unique
+
+    RegionFragRef = RegionFragRefName(string name) unique
+         | RegionFragRefSlot(MoonOpen.RegionFragSlot slot) unique
+
+    ExprFragRef = ExprFragRefName(string name) unique
+         | ExprFragRefSlot(MoonOpen.ExprFragSlot slot) unique
+
+    NameRef = NameRefText(string text) unique
+         | NameRefSlot(MoonOpen.NameSlot slot) unique
+
+    Slot = SlotType(MoonOpen.TypeSlot slot) unique
+         | SlotValue(MoonOpen.ValueSlot slot) unique
+         | SlotExpr(MoonOpen.ExprSlot slot) unique
+         | SlotPlace(MoonOpen.PlaceSlot slot) unique
+         | SlotDomain(MoonOpen.DomainSlot slot) unique
+         | SlotRegion(MoonOpen.RegionSlot slot) unique
+         | SlotCont(MoonOpen.ContSlot slot) unique
+         | SlotFunc(MoonOpen.FuncSlot slot) unique
+         | SlotConst(MoonOpen.ConstSlot slot) unique
+         | SlotStatic(MoonOpen.StaticSlot slot) unique
+         | SlotTypeDecl(MoonOpen.TypeDeclSlot slot) unique
+         | SlotItems(MoonOpen.ItemsSlot slot) unique
+         | SlotModule(MoonOpen.ModuleSlot slot) unique
+         | SlotRegionFrag(MoonOpen.RegionFragSlot slot) unique
+         | SlotExprFrag(MoonOpen.ExprFragSlot slot) unique
+         | SlotName(MoonOpen.NameSlot slot) unique
+
+    ModuleNameFacet = ModuleNameOpen
+         | ModuleNameFixed(string module_name) unique
+
+    OpenParam = (string key, string name, MoonType.Type ty) unique
+
+    ValueImport = ImportValue(string key, string name, MoonType.Type ty) unique
+         | ImportGlobalFunc(string key, string module_name, string item_name, MoonType.Type ty) unique
+         | ImportGlobalConst(string key, string module_name, string item_name, MoonType.Type ty) unique
+         | ImportGlobalStatic(string key, string module_name, string item_name, MoonType.Type ty) unique
+         | ImportExtern(string key, string symbol, MoonType.Type ty) unique
+
+    TypeImport = (string key, string local_name, MoonType.Type ty) unique
+
+    OpenSet = (MoonOpen.ValueImport* value_imports, MoonOpen.TypeImport* type_imports, MoonSem.TypeLayout* layouts, MoonOpen.Slot* slots) unique
+
+    SourceBinding = SourceParamBinding(MoonOpen.OpenParam param) unique
+         | SourceValueImportBinding(MoonOpen.ValueImport import) unique
+         | SourceExprSlotBinding(MoonOpen.ExprSlot slot) unique
+         | SourceFuncSlotBinding(MoonOpen.FuncSlot slot) unique
+         | SourceConstSlotBinding(MoonOpen.ConstSlot slot) unique
+         | SourceStaticSlotBinding(MoonOpen.StaticSlot slot) unique
+
+    SourceBindingEntry = (MoonBind.Binding binding, MoonOpen.SourceBinding source) unique
+
+    SourceTypeEntry = (MoonType.Type ty, MoonType.Type meta_ty) unique
+
+    SourceEnv = (string module_name, MoonOpen.SourceBindingEntry* bindings, MoonOpen.SourceTypeEntry* types) unique
+
+    FragId = (string key, string pretty_name) unique
+
+    UseId = (string path) unique
+
+    ContTarget = ContTargetLabel(MoonTree.BlockLabel label) unique
+         | ContTargetSlot(MoonOpen.ContSlot slot) unique
+
+    ContBinding = (string name, MoonOpen.ContTarget target) unique
+
+    ParamBinding = (MoonOpen.OpenParam param, MoonTree.Expr value) unique
+
+    FillSet = (MoonOpen.SlotBinding* bindings) unique
+
+    ExpandEnv = (MoonOpen.RegionFrag* region_frags, MoonOpen.ExprFrag* expr_frags, MoonOpen.FillSet fills, MoonOpen.ContBinding* conts, MoonOpen.ParamBinding* params, string rebase_prefix) unique
+
+    SealParamEntry = (MoonOpen.OpenParam param, number index) unique
+
+    SealEnv = (string module_name, MoonOpen.SealParamEntry* params) unique
+
+    ExprFrag = (MoonOpen.NameRef name, MoonOpen.OpenParam* params, MoonOpen.OpenSet open, MoonTree.Expr body, MoonType.Type result) unique
+
+    RegionFrag = (MoonOpen.NameRef name, MoonOpen.OpenParam* params, MoonOpen.ContSlot* conts, MoonOpen.OpenSet open, MoonTree.EntryControlBlock entry, MoonTree.ControlBlock* blocks) unique
+
+    RegionFragDecl = (MoonOpen.NameRef name, MoonOpen.OpenParam* params, MoonOpen.ContSlot* conts) unique
+
+    SlotValue = SlotValueType(MoonType.Type ty) unique
+         | SlotValueExpr(MoonTree.Expr expr) unique
+         | SlotValueExprs(MoonTree.Expr* exprs) unique
+         | SlotValueTypes(MoonType.Type* types) unique
+         | SlotValueParams(MoonType.Param* params) unique
+         | SlotValueFields(MoonType.FieldDecl* fields) unique
+         | SlotValueVariants(MoonType.VariantDecl* variants) unique
+         | SlotValueBlockParams(MoonTree.BlockParam* params) unique
+         | SlotValueEntryParams(MoonTree.EntryBlockParam* params) unique
+         | SlotValueOpenParams(MoonOpen.OpenParam* params) unique
+         | SlotValueContSlots(MoonOpen.ContSlot* conts) unique
+         | SlotValueControlBlocks(MoonTree.ControlBlock* blocks) unique
+         | SlotValueSwitchStmtArms(MoonTree.SwitchStmtArm* arms) unique
+         | SlotValueSwitchExprArms(MoonTree.SwitchExprArm* arms) unique
+         | SlotValuePlace(MoonTree.Place place) unique
+         | SlotValueDomain(MoonTree.Domain domain) unique
+         | SlotValueRegion(MoonTree.Stmt* body) unique
+         | SlotValueCont(MoonTree.BlockLabel label) unique
+         | SlotValueContSlot(MoonOpen.ContSlot slot) unique
+         | SlotValueFunc(MoonTree.Func func) unique
+         | SlotValueConst(MoonTree.ConstItem c) unique
+         | SlotValueStatic(MoonTree.StaticItem s) unique
+         | SlotValueTypeDecl(MoonTree.TypeDecl t) unique
+         | SlotValueItems(MoonTree.Item* items) unique
+         | SlotValueModule(MoonTree.Module module) unique
+         | SlotValueRegionFrag(MoonOpen.RegionFrag frag) unique
+         | SlotValueExprFrag(MoonOpen.ExprFrag frag) unique
+         | SlotValueName(string text) unique
+
+    SlotBinding = (MoonOpen.Slot slot, MoonOpen.SlotValue value) unique
+
+    RewriteRule = RewriteType(MoonType.Type from, MoonType.Type to) unique
+         | RewriteBinding(MoonBind.Binding from, MoonBind.Binding to) unique
+         | RewritePlace(MoonTree.Place from, MoonTree.Place to) unique
+         | RewriteDomain(MoonTree.Domain from, MoonTree.Domain to) unique
+         | RewriteExpr(MoonTree.Expr from, MoonTree.Expr to) unique
+         | RewriteStmt(MoonTree.Stmt from, MoonTree.Stmt* to) unique
+         | RewriteItem(MoonTree.Item from, MoonTree.Item* to) unique
+
+    RewriteSet = (MoonOpen.RewriteRule* rules) unique
+
+    MetaFact = MetaFactSlot(MoonOpen.Slot slot) unique
+         | MetaFactParamUse(MoonOpen.OpenParam param) unique
+         | MetaFactValueImportUse(MoonOpen.ValueImport import) unique
+         | MetaFactLocalValue(string id, string name) unique
+         | MetaFactLocalCell(string id, string name) unique
+         | MetaFactBlockParam(string region_id, string block_name, number index, string name) unique
+         | MetaFactEntryBlockParam(string region_id, string block_name, number index, string name) unique
+         | MetaFactGlobalFunc(string module_name, string item_name) unique
+         | MetaFactGlobalConst(string module_name, string item_name) unique
+         | MetaFactGlobalStatic(string module_name, string item_name) unique
+         | MetaFactExtern(string symbol) unique
+         | MetaFactExprFragUse(string use_id) unique
+         | MetaFactRegionFragUse(string use_id) unique
+         | MetaFactRegionFragSlotUse(MoonOpen.RegionFragSlot slot) unique
+         | MetaFactExprFragSlotUse(MoonOpen.ExprFragSlot slot) unique
+         | MetaFactModuleUse(string use_id) unique
+         | MetaFactModuleSlotUse(string use_id, MoonOpen.ModuleSlot slot) unique
+         | MetaFactOpenModuleName
+         | MetaFactLocalType(MoonCore.TypeSym sym) unique
+
+    MetaFactSet = (MoonOpen.MetaFact* facts) unique
+
+    ValidationIssue = IssueOpenSlot(MoonOpen.Slot slot) unique
+         | IssueUnfilledTypeSlot(MoonOpen.TypeSlot slot) unique
+         | IssueUnfilledExprSlot(MoonOpen.ExprSlot slot) unique
+         | IssueUnfilledPlaceSlot(MoonOpen.PlaceSlot slot) unique
+         | IssueUnfilledDomainSlot(MoonOpen.DomainSlot slot) unique
+         | IssueUnfilledRegionSlot(MoonOpen.RegionSlot slot) unique
+         | IssueUnfilledContSlot(MoonOpen.ContSlot slot) unique
+         | IssueUnfilledFuncSlot(MoonOpen.FuncSlot slot) unique
+         | IssueUnfilledConstSlot(MoonOpen.ConstSlot slot) unique
+         | IssueUnfilledStaticSlot(MoonOpen.StaticSlot slot) unique
+         | IssueUnfilledTypeDeclSlot(MoonOpen.TypeDeclSlot slot) unique
+         | IssueUnfilledItemsSlot(MoonOpen.ItemsSlot slot) unique
+         | IssueUnfilledModuleSlot(MoonOpen.ModuleSlot slot) unique
+         | IssueUnexpandedExprFragUse(string use_id) unique
+         | IssueUnexpandedRegionFragUse(string use_id) unique
+         | IssueUnfilledRegionFragSlot(MoonOpen.RegionFragSlot slot) unique
+         | IssueUnfilledExprFragSlot(MoonOpen.ExprFragSlot slot) unique
+         | IssueUnfilledNameSlot(MoonOpen.NameSlot slot) unique
+         | IssueUnexpandedModuleUse(string use_id) unique
+         | IssueOpenModuleName
+         | IssueGenericValueImport(MoonOpen.ValueImport import) unique
+
+    ValidationReport = (MoonOpen.ValidationIssue* issues) unique
+}

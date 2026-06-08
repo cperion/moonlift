@@ -265,8 +265,8 @@ local literal_arms = {
 -- Mutually-recursive parser functions
 -- ---------------------------------------------------------------------------
 
-local parse_array = func(L: @{voidp}, p: ptr(u8), n: i32, pos: i32, buf: ptr(u8)) -> i32
-    return region -> i32
+local parse_array = func(L: @{voidp}, p: ptr(u8), n: i32, pos: i32, buf: ptr(u8)): i32
+    return region: i32
     entry start()
         lua_createtable(L, 16, 0)
         emit @{skip_ws}(p, n, pos + 1; ok = check_empty)
@@ -314,8 +314,8 @@ local parse_array = func(L: @{voidp}, p: ptr(u8), n: i32, pos: i32, buf: ptr(u8)
     end
 end
 
-local parse_object = func(L: @{voidp}, p: ptr(u8), n: i32, pos: i32, buf: ptr(u8)) -> i32
-    return region -> i32
+local parse_object = func(L: @{voidp}, p: ptr(u8), n: i32, pos: i32, buf: ptr(u8)): i32
+    return region: i32
     entry start()
         lua_createtable(L, 0, 16)
         emit @{skip_ws}(p, n, pos + 1; ok = check_empty)
@@ -356,8 +356,8 @@ local parse_object = func(L: @{voidp}, p: ptr(u8), n: i32, pos: i32, buf: ptr(u8
     end
 end
 
-local parse_value = func(L: @{voidp}, p: ptr(u8), n: i32, pos: i32, buf: ptr(u8)) -> i32
-    return region -> i32
+local parse_value = func(L: @{voidp}, p: ptr(u8), n: i32, pos: i32, buf: ptr(u8)): i32
+    return region: i32
     entry start()
         emit @{skip_ws}(p, n, pos; ok = dispatch)
     end
@@ -388,8 +388,8 @@ local parse_value = func(L: @{voidp}, p: ptr(u8), n: i32, pos: i32, buf: ptr(u8)
     end
 end
 
-local decode_json_to_lua_stack = func(L: @{voidp}, p: ptr(u8), n: i32, buf: ptr(u8)) -> i32
-    return region -> i32
+local decode_json_to_lua_stack = func(L: @{voidp}, p: ptr(u8), n: i32, buf: ptr(u8)): i32
+    return region: i32
     entry start()
         let after_value = parse_value(L, p, n, 0, buf)
         if after_value < 0 then yield -1 end

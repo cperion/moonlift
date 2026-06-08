@@ -2,7 +2,7 @@
 --
 -- This module has the same public shape as moonlift.back_jit, but it runs inside
 -- the Rust host binary.  The host owns one moonlift::Jit and exposes
--- _host_compile_binary(payload) -> HostedArtifact userdata. No cdylib FFI JIT
+-- _host_compile_binary(payload): HostedArtifact userdata. No cdylib FFI JIT
 -- boundary is used on this path.
 
 local ffi = require("ffi")

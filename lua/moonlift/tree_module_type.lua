@@ -77,10 +77,13 @@ function M.Define(T)
         return math.floor((x + a - 1) / a) * a
     end
 
-    local function field_layout(fields, env, is_union)
+    local function tag_ty() return Ty.TScalar(C.ScalarU32) end
+    local function payload_byte_array(size) return Ty.TArray(Ty.ArrayLenConst(size), Ty.TScalar(C.ScalarU8)) end
+
+    local function field_layout(fields, env, is_union, target)
         local out, offset, max_size, max_align = {}, 0, 0, 1
         for i = 1, #fields do
-            local r = layout_api.result(fields[i].ty, env)
+            local r = layout_api.result(fields[i].ty, env, target)
             local size, align = 0, 1
             if pvm.classof(r) == Ty.TypeMemLayoutKnown then size, align = r.layout.size, r.layout.align end
             if is_union then
@@ -99,16 +102,47 @@ function M.Define(T)
     end
 
     item_layout = pvm.phase("moonlift_tree_item_layout", {
-        [Tr.ItemType] = function(self, mod_name, env)
+        [Tr.ItemType] = function(self, mod_name, env, target)
             local t = self.t
             local cls = pvm.classof(t)
             if cls == Tr.TypeDeclStruct or cls == Tr.TypeDeclUnion then
-                local fields, size, align = field_layout(t.fields, env, cls == Tr.TypeDeclUnion)
+                local fields, size, align = field_layout(t.fields, env, cls == Tr.TypeDeclUnion, target)
                 return pvm.once(Sem.LayoutNamed(mod_name, t.name, fields, size, align))
             end
             if cls == Tr.TypeDeclOpenStruct or cls == Tr.TypeDeclOpenUnion then
-                local fields, size, align = field_layout(t.fields, env, cls == Tr.TypeDeclOpenUnion)
+                local fields, size, align = field_layout(t.fields, env, cls == Tr.TypeDeclOpenUnion, target)
                 return pvm.once(Sem.LayoutLocal(t.sym, fields, size, align))
+            end
+            if cls == Tr.TypeDeclEnumSugar then
+                local tag_layout = layout_api.result(tag_ty(), env, target).layout
+                return pvm.once(Sem.LayoutNamed(mod_name, t.name, { Sem.FieldLayout("__tag", 0, tag_ty()) }, tag_layout.size, tag_layout.align))
+            end
+            if cls == Tr.TypeDeclTaggedUnionSugar then
+                local tag_layout = layout_api.result(tag_ty(), env, target).layout
+                local payload_size, payload_align = 0, 1
+                for i = 1, #t.variants do
+                    local v = t.variants[i]
+                    local sz, al
+                    if #(v.fields or {}) > 0 then
+                        local _, fsz, fal = field_layout(v.fields, env, false, target)
+                        sz, al = fsz, fal
+                    else
+                        local r = layout_api.result(v.payload, env, target)
+                        local l = pvm.classof(r) == Ty.TypeMemLayoutKnown and r.layout or Sem.MemLayout(0, 1)
+                        sz, al = l.size, l.align
+                    end
+                    if sz > payload_size then payload_size = sz end
+                    if al > payload_align then payload_align = al end
+                end
+                local fields = { Sem.FieldLayout("__tag", 0, tag_ty()) }
+                local size, align = tag_layout.size, tag_layout.align
+                if payload_size > 0 then
+                    local payload_offset = align_up(tag_layout.size, payload_align)
+                    fields[#fields + 1] = Sem.FieldLayout("__payload", payload_offset, payload_byte_array(payload_size))
+                    size = payload_offset + payload_size
+                    if payload_align > align then align = payload_align end
+                end
+                return pvm.once(Sem.LayoutNamed(mod_name, t.name, fields, align_up(size, align), align))
             end
             return pvm.empty()
         end,
@@ -119,9 +153,9 @@ function M.Define(T)
         [Tr.ItemImport] = function() return pvm.empty() end,
         [Tr.ItemUseTypeDeclSlot] = function() return pvm.empty() end,
         [Tr.ItemUseItemsSlot] = function() return pvm.empty() end,
-        [Tr.ItemUseModule] = function(self, _, env)
+        [Tr.ItemUseModule] = function(self, _, env, target)
             local use_mod_name = pvm.one(module_name(self.module.h))
-            return pvm.children(function(item) return item_layout(item, use_mod_name, env) end, self.module.items)
+            return pvm.children(function(item) return item_layout(item, use_mod_name, env, target) end, self.module.items)
         end,
         [Tr.ItemUseModuleSlot] = function() return pvm.empty() end,
     }, { args_cache = "last" })
@@ -143,7 +177,7 @@ function M.Define(T)
     }, { args_cache = "last" })
 
     module_env = pvm.phase("moonlift_tree_module_env", {
-        [Tr.Module] = function(module)
+        [Tr.Module] = function(module, target)
             local mod_name = pvm.one(module_name(module.h))
             local values = {}
             local types = {}
@@ -159,7 +193,7 @@ function M.Define(T)
                 local pass_layouts = {}
                 local layout_env = Sem.LayoutEnv(layouts)
                 for i = 1, #module.items do
-                    local ls = pvm.drain(item_layout(module.items[i], mod_name, layout_env))
+                    local ls = pvm.drain(item_layout(module.items[i], mod_name, layout_env, target))
                     for j = 1, #ls do pass_layouts[#pass_layouts + 1] = ls[j] end
                 end
                 layouts = pass_layouts
@@ -172,7 +206,7 @@ function M.Define(T)
         module_name = module_name,
         item_env_entries = item_env_entries,
         module_env = module_env,
-        env = function(module) return pvm.one(module_env(module)) end,
+        env = function(module, target) return pvm.one(module_env(module, target)) end,
     }
 end
 

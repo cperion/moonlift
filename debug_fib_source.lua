@@ -7,7 +7,7 @@ local Pipeline = require("moonlift.frontend_pipeline").Define(T)
 local BL = require("moonlift.back_luajit").Define(T)
 
 local src = [[
-func fib(n: i32) -> i32
+func fib(n: i32): i32
     if n <= 1 then return n end
     return fib(n - 1) + fib(n - 2)
 end

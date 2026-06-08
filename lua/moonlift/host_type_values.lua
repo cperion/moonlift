@@ -152,14 +152,14 @@ function M.Install(api, session)
         local tys, srcs = type_list(params or {}, "func_type params must be type values")
         local ret = as_type(result or api.void, "func_type result must be a type value")
         local ret_src = source_of(result or api.void, "func_type result must be a type value")
-        return type_value(Ty.TFunc(tys, ret), "func(" .. table.concat(srcs, ", ") .. ") -> " .. ret_src)
+        return type_value(Ty.TFunc(tys, ret), "func(" .. table.concat(srcs, ", ") .. "): " .. ret_src)
     end
 
     function api.closure_type(params, result)
         local tys, srcs = type_list(params or {}, "closure_type params must be type values")
         local ret = as_type(result or api.void, "closure_type result must be a type value")
         local ret_src = source_of(result or api.void, "closure_type result must be a type value")
-        return type_value(Ty.TClosure(tys, ret), "closure(" .. table.concat(srcs, ", ") .. ") -> " .. ret_src)
+        return type_value(Ty.TClosure(tys, ret), "closure(" .. table.concat(srcs, ", ") .. "): " .. ret_src)
     end
 
     function api.named(module_name, type_name)

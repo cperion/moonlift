@@ -103,11 +103,11 @@ local function test_full_pipeline()
     local V = Validate.Define(T)
 
     local srcs = {
-        [[func simple(a: i32) -> i32 return a + 1 end]],
+        [[func simple(a: i32): i32 return a + 1 end]],
         [[func ret_void(x: ptr(i32), n: i32) block loop(i: i32 = 0) if i >= n then return end x[i] = i jump loop(i = i + 1) end end]],
-        [[func branch(cond: i32) -> i32 if cond ~= 0 then return 1 else return 2 end end]],
-        [[func call_add(a: i32, b: i32) -> i32 return a + b end
-          func caller(x: i32) -> i32 return call_add(x, 1) end]],
+        [[func branch(cond: i32): i32 if cond ~= 0 then return 1 else return 2 end end]],
+        [[func call_add(a: i32, b: i32): i32 return a + b end
+          func caller(x: i32): i32 return call_add(x, 1) end]],
     }
 
     for i = 1, #srcs do

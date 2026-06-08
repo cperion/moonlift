@@ -23,7 +23,7 @@ struct User
     active: bool32
 end
 expose Users: view(User)
-func User:is_active(self: ptr(User)) -> bool
+func User:is_active(self: ptr(User)): bool
     return true
 end
 region Done(n: i32; done: cont(total: i32))
@@ -31,10 +31,10 @@ entry start(total: i32 = 0)
     jump done(total = total)
 end
 end
-expr FortyTwo() -> i32
+expr FortyTwo(): i32
     42
 end
-func two() -> i32
+func two(): i32
     return 2
 end
 ]]

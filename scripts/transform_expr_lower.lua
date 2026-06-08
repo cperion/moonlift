@@ -111,7 +111,7 @@ end
 local kMB_LOWER_EXPR_FN = [[
 -- ── Function-based expression lowering (avoids region emit recursion) ──
 
-local mb_lower_expr_fn = func(ctx: ptr(@{MomBackLowerCtx}), tree: ptr(@{MomTreeOut}), idx: i32) -> bool
+local mb_lower_expr_fn = func(ctx: ptr(@{MomBackLowerCtx}), tree: ptr(@{MomTreeOut}), idx: i32): bool
     let tag: i32 = tree.expr_tag[idx]
     if tag == @{T.EX_LIT} then
         let tok_kind: i32 = tree.expr_op[idx]

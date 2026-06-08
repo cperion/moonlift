@@ -36,28 +36,28 @@ end
 
 -- Test 1: simple add
 lower_src([[
-func add(x: i32, y: i32) -> i32
+func add(x: i32, y: i32): i32
     return x + y
 end
-]], "add(x: i32, y: i32) -> i32")
+]], "add(x: i32, y: i32): i32")
 
 -- Test 2: mul + sub
 lower_src([[
-func compute(a: i32, b: i32, c: i32) -> i32
+func compute(a: i32, b: i32, c: i32): i32
     let t: i32 = a * b
     return t - c
 end
-]], "compute(a, b, c) -> a*b - c")
+]], "compute(a, b, c): a*b - c")
 
 -- Test 3: comparison
 lower_src([[
-func max(x: i32, y: i32) -> i32
+func max(x: i32, y: i32): i32
     if x > y then
         return x
     else
         return y
     end
 end
-]], "max(x, y) -> if x > y then x else y")
+]], "max(x, y): if x > y then x else y")
 
 print("moonlift → IR lowering ok")

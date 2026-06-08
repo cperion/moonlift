@@ -9372,3 +9372,295 @@ cd experiments/lua_interpreter_vm/spongejit && make test-completion
 - Remaining ready task: `T137` broad current-slice quote migration. I did not claim it to avoid broadening scope recklessly.
 - No source feature support was broadened: no open CALL, TAILCALL, metatable/C/FFI/upvalue paths.
 - `museum/gps.lua` and several other files show pre-existing modifications in `git status`; I did not touch them.
+
+## Worker Output — 2026-06-08 07:35:09
+
+## Completed
+- Implemented T137: migrated additional current-slice quote-first MoonCFG emission support.
+- Also completed T139 verification gates.
+- No source opcode support was broadened.
+
+## Files Changed
+- `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_quote_emit.lua`
+  - Added quote-first support for `AddressOf`, `RuntimeTypeTest`, `RuntimeClassifyCallee`, `RuntimeCallTargetCheck`.
+  - Made fixed count extraction more robust.
+- `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_arity.lua`
+  - Added quote execution coverage for `RuntimeTypeTest`.
+- `experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_call.lua`
+  - Added quote execution coverage for call classification, target checks, arg/result transfer, and manual call result copying.
+- `.pi/workflows/wf-lua55-roadmap.edit-plan.json`
+  - Marked T137 and T139 done.
+
+## Verification
+Passed:
+```sh
+luajit .../test_spongejit_lua_compile_lua_src.lua
+luajit .../test_spongejit_lua_compile_lua_rt_arity.lua
+luajit .../test_spongejit_lua_compile_lua_rt_stack.lua
+luajit .../test_spongejit_lua_compile_lua_rt_call.lua
+luajit .../test_spongejit_lua_compile_static_invoke.lua
+luajit .../test_spongejit_lua_compile_source_call.lua
+luajit .../test_spongejit_lua_compile_source_closure.lua
+luajit .../test_spongejit_lua_compile_moon_cfg.lua
+luajit .../test_spongejit_lua_compile_stencil.lua
+luajit .../test_spongejit_lua_compile_foundry.lua
+cd experiments/lua_interpreter_vm/spongejit && make test
+cd experiments/lua_interpreter_vm/spongejit && make test-completion
+cd experiments/lua_interpreter_vm/spongejit && make test-lua-compile-corpus100
+```
+
+Corpus: `36 ok / 106 rejected`, `30 successful windows`, `28 reps checked`.
+
+## Notes
+No ready/todo/claimed/blocked edit-plan tasks remain.
+
+## Edit-planner Output — 2026-06-08 07:38:38
+
+### 1. Decision / Scope
+
+Finish the **quote-first MoonCFG emitter** for all **currently supported MoonCFG paths exercised by SpongeJIT tests**.
+
+In scope:
+- Complete `MoonCFG -> moon.* typed quoted fragments` emission.
+- Make `Emit.compile` usable for current runtime/source/static SpongeJIT semantics.
+- Preserve `Emit.emit` as compatibility/debug source output for source-text checks and foundry artifacts.
+- Keep quote emitter fail-closed for unsupported MoonCFG nodes.
+
+Out of scope:
+- No new Lua feature support.
+- No open `CALL`, `TAILCALL`, metatable/C/FFI/upvalue paths.
+- No `available_count` / open-result arity work.
+- No `MoonCFG.EmitRegion`, `Continue`, or `Exit`.
+- No design-compliance-only tests.
+
+---
+
+### 2. File-by-file Plan
+
+#### `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_quote_emit.lua`
+
+**Goal**: Complete quote-first semantic emission for the existing supported MoonCFG surface.
+
+**Edit blocks**
+
+1. **Around lines 1–120: emitter context / helpers**
+   - Keep quote-first module comments.
+   - Add/complete helpers for:
+     - block id/name hygiene;
+     - param/env registration;
+     - value/place lookup;
+     - block param binding;
+     - return type handling;
+     - fail-closed error collection.
+   - Preserve local comment for host builder use where quote API cannot splice generated binders.
+
+2. **Around lines 225–390: `quote_runtime_expr`**
+   - Complete all currently validated expression variants:
+     - primitive/value/load/convert/address;
+     - `RuntimeBox*`;
+     - `RuntimeTag`, `RuntimePayloadI64`, `RuntimePayloadF64`;
+     - `RuntimeTruthiness`, `RuntimeTypeTest`;
+     - `RuntimeStackLoad`;
+     - `RuntimeTopLoad`, `RuntimeOpenCountFromTop`;
+     - all `RuntimeValueSeq*`;
+     - all `RuntimeOutcome*` and projections;
+     - all `RuntimeVararg*`;
+     - all `RuntimeCallFrame*`;
+     - `RuntimeClassifyCallee`, `RuntimeCallTargetCheck`;
+     - table/string/arithmetic runtime expressions.
+   - Unsupported expressions return `moon_cfg_quote_emit:not_yet_migrated:*`.
+
+3. **Around lines 391–430: `infer_expr_type`**
+   - Keep in sync with `moon_cfg_validate.lua:infer_let_type`.
+   - Add missing current-slice return types:
+     - `LuaRTValue`;
+     - `LuaRTOutcome`;
+     - `LuaRTValueSeq`;
+     - `LuaRTVarargSource`;
+     - `LuaRTCallFrame`;
+     - `LuaRTRawGetResult`;
+     - `bool`, `i64`, `f64`, `ptr(LuaRTValue)`.
+
+4. **Around lines 430–540: place/env and imperative ops**
+   - Finish `value_to_place`, `emit_let`, `emit_op`.
+   - Support:
+     - `Let`;
+     - `Assign`;
+     - `Store`;
+     - `RuntimeStackStore`;
+     - `RuntimeValueSeqStore`;
+     - `RuntimeCallFrameStoreArgs`;
+     - `RuntimeTopStore`;
+     - `RuntimeTableRawSet`;
+     - `RuntimeTableWriteBarrier`.
+   - Do not silently ignore `Assert`; either implement observable guard behavior or keep fail-closed if quote-control cannot yet encode it safely.
+
+5. **Arithmetic helpers**
+   - Port current source-compat ADD substrate:
+     - numeric kind detection for integers/floats/numeric strings;
+     - numeric coercion from `LuaRTString`;
+     - `RuntimeArithmeticNumericOk`;
+     - `RuntimeArithmeticNoMeta`;
+     - `RuntimeArithmeticErrorValue`.
+   - Only `ArithAdd` is supported. Other arithmetic ops fail closed.
+
+6. **Object/table/string helpers**
+   - Port current raw object runtime:
+     - raw array get;
+     - bounded hash get;
+     - raw set can-write;
+     - raw array set;
+     - bounded hash update/insert;
+     - write barrier metadata;
+     - table len;
+     - string len;
+     - `LEN` no-metatable checks;
+     - two-string `CONCAT`.
+   - Keep raw/no-metatable behavior exactly as current accepted semantics.
+
+7. **Around lines 542–590: control/block assembly**
+   - Replace `is_single_entry_return_region` restriction.
+   - Support current valid `MoonCFG.Region` control:
+     - multiple blocks;
+     - block params;
+     - entry param defaults from kernel params;
+     - `Jump`;
+     - `Branch`;
+     - `BranchArgs`;
+     - `Return`;
+     - `Unreachable`.
+   - Keep unsupported:
+     - `Switch`;
+     - `Exit`;
+     - `Continue`;
+     - `MoonCFG.EmitRegion`.
+
+8. **Around lines 559–740: `build_func_in_bundle`, `build_bundle`, `compile`**
+   - Build complete typed function from region CFG.
+   - `Emit.compile` must never delegate to `moon_cfg_emit_source_compat`.
+   - Preserve `build_bundle -> compile -> compiled:get(name)` API.
+
+---
+
+#### `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_emit.lua`
+
+**Goal**: Keep facade behavior stable.
+
+**Edits**
+- No semantic fallback.
+- Keep:
+  - `Emit.emit(...) -> string` via source compat.
+  - `Emit.compile(...)` via quote emitter.
+- If quote emitter rejects, return quote errors; do not call source compat.
+
+---
+
+#### `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_emit_source_compat.lua`
+
+**Goal**: Remain compatibility/debug renderer.
+
+**Edits**
+- No functional changes expected.
+- Use as behavioral oracle while porting quote paths.
+- Do not add new semantic source-string emission.
+
+---
+
+#### `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_validate.lua`
+
+**Goal**: Preserve current support contract.
+
+**Edits**
+- No broadening unless quote work reveals a validator/type inference mismatch for already-supported current paths.
+- Keep `MoonCFG.EmitRegion`, `Continue`, `Exit` unsupported.
+- Keep forbidden strings unchanged.
+
+---
+
+### 3. Tests to Update
+
+Update observable runtime helpers to prefer `Emit.compile` where supported, while retaining `Emit.emit` only for source/forbidden-string checks.
+
+#### Must update
+
+- `tests/test_spongejit_lua_compile_lua_rt_stack.lua`
+  - Run sequence, vararg, `GETVARG`, top/count paths through quote execution.
+
+- `tests/test_spongejit_lua_compile_lua_rt_call.lua`
+  - Run call classification, target checks, arg store, result seq, manual call-region substrate through quote execution.
+
+- `tests/test_spongejit_lua_compile_static_invoke.lua`
+  - Run inlined static invocation result through quote execution.
+
+- `tests/test_spongejit_lua_compile_source_call.lua`
+  - Run strict evidence-backed source `CALL` result through quote execution.
+
+- `tests/test_spongejit_lua_compile_source_closure.lua`
+  - Run strict `CLOSURE -> CALL` result through quote execution.
+
+- `tests/test_spongejit_lua_compile_lua_rt_arithmetic.lua`
+  - Run ADD/ADDI/ADDK current arithmetic success/error paths through quote execution.
+
+- `tests/test_spongejit_lua_compile_lua_rt_objects.lua`
+  - Run raw `GETTABLE`, `SETTABLE`, hash paths, `LEN`, `CONCAT`, barrier-visible behavior through quote execution.
+
+- `tests/test_spongejit_lua_compile_lua_exec_pipeline.lua`
+  - Convert representative runtime smoke paths to quote execution where possible.
+
+- `tests/test_spongejit_lua_compile_moon_cfg.lua`
+  - Add quote execution for branch/jump/branch-args/current control CFGs.
+  - Keep existing `Emit.emit` deterministic source checks.
+
+#### Do not add
+- Design-policing tests.
+- Tests that only assert “quote-first architecture”.
+- New Lua feature success tests.
+
+---
+
+### 4. Verification Commands
+
+```sh
+luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_src.lua
+luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_arity.lua
+luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_stack.lua
+luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_call.lua
+luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_arithmetic.lua
+luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_objects.lua
+luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_static_invoke.lua
+luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_source_call.lua
+luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_source_closure.lua
+luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_exec_pipeline.lua
+luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_moon_cfg.lua
+luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_stencil.lua
+luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_foundry.lua
+cd experiments/lua_interpreter_vm/spongejit && make test
+cd experiments/lua_interpreter_vm/spongejit && make test-completion
+cd experiments/lua_interpreter_vm/spongejit && make test-lua-compile-corpus100
+```
+
+Expected:
+- Current supported semantics execute through `Emit.compile` where practical.
+- `Emit.emit` remains deterministic compatibility output.
+- No new source opcode support is broadened.
+- Unsupported quote paths fail closed.
+
+---
+
+### 5. Structured Edit Plan Sidecar
+
+Updated `wf-lua55-roadmap` to revision `r271`.
+
+Added tasks:
+
+- `T146` Finish quote emitter CFG/control framework — **ready**
+- `T147` Complete quote expression and place coverage
+- `T148` Complete quote runtime sequence outcome callframe coverage
+- `T149` Port quote arithmetic and numeric coercion runtime
+- `T150` Port quote raw object table string runtime
+- `T151` Wire quote execution into current SpongeJIT tests
+- `T152` Keep quote/source guardrails fail-closed
+- `T153` Update documentation comments and planned file list
+- `T154` Run full quote emitter verification gates
+
+These are intentionally large coherent tasks suitable for one worker executing the full pass.

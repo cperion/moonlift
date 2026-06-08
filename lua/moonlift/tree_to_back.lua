@@ -354,6 +354,78 @@ function M.Define(T)
         return nil
     end
 
+    local function is_void_type(ty)
+        return pvm.classof(ty) == Ty.TScalar and ty.scalar == C.ScalarVoid
+    end
+
+    local function variant_layout_offsets(fields)
+        local out, offset, max_align = {}, 0, 1
+        for i = 1, #fields do
+            local sz, al = elem_size(fields[i].ty) or 0, elem_align(fields[i].ty) or 1
+            offset = math.floor((offset + al - 1) / al) * al
+            out[fields[i].field_name] = { offset = offset, ty = fields[i].ty }
+            offset = offset + sz
+            if al > max_align then max_align = al end
+        end
+        return out, math.floor((offset + max_align - 1) / max_align) * max_align, max_align
+    end
+
+    local function build_variant_defs(module, mod_name)
+        local defs = {}
+        local function add_decl(t, module_name)
+            local cls = pvm.classof(t)
+            if cls == Tr.TypeDeclEnumSugar then
+                local variants = {}
+                for i = 1, #t.variants do local n = t.variants[i].text or tostring(t.variants[i]); variants[n] = { name = n, tag = i - 1, payload = Ty.TScalar(C.ScalarVoid), fields = {}, field_offsets = {}, payload_size = 0 } end
+                defs[t.name] = { type_name = t.name, ty = Ty.TNamed(Ty.TypeRefGlobal(module_name, t.name)), variants = variants }
+            elseif cls == Tr.TypeDeclTaggedUnionSugar then
+                local variants = {}
+                for i = 1, #t.variants do
+                    local v = t.variants[i]
+                    local offsets, payload_size = {}, 0
+                    if #(v.fields or {}) > 0 then offsets, payload_size = variant_layout_offsets(v.fields) else payload_size = elem_size(v.payload) or 0 end
+                    variants[v.name] = { name = v.name, tag = i - 1, payload = v.payload, fields = v.fields or {}, field_offsets = offsets, payload_size = payload_size }
+                end
+                defs[t.name] = { type_name = t.name, ty = Ty.TNamed(Ty.TypeRefGlobal(module_name, t.name)), variants = variants }
+            end
+        end
+        for i = 1, #module.items do
+            local item = module.items[i]
+            local cls = pvm.classof(item)
+            if cls == Tr.ItemType then add_decl(item.t, mod_name)
+            elseif cls == Tr.ItemUseModule then
+                local nested = build_variant_defs(item.module, mod_name)
+                for k, v in pairs(nested) do defs[k] = v end
+            end
+        end
+        return defs
+    end
+
+    local function variant_def(type_name)
+        return lower_context and lower_context.variant_defs and lower_context.variant_defs[type_name] or nil
+    end
+
+    local function named_type_name(ty)
+        if pvm.classof(ty) ~= Ty.TNamed then return nil end
+        local ref = ty.ref
+        local cls = pvm.classof(ref)
+        if cls == Ty.TypeRefGlobal then return ref.type_name end
+        if cls == Ty.TypeRefLocal then return ref.sym.name end
+        if cls == Ty.TypeRefPath and #ref.path.parts == 1 then return ref.path.parts[1].text end
+        return nil
+    end
+
+    local function payload_offset_for_type(type_name)
+        local env = lower_context and lower_context.layout_env
+        for i = 1, #(env and env.layouts or {}) do
+            local l = env.layouts[i]
+            if pvm.classof(l) == Sem.LayoutNamed and l.type_name == type_name then
+                for j = 1, #l.fields do if l.fields[j].field_name == "__payload" then return l.fields[j].offset end end
+            end
+        end
+        return nil
+    end
+
     local function stack_slot_for_binding(binding)
         local func = tostring(lower_context.current_func or "func")
         return Back.BackStackSlotId("slot:" .. func .. ":" .. binding_key(binding))
@@ -933,6 +1005,106 @@ function M.Define(T)
             return pvm.once(Tr.TreeBackExprValue(Tr.TreeBackEnv(cond.env.locals, current.next_value, current.next_block, cond.env.ret), cmds, result_value, result_scalar))
         end,
         [Tr.ExprSwitch] = function(self, env)
+            if #(self.variant_arms or {}) > 0 then
+                if #self.arms > 0 then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "mixed scalar and variant switch expression arms are not supported")) end
+                local value = expr_value(expr_to_back:one_uncached(self.value, env))
+                if value == nil then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "unsupported variant switch expression value")) end
+                local result_scalar = back_scalar(expr_ty(self))
+                if result_scalar == nil then return pvm.once(Tr.TreeBackExprUnsupported(value.env, value.cmds, "variant switch expression result has non-scalar type")) end
+                local type_name = named_type_name(expr_ty(self.value))
+                local def = type_name and variant_def(type_name) or nil
+                if def == nil then return pvm.once(Tr.TreeBackExprUnsupported(value.env, value.cmds, "variant switch expression requires tagged-union facts")) end
+                local payload_offset = payload_offset_for_type(type_name)
+
+                local current = value.env
+                local arm_blocks = {}
+                for i = 1, #self.variant_arms do current, arm_blocks[i] = env_next_block(current, "switch.variant.expr.arm") end
+                local default_block; current, default_block = env_next_block(current, "switch.variant.expr.default")
+                local join_block; current, join_block = env_next_block(current, "switch.variant.expr.join")
+                local result_value; current, result_value = env_next_value(current, "switch.variant.expr")
+
+                local cmds = {}
+                append_all(cmds, value.cmds)
+                local tag_env, tag_val = env_next_value(value.env, "tag")
+                current = env_with_counters(current, tag_env)
+                local env_load = append_load_info(cmds, tag_env, tag_val, shape_scalar(Back.BackU32), value.value, "variant:expr:tag:" .. tostring(type_name))
+                current = env_with_counters(current, env_load)
+                for i = 1, #arm_blocks do cmds[#cmds + 1] = Back.CmdCreateBlock(arm_blocks[i]) end
+                cmds[#cmds + 1] = Back.CmdCreateBlock(default_block)
+                cmds[#cmds + 1] = Back.CmdCreateBlock(join_block)
+                cmds[#cmds + 1] = Back.CmdAppendBlockParam(join_block, result_value, shape_scalar(result_scalar))
+                local cases = {}
+                for i = 1, #self.variant_arms do
+                    local variant = def.variants[self.variant_arms[i].variant_name]
+                    if variant == nil then return pvm.once(Tr.TreeBackExprUnsupported(value.env, cmds, "unknown variant arm " .. tostring(self.variant_arms[i].variant_name))) end
+                    cases[i] = Back.BackSwitchCase(tostring(variant.tag), arm_blocks[i])
+                end
+                cmds[#cmds + 1] = Back.CmdSwitchInt(tag_val, Back.BackU32, cases, default_block)
+                for i = 1, #arm_blocks do cmds[#cmds + 1] = Back.CmdSealBlock(arm_blocks[i]) end
+                cmds[#cmds + 1] = Back.CmdSealBlock(default_block)
+
+                for i = 1, #self.variant_arms do
+                    cmds[#cmds + 1] = Back.CmdSwitchToBlock(arm_blocks[i])
+                    local arm = self.variant_arms[i]
+                    local variant = def.variants[arm.variant_name]
+                    local start = env_with_locals(env_with_counters(value.env, current), value.env.locals)
+                    local bind_cmds = {}
+                    local bind_env = start
+                    if payload_offset ~= nil then
+                        local payload_base = value.value
+                        if payload_offset ~= 0 then
+                            local off = add_ptr_offset(Tr.TreeBackExprValue(bind_env, {}, value.value, Back.BackPtr), payload_offset)
+                            append_all(bind_cmds, off.cmds); bind_env = off.env; payload_base = off.value
+                        end
+                        for j = 1, #(arm.binds or {}) do
+                            local bind = arm.binds[j]
+                            local scalar = back_scalar(bind.ty)
+                            if scalar ~= nil then
+                                local src = payload_base
+                                local field = variant.field_offsets and variant.field_offsets[bind.name]
+                                if field and field.offset ~= 0 then
+                                    local off = add_ptr_offset(Tr.TreeBackExprValue(bind_env, {}, payload_base, Back.BackPtr), field.offset)
+                                    append_all(bind_cmds, off.cmds); bind_env = off.env; src = off.value
+                                end
+                                local env_v, bind_val = env_next_value(bind_env, "variant")
+                                bind_env = append_load_info(bind_cmds, env_v, bind_val, shape_scalar(scalar), src, "variant:expr:bind:" .. bind.name)
+                                local b = Bn.Binding(C.Id("variant:expr_switch:" .. variant.name .. ":" .. bind.name), bind.name, bind.ty, Bn.BindingClassLocalValue)
+                                bind_env = env_add(bind_env, b, bind_val, scalar)
+                            end
+                        end
+                    end
+                    append_all(cmds, bind_cmds)
+                    local arm_env, arm_cmds, arm_flow = lower_body(arm.body, bind_env)
+                    append_all(cmds, arm_cmds)
+                    if arm_flow ~= Back.BackTerminates then
+                        local result = expr_value(expr_to_back:one_uncached(arm.result, arm_env))
+                        if result == nil then return pvm.once(Tr.TreeBackExprUnsupported(arm_env, cmds, "unsupported variant switch arm result")) end
+                        append_all(cmds, result.cmds)
+                        cmds[#cmds + 1] = Back.CmdJump(join_block, { result.value })
+                        current = env_with_counters(current, result.env)
+                    else
+                        current = env_with_counters(current, arm_env)
+                    end
+                end
+
+                cmds[#cmds + 1] = Back.CmdSwitchToBlock(default_block)
+                local default_start = env_with_locals(env_with_counters(value.env, current), value.env.locals)
+                local default_env, default_cmds, default_flow = lower_body(self.default_body or {}, default_start)
+                append_all(cmds, default_cmds)
+                if default_flow ~= Back.BackTerminates then
+                    local default_result = expr_value(expr_to_back:one_uncached(self.default_expr, default_env))
+                    if default_result == nil then return pvm.once(Tr.TreeBackExprUnsupported(default_env, cmds, "unsupported variant switch default result")) end
+                    append_all(cmds, default_result.cmds)
+                    cmds[#cmds + 1] = Back.CmdJump(join_block, { default_result.value })
+                    current = env_with_counters(current, default_result.env)
+                else
+                    current = env_with_counters(current, default_env)
+                end
+
+                cmds[#cmds + 1] = Back.CmdSealBlock(join_block)
+                cmds[#cmds + 1] = Back.CmdSwitchToBlock(join_block)
+                return pvm.once(Tr.TreeBackExprValue(Tr.TreeBackEnv(value.env.locals, current.next_value, current.next_block, value.env.ret), cmds, result_value, result_scalar))
+            end
             local value = expr_value(expr_to_back:one_uncached(self.value, env))
             if value == nil then return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "unsupported switch expression value")) end
             local result_scalar = back_scalar(expr_ty(self))
@@ -1223,6 +1395,53 @@ function M.Define(T)
                     local env_s, zero = append_zero_offset(cmds, current)
                     cmds[#cmds + 1] = Back.CmdStoreInfo(shape_scalar(elem_val.ty), address_from_ptr(dst_addr_val, zero), elem_val.value, memory_info("tree:arr:" .. tostring(i), Back.BackAccessWrite))
                     current = env_s
+                end
+            end
+            return pvm.once(Tr.TreeBackExprValue(current, cmds, addr, Back.BackPtr))
+        end,
+        [Tr.ExprCtor] = function(self, env)
+            local ty = expr_ty(self)
+            local size, align = elem_size(ty), elem_align(ty)
+            local def = variant_def(self.type_name)
+            local variant = def and def.variants[self.variant_name] or nil
+            if size == nil or align == nil or variant == nil then
+                return pvm.once(Tr.TreeBackExprUnsupported(env, {}, "tagged-union constructor requires layout and variant facts"))
+            end
+            local payload_offset = payload_offset_for_type(self.type_name)
+            local func = tostring(lower_context.current_func or "anon")
+            local slot = lower_context.target_agg_slot or Back.BackStackSlotId("slot:" .. func .. ":ctor:" .. tostring(env.next_value))
+            local cmds = {}
+            if not lower_context.target_agg_slot then cmds[#cmds + 1] = Back.CmdCreateStackSlot(slot, size, align) end
+            local current, addr = env_next_value(env, "v")
+            cmds[#cmds + 1] = Back.CmdStackAddr(addr, slot)
+            local tag_env, tag_val = env_next_value(current, "tag")
+            cmds[#cmds + 1] = Back.CmdConst(tag_val, Back.BackU32, Back.BackLitInt(tostring(variant.tag)))
+            current = append_store_info(cmds, tag_env, shape_scalar(Back.BackU32), addr, tag_val, "ctor:tag:" .. self.type_name .. ":" .. self.variant_name)
+            if payload_offset ~= nil then
+                local payload_base = addr
+                if payload_offset ~= 0 then
+                    local off = add_ptr_offset(Tr.TreeBackExprValue(current, {}, addr, Back.BackPtr), payload_offset)
+                    append_all(cmds, off.cmds); current = off.env; payload_base = off.value
+                end
+                for i = 1, #(self.args or {}) do
+                    local arg = expr_value(expr_to_back:one_uncached(self.args[i], current))
+                    if arg == nil then return pvm.once(Tr.TreeBackExprUnsupported(current, cmds, "constructor payload arg unsupported")) end
+                    append_all(cmds, arg.cmds); current = arg.env
+                    local dst = payload_base
+                    if #(variant.fields or {}) > 0 then
+                        local f = variant.fields[i]
+                        local off_rec = f and variant.field_offsets[f.field_name]
+                        if off_rec and off_rec.offset ~= 0 then
+                            local off = add_ptr_offset(Tr.TreeBackExprValue(current, {}, payload_base, Back.BackPtr), off_rec.offset)
+                            append_all(cmds, off.cmds); current = off.env; dst = off.value
+                        end
+                    end
+                    if is_aggregate_type(expr_ty(self.args[i])) then
+                        local sz = elem_size(expr_ty(self.args[i])) or variant.payload_size
+                        current = append_memcpy(cmds, current, dst, arg.value, sz, "ctor:payload:" .. tostring(i))
+                    else
+                        current = append_store_info(cmds, current, shape_scalar(arg.ty), dst, arg.value, "ctor:payload:" .. tostring(i))
+                    end
                 end
             end
             return pvm.once(Tr.TreeBackExprValue(current, cmds, addr, Back.BackPtr))
@@ -1924,8 +2143,101 @@ function M.Define(T)
         return pvm.once(Tr.TreeBackStmtResult(out_env, cmds, Back.BackTerminates))
     end
 
+    local function lower_variant_switch_stmt(self, env)
+        local value = expr_value(expr_to_back:one_uncached(self.value, env))
+        if value == nil then lowering_unsupported("variant switch value could not be lowered") end
+        local type_name = named_type_name(expr_ty(self.value))
+        local def = type_name and variant_def(type_name) or nil
+        if def == nil then lowering_unsupported("variant switch requires tagged-union facts") end
+        local payload_offset = payload_offset_for_type(type_name)
+
+        local current = value.env
+        local arm_blocks = {}
+        for i = 1, #self.variant_arms do current, arm_blocks[i] = env_next_block(current, "switch.variant.arm") end
+        local default_block; current, default_block = env_next_block(current, "switch.variant.default")
+        local join_block; current, join_block = env_next_block(current, "switch.variant.join")
+
+        local cmds = {}
+        append_all(cmds, value.cmds)
+        local tag_env, tag_val = env_next_value(value.env, "tag")
+        current = env_with_counters(current, tag_env)
+        local env_load = append_load_info(cmds, tag_env, tag_val, shape_scalar(Back.BackU32), value.value, "variant:tag:" .. tostring(type_name))
+        current = env_with_counters(current, env_load)
+        for i = 1, #arm_blocks do cmds[#cmds + 1] = Back.CmdCreateBlock(arm_blocks[i]) end
+        cmds[#cmds + 1] = Back.CmdCreateBlock(default_block)
+        cmds[#cmds + 1] = Back.CmdCreateBlock(join_block)
+        local cases = {}
+        for i = 1, #self.variant_arms do
+            local v = def.variants[self.variant_arms[i].variant_name]
+            if v == nil then lowering_unsupported("unknown variant arm " .. tostring(self.variant_arms[i].variant_name)) end
+            cases[i] = Back.BackSwitchCase(tostring(v.tag), arm_blocks[i])
+        end
+        cmds[#cmds + 1] = Back.CmdSwitchInt(tag_val, Back.BackU32, cases, default_block)
+        for i = 1, #arm_blocks do cmds[#cmds + 1] = Back.CmdSealBlock(arm_blocks[i]) end
+        cmds[#cmds + 1] = Back.CmdSealBlock(default_block)
+
+        local fallers = {}
+        for i = 1, #self.variant_arms do
+            cmds[#cmds + 1] = Back.CmdSwitchToBlock(arm_blocks[i])
+            local arm = self.variant_arms[i]
+            local variant = def.variants[arm.variant_name]
+            local start = env_with_locals(env_with_counters(value.env, current), value.env.locals)
+            local bind_cmds = {}
+            local bind_env = start
+            if payload_offset ~= nil then
+                local payload_base = value.value
+                if payload_offset ~= 0 then
+                    local off = add_ptr_offset(Tr.TreeBackExprValue(bind_env, {}, value.value, Back.BackPtr), payload_offset)
+                    append_all(bind_cmds, off.cmds); bind_env = off.env; payload_base = off.value
+                end
+                for j = 1, #(arm.binds or {}) do
+                    local bind = arm.binds[j]
+                    local scalar = back_scalar(bind.ty)
+                    if scalar ~= nil then
+                        local src = payload_base
+                        local field = variant.field_offsets and variant.field_offsets[bind.name]
+                        if field and field.offset ~= 0 then
+                            local off = add_ptr_offset(Tr.TreeBackExprValue(bind_env, {}, payload_base, Back.BackPtr), field.offset)
+                            append_all(bind_cmds, off.cmds); bind_env = off.env; src = off.value
+                        end
+                        local env_v, bind_val = env_next_value(bind_env, "variant")
+                        bind_env = append_load_info(bind_cmds, env_v, bind_val, shape_scalar(scalar), src, "variant:bind:" .. bind.name)
+                        local b = Bn.Binding(C.Id("variant:stmt_switch:" .. variant.name .. ":" .. bind.name), bind.name, bind.ty, Bn.BindingClassLocalValue)
+                        bind_env = env_add(bind_env, b, bind_val, scalar)
+                    end
+                end
+            end
+            append_all(cmds, bind_cmds)
+            local arm_env, arm_cmds, arm_flow = lower_body(arm.body, bind_env)
+            append_all(cmds, arm_cmds)
+            if arm_flow ~= Back.BackTerminates then
+                local jump_pos = #cmds + 1
+                cmds[jump_pos] = Back.CmdJump(join_block, {})
+                fallers[#fallers + 1] = { env = arm_env, jump_pos = jump_pos, args = {} }
+            end
+            current = env_with_counters(current, arm_env)
+        end
+
+        cmds[#cmds + 1] = Back.CmdSwitchToBlock(default_block)
+        local default_start = env_with_locals(env_with_counters(value.env, current), value.env.locals)
+        local default_env, default_cmds, default_flow = lower_body(self.default_body or {}, default_start)
+        append_all(cmds, default_cmds)
+        if default_flow ~= Back.BackTerminates then
+            local jump_pos = #cmds + 1
+            cmds[jump_pos] = Back.CmdJump(join_block, {})
+            fallers[#fallers + 1] = { env = default_env, jump_pos = jump_pos, args = {} }
+        end
+        current = env_with_counters(current, default_env)
+        cmds[#cmds + 1] = Back.CmdSealBlock(join_block)
+        if #fallers > 0 then
+            cmds[#cmds + 1] = Back.CmdSwitchToBlock(join_block)
+            return pvm.once(Tr.TreeBackStmtResult(Tr.TreeBackEnv(value.env.locals, current.next_value, current.next_block, env.ret), cmds, Back.BackFallsThrough))
+        end
+        return pvm.once(Tr.TreeBackStmtResult(Tr.TreeBackEnv(value.env.locals, current.next_value, current.next_block, env.ret), cmds, Back.BackTerminates))
+    end
+
     local function lower_switch_stmt(self, env)
-        if #self.variant_arms > 0 then lowering_unsupported("variant switch statement lowering is not implemented") end
+        if #(self.variant_arms or {}) > 0 then return lower_variant_switch_stmt(self, env) end
 
         local value = expr_value(expr_to_back:one_uncached(self.value, env))
         if value == nil then lowering_unsupported("switch statement value could not be lowered") end
@@ -2235,6 +2547,10 @@ function M.Define(T)
         back_scalar = back_scalar,
         elem_size = elem_size,
         elem_align = elem_align,
+        variant_def = variant_def,
+        payload_offset_for_type = payload_offset_for_type,
+        add_ptr_offset = add_ptr_offset,
+        append_load_info = append_load_info,
         const_eval = const_eval_api,
         get_const_env = function() return lower_context.const_env end,
         get_provenance = function() return lower_context.provenance end,
@@ -2634,6 +2950,7 @@ function M.Define(T)
             slot_consts_data = slot_consts_data,
             provenance = BackProvenance.new(),
         }
+        lower_context.variant_defs = build_variant_defs(module, lower_context.module_name)
         local ok, result = pcall(fn)
         lower_context = previous
         if not ok then error(result, 0) end

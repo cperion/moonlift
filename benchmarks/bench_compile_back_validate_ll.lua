@@ -6,21 +6,21 @@ local Pipeline = require("moonlift.frontend_pipeline")
 local Validate = require("moonlift.back_validate")
 
 local SRC = [[
-func sum_i32(xs: ptr(i32), n: i32) -> i32
-    return block loop(i: i32 = 0, acc: i32 = 0) -> i32
+func sum_i32(xs: ptr(i32), n: i32): i32
+    return block loop(i: i32 = 0, acc: i32 = 0): i32
         if i >= n then yield acc end
         jump loop(i = i + 1, acc = acc + xs[i])
     end
 end
 
-func dot_i32(a: ptr(i32), b: ptr(i32), n: i32) -> i32
-    return block loop(i: i32 = 0, acc: i32 = 0) -> i32
+func dot_i32(a: ptr(i32), b: ptr(i32), n: i32): i32
+    return block loop(i: i32 = 0, acc: i32 = 0): i32
         if i >= n then yield acc end
         jump loop(i = i + 1, acc = acc + a[i] * b[i])
     end
 end
 
-func add_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32) -> i32
+func add_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then return 0 end
         dst[i] = a[i] + b[i]
@@ -28,7 +28,7 @@ func add_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32) -> i32
     end
 end
 
-func scale_i32(dst: ptr(i32), xs: ptr(i32), k: i32, n: i32) -> i32
+func scale_i32(dst: ptr(i32), xs: ptr(i32), k: i32, n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then return 0 end
         dst[i] = xs[i] * k

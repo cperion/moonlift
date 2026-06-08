@@ -12,7 +12,7 @@ local jit_api = J.Define(T)
 local B = T.MoonBack
 
 local src = [[
-func atomic_demo(p: ptr(i32)) -> i32
+func atomic_demo(p: ptr(i32)): i32
     atomic_store(i32, p, 10)
     let old: i32 = atomic_fetch_add(i32, p, 5)
     let seen: i32 = atomic_cas(i32, p, 15, 21)

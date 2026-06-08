@@ -22,6 +22,39 @@ local function assert_no_cmd_trap(T, program, site)
     end
 end
 
+local function assert_no_c_phase_unreachable(root, site)
+    local Coverage = require("moonlift.c_coverage")
+    local phase_unreachable = {}
+    for _, table_ in pairs(Coverage.all_tables()) do
+        for variant, c in pairs(table_) do
+            if c.status == "phase_unreachable" then phase_unreachable[variant] = c.reason end
+        end
+    end
+
+    local seen = {}
+    local found = {}
+    local function walk(node)
+        if type(node) ~= "table" or seen[node] then return end
+        seen[node] = true
+        local cls = pvm.classof(node)
+        if cls then
+            local kind = cls.kind
+            if kind ~= nil and phase_unreachable[kind] then
+                found[#found + 1] = tostring(kind) .. ": " .. phase_unreachable[kind]
+            end
+            local fields = cls.__fields or {}
+            for i = 1, #fields do walk(node[fields[i].name]) end
+        else
+            for _, value in pairs(node) do walk(value) end
+        end
+    end
+    walk(root)
+    if #found > 0 then
+        table.sort(found)
+        error((site or "C frontend") .. " phase boundary failed before tree_to_c; phase_unreachable construct(s) remain:\n" .. table.concat(found, "\n"), 3)
+    end
+end
+
 function M.Define(T)
     local Parse = require("moonlift.parse").Define(T)
     local OpenFacts = require("moonlift.open_facts").Define(T)
@@ -32,6 +65,9 @@ function M.Define(T)
     local Layout = require("moonlift.sem_layout_resolve").Define(T)
     local Lower = require("moonlift.tree_to_back").Define(T)
     local Validate = require("moonlift.back_validate").Define(T)
+    local TreeToC = require("moonlift.tree_to_c").Define(T)
+    local TypeToC = require("moonlift.type_to_c").Define(T)
+    local CValidate = require("moonlift.c_validate").Define(T)
     local Errors = require("moonlift.error")
 
     local function lower_module(module, opts)
@@ -77,6 +113,50 @@ function M.Define(T)
             program = program,
             back_report = back_report,
             provenance = provenance,
+        }
+    end
+
+    local function lower_module_to_c(module, opts)
+        opts = opts or {}
+
+        local analysis_ctx = opts.analysis_ctx or {}
+        local collector = opts.collector or Errors.ThrowingCollector(
+            Errors.SpanResolvers.RESOLVERS,
+            analysis_ctx,
+            Errors.Catalog,
+            Errors.Terminal.render
+        )
+
+        local c_target = TypeToC.default_target(opts.c_target or opts)
+        local c_opts = {}
+        for k, v in pairs(opts.c_opts or {}) do c_opts[k] = v end
+        for k, v in pairs(opts) do if c_opts[k] == nil then c_opts[k] = v end end
+        c_opts.target = c_target
+        c_opts.c_target = c_target
+
+        local expanded = OpenExpand.module(module, opts.expand_env)
+        local open_report = OpenValidate.validate(OpenFacts.facts_of_module(expanded), collector)
+        local closed = ClosureConvert.module(expanded)
+        local checked = Typecheck.check_module(closed, { collector = collector, layout_env = opts.layout_env, target = c_target, c_target = c_target })
+        local layout_env = opts.layout_env
+        if layout_env == nil then
+            local ModuleType = require("moonlift.tree_module_type").Define(T)
+            layout_env = T.MoonSem.LayoutEnv(ModuleType.env(checked.module, c_target).layouts)
+        end
+        c_opts.layout_env = layout_env
+        local resolved = Layout.module(checked.module, layout_env, c_target)
+        assert_no_c_phase_unreachable(resolved, opts.site or "C frontend")
+        local c_unit = TreeToC.module(resolved, c_opts)
+        local c_report = CValidate.validate(c_unit, collector)
+
+        return {
+            expanded = expanded,
+            open_report = open_report,
+            closed = closed,
+            checked = checked,
+            resolved = resolved,
+            c_unit = c_unit,
+            c_report = c_report,
         }
     end
 
@@ -193,10 +273,41 @@ function M.Define(T)
         return result
     end
 
+    local function parse_and_lower_c(src, opts)
+        opts = opts or {}
+        local analysis_ctx = opts.analysis_ctx or {}
+        analysis_ctx.source_text = analysis_ctx.source_text or src
+        analysis_ctx.uri = analysis_ctx.uri or opts.chunk_name or opts.name or "?"
+
+        local collector = Errors.ThrowingCollector(
+            Errors.SpanResolvers.RESOLVERS,
+            analysis_ctx,
+            Errors.Catalog,
+            Errors.Terminal.render
+        )
+
+        local parsed = Parse.parse_module(src, { collector = collector })
+
+        -- Keep the same analysis context shape as parse_and_lower.  The C path
+        -- does not invoke MoonBack/provenance construction.
+        if analysis_ctx.anchors == nil then analysis_ctx.anchors = {} end
+
+        local c_opts = {}
+        for k, v in pairs(opts) do c_opts[k] = v end
+        c_opts.collector = collector
+        c_opts.analysis_ctx = analysis_ctx
+        local result = lower_module_to_c(parsed.module, c_opts)
+        result.parsed = parsed
+        return result
+    end
+
     return {
         lower_module = lower_module,
+        lower_module_to_c = lower_module_to_c,
         parse_and_lower = parse_and_lower,
+        parse_and_lower_c = parse_and_lower_c,
         assert_no_cmd_trap = function(program, site) return assert_no_cmd_trap(T, program, site) end,
+        assert_no_c_phase_unreachable = assert_no_c_phase_unreachable,
     }
 end
 

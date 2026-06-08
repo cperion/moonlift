@@ -3,7 +3,7 @@
 local mom_bin = "./target/release/mom"
 
 local src = [[
-func main() -> i32
+func main(): i32
     return block loop(i: i32 = 0, acc: i32 = 0)
         if i >= 4 then yield acc end
         jump loop(i = i + 1, acc = acc + 1)

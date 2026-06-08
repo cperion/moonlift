@@ -111,7 +111,7 @@ Consider a small example: a function that authenticates a user. In a
 typical language, its signature is:
 
 ```
-fn authenticate(creds) -> Result<User, AuthError>
+fn authenticate(creds): Result<User, AuthError>
 ```
 
 This looks explicit. It is not. The signature hides the following
@@ -846,7 +846,7 @@ system can receive is a variant. The system's evolution is described
 by a pure reducer:
 
 ```
-apply : (state, event) -> state
+apply : (state, event): state
 ```
 
 This is not a separate concept. The event type is just another node
@@ -912,7 +912,7 @@ the caller parses. Use the continuation protocol.
 
 ```moonlift
 -- Wrong: outcome encoded in a return value
-func read_bytes(fd: i32, buf: ptr(u8), n: i32) -> i32
+func read_bytes(fd: i32, buf: ptr(u8), n: i32): i32
     -- returns bytes read, or -1 on error, or 0 on EOF
     -- caller must know the convention
 end
@@ -999,7 +999,7 @@ struct Parser
     accum_len: i32
 end
 
-func parse_step(p: ptr(Parser), byte: i32) -> i32
+func parse_step(p: ptr(Parser), byte: i32): i32
     if p.state == 0 then
         if byte == 34 then p.state = 1; return 0
         -- ... etc, every branch updates p.state and p.accum_len
@@ -1138,7 +1138,7 @@ The Moonlift language reference notes (§5.6) that a tagged union may
 be used as a region result protocol:
 
 > When a tagged union is used as a region result protocol
-> (`region r(...) -> Scanner`), its variants become exits and named
+> (`region r(...): Scanner`), its variants become exits and named
 > variant fields become continuation parameters.
 
 This is not a coincidence. It is the language acknowledging the
@@ -1778,7 +1778,7 @@ explicit constructor expressions when used as data.
 ### 13.5 Functions
 
 ```moonlift
-local add = func(a: i32, b: i32) -> i32
+local add = func(a: i32, b: i32): i32
     return a + b
 end
 ```
@@ -1867,7 +1867,7 @@ positions and expected types.
 ### 13.11 Externs
 
 ```moonlift
-local write = extern write(fd: i32, buf: ptr(u8), n: index) -> index end
+local write = extern write(fd: i32, buf: ptr(u8), n: index): index end
 ```
 
 Externs declare imported symbols — typically C functions resolved at
@@ -2965,7 +2965,7 @@ end
 
 The dispatcher is generated once at compile time from the union of
 all resume points across the program. Each handler is a region with
-the same protocol — `(m: ptr(M), task: ptr(Task)) -> resumed`. The
+the same protocol — `(m: ptr(M), task: ptr(Task)): resumed`. The
 handler's body uses the task's env pointer (cast to the appropriate
 type) to recover its state and continue.
 
@@ -3160,7 +3160,7 @@ channel.
 
 ```moonlift
 -- Anti-pattern: success encoded as bool, data via side channel.
-func parse_int(s: ptr(u8), n: i32, out: ptr(i32)) -> bool
+func parse_int(s: ptr(u8), n: i32, out: ptr(i32)): bool
     -- returns true on success, with the value written to *out
     -- returns false on failure, with *out unspecified
 end
@@ -3306,7 +3306,7 @@ union ParseResult
     failure(at: i32, code: i32)
 end
 
-func parse_thing(s: ptr(u8), n: i32, pos: i32) -> ParseResult
+func parse_thing(s: ptr(u8), n: i32, pos: i32): ParseResult
     -- ... returns either success(...) or failure(...) ...
 end
 ```

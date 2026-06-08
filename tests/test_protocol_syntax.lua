@@ -46,8 +46,8 @@ entry loop(i: i32 = 0)
     jump loop(i = i + 1)
 end
 end
-return func find_byte(p: ptr(u8), n: i32, target: i32) -> i32
-    return region -> i32
+return func find_byte(p: ptr(u8), n: i32, target: i32): i32
+    return region: i32
     entry start()
         emit @{scan_until}(p, n, target; hit = found, miss = not_found)
     end

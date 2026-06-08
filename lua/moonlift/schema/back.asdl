@@ -1,0 +1,420 @@
+module MoonBack {
+    BackScalar = BackVoid
+         | BackBool
+         | BackI8
+         | BackI16
+         | BackI32
+         | BackI64
+         | BackU8
+         | BackU16
+         | BackU32
+         | BackU64
+         | BackF32
+         | BackF64
+         | BackPtr
+         | BackIndex
+
+    BackSigId = (string text) unique
+
+    BackFuncId = (string text) unique
+
+    BackExternId = (string text) unique
+
+    BackDataId = (string text) unique
+
+    BackBlockId = (string text) unique
+
+    BackValId = (string text) unique
+
+    BackStackSlotId = (string text) unique
+
+    BackSwitchCase = (string raw, MoonBack.BackBlockId dest) unique
+
+    BackVec = (MoonBack.BackScalar elem, number lanes) unique
+
+    BackShape = BackShapeScalar(MoonBack.BackScalar scalar) unique
+         | BackShapeVec(MoonBack.BackVec vec) unique
+
+    BackTarget = BackTargetNative
+         | BackTargetCraneliftJit
+         | BackTargetDynasmJit
+         | BackTargetNamed(string name) unique
+
+    BackEndian = BackEndianLittle
+         | BackEndianBig
+
+    BackTargetFeature = BackFeatureSSE2
+         | BackFeatureAVX2
+         | BackFeatureAVX512F
+         | BackFeatureFMA
+         | BackFeaturePOPCNT
+         | BackFeatureBMI1
+         | BackFeatureBMI2
+         | BackFeatureUnknown(string name) unique
+
+    BackTargetFact = BackTargetPointerBits(number bits) unique
+         | BackTargetIndexBits(number bits) unique
+         | BackTargetEndian(MoonBack.BackEndian endian) unique
+         | BackTargetCacheLineBytes(number bytes) unique
+         | BackTargetFeature(MoonBack.BackTargetFeature feature) unique
+         | BackTargetSupportsShape(MoonBack.BackShape shape) unique
+         | BackTargetSupportsVectorOp(MoonBack.BackVec vec, string op_class) unique
+         | BackTargetSupportsMaskedTail
+         | BackTargetPrefersUnroll(MoonBack.BackShape shape, number unroll, number rank) unique
+
+    BackTargetModel = (MoonBack.BackTarget target, MoonBack.BackTargetFact* facts) unique
+
+    BackAddressBase = BackAddrValue(MoonBack.BackValId value) unique
+         | BackAddrStack(MoonBack.BackStackSlotId slot) unique
+         | BackAddrData(MoonBack.BackDataId data) unique
+
+    BackPointerProvenance = BackProvUnknown
+         | BackProvStack(MoonBack.BackStackSlotId slot) unique
+         | BackProvData(MoonBack.BackDataId data) unique
+         | BackProvArg(string name) unique
+         | BackProvView(string name) unique
+         | BackProvDerived(string reason) unique
+
+    BackPointerBounds = BackPtrBoundsUnknown
+         | BackPtrInBounds(string reason) unique
+         | BackPtrMayLeaveObject(string reason) unique
+
+    BackAddress = (MoonBack.BackAddressBase base, MoonBack.BackValId byte_offset, MoonBack.BackPointerProvenance provenance, MoonBack.BackPointerBounds formation_bounds) unique
+
+    BackAccessId = (string text) unique
+
+    BackAliasScopeId = (string text) unique
+
+    BackAlignment = BackAlignUnknown
+         | BackAlignKnown(number bytes) unique
+         | BackAlignAtLeast(number bytes) unique
+         | BackAlignAssumed(number bytes, string reason) unique
+
+    BackDereference = BackDerefUnknown
+         | BackDerefBytes(number bytes, string reason) unique
+         | BackDerefAssumed(number bytes, string reason) unique
+
+    BackTrap = BackMayTrap
+         | BackNonTrapping(string reason) unique
+         | BackChecked(string reason) unique
+
+    BackMotion = BackMayNotMove
+         | BackCanMove(string reason) unique
+
+    BackAccessMode = BackAccessRead
+         | BackAccessWrite
+         | BackAccessReadWrite
+
+    BackAtomicOrdering = BackAtomicSeqCst
+
+    BackAtomicRmwOp = BackAtomicRmwAdd
+         | BackAtomicRmwSub
+         | BackAtomicRmwAnd
+         | BackAtomicRmwOr
+         | BackAtomicRmwXor
+         | BackAtomicRmwXchg
+
+    BackMemoryInfo = (MoonBack.BackAccessId access, MoonBack.BackAlignment alignment, MoonBack.BackDereference dereference, MoonBack.BackTrap trap, MoonBack.BackMotion motion, MoonBack.BackAccessMode mode) unique
+
+    BackAliasFact = BackAliasUnknown(MoonBack.BackAccessId a, MoonBack.BackAccessId b, string reason) unique
+         | BackMayAlias(MoonBack.BackAccessId a, MoonBack.BackAccessId b, string reason) unique
+         | BackNoAlias(MoonBack.BackAccessId a, MoonBack.BackAccessId b, string reason) unique
+         | BackSameBaseSameIndexSafe(MoonBack.BackAccessId a, MoonBack.BackAccessId b, string reason) unique
+         | BackAliasScope(MoonBack.BackAccessId access, MoonBack.BackAliasScopeId scope) unique
+
+    BackIntOverflow = BackIntWrap
+         | BackIntNoSignedWrap(string reason) unique
+         | BackIntNoUnsignedWrap(string reason) unique
+         | BackIntNoWrap(string reason) unique
+
+    BackIntExact = BackIntMayLose
+         | BackIntExact(string reason) unique
+
+    BackIntSemantics = (MoonBack.BackIntOverflow overflow, MoonBack.BackIntExact exact) unique
+
+    BackIntOp = BackIntAdd
+         | BackIntSub
+         | BackIntMul
+         | BackIntSDiv
+         | BackIntUDiv
+         | BackIntSRem
+         | BackIntURem
+
+    BackBitOp = BackBitAnd
+         | BackBitOr
+         | BackBitXor
+
+    BackShiftOp = BackShiftLeft
+         | BackShiftLogicalRight
+         | BackShiftArithmeticRight
+
+    BackRotateOp = BackRotateLeft
+         | BackRotateRight
+
+    BackFloatSemantics = BackFloatStrict
+         | BackFloatReassoc(string reason) unique
+         | BackFloatFastMath(string reason) unique
+
+    BackFloatOp = BackFloatAdd
+         | BackFloatSub
+         | BackFloatMul
+         | BackFloatDiv
+
+    BackLiteral = BackLitInt(string raw) unique
+         | BackLitFloat(string raw) unique
+         | BackLitBool(boolean value) unique
+         | BackLitNull
+
+    BackUnaryOp = BackUnaryIneg
+         | BackUnaryFneg
+         | BackUnaryBnot
+         | BackUnaryBoolNot
+
+    BackIntrinsicOp = BackIntrinsicPopcount
+         | BackIntrinsicClz
+         | BackIntrinsicCtz
+         | BackIntrinsicBswap
+         | BackIntrinsicSqrt
+         | BackIntrinsicAbs
+         | BackIntrinsicFloor
+         | BackIntrinsicCeil
+         | BackIntrinsicTruncFloat
+         | BackIntrinsicRound
+
+    BackCompareOp = BackIcmpEq
+         | BackIcmpNe
+         | BackSIcmpLt
+         | BackSIcmpLe
+         | BackSIcmpGt
+         | BackSIcmpGe
+         | BackUIcmpLt
+         | BackUIcmpLe
+         | BackUIcmpGt
+         | BackUIcmpGe
+         | BackFCmpEq
+         | BackFCmpNe
+         | BackFCmpLt
+         | BackFCmpLe
+         | BackFCmpGt
+         | BackFCmpGe
+
+    BackVecCompareOp = BackVecIcmpEq
+         | BackVecIcmpNe
+         | BackVecSIcmpLt
+         | BackVecSIcmpLe
+         | BackVecSIcmpGt
+         | BackVecSIcmpGe
+         | BackVecUIcmpLt
+         | BackVecUIcmpLe
+         | BackVecUIcmpGt
+         | BackVecUIcmpGe
+
+    BackVecBinaryOp = BackVecIntAdd
+         | BackVecIntSub
+         | BackVecIntMul
+         | BackVecBitAnd
+         | BackVecBitOr
+         | BackVecBitXor
+
+    BackVecMaskOp = BackVecMaskNot
+         | BackVecMaskAnd
+         | BackVecMaskOr
+
+    BackCastOp = BackBitcast
+         | BackIreduce
+         | BackSextend
+         | BackUextend
+         | BackFpromote
+         | BackFdemote
+         | BackSToF
+         | BackUToF
+         | BackFToS
+         | BackFToU
+
+    BackCallTarget = BackCallDirect(MoonBack.BackFuncId func) unique
+         | BackCallExtern(MoonBack.BackExternId func) unique
+         | BackCallIndirect(MoonBack.BackValId callee) unique
+
+    BackCallResult = BackCallStmt
+         | BackCallValue(MoonBack.BackValId dst, MoonBack.BackScalar ty) unique
+
+    Cmd = CmdTargetModel(MoonBack.BackTargetModel target) unique
+         | CmdCreateSig(MoonBack.BackSigId sig, MoonBack.BackScalar* params, MoonBack.BackScalar* results) unique
+         | CmdDeclareData(MoonBack.BackDataId data, number size, number align) unique
+         | CmdDataInitZero(MoonBack.BackDataId data, number offset, number size) unique
+         | CmdDataInit(MoonBack.BackDataId data, number offset, MoonBack.BackScalar ty, MoonBack.BackLiteral value) unique
+         | CmdDataAddr(MoonBack.BackValId dst, MoonBack.BackDataId data) unique
+         | CmdFuncAddr(MoonBack.BackValId dst, MoonBack.BackFuncId func) unique
+         | CmdExternAddr(MoonBack.BackValId dst, MoonBack.BackExternId func) unique
+         | CmdDeclareFunc(MoonCore.Visibility visibility, MoonBack.BackFuncId func, MoonBack.BackSigId sig) unique
+         | CmdDeclareExtern(MoonBack.BackExternId func, string symbol, MoonBack.BackSigId sig) unique
+         | CmdBeginFunc(MoonBack.BackFuncId func) unique
+         | CmdCreateBlock(MoonBack.BackBlockId block) unique
+         | CmdSwitchToBlock(MoonBack.BackBlockId block) unique
+         | CmdSealBlock(MoonBack.BackBlockId block) unique
+         | CmdBindEntryParams(MoonBack.BackBlockId block, MoonBack.BackValId* values) unique
+         | CmdAppendBlockParam(MoonBack.BackBlockId block, MoonBack.BackValId value, MoonBack.BackShape ty) unique
+         | CmdCreateStackSlot(MoonBack.BackStackSlotId slot, number size, number align) unique
+         | CmdAlias(MoonBack.BackValId dst, MoonBack.BackValId src) unique
+         | CmdStackAddr(MoonBack.BackValId dst, MoonBack.BackStackSlotId slot) unique
+         | CmdConst(MoonBack.BackValId dst, MoonBack.BackScalar ty, MoonBack.BackLiteral value) unique
+         | CmdUnary(MoonBack.BackValId dst, MoonBack.BackUnaryOp op, MoonBack.BackShape ty, MoonBack.BackValId value) unique
+         | CmdIntrinsic(MoonBack.BackValId dst, MoonBack.BackIntrinsicOp op, MoonBack.BackShape ty, MoonBack.BackValId* args) unique
+         | CmdCompare(MoonBack.BackValId dst, MoonBack.BackCompareOp op, MoonBack.BackShape ty, MoonBack.BackValId lhs, MoonBack.BackValId rhs) unique
+         | CmdCast(MoonBack.BackValId dst, MoonBack.BackCastOp op, MoonBack.BackScalar ty, MoonBack.BackValId value) unique
+         | CmdPtrOffset(MoonBack.BackValId dst, MoonBack.BackAddressBase base, MoonBack.BackValId index, number elem_size, number const_offset, MoonBack.BackPointerProvenance provenance, MoonBack.BackPointerBounds bounds) unique
+         | CmdLoadInfo(MoonBack.BackValId dst, MoonBack.BackShape ty, MoonBack.BackAddress addr, MoonBack.BackMemoryInfo memory) unique
+         | CmdStoreInfo(MoonBack.BackShape ty, MoonBack.BackAddress addr, MoonBack.BackValId value, MoonBack.BackMemoryInfo memory) unique
+         | CmdAtomicLoad(MoonBack.BackValId dst, MoonBack.BackScalar ty, MoonBack.BackAddress addr, MoonBack.BackMemoryInfo memory, MoonBack.BackAtomicOrdering ordering) unique
+         | CmdAtomicStore(MoonBack.BackScalar ty, MoonBack.BackAddress addr, MoonBack.BackValId value, MoonBack.BackMemoryInfo memory, MoonBack.BackAtomicOrdering ordering) unique
+         | CmdAtomicRmw(MoonBack.BackValId dst, MoonBack.BackAtomicRmwOp op, MoonBack.BackScalar ty, MoonBack.BackAddress addr, MoonBack.BackValId value, MoonBack.BackMemoryInfo memory, MoonBack.BackAtomicOrdering ordering) unique
+         | CmdAtomicCas(MoonBack.BackValId dst, MoonBack.BackScalar ty, MoonBack.BackAddress addr, MoonBack.BackValId expected, MoonBack.BackValId replacement, MoonBack.BackMemoryInfo memory, MoonBack.BackAtomicOrdering ordering) unique
+         | CmdAtomicFence(MoonBack.BackAtomicOrdering ordering) unique
+         | CmdIntBinary(MoonBack.BackValId dst, MoonBack.BackIntOp op, MoonBack.BackScalar scalar, MoonBack.BackIntSemantics semantics, MoonBack.BackValId lhs, MoonBack.BackValId rhs) unique
+         | CmdBitBinary(MoonBack.BackValId dst, MoonBack.BackBitOp op, MoonBack.BackScalar scalar, MoonBack.BackValId lhs, MoonBack.BackValId rhs) unique
+         | CmdBitNot(MoonBack.BackValId dst, MoonBack.BackScalar scalar, MoonBack.BackValId value) unique
+         | CmdShift(MoonBack.BackValId dst, MoonBack.BackShiftOp op, MoonBack.BackScalar scalar, MoonBack.BackValId lhs, MoonBack.BackValId rhs) unique
+         | CmdRotate(MoonBack.BackValId dst, MoonBack.BackRotateOp op, MoonBack.BackScalar scalar, MoonBack.BackValId lhs, MoonBack.BackValId rhs) unique
+         | CmdFloatBinary(MoonBack.BackValId dst, MoonBack.BackFloatOp op, MoonBack.BackScalar scalar, MoonBack.BackFloatSemantics semantics, MoonBack.BackValId lhs, MoonBack.BackValId rhs) unique
+         | CmdAliasFact(MoonBack.BackAliasFact fact) unique
+         | CmdMemcpy(MoonBack.BackValId dst, MoonBack.BackValId src, MoonBack.BackValId len) unique
+         | CmdMemset(MoonBack.BackValId dst, MoonBack.BackValId byte, MoonBack.BackValId len) unique
+         | CmdMemcmp(MoonBack.BackValId dst, MoonBack.BackValId left, MoonBack.BackValId right, MoonBack.BackValId len) unique
+         | CmdSelect(MoonBack.BackValId dst, MoonBack.BackShape ty, MoonBack.BackValId cond, MoonBack.BackValId then_value, MoonBack.BackValId else_value) unique
+         | CmdFma(MoonBack.BackValId dst, MoonBack.BackScalar ty, MoonBack.BackFloatSemantics semantics, MoonBack.BackValId a, MoonBack.BackValId b, MoonBack.BackValId c) unique
+         | CmdVecSplat(MoonBack.BackValId dst, MoonBack.BackVec ty, MoonBack.BackValId value) unique
+         | CmdVecBinary(MoonBack.BackValId dst, MoonBack.BackVecBinaryOp op, MoonBack.BackVec ty, MoonBack.BackValId lhs, MoonBack.BackValId rhs) unique
+         | CmdVecCompare(MoonBack.BackValId dst, MoonBack.BackVecCompareOp op, MoonBack.BackVec ty, MoonBack.BackValId lhs, MoonBack.BackValId rhs) unique
+         | CmdVecSelect(MoonBack.BackValId dst, MoonBack.BackVec ty, MoonBack.BackValId mask, MoonBack.BackValId then_value, MoonBack.BackValId else_value) unique
+         | CmdVecMask(MoonBack.BackValId dst, MoonBack.BackVecMaskOp op, MoonBack.BackVec ty, MoonBack.BackValId* args) unique
+         | CmdVecInsertLane(MoonBack.BackValId dst, MoonBack.BackVec ty, MoonBack.BackValId value, MoonBack.BackValId lane_value, number lane) unique
+         | CmdVecExtractLane(MoonBack.BackValId dst, MoonBack.BackScalar ty, MoonBack.BackValId value, number lane) unique
+         | CmdCall(MoonBack.BackCallResult result, MoonBack.BackCallTarget target, MoonBack.BackSigId sig, MoonBack.BackValId* args) unique
+         | CmdJump(MoonBack.BackBlockId dest, MoonBack.BackValId* args) unique
+         | CmdBrIf(MoonBack.BackValId cond, MoonBack.BackBlockId then_block, MoonBack.BackValId* then_args, MoonBack.BackBlockId else_block, MoonBack.BackValId* else_args) unique
+         | CmdSwitchInt(MoonBack.BackValId value, MoonBack.BackScalar ty, MoonBack.BackSwitchCase* cases, MoonBack.BackBlockId default_dest) unique
+         | CmdReturnVoid
+         | CmdReturnValue(MoonBack.BackValId value) unique
+         | CmdTrap
+         | CmdFinishFunc(MoonBack.BackFuncId func) unique
+         | CmdFinalizeModule
+
+    BackShapeRequirement = BackShapeRequiresScalar
+         | BackShapeRequiresVector
+         | BackShapeAllowsScalarOrVector
+
+    BackProgramFact = BackFactCreateSig(number index, MoonBack.BackSigId sig) unique
+         | BackFactSigRef(number index, MoonBack.BackSigId sig) unique
+         | BackFactDeclareData(number index, MoonBack.BackDataId data) unique
+         | BackFactDataRef(number index, MoonBack.BackDataId data) unique
+         | BackFactDeclareFunc(number index, MoonBack.BackFuncId func) unique
+         | BackFactFuncRef(number index, MoonBack.BackFuncId func) unique
+         | BackFactDeclareExtern(number index, MoonBack.BackExternId func) unique
+         | BackFactExternRef(number index, MoonBack.BackExternId func) unique
+         | BackFactBeginFunc(number index, MoonBack.BackFuncId func) unique
+         | BackFactFinishFunc(number index, MoonBack.BackFuncId func) unique
+         | BackFactFinalizeModule(number index) unique
+         | BackFactCreateBlock(number index, MoonBack.BackBlockId block) unique
+         | BackFactBlockRef(number index, MoonBack.BackBlockId block) unique
+         | BackFactStackSlotDef(number index, MoonBack.BackStackSlotId slot) unique
+         | BackFactStackSlotRef(number index, MoonBack.BackStackSlotId slot) unique
+         | BackFactValueDef(number index, MoonBack.BackValId value) unique
+         | BackFactValueUse(number index, MoonBack.BackValId value) unique
+         | BackFactAccessDef(number index, MoonBack.BackAccessId access) unique
+         | BackFactAccessRef(number index, MoonBack.BackAccessId access) unique
+         | BackFactAliasAccessRef(number index, MoonBack.BackAccessId access) unique
+         | BackFactShapeUse(number index, MoonBack.BackShape shape, MoonBack.BackShapeRequirement requirement) unique
+         | BackFactFunctionBodyCommand(number index) unique
+
+    BackValidationIssue = BackIssueEmptyProgram
+         | BackIssueMissingFinalize
+         | BackIssueCommandAfterFinalize(number index) unique
+         | BackIssueCommandOutsideFunction(number index) unique
+         | BackIssueNestedFunction(number index, MoonBack.BackFuncId active, MoonBack.BackFuncId next) unique
+         | BackIssueFinishWithoutBegin(number index, MoonBack.BackFuncId func) unique
+         | BackIssueFinishWrongFunction(number index, MoonBack.BackFuncId expected, MoonBack.BackFuncId actual) unique
+         | BackIssueUnfinishedFunction(MoonBack.BackFuncId func) unique
+         | BackIssueDuplicateSig(number index, MoonBack.BackSigId sig) unique
+         | BackIssueDuplicateData(number index, MoonBack.BackDataId data) unique
+         | BackIssueDuplicateFunc(number index, MoonBack.BackFuncId func) unique
+         | BackIssueDuplicateExtern(number index, MoonBack.BackExternId func) unique
+         | BackIssueDuplicateBlock(number index, MoonBack.BackBlockId block) unique
+         | BackIssueDuplicateStackSlot(number index, MoonBack.BackStackSlotId slot) unique
+         | BackIssueDuplicateValue(number index, MoonBack.BackValId value) unique
+         | BackIssueMissingSig(number index, MoonBack.BackSigId sig) unique
+         | BackIssueMissingData(number index, MoonBack.BackDataId data) unique
+         | BackIssueMissingFunc(number index, MoonBack.BackFuncId func) unique
+         | BackIssueMissingExtern(number index, MoonBack.BackExternId func) unique
+         | BackIssueMissingBlock(number index, MoonBack.BackBlockId block) unique
+         | BackIssueMissingStackSlot(number index, MoonBack.BackStackSlotId slot) unique
+         | BackIssueMissingValue(number index, MoonBack.BackValId value) unique
+         | BackIssueDuplicateAccess(number index, MoonBack.BackAccessId access) unique
+         | BackIssueMissingAccess(number index, MoonBack.BackAccessId access) unique
+         | BackIssueInvalidAlignment(number index, number bytes) unique
+         | BackIssueLoadAccessMode(number index, MoonBack.BackAccessMode mode) unique
+         | BackIssueStoreAccessMode(number index, MoonBack.BackAccessMode mode) unique
+         | BackIssueDereferenceTooSmall(number index, number dereference_bytes, number access_bytes) unique
+         | BackIssueTargetUnsupportedShape(number index, MoonBack.BackShape shape) unique
+         | BackIssueIntScalarExpected(number index, MoonBack.BackScalar scalar) unique
+         | BackIssueFloatScalarExpected(number index, MoonBack.BackScalar scalar) unique
+         | BackIssueBitScalarExpected(number index, MoonBack.BackScalar scalar) unique
+         | BackIssueShiftScalarExpected(number index, MoonBack.BackScalar scalar) unique
+         | BackIssueNonTrappingWithoutDereference(number index) unique
+         | BackIssueCanMoveWithoutNonTrapping(number index) unique
+         | BackIssueShapeRequiresScalar(number index, MoonBack.BackShape shape) unique
+         | BackIssueShapeRequiresVector(number index, MoonBack.BackShape shape) unique
+
+    BackValidationReport = (MoonBack.BackValidationIssue* issues) unique
+
+    BackCommandCount = (string command_kind, number count) unique
+
+    BackMemoryInspection = (number index, MoonBack.BackAccessId access, MoonBack.BackAlignment alignment, MoonBack.BackDereference dereference, MoonBack.BackTrap trap, MoonBack.BackMotion motion, MoonBack.BackAccessMode mode) unique
+
+    BackAddressInspection = (number index, MoonBack.BackAddress address) unique
+
+    BackPointerOffsetInspection = (number index, MoonBack.BackValId dst, MoonBack.BackAddressBase base, MoonBack.BackValId index_value, number elem_size, number const_offset, MoonBack.BackPointerProvenance provenance, MoonBack.BackPointerBounds bounds) unique
+
+    BackAliasInspection = (number index, MoonBack.BackAliasFact fact) unique
+
+    BackIntSemanticsInspection = (number index, MoonBack.BackValId dst, MoonBack.BackIntOp op, MoonBack.BackScalar scalar, MoonBack.BackIntSemantics semantics) unique
+
+    BackFloatSemanticOp = BackFloatSemanticBinary(MoonBack.BackFloatOp op) unique
+         | BackFloatSemanticFma
+
+    BackFloatSemanticsInspection = (number index, MoonBack.BackValId dst, MoonBack.BackFloatSemanticOp op, MoonBack.BackScalar scalar, MoonBack.BackFloatSemantics semantics) unique
+
+    BackInspectionReport = (MoonBack.BackCommandCount* command_counts, MoonBack.BackTargetModel* targets, MoonBack.BackMemoryInspection* memory, MoonBack.BackAddressInspection* addresses, MoonBack.BackPointerOffsetInspection* pointer_offsets, MoonBack.BackAliasInspection* aliases, MoonBack.BackIntSemanticsInspection* int_semantics, MoonBack.BackFloatSemanticsInspection* float_semantics) unique
+
+    BackDisasmInspection = (MoonBack.BackFuncId func, string text) unique
+
+    BackDiagnosticsReport = (MoonBack.BackInspectionReport inspection, MoonVec.VecInspectionReport vector, MoonBack.BackDisasmInspection* disassembly) unique
+
+    BackFlow = BackFallsThrough
+         | BackTerminates
+
+    BackSigSpec = (MoonBack.BackScalar* params, MoonBack.BackScalar* results) unique
+
+    BackStackSlotSpec = (number size, number align) unique
+
+    BackExprLowering = BackExprPlan(MoonBack.Cmd* cmds, MoonBack.BackValId value, MoonBack.BackScalar ty) unique
+         | BackExprTerminated(MoonBack.Cmd* cmds) unique
+
+    BackAddrLowering = BackAddrWrites(MoonBack.Cmd* cmds) unique
+         | BackAddrTerminated(MoonBack.Cmd* cmds) unique
+
+    BackViewLowering = BackViewPlan(MoonBack.Cmd* cmds, MoonBack.BackValId data, MoonBack.BackValId len, MoonBack.BackValId stride) unique
+         | BackViewTerminated(MoonBack.Cmd* cmds) unique
+
+    BackReturnTarget = BackReturnValue
+         | BackReturnSret(MoonBack.BackValId addr) unique
+
+    BackStmtPlan = (MoonBack.Cmd* cmds, MoonBack.BackFlow flow) unique
+
+    BackFuncPlan = (MoonBack.Cmd* cmds) unique
+
+    BackItemPlan = (MoonBack.Cmd* cmds) unique
+
+    BackProgram = (MoonBack.Cmd* cmds) unique
+
+    BackCommandTape = (number version, number command_count, string payload) unique
+}

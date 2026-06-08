@@ -1,0 +1,33 @@
+module MoonSem {
+    FieldRef = FieldByName(string field_name, MoonType.Type ty) unique
+         | FieldByOffset(string field_name, number offset, MoonType.Type ty, MoonHost.HostFieldRep storage) unique
+
+    FieldLayout = (string field_name, number offset, MoonType.Type ty) unique
+
+    MemLayout = (number size, number align) unique
+
+    TypeLayout = LayoutNamed(string module_name, string type_name, MoonSem.FieldLayout* fields, number size, number align) unique
+         | LayoutLocal(MoonCore.TypeSym sym, MoonSem.FieldLayout* fields, number size, number align) unique
+
+    LayoutEnv = (MoonSem.TypeLayout* layouts) unique
+
+    ConstFieldValue = (string name, MoonSem.ConstValue value) unique
+
+    ConstValue = ConstInt(MoonType.Type ty, string raw) unique
+         | ConstFloat(MoonType.Type ty, string raw) unique
+         | ConstBool(boolean value) unique
+         | ConstNil(MoonType.Type ty) unique
+         | ConstAgg(MoonType.Type ty, MoonSem.ConstFieldValue* fields) unique
+         | ConstArray(MoonType.Type elem_ty, MoonSem.ConstValue* elems) unique
+
+    ConstLocalEntry = (MoonBind.Binding binding, MoonSem.ConstValue value) unique
+
+    ConstLocalEnv = (MoonSem.ConstLocalEntry* entries) unique
+
+    FlowClass = FlowUnknown
+         | FlowFallsThrough
+         | FlowJumps
+         | FlowYields
+         | FlowReturns
+         | FlowTerminates
+}

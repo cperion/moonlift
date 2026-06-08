@@ -1,0 +1,22 @@
+module MoonRpc {
+    JsonMember = (string key, MoonRpc.JsonValue value) unique
+
+    JsonValue = JsonNull
+         | JsonBool(boolean value) unique
+         | JsonNumber(string raw) unique
+         | JsonString(string value) unique
+         | JsonArray(MoonRpc.JsonValue* values) unique
+         | JsonObject(MoonRpc.JsonMember* members) unique
+
+    Incoming = RpcRequest(MoonEditor.RpcId id, string method, MoonRpc.JsonValue params) unique
+         | RpcIncomingNotification(string method, MoonRpc.JsonValue params) unique
+         | RpcInvalid(string reason) unique
+
+    Outgoing = RpcResult(MoonEditor.RpcId id, MoonLsp.Payload payload) unique
+         | RpcError(MoonEditor.RpcId id, number code, string message) unique
+         | RpcOutgoingNotification(string method, MoonLsp.Payload payload) unique
+
+    OutCommand = SendMessage(MoonRpc.Outgoing outgoing) unique
+         | LogMessage(string level, string message) unique
+         | StopServer
+}

@@ -4,7 +4,7 @@ package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./lua/?.lua;./
 local Host = require("moonlift.mlua_run")
 local pvm = require("moonlift.pvm")
 
-local add = Host.eval [[return func add(a: i32, b: i32) -> i32 return a + b end]]
+local add = Host.eval [[return func add(a: i32, b: i32): i32 return a + b end]]
 assert(add.kind == "func")
 assert(add.name == "add")
 local Tr = add.T.MoonTree
@@ -25,7 +25,7 @@ end
 
 -- Function with block
 local sum = Host.eval [[
-return func sum(readonly xs: ptr(i32), n: i32) -> i32
+return func sum(readonly xs: ptr(i32), n: i32): i32
     block loop(i: i32 = 0, acc: i32 = 0)
         if i >= n then return acc end
         jump loop(i = i + 1, acc = acc + xs[i])
@@ -38,8 +38,8 @@ print("OK: block function")
 
 -- Multiple functions via loader
 local loader = assert(Host.loadstring([[
-local add = func(a: i32, b: i32) -> i32 return a + b end
-local sub = func(a: i32, b: i32) -> i32 return a - b end
+local add = func(a: i32, b: i32): i32 return a + b end
+local sub = func(a: i32, b: i32): i32 return a - b end
 return { add = add, sub = sub }
 ]], "multi.mlua"))
 local multi = loader()

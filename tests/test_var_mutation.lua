@@ -19,7 +19,7 @@ local function check(name, expected, actual)
     end
 end
 
-local c1 = compile([[local f = func(x: i32) -> i32
+local c1 = compile([[local f = func(x: i32): i32
     var y: i32 = 0
     if x > 0 then
         y = x
@@ -31,7 +31,7 @@ check("var assigned in then (true)",  5, c1(5))
 check("var assigned in then (false)", 0, c1(-1))
 c1:free()
 
-local c2 = compile([[local g = func(a: i32, cond: i32) -> i32
+local c2 = compile([[local g = func(a: i32, cond: i32): i32
     var r: i32 = 99
     if cond == 1 then
         r = a
@@ -45,7 +45,7 @@ check("both branches: cond=1",    7,  c2(7, 1))
 check("both branches: cond=0",    8,  c2(7, 0))
 c2:free()
 
-local c3 = compile([[local h = func(a: i32, b: i32) -> i32
+local c3 = compile([[local h = func(a: i32, b: i32): i32
     var x: i32 = a
     x = b
     x = x + 1
@@ -55,7 +55,7 @@ return h]])
 check("sequential reassign",  11, c3(5, 10))
 c3:free()
 
-local c4 = compile([[local multi = func(flag: i32, a: i32, b: i32) -> i32
+local c4 = compile([[local multi = func(flag: i32, a: i32, b: i32): i32
     var x: i32 = a
     var y: i32 = b
     if flag ~= 0 then
@@ -68,7 +68,7 @@ check("multi var: flag=1", 17, c4(1, 3, 7))
 check("multi var: flag=0", 10, c4(0, 3, 7))
 c4:free()
 
-local c5 = compile([[local nested = func(a: i32, b: i32) -> i32
+local c5 = compile([[local nested = func(a: i32, b: i32): i32
     var acc: i32 = 0
     if a > 0 then
         acc = a

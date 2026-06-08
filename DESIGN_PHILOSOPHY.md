@@ -128,7 +128,7 @@ overhead. The compiler sees one merged CFG.
 This means composition is zero-cost. You can nest regions ten levels deep
 and the compiled output is one flat function with internal branches.
 
-Functions still exist (`func f(x: i32) -> i32`). They are the right primitive
+Functions still exist (`func f(x: i32): i32`). They are the right primitive
 when the control flow is settled — the exits are known, the interface is
 stable, the memory layout is final. Functions seal a region into a callable
 unit with one entry and one return.

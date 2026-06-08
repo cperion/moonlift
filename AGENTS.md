@@ -120,14 +120,14 @@ Pointers: ptr(T)
 Views:    view(T)         -- (data, len, stride) descriptor
 Structs:  struct Name f: T; ... end
 Unions:   union Name a(T) | b(T) end
-Func:     func(i32, i32) -> i32        -- function pointer type
-Closure:  closure(i32) -> i32          -- closure type (function + context)
+Func:     func(i32, i32): i32        -- function pointer type
+Closure:  closure(i32): i32          -- closure type (function + context)
 ```
 
 ### Functions
 
 ```moonlift
-func add(a: i32, b: i32) -> i32
+func add(a: i32, b: i32): i32
     return a + b
 end
 ```
@@ -146,7 +146,7 @@ block loop(i: index = 0, acc: i32 = 0)
 end
 
 -- Multi-block region
-return region -> i32
+return region: i32
 entry start()
     jump loop(i = 0, acc = 0)
 end
@@ -177,7 +177,7 @@ emit scan(p, n, 65; hit = found, miss = not_found)
 ### Expression fragments
 
 ```moonlift
-expr clamp(x: i32) -> i32
+expr clamp(x: i32): i32
     select(x < 0, 0, x)
 end
 
@@ -210,8 +210,8 @@ Evaluated at `.mlua` load time:
 ### Extern imports
 
 ```moonlift
-extern write(fd: i32, buf: ptr(u8), count: index) -> index end
-extern host_add7(x: i32) -> i32 as "host_add7_impl" end
+extern write(fd: i32, buf: ptr(u8), count: index): index end
+extern host_add7(x: i32): i32 as "host_add7_impl" end
 ```
 
 ### Hosted JIT: compile and call from Lua
@@ -219,7 +219,7 @@ extern host_add7(x: i32) -> i32 as "host_add7_impl" end
 ```lua
 local moon = require("moonlift")
 local add_val = moon.loadstring([[
-local add = func(a: i32, b: i32) -> i32
+local add = func(a: i32, b: i32): i32
     return a + b
 end
 return add
@@ -235,7 +235,7 @@ compiled:free()
 local moon = require("moonlift")
 -- MOM status/error path; production compilation uses moon.loadstring
 local ok, err = pcall(function()
-    moon.native_loadstring([[func main() -> i32 return 0 end]], "demo.mlua")
+    moon.native_loadstring([[func main(): i32 return 0 end]], "demo.mlua")
 end)
 ```
 

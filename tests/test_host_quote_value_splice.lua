@@ -5,7 +5,7 @@ local Host = require("moonlift.mlua_run")
 
 local f = Host.eval [[
 local T = moon.i32
-return func id_host_type(x: @{T}) -> @{T}
+return func id_host_type(x: @{T}): @{T}
     return x
 end
 ]]

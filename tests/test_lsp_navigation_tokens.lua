@@ -28,7 +28,7 @@ function Output:flush() end
 function Output:text() return table.concat(self.parts) end
 
 local uri = "file:///tmp/nav.mlua"
-local src = "struct User\n  id: i32\n  active: bool32\nend\nexpose Users: view(User)\nfunc User:is_active(self: ptr(User)) -> bool\n  return true\nend\nfunc count_to(n: i32) -> i32\n    return block loop(i: i32 = 0) -> i32\n        if i >= n then yield i end\n        jump loop(i = i + 1)\n    end\nend\n"
+local src = "struct User\n  id: i32\n  active: bool32\nend\nexpose Users: view(User)\nfunc User:is_active(self: ptr(User)): bool\n  return true\nend\nfunc count_to(n: i32): i32\n    return block loop(i: i32 = 0): i32\n        if i >= n then yield i end\n        jump loop(i = i + 1)\n    end\nend\n"
 local function pos_of(needle, nth)
     nth = nth or 1
     local start, s = 1, nil

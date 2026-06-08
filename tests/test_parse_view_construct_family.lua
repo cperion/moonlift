@@ -26,45 +26,45 @@ local C = T.MoonCore
 local Vec = T.MoonVec
 
 local src = [[
-func sum_construct_view_i32(xs: ptr(i32), n: index) -> i32
+func sum_construct_view_i32(xs: ptr(i32), n: index): i32
     requires bounds(xs, n)
     let v: view(i32) = view(xs, n)
-    return block loop(i: index = 0, acc: i32 = 0) -> i32
+    return block loop(i: index = 0, acc: i32 = 0): i32
         if i >= len(v) then yield acc end
         jump loop(i = i + 1, acc = acc + v[i])
     end
 end
 
-func prod_construct_view_i32(xs: ptr(i32), n: index) -> i32
+func prod_construct_view_i32(xs: ptr(i32), n: index): i32
     requires bounds(xs, n)
     let v: view(i32) = view(xs, n)
-    return block loop(i: index = 0, acc: i32 = 1) -> i32
+    return block loop(i: index = 0, acc: i32 = 1): i32
         if i >= len(v) then yield acc end
         jump loop(i = i + 1, acc = acc * v[i])
     end
 end
 
-func xor_reduce_construct_view_i32(xs: ptr(i32), n: index) -> i32
+func xor_reduce_construct_view_i32(xs: ptr(i32), n: index): i32
     requires bounds(xs, n)
     let v: view(i32) = view(xs, n)
-    return block loop(i: index = 0, acc: i32 = 0) -> i32
+    return block loop(i: index = 0, acc: i32 = 0): i32
         if i >= len(v) then yield acc end
         jump loop(i = i + 1, acc = acc ^ v[i])
     end
 end
 
-func dot_construct_view_i32(a: ptr(i32), b: ptr(i32), n: index) -> i32
+func dot_construct_view_i32(a: ptr(i32), b: ptr(i32), n: index): i32
     requires bounds(a, n)
     requires bounds(b, n)
     let va: view(i32) = view(a, n)
     let vb: view(i32) = view(b, n)
-    return block loop(i: index = 0, acc: i32 = 0) -> i32
+    return block loop(i: index = 0, acc: i32 = 0): i32
         if i >= len(va) then yield acc end
         jump loop(i = i + 1, acc = acc + va[i] * vb[i])
     end
 end
 
-func fill_construct_view_i32(dst: ptr(i32), n: index, value: i32) -> i32
+func fill_construct_view_i32(dst: ptr(i32), n: index, value: i32): i32
     requires bounds(dst, n)
     let vd: view(i32) = view(dst, n)
     block loop(i: index = 0)
@@ -74,7 +74,7 @@ func fill_construct_view_i32(dst: ptr(i32), n: index, value: i32) -> i32
     end
 end
 
-func copy_construct_view_i32(noalias dst: ptr(i32), readonly src: ptr(i32), n: index) -> i32
+func copy_construct_view_i32(noalias dst: ptr(i32), readonly src: ptr(i32), n: index): i32
     requires bounds(dst, n)
     requires bounds(src, n)
     requires disjoint(dst, src)
@@ -87,7 +87,7 @@ func copy_construct_view_i32(noalias dst: ptr(i32), readonly src: ptr(i32), n: i
     end
 end
 
-func add_construct_view_i32(noalias dst: ptr(i32), readonly a: ptr(i32), readonly b: ptr(i32), n: index) -> i32
+func add_construct_view_i32(noalias dst: ptr(i32), readonly a: ptr(i32), readonly b: ptr(i32), n: index): i32
     requires bounds(dst, n)
     requires bounds(a, n)
     requires bounds(b, n)
@@ -103,7 +103,7 @@ func add_construct_view_i32(noalias dst: ptr(i32), readonly a: ptr(i32), readonl
     end
 end
 
-func sub_construct_view_i32(noalias dst: ptr(i32), readonly a: ptr(i32), readonly b: ptr(i32), n: index) -> i32
+func sub_construct_view_i32(noalias dst: ptr(i32), readonly a: ptr(i32), readonly b: ptr(i32), n: index): i32
     requires bounds(dst, n)
     requires bounds(a, n)
     requires bounds(b, n)
@@ -119,7 +119,7 @@ func sub_construct_view_i32(noalias dst: ptr(i32), readonly a: ptr(i32), readonl
     end
 end
 
-func scale_construct_view_i32(noalias dst: ptr(i32), readonly xs: ptr(i32), k: i32, n: index) -> i32
+func scale_construct_view_i32(noalias dst: ptr(i32), readonly xs: ptr(i32), k: i32, n: index): i32
     requires bounds(dst, n)
     requires bounds(xs, n)
     requires disjoint(dst, xs)
@@ -132,7 +132,7 @@ func scale_construct_view_i32(noalias dst: ptr(i32), readonly xs: ptr(i32), k: i
     end
 end
 
-func and_construct_view_i32(noalias dst: ptr(i32), readonly a: ptr(i32), readonly b: ptr(i32), n: index) -> i32
+func and_construct_view_i32(noalias dst: ptr(i32), readonly a: ptr(i32), readonly b: ptr(i32), n: index): i32
     requires bounds(dst, n)
     requires bounds(a, n)
     requires bounds(b, n)
@@ -148,7 +148,7 @@ func and_construct_view_i32(noalias dst: ptr(i32), readonly a: ptr(i32), readonl
     end
 end
 
-func or_construct_view_i32(noalias dst: ptr(i32), readonly a: ptr(i32), readonly b: ptr(i32), n: index) -> i32
+func or_construct_view_i32(noalias dst: ptr(i32), readonly a: ptr(i32), readonly b: ptr(i32), n: index): i32
     requires bounds(dst, n)
     requires bounds(a, n)
     requires bounds(b, n)
@@ -164,7 +164,7 @@ func or_construct_view_i32(noalias dst: ptr(i32), readonly a: ptr(i32), readonly
     end
 end
 
-func xor_construct_view_i32(noalias dst: ptr(i32), readonly a: ptr(i32), readonly b: ptr(i32), n: index) -> i32
+func xor_construct_view_i32(noalias dst: ptr(i32), readonly a: ptr(i32), readonly b: ptr(i32), n: index): i32
     requires bounds(dst, n)
     requires bounds(a, n)
     requires bounds(b, n)
@@ -180,7 +180,7 @@ func xor_construct_view_i32(noalias dst: ptr(i32), readonly a: ptr(i32), readonl
     end
 end
 
-func inc_construct_view_i32(xs: ptr(i32), n: index) -> i32
+func inc_construct_view_i32(xs: ptr(i32), n: index): i32
     requires bounds(xs, n)
     let vx: view(i32) = view(xs, n)
     block loop(i: index = 0)
@@ -190,7 +190,7 @@ func inc_construct_view_i32(xs: ptr(i32), n: index) -> i32
     end
 end
 
-func axpy_construct_view_i32(noalias y: ptr(i32), readonly x: ptr(i32), a: i32, n: index) -> i32
+func axpy_construct_view_i32(noalias y: ptr(i32), readonly x: ptr(i32), a: i32, n: index): i32
     requires bounds(y, n)
     requires bounds(x, n)
     requires disjoint(y, x)
@@ -203,27 +203,27 @@ func axpy_construct_view_i32(noalias y: ptr(i32), readonly x: ptr(i32), a: i32, 
     end
 end
 
-func sum_construct_view_i64(xs: ptr(i64), n: index) -> i64
+func sum_construct_view_i64(xs: ptr(i64), n: index): i64
     requires bounds(xs, n)
     let v: view(i64) = view(xs, n)
-    return block loop(i: index = 0, acc: i64 = 0) -> i64
+    return block loop(i: index = 0, acc: i64 = 0): i64
         if i >= len(v) then yield acc end
         jump loop(i = i + 1, acc = acc + v[i])
     end
 end
 
-func dot_construct_view_i64(a: ptr(i64), b: ptr(i64), n: index) -> i64
+func dot_construct_view_i64(a: ptr(i64), b: ptr(i64), n: index): i64
     requires bounds(a, n)
     requires bounds(b, n)
     let va: view(i64) = view(a, n)
     let vb: view(i64) = view(b, n)
-    return block loop(i: index = 0, acc: i64 = 0) -> i64
+    return block loop(i: index = 0, acc: i64 = 0): i64
         if i >= len(va) then yield acc end
         jump loop(i = i + 1, acc = acc + va[i] * vb[i])
     end
 end
 
-func add_construct_view_i64(noalias dst: ptr(i64), readonly a: ptr(i64), readonly b: ptr(i64), n: index) -> i32
+func add_construct_view_i64(noalias dst: ptr(i64), readonly a: ptr(i64), readonly b: ptr(i64), n: index): i32
     requires bounds(dst, n)
     requires bounds(a, n)
     requires bounds(b, n)
@@ -239,7 +239,7 @@ func add_construct_view_i64(noalias dst: ptr(i64), readonly a: ptr(i64), readonl
     end
 end
 
-func sub_construct_view_i64(noalias dst: ptr(i64), readonly a: ptr(i64), readonly b: ptr(i64), n: index) -> i32
+func sub_construct_view_i64(noalias dst: ptr(i64), readonly a: ptr(i64), readonly b: ptr(i64), n: index): i32
     requires bounds(dst, n)
     requires bounds(a, n)
     requires bounds(b, n)
@@ -255,7 +255,7 @@ func sub_construct_view_i64(noalias dst: ptr(i64), readonly a: ptr(i64), readonl
     end
 end
 
-func scale_construct_view_i64(noalias dst: ptr(i64), readonly xs: ptr(i64), k: i64, n: index) -> i32
+func scale_construct_view_i64(noalias dst: ptr(i64), readonly xs: ptr(i64), k: i64, n: index): i32
     requires bounds(dst, n)
     requires bounds(xs, n)
     requires disjoint(dst, xs)
@@ -268,7 +268,7 @@ func scale_construct_view_i64(noalias dst: ptr(i64), readonly xs: ptr(i64), k: i
     end
 end
 
-func or_construct_view_i64(noalias dst: ptr(i64), readonly a: ptr(i64), readonly b: ptr(i64), n: index) -> i32
+func or_construct_view_i64(noalias dst: ptr(i64), readonly a: ptr(i64), readonly b: ptr(i64), n: index): i32
     requires bounds(dst, n)
     requires bounds(a, n)
     requires bounds(b, n)
@@ -284,16 +284,16 @@ func or_construct_view_i64(noalias dst: ptr(i64), readonly a: ptr(i64), readonly
     end
 end
 
-func sum_construct_view_u32(xs: ptr(u32), n: index) -> u32
+func sum_construct_view_u32(xs: ptr(u32), n: index): u32
     requires bounds(xs, n)
     let v: view(u32) = view(xs, n)
-    return block loop(i: index = 0, acc: u32 = 0) -> u32
+    return block loop(i: index = 0, acc: u32 = 0): u32
         if i >= len(v) then yield acc end
         jump loop(i = i + 1, acc = acc + v[i])
     end
 end
 
-func add_construct_view_u32(noalias dst: ptr(u32), readonly a: ptr(u32), readonly b: ptr(u32), n: index) -> i32
+func add_construct_view_u32(noalias dst: ptr(u32), readonly a: ptr(u32), readonly b: ptr(u32), n: index): i32
     requires bounds(dst, n)
     requires bounds(a, n)
     requires bounds(b, n)
@@ -309,7 +309,7 @@ func add_construct_view_u32(noalias dst: ptr(u32), readonly a: ptr(u32), readonl
     end
 end
 
-func sub_construct_view_u32(noalias dst: ptr(u32), readonly a: ptr(u32), readonly b: ptr(u32), n: index) -> i32
+func sub_construct_view_u32(noalias dst: ptr(u32), readonly a: ptr(u32), readonly b: ptr(u32), n: index): i32
     requires bounds(dst, n)
     requires bounds(a, n)
     requires bounds(b, n)
@@ -325,7 +325,7 @@ func sub_construct_view_u32(noalias dst: ptr(u32), readonly a: ptr(u32), readonl
     end
 end
 
-func xor_construct_view_u32(noalias dst: ptr(u32), readonly a: ptr(u32), readonly b: ptr(u32), n: index) -> i32
+func xor_construct_view_u32(noalias dst: ptr(u32), readonly a: ptr(u32), readonly b: ptr(u32), n: index): i32
     requires bounds(dst, n)
     requires bounds(a, n)
     requires bounds(b, n)
@@ -341,16 +341,16 @@ func xor_construct_view_u32(noalias dst: ptr(u32), readonly a: ptr(u32), readonl
     end
 end
 
-func sum_construct_view_u64(xs: ptr(u64), n: index) -> u64
+func sum_construct_view_u64(xs: ptr(u64), n: index): u64
     requires bounds(xs, n)
     let v: view(u64) = view(xs, n)
-    return block loop(i: index = 0, acc: u64 = 0) -> u64
+    return block loop(i: index = 0, acc: u64 = 0): u64
         if i >= len(v) then yield acc end
         jump loop(i = i + 1, acc = acc + v[i])
     end
 end
 
-func add_construct_view_u64(noalias dst: ptr(u64), readonly a: ptr(u64), readonly b: ptr(u64), n: index) -> i32
+func add_construct_view_u64(noalias dst: ptr(u64), readonly a: ptr(u64), readonly b: ptr(u64), n: index): i32
     requires bounds(dst, n)
     requires bounds(a, n)
     requires bounds(b, n)
@@ -366,7 +366,7 @@ func add_construct_view_u64(noalias dst: ptr(u64), readonly a: ptr(u64), readonl
     end
 end
 
-func xor_construct_view_u64(noalias dst: ptr(u64), readonly a: ptr(u64), readonly b: ptr(u64), n: index) -> i32
+func xor_construct_view_u64(noalias dst: ptr(u64), readonly a: ptr(u64), readonly b: ptr(u64), n: index): i32
     requires bounds(dst, n)
     requires bounds(a, n)
     requires bounds(b, n)

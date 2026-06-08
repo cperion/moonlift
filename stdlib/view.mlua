@@ -1,13 +1,13 @@
 -- stdlib/view.mlua — View helper functions
 
-func view_slice(v: view(u8), start: index, len: index) -> view(u8)
+func view_slice(v: view(u8), start: index, len: index): view(u8)
     if start + len > len(v) then
         trap    -- bounds check
     end
     return view(v.data + start, len)
 end
 
-func view_from_ptr(p: ptr(u8), len: index) -> view(u8)
+func view_from_ptr(p: ptr(u8), len: index): view(u8)
     return view(p, len)
 end
 

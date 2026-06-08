@@ -1,0 +1,3 @@
+func answer(): i32
+    return 42
+end

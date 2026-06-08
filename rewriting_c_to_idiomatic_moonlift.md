@@ -369,7 +369,7 @@ return acc;
 Moonlift:
 
 ```moonlift
-func sum(xs: ptr(i32), n: index) -> i32
+func sum(xs: ptr(i32), n: index): i32
     block loop(i: index = 0, acc: i32 = 0)
         if i >= n then return acc end
         jump loop(i = i + 1, acc = acc + xs[i])
@@ -654,8 +654,8 @@ After the internal graph is idiomatic, create functions at the boundary.
 A sealed function translates the rich protocol into the external convention:
 
 ```moonlift
-func parse_api(p: ptr(Parser), out: ptr(Value)) -> i32
-    return region -> i32
+func parse_api(p: ptr(Parser), out: ptr(Value)): i32
+    return region: i32
     entry start()
         emit parse_value(p; ok = ok, err = err, eof = eof)
     end
@@ -746,8 +746,8 @@ region open_db(
 If you need a C-callable API:
 
 ```moonlift
-func open_db_api(path: ptr(u8), out: ptr(ptr(DB))) -> i32
-    return region -> i32
+func open_db_api(path: ptr(u8), out: ptr(ptr(DB))): i32
+    return region: i32
     entry start()
         emit open_db(path;
             opened = opened,
@@ -1019,7 +1019,7 @@ region foo(
 When exporting to C or Lua, seal the protocol.
 
 ```moonlift
-func foo_api(ctx: ptr(Context), a: ptr(A), out: ptr(B)) -> i32
+func foo_api(ctx: ptr(Context), a: ptr(A), out: ptr(B)): i32
 ```
 
 It may internally emit `foo`.
@@ -1544,8 +1544,8 @@ end
 ### 17.3 Sealed function for C callers
 
 ```moonlift
-func queue_pop_api(q: ptr(Queue), out: ptr(ptr(Job))) -> i32
-    return region -> i32
+func queue_pop_api(q: ptr(Queue), out: ptr(ptr(Job))): i32
+    return region: i32
     entry start()
         emit queue_pop(q; got = got, empty = empty, closed = closed)
     end

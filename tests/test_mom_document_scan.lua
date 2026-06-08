@@ -45,7 +45,7 @@ local long = [=[
 struct Nope
 end
 ]=]
-func add(x: i32) -> i32
+func add(x: i32): i32
   if x > 0 then
     return x
   else
@@ -59,7 +59,7 @@ entry start()
 end
 end
 
-expr inc(x: i32) -> i32
+expr inc(x: i32): i32
   x + 1
 end
 
@@ -69,7 +69,7 @@ end
 union Maybe
   none
 end
-extern puts(p: ptr(u8)) -> i32 end
+extern puts(p: ptr(u8)): i32 end
 ]==])
 
 assert(#islands == 6, "islands: " .. #islands)

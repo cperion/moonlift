@@ -20,8 +20,8 @@ local fn = Host.eval [[
 local frag = region needs_out(x: i32; out: cont(y: i32))
 entry start() jump out(y = x + 1) end
 end
-return func f() -> i32
-    return region -> i32
+return func f(): i32
+    return region: i32
     entry start() emit @{frag}(41; out = done) end
     block done(y: i32) yield y end
     end

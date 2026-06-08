@@ -40,8 +40,9 @@ local function compile_outcome(events, projection, name)
   local src = Emit.emit(cfg, { name = name })
   assert(src:match("LuaRTTable") and src:match("LuaRTString") and src:match("LuaRTRawGetResult"), "object substrate declarations must be emitted")
   assert(not src:match("out_tag") and not src:match("out_event_kind"), "must not emit protocol ABI")
-  local fn = assert(moon.loadstring(src, "=(" .. name .. ")"))()
-  return assert(fn:compile()), src
+  local native, quote_errors = Emit.compile(cfg, { name = name })
+  assert(native, table.concat(quote_errors or {}, "; "))
+  return native, src
 end
 
 local strings = ffi.new("LuaRTString[4]")

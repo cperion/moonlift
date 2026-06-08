@@ -17,29 +17,29 @@ local C = T.MoonCore
 local Vec = T.MoonVec
 
 local src = [[
-func sum_stride1(xs: ptr(i32), n: index) -> i32
+func sum_stride1(xs: ptr(i32), n: index): i32
     requires bounds(xs, n)
     let v: view(i32) = view(xs, n, 1)
-    return block loop(i: index = 0, acc: i32 = 0) -> i32
+    return block loop(i: index = 0, acc: i32 = 0): i32
         if i >= len(v) then yield acc end
         jump loop(i = i + 1, acc = acc + v[i])
     end
 end
 
-func sum_stride2(xs: ptr(i32), n: index) -> i32
+func sum_stride2(xs: ptr(i32), n: index): i32
     requires bounds(xs, n)
     let v: view(i32) = view(xs, n, 2)
-    return block loop(i: index = 0, acc: i32 = 0) -> i32
+    return block loop(i: index = 0, acc: i32 = 0): i32
         if i >= len(v) then yield acc end
         jump loop(i = i + 1, acc = acc + v[i])
     end
 end
 
-func sum_window(xs: ptr(i32), n: index) -> i32
+func sum_window(xs: ptr(i32), n: index): i32
     requires bounds(xs, n)
     let v: view(i32) = view(xs, n)
     let w: view(i32) = view_window(v, 1, n)
-    return block loop(i: index = 0, acc: i32 = 0) -> i32
+    return block loop(i: index = 0, acc: i32 = 0): i32
         if i >= len(w) then yield acc end
         jump loop(i = i + 1, acc = acc + w[i])
     end

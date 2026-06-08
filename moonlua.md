@@ -314,8 +314,8 @@ If bytecode compatibility is needed, keep raw packed instructions on disk and de
 The sealed public boundary:
 
 ```moonlift
-func lua_resume_vm(L: ptr(LuaThread), nargs: i32) -> i32
-    return region -> i32
+func lua_resume_vm(L: ptr(LuaThread), nargs: i32): i32
+    return region: i32
     entry start()
         emit vm_resume(L, nargs;
             ok = ok,

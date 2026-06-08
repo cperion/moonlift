@@ -27,8 +27,8 @@ local expect_A = expect_byte("expect_A", 65, 10)
 local expect_B = expect_byte("expect_B", 66, 20)
 local expect_C = expect_byte("expect_C", 67, 30)
 
-local parse_ABC = func(p: ptr(u8), n: i32) -> i32
-    return region -> i32
+local parse_ABC = func(p: ptr(u8), n: i32): i32
+    return region: i32
     entry start()
         emit @{expect_A}(p, 0; ok = got_A, fail = bad_A)
     end
@@ -53,8 +53,8 @@ local parse_ABC = func(p: ptr(u8), n: i32) -> i32
     end
 end
 
-local parse_A_or_B = func(p: ptr(u8), n: i32) -> i32
-    return region -> i32
+local parse_A_or_B = func(p: ptr(u8), n: i32): i32
+    return region: i32
     entry start()
         emit @{expect_A}(p, 0; ok = done, fail = try_B)
     end
@@ -93,7 +93,7 @@ bm:free()
 -- used inside region loops.
 local score_patterns = Host.eval [[
 local function positive_after(full_name, pivot)
-    return expr @{full_name}(x: i32) -> i32
+    return expr @{full_name}(x: i32): i32
         select(x > @{pivot}, x - @{pivot}, 0)
     end
 end
@@ -109,8 +109,8 @@ entry loop(i: i32 = 0, a: i32 = 0, b: i32 = 0)
 end
 end
 
-local score_pair = func(p: ptr(u8), n: i32) -> i32
-    return region -> i32
+local score_pair = func(p: ptr(u8), n: i32): i32
+    return region: i32
     entry start()
         emit @{scan_score}(p, n; done = out)
     end
@@ -145,8 +145,8 @@ entry start()
 end
 end
 
-local compact_class = func(p: ptr(u8)) -> i32
-    return region -> i32
+local compact_class = func(p: ptr(u8)): i32
+    return region: i32
     entry start()
         emit @{classify_byte}(p, 0; digit = d, alpha = a, other = o)
     end

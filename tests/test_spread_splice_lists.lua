@@ -4,7 +4,7 @@ local Host = require("moonlift.mlua_run")
 
 local f = Host.eval [=[
 local params = moon.params[[ a: i32, b: i32 ]]
-return func spread_params(@{params...}) -> i32
+return func spread_params(@{params...}): i32
     return a + b
 end
 ]=]
@@ -33,10 +33,10 @@ assert(U.decl.variants[2].name == "b")
 
 local M = Host.eval [[
 local args = { 20, 22 }
-local add = func add(a: i32, b: i32) -> i32
+local add = func add(a: i32, b: i32): i32
     return a + b
 end
-local main = func main() -> i32
+local main = func main(): i32
     return add(@{args...})
 end
 local M = moon.module("spread_exprs")

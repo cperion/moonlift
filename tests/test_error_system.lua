@@ -254,15 +254,15 @@ do
     local src = [[
 union Step again(pc: i32, tape_len: i32) | stop(code: i32) end
 
-region check_invariants(pc: i32, tape_len: i32) -> Step
+region check_invariants(pc: i32, tape_len: i32): Step
 entry start()
     if fuel <= 0 then jump stop(code = -700) end
     jump again(pc = pc, tape_len = tape_len)
 end
 end
 
-func run_machine(tape: ptr(i32), n: i32) -> i32
-    return region -> i32
+func run_machine(tape: ptr(i32), n: i32): i32
+    return region: i32
     entry start()
         jump dispatch(pc = 0, tape_len = 0)
     end

@@ -1,0 +1,108 @@
+module MoonLink {
+    LinkPath = (string text) unique
+
+    LinkSymbol = (string name) unique
+
+    LinkEnv = (string key, string value) unique
+
+    LinkPlatform = LinkPlatformLinux
+         | LinkPlatformMacOS
+         | LinkPlatformWindows
+         | LinkPlatformWasm
+         | LinkPlatformUnknown(string name) unique
+
+    LinkArch = LinkArchX86_64
+         | LinkArchAArch64
+         | LinkArchX86
+         | LinkArchArm
+         | LinkArchWasm32
+         | LinkArchUnknown(string name) unique
+
+    LinkObjectFormat = LinkFormatElf
+         | LinkFormatMachO
+         | LinkFormatCoff
+         | LinkFormatWasm
+         | LinkFormatUnknown(string name) unique
+
+    LinkRelocationModel = LinkRelocStatic
+         | LinkRelocPic
+         | LinkRelocPie
+
+    LinkTargetModel = (MoonBack.BackTargetModel backend, MoonLink.LinkPlatform platform, MoonLink.LinkArch arch, MoonLink.LinkObjectFormat object_format, MoonLink.LinkRelocationModel relocation) unique
+
+    LinkArtifactKind = LinkArtifactObject
+         | LinkArtifactStaticArchive
+         | LinkArtifactSharedLibrary
+         | LinkArtifactExecutable
+
+    LinkerKind = LinkerSystemCc
+         | LinkerCc
+         | LinkerClang
+         | LinkerGcc
+         | LinkerLd
+         | LinkerLld
+         | LinkerAr
+         | LinkerLibtool
+         | LinkerCustom(string name) unique
+
+    LinkTool = (MoonLink.LinkerKind kind, MoonLink.LinkPath path) unique
+
+    LinkInput = LinkInputObject(MoonLink.LinkPath path) unique
+         | LinkInputStaticArchive(MoonLink.LinkPath path) unique
+         | LinkInputSharedLibrary(MoonLink.LinkPath path) unique
+         | LinkInputSystemLibrary(string name) unique
+         | LinkInputFramework(string name) unique
+         | LinkInputLibrarySearchPath(MoonLink.LinkPath path) unique
+         | LinkInputLinkerScript(MoonLink.LinkPath path) unique
+
+    LinkExportPolicy = LinkExportAll
+         | LinkExportNone
+         | LinkExportSymbols(MoonLink.LinkSymbol* symbols) unique
+         | LinkExportVersionScript(MoonLink.LinkPath path) unique
+
+    LinkExternPolicy = LinkExternRequireResolved
+         | LinkExternAllowUnresolved
+
+    LinkDebugPolicy = LinkDebugDefault
+         | LinkDebugKeep
+         | LinkDebugStrip
+
+    LinkRuntimePath = LinkRpath(MoonLink.LinkPath path) unique
+         | LinkRunpath(MoonLink.LinkPath path) unique
+
+    LinkOption = LinkOptRuntimePath(MoonLink.LinkRuntimePath path) unique
+         | LinkOptEntry(MoonLink.LinkSymbol symbol) unique
+         | LinkOptSoname(string name) unique
+         | LinkOptInstallName(string name) unique
+         | LinkOptOutputImplib(MoonLink.LinkPath path) unique
+         | LinkOptDebug(MoonLink.LinkDebugPolicy policy) unique
+         | LinkOptWholeArchiveBegin
+         | LinkOptWholeArchiveEnd
+         | LinkOptNoDefaultLibs
+         | LinkOptStaticLibgcc
+         | LinkOptCustomArg(string arg) unique
+
+    LinkPlan = (MoonLink.LinkTargetModel target, MoonLink.LinkArtifactKind kind, MoonLink.LinkTool tool, MoonLink.LinkPath output, MoonLink.LinkInput* inputs, MoonLink.LinkExportPolicy exports, MoonLink.LinkExternPolicy externs, MoonLink.LinkOption* options) unique
+
+    LinkIssue = LinkIssueMissingOutput
+         | LinkIssueNoInputs
+         | LinkIssueMissingInput(MoonLink.LinkPath path) unique
+         | LinkIssueUnsupportedPlatform(MoonLink.LinkPlatform platform, MoonLink.LinkArtifactKind kind) unique
+         | LinkIssueUnsupportedInput(MoonLink.LinkInput input, string reason) unique
+         | LinkIssueUnsupportedOption(MoonLink.LinkOption option, string reason) unique
+         | LinkIssueUnresolvedSymbol(MoonLink.LinkSymbol symbol) unique
+         | LinkIssueDuplicateSymbol(MoonLink.LinkSymbol symbol) unique
+         | LinkIssueToolUnavailable(MoonLink.LinkTool tool) unique
+         | LinkIssueCommandFailed(number index, number code, string stderr) unique
+
+    LinkReport = (MoonLink.LinkIssue* issues) unique
+
+    LinkCommand = LinkCmdRun(MoonLink.LinkTool tool, string* args, MoonLink.LinkEnv* env) unique
+         | LinkCmdWriteFile(MoonLink.LinkPath path, string contents) unique
+         | LinkCmdRemoveFile(MoonLink.LinkPath path) unique
+
+    LinkCommandPlan = (MoonLink.LinkPlan plan, MoonLink.LinkCommand* commands) unique
+
+    LinkResult = LinkOk(MoonLink.LinkPath output) unique
+         | LinkFailed(MoonLink.LinkReport report) unique
+}

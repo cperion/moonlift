@@ -3,7 +3,7 @@ package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./lua/?.lua;./
 -- Test load/store via .mlua eval
 local Host = require("moonlift.mlua_run")
 
-local load_i32 = Host.eval [[return func load_i32(p: ptr(i32)) -> i32 return *p end]]
+local load_i32 = Host.eval [[return func load_i32(p: ptr(i32)): i32 return *p end]]
 local ok, compiled = pcall(function() return load_i32:compile() end)
 if ok then
     local ffi = require("ffi")
@@ -15,7 +15,7 @@ else
     print("OK: load_i32 value constructed")
 end
 
-local store = Host.eval [[return func store_then_load(p: ptr(i32), v: i32) -> i32 *p = v; return *p end]]
+local store = Host.eval [[return func store_then_load(p: ptr(i32), v: i32): i32 *p = v; return *p end]]
 local ok2, compiled2 = pcall(function() return store:compile() end)
 if ok2 then
     local ffi = require("ffi")

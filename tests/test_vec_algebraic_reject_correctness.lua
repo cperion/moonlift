@@ -3,8 +3,8 @@ package.path = "./lua/?.lua;./lua/?/init.lua;" .. package.path
 local moon = require("moonlift")
 
 local chunk = assert(moon.loadstring([[
-local sum_region = func(n: i32) -> i32
-    return region -> i32
+local sum_region = func(n: i32): i32
+    return region: i32
     entry loop(i: i32 = 0, acc: i32 = 0)
         if i >= n then yield acc end
         jump loop(i = i + 1, acc = acc + i)
@@ -12,8 +12,8 @@ local sum_region = func(n: i32) -> i32
     end
 end
 
-local prod_region = func(n: i32) -> i32
-    return region -> i32
+local prod_region = func(n: i32): i32
+    return region: i32
     entry loop(i: i32 = 0, acc: i32 = 1)
         if i >= n then yield acc end
         jump loop(i = i + 1, acc = acc * i)

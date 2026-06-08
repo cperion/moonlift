@@ -26,7 +26,7 @@ local P = PositionIndex.Define(T)
 
 local uri = S.DocUri("file:///binding_scopes.mlua")
 local src = [[
-func shadow(x: i32) -> i32
+func shadow(x: i32): i32
     let y: i32 = x
     if x > 0 then
         let y: i32 = y
@@ -35,7 +35,7 @@ func shadow(x: i32) -> i32
     end
     return y
 end
-func branch_scope(x: i32) -> i32
+func branch_scope(x: i32): i32
     if x > 0 then
         let z: i32 = x
         return z
@@ -44,8 +44,8 @@ func branch_scope(x: i32) -> i32
         return z
     end
 end
-func forward_block(n: i32) -> i32
-    return region -> i32
+func forward_block(n: i32): i32
+    return region: i32
     entry start()
         jump done(v = n)
     end

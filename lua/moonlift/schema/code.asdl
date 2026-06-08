@@ -1,0 +1,172 @@
+module MoonCode {
+    CodeModuleId = (string text) unique
+
+    CodeFuncId = (string text) unique
+
+    CodeExternId = (string text) unique
+
+    CodeGlobalId = (string text) unique
+
+    CodeDataId = (string text) unique
+
+    CodeSigId = (string text) unique
+
+    CodeBlockId = (string text) unique
+
+    CodeValueId = (string text) unique
+
+    CodeLocalId = (string text) unique
+
+    CodeTypeId = (string text) unique
+
+    CodeOrigin = CodeOriginUnknown
+         | CodeOriginSource(string label) unique
+         | CodeOriginBinding(MoonBind.Binding binding) unique
+         | CodeOriginGenerated(string reason) unique
+
+    CodeIntSignedness = CodeSigned
+         | CodeUnsigned
+
+    CodeType = CodeTyVoid
+         | CodeTyBool8
+         | CodeTyInt(number bits, MoonCode.CodeIntSignedness signedness) unique
+         | CodeTyFloat(number bits) unique
+         | CodeTyIndex
+         | CodeTyDataPtr(MoonCode.CodeType? pointee) unique
+         | CodeTyCodePtr(MoonCode.CodeSigId sig) unique
+         | CodeTyNamed(string module_name, string type_name, MoonType.Type source_ty) unique
+         | CodeTyArray(MoonCode.CodeType elem, number count) unique
+         | CodeTySlice(MoonCode.CodeType elem) unique
+         | CodeTyView(MoonCode.CodeType elem) unique
+         | CodeTyClosure(MoonCode.CodeSigId sig) unique
+         | CodeTyImportedC(MoonC.CTypeId id) unique
+         | CodeTyVector(MoonCode.CodeType elem, number lanes) unique
+
+    CodeParam = (MoonCode.CodeValueId value, string name, MoonCode.CodeType ty, MoonCode.CodeOrigin origin) unique
+
+    CodeSig = (MoonCode.CodeSigId id, MoonCode.CodeType* params, MoonCode.CodeType* results) unique
+
+    CodeResidence = CodeResidenceValue
+         | CodeResidenceAddressed
+         | CodeResidenceAggregate
+         | CodeResidenceDescriptor
+
+    CodeLocal = (MoonCode.CodeLocalId id, string name, MoonCode.CodeType ty, MoonCode.CodeResidence residence, MoonCode.CodeOrigin origin) unique
+
+    CodePlace = CodePlaceLocal(MoonCode.CodeLocalId local, MoonCode.CodeType ty) unique
+         | CodePlaceGlobal(MoonCode.CodeGlobalId global, MoonCode.CodeType ty) unique
+         | CodePlaceDeref(MoonCode.CodeValueId addr, MoonCode.CodeType ty, number? align) unique
+         | CodePlaceField(MoonCode.CodePlace base, MoonSem.FieldRef field, MoonCode.CodeType ty, number offset, number? size, number? align) unique
+         | CodePlaceIndex(MoonCode.CodePlace base, MoonCode.CodeValueId index, MoonCode.CodeType ty, number elem_size) unique
+         | CodePlaceBytes(MoonCode.CodeValueId base, number offset, MoonCode.CodeType ty, number size, number align) unique
+
+    CodeTrapMode = CodeMayTrap
+         | CodeMustNotTrap
+         | CodeCheckedTrap
+
+    CodeMemoryAccess = (MoonCode.CodeType ty, number align, MoonCode.CodeTrapMode trap, boolean volatile, MoonCore.AtomicOrdering? ordering) unique
+
+    CodeConst = CodeConstLiteral(MoonCode.CodeType ty, MoonCore.Literal literal) unique
+         | CodeConstNull(MoonCode.CodeType ty) unique
+         | CodeConstUndef(MoonCode.CodeType ty, string reason) unique
+
+    CodeIntOverflow = CodeIntWrap
+         | CodeIntTrapOnOverflow
+         | CodeIntAssumeNoOverflow(string reason) unique
+
+    CodeDivMode = CodeDivTrapOnZero
+         | CodeDivTrapOnZeroOrOverflow
+
+    CodeShiftMode = CodeShiftMaskCount
+         | CodeShiftTrapOutOfRange
+
+    CodeIntSemantics = (MoonCode.CodeIntOverflow overflow, MoonCode.CodeDivMode div, MoonCode.CodeShiftMode shift) unique
+
+    CodeFloatMode = CodeFloatStrict
+         | CodeFloatReassoc(string reason) unique
+         | CodeFloatFastMath(string reason) unique
+
+    CodeCallTarget = CodeCallDirect(MoonCode.CodeFuncId func) unique
+         | CodeCallExtern(MoonCode.CodeExternId extern) unique
+         | CodeCallIndirect(MoonCode.CodeValueId callee, MoonCode.CodeSigId sig) unique
+         | CodeCallClosure(MoonCode.CodeValueId closure, MoonCode.CodeSigId sig) unique
+
+    CodeFieldValue = (MoonSem.FieldRef field, MoonCode.CodeValueId value) unique
+
+    CodeArrayValue = (number index, MoonCode.CodeValueId value) unique
+
+    CodeVariantCase = (string variant_name, number tag_value, MoonCode.CodeBlockId dest, MoonCode.CodeValueId* args) unique
+
+    CodeSwitchCase = (MoonCore.Literal literal, MoonCode.CodeBlockId dest, MoonCode.CodeValueId* args) unique
+
+    CodeInst = CodeInstConst(MoonCode.CodeValueId dst, MoonCode.CodeConst const, MoonCode.CodeOrigin origin) unique
+         | CodeInstAlias(MoonCode.CodeValueId dst, MoonCode.CodeValueId src, MoonCode.CodeOrigin origin) unique
+         | CodeInstUnary(MoonCode.CodeValueId dst, MoonCore.UnaryOp op, MoonCode.CodeType ty, MoonCode.CodeValueId value, MoonCode.CodeOrigin origin) unique
+         | CodeInstBinary(MoonCode.CodeValueId dst, MoonCore.BinaryOp op, MoonCode.CodeType ty, MoonCode.CodeIntSemantics semantics, MoonCode.CodeValueId lhs, MoonCode.CodeValueId rhs, MoonCode.CodeOrigin origin) unique
+         | CodeInstFloatBinary(MoonCode.CodeValueId dst, MoonCore.BinaryOp op, MoonCode.CodeType ty, MoonCode.CodeFloatMode mode, MoonCode.CodeValueId lhs, MoonCode.CodeValueId rhs, MoonCode.CodeOrigin origin) unique
+         | CodeInstCompare(MoonCode.CodeValueId dst, MoonCore.CmpOp op, MoonCode.CodeType ty, MoonCode.CodeValueId lhs, MoonCode.CodeValueId rhs, MoonCode.CodeOrigin origin) unique
+         | CodeInstCast(MoonCode.CodeValueId dst, MoonCore.MachineCastOp op, MoonCode.CodeType from, MoonCode.CodeType to, MoonCode.CodeValueId value, MoonCode.CodeOrigin origin) unique
+         | CodeInstSelect(MoonCode.CodeValueId dst, MoonCode.CodeType ty, MoonCode.CodeValueId cond, MoonCode.CodeValueId then_value, MoonCode.CodeValueId else_value, MoonCode.CodeOrigin origin) unique
+         | CodeInstIntrinsic(MoonCode.CodeValueId? dst, MoonCore.Intrinsic op, MoonCode.CodeType ty, MoonCode.CodeValueId* args, MoonCode.CodeOrigin origin) unique
+         | CodeInstAddrOf(MoonCode.CodeValueId dst, MoonCode.CodePlace place, MoonCode.CodeOrigin origin) unique
+         | CodeInstPtrOffset(MoonCode.CodeValueId dst, MoonCode.CodeValueId base, MoonCode.CodeValueId index, number elem_size, number const_offset, MoonCode.CodeOrigin origin) unique
+         | CodeInstLoad(MoonCode.CodeValueId dst, MoonCode.CodePlace place, MoonCode.CodeMemoryAccess access, MoonCode.CodeOrigin origin) unique
+         | CodeInstStore(MoonCode.CodePlace place, MoonCode.CodeValueId value, MoonCode.CodeMemoryAccess access, MoonCode.CodeOrigin origin) unique
+         | CodeInstAggregate(MoonCode.CodeValueId dst, MoonCode.CodeType ty, MoonCode.CodeFieldValue* fields, MoonCode.CodeOrigin origin) unique
+         | CodeInstArray(MoonCode.CodeValueId dst, MoonCode.CodeType ty, MoonCode.CodeArrayValue* elems, MoonCode.CodeOrigin origin) unique
+         | CodeInstView(MoonCode.CodeValueId dst, MoonCode.CodeType elem, MoonCode.CodeValueId data, MoonCode.CodeValueId len, MoonCode.CodeValueId stride, MoonCode.CodeOrigin origin) unique
+         | CodeInstClosure(MoonCode.CodeValueId dst, MoonCode.CodeValueId fn, MoonCode.CodeValueId ctx, MoonCode.CodeSigId sig, MoonCode.CodeOrigin origin) unique
+         | CodeInstVariantCtor(MoonCode.CodeValueId dst, MoonCode.CodeType ty, string variant_name, number tag_value, MoonCode.CodeValueId? payload, MoonCode.CodeOrigin origin) unique
+         | CodeInstVariantTag(MoonCode.CodeValueId dst, MoonCode.CodeValueId value, MoonCode.CodeOrigin origin) unique
+         | CodeInstVariantPayload(MoonCode.CodeValueId dst, MoonCode.CodeValueId value, string variant_name, MoonCode.CodeType payload_ty, MoonCode.CodeOrigin origin) unique
+         | CodeInstCall(MoonCode.CodeValueId? dst, MoonCode.CodeCallTarget target, MoonCode.CodeSigId sig, MoonCode.CodeValueId* args, MoonCode.CodeOrigin origin) unique
+         | CodeInstAtomicLoad(MoonCode.CodeValueId dst, MoonCode.CodePlace place, MoonCode.CodeMemoryAccess access, MoonCore.AtomicOrdering ordering, MoonCode.CodeOrigin origin) unique
+         | CodeInstAtomicStore(MoonCode.CodePlace place, MoonCode.CodeValueId value, MoonCode.CodeMemoryAccess access, MoonCore.AtomicOrdering ordering, MoonCode.CodeOrigin origin) unique
+         | CodeInstAtomicRmw(MoonCode.CodeValueId dst, MoonCore.AtomicRmwOp op, MoonCode.CodePlace place, MoonCode.CodeValueId value, MoonCode.CodeMemoryAccess access, MoonCore.AtomicOrdering ordering, MoonCode.CodeOrigin origin) unique
+         | CodeInstAtomicCas(MoonCode.CodeValueId dst, MoonCode.CodePlace place, MoonCode.CodeValueId expected, MoonCode.CodeValueId replacement, MoonCode.CodeMemoryAccess access, MoonCore.AtomicOrdering ordering, MoonCode.CodeOrigin origin) unique
+         | CodeInstAtomicFence(MoonCore.AtomicOrdering ordering, MoonCode.CodeOrigin origin) unique
+
+    CodeTerm = CodeTermJump(MoonCode.CodeBlockId dest, MoonCode.CodeValueId* args) unique
+         | CodeTermBranch(MoonCode.CodeValueId cond, MoonCode.CodeBlockId then_dest, MoonCode.CodeValueId* then_args, MoonCode.CodeBlockId else_dest, MoonCode.CodeValueId* else_args) unique
+         | CodeTermSwitch(MoonCode.CodeValueId value, MoonCode.CodeSwitchCase* cases, MoonCode.CodeBlockId default_dest, MoonCode.CodeValueId* default_args) unique
+         | CodeTermVariantSwitch(MoonCode.CodeValueId tag, MoonCode.CodeVariantCase* cases, MoonCode.CodeBlockId default_dest, MoonCode.CodeValueId* default_args) unique
+         | CodeTermReturn(MoonCode.CodeValueId* values) unique
+         | CodeTermTrap(string reason) unique
+         | CodeTermUnreachable(string reason) unique
+
+    CodeBlock = (MoonCode.CodeBlockId id, string name, MoonCode.CodeParam* params, MoonCode.CodeInst* insts, MoonCode.CodeTerm term, MoonCode.CodeOrigin origin) unique
+
+    CodeLinkage = CodeLinkageLocal
+         | CodeLinkageExport
+         | CodeLinkageImport
+         | CodeLinkageDeclaration
+
+    CodeDataInit = CodeDataZero(number offset, number size) unique
+         | CodeDataBytes(number offset, string bytes) unique
+         | CodeDataScalar(number offset, MoonCode.CodeType ty, MoonCore.Literal literal) unique
+         | CodeDataReloc(number offset, MoonCode.CodeGlobalRef target, number addend) unique
+
+    CodeGlobalRef = CodeGlobalRefData(MoonCode.CodeDataId data) unique
+         | CodeGlobalRefGlobal(MoonCode.CodeGlobalId global) unique
+         | CodeGlobalRefFunc(MoonCode.CodeFuncId func) unique
+         | CodeGlobalRefExtern(MoonCode.CodeExternId extern) unique
+
+    CodeGlobal = (MoonCode.CodeGlobalId id, string name, MoonCode.CodeType ty, MoonCode.CodeLinkage linkage, number? size, number? align, MoonCode.CodeDataInit* inits, MoonCode.CodeOrigin origin) unique
+
+    CodeExtern = (MoonCode.CodeExternId id, string name, string symbol, MoonCode.CodeSigId sig, MoonCode.CodeOrigin origin) unique
+
+    CodeFunc = (MoonCode.CodeFuncId id, string name, MoonCode.CodeLinkage linkage, MoonCode.CodeSigId sig, MoonCode.CodeParam* params, MoonCode.CodeLocal* locals, MoonCode.CodeBlockId entry, MoonCode.CodeBlock* blocks, MoonCode.CodeOrigin origin) unique
+
+    CodeModule = (MoonCode.CodeModuleId id, MoonCode.CodeSig* sigs, MoonCode.CodeType* types, MoonCode.CodeGlobal* globals, MoonCode.CodeExtern* externs, MoonCode.CodeFunc* funcs) unique
+
+    CodeIssue = CodeIssueMissingValue(MoonCode.CodeValueId value) unique
+         | CodeIssueDuplicateValue(MoonCode.CodeValueId value) unique
+         | CodeIssueMissingBlock(MoonCode.CodeBlockId block) unique
+         | CodeIssueJumpArity(MoonCode.CodeBlockId block, number expected, number actual) unique
+         | CodeIssueTypeMismatch(string site, MoonCode.CodeType expected, MoonCode.CodeType actual) unique
+         | CodeIssueUnterminatedBlock(MoonCode.CodeBlockId block) unique
+         | CodeIssueDataCodePointerConfusion(string site, MoonCode.CodeType ty) unique
+         | CodeIssueUnsupportedSource(string site, string reason) unique
+
+    CodeValidationReport = (MoonCode.CodeIssue* issues) unique
+}

@@ -21,7 +21,7 @@ struct User
     active: bool32
 end
 expose Users: view(User)
-func User:is_active(self: ptr(User)) -> bool
+func User:is_active(self: ptr(User)): bool
     return true
 end
 region Done(n: i32; done: cont(total: i32))
@@ -29,7 +29,7 @@ entry start(total: i32 = 0)
     jump done(total = total)
 end
 end
-expr FortyTwo() -> i32
+expr FortyTwo(): i32
     42
 end
 ]]
@@ -65,7 +65,7 @@ assert(h_region.value:match("region fragment"))
 local h_expr = Hover.hover(query_at("FortyTwo"), analysis)
 assert(h_expr.value:match("expr fragment"))
 
-local unresolved_src = "func unresolved() -> i32\n    return missing + 1\nend\n"
+local unresolved_src = "func unresolved(): i32\n    return missing + 1\nend\n"
 local unresolved_doc = S.DocumentSnapshot(uri, S.DocVersion(2), S.LangMlua, unresolved_src)
 local unresolved_analysis = Analysis.analyze_document(unresolved_doc)
 local unresolved_idx = P.build_index(unresolved_doc)

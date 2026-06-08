@@ -3,7 +3,7 @@ package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./lua/?.lua;./
 -- Test place/index values using .mlua eval
 local Host = require("moonlift.mlua_run")
 
-local store_first = Host.eval [[return func(p: ptr(i32), v: i32) -> i32 p[0] = v; return p[0] end]]
+local store_first = Host.eval [[return func(p: ptr(i32), v: i32): i32 p[0] = v; return p[0] end]]
 assert(store_first.kind == "func")
 assert(store_first.name == "store_first")
 assert(#store_first.func.body == 2)
@@ -19,7 +19,7 @@ end
 -- Struct field access
 local get_x = Host.eval [[
 local Pair = struct x: i32; y: i32 end
-return func(p: ptr(Pair)) -> i32 return (*p).x end
+return func(p: ptr(Pair)): i32 return (*p).x end
 ]]
 assert(get_x.name == "get_x")
 print("OK: get_x constructed")

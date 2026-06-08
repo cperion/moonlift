@@ -1,0 +1,91 @@
+module MoonSource {
+    DocUri = (string text) unique
+
+    DocVersion = (number value) unique
+
+    LanguageId = LangMlua
+         | LangMoonlift
+         | LangLua
+         | LangUnknown(string name) unique
+
+    DocumentSnapshot = (MoonSource.DocUri uri, MoonSource.DocVersion version, MoonSource.LanguageId language, string text) unique
+
+    PositionEncoding = PosUtf8Bytes
+         | PosUtf16CodeUnits
+         | PosUtf32Codepoints
+
+    SourcePos = (number line, number byte_col, number utf16_col) unique
+
+    SourceRange = (MoonSource.DocUri uri, number start_offset, number stop_offset, MoonSource.SourcePos start, MoonSource.SourcePos stop) unique
+
+    TextChange = ReplaceAll(string text) unique
+         | ReplaceRange(MoonSource.SourceRange range, string text) unique
+
+    DocumentEdit = (MoonSource.DocUri uri, MoonSource.DocVersion version, MoonSource.TextChange* changes) unique
+
+    SourceSlice = (string text) unique
+
+    SourceOccurrence = (MoonSource.SourceSlice slice, MoonSource.SourceRange range) unique
+
+    AnchorId = (string text) unique
+
+    AnchorKind = AnchorDocument
+         | AnchorLuaOpaque
+         | AnchorHostedIsland
+         | AnchorIslandBody
+         | AnchorKeyword
+         | AnchorScalarType
+         | AnchorStructName
+         | AnchorFieldName
+         | AnchorFieldUse
+         | AnchorFunctionName
+         | AnchorFunctionUse
+         | AnchorMethodName
+         | AnchorParamName
+         | AnchorLocalName
+         | AnchorBindingDef
+         | AnchorBindingUse
+         | AnchorRegionName
+         | AnchorExprName
+         | AnchorContinuationName
+         | AnchorContinuationUse
+         | AnchorBuiltinName
+         | AnchorPackedAlign
+         | AnchorDiagnostic
+         | AnchorExposeName
+         | AnchorModuleName
+         | AnchorOpaque(string name) unique
+
+    Anchor = (MoonSource.AnchorId id, MoonSource.AnchorKind kind, string label) unique
+
+    AnchorSpan = (MoonSource.AnchorId id, MoonSource.AnchorKind kind, string label, MoonSource.SourceRange range) unique
+
+    AnchorSet = (MoonSource.AnchorSpan* anchors) unique
+
+    SourceLineSpan = (number line, number start_offset, number stop_offset, number next_offset) unique
+
+    PositionIndex = (MoonSource.DocumentSnapshot document, MoonSource.SourceLineSpan* lines) unique
+
+    SourceApplyIssue = SourceIssueWrongDocument(MoonSource.DocUri expected, MoonSource.DocUri actual) unique
+         | SourceIssueStaleVersion(MoonSource.DocVersion expected_after, MoonSource.DocVersion actual) unique
+         | SourceIssueInvalidRange(string reason) unique
+         | SourceIssueOverlappingRanges(MoonSource.SourceRange previous, MoonSource.SourceRange current) unique
+         | SourceIssueMixedReplaceAll
+
+    SourceApplyResult = SourceApplyOk(MoonSource.DocumentSnapshot document) unique
+         | SourceApplyRejected(MoonSource.DocumentSnapshot document, MoonSource.SourceApplyIssue* issues) unique
+
+    SourcePositionResult = SourcePositionHit(MoonSource.SourcePos pos) unique
+         | SourcePositionMiss(string reason) unique
+
+    SourceOffsetResult = SourceOffsetHit(number offset) unique
+         | SourceOffsetMiss(string reason) unique
+
+    AnchorIndex = (MoonSource.AnchorSet set, MoonSource.AnchorSpan* anchors) unique
+
+    AnchorQuery = AnchorQueryPosition(MoonSource.AnchorIndex index, MoonSource.DocUri uri, number offset) unique
+         | AnchorQueryRange(MoonSource.AnchorIndex index, MoonSource.SourceRange range) unique
+         | AnchorQueryId(MoonSource.AnchorIndex index, MoonSource.AnchorId id) unique
+
+    AnchorLookupResult = AnchorLookup(MoonSource.AnchorSpan* anchors) unique
+}

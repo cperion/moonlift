@@ -1,0 +1,291 @@
+module MoonTree {
+    ExprHeader = ExprSurface
+         | ExprTyped(MoonType.Type ty) unique
+         | ExprOpen(MoonType.Type ty, MoonOpen.OpenSet open) unique
+
+    PlaceHeader = PlaceSurface
+         | PlaceTyped(MoonType.Type ty) unique
+         | PlaceOpen(MoonType.Type ty, MoonOpen.OpenSet open) unique
+
+    StmtHeader = StmtSurface
+         | StmtOpen(MoonOpen.OpenSet open) unique
+         | StmtFlow(MoonSem.FlowClass flow) unique
+
+    FieldInit = (string name, MoonTree.Expr value, number offset) unique
+
+    VariantBind = (string name, MoonType.Type ty) unique
+
+    SwitchStmtArm = (string raw_key, MoonTree.Stmt* body) unique
+
+    SwitchExprArm = (string raw_key, MoonTree.Stmt* body, MoonTree.Expr result) unique
+
+    SwitchVariantStmtArm = (string variant_name, MoonTree.VariantBind* binds, MoonTree.Stmt* body) unique
+
+    SwitchVariantExprArm = (string variant_name, MoonTree.VariantBind* binds, MoonTree.Stmt* body, MoonTree.Expr result) unique
+
+    View = ViewFromExpr(MoonTree.Expr base, MoonType.Type elem) unique
+         | ViewContiguous(MoonTree.Expr data, MoonType.Type elem, MoonTree.Expr len) unique
+         | ViewStrided(MoonTree.Expr data, MoonType.Type elem, MoonTree.Expr len, MoonTree.Expr stride) unique
+         | ViewRestrided(MoonTree.View base, MoonType.Type elem, MoonTree.Expr stride) unique
+         | ViewWindow(MoonTree.View base, MoonTree.Expr start, MoonTree.Expr len) unique
+         | ViewRowBase(MoonTree.View base, MoonTree.Expr row_offset, MoonType.Type elem) unique
+         | ViewInterleaved(MoonTree.Expr data, MoonType.Type elem, MoonTree.Expr len, MoonTree.Expr stride, MoonTree.Expr lane) unique
+         | ViewInterleavedView(MoonTree.View base, MoonType.Type elem, MoonTree.Expr stride, MoonTree.Expr lane) unique
+
+    Domain = DomainRange(MoonTree.Expr stop) unique
+         | DomainRange2(MoonTree.Expr start, MoonTree.Expr stop) unique
+         | DomainZipEqValues(MoonTree.Expr* values) unique
+         | DomainValue(MoonTree.Expr value) unique
+         | DomainView(MoonTree.View view) unique
+         | DomainZipEqViews(MoonTree.View* views) unique
+         | DomainSlotValue(MoonOpen.DomainSlot slot) unique
+
+    IndexBase = IndexBaseExpr(MoonTree.Expr base) unique
+         | IndexBasePlace(MoonTree.Place base, MoonType.Type elem) unique
+         | IndexBaseView(MoonTree.View view) unique
+
+    Place = PlaceRef(MoonTree.PlaceHeader h, MoonBind.ValueRef ref) unique
+         | PlaceDeref(MoonTree.PlaceHeader h, MoonTree.Expr base) unique
+         | PlaceDot(MoonTree.PlaceHeader h, MoonTree.Place base, string name) unique
+         | PlaceField(MoonTree.PlaceHeader h, MoonTree.Place base, MoonSem.FieldRef field) unique
+         | PlaceIndex(MoonTree.PlaceHeader h, MoonTree.IndexBase base, MoonTree.Expr index) unique
+         | PlaceSlotValue(MoonTree.PlaceHeader h, MoonOpen.PlaceSlot slot) unique
+
+    BlockLabel = (string name) unique
+
+    BlockParam = (string name, MoonType.Type ty) unique
+
+    EntryBlockParam = (string name, MoonType.Type ty, MoonTree.Expr init) unique
+
+    JumpArg = (string name, MoonTree.Expr value) unique
+
+    FuncContract = ContractBounds(MoonTree.Expr base, MoonTree.Expr len) unique
+         | ContractWindowBounds(MoonTree.Expr base, MoonTree.Expr base_len, MoonTree.Expr start, MoonTree.Expr len) unique
+         | ContractDisjoint(MoonTree.Expr a, MoonTree.Expr b) unique
+         | ContractSameLen(MoonTree.Expr a, MoonTree.Expr b) unique
+         | ContractNoAlias(MoonTree.Expr base) unique
+         | ContractReadonly(MoonTree.Expr base) unique
+         | ContractWriteonly(MoonTree.Expr base) unique
+
+    ContractFact = ContractFactBounds(MoonBind.Binding base, MoonBind.Binding len) unique
+         | ContractFactWindowBounds(MoonBind.Binding base, MoonTree.Expr base_len, MoonTree.Expr start, MoonTree.Expr len) unique
+         | ContractFactDisjoint(MoonBind.Binding a, MoonBind.Binding b) unique
+         | ContractFactSameLen(MoonBind.Binding a, MoonBind.Binding b) unique
+         | ContractFactNoAlias(MoonBind.Binding base) unique
+         | ContractFactReadonly(MoonBind.Binding base) unique
+         | ContractFactWriteonly(MoonBind.Binding base) unique
+         | ContractFactRejected(MoonTree.TypeIssue issue) unique
+
+    ContractFactSet = (MoonTree.ContractFact* facts) unique
+
+    EntryControlBlock = (MoonTree.BlockLabel label, MoonTree.EntryBlockParam* params, MoonTree.Stmt* body) unique
+
+    ControlBlock = (MoonTree.BlockLabel label, MoonTree.BlockParam* params, MoonTree.Stmt* body) unique
+
+    ControlStmtRegion = (string region_id, MoonTree.EntryControlBlock entry, MoonTree.ControlBlock* blocks) unique
+
+    ControlExprRegion = (string region_id, MoonType.Type result_ty, MoonTree.EntryControlBlock entry, MoonTree.ControlBlock* blocks) unique
+
+    ControlFact = ControlFactEntryBlock(string region_id, MoonTree.BlockLabel label) unique
+         | ControlFactBlock(string region_id, MoonTree.BlockLabel label) unique
+         | ControlFactEntryParam(string region_id, MoonTree.BlockLabel label, number index, string name, MoonType.Type ty) unique
+         | ControlFactBlockParam(string region_id, MoonTree.BlockLabel label, number index, string name, MoonType.Type ty) unique
+         | ControlFactJump(string region_id, MoonTree.BlockLabel from_label, MoonTree.BlockLabel to_label) unique
+         | ControlFactJumpArg(string region_id, MoonTree.BlockLabel from_label, MoonTree.BlockLabel to_label, string name, MoonType.Type ty) unique
+         | ControlFactYieldVoid(string region_id, MoonTree.BlockLabel from_label) unique
+         | ControlFactYieldValue(string region_id, MoonTree.BlockLabel from_label, MoonType.Type ty) unique
+         | ControlFactReturn(string region_id, MoonTree.BlockLabel from_label) unique
+         | ControlFactBackedge(string region_id, MoonTree.BlockLabel from_label, MoonTree.BlockLabel to_label) unique
+         | ControlFactVariantSwitch(string region_id, MoonTree.BlockLabel from_label, string switch_on, MoonTree.ControlVariantArmFact* arms, MoonTree.BlockLabel default_label) unique
+
+    ControlVariantArmFact = (string variant_name, number tag_value, MoonTree.BlockLabel label, MoonTree.BlockParam* binds) unique
+
+    ControlFactSet = (MoonTree.ControlFact* facts) unique
+
+    ControlReject = ControlRejectDuplicateLabel(string region_id, MoonTree.BlockLabel label) unique
+         | ControlRejectMissingLabel(string region_id, MoonTree.BlockLabel label) unique
+         | ControlRejectMissingJumpArg(string region_id, MoonTree.BlockLabel label, string name) unique
+         | ControlRejectExtraJumpArg(string region_id, MoonTree.BlockLabel label, string name) unique
+         | ControlRejectDuplicateJumpArg(string region_id, MoonTree.BlockLabel label, string name) unique
+         | ControlRejectJumpType(string region_id, MoonTree.BlockLabel label, string name, MoonType.Type expected, MoonType.Type actual) unique
+         | ControlRejectYieldOutsideRegion(string reason) unique
+         | ControlRejectYieldType(string region_id, MoonType.Type expected, MoonType.Type actual) unique
+         | ControlRejectUnterminatedBlock(string region_id, MoonTree.BlockLabel label) unique
+         | ControlRejectIrreducible(string region_id, string reason) unique
+         | ControlRejectUnknownVariant(string region_id, string variant_name) unique
+
+    ControlDecision = ControlDecisionReducible(string region_id, MoonTree.ControlFact* facts) unique
+         | ControlDecisionIrreducible(string region_id, MoonTree.ControlReject reject) unique
+
+    Expr = ExprLit(MoonTree.ExprHeader h, MoonCore.Literal value) unique
+         | ExprRef(MoonTree.ExprHeader h, MoonBind.ValueRef ref) unique
+         | ExprDot(MoonTree.ExprHeader h, MoonTree.Expr base, string name) unique
+         | ExprUnary(MoonTree.ExprHeader h, MoonCore.UnaryOp op, MoonTree.Expr value) unique
+         | ExprBinary(MoonTree.ExprHeader h, MoonCore.BinaryOp op, MoonTree.Expr lhs, MoonTree.Expr rhs) unique
+         | ExprCompare(MoonTree.ExprHeader h, MoonCore.CmpOp op, MoonTree.Expr lhs, MoonTree.Expr rhs) unique
+         | ExprLogic(MoonTree.ExprHeader h, MoonCore.LogicOp op, MoonTree.Expr lhs, MoonTree.Expr rhs) unique
+         | ExprCast(MoonTree.ExprHeader h, MoonCore.SurfaceCastOp op, MoonType.Type ty, MoonTree.Expr value) unique
+         | ExprMachineCast(MoonTree.ExprHeader h, MoonCore.MachineCastOp op, MoonType.Type ty, MoonTree.Expr value) unique
+         | ExprIntrinsic(MoonTree.ExprHeader h, MoonCore.Intrinsic op, MoonTree.Expr* args) unique
+         | ExprAddrOf(MoonTree.ExprHeader h, MoonTree.Place place) unique
+         | ExprDeref(MoonTree.ExprHeader h, MoonTree.Expr value) unique
+         | ExprCall(MoonTree.ExprHeader h, MoonTree.Expr callee, MoonTree.Expr* args) unique
+         | ExprLen(MoonTree.ExprHeader h, MoonTree.Expr value) unique
+         | ExprField(MoonTree.ExprHeader h, MoonTree.Expr base, MoonSem.FieldRef field) unique
+         | ExprIndex(MoonTree.ExprHeader h, MoonTree.IndexBase base, MoonTree.Expr index) unique
+         | ExprAgg(MoonTree.ExprHeader h, MoonType.Type ty, MoonTree.FieldInit* fields) unique
+         | ExprArray(MoonTree.ExprHeader h, MoonType.Type elem_ty, MoonTree.Expr* elems) unique
+         | ExprIf(MoonTree.ExprHeader h, MoonTree.Expr cond, MoonTree.Expr then_expr, MoonTree.Expr else_expr) unique
+         | ExprSelect(MoonTree.ExprHeader h, MoonTree.Expr cond, MoonTree.Expr then_expr, MoonTree.Expr else_expr) unique
+         | ExprSwitch(MoonTree.ExprHeader h, MoonTree.Expr value, MoonTree.SwitchExprArm* arms, MoonTree.SwitchVariantExprArm* variant_arms, MoonTree.Stmt* default_body, MoonTree.Expr default_expr) unique
+         | ExprControl(MoonTree.ExprHeader h, MoonTree.ControlExprRegion region) unique
+         | ExprBlock(MoonTree.ExprHeader h, MoonTree.Stmt* stmts, MoonTree.Expr result) unique
+         | ExprClosure(MoonTree.ExprHeader h, MoonType.Param* params, MoonType.Type result, MoonTree.Stmt* body) unique
+         | ExprView(MoonTree.ExprHeader h, MoonTree.View view) unique
+         | ExprLoad(MoonTree.ExprHeader h, MoonType.Type ty, MoonTree.Expr addr) unique
+         | ExprAtomicLoad(MoonTree.ExprHeader h, MoonType.Type ty, MoonTree.Expr addr, MoonCore.AtomicOrdering ordering) unique
+         | ExprAtomicRmw(MoonTree.ExprHeader h, MoonCore.AtomicRmwOp op, MoonType.Type ty, MoonTree.Expr addr, MoonTree.Expr value, MoonCore.AtomicOrdering ordering) unique
+         | ExprAtomicCas(MoonTree.ExprHeader h, MoonType.Type ty, MoonTree.Expr addr, MoonTree.Expr expected, MoonTree.Expr replacement, MoonCore.AtomicOrdering ordering) unique
+         | ExprSlotValue(MoonTree.ExprHeader h, MoonOpen.ExprSlot slot) unique
+         | ExprUseExprFrag(MoonTree.ExprHeader h, string use_id, MoonOpen.ExprFragRef frag, MoonTree.Expr* args, MoonOpen.SlotBinding* fills) unique
+         | ExprCtor(MoonTree.ExprHeader h, string type_name, string variant_name, MoonTree.Expr* args) unique
+         | ExprNull(MoonTree.ExprHeader h, MoonType.Type elem) unique
+         | ExprSizeOf(MoonTree.ExprHeader h, MoonType.Type ty) unique
+         | ExprAlignOf(MoonTree.ExprHeader h, MoonType.Type ty) unique
+         | ExprIsNull(MoonTree.ExprHeader h, MoonTree.Expr value) unique
+
+    Stmt = StmtLet(MoonTree.StmtHeader h, MoonBind.Binding binding, MoonTree.Expr init) unique
+         | StmtVar(MoonTree.StmtHeader h, MoonBind.Binding binding, MoonTree.Expr init) unique
+         | StmtSet(MoonTree.StmtHeader h, MoonTree.Place place, MoonTree.Expr value) unique
+         | StmtAtomicStore(MoonTree.StmtHeader h, MoonType.Type ty, MoonTree.Expr addr, MoonTree.Expr value, MoonCore.AtomicOrdering ordering) unique
+         | StmtAtomicFence(MoonTree.StmtHeader h, MoonCore.AtomicOrdering ordering) unique
+         | StmtExpr(MoonTree.StmtHeader h, MoonTree.Expr expr) unique
+         | StmtAssert(MoonTree.StmtHeader h, MoonTree.Expr cond) unique
+         | StmtIf(MoonTree.StmtHeader h, MoonTree.Expr cond, MoonTree.Stmt* then_body, MoonTree.Stmt* else_body) unique
+         | StmtSwitch(MoonTree.StmtHeader h, MoonTree.Expr value, MoonTree.SwitchStmtArm* arms, MoonTree.SwitchVariantStmtArm* variant_arms, MoonTree.Stmt* default_body) unique
+         | StmtJump(MoonTree.StmtHeader h, MoonTree.BlockLabel target, MoonTree.JumpArg* args) unique
+         | StmtJumpCont(MoonTree.StmtHeader h, MoonOpen.ContSlot slot, MoonTree.JumpArg* args) unique
+         | StmtYieldVoid(MoonTree.StmtHeader h) unique
+         | StmtYieldValue(MoonTree.StmtHeader h, MoonTree.Expr value) unique
+         | StmtReturnVoid(MoonTree.StmtHeader h) unique
+         | StmtReturnValue(MoonTree.StmtHeader h, MoonTree.Expr value) unique
+         | StmtControl(MoonTree.StmtHeader h, MoonTree.ControlStmtRegion region) unique
+         | StmtUseRegionSlot(MoonTree.StmtHeader h, MoonOpen.RegionSlot slot) unique
+         | StmtUseRegionFrag(MoonTree.StmtHeader h, string use_id, MoonOpen.RegionFragRef frag, MoonTree.Expr* args, MoonOpen.SlotBinding* fills, MoonOpen.ContBinding* cont_fills) unique
+         | StmtTrap(MoonTree.StmtHeader h) unique
+
+    Func = FuncLocal(string name, MoonType.Param* params, MoonType.Type result, MoonTree.Stmt* body) unique
+         | FuncExport(string name, MoonType.Param* params, MoonType.Type result, MoonTree.Stmt* body) unique
+         | FuncLocalContract(string name, MoonType.Param* params, MoonType.Type result, MoonTree.FuncContract* contracts, MoonTree.Stmt* body) unique
+         | FuncExportContract(string name, MoonType.Param* params, MoonType.Type result, MoonTree.FuncContract* contracts, MoonTree.Stmt* body) unique
+         | FuncDecl(string name, MoonType.Param* params, MoonType.Type result) unique
+         | FuncOpen(MoonCore.FuncSym sym, MoonCore.Visibility visibility, MoonOpen.OpenParam* params, MoonOpen.OpenSet open, MoonType.Type result, MoonTree.Stmt* body) unique
+
+    ExternFunc = ExternFunc(string name, string symbol, MoonType.Param* params, MoonType.Type result) unique
+         | ExternFuncOpen(MoonCore.ExternSym sym, MoonOpen.OpenParam* params, MoonType.Type result) unique
+
+    ConstItem = ConstItem(string name, MoonType.Type ty, MoonTree.Expr value) unique
+         | ConstItemOpen(MoonCore.ConstSym sym, MoonOpen.OpenSet open, MoonType.Type ty, MoonTree.Expr value) unique
+
+    StaticItem = StaticItem(string name, MoonType.Type ty, MoonTree.Expr value) unique
+         | StaticItemOpen(MoonCore.StaticSym sym, MoonOpen.OpenSet open, MoonType.Type ty, MoonTree.Expr value) unique
+
+    ImportItem = (MoonCore.Path path) unique
+
+    TypeDecl = TypeDeclStruct(string name, MoonType.FieldDecl* fields) unique
+         | TypeDeclUnion(string name, MoonType.FieldDecl* fields) unique
+         | TypeDeclEnumSugar(string name, MoonCore.Name* variants) unique
+         | TypeDeclTaggedUnionSugar(string name, MoonType.VariantDecl* variants) unique
+         | TypeDeclOpenStruct(MoonCore.TypeSym sym, MoonType.FieldDecl* fields) unique
+         | TypeDeclOpenUnion(MoonCore.TypeSym sym, MoonType.FieldDecl* fields) unique
+
+    Item = ItemFunc(MoonTree.Func func) unique
+         | ItemExtern(MoonTree.ExternFunc func) unique
+         | ItemConst(MoonTree.ConstItem c) unique
+         | ItemStatic(MoonTree.StaticItem s) unique
+         | ItemImport(MoonTree.ImportItem imp) unique
+         | ItemType(MoonTree.TypeDecl t) unique
+         | ItemUseTypeDeclSlot(MoonOpen.TypeDeclSlot slot) unique
+         | ItemUseItemsSlot(MoonOpen.ItemsSlot slot) unique
+         | ItemUseModule(string use_id, MoonTree.Module module, MoonOpen.SlotBinding* fills) unique
+         | ItemUseModuleSlot(string use_id, MoonOpen.ModuleSlot slot, MoonOpen.SlotBinding* fills) unique
+         | ItemData(MoonTree.DataItem data) unique
+
+    DataItem = (MoonCore.DataId id, number size, number align, string bytes) unique
+
+    ModuleHeader = ModuleSurface
+         | ModuleTyped(string module_name) unique
+         | ModuleOpen(MoonOpen.ModuleNameFacet name, MoonOpen.OpenSet open) unique
+         | ModuleSem(string module_name) unique
+         | ModuleCode(string module_name) unique
+
+    Module = (MoonTree.ModuleHeader h, MoonTree.Item* items) unique
+
+    TypeIssue = TypeIssueUnresolvedValue(string name) unique
+         | TypeIssueUnresolvedPath(MoonCore.Path path) unique
+         | TypeIssueExpected(string site, MoonType.Type expected, MoonType.Type actual) unique
+         | TypeIssueArgCount(string site, number expected, number actual) unique
+         | TypeIssueNotCallable(MoonType.Type ty) unique
+         | TypeIssueNotIndexable(MoonType.Type ty) unique
+         | TypeIssueNotPointer(MoonType.Type ty) unique
+         | TypeIssueInvalidUnary(string op, MoonType.Type ty) unique
+         | TypeIssueInvalidBinary(string op, MoonType.Type lhs, MoonType.Type rhs) unique
+         | TypeIssueInvalidCompare(string op, MoonType.Type lhs, MoonType.Type rhs) unique
+         | TypeIssueInvalidLogic(string op, MoonType.Type lhs, MoonType.Type rhs) unique
+         | TypeIssueMissingJumpTarget(string region_id, MoonTree.BlockLabel label) unique
+         | TypeIssueMissingJumpArg(string region_id, MoonTree.BlockLabel label, string name) unique
+         | TypeIssueExtraJumpArg(string region_id, MoonTree.BlockLabel label, string name) unique
+         | TypeIssueDuplicateJumpArg(string region_id, MoonTree.BlockLabel label, string name) unique
+         | TypeIssueUnexpectedYield(string site) unique
+         | TypeIssueInvalidControl(string region_id, MoonTree.ControlReject reject) unique
+         | TypeIssueUnknownVariant(string type_name, string variant_name) unique
+         | TypeIssueVariantPayloadMismatch(string type_name, string variant_name, MoonType.Type expected, MoonType.Type actual) unique
+         | TypeIssueDuplicateVariant(string type_name, string variant_name) unique
+
+    TypeYieldMode = TypeYieldNone
+         | TypeYieldVoid
+         | TypeYieldValue(MoonType.Type ty) unique
+
+    TypeCheckEnv = (MoonBind.Env env, MoonType.Type return_ty, MoonTree.TypeYieldMode yield) unique
+
+    TypeViewResult = TypeViewResult(MoonTree.View view, MoonTree.TypeIssue* issues) unique
+
+    TypeIndexBaseResult = TypeIndexBaseResult(MoonTree.IndexBase base, MoonType.Type elem, MoonTree.TypeIssue* issues) unique
+
+    TypeControlStmtRegionResult = TypeControlStmtRegionResult(MoonTree.ControlStmtRegion region, MoonTree.TypeIssue* issues) unique
+
+    TypeControlExprRegionResult = TypeControlExprRegionResult(MoonTree.ControlExprRegion region, MoonTree.TypeIssue* issues) unique
+
+    TypeExprResult = TypeExprResult(MoonTree.Expr expr, MoonType.Type ty, MoonTree.TypeIssue* issues) unique
+
+    TypePlaceResult = TypePlaceResult(MoonTree.Place place, MoonType.Type ty, MoonTree.TypeIssue* issues) unique
+
+    TypeStmtResult = TypeStmtResult(MoonTree.TypeCheckEnv env, MoonTree.Stmt* stmts, MoonTree.TypeIssue* issues) unique
+
+    TypeFuncResult = TypeFuncResult(MoonTree.Func func, MoonTree.TypeIssue* issues) unique
+
+    TypeItemResult = TypeItemResult(MoonTree.Item* items, MoonTree.TypeIssue* issues) unique
+
+    TypeModuleResult = TypeModuleResult(MoonTree.Module module, MoonTree.TypeIssue* issues) unique
+
+    TreeBackLocal = TreeBackScalarLocal(MoonBind.Binding binding, MoonBack.BackValId value, MoonBack.BackScalar ty) unique
+         | TreeBackStackLocal(MoonBind.Binding binding, MoonBack.BackStackSlotId slot, MoonBack.BackScalar ty) unique
+         | TreeBackViewLocal(MoonBind.Binding binding, MoonBack.BackValId data, MoonBack.BackValId len) unique
+         | TreeBackStridedViewLocal(MoonBind.Binding binding, MoonBack.BackValId data, MoonBack.BackValId len, MoonBack.BackValId stride) unique
+
+    TreeBackReturn = TreeBackReturnScalar
+         | TreeBackReturnView(MoonBack.BackValId out) unique
+
+    TreeBackEnv = (MoonTree.TreeBackLocal* locals, number next_value, number next_block, MoonTree.TreeBackReturn ret) unique
+
+    TreeBackExprResult = TreeBackExprValue(MoonTree.TreeBackEnv env, MoonBack.Cmd* cmds, MoonBack.BackValId value, MoonBack.BackScalar ty) unique
+         | TreeBackExprView(MoonTree.TreeBackEnv env, MoonBack.Cmd* cmds, MoonBack.BackValId data, MoonBack.BackValId len) unique
+         | TreeBackExprStridedView(MoonTree.TreeBackEnv env, MoonBack.Cmd* cmds, MoonBack.BackValId data, MoonBack.BackValId len, MoonBack.BackValId stride) unique
+         | TreeBackExprUnsupported(MoonTree.TreeBackEnv env, MoonBack.Cmd* cmds, string reason) unique
+
+    TreeBackStmtResult = TreeBackStmtResult(MoonTree.TreeBackEnv env, MoonBack.Cmd* cmds, MoonBack.BackFlow flow) unique
+
+    TreeBackFuncResult = TreeBackFuncResult(MoonBack.Cmd* cmds) unique
+
+    TreeBackItemResult = TreeBackItemResult(MoonBack.Cmd* cmds) unique
+}

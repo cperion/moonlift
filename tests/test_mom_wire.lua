@@ -64,7 +64,7 @@ assert(aux(w, empty, 0) == 0)
 assert(aux(w, result, 1) == 1)
 
 -- MLBT commands for:
---   export func ret7() -> i32 { return 7 }
+--   export func ret7(): i32 { return 7 }
 cmd5(w, 3, 0, 0, 0, 1, 1)     -- CmdCreateSig(sig=0, params_aux=0, n_params=0, results_aux=1, n_results=1)
 cmd3(w, 10, 1, 1, 0)           -- CmdDeclareFunc(export, func=1, sig=0)
 cmd1(w, 12, 1)                 -- CmdBeginFunc(func=1)

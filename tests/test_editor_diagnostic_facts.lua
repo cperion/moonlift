@@ -22,7 +22,7 @@ local function doc(text)
     return S.DocumentSnapshot(uri, S.DocVersion(1), S.LangMlua, text)
 end
 
-local parse_bad = Analysis.analyze_document(doc([[expr Bad() -> i32
+local parse_bad = Analysis.analyze_document(doc([[expr Bad(): i32
     @
 end
 ]]))
@@ -60,7 +60,7 @@ local bad_align_diags = Diag.diagnostics(bad_align)
 assert(#bad_align_diags == 1)
 assert(bad_align_diags[1].code == "host.invalidPackedAlign")
 
-local unresolved = Analysis.analyze_document(doc("func unresolved() -> i32\n    return missing + 1\nend\n"))
+local unresolved = Analysis.analyze_document(doc("func unresolved(): i32\n    return missing + 1\nend\n"))
 local unresolved_diags = Diag.diagnostics(unresolved)
 local saw_unresolved = false
 for i = 1, #unresolved_diags do
@@ -74,7 +74,7 @@ for i = 1, #unresolved_diags do
 end
 assert(saw_unresolved)
 
-local invalid_binary_src = "func bad_binary() -> i32\n    return 1 + true\nend\n"
+local invalid_binary_src = "func bad_binary(): i32\n    return 1 + true\nend\n"
 local invalid_binary = Analysis.analyze_document(doc(invalid_binary_src))
 local invalid_binary_diags = Diag.diagnostics(invalid_binary)
 local saw_invalid_binary = false
@@ -88,7 +88,7 @@ for i = 1, #invalid_binary_diags do
 end
 assert(saw_invalid_binary)
 
-local return_src = "func wrong_return() -> bool\n    return 1\nend\n"
+local return_src = "func wrong_return(): bool\n    return 1\nend\n"
 local return_bad = Analysis.analyze_document(doc(return_src))
 local return_diags = Diag.diagnostics(return_bad)
 local saw_expected = false

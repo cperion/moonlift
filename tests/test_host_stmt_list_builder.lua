@@ -12,17 +12,17 @@ local region_body = moon.stmts [[
     yield n + 5
 ]]
 
-local f = func f(x: i32) -> i32
+local f = func f(x: i32): i32
     @{body...}
 end
 
-local h = func h(x: i32) -> i32
+local h = func h(x: i32): i32
     let z: i32 = x + 2
     return z * 2
 end
 
-local g = func g(n: i32) -> i32
-    return region -> i32
+local g = func g(n: i32): i32
+    return region: i32
     entry start()
         @{region_body...}
     end

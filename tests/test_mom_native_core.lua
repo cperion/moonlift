@@ -112,11 +112,11 @@ struct Pair
   left: i32
   right: i32
 end
-func add(x: i32, y: i32) -> i32
+func add(x: i32, y: i32): i32
   let z: i32 = x + y
   return z
 end
-func sum(n: i32) -> i32
+func sum(n: i32): i32
   if n <= 0 then
     return 0
   else
@@ -139,7 +139,7 @@ assert(out1.state[1] >= 7, "types: " .. tonumber(out1.state[1]))
 
 -- Test 2: switch statement
 local src2 = [[
-func classify(x: i32) -> i32
+func classify(x: i32): i32
   switch x do
   case 0 then
     return 1
@@ -163,7 +163,7 @@ assert(out2.state[12] == 2, "switch arms: " .. tonumber(out2.state[12]))
 
 -- Test 3: block (control region) with init params
 local src3 = [[
-func countdown(n: i32) -> i32
+func countdown(n: i32): i32
   block loop(i: i32 = 0)
     if i >= n then yield i end
     jump loop(i = i + 1)
@@ -184,7 +184,7 @@ assert(out3.state[14] >= 1, "entry params: " .. tonumber(out3.state[14]))
 
 -- Test 4: emit statement (simpler: one arg, one cont ref)
 local src4 = [[
-func find(p: ptr(u8)) -> i32
+func find(p: ptr(u8)): i32
   emit scan(p; hit = done)
 end
 ]]
@@ -202,7 +202,7 @@ assert(found_cont, "expected cont fills in emit test: " .. tonumber(out4.state[1
 
 -- Test 5: if expression (ternary)
 local src5 = [[
-func max(a: i32, b: i32) -> i32
+func max(a: i32, b: i32): i32
   let result: i32 = if a > b then a else b end
   return result
 end
@@ -231,7 +231,7 @@ block done(pos: i32)
   jump hit(pos = pos)
 end
 end
-expr inc(x: i32) -> i32
+expr inc(x: i32): i32
   x + 1
 end
 ]]

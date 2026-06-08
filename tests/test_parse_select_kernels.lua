@@ -26,7 +26,7 @@ local C = T.MoonCore
 local Vec = T.MoonVec
 
 local src = [[
-func clamp_nonneg_i32(noalias dst: ptr(i32), readonly a: ptr(i32), n: i32) -> i32
+func clamp_nonneg_i32(noalias dst: ptr(i32), readonly a: ptr(i32), n: i32): i32
     requires bounds(dst, n)
     requires bounds(a, n)
     requires disjoint(dst, a)
@@ -39,7 +39,7 @@ func clamp_nonneg_i32(noalias dst: ptr(i32), readonly a: ptr(i32), n: i32) -> i3
     end
 end
 
-func max_i32(noalias dst: ptr(i32), readonly a: ptr(i32), readonly b: ptr(i32), n: i32) -> i32
+func max_i32(noalias dst: ptr(i32), readonly a: ptr(i32), readonly b: ptr(i32), n: i32): i32
     requires bounds(dst, n)
     requires bounds(a, n)
     requires bounds(b, n)
@@ -54,7 +54,7 @@ func max_i32(noalias dst: ptr(i32), readonly a: ptr(i32), readonly b: ptr(i32), 
     end
 end
 
-func min_u32(noalias dst: ptr(u32), readonly a: ptr(u32), readonly b: ptr(u32), n: i32) -> i32
+func min_u32(noalias dst: ptr(u32), readonly a: ptr(u32), readonly b: ptr(u32), n: i32): i32
     requires bounds(dst, n)
     requires bounds(a, n)
     requires bounds(b, n)
@@ -69,7 +69,7 @@ func min_u32(noalias dst: ptr(u32), readonly a: ptr(u32), readonly b: ptr(u32), 
     end
 end
 
-func in_range_i32(noalias dst: ptr(i32), readonly a: ptr(i32), n: i32, lo: i32, hi: i32) -> i32
+func in_range_i32(noalias dst: ptr(i32), readonly a: ptr(i32), n: i32, lo: i32, hi: i32): i32
     requires bounds(dst, n)
     requires bounds(a, n)
     requires disjoint(dst, a)
@@ -82,7 +82,7 @@ func in_range_i32(noalias dst: ptr(i32), readonly a: ptr(i32), n: i32, lo: i32, 
     end
 end
 
-func nonzero_or_negative_i32(noalias dst: ptr(i32), readonly a: ptr(i32), n: i32) -> i32
+func nonzero_or_negative_i32(noalias dst: ptr(i32), readonly a: ptr(i32), n: i32): i32
     requires bounds(dst, n)
     requires bounds(a, n)
     requires disjoint(dst, a)
@@ -95,7 +95,7 @@ func nonzero_or_negative_i32(noalias dst: ptr(i32), readonly a: ptr(i32), n: i32
     end
 end
 
-func threshold_view_i32(noalias dst: view(i32), readonly a: view(i32), t: i32, lo: i32, hi: i32) -> i32
+func threshold_view_i32(noalias dst: view(i32), readonly a: view(i32), t: i32, lo: i32, hi: i32): i32
     requires same_len(dst, a)
     block loop(i: index = 0)
         if i >= len(dst) then
@@ -106,7 +106,7 @@ func threshold_view_i32(noalias dst: view(i32), readonly a: view(i32), t: i32, l
     end
 end
 
-func max_view_prefix_window_i32(noalias dst: view(i32), readonly a: view(i32), readonly b: view(i32)) -> i32
+func max_view_prefix_window_i32(noalias dst: view(i32), readonly a: view(i32), readonly b: view(i32)): i32
     requires same_len(dst, a)
     requires same_len(dst, b)
     let m: index = len(dst) - 1

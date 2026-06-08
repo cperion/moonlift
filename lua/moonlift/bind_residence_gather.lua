@@ -147,6 +147,7 @@ function M.Define(T)
             for i = 1, #self.fields do trips[#trips + 1] = pack(expr_facts(self.fields[i].value)) end
             return cat(trips)
         end,
+        [Tr.ExprCtor] = function(self) return each(expr_facts, self.args or {}) end,
         [Tr.ExprArray] = function(self) return each(expr_facts, self.elems) end,
         [Tr.ExprIf] = function(self) return cat({ pack(expr_facts(self.cond)), pack(expr_facts(self.then_expr)), pack(expr_facts(self.else_expr)) }) end,
         [Tr.ExprSelect] = function(self) return cat({ pack(expr_facts(self.cond)), pack(expr_facts(self.then_expr)), pack(expr_facts(self.else_expr)) }) end,
@@ -156,6 +157,11 @@ function M.Define(T)
                 trips[#trips + 1] = pack(each(stmt_facts, self.arms[i].body))
                 trips[#trips + 1] = pack(expr_facts(self.arms[i].result))
             end
+            for i = 1, #(self.variant_arms or {}) do
+                trips[#trips + 1] = pack(each(stmt_facts, self.variant_arms[i].body))
+                trips[#trips + 1] = pack(expr_facts(self.variant_arms[i].result))
+            end
+            trips[#trips + 1] = pack(each(stmt_facts, self.default_body or {}))
             trips[#trips + 1] = pack(expr_facts(self.default_expr))
             return cat(trips)
         end,

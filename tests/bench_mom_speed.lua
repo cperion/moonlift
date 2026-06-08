@@ -3,13 +3,13 @@ package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.p
 local mom = require("moonlift.host_mom")
 
 local SRC = [[
-func ret7() -> i32 return 7 end
-func add(x: i32, y: i32) -> i32 return x + y end
-func mul_add(a: i32, b: i32, c: i32) -> i32 return a * b + c end
-func neg(x: i32) -> i32 return -x end
-func lt(a: i32, b: i32) -> bool return a < b end
-func eq(a: i32, b: i32) -> bool return a == b end
-func ge(a: i32, b: i32) -> bool return a >= b end
+func ret7(): i32 return 7 end
+func add(x: i32, y: i32): i32 return x + y end
+func mul_add(a: i32, b: i32, c: i32): i32 return a * b + c end
+func neg(x: i32): i32 return -x end
+func lt(a: i32, b: i32): bool return a < b end
+func eq(a: i32, b: i32): bool return a == b end
+func ge(a: i32, b: i32): bool return a >= b end
 ]]
 
 local WARMUP = 200

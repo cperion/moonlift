@@ -2,7 +2,9 @@ local pvm = require("moonlift.pvm")
 
 local M = {}
 
-function M.Define(T)
+function M.Define(T, opts)
+    opts = opts or {}
+    local Ty = T.MoonType
     local Tr = T.MoonTree
 
     local expr_type
@@ -16,6 +18,16 @@ function M.Define(T)
 
     local function expr_ty(expr)
         return pvm.one(expr_type(expr.h))
+    end
+
+    local function named_type_name(ty)
+        if ty ~= nil and pvm.classof(ty) == Ty.TNamed then
+            local ref = ty.ref
+            local cls = pvm.classof(ref)
+            if cls == Ty.TypeRefGlobal then return ref.type_name or ref.name end
+            if cls == Ty.TypeRefPath and ref.path and #ref.path.parts > 0 then return ref.path.parts[#ref.path.parts].text or ref.path.parts[#ref.path.parts].name end
+        end
+        return nil
     end
 
     local function body_terminates(stmts)
@@ -65,8 +77,19 @@ function M.Define(T)
             for i = 1, #stmt.arms do
                 for j = 1, #stmt.arms[i].body do append_all(out, pvm.drain(stmt_facts(stmt.arms[i].body[j], region_id, from_label, entry_label))) end
             end
-            for i = 1, #(stmt.variant_arms or {}) do
-                for j = 1, #stmt.variant_arms[i].body do append_all(out, pvm.drain(stmt_facts(stmt.variant_arms[i].body[j], region_id, from_label, entry_label))) end
+            if #(stmt.variant_arms or {}) > 0 then
+                local arm_facts = {}
+                local type_name = named_type_name(expr_ty(stmt.value))
+                local def = type_name and opts.variant_def and opts.variant_def(type_name) or nil
+                for i = 1, #(stmt.variant_arms or {}) do
+                    local arm = stmt.variant_arms[i]
+                    local variant = def and def.variants[arm.variant_name] or nil
+                    local binds = {}
+                    for j = 1, #(arm.binds or {}) do binds[#binds + 1] = Tr.BlockParam(arm.binds[j].name, arm.binds[j].ty) end
+                    arm_facts[#arm_facts + 1] = Tr.ControlVariantArmFact(arm.variant_name, variant and variant.tag or -1, Tr.BlockLabel("variant:" .. from_label.name .. ":" .. arm.variant_name), binds)
+                    for j = 1, #arm.body do append_all(out, pvm.drain(stmt_facts(arm.body[j], region_id, from_label, entry_label))) end
+                end
+                out[#out + 1] = Tr.ControlFactVariantSwitch(region_id, from_label, type_name or "", arm_facts, Tr.BlockLabel("variant:" .. from_label.name .. ":default"))
             end
             for i = 1, #stmt.default_body do append_all(out, pvm.drain(stmt_facts(stmt.default_body[i], region_id, from_label, entry_label))) end
             return pvm.children(function(fact) return pvm.once(fact) end, out)

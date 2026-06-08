@@ -8,12 +8,12 @@ struct Arena
     end_ptr: ptr(u8)
 end
 
-func arena_new(size: index) -> Arena
+func arena_new(size: index): Arena
     let start = alloc(size, 16)
     return Arena { start = start, ptr = start, end_ptr = start + size }
 end
 
-func arena_alloc(a: ptr(Arena), size: index, align: index) -> ptr(u8)
+func arena_alloc(a: ptr(Arena), size: index, align: index): ptr(u8)
     -- Round up current ptr to alignment
     let misalign = as(index, a.ptr) % align
     let aligned = select(misalign == 0, a.ptr, a.ptr + (align - misalign))

@@ -7,11 +7,11 @@ local TRIALS = 500
 
 -- Moonlift source for MOM
 local MOM_SRC = [[
-func ret7() -> i32 return 7 end
-func add(x: i32, y: i32) -> i32 return x + y end
-func mul_add(a: i32, b: i32, c: i32) -> i32 return a * b + c end
-func neg(x: i32) -> i32 return -x end
-func factorial(n: i32) -> i32
+func ret7(): i32 return 7 end
+func add(x: i32, y: i32): i32 return x + y end
+func mul_add(a: i32, b: i32, c: i32): i32 return a * b + c end
+func neg(x: i32): i32 return -x end
+func factorial(n: i32): i32
   block loop(i: i32 = 1, acc: i32 = 1)
     if i > n then return acc end
     jump loop(i = i + 1, acc = acc * i)

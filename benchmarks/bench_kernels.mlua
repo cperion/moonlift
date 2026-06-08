@@ -1,27 +1,27 @@
 -- Benchmark kernels: Cranelift vs DynASM
 
-local fib = func fib_i32(n: i32) -> i32
-    return block loop(i: i32 = 0, a: i32 = 0, b: i32 = 1) -> i32
+local fib = func fib_i32(n: i32): i32
+    return block loop(i: i32 = 0, a: i32 = 0, b: i32 = 1): i32
         if i >= n then yield a end
         jump loop(i = i + 1, a = b, b = a + b)
     end
 end
 
-local sum = func sum_stride_i32(xs: ptr(i32), n: i32, stride: i32) -> i32
-    return block loop(i: i32 = 0, acc: i32 = 0) -> i32
+local sum = func sum_stride_i32(xs: ptr(i32), n: i32, stride: i32): i32
+    return block loop(i: i32 = 0, acc: i32 = 0): i32
         if i >= n then yield acc end
         jump loop(i = i + 1, acc = acc + xs[i * stride])
     end
 end
 
-local dot = func dot_stride_i32(a: ptr(i32), b: ptr(i32), n: i32, stride: i32) -> i32
-    return block loop(i: i32 = 0, acc: i32 = 0) -> i32
+local dot = func dot_stride_i32(a: ptr(i32), b: ptr(i32), n: i32, stride: i32): i32
+    return block loop(i: i32 = 0, acc: i32 = 0): i32
         if i >= n then yield acc end
         jump loop(i = i + 1, acc = acc + a[i * stride] * b[i * stride])
     end
 end
 
-local fill = func fill_stride_i32(dst: ptr(i32), n: i32, stride: i32, value: i32) -> i32
+local fill = func fill_stride_i32(dst: ptr(i32), n: i32, stride: i32, value: i32): i32
     block loop(i: i32 = 0)
         if i >= n then return 0 end
         dst[i * stride] = value
@@ -29,26 +29,26 @@ local fill = func fill_stride_i32(dst: ptr(i32), n: i32, stride: i32, value: i32
     end
 end
 
-local sumsq = func sum_squares_i32(xs: ptr(i32), n: i32) -> i32
-    return block loop(i: i32 = 0, acc: i32 = 0) -> i32
+local sumsq = func sum_squares_i32(xs: ptr(i32), n: i32): i32
+    return block loop(i: i32 = 0, acc: i32 = 0): i32
         if i >= n then yield acc end
         let x: i32 = xs[i]
         jump loop(i = i + 1, acc = acc + x * x)
     end
 end
 
-local hash = func djb2_hash(data: ptr(u8), len: i32) -> i32
-    return block loop(i: i32 = 0, h: i32 = 5381) -> i32
+local hash = func djb2_hash(data: ptr(u8), len: i32): i32
+    return block loop(i: i32 = 0, h: i32 = 5381): i32
         if i >= len then yield h end
         let c: i32 = as(i32, data[i])
         jump loop(i = i + 1, h = h * 33 + c)
     end
 end
 
-local findmax = func find_max_i32(xs: ptr(i32), n: i32) -> i32
+local findmax = func find_max_i32(xs: ptr(i32), n: i32): i32
     if n <= 0 then return 0 end
     let first: i32 = xs[0]
-    return block loop(i: i32 = 1, best: i32 = first) -> i32
+    return block loop(i: i32 = 1, best: i32 = first): i32
         if i >= n then yield best end
         let x: i32 = xs[i]
         if x > best then

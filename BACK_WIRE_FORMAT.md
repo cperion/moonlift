@@ -407,7 +407,7 @@ All: `[dst, ptr_type, id]`
 
 ## 9. Wire Format Example
 
-A minimal wire buffer for `func add1(a: i32) -> i32 { return a + 1 }`:
+A minimal wire buffer for `func add1(a: i32): i32 { return a + 1 }`:
 
 ```
 Header:

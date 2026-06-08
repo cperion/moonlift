@@ -13,7 +13,7 @@ struct MoonliftAbiPair
     b: i32
 end
 
-local abi_pair_sum = func(p: MoonliftAbiPair) -> i32
+local abi_pair_sum = func(p: MoonliftAbiPair): i32
     return p.a + p.b
 end
 

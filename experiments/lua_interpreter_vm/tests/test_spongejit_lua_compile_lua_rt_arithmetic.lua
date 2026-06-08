@@ -64,8 +64,9 @@ local function compile_add(events, projection, name, evidence)
   assert(not src:match("out_tag") and not src:match("out_event_kind"), "arithmetic must not emit protocol ABI")
   assert(not src:match("lua_add_tvalue") and not src:match("arith_helper") and not src:match("Opcode" .. "Helper"), "arithmetic must be emitted inline, not through opaque helper")
   assert(src:match("arithmetic_error") or src:match("Arithmetic"), "nonnumeric path must remain explicit in emitted CFG")
-  local fn = assert(moon.loadstring(src, "=(" .. name .. ")"))()
-  return assert(fn:compile()), src
+  local native, quote_errors = Emit.compile(cfg, { name = name })
+  assert(native, table.concat(quote_errors or {}, "; "))
+  return native, src
 end
 
 local add_window = {

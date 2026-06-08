@@ -1,0 +1,5 @@
+module MoonParse {
+    ParseIssue = (string message, number offset, number line, number col) unique
+
+    ParseResult = ParseResult(MoonTree.Module module, MoonParse.ParseIssue* issues) unique
+}

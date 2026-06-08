@@ -11,7 +11,7 @@ assert(toks.splice_map["splice.3"] == "z")
 assert(toks.splice_spread["splice.3"] == nil)
 
 local scan = Parse.scan_document [[
-func f() -> i32
+func f(): i32
     @{stmts...}
     return 1
 end

@@ -476,6 +476,12 @@ function Parser:skip_nl() while self:kind() == TK.nl do self.i = self.i + 1 end 
 function Parser:skip_sep() while self:kind() == TK.nl or self:kind() == TK.semi do self.i = self.i + 1 end end
 function Parser:accept(k) if self:kind() == k then self.i = self.i + 1; return true end; return false end
 function Parser:accept_text(k) if self:kind() == k then local t = self:text(); self.i = self.i + 1; return t end; return nil end
+function Parser:accept_result_marker() return self:accept(TK.colon) or self:accept(TK.arrow) end
+function Parser:expect_result_marker(msg)
+    if self:accept_result_marker() then return true end
+    self:issue(msg or ("expected ':' before result type, got " .. self:token_desc(0)))
+    return false
+end
 function Parser:accept_trailing_comma_before(close_k)
     local save = self.i
     self:skip_nl()
@@ -724,7 +730,7 @@ function Parser:parse_callable_type()
     end
     self:expect(TK.rparen)
     local result = Ty.TScalar(self.C.ScalarVoid)
-    if self:accept(TK.arrow) then self:skip_nl(); result = self:parse_type() end
+    if self:accept_result_marker() then self:skip_nl(); result = self:parse_type() end
     return params, result
 end
 
@@ -983,6 +989,10 @@ function Parser:led(k, left)
             end
         end
         self:expect(TK.rparen)
+        if pvm.classof(left) == Tr.ExprDot and pvm.classof(left.base) == Tr.ExprRef
+           and pvm.classof(left.base.ref) == B.ValueRefName then
+            return Tr.ExprCtor(Tr.ExprSurface, left.base.ref.name, left.name, args)
+        end
         -- select(cond, a, b) special form
         if pvm.classof(left) == Tr.ExprRef and pvm.classof(left.ref) == B.ValueRefName
            and left.ref.name == "select" and #args == 3 then
@@ -1115,13 +1125,34 @@ function Parser:switch_key_from_expr(expr)
     return { kind = "expr", expr = expr }
 end
 
+function Parser:parse_variant_switch_case()
+    local Tr, Ty, C = self.Tr, self.Ty, self.C
+    self:expect(TK.dot, "expected '.' before variant switch arm name")
+    local variant_name = self:expect_field_name("expected variant name")
+    local binds = {}
+    if self:accept(TK.lparen) then
+        self:skip_nl()
+        if self:kind() ~= TK.rparen then
+            while true do
+                binds[#binds + 1] = Tr.VariantBind(self:expect_field_name("expected variant bind name"), Ty.TScalar(C.ScalarVoid))
+                self:skip_nl()
+                if not self:accept(TK.comma) then break end
+                self:skip_nl()
+                if self:kind() == TK.rparen then break end
+            end
+        end
+        self:expect(TK.rparen, "expected ')' after variant binds")
+    end
+    return variant_name, binds
+end
+
 function Parser:parse_switch_stmt()
     local Tr, Sem = self.Tr, self.Sem
     local value = self:parse_expr(0)
     self:skip_nl()
     self:expect(TK.do_kw, "expected do after switch expression")
     self:skip_nl()
-    local arms = {}
+    local arms, variant_arms = {}, {}
     while self:kind() == TK.case_kw or (self:kind() == TK.hole and self.toks.splice_spread[self:text()]) do
         if self:kind() == TK.hole then
             local id = self:text(); self.i = self.i + 1
@@ -1129,12 +1160,20 @@ function Parser:parse_switch_stmt()
             arms[#arms + 1] = Tr.SwitchStmtArm(spread_sentinel("switch_stmt_arm_list", slot), {})
         else
             self.i = self.i + 1  -- consume 'case'
-            local key_expr = self:parse_expr(0)
-            self:skip_nl()
-            self:expect(TK.then_kw, "expected then after case expression")
-            local body = self:parse_stmt_until({ [TK.case_kw]=true, [TK.default_kw]=true, [TK.end_kw]=true })
-            local stmt_key = self:switch_key_from_expr(key_expr)
-            arms[#arms + 1] = Tr.SwitchStmtArm(stmt_key.raw or "", body)
+            if self:kind() == TK.dot then
+                local variant_name, binds = self:parse_variant_switch_case()
+                self:skip_nl()
+                self:expect(TK.then_kw, "expected then after variant case")
+                local body = self:parse_stmt_until({ [TK.case_kw]=true, [TK.default_kw]=true, [TK.end_kw]=true })
+                variant_arms[#variant_arms + 1] = Tr.SwitchVariantStmtArm(variant_name, binds, body)
+            else
+                local key_expr = self:parse_expr(0)
+                self:skip_nl()
+                self:expect(TK.then_kw, "expected then after case expression")
+                local body = self:parse_stmt_until({ [TK.case_kw]=true, [TK.default_kw]=true, [TK.end_kw]=true })
+                local stmt_key = self:switch_key_from_expr(key_expr)
+                arms[#arms + 1] = Tr.SwitchStmtArm(stmt_key.raw or "", body)
+            end
         end
         self:skip_nl()
     end
@@ -1142,7 +1181,7 @@ function Parser:parse_switch_stmt()
     self:expect(TK.then_kw, "expected then after default")
     local default_body = self:parse_stmt_until({ [TK.end_kw]=true })
     self:expect(TK.end_kw, "expected end after switch")
-    return Tr.StmtSwitch(Tr.StmtSurface, value, arms, {}, default_body)
+    return Tr.StmtSwitch(Tr.StmtSurface, value, arms, variant_arms, default_body)
 end
 
 function Parser:parse_switch_expr()
@@ -1151,7 +1190,7 @@ function Parser:parse_switch_expr()
     self:skip_nl()
     self:expect(TK.do_kw, "expected do after switch expression")
     self:skip_nl()
-    local arms = {}
+    local arms, variant_arms = {}, {}
     while self:kind() == TK.case_kw or (self:kind() == TK.hole and self.toks.splice_spread[self:text()]) do
         if self:kind() == TK.hole then
             local id = self:text(); self.i = self.i + 1
@@ -1159,12 +1198,20 @@ function Parser:parse_switch_expr()
             arms[#arms + 1] = Tr.SwitchExprArm(spread_sentinel("switch_expr_arm_list", slot), {}, Tr.ExprLit(Tr.ExprSurface, self.C.LitInt("0")))
         else
             self.i = self.i + 1
-            local key_expr = self:parse_expr(0)
-            self:skip_nl()
-            self:expect(TK.then_kw, "expected then after case expression")
-            local body, result = self:parse_expr_block({ [TK.case_kw]=true, [TK.default_kw]=true, [TK.end_kw]=true })
-            local expr_key = self:switch_key_from_expr(key_expr)
-            arms[#arms + 1] = Tr.SwitchExprArm(expr_key.raw or "", body, result)
+            if self:kind() == TK.dot then
+                local variant_name, binds = self:parse_variant_switch_case()
+                self:skip_nl()
+                self:expect(TK.then_kw, "expected then after variant case")
+                local body, result = self:parse_expr_block({ [TK.case_kw]=true, [TK.default_kw]=true, [TK.end_kw]=true })
+                variant_arms[#variant_arms + 1] = Tr.SwitchVariantExprArm(variant_name, binds, body, result)
+            else
+                local key_expr = self:parse_expr(0)
+                self:skip_nl()
+                self:expect(TK.then_kw, "expected then after case expression")
+                local body, result = self:parse_expr_block({ [TK.case_kw]=true, [TK.default_kw]=true, [TK.end_kw]=true })
+                local expr_key = self:switch_key_from_expr(key_expr)
+                arms[#arms + 1] = Tr.SwitchExprArm(expr_key.raw or "", body, result)
+            end
         end
         self:skip_nl()
     end
@@ -1172,7 +1219,7 @@ function Parser:parse_switch_expr()
     self:expect(TK.then_kw, "expected then after default")
     local default_body, default_expr = self:parse_expr_block({ [TK.end_kw]=true })
     self:expect(TK.end_kw, "expected end after switch")
-    return Tr.ExprSwitch(Tr.ExprSurface, value, arms, default_body, default_expr)
+    return Tr.ExprSwitch(Tr.ExprSurface, value, arms, variant_arms, default_body, default_expr)
 end
 
 function Parser:parse_expr_block(stops)
@@ -1196,12 +1243,12 @@ function Parser:parse_expr_block(stops)
     return stmts, last.expr
 end
 
--- Block expression: block name(params = init) -> T body end
+-- Block expression: block name(params = init): T body end
 function Parser:parse_control_expr_after_block()
     local Tr = self.Tr
     local label = Tr.BlockLabel(self:expect_name("expected block label"))
     local params = self:parse_block_params(true)
-    self:expect(TK.arrow, "expected -> for block expression")
+    self:expect_result_marker("expected ':' for block expression result type")
     self:skip_nl()
     local result_ty = self:parse_type()
     local body = self:parse_stmt_until({ [TK.end_kw]=true })
@@ -1211,10 +1258,10 @@ function Parser:parse_control_expr_after_block()
             Tr.EntryControlBlock(label, params, body), {}))
 end
 
--- Multi-block region expression: region -> T entry ... end block ... end end
+-- Multi-block region expression: region: T entry ... end block ... end end
 function Parser:parse_multi_control_expr()
     local Tr = self.Tr
-    self:expect(TK.arrow, "expected -> after region")
+    self:expect_result_marker("expected ':' after region")
     self:skip_nl()
     local result_ty = self:parse_type()
     self:skip_nl()
@@ -1590,7 +1637,7 @@ function Parser:parse_extern()
     local name = self:name_or_hint_before_lparen("expected extern function name")
     self:expect(TK.lparen); local params, _ = self:parse_param_list(); self:expect(TK.rparen)
     local result = Ty.TScalar(C.ScalarVoid)
-    if self:accept(TK.arrow) then self:skip_nl(); result = self:parse_type() end
+    if self:accept_result_marker() then self:skip_nl(); result = self:parse_type() end
     local symbol = name
     if self:accept(TK.as_kw) then
         self:skip_nl()
@@ -1616,7 +1663,7 @@ function Parser:parse_func()
     end
     self:expect(TK.lparen); local params, contracts = self:parse_param_list(); self:expect(TK.rparen)
     local result = Ty.TScalar(C.ScalarVoid)
-    if self:accept(TK.arrow) then self:skip_nl(); result = self:parse_type() end
+    if self:accept_result_marker() then self:skip_nl(); result = self:parse_type() end
     self:skip_nl()
     while self:kind() == TK.requires_kw do
         contracts[#contracts + 1] = self:parse_contract()
@@ -1783,7 +1830,7 @@ function Parser:parse_open_params(owner_name)
     return params, param_bindings
 end
 
--- Region fragment: region name(params; conts) -> Protocol | entry ... end [block ... end]* end
+-- Region fragment: region name(params; conts): Protocol | entry ... end [block ... end]* end
 function Parser:parse_region_frag()
     local O, B, C, Tr = self.O, self.B, self.C, self.Tr
     -- Name, hole, or Lua assignment-inferred name.
@@ -1803,7 +1850,7 @@ function Parser:parse_region_frag()
     self:skip_nl()
 
     -- Protocol result?
-    if self:accept(TK.arrow) then
+    if self:accept_result_marker() then
         if #slots > 0 then self:issue("region cannot mix inline continuations with protocol result") end
         self:skip_nl()
         local protocol_ty = self:parse_type()
@@ -1851,7 +1898,7 @@ function Parser:parse_region_frag()
         Tr.EntryControlBlock(entry_label, entry_params, body), blocks)
 end
 
--- Expression fragment: expr name(params) -> T body end
+-- Expression fragment: expr name(params): T body end
 function Parser:parse_expr_frag()
     local O, B, C = self.O, self.B, self.C
     local name_ref = self:name_ref_or_hint_before_lparen("expected expression fragment name")
@@ -1861,7 +1908,7 @@ function Parser:parse_expr_frag()
     self:expect(TK.lparen)
     local params, param_bindings = self:parse_open_params(name_key)
     self:expect(TK.rparen)
-    self:expect(TK.arrow, "expected -> in expression fragment")
+    self:expect_result_marker("expected ':' in expression fragment")
     self:skip_nl()
     local result = self:parse_type()
     local saved_value_env = self.value_env

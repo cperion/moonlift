@@ -4,7 +4,7 @@ local Host = require("moonlift.mlua_run")
 
 -- ── Style 1: local X = func(params...) ── inferred name ──
 local add = Host.eval [[
-local add = func(a: i32, b: i32) -> i32
+local add = func(a: i32, b: i32): i32
     return a + b
 end
 return add
@@ -15,7 +15,7 @@ assert(c_add(20, 22) == 42)
 c_add:free()
 
 -- ── Style 2: return func(params...) ── anonymous ──
-local sub = Host.eval [[return func(a: i32, b: i32) -> i32 return a - b end]]
+local sub = Host.eval [[return func(a: i32, b: i32): i32 return a - b end]]
 assert(sub.name:match("^_anon_"))
 local c_sub = sub:compile()
 assert(c_sub(10, 3) == 7)
@@ -24,7 +24,7 @@ c_sub:free()
 -- ── Style 3: table.field = func(params...) ── inferred from field name ──
 local mul = Host.eval [[
 local M = {}
-M.mul = func(a: i32, b: i32) -> i32 return a * b end
+M.mul = func(a: i32, b: i32): i32 return a * b end
 return M.mul
 ]]
 assert(mul.name == "mul")
@@ -40,7 +40,7 @@ entry start()
 end
 end
 
-local ident = expr(x: i32) -> i32
+local ident = expr(x: i32): i32
     x
 end
 

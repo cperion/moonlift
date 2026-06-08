@@ -3,7 +3,7 @@ package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.p
 local Host = require("moonlift.mlua_run")
 
 local f = Host.eval [[
-return func classify(x: i32) -> i32
+return func classify(x: i32): i32
     var y: i32 = 1
     switch x do
     case 1 then y = 10

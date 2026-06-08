@@ -1,0 +1,266 @@
+module MoonHost {
+    HostIssue = HostIssueInvalidName(string site, string name) unique
+         | HostIssueExpected(string site, string expected, string actual) unique
+         | HostIssueDuplicateField(string type_name, string field_name) unique
+         | HostIssueDuplicateType(string module_name, string type_name) unique
+         | HostIssueDuplicateDecl(string name) unique
+         | HostIssueDuplicateFunc(string module_name, string func_name) unique
+         | HostIssueUnsealedType(string module_name, string type_name) unique
+         | HostIssueSealedMutation(string type_name) unique
+         | HostIssueAlreadySealed(string type_name) unique
+         | HostIssueUnknownBinding(string site, string name) unique
+         | HostIssueInvalidEmitFill(string fragment_name, string fill_name) unique
+         | HostIssueMissingEmitFill(string fragment_name, string fill_name) unique
+         | HostIssueInvalidPackedAlign(string type_name, number align) unique
+         | HostIssueBareBoolInBoundaryStruct(string type_name, string field_name) unique
+         | HostIssueArgCount(string site, number expected, number actual) unique
+         | HostIssueSpliceExpected(string splice_id, string expected, string actual) unique
+         | HostIssueSpliceEvalError(string splice_id, string message) unique
+         | HostIssueLuaStepError(string step_id, string message) unique
+         | HostIssueTemplateParseError(string template_id, string message) unique
+         | HostIssueRegionComposeMissingExit(string fragment_name, string exit_name) unique
+         | HostIssueRegionComposeIncompatibleCont(string fragment_name, string exit_name, string expected, string actual) unique
+         | HostIssueRegionComposeIncompleteRoute(string fragment_name, string exit_name) unique
+         | HostIssueRegionComposeContextMismatch(string left, string right) unique
+
+    HostReport = (MoonHost.HostIssue* issues) unique
+
+    HostLayoutId = (string key, string name) unique
+
+    HostFieldId = (string key, string name) unique
+
+    HostEndian = HostEndianLittle
+         | HostEndianBig
+
+    HostTargetModel = (number pointer_bits, number index_bits, MoonHost.HostEndian endian) unique
+
+    HostLayoutKind = HostLayoutStruct
+         | HostLayoutSlice
+         | HostLayoutArray
+         | HostLayoutViewDescriptor
+         | HostLayoutOpaque
+
+    HostOwner = HostOwnerBufferView
+         | HostOwnerHostSession
+         | HostOwnerBorrowed
+         | HostOwnerStatic
+         | HostOwnerOpaque
+
+    HostBoolEncoding = HostBoolU8
+         | HostBoolI32
+         | HostBoolNative
+
+    HostRepr = HostReprC
+         | HostReprPacked(number align) unique
+         | HostReprOpaque(string name) unique
+
+    HostFieldAttr = HostFieldReadonly
+         | HostFieldMutable
+         | HostFieldNoalias
+         | HostFieldOpaque(string name) unique
+
+    HostStorageRep = HostStorageSame
+         | HostStorageScalar(MoonCore.Scalar scalar) unique
+         | HostStorageBool(MoonHost.HostBoolEncoding encoding, MoonCore.Scalar scalar) unique
+         | HostStoragePtr(MoonType.Type pointee) unique
+         | HostStorageSlice(MoonType.Type elem) unique
+         | HostStorageView(MoonType.Type elem) unique
+         | HostStorageOpaque(string name) unique
+
+    HostStructDecl = (MoonHost.HostLayoutId id, string name, MoonHost.HostRepr repr, MoonHost.HostFieldDecl* fields) unique
+
+    HostFieldDecl = (MoonHost.HostFieldId id, string name, MoonType.Type expose_ty, MoonHost.HostStorageRep storage, MoonHost.HostFieldAttr* attrs) unique
+
+    HostAccessorDecl = HostAccessorField(string owner_name, string name, string field_name) unique
+         | HostAccessorLua(string owner_name, string name, string lua_symbol) unique
+         | HostAccessorMoonlift(string owner_name, string name, MoonTree.Func func) unique
+
+    HostDecl = HostDeclStruct(MoonHost.HostStructDecl decl) unique
+         | HostDeclExpose(MoonHost.HostExposeDecl decl) unique
+         | HostDeclAccessor(MoonHost.HostAccessorDecl decl) unique
+
+    HostDeclSet = (MoonHost.HostDecl* decls) unique
+
+    HostDeclSource = HostDeclSourceSet(MoonHost.HostDeclSet set) unique
+         | HostDeclSourceDecls(MoonHost.HostDecl* decls) unique
+
+    MluaSource = (string name, string source) unique
+
+    MluaParseResult = (MoonHost.HostDeclSet decls, MoonTree.Module module, MoonOpen.RegionFrag* region_frags, MoonOpen.ExprFrag* expr_frags, MoonParse.ParseIssue* issues) unique
+
+    MluaHostPipelineResult = (MoonHost.MluaParseResult parsed, MoonHost.HostReport report, MoonHost.HostLayoutEnv layout_env) unique
+
+    HostValueId = (string key, string pretty) unique
+
+    HostValueKind = HostValueRegionFrag
+         | HostValueExprFrag
+         | HostValueType
+         | HostValueDecl
+         | HostValueModule
+         | HostValueLua
+
+    HostValueRef = (MoonHost.HostValueId id, MoonHost.HostValueKind kind) unique
+
+    ProtocolRole = (string role, string target) unique
+
+    RegionProtocol = (string name, MoonHost.ProtocolRole* roles) unique
+
+    FragmentDeps = (MoonOpen.RegionFrag* region_frags, MoonOpen.ExprFrag* expr_frags) unique
+
+    RegionFragMeta = (string name, MoonOpen.RegionFrag frag, MoonHost.RegionProtocol? protocol, MoonHost.FragmentDeps deps) unique
+
+    MluaRegionTypeResult = (MoonOpen.RegionFrag frag, MoonTree.TypeIssue* issues) unique
+
+    MluaLoopExpandResult = (MoonTree.EntryControlBlock entry, MoonTree.ControlBlock* blocks, MoonTree.TypeIssue* issues) unique
+
+    MluaLoopSource = MluaLoopControlStmt(MoonTree.ControlStmtRegion region) unique
+         | MluaLoopControlExpr(MoonTree.ControlExprRegion region) unique
+
+    HostFieldRep = HostRepScalar(MoonCore.Scalar scalar) unique
+         | HostRepBool(MoonHost.HostBoolEncoding encoding, MoonCore.Scalar storage) unique
+         | HostRepPtr(MoonType.Type pointee) unique
+         | HostRepRef(MoonHost.HostLayoutId layout) unique
+         | HostRepSlice(MoonHost.HostFieldRep elem) unique
+         | HostRepView(MoonType.Type elem) unique
+         | HostRepStruct(MoonHost.HostLayoutId layout) unique
+         | HostRepOpaque(string name) unique
+
+    HostFieldLayout = (MoonHost.HostFieldId id, string name, string cfield, MoonHost.HostFieldRep rep, number offset, number size, number align) unique
+
+    HostTypeLayout = (MoonHost.HostLayoutId id, string name, string ctype, MoonHost.HostLayoutKind kind, number size, number align, MoonHost.HostFieldLayout* fields) unique
+
+    HostLayoutEnv = (MoonHost.HostTypeLayout* layouts) unique
+
+    HostCdef = (MoonHost.HostLayoutId layout, string source) unique
+
+    HostLuaFfiPlan = (string module_name, MoonHost.HostCdef* cdefs, MoonHost.HostAccessPlan* access_plans) unique
+
+    HostTerraPlan = (string module_name, string source, MoonHost.HostTypeLayout* layouts, MoonHost.HostViewDescriptor* views) unique
+
+    HostCPlan = (string header_name, string source, MoonHost.HostTypeLayout* layouts, MoonHost.HostViewDescriptor* views) unique
+
+    HostExportAbi = HostExportDescriptorPtr(MoonHost.HostViewDescriptor descriptor) unique
+         | HostExportExpandedScalars(MoonType.Type ty) unique
+
+    HostExposeSubject = HostExposeType(MoonType.Type ty) unique
+         | HostExposePtr(MoonType.Type pointee) unique
+         | HostExposeView(MoonType.Type elem) unique
+
+    HostStrideUnit = HostStrideElements
+         | HostStrideBytes
+
+    HostViewAbi = HostViewAbiContiguous(MoonHost.HostTypeLayout elem_layout) unique
+         | HostViewAbiStrided(MoonHost.HostTypeLayout elem_layout, MoonHost.HostStrideUnit stride_unit) unique
+
+    HostViewDescriptor = (MoonHost.HostLayoutId id, string name, MoonHost.HostViewAbi abi, MoonHost.HostTypeLayout descriptor_layout) unique
+
+    HostExposeTarget = HostExposeLua
+         | HostExposeTerra
+         | HostExposeC
+         | HostExposeMoonlift
+
+    HostMutability = HostReadonly
+         | HostMutable
+         | HostInteriorMutable
+
+    HostBoundsPolicy = HostBoundsChecked
+         | HostBoundsUnchecked
+
+    HostProxyKind = HostProxyPtr
+         | HostProxyView
+         | HostProxyBufferView
+         | HostProxyTypedRecord
+         | HostProxyOpaque
+
+    HostProxyCachePolicy = HostProxyCacheNone
+         | HostProxyCacheLazy
+         | HostProxyCacheEager
+
+    HostMaterializePolicy = HostMaterializeProjectedFields
+         | HostMaterializeFullCopy
+         | HostMaterializeBorrowedView
+
+    HostExposeMode = HostExposeProxy(MoonHost.HostProxyKind kind, MoonHost.HostProxyCachePolicy cache, MoonHost.HostMutability mutability, MoonHost.HostBoundsPolicy bounds) unique
+         | HostExposeEagerTable(MoonHost.HostMaterializePolicy policy) unique
+         | HostExposeScalar(MoonHost.HostFieldRep rep) unique
+         | HostExposeOpaque(string reason) unique
+
+    HostExposeAbi = HostExposeAbiDefault
+         | HostExposeAbiPointer
+         | HostExposeAbiDescriptor
+         | HostExposeAbiDataLenStride
+         | HostExposeAbiExpandedScalars
+         | HostExposeAbiOpaque(string reason) unique
+
+    HostExposeFacet = (MoonHost.HostExposeTarget target, MoonHost.HostExposeAbi abi, MoonHost.HostExposeMode mode) unique
+
+    HostExposeDecl = (MoonHost.HostExposeSubject subject, string public_name, MoonHost.HostExposeFacet* facets) unique
+
+    HostLifetime = HostLifetimeStatic
+         | HostLifetimeOwned
+         | HostLifetimeBorrowed(string owner_name) unique
+         | HostLifetimeGeneration(number session_id, number generation) unique
+         | HostLifetimeExternal(string name) unique
+
+    HostAccessSubject = HostAccessRecord(MoonHost.HostTypeLayout layout) unique
+         | HostAccessPtr(MoonHost.HostTypeLayout layout) unique
+         | HostAccessView(MoonHost.HostViewDescriptor descriptor) unique
+
+    HostAccessKey = HostAccessField(string name) unique
+         | HostAccessIndex
+         | HostAccessLen
+         | HostAccessData
+         | HostAccessStride
+         | HostAccessMethod(string name) unique
+         | HostAccessPairs
+         | HostAccessIpairs
+         | HostAccessToTable
+
+    HostAccessOp = HostAccessDirectField(MoonHost.HostFieldLayout field) unique
+         | HostAccessDecodeBool(MoonHost.HostFieldLayout field) unique
+         | HostAccessEncodeBool(MoonHost.HostFieldLayout field) unique
+         | HostAccessViewIndex(MoonHost.HostViewDescriptor descriptor) unique
+         | HostAccessViewFieldAt(MoonHost.HostViewDescriptor descriptor, MoonHost.HostFieldLayout field) unique
+         | HostAccessViewLen(MoonHost.HostViewDescriptor descriptor) unique
+         | HostAccessViewData(MoonHost.HostViewDescriptor descriptor) unique
+         | HostAccessViewStride(MoonHost.HostViewDescriptor descriptor) unique
+         | HostAccessPointerCast(MoonHost.HostTypeLayout layout) unique
+         | HostAccessIterateFields(MoonHost.HostLayoutId layout) unique
+         | HostAccessMaterializeTable(MoonHost.HostAccessSubject subject) unique
+         | HostAccessReject(string reason) unique
+
+    HostAccessEntry = (MoonHost.HostAccessKey key, MoonHost.HostAccessOp op) unique
+
+    HostAccessPlan = (MoonHost.HostAccessSubject subject, MoonHost.HostAccessEntry* entries) unique
+
+    HostViewPlan = (MoonHost.HostTypeLayout layout, MoonHost.HostOwner owner, MoonHost.HostExposeMode expose, MoonHost.HostAccessPlan access) unique
+
+    HostProducerKind = HostProducerLowLevelMoonlift
+         | HostProducerLuaFfi
+         | HostProducerRustTypedRecordMemory
+         | HostProducerExternal
+
+    HostProducerPlan = (string name, MoonHost.HostProducerKind kind, MoonHost.HostTypeLayout* outputs) unique
+
+    HostLayoutFact = HostFactTypeLayout(MoonHost.HostTypeLayout layout) unique
+         | HostFactCdef(MoonHost.HostCdef cdef) unique
+         | HostFactField(MoonHost.HostLayoutId owner, MoonHost.HostFieldLayout field) unique
+         | HostFactViewDescriptor(MoonHost.HostViewDescriptor descriptor) unique
+         | HostFactExpose(string public_name, MoonHost.HostLayoutId layout, MoonHost.HostExposeFacet facet) unique
+         | HostFactAccessPlan(MoonHost.HostAccessPlan plan) unique
+         | HostFactViewPlan(MoonHost.HostViewPlan plan) unique
+         | HostFactLuaFfi(MoonHost.HostLuaFfiPlan plan) unique
+         | HostFactTerra(MoonHost.HostTerraPlan plan) unique
+         | HostFactC(MoonHost.HostCPlan plan) unique
+         | HostFactProducer(MoonHost.HostProducerPlan plan) unique
+
+    HostFactSet = (MoonHost.HostLayoutFact* facts) unique
+
+    HostLayoutReject = HostRejectJsonInRust
+         | HostRejectDynamicObjectArena(string reason) unique
+         | HostRejectUnknownFieldKind(string kind) unique
+         | HostRejectInvalidLayout(string reason) unique
+         | HostRejectBareBoolInBoundaryStruct(string type_name, string field_name) unique
+         | HostRejectInvalidPackedAlign(string type_name, number align) unique
+         | HostRejectConflictingCdef(MoonHost.HostLayoutId layout) unique
+}

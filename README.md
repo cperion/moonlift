@@ -78,7 +78,7 @@ metaprogramming, and who believe semantics should be data, not strings.
 local moon = require("moonlift")
 
 -- Define a function by quoting Moonlift source
-local add = moon.func [[add(a: i32, b: i32) -> i32 return a + b end]]
+local add = moon.func [[add(a: i32, b: i32): i32 return a + b end]]
 
 -- Compile and run
 local bundle = moon.bundle("demo")
@@ -114,8 +114,8 @@ local expect_A = expect_byte("A", 65, 10)
 local expect_semicolon = expect_byte("semicolon", 59, 30)
 
 -- Function with jump-first control
-local parse_packet = func(p: ptr(u8), n: i32) -> i32
-    return region -> i32
+local parse_packet = func(p: ptr(u8), n: i32): i32
+    return region: i32
     entry start()
         if n <= 0 then yield -1 end
         switch as(i32, p[0]) do
@@ -171,8 +171,8 @@ local literal_arms = {
 
 -- Bind values, then quote: moon.func { values } [[ source ]]
 local parse_value = moon.func { literal_arms = literal_arms } [[
-parse_value(L: ptr(u8), p: ptr(u8), n: i32, pos: i32, buf: ptr(u8)) -> i32
-    return region -> i32
+parse_value(L: ptr(u8), p: ptr(u8), n: i32, pos: i32, buf: ptr(u8)): i32
+    return region: i32
     entry start()
         switch as(i32, p[i]) do
         @{literal_arms...}
@@ -194,7 +194,7 @@ beats lua-cjson by 2.5×.
 -- No while, for, break, or continue.
 -- Everything is blocks with explicit state transitions.
 
-local sum = func(xs: view(i32), n: index) -> i32
+local sum = func(xs: view(i32), n: index): i32
     block loop(i: index = 0, acc: i32 = 0)
         if i >= n then
             return acc
@@ -351,8 +351,8 @@ No fallthrough. Explicit, verifiable control branches.
 Source-level extern declarations describe C-ABI imports:
 
 ```moonlift
-extern write(fd: i32, buf: ptr(u8), count: index) -> index end
-extern host_add7(x: i32) -> i32 as "host_add7_impl" end
+extern write(fd: i32, buf: ptr(u8), count: index): index end
+extern host_add7(x: i32): i32 as "host_add7_impl" end
 ```
 
 Moonlift code calls these names like ordinary functions. The Cranelift JIT
@@ -371,11 +371,11 @@ get typed ASDL back).
 
 ```lua
 -- Full islands: keyword is optional (moon.func already says "func")
-local f = moon.func     [[add(a: i32, b: i32) -> i32 return a + b end]]
+local f = moon.func     [[add(a: i32, b: i32): i32 return a + b end]]
 local r = moon.region   [[scan(p: ptr(u8); hit: cont(v: i32)) entry ... end end]]
 local s = moon.struct   [[Point x: i32; y: i32 end]]
 local u = moon.union    [[Option Some(i32) | None end]]
-local e = moon.extern   [[write(fd: i32, buf: ptr(u8)) -> i32 end]]
+local e = moon.extern   [[write(fd: i32, buf: ptr(u8)): i32 end]]
 
 -- Fine-grained
 local stmts = moon.stmts [[let y = x + 1; return y * 2]]
@@ -419,14 +419,14 @@ end
 ```lua
 -- Bind Lua values in a table, then quote Moonlift with @{} holes
 moon.func { T = moon.i32, params = param_list } [[
-add(@{params...}) -> @{T}
+add(@{params...}): @{T}
     return a + b
 end
 ]]
 
 -- Switch arms generated from Lua data
 moon.func { literal_arms = arm_array } [[
-parse_value(...) -> i32
+parse_value(...): i32
     switch as(i32, p[i]) do
     @{literal_arms...}
     default then ...
@@ -466,14 +466,14 @@ scope.
 
 ```lua
 -- ① Pure quote — one call, one result
-local add = moon.func [[add(a: i32, b: i32) -> i32
+local add = moon.func [[add(a: i32, b: i32): i32
     return a + b
 end]]
 
 -- ② Binder + quote — {values} then [[src]]
 --    The {values} call returns a closure; [[src]] calls it immediately.
 local add = moon.func { T = moon.i32 } [[
-add(a: @{T}, b: @{T}) -> @{T}
+add(a: @{T}, b: @{T}): @{T}
     return a + b
 end]]
 
@@ -481,25 +481,25 @@ end]]
 --    moon.func sees a bodyless `func` (no body, no `end`), returns a
 --    header closure instead of ASDL. The closure is then called with
 --    the body string. @{} is NOT available here (no bindings table).
-local header = moon.func [[add(a: i32, b: i32) -> i32]]
+local header = moon.func [[add(a: i32, b: i32): i32]]
 local add    = header [[return a + b end]]
 
 -- The two steps collapse into one expression:
-local add = moon.func [[add(a: i32, b: i32) -> i32]]
+local add = moon.func [[add(a: i32, b: i32): i32]]
                       [[return a + b end]]
 
 -- ④ Binder → header closure → body  (all three in one expression)
 --    {bindings} seeds the binding scope. Both the header string and the
 --    body string can use @{key} — they share the same accumulated bindings.
 local add = moon.func { T = moon.i32 }
-                      [[add(a: @{T}, b: @{T}) -> @{T}]]   -- @{T} resolved here
+                      [[add(a: @{T}, b: @{T}): @{T}]]   -- @{T} resolved here
                       [[return a + b end]]                 -- @{T} also available here
 
 -- ⑤ Header closure + extra bindings injected mid-chain
 --    The header itself has no bindings yet (plain [[...]] call), so @{}
 --    would error there. Bindings are supplied on the header closure, and
 --    then @{} in the body string resolves from those bindings.
-local generic_header = moon.func [[add(a: @{T}, b: @{T}) -> @{T}]]
+local generic_header = moon.func [[add(a: @{T}, b: @{T}): @{T}]]
 --                              ^^^ no @{} resolved yet — parsed but slots left open
 
 local add_i32 = generic_header { T = moon.i32 } [[return a + b end]]
@@ -581,7 +581,7 @@ Inside `.mlua` files, `@{lua_expr}` splices Lua values into Moonlift source:
 let x: @{T} = @{initial}
 emit @{fragment}(p, n; ok = done, err = bad)
 
-func f(@{params...}) -> i32
+func f(@{params...}): i32
     @{body...}
 end
 ```
@@ -672,7 +672,7 @@ auto-compiles on first invocation. No module scaffolding needed:
 
 ```lua
 local moon = require("moonlift")
-local add = moon.func [[add(a: i32, b: i32) -> i32 return a + b end]]
+local add = moon.func [[add(a: i32, b: i32): i32 return a + b end]]
 print(add(3, 4))  -- 7 — first call compiles, caches, runs native
 add:free()
 ```
@@ -680,9 +680,9 @@ add:free()
 **Cross-function dependencies** — declare deps in the values table:
 
 ```lua
-local dep = moon.func [[dep(x: i32) -> i32 return x + 1 end]]
+local dep = moon.func [[dep(x: i32): i32 return x + 1 end]]
 local main = moon.func { dep = dep } [[
-main(x: i32) -> i32
+main(x: i32): i32
     return @{dep}(x)
 end
 ]]

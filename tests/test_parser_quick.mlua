@@ -1,8 +1,8 @@
-func add(x: i32, y: i32) -> i32
+func add(x: i32, y: i32): i32
     return x + y
 end
 
-func sub(x: i32, y: i32) -> i32
+func sub(x: i32, y: i32): i32
     return x - y
 end
 

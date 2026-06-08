@@ -83,8 +83,8 @@ function M.Define(T)
         if cls == Ty.TSlice then return "slice(" .. type_name(ty.elem) .. ")" end
         if cls == Ty.TView then return "view(" .. type_name(ty.elem) .. ")" end
         if cls == Ty.TArray then return "array(" .. type_name(ty.elem) .. ")" end
-        if cls == Ty.TFunc then return "func(...) -> " .. type_name(ty.result) end
-        if cls == Ty.TClosure then return "closure(...) -> " .. type_name(ty.result) end
+        if cls == Ty.TFunc then return "func(...): " .. type_name(ty.result) end
+        if cls == Ty.TClosure then return "closure(...): " .. type_name(ty.result) end
         if cls == Ty.TNamed then
             local ref = ty.ref
             local rcls = pvm.classof(ref)
@@ -119,7 +119,7 @@ function M.Define(T)
             labels[i] = label
             ps[i] = E.SignatureParameter(label, "")
         end
-        local label = name .. "(" .. table.concat(labels, ", ") .. ") -> " .. type_name(result)
+        local label = name .. "(" .. table.concat(labels, ", ") .. "): " .. type_name(result)
         return E.SignatureInfo(label, documentation or "", ps)
     end
 
@@ -169,7 +169,7 @@ function M.Define(T)
             labels[i] = label
             ps[i] = E.SignatureParameter(label, "")
         end
-        return E.SignatureInfo(name .. "(" .. table.concat(labels, ", ") .. ") -> region", "Moonlift region fragment", ps)
+        return E.SignatureInfo(name .. "(" .. table.concat(labels, ", ") .. "): region", "Moonlift region fragment", ps)
     end
 
     local function signature_catalog(analysis)

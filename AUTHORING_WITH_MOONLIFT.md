@@ -37,7 +37,7 @@ local moon = require("moonlift")
 
 -- 2. Build types and functions using the quoting API
 local Vec3 = moon.struct[[ x: f32; y: f32; z: f32 end ]]
-local add = moon.func[[ add(a: i32, b: i32) -> i32 return a + b end ]]
+local add = moon.func[[ add(a: i32, b: i32): i32 return a + b end ]]
 
 -- 3. Compile and call (or return for later use)
 print(add(3, 4))  -- 7, compiles on first call
@@ -54,9 +54,9 @@ Every entry point follows the same shape: `moon.XXX` where `XXX` is `func`,
 ### 2.1 Pure quote — no bindings
 
 ```lua
-moon.func[[ add(a: i32, b: i32) -> i32 return a + b end ]]
+moon.func[[ add(a: i32, b: i32): i32 return a + b end ]]
 moon.struct[[ Point x: f32; y: f32 end ]]
-moon.extern[[ write(fd: i32, buf: ptr(u8), count: index) -> index ]]
+moon.extern[[ write(fd: i32, buf: ptr(u8), count: index): index ]]
 moon.region[[ scan(p: ptr(u8), n: i32; hit: cont(pos: i32)) ... end ]]
 ```
 
@@ -69,11 +69,11 @@ When the source contains `@{}` splices, bindings must be provided:
 
 ```lua
 -- Type bindings for generic functions
-moon.func{ T = moon.i32 }[[ add(a: @{T}, b: @{T}) -> @{T} ]]
+moon.func{ T = moon.i32 }[[ add(a: @{T}, b: @{T}): @{T} ]]
 
 -- Value bindings for cross-function references
 moon.func{ helper = my_helper }[[
-main(x: i32) -> i32
+main(x: i32): i32
     return @{helper}(x)
 end
 ]]
@@ -123,7 +123,7 @@ signature — without a body — is a first-class Lua value.
 
 ```lua
 -- A function signature, no body. Returns a closure.
-local add = moon.func[[ add(a: i32, b: i32) -> i32 ]]
+local add = moon.func[[ add(a: i32, b: i32): i32 ]]
 -- add is a Lua value carrying a typed ASDL signature
 -- No code is compiled. No body exists. Just a contract.
 
@@ -134,13 +134,13 @@ local scan = moon.region[[ scan(p: ptr(u8), n: i32;
 -- scan carries the protocol: params + continuations, no implementation.
 
 -- Externs are always bodyless (the body is in a C library)
-local write = moon.extern[[ write(fd: i32, buf: ptr(u8), count: index) -> index ]]
+local write = moon.extern[[ write(fd: i32, buf: ptr(u8), count: index): index ]]
 ```
 
 ### 3.2 Five things a closure can do
 
 ```lua
-local h = moon.func[[ add(a: i32, b: i32) -> i32 ]]
+local h = moon.func[[ add(a: i32, b: i32): i32 ]]
 
 -- 1. STORE — put it in a table, return it from a module, pass it to a function
 local module = { add = h }
@@ -150,12 +150,12 @@ local f = h[[ return a + b end ]]
 print(f(3, 4))  -- 7
 
 -- 3. SPECIALIZE — override type bindings before compiling
-local h2 = moon.func{ T = moon.i32 }[[ add(a: @{T}, b: @{T}) -> @{T} ]]
+local h2 = moon.func{ T = moon.i32 }[[ add(a: @{T}, b: @{T}): @{T} ]]
 local f_f64 = h2{ T = moon.f64 }[[ return a + b end ]]  -- compiles as f64
 
 -- 4. COMPOSE — pass as a dependency to another function
 local user = moon.func{ dep = h }[[
-    main(x: i32) -> i32
+    main(x: i32): i32
         return @{dep}(x, x)
     end
 ]]
@@ -170,11 +170,11 @@ When you want both signature and body at once:
 
 ```lua
 -- Curried call: sig then body
-local f = moon.func[[ sub(a: i32, b: i32) -> i32 ]][[ return a - b end ]]
+local f = moon.func[[ sub(a: i32, b: i32): i32 ]][[ return a - b end ]]
 print(f(10, 3))  -- 7
 
 -- Traditional: sig + body in one string
-local g = moon.func[[ mul(a: i32, b: i32) -> i32 return a * b end ]]
+local g = moon.func[[ mul(a: i32, b: i32): i32 return a * b end ]]
 print(g(6, 7))  -- 42
 ```
 
@@ -204,7 +204,7 @@ return {
     Mesh = moon.struct[[ verts: ptr(Vec3); colors: ptr(Color); count: i32 end ]],
 
     -- Protocols (function signatures without bodies)
-    load_mesh = moon.func[[ load_mesh(path: ptr(u8)) -> ptr(Mesh) ]],
+    load_mesh = moon.func[[ load_mesh(path: ptr(u8)): ptr(Mesh) ]],
     free_mesh = moon.func[[ free_mesh(m: ptr(Mesh)) ]],
     render_mesh = moon.func{ T = moon.f32 }[[ render_mesh(m: ptr(Mesh), t: @{T}) ]],
 }
@@ -268,7 +268,7 @@ Lua functions generate specialized concrete Moonlift.
 ```lua
 -- Parameterize by type through the bindings table
 local make_add = function(T)
-    return moon.func{ T = T }[[ add(a: @{T}, b: @{T}) -> @{T} ]]
+    return moon.func{ T = T }[[ add(a: @{T}, b: @{T}): @{T} ]]
 end
 
 local add_i32 = make_add(moon.i32)[[ return a + b end ]]
@@ -282,9 +282,9 @@ print(add_f64(3.5, 2.5)) -- 6.0
 
 ```lua
 local Stack = {
-    new  = moon.func{ T = moon.i32 }[[ new(capacity: i32) -> ptr(@{T}) ]],
+    new  = moon.func{ T = moon.i32 }[[ new(capacity: i32): ptr(@{T}) ]],
     push = moon.func{ T = moon.i32 }[[ push(s: ptr(ptr(@{T})), v: @{T}) ]],
-    pop  = moon.func{ T = moon.i32 }[[ pop(s: ptr(ptr(@{T}))) -> @{T} ]],
+    pop  = moon.func{ T = moon.i32 }[[ pop(s: ptr(ptr(@{T}))): @{T} ]],
 }
 
 -- Specialize for f64
@@ -306,7 +306,7 @@ The header declares defaults. Implementations override to specialize:
 ```lua
 -- Generic transform (default: f32)
 local transform = moon.func{ T = moon.f32 }[[
-    transform(v: ptr(Vec3), mat: @{T}) -> ptr(Vec3)
+    transform(v: ptr(Vec3), mat: @{T}): ptr(Vec3)
 ]]
 
 -- Default (f32) implementation
@@ -349,9 +349,9 @@ print(decode(source_buffer))
 When a function calls another function by name, declare it in the values table:
 
 ```lua
-local helper = moon.func[[ helper(x: i32) -> i32 return x + 1 end ]]
+local helper = moon.func[[ helper(x: i32): i32 return x + 1 end ]]
 local main = moon.func{ helper = helper }[[
-    main(x: i32) -> i32
+    main(x: i32): i32
         return @{helper}(x)
     end
 ]]
@@ -366,12 +366,12 @@ resolves the name against the values table's entries.
 ```lua
 -- Emit a standalone .o file
 local bytes = moon.emit_object([[
-    func main() -> i32 return 42 end
+    func main(): i32 return 42 end
 ]], "out.o", "my_program")
 
 -- Emit a shared library
 moon.emit_shared([[
-    func compute(x: i32) -> i32 return x * x end
+    func compute(x: i32): i32 return x * x end
 ]], "lib.so", "libmath")
 ```
 
@@ -413,7 +413,7 @@ end
 ### 7.3 Composing regions with emit
 
 ```moonlift
-return region -> i32
+return region: i32
 entry start()
     emit scanner(p, n, 65; hit = found, miss = notfound)
 end
@@ -534,10 +534,10 @@ Externs declare C-ABI functions available at link time:
 
 ```lua
 -- Simple extern
-local strlen = moon.extern[[ strlen(s: ptr(u8)) -> index ]]
+local strlen = moon.extern[[ strlen(s: ptr(u8)): index ]]
 
 -- With explicit symbol name
-local add7 = moon.extern[[ add7_impl(x: i32) -> i32 as "host_add7" ]]
+local add7 = moon.extern[[ add7_impl(x: i32): i32 as "host_add7" ]]
 ```
 
 Externs are always bodyless — the implementation lives in a C library.
@@ -561,7 +561,7 @@ Splices inject Lua values into Moonlift source at parse time.
 Injects one value by name from the bindings table:
 
 ```lua
-moon.func{ T = moon.i32 }[[ id(x: @{T}) -> @{T} return x end ]]
+moon.func{ T = moon.i32 }[[ id(x: @{T}): @{T} return x end ]]
 moon.stmts{ n = 10 }[[ let x: i32 = @{n} ]]
 ```
 
@@ -573,7 +573,7 @@ Spreads a Lua array into a syntactic list:
 
 ```lua
 local params = moon.params { {"x", moon.i32}, {"y", moon.i32} }
-local fn = moon.func[[ add(@{params...}) -> i32 return x + y end ]]
+local fn = moon.func[[ add(@{params...}): i32 return x + y end ]]
 ```
 
 ```lua
@@ -593,7 +593,7 @@ When a splice slot is used in a pure quote (no bindings table), the quoting
 API produces an error:
 
 ```lua
-moon.func[[ add(a: @{T}, b: @{T}) -> @{T} ]]
+moon.func[[ add(a: @{T}, b: @{T}): @{T} ]]
 -- Error: moon.XXX[[]] does not evaluate @{}; use moon.XXX{values}[[src]] instead
 ```
 
@@ -613,7 +613,7 @@ local body = moon.stmts[[
 Statement lists compose naturally with functions and regions:
 
 ```lua
-local fn = moon.func[[ do_work(n: i32) -> i32 ]]
+local fn = moon.func[[ do_work(n: i32): i32 ]]
 fn.body = moon.stmts[[
     block loop(i: index = 0, acc: i32 = 0)
         if i >= n then return acc end
@@ -650,7 +650,7 @@ a stable `E0xxx` code through a domain-specific explainer function.
 ```
 ERROR[E0301]: type mismatch
   ┌─ file.mlua:2:9
-   1 │ func main() -> i32
+   1 │ func main(): i32
    2 │     let x: i32 = "hello"
      │         ^
    3 │     return x
@@ -749,7 +749,7 @@ return {
     Color = moon.struct[[ r: u8; g: u8; b: u8; a: u8 end ]],
     Mesh  = moon.struct[[ verts: ptr(Vec3); colors: ptr(Color); count: i32 end ]],
 
-    load   = moon.func[[ load(path: ptr(u8)) -> ptr(Mesh) ]],
+    load   = moon.func[[ load(path: ptr(u8)): ptr(Mesh) ]],
     free   = moon.func[[ free(m: ptr(Mesh)) ]],
     render = moon.func{ T = moon.f32 }[[ render(m: ptr(Mesh), t: @{T}) ]],
 }
@@ -861,7 +861,7 @@ local impl = features.avx2 and avx2_impl or sse_impl
 ```lua
 local handlers = {}
 for i, name in ipairs(op_names) do
-    handlers[name] = moon.func[[ @{name}(a: i32, b: i32) -> i32 return @{i} end ]]
+    handlers[name] = moon.func[[ @{name}(a: i32, b: i32): i32 return @{i} end ]]
 end
 ```
 
@@ -882,7 +882,7 @@ local open = backend.open[[ return open_impl(path) end ]]
 - **Returning result objects where continuations belong.** A function that
   returns `ok(value) | err(code)` should be a region with `ok(value)` and
   `err(code)` continuations at the composition site.
-- **Status codes in product returns.** Boolean `try_recv() -> bool` should be
+- **Status codes in product returns.** Boolean `try_recv(): bool` should be
   `region recv(...; got: cont(...), empty: cont(), closed: cont())`.
 - **Strings where sums belong.** Variant tags that are compared as strings.
   Use sum types (unions) or encoded facts consumed by a region.

@@ -148,7 +148,7 @@ The C ABI is the platform boundary.
 Moonlift can call outward through `extern` declarations:
 
 ```moonlift
-extern write(fd: i32, buf: ptr(u8), count: index) -> index end
+extern write(fd: i32, buf: ptr(u8), count: index): index end
 ```
 
 LuaJIT can call outward through FFI:
@@ -196,7 +196,7 @@ This creates a powerful adoption path.
 A developer can write a fast function in Moonlift:
 
 ```moonlift
-func parse_packet(p: ptr(u8), n: index) -> i32
+func parse_packet(p: ptr(u8), n: index): i32
     ...
 end
 ```
@@ -1411,7 +1411,7 @@ A Moonlift module can emit a C-callable artifact:
 local moon = require("moonlift")
 
 local source = [[
-func add_i32(a: i32, b: i32) -> i32
+func add_i32(a: i32, b: i32): i32
     return a + b
 end
 ]]

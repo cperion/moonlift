@@ -59,7 +59,7 @@ assert(saw_field and saw_type and saw_diag)
 local wrong = AIndex.lookup_by_position(built, S.DocUri("file:///other.mlua"), 15)
 assert(#wrong.anchors == 0)
 
-local func_doc = S.DocumentSnapshot(uri, S.DocVersion(1), S.LangMlua, "func add(x: i32) -> i32 { }")
+local func_doc = S.DocumentSnapshot(uri, S.DocVersion(1), S.LangMlua, "func add(x: i32): i32 { }")
 local func_idx = P.build_index(func_doc)
 local function func_range(a, b) return assert(P.range_from_offsets(func_idx, a, b)) end
 local func_set = S.AnchorSet({

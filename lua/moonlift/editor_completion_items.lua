@@ -23,9 +23,9 @@ function M.Define(T)
         if context == E.CompletionTopLevel then
             add(items, E, "struct", E.CompletionSnippet, "Moonlift host struct", "Declare a host-visible struct", "struct ${1:Name}\n    ${2:field}: ${3:i32}\nend")
             add(items, E, "expose", E.CompletionSnippet, "Moonlift host exposure", "Expose a type/view/ptr with default host facets", "expose ${1:Name}: view(${2:Type})")
-            add(items, E, "func", E.CompletionSnippet, "Moonlift function", "Declare a Moonlift function", "func ${1:name}(${2}) -> ${3:i32}\n    ${4:return 0}\nend")
+            add(items, E, "func", E.CompletionSnippet, "Moonlift function", "Declare a Moonlift function", "func ${1:name}(${2}): ${3:i32}\n    ${4:return 0}\nend")
             add(items, E, "region", E.CompletionSnippet, "Moonlift region fragment", "Declare a region fragment", "region ${1:Name}(${2})\nentry start()\nend\nend")
-            add(items, E, "expr", E.CompletionSnippet, "Moonlift expr fragment", "Declare an expression fragment", "expr ${1:Name}(${2}) -> ${3:i32}\n    ${4:0}\nend")
+            add(items, E, "expr", E.CompletionSnippet, "Moonlift expr fragment", "Declare an expression fragment", "expr ${1:Name}(${2}): ${3:i32}\n    ${4:0}\nend")
         elseif context == E.CompletionTypePosition or context == E.CompletionStructField then
             for i = 1, #scalar_labels do
                 add(items, E, scalar_labels[i], E.CompletionKeyword, "scalar type", "Moonlift scalar type")

@@ -3,8 +3,8 @@ package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.p
 local moon = require("moonlift")
 
 local if_probe = moon.func [[
-control_if_mutation(x: i32) -> i32
-    return region -> i32
+control_if_mutation(x: i32): i32
+    return region: i32
     entry start()
         var y: i32 = 0
         if x > 0 then
@@ -24,8 +24,8 @@ assert(if_compiled(-1) == 3)
 if_compiled:free()
 
 local switch_probe = moon.func [[
-control_switch_mutation(x: i32) -> i32
-    return region -> i32
+control_switch_mutation(x: i32): i32
+    return region: i32
     entry start()
         var y: i32 = 1
         switch x do

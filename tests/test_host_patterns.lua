@@ -32,8 +32,8 @@ entry loop(i: i32 = 0)
 end
 end
 
-local find_byte = func(p: ptr(u8), n: i32, target: i32) -> i32
-    return region -> i32
+local find_byte = func(p: ptr(u8), n: i32, target: i32): i32
+    return region: i32
     entry start()
         emit @{scan_until}(p, n, target; hit = found, miss = missing)
     end
@@ -58,8 +58,8 @@ entry loop(i: i32 = 0)
 end
 end
 
-local prefix_len_or_all = func(p: ptr(u8), n: i32, target: i32) -> i32
-    return region -> i32
+local prefix_len_or_all = func(p: ptr(u8), n: i32, target: i32): i32
+    return region: i32
     entry start()
         emit @{scan_until}(p, n, target; hit = found, miss = missing)
     end
@@ -101,8 +101,8 @@ entry start()
 end
 end
 
-local parse_two_digits = func(p: ptr(u8), n: i32) -> i32
-    return region -> i32
+local parse_two_digits = func(p: ptr(u8), n: i32): i32
+    return region: i32
     entry start()
         emit @{parse_digit_acc}(p, n, 0, 0; ok = got_one, err = bad1)
     end
@@ -143,8 +143,8 @@ entry loop(i: i32 = 0, sum: i32 = 0)
 end
 end
 
-local sum_before_byte = func(p: ptr(u8), n: i32, sentinel: i32) -> i32
-    return region -> i32
+local sum_before_byte = func(p: ptr(u8), n: i32, sentinel: i32): i32
+    return region: i32
     entry start()
         emit @{sum_until}(p, n, sentinel; done = found, eof = missing)
     end
@@ -169,7 +169,7 @@ c_sum:free()
 -- Pattern 4: expression fragments are staged scalar combinators and can be used
 -- inside continuation-region code.
 local score = Host.eval [[
-local clamp_nonneg = expr(x: i32) -> i32
+local clamp_nonneg = expr(x: i32): i32
     select(x < 0, 0, x)
 end
 
@@ -181,8 +181,8 @@ entry loop(i: i32 = 0, score: i32 = 0)
 end
 end
 
-local score = func(p: ptr(u8), n: i32) -> i32
-    return region -> i32
+local score = func(p: ptr(u8), n: i32): i32
+    return region: i32
     entry start()
         emit @{score_scan}(p, n; done = out)
     end

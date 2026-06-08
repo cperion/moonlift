@@ -10,7 +10,7 @@ local moon = require("moonlift")
 print("=== Test 1: Simple i32 add function ===")
 
 local simple_src = [[
-func test_add(a: i32, b: i32) -> i32
+func test_add(a: i32, b: i32): i32
     return a + b
 end
 ]]
@@ -59,9 +59,9 @@ end
 print("\n=== Test 2: Function with extern call ===")
 
 local extern_src = [[
-extern test_helper(x: i32) -> i32 end
+extern test_helper(x: i32): i32 end
 
-func test_with_call(a: i32) -> i32
+func test_with_call(a: i32): i32
     return test_helper(a)
 end
 ]]

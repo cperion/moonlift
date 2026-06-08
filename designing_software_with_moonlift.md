@@ -121,7 +121,7 @@ end
 A function parameter list is also a product:
 
 ```moonlift
-func add(a: i32, b: i32) -> i32
+func add(a: i32, b: i32): i32
 ```
 
 means:
@@ -217,7 +217,7 @@ The protocol is supplied by the caller. The region consumes it by jumping into o
 A function is a sealed region with one implicit continuation.
 
 ```moonlift
-func f(a: i32, b: i32) -> i32
+func f(a: i32, b: i32): i32
 ```
 
 is equivalent in spirit to:
@@ -769,8 +769,8 @@ This is the point where design becomes executable. Every outcome must be handled
 Only when a machine must become a callable unit:
 
 ```moonlift
-func decode_json(L: ptr(lua_State), p: ptr(u8), n: index) -> i32
-    return region -> i32
+func decode_json(L: ptr(lua_State), p: ptr(u8), n: index): i32
+    return region: i32
     entry start()
         emit parse_value(L, p, n, 0; ok = done, err = failed)
     end
@@ -1372,7 +1372,7 @@ Is platform selection explicit?
 Bad:
 
 ```moonlift
-func parse(...) -> ParseResult
+func parse(...): ParseResult
 ```
 
 Good:
@@ -1413,7 +1413,7 @@ region visit_expr(...;
 Bad:
 
 ```moonlift
-func try_recv(...) -> bool
+func try_recv(...): bool
 ```
 
 Good:

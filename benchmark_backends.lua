@@ -66,7 +66,7 @@ local results = {}
 -- ── Benchmark 1: Integer arithmetic ──
 do
     local src = [[
-func add(x: i32, y: i32) -> i32
+func add(x: i32, y: i32): i32
     return x + y
 end
 ]]
@@ -84,7 +84,7 @@ end
 -- ── Benchmark 2: Fibonacci (conditional recursion pattern) ──
 do
     local src = [[
-func fib(n: i32) -> i32
+func fib(n: i32): i32
     if n <= 1 then return n end
     return fib(n - 1) + fib(n - 2)
 end
@@ -103,7 +103,7 @@ end
 -- ── Benchmark 3: Counting loop (block params) ──
 do
     local src = [[
-func count(n: i32) -> i32
+func count(n: i32): i32
     block loop(i: i32 = 0, acc: i32 = 0)
         if i >= n then return acc end
         jump loop(i = i + 1, acc = acc + i)
@@ -124,7 +124,7 @@ end
 -- ── Benchmark 4: Branchy (if-else) ──
 do
     local src = [[
-func sign(x: i32) -> i32
+func sign(x: i32): i32
     if x < 0 then return -1 end
     if x > 0 then return 1 end
     return 0
@@ -144,7 +144,7 @@ end
 -- ── Benchmark 5: Multiply-heavy ──
 do
     local src = [[
-func dot(a: i32, b: i32, c: i32) -> i32
+func dot(a: i32, b: i32, c: i32): i32
     return a * b + c
 end
 ]]
@@ -162,7 +162,7 @@ end
 -- ── Benchmark 6: Select (branchless) ──
 do
     local src = [[
-func abs_v(x: i32) -> i32
+func abs_v(x: i32): i32
     return select(x < 0, -x, x)
 end
 ]]

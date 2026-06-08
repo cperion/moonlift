@@ -12,8 +12,8 @@ entry start()
 end
 end
 
-return func use_scan(p: ptr(u8), n: i32, pos: i32) -> i32
-    return region -> i32
+return func use_scan(p: ptr(u8), n: i32, pos: i32): i32
+    return region: i32
     entry start()
         emit @{scan_byte}(p, n, pos; ok = got, err = failed)
     end

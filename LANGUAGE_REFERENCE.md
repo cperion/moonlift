@@ -83,7 +83,7 @@ Inside `.mlua`, Moonlift recognizes these hosted islands:
 - `extern ... end`
 - `func ... end`
 - `region ... entry ... end ... end`
-- `expr ... -> T ... end`
+- `expr ...: T ... end`
 
 These islands construct ASDL values and host facts. They are not source strings
 at runtime — the parser builds typed ASDL nodes directly.
@@ -138,7 +138,7 @@ foo<i32>(x)
 
 ```lua
 local function make_id(name, T)
-    return expr @{name}(x: @{T}) -> @{T}
+    return expr @{name}(x: @{T}): @{T}
         x
     end
 end
@@ -243,7 +243,7 @@ Example:
 
 ```lua
 -- file.mlua
-local add = func(a: i32, b: i32) -> i32
+local add = func(a: i32, b: i32): i32
     return a + b
 end
 
@@ -615,7 +615,7 @@ Tagged unions carry an implicit discriminant tag followed by the variant
 payload. The tag is an integer starting from 0 in declaration order. Useful
 for explicit phase/result dispatch.
 
-When a tagged union is used as a region result protocol (`region r(...) -> Scanner`),
+When a tagged union is used as a region result protocol (`region r(...): Scanner`),
 its variants become exits and named variant fields become continuation
 parameters. Protocol variants must use named fields.
 
@@ -642,8 +642,8 @@ runtime-sized or dynamically allocated sequences.
 In type position:
 
 ```text
-func(i32, i32) -> i32           -- function pointer type
-closure(i32) -> i32             -- closure type (function + context)
+func(i32, i32): i32           -- function pointer type
+closure(i32): i32             -- closure type (function + context)
 ```
 
 Function pointer values are scalar pointer-sized values. They can be passed as
@@ -651,12 +651,12 @@ parameters, returned, produced with `&some_func`/function-address lowering, cast
 from `ptr(u8)`, and called indirectly:
 
 ```moonlift
-func call_fp(fp: func(i32) -> i32, x: i32) -> i32
+func call_fp(fp: func(i32): i32, x: i32): i32
     return fp(x)
 end
 
-func call_raw(raw: ptr(u8), x: i32) -> i32
-    let fp: func(i32) -> i32 = as(func(i32) -> i32, raw)
+func call_raw(raw: ptr(u8), x: i32): i32
+    let fp: func(i32): i32 = as(func(i32): i32, raw)
     return fp(x)
 end
 ```
@@ -672,7 +672,7 @@ There is none. Use Lua to generate specialized concrete types/functions/fragment
 ## 6. Functions
 
 ```moonlift
-func [name] ( param_list? ) [-> type]
+func [name] ( param_list? ) [: type]
     requires_clause*
     stmt*
 end
@@ -689,24 +689,24 @@ Rules:
   When the name is omitted without an assignment (e.g. `return func(...)`),
   an auto-generated internal name is used.
 - Omitting the result type means `void` return.
-- The parameter list may be empty: `func name() -> i32 ... end` or `func name()
+- The parameter list may be empty: `func name(): i32 ... end` or `func name()
   ... end` for void.
 - Function parameters are immutable bindings. They cannot be assigned to.
 
 Examples:
 
 ```moonlift
-func add(a: i32, b: i32) -> i32
+func add(a: i32, b: i32): i32
     return a + b
 end
 
 -- Inferred name from assignment
-local add = func(a: i32, b: i32) -> i32
+local add = func(a: i32, b: i32): i32
     return a + b
 end
 
 -- Anonymous return
-return func(a: i32, b: i32) -> i32
+return func(a: i32, b: i32): i32
     return a + b
 end
 
@@ -738,7 +738,7 @@ facts phase and used by vector safety and alias/proof decisions.
 Example:
 
 ```moonlift
-func sum(readonly noalias xs: ptr(i32), n: i32) -> i32
+func sum(readonly noalias xs: ptr(i32), n: i32): i32
     block loop(i: index = 0, acc: i32 = 0)
         if i >= n then return acc end
         jump loop(i = i + 1, acc = acc + xs[i])
@@ -782,17 +782,17 @@ Lua assignment target or auto-generated:
 
 - `struct [Name] field: T ... end`
 - `union [Name] variant(...) | variant(...) end`
-- `extern [name](params...) [-> T] [as "symbol"] end`
-- `func [name](params...) [-> T] ... end`
+- `extern [name](params...) [: T] [as "symbol"] end`
+- `func [name](params...) [: T] ... end`
 - `region [name](params; continuations) ... end`
-- `expr [name](params) -> T expr end`
+- `expr [name](params): T expr end`
 
 ### 7.1 Name inference and anonymous forms
 
 When assigned, the keyword name is omitted and inferred from the assignment:
 
 ```lua
-local add = func(a: i32, b: i32) -> i32                 -- name = "add"
+local add = func(a: i32, b: i32): i32                 -- name = "add"
     return a + b
 end
 
@@ -812,12 +812,12 @@ Name inference also works in other positions:
 
 ```lua
 -- Table field assignment
-M.add = func(a: i32, b: i32) -> i32                      -- name = "add"
+M.add = func(a: i32, b: i32): i32                      -- name = "add"
     return a + b
 end
 
 -- Return anonymous function (generates a stable internal name)
-return func(a: i32, b: i32) -> i32                       -- auto-named
+return func(a: i32, b: i32): i32                       -- auto-named
     return a + b
 end
 
@@ -837,8 +837,8 @@ Moonlift callee name; the optional `as "symbol"` names the dynamic symbol to
 resolve through the JIT/linker:
 
 ```lua
-local strlen = extern strlen(s: ptr(u8)) -> index end
-local host_add = extern add7(x: i32) -> i32 as "host_add7" end
+local strlen = extern strlen(s: ptr(u8)): index end
+local host_add = extern add7(x: i32): i32 as "host_add7" end
 ```
 
 Host-facing APIs such as exposure policies, proxy generation, module assembly,
@@ -1043,7 +1043,7 @@ region parse_digit(p: ptr(u8), n: i32, pos: i32;
 end
 
 -- Usage:
-return region -> i32
+return region: i32
 entry start()
     emit parse_digit(p, n, 0; ok = got_digit, err = bad)
 end
@@ -1089,7 +1089,7 @@ yield expr      -- value yield
 - Bare `yield` is valid inside a void/statement control region.
 - `yield` is rejected outside a control region.
 - After a `yield`, execution continues at the point immediately after the
-  enclosing `region -> T ... end` or `block ... end` construct.
+  enclosing `region: T ... end` or `block ... end` construct.
 
 ### 8.9 Return statement
 
@@ -1337,16 +1337,16 @@ Examples:
 ```moonlift
 struct Vec3 x: f32; y: f32; z: f32 end
 
-func magnitude(v: Vec3) -> f32
+func magnitude(v: Vec3): f32
     return sqrt(v.x * v.x + v.y * v.y + v.z * v.z)
 end
 
-func example() -> Vec3
+func example(): Vec3
     -- Anonymous struct literal, type inferred from return type
     return { x = 1.0, y = 2.0, z = 3.0 }
 end
 
-func example2() -> f32
+func example2(): f32
     -- Named struct literal
     let v = Vec3{ x = 3.0, y = 4.0, z = 0.0 }
     return magnitude(v)
@@ -1376,11 +1376,11 @@ elements must have the same type.
 Examples:
 
 ```moonlift
-func sum(xs: [i32; 4]) -> i32
+func sum(xs: [i32; 4]): i32
     return xs[0] + xs[1] + xs[2] + xs[3]
 end
 
-func example() -> [i32; 3]
+func example(): [i32; 3]
     return [1, 2, 3]
 end
 
@@ -1566,7 +1566,7 @@ statement immediately after the `end` of the block.
 A single block that produces a value:
 
 ```moonlift
-let total: i32 = block loop(i: index = 0, acc: i32 = 0) -> i32
+let total: i32 = block loop(i: index = 0, acc: i32 = 0): i32
     if i >= n then
         yield acc
     end
@@ -1574,7 +1574,7 @@ let total: i32 = block loop(i: index = 0, acc: i32 = 0) -> i32
 end
 ```
 
-The result type (`-> i32`) is declared after the block parameters. The `yield`
+The result type (`: i32`) is declared after the block parameters. The `yield`
 expression must match this type.
 
 ### 10.4 Multi-block control expression
@@ -1582,7 +1582,7 @@ expression must match this type.
 Multiple named blocks with explicit state transitions:
 
 ```moonlift
-return region -> i32
+return region: i32
 entry start()
     jump loop(i = 0, acc = 0)
 end
@@ -1601,7 +1601,7 @@ end
 end
 ```
 
-A multi-block control expression wraps blocks in `region -> T ... end`.
+A multi-block control expression wraps blocks in `region: T ... end`.
 The first block is the entry block. Entry blocks can use `entry` or `block`
 keyword — both are accepted for the first block.
 
@@ -1658,7 +1658,7 @@ When a loop is the last thing in a function, `return` can be used directly
 from within the block instead of yielding and then returning:
 
 ```moonlift
-func sum(xs: view(i32), n: index) -> i32
+func sum(xs: view(i32), n: index): i32
     block loop(i: index = 0, acc: i32 = 0)
         if i >= n then
             return acc
@@ -1739,7 +1739,7 @@ The backend sees a combined control-flow graph after expansion.
 ### 11.2 Emit use (region fragments)
 
 ```moonlift
-return region -> i32
+return region: i32
 entry start()
     emit scan_until(p, n, target; hit = found, miss = missing)
 end
@@ -1816,11 +1816,11 @@ than region fragments — they produce a value, not a control-flow graph.
 ### 12.1 Declaration
 
 ```moonlift
-expr clamp_nonneg(x: i32) -> i32
+expr clamp_nonneg(x: i32): i32
     select(x < 0, 0, x)
 end
 
-expr square(x: f64) -> f64
+expr square(x: f64): f64
     x * x
 end
 ```
@@ -1848,7 +1848,7 @@ fragments.
 ```lua
 local function threshold_after(tag, pivot)
     local name = "threshold_after_" .. tag
-    return expr @{name}(x: i32) -> i32
+    return expr @{name}(x: i32): i32
         select(x > @{pivot}, x - @{pivot}, 0)
     end
 end
@@ -1872,7 +1872,7 @@ bounds proofs) and by the backend validation phase.
 ### 13.1 Parameter modifiers
 
 ```moonlift
-func f(noalias readonly xs: ptr(i32), writeonly dst: ptr(i32), n: i32) -> i32
+func f(noalias readonly xs: ptr(i32), writeonly dst: ptr(i32), n: i32): i32
     ...
 end
 ```
@@ -1934,7 +1934,7 @@ values table (see §14.4).
 | Source position | Expected splice kind |
 |---|---|
 | Type position (`let x: @{T}`, `as(ptr(@{T}), x)`) | A type value (from `moon.i32`, `moon.ptr(T)`, etc.). A string/source value is accepted as an explicit source-name escape for generated code. |
-| Type list position (`func(@{types...}) -> T`) | A Lua array of type values. |
+| Type list position (`func(@{types...}): T`) | A Lua array of type values. |
 | Expression position (`@{val} + 1`) | A literal/expression source value. Numbers, booleans, `nil`, strings/source values, and expression values are accepted. |
 | Expression list position (`f(@{args...})`, `emit frag(@{args...}; ...)`) | A Lua array of expression values/literals. |
 | Function parameter list (`func f(@{params...})`) | A Lua array of `moon.params{...}` values or raw `MoonType.Param` nodes. |
@@ -1961,7 +1961,7 @@ name in Lua instead (`local name = "foo_" .. tag`) and write `@{name}`.
 local params = moon.params { {"a", moon.i32}, {"b", moon.i32} }
 local body = moon.stmts [[ return a + b ]]
 
-return func add(@{params...}) -> i32
+return func add(@{params...}): i32
     @{body...}
 end
 
@@ -1976,14 +1976,14 @@ end
 
 -- Splice a type
 local T = moon.i32
-local inc = expr(x: @{T}) -> @{T}
+local inc = expr(x: @{T}): @{T}
     x + 1
 end
 
 -- Splice a fragment
 local frag = make_scanner(65)
-return func parse_A(p: ptr(u8), n: i32) -> i32
-    return region -> i32
+return func parse_A(p: ptr(u8), n: i32): i32
+    return region: i32
     entry start()
         emit @{frag}(p, n; hit = done, miss = bad)
     end
@@ -2041,7 +2041,7 @@ fills the slot, expands, and returns clean ASDL.
 moon.stmts { T = moon.i32, init = moon.int(0) } [[ let x: @{T} = @{init} ]]
 
 -- Spread lists
-moon.func { params = param_list } [[ add(@{params...}) -> i32 @{body} end ]]
+moon.func { params = param_list } [[ add(@{params...}): i32 @{body} end ]]
 
 -- Reusable binder
 local with_i32 = moon.stmts { T = moon.i32 }
@@ -2078,7 +2078,7 @@ from its body.
 
 ```lua
 -- Pure signature, no body — returns a closure
-local add = moon.func[[ add(a: i32, b: i32) -> i32 ]]
+local add = moon.func[[ add(a: i32, b: i32): i32 ]]
 -- add is a Lua closure carrying a typed ASDL signature
 -- It stores: name, params, result — no compiled code yet
 
@@ -2088,7 +2088,7 @@ print(compiled(3, 4))  -- 7
 compiled:free()
 
 -- One-shot: both sig and body at once
-local f = moon.func[[ sub(a: i32, b: i32) -> i32 ]][[ return a - b end ]]
+local f = moon.func[[ sub(a: i32, b: i32): i32 ]][[ return a - b end ]]
 print(f(10, 3))  -- 7
 f:free()
 ```
@@ -2101,7 +2101,7 @@ If body present, return a **CallableFunc** (lazily compiles on first call).
 
 ```lua
 -- func signature closure
-local h = moon.func[[ load(id: i32) -> ptr(User) ]]
+local h = moon.func[[ load(id: i32): ptr(User) ]]
 h.kind   -- "func_header"
 h.name   -- "load"
 
@@ -2113,7 +2113,7 @@ r.kind   -- "region_header"
 r.name   -- "scan"
 
 -- extern — always bodyless, always a signature (no closure needed)
-local e = moon.extern[[ write(fd: i32, buf: ptr(u8), count: index) -> index ]]
+local e = moon.extern[[ write(fd: i32, buf: ptr(u8), count: index): index ]]
 e.kind   -- "extern_func"
 ```
 
@@ -2132,7 +2132,7 @@ signature before compiling the body.
 
 ```lua
 -- Generic header with type binding
-local h = moon.func{ T = moon.i32 }[[ add(a: @{T}, b: @{T}) -> @{T} ]]
+local h = moon.func{ T = moon.i32 }[[ add(a: @{T}, b: @{T}): @{T} ]]
 
 -- Same bindings, provide body
 local f = h{}[[ return a + b end ]]
@@ -2159,8 +2159,8 @@ as a **header** — declarations without implementations:
 local moon = require("moonlift")
 return {
     Vec3 = moon.struct[[ x: f32; y: f32; z: f32 end ]],
-    load = moon.func[[ load(id: i32) -> ptr(Vec3) ]],
-    mul  = moon.func{ T = moon.f32 }[[ mul(a: @{T}, b: @{T}) -> @{T} ]],
+    load = moon.func[[ load(id: i32): ptr(Vec3) ]],
+    mul  = moon.func{ T = moon.f32 }[[ mul(a: @{T}, b: @{T}): @{T} ]],
 }
 ```
 
@@ -2183,7 +2183,7 @@ When a complete function (signature + body) is provided, `moon.func` returns
 a **CallableFunc** — a callable table that lazily compiles on first invocation.
 
 ```lua
-local add = moon.func [[add(a: i32, b: i32) -> i32 return a + b end]]
+local add = moon.func [[add(a: i32, b: i32): i32 return a + b end]]
 print(add(3, 4))  -- 7 — first call compiles ephemeral module
 print(add(10, 20)) -- 30 — cached pointer, no compilation
 add:free()
@@ -2196,9 +2196,9 @@ values table. The function is registered in the ephemeral module's item list,
 and the typechecker resolves the name reference during compilation.
 
 ```lua
-local dep = moon.func [[dep(x: i32) -> i32 return x + 1 end]]
+local dep = moon.func [[dep(x: i32): i32 return x + 1 end]]
 local main = moon.func { dep = dep } [[
-main(x: i32) -> i32
+main(x: i32): i32
     return @{dep}(x)
 end
 ]]
@@ -2271,7 +2271,7 @@ moon.f32 moon.f64  moon.bool  moon.void  moon.index
 -- Quote form
 moon.type [[i32]]               -- → TypeValue
 moon.type [[ptr(u8)]]           -- → TypeValue
-moon.type [[func(i32) -> i32]]  -- → TypeValue
+moon.type [[func(i32): i32]]  -- → TypeValue
 
 -- Compound type constructors
 moon.ptr(T)
@@ -2483,7 +2483,7 @@ end
 ```lua
 -- Quote form
 local inc = moon.expr_frag [[
-    inc(x: i32) -> i32
+    inc(x: i32): i32
         x + 1
     end
 ]]
@@ -2505,7 +2505,7 @@ local Option = moon.union [[Option Some(i32) | None end]]
 
 ```lua
 local write = moon.extern [[
-    write(fd: i32, buf: ptr(u8), count: index) -> index end
+    write(fd: i32, buf: ptr(u8), count: index): index end
 ]]
 ```
 
@@ -2553,7 +2553,7 @@ a Moonlift declaration (function, region, extern) carried as a Lua closure.
 
 ```lua
 -- A function signature is a Lua value:
-local add = moon.func[[ add(a: i32, b: i32) -> i32 ]]
+local add = moon.func[[ add(a: i32, b: i32): i32 ]]
 -- Not compiled. Not callable. Just a typed signature in a closure.
 ```
 
@@ -2567,8 +2567,8 @@ Lua values. This enables a clean module boundary between headers and bodies:
 local moon = require("moonlift")
 return {
     Vec3 = moon.struct[[ x: f32; y: f32; z: f32 end ]],
-    load = moon.func[[ load(id: i32) -> ptr(Vec3) ]],
-    mul  = moon.func{ T = moon.i32 }[[ mul(a: @{T}, b: @{T}) -> @{T} ]],
+    load = moon.func[[ load(id: i32): ptr(Vec3) ]],
+    mul  = moon.func{ T = moon.i32 }[[ mul(a: @{T}, b: @{T}): @{T} ]],
 }
 
 -- ============ app.mlua ============
@@ -2602,9 +2602,9 @@ compiles to separate monomorphic native code:
 
 ```lua
 local Stack = {
-    new  = moon.func{ T = moon.i32 }[[ new(capacity: i32) -> ptr(@{T}) ]],
+    new  = moon.func{ T = moon.i32 }[[ new(capacity: i32): ptr(@{T}) ]],
     push = moon.func{ T = moon.i32 }[[ push(s: ptr(ptr(@{T})), v: @{T}) ]],
-    pop  = moon.func{ T = moon.i32 }[[ pop(s: ptr(ptr(@{T}))) -> @{T} ]],
+    pop  = moon.func{ T = moon.i32 }[[ pop(s: ptr(ptr(@{T}))): @{T} ]],
 }
 
 -- Specialize to i32
@@ -2639,7 +2639,7 @@ local moon = require("moonlift")
 return {
     Mesh = moon.struct[[ verts: ptr(Vec3); count: i32 end ]],
     render = moon.func[[ render(m: ptr(Mesh)) ]],
-    load   = moon.func[[ load(path: ptr(u8)) -> ptr(Mesh) ]],
+    load   = moon.func[[ load(path: ptr(u8)): ptr(Mesh) ]],
 }
 ```
 
@@ -2668,7 +2668,7 @@ Because signatures are closures, they can be replaced for testing:
 ```lua
 -- Database interface (header module)
 local DB = {
-    query = moon.func[[ query(db: i32, sql: ptr(u8)) -> ptr(u8) ]],
+    query = moon.func[[ query(db: i32, sql: ptr(u8)): ptr(u8) ]],
     close = moon.func[[ close(db: i32) ]],
 }
 
@@ -2696,7 +2696,7 @@ A header can declare defaults. Implementations override them to specialize:
 ```lua
 -- Generic transform (default: f32)
 local transform = moon.func{ T = moon.f32 }[[
-    transform(m: ptr(Mesh), mat: @{T}) -> @{T}
+    transform(m: ptr(Mesh), mat: @{T}): @{T}
 ]]
 
 -- Double-precision variant (override T)
@@ -2775,7 +2775,7 @@ Use the lowest level that expresses the pattern cleanly.
    ```lua
    local params = moon.params { {"a", moon.i32}, {"b", moon.i32} }
 
-   return func add(@{params...}) -> i32
+   return func add(@{params...}): i32
        return a + b
    end
    ```
@@ -2806,7 +2806,7 @@ local args = { 20, 22 }
 ```
 
 ```moonlift
-func add(@{params...}) -> i32
+func add(@{params...}): i32
     return a + b
 end
 
@@ -2855,7 +2855,7 @@ local generated = moon.stmts [[
 ```
 
 ```moonlift
-func f(x: i32) -> i32
+func f(x: i32): i32
     @{generated...}
 end
 ```
@@ -3015,7 +3015,7 @@ local body = moon.stmts [[ return @{x} + 1 ]], { x = x }
 Moonlift name splices replace whole tokens only:
 
 ```moonlift
-func @{generated_name}(x: i32) -> i32
+func @{generated_name}(x: i32): i32
     return x
 end
 ```
@@ -3024,7 +3024,7 @@ Partial token splicing is intentionally unsupported:
 
 ```moonlift
 -- Not supported:
-func prefix_@{tag}(x: i32) -> i32 ... end
+func prefix_@{tag}(x: i32): i32 ... end
 ```
 
 Build the complete name in Lua:
@@ -3048,7 +3048,7 @@ local body = moon.stmts { xs = moon.ptr(moon.i32) } [[
 ```
 
 ```moonlift
-func sum3(xs: ptr(i32)) -> i32
+func sum3(xs: ptr(i32)): i32
     @{body...}
 end
 ```
@@ -3078,7 +3078,7 @@ local Pack = struct
     @{fields...}
 end
 
-func make_pack(@{params...}) -> Pack
+func make_pack(@{params...}): Pack
     -- body may be source-shaped or produced by moon.stmts[[]]
 end
 ```
@@ -3271,7 +3271,7 @@ maps, or offset-to-line conversions depending on the phase.
 ```
 ERROR[E0301]: type mismatch
   ┌─ file.mlua:2:9
-   1 │ func main() -> i32
+   1 │ func main(): i32
    2 │     let x: i32 = "hello"
      │         ^
    3 │     return x
@@ -3429,8 +3429,8 @@ end
 ### 22.2 Switch + emit dispatch
 
 ```moonlift
-func classify(p: ptr(u8), n: i32) -> i32
-    return region -> i32
+func classify(p: ptr(u8), n: i32): i32
+    return region: i32
     entry start()
         if n <= 0 then yield -1 end
         switch as(i32, p[0]) do
@@ -3493,8 +3493,8 @@ Host exposure and proxy methods are configured from Lua host APIs.
 ### 22.5 Multi-block state machine
 
 ```moonlift
-func scan_byte(p: ptr(u8), n: i32, target: u8) -> i32
-    return region -> i32
+func scan_byte(p: ptr(u8), n: i32, target: u8): i32
+    return region: i32
     entry start()
         jump loop(i = 0)
     end
@@ -3518,8 +3518,8 @@ entry loop(i: index = 0, acc: i32 = 0)
 end
 end
 
-func sum_first_n(xs: view(i32), n: index) -> i32
-    return region -> i32
+func sum_first_n(xs: view(i32), n: index): i32
+    return region: i32
     entry start()
         emit sum_range(xs, 0, n; done = out)
     end
@@ -3697,23 +3697,23 @@ rpc_out_commands.lua            outgoing command buffer
 rpc_stdio_loop.lua              stdio I/O loop
 
 -- Schema (clean schema source of truth)
-schema/init.lua                 schema module index
-schema/core.lua                 MoonCore schema
-schema/type.lua                 MoonType schema
-schema/tree.lua                 MoonTree schema
-schema/sem.lua                  MoonSem schema
-schema/back.lua                 MoonBack schema
-schema/link.lua                 MoonLink schema
-schema/host.lua                 MoonHost schema
-schema/open.lua                 MoonOpen schema
-schema/vec.lua                  MoonVec schema
-schema/bind.lua                 MoonBind schema
-schema/mlua.lua                 MoonMlua schema
-schema/editor.lua               MoonEditor schema
-schema/lsp.lua                  MoonLsp schema
-schema/rpc.lua                  MoonRpc schema
-schema/source.lua               MoonSource schema
-schema/pvm_surface.lua          MoonPvmSurface schema
+schema/init.lua                 schema module index/loader
+schema/core.asdl                MoonCore schema
+schema/type.asdl                MoonType schema
+schema/tree.asdl                MoonTree schema
+schema/sem.asdl                 MoonSem schema
+schema/back.asdl                MoonBack schema
+schema/link.asdl                MoonLink schema
+schema/host.asdl                MoonHost schema
+schema/open.asdl                MoonOpen schema
+schema/vec.asdl                 MoonVec schema
+schema/bind.asdl                MoonBind schema
+schema/mlua.asdl                MoonMlua schema
+schema/editor.asdl              MoonEditor schema
+schema/lsp.asdl                 MoonLsp schema
+schema/rpc.asdl                 MoonRpc schema
+schema/source.asdl              MoonSource schema
+schema/pvm_surface.asdl         MoonPvmSurface schema
 ```
 
 ---

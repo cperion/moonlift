@@ -19,7 +19,7 @@ local jit_api = J.Define(T)
 local B2 = T.MoonBack
 
 local src = [[
-func add_noalias_i32(noalias dst: ptr(i32), readonly a: ptr(i32), readonly b: ptr(i32), n: i32) -> i32
+func add_noalias_i32(noalias dst: ptr(i32), readonly a: ptr(i32), readonly b: ptr(i32), n: i32): i32
     requires bounds(dst, n)
     requires bounds(a, n)
     requires bounds(b, n)

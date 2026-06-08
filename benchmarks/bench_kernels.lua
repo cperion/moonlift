@@ -17,35 +17,35 @@ local WARMUP = tonumber(os.getenv("MOONLIFT2_BENCH_WARMUP") or (quick and "1" or
 local ITERS = tonumber(os.getenv("MOONLIFT2_BENCH_ITERS") or (quick and "2" or "3"))
 
 local SRC = [[
-func sum_i32(xs: ptr(i32), n: i32) -> i32
-    return block loop(i: i32 = 0, acc: i32 = 0) -> i32
+func sum_i32(xs: ptr(i32), n: i32): i32
+    return block loop(i: i32 = 0, acc: i32 = 0): i32
         if i >= n then yield acc end
         jump loop(i = i + 1, acc = acc + xs[i])
     end
 end
 
-func dot_i32(a: ptr(i32), b: ptr(i32), n: i32) -> i32
-    return block loop(i: i32 = 0, acc: i32 = 0) -> i32
+func dot_i32(a: ptr(i32), b: ptr(i32), n: i32): i32
+    return block loop(i: i32 = 0, acc: i32 = 0): i32
         if i >= n then yield acc end
         jump loop(i = i + 1, acc = acc + a[i] * b[i])
     end
 end
 
-func prod_i32(xs: ptr(i32), n: i32) -> i32
-    return block loop(i: i32 = 0, acc: i32 = 1) -> i32
+func prod_i32(xs: ptr(i32), n: i32): i32
+    return block loop(i: i32 = 0, acc: i32 = 1): i32
         if i >= n then yield acc end
         jump loop(i = i + 1, acc = acc * xs[i])
     end
 end
 
-func xor_reduce_i32(xs: ptr(i32), n: i32) -> i32
-    return block loop(i: i32 = 0, acc: i32 = 0) -> i32
+func xor_reduce_i32(xs: ptr(i32), n: i32): i32
+    return block loop(i: i32 = 0, acc: i32 = 0): i32
         if i >= n then yield acc end
         jump loop(i = i + 1, acc = acc ^ xs[i])
     end
 end
 
-func fill_i32(dst: ptr(i32), n: i32, value: i32) -> i32
+func fill_i32(dst: ptr(i32), n: i32, value: i32): i32
     block loop(i: i32 = 0)
         if i >= n then return 0 end
         dst[i] = value
@@ -53,7 +53,7 @@ func fill_i32(dst: ptr(i32), n: i32, value: i32) -> i32
     end
 end
 
-func copy_i32(dst: ptr(i32), src: ptr(i32), n: i32) -> i32
+func copy_i32(dst: ptr(i32), src: ptr(i32), n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then return 0 end
         dst[i] = src[i]
@@ -61,7 +61,7 @@ func copy_i32(dst: ptr(i32), src: ptr(i32), n: i32) -> i32
     end
 end
 
-func add_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32) -> i32
+func add_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then return 0 end
         dst[i] = a[i] + b[i]
@@ -69,7 +69,7 @@ func add_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32) -> i32
     end
 end
 
-func sub_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32) -> i32
+func sub_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then return 0 end
         dst[i] = a[i] - b[i]
@@ -77,7 +77,7 @@ func sub_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32) -> i32
     end
 end
 
-func scale_i32(dst: ptr(i32), xs: ptr(i32), k: i32, n: i32) -> i32
+func scale_i32(dst: ptr(i32), xs: ptr(i32), k: i32, n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then return 0 end
         dst[i] = xs[i] * k
@@ -85,7 +85,7 @@ func scale_i32(dst: ptr(i32), xs: ptr(i32), k: i32, n: i32) -> i32
     end
 end
 
-func inc_i32(xs: ptr(i32), n: i32) -> i32
+func inc_i32(xs: ptr(i32), n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then return 0 end
         xs[i] = xs[i] + 1
@@ -93,7 +93,7 @@ func inc_i32(xs: ptr(i32), n: i32) -> i32
     end
 end
 
-func axpy_i32(y: ptr(i32), x: ptr(i32), a: i32, n: i32) -> i32
+func axpy_i32(y: ptr(i32), x: ptr(i32), a: i32, n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then return 0 end
         y[i] = y[i] + a * x[i]
@@ -101,7 +101,7 @@ func axpy_i32(y: ptr(i32), x: ptr(i32), a: i32, n: i32) -> i32
     end
 end
 
-func and_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32) -> i32
+func and_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then return 0 end
         dst[i] = a[i] & b[i]
@@ -109,7 +109,7 @@ func and_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32) -> i32
     end
 end
 
-func or_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32) -> i32
+func or_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then return 0 end
         dst[i] = a[i] | b[i]
@@ -117,7 +117,7 @@ func or_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32) -> i32
     end
 end
 
-func xor_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32) -> i32
+func xor_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then return 0 end
         dst[i] = a[i] ^ b[i]
@@ -125,7 +125,7 @@ func xor_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32) -> i32
     end
 end
 
-func clamp_nonneg_i32(noalias dst: ptr(i32), readonly a: ptr(i32), n: i32) -> i32
+func clamp_nonneg_i32(noalias dst: ptr(i32), readonly a: ptr(i32), n: i32): i32
     requires bounds(dst, n)
     requires bounds(a, n)
     requires disjoint(dst, a)
@@ -136,7 +136,7 @@ func clamp_nonneg_i32(noalias dst: ptr(i32), readonly a: ptr(i32), n: i32) -> i3
     end
 end
 
-func max_i32(noalias dst: ptr(i32), readonly a: ptr(i32), readonly b: ptr(i32), n: i32) -> i32
+func max_i32(noalias dst: ptr(i32), readonly a: ptr(i32), readonly b: ptr(i32), n: i32): i32
     requires bounds(dst, n)
     requires bounds(a, n)
     requires bounds(b, n)
@@ -149,7 +149,7 @@ func max_i32(noalias dst: ptr(i32), readonly a: ptr(i32), readonly b: ptr(i32), 
     end
 end
 
-func in_range_i32(noalias dst: ptr(i32), readonly a: ptr(i32), n: i32, lo: i32, hi: i32) -> i32
+func in_range_i32(noalias dst: ptr(i32), readonly a: ptr(i32), n: i32, lo: i32, hi: i32): i32
     requires bounds(dst, n)
     requires bounds(a, n)
     requires disjoint(dst, a)
@@ -160,21 +160,21 @@ func in_range_i32(noalias dst: ptr(i32), readonly a: ptr(i32), n: i32, lo: i32, 
     end
 end
 
-func sum_i64(xs: ptr(i64), n: i32) -> i64
-    return block loop(i: i32 = 0, acc: i64 = 0) -> i64
+func sum_i64(xs: ptr(i64), n: i32): i64
+    return block loop(i: i32 = 0, acc: i64 = 0): i64
         if i >= n then yield acc end
         jump loop(i = i + 1, acc = acc + xs[i])
     end
 end
 
-func dot_i64(a: ptr(i64), b: ptr(i64), n: i32) -> i64
-    return block loop(i: i32 = 0, acc: i64 = 0) -> i64
+func dot_i64(a: ptr(i64), b: ptr(i64), n: i32): i64
+    return block loop(i: i32 = 0, acc: i64 = 0): i64
         if i >= n then yield acc end
         jump loop(i = i + 1, acc = acc + a[i] * b[i])
     end
 end
 
-func add_i64(dst: ptr(i64), a: ptr(i64), b: ptr(i64), n: i32) -> i32
+func add_i64(dst: ptr(i64), a: ptr(i64), b: ptr(i64), n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then return 0 end
         dst[i] = a[i] + b[i]
@@ -182,7 +182,7 @@ func add_i64(dst: ptr(i64), a: ptr(i64), b: ptr(i64), n: i32) -> i32
     end
 end
 
-func sub_i64(dst: ptr(i64), a: ptr(i64), b: ptr(i64), n: i32) -> i32
+func sub_i64(dst: ptr(i64), a: ptr(i64), b: ptr(i64), n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then return 0 end
         dst[i] = a[i] - b[i]
@@ -190,7 +190,7 @@ func sub_i64(dst: ptr(i64), a: ptr(i64), b: ptr(i64), n: i32) -> i32
     end
 end
 
-func scale_i64(dst: ptr(i64), xs: ptr(i64), k: i64, n: i32) -> i32
+func scale_i64(dst: ptr(i64), xs: ptr(i64), k: i64, n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then return 0 end
         dst[i] = xs[i] * k
@@ -198,7 +198,7 @@ func scale_i64(dst: ptr(i64), xs: ptr(i64), k: i64, n: i32) -> i32
     end
 end
 
-func or_i64(dst: ptr(i64), a: ptr(i64), b: ptr(i64), n: i32) -> i32
+func or_i64(dst: ptr(i64), a: ptr(i64), b: ptr(i64), n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then return 0 end
         dst[i] = a[i] | b[i]
@@ -206,14 +206,14 @@ func or_i64(dst: ptr(i64), a: ptr(i64), b: ptr(i64), n: i32) -> i32
     end
 end
 
-func sum_u32(xs: ptr(u32), n: i32) -> u32
-    return block loop(i: i32 = 0, acc: u32 = 0) -> u32
+func sum_u32(xs: ptr(u32), n: i32): u32
+    return block loop(i: i32 = 0, acc: u32 = 0): u32
         if i >= n then yield acc end
         jump loop(i = i + 1, acc = acc + xs[i])
     end
 end
 
-func add_u32(dst: ptr(u32), a: ptr(u32), b: ptr(u32), n: i32) -> i32
+func add_u32(dst: ptr(u32), a: ptr(u32), b: ptr(u32), n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then return 0 end
         dst[i] = a[i] + b[i]
@@ -221,7 +221,7 @@ func add_u32(dst: ptr(u32), a: ptr(u32), b: ptr(u32), n: i32) -> i32
     end
 end
 
-func min_u32(noalias dst: ptr(u32), readonly a: ptr(u32), readonly b: ptr(u32), n: i32) -> i32
+func min_u32(noalias dst: ptr(u32), readonly a: ptr(u32), readonly b: ptr(u32), n: i32): i32
     requires bounds(dst, n)
     requires bounds(a, n)
     requires bounds(b, n)
@@ -234,14 +234,14 @@ func min_u32(noalias dst: ptr(u32), readonly a: ptr(u32), readonly b: ptr(u32), 
     end
 end
 
-func sum_u64(xs: ptr(u64), n: i32) -> u64
-    return block loop(i: i32 = 0, acc: u64 = 0) -> u64
+func sum_u64(xs: ptr(u64), n: i32): u64
+    return block loop(i: i32 = 0, acc: u64 = 0): u64
         if i >= n then yield acc end
         jump loop(i = i + 1, acc = acc + xs[i])
     end
 end
 
-func add_u64(dst: ptr(u64), a: ptr(u64), b: ptr(u64), n: i32) -> i32
+func add_u64(dst: ptr(u64), a: ptr(u64), b: ptr(u64), n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then return 0 end
         dst[i] = a[i] + b[i]
@@ -249,7 +249,7 @@ func add_u64(dst: ptr(u64), a: ptr(u64), b: ptr(u64), n: i32) -> i32
     end
 end
 
-func xor_u64(dst: ptr(u64), a: ptr(u64), b: ptr(u64), n: i32) -> i32
+func xor_u64(dst: ptr(u64), a: ptr(u64), b: ptr(u64), n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then return 0 end
         dst[i] = a[i] ^ b[i]
@@ -257,7 +257,7 @@ func xor_u64(dst: ptr(u64), a: ptr(u64), b: ptr(u64), n: i32) -> i32
     end
 end
 
-func add_view_i32(noalias dst: view(i32), readonly a: view(i32), readonly b: view(i32)) -> i32
+func add_view_i32(noalias dst: view(i32), readonly a: view(i32), readonly b: view(i32)): i32
     requires same_len(dst, a)
     requires same_len(dst, b)
     block loop(i: index = 0)
@@ -267,7 +267,7 @@ func add_view_i32(noalias dst: view(i32), readonly a: view(i32), readonly b: vie
     end
 end
 
-func copy_view_i32(noalias dst: view(i32), readonly src: view(i32)) -> i32
+func copy_view_i32(noalias dst: view(i32), readonly src: view(i32)): i32
     requires same_len(dst, src)
     block loop(i: index = 0)
         if i >= len(dst) then return 0 end
@@ -276,7 +276,7 @@ func copy_view_i32(noalias dst: view(i32), readonly src: view(i32)) -> i32
     end
 end
 
-func threshold_view_i32(noalias dst: view(i32), readonly a: view(i32), t: i32, lo: i32, hi: i32) -> i32
+func threshold_view_i32(noalias dst: view(i32), readonly a: view(i32), t: i32, lo: i32, hi: i32): i32
     requires same_len(dst, a)
     block loop(i: index = 0)
         if i >= len(dst) then return 0 end
@@ -285,7 +285,7 @@ func threshold_view_i32(noalias dst: view(i32), readonly a: view(i32), t: i32, l
     end
 end
 
-func max_view_prefix_window_i32(noalias dst: view(i32), readonly a: view(i32), readonly b: view(i32)) -> i32
+func max_view_prefix_window_i32(noalias dst: view(i32), readonly a: view(i32), readonly b: view(i32)): i32
     requires same_len(dst, a)
     requires same_len(dst, b)
     let m: index = len(dst) - 1

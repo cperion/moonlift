@@ -1,8 +1,8 @@
 -- Canonical Moonlift schema facade.
 --
--- The source of truth is the Lua-hosted schema-as-data modules under
--- lua/moonlift/schema/.  This facade intentionally defines the clean Moon*
--- namespace, not historical Moon* modules.
+-- The source of truth is the compact .asdl text under lua/moonlift/schema/.
+-- This facade intentionally defines the clean Moon* namespace, not historical
+-- Moon* modules.
 
 local Schema = require("moonlift.schema")
 

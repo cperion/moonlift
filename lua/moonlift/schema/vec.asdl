@@ -1,0 +1,333 @@
+module MoonVec {
+    VecExprId = (string text) unique
+
+    VecLoopId = (string text) unique
+
+    VecAccessId = (string text) unique
+
+    VecValueId = (string text) unique
+
+    VecBlockId = (string text) unique
+
+    VecElem = VecElemBool
+         | VecElemI8
+         | VecElemI16
+         | VecElemI32
+         | VecElemI64
+         | VecElemU8
+         | VecElemU16
+         | VecElemU32
+         | VecElemU64
+         | VecElemF32
+         | VecElemF64
+         | VecElemPtr
+         | VecElemIndex
+
+    VecShape = VecScalarShape(MoonVec.VecElem elem) unique
+         | VecVectorShape(MoonVec.VecElem elem, number lanes) unique
+
+    VecBinOp = VecAdd
+         | VecSub
+         | VecMul
+         | VecRem
+         | VecBitAnd
+         | VecBitOr
+         | VecBitXor
+         | VecShl
+         | VecLShr
+         | VecAShr
+         | VecEq
+         | VecNe
+         | VecLt
+         | VecLe
+         | VecGt
+         | VecGe
+
+    VecCmpOp = VecCmpEq
+         | VecCmpNe
+         | VecCmpSLt
+         | VecCmpSLe
+         | VecCmpSGt
+         | VecCmpSGe
+         | VecCmpULt
+         | VecCmpULe
+         | VecCmpUGt
+         | VecCmpUGe
+
+    VecMaskOp = VecMaskNot
+         | VecMaskAnd
+         | VecMaskOr
+
+    VecUnaryOp = VecNeg
+         | VecNot
+         | VecBitNot
+         | VecPopcount
+         | VecClz
+         | VecCtz
+
+    VecReject = VecRejectUnsupportedLoop(MoonVec.VecLoopId loop, string reason) unique
+         | VecRejectUnsupportedExpr(MoonVec.VecExprId expr, string reason) unique
+         | VecRejectUnsupportedStmt(string stmt_id, string reason) unique
+         | VecRejectUnsupportedMemory(MoonVec.VecAccessId access, string reason) unique
+         | VecRejectDependence(MoonVec.VecAccessId a, MoonVec.VecAccessId b, string reason) unique
+         | VecRejectRange(MoonVec.VecExprId expr, string reason) unique
+         | VecRejectTarget(MoonVec.VecShape shape, string reason) unique
+         | VecRejectCost(string reason) unique
+
+    VecTarget = VecTargetCraneliftJit
+         | VecTargetNamed(string name) unique
+
+    VecTargetFact = VecTargetSupportsShape(MoonVec.VecShape shape) unique
+         | VecTargetSupportsBinOp(MoonVec.VecShape shape, MoonVec.VecBinOp op) unique
+         | VecTargetSupportsCmpOp(MoonVec.VecShape shape, MoonVec.VecCmpOp op) unique
+         | VecTargetSupportsSelect(MoonVec.VecShape shape) unique
+         | VecTargetSupportsMaskOp(MoonVec.VecShape shape, MoonVec.VecMaskOp op) unique
+         | VecTargetSupportsUnaryOp(MoonVec.VecShape shape, MoonVec.VecUnaryOp op) unique
+         | VecTargetPrefersUnroll(MoonVec.VecShape shape, number unroll, number rank) unique
+         | VecTargetPrefersReductionAccumulators(MoonVec.VecShape shape, MoonVec.VecBinOp op, number accumulators, number rank) unique
+         | VecTargetPrefersScalarTail
+         | VecTargetSupportsMaskedTail
+         | VecTargetVectorBits(number bits) unique
+
+    VecTargetModel = (MoonVec.VecTarget target, MoonVec.VecTargetFact* facts) unique
+
+    VecExprFact = VecExprConst(MoonVec.VecExprId id, MoonTree.Expr expr, MoonType.Type ty) unique
+         | VecExprInvariant(MoonVec.VecExprId id, MoonTree.Expr expr, MoonType.Type ty) unique
+         | VecExprLaneIndex(MoonVec.VecExprId id, MoonBind.Binding binding, MoonType.Type ty) unique
+         | VecExprLocal(MoonVec.VecExprId id, MoonBind.Binding binding, MoonVec.VecExprId value, MoonType.Type ty) unique
+         | VecExprUnary(MoonVec.VecExprId id, MoonVec.VecUnaryOp op, MoonVec.VecExprId value, MoonType.Type ty) unique
+         | VecExprBin(MoonVec.VecExprId id, MoonVec.VecBinOp op, MoonVec.VecExprId lhs, MoonVec.VecExprId rhs, MoonType.Type ty) unique
+         | VecExprSelect(MoonVec.VecExprId id, MoonVec.VecExprId cond, MoonVec.VecExprId then_value, MoonVec.VecExprId else_value, MoonType.Type ty) unique
+         | VecExprLoad(MoonVec.VecExprId id, MoonVec.VecAccessId access, MoonType.Type ty) unique
+         | VecExprRejected(MoonVec.VecExprId id, MoonVec.VecReject reject) unique
+
+    VecExprGraph = (MoonVec.VecExprFact* exprs) unique
+
+    VecExprResult = VecExprResult(MoonVec.VecExprId value, MoonVec.VecExprFact* facts, MoonVec.VecMemoryFact* memory, MoonVec.VecRangeFact* ranges, MoonVec.VecReject* rejects, MoonType.Type ty) unique
+
+    VecLocalFact = (MoonBind.Binding binding, MoonVec.VecExprId value, MoonType.Type ty) unique
+
+    VecExprEnv = (MoonBind.Binding index, MoonVec.VecLocalFact* locals) unique
+
+    VecStmtResult = VecStmtLocal(MoonVec.VecLocalFact local, MoonVec.VecExprFact* facts, MoonVec.VecMemoryFact* memory, MoonVec.VecRangeFact* ranges, MoonVec.VecReject* rejects) unique
+         | VecStmtStore(MoonVec.VecStoreFact store, MoonVec.VecExprFact* facts, MoonVec.VecMemoryFact* memory, MoonVec.VecRangeFact* ranges, MoonVec.VecReject* rejects) unique
+         | VecStmtIgnored(MoonVec.VecExprFact* facts, MoonVec.VecMemoryFact* memory, MoonVec.VecRangeFact* ranges, MoonVec.VecReject* rejects) unique
+
+    VecRangeFact = VecRangeUnknown(MoonVec.VecExprId expr) unique
+         | VecRangeExact(MoonVec.VecExprId expr, string value) unique
+         | VecRangeUnsigned(MoonVec.VecExprId expr, string min, string max) unique
+         | VecRangeBitAnd(MoonVec.VecExprId expr, string mask, string max_value) unique
+         | VecRangeDerived(MoonVec.VecExprId expr, string min, string max, MoonVec.VecProof* proofs) unique
+
+    VecDomain = VecDomainCounted(MoonTree.Expr start, MoonTree.Expr stop, MoonTree.Expr step) unique
+         | VecDomainRejected(MoonVec.VecReject reject) unique
+
+    VecInduction = VecPrimaryInduction(MoonBind.Binding binding, MoonTree.Expr start, MoonTree.Expr step) unique
+         | VecDerivedInduction(MoonBind.Binding binding, MoonVec.VecExprId expr) unique
+
+    VecAccessKind = VecAccessLoad
+         | VecAccessStore
+
+    VecAccessPattern = VecAccessContiguous
+         | VecAccessStrided(number stride) unique
+         | VecAccessGather
+         | VecAccessScatter
+         | VecAccessUnknown
+
+    VecAlignment = VecAlignmentKnown(number bytes) unique
+         | VecAlignmentUnknown
+         | VecAlignmentAssumed(number bytes, MoonVec.VecProof proof) unique
+
+    VecBounds = VecBoundsProven(MoonVec.VecProof proof) unique
+         | VecBoundsUnknown(MoonVec.VecReject reject) unique
+
+    VecMemoryBase = VecMemoryBaseRawAddr(MoonTree.Expr addr) unique
+         | VecMemoryBaseView(MoonTree.View view) unique
+         | VecMemoryBasePlace(MoonTree.Place place) unique
+
+    VecMemoryFact = VecMemoryAccess(MoonVec.VecAccessId id, MoonVec.VecAccessKind access_kind, MoonVec.VecMemoryBase base, MoonVec.VecExprId index, MoonType.Type elem_ty, MoonVec.VecAccessPattern pattern, MoonVec.VecAlignment alignment, MoonVec.VecBounds bounds) unique
+
+    VecAliasFact = VecAccessSameBase(MoonVec.VecAccessId a, MoonVec.VecAccessId b, string reason) unique
+         | VecAccessNoAlias(MoonVec.VecAccessId a, MoonVec.VecAccessId b, string reason) unique
+         | VecAccessDisjointRange(MoonVec.VecAccessId a, MoonVec.VecAccessId b, string reason) unique
+         | VecAliasUnknown(MoonVec.VecAccessId a, MoonVec.VecAccessId b, MoonVec.VecReject reject) unique
+
+    VecDependenceFact = VecNoDependence(MoonVec.VecAccessId a, MoonVec.VecAccessId b, MoonVec.VecProof proof) unique
+         | VecDependenceUnknown(MoonVec.VecAccessId a, MoonVec.VecAccessId b, MoonVec.VecReject reject) unique
+         | VecLoopCarriedDependence(MoonVec.VecAccessId a, MoonVec.VecAccessId b, MoonVec.VecReject reject) unique
+
+    VecReassoc = VecReassocWrapping
+         | VecReassocExact
+         | VecReassocFloatFastMath
+         | VecReassocRejected(MoonVec.VecReject reject) unique
+
+    VecReductionFact = VecReductionAdd(MoonBind.Binding accumulator, MoonVec.VecExprId value, MoonVec.VecReassoc reassoc) unique
+         | VecReductionMul(MoonBind.Binding accumulator, MoonVec.VecExprId value, MoonVec.VecReassoc reassoc) unique
+         | VecReductionBitAnd(MoonBind.Binding accumulator, MoonVec.VecExprId value) unique
+         | VecReductionBitOr(MoonBind.Binding accumulator, MoonVec.VecExprId value) unique
+         | VecReductionBitXor(MoonBind.Binding accumulator, MoonVec.VecExprId value) unique
+
+    VecStoreFact = VecStoreFact(MoonVec.VecMemoryFact access, MoonVec.VecExprId value) unique
+
+    VecProof = VecProofDomain(string reason) unique
+         | VecProofRange(MoonVec.VecRangeFact range, string reason) unique
+         | VecProofAlias(MoonVec.VecAliasFact alias, string reason) unique
+         | VecProofNoMemoryDependence(MoonVec.VecAccessId* accesses, string reason) unique
+         | VecProofKernelSafety(string reason) unique
+         | VecProofReduction(MoonVec.VecReductionFact reduction, string reason) unique
+         | VecProofNarrowSafe(MoonVec.VecReductionFact reduction, MoonVec.VecElem narrow_elem, number chunk_elems, string reason) unique
+         | VecProofTarget(MoonVec.VecTargetFact fact, string reason) unique
+
+    VecAssumption = VecAssumeRawPtrBounds(MoonBind.Binding base, MoonBind.Binding stop, string reason) unique
+         | VecAssumeRawPtrDisjointOrSameIndexSafe(MoonBind.Binding* bases, string reason) unique
+         | VecAssumeAlignment(MoonBind.Binding base, number bytes, string reason) unique
+
+    VecKernelSafety = VecKernelSafetyProven(MoonVec.VecProof* proofs) unique
+         | VecKernelSafetyAssumed(MoonVec.VecProof* proofs, MoonVec.VecAssumption* assumptions) unique
+         | VecKernelSafetyRejected(MoonVec.VecReject* rejects) unique
+
+    VecKernelLenSource = VecKernelLenBinding(MoonBind.Binding binding) unique
+         | VecKernelLenView(MoonBind.Binding view) unique
+         | VecKernelLenExpr(MoonTree.Expr expr) unique
+
+    VecKernelMemoryUse = VecKernelRead(MoonBind.Binding base, MoonVec.VecElem elem, MoonVec.VecKernelIndexOffset offset, MoonVec.VecKernelLenSource base_len, MoonTree.Expr len_value) unique
+         | VecKernelWrite(MoonBind.Binding base, MoonVec.VecElem elem, MoonVec.VecKernelIndexOffset offset, MoonVec.VecKernelLenSource base_len, MoonTree.Expr len_value) unique
+
+    VecKernelBounds = VecKernelBoundsProven(MoonVec.VecProof proof) unique
+         | VecKernelBoundsAssumed(MoonVec.VecAssumption assumption) unique
+         | VecKernelBoundsRejected(MoonVec.VecReject reject) unique
+
+    VecWindowRangeObligation = (MoonBind.Binding base, MoonVec.VecKernelLenSource base_len, MoonVec.VecKernelIndexOffset start, MoonBind.Binding len, MoonTree.Expr len_value) unique
+
+    VecWindowRangeDecision = VecWindowRangeProven(MoonVec.VecWindowRangeObligation obligation, MoonVec.VecProof proof) unique
+         | VecWindowRangeRejected(MoonVec.VecWindowRangeObligation obligation, MoonVec.VecReject reject) unique
+
+    VecKernelAlias = VecKernelAliasProven(MoonVec.VecProof proof) unique
+         | VecKernelAliasAssumed(MoonVec.VecAssumption assumption) unique
+         | VecKernelAliasSameIndexSafe(MoonVec.VecProof proof) unique
+         | VecKernelAliasRejected(MoonVec.VecReject reject) unique
+
+    VecKernelAlignment = VecKernelAlignProven(MoonBind.Binding base, MoonVec.VecElem elem, number bytes, MoonVec.VecProof proof) unique
+         | VecKernelAlignAssumed(MoonBind.Binding base, MoonVec.VecElem elem, number bytes, MoonVec.VecAssumption assumption) unique
+         | VecKernelAlignUnknown(MoonBind.Binding base, MoonVec.VecElem elem, string reason) unique
+         | VecKernelAlignRejected(MoonBind.Binding base, MoonVec.VecElem elem, MoonVec.VecReject reject) unique
+
+    VecNestedLoopFact = (MoonVec.VecLoopFacts facts) unique
+
+    VecLoopSource = VecLoopSourceControlRegion(string region_id, MoonTree.BlockLabel header, MoonTree.BlockLabel backedge) unique
+         | VecLoopSourceRejected(MoonVec.VecReject reject) unique
+
+    VecLoopFacts = VecLoopFacts(MoonVec.VecLoopId loop, MoonVec.VecLoopSource source, MoonVec.VecDomain domain, MoonVec.VecInduction* inductions, MoonVec.VecExprGraph exprs, MoonVec.VecMemoryFact* memory, MoonVec.VecAliasFact* aliases, MoonVec.VecDependenceFact* dependences, MoonVec.VecRangeFact* ranges, MoonVec.VecStoreFact* stores, MoonVec.VecReductionFact* reductions, MoonVec.VecNestedLoopFact* nested, MoonVec.VecReject* rejects) unique
+
+    VecTail = VecTailNone
+         | VecTailScalar
+         | VecTailMasked(MoonVec.VecProof proof) unique
+
+    VecLoopShape = VecLoopScalar(MoonVec.VecLoopId loop, MoonVec.VecReject* vector_rejects) unique
+         | VecLoopVector(MoonVec.VecLoopId loop, MoonVec.VecShape shape, number unroll, MoonVec.VecTail tail, MoonVec.VecProof* proofs) unique
+         | VecLoopChunkedNarrowVector(MoonVec.VecLoopId loop, MoonVec.VecShape narrow_shape, number unroll, number chunk_elems, MoonVec.VecTail tail, MoonVec.VecProof narrow_proof, MoonVec.VecProof* proofs) unique
+
+    VecLegality = VecLegal(MoonVec.VecProof* proofs) unique
+         | VecIllegal(MoonVec.VecReject* rejects) unique
+
+    VecReductionSchedule = VecReductionSchedule(MoonVec.VecBinOp op, number accumulators, MoonVec.VecProof* proofs) unique
+
+    VecSchedule = VecScheduleScalar(MoonVec.VecReject* rejects) unique
+         | VecScheduleVector(MoonVec.VecShape shape, number unroll, number interleave, MoonVec.VecTail tail, number accumulators, MoonVec.VecReductionSchedule* reductions, MoonVec.VecProof* proofs) unique
+         | VecScheduleChunkedNarrowVector(MoonVec.VecShape narrow_shape, number unroll, number interleave, number chunk_elems, MoonVec.VecTail tail, number accumulators, MoonVec.VecReductionSchedule* reductions, MoonVec.VecProof narrow_proof, MoonVec.VecProof* proofs) unique
+
+    VecShapeScore = VecShapeScore(MoonVec.VecLoopShape shape, number elems_per_iter, number rank, string rationale) unique
+
+    VecLoopDecision = VecLoopDecision(MoonVec.VecLoopFacts facts, MoonVec.VecLegality legality, MoonVec.VecSchedule schedule, MoonVec.VecLoopShape chosen, MoonVec.VecShapeScore* considered) unique
+
+    VecScheduleInspection = (MoonVec.VecLoopId loop, MoonVec.VecLegality legality, MoonVec.VecSchedule schedule, MoonVec.VecShapeScore* considered) unique
+
+    VecInspectionReport = (MoonVec.VecScheduleInspection* schedules) unique
+
+    VecKernelIndexOffset = VecKernelOffsetZero
+         | VecKernelOffsetExpr(MoonTree.Expr expr) unique
+         | VecKernelOffsetAdd(MoonVec.VecKernelIndexOffset lhs, MoonVec.VecKernelIndexOffset rhs) unique
+
+    VecKernelScalarAlias = (MoonBind.Binding binding, MoonTree.Expr value) unique
+
+    VecKernelCounter = VecKernelCounterI32(MoonVec.VecProof* proofs) unique
+         | VecKernelCounterIndex(MoonVec.VecProof* proofs) unique
+         | VecKernelCounterRejected(MoonVec.VecReject reject) unique
+
+    VecKernelMaskExpr = VecKernelMaskCompare(MoonVec.VecCmpOp op, MoonVec.VecKernelExpr lhs, MoonVec.VecKernelExpr rhs) unique
+         | VecKernelMaskNot(MoonVec.VecKernelMaskExpr value) unique
+         | VecKernelMaskBin(MoonVec.VecMaskOp op, MoonVec.VecKernelMaskExpr lhs, MoonVec.VecKernelMaskExpr rhs) unique
+
+    VecKernelExpr = VecKernelExprLoad(MoonBind.Binding base, MoonVec.VecKernelIndexOffset offset, MoonVec.VecKernelLenSource base_len, MoonTree.Expr len_value) unique
+         | VecKernelExprInvariant(MoonTree.Expr expr) unique
+         | VecKernelExprBin(MoonVec.VecBinOp op, MoonVec.VecKernelExpr lhs, MoonVec.VecKernelExpr rhs) unique
+         | VecKernelExprSelect(MoonVec.VecKernelMaskExpr cond, MoonVec.VecKernelExpr then_value, MoonVec.VecKernelExpr else_value) unique
+
+    VecKernelStorePlan = (MoonBind.Binding dst, MoonVec.VecKernelIndexOffset offset, MoonVec.VecKernelLenSource base_len, MoonTree.Expr len_value, MoonVec.VecKernelExpr value) unique
+
+    VecKernelViewStride = VecKernelStrideUnit
+         | VecKernelStrideConst(string raw) unique
+         | VecKernelStrideDynamic(MoonTree.Expr expr) unique
+
+    VecKernelViewAlias = (MoonBind.Binding view, MoonBind.Binding data, MoonBind.Binding len, MoonVec.VecKernelViewStride stride, MoonVec.VecKernelIndexOffset offset, MoonVec.VecKernelLenSource base_len, MoonTree.Expr len_value) unique
+
+    VecKernelReductionPlan = VecKernelReductionBin(MoonVec.VecBinOp op, MoonVec.VecElem elem, MoonBind.Binding accumulator, MoonVec.VecKernelExpr value, string identity) unique
+         | VecKernelReductionAdd(MoonVec.VecElem elem, MoonBind.Binding accumulator, MoonVec.VecKernelExpr value) unique
+
+    VecKernelCore = VecKernelCoreReduce(MoonVec.VecLoopDecision decision, MoonVec.VecElem elem, MoonBind.Binding stop, MoonVec.VecKernelCounter counter, MoonVec.VecKernelScalarAlias* scalars, MoonVec.VecKernelReductionPlan reduction) unique
+         | VecKernelCoreMap(MoonVec.VecLoopDecision decision, MoonVec.VecElem elem, MoonBind.Binding stop, MoonVec.VecKernelCounter counter, MoonVec.VecKernelScalarAlias* scalars, MoonVec.VecKernelStorePlan* stores) unique
+
+    VecKernelSafetyInput = (MoonVec.VecLoopFacts facts, MoonVec.VecKernelCore core, MoonVec.VecKernelMemoryUse* uses, MoonTree.ContractFact* contracts) unique
+
+    VecKernelSafetyDecision = (MoonVec.VecKernelSafety safety, MoonVec.VecKernelBounds* bounds, MoonVec.VecKernelAlignment* alignments, MoonVec.VecKernelAlias* aliases, MoonVec.VecReject* rejects) unique
+
+    VecAlgebraicKind = VecAlgebraicSeries(string coeff_a, string coeff_b) unique
+         | VecAlgebraicQuadratic(string coeff_c, string coeff_a, string coeff_b) unique
+
+    VecKernelPlan = VecKernelNoPlan(MoonVec.VecReject* rejects) unique
+         | VecKernelReduce(MoonVec.VecLoopDecision decision, MoonVec.VecElem elem, MoonBind.Binding stop, MoonVec.VecKernelCounter counter, MoonVec.VecKernelScalarAlias* scalars, MoonVec.VecKernelReductionPlan reduction, MoonVec.VecKernelSafety safety, MoonVec.VecKernelAlignment* alignments, MoonVec.VecKernelAlias* aliases) unique
+         | VecKernelMap(MoonVec.VecLoopDecision decision, MoonVec.VecElem elem, MoonBind.Binding stop, MoonVec.VecKernelCounter counter, MoonVec.VecKernelScalarAlias* scalars, MoonVec.VecKernelStorePlan* stores, MoonVec.VecKernelSafety safety, MoonVec.VecKernelAlignment* alignments, MoonVec.VecKernelAlias* aliases) unique
+         | VecKernelAlgebraic(MoonVec.VecLoopFacts facts, MoonVec.VecAlgebraicKind kind, MoonVec.VecElem elem, MoonBind.Binding stop, MoonBind.Binding accumulator) unique
+
+    VecValue = VecScalarValue(MoonVec.VecValueId id, MoonVec.VecElem elem) unique
+         | VecVectorValue(MoonVec.VecValueId id, MoonVec.VecElem elem, number lanes) unique
+
+    VecParam = VecScalarParam(MoonVec.VecValueId id, MoonVec.VecElem elem) unique
+         | VecVectorParam(MoonVec.VecValueId id, MoonVec.VecElem elem, number lanes) unique
+
+    VecCmd = VecCmdConstInt(MoonVec.VecValueId dst, MoonVec.VecElem elem, string raw) unique
+         | VecCmdSplat(MoonVec.VecValueId dst, MoonVec.VecShape shape, MoonVec.VecValueId scalar) unique
+         | VecCmdRamp(MoonVec.VecValueId dst, MoonVec.VecShape shape, MoonVec.VecValueId base, string* offsets) unique
+         | VecCmdBin(MoonVec.VecValueId dst, MoonVec.VecShape shape, MoonVec.VecBinOp op, MoonVec.VecValueId lhs, MoonVec.VecValueId rhs) unique
+         | VecCmdSelect(MoonVec.VecValueId dst, MoonVec.VecShape shape, MoonVec.VecValueId cond, MoonVec.VecValueId then_value, MoonVec.VecValueId else_value) unique
+         | VecCmdIreduce(MoonVec.VecValueId dst, MoonVec.VecElem narrow_elem, MoonVec.VecValueId value, MoonVec.VecProof proof) unique
+         | VecCmdUextend(MoonVec.VecValueId dst, MoonVec.VecElem wide_elem, MoonVec.VecValueId value) unique
+         | VecCmdExtractLane(MoonVec.VecValueId dst, MoonVec.VecValueId vec, number lane) unique
+         | VecCmdHorizontalReduce(MoonVec.VecValueId dst, MoonVec.VecBinOp op, MoonVec.VecValueId* vectors) unique
+         | VecCmdLoad(MoonVec.VecValueId dst, MoonVec.VecShape shape, MoonVec.VecMemoryFact access, MoonVec.VecValueId addr) unique
+         | VecCmdStore(MoonVec.VecMemoryFact access, MoonVec.VecShape shape, MoonVec.VecValueId addr, MoonVec.VecValueId value) unique
+
+    VecTerminator = VecJump(MoonVec.VecBlockId dest, MoonVec.VecValueId* args) unique
+         | VecBrIf(MoonVec.VecValueId cond, MoonVec.VecBlockId then_block, MoonVec.VecValueId* then_args, MoonVec.VecBlockId else_block, MoonVec.VecValueId* else_args) unique
+         | VecReturnVoid
+         | VecReturnValue(MoonVec.VecValueId value) unique
+
+    VecBlock = VecBlock(MoonVec.VecBlockId id, MoonVec.VecParam* params, MoonVec.VecCmd* cmds, MoonVec.VecTerminator terminator) unique
+
+    VecBackValueShape = (MoonVec.VecValueId id, MoonVec.VecShape shape) unique
+
+    VecBackEnv = (MoonVec.VecBackValueShape* values) unique
+
+    VecBackLowering = VecBackCmds(MoonVec.VecBackEnv env, MoonBack.Cmd* cmds) unique
+         | VecBackReject(MoonVec.VecBackEnv env, MoonVec.VecReject reject) unique
+
+    VecBackFuncSpec = (string name, MoonCore.Visibility visibility, MoonVec.VecParam* params, MoonVec.VecShape* results, MoonVec.VecBlock* blocks) unique
+
+    VecBackProgramSpec = (MoonVec.VecBackFuncSpec* funcs) unique
+
+    VecFunc = VecFuncScalar(MoonTree.Func func, MoonVec.VecLoopDecision* decisions) unique
+         | VecFuncVector(MoonTree.Func func, MoonVec.VecLoopDecision* decisions, MoonVec.VecBlock* blocks) unique
+         | VecFuncMixed(MoonTree.Func func, MoonVec.VecLoopDecision* decisions, MoonVec.VecBlock* blocks) unique
+
+    VecModule = VecModule(MoonTree.Module source, MoonVec.VecTargetModel target, MoonVec.VecFunc* funcs) unique
+}

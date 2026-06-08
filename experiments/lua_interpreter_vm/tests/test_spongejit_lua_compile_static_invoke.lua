@@ -2,7 +2,6 @@
 package.path = "./experiments/lua_interpreter_vm/spongejit/?.lua;./experiments/lua_interpreter_vm/spongejit/?/init.lua;./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local ffi = require("ffi")
-local moon = require("moonlift")
 local Schema = require("lua_compile.schema")
 local Validate = require("lua_compile.moon_cfg_validate")
 local Emit = require("lua_compile.moon_cfg_emit")
@@ -25,8 +24,8 @@ local function run(k, fname, ...)
   local src = Emit.emit(k, { name = fname })
   assert(not src:match("out_tag") and not src:match("out_event_kind") and not src:match("generic_for"), "must not emit protocol/fallback strings")
   assert(not src:match("helper") and not src:match("dispatch"), "must not emit helper/dispatch text")
-  local fn = assert(moon.loadstring(src, "=(" .. fname .. ")"))()
-  local native = assert(fn:compile())
+  local native, quote_errors = Emit.compile(k, { name = fname })
+  assert(native, table.concat(quote_errors or {}, "; "))
   local out = native(...)
   if type(out) == "cdata" then out = tonumber(out) or tonumber(tostring(out):match("^-?%d+")) or out end
   native:free()

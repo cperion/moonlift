@@ -23,7 +23,7 @@ struct User
     active: bool32
 end
 expose Users: view(User)
-func User:is_active(self: ptr(User)) -> bool
+func User:is_active(self: ptr(User)): bool
     return true
 end
 ]]

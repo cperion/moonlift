@@ -24,14 +24,14 @@ local Back = T.MoonBack
 local Tree = T.MoonTree
 
 local src = [[
-func sum_i32(xs: ptr(i32), n: i32) -> i32
-    return block loop(i: i32 = 0, acc: i32 = 0) -> i32
+func sum_i32(xs: ptr(i32), n: i32): i32
+    return block loop(i: i32 = 0, acc: i32 = 0): i32
         if i >= n then yield acc end
         jump loop(i = i + 1, acc = acc + xs[i])
     end
 end
 
-func fill_i32(xs: ptr(i32), n: i32, value: i32) -> i32
+func fill_i32(xs: ptr(i32), n: i32, value: i32): i32
     block loop(i: i32 = 0)
         if i >= n then return 0 end
         xs[i] = value

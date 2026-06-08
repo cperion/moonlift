@@ -45,7 +45,7 @@ local TK = {
     func = 102, let = 110, return_kw = 134, as_kw = 170,
 }
 
-local toks = lex_all("func add(x: i32, y: i32) -> i32\n    return x + y\nend")
+local toks = lex_all("func add(x: i32, y: i32): i32\n    return x + y\nend")
 local kinds = {}
 for i, t in ipairs(toks) do kinds[i] = t.kind end
 assert(kinds[1] == TK.func)
@@ -92,7 +92,7 @@ local evs = parse_event_kinds([[struct Pair
   a: i32
   b: i32
 end
-func add(x: i32, y: i32) -> i32
+func add(x: i32, y: i32): i32
   return x + y
 end]])
 local seen = {}
@@ -125,7 +125,7 @@ local function parse_full_event_kinds(src)
     return out
 end
 
-local full = parse_full_event_kinds([[func abs_i32(x: i32) -> i32
+local full = parse_full_event_kinds([[func abs_i32(x: i32): i32
     if x < 0 then
         return 0 - x
     else

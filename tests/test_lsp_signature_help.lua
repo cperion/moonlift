@@ -27,7 +27,7 @@ function Output:flush() end
 function Output:text() return table.concat(self.parts) end
 
 local uri = "file:///tmp/signature.mlua"
-local src = "func add(a: i32, b: i32) -> i32\n    return a\nend\nexpr Use() -> i32\n    add(1, 2)\nend\n"
+local src = "func add(a: i32, b: i32): i32\n    return a\nend\nexpr Use(): i32\n    add(1, 2)\nend\n"
 local function pos_after(needle)
     local s, e = assert(src:find(needle, 1, true))
     local prefix = src:sub(1, e)
@@ -62,7 +62,7 @@ for i = 1, #msgs do if msgs[i].id then by_id[msgs[i].id] = msgs[i] end end
 assert(by_id[1].result.capabilities.signatureHelpProvider.triggerCharacters[1] == "(")
 local result = by_id[2].result
 assert(result.activeParameter == 1)
-assert(result.signatures[1].label == "add(a: i32, b: i32) -> i32")
+assert(result.signatures[1].label == "add(a: i32, b: i32): i32")
 assert(result.signatures[1].parameters[2].label == "b: i32")
 local hints = by_id[3].result
 assert(#hints == 2)

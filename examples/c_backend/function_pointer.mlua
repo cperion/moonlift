@@ -1,0 +1,7 @@
+func inc(x: i32): i32
+    return x + 1
+end
+
+func call_fp(fp: func(i32): i32, x: i32): i32
+    return fp(x)
+end

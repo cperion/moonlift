@@ -227,8 +227,8 @@ end]]
 -- @{} only for literal_arms (Lua-generated data)
 -- ---------------------------------------------------------------------------
 
-local parse_array = moon.func { skip_ws = skip_ws } [[parse_array(L: ptr(u8), p: ptr(u8), n: i32, pos: i32, buf: ptr(u8)) -> i32
-    return region -> i32
+local parse_array = moon.func { skip_ws = skip_ws } [[parse_array(L: ptr(u8), p: ptr(u8), n: i32, pos: i32, buf: ptr(u8)): i32
+    return region: i32
     entry start()
         lua_createtable(L, 16, 0)
         emit @{skip_ws}(p, n, pos + 1; ok = check_empty)
@@ -276,8 +276,8 @@ local parse_array = moon.func { skip_ws = skip_ws } [[parse_array(L: ptr(u8), p:
     end
 end]]
 
-local parse_object = moon.func { skip_ws = skip_ws, parse_string = parse_string } [[parse_object(L: ptr(u8), p: ptr(u8), n: i32, pos: i32, buf: ptr(u8)) -> i32
-    return region -> i32
+local parse_object = moon.func { skip_ws = skip_ws, parse_string = parse_string } [[parse_object(L: ptr(u8), p: ptr(u8), n: i32, pos: i32, buf: ptr(u8)): i32
+    return region: i32
     entry start()
         lua_createtable(L, 0, 16)
         emit @{skip_ws}(p, n, pos + 1; ok = check_empty)
@@ -341,8 +341,8 @@ local literal_arms = {
 }
 
 local parse_value = moon.func { skip_ws = skip_ws, parse_string = parse_string, parse_number = parse_number, literal_arms = literal_arms } [[
-func parse_value(L: ptr(u8), p: ptr(u8), n: i32, pos: i32, buf: ptr(u8)) -> i32
-    return region -> i32
+func parse_value(L: ptr(u8), p: ptr(u8), n: i32, pos: i32, buf: ptr(u8)): i32
+    return region: i32
     entry start()
         emit @{skip_ws}(p, n, pos; ok = dispatch)
     end
@@ -374,8 +374,8 @@ func parse_value(L: ptr(u8), p: ptr(u8), n: i32, pos: i32, buf: ptr(u8)) -> i32
 end
 ]]
 
-local decode_json_to_lua_stack = moon.func { skip_ws = skip_ws } [[decode_json_to_lua_stack(L: ptr(u8), p: ptr(u8), n: i32, buf: ptr(u8)) -> i32
-    return region -> i32
+local decode_json_to_lua_stack = moon.func { skip_ws = skip_ws } [[decode_json_to_lua_stack(L: ptr(u8), p: ptr(u8), n: i32, buf: ptr(u8)): i32
+    return region: i32
     entry start()
         let after_value = parse_value(L, p, n, 0, buf)
         if after_value < 0 then yield -1 end

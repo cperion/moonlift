@@ -30,6 +30,7 @@ function M.Define(T)
     local control_expr_region_facts
     local field_init_facts
     local switch_stmt_arm_facts
+    local switch_variant_expr_arm_facts
     local switch_expr_arm_facts
     local func_facts
     local extern_facts
@@ -195,6 +196,12 @@ function M.Define(T)
         end,
     })
 
+    switch_variant_expr_arm_facts = pvm.phase("moonlift_open_switch_variant_expr_arm_facts", {
+        [Tr.SwitchVariantExprArm] = function(arm)
+            return cat({ pack(each(stmt_facts, arm.body)), pack(expr_facts(arm.result)) })
+        end,
+    })
+
     view_facts = pvm.phase("moonlift_open_view_facts", {
         [Tr.ViewFromExpr] = function(self) return expr_facts(self.base) end,
         [Tr.ViewContiguous] = function(self) return cat({ pack(expr_facts(self.data)), pack(expr_facts(self.len)) }) end,
@@ -275,10 +282,11 @@ function M.Define(T)
         [Tr.ExprField] = function(self) return cat({ pack(expr_header_facts(self.h)), pack(expr_facts(self.base)) }) end,
         [Tr.ExprIndex] = function(self) return cat({ pack(expr_header_facts(self.h)), pack(index_base_facts(self.base)), pack(expr_facts(self.index)) }) end,
         [Tr.ExprAgg] = function(self) return cat({ pack(expr_header_facts(self.h)), pack(each(field_init_facts, self.fields)) }) end,
+        [Tr.ExprCtor] = function(self) return cat({ pack(expr_header_facts(self.h)), pack(each(expr_facts, self.args)) }) end,
         [Tr.ExprArray] = function(self) return cat({ pack(expr_header_facts(self.h)), pack(each(expr_facts, self.elems)) }) end,
         [Tr.ExprIf] = function(self) return cat({ pack(expr_header_facts(self.h)), pack(expr_facts(self.cond)), pack(expr_facts(self.then_expr)), pack(expr_facts(self.else_expr)) }) end,
         [Tr.ExprSelect] = function(self) return cat({ pack(expr_header_facts(self.h)), pack(expr_facts(self.cond)), pack(expr_facts(self.then_expr)), pack(expr_facts(self.else_expr)) }) end,
-        [Tr.ExprSwitch] = function(self) return cat({ pack(expr_header_facts(self.h)), pack(expr_facts(self.value)), pack(each(switch_expr_arm_facts, self.arms)), pack(expr_facts(self.default_expr)) }) end,
+        [Tr.ExprSwitch] = function(self) return cat({ pack(expr_header_facts(self.h)), pack(expr_facts(self.value)), pack(each(switch_expr_arm_facts, self.arms)), pack(each(switch_variant_expr_arm_facts, self.variant_arms or {})), pack(each(stmt_facts, self.default_body or {})), pack(expr_facts(self.default_expr)) }) end,
         [Tr.ExprControl] = function(self) return cat({ pack(expr_header_facts(self.h)), pack(control_expr_region_facts(self.region)) }) end,
         [Tr.ExprBlock] = function(self) return cat({ pack(expr_header_facts(self.h)), pack(each(stmt_facts, self.stmts)), pack(expr_facts(self.result)) }) end,
         [Tr.ExprClosure] = function(self) return cat({ pack(expr_header_facts(self.h)), pack(each(stmt_facts, self.body)) }) end,

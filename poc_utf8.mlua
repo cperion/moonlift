@@ -1,13 +1,13 @@
 -- poc_utf8.mlua — Native UTF-8 validator
 -- Single-block state machine. Function params (data, len) are in scope
 -- inside the block; we only pass the changing state (pos, state) as entry params.
--- Returns: validate_bytes(data: ptr(u8), len: index) -> i32
+-- Returns: validate_bytes(data: ptr(u8), len: index): i32
 --   0 = valid, 1 = invalid
 
 local moon = require("moonlift")
 
 return moon.func [[
-validate_bytes(data: ptr(u8), len: index) -> i32
+validate_bytes(data: ptr(u8), len: index): i32
     block decode_state(pos: index = 0, state: i32 = 0)
         if pos >= len then
             return select(state == 0, 0, 1)

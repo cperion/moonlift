@@ -23,8 +23,8 @@ entry start()
 end
 end
 
-return func test(pushnumber: @{PushNumber}, L: @{raw}) -> i32
-    return region -> i32
+return func test(pushnumber: @{PushNumber}, L: @{raw}): i32
+    return region: i32
     entry start()
         emit @{push_frag}(pushnumber, L; ok = done)
     end

@@ -103,7 +103,7 @@ union Maybe
   none
   some(i32)
 end
-func add(x: i32, y: i32) -> i32
+func add(x: i32, y: i32): i32
   let z: i32 = x + y
   return z
 end
@@ -112,7 +112,7 @@ entry start()
   jump miss()
 end
 end
-expr inc(x: i32) -> i32
+expr inc(x: i32): i32
   x + 1
 end
 ]]

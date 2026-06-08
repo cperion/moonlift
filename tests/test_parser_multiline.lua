@@ -11,7 +11,7 @@ local src = [[
 local add = func(
     a: i32,
     b: i32,
-) ->
+): 
     i32
     return a +
            b
@@ -52,7 +52,7 @@ assert(#r.value.conts == 2)
 
 -- Lexical errors are reported as parse issues on the owning island only.
 local bad = Parse.scan_document([[local good = func() end
-local bad = func() -> i32
+local bad = func(): i32
     return @
 end]])
 local good = P.parse_island(bad, 1)

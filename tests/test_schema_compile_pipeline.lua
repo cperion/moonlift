@@ -12,12 +12,12 @@ Schema.Define(T)
 local J = Jit.Define(T)
 
 local src = [[
-func add_i32(a: i32, b: i32) -> i32
+func add_i32(a: i32, b: i32): i32
     return a + b
 end
 
-func sum_i32(xs: ptr(i32), n: i32) -> i32
-    return block loop(i: i32 = 0, acc: i32 = 0) -> i32
+func sum_i32(xs: ptr(i32), n: i32): i32
+    return block loop(i: i32 = 0, acc: i32 = 0): i32
         if i >= n then yield acc end
         jump loop(i = i + 1, acc = acc + xs[i])
     end

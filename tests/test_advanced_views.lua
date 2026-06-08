@@ -18,33 +18,33 @@ local function ref(name) return Tr.ExprRef(Tr.ExprSurface, B.ValueRefName(name))
 local function int(n) return Tr.ExprLit(Tr.ExprSurface, C.LitInt(tostring(n))) end
 
 local src = [[
-func restrided_sum(xs: ptr(i32)) -> i32
+func restrided_sum(xs: ptr(i32)): i32
     let v: view(i32) = view(xs, 3)
-    return block loop(i: index = 0, acc: i32 = 0) -> i32
+    return block loop(i: index = 0, acc: i32 = 0): i32
         if i >= len(v) then yield acc end
         jump loop(i = i + 1, acc = acc + v[i])
     end
 end
 
-func row_base_sum(xs: ptr(i32)) -> i32
+func row_base_sum(xs: ptr(i32)): i32
     let v: view(i32) = view(xs, 3)
-    return block loop(i: index = 0, acc: i32 = 0) -> i32
+    return block loop(i: index = 0, acc: i32 = 0): i32
         if i >= len(v) then yield acc end
         jump loop(i = i + 1, acc = acc + v[i])
     end
 end
 
-func interleaved_raw_sum(xs: ptr(i32)) -> i32
+func interleaved_raw_sum(xs: ptr(i32)): i32
     let v: view(i32) = view(xs, 3)
-    return block loop(i: index = 0, acc: i32 = 0) -> i32
+    return block loop(i: index = 0, acc: i32 = 0): i32
         if i >= len(v) then yield acc end
         jump loop(i = i + 1, acc = acc + v[i])
     end
 end
 
-func interleaved_view_sum(xs: ptr(i32)) -> i32
+func interleaved_view_sum(xs: ptr(i32)): i32
     let v: view(i32) = view(xs, 3)
-    return block loop(i: index = 0, acc: i32 = 0) -> i32
+    return block loop(i: index = 0, acc: i32 = 0): i32
         if i >= len(v) then yield acc end
         jump loop(i = i + 1, acc = acc + v[i])
     end

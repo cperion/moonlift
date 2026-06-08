@@ -20,10 +20,10 @@ local P = PositionIndex.Define(T)
 
 local uri = S.DocUri("file:///fragments.mlua")
 local src = [[
-expr Inc(x: i32) -> i32
+expr Inc(x: i32): i32
     x + 1
 end
-func use_inc(x: i32) -> i32
+func use_inc(x: i32): i32
     return emit Inc(x)
 end
 region Done(x: i32; done: cont(v: i32))
@@ -31,8 +31,8 @@ entry start()
     jump done(v = x)
 end
 end
-func use_region(x: i32) -> i32
-    return region -> i32
+func use_region(x: i32): i32
+    return region: i32
     entry start()
         emit Done(x; done = out)
     end

@@ -30,8 +30,8 @@ entry start()
 end
 end
 
-local parse_abc = func(p: ptr(u8), n: i32) -> i32
-    return region -> i32
+local parse_abc = func(p: ptr(u8), n: i32): i32
+    return region: i32
     entry start()
         emit @{match_a}(p, n, 0; ok = got_a, err = fail)
     end
@@ -65,8 +65,8 @@ entry start()
 end
 end
 
-local parse_xs = func(p: ptr(u8), n: i32) -> i32
-    return region -> i32
+local parse_xs = func(p: ptr(u8), n: i32): i32
+    return region: i32
     entry start()
         emit @{match_x}(p, n, 0; ok = more, err = fail)
     end
@@ -103,8 +103,8 @@ entry start()
 end
 end
 
-local parse_digit = func(p: ptr(u8), n: i32) -> i32
-    return region -> i32
+local parse_digit = func(p: ptr(u8), n: i32): i32
+    return region: i32
     entry start()
         emit @{match_digit}(p, n, 0; ok = got, err = fail)
     end
@@ -138,8 +138,8 @@ entry start()
 end
 end
 
-local parse_two = func(p: ptr(u8), n: i32) -> i32
-    return region -> i32
+local parse_two = func(p: ptr(u8), n: i32): i32
+    return region: i32
     entry start()
         emit @{match_digit}(p, n, 0; ok = first, err = fail)
     end

@@ -1,0 +1,63 @@
+module MoonType {
+    TypeRef = TypeRefPath(MoonCore.Path path) unique
+         | TypeRefGlobal(string module_name, string type_name) unique
+         | TypeRefLocal(MoonCore.TypeSym sym) unique
+         | TypeRefSlot(MoonOpen.TypeSlot slot) unique
+
+    ArrayLen = ArrayLenExpr(MoonTree.Expr expr) unique
+         | ArrayLenConst(number count) unique
+         | ArrayLenSlot(MoonOpen.ExprSlot slot) unique
+
+    Type = TScalar(MoonCore.Scalar scalar) unique
+         | TPtr(MoonType.Type elem) unique
+         | TArray(MoonType.ArrayLen count, MoonType.Type elem) unique
+         | TSlice(MoonType.Type elem) unique
+         | TView(MoonType.Type elem) unique
+         | TFunc(MoonType.Type* params, MoonType.Type result) unique
+         | TClosure(MoonType.Type* params, MoonType.Type result) unique
+         | TNamed(MoonType.TypeRef ref) unique
+         | TSlot(MoonOpen.TypeSlot slot) unique
+         | TCType(MoonC.CTypeId id) unique
+         | TCFuncPtr(MoonC.CFuncSigId sig) unique
+
+    TypeClass = TypeClassScalar(MoonCore.Scalar scalar) unique
+         | TypeClassPointer(MoonType.Type elem) unique
+         | TypeClassArray(MoonType.Type elem, number count) unique
+         | TypeClassSlice(MoonType.Type elem) unique
+         | TypeClassView(MoonType.Type elem) unique
+         | TypeClassCallable(MoonType.Type* params, MoonType.Type result) unique
+         | TypeClassClosure(MoonType.Type* params, MoonType.Type result) unique
+         | TypeClassAggregate(string module_name, string type_name) unique
+         | TypeClassUnknown
+
+    TypeBackScalarResult = TypeBackScalarKnown(MoonBack.BackScalar scalar) unique
+         | TypeBackScalarUnavailable(MoonType.Type ty, MoonType.TypeClass class) unique
+
+    TypeMemLayoutResult = TypeMemLayoutKnown(MoonSem.MemLayout layout) unique
+         | TypeMemLayoutUnknown(MoonType.Type ty, MoonType.TypeClass class) unique
+
+    AbiClass = AbiIgnore
+         | AbiDirect(MoonBack.BackScalar scalar) unique
+         | AbiIndirect(MoonSem.MemLayout layout) unique
+         | AbiDescriptor(MoonSem.MemLayout layout) unique
+         | AbiUnknown(MoonType.TypeClass class) unique
+
+    AbiDecision = (MoonType.Type ty, MoonType.AbiClass class) unique
+
+    AbiParamPlan = AbiParamScalar(string name, MoonBind.Binding binding, MoonBack.BackScalar scalar, MoonBack.BackValId value) unique
+         | AbiParamView(string name, MoonBind.Binding binding, MoonBack.BackValId data, MoonBack.BackValId len, MoonBack.BackValId stride) unique
+         | AbiParamRejected(string name, MoonType.Type ty, string reason) unique
+
+    AbiResultPlan = AbiResultVoid
+         | AbiResultScalar(MoonBack.BackScalar scalar) unique
+         | AbiResultView(MoonType.Type elem, MoonBack.BackValId out) unique
+         | AbiResultRejected(MoonType.Type ty, string reason) unique
+
+    FuncAbiPlan = (string func_name, MoonType.AbiParamPlan* params, MoonType.AbiResultPlan result) unique
+
+    Param = (string name, MoonType.Type ty) unique
+
+    FieldDecl = (string field_name, MoonType.Type ty) unique
+
+    VariantDecl = (string name, MoonType.Type payload, MoonType.FieldDecl* fields) unique
+}

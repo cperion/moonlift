@@ -1,0 +1,8 @@
+func pointer_store(xs: ptr(i32)): i32
+    xs[0] = 42
+    return *xs
+end
+
+func view_pick(v: view(i32)): i32
+    return v[1]
+end

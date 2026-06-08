@@ -1,0 +1,8 @@
+struct Pair
+    x: i32
+    y: i32
+end
+
+func pair_sum(p: ptr(Pair)): i32
+    return (*p).x + (*p).y
+end

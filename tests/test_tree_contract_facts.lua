@@ -14,7 +14,7 @@ local CF = ContractFacts.Define(T)
 local Tr = T.MoonTree
 
 local src = [[
-func add_noalias_i32(noalias dst: ptr(i32), readonly a: ptr(i32), readonly b: ptr(i32), n: i32) -> i32
+func add_noalias_i32(noalias dst: ptr(i32), readonly a: ptr(i32), readonly b: ptr(i32), n: i32): i32
     requires bounds(dst, n)
     requires bounds(a, n)
     requires bounds(b, n)

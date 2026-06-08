@@ -46,6 +46,12 @@ M.link_command_plan = require("moonlift.link_command_plan")
 M.link_execute = require("moonlift.link_execute")
 M.vec_inspect = require("moonlift.vec_inspect")
 M.region_compose = require("moonlift.region_compose")
+M.type_to_c = require("moonlift.type_to_c")
+M.tree_to_c = require("moonlift.tree_to_c")
+M.c_validate = require("moonlift.c_validate")
+M.c_emit = require("moonlift.c_emit")
+M.c_helpers = require("moonlift.c_helpers")
+M.c_tcc = require("moonlift.c_tcc")
 
 local _mlua_run = require("moonlift.mlua_run")
 
@@ -151,6 +157,42 @@ function M.emit_shared(src, path, name, opts)
         error("emit_shared link failed", 2)
     end
     return path
+end
+
+function M.emit_c(src, path, name, opts)
+    local pvm = require("moonlift.pvm")
+    local A2 = require("moonlift.asdl")
+    local Pipeline = require("moonlift.frontend_pipeline")
+    local CEmit = require("moonlift.c_emit")
+
+    opts = opts or {}
+    local T = pvm.context(); A2.Define(T)
+    local pipeline_opts = { site = "emit_c", c_opts = opts, c_target = opts.c_target, target = opts.target, name = name or opts.name }
+    local result = Pipeline.Define(T).parse_and_lower_c(src, pipeline_opts)
+    if #result.c_report.issues ~= 0 then
+        local msgs = {}
+        for i = 1, #result.c_report.issues do msgs[#msgs + 1] = tostring(result.c_report.issues[i]) end
+        error("emit_c validation failed: " .. table.concat(msgs, "\n"), 2)
+    end
+    local text = CEmit.Define(T).emit(result.c_unit, opts)
+    if path then
+        local f = assert(io.open(path, "wb"))
+        f:write(text)
+        f:close()
+    end
+    return text
+end
+
+function M.compile_c(src, opts)
+    opts = opts or {}
+    local c_src = M.emit_c(src, opts.c_path, opts.name or "moonlift_c", opts)
+    local CTcc = require("moonlift.c_tcc")
+    if opts.runner == "libtcc" or opts.use_libtcc or os.getenv("MOONLIFT_C_USE_LIBTCC") == "1" then
+        local session, err = CTcc.compile(c_src, opts.libtcc_opts or { libraries = { "m" } })
+        if not session then error(err and err.message or "libtcc compile failed", 2) end
+        return session, c_src
+    end
+    return c_src
 end
 
 --- Internal: CLI entry point for standalone binaries.

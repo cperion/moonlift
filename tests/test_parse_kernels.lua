@@ -13,8 +13,8 @@ local jit_api = J.Define(T)
 local B2 = T.MoonBack
 
 local src = [[
-func sum_i32(xs: ptr(i32), n: i32) -> i32
-    return block loop(i: i32 = 0, acc: i32 = 0) -> i32
+func sum_i32(xs: ptr(i32), n: i32): i32
+    return block loop(i: i32 = 0, acc: i32 = 0): i32
         if i >= n then
             yield acc
         end
@@ -22,7 +22,7 @@ func sum_i32(xs: ptr(i32), n: i32) -> i32
     end
 end
 
-func fill_i32(xs: ptr(i32), n: i32, value: i32) -> i32
+func fill_i32(xs: ptr(i32), n: i32, value: i32): i32
     block loop(i: i32 = 0)
         if i >= n then
             return 0
@@ -32,8 +32,8 @@ func fill_i32(xs: ptr(i32), n: i32, value: i32) -> i32
     end
 end
 
-func dot_i32(a: ptr(i32), b: ptr(i32), n: i32) -> i32
-    return block loop(i: i32 = 0, acc: i32 = 0) -> i32
+func dot_i32(a: ptr(i32), b: ptr(i32), n: i32): i32
+    return block loop(i: i32 = 0, acc: i32 = 0): i32
         if i >= n then
             yield acc
         end
@@ -41,8 +41,8 @@ func dot_i32(a: ptr(i32), b: ptr(i32), n: i32) -> i32
     end
 end
 
-func prod_i32(xs: ptr(i32), n: i32) -> i32
-    return block loop(i: i32 = 0, acc: i32 = 1) -> i32
+func prod_i32(xs: ptr(i32), n: i32): i32
+    return block loop(i: i32 = 0, acc: i32 = 1): i32
         if i >= n then
             yield acc
         end
@@ -50,8 +50,8 @@ func prod_i32(xs: ptr(i32), n: i32) -> i32
     end
 end
 
-func xor_reduce_i32(xs: ptr(i32), n: i32) -> i32
-    return block loop(i: i32 = 0, acc: i32 = 0) -> i32
+func xor_reduce_i32(xs: ptr(i32), n: i32): i32
+    return block loop(i: i32 = 0, acc: i32 = 0): i32
         if i >= n then
             yield acc
         end
@@ -59,7 +59,7 @@ func xor_reduce_i32(xs: ptr(i32), n: i32) -> i32
     end
 end
 
-func copy_i32(dst: ptr(i32), src: ptr(i32), n: i32) -> i32
+func copy_i32(dst: ptr(i32), src: ptr(i32), n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then
             return 0
@@ -69,7 +69,7 @@ func copy_i32(dst: ptr(i32), src: ptr(i32), n: i32) -> i32
     end
 end
 
-func add_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32) -> i32
+func add_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then
             return 0
@@ -79,7 +79,7 @@ func add_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32) -> i32
     end
 end
 
-func scale_i32(dst: ptr(i32), xs: ptr(i32), k: i32, n: i32) -> i32
+func scale_i32(dst: ptr(i32), xs: ptr(i32), k: i32, n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then
             return 0
@@ -89,7 +89,7 @@ func scale_i32(dst: ptr(i32), xs: ptr(i32), k: i32, n: i32) -> i32
     end
 end
 
-func inc_i32(xs: ptr(i32), n: i32) -> i32
+func inc_i32(xs: ptr(i32), n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then
             return 0
@@ -99,7 +99,7 @@ func inc_i32(xs: ptr(i32), n: i32) -> i32
     end
 end
 
-func axpy_i32(y: ptr(i32), x: ptr(i32), a: i32, n: i32) -> i32
+func axpy_i32(y: ptr(i32), x: ptr(i32), a: i32, n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then
             return 0
@@ -109,7 +109,7 @@ func axpy_i32(y: ptr(i32), x: ptr(i32), a: i32, n: i32) -> i32
     end
 end
 
-func and_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32) -> i32
+func and_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then
             return 0
@@ -119,7 +119,7 @@ func and_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32) -> i32
     end
 end
 
-func sub_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32) -> i32
+func sub_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then
             return 0
@@ -129,7 +129,7 @@ func sub_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32) -> i32
     end
 end
 
-func or_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32) -> i32
+func or_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then
             return 0
@@ -139,7 +139,7 @@ func or_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32) -> i32
     end
 end
 
-func xor_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32) -> i32
+func xor_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then
             return 0
@@ -149,8 +149,8 @@ func xor_i32(dst: ptr(i32), a: ptr(i32), b: ptr(i32), n: i32) -> i32
     end
 end
 
-func sum_i64(xs: ptr(i64), n: i32) -> i64
-    return block loop(i: i32 = 0, acc: i64 = 0) -> i64
+func sum_i64(xs: ptr(i64), n: i32): i64
+    return block loop(i: i32 = 0, acc: i64 = 0): i64
         if i >= n then
             yield acc
         end
@@ -158,7 +158,7 @@ func sum_i64(xs: ptr(i64), n: i32) -> i64
     end
 end
 
-func add_i64(dst: ptr(i64), a: ptr(i64), b: ptr(i64), n: i32) -> i32
+func add_i64(dst: ptr(i64), a: ptr(i64), b: ptr(i64), n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then
             return 0
@@ -168,7 +168,7 @@ func add_i64(dst: ptr(i64), a: ptr(i64), b: ptr(i64), n: i32) -> i32
     end
 end
 
-func sub_i64(dst: ptr(i64), a: ptr(i64), b: ptr(i64), n: i32) -> i32
+func sub_i64(dst: ptr(i64), a: ptr(i64), b: ptr(i64), n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then
             return 0
@@ -178,8 +178,8 @@ func sub_i64(dst: ptr(i64), a: ptr(i64), b: ptr(i64), n: i32) -> i32
     end
 end
 
-func dot_i64(a: ptr(i64), b: ptr(i64), n: i32) -> i64
-    return block loop(i: i32 = 0, acc: i64 = 0) -> i64
+func dot_i64(a: ptr(i64), b: ptr(i64), n: i32): i64
+    return block loop(i: i32 = 0, acc: i64 = 0): i64
         if i >= n then
             yield acc
         end
@@ -187,7 +187,7 @@ func dot_i64(a: ptr(i64), b: ptr(i64), n: i32) -> i64
     end
 end
 
-func scale_i64(dst: ptr(i64), xs: ptr(i64), k: i64, n: i32) -> i32
+func scale_i64(dst: ptr(i64), xs: ptr(i64), k: i64, n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then
             return 0
@@ -197,7 +197,7 @@ func scale_i64(dst: ptr(i64), xs: ptr(i64), k: i64, n: i32) -> i32
     end
 end
 
-func or_i64(dst: ptr(i64), a: ptr(i64), b: ptr(i64), n: i32) -> i32
+func or_i64(dst: ptr(i64), a: ptr(i64), b: ptr(i64), n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then
             return 0
@@ -207,8 +207,8 @@ func or_i64(dst: ptr(i64), a: ptr(i64), b: ptr(i64), n: i32) -> i32
     end
 end
 
-func sum_u32(xs: ptr(u32), n: i32) -> u32
-    return block loop(i: i32 = 0, acc: u32 = 0) -> u32
+func sum_u32(xs: ptr(u32), n: i32): u32
+    return block loop(i: i32 = 0, acc: u32 = 0): u32
         if i >= n then
             yield acc
         end
@@ -216,7 +216,7 @@ func sum_u32(xs: ptr(u32), n: i32) -> u32
     end
 end
 
-func add_u32(dst: ptr(u32), a: ptr(u32), b: ptr(u32), n: i32) -> i32
+func add_u32(dst: ptr(u32), a: ptr(u32), b: ptr(u32), n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then
             return 0
@@ -226,7 +226,7 @@ func add_u32(dst: ptr(u32), a: ptr(u32), b: ptr(u32), n: i32) -> i32
     end
 end
 
-func xor_u64(dst: ptr(u64), a: ptr(u64), b: ptr(u64), n: i32) -> i32
+func xor_u64(dst: ptr(u64), a: ptr(u64), b: ptr(u64), n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then
             return 0
@@ -236,8 +236,8 @@ func xor_u64(dst: ptr(u64), a: ptr(u64), b: ptr(u64), n: i32) -> i32
     end
 end
 
-func sum_u64(xs: ptr(u64), n: i32) -> u64
-    return block loop(i: i32 = 0, acc: u64 = 0) -> u64
+func sum_u64(xs: ptr(u64), n: i32): u64
+    return block loop(i: i32 = 0, acc: u64 = 0): u64
         if i >= n then
             yield acc
         end
@@ -245,7 +245,7 @@ func sum_u64(xs: ptr(u64), n: i32) -> u64
     end
 end
 
-func add_u64(dst: ptr(u64), a: ptr(u64), b: ptr(u64), n: i32) -> i32
+func add_u64(dst: ptr(u64), a: ptr(u64), b: ptr(u64), n: i32): i32
     block loop(i: i32 = 0)
         if i >= n then
             return 0

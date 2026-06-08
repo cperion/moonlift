@@ -29,21 +29,21 @@ struct User
     active: bool32
 end
 expose Users: view(User)
-func User:is_active(self: ptr(User)) -> bool
+func User:is_active(self: ptr(User)): bool
     return true
 end
-func get_id(self: ptr(User)) -> i32
+func get_id(self: ptr(User)): i32
     return self.id
 end
-func add(a: i32, b: i32) -> i32
+func add(a: i32, b: i32): i32
     return a
 end
-func local_scope(input_value: i32) -> i32
+func local_scope(input_value: i32): i32
     let local_value: i32 = input_value
     return local_value
 end
-func count_to(n: i32) -> i32
-    return block loop(i: i32 = 0) -> i32
+func count_to(n: i32): i32
+    return block loop(i: i32 = 0): i32
         if i >= n then yield i end
         jump loop(i = i + 1)
     end
@@ -53,19 +53,19 @@ entry start(total: i32 = 0)
     jump done(total = total)
 end
 end
-func left(n: i32) -> i32
-    return block loop(i: i32 = 0) -> i32
+func left(n: i32): i32
+    return block loop(i: i32 = 0): i32
         if i >= n then yield i end
         jump loop(i = i + 1)
     end
 end
-func right(n: i32) -> i32
-    return block loop(i: i32 = 0) -> i32
+func right(n: i32): i32
+    return block loop(i: i32 = 0): i32
         if i >= n then yield i end
         jump loop(i = i + 1)
     end
 end
-expr Use() -> i32
+expr Use(): i32
     add(1, 2)
 end
 ]]

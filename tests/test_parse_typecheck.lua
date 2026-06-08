@@ -17,7 +17,7 @@ local Tr = T.MoonTree
 local B2 = T.MoonBack
 
 local src = [[
-func sum(n: i32) -> i32
+func sum(n: i32): i32
     block loop(i: i32 = 0, acc: i32 = 0)
         if i >= n then
             return acc
@@ -42,8 +42,8 @@ assert(sum(5) == 10)
 artifact:free()
 
 local expr_src = [[
-func fact(n: i32) -> i32
-    return block loop(x: i32 = n, acc: i32 = 1) -> i32
+func fact(n: i32): i32
+    return block loop(x: i32 = n, acc: i32 = 1): i32
         if x <= 1 then
             yield acc
         end
@@ -63,8 +63,8 @@ assert(fact(5) == 120)
 artifact2:free()
 
 local index_src = [[
-func count(n: index) -> index
-    return block loop(i: index = 0) -> index
+func count(n: index): index
+    return block loop(i: index = 0): index
         if i >= n then
             yield i
         end
@@ -91,7 +91,7 @@ local checked_items = TC.check_module(parsed_items.module)
 assert(#checked_items.issues == 0)
 
 local as_src = [[
-func byte_to_i32(p: ptr(u8)) -> i32
+func byte_to_i32(p: ptr(u8)): i32
     return as(i32, p[0])
 end
 ]]

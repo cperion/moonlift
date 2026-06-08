@@ -835,6 +835,7 @@ function M.Define(T)
         [Tr.ExprCall] = function(self, env)
             return pvm.once(pvm.with(self, { h = one(expand_expr_header, self.h, env), callee = one(expand_expr, self.callee, env), args = expand_exprs(self.args, env) }))
         end,
+        [Tr.ExprCtor] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_expr_header, self.h, env), args = expand_exprs(self.args, env) })) end,
         [Tr.ExprLen] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_expr_header, self.h, env), value = one(expand_expr, self.value, env) })) end,
         [Tr.ExprField] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_expr_header, self.h, env), base = one(expand_expr, self.base, env) })) end,
         [Tr.ExprIndex] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_expr_header, self.h, env), base = one(expand_index_base, self.base, env), index = one(expand_expr, self.index, env) })) end,
@@ -847,7 +848,9 @@ function M.Define(T)
         [Tr.ExprIf] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_expr_header, self.h, env), cond = one(expand_expr, self.cond, env), then_expr = one(expand_expr, self.then_expr, env), else_expr = one(expand_expr, self.else_expr, env) })) end,
         [Tr.ExprSelect] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_expr_header, self.h, env), cond = one(expand_expr, self.cond, env), then_expr = one(expand_expr, self.then_expr, env), else_expr = one(expand_expr, self.else_expr, env) })) end,
         [Tr.ExprSwitch] = function(self, env)
-            return pvm.once(pvm.with(self, { h = one(expand_expr_header, self.h, env), value = one(expand_expr, self.value, env), arms = expand_switch_expr_arms(self.arms, env), default_body = expand_stmts(self.default_body or {}, env), default_expr = one(expand_expr, self.default_expr, env) }))
+            local var_arms = {}
+            for i = 1, #(self.variant_arms or {}) do var_arms[#var_arms + 1] = pvm.with(self.variant_arms[i], { binds = self.variant_arms[i].binds, body = expand_stmts(self.variant_arms[i].body, env), result = one(expand_expr, self.variant_arms[i].result, env) }) end
+            return pvm.once(pvm.with(self, { h = one(expand_expr_header, self.h, env), value = one(expand_expr, self.value, env), arms = expand_switch_expr_arms(self.arms, env), variant_arms = var_arms, default_body = expand_stmts(self.default_body or {}, env), default_expr = one(expand_expr, self.default_expr, env) }))
         end,
         [Tr.ExprControl] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_expr_header, self.h, env), region = one(expand_control_expr_region, self.region, env) })) end,
         [Tr.ExprBlock] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_expr_header, self.h, env), stmts = expand_stmts(self.stmts, env), result = one(expand_expr, self.result, env) })) end,

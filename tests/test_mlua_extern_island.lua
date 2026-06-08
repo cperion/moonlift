@@ -4,14 +4,14 @@ local ffi = require("ffi")
 local Host = require("moonlift.mlua_run")
 
 local M = Host.eval [[
-local strlen = extern strlen(s: ptr(u8)) -> index end
-local add7 = extern add7(x: i32) -> i32 as "host_add7" end
+local strlen = extern strlen(s: ptr(u8)): index end
+local add7 = extern add7(x: i32): i32 as "host_add7" end
 
-local len = func len(s: ptr(u8)) -> index
+local len = func len(s: ptr(u8)): index
     return strlen(s)
 end
 
-local plus7 = func plus7(x: i32) -> i32
+local plus7 = func plus7(x: i32): i32
     return add7(x)
 end
 
@@ -34,8 +34,8 @@ compiled:free()
 cb:free()
 
 local standalone = Host.eval [[
-local strlen = extern strlen(s: ptr(u8)) -> index end
-return func len2(s: ptr(u8)) -> index
+local strlen = extern strlen(s: ptr(u8)): index end
+return func len2(s: ptr(u8)): index
     return strlen(s)
 end
 ]]

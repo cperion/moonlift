@@ -38,8 +38,8 @@ function M.type_name(ty)
         if cls.kind == "TView" then return "view(" .. M.type_name(ty.elem) .. ")" end
         if cls.kind == "TSlice" then return "slice(" .. M.type_name(ty.elem) .. ")" end
         if cls.kind == "TArray" then return "array(" .. M.type_name(ty.elem) .. ")" end
-        if cls.kind == "TFunc" then return "func(...) -> " .. M.type_name(ty.result) end
-        if cls.kind == "TClosure" then return "closure(...) -> " .. M.type_name(ty.result) end
+        if cls.kind == "TFunc" then return "func(...): " .. M.type_name(ty.result) end
+        if cls.kind == "TClosure" then return "closure(...): " .. M.type_name(ty.result) end
         if cls.kind == "TNamed" then
             local ref = ty.ref
             if ref then

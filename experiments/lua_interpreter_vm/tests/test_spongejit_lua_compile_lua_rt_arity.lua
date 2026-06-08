@@ -118,6 +118,15 @@ local quote_dst = ffi.new("LuaRTValue[8]")
 assert(run_quote(seq_store_kernel(), "quote_seq_store_three_values", stack, quote_dst) == 33)
 assert(quote_dst[2].payload_i64 == 33, "quote RuntimeValueSeqStore must copy value2 into destination stack")
 
+local function type_test_kernel()
+  local ops = {
+    CFG.Let(temp("v"), CFG.RuntimeBoxI64(i64(99))),
+    CFG.Let(temp("out"), CFG.RuntimeTypeTest(place("v"), RT.IsInteger)),
+  }
+  return kernel("type_test_integer", {}, ops, "bool")
+end
+assert(run_quote(type_test_kernel(), "quote_type_test_integer") == true)
+
 local function lower_outcome(events, projection)
   local unit = C.unit_from_events(events, {})
   local exec_kernel, exec_errors = ExecLower.lower(unit.source, unit.evidence)

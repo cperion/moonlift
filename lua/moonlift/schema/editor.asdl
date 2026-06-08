@@ -1,0 +1,297 @@
+module MoonEditor {
+    ServerMode = ServerCreated
+         | ServerInitializing
+         | ServerReady
+         | ServerShutdownRequested
+         | ServerStopped
+
+    ClientCapability = ClientCapability(string name, string value) unique
+
+    WorkspaceRoot = (MoonSource.DocUri uri) unique
+
+    WorkspaceState = (MoonEditor.ServerMode mode, MoonEditor.WorkspaceRoot* roots, MoonEditor.ClientCapability* capabilities, MoonSource.DocumentSnapshot* open_docs) unique
+
+    RpcId = RpcIdNone
+         | RpcIdNumber(number value) unique
+         | RpcIdString(string value) unique
+
+    PositionQuery = (MoonSource.DocUri uri, MoonSource.DocVersion version, MoonSource.SourcePos pos) unique
+
+    RangeQuery = (MoonSource.DocUri uri, MoonSource.DocVersion version, MoonSource.SourceRange range) unique
+
+    ReferenceQuery = (MoonEditor.PositionQuery position, boolean include_declaration) unique
+
+    RenameQuery = (MoonEditor.PositionQuery position, string new_name) unique
+
+    CodeActionQuery = (MoonEditor.RangeQuery range, MoonEditor.DiagnosticFact* diagnostics) unique
+
+    ClientEvent = ClientInitialize(MoonEditor.RpcId id, MoonEditor.WorkspaceRoot* roots, MoonEditor.ClientCapability* capabilities) unique
+         | ClientInitialized
+         | ClientShutdown(MoonEditor.RpcId id) unique
+         | ClientExit
+         | ClientDidOpen(MoonSource.DocumentSnapshot document) unique
+         | ClientDidChange(MoonSource.DocumentEdit edit) unique
+         | ClientDidClose(MoonSource.DocUri uri) unique
+         | ClientDidSave(MoonSource.DocUri uri) unique
+         | ClientHover(MoonEditor.RpcId id, MoonEditor.PositionQuery query) unique
+         | ClientDefinition(MoonEditor.RpcId id, MoonEditor.PositionQuery query) unique
+         | ClientReferences(MoonEditor.RpcId id, MoonEditor.ReferenceQuery query) unique
+         | ClientDocumentHighlight(MoonEditor.RpcId id, MoonEditor.PositionQuery query) unique
+         | ClientDocumentSymbol(MoonEditor.RpcId id, MoonSource.DocUri uri) unique
+         | ClientWorkspaceSymbol(MoonEditor.RpcId id, string query) unique
+         | ClientDiagnostic(MoonEditor.RpcId id, MoonSource.DocUri uri) unique
+         | ClientCompletion(MoonEditor.RpcId id, MoonEditor.PositionQuery query) unique
+         | ClientSignatureHelp(MoonEditor.RpcId id, MoonEditor.PositionQuery query) unique
+         | ClientSemanticTokensFull(MoonEditor.RpcId id, MoonSource.DocUri uri) unique
+         | ClientSemanticTokensRange(MoonEditor.RpcId id, MoonEditor.RangeQuery query) unique
+         | ClientPrepareRename(MoonEditor.RpcId id, MoonEditor.PositionQuery query) unique
+         | ClientRename(MoonEditor.RpcId id, MoonEditor.RenameQuery query) unique
+         | ClientCodeAction(MoonEditor.RpcId id, MoonEditor.CodeActionQuery query) unique
+         | ClientFoldingRange(MoonEditor.RpcId id, MoonSource.DocUri uri) unique
+         | ClientSelectionRange(MoonEditor.RpcId id, MoonEditor.PositionQuery* positions) unique
+         | ClientInlayHint(MoonEditor.RpcId id, MoonEditor.RangeQuery query) unique
+         | ClientUnsupported(MoonEditor.RpcId id, string method) unique
+         | ClientIgnoredNotification(string method) unique
+
+    Transition = (MoonEditor.WorkspaceState before, MoonEditor.ClientEvent event, MoonEditor.WorkspaceState after) unique
+
+    DiagnosticSeverity = DiagnosticError
+         | DiagnosticWarning
+         | DiagnosticInformation
+         | DiagnosticHint
+
+    DiagnosticOrigin = DiagFromParse(MoonParse.ParseIssue issue) unique
+         | DiagFromHost(MoonHost.HostIssue issue) unique
+         | DiagFromOpen(MoonOpen.ValidationIssue issue) unique
+         | DiagFromType(MoonTree.TypeIssue issue) unique
+         | DiagFromBack(MoonBack.BackValidationIssue issue) unique
+         | DiagFromVectorReject(MoonVec.VecReject reject) unique
+         | DiagFromBindingResolution(MoonEditor.BindingResolution resolution) unique
+         | DiagFromSource(MoonSource.SourceApplyIssue issue) unique
+         | DiagFromTransport(string code, string message) unique
+
+    DiagnosticFact = (MoonEditor.DiagnosticSeverity severity, MoonEditor.DiagnosticOrigin origin, string code, string message, MoonSource.SourceRange range) unique
+
+    Subject = SubjectKeyword(string text) unique
+         | SubjectScalar(MoonCore.Scalar scalar) unique
+         | SubjectType(MoonType.Type ty) unique
+         | SubjectHostStruct(MoonHost.HostStructDecl decl) unique
+         | SubjectHostField(MoonHost.HostStructDecl owner, MoonHost.HostFieldDecl field) unique
+         | SubjectHostExpose(MoonHost.HostExposeDecl decl) unique
+         | SubjectHostAccessor(MoonHost.HostAccessorDecl decl) unique
+         | SubjectTreeFunc(MoonTree.Func func) unique
+         | SubjectTreeModule(MoonTree.Module module) unique
+         | SubjectRegionFrag(MoonOpen.RegionFrag frag) unique
+         | SubjectExprFrag(MoonOpen.ExprFrag frag) unique
+         | SubjectBinding(MoonBind.Binding binding) unique
+         | SubjectContinuation(MoonSource.AnchorId scope, MoonTree.BlockLabel label) unique
+         | SubjectBuiltin(string name) unique
+         | SubjectDiagnostic(MoonEditor.DiagnosticFact diagnostic) unique
+         | SubjectMissing(string reason) unique
+
+    SubjectPick = (MoonEditor.PositionQuery query, MoonSource.AnchorSpan* anchors, MoonEditor.Subject subject) unique
+
+    SymbolKind = SymFile
+         | SymModule
+         | SymNamespace
+         | SymPackage
+         | SymClass
+         | SymMethod
+         | SymProperty
+         | SymField
+         | SymConstructor
+         | SymEnum
+         | SymInterface
+         | SymFunction
+         | SymVariable
+         | SymConstant
+         | SymString
+         | SymNumber
+         | SymBoolean
+         | SymArray
+         | SymObject
+         | SymKey
+         | SymNull
+         | SymEnumMember
+         | SymStruct
+         | SymEvent
+         | SymOperator
+         | SymTypeParameter
+
+    SymbolId = (string text) unique
+
+    SymbolFact = (MoonEditor.SymbolId id, MoonEditor.SymbolId parent, string name, MoonEditor.SymbolKind kind, string detail, MoonSource.SourceRange range, MoonSource.SourceRange selection_range, MoonEditor.Subject subject) unique
+
+    SymbolTree = (MoonEditor.SymbolFact* symbols) unique
+
+    BindingRole = BindingDef
+         | BindingUse
+         | BindingRead
+         | BindingWrite
+         | BindingCall
+         | BindingTypeUse
+
+    BindingScopeId = (string text) unique
+
+    BindingScopeKind = BindingScopeDocument
+         | BindingScopeIsland
+         | BindingScopeFunction
+         | BindingScopeRegion
+         | BindingScopeExpr
+         | BindingScopeControlBlock
+         | BindingScopeBranch
+         | BindingScopeModule
+         | BindingScopeOpaque(string name) unique
+
+    BindingScopeFact = (MoonEditor.BindingScopeId id, MoonEditor.BindingScopeId parent, MoonEditor.BindingScopeKind kind, MoonSource.SourceRange range) unique
+
+    ScopedBinding = (MoonBind.Binding binding, MoonEditor.BindingScopeId scope, MoonSource.SourceRange visible_range, MoonSource.AnchorSpan anchor) unique
+
+    BindingUseSite = (MoonSource.AnchorSpan anchor, MoonEditor.BindingRole role, MoonEditor.BindingScopeId scope) unique
+
+    BindingResolution = BindingResolved(MoonEditor.BindingUseSite use, MoonEditor.ScopedBinding binding) unique
+         | BindingUnresolved(MoonEditor.BindingUseSite use, string reason) unique
+
+    BindingScopeReport = (MoonEditor.BindingScopeFact* scopes, MoonEditor.ScopedBinding* bindings, MoonEditor.BindingResolution* resolutions) unique
+
+    BindingFact = (MoonEditor.SymbolId id, MoonEditor.BindingRole role, MoonEditor.Subject subject, MoonSource.AnchorSpan anchor) unique
+
+    DefinitionResult = DefinitionHit(MoonEditor.Subject subject, MoonSource.SourceRange* ranges) unique
+         | DefinitionMiss(string reason) unique
+
+    ReferenceResult = ReferenceHit(MoonEditor.Subject subject, MoonSource.SourceRange* ranges) unique
+         | ReferenceMiss(string reason) unique
+
+    DocumentHighlightKind = HighlightText
+         | HighlightRead
+         | HighlightWrite
+
+    DocumentHighlight = (MoonSource.SourceRange range, MoonEditor.DocumentHighlightKind kind) unique
+
+    RenameEdit = (MoonSource.SourceRange range, string new_text) unique
+
+    RenameResult = RenameOk(MoonEditor.RenameEdit* edits) unique
+         | RenameRejected(string reason) unique
+
+    PrepareRenameResult = PrepareRenameOk(MoonSource.SourceRange range, string placeholder) unique
+         | PrepareRenameRejected(string reason) unique
+
+    MarkupKind = MarkupPlainText
+         | MarkupMarkdown
+
+    HoverInfo = HoverInfo(MoonEditor.MarkupKind kind, string value, MoonSource.SourceRange range) unique
+         | HoverMissing(string reason) unique
+
+    CompletionContext = CompletionTopLevel
+         | CompletionModuleItem
+         | CompletionStructField
+         | CompletionTypePosition
+         | CompletionExprPosition
+         | CompletionPlacePosition
+         | CompletionExposeSubject
+         | CompletionExposeTarget
+         | CompletionExposeMode
+         | CompletionRegionStatement
+         | CompletionContinuationArgs
+         | CompletionBuiltinPath
+         | CompletionLuaOpaque
+         | CompletionInvalid(string reason) unique
+
+    CompletionKind = CompletionText
+         | CompletionMethod
+         | CompletionFunction
+         | CompletionConstructor
+         | CompletionField
+         | CompletionVariable
+         | CompletionClass
+         | CompletionInterface
+         | CompletionModule
+         | CompletionProperty
+         | CompletionUnit
+         | CompletionValue
+         | CompletionEnum
+         | CompletionKeyword
+         | CompletionSnippet
+         | CompletionColor
+         | CompletionFile
+         | CompletionReference
+         | CompletionFolder
+         | CompletionEnumMember
+         | CompletionConstant
+         | CompletionStruct
+         | CompletionEvent
+         | CompletionOperator
+         | CompletionTypeParameter
+
+    CompletionQuery = (MoonEditor.PositionQuery position, MoonEditor.CompletionContext context) unique
+
+    CompletionItem = (string label, MoonEditor.CompletionKind kind, string detail, string documentation, string insert_text) unique
+
+    SignatureContext = SignatureCall(string callee, number active_parameter, MoonSource.SourceRange callee_range) unique
+         | SignatureNoCall(string reason) unique
+
+    SignatureParameter = (string label, string documentation) unique
+
+    SignatureInfo = (string label, string documentation, MoonEditor.SignatureParameter* params) unique
+
+    SignatureHelp = SignatureHelp(MoonEditor.SignatureInfo* signatures, number active_signature, number active_parameter) unique
+         | SignatureHelpMissing(string reason) unique
+
+    SemanticTokenType = TokNamespace
+         | TokType
+         | TokClass
+         | TokEnum
+         | TokInterface
+         | TokStruct
+         | TokTypeParameter
+         | TokParameter
+         | TokVariable
+         | TokProperty
+         | TokEnumMember
+         | TokEvent
+         | TokFunction
+         | TokMethod
+         | TokMacro
+         | TokKeyword
+         | TokModifier
+         | TokComment
+         | TokString
+         | TokNumber
+         | TokRegexp
+         | TokOperator
+         | TokDecorator
+
+    SemanticTokenModifier = TokModDeclaration
+         | TokModDefinition
+         | TokModReadonly
+         | TokModStatic
+         | TokModDeprecated
+         | TokModAbstract
+         | TokModAsync
+         | TokModModification
+         | TokModDocumentation
+         | TokModDefaultLibrary
+         | TokModMutable
+         | TokModExported
+         | TokModStorage
+         | TokModDiagnostic
+
+    SemanticTokenSpan = (MoonSource.SourceRange range, MoonEditor.SemanticTokenType token_type, MoonEditor.SemanticTokenModifier* modifiers) unique
+
+    CodeActionKind = CodeActionQuickFix
+         | CodeActionRefactor
+         | CodeActionSource
+         | CodeActionOrganizeImports
+
+    TextEdit = (MoonSource.SourceRange range, string new_text) unique
+
+    WorkspaceEdit = (MoonEditor.TextEdit* edits) unique
+
+    CodeAction = (string title, MoonEditor.CodeActionKind kind, MoonEditor.DiagnosticFact* diagnostics, MoonEditor.WorkspaceEdit edit) unique
+
+    FoldingRange = (MoonSource.SourceRange range, string kind) unique
+
+    SelectionRange = (MoonSource.SourceRange range, MoonSource.SourceRange* parents) unique
+
+    InlayHint = (MoonSource.SourcePos pos, string label, string kind) unique
+}

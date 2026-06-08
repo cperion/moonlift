@@ -27,7 +27,7 @@ function Output:flush() end
 function Output:text() return table.concat(self.parts) end
 
 local uri = "file:///tmp/unresolved.mlua"
-local src = "func unresolved() -> i32\n    return missing + 1\nend\n"
+local src = "func unresolved(): i32\n    return missing + 1\nend\n"
 local input = table.concat({
     frame({ jsonrpc = "2.0", id = 1, method = "initialize", params = {} }),
     frame({ jsonrpc = "2.0", method = "textDocument/didOpen", params = { textDocument = { uri = uri, languageId = "mlua", version = 1, text = src } } }),

@@ -11,8 +11,8 @@ entry start()
 end
 end
 
-local run = func(x: i32) -> i32
-    return region -> i32
+local run = func(x: i32): i32
+    return region: i32
     entry start()
         emit loop(x; done = out)
     end

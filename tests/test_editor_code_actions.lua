@@ -66,7 +66,7 @@ assert(#dup_decl_actions >= 1)
 assert(dup_decl_actions[1].diagnostics[1].code == "host.duplicateDecl")
 assert(dup_decl_actions[1].edit.edits[1].new_text == "A_2")
 
-local unresolved_src = "func unresolved() -> i32\n    return missing + 1\nend\n"
+local unresolved_src = "func unresolved(): i32\n    return missing + 1\nend\n"
 local unresolved_analysis, unresolved_doc = analyze(unresolved_src)
 local unresolved_actions = Actions.actions(full_query(unresolved_doc), unresolved_analysis)
 local saw_declare = false

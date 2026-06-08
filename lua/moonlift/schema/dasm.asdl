@@ -1,0 +1,213 @@
+module MoonDasm {
+    DModuleId = (string text) unique
+
+    DBlockId = (string text) unique
+
+    DValId = (string text) unique
+
+    DLabelId = (string text) unique
+
+    DVirtualRegId = (string text) unique
+
+    DPhysRegId = (number number) unique
+
+    DRegClass = DGpr
+         | DXmm
+         | DFlags
+
+    DValueClass = DValueGpr(MoonBack.BackScalar scalar) unique
+         | DValueXmm(MoonBack.BackScalar scalar) unique
+         | DValueFlags
+         | DValueVector(MoonBack.BackScalar elem, number lanes) unique
+
+    DSigEntry = (string key, MoonBack.BackScalar* params, MoonBack.BackScalar* results) unique
+
+    DFuncEntry = (string key, string sig, string visibility, MoonBack.Cmd* body) unique
+
+    DExternEntry = (string key, string symbol, string sig) unique
+
+    DDataEntry = (string key, any buf, number size, number align) unique
+
+    DLabelPair = (string key, string label) unique
+
+    DLabelMap = (MoonDasm.DLabelPair* funcs, MoonDasm.DLabelPair* externs, MoonDasm.DLabelPair* datas) unique
+
+    DPhaseModule = (MoonDasm.DSigEntry* sigs, MoonDasm.DFuncEntry* funcs, MoonDasm.DExternEntry* externs, MoonDasm.DDataEntry* datas, string* func_order, string* extern_order, string* data_order, MoonDasm.DLabelMap labels) unique
+
+    DTargetFacts = (MoonBack.BackTargetModel target, number pointer_bits, number index_bits, string endianness, string* features) unique
+
+    DFuncBody = (MoonBack.BackFuncId func, MoonBack.Cmd* cmds) unique
+
+    DPhaseFunc = (MoonBack.BackFuncId? func, MoonBack.Cmd* cmds) unique
+
+    DScalarMapEntry = (string key, string scalar) unique
+
+    DTypedFunc = (MoonBack.BackFuncId func, MoonBack.Cmd* cmds, MoonDasm.DScalarMapEntry* value_scalars) unique
+
+    DBlockParam = (MoonBack.BackValId value, MoonBack.BackShape ty) unique
+
+    DEdgeArg = (MoonBack.BackValId src, MoonBack.BackValId dst_param) unique
+
+    DSwitchCase = (string raw, MoonBack.BackBlockId dest) unique
+
+    DTerminator = DTermJump(MoonBack.BackBlockId dest, MoonDasm.DEdgeArg* args) unique
+         | DTermBrIf(MoonBack.BackValId cond, MoonBack.BackBlockId then_block, MoonDasm.DEdgeArg* then_args, MoonBack.BackBlockId else_block, MoonDasm.DEdgeArg* else_args) unique
+         | DTermSwitch(MoonBack.BackValId value, MoonBack.BackScalar ty, MoonDasm.DSwitchCase* cases, MoonBack.BackBlockId default_dest) unique
+         | DTermReturnVoid
+         | DTermReturnValue(MoonBack.BackValId value) unique
+         | DTermTrap
+
+    DCfgBlock = (MoonBack.BackBlockId id, MoonDasm.DBlockParam* params, MoonBack.Cmd* body, MoonDasm.DTerminator term) unique
+
+    DFuncCFG = (MoonBack.BackFuncId func, MoonBack.BackSigId sig, MoonBack.BackBlockId entry, MoonDasm.DCfgBlock* blocks, MoonBack.BackStackSlotId* stack_slots) unique
+
+    DValueFact = DValueShapeFact(MoonBack.BackValId value, MoonBack.BackShape shape) unique
+         | DValueClassFact(MoonBack.BackValId value, MoonDasm.DValueClass class) unique
+         | DValueDefFact(MoonBack.BackValId value, MoonBack.BackBlockId block, number index) unique
+         | DValueUseFact(MoonBack.BackValId value, MoonBack.BackBlockId block, number index, number slot) unique
+         | DValueConstIntFact(MoonBack.BackValId value, string raw) unique
+         | DValueConstFloatFact(MoonBack.BackValId value, string raw) unique
+
+    DEdgeKind = DEdgeEntry
+         | DEdgeJump
+         | DEdgeThen
+         | DEdgeElse
+         | DEdgeSwitchCase
+         | DEdgeSwitchDefault
+         | DEdgeCriticalSplit
+
+    DEdgeRef = (MoonBack.BackBlockId pred, MoonBack.BackBlockId succ, MoonDasm.DEdgeKind kind, number ordinal) unique
+
+    DParallelMove = (MoonBack.BackValId dst, MoonBack.BackValId src, MoonDasm.DValueClass class) unique
+
+    DParallelCopy = (MoonDasm.DEdgeRef edge, MoonDasm.DParallelMove* moves) unique
+
+    DControlFact = DControlEdgeFact(MoonDasm.DEdgeRef edge, MoonDasm.DEdgeArg* args) unique
+         | DParallelCopyFact(MoonDasm.DParallelCopy copy) unique
+
+    DMemoryFact = DMemoryLoadFact(MoonBack.BackValId dst, MoonBack.BackAddress addr, MoonBack.BackMemoryInfo memory, MoonBack.BackShape ty) unique
+         | DMemoryStoreFact(MoonBack.BackAddress addr, MoonBack.BackValId value, MoonBack.BackMemoryInfo memory, MoonBack.BackShape ty) unique
+         | DMemoryAliasFact(MoonBack.BackAliasFact fact) unique
+
+    DCallFact = DCallSiteFact(number index, MoonBack.BackSigId sig, MoonBack.BackCallTarget target, MoonBack.BackValId* args, MoonBack.BackCallResult? result) unique
+         | DCallClobberFact(number index, MoonDasm.DPhysRegId* clobbers) unique
+
+    DFuncFacts = (MoonDasm.DFuncCFG cfg, MoonDasm.DValueFact* value_facts, MoonDasm.DControlFact* control_facts, MoonDasm.DMemoryFact* memory_facts, MoonDasm.DCallFact* call_facts) unique
+
+    DConstKind = DConstUnknown
+         | DConstInt(string raw) unique
+         | DConstFloat(string raw) unique
+         | DConstBool(boolean value) unique
+         | DConstNull
+
+    DAddrBaseKind = DBaseValue
+         | DBaseStack
+         | DBaseData
+         | DBaseUnknown
+
+    DFamilyKind = DFamilyCopy
+         | DFamilyIntBin
+         | DFamilyBitBin
+         | DFamilyShiftRotate
+         | DFamilyCompareBranch
+         | DFamilyLoadStore
+         | DFamilyAddress
+         | DFamilyCall
+         | DFamilyControl
+         | DFamilyReturn
+         | DFamilyOther
+
+    DFamilyKey = DKeyCopy(MoonDasm.DValueClass class, MoonDasm.DConstKind src_const, boolean same_value) unique
+         | DKeyIntBin(string op, MoonBack.BackScalar scalar, MoonDasm.DConstKind lhs_const, MoonDasm.DConstKind rhs_const, boolean commutative, boolean rhs_pow2) unique
+         | DKeyBitBin(string op, MoonBack.BackScalar scalar, MoonDasm.DConstKind rhs_const) unique
+         | DKeyShiftRotate(string op, MoonBack.BackScalar scalar, MoonDasm.DConstKind rhs_const, boolean rhs_small_imm) unique
+         | DKeyCompareBranch(string op, MoonBack.BackScalar scalar, MoonDasm.DConstKind rhs_const, boolean fused_branch, boolean rhs_is_zero) unique
+         | DKeyLoadStore(boolean is_load, MoonBack.BackShape shape, MoonDasm.DAddrBaseKind base_kind, boolean has_index, boolean const_disp, number align_bytes, string trap_kind) unique
+         | DKeyAddress(MoonDasm.DAddrBaseKind base_kind, number elem_size, number const_offset) unique
+         | DKeyCall(string target_kind, number argc, boolean has_result, MoonDasm.DValueClass result_class) unique
+         | DKeyControl(string kind) unique
+         | DKeyReturn(boolean has_value, MoonDasm.DValueClass class) unique
+         | DKeyOther(string kind) unique
+
+    DFamilyInstance = (number cmd_index, MoonBack.BackBlockId? block, MoonDasm.DFamilyKind family, MoonDasm.DFamilyKey key) unique
+
+    DFactAtom = DFactCmdKind(number cmd_index, string kind) unique
+         | DFactValueShape(MoonBack.BackValId value, MoonBack.BackShape shape) unique
+         | DFactValueClass(MoonBack.BackValId value, MoonDasm.DValueClass class) unique
+         | DFactValueConst(MoonBack.BackValId value, MoonDasm.DConstKind const_kind) unique
+         | DFactUse(MoonBack.BackValId value, number cmd_index, number slot) unique
+         | DFactDef(MoonBack.BackValId value, number cmd_index) unique
+         | DFactBlockAt(number cmd_index, MoonBack.BackBlockId block) unique
+
+    DFactSet = (MoonBack.BackFuncId? func, MoonBack.Cmd* cmds, MoonDasm.DFactAtom* atoms, MoonDasm.DFamilyInstance* families) unique
+
+    DLowerDecision = (number cmd_index, string rule, number cost, MoonDasm.DAsmShape shape) unique
+
+    DLoweredFunc = (MoonBack.BackFuncId? func, MoonBack.Cmd* cmds, MoonDasm.DFactSet facts, MoonDasm.DLowerDecision* decisions, MoonDasm.DAsmFunc asm) unique
+
+    DAddress = (MoonDasm.DPhysRegId? base, MoonDasm.DPhysRegId? index, number scale, number disp) unique
+
+    DOperand = DOpVReg(MoonDasm.DVirtualRegId vreg) unique
+         | DOpPReg(MoonDasm.DPhysRegId preg) unique
+         | DOpImmI64(string raw) unique
+         | DOpLabel(MoonDasm.DLabelId label) unique
+         | DOpMem(MoonDasm.DAddress addr) unique
+
+    DCondCode = DccE
+         | DccNE
+         | DccL
+         | DccLE
+         | DccG
+         | DccGE
+         | DccB
+         | DccBE
+         | DccA
+         | DccAE
+         | DccP
+         | DccNP
+
+    DAsmShape = DAsmLabel(MoonDasm.DLabelId label) unique
+         | DAsmMove(MoonDasm.DOperand dst, MoonDasm.DOperand src, MoonDasm.DValueClass class) unique
+         | DAsmUnary(string op, MoonDasm.DOperand dst, MoonDasm.DOperand src, MoonBack.BackScalar scalar) unique
+         | DAsmBinary(string op, MoonDasm.DOperand dst, MoonDasm.DOperand lhs, MoonDasm.DOperand rhs, MoonBack.BackScalar scalar) unique
+         | DAsmCompareSet(MoonDasm.DCondCode cc, MoonDasm.DOperand dst, MoonDasm.DOperand lhs, MoonDasm.DOperand rhs, MoonBack.BackScalar scalar) unique
+         | DAsmLoad(MoonDasm.DOperand dst, MoonDasm.DOperand addr, MoonBack.BackShape ty) unique
+         | DAsmStore(MoonDasm.DOperand addr, MoonDasm.DOperand value, MoonBack.BackShape ty) unique
+         | DAsmLea(MoonDasm.DOperand dst, MoonDasm.DOperand addr) unique
+         | DAsmJump(MoonDasm.DLabelId dest) unique
+         | DAsmBrIf(MoonDasm.DOperand cond, MoonDasm.DLabelId then_label, MoonDasm.DLabelId else_label) unique
+         | DAsmCall(MoonDasm.DOperand target, MoonDasm.DOperand* args, MoonDasm.DOperand? result) unique
+         | DAsmRetVoid
+         | DAsmRetValue(MoonDasm.DOperand value) unique
+         | DAsmPrologue
+         | DAsmEpilogue
+         | DAsmTrap
+         | DAsmComment(string text) unique
+
+    DAsmInst = (MoonDasm.DAsmShape shape, MoonDasm.DVirtualRegId* defs, MoonDasm.DVirtualRegId* uses, MoonDasm.DPhysRegId* clobbers) unique
+
+    DAsmBlock = (MoonBack.BackBlockId id, MoonDasm.DAsmInst* insts) unique
+
+    DAsmFunc = (MoonBack.BackFuncId func, MoonDasm.DAsmBlock* blocks) unique
+
+    DAllocLoc = DLocReg(MoonDasm.DPhysRegId preg) unique
+         | DLocStack(number offset, number size, number align) unique
+
+    DValueAlloc = (MoonDasm.DVirtualRegId vreg, MoonDasm.DAllocLoc loc, MoonDasm.DValueClass class) unique
+
+    DBankedRegalloc = (MoonDasm.DValueAlloc* allocs, MoonDasm.DPhysRegId* used_callee_saved, number spill_size) unique
+
+    DFrameSlot = (MoonBack.BackStackSlotId slot, number offset, number size, number align) unique
+
+    DFramePlan = (number stack_size, number spill_size, number slot_size, MoonDasm.DPhysRegId* callee_saved, MoonDasm.DFrameSlot* slots) unique
+
+    DFragment = (number offset, number* args, string bytes) unique
+
+    DFragmentBundle = (MoonDasm.DFragment* fragments) unique
+
+    DGlobalEntry = (string kind, string key, string label, number slot_index) unique
+
+    DFuncPtrEntry = (MoonBack.BackFuncId func, number global_slot) unique
+
+    DEmitPlan = (MoonDasm.DGlobalEntry* globals, MoonDasm.DFragment* fragments, MoonDasm.DFuncPtrEntry* func_ptrs, number code_size_hint) unique
+}

@@ -21,8 +21,8 @@ local fn = Host.eval [[
 local frag = region emit_hit(x: i32; hit: cont(y: i32))
 entry start() jump hit(y = x + 1) end
 end
-return func use_hit(x: i32) -> i32
-    return region -> i32
+return func use_hit(x: i32): i32
+    return region: i32
     entry start() emit @{frag}(x; hit = done) end
     block done(y: i32) yield y end
     end

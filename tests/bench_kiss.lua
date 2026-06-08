@@ -4,8 +4,8 @@ local ffi = require("ffi")
 local mom = require("moonlift.host_mom")
 local Host = require("moonlift.mlua_run")
 
-local MOM_SRC = [[ func f(x: i32, y: i32) -> i32 return x + y end ]]
-local MLUA = [[ local f = func(x: i32, y: i32) -> i32 return x + y end return f ]]
+local MOM_SRC = [[ func f(x: i32, y: i32): i32 return x + y end ]]
+local MLUA = [[ local f = func(x: i32, y: i32): i32 return x + y end return f ]]
 
 -- verify
 local c = mom(MOM_SRC)

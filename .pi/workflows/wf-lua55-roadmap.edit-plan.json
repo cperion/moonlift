@@ -1,10 +1,10 @@
 {
 	"version": 1,
 	"workflowId": "wf-lua55-roadmap",
-	"revision": 266,
-	"nextId": 146,
+	"revision": 288,
+	"nextId": 155,
 	"createdAt": "2026-06-06T17:56:46.971Z",
-	"updatedAt": "2026-06-07T20:05:52.373Z",
+	"updatedAt": "2026-06-08T12:56:57.997Z",
 	"tasks": [
 		{
 			"id": "T001",
@@ -2290,11 +2290,13 @@
 			"after": [
 				"T145"
 			],
-			"status": "todo",
+			"status": "done",
 			"order": 137,
+			"claimedBy": "agent-EAAMWZ",
+			"evidence": "Migrated additional quote-first current-slice support in `experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_quote_emit.lua`: robust fixed count specs, AddressOf, RuntimeTypeTest, RuntimeClassifyCallee, RuntimeCallTargetCheck. Added observable quote execution tests in `test_spongejit_lua_compile_lua_rt_arity.lua` and `test_spongejit_lua_compile_lua_rt_call.lua` for type tests, callee classification/target checks, call frame arg/result transfer, and manual call-region result copying. Verification passed: lua_rt_arity, lua_rt_stack, lua_rt_call, static_invoke, source_call, source_closure, moon_cfg, and `cd experiments/lua_interpreter_vm/spongejit && make test`.",
 			"notes": [],
 			"createdAt": "2026-06-07T19:22:03.362Z",
-			"updatedAt": "2026-06-07T19:44:29.681Z"
+			"updatedAt": "2026-06-08T07:34:01.504Z"
 		},
 		{
 			"id": "T138",
@@ -2321,11 +2323,13 @@
 				"T137",
 				"T138"
 			],
-			"status": "todo",
+			"status": "done",
 			"order": 139,
+			"claimedBy": "agent-EAAMWZ",
+			"evidence": "Verification gates passed after T137. Ran targeted gates: `luajit test_spongejit_lua_compile_lua_src.lua`, `lua_rt_arity.lua`, `lua_rt_stack.lua`, `lua_rt_call.lua`, `static_invoke.lua`, `source_call.lua`, `source_closure.lua`, `moon_cfg.lua`, `stencil.lua`, `foundry.lua`. Ran `cd experiments/lua_interpreter_vm/spongejit && make test` (passed), `make test-completion` (passed), and optional `make test-lua-compile-corpus100` (passed: 36 ok / 106 rejected; corpus test reported 30 successful windows, 28 reps checked).",
 			"notes": [],
 			"createdAt": "2026-06-07T19:22:03.362Z",
-			"updatedAt": "2026-06-07T19:44:29.681Z"
+			"updatedAt": "2026-06-08T07:34:49.095Z"
 		},
 		{
 			"id": "T140",
@@ -2422,6 +2426,149 @@
 			"notes": [],
 			"createdAt": "2026-06-07T19:44:29.681Z",
 			"updatedAt": "2026-06-07T20:05:05.827Z"
+		},
+		{
+			"id": "T146",
+			"title": "Finish quote emitter CFG/control framework",
+			"detail": "Implement the quote-first function/region assembly needed for all current supported MoonCFG regions: block indexing, params and entry param defaults, environment merge for region/kernel params, multi-block region construction, Jump, Branch, BranchArgs, Return, and Unreachable handling. Keep MoonCFG.EmitRegion/Continue/Exit unsupported and never delegate to source compat. Preserve quote-first builder style; raw host builders only for generated binders/control where quote API cannot splice names ergonomically, with local comments.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_quote_emit.lua",
+			"after": [],
+			"status": "done",
+			"order": 146,
+			"claimedBy": "agent-V965D9",
+			"evidence": "Implemented quote-first CFG/control framework in experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_quote_emit.lua: added typed control-region assembly for multi-block Jump/Branch/BranchArgs/Return/Unreachable, entry/block params, function param env, and preserved fail-closed unsupported terminators. Verified luajit tests test_spongejit_lua_compile_lua_rt_arity.lua and test_spongejit_lua_compile_moon_cfg.lua.",
+			"notes": [
+				"Ready first task for finishing quote-first MoonCFG emitter in one worker pass."
+			],
+			"createdAt": "2026-06-08T07:37:41.819Z",
+			"updatedAt": "2026-06-08T07:44:10.249Z"
+		},
+		{
+			"id": "T147",
+			"title": "Complete quote expression and place coverage",
+			"detail": "Complete quote_runtime_expr/infer_expr_type/value_to_expr/value_to_place/emit_let/emit_op for all primitive/value/load/convert/address/current-slice expression forms validated by moon_cfg_validate.lua: ValueExpr, Primitive Add/Sub/Mul/IDiv/Mod/DivF64/Eq/Lt/Le/Not/Truthy, Load, AddressOf, Convert, Let, Assign, Store, RuntimeStackLoad/Store, RuntimeTopLoad/Store, RuntimeOpenCountFromTop, RuntimeBox*, RuntimeTag/Payload/Truthiness/TypeTest. Preserve fail-closed diagnostics for unsupported expressions.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_quote_emit.lua",
+			"after": [
+				"T146"
+			],
+			"status": "done",
+			"order": 147,
+			"claimedBy": "agent-V965D9",
+			"evidence": "moon_cfg_quote_emit.lua already/now covers current primitive/value/load/convert/address/place expression forms and Let/Assign/Store/RuntimeStack/Top/box/tag/payload/truthiness/type-test ops in quote path; multi-block framework uses same emit_op. Verified luajit test_spongejit_lua_compile_lua_exec_pipeline.lua plus prior arity/moon_cfg tests.",
+			"notes": [],
+			"createdAt": "2026-06-08T07:37:41.819Z",
+			"updatedAt": "2026-06-08T07:44:32.438Z"
+		},
+		{
+			"id": "T148",
+			"title": "Complete quote runtime sequence outcome callframe coverage",
+			"detail": "Finish all currently supported RuntimeValueSeq*, RuntimeOutcome*, RuntimeVararg*, and RuntimeCallFrame* quote paths: Fixed/FromStack/FromVarargs/Adjust/Normalize/Count/Value/Buffer/Base, RuntimeValueSeqStore, OutcomeReturn/ReturnSeq/Error/Yield/YieldSeq and projections including dynamic valueN forms, VarargSource/Count/Get, ClassifyCallee, CallTargetCheck, CallFramePrepare/ResultSeq/StoreArgs. Use count-safe nil projection matching source compat/current tests; do not reintroduce available_count/open-CALL work.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_quote_emit.lua",
+			"after": [
+				"T147"
+			],
+			"status": "done",
+			"order": 148,
+			"claimedBy": "agent-V965D9",
+			"evidence": "Quote runtime sequence/outcome/vararg/call-frame current paths verified in moon_cfg_quote_emit.lua: RuntimeValueSeq*, RuntimeOutcome*, RuntimeVararg*, RuntimeCallFrame*, sequence/call arg store, call target classification/check. Ran luajit tests: lua_rt_stack, lua_rt_call, static_invoke, source_call, source_closure all passed.",
+			"notes": [],
+			"createdAt": "2026-06-08T07:37:41.819Z",
+			"updatedAt": "2026-06-08T07:44:58.934Z"
+		},
+		{
+			"id": "T149",
+			"title": "Port quote arithmetic and numeric coercion runtime",
+			"detail": "Port the current source-compat ADD numeric/coercion substrate to quote-first code: RuntimeArithmeticNumericOk, RuntimeArithmeticNoMeta, RuntimeArithmeticErrorValue, string-bank numeric coercion for DecimalInteger/DecimalFloat/NotNumeric, integer+float result selection, and typed arithmetic error value selection. Support only current ArithAdd semantics; reject other arithmetic op kinds as unsupported. Add observable quote execution coverage to arithmetic tests.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_quote_emit.lua",
+			"after": [
+				"T148"
+			],
+			"status": "done",
+			"order": 149,
+			"claimedBy": "agent-V965D9",
+			"evidence": "Ported current ArithAdd numeric/coercion quote runtime in moon_cfg_quote_emit.lua: string numeric kind/i64/f64 coercion, RuntimeArithmeticNumericOk, RuntimeArithmeticNoMeta, RuntimeArithmeticErrorValue with fail-closed non-ADD ops. Updated test_spongejit_lua_compile_lua_rt_arithmetic.lua to execute via Emit.compile quote path while preserving Emit.emit guardrail source checks. Verified luajit test_spongejit_lua_compile_lua_rt_arithmetic.lua.",
+			"notes": [],
+			"createdAt": "2026-06-08T07:37:41.819Z",
+			"updatedAt": "2026-06-08T07:48:01.266Z"
+		},
+		{
+			"id": "T150",
+			"title": "Port quote raw object table string runtime",
+			"detail": "Port current raw object/table/string substrate from source compat to quote-first code: RuntimeTableRawGet and projections, RuntimeTableRawSetCanWrite, RuntimeTableRawSet, RuntimeTableWriteBarrierNeeded, RuntimeTableWriteBarrier, RuntimeTableArrayLen, RuntimeStringLen, RuntimeLenNoMeta/Ok, RuntimeStringConcat2, raw hash probing/update/insert with HASH_PROBE_LIMIT, nil-key/metatable error behavior as represented by existing MoonCFG lowering. Preserve current raw/no-metatable semantics and fail closed for cdata or unsupported object paths not accepted by validator.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_quote_emit.lua",
+			"after": [
+				"T149"
+			],
+			"status": "done",
+			"order": 150,
+			"claimedBy": "agent-V965D9",
+			"evidence": "Recovered after failed/OOM worker. Existing changes in experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_quote_emit.lua port quote-first raw object/table/string runtime paths: raw get/set/can-write, barrier-needed/barrier, array/string length, len-no-meta, concat2, raw hash probing/update/insert, plus object test execution through Emit.compile. Verified targeted gates locally without full-suite memory pressure: luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_objects.lua; luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_arithmetic.lua; luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_call.lua; luajit experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_lua_rt_arity.lua.",
+			"notes": [],
+			"createdAt": "2026-06-08T07:37:41.819Z",
+			"updatedAt": "2026-06-08T08:00:05.447Z"
+		},
+		{
+			"id": "T151",
+			"title": "Wire quote execution into current SpongeJIT tests",
+			"detail": "Update observable runtime tests to execute through Emit.compile wherever the quote emitter now supports the path: lua_rt_stack, lua_rt_call, static_invoke, source_call, source_closure, lua_exec_pipeline runtime smoke cases, lua_rt_arithmetic, lua_rt_objects, and representative moon_cfg control tests. Keep Emit.emit only for deterministic source text, foundry artifacts, and forbidden-string/compatibility assertions. Do not add design-compliance-only tests.",
+			"file": "experiments/lua_interpreter_vm/tests",
+			"after": [
+				"T150"
+			],
+			"status": "done",
+			"order": 151,
+			"claimedBy": "agent-RAXTM7",
+			"evidence": "Updated observable runtime tests to use quote-first Emit.compile where currently supported: lua_rt_stack run helper now compiles via quote path; static_invoke/source_call/source_closure run_cfg helpers use Emit.compile; lua_rt_arithmetic and lua_rt_objects were already switched in recovered T149/T150 changes; lua_rt_call/arity already had quote coverage. Kept Emit.emit source compatibility assertions for protocol/helper/dispatch guardrails. Left lua_exec_pipeline run_kernel on compatibility source for branch/control cases that exposed a separate quote bug with literal LOADTRUE/TEST outcome projection. Verified targeted tests: luajit lua_rt_stack.lua; static_invoke.lua; source_call.lua; source_closure.lua; lua_exec_pipeline.lua; moon_cfg.lua.",
+			"notes": [],
+			"createdAt": "2026-06-08T07:37:41.819Z",
+			"updatedAt": "2026-06-08T12:55:11.738Z"
+		},
+		{
+			"id": "T152",
+			"title": "Keep quote/source guardrails fail-closed",
+			"detail": "Audit quote emitter and facade so Emit.compile never delegates to moon_cfg_emit_source_compat. Unsupported MoonCFG nodes return/raise moon_cfg_quote_emit:not_yet_migrated diagnostics. Keep MoonCFG.EmitRegion, Continue, Exit unsupported; keep source TAILCALL, open CALL, metatable/C/FFI/upvalue paths rejected. Preserve Emit.emit compatibility/debug source output and foundry artifact behavior.",
+			"file": "experiments/lua_interpreter_vm/spongejit/lua_compile/moon_cfg_quote_emit.lua",
+			"after": [
+				"T151"
+			],
+			"status": "done",
+			"order": 152,
+			"claimedBy": "agent-RAXTM7",
+			"evidence": "Audited quote/source guardrails. moon_cfg_emit.lua facade still routes Emit.compile/build/run only through moon_cfg_quote_emit and preserves Emit.emit as SourceCompat serialization. Hardened moon_cfg_quote_emit.build_bundle to catch quote builder not_yet_migrated errors and return nil/errors instead of throwing or falling back. Added moon_cfg test asserting Emit.compile fails closed for unsupported quote shape rather than delegating to source compatibility. Verified guardrails with luajit tests: moon_cfg.lua, semantic_gates.lua, source_call.lua, source_closure.lua, static_invoke.lua.",
+			"notes": [],
+			"createdAt": "2026-06-08T07:37:41.819Z",
+			"updatedAt": "2026-06-08T12:56:27.771Z"
+		},
+		{
+			"id": "T153",
+			"title": "Update documentation comments and planned file list",
+			"detail": "Update comments and any planned-file/schema smoke references for the completed quote-first emitter modules. Keep comments factual: source compat is debug/serialization; semantic execution is quote-first. Do not change ASDL or add support-status fields.",
+			"file": "experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_pipeline.lua",
+			"after": [
+				"T152"
+			],
+			"status": "done",
+			"order": 153,
+			"claimedBy": "agent-RAXTM7",
+			"evidence": "Updated experiments/lua_interpreter_vm/tests/test_spongejit_lua_compile_pipeline.lua manifest comment to document completed quote-first emitter module roles: moon_cfg_quote_emit.lua is semantic execution through moon_cfg_emit.compile/build/run, while moon_cfg_emit_source_compat.lua remains compatibility/debug serialization through moon_cfg_emit.emit/foundry artifacts. Planned file list already included quote/source-compat modules; no ASDL or support-status fields changed. Verified luajit test_spongejit_lua_compile_pipeline.lua.",
+			"notes": [],
+			"createdAt": "2026-06-08T07:37:41.819Z",
+			"updatedAt": "2026-06-08T12:56:55.345Z"
+		},
+		{
+			"id": "T154",
+			"title": "Run full quote emitter verification gates",
+			"detail": "Run all focused runtime/source/static tests plus make test, make test-completion, and optional corpus100. Record exact commands and results. Expected behavior: current supported SpongeJIT runtime/source/static semantics execute through Emit.compile where practical; Emit.emit remains compatible; no new Lua feature support is broadened; corpus count changes are not required.",
+			"file": "experiments/lua_interpreter_vm/spongejit/Makefile",
+			"after": [
+				"T153"
+			],
+			"status": "claimed",
+			"order": 154,
+			"claimedBy": "agent-RAXTM7",
+			"notes": [],
+			"createdAt": "2026-06-08T07:37:41.819Z",
+			"updatedAt": "2026-06-08T12:56:57.997Z"
 		}
 	]
 }

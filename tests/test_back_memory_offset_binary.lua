@@ -4,11 +4,11 @@ local ffi = require("ffi")
 local moon = require("moonlift")
 
 local chunk = assert(moon.loadstring([[
-local weighted_sum = func(xs: ptr(i32)) -> i32
+local weighted_sum = func(xs: ptr(i32)): i32
     return xs[0] + xs[1] * 10 + xs[2] * 100
 end
 
-local write_three = func(xs: ptr(i32)) -> void
+local write_three = func(xs: ptr(i32)): void
     xs[0] = 1
     xs[1] = 2
     xs[2] = 3

@@ -25,7 +25,7 @@ local C = T.MoonCore
 local Vec = T.MoonVec
 
 local src = [[
-func add_construct_view_i32(noalias dst: ptr(i32), readonly a: ptr(i32), readonly b: ptr(i32), n: index) -> i32
+func add_construct_view_i32(noalias dst: ptr(i32), readonly a: ptr(i32), readonly b: ptr(i32), n: index): i32
     requires bounds(dst, n)
     requires bounds(a, n)
     requires bounds(b, n)
@@ -43,7 +43,7 @@ func add_construct_view_i32(noalias dst: ptr(i32), readonly a: ptr(i32), readonl
     end
 end
 
-func copy_construct_view_i32(noalias dst: ptr(i32), readonly src: ptr(i32), n: index) -> i32
+func copy_construct_view_i32(noalias dst: ptr(i32), readonly src: ptr(i32), n: index): i32
     requires bounds(dst, n)
     requires bounds(src, n)
     requires disjoint(dst, src)
@@ -58,7 +58,7 @@ func copy_construct_view_i32(noalias dst: ptr(i32), readonly src: ptr(i32), n: i
     end
 end
 
-func add_construct_view_i64(noalias dst: ptr(i64), readonly a: ptr(i64), readonly b: ptr(i64), n: index) -> i32
+func add_construct_view_i64(noalias dst: ptr(i64), readonly a: ptr(i64), readonly b: ptr(i64), n: index): i32
     requires bounds(dst, n)
     requires bounds(a, n)
     requires bounds(b, n)
@@ -76,7 +76,7 @@ func add_construct_view_i64(noalias dst: ptr(i64), readonly a: ptr(i64), readonl
     end
 end
 
-func add_construct_view_u32(noalias dst: ptr(u32), readonly a: ptr(u32), readonly b: ptr(u32), n: index) -> i32
+func add_construct_view_u32(noalias dst: ptr(u32), readonly a: ptr(u32), readonly b: ptr(u32), n: index): i32
     requires bounds(dst, n)
     requires bounds(a, n)
     requires bounds(b, n)
@@ -94,7 +94,7 @@ func add_construct_view_u32(noalias dst: ptr(u32), readonly a: ptr(u32), readonl
     end
 end
 
-func add_construct_view_u64(noalias dst: ptr(u64), readonly a: ptr(u64), readonly b: ptr(u64), n: index) -> i32
+func add_construct_view_u64(noalias dst: ptr(u64), readonly a: ptr(u64), readonly b: ptr(u64), n: index): i32
     requires bounds(dst, n)
     requires bounds(a, n)
     requires bounds(b, n)

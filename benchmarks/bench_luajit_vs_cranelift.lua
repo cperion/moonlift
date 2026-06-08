@@ -25,28 +25,28 @@ local ITERS = tonumber(os.getenv("MOONLIFT_BENCH_ITERS") or (quick and "3" or "5
 local WARMUP = tonumber(os.getenv("MOONLIFT_BENCH_WARMUP") or (quick and "2" or "4"))
 
 local SRC = [[
-func fib_i32(n: i32) -> i32
-    return block loop(i: i32 = 0, a: i32 = 0, b: i32 = 1) -> i32
+func fib_i32(n: i32): i32
+    return block loop(i: i32 = 0, a: i32 = 0, b: i32 = 1): i32
         if i >= n then yield a end
         jump loop(i = i + 1, a = b, b = a + b)
     end
 end
 
-func sum_stride_i32(xs: ptr(i32), n: i32, stride: i32) -> i32
-    return block loop(i: i32 = 0, acc: i32 = 0) -> i32
+func sum_stride_i32(xs: ptr(i32), n: i32, stride: i32): i32
+    return block loop(i: i32 = 0, acc: i32 = 0): i32
         if i >= n then yield acc end
         jump loop(i = i + 1, acc = acc + xs[i * stride])
     end
 end
 
-func dot_stride_i32(a: ptr(i32), b: ptr(i32), n: i32, stride: i32) -> i32
-    return block loop(i: i32 = 0, acc: i32 = 0) -> i32
+func dot_stride_i32(a: ptr(i32), b: ptr(i32), n: i32, stride: i32): i32
+    return block loop(i: i32 = 0, acc: i32 = 0): i32
         if i >= n then yield acc end
         jump loop(i = i + 1, acc = acc + a[i * stride] * b[i * stride])
     end
 end
 
-func fill_stride_i32(dst: ptr(i32), n: i32, stride: i32, value: i32) -> i32
+func fill_stride_i32(dst: ptr(i32), n: i32, stride: i32, value: i32): i32
     block loop(i: i32 = 0)
         if i >= n then return 0 end
         dst[i * stride] = value

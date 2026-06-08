@@ -19,12 +19,12 @@ struct Pair
     right: i32
 end
 
-func add(x: i32, y: i32) -> i32
+func add(x: i32, y: i32): i32
     return x + y
 end
 
-func sum(n: i32) -> i32
-    return block loop(i: i32 = 0, acc: i32 = 0) -> i32
+func sum(n: i32): i32
+    return block loop(i: i32 = 0, acc: i32 = 0): i32
         if i >= n then
             yield acc
         end

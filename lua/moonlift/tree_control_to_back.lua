@@ -30,7 +30,7 @@ function M.Define(T, base)
     local Tr = T.MoonTree
     local Back = T.MoonBack
 
-    local facts_api = require("moonlift.tree_control_facts").Define(T)
+    local facts_api = require("moonlift.tree_control_facts").Define(T, { variant_def = base.variant_def })
 
     local switch_key_raw
     local control_stmt_to_back
@@ -52,6 +52,23 @@ function M.Define(T, base)
 
     local function binding_id(region_id, label, name)
         return C.Id("control:param:" .. region_id .. ":" .. label.name .. ":" .. name)
+    end
+
+    local function expr_ty(expr)
+        local h = expr and expr.h or nil
+        local cls = h and pvm.classof(h) or nil
+        if cls == Tr.ExprTyped or cls == Tr.ExprOpen then return h.ty end
+        return nil
+    end
+
+    local function named_type_name(ty)
+        if ty ~= nil and pvm.classof(ty) == Ty.TNamed then
+            local ref = ty.ref
+            local cls = pvm.classof(ref)
+            if cls == Ty.TypeRefGlobal then return ref.type_name or ref.name end
+            if cls == Ty.TypeRefPath and ref.path and #ref.path.parts > 0 then return ref.path.parts[#ref.path.parts].text or ref.path.parts[#ref.path.parts].name end
+        end
+        return nil
     end
 
     local function value_id(nonce, region_id, label, name)
@@ -370,7 +387,107 @@ function M.Define(T, base)
         return pvm.once(Tr.TreeBackStmtResult(out_env, cmds, Back.BackTerminates))
     end
 
+    local function lower_variant_switch(stmt, env, ctx)
+        if base.variant_def == nil or base.payload_offset_for_type == nil or base.add_ptr_offset == nil or base.append_load_info == nil then
+            return pvm.once(unsupported_stmt(env, {}, "variant switch support is not wired into control lowering"))
+        end
+        local lowered_value = base.expr_to_back:one_uncached(stmt.value, env)
+        local value = expr_value(lowered_value)
+        if value == nil then
+            local why = pvm.classof(lowered_value) == Tr.TreeBackExprUnsupported and lowered_value.reason or "unsupported variant switch value"
+            return pvm.once(unsupported_stmt(env, {}, "variant switch value unsupported: " .. tostring(why) .. " at " .. tostring(stmt.value)))
+        end
+        local type_name = named_type_name(expr_ty(stmt.value))
+        local def = type_name and base.variant_def(type_name) or nil
+        if def == nil then return pvm.once(unsupported_stmt(value.env, value.cmds, "variant switch requires tagged-union facts")) end
+        local payload_offset = base.payload_offset_for_type(type_name)
+
+        local current = value.env
+        local arm_blocks = {}
+        for i = 1, #stmt.variant_arms do current, arm_blocks[i] = base.env_next_block(current, "ctl.switch.variant.arm") end
+        local default_block; current, default_block = base.env_next_block(current, "ctl.switch.variant.default")
+        local join_block; current, join_block = base.env_next_block(current, "ctl.switch.variant.join")
+
+        local cmds = {}; append_all(cmds, value.cmds)
+        local tag_env, tag_val = base.env_next_value(value.env, "ctl.variant.tag")
+        current = base.env_with_counters(current, tag_env)
+        local env_load = base.append_load_info(cmds, tag_env, tag_val, shape_scalar(Back.BackU32), value.value, "control:variant:tag:" .. tostring(type_name))
+        current = base.env_with_counters(current, env_load)
+        for i = 1, #arm_blocks do cmds[#cmds + 1] = Back.CmdCreateBlock(arm_blocks[i]) end
+        cmds[#cmds + 1] = Back.CmdCreateBlock(default_block)
+        cmds[#cmds + 1] = Back.CmdCreateBlock(join_block)
+        local cases = {}
+        for i = 1, #stmt.variant_arms do
+            local variant = def.variants[stmt.variant_arms[i].variant_name]
+            if variant == nil then return pvm.once(unsupported_stmt(value.env, cmds, "unknown variant arm " .. tostring(stmt.variant_arms[i].variant_name))) end
+            cases[i] = Back.BackSwitchCase(tostring(variant.tag), arm_blocks[i])
+        end
+        cmds[#cmds + 1] = Back.CmdSwitchInt(tag_val, Back.BackU32, cases, default_block)
+        for i = 1, #arm_blocks do cmds[#cmds + 1] = Back.CmdSealBlock(arm_blocks[i]) end
+        cmds[#cmds + 1] = Back.CmdSealBlock(default_block)
+
+        local fallers = {}
+        for i = 1, #stmt.variant_arms do
+            cmds[#cmds + 1] = Back.CmdSwitchToBlock(arm_blocks[i])
+            local arm = stmt.variant_arms[i]
+            local variant = def.variants[arm.variant_name]
+            local start = base.env_with_locals(base.env_with_counters(value.env, current), value.env.locals)
+            local bind_cmds = {}
+            local bind_env = start
+            if payload_offset ~= nil then
+                local payload_base = value.value
+                if payload_offset ~= 0 then
+                    local off = base.add_ptr_offset(Tr.TreeBackExprValue(bind_env, {}, value.value, Back.BackPtr), payload_offset)
+                    append_all(bind_cmds, off.cmds); bind_env = off.env; payload_base = off.value
+                end
+                for j = 1, #(arm.binds or {}) do
+                    local bind = arm.binds[j]
+                    local scalar = base.back_scalar(bind.ty)
+                    if scalar ~= nil then
+                        local src = payload_base
+                        local field = variant.field_offsets and variant.field_offsets[bind.name]
+                        if field and field.offset ~= 0 then
+                            local off = base.add_ptr_offset(Tr.TreeBackExprValue(bind_env, {}, payload_base, Back.BackPtr), field.offset)
+                            append_all(bind_cmds, off.cmds); bind_env = off.env; src = off.value
+                        end
+                        local env_v, bind_val = base.env_next_value(bind_env, "ctl.variant.bind")
+                        bind_env = base.append_load_info(bind_cmds, env_v, bind_val, shape_scalar(scalar), src, "control:variant:bind:" .. tostring(bind.name))
+                        local b = Bn.Binding(C.Id("variant:stmt_switch:" .. variant.name .. ":" .. bind.name), bind.name, bind.ty, Bn.BindingClassLocalValue)
+                        bind_env = base.env_add(bind_env, b, bind_val, scalar)
+                    end
+                end
+            end
+            append_all(cmds, bind_cmds)
+            local arm_env, arm_cmds, arm_flow = lower_body(arm.body, bind_env, ctx)
+            append_all(cmds, arm_cmds)
+            if arm_flow ~= Back.BackTerminates then
+                local jump_pos = #cmds + 1
+                cmds[jump_pos] = Back.CmdJump(join_block, {})
+                fallers[#fallers + 1] = { env = arm_env, jump_pos = jump_pos, args = {} }
+            end
+            current = base.env_with_counters(current, arm_env)
+        end
+
+        cmds[#cmds + 1] = Back.CmdSwitchToBlock(default_block)
+        local default_start = base.env_with_locals(base.env_with_counters(value.env, current), value.env.locals)
+        local default_env, default_cmds, default_flow = lower_body(stmt.default_body or {}, default_start, ctx)
+        append_all(cmds, default_cmds)
+        if default_flow ~= Back.BackTerminates then
+            local jump_pos = #cmds + 1
+            cmds[jump_pos] = Back.CmdJump(join_block, {})
+            fallers[#fallers + 1] = { env = default_env, jump_pos = jump_pos, args = {} }
+        end
+        current = base.env_with_counters(current, default_env)
+        cmds[#cmds + 1] = Back.CmdSealBlock(join_block)
+        if #fallers > 0 then
+            cmds[#cmds + 1] = Back.CmdSwitchToBlock(join_block)
+            return pvm.once(Tr.TreeBackStmtResult(Tr.TreeBackEnv(value.env.locals, current.next_value, current.next_block, env.ret), cmds, Back.BackFallsThrough))
+        end
+        return pvm.once(Tr.TreeBackStmtResult(Tr.TreeBackEnv(value.env.locals, current.next_value, current.next_block, env.ret), cmds, Back.BackTerminates))
+    end
+
     local function lower_switch(stmt, env, ctx)
+        if #(stmt.variant_arms or {}) > 0 then return lower_variant_switch(stmt, env, ctx) end
         local lowered_value = base.expr_to_back:one_uncached(stmt.value, env)
         local value = expr_value(lowered_value)
         if value == nil then

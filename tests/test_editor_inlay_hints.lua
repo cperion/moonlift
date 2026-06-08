@@ -16,10 +16,10 @@ local P = PositionIndex.Define(T)
 
 local uri = S.DocUri("file:///inlay.mlua")
 local src = [[
-func add(a: i32, b: i32) -> i32
+func add(a: i32, b: i32): i32
     return a
 end
-expr Use() -> i32
+expr Use(): i32
     add(1, 2)
 end
 ]]
