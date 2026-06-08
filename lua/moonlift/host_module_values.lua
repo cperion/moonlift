@@ -239,6 +239,38 @@ function BundleValue:_lower_program(opts)
     return Pipeline.lower_module(self:to_asdl(), lower_opts).program
 end
 
+function BundleValue:_lower_c_unit(opts)
+    opts = opts or {}
+    local Pipeline = require("moonlift.frontend_pipeline").Define(self.session.T)
+    local lower_opts = {
+        site = "host module c",
+        layout_env = self:layout_env(),
+        c_opts = opts,
+    }
+    local T = self.session.T
+    local region_frags = {}
+    local seen = {}
+    for _, frag in pairs(T._moonlift_host_region_frags or {}) do
+        region_frags[#region_frags + 1] = frag
+        seen[frag] = true
+    end
+    for i = 1, #(self.region_frags or {}) do
+        local frag = self.region_frags[i]
+        if not seen[frag] then region_frags[#region_frags + 1] = frag end
+    end
+    if #region_frags > 0 then
+        local O = T.MoonOpen
+        lower_opts.expand_env = O.ExpandEnv(region_frags, {}, O.FillSet({}), {}, {}, "")
+    end
+    local result = Pipeline.lower_module_to_c(self:to_asdl(), lower_opts)
+    if #result.c_report.issues ~= 0 then
+        local msgs = {}
+        for i = 1, #result.c_report.issues do msgs[#msgs + 1] = tostring(result.c_report.issues[i]) end
+        error("bundle:emit_c validation failed: " .. table.concat(msgs, "\n"), 2)
+    end
+    return result.c_unit
+end
+
 function BundleValue:compile(opts)
     opts = opts or {}
     local program = self:_lower_program(opts)
@@ -263,6 +295,13 @@ function BundleValue:emit_object(opts)
     return artifact
 end
 
+function BundleValue:emit_c(opts)
+    opts = opts or {}
+    local unit = self:_lower_c_unit(opts)
+    local CEmit = require("moonlift.c_emit").Define(self.session.T)
+    return CEmit.emit(unit, opts)
+end
+
 function BundleValue:jit(opts)
     return self:compile(opts)
 end
@@ -275,6 +314,19 @@ function BundleValue:object(path_or_opts)
         artifact:write(opts.object_path)
     end
     return artifact
+end
+
+function BundleValue:c_source(path_or_opts)
+    local opts = path_or_opts or {}
+    if type(path_or_opts) == "string" then opts = { c_path = path_or_opts } end
+    local source = self:emit_c(opts)
+    local path = opts.c_path or opts.source_path
+    if path then
+        local f = assert(io.open(path, "wb"))
+        f:write(source)
+        f:close()
+    end
+    return source
 end
 
 function BundleValue:library(path_or_opts)
