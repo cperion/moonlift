@@ -43,7 +43,7 @@ ASDL.
 18. [Vectorization and facts](#18-vectorization-and-facts)
 19. [Error and diagnostic model](#19-error-and-diagnostic-model)
 20. [Intrinsics](#20-intrinsics)
-21. [Host memory and resource API](#21-host-memory-and-resource-api)
+21. [Memory Management Convention](#21-memory-management-convention)
 22. [Memory operations](#22-memory-operations)
 23. [Complete examples](#23-complete-examples)
 24. [Implementation/layer map](#24-implementationlayer-map)
@@ -3377,342 +3377,151 @@ through the Lua builder/ASDL API or provide a normal function binding.
 
 ---
 
-## 21. Host memory and resource API
+## 21. Memory Management Convention
 
 Moonlift's raw pointer and view operations are intentionally low-level. They do
 not, by themselves, express ownership, lifetimes, cleanup, arena reset policy,
-resource close policy, realtime constraints, or stale-handle behavior. Those
-facts belong in the Lua host layer, where memory topology is declared and then
-lowered to explicit Moonlift products and protocols.
+resource close policy, or stale-handle behavior. Those facts belong in the
+ordinary product forest and protocol graph.
 
-The canonical user-facing memory API is:
-
-```lua
-local mem = require "moonlift.mem"
-local M = mem.words()
-```
-
-For the full semantic method — how to reason from a problem to scopes, stores,
-arenas, resources, borrows, and cleanup protocols — read
-[`MEMORY_API_GUIDE.md`](MEMORY_API_GUIDE.md). This language reference defines
-the surface; the guide explains the design discipline.
-
-`moonlift.mem` is a hosted memory ceremony DSL. It is not a hidden garbage
-collector and not a second Moonlift type system. Its purpose is to make memory
-and resource safety visible at the declaration level:
+The convention is:
 
 ```text
-world       named memory universe
-scope       policy boundary: audio, ui, assets, graph, project, ...
-store       handle-indexed record storage, usually generation checked
-arena       bump allocation/reset domain
-resource    external resource table with explicit close outcomes
-borrow      dynamic raw-access window
-rule        declared policy such as no_general_alloc or no_resource_close
+Products own bytes.
+Regions control access.
+Protocols name failure.
 ```
 
-The law is:
+There is no separate memory DSL or memory API. A memory-sensitive subsystem
+declares its owners, handles, protocols, and regions directly. The design
+doctrine lives in Chapter 22 of [`THE_MOONLIFT_DESIGN_BIBLE.md`](THE_MOONLIFT_DESIGN_BIBLE.md).
 
-```text
-Lua writes the ritual.
-Moonlift checks the machine.
-```
+### 21.1 Design Method
 
-The host API may use Lua's pleasant syntax, but every meaningful memory concept
-must lower to named, inspectable Moonlift declarations: structs, handles,
-owners, input products, output protocols, and regions.
+Design memory from the outside inward:
 
-### 21.1 Canonical grammar
+1. Name the owner product.
+2. Decide whether access needs a stable handle.
+3. Name the access region.
+4. Name every failure or alternate outcome in the region protocol.
+5. Keep borrowed pointers/views inside the region extent or pass them into
+   sealed kernels.
+6. Name lifetime changes as `reset_*`, `publish_*`, `retire_*`, or `close_*`
+   regions.
 
-The memory API has three surface forms:
+Use the smallest model that fits:
 
-```text
-noun "name" { declaration }
-owner:verb { request } { outcomes }
-borrowed { dynamic_extent }
-```
+| Situation | Model |
+|---|---|
+| Same lifetime as parent | Field in the parent product |
+| Stable references, reuse, stale handles | `*Pool` / `*Store`, `*Ref`, `borrow_*` |
+| Temporary frame/block memory | `*Scratch` / arena, `reset_*` |
+| Host buffer for one call | Boundary region with views/pointers |
+| Version becomes visible | `publish_*` |
+| Old version is removed | `retire_*` |
+| External resource released | `close_*` |
 
-Mapped to Moonlift:
+Inline region signatures are the default. Name separate request/result products
+only when those products are real values that are stored, passed around, or
+reused by more than one region.
 
-```text
-noun declaration   -> structs, stores, handles, scopes, arenas, resources
-verb request       -> named Input product
-outcomes           -> named Output union/protocol and region continuations
-borrowed extent    -> dynamic lifetime of raw pointer/view access
-kernel call        -> sealed function with explicit ptr/view contracts
-```
+### 21.2 Stable Stores And Borrows
 
-### 21.2 Declaring memory topology
-
-A memory world is declared with words:
-
-```lua
-local mem = require "moonlift.mem"
-local M = mem.words()
-
-local DawMemory = M.world "DawMemory" {
-    M.scope "assets" {
-        M.store "audio_buffers" {
-            handle = "AudioBufferHandle",
-            record = AudioBufferRecord,
-            capacity = 16384,
-            generation = true,
-            publish = "immutable",
-        },
-
-        M.resource_table "files" {
-            kind = "File",
-            close = close_file,
-        },
-    },
-
-    M.scope "audio" {
-        M.arena "block" {
-            size = "8mb",
-            reset = "audio_quantum",
-            realtime = true,
-            allocation = "preallocated_only",
-        },
-
-        M.rule "no_general_alloc",
-        M.rule "no_resource_close",
-        M.rule "no_handle_discovery",
-    },
-}
-```
-
-This declaration is a topology, not an allocation. It names the owners and
-policies that generated code and runtime code must respect.
-
-The world is inspectable:
-
-```lua
-local summary = DawMemory:summary()
-local decls = DawMemory:declarations()
-local text = DawMemory:moonlift_declarations()
-```
-
-The current implementation provides the hosted DSL and generated declaration
-text. Deeper ASDL lowering is the next integration step; the generated names are
-already stable enough for review and tests.
-
-### 21.3 Generated shape
-
-A store declaration such as:
-
-```lua
-M.store "audio_buffers" {
-    handle = "AudioBufferHandle",
-    record = AudioBufferRecord,
-    generation = true,
-}
-```
-
-has the intended Moonlift shape:
+Use a typed handle when a reference can outlive a raw pointer:
 
 ```moonlift
-struct AudioBufferHandle
-    index: u32
-    generation: u32
+struct VoiceRef
+    index: u32,
+    generation: u16,
 end
 
-struct AudioBufferStoreOwner
-    records: ptr(AudioBufferRecord)
-    capacity: index
-    generation: u64
+struct VoicePool
+    states: ptr(VoiceState),
+    generations: ptr(u16),
+    cap: index,
+    active_count: index,
+    free_head: u32,
 end
 
-struct BorrowAudioBufferInput
-    owner: ptr(AudioBufferStoreOwner)
-    handle: AudioBufferHandle
+region borrow_voice_state(pool: ptr(VoicePool), voice: VoiceRef;
+    borrowed(state: ptr(VoiceState))
+  | stale_ref(voice: VoiceRef)
+  | already_free(voice: VoiceRef)) end
+```
+
+The region input is a product. The region output is a protocol sum. Inline
+region signatures are the default memory boundary. Name a separate request or
+result product only when the value is stored, passed around, or reused by more
+than one region.
+
+### 21.3 Arenas, Scratch, And Reset
+
+```moonlift
+struct ByteArena
+    data: ptr(u8),
+    cap: index,
+    used: index,
 end
 
-union BorrowAudioBufferOutput
-    borrowed(value: ptr(AudioBufferRecord))
-  | stale(handle: AudioBufferHandle)
-  | missing(handle: AudioBufferHandle)
+struct RenderScratch
+    arena: ByteArena,
+    voice_l: view(f32),
+    voice_r: view(f32),
 end
 
-region borrow_audio_buffer(input: BorrowAudioBufferInput;
-                           output: BorrowAudioBufferOutput)
+region reset_render_scratch(scratch: ptr(RenderScratch), shape: BlockShape;
+    reset
+  | bad_buffer
+  | wrong_thread) end
 ```
 
-The exact backend representation may evolve, but the design contract does not:
-borrow is a protocol with named outcomes, not a nullable pointer operation.
+Arena allocation is grouped ownership. If an object must be individually
+retired, use a pool/store protocol instead.
 
-### 21.4 Operations are protocols
+### 21.4 Host-Owned Buffers
 
-If a memory or resource operation can fail meaningfully, it is written as a
-handler table:
+Host-owned buffers are borrowed at ABI boundaries and passed as views or
+pointers into internal regions:
 
-```lua
-assets.audio_buffers:borrow {
-    handle = buffer,
-    as = moon.view(moon.f32),
-    access = "readonly",
-} {
-    borrowed = function(samples)
-        samples {
-            function(s)
-                gain_kernel(s.ptr, s.len, gain)
-            end
-        }
-    end,
-
-    stale = function(e)
-        report_stale(e.handle)
-    end,
-
-    missing = function(e)
-        report_missing(e.handle)
-    end,
-}
+```moonlift
+region enter_render_memory(synth: ptr(Synth),
+                           events: view(HostEvent),
+                           scratch: ptr(RenderScratch),
+                           out_l: view(f32),
+                           out_r: view(f32);
+    ready(program: ptr(PreparedProgram),
+          storage: ptr(SynthStorage),
+          scratch: ptr(RenderScratch),
+          events: view(HostEvent),
+          out_l: view(f32),
+          out_r: view(f32))
+  | no_program
+  | bad_buffer
+  | bad_state(code: i32)) end
 ```
 
-The first table is the request product. The second table is the output protocol.
-The `borrowed` handler receives a borrowed owner, not a raw pointer to keep.
+Do not cache host-owned raw pointers or views globally.
 
-The same rule applies to resource cleanup:
+### 21.5 Cleanup And Publication
 
-```lua
-assets.files:close { handle = file } {
-    closed = function() end,
-    stale = function(e) report_stale_file(e.handle) end,
-    missing = function(e) report_missing_file(e.handle) end,
-    already_closed = function(e) report_double_close(e.handle) end,
-}
+Close, reset, publish, retire, and generation bump are named operations with
+named outcomes. There are no semantic destructors:
+
+```moonlift
+region close_synth_storage(synth: ptr(Synth);
+    closed
+  | already_closed
+  | audio_busy) end
 ```
 
-There is no destructor folklore in Moonlift's memory model. Close, reset,
-publish, retire, and generation bump are named operations with named outcomes.
+### 21.6 Review Laws
 
-### 21.5 Borrowed values are dynamic extents
-
-A borrowed value is callable:
-
-```lua
-samples {
-    function(s)
-        render_kernel(s.ptr, s.len)
-    end
-}
-```
-
-This means:
-
-```text
-enter borrow extent
-expose typed pointer/view facts
-run continuation
-invalidate borrow
-```
-
-A raw pointer or view obtained through a borrow must not be cached, returned, or
-stored globally. The validity window is the call.
-
-Preferred:
-
-```lua
-buffers:borrow { handle = h } {
-    borrowed = function(buffer)
-        buffer {
-            function(b)
-                kernel(b.ptr, b.len)
-            end
-        }
-    end,
-
-    stale = function(e) report_stale(e.handle) end,
-    missing = function(e) report_missing(e.handle) end,
-}
-```
-
-Not preferred:
-
-```lua
-local ptr = buffers[h].ptr
-kernel(ptr, len)
-global_cache.ptr = ptr
-```
-
-The API makes the safe path natural and the unsafe path explicit enough to
-review.
-
-### 21.6 Arenas, marks, and cleanup
-
-Arena allocation is also scoped by dynamic extent:
-
-```lua
-DawMemory.audio {
-    runtime = runtime,
-    output = output,
-    frames = frames,
-} {
-    function(A)
-        A.output:borrow { as = moon.view(moon.f32), access = "writeonly" } {
-            borrowed = function(out)
-                A.block:mark {
-                    function(M)
-                        local tmp = M:array { of = moon.f32, count = out.len }
-                        tmp {
-                            function(t)
-                                render_audio_kernel(out.ptr, t.ptr, A.frames)
-                            end
-                        }
-                    end
-                }
-            end,
-
-            stale = function()
-                report_xrun "stale output"
-            end,
-        }
-    end
-}
-```
-
-The intended ceremony is explicit:
-
-```text
-enter scope
-borrow output
-mark arena
-allocate temporary storage
-call sealed kernel
-rewind arena to mark
-release borrow
-exit scope
-```
-
-Realtime rules such as `no_general_alloc`, `no_resource_close`, and
-`no_handle_discovery` are declared on scopes so tooling and later compiler
-passes can check them.
-
-### 21.7 Relationship to older memory APIs
-
-Older host memory modules are not deleted. They are substrate APIs:
-
-```text
-moonlift_sar.lua          dynamic LuaJIT scope/arena/resource mechanics
-host_arena_abi.lua        host arena ABI bridge
-host_arena_native.lua     native arena support
-buffer_view.lua           LuaJIT FFI buffer/view utilities
-```
-
-New user-facing code should prefer `moonlift.mem` for memory design. The older
-APIs remain useful for implementation, compatibility, experiments, and low-level
-host/runtime work. Over time, `moonlift.mem` should lower onto these substrates
-or replace their direct use in public examples.
-
-### 21.8 Hard laws
-
-1. Every memory word generates inspectable declarations.
-2. Every sugar form has a boring explicit equivalent.
-3. Meaningful failure is a protocol, not a null pointer or status code.
-4. Raw pointer/view access is a dynamic extent.
-5. Resource cleanup is explicit: no hidden ownership transfer, no destructors as
-   semantic requirements.
-6. Scope policy is declared where memory is declared.
+1. Every memory object has exactly one owner product.
+2. The model shape is chosen before pointer fields are written.
+3. Stable references are typed handles, not raw pointers.
+4. Meaningful failure is a protocol, not a null pointer or status code.
+5. Raw pointer/view access has a visible lifetime boundary.
+6. Cleanup and publication are explicit protocols.
 7. Hot kernels receive already-borrowed pointers/views and do not discover
    ownership themselves.
 
@@ -3971,7 +3780,6 @@ mlua_document_analysis.lua      editor/LSP document analysis over hosted islands
 -- Host bridge
 mlua_run.lua                    LuaJIT hosted island runner / antiquote bridge (backward compat; prefer require("moonlift"))
 host.lua                        quoting and table builder API entry point
-mem.lua                         canonical hosted memory/resource ceremony DSL
 host_session.lua                session management
 host_module_values.lua          module value construction
 host_func_values.lua            function value construction
@@ -4139,10 +3947,9 @@ monomorphic typed data
 + semantic as(T, value) conversion
 ```
 
-Lua supplies all genericity. Lua also supplies the hosted memory ceremony:
-worlds, scopes, stores, arenas, resources, borrow extents, and cleanup rituals.
-Those host declarations must lower to explicit products and protocols; memory
-failure is a named outcome, and raw access is a dynamic extent.
+Lua supplies all genericity. Memory management is ordinary Moonlift design:
+owner products, typed handles, request products, protocol sums, and access
+regions. Memory failure is a named outcome, and raw access is a dynamic extent.
 
 The backend consumes flat facts and commands — `BackCmd` values, not nested
 IR trees.

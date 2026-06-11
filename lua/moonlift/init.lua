@@ -56,7 +56,6 @@ M.c_tcc = require("moonlift.c_tcc")
 local _mlua_run = require("moonlift.mlua_run")
 
 M.std = require("moonlift.std")
-M.mem = require("moonlift.mem")
 M.views = M.std.views
 M.buffer_view = M.std.buffer_view
 M.host = M.std.host

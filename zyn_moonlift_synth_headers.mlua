@@ -23,8 +23,6 @@
 --   host-visible outcomes as ABI status integers only at the boundary.
 
 local moon = require("moonlift")
-local mem = require("moonlift.mem")
-local W = mem.words()
 
 local M = {
     sentence = "Consumes patch/program bytes, MIDI/host events, controller and transport facts, synth state, scratch, and output views; produces stereo audio blocks by preparing AD/SUB/PAD tone plans, routing explicit event/control protocols, rendering voices/effects, mixing parts, metering, and retiring voices.",
@@ -42,23 +40,8 @@ local M = {
     -- ABI seals.
     F = {},
 
-    -- Surface review notes; kept as plain comments in source and compact flags
-    -- here for tools that want to inspect the module value.
-    review = {
-        no_semantic_unions = true,
-        internal_status_codes_forbidden = true,
-        compose_with_regions = true,
-        seal_only_at_abi = true,
-        zyn_style_engines = "AD/SUB/PAD as tone-field protocols, not subclasses",
-        memory_is_declared_topology = true,
-        raw_access_is_dynamic_extent = true,
-        audio_thread_has_no_general_alloc_or_resource_close = true,
-    },
-
-    -- Host-side memory/resource topology.  Filled after the product graph is
-    -- declared so the memory world can point at the real product values.
-    Memory = nil,
-    memory_contract = nil,
+    -- This header is hand-authored Moonlift surface. Memory management is part
+    -- of the product forest and protocol graph below.
 }
 
 local E = M.enc
@@ -627,168 +610,13 @@ T.Synth = struct
 end
 
 -------------------------------------------------------------------------------
--- Memory and resource management topology
--------------------------------------------------------------------------------
-
--- Memory sentence:
---   Host resources are borrowed at ABI boundaries; persistent synth state is
---   preallocated before rendering; prepared programs and PAD tables are
---   immutable generation-tagged products; each audio block receives only
---   borrowed events/output views and preallocated scratch; the realtime path
---   may borrow, render, mix, and retire voices, but may not allocate generally,
---   close resources, discover handles, or rebuild caches.
---
--- This is host-side ceremony.  It does not replace the explicit products above
--- or the protocols below; it declares their ownership/lifetime policy and gives
--- tools a single memory topology to inspect.
-M.Memory = W.world "ZynSynthMemory" {
-    W.scope "host" {
-        W.resource_table "patch_sources" {
-            kind = "PatchSourceBytes",
-            ownership = "borrowed_from_host",
-            close = "host_owned",
-            publish = "immutable_for_call",
-        },
-
-        W.resource_table "audio_buffers" {
-            kind = "HostAudioBuffer",
-            ownership = "borrowed_from_host",
-            close = "host_owned",
-            access = "writeonly_output_views",
-        },
-
-        W.resource_table "event_buffers" {
-            kind = "HostEventBuffer",
-            ownership = "borrowed_from_host",
-            close = "host_owned",
-            access = "readonly_event_views",
-        },
-
-        W.rule "host_closes_os_resources",
-        W.rule "host_buffers_are_call_lifetime_borrows",
-    },
-
-    W.scope "persistent" {
-        W.arena "synth_storage" {
-            owner = "SynthStorage",
-            size = "synth_required_storage(max_voices, max_parts, max_block_frames)",
-            reset = "synth_init_only",
-            lifetime = "synth_instance",
-            allocation = "host_supplied_preallocated_only",
-        },
-
-        W.store "voices" {
-            base = "VoiceState",
-            handle = "VoiceRef",
-            owner = "VoicePool",
-            record = T.VoiceState,
-            capacity = "max_voices",
-            generation = true,
-            access = "audio_thread_mutates_state",
-        },
-
-        W.store "effects" {
-            base = "EffectState",
-            handle = "EffectRef",
-            owner = "EffectRack",
-            record = T.EffectState,
-            capacity = "effect_bus_count * slots_per_bus",
-            generation = true,
-            access = "audio_thread_mutates_state",
-        },
-
-        W.rule "no_realloc_while_audio_running",
-        W.rule "generation_bump_on_retire_or_rebuild",
-    },
-
-    W.scope "program" {
-        W.arena "program_prepare" {
-            owner = "PreparedProgramArena",
-            size = "patch_dependent_with_host_cap",
-            reset = "program_generation",
-            lifetime = "prepared_program_generation",
-            allocation = "non_realtime_only",
-        },
-
-        W.store "prepared_programs" {
-            base = "PreparedProgram",
-            handle = "ProgramRef",
-            owner = "PreparedProgramStore",
-            record = T.PreparedProgram,
-            capacity = "double_buffered_or_host_selected",
-            generation = true,
-            publish = "immutable_after_validate_program",
-        },
-
-        W.store "pad_tables" {
-            base = "PadTable",
-            handle = "PadTableRef",
-            owner = "PadCache",
-            record = "f32",
-            borrowed = "view(f32)",
-            capacity = "pad_cache.total_frames",
-            generation = true,
-            publish = "immutable_after_rebuild_pad_cache",
-        },
-
-        W.rule "prepare_program_not_on_audio_thread",
-        W.rule "pad_cache_rebuild_not_on_audio_thread",
-        W.rule "published_programs_are_readonly_for_audio",
-    },
-
-    W.scope "audio" {
-        W.arena "block" {
-            owner = "RenderScratch",
-            size = "derived_from_max_block_frames_and_bus_count",
-            reset = "audio_quantum",
-            lifetime = "one_render_block",
-            realtime = true,
-            allocation = "preallocated_only",
-        },
-
-        W.resource_table "voice_state_borrows" {
-            kind = "VoiceStateBorrow",
-            ownership = "dynamic_extent_from_persistent_voice_pool",
-            close = "release_at_borrow_return",
-            access = "borrow_mut_for_voice_lifecycle_and_render",
-        },
-
-        W.resource_table "render_borrows" {
-            kind = "RenderBlockBorrowSet",
-            ownership = "borrowed_for_synth_render_block_call",
-            close = "release_at_return",
-            contains = "events, output views, scratch views, published program pointer",
-        },
-
-        W.rule "no_general_alloc",
-        W.rule "no_resource_close",
-        W.rule "no_handle_discovery",
-        W.rule "no_program_publish",
-        W.rule "no_pad_cache_rebuild",
-        W.rule "only_dynamic_extent_raw_access",
-    },
-}
-
-M.memory_contract = {
-    persistent_owner = "SynthStorage owns VoicePool, ControlBank, PadCache, EffectRack, and backing arenas for the synth lifetime.",
-    program_owner = "PreparedProgram and PAD table data are produced off the audio thread, validated, generation tagged, then published readonly to render_block.",
-    audio_owner = "render_block receives borrowed event/output views and RenderScratch; all temporary memory is reset at the audio quantum boundary.",
-    host_owner = "Patch bytes, event buffers, output buffers, files, and OS resources are host-owned; the synth borrows them only for explicit ABI calls.",
-    cleanup = "Cleanup is explicit: retire_voice, panic_voices, arena reset, program generation replacement, and host-owned resource close are named operations, not destructors.",
-    realtime_forbidden = {
-        "general allocation",
-        "resource close",
-        "handle discovery",
-        "program publish",
-        "pad cache rebuild",
-        "persistent storage resize",
-        "raw pointer escape beyond borrow extent",
-    },
-}
-
--------------------------------------------------------------------------------
 -- Memory, borrow, lifetime, and cleanup protocols
 -------------------------------------------------------------------------------
+
+-- ProgramRef carries bank/program coordinates, EffectRef carries bus/slot
+-- coordinates, and VoicePool/PadCache/EffectRack have domain-specific layouts.
+-- The memory model is declared directly in region signatures; there is no
+-- parallel memory topology and no one-use request/result wrapper layer.
 
 R.borrow_published_program = region(synth: ptr(Synth);
     borrowed(program: ptr(PreparedProgram), generation: u16)
@@ -807,21 +635,21 @@ R.retire_prepared_program = region(synth: ptr(Synth), program: ProgramRef;
     | stale_ref(program: ProgramRef)
     | missing(program: ProgramRef)) end
 
-R.borrow_voice_state = region(pool: ptr(VoicePool), v: VoiceRef;
+R.borrow_voice_state = region(pool: ptr(VoicePool), voice: VoiceRef;
     borrowed(state: ptr(VoiceState))
-    | stale_ref(v: VoiceRef)
-    | already_free(v: VoiceRef)) end
+    | stale_ref(voice: VoiceRef)
+    | already_free(voice: VoiceRef)) end
 
 R.borrow_effect_state = region(rack: ptr(EffectRack), effect: EffectRef;
     borrowed(state: ptr(EffectState))
     | stale_ref(effect: EffectRef)
     | missing(effect: EffectRef)) end
 
-R.borrow_pad_table = region(cache: ptr(PadCache), ref: PadTableRef;
+R.borrow_pad_table = region(cache: ptr(PadCache), table: PadTableRef;
     borrowed(samples: view(f32))
-    | stale_ref(ref: PadTableRef)
-    | missing_cache(ref: PadTableRef)
-    | rebuilding(ref: PadTableRef)) end
+    | stale_ref(table: PadTableRef)
+    | missing_cache(table: PadTableRef)
+    | rebuilding(table: PadTableRef)) end
 
 R.reset_render_scratch = region(scratch: ptr(RenderScratch), shape: BlockShape;
     reset
