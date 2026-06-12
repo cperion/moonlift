@@ -15,6 +15,17 @@ local ret = add.func.body[1].value
 assert(pvm.classof(ret) == Tr.ExprBinary)
 print("OK: func ASDL correct")
 
+local header_body_only = Host.eval [=[
+local add = func add(a: i32, b: i32): i32 end
+return add[[ return a + b ]]
+]=]
+assert(header_body_only.kind == "func")
+assert(header_body_only.name == "add")
+local header_body_only_cls = pvm.classof(header_body_only.func)
+assert(header_body_only_cls == Tr.FuncLocal or header_body_only_cls == Tr.FuncExport)
+assert(#header_body_only.func.body == 1)
+print("OK: func header body-only")
+
 -- Compile if JIT available
 local ok_c, compiled = pcall(function() return add:compile() end)
 if ok_c then

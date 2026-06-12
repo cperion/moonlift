@@ -196,7 +196,8 @@ local function split_region_impl_island(text)
     --
     -- This is intentionally conservative: the reference is a Lua identifier or
     -- dotted identifier chain. More complex expressions can still use the
-    -- explicit header[[body]] form.
+    -- explicit header[[body]] form. The final region `end` belongs to the
+    -- shorthand syntax and is stripped before the header is called.
     local ref, body = text:match("^%s*region%s+([^\r\n]+)\r\n(.*)$")
     if not ref then ref, body = text:match("^%s*region%s+([^\r\n]+)\n(.*)$") end
     if not ref then return nil end
@@ -210,7 +211,10 @@ local function split_region_impl_island(text)
     end
     if not valid_ref then return nil end
     if not body:match("^%s*entry%f[^%w_]") and not body:match("^%s*block%f[^%w_]") then return nil end
-    return ref, body
+    local trimmed = body:gsub("%s+$", "")
+    local s = trimmed:find("end%s*$")
+    if not s then return nil end
+    return ref, trimmed:sub(1, s - 1):gsub("%s+$", "")
 end
 
 local api_name_for_kind = {

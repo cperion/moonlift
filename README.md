@@ -482,18 +482,18 @@ end]]
 --    header closure instead of ASDL. The closure is then called with
 --    the body string. @{} is NOT available here (no bindings table).
 local header = moon.func [[add(a: i32, b: i32): i32]]
-local add    = header [[return a + b end]]
+local add    = header [[return a + b]]
 
 -- The two steps collapse into one expression:
 local add = moon.func [[add(a: i32, b: i32): i32]]
-                      [[return a + b end]]
+                      [[return a + b]]
 
 -- ④ Binder → header closure → body  (all three in one expression)
 --    {bindings} seeds the binding scope. Both the header string and the
 --    body string can use @{key} — they share the same accumulated bindings.
 local add = moon.func { T = moon.i32 }
                       [[add(a: @{T}, b: @{T}): @{T}]]   -- @{T} resolved here
-                      [[return a + b end]]                 -- @{T} also available here
+                      [[return a + b]]                     -- @{T} also available here
 
 -- ⑤ Header closure + extra bindings injected mid-chain
 --    The header itself has no bindings yet (plain [[...]] call), so @{}
@@ -502,9 +502,9 @@ local add = moon.func { T = moon.i32 }
 local generic_header = moon.func [[add(a: @{T}, b: @{T}): @{T}]]
 --                              ^^^ no @{} resolved yet — parsed but slots left open
 
-local add_i32 = generic_header { T = moon.i32 } [[return a + b end]]
+local add_i32 = generic_header { T = moon.i32 } [[return a + b]]
 --                             ^^^^^^^^^^^^^^ bindings provided here, @{T} resolved
-local add_f64 = generic_header { T = moon.f64 } [[return a + b end]]
+local add_f64 = generic_header { T = moon.f64 } [[return a + b]]
 
 -- ⑥ Table builder — integer-keyed, no quotes involved
 --    moon.params / moon.fields / moon.variants etc. use this path.
@@ -537,6 +537,8 @@ the parsed result is a *bodyless declaration*, `wrap_fn` returns a
 That closure carries the accumulated bindings from all `{...}` steps so far.
 Calling the header closure with a body string resolves any `@{key}` in
 that string from the same accumulated bindings, then produces final ASDL.
+Header calls take body-only strings: no repeated outer declaration and no
+outer closing `end`.
 Calling it with a `{table}` merges more bindings and returns a new header
 closure.  The chain terminates exactly once, when a fully-resolved ASDL
 value is produced.

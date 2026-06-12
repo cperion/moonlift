@@ -24,6 +24,20 @@ assert(impl.frag.entry.label.name == "loop")
 assert(#impl.frag.params == 2)
 assert(#impl.frag.conts == 2)
 
+local body_only = run([==[
+local scan = region scan(; done) end
+local impl = scan[[
+entry start()
+    jump done()
+end
+]]
+return impl
+]==])
+
+assert(body_only.kind == "region_frag")
+assert(body_only.name == "scan")
+assert(body_only.frag.entry.label.name == "start")
+
 local reassigned = run([==[
 local scan = region scan(; done) end
 scan = region scan

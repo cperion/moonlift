@@ -296,6 +296,15 @@ end
 
 M.switch_arms = make_quote(parse_switch_arms_quote, wrap_switch_arms_quote, expand_switch_arms_quote, api.switch_arms)
 
+local function strip_bodyless_decl_end(src)
+    local trimmed = tostring(src or ""):gsub("%s+$", "")
+    local s = trimmed:find("end%s*$")
+    if s and (s == 1 or not trimmed:sub(s - 1, s - 1):match("[%w_]")) then
+        return (trimmed:sub(1, s - 1):gsub("%s+$", ""))
+    end
+    return trimmed
+end
+
 M.func = make_quote(
     function(T, src) return require("moonlift.parse").Define(T).parse_func(src, parser_opts_with_decl_maps()) end,
     function(value, parsed, T, src, bindings)
@@ -344,15 +353,23 @@ M.func = make_quote(
                                     return "@{" .. k .. "}"
                                 end))
                             end
-                            -- Add "func" prefix if not present in the source
                             local header_src = resolve_bindings(sig_src)
                             if not header_src:match("^func") then
                                 header_src = "func " .. header_src
                             end
-                            local full = header_src .. "\n" .. arg .. "\nend"
+                            if arg:match("^%s*func%f[^%w_]") then
+                                error("moon.func header expects a body-only string, not a complete func", 2)
+                            end
+                            local full = strip_bodyless_decl_end(header_src) .. "\n" .. arg .. "\nend"
                             local res = require("moonlift.parse").Define(T2).parse_func(full)
                             local fv = res.value or res
                             if pvm2.classof(fv) == Tr2.ItemFunc then fv = fv.func end
+                            local cls = pvm2.classof(fv)
+                            if cls ~= Tr2.FuncLocal and cls ~= Tr2.FuncExport
+                               and cls ~= Tr2.FuncLocalContract and cls ~= Tr2.FuncExportContract then
+                                local issue = res.issues and res.issues[1]
+                                error((issue and issue.message) or "moon.func header body did not parse as a function implementation", 2)
+                            end
                             -- Build params from the COMPILED FuncLocal (fv) — these have the overridden types
                             local new_params = {}
                             local new_result = fv.result
@@ -402,15 +419,6 @@ M.func = make_quote(
     end
 )
 
-local function strip_bodyless_region_end(src)
-    local trimmed = tostring(src or ""):gsub("%s+$", "")
-    local s, e = trimmed:find("end%s*$")
-    if s and (s == 1 or not trimmed:sub(s - 1, s - 1):match("[%w_]") ) then
-        return (trimmed:sub(1, s - 1):gsub("%s+$", ""))
-    end
-    return trimmed
-end
-
 local function merge_bindings(a, b)
     local out = {}
     for k, v in pairs(a or {}) do out[k] = v end
@@ -444,22 +452,22 @@ M.region = make_quote(
                     if type(arg) ~= "string" then
                         error("moon.region header expects a body string [[]] or binding table {}", 2)
                     end
-                    local body_src = arg
-                    local full
-                    if body_src:match("^%s*region%f[^%w_]") then
-                        -- Backward-compatible escape hatch: a complete region quote can
-                        -- still be supplied directly. The pure .mlua implementation
-                        -- shorthand passes a body-only string and takes the path below.
-                        full = body_src
-                    else
-                        if not self._src then error("moon.region header is missing its source signature", 2) end
-                        full = strip_bodyless_region_end(self._src) .. "\n" .. body_src
+                    if arg:match("^%s*region%f[^%w_]") then
+                        error("moon.region header expects a body-only string, not a complete region", 2)
                     end
+                    if not self._src then error("moon.region header is missing its source signature", 2) end
+                    local full = strip_bodyless_decl_end(self._src) .. "\n" .. arg .. "\nend"
                     local merged = self._bindings or {}
+                    local value
                     if has_bindings(merged) then
-                        return M.region(merged)(full)
+                        value = M.region(merged)(full)
+                    else
+                        value = M.region(full)
                     end
-                    return M.region(full)
+                    if type(value) ~= "table" or (value.kind ~= "region_frag" and value.moonlift_quote_kind ~= "region_frag") then
+                        error("moon.region header body did not produce a region implementation", 2)
+                    end
+                    return value
                 end,
             })
         end

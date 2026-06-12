@@ -2130,12 +2130,12 @@ local add = moon.func[[ add(a: i32, b: i32): i32 ]]
 -- It stores: name, params, result — no compiled code yet
 
 -- Provide the body — returns a callable native function
-local compiled = add[[ return a + b end ]]
+local compiled = add[[ return a + b ]]
 print(compiled(3, 4))  -- 7
 compiled:free()
 
 -- One-shot: both sig and body at once
-local f = moon.func[[ sub(a: i32, b: i32): i32 ]][[ return a - b end ]]
+local f = moon.func[[ sub(a: i32, b: i32): i32 ]][[ return a - b ]]
 print(f(10, 3))  -- 7
 f:free()
 ```
@@ -2166,10 +2166,14 @@ e.kind   -- "extern_func"
 
 A signature closure can be:
 - **Stored**: put it in a table, return it from a module, pass it to a function
-- **Compiled**: `h[[ return value end ]]` returns a CallableFunc
-- **Specialized**: `h{ T = f64 }[[ return a end ]]` overrides bindings, then compiles
+- **Compiled**: `h[[ return value ]]` returns a CallableFunc
+- **Specialized**: `h{ T = f64 }[[ return a ]]` overrides bindings, then compiles
 - **Composed**: pass it in a values table to another function as a dependency
 - **Ignored**: never called, never compiles, produces no code, no error
+
+Header calls take body-only strings. Do not include the outer `func`/`region`
+declaration and do not include the outer closing `end`; the header closure
+supplies that boundary.
 
 ### 15.2 Bindings and specialization
 
@@ -2182,13 +2186,13 @@ signature before compiling the body.
 local h = moon.func{ T = moon.i32 }[[ add(a: @{T}, b: @{T}): @{T} ]]
 
 -- Same bindings, provide body
-local f = h{}[[ return a + b end ]]
--- equivalent to: h{ T = moon.i32 }[[ return a + b end ]]
+local f = h{}[[ return a + b ]]
+-- equivalent to: h{ T = moon.i32 }[[ return a + b ]]
 print(f(3, 4))  -- 7
 f:free()
 
 -- Override bindings to specialize
-local g = h{ T = moon.f64 }[[ return a + b end ]]
+local g = h{ T = moon.f64 }[[ return a + b ]]
 print(g(3.5, 2.5))  -- 6.0
 g:free()
 
@@ -2214,9 +2218,9 @@ return {
 ```lua
 -- app.mlua — implementation
 local T = require("types")
-local load = T.load[[ return some_calc(id) end ]]
-local mul_f32 = T.mul{}[[ return a * b end ]]
-local mul_f64 = T.mul{ T = moon.f64 }[[ return a * b end ]]
+local load = T.load[[ return some_calc(id) ]]
+local mul_f32 = T.mul{}[[ return a * b ]]
+local mul_f64 = T.mul{ T = moon.f64 }[[ return a * b ]]
 ```
 
 The header module carries the **product graph** (structs) and **protocol graph**
@@ -2640,8 +2644,8 @@ return {
 -- ============ app.mlua ============
 -- This module provides the bodies.
 local types = require("types")
-local load = types.load[[ return some_op(id) end ]]
-local mul = types.mul{}[[ return a * b end ]]
+local load = types.load[[ return some_op(id) ]]
+local mul = types.mul{}[[ return a * b ]]
 ```
 
 The header closure can be:
@@ -2713,14 +2717,14 @@ return {
 -- opengl.mlua — OpenGL backend
 local R = require("render")
 local render_gl = R.render[[ glDrawElements(m.verts, m.count) end ]]
-local load_gl   = R.load[[ return loadObj(path) end ]]
+local load_gl   = R.load[[ return loadObj(path) ]]
 ```
 
 ```lua
 -- vulkan.mlua — Vulkan backend (same header, different specialization)
 local R = require("render")
 local render_vk = R.render[[ vkCmdDraw(m.verts, m.count) end ]]
-local load_vk   = R.load[[ return loadVkMesh(path) end ]]
+local load_vk   = R.load[[ return loadVkMesh(path) ]]
 ```
 
 The header is the contract. A backend that provides a body with mismatched
@@ -2740,14 +2744,14 @@ local DB = {
 
 -- Production implementation
 local prod = {
-    query = DB.query[[ return pg_query(db, sql) end ]],
+    query = DB.query[[ return pg_query(db, sql) ]],
     close = DB.close[[ pg_close(db) end ]],
 }
 
 -- Mock implementation — same header, different bodies
 -- Both are type-checked against the same signatures
 local mock = {
-    query = DB.query[[ return "mock_result" end ]],
+    query = DB.query[[ return "mock_result" ]],
     close = DB.close[[ end ]],
 }
 
