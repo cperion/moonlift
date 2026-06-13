@@ -254,6 +254,69 @@ function M.Define(T, cb)
         return out
     end
 
+    local function param_name_set(params)
+        local set = {}
+        for i = 1, #(params or {}) do set[params[i].name] = true end
+        return set
+    end
+
+    local function merge_param_maps(parent, local_map)
+        if parent == nil then return local_map end
+        if local_map == nil then return parent end
+        local out = {}
+        for k, v in pairs(parent) do out[k] = v end
+        for k, v in pairs(local_map) do out[k] = v end
+        return out
+    end
+
+    local function args_with_capture_args(args, captures, wanted)
+        if wanted == nil or #(captures or {}) == 0 then return args end
+        local seen = {}
+        local out = {}
+        for i = 1, #(args or {}) do
+            out[#out + 1] = args[i]
+            seen[args[i].name] = true
+        end
+        for i = 1, #captures do
+            local name = captures[i].name
+            if wanted[name] and not seen[name] then
+                out[#out + 1] = Tr.JumpArg(name, Tr.ExprRef(Tr.ExprSurface, B.ValueRefName(name)))
+                seen[name] = true
+            end
+        end
+        return out
+    end
+
+    local function add_capture_args_to_enclosing_jumps(stmts, target_param_map, captures)
+        if target_param_map == nil or #(captures or {}) == 0 then return stmts end
+        local out = {}
+        for i = 1, #stmts do
+            local stmt = stmts[i]
+            local cls = pvm.classof(stmt)
+            if cls == Tr.StmtJump and target_param_map[stmt.target.name] ~= nil then
+                out[i] = pvm.with(stmt, { args = args_with_capture_args(stmt.args, captures, target_param_map[stmt.target.name]) })
+            elseif cls == Tr.StmtIf then
+                out[i] = pvm.with(stmt, {
+                    then_body = add_capture_args_to_enclosing_jumps(stmt.then_body, target_param_map, captures),
+                    else_body = add_capture_args_to_enclosing_jumps(stmt.else_body, target_param_map, captures),
+                })
+            elseif cls == Tr.StmtSwitch then
+                local arms = {}
+                for j = 1, #stmt.arms do arms[j] = pvm.with(stmt.arms[j], { body = add_capture_args_to_enclosing_jumps(stmt.arms[j].body, target_param_map, captures) }) end
+                local variant_arms = {}
+                for j = 1, #(stmt.variant_arms or {}) do variant_arms[j] = pvm.with(stmt.variant_arms[j], { body = add_capture_args_to_enclosing_jumps(stmt.variant_arms[j].body, target_param_map, captures) }) end
+                out[i] = pvm.with(stmt, {
+                    arms = arms,
+                    variant_arms = variant_arms,
+                    default_body = add_capture_args_to_enclosing_jumps(stmt.default_body, target_param_map, captures),
+                })
+            else
+                out[i] = stmt
+            end
+        end
+        return out
+    end
+
     local function rebase_stmts(stmts, map, frag, captures)
         local out = {}
         for i = 1, #stmts do
@@ -320,19 +383,51 @@ function M.Define(T, cb)
         return nil
     end
 
-    local function instantiate_cont_fills(frag, cont_fills)
+    local function merge_label_maps(parent, local_map)
+        if parent == nil then return local_map end
+        if local_map == nil then return parent end
+        local out = {}
+        for k, v in pairs(parent) do out[k] = v end
+        for k, v in pairs(local_map) do out[k] = v end
+        return out
+    end
+
+    local function rebase_cont_target(target, map)
+        if map == nil or target == nil then return target end
+        local cls = pvm.classof(target)
+        if cls == O.ContTargetLabel then return O.ContTargetLabel(rebase_label(target.label, map)) end
+        return target
+    end
+
+    local function instantiate_cont_fills(frag, cont_fills, enclosing_map)
         local out = {}
         for i = 1, #(cont_fills or {}) do
             local fill = cont_fills[i]
             local slot = cont_slot_by_name(frag, fill.name)
-            if slot ~= nil then out[#out + 1] = O.ContBinding(slot.key, fill.target) end
+            if slot ~= nil then out[#out + 1] = O.ContBinding(slot.key, rebase_cont_target(fill.target, enclosing_map)) end
         end
         return out
     end
 
     local normalize_stmts
 
-    local function normalize_region_frag_use(stmt, env, stack)
+    local function frag_target_param_map(frag, map, captures)
+        local out = {}
+        local function set_for(params)
+            local set = {}
+            for i = 1, #frag.params do set[runtime_param_name(frag.params[i])] = true end
+            for i = 1, #(captures or {}) do set[captures[i].name] = true end
+            for i = 1, #(params or {}) do set[params[i].name] = true end
+            return set
+        end
+        out[map[frag.entry.label.name].name] = set_for(frag.entry.params)
+        for i = 1, #frag.blocks do
+            out[map[frag.blocks[i].label.name].name] = set_for(frag.blocks[i].params)
+        end
+        return out
+    end
+
+    local function normalize_region_frag_use(stmt, env, stack, enclosing_map, target_param_map)
         local frag = cb.lookup_region_frag_ref(stmt.frag, env)
         if frag == pvm.NIL then
             return pvm.with(stmt, { h = one_expand_stmt_header(stmt.h, env), args = expand_exprs(stmt.args, env) }), {}
@@ -346,11 +441,12 @@ function M.Define(T, cb)
         for i = 1, #frag.params do
             runtime_param_bindings[#runtime_param_bindings + 1] = O.ParamBinding(frag.params[i], runtime_param_expr(frag.params[i]))
         end
-        local cont_bindings = instantiate_cont_fills(frag, stmt.cont_fills)
+        local cont_bindings = instantiate_cont_fills(frag, stmt.cont_fills, enclosing_map)
         local local_env = cb.env_at_path(cb.env_with_fills_conts_and_params(env, stmt.fills, cont_bindings, runtime_param_bindings), child_path)
         local init_env = cb.env_at_path(cb.env_with_fills_conts_and_params(env, stmt.fills, cont_bindings, cb.frag_param_bindings(frag.params, stmt.args, env)), child_path)
         local map = label_map_for_frag(frag, child_path)
         local capture_params, capture_args = capture_runtime_params(frag, env)
+        local nested_target_param_map = merge_param_maps(target_param_map, frag_target_param_map(frag, map, capture_params))
 
         local entry_params, entry_args = append_all(runtime_block_params(frag, local_env), capture_params), {}
         for i = 1, #frag.params do
@@ -363,8 +459,9 @@ function M.Define(T, cb)
             entry_args[#entry_args + 1] = Tr.JumpArg(p.name, one_expand_expr(p.init, init_env))
         end
 
-        local entry_body, entry_nested = normalize_stmts(rewrite_runtime_stmts(frag.entry.body, frag), local_env, child_stack)
-        local entry_body2 = cb.expand_stmts(rebase_stmts(entry_body, map, frag, capture_params), local_env)
+        local nested_enclosing_map = merge_label_maps(enclosing_map, map)
+        local entry_body, entry_nested = normalize_stmts(rewrite_runtime_stmts(frag.entry.body, frag), local_env, child_stack, nested_enclosing_map, nested_target_param_map)
+        local entry_body2 = add_capture_args_to_enclosing_jumps(cb.expand_stmts(rebase_stmts(entry_body, map, frag, capture_params), local_env), nested_target_param_map, capture_params)
         local blocks = { Tr.ControlBlock(map[frag.entry.label.name], entry_params, entry_body2) }
         for i = 1, #entry_nested do blocks[#blocks + 1] = rebase_control_block_body(entry_nested[i], map, frag, capture_params) end
 
@@ -374,8 +471,8 @@ function M.Define(T, cb)
             for j = 1, #block.params do
                 params[#params + 1] = pvm.with(block.params[j], { ty = one_expand_type(block.params[j].ty, local_env) })
             end
-            local block_body, block_nested = normalize_stmts(rewrite_runtime_stmts(block.body, frag), local_env, child_stack)
-            local block_body2 = cb.expand_stmts(rebase_stmts(block_body, map, frag, capture_params), local_env)
+            local block_body, block_nested = normalize_stmts(rewrite_runtime_stmts(block.body, frag), local_env, child_stack, nested_enclosing_map, nested_target_param_map)
+            local block_body2 = add_capture_args_to_enclosing_jumps(cb.expand_stmts(rebase_stmts(block_body, map, frag, capture_params), local_env), nested_target_param_map, capture_params)
             blocks[#blocks + 1] = Tr.ControlBlock(map[block.label.name], params, block_body2)
             for j = 1, #block_nested do blocks[#blocks + 1] = rebase_control_block_body(block_nested[j], map, frag, capture_params) end
         end
@@ -383,18 +480,18 @@ function M.Define(T, cb)
         return Tr.StmtJump(one_expand_stmt_header(stmt.h, env), map[frag.entry.label.name], entry_args), blocks
     end
 
-    normalize_stmts = function(stmts, env, stack)
+    normalize_stmts = function(stmts, env, stack, enclosing_map, target_param_map)
         local body, blocks = {}, {}
         for i = 1, #stmts do
             local stmt = stmts[i]
             local cls = pvm.classof(stmt)
             if cls == Tr.StmtUseRegionFrag then
-                local jump, more_blocks = normalize_region_frag_use(stmt, env, stack)
+                local jump, more_blocks = normalize_region_frag_use(stmt, env, stack, enclosing_map, target_param_map)
                 body[#body + 1] = jump
                 append_all(blocks, more_blocks)
             elseif cls == Tr.StmtIf then
-                local then_body, then_blocks = normalize_stmts(stmt.then_body, env, stack)
-                local else_body, else_blocks = normalize_stmts(stmt.else_body, env, stack)
+                local then_body, then_blocks = normalize_stmts(stmt.then_body, env, stack, enclosing_map, target_param_map)
+                local else_body, else_blocks = normalize_stmts(stmt.else_body, env, stack, enclosing_map, target_param_map)
                 body[#body + 1] = pvm.with(stmt, {
                     h = one_expand_stmt_header(stmt.h, env),
                     cond = one_expand_expr(stmt.cond, env),
@@ -407,17 +504,17 @@ function M.Define(T, cb)
                 local arms = {}
                 local expanded_arms = expand_switch_stmt_arms(stmt.arms, env)
                 for j = 1, #expanded_arms do
-                    local arm_body, arm_blocks = normalize_stmts(expanded_arms[j].body, env, stack)
+                    local arm_body, arm_blocks = normalize_stmts(expanded_arms[j].body, env, stack, enclosing_map, target_param_map)
                     arms[#arms + 1] = pvm.with(expanded_arms[j], { body = arm_body })
                     append_all(blocks, arm_blocks)
                 end
                 local variant_arms = {}
                 for j = 1, #(stmt.variant_arms or {}) do
-                    local arm_body, arm_blocks = normalize_stmts(stmt.variant_arms[j].body, env, stack)
+                    local arm_body, arm_blocks = normalize_stmts(stmt.variant_arms[j].body, env, stack, enclosing_map, target_param_map)
                     variant_arms[#variant_arms + 1] = pvm.with(stmt.variant_arms[j], { body = arm_body })
                     append_all(blocks, arm_blocks)
                 end
-                local default_body, default_blocks = normalize_stmts(stmt.default_body, env, stack)
+                local default_body, default_blocks = normalize_stmts(stmt.default_body, env, stack, enclosing_map, target_param_map)
                 body[#body + 1] = pvm.with(stmt, {
                     h = one_expand_stmt_header(stmt.h, env),
                     value = one_expand_expr(stmt.value, env),
@@ -446,7 +543,61 @@ function M.Define(T, cb)
         return body, blocks
     end
 
-    local function normalize_entry_block(block, env)
+    local function generated_label_prefix(label)
+        local name = label and label.name
+        if type(name) ~= "string" then return nil end
+        return name:match("^(.*)%.[^%.]+$")
+    end
+
+    local function generated_label_tail(label)
+        local name = label and label.name
+        if type(name) ~= "string" then return nil end
+        return name:match("^.*%.([^%.]+)$")
+    end
+
+    local function sibling_label_map_for_region(region, anchor_label)
+        local prefix = generated_label_prefix(anchor_label)
+        if prefix == nil or prefix == "" then return nil, nil end
+        local map = {}
+        local function add(label)
+            if generated_label_prefix(label) == prefix then
+                local tail = generated_label_tail(label)
+                if tail ~= nil then map[tail] = label end
+            end
+        end
+        add(region.entry.label)
+        for i = 1, #region.blocks do add(region.blocks[i].label) end
+        return map, prefix
+    end
+
+    local function env_for_prefix(env, prefix)
+        if prefix == nil or prefix == "" then return env end
+        return cb.env_at_path(env, prefix)
+    end
+
+    local function env_with_block_runtime_params(env, params)
+        local bindings = {}
+        for i = 1, #(params or {}) do
+            local p = params[i]
+            if type(p.name) == "string" and p.name:match("^__rt_") then
+                bindings[#bindings + 1] = O.ParamBinding(
+                    O.OpenParam("capture:" .. p.name, p.name, p.ty),
+                    Tr.ExprRef(Tr.ExprSurface, B.ValueRefName(p.name))
+                )
+            end
+        end
+        if #bindings == 0 then return env end
+        return cb.env_with_fills_conts_and_params(env, {}, {}, bindings)
+    end
+
+    local function region_target_param_map(region)
+        local out = {}
+        out[region.entry.label.name] = param_name_set(region.entry.params)
+        for i = 1, #region.blocks do out[region.blocks[i].label.name] = param_name_set(region.blocks[i].params) end
+        return out
+    end
+
+    local function normalize_entry_block(block, env, enclosing_map, target_param_map)
         local params = {}
         for i = 1, #block.params do
             params[#params + 1] = pvm.with(block.params[i], {
@@ -454,25 +605,31 @@ function M.Define(T, cb)
                 init = one_expand_expr(block.params[i].init, env),
             })
         end
-        local body, blocks = normalize_stmts(block.body, env, { order = {}, seen = {} })
+        local body, blocks = normalize_stmts(block.body, env, { order = {}, seen = {} }, enclosing_map, target_param_map)
         return pvm.with(block, { params = params, body = body }), blocks
     end
 
-    local function normalize_control_block(block, env)
+    local function normalize_control_block(block, env, enclosing_map, target_param_map)
+        env = env_with_block_runtime_params(env, block.params)
         local params = {}
         for i = 1, #block.params do
             params[#params + 1] = pvm.with(block.params[i], { ty = one_expand_type(block.params[i].ty, env) })
         end
-        local body, blocks = normalize_stmts(block.body, env, { order = {}, seen = {} })
+        local body, blocks = normalize_stmts(block.body, env, { order = {}, seen = {} }, enclosing_map, target_param_map)
         return pvm.with(block, { params = params, body = body }), blocks
     end
 
     local function normalize_control_stmt_region(region, env)
-        local entry, entry_blocks = normalize_entry_block(region.entry, env)
+        local target_param_map = region_target_param_map(region)
+        local entry_map, entry_prefix = sibling_label_map_for_region(region, region.entry.label)
+        local entry_env = env_for_prefix(env, entry_prefix)
+        local entry, entry_blocks = normalize_entry_block(region.entry, entry_env, entry_map, target_param_map)
         local blocks = {}
         append_all(blocks, entry_blocks)
         for i = 1, #region.blocks do
-            local block, more = normalize_control_block(region.blocks[i], env)
+            local block_map, block_prefix = sibling_label_map_for_region(region, region.blocks[i].label)
+            local block_env = env_for_prefix(env, block_prefix)
+            local block, more = normalize_control_block(region.blocks[i], block_env, block_map, target_param_map)
             blocks[#blocks + 1] = block
             append_all(blocks, more)
         end
@@ -480,11 +637,16 @@ function M.Define(T, cb)
     end
 
     local function normalize_control_expr_region(region, env)
-        local entry, entry_blocks = normalize_entry_block(region.entry, env)
+        local target_param_map = region_target_param_map(region)
+        local entry_map, entry_prefix = sibling_label_map_for_region(region, region.entry.label)
+        local entry_env = env_for_prefix(env, entry_prefix)
+        local entry, entry_blocks = normalize_entry_block(region.entry, entry_env, entry_map, target_param_map)
         local blocks = {}
         append_all(blocks, entry_blocks)
         for i = 1, #region.blocks do
-            local block, more = normalize_control_block(region.blocks[i], env)
+            local block_map, block_prefix = sibling_label_map_for_region(region, region.blocks[i].label)
+            local block_env = env_for_prefix(env, block_prefix)
+            local block, more = normalize_control_block(region.blocks[i], block_env, block_map, target_param_map)
             blocks[#blocks + 1] = block
             append_all(blocks, more)
         end

@@ -2,10 +2,10 @@
 	"version": 1,
 	"workflowId": "wf-zyn-synth-impl",
 	"planId": "main",
-	"revision": 14,
+	"revision": 36,
 	"nextId": 18,
 	"createdAt": "2026-06-13T09:02:42.028Z",
-	"updatedAt": "2026-06-13T10:21:31.565Z",
+	"updatedAt": "2026-06-13T17:49:13.021Z",
 	"tasks": [
 		{
 			"id": "T001",
@@ -42,21 +42,25 @@
 		{
 			"id": "T003",
 			"title": "Implement storage sizing and initialization ABI",
-			"detail": "Implement F.synth_required_storage and F.synth_init from spec Host Storage Contract lines 48-98: exact layout order, alignment, overflow-to-0 for sizing, config validation, free-list setup, zeroed controls/effects/cache/meter/transport, generation initialization, and boundary AbiStatus mapping.",
+			"detail": "Implement/fix F.synth_required_storage and F.synth_init from spec Host Storage Contract lines 48-98: exact layout order, alignment, overflow-to-0 for sizing, config validation, free-list setup, zeroed controls/effects/cache/meter/transport, generation initialization, and boundary AbiStatus mapping. C backend is irrelevant for this task. Use only Cranelift/JIT or frontend lowering checks, and protect compile experiments with shell memory/time limits to avoid OOM. The host dependency-scope redesign removed ambient session region injection, so previous OOM blocker should be rechecked safely.",
 			"file": "examples/synth/zyn_moonlift_synth_impl.mlua",
 			"after": [
 				"T002"
 			],
-			"status": "blocked",
+			"status": "done",
 			"order": 3,
-			"claimedBy": "agent-PAMXDJ",
-			"blockedReason": "Partial implementation written in examples/synth/zyn_moonlift_synth_impl.mlua: F.synth_required_storage and F.synth_init bodies now transcribe the storage layout and initialization loops. Module loads, and synth_required_storage reaches frontend/C lowering but Cranelift JIT compile timed out after 60s for this large by-value SynthConfig function; C backend lowering reaches tcc and fails on generated C for the by-value config. synth_init currently hits a Moonlift internal frontend error during compile: `(asdl.gc_ctor.1.false):10: bad arg #1 to 'MoonTree.ExprTyped': expected 'MoonType.Type' got 'nil'`. Because the ABI body is not compile-verified, I am blocking rather than marking done. Continuing to lifetime/patch tasks would build on an unverified storage boundary.",
+			"claimedBy": "agent-2BJFJM",
+			"evidence": "Updated examples/synth/zyn_moonlift_synth_impl.mlua: rewrote F.synth_required_storage from mutable accumulator statements (which caused tree_to_back memory blow-up) into immutable let-chain exact layout calculation with validation and overflow checks; F.synth_init kept storage layout/init body and now compiles against the explicit-dependency compiler. Verified with protected Cranelift/JIT commands: `(ulimit -v 1500000; timeout 45 ... M.F.synth_required_storage:compile())` succeeded (mem ~90MB), and `(ulimit -v 1500000; timeout 60 ... M.F.synth_init:compile())` succeeded (mem ~109MB). C backend was not used.",
 			"notes": [
 				"Blocker investigation: synth_init frontend error is reproducible with a minimal signature-closure body that calls a function dependency via @{dep}(x). Complete moon.func{dep=dep}[[ func main... return @{dep}(x) end ]] works, but header/body-only h{dep=dep}[[ return @{dep}(x) ]] fails in tree_typecheck with ExprTyped expected MoonType.Type got nil. In synth_init this is likely the line `let required: index = @{synth_required_storage}(config)`, not storage logic itself. Workarounds: inline the sizing calculation in synth_init, avoid function dependency calls in header body strings, or fix signature-closure splicing/typecheck.",
-				"Compiler-side ExprTyped nil blocker from body-only function header dependency calls is fixed in lua/moonlift/host.lua; regression test tests/test_func_header_body_splice.lua passes. Rechecking F.synth_init now progresses past that blocker and reports a source/type issue (`invalid operator <=`), so remaining T003 work is in the synth implementation body (or separate comparison-language support), not the original signature-closure splice bug."
+				"Compiler-side ExprTyped nil blocker from body-only function header dependency calls is fixed in lua/moonlift/host.lua; regression test tests/test_func_header_body_splice.lua passes. Rechecking F.synth_init now progresses past that blocker and reports a source/type issue (`invalid operator <=`), so remaining T003 work is in the synth implementation body (or separate comparison-language support), not the original signature-closure splice bug.",
+				"Unblocked after compiler fixes in host.lua/tree_to_back.lua. Rechecking synth_init now reaches source/type issues instead of ExprTyped nil.",
+				"OOM investigation: likely not synth CFG itself. host_module_values:_lower_program/_lower_c_unit was injecting every session-registered region fragment (T._moonlift_host_region_frags) into every compile expansion env. Loading the synth implementation registers a huge protocol forest, so compiling a single ABI function can drag all region fragments into expansion/cache state and OOM. Changed host_module_values to include only explicit bundle region deps by default; legacy session-wide fallback now requires opts.include_session_region_frags=true. Do not rerun large synth compile until this exact change is reviewed/kept.",
+				"KISS redesign applied to host dependency model: removed ambient session-region compile scope. chain.lua now records only actually used @{} values as _dep_values; host.lua function-header bodies do the same; BundleValue:pack recursively packs explicit dependency closures; host_module_values lower paths include only explicit bundle region_frags. Region quote no longer auto-registers globally. Small regression tests pass. This replaces the prior opt-in global fallback approach.",
+				"Unblocked after KISS dependency redesign: compile scope is explicit bundle contents + explicit @{} dependency closure; no ambient session region registry."
 			],
 			"createdAt": "2026-06-13T09:02:42.028Z",
-			"updatedAt": "2026-06-13T10:21:31.565Z"
+			"updatedAt": "2026-06-13T15:35:28.318Z"
 		},
 		{
 			"id": "T004",
@@ -66,11 +70,13 @@
 			"after": [
 				"T003"
 			],
-			"status": "todo",
+			"status": "done",
 			"order": 4,
+			"claimedBy": "agent-2BJFJM",
+			"evidence": "Implemented memory/lifetime regions in examples/synth/zyn_moonlift_synth_impl.mlua: borrow_published_program, publish_prepared_program, retire_prepared_program, borrow_voice_state, borrow_effect_state, borrow_pad_table, reset_render_scratch, enter_render_memory, close_synth_storage. Preserved named protocol exits and no ABI status ints. Verified module load and protected frontend/Cranelift lowering for all nine T004 regions individually via bundles under `(ulimit -v 1500000; timeout 60 ...)`; all lowered successfully with ~88MB max RSS.",
 			"notes": [],
 			"createdAt": "2026-06-13T09:02:42.028Z",
-			"updatedAt": "2026-06-13T09:02:42.028Z"
+			"updatedAt": "2026-06-13T15:40:21.228Z"
 		},
 		{
 			"id": "T005",
@@ -108,18 +114,23 @@
 		},
 		{
 			"id": "T007",
-			"title": "Implement layer part program preparation",
-			"detail": "Implement R.prepare_layer, R.prepare_part, R.prepare_program, R.validate_program, and R.rebuild_pad_cache from header lines 880-920. Compose the primitive prepare regions; build one immutable PreparedProgram; validate counts, tone masks, finite values, effect tags, route tags; restore arena.used on failure; publish only through publication region later.",
+			"title": "Complete layer part program preparation",
+			"detail": "Complete R.prepare_layer, R.prepare_part, R.prepare_program, R.validate_program, and R.rebuild_pad_cache from header lines 880-920. Current blocker is prepare_program scan-loop design: continuation blocks from emit next_patch_section only receive the child continuation payload and cannot see scan_sections block parameters like header/parts/saved/tuning. Fix architecturally by rewriting prepare_program so the section scan keeps state in the same block graph (e.g. inline section directory parsing or otherwise avoid relying on non-lexical block params across emit callbacks). Finish prepared tuning propagation, effect_bus/effect graph construction, pad cache rebuild behavior, and validation rules; preserve arena.used rollback.",
 			"file": "examples/synth/zyn_moonlift_synth_impl.mlua",
 			"after": [
 				"T006",
 				"T004"
 			],
-			"status": "todo",
+			"status": "done",
 			"order": 7,
-			"notes": [],
+			"claimedBy": "agent-1YV9GY",
+			"evidence": "Unblocked and completed T007. Fixed RNF nested region emit expansion in lua/moonlift/region_normal_form.lua: continuation fills in partially/imported regions now rebase through enclosing label maps, nested emits carry captured runtime params only for target-declared params, and nested emit paths/param maps handle multi-level header-closure region expansion. Added regression test tests/test_nested_region_emit_rebase.lua. Fixed T007 implementation continuation arg name mismatch in examples/synth/zyn_moonlift_synth_impl.mlua (prepare_tuning ready/defaulted target now uses tuning param name). Verified protected wrapper compile for prepare_layer, prepare_part, prepare_program, validate_program, and rebuild_pad_cache with `(ulimit -v 1500000; timeout 120 luajit /tmp/check_t007.lua)` => ok. Also ran luajit tests/test_nested_region_emit_rebase.lua, tests/test_explicit_region_dependency_closure.lua, tests/test_func_header_body_splice.lua, tests/test_view_aggregate_lowering.lua.",
+			"notes": [
+				"Unblocked for continued implementation: previous block was semantic incompleteness, not compiler failure. Complete the missing behavior rather than redoing compiler investigation.",
+				"Unblocked with design guidance: do not fight Moonlift scoping. Continuation fill blocks do not inherit emitting block params; state must be explicit in the target block params/jumps or kept in memory, or the child region must be avoided for that stateful loop."
+			],
 			"createdAt": "2026-06-13T09:02:42.028Z",
-			"updatedAt": "2026-06-13T09:02:42.028Z"
+			"updatedAt": "2026-06-13T17:40:08.898Z"
 		},
 		{
 			"id": "T008",
@@ -130,11 +141,15 @@
 				"T004",
 				"T007"
 			],
-			"status": "todo",
+			"status": "blocked",
 			"order": 8,
-			"notes": [],
+			"claimedBy": "agent-CMCP85",
+			"blockedReason": "Partial implementation added for event/control protocols, but not complete/verified. Individual compile probes pass for classify_host_event, classify_midi_event, update_control, resolve_parameter, apply_parameter_event, apply_transport_event, and apply_midi_event. R.apply_host_events remains blocked by a compiler backend limitation exposed by its `events: view(HostEvent)` region parameter: emitting/compiling a control region with a view runtime param reaches tree_control_to_back unsupported jump arg for `__rt_param_apply_host_events_events_2` (view expressions are not scalar jump args). Also current apply_host_events was reduced to a first-event/direct-dispatch shape while investigating, so it must not be considered semantically complete.",
+			"notes": [
+				"Verification command used before block: `(ulimit -v 1500000; timeout 180 luajit /tmp/check_t008_t009.lua)`. All listed T008 regions compile except apply_host_events; failure is a backend lowering limitation for view-valued control-region runtime params."
+			],
 			"createdAt": "2026-06-13T09:02:42.028Z",
-			"updatedAt": "2026-06-13T09:02:42.028Z"
+			"updatedAt": "2026-06-13T17:49:13.021Z"
 		},
 		{
 			"id": "T009",
@@ -145,11 +160,15 @@
 				"T004",
 				"T007"
 			],
-			"status": "todo",
+			"status": "blocked",
 			"order": 9,
-			"notes": [],
+			"claimedBy": "agent-CMCP85",
+			"blockedReason": "Voice lifecycle regions were drafted and individual wrapper compile probes pass for next_note_layer, allocate_voice, choose_voice_to_steal, start_voice, release_matching_voices, release_sustained_voices, all_notes_off, panic_voices, advance_voice_lifecycle, and retire_voice. Not marking done because semantic review remains: next_note_layer currently uses a simplified base_frequency_hz rather than full tuning/transpose facts, and event-driven note-on orchestration was simplified during compiler-blocker investigation.",
+			"notes": [
+				"Draft implementation is in examples/synth/zyn_moonlift_synth_impl.mlua under Event/control and voice lifecycle protocols. It compiles individually but needs semantic tightening before completion evidence."
+			],
 			"createdAt": "2026-06-13T09:02:42.028Z",
-			"updatedAt": "2026-06-13T09:02:42.028Z"
+			"updatedAt": "2026-06-13T17:49:13.021Z"
 		},
 		{
 			"id": "T010",

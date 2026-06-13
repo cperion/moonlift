@@ -107,6 +107,7 @@ function M.bind(session, callable_mt)
             local open_expand = require("moonlift.open_expand")
 
             local bindings = {}
+            local used_values = {}
             for _, ss in ipairs(parsed.splice_slots) do
               local key = ss.splice_text or ss.splice_id
               local v = bound_values[key]
@@ -115,6 +116,7 @@ function M.bind(session, callable_mt)
                   "no value bound for @" .. tostring(key)
                   .. " in values table", 2)
               end
+              used_values[key] = v
               local binding = hs.fill(
                 session, ss.slot, v,
                 "splice " .. ss.splice_id, ss.role, ss.spread)
@@ -127,12 +129,12 @@ function M.bind(session, callable_mt)
             local expanded = expand_fn(e, parsed.value, env)
             local result = wrap_fn(expanded, parsed, T, src, bound_values)
 
-            -- Tag CallableFunc results with dependency values for auto-bundle
-            if type(result) == "table" and active_callable_mt then
-              local mt = getmetatable(result)
-              if mt == active_callable_mt then
-                result._dep_values = bound_values
-              end
+            -- Tag quoted values with exactly the dependencies they used.
+            -- The bundle layer recursively packs this explicit closure.  Do not
+            -- store the whole values table: large tables often contain many
+            -- unrelated funcs/regions and turn a tiny compile into a huge one.
+            if type(result) == "table" then
+              result._dep_values = used_values
             end
 
             return result

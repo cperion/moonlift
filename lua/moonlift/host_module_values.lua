@@ -57,8 +57,31 @@ function BundleValue:add_region(value)
 end
 
 function BundleValue:pack(...)
-    for i = 1, select("#", ...) do
-        local v = select(i, ...)
+    self._pack_seen = self._pack_seen or {}
+
+    local function pack_one(v)
+        if type(v) ~= "table" then
+            error("bundle:pack() expected a Moonlift value (func, region, struct, union), got " .. type(v), 3)
+        end
+        if self._pack_seen[v] then return end
+        self._pack_seen[v] = true
+
+        -- Pack the explicit dependency closure first.  Quoted values record only
+        -- the @{} values they actually used; no bundle compile may depend on
+        -- ambient session history.
+        local deps = rawget(v, "_dep_values")
+        if type(deps) == "table" then
+            for _, dep in pairs(deps) do
+                if type(dep) == "table" then
+                    local dep_kind = rawget(dep, "kind") or rawget(dep, "moonlift_quote_kind")
+                    if dep_kind == "func" or dep_kind == "extern_func" or dep_kind == "region_frag"
+                        or dep_kind == "struct" or dep_kind == "union" then
+                        pack_one(dep)
+                    end
+                end
+            end
+        end
+
         local kind = rawget(v, "kind") or rawget(v, "moonlift_quote_kind")
         if kind == "func" or kind == "extern_func" then
             self:add_func(v)
@@ -67,9 +90,11 @@ function BundleValue:pack(...)
         elseif kind == "struct" or kind == "union" then
             self:add_type(v)
         else
-            error("bundle:pack() expected a Moonlift value (func, region, struct, union), got " .. type(v), 2)
+            error("bundle:pack() expected a Moonlift value (func, region, struct, union), got " .. type(v), 3)
         end
     end
+
+    for i = 1, select("#", ...) do pack_one(select(i, ...)) end
     return self
 end
 
@@ -282,16 +307,12 @@ function BundleValue:_lower_program(opts)
         site = "host module",
         layout_env = self:layout_env(),
     }
-    -- Inject region fragments into the expansion env. Include both explicit
-    -- bundle deps and session-registered quoted fragments, because quoted
-    -- regions may refer to sibling regions by name after emit expansion.
+    -- Inject only explicit bundle region dependencies.  A compile unit must be
+    -- determined by the values packed into the bundle and their recorded @{}
+    -- dependency closure, never by ambient session history.
     local T = self.session.T
     local region_frags = {}
     local seen = {}
-    for _, frag in pairs(T._moonlift_host_region_frags or {}) do
-        region_frags[#region_frags + 1] = frag
-        seen[frag] = true
-    end
     for i = 1, #(self.region_frags or {}) do
         local frag = self.region_frags[i]
         if not seen[frag] then region_frags[#region_frags + 1] = frag end
@@ -314,10 +335,6 @@ function BundleValue:_lower_c_unit(opts)
     local T = self.session.T
     local region_frags = {}
     local seen = {}
-    for _, frag in pairs(T._moonlift_host_region_frags or {}) do
-        region_frags[#region_frags + 1] = frag
-        seen[frag] = true
-    end
     for i = 1, #(self.region_frags or {}) do
         local frag = self.region_frags[i]
         if not seen[frag] then region_frags[#region_frags + 1] = frag end

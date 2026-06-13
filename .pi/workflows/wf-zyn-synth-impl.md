@@ -645,3 +645,150 @@ _dep_values table present
 - Function ABI lowering knows how to flatten top-level view parameters, but ordinary `ExprCall` lowering currently consumes arguments via `expr_value(...)`.
 - `moon.func` header body closures differ materially from `moon.region` headers: region headers call `M.region(merged)(full)` when bindings exist; function headers call raw `parse_func(full)`.
 - The exact nil-typed expression slot path is: `@{dep}` in expression position → `ExprSlotValue(ExprSlot ty=nil)` → no expansion → `tree_typecheck ExprSlotValue` → `ExprTyped(nil)` constructor error.
+
+## Worker Output — 2026-06-13 10:38:47
+
+## Completed
+- Claimed T003 and fixed the known synth body/source type issues:
+  - Cast f32 literals explicitly in helpers and `synth_init`.
+  - Rewrote final `Synth` initialization as one aggregate assignment to avoid frontend errors from sequential nested aggregate field writes.
+- Marked T003 **blocked** with concrete verification evidence.
+- No further tasks were ready after T003 was blocked.
+
+## Files Changed
+- `examples/synth/zyn_moonlift_synth_impl.mlua`
+  - f32 literal casts in helper expressions and storage init loops.
+  - `F.synth_init` final synth initialization rewritten as a single aggregate assignment.
+
+## Notes
+Verification:
+- Module load succeeds:
+  ```sh
+  luajit -e '... moon.dofile("examples/synth/zyn_moonlift_synth_impl.mlua") ...'
+  ```
+- `F.synth_required_storage` C source emission succeeds.
+- Still blocked:
+  - `F.synth_required_storage:compile()` Cranelift/JIT times out.
+  - C shared compile fails on generated C:
+    ```text
+    error: ',' expected (got 'arg_config')
+    ```
+  - `F.synth_init:compile()` Cranelift/JIT times out.
+  - `F.synth_init` C emit fails:
+    ```text
+    tree_control_to_c.lua:152: tree_control_to_c: unterminated control block ... init_programs_1_else_2
+    ```
+
+Edit plan status: T003 blocked; no ready downstream tasks.
+
+## Worker Output — 2026-06-13 15:45:27
+
+## Completed
+- Completed `T003`: fixed and verified storage sizing/init ABI.
+- Completed `T004`: implemented and verified memory/lifetime regions.
+- Claimed `T007`, added a substantial partial implementation, then marked it **blocked** because it is not semantically complete.
+
+## Files Changed
+- `examples/synth/zyn_moonlift_synth_impl.mlua`
+  - Rewrote `F.synth_required_storage` to avoid lowering memory blow-up.
+  - Verified `F.synth_required_storage:compile()` and `F.synth_init:compile()` under `ulimit`.
+  - Added memory/lifetime regions:
+    - `borrow_published_program`
+    - `publish_prepared_program`
+    - `retire_prepared_program`
+    - `borrow_voice_state`
+    - `borrow_effect_state`
+    - `borrow_pad_table`
+    - `reset_render_scratch`
+    - `enter_render_memory`
+    - `close_synth_storage`
+  - Added partial T007 preparation regions:
+    - `prepare_layer`
+    - `prepare_part`
+    - `prepare_program`
+    - `validate_program`
+    - `rebuild_pad_cache`
+
+## Notes
+- Final module load succeeds.
+- T003/T004 were marked done with concrete evidence.
+- T007 was marked blocked, not done. Remaining gaps:
+  - `prepare_program` discards prepared tuning and stores default tuning.
+  - `effect_bus` / effect graph construction is not implemented.
+  - `rebuild_pad_cache` is only a stub.
+  - validation is partial, not all spec rules are enforced.
+
+No further tasks are ready because `T007` is blocked.
+
+## Worker Output — 2026-06-13 17:09:25
+
+## Completed
+- Claimed `T007`.
+- Improved T007 implementation but **blocked it honestly** because `R.prepare_program` is still not compile-verified.
+- Did not claim downstream tasks because `T007` remains blocked.
+
+## Files Changed
+- `examples/synth/zyn_moonlift_synth_impl.mlua`
+  - Added tuning propagation attempt in `prepare_program`.
+  - Added effect graph allocation/mapping for insert/send/master buses.
+  - Expanded `validate_program`.
+  - Replaced `rebuild_pad_cache` stub with metadata validation/rebuild behavior.
+  - Fixed `prepare_part` disabled empty-part construction.
+
+## Notes
+Verification:
+- Module load succeeds.
+- Protected wrapper compile command:
+  ```sh
+  (ulimit -v 1500000; timeout 120 luajit /tmp/check_t007.lua)
+  ```
+- Passed wrapper compile for:
+  - `prepare_layer`
+  - `prepare_part`
+  - `validate_program`
+  - `rebuild_pad_cache`
+
+Blocked:
+- `prepare_program` wrapper fails frontend/typecheck with unresolved carried scan state (`header`; earlier `saved_used` was also fixed).
+- Root issue: current `prepare_program` scan-loop design carries state across `emit next_patch_section` continuation blocks, but those callback blocks cannot see that state reliably.
+
+Edit plan:
+- `T007` marked blocked with concrete evidence.
+- No downstream tasks became ready.
+
+## Worker Output — 2026-06-13 17:25:39
+
+## Completed
+- Claimed `T007`.
+- Rewrote `R.prepare_program` scan architecture to avoid relying on `scan_sections` block params inside emit callbacks.
+- Added state-explicit helper regions:
+  - `HLP.begin_program_preparation`
+  - `HLP.apply_program_section`
+  - `HLP.process_next_program_section`
+  - `HLP.validate_rebuild_prepared_program`
+- Preserved `arena.used` rollback paths and carried tuning/effect graph state explicitly.
+
+## Files Changed
+- `examples/synth/zyn_moonlift_synth_impl.mlua` - refactored `prepare_program` state flow and helper regions.
+
+## Notes
+`T007` is marked **blocked**, not done.
+
+Verification:
+- Module load succeeds.
+- Protected T007 check still compiles:
+  - `prepare_layer`
+  - `prepare_part`
+  - `validate_program`
+  - `rebuild_pad_cache`
+
+Blocked on `prepare_program` compile:
+```text
+missing jump target `begin_ready`
+```
+
+Helper probes show similar nested emit expansion failures:
+- `begin_program_preparation` → missing `malformed_start`
+- `apply_program_section` → missing `malformed_scan`
+
+This appears to be a separate compiler/frontend nested region-fragment expansion issue, not the original `scan_sections` state scoping issue. Downstream tasks were not claimed because `T007` remains blocked.

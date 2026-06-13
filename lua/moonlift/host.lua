@@ -84,21 +84,9 @@ function CallableFunc:compile(opts)
         local api = self._api
         local b = api.bundle(self.name .. "_auto")
 
-        -- Register dependency values as bundle items so the typechecker
-        -- can resolve cross-function @{} name references.
-        if self._dep_values then
-            for _, value in pairs(self._dep_values) do
-                local kind = rawget(value, "kind")
-                if kind == "func" or kind == "extern_func" then
-                    b:pack(value)
-                elseif kind == "region_frag" or rawget(value, "moonlift_quote_kind") == "region_frag" then
-                    b:pack(value)
-                elseif kind == "struct" or kind == "union" then
-                    b:pack(value)
-                end
-            end
-        end
-
+        -- Bundle packing recursively follows the explicit @{} dependency
+        -- closure recorded on quoted values.  No ambient session registry is
+        -- consulted during compilation.
         b:pack(self)
         local artifact = b:jit(opts)
         self._compiled = artifact
@@ -354,16 +342,19 @@ M.func = make_quote(
                             local full = strip_bodyless_decl_end(header_src) .. "\n" .. arg .. "\nend"
                             local res = require("moonlift.parse").Define(T2).parse_func(full)
                             local value = res.value or res
+                            local used_values = nil
                             if #(res.splice_slots or {}) ~= 0 then
                                 local hs = require("moonlift.host_splice")
                                 local open_expand = require("moonlift.open_expand")
                                 local fills = {}
+                                used_values = {}
                                 for _, ss in ipairs(res.splice_slots) do
                                     local key = ss.splice_text or ss.splice_id
                                     local v = merged[key]
                                     if v == nil then
                                         error("no value bound for @" .. tostring(key) .. " in values table", 2)
                                     end
+                                    used_values[key] = v
                                     fills[#fills + 1] = hs.fill(default_session, ss.slot, v, "splice " .. ss.splice_id, ss.role, ss.spread)
                                 end
                                 local e = open_expand.Define(T2)
@@ -393,7 +384,7 @@ M.func = make_quote(
                                 name = fv.name, params = new_params, result = api.type_from_asdl(new_result, fv.name),
                                 func = fv, item = Tr2.ItemFunc(fv), visibility = "export",
                                 _api = api, _session = default_session }, CallableFunc)
-                            if #(res.splice_slots or {}) ~= 0 then out._dep_values = merged end
+                            if used_values ~= nil then out._dep_values = used_values end
                             return out
                         elseif type(arg) == "table" then
                             -- Bindings override: merge and return new header
@@ -490,8 +481,6 @@ M.region = make_quote(
         end
         local rfv = api.CanonicalRegionFragValue or {}
         local name = (type(value.name) == "table" and (value.name.text or value.name.name)) or value.name
-        default_session.T._moonlift_host_region_frags = default_session.T._moonlift_host_region_frags or {}
-        default_session.T._moonlift_host_region_frags[name] = value
         return setmetatable({ kind = "region_frag", moonlift_quote_kind = "region_frag",
             session = default_session, name = name, frag = value, conts = {},
             params = {}, blocks = {} }, rfv)
