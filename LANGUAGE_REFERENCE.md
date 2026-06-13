@@ -2175,6 +2175,26 @@ Header calls take body-only strings. Do not include the outer `func`/`region`
 declaration and do not include the outer closing `end`; the header closure
 supplies that boundary.
 
+In `.mlua` source, function and region headers also have implementation sugar:
+
+```lua
+local add_h = func add(a: i32, b: i32): i32 end
+local add = func add_h
+    return a + b
+end
+
+local scan_h = region scan(; done) end
+local scan = region scan_h
+entry start()
+    jump done()
+end
+end
+```
+
+The sugar is equivalent to calling the header with a body-only string. The
+closing `end` belongs to the `.mlua` syntax and is stripped before the header
+closure is called.
+
 ### 15.2 Bindings and specialization
 
 The `{values}[[src]]` pattern fills `@{}` holes in the source. When applied

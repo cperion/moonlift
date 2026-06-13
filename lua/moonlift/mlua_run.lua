@@ -217,6 +217,34 @@ local function split_region_impl_island(text)
     return ref, trimmed:sub(1, s - 1):gsub("%s+$", "")
 end
 
+local function split_func_impl_island(text)
+    -- Pure .mlua shorthand for implementing a function header from Lua scope:
+    --
+    --     local impl = func Header.or_header
+    --         return 0
+    --     end
+    --
+    -- This mirrors region header implementation sugar. The final function
+    -- `end` belongs to the shorthand syntax and is stripped before the header
+    -- is called.
+    local ref, body = text:match("^%s*func%s+([^\r\n]+)\r\n(.*)$")
+    if not ref then ref, body = text:match("^%s*func%s+([^\r\n]+)\n(.*)$") end
+    if not ref then return nil end
+    ref = ref:gsub("%s+$", "")
+    local valid_ref = true
+    if ref:match("^%.") or ref:match("%.$") or ref:match("%.%.") then valid_ref = false end
+    if valid_ref then
+        for part in ref:gmatch("[^%.]+") do
+            if not part:match("^[_%a][_%w]*$") then valid_ref = false; break end
+        end
+    end
+    if not valid_ref then return nil end
+    local trimmed = body:gsub("%s+$", "")
+    local s = trimmed:find("end%s*$")
+    if not s then return nil end
+    return ref, trimmed:sub(1, s - 1):gsub("%s+$", "")
+end
+
 local api_name_for_kind = {
     func = "func",
     region = "region",
@@ -241,6 +269,8 @@ local function transform_mlua(src)
         local impl_ref, impl_body
         if island.kind == "region" then
             impl_ref, impl_body = split_region_impl_island(island_src)
+        elseif island.kind == "func" then
+            impl_ref, impl_body = split_func_impl_island(island_src)
         end
         if impl_ref then
             if bindings ~= "" then

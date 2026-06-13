@@ -539,6 +539,23 @@ Calling the header closure with a body string resolves any `@{key}` in
 that string from the same accumulated bindings, then produces final ASDL.
 Header calls take body-only strings: no repeated outer declaration and no
 outer closing `end`.
+In `.mlua` files, function and region headers can also be implemented without
+explicit long-bracket calls:
+
+```lua
+local add_h = func add(a: i32, b: i32): i32 end
+local add = func add_h
+    return a + b
+end
+
+local scan_h = region scan(; done) end
+local scan = region scan_h
+entry start()
+    jump done()
+end
+end
+```
+
 Calling it with a `{table}` merges more bindings and returns a new header
 closure.  The chain terminates exactly once, when a fully-resolved ASDL
 value is produced.

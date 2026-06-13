@@ -26,6 +26,33 @@ assert(header_body_only_cls == Tr.FuncLocal or header_body_only_cls == Tr.FuncEx
 assert(#header_body_only.func.body == 1)
 print("OK: func header body-only")
 
+local header_mlua_sugar = Host.eval [=[
+local add = func add(a: i32, b: i32): i32 end
+local impl = func add
+    return a + b
+end
+return impl
+]=]
+assert(header_mlua_sugar.kind == "func")
+assert(header_mlua_sugar.name == "add")
+local header_mlua_sugar_cls = pvm.classof(header_mlua_sugar.func)
+assert(header_mlua_sugar_cls == Tr.FuncLocal or header_mlua_sugar_cls == Tr.FuncExport)
+assert(#header_mlua_sugar.func.body == 1)
+print("OK: func header .mlua sugar")
+
+local dotted_header_mlua_sugar = Host.eval [=[
+local API = {}
+API.add = func add(a: i32, b: i32): i32 end
+local impl = func API.add
+    return a + b
+end
+return impl
+]=]
+assert(dotted_header_mlua_sugar.kind == "func")
+assert(dotted_header_mlua_sugar.name == "add")
+assert(#dotted_header_mlua_sugar.func.body == 1)
+print("OK: dotted func header .mlua sugar")
+
 -- Compile if JIT available
 local ok_c, compiled = pcall(function() return add:compile() end)
 if ok_c then

@@ -2,9 +2,9 @@
 --
 -- Complete Moonlift surface for a ZynAddSubFX-style synthesizer engine.
 --
--- This is a PURE .mlua header artifact: no moon.struct[[...]], no
--- moon.region[[...]], no bodies.  Load it through moon.loadfile/dofile, not
--- Lua's plain require().
+-- Concrete implementation rules live beside this file in:
+--   zyn_moonlift_synth_spec.md
+--
 --
 -- Design discipline from THE_MOONLIFT_DESIGN_BIBLE:
 --   * products are facts that coexist
@@ -166,6 +166,39 @@ E.EffectKind = {
     compressor  = 7,
 }
 
+-- Owner: R.next_patch_section.
+E.PatchSectionKind = {
+    header      = 1,
+    tuning      = 2,
+    part        = 3,
+    layer       = 4,
+    modulation  = 5,
+    additive    = 6,
+    subtractive = 7,
+    pad         = 8,
+    effect_bus  = 9,
+    end_marker  = 255,
+}
+
+-- Owner: R.resolve_parameter.
+E.ParamScope = {
+    global      = 1,
+    part        = 2,
+    layer       = 3,
+    modulation  = 4,
+    insert_fx   = 5,
+    send_fx     = 6,
+    master_fx   = 7,
+}
+
+-- Owner: R.choose_voice_to_steal.
+E.VoiceStealMode = {
+    oldest        = 1,
+    quietest      = 2,
+    release_first = 3,
+    same_note     = 4,
+}
+
 -- Owner: F.* ABI functions only.
 E.AbiStatus = {
     ok                  = 0,
@@ -194,27 +227,63 @@ T.ByteArena = struct
     used: index,
 end
 
--- Stable typed handle to an arena allocation.
-T.ArenaRef = struct
-    offset: index,
-    len: index,
-    generation: u16,
-end
-
 -- Render block identity.  frame_count is per channel.
 T.BlockShape = struct
     frame_count: index,
     block_index: u64,
 end
 
+-- Host-selected storage and topology limits.  This is a build/runtime boundary
+-- product for sizing and initialization, not a hot render parameter.
+T.SynthConfig = struct
+    max_voices: index,
+    max_parts: index,
+    max_layers: index,
+    max_mod_routes: index,
+    max_additive_partials: index,
+    max_noise_bands: index,
+    max_block_frames: index,
+    program_banks: u16,
+    programs_per_bank: u16,
+    pad_table_count: index,
+    pad_total_frames: index,
+    effect_bus_count: index,
+    effect_slots_per_bus: index,
+    channel_count: index,
+    macro_count: index,
+end
+
+-- Engine policy chosen at init.  These are engine facts, not UI preferences.
+T.DspPolicy = struct
+    denormal_floor: f32,
+    clip_ceiling: f32,
+    deterministic_noise: bool,
+end
+
+-- Render order is fixed by R.render_block:
+-- enter memory, clear outputs, apply events, render voices/parts, apply
+-- effects, finalize meters/clipping, then retire dead voices if enabled.
+T.RenderPolicy = struct
+    clear_outputs_first: bool,
+    smooth_block_events: bool,
+    retire_dead_voices_after_block: bool,
+end
+
+T.EnginePolicy = struct
+    dsp: DspPolicy,
+    render: RenderPolicy,
+end
+
 -- Per-render immutable facts.  All Hz values are already normalized for this
 -- block; no region may reach global sample-rate state.
 T.RenderCtx = struct
+    shape: BlockShape,
+    dsp: DspPolicy,
+    policy: RenderPolicy,
     sample_rate_hz: f32,
     inv_sample_rate: f32,
     tempo_bpm: f32,
     tuning_a4_hz: f32,
-    block_index: u64,
 end
 
 -- Host transport fact.  Owner: R.apply_transport_event.
@@ -287,6 +356,20 @@ T.PatchSource = struct
     version: u32,
 end
 
+-- Patch wire contract.  Sections are byte ranges inside PatchSource.bytes.
+T.PatchHeader = struct
+    format_id: u32,
+    version: u32,
+    flags: u32,
+    section_count: index,
+end
+
+T.PatchSection = struct
+    kind: u8,
+    index: index,
+    bytes: ByteSlice,
+end
+
 -- Microtonal scale table.  Ratios are immutable prepared data.
 T.TuningTable = struct
     ratios: view(f32),
@@ -343,6 +426,36 @@ end
 
 T.ModulationPlan = struct
     routes: view(ModRoute),
+end
+
+T.ParamAddress = struct
+    scope: u8,
+    part: u16,
+    layer: u16,
+    bus: u16,
+    slot: u16,
+    param: u16,
+end
+
+T.ParamPolicy = struct
+    min_value: f32,
+    max_value: f32,
+    default_value: f32,
+    smoothing_ms: f32,
+    read_only: bool,
+end
+
+T.VoiceStealPolicy = struct
+    mode: u8,
+    same_note_bonus: f32,
+    release_bonus: f32,
+    age_weight: f32,
+    level_weight: f32,
+end
+
+T.VoiceStealCandidate = struct
+    voice: VoiceRef,
+    score: f32,
 end
 
 -- AD-synth harmonic field: explicit partial energy and phase facts.
@@ -416,8 +529,15 @@ T.PartPlan = struct
     midi_channel: u8,
     enabled: bool,
     max_polyphony: index,
+    steal: VoiceStealPolicy,
     gain: f32,
     pan: f32,
+end
+
+T.EffectRoute = struct
+    part: PartRef,
+    bus: u16,
+    gain: f32,
 end
 
 T.EffectSlotPlan = struct
@@ -436,18 +556,37 @@ T.EffectBusPlan = struct
     send_gain: f32,
 end
 
+T.EffectGraphPlan = struct
+    insert_fx: view(EffectBusPlan),
+    insert_count: index,
+    send_fx: view(EffectBusPlan),
+    send_count: index,
+    send_routes: view(EffectRoute),
+    send_route_count: index,
+    master_fx: EffectBusPlan,
+end
+
 -- Immutable prepared program/patch.  Any cached derived data lives in explicit
 -- caches below, not beside source facts except as phase output references.
 T.PreparedProgram = struct
     parts: view(PartPlan),
     part_count: index,
-    insert_fx: view(EffectBusPlan),
-    insert_count: index,
-    send_fx: view(EffectBusPlan),
-    send_count: index,
-    master_fx: EffectBusPlan,
+    effects: EffectGraphPlan,
     tuning: TuningTable,
     generation: u16,
+end
+
+-- Bank/program directory entry.  A ProgramRef resolves through ProgramStore.
+T.ProgramSlot = struct
+    program: ptr(PreparedProgram),
+    generation: u16,
+    occupied: bool,
+end
+
+T.ProgramStore = struct
+    slots: ptr(ProgramSlot),
+    bank_count: u16,
+    programs_per_bank: u16,
 end
 
 -------------------------------------------------------------------------------
@@ -463,7 +602,7 @@ T.MidiEvent = struct
 end
 
 T.ParameterEvent = struct
-    param_id: u32,
+    address: ParamAddress,
     value: f32,
     frame: index,
 end
@@ -472,6 +611,8 @@ T.HostEvent = struct
     kind: u8,
     midi: MidiEvent,
     parameter: ParameterEvent,
+    program: ProgramRef,
+    transport: TransportState,
     frame: index,
 end
 
@@ -555,6 +696,7 @@ T.VoicePool = struct
     states: ptr(VoiceState),
     generations: ptr(u16),
     active: ptr(VoiceRef),
+    next_free: ptr(u32),
     cap: index,
     active_count: index,
     free_head: u32,
@@ -562,6 +704,10 @@ end
 
 T.PadCache = struct
     table_data: ptr(f32),
+    table_offsets: ptr(index),
+    table_lengths: ptr(index),
+    table_generations: ptr(u16),
+    table_count: index,
     total_frames: index,
     used_frames: index,
     generation: u16,
@@ -579,22 +725,23 @@ end
 
 T.EffectRack = struct
     states: ptr(EffectState),
+    bus_offsets: ptr(index),
+    bus_slot_counts: ptr(index),
+    bus_count: index,
     cap: index,
     generation: u16,
 end
 
 T.RenderScratch = struct
     arena: ByteArena,
-    voice_l: view(f32),
-    voice_r: view(f32),
-    part_l: view(f32),
-    part_r: view(f32),
-    send_l: view(f32),
-    send_r: view(f32),
+    voice: StereoBlock,
+    part: StereoBlock,
+    send: StereoBlock,
 end
 
 T.SynthStorage = struct
     arena: ByteArena,
+    programs: ProgramStore,
     voices: VoicePool,
     controls: ControlBank,
     pad_cache: PadCache,
@@ -602,8 +749,9 @@ T.SynthStorage = struct
 end
 
 T.Synth = struct
-    program: ptr(PreparedProgram),
+    current_program: ProgramRef,
     storage: SynthStorage,
+    policy: EnginePolicy,
     transport: TransportState,
     last_meter: MeterFrame,
     generation: u64,
@@ -619,13 +767,14 @@ end
 -- parallel memory topology and no one-use request/result wrapper layer.
 
 R.borrow_published_program = region(synth: ptr(Synth);
-    borrowed(program: ptr(PreparedProgram), generation: u16)
+    borrowed(program_ref: ProgramRef, program: ptr(PreparedProgram), generation: u16)
     | no_program
     | bad_state(code: i32)) end
 
-R.publish_prepared_program = region(synth: ptr(Synth), program: ptr(PreparedProgram);
-    published(generation: u16)
+R.publish_prepared_program = region(synth: ptr(Synth), target: ProgramRef, program: ptr(PreparedProgram);
+    published(program: ProgramRef, generation: u16)
     | invalid(code: i32)
+    | stale_ref(program: ProgramRef)
     | wrong_thread
     | audio_busy) end
 
@@ -657,7 +806,7 @@ R.reset_render_scratch = region(scratch: ptr(RenderScratch), shape: BlockShape;
     | wrong_thread) end
 
 R.enter_render_memory = region(synth: ptr(Synth), events: view(HostEvent), scratch: ptr(RenderScratch), out_l: view(f32), out_r: view(f32);
-    ready(program: ptr(PreparedProgram), storage: ptr(SynthStorage), scratch: ptr(RenderScratch), events: view(HostEvent), out_l: view(f32), out_r: view(f32))
+    ready(program: ptr(PreparedProgram), storage: ptr(SynthStorage), scratch: ptr(RenderScratch), events: view(HostEvent), out: StereoBlock)
     | no_program
     | bad_buffer
     | bad_state(code: i32)) end
@@ -672,77 +821,83 @@ R.close_synth_storage = region(synth: ptr(Synth);
 -------------------------------------------------------------------------------
 
 R.decode_patch_source = region(src: PatchSource;
-    decoded(program_bytes: ByteSlice)
+    decoded(header: PatchHeader)
     | unsupported_format(format_id: u32, version: u32)
     | malformed(pos: index, code: i32)) end
 
-R.prepare_tuning = region(src: ByteSlice, arena: ptr(ByteArena);
+R.next_patch_section = region(src: PatchSource, header: PatchHeader, cursor: index;
+    section(section: PatchSection, next: index)
+    | done(count: index)
+    | unsupported_section(kind: u8, index: index)
+    | malformed(pos: index, code: i32)) end
+
+R.prepare_tuning = region(section: PatchSection, arena: ptr(ByteArena);
     ready(tuning: TuningTable)
     | defaulted(tuning: TuningTable)
     | malformed(pos: index, code: i32)
     | exhausted) end
 
-R.prepare_envelope = region(src: ByteSlice;
+R.prepare_envelope = region(section: PatchSection;
     ready(plan: EnvelopePlan)
     | defaulted(plan: EnvelopePlan)
     | malformed(pos: index, code: i32)) end
 
-R.prepare_lfo = region(src: ByteSlice;
+R.prepare_lfo = region(section: PatchSection;
     ready(plan: LfoPlan)
     | defaulted(plan: LfoPlan)
     | malformed(pos: index, code: i32)) end
 
-R.prepare_filter = region(src: ByteSlice;
+R.prepare_filter = region(section: PatchSection;
     ready(plan: FilterPlan)
     | bypass(plan: FilterPlan)
     | malformed(pos: index, code: i32)) end
 
-R.prepare_modulation = region(src: ByteSlice, arena: ptr(ByteArena);
+R.prepare_modulation = region(section: PatchSection, arena: ptr(ByteArena);
     ready(plan: ModulationPlan)
     | empty(plan: ModulationPlan)
     | malformed(pos: index, code: i32)
     | exhausted) end
 
-R.prepare_additive_plan = region(src: ByteSlice, arena: ptr(ByteArena);
+R.prepare_additive_plan = region(section: PatchSection, arena: ptr(ByteArena);
     ready(plan: AdditivePlan)
     | disabled(plan: AdditivePlan)
     | malformed(pos: index, code: i32)
     | exhausted) end
 
-R.prepare_subtractive_plan = region(src: ByteSlice, arena: ptr(ByteArena);
+R.prepare_subtractive_plan = region(section: PatchSection, arena: ptr(ByteArena);
     ready(plan: SubtractivePlan)
     | disabled(plan: SubtractivePlan)
     | malformed(pos: index, code: i32)
     | exhausted) end
 
-R.prepare_pad_plan = region(src: ByteSlice, cache: ptr(PadCache), arena: ptr(ByteArena);
+R.prepare_pad_plan = region(section: PatchSection, cache: ptr(PadCache), arena: ptr(ByteArena);
     ready(plan: PadPlan)
     | disabled(plan: PadPlan)
     | cache_rebuilt(plan: PadPlan, generation: u16)
     | malformed(pos: index, code: i32)
     | exhausted) end
 
-R.prepare_layer = region(src: ByteSlice, cache: ptr(PadCache), arena: ptr(ByteArena);
+R.prepare_layer = region(section: PatchSection, cache: ptr(PadCache), arena: ptr(ByteArena);
     ready(layer: LayerPlan)
     | muted(layer: LayerPlan)
     | unsupported_feature(code: i32)
     | malformed(pos: index, code: i32)
     | exhausted) end
 
-R.prepare_part = region(src: ByteSlice, cache: ptr(PadCache), arena: ptr(ByteArena);
+R.prepare_part = region(section: PatchSection, cache: ptr(PadCache), arena: ptr(ByteArena);
     ready(part: PartPlan)
     | disabled(part: PartPlan)
     | unsupported_feature(code: i32)
     | malformed(pos: index, code: i32)
     | exhausted) end
 
-R.prepare_effect_slot = region(src: ByteSlice;
+R.prepare_effect_slot = region(section: PatchSection;
     ready(slot: EffectSlotPlan)
     | bypass(slot: EffectSlotPlan)
     | unsupported_effect(kind: u8)
     | malformed(pos: index, code: i32)) end
 
-R.prepare_effect_bus = region(src: ByteSlice, arena: ptr(ByteArena);
+R.prepare_effect_bus = region(section: PatchSection, arena: ptr(ByteArena);
     ready(bus: EffectBusPlan)
     | empty(bus: EffectBusPlan)
     | malformed(pos: index, code: i32)
@@ -796,7 +951,15 @@ R.update_control = region(controls: ptr(ControlBank), channel: u8, cc: u8, value
 R.apply_parameter_event = region(program: ptr(PreparedProgram), controls: ptr(ControlBank), ev: ParameterEvent;
     changed
     | unchanged
-    | unknown_parameter(param_id: u32)) end
+    | smoothed(target: f32, smoothing_ms: f32)
+    | read_only(address: ParamAddress)
+    | out_of_range(address: ParamAddress, clamped: f32)
+    | unknown_parameter(address: ParamAddress)) end
+
+R.resolve_parameter = region(program: ptr(PreparedProgram), address: ParamAddress;
+    resolved(policy: ParamPolicy)
+    | read_only(policy: ParamPolicy)
+    | unknown(address: ParamAddress)) end
 
 R.apply_transport_event = region(synth: ptr(Synth), transport: TransportState;
     changed
@@ -805,7 +968,7 @@ R.apply_transport_event = region(synth: ptr(Synth), transport: TransportState;
 R.apply_midi_event = region(program: ptr(PreparedProgram), pool: ptr(VoicePool), controls: ptr(ControlBank), ev: MidiEvent;
     changed
     | unchanged
-    | voice_started(v: VoiceRef)
+    | voices_started(count: index)
     | voices_released(count: index)) end
 
 R.apply_host_events = region(synth: ptr(Synth), events: view(HostEvent);
@@ -818,9 +981,9 @@ R.apply_host_events = region(synth: ptr(Synth), events: view(HostEvent);
 -- Voice allocation, key mapping, and lifecycle protocols
 -------------------------------------------------------------------------------
 
-R.map_note_to_part_layers = region(program: ptr(PreparedProgram), channel: u8, note: u8, velocity: f32;
-    layer(part: PartRef, layer: LayerRef, base_frequency_hz: f32, gain: f32)
-    | skipped
+R.next_note_layer = region(program: ptr(PreparedProgram), channel: u8, note: u8, velocity: f32, cursor: index;
+    layer(part: PartRef, layer: LayerRef, base_frequency_hz: f32, gain: f32, next: index)
+    | skipped(next: index)
     | done(count: index)) end
 
 R.allocate_voice = region(part: ptr(PartPlan), pool: ptr(VoicePool), channel: u8, note: u8, velocity: f32;
@@ -828,6 +991,11 @@ R.allocate_voice = region(part: ptr(PartPlan), pool: ptr(VoicePool), channel: u8
     | stolen(v: VoiceRef, previous: VoiceRef)
     | full
     | muted) end
+
+R.choose_voice_to_steal = region(part: ptr(PartPlan), pool: ptr(VoicePool), channel: u8, note: u8, velocity: f32;
+    candidate(candidate: VoiceStealCandidate)
+    | none
+    | stale_ref(v: VoiceRef)) end
 
 R.start_voice = region(program: ptr(PreparedProgram), pool: ptr(VoicePool), v: VoiceRef, part: PartRef, layer: LayerRef, channel: u8, note: u8, velocity: f32, base_frequency_hz: f32;
     started(v: VoiceRef)
@@ -858,6 +1026,7 @@ R.advance_voice_lifecycle = region(pool: ptr(VoicePool), v: VoiceRef, ctx: Rende
 
 R.retire_voice = region(pool: ptr(VoicePool), v: VoiceRef;
     retired
+    | stale_ref(v: VoiceRef)
     | already_free) end
 
 -------------------------------------------------------------------------------
@@ -887,7 +1056,7 @@ R.render_voice_modulation = region(layer: ptr(LayerPlan), controls: ptr(ControlB
     | stale_ref(v: VoiceRef)
     | invalid_route(code: i32)) end
 
-R.apply_filter_model = region(plan: ptr(FilterPlan), state: ptr(FilterState), ctx: RenderCtx, in_l: view(f32), in_r: view(f32), out_l: view(f32), out_r: view(f32);
+R.apply_filter_model = region(plan: ptr(FilterPlan), state: ptr(FilterState), ctx: RenderCtx, input: StereoBlock, output: StereoBlock;
     filtered(peak: f32)
     | bypassed(peak: f32)
     | bad_buffer
@@ -897,26 +1066,26 @@ R.apply_filter_model = region(plan: ptr(FilterPlan), state: ptr(FilterState), ct
 -- Tone-field render protocols: AD, SUB, PAD
 -------------------------------------------------------------------------------
 
-R.render_additive_field = region(layer: ptr(LayerPlan), pool: ptr(VoicePool), v: VoiceRef, mod: VoiceModFrame, ctx: RenderCtx, out_l: view(f32), out_r: view(f32);
+R.render_additive_field = region(layer: ptr(LayerPlan), pool: ptr(VoicePool), v: VoiceRef, mod: VoiceModFrame, ctx: RenderCtx, out: StereoBlock;
     rendered(peak: f32)
     | silent
     | stale_ref(v: VoiceRef)
     | bad_buffer) end
 
-R.render_subtractive_field = region(layer: ptr(LayerPlan), pool: ptr(VoicePool), v: VoiceRef, mod: VoiceModFrame, ctx: RenderCtx, out_l: view(f32), out_r: view(f32);
+R.render_subtractive_field = region(layer: ptr(LayerPlan), pool: ptr(VoicePool), v: VoiceRef, mod: VoiceModFrame, ctx: RenderCtx, out: StereoBlock;
     rendered(peak: f32)
     | silent
     | stale_ref(v: VoiceRef)
     | bad_buffer) end
 
-R.render_pad_field = region(layer: ptr(LayerPlan), cache: ptr(PadCache), pool: ptr(VoicePool), v: VoiceRef, mod: VoiceModFrame, ctx: RenderCtx, out_l: view(f32), out_r: view(f32);
+R.render_pad_field = region(layer: ptr(LayerPlan), cache: ptr(PadCache), pool: ptr(VoicePool), v: VoiceRef, mod: VoiceModFrame, ctx: RenderCtx, out: StereoBlock;
     rendered(peak: f32)
     | silent
     | stale_ref(v: VoiceRef)
     | missing_cache(ref: PadTableRef)
     | bad_buffer) end
 
-R.route_layer_tone_generators = region(layer: ptr(LayerPlan), cache: ptr(PadCache), pool: ptr(VoicePool), v: VoiceRef, mod: VoiceModFrame, ctx: RenderCtx, out_l: view(f32), out_r: view(f32);
+R.route_layer_tone_generators = region(layer: ptr(LayerPlan), cache: ptr(PadCache), pool: ptr(VoicePool), v: VoiceRef, mod: VoiceModFrame, ctx: RenderCtx, out: StereoBlock;
     rendered(peak: f32)
     | silent
     | stale_ref(v: VoiceRef)
@@ -927,7 +1096,7 @@ R.route_layer_tone_generators = region(layer: ptr(LayerPlan), cache: ptr(PadCach
 -- Audio buffer, effects, mixing, and metering protocols
 -------------------------------------------------------------------------------
 
-R.clear_audio_block = region(out_l: view(f32), out_r: view(f32);
+R.clear_audio_block = region(out: StereoBlock;
     cleared
     | bad_buffer) end
 
@@ -935,24 +1104,24 @@ R.clear_scratch = region(scratch: ptr(RenderScratch), shape: BlockShape;
     cleared
     | bad_buffer) end
 
-R.mix_stereo = region(src_l: view(f32), src_r: view(f32), dst_l: view(f32), dst_r: view(f32), gain: f32;
+R.mix_stereo = region(src: StereoBlock, dst: StereoBlock, gain: f32;
     mixed(peak: f32)
     | silent
     | bad_buffer) end
 
-R.apply_pan_gain = region(in_l: view(f32), in_r: view(f32), out_l: view(f32), out_r: view(f32), gain: f32, pan: f32;
+R.apply_pan_gain = region(input: StereoBlock, output: StereoBlock, gain: f32, pan: f32;
     applied(peak: f32)
     | silent
     | bad_buffer) end
 
-R.apply_effect_slot = region(slot: ptr(EffectSlotPlan), state: ptr(EffectState), ctx: RenderCtx, in_l: view(f32), in_r: view(f32), out_l: view(f32), out_r: view(f32);
+R.apply_effect_slot = region(slot: ptr(EffectSlotPlan), state: ptr(EffectState), ctx: RenderCtx, input: StereoBlock, output: StereoBlock;
     processed(peak: f32)
     | bypassed(peak: f32)
     | silent
     | bad_buffer
     | invalid_effect(kind: u8)) end
 
-R.apply_effect_bus = region(bus: ptr(EffectBusPlan), rack: ptr(EffectRack), ctx: RenderCtx, in_l: view(f32), in_r: view(f32), out_l: view(f32), out_r: view(f32);
+R.apply_effect_bus = region(bus: ptr(EffectBusPlan), rack: ptr(EffectRack), ctx: RenderCtx, input: StereoBlock, output: StereoBlock;
     processed(peak: f32)
     | bypassed(peak: f32)
     | bad_buffer
@@ -964,13 +1133,13 @@ R.apply_insert_effects = region(program: ptr(PreparedProgram), rack: ptr(EffectR
     | bad_buffer
     | invalid_effect(kind: u8)) end
 
-R.apply_send_effects = region(program: ptr(PreparedProgram), rack: ptr(EffectRack), ctx: RenderCtx, scratch: ptr(RenderScratch), out_l: view(f32), out_r: view(f32);
+R.apply_send_effects = region(program: ptr(PreparedProgram), rack: ptr(EffectRack), ctx: RenderCtx, scratch: ptr(RenderScratch), out: StereoBlock;
     processed(peak: f32)
     | bypassed(peak: f32)
     | bad_buffer
     | invalid_effect(kind: u8)) end
 
-R.finalize_audio_block = region(out_l: view(f32), out_r: view(f32), meter: ptr(MeterFrame), nominal_gain: f32;
+R.finalize_audio_block = region(out: StereoBlock, meter: ptr(MeterFrame), nominal_gain: f32;
     clean(peak: f32)
     | clipped(peak: f32)
     | bad_buffer) end
@@ -993,14 +1162,14 @@ R.render_part_voices = region(program: ptr(PreparedProgram), cache: ptr(PadCache
     | missing_cache(ref: PadTableRef)
     | bad_buffer) end
 
-R.render_all_parts = region(synth: ptr(Synth), ctx: RenderCtx, scratch: ptr(RenderScratch), out_l: view(f32), out_r: view(f32);
+R.render_all_parts = region(synth: ptr(Synth), ctx: RenderCtx, scratch: ptr(RenderScratch), out: StereoBlock;
     rendered(active: index, peak: f32)
     | silent(active: index)
     | missing_cache(ref: PadTableRef)
     | bad_buffer
     | bad_state(code: i32)) end
 
-R.render_block = region(synth: ptr(Synth), events: view(HostEvent), ctx: RenderCtx, scratch: ptr(RenderScratch), out_l: view(f32), out_r: view(f32);
+R.render_block = region(synth: ptr(Synth), events: view(HostEvent), ctx: RenderCtx, scratch: ptr(RenderScratch), out: StereoBlock;
     rendered(active: index, peak: f32)
     | silent(active: index)
     | clipped(active: index, peak: f32)
@@ -1013,11 +1182,11 @@ R.render_block = region(synth: ptr(Synth), events: view(HostEvent), ctx: RenderC
 -- ABI seal function headers
 -------------------------------------------------------------------------------
 
-F.synth_required_storage = func(max_voices: index, max_parts: index, max_block_frames: index): index end
+F.synth_required_storage = func(config: SynthConfig): index end
 
-F.synth_init = func(s: ptr(Synth), storage: SynthStorage, sample_rate_hz: f32): i32 end
+F.synth_init = func(s: ptr(Synth), storage: SynthStorage, config: SynthConfig, policy: EnginePolicy, sample_rate_hz: f32): i32 end
 
-F.synth_prepare_program = func(s: ptr(Synth), src: PatchSource): i32 end
+F.synth_prepare_program = func(s: ptr(Synth), target: ProgramRef, src: PatchSource): i32 end
 
 F.synth_render_block = func(s: ptr(Synth), events: view(HostEvent), ctx: RenderCtx, scratch: ptr(RenderScratch), out_l: view(f32), out_r: view(f32)): i32 end
 
