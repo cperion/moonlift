@@ -433,7 +433,6 @@ local function install(api, T)
     ---@param v string|string[]|MoonBind.Binding|MoonBind.ValueRef Reference subject.
     ---@return moonlift.ast.Expr
     function api.name(v) return Tr.ExprRef(Tr.ExprSurface, api.value_ref(v)) end
-    api.ref = api.name
 
     ---Dot projection expression before field/layout resolution.
     ---@param base moonlift.ast.Expr Base expression.

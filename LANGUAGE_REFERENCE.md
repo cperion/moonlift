@@ -3081,10 +3081,11 @@ For generated expressions, use `moon.expr[[]]`:
 local e = moon.expr [[x + 1]]
 ```
 
-Or build them with expression value operators:
+Expression value operators remain available for generated expression values;
+use quoted source for named leaves instead of a separate reference API:
 
 ```lua
-local x = moon.ref("x", moon.i32)
+local x = moon.expr [[x]]
 local e = x + 1
 ```
 
@@ -3092,12 +3093,12 @@ local e = x + 1
 return @{e}
 ```
 
-When builder code needs to refer to an outer source binding, create a
-name-backed value with `moon.ref`:
+When code needs to refer to an outer source binding, prefer writing the name in
+source or binding a quoted expression value:
 
 ```lua
-local x = moon.ref("x", moon.i32)
-local body = moon.stmts [[ return @{x} + 1 ]], { x = x }
+local body = moon.stmts [[ return x + 1 ]]
+local body_with_binding = moon.stmts { x = moon.expr [[x]] } [[ return @{x} + 1 ]]
 ```
 
 ### 16.8 Names and hygiene

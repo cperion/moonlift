@@ -79,7 +79,8 @@ c_addr_arg:free()
 
 local moon
 local intrinsic_abs = Host.eval [[
-local x = moon.ref("x", moon.i32)
+assert(moon.ref == nil, "moon.ref is intentionally not part of the public API")
+local x = moon.expr [=[x]=]
 local absx = moon.intrinsic("Abs", { x }, moon.i32)
 return func intrinsic_abs_ok(x: i32): i32
     return @{absx}
@@ -90,9 +91,9 @@ assert(c_intrinsic(-42) == 42)
 c_intrinsic:free()
 
 local intrinsic_fma = Host.eval [[
-local a = moon.ref("a", moon.f64)
-local b = moon.ref("b", moon.f64)
-local c = moon.ref("c", moon.f64)
+local a = moon.expr [=[a]=]
+local b = moon.expr [=[b]=]
+local c = moon.expr [=[c]=]
 local y = moon.intrinsic("Fma", { a, b, c }, moon.f64)
 return func intrinsic_fma_ok(a: f64, b: f64, c: f64): f64
     return @{y}

@@ -1,0 +1,1783 @@
+-- daw_moonlift_type_cfg_design_v3.mlua
+-- DAW compiler/IR design, rewritten IR-first.
+-- Signature-only: declarations only, no region/function bodies.
+--
+-- Doctrine:
+--   * Source IR is saved/undoable user intent.
+--   * Edits are source-language facts, not callbacks.
+--   * Sums are real unions, not hidden integer enums.
+--   * Regions consume real IR products and produce protocol/IR facts.
+--   * Functions are ABI/effect/recursion boundaries and return status only there.
+--   * The audio callback consumes PlannedIR/KernelIR/RuntimeIR only; it never
+--     traverses source ScoreIR and never allocates, decodes, scans, or rebuilds.
+
+-- ============================================================
+-- COMMON PRODUCTS
+-- ============================================================
+
+struct TextRef
+    data: ptr(u8),
+    len: index,
+end
+
+struct BlobRef
+    data: ptr(u8),
+    len: index,
+end
+
+struct MaybeTextRef
+    present: bool,
+    value: TextRef,
+end
+
+struct MaybeU32
+    present: bool,
+    value: u32,
+end
+
+struct MaybeI64
+    present: bool,
+    value: i64,
+end
+
+struct MaybeF64
+    present: bool,
+    value: f64,
+end
+
+struct MaybePtr
+    present: bool,
+    value: ptr(u8),
+end
+
+struct BeatRange
+    start_beats: f64,
+    end_beats: f64,
+end
+
+struct TickRange
+    start_tick: i64,
+    end_tick: i64,
+end
+
+struct SampleRange
+    start_sample: i64,
+    end_sample: i64,
+end
+
+struct SourceSpan
+    file_id: u32,
+    start_byte: index,
+    len: index,
+end
+
+union IssueSubject
+    project
+  | transport
+  | track(track_id: u32)
+  | clip(clip_id: u32)
+  | scene(scene_id: u32)
+  | device(device_id: u32)
+  | chain(chain_id: u32)
+  | target(target_id: u32)
+  | source(source_id: u32)
+  | asset(asset_id: u32)
+  | plugin(plugin_id: u32)
+  | backend
+end
+
+union IssueSeverity
+    note
+  | warning
+  | error
+end
+
+struct Issue
+    severity: IssueSeverity,
+    subject: IssueSubject,
+    span: SourceSpan,
+    message: TextRef,
+end
+
+struct IssueList
+    issues: view(Issue),
+end
+
+union CheckResult
+    ok
+  | invalid(issues: IssueList)
+end
+
+-- ============================================================
+-- EXPLICIT VOCABULARIES: SUMS, NOT INTEGER ENUMS
+-- ============================================================
+
+union SampleFormat
+    f32_sample
+  | f64_sample
+end
+
+union SpeakerSet
+    mono
+  | stereo
+  | surround_5_1
+  | surround_7_1
+  | ambisonic(order: u32)
+end
+
+struct ChannelLayout
+    channels: u32,
+    speakers: SpeakerSet,
+end
+
+union Quantization
+    none
+  | beat_fraction(num: u32, den: u32)
+  | bars(count: u32)
+end
+
+union LaunchMode
+    trigger
+  | gate
+  | toggle
+  | repeat
+end
+
+union StopPolicy
+    immediate
+  | quantized
+  | at_clip_end
+end
+
+union FollowAction
+    none
+  | next
+  | previous
+  | first
+  | last
+  | other(scene_id: u32)
+  | random
+  | stop
+end
+
+union TrackRole
+    audio
+  | instrument
+  | hybrid
+  | group
+  | return_track
+  | master
+end
+
+union ClipKind
+    audio
+  | notes
+  | pattern
+end
+
+union WarpMode
+    raw
+  | repitch
+  | stretch
+  | slice
+end
+
+union InterpMode
+    linear
+  | smoothstep
+  | hold
+end
+
+union CombineMode
+    replace
+  | add
+  | multiply
+  | min_value
+  | max_value
+end
+
+union SmoothingMode
+    none
+  | lag
+end
+
+union RateClass
+    literal
+  | init
+  | block_rate
+  | sample
+  | event
+  | voice
+end
+
+union DeviceDomain
+    note_fx
+  | instrument
+  | audio_fx
+  | router
+  | plugin
+end
+
+union OscillatorShape
+    sine
+  | saw
+  | square
+  | triangle
+  | noise
+end
+
+union FilterShape
+    lowpass
+  | highpass
+  | bandpass
+  | notch
+end
+
+union EqBandShape
+    low_shelf
+  | high_shelf
+  | peak
+  | low_cut
+  | high_cut
+end
+
+union SaturationCurve
+    tanh_curve
+  | soft_clip
+  | hard_clip
+  | tube
+end
+
+union LfoShape
+    sine
+  | triangle
+  | square
+  | saw
+  | sample_hold
+end
+
+union EnvelopeKind
+    ar
+  | follower
+  | adsr
+end
+
+union NoteEventKind
+    note_on
+  | note_off
+  | cc
+  | pitch_bend
+  | note_expression
+end
+
+union NoteExpressionKind
+    pressure
+  | timbre
+  | pitch
+  | velocity
+end
+
+union TransportParam
+    tempo
+  | swing
+  | playhead
+  | loop_start
+  | loop_end
+  | metronome
+end
+
+union AssetDecodePolicy
+    metadata_only
+  | decode_now
+  | decode_background
+end
+
+-- ============================================================
+-- SCORE IR: AUTHORED/SAVED PROJECT LANGUAGE
+-- ============================================================
+
+struct ScoreMeta
+    name: TextRef,
+    author: MaybeTextRef,
+    format_version: u32,
+end
+
+struct ScoreTempoEvent
+    at_beats: f64,
+    bpm: f64,
+end
+
+struct ScoreSignatureEvent
+    at_beats: f64,
+    numerator: u32,
+    denominator: u32,
+end
+
+struct ScoreTransport
+    sample_rate: f64,
+    buffer_size: u32,
+    bpm: f64,
+    swing: f64,
+    time_sig_num: u32,
+    time_sig_den: u32,
+    global_launch_quantization: Quantization,
+    tempo_map: view(ScoreTempoEvent),
+    signature_map: view(ScoreSignatureEvent),
+    looping_enabled: bool,
+    loop_range: BeatRange,
+end
+
+struct ScoreNoteEvent
+    kind: NoteEventKind,
+    at_beats: f64,
+    data0: f64,
+    data1: f64,
+end
+
+struct ScoreCurvePoint
+    at_beats: f64,
+    value: f64,
+end
+
+struct ScoreCurve
+    points: view(ScoreCurvePoint),
+    interpolation: InterpMode,
+end
+
+struct ScoreAutomationLane
+    lane_id: u32,
+    target_id: u32,
+    curve: ScoreCurve,
+end
+
+struct ScoreClipHeader
+    clip_id: u32,
+    name: TextRef,
+    color: MaybeTextRef,
+    duration: BeatRange,
+    loop_enabled: bool,
+    loop_range: BeatRange,
+    source_offset_beats: f64,
+    gain_target_id: u32,
+end
+
+union ScoreClipBody
+    audio(asset_id: u32, warp: WarpMode, stretch_markers: view(ScoreStretchMarker))
+  | notes(asset_id: u32, events: view(ScoreNoteEvent))
+  | pattern(asset_id: u32, events: view(ScoreNoteEvent))
+end
+
+struct ScoreStretchMarker
+    source_sample: i64,
+    target_beat: f64,
+end
+
+struct ScoreClip
+    header: ScoreClipHeader,
+    body: ScoreClipBody,
+    automation: view(ScoreAutomationLane),
+end
+
+struct ScoreArrangementRegion
+    region_id: u32,
+    track_id: u32,
+    clip_id: u32,
+    range: BeatRange,
+    source_offset_beats: f64,
+    lane_index: u32,
+    muted: bool,
+end
+
+struct ScoreMarker
+    marker_id: u32,
+    name: TextRef,
+    at_beats: f64,
+end
+
+struct ScoreSection
+    section_id: u32,
+    name: TextRef,
+    range: BeatRange,
+    color: MaybeTextRef,
+end
+
+struct ScoreFollowPolicy
+    action: FollowAction,
+    amount0: f64,
+    amount1: f64,
+end
+
+struct MaybeScoreFollowPolicy
+    present: bool,
+    value: ScoreFollowPolicy,
+end
+
+struct ScoreLaunchPolicy
+    mode: LaunchMode,
+    quantization: Quantization,
+    legato: bool,
+    retrigger: bool,
+    follow: MaybeScoreFollowPolicy,
+end
+
+union ScoreSlotBody
+    empty
+  | clip(clip_id: u32)
+  | stop
+end
+
+struct ScoreSlot
+    slot_index: u32,
+    body: ScoreSlotBody,
+    policy: ScoreLaunchPolicy,
+    enabled: bool,
+end
+
+struct ScoreLaunchTrack
+    track_id: u32,
+    slots: view(ScoreSlot),
+    exclusive_playing: bool,
+    stop_policy: StopPolicy,
+end
+
+struct ScoreSceneAction
+    track_id: u32,
+    slot_index: u32,
+    stop_others: bool,
+end
+
+struct ScoreScene
+    scene_id: u32,
+    name: TextRef,
+    actions: view(ScoreSceneAction),
+    quantization: Quantization,
+    tempo_override_bpm: MaybeF64,
+end
+
+struct ScoreArrangement
+    regions: view(ScoreArrangementRegion),
+    markers: view(ScoreMarker),
+    sections: view(ScoreSection),
+end
+
+struct ScoreLauncher
+    tracks: view(ScoreLaunchTrack),
+    scenes: view(ScoreScene),
+end
+
+struct ScoreSend
+    send_id: u32,
+    target_track_id: u32,
+    level_target_id: u32,
+    pre_fader: bool,
+    enabled: bool,
+end
+
+struct ScoreTrack
+    track_id: u32,
+    name: TextRef,
+    role: TrackRole,
+    channels: ChannelLayout,
+    chain_id: u32,
+    output_track_id: u32,
+    sends: view(ScoreSend),
+    fader_target_id: u32,
+    pan_target_id: u32,
+    muted: bool,
+    soloed: bool,
+    armed: bool,
+    monitor_input: bool,
+    phase_invert: bool,
+    parent_group_id: MaybeU32,
+    latency_hint_samples: u32,
+end
+
+struct ScoreChain
+    chain_id: u32,
+    device_ids: view(u32),
+    note_domain: bool,
+    audio_domain: bool,
+    input_channels: u32,
+    output_channels: u32,
+end
+
+struct ScoreArpeggiator
+    pattern_id: u32,
+    gate_target_id: u32,
+    rate_target_id: u32,
+end
+
+struct ScoreChord
+    notes: view(ScoreChordNote),
+end
+
+struct ScoreChordNote
+    semitone: i32,
+    velocity_scale: f64,
+end
+
+struct ScoreNoteFilter
+    low_note: u32,
+    high_note: u32,
+    low_velocity: u32,
+    high_velocity: u32,
+end
+
+struct ScoreSampler
+    zone_bank_id: u32,
+    gain_target_id: u32,
+    pitch_target_id: u32,
+end
+
+struct ScoreBasicSynth
+    voice_count: u32,
+    oscillator: OscillatorShape,
+    filter: FilterShape,
+    tune_target_id: u32,
+    cutoff_target_id: u32,
+    resonance_target_id: u32,
+    envelope_amount_target_id: u32,
+end
+
+struct ScoreEqBand
+    shape: EqBandShape,
+    freq_target_id: u32,
+    gain_target_id: u32,
+    q_target_id: u32,
+end
+
+struct ScoreEq
+    bands: view(ScoreEqBand),
+end
+
+struct ScoreCompressor
+    threshold_target_id: u32,
+    ratio_target_id: u32,
+    attack_target_id: u32,
+    release_target_id: u32,
+    makeup_target_id: u32,
+    sidechain_amount_target_id: MaybeU32,
+end
+
+struct ScoreDelay
+    time_target_id: u32,
+    feedback_target_id: u32,
+    mix_target_id: u32,
+    tempo_sync: bool,
+end
+
+struct ScoreReverb
+    decay_target_id: u32,
+    damping_target_id: u32,
+    mix_target_id: u32,
+    predelay_target_id: u32,
+end
+
+struct ScoreChorus
+    rate_target_id: u32,
+    depth_target_id: u32,
+    mix_target_id: u32,
+end
+
+struct ScoreSaturator
+    drive_target_id: u32,
+    curve: SaturationCurve,
+end
+
+struct ScoreSplitterRule
+    chain_id: u32,
+    low_note: u32,
+    high_note: u32,
+    low_freq_hz: f64,
+    high_freq_hz: f64,
+end
+
+struct ScoreLayerRule
+    chain_id: u32,
+    gain_target_id: u32,
+    enabled_target_id: u32,
+end
+
+struct ScoreSelector
+    selector_target_id: u32,
+    chain_ids: view(u32),
+end
+
+struct ScorePlugin
+    plugin_asset_id: u32,
+    plugin_handle: ptr(u8),
+    format: TextRef,
+    parameters: view(ScorePluginParam),
+end
+
+struct ScorePluginParam
+    index: u32,
+    name: TextRef,
+    target_id: u32,
+end
+
+union ScoreDeviceBody
+    arpeggiator(v: ScoreArpeggiator)
+  | chord(v: ScoreChord)
+  | note_filter(v: ScoreNoteFilter)
+  | sampler(v: ScoreSampler)
+  | basic_synth(v: ScoreBasicSynth)
+  | gain(gain_target_id: u32)
+  | pan(pan_target_id: u32)
+  | eq(v: ScoreEq)
+  | compressor(v: ScoreCompressor)
+  | delay(v: ScoreDelay)
+  | reverb(v: ScoreReverb)
+  | chorus(v: ScoreChorus)
+  | saturator(v: ScoreSaturator)
+  | splitter(rules: view(ScoreSplitterRule))
+  | layer(rules: view(ScoreLayerRule))
+  | selector(v: ScoreSelector)
+  | plugin(v: ScorePlugin)
+end
+
+struct ScoreDevice
+    device_id: u32,
+    name: TextRef,
+    domain: DeviceDomain,
+    enabled: bool,
+    bypass_target_id: u32,
+    channels: u32,
+    body: ScoreDeviceBody,
+end
+
+union ScoreTargetRef
+    mixer_fader(track_id: u32)
+  | mixer_pan(track_id: u32)
+  | send_level(send_id: u32)
+  | device_param(device_id: u32, param_index: u32)
+  | clip_gain(clip_id: u32)
+  | transport_param(param: TransportParam)
+end
+
+struct ScoreTarget
+    target_id: u32,
+    ref: ScoreTargetRef,
+    default_value: f64,
+    min_value: f64,
+    max_value: f64,
+    combine: CombineMode,
+    smoothing: SmoothingMode,
+    smoothing_ms: f64,
+    preferred_rate: RateClass,
+end
+
+union ScoreSourceBody
+    macro(name: TextRef, default_value: f64)
+  | lfo(shape: LfoShape, rate_target_id: u32, depth_target_id: u32, phase_offset: f64)
+  | envelope(kind: EnvelopeKind, attack_target_id: u32, release_target_id: u32)
+  | sidechain(source_track_id: u32, attack_ms: f64, release_ms: f64)
+  | midi_cc(cc_number: u32, min_value: f64, max_value: f64)
+  | random(seed: u64, rate_target_id: u32)
+  | note_expression(kind: NoteExpressionKind)
+end
+
+struct ScoreSource
+    source_id: u32,
+    body: ScoreSourceBody,
+end
+
+struct ScoreMapping
+    mapping_id: u32,
+    source_id: u32,
+    target_id: u32,
+    depth: f64,
+    offset: f64,
+    bipolar: bool,
+end
+
+struct ScoreControl
+    targets: view(ScoreTarget),
+    sources: view(ScoreSource),
+    mappings: view(ScoreMapping),
+end
+
+struct ScoreAudioAsset
+    asset_id: u32,
+    path: TextRef,
+    sample_rate: f64,
+    channels: u32,
+    length_samples: i64,
+end
+
+struct ScoreNoteAsset
+    asset_id: u32,
+    events: view(ScoreNoteEvent),
+    loop_range: BeatRange,
+end
+
+struct ScorePluginAsset
+    asset_id: u32,
+    format: TextRef,
+    identifier: TextRef,
+    version: TextRef,
+end
+
+struct ScorePresetAsset
+    asset_id: u32,
+    plugin_asset_id: u32,
+    path: TextRef,
+end
+
+struct ScoreSampleZone
+    path: TextRef,
+    root_note: u32,
+    low_note: u32,
+    high_note: u32,
+    low_velocity: u32,
+    high_velocity: u32,
+end
+
+struct ScoreZoneBank
+    bank_id: u32,
+    zones: view(ScoreSampleZone),
+end
+
+struct ScoreAssets
+    audio: view(ScoreAudioAsset),
+    notes: view(ScoreNoteAsset),
+    plugins: view(ScorePluginAsset),
+    presets: view(ScorePresetAsset),
+    zones: view(ScoreZoneBank),
+end
+
+struct ScoreProject
+    meta: ScoreMeta,
+    transport: ScoreTransport,
+    tracks: view(ScoreTrack),
+    chains: view(ScoreChain),
+    devices: view(ScoreDevice),
+    clips: view(ScoreClip),
+    arrangement: ScoreArrangement,
+    launcher: ScoreLauncher,
+    control: ScoreControl,
+    assets: ScoreAssets,
+end
+
+-- ============================================================
+-- EDIT IR: SOURCE MUTATIONS
+-- ============================================================
+
+struct EditEnvelope
+    at_host_time_ns: i64,
+    user_id: u32,
+    transaction_id: u64,
+end
+
+struct EditTransport
+    bpm: MaybeF64,
+    swing: MaybeF64,
+    sample_rate: MaybeF64,
+    buffer_size: MaybeU32,
+    loop_enabled: bool,
+    loop_range: BeatRange,
+end
+
+struct EditTrackCreate
+    after_track: MaybeU32,
+    role: TrackRole,
+    name: TextRef,
+    channels: ChannelLayout,
+end
+
+struct EditTrackProperties
+    track_id: u32,
+    name: MaybeTextRef,
+    muted: bool,
+    soloed: bool,
+    armed: bool,
+    monitor_input: bool,
+    output_track_id: MaybeU32,
+end
+
+struct EditClipCreate
+    track_id: u32,
+    scene_id: MaybeU32,
+    arrangement_start_beats: MaybeF64,
+    clip: ScoreClip,
+end
+
+struct EditAutomation
+    target_id: u32,
+    curve: ScoreCurve,
+end
+
+struct EditDeviceInsert
+    track_id: u32,
+    chain_id: u32,
+    before_device_id: MaybeU32,
+    device: ScoreDevice,
+end
+
+struct EditMappingChange
+    mapping: ScoreMapping,
+end
+
+struct EditAssetImport
+    path: TextRef,
+    policy: AssetDecodePolicy,
+end
+
+union EditEvent
+    transport(e: EditTransport)
+  | tempo_map(points: view(ScoreTempoEvent), replace_all: bool)
+  | signature_map(points: view(ScoreSignatureEvent), replace_all: bool)
+  | track_create(e: EditTrackCreate)
+  | track_remove(track_id: u32, delete_clips: bool)
+  | track_move(track_id: u32, before_track: MaybeU32, parent_group_id: MaybeU32)
+  | track_properties(e: EditTrackProperties)
+  | clip_create(e: EditClipCreate)
+  | clip_delete(clip_id: u32)
+  | clip_move(clip_id: u32, track_id: u32, scene_id: MaybeU32, start_beats: MaybeF64)
+  | clip_loop(clip_id: u32, enabled: bool, loop_range: BeatRange)
+  | note_event(clip_id: u32, event: ScoreNoteEvent)
+  | automation(e: EditAutomation)
+  | device_insert(e: EditDeviceInsert)
+  | device_remove(device_id: u32)
+  | device_move(device_id: u32, chain_id: u32, before_device_id: MaybeU32)
+  | device_param(device_id: u32, param_index: u32, value: f64)
+  | mapping_insert(e: EditMappingChange)
+  | mapping_remove(mapping_id: u32)
+  | asset_import(e: EditAssetImport)
+  | scene(scene_id: u32, name: MaybeTextRef, quantization: Quantization, tempo_override: MaybeF64)
+  | selection(subject: IssueSubject, extend: bool)
+end
+
+struct EditBatch
+    envelope: EditEnvelope,
+    events: view(EditEvent),
+end
+
+-- ============================================================
+-- SEMANTIC IR: RESOLVED IDS, TICKS, ASSET SHAPES
+-- ============================================================
+
+struct SemanticTransport
+    sample_rate: f64,
+    buffer_size: u32,
+    tick_ppq: i64,
+    bpm: f64,
+    swing: f64,
+    global_launch_quantization: Quantization,
+    loop_enabled: bool,
+    loop: TickRange,
+end
+
+struct SemanticNoteEvent
+    kind: NoteEventKind,
+    tick: i64,
+    data0: f64,
+    data1: f64,
+end
+
+struct SemanticCurvePoint
+    tick: i64,
+    value: f64,
+end
+
+struct SemanticCurve
+    points: view(SemanticCurvePoint),
+    interpolation: InterpMode,
+end
+
+struct SemanticClip
+    clip_id: u32,
+    body: ScoreClipBody,
+    start_offset_tick: i64,
+    duration_ticks: i64,
+    loop: TickRange,
+    gain_target_id: u32,
+end
+
+struct SemanticRegion
+    region_id: u32,
+    track_id: u32,
+    clip_id: u32,
+    range: TickRange,
+    source_offset_tick: i64,
+    lane_index: u32,
+    muted: bool,
+end
+
+struct SemanticTrack
+    track_id: u32,
+    role: TrackRole,
+    channels: ChannelLayout,
+    chain_id: u32,
+    output_track_id: u32,
+    sends: view(ScoreSend),
+    fader_target_id: u32,
+    pan_target_id: u32,
+    muted: bool,
+    soloed: bool,
+    armed: bool,
+    latency_hint_samples: u32,
+end
+
+struct SemanticDevice
+    device_id: u32,
+    domain: DeviceDomain,
+    channels: u32,
+    body: ScoreDeviceBody,
+    latency_samples: u32,
+end
+
+struct SemanticAssetIndex
+    audio: view(ScoreAudioAsset),
+    notes: view(ScoreNoteAsset),
+    plugins: view(ScorePluginAsset),
+    presets: view(ScorePresetAsset),
+    zones: view(ScoreZoneBank),
+end
+
+struct SemanticProject
+    transport: SemanticTransport,
+    tracks: view(SemanticTrack),
+    chains: view(ScoreChain),
+    devices: view(SemanticDevice),
+    clips: view(SemanticClip),
+    regions: view(SemanticRegion),
+    launcher: ScoreLauncher,
+    control: ScoreControl,
+    assets: SemanticAssetIndex,
+end
+
+union SemanticFact
+    transport(value: SemanticTransport)
+  | track(value: SemanticTrack)
+  | device(value: SemanticDevice)
+  | clip(value: SemanticClip)
+  | arrangement_region(value: SemanticRegion)
+  | target(value: ScoreTarget)
+  | source(value: ScoreSource)
+  | asset_audio(value: ScoreAudioAsset)
+  | asset_note(value: ScoreNoteAsset)
+  | asset_plugin(value: ScorePluginAsset)
+  | issue(value: Issue)
+end
+
+-- ============================================================
+-- RATED IR: CONTROL SOURCES/TARGETS CLASSIFIED BY RATE
+-- ============================================================
+
+union BindingExpr
+    literal(value: f64)
+  | target(target_id: u32)
+  | source(source_id: u32)
+  | add(a: u32, b: u32)
+  | multiply(a: u32, b: u32)
+  | smooth(input: u32, smoothing_ms: f64)
+  | curve(curve_slot: u32)
+  | event_value(kind: NoteEventKind)
+  | voice_value(kind: NoteExpressionKind)
+end
+
+union RatedBinding
+    literal(value: f64)
+  | init(expr: BindingExpr, state_slot: u32)
+  | block_rate(expr: BindingExpr, state_slot: u32)
+  | sample(expr: BindingExpr, state_slot: u32)
+  | event(expr: BindingExpr, state_slot: u32)
+  | voice(expr: BindingExpr, state_slot: u32)
+end
+
+struct RatedTarget
+    target_id: u32,
+    ref: ScoreTargetRef,
+    default_value: f64,
+    min_value: f64,
+    max_value: f64,
+    combine: CombineMode,
+    smoothing: SmoothingMode,
+    binding: RatedBinding,
+    runtime_state_slot: u32,
+end
+
+struct RatedSource
+    source_id: u32,
+    body: ScoreSourceBody,
+    rate: RateClass,
+    binding: RatedBinding,
+    runtime_state_slot: u32,
+end
+
+struct RatedRegion
+    semantic_region: SemanticRegion,
+    gain: RatedBinding,
+end
+
+struct RatedTrack
+    track: SemanticTrack,
+    fader: RatedBinding,
+    pan: RatedBinding,
+end
+
+struct RatedDevice
+    device: SemanticDevice,
+    params: view(RatedBinding),
+end
+
+struct RatedProject
+    transport: SemanticTransport,
+    tracks: view(RatedTrack),
+    chains: view(ScoreChain),
+    devices: view(RatedDevice),
+    clips: view(SemanticClip),
+    regions: view(RatedRegion),
+    launcher: ScoreLauncher,
+    targets: view(RatedTarget),
+    sources: view(RatedSource),
+    mappings: view(ScoreMapping),
+end
+
+union RatedFact
+    target(value: RatedTarget)
+  | source(value: RatedSource)
+  | binding(value: RatedBinding)
+  | track(value: RatedTrack)
+  | device(value: RatedDevice)
+  | region(value: RatedRegion)
+  | issue(value: Issue)
+end
+
+-- ============================================================
+-- PLANNED IR: BUFFERS, JOBS, LAUNCH TABLES, PDC
+-- ============================================================
+
+struct BufferSlot
+    index: u32,
+    channels: u32,
+    persistent: bool,
+end
+
+struct PlannedBindingRef
+    rate: RateClass,
+    slot: u32,
+end
+
+struct PlannedTarget
+    target_id: u32,
+    ref: ScoreTargetRef,
+    binding: PlannedBindingRef,
+    runtime_state_slot: u32,
+end
+
+struct PlannedClipJob
+    clip_id: u32,
+    track_id: u32,
+    out_buf: u32,
+    range: TickRange,
+    source_offset_tick: i64,
+    gain: PlannedBindingRef,
+    warp: WarpMode,
+end
+
+struct PlannedDeviceJob
+    device_id: u32,
+    domain: DeviceDomain,
+    in_buf: u32,
+    out_buf: u32,
+    params: view(PlannedBindingRef),
+    latency_samples: u32,
+    body: ScoreDeviceBody,
+end
+
+struct PlannedSendJob
+    source_buf: u32,
+    target_buf: u32,
+    level: PlannedBindingRef,
+    pre_fader: bool,
+end
+
+struct PlannedMixJob
+    source_buf: u32,
+    target_buf: u32,
+    gain: PlannedBindingRef,
+end
+
+struct PlannedOutputJob
+    source_buf: u32,
+    out_left_buf: u32,
+    out_right_buf: u32,
+    gain: PlannedBindingRef,
+    pan: PlannedBindingRef,
+end
+
+struct PlannedPluginCall
+    device_id: u32,
+    handle: ptr(u8),
+    in_buf: u32,
+    out_buf: u32,
+    latency_samples: u32,
+end
+
+union PlannedJob
+    clear(buffer_slot: u32)
+  | clip(job: PlannedClipJob)
+  | device(job: PlannedDeviceJob)
+  | send(job: PlannedSendJob)
+  | mix(job: PlannedMixJob)
+  | output(job: PlannedOutputJob)
+  | plugin(job: PlannedPluginCall)
+  | launch_eval(track_id: u32)
+  | scene_transition(scene_id: u32)
+end
+
+struct PlannedStep
+    index: u32,
+    jobs: view(PlannedJob),
+end
+
+struct PlannedTrack
+    track_id: u32,
+    role: TrackRole,
+    work_buf: u32,
+    aux_buf: u32,
+    out_left_buf: u32,
+    out_right_buf: u32,
+    first_step: u32,
+    step_count: u32,
+    latency_samples: u32,
+end
+
+struct LaunchTableRow
+    track_id: u32,
+    slot_index: u32,
+    body: ScoreSlotBody,
+    policy: ScoreLaunchPolicy,
+    stop_policy: StopPolicy,
+    enabled: bool,
+end
+
+struct SceneTransition
+    scene_id: u32,
+    actions: view(ScoreSceneAction),
+    quantization: Quantization,
+    tempo_override_bpm: MaybeF64,
+end
+
+struct PlannedProject
+    transport: SemanticTransport,
+    buffers: view(BufferSlot),
+    tracks: view(PlannedTrack),
+    steps: view(PlannedStep),
+    launch_table: view(LaunchTableRow),
+    scenes: view(SceneTransition),
+    targets: view(PlannedTarget),
+    total_latency_samples: u32,
+    master_left_buf: u32,
+    master_right_buf: u32,
+end
+
+union PlannedFact
+    buffer(value: BufferSlot)
+  | track(value: PlannedTrack)
+  | step(value: PlannedStep)
+  | job(value: PlannedJob)
+  | launch(value: LaunchTableRow)
+  | scene(value: SceneTransition)
+  | target(value: PlannedTarget)
+  | issue(value: Issue)
+end
+
+-- ============================================================
+-- KERNEL IR: COMPILED ARTIFACTS AND CALLBACK SURFACE
+-- ============================================================
+
+struct CompileCtx
+    target_id: u32,
+    sample_format: SampleFormat,
+    vector_width: u32,
+    plugin_host: ptr(u8),
+end
+
+struct KernelBufferTypes
+    mono_buf_t: ptr(u8),
+    stereo_buf_t: ptr(u8),
+    note_buf_t: ptr(u8),
+    bus_array_t: ptr(u8),
+end
+
+struct KernelStateTypes
+    transport_state_t: ptr(u8),
+    launch_state_t: ptr(u8),
+    control_state_t: ptr(u8),
+    dsp_state_t: ptr(u8),
+    render_state_t: ptr(u8),
+end
+
+struct KernelFunctions
+    init_state_fn: ptr(u8),
+    begin_audio_block_fn: ptr(u8),
+    eval_launcher_fn: ptr(u8),
+    eval_control_fn: ptr(u8),
+    render_audio_block_fn: ptr(u8),
+    queue_launch_fn: ptr(u8),
+    queue_scene_fn: ptr(u8),
+    stop_track_fn: ptr(u8),
+    set_macro_fn: ptr(u8),
+    set_cc_fn: ptr(u8),
+    note_on_fn: ptr(u8),
+    note_off_fn: ptr(u8),
+end
+
+struct KernelProject
+    buffer_types: KernelBufferTypes,
+    state_types: KernelStateTypes,
+    fns: KernelFunctions,
+    object_bytes: BlobRef,
+end
+
+union KernelFact
+    quote(bytes: BlobRef)
+  | function_symbol(name: TextRef, address: ptr(u8))
+  | type_blob(bytes: BlobRef)
+  | issue(value: Issue)
+end
+
+-- ============================================================
+-- RUNTIME IR: LIVE STATE AND REAL-TIME COMMAND FACTS
+-- ============================================================
+
+struct AudioBlock
+    block_index: u64,
+    nframes: u32,
+    inputs: view(ptr(f32)),
+    outputs: view(ptr(f32)),
+end
+
+struct RuntimeTransportState
+    playing: bool,
+    recording: bool,
+    current_tick: i64,
+    current_sample: i64,
+    block_start_tick: i64,
+    loop_iteration: u64,
+end
+
+struct RuntimeTrackLaunchState
+    track_id: u32,
+    active_slot: u32,
+    queued_slot: u32,
+    stop_pending: bool,
+    launch_pending: bool,
+    launch_at_tick: i64,
+    stop_at_tick: i64,
+    legato_mode: bool,
+end
+
+struct RuntimeSceneQueueState
+    scene_id: u32,
+    queued: bool,
+    launch_at_tick: i64,
+end
+
+struct RuntimeLaunchState
+    tracks: view(RuntimeTrackLaunchState),
+    scenes: view(RuntimeSceneQueueState),
+end
+
+struct RuntimeControlState
+    target_values: view(f64),
+    smoothed_values: view(f64),
+    macro_values: view(f64),
+    event_values: view(f64),
+    audio_block_values: view(f64),
+    sample_values: view(f64),
+    voice_values: view(f64),
+end
+
+struct RuntimeDSPState
+    lfo_phases: view(f64),
+    follower_values: view(f64),
+    comp_envs: view(f64),
+    delay_positions: view(f64),
+    delay_lengths: view(f64),
+    voice_states: view(f64),
+    plugin_state_indices: view(u32),
+end
+
+struct RuntimeBufferState
+    buffer_count: u32,
+    sample_format: SampleFormat,
+    buffers: view(ptr(f32)),
+end
+
+struct RuntimeRenderState
+    transport: RuntimeTransportState,
+    launcher: RuntimeLaunchState,
+    control: RuntimeControlState,
+    dsp: RuntimeDSPState,
+    buffers: RuntimeBufferState,
+end
+
+union LiveCommand
+    play(start_tick: i64)
+  | stop(stop_tick: i64, flush_notes: bool)
+  | record(track_id: u32, start_tick: i64)
+  | launch(track_id: u32, slot_index: u32, quantization: Quantization)
+  | scene(scene_id: u32, quantization: Quantization)
+  | param(target_id: u32, value: f64, sample_offset: u32)
+  | midi(track_id: u32, event: ScoreNoteEvent, sample_offset: u32)
+end
+
+struct LiveQueue
+    commands: view(LiveCommand),
+end
+
+-- ============================================================
+-- PHASE INFRASTRUCTURE
+-- ============================================================
+
+struct ResolveCtx
+    tick_ppq: i64,
+    strict: bool,
+    asset_root: TextRef,
+end
+
+struct RateCtx
+    sample_rate: f64,
+    buffer_size: u32,
+    tick_ppq: i64,
+end
+
+struct PlanCtx
+    sample_rate: f64,
+    buffer_size: u32,
+    max_tracks: u32,
+    max_buffers: u32,
+    max_voices: u32,
+    latency_compensation: bool,
+end
+
+union PhaseKind
+    validate
+  | resolve
+  | rate
+  | plan
+  | compile
+end
+
+struct PhaseKey
+    phase: PhaseKind,
+    source_generation: u64,
+    ctx_hash0: u64,
+    ctx_hash1: u64,
+end
+
+struct FactSlice
+    first_fact: u64,
+    fact_count: u32,
+end
+
+struct PhaseReport
+    phase: PhaseKind,
+    calls: u64,
+    hits: u64,
+    misses: u64,
+    recorded_facts: u64,
+    retained_bytes: u64,
+end
+
+struct PhaseCache
+    keys: view(PhaseKey),
+    slices: view(FactSlice),
+    reports: view(PhaseReport),
+end
+
+struct ResolveCursor
+    generation: u64,
+    cursor: u32,
+    stack_top: u32,
+    recording_id: u32,
+end
+
+struct RateCursor
+    generation: u64,
+    cursor: u32,
+    recording_id: u32,
+end
+
+struct PlanCursor
+    generation: u64,
+    cursor: u32,
+    recording_id: u32,
+end
+
+struct KernelCursor
+    generation: u64,
+    cursor: u32,
+    recording_id: u32,
+end
+
+-- ============================================================
+-- OWNER/VISITOR REGIONS FOR STORED SUMS
+-- ============================================================
+
+region visit_clip(clip: ptr(ScoreClip);
+    audio(asset_id: u32, warp: WarpMode, markers: view(ScoreStretchMarker))
+  | notes(asset_id: u32, events: view(ScoreNoteEvent))
+  | pattern(asset_id: u32, events: view(ScoreNoteEvent))) end
+
+region visit_slot(slot: ptr(ScoreSlot);
+    empty
+  | clip(clip_id: u32)
+  | stop) end
+
+region visit_device(device: ptr(ScoreDevice);
+    arpeggiator(v: ScoreArpeggiator)
+  | chord(v: ScoreChord)
+  | note_filter(v: ScoreNoteFilter)
+  | sampler(v: ScoreSampler)
+  | basic_synth(v: ScoreBasicSynth)
+  | gain(gain_target_id: u32)
+  | pan(pan_target_id: u32)
+  | eq(v: ScoreEq)
+  | compressor(v: ScoreCompressor)
+  | delay(v: ScoreDelay)
+  | reverb(v: ScoreReverb)
+  | chorus(v: ScoreChorus)
+  | saturator(v: ScoreSaturator)
+  | splitter(rules: view(ScoreSplitterRule))
+  | layer(rules: view(ScoreLayerRule))
+  | selector(v: ScoreSelector)
+  | plugin(v: ScorePlugin)) end
+
+region visit_target(ref: ScoreTargetRef;
+    mixer_fader(track_id: u32)
+  | mixer_pan(track_id: u32)
+  | send_level(send_id: u32)
+  | device_param(device_id: u32, param_index: u32)
+  | clip_gain(clip_id: u32)
+  | transport_param(param: TransportParam)) end
+
+region visit_source(source: ptr(ScoreSource);
+    macro(name: TextRef, default_value: f64)
+  | lfo(shape: LfoShape, rate_target_id: u32, depth_target_id: u32, phase_offset: f64)
+  | envelope(kind: EnvelopeKind, attack_target_id: u32, release_target_id: u32)
+  | sidechain(source_track_id: u32, attack_ms: f64, release_ms: f64)
+  | midi_cc(cc_number: u32, min_value: f64, max_value: f64)
+  | random(seed: u64, rate_target_id: u32)
+  | note_expression(kind: NoteExpressionKind)) end
+
+region dispatch_edit(batch: ptr(EditBatch), index: u32;
+    event(e: EditEvent)
+  | done
+  | invalid(issue: Issue)) end
+
+region visit_live_command(queue: ptr(LiveQueue), index: u32;
+    command(cmd: LiveCommand)
+  | done
+  | invalid(issue: Issue)) end
+
+region visit_planned_job(step: ptr(PlannedStep), index: u32;
+    clear(buffer_slot: u32)
+  | clip(job: PlannedClipJob)
+  | device(job: PlannedDeviceJob)
+  | send(job: PlannedSendJob)
+  | mix(job: PlannedMixJob)
+  | output(job: PlannedOutputJob)
+  | plugin(job: PlannedPluginCall)
+  | launch_eval(track_id: u32)
+  | scene_transition(scene_id: u32)
+  | done
+  | invalid(issue: Issue)) end
+
+-- ============================================================
+-- SOURCE EDIT AND VALIDATION REGIONS
+-- ============================================================
+
+region apply_edit(project: ptr(ScoreProject), batch: ptr(EditBatch);
+    changed(next: ptr(ScoreProject), generation: u64)
+  | unchanged
+  | rejected(issue: Issue)
+  | invalid(issues: IssueList)) end
+
+region validate_score(project: ptr(ScoreProject);
+    valid
+  | invalid(issues: IssueList)) end
+
+-- ============================================================
+-- RESOLVE PHASE: SCORE IR -> SEMANTIC IR
+-- ============================================================
+
+region resolve_start(ctx: ResolveCtx, cache: ptr(PhaseCache), project: ptr(ScoreProject);
+    ready(cursor: ResolveCursor)
+  | cache_hit(slice: FactSlice)
+  | invalid(issues: IssueList)) end
+
+region resolve_next(ctx: ResolveCtx, project: ptr(ScoreProject), cursor: ResolveCursor;
+    fact(f: SemanticFact, next: ResolveCursor)
+  | done(project: ptr(SemanticProject))
+  | invalid(issue: Issue)) end
+
+region resolve_project(ctx: ResolveCtx, project: ptr(ScoreProject);
+    semantic(project: ptr(SemanticProject))
+  | needs_asset(path: TextRef, policy: AssetDecodePolicy)
+  | plugin_unavailable(asset_id: u32)
+  | invalid(issues: IssueList)) end
+
+region resolve_transport(ctx: ResolveCtx, transport: ptr(ScoreTransport);
+    semantic(value: SemanticTransport)
+  | invalid(issues: IssueList)) end
+
+region resolve_clip(ctx: ResolveCtx, clip: ptr(ScoreClip);
+    semantic(value: SemanticClip)
+  | missing_asset(asset_id: u32)
+  | unsupported_warp(warp: WarpMode)
+  | invalid(issue: Issue)) end
+
+region resolve_device(ctx: ResolveCtx, device: ptr(ScoreDevice);
+    semantic(value: SemanticDevice)
+  | plugin_unavailable(asset_id: u32)
+  | invalid(issue: Issue)) end
+
+-- ============================================================
+-- RATE PHASE: SEMANTIC IR -> RATED IR
+-- ============================================================
+
+region rate_start(ctx: RateCtx, cache: ptr(PhaseCache), project: ptr(SemanticProject);
+    ready(cursor: RateCursor)
+  | cache_hit(slice: FactSlice)
+  | invalid(issues: IssueList)) end
+
+region rate_next(ctx: RateCtx, project: ptr(SemanticProject), cursor: RateCursor;
+    fact(f: RatedFact, next: RateCursor)
+  | done(project: ptr(RatedProject))
+  | invalid(issue: Issue)) end
+
+region rate_project(ctx: RateCtx, project: ptr(SemanticProject);
+    rated(project: ptr(RatedProject))
+  | invalid(issues: IssueList)
+  | unsupported(issue: Issue)) end
+
+region classify_target(ctx: RateCtx, project: ptr(SemanticProject), target: ptr(ScoreTarget);
+    literal(binding: RatedBinding)
+  | init(binding: RatedBinding)
+  | block_rate(binding: RatedBinding)
+  | sample(binding: RatedBinding)
+  | event(binding: RatedBinding)
+  | voice(binding: RatedBinding)
+  | invalid(issue: Issue)) end
+
+region classify_source(ctx: RateCtx, project: ptr(SemanticProject), source: ptr(ScoreSource);
+    init(binding: RatedBinding, state_slot: u32)
+  | block_rate(binding: RatedBinding, state_slot: u32)
+  | sample(binding: RatedBinding, state_slot: u32)
+  | event(binding: RatedBinding, state_slot: u32)
+  | voice(binding: RatedBinding, state_slot: u32)
+  | invalid(issue: Issue)) end
+
+region combine_bindings(a: RatedBinding, b: RatedBinding, mode: CombineMode;
+    binding(value: RatedBinding)
+  | incompatible(left: RateClass, right: RateClass)) end
+
+-- ============================================================
+-- PLAN PHASE: RATED IR -> PLANNED IR
+-- ============================================================
+
+region plan_start(ctx: PlanCtx, cache: ptr(PhaseCache), project: ptr(RatedProject);
+    ready(cursor: PlanCursor)
+  | cache_hit(slice: FactSlice)
+  | invalid(issues: IssueList)) end
+
+region plan_next(ctx: PlanCtx, project: ptr(RatedProject), cursor: PlanCursor;
+    fact(f: PlannedFact, next: PlanCursor)
+  | done(project: ptr(PlannedProject))
+  | invalid(issue: Issue)) end
+
+region plan_project(ctx: PlanCtx, project: ptr(RatedProject);
+    planned(project: ptr(PlannedProject))
+  | routing_cycle(track_id: u32, chain_id: u32)
+  | resource_exhausted(subject: IssueSubject, requested: u32, limit: u32)
+  | invalid(issues: IssueList)) end
+
+region plan_track(ctx: PlanCtx, project: ptr(RatedProject), track: ptr(RatedTrack);
+    planned(value: PlannedTrack)
+  | missing_chain(chain_id: u32)
+  | invalid(issue: Issue)) end
+
+region plan_chain(ctx: PlanCtx, project: ptr(RatedProject), chain: ptr(ScoreChain), in_buf: u32, out_buf: u32;
+    jobs(first_step: u32, step_count: u32)
+  | routing_cycle(chain_id: u32)
+  | invalid(issue: Issue)) end
+
+region plan_clip_job(ctx: PlanCtx, project: ptr(RatedProject), rated_region: ptr(RatedRegion), out_buf: u32;
+    job(value: PlannedClipJob)
+  | silent
+  | missing_asset(asset_id: u32)
+  | invalid(issue: Issue)) end
+
+region plan_device_job(ctx: PlanCtx, project: ptr(RatedProject), device: ptr(RatedDevice), in_buf: u32, out_buf: u32;
+    job(value: PlannedDeviceJob)
+  | bypassed
+  | plugin_missing(device_id: u32)
+  | invalid(issue: Issue)) end
+
+region schedule_steps(project: ptr(PlannedProject), cursor: u32;
+    step(step: ptr(PlannedStep), next_cursor: u32)
+  | done
+  | invalid(issue: Issue)) end
+
+-- ============================================================
+-- COMPILE PHASE: PLANNED IR -> KERNEL IR
+-- ============================================================
+
+region kernel_start(ctx: CompileCtx, cache: ptr(PhaseCache), project: ptr(PlannedProject);
+    ready(cursor: KernelCursor)
+  | cache_hit(slice: FactSlice)
+  | invalid(issues: IssueList)
+  | backend_error(issue: Issue)) end
+
+region kernel_next(ctx: CompileCtx, project: ptr(PlannedProject), cursor: KernelCursor;
+    fact(f: KernelFact, next: KernelCursor)
+  | done(kernel: ptr(KernelProject))
+  | invalid(issue: Issue)
+  | backend_error(issue: Issue)) end
+
+region compile_project(ctx: CompileCtx, project: ptr(PlannedProject);
+    kernel(project: ptr(KernelProject))
+  | invalid(issues: IssueList)
+  | backend_error(issue: Issue)) end
+
+region compile_job(ctx: CompileCtx, project: ptr(PlannedProject), job: PlannedJob;
+    quote(bytes: BlobRef)
+  | plugin_call(call: PlannedPluginCall)
+  | silent
+  | invalid(issue: Issue)
+  | backend_error(issue: Issue)) end
+
+region compile_binding(ctx: CompileCtx, project: ptr(PlannedProject), binding: PlannedBindingRef;
+    literal(value: f64)
+  | state_load(state_slot: u32, rate: RateClass)
+  | expression(bytes: BlobRef)
+  | invalid(issue: Issue)) end
+
+-- ============================================================
+-- RUNTIME REGIONS: PLANNED/KERNEL/RUNTIME IR ONLY
+-- ============================================================
+
+region init_runtime_state(kernel: ptr(KernelProject), planned: ptr(PlannedProject);
+    state(value: ptr(RuntimeRenderState))
+  | allocation_failed(bytes: index)
+  | invalid(issue: Issue)) end
+
+region consume_live_command(planned: ptr(PlannedProject), state: ptr(RuntimeRenderState), command: LiveCommand;
+    consumed
+  | deferred(next_tick: i64)
+  | rejected(issue: Issue)) end
+
+region begin_audio_block(kernel: ptr(KernelProject), planned: ptr(PlannedProject), state: ptr(RuntimeRenderState), audio_block: AudioBlock;
+    ready(block_start_tick: i64, nframes: u32)
+  | transport_stopped
+  | invalid(issue: Issue)) end
+
+region eval_launcher(kernel: ptr(KernelProject), planned: ptr(PlannedProject), state: ptr(RuntimeRenderState), audio_block: AudioBlock;
+    changed
+  | unchanged
+  | queued(track_id: u32, slot_index: u32, launch_at_tick: i64)
+  | stopped(track_id: u32, stop_at_tick: i64)
+  | invalid(issue: Issue)) end
+
+region eval_control_init(kernel: ptr(KernelProject), planned: ptr(PlannedProject), state: ptr(RuntimeRenderState);
+    done
+  | invalid(issue: Issue)) end
+
+region eval_control_block(kernel: ptr(KernelProject), planned: ptr(PlannedProject), state: ptr(RuntimeRenderState), audio_block: AudioBlock;
+    done
+  | invalid(issue: Issue)) end
+
+region eval_control_sample(kernel: ptr(KernelProject), planned: ptr(PlannedProject), state: ptr(RuntimeRenderState), sample_offset: u32;
+    done
+  | invalid(issue: Issue)) end
+
+region render_planned_job(kernel: ptr(KernelProject), planned: ptr(PlannedProject), state: ptr(RuntimeRenderState), job: PlannedJob, audio_block: AudioBlock;
+    rendered
+  | silent
+  | plugin_error(device_id: u32, issue: Issue)
+  | invalid(issue: Issue)) end
+
+region render_audio_block(kernel: ptr(KernelProject), planned: ptr(PlannedProject), state: ptr(RuntimeRenderState), live: ptr(LiveQueue), audio_block: AudioBlock;
+    rendered(frames: u32)
+  | underrun(frames: u32)
+  | invalid(issue: Issue)
+  | backend_error(issue: Issue)) end
+
+region queue_track_launch(state: ptr(RuntimeRenderState), track_id: u32, slot_index: u32, quantization: Quantization;
+    queued(launch_at_tick: i64)
+  | rejected(issue: Issue)) end
+
+region queue_scene_launch(state: ptr(RuntimeRenderState), scene_id: u32, quantization: Quantization;
+    queued(launch_at_tick: i64)
+  | rejected(issue: Issue)) end
+
+region stop_track(state: ptr(RuntimeRenderState), track_id: u32, quantization: Quantization;
+    stopped(stop_at_tick: i64)
+  | already_stopped
+  | rejected(issue: Issue)) end
+
+region set_macro_value(state: ptr(RuntimeRenderState), source_id: u32, value: f64;
+    changed
+  | unchanged
+  | rejected(issue: Issue)) end
+
+region set_midi_cc_value(state: ptr(RuntimeRenderState), cc_number: u32, value: f64;
+    changed
+  | unchanged
+  | rejected(issue: Issue)) end
+
+region note_on_event(state: ptr(RuntimeRenderState), track_id: u32, pitch: u32, velocity: f64, sample_offset: u32;
+    accepted(voice_id: u32)
+  | stolen(voice_id: u32)
+  | rejected(issue: Issue)) end
+
+region note_off_event(state: ptr(RuntimeRenderState), track_id: u32, pitch: u32, sample_offset: u32;
+    accepted
+  | orphan
+  | rejected(issue: Issue)) end
+
+-- ============================================================
+-- SEALED FUNCTIONS: ABI, HOST, RECURSION, EFFECT BOUNDARIES
+-- ============================================================
+
+func daw_validate_project(project: ptr(ScoreProject)): i32 end
+func daw_apply_edit(project: ptr(ScoreProject), batch: ptr(EditBatch), out_project: ptr(ScoreProject)): i32 end
+func daw_resolve_project(ctx: ptr(ResolveCtx), project: ptr(ScoreProject), out_project: ptr(SemanticProject)): i32 end
+func daw_rate_project(ctx: ptr(RateCtx), project: ptr(SemanticProject), out_project: ptr(RatedProject)): i32 end
+func daw_plan_project(ctx: ptr(PlanCtx), project: ptr(RatedProject), out_project: ptr(PlannedProject)): i32 end
+func daw_compile_project(ctx: ptr(CompileCtx), project: ptr(PlannedProject), out_kernel: ptr(KernelProject)): i32 end
+
+func daw_init_state(kernel: ptr(KernelProject), planned: ptr(PlannedProject), out_state: ptr(RuntimeRenderState)): i32 end
+func daw_free_state(state: ptr(RuntimeRenderState)): i32 end
+func daw_render_block(kernel: ptr(KernelProject), planned: ptr(PlannedProject), state: ptr(RuntimeRenderState), live: ptr(LiveQueue), audio_block: ptr(AudioBlock)): i32 end
+
+func daw_queue_launch(state: ptr(RuntimeRenderState), track_id: u32, slot_index: u32): i32 end
+func daw_queue_scene(state: ptr(RuntimeRenderState), scene_id: u32): i32 end
+func daw_stop_track(state: ptr(RuntimeRenderState), track_id: u32): i32 end
+func daw_set_macro(state: ptr(RuntimeRenderState), source_id: u32, value: f64): i32 end
+func daw_set_cc(state: ptr(RuntimeRenderState), cc_number: u32, value: f64): i32 end
+func daw_note_on(state: ptr(RuntimeRenderState), track_id: u32, pitch: u32, velocity: f64, sample_offset: u32): i32 end
+func daw_note_off(state: ptr(RuntimeRenderState), track_id: u32, pitch: u32, sample_offset: u32): i32 end
+
+func daw_open_project(bytes: ptr(u8), len: index, out_project: ptr(ScoreProject)): i32 end
+func daw_save_project(project: ptr(ScoreProject), out_bytes: ptr(BlobRef)): i32 end
+func daw_free_project(project: ptr(ScoreProject)): i32 end
+func daw_free_kernel(kernel: ptr(KernelProject)): i32 end
+
+-- ============================================================
+-- REVIEW CHECKLIST
+-- ============================================================
+-- No NameInput/NameOutput/NameConsumes/NameProduces wrapper types.
+-- Region parameters are real consumed IR products.
+-- Region continuations are real produced protocol/IR facts.
+-- All control-shaping vocabularies are unions, not integer codebooks.
+-- Dense integer ids remain ids only: track_id, clip_id, device_id, slot_index.
+-- Recursive whole-project traversal belongs behind funcs or explicit cursors.
+-- Regions express local statecharts, phase edges, visitors, and runtime protocols.
+-- Audio callback consumes PlannedProject, KernelProject, RuntimeRenderState,
+-- LiveQueue, and AudioBlock only; it does not inspect ScoreProject.

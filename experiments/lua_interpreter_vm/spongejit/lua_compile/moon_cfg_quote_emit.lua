@@ -96,6 +96,14 @@ local function type_from_ref(ref)
   return type_from_moon_string(ref and ref.moon_type or ref)
 end
 
+local function q_name(name, ty)
+  assert(type(name) == "string" and name:match("^[_%a][_%w]*$"), "q_name expects an identifier")
+  local HT = moon.default_session.T
+  local Tr, Bind = HT.MoonTree, HT.MoonBind
+  local tv = ty and moon.as_type_value(ty, "q_name type must be a Moonlift type") or nil
+  return moon.expr_from_asdl(Tr.ExprRef(Tr.ExprSurface, Bind.ValueRefName(name)), tv, name, { ref_name = name })
+end
+
 local function q_i64(v) return moon.int(math.floor(n(v))):as(moon.i64) end
 local function q_index(v) return moon.int(math.floor(n(v))):as(moon.index) end
 local function q_f64(v) return moon.float(tonumber(v) or 0, moon.f64) end
@@ -441,10 +449,10 @@ value_to_expr = function(v, env)
     elseif pcls == CFG.VarargSlot then key = "vararg_" .. tostring(math.floor(n(v.place.index)))
     end
     if key and env[key] then return env[key] end
-    if key then return moon.ref(key) end
+    if key then return q_name(key) end
   elseif c == CFG.ParamValue then
     local key = render_name(v.name)
-    return env[key] or moon.ref(key)
+    return env[key] or q_name(key)
   elseif c == CFG.ConstValue then
     local k = cls(v.const)
     if k == CFG.I64Const then return q_i64(v.const.value)
@@ -736,7 +744,7 @@ value_to_place = function(v, env)
   local place = vc == CFG.PlaceValue and v.place or v
   local key = place_key(place)
   if key and env[key] and env[key].place then return env[key]:place() end
-  if key then return moon.ref(key):place() end
+  if key then return q_name(key):place() end
   return nil, "unsupported_place:" .. tostring(place and place.kind)
 end
 
@@ -1103,7 +1111,7 @@ local function make_param_env(params)
   local env = {}
   for _, p in ipairs(params or {}) do
     local name = render_name(p.name)
-    env[name] = moon.ref(name, param_type(p))
+    env[name] = q_name(name, param_type(p))
   end
   return env
 end
@@ -1114,8 +1122,8 @@ local function build_region_block(block, is_entry, region_params, base_env, ret_
   if is_entry then
     for _, p in ipairs(region_params or {}) do
       local name, ty = render_name(p.name), param_type(p)
-      params[#params + 1] = { name = name, type = ty, init = base_env[name] or moon.ref(name, ty) }
-      env[name] = moon.ref(name, ty)
+      params[#params + 1] = { name = name, type = ty, init = base_env[name] or q_name(name, ty) }
+      env[name] = q_name(name, ty)
     end
     params = moon.entry_params(params)
   else
@@ -1123,7 +1131,7 @@ local function build_region_block(block, is_entry, region_params, base_env, ret_
     for _, p in ipairs(block.params or {}) do
       local name, ty = render_name(p.name), param_type(p)
       params[#params + 1] = Tr.BlockParam(name, moon.as_type_value(ty, "block param type").ty)
-      env[name] = moon.ref(name, ty)
+      env[name] = q_name(name, ty)
     end
   end
   local b = make_stmt_builder(env)

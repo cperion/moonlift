@@ -1,0 +1,274 @@
+{
+	"version": 1,
+	"workflowId": "wf-zyn-synth-impl",
+	"planId": "main",
+	"revision": 14,
+	"nextId": 18,
+	"createdAt": "2026-06-13T09:02:42.028Z",
+	"updatedAt": "2026-06-13T10:21:31.565Z",
+	"tasks": [
+		{
+			"id": "T001",
+			"title": "Create implementation module scaffold",
+			"detail": "Create the new implementation file. First verify the correct Moonlift implementation idiom from existing .mlua examples/LANGUAGE_REFERENCE (whether bodies replace header declarations, duplicate signatures with bodies, or use a closure/binding pattern). Then load examples/synth/zyn_moonlift_synth_headers.mlua, bind M/E/T/R/F, define only Lua constants/helper binding tables needed by body declarations, and return M after implementing header regions/functions. Do not edit the header declarations.",
+			"file": "examples/synth/zyn_moonlift_synth_impl.mlua",
+			"after": [],
+			"status": "done",
+			"order": 1,
+			"claimedBy": "agent-9ZRAMJ",
+			"evidence": "Created examples/synth/zyn_moonlift_synth_impl.mlua scaffold only. Verified implementation idiom in LANGUAGE_REFERENCE.md §15.1-15.3 and §region-header sugar: signature closures take body-only strings, and dotted references like region R.foo / func F.foo are transformed into header closure calls. Verified with temporary .mlua smoke snippets that standard Lua dofile cannot load .mlua headers, while moon.dofile can load a header and implement a dotted func header. Loaded new scaffold via: luajit -e 'package.path=\"./lua/?.lua;./lua/?/init.lua;\"..package.path; local moon=require(\"moonlift\"); local M=moon.dofile(\"examples/synth/zyn_moonlift_synth_impl.mlua\"); print(...)' => loaded_impl table table region_header func_header. No header declarations edited; no large implementation begun.",
+			"notes": [
+				"Planner amendment: first implementation slice must verify syntax/body pattern before writing large code, because the header/spec are contracts and implementation style must match Moonlift's actual .mlua API."
+			],
+			"createdAt": "2026-06-13T09:02:42.028Z",
+			"updatedAt": "2026-06-13T09:10:03.188Z"
+		},
+		{
+			"id": "T002",
+			"title": "Implement primitive helper fragments",
+			"detail": "Add internal helpers for checked index add/mul, align_up, byte-range validation, little-endian u16/u32/f32 loads, finite f32 checks, min/max/clamp/abs, deterministic RNG/noise, denormal clamp, buffer/view validation, and arena bump allocation. Helpers must return named protocol exits, never ABI status integers.",
+			"file": "examples/synth/zyn_moonlift_synth_impl.mlua",
+			"after": [
+				"T001"
+			],
+			"status": "done",
+			"order": 2,
+			"claimedBy": "agent-PAMXDJ",
+			"evidence": "Implemented primitive helper fragments in examples/synth/zyn_moonlift_synth_impl.mlua under M.HLP: checked_add_index, checked_mul_index, align_up_index, checked_byte_range, byte/view/stereo validation, arena_alloc_bytes, little-endian u16/u32/f32 readers, finite/min/max/clamp/abs, deterministic_noise_step, denormal_clamp. Verified module load and compiled/executed a read_u32_le probe via luajit/moonlift returning 1515802189 for bytes 4d 4e 59 5a. ABI status ints were not used in helpers.",
+			"notes": [],
+			"createdAt": "2026-06-13T09:02:42.028Z",
+			"updatedAt": "2026-06-13T09:20:23.998Z"
+		},
+		{
+			"id": "T003",
+			"title": "Implement storage sizing and initialization ABI",
+			"detail": "Implement F.synth_required_storage and F.synth_init from spec Host Storage Contract lines 48-98: exact layout order, alignment, overflow-to-0 for sizing, config validation, free-list setup, zeroed controls/effects/cache/meter/transport, generation initialization, and boundary AbiStatus mapping.",
+			"file": "examples/synth/zyn_moonlift_synth_impl.mlua",
+			"after": [
+				"T002"
+			],
+			"status": "blocked",
+			"order": 3,
+			"claimedBy": "agent-PAMXDJ",
+			"blockedReason": "Partial implementation written in examples/synth/zyn_moonlift_synth_impl.mlua: F.synth_required_storage and F.synth_init bodies now transcribe the storage layout and initialization loops. Module loads, and synth_required_storage reaches frontend/C lowering but Cranelift JIT compile timed out after 60s for this large by-value SynthConfig function; C backend lowering reaches tcc and fails on generated C for the by-value config. synth_init currently hits a Moonlift internal frontend error during compile: `(asdl.gc_ctor.1.false):10: bad arg #1 to 'MoonTree.ExprTyped': expected 'MoonType.Type' got 'nil'`. Because the ABI body is not compile-verified, I am blocking rather than marking done. Continuing to lifetime/patch tasks would build on an unverified storage boundary.",
+			"notes": [
+				"Blocker investigation: synth_init frontend error is reproducible with a minimal signature-closure body that calls a function dependency via @{dep}(x). Complete moon.func{dep=dep}[[ func main... return @{dep}(x) end ]] works, but header/body-only h{dep=dep}[[ return @{dep}(x) ]] fails in tree_typecheck with ExprTyped expected MoonType.Type got nil. In synth_init this is likely the line `let required: index = @{synth_required_storage}(config)`, not storage logic itself. Workarounds: inline the sizing calculation in synth_init, avoid function dependency calls in header body strings, or fix signature-closure splicing/typecheck.",
+				"Compiler-side ExprTyped nil blocker from body-only function header dependency calls is fixed in lua/moonlift/host.lua; regression test tests/test_func_header_body_splice.lua passes. Rechecking F.synth_init now progresses past that blocker and reports a source/type issue (`invalid operator <=`), so remaining T003 work is in the synth implementation body (or separate comparison-language support), not the original signature-closure splice bug."
+			],
+			"createdAt": "2026-06-13T09:02:42.028Z",
+			"updatedAt": "2026-06-13T10:21:31.565Z"
+		},
+		{
+			"id": "T004",
+			"title": "Implement memory and lifetime regions",
+			"detail": "Implement R.borrow_published_program through R.close_synth_storage from header lines 769-816: program slot borrow/publish/retire generation checks, voice/effect/pad borrow checks, scratch reset, render memory entry, and storage close. Preserve internal protocol exits; no status ints inside regions.",
+			"file": "examples/synth/zyn_moonlift_synth_impl.mlua",
+			"after": [
+				"T003"
+			],
+			"status": "todo",
+			"order": 4,
+			"notes": [],
+			"createdAt": "2026-06-13T09:02:42.028Z",
+			"updatedAt": "2026-06-13T09:02:42.028Z"
+		},
+		{
+			"id": "T005",
+			"title": "Implement patch section decoding",
+			"detail": "Implement R.decode_patch_source and R.next_patch_section from header lines 823-832 according to Patch Format V1 lines 100-174: ZYNM magic/version, little-endian directory parsing, section count bounds, alignment, sorted/non-overlap validation, unknown kind unsupported_section, malformed offsets/records.",
+			"file": "examples/synth/zyn_moonlift_synth_impl.mlua",
+			"after": [
+				"T002"
+			],
+			"status": "done",
+			"order": 5,
+			"claimedBy": "agent-4K7SKT",
+			"evidence": "Implemented R.decode_patch_source and R.next_patch_section in examples/synth/zyn_moonlift_synth_impl.mlua. Module loads via luajit/moon.dofile. Added binding aliases for helper fragments/section constants used in body strings. Compiled wrapper probes that emit decode_patch_source and next_patch_section; both wrappers compiled successfully. Fixed helper checked_mul_index zero exits to return as(index, 0) after compile probe exposed an index/i32 mismatch.",
+			"notes": [],
+			"createdAt": "2026-06-13T09:02:42.028Z",
+			"updatedAt": "2026-06-13T09:42:46.375Z"
+		},
+		{
+			"id": "T006",
+			"title": "Implement primitive patch plan preparation",
+			"detail": "Implement R.prepare_tuning, prepare_envelope, prepare_lfo, prepare_filter, prepare_modulation, prepare_additive_plan, prepare_subtractive_plan, prepare_pad_plan, prepare_effect_slot, and prepare_effect_bus from header lines 834-904. Transcribe fixed record layouts and validation rules; allocate arrays only through ByteArena; restore explicit malformed/exhausted/unsupported exits.",
+			"file": "examples/synth/zyn_moonlift_synth_impl.mlua",
+			"after": [
+				"T005"
+			],
+			"status": "done",
+			"order": 6,
+			"claimedBy": "agent-4K7SKT",
+			"evidence": "Compiler blocker fixed in lua/moonlift/tree_to_back.lua: view descriptors can now be stored/loaded inside aggregate products, view locals can be used as expressions, nil pointer view constructors lower, and aggregate-let errors include underlying reasons. Verified module load and compile-wrapper probes for all previously failing primitive prep regions: prepare_tuning, prepare_modulation, prepare_additive_plan, prepare_subtractive_plan, and prepare_effect_bus now compile. Added regression test tests/test_view_aggregate_lowering.lua and it passes with luajit.",
+			"notes": [
+				"Blocker investigation: aggregate products with view fields are a backend lowering gap. Minimal repro: struct HasView { xs: view(i32), n: index }; region mk(...; ok(h: HasView)) with `let h: HasView = { xs = view(xs,n), n = n }` then wrapper compile fails at tree_to_back.lua:2344 `aggregate let initializer could not be lowered`. Cause: ExprAgg lowering calls expr_value on each field; view expressions lower as TreeBackExprView/StridedView, not scalar ExprValue. Reading/storing view fields also appears unsupported without descriptor load/store support. This affects TuningTable, ModulationPlan, AdditivePartialPlan, NoiseBandPlan, EffectBusPlan and later PreparedProgram/LayerPlan products."
+			],
+			"createdAt": "2026-06-13T09:02:42.028Z",
+			"updatedAt": "2026-06-13T10:21:31.565Z"
+		},
+		{
+			"id": "T007",
+			"title": "Implement layer part program preparation",
+			"detail": "Implement R.prepare_layer, R.prepare_part, R.prepare_program, R.validate_program, and R.rebuild_pad_cache from header lines 880-920. Compose the primitive prepare regions; build one immutable PreparedProgram; validate counts, tone masks, finite values, effect tags, route tags; restore arena.used on failure; publish only through publication region later.",
+			"file": "examples/synth/zyn_moonlift_synth_impl.mlua",
+			"after": [
+				"T006",
+				"T004"
+			],
+			"status": "todo",
+			"order": 7,
+			"notes": [],
+			"createdAt": "2026-06-13T09:02:42.028Z",
+			"updatedAt": "2026-06-13T09:02:42.028Z"
+		},
+		{
+			"id": "T008",
+			"title": "Implement event and control protocols",
+			"detail": "Implement R.classify_host_event through R.apply_host_events from header lines 927-978. Dispatch only in owner regions for stored kind tags; normalize pitch bend and velocity-zero note-on; update controls/parameters/transport; ignore out-of-range event frames; first program change exits requested_program; panic clears voices then exits panic_requested.",
+			"file": "examples/synth/zyn_moonlift_synth_impl.mlua",
+			"after": [
+				"T004",
+				"T007"
+			],
+			"status": "todo",
+			"order": 8,
+			"notes": [],
+			"createdAt": "2026-06-13T09:02:42.028Z",
+			"updatedAt": "2026-06-13T09:02:42.028Z"
+		},
+		{
+			"id": "T009",
+			"title": "Implement voice allocation lifecycle",
+			"detail": "Implement R.next_note_layer through R.retire_voice from header lines 984-1029. Transcribe key mapping/tuning, dense active list, free-list pop/push, generation checks, stealing score/tie rules, start state initialization, release/all-notes/panic, lifecycle stage transitions, and retire swap-remove.",
+			"file": "examples/synth/zyn_moonlift_synth_impl.mlua",
+			"after": [
+				"T004",
+				"T007"
+			],
+			"status": "todo",
+			"order": 9,
+			"notes": [],
+			"createdAt": "2026-06-13T09:02:42.028Z",
+			"updatedAt": "2026-06-13T09:02:42.028Z"
+		},
+		{
+			"id": "T010",
+			"title": "Implement modulation envelopes LFO filters",
+			"detail": "Implement R.eval_envelope_sample through R.apply_filter_model from header lines 1036-1061. Handle all declared curve/shape/model tags in their owner regions, deterministic RNG, denormal clamp, route source/destination mapping, and invalid tag exits.",
+			"file": "examples/synth/zyn_moonlift_synth_impl.mlua",
+			"after": [
+				"T008",
+				"T009"
+			],
+			"status": "todo",
+			"order": 10,
+			"notes": [],
+			"createdAt": "2026-06-13T09:02:42.028Z",
+			"updatedAt": "2026-06-13T09:02:42.028Z"
+		},
+		{
+			"id": "T011",
+			"title": "Implement tone field renderers",
+			"detail": "Implement R.render_additive_field, render_subtractive_field, render_pad_field, and route_layer_tone_generators from header lines 1069-1091. Render exactly ctx.shape.frame_count samples, honor ToneMask bits only in the owner route region, return silent for no matching energy, and propagate stale/missing/bad-buffer exits.",
+			"file": "examples/synth/zyn_moonlift_synth_impl.mlua",
+			"after": [
+				"T010"
+			],
+			"status": "todo",
+			"order": 11,
+			"notes": [],
+			"createdAt": "2026-06-13T09:02:42.028Z",
+			"updatedAt": "2026-06-13T09:02:42.028Z"
+		},
+		{
+			"id": "T012",
+			"title": "Implement audio mixing effects metering",
+			"detail": "Implement R.clear_audio_block through R.finalize_audio_block from header lines 1099-1144. Zero/mix/pan with buffer validation, process effect slots/buses in slot order, copy on bypass, clip and compute peak/RMS in finalize, update MeterFrame exactly once.",
+			"file": "examples/synth/zyn_moonlift_synth_impl.mlua",
+			"after": [
+				"T010"
+			],
+			"status": "todo",
+			"order": 12,
+			"notes": [],
+			"createdAt": "2026-06-13T09:02:42.028Z",
+			"updatedAt": "2026-06-13T09:02:42.028Z"
+		},
+		{
+			"id": "T013",
+			"title": "Implement render orchestration",
+			"detail": "Implement R.render_voice, render_part_voices, render_all_parts, and render_block from header lines 1151-1179. Follow spec Render Order lines 408-421 exactly: enter memory, clear out, clear scratch, apply events, render parts, send effects, finalize, then optionally retire dead voices.",
+			"file": "examples/synth/zyn_moonlift_synth_impl.mlua",
+			"after": [
+				"T008",
+				"T009",
+				"T011",
+				"T012"
+			],
+			"status": "todo",
+			"order": 13,
+			"notes": [],
+			"createdAt": "2026-06-13T09:02:42.028Z",
+			"updatedAt": "2026-06-13T09:02:42.028Z"
+		},
+		{
+			"id": "T014",
+			"title": "Implement remaining ABI seals",
+			"detail": "Implement F.synth_prepare_program, F.synth_render_block, F.synth_set_parameter, F.synth_note_on, F.synth_note_off, F.synth_all_notes_off, and F.synth_panic from header lines 1185-1203. These functions are the only locations that map internal protocol exits to E.AbiStatus values from spec lines 20-46.",
+			"file": "examples/synth/zyn_moonlift_synth_impl.mlua",
+			"after": [
+				"T007",
+				"T008",
+				"T009",
+				"T013"
+			],
+			"status": "todo",
+			"order": 14,
+			"notes": [],
+			"createdAt": "2026-06-13T09:02:42.028Z",
+			"updatedAt": "2026-06-13T09:02:42.028Z"
+		},
+		{
+			"id": "T015",
+			"title": "Add implementation compile tests",
+			"detail": "Add a standalone Lua test that loads the implementation, asserts every header R/F entry has been replaced by a body-bearing value, bundles/compiles all implemented F functions and internal R dependencies, and fails on any unimplemented signature closure. Keep fixtures factual to the spec; do not invent alternate behavior.",
+			"file": "tests/test_zyn_moonlift_synth_impl.lua",
+			"after": [
+				"T014"
+			],
+			"status": "todo",
+			"order": 15,
+			"notes": [],
+			"createdAt": "2026-06-13T09:02:42.028Z",
+			"updatedAt": "2026-06-13T09:02:42.028Z"
+		},
+		{
+			"id": "T016",
+			"title": "Add behavioral smoke tests",
+			"detail": "Extend the test with minimal FFI-backed checks for storage sizing/init, invalid config/status mapping, host/midi event classification paths, voice pool allocate/start/release/retire, malformed patch rejection, and silent render success. Use only spec-defined cases and ABI statuses.",
+			"file": "tests/test_zyn_moonlift_synth_impl.lua",
+			"after": [
+				"T015"
+			],
+			"status": "todo",
+			"order": 16,
+			"notes": [],
+			"createdAt": "2026-06-13T09:02:42.028Z",
+			"updatedAt": "2026-06-13T09:02:42.028Z"
+		},
+		{
+			"id": "T017",
+			"title": "Run verification commands",
+			"detail": "Run cargo build --release if needed, luajit tests/test_zyn_moonlift_synth_impl.lua, and a compile/load check for examples/synth/zyn_moonlift_synth_impl.mlua. Evidence should list commands and whether failures are implementation or compiler limitations.",
+			"file": "tests/test_zyn_moonlift_synth_impl.lua",
+			"after": [
+				"T016"
+			],
+			"status": "todo",
+			"order": 17,
+			"notes": [],
+			"createdAt": "2026-06-13T09:02:42.028Z",
+			"updatedAt": "2026-06-13T09:02:42.028Z"
+		}
+	]
+}

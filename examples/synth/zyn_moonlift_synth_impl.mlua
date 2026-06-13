@@ -1,0 +1,1102 @@
+-- zyn_moonlift_synth_impl.mlua
+--
+-- Implementation module for zyn_moonlift_synth_headers.mlua.
+-- The header owns the product forest, protocol graph, and ABI seal signatures;
+-- this file supplies bodies by calling those signature closures with body-only
+-- Moonlift source, per LANGUAGE_REFERENCE.md §15.1-15.3.
+--
+-- Use moon.dofile, not Lua's standard dofile: .mlua files must pass through the
+-- Moonlift island transform before Lua execution.
+
+local H = moon.dofile("examples/synth/zyn_moonlift_synth_headers.mlua")
+
+local M = H
+local E = M.enc
+local T = M.T
+local R = M.R
+local F = M.F
+
+-------------------------------------------------------------------------------
+-- Shared Lua-side constants and body bindings
+-------------------------------------------------------------------------------
+
+local MAGIC_ZYNM = 0x5a594e4d
+local PATCH_FORMAT_VERSION = 1
+local EMPTY_U32 = 0xffffffff
+
+-- Binding table for future body strings. It contains only compile-time Lua
+-- values used for Moonlift splices/dependency registration; it is not synth
+-- runtime state.
+local BODY = {
+    E = E,
+    T = T,
+    R = R,
+    F = F,
+
+    MAGIC_ZYNM = MAGIC_ZYNM,
+    PATCH_FORMAT_VERSION = PATCH_FORMAT_VERSION,
+    EMPTY_U32 = EMPTY_U32,
+}
+
+-------------------------------------------------------------------------------
+-- Primitive helper fragments
+-------------------------------------------------------------------------------
+
+local HLP = {}
+M.HLP = HLP
+BODY.HLP = HLP
+
+HLP.min_f32 = expr(a: f32, b: f32): f32
+    select(a < b, a, b)
+end
+
+HLP.max_f32 = expr(a: f32, b: f32): f32
+    select(a > b, a, b)
+end
+
+HLP.abs_f32 = expr(x: f32): f32
+    select(x < 0.0, -x, x)
+end
+
+HLP.clamp_f32 = expr(x: f32, lo: f32, hi: f32): f32
+    select(x < lo, lo, select(x > hi, hi, x))
+end
+
+HLP.denormal_clamp = expr(x: f32, floor: f32): f32
+    select(emit @{HLP.abs_f32}(x) < floor, 0.0, x)
+end
+
+HLP.is_finite_f32 = region(x: f32;
+    finite
+    | not_finite)
+entry start()
+    if x ~= x then jump not_finite() end
+    if x > 3.402823e38 then jump not_finite() end
+    if x < -3.402823e38 then jump not_finite() end
+    jump finite()
+end
+end
+
+HLP.checked_add_index = region(a: index, b: index;
+    ok(value: index)
+    | overflow)
+entry start()
+    let sum: index = a + b
+    if sum < a then jump overflow() end
+    jump ok(value = sum)
+end
+end
+
+HLP.checked_mul_index = region(a: index, b: index;
+    ok(value: index)
+    | overflow)
+entry start()
+    if a < 0 then jump overflow() end
+    if b < 0 then jump overflow() end
+    if a == 0 then jump ok(value = as(index, 0)) end
+    if b == 0 then jump ok(value = as(index, 0)) end
+    let product_f: f64 = as(f64, a) * as(f64, b)
+    if product_f > 9223372036854775807.0 then jump overflow() end
+    let product: index = a * b
+    if product < a then jump overflow() end
+    if product < b then jump overflow() end
+    jump ok(value = product)
+end
+end
+
+HLP.align_up_index = region(value: index, align: index;
+    ok(value: index)
+    | bad_align
+    | overflow)
+entry start()
+    if align <= 0 then jump bad_align() end
+    let mask: index = align - 1
+    if (align & mask) ~= 0 then jump bad_align() end
+    emit @{HLP.checked_add_index}(value, mask; ok = added, overflow = too_big)
+end
+block added(value: index)
+    let mask: index = align - 1
+    jump ok(value = value & ~mask)
+end
+block too_big()
+    jump overflow()
+end
+end
+
+HLP.checked_byte_range = region(pos: index, size: index, total: index;
+    ok
+    | overflow
+    | out_of_bounds)
+entry start()
+    if pos < 0 then jump out_of_bounds() end
+    if size < 0 then jump out_of_bounds() end
+    emit @{HLP.checked_add_index}(pos, size; ok = bounded, overflow = too_big)
+end
+block bounded(value: index)
+    if value > total then jump out_of_bounds() end
+    jump ok()
+end
+block too_big()
+    jump overflow()
+end
+end
+
+HLP.validate_byte_slice = region(bytes: ByteSlice, min_len: index;
+    ok
+    | bad_buffer)
+entry start()
+    if min_len < 0 then jump bad_buffer() end
+    if bytes.data == nil then jump bad_buffer() end
+    if bytes.len < min_len then jump bad_buffer() end
+    jump ok()
+end
+end
+
+HLP.validate_f32_view = region(samples: view(f32), required_len: index;
+    ok
+    | bad_buffer)
+entry start()
+    if required_len < 0 then jump bad_buffer() end
+    if len(samples) < required_len then jump bad_buffer() end
+    jump ok()
+end
+end
+
+HLP.validate_stereo_block = region(stereo: StereoBlock, frame_count: index;
+    ok
+    | bad_buffer)
+entry start()
+    emit @{HLP.validate_f32_view}(stereo.left, frame_count; ok = left_ok, bad_buffer = bad)
+end
+block left_ok()
+    emit @{HLP.validate_f32_view}(stereo.right, frame_count; ok = right_ok, bad_buffer = bad)
+end
+block right_ok()
+    jump ok()
+end
+block bad()
+    jump bad_buffer()
+end
+end
+
+HLP.arena_alloc_bytes = region(arena: ptr(ByteArena), size: index, align: index;
+    allocated(data: ptr(u8), offset: index)
+    | bad_align
+    | overflow
+    | exhausted
+    | bad_buffer)
+entry start()
+    if arena == nil then jump bad_buffer() end
+    if (*arena).data == nil then jump bad_buffer() end
+    if size < 0 then jump overflow() end
+    if (*arena).used > (*arena).cap then jump bad_buffer() end
+    emit @{HLP.align_up_index}((*arena).used, align; ok = aligned, bad_align = bad_alignment, overflow = too_big)
+end
+block aligned(value: index)
+    emit @{HLP.checked_add_index}(value, size; ok = finished, overflow = too_big)
+end
+block finished(value: index)
+    if value > (*arena).cap then jump exhausted() end
+    let start: index = (*arena).used
+    emit @{HLP.align_up_index}(start, align; ok = commit, bad_align = bad_alignment, overflow = too_big)
+end
+block commit(value: index)
+    let new_used: index = value + size;
+    (*arena).used = new_used
+    jump allocated(data = (*arena).data + value, offset = value)
+end
+block bad_alignment()
+    jump bad_align()
+end
+block too_big()
+    jump overflow()
+end
+end
+
+HLP.read_u16_le = region(bytes: ByteSlice, pos: index;
+    ok(value: u16)
+    | malformed(pos: index, code: i32))
+entry start()
+    if bytes.data == nil then jump malformed(pos = pos, code = 1) end
+    emit @{HLP.checked_byte_range}(pos, as(index, 2), bytes.len; ok = in_range, overflow = bad_overflow, out_of_bounds = bad_range)
+end
+block in_range()
+    let b0: u16 = as(u16, bytes.data[pos])
+    let b1: u16 = as(u16, bytes.data[pos + as(index, 1)])
+    jump ok(value = b0 | (b1 << 8))
+end
+block bad_overflow()
+    jump malformed(pos = pos, code = 2)
+end
+block bad_range()
+    jump malformed(pos = pos, code = 3)
+end
+end
+
+HLP.read_u32_le = region(bytes: ByteSlice, pos: index;
+    ok(value: u32)
+    | malformed(pos: index, code: i32))
+entry start()
+    if bytes.data == nil then jump malformed(pos = pos, code = 1) end
+    emit @{HLP.checked_byte_range}(pos, as(index, 4), bytes.len; ok = in_range, overflow = bad_overflow, out_of_bounds = bad_range)
+end
+block in_range()
+    let b0: u32 = as(u32, bytes.data[pos])
+    let b1: u32 = as(u32, bytes.data[pos + as(index, 1)])
+    let b2: u32 = as(u32, bytes.data[pos + as(index, 2)])
+    let b3: u32 = as(u32, bytes.data[pos + as(index, 3)])
+    jump ok(value = b0 | (b1 << 8) | (b2 << 16) | (b3 << 24))
+end
+block bad_overflow()
+    jump malformed(pos = pos, code = 2)
+end
+block bad_range()
+    jump malformed(pos = pos, code = 3)
+end
+end
+
+HLP.read_f32_le = region(bytes: ByteSlice, pos: index;
+    ok(value: f32)
+    | malformed(pos: index, code: i32))
+entry start()
+    emit @{HLP.read_u32_le}(bytes, pos; ok = got_bits, malformed = bad)
+end
+block got_bits(value: u32)
+    jump ok(value = bitcast(f32, value))
+end
+block bad(pos: index, code: i32)
+    jump malformed(pos = pos, code = code)
+end
+end
+
+HLP.deterministic_noise_step = region(seed: u64;
+    ok(next_seed: u64, sample: f32))
+entry start()
+    let nonzero: u64 = select(seed == 0, as(u64, 1), seed)
+    let next: u64 = nonzero * as(u64, 1664525) + as(u64, 1013904223)
+    let mant: u32 = as(u32, next & as(u64, 16777215))
+    let unit: f32 = as(f32, mant) * 0.00000011920928955078125
+    jump ok(next_seed = next, sample = unit - 1.0)
+end
+end
+
+BODY.validate_byte_slice = HLP.validate_byte_slice
+BODY.read_u16_le = HLP.read_u16_le
+BODY.read_u32_le = HLP.read_u32_le
+BODY.read_f32_le = HLP.read_f32_le
+BODY.checked_mul_index = HLP.checked_mul_index
+BODY.checked_add_index = HLP.checked_add_index
+BODY.checked_byte_range = HLP.checked_byte_range
+BODY.arena_alloc_bytes = HLP.arena_alloc_bytes
+BODY.is_finite_f32 = HLP.is_finite_f32
+
+BODY.K_SECTION_HEADER = E.PatchSectionKind.header
+BODY.K_SECTION_TUNING = E.PatchSectionKind.tuning
+BODY.K_SECTION_PART = E.PatchSectionKind.part
+BODY.K_SECTION_LAYER = E.PatchSectionKind.layer
+BODY.K_SECTION_MODULATION = E.PatchSectionKind.modulation
+BODY.K_SECTION_ADDITIVE = E.PatchSectionKind.additive
+BODY.K_SECTION_SUBTRACTIVE = E.PatchSectionKind.subtractive
+BODY.K_SECTION_PAD = E.PatchSectionKind.pad
+BODY.K_SECTION_EFFECT_BUS = E.PatchSectionKind.effect_bus
+BODY.K_SECTION_END_MARKER = E.PatchSectionKind.end_marker
+
+-------------------------------------------------------------------------------
+-- Storage sizing and initialization ABI seals
+-------------------------------------------------------------------------------
+
+F.synth_required_storage = F.synth_required_storage({})[[
+    if config.max_voices <= 0 then return 0 end
+    if config.max_parts <= 0 then return 0 end
+    if config.max_layers <= 0 then return 0 end
+    if config.max_mod_routes <= 0 then return 0 end
+    if config.max_additive_partials <= 0 then return 0 end
+    if config.max_noise_bands <= 0 then return 0 end
+    if config.max_block_frames <= 0 then return 0 end
+    if config.program_banks == 0 then return 0 end
+    if config.programs_per_bank == 0 then return 0 end
+    if config.channel_count <= 0 then return 0 end
+    if config.pad_table_count == 0 and config.pad_total_frames > 0 then return 0 end
+    if config.pad_table_count > 0 and config.pad_total_frames <= 0 then return 0 end
+    if config.effect_bus_count == 0 and config.effect_slots_per_bus > 0 then return 0 end
+    if config.effect_bus_count > 0 and config.effect_slots_per_bus <= 0 then return 0 end
+
+    var total: index = 0
+    var old_total: index = 0
+    var count: index = as(index, config.program_banks) * as(index, config.programs_per_bank)
+    var effect_count: index = config.effect_bus_count * config.effect_slots_per_bus
+
+    old_total = total; total = total + count * as(index, 16); if total < old_total then return 0 end
+    old_total = total; total = total + config.max_voices * as(index, 224); if total < old_total then return 0 end
+    old_total = total; total = total + config.max_voices * as(index, 2); if total < old_total then return 0 end
+    old_total = total; total = (total + as(index, 3)) & ~as(index, 3); if total < old_total then return 0 end
+    old_total = total; total = total + config.max_voices * as(index, 8); if total < old_total then return 0 end
+    old_total = total; total = total + config.max_voices * as(index, 4); if total < old_total then return 0 end
+    old_total = total; total = total + config.channel_count * as(index, 28); if total < old_total then return 0 end
+    old_total = total; total = total + config.channel_count * as(index, 128); if total < old_total then return 0 end
+    old_total = total; total = (total + as(index, 3)) & ~as(index, 3); if total < old_total then return 0 end
+    old_total = total; total = total + config.macro_count * as(index, 4); if total < old_total then return 0 end
+    old_total = total; total = total + config.pad_total_frames * as(index, 4); if total < old_total then return 0 end
+    old_total = total; total = (total + as(index, 7)) & ~as(index, 7); if total < old_total then return 0 end
+    old_total = total; total = total + config.pad_table_count * as(index, 8); if total < old_total then return 0 end
+    old_total = total; total = total + config.pad_table_count * as(index, 8); if total < old_total then return 0 end
+    old_total = total; total = total + config.pad_table_count * as(index, 2); if total < old_total then return 0 end
+    old_total = total; total = (total + as(index, 7)) & ~as(index, 7); if total < old_total then return 0 end
+    old_total = total; total = total + effect_count * as(index, 32); if total < old_total then return 0 end
+    old_total = total; total = total + config.effect_bus_count * as(index, 8); if total < old_total then return 0 end
+    old_total = total; total = total + config.effect_bus_count * as(index, 8); if total < old_total then return 0 end
+    old_total = total; total = (total + as(index, 15)) & ~as(index, 15); if total < old_total then return 0 end
+    return total
+]]
+
+local STORAGE_BODY = {
+    synth_required_storage = F.synth_required_storage,
+}
+
+F.synth_init = F.synth_init(STORAGE_BODY)[[
+    if s == nil then return 2 end
+    if storage.arena.data == nil then return 2 end
+    if sample_rate_hz <= 0.0 then return 1 end
+
+    let required: index = @{synth_required_storage}(config)
+    if required == 0 then return 1 end
+    if storage.arena.cap < required then return 5 end
+
+    var st: SynthStorage = storage;
+    st.arena.used = 0
+
+    var cursor: index = 0
+    var count: index = 0
+    var mask: index = 0
+
+    count = as(index, config.program_banks) * as(index, config.programs_per_bank)
+    mask = as(index, 8) - as(index, 1); cursor = (cursor + mask) & ~mask
+    st.programs.slots = as(ptr(ProgramSlot), st.arena.data + cursor); cursor = cursor + count * as(index, 16)
+    st.programs.bank_count = config.program_banks
+    st.programs.programs_per_bank = config.programs_per_bank
+
+    mask = as(index, 8) - as(index, 1); cursor = (cursor + mask) & ~mask
+    st.voices.states = as(ptr(VoiceState), st.arena.data + cursor); cursor = cursor + config.max_voices * as(index, 224)
+    mask = as(index, 2) - as(index, 1); cursor = (cursor + mask) & ~mask
+    st.voices.generations = as(ptr(u16), st.arena.data + cursor); cursor = cursor + config.max_voices * as(index, 2)
+    mask = as(index, 4) - as(index, 1); cursor = (cursor + mask) & ~mask
+    st.voices.active = as(ptr(VoiceRef), st.arena.data + cursor); cursor = cursor + config.max_voices * as(index, 8)
+    mask = as(index, 4) - as(index, 1); cursor = (cursor + mask) & ~mask
+    st.voices.next_free = as(ptr(u32), st.arena.data + cursor); cursor = cursor + config.max_voices * as(index, 4)
+    st.voices.cap = config.max_voices
+    st.voices.active_count = 0
+    st.voices.free_head = select(config.max_voices == 0, as(u32, 4294967295), as(u32, 0))
+
+    mask = as(index, 4) - as(index, 1); cursor = (cursor + mask) & ~mask
+    st.controls.states = as(ptr(ControlState), st.arena.data + cursor); cursor = cursor + config.channel_count * as(index, 28)
+    mask = as(index, 1) - as(index, 1); cursor = (cursor + mask) & ~mask
+    st.controls.cc_values = as(ptr(u8), st.arena.data + cursor); cursor = cursor + config.channel_count * as(index, 128) * as(index, 1)
+    mask = as(index, 4) - as(index, 1); cursor = (cursor + mask) & ~mask
+    st.controls.macro_values = as(ptr(f32), st.arena.data + cursor); cursor = cursor + config.macro_count * as(index, 4)
+    st.controls.channel_count = config.channel_count
+    st.controls.macro_count = config.macro_count
+
+    mask = as(index, 4) - as(index, 1); cursor = (cursor + mask) & ~mask
+    st.pad_cache.table_data = as(ptr(f32), st.arena.data + cursor); cursor = cursor + config.pad_total_frames * as(index, 4)
+    mask = as(index, 8) - as(index, 1); cursor = (cursor + mask) & ~mask
+    st.pad_cache.table_offsets = as(ptr(index), st.arena.data + cursor); cursor = cursor + config.pad_table_count * as(index, 8)
+    mask = as(index, 8) - as(index, 1); cursor = (cursor + mask) & ~mask
+    st.pad_cache.table_lengths = as(ptr(index), st.arena.data + cursor); cursor = cursor + config.pad_table_count * as(index, 8)
+    mask = as(index, 2) - as(index, 1); cursor = (cursor + mask) & ~mask
+    st.pad_cache.table_generations = as(ptr(u16), st.arena.data + cursor); cursor = cursor + config.pad_table_count * as(index, 2)
+    st.pad_cache.table_count = config.pad_table_count
+    st.pad_cache.total_frames = config.pad_total_frames
+    st.pad_cache.used_frames = 0
+    st.pad_cache.generation = 1
+
+    count = config.effect_bus_count * config.effect_slots_per_bus
+    mask = as(index, 8) - as(index, 1); cursor = (cursor + mask) & ~mask
+    st.effects.states = as(ptr(EffectState), st.arena.data + cursor); cursor = cursor + count * as(index, 32)
+    mask = as(index, 8) - as(index, 1); cursor = (cursor + mask) & ~mask
+    st.effects.bus_offsets = as(ptr(index), st.arena.data + cursor); cursor = cursor + config.effect_bus_count * as(index, 8)
+    mask = as(index, 8) - as(index, 1); cursor = (cursor + mask) & ~mask
+    st.effects.bus_slot_counts = as(ptr(index), st.arena.data + cursor); cursor = cursor + config.effect_bus_count * as(index, 8)
+    st.effects.bus_count = config.effect_bus_count
+    st.effects.cap = count
+    st.effects.generation = 1
+
+    mask = as(index, 15); cursor = (cursor + mask) & ~mask
+    st.arena.used = cursor
+
+    block init_programs(i: index = 0)
+        if i >= as(index, config.program_banks) * as(index, config.programs_per_bank) then yield end
+        st.programs.slots[i].program = nil
+        st.programs.slots[i].generation = 1
+        st.programs.slots[i].occupied = false
+        jump init_programs(i = i + as(index, 1))
+    end
+
+    block init_voices(i: index = 0)
+        if i >= config.max_voices then yield end
+        st.voices.generations[i] = 1
+        st.voices.next_free[i] = select(i + as(index, 1) >= config.max_voices, as(u32, 4294967295), as(u32, i + as(index, 1)))
+        st.voices.states[i].stage = 0
+        st.voices.states[i].gate = false
+        st.voices.states[i].age_frames = 0
+        st.voices.states[i].release_frame = 0
+        jump init_voices(i = i + as(index, 1))
+    end
+
+    block init_controls(i: index = 0)
+        if i >= config.channel_count then yield end
+        st.controls.states[i].pitch_bend = 0.0
+        st.controls.states[i].channel_pressure = 0.0
+        st.controls.states[i].sustain = false
+        st.controls.states[i].expression = 1.0
+        st.controls.states[i].mod_wheel = 0.0
+        st.controls.states[i].volume = 1.0
+        st.controls.states[i].pan = 0.0
+        jump init_controls(i = i + as(index, 1))
+    end
+
+    block init_cc(i: index = 0)
+        if i >= config.channel_count * as(index, 128) then yield end
+        st.controls.cc_values[i] = 0
+        jump init_cc(i = i + as(index, 1))
+    end
+
+    block init_macros(i: index = 0)
+        if i >= config.macro_count then yield end
+        st.controls.macro_values[i] = 0.0
+        jump init_macros(i = i + as(index, 1))
+    end
+
+    block init_pad_tables(i: index = 0)
+        if i >= config.pad_table_count then yield end
+        st.pad_cache.table_offsets[i] = 0
+        st.pad_cache.table_lengths[i] = 0
+        st.pad_cache.table_generations[i] = 1
+        jump init_pad_tables(i = i + as(index, 1))
+    end
+
+    block init_pad_data(i: index = 0)
+        if i >= config.pad_total_frames then yield end
+        st.pad_cache.table_data[i] = 0.0
+        jump init_pad_data(i = i + as(index, 1))
+    end
+
+    block init_effects(i: index = 0)
+        if i >= count then yield end
+        st.effects.states[i].kind = 0
+        st.effects.states[i].generation = 1
+        st.effects.states[i].z0 = 0.0
+        st.effects.states[i].z1 = 0.0
+        st.effects.states[i].z2 = 0.0
+        st.effects.states[i].z3 = 0.0
+        st.effects.states[i].rng = 0
+        jump init_effects(i = i + as(index, 1))
+    end
+
+    block init_buses(i: index = 0)
+        if i >= config.effect_bus_count then yield end
+        st.effects.bus_offsets[i] = i * config.effect_slots_per_bus
+        st.effects.bus_slot_counts[i] = config.effect_slots_per_bus
+        jump init_buses(i = i + as(index, 1))
+    end
+
+    (*s).storage = st
+    (*s).policy = policy
+    (*s).current_program.bank = 0
+    (*s).current_program.program = 0
+    (*s).current_program.generation = 0
+    (*s).transport.playing = false
+    (*s).transport.beat_pos = 0.0
+    (*s).transport.bar_pos = 0.0
+    (*s).transport.time_sig_num = 4
+    (*s).transport.time_sig_den = 4
+    (*s).last_meter.peak_l = 0.0
+    (*s).last_meter.peak_r = 0.0
+    (*s).last_meter.rms_l = 0.0
+    (*s).last_meter.rms_r = 0.0
+    (*s).last_meter.clipped = false
+    (*s).generation = 1
+    return 0
+]]
+
+-------------------------------------------------------------------------------
+-- Patch section decoding
+-------------------------------------------------------------------------------
+
+R.decode_patch_source = R.decode_patch_source(BODY)[[
+entry start()
+    if src.format_id ~= @{MAGIC_ZYNM} then jump unsupported_format(format_id = src.format_id, version = src.version) end
+    if src.version ~= @{PATCH_FORMAT_VERSION} then jump unsupported_format(format_id = src.format_id, version = src.version) end
+    emit @{validate_byte_slice}(src.bytes, as(index, 16); ok = bytes_ok, bad_buffer = short_header)
+end
+block bytes_ok()
+    emit @{read_u32_le}(src.bytes, as(index, 0); ok = got_magic, malformed = bad)
+end
+block got_magic(value: u32)
+    if value ~= @{MAGIC_ZYNM} then jump unsupported_format(format_id = value, version = src.version) end
+    emit @{read_u32_le}(src.bytes, as(index, 4); ok = got_version, malformed = bad)
+end
+block got_version(value: u32)
+    if value ~= @{PATCH_FORMAT_VERSION} then jump unsupported_format(format_id = src.format_id, version = value) end
+    emit @{read_u32_le}(src.bytes, as(index, 8); ok = got_flags, malformed = bad)
+end
+block got_flags(value: u32)
+    if value ~= 0 then jump malformed(pos = as(index, 8), code = 10) end
+    emit @{read_u32_le}(src.bytes, as(index, 12); ok = got_count, malformed = bad)
+end
+block got_count(value: u32)
+    let count: index = as(index, value)
+    if count < 0 then jump malformed(pos = as(index, 12), code = 11) end
+    emit @{checked_mul_index}(count, as(index, 12); ok = dir_bytes, overflow = dir_overflow)
+end
+block dir_bytes(value: index)
+    emit @{checked_add_index}(as(index, 16), value; ok = dir_end, overflow = dir_overflow)
+end
+block dir_end(value: index)
+    if value > src.bytes.len then jump malformed(pos = src.bytes.len, code = 12) end
+    let h: PatchHeader = { format_id = src.format_id, version = src.version, flags = 0, section_count = (value - as(index, 16)) / as(index, 12) }
+    jump decoded(header = h)
+end
+block short_header()
+    jump malformed(pos = as(index, 0), code = 1)
+end
+block dir_overflow()
+    jump malformed(pos = as(index, 12), code = 2)
+end
+block bad(pos: index, code: i32)
+    jump malformed(pos = pos, code = code)
+end
+]]
+
+R.next_patch_section = R.next_patch_section(BODY)[[
+entry start()
+    if src.bytes.data == nil then jump malformed(pos = as(index, 0), code = 1) end
+    if cursor < 0 then jump malformed(pos = cursor, code = 2) end
+    if header.format_id ~= @{MAGIC_ZYNM} then jump unsupported_section(kind = as(u8, 0), index = cursor) end
+    if header.version ~= @{PATCH_FORMAT_VERSION} then jump unsupported_section(kind = as(u8, 0), index = cursor) end
+    if header.section_count < 0 then jump malformed(pos = as(index, 12), code = 3) end
+    emit @{checked_mul_index}(header.section_count, as(index, 12); ok = dir_bytes, overflow = dir_overflow)
+end
+block dir_bytes(value: index)
+    emit @{checked_add_index}(as(index, 16), value; ok = dir_end, overflow = dir_overflow)
+end
+block dir_end(value: index)
+    if value > src.bytes.len then jump malformed(pos = src.bytes.len, code = 4) end
+    if cursor >= header.section_count then jump done(count = header.section_count) end
+    jump validate_sorted(i = as(index, 0), dir_end = value)
+end
+block validate_sorted(i: index, dir_end: index)
+    if i >= header.section_count then jump validate_ranges(i = as(index, 0), dir_end = dir_end) end
+    let pos: index = as(index, 16) + i * as(index, 12)
+    let kind: u8 = src.bytes.data[pos]
+    if kind == @{K_SECTION_HEADER} then jump kind_ok(i = i, dir_end = dir_end, pos = pos, kind = kind) end
+    if kind == @{K_SECTION_TUNING} then jump kind_ok(i = i, dir_end = dir_end, pos = pos, kind = kind) end
+    if kind == @{K_SECTION_PART} then jump kind_ok(i = i, dir_end = dir_end, pos = pos, kind = kind) end
+    if kind == @{K_SECTION_LAYER} then jump kind_ok(i = i, dir_end = dir_end, pos = pos, kind = kind) end
+    if kind == @{K_SECTION_MODULATION} then jump kind_ok(i = i, dir_end = dir_end, pos = pos, kind = kind) end
+    if kind == @{K_SECTION_ADDITIVE} then jump kind_ok(i = i, dir_end = dir_end, pos = pos, kind = kind) end
+    if kind == @{K_SECTION_SUBTRACTIVE} then jump kind_ok(i = i, dir_end = dir_end, pos = pos, kind = kind) end
+    if kind == @{K_SECTION_PAD} then jump kind_ok(i = i, dir_end = dir_end, pos = pos, kind = kind) end
+    if kind == @{K_SECTION_EFFECT_BUS} then jump kind_ok(i = i, dir_end = dir_end, pos = pos, kind = kind) end
+    if kind == @{K_SECTION_END_MARKER} then jump kind_ok(i = i, dir_end = dir_end, pos = pos, kind = kind) end
+    jump unsupported_section(kind = kind, index = i)
+end
+block kind_ok(i: index, dir_end: index, pos: index, kind: u8)
+    if src.bytes.data[pos + as(index, 1)] ~= 0 then jump malformed(pos = pos + as(index, 1), code = 5) end
+    let idx_u16: u16 = as(u16, src.bytes.data[pos + as(index, 2)]) | (as(u16, src.bytes.data[pos + as(index, 3)]) << 8)
+    let idx: index = as(index, idx_u16)
+    if kind == @{K_SECTION_HEADER} and idx ~= 0 then jump malformed(pos = pos + as(index, 2), code = 6) end
+    if kind == @{K_SECTION_TUNING} and idx ~= 0 then jump malformed(pos = pos + as(index, 2), code = 7) end
+    if kind == @{K_SECTION_END_MARKER} and idx ~= 0 then jump malformed(pos = pos + as(index, 2), code = 8) end
+    if i == 0 then jump sorted_next(i = i + as(index, 1), dir_end = dir_end) end
+    let prev_pos: index = as(index, 16) + (i - as(index, 1)) * as(index, 12)
+    let prev_kind: u8 = src.bytes.data[prev_pos]
+    let prev_idx_u16: u16 = as(u16, src.bytes.data[prev_pos + as(index, 2)]) | (as(u16, src.bytes.data[prev_pos + as(index, 3)]) << 8)
+    let prev_idx: index = as(index, prev_idx_u16)
+    if kind < prev_kind then jump malformed(pos = pos, code = 9) end
+    if kind == prev_kind and idx <= prev_idx then jump malformed(pos = pos, code = 10) end
+    jump sorted_next(i = i + as(index, 1), dir_end = dir_end)
+end
+block sorted_next(i: index, dir_end: index)
+    jump validate_sorted(i = i, dir_end = dir_end)
+end
+block validate_ranges(i: index, dir_end: index)
+    if i >= header.section_count then jump read_cursor() end
+    let pos: index = as(index, 16) + i * as(index, 12)
+    let kind: u8 = src.bytes.data[pos]
+    let idx_u16: u16 = as(u16, src.bytes.data[pos + as(index, 2)]) | (as(u16, src.bytes.data[pos + as(index, 3)]) << 8)
+    let idx: index = as(index, idx_u16)
+    let off_u32: u32 = as(u32, src.bytes.data[pos + as(index, 4)]) | (as(u32, src.bytes.data[pos + as(index, 5)]) << 8) | (as(u32, src.bytes.data[pos + as(index, 6)]) << 16) | (as(u32, src.bytes.data[pos + as(index, 7)]) << 24)
+    let n_u32: u32 = as(u32, src.bytes.data[pos + as(index, 8)]) | (as(u32, src.bytes.data[pos + as(index, 9)]) << 8) | (as(u32, src.bytes.data[pos + as(index, 10)]) << 16) | (as(u32, src.bytes.data[pos + as(index, 11)]) << 24)
+    let off: index = as(index, off_u32)
+    let n: index = as(index, n_u32)
+    if (off & as(index, 3)) ~= 0 then jump malformed(pos = off, code = 11) end
+    if off < dir_end then jump malformed(pos = off, code = 12) end
+    let payload_end: index = off + n
+    if payload_end < off then jump malformed(pos = off, code = 13) end
+    if payload_end > src.bytes.len then jump malformed(pos = off, code = 14) end
+    if kind == @{K_SECTION_END_MARKER} and n ~= 0 then jump malformed(pos = pos + as(index, 8), code = 15) end
+    jump validate_no_overlap(i = i, j = as(index, 0), dir_end = dir_end, off = off, n = n)
+end
+block validate_no_overlap(i: index, j: index, dir_end: index, off: index, n: index)
+    if j >= i then jump range_next(i = i + as(index, 1), dir_end = dir_end) end
+    let other_pos: index = as(index, 16) + j * as(index, 12)
+    let other_off_u32: u32 = as(u32, src.bytes.data[other_pos + as(index, 4)]) | (as(u32, src.bytes.data[other_pos + as(index, 5)]) << 8) | (as(u32, src.bytes.data[other_pos + as(index, 6)]) << 16) | (as(u32, src.bytes.data[other_pos + as(index, 7)]) << 24)
+    let other_n_u32: u32 = as(u32, src.bytes.data[other_pos + as(index, 8)]) | (as(u32, src.bytes.data[other_pos + as(index, 9)]) << 8) | (as(u32, src.bytes.data[other_pos + as(index, 10)]) << 16) | (as(u32, src.bytes.data[other_pos + as(index, 11)]) << 24)
+    let other_off: index = as(index, other_off_u32)
+    let other_n: index = as(index, other_n_u32)
+    let end_a: index = off + n
+    let end_b: index = other_off + other_n
+    if n ~= 0 and other_n ~= 0 and off < end_b and other_off < end_a then jump malformed(pos = off, code = 16) end
+    jump validate_no_overlap(i = i, j = j + as(index, 1), dir_end = dir_end, off = off, n = n)
+end
+block range_next(i: index, dir_end: index)
+    jump validate_ranges(i = i, dir_end = dir_end)
+end
+block read_cursor()
+    let pos: index = as(index, 16) + cursor * as(index, 12)
+    let kind: u8 = src.bytes.data[pos]
+    let idx_u16: u16 = as(u16, src.bytes.data[pos + as(index, 2)]) | (as(u16, src.bytes.data[pos + as(index, 3)]) << 8)
+    let off_u32: u32 = as(u32, src.bytes.data[pos + as(index, 4)]) | (as(u32, src.bytes.data[pos + as(index, 5)]) << 8) | (as(u32, src.bytes.data[pos + as(index, 6)]) << 16) | (as(u32, src.bytes.data[pos + as(index, 7)]) << 24)
+    let n_u32: u32 = as(u32, src.bytes.data[pos + as(index, 8)]) | (as(u32, src.bytes.data[pos + as(index, 9)]) << 8) | (as(u32, src.bytes.data[pos + as(index, 10)]) << 16) | (as(u32, src.bytes.data[pos + as(index, 11)]) << 24)
+    let sec: PatchSection = { kind = kind, index = as(index, idx_u16), bytes = { data = src.bytes.data + as(index, off_u32), len = as(index, n_u32) } }
+    jump section(section = sec, next = cursor + as(index, 1))
+end
+block dir_overflow()
+    jump malformed(pos = as(index, 12), code = 17)
+end
+]]
+-------------------------------------------------------------------------------
+-- Primitive patch plan preparation
+-------------------------------------------------------------------------------
+
+R.prepare_tuning = R.prepare_tuning(BODY)[[
+entry start()
+    if section.bytes.len == 0 then
+        let t: TuningTable = { ratios = view(as(ptr(f32), nil), as(index, 0)), count = as(index, 0), root_midi_note = 69, root_hz = as(f32, 440.0) }
+        jump defaulted(tuning = t)
+    end
+    if section.bytes.data == nil then jump malformed(pos = as(index, 0), code = 1) end
+    if section.bytes.len < as(index, 8) then jump malformed(pos = as(index, 0), code = 2) end
+    if section.bytes.data[as(index, 1)] ~= 0 then jump malformed(pos = as(index, 1), code = 3) end
+    let count_u16: u16 = as(u16, section.bytes.data[as(index, 2)]) | (as(u16, section.bytes.data[as(index, 3)]) << 8)
+    let count: index = as(index, count_u16)
+    let root_bits: u32 = as(u32, section.bytes.data[as(index, 4)]) | (as(u32, section.bytes.data[as(index, 5)]) << 8) | (as(u32, section.bytes.data[as(index, 6)]) << 16) | (as(u32, section.bytes.data[as(index, 7)]) << 24)
+    let root_hz: f32 = bitcast(f32, root_bits)
+    if root_hz ~= root_hz or root_hz < as(f32, 0.0) or root_hz == as(f32, 0.0) or root_hz > as(f32, 3.402823e38) then jump malformed(pos = as(index, 4), code = 4) end
+    let need: index = as(index, 8) + count * as(index, 4)
+    if need < as(index, 8) then jump malformed(pos = as(index, 2), code = 5) end
+    if section.bytes.len < need then jump malformed(pos = section.bytes.len, code = 6) end
+    if arena == nil then jump exhausted() end
+    if (*arena).data == nil then jump exhausted() end
+    let bytes_needed: index = count * as(index, 4)
+    let start: index = ((*arena).used + as(index, 3)) & ~as(index, 3)
+    let finish: index = start + bytes_needed
+    if finish < start then jump exhausted() end
+    if finish > (*arena).cap then jump exhausted() end
+    let ratios: ptr(f32) = as(ptr(f32), (*arena).data + start)
+    arena[0].used = finish
+    jump copy_ratio(i = as(index, 0), ratios = ratios, count = count, root_hz = root_hz)
+end
+block copy_ratio(i: index, ratios: ptr(f32), count: index, root_hz: f32)
+    if i >= count then jump tuning_done(ratios = ratios, count = count, root_hz = root_hz) end
+    let pos: index = as(index, 8) + i * as(index, 4)
+    let bits: u32 = as(u32, section.bytes.data[pos]) | (as(u32, section.bytes.data[pos + as(index, 1)]) << 8) | (as(u32, section.bytes.data[pos + as(index, 2)]) << 16) | (as(u32, section.bytes.data[pos + as(index, 3)]) << 24)
+    let x: f32 = bitcast(f32, bits)
+    if x ~= x or x < as(f32, 0.0) or x == as(f32, 0.0) or x > as(f32, 3.402823e38) then jump malformed(pos = pos, code = 7) end
+    ratios[i] = x
+    jump copy_ratio(i = i + as(index, 1), ratios = ratios, count = count, root_hz = root_hz)
+end
+block tuning_done(ratios: ptr(f32), count: index, root_hz: f32)
+    let t: TuningTable = { ratios = view(ratios, count), count = count, root_midi_note = section.bytes.data[as(index, 0)], root_hz = root_hz }
+    jump ready(tuning = t)
+end
+]]
+
+R.prepare_envelope = R.prepare_envelope(BODY)[[
+entry start()
+    if section.bytes.len == 0 then
+        let p: EnvelopePlan = { delay_s = as(f32, 0.0), attack_s = as(f32, 0.0), hold_s = as(f32, 0.0), decay_s = as(f32, 0.0), sustain_level = as(f32, 1.0), release_s = as(f32, 0.0), curve = 0 }
+        jump defaulted(plan = p)
+    end
+    if section.bytes.data == nil then jump malformed(pos = as(index, 0), code = 1) end
+    if section.bytes.len < as(index, 28) then jump malformed(pos = section.bytes.len, code = 2) end
+    let b0: u32 = as(u32, section.bytes.data[as(index, 0)]) | (as(u32, section.bytes.data[as(index, 1)]) << 8) | (as(u32, section.bytes.data[as(index, 2)]) << 16) | (as(u32, section.bytes.data[as(index, 3)]) << 24)
+    let b1: u32 = as(u32, section.bytes.data[as(index, 4)]) | (as(u32, section.bytes.data[as(index, 5)]) << 8) | (as(u32, section.bytes.data[as(index, 6)]) << 16) | (as(u32, section.bytes.data[as(index, 7)]) << 24)
+    let b2: u32 = as(u32, section.bytes.data[as(index, 8)]) | (as(u32, section.bytes.data[as(index, 9)]) << 8) | (as(u32, section.bytes.data[as(index, 10)]) << 16) | (as(u32, section.bytes.data[as(index, 11)]) << 24)
+    let b3: u32 = as(u32, section.bytes.data[as(index, 12)]) | (as(u32, section.bytes.data[as(index, 13)]) << 8) | (as(u32, section.bytes.data[as(index, 14)]) << 16) | (as(u32, section.bytes.data[as(index, 15)]) << 24)
+    let b4: u32 = as(u32, section.bytes.data[as(index, 16)]) | (as(u32, section.bytes.data[as(index, 17)]) << 8) | (as(u32, section.bytes.data[as(index, 18)]) << 16) | (as(u32, section.bytes.data[as(index, 19)]) << 24)
+    let b5: u32 = as(u32, section.bytes.data[as(index, 20)]) | (as(u32, section.bytes.data[as(index, 21)]) << 8) | (as(u32, section.bytes.data[as(index, 22)]) << 16) | (as(u32, section.bytes.data[as(index, 23)]) << 24)
+    let d: f32 = bitcast(f32, b0)
+    let a: f32 = bitcast(f32, b1)
+    let h: f32 = bitcast(f32, b2)
+    let dc: f32 = bitcast(f32, b3)
+    let s: f32 = bitcast(f32, b4)
+    let r: f32 = bitcast(f32, b5)
+    let curve: u8 = section.bytes.data[as(index, 24)]
+    if curve > 4 then jump malformed(pos = as(index, 24), code = 3) end
+    if d ~= d or a ~= a or h ~= h or dc ~= dc or s ~= s or r ~= r then jump malformed(pos = as(index, 0), code = 4) end
+    let p: EnvelopePlan = { delay_s = d, attack_s = a, hold_s = h, decay_s = dc, sustain_level = s, release_s = r, curve = curve }
+    jump ready(plan = p)
+end
+]]
+
+R.prepare_lfo = R.prepare_lfo(BODY)[[
+entry start()
+    if section.bytes.len == 0 then
+        let p: LfoPlan = { shape = 0, rate_hz = as(f32, 0.0), depth = as(f32, 0.0), phase_offset = as(f32, 0.0), tempo_sync = false }
+        jump defaulted(plan = p)
+    end
+    if section.bytes.data == nil then jump malformed(pos = as(index, 0), code = 1) end
+    if section.bytes.len < as(index, 20) then jump malformed(pos = section.bytes.len, code = 2) end
+    let shape: u8 = section.bytes.data[as(index, 0)]
+    if shape > 6 then jump malformed(pos = as(index, 0), code = 3) end
+    let rbits: u32 = as(u32, section.bytes.data[as(index, 4)]) | (as(u32, section.bytes.data[as(index, 5)]) << 8) | (as(u32, section.bytes.data[as(index, 6)]) << 16) | (as(u32, section.bytes.data[as(index, 7)]) << 24)
+    let dbits: u32 = as(u32, section.bytes.data[as(index, 8)]) | (as(u32, section.bytes.data[as(index, 9)]) << 8) | (as(u32, section.bytes.data[as(index, 10)]) << 16) | (as(u32, section.bytes.data[as(index, 11)]) << 24)
+    let pbits: u32 = as(u32, section.bytes.data[as(index, 12)]) | (as(u32, section.bytes.data[as(index, 13)]) << 8) | (as(u32, section.bytes.data[as(index, 14)]) << 16) | (as(u32, section.bytes.data[as(index, 15)]) << 24)
+    let rate: f32 = bitcast(f32, rbits)
+    let depth: f32 = bitcast(f32, dbits)
+    let phase: f32 = bitcast(f32, pbits)
+    if rate ~= rate or depth ~= depth or phase ~= phase then jump malformed(pos = as(index, 4), code = 4) end
+    let p: LfoPlan = { shape = shape, rate_hz = rate, depth = depth, phase_offset = phase, tempo_sync = section.bytes.data[as(index, 16)] ~= 0 }
+    jump ready(plan = p)
+end
+]]
+
+R.prepare_filter = R.prepare_filter(BODY)[[
+entry start()
+    if section.bytes.len == 0 then
+        let p: FilterPlan = { model = 0, cutoff_hz = as(f32, 0.0), resonance = as(f32, 0.0), drive = as(f32, 0.0), keytrack = as(f32, 0.0) }
+        jump bypass(plan = p)
+    end
+    if section.bytes.data == nil then jump malformed(pos = as(index, 0), code = 1) end
+    if section.bytes.len < as(index, 20) then jump malformed(pos = section.bytes.len, code = 2) end
+    let model: u8 = section.bytes.data[as(index, 0)]
+    if model > 7 then jump malformed(pos = as(index, 0), code = 3) end
+    let b0: u32 = as(u32, section.bytes.data[as(index, 4)]) | (as(u32, section.bytes.data[as(index, 5)]) << 8) | (as(u32, section.bytes.data[as(index, 6)]) << 16) | (as(u32, section.bytes.data[as(index, 7)]) << 24)
+    let b1: u32 = as(u32, section.bytes.data[as(index, 8)]) | (as(u32, section.bytes.data[as(index, 9)]) << 8) | (as(u32, section.bytes.data[as(index, 10)]) << 16) | (as(u32, section.bytes.data[as(index, 11)]) << 24)
+    let b2: u32 = as(u32, section.bytes.data[as(index, 12)]) | (as(u32, section.bytes.data[as(index, 13)]) << 8) | (as(u32, section.bytes.data[as(index, 14)]) << 16) | (as(u32, section.bytes.data[as(index, 15)]) << 24)
+    let b3: u32 = as(u32, section.bytes.data[as(index, 16)]) | (as(u32, section.bytes.data[as(index, 17)]) << 8) | (as(u32, section.bytes.data[as(index, 18)]) << 16) | (as(u32, section.bytes.data[as(index, 19)]) << 24)
+    let c: f32 = bitcast(f32, b0)
+    let q: f32 = bitcast(f32, b1)
+    let d: f32 = bitcast(f32, b2)
+    let k: f32 = bitcast(f32, b3)
+    if c ~= c or q ~= q or d ~= d or k ~= k then jump malformed(pos = as(index, 4), code = 4) end
+    let p: FilterPlan = { model = model, cutoff_hz = c, resonance = q, drive = d, keytrack = k }
+    if model == 0 then jump bypass(plan = p) end
+    jump ready(plan = p)
+end
+]]
+
+R.prepare_modulation = R.prepare_modulation(BODY)[[
+entry start()
+    if section.bytes.len == 0 then
+        let p: ModulationPlan = { routes = view(as(ptr(ModRoute), nil), as(index, 0)) }
+        jump empty(plan = p)
+    end
+    if section.bytes.data == nil then jump malformed(pos = as(index, 0), code = 1) end
+    if section.bytes.len < as(index, 4) then jump malformed(pos = section.bytes.len, code = 2) end
+    let count_u32: u32 = as(u32, section.bytes.data[as(index, 0)]) | (as(u32, section.bytes.data[as(index, 1)]) << 8) | (as(u32, section.bytes.data[as(index, 2)]) << 16) | (as(u32, section.bytes.data[as(index, 3)]) << 24)
+    let count: index = as(index, count_u32)
+    let need: index = as(index, 4) + count * as(index, 12)
+    if need < as(index, 4) then jump malformed(pos = as(index, 0), code = 3) end
+    if section.bytes.len < need then jump malformed(pos = section.bytes.len, code = 4) end
+    if count == 0 then
+        let p: ModulationPlan = { routes = view(as(ptr(ModRoute), nil), as(index, 0)) }
+        jump empty(plan = p)
+    end
+    if arena == nil then jump exhausted() end
+    if (*arena).data == nil then jump exhausted() end
+    let bytes_needed: index = count * as(index, 12)
+    let start: index = ((*arena).used + as(index, 3)) & ~as(index, 3)
+    let finish: index = start + bytes_needed
+    if finish < start then jump exhausted() end
+    if finish > (*arena).cap then jump exhausted() end
+    let routes: ptr(ModRoute) = as(ptr(ModRoute), (*arena).data + start)
+    arena[0].used = finish
+    jump copy_route(i = as(index, 0), routes = routes, count = count)
+end
+block copy_route(i: index, routes: ptr(ModRoute), count: index)
+    if i >= count then jump routes_done(routes = routes, count = count) end
+    let pos: index = as(index, 4) + i * as(index, 12)
+    let source: u8 = section.bytes.data[pos]
+    let dest: u8 = section.bytes.data[pos + as(index, 1)]
+    if source > 9 then jump malformed(pos = pos, code = 5) end
+    if dest < 1 or dest > 9 then jump malformed(pos = pos + as(index, 1), code = 6) end
+    let abits: u32 = as(u32, section.bytes.data[pos + as(index, 8)]) | (as(u32, section.bytes.data[pos + as(index, 9)]) << 8) | (as(u32, section.bytes.data[pos + as(index, 10)]) << 16) | (as(u32, section.bytes.data[pos + as(index, 11)]) << 24)
+    let amount: f32 = bitcast(f32, abits)
+    if amount ~= amount then jump malformed(pos = pos + as(index, 8), code = 7) end
+    routes[i].source = source; routes[i].dest = dest; routes[i].source_index = section.bytes.data[pos + as(index, 2)]; routes[i].dest_index = section.bytes.data[pos + as(index, 3)]; routes[i].cc_number = section.bytes.data[pos + as(index, 4)]; routes[i].amount = amount
+    jump copy_route(i = i + as(index, 1), routes = routes, count = count)
+end
+block routes_done(routes: ptr(ModRoute), count: index)
+    let p: ModulationPlan = { routes = view(routes, count) }
+    jump ready(plan = p)
+end
+]]
+
+R.prepare_additive_plan = R.prepare_additive_plan(BODY)[[
+entry start()
+    if section.bytes.len == 0 then
+        let parts: AdditivePartialPlan = { ratios = view(as(ptr(f32), nil), as(index, 0)), gains = view(as(ptr(f32), nil), as(index, 0)), phase_offsets = view(as(ptr(f32), nil), as(index, 0)), pan = view(as(ptr(f32), nil), as(index, 0)), count = as(index, 0) }
+        let p: AdditivePlan = { partials = parts, detune_cents = as(f32, 0.0), stereo_spread = as(f32, 0.0), phase_random = as(f32, 0.0) }
+        jump disabled(plan = p)
+    end
+    if section.bytes.data == nil then jump malformed(pos = as(index, 0), code = 1) end
+    if section.bytes.len < as(index, 16) then jump malformed(pos = section.bytes.len, code = 2) end
+    if section.bytes.data[as(index, 2)] ~= 0 or section.bytes.data[as(index, 3)] ~= 0 then jump malformed(pos = as(index, 2), code = 3) end
+    let count_u16: u16 = as(u16, section.bytes.data[as(index, 0)]) | (as(u16, section.bytes.data[as(index, 1)]) << 8)
+    let count: index = as(index, count_u16)
+    let need: index = as(index, 16) + count * as(index, 16)
+    if need < as(index, 16) then jump malformed(pos = as(index, 0), code = 4) end
+    if section.bytes.len < need then jump malformed(pos = section.bytes.len, code = 5) end
+    let d_bits: u32 = as(u32, section.bytes.data[as(index, 4)]) | (as(u32, section.bytes.data[as(index, 5)]) << 8) | (as(u32, section.bytes.data[as(index, 6)]) << 16) | (as(u32, section.bytes.data[as(index, 7)]) << 24)
+    let s_bits: u32 = as(u32, section.bytes.data[as(index, 8)]) | (as(u32, section.bytes.data[as(index, 9)]) << 8) | (as(u32, section.bytes.data[as(index, 10)]) << 16) | (as(u32, section.bytes.data[as(index, 11)]) << 24)
+    let p_bits: u32 = as(u32, section.bytes.data[as(index, 12)]) | (as(u32, section.bytes.data[as(index, 13)]) << 8) | (as(u32, section.bytes.data[as(index, 14)]) << 16) | (as(u32, section.bytes.data[as(index, 15)]) << 24)
+    let detune: f32 = bitcast(f32, d_bits)
+    let spread: f32 = bitcast(f32, s_bits)
+    let phase_random: f32 = bitcast(f32, p_bits)
+    if detune ~= detune or spread ~= spread or phase_random ~= phase_random then jump malformed(pos = as(index, 4), code = 6) end
+    if count == 0 then
+        let parts: AdditivePartialPlan = { ratios = view(as(ptr(f32), nil), as(index, 0)), gains = view(as(ptr(f32), nil), as(index, 0)), phase_offsets = view(as(ptr(f32), nil), as(index, 0)), pan = view(as(ptr(f32), nil), as(index, 0)), count = as(index, 0) }
+        let p: AdditivePlan = { partials = parts, detune_cents = detune, stereo_spread = spread, phase_random = phase_random }
+        jump disabled(plan = p)
+    end
+    if arena == nil then jump exhausted() end
+    if (*arena).data == nil then jump exhausted() end
+    let bytes_needed: index = count * as(index, 16)
+    let start: index = ((*arena).used + as(index, 3)) & ~as(index, 3)
+    let finish: index = start + bytes_needed
+    if finish < start then jump exhausted() end
+    if finish > (*arena).cap then jump exhausted() end
+    let ratios: ptr(f32) = as(ptr(f32), (*arena).data + start)
+    let gains: ptr(f32) = as(ptr(f32), (*arena).data + start + count * as(index, 4))
+    let phases: ptr(f32) = as(ptr(f32), (*arena).data + start + count * as(index, 8))
+    let pans: ptr(f32) = as(ptr(f32), (*arena).data + start + count * as(index, 12))
+    arena[0].used = finish
+    jump copy_additive(i = as(index, 0), count = count, ratios = ratios, gains = gains, phases = phases, pans = pans, detune = detune, spread = spread, phase_random = phase_random)
+end
+block copy_additive(i: index, count: index, ratios: ptr(f32), gains: ptr(f32), phases: ptr(f32), pans: ptr(f32), detune: f32, spread: f32, phase_random: f32)
+    if i >= count then jump additive_done(count = count, ratios = ratios, gains = gains, phases = phases, pans = pans, detune = detune, spread = spread, phase_random = phase_random) end
+    let p0: index = as(index, 16) + i * as(index, 4)
+    let p1: index = as(index, 16) + count * as(index, 4) + i * as(index, 4)
+    let p2: index = as(index, 16) + count * as(index, 8) + i * as(index, 4)
+    let p3: index = as(index, 16) + count * as(index, 12) + i * as(index, 4)
+    let b0: u32 = as(u32, section.bytes.data[p0]) | (as(u32, section.bytes.data[p0 + as(index, 1)]) << 8) | (as(u32, section.bytes.data[p0 + as(index, 2)]) << 16) | (as(u32, section.bytes.data[p0 + as(index, 3)]) << 24)
+    let b1: u32 = as(u32, section.bytes.data[p1]) | (as(u32, section.bytes.data[p1 + as(index, 1)]) << 8) | (as(u32, section.bytes.data[p1 + as(index, 2)]) << 16) | (as(u32, section.bytes.data[p1 + as(index, 3)]) << 24)
+    let b2: u32 = as(u32, section.bytes.data[p2]) | (as(u32, section.bytes.data[p2 + as(index, 1)]) << 8) | (as(u32, section.bytes.data[p2 + as(index, 2)]) << 16) | (as(u32, section.bytes.data[p2 + as(index, 3)]) << 24)
+    let b3: u32 = as(u32, section.bytes.data[p3]) | (as(u32, section.bytes.data[p3 + as(index, 1)]) << 8) | (as(u32, section.bytes.data[p3 + as(index, 2)]) << 16) | (as(u32, section.bytes.data[p3 + as(index, 3)]) << 24)
+    let x0: f32 = bitcast(f32, b0)
+    let x1: f32 = bitcast(f32, b1)
+    let x2: f32 = bitcast(f32, b2)
+    let x3: f32 = bitcast(f32, b3)
+    if x0 ~= x0 or x1 ~= x1 or x2 ~= x2 or x3 ~= x3 then jump malformed(pos = p0, code = 7) end
+    ratios[i] = x0; gains[i] = x1; phases[i] = x2; pans[i] = x3
+    jump copy_additive(i = i + as(index, 1), count = count, ratios = ratios, gains = gains, phases = phases, pans = pans, detune = detune, spread = spread, phase_random = phase_random)
+end
+block additive_done(count: index, ratios: ptr(f32), gains: ptr(f32), phases: ptr(f32), pans: ptr(f32), detune: f32, spread: f32, phase_random: f32)
+    let parts: AdditivePartialPlan = { ratios = view(ratios, count), gains = view(gains, count), phase_offsets = view(phases, count), pan = view(pans, count), count = count }
+    let p: AdditivePlan = { partials = parts, detune_cents = detune, stereo_spread = spread, phase_random = phase_random }
+    jump ready(plan = p)
+end
+]]
+
+R.prepare_subtractive_plan = R.prepare_subtractive_plan(BODY)[[
+entry start()
+    if section.bytes.len == 0 then
+        let bands: NoiseBandPlan = { center_hz = view(as(ptr(f32), nil), as(index, 0)), bandwidth_hz = view(as(ptr(f32), nil), as(index, 0)), gains = view(as(ptr(f32), nil), as(index, 0)), pan = view(as(ptr(f32), nil), as(index, 0)), count = as(index, 0) }
+        let p: SubtractivePlan = { bands = bands, source_color = as(f32, 0.0), stereo_width = as(f32, 0.0) }
+        jump disabled(plan = p)
+    end
+    if section.bytes.data == nil then jump malformed(pos = as(index, 0), code = 1) end
+    if section.bytes.len < as(index, 12) then jump malformed(pos = section.bytes.len, code = 2) end
+    if section.bytes.data[as(index, 2)] ~= 0 or section.bytes.data[as(index, 3)] ~= 0 then jump malformed(pos = as(index, 2), code = 3) end
+    let count_u16: u16 = as(u16, section.bytes.data[as(index, 0)]) | (as(u16, section.bytes.data[as(index, 1)]) << 8)
+    let count: index = as(index, count_u16)
+    let need: index = as(index, 12) + count * as(index, 16)
+    if need < as(index, 12) then jump malformed(pos = as(index, 0), code = 4) end
+    if section.bytes.len < need then jump malformed(pos = section.bytes.len, code = 5) end
+    let c_bits: u32 = as(u32, section.bytes.data[as(index, 4)]) | (as(u32, section.bytes.data[as(index, 5)]) << 8) | (as(u32, section.bytes.data[as(index, 6)]) << 16) | (as(u32, section.bytes.data[as(index, 7)]) << 24)
+    let w_bits: u32 = as(u32, section.bytes.data[as(index, 8)]) | (as(u32, section.bytes.data[as(index, 9)]) << 8) | (as(u32, section.bytes.data[as(index, 10)]) << 16) | (as(u32, section.bytes.data[as(index, 11)]) << 24)
+    let color: f32 = bitcast(f32, c_bits)
+    let width: f32 = bitcast(f32, w_bits)
+    if color ~= color or width ~= width then jump malformed(pos = as(index, 4), code = 6) end
+    if count == 0 then
+        let bands: NoiseBandPlan = { center_hz = view(as(ptr(f32), nil), as(index, 0)), bandwidth_hz = view(as(ptr(f32), nil), as(index, 0)), gains = view(as(ptr(f32), nil), as(index, 0)), pan = view(as(ptr(f32), nil), as(index, 0)), count = as(index, 0) }
+        let p: SubtractivePlan = { bands = bands, source_color = color, stereo_width = width }
+        jump disabled(plan = p)
+    end
+    if arena == nil then jump exhausted() end
+    if (*arena).data == nil then jump exhausted() end
+    let bytes_needed: index = count * as(index, 16)
+    let start: index = ((*arena).used + as(index, 3)) & ~as(index, 3)
+    let finish: index = start + bytes_needed
+    if finish < start then jump exhausted() end
+    if finish > (*arena).cap then jump exhausted() end
+    let centers: ptr(f32) = as(ptr(f32), (*arena).data + start)
+    let widths: ptr(f32) = as(ptr(f32), (*arena).data + start + count * as(index, 4))
+    let gains: ptr(f32) = as(ptr(f32), (*arena).data + start + count * as(index, 8))
+    let pans: ptr(f32) = as(ptr(f32), (*arena).data + start + count * as(index, 12))
+    arena[0].used = finish
+    jump copy_subtractive(i = as(index, 0), count = count, centers = centers, widths = widths, gains = gains, pans = pans, color = color, stereo_width = width)
+end
+block copy_subtractive(i: index, count: index, centers: ptr(f32), widths: ptr(f32), gains: ptr(f32), pans: ptr(f32), color: f32, stereo_width: f32)
+    if i >= count then jump subtractive_done(count = count, centers = centers, widths = widths, gains = gains, pans = pans, color = color, stereo_width = stereo_width) end
+    let p0: index = as(index, 12) + i * as(index, 4)
+    let p1: index = as(index, 12) + count * as(index, 4) + i * as(index, 4)
+    let p2: index = as(index, 12) + count * as(index, 8) + i * as(index, 4)
+    let p3: index = as(index, 12) + count * as(index, 12) + i * as(index, 4)
+    let b0: u32 = as(u32, section.bytes.data[p0]) | (as(u32, section.bytes.data[p0 + as(index, 1)]) << 8) | (as(u32, section.bytes.data[p0 + as(index, 2)]) << 16) | (as(u32, section.bytes.data[p0 + as(index, 3)]) << 24)
+    let b1: u32 = as(u32, section.bytes.data[p1]) | (as(u32, section.bytes.data[p1 + as(index, 1)]) << 8) | (as(u32, section.bytes.data[p1 + as(index, 2)]) << 16) | (as(u32, section.bytes.data[p1 + as(index, 3)]) << 24)
+    let b2: u32 = as(u32, section.bytes.data[p2]) | (as(u32, section.bytes.data[p2 + as(index, 1)]) << 8) | (as(u32, section.bytes.data[p2 + as(index, 2)]) << 16) | (as(u32, section.bytes.data[p2 + as(index, 3)]) << 24)
+    let b3: u32 = as(u32, section.bytes.data[p3]) | (as(u32, section.bytes.data[p3 + as(index, 1)]) << 8) | (as(u32, section.bytes.data[p3 + as(index, 2)]) << 16) | (as(u32, section.bytes.data[p3 + as(index, 3)]) << 24)
+    let x0: f32 = bitcast(f32, b0)
+    let x1: f32 = bitcast(f32, b1)
+    let x2: f32 = bitcast(f32, b2)
+    let x3: f32 = bitcast(f32, b3)
+    if x0 ~= x0 or x1 ~= x1 or x2 ~= x2 or x3 ~= x3 then jump malformed(pos = p0, code = 7) end
+    centers[i] = x0; widths[i] = x1; gains[i] = x2; pans[i] = x3
+    jump copy_subtractive(i = i + as(index, 1), count = count, centers = centers, widths = widths, gains = gains, pans = pans, color = color, stereo_width = stereo_width)
+end
+block subtractive_done(count: index, centers: ptr(f32), widths: ptr(f32), gains: ptr(f32), pans: ptr(f32), color: f32, stereo_width: f32)
+    let bands: NoiseBandPlan = { center_hz = view(centers, count), bandwidth_hz = view(widths, count), gains = view(gains, count), pan = view(pans, count), count = count }
+    let p: SubtractivePlan = { bands = bands, source_color = color, stereo_width = stereo_width }
+    jump ready(plan = p)
+end
+]]
+
+R.prepare_effect_bus = R.prepare_effect_bus(BODY)[[
+entry start()
+    if section.bytes.len == 0 then
+        let p: EffectBusPlan = { slots = view(as(ptr(EffectSlotPlan), nil), as(index, 0)), slot_count = as(index, 0), send_gain = as(f32, 0.0) }
+        jump empty(bus = p)
+    end
+    if section.bytes.data == nil then jump malformed(pos = as(index, 0), code = 1) end
+    if section.bytes.len < as(index, 8) then jump malformed(pos = section.bytes.len, code = 2) end
+    if section.bytes.data[as(index, 2)] ~= 0 or section.bytes.data[as(index, 3)] ~= 0 then jump malformed(pos = as(index, 2), code = 3) end
+    let count_u16: u16 = as(u16, section.bytes.data[as(index, 0)]) | (as(u16, section.bytes.data[as(index, 1)]) << 8)
+    let count: index = as(index, count_u16)
+    let need: index = as(index, 8) + count * as(index, 28)
+    if need < as(index, 8) then jump malformed(pos = as(index, 0), code = 4) end
+    if section.bytes.len < need then jump malformed(pos = section.bytes.len, code = 5) end
+    let g_bits: u32 = as(u32, section.bytes.data[as(index, 4)]) | (as(u32, section.bytes.data[as(index, 5)]) << 8) | (as(u32, section.bytes.data[as(index, 6)]) << 16) | (as(u32, section.bytes.data[as(index, 7)]) << 24)
+    let send_gain: f32 = bitcast(f32, g_bits)
+    if send_gain ~= send_gain then jump malformed(pos = as(index, 4), code = 6) end
+    if count == 0 then
+        let p: EffectBusPlan = { slots = view(as(ptr(EffectSlotPlan), nil), as(index, 0)), slot_count = as(index, 0), send_gain = send_gain }
+        jump empty(bus = p)
+    end
+    if arena == nil then jump exhausted() end
+    if (*arena).data == nil then jump exhausted() end
+    let bytes_needed: index = count * as(index, 28)
+    let start: index = ((*arena).used + as(index, 3)) & ~as(index, 3)
+    let finish: index = start + bytes_needed
+    if finish < start then jump exhausted() end
+    if finish > (*arena).cap then jump exhausted() end
+    let slots: ptr(EffectSlotPlan) = as(ptr(EffectSlotPlan), (*arena).data + start)
+    arena[0].used = finish
+    jump copy_slot(i = as(index, 0), count = count, slots = slots, send_gain = send_gain)
+end
+block copy_slot(i: index, count: index, slots: ptr(EffectSlotPlan), send_gain: f32)
+    if i >= count then jump bus_done(count = count, slots = slots, send_gain = send_gain) end
+    let pos: index = as(index, 8) + i * as(index, 28)
+    let kind: u8 = section.bytes.data[pos]
+    if kind > 7 then jump malformed(pos = pos, code = 7) end
+    let b0: u32 = as(u32, section.bytes.data[pos + as(index, 4)]) | (as(u32, section.bytes.data[pos + as(index, 5)]) << 8) | (as(u32, section.bytes.data[pos + as(index, 6)]) << 16) | (as(u32, section.bytes.data[pos + as(index, 7)]) << 24)
+    let b1: u32 = as(u32, section.bytes.data[pos + as(index, 8)]) | (as(u32, section.bytes.data[pos + as(index, 9)]) << 8) | (as(u32, section.bytes.data[pos + as(index, 10)]) << 16) | (as(u32, section.bytes.data[pos + as(index, 11)]) << 24)
+    let b2: u32 = as(u32, section.bytes.data[pos + as(index, 12)]) | (as(u32, section.bytes.data[pos + as(index, 13)]) << 8) | (as(u32, section.bytes.data[pos + as(index, 14)]) << 16) | (as(u32, section.bytes.data[pos + as(index, 15)]) << 24)
+    let b3: u32 = as(u32, section.bytes.data[pos + as(index, 16)]) | (as(u32, section.bytes.data[pos + as(index, 17)]) << 8) | (as(u32, section.bytes.data[pos + as(index, 18)]) << 16) | (as(u32, section.bytes.data[pos + as(index, 19)]) << 24)
+    let b4: u32 = as(u32, section.bytes.data[pos + as(index, 20)]) | (as(u32, section.bytes.data[pos + as(index, 21)]) << 8) | (as(u32, section.bytes.data[pos + as(index, 22)]) << 16) | (as(u32, section.bytes.data[pos + as(index, 23)]) << 24)
+    let b5: u32 = as(u32, section.bytes.data[pos + as(index, 24)]) | (as(u32, section.bytes.data[pos + as(index, 25)]) << 8) | (as(u32, section.bytes.data[pos + as(index, 26)]) << 16) | (as(u32, section.bytes.data[pos + as(index, 27)]) << 24)
+    let mix: f32 = bitcast(f32, b0)
+    let gain: f32 = bitcast(f32, b1)
+    let p0: f32 = bitcast(f32, b2)
+    let p1: f32 = bitcast(f32, b3)
+    let p2: f32 = bitcast(f32, b4)
+    let p3: f32 = bitcast(f32, b5)
+    if mix ~= mix or gain ~= gain or p0 ~= p0 or p1 ~= p1 or p2 ~= p2 or p3 ~= p3 then jump malformed(pos = pos + as(index, 4), code = 8) end
+    slots[i].kind = kind; slots[i].mix = mix; slots[i].gain = gain; slots[i].p0 = p0; slots[i].p1 = p1; slots[i].p2 = p2; slots[i].p3 = p3
+    jump copy_slot(i = i + as(index, 1), count = count, slots = slots, send_gain = send_gain)
+end
+block bus_done(count: index, slots: ptr(EffectSlotPlan), send_gain: f32)
+    let p: EffectBusPlan = { slots = view(slots, count), slot_count = count, send_gain = send_gain }
+    jump ready(bus = p)
+end
+]]
+
+
+R.prepare_effect_slot = R.prepare_effect_slot(BODY)[[
+entry start()
+    if section.bytes.len == 0 then
+        let s: EffectSlotPlan = { kind = 0, mix = as(f32, 0.0), gain = as(f32, 1.0), p0 = as(f32, 0.0), p1 = as(f32, 0.0), p2 = as(f32, 0.0), p3 = as(f32, 0.0) }
+        jump bypass(slot = s)
+    end
+    if section.bytes.data == nil then jump malformed(pos = as(index, 0), code = 1) end
+    if section.bytes.len < as(index, 28) then jump malformed(pos = section.bytes.len, code = 2) end
+    let kind: u8 = section.bytes.data[as(index, 0)]
+    if kind > 7 then jump unsupported_effect(kind = kind) end
+    let b0: u32 = as(u32, section.bytes.data[as(index, 4)]) | (as(u32, section.bytes.data[as(index, 5)]) << 8) | (as(u32, section.bytes.data[as(index, 6)]) << 16) | (as(u32, section.bytes.data[as(index, 7)]) << 24)
+    let b1: u32 = as(u32, section.bytes.data[as(index, 8)]) | (as(u32, section.bytes.data[as(index, 9)]) << 8) | (as(u32, section.bytes.data[as(index, 10)]) << 16) | (as(u32, section.bytes.data[as(index, 11)]) << 24)
+    let b2: u32 = as(u32, section.bytes.data[as(index, 12)]) | (as(u32, section.bytes.data[as(index, 13)]) << 8) | (as(u32, section.bytes.data[as(index, 14)]) << 16) | (as(u32, section.bytes.data[as(index, 15)]) << 24)
+    let b3: u32 = as(u32, section.bytes.data[as(index, 16)]) | (as(u32, section.bytes.data[as(index, 17)]) << 8) | (as(u32, section.bytes.data[as(index, 18)]) << 16) | (as(u32, section.bytes.data[as(index, 19)]) << 24)
+    let b4: u32 = as(u32, section.bytes.data[as(index, 20)]) | (as(u32, section.bytes.data[as(index, 21)]) << 8) | (as(u32, section.bytes.data[as(index, 22)]) << 16) | (as(u32, section.bytes.data[as(index, 23)]) << 24)
+    let b5: u32 = as(u32, section.bytes.data[as(index, 24)]) | (as(u32, section.bytes.data[as(index, 25)]) << 8) | (as(u32, section.bytes.data[as(index, 26)]) << 16) | (as(u32, section.bytes.data[as(index, 27)]) << 24)
+    let mix: f32 = bitcast(f32, b0)
+    let gain: f32 = bitcast(f32, b1)
+    let p0: f32 = bitcast(f32, b2)
+    let p1: f32 = bitcast(f32, b3)
+    let p2: f32 = bitcast(f32, b4)
+    let p3: f32 = bitcast(f32, b5)
+    if mix ~= mix or gain ~= gain or p0 ~= p0 or p1 ~= p1 or p2 ~= p2 or p3 ~= p3 then jump malformed(pos = as(index, 4), code = 3) end
+    let s: EffectSlotPlan = { kind = kind, mix = mix, gain = gain, p0 = p0, p1 = p1, p2 = p2, p3 = p3 }
+    if kind == 0 then jump bypass(slot = s) end
+    jump ready(slot = s)
+end
+]]
+
+R.prepare_pad_plan = R.prepare_pad_plan(BODY)[[
+entry start()
+    if section.bytes.len == 0 then
+        let ref: PadTableRef = { index = 0, generation = 0 }
+        let spec: PadSpectralPlan = { table_ref = ref, table_length = as(index, 0), table_count = as(index, 0), base_frequency_hz = as(f32, 0.0), morph = as(f32, 0.0) }
+        let p: PadPlan = { spectral = spec, position_lfo_amount = as(f32, 0.0) }
+        jump disabled(plan = p)
+    end
+    if section.bytes.data == nil then jump malformed(pos = as(index, 0), code = 1) end
+    if section.bytes.len < as(index, 24) then jump malformed(pos = section.bytes.len, code = 2) end
+    if cache == nil then jump malformed(pos = as(index, 0), code = 3) end
+    let table_u32: u32 = as(u32, section.bytes.data[as(index, 0)]) | (as(u32, section.bytes.data[as(index, 1)]) << 8) | (as(u32, section.bytes.data[as(index, 2)]) << 16) | (as(u32, section.bytes.data[as(index, 3)]) << 24)
+    let len_u32: u32 = as(u32, section.bytes.data[as(index, 4)]) | (as(u32, section.bytes.data[as(index, 5)]) << 8) | (as(u32, section.bytes.data[as(index, 6)]) << 16) | (as(u32, section.bytes.data[as(index, 7)]) << 24)
+    let count_u32: u32 = as(u32, section.bytes.data[as(index, 8)]) | (as(u32, section.bytes.data[as(index, 9)]) << 8) | (as(u32, section.bytes.data[as(index, 10)]) << 16) | (as(u32, section.bytes.data[as(index, 11)]) << 24)
+    let table_i: index = as(index, table_u32)
+    if table_i >= (*cache).table_count then jump malformed(pos = as(index, 0), code = 4) end
+    let b0: u32 = as(u32, section.bytes.data[as(index, 12)]) | (as(u32, section.bytes.data[as(index, 13)]) << 8) | (as(u32, section.bytes.data[as(index, 14)]) << 16) | (as(u32, section.bytes.data[as(index, 15)]) << 24)
+    let b1: u32 = as(u32, section.bytes.data[as(index, 16)]) | (as(u32, section.bytes.data[as(index, 17)]) << 8) | (as(u32, section.bytes.data[as(index, 18)]) << 16) | (as(u32, section.bytes.data[as(index, 19)]) << 24)
+    let b2: u32 = as(u32, section.bytes.data[as(index, 20)]) | (as(u32, section.bytes.data[as(index, 21)]) << 8) | (as(u32, section.bytes.data[as(index, 22)]) << 16) | (as(u32, section.bytes.data[as(index, 23)]) << 24)
+    let base: f32 = bitcast(f32, b0)
+    let morph: f32 = bitcast(f32, b1)
+    let pos_lfo: f32 = bitcast(f32, b2)
+    if base ~= base or morph ~= morph or pos_lfo ~= pos_lfo then jump malformed(pos = as(index, 12), code = 5) end
+    let ref: PadTableRef = { index = table_u32, generation = (*cache).table_generations[table_i] }
+    let spec: PadSpectralPlan = { table_ref = ref, table_length = as(index, len_u32), table_count = as(index, count_u32), base_frequency_hz = base, morph = morph }
+    let p: PadPlan = { spectral = spec, position_lfo_amount = pos_lfo }
+    jump ready(plan = p)
+end
+]]
+
+
+-- Future implementation slices should replace header closures in-place, e.g.:
+--
+--     R.some_protocol = region R.some_protocol
+--     entry start()
+--         ...
+--     end
+--     end
+--
+-- or equivalently:
+--
+--     F.some_abi = F.some_abi(BODY)[[ body-only Moonlift source ]]
+--
+-- ABI status integers remain confined to F.* bodies. Internal regions must exit
+-- through their declared named protocols only.
+
+return M

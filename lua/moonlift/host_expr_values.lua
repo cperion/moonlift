@@ -98,12 +98,6 @@ function M.Install(api, session)
         return expr_value(Tr.ExprRef(Tr.ExprSurface, B.ValueRefBinding(binding)), ty, source_hint or binding.name, extra)
     end
 
-    function api.ref(name, ty)
-        assert(type(name) == "string" and name:match("^[_%a][_%w]*$"), "ref expects an identifier")
-        local tv = ty and api.as_type_value(ty, "ref type must be a type value") or nil
-        return expr_value(Tr.ExprRef(Tr.ExprSurface, B.ValueRefName(name)), tv, name, { ref_name = name })
-    end
-
     local function binary(lhs, op, rhs, source_op)
         lhs, rhs = coerce(lhs, "binary lhs"), coerce(rhs, "binary rhs")
         return expr_value(Tr.ExprBinary(Tr.ExprSurface, op, lhs.expr, rhs.expr), lhs.type, "(" .. source_of(lhs) .. " " .. source_op .. " " .. source_of(rhs) .. ")")

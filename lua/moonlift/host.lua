@@ -334,26 +334,17 @@ M.func = make_quote(
                 }, {
                     __call = function(self, arg)
                         if type(arg) == "string" then
-                            -- Body provided: reconstruct full func from sig + body
+                            -- Body provided: reconstruct full func from sig + body.
+                            -- Header bodies are parsed directly so legacy body-only syntax
+                            -- keeps its old parse-tolerance, but @{} holes must still be
+                            -- resolved through the same host_splice/open_expand machinery as
+                            -- full moon.func{bindings} quotes.  Otherwise expression splices
+                            -- remain nil-typed ExprSlotValue nodes until typecheck.
                             local T2 = default_session.T
                             local pvm2 = require("moonlift.pvm")
                             local Tr2 = T2.MoonTree
                             local merged = self._bindings or {}
-                            -- Reconstruct the func signature from the raw header source,
-                            -- replacing @{key} with types from merged bindings
-                            local sig_src = self._src or (self._sig.name .. "(...)")
-                            -- Replace @{key} with type names from merged bindings
-                            local function resolve_bindings(s)
-                                return (s:gsub("@{(%w+)}", function(k)
-                                    local v = merged[k]
-                                    if v then
-                                        local ty = type(v) == "table" and (v.ty or v) or v
-                                        return require("moonlift.error.format").type_name(ty)
-                                    end
-                                    return "@{" .. k .. "}"
-                                end))
-                            end
-                            local header_src = resolve_bindings(sig_src)
+                            local header_src = self._src or (self._sig.name .. "(...)")
                             if not header_src:match("^func") then
                                 header_src = "func " .. header_src
                             end
@@ -362,7 +353,28 @@ M.func = make_quote(
                             end
                             local full = strip_bodyless_decl_end(header_src) .. "\n" .. arg .. "\nend"
                             local res = require("moonlift.parse").Define(T2).parse_func(full)
-                            local fv = res.value or res
+                            local value = res.value or res
+                            if #(res.splice_slots or {}) ~= 0 then
+                                local hs = require("moonlift.host_splice")
+                                local open_expand = require("moonlift.open_expand")
+                                local fills = {}
+                                for _, ss in ipairs(res.splice_slots) do
+                                    local key = ss.splice_text or ss.splice_id
+                                    local v = merged[key]
+                                    if v == nil then
+                                        error("no value bound for @" .. tostring(key) .. " in values table", 2)
+                                    end
+                                    fills[#fills + 1] = hs.fill(default_session, ss.slot, v, "splice " .. ss.splice_id, ss.role, ss.spread)
+                                end
+                                local e = open_expand.Define(T2)
+                                local env = e.empty_env()
+                                env = e.env_with_fills(env, fills)
+                                local item_value = value
+                                if pvm2.classof(item_value) ~= Tr2.ItemFunc then item_value = Tr2.ItemFunc(item_value) end
+                                local g, p, c = e.item_stream(item_value, env)
+                                value = pvm2.one(g, p, c)
+                            end
+                            local fv = value
                             if pvm2.classof(fv) == Tr2.ItemFunc then fv = fv.func end
                             local cls = pvm2.classof(fv)
                             if cls ~= Tr2.FuncLocal and cls ~= Tr2.FuncExport
@@ -370,7 +382,6 @@ M.func = make_quote(
                                 local issue = res.issues and res.issues[1]
                                 error((issue and issue.message) or "moon.func header body did not parse as a function implementation", 2)
                             end
-                            -- Build params from the COMPILED FuncLocal (fv) — these have the overridden types
                             local new_params = {}
                             local new_result = fv.result
                             for pi = 1, #(fv.params or {}) do
@@ -378,10 +389,12 @@ M.func = make_quote(
                                 new_params[pi] = setmetatable({ kind = "param", name = pp.name,
                                     type = api.type_from_asdl(pp.ty, pp.name), decl = pp }, {})
                             end
-                            return setmetatable({ kind = "func", session = default_session, T = T2,
+                            local out = setmetatable({ kind = "func", session = default_session, T = T2,
                                 name = fv.name, params = new_params, result = api.type_from_asdl(new_result, fv.name),
                                 func = fv, item = Tr2.ItemFunc(fv), visibility = "export",
                                 _api = api, _session = default_session }, CallableFunc)
+                            if #(res.splice_slots or {}) ~= 0 then out._dep_values = merged end
+                            return out
                         elseif type(arg) == "table" then
                             -- Bindings override: merge and return new header
                             local merged = {}
