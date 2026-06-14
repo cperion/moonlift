@@ -366,6 +366,12 @@ function M.validate_text_module(text_module, opts)
     return #errors == 0, errors, report
 end
 
+function M.assert_text_module(text_module, opts)
+    local ok, errors, report = M.validate_text_module(text_module, opts)
+    if not ok then error("ui.backend_contract text module failed: " .. table.concat(errors, "; "), 2) end
+    return report
+end
+
 function M.validate_host_object(host, opts)
     opts = opts or {}
     local errors = {}

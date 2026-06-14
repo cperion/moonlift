@@ -57,6 +57,9 @@ local function flag_from(spec, id)
     local key = id_key(id)
     if key == nil then return false end
 
+    if type(spec) == "boolean" then
+        return spec == true
+    end
     if type(spec) == "function" then
         return spec(id, key) == true
     end
@@ -78,7 +81,6 @@ end
 
 local function capture_active_for_id(model, id)
     if model == nil then return false end
-    if same_id(model.capture_id, id) then return true end
     local cap = model.capture
     local cls = classof(cap)
     if cls == Interact.Captured then
@@ -192,7 +194,7 @@ local function apply_node(node, provider, opts)
             children[i] = apply_node(node.children[i], provider, opts)
         end
         return Auth.Fragment(children)
-    elseif cls == Auth.Empty then
+    elseif cls == Auth.Empty or node == Auth.Empty or cls == classof(Auth.Empty) then
         return node
     end
 

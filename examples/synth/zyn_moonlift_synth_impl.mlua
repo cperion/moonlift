@@ -2061,9 +2061,22 @@ block scan_part(pi: index, base: index)
     let raw_degree: i32 = select(count_i > 0, delta % count_i, 0)
     let degree: i32 = select(raw_degree < 0 and count_i > 0, raw_degree + count_i, raw_degree)
     let ratio: f32 = select((*program).tuning.count > 0, (*program).tuning.ratios[as(index, degree)], as(f32, 1.0))
-    let base_hz: f32 = root_hz * ratio
-    let gain: f32 = velocity * part.gain * layer.nominal_gain
-    jump layer(part = pref, layer = lref, base_frequency_hz = base_hz, gain = gain, next = cursor + as(index, 1))
+    let scale_count: i32 = select(count_i > 0, count_i, 12)
+    let octave: i32 = select(scale_count > 0, (delta - degree) / scale_count, 0)
+    jump scale_octave(octave = octave, hz = root_hz * ratio, pref = pref, lref = lref, gain = velocity * part.gain * layer.nominal_gain)
+end
+block scale_octave(octave: i32, hz: f32, pref: PartRef, lref: LayerRef, gain: f32)
+    if octave > 0 then jump scale_up(octave = octave, hz = hz, pref = pref, lref = lref, gain = gain) end
+    if octave < 0 then jump scale_down(octave = octave, hz = hz, pref = pref, lref = lref, gain = gain) end
+    jump layer(part = pref, layer = lref, base_frequency_hz = hz, gain = gain, next = cursor + as(index, 1))
+end
+block scale_up(octave: i32, hz: f32, pref: PartRef, lref: LayerRef, gain: f32)
+    if octave <= 0 then jump layer(part = pref, layer = lref, base_frequency_hz = hz, gain = gain, next = cursor + as(index, 1)) end
+    jump scale_up(octave = octave - 1, hz = hz * as(f32, 2.0), pref = pref, lref = lref, gain = gain)
+end
+block scale_down(octave: i32, hz: f32, pref: PartRef, lref: LayerRef, gain: f32)
+    if octave >= 0 then jump layer(part = pref, layer = lref, base_frequency_hz = hz, gain = gain, next = cursor + as(index, 1)) end
+    jump scale_down(octave = octave + 1, hz = hz * as(f32, 0.5), pref = pref, lref = lref, gain = gain)
 end
 ]]
 
@@ -2079,13 +2092,14 @@ block scan(i: index, have: bool, best_index: index, best_score: f32)
     if as(index, vr.index) < 0 or as(index, vr.index) >= (*pool).cap then jump stale_ref(v = vr) end
     if (*pool).generations[as(index, vr.index)] ~= vr.generation then jump stale_ref(v = vr) end
     let st: VoiceState = (*pool).states[as(index, vr.index)]
-    let age_score: f32 = part[0].steal.age_weight * as(f32, st.age_frames)
+    let age_f: f32 = as(f32, st.age_frames)
+    let normalized_age: f32 = select(age_f <= as(f32, 0.0), as(f32, 0.0), age_f / (age_f + as(f32, 1.0)))
+    let age_score: f32 = part[0].steal.age_weight * normalized_age
     let quiet_score: f32 = part[0].steal.level_weight * (as(f32, 1.0) - st.last_mod.amp)
     let same_score: f32 = select(st.channel == channel and st.note == note, part[0].steal.same_note_bonus, as(f32, 0.0))
     let rel: bool = st.stage == @{VOICE_STAGE_RELEASE} or st.stage == @{VOICE_STAGE_FADEOUT} or st.stage == @{VOICE_STAGE_RETIRING}
     let rel_score: f32 = select(rel, part[0].steal.release_bonus, as(f32, 0.0))
-    let mode_bonus: f32 = select(part[0].steal.mode == @{VOICE_STEAL_OLDEST}, age_score, select(part[0].steal.mode == @{VOICE_STEAL_QUIETEST}, quiet_score, select(part[0].steal.mode == @{VOICE_STEAL_RELEASE_FIRST}, rel_score + age_score, select(part[0].steal.mode == @{VOICE_STEAL_SAME_NOTE}, same_score + age_score, as(f32, 0.0)))))
-    let score: f32 = age_score + quiet_score + same_score + rel_score + mode_bonus
+    let score: f32 = age_score + quiet_score + same_score + rel_score
     let better: bool = (not have) or score > best_score or (score == best_score and vr.index < (*pool).active[best_index].index)
     jump scan(i = i + as(index, 1), have = true, best_index = select(better, i, best_index), best_score = select(better, score, best_score))
 end
@@ -2122,6 +2136,8 @@ end
 block steal_candidate(candidate: VoiceStealCandidate)
     let i: index = as(index, candidate.voice.index)
     if i < 0 or i >= (*pool).cap then jump full() end
+    pool[0].states[i].gate = false
+    pool[0].states[i].stage = @{VOICE_STAGE_RETIRING}
     pool[0].generations[i] = (*pool).generations[i] + as(u16, 1)
     if (*pool).generations[i] == 0 then pool[0].generations[i] = as(u16, 1) end
     let v: VoiceRef = { index = candidate.voice.index, generation = (*pool).generations[i] }
@@ -2205,6 +2221,7 @@ block scan(i: index, count: index)
     if vi >= 0 and vi < (*pool).cap and (*pool).generations[vi] == v.generation and (*pool).states[vi].channel == channel and (*pool).states[vi].note == note and (*pool).states[vi].gate then
         pool[0].states[vi].gate = false
         pool[0].states[vi].stage = @{VOICE_STAGE_RELEASE}
+        pool[0].states[vi].release_frame = (*pool).states[vi].age_frames
         jump scan(i = i + as(index, 1), count = count + as(index, 1))
     end
     jump scan(i = i + as(index, 1), count = count)
@@ -2225,8 +2242,10 @@ block scan(i: index, count: index)
     if i >= (*pool).active_count then jump finish(count = count) end
     let v: VoiceRef = (*pool).active[i]
     let vi: index = as(index, v.index)
-    if vi >= 0 and vi < (*pool).cap and (*pool).generations[vi] == v.generation and (*pool).states[vi].channel == channel and not (*pool).states[vi].gate then
+    if vi >= 0 and vi < (*pool).cap and (*pool).generations[vi] == v.generation and (*pool).states[vi].channel == channel and (*pool).states[vi].stage ~= @{VOICE_STAGE_FREE} then
+        pool[0].states[vi].gate = false
         pool[0].states[vi].stage = @{VOICE_STAGE_RELEASE}
+        pool[0].states[vi].release_frame = (*pool).states[vi].age_frames
         jump scan(i = i + as(index, 1), count = count + as(index, 1))
     end
     jump scan(i = i + as(index, 1), count = count)
@@ -2246,9 +2265,10 @@ block scan(i: index, count: index)
     if i >= (*pool).active_count then jump finish(count = count) end
     let v: VoiceRef = (*pool).active[i]
     let vi: index = as(index, v.index)
-    if vi >= 0 and vi < (*pool).cap and (*pool).generations[vi] == v.generation and (*pool).states[vi].channel == channel and (*pool).states[vi].gate then
+    if vi >= 0 and vi < (*pool).cap and (*pool).generations[vi] == v.generation and (*pool).states[vi].channel == channel and (*pool).states[vi].stage ~= @{VOICE_STAGE_FREE} then
         pool[0].states[vi].gate = false
         pool[0].states[vi].stage = @{VOICE_STAGE_RELEASE}
+        pool[0].states[vi].release_frame = (*pool).states[vi].age_frames
         jump scan(i = i + as(index, 1), count = count + as(index, 1))
     end
     jump scan(i = i + as(index, 1), count = count)
@@ -2281,6 +2301,31 @@ block finish(old: index)
     jump already_silent()
 end
 ]]
+
+HLP.reset_effect_rack = region(rack: ptr(EffectRack);
+    reset(count: index)
+    | bad_buffer)
+entry start()
+    if rack == nil then jump reset(count = as(index, 0)) end
+    if rack[0].cap > 0 and rack[0].states == nil then jump bad_buffer() end
+    jump clear(i = as(index, 0))
+end
+block clear(i: index)
+    if i >= rack[0].cap then jump reset(count = rack[0].cap) end
+    rack[0].states[i].kind = as(u8, 0)
+    rack[0].states[i].generation = rack[0].states[i].generation + as(u16, 1)
+    if rack[0].states[i].generation == 0 then rack[0].states[i].generation = as(u16, 1) end
+    rack[0].states[i].z0 = as(f32, 0.0)
+    rack[0].states[i].z1 = as(f32, 0.0)
+    rack[0].states[i].z2 = as(f32, 0.0)
+    rack[0].states[i].z3 = as(f32, 0.0)
+    rack[0].states[i].rng = as(u64, 0)
+    jump clear(i = i + as(index, 1))
+end
+end
+
+local reset_effect_rack_region = HLP.reset_effect_rack
+BODY.reset_effect_rack_region = reset_effect_rack_region
 
 R.advance_voice_lifecycle = R.advance_voice_lifecycle(BODY)[[
 entry start()
@@ -2492,30 +2537,88 @@ end
 local start_one_note_voice_region = HLP.start_one_note_voice
 BODY.start_one_note_voice_region = start_one_note_voice_region
 
-HLP.start_note_voices = region(program: ptr(PreparedProgram), pool: ptr(VoicePool), channel: u8, note: u8, velocity: f32, cursor: index, started_count: index;
-    done(count: index))
+HLP.start_one_note_voice_with_state = region(program: ptr(PreparedProgram), pool: ptr(VoicePool), channel: u8, note: u8, velocity: f32, part: PartRef, layer: LayerRef, base_frequency_hz: f32, next_in: index, count_in: index;
+    done(next: index, count: index))
+entry start()
+    emit @{start_one_note_voice_region}(program, pool, channel, note, velocity, part, layer, base_frequency_hz; started = one_started, not_started = one_not_started)
+end
+block one_started()
+    jump done(next = next_in, count = count_in + as(index, 1))
+end
+block one_not_started()
+    jump done(next = next_in, count = count_in)
+end
+end
+
+local start_one_note_voice_with_state_region = HLP.start_one_note_voice_with_state
+BODY.start_one_note_voice_with_state_region = start_one_note_voice_with_state_region
+
+HLP.next_note_layer_with_start_count = region(program: ptr(PreparedProgram), channel: u8, note: u8, velocity: f32, cursor: index, count_in: index;
+    layer(part: PartRef, layer: LayerRef, base_frequency_hz: f32, gain: f32, next: index, count: index)
+    | skipped(next: index, count: index)
+    | done(count: index))
 entry start()
     emit @{next_note_layer_region}(program, channel, note, velocity, cursor; layer = got_layer, skipped = skipped_layer, done = done_layers)
 end
 block got_layer(part: PartRef, layer: LayerRef, base_frequency_hz: f32, gain: f32, next: index)
-    emit @{start_one_note_voice_region}(program, pool, channel, note, velocity, part, layer, base_frequency_hz; started = one_started, not_started = one_not_started)
-end
-block one_started()
-    jump done(count = started_count + as(index, 1))
-end
-block one_not_started()
-    jump done(count = started_count)
+    jump layer(part = part, layer = layer, base_frequency_hz = base_frequency_hz, gain = gain, next = next, count = count_in)
 end
 block skipped_layer(next: index)
-    jump done(count = started_count)
+    jump skipped(next = next, count = count_in)
 end
 block done_layers(count: index)
-    jump done(count = started_count)
+    jump done(count = count_in)
+end
+end
+
+local next_note_layer_with_start_count_region = HLP.next_note_layer_with_start_count
+BODY.next_note_layer_with_start_count_region = next_note_layer_with_start_count_region
+
+HLP.start_note_voices = region(program: ptr(PreparedProgram), pool: ptr(VoicePool), channel: u8, note: u8, velocity: f32, cursor: index, started_count: index;
+    done(count: index))
+entry start()
+    jump loop(cursor = cursor, count = started_count)
+end
+block loop(cursor: index, count: index)
+    emit @{next_note_layer_with_start_count_region}(program, channel, note, velocity, cursor, count; layer = got_layer, skipped = skipped_layer, done = done_layers)
+end
+block got_layer(part: PartRef, layer: LayerRef, base_frequency_hz: f32, gain: f32, next: index, count: index)
+    emit @{start_one_note_voice_with_state_region}(program, pool, channel, note, velocity, part, layer, base_frequency_hz, next, count; done = one_done)
+end
+block one_done(next: index, count: index)
+    jump loop(cursor = next, count = count)
+end
+block skipped_layer(next: index, count: index)
+    jump loop(cursor = next, count = count)
+end
+block done_layers(count: index)
+    jump done(count = count)
 end
 end
 
 local start_note_voices_region = HLP.start_note_voices
 BODY.start_note_voices_region = start_note_voices_region
+
+HLP.update_sustain_and_release = region(pool: ptr(VoicePool), controls: ptr(ControlBank), channel: u8, value: u8;
+    changed
+    | unchanged)
+entry start()
+    emit @{R.update_control}(controls, channel, as(u8, 64), as(f32, value) / as(f32, 127.0); changed = updated, unchanged = updated, invalid_channel = bad_channel)
+end
+block updated()
+    if value >= 64 then jump changed() end
+    emit @{release_sustained_voices_region}(pool, controls, channel; released_any = released, none = changed)
+end
+block released(count: index)
+    jump changed()
+end
+block bad_channel(channel: u8)
+    jump unchanged()
+end
+end
+
+local update_sustain_and_release_region = HLP.update_sustain_and_release
+BODY.update_sustain_and_release_region = update_sustain_and_release_region
 
 R.apply_midi_event = R.apply_midi_event(BODY)[[
 entry start()
@@ -2529,13 +2632,19 @@ block note_start_done(count: index)
     jump unchanged()
 end
 block midi_note_off(channel: u8, note: u8, frame: index)
+    let ch: index = as(index, channel)
+    if controls ~= nil and ch >= 0 and ch < (*controls).channel_count and (*controls).states[ch].sustain then jump midi_unchanged() end
     emit @{release_matching_voices_region}(pool, channel, note; released_any = released_notes, none = midi_unchanged)
 end
 block released_notes(count: index)
     jump voices_released(count = count)
 end
 block midi_cc(channel: u8, cc: u8, value: u8, frame: index)
+    if cc == 64 then jump midi_sustain_cc(channel = channel, value = value) end
     emit @{update_control}(controls, channel, cc, as(f32, value) / as(f32, 127.0); changed = midi_changed, unchanged = midi_unchanged, invalid_channel = invalid_cc_channel)
+end
+block midi_sustain_cc(channel: u8, value: u8)
+    emit @{update_sustain_and_release_region}(pool, controls, channel, value; changed = midi_changed, unchanged = midi_unchanged)
 end
 block invalid_cc_channel(channel: u8)
     jump unchanged()
@@ -2660,6 +2769,7 @@ block release_note_scan(i: index, any_changed: bool, channel: u8, note: u8, pos:
     if vi >= 0 and vi < (*synth).storage.voices.cap and (*synth).storage.voices.generations[vi] == v.generation and (*synth).storage.voices.states[vi].channel == channel and (*synth).storage.voices.states[vi].note == note and (*synth).storage.voices.states[vi].gate then
         synth[0].storage.voices.states[vi].gate = false
         synth[0].storage.voices.states[vi].stage = @{VOICE_STAGE_RELEASE}
+        synth[0].storage.voices.states[vi].release_frame = (*synth).storage.voices.states[vi].age_frames
         jump release_note_scan(i = i, any_changed = any_changed, channel = channel, note = note, pos = pos + as(index, 1), released_count = released_count + as(index, 1))
     end
     jump release_note_scan(i = i, any_changed = any_changed, channel = channel, note = note, pos = pos + as(index, 1), released_count = released_count)
@@ -2671,9 +2781,10 @@ block all_notes_scan(i: index, any_changed: bool, pos: index, released_count: in
     if pos >= (*synth).storage.voices.active_count then jump all_notes_done(i = i, any_changed = any_changed, released_count = released_count) end
     let v: VoiceRef = (*synth).storage.voices.active[pos]
     let vi: index = as(index, v.index)
-    if vi >= 0 and vi < (*synth).storage.voices.cap and (*synth).storage.voices.generations[vi] == v.generation and (*synth).storage.voices.states[vi].gate then
+    if vi >= 0 and vi < (*synth).storage.voices.cap and (*synth).storage.voices.generations[vi] == v.generation and (*synth).storage.voices.states[vi].stage ~= @{VOICE_STAGE_FREE} then
         synth[0].storage.voices.states[vi].gate = false
         synth[0].storage.voices.states[vi].stage = @{VOICE_STAGE_RELEASE}
+        synth[0].storage.voices.states[vi].release_frame = (*synth).storage.voices.states[vi].age_frames
         jump all_notes_scan(i = i, any_changed = any_changed, pos = pos + as(index, 1), released_count = released_count + as(index, 1))
     end
     jump all_notes_scan(i = i, any_changed = any_changed, pos = pos + as(index, 1), released_count = released_count)
@@ -2693,6 +2804,12 @@ end
 block panic_finish()
     synth[0].storage.voices.active_count = as(index, 0)
     synth[0].storage.voices.free_head = select((*synth).storage.voices.cap > 0, as(u32, 0), as(u32, @{EMPTY_U32_VALUE}))
+    emit @{reset_effect_rack_region}(&synth[0].storage.effects; reset = panic_effects_reset, bad_buffer = panic_effects_bad)
+end
+block panic_effects_reset(count: index)
+    jump panic_requested()
+end
+block panic_effects_bad()
     jump panic_requested()
 end
 block finish(any_changed: bool)
@@ -2700,6 +2817,139 @@ block finish(any_changed: bool)
     jump unchanged()
 end
 ]]
+
+HLP.release_all_render_voices = region(pool: ptr(VoicePool);
+    released(count: index)
+    | none)
+entry start()
+    if pool == nil then jump none() end
+    jump scan(i = as(index, 0), count = as(index, 0))
+end
+block scan(i: index, count: index)
+    if i >= pool[0].active_count then jump finish(count = count) end
+    let v: VoiceRef = pool[0].active[i]
+    let vi: index = as(index, v.index)
+    if vi >= 0 and vi < pool[0].cap and pool[0].generations[vi] == v.generation and pool[0].states[vi].stage ~= @{E.VoiceStage.free} then
+        pool[0].states[vi].gate = false
+        pool[0].states[vi].stage = @{E.VoiceStage.release}
+        pool[0].states[vi].release_frame = pool[0].states[vi].age_frames
+        jump scan(i = i + as(index, 1), count = count + as(index, 1))
+    end
+    jump scan(i = i + as(index, 1), count = count)
+end
+block finish(count: index)
+    if count > 0 then jump released(count = count) end
+    jump none()
+end
+end
+
+local release_all_render_voices_region = HLP.release_all_render_voices
+BODY.release_all_render_voices_region = release_all_render_voices_region
+
+HLP.apply_render_event_step = region(synth: ptr(Synth), program: ptr(PreparedProgram), ev: HostEvent, ctx: RenderCtx, i: index, any_changed: bool;
+    done(next: index, any_changed: bool)
+    | requested_program(program: ProgramRef)
+    | panic_requested)
+entry start()
+    if ev.frame < 0 or ev.frame > ctx.shape.frame_count then jump done(next = i + as(index, 1), any_changed = any_changed) end
+    emit @{classify_host_event_region}(ev; midi = host_midi, parameter = host_parameter, program_change = host_program, transport = host_transport, all_notes_off = host_all_notes, panic = host_panic, ignored = host_ignored)
+end
+block host_midi(midi: MidiEvent)
+    if midi.frame < 0 or midi.frame > ctx.shape.frame_count then jump done(next = i + as(index, 1), any_changed = any_changed) end
+    emit @{apply_midi_event_region}(program, &synth[0].storage.voices, &synth[0].storage.controls, midi; changed = event_changed, unchanged = event_unchanged, voices_started = event_started, voices_released = event_released)
+end
+block host_parameter(param: ParameterEvent)
+    if param.frame < 0 or param.frame > ctx.shape.frame_count then jump done(next = i + as(index, 1), any_changed = any_changed) end
+    emit @{apply_parameter_event_region}(program, &synth[0].storage.controls, param; changed = event_changed, unchanged = event_unchanged, smoothed = event_smoothed, read_only = event_unchanged_addr, out_of_range = event_clamped, unknown_parameter = event_unknown)
+end
+block host_program(program: ProgramRef, frame: index)
+    if frame < 0 or frame > ctx.shape.frame_count then jump done(next = i + as(index, 1), any_changed = any_changed) end
+    jump requested_program(program = ev.program)
+end
+block host_transport(transport: TransportState, frame: index)
+    if frame < 0 or frame > ctx.shape.frame_count then jump done(next = i + as(index, 1), any_changed = any_changed) end
+    emit @{apply_transport_event_region}(synth, transport; changed = event_changed, unchanged = event_unchanged)
+end
+block host_all_notes(frame: index)
+    if frame < 0 or frame > ctx.shape.frame_count then jump done(next = i + as(index, 1), any_changed = any_changed) end
+    emit @{release_all_render_voices_region}(&synth[0].storage.voices; released = all_released, none = event_unchanged)
+end
+block all_released(count: index)
+    jump done(next = i + as(index, 1), any_changed = true)
+end
+block host_panic(frame: index)
+    if frame < 0 or frame > ctx.shape.frame_count then jump done(next = i + as(index, 1), any_changed = any_changed) end
+    emit @{panic_voices_region}(&synth[0].storage.voices; cleared = panic_voices_done, already_silent = panic_voices_already)
+end
+block panic_voices_done(count: index)
+    emit @{reset_effect_rack_region}(&synth[0].storage.effects; reset = panic_effects_done, bad_buffer = panic_effects_bad)
+end
+block panic_voices_already()
+    emit @{reset_effect_rack_region}(&synth[0].storage.effects; reset = panic_effects_done, bad_buffer = panic_effects_bad)
+end
+block panic_effects_done(count: index)
+    jump panic_requested()
+end
+block panic_effects_bad()
+    jump panic_requested()
+end
+block host_ignored()
+    jump done(next = i + as(index, 1), any_changed = any_changed)
+end
+block event_changed()
+    jump done(next = i + as(index, 1), any_changed = true)
+end
+block event_smoothed(target: f32, smoothing_ms: f32)
+    jump done(next = i + as(index, 1), any_changed = true)
+end
+block event_clamped(address: ParamAddress, clamped: f32)
+    jump done(next = i + as(index, 1), any_changed = true)
+end
+block event_started(count: index)
+    jump done(next = i + as(index, 1), any_changed = true)
+end
+block event_released(count: index)
+    jump done(next = i + as(index, 1), any_changed = true)
+end
+block event_unchanged()
+    jump done(next = i + as(index, 1), any_changed = any_changed)
+end
+block event_unchanged_addr(address: ParamAddress)
+    jump done(next = i + as(index, 1), any_changed = any_changed)
+end
+block event_unknown(address: ParamAddress)
+    jump done(next = i + as(index, 1), any_changed = any_changed)
+end
+end
+
+local apply_render_event_step_region = HLP.apply_render_event_step
+BODY.apply_render_event_step_region = apply_render_event_step_region
+
+HLP.apply_host_events_in_render = region(synth: ptr(Synth), program: ptr(PreparedProgram), events: view(HostEvent), ctx: RenderCtx;
+    changed
+    | unchanged
+    | requested_program(program: ProgramRef)
+    | panic_requested)
+entry start()
+    if synth == nil or program == nil then jump unchanged() end
+    if len(events) <= 0 then jump unchanged() end
+    jump scan(i = as(index, 0), any_changed = false)
+end
+block scan(i: index, any_changed: bool)
+    if i >= len(events) then jump finish(any_changed = any_changed) end
+    emit @{apply_render_event_step_region}(synth, program, events[i], ctx, i, any_changed; done = step_done, requested_program = requested_program, panic_requested = panic_requested)
+end
+block step_done(next: index, any_changed: bool)
+    jump scan(i = next, any_changed = any_changed)
+end
+block finish(any_changed: bool)
+    if any_changed then jump changed() end
+    jump unchanged()
+end
+end
+
+local apply_host_events_in_render_region = HLP.apply_host_events_in_render
+BODY.apply_host_events_in_render_region = apply_host_events_in_render_region
 
 -------------------------------------------------------------------------------
 -- Modulation, envelopes, LFOs, and filters
@@ -3647,8 +3897,10 @@ entry start()
     if len(output.left) < len(input.left) or len(output.right) < len(input.right) then jump bad_buffer() end
     if gain == as(f32, 0.0) or len(input.left) == 0 then jump silent() end
     let p: f32 = emit @{clamp_f32}(pan, as(f32, -1.0), as(f32, 1.0))
-    let left_gain: f32 = gain * as(f32, 0.5) * (as(f32, 1.0) - p)
-    let right_gain: f32 = gain * as(f32, 0.5) * (as(f32, 1.0) + p)
+    let left_power: f32 = emit @{clamp_f32}((as(f32, 1.0) - p) * as(f32, 0.5), as(f32, 0.0), as(f32, 1.0))
+    let right_power: f32 = emit @{clamp_f32}((as(f32, 1.0) + p) * as(f32, 0.5), as(f32, 0.0), as(f32, 1.0))
+    let left_gain: f32 = gain * emit @{sqrt_nonnegative}(left_power)
+    let right_gain: f32 = gain * emit @{sqrt_nonnegative}(right_power)
     jump loop(i = as(index, 0), peak = as(f32, 0.0), lg = left_gain, rg = right_gain)
 end
 block loop(i: index, peak: f32, lg: f32, rg: f32)
@@ -3671,10 +3923,10 @@ entry start()
     if len(output.left) < ctx.shape.frame_count or len(output.right) < ctx.shape.frame_count then jump bad_buffer() end
     if slot[0].kind ~= @{EFFECT_BYPASS} and slot[0].kind ~= @{EFFECT_REVERB} and slot[0].kind ~= @{EFFECT_CHORUS} and slot[0].kind ~= @{EFFECT_PHASER} and slot[0].kind ~= @{EFFECT_DELAY} and slot[0].kind ~= @{EFFECT_DISTORTION} and slot[0].kind ~= @{EFFECT_EQ} and slot[0].kind ~= @{EFFECT_COMPRESSOR} then jump invalid_effect(kind = slot[0].kind) end
     state[0].kind = slot[0].kind
-    if slot[0].kind == @{EFFECT_BYPASS} or slot[0].mix <= as(f32, 0.0) then jump copy_loop(i = as(index, 0), peak = as(f32, 0.0), bypass = true) end
-    jump process_loop(i = as(index, 0), peak = as(f32, 0.0))
+    if slot[0].kind == @{EFFECT_BYPASS} or slot[0].mix <= as(f32, 0.0) then jump copy_loop(i = as(index, 0), peak = as(f32, 0.0)) end
+    jump process_loop(i = as(index, 0), peak = as(f32, 0.0), rng = select(state[0].rng == 0, as(u64, 1), state[0].rng))
 end
-block copy_loop(i: index, peak: f32, bypass: bool)
+block copy_loop(i: index, peak: f32)
     if i >= ctx.shape.frame_count then jump bypassed(peak = peak) end
     let l: f32 = input.left[i]
     let r: f32 = input.right[i]
@@ -3683,27 +3935,94 @@ block copy_loop(i: index, peak: f32, bypass: bool)
     let al: f32 = select(l < as(f32, 0.0), -l, l)
     let ar: f32 = select(r < as(f32, 0.0), -r, r)
     let p: f32 = select(al > ar, al, ar)
-    jump copy_loop(i = i + as(index, 1), peak = select(p > peak, p, peak), bypass = bypass)
+    jump copy_loop(i = i + as(index, 1), peak = select(p > peak, p, peak))
 end
-block process_loop(i: index, peak: f32)
-    if i >= ctx.shape.frame_count then jump processed(peak = peak) end
+block process_loop(i: index, peak: f32, rng: u64)
+    if i >= ctx.shape.frame_count then jump processed_done(peak = peak, rng = rng) end
     let dry_l: f32 = input.left[i]
     let dry_r: f32 = input.right[i]
-    let drive: f32 = select(slot[0].p0 == as(f32, 0.0), as(f32, 1.0), slot[0].p0)
-    let delayed_l: f32 = state[0].z0
-    let delayed_r: f32 = state[0].z1
-    let shaped_l: f32 = select(slot[0].kind == @{EFFECT_DISTORTION}, emit @{clamp_f32}(dry_l * drive, as(f32, -1.0), as(f32, 1.0)), select(slot[0].kind == @{EFFECT_DELAY} or slot[0].kind == @{EFFECT_REVERB}, delayed_l, dry_l * slot[0].gain))
-    let shaped_r: f32 = select(slot[0].kind == @{EFFECT_DISTORTION}, emit @{clamp_f32}(dry_r * drive, as(f32, -1.0), as(f32, 1.0)), select(slot[0].kind == @{EFFECT_DELAY} or slot[0].kind == @{EFFECT_REVERB}, delayed_r, dry_r * slot[0].gain))
-    let wet_l: f32 = dry_l * (as(f32, 1.0) - slot[0].mix) + shaped_l * slot[0].mix * slot[0].gain
-    let wet_r: f32 = dry_r * (as(f32, 1.0) - slot[0].mix) + shaped_r * slot[0].mix * slot[0].gain
-    state[0].z0 = dry_l + delayed_l * as(f32, 0.35)
-    state[0].z1 = dry_r + delayed_r * as(f32, 0.35)
-    output.left[i] = wet_l
-    output.right[i] = wet_r
-    let al: f32 = select(wet_l < as(f32, 0.0), -wet_l, wet_l)
-    let ar: f32 = select(wet_r < as(f32, 0.0), -wet_r, wet_r)
+    let mix: f32 = emit @{clamp_f32}(slot[0].mix, as(f32, 0.0), as(f32, 1.0))
+    let gain: f32 = select(slot[0].gain == as(f32, 0.0), as(f32, 1.0), slot[0].gain)
+    let p0: f32 = slot[0].p0
+    let p1: f32 = slot[0].p1
+    let p2: f32 = slot[0].p2
+    let p3: f32 = slot[0].p3
+    let old0: f32 = state[0].z0
+    let old1: f32 = state[0].z1
+    let old2: f32 = state[0].z2
+    let old3: f32 = state[0].z3
+    let fb: f32 = emit @{clamp_f32}(select(p1 == as(f32, 0.0), as(f32, 0.35), p1), as(f32, 0.0), as(f32, 0.95))
+    let phase: f32 = emit @{wrap_unit01}(old2 + select(p2 == as(f32, 0.0), as(f32, 0.25), p2) * ctx.inv_sample_rate)
+    let lfo: f32 = emit @{sin_unit_phase}(phase)
+    let mono: f32 = (dry_l + dry_r) * as(f32, 0.5)
+    let delay_l: f32 = old0
+    let delay_r: f32 = old1
+    let reverb_l: f32 = old0 * as(f32, 0.65) + old2 * as(f32, 0.25) + dry_r * as(f32, 0.10)
+    let reverb_r: f32 = old1 * as(f32, 0.65) + old3 * as(f32, 0.25) + dry_l * as(f32, 0.10)
+    let chorus_depth: f32 = emit @{clamp_f32}(select(p0 == as(f32, 0.0), as(f32, 0.35), p0), as(f32, 0.0), as(f32, 1.0))
+    let chorus_l: f32 = dry_l * (as(f32, 1.0) - chorus_depth) + old0 * chorus_depth + lfo * as(f32, 0.002)
+    let chorus_r: f32 = dry_r * (as(f32, 1.0) - chorus_depth) + old1 * chorus_depth - lfo * as(f32, 0.002)
+    let phaser_coeff: f32 = emit @{clamp_f32}(select(p0 == as(f32, 0.0), as(f32, 0.6), p0 + lfo * as(f32, 0.2)), as(f32, 0.05), as(f32, 0.95))
+    let phaser_l: f32 = -phaser_coeff * dry_l + old0 + phaser_coeff * old2
+    let phaser_r: f32 = -phaser_coeff * dry_r + old1 + phaser_coeff * old3
+    let drive: f32 = select(p0 == as(f32, 0.0), as(f32, 1.0), p0)
+    let driven_l: f32 = emit @{clamp_f32}(dry_l * drive, as(f32, -2.0), as(f32, 2.0))
+    let driven_r: f32 = emit @{clamp_f32}(dry_r * drive, as(f32, -2.0), as(f32, 2.0))
+    let distort_l: f32 = driven_l * (as(f32, 1.5) - as(f32, 0.5) * driven_l * driven_l)
+    let distort_r: f32 = driven_r * (as(f32, 1.5) - as(f32, 0.5) * driven_r * driven_r)
+    let eq_alpha: f32 = emit @{clamp_f32}(select(p3 == as(f32, 0.0), as(f32, 0.25), p3), as(f32, 0.001), as(f32, 1.0))
+    let low_l: f32 = old0 + (dry_l - old0) * eq_alpha
+    let low_r: f32 = old1 + (dry_r - old1) * eq_alpha
+    let eq_l: f32 = low_l * select(p0 == as(f32, 0.0), as(f32, 1.0), p0) + (dry_l - low_l) * select(p1 == as(f32, 0.0), as(f32, 1.0), p1) + dry_l * p2
+    let eq_r: f32 = low_r * select(p0 == as(f32, 0.0), as(f32, 1.0), p0) + (dry_r - low_r) * select(p1 == as(f32, 0.0), as(f32, 1.0), p1) + dry_r * p2
+    let threshold: f32 = emit @{clamp_f32}(select(p0 == as(f32, 0.0), as(f32, 0.5), p0), as(f32, 0.001), as(f32, 10.0))
+    let ratio: f32 = select(p1 <= as(f32, 1.0), as(f32, 4.0), p1)
+    let abs_l: f32 = select(dry_l < as(f32, 0.0), -dry_l, dry_l)
+    let abs_r: f32 = select(dry_r < as(f32, 0.0), -dry_r, dry_r)
+    let env: f32 = select(abs_l > abs_r, abs_l, abs_r)
+    let comp_gain: f32 = select(env <= threshold, as(f32, 1.0), (threshold + (env - threshold) / ratio) / env)
+    let comp_l: f32 = dry_l * comp_gain
+    let comp_r: f32 = dry_r * comp_gain
+    let wet_l: f32 = select(slot[0].kind == @{EFFECT_REVERB}, reverb_l,
+        select(slot[0].kind == @{EFFECT_CHORUS}, chorus_l,
+        select(slot[0].kind == @{EFFECT_PHASER}, phaser_l,
+        select(slot[0].kind == @{EFFECT_DELAY}, delay_l,
+        select(slot[0].kind == @{EFFECT_DISTORTION}, distort_l,
+        select(slot[0].kind == @{EFFECT_EQ}, eq_l, comp_l))))))
+    let wet_r: f32 = select(slot[0].kind == @{EFFECT_REVERB}, reverb_r,
+        select(slot[0].kind == @{EFFECT_CHORUS}, chorus_r,
+        select(slot[0].kind == @{EFFECT_PHASER}, phaser_r,
+        select(slot[0].kind == @{EFFECT_DELAY}, delay_r,
+        select(slot[0].kind == @{EFFECT_DISTORTION}, distort_r,
+        select(slot[0].kind == @{EFFECT_EQ}, eq_r, comp_r))))))
+    let out_l: f32 = dry_l * (as(f32, 1.0) - mix) + wet_l * mix * gain
+    let out_r: f32 = dry_r * (as(f32, 1.0) - mix) + wet_r * mix * gain
+    if slot[0].kind == @{EFFECT_REVERB} then state[0].z0 = dry_l + reverb_l * fb end
+    if slot[0].kind == @{EFFECT_REVERB} then state[0].z1 = dry_r + reverb_r * fb end
+    if slot[0].kind == @{EFFECT_REVERB} then state[0].z2 = old0 end
+    if slot[0].kind == @{EFFECT_REVERB} then state[0].z3 = old1 end
+    if slot[0].kind == @{EFFECT_DELAY} then state[0].z0 = dry_l + delay_l * fb end
+    if slot[0].kind == @{EFFECT_DELAY} then state[0].z1 = dry_r + delay_r * fb end
+    if slot[0].kind == @{EFFECT_CHORUS} then state[0].z0 = dry_l end
+    if slot[0].kind == @{EFFECT_CHORUS} then state[0].z1 = dry_r end
+    if slot[0].kind == @{EFFECT_CHORUS} then state[0].z2 = phase end
+    if slot[0].kind == @{EFFECT_PHASER} then state[0].z0 = dry_l end
+    if slot[0].kind == @{EFFECT_PHASER} then state[0].z1 = dry_r end
+    if slot[0].kind == @{EFFECT_PHASER} then state[0].z2 = phaser_l end
+    if slot[0].kind == @{EFFECT_PHASER} then state[0].z3 = phaser_r end
+    if slot[0].kind == @{EFFECT_EQ} then state[0].z0 = low_l end
+    if slot[0].kind == @{EFFECT_EQ} then state[0].z1 = low_r end
+    if slot[0].kind == @{EFFECT_COMPRESSOR} then state[0].z0 = env end
+    output.left[i] = out_l
+    output.right[i] = out_r
+    let al: f32 = select(out_l < as(f32, 0.0), -out_l, out_l)
+    let ar: f32 = select(out_r < as(f32, 0.0), -out_r, out_r)
     let p: f32 = select(al > ar, al, ar)
-    jump process_loop(i = i + as(index, 1), peak = select(p > peak, p, peak))
+    jump process_loop(i = i + as(index, 1), peak = select(p > peak, p, peak), rng = rng * as(u64, 1664525) + as(u64, 1013904223))
+end
+block processed_done(peak: f32, rng: u64)
+    state[0].rng = rng
+    jump processed(peak = peak)
 end
 ]]
 
@@ -3717,13 +4036,20 @@ HLP.apply_one_effect_slot = region(bus: ptr(EffectBusPlan), rack: ptr(EffectRack
 entry start()
     if i >= bus[0].slot_count then jump done(next = i, peak = current_peak, any = any) end
     if i >= rack[0].cap then jump bad_buffer() end
+    if (i & as(index, 1)) == 0 then jump even_slot() end
+    jump odd_slot()
+end
+block even_slot()
     emit @{apply_effect_slot_region}(&bus[0].slots[i], rack[0].states + i, ctx, input, output; processed = slot_processed, bypassed = slot_bypassed, silent = slot_silent, bad_buffer = bad, invalid_effect = invalid)
 end
+block odd_slot()
+    emit @{apply_effect_slot_region}(&bus[0].slots[i], rack[0].states + i, ctx, output, input; processed = slot_processed, bypassed = slot_bypassed, silent = slot_silent, bad_buffer = bad, invalid_effect = invalid)
+end
 block slot_processed(peak: f32)
-    jump done(next = i + as(index, 1), peak = peak, any = true)
+    jump done(next = i + as(index, 1), peak = select(peak > current_peak, peak, current_peak), any = true)
 end
 block slot_bypassed(peak: f32)
-    jump done(next = i + as(index, 1), peak = current_peak, any = any)
+    jump done(next = i + as(index, 1), peak = select(peak > current_peak, peak, current_peak), any = true)
 end
 block slot_silent()
     jump done(next = i + as(index, 1), peak = current_peak, any = any)
@@ -3748,15 +4074,22 @@ entry start()
     jump slot_loop(i = as(index, 0), peak = as(f32, 0.0), any = false)
 end
 block slot_loop(i: index, peak: f32, any: bool)
-    if i >= bus[0].slot_count then jump done(peak = peak, any = any) end
+    if i >= bus[0].slot_count then jump finish(peak = peak, any = any) end
     emit @{apply_one_effect_slot_region}(bus, rack, ctx, input, output, i, peak, any; done = slot_done, bad_buffer = bad, invalid_effect = invalid)
 end
 block slot_done(next: index, peak: f32, any: bool)
     jump slot_loop(i = next, peak = peak, any = any)
 end
-block done(peak: f32, any: bool)
-    if any then jump processed(peak = peak) end
-    jump bypassed(peak = peak)
+block finish(peak: f32, any: bool)
+    if not any then jump bypassed(peak = peak) end
+    if (bus[0].slot_count & as(index, 1)) == 0 then jump copy_even_result(peak = peak) end
+    jump processed(peak = peak)
+end
+block copy_even_result(peak: f32)
+    emit @{copy_stereo_block}(input, output, ctx.shape.frame_count; copied = copied_even, bad_buffer = bad)
+end
+block copied_even(peak: f32)
+    jump processed(peak = peak)
 end
 block bad()
     jump bad_buffer()
@@ -3778,16 +4111,13 @@ entry start()
     emit @{apply_effect_bus_region}(&program[0].effects.insert_fx[as(index, part.index)], rack, ctx, (*scratch).part, (*scratch).voice; processed = bus_processed, bypassed = bus_bypassed, bad_buffer = bad, invalid_effect = invalid)
 end
 block bus_processed(peak: f32)
-    emit @{mix_stereo_region}((*scratch).voice, (*scratch).part, as(f32, 1.0); mixed = mixed, silent = silent, bad_buffer = bad)
+    emit @{copy_stereo_block}(scratch[0].voice, scratch[0].part, ctx.shape.frame_count; copied = copied_back, bad_buffer = bad)
 end
-block mixed(peak: f32)
+block copied_back(peak: f32)
     jump processed(peak = peak)
 end
 block bus_bypassed(peak: f32)
     jump bypassed(peak = peak)
-end
-block silent()
-    jump bypassed(peak = as(f32, 0.0))
 end
 block bad()
     jump bad_buffer()
@@ -3806,10 +4136,10 @@ entry start()
     emit @{apply_effect_bus_region}(&program[0].effects.send_fx[i], rack, ctx, (*scratch).send, (*scratch).voice; processed = send_processed, bypassed = send_bypassed, bad_buffer = bad, invalid_effect = invalid)
 end
 block send_processed(peak: f32)
-    emit @{mix_stereo_region}((*scratch).voice, out, as(f32, 1.0); mixed = send_mixed, silent = send_silent, bad_buffer = bad)
+    emit @{mix_stereo_region}((*scratch).voice, out, program[0].effects.send_fx[i].send_gain; mixed = send_mixed, silent = send_silent, bad_buffer = bad)
 end
 block send_mixed(peak: f32)
-    jump done(next = i + as(index, 1), peak = peak, any = true)
+    jump done(next = i + as(index, 1), peak = select(peak > current_peak, peak, current_peak), any = true)
 end
 block send_bypassed(peak: f32)
     jump done(next = i + as(index, 1), peak = current_peak, any = any)
@@ -3827,19 +4157,53 @@ end
 
 local apply_one_send_effect_region = HLP.apply_one_send_effect
 BODY.apply_one_send_effect_region = apply_one_send_effect_region
+local copy_stereo_block = HLP.copy_stereo_block
+
+HLP.apply_master_effect_after_sends = region(program: ptr(PreparedProgram), rack: ptr(EffectRack), ctx: RenderCtx, scratch: ptr(RenderScratch), out: StereoBlock, current_peak: f32, current_any: bool;
+    done(peak: f32, any: bool)
+    | bad_buffer
+    | invalid_effect(kind: u8))
+entry start()
+    if program[0].effects.master_fx.slot_count <= 0 then jump done(peak = current_peak, any = current_any) end
+    emit @{apply_effect_bus_region}(&program[0].effects.master_fx, rack, ctx, out, (*scratch).part; processed = master_processed, bypassed = master_bypassed, bad_buffer = bad, invalid_effect = invalid)
+end
+block master_processed(peak: f32)
+    emit @{copy_stereo_block}((*scratch).part, out, ctx.shape.frame_count; copied = master_copied, bad_buffer = bad)
+end
+block master_copied(peak: f32)
+    jump done(peak = select(peak > current_peak, peak, current_peak), any = true)
+end
+block master_bypassed(peak: f32)
+    jump done(peak = current_peak, any = current_any)
+end
+block bad()
+    jump bad_buffer()
+end
+block invalid(kind: u8)
+    jump invalid_effect(kind = kind)
+end
+end
+
+local apply_master_effect_after_sends_region = HLP.apply_master_effect_after_sends
+BODY.apply_master_effect_after_sends_region = apply_master_effect_after_sends_region
 
 R.apply_send_effects = R.apply_send_effects(BODY)[[
 entry start()
     if program == nil or rack == nil or scratch == nil then jump bad_buffer() end
-    if program[0].effects.send_count <= 0 then jump bypassed(peak = as(f32, 0.0)) end
     jump send_loop(i = as(index, 0), peak = as(f32, 0.0), any = false)
 end
 block send_loop(i: index, peak: f32, any: bool)
-    if i >= program[0].effects.send_count then jump done(peak = peak, any = any) end
+    if i >= program[0].effects.send_count then jump maybe_master(peak = peak, any = any) end
     emit @{apply_one_send_effect_region}(program, rack, ctx, scratch, out, i, peak, any; done = send_done, bad_buffer = bad, invalid_effect = invalid)
 end
 block send_done(next: index, peak: f32, any: bool)
     jump send_loop(i = next, peak = peak, any = any)
+end
+block maybe_master(peak: f32, any: bool)
+    emit @{apply_master_effect_after_sends_region}(program, rack, ctx, scratch, out, peak, any; done = master_done, bad_buffer = bad, invalid_effect = invalid)
+end
+block master_done(peak: f32, any: bool)
+    jump done(peak = peak, any = any)
 end
 block done(peak: f32, any: bool)
     if any then jump processed(peak = peak) end
@@ -3853,24 +4217,72 @@ block invalid(kind: u8)
 end
 ]]
 
-R.finalize_audio_block = R.finalize_audio_block(BODY)[[
+local clamp_f32 = HLP.clamp_f32
+
+HLP.finalize_audio_block_with_policy = region(out: StereoBlock, meter: ptr(MeterFrame), nominal_gain: f32, clip_ceiling: f32;
+    clean(peak: f32)
+    | clipped(peak: f32)
+    | bad_buffer)
 entry start()
     if meter == nil then jump bad_buffer() end
     if len(out.left) ~= len(out.right) then jump bad_buffer() end
-    jump loop(i = as(index, 0), peak_l = as(f32, 0.0), peak_r = as(f32, 0.0), sum_l = as(f32, 0.0), sum_r = as(f32, 0.0), clipped_any = false)
+    let ceil: f32 = select(clip_ceiling > as(f32, 0.0), clip_ceiling, as(f32, 1.0))
+    jump loop(i = as(index, 0), peak_l = as(f32, 0.0), peak_r = as(f32, 0.0), sum_l = as(f32, 0.0), sum_r = as(f32, 0.0), clipped_any = false, ceil = ceil)
 end
-block loop(i: index, peak_l: f32, peak_r: f32, sum_l: f32, sum_r: f32, clipped_any: bool)
+block loop(i: index, peak_l: f32, peak_r: f32, sum_l: f32, sum_r: f32, clipped_any: bool, ceil: f32)
     if i >= len(out.left) then jump done(peak_l = peak_l, peak_r = peak_r, sum_l = sum_l, sum_r = sum_r, clipped_any = clipped_any) end
     let raw_l: f32 = out.left[i] * nominal_gain
     let raw_r: f32 = out.right[i] * nominal_gain
-    let ceil: f32 = as(f32, 1.0)
     let l: f32 = emit @{clamp_f32}(raw_l, -ceil, ceil)
     let r: f32 = emit @{clamp_f32}(raw_r, -ceil, ceil)
     out.left[i] = l
     out.right[i] = r
     let al: f32 = select(l < as(f32, 0.0), -l, l)
     let ar: f32 = select(r < as(f32, 0.0), -r, r)
-    jump loop(i = i + as(index, 1), peak_l = select(al > peak_l, al, peak_l), peak_r = select(ar > peak_r, ar, peak_r), sum_l = sum_l + l * l, sum_r = sum_r + r * r, clipped_any = clipped_any or raw_l ~= l or raw_r ~= r)
+    jump loop(i = i + as(index, 1), peak_l = select(al > peak_l, al, peak_l), peak_r = select(ar > peak_r, ar, peak_r), sum_l = sum_l + l * l, sum_r = sum_r + r * r, clipped_any = clipped_any or raw_l ~= l or raw_r ~= r, ceil = ceil)
+end
+block done(peak_l: f32, peak_r: f32, sum_l: f32, sum_r: f32, clipped_any: bool)
+    let n: f32 = select(len(out.left) > 0, as(f32, len(out.left)), as(f32, 1.0))
+    let mean_l: f32 = sum_l / n
+    let mean_r: f32 = sum_r / n
+    let gl0: f32 = select(mean_l > as(f32, 1.0), mean_l, as(f32, 1.0))
+    let gr0: f32 = select(mean_r > as(f32, 1.0), mean_r, as(f32, 1.0))
+    let gl1: f32 = as(f32, 0.5) * (gl0 + mean_l / gl0)
+    let gr1: f32 = as(f32, 0.5) * (gr0 + mean_r / gr0)
+    let gl2: f32 = as(f32, 0.5) * (gl1 + mean_l / gl1)
+    let gr2: f32 = as(f32, 0.5) * (gr1 + mean_r / gr1)
+    let gl3: f32 = as(f32, 0.5) * (gl2 + mean_l / gl2)
+    let gr3: f32 = as(f32, 0.5) * (gr2 + mean_r / gr2)
+    meter[0].peak_l = peak_l
+    meter[0].peak_r = peak_r
+    meter[0].rms_l = select(mean_l <= as(f32, 0.0), as(f32, 0.0), gl3)
+    meter[0].rms_r = select(mean_r <= as(f32, 0.0), as(f32, 0.0), gr3)
+    meter[0].clipped = clipped_any
+    if clipped_any then jump clipped(peak = select(peak_l > peak_r, peak_l, peak_r)) end
+    jump clean(peak = select(peak_l > peak_r, peak_l, peak_r))
+end
+end
+
+BODY.finalize_audio_block_with_policy_region = HLP.finalize_audio_block_with_policy
+
+R.finalize_audio_block = R.finalize_audio_block(BODY)[[
+entry start()
+    if meter == nil then jump bad_buffer() end
+    if len(out.left) ~= len(out.right) then jump bad_buffer() end
+    let ceil: f32 = as(f32, 1.0)
+    jump loop(i = as(index, 0), peak_l = as(f32, 0.0), peak_r = as(f32, 0.0), sum_l = as(f32, 0.0), sum_r = as(f32, 0.0), clipped_any = false, ceil = ceil)
+end
+block loop(i: index, peak_l: f32, peak_r: f32, sum_l: f32, sum_r: f32, clipped_any: bool, ceil: f32)
+    if i >= len(out.left) then jump done(peak_l = peak_l, peak_r = peak_r, sum_l = sum_l, sum_r = sum_r, clipped_any = clipped_any) end
+    let raw_l: f32 = out.left[i] * nominal_gain
+    let raw_r: f32 = out.right[i] * nominal_gain
+    let l: f32 = emit @{clamp_f32}(raw_l, -ceil, ceil)
+    let r: f32 = emit @{clamp_f32}(raw_r, -ceil, ceil)
+    out.left[i] = l
+    out.right[i] = r
+    let al: f32 = select(l < as(f32, 0.0), -l, l)
+    let ar: f32 = select(r < as(f32, 0.0), -r, r)
+    jump loop(i = i + as(index, 1), peak_l = select(al > peak_l, al, peak_l), peak_r = select(ar > peak_r, ar, peak_r), sum_l = sum_l + l * l, sum_r = sum_r + r * r, clipped_any = clipped_any or raw_l ~= l or raw_r ~= r, ceil = ceil)
 end
 block done(peak_l: f32, peak_r: f32, sum_l: f32, sum_r: f32, clipped_any: bool)
     let n: f32 = select(len(out.left) > 0, as(f32, len(out.left)), as(f32, 1.0))
@@ -3999,7 +4411,17 @@ block voice_alive(v: VoiceRef, peak: f32)
     emit @{mix_stereo_region}(scratch[0].voice, scratch[0].part, gain; mixed = mixed_voice, silent = mixed_silent, bad_buffer = bad)
 end
 block mixed_voice(peak: f32)
+    let vi: index = as(index, pool[0].active[i].index)
+    let pi: index = as(index, part.index)
+    let gain: f32 = select(pi >= 0 and pi < program[0].part_count, program[0].parts[pi].gain, as(f32, 1.0))
+    let send_gain: f32 = select(vi >= 0 and vi < pool[0].cap, pool[0].states[vi].last_mod.effect_send * gain, as(f32, 0.0))
+    emit @{mix_stereo_region}(scratch[0].voice, scratch[0].send, send_gain; mixed = send_mixed, silent = send_silent, bad_buffer = bad)
+end
+block send_mixed(peak: f32)
     jump done(next = i + as(index, 1), active = active_in + as(index, 1), peak = select(peak > peak_in, peak, peak_in), any = true)
+end
+block send_silent()
+    jump done(next = i + as(index, 1), active = active_in + as(index, 1), peak = peak_in, any = true)
 end
 block mixed_silent()
     jump done(next = i + as(index, 1), active = active_in + as(index, 1), peak = peak_in, any = any_in)
@@ -4053,6 +4475,42 @@ end
 BODY.render_part_voices_region = R.render_part_voices
 local render_part_voices_region = R.render_part_voices
 local apply_insert_effects_region = R.apply_insert_effects
+local apply_pan_gain_region = R.apply_pan_gain
+
+HLP.finish_rendered_program_part = region(synth: ptr(Synth), program: ptr(PreparedProgram), part: PartRef, ctx: RenderCtx, scratch: ptr(RenderScratch), out: StereoBlock, pi: index, part_active: index, peak_in: f32;
+    done(active: index, peak: f32, any: bool)
+    | bad_buffer
+    | bad_state(code: i32))
+entry start()
+    if len(scratch[0].part.left) < ctx.shape.frame_count or len(scratch[0].part.right) < ctx.shape.frame_count then jump bad_buffer() end
+    if len(out.left) < ctx.shape.frame_count or len(out.right) < ctx.shape.frame_count then jump bad_buffer() end
+    emit @{apply_insert_effects_region}(program, &synth[0].storage.effects, part, ctx, scratch; processed = inserts_done, bypassed = inserts_done, bad_buffer = bad, invalid_effect = invalid_effect)
+end
+block inserts_done(peak: f32)
+    emit @{apply_pan_gain_region}(scratch[0].part, scratch[0].voice, program[0].parts[pi].gain, program[0].parts[pi].pan; applied = part_panned, silent = part_pan_silent, bad_buffer = bad)
+end
+block part_panned(peak: f32)
+    emit @{mix_stereo_region}(scratch[0].voice, out, as(f32, 1.0); mixed = out_mixed, silent = out_silent, bad_buffer = bad)
+end
+block out_mixed(peak: f32)
+    jump done(active = part_active, peak = select(peak > peak_in, peak, peak_in), any = true)
+end
+block part_pan_silent()
+    jump done(active = part_active, peak = peak_in, any = false)
+end
+block out_silent()
+    jump done(active = part_active, peak = peak_in, any = false)
+end
+block bad()
+    jump bad_buffer()
+end
+block invalid_effect(kind: u8)
+    jump bad_state(code = as(i32, kind) + 1000)
+end
+end
+
+BODY.finish_rendered_program_part_region = HLP.finish_rendered_program_part
+local finish_rendered_program_part_region = HLP.finish_rendered_program_part
 
 HLP.render_one_program_part = region(synth: ptr(Synth), program: ptr(PreparedProgram), ctx: RenderCtx, scratch: ptr(RenderScratch), out: StereoBlock, pi: index, active_in: index, peak_in: f32, any_in: bool;
     done(next: index, program: ptr(PreparedProgram), active: index, peak: f32, any: bool)
@@ -4066,20 +4524,11 @@ entry start()
     emit @{render_part_voices_region}(program, &synth[0].storage.pad_cache, &synth[0].storage.voices, &synth[0].storage.controls, part_ref, ctx, scratch; rendered = part_rendered, silent = part_silent, missing_cache = missing, bad_buffer = bad)
 end
 block part_rendered(active: index, peak: f32)
-    if len(scratch[0].part.left) < ctx.shape.frame_count or len(scratch[0].part.right) < ctx.shape.frame_count then jump bad_buffer() end
-    if len(out.left) < ctx.shape.frame_count or len(out.right) < ctx.shape.frame_count then jump bad_buffer() end
-    jump mix_loop(j = as(index, 0), part_active = active, out_peak = peak)
+    let rendered_part_ref: PartRef = { index = as(u16, pi), generation = program[0].generation }
+    emit @{finish_rendered_program_part_region}(synth, program, rendered_part_ref, ctx, scratch, out, pi, active, peak; done = rendered_part_done, bad_buffer = bad, bad_state = bad_state_exit)
 end
-block mix_loop(j: index, part_active: index, out_peak: f32)
-    if j >= ctx.shape.frame_count then jump done(next = pi + as(index, 1), program = program, active = active_in + part_active, peak = select(out_peak > peak_in, out_peak, peak_in), any = true) end
-    let l: f32 = out.left[j] + scratch[0].part.left[j]
-    let r: f32 = out.right[j] + scratch[0].part.right[j]
-    out.left[j] = l
-    out.right[j] = r
-    let al: f32 = select(l < as(f32, 0.0), -l, l)
-    let ar: f32 = select(r < as(f32, 0.0), -r, r)
-    let p: f32 = select(al > ar, al, ar)
-    jump mix_loop(j = j + as(index, 1), part_active = part_active, out_peak = select(p > out_peak, p, out_peak))
+block rendered_part_done(active: index, peak: f32, any: bool)
+    jump done(next = pi + as(index, 1), program = program, active = active_in + active, peak = select(peak > peak_in, peak, peak_in), any = any_in or any)
 end
 block part_silent(active: index)
     jump done(next = pi + as(index, 1), program = program, active = active_in + active, peak = peak_in, any = any_in)
@@ -4089,6 +4538,9 @@ block missing(ref: PadTableRef)
 end
 block bad()
     jump bad_buffer()
+end
+block bad_state_exit(code: i32)
+    jump bad_state(code = code)
 end
 end
 
@@ -4184,9 +4636,11 @@ local retire_dead_voices_after_block_region = HLP.retire_dead_voices_after_block
 local clear_audio_block_region = R.clear_audio_block
 local clear_scratch_region = R.clear_scratch
 local apply_host_events_region = R.apply_host_events
+local apply_host_events_in_render_region = HLP.apply_host_events_in_render
 local render_all_parts_region = R.render_all_parts
 local apply_send_effects_region = R.apply_send_effects
 local finalize_audio_block_region = R.finalize_audio_block
+local finalize_audio_block_with_policy_region = HLP.finalize_audio_block_with_policy
 
 HLP.render_block_ready = region(synth: ptr(Synth), prepared: ptr(PreparedProgram), storage: ptr(SynthStorage), events: view(HostEvent), ctx: RenderCtx, scratch: ptr(RenderScratch), out: StereoBlock;
     rendered(active: index, peak: f32)
@@ -4203,7 +4657,7 @@ block out_cleared()
     emit @{clear_scratch_region}(scratch, ctx.shape; cleared = scratch_cleared, bad_buffer = bad)
 end
 block scratch_cleared()
-    emit @{apply_host_events_region}(synth, events; changed = events_applied, unchanged = events_applied, requested_program = program_requested, panic_requested = events_applied)
+    emit @{apply_host_events_in_render_region}(synth, prepared, events, ctx; changed = events_applied, unchanged = events_applied, requested_program = program_requested, panic_requested = events_applied)
 end
 block events_applied()
     emit @{render_all_parts_region}(synth, ctx, scratch, out; rendered = parts_rendered, silent = parts_silent, missing_cache = missing, bad_buffer = bad, bad_state = bad_state_exit)
@@ -4215,7 +4669,7 @@ block parts_silent(active: index)
     emit @{apply_send_effects_region}(prepared, &storage[0].effects, ctx, scratch, out; processed = sends_done, bypassed = sends_done, bad_buffer = bad, invalid_effect = invalid_effect)
 end
 block sends_done(peak: f32)
-    emit @{finalize_audio_block_region}(out, &synth[0].last_meter, as(f32, 1.0); clean = finalized_clean, clipped = finalized_clipped, bad_buffer = bad)
+    emit @{finalize_audio_block_with_policy_region}(out, &synth[0].last_meter, as(f32, 1.0), ctx.dsp.clip_ceiling; clean = finalized_clean, clipped = finalized_clipped, bad_buffer = bad)
 end
 block finalized_clean(peak: f32)
     if ctx.policy.retire_dead_voices_after_block then jump retire_after_block(clipped = false, peak = peak) end
@@ -4293,60 +4747,77 @@ end
 -- Remaining ABI seals: map protocols to E.AbiStatus only at F.* boundaries
 -------------------------------------------------------------------------------
 
-HLP.start_one_note_voice_with_next = region(program: ptr(PreparedProgram), pool: ptr(VoicePool), channel: u8, note: u8, velocity: f32, part: PartRef, layer: LayerRef, base_frequency_hz: f32, next_in: index, started_in: index;
-    done(next: index, count: index))
+HLP.start_one_note_voice_with_next = region(program: ptr(PreparedProgram), pool: ptr(VoicePool), channel: u8, note: u8, velocity: f32, part: PartRef, layer: LayerRef, base_frequency_hz: f32, next_in: index, started_in: index, exhausted_in: bool;
+    done(next: index, count: index, exhausted: bool))
 entry start()
-    emit @{start_one_note_voice_region}(program, pool, channel, note, velocity, part, layer, base_frequency_hz; started = one_started, not_started = one_not_started)
+    let pi: index = as(index, part.index)
+    if program == nil or pi < 0 or pi >= (*program).part_count then jump done(next = next_in, count = started_in, exhausted = exhausted_in) end
+    emit @{allocate_voice_region}(&(*program).parts[pi], pool, channel, note, velocity; allocated = voice_allocated, stolen = voice_stolen, full = voice_full, muted = voice_muted)
 end
-block one_started()
-    jump done(next = next_in, count = started_in + as(index, 1))
+block voice_allocated(v: VoiceRef)
+    emit @{start_voice_region}(program, pool, v, part, layer, channel, note, velocity, base_frequency_hz; started = voice_started, stale_ref = voice_stale, invalid_layer = invalid_layer)
 end
-block one_not_started()
-    jump done(next = next_in, count = started_in)
+block voice_stolen(v: VoiceRef, previous: VoiceRef)
+    emit @{start_voice_region}(program, pool, v, part, layer, channel, note, velocity, base_frequency_hz; started = voice_started, stale_ref = voice_stale, invalid_layer = invalid_layer)
+end
+block voice_started(v: VoiceRef)
+    jump done(next = next_in, count = started_in + as(index, 1), exhausted = exhausted_in)
+end
+block voice_full()
+    jump done(next = next_in, count = started_in, exhausted = true)
+end
+block voice_muted()
+    jump done(next = next_in, count = started_in, exhausted = exhausted_in)
+end
+block voice_stale(v: VoiceRef)
+    jump done(next = next_in, count = started_in, exhausted = exhausted_in)
+end
+block invalid_layer(layer: LayerRef)
+    jump done(next = next_in, count = started_in, exhausted = exhausted_in)
 end
 end
 
 local start_one_note_voice_with_next_region = HLP.start_one_note_voice_with_next
 
-HLP.next_note_layer_with_count = region(program: ptr(PreparedProgram), channel: u8, note: u8, velocity: f32, cursor: index, count_in: index;
-    layer(part: PartRef, layer: LayerRef, base_frequency_hz: f32, gain: f32, next: index, count: index)
-    | skipped(next: index, count: index)
-    | done(count: index))
+HLP.next_note_layer_with_count = region(program: ptr(PreparedProgram), channel: u8, note: u8, velocity: f32, cursor: index, count_in: index, exhausted_in: bool;
+    layer(part: PartRef, layer: LayerRef, base_frequency_hz: f32, gain: f32, next: index, count: index, exhausted: bool)
+    | skipped(next: index, count: index, exhausted: bool)
+    | done(count: index, exhausted: bool))
 entry start()
     emit @{next_note_layer_region}(program, channel, note, velocity, cursor; layer = got_layer, skipped = skipped_layer, done = done_layers)
 end
 block got_layer(part: PartRef, layer: LayerRef, base_frequency_hz: f32, gain: f32, next: index)
-    jump layer(part = part, layer = layer, base_frequency_hz = base_frequency_hz, gain = gain, next = next, count = count_in)
+    jump layer(part = part, layer = layer, base_frequency_hz = base_frequency_hz, gain = gain, next = next, count = count_in, exhausted = exhausted_in)
 end
 block skipped_layer(next: index)
-    jump skipped(next = next, count = count_in)
+    jump skipped(next = next, count = count_in, exhausted = exhausted_in)
 end
 block done_layers(count: index)
-    jump done(count = count_in)
+    jump done(count = count_in, exhausted = exhausted_in)
 end
 end
 
 local next_note_layer_with_count_region = HLP.next_note_layer_with_count
 
 HLP.start_all_note_voices = region(program: ptr(PreparedProgram), pool: ptr(VoicePool), channel: u8, note: u8, velocity: f32;
-    done(count: index))
+    done(count: index, exhausted: bool))
 entry start()
-    jump loop(cursor = as(index, 0), count = as(index, 0))
+    jump loop(cursor = as(index, 0), count = as(index, 0), exhausted = false)
 end
-block loop(cursor: index, count: index)
-    emit @{next_note_layer_with_count_region}(program, channel, note, velocity, cursor, count; layer = got_layer, skipped = skipped_layer, done = done_layers)
+block loop(cursor: index, count: index, exhausted: bool)
+    emit @{next_note_layer_with_count_region}(program, channel, note, velocity, cursor, count, exhausted; layer = got_layer, skipped = skipped_layer, done = done_layers)
 end
-block got_layer(part: PartRef, layer: LayerRef, base_frequency_hz: f32, gain: f32, next: index, count: index)
-    emit @{start_one_note_voice_with_next_region}(program, pool, channel, note, velocity, part, layer, base_frequency_hz, next, count; done = one_done)
+block got_layer(part: PartRef, layer: LayerRef, base_frequency_hz: f32, gain: f32, next: index, count: index, exhausted: bool)
+    emit @{start_one_note_voice_with_next_region}(program, pool, channel, note, velocity, part, layer, base_frequency_hz, next, count, exhausted; done = one_done)
 end
-block one_done(next: index, count: index)
-    jump loop(cursor = next, count = count)
+block one_done(next: index, count: index, exhausted: bool)
+    jump loop(cursor = next, count = count, exhausted = exhausted)
 end
-block skipped_layer(next: index, count: index)
-    jump loop(cursor = next, count = count)
+block skipped_layer(next: index, count: index, exhausted: bool)
+    jump loop(cursor = next, count = count, exhausted = exhausted)
 end
-block done_layers(count: index)
-    jump done(count = count)
+block done_layers(count: index, exhausted: bool)
+    jump done(count = count, exhausted = exhausted)
 end
 end
 
@@ -4428,9 +4899,12 @@ F.synth_note_on = F.synth_note_on(ABI_BODY)[[
         emit @{borrow_published_program_region}(s; borrowed = borrowed, no_program = no_program, bad_state = bad_state)
     end
     block borrowed(program_ref: ProgramRef, program: ptr(PreparedProgram), generation: u16)
-        emit @{start_note_voices_region}(program, &s[0].storage.voices, channel, note, velocity, as(index, 0), as(index, 0); done = done)
+        emit @{start_note_voices_region}(program, &s[0].storage.voices, channel, note, velocity; done = done)
     end
-    block done(count: index) yield 0 end
+    block done(count: index, exhausted: bool)
+        if exhausted then yield 5 end
+        yield 0
+    end
     block no_program() yield 1 end
     block bad_state(code: i32) yield 1 end
     end

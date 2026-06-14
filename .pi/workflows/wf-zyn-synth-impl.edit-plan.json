@@ -2,10 +2,10 @@
 	"version": 1,
 	"workflowId": "wf-zyn-synth-impl",
 	"planId": "main",
-	"revision": 70,
+	"revision": 76,
 	"nextId": 25,
 	"createdAt": "2026-06-13T09:02:42.028Z",
-	"updatedAt": "2026-06-13T23:50:00.825Z",
+	"updatedAt": "2026-06-14T04:28:48.243Z",
 	"tasks": [
 		{
 			"id": "T001",
@@ -383,12 +383,13 @@
 			"after": [
 				"T020"
 			],
-			"status": "claimed",
+			"status": "done",
 			"order": 22,
 			"claimedBy": "agent-HV5JG5",
+			"evidence": "Implemented effects/mixing/metering fidelity in examples/synth/zyn_moonlift_synth_impl.mlua: equal-power pan helper, deterministic effect-kind processing in R.apply_effect_slot, alternating effect-bus slot chaining with final copy, insert/send/master wiring in render path, send accumulation from voice modulation, policy clip ceiling via HLP.finalize_audio_block_with_policy, and single MeterFrame write in finalization. Verified with module load plus protected compile/smoke commands: (ulimit -v 4000000; timeout 300 env ZYN_SYNTH_TEST_MODE=compile_abi luajit tests/test_zyn_moonlift_synth_impl.lua), (ulimit -v 4000000; timeout 240 env ZYN_SYNTH_TEST_MODE=compile_wrappers luajit tests/test_zyn_moonlift_synth_impl.lua), and (ulimit -v 8000000; timeout 700 luajit tests/test_zyn_moonlift_synth_impl.lua), all passed.",
 			"notes": [],
 			"createdAt": "2026-06-13T23:13:48.980Z",
-			"updatedAt": "2026-06-13T23:50:00.825Z"
+			"updatedAt": "2026-06-14T00:05:29.101Z"
 		},
 		{
 			"id": "T023",
@@ -400,11 +401,13 @@
 				"T021",
 				"T022"
 			],
-			"status": "todo",
+			"status": "done",
 			"order": 23,
+			"claimedBy": "agent-YR5K4M",
+			"evidence": "Updated examples/synth/zyn_moonlift_synth_impl.mlua for event/render/voice fidelity: render-path host event helper now filters negative/out-of-block frames using RenderCtx and dispatches through classifiers/apply_midi_event; MIDI note-on event path iterates all matching layers through voice allocation/start lifecycle; note frequency now applies tuning degree plus octave scaling; voice steal scoring uses normalized age without non-spec mode bonus and marks previous voice retiring before replacement; release/all-notes paths set release_frame and release all active matching voices; sustain CC path defers note-off while held and releases channel voices on pedal-up; panic paths reset effect rack state as well as voices; synth_note_on maps full allocation to exhausted_storage. Verified with protected checks: (ulimit -v 4000000; timeout 300 env ZYN_SYNTH_TEST_MODE=compile_abi luajit tests/test_zyn_moonlift_synth_impl.lua) passed; (ulimit -v 4000000; timeout 300 env ZYN_SYNTH_TEST_MODE=compile_wrappers luajit tests/test_zyn_moonlift_synth_impl.lua) passed; (ulimit -v 8000000; timeout 700 luajit tests/test_zyn_moonlift_synth_impl.lua) passed.",
 			"notes": [],
 			"createdAt": "2026-06-13T23:13:48.980Z",
-			"updatedAt": "2026-06-13T23:13:48.980Z"
+			"updatedAt": "2026-06-14T00:20:12.730Z"
 		},
 		{
 			"id": "T024",
@@ -418,11 +421,15 @@
 				"T022",
 				"T023"
 			],
-			"status": "todo",
+			"status": "done",
 			"order": 24,
-			"notes": [],
+			"claimedBy": "agent-W6G2EW",
+			"evidence": "Completed fidelity tests and final verification. tests/test_zyn_moonlift_synth_impl.lua now includes focused behavioral wrappers for envelope timing/curve activity, LFO phase/shape and deterministic RNG, filter bypass/effect processing, tone-mask blending, plus existing storage/init/malformed patch/event/voice/render smoke. Reworked the large fidelity probe into smaller wrappers to avoid brittle large-function aggregate issues and keep memory bounded. Final verification passed: `cargo build --release` (warnings only), `(ulimit -v 8000000; timeout 700 luajit tests/test_zyn_moonlift_synth_impl.lua)`, implementation load check `(ulimit -v 1500000; timeout 60 luajit -e '... moon.dofile(\"examples/synth/zyn_moonlift_synth_impl.mlua\") ...')`, `(ulimit -v 1500000; timeout 60 luajit tests/test_control_region_view_params.lua)`, and `(ulimit -v 1500000; timeout 60 luajit tests/test_func_header_body_region_splices.lua)`. No C backend used as blocker.",
+			"notes": [
+				"Follow-up cleanup after completion: removed the unused large DSP fidelity wrapper from tests/test_zyn_moonlift_synth_impl.lua and replaced its remaining responsibilities with focused compiled/called wrappers for modulation-route semantics and finalize_audio_block clipping/RMS/peak metering. Also tightened envelope wrapper to assert linear/exponential/logarithmic attack curves. Re-ran `(ulimit -v 8000000; timeout 700 luajit tests/test_zyn_moonlift_synth_impl.lua)` successfully."
+			],
 			"createdAt": "2026-06-13T23:13:48.980Z",
-			"updatedAt": "2026-06-13T23:13:48.980Z"
+			"updatedAt": "2026-06-14T04:28:48.243Z"
 		}
 	]
 }

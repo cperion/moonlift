@@ -355,7 +355,7 @@ local function run_common(driver, opts, want_report, g, p, c)
                 focus_scope_stack[#focus_scope_stack + 1] = {
                     id = op.id,
                     first_slot = #focusables + 1,
-                    policy = T.Interact.FocusWrap,
+                    policy = op.focus_policy or T.Interact.FocusWrap,
                 }
             end
 
@@ -382,8 +382,8 @@ local function run_common(driver, opts, want_report, g, p, c)
                 if ix ~= nil then
                     layers[#layers + 1] = T.Interact.LayerBox(
                         op.id,
-                        T.Interact.LayerOverlay,
-                        op.dx or #layer_stack,
+                        op.layer_kind or T.Interact.LayerOverlay,
+                        op.order or #layer_stack,
                         ix,
                         iy,
                         iw,
@@ -405,9 +405,9 @@ local function run_common(driver, opts, want_report, g, p, c)
                 if ix ~= nil then
                     overlays[#overlays + 1] = T.Interact.OverlayBox(
                         op.id,
-                        Core.NoId,
-                        T.Interact.PlaceAuto,
-                        false,
+                        op.anchor_id or Core.NoId,
+                        op.placement or T.Interact.PlaceAuto,
+                        op.modal == true,
                         ix,
                         iy,
                         iw,

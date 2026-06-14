@@ -25,8 +25,8 @@ local function has_box_visual(box_visual)
     return box_visual.bg ~= 0 or box_visual.border_w > 0
 end
 
-local function make_op(kind, id, x, y, w, h, dx, dy, box_visual, text, cursor, scroll_axis, paint)
-    return View.Op(kind, id, x, y, w, h, dx, dy, box_visual, text, cursor, scroll_axis, paint)
+local function make_op(kind, id, x, y, w, h, dx, dy, box_visual, text, cursor, scroll_axis, paint, layer_kind, focus_policy, placement, modal, anchor_id, order)
+    return View.Op(kind, id, x, y, w, h, dx, dy, box_visual, text, cursor, scroll_axis, paint, layer_kind, focus_policy, placement, modal, anchor_id, order)
 end
 
 local function once_trip(op)
@@ -189,7 +189,7 @@ M.phase = pvm.phase("ui.render", {
 
     [Layout.FocusScope] = function(self, w, h, text_system, content_store)
         local parts = {}
-        append_surface_op(parts, View.KFocusScope, self.id, w, h)
+        parts[#parts + 1] = once_trip(make_op(View.KFocusScope, self.id, 0, 0, w, h, 0, 0, nil, nil, nil, nil, nil, nil, self.policy, nil, nil))
         do
             local g, p, c = render_trip(self.child, w, h, text_system, content_store)
             parts[#parts + 1] = { g, p, c }
@@ -200,20 +200,20 @@ M.phase = pvm.phase("ui.render", {
 
     [Layout.Layer] = function(self, w, h, text_system, content_store)
         local parts = {}
-        parts[#parts + 1] = once_trip(make_op(View.KPushLayer, self.id, 0, 0, w, h, self.order or 0, 0, nil, nil, nil, nil, nil))
+        parts[#parts + 1] = once_trip(make_op(View.KPushLayer, self.id, 0, 0, w, h, 0, 0, nil, nil, nil, nil, nil, self.kind, nil, nil, nil, nil, self.order or 0))
         do
             local g, p, c = render_trip(self.child, w, h, text_system, content_store)
             parts[#parts + 1] = { g, p, c }
         end
-        parts[#parts + 1] = once_trip(make_op(View.KPopLayer, self.id, 0, 0, w, h, self.order or 0, 0, nil, nil, nil, nil, nil))
+        parts[#parts + 1] = once_trip(make_op(View.KPopLayer, self.id, 0, 0, w, h, 0, 0, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, self.order or 0))
         return pvm.concat_all(parts)
     end,
 
     [Layout.Overlay] = function(self, w, h, text_system, content_store)
         local parts = {}
-        append_surface_op(parts, View.KOverlay, self.id, w, h)
+        parts[#parts + 1] = once_trip(make_op(View.KOverlay, self.id, 0, 0, w, h, 0, 0, nil, nil, nil, nil, nil, nil, nil, self.placement, self.modal == true, self.anchor_id, nil))
         if self.modal then
-            append_surface_op(parts, View.KModalBarrier, self.id, w, h)
+            parts[#parts + 1] = once_trip(make_op(View.KModalBarrier, self.id, 0, 0, w, h, 0, 0, nil, nil, nil, nil, nil, nil, nil, self.placement, true, self.anchor_id, nil))
         end
         do
             local g, p, c = render_trip(self.child, w, h, text_system, content_store)
@@ -225,7 +225,7 @@ M.phase = pvm.phase("ui.render", {
     [Layout.Modal] = function(self, w, h, text_system, content_store)
         local parts = {}
         append_surface_op(parts, View.KModalBarrier, self.id, w, h)
-        parts[#parts + 1] = once_trip(make_op(View.KPushLayer, self.id, 0, 0, w, h, 0, 0, nil, nil, nil, nil, nil))
+        parts[#parts + 1] = once_trip(make_op(View.KPushLayer, self.id, 0, 0, w, h, 0, 0, nil, nil, nil, nil, nil, Interact.LayerModal, nil, nil, true))
         do
             local g, p, c = render_trip(self.child, w, h, text_system, content_store)
             parts[#parts + 1] = { g, p, c }

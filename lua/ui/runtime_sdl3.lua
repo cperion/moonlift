@@ -416,6 +416,7 @@ function M.new(opts)
     local cursor_cache = {}
     local current_cursor_id = false
     local font_cache = {}
+    local text_cache = {}
     local texture_cache = {}
     local owned_textures = {}
     local resolve_image = opts.resolve_image
@@ -549,7 +550,21 @@ function M.new(opts)
             font_cache[key] = font
         end
         ttf.TTF_SetFontWrapAlignment(font, normalize_align(style and style.align or 0))
-        return font
+        return font, key
+    end
+
+    local function get_text(font, font_key_value, text_value)
+        text_value = text_value or ""
+        local key = font_key_value .. "\0" .. text_value
+        local cached = text_cache[key]
+        if cached == nil then
+            cached = ttf.TTF_CreateText(engine, font, text_value, #text_value)
+            if cached == nil then
+                sdl3.err("ui.runtime_sdl3: TTF_CreateText failed")
+            end
+            text_cache[key] = cached
+        end
+        return cached
     end
 
     function self:draw_box(x, y, w, h, visual)
@@ -583,21 +598,15 @@ function M.new(opts)
             local draw_y = y + line.y
             for j = 1, #line.runs do
                 local run = line.runs[j]
-                local font = get_font(run.font_id, run.font_size, layout.style)
-                local text = ttf.TTF_CreateText(engine, font, run.text, #run.text)
-                if text == nil then
-                    sdl3.err("ui.runtime_sdl3: TTF_CreateText failed")
-                end
+                local font, font_key_value = get_font(run.font_id, run.font_size, layout.style)
+                local text = get_text(font, font_key_value, run.text)
                 local r, g, b, a = rgba8_bytes(run.fg, 1)
                 if ttf.TTF_SetTextColor(text, r, g, b, a) == 0 then
-                    ttf.TTF_DestroyText(text)
                     sdl3.err("ui.runtime_sdl3: TTF_SetTextColor failed")
                 end
                 if ttf.TTF_DrawRendererText(text, round(draw_x + run.x), round(draw_y + run.y)) == 0 then
-                    ttf.TTF_DestroyText(text)
                     sdl3.err("ui.runtime_sdl3: TTF_DrawRendererText failed")
                 end
-                ttf.TTF_DestroyText(text)
             end
         end
     end
@@ -769,6 +778,10 @@ function M.new(opts)
     function self:close()
         if closed then return end
         closed = true
+        for _, cached_text in pairs(text_cache) do
+            ttf.TTF_DestroyText(cached_text)
+        end
+        text_cache = {}
         for _, font in pairs(font_cache) do
             ttf.TTF_CloseFont(font)
         end

@@ -1211,3 +1211,61 @@ Passed:
 - `T021` marked done in edit plan.
 - Used a deterministic sine polynomial because Moonlift source currently has no direct `sin` intrinsic.
 - Did not claim `T022`; it is now ready.
+
+## Worker Output — 2026-06-14 00:05:37
+
+## Completed
+Implemented and completed `T022` for synth effects/mixing/metering fidelity.
+
+- Equal-power pan.
+- Deterministic declared effect kinds.
+- Effect slots chained in order, consuming previous output.
+- Insert/send/master effects wired into render path.
+- Send contributions populated from voice modulation.
+- Policy `clip_ceiling` used during render finalization.
+- `MeterFrame` updated once in finalization.
+
+## Files Changed
+- `examples/synth/zyn_moonlift_synth_impl.mlua` - effects, mixing, send/master routing, pan, and metering updates.
+
+## Notes
+Verification passed:
+
+```sh
+(ulimit -v 4000000; timeout 300 env ZYN_SYNTH_TEST_MODE=compile_abi luajit tests/test_zyn_moonlift_synth_impl.lua)
+(ulimit -v 4000000; timeout 240 env ZYN_SYNTH_TEST_MODE=compile_wrappers luajit tests/test_zyn_moonlift_synth_impl.lua)
+(ulimit -v 8000000; timeout 700 luajit tests/test_zyn_moonlift_synth_impl.lua)
+```
+
+Edit plan: `T022` marked done.
+
+## Worker Output — 2026-06-14 00:20:22
+
+## Completed
+Completed `T023`: tightened event/render/voice fidelity.
+
+Key updates:
+- Render-path event handling now ignores negative/out-of-block events using `RenderCtx`.
+- MIDI note-on in render path starts voices via allocation/start lifecycle across matching layers.
+- Tuning base frequency now applies octave scaling.
+- Voice stealing uses normalized-age score and marks previous voice retiring.
+- Release/all-notes paths set `release_frame`.
+- Sustain CC handling defers note-off while held and releases on pedal-up.
+- Panic clears voices and effect rack state.
+- `synth_note_on` maps full allocation to `exhausted_storage`.
+
+## Files Changed
+- `examples/synth/zyn_moonlift_synth_impl.mlua` - event/render/voice behavioral fidelity updates.
+
+## Verification
+Passed:
+
+```sh
+(ulimit -v 4000000; timeout 300 env ZYN_SYNTH_TEST_MODE=compile_abi luajit tests/test_zyn_moonlift_synth_impl.lua)
+(ulimit -v 4000000; timeout 300 env ZYN_SYNTH_TEST_MODE=compile_wrappers luajit tests/test_zyn_moonlift_synth_impl.lua)
+(ulimit -v 8000000; timeout 700 luajit tests/test_zyn_moonlift_synth_impl.lua)
+```
+
+## Notes
+- Marked `T023` done in edit plan.
+- Plan now has `T024` ready.

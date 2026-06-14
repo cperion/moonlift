@@ -424,7 +424,7 @@ measure_phase = pvm.phase("ui.measure", {
         return pvm.once(pvm.one(measure_phase(self.child, constraint, text_system, content_store)))
     end,
 }, {
-    args_cache = "last",
+    args_cache = "full",
 })
 
 function M.root(node, max_w, max_h, text_system, content_store)

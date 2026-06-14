@@ -122,6 +122,13 @@ local function dist_sq(x1, y1, x2, y2)
     return dx * dx + dy * dy
 end
 
+local function captured_id(model)
+    if model == nil or model.capture == nil then return Core.NoId end
+    local cls = pvm.classof(model.capture)
+    if cls == Interact.Captured then return model.capture.id end
+    return Core.NoId
+end
+
 local function classify_events(raw, model, report, opts)
     local cls = pvm.classof(raw)
     local events = {}
@@ -192,16 +199,16 @@ local function classify_events(raw, model, report, opts)
                 events[#events + 1] = Interact.ClearPressed
                 events[#events + 1] = Interact.ClearCapture
             elseif drag_cls == Interact.DragPending then
-                local captured_id = model.capture_id or Core.NoId
-                if model.pressed_id ~= Core.NoId and (report.hover_id == model.pressed_id or captured_id == model.pressed_id) then
+                local capture_id = captured_id(model)
+                if model.pressed_id ~= Core.NoId and (report.hover_id == model.pressed_id or capture_id == model.pressed_id) then
                     events[#events + 1] = Interact.Activate(model.pressed_id)
                 end
                 events[#events + 1] = Interact.ClearDrag
                 events[#events + 1] = Interact.ClearPressed
                 events[#events + 1] = Interact.ClearCapture
             else
-                local captured_id = model.capture_id or Core.NoId
-                if model.pressed_id ~= Core.NoId and (report.hover_id == model.pressed_id or captured_id == model.pressed_id) then
+                local capture_id = captured_id(model)
+                if model.pressed_id ~= Core.NoId and (report.hover_id == model.pressed_id or capture_id == model.pressed_id) then
                     events[#events + 1] = Interact.Activate(model.pressed_id)
                 end
                 events[#events + 1] = Interact.ClearPressed
@@ -333,8 +340,9 @@ local function classify_events(raw, model, report, opts)
         if model.pressed_id ~= Core.NoId then
             events[#events + 1] = Interact.ClearPressed
         end
-        if (model.capture_id or Core.NoId) ~= Core.NoId then
-            events[#events + 1] = Interact.CancelCapture(model.capture_id)
+        local capture_id = captured_id(model)
+        if capture_id ~= Core.NoId then
+            events[#events + 1] = Interact.CancelCapture(capture_id)
             events[#events + 1] = Interact.ClearCapture
         end
         return events
@@ -473,10 +481,10 @@ local function apply_event(model, event, report)
         return pvm.with(model, { pressed_id = Core.NoId })
     end
     if cls == Interact.SetCapture then
-        return pvm.with(model, { capture_id = event.id })
+        return pvm.with(model, { capture = Interact.Captured(event.id, event.start_x, event.start_y) })
     end
     if cls == Interact.ReleaseCapture or cls == Interact.CancelCapture or event == Interact.ClearCapture then
-        return pvm.with(model, { capture_id = Core.NoId })
+        return pvm.with(model, { capture = Interact.NoCapture })
     end
     if cls == Interact.SetDragPending then
         return pvm.with(model, { drag = Interact.DragPending(event.source_id, event.start_x, event.start_y) })
@@ -502,7 +510,7 @@ function M.model(opts)
         opts.hover_id or Core.NoId,
         opts.focus_id or Core.NoId,
         opts.pressed_id or Core.NoId,
-        opts.capture_id or Core.NoId,
+        opts.capture or ((opts.capture_id ~= nil and opts.capture_id ~= Core.NoId) and Interact.Captured(opts.capture_id, opts.capture_start_x or 0, opts.capture_start_y or 0) or Interact.NoCapture),
         opts.drag or Interact.NoDrag,
         opts.scrolls or {}
     )

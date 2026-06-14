@@ -1511,3 +1511,175 @@ Added backend conformance helpers, aligned SDL3/Love runtime capability contract
 
 ## Notes
 Plan status is now **22/55 done**. Next ready tasks include `T023` text widget refit, widget modules, and contract tests. `ui.widget` and `ui.backend_contract` are currently available by direct `require`; top-level facade export remains planned under `T035`.
+
+## Worker Output — 2026-06-14 00:05:13
+
+## Completed
+Implemented and marked done tasks **T023–T028** for workflow `wf-a6d2de07`, plan `ui-completion`.
+
+Added/refit:
+- Canonical text widget bundles
+- Button widget
+- Toggle / checkbox / radio widgets
+- Slider / fader / value_drag widgets
+- Knob widget
+- Meter / progress widgets
+- Hardened `ui.state` boolean state flag handling
+
+Current plan status: **28/55 done**, no claimed/blocked tasks.
+
+## Files Changed
+- `lua/ui/widgets/_text_common.lua` - canonical text widget contract, surfaces, state/text lifecycle handling
+- `lua/ui/widgets/text_input.lua` - bundle/surface/route exports
+- `lua/ui/widgets/text_area.lua` - bundle/surface/route exports
+- `lua/ui/widgets/button.lua` - new button widget
+- `lua/ui/widgets/toggle.lua` - new toggle core
+- `lua/ui/widgets/checkbox.lua` - new checkbox wrapper
+- `lua/ui/widgets/radio.lua` - new radio wrapper
+- `lua/ui/widgets/slider.lua` - new slider/value contract
+- `lua/ui/widgets/fader.lua` - new fader wrapper
+- `lua/ui/widgets/value_drag.lua` - new value drag wrapper
+- `lua/ui/widgets/knob.lua` - new paint-backed knob
+- `lua/ui/widgets/meter.lua` - new meter widget
+- `lua/ui/widgets/progress.lua` - new progress wrapper
+- `lua/ui/widgets/init.lua` - exports new widgets
+- `lua/ui/state.lua` - boolean selected/disabled/active specs now accepted
+
+## Checks Run
+- `luajit tests/test_ui_smoke.lua`
+- `SDL_VIDEODRIVER=dummy luajit tests/test_ui_sdl3_paint.lua`
+- Targeted LuaJIT snippets for text widgets, button, toggle/checkbox/radio, slider/fader/value_drag, knob, meter/progress, and state boolean flags.
+
+## Notes
+Next ready task is `T029` for list/listbox/tabs widgets, followed by composition/canvas widgets and contract tests.
+
+## Worker Output — 2026-06-14 00:31:17
+
+## Completed
+Implemented and marked done tasks **T029–T035** in workflow `wf-a6d2de07`, plan `ui-completion`.
+
+Added:
+- List/listbox/tabs widgets
+- Menu/select/dropdown/popup widgets
+- Overlay/tooltip/popover/modal helpers
+- Composition widgets: panel, toolbar, property row, form field, split pane, scroll panel
+- Canvas widget
+- Completed widget facade exports and top-level UI facade exports
+
+Checks passed:
+- `luajit tests/test_ui_smoke.lua`
+- `SDL_VIDEODRIVER=dummy luajit tests/test_ui_sdl3_paint.lua`
+- Targeted LuaJIT snippets for each new widget group
+
+## Files Changed
+- `lua/ui/widgets/list.lua`
+- `lua/ui/widgets/listbox.lua`
+- `lua/ui/widgets/tabs.lua`
+- `lua/ui/widgets/popup.lua`
+- `lua/ui/widgets/menu.lua`
+- `lua/ui/widgets/select.lua`
+- `lua/ui/widgets/overlay.lua`
+- `lua/ui/widgets/tooltip.lua`
+- `lua/ui/widgets/popover.lua`
+- `lua/ui/widgets/modal.lua`
+- `lua/ui/widgets/panel.lua`
+- `lua/ui/widgets/toolbar.lua`
+- `lua/ui/widgets/property_row.lua`
+- `lua/ui/widgets/form_field.lua`
+- `lua/ui/widgets/split_pane.lua`
+- `lua/ui/widgets/scroll_panel.lua`
+- `lua/ui/widgets/canvas.lua`
+- `lua/ui/widgets/init.lua`
+- `lua/ui/init.lua`
+
+## Notes
+Plan status is now **35/55 done**. No tasks are currently claimed or blocked. Next ready work includes widget README, contract tests, backend/text/session tests, widget catalog tests, and SDL examples.
+
+## Worker Output — 2026-06-14 04:34:35
+
+## Completed
+Implemented and marked done **T036–T041** in workflow `wf-a6d2de07`, plan `ui-completion`.
+
+Added product docs and contract tests for widgets, README, interaction reducer, ID validation, state bridge, and overlay/layer behavior.
+
+## Files Changed
+- `lua/ui/widgets/README.md` - new canonical widget API/catalog docs.
+- `lua/ui/README.md` - rewritten current productized UI overview.
+- `tests/test_ui_interact_contract.lua` - new reducer contract tests.
+- `tests/test_ui_id_validation.lua` - new ID validation tests.
+- `tests/test_ui_state_bridge.lua` - new state bridge/lowering tests.
+- `tests/test_ui_overlay_layers.lua` - new overlay/layer/modal tests.
+- `lua/ui/asdl.lua` - extended `View.Op` metadata for layer/focus/overlay info.
+- `lua/ui/render.lua` - emits layer kind, focus policy, placement/modal metadata.
+- `lua/ui/runtime.lua` - reports layer kind, focus policy, overlay placement/modal.
+- `lua/ui/id.lua` - handles `Auth.Empty` singleton during ID collection.
+- `lua/ui/state.lua` - handles `Auth.Empty` singleton during state application.
+
+## Checks Run
+- `luajit tests/test_ui_smoke.lua`
+- `SDL_VIDEODRIVER=dummy luajit tests/test_ui_sdl3_paint.lua`
+- `luajit tests/test_ui_interact_contract.lua`
+- `luajit tests/test_ui_id_validation.lua`
+- `luajit tests/test_ui_state_bridge.lua`
+- `luajit tests/test_ui_overlay_layers.lua`
+
+## Notes
+Plan status is now **41/55 done**. No tasks are currently claimed or blocked.
+
+## Worker Output — 2026-06-14 04:48:52
+
+## Completed
+Implemented and marked done tasks **T042–T044** in workflow `wf-a6d2de07`, plan `ui-completion`.
+
+Added:
+- Layout golden tests
+- Backend contract tests
+- Text/session lifecycle tests
+- Missing `ui.backend_contract.assert_text_module` helper
+
+Plan status is now **44/55 done**.
+
+## Files Changed
+- `tests/test_ui_layout_golden.lua` - new golden tests for flow/flex/grid/scroll/sizing/text layout.
+- `tests/test_ui_backend_contract.lua` - new backend capability/runtime/SDL3/Love contract tests.
+- `tests/test_ui_text_session.lua` - new text registry/session lifecycle/cache/SDL session tests.
+- `lua/ui/backend_contract.lua` - added `assert_text_module`.
+
+## Notes
+Checks passed:
+- `luajit tests/test_ui_smoke.lua`
+- `luajit tests/test_ui_interact_contract.lua`
+- `luajit tests/test_ui_id_validation.lua`
+- `luajit tests/test_ui_state_bridge.lua`
+- `luajit tests/test_ui_overlay_layers.lua`
+- `luajit tests/test_ui_layout_golden.lua`
+- `SDL_VIDEODRIVER=dummy luajit tests/test_ui_backend_contract.lua`
+- `SDL_VIDEODRIVER=dummy luajit tests/test_ui_text_session.lua`
+- `SDL_VIDEODRIVER=dummy luajit tests/test_ui_sdl3_paint.lua`
+
+## Worker Output — 2026-06-14 05:00:57
+
+## Completed
+Implemented and marked done **T047** in workflow `wf-a6d2de07`, plan `ui-completion`.
+
+Added a complete SDL3 widget gallery that exercises:
+- `ui.session_sdl3` default text lifecycle / `window.text_key`
+- Theme/env defaults
+- Typed raw input routing through `ui.interact.step`
+- Focus traversal, activation, scrolling, text input
+- Overlay, popup, tooltip, popover, modal layers
+- Full widget catalog coverage
+
+## Files Changed
+- `examples/ui/gallery_sdl3.lua` - new SDL3 widget gallery example.
+
+## Checks Run
+- All current `tests/test_ui*.lua`
+- `AUTO_QUIT_MS=50 SDL_VIDEODRIVER=dummy luajit examples/ui/gallery_sdl3.lua`
+- Existing SDL examples:
+  - `text_field_sdl3_demo.lua`
+  - `paint_sdl3_demo.lua`
+  - `text_sdl3_probe.lua`
+
+## Notes
+No blockers. Plan status is now **45/55 done**.

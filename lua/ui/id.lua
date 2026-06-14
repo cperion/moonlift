@@ -111,7 +111,7 @@ local function collect_auth_node(node, out, path, opts)
         for i = 1, #node.children do
             collect_auth_node(node.children[i], out, path_child(path, "children", i), opts)
         end
-    elseif cls == Auth.Empty then
+    elseif cls == Auth.Empty or node == Auth.Empty or cls == classof(Auth.Empty) then
         return
     else
         error("ui.id.collect_auth: unknown Auth node at " .. path, 2)

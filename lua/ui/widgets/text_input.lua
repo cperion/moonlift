@@ -24,6 +24,18 @@ function M.node(opts)
     return common.build_shell(opts, DEFAULTS)
 end
 
+function M.bundle(opts)
+    return common.bundle(opts, DEFAULTS, "text_input")
+end
+
+function M.surfaces(opts)
+    return common.surfaces(opts, DEFAULTS)
+end
+
+function M.route_one(surfaces, ui_event, bundle)
+    return common.route_one(surfaces, ui_event, bundle)
+end
+
 function M.draw(host, report, field, opts)
     return common.draw_overlay(host, report, field, opts)
 end

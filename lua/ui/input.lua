@@ -54,6 +54,8 @@ local button_by_name = {
     [M.ButtonLeft] = Interact.BtnLeft,
     [M.ButtonMiddle] = Interact.BtnMiddle,
     [M.ButtonRight] = Interact.BtnRight,
+    [M.ButtonX1] = Interact.BtnX1,
+    [M.ButtonX2] = Interact.BtnX2,
 }
 
 local function is_asdl_value(v, ctor)

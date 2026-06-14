@@ -324,7 +324,7 @@ func check_events_voice_render(synth: ptr(@{Synth}), work: ptr(u8), out_l: ptr(f
   block render_check()
     out_l[as(index, 0)] = as(f32, 0.25)
     out_r[as(index, 0)] = as(f32, -0.25)
-    let ctx: @{RenderCtx} = { shape = { frame_count = as(index, 4), block_index = as(u64, 0) }, dsp = policy.dsp, policy = policy.render, sample_rate_hz = as(f32, 48000.0), inv_sample_rate = as(f32, 0.000020833333), tempo_bpm = as(f32, 120.0), tuning_a4_hz = as(f32, 440.0) }
+    let ctx: @{RenderCtx} = { shape = { frame_count = as(index, 4), block_index = as(u64, 0) }, dsp = { denormal_floor = as(f32, 0.000001), clip_ceiling = as(f32, 1.0), deterministic_noise = true }, policy = { clear_outputs_first = true, smooth_block_events = false, retire_dead_voices_after_block = true }, sample_rate_hz = as(f32, 48000.0), inv_sample_rate = as(f32, 0.000020833333), tempo_bpm = as(f32, 120.0), tuning_a4_hz = as(f32, 440.0) }
     let scratch: ptr(@{RenderScratch}) = as(ptr(@{RenderScratch}), work + as(index, 12288))
     let out_block: @{StereoBlock} = { left = view(out_l, as(index, 4)), right = view(out_r, as(index, 4)) }
     emit @{render_block}(synth, view(as(ptr(@{HostEvent}), nil), as(index, 0)), ctx, scratch, out_block; rendered = render_ok, silent = render_silent, clipped = render_ok, requested_program = render_requested, missing_cache = render_missing, bad_buffer = render_bad_buffer, bad_state = render_bad_state)
@@ -372,7 +372,313 @@ local out_l = ffi.new('float[4]', 1, 1, 1, 1)
 local out_r = ffi.new('float[4]', -1, -1, -1, -1)
 local behavior_status = behavioral(synth, work, out_l, out_r)
 assert(behavior_status == 0, 'behavioral events/voice/render smoke returned ' .. tostring(behavior_status))
-assert(out_l[0] == 0 and out_r[0] == 0, 'silent render smoke should clear output')
+
+local FIDELITY = {
+  eval_envelope_sample = R.eval_envelope_sample,
+  eval_lfo_sample = R.eval_lfo_sample,
+  apply_modulation_route = R.apply_modulation_route,
+  apply_filter_model = R.apply_filter_model,
+  apply_effect_slot = R.apply_effect_slot,
+  finalize_audio_block = R.finalize_audio_block,
+}
+for k, v in pairs(T) do FIDELITY[k] = v end
+
+local TONE = {
+  route_layer_tone_generators = R.route_layer_tone_generators,
+}
+for k, v in pairs(T) do TONE[k] = v end
+
+local tone_fidelity_wrapper = moon.func(TONE)[[
+func check_tone_mask_blending(work: ptr(u8), out_l: ptr(f32), out_r: ptr(f32)): i32
+  let policy: EnginePolicy = { dsp = { denormal_floor = as(f32, 0.000001), clip_ceiling = as(f32, 1.0), deterministic_noise = true }, render = { clear_outputs_first = true, smooth_block_events = false, retire_dead_voices_after_block = true } }
+  let ctx: RenderCtx = { shape = { frame_count = as(index, 1), block_index = as(u64, 0) }, dsp = { denormal_floor = as(f32, 0.000001), clip_ceiling = as(f32, 1.0), deterministic_noise = true }, policy = { clear_outputs_first = true, smooth_block_events = false, retire_dead_voices_after_block = true }, sample_rate_hz = as(f32, 48000.0), inv_sample_rate = as(f32, 0.000020833333), tempo_bpm = as(f32, 120.0), tuning_a4_hz = as(f32, 440.0) }
+  return region: i32
+  entry start()
+    let layer: ptr(LayerPlan) = as(ptr(LayerPlan), work)
+    let ratios: ptr(f32) = as(ptr(f32), work + as(index, 4096))
+    let gains: ptr(f32) = as(ptr(f32), work + as(index, 4160))
+    let phases: ptr(f32) = as(ptr(f32), work + as(index, 4224))
+    let pans: ptr(f32) = as(ptr(f32), work + as(index, 4288))
+    let pad_data: ptr(f32) = as(ptr(f32), work + as(index, 4352))
+    let pad_offsets: ptr(index) = as(ptr(index), work + as(index, 4416))
+    let pad_lengths: ptr(index) = as(ptr(index), work + as(index, 4480))
+    let pad_gens: ptr(u16) = as(ptr(u16), work + as(index, 4544))
+    let cache: ptr(PadCache) = as(ptr(PadCache), work + as(index, 4608))
+    let pool: ptr(VoicePool) = as(ptr(VoicePool), work + as(index, 5120))
+    let voices: ptr(VoiceState) = as(ptr(VoiceState), work + as(index, 5632))
+    let gens: ptr(u16) = as(ptr(u16), work + as(index, 6656))
+    ratios[0] = as(f32, 1.0)
+    gains[0] = as(f32, 1.0)
+    phases[0] = as(f32, 0.25)
+    pans[0] = as(f32, 0.0)
+    pad_data[0] = as(f32, 1.0)
+    pad_offsets[0] = as(index, 0)
+    pad_lengths[0] = as(index, 1)
+    pad_gens[0] = as(u16, 3)
+    cache[0] = { table_data = pad_data, table_offsets = pad_offsets, table_lengths = pad_lengths, table_generations = pad_gens, table_count = as(index, 1), total_frames = as(index, 1), used_frames = as(index, 1), generation = as(u16, 3) }
+    gens[0] = as(u16, 9)
+    voices[0].stage = as(u8, 1)
+    voices[0].base_frequency_hz = as(f32, 0.0)
+    voices[0].ad_phase = as(f32, 0.0)
+    voices[0].pad_phase = as(f32, 0.0)
+    pool[0].states = voices
+    pool[0].generations = gens
+    pool[0].cap = as(index, 1)
+    layer[0].additive.partials = { ratios = view(ratios, as(index, 1)), gains = view(gains, as(index, 1)), phase_offsets = view(phases, as(index, 1)), pan = view(pans, as(index, 1)), count = as(index, 1) }
+    layer[0].additive.detune_cents = as(f32, 0.0)
+    layer[0].additive.stereo_spread = as(f32, 0.0)
+    layer[0].additive.phase_random = as(f32, 0.0)
+    layer[0].pad.spectral = { table_ref = { index = as(u32, 0), generation = as(u16, 3) }, table_length = as(index, 1), table_count = as(index, 1), base_frequency_hz = as(f32, 0.0), morph = as(f32, 0.0) }
+    layer[0].pad.position_lfo_amount = as(f32, 0.0)
+    layer[0].tone_mask = as(u8, 5)
+    layer[0].nominal_gain = as(f32, 1.0)
+    layer[0].pan = as(f32, 0.0)
+    out_l[0] = as(f32, 0.0)
+    out_r[0] = as(f32, 0.0)
+    let v: VoiceRef = { index = as(u32, 0), generation = as(u16, 9) }
+    let mod: VoiceModFrame = { amp = as(f32, 1.0), pan = as(f32, 0.0), pitch_cents = as(f32, 0.0), filter_cutoff_hz = as(f32, 1000.0), filter_q = as(f32, 0.5), ad_partial_gain = as(f32, 1.0), sub_band_gain = as(f32, 1.0), pad_position = as(f32, 0.0), effect_send = as(f32, 0.0) }
+    let stereo: StereoBlock = { left = view(out_l, as(index, 1)), right = view(out_r, as(index, 1)) }
+    emit @{route_layer_tone_generators}(layer, cache, pool, v, mod, ctx, stereo; rendered = rendered, silent = silent, stale_ref = stale, missing_cache = missing, bad_buffer = bad)
+  end
+  block rendered(peak: f32)
+    if out_l[0] < as(f32, 0.90) or out_l[0] > as(f32, 1.10) then yield 1 end
+    if out_r[0] < as(f32, 0.90) or out_r[0] > as(f32, 1.10) then yield 2 end
+    yield 0
+  end
+  block silent() yield 3 end
+  block stale(v: VoiceRef) yield 4 end
+  block missing(ref: PadTableRef) yield 5 end
+  block bad() yield 6 end
+  end
+end
+]]
+
+local envelope_fidelity_wrapper = moon.func(FIDELITY)[[
+func check_envelope_fidelity(work: ptr(u8)): i32
+  return region: i32
+  entry start()
+    let env: ptr(EnvelopePlan) = as(ptr(EnvelopePlan), work)
+    let st: ptr(EnvelopeState) = as(ptr(EnvelopeState), work + as(index, 256))
+    env[0].delay_s = as(f32, 0.0)
+    env[0].attack_s = as(f32, 0.004)
+    env[0].hold_s = as(f32, 0.0)
+    env[0].decay_s = as(f32, 0.004)
+    env[0].sustain_level = as(f32, 0.5)
+    env[0].release_s = as(f32, 0.004)
+    env[0].curve = as(u8, 0)
+    st[0] = { phase = as(u8, 0), sample_pos = as(u64, 0), value = as(f32, 0.0) }
+    let ctx: RenderCtx = { shape = { frame_count = as(index, 2), block_index = as(u64, 0) }, dsp = { denormal_floor = as(f32, 0.000001), clip_ceiling = as(f32, 1.0), deterministic_noise = true }, policy = { clear_outputs_first = true, smooth_block_events = false, retire_dead_voices_after_block = true }, sample_rate_hz = as(f32, 1000.0), inv_sample_rate = as(f32, 0.001), tempo_bpm = as(f32, 120.0), tuning_a4_hz = as(f32, 440.0) }
+    emit @{eval_envelope_sample}(env, st, true, ctx; value = linear_attack, finished = bad_finished, inactive = bad_inactive)
+  end
+  block linear_attack(x: f32)
+    if x < as(f32, 0.20) or x > as(f32, 0.30) then yield 1 end
+    let env: ptr(EnvelopePlan) = as(ptr(EnvelopePlan), work)
+    let st: ptr(EnvelopeState) = as(ptr(EnvelopeState), work + as(index, 256))
+    env[0].curve = as(u8, 1)
+    st[0] = { phase = as(u8, 0), sample_pos = as(u64, 0), value = as(f32, 0.0) }
+    let ctx: RenderCtx = { shape = { frame_count = as(index, 2), block_index = as(u64, 0) }, dsp = { denormal_floor = as(f32, 0.000001), clip_ceiling = as(f32, 1.0), deterministic_noise = true }, policy = { clear_outputs_first = true, smooth_block_events = false, retire_dead_voices_after_block = true }, sample_rate_hz = as(f32, 1000.0), inv_sample_rate = as(f32, 0.001), tempo_bpm = as(f32, 120.0), tuning_a4_hz = as(f32, 440.0) }
+    emit @{eval_envelope_sample}(env, st, true, ctx; value = exponential_attack, finished = bad_finished, inactive = bad_inactive)
+  end
+  block exponential_attack(x: f32)
+    if x < as(f32, 0.05) or x > as(f32, 0.08) then yield 2 end
+    let env: ptr(EnvelopePlan) = as(ptr(EnvelopePlan), work)
+    let st: ptr(EnvelopeState) = as(ptr(EnvelopeState), work + as(index, 256))
+    env[0].curve = as(u8, 2)
+    st[0] = { phase = as(u8, 0), sample_pos = as(u64, 0), value = as(f32, 0.0) }
+    let ctx: RenderCtx = { shape = { frame_count = as(index, 2), block_index = as(u64, 0) }, dsp = { denormal_floor = as(f32, 0.000001), clip_ceiling = as(f32, 1.0), deterministic_noise = true }, policy = { clear_outputs_first = true, smooth_block_events = false, retire_dead_voices_after_block = true }, sample_rate_hz = as(f32, 1000.0), inv_sample_rate = as(f32, 0.001), tempo_bpm = as(f32, 120.0), tuning_a4_hz = as(f32, 440.0) }
+    emit @{eval_envelope_sample}(env, st, true, ctx; value = logarithmic_attack, finished = bad_finished, inactive = bad_inactive)
+  end
+  block logarithmic_attack(x: f32)
+    if x < as(f32, 0.40) or x > as(f32, 0.48) then yield 3 end
+    yield 0
+  end
+  block bad_finished(x: f32) yield 10 end
+  block bad_inactive() yield 11 end
+  end
+end
+]]
+
+local lfo_fidelity_wrapper = moon.func(FIDELITY)[[
+func check_lfo_fidelity(work: ptr(u8), out_l: ptr(f32)): i32
+  return region: i32
+  entry start()
+    let lfo: ptr(LfoPlan) = as(ptr(LfoPlan), work + as(index, 512))
+    let st: ptr(LfoState) = as(ptr(LfoState), work + as(index, 768))
+    lfo[0] = { shape = as(u8, 1), rate_hz = as(f32, 250.0), depth = as(f32, 1.0), phase_offset = as(f32, 0.25), tempo_sync = false }
+    st[0] = { phase = as(f32, 0.0), held_value = as(f32, 0.0), rng = as(u64, 1) }
+    let ctx: RenderCtx = { shape = { frame_count = as(index, 2), block_index = as(u64, 0) }, dsp = { denormal_floor = as(f32, 0.000001), clip_ceiling = as(f32, 1.0), deterministic_noise = true }, policy = { clear_outputs_first = true, smooth_block_events = false, retire_dead_voices_after_block = true }, sample_rate_hz = as(f32, 1000.0), inv_sample_rate = as(f32, 0.001), tempo_bpm = as(f32, 120.0), tuning_a4_hz = as(f32, 440.0) }
+    emit @{eval_lfo_sample}(lfo, st, ctx; value = tri, inactive = bad_inactive, invalid_shape = bad_shape)
+  end
+  block tri(x: f32)
+    if x < as(f32, 0.90) then yield 1 end
+    let lfo: ptr(LfoPlan) = as(ptr(LfoPlan), work + as(index, 512))
+    let a: ptr(LfoState) = as(ptr(LfoState), work + as(index, 768))
+    let b: ptr(LfoState) = as(ptr(LfoState), work + as(index, 896))
+    lfo[0] = { shape = as(u8, 5), rate_hz = as(f32, 0.0), depth = as(f32, 1.0), phase_offset = as(f32, 0.0), tempo_sync = false }
+    a[0] = { phase = as(f32, 0.0), held_value = as(f32, 0.0), rng = as(u64, 1234) }
+    b[0] = { phase = as(f32, 0.0), held_value = as(f32, 0.0), rng = as(u64, 1234) }
+    let ctx: RenderCtx = { shape = { frame_count = as(index, 2), block_index = as(u64, 0) }, dsp = { denormal_floor = as(f32, 0.000001), clip_ceiling = as(f32, 1.0), deterministic_noise = true }, policy = { clear_outputs_first = true, smooth_block_events = false, retire_dead_voices_after_block = true }, sample_rate_hz = as(f32, 1000.0), inv_sample_rate = as(f32, 0.001), tempo_bpm = as(f32, 120.0), tuning_a4_hz = as(f32, 440.0) }
+    emit @{eval_lfo_sample}(lfo, a, ctx; value = rand_a, inactive = bad_inactive, invalid_shape = bad_shape)
+  end
+  block rand_a(x: f32)
+    out_l[0] = x
+    let lfo: ptr(LfoPlan) = as(ptr(LfoPlan), work + as(index, 512))
+    let b: ptr(LfoState) = as(ptr(LfoState), work + as(index, 896))
+    let ctx: RenderCtx = { shape = { frame_count = as(index, 2), block_index = as(u64, 0) }, dsp = { denormal_floor = as(f32, 0.000001), clip_ceiling = as(f32, 1.0), deterministic_noise = true }, policy = { clear_outputs_first = true, smooth_block_events = false, retire_dead_voices_after_block = true }, sample_rate_hz = as(f32, 1000.0), inv_sample_rate = as(f32, 0.001), tempo_bpm = as(f32, 120.0), tuning_a4_hz = as(f32, 440.0) }
+    emit @{eval_lfo_sample}(lfo, b, ctx; value = rand_b, inactive = bad_inactive, invalid_shape = bad_shape)
+  end
+  block rand_b(x: f32)
+    if x ~= out_l[0] then yield 2 end
+    yield 0
+  end
+  block bad_inactive() yield 10 end
+  block bad_shape(shape: u8) yield 11 end
+  end
+end
+]]
+
+
+local modulation_fidelity_wrapper = moon.func(FIDELITY)[[
+func check_modulation_fidelity(work: ptr(u8)): i32
+  return region: i32
+  entry start()
+    let route: ptr(ModRoute) = as(ptr(ModRoute), work + as(index, 1280))
+    let controls: ptr(ControlBank) = as(ptr(ControlBank), work + as(index, 1536))
+    let cstates: ptr(ControlState) = as(ptr(ControlState), work + as(index, 1792))
+    let cc: ptr(u8) = as(ptr(u8), work + as(index, 2048))
+    let macros: ptr(f32) = as(ptr(f32), work + as(index, 2304))
+    let pool: ptr(VoicePool) = as(ptr(VoicePool), work + as(index, 2560))
+    let voices: ptr(VoiceState) = as(ptr(VoiceState), work + as(index, 3072))
+    let gens: ptr(u16) = as(ptr(u16), work + as(index, 4096))
+    controls[0] = { states = cstates, cc_values = cc, macro_values = macros, channel_count = as(index, 1), macro_count = as(index, 1) }
+    cc[as(index, 74)] = as(u8, 64)
+    gens[as(index, 0)] = as(u16, 7)
+    voices[0].channel = as(u8, 0)
+    voices[0].velocity = as(f32, 0.5)
+    voices[0].note = as(u8, 60)
+    voices[0].sub_seed = as(u64, 0x12345678)
+    pool[0].states = voices
+    pool[0].generations = gens
+    pool[0].cap = as(index, 1)
+    route[0] = { source = as(u8, 6), dest = as(u8, 2), source_index = as(u8, 0), dest_index = as(u8, 0), cc_number = as(u8, 74), amount = as(f32, 2.0) }
+    let v: VoiceRef = { index = as(u32, 0), generation = as(u16, 7) }
+    let frame: VoiceModFrame = { amp = as(f32, 1.0), pan = as(f32, -1.0), pitch_cents = as(f32, 0.0), filter_cutoff_hz = as(f32, 1000.0), filter_q = as(f32, 0.5), ad_partial_gain = as(f32, 1.0), sub_band_gain = as(f32, 1.0), pad_position = as(f32, 0.0), effect_send = as(f32, 0.0) }
+    emit @{apply_modulation_route}(route, controls, pool, v, frame; applied = applied, ignored = bad_ignored, invalid_source = bad_source, invalid_dest = bad_dest, stale_ref = bad_stale)
+  end
+  block applied(frame: VoiceModFrame)
+    if frame.pan < as(f32, 0.0) or frame.pan > as(f32, 0.02) then yield 1 end
+    if frame.amp ~= as(f32, 1.0) then yield 2 end
+    yield 0
+  end
+  block bad_ignored(frame: VoiceModFrame) yield 10 end
+  block bad_source(source: u8) yield 11 end
+  block bad_dest(dest: u8) yield 12 end
+  block bad_stale(v: VoiceRef) yield 13 end
+  end
+end
+]]
+
+local finalize_fidelity_wrapper = moon.func(FIDELITY)[[
+func check_finalize_fidelity(work: ptr(u8), out_l: ptr(f32), out_r: ptr(f32)): i32
+  return region: i32
+  entry start()
+    let meter: ptr(MeterFrame) = as(ptr(MeterFrame), work + as(index, 5632))
+    out_l[0] = as(f32, 2.0)
+    out_l[1] = as(f32, 0.0)
+    out_r[0] = as(f32, -2.0)
+    out_r[1] = as(f32, 0.0)
+    let stereo: StereoBlock = { left = view(out_l, as(index, 2)), right = view(out_r, as(index, 2)) }
+    emit @{finalize_audio_block}(stereo, meter, as(f32, 1.0); clean = bad_clean, clipped = clipped, bad_buffer = bad_buffer)
+  end
+  block clipped(peak: f32)
+    let meter: ptr(MeterFrame) = as(ptr(MeterFrame), work + as(index, 5632))
+    if out_l[0] ~= as(f32, 1.0) or out_r[0] ~= as(f32, -1.0) then yield 1 end
+    if not meter[0].clipped then yield 2 end
+    if meter[0].peak_l < as(f32, 0.99) or meter[0].peak_l > as(f32, 1.01) then yield 3 end
+    if meter[0].rms_l < as(f32, 0.60) or meter[0].rms_l > as(f32, 0.80) then yield 4 end
+    yield 0
+  end
+  block bad_clean(peak: f32) yield 10 end
+  block bad_buffer() yield 11 end
+  end
+end
+]]
+
+local filter_effect_fidelity_wrapper = moon.func(FIDELITY)[[
+func check_filter_effect_fidelity(work: ptr(u8), out_l: ptr(f32), out_r: ptr(f32)): i32
+  return region: i32
+  entry start()
+    let plan: ptr(FilterPlan) = as(ptr(FilterPlan), work + as(index, 4608))
+    let state: ptr(FilterState) = as(ptr(FilterState), work + as(index, 4864))
+    plan[0] = { model = as(u8, 0), cutoff_hz = as(f32, 250.0), resonance = as(f32, 0.5), drive = as(f32, 0.0), keytrack = as(f32, 0.0) }
+    state[0] = { z1_l = as(f32, 0.0), z2_l = as(f32, 0.0), z1_r = as(f32, 0.0), z2_r = as(f32, 0.0) }
+    out_l[0] = as(f32, 0.25); out_r[0] = as(f32, -0.5)
+    let ctx: RenderCtx = { shape = { frame_count = as(index, 1), block_index = as(u64, 0) }, dsp = { denormal_floor = as(f32, 0.000001), clip_ceiling = as(f32, 1.0), deterministic_noise = true }, policy = { clear_outputs_first = true, smooth_block_events = false, retire_dead_voices_after_block = true }, sample_rate_hz = as(f32, 1000.0), inv_sample_rate = as(f32, 0.001), tempo_bpm = as(f32, 120.0), tuning_a4_hz = as(f32, 440.0) }
+    let input: StereoBlock = { left = view(out_l, as(index, 1)), right = view(out_r, as(index, 1)) }
+    let output: StereoBlock = { left = view(out_l + as(index, 2), as(index, 1)), right = view(out_r + as(index, 2), as(index, 1)) }
+    emit @{apply_filter_model}(plan, state, ctx, input, output; filtered = bad_filtered, bypassed = bypassed, bad_buffer = bad_buffer, invalid_model = bad_model)
+  end
+  block bypassed(peak: f32)
+    if out_l[2] ~= as(f32, 0.25) or out_r[2] ~= as(f32, -0.5) then yield 1 end
+    let slot: ptr(EffectSlotPlan) = as(ptr(EffectSlotPlan), work + as(index, 5120))
+    let state: ptr(EffectState) = as(ptr(EffectState), work + as(index, 5376))
+    slot[0] = { kind = as(u8, 5), mix = as(f32, 1.0), gain = as(f32, 1.0), p0 = as(f32, 2.0), p1 = as(f32, 0.0), p2 = as(f32, 0.0), p3 = as(f32, 0.0) }
+    state[0] = { kind = as(u8, 0), generation = as(u16, 1), z0 = as(f32, 0.0), z1 = as(f32, 0.0), z2 = as(f32, 0.0), z3 = as(f32, 0.0), rng = as(u64, 1) }
+    out_l[0] = as(f32, 0.5); out_r[0] = as(f32, 0.5)
+    let ctx: RenderCtx = { shape = { frame_count = as(index, 1), block_index = as(u64, 0) }, dsp = { denormal_floor = as(f32, 0.000001), clip_ceiling = as(f32, 1.0), deterministic_noise = true }, policy = { clear_outputs_first = true, smooth_block_events = false, retire_dead_voices_after_block = true }, sample_rate_hz = as(f32, 1000.0), inv_sample_rate = as(f32, 0.001), tempo_bpm = as(f32, 120.0), tuning_a4_hz = as(f32, 440.0) }
+    let input: StereoBlock = { left = view(out_l, as(index, 1)), right = view(out_r, as(index, 1)) }
+    let output: StereoBlock = { left = view(out_l + as(index, 2), as(index, 1)), right = view(out_r + as(index, 2), as(index, 1)) }
+    emit @{apply_effect_slot}(slot, state, ctx, input, output; processed = effect_processed, bypassed = bad_bypassed, silent = bad_silent, bad_buffer = bad_buffer, invalid_effect = bad_kind)
+  end
+  block effect_processed(peak: f32)
+    if out_l[2] < as(f32, 0.90) then yield 2 end
+    yield 0
+  end
+  block bad_filtered(peak: f32) yield 10 end
+  block bad_bypassed(peak: f32) yield 11 end
+  block bad_silent() yield 12 end
+  block bad_buffer() yield 13 end
+  block bad_model(model: u8) yield 14 end
+  block bad_kind(kind: u8) yield 15 end
+  end
+end
+]]
+
+local envelope_fidelity = compile_for_call('envelope fidelity wrapper', envelope_fidelity_wrapper)
+local env_status = envelope_fidelity(work)
+assert(env_status == 0, 'envelope fidelity returned ' .. tostring(env_status))
+envelope_fidelity:free()
+full_gc()
+
+local lfo_fidelity = compile_for_call('LFO fidelity wrapper', lfo_fidelity_wrapper)
+local lfo_status = lfo_fidelity(work, out_l)
+assert(lfo_status == 0, 'LFO fidelity returned ' .. tostring(lfo_status))
+lfo_fidelity:free()
+full_gc()
+
+local modulation_fidelity = compile_for_call('modulation fidelity wrapper', modulation_fidelity_wrapper)
+local modulation_status = modulation_fidelity(work)
+assert(modulation_status == 0, 'modulation fidelity returned ' .. tostring(modulation_status))
+modulation_fidelity:free()
+full_gc()
+
+local filter_effect_fidelity = compile_for_call('filter/effect fidelity wrapper', filter_effect_fidelity_wrapper)
+local filter_effect_status = filter_effect_fidelity(work, out_l, out_r)
+assert(filter_effect_status == 0, 'filter/effect fidelity returned ' .. tostring(filter_effect_status))
+filter_effect_fidelity:free()
+full_gc()
+
+local finalize_fidelity = compile_for_call('finalize audio fidelity wrapper', finalize_fidelity_wrapper)
+local finalize_status = finalize_fidelity(work, out_l, out_r)
+assert(finalize_status == 0, 'finalize audio fidelity returned ' .. tostring(finalize_status))
+finalize_fidelity:free()
+full_gc()
+
+local tone_fidelity = compile_for_call('tone mask blending fidelity wrapper', tone_fidelity_wrapper)
+local tone_status = tone_fidelity(work, out_l, out_r)
+assert(tone_status == 0, 'tone mask blending fidelity returned ' .. tostring(tone_status))
+tone_fidelity:free()
+full_gc()
 
 behavioral:free()
 required_storage:free()

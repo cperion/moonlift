@@ -816,7 +816,13 @@ function M.Define(T)
                   Layout.TextLayout? text,
                   Style.Cursor? cursor,
                   Style.ScrollAxis? scroll_axis,
-                  Paint.ProgramList? paint) unique
+                  Paint.ProgramList? paint,
+                  Interact.LayerKind? layer_kind,
+                  Interact.FocusPolicy? focus_policy,
+                  Interact.OverlayPlacement? placement,
+                  boolean? modal,
+                  Core.Id? anchor_id,
+                  number? order) unique
         }
 
         module Interact {
@@ -960,7 +966,7 @@ function M.Define(T)
                       Interact.ModalBarrierBox* modal_barriers,
                       Interact.FocusScopeBox* focus_scopes) unique
 
-            Button = BtnLeft | BtnMiddle | BtnRight
+            Button = BtnLeft | BtnMiddle | BtnRight | BtnX1 | BtnX2
 
             Raw = PointerMoved(number x, number y) unique
                 | PointerPressed(Interact.Button button,
@@ -1045,7 +1051,7 @@ function M.Define(T)
                      Core.Id hover_id,
                      Core.Id focus_id,
                      Core.Id pressed_id,
-                     Core.Id capture_id,
+                     Interact.Capture capture,
                      Interact.Drag drag,
                      Solve.Scroll* scrolls) unique
 

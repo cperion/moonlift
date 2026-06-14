@@ -2,10 +2,10 @@
 	"version": 1,
 	"workflowId": "wf-a6d2de07",
 	"planId": "ui-completion",
-	"revision": 44,
-	"nextId": 56,
+	"revision": 95,
+	"nextId": 61,
 	"createdAt": "2026-06-13T23:07:03.206Z",
-	"updatedAt": "2026-06-13T23:46:52.816Z",
+	"updatedAt": "2026-06-14T05:11:48.292Z",
 	"tasks": [
 		{
 			"id": "T001",
@@ -369,11 +369,15 @@
 				"T020",
 				"T016"
 			],
-			"status": "todo",
+			"status": "done",
 			"order": 23,
-			"notes": [],
+			"claimedBy": "agent-3414TB",
+			"evidence": "Refit text widgets in lua/ui/widgets/_text_common.lua, text_input.lua, and text_area.lua: opts.id now validates via ui.widget/ui.id and accepts strings; shells use state bridge for derived/explicit state and full-tree ID validation; text widgets expose canonical bundle/surfaces/route_one metadata for edit/text/focus/input surfaces; draw_overlay now infers session/window text_key, manages focused text input rect activation, and returns lifecycle diagnostics. Checks run: luajit tests/test_ui_smoke.lua; SDL_VIDEODRIVER=dummy luajit tests/test_ui_sdl3_paint.lua; targeted text widget bundle/routing/id validation snippet.",
+			"notes": [
+				"Follow-up while implementing widget catalog: hardened lua/ui/state.lua flag handling so boolean selected/disabled/active specs are accepted directly by state.for_id, matching widget opts and lower.root usage."
+			],
 			"createdAt": "2026-06-13T23:07:03.206Z",
-			"updatedAt": "2026-06-13T23:07:03.206Z"
+			"updatedAt": "2026-06-14T00:04:54.443Z"
 		},
 		{
 			"id": "T024",
@@ -384,11 +388,13 @@
 				"T020",
 				"T023"
 			],
-			"status": "todo",
+			"status": "done",
 			"order": 24,
+			"claimedBy": "agent-3414TB",
+			"evidence": "Added lua/ui/widgets/button.lua and exported it from lua/ui/widgets/init.lua. The button widget uses canonical ui.widget bundles/surfaces, stable activate/focus/input surface routing, string-or-ASDL ID validation, derived hover/focus/active/disabled state styling, disabled Passive role behavior, and default style slots for root/label. Checks run: luajit tests/test_ui_smoke.lua; SDL_VIDEODRIVER=dummy luajit tests/test_ui_sdl3_paint.lua; targeted button bundle/routing/id-validation/disabled snippet.",
 			"notes": [],
 			"createdAt": "2026-06-13T23:07:03.206Z",
-			"updatedAt": "2026-06-13T23:07:03.206Z"
+			"updatedAt": "2026-06-13T23:58:06.711Z"
 		},
 		{
 			"id": "T025",
@@ -398,11 +404,13 @@
 			"after": [
 				"T024"
 			],
-			"status": "todo",
+			"status": "done",
 			"order": 25,
+			"claimedBy": "agent-3414TB",
+			"evidence": "Added toggle/selection widgets: lua/ui/widgets/toggle.lua implements canonical toggle/switch behavior with selected/disabled state styling, activation-to-change event routing, and stable surfaces; lua/ui/widgets/checkbox.lua and lua/ui/widgets/radio.lua wrap the toggle core with variant defaults. Exported toggle, checkbox, and radio from lua/ui/widgets/init.lua. Checks run: luajit tests/test_ui_smoke.lua; SDL_VIDEODRIVER=dummy luajit tests/test_ui_sdl3_paint.lua; targeted toggle/checkbox/radio bundle/routing/id-validation snippet.",
 			"notes": [],
 			"createdAt": "2026-06-13T23:07:03.207Z",
-			"updatedAt": "2026-06-13T23:07:03.207Z"
+			"updatedAt": "2026-06-13T23:59:27.324Z"
 		},
 		{
 			"id": "T026",
@@ -413,11 +421,13 @@
 				"T012",
 				"T020"
 			],
-			"status": "todo",
+			"status": "done",
 			"order": 26,
+			"claimedBy": "agent-3414TB",
+			"evidence": "Added continuous value widgets: lua/ui/widgets/slider.lua implements min/max/step clamping, normalized/value coordinate conversion, canonical slider bundle/surfaces, drag-source pointer routing, keyboard increment helpers, style slots, and redraw/throttle metadata; lua/ui/widgets/fader.lua and lua/ui/widgets/value_drag.lua wrap the slider core for vertical faders and throttled value drags. Exported slider/fader/value_drag from lua/ui/widgets/init.lua. Checks run: luajit tests/test_ui_smoke.lua; SDL_VIDEODRIVER=dummy luajit tests/test_ui_sdl3_paint.lua; targeted slider/fader/value_drag bundle/routing/id-validation/value-conversion snippet.",
 			"notes": [],
 			"createdAt": "2026-06-13T23:07:03.207Z",
-			"updatedAt": "2026-06-13T23:07:03.207Z"
+			"updatedAt": "2026-06-14T00:01:42.495Z"
 		},
 		{
 			"id": "T027",
@@ -427,11 +437,13 @@
 			"after": [
 				"T026"
 			],
-			"status": "todo",
+			"status": "done",
 			"order": 27,
+			"claimedBy": "agent-3414TB",
+			"evidence": "Added synth-ready knob widget in lua/ui/widgets/knob.lua and exported it from lua/ui/widgets/init.lua. The knob uses canonical ui.widget bundles/surfaces, paint-backed circular track/value arc/tick rendering, drag-source pointer value routing through the slider conversion helpers, keyboard increment routing, min/max/step value contract, throttle/redraw metadata, value labels, disabled/active state styling, and stable change events. Checks run: luajit tests/test_ui_smoke.lua; SDL_VIDEODRIVER=dummy luajit tests/test_ui_sdl3_paint.lua; targeted knob bundle/paint node/id-validation/drag/key routing snippet.",
 			"notes": [],
 			"createdAt": "2026-06-13T23:07:03.207Z",
-			"updatedAt": "2026-06-13T23:07:03.207Z"
+			"updatedAt": "2026-06-14T00:02:57.414Z"
 		},
 		{
 			"id": "T028",
@@ -441,11 +453,13 @@
 			"after": [
 				"T020"
 			],
-			"status": "todo",
+			"status": "done",
 			"order": 28,
+			"claimedBy": "agent-3414TB",
+			"evidence": "Added paint-backed display widgets: lua/ui/widgets/meter.lua implements meter/level rendering with normalized range handling, value/warn/clip colors, peak/hold markers, animation/redraw metadata, canonical display surface, labels and style slots; lua/ui/widgets/progress.lua wraps meter for progressbar semantics without peak/hold and on-change redraw. Exported meter/progress from lua/ui/widgets/init.lua. Checks run: luajit tests/test_ui_smoke.lua; SDL_VIDEODRIVER=dummy luajit tests/test_ui_sdl3_paint.lua; targeted meter/progress bundle/program/id-validation/normalization snippet.",
 			"notes": [],
 			"createdAt": "2026-06-13T23:07:03.207Z",
-			"updatedAt": "2026-06-13T23:07:03.207Z"
+			"updatedAt": "2026-06-14T00:04:25.685Z"
 		},
 		{
 			"id": "T029",
@@ -455,11 +469,13 @@
 			"after": [
 				"T022"
 			],
-			"status": "todo",
+			"status": "done",
 			"order": 29,
+			"claimedBy": "agent-5VV9Z9",
+			"evidence": "Implemented list/listbox/tabs primitives in lua/ui/widgets/list.lua with canonical bundles, item/focus/activate/scroll surfaces, selected/disabled state bridging, disabled-item skipping, keyboard navigation helpers, wrappers lua/ui/widgets/listbox.lua and tabs.lua, and exports in lua/ui/widgets/init.lua. Verified with targeted LuaJIT list/tabs route snippet plus luajit tests/test_ui_smoke.lua and SDL_VIDEODRIVER=dummy luajit tests/test_ui_sdl3_paint.lua.",
 			"notes": [],
 			"createdAt": "2026-06-13T23:07:03.207Z",
-			"updatedAt": "2026-06-13T23:07:03.207Z"
+			"updatedAt": "2026-06-14T00:20:44.295Z"
 		},
 		{
 			"id": "T030",
@@ -471,11 +487,13 @@
 				"T012",
 				"T029"
 			],
-			"status": "todo",
+			"status": "done",
 			"order": 30,
+			"claimedBy": "agent-5VV9Z9",
+			"evidence": "Implemented menu/select/popup primitives: added lua/ui/widgets/popup.lua for typed Auth.Layer/Auth.Overlay/Auth.FocusScope popup wrappers and close routing, lua/ui/widgets/menu.lua for trigger+popup menu/context dropdown behavior with listbox-backed item surfaces, keyboard open/escape/navigation/select routing, and select variant change events; added lua/ui/widgets/select.lua wrapper and exports in lua/ui/widgets/init.lua. Verified with targeted LuaJIT menu/popup/select route and node snippet plus luajit tests/test_ui_smoke.lua and SDL_VIDEODRIVER=dummy luajit tests/test_ui_sdl3_paint.lua.",
 			"notes": [],
 			"createdAt": "2026-06-13T23:07:03.207Z",
-			"updatedAt": "2026-06-13T23:07:03.207Z"
+			"updatedAt": "2026-06-14T00:23:30.729Z"
 		},
 		{
 			"id": "T031",
@@ -485,11 +503,13 @@
 			"after": [
 				"T030"
 			],
-			"status": "todo",
+			"status": "done",
 			"order": 31,
+			"claimedBy": "agent-5VV9Z9",
+			"evidence": "Added overlay/tooltip/popover/modal/dialog helpers around typed layer semantics: new lua/ui/widgets/overlay.lua variant module plus tooltip.lua, popover.lua, and modal.lua wrappers; uses popup's typed Auth.Layer/Auth.Overlay/Auth.FocusScope/ModalBarrier path with tooltip/passive, popover focus-trap, and modal focus-trap/escape/cancel/close-button routing. Updated lua/ui/widgets/init.lua exports. Verified with targeted LuaJIT overlay/tooltip/popover/modal routing snippet plus luajit tests/test_ui_smoke.lua and SDL_VIDEODRIVER=dummy luajit tests/test_ui_sdl3_paint.lua.",
 			"notes": [],
 			"createdAt": "2026-06-13T23:07:03.207Z",
-			"updatedAt": "2026-06-13T23:07:03.207Z"
+			"updatedAt": "2026-06-14T00:25:09.017Z"
 		},
 		{
 			"id": "T032",
@@ -500,11 +520,13 @@
 				"T020",
 				"T022"
 			],
-			"status": "todo",
+			"status": "done",
 			"order": 32,
+			"claimedBy": "agent-5VV9Z9",
+			"evidence": "Added composition widgets: lua/ui/widgets/panel.lua, toolbar.lua, property_row.lua, form_field.lua, split_pane.lua, and scroll_panel.lua with canonical bundles/surfaces, panel/group/toolbar/property/scroll/drag surfaces, split-pane drag ratio routing, and scroll routing. Updated lua/ui/widgets/init.lua exports. Verified with targeted LuaJIT composition widget bundle/routing snippet plus luajit tests/test_ui_smoke.lua and SDL_VIDEODRIVER=dummy luajit tests/test_ui_sdl3_paint.lua.",
 			"notes": [],
 			"createdAt": "2026-06-13T23:07:03.207Z",
-			"updatedAt": "2026-06-13T23:07:03.207Z"
+			"updatedAt": "2026-06-14T00:28:36.466Z"
 		},
 		{
 			"id": "T033",
@@ -515,11 +537,13 @@
 				"T020",
 				"T018"
 			],
-			"status": "todo",
+			"status": "done",
 			"order": 33,
+			"claimedBy": "agent-5VV9Z9",
+			"evidence": "Added lua/ui/widgets/canvas.lua and export. Canvas wraps Auth.Paint in a rectangular semantic input surface, supports canonical canvas/paint/drag surfaces, paint program/list arrays, width/height styling, report-based local coordinate conversion, pointer down/move/up raw routing, drag/drop routing, image/backend expectation metadata, and activation fallback. Verified with targeted LuaJIT canvas paint/coordinate/drag routing snippet plus luajit tests/test_ui_smoke.lua and SDL_VIDEODRIVER=dummy luajit tests/test_ui_sdl3_paint.lua.",
 			"notes": [],
 			"createdAt": "2026-06-13T23:07:03.207Z",
-			"updatedAt": "2026-06-13T23:07:03.207Z"
+			"updatedAt": "2026-06-14T00:30:06.167Z"
 		},
 		{
 			"id": "T034",
@@ -538,11 +562,13 @@
 				"T032",
 				"T033"
 			],
-			"status": "todo",
+			"status": "done",
 			"order": 34,
+			"claimedBy": "agent-5VV9Z9",
+			"evidence": "Updated lua/ui/widgets/init.lua to export the completed catalog including primitive, selection, continuous value, display, list/tabs/menu/select, popup/overlay/tooltip/popover/modal, composition, split/scroll/canvas, text widgets, and compatibility aliases (switch/level/dialog/context_menu/dropdown). Verified headless require of every exported widget name plus luajit tests/test_ui_smoke.lua and SDL_VIDEODRIVER=dummy luajit tests/test_ui_sdl3_paint.lua.",
 			"notes": [],
 			"createdAt": "2026-06-13T23:07:03.207Z",
-			"updatedAt": "2026-06-13T23:07:03.207Z"
+			"updatedAt": "2026-06-14T00:30:37.625Z"
 		},
 		{
 			"id": "T035",
@@ -556,11 +582,13 @@
 				"T020",
 				"T034"
 			],
-			"status": "todo",
+			"status": "done",
 			"order": 35,
+			"claimedBy": "agent-5VV9Z9",
+			"evidence": "Updated lua/ui/init.lua top-level facade to export ui.state, ui.widget, ui.backend_contract, and overlay/popup helpers while preserving existing exports and existing ui.input/ui.id access. Verified with targeted LuaJIT facade snippet plus luajit tests/test_ui_smoke.lua and SDL_VIDEODRIVER=dummy luajit tests/test_ui_sdl3_paint.lua.",
 			"notes": [],
 			"createdAt": "2026-06-13T23:07:03.207Z",
-			"updatedAt": "2026-06-13T23:07:03.207Z"
+			"updatedAt": "2026-06-14T00:30:56.058Z"
 		},
 		{
 			"id": "T036",
@@ -570,11 +598,13 @@
 			"after": [
 				"T034"
 			],
-			"status": "todo",
+			"status": "done",
 			"order": 36,
+			"claimedBy": "agent-VHNGD5",
+			"evidence": "Created lua/ui/widgets/README.md documenting canonical widget API, bundle/event shapes, style slots, ID conventions, keyboard/focus behavior, disabled/selected handling, and catalog widget examples. Verified with luajit tests/test_ui_smoke.lua and SDL_VIDEODRIVER=dummy luajit tests/test_ui_sdl3_paint.lua.",
 			"notes": [],
 			"createdAt": "2026-06-13T23:07:03.207Z",
-			"updatedAt": "2026-06-13T23:07:03.207Z"
+			"updatedAt": "2026-06-14T04:24:43.712Z"
 		},
 		{
 			"id": "T037",
@@ -586,11 +616,13 @@
 				"T002",
 				"T036"
 			],
-			"status": "todo",
+			"status": "done",
 			"order": 37,
+			"claimedBy": "agent-VHNGD5",
+			"evidence": "Rewrote lua/ui/README.md with current ASDL UI architecture, contract links, module inventory, supported SDL3/backend status, layout/widget catalog, current examples/tests, text lifecycle, and known limitations; removed stale Love demo references by marking them historical/nonexistent. Verified with luajit tests/test_ui_smoke.lua and SDL_VIDEODRIVER=dummy luajit tests/test_ui_sdl3_paint.lua.",
 			"notes": [],
 			"createdAt": "2026-06-13T23:07:03.207Z",
-			"updatedAt": "2026-06-13T23:07:03.207Z"
+			"updatedAt": "2026-06-14T04:26:02.335Z"
 		},
 		{
 			"id": "T038",
@@ -600,11 +632,13 @@
 			"after": [
 				"T012"
 			],
-			"status": "todo",
+			"status": "done",
 			"order": 38,
+			"claimedBy": "agent-VHNGD5",
+			"evidence": "Added tests/test_ui_interact_contract.lua covering typed keyboard focus/activation/text input, disabled skipping via focusable report, pointer press event order, pointer capture activation after target disappearance/reorder, wheel axis/clamping, drag/drop and cancellation, modal/layer hit-stack behavior, and FocusLost cleanup. Verified with luajit tests/test_ui_interact_contract.lua, luajit tests/test_ui_smoke.lua, and SDL_VIDEODRIVER=dummy luajit tests/test_ui_sdl3_paint.lua.",
 			"notes": [],
 			"createdAt": "2026-06-13T23:07:03.207Z",
-			"updatedAt": "2026-06-13T23:07:03.207Z"
+			"updatedAt": "2026-06-14T04:28:15.803Z"
 		},
 		{
 			"id": "T039",
@@ -614,11 +648,13 @@
 			"after": [
 				"T006"
 			],
-			"status": "todo",
+			"status": "done",
 			"order": 39,
+			"claimedBy": "agent-VHNGD5",
+			"evidence": "Added tests/test_ui_id_validation.lua covering allowed NoId/Empty leaves, duplicate IDs across nested fragments, input/scroll/drag/drop/content IDs, layer/overlay/focus-scope/modal IDs, widget-generated child ID collisions, surface duplicate validation, assert_auth diagnostics, and lower.root validation. Fixed lua/ui/id.lua to recognize Auth.Empty singleton in collection. Verified with luajit tests/test_ui_id_validation.lua, luajit tests/test_ui_smoke.lua, and SDL_VIDEODRIVER=dummy luajit tests/test_ui_sdl3_paint.lua.",
 			"notes": [],
 			"createdAt": "2026-06-13T23:07:03.207Z",
-			"updatedAt": "2026-06-13T23:07:03.207Z"
+			"updatedAt": "2026-06-14T04:29:41.562Z"
 		},
 		{
 			"id": "T040",
@@ -629,11 +665,13 @@
 				"T008",
 				"T009"
 			],
-			"status": "todo",
+			"status": "done",
 			"order": 40,
+			"claimedBy": "agent-VHNGD5",
+			"evidence": "Added tests/test_ui_state_bridge.lua covering state.for_id derivation/no contamination, hover/focus/active/selected/disabled styles through lower.root, explicit Auth.WithState merging, apply_to_auth wrapping and Auth.Empty passthrough, sibling ID isolation, and widget disabled/selected state behavior. Fixed lua/ui/state.lua to recognize Auth.Empty singleton in apply_to_auth. Verified with luajit tests/test_ui_state_bridge.lua, luajit tests/test_ui_smoke.lua, and SDL_VIDEODRIVER=dummy luajit tests/test_ui_sdl3_paint.lua.",
 			"notes": [],
 			"createdAt": "2026-06-13T23:07:03.207Z",
-			"updatedAt": "2026-06-13T23:07:03.207Z"
+			"updatedAt": "2026-06-14T04:31:32.156Z"
 		},
 		{
 			"id": "T041",
@@ -645,11 +683,13 @@
 				"T011",
 				"T012"
 			],
-			"status": "todo",
+			"status": "done",
 			"order": 41,
+			"claimedBy": "agent-VHNGD5",
+			"evidence": "Added tests/test_ui_overlay_layers.lua covering layer ordering/kind/order metadata, drag-preview layer facts, modal barrier clearing lower hit/focus/scroll facts while preserving modal child facts, focus-trap scope report policy, explicit layer after clipping, popup/popover/modal close routing, and passive tooltip overlay facts. Extended View.Op metadata in lua/ui/asdl.lua and wired lua/ui/render.lua/lua/ui/runtime.lua so layer kind, focus policy, overlay placement, and modal flags survive render/runtime. Verified with luajit tests/test_ui_overlay_layers.lua, luajit tests/test_ui_interact_contract.lua, luajit tests/test_ui_id_validation.lua, luajit tests/test_ui_state_bridge.lua, luajit tests/test_ui_smoke.lua, and SDL_VIDEODRIVER=dummy luajit tests/test_ui_sdl3_paint.lua.",
 			"notes": [],
 			"createdAt": "2026-06-13T23:07:03.207Z",
-			"updatedAt": "2026-06-13T23:07:03.207Z"
+			"updatedAt": "2026-06-14T04:34:12.619Z"
 		},
 		{
 			"id": "T042",
@@ -659,11 +699,13 @@
 			"after": [
 				"T001"
 			],
-			"status": "todo",
+			"status": "done",
 			"order": 42,
+			"claimedBy": "agent-39V2S5",
+			"evidence": "Added tests/test_ui_layout_golden.lua with backend-independent golden assertions for flow padding/gaps/alignment, margins/auto margins, flex grow/wrap/gaps/alignment, min/max/fraction sizing, grid tracks/fr/spans/implicit tracks/documented item-alignment limitation, scroll viewport/content extents, and content-store text refs. Checks run: luajit tests/test_ui_layout_golden.lua; luajit tests/test_ui_smoke.lua; luajit tests/test_ui_interact_contract.lua; luajit tests/test_ui_id_validation.lua; luajit tests/test_ui_state_bridge.lua; luajit tests/test_ui_overlay_layers.lua; SDL_VIDEODRIVER=dummy luajit tests/test_ui_sdl3_paint.lua.",
 			"notes": [],
 			"createdAt": "2026-06-13T23:07:03.207Z",
-			"updatedAt": "2026-06-13T23:07:03.207Z"
+			"updatedAt": "2026-06-14T04:42:49.499Z"
 		},
 		{
 			"id": "T043",
@@ -675,11 +717,13 @@
 				"T018",
 				"T019"
 			],
-			"status": "todo",
+			"status": "done",
 			"order": 43,
+			"claimedBy": "agent-39V2S5",
+			"evidence": "Added tests/test_ui_backend_contract.lua covering capability validation/failure reporting, host event typed raw validation, generic no-driver runtime layer/overlay/modal facts, trace driver clip/paint/box balance, SDL3 package/module/host/runtime/text contract checks under dummy video including paint/image/text/clipboard/text-input-rect/density, and optional Love capability gaps. Added missing ui.backend_contract.assert_text_module helper used by the tests. Checks run: luajit tests/test_ui_smoke.lua; luajit tests/test_ui_interact_contract.lua; luajit tests/test_ui_id_validation.lua; luajit tests/test_ui_state_bridge.lua; luajit tests/test_ui_overlay_layers.lua; luajit tests/test_ui_layout_golden.lua; SDL_VIDEODRIVER=dummy luajit tests/test_ui_backend_contract.lua; SDL_VIDEODRIVER=dummy luajit tests/test_ui_sdl3_paint.lua.",
 			"notes": [],
 			"createdAt": "2026-06-13T23:07:03.207Z",
-			"updatedAt": "2026-06-13T23:07:03.207Z"
+			"updatedAt": "2026-06-14T04:46:17.674Z"
 		},
 		{
 			"id": "T044",
@@ -690,11 +734,13 @@
 				"T014",
 				"T016"
 			],
-			"status": "todo",
+			"status": "done",
 			"order": 44,
+			"claimedBy": "agent-39V2S5",
+			"evidence": "Added tests/test_ui_text_session.lua covering explicit approximate fallback and fail-loud missing text systems, session default/explicit text_key registration and unregistration, owned text-system close, typed raw UI dispatch, window text input rect lifecycle, measure/render cache keys for text system key and content-store changes, and SDL3 dummy session text/clipboard/text-input lifecycle. Checks run: luajit tests/test_ui_smoke.lua; luajit tests/test_ui_interact_contract.lua; luajit tests/test_ui_id_validation.lua; luajit tests/test_ui_state_bridge.lua; luajit tests/test_ui_overlay_layers.lua; luajit tests/test_ui_layout_golden.lua; SDL_VIDEODRIVER=dummy luajit tests/test_ui_backend_contract.lua; SDL_VIDEODRIVER=dummy luajit tests/test_ui_text_session.lua; SDL_VIDEODRIVER=dummy luajit tests/test_ui_sdl3_paint.lua.",
 			"notes": [],
 			"createdAt": "2026-06-13T23:07:03.207Z",
-			"updatedAt": "2026-06-13T23:07:03.207Z"
+			"updatedAt": "2026-06-14T04:48:29.630Z"
 		},
 		{
 			"id": "T045",
@@ -733,11 +779,17 @@
 				"T034",
 				"T015"
 			],
-			"status": "todo",
+			"status": "done",
 			"order": 47,
-			"notes": [],
+			"claimedBy": "agent-KQ85XX",
+			"evidence": "Created `examples/ui/gallery_sdl3.lua` SDL3 widget gallery. It uses `ui.session_sdl3` default text registration/window text_key, builds the authored tree through `ui.theme.default()`/`ui.theme.env_for_width()`, renders via lower/render/runtime, routes host typed raw input through `ui.interact.step`, supports focus traversal/activation/scrolling/text input, draws text widget overlays, includes overlay/popup/tooltip/popover/modal layers, and exercises widget catalog controls (button, toolbar, tabs, toggle/checkbox/radio, slider/fader/value_drag/knob, meter/progress, list/listbox/menu/select, text_input/text_area/form_field, property_row, split_pane, scroll_panel, canvas, panel/overlay helpers). Verification run: `luajit tests/test_ui_smoke.lua`; `luajit tests/test_ui_interact_contract.lua`; `luajit tests/test_ui_id_validation.lua`; `luajit tests/test_ui_state_bridge.lua`; `luajit tests/test_ui_overlay_layers.lua`; `luajit tests/test_ui_layout_golden.lua`; `SDL_VIDEODRIVER=dummy luajit tests/test_ui_backend_contract.lua`; `SDL_VIDEODRIVER=dummy luajit tests/test_ui_text_session.lua`; `SDL_VIDEODRIVER=dummy luajit tests/test_ui_sdl3_paint.lua`; `AUTO_QUIT_MS=50 SDL_VIDEODRIVER=dummy luajit examples/ui/gallery_sdl3.lua`; existing SDL examples also checked with dummy auto-quit (`text_field_sdl3_demo.lua`, `paint_sdl3_demo.lua`) plus `luajit examples/ui/text_sdl3_probe.lua`.",
+			"notes": [
+				"Post-completion performance hotfix: gallery redraw cadence changed from 80ms to 16ms; per-frame ID validation made opt-in via UI_VALIDATE_IDS=1; theme/env reused; SDL3 runtime now caches TTF_Text objects per font/text instead of creating/destroying every draw run. Verified with smoke, SDL paint, and dummy gallery auto-quit.",
+				"User correctly rejected the earlier gallery performance patch as superficial. The real issue is architectural over-recompilation from rebuilding dynamic UI structure every frame. Added T056-T060 to address retained/static-dynamic UI performance contract and implementation before treating gallery as complete.",
+				"Performance evidence gathered instead of speculation. Profiling dummy gallery before fix: ~7 frames/s for AUTO_QUIT_MS=1000; ui.render.root avg ~0.114s/frame; ui.text.layout ~5899 calls/sec; single-frame pvm stats showed ui.measure 5350 calls with 12% reuse and ui.text_layout 1524 calls. Root cause: ui.measure.phase used args_cache='last', so repeated measurement of same nodes at multiple constraints during flex/grid/render evicted useful entries inside a frame. Concrete fix: changed only ui.measure.phase to args_cache='full' (left text_layout last). After fix: ~23 frames/s dummy; ui.render.root avg ~0.0125s/frame; ui.text.layout ~625 calls/sec; single-frame measure calls down to 2688 and text_layout to 637. Verified smoke/layout/SDL paint."
+			],
 			"createdAt": "2026-06-13T23:07:03.207Z",
-			"updatedAt": "2026-06-13T23:07:03.207Z"
+			"updatedAt": "2026-06-14T05:11:48.292Z"
 		},
 		{
 			"id": "T048",
@@ -866,6 +918,81 @@
 			"notes": [],
 			"createdAt": "2026-06-13T23:07:03.207Z",
 			"updatedAt": "2026-06-13T23:07:03.207Z"
+		},
+		{
+			"id": "T056",
+			"title": "Design UI retained/static-dynamic performance contract",
+			"detail": "Write the architectural performance contract that fixes the current over-recompilation problem: stable authored/template graph, dynamic value/content/paint stores, layout-affecting vs paint-only invalidation, compiled surface lifecycle, cache boundaries, and explicit rules for widgets/examples. This supersedes treating gallery slowness as a demo-only issue.",
+			"file": "lua/ui/CONTRACT.md",
+			"after": [
+				"T037"
+			],
+			"status": "skipped",
+			"order": 56,
+			"skipReason": "Premature task created without performance evidence. User correctly clarified sidecar is for concrete edits only; remove this from active implementation flow until profiling produces a validated edit plan.",
+			"notes": [],
+			"createdAt": "2026-06-14T05:06:16.047Z",
+			"updatedAt": "2026-06-14T05:08:00.248Z"
+		},
+		{
+			"id": "T057",
+			"title": "Implement dynamic stores and retained compiled UI surface",
+			"detail": "Add core APIs/modules for compiling a stable Auth tree/theme/env into a retained surface and rendering frames against explicit dynamic stores without rebuilding/lowering/measuring the whole tree. Include value/text/paint binding stores and invalidation classes for layout vs paint-only changes.",
+			"file": "lua/ui",
+			"after": [
+				"T056"
+			],
+			"status": "skipped",
+			"order": 57,
+			"skipReason": "Premature implementation task created from an unvalidated hypothesis about retained/static-dynamic architecture. Skipped to keep sidecar actionable only.",
+			"notes": [],
+			"createdAt": "2026-06-14T05:06:16.047Z",
+			"updatedAt": "2026-06-14T05:08:00.248Z"
+		},
+		{
+			"id": "T058",
+			"title": "Refit widgets to static specs plus dynamic bindings",
+			"detail": "Update widget catalog so widget structure is stable and per-frame values are supplied through dynamic binding/state stores rather than embedded in freshly rebuilt Auth/Paint/Text structures whenever possible. Preserve compatibility wrappers but make gallery use the retained path.",
+			"file": "lua/ui/widgets",
+			"after": [
+				"T057"
+			],
+			"status": "skipped",
+			"order": 58,
+			"skipReason": "Premature widget refit task created before profiling and architectural verification. Skipped to avoid placeholder planning in edit sidecar.",
+			"notes": [],
+			"createdAt": "2026-06-14T05:06:16.047Z",
+			"updatedAt": "2026-06-14T05:08:00.248Z"
+		},
+		{
+			"id": "T059",
+			"title": "Refactor SDL gallery onto retained/static-dynamic pipeline",
+			"detail": "Rewrite examples/ui/gallery_sdl3.lua to compile stable UI structure once or in coarse layout-affecting epochs, update dynamic stores per frame/event, and avoid full-tree lower/measure/render recompilation for meter/canvas/text/value changes.",
+			"file": "examples/ui/gallery_sdl3.lua",
+			"after": [
+				"T058"
+			],
+			"status": "skipped",
+			"order": 59,
+			"skipReason": "Premature gallery refactor task created before identifying measured bottlenecks. Skipped to avoid treating hypothesis as an edit task.",
+			"notes": [],
+			"createdAt": "2026-06-14T05:06:16.047Z",
+			"updatedAt": "2026-06-14T05:08:00.248Z"
+		},
+		{
+			"id": "T060",
+			"title": "Add UI performance regression tests and benchmark probes",
+			"detail": "Add tests/probes that count lower/measure/render/text layout/cache work across frames and assert dynamic paint/value updates do not recompile stable subtrees. Include dummy SDL gallery benchmark expectations.",
+			"file": "tests",
+			"after": [
+				"T059"
+			],
+			"status": "skipped",
+			"order": 60,
+			"skipReason": "Premature test/benchmark task created without a validated design. Skipped to keep sidecar for concrete edits only.",
+			"notes": [],
+			"createdAt": "2026-06-14T05:06:16.047Z",
+			"updatedAt": "2026-06-14T05:08:00.248Z"
 		}
 	]
 }
