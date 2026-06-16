@@ -123,7 +123,10 @@ function M.bind(session, callable_mt)
               bindings[#bindings + 1] = binding
             end
 
-            local e = open_expand.Define(T)
+            -- Bound quotes are expanded outside the final module context.
+            -- Defer region `call` sealing here so module-level expansion can
+            -- generate the wrapper/result items in the same compile unit.
+            local e = open_expand.Define(T, { defer_region_calls = true })
             local env = e.empty_env()
             env = e.env_with_fills(env, bindings)
             local expanded = expand_fn(e, parsed.value, env)
@@ -135,6 +138,14 @@ function M.bind(session, callable_mt)
             -- unrelated funcs/regions and turn a tiny compile into a huge one.
             if type(result) == "table" then
               result._dep_values = used_values
+              -- Some frontend expansions (notably region `call`) synthesize
+              -- ordinary Tree items that belong to the quoted value's compile
+              -- unit.  Preserve them explicitly so a quote expanded in isolation
+              -- does not strand references to generated wrappers/result types.
+              if e.generated_items then
+                local generated = e.generated_items()
+                if generated ~= nil and #generated > 0 then result._generated_items = generated end
+              end
             end
 
             return result

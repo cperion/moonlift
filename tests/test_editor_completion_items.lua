@@ -49,6 +49,9 @@ assert(has(builtin_path, "host") and has(builtin_path, "views"))
 assert(not has(builtin_path, "json"))
 assert(not has(builtin_path, "builtins"))
 
+local region_stmt = Items.items(E.CompletionQuery(query(0), E.CompletionRegionStatement), analysis)
+assert(has(region_stmt, "jump") and has(region_stmt, "yield") and has(region_stmt, "return") and has(region_stmt, "call"))
+
 local none = Items.items(E.CompletionQuery(query(0), E.CompletionLuaOpaque), analysis)
 assert(#none == 0)
 

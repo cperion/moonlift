@@ -160,36 +160,52 @@ function M.Install(api, session)
         end
     end
 
+    local function is_region_fragment_value(v)
+        return type(v) == "table"
+            and (rawget(v, "moonlift_quote_kind") == "region_frag"
+                 or rawget(v, "kind") == "region_frag")
+    end
+
+    local function func_region_use(self, mode, keyword, fragment, runtime_args, fills)
+        local args = {}
+        for i = 1, #(runtime_args or {}) do
+            args[i] = api.as_moonlift_expr(runtime_args[i], keyword .. " runtime arg expects expression")
+        end
+        local cont_fills = {}
+        for name, target in ordered_pairs_from_map(fills or {}) do
+            if type(target) == "string" then
+                cont_fills[#cont_fills + 1] = O.ContBinding(name, O.ContTargetLabel(Tr.BlockLabel(target)))
+            elseif type(target) == "table" and target.label ~= nil then
+                cont_fills[#cont_fills + 1] = O.ContBinding(name, O.ContTargetLabel(target.label))
+            elseif type(target) == "table" and target.slot ~= nil then
+                cont_fills[#cont_fills + 1] = O.ContBinding(name, O.ContTargetSlot(target.slot))
+            else
+                error("continuation fill must be a block label string, block value, or continuation value", 2)
+            end
+        end
+        return append_stmt(self, Tr.StmtUseRegionFrag(Tr.StmtSurface, mode,
+            session:symbol_key(keyword, fragment.name or "region"),
+            O.RegionFragRefName(fragment.name), args, {}, cont_fills))
+    end
+
     function FuncBuilder:emit(stmt_or_fragment, runtime_args, fills)
-        if type(stmt_or_fragment) == "table"
-            and (rawget(stmt_or_fragment, "moonlift_quote_kind") == "region_frag"
-                 or rawget(stmt_or_fragment, "kind") == "region_frag") then
-            local fragment = stmt_or_fragment
-            local args = {}
-            for i = 1, #(runtime_args or {}) do
-                args[i] = api.as_moonlift_expr(runtime_args[i], "emit runtime arg expects expression")
-            end
-            local cont_fills = {}
-            for name, target in ordered_pairs_from_map(fills or {}) do
-                if type(target) == "string" then
-                    cont_fills[#cont_fills + 1] = O.ContBinding(name, O.ContTargetLabel(Tr.BlockLabel(target)))
-                elseif type(target) == "table" and target.label ~= nil then
-                    cont_fills[#cont_fills + 1] = O.ContBinding(name, O.ContTargetLabel(target.label))
-                elseif type(target) == "table" and target.slot ~= nil then
-                    cont_fills[#cont_fills + 1] = O.ContBinding(name, O.ContTargetSlot(target.slot))
-                else
-                    error("continuation fill must be a block label string, block value, or continuation value", 2)
-                end
-            end
-            return append_stmt(self, Tr.StmtUseRegionFrag(Tr.StmtSurface,
-                session:symbol_key("emit", fragment.name or "region"),
-                O.RegionFragRefName(fragment.name), args, {}, cont_fills))
+        if is_region_fragment_value(stmt_or_fragment) then
+            return func_region_use(self, Tr.RegionUseEmit, "emit", stmt_or_fragment, runtime_args, fills)
         end
         return append_stmt(self, stmt_or_fragment)
     end
 
+    function FuncBuilder:call(fragment, runtime_args, fills)
+        assert(is_region_fragment_value(fragment), "call expects a region fragment value")
+        return func_region_use(self, Tr.RegionUseCall, "call", fragment, runtime_args, fills)
+    end
+
     function FuncBuilder:use_region(fragment, runtime_args, fills)
         return self:emit(fragment, runtime_args, fills)
+    end
+
+    function FuncBuilder:use_region_call(fragment, runtime_args, fills)
+        return self:call(fragment, runtime_args, fills)
     end
 
     function FuncBuilder:return_(expr)

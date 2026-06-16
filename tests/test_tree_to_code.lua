@@ -384,7 +384,7 @@ end
 local advanced_seen = scan_module(advanced_module)
 assert(advanced_seen.insts[Code.CodeInstAggregate], "aggregate literals should lower to CodeInstAggregate")
 assert(advanced_seen.insts[Code.CodeInstArray], "array literals should lower to CodeInstArray")
-assert(advanced_seen.insts[Code.CodeInstView], "view construction should lower to CodeInstView")
+assert(advanced_seen.insts[Code.CodeInstViewMake], "view construction should lower to CodeInstViewMake")
 assert(advanced_seen.insts[Code.CodeInstViewLen], "view len should lower to CodeInstViewLen")
 assert(advanced_seen.insts[Code.CodeInstViewData], "view indexing should project view data")
 assert(advanced_seen.insts[Code.CodeInstViewStride], "view indexing should project view stride")

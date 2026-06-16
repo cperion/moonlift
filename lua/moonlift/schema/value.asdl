@@ -1,0 +1,62 @@
+module MoonValue {
+    ValueFactId = (string text) unique
+
+    AlgebraFactId = (string text) unique
+
+    ValueExpr = ValueExprConst(MoonCode.CodeConst const) unique
+         | ValueExprValue(MoonCode.CodeValueId value) unique
+         | ValueExprAdd(MoonValue.ValueExpr a, MoonValue.ValueExpr b, MoonCode.CodeType ty, MoonCode.CodeIntSemantics? sem) unique
+         | ValueExprSub(MoonValue.ValueExpr a, MoonValue.ValueExpr b, MoonCode.CodeType ty, MoonCode.CodeIntSemantics? sem) unique
+         | ValueExprMul(MoonValue.ValueExpr a, MoonValue.ValueExpr b, MoonCode.CodeType ty, MoonCode.CodeIntSemantics? sem) unique
+         | ValueExprDiv(MoonValue.ValueExpr a, MoonValue.ValueExpr b, MoonCode.CodeType ty, MoonCode.CodeIntSemantics? sem) unique
+         | ValueExprSelect(MoonValue.ValueExpr cond, MoonValue.ValueExpr t, MoonValue.ValueExpr f) unique
+         | ValueExprCmp(MoonCore.CmpOp op, MoonCode.CodeType ty, MoonValue.ValueExpr a, MoonValue.ValueExpr b) unique
+         | ValueExprAffine(MoonValue.AffineExpr affine) unique
+
+    AffineTerm = (MoonCode.CodeValueId value, string coeff) unique
+
+    AffineExpr = (string constant, MoonValue.AffineTerm* terms, MoonCode.CodeType ty, MoonCode.CodeIntSemantics? sem) unique
+
+    ValueRange = ValueRangeUnknown(string reason) unique
+         | ValueRangeInt(MoonCode.CodeValueId value, MoonValue.ValueExpr lo, MoonValue.ValueExpr hi, boolean inclusive_hi, MoonValue.AlgebraProof proof) unique
+
+    ReductionKind = ReductionAdd
+         | ReductionMul
+         | ReductionMin
+         | ReductionMax
+         | ReductionAnd
+         | ReductionOr
+         | ReductionXor
+
+    ReductionFact = (MoonValue.AlgebraFactId id,
+                     MoonFlow.FlowDomain domain,
+                     MoonCode.CodeValueId accumulator,
+                     MoonValue.ReductionKind kind,
+                     MoonValue.ValueExpr init,
+                     MoonValue.ValueExpr contribution,
+                     MoonCode.CodeType ty,
+                     MoonCode.CodeIntSemantics? int_semantics,
+                     MoonCode.CodeFloatMode? float_mode,
+                     MoonValue.AlgebraProof proof) unique
+
+    ClosedFormFact = (MoonValue.AlgebraFactId id,
+                      MoonValue.ReductionFact reduction,
+                      MoonValue.ValueExpr expr,
+                      MoonValue.AlgebraProof proof) unique
+
+    AlgebraProof = AlgebraProofFlow(MoonFlow.FlowDomain domain, string reason) unique
+         | AlgebraProofNoWrap(MoonCode.CodeValueId value, string reason) unique
+         | AlgebraProofIdentity(string reason) unique
+         | AlgebraProofReduction(MoonValue.ReductionFact fact, string reason) unique
+         | AlgebraProofComposite(MoonValue.AlgebraProof* proofs, string reason) unique
+
+    ValueFact = ValueExprFact(MoonCode.CodeValueId value, MoonValue.ValueExpr expr, MoonValue.AlgebraProof proof) unique
+         | ValueRangeFact(MoonValue.ValueRange range) unique
+         | ValueNoWrapFact(MoonCode.CodeValueId value, MoonCode.CodeIntSemantics sem, MoonValue.AlgebraProof proof) unique
+         | ValueFloatModeFact(MoonCode.CodeValueId value, MoonCode.CodeFloatMode mode, MoonValue.AlgebraProof proof) unique
+
+    ValueFactSet = (MoonCode.CodeModuleId module,
+                    MoonValue.ValueFact* values,
+                    MoonValue.ReductionFact* reductions,
+                    MoonValue.ClosedFormFact* closed_forms) unique
+}

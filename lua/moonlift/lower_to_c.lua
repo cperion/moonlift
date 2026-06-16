@@ -9,12 +9,12 @@ function M.Define(T)
     local api = {}
 
     local function module(code_module, lower_module, opts)
-        -- C lowering is intentionally a pure CodeToC projection for now.
-        -- MoonLower/MoonKernel are accepted so the frontend can use the same
-        -- pipeline shape as Back, but this path must not install partial
-        -- point optimizations.  When C kernel lowering exists, it should
-        -- consume the generic KernelBody semantics rather than special-casing
-        -- individual reductions or benchmark shapes.
+        -- C lowering is intentionally a pure CodeToC projection for v1.
+        -- The new LowerModule fragment plan is accepted but ignored here so C
+        -- stays on ordinary Code fallback; this path must not install fake
+        -- Kernel/Schedule lowering.  When C kernel lowering exists, it should
+        -- consume generic KernelBody + Schedule semantics rather than
+        -- special-casing individual reductions or benchmark shapes.
         return CodeToC.module(code_module, opts)
     end
 

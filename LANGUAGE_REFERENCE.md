@@ -413,7 +413,7 @@ bounds   window_bounds  disjoint  same_len
 **Statement keywords:**
 ```text
 let  var  if  then  else  elseif  switch  case  default  do  end
-block  entry  jump  yield  return  emit
+block  entry  jump  yield  return  emit  call
 ```
 
 **Expression keywords:**
@@ -1081,6 +1081,27 @@ block bad(pos: i32, code: i32)
 end
 end
 ```
+
+### 8.6.1 Call statement
+
+```moonlift
+call fragment(arg1, arg2, ...; exit1 = block1, exit2 = block2, ...)
+```
+
+`call` has the same source position and fill syntax as `emit`, but chooses a
+function boundary instead of an inline splice. The frontend generates an ordinary
+result tagged union and wrapper function for the region protocol, calls that
+wrapper, then immediately switches on the result and jumps to the mapped local
+continuation block.
+
+In short:
+
+- `emit` = inline CFG splice; continuation payloads remain in control flow.
+- `call` = generated function + result union + local dispatch.
+
+Because `call` packs the continuation protocol into data, continuation payloads
+must be durable data. Payloads containing leases are rejected; use `emit` when a
+region carries temporary access so that the lease stays in control flow.
 
 ### 8.7 Jump statement
 
@@ -1787,6 +1808,25 @@ The caller provides:
 
 The caller's blocks receive the continuation parameters. The caller decides
 what each exit means — the fragment only declares its protocol.
+
+The same fragment can also be used with `call`:
+
+```moonlift
+call scan_until(p, n, target; hit = found, miss = missing)
+```
+
+`emit` and `call` share the same region protocol and continuation-fill syntax.
+They differ only in the cost boundary and representation chosen by the frontend:
+
+| Use | Lowering | When to use |
+| --- | --- | --- |
+| `emit` | Inline control-flow graph splice | Default composition; zero call overhead; leases may remain in control flow |
+| `call` | Generated wrapper function returning a generated tagged-union result, followed by a local variant dispatch | Code-size or sharing boundary; continuation payloads must be durable data |
+
+A `call` must disappear during open/RNF expansion. Backend lowering sees only
+ordinary functions, calls, tagged-union constructors/switches, jumps, and traps.
+If a continuation payload contains a lease, the generated result type is
+rejected; use `emit` so temporary access stays in control flow.
 
 ### 11.3 Continuation forwarding
 

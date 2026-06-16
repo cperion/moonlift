@@ -486,9 +486,28 @@ function M.Define(T, cb)
             local stmt = stmts[i]
             local cls = pvm.classof(stmt)
             if cls == Tr.StmtUseRegionFrag then
-                local jump, more_blocks = normalize_region_frag_use(stmt, env, stack, enclosing_map, target_param_map)
-                body[#body + 1] = jump
-                append_all(blocks, more_blocks)
+                if stmt.mode == Tr.RegionUseCall then
+                    if cb.lower_region_call_use then
+                        append_all(body, cb.lower_region_call_use(stmt, env, enclosing_map) or {})
+                    else
+                        local frag_ref = stmt.frag
+                        local frag = cb.lookup_region_frag_ref and cb.lookup_region_frag_ref(stmt.frag, env) or nil
+                        if frag ~= nil and frag ~= pvm.NIL then
+                            local name = frag.name
+                            if type(name) == "table" then name = name.text or name.name end
+                            frag_ref = O.RegionFragRefName(tostring(name))
+                        end
+                        body[#body + 1] = pvm.with(stmt, {
+                            h = one_expand_stmt_header(stmt.h, env),
+                            frag = frag_ref,
+                            args = expand_exprs(stmt.args, env),
+                        })
+                    end
+                else
+                    local jump, more_blocks = normalize_region_frag_use(stmt, env, stack, enclosing_map, target_param_map)
+                    body[#body + 1] = jump
+                    append_all(blocks, more_blocks)
+                end
             elseif cls == Tr.StmtIf then
                 local then_body, then_blocks = normalize_stmts(stmt.then_body, env, stack, enclosing_map, target_param_map)
                 local else_body, else_blocks = normalize_stmts(stmt.else_body, env, stack, enclosing_map, target_param_map)

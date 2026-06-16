@@ -1240,7 +1240,7 @@ function M.Define(T)
         end,
         [Tr.StmtControl] = function(self, ctx) local region = pvm.one(type_control_stmt_region(self.region, ctx)); return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtControl(Tr.StmtSurface, region.region) }, region.issues)) end,
         [Tr.StmtTrap] = function(self, ctx)
-            return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtTrap(Tr.StmtTyped(void_ty())) }, {}))
+            return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtTrap(Tr.StmtSurface) }, {}))
         end,
         [Tr.StmtUseRegionSlot] = function(self, ctx) return pvm.once(Tr.TypeStmtResult(ctx, { pvm.with(self, { h = Tr.StmtSurface }) }, {})) end,
         [Tr.StmtUseRegionFrag] = function(self, ctx) return pvm.once(Tr.TypeStmtResult(ctx, { pvm.with(self, { h = Tr.StmtSurface }) }, {})) end,
@@ -1294,10 +1294,11 @@ function M.Define(T)
 
     type_control_expr_region = pvm.phase("moonlift_tree_typecheck_control_expr_region", {
         [Tr.ControlExprRegion] = function(self, ctx)
-            local entry, issues = type_entry_block(self.region_id, self.entry, ctx, Tr.TypeYieldValue(self.result_ty))
+            local result_ty = canonical_type(ctx.env, self.result_ty)
+            local entry, issues = type_entry_block(self.region_id, self.entry, ctx, Tr.TypeYieldValue(result_ty))
             local blocks = {}
-            for i = 1, #self.blocks do local b, bi = type_control_block(self.region_id, self.blocks[i], ctx, Tr.TypeYieldValue(self.result_ty)); blocks[#blocks + 1] = b; append_all(issues, bi) end
-            local region = Tr.ControlExprRegion(self.region_id, self.result_ty, entry, blocks); append_all(issues, validate_control(region))
+            for i = 1, #self.blocks do local b, bi = type_control_block(self.region_id, self.blocks[i], ctx, Tr.TypeYieldValue(result_ty)); blocks[#blocks + 1] = b; append_all(issues, bi) end
+            local region = Tr.ControlExprRegion(self.region_id, result_ty, entry, blocks); append_all(issues, validate_control(region))
             return pvm.once(Tr.TypeControlExprRegionResult(region, issues))
         end,
     }, { args_cache = "last" })
@@ -1433,11 +1434,20 @@ function M.Define(T)
                 end
             elseif cls == Tr.TypeDeclTaggedUnionSugar then
                 local seen = {}
+                local is_region_call_result = type(self.t.name) == "string" and self.t.name:match("^__moon_region_call_") ~= nil
                 for i = 1, #self.t.variants do
                     local v = self.t.variants[i]
                     local name = v.name
                     check_type_policy(v.payload, issues, "variant " .. name)
-                    for j = 1, #(v.fields or {}) do check_type_policy(v.fields[j].ty, issues, "variant field " .. v.fields[j].field_name); if type_contains_lease(v.fields[j].ty) then issues[#issues + 1] = Tr.TypeIssueInvalidUnary("lease escape variant field", v.fields[j].ty) end end
+                    if type_contains_lease(v.payload) then
+                        issues[#issues + 1] = Tr.TypeIssueInvalidUnary(is_region_call_result and "region call lease payload" or "lease escape variant field", v.payload)
+                    end
+                    for j = 1, #(v.fields or {}) do
+                        check_type_policy(v.fields[j].ty, issues, "variant field " .. v.fields[j].field_name)
+                        if type_contains_lease(v.fields[j].ty) then
+                            issues[#issues + 1] = Tr.TypeIssueInvalidUnary(is_region_call_result and "region call lease payload" or "lease escape variant field", v.fields[j].ty)
+                        end
+                    end
                     if seen[name] then issues[#issues + 1] = Tr.TypeIssueDuplicateVariant(self.t.name, name) end
                     seen[name] = true
                 end
@@ -1691,6 +1701,10 @@ local function explain_type_issue(issue, analysis)
             return report("lease captured in aggregate", {
                 { message = "aggregates can outlive the current access extent, so they cannot contain `" .. ty .. "`" },
             }, { { message = "store a handle or copied data instead of the lease" } })
+        elseif raw_op == "region call lease payload" then
+            return report("cannot call region because continuation payload contains a lease", {
+                { message = "continuation payload `" .. ty .. "` is temporary access and cannot be packed into the generated region-call result" },
+            }, { { message = "use `emit` so temporary access stays in control flow" } })
         elseif raw_op == "lease escape field" or raw_op == "lease escape variant field" or raw_op == "lease escape result" or raw_op == "lease escape const" or raw_op == "lease escape static" then
             return report("lease appears in durable type position", {
                 { message = "`" .. ty .. "` is temporary access, not storable data" },

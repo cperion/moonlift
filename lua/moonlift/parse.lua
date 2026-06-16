@@ -39,7 +39,7 @@ local TK = {
     default_kw = 118, do_kw      = 119, end_kw     = 120,
     block_kw   = 130, jump_kw    = 132, yield_kw   = 133,
     return_kw  = 134, region_kw  = 135, entry_kw   = 136, emit_kw    = 137,
-    expr_kw    = 138,
+    expr_kw    = 138, call_kw    = 139,
     true_kw    = 140, false_kw   = 141, nil_kw     = 142, and_kw     = 143,
     or_kw      = 144, not_kw     = 145,
     view_kw    = 150, noalias_kw = 151, readonly_kw= 152, writeonly_kw=153,
@@ -73,7 +73,7 @@ local keywords = {
     ["jump"]     = TK.jump_kw,     ["yield"]    = TK.yield_kw,
     ["return"]   = TK.return_kw,   ["region"]   = TK.region_kw,
     ["entry"]    = TK.entry_kw,    ["emit"]     = TK.emit_kw,
-    ["expr"]     = TK.expr_kw,
+    ["expr"]     = TK.expr_kw,     ["call"]     = TK.call_kw,
     ["true"]     = TK.true_kw,     ["false"]    = TK.false_kw,
     ["nil"]      = TK.nil_kw,      ["and"]      = TK.and_kw,
     ["or"]       = TK.or_kw,       ["not"]      = TK.not_kw,
@@ -570,7 +570,7 @@ local ident_kw = {
     [TK.case_kw]=true, [TK.default_kw]=true, [TK.do_kw]=true, [TK.end_kw]=true,
     [TK.block_kw]=true, [TK.jump_kw]=true, [TK.yield_kw]=true,
     [TK.return_kw]=true, [TK.region_kw]=true, [TK.entry_kw]=true, [TK.emit_kw]=true,
-    [TK.expr_kw]=true, [TK.true_kw]=true, [TK.false_kw]=true, [TK.nil_kw]=true,
+    [TK.expr_kw]=true, [TK.call_kw]=true, [TK.true_kw]=true, [TK.false_kw]=true, [TK.nil_kw]=true,
     [TK.and_kw]=true, [TK.or_kw]=true, [TK.not_kw]=true, [TK.view_kw]=true,
     [TK.noalias_kw]=true, [TK.readonly_kw]=true, [TK.writeonly_kw]=true,
     [TK.requires_kw]=true, [TK.bounds_kw]=true, [TK.disjoint_kw]=true,
@@ -1417,8 +1417,8 @@ function Parser:parse_jump_args()
     return args
 end
 
--- Region fragment reference (for emit)
-function Parser:parse_region_frag_ref()
+-- Region fragment reference (for region use: emit/call)
+function Parser:parse_region_frag_ref(keyword)
     local O = self.O
     if self:kind() == TK.hole then
         local id = self:text(); self.i = self.i + 1
@@ -1426,7 +1426,7 @@ function Parser:parse_region_frag_ref()
         self:record_splice_slot(id, O.SlotRegionFrag(slot), "region_frag")
         return O.RegionFragRefSlot(slot), "@" .. id
     end
-    local name = self:expect_name("expected region fragment name after emit")
+    local name = self:expect_name("expected region fragment name after " .. (keyword or "emit/call"))
     return O.RegionFragRefName(name), name
 end
 
@@ -1442,12 +1442,12 @@ function Parser:parse_expr_frag_ref()
     return O.ExprFragRefName(name), name
 end
 
-function Parser:parse_emit_stmt()
+function Parser:parse_region_use_stmt(mode, keyword)
     local Tr, O = self.Tr, self.O
-    local frag_ref, use_suffix = self:parse_region_frag_ref()
+    local frag_ref, use_suffix = self:parse_region_frag_ref(keyword)
     local frag_name_str = type(use_suffix) == "string" and use_suffix or tostring(use_suffix)
     local args, cont_fills = {}, {}
-    self:expect(TK.lparen, "expected '(' after emitted fragment name")
+    self:expect(TK.lparen, "expected '(' after " .. keyword .. " fragment name")
     self:skip_nl()
     if self:kind() ~= TK.rparen and self:kind() ~= TK.semi then
         while true do
@@ -1480,9 +1480,17 @@ function Parser:parse_emit_stmt()
             self:skip_nl()
         end
     end
-    self:expect(TK.rparen, "expected ')' after emit")
-    return Tr.StmtUseRegionFrag(Tr.StmtSurface,
-        "emit." .. frag_name_str .. "." .. tostring(self.i), frag_ref, args, {}, cont_fills)
+    self:expect(TK.rparen, "expected ')' after " .. keyword)
+    return Tr.StmtUseRegionFrag(Tr.StmtSurface, mode,
+        keyword .. "." .. frag_name_str .. "." .. tostring(self.i), frag_ref, args, {}, cont_fills)
+end
+
+function Parser:parse_emit_stmt()
+    return self:parse_region_use_stmt(self.Tr.RegionUseEmit, "emit")
+end
+
+function Parser:parse_call_stmt()
+    return self:parse_region_use_stmt(self.Tr.RegionUseCall, "call")
 end
 
 function Parser:parse_emit_expr()
@@ -1551,6 +1559,7 @@ function Parser:parse_stmt()
     end
 
     if self:accept(TK.emit_kw) then return self:parse_emit_stmt() end
+    if self:accept(TK.call_kw) then return self:parse_call_stmt() end
 
     if self:accept(TK.let_kw) or self:accept(TK.var_kw) then
         local is_var = self.toks.kind[self.i - 1] == TK.var_kw

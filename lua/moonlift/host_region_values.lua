@@ -214,11 +214,11 @@ function M.Install(api, session)
         end
     end
 
-    function BlockBuilder:emit(fragment, runtime_args, fills)
-        assert(type(fragment) == "table" and (getmetatable(fragment) == RegionFragValue or getmetatable(fragment) == api.CanonicalRegionFragValue), "emit expects a region fragment value")
+    local function block_region_use(self, mode, keyword, fragment, runtime_args, fills)
+        assert(type(fragment) == "table" and (getmetatable(fragment) == RegionFragValue or getmetatable(fragment) == api.CanonicalRegionFragValue), keyword .. " expects a region fragment value")
         merge_region_dep(self.region.deps, fragment)
         local args = {}
-        for i = 1, #(runtime_args or {}) do args[i] = api.as_moonlift_expr(runtime_args[i], "emit runtime arg expects expression") end
+        for i = 1, #(runtime_args or {}) do args[i] = api.as_moonlift_expr(runtime_args[i], keyword .. " runtime arg expects expression") end
         local fill_values = {}
         for name, target in ordered_pairs_from_map(fills or {}) do
             local cont = fragment.conts[name]
@@ -232,7 +232,15 @@ function M.Install(api, session)
             end
         end
         for name in pairs(fragment.conts) do if (fills or {})[name] == nil then api.raise_host_issue(session.T.MoonHost.HostIssueMissingEmitFill(fragment.name, name)) end end
-        return self:emit_stmt(Tr.StmtUseRegionFrag(Tr.StmtSurface, session:symbol_key("emit", fragment.name), O.RegionFragRefName(fragment.name), args, {}, fill_values))
+        return self:emit_stmt(Tr.StmtUseRegionFrag(Tr.StmtSurface, mode, session:symbol_key(keyword, fragment.name), O.RegionFragRefName(fragment.name), args, {}, fill_values))
+    end
+
+    function BlockBuilder:emit(fragment, runtime_args, fills)
+        return block_region_use(self, Tr.RegionUseEmit, "emit", fragment, runtime_args, fills)
+    end
+
+    function BlockBuilder:call(fragment, runtime_args, fills)
+        return block_region_use(self, Tr.RegionUseCall, "call", fragment, runtime_args, fills)
     end
 
     function BlockBuilder:if_(cond, then_fn, else_fn)

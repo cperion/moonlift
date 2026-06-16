@@ -32,10 +32,10 @@ local program = B.BackProgram({
 local payload = E.encode(program)
 assert(type(payload) == "string")
 assert(#payload > 16)
-assert(payload:byte(1) == 0x54) -- "MLBT" as little-endian u32 bytes: T B L M
-assert(payload:byte(2) == 0x42)
-assert(payload:byte(3) == 0x4c)
-assert(payload:byte(4) == 0x4d)
+assert(payload:byte(1) == 0x4c) -- current Flatline binary header starts with "ML"
+assert(payload:byte(2) == 0x4d)
+assert(payload:byte(3) == 0x00)
+assert(payload:byte(4) == 0x00)
 
 local jit = jit_api.jit()
 local artifact = jit:compile(program)

@@ -1,0 +1,28 @@
+module MoonGraph {
+    GraphBlockId = (MoonCode.CodeFuncId func, MoonCode.CodeBlockId block) unique
+
+    GraphInstRef = (MoonCode.CodeFuncId func, MoonCode.CodeBlockId block, MoonCode.CodeInstId inst) unique
+
+    GraphEdge = (MoonGraph.GraphBlockId from, MoonGraph.GraphBlockId to, string kind) unique
+
+    GraphUse = (MoonCode.CodeValueId value, MoonGraph.GraphInstRef? inst, MoonGraph.GraphBlockId? term_block, string role) unique
+
+    GraphDef = (MoonCode.CodeValueId value, MoonGraph.GraphInstRef? inst, MoonCode.CodeValueId? param) unique
+
+    GraphLoopId = (string text) unique
+
+    GraphLoop = (MoonGraph.GraphLoopId id,
+                 MoonCode.CodeFuncId func,
+                 MoonGraph.GraphBlockId header,
+                 MoonGraph.GraphBlockId* body,
+                 MoonGraph.GraphEdge* latches,
+                 MoonGraph.GraphEdge* exits) unique
+
+    CodeFuncGraph = (MoonCode.CodeFuncId func,
+                     MoonGraph.GraphEdge* edges,
+                     MoonGraph.GraphDef* defs,
+                     MoonGraph.GraphUse* uses,
+                     MoonGraph.GraphLoop* loops) unique
+
+    CodeGraph = (MoonCode.CodeModuleId module, MoonGraph.CodeFuncGraph* funcs) unique
+}

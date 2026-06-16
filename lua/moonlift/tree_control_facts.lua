@@ -107,6 +107,7 @@ function M.Define(T, opts)
         [Tr.StmtJumpCont] = function() return pvm.empty() end,
         [Tr.StmtUseRegionSlot] = function() return pvm.empty() end,
         [Tr.StmtUseRegionFrag] = function() return pvm.empty() end,
+        [Tr.StmtTrap] = function() return pvm.empty() end,
     }, { args_cache = "last" })
 
     stmt_terminates = pvm.phase("moonlift_tree_control_stmt_terminates", {
@@ -137,6 +138,7 @@ function M.Define(T, opts)
         [Tr.StmtControl] = function() return pvm.once(false) end,
         [Tr.StmtUseRegionSlot] = function() return pvm.once(false) end,
         [Tr.StmtUseRegionFrag] = function() return pvm.once(false) end,
+        [Tr.StmtTrap] = function() return pvm.once(true) end,
     })
 
     local function entry_facts(region_id, entry)

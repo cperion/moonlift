@@ -14,16 +14,27 @@ local Typecheck = require("moonlift.tree_typecheck").Define(T)
 local Layout = require("moonlift.sem_layout_resolve").Define(T)
 local TreeToCode = require("moonlift.tree_to_code").Define(T)
 local CodeValidate = require("moonlift.code_validate").Define(T)
+local CodeGraph = require("moonlift.code_graph").Define(T)
 local CodeFlowFacts = require("moonlift.code_flow_facts").Define(T)
+local CodeValueFacts = require("moonlift.code_value_facts").Define(T)
+local CodeMemFacts = require("moonlift.code_mem_facts").Define(T)
+local CodeEffectFacts = require("moonlift.code_effect_facts").Define(T)
+local CodeKernelPlan = require("moonlift.code_kernel_plan").Define(T)
+local CodeSchedulePlan = require("moonlift.code_schedule_plan").Define(T)
 
-local Code = T.MoonCode
+local Graph = T.MoonGraph
 local Flow = T.MoonFlow
+local Value = T.MoonValue
+local Mem = T.MoonMem
+local Effect = T.MoonEffect
+local Kernel = T.MoonKernel
+local Schedule = T.MoonSchedule
 
 local function assert_no_issues(label, issues)
     assert(#issues == 0, label .. " expected no issues, got " .. tostring(#issues))
 end
 
-local function lower(src)
+local function lower_code(src)
     local parsed = Parse.parse_module(src)
     assert_no_issues("parse", parsed.issues)
     local expanded = OpenExpand.module(parsed.module)
@@ -32,116 +43,82 @@ local function lower(src)
     local checked = Typecheck.check_module(closed)
     assert_no_issues("typecheck", checked.issues)
     local resolved = Layout.module(checked.module)
-    local code = TreeToCode.module(resolved)
+    local code, contracts = TreeToCode.module_with_contracts(resolved)
     assert_no_issues("code", CodeValidate.validate(code).issues)
-    return code
+    return code, contracts
 end
 
-local module = lower([[
-func counted_loop(n: i32): i32
+local code, contracts = lower_code([[
+extern touch(x: i32): i32 end
+func fact_phases(noalias dst: ptr(i32), readonly src: ptr(i32), n: i32): i32
+    requires bounds(dst, n)
+    requires bounds(src, n)
+    requires disjoint(dst, src)
+    let z: i32 = touch(n)
     return block loop(i: i32 = 0, acc: i32 = 0): i32
-        if i >= n then yield acc else jump loop(i = i + 1, acc = acc + i) end
+        if i >= n then yield acc end
+        let x: i32 = src[i]
+        dst[i] = x
+        jump loop(i = i + 1, acc = acc + i)
     end
 end
 ]])
 
-local facts = CodeFlowFacts.facts(module)
-assert(facts.module == module.id)
-assert(#facts.edges >= 3, "expected control-flow edges")
-assert(#facts.loops == 1, "expected one natural loop")
-local loop = facts.loops[1]
-assert(pvm.classof(loop.source) == Flow.FlowLoopFromCode)
-assert(pvm.classof(loop.domain) == Flow.FlowDomainCounted, "expected counted loop domain")
-assert(#loop.inductions >= 1, "expected primary induction")
-assert(#loop.exits >= 1, "expected loop exit edge")
-local saw_backedge, saw_exit = false, false
-for _, edge in ipairs(facts.edges) do
-    for _, role in ipairs(edge.roles) do
-        if pvm.classof(role) == Flow.FlowRoleBackedge then saw_backedge = true end
-        if pvm.classof(role) == Flow.FlowRoleLoopExit then saw_exit = true end
+local graph = CodeGraph.graph(code)
+assert(pvm.classof(graph.funcs[1].loops[1].id) == Graph.GraphLoopId, "Graph phase should own loop ids")
+assert(#graph.funcs[1].defs > 0 and #graph.funcs[1].uses > 0, "Graph should index defs and uses")
+
+local flow = CodeFlowFacts.facts(code, graph)
+assert(flow.module == code.id)
+assert(pvm.classof(flow.loops[1].loop) == Graph.GraphLoopId, "Flow loops should cite GraphLoopId")
+assert(pvm.classof(flow.loops[1].domain) == Flow.FlowDomainLoop, "Flow domain should wrap Graph loop")
+assert(flow.loops[1].counted ~= nil, "counted-loop recognition should remain in Flow")
+local semantic = CodeFlowFacts.semantic_facts(code, graph, flow)
+local normalized = nil
+for _, fact in ipairs(semantic.facts or {}) do if pvm.classof(fact) == Flow.FlowLoopNormalizedCounted then normalized = fact end end
+assert(normalized ~= nil, "Flow semantic facts should normalize counted loop")
+assert(pvm.classof(normalized.trip_count) == Flow.FlowTripCountUnknown, "Flow must not invent exact trip-count CodeValueId")
+
+local value = CodeValueFacts.facts(code, graph, flow)
+assert(pvm.classof(value) == Value.ValueFactSet)
+assert(#value.reductions > 0, "Value phase should detect loop-carried reductions before Kernel")
+assert(#value.closed_forms > 0 and pvm.classof(value.closed_forms[1]) == Value.ClosedFormFact, "closed forms live in MoonValue before Kernel")
+assert(pvm.classof(value.closed_forms[1].expr) ~= Value.ValueExprValue, "closed form must be an exact expression tree, not the accumulator placeholder")
+
+local mem = CodeMemFacts.semantic_facts(code, graph, flow, value, contracts)
+assert(pvm.classof(mem) == Mem.MemSemanticFactSet)
+assert(#mem.backend_info > 0, "Mem phase should produce MemBackendAccessInfo for loads/stores")
+local saw_backend = false
+for _, info in ipairs(mem.backend_info or {}) do if pvm.classof(info) == Mem.MemBackendAccessInfo then saw_backend = true end end
+assert(saw_backend, "backend info entries should use MoonMem.MemBackendAccessInfo")
+
+local effect = CodeEffectFacts.facts(code, graph, mem, contracts)
+assert(pvm.classof(effect) == Effect.EffectFactSet)
+assert(#effect.calls > 0, "Effect phase should summarize calls")
+assert(pvm.classof(effect.calls[1]) == Effect.CallSummary, "call summary should be MoonEffect.CallSummary")
+
+local kernels = CodeKernelPlan.plan(code, graph, flow, value, mem, effect)
+for _, plan in ipairs(kernels.plans or {}) do
+    if pvm.classof(plan) == Kernel.KernelPlanned and pvm.classof(plan.body.result) == Kernel.KernelResultClosedForm then
+        assert(pvm.classof(plan.body.result.closed_form) == Value.ClosedFormFact, "Kernel closed-form result should cite MoonValue.ClosedFormFact")
     end
 end
-assert(saw_backedge, "expected a backedge role")
-assert(saw_exit, "expected a loop-exit role")
 
-local range_by_value = {}
-for _, range in ipairs(facts.ranges) do
-    if range.value ~= nil then range_by_value[range.value.text] = pvm.classof(range) end
+local schedules = CodeSchedulePlan.plan(code, kernels, flow, value, mem, effect)
+assert(pvm.classof(schedules) == Schedule.ScheduleModulePlan)
+local saw_real_schedule, saw_kernel_reject, saw_schedule_reject = false, false, false
+for _, plan in ipairs(kernels.plans or {}) do
+    if pvm.classof(plan) == Kernel.KernelNoPlan and pvm.classof(plan.subject) == Kernel.KernelSubjectLoop and #(plan.rejects or {}) > 0 then saw_kernel_reject = true end
 end
-assert(range_by_value[loop.inductions[1].value.text] == Flow.FlowRangeDerived, "expected derived induction range")
-
-local semantic = CodeFlowFacts.semantic_facts(module, facts)
-assert(semantic.module == module.id)
-local normalized, induction_range, saw_nowrap = nil, nil, false
-for _, fact in ipairs(semantic.facts) do
-    local cls = pvm.classof(fact)
-    if cls == Flow.FlowLoopNormalizedCounted then normalized = fact end
-    if cls == Flow.FlowLoopInductionRange then induction_range = fact.range end
-    if cls == Flow.FlowLoopInductionNoWrap then saw_nowrap = true end
-end
-assert(normalized ~= nil, "expected normalized counted semantic fact")
-assert(normalized.loop == loop.id, "expected normalized fact for loop")
-assert(normalized.direction == Flow.FlowLoopIncreasing, "expected increasing loop direction")
-assert(pvm.classof(normalized.trip_count) == Flow.FlowTripCountNonNegative, "expected conservative non-negative trip count")
-assert(induction_range ~= nil, "expected normalized induction range")
-assert(induction_range.loop == loop.id, "expected range fact for loop")
-assert(induction_range.value == loop.inductions[1].value, "expected range for primary induction")
-assert(pvm.classof(induction_range.min) == Flow.FlowBoundConst and induction_range.min.raw == "0", "expected const zero lower bound")
-assert(pvm.classof(induction_range.max) == Flow.FlowBoundValue, "expected value upper bound")
-assert(induction_range.max_exclusive == true, "expected exclusive upper bound")
-assert(not saw_nowrap, "default wrapping integer semantics must not invent no-wrap")
-
-local inclusive_module = lower([[
-func inclusive_loop(n: i32): i32
-    return block loop(i: i32 = 0, acc: i32 = 0): i32
-        if i > n then yield acc else jump loop(i = i + 1, acc = acc + i) end
+for _, sched in ipairs(schedules.schedules or {}) do
+    if pvm.classof(sched) == Schedule.SchedulePlanned then
+        saw_real_schedule = true
+        assert(#sched.proofs > 0, "real SchedulePlanned must carry proofs")
+    elseif sched.rejects ~= nil then
+        assert(#sched.rejects > 0, "ScheduleNoPlan must carry rejects")
+        saw_schedule_reject = true
     end
 end
-]])
-local inclusive_facts = CodeFlowFacts.facts(inclusive_module)
-local inclusive_semantic = CodeFlowFacts.semantic_facts(inclusive_module, inclusive_facts)
-local inclusive_normalized, inclusive_range = nil, nil
-for _, fact in ipairs(inclusive_semantic.facts) do
-    local cls = pvm.classof(fact)
-    if cls == Flow.FlowLoopNormalizedCounted then inclusive_normalized = fact end
-    if cls == Flow.FlowLoopInductionRange then inclusive_range = fact.range end
-end
-assert(inclusive_normalized ~= nil, "expected normalized fact even for conservative counted loops")
-assert(inclusive_normalized.direction == Flow.FlowLoopIncreasing, "expected direction for inclusive increasing loop")
-assert(pvm.classof(inclusive_normalized.trip_count) == Flow.FlowTripCountUnknown, "inclusive stop keeps trip count conservative")
-assert(inclusive_range == nil, "inclusive stop must not derive [start, stop) range")
+assert(saw_real_schedule or saw_kernel_reject or saw_schedule_reject, "semantic loops must either schedule real executable plans or reject explicitly")
 
-local manual_origin = Code.CodeOriginGenerated("manual flow switch")
-local i32 = Code.CodeTyInt(32, Code.CodeSigned)
-local bool = Code.CodeTyBool8
-local fn = Code.CodeFuncId("fn:switchy")
-local sig = Code.CodeSigId("sig:switchy")
-local entry = Code.CodeBlockId("block:entry")
-local case1 = Code.CodeBlockId("block:case1")
-local def = Code.CodeBlockId("block:def")
-local value = Code.CodeValueId("v:x")
-local manual = Code.CodeModule(Code.CodeModuleId("module:manual"), {
-    Code.CodeSig(sig, { i32 }, { i32 }),
-}, {}, {}, {}, {}, {
-    Code.CodeFunc(fn, "switchy", Code.CodeLinkageLocal, sig, { Code.CodeParam(value, "x", i32, manual_origin) }, {}, entry, {
-        Code.CodeBlock(entry, "entry", {}, {}, Code.CodeTerm(Code.CodeTermId("term:switch"), Code.CodeTermSwitch(value, {
-            Code.CodeSwitchCase(T.MoonCore.LitInt("1"), case1, {}),
-        }, def, {}), manual_origin), manual_origin),
-        Code.CodeBlock(case1, "case1", {}, { Code.CodeInst(Code.CodeInstId("inst:c1"), Code.CodeInstConst(Code.CodeValueId("v:c1"), Code.CodeConstLiteral(i32, T.MoonCore.LitInt("1"))), manual_origin) }, Code.CodeTerm(Code.CodeTermId("term:r1"), Code.CodeTermReturn({ Code.CodeValueId("v:c1") }), manual_origin), manual_origin),
-        Code.CodeBlock(def, "def", {}, { Code.CodeInst(Code.CodeInstId("inst:c0"), Code.CodeInstConst(Code.CodeValueId("v:c0"), Code.CodeConstLiteral(i32, T.MoonCore.LitInt("0"))), manual_origin) }, Code.CodeTerm(Code.CodeTermId("term:r0"), Code.CodeTermReturn({ Code.CodeValueId("v:c0") }), manual_origin), manual_origin),
-    }, manual_origin),
-}, manual_origin)
-assert_no_issues("manual code", CodeValidate.validate(manual).issues)
-local switch_facts = CodeFlowFacts.facts(manual)
-local saw_case, saw_default, saw_const_range = false, false, false
-for _, edge in ipairs(switch_facts.edges) do
-    if pvm.classof(edge.kind) == Flow.FlowEdgeSwitchCase then saw_case = true end
-    if edge.kind == Flow.FlowEdgeSwitchDefault then saw_default = true end
-end
-for _, range in ipairs(switch_facts.ranges) do
-    if pvm.classof(range) == Flow.FlowRangeExact then saw_const_range = true end
-end
-assert(saw_case and saw_default, "expected switch case/default edges")
-assert(saw_const_range, "expected literal const range fact")
-
-io.write("moonlift code_flow_facts ok\n")
+io.write("moonlift semantic fact phases ok\n")

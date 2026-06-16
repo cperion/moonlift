@@ -120,7 +120,7 @@ must_fail_before_tree_to_c("test_c_backend_phase_boundaries:ExprUseExprFrag", mo
 }), "unexpanded expression fragment use")
 
 must_fail_before_tree_to_c("test_c_backend_phase_boundaries:StmtUseRegionFrag", module_with({
-    local_func("region_frag", void, { Tr.StmtUseRegionFrag(Tr.StmtSurface, "region_use", Open.RegionFragRefName("missing_region"), {}, {}, {}), Tr.StmtReturnVoid(Tr.StmtSurface) }),
+    local_func("region_frag", void, { Tr.StmtUseRegionFrag(Tr.StmtSurface, Tr.RegionUseEmit, "region_use", Open.RegionFragRefName("missing_region"), {}, {}, {}), Tr.StmtReturnVoid(Tr.StmtSurface) }),
 }), "unexpanded region fragment use")
 
 io.write("moonlift C backend phase boundaries ok\n")

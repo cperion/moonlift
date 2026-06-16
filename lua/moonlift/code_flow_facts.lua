@@ -2,13 +2,6 @@ local pvm = require("moonlift.pvm")
 
 local M = {}
 
-local function sanitize(s)
-    s = tostring(s or "x"):gsub("[^%w_]", "_")
-    if s:match("^%d") then s = "_" .. s end
-    if s == "" then s = "x" end
-    return s
-end
-
 local function class_name(x)
     local cls = pvm.classof(x) or x
     return tostring(cls):match("Class%((.-)%)") or tostring(cls)
@@ -20,14 +13,15 @@ function M.Define(T)
 
     local Core = T.MoonCore
     local Code = T.MoonCode
+    local Graph = T.MoonGraph
     local Flow = T.MoonFlow
+    local CodeGraph = require("moonlift.code_graph").Define(T)
 
     local api = {}
 
-    local function block_order(func)
+    local function block_index(func)
         local by_id, order = {}, {}
-        for i = 1, #(func.blocks or {}) do
-            local block = func.blocks[i]
+        for i, block in ipairs(func.blocks or {}) do
             by_id[block.id.text] = block
             order[block.id.text] = i
         end
@@ -37,57 +31,46 @@ function M.Define(T)
     local function edge_args(dest_block, args)
         local out = {}
         local params = dest_block and dest_block.params or {}
-        for i = 1, #(args or {}) do
+        for i, arg in ipairs(args or {}) do
             local param = params[i]
-            if param ~= nil then out[#out + 1] = Flow.FlowEdgeArg(args[i], param.value) end
+            if param ~= nil then out[#out + 1] = Flow.FlowEdgeArg(arg, param.value) end
         end
         return out
     end
 
-    local function append_edge_specs(func, block, block_by_id, specs, rejects)
+    local function term_edge_args(func, block_by_id, block)
+        local out = {}
         local term = block.term and block.term.kind or nil
         local cls = pvm.classof(term)
-        local function add(dest, kind, args, condition)
-            local dest_block = dest and block_by_id[dest.text] or nil
-            specs[#specs + 1] = {
-                func = func.id,
-                pred = block.id,
-                succ = dest,
-                kind = kind,
-                args = edge_args(dest_block, args or {}),
-                condition = condition,
-            }
+        local function add(dest, args)
+            if dest ~= nil then out[dest.text] = edge_args(block_by_id[dest.text], args or {}) end
         end
         if cls == Code.CodeTermJump then
-            add(term.dest, Flow.FlowEdgeJump, term.args)
+            add(term.dest, term.args)
         elseif cls == Code.CodeTermBranch then
-            add(term.then_dest, Flow.FlowEdgeThen, term.then_args, term.cond)
-            add(term.else_dest, Flow.FlowEdgeElse, term.else_args, term.cond)
+            add(term.then_dest, term.then_args)
+            add(term.else_dest, term.else_args)
         elseif cls == Code.CodeTermSwitch then
-            for i = 1, #(term.cases or {}) do
-                local case = term.cases[i]
-                local raw = case.literal and (case.literal.raw or tostring(case.literal.value)) or tostring(i)
-                add(case.dest, Flow.FlowEdgeSwitchCase(raw), case.args)
-            end
-            add(term.default_dest, Flow.FlowEdgeSwitchDefault, term.default_args)
+            for _, case in ipairs(term.cases or {}) do add(case.dest, case.args) end
+            add(term.default_dest, term.default_args)
         elseif cls == Code.CodeTermVariantSwitch then
-            for i = 1, #(term.cases or {}) do
-                local case = term.cases[i]
-                add(case.dest, Flow.FlowEdgeVariantCase(case.variant.variant_name), case.args)
-            end
-            add(term.default_dest, Flow.FlowEdgeVariantDefault, term.default_args)
-        elseif cls == Code.CodeTermReturn or cls == Code.CodeTermTrap or cls == Code.CodeTermUnreachable then
-            -- Terminal blocks have no CFG successors.
-        else
-            rejects[#rejects + 1] = Flow.FlowRejectUnsupportedTerminator(block.id, term or Code.CodeTermUnreachable("missing terminator"))
+            for _, case in ipairs(term.cases or {}) do add(case.dest, case.args) end
+            add(term.default_dest, term.default_args)
         end
+        return out
     end
 
-    local function add_pred(preds, succ, pred)
-        if succ == nil then return end
-        local key = succ.text
-        preds[key] = preds[key] or {}
-        preds[key][#preds[key] + 1] = pred
+    local function edge_arg_facts(func, graph_func, block_by_id)
+        local by_from_to = {}
+        for _, block in ipairs(func.blocks or {}) do
+            local args_by_dest = term_edge_args(func, block_by_id, block)
+            for dest, args in pairs(args_by_dest) do by_from_to[block.id.text .. "\0" .. dest] = args end
+        end
+        local out = {}
+        for _, edge in ipairs(graph_func.edges or {}) do
+            out[#out + 1] = Flow.FlowEdgeFact(edge, by_from_to[edge.from.block.text .. "\0" .. edge.to.block.text] or {})
+        end
+        return out
     end
 
     local function value_defs(func)
@@ -102,7 +85,7 @@ function M.Define(T)
                     defs[k.dst.text] = { cls = cls, inst = inst, const = k.const }
                     types[k.dst.text] = k.const.ty
                 elseif cls == Code.CodeInstAlias then
-                    defs[k.dst.text] = { cls = cls, inst = inst, src = k.src }
+                    defs[k.dst.text] = { cls = cls, inst = inst, src = k.src, ty = k.ty }
                     types[k.dst.text] = k.ty
                 elseif cls == Code.CodeInstBinary then
                     defs[k.dst.text] = { cls = cls, inst = inst, op = k.op, ty = k.ty, semantics = k.semantics, lhs = k.lhs, rhs = k.rhs }
@@ -110,65 +93,73 @@ function M.Define(T)
                 elseif cls == Code.CodeInstCompare then
                     defs[k.dst.text] = { cls = cls, inst = inst, op = k.op, operand_ty = k.operand_ty, lhs = k.lhs, rhs = k.rhs }
                     types[k.dst.text] = Code.CodeTyBool8
+                elseif cls == Code.CodeInstCast then
+                    defs[k.dst.text] = { cls = cls, inst = inst, value = k.value, from = k.from, to = k.to }
+                    types[k.dst.text] = k.to
                 elseif k.dst ~= nil then
+                    local ty = k.ty or k.ptr_ty or k.tag_ty
+                    if cls == Code.CodeInstViewMake then ty = Code.CodeTyView(k.elem_ty) end
+                    if cls == Code.CodeInstViewData then
+                        local vty = types[k.view.text]
+                        if pvm.classof(vty) == Code.CodeTyLease then vty = vty.base end
+                        ty = Code.CodeTyDataPtr(pvm.classof(vty) == Code.CodeTyView and vty.elem or nil)
+                    end
+                    if cls == Code.CodeInstViewLen or cls == Code.CodeInstViewStride then ty = Code.CodeTyIndex end
+                    if cls == Code.CodeInstLoad then ty = k.access.ty end
                     defs[k.dst.text] = { cls = cls, inst = inst }
-                    types[k.dst.text] = k.ty or k.ptr_ty or k.tag_ty or k.view_ty
+                    types[k.dst.text] = ty
                 end
             end
         end
         return defs, types
     end
 
+    local function const_values(defs)
+        local out = {}
+        for key, def in pairs(defs or {}) do
+            if def.cls == Code.CodeInstConst and pvm.classof(def.const) == Code.CodeConstLiteral then
+                local lit = def.const.literal
+                local n = lit and lit.raw and tonumber(lit.raw) or nil
+                if n ~= nil then out[key] = n end
+            end
+        end
+        return out
+    end
+
     local function const_ranges(defs)
         local ranges = {}
         local keys = {}
-        for key in pairs(defs) do keys[#keys + 1] = key end
+        for key in pairs(defs or {}) do keys[#keys + 1] = key end
         table.sort(keys)
         for _, key in ipairs(keys) do
             local def = defs[key]
             if def.cls == Code.CodeInstConst and pvm.classof(def.const) == Code.CodeConstLiteral then
                 local lit = def.const.literal
-                if lit ~= nil and lit.raw ~= nil then
-                    local value = Code.CodeValueId(key)
-                    ranges[#ranges + 1] = Flow.FlowRangeExact(value, Flow.FlowBoundConst(lit.raw))
-                end
+                if lit ~= nil and lit.raw ~= nil then ranges[#ranges + 1] = Flow.FlowRangeExact(Code.CodeValueId(key), Flow.FlowBoundConst(lit.raw)) end
             end
         end
         return ranges
     end
 
-    local function natural_loop(header, latch, preds)
-        local set = {}
-        set[header.text] = true
-        set[latch.text] = true
-        local stack = { latch }
-        while #stack > 0 do
-            local node = table.remove(stack)
-            for _, pred in ipairs(preds[node.text] or {}) do
-                if not set[pred.text] then
-                    set[pred.text] = true
-                    if pred.text ~= header.text then stack[#stack + 1] = pred end
-                end
-            end
-        end
-        return set
+    local function edge_condition(block_by_id, edge)
+        local block = edge and edge.from and edge.from.block and block_by_id[edge.from.block.text]
+        local term = block and block.term and block.term.kind or nil
+        if pvm.classof(term) == Code.CodeTermBranch then return term.cond end
+        return nil
     end
 
-    local function incoming_arg_for(edges, header, param, skip_pred)
-        for _, edge in ipairs(edges) do
-            if edge.succ == header and (skip_pred == nil or edge.pred ~= skip_pred) then
-                for _, arg in ipairs(edge.args or {}) do
-                    if arg.dst_param == param.value then return arg.src end
-                end
+    local function incoming_arg_for(edge_facts, header, param, skip_from)
+        for _, fact in ipairs(edge_facts or {}) do
+            local edge = fact.edge
+            if edge.to.block == header and (skip_from == nil or edge.from.block ~= skip_from) then
+                for _, arg in ipairs(fact.args or {}) do if arg.dst_param == param.value then return arg.src end end
             end
         end
         return nil
     end
 
-    local function backedge_arg_for(edge, param)
-        for _, arg in ipairs(edge.args or {}) do
-            if arg.dst_param == param.value then return arg.src end
-        end
+    local function backedge_arg_for(edge_fact, param)
+        for _, arg in ipairs(edge_fact and edge_fact.args or {}) do if arg.dst_param == param.value then return arg.src end end
         return nil
     end
 
@@ -189,232 +180,118 @@ function M.Define(T)
         if def == nil or def.cls ~= Code.CodeInstCompare then return nil, nil end
         if def.lhs == induction_value then
             local op = def.op
-            local exclusive = (op == Core.CmpLt or op == Core.CmpGe)
-            return def.rhs, exclusive
+            return def.rhs, (op == Core.CmpLt or op == Core.CmpGe)
         elseif def.rhs == induction_value then
             local op = def.op
-            local exclusive = (op == Core.CmpGt or op == Core.CmpLe)
-            return def.lhs, exclusive
+            return def.lhs, (op == Core.CmpGt or op == Core.CmpLe)
         end
         return nil, nil
     end
 
-    local function ordered_body_blocks(func, set)
-        local out = {}
-        for _, block in ipairs(func.blocks or {}) do
-            if set[block.id.text] then out[#out + 1] = block.id end
-        end
-        return out
+    local function range_for_induction(value, init, stop, exclusive, consts)
+        local min = consts[init.text] and Flow.FlowBoundConst(tostring(consts[init.text])) or Flow.FlowBoundValue(init)
+        local max = stop and (consts[stop.text] and Flow.FlowBoundConst(tostring(consts[stop.text])) or Flow.FlowBoundValue(stop)) or Flow.FlowBoundUnknown
+        return Flow.FlowRangeDerived(value, min, max, "recognized counted loop induction range"), min, max, exclusive == true
     end
 
-    local function analyze_func(func, out_edges, out_loops, out_ranges, out_rejects)
-        local block_by_id, order = block_order(func)
-        local specs, rejects = {}, {}
-        for _, block in ipairs(func.blocks or {}) do append_edge_specs(func, block, block_by_id, specs, rejects) end
-        for _, reject in ipairs(rejects) do out_rejects[#out_rejects + 1] = reject end
-
-        local preds, succ_count = {}, {}
-        for _, spec in ipairs(specs) do
-            add_pred(preds, spec.succ, spec.pred)
-            succ_count[spec.pred.text] = (succ_count[spec.pred.text] or 0) + 1
+    local function analyze_loop(func, block_by_id, graph_loop, edge_facts, defs, types, consts)
+        local rejects, inductions = {}, {}
+        local latch = graph_loop.latches and graph_loop.latches[1] or nil
+        if latch == nil then
+            return Flow.FlowLoopFacts(graph_loop.id, Flow.FlowDomainLoop(graph_loop.id), nil, graph_loop.body or {}, {}, {}, { Flow.FlowRejectNotCounted(graph_loop.id, "loop has no latch edge") })
+        end
+        local header_block = block_by_id[graph_loop.header.block.text]
+        local latch_fact = nil
+        for _, fact in ipairs(edge_facts or {}) do if fact.edge == latch then latch_fact = fact; break end end
+        if header_block == nil or latch_fact == nil then
+            return Flow.FlowLoopFacts(graph_loop.id, Flow.FlowDomainLoop(graph_loop.id), nil, graph_loop.body or {}, {}, {}, { Flow.FlowRejectNotCounted(graph_loop.id, "loop header or latch edge is missing") })
         end
 
-        local defs, types = value_defs(func)
-        local ranges = const_ranges(defs)
-        for _, range in ipairs(ranges) do out_ranges[#out_ranges + 1] = range end
-
-        local edge_roles = {}
-        local loops = {}
-        for i, spec in ipairs(specs) do
-            local pred_order = order[spec.pred.text]
-            local succ_order = spec.succ and order[spec.succ.text]
-            if pred_order ~= nil and succ_order ~= nil and succ_order <= pred_order then
-                local loop_id = Flow.FlowLoopId("loop:" .. sanitize(func.name) .. ":" .. sanitize(spec.succ.text))
-                edge_roles[i] = edge_roles[i] or {}
-                edge_roles[i][#edge_roles[i] + 1] = Flow.FlowRoleBackedge(loop_id)
-                loops[#loops + 1] = { id = loop_id, header = spec.succ, latch = spec.pred, backedge = spec }
+        local cond = edge_condition(block_by_id, latch)
+        if cond == nil then
+            for _, exit_edge in ipairs(graph_loop.exits or {}) do
+                cond = cond or edge_condition(block_by_id, exit_edge)
             end
         end
-
-        for _, loop in ipairs(loops) do
-            loop.body = natural_loop(loop.header, loop.latch, preds)
-            loop.exits = {}
-            for i, spec in ipairs(specs) do
-                if loop.body[spec.pred.text] and spec.succ ~= nil and not loop.body[spec.succ.text] then
-                    edge_roles[i] = edge_roles[i] or {}
-                    edge_roles[i][#edge_roles[i] + 1] = Flow.FlowRoleLoopExit(loop.id)
-                    loop.exits[#loop.exits + 1] = Flow.FlowLoopExit(spec.pred, spec.succ, spec.condition)
-                end
-            end
-        end
-
-        for i, spec in ipairs(specs) do
-            if succ_count[spec.pred.text] and succ_count[spec.pred.text] > 1 and #(preds[spec.succ.text] or {}) > 1 then
-                edge_roles[i] = edge_roles[i] or {}
-                edge_roles[i][#edge_roles[i] + 1] = Flow.FlowRoleCritical
-            end
-            out_edges[#out_edges + 1] = Flow.FlowEdge(
-                Flow.FlowEdgeId("edge:" .. sanitize(func.name) .. ":" .. tostring(i)),
-                spec.func,
-                spec.pred,
-                spec.succ,
-                spec.kind,
-                edge_roles[i] or {},
-                spec.args or {}
-            )
-        end
-
-        for _, loop in ipairs(loops) do
-            local header_block = block_by_id[loop.header.text]
-            local loop_rejects, inductions = {}, {}
-            local stop, stop_exclusive = nil, true
-            local primary = nil
-            if header_block ~= nil then
-                for _, exit in ipairs(loop.exits) do
-                    local candidate, exclusive = compare_stop(exit.condition, nil, defs)
-                    if candidate ~= nil then stop, stop_exclusive = candidate, exclusive end
-                end
-                for _, param in ipairs(header_block.params or {}) do
-                    local init = incoming_arg_for(specs, loop.header, param, loop.latch)
-                    local back = backedge_arg_for(loop.backedge, param)
-                    local step, step_note = induction_step(param.value, back, defs)
-                    if init ~= nil and step ~= nil then
-                        for _, exit in ipairs(loop.exits) do
-                            local candidate, exclusive = compare_stop(exit.condition, param.value, defs)
-                            if candidate ~= nil then stop, stop_exclusive = candidate, exclusive end
-                        end
-                        local range = stop and Flow.FlowRangeDerived(param.value, Flow.FlowBoundValue(init), Flow.FlowBoundValue(stop), "counted loop induction") or Flow.FlowRangeUnknown(param.value)
-                        out_ranges[#out_ranges + 1] = range
-                        local induction = Flow.FlowInduction(param.value, param.ty or types[param.value.text] or Code.CodeTyIndex, init, step, Flow.FlowPrimaryInduction, range)
-                        inductions[#inductions + 1] = induction
-                        if primary == nil then primary = induction end
-                        if step_note ~= nil then loop_rejects[#loop_rejects + 1] = Flow.FlowRejectUnsupportedInduction(param.value, step_note) end
-                    elseif back ~= nil then
-                        loop_rejects[#loop_rejects + 1] = Flow.FlowRejectUnsupportedInduction(param.value, step or step_note or "no affine backedge recurrence")
+        local counted = nil
+        for _, param in ipairs(header_block.params or {}) do
+            local init = incoming_arg_for(edge_facts, graph_loop.header.block, param, latch.from.block)
+            local back = backedge_arg_for(latch_fact, param)
+            if init ~= nil and back ~= nil then
+                local step, note = induction_step(param.value, back, defs)
+                if step ~= nil then
+                    local stop, exclusive = compare_stop(cond, param.value, defs)
+                    local range = Flow.FlowRangeUnknown(param.value)
+                    local kind = Flow.FlowDerivedInduction(param.value)
+                    if stop ~= nil then
+                        local _, min, max, max_exclusive = range_for_induction(param.value, init, stop, exclusive, consts)
+                        range = Flow.FlowRangeDerived(param.value, min, max, "primary induction of counted loop")
+                        counted = counted or Flow.FlowCountedDomain(init, stop, step, exclusive == true)
+                        kind = Flow.FlowPrimaryInduction
                     end
+                    inductions[#inductions + 1] = Flow.FlowInduction(param.value, types[param.value.text] or Code.CodeTyIndex, init, step, kind, range)
+                    if note ~= nil then rejects[#rejects + 1] = Flow.FlowRejectUnsupportedInduction(graph_loop.id, param.value, note) end
                 end
             end
-
-            local domain
-            if primary ~= nil and stop ~= nil then
-                domain = Flow.FlowDomainCounted(Flow.FlowCountedDomain(primary.init, stop, primary.step, stop_exclusive ~= false))
-            else
-                local reject = Flow.FlowRejectNotCounted(loop.header, "no primary induction with comparable loop exit")
-                loop_rejects[#loop_rejects + 1] = reject
-                out_rejects[#out_rejects + 1] = reject
-                domain = Flow.FlowDomainRejected(reject)
-            end
-            for _, reject in ipairs(loop_rejects) do
-                if pvm.classof(reject) ~= Flow.FlowRejectNotCounted then out_rejects[#out_rejects + 1] = reject end
-            end
-            out_loops[#out_loops + 1] = Flow.FlowLoopFacts(
-                loop.id,
-                Flow.FlowLoopFromCode(func.id, loop.header, loop.latch),
-                domain,
-                ordered_body_blocks(func, loop.body),
-                inductions,
-                loop.exits,
-                {},
-                loop_rejects
-            )
         end
+        if counted == nil then rejects[#rejects + 1] = Flow.FlowRejectNotCounted(graph_loop.id, "no header parameter matched a counted recurrence") end
+
+        local exits = {}
+        for _, edge in ipairs(graph_loop.exits or {}) do exits[#exits + 1] = Flow.FlowLoopExit(edge.from, edge.to, edge_condition(block_by_id, edge)) end
+        return Flow.FlowLoopFacts(graph_loop.id, Flow.FlowDomainLoop(graph_loop.id), counted, graph_loop.body or {}, inductions, exits, rejects)
     end
 
-    local function facts(module)
-        local edges, loops, ranges, rejects = {}, {}, {}, {}
-        for _, func in ipairs(module.funcs or {}) do analyze_func(func, edges, loops, ranges, rejects) end
-        return Flow.FlowFactSet(module.id, edges, loops, ranges, rejects)
-    end
+    local function facts(module, graph)
+        graph = graph or CodeGraph.graph(module)
+        local graph_by_func = {}
+        for _, fg in ipairs(graph.funcs or {}) do graph_by_func[fg.func.text] = fg end
 
-    local function literal_number(raw)
-        if raw == nil then return nil end
-        return tonumber(tostring(raw))
-    end
+        local domains, edge_facts, loops, ranges, rejects = {}, {}, {}, {}, {}
+        for _, func in ipairs(module.funcs or {}) do
+            local graph_func = graph_by_func[func.id.text]
+            if graph_func ~= nil then
+                local block_by_id = block_index(func)
+                domains[#domains + 1] = Flow.FlowDomainFunction(func.id)
+                local func_edge_facts = edge_arg_facts(func, graph_func, block_by_id)
+                for _, fact in ipairs(func_edge_facts) do edge_facts[#edge_facts + 1] = fact end
 
-    local function const_values(defs)
-        local out = {}
-        for key, def in pairs(defs or {}) do
-            if def.cls == Code.CodeInstConst and pvm.classof(def.const) == Code.CodeConstLiteral then
-                local lit = def.const.literal
-                if lit ~= nil and lit.raw ~= nil then out[key] = lit.raw end
+                local defs, types = value_defs(func)
+                local consts = const_values(defs)
+                for _, range in ipairs(const_ranges(defs)) do ranges[#ranges + 1] = range end
+
+                for _, graph_loop in ipairs(graph_func.loops or {}) do
+                    domains[#domains + 1] = Flow.FlowDomainLoop(graph_loop.id)
+                    local lf = analyze_loop(func, block_by_id, graph_loop, func_edge_facts, defs, types, consts)
+                    loops[#loops + 1] = lf
+                    for _, reject in ipairs(lf.rejects or {}) do rejects[#rejects + 1] = reject end
+                end
             end
         end
-        return out
-    end
-
-    local function const_number(value, consts)
-        return value and literal_number(consts[value.text]) or nil
-    end
-
-    local function bound_for_value(value, consts)
-        if value ~= nil and consts[value.text] ~= nil then return Flow.FlowBoundConst(consts[value.text]) end
-        return Flow.FlowBoundValue(value)
+        return Flow.FlowFactSet(module.id, domains, edge_facts, loops, ranges, rejects)
     end
 
     local function is_primary_induction(induction)
-        return induction ~= nil and induction.kind == Flow.FlowPrimaryInduction
+        return pvm.classof(induction.kind) == nil and induction.kind == Flow.FlowPrimaryInduction
     end
 
-    local function edge_has_role(edge, role_cls, loop_id)
-        for _, role in ipairs(edge.roles or {}) do
-            if pvm.classof(role) == role_cls and (loop_id == nil or role.loop == loop_id) then return true end
-        end
-        return false
+    local function direction_for(primary, defs, consts)
+        local step_num = primary and primary.step and consts[primary.step.text] or nil
+        if step_num == nil then return Flow.FlowLoopDirectionUnknown end
+        if step_num > 0 then return Flow.FlowLoopIncreasing end
+        if step_num < 0 then return Flow.FlowLoopDecreasing end
+        return Flow.FlowLoopDirectionUnknown
     end
 
-    local function backedge_for_loop(flow_facts, loop_id)
-        for _, edge in ipairs(flow_facts.edges or {}) do
-            if edge_has_role(edge, Flow.FlowRoleBackedge, loop_id) then return edge end
+    local function semantic_facts(module, graph_or_flow, maybe_flow)
+        local flow_facts
+        if maybe_flow ~= nil then
+            flow_facts = maybe_flow
+        elseif graph_or_flow ~= nil and pvm.classof(graph_or_flow) == Flow.FlowFactSet then
+            flow_facts = graph_or_flow
+        else
+            flow_facts = facts(module, graph_or_flow)
         end
-        return nil
-    end
 
-    local function backedge_value(edge, induction)
-        if edge == nil or induction == nil then return nil end
-        for _, arg in ipairs(edge.args or {}) do
-            if arg.dst_param == induction.value then return arg.src end
-        end
-        return nil
-    end
-
-    local function recurrence_info(induction, edge, defs, consts)
-        local src = backedge_value(edge, induction)
-        local def = src and defs[src.text] or nil
-        if def == nil or def.cls ~= Code.CodeInstBinary then return { direction = Flow.FlowLoopDirectionUnknown } end
-        local step_num = const_number(induction.step, consts)
-        local direction = Flow.FlowLoopDirectionUnknown
-        if step_num ~= nil and step_num ~= 0 then
-            if def.op == Core.BinAdd and (def.lhs == induction.value or def.rhs == induction.value) then
-                direction = step_num > 0 and Flow.FlowLoopIncreasing or Flow.FlowLoopDecreasing
-            elseif def.op == Core.BinSub and def.lhs == induction.value then
-                direction = step_num > 0 and Flow.FlowLoopDecreasing or Flow.FlowLoopIncreasing
-            end
-        end
-        local nowrap_reason = nil
-        if def.semantics ~= nil and pvm.classof(def.semantics.overflow) == Code.CodeIntAssumeNoOverflow then
-            nowrap_reason = def.semantics.overflow.reason or "integer semantics assume no overflow on induction update"
-        end
-        return { direction = direction, step_num = step_num, nowrap_reason = nowrap_reason }
-    end
-
-    local function trip_count_for(loop, counted, info)
-        if info.direction == Flow.FlowLoopIncreasing and counted.stop_exclusive and info.step_num == 1 then
-            return Flow.FlowTripCountNonNegative(
-                Flow.FlowBoundDerived("trip-count:nonnegative:" .. loop.id.text, { counted.start, counted.stop, counted.step }),
-                "increasing exclusive counted loop has a non-negative trip count; empty when start is not below stop"
-            )
-        end
-        if info.nowrap_reason ~= nil and info.direction ~= Flow.FlowLoopDirectionUnknown and counted.stop_exclusive and info.step_num ~= nil then
-            return Flow.FlowTripCountNonNegative(
-                Flow.FlowBoundDerived("trip-count:nonnegative:" .. loop.id.text, { counted.start, counted.stop, counted.step }),
-                "no-wrap monotone exclusive counted loop has a non-negative trip count"
-            )
-        end
-        return Flow.FlowTripCountUnknown("trip count needs monotone exclusive step/range proof")
-    end
-
-    local function semantic_facts(module, flow_facts)
-        flow_facts = flow_facts or facts(module)
         local defs_by_func, consts_by_func = {}, {}
         for _, func in ipairs(module.funcs or {}) do
             local defs = value_defs(func)
@@ -422,37 +299,26 @@ function M.Define(T)
             consts_by_func[func.id.text] = const_values(defs)
         end
 
+        local graph_loop_func = {}
+        local graph = (graph_or_flow ~= nil and pvm.classof(graph_or_flow) == Graph.CodeGraph) and graph_or_flow or nil
+        if graph ~= nil then
+            for _, fg in ipairs(graph.funcs or {}) do
+                for _, loop in ipairs(fg.loops or {}) do graph_loop_func[loop.id.text] = fg.func end
+            end
+        end
+
         local out = {}
         for _, loop in ipairs(flow_facts.loops or {}) do
-            if pvm.classof(loop.domain) == Flow.FlowDomainCounted then
-                local counted = loop.domain.counted
+            if loop.counted ~= nil then
                 local primary = nil
-                for _, induction in ipairs(loop.inductions or {}) do
-                    if is_primary_induction(induction) then primary = primary or induction end
-                end
-
-                local source = loop.source
-                local func_id = source and source.func
-                local defs = func_id and defs_by_func[func_id.text] or {}
+                for _, induction in ipairs(loop.inductions or {}) do if is_primary_induction(induction) then primary = primary or induction end end
+                local func_id = graph_loop_func[loop.loop.text]
                 local consts = func_id and consts_by_func[func_id.text] or {}
-                local backedge = backedge_for_loop(flow_facts, loop.id)
-                local info = primary and recurrence_info(primary, backedge, defs, consts) or { direction = Flow.FlowLoopDirectionUnknown }
-
-                out[#out + 1] = Flow.FlowLoopNormalizedCounted(loop.id, counted, info.direction, trip_count_for(loop, counted, info))
-
-                if primary ~= nil and info.nowrap_reason ~= nil then
-                    out[#out + 1] = Flow.FlowLoopInductionNoWrap(loop.id, primary.value, info.nowrap_reason)
-                end
-
-                if primary ~= nil and info.direction == Flow.FlowLoopIncreasing and counted.stop_exclusive and (info.step_num == 1 or info.nowrap_reason ~= nil) then
-                    out[#out + 1] = Flow.FlowLoopInductionRange(Flow.FlowInductionRangeFact(
-                        loop.id,
-                        primary.value,
-                        bound_for_value(counted.start, consts),
-                        bound_for_value(counted.stop, consts),
-                        true,
-                        "primary induction of increasing exclusive counted loop stays within [start, stop) on executed iterations"
-                    ))
+                local direction = direction_for(primary, defs_by_func[func_id and func_id.text or ""] or {}, consts)
+                out[#out + 1] = Flow.FlowLoopNormalizedCounted(loop.loop, loop.counted, direction, Flow.FlowTripCountUnknown("no explicit trip-count CodeValueId is available"))
+                if primary ~= nil and direction == Flow.FlowLoopIncreasing and loop.counted.stop_exclusive then
+                    local _, min, max = range_for_induction(primary.value, loop.counted.start, loop.counted.stop, true, consts)
+                    out[#out + 1] = Flow.FlowLoopInductionRange(Flow.FlowInductionRangeFact(loop.loop, primary.value, min, max, true, "primary induction of increasing exclusive counted loop stays within [start, stop) on executed iterations"))
                 end
             end
         end

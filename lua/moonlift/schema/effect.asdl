@@ -1,0 +1,31 @@
+module MoonEffect {
+    EffectId = (string text) unique
+
+    EffectObject = EffectObjectMem(MoonMem.MemObjectId object) unique
+         | EffectObjectStore(MoonCode.CodeValueId store_value) unique
+         | EffectObjectUnknown(string reason) unique
+
+    OpEffect = EffectRead(MoonEffect.EffectObject object, MoonMem.MemProof? proof) unique
+         | EffectWrite(MoonEffect.EffectObject object, MoonMem.MemProof? proof) unique
+         | EffectInvalidate(MoonEffect.EffectObject object, string reason) unique
+         | EffectRetain(MoonCode.CodeValueId value, string reason) unique
+         | EffectNoEscape(MoonCode.CodeValueId value, string reason) unique
+         | EffectMayTrap(string reason) unique
+         | EffectNoTrap(string reason) unique
+         | EffectVolatile(string reason) unique
+         | EffectAtomic(string ordering) unique
+         | EffectUnknown(string reason) unique
+
+    CallSummary = (MoonCode.CodeFuncId? callee,
+                   string? extern_name,
+                   MoonEffect.OpEffect* effects) unique
+
+    InstEffect = (MoonCode.CodeInstId inst, MoonEffect.OpEffect* effects) unique
+
+    TermEffect = (MoonCode.CodeBlockId block, MoonEffect.OpEffect* effects) unique
+
+    EffectFactSet = (MoonCode.CodeModuleId module,
+                     MoonEffect.CallSummary* calls,
+                     MoonEffect.InstEffect* insts,
+                     MoonEffect.TermEffect* terms) unique
+}

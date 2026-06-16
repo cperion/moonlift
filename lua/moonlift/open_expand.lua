@@ -2,7 +2,8 @@ local pvm = require("moonlift.pvm")
 
 local M = {}
 
-function M.Define(T)
+function M.Define(T, opts)
+    opts = opts or {}
     local Ty = T.MoonType
     local O = T.MoonOpen
     local B = T.MoonBind
@@ -792,7 +793,15 @@ function M.Define(T)
 
     -- Region emit composition is handled by region_normal_form.lua.
     -- open_expand still owns value/type/name expansion; RNF owns CFG import,
-    -- alpha-renaming, continuation routing, and block hoisting.
+    -- alpha-renaming, continuation routing, and block hoisting. Region call
+    -- lowering is frontend-only and is collected here as generated ordinary
+    -- Tree items which are then expanded through the same pipeline.
+
+    local RegionCall = require("moonlift.region_call_lowering").Define(T, {
+        expand_expr = function(expr, env) return one(expand_expr, expr, env) end,
+        expand_stmt_header = function(h, env) return one(expand_stmt_header, h, env) end,
+        lookup_region_frag_ref = lookup_region_frag_ref,
+    })
 
     local rnf = require("moonlift.region_normal_form").Define(T, {
         expand_type = function(ty, env) return one(expand_type, ty, env) end,
@@ -805,6 +814,9 @@ function M.Define(T)
         env_at_path = env_at_path,
         env_with_fills_conts_and_params = env_with_fills_conts_and_params,
         frag_param_bindings = frag_param_bindings,
+        lower_region_call_use = (not opts.defer_region_calls) and function(stmt, env, label_map)
+            return RegionCall.lower_call_use(stmt, env, label_map)
+        end or nil,
     })
 
     expand_control_stmt_region = pvm.phase("moonlift_open_expand_control_stmt_region", {
@@ -942,6 +954,7 @@ function M.Define(T)
             end
             return pvm.once(pvm.with(self, { h = one(expand_stmt_header, self.h, env), use_id = use_id, frag = frag_ref, args = expand_exprs(self.args, env) }))
         end,
+        [Tr.StmtTrap] = function(self, env) return pvm.once(pvm.with(self, { h = one(expand_stmt_header, self.h, env) })) end,
     }, { args_cache = "last" })
 
     expand_func = pvm.phase("moonlift_open_expand_func", {
@@ -1038,9 +1051,33 @@ function M.Define(T)
         end,
     }, { args_cache = "last" })
 
+    local function expand_pending_region_call_wrappers(out, env)
+        local emitted = {}
+        while true do
+            local pending = RegionCall.pending_wrappers()
+            local progressed = false
+            for i = 1, #pending do
+                local rec = pending[i]
+                if not emitted[rec.key] then
+                    emitted[rec.key] = true
+                    progressed = true
+                    RegionCall.mark_emitted(rec.key)
+                    for j = 1, #rec.items do
+                        local g, p, c = expand_item(rec.items[j], env)
+                        pvm.drain_into(g, p, c, out)
+                    end
+                end
+            end
+            if not progressed then break end
+        end
+        return out
+    end
+
     expand_module = pvm.phase("moonlift_open_expand_module", {
         [Tr.Module] = function(module, env)
-            return pvm.once(pvm.with(module, { h = one(expand_module_header, module.h, env), items = expand_items(module.items, env) }))
+            local items = expand_items(module.items, env)
+            expand_pending_region_call_wrappers(items, env)
+            return pvm.once(pvm.with(module, { h = one(expand_module_header, module.h, env), items = items }))
         end,
     }, { args_cache = "last" })
 
@@ -1103,6 +1140,16 @@ function M.Define(T)
         expand_expr = expand_expr,
         expand_stmt = expand_stmt,
         expand_item = expand_item,
+        generated_items = function()
+            local out = {}
+            if RegionCall and RegionCall.pending_wrappers then
+                local recs = RegionCall.pending_wrappers()
+                for i = 1, #recs do
+                    for j = 1, #(recs[i].items or {}) do out[#out + 1] = recs[i].items[j] end
+                end
+            end
+            return out
+        end,
         type = function(ty, env) return one(expand_type, ty, env or empty_env()) end,
         expr = function(expr, env) return one(expand_expr, expr, env or empty_env()) end,
         stmts = function(stmts, env) return expand_stmts(stmts, env or empty_env()) end,

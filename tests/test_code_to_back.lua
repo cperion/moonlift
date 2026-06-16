@@ -20,6 +20,7 @@ local Jit = require("moonlift.back_jit").Define(T)
 local Pipeline = require("moonlift.frontend_pipeline").Define(T)
 
 local Back = T.MoonBack
+local Code = T.MoonCode
 
 local function assert_no_issues(label, issues)
     assert(#issues == 0, label .. " expected no issues, got " .. tostring(#issues))
@@ -144,5 +145,11 @@ assert(public_sum(public_xs, 4) == 26)
 assert(public_direct(41) == 42)
 assert(public_indirect(41) == 42)
 public_artifact:free()
+
+local fh = assert(io.open("lua/moonlift/code_to_back.lua", "r"))
+local source = fh:read("*a"); fh:close()
+assert(not source:find("ctx%." .. "view_defs"), "Back lowering must not keep hidden view-def side table")
+assert(not source:find("collect_" .. "view_defs"), "Back lowering must not pre-scan view defs")
+assert(not source:find("view_" .. "parts"), "Back lowering must not use view component side table")
 
 print("moonlift code_to_back ok")

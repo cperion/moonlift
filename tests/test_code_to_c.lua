@@ -146,4 +146,8 @@ assert(package.loaded["moonlift.c_places"] == nil)
 assert(package.loaded["moonlift.c_residence"] == nil)
 assert(package.loaded["moonlift.c_cfg"] == nil)
 
+local fh = assert(io.open("lua/moonlift/code_to_c.lua", "r"))
+local source = fh:read("*a"); fh:close()
+assert(not source:find("ctx%." .. "view_values"), "C lowering must not keep hidden view-value side table")
+assert(not source:find("view_" .. "parts"), "C lowering must not keep view component side table")
 io.write("moonlift code_to_c ok\n")

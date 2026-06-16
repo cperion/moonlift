@@ -1,0 +1,289 @@
+local pvm = require("moonlift.pvm")
+
+local M = {}
+
+local function class_name(x)
+    local cls = pvm.classof(x) or x
+    return tostring(cls):match("Class%((.-)%)") or tostring(cls)
+end
+
+function M.Define(T)
+    T._moonlift_api_cache = T._moonlift_api_cache or {}
+    if T._moonlift_api_cache.kernel_emit_support ~= nil then return T._moonlift_api_cache.kernel_emit_support end
+
+    local Code = T.MoonCode
+    local Back = T.MoonBack
+    local Flow = T.MoonFlow
+    local Value = T.MoonValue
+    local Mem = T.MoonMem
+    local Kernel = T.MoonKernel
+    local Schedule = T.MoonSchedule
+
+    local api = {}
+
+    local function reject_target(reason) return Schedule.ScheduleRejectTarget(reason) end
+    local function reject_memory(reason) return Schedule.ScheduleRejectMemory(reason) end
+    local function reject_algebra(reason) return Schedule.ScheduleRejectAlgebra(reason) end
+    local function reject_profit(reason) return Schedule.ScheduleRejectProfit(reason) end
+
+    local function append(dst, src)
+        for _, v in ipairs(src or {}) do dst[#dst + 1] = v end
+    end
+
+    local function is_scalar_code_ty(ty)
+        local cls = pvm.classof(ty)
+        return ty == Code.CodeTyVoid
+            or ty == Code.CodeTyBool8
+            or ty == Code.CodeTyIndex
+            or cls == Code.CodeTyInt
+            or cls == Code.CodeTyFloat
+            or cls == Code.CodeTyDataPtr
+            or cls == Code.CodeTyCodePtr
+            or cls == Code.CodeTyImportedCFuncPtr
+            or cls == Code.CodeTyHandle
+            or cls == Code.CodeTyLease
+    end
+
+    local function value_expr_supported(expr, seen)
+        if expr == nil then return false, "missing ValueExpr" end
+        seen = seen or {}
+        if seen[expr] then return true end
+        seen[expr] = true
+        local cls = pvm.classof(expr)
+        if cls == Value.ValueExprConst or cls == Value.ValueExprValue then return true end
+        if cls == Value.ValueExprAdd or cls == Value.ValueExprSub or cls == Value.ValueExprMul then
+            if not is_scalar_code_ty(expr.ty) then return false, "non-scalar arithmetic type in " .. class_name(expr) end
+            local ok, reason = value_expr_supported(expr.a, seen); if not ok then return false, reason end
+            return value_expr_supported(expr.b, seen)
+        end
+        if cls == Value.ValueExprDiv then
+            if not is_scalar_code_ty(expr.ty) then return false, "non-scalar division type" end
+            if expr.sem == nil then return false, "division expression lacks exactness/semantics proof" end
+            local ok, reason = value_expr_supported(expr.a, seen); if not ok then return false, reason end
+            return value_expr_supported(expr.b, seen)
+        end
+        if cls == Value.ValueExprSelect then
+            local ok, reason = value_expr_supported(expr.cond, seen); if not ok then return false, reason end
+            ok, reason = value_expr_supported(expr.t, seen); if not ok then return false, reason end
+            return value_expr_supported(expr.f, seen)
+        end
+        if cls == Value.ValueExprCmp then
+            local ok, reason = value_expr_supported(expr.a, seen); if not ok then return false, reason end
+            return value_expr_supported(expr.b, seen)
+        end
+        if cls == Value.ValueExprAffine then
+            return true
+        end
+        return false, "unsupported ValueExpr " .. class_name(expr)
+    end
+
+    local function kernel_expr_supported(expr)
+        if expr == nil then return false, "missing KernelExpr" end
+        local cls = pvm.classof(expr)
+        if cls == Kernel.KernelExprValue or cls == Kernel.KernelExprKernelValue then return true end
+        if cls == Kernel.KernelExprAlgebra then return value_expr_supported(expr.expr) end
+        if cls == Kernel.KernelExprLoad then
+            if pvm.classof(expr.stream) ~= Kernel.KernelStream then return false, "KernelExprLoad has no concrete KernelStream" end
+            local ok, reason = value_expr_supported(expr.index); if not ok then return false, reason end
+            if #(expr.stream.backend_info or {}) == 0 then return false, "KernelExprLoad stream lacks backend access info" end
+            return true
+        end
+        return false, "unsupported KernelExpr " .. class_name(expr)
+    end
+
+    local function stream_supported(stream)
+        if pvm.classof(stream) ~= Kernel.KernelStream then return false, "not a KernelStream" end
+        if not is_scalar_code_ty(stream.elem_ty) then return false, "stream element type is not scalar-lowerable" end
+        local pat_cls = pvm.classof(stream.pattern)
+        if not (stream.pattern == Mem.MemAccessScalar or stream.pattern == Mem.MemAccessContiguous or pat_cls == Mem.MemAccessStrided) then
+            return false, "unsupported stream access pattern " .. class_name(stream.pattern)
+        end
+        if #(stream.backend_info or {}) == 0 then return false, "stream has no backend memory info" end
+        for _, info in ipairs(stream.backend_info or {}) do
+            if pvm.classof(info.trap) ~= Mem.MemNonTrapping then return false, "stream access may trap" end
+            if pvm.classof(info.bounds) == Mem.MemBoundsUnknown then return false, "stream access has unknown bounds" end
+            if info.deref_bytes == nil then return false, "stream access lacks dereference byte proof" end
+        end
+        return true
+    end
+
+    local function schedule_kind_name(kind)
+        local cls = pvm.classof(kind)
+        if kind == Schedule.ScheduleClosedForm then return "closed_form" end
+        if kind == Schedule.ScheduleScalarIndex then return "scalar_index" end
+        if kind == Schedule.ScheduleScalarPointer then return "scalar_pointer" end
+        if cls == Schedule.ScheduleVector then return "vector_contiguous" end
+        return nil
+    end
+
+    local function target_supports_vector(target, elem_ty, lanes)
+        if target == nil then return false end
+        local scalar = nil
+        local cls = pvm.classof(elem_ty)
+        if elem_ty == Code.CodeTyIndex then scalar = Back.BackIndex
+        elseif cls == Code.CodeTyInt then
+            if elem_ty.bits == 32 then scalar = elem_ty.signedness == Code.CodeSigned and Back.BackI32 or Back.BackU32
+            elseif elem_ty.bits == 64 then scalar = elem_ty.signedness == Code.CodeSigned and Back.BackI64 or Back.BackU64
+            elseif elem_ty.bits == 16 then scalar = elem_ty.signedness == Code.CodeSigned and Back.BackI16 or Back.BackU16
+            elseif elem_ty.bits == 8 then scalar = elem_ty.signedness == Code.CodeSigned and Back.BackI8 or Back.BackU8 end
+        elseif cls == Code.CodeTyFloat then
+            scalar = elem_ty.bits == 32 and Back.BackF32 or (elem_ty.bits == 64 and Back.BackF64 or nil)
+        end
+        if scalar == nil then return false end
+        for _, fact in ipairs(target and target.facts or {}) do
+            if pvm.classof(fact) == Back.BackTargetSupportsShape and pvm.classof(fact.shape) == Back.BackShapeVec then
+                local vec = fact.shape.vec
+                if vec.elem == scalar and vec.lanes == lanes then return true end
+            end
+        end
+        return false
+    end
+
+    local function base_rejects(plan)
+        local rejects = {}
+        if pvm.classof(plan) ~= Kernel.KernelPlanned then
+            rejects[#rejects + 1] = reject_target("only KernelPlanned can be emitted")
+            return rejects
+        end
+        if pvm.classof(plan.subject) ~= Kernel.KernelSubjectLoop then rejects[#rejects + 1] = reject_target("only loop kernels have emitters") end
+        local body = plan.body
+        if body == nil then rejects[#rejects + 1] = reject_target("kernel has no body"); return rejects end
+        if pvm.classof(body.equivalence) ~= Kernel.KernelEquivalenceProof or #(body.equivalence.proofs or {}) == 0 then
+            rejects[#rejects + 1] = reject_algebra("kernel lacks equivalence proof")
+        end
+        if pvm.classof(body.domain) ~= Kernel.KernelDomainFlow then rejects[#rejects + 1] = reject_target("kernel domain is not Flow-backed") end
+        for _, stream in ipairs(body.streams or {}) do
+            local ok, reason = stream_supported(stream)
+            if not ok then rejects[#rejects + 1] = reject_memory(reason) end
+        end
+        for _, binding in ipairs(body.bindings or {}) do
+            if not is_scalar_code_ty(binding.ty) then rejects[#rejects + 1] = reject_algebra("binding type is not scalar-lowerable") end
+            local ok, reason = kernel_expr_supported(binding.expr)
+            if not ok then rejects[#rejects + 1] = reject_algebra(reason) end
+        end
+        for _, effect in ipairs(body.effects or {}) do
+            local ecls = pvm.classof(effect)
+            if ecls == Kernel.KernelEffectStore then
+                local ok, reason = stream_supported(effect.dst)
+                if not ok then rejects[#rejects + 1] = reject_memory(reason) end
+                ok, reason = value_expr_supported(effect.index)
+                if not ok then rejects[#rejects + 1] = reject_algebra(reason) end
+                ok, reason = kernel_expr_supported(effect.value)
+                if not ok then rejects[#rejects + 1] = reject_algebra(reason) end
+            elseif ecls == Kernel.KernelEffectFold then
+                -- folds are executable only via Reduction/ClosedForm-specific emitters.
+            elseif ecls == Kernel.KernelEffectCall then
+                rejects[#rejects + 1] = reject_target("kernel call effects do not have an emitter")
+            else
+                rejects[#rejects + 1] = reject_target("unsupported KernelEffect " .. class_name(effect))
+            end
+        end
+        return rejects
+    end
+
+    local function binding_code_key(binding)
+        local text = binding and binding.id and binding.id.text or ""
+        return text:match("^kval:(.+)$")
+    end
+
+    local function vector_value_expr_supported(expr, binding_by_code, seen)
+        if expr == nil then return false, "missing vector ValueExpr" end
+        seen = seen or {}
+        if seen[expr] then return true end
+        seen[expr] = true
+        local cls = pvm.classof(expr)
+        if cls == Value.ValueExprConst then return true end
+        if cls == Value.ValueExprValue then
+            return binding_by_code[expr.value.text] ~= nil, "vector expression references non-vector loop value " .. expr.value.text
+        end
+        if cls == Value.ValueExprAdd or cls == Value.ValueExprSub or cls == Value.ValueExprMul then
+            local ok, reason = vector_value_expr_supported(expr.a, binding_by_code, seen); if not ok then return false, reason end
+            return vector_value_expr_supported(expr.b, binding_by_code, seen)
+        end
+        return false, "vector emitter does not support " .. class_name(expr)
+    end
+
+    local function vector_kernel_expr_supported(expr, binding_by_id, binding_by_code, seen)
+        if expr == nil then return false, "missing vector KernelExpr" end
+        seen = seen or {}
+        local cls = pvm.classof(expr)
+        if cls == Kernel.KernelExprLoad then return true end
+        if cls == Kernel.KernelExprAlgebra then return vector_value_expr_supported(expr.expr, binding_by_code, seen) end
+        if cls == Kernel.KernelExprKernelValue then
+            local binding = binding_by_id[expr.value.text]
+            if binding == nil then return false, "vector KernelExpr references missing binding" end
+            if seen[binding] then return true end
+            seen[binding] = true
+            return vector_kernel_expr_supported(binding.expr, binding_by_id, binding_by_code, seen)
+        end
+        return false, "vector emitter does not support " .. class_name(expr)
+    end
+
+    local function classify(plan, schedule_kind, target)
+        local rejects = base_rejects(plan)
+        local body = plan and plan.body or nil
+        local result = body and body.result or nil
+        local kind_name = schedule_kind_name(schedule_kind)
+        if kind_name == nil then
+            if pvm.classof(result) == Kernel.KernelResultClosedForm then kind_name = "closed_form"
+            elseif #(body and body.streams or {}) > 0 then kind_name = "scalar_index"
+            else kind_name = "scalar_index" end
+        end
+        if kind_name == "closed_form" then
+            if pvm.classof(result) ~= Kernel.KernelResultClosedForm then
+                rejects[#rejects + 1] = reject_algebra("closed-form schedule requires KernelResultClosedForm")
+            else
+                local ok, reason = value_expr_supported(result.closed_form.expr)
+                if not ok then rejects[#rejects + 1] = reject_algebra(reason) end
+            end
+            if #(body and body.streams or {}) > 0 then rejects[#rejects + 1] = reject_target("closed-form emitter only supports scalar control/result replacement, not stream stores") end
+        elseif kind_name == "scalar_index" or kind_name == "scalar_pointer" then
+            if pvm.classof(result) == Kernel.KernelResultClosedForm then rejects[#rejects + 1] = reject_algebra("closed-form result must use ScheduleClosedForm") end
+            if body and body.domain and body.domain.counter == nil then rejects[#rejects + 1] = reject_algebra("scalar kernel requires loop counter") end
+            if #(body and body.effects or {}) == 0 and pvm.classof(result) == Kernel.KernelResultOriginalControl then rejects[#rejects + 1] = reject_profit("scalar kernel has no executable effects/result") end
+        elseif kind_name == "vector_contiguous" then
+            local sk = pvm.classof(schedule_kind) == Schedule.ScheduleVector and schedule_kind or nil
+            if sk == nil or pvm.classof(sk.lanes) ~= Schedule.LaneVector then
+                rejects[#rejects + 1] = reject_target("vector schedule requires LaneVector")
+            elseif not target_supports_vector(target, sk.lanes.elem_ty, sk.lanes.lanes) then
+                rejects[#rejects + 1] = reject_target("target lacks requested vector shape")
+            end
+            for _, stream in ipairs(body and body.streams or {}) do
+                if stream.pattern ~= Mem.MemAccessContiguous then rejects[#rejects + 1] = reject_memory("vector emitter only supports contiguous streams") end
+            end
+            if pvm.classof(result) == Kernel.KernelResultReduction or pvm.classof(result) == Kernel.KernelResultClosedForm then rejects[#rejects + 1] = reject_target("vector reductions/closed forms are not implemented") end
+            local binding_by_id, binding_by_code = {}, {}
+            for _, binding in ipairs(body and body.bindings or {}) do
+                binding_by_id[binding.id.text] = binding
+                local code_key = binding_code_key(binding)
+                if code_key ~= nil then binding_by_code[code_key] = binding end
+            end
+            for _, effect in ipairs(body and body.effects or {}) do
+                if pvm.classof(effect) == Kernel.KernelEffectStore then
+                    local ok, reason = vector_kernel_expr_supported(effect.value, binding_by_id, binding_by_code)
+                    if not ok then rejects[#rejects + 1] = reject_target(reason) end
+                elseif pvm.classof(effect) ~= Kernel.KernelEffectFold then
+                    rejects[#rejects + 1] = reject_target("vector emitter only supports store effects")
+                end
+            end
+        else
+            rejects[#rejects + 1] = reject_target("unknown schedule kind " .. tostring(kind_name))
+        end
+        return {
+            executable = #rejects == 0,
+            kind = kind_name,
+            rejects = rejects,
+            reason = #rejects == 0 and "supported by current LowerToBack emitters" or "unsupported by current LowerToBack emitters",
+        }
+    end
+
+    api.classify = classify
+    api.value_expr_supported = value_expr_supported
+    api.kernel_expr_supported = kernel_expr_supported
+    api.stream_supported = stream_supported
+
+    T._moonlift_api_cache.kernel_emit_support = api
+    return api
+end
+
+return M

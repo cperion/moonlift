@@ -19,6 +19,7 @@ function M.Define(T)
     local value_ref_facts
     local slot_value_facts
     local slot_binding_facts
+    local cont_binding_facts
     local fill_set_facts
     local expr_facts
     local place_facts
@@ -163,6 +164,15 @@ function M.Define(T)
     slot_binding_facts = pvm.phase("moonlift_open_slot_binding_facts", {
         [O.SlotBinding] = function(binding)
             return slot_value_facts(binding.value)
+        end,
+    })
+
+    cont_binding_facts = pvm.phase("moonlift_open_cont_binding_facts", {
+        [O.ContBinding] = function(binding)
+            if pvm.classof(binding.target) == O.ContTargetSlot then
+                return pvm.once(O.MetaFactSlot(O.SlotCont(binding.target.slot)))
+            end
+            return pvm.empty()
         end,
     })
 
@@ -336,8 +346,9 @@ function M.Define(T)
             else
                 ref_trip = pack(pvm.empty())
             end
-            return cat({ pack(stmt_header_facts(self.h)), pack(pvm.once(O.MetaFactRegionFragUse(self.use_id))), ref_trip, pack(each(expr_facts, self.args)), pack(each(slot_binding_facts, self.fills)) })
+            return cat({ pack(stmt_header_facts(self.h)), pack(pvm.once(O.MetaFactRegionFragUse(self.use_id))), ref_trip, pack(each(expr_facts, self.args)), pack(each(slot_binding_facts, self.fills)), pack(each(cont_binding_facts, self.cont_fills or {})) })
         end,
+        [Tr.StmtTrap] = function(self) return stmt_header_facts(self.h) end,
     })
 
     func_facts = pvm.phase("moonlift_open_func_facts", {

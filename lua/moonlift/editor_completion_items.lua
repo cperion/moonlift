@@ -85,6 +85,7 @@ function M.Define(T)
             add(items, E, "jump", E.CompletionKeyword, "control jump", "Jump to a block or continuation")
             add(items, E, "yield", E.CompletionKeyword, "yield", "Yield from a control expression")
             add(items, E, "return", E.CompletionKeyword, "return", "Return from a function")
+            add(items, E, "call", E.CompletionKeyword, "region call", "Call a region through a generated function/result boundary")
         end
         return pvm.seq(items)
         end,

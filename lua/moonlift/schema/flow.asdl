@@ -1,29 +1,22 @@
 module MoonFlow {
-    FlowEdgeId = (string text) unique
+    FlowDomainId = (string text) unique
 
-    FlowLoopId = (string text) unique
+    FlowDomain = FlowDomainLoop(MoonGraph.GraphLoopId loop) unique
+         | FlowDomainBlockRange(MoonCode.CodeFuncId func, MoonCode.CodeBlockId entry, MoonCode.CodeBlockId exit) unique
+         | FlowDomainFunction(MoonCode.CodeFuncId func) unique
+
+    FlowTripCount = FlowTripCountExact(MoonCode.CodeValueId count, MoonMem.MemProof? proof) unique
+         | FlowTripCountNonNegative(MoonCode.CodeValueId count, MoonMem.MemProof? proof) unique
+         | FlowTripCountUnknown(string reason) unique
 
     FlowEdgeArg = (MoonCode.CodeValueId src, MoonCode.CodeValueId dst_param) unique
 
-    FlowEdgeKind = FlowEdgeEntry
-         | FlowEdgeJump
-         | FlowEdgeThen
-         | FlowEdgeElse
-         | FlowEdgeSwitchCase(string raw) unique
-         | FlowEdgeSwitchDefault
-         | FlowEdgeVariantCase(string variant_name) unique
-         | FlowEdgeVariantDefault
-
-    FlowEdgeRole = FlowRoleBackedge(MoonFlow.FlowLoopId loop) unique
-         | FlowRoleLoopExit(MoonFlow.FlowLoopId loop) unique
-         | FlowRoleCritical
-
-    FlowEdge = (MoonFlow.FlowEdgeId id, MoonCode.CodeFuncId func, MoonCode.CodeBlockId pred, MoonCode.CodeBlockId succ, MoonFlow.FlowEdgeKind kind, MoonFlow.FlowEdgeRole* roles, MoonFlow.FlowEdgeArg* args) unique
+    FlowEdgeFact = (MoonGraph.GraphEdge edge, MoonFlow.FlowEdgeArg* args) unique
 
     FlowReject = FlowRejectIrreducible(MoonCode.CodeFuncId func, string reason) unique
-         | FlowRejectNotCounted(MoonCode.CodeBlockId header, string reason) unique
-         | FlowRejectUnsupportedTerminator(MoonCode.CodeBlockId block, MoonCode.CodeTermKind term) unique
-         | FlowRejectUnsupportedInduction(MoonCode.CodeValueId value, string reason) unique
+         | FlowRejectNotCounted(MoonGraph.GraphLoopId loop, string reason) unique
+         | FlowRejectUnsupportedTerminator(MoonGraph.GraphBlockId block, MoonCode.CodeTermKind term) unique
+         | FlowRejectUnsupportedInduction(MoonGraph.GraphLoopId loop, MoonCode.CodeValueId value, string reason) unique
          | FlowRejectUnknownValue(MoonCode.CodeValueId value, string reason) unique
 
     FlowBound = FlowBoundUnknown
@@ -43,36 +36,23 @@ module MoonFlow {
          | FlowLoopDecreasing
          | FlowLoopDirectionUnknown
 
-    FlowTripCount = FlowTripCountUnknown(string reason) unique
-         | FlowTripCountExact(MoonFlow.FlowBound count, string reason) unique
-         | FlowTripCountNonNegative(MoonFlow.FlowBound count, string reason) unique
-
-    FlowInductionRangeFact = (MoonFlow.FlowLoopId loop, MoonCode.CodeValueId value, MoonFlow.FlowBound min, MoonFlow.FlowBound max, boolean max_exclusive, string reason) unique
-
-    FlowLoopSemanticFact = FlowLoopNormalizedCounted(MoonFlow.FlowLoopId loop, MoonFlow.FlowCountedDomain domain, MoonFlow.FlowLoopDirection direction, MoonFlow.FlowTripCount trip_count) unique
-         | FlowLoopInductionRange(MoonFlow.FlowInductionRangeFact range) unique
-         | FlowLoopInductionNoWrap(MoonFlow.FlowLoopId loop, MoonCode.CodeValueId value, string reason) unique
-
-    FlowDomain = FlowDomainUnknown
-         | FlowDomainCounted(MoonFlow.FlowCountedDomain counted) unique
-         | FlowDomainRejected(MoonFlow.FlowReject reject) unique
-
     FlowInductionKind = FlowPrimaryInduction
          | FlowDerivedInduction(MoonCode.CodeValueId base) unique
          | FlowPointerInduction(MoonCode.CodeValueId base, number elem_size) unique
 
     FlowInduction = (MoonCode.CodeValueId value, MoonCode.CodeType ty, MoonCode.CodeValueId init, MoonCode.CodeValueId step, MoonFlow.FlowInductionKind kind, MoonFlow.FlowValueRange range) unique
 
-    FlowLoopSource = FlowLoopFromCode(MoonCode.CodeFuncId func, MoonCode.CodeBlockId header, MoonCode.CodeBlockId backedge) unique
-         | FlowLoopRejected(MoonCode.CodeFuncId func, MoonFlow.FlowReject reject) unique
+    FlowLoopExit = (MoonGraph.GraphBlockId from, MoonGraph.GraphBlockId to, MoonCode.CodeValueId? condition) unique
 
-    FlowLoopExit = (MoonCode.CodeBlockId from, MoonCode.CodeBlockId to, MoonCode.CodeValueId? condition) unique
+    FlowLoopFacts = (MoonGraph.GraphLoopId loop, MoonFlow.FlowDomain domain, MoonFlow.FlowCountedDomain? counted, MoonGraph.GraphBlockId* body_blocks, MoonFlow.FlowInduction* inductions, MoonFlow.FlowLoopExit* exits, MoonFlow.FlowReject* rejects) unique
 
-    FlowNestedLoop = (MoonFlow.FlowLoopFacts facts) unique
+    FlowInductionRangeFact = (MoonGraph.GraphLoopId loop, MoonCode.CodeValueId value, MoonFlow.FlowBound min, MoonFlow.FlowBound max, boolean max_exclusive, string reason) unique
 
-    FlowLoopFacts = (MoonFlow.FlowLoopId id, MoonFlow.FlowLoopSource source, MoonFlow.FlowDomain domain, MoonCode.CodeBlockId* body_blocks, MoonFlow.FlowInduction* inductions, MoonFlow.FlowLoopExit* exits, MoonFlow.FlowNestedLoop* nested, MoonFlow.FlowReject* rejects) unique
+    FlowLoopSemanticFact = FlowLoopNormalizedCounted(MoonGraph.GraphLoopId loop, MoonFlow.FlowCountedDomain domain, MoonFlow.FlowLoopDirection direction, MoonFlow.FlowTripCount trip_count) unique
+         | FlowLoopInductionRange(MoonFlow.FlowInductionRangeFact range) unique
+         | FlowLoopInductionNoWrap(MoonGraph.GraphLoopId loop, MoonCode.CodeValueId value, string reason) unique
 
     FlowSemanticFactSet = (MoonCode.CodeModuleId module, MoonFlow.FlowLoopSemanticFact* facts) unique
 
-    FlowFactSet = (MoonCode.CodeModuleId module, MoonFlow.FlowEdge* edges, MoonFlow.FlowLoopFacts* loops, MoonFlow.FlowValueRange* ranges, MoonFlow.FlowReject* rejects) unique
+    FlowFactSet = (MoonCode.CodeModuleId module, MoonFlow.FlowDomain* domains, MoonFlow.FlowEdgeFact* edges, MoonFlow.FlowLoopFacts* loops, MoonFlow.FlowValueRange* ranges, MoonFlow.FlowReject* rejects) unique
 }

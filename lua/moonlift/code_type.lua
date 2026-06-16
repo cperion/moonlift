@@ -146,6 +146,7 @@ function M.Define(T)
         if cls == Code.CodeTySlice then return "slice_" .. code_type_key(ty.elem) end
         if cls == Code.CodeTyView then return "view_" .. code_type_key(ty.elem) end
         if cls == Code.CodeTyHandle then return "handle_" .. code_type_key(ty.repr) end
+        if cls == Code.CodeTyLease then return "lease_" .. code_type_key(ty.base) end
         if cls == Code.CodeTyClosure then return "closure_" .. sanitize(ty.sig.text) end
         if cls == Code.CodeTyImportedC then return "ctype_" .. sanitize(ty.id.module_name) .. "_" .. sanitize(ty.id.spelling) end
         if cls == Code.CodeTyImportedCFuncPtr then return "cfuncptr_" .. sanitize(ty.sig.text) end
@@ -201,7 +202,7 @@ function M.Define(T)
         elseif cls == Ty.TView then
             return Code.CodeTyView(type_to_code(ty.elem, ctx))
         elseif cls == Ty.TLease then
-            return type_to_code(ty.base, ctx)
+            return Code.CodeTyLease(type_to_code(ty.base, ctx), ty)
         elseif cls == Ty.THandle then
             local rcls = pvm.classof(ty.repr)
             if rcls == Ty.HandleReprScalar then
@@ -298,6 +299,7 @@ function M.Define(T)
         if cls == Code.CodeTySlice then return C.CBackendSliceDescriptor(code_type_to_c(ty.elem, ctx)) end
         if cls == Code.CodeTyView then return C.CBackendViewDescriptor(code_type_to_c(ty.elem, ctx)) end
         if cls == Code.CodeTyHandle then return code_type_to_c(ty.repr, ctx) end
+        if cls == Code.CodeTyLease then return code_type_to_c(ty.base, ctx) end
         if cls == Code.CodeTyClosure then return C.CBackendClosureDescriptor(ensure_c_backend_closure_sig(ctx, ty.sig), C.CBackendDataPtr(nil)) end
         if cls == Code.CodeTyImportedC then return C.CBackendNamed(ty.id) end
         if cls == Code.CodeTyImportedCFuncPtr then return C.CBackendImportedCodePtr(ty.sig) end

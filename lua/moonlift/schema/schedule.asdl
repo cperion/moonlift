@@ -1,0 +1,39 @@
+module MoonSchedule {
+    ScheduleId = (string text) unique
+
+    ScheduleTarget = (MoonBack.BackTargetModel target) unique
+
+    LaneShape = LaneScalar
+         | LaneVector(MoonCode.CodeType elem_ty, number lanes) unique
+
+    TailPlan = TailNone
+         | TailScalar
+         | TailMasked
+         | TailPeel(number elems) unique
+
+    ScheduleKind = ScheduleScalarIndex
+         | ScheduleScalarPointer
+         | ScheduleVector(MoonSchedule.LaneShape lanes, number unroll, number interleave, MoonSchedule.TailPlan tail) unique
+         | ScheduleClosedForm
+
+    ScheduleProof = ScheduleProofTarget(string reason) unique
+         | ScheduleProofMemory(MoonMem.MemProof proof) unique
+         | ScheduleProofAlgebra(MoonValue.AlgebraProof proof) unique
+         | ScheduleProofProfit(string reason) unique
+
+    ScheduleReject = ScheduleRejectTarget(string reason) unique
+         | ScheduleRejectMemory(string reason) unique
+         | ScheduleRejectAlgebra(string reason) unique
+         | ScheduleRejectProfit(string reason) unique
+
+    KernelSchedule = ScheduleNoPlan(MoonKernel.KernelId kernel, MoonSchedule.ScheduleReject* rejects) unique
+         | SchedulePlanned(MoonSchedule.ScheduleId id,
+                           MoonKernel.KernelId kernel,
+                           MoonSchedule.ScheduleKind kind,
+                           MoonSchedule.ScheduleProof* proofs,
+                           MoonSchedule.ScheduleReject* rejected_alternatives) unique
+
+    ScheduleModulePlan = (MoonCode.CodeModuleId module,
+                          MoonSchedule.ScheduleTarget target,
+                          MoonSchedule.KernelSchedule* schedules) unique
+}

@@ -76,16 +76,20 @@ function M.Define(T)
         return C.CBackendAtomLocal(c_local_id(id))
     end
 
-    local function is_view_ty(ty)
-        return pvm.classof(ty) == Code.CodeTyView
+    local function view_type(ctx, id)
+        local ty = ctx.value_types and id and ctx.value_types[id.text] or nil
+        if pvm.classof(ty) == Code.CodeTyLease then ty = ty.base end
+        return ty
     end
 
-    local function view_parts(ctx, id)
-        return ctx.view_values and ctx.view_values[id.text] or nil
+    local function view_elem_type(ctx, id)
+        local ty = view_type(ctx, id)
+        if pvm.classof(ty) == Code.CodeTyView then return ty.elem end
+        return nil
     end
 
-    local function note_view_parts(ctx, id, parts)
-        if id ~= nil and parts ~= nil then ctx.view_values[id.text] = parts end
+    local function view_data_type(ctx, id)
+        return Code.CodeTyDataPtr(view_elem_type(ctx, id))
     end
 
     local function const_atom(ctx, const)
@@ -204,22 +208,8 @@ function M.Define(T)
         elseif cls == Code.CodeInstPtrOffset then
             return { C.CBackendAssign(c_local_id(k.dst), C.CBackendRPtrOffset(atom(k.base), atom(k.index), k.elem_size, k.const_offset)) }
         elseif cls == Code.CodeInstLoad then
-            if is_view_ty(k.access.ty) and pvm.classof(k.place) == Code.CodePlaceLocal then
-                local parts = view_parts(ctx, k.place["local"])
-                if parts ~= nil then
-                    note_view_parts(ctx, k.dst, parts)
-                    return {}
-                end
-            end
             return { C.CBackendPlaceLoad(c_local_id(k.dst), place_to_c(ctx, k.place)) }
         elseif cls == Code.CodeInstStore then
-            if is_view_ty(k.access.ty) and pvm.classof(k.place) == Code.CodePlaceLocal then
-                local parts = view_parts(ctx, k.value)
-                if parts ~= nil then
-                    note_view_parts(ctx, k.place["local"], parts)
-                    return {}
-                end
-            end
             return { C.CBackendPlaceStore(place_to_c(ctx, k.place), atom(k.value)) }
         elseif cls == Code.CodeInstAggregate then
             local fields = {}
@@ -228,21 +218,18 @@ function M.Define(T)
         elseif cls == Code.CodeInstArray then
             local elems = {}; for i = 1, #k.elems do elems[i] = C.CBackendArrayElemInit(k.elems[i].index, atom(k.elems[i].value)) end
             return { C.CBackendArrayInit(C.CBackendPlaceLocal(c_local_id(k.dst), c_ty(ctx, k.ty)), c_ty(ctx, k.ty), elems) }
-        elseif cls == Code.CodeInstView then
-            note_view_parts(ctx, k.dst, { data = k.data, len = k.len, stride = k.stride })
-            return {}
+        elseif cls == Code.CodeInstViewMake then
+            return { C.CBackendAggregateInit(C.CBackendPlaceLocal(c_local_id(k.dst), c_ty(ctx, Code.CodeTyView(k.elem_ty))), c_ty(ctx, Code.CodeTyView(k.elem_ty)), {
+                C.CBackendAggregateFieldInit(C.CBackendName("data"), atom(k.data), 0),
+                C.CBackendAggregateFieldInit(C.CBackendName("len"), atom(k.len), nil),
+                C.CBackendAggregateFieldInit(C.CBackendName("stride"), atom(k.stride), nil),
+            }) }
         elseif cls == Code.CodeInstViewData then
-            local parts = view_parts(ctx, k.view)
-            if parts ~= nil then return { C.CBackendAssign(c_local_id(k.dst), C.CBackendRAtom(atom(parts.data))) } end
-            return { C.CBackendPlaceLoad(c_local_id(k.dst), C.CBackendPlaceField(C.CBackendPlaceLocal(c_local_id(k.view), c_ty(ctx, k.view_ty)), C.CBackendName("data"), c_ty(ctx, k.ptr_ty), 0, nil, nil)) }
+            return { C.CBackendPlaceLoad(c_local_id(k.dst), C.CBackendPlaceField(C.CBackendPlaceLocal(c_local_id(k.view), c_ty(ctx, view_type(ctx, k.view))), C.CBackendName("data"), c_ty(ctx, view_data_type(ctx, k.view)), 0, nil, nil)) }
         elseif cls == Code.CodeInstViewLen then
-            local parts = view_parts(ctx, k.view)
-            if parts ~= nil then return { C.CBackendAssign(c_local_id(k.dst), C.CBackendRAtom(atom(parts.len))) } end
-            return { C.CBackendPlaceLoad(c_local_id(k.dst), C.CBackendPlaceField(C.CBackendPlaceLocal(c_local_id(k.view), c_ty(ctx, k.view_ty)), C.CBackendName("len"), C.CBackendIndex, 0, nil, nil)) }
+            return { C.CBackendPlaceLoad(c_local_id(k.dst), C.CBackendPlaceField(C.CBackendPlaceLocal(c_local_id(k.view), c_ty(ctx, view_type(ctx, k.view))), C.CBackendName("len"), C.CBackendIndex, 0, nil, nil)) }
         elseif cls == Code.CodeInstViewStride then
-            local parts = view_parts(ctx, k.view)
-            if parts ~= nil then return { C.CBackendAssign(c_local_id(k.dst), C.CBackendRAtom(atom(parts.stride))) } end
-            return { C.CBackendPlaceLoad(c_local_id(k.dst), C.CBackendPlaceField(C.CBackendPlaceLocal(c_local_id(k.view), c_ty(ctx, k.view_ty)), C.CBackendName("stride"), C.CBackendIndex, 0, nil, nil)) }
+            return { C.CBackendPlaceLoad(c_local_id(k.dst), C.CBackendPlaceField(C.CBackendPlaceLocal(c_local_id(k.view), c_ty(ctx, view_type(ctx, k.view))), C.CBackendName("stride"), C.CBackendIndex, 0, nil, nil)) }
         elseif cls == Code.CodeInstClosure then
             return { C.CBackendAggregateInit(C.CBackendPlaceLocal(c_local_id(k.dst), c_ty(ctx, k.ty)), c_ty(ctx, k.ty), {
                 C.CBackendAggregateFieldInit(C.CBackendName("fn"), atom(k.fn), 0),
@@ -323,6 +310,7 @@ function M.Define(T)
     local function collect_value_locals(ctx, func)
         local out, seen = {}, {}
         local function add(id, ty)
+            if id ~= nil and ty ~= nil then ctx.value_types[id.text] = ty end
             if id == nil or seen[id.text] or ctx.param_values[id.text] then return end
             seen[id.text] = true
             out[#out + 1] = C.CBackendLocal(c_local_id(id), c_name(id.text), c_ty(ctx, ty))
@@ -340,8 +328,9 @@ function M.Define(T)
                 elseif cls == Code.CodeInstCast then add(k.dst, k.to)
                 elseif cls == Code.CodeInstAddrOf or cls == Code.CodeInstGlobalRef or cls == Code.CodeInstPtrOffset then add(k.dst, k.ptr_ty)
                 elseif cls == Code.CodeInstLoad or cls == Code.CodeInstAtomicLoad or cls == Code.CodeInstAtomicRmw then add(k.dst, k.access.ty)
-                elseif cls == Code.CodeInstAggregate or cls == Code.CodeInstArray or cls == Code.CodeInstView or cls == Code.CodeInstClosure or cls == Code.CodeInstVariantCtor then add(k.dst, k.ty)
-                elseif cls == Code.CodeInstViewData then add(k.dst, k.ptr_ty)
+                elseif cls == Code.CodeInstAggregate or cls == Code.CodeInstArray or cls == Code.CodeInstClosure or cls == Code.CodeInstVariantCtor then add(k.dst, k.ty)
+                elseif cls == Code.CodeInstViewMake then add(k.dst, Code.CodeTyView(k.elem_ty))
+                elseif cls == Code.CodeInstViewData then add(k.dst, view_data_type(ctx, k.view))
                 elseif cls == Code.CodeInstViewLen or cls == Code.CodeInstViewStride then add(k.dst, Code.CodeTyIndex)
                 elseif cls == Code.CodeInstVariantTag then add(k.dst, k.tag_ty)
                 elseif cls == Code.CodeInstVariantPayload then if k.variant.payload_ty ~= nil then add(k.dst, k.variant.payload_ty) end
@@ -360,11 +349,15 @@ function M.Define(T)
 
     local function lower_func(ctx, func)
         ctx.param_values = {}
-        ctx.view_values = {}
+        ctx.value_types = {}
         local params = {}
         for i = 1, #(func.params or {}) do
             ctx.param_values[func.params[i].value.text] = true
+            ctx.value_types[func.params[i].value.text] = func.params[i].ty
             params[i] = C.CBackendLocal(c_local_id(func.params[i].value), c_name(func.params[i].name), c_ty(ctx, func.params[i].ty))
+        end
+        for i = 1, #(func.blocks or {}) do
+            for j = 1, #(func.blocks[i].params or {}) do ctx.value_types[func.blocks[i].params[j].value.text] = func.blocks[i].params[j].ty end
         end
         local locals = collect_value_locals(ctx, func)
         local blocks = {}

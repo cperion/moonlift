@@ -540,14 +540,12 @@ function M.Define(T)
                 return data, len, stride
             elseif pvm.classof(base_ty) == Ty.TView then
                 local base = lower_expr(ctx, view.base)
-                local view_ty = code_ty(ctx, base_ty)
-                local data_ty = Code.CodeTyDataPtr(code_ty(ctx, base_ty.elem))
                 local data = new_temp(ctx, "view_data")
                 local len = new_temp(ctx, "view_len")
                 local stride = new_temp(ctx, "view_stride")
-                append_inst(ctx, Code.CodeInstViewData(data, data_ty, view_ty, base), origin_generated("view data"))
-                append_inst(ctx, Code.CodeInstViewLen(len, view_ty, base), origin_generated("view len"))
-                append_inst(ctx, Code.CodeInstViewStride(stride, view_ty, base), origin_generated("view stride"))
+                append_inst(ctx, Code.CodeInstViewData(data, base), origin_generated("view data"))
+                append_inst(ctx, Code.CodeInstViewLen(len, base), origin_generated("view len"))
+                append_inst(ctx, Code.CodeInstViewStride(stride, base), origin_generated("view stride"))
                 return data, len, stride
             end
         elseif vcls == Tr.ViewRestrided then
@@ -669,12 +667,11 @@ function M.Define(T)
                 base_place = Code.CodePlaceDeref(addr, code_ty(ctx, elem_ty), align_of(ctx, elem_ty))
             elseif btcls == Ty.TView then
                 local view = lower_expr(ctx, base.base)
-                local view_ty = code_ty(ctx, base_ty)
                 local data = new_temp(ctx, "view_index_data")
                 local stride = new_temp(ctx, "view_index_stride")
                 local scaled = new_temp(ctx, "view_index_scaled")
-                append_inst(ctx, Code.CodeInstViewData(data, Code.CodeTyDataPtr(code_ty(ctx, elem_ty)), view_ty, view), origin_generated("view index data"))
-                append_inst(ctx, Code.CodeInstViewStride(stride, view_ty, view), origin_generated("view index stride"))
+                append_inst(ctx, Code.CodeInstViewData(data, view), origin_generated("view index data"))
+                append_inst(ctx, Code.CodeInstViewStride(stride, view), origin_generated("view index stride"))
                 append_inst(ctx, Code.CodeInstBinary(scaled, Core.BinMul, Code.CodeTyIndex, default_int_semantics(), idx, stride), origin_generated("view index scale"))
                 idx = scaled
                 base_place = Code.CodePlaceDeref(data, code_ty(ctx, elem_ty), align_of(ctx, elem_ty))
@@ -687,12 +684,11 @@ function M.Define(T)
             local base_ty = source_access_base(place_type(base.base))
             if pvm.classof(base_ty) == Ty.TView then
                 local view = load_place(ctx, lower_place(ctx, base.base), base_ty, "view_index")
-                local view_ty = code_ty(ctx, base_ty)
                 local data = new_temp(ctx, "view_index_data")
                 local stride = new_temp(ctx, "view_index_stride")
                 local scaled = new_temp(ctx, "view_index_scaled")
-                append_inst(ctx, Code.CodeInstViewData(data, Code.CodeTyDataPtr(code_ty(ctx, elem_ty)), view_ty, view), origin_generated("view index data"))
-                append_inst(ctx, Code.CodeInstViewStride(stride, view_ty, view), origin_generated("view index stride"))
+                append_inst(ctx, Code.CodeInstViewData(data, view), origin_generated("view index data"))
+                append_inst(ctx, Code.CodeInstViewStride(stride, view), origin_generated("view index stride"))
                 append_inst(ctx, Code.CodeInstBinary(scaled, Core.BinMul, Code.CodeTyIndex, default_int_semantics(), idx, stride), origin_generated("view index scale"))
                 idx = scaled
                 base_place = Code.CodePlaceDeref(data, code_ty(ctx, elem_ty), align_of(ctx, elem_ty))
@@ -867,7 +863,7 @@ function M.Define(T)
             local data, len, stride = lower_view_parts(ctx, expr.view)
             local ty = code_ty(ctx, expr_type(expr))
             local dst = new_temp(ctx, "view")
-            append_inst(ctx, Code.CodeInstView(dst, ty, data, len, stride), origin_generated("view"))
+            append_inst(ctx, Code.CodeInstViewMake(dst, ty.elem, data, len, stride), origin_generated("view"))
             return dst, ty
         elseif cls == Tr.ExprLen then
             local vty = source_access_base(expr_type(expr.value))
@@ -876,7 +872,7 @@ function M.Define(T)
             elseif pvm.classof(vty) == Ty.TView then
                 local view = lower_expr(ctx, expr.value)
                 local dst = new_temp(ctx, "view_len")
-                append_inst(ctx, Code.CodeInstViewLen(dst, code_ty(ctx, vty), view), origin_generated("view len"))
+                append_inst(ctx, Code.CodeInstViewLen(dst, view), origin_generated("view len"))
                 return dst, Code.CodeTyIndex
             end
             unsupported(ctx, expr, "len of non-array/view")
@@ -1481,9 +1477,13 @@ function M.Define(T)
                 contract_value_for_binding(func_name, fact.base)
             ), origin_binding(fact.base))
         elseif cls == Tr.ContractFactInvalidate then
-            return code_contract_reject(func_id, "invalidate is a typechecker-only store/lease effect")
+            return Code.CodeFuncContractFact(func_id, Code.CodeContractInvalidate(
+                contract_value_for_binding(func_name, fact.base)
+            ), origin_binding(fact.base))
         elseif cls == Tr.ContractFactPreserve then
-            return code_contract_reject(func_id, "preserve is a typechecker-only store/lease effect")
+            return Code.CodeFuncContractFact(func_id, Code.CodeContractPreserve(
+                contract_value_for_binding(func_name, fact.base)
+            ), origin_binding(fact.base))
         elseif cls == Tr.ContractFactRejected then
             return code_contract_reject(func_id, "tree contract rejected: " .. class_name(fact.issue))
         end

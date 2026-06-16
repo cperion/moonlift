@@ -11,6 +11,9 @@ module MoonTree {
          | StmtOpen(MoonOpen.OpenSet open) unique
          | StmtFlow(MoonSem.FlowClass flow) unique
 
+    RegionUseMode = RegionUseEmit
+         | RegionUseCall
+
     FieldInit = (string name, MoonTree.Expr value, number offset) unique
 
     VariantBind = (string name, MoonType.Type ty) unique
@@ -175,7 +178,7 @@ module MoonTree {
          | StmtReturnValue(MoonTree.StmtHeader h, MoonTree.Expr value) unique
          | StmtControl(MoonTree.StmtHeader h, MoonTree.ControlStmtRegion region) unique
          | StmtUseRegionSlot(MoonTree.StmtHeader h, MoonOpen.RegionSlot slot) unique
-         | StmtUseRegionFrag(MoonTree.StmtHeader h, string use_id, MoonOpen.RegionFragRef frag, MoonTree.Expr* args, MoonOpen.SlotBinding* fills, MoonOpen.ContBinding* cont_fills) unique
+         | StmtUseRegionFrag(MoonTree.StmtHeader h, MoonTree.RegionUseMode mode, string use_id, MoonOpen.RegionFragRef frag, MoonTree.Expr* args, MoonOpen.SlotBinding* fills, MoonOpen.ContBinding* cont_fills) unique
          | StmtTrap(MoonTree.StmtHeader h) unique
 
     Func = FuncLocal(string name, MoonType.Param* params, MoonType.Type result, MoonTree.Stmt* body) unique

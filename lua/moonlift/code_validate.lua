@@ -79,6 +79,8 @@ function M.Define(T)
             type_uses_code_sig(ty.pointee, ctx)
         elseif cls == Code.CodeTyArray or cls == Code.CodeTySlice or cls == Code.CodeTyView or cls == Code.CodeTyVector then
             type_uses_code_sig(ty.elem, ctx)
+        elseif cls == Code.CodeTyLease then
+            type_uses_code_sig(ty.base, ctx)
         end
     end
 
@@ -183,6 +185,20 @@ function M.Define(T)
         local ty = value and fctx.values[value.text]
         if value ~= nil and ty == nil then add_issue(ctx, Code.CodeIssueMissingValue(value)) end
         return ty
+    end
+
+    local function view_elem_type(fctx, ctx, site, view)
+        local vty = value_type(fctx, ctx, view)
+        local cls = pvm.classof(vty)
+        if cls == Code.CodeTyLease then
+            vty = vty.base
+            cls = pvm.classof(vty)
+        end
+        if vty ~= nil and cls ~= Code.CodeTyView then
+            add_issue(ctx, Code.CodeIssueTypeMismatch(site, Code.CodeTyView(Code.CodeTyVoid), vty))
+            return nil
+        end
+        return vty and vty.elem or nil
     end
 
     local place_type
@@ -319,7 +335,7 @@ function M.Define(T)
         type_uses_code_sig(ty, ctx)
     end
 
-    local function inst_dst_type(kind)
+    local function inst_dst_type(ctx, fctx, kind)
         local cls = pvm.classof(kind)
         if cls == Code.CodeInstConst then return kind.dst, kind.const.ty
         elseif cls == Code.CodeInstAlias then return kind.dst, kind.ty
@@ -336,8 +352,10 @@ function M.Define(T)
         elseif cls == Code.CodeInstLoad then return kind.dst, kind.access.ty
         elseif cls == Code.CodeInstAggregate then return kind.dst, kind.ty
         elseif cls == Code.CodeInstArray then return kind.dst, kind.ty
-        elseif cls == Code.CodeInstView then return kind.dst, kind.ty
-        elseif cls == Code.CodeInstViewData then return kind.dst, kind.ptr_ty
+        elseif cls == Code.CodeInstViewMake then return kind.dst, Code.CodeTyView(kind.elem_ty)
+        elseif cls == Code.CodeInstViewData then
+            local elem = view_elem_type(fctx, ctx, "view.data", kind.view)
+            return kind.dst, Code.CodeTyDataPtr(elem)
         elseif cls == Code.CodeInstViewLen then return kind.dst, Code.CodeTyIndex
         elseif cls == Code.CodeInstViewStride then return kind.dst, Code.CodeTyIndex
         elseif cls == Code.CodeInstClosure then return kind.dst, kind.ty
@@ -374,7 +392,7 @@ function M.Define(T)
                 local inst = block.insts[j]
                 if fctx.insts[inst.id.text] ~= nil then add_issue(ctx, Code.CodeIssueDuplicateInst(inst.id)) end
                 fctx.insts[inst.id.text] = true
-                local dst, ty = inst_dst_type(inst.kind)
+                local dst, ty = inst_dst_type(ctx, fctx, inst.kind)
                 if pvm.classof(inst.kind) == Code.CodeInstCall then
                     local sig = inst.kind.sig and ctx.sigs[inst.kind.sig.text] or nil
                     if sig ~= nil and #sig.results == 1 then dst, ty = inst.kind.dst, sig.results[1] end
@@ -443,20 +461,24 @@ function M.Define(T)
             for i = 1, #k.fields do value_type(fctx, ctx, k.fields[i].value) end
         elseif cls == Code.CodeInstArray then
             for i = 1, #k.elems do value_type(fctx, ctx, k.elems[i].value) end
-        elseif cls == Code.CodeInstView then
+        elseif cls == Code.CodeInstViewMake then
+            type_uses_code_sig(k.elem_ty, ctx)
+            local expected_data_ty = Code.CodeTyDataPtr(k.elem_ty)
             local dty = value_type(fctx, ctx, k.data)
-            if dty ~= nil and pvm.classof(dty) ~= Code.CodeTyDataPtr then add_issue(ctx, Code.CodeIssueTypeMismatch(site .. ":view.data", Code.CodeTyDataPtr(nil), dty)) end
+            if dty ~= nil and pvm.classof(dty) ~= Code.CodeTyDataPtr then
+                add_issue(ctx, Code.CodeIssueTypeMismatch(site .. ":view.data", Code.CodeTyDataPtr(nil), dty))
+            elseif dty ~= nil and dty.pointee ~= nil then
+                expect_type(ctx, site .. ":view.data", expected_data_ty, dty)
+            end
             local lty = value_type(fctx, ctx, k.len)
             if lty ~= nil and not is_integer_like(lty) then add_issue(ctx, Code.CodeIssueTypeMismatch(site .. ":view.len", Code.CodeTyIndex, lty)) end
             local sty = value_type(fctx, ctx, k.stride)
             if sty ~= nil and not is_integer_like(sty) then add_issue(ctx, Code.CodeIssueTypeMismatch(site .. ":view.stride", Code.CodeTyIndex, sty)) end
         elseif cls == Code.CodeInstViewData then
-            if pvm.classof(k.ptr_ty) ~= Code.CodeTyDataPtr then add_issue(ctx, Code.CodeIssueDataCodePointerConfusion(site .. ":view.data", k.ptr_ty)) end
-            if pvm.classof(k.view_ty) ~= Code.CodeTyView then add_issue(ctx, Code.CodeIssueTypeMismatch(site .. ":view.ty", Code.CodeTyView(Code.CodeTyVoid), k.view_ty)) end
-            expect_type(ctx, site .. ":view", k.view_ty, value_type(fctx, ctx, k.view))
+            local elem = view_elem_type(fctx, ctx, site .. ":view.data", k.view)
+            if elem ~= nil then type_uses_code_sig(Code.CodeTyDataPtr(elem), ctx) end
         elseif cls == Code.CodeInstViewLen or cls == Code.CodeInstViewStride then
-            if pvm.classof(k.view_ty) ~= Code.CodeTyView then add_issue(ctx, Code.CodeIssueTypeMismatch(site .. ":view.ty", Code.CodeTyView(Code.CodeTyVoid), k.view_ty)) end
-            expect_type(ctx, site .. ":view", k.view_ty, value_type(fctx, ctx, k.view))
+            view_elem_type(fctx, ctx, site .. ":view", k.view)
         elseif cls == Code.CodeInstClosure then
             check_sig_ref(ctx, k.sig)
             if pvm.classof(k.ty) ~= Code.CodeTyClosure then add_issue(ctx, Code.CodeIssueTypeMismatch(site .. ":closure", Code.CodeTyClosure(k.sig), k.ty))

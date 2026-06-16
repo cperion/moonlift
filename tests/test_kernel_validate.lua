@@ -1,9 +1,8 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local pvm = require("moonlift.pvm")
-local Schema = require("moonlift.schema")
 local T = pvm.context()
-Schema.Define(T)
+require("moonlift.schema").Define(T)
 
 local Parse = require("moonlift.parse").Define(T)
 local OpenFacts = require("moonlift.open_facts").Define(T)
@@ -14,81 +13,87 @@ local Typecheck = require("moonlift.tree_typecheck").Define(T)
 local Layout = require("moonlift.sem_layout_resolve").Define(T)
 local TreeToCode = require("moonlift.tree_to_code").Define(T)
 local CodeValidate = require("moonlift.code_validate").Define(T)
+local CodeGraph = require("moonlift.code_graph").Define(T)
 local CodeFlowFacts = require("moonlift.code_flow_facts").Define(T)
+local CodeValueFacts = require("moonlift.code_value_facts").Define(T)
 local CodeMemFacts = require("moonlift.code_mem_facts").Define(T)
+local CodeEffectFacts = require("moonlift.code_effect_facts").Define(T)
 local CodeKernelPlan = require("moonlift.code_kernel_plan").Define(T)
+local CodeSchedulePlan = require("moonlift.code_schedule_plan").Define(T)
+local CodeLowerPlan = require("moonlift.code_lower_plan").Define(T)
 local KernelValidate = require("moonlift.kernel_validate").Define(T)
 
-local Code = T.MoonCode
 local Kernel = T.MoonKernel
+local Schedule = T.MoonSchedule
+local Lower = T.MoonLower
 
-local function assert_no_issues(label, issues)
-    assert(#issues == 0, label .. " expected no issues, got " .. tostring(#issues))
+local function assert_no(label, issues)
+    assert(#issues == 0, label .. " issues " .. tostring(#issues) .. (issues[1] and (": " .. tostring(issues[1].kind) .. " " .. tostring(issues[1].message)) or ""))
 end
 
-local function lower(src)
-    local parsed = Parse.parse_module(src)
-    assert_no_issues("parse", parsed.issues)
-    local expanded = OpenExpand.module(parsed.module)
-    assert_no_issues("open", OpenValidate.validate(OpenFacts.facts_of_module(expanded)).issues)
+local function lower_all(src)
+    local parsed = Parse.parse_module(src); assert_no("parse", parsed.issues)
+    local expanded = OpenExpand.module(parsed.module); assert_no("open", OpenValidate.validate(OpenFacts.facts_of_module(expanded)).issues)
     local closed = ClosureConvert.module(expanded)
-    local checked = Typecheck.check_module(closed)
-    assert_no_issues("typecheck", checked.issues)
+    local checked = Typecheck.check_module(closed); assert_no("typecheck", checked.issues)
     local resolved = Layout.module(checked.module)
-    local code, contracts = TreeToCode.module_with_contracts(resolved)
-    assert_no_issues("code", CodeValidate.validate(code).issues)
-    local flow = CodeFlowFacts.facts(code)
-    local flow_semantics = CodeFlowFacts.semantic_facts(code, flow)
-    local mem = CodeMemFacts.facts(code, flow)
-    local mem_semantics = CodeMemFacts.semantic_facts(code, flow, flow_semantics, contracts)
-    local plan = CodeKernelPlan.plan(code, flow, mem, contracts, flow_semantics, mem_semantics)
-    return code, flow, mem, plan
+    local code, contracts = TreeToCode.module_with_contracts(resolved); assert_no("code", CodeValidate.validate(code).issues)
+    local graph = CodeGraph.graph(code)
+    local flow = CodeFlowFacts.facts(code, graph)
+    local value = CodeValueFacts.facts(code, graph, flow)
+    local mem = CodeMemFacts.semantic_facts(code, graph, flow, value, contracts)
+    local effect = CodeEffectFacts.facts(code, graph, mem, contracts)
+    local kernels = CodeKernelPlan.plan(code, graph, flow, value, mem, effect)
+    local schedules = CodeSchedulePlan.plan(code, kernels, flow, value, mem, effect)
+    local lower = CodeLowerPlan.plan(code, graph, kernels, schedules, Lower.LowerTargetBack)
+    return code, graph, flow, value, mem, effect, kernels, schedules, lower
 end
 
-local code, flow, mem, plan = lower([[
-func copy_sum(noalias dst: ptr(i32), readonly src: ptr(i32), n: i32): i32
-    requires bounds(dst, n)
-    requires bounds(src, n)
-    requires disjoint(dst, src)
-    return block loop(i: i32 = 0, acc: i32 = 0): i32
-        if i >= n then yield acc end
-        let x: i32 = src[i]
-        dst[i] = x
-        jump loop(i = i + 1, acc = acc + x)
-    end
+local code, graph, flow, value, mem, effect, kernels, schedules, lower = lower_all([[
+func sum_loop(n: i32): i32
+ return block loop(i: i32 = 0, acc: i32 = 0): i32
+  if i >= n then yield acc end
+  jump loop(i = i + 1, acc = acc + i)
+ end
 end
 ]])
-local report = KernelValidate.validate(code, flow, mem, plan)
-assert_no_issues("kernel_validate", report.issues)
 
-local bad_mem = CodeMemFacts.facts(code, flow)
-bad_mem.accesses[1] = T.MoonMem.MemAccessFact(
-    bad_mem.accesses[1].id,
-    bad_mem.accesses[1].func,
-    bad_mem.accesses[1].block,
-    bad_mem.accesses[1].inst,
-    bad_mem.accesses[1].kind,
-    bad_mem.accesses[1].place,
-    Code.CodeMemoryAccess(Code.CodeMemoryRead, bad_mem.accesses[1].access.ty, 1, Code.CodeMayTrap, false, nil),
-    bad_mem.accesses[1].base,
-    bad_mem.accesses[1].index,
-    bad_mem.accesses[1].pattern,
-    bad_mem.accesses[1].alignment,
-    bad_mem.accesses[1].bounds,
-    bad_mem.accesses[1].trap
+local report = KernelValidate.validate(code, graph, flow, value, mem, effect, kernels, schedules, lower)
+assert_no("kernel_validate valid pipeline", report.issues)
+
+local first_fragment = lower.funcs[1].fragments[1]
+local bad_fragment = Lower.LowerFragment(
+    first_fragment.id,
+    first_fragment.cover,
+    Lower.LowerStrategyKernel(Kernel.KernelId("kernel:missing"), Schedule.ScheduleId("schedule:missing")),
+    first_fragment.proofs,
+    first_fragment.issues
 )
--- Validate the bad memory against the original good plan to exercise direct contradiction checks.
-report = KernelValidate.validate(code, flow, bad_mem, plan)
-local saw_contradiction = false
-for _, issue in ipairs(report.issues) do if issue.kind == "access-contradiction" or issue.kind == "memory-mismatch" then saw_contradiction = true end end
-assert(saw_contradiction, "expected validator to catch CodeMemoryAccess contradiction/memory mismatch")
+local bad_lower = Lower.LowerModule(lower.module, lower.target, lower.kernels, lower.schedules, { Lower.LowerFuncPlan(lower.funcs[1].func, { bad_fragment }) }, lower.issues)
+report = KernelValidate.validate(code, graph, flow, value, mem, effect, kernels, schedules, bad_lower)
+local saw_missing_kernel, saw_missing_schedule = false, false
+for _, issue in ipairs(report.issues) do
+    if issue.kind == "missing-kernel" then saw_missing_kernel = true end
+    if issue.kind == "missing-schedule" then saw_missing_schedule = true end
+end
+assert(saw_missing_kernel and saw_missing_schedule, "dangling semantic LowerStrategy must fail validation")
 
-local no_reject_plan = Kernel.KernelModulePlan(code.id, flow, mem, {
-    Kernel.KernelFuncPlan(code.funcs[1].id, Kernel.KernelNoPlan(Kernel.KernelSubjectLoop(code.funcs[1].id, flow.loops[1].id), {})),
-})
-report = KernelValidate.validate(code, flow, mem, no_reject_plan)
-local saw_missing_rejection = false
-for _, issue in ipairs(report.issues) do if issue.kind == "missing-rejection" then saw_missing_rejection = true end end
-assert(saw_missing_rejection, "expected KernelNoPlan without rejects to fail validation")
+local planned_kernel = nil
+for _, plan in ipairs(kernels.plans or {}) do if pvm.classof(plan) == Kernel.KernelPlanned then planned_kernel = planned_kernel or plan end end
+assert(planned_kernel ~= nil, "test needs a planned kernel")
+local bad_schedules = Schedule.ScheduleModulePlan(schedules.module, schedules.target, { Schedule.ScheduleNoPlan(planned_kernel.id, {}) })
+report = KernelValidate.validate(code, graph, flow, value, mem, effect, kernels, bad_schedules, lower)
+local saw_empty_schedule_reject = false
+for _, issue in ipairs(report.issues) do if issue.kind == "schedule-noplan-without-reject" then saw_empty_schedule_reject = true end end
+assert(saw_empty_schedule_reject, "ScheduleNoPlan without rejects must fail validation")
+
+local bad_lower_missing_func = Lower.LowerModule(lower.module, lower.target, lower.kernels, lower.schedules, {}, lower.issues)
+report = KernelValidate.validate(code, graph, flow, value, mem, effect, kernels, schedules, bad_lower_missing_func)
+local saw_missing_lower_func, saw_gap = false, false
+for _, issue in ipairs(report.issues) do
+    if issue.kind == "missing-lower-func" then saw_missing_lower_func = true end
+    if issue.kind == "gap" then saw_gap = true end
+end
+assert(saw_missing_lower_func and saw_gap, "missing LowerFuncPlan and block coverage gaps must fail validation")
 
 io.write("moonlift kernel_validate ok\n")

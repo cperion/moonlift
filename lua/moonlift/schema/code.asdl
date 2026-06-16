@@ -45,6 +45,7 @@ module MoonCode {
          | CodeTySlice(MoonCode.CodeType elem) unique
          | CodeTyView(MoonCode.CodeType elem) unique
          | CodeTyHandle(MoonCode.CodeType repr, MoonType.Type source_ty) unique
+         | CodeTyLease(MoonCode.CodeType base, MoonType.Type source_ty) unique
          | CodeTyClosure(MoonCode.CodeSigId sig) unique
          | CodeTyImportedC(MoonC.CTypeId id) unique
          | CodeTyImportedCFuncPtr(MoonC.CFuncSigId sig) unique
@@ -140,10 +141,10 @@ module MoonCode {
          | CodeInstStore(MoonCode.CodePlace place, MoonCode.CodeValueId value, MoonCode.CodeMemoryAccess access) unique
          | CodeInstAggregate(MoonCode.CodeValueId dst, MoonCode.CodeType ty, MoonCode.CodeFieldValue* fields) unique
          | CodeInstArray(MoonCode.CodeValueId dst, MoonCode.CodeType ty, MoonCode.CodeArrayValue* elems) unique
-         | CodeInstView(MoonCode.CodeValueId dst, MoonCode.CodeType ty, MoonCode.CodeValueId data, MoonCode.CodeValueId len, MoonCode.CodeValueId stride) unique
-         | CodeInstViewData(MoonCode.CodeValueId dst, MoonCode.CodeType ptr_ty, MoonCode.CodeType view_ty, MoonCode.CodeValueId view) unique
-         | CodeInstViewLen(MoonCode.CodeValueId dst, MoonCode.CodeType view_ty, MoonCode.CodeValueId view) unique
-         | CodeInstViewStride(MoonCode.CodeValueId dst, MoonCode.CodeType view_ty, MoonCode.CodeValueId view) unique
+         | CodeInstViewMake(MoonCode.CodeValueId dst, MoonCode.CodeType elem_ty, MoonCode.CodeValueId data, MoonCode.CodeValueId len, MoonCode.CodeValueId stride) unique
+         | CodeInstViewData(MoonCode.CodeValueId dst, MoonCode.CodeValueId view) unique
+         | CodeInstViewLen(MoonCode.CodeValueId dst, MoonCode.CodeValueId view) unique
+         | CodeInstViewStride(MoonCode.CodeValueId dst, MoonCode.CodeValueId view) unique
          | CodeInstClosure(MoonCode.CodeValueId dst, MoonCode.CodeType ty, MoonCode.CodeValueId fn, MoonCode.CodeValueId ctx, MoonCode.CodeSigId sig) unique
          | CodeInstVariantCtor(MoonCode.CodeValueId dst, MoonCode.CodeType ty, MoonCode.CodeVariantRef variant, MoonCode.CodeValueId? payload) unique
          | CodeInstVariantTag(MoonCode.CodeValueId dst, MoonCode.CodeType tag_ty, MoonCode.CodeValueId value) unique
@@ -192,6 +193,8 @@ module MoonCode {
          | CodeContractNoAlias(MoonCode.CodeValueId base) unique
          | CodeContractReadonly(MoonCode.CodeValueId base) unique
          | CodeContractWriteonly(MoonCode.CodeValueId base) unique
+         | CodeContractInvalidate(MoonCode.CodeValueId base) unique
+         | CodeContractPreserve(MoonCode.CodeValueId base) unique
          | CodeContractRejected(string reason) unique
 
     CodeFuncContractFact = (MoonCode.CodeFuncId func, MoonCode.CodeContractFact fact, MoonCode.CodeOrigin origin) unique

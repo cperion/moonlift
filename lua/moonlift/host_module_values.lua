@@ -82,6 +82,25 @@ function BundleValue:pack(...)
             end
         end
 
+        local generated_items = rawget(v, "_generated_items")
+        if type(generated_items) == "table" and #generated_items > 0 then
+            self._generated_item_seen = self._generated_item_seen or {}
+            local T = self.session.T
+            local Tr = T.MoonTree
+            local pvm = require("moonlift.pvm")
+            for gi = 1, #generated_items do
+                local item = generated_items[gi]
+                local cls = pvm.classof(item)
+                local key = tostring(item)
+                if cls == Tr.ItemType and item.t and item.t.name then key = "type:" .. item.t.name
+                elseif cls == Tr.ItemFunc and item.func and item.func.name then key = "func:" .. item.func.name end
+                if not self._generated_item_seen[key] then
+                    self._generated_item_seen[key] = true
+                    self.items[#self.items + 1] = item
+                end
+            end
+        end
+
         local kind = rawget(v, "kind") or rawget(v, "moonlift_quote_kind")
         if kind == "func" or kind == "extern_func" then
             self:add_func(v)

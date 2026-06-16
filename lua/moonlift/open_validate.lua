@@ -167,6 +167,9 @@ function M.explain_open_issue(issue, analysis)
     elseif kind == "IssueUnexpandedExprFragUse" then
         return { code = "E0802", severity = "error", phase_context = "while expanding fragments", primary = { span = span, message = "unexpanded expression fragment use `" .. skey .. "`" }, notes = unexpanded_notes() }
     elseif kind == "IssueUnexpandedRegionFragUse" then
+        if tostring(skey):match("^call%.") then
+            return { code = "E0802", severity = "error", phase_context = "while expanding fragments", primary = { span = span, message = "unexpanded region call `" .. skey .. "`" }, notes = { { message = "region call must lower during open/RNF expansion before Code/backend lowering" }, { message = "this fragment reference could not be expanded at load time" } } }
+        end
         return { code = "E0802", severity = "error", phase_context = "while expanding fragments", primary = { span = span, message = "unexpanded region fragment use `" .. skey .. "`" }, notes = unexpanded_notes() }
     elseif kind == "IssueUnexpandedModuleUse" then
         return { code = "E0802", severity = "error", phase_context = "while expanding fragments", primary = { span = span, message = "unexpanded module use `" .. skey .. "`" }, notes = unexpanded_notes() }

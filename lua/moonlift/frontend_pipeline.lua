@@ -65,9 +65,13 @@ function M.Define(T)
     local Layout = require("moonlift.sem_layout_resolve").Define(T)
     local TreeToCode = require("moonlift.tree_to_code").Define(T)
     local CodeValidate = require("moonlift.code_validate").Define(T)
+    local CodeGraph = require("moonlift.code_graph").Define(T)
     local CodeFlowFacts = require("moonlift.code_flow_facts").Define(T)
+    local CodeValueFacts = require("moonlift.code_value_facts").Define(T)
     local CodeMemFacts = require("moonlift.code_mem_facts").Define(T)
+    local CodeEffectFacts = require("moonlift.code_effect_facts").Define(T)
     local CodeKernelPlan = require("moonlift.code_kernel_plan").Define(T)
+    local CodeSchedulePlan = require("moonlift.code_schedule_plan").Define(T)
     local KernelValidate = require("moonlift.kernel_validate").Define(T)
     local CodeLowerPlan = require("moonlift.code_lower_plan").Define(T)
     local CodeType = require("moonlift.code_type").Define(T)
@@ -103,15 +107,19 @@ function M.Define(T)
         local code_module, code_contracts = TreeToCode.module_with_contracts(resolved, { layout_env = opts.layout_env, target = opts.target, module_id = opts.module_id })
         if code_module == nil then error(site .. " lowering failed: tree_to_code produced nil module", 2) end
         local code_report = CodeValidate.validate(code_module, collector)
-        local flow_facts = CodeFlowFacts.facts(code_module)
-        local flow_semantics = CodeFlowFacts.semantic_facts(code_module, flow_facts)
-        local mem_facts = CodeMemFacts.facts(code_module, flow_facts)
-        local mem_semantics = CodeMemFacts.semantic_facts(code_module, flow_facts, flow_semantics, code_contracts)
-        local kernel_plan = CodeKernelPlan.plan(code_module, flow_facts, mem_facts, code_contracts, flow_semantics, mem_semantics, { target_model = opts.target_model or opts.back_target_model })
-        local kernel_report = KernelValidate.validate(code_module, flow_facts, mem_facts, kernel_plan, { collector = collector })
-        local lower_plan = CodeLowerPlan.plan(code_module, kernel_plan, { target = T.MoonLower.LowerTargetBack })
+        local graph = CodeGraph.graph(code_module)
+        local flow_facts = CodeFlowFacts.facts(code_module, graph)
+        local flow_semantics = CodeFlowFacts.semantic_facts(code_module, graph, flow_facts)
+        local value_facts = CodeValueFacts.facts(code_module, graph, flow_facts)
+        local mem_semantics = CodeMemFacts.semantic_facts(code_module, graph, flow_facts, value_facts, code_contracts)
+        local mem_facts = CodeMemFacts.facts(code_module, graph, flow_facts, value_facts, code_contracts)
+        local effect_facts = CodeEffectFacts.facts(code_module, graph, mem_semantics, code_contracts)
+        local kernel_plan = CodeKernelPlan.plan(code_module, graph, flow_facts, value_facts, mem_semantics, effect_facts)
+        local schedule_plan = CodeSchedulePlan.plan(code_module, kernel_plan, flow_facts, value_facts, mem_semantics, effect_facts, opts.target_model or opts.back_target_model)
+        local lower_plan = CodeLowerPlan.plan(code_module, graph, kernel_plan, schedule_plan, T.MoonLower.LowerTargetBack)
+        local kernel_report = KernelValidate.validate(code_module, graph, flow_facts, value_facts, mem_semantics, effect_facts, kernel_plan, schedule_plan, lower_plan, { collector = collector })
 
-        local program = LowerToBack.module(code_module, lower_plan, { validate = false })
+        local program = LowerToBack.module(code_module, graph, flow_facts, value_facts, mem_semantics, effect_facts, kernel_plan, schedule_plan, lower_plan)
         if program == nil then error(site .. " lowering failed: code_to_back produced nil program", 2) end
         if not _G.MOONLIFT_ALLOW_TRAP then
             assert_no_cmd_trap(T, program, site)
@@ -128,11 +136,15 @@ function M.Define(T)
             code_module = code_module,
             code_contracts = code_contracts,
             code_report = code_report,
+            graph = graph,
             flow_facts = flow_facts,
             flow_semantics = flow_semantics,
+            value_facts = value_facts,
             mem_facts = mem_facts,
             mem_semantics = mem_semantics,
+            effect_facts = effect_facts,
             kernel_plan = kernel_plan,
+            schedule_plan = schedule_plan,
             kernel_report = kernel_report,
             lower_plan = lower_plan,
             program = program,
@@ -174,13 +186,17 @@ function M.Define(T)
         local code_module, code_contracts = TreeToCode.module_with_contracts(resolved, { layout_env = layout_env, target = c_target, module_id = opts.module_id })
         if code_module == nil then error((opts.site or "C frontend") .. " lowering failed: tree_to_code produced nil module", 2) end
         local code_report = CodeValidate.validate(code_module, collector)
-        local flow_facts = CodeFlowFacts.facts(code_module)
-        local flow_semantics = CodeFlowFacts.semantic_facts(code_module, flow_facts)
-        local mem_facts = CodeMemFacts.facts(code_module, flow_facts)
-        local mem_semantics = CodeMemFacts.semantic_facts(code_module, flow_facts, flow_semantics, code_contracts)
-        local kernel_plan = CodeKernelPlan.plan(code_module, flow_facts, mem_facts, code_contracts, flow_semantics, mem_semantics, { target_model = opts.target_model or opts.back_target_model })
-        local kernel_report = KernelValidate.validate(code_module, flow_facts, mem_facts, kernel_plan, { collector = collector })
-        local lower_plan = CodeLowerPlan.plan(code_module, kernel_plan, { target = T.MoonLower.LowerTargetC })
+        local graph = CodeGraph.graph(code_module)
+        local flow_facts = CodeFlowFacts.facts(code_module, graph)
+        local flow_semantics = CodeFlowFacts.semantic_facts(code_module, graph, flow_facts)
+        local value_facts = CodeValueFacts.facts(code_module, graph, flow_facts)
+        local mem_semantics = CodeMemFacts.semantic_facts(code_module, graph, flow_facts, value_facts, code_contracts)
+        local mem_facts = CodeMemFacts.facts(code_module, graph, flow_facts, value_facts, code_contracts)
+        local effect_facts = CodeEffectFacts.facts(code_module, graph, mem_semantics, code_contracts)
+        local kernel_plan = CodeKernelPlan.plan(code_module, graph, flow_facts, value_facts, mem_semantics, effect_facts)
+        local schedule_plan = CodeSchedulePlan.plan(code_module, kernel_plan, flow_facts, value_facts, mem_semantics, effect_facts, opts.target_model or opts.back_target_model)
+        local lower_plan = CodeLowerPlan.plan(code_module, graph, kernel_plan, schedule_plan, T.MoonLower.LowerTargetC)
+        local kernel_report = KernelValidate.validate(code_module, graph, flow_facts, value_facts, mem_semantics, effect_facts, kernel_plan, schedule_plan, lower_plan, { collector = collector })
         c_opts.validate = false
         local c_unit = LowerToC.module(code_module, lower_plan, c_opts)
         local c_report = CValidate.validate(c_unit, collector)
@@ -194,11 +210,15 @@ function M.Define(T)
             code_module = code_module,
             code_contracts = code_contracts,
             code_report = code_report,
+            graph = graph,
             flow_facts = flow_facts,
             flow_semantics = flow_semantics,
+            value_facts = value_facts,
             mem_facts = mem_facts,
             mem_semantics = mem_semantics,
+            effect_facts = effect_facts,
             kernel_plan = kernel_plan,
+            schedule_plan = schedule_plan,
             kernel_report = kernel_report,
             lower_plan = lower_plan,
             c_unit = c_unit,
