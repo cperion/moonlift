@@ -433,7 +433,6 @@ local function new_parser_internal(T, toks, first, limit, opts)
         cont_env = opts.cont_env or {},
         protocol_types = opts.protocol_types or {},
         product_types = opts.product_types or {},
-        splice_values = opts.splice_values or {},
         name_hint = opts.name_hint,
         splice_slots = {},
         splice_slots_by_id = {},
@@ -613,24 +612,88 @@ function Parser:name_ref_or_hint_before_lparen(msg)
         self.anonymous = true
         return O.NameRefText("_anon_" .. tostring(self.anon_counter))
     end
-    local name
     if self:kind() == TK.hole then
         local id = self:text(); self.i = self.i + 1
-        name = id
-    else
-        name = self:expect_name(msg)
-        while self:kind() == TK.dot do
-            self.i = self.i + 1
-            name = name .. "." .. self:expect_name("expected dotted name path segment")
-        end
+        local slot = O.NameSlot(self:splice_key("name", id), id)
+        self:record_splice_slot(id, O.SlotName(slot), "name")
+        return O.NameRefSlot(slot)
     end
-    -- Every name is a Lua expression evaluated through the splice mechanism.
-    local slot = O.NameSlot(self:splice_key("name", name), name)
-    self:record_splice_slot(name, O.SlotName(slot), "name")
-    return O.NameRefSlot(slot)
+    return O.NameRefText(self:expect_name(msg))
 end
 
 function Parser:is_stop(stops) return stops[self:kind()] == true end
+
+---------------------------------------------------------------------------
+-- Splice expression reading
+---------------------------------------------------------------------------
+
+-- For fragment references (emit/call position), read a Lua expression
+-- but STOP at '(' — those parens belong to the emit arguments.
+function Parser:read_splice_expr_no_parens(msg)
+    if self:kind() == TK.hole then
+        local id = self:text(); self.i = self.i + 1
+        return id
+    end
+    local start_i = self.i
+    local name = self:expect_name(msg)
+    -- Only consume dot chains, not () or [] — those are emit-level syntax.
+    while self:kind() == TK.dot do
+        self.i = self.i + 1
+        self:expect_name("expected field name after '.'")
+    end
+    return name
+end
+
+-- Read a Lua expression (any expression valid in type position)
+-- and return the expression text.  Handles bare names, table.field chains,
+-- function calls, indexing, and @{...} holes.
+-- Note: in fragment ref positions, use read_splice_expr_no_parens instead
+-- because () and [] belong to the emit/call argument syntax.
+function Parser:read_splice_expr(msg)
+    if self:kind() == TK.hole then
+        local id = self:text(); self.i = self.i + 1
+        return id
+    end
+    local start_i = self.i
+    local name = self:expect_name(msg)
+    -- Consume postfix chains: .field, (args), [idx]
+    while true do
+        local k = self:kind()
+        if k == TK.dot then
+            self.i = self.i + 1
+            self:expect_name("expected field name after '.'")
+        elseif k == TK.lparen then
+            self.i = self.i + 1; self:skip_nl()
+            local depth = 1
+            while depth > 0 and self:kind() ~= TK.eof do
+                if self:kind() == TK.lparen then depth = depth + 1
+                elseif self:kind() == TK.rparen then depth = depth - 1 end
+                if depth > 0 then self.i = self.i + 1; self:skip_nl() end
+            end
+            if self:kind() == TK.rparen then self.i = self.i + 1 end
+        elseif k == TK.lbrack then
+            self.i = self.i + 1; self:skip_nl()
+            local depth = 1
+            while depth > 0 and self:kind() ~= TK.eof do
+                if self:kind() == TK.lbrack then depth = depth + 1
+                elseif self:kind() == TK.rbrack then depth = depth - 1 end
+                if depth > 0 then self.i = self.i + 1; self:skip_nl() end
+            end
+            if self:kind() == TK.rbrack then self.i = self.i + 1 end
+        else
+            break
+        end
+    end
+    local stop_i = self.i - 1
+    -- Reconstruct expression text from token byte positions.
+    if start_i <= stop_i then
+        local src = self.toks.src
+        local s = self.toks.start[start_i]
+        local e = self.toks.stop[stop_i]
+        if s and e then return sub(src, s, e) end
+    end
+    return name
+end
 
 ---------------------------------------------------------------------------
 -- Splice slot support
@@ -673,12 +736,6 @@ local function spread_sentinel(role, slot)
     return "__moonlift_spread_" .. role .. ":" .. slot.key
 end
 
-function Parser:splice_value(id)
-    local rec = self.splice_values and self.splice_values[id]
-    if type(rec) == "table" and rec.present then return rec.value end
-    return rec
-end
-
 function Parser:param_from_value(v)
     local pvm = require("moonlift.pvm")
     if pvm.classof(v) == self.Ty.Param then return v end
@@ -705,19 +762,6 @@ end
 -- Type parsing
 ---------------------------------------------------------------------------
 
-function Parser:type_from_value(v)
-    if type(v) == "table" then
-        if type(v.as_moonlift_type) == "function" then return v:as_moonlift_type() end
-        if type(v.as_type_value) == "function" then
-            local tv = v:as_type_value()
-            if type(tv) == "table" and type(tv.as_moonlift_type) == "function" then return tv:as_moonlift_type() end
-            if type(tv) == "table" and tv.ty ~= nil then return tv.ty end
-        end
-        if v.ty ~= nil and (v.__moonlift_host_type_value or (getmetatable(v) and getmetatable(v).__moonlift_host_type_value)) then return v.ty end
-    end
-    return nil
-end
-
 function Parser:type_name(name)
     local O, C, Ty = self.O, self.C, self.Ty
     local m = { void=C.ScalarVoid, bool=C.ScalarBool, i8=C.ScalarI8, i16=C.ScalarI16,
@@ -725,13 +769,15 @@ function Parser:type_name(name)
         u32=C.ScalarU32, u64=C.ScalarU64, f32=C.ScalarF32, f64=C.ScalarF64,
         index=C.ScalarIndex, ptr=C.ScalarRawPtr }
     if m[name] then return Ty.TScalar(m[name]) end
-    -- Resolve at parse time if declared earlier in this module.
-    local ambient = self:type_from_value(self:splice_value(name))
-    if ambient ~= nil then return ambient end
-    -- Deferred: evaluate as Lua expression through the host splice mechanism.
-    local slot = O.TypeSlot(self:splice_key("type", name), name)
-    self:record_splice_slot(name, O.SlotType(slot), "type")
-    return Ty.TSlot(slot)
+    -- Dotted names (T.Arena) are cross-module Lua value references resolved
+    -- through bindings.  Bare names (Arena) are same-module declarations
+    -- resolved by the typechecker from ItemType entries.
+    if name:find(".", 1, true) then
+        local slot = O.TypeSlot(self:splice_key("type", name), name)
+        self:record_splice_slot(name, O.SlotType(slot), "type")
+        return Ty.TSlot(slot)
+    end
+    return Ty.TNamed(Ty.TypeRefPath(C.Path({ C.Name(name) })))
 end
 
 function Parser:parse_callable_type()
@@ -835,23 +881,16 @@ function Parser:parse_type()
         return Ty.TClosure(params, result)
     end
 
-    local name = self:expect_name("expected type")
-    if name == "ptr" and self:accept(TK.lparen) then
-        self:skip_nl(); local elem = self:parse_type(); self:skip_nl(); self:expect(TK.rparen)
+    if self:kind() == TK.name and self:text() == "ptr" and self:kind(1) == TK.lparen then
+        self.i = self.i + 2  -- skip name + lparen
+        self:skip_nl()
+        local elem = self:parse_type()
+        self:skip_nl(); self:expect(TK.rparen)
         return Ty.TPtr(elem)
     end
 
-    -- Qualified path: A.B.C — evaluate as Lua splice (the Lua environment IS the namespace).
-    if self:kind() == TK.dot then
-        local parts = { name }
-        while self:accept(TK.dot) do parts[#parts + 1] = self:expect_name("expected qualified type field") end
-        local expr = table.concat(parts, ".")
-        local slot = O.TypeSlot(self:splice_key("type", expr), expr)
-        self:record_splice_slot(expr, O.SlotType(slot), "type")
-        return Ty.TSlot(slot)
-    end
-
-    return self:type_name(name)
+    local expr = self:read_splice_expr("expected type")
+    return self:type_name(expr)
 end
 
 ---------------------------------------------------------------------------
@@ -1106,7 +1145,7 @@ function Parser:led(k, left)
         self:expect(TK.rbrace)
         local ty
         if left_name then
-            ty = self:type_from_value(self:splice_value(left_name)) or self.Ty.TNamed(self.Ty.TypeRefPath(self.C.Path({ self.C.Name(left_name) })))
+            ty = self.Ty.TNamed(self.Ty.TypeRefPath(self.C.Path({ self.C.Name(left_name) })))
         else
             ty = self.Ty.TScalar(self.C.ScalarVoid)
         end
@@ -1413,7 +1452,8 @@ end
 function Parser:parse_jump_args()
     local Tr = self.Tr
     local args = {}
-    self:expect(TK.lparen); self:skip_nl()
+    if self:kind() ~= TK.lparen then return args end
+    self.i = self.i + 1; self:skip_nl()
     if self:kind() ~= TK.rparen then
         while true do
             self:skip_nl()
@@ -1430,20 +1470,15 @@ function Parser:parse_jump_args()
     return args
 end
 
--- Region fragment reference (for region use: emit/call)
--- Every name is a Lua expression evaluated through the splice mechanism.
+-- Region fragment reference (for emit/call).
+-- Every name creates a splice slot resolved through bindings.
 function Parser:parse_region_frag_ref(keyword)
     local O = self.O
     local name
     if self:kind() == TK.hole then
-        local id = self:text(); self.i = self.i + 1
-        name = id
+        name = self:text(); self.i = self.i + 1
     else
         name = self:expect_name("expected region fragment name after " .. (keyword or "emit/call"))
-        while self:kind() == TK.dot do
-            self.i = self.i + 1
-            name = name .. "." .. self:expect_name("expected dotted fragment path segment")
-        end
     end
     local slot = O.RegionFragSlot(self:splice_key("region_frag", name), name)
     self:record_splice_slot(name, O.SlotRegionFrag(slot), "region_frag")
@@ -1454,14 +1489,9 @@ function Parser:parse_expr_frag_ref()
     local O = self.O
     local name
     if self:kind() == TK.hole then
-        local id = self:text(); self.i = self.i + 1
-        name = id
+        name = self:text(); self.i = self.i + 1
     else
         name = self:expect_name("expected expression fragment name after emit")
-        while self:kind() == TK.dot do
-            self.i = self.i + 1
-            name = name .. "." .. self:expect_name("expected dotted fragment path segment")
-        end
     end
     local slot = O.ExprFragSlot(self:splice_key("expr_frag", name), name)
     self:record_splice_slot(name, O.SlotExprFrag(slot), "expr_frag")
@@ -1576,8 +1606,9 @@ function Parser:parse_stmt()
     local atomic_stmt = self:parse_atomic_stmt_if_present()
     if atomic_stmt ~= nil then return atomic_stmt end
 
-    -- Hole: @{stmt_source} in statement position (region body splice)
-    if self:kind() == TK.hole then
+    -- Hole: @{stmt_source} in statement position (region body splice).
+    -- Unless followed by '(' — that's an expression call, fall through.
+    if self:kind() == TK.hole and self:kind(1) ~= TK.lparen then
         local id = self:text(); self.i = self.i + 1
         local slot = self.O.RegionSlot(self:splice_key("region_body", id), id)
         self:record_splice_slot(id, self.O.SlotRegion(slot), "region_body")
@@ -1763,7 +1794,17 @@ function Parser:parse_extern()
 end
 
 function Parser:parse_func()
-    local Tr, Ty, C = self.Tr, self.Ty, self.C
+    local Tr, Ty, C, O = self.Tr, self.Ty, self.C, self.O
+    -- Impl from header: func @{header_ref} body ... end
+    if self:kind() == TK.hole then
+        local id = self:text(); self.i = self.i + 1
+        self:skip_nl()
+        local body = self:parse_stmt_until({ [TK.end_kw]=true })
+        self:expect(TK.end_kw, "expected end after func impl")
+        local slot = O.FuncSlot(self:splice_key("func", id), id, Ty.TScalar(C.ScalarVoid))
+        self:record_splice_slot(id, O.SlotFunc(slot), "func")
+        return { kind = "func_impl", body = body, slot = slot }
+    end
     local name = self:name_or_hint_before_lparen("expected function name")
     if self:accept(TK.colon) then
         local method = self:expect_name("expected method name")
@@ -1777,7 +1818,7 @@ function Parser:parse_func()
         contracts[#contracts + 1] = self:parse_contract()
         self:skip_nl()
     end
-    -- Bodyless declaration (header mode) — accept `func ... end` or `func ...` (EOF) without body
+    -- Bodyless declaration (header mode)
     if self:kind() == TK.end_kw or self:kind() == TK.eof or self:kind() == TK.nl then
         if self:kind() == TK.end_kw then self.i = self.i + 1 end
         self:skip_nl()
@@ -1822,7 +1863,8 @@ function Parser:parse_cont_params(owner_name)
     while self:kind() ~= TK.rparen and self:kind() ~= TK.eof do
         if self:kind() == TK.hole and self.toks.splice_spread[self:text()] then
             local id = self:text(); self.i = self.i + 1
-            local value = self:splice_value(id)
+            -- Spread holes (@{expr...}) are always filled post-parse via the chain binder.
+            local value = nil
             if type(value) == "table" then
                 local pvm = require("moonlift.pvm")
                 for j = 1, #value do
@@ -1925,7 +1967,8 @@ function Parser:parse_open_params(owner_name)
             self:skip_nl()
             if self:kind() == TK.hole and self.toks.splice_spread[self:text()] then
                 local id = self:text(); self.i = self.i + 1
-                local value = self:splice_value(id)
+                -- Spread holes (@{expr...}) are always filled post-parse via the chain binder.
+                local value = nil
                 if type(value) == "table" then
                     for j = 1, #value do
                         local raw = value[j]
@@ -1970,6 +2013,39 @@ end
 -- Region fragment: region name(params; conts): Protocol | entry ... end [block ... end]* end
 function Parser:parse_region_frag()
     local O, B, C, Tr = self.O, self.B, self.C, self.Tr
+    -- Impl from header: region @{header_ref} body ... end
+    if self:kind() == TK.hole then
+        local id = self:text(); self.i = self.i + 1
+        self:skip_nl()
+        -- Parse body blocks (entry + named blocks) without header signature.
+        local saved_value_env, saved_cont_env = self.value_env, self.cont_env
+        self.value_env, self.cont_env = {}, {}
+        if not (self:accept(TK.entry_kw) or self:accept(TK.block_kw)) then
+            self:expect(TK.entry_kw, "expected entry block in region impl")
+        end
+        local entry_label = Tr.BlockLabel(self:expect_name("expected entry label"))
+        local entry_params = self:parse_block_params(true)
+        local body = self:parse_stmt_until({ [TK.end_kw]=true, [TK.block_kw]=true })
+        if self:kind() == TK.end_kw then self.i = self.i + 1 end
+        local blocks = {}
+        self:skip_nl()
+        while self:kind() == TK.block_kw do
+            self.i = self.i + 1
+            local label = Tr.BlockLabel(self:expect_name("expected fragment block label"))
+            local block_params = self:parse_block_params(false)
+            local block_body = self:parse_stmt_until({ [TK.end_kw]=true })
+            self:expect(TK.end_kw)
+            blocks[#blocks + 1] = Tr.ControlBlock(label, block_params, block_body)
+            self:skip_nl()
+        end
+        self.value_env, self.cont_env = saved_value_env, saved_cont_env
+        self:expect(TK.end_kw, "expected end after region impl")
+        local slot = O.RegionSlot(self:splice_key("region", id), id)
+        self:record_splice_slot(id, O.SlotRegion(slot), "region")
+        return { kind = "region_impl",
+            entry = Tr.EntryControlBlock(entry_label, entry_params, body),
+            blocks = blocks, slot = slot }
+    end
     -- Name, hole, or Lua assignment-inferred name.
     local name_ref = self:name_ref_or_hint_before_lparen("expected region fragment name")
     local pvm = require("moonlift.pvm")
@@ -2456,9 +2532,9 @@ local function infer_lua_assignment_name(src, island_start)
         local c = byte(src, p)
         if c == 32 or c == 9 or c == 13 or c == 10 then p = p - 1 else break end
     end
-    -- The LHS could be a simple name, or a dotted name like table.field.
+    -- The LHS could be a simple name, or a table.field path.
     -- Walk back to find the last identifier segment.
-    -- First skip past the current (rightmost) identifier.
+    local full_start = p
     local e = p
     while p >= 1 do
         local c = byte(src, p)
@@ -2467,9 +2543,32 @@ local function infer_lua_assignment_name(src, island_start)
     p = p + 1
     if p > e or not (is_alpha(byte(src, p)) or byte(src, p) == 95) then return nil end
     local name = sub(src, p, e)
-    -- Check if preceded by `.` — if so we already have the field name.
-    -- If preceded by `local` keyword that's fine too.
-    return name
+    -- Build the full table path by walking further back for dots.
+    local full_path = name
+    local prev = p - 1
+    while prev >= 1 do
+        local c = byte(src, prev)
+        if c == 10 then break end  -- newline: stop, path doesn't span lines
+        if c == 32 or c == 9 or c == 13 then
+            prev = prev - 1
+        elseif c == 46 then  -- '.'
+            -- Found a dot: read the preceding identifier.
+            local ie = prev - 1
+            local ib = ie
+            while ib >= 1 do
+                local dc = byte(src, ib)
+                if is_alpha(dc) or is_digit(dc) or dc == 95 then ib = ib - 1 else break end
+            end
+            ib = ib + 1
+            if ib > ie or not (is_alpha(byte(src, ib)) or byte(src, ib) == 95) then break end
+            local seg = sub(src, ib, ie)
+            full_path = seg .. "." .. full_path
+            prev = ib - 1
+        else
+            break
+        end
+    end
+    return name, full_path
 end
 
 -- Lua-aware document scanner.
@@ -2550,10 +2649,12 @@ function M.scan_document(src)
                     for hi = first_tok, last_tok do
                         if toks.kind[hi] == TK.hole then holes[#holes + 1] = toks.text[hi] end
                     end
+                    local name_hint, lhs_path = infer_lua_assignment_name(src, s)
                     islands[#islands + 1] = {
                         kind = target_kind, first_tok = first_tok, last_tok = last_tok,
                         start = s, stop = stop_byte or s, holes = holes,
-                        name_hint = infer_lua_assignment_name(src, s),
+                        name_hint = name_hint,
+                        lhs_path = lhs_path,
                     }
                     i = (stop_byte or s) + 1
                 end
@@ -2658,6 +2759,8 @@ function M.parse_func_string(T, src, opts)
     local value = p:parse_func()
     p:skip_sep()
     if p:kind() ~= TK.eof then p:issue("unexpected token after function") end
+    -- Func impl from header returns {kind="func_impl", body, slot}
+    -- The slot is already recorded in splice_slots.
     return { kind = "func", value = value, splice_slots = p.splice_slots,
              issues = p.issues, protocol_types = p.protocol_types }
 end
@@ -2739,46 +2842,22 @@ function M.parse_module_document(T, src, opts)
     local pvm = require("moonlift.pvm")
     local Tr = T.MoonTree
     local scan = M.scan_document(src)
-    local items, issues, splice_slots = {}, {}, {}
+    local items, issues = {}, {}
     local protocol_types = opts.protocol_types or {}
     local product_types = opts.product_types or {}
     local collector = opts.collector
-    -- Accumulate splice_values so earlier declarations are visible to later islands.
-    local splice_values = opts.splice_values or {}
     for i = 1, #scan.islands do
         local parsed = M.parse_island(T, scan, i, {
             protocol_types = protocol_types,
             product_types = product_types,
-            splice_values = splice_values,
         })
         for j = 1, #parsed.issues do
             local issue = parsed.issues[j]
             issues[#issues + 1] = issue
             if collector then collector:emit(issue, "parse") end
         end
-        for j = 1, #parsed.splice_slots do splice_slots[#splice_slots + 1] = parsed.splice_slots[j] end
         protocol_types = parsed.protocol_types or protocol_types
         product_types = parsed.product_types or product_types
-        -- Register the declaration under its Lua assignment name so later
-        -- islands can resolve it as a Lua expression (e.g. "Voice" → handle value).
-        local name_hint = scan.islands[i].name_hint
-        if name_hint and name_hint ~= "" and parsed.value then
-            local v = parsed.value
-            local tv = { ty = nil, as_moonlift_type = nil }
-            if v.decl then
-                local Ty = T.MoonType
-                local cls = pvm.classof(v.decl)
-                if cls == Tr.TypeDeclStruct then
-                    tv.ty = Ty.TNamed(Ty.TypeRefPath(T.MoonCore.Path({ T.MoonCore.Name(v.name or name_hint) })))
-                elseif cls == Tr.TypeDeclHandle then
-                    tv.ty = Ty.THandle(Ty.TypeRefPath(T.MoonCore.Path({ T.MoonCore.Name(v.name or name_hint) })), v.decl.repr)
-                elseif cls == Tr.TypeDeclUnion then
-                    tv.ty = Ty.TNamed(Ty.TypeRefPath(T.MoonCore.Path({ T.MoonCore.Name(v.name or name_hint) })))
-                end
-                tv.as_moonlift_type = function() return tv.ty end
-            end
-            splice_values[name_hint] = { present = true, value = tv }
-        end
         if parsed.kind == "func" then
             local func = parsed.value
             local cls = pvm.classof(func)
@@ -2798,7 +2877,6 @@ function M.parse_module_document(T, src, opts)
         kind = "module",
         module = Tr.Module(Tr.ModuleSurface, items),
         scan = scan,
-        splice_slots = splice_slots,
         issues = issues,
         protocol_types = protocol_types,
         product_types = product_types,

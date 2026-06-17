@@ -1,0 +1,133 @@
+-- ctx.mlua — Arena-based context text storage for mwui components.
+--
+-- Implements R.ctx_store_text, R.ctx_store_owned_text, R.ctx_release
+-- from moonlift_webui_blueprint.md §10.7.
+
+local M = moon.require("mwui_types")
+
+--------------------------------------------------------------------------------
+-- Chunk header layout:  [ size: u64 (8 bytes) | next: u64 (8 bytes) | data... ]
+
+local CHUNK_HDR  = 16
+local CHUNK_SZ   = 0
+local CHUNK_NEXT = 8
+
+--------------------------------------------------------------------------------
+-- Internal helpers
+
+local read_u64_at = func read_u64_at(p: ptr(u8), off: index): u64
+    var lo: u64 = as(u64, p[off + 0])
+    lo = lo | (as(u64, p[off + 1]) << 8)
+    lo = lo | (as(u64, p[off + 2]) << 16)
+    lo = lo | (as(u64, p[off + 3]) << 24)
+    lo = lo | (as(u64, p[off + 4]) << 32)
+    lo = lo | (as(u64, p[off + 5]) << 40)
+    lo = lo | (as(u64, p[off + 6]) << 48)
+    lo = lo | (as(u64, p[off + 7]) << 56)
+    return lo
+end
+
+local write_u64_at = func write_u64_at(p: ptr(u8), off: index, v: u64)
+    p[off + 0] = as(u8, v)
+    p[off + 1] = as(u8, v >> 8)
+    p[off + 2] = as(u8, v >> 16)
+    p[off + 3] = as(u8, v >> 24)
+    p[off + 4] = as(u8, v >> 32)
+    p[off + 5] = as(u8, v >> 40)
+    p[off + 6] = as(u8, v >> 48)
+    p[off + 7] = as(u8, v >> 56)
+end
+
+local chunk_size = func chunk_size(ch: ptr(u8)): u64
+    return read_u64_at(ch, CHUNK_SZ)
+end
+
+local chunk_next = func chunk_next(ch: ptr(u8)): ptr(u8)
+    return as(ptr(u8), read_u64_at(ch, CHUNK_NEXT))
+end
+
+local set_chunk_next = func set_chunk_next(ch: ptr(u8), next: ptr(u8))
+    write_u64_at(ch, CHUNK_NEXT, as(u64, next))
+end
+
+local alloc_from_arena = region alloc_from_arena(arena: ptr(M.T.Arena), needed: index;
+    allocated(ptr: ptr(u8))
+  | oom(needed: index))
+entry start()
+    if needed <= arena.cap - arena.used then
+        var p: ptr(u8) = arena.base + arena.used
+        arena.used = arena.used + needed
+        jump allocated(ptr = p)
+    end
+    jump try_chunks(prev = as(ptr(u8), 0), ch = arena.chunks)
+end
+block try_chunks(prev: ptr(u8), ch: ptr(u8))
+    if ch == as(ptr(u8), 0) then jump oom(needed = needed) end
+    if as(index, chunk_size(ch)) >= needed then
+        if prev == as(ptr(u8), 0) then
+            arena.chunks = chunk_next(ch)
+        else
+            set_chunk_next(prev, chunk_next(ch))
+        end
+        jump allocated(ptr = ch + CHUNK_HDR)
+    end
+    jump try_chunks(prev = ch, ch = chunk_next(ch))
+end
+end
+
+local copy_bytes = func copy_bytes(dst: ptr(u8), src: ptr(u8), n: index)
+    var i: index = 0
+    block loop()
+        if i >= n then return end
+        dst[i] = src[i]
+        i = i + 1
+        jump loop()
+    end
+end
+
+--------------------------------------------------------------------------------
+-- Implementations from mwui_types headers
+
+local ctx_release = func @{M.R.ctx_release}
+    field.data = as(ptr(u8), 0)
+    field.len = 0
+    field.stride = 1
+end
+
+local ctx_store_text = region @{M.R.ctx_store_text}
+entry start()
+    ctx_release(arena, field)
+    if src.len == 0 then jump stored end
+    emit alloc_from_arena(arena, src.len;
+        allocated = copy_in)
+end
+block copy_in(ptr: ptr(u8))
+    copy_bytes(ptr, src.data, src.len)
+    field.data = ptr
+    field.len = src.len
+    field.stride = 1
+    jump stored
+end
+end
+
+local ctx_store_owned_text = region @{M.R.ctx_store_owned_text}
+entry start()
+    ctx_release(arena, field)
+    if src.len == 0 then jump stored end
+    emit alloc_from_arena(arena, src.len;
+        allocated = copy_in)
+end
+block copy_in(ptr: ptr(u8))
+    copy_bytes(ptr, src.data, src.len)
+    field.data = ptr
+    field.len = src.len
+    field.stride = 1
+    jump stored
+end
+end
+
+return {
+    ctx_store_text       = ctx_store_text,
+    ctx_store_owned_text = ctx_store_owned_text,
+    ctx_release          = ctx_release,
+}

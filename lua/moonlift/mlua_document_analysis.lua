@@ -323,14 +323,13 @@ function M.Define(T)
 
         local decls, items, region_frags, expr_frags, issues, island_parses = {}, {}, {}, {}, {}, {}
         local protocol_types = {}
-        local splice_values = {}
         for i, island in ipairs(scan.islands) do
             local src = document.text:sub(island.start, island.stop)
             local parsed
             if island.kind == "struct" then
                 parsed = { issues = {}, protocol_types = protocol_types }
             else
-                parsed = ParseApi.parse_island(scan, i, { protocol_types = protocol_types, splice_values = splice_values })
+                parsed = ParseApi.parse_island(scan, i, { protocol_types = protocol_types })
                 for pi = 1, #parsed.issues do
                     local msg = parsed.issues[pi].message or ""
                     if not (msg:match("^invalid character") and #parsed.issues > 1) then
@@ -368,22 +367,6 @@ function M.Define(T)
                 end
             elseif island.kind == "expr" then
                 if parsed.value then expr_frags[#expr_frags + 1] = parsed.value; efrags[1] = parsed.value end
-            end
-            -- Register declaration in splice_values so later islands resolve it.
-            local name_hint = island.name_hint
-            if name_hint and name_hint ~= "" and parsed.value and parsed.value.decl then
-                local v = parsed.value
-                local C = T.MoonCore
-                local tv = { as_moonlift_type = nil }
-                local cls = pvm.classof(v.decl)
-                if cls == Tr.TypeDeclStruct or cls == Tr.TypeDeclUnion then
-                    local ty = Ty.TNamed(Ty.TypeRefPath(C.Path({ C.Name(v.name or name_hint) })))
-                    tv.as_moonlift_type = function() return ty end
-                elseif cls == Tr.TypeDeclHandle then
-                    local ty = Ty.THandle(Ty.TypeRefPath(C.Path({ C.Name(v.name or name_hint) })), v.decl.repr)
-                    tv.as_moonlift_type = function() return ty end
-                end
-                splice_values[name_hint] = { present = true, value = tv }
             end
             module = Tr.Module(Tr.ModuleSurface, items)
             local island_text = Mlua.IslandText(island_kind(Mlua, island.kind), Mlua.IslandAnonymous, S.SourceSlice(src))

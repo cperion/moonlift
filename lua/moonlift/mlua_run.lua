@@ -198,7 +198,7 @@ local function split_region_impl_island(text)
     --     end
     --
     -- This is intentionally conservative: the reference is a Lua identifier or
-    -- dotted identifier chain. More complex expressions can still use the
+    -- identifier chain. More complex expressions can still use the
     -- explicit header[[body]] form. The final region `end` belongs to the
     -- shorthand syntax and is stripped before the header is called.
     local ref, body = text:match("^%s*region%s+([^\r\n]+)\r\n(.*)$")
@@ -207,7 +207,10 @@ local function split_region_impl_island(text)
     ref = ref:gsub("%s+$", "")
     local valid_ref = true
     if ref:match("^%.") or ref:match("%.$") or ref:match("%.%.") then valid_ref = false end
-    if valid_ref then
+    if ref:match("^@{.*}$") then
+        ref = ref:match("^@{(.*)}$")
+        if not ref or ref == "" then valid_ref = false end
+    elseif valid_ref then
         for part in ref:gmatch("[^%.]+") do
             if not part:match("^[_%a][_%w]*$") then valid_ref = false; break end
         end
@@ -236,7 +239,10 @@ local function split_func_impl_island(text)
     ref = ref:gsub("%s+$", "")
     local valid_ref = true
     if ref:match("^%.") or ref:match("%.$") or ref:match("%.%.") then valid_ref = false end
-    if valid_ref then
+    if ref:match("^@{.*}$") then
+        ref = ref:match("^@{(.*)}$")
+        if not ref or ref == "" then valid_ref = false end
+    elseif valid_ref then
         for part in ref:gmatch("[^%.]+") do
             if not part:match("^[_%a][_%w]*$") then valid_ref = false; break end
         end
@@ -260,16 +266,65 @@ local api_name_for_kind = {
 
 local function transform_mlua(src)
     local Parse = require("moonlift.parse")
+    local moon = require("moonlift")
     local scan = Parse.scan_document(src)
     if #scan.islands == 0 then
         return "local moon = require('moonlift')\n" .. src
     end
     local out = { "local moon = require('moonlift')\n" }
     local cursor = 1
+    -- All declared names -> Lua value expressions.
+    local vars = {}
+    -- Walk module to discover dotted names (only plain tables, not Moonlift values).
+    local function add_module_vars(lhs, mod)
+        if type(mod) ~= "table" then return end
+        local seen = {}
+        local function walk(t, prefix)
+            if seen[t] then return end
+            seen[t] = true
+            for k, v in pairs(t) do
+                if type(k) == "string" and type(v) == "table" then
+                    local path = prefix .. "." .. k
+                    vars[path] = path
+                    -- Recurse only into plain tables (no metatable = user namespace).
+                    if getmetatable(v) == nil then
+                        walk(v, path)
+                    end
+                end
+            end
+        end
+        walk(mod, lhs)
+    end
+    -- Eagerly load moon.require modules.
+    do
+        local pat = [[local%s+(%w+)%s*=%s*moon%.require%s*%(%s*["']([%w_.]+)["']%s*%)]]
+        for lhs, modname in src:gmatch(pat) do
+            local ok, mod = pcall(moon.require, modname)
+            if ok then add_module_vars(lhs, mod) end
+        end
+    end
+    -- Build bindings table literal from vars.
+    local function all_var_bindings()
+        if next(vars) == nil then return "{_=1}" end  -- sentinel to force binder path
+        local entries = {}
+        for k, v in pairs(vars) do
+            entries[#entries + 1] = "[" .. string.format("%q", k) .. "] = (" .. v .. ")"
+        end
+        return "{" .. table.concat(entries, ", ") .. "}"
+    end
     for _, island in ipairs(scan.islands) do
         out[#out + 1] = src:sub(cursor, island.start - 1)
         local island_src = src:sub(island.start, island.stop)
-        local bindings = binding_table_for_island(scan, island)
+        local hint = island.name_hint
+        local lhs = island.lhs_path
+        local has_assign = lhs and lhs ~= ""
+        local api_name = api_name_for_kind[island.kind]
+        local hole_bindings = binding_table_for_island(scan, island)
+        -- Merge hole bindings with var bindings.
+        local bindings = all_var_bindings()
+        if hole_bindings ~= "" then
+            bindings = "{" .. hole_bindings:sub(2, -2) .. ", " .. bindings:sub(2, -2) .. "}"
+        end
         local impl_ref, impl_body
         if island.kind == "region" then
             impl_ref, impl_body = split_region_impl_island(island_src)
@@ -277,18 +332,24 @@ local function transform_mlua(src)
             impl_ref, impl_body = split_func_impl_island(island_src)
         end
         if impl_ref then
-            if bindings ~= "" then
-                out[#out + 1] = impl_ref .. bindings .. long_bracket(impl_body)
-            else
-                out[#out + 1] = impl_ref .. long_bracket(impl_body)
-            end
+            out[#out + 1] = impl_ref .. bindings .. long_bracket(impl_body)
         else
-            island_src = name_anonymous_island(island.kind, island_src, island.name_hint)
-            local api_name = assert(api_name_for_kind[island.kind], "unsupported .mlua island kind: " .. tostring(island.kind))
-            if bindings ~= "" then
+            island_src = name_anonymous_island(island.kind, island_src, hint)
+            assert(api_name, "unsupported .mlua island kind: " .. tostring(island.kind))
+            if has_assign then
                 out[#out + 1] = "moon." .. api_name .. bindings .. long_bracket(island_src)
+            elseif hint then
+                out[#out + 1] = hint .. " = moon." .. api_name .. bindings .. long_bracket(island_src)
             else
-                out[#out + 1] = "moon." .. api_name .. long_bracket(island_src)
+                out[#out + 1] = "moon." .. api_name .. bindings .. long_bracket(island_src)
+            end
+        end
+        -- Track this declaration.
+        if hint then
+            local var = has_assign and lhs or hint
+            vars[hint] = var
+            if has_assign and lhs ~= hint then
+                vars[lhs] = var
             end
         end
         cursor = island.stop + 1

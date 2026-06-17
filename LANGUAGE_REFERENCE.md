@@ -858,6 +858,61 @@ treated as an index suffix.
 
 The same inference rules apply to `region`, `expr`, and `extern` anonymous forms.
 
+### 7.2 Type and fragment reference resolution
+
+In `.mlua` files, every type or fragment reference in a hosted island is a
+Lua expression evaluated at parse time.  Declarations register themselves
+under their full Lua expression path (e.g. `T.RingBuf`) when assigned.
+Later islands resolve references through this registry — no separate
+Moonlift type namespace.
+
+```lua
+-- These declarations register "T.RingBuf", "T.Handle", etc. in the registry.
+T.RingBuf = struct
+    data: ptr(u8),
+    head: index,
+end
+
+T.MyHandle = handle : u32 invalid 0 end
+
+-- Later islands resolve T.RingBuf and T.MyHandle as Lua expressions.
+T.Conn = struct
+    rx: T.RingBuf,         -- resolves via the registry
+    handle: T.MyHandle,    -- resolves via the registry
+end
+```
+
+This applies to fragment references in `emit` and `call` as well:
+
+```lua
+R.scan = region scan(p: ptr(u8), n: i32; hit(pos: i32) | miss)
+    ...
+end
+
+func find(p: ptr(u8), n: i32): i32
+    return region: i32
+    entry start()
+        emit R.scan(p, n; hit = found, miss = not_found)
+    end
+    ...
+    end
+end
+```
+
+Rules:
+
+- Declarations must **precede** their use.  `T.RingBuf` cannot be referenced
+  in a struct field unless it was declared in an earlier island in the same
+  file.
+- Any Lua expression works — `T.types.int32`, `get_type()`, `module[key]`.
+- `@{...}` is still required for **expression** positions (where bare names
+  would conflict with Moonlift bindings) and for **spread** positions.
+- The name inferred from `T.RingBuf = struct` is `RingBuf` — the last segment
+  of the Lua assignment path.  The full expression path `T.RingBuf` is also
+  registered automatically.
+
+Name inference handles identifiers ending in digits (e.g. `load_u64`,
+
 Extern declarations create typed imported function items. The source name is the
 Moonlift callee name; the optional `as "symbol"` names the dynamic symbol to
 resolve through the JIT/linker:
@@ -1994,17 +2049,73 @@ the antiquote syntax:
 sequential Lua elements in the current syntactic list. The parser owns
 separators; Lua values do not include commas or semicolons.
 
+**In `.mlua` files**, bare Lua expressions (without `@{...}`) are accepted in
+type, fragment reference, and emit-call positions.  Each expression is
+evaluated through the splice mechanism at parse time against declarations
+from earlier islands in the same file.  `@{...}` is still required for
+expression positions, spread positions, and list positions.
+
 Unlike the three-phase `.mlua` carrier model (parse → fill → expand), standalone
 `moon.XXX[[]]` quotes evaluate `@{}` eagerly at quote time using an explicit
 values table (see §14.4).
+
+### 14.0 Type and fragment references without @{...}
+
+In `.mlua` files, types declared with a Lua assignment are automatically
+registered under their full expression path.  Later islands can reference
+them directly:
+
+```lua
+T.RingBuf = struct
+    data: ptr(u8),
+    head: index,
+end
+
+T.Conn = struct
+    rx: T.RingBuf,        -- bare Lua expression, resolves via splice_values
+    tx: T.RingBuf,
+end
+```
+
+The same applies to fragment references in `emit` and `call`:
+
+```lua
+R.scan = region scan(p: ptr(u8), n: i32; hit(pos: i32) | miss)
+    ...
+end
+
+func find(p: ptr(u8), n: i32): i32
+    return region: i32
+    entry start()
+        emit R.scan(p, n; hit = found, miss = not_found)  -- bare expression
+    end
+    ...
+    end
+end
+```
+
+Any Lua expression works — table field access, function calls, indexing:
+
+```lua
+T.types.int32 = handle int32 : i32 invalid 0 end
+
+struct Pair
+    left: T.types.int32,
+    right: T.types.int32,
+end
+```
+
+Declarations must precede their use.  A type referenced via `T.Name` in a
+struct field or function parameter must be declared in an earlier island
+in the same file or a file loaded earlier in the same session.
 
 ### 14.1 Splice positions and expected kinds
 
 | Source position | Expected splice kind |
 |---|---|
-| Type position (`let x: @{T}`, `as(ptr(@{T}), x)`) | A type value (from `moon.i32`, `moon.ptr(T)`, etc.). A string/source value is accepted as an explicit source-name escape for generated code. |
+| Type position (`let x: @{T}`, `as(ptr(@{T}), x)`) | A type value. In `.mlua` files, bare Lua expressions work directly (`let x: T`); `@{...}` is never required in type position. |
 | Type list position (`func(@{types...}): T`) | A Lua array of type values. |
-| Expression position (`@{val} + 1`) | A literal/expression source value. Numbers, booleans, `nil`, strings/source values, and expression values are accepted. |
+| Expression position (`@{val} + 1`) | A literal/expression source value. `@{...}` required — bare names resolve as Moonlift bindings. |
 | Expression list position (`f(@{args...})`, `emit frag(@{args...}; ...)`) | A Lua array of expression values/literals. |
 | Function parameter list (`func f(@{params...})`) | A Lua array of `moon.params{...}` values or raw `MoonType.Param` nodes. |
 | Struct field list (`struct S @{fields...} end`) | A Lua array of `moon.fields{...}` values or raw `MoonType.FieldDecl` nodes. |
@@ -2015,7 +2126,7 @@ values table (see §14.4).
 | Region block parameter list (`entry e(@{entry_params...})`, `block b(@{params...})`) | Entry params from `moon.entry_params{...}`; block/continuation params from `moon.params{...}` or `MoonTree.BlockParam`. |
 | Region block list (`@{blocks...}` after an entry block) | A Lua array of raw `MoonTree.ControlBlock` nodes or `moon.blocks{...}` values. |
 | Switch arm list (`@{arms...}` before `default`) | A Lua array of arm values — either `MoonTree.SwitchStmtArm` nodes, or plain tables `{ raw_key, body }` where `body` is `Stmt[]`. `body` is typically produced by `moon.stmts[[]]`. |
-| Emit fragment position (`emit @{frag}(...)`) | A region or expression fragment value. |
+| Emit fragment position (`emit @{frag}(...)`) | A region or expression fragment value. In `.mlua` files, bare Lua expressions work directly (`emit R.scan(...)`). |
 | Block label/name position | String/source value containing the complete label or generated identifier |
 | Integer constant position | Number (integer), or source value that parses as an integer expression |
 
@@ -2043,18 +2154,17 @@ entry start()
 end
 end
 
--- Splice a type
+-- Splice a type (@{...} never required in type position in .mlua files)
 local T = moon.i32
-local inc = expr(x: @{T}): @{T}
+local inc = expr(x: T): T
     x + 1
 end
 
--- Splice a fragment
-local frag = make_scanner(65)
+-- Bare fragment reference (no @{...} needed)
 return func parse_A(p: ptr(u8), n: i32): i32
     return region: i32
     entry start()
-        emit @{frag}(p, n; hit = done, miss = bad)
+        emit frag(p, n; hit = done, miss = bad)
     end
     block done(pos: i32)
         yield pos
@@ -2062,6 +2172,17 @@ return func parse_A(p: ptr(u8), n: i32): i32
     block bad(pos: i32)
         yield -1
     end
+    end
+end
+
+-- @{...} when the fragment is a local variable (not a table path)
+local frag = make_scanner(65)
+return func scan_B(p: ptr(u8), n: i32): i32
+    return region: i32
+    entry start()
+        emit @{frag}(p, n; hit = done, miss = bad)
+    end
+    ...
     end
 end
 

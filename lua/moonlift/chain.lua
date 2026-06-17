@@ -61,8 +61,8 @@ function M.bind(session, callable_mt)
           end
           if #parsed.splice_slots ~= 0 then
             error(
-              "moon." .. name .. "[[]] does not evaluate @{}; "
-              .. "use moon." .. name .. "{values}[[src]] instead", 2)
+              "moon." .. name .. "[[]] requires bindings for @" .. tostring(parsed.splice_slots[1].splice_text or parsed.splice_slots[1].splice_id)
+              .. " — use moon." .. name .. "{values}[[src]] instead", 2)
           end
           return wrap_fn(parsed.value, parsed, T, arg)
         end
@@ -124,12 +124,17 @@ function M.bind(session, callable_mt)
             end
 
             -- Bound quotes are expanded outside the final module context.
-            -- Defer region `call` sealing here so module-level expansion can
-            -- generate the wrapper/result items in the same compile unit.
-            local e = open_expand.Define(T, { defer_region_calls = true })
-            local env = e.empty_env()
-            env = e.env_with_fills(env, bindings)
-            local expanded = expand_fn(e, parsed.value, env)
+            local expanded
+            if expand_fn then
+                local e = open_expand.Define(T, { defer_region_calls = true })
+                local env = e.empty_env()
+                env = e.env_with_fills(env, bindings)
+                expanded = expand_fn(e, parsed.value, env)
+            else
+                -- No expander (e.g. func_impl / region_impl): pass filled
+                -- bindings to wrap_fn for manual handling.
+                expanded = parsed.value
+            end
             local result = wrap_fn(expanded, parsed, T, src, bound_values)
 
             -- Tag quoted values with exactly the dependencies they used.
@@ -142,7 +147,7 @@ function M.bind(session, callable_mt)
               -- ordinary Tree items that belong to the quoted value's compile
               -- unit.  Preserve them explicitly so a quote expanded in isolation
               -- does not strand references to generated wrappers/result types.
-              if e.generated_items then
+              if e and e.generated_items then
                 local generated = e.generated_items()
                 if generated ~= nil and #generated > 0 then result._generated_items = generated end
               end

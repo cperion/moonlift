@@ -294,10 +294,28 @@ local function strip_bodyless_decl_end(src)
 end
 
 M.func = make_quote(
-    function(T, src) return require("moonlift.parse").Define(T).parse_func(src, parser_opts_with_decl_maps()) end,
+    function(T, src, opts) return require("moonlift.parse").Define(T).parse_func(src, parser_opts_with_decl_maps(opts)) end,
     function(value, parsed, T, src, bindings)
         local pvm = require("moonlift.pvm")
         local Tr = T.MoonTree
+        -- Func impl from header: resolve header value, construct full func
+        if type(value) == "table" and value.kind == "func_impl" then
+            local splice_text = parsed.splice_slots[1] and parsed.splice_slots[1].splice_text
+            local hdr = splice_text and bindings and bindings[splice_text]
+            if hdr and type(hdr) == "table" and hdr.kind == "func_header" then
+                -- Call the header with the body to produce the full func
+                -- The body is ASDL statements; convert back to string for the header
+                -- Or: use the original src substring
+                local body_str = src:match("\n(.+)end%s*$")
+                if body_str then
+                    local result = hdr(body_str)
+                    if result and result.kind == "func" then
+                        return result
+                    end
+                end
+            end
+            error("func impl: could not resolve header", 2)
+        end
         local function type_name_for(ty)
             return require("moonlift.error.format").type_name(ty)
         end
@@ -402,7 +420,7 @@ local function has_bindings(t)
 end
 
 M.region = make_quote(
-    function(T, src) return require("moonlift.parse").Define(T).parse_region(src, parser_opts_with_decl_maps()) end,
+    function(T, src, opts) return require("moonlift.parse").Define(T).parse_region(src, parser_opts_with_decl_maps(opts)) end,
     function(value, parsed, T, src, bindings)
         local pvm = require("moonlift.pvm")
         local O = default_session.T.MoonOpen
@@ -457,7 +475,7 @@ M.region = make_quote(
 )
 
 M.expr_frag = make_quote(
-    function(T, src) return require("moonlift.parse").Define(T).parse_expr_frag(src) end,
+    function(T, src, opts) return require("moonlift.parse").Define(T).parse_expr_frag(src, opts) end,
     function(value, parsed)
         local name = (type(value.name) == "table" and (value.name.text or value.name.name)) or value.name
         return setmetatable({ kind = "expr_frag", moonlift_quote_kind = "expr_frag",
@@ -483,7 +501,7 @@ local function fields_from_type_decl(api, decl)
 end
 
 M.struct = make_quote(
-    function(T, src) return require("moonlift.parse").Define(T).parse_struct(src) end,
+    function(T, src, opts) return require("moonlift.parse").Define(T).parse_struct(src, opts) end,
     function(value, parsed, T)
         local name = value.name or "_anon"
         local ty = api.path_named(name)
@@ -499,7 +517,7 @@ M.struct = make_quote(
 )
 
 M.union = make_quote(
-    function(T, src) return require("moonlift.parse").Define(T).parse_union(src) end,
+    function(T, src, opts) return require("moonlift.parse").Define(T).parse_union(src, opts) end,
     function(value, parsed, T)
         local name = value.name or "_anon"
         local ty = api.path_named(name)
@@ -515,7 +533,7 @@ M.union = make_quote(
 )
 
 M.handle = make_quote(
-    function(T, src) return require("moonlift.parse").Define(T).parse_handle(src) end,
+    function(T, src, opts) return require("moonlift.parse").Define(T).parse_handle(src, opts) end,
     function(value, parsed, T)
         local name = value.name or "_anon"
         local Ty, C, Tr = T.MoonType, T.MoonCore, T.MoonTree
@@ -531,7 +549,7 @@ M.handle = make_quote(
 )
 
 M.extern = make_quote(
-    function(T, src) return require("moonlift.parse").Define(T).parse_extern(src, parser_opts_with_decl_maps()) end,
+    function(T, src, opts) return require("moonlift.parse").Define(T).parse_extern(src, parser_opts_with_decl_maps(opts)) end,
     function(value, parsed, T)
         local pvm = require("moonlift.pvm")
         local Tr = T.MoonTree

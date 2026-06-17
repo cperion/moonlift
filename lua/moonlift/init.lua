@@ -85,6 +85,33 @@ function M.current_runtime()
     return _mlua_run.current_runtime()
 end
 
+--- Load a .mlua module once and cache the result (like Lua require).
+--- Searches for `name.mlua` in the current directory and relative to
+--- the caller.
+M._mlua_cache = {}
+function M.require(name)
+    if M._mlua_cache[name] then return M._mlua_cache[name] end
+    -- Search paths: same as Lua require patterns but for .mlua
+    local tried = {}
+    for _, template in ipairs({
+        "./?.mlua",
+        "./?/init.mlua",
+        "./experiments/mwui/?.mlua",
+        "./experiments/mwui/?/init.mlua",
+    }) do
+        local path = template:gsub("%?", name)
+        local f = io.open(path)
+        if f then f:close()
+            local ch = M.loadfile(path)
+            local result = ch()
+            M._mlua_cache[name] = result
+            return result
+        end
+        tried[#tried + 1] = path
+    end
+    error("moon.require: module '" .. name .. "' not found; tried: " .. table.concat(tried, ", "))
+end
+
 --- Object/shared emission through the hosted (PVM) pipeline.
 
 function M.emit_object(src, path, name)
