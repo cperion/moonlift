@@ -2061,59 +2061,46 @@ values table (see §14.4).
 
 ### 14.0 Type and fragment references without @{...}
 
-In `.mlua` files, types declared with a Lua assignment are automatically
-registered under their full expression path.  Later islands can reference
-them directly:
+Same-file bare names (	exttt{Arena}, 	exttt{Pair}) in type position are resolved
+by the typechecker from the module's own declarations.  They require no
+	exttt{@\{\}} syntax:
 
 ```lua
-T.RingBuf = struct
-    data: ptr(u8),
-    head: index,
-end
+local Texture = handle Texture : u32 invalid 0 end
 
-T.Conn = struct
-    rx: T.RingBuf,        -- bare Lua expression, resolves via splice_values
-    tx: T.RingBuf,
+local load = func load(id: u32): ptr(Texture)   -- bare name, resolved at typecheck time
+    ...
 end
 ```
 
-The same applies to fragment references in `emit` and `call`:
+Dotted names (	exttt{M.T.Arena}) in type position are cross-module Lua value
+references.  They create splice slots resolved through bindings, like any
+other 	exttt{@\{expr\}}.  They work in 	exttt{.mlua} files where the transform
+supplies bindings automatically, but in hosted code they require the binder
+path:\
 
 ```lua
-R.scan = region scan(p: ptr(u8), n: i32; hit(pos: i32) | miss)
+-- .mlua file (bindings automatic)
+func f(a: ptr(M.T.Arena))   -- dotted name = cross-module, works via bindings
     ...
 end
 
-func find(p: ptr(u8), n: i32): i32
-    return region: i32
-    entry start()
-        emit R.scan(p, n; hit = found, miss = not_found)  -- bare expression
-    end
-    ...
-    end
-end
+-- Hosted Lua (must use @{})
+moon.func { Arena = M.T.Arena } [[ func f(a: ptr(@{Arena})) ... end ]]
 ```
 
-Any Lua expression works — table field access, function calls, indexing:
+Fragment references in 	exttt{emit} / 	exttt{call} positions always require
+	exttt{@\{expr\}}:\
 
 ```lua
-T.types.int32 = handle int32 : i32 invalid 0 end
-
-struct Pair
-    left: T.types.int32,
-    right: T.types.int32,
-end
+emit @{R.scan}(p, n; hit = found, miss = not_found)
 ```
-
-Declarations must precede their use.  A type referenced via `T.Name` in a
-struct field or function parameter must be declared in an earlier island
-in the same file or a file loaded earlier in the same session.
 
 ### 14.1 Splice positions and expected kinds
 
 | Source position | Expected splice kind |
 |---|---|
-| Type position (`let x: @{T}`, `as(ptr(@{T}), x)`) | A type value. In `.mlua` files, bare Lua expressions work directly (`let x: T`); `@{...}` is never required in type position. |
+| Type position (`let x: @{T}`, `as(ptr(@{T}), x)`) | A type value. All non-scalar names create splice slots; same-file names are filled from the module's items, cross-file names from bindings. |
 | Type list position (`func(@{types...}): T`) | A Lua array of type values. |
 | Expression position (`@{val} + 1`) | A literal/expression source value. `@{...}` required — bare names resolve as Moonlift bindings. |
 | Expression list position (`f(@{args...})`, `emit frag(@{args...}; ...)`) | A Lua array of expression values/literals. |
@@ -2126,7 +2113,7 @@ in the same file or a file loaded earlier in the same session.
 | Region block parameter list (`entry e(@{entry_params...})`, `block b(@{params...})`) | Entry params from `moon.entry_params{...}`; block/continuation params from `moon.params{...}` or `MoonTree.BlockParam`. |
 | Region block list (`@{blocks...}` after an entry block) | A Lua array of raw `MoonTree.ControlBlock` nodes or `moon.blocks{...}` values. |
 | Switch arm list (`@{arms...}` before `default`) | A Lua array of arm values — either `MoonTree.SwitchStmtArm` nodes, or plain tables `{ raw_key, body }` where `body` is `Stmt[]`. `body` is typically produced by `moon.stmts[[]]`. |
-| Emit fragment position (`emit @{frag}(...)`) | A region or expression fragment value. In `.mlua` files, bare Lua expressions work directly (`emit R.scan(...)`). |
+| Emit fragment position (`emit @{frag}(...)`) | A region or expression fragment value.  Always requires `@{}`. |
 | Block label/name position | String/source value containing the complete label or generated identifier |
 | Integer constant position | Number (integer), or source value that parses as an integer expression |
 
@@ -2318,25 +2305,47 @@ Header calls take body-only strings. Do not include the outer `func`/`region`
 declaration and do not include the outer closing `end`; the header closure
 supplies that boundary.
 
-In `.mlua` source, function and region headers also have implementation sugar:
+In `.mlua` source, function and region headers are implemented via `@{expr}`
+syntax — the expression evaluates to the header value (a signature closure):
 
 ```lua
 local add_h = func add(a: i32, b: i32): i32 end
-local add = func add_h
+local add = func @{add_h}
     return a + b
 end
 
 local scan_h = region scan(; done) end
-local scan = region scan_h
+local scan = region @{scan_h}
 entry start()
     jump done()
 end
 end
 ```
 
-The sugar is equivalent to calling the header with a body-only string. The
-closing `end` belongs to the `.mlua` syntax and is stripped before the header
-closure is called.
+The `@{expr}` is a splice slot resolved through bindings — the same mechanism
+used everywhere else.  The header closure is called with the body-only text
+and supplies the outer `func`/`region` boundary.  Do not include the outer
+`func`/`region` keyword or the outer closing `end` in the body; the header
+provides them.
+
+Cross-file implementations use `moon.require` to import the header module,
+then reference the header via a dotted Lua expression:
+
+```lua
+local M = moon.require("mwui_types")
+
+local release = func @{M.R.ctx_release}
+    field.data = as(ptr(u8), 0)
+    field.len = 0
+    field.stride = 1
+end
+
+local store = region @{M.R.ctx_store_text}
+entry start()
+    ...
+end
+end
+```
 
 ### 15.2 Bindings and specialization
 
@@ -2675,14 +2684,14 @@ local scan = moon.region [[
 ```
 
 In pure `.mlua` island syntax, a region header can be implemented later by
-referencing the current Lua-scope header after `region` and then writing the
-body directly. The header may itself be anonymous and assignment-named:
+referencing the header value via `@{expr}` after `region` and then writing
+the body directly.  The header may itself be anonymous and assignment-named:
 
 ```moonlift
 local scan = region(p: ptr(u8), n: i32;
                     hit(pos: i32) | miss) end
 
-local scan_impl = region scan
+local scan_impl = region @{scan}
 entry loop(i: i32 = 0)
     if i >= n then jump miss() end
     jump hit(pos = i)

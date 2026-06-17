@@ -769,15 +769,12 @@ function Parser:type_name(name)
         u32=C.ScalarU32, u64=C.ScalarU64, f32=C.ScalarF32, f64=C.ScalarF64,
         index=C.ScalarIndex, ptr=C.ScalarRawPtr }
     if m[name] then return Ty.TScalar(m[name]) end
-    -- Dotted names (T.Arena) are cross-module Lua value references resolved
-    -- through bindings.  Bare names (Arena) are same-module declarations
-    -- resolved by the typechecker from ItemType entries.
-    if name:find(".", 1, true) then
-        local slot = O.TypeSlot(self:splice_key("type", name), name)
-        self:record_splice_slot(name, O.SlotType(slot), "type")
-        return Ty.TSlot(slot)
-    end
-    return Ty.TNamed(Ty.TypeRefPath(C.Path({ C.Name(name) })))
+    -- All non-scalar type names become splice slots, resolved post-parse.
+    -- Same-file names (Arena) and cross-file names (M.T.Arena) take the
+    -- same path: slot → fill → resolved type.
+    local slot = O.TypeSlot(self:splice_key("type", name), name)
+    self:record_splice_slot(name, O.SlotType(slot), "type")
+    return Ty.TSlot(slot)
 end
 
 function Parser:parse_callable_type()
@@ -2841,8 +2838,11 @@ function M.parse_module_document(T, src, opts)
     opts = opts or {}
     local pvm = require("moonlift.pvm")
     local Tr = T.MoonTree
+    local Ty = T.MoonType
+    local C = T.MoonCore
+    local O = T.MoonOpen
     local scan = M.scan_document(src)
-    local items, issues = {}, {}
+    local items, issues, all_slots = {}, {}, {}
     local protocol_types = opts.protocol_types or {}
     local product_types = opts.product_types or {}
     local collector = opts.collector
@@ -2856,6 +2856,7 @@ function M.parse_module_document(T, src, opts)
             issues[#issues + 1] = issue
             if collector then collector:emit(issue, "parse") end
         end
+        for j = 1, #parsed.splice_slots do all_slots[#all_slots + 1] = parsed.splice_slots[j] end
         protocol_types = parsed.protocol_types or protocol_types
         product_types = parsed.product_types or product_types
         if parsed.kind == "func" then
@@ -2873,9 +2874,44 @@ function M.parse_module_document(T, src, opts)
             items[#items + 1] = Tr.ItemExtern(parsed.value)
         end
     end
+    local module = Tr.Module(Tr.ModuleSurface, items)
+    -- Resolve intra-module TypeSlots from the module's own ItemType entries.
+    local defs = {}
+    for _, item in ipairs(items) do
+        if pvm.classof(item) == Tr.ItemType then
+            local d = item.t
+            if d and d.name then
+                local cls = pvm.classof(d)
+                if cls == Tr.TypeDeclHandle then
+                    defs[d.name] = Ty.THandle(Ty.TypeRefPath(C.Path({ C.Name(d.name) })), d.repr)
+                else
+                    defs[d.name] = Ty.TNamed(Ty.TypeRefPath(C.Path({ C.Name(d.name) })))
+                end
+            end
+        end
+    end
+    if next(defs) then
+        local bindings = {}
+        for _, ss in ipairs(all_slots) do
+            if pvm.classof(ss.slot) == O.SlotType then
+                local name = ss.splice_text or ss.splice_id
+                local ty = defs[name]
+                if ty then
+                    bindings[#bindings + 1] = O.SlotBinding(ss.slot, O.SlotValueType(ty))
+                end
+            end
+        end
+        if #bindings > 0 then
+            local open_expand = require("moonlift.open_expand")
+            local e = open_expand.Define(T)
+            local env = e.empty_env()
+            env = e.env_with_fills(env, bindings)
+            module = e.expand_module(module, env)
+        end
+    end
     return {
         kind = "module",
-        module = Tr.Module(Tr.ModuleSurface, items),
+        module = module,
         scan = scan,
         issues = issues,
         protocol_types = protocol_types,
