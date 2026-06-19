@@ -177,4 +177,93 @@ for _, cmd in ipairs(pair_program.cmds) do
 end
 assert(saw_pair_sig and saw_pair_memcpy, "named aggregate result must lower as ordinary sret ABI with memcpy")
 
+ffi.cdef[[
+typedef struct { int32_t *data; intptr_t len; intptr_t stride; } ml_test_view_i32;
+]]
+local i32_ty = Code.CodeTyInt(32, Code.CodeSigned)
+local view_ty = Code.CodeTyView(i32_ty)
+local view_sig = Code.CodeSigId("sig_view_sret")
+local view_func = Code.CodeFuncId("fn:view_id")
+local view_arg = Code.CodeValueId("v:view_id:v")
+local view_entry = Code.CodeBlockId("block:view_id:entry")
+local view_module = Code.CodeModule(Code.CodeModuleId("module:view_sret"),
+    { Code.CodeSig(view_sig, { view_ty }, { view_ty }) }, {}, {}, {}, {},
+    { Code.CodeFunc(view_func, "view_id", Code.CodeLinkageExport, view_sig,
+        { Code.CodeParam(view_arg, "v", view_ty, Code.CodeOriginUnknown) }, {}, view_entry,
+        { Code.CodeBlock(view_entry, "entry", {}, {}, Code.CodeTerm(Code.CodeTermId("term:view_id"), Code.CodeTermReturn({ view_arg }), Code.CodeOriginUnknown), Code.CodeOriginUnknown) },
+        Code.CodeOriginUnknown) }, Code.CodeOriginUnknown)
+local view_program = CodeToBack.module(view_module, { validate = false })
+local view_report = BackValidate.validate(view_program)
+assert_no_issues("view sret back", view_report.issues)
+local saw_view_sig, view_stores = false, 0
+for _, cmd in ipairs(view_program.cmds) do
+    if pvm.classof(cmd) == Back.CmdCreateSig and #cmd.params == 4 and #cmd.results == 0 then saw_view_sig = true end
+    if pvm.classof(cmd) == Back.CmdStoreInfo then view_stores = view_stores + 1 end
+end
+assert(saw_view_sig, "view result must lower as sret + three view components")
+assert(view_stores == 3, "view sret return should store data/len/stride, saw " .. tostring(view_stores))
+local view_artifact = Jit.jit():compile(view_program)
+local view_id = ffi.cast("void (*)(ml_test_view_i32*, int32_t*, intptr_t, intptr_t)", view_artifact:getpointer(Back.BackFuncId("view_id")))
+local view_data = ffi.new("int32_t[3]", { 11, 22, 33 })
+local view_out = ffi.new("ml_test_view_i32[1]")
+view_id(view_out, view_data, 3, 1)
+assert(view_out[0].data[2] == 33, "view sret data pointer was not preserved")
+assert(tonumber(view_out[0].len) == 3, "view sret len was " .. tostring(view_out[0].len))
+assert(tonumber(view_out[0].stride) == 1, "view sret stride was " .. tostring(view_out[0].stride))
+view_artifact:free()
+
+local u32_ty = Code.CodeTyInt(32, Code.CodeUnsigned)
+local intr_sig = Code.CodeSigId("sig_intrinsic_rotl")
+local intr_func = Code.CodeFuncId("fn:intrinsic_rotl")
+local intr_arg = Code.CodeValueId("v:intrinsic_rotl:x")
+local intr_one = Code.CodeValueId("v:intrinsic_rotl:one")
+local intr_pc = Code.CodeValueId("v:intrinsic_rotl:pc")
+local intr_out = Code.CodeValueId("v:intrinsic_rotl:out")
+local intr_entry = Code.CodeBlockId("block:intrinsic_rotl:entry")
+local intr_module = Code.CodeModule(Code.CodeModuleId("module:intrinsic_rotl"),
+    { Code.CodeSig(intr_sig, { u32_ty }, { u32_ty }) }, {}, {}, {}, {},
+    { Code.CodeFunc(intr_func, "intrinsic_rotl", Code.CodeLinkageExport, intr_sig,
+        { Code.CodeParam(intr_arg, "x", u32_ty, Code.CodeOriginUnknown) }, {}, intr_entry,
+        { Code.CodeBlock(intr_entry, "entry", {}, {
+            Code.CodeInst(Code.CodeInstId("inst:intrinsic_rotl:one"), Code.CodeInstConst(intr_one, Code.CodeConstLiteral(u32_ty, Core.LitInt("1"))), Code.CodeOriginUnknown),
+            Code.CodeInst(Code.CodeInstId("inst:intrinsic_rotl:pc"), Code.CodeInstIntrinsic(intr_pc, Core.IntrinsicPopcount, u32_ty, { intr_arg }), Code.CodeOriginUnknown),
+            Code.CodeInst(Code.CodeInstId("inst:intrinsic_rotl:out"), Code.CodeInstIntrinsic(intr_out, Core.IntrinsicRotl, u32_ty, { intr_pc, intr_one }), Code.CodeOriginUnknown),
+        }, Code.CodeTerm(Code.CodeTermId("term:intrinsic_rotl"), Code.CodeTermReturn({ intr_out }), Code.CodeOriginUnknown), Code.CodeOriginUnknown) },
+        Code.CodeOriginUnknown) }, Code.CodeOriginUnknown)
+local intr_program = CodeToBack.module(intr_module, { validate = false })
+local intr_report = BackValidate.validate(intr_program)
+assert_no_issues("intrinsic rotl back", intr_report.issues)
+local saw_intrinsic, saw_rotate = false, false
+for _, cmd in ipairs(intr_program.cmds) do
+    if pvm.classof(cmd) == Back.CmdIntrinsic and cmd.op == Back.BackIntrinsicPopcount then saw_intrinsic = true end
+    if pvm.classof(cmd) == Back.CmdRotate and cmd.op == Back.BackRotateLeft then saw_rotate = true end
+end
+assert(saw_intrinsic and saw_rotate, "CodeInstIntrinsic must lower to CmdIntrinsic and CmdRotate")
+local intr_artifact = Jit.jit():compile(intr_program)
+local intrinsic_rotl = ffi.cast("uint32_t (*)(uint32_t)", intr_artifact:getpointer(Back.BackFuncId("intrinsic_rotl")))
+assert(intrinsic_rotl(0x0000000f) == 8, "popcount(0xf)=4; rotl(4,1)=8")
+intr_artifact:free()
+
+local f64_ty = Code.CodeTyFloat(64)
+local abs_sig = Code.CodeSigId("sig_intrinsic_abs_f64")
+local abs_func = Code.CodeFuncId("fn:intrinsic_abs_f64")
+local abs_arg = Code.CodeValueId("v:intrinsic_abs_f64:x")
+local abs_out = Code.CodeValueId("v:intrinsic_abs_f64:out")
+local abs_entry = Code.CodeBlockId("block:intrinsic_abs_f64:entry")
+local abs_module = Code.CodeModule(Code.CodeModuleId("module:intrinsic_abs_f64"),
+    { Code.CodeSig(abs_sig, { f64_ty }, { f64_ty }) }, {}, {}, {}, {},
+    { Code.CodeFunc(abs_func, "intrinsic_abs_f64", Code.CodeLinkageExport, abs_sig,
+        { Code.CodeParam(abs_arg, "x", f64_ty, Code.CodeOriginUnknown) }, {}, abs_entry,
+        { Code.CodeBlock(abs_entry, "entry", {}, {
+            Code.CodeInst(Code.CodeInstId("inst:intrinsic_abs_f64:out"), Code.CodeInstIntrinsic(abs_out, Core.IntrinsicAbs, f64_ty, { abs_arg }), Code.CodeOriginUnknown),
+        }, Code.CodeTerm(Code.CodeTermId("term:intrinsic_abs_f64"), Code.CodeTermReturn({ abs_out }), Code.CodeOriginUnknown), Code.CodeOriginUnknown) },
+        Code.CodeOriginUnknown) }, Code.CodeOriginUnknown)
+local abs_program = CodeToBack.module(abs_module, { validate = false })
+local abs_report = BackValidate.validate(abs_program)
+assert_no_issues("intrinsic abs f64 back", abs_report.issues)
+local abs_artifact = Jit.jit():compile(abs_program)
+local intrinsic_abs_f64 = ffi.cast("double (*)(double)", abs_artifact:getpointer(Back.BackFuncId("intrinsic_abs_f64")))
+assert(intrinsic_abs_f64(-3.5) == 3.5, "f64 abs intrinsic should lower to fabs")
+abs_artifact:free()
+
 print("moonlift code_to_back ok")

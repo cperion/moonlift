@@ -875,7 +875,7 @@ end
 
 T.MyHandle = handle : u32 invalid 0 end
 
--- Later islands resolve T.RingBuf and T.MyHandle as Lua expressions.
+-- Later islands resolve T.RingBuf and T.MyHandle as Lua expressions or dotted paths.
 T.Conn = struct
     rx: T.RingBuf,         -- resolves via the registry
     handle: T.MyHandle,    -- resolves via the registry

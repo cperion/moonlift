@@ -18,6 +18,7 @@ function M.Define(T)
     local Mem = T.MoonMem
     local Kernel = T.MoonKernel
     local Schedule = T.MoonSchedule
+    local ReductionAlgebra = require("moonlift.reduction_algebra").Define(T)
 
     local api = {}
 
@@ -200,6 +201,17 @@ function M.Define(T)
             local ok, reason = vector_value_expr_supported(expr.a, binding_by_code, seen); if not ok then return false, reason end
             return vector_value_expr_supported(expr.b, binding_by_code, seen)
         end
+        if cls == Value.ValueExprCmp then
+            local info = ReductionAlgebra.type_info(expr.ty)
+            if info.class == "float" then return false, "Back has no vector float compare" end
+            local ok, reason = vector_value_expr_supported(expr.a, binding_by_code, seen); if not ok then return false, reason end
+            return vector_value_expr_supported(expr.b, binding_by_code, seen)
+        end
+        if cls == Value.ValueExprSelect then
+            local ok, reason = vector_value_expr_supported(expr.cond, binding_by_code, seen); if not ok then return false, reason end
+            ok, reason = vector_value_expr_supported(expr.t, binding_by_code, seen); if not ok then return false, reason end
+            return vector_value_expr_supported(expr.f, binding_by_code, seen)
+        end
         return false, "vector emitter does not support " .. class_name(expr)
     end
 
@@ -251,7 +263,12 @@ function M.Define(T)
             for _, stream in ipairs(body and body.streams or {}) do
                 if stream.pattern ~= Mem.MemAccessContiguous then rejects[#rejects + 1] = reject_memory("vector emitter only supports contiguous streams") end
             end
-            if pvm.classof(result) == Kernel.KernelResultReduction or pvm.classof(result) == Kernel.KernelResultClosedForm then rejects[#rejects + 1] = reject_target("vector reductions/closed forms are not implemented") end
+            if pvm.classof(result) == Kernel.KernelResultClosedForm then rejects[#rejects + 1] = reject_target("vector closed forms are not implemented") end
+            if pvm.classof(result) == Kernel.KernelResultReduction then
+                if sk ~= nil and sk.tail ~= Schedule.TailScalar then rejects[#rejects + 1] = reject_target("vector reductions require TailScalar") end
+                local ok, reason = ReductionAlgebra.vector_support(result.reduction, sk and sk.lanes and sk.lanes.elem_ty or nil)
+                if not ok then rejects[#rejects + 1] = reject_algebra(reason) end
+            end
             local binding_by_id, binding_by_code = {}, {}
             for _, binding in ipairs(body and body.bindings or {}) do
                 binding_by_id[binding.id.text] = binding
@@ -262,7 +279,13 @@ function M.Define(T)
                 if pvm.classof(effect) == Kernel.KernelEffectStore then
                     local ok, reason = vector_kernel_expr_supported(effect.value, binding_by_id, binding_by_code)
                     if not ok then rejects[#rejects + 1] = reject_target(reason) end
-                elseif pvm.classof(effect) ~= Kernel.KernelEffectFold then
+                elseif pvm.classof(effect) == Kernel.KernelEffectFold then
+                    if sk ~= nil and sk.tail ~= Schedule.TailScalar then rejects[#rejects + 1] = reject_target("vector reductions require TailScalar") end
+                    local ok, reason = ReductionAlgebra.vector_support(effect.reduction, sk and sk.lanes and sk.lanes.elem_ty or nil)
+                    if not ok then rejects[#rejects + 1] = reject_algebra(reason) end
+                    ok, reason = vector_value_expr_supported(effect.reduction.contribution, binding_by_code)
+                    if not ok then rejects[#rejects + 1] = reject_algebra(reason) end
+                else
                     rejects[#rejects + 1] = reject_target("vector emitter only supports store effects")
                 end
             end

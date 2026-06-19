@@ -294,6 +294,14 @@ local function encode_body(cmds, b)
             else w4(buf, T.Ishl) end
             w4(buf, b:nid(cmd.dst)); w4(buf, b:nid(cmd.lhs)); w4(buf, b:nid(cmd.rhs))
 
+        -- Rotate
+        elseif k == "CmdRotate" then
+            local ok = cmd.op.kind or cmd.op
+            if ok == "BackRotateLeft" then w4(buf, T.Rotl)
+            elseif ok == "BackRotateRight" then w4(buf, T.Rotr)
+            else w4(buf, T.Rotl) end
+            w4(buf, b:nid(cmd.dst)); w4(buf, b:nid(cmd.lhs)); w4(buf, b:nid(cmd.rhs))
+
         -- Compare
         elseif k == "CmdCompare" then
             local ok = cmd.op.kind or cmd.op
@@ -359,6 +367,39 @@ local function encode_body(cmds, b)
                 w4(buf, b:nid(addr_id)); w4(buf, b:nid(cmd.value))
             end
 
+        -- Atomic memory
+        elseif k == "CmdAtomicLoad" then
+            local addr_id = emit_effective_addr(buf, cmd.addr)
+            w4(buf, T.AtomicLoad); w4(buf, b:nid(cmd.dst))
+            w4(buf, st(cmd.ty)); w4(buf, memflags(cmd.memory))
+            w4(buf, b:nid(addr_id))
+        elseif k == "CmdAtomicStore" then
+            local addr_id = emit_effective_addr(buf, cmd.addr)
+            w4(buf, T.AtomicStore); w4(buf, st(cmd.ty))
+            w4(buf, memflags(cmd.memory)); w4(buf, b:nid(addr_id))
+            w4(buf, b:nid(cmd.value))
+        elseif k == "CmdAtomicRmw" then
+            local ok = cmd.op.kind or cmd.op
+            local opk = 1
+            if ok == "BackAtomicRmwAdd" then opk = 1
+            elseif ok == "BackAtomicRmwSub" then opk = 2
+            elseif ok == "BackAtomicRmwAnd" then opk = 3
+            elseif ok == "BackAtomicRmwOr" then opk = 4
+            elseif ok == "BackAtomicRmwXor" then opk = 5
+            elseif ok == "BackAtomicRmwXchg" then opk = 6 end
+            local addr_id = emit_effective_addr(buf, cmd.addr)
+            w4(buf, T.AtomicRmw); w4(buf, b:nid(cmd.dst))
+            w4(buf, st(cmd.ty)); w4(buf, opk); w4(buf, memflags(cmd.memory))
+            w4(buf, b:nid(addr_id)); w4(buf, b:nid(cmd.value))
+        elseif k == "CmdAtomicCas" then
+            local addr_id = emit_effective_addr(buf, cmd.addr)
+            w4(buf, T.AtomicCas); w4(buf, b:nid(cmd.dst))
+            w4(buf, st(cmd.ty)); w4(buf, memflags(cmd.memory))
+            w4(buf, b:nid(addr_id))
+            w4(buf, b:nid(cmd.expected)); w4(buf, b:nid(cmd.replacement))
+        elseif k == "CmdAtomicFence" then
+            w4(buf, T.Fence)
+
         -- Unary
         elseif k == "CmdUnary" then
             local ok = cmd.op.kind or cmd.op
@@ -377,7 +418,9 @@ local function encode_body(cmds, b)
             elseif ok == "BackIntrinsicCtz" then w4(buf, T.Ctz)
             elseif ok == "BackIntrinsicBswap" then w4(buf, T.Bswap)
             elseif ok == "BackIntrinsicSqrt" then w4(buf, T.Sqrt)
-            elseif ok == "BackIntrinsicAbs" then w4(buf, T.Iabs)
+            elseif ok == "BackIntrinsicAbs" then
+                local ty = st(cmd.ty)
+                if ty == S.BackF32 or ty == S.BackF64 then w4(buf, T.Fabs) else w4(buf, T.Iabs) end
             elseif ok == "BackIntrinsicFloor" then w4(buf, T.Floor)
             elseif ok == "BackIntrinsicCeil" then w4(buf, T.Ceil)
             elseif ok == "BackIntrinsicTruncFloat" then w4(buf, T.Trunc)
@@ -475,6 +518,21 @@ local function encode_body(cmds, b)
             w4(buf, T.VecSelect); w4(buf, b:nid(cmd.dst))
             w4(buf, b:nid(cmd.mask)); w4(buf, b:nid(cmd.then_value)); w4(buf, b:nid(cmd.else_value))
 
+        -- Vector mask
+        elseif k == "CmdVecMask" then
+            local ok = cmd.op.kind or cmd.op
+            if ok == "BackVecMaskNot" then
+                w4(buf, T.VecMaskNot); w4(buf, b:nid(cmd.dst)); w4(buf, b:nid(cmd.args[1]))
+            elseif ok == "BackVecMaskAnd" then
+                w4(buf, T.VecMaskAnd); w4(buf, b:nid(cmd.dst))
+                w4(buf, b:nid(cmd.args[1])); w4(buf, b:nid(cmd.args[2]))
+            elseif ok == "BackVecMaskOr" then
+                w4(buf, T.VecMaskOr); w4(buf, b:nid(cmd.dst))
+                w4(buf, b:nid(cmd.args[1])); w4(buf, b:nid(cmd.args[2]))
+            else
+                w4(buf, T.VecMaskNot); w4(buf, b:nid(cmd.dst)); w4(buf, b:nid(cmd.args[1]))
+            end
+
         -- Vector load
         elseif k == "CmdVecLoadInfo" then
             w4(buf, T.VecLoad); w4(buf, b:nid(cmd.dst))
@@ -532,6 +590,8 @@ local function encode_body(cmds, b)
                 w4(buf, 0) -- direct/extern calls do not use the per-call sig_id slot
             end
             emit_ids(buf, cmd.args, b)
+        else
+            error("unrecognized BackCmd: " .. tostring(k))
         end
     end
     return table.concat(buf)

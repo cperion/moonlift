@@ -38,6 +38,7 @@ function M.Define(T)
     local function extern_id(id) return Back.BackExternId(id.text) end
     local function data_id(id) return Back.BackDataId(id.text) end
     local function sig_id(id) return Back.BackSigId(id.text) end
+    local function closure_sig_id(id) return Back.BackSigId("closure:" .. id.text) end
 
     local function scalar(ty)
         if CodeAggregateAbi.is_aggregate(ty) then return Back.BackPtr end
@@ -90,6 +91,21 @@ function M.Define(T)
         return nil
     end
 
+    local function atomic_ordering(ordering)
+        if ordering == Core.AtomicSeqCst then return Back.BackAtomicSeqCst end
+        unsupported(ordering)
+    end
+
+    local function atomic_rmw_op(op)
+        if op == Core.AtomicRmwAdd then return Back.BackAtomicRmwAdd end
+        if op == Core.AtomicRmwSub then return Back.BackAtomicRmwSub end
+        if op == Core.AtomicRmwAnd then return Back.BackAtomicRmwAnd end
+        if op == Core.AtomicRmwOr then return Back.BackAtomicRmwOr end
+        if op == Core.AtomicRmwXor then return Back.BackAtomicRmwXor end
+        if op == Core.AtomicRmwXchg then return Back.BackAtomicRmwXchg end
+        unsupported(op)
+    end
+
     local function float_op(op)
         if op == Core.BinAdd then return Back.BackFloatAdd end
         if op == Core.BinSub then return Back.BackFloatSub end
@@ -131,6 +147,26 @@ function M.Define(T)
         if op == Core.CastFPToSI or op == Core.MachineCastFToS then return Back.BackFToS end
         if op == Core.CastFPToUI or op == Core.MachineCastFToU then return Back.BackFToU end
         unsupported(op)
+    end
+
+    local function intrinsic_op(op)
+        if op == Core.IntrinsicPopcount then return Back.BackIntrinsicPopcount end
+        if op == Core.IntrinsicClz then return Back.BackIntrinsicClz end
+        if op == Core.IntrinsicCtz then return Back.BackIntrinsicCtz end
+        if op == Core.IntrinsicBswap then return Back.BackIntrinsicBswap end
+        if op == Core.IntrinsicSqrt then return Back.BackIntrinsicSqrt end
+        if op == Core.IntrinsicAbs then return Back.BackIntrinsicAbs end
+        if op == Core.IntrinsicFloor then return Back.BackIntrinsicFloor end
+        if op == Core.IntrinsicCeil then return Back.BackIntrinsicCeil end
+        if op == Core.IntrinsicTruncFloat then return Back.BackIntrinsicTruncFloat end
+        if op == Core.IntrinsicRound then return Back.BackIntrinsicRound end
+        return nil
+    end
+
+    local function rotate_op(op)
+        if op == Core.IntrinsicRotl then return Back.BackRotateLeft end
+        if op == Core.IntrinsicRotr then return Back.BackRotateRight end
+        return nil
     end
 
     local function int_semantics(ctx, k)
@@ -237,6 +273,13 @@ function M.Define(T)
         return v
     end
 
+    local function null_ptr(ctx, tag)
+        ctx.next_tmp = (ctx.next_tmp or 0) + 1
+        local v = Back.BackValId((tag or "code_to_back.null") .. "." .. tostring(ctx.next_tmp))
+        ctx.cmds[#ctx.cmds + 1] = Back.CmdConst(v, Back.BackPtr, Back.BackLitNull)
+        return v
+    end
+
     local function address_at_const_offset(ctx, addr, offset)
         if offset == 0 then return addr end
         local ptr = Back.BackValId("code_to_back.view_addr." .. tostring(ctx.next_tmp or 0) .. "." .. tostring(offset))
@@ -268,7 +311,7 @@ function M.Define(T)
             return Back.BackAddress(Back.BackAddrData(data_id(place.data)), zero(ctx), Back.BackProvData(data_id(place.data)), Back.BackPtrInBounds("data"))
         elseif cls == Code.CodePlaceLocal then
             local ty_cls = pvm.classof(place.ty)
-            if ty_cls == Code.CodeTyNamed or ty_cls == Code.CodeTyArray or ty_cls == Code.CodeTySlice then
+            if ty_cls == Code.CodeTyNamed or ty_cls == Code.CodeTyArray or ty_cls == Code.CodeTySlice or ty_cls == Code.CodeTyClosure then
                 local addr = ctx.aggregate_local_addr and ctx.aggregate_local_addr[place["local"].text]
                 if addr == nil then error("code_to_back: aggregate local has no materialized address " .. place["local"].text, 3) end
                 return Back.BackAddress(Back.BackAddrValue(addr), zero(ctx), Back.BackProvUnknown, back_bounds(info))
@@ -317,12 +360,13 @@ function M.Define(T)
         if cls == Code.CodeInstFloatBinary then return k.dst, k.ty end
         if cls == Code.CodeInstCompare then return k.dst, Code.CodeTyBool8 end
         if cls == Code.CodeInstCast then return k.dst, k.to end
+        if cls == Code.CodeInstIntrinsic then return k.dst, k.ty end
         if cls == Code.CodeInstSelect then return k.dst, k.ty end
         if cls == Code.CodeInstAddrOf then return k.dst, k.ptr_ty end
         if cls == Code.CodeInstGlobalRef then return k.dst, k.ptr_ty end
         if cls == Code.CodeInstPtrOffset then return k.dst, k.ptr_ty end
-        if cls == Code.CodeInstLoad then return k.dst, k.access.ty end
-        if cls == Code.CodeInstAggregate or cls == Code.CodeInstArray or cls == Code.CodeInstVariantCtor then return k.dst, k.ty end
+        if cls == Code.CodeInstLoad or cls == Code.CodeInstAtomicLoad or cls == Code.CodeInstAtomicRmw or cls == Code.CodeInstAtomicCas then return k.dst, k.access.ty end
+        if cls == Code.CodeInstAggregate or cls == Code.CodeInstArray or cls == Code.CodeInstClosure or cls == Code.CodeInstVariantCtor then return k.dst, k.ty end
         if cls == Code.CodeInstVariantTag then return k.dst, k.tag_ty end
         if cls == Code.CodeInstVariantPayload then return k.dst, k.variant.payload_ty end
         if cls == Code.CodeInstViewMake then return k.dst, Code.CodeTyView(k.elem_ty) end
@@ -352,6 +396,16 @@ function M.Define(T)
     local function component_scalars(ty) return CodeAggregateAbi.component_scalars(ty) end
 
     local function sig_abi(ctx, sig) return CodeAggregateAbi.lowered_sig(sig) end
+
+    local function closure_abi(ctx, sig)
+        local abi = sig_abi(ctx, sig)
+        local params = {}
+        if abi.sret then params[#params + 1] = Back.BackPtr end
+        params[#params + 1] = Back.BackPtr
+        local start = abi.sret and 2 or 1
+        for i = start, #abi.params do params[#params + 1] = abi.params[i] end
+        return { sret = abi.sret, result_ty = abi.result_ty, params = params, results = abi.results }
+    end
 
     local function component_shapes(ty)
         local scalars = component_scalars(ty)
@@ -396,15 +450,37 @@ function M.Define(T)
         return nil
     end
 
-    local function create_aggregate_storage(ctx, id, ty, prefix)
+    local function create_aggregate_storage(ctx, id, ty, prefix, size_override, align_override)
         local size, align = aggregate_size_align(ctx, ty)
+        size = size_override or size
+        align = align_override or align
         local slot = Back.BackStackSlotId((prefix or "code_to_back.aggregate") .. ":" .. id.text)
         local addr = Back.BackValId(id.text .. ":addr")
         ctx.cmds[#ctx.cmds + 1] = Back.CmdCreateStackSlot(slot, size, align)
         ctx.cmds[#ctx.cmds + 1] = Back.CmdStackAddr(addr, slot)
         ctx.cmds[#ctx.cmds + 1] = Back.CmdAlias(bid(id), addr)
         ctx.aggregate_value_addr[id.text] = addr
+        ctx.aggregate_value_size[id.text] = size
         return addr, size, align
+    end
+
+    local function closure_descriptor_size(ctx, fields)
+        local size, align = 16, 8
+        for _, field in ipairs(fields or {}) do
+            local name = field.field and field.field.field_name
+            if name ~= "__moon_fn" then
+                local fty = ctx.value_types[field.value.text]
+                if fty == nil then error("code_to_back: closure capture value has unknown type " .. field.value.text, 3) end
+                local s = scalar(fty); if s == nil then unsupported(fty) end
+                local sz, a = scalar_size_align(s)
+                local end_offset = 16 + (field.field.offset or 0) + sz
+                if end_offset > size then size = end_offset end
+                if a > align then align = a end
+            end
+        end
+        local rem = size % align
+        if rem ~= 0 then size = size + (align - rem) end
+        return size, align
     end
 
     local function store_scalar_at_offset(ctx, base_addr, offset, value, ty, tag)
@@ -425,6 +501,40 @@ function M.Define(T)
         ctx.cmds[#ctx.cmds + 1] = Back.CmdPtrOffset(ptr, Back.BackAddrValue(base_addr), idx0, 1, offset or 0, Back.BackProvDerived(tag or "aggregate field"), Back.BackPtrInBounds("aggregate field"))
         local z = zero(ctx)
         ctx.cmds[#ctx.cmds + 1] = Back.CmdLoadInfo(dst, Back.BackShapeScalar(s), Back.BackAddress(Back.BackAddrValue(ptr), z, Back.BackProvDerived(tag or "aggregate field"), Back.BackPtrInBounds("aggregate field")), synthetic_memory(ctx, tag or "aggregate_load", sz, Back.BackAccessRead))
+    end
+
+    local function store_closure_descriptor(ctx, dst, ty, fn, ctx_ptr)
+        local addr = create_aggregate_storage(ctx, dst, ty, "code_to_back.closure")
+        local fn_ty = Code.CodeTyCodePtr(ty.sig)
+        store_scalar_at_offset(ctx, addr, 0, fn, fn_ty, "closure_fn")
+        store_scalar_at_offset(ctx, addr, 8, ctx_ptr, Code.CodeTyDataPtr(nil), "closure_ctx")
+        return addr
+    end
+
+    local function closure_env_ptr(ctx, base_addr, has_captures)
+        if not has_captures then return null_ptr(ctx, "code_to_back.closure_ctx_null") end
+        local ptr = Back.BackValId("code_to_back.closure_ctx." .. tostring(ctx.next_tmp or 0))
+        local idx0 = const_index(ctx, 0)
+        ctx.cmds[#ctx.cmds + 1] = Back.CmdPtrOffset(ptr, Back.BackAddrValue(base_addr), idx0, 1, 16, Back.BackProvDerived("closure env"), Back.BackPtrInBounds("closure env"))
+        return ptr
+    end
+
+    local function store_view_components_to_addr(ctx, base_addr, view, ty, tag)
+        local elem = view_elem(ty)
+        local data_ty = Code.CodeTyDataPtr(elem)
+        local vals = component_values(view, ty)
+        store_scalar_at_offset(ctx, base_addr, 0, vals[1], data_ty, (tag or "view") .. ":data")
+        store_scalar_at_offset(ctx, base_addr, 8, vals[2], Code.CodeTyIndex, (tag or "view") .. ":len")
+        store_scalar_at_offset(ctx, base_addr, 16, vals[3], Code.CodeTyIndex, (tag or "view") .. ":stride")
+    end
+
+    local function load_view_components_from_addr(ctx, view, base_addr, ty, tag)
+        local elem = view_elem(ty)
+        local data_ty = Code.CodeTyDataPtr(elem)
+        local vals = component_values(view, ty)
+        load_scalar_at_offset(ctx, vals[1], base_addr, 0, data_ty, (tag or "view") .. ":data")
+        load_scalar_at_offset(ctx, vals[2], base_addr, 8, Code.CodeTyIndex, (tag or "view") .. ":len")
+        load_scalar_at_offset(ctx, vals[3], base_addr, 16, Code.CodeTyIndex, (tag or "view") .. ":stride")
     end
 
     local function check_call_effects(ctx, inst_id)
@@ -475,6 +585,23 @@ function M.Define(T)
         elseif cls == Code.CodeInstCast then
             local s = scalar(k.to); if s == nil then unsupported(k.to) end
             ctx.cmds[#ctx.cmds + 1] = Back.CmdCast(bid(k.dst), cast_op(k.op), s, bid(k.value))
+        elseif cls == Code.CodeInstIntrinsic then
+            if k.op == Core.IntrinsicTrap then
+                ctx.cmds[#ctx.cmds + 1] = Back.CmdTrap
+            elseif k.op == Core.IntrinsicFma then
+                local s = scalar(k.ty); if s == nil then unsupported(k.ty) end
+                if k.dst == nil or #k.args ~= 3 then unsupported(k) end
+                ctx.cmds[#ctx.cmds + 1] = Back.CmdFma(bid(k.dst), s, Back.BackFloatStrict, bid(k.args[1]), bid(k.args[2]), bid(k.args[3]))
+            elseif rotate_op(k.op) ~= nil then
+                local s = scalar(k.ty); if s == nil then unsupported(k.ty) end
+                if k.dst == nil or #k.args ~= 2 then unsupported(k) end
+                ctx.cmds[#ctx.cmds + 1] = Back.CmdRotate(bid(k.dst), rotate_op(k.op), s, bid(k.args[1]), bid(k.args[2]))
+            else
+                local op = intrinsic_op(k.op); if op == nil then unsupported(k.op) end
+                local s = scalar(k.ty); if s == nil then unsupported(k.ty) end
+                if k.dst == nil or #k.args < 1 then unsupported(k) end
+                ctx.cmds[#ctx.cmds + 1] = Back.CmdIntrinsic(bid(k.dst), op, Back.BackShapeScalar(s), { bid(k.args[1]) })
+            end
         elseif cls == Code.CodeInstSelect then
             ctx.cmds[#ctx.cmds + 1] = Back.CmdSelect(bid(k.dst), shape(k.ty), bid(k.cond), bid(k.then_value), bid(k.else_value))
         elseif cls == Code.CodeInstAddrOf then
@@ -522,13 +649,38 @@ function M.Define(T)
                 ctx.cmds[#ctx.cmds + 1] = Back.CmdLoadInfo(bid(k.dst), shape(k.access.ty), addr, memory_info(ctx, k.access, i.id))
             end
         elseif cls == Code.CodeInstAggregate then
-            local addr = create_aggregate_storage(ctx, k.dst, k.ty, "code_to_back.aggregate")
-            for _, field in ipairs(k.fields or {}) do
-                if pvm.classof(field.field) ~= T.MoonSem.FieldByOffset then unsupported(field.field) end
-                local fty = ctx.value_types[field.value.text]
-                if fty == nil then error("code_to_back: aggregate field value has unknown type " .. field.value.text, 3) end
-                store_scalar_at_offset(ctx, addr, field.field.offset or 0, bid(field.value), fty, "aggregate_field")
+            if pvm.classof(k.ty) == Code.CodeTyClosure then
+                local size, align = closure_descriptor_size(ctx, k.fields)
+                local addr = create_aggregate_storage(ctx, k.dst, k.ty, "code_to_back.closure", size, align)
+                local fn = nil
+                local captures = {}
+                for _, field in ipairs(k.fields or {}) do
+                    if pvm.classof(field.field) ~= T.MoonSem.FieldByOffset then unsupported(field.field) end
+                    if field.field.field_name == "__moon_fn" then
+                        fn = field.value
+                    else
+                        captures[#captures + 1] = field
+                    end
+                end
+                if fn == nil then error("code_to_back: closure aggregate missing __moon_fn", 3) end
+                store_scalar_at_offset(ctx, addr, 0, bid(fn), Code.CodeTyCodePtr(k.ty.sig), "closure_fn")
+                store_scalar_at_offset(ctx, addr, 8, closure_env_ptr(ctx, addr, #captures > 0), Code.CodeTyDataPtr(nil), "closure_ctx")
+                for _, field in ipairs(captures) do
+                    local fty = ctx.value_types[field.value.text]
+                    if fty == nil then error("code_to_back: closure capture value has unknown type " .. field.value.text, 3) end
+                    store_scalar_at_offset(ctx, addr, 16 + (field.field.offset or 0), bid(field.value), fty, "closure_capture")
+                end
+            else
+                local addr = create_aggregate_storage(ctx, k.dst, k.ty, "code_to_back.aggregate")
+                for _, field in ipairs(k.fields or {}) do
+                    if pvm.classof(field.field) ~= T.MoonSem.FieldByOffset then unsupported(field.field) end
+                    local fty = ctx.value_types[field.value.text]
+                    if fty == nil then error("code_to_back: aggregate field value has unknown type " .. field.value.text, 3) end
+                    store_scalar_at_offset(ctx, addr, field.field.offset or 0, bid(field.value), fty, "aggregate_field")
+                end
             end
+        elseif cls == Code.CodeInstClosure then
+            store_closure_descriptor(ctx, k.dst, k.ty, bid(k.fn), bid(k.ctx))
         elseif cls == Code.CodeInstArray then
             local addr = create_aggregate_storage(ctx, k.dst, k.ty, "code_to_back.array")
             local ty_cls = pvm.classof(k.ty)
@@ -581,28 +733,62 @@ function M.Define(T)
             else
                 ctx.cmds[#ctx.cmds + 1] = Back.CmdStoreInfo(shape(k.access.ty), addr, bid(k.value), memory_info(ctx, k.access, i.id))
             end
+        elseif cls == Code.CodeInstAtomicLoad then
+            local s = scalar(k.access.ty); if s == nil then unsupported(k.access.ty) end
+            local addr = addr_from_place(ctx, k.place, ctx.mem_backend_by_inst[i.id.text])
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdAtomicLoad(bid(k.dst), s, addr, memory_info(ctx, k.access, i.id), atomic_ordering(k.ordering))
+        elseif cls == Code.CodeInstAtomicStore then
+            local s = scalar(k.access.ty); if s == nil then unsupported(k.access.ty) end
+            local addr = addr_from_place(ctx, k.place, ctx.mem_backend_by_inst[i.id.text])
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdAtomicStore(s, addr, bid(k.value), memory_info(ctx, k.access, i.id), atomic_ordering(k.ordering))
+        elseif cls == Code.CodeInstAtomicRmw then
+            local s = scalar(k.access.ty); if s == nil then unsupported(k.access.ty) end
+            local addr = addr_from_place(ctx, k.place, ctx.mem_backend_by_inst[i.id.text])
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdAtomicRmw(bid(k.dst), atomic_rmw_op(k.op), s, addr, bid(k.value), memory_info(ctx, k.access, i.id), atomic_ordering(k.ordering))
+        elseif cls == Code.CodeInstAtomicCas then
+            local s = scalar(k.access.ty); if s == nil then unsupported(k.access.ty) end
+            local addr = addr_from_place(ctx, k.place, ctx.mem_backend_by_inst[i.id.text])
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdAtomicCas(bid(k.dst), s, addr, bid(k.expected), bid(k.replacement), memory_info(ctx, k.access, i.id), atomic_ordering(k.ordering))
+        elseif cls == Code.CodeInstAtomicFence then
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdAtomicFence(atomic_ordering(k.ordering))
         elseif cls == Code.CodeInstCall then
             check_call_effects(ctx, i.id)
             local target_cls = pvm.classof(k.target)
             local target
+            local call_sig = sig_id(k.sig)
+            local closure_ctx = nil
             if target_cls == Code.CodeCallDirect then target = Back.BackCallDirect(func_id(k.target.func))
             elseif target_cls == Code.CodeCallExtern then target = Back.BackCallExtern(extern_id(k.target["extern"]))
             elseif target_cls == Code.CodeCallIndirect then target = Back.BackCallIndirect(bid(k.target.callee))
+            elseif target_cls == Code.CodeCallClosure then
+                local closure_ty = ctx.value_types[k.target.closure.text]
+                local closure_addr = aggregate_addr_for_value(ctx, k.target.closure, closure_ty)
+                if closure_addr == nil then error("code_to_back: closure call has no descriptor address " .. k.target.closure.text, 3) end
+                local fn = Back.BackValId(k.target.closure.text .. ":closure_call_fn")
+                closure_ctx = Back.BackValId(k.target.closure.text .. ":closure_call_ctx")
+                load_scalar_at_offset(ctx, fn, closure_addr, 0, Code.CodeTyCodePtr(k.target.sig), "closure_call_fn")
+                load_scalar_at_offset(ctx, closure_ctx, closure_addr, 8, Code.CodeTyDataPtr(nil), "closure_call_ctx")
+                target = Back.BackCallIndirect(fn)
+                call_sig = closure_sig_id(k.sig)
             else unsupported(k.target) end
             local sig = ctx.sigs[k.sig.text]
             local abi = ctx.sig_abi_by_sig and ctx.sig_abi_by_sig[k.sig.text] or sig_abi(ctx, sig)
             local result = Back.BackCallStmt
             local args = {}
+            local sret_addr = nil
             if abi.sret then
                 if k.dst == nil then error("code_to_back: aggregate-return call requires destination", 3) end
-                args[#args + 1] = create_aggregate_storage(ctx, k.dst, abi.result_ty, "code_to_back.call_result")
+                sret_addr = create_aggregate_storage(ctx, k.dst, abi.result_ty, "code_to_back.call_result")
+                args[#args + 1] = sret_addr
             elseif k.dst ~= nil then
                 local s = sig and sig.results[1] and scalar(sig.results[1]) or nil
                 if s == nil then unsupported(k) end
                 result = Back.BackCallValue(bid(k.dst), s)
             end
+            if closure_ctx ~= nil then args[#args + 1] = closure_ctx end
             for n = 1, #k.args do append_components(args, k.args[n], sig.params[n]) end
-            ctx.cmds[#ctx.cmds + 1] = Back.CmdCall(result, target, sig_id(k.sig), args)
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdCall(result, target, call_sig, args)
+            if sret_addr ~= nil and is_view_ty(abi.result_ty) then load_view_components_from_addr(ctx, k.dst, sret_addr, abi.result_ty, "code_to_back.call_view_result") end
         else
             unsupported(k)
         end
@@ -643,10 +829,17 @@ function M.Define(T)
             if #k.values == 0 then ctx.cmds[#ctx.cmds + 1] = Back.CmdReturnVoid
             else
                 local rty = ctx.value_types[k.values[1].text]
-                if is_view_ty(rty) then error("code_to_back: view return ABI is not implemented below Code", 3) end
-                if ctx.current_return_sret ~= nil and is_byref_aggregate_ty(rty) then
+                if ctx.current_return_sret ~= nil and is_view_ty(rty) then
+                    store_view_components_to_addr(ctx, ctx.current_return_sret, k.values[1], rty, "code_to_back.view_return")
+                    ctx.cmds[#ctx.cmds + 1] = Back.CmdReturnVoid
+                elseif is_view_ty(rty) then
+                    error("code_to_back: view return ABI requires sret lowering", 3)
+                elseif ctx.current_return_sret ~= nil and is_byref_aggregate_ty(rty) then
                     local src = aggregate_addr_for_value(ctx, k.values[1], rty)
                     if src == nil then error("code_to_back: aggregate return value has no address " .. k.values[1].text, 3) end
+                    if pvm.classof(rty) == Code.CodeTyClosure and (ctx.aggregate_value_size[k.values[1].text] or 16) > 16 then
+                        error("code_to_back: returning captured closure descriptors requires a closure environment ownership model", 3)
+                    end
                     local size = aggregate_size_align(ctx, rty)
                     local len = const_index(ctx, size)
                     ctx.cmds[#ctx.cmds + 1] = Back.CmdMemcpy(ctx.current_return_sret, src, len)
@@ -665,6 +858,9 @@ function M.Define(T)
     local function func(ctx, f)
         ctx.value_types = {}
         ctx.block_params = {}
+        ctx.aggregate_local_addr = {}
+        ctx.aggregate_value_addr = {}
+        ctx.aggregate_value_size = {}
         local fsig = ctx.sigs[f.sig.text]
         local fabi = ctx.sig_abi_by_sig and ctx.sig_abi_by_sig[f.sig.text] or (fsig and sig_abi(ctx, fsig))
         ctx.current_return_sret = fabi and fabi.sret and Back.BackValId("sret:" .. f.id.text) or nil
@@ -719,7 +915,7 @@ function M.Define(T)
     local function make_ctx(code_module, opts)
         opts = opts or {}
         local _, _, value, mem, effect = build_fact_context(code_module, opts)
-        local ctx = { cmds = {}, sigs = {}, sig_abi_by_sig = {}, next_tmp = 0, mem_backend_by_inst = {}, value_int_semantics_by_value = {}, value_float_mode_by_value = {}, value_expr_by_value = {}, effect_by_inst = {}, readonly_inst = {}, aggregate_local_addr = {}, aggregate_value_addr = {}, layout_env = opts.layout_env, target = opts.target }
+        local ctx = { cmds = {}, sigs = {}, sig_abi_by_sig = {}, next_tmp = 0, mem_backend_by_inst = {}, value_int_semantics_by_value = {}, value_float_mode_by_value = {}, value_expr_by_value = {}, effect_by_inst = {}, readonly_inst = {}, aggregate_local_addr = {}, aggregate_value_addr = {}, aggregate_value_size = {}, layout_env = opts.layout_env, target = opts.target }
         for i = 1, #(code_module.sigs or {}) do ctx.sigs[code_module.sigs[i].id.text] = code_module.sigs[i] end
         local backend_by_access, object_by_access, readonly_objects = {}, {}, {}
         for _, info in ipairs(mem and mem.backend_info or {}) do backend_by_access[info.access.text] = info end
@@ -747,6 +943,8 @@ function M.Define(T)
             local abi = sig_abi(ctx, s)
             ctx.sig_abi_by_sig[s.id.text] = abi
             ctx.cmds[#ctx.cmds + 1] = Back.CmdCreateSig(sig_id(s.id), abi.params, abi.results)
+            local cabi = closure_abi(ctx, s)
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdCreateSig(closure_sig_id(s.id), cabi.params, cabi.results)
         end
         for i = 1, #(code_module.data or {}) do
             local d = code_module.data[i]
@@ -824,6 +1022,9 @@ function M.Define(T)
         local ctx = make_ctx(code_module, opts)
         ctx.value_types = {}
         ctx.block_params = {}
+        ctx.aggregate_local_addr = {}
+        ctx.aggregate_value_addr = {}
+        ctx.aggregate_value_size = {}
         local f, blocks = blocks_for_cover(code_module, graph or opts.graph or CodeGraph.graph(code_module), cover)
         local fsig = ctx.sigs[f.sig.text]
         local fabi = ctx.sig_abi_by_sig and ctx.sig_abi_by_sig[f.sig.text] or (fsig and sig_abi(ctx, fsig))

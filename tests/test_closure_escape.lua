@@ -84,4 +84,15 @@ local ret = ffi.cast("int32_t (*)()", artifact:getpointer(Back.BackFuncId("closu
 assert(ret() == 42)
 artifact:free()
 
+local bad_capture_return = Tr.FuncExport("closure_bad_capture_return", {}, closure_i32, {
+    Tr.StmtLet(Tr.StmtSurface, y_binding, int_lit(1)),
+    Tr.StmtReturnValue(Tr.StmtSurface, capture_closure),
+})
+local bad_module = Tr.Module(Tr.ModuleSurface, { Tr.ItemFunc(bad_capture_return) })
+local bad_converted = ClosureConvert.Define(T).module(bad_module)
+local ok, err = pcall(function()
+    Pipeline.Define(T).lower_module(bad_converted, { site = "test_closure_escape:bad_capture_return" })
+end)
+assert(not ok and tostring(err):find("closure environment ownership model", 1, true), "captured closure returns must fail loudly")
+
 print("moonlift escaping closure descriptors ok")

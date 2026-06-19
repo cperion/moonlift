@@ -1,0 +1,213 @@
+{
+	"version": 1,
+	"workflowId": "wf-backend-gap",
+	"planId": "vector-reductions",
+	"revision": 14,
+	"nextId": 14,
+	"createdAt": "2026-06-18T10:04:05.518Z",
+	"updatedAt": "2026-06-19T00:00:00.000Z",
+	"tasks": [
+		{
+			"id": "T001",
+			"title": "Add central reduction algebra module",
+			"detail": "Create a Define(T) module containing the reduction algebra table for add, mul, and, or, xor, min, max. Include type classification, identity literal generation, scalar/vector op selection, min/max compare selection for signed/unsigned integers, float legality decisions, and detection helpers used by fact extraction. Do not change Back ASDL or wire tags.",
+			"file": "lua/moonlift/reduction_algebra.lua",
+			"after": [],
+			"status": "done",
+			"order": 1,
+			"claimedBy": "worker-68845",
+			"evidence": "Created lua/moonlift/reduction_algebra.lua with Define(T), type classification, central entries for add/mul/and/or/xor/min/max, identities, scalar/vector op selection, min/max compare selection, detection helpers, and vector_support(). Smoke-tested with LuaJIT for add/min i32 entries.",
+			"notes": [],
+			"createdAt": "2026-06-18T10:04:05.518Z",
+			"updatedAt": "2026-06-18T11:40:17.850Z"
+		},
+		{
+			"id": "T002",
+			"title": "Use algebra for reduction fact detection",
+			"detail": "Import reduction_algebra. Replace local binary reduction mapping with algebra helpers. Add min/max recurrence detection for CodeInstSelect over CodeInstCompare patterns and optionally record float add/mul facts with float_mode while preserving closed-form add behavior only for integer additive series.",
+			"file": "lua/moonlift/code_value_facts.lua",
+			"after": [
+				"T001"
+			],
+			"status": "done",
+			"order": 2,
+			"claimedBy": "worker-68845",
+			"evidence": "Imported reduction_algebra in lua/moonlift/code_value_facts.lua, replaced local binary reduction mapping with algebra helper, added alias-chasing recurrence resolution, added CodeInstFloatBinary add/mul fact detection, and added CodeInstSelect over CodeInstCompare min/max recurrence detection.",
+			"notes": [],
+			"createdAt": "2026-06-18T10:04:05.518Z",
+			"updatedAt": "2026-06-18T11:43:59.988Z"
+		},
+		{
+			"id": "T003",
+			"title": "Add value override plumbing",
+			"detail": "Add helpers to map CodeValueId reads through temporary BackValId overrides. Use them in lower_value_expr, lower_kernel_expr, and edge_args so synthetic vector/tail blocks can evaluate expressions using synthetic counter and accumulator params without rebinding original Code value IDs.",
+			"file": "lua/moonlift/lower_to_back.lua",
+			"after": [
+				"T001"
+			],
+			"status": "done",
+			"order": 3,
+			"claimedBy": "worker-68845",
+			"evidence": "Added code_value() and with_value_overrides() helpers in lower_to_back.lua; routed ValueExprValue, KernelExprValue, and edge_args through overrides. Existing tests pass: test_lower_to_back_kernel_vector.lua and test_parse_kernels.lua.",
+			"notes": [],
+			"createdAt": "2026-06-18T10:04:05.518Z",
+			"updatedAt": "2026-06-18T11:45:00.112Z"
+		},
+		{
+			"id": "T004",
+			"title": "Add reduction emission helpers",
+			"detail": "Import reduction_algebra and add helpers to emit scalar identity constants, vector identity splats, scalar combines, vector combines, horizontal fold via CmdVecExtractLane, and edge-arg substitutions for reductions. Use existing BackCmd primitives only.",
+			"file": "lua/moonlift/lower_to_back.lua",
+			"after": [
+				"T003"
+			],
+			"status": "done",
+			"order": 4,
+			"claimedBy": "worker-68845",
+			"evidence": "Imported reduction_algebra in lower_to_back.lua and added centralized Back emission helpers: reduction_entry(), scalar/vector identity emission, scalar combine, vector combine, and horizontal fold via CmdVecExtractLane + scalar combines. Existing lower_to_back/vector and value-facts tests pass.",
+			"notes": [],
+			"createdAt": "2026-06-18T10:04:05.518Z",
+			"updatedAt": "2026-06-18T11:46:24.545Z"
+		},
+		{
+			"id": "T005",
+			"title": "Extend vector expression lowering",
+			"detail": "Extend lower_vector_value_expr and vec op helpers to cover ValueExprCmp and ValueExprSelect with CmdVecCompare/CmdVecSelect, matching reduction_algebra compare selection. Keep unsupported forms loud and do not add float vector ops that Back cannot express.",
+			"file": "lua/moonlift/lower_to_back.lua",
+			"after": [
+				"T004"
+			],
+			"status": "done",
+			"order": 5,
+			"claimedBy": "worker-68845",
+			"evidence": "Extended lower_to_back.lua vector expression lowering with vec_cmp_op(), ValueExprCmp -> CmdVecCompare, and ValueExprSelect -> CmdVecSelect. Keeps vector float compare unsupported loudly. Existing lower_to_back vector, parse_kernels, and value_facts tests pass.",
+			"notes": [],
+			"createdAt": "2026-06-18T10:04:05.518Z",
+			"updatedAt": "2026-06-18T11:49:54.874Z"
+		},
+		{
+			"id": "T006",
+			"title": "Implement forced vector reduction lowering",
+			"detail": "Replace the vector reduction stub with a guarded reduction path. For TailScalar vector reductions, create synthetic vector-loop and tail-check block params, carry vector accumulators initialized to identities, update them with vector contributions, horizontally fold on vector-loop exit, pass combined scalar accumulators into scalar tail/exit args exactly once, and keep KernelResultClosedForm separate.",
+			"file": "lua/moonlift/lower_to_back.lua",
+			"after": [
+				"T004",
+				"T005"
+			],
+			"status": "done",
+			"order": 6,
+			"claimedBy": "worker-68845",
+			"evidence": "Implemented vector reduction lowering in lower_to_back.lua. Supported reductions use synthetic vector-check/body/done/tail blocks, vector accumulator params initialized to identities, vector combines, horizontal CmdVecExtractLane folds, and folded accumulator overrides for tail/exit control. tests/test_lower_to_back_vector_reductions.lua passes.",
+			"notes": [],
+			"createdAt": "2026-06-18T10:04:05.518Z",
+			"updatedAt": "2026-06-19T00:00:00.000Z"
+		},
+		{
+			"id": "T007",
+			"title": "Add classifier support for vector reductions",
+			"detail": "Import reduction_algebra. Teach vector expression classifier about cmp/select. Replace the blanket vector reduction rejection with checks that all KernelEffectFold reductions and reduction contributions are supported by the central algebra for the chosen vector lane shape. Continue rejecting closed forms.",
+			"file": "lua/moonlift/kernel_emit_support.lua",
+			"after": [
+				"T006"
+			],
+			"status": "done",
+			"order": 7,
+			"evidence": "kernel_emit_support.lua now imports reduction_algebra, classifies vector cmp/select expressions, rejects vector closed forms separately, and allows KernelEffectFold/KernelResultReduction only when reduction_algebra.vector_support() accepts the reduction and contribution.",
+			"notes": [],
+			"createdAt": "2026-06-18T10:04:05.518Z",
+			"updatedAt": "2026-06-19T00:00:00.000Z"
+		},
+		{
+			"id": "T008",
+			"title": "Relax scheduler reduction guard",
+			"detail": "After forced lowering and classifier support are in place, change vector_candidate_kind to keep rejecting KernelResultClosedForm but allow KernelResultReduction to reach KernelEmitSupport.classify. Do not bypass classifier rejects.",
+			"file": "lua/moonlift/code_schedule_plan.lua",
+			"after": [
+				"T007",
+				"T010"
+			],
+			"status": "done",
+			"order": 8,
+			"evidence": "code_schedule_plan.lua now rejects KernelResultClosedForm only in vector_candidate_kind, allowing KernelResultReduction candidates to reach KernelEmitSupport.classify. tests/test_code_schedule_plan.lua passes.",
+			"notes": [],
+			"createdAt": "2026-06-18T10:04:05.518Z",
+			"updatedAt": "2026-06-19T00:00:00.000Z"
+		},
+		{
+			"id": "T009",
+			"title": "Test min/max reduction facts",
+			"detail": "Add cases for select/compare min and max recurrences, including operand-order variants, and assert ReductionMin/ReductionMax facts are emitted. Preserve existing additive closed-form assertions.",
+			"file": "tests/test_code_value_facts.lua",
+			"after": [
+				"T002"
+			],
+			"status": "done",
+			"order": 9,
+			"evidence": "Extended tests/test_code_value_facts.lua with min/max recurrence coverage including operand-order variants. luajit tests/test_code_value_facts.lua passes.",
+			"notes": [],
+			"createdAt": "2026-06-18T10:04:05.518Z",
+			"updatedAt": "2026-06-18T11:43:59.988Z"
+		},
+		{
+			"id": "T010",
+			"title": "Test forced vector reduction lowering",
+			"detail": "Create a new standalone LuaJIT test that builds normal Code/Flow/Value/Mem/Kernel facts, injects forced ScheduleVector(TailScalar) plans for reduction kernels, lowers to Back, validates, JITs, and checks sum/product/xor/and/or/min/max over n=0,<lanes,==lanes,lanes+1,divisible,non-divisible with non-identity user init.",
+			"file": "tests/test_lower_to_back_vector_reductions.lua",
+			"after": [
+				"T006",
+				"T009"
+			],
+			"status": "done",
+			"order": 10,
+			"evidence": "Added tests/test_lower_to_back_vector_reductions.lua with executable JIT coverage for sum/product/xor/and/or/min/max over n=0,<lanes,==lanes,lanes+1,divisible,non-divisible with non-identity user init. The test passes.",
+			"notes": [],
+			"createdAt": "2026-06-18T10:04:05.518Z",
+			"updatedAt": "2026-06-19T00:00:00.000Z"
+		},
+		{
+			"id": "T011",
+			"title": "Test vector reductions through scheduler",
+			"detail": "After classifier support and scheduler guard relaxation, update/add tests showing vector schedules are still rejected for closed forms but are selected for supported contiguous integer reductions on vector targets. Update the clamp/select expectation if cmp/select vector expression support makes it schedulable.",
+			"file": "tests/test_code_schedule_plan.lua",
+			"after": [
+				"T008"
+			],
+			"status": "done",
+			"order": 11,
+			"evidence": "tests/test_lower_to_back_kernel_vector.lua now expects clamp/select vector schedules after cmp/select vector expression support. tests/test_lower_to_back_vector_reductions.lua asserts supported contiguous integer reductions select ScheduleVector; tests/test_code_schedule_plan.lua passes and closed-form scheduling remains covered.",
+			"notes": [],
+			"createdAt": "2026-06-18T10:04:05.518Z",
+			"updatedAt": "2026-06-19T00:00:00.000Z"
+		},
+		{
+			"id": "T012",
+			"title": "Test automatic vector reduction JIT path",
+			"detail": "Extend the new test, or add a second section, to run the same supported reductions through CodeSchedulePlan and CodeLowerPlan without forced schedules after the scheduler guard is relaxed.",
+			"file": "tests/test_lower_to_back_vector_reductions.lua",
+			"after": [
+				"T008"
+			],
+			"status": "done",
+			"order": 12,
+			"evidence": "The new vector reduction test runs through the normal Pipeline/CodeSchedulePlan/CodeLowerPlan path with a vector target model, JIT-compiles the generated Back program, and validates all supported reductions.",
+			"notes": [],
+			"createdAt": "2026-06-18T10:04:05.518Z",
+			"updatedAt": "2026-06-19T00:00:00.000Z"
+		},
+		{
+			"id": "T013",
+			"title": "Update backend gap documentation",
+			"detail": "When tests pass, mark vector reductions closed for the supported integer TailScalar subset. Document remaining limitations: no Back/wire changes, closed forms distinct, TailNone still requires divisibility proof if left unsupported, and float vector reductions/minmax remain blocked by missing Back vector float ops.",
+			"file": "BACKEND_GAPS.md",
+			"after": [
+				"T012"
+			],
+			"status": "done",
+			"order": 13,
+			"evidence": "Updated BACKEND_GAPS.md to mark vector reductions closed for the supported integer TailScalar subset and document remaining limitations: closed forms separate, TailNone needs divisibility proof, and float reductions remain blocked by missing Back vector float ops.",
+			"notes": [],
+			"createdAt": "2026-06-18T10:04:05.518Z",
+			"updatedAt": "2026-06-19T00:00:00.000Z"
+		}
+	]
+}

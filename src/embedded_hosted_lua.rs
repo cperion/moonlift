@@ -166,6 +166,7 @@ pub fn embedded_modules() -> Vec<(&'static str, &'static str)> {
         ("moonlift.pvm_surface_schema_values", include_str!("../lua/moonlift/pvm_surface_schema_values.lua")),
         ("moonlift.pvm_surface_union_values", include_str!("../lua/moonlift/pvm_surface_union_values.lua")),
         ("moonlift.quote", include_str!("../lua/moonlift/quote.lua")),
+        ("moonlift.reduction_algebra", include_str!("../lua/moonlift/reduction_algebra.lua")),
         ("moonlift.region_call_lowering", include_str!("../lua/moonlift/region_call_lowering.lua")),
         ("moonlift.region_compose", include_str!("../lua/moonlift/region_compose.lua")),
         ("moonlift.region_normal_form", include_str!("../lua/moonlift/region_normal_form.lua")),

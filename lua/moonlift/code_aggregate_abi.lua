@@ -63,7 +63,7 @@ function M.Define(T)
     end
 
     local function lowered_sig(sig)
-        local sret = (#(sig.results or {}) == 1 and is_aggregate(sig.results[1]))
+        local sret = (#(sig.results or {}) == 1 and (is_aggregate(sig.results[1]) or is_view(sig.results[1])))
         local params, results = {}, {}
         if sret then params[#params + 1] = Back.BackPtr end
         for i = 1, #(sig.params or {}) do
@@ -71,7 +71,6 @@ function M.Define(T)
         end
         if not sret then
             for i = 1, #(sig.results or {}) do
-                if is_view(sig.results[i]) then error("code_aggregate_abi: view return signature ABI is not implemented below Code", 3) end
                 for _, s in ipairs(component_scalars(sig.results[i])) do results[#results + 1] = s end
             end
         end
@@ -88,6 +87,8 @@ function M.Define(T)
     end
 
     local function size_align(ctx, ty)
+        if is_view(ty) then return 24, 8 end
+        if pvm.classof(ty) == Code.CodeTyClosure then return 16, 8 end
         local l = layout(ctx, ty)
         if l ~= nil then return l.size, l.align end
         return 1, 1

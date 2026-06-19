@@ -176,4 +176,61 @@ do
     print("test_debug_interpreter: read_all_registers ok")
 end
 
+-- Test 4: Indirect calls through CmdFuncAddr
+do
+    local inc_sig = Back.BackSigId("sig:inc")
+    local call_sig = Back.BackSigId("sig:call_indirect")
+    local inc_func = Back.BackFuncId("inc")
+    local call_func = Back.BackFuncId("call_indirect")
+    local call_entry = Back.BackBlockId("entry.call_indirect")
+    local inc_entry = Back.BackBlockId("entry.inc")
+    local x = Back.BackValId("x.indirect")
+    local ix = Back.BackValId("x.inc")
+    local one = Back.BackValId("one.inc")
+    local fp = Back.BackValId("fp")
+    local inc_out = Back.BackValId("inc.out")
+    local call_out = Back.BackValId("call.out")
+
+    local cmds = {
+        Back.CmdCreateSig(inc_sig, { Back.BackI32 }, { Back.BackI32 }),
+        Back.CmdCreateSig(call_sig, { Back.BackI32 }, { Back.BackI32 }),
+        Back.CmdDeclareFunc(C.VisibilityLocal, inc_func, inc_sig),
+        Back.CmdDeclareFunc(C.VisibilityExport, call_func, call_sig),
+
+        Back.CmdBeginFunc(call_func),
+        Back.CmdCreateBlock(call_entry),
+        Back.CmdAppendBlockParam(call_entry, x, Back.BackShapeScalar(Back.BackI32)),
+        Back.CmdSwitchToBlock(call_entry),
+        Back.CmdBindEntryParams(call_entry, { x }),
+        Back.CmdFuncAddr(fp, inc_func),
+        Back.CmdCall(Back.BackCallValue(call_out, Back.BackI32), Back.BackCallIndirect(fp), inc_sig, { x }),
+        Back.CmdReturnValue(call_out),
+        Back.CmdSealBlock(call_entry),
+        Back.CmdFinishFunc(call_func),
+
+        Back.CmdBeginFunc(inc_func),
+        Back.CmdCreateBlock(inc_entry),
+        Back.CmdAppendBlockParam(inc_entry, ix, Back.BackShapeScalar(Back.BackI32)),
+        Back.CmdSwitchToBlock(inc_entry),
+        Back.CmdBindEntryParams(inc_entry, { ix }),
+        Back.CmdConst(one, Back.BackI32, Back.BackLitInt("1")),
+        Back.CmdIntBinary(inc_out, Back.BackIntAdd, Back.BackI32,
+            Back.BackIntSemantics(Back.BackIntWrap, Back.BackIntMayLose), ix, one),
+        Back.CmdReturnValue(inc_out),
+        Back.CmdSealBlock(inc_entry),
+        Back.CmdFinishFunc(inc_func),
+        Back.CmdFinalizeModule,
+    }
+
+    local interp = Interpreter.new(cmds, { Back = Back })
+    assert(interp:step_block() == "entry.call_indirect")
+    interp.registers[x.text] = 41
+    interp.step_mode = "continue"
+    while interp:step() do end
+    assert(interp.terminated, "expected indirect-call program to terminate")
+    assert(interp.return_value == 42, "expected 42, got " .. tostring(interp.return_value))
+
+    print("test_debug_interpreter: indirect call ok")
+end
+
 print("\nmoonlift debug_interpreter ok")

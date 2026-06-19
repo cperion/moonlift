@@ -44,7 +44,9 @@ func clamp_nonnegative(noalias dst: ptr(i32), readonly src: ptr(i32), n: i32): i
 end
 ]])
 local clamp_schedules=CodeSchedulePlan.plan(clamp_code,clamp_kernels,clamp_flow,clamp_value,clamp_mem,clamp_effect,target)
-for _,s in ipairs(clamp_schedules.schedules or {}) do assert(pvm.classof(s.kind)~=Schedule.ScheduleVector,'vector schedule must not be selected for select/compare until vector compare/select emitter exists') end
+local saw_clamp_vector=false
+for _,s in ipairs(clamp_schedules.schedules or {}) do if pvm.classof(s)==Schedule.SchedulePlanned and pvm.classof(s.kind)==Schedule.ScheduleVector then saw_clamp_vector=true end end
+assert(saw_clamp_vector,'vector compare/select emitter should allow clamp to select ScheduleVector')
 local schedules=CodeSchedulePlan.plan(code,kernels,flow,value,mem,effect,target)
 local saw_vector=false; for _,s in ipairs(schedules.schedules or {}) do if pvm.classof(s)==Schedule.SchedulePlanned and pvm.classof(s.kind)==Schedule.ScheduleVector then saw_vector=true end end; assert(saw_vector,'target vector facts should select ScheduleVector')
 local lower=CodeLowerPlan.plan(code,graph,kernels,schedules,Lower.LowerTargetBack)

@@ -77,7 +77,7 @@ function M.Define(T)
     local function vector_candidate_kind(plan, target)
         local body = plan.body
         if body == nil or #(body.streams or {}) == 0 then return nil end
-        if pvm.classof(body.result) == Kernel.KernelResultReduction or pvm.classof(body.result) == Kernel.KernelResultClosedForm then return nil end
+        if pvm.classof(body.result) == Kernel.KernelResultClosedForm then return nil end
         local elem_ty = nil
         for _, stream in ipairs(body.streams or {}) do
             if stream.pattern ~= T.MoonMem.MemAccessContiguous then return nil end

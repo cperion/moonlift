@@ -44,6 +44,7 @@ function M.new(cmds, opts)
         extrn = opts.extrn or {},
         functions = opts.functions or {},
         call_stack = {},       -- [{cursor, registers, current_block}]
+        pending_call_args = nil,
         -- Memory
         memory_size = opts.memory_size or (1024 * 1024 * 64),
         memory = nil,          -- ffi byte array
@@ -114,23 +115,15 @@ end
 
 --- Build a map from BackFuncId to function body index range.
 function Interpreter:_build_func_map()
-    local in_func = nil
-    local func_start = nil
     for i, cmd in ipairs(self.cmds) do
         local cls = pvm.classof(cmd)
-        if cls == self.Back.CmdDeclareFunc then
-            in_func = cmd.func.text
-            func_start = i
-        elseif cls == self.Back.CmdBeginFunc then
-            if in_func then
-                self.func_map[in_func] = { start_idx = i + 1, end_idx = nil }
-            end
+        if cls == self.Back.CmdBeginFunc then
+            self.func_map[cmd.func.text] = { start_idx = i + 1, end_idx = nil }
         elseif cls == self.Back.CmdFinishFunc then
-            if in_func and self.func_map[in_func] then
-                self.func_map[in_func].end_idx = i - 1
+            local func = cmd.func.text
+            if self.func_map[func] then
+                self.func_map[func].end_idx = i - 1
             end
-            in_func = nil
-            func_start = nil
         end
     end
 end
@@ -146,7 +139,7 @@ function Interpreter:_init_handlers()
         [Back.CmdDataInitZero] = "_handle_data_init_zero",
         [Back.CmdDataInit] = "_handle_data_init",
         [Back.CmdDataAddr] = "_handle_data_addr",
-        [Back.CmdFuncAddr] = "_handle_noop",
+        [Back.CmdFuncAddr] = "_handle_func_addr",
         [Back.CmdExternAddr] = "_handle_extern_addr",
         [Back.CmdDeclareFunc] = "_handle_noop",
         [Back.CmdDeclareExtern] = "_handle_noop",
@@ -867,6 +860,13 @@ end
 -- CmdBindEntryParams: block, values
 function Interpreter:_handle_bind_entry_params(cmd)
     -- Map entry param values to registers
+    if self.pending_call_args ~= nil then
+        for i = 1, #cmd.values do
+            self.registers[cmd.values[i].text] = self.pending_call_args[i] or 0
+        end
+        self.pending_call_args = nil
+        return
+    end
     local param_names = self.block_params[cmd.block.text]
     if param_names then
         for i = 1, #param_names do
@@ -897,9 +897,10 @@ function Interpreter:_handle_return_value(cmd)
     self.return_value = self.registers[cmd.value.text] or 0
     if #self.call_stack > 0 then
         local frame = table.remove(self.call_stack)
-        -- Store return value in the call result register
-        -- (the call instruction's result dest is set before calling)
         self.registers = frame.registers
+        if frame.return_dst ~= nil then
+            self.registers[frame.return_dst] = self.return_value
+        end
         self.cursor = frame.cursor
         self.current_block = frame.current_block
     else
@@ -1019,10 +1020,15 @@ function Interpreter:_handle_data_addr(cmd)
     end
 end
 
+-- CmdFuncAddr: dst, func
+function Interpreter:_handle_func_addr(cmd)
+    self.registers[cmd.dst.text] = { kind = "func", func = cmd.func.text }
+end
+
 -- CmdExternAddr: dst, func
 function Interpreter:_handle_extern_addr(cmd)
     -- Store a sentinel address for extern functions
-    self.registers[cmd.dst.text] = -1
+    self.registers[cmd.dst.text] = { kind = "extern", func = cmd.func.text }
 end
 
 -- CmdMemcpy: dst, src, len
@@ -1063,6 +1069,32 @@ function Interpreter:_handle_memcmp(cmd)
     end
 end
 
+function Interpreter:_call_internal_func(func_id, cmd)
+    local func_entry = self.func_map[func_id]
+    if not func_entry then return false end
+    local rc = pvm.classof(cmd.result)
+    local return_dst = nil
+    if rc == self.Back.BackCallValue then
+        return_dst = cmd.result.dst.text
+    end
+    local args = {}
+    for i = 1, #cmd.args do
+        args[i] = self.registers[cmd.args[i].text] or 0
+    end
+    table.insert(self.call_stack, {
+        cursor = self.cursor,
+        registers = self:_copy_registers(),
+        current_block = self.current_block,
+        return_dst = return_dst,
+    })
+    self.registers = {}
+    self.pending_call_args = args
+    self.cursor = func_entry.start_idx - 1
+    self.current_block = nil
+    self.pending_jump_target = nil
+    return true
+end
+
 -- CmdCall: result, target, sig, args
 function Interpreter:_handle_call(cmd)
     local Back = self.Back
@@ -1085,34 +1117,23 @@ function Interpreter:_handle_call(cmd)
             end
         end
     elseif tc == Back.BackCallDirect then
-        -- Call direct Moonlift function
-        local func_id = target.func.text
-        local func_entry = self.func_map[func_id]
-        if func_entry then
-            -- Save return register info in the call stack frame
-            local rc = pvm.classof(cmd.result)
-            local return_dst = nil
-            if rc == Back.BackCallValue then
-                return_dst = cmd.result.dst.text
-            end
-            -- Push call stack frame
-            table.insert(self.call_stack, {
-                cursor = self.cursor,        -- will resume after this call
-                registers = self:_copy_registers(),
-                current_block = self.current_block,
-                return_dst = return_dst,
-            })
-            -- Jump to function body
-            self.cursor = func_entry.start_idx - 1  -- -1 because step() will advance
-            self.current_block = nil
-            self.pending_jump_target = nil
-        end
+        self:_call_internal_func(target.func.text, cmd)
     elseif tc == Back.BackCallIndirect then
-        -- Indirect call: not supported in interpreter
-        -- Set result to 0 and continue
-        local rc = pvm.classof(cmd.result)
-        if rc == Back.BackCallValue then
-            self.registers[cmd.result.dst.text] = 0
+        local callee = self.registers[target.callee.text]
+        if type(callee) == "table" and callee.kind == "func" then
+            self:_call_internal_func(callee.func, cmd)
+        elseif type(callee) == "table" and callee.kind == "extern" then
+            local fn = self.extrn[callee.func]
+            if fn then
+                local args = {}
+                for i = 1, #cmd.args do args[i] = self.registers[cmd.args[i].text] or 0 end
+                local ok, result = pcall(fn, unpack(args))
+                if ok and pvm.classof(cmd.result) == Back.BackCallValue then
+                    self.registers[cmd.result.dst.text] = result or 0
+                end
+            end
+        else
+            error("debug_interpreter: indirect callee is not a function address", 2)
         end
     end
 end

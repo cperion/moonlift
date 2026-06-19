@@ -102,7 +102,7 @@ pub enum WireTag {
     PtrOffset = 121,   // [dst, base, index, elem_size, const_lo, const_hi]
 
     // ── Vector ────
-    Splat = 130,             // [dst, scalar_type, src]
+    Splat = 130,             // [dst, scalar_type, lanes, src]
     InsertLane = 131,        // [dst, vector, lane_value, lane_idx]
     ExtractLane = 132,       // [dst, scalar_type, vector, lane_idx]
     VecIadd = 133,           // [dst, lhs, rhs]

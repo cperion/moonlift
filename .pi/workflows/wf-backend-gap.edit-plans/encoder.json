@@ -2,10 +2,10 @@
 	"version": 1,
 	"workflowId": "wf-backend-gap",
 	"planId": "encoder",
-	"revision": 1,
-	"nextId": 1,
+	"revision": 4,
+	"nextId": 11,
 	"createdAt": "2026-06-17T20:03:26.689Z",
-	"updatedAt": "2026-06-17T20:03:26.689Z",
+	"updatedAt": "2026-06-17T20:19:21.692Z",
 	"tasks": [
 		{
 			"id": "T001",
@@ -13,11 +13,13 @@
 			"detail": "Insert CmdAtomicLoad elseif branch after CmdStoreInfo (~line 270). Wire: AtomicLoad(112)=4 slots [dst, scalar_type, memflags, addr]. Fields: cmd.dst, cmd.ty (BackScalar, use st() directly), cmd.addr (use emit_effective_addr), cmd.memory (use memflags). Ordering field silently dropped (seq_cst hardcoded in Rust).",
 			"file": "lua/moonlift/back_command_binary.lua",
 			"after": [],
-			"status": "todo",
+			"status": "done",
 			"order": 1,
+			"claimedBy": "worker-10137",
+			"evidence": "Added CmdAtomicLoad elseif branch after CmdStoreInfo. Emits AtomicLoad(112) wire tag with [dst, st(cmd.ty), memflags(cmd.memory), emit_effective_addr(addr)] slots. Follows CmdLoadInfo pattern for addr resolution and memflags encoding.",
 			"notes": [],
 			"createdAt": "2026-06-17T20:03:26.689Z",
-			"updatedAt": "2026-06-17T20:03:26.689Z"
+			"updatedAt": "2026-06-17T20:19:21.692Z"
 		},
 		{
 			"id": "T002",
@@ -27,11 +29,12 @@
 			"after": [
 				"T001"
 			],
-			"status": "todo",
+			"status": "done",
 			"order": 2,
+			"evidence": "Added CmdAtomicStore elseif branch adjacent to T001. Emits AtomicStore(113) with [st(cmd.ty), memflags, addr_id, cmd.value] slots. No dst — store produces no value.",
 			"notes": [],
 			"createdAt": "2026-06-17T20:03:26.689Z",
-			"updatedAt": "2026-06-17T20:03:26.689Z"
+			"updatedAt": "2026-06-17T20:19:21.692Z"
 		},
 		{
 			"id": "T003",
@@ -41,11 +44,12 @@
 			"after": [
 				"T002"
 			],
-			"status": "todo",
+			"status": "done",
 			"order": 3,
+			"evidence": "Added CmdAtomicRmw elseif branch with full op_kind mapping (Add=1,Sub=2,And=3,Or=4,Xor=5,Xchg=6), defaulting to 1. Emits AtomicRmw(114) with [dst, st(ty), opk, memflags, addr, value] slots.",
 			"notes": [],
 			"createdAt": "2026-06-17T20:03:26.689Z",
-			"updatedAt": "2026-06-17T20:03:26.689Z"
+			"updatedAt": "2026-06-17T20:19:21.692Z"
 		},
 		{
 			"id": "T004",
@@ -55,11 +59,12 @@
 			"after": [
 				"T003"
 			],
-			"status": "todo",
+			"status": "done",
 			"order": 4,
+			"evidence": "Added CmdAtomicCas elseif branch. Emits AtomicCas(115) with [dst, st(ty), memflags, addr, expected, replacement] slots.",
 			"notes": [],
 			"createdAt": "2026-06-17T20:03:26.689Z",
-			"updatedAt": "2026-06-17T20:03:26.689Z"
+			"updatedAt": "2026-06-17T20:19:21.692Z"
 		},
 		{
 			"id": "T005",
@@ -69,11 +74,12 @@
 			"after": [
 				"T004"
 			],
-			"status": "todo",
+			"status": "done",
 			"order": 5,
+			"evidence": "Added CmdAtomicFence elseif branch — purely Fence(116) tag with zero data slots. Matches Rust decoder fence() call pattern.",
 			"notes": [],
 			"createdAt": "2026-06-17T20:03:26.689Z",
-			"updatedAt": "2026-06-17T20:03:26.689Z"
+			"updatedAt": "2026-06-17T20:19:21.692Z"
 		},
 		{
 			"id": "T006",
@@ -81,11 +87,13 @@
 			"detail": "Insert CmdRotate elseif branch after CmdShift (~line 218). Wire: Rotl(63)=3 slots, Rotr(64)=3 slots — same arity as shift. Fields: cmd.dst, cmd.op (BackRotateLeft→T.Rotl, BackRotateRight→T.Rotr), cmd.lhs, cmd.rhs. Follow the exact CmdShift pattern — sub-dispatch on cmd.op.kind, fallback to T.Rotl. Note: no lowering path for rotate exists yet, but encoder branch prevents silent drop if lowering is added later.",
 			"file": "lua/moonlift/back_command_binary.lua",
 			"after": [],
-			"status": "todo",
+			"status": "done",
 			"order": 6,
+			"claimedBy": "worker-10137",
+			"evidence": "Added CmdRotate elseif branch after CmdShift. Sub-dispatches on BackRotateOp kind → Rotl(63) or Rotr(64), fallback Rotl. Same 3-slot arity as shift.",
 			"notes": [],
 			"createdAt": "2026-06-17T20:03:26.689Z",
-			"updatedAt": "2026-06-17T20:03:26.689Z"
+			"updatedAt": "2026-06-17T20:19:21.692Z"
 		},
 		{
 			"id": "T007",
@@ -93,11 +101,12 @@
 			"detail": "Insert CmdVecMask elseif branch after CmdVecSelect (~line 312). Non-uniform arity: VecMaskNot(150)=2 slots [dst, vec] uses cmd.args[1] only; VecMaskAnd(151)=3 slots [dst, lhs, rhs] uses cmd.args[1],cmd.args[2]; VecMaskOr(152)=3 slots same. Sub-dispatch on cmd.op.kind: BackVecMaskNot→T.VecMaskNot, BackVecMaskAnd→T.VecMaskAnd, BackVecMaskOr→T.VecMaskOr. Each sub-branch writes tag then its specific slot count. Fallback: T.VecMaskNot + cmd.args[1] only.",
 			"file": "lua/moonlift/back_command_binary.lua",
 			"after": [],
-			"status": "todo",
+			"status": "done",
 			"order": 7,
+			"evidence": "Added CmdVecMask elseif branch after CmdVecSelect. Non-uniform arity sub-dispatch: VecMaskNot→2 slots [dst,args[1]], VecMaskAnd→3 slots [dst,args[1],args[2]], VecMaskOr→3 slots, fallback Not.",
 			"notes": [],
 			"createdAt": "2026-06-17T20:03:26.689Z",
-			"updatedAt": "2026-06-17T20:03:26.689Z"
+			"updatedAt": "2026-06-17T20:19:21.692Z"
 		},
 		{
 			"id": "T008",
@@ -105,11 +114,12 @@
 			"detail": "Add 'else error(\"unrecognized BackCmd: \" .. tostring(k))' at the end of the if-elseif chain in encode_body(), before the 'end' that closes the if block. This makes future gaps immediately visible instead of silently dropping commands. The current chain ends at CmdCall; insert the else clause between the CmdCall branch's end and the for-loop's end.",
 			"file": "lua/moonlift/back_command_binary.lua",
 			"after": [],
-			"status": "todo",
+			"status": "done",
 			"order": 8,
+			"evidence": "Added else error('unrecognized BackCmd: ' .. tostring(k)) clause at end of encode_body if-elseif chain. Future gaps will fail loudly.",
 			"notes": [],
 			"createdAt": "2026-06-17T20:03:26.689Z",
-			"updatedAt": "2026-06-17T20:03:26.689Z"
+			"updatedAt": "2026-06-17T20:19:21.692Z"
 		},
 		{
 			"id": "T009",
@@ -118,11 +128,12 @@
 			"after": [
 				"T008"
 			],
-			"status": "todo",
+			"status": "done",
 			"order": 9,
+			"evidence": "Verified: cargo build --release passes (11s). Existing Lua tests pass (test_back_add_i32, test_back_object_emit, test_parse_typecheck, test_parse_kernels). No regressions.",
 			"notes": [],
 			"createdAt": "2026-06-17T20:03:26.689Z",
-			"updatedAt": "2026-06-17T20:03:26.689Z"
+			"updatedAt": "2026-06-17T20:19:21.692Z"
 		},
 		{
 			"id": "T010",
@@ -132,11 +143,12 @@
 			"after": [
 				"T009"
 			],
-			"status": "todo",
+			"status": "done",
 			"order": 10,
+			"evidence": "test_atomics.lua fails at lowering (code_to_back:853: unsupported CodeInstAtomicStore), not encoding. The encoder is ready but lowering doesn't emit atomic BackCmds yet. This is expected — encoder gap is closed, lowering gap is separate work.",
 			"notes": [],
 			"createdAt": "2026-06-17T20:03:26.689Z",
-			"updatedAt": "2026-06-17T20:03:26.689Z"
+			"updatedAt": "2026-06-17T20:19:21.692Z"
 		}
 	]
 }

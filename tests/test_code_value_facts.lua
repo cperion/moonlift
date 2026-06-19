@@ -31,4 +31,46 @@ end
 ]])
 assert(#no_cf.reductions>0,'non-series add recurrence still emits ReductionFact')
 assert(#no_cf.closed_forms==0,'insufficient facts for exact series must not emit fake ClosedFormFact')
+
+local function has_reduction_kind(factset, kind)
+ for _, r in ipairs(factset.reductions or {}) do if r.kind == kind then return true end end
+ return false
+end
+
+local minmax=facts([[
+func min_loop(n: i32): i32
+ return block loop(i: i32 = 0, acc: i32 = 999): i32
+  if i >= n then yield acc end
+  let next = select(acc < i, acc, i)
+  jump loop(i = i + 1, acc = next)
+ end
+end
+
+func max_loop(n: i32): i32
+ return block loop(i: i32 = 0, acc: i32 = -999): i32
+  if i >= n then yield acc end
+  let next = select(acc > i, acc, i)
+  jump loop(i = i + 1, acc = next)
+ end
+end
+
+func min_loop_swapped(n: i32): i32
+ return block loop(i: i32 = 0, acc: i32 = 999): i32
+  if i >= n then yield acc end
+  let next = select(i < acc, i, acc)
+  jump loop(i = i + 1, acc = next)
+ end
+end
+
+func max_loop_swapped(n: i32): i32
+ return block loop(i: i32 = 0, acc: i32 = -999): i32
+  if i >= n then yield acc end
+  let next = select(i > acc, i, acc)
+  jump loop(i = i + 1, acc = next)
+ end
+end
+]])
+assert(has_reduction_kind(minmax, Value.ReductionMin), 'select/compare min recurrence should emit ReductionMin')
+assert(has_reduction_kind(minmax, Value.ReductionMax), 'select/compare max recurrence should emit ReductionMax')
+
 io.write('moonlift code_value_facts ok\n')

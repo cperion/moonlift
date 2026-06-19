@@ -4,6 +4,51 @@ Map the gap between LANGUAGE_REFERENCE.md features and the Cranelift backend imp
 **Started**: 2026-06-17 19:46:03
 ---
 
+## Completion Update — 2026-06-19
+
+Closed the remaining backend-facing closure/handle items:
+
+- implemented closure descriptor lowering in `code_to_back.lua`
+- added synthetic closure-call Back signatures with the hidden context pointer
+- lowered `CodeCallClosure` through loaded `{ fn, ctx }` descriptors and `BackCallIndirect`
+- materialized converted closure literals as stack descriptors with inline capture environments for non-escaping use
+- added a loud rejection for returning captured closure literals until an environment ownership model exists
+- verified handle types are already representation-lowered and require no Back object or wire tag
+- updated `BACKEND_GAPS.md` to remove stale open closure/handle entries
+
+Validation run:
+
+```sh
+luajit tests/test_closure_escape.lua
+luajit tests/test_code_to_back.lua
+luajit tests/test_closure_convert.lua
+luajit tests/test_handle_types.lua
+```
+
+Closed scalar kernel fragment placement discovered during the final regression pass:
+
+- synthetic `KernelBinding` values now infer their Code block from direct value maps, loop block params, memory access facts, or recursive value-expression operands
+- `tests/test_code_mem_facts.lua` and `tests/test_lower_to_back_kernel_scalar.lua` now pass alongside vector/closed-form lowering tests
+
+## Completion Update — 2026-06-19
+
+Executed the remaining vector-reduction plan:
+
+- implemented Back lowering for supported integer `TailScalar` vector reductions
+- enabled classifier/scheduler support for reduction candidates while keeping closed forms separate
+- added executable JIT coverage for sum/product/xor/and/or/min/max vector reductions with scalar tails
+- updated `BACKEND_GAPS.md` and the `vector-reductions` sidecar plan
+
+Validation run:
+
+```sh
+luajit tests/test_lower_to_back_vector_reductions.lua
+luajit tests/test_lower_to_back_kernel_vector.lua
+luajit tests/test_code_schedule_plan.lua
+luajit tests/test_code_value_facts.lua
+luajit tests/test_parse_kernels.lua
+```
+
 ## Scout Output — 2026-06-17 19:47:53
 
 Now I have all the materials. Let me compile the comprehensive gap map.
@@ -862,3 +907,1963 @@ Reference for the worker during implementation:
 - **Wire slot order**: Must match the TAG_SLOTS entries in `src/wire_tags.rs` and the Rust decoder handlers in `src/decode.rs`. Double-check slot order against the wire format spec in `BACK_WIRE_FORMAT.md` §5.
 - **Silently dropped fields**: `cmd.ordering` (BackAtomicOrdering, always BackAtomicSeqCst) and `cmd.scalar`/`cmd.ty` (for Rotate/VecMask where type is not in wire) are intentionally omitted. Add a brief comment noting the omission.
 - **Error style**: Use `error("unrecognized BackCmd: " .. tostring(k))` — no `assert`, no custom error object. Match the existing error style in the file.
+
+## Scout Output — 2026-06-17 20:20:36
+
+Here's the complete picture:
+
+---
+
+## Indirect Call Stub — `debug_interpreter.lua` lines 1109–1116
+
+```lua
+    elseif tc == Back.BackCallIndirect then
+        -- Indirect call: not supported in interpreter
+        -- Set result to 0 and continue
+        local rc = pvm.classof(cmd.result)
+        if rc == Back.BackCallValue then
+            self.registers[cmd.result.dst.text] = 0
+        end
+    end
+```
+
+It's a **silent no-op with zero-result fallback**: if the call has a return value, the destination register is set to `0`. Otherwise, nothing happens. No attempt to resolve the callee from the function table. No call-stack push. No control flow transfer.
+
+---
+
+## Direct CmdCall Handling — for comparison (lines 1066–1109)
+
+The interpreter handles **three** `BackCallTarget` subclasses:
+
+| CallTarget variant | Lines | What it does |
+|---|---|---|
+| `BackCallExtern` | 1069–1085 | Looks up `self.extrn[func_name]`, calls via `pcall(fn, unpack(args))`, writes result to register |
+| `BackCallDirect` | 1086–1108 | Looks up `self.func_map[func_id]`, pushes a call-stack frame (saves cursor, registers, current_block, return_dst), jumps cursor to `func_entry.start_idx - 1` |
+| `BackCallIndirect` | 1109–1116 | **Stub** — zeroes return register, does nothing else |
+
+The direct call path is fully functional: it saves state, transfers control, and the interpreter's `step()` loop will resume from the callee's first instruction. The indirect path just drops through.
+
+---
+
+## Where Indirect Calls Exist in the Real Pipeline
+
+### Rust Cranelift backend — **fully implemented** (`src/decode.rs:619-626`)
+
+```rust
+t if t == WireTag::CallIndirect as u32 => {
+    let rt = s[0]; let callee = ctx.val(s[3])?; let sig_id = s[4]; let na = read_u32(buf, &mut pos)? as usize;
+    let ids = read_slots(buf, &mut pos, na)?;
+    let args: Vec<Value> = ids.iter().map(|&id| ctx.val(id)).collect::<Result<_,_>>()?;
+    let sig = refs.sigs.get(&sig_id).cloned().unwrap_or_else(|| Signature::new(ctx.builder.func.signature.call_conv));
+    let sig_ref = ctx.builder.import_signature(sig);
+    let inst = ctx.builder.ins().call_indirect(sig_ref, callee, &args);
+    if rt == 1 { if let Some(&r) = ctx.builder.inst_results(inst).first() { ctx.bind(s[1], r)?; } }
+}
+```
+
+This is a real Cranelift `call_indirect` instruction — the callee is a runtime value (SSA value), resolved by hardware. **The JIT path handles indirect calls correctly.**
+
+### Binary encoder — **handles CmdCall with sub-dispatch** (`back_command_binary.lua:569-583`)
+
+```lua
+tag = T.CallIndirect   -- when target is BackCallIndirect
+```
+
+### Pipeline flow — lowering produces `BackCallIndirect`
+
+- `tree_to_code.lua:627`: `CodeCallIndirect(callee, sig)` — code-level call target
+- `code_to_back.lua` lowers this to `BackCallIndirect(callee)` via `CmdCall(result, BackCallIndirect(callee), sig, args)`
+- `test_back_indirect_stmt.lua:81`: hand-constructed test exercising the full binary encoder→Rust JIT path
+- `test_code_to_back.lua:74,107,132,145`: end-to-end tests with `indirect_call_i32_code` and `public_indirect_call_i32_code`
+
+### Dasm backend — has an ISEL rule (`back/dasm/isel_x64.lua:890`)
+
+```
+elseif tk == "BackCallIndirect" then
+```
+
+### Other references
+
+| File | Role |
+|---|---|
+| `schema/back.asdl:229` | ASDL definition: `BackCallIndirect(BackValId callee)` |
+| `schema/code.asdl:108` | Code-level: `CodeCallIndirect(CodeValueId callee, CodeSigId sig)` |
+| `code_validate.lua:283` | Validates indirect call targets |
+| `code_effect_facts.lua:113` | Facts pipeline tracks indirect callees |
+| `c_emit.lua:303`, `code_to_c.lua:252` | C backend emits indirect calls |
+| `tests/test_c_emit.lua:87`, `test_c_validate.lua:67` | C backend tests |
+| `dasn/phases/lower_facts.lua:58,281` | Dasm fact-lowering uses `BackCallIndirect` |
+
+---
+
+## Summary
+
+The indirect call gap is **interpreter-only**. The full JIT pipeline (binary encoder → Rust Cranelift) has complete support. The debug interpreter explicitly declines to implement indirect calls, falling back to a zero-result stub. This is consistent with the interpreter's design philosophy described in the shared context — it's a "best effort" debugging tool, not a semantics-preserving executor, and atomics/vecmask/indirect calls are all mapped to no-ops or simplified forms.
+
+## Scout Output — 2026-06-17 20:20:37
+
+## `tests/test_atomics.lua` — Full Breakdown (47 lines)
+
+### .mlua Source (lines 12–20)
+
+```moonlift
+func atomic_demo(p: ptr(i32)): i32
+    atomic_store(i32, p, 10)
+    let old: i32 = atomic_fetch_add(i32, p, 5)
+    let seen: i32 = atomic_cas(i32, p, 15, 21)
+    atomic_fence()
+    let after: i32 = atomic_load(i32, p)
+    return old + seen + after
+end
+```
+
+5 atomic operations exercised: **store**, **fetch_add** (RMW), **cas**, **fence**, **load**.
+
+### BackCmd Assertions (lines 28–38)
+
+Iterates over `program.cmds` and checks `pvm.classof(cmd)` against exactly these 5 ASDL variants:
+
+| Flag | ASDL class |
+|------|------------|
+| `saw_load` | `B.CmdAtomicLoad` |
+| `saw_store` | `B.CmdAtomicStore` |
+| `saw_rmw` | `B.CmdAtomicRmw` |
+| `saw_cas` | `B.CmdAtomicCas` |
+| `saw_fence` | `B.CmdAtomicFence` |
+
+Line 38 asserts **all five** are true: `assert(saw_load and saw_store and saw_rmw and saw_cas and saw_fence)`.
+
+### JIT Execution Verification (lines 40–45)
+
+```
+cell = [0]
+↓ atomic_store(p, 10)       → cell = [10]
+↓ fetch_add(p, 5)           → old = 10,   cell = [15]
+↓ cas(p, 15, 21)            → seen = 15,  cell = [21]   (matches, swap succeeds)
+↓ fence()
+↓ atomic_load(p)            → after = 21
+↓ return 10 + 15 + 21       → 46
+```
+
+| Assertion | Expected |
+|-----------|----------|
+| `atomic_demo(cell) == 46` | Sum: old (10) + seen (15) + after (21) |
+| `cell[0] == 21` | Final CAS result |
+
+### Current Runtime Status
+
+From the shared workflow context, this test **cannot currently pass** at line 38. The lowering pipeline (`code_to_back.lua` / `lower_to_back.lua`) emits `CmdLoadInfo`/`CmdStoreInfo` instead of `CmdAtomic*` variants — so all five `saw_*` flags remain `false`, and the assertion fires.
+
+Even if that assertion were removed, there's a second gap: the binary encoder (`back_command_binary.lua`) has no branches for `CmdAtomicLoad`/`CmdAtomicStore`/`CmdAtomicRmw`/`CmdAtomicCas`/`CmdAtomicFence`, so atomic BackCmds would be silently dropped at encode time. The encoder gap is what the `encoder` edit plan (T001–T005) addresses — but the **lowering gap** (producing the right BackCmds in the first place) is separate, unplanned work.
+
+## Scout Output — 2026-06-17 20:21:06
+
+Here is the complete report.
+
+---
+
+## Files Retrieved
+
+| # | File | Lines | Purpose |
+|---|------|-------|---------|
+| 1 | `lua/moonlift/code_to_back.lua` | 312–338 | `inst_dst_type()` — value-to-type helper, also missing atomics |
+| 2 | `lua/moonlift/code_to_back.lua` | 446–608 | `inst()` — the full CodeInst→BackCmd dispatch chain |
+| 3 | `lua/moonlift/code_to_back.lua` | 562–584 | The CodeInstStore / CodeInstCall boundary — insertion point |
+| 4 | `lua/moonlift/schema/code.asdl` | 153–157 | ASDL definitions of all 5 CodeInstAtomic* variants |
+
+---
+
+## Key Finding: ZERO CodeInstAtomic* references in code_to_back.lua
+
+```bash
+grep -rn "CodeInstAtomic" lua/moonlift/code_to_back.lua
+# (no matches)
+```
+
+Confirmed. Every other CodeInst variant that exists in `code.asdl` and is produced by `tree_to_code.lua` has a branch in `code_to_back.lua` **except** the five atomic variants.
+
+---
+
+## The `inst()` Dispatch Chain — Complete (lines 446–608)
+
+The `inst()` function starts at line 446:
+```lua
+local function inst(ctx, i)
+    local k = i.kind
+    local cls = pvm.classof(k)
+```
+
+### All 22 branches (with exact line numbers):
+
+| Line | Branch | BackCmd emitted | Pattern |
+|------|--------|-----------------|---------|
+| **448** | `CodeInstConst` | `CmdConst` | `scalar(k.const.ty)` → `Back.CmdConst(bid(k.dst), s, const_literal(k.const))` |
+| **454** | `CodeInstAlias` | `CmdAlias` | sub-dispatch on view/aggregate/scalar aliasing |
+| **458** | `CodeInstUnary` | `CmdUnary` | `Back.CmdUnary(bid(k.dst), op, shape(k.ty), bid(k.value))` |
+| **461** | `CodeInstBinary` | `CmdIntBinary` / `CmdBitBinary` / `CmdShift` | sub-dispatch via `int_op(k.op)`, `bit_op(k.op)`, `shift_op(k.op)` |
+| **469** | `CodeInstFloatBinary` | `CmdFloatBinary` | `Back.CmdFloatBinary(bid(k.dst), op, s, float_semantics(...), bid(k.lhs), bid(k.rhs))` |
+| **472** | `CodeInstCompare` | `CmdCompare` | `Back.CmdCompare(bid(k.dst), cmp_op(...), shape(k.operand_ty), lhs, rhs)` |
+| **475** | `CodeInstCast` | `CmdCast` | `Back.CmdCast(bid(k.dst), cast_op(k.op), s, bid(k.value))` |
+| **478** | `CodeInstSelect` | `CmdSelect` | `Back.CmdSelect(bid(k.dst), shape(k.ty), bid(k.cond), bid(k.then_value), bid(k.else_value))` |
+| **480** | `CodeInstAddrOf` | `CmdDataAddr` | sub-dispatch on `CodePlaceGlobal` vs `CodePlaceData` |
+| **485** | `CodeInstGlobalRef` | `CmdFuncAddr` / `CmdExternAddr` / `CmdDataAddr` | sub-dispatch on ref kind |
+| **492** | `CodeInstPtrOffset` | `CmdPtrOffset` | `Back.CmdPtrOffset(bid(k.dst), Back.BackAddrValue(bid(k.base)), index, k.elem_size, k.const_offset, ...)` |
+| **495** | `CodeInstViewMake` | `CmdAlias` ×3 | constructs view_component_ids for data/len/stride |
+| **502** | `CodeInstViewData` | `CmdAlias` | `Back.CmdAlias(bid(k.dst), view_component_id(k.view, "data"))` |
+| **504** | `CodeInstViewLen` | `CmdAlias` | `Back.CmdAlias(bid(k.dst), view_component_id(k.view, "len"))` |
+| **506** | `CodeInstViewStride` | `CmdAlias` | `Back.CmdAlias(bid(k.dst), view_component_id(k.view, "stride"))` |
+| **508** | `CodeInstLoad` | `CmdLoadInfo` | `Back.CmdLoadInfo(bid(k.dst), shape(k.access.ty), addr, memory_info(ctx, k.access, i.id))` |
+| **524** | `CodeInstAggregate` | `CmdCreateStackSlot` + `CmdStackAddr` + `CmdAlias` + `CmdStoreInfo` per field | aggregates lowered to stack + field stores |
+| **532** | `CodeInstArray` | same pattern as Aggregate | array lowered element by element |
+| **543** | `CodeInstVariantCtor` | `CmdCreateStackSlot` + `CmdConst` (tag) + `CmdStoreInfo` (tag) + optional payload | variant lowered to stack, tag written explicitly |
+| **554** | `CodeInstVariantTag` | `CmdLoadInfo` (read tag from offset 0) | loads tag from aggregate at offset 0 |
+| **558** | `CodeInstVariantPayload` | `CmdLoadInfo` (read payload at layout offset) | loads payload field |
+| **566** | `CodeInstStore` | `CmdStoreInfo` | `Back.CmdStoreInfo(shape(k.access.ty), addr, bid(k.value), memory_info(ctx, k.access, i.id))` |
+| **584** | `CodeInstCall` | `CmdCall` | `Back.CmdCall(result, target, sig_id(k.sig), args)` |
+| **607** | `else` | `unsupported(k)` | **catch-all — atomics silently hit this** |
+
+### The `unsupported(k)` helper:
+```lua
+local function unsupported(k)
+    error("code_to_back: unsupported instruction or terminator: " .. tostring(pvm.classof(k)), 2)
+end
+```
+This is a **loud error**, not a silent drop. Any `CodeInstAtomicLoad` that reaches the `inst()` function will hit line 607 and error immediately.
+
+---
+
+## The Insertion Point: Lines 582–584
+
+The exact gap where atomics would be inserted:
+
+```lua
+   566:         elseif cls == Code.CodeInstStore then
+   567:             if pvm.classof(k.place) == Code.CodePlaceLocal and is_byref_aggregate_ty(k.access.ty) then
+   ...
+   582:                 ctx.cmds[#ctx.cmds + 1] = Back.CmdStoreInfo(shape(k.access.ty), addr, bid(k.value), memory_info(ctx, k.access, i.id))
+   583:             end
+   ╔═  INSERT ATOMICS HERE ══╗
+   584:         elseif cls == Code.CodeInstCall then
+   585:             check_call_effects(ctx, i.id)
+```
+
+Between the `end` that closes `CodeInstStore`'s `if is_view_ty...else...end` block (line 583) and the `elseif cls == Code.CodeInstCall` (line 584).
+
+---
+
+## The `inst_dst_type()` Helper Also Needs Atomics (lines 312–338)
+
+```lua
+   312: local function inst_dst_type(ctx, k)
+   313:     local cls = pvm.classof(k)
+   314:     if cls == Code.CodeInstConst then return k.dst, k.const.ty end
+   ...
+   324:     if cls == Code.CodeInstLoad then return k.dst, k.access.ty end
+   325:     if cls == Code.CodeInstAggregate or cls == Code.CodeInstArray or cls == Code.CodeInstVariantCtor then return k.dst, k.ty end
+   ...
+   335:     if cls == Code.CodeInstCall then
+   336:         local sig = k.sig and ctx.sigs[k.sig.text] or nil
+   337:         if sig and sig.results[1] then return k.dst, sig.results[1] end
+   338:     end
+   339:     return nil, nil  -- atomics fall through to HERE
+   340: end
+```
+
+The function is called at line 609 after every `inst()` invocation: `note_value(ctx, inst_dst_type(ctx, k))`. Atomic instructions without an `inst_dst_type` entry return `nil, nil`, which `note_value()` silently ignores. This is less catastrophic than the `unsupported(k)` in `inst()`, but means atomic value types won't be tracked in `ctx.value_types`.
+
+---
+
+## The CodeInst ASDL Definitions for Reference (code.asdl lines 153–157)
+
+```
+CodeInstAtomicLoad(dst, place, access, ordering)
+CodeInstAtomicStore(place, value, access, ordering)
+CodeInstAtomicRmw(dst, op, place, value, access, ordering)
+CodeInstAtomicCas(dst, place, expected, replacement, access, ordering)
+CodeInstAtomicFence(ordering)
+```
+
+These are produced by `tree_to_code.lua` (lines 908, 915, 923, 1316, 1318) and consumed by `code_to_c.lua`, `code_validate.lua`, `code_effect_facts.lua`, `code_mem_facts.lua`, `code_graph.lua` — but **not by `code_to_back.lua`**.
+
+---
+
+## The Call Path Into `inst()`
+
+The only call sites for `inst()` are:
+
+1. **`func()` at line 662**: `for j = 1, #b.insts do inst(ctx, b.insts[j]) end` — processes all instructions in a block
+2. **`fragment_commands()` at line 843**: `for _, i in ipairs(b.insts or {}) do local dst, ty = inst_dst_type(ctx, i.kind); note_value(ctx, dst, ty) end` — this only calls `inst_dst_type()` to pre-register value types, then `inst()` is called later at line 847 via `inst(ctx, i)` (wait, let me verify this actually calls inst())
+
+There is no alternative path that could handle atomics. Any atomic CodeInst that reaches `func()` or `fragment_commands()` will hit the loud `unsupported(k)` error at line 607.
+
+---
+
+## Summary
+
+- **`code_to_back.lua` has ZERO references to any `CodeInstAtomic*` variant**
+- **`inst()` (line 446)**: 22 if/elseif branches, no atomics → hits `unsupported(k)` loud error at line 607
+- **`inst_dst_type()` (line 312)**: 18 if-branches, no atomics → returns `nil, nil` silently at line 339
+- **Insertion point for `inst()`**: between line 583 (`end` of CodeInstStore) and line 584 (`elseif cls == Code.CodeInstCall`)
+- **Insertion point for `inst_dst_type()`**: after line 324 (`CodeInstLoad`) and before line 325 (`CodeInstAggregate`)
+- **Existing pattern for memory ops**: `CodeInstLoad` (line 508) and `CodeInstStore` (line 566) both use `memory_info(ctx, k.access, i.id)` and `addr_from_place(ctx, k.place, ...)` — atomics would follow the same pattern but emit `Back.CmdAtomicLoad`/`Back.CmdAtomicStore`/etc. instead of `Back.CmdLoadInfo`/`Back.CmdStoreInfo`
+- **The `unsupported(k)` error catches atomics today** — this is a loud failure, not a silent skip
+
+## Edit-planner Output — 2026-06-18 08:08:37
+
+## Precondition Checks
+
+- Confirm `lua/moonlift/back_command_binary.lua` has encoder branches for `CmdAtomic*`, `CmdRotate`, `CmdVecMask`, and the final `else error("unrecognized BackCmd: ...")` at ~lines 371, 298, 520, 592.
+- Confirm current failure is still in `lua/moonlift/code_to_back.lua`: `CodeInstAtomicStore` reaches `unsupported(k)` near line 607.
+- Confirm `tree_to_code.lua` already emits:
+  - `CodeInstAtomicLoad/Rmw/Cas` at lines 904–923
+  - `CodeInstAtomicStore/Fence` at lines 1313–1318
+- Confirm `tests/test_atomics.lua` still expects all five `CmdAtomic*` variants and JIT result `46`.
+
+## Files to Modify
+
+### `lua/moonlift/code_to_back.lua`
+
+**Goal**: Lower `MoonCode.CodeInstAtomic*` instructions into executable `MoonBack.CmdAtomic*` commands.
+
+#### Edit blocks
+
+1. **Lines 86–91**: Add atomic mapping helpers after `shift_op`.
+
+   **Add**:
+   ```lua
+   local function atomic_ordering(ordering)
+       if ordering == Core.AtomicSeqCst then return Back.BackAtomicSeqCst end
+       unsupported(ordering)
+   end
+
+   local function atomic_rmw_op(op)
+       if op == Core.AtomicRmwAdd then return Back.BackAtomicRmwAdd end
+       if op == Core.AtomicRmwSub then return Back.BackAtomicRmwSub end
+       if op == Core.AtomicRmwAnd then return Back.BackAtomicRmwAnd end
+       if op == Core.AtomicRmwOr then return Back.BackAtomicRmwOr end
+       if op == Core.AtomicRmwXor then return Back.BackAtomicRmwXor end
+       if op == Core.AtomicRmwXchg then return Back.BackAtomicRmwXchg end
+       unsupported(op)
+   end
+   ```
+
+2. **Lines 323–325**: Extend `inst_dst_type`.
+
+   **Before**:
+   ```lua
+   if cls == Code.CodeInstLoad then return k.dst, k.access.ty end
+   ```
+
+   **After**:
+   ```lua
+   if cls == Code.CodeInstLoad
+      or cls == Code.CodeInstAtomicLoad
+      or cls == Code.CodeInstAtomicRmw
+      or cls == Code.CodeInstAtomicCas then
+       return k.dst, k.access.ty
+   end
+   ```
+
+3. **Lines 583–584**: Insert atomic branches between `CodeInstStore` and `CodeInstCall`.
+
+   **Add**:
+   ```lua
+   elseif cls == Code.CodeInstAtomicLoad then
+       local s = scalar(k.access.ty); if s == nil then unsupported(k.access.ty) end
+       local addr = addr_from_place(ctx, k.place, ctx.mem_backend_by_inst[i.id.text])
+       ctx.cmds[#ctx.cmds + 1] =
+           Back.CmdAtomicLoad(bid(k.dst), s, addr, memory_info(ctx, k.access, i.id), atomic_ordering(k.ordering))
+
+   elseif cls == Code.CodeInstAtomicStore then
+       local s = scalar(k.access.ty); if s == nil then unsupported(k.access.ty) end
+       local addr = addr_from_place(ctx, k.place, ctx.mem_backend_by_inst[i.id.text])
+       ctx.cmds[#ctx.cmds + 1] =
+           Back.CmdAtomicStore(s, addr, bid(k.value), memory_info(ctx, k.access, i.id), atomic_ordering(k.ordering))
+
+   elseif cls == Code.CodeInstAtomicRmw then
+       local s = scalar(k.access.ty); if s == nil then unsupported(k.access.ty) end
+       local addr = addr_from_place(ctx, k.place, ctx.mem_backend_by_inst[i.id.text])
+       ctx.cmds[#ctx.cmds + 1] =
+           Back.CmdAtomicRmw(bid(k.dst), atomic_rmw_op(k.op), s, addr, bid(k.value), memory_info(ctx, k.access, i.id), atomic_ordering(k.ordering))
+
+   elseif cls == Code.CodeInstAtomicCas then
+       local s = scalar(k.access.ty); if s == nil then unsupported(k.access.ty) end
+       local addr = addr_from_place(ctx, k.place, ctx.mem_backend_by_inst[i.id.text])
+       ctx.cmds[#ctx.cmds + 1] =
+           Back.CmdAtomicCas(bid(k.dst), s, addr, bid(k.expected), bid(k.replacement), memory_info(ctx, k.access, i.id), atomic_ordering(k.ordering))
+
+   elseif cls == Code.CodeInstAtomicFence then
+       ctx.cmds[#ctx.cmds + 1] = Back.CmdAtomicFence(atomic_ordering(k.ordering))
+   ```
+
+**Patterns to enforce**
+- Use `scalar(k.access.ty)`, not `shape(k.access.ty)`, because `CmdAtomic*` requires `BackScalar`.
+- Reuse `addr_from_place(...)` and `memory_info(...)` exactly like `CodeInstLoad/Store`.
+- Do not add aggregate/view atomic support here; scalar-only is correct for current frontend validation.
+
+**Danger zones**
+- `AtomicRmw` op mapping must preserve Add/Sub/And/Or/Xor/Xchg exactly.
+- Do not drop `k.ordering` at Code→Back; even if binary wire currently loses it, BackCmd should preserve it.
+
+---
+
+### `tests/test_atomics.lua`
+
+**Goal**: Keep the existing end-to-end test, but improve diagnostics.
+
+#### Edit blocks
+
+1. **Lines 28–38**: Replace boolean-only assertion with counts or missing-list diagnostics.
+
+   Example:
+   ```lua
+   local counts = { load = 0, store = 0, rmw = 0, cas = 0, fence = 0 }
+   ...
+   assert(counts.load == 1, "expected one CmdAtomicLoad")
+   ...
+   ```
+
+2. **Lines 40–45**: Store JIT result before asserting.
+
+   ```lua
+   local got = atomic_demo(cell)
+   assert(got == 46, "atomic_demo returned " .. tostring(got))
+   assert(cell[0] == 21, "cell[0] was " .. tostring(cell[0]))
+   ```
+
+---
+
+### `BACKEND_GAPS.md`
+
+**Goal**: Update status after atomics pass.
+
+#### Edit blocks
+
+1. **Summary / Encoder Gaps sections**: Mark encoder gap as closed.
+2. **Layer 3 / Lowering Gaps**: Remove atomics from active lowering gaps once `test_atomics.lua` passes.
+3. Preserve open gaps:
+   - Atomic ordering wire fidelity
+   - Vector reductions
+   - View return ABI
+   - Debug interpreter indirect call stub
+   - Closures/handles design gaps
+
+---
+
+## Later / Blocked Files
+
+### `lua/moonlift/lower_to_back.lua`
+
+- **Blocked**: Vector reductions error at line 631.
+- Needs design for reducing vector accumulators to scalar values via lane extraction/pairwise ops.
+
+### `lua/moonlift/code_to_back.lua`
+
+- **Blocked**: View return ABI error at line 646.
+- Needs ABI decision: sret pointer vs multi-result lowered descriptor.
+
+### `lua/moonlift/debug_interpreter.lua`
+
+- **Blocked**: `BackCallIndirect` zero-stub at lines 1110–1115.
+- Needs function-address representation; `CmdFuncAddr` currently no-ops in interpreter.
+
+## Order of Operations
+
+1. Add atomic helper mappings in `code_to_back.lua`.
+2. Extend `inst_dst_type`.
+3. Add `CodeInstAtomic*` lowering branches.
+4. Improve `tests/test_atomics.lua` diagnostics.
+5. Run tests.
+6. Update `BACKEND_GAPS.md`.
+
+## Testing Strategy
+
+Run:
+
+```sh
+luajit tests/test_atomics.lua
+luajit tests/test_back_add_i32.lua
+luajit tests/test_back_object_emit.lua
+luajit tests/test_mlua_host_pipeline.lua
+```
+
+If FFI loads stale backend artifacts, run:
+
+```sh
+cargo build --release
+```
+
+## Structured Edit Plan Sidecar
+
+Created `wf-backend-gap/lowering` sidecar at revision `r1` with:
+
+- T001–T007: atomic lowering, tests, docs
+- T008–T010: blocked future design tasks for vector reductions, view return ABI, debug interpreter indirect calls
+
+## Pattern Memo
+
+- Code→Back lowering uses loud `unsupported(...)`; do not silently default.
+- Memory ops must reuse `addr_from_place` + `memory_info`.
+- Atomic BackCmds take `BackScalar`, not `BackShape`.
+- Preserve ordering in BackCmd even though current binary wire fidelity is seq-cst-only.
+
+## Scout Output — 2026-06-18 08:33:32
+
+## Files Retrieved
+
+1. `lua/moonlift/lower_to_back.lua` (lines 1–925) — Back semantic lowering; scalar/vector kernel emitters; vector reduction stub.
+2. `lua/moonlift/code_kernel_plan.lua` (lines 1–369) — builds `KernelBody`, detects streams/effects/folds/results from Flow/Value/Mem.
+3. `lua/moonlift/code_schedule_plan.lua` (lines 1–160) — schedule selection; currently excludes vector schedules for reduction/closed-form results.
+4. `lua/moonlift/kernel_emit_support.lua` (lines 1–314) — executable capability classifier; currently rejects vector reductions/closed forms.
+5. `lua/moonlift/code_lower_plan.lua` (lines 1–189) — converts kernel/schedule decisions into lower fragments.
+6. `lua/moonlift/code_value_facts.lua` (lines 1–333) — detects `ReductionFact` and `ClosedFormFact`.
+7. `lua/moonlift/code_flow_facts.lua` (lines 1–340) — counted-loop / edge-arg / induction facts.
+8. `lua/moonlift/schema/kernel.asdl` (all) — kernel/reduction/result data structures.
+9. `lua/moonlift/schema/value.asdl` (all) — reduction facts and value expression types.
+10. `lua/moonlift/schema/schedule.asdl` (all) — `ScheduleVector`, `TailScalar`, lane shape.
+11. `lua/moonlift/schema/flow.asdl` (all) — loop facts, edge args, counted domains.
+12. `lua/moonlift/schema/back.asdl` (relevant vector/reduction-capable BackCmds) — vector commands.
+13. `src/wire_tags.rs` (vector tags/slots) — actual wire contract.
+14. `src/decode.rs` (lines 500–560) — Cranelift vector tag handlers.
+15. `tests/test_lower_to_back_kernel_vector.lua` — current vector Back lowering test.
+16. `tests/test_code_value_facts.lua` — reduction/closed-form fact tests.
+17. `tests/test_code_flow_facts.lua` — end-to-end fact pipeline checks.
+18. `tests/test_code_kernel_plan.lua` — kernel plan reduction/closed-form checks.
+19. `tests/test_code_schedule_plan.lua` — schedule selection checks.
+20. `tests/test_parse_kernels.lua` — scalar reduction execution corpus.
+21. `tests/test_lower_to_c_semantic.lua` — C semantic/vector lowering tests.
+22. `LANGUAGE_REFERENCE.md` (section 18) — vectorization/reduction language expectations.
+23. `BACKEND_GAPS.md` — current documented open vector reduction gap.
+
+## Key Code
+
+### Vector reduction stub in Back lowering
+
+`lua/moonlift/lower_to_back.lua:624–632`
+
+```lua
+local function emit_vector_kernel_fragment(ctx, code_module, graph, flow, schedules, kernels, fragment)
+    local strategy = fragment.strategy
+    local kplan = kernel_by_id(kernels)[strategy.kernel.text]
+    if kplan == nil then error("lower_to_back: vector kernel strategy references missing kernel", 2) end
+    local schedule = ctx.schedule_by_id and ctx.schedule_by_id[strategy.schedule.text]
+    if schedule == nil or pvm.classof(schedule.kind) ~= Schedule.ScheduleVector then error("lower_to_back: vector kernel strategy requires ScheduleVector", 2) end
+    local vec, elem_ty, lanes = vector_for_lane_shape(schedule.kind.lanes)
+    if schedule.kind.tail ~= Schedule.TailScalar and schedule.kind.tail ~= Schedule.TailNone then error("lower_to_back: vector kernel only implements TailScalar/TailNone", 2) end
+    if pvm.classof(kplan.body.result) == Kernel.KernelResultReduction or pvm.classof(kplan.body.result) == Kernel.KernelResultClosedForm then error("lower_to_back: vector reductions are not implemented", 2) end
+```
+
+### Scalar kernel reduction preservation
+
+`lua/moonlift/lower_to_back.lua:438–441`
+
+```lua
+elseif cls == Kernel.KernelEffectFold then
+    -- Scalar loop emission preserves reductions through the latch edge args
+    -- produced by KernelBinding values; no separate Back command is needed.
+    return
+```
+
+Scalar kernel lowering later emits original latch/exit edge arguments:
+
+```lua
+ctx.cmds[#ctx.cmds + 1] = Back.CmdJump(block_id(header), edge_args(ctx, latch_fact))
+```
+
+### Current vector loop structure
+
+`lua/moonlift/lower_to_back.lua:646–733`
+
+Facts:
+- Creates two synthetic blocks:
+  - `header:kernel_vector`
+  - `header:kernel_tail`
+- Header computes `next_i = counter + lanes`
+- Header branches to vector block if `next_i <= stop`, else tail block
+- Vector block emits vector loads/stores, then jumps back to header
+- Jump args replace only the counter with `next_i`; other loop params use current `dst_param`
+
+```lua
+for _, arg in ipairs(latch_fact and latch_fact.args or {}) do
+    if arg.dst_param == counter then jump_args[#jump_args + 1] = next_i else jump_args[#jump_args + 1] = bid(arg.dst_param) end
+end
+ctx.cmds[#ctx.cmds + 1] = Back.CmdJump(block_id(header), jump_args)
+```
+
+### Vector expression support
+
+`lua/moonlift/lower_to_back.lua:541–592`
+
+Current vector value lowering supports:
+- `ValueExprValue`
+- `ValueExprConst`
+- `ValueExprAdd`
+- `ValueExprSub`
+- `ValueExprMul`
+
+These lower to:
+- scalar splat via `CmdVecSplat`
+- vector int binary via `CmdVecBinary`
+
+No reduction-specific operation exists here.
+
+### Kernel planner reduction construction
+
+`lua/moonlift/code_value_facts.lua:159–231`
+
+Detected reductions:
+- `BinAdd` → `ReductionAdd`
+- `BinMul` → `ReductionMul`
+- `BinBitAnd` → `ReductionAnd`
+- `BinBitOr` → `ReductionOr`
+- `BinBitXor` → `ReductionXor`
+
+Closed forms are only emitted for additive arithmetic-series style reductions where contribution is the primary induction variable.
+
+```lua
+if rkind == Value.ReductionAdd and primary[contribution.text] and loop_fact.counted ~= nil and loop_fact.counted.stop_exclusive then
+    local closed_expr = arithmetic_series_expr(...)
+    ...
+    closed_forms[#closed_forms + 1] = Value.ClosedFormFact(...)
+end
+```
+
+### Kernel result/effect construction
+
+`lua/moonlift/code_kernel_plan.lua:297–307`
+
+```lua
+local reductions, closed_forms = reductions_for_domain(value, domain)
+for _, reduction in ipairs(reductions) do
+    effects[#effects + 1] = Kernel.KernelEffectFold(reduction)
+    proofs[#proofs + 1] = Kernel.KernelProofValue(reduction.proof, "reduction fact justifies kernel fold")
+end
+local result = Kernel.KernelResultOriginalControl("semantic loop kernel preserves original control by default")
+if #closed_forms > 0 then
+    result = Kernel.KernelResultClosedForm(closed_forms[1])
+elseif #reductions > 0 then
+    result = Kernel.KernelResultReduction(reductions[1])
+end
+```
+
+### Vector schedule currently blocked for reductions
+
+`lua/moonlift/code_schedule_plan.lua:75–78`
+
+```lua
+local function vector_candidate_kind(plan, target)
+    local body = plan.body
+    if body == nil or #(body.streams or {}) == 0 then return nil end
+    if pvm.classof(body.result) == Kernel.KernelResultReduction or pvm.classof(body.result) == Kernel.KernelResultClosedForm then return nil end
+```
+
+### Capability classifier also rejects vector reductions
+
+`lua/moonlift/kernel_emit_support.lua:252–254`
+
+```lua
+if pvm.classof(result) == Kernel.KernelResultReduction or pvm.classof(result) == Kernel.KernelResultClosedForm then rejects[#rejects + 1] = reject_target("vector reductions/closed forms are not implemented") end
+```
+
+So the normal planner path does not currently select `ScheduleVector` for reductions; the `lower_to_back.lua` stub is reached only by forced/hand-constructed vector schedules or after removing these earlier guards.
+
+### Back vector capabilities
+
+`lua/moonlift/schema/back.asdl:276–282`
+
+```asdl
+CmdVecSplat(dst, ty, value)
+CmdVecBinary(dst, op, ty, lhs, rhs)
+CmdVecCompare(dst, op, ty, lhs, rhs)
+CmdVecSelect(dst, ty, mask, then_value, else_value)
+CmdVecMask(dst, op, ty, args*)
+CmdVecInsertLane(dst, ty, value, lane_value, lane)
+CmdVecExtractLane(dst, ty, value, lane)
+```
+
+There is no horizontal vector reduction BackCmd.
+
+### Cranelift wire/vector handlers
+
+`src/decode.rs:515–551`
+
+Available backend vector operations include:
+- `splat`
+- `insertlane`
+- `extractlane`
+- vector `iadd/isub/imul`
+- vector bitwise `band/bor/bxor`
+- vector integer compares
+- vector select implemented as mask logic
+- vector load/store
+
+No Cranelift-side horizontal-reduction wire tag exists.
+
+## Relationships
+
+### Fact/data flow for reductions
+
+```text
+Code blocks with loop params/backedges
+  → code_flow_facts.lua
+      FlowLoopFacts
+      FlowEdgeFact(src → dst_param)
+      counted loop + induction
+  → code_value_facts.lua
+      ReductionFact(accumulator, kind, init, contribution, ty)
+      optional ClosedFormFact
+  → code_kernel_plan.lua
+      KernelEffectFold(reduction)
+      KernelResultReduction or KernelResultClosedForm
+  → code_schedule_plan.lua / kernel_emit_support.lua
+      scalar or closed-form schedules today
+      vector schedule rejected for reductions today
+  → code_lower_plan.lua
+      LowerStrategyKernel or LowerStrategyClosedForm
+  → lower_to_back.lua
+      scalar kernel preserves reduction through edge args
+      closed form replaces accumulator on exit
+      vector kernel errors on reduction/closed-form result
+```
+
+### Where reduction result is consumed
+
+For `KernelResultClosedForm`, `emit_closed_form_fragment()` lowers the closed-form expression and substitutes it for the reduction accumulator on the loop exit edge, or returns it directly if the exit block immediately returns the accumulator.
+
+`lua/moonlift/lower_to_back.lua:760–775`
+
+```lua
+local result, _ = lower_value_expr(ctx, strategy.fact.expr)
+if jump_block ~= nil and pvm.classof(jump_block.term.kind) == Code.CodeTermReturn
+    and #(jump_block.term.kind.values or {}) == 1
+    and jump_block.term.kind.values[1] == strategy.fact.reduction.accumulator then
+    ctx.cmds[#ctx.cmds + 1] = Back.CmdReturnValue(result)
+    return
+end
+local args = {}
+for i, arg in ipairs(jump_args_fact.args or {}) do
+    if arg.src == strategy.fact.reduction.accumulator then args[i] = result else args[i] = bid(arg.src) end
+end
+ctx.cmds[#ctx.cmds + 1] = Back.CmdJump(block_id(jump_dest), args)
+```
+
+For `KernelResultReduction`, scalar lowering keeps the original accumulator block param and latch args alive; `KernelEffectFold` emits no command.
+
+### Current vector loop vs scalar tail
+
+Current vector lowering:
+1. Enters original header.
+2. Computes whether a full vector chunk fits.
+3. Runs vector body for full chunks.
+4. Jumps back to the original header with `counter = counter + lanes`.
+5. Falls to scalar tail when fewer than `lanes` remain.
+6. Scalar tail uses the original scalar body and latch logic.
+
+The scalar tail path already preserves scalar reductions via original Code/Flow edge args. The vector-main path currently has no reduction accumulator update path.
+
+## Observations
+
+- The language reference explicitly says vector reductions are accumulated in a vector register and horizontally reduced at loop exit.
+- Back/Cranelift currently exposes lane extraction and vector binary ops, but no horizontal reduction primitive.
+- `ReductionKind` includes `Add`, `Mul`, `Min`, `Max`, `And`, `Or`, `Xor`, but current detection only constructs add/mul/and/or/xor reductions.
+- Current vector expression support in `lower_to_back.lua` covers integer add/sub/mul, not bitwise vector expressions in the semantic vector emitter.
+- Current vector scheduling requires at least one stream and contiguous memory.
+- Current vector schedule selection excludes any `KernelResultReduction` or `KernelResultClosedForm`.
+- Current scalar kernel lowering treats `KernelEffectFold` as metadata; reduction correctness comes from original loop-carried block parameters and `FlowEdgeFact` args.
+- Current vector lowering replaces only the induction counter in latch jump args; all non-counter params are passed through unchanged.
+- Existing vector Back tests cover vector map/load/store/binary operations, not vector reductions.
+- Existing reduction tests cover scalar execution and closed-form lowering, not vector reduction lowering.
+
+## Knowledge-builder Output — 2026-06-18 08:36:08
+
+### What Matters Most for This Problem
+
+- **Reduction-state invariants**, not just instruction availability.
+- **Loop-carried accumulator correctness** across vector body, scalar tail, and exit edges.
+- **Avoiding double-counting or dropping contributions** when vector and scalar paths coexist.
+- **BackCmd expressiveness limits**: no horizontal reduction primitive, only lane extract + scalar/vector ops.
+- **Planner guard sequencing**: vector reduction must remain rejected until lowering can preserve scalar semantics.
+- **Initial safe subset**: integer add/mul/bitwise reductions only; min/max and closed forms need separate treatment.
+
+---
+
+### Non-Obvious Observations
+
+#### 1. Vector reductions are harder than vector map/store because they mutate loop-carried control state
+
+Normal vector map/store kernels are mostly side-effecting stream transforms:
+
+```text
+load vector → compute vector → store vector → advance counter
+```
+
+The current vector emitter can safely update only the induction counter because all other loop params are unchanged.
+
+A reduction is different: the accumulator is a loop-carried block parameter whose value is semantically updated every iteration. If the vector body processes `lanes` iterations but passes the accumulator through unchanged, then the vectorized iterations are skipped from the reduction result.
+
+So the missing piece is not “emit vector add”; it is preserving the invariant:
+
+```text
+scalar_acc_after_vector_chunk
+=
+scalar_acc_before_chunk ⊕ contribution[i] ⊕ ... ⊕ contribution[i+lanes-1]
+```
+
+The current vector loop violates that invariant by advancing `counter` without advancing `accumulator`.
+
+---
+
+#### 2. Scalar reductions work because the original CFG already encodes the accumulator update
+
+Scalar lowering does not need a special `CmdReduce` because the original latch edge already carries the updated accumulator value:
+
+```text
+jump header(i = i + 1, acc = acc + contribution)
+```
+
+`KernelEffectFold` being a no-op is only correct because the scalar CFG still executes the original accumulator-producing instructions.
+
+Vector lowering, however, bypasses multiple scalar iterations at once. That breaks the implicit “the original latch updates the accumulator” mechanism.
+
+So vector reduction lowering needs to recreate accumulator advancement explicitly; it cannot rely on the existing scalar edge args in the same way scalar lowering does.
+
+---
+
+#### 3. The vector accumulator and scalar accumulator must have a precise relationship
+
+A vector reduction usually has two pieces of state:
+
+```text
+scalar_base_acc  -- accumulator value before vectorized chunks
+vector_acc       -- lane-wise partial reductions over vectorized chunks
+```
+
+A key invariant is:
+
+```text
+final_acc = scalar_base_acc ⊕ horizontal_reduce(vector_acc) ⊕ scalar_tail_contributions
+```
+
+But the order of combining those pieces matters for semantics. For integer add/bitwise ops this is usually safe. For non-associative or order-sensitive operations, it is not.
+
+This is why the safe initial reduction set should be restricted to operations where regrouping is valid under the language/backend semantics.
+
+---
+
+#### 4. Accumulator initialization is a major edge case
+
+The `ReductionFact` has an `init` value. A vector accumulator cannot blindly be initialized with `splat(init)`.
+
+For add:
+
+```text
+horizontal_sum(splat(init)) = init * lanes
+```
+
+which applies the initial accumulator too many times.
+
+The vector partial accumulator should represent only vectorized contributions, while the scalar init must be included exactly once in the final scalar combination.
+
+This applies to all reductions:
+
+| Reduction | Neutral identity | Bug if splatting init |
+|---|---:|---|
+| add | 0 | adds init once per lane |
+| mul | 1 | multiplies init once per lane |
+| and | all-bits-1 | ANDs init once per lane |
+| or | 0 | ORs init once per lane |
+| xor | 0 | XORs init once per lane, parity-dependent |
+
+The distinction between “reduction init” and “vector lane identity” is critical.
+
+---
+
+#### 5. Scalar tail interaction is the central correctness trap
+
+With `TailScalar`, the scalar tail processes leftover iterations after the vector loop. There are two valid semantic shapes, but both require care:
+
+```text
+A. horizontal-reduce vector_acc before entering scalar tail
+   tail starts with acc = scalar_base_acc ⊕ reduced_vector
+
+B. scalar tail preserves original acc, then exit combines tail_acc with reduced_vector
+```
+
+The current emitter jumps to the original header/tail with non-counter params unchanged. That means the tail starts from the pre-vector accumulator and loses vector contributions unless the exit path compensates.
+
+The invariant must be:
+
+```text
+tail_start_acc includes all vector chunks
+OR
+final_exit_acc combines tail result with vector chunks exactly once
+```
+
+Not both, not neither.
+
+---
+
+#### 6. `TailNone` is not simpler unless divisibility is guaranteed
+
+If `TailNone` means the schedule proves the trip count is a multiple of lanes, then no scalar tail exists and the vector reduction result must be combined at exit.
+
+If `TailNone` merely means “ignore tail” or “no generated scalar tail,” then reductions are unsafe unless there is a separate proof of no remainder.
+
+So the vector reduction design depends on the exact semantic contract of `TailNone`, not just the code shape.
+
+---
+
+#### 7. Closed forms and vector reductions are conceptually competing optimizations
+
+A `KernelResultClosedForm` already replaces a loop reduction with a mathematical expression. Vectorizing that same loop may be unnecessary or even harmful:
+
+```text
+closed form: O(1), no loop
+vector reduction: O(n / lanes), still loop
+```
+
+So closed forms probably should not be treated as “vector reductions with a different finalizer.” They are a different lowering strategy.
+
+The existing guard rejecting `KernelResultClosedForm` from vector schedules is defensible: relaxing it before deciding precedence between closed-form lowering and vector lowering could create duplicated or contradictory strategies.
+
+---
+
+#### 8. Safe initial reduction kinds are narrower than the schema
+
+Schema mentions more reduction concepts than the fact detector currently constructs.
+
+Detected today:
+
+- add
+- mul
+- bitand
+- bitor
+- bitxor
+
+Not detected currently:
+
+- min
+- max
+
+Even among detected kinds, safe vector lowering depends on available BackCmd support:
+
+| Kind | Vector op available? | Horizontal scalar op available? | Initial safety |
+|---|---|---|---|
+| add | yes, `CmdVecBinary Add` | yes | safest |
+| mul | yes, `CmdVecBinary Mul` | yes | likely safe for integers |
+| bitand | vector bitwise exists in wire/backend, but vector expression support may be incomplete | yes | safe if emitter supports it |
+| bitor | same | yes | safe if emitter supports it |
+| bitxor | same | yes | safe if emitter supports it |
+| min/max | no current detection; vector op unclear | scalar op may be compare/select | not initial |
+
+A subtle point: backend support is not the same as lowering support. The Rust backend may handle vector bitwise ops, but `lower_to_back.lua` vector expression support currently only mentions add/sub/mul. That limits the safe initial subset unless expression lowering is expanded.
+
+---
+
+#### 9. BackCmd limitations force horizontal reduction to be synthesized
+
+There is no `CmdVecReduceAdd` or equivalent. The only available primitives are:
+
+- `CmdVecExtractLane`
+- scalar `CmdIntBinary` / `CmdBitBinary`
+- vector binary ops
+- possibly `CmdVecInsertLane`
+
+Therefore horizontal reduction must be represented as multiple BackCmds. That has consequences:
+
+- It creates several fresh scalar temps.
+- It must know lane count statically.
+- It must emit one extraction per lane, or a tree of vector shuffles if those existed — but they do not.
+- The final result type must match the scalar accumulator type.
+- The lowering must preserve deterministic naming/fresh-id discipline.
+
+This also means vector reduction lowering is not just “one final instruction at loop exit”; it expands into a small scalar reduction sequence.
+
+---
+
+#### 10. Exit substitution must handle all consumers of the accumulator, not just `return acc`
+
+Closed-form lowering has special logic for the easy case:
+
+```lua
+if exit immediately returns accumulator:
+    CmdReturnValue(result)
+else:
+    substitute result into jump args
+```
+
+Vector reductions need the same class of correctness concern. The accumulator may be consumed by:
+
+- direct return
+- jump to another block
+- block param on an exit continuation
+- later scalar tail block
+- possibly multiple exits, depending on region shape
+
+The invariant is:
+
+```text
+Every control edge that observes the reduced accumulator must observe the combined scalar+vector value.
+```
+
+A design that only patches `return acc` will be incomplete.
+
+---
+
+#### 11. Multiple reductions in one loop are a likely hidden edge case
+
+`code_kernel_plan.lua` appears to collect multiple `KernelEffectFold`s but chooses only one `KernelResultReduction`:
+
+```lua
+for reductions:
+    effects += KernelEffectFold(reduction)
+
+result = KernelResultReduction(reductions[1])
+```
+
+That suggests the planner can know about multiple folds, but result handling may privilege the first one.
+
+Vector reduction lowering must be clear whether it supports:
+
+- exactly one reduction accumulator
+- multiple independent reductions
+- reduction plus stores
+- reduction plus other loop-carried params
+
+The current vector latch behavior passes all non-counter params through unchanged, which would be wrong for every reduction accumulator, not just the first.
+
+---
+
+#### 12. The planner guards are currently protecting a real semantic hole
+
+There are three layers of protection:
+
+1. `code_schedule_plan.lua` does not select vector schedules for reductions.
+2. `kernel_emit_support.lua` rejects vector reductions/closed forms.
+3. `lower_to_back.lua` errors if such a fragment reaches it.
+
+These guards are not redundant in practice:
+
+- scheduler guard prevents normal path selection
+- capability guard documents target executability
+- lowering guard protects forced/hand-built strategies
+
+Conceptually, the last guard should remain until lowering is correct. Then earlier guards can be relaxed selectively. Removing the scheduler guard first would route real programs into a known-bad lowering path.
+
+---
+
+#### 13. The scalar tail can be used as a correctness oracle
+
+For a vector reduction with `TailScalar`, the result should match pure scalar lowering for all trip counts:
+
+- `n = 0`
+- `n < lanes`
+- `n == lanes`
+- `n == lanes + 1`
+- `n` not divisible by lanes
+- `n` divisible by lanes
+- negative/zero/identity-sensitive values
+
+These cases expose the usual bugs:
+
+- vector init applied too many times
+- tail contributions dropped
+- vector contributions dropped
+- last partial chunk mishandled
+- accumulator combined twice
+
+---
+
+#### 14. Tests need to prove control-edge semantics, not only numeric happy paths
+
+Good correctness tests should include:
+
+- add reduction with non-zero init
+- mul reduction with init not equal to `1`
+- xor reduction with odd/even lane counts
+- bitand with identity-sensitive initial value
+- trip counts around lane boundaries
+- reduction result returned directly
+- reduction result passed through an exit block param before return
+- vector body with stores plus reduction, to ensure effects and fold coexist
+- scalar-only and vector-scheduled versions compared on same inputs
+
+The most important tests are those where wrong initialization still compiles but returns a plausible incorrect value.
+
+---
+
+### Knowledge Gaps
+
+- Exact `TailNone` semantic guarantee: does it prove no remainder, or merely omit tail generation?
+- Whether vector bitwise lowering is already supported in `lower_to_back.lua` despite backend support.
+- Whether multiple simultaneous `ReductionFact`s can reach one vector kernel in real programs.
+- Whether integer overflow semantics are explicitly wrapping, because that affects associativity assumptions for add/mul reductions.
+
+## Approach-proposer Output — 2026-06-18 08:52:08
+
+### Approach A: Lua-Synthesized Vector Monoid Accumulators
+- **Core idea**: Keep reductions as explicit vector accumulators in `lower_to_back.lua`, driven by a complete reduction algebra table, and synthesize horizontal reduction with existing `CmdVecExtractLane` plus scalar ops.
+
+- **Key changes**:
+  - Add a reduction algebra module/table used by `lower_to_back.lua`.
+  - Extend vector kernel lowering to maintain one vector accumulator per reduction.
+  - Synthesize min/max with `CmdVecCompare` + `CmdVecSelect`; synthesize horizontal fold with lane extraction.
+  - Relax scheduler/capability guards only after lowering supports all reduction kinds.
+  - Keep closed forms as a separate lowering strategy, preferably chosen over vector reduction when no side effects require vectorized execution.
+
+- **Tradeoff**: Optimizes for true SIMD reduction structure and keeps most logic in Lua lowering; sacrifices simplicity because `lower_to_back.lua` must understand accumulator placement, tail merging, min/max semantics, and multi-reduction state.
+
+- **Risk**: Incorrect accumulator initialization or tail entry substitution could silently double-count or drop vectorized contributions.
+
+- **Rough sketch**:
+  - Define complete algebra records for `add`, `mul`, `and`, `or`, `xor`, `min`, `max`: identity literal, scalar combine, vector combine, horizontal combine, type legality, signed/unsigned/float comparison semantics.
+  - In the vector preheader, initialize each vector accumulator to the operation identity, **not** to the user reduction init.
+  - In the vector body, compute each reduction contribution as a vector and update `vacc = algebra.vector_combine(vacc, contribution)`.
+  - On transition to scalar tail, horizontally reduce `vacc`, combine with the original scalar accumulator, and pass that combined value as the tail accumulator block arg.
+  - For `TailNone`, horizontally reduce and substitute the combined accumulator directly on the vector exit edge.
+
+---
+
+### Approach B: Lane-Scalarized Reduction Accumulators
+- **Core idea**: Use vector loads/stream computation where possible, but represent each reduction as `lanes` independent scalar accumulators carried through the vector loop.
+
+- **Key changes**:
+  - Extend vector kernel lowering to create scalar lane accumulators instead of vector accumulators.
+  - Extract each contribution lane and update the corresponding scalar accumulator with the full scalar reduction algebra.
+  - Use scalar compare/select for min/max, avoiding dependency on missing vector min/max primitives.
+  - Add lane-wise expression scalarization fallback for reductions whose vector expression form is unavailable.
+  - Tail/exit logic folds all lane accumulators into the original scalar accumulator.
+
+- **Tradeoff**: Optimizes for semantic completeness using existing scalar BackCmds; sacrifices SIMD reduction efficiency because the accumulation itself becomes scalarized inside the vector loop.
+
+- **Risk**: Generated IR may be much larger for wide vectors or multiple reductions, and performance may disappoint despite correct vectorized memory traversal.
+
+- **Rough sketch**:
+  - For every reduction and lane, initialize a scalar lane accumulator to the algebra identity.
+  - In each vector iteration, compute the contribution vector or scalarize the contribution expression per lane.
+  - Emit `CmdVecExtractLane` for each lane contribution, then apply scalar `add/mul/bitop/select-min/select-max`.
+  - At tail entry, fold lane accumulators into the original accumulator exactly once, then enter the scalar tail with that combined value.
+  - This approach naturally supports add/mul/and/or/xor/min/max for signed, unsigned, and float semantics because the final operation is scalar Back lowering.
+
+---
+
+### Approach C: First-Class Backend Reduction Commands
+- **Core idea**: Promote reductions into explicit Back/wire/backend operations so Lua lowering emits semantic reduction commands and Rust/Cranelift owns the lowering details.
+
+- **Key changes**:
+  - Extend `back.asdl` with first-class reduction algebra representation, e.g. `BackReductionOp`.
+  - Add commands such as `CmdVecReduceUpdate` and `CmdVecHorizontalReduce`, or a combined `CmdVecReduceFinalize`.
+  - Add binary encoder tags and Rust decoder support.
+  - Implement horizontal reduction synthesis in Rust using Cranelift vector ops, lane extraction, scalar combines, compare/select for min/max, and exact type semantics.
+  - Update validation, wire docs, and tests around the new semantic contract.
+
+- **Tradeoff**: Optimizes for a clean semantic boundary and avoids duplicating reduction lowering logic in Lua; sacrifices migration cost because it changes ASDL, wire format, encoder, decoder, and validation.
+
+- **Risk**: Wire/backend expansion can become another synchronization burden unless the reduction algebra is centralized and exhaustively tested.
+
+- **Rough sketch**:
+  - Define complete backend reduction algebra: identities, signed/unsigned/float legality, integer wrapping behavior, float NaN/min/max policy.
+  - Lua vector lowering carries vector accumulators but emits semantic reduction commands rather than manually synthesizing every combine/finalize sequence.
+  - Rust decoder lowers each reduction op into Cranelift IR, synthesizing missing horizontal operations with extracts and scalar combines.
+  - Closed forms remain higher-priority when they replace the whole reduction; otherwise vectorized side effects may still run while the closed-form value substitutes the accumulator.
+  - Relax guards in order: backend support → encoder/validator → forced lowering tests → capability classifier → scheduler.
+
+---
+
+### Comparison
+
+Pick **Approach A** if Moonlift wants real vector reduction structure now without changing the wire/backend contract.  
+Pick **Approach B** if semantic completeness is more important than SIMD arithmetic performance and you want to avoid backend changes.  
+Pick **Approach C** if reductions are considered a core backend concept and Moonlift should have a durable, explicit reduction ABI instead of synthesizing everything in Lua.
+
+All three should test the full algebra: add, mul, and, or, xor, min, max; signed/unsigned/float variants; non-zero init; identities; `n = 0`, `< lanes`, `== lanes`, `lanes + 1`, divisible and non-divisible trip counts; scalar tail; `TailNone`; direct return and exit-block-param consumers; multiple simultaneous reductions; and vector stores plus reductions in the same loop.
+
+## Critique Output — 2026-06-18 09:54:03
+
+### Approach A: Lua-synthesized vector monoid accumulators
+
+| Dimension | Score | Rationale |
+|---|---:|---|
+| **ASDL clarity** | 4/5 | Preserves current Back ASDL as primitive, flat commands. Reduction lowering is explicit composition of existing ops. |
+| **Coupling** | 3/5 | Couples `lower_to_back.lua` to detailed BackCmd capabilities and lane semantics, but avoids Lua/Rust wire changes. |
+| **Cohesion** | 3/5 | Reduction logic belongs in lowering, but a full algebra table plus tail/exit handling risks making `lower_to_back.lua` too broad. |
+| **Implementation cost** | 3/5 | Moderate-high: vector accumulator state, identities, horizontal fold, tail merge, exit substitution. |
+| **Long-term maintainability** | 4/5 | If centralized cleanly, this is maintainable: one lowering path, no ASDL churn, no backend synchronization burden. |
+| **Moonlift philosophy fit** | 4/5 | Fits flat BackCmds and explicit lowering. Keeps ASDL as primitive architecture rather than adding semantic mega-ops. |
+| **Overengineering risk** | 3/5 | Complete min/max/float/signed algebra could become too ambitious if done all at once. |
+| **Brittle local paths risk** | 3/5 | Main risk is tail/exit substitution and accumulator initialization, but it can remain one coherent path. |
+
+**Verdict**: **Yes with caveats**  
+**Key concern**: Keep it as one disciplined reduction-lowering mechanism, not scattered special cases for each reduction kind and tail shape.
+
+---
+
+### Approach B: Lane-scalarized reduction accumulators
+
+| Dimension | Score | Rationale |
+|---|---:|---|
+| **ASDL clarity** | 4/5 | No ASDL changes; uses existing scalar/vector primitives. |
+| **Coupling** | 3/5 | Avoids backend coupling, but tightly couples lowering to lane count, scalar temp generation, and expression scalarization. |
+| **Cohesion** | 2/5 | Hybrid path: vector loads/computation plus scalar per-lane reduction. Conceptually muddier than true vector reduction. |
+| **Implementation cost** | 3/5 | May be simpler for min/max and scalar semantics, but expression scalarization and per-lane state grow quickly. |
+| **Long-term maintainability** | 2/5 | High risk of becoming many brittle little paths: per-lane extraction, scalarized fallbacks, multiple reductions, expression coverage gaps. |
+| **Moonlift philosophy fit** | 3/5 | Explicit and flat, but less clean: the semantic reduction is obscured by generated lane plumbing. |
+| **Overengineering risk** | 3/5 | Not heavy architecturally, but can overproduce IR and fallback logic. |
+| **Brittle local paths risk** | 5/5 | This is the biggest weakness: many small lane-specific cases are likely to accumulate. |
+
+**Verdict**: **Significant concerns**  
+**Key concern**: It solves correctness by multiplying local lowering machinery, which conflicts with the priority to avoid brittle little paths.
+
+---
+
+### Approach C: First-class backend reduction commands
+
+| Dimension | Score | Rationale |
+|---|---:|---|
+| **ASDL clarity** | 3/5 | Makes reductions explicit in ASDL, but risks raising Back ASDL above its current primitive instruction-like level. |
+| **Coupling** | 5/5 | Strongly couples ASDL, validator, binary encoder, wire tags, Rust decoder, docs, and tests. |
+| **Cohesion** | 4/5 | Backend owns backend lowering details, which is cohesive if reductions are considered a backend primitive. |
+| **Implementation cost** | 5/5 | Highest cost: schema, wire format, Lua encoder, Rust decoder, validation, docs, migration tests. |
+| **Long-term maintainability** | 3/5 | Could be durable if reductions become central, but creates another Lua/Rust synchronization surface. |
+| **Moonlift philosophy fit** | 3/5 | Fits “ASDL as architecture,” but less clearly fits “flat BackCmds” if commands become semantic reduction abstractions. |
+| **Overengineering risk** | 5/5 | Highest. This is a large architectural expansion for a lowering problem currently expressible with existing primitives. |
+| **Brittle local paths risk** | 2/5 | Centralizes semantics better than B, but replaces local brittleness with cross-layer contract brittleness. |
+
+**Verdict**: **Significant concerns**  
+**Key concern**: Do not expand the Back/wire/Rust contract unless vector reductions are truly a first-class backend concept, not just missing lowering.
+
+---
+
+## Summary
+
+- **Recommended**: **Approach A**. It best matches the stated priority: keeps ASDL clean, avoids wire/backend churn, preserves flat BackCmds, and can be implemented as one explicit lowering path rather than many ad hoc fallbacks.
+- **Dark horse**: **Approach C**. It has upside if reductions become a major backend abstraction, but it is likely overengineered for the current gap.
+- **Avoid**: **Approach B**. It avoids ASDL changes, but creates the highest risk of brittle per-lane local machinery and muddled long-term semantics.
+
+## Documenter Output — 2026-06-18 09:58:05
+
+# Vector Reduction Lowering Decision
+
+## Goal
+
+Enable Moonlift’s Back lowering to compile vectorized reductions correctly by synthesizing reduction state and finalization in Lua using existing `BackCmd` primitives, without changing the Back ASDL, binary wire format, or Rust Cranelift backend contract.
+
+## Incentives
+
+Vector reductions are a documented language/backend expectation, but the current Back lowering path explicitly rejects them. `lower_to_back.lua` errors with `"vector reductions are not implemented"` when a vector kernel has `KernelResultReduction` or `KernelResultClosedForm`. Earlier planner layers also reject these cases, so normal vector scheduling avoids them. This protects correctness, because the current vector loop advances the induction counter by `lanes` while passing non-counter loop parameters, including reduction accumulators, through unchanged. If the guard were removed without a design, vectorized iterations would be skipped from the final reduction.
+
+The decision addresses this semantic gap while preserving Moonlift’s existing architecture: flat `BackCmd[]`, primitive backend commands, and no new Lua/Rust wire synchronization surface.
+
+## Current State
+
+Reduction facts are discovered before Back lowering:
+
+- `lua/moonlift/code_value_facts.lua` detects `ReductionFact` values for:
+  - add
+  - mul
+  - bitand
+  - bitor
+  - bitxor
+- It can also produce `ClosedFormFact` for additive arithmetic-series reductions.
+- `lua/moonlift/code_kernel_plan.lua` converts these into:
+  - `KernelEffectFold(reduction)`
+  - `KernelResultReduction(reduction)` or `KernelResultClosedForm(closed_form)`
+
+Scalar lowering already preserves reductions correctly. In `lower_to_back.lua`, scalar kernel emission treats `KernelEffectFold` as metadata because the original scalar CFG already carries the updated accumulator through latch edge arguments:
+
+```text
+jump header(i = i + 1, acc = acc ⊕ contribution)
+```
+
+Vector lowering is different. The current vector kernel path creates a vector loop and scalar tail structure, but only updates the induction counter on the vector latch. Other loop parameters are passed through unchanged:
+
+```text
+jump header(counter = counter + lanes, acc = acc)
+```
+
+That is correct for vector map/store kernels, but incorrect for reductions because the accumulator must advance by all vectorized lane contributions.
+
+The current codebase prevents this invalid lowering through three guards:
+
+1. `code_schedule_plan.lua` does not select vector schedules for reduction or closed-form results.
+2. `kernel_emit_support.lua` rejects vector reductions and closed forms.
+3. `lower_to_back.lua` errors if a forced vector reduction reaches Back lowering.
+
+The Back layer already has enough primitive operations to synthesize reductions:
+
+- `CmdVecSplat`
+- `CmdVecBinary`
+- `CmdVecCompare`
+- `CmdVecSelect`
+- `CmdVecExtractLane`
+- scalar `CmdIntBinary`
+- scalar `CmdBitBinary`
+- scalar compare/select as needed
+
+There is no first-class horizontal reduction `BackCmd`, and the chosen design preserves that.
+
+## Chosen Target
+
+### Approach
+
+Use **Approach A: Lua-synthesized vector monoid accumulators**.
+
+Vector reductions will be implemented inside `lua/moonlift/lower_to_back.lua` as explicit compositions of existing Back commands. The Back ASDL, binary encoder, wire tags, and Rust decoder remain unchanged.
+
+This approach was chosen because it keeps Back commands flat and primitive, avoids adding a new Lua/Rust synchronization contract, and keeps reduction lowering as a compiler lowering responsibility rather than a new backend ABI feature.
+
+### Architecture
+
+The implementation must introduce one centralized reduction algebra mechanism/table used by vector reduction lowering. Reduction semantics must not be scattered across per-kind or per-tail ad hoc branches.
+
+Each algebra entry must describe, as applicable:
+
+- reduction kind:
+  - add
+  - mul
+  - and
+  - or
+  - xor
+  - min
+  - max
+- type legality:
+  - integer signed/unsigned where relevant
+  - float where relevant
+- identity value
+- vector combine operation
+- scalar combine operation
+- horizontal reduction sequence
+- comparison/select semantics for min/max
+- any operation-specific restrictions
+
+Vector lowering should maintain one vector accumulator per reduction. The accumulator must be initialized to the operation identity, **not** to the user’s scalar reduction init.
+
+That distinction is critical. For example, initializing an add vector accumulator with `splat(init)` would cause the init value to be counted once per lane:
+
+```text
+horizontal_sum(splat(init)) = init * lanes
+```
+
+Instead, the vector accumulator represents only the contributions processed by vectorized chunks:
+
+```text
+vector_acc = identity
+vector_acc = vector_acc ⊕ contribution_vector
+```
+
+At the boundary between vector loop, scalar tail, and exit, lowering must combine values exactly once:
+
+```text
+final_acc =
+    scalar_base_acc
+    ⊕ horizontal_reduce(vector_acc)
+    ⊕ scalar_tail_contributions
+```
+
+The implementation must ensure either:
+
+1. the scalar tail starts with the scalar accumulator already combined with the vector contribution, or
+2. the final exit combines the tail result with the vector contribution,
+
+but never both and never neither.
+
+Closed forms remain a distinct lowering strategy. `KernelResultClosedForm` should not be treated as a vector reduction variant. Closed-form lowering replaces a reduction with a mathematical expression and is conceptually separate from SIMD reduction lowering.
+
+Planner and capability guards must remain in place until forced vector-reduction lowering and tests demonstrate correctness. Relaxation order should be conservative:
+
+1. implement forced lowering path,
+2. test correctness across identities, tails, and exit shapes,
+3. then relax capability/scheduler guards selectively.
+
+### Required invariants
+
+The lowering must preserve these invariants:
+
+```text
+scalar_acc_after_vector_chunk
+=
+scalar_acc_before_chunk
+⊕ contribution[i]
+⊕ ...
+⊕ contribution[i + lanes - 1]
+```
+
+```text
+vector_acc contains only vectorized contributions,
+not the user reduction init.
+```
+
+```text
+Each vectorized contribution is included exactly once.
+Each scalar tail contribution is included exactly once.
+The user init is included exactly once.
+```
+
+```text
+Every control edge that observes the reduced accumulator observes
+the combined scalar + vector result.
+```
+
+### Rejected approaches
+
+#### Approach B: Lane-scalarized reduction accumulators
+
+Rejected because it would represent each lane as an independent scalar accumulator and fold them later. Although it avoids ASDL changes, it risks creating many brittle local paths: per-lane extraction, scalarized expression fallback, lane-specific temps, and duplicated reduction plumbing. The critique found this less cohesive and more likely to degrade maintainability.
+
+#### Approach C: First-class backend reduction commands
+
+Rejected because it would expand the Back ASDL, validator, binary encoder, wire format, Rust decoder, documentation, and tests. That creates a large new synchronization surface for a problem currently expressible with existing primitives. It was considered overengineered for this gap and less aligned with the current flat primitive Back command model.
+
+### Tradeoffs acknowledged
+
+This design keeps the backend contract stable, but makes `lower_to_back.lua` responsible for detailed reduction semantics, including identities, horizontal folding, tail merging, and type legality. That complexity is acceptable because it remains centralized in one reduction algebra mechanism rather than distributed across the backend stack.
+
+The design also does not introduce a dedicated horizontal reduction instruction. Horizontal reduction will be synthesized with lane extraction and scalar combines. This may be less optimal than a backend-native reduction primitive, but it avoids ASDL and wire churn.
+
+### Risks acknowledged
+
+Known risks from the critique and analysis:
+
+- initializing vector accumulators incorrectly can double-count the user init;
+- tail handling can drop or double-count vector contributions;
+- exit substitution must handle accumulator consumers beyond direct `return acc`;
+- multiple simultaneous reductions may expose additional state-management complexity;
+- min/max semantics require careful signed, unsigned, and float behavior;
+- relaxing planner guards too early would route real programs into unsafe lowering.
+
+## Implementation Implications
+
+The implementation should focus on `lua/moonlift/lower_to_back.lua`.
+
+Expected changes include:
+
+- introduce a centralized reduction algebra table/module;
+- extend vector kernel lowering to allocate and update vector accumulator state;
+- synthesize horizontal reduction using existing Back commands, especially `CmdVecExtractLane` plus scalar combines;
+- merge vector accumulator results into scalar accumulator/tail/exit paths exactly once;
+- keep closed-form lowering separate;
+- preserve existing scheduler/capability guards until correctness tests exist.
+
+Tests must cover:
+
+- non-zero init values;
+- identity-sensitive reductions;
+- trip counts `0`, `< lanes`, `== lanes`, `lanes + 1`, divisible and non-divisible by lanes;
+- scalar tail behavior;
+- direct return and exit-block-param consumers;
+- multiple reductions where supported;
+- vector stores combined with reductions.
+
+## Edit-planner Output — 2026-06-18 10:05:29
+
+## Precondition Checks
+
+Before editing, verify:
+
+1. `lua/moonlift/lower_to_back.lua:631` still contains:
+   ```lua
+   if pvm.classof(kplan.body.result) == Kernel.KernelResultReduction
+      or pvm.classof(kplan.body.result) == Kernel.KernelResultClosedForm then
+       error("lower_to_back: vector reductions are not implemented", 2)
+   end
+   ```
+2. `lua/moonlift/code_schedule_plan.lua:80` still rejects both `KernelResultReduction` and `KernelResultClosedForm`.
+3. `lua/moonlift/kernel_emit_support.lua:254` still has the blanket vector rejection:
+   ```lua
+   vector reductions/closed forms are not implemented
+   ```
+4. `lua/moonlift/schema/value.asdl` already contains `ReductionMin` and `ReductionMax`; do **not** add Back ASDL/wire/Rust tags.
+5. Run a baseline:
+   ```sh
+   luajit tests/test_lower_to_back_kernel_vector.lua
+   luajit tests/test_code_value_facts.lua
+   luajit tests/test_code_schedule_plan.lua
+   ```
+
+---
+
+## Files to Modify
+
+### `lua/moonlift/reduction_algebra.lua` *(new)*
+
+**Goal**: Centralize all reduction semantics and legality decisions.
+
+**Contents sketch**:
+
+```lua
+local M = {}
+
+function M.Define(T)
+    local Core = T.MoonCore
+    local Code = T.MoonCode
+    local Value = T.MoonValue
+    local Back = T.MoonBack
+
+    local api = {}
+
+    -- type helpers:
+    -- api.type_info(ty) -> { class="int"/"float"/"index"/"bool", bits=..., signed=... }
+
+    -- detection helpers:
+    -- api.binary_reduction_kind(op, is_float)
+    -- api.select_minmax_kind(compare_op, true_value_is_lhs)
+
+    -- legality:
+    -- api.vector_support(reduction, elem_ty) -> ok, reason
+
+    -- algebra lookup:
+    -- api.entry(kind, ty) -> entry or nil, reason
+    --
+    -- entries for:
+    -- add, mul, and, or, xor, min, max
+
+    return api
+end
+
+return M
+```
+
+**Required algebra coverage**:
+
+- `ReductionAdd`
+  - integer vector: `BackVecIntAdd`
+  - scalar: `BackIntAdd`
+  - identity: `0`
+  - float: recorded as designed but vector-unsupported until Back has float vector ops.
+- `ReductionMul`
+  - integer vector: `BackVecIntMul`
+  - scalar: `BackIntMul`
+  - identity: `1`
+  - float: vector-unsupported.
+- `ReductionAnd`
+  - vector: `BackVecBitAnd`
+  - scalar: `BackBitAnd`
+  - identity: all bits set; use `-1`.
+- `ReductionOr`
+  - vector: `BackVecBitOr`
+  - scalar: `BackBitOr`
+  - identity: `0`.
+- `ReductionXor`
+  - vector: `BackVecBitXor`
+  - scalar: `BackBitXor`
+  - identity: `0`.
+- `ReductionMin`
+  - integer vector: `CmdVecCompare` + `CmdVecSelect`
+  - signedness decides `BackVecSIcmpLe` vs `BackVecUIcmpLe`
+  - identity:
+    - signed: max signed value for bit width
+    - unsigned: all bits set / max unsigned
+  - float: vector-unsupported until Back has vector float compare.
+- `ReductionMax`
+  - integer vector: `CmdVecCompare` + `CmdVecSelect`
+  - signedness decides `BackVecSIcmpGe` vs `BackVecUIcmpGe`
+  - identity:
+    - signed: min signed value for bit width
+    - unsigned: `0`
+  - float: vector-unsupported.
+
+**Danger zones**:
+- Do not make Back ASDL changes.
+- Do not pretend float vector reductions are supported; represent them in the algebra with explicit unsupported reasons.
+- Keep `index` min/max conservative unless target-width identity is unambiguous.
+
+---
+
+### `lua/moonlift/code_value_facts.lua`
+
+**Goal**: Use the centralized algebra for reduction detection and add min/max fact detection.
+
+#### Edit blocks
+
+1. **Lines 15–18**: Add import.
+
+   **After**:
+   ```lua
+   local CodeGraph = require("moonlift.code_graph").Define(T)
+   local CodeFlowFacts = require("moonlift.code_flow_facts").Define(T)
+   local ReductionAlgebra = require("moonlift.reduction_algebra").Define(T)
+   ```
+
+2. **Lines 159–165**: Replace local `reduction_kind_for`.
+
+   **Before**:
+   ```lua
+   local function reduction_kind_for(op)
+       if op == Core.BinAdd then return Value.ReductionAdd end
+       ...
+   end
+   ```
+
+   **After**:
+   ```lua
+   local function reduction_kind_for(op, is_float)
+       return ReductionAlgebra.binary_reduction_kind(op, is_float)
+   end
+   ```
+
+3. **After line 165**: Add helper for select/compare min-max recurrence detection.
+
+   **Add structure**:
+   ```lua
+   local function select_minmax_reduction(param, select_def, defs)
+       -- Require select_def.cls == Code.CodeInstSelect.
+       -- Look up defs[select.cond.text]; require CodeInstCompare.
+       -- Ensure compare operands are exactly accumulator param + one contribution.
+       -- Ensure select then/else values are the same two values.
+       -- Use ReductionAlgebra.select_minmax_kind(...)
+       -- Return kind, contribution, ty, int_semantics, float_mode.
+   end
+   ```
+
+4. **Lines 196–222**: Extend reduction detection.
+
+   Current logic only handles:
+   ```lua
+   if def ~= nil and def.cls == Code.CodeInstBinary then
+       ...
+   end
+   ```
+
+   **Modify to handle**:
+   - `CodeInstBinary`: existing add/mul/and/or/xor path via algebra.
+   - `CodeInstFloatBinary`: add/mul facts with `float_mode = k.mode`; vector lowering will still reject float until supported.
+   - `CodeInstSelect`: min/max facts from select/compare pattern.
+
+**Patterns**:
+- Preserve closed-form detection only for integer additive arithmetic-series reductions.
+- Do not generate closed forms for min/max or bitwise reductions.
+
+---
+
+### `lua/moonlift/lower_to_back.lua`
+
+**Goal**: Implement forced TailScalar vector reduction lowering using existing BackCmd primitives.
+
+#### Edit blocks
+
+1. **Lines 27–29**: Import algebra module.
+
+   **After**:
+   ```lua
+   local CodeLowerPlan = require("moonlift.code_lower_plan").Define(T)
+   local ReductionAlgebra = require("moonlift.reduction_algebra").Define(T)
+   ```
+
+2. **After line 56**: Add CodeValue override plumbing.
+
+   **Add**:
+   ```lua
+   local function code_value(ctx, id)
+       local ov = ctx.value_overrides and ctx.value_overrides[id.text]
+       if ov ~= nil then return ov.value, ov.ty end
+       return bid(id), value_ty(ctx, id)
+   end
+
+   local function with_value_overrides(ctx, overrides, fn)
+       local old = ctx.value_overrides
+       ctx.value_overrides = setmetatable(overrides or {}, { __index = old })
+       local ok, a, b = pcall(fn)
+       ctx.value_overrides = old
+       if not ok then error(a, 0) end
+       return a, b
+   end
+   ```
+
+3. **Line 225**: Modify `ValueExprValue` lowering.
+
+   **Before**:
+   ```lua
+   return bid(expr.value), ty
+   ```
+
+   **After**:
+   ```lua
+   local v, ty = code_value(ctx, expr.value)
+   if ty == nil then error(...) end
+   return v, ty
+   ```
+
+4. **Line 397**: Modify `KernelExprValue`.
+
+   **Before**:
+   ```lua
+   if cls == Kernel.KernelExprValue then return bid(expr.value), value_ty(ctx, expr.value) end
+   ```
+
+   **After**:
+   ```lua
+   if cls == Kernel.KernelExprValue then return code_value(ctx, expr.value) end
+   ```
+
+5. **Line 445**: Modify `edge_args`.
+
+   Add optional substitutions:
+   ```lua
+   local function edge_args(ctx, edge_fact, overrides)
+       local args = {}
+       return with_value_overrides(ctx, overrides, function()
+           for _, arg in ipairs(edge_fact and edge_fact.args or {}) do
+               local v = code_value(ctx, arg.src)
+               args[#args + 1] = v
+           end
+           return args
+       end)
+   end
+   ```
+
+6. **After `cmp_op` around line 154**: Add vector reduction emission helpers.
+
+   Helpers needed:
+   - `reduction_folds(kplan)`
+   - `emit_reduction_scalar_identity(ctx, entry, ty)`
+   - `emit_reduction_vector_identity(ctx, entry, vec, ty)`
+   - `emit_reduction_vector_combine(ctx, entry, vec, lhs, rhs)`
+   - `emit_reduction_scalar_combine(ctx, entry, ty, lhs, rhs)`
+   - `emit_reduction_horizontal_fold(ctx, entry, ty, vec, base_scalar, vector_acc, lanes)`
+
+   Horizontal fold must use:
+   ```lua
+   CmdVecExtractLane
+   CmdIntBinary / CmdBitBinary / CmdCompare + CmdSelect
+   ```
+
+7. **Lines 541–592**: Extend vector expression lowering.
+
+   Add support for:
+   - `ValueExprCmp` → `CmdVecCompare`
+   - `ValueExprSelect` → `CmdVecSelect`
+
+   Keep float vector compare unsupported unless Back gains a float vector compare op.
+
+8. **Line 631**: Replace vector reduction stub.
+
+   **Before**:
+   ```lua
+   if pvm.classof(kplan.body.result) == Kernel.KernelResultReduction
+      or pvm.classof(kplan.body.result) == Kernel.KernelResultClosedForm then
+       error("lower_to_back: vector reductions are not implemented", 2)
+   end
+   ```
+
+   **After**:
+   ```lua
+   if pvm.classof(kplan.body.result) == Kernel.KernelResultClosedForm then
+       error("lower_to_back: vector closed forms remain a distinct lowering strategy", 2)
+   end
+
+   local reductions = reduction_folds(kplan)
+   local has_reductions = #reductions > 0
+   if has_reductions and schedule.kind.tail ~= Schedule.TailScalar then
+       error("lower_to_back: vector reductions currently require TailScalar", 2)
+   end
+   ```
+
+9. **Lines 646–714**: Split map-only vector path from reduction path.
+
+   Preserve existing non-reduction behavior.
+
+   For reduction path:
+   - Create `vector_block` and `tail_check`.
+   - Append synthetic params:
+     - vector block:
+       - vector counter param
+       - one vector accumulator param per reduction
+     - tail check:
+       - scalar counter param
+       - one scalar accumulator param per reduction
+   - Header:
+     - create identity vector accumulators;
+     - branch to vector block with `[counter, identity_vecs...]`;
+     - branch to tail check with `[counter, original_accs...]`.
+   - Vector block:
+     - use override `{ counter = vector_counter_param }`;
+     - emit vector stores as before;
+     - for each reduction:
+       - lower contribution as vector;
+       - combine current vector accumulator with contribution;
+     - compute `next_i`;
+     - if another chunk fits, jump to vector block with updated vector accumulators;
+     - otherwise horizontally fold each updated vector accumulator into the original scalar accumulator and jump to tail check.
+   - Tail check:
+     - use overrides `{ counter = tail_counter, acc = tail_acc }`;
+     - recompute scalar exit condition through binding expression, not by rebinding original Code value IDs;
+     - branch to exit/body using `edge_args(ctx, fact, overrides)`.
+
+**Danger zones**:
+- Never initialize vector accumulators with user init.
+- Do not bind the same `BackValId` twice when recomputing tail conditions.
+- Each vector contribution must be included exactly once.
+- Closed forms stay separate.
+
+---
+
+### `lua/moonlift/kernel_emit_support.lua`
+
+**Goal**: Let classifier validate vector reductions through the central algebra.
+
+#### Edit blocks
+
+1. **Lines 15–18**: Import algebra.
+
+2. **Lines 189–203**: Extend `vector_value_expr_supported`.
+
+   Add:
+   - `ValueExprCmp`
+   - `ValueExprSelect`
+
+3. **Line 254**: Replace blanket reduction rejection.
+
+   **Before**:
+   ```lua
+   if pvm.classof(result) == Kernel.KernelResultReduction
+      or pvm.classof(result) == Kernel.KernelResultClosedForm then
+       rejects[#rejects + 1] = reject_target("vector reductions/closed forms are not implemented")
+   end
+   ```
+
+   **After**:
+   - Reject `KernelResultClosedForm`.
+   - For each `KernelEffectFold`, call `ReductionAlgebra.vector_support(reduction, sk.lanes.elem_ty)`.
+   - Also validate `reduction.contribution` with `vector_value_expr_supported`.
+
+---
+
+### `lua/moonlift/code_schedule_plan.lua`
+
+**Goal**: Relax scheduler guard only after forced lowering/tests pass.
+
+#### Edit block
+
+1. **Line 80**:
+
+   **Before**:
+   ```lua
+   if pvm.classof(body.result) == Kernel.KernelResultReduction
+      or pvm.classof(body.result) == Kernel.KernelResultClosedForm then return nil end
+   ```
+
+   **After**:
+   ```lua
+   if pvm.classof(body.result) == Kernel.KernelResultClosedForm then return nil end
+   ```
+
+Classifier still decides whether vector reduction is executable.
+
+---
+
+### Tests
+
+#### `tests/test_code_value_facts.lua`
+
+Add tests for:
+- min recurrence:
+  ```moonlift
+  acc = select(acc < xs[i], acc, xs[i])
+  ```
+- max recurrence:
+  ```moonlift
+  acc = select(acc > xs[i], acc, xs[i])
+  ```
+- operand-order variants.
+
+Assert `ReductionMin` / `ReductionMax`.
+
+#### `tests/test_lower_to_back_vector_reductions.lua` *(new)*
+
+Create forced-vector test.
+
+Must cover:
+- sum with non-zero init
+- product with non-one init
+- xor odd/even
+- and/or identity-sensitive cases
+- min/max
+- trip counts: `0`, `< lanes`, `== lanes`, `lanes + 1`, divisible, non-divisible
+
+Verification:
+```sh
+luajit tests/test_lower_to_back_vector_reductions.lua
+```
+
+#### `tests/test_code_schedule_plan.lua`
+
+After scheduler guard relaxation:
+- supported integer reductions should receive `ScheduleVector`;
+- closed forms should still choose `ScheduleClosedForm`, not vector;
+- update clamp/select expectation if vector cmp/select makes it schedulable.
+
+---
+
+### `BACKEND_GAPS.md`
+
+**Goal**: Update after tests pass.
+
+Change vector reduction status from open to closed for:
+- supported integer TailScalar reductions;
+- Lua-synthesized BackCmd lowering;
+- no Back ASDL/wire/Rust changes.
+
+Document remaining limitations:
+- float vector reductions blocked by missing Back vector float ops;
+- TailNone requires divisibility proof;
+- closed forms remain distinct.
+
+---
+
+## Order of Operations
+
+1. Add `lua/moonlift/reduction_algebra.lua`.
+2. Update `code_value_facts.lua` and test min/max facts.
+3. Add override plumbing in `lower_to_back.lua`.
+4. Add reduction emission helpers.
+5. Implement forced TailScalar vector reduction lowering.
+6. Add forced lowering/JIT tests.
+7. Update `kernel_emit_support.lua`.
+8. Relax `code_schedule_plan.lua`.
+9. Add automatic scheduler/JIT tests.
+10. Update `BACKEND_GAPS.md`.
+
+---
+
+## Testing Strategy
+
+Run incrementally:
+
+```sh
+luajit tests/test_code_value_facts.lua
+luajit tests/test_lower_to_back_kernel_vector.lua
+luajit tests/test_lower_to_back_vector_reductions.lua
+luajit tests/test_code_schedule_plan.lua
+luajit tests/test_parse_kernels.lua
+```
+
+If JIT artifacts are stale:
+
+```sh
+cargo build --release
+```
+
+---
+
+## Structured Edit Plan Sidecar
+
+Created/updated sidecar:
+
+- Workflow: `wf-backend-gap`
+- Sidecar: `vector-reductions`
+- Revision: `r2`
+- Tasks: `T001`–`T013`
+
+Ready task:
+- `T001 Add central reduction algebra module`
+
+---
+
+## Pattern Memo
+
+- Keep Back ASDL, binary wire format, and Rust decoder unchanged.
+- Centralize semantics in `reduction_algebra.lua`.
+- Vector accumulator identity is algebra identity, never user init.
+- Combine vector contribution with scalar accumulator exactly once at tail/exit boundary.
+- Closed forms are separate lowering, not vector reductions.
+- Guard relaxation order: forced lowering → forced tests → classifier → scheduler.

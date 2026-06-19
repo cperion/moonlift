@@ -20,6 +20,7 @@ function M.Define(T)
     local Value = T.MoonValue
     local CodeGraph = require("moonlift.code_graph").Define(T)
     local CodeFlowFacts = require("moonlift.code_flow_facts").Define(T)
+    local ReductionAlgebra = require("moonlift.reduction_algebra").Define(T)
 
     local api = {}
 
@@ -156,13 +157,36 @@ function M.Define(T)
         return nil
     end
 
-    local function reduction_kind_for(op)
-        if op == Core.BinAdd then return Value.ReductionAdd end
-        if op == Core.BinMul then return Value.ReductionMul end
-        if op == Core.BinBitAnd then return Value.ReductionAnd end
-        if op == Core.BinBitOr then return Value.ReductionOr end
-        if op == Core.BinBitXor then return Value.ReductionXor end
-        return nil
+    local function reduction_kind_for(op, is_float)
+        return ReductionAlgebra.binary_reduction_kind(op, is_float)
+    end
+
+    local function same_value(a, b) return a ~= nil and b ~= nil and a == b end
+
+    local function resolve_def(defs, id)
+        local seen = {}
+        local def = id and defs[id.text] or nil
+        while def ~= nil and def.cls == Code.CodeInstAlias and def.kind.src ~= nil and not seen[def.kind.src.text] do
+            seen[def.kind.src.text] = true
+            def = defs[def.kind.src.text]
+        end
+        return def
+    end
+
+    local function select_minmax_reduction(param, def, defs)
+        if def == nil or def.cls ~= Code.CodeInstSelect then return nil end
+        local k = def.kind
+        local cdef = k.cond and defs[k.cond.text] or nil
+        if cdef == nil or cdef.cls ~= Code.CodeInstCompare then return nil end
+        local cmp = cdef.kind
+        local lhs, rhs = cmp.lhs, cmp.rhs
+        if not ((same_value(k.then_value, lhs) and same_value(k.else_value, rhs)) or (same_value(k.then_value, rhs) and same_value(k.else_value, lhs))) then return nil end
+        if not (same_value(lhs, param.value) or same_value(rhs, param.value)) then return nil end
+        local contribution = same_value(lhs, param.value) and rhs or lhs
+        local true_value_is_lhs = same_value(k.then_value, lhs)
+        local rkind = ReductionAlgebra.select_minmax_kind(cmp.op, true_value_is_lhs)
+        if rkind == nil then return nil end
+        return rkind, contribution, k.ty or cmp.operand_ty, nil, nil
     end
 
     local function detect_reductions(module, graph, flow, exprs_by_func)
@@ -192,45 +216,53 @@ function M.Define(T)
                     if not primary[param.value.text] then
                         local back = backedge_arg(latch_fact, param)
                         local init = incoming_arg(flow.edges, graph_loop.header.block, param, latch.from.block)
-                        local def = back and defs[back.text] or nil
-                        if def ~= nil and def.cls == Code.CodeInstBinary then
+                        local def = resolve_def(defs, back)
+                        local rkind, contribution, rty, int_sem, float_mode, recurrence_cls = nil, nil, nil, nil, nil, nil
+                        if def ~= nil and (def.cls == Code.CodeInstBinary or def.cls == Code.CodeInstFloatBinary) then
+                            recurrence_cls = def.cls
                             local k = def.kind
-                            local contribution = nil
                             if k.lhs == param.value then contribution = k.rhs elseif k.rhs == param.value then contribution = k.lhs end
-                            local rkind = contribution and reduction_kind_for(k.op) or nil
-                            if rkind ~= nil then
-                                local domain = Flow.FlowDomainLoop(loop_fact.loop)
-                                local proof = Value.AlgebraProofFlow(domain, "loop-carried accumulator recurrence")
-                                local reduction = Value.ReductionFact(
-                                    Value.AlgebraFactId("reduction:" .. sanitize(func.name) .. ":" .. sanitize(loop_fact.loop.text) .. ":" .. sanitize(param.value.text)),
-                                    domain,
-                                    param.value,
-                                    rkind,
+                            local is_float = def.cls == Code.CodeInstFloatBinary
+                            rkind = contribution and reduction_kind_for(k.op, is_float) or nil
+                            rty = k.ty
+                            int_sem = (def.cls == Code.CodeInstBinary) and k.semantics or nil
+                            float_mode = (def.cls == Code.CodeInstFloatBinary) and k.mode or nil
+                        elseif def ~= nil and def.cls == Code.CodeInstSelect then
+                            recurrence_cls = def.cls
+                            rkind, contribution, rty, int_sem, float_mode = select_minmax_reduction(param, def, defs)
+                        end
+                        if rkind ~= nil and contribution ~= nil then
+                            local domain = Flow.FlowDomainLoop(loop_fact.loop)
+                            local proof = Value.AlgebraProofFlow(domain, "loop-carried accumulator recurrence")
+                            local reduction = Value.ReductionFact(
+                                Value.AlgebraFactId("reduction:" .. sanitize(func.name) .. ":" .. sanitize(loop_fact.loop.text) .. ":" .. sanitize(param.value.text)),
+                                domain,
+                                param.value,
+                                rkind,
+                                expr_for(exprs, init),
+                                expr_for(exprs, contribution),
+                                rty,
+                                int_sem,
+                                float_mode,
+                                proof
+                            )
+                            reductions[#reductions + 1] = reduction
+                            if rkind == Value.ReductionAdd and recurrence_cls == Code.CodeInstBinary and primary[contribution.text] and loop_fact.counted ~= nil and loop_fact.counted.stop_exclusive then
+                                local closed_expr = arithmetic_series_expr(
                                     expr_for(exprs, init),
-                                    expr_for(exprs, contribution),
-                                    k.ty,
-                                    k.semantics,
-                                    nil,
-                                    proof
+                                    expr_for(exprs, loop_fact.counted.start),
+                                    expr_for(exprs, loop_fact.counted.stop),
+                                    expr_for(exprs, loop_fact.counted.step),
+                                    rty,
+                                    int_sem
                                 )
-                                reductions[#reductions + 1] = reduction
-                                if rkind == Value.ReductionAdd and primary[contribution.text] and loop_fact.counted ~= nil and loop_fact.counted.stop_exclusive then
-                                    local closed_expr = arithmetic_series_expr(
-                                        expr_for(exprs, init),
-                                        expr_for(exprs, loop_fact.counted.start),
-                                        expr_for(exprs, loop_fact.counted.stop),
-                                        expr_for(exprs, loop_fact.counted.step),
-                                        k.ty,
-                                        k.semantics
+                                if closed_expr ~= nil then
+                                    closed_forms[#closed_forms + 1] = Value.ClosedFormFact(
+                                        Value.AlgebraFactId("closed_form:arith_series:" .. sanitize(func.name) .. ":" .. sanitize(loop_fact.loop.text) .. ":" .. sanitize(param.value.text)),
+                                        reduction,
+                                        closed_expr,
+                                        Value.AlgebraProofReduction(reduction, "exact arithmetic-series closed form from counted loop start/stop/step")
                                     )
-                                    if closed_expr ~= nil then
-                                        closed_forms[#closed_forms + 1] = Value.ClosedFormFact(
-                                            Value.AlgebraFactId("closed_form:arith_series:" .. sanitize(func.name) .. ":" .. sanitize(loop_fact.loop.text) .. ":" .. sanitize(param.value.text)),
-                                            reduction,
-                                            closed_expr,
-                                            Value.AlgebraProofReduction(reduction, "exact arithmetic-series closed form from counted loop start/stop/step")
-                                        )
-                                    end
                                 end
                             end
                         end

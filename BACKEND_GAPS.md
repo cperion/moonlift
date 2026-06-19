@@ -1,243 +1,270 @@
 # Backend Completeness Gaps
 
-Audit date: 2026-06-17
+Audit date: 2026-06-17  
+Last updated: 2026-06-19  
 Workflow: `wf-backend-gap`
 
-The Cranelift backend (Rust `decode.rs`) has full codegen for all 111 wire tags.
-The gaps are in the Lua compiler pipeline that *produces* those wire tags.
+The Rust Cranelift backend (`src/decode.rs`) has real codegen for all 111 binary wire tags. The backend-facing gaps from the 2026-06-17 audit are closed; remaining limits are explicit subset boundaries rather than silent missing codegen paths.
 
 ---
 
-## Summary
+## Current Status
 
-| Layer | Count | Severity |
-|-------|-------|----------|
-| Encoder gaps (BackCmds exist, Rust ready, encoder drops them) | 7 | **High** — pure plumbing |
-| Wire fidelity gaps (ASDL fields lost at wire boundary) | 1 | **Medium** — semantic loss |
-| Lowering gaps (no path from .mlua to BackCmd) | 4 | **Varies** — deep to design-level |
-| Tooling gaps (dead/stubbed paths) | 2 | **Low** — non-critical |
-
----
-
-## Layer 1: Encoder Gaps
-
-These ASDL `Cmd` variants exist in `lua/moonlift/schema/back.asdl`, have full
-Cranelift codegen in `src/decode.rs`, but `lua/moonlift/back_command_binary.lua`
-has no encoding branch. They are silently dropped, causing downstream
-`"unknown value {id}"` errors when later instructions reference their results.
-
-### CmdAtomicLoad
-
-```
-CmdAtomicLoad(dst: BackValId, ty: BackScalar, addr: BackAddress, memory: BackMemoryInfo, ordering: BackAtomicOrdering)
-```
-
-- **Wire tag**: `AtomicLoad` (112), 4 slots `[dst, scalar_type, memflags, addr]`
-- **Rust**: `builder.ins().atomic_load(clif_ty, memflags, addr_val)` — full codegen
-- **Encoder**: no branch
-- **Lowering**: exists (used by C backend and test_atomics.lua)
-
-### CmdAtomicStore
-
-```
-CmdAtomicStore(ty: BackScalar, addr: BackAddress, value: BackValId, memory: BackMemoryInfo, ordering: BackAtomicOrdering)
-```
-
-- **Wire tag**: `AtomicStore` (113), 4 slots `[scalar_type, memflags, addr, value]`
-- **Rust**: `builder.ins().atomic_store(memflags, addr_val, val)` — full codegen
-- **Encoder**: no branch
-- **Lowering**: exists
-
-### CmdAtomicRmw
-
-```
-CmdAtomicRmw(dst: BackValId, op: BackAtomicRmwOp, ty: BackScalar, addr: BackAddress, value: BackValId, memory: BackMemoryInfo, ordering: BackAtomicOrdering)
-```
-
-- **Wire tag**: `AtomicRmw` (114), 5 slots `[dst, scalar_type, memflags, op_kind, addr, value]` (note: op_kind is an additional slot not in Load/Store)
-- **Rust**: `builder.ins().atomic_rmw(clif_op, clif_ty, memflags, addr_val, val)` — full codegen
-- **Encoder**: no branch
-- **Lowering**: exists
-- **Hidden coupling**: op_kind numeric mapping (1=Add, 2=Sub, 3=And, 4=Or, 5=Xor, 6=Xchg) must stay synchronized between Lua encoder and Rust `decode.rs`
-
-### CmdAtomicCas
-
-```
-CmdAtomicCas(dst: BackValId, ty: BackScalar, addr: BackAddress, expected: BackValId, replacement: BackValId, memory: BackMemoryInfo, ordering: BackAtomicOrdering)
-```
-
-- **Wire tag**: `AtomicCas` (115), 5 slots `[dst, scalar_type, memflags, addr, expected, replacement]`
-- **Rust**: `builder.ins().atomic_cas(memflags, addr_val, expected_val, replacement_val)` — full codegen
-- **Encoder**: no branch
-- **Lowering**: exists
-
-### CmdAtomicFence
-
-```
-CmdAtomicFence(ordering: BackAtomicOrdering)
-```
-
-- **Wire tag**: `Fence` (116), 0 slots — no data slots, pure side effect
-- **Rust**: `builder.ins().fence()` — full codegen
-- **Encoder**: no branch
-- **Lowering**: exists
-- **Note**: `Fence` has zero slots, making it the simplest to encode
-
-### CmdRotate
-
-```
-CmdRotate(dst: BackValId, op: BackRotateOp, scalar: BackScalar, lhs: BackValId, rhs: BackValId)
-```
-
-- **Wire tags**: `Rotl` (63), `Rotr` (64), 3 slots `[dst, scalar_type, lhs, rhs]`
-- **Rust**: `builder.ins().rotl(val_lhs, val_rhs)` / `builder.ins().rotr(...)` — full codegen
-- **Encoder**: no branch
-- **Lowering**: **does NOT exist** — no path from `.mlua` source to `CmdRotate`
-- **Debug interpreter**: implements as shift: `"Simplified: just shift for now"`
-- **This is a Layer 1 + Layer 3 combined gap**: missing from both encoder and lowering
-
-### CmdVecMask
-
-```
-CmdVecMask(dst: BackValId, op: BackVecMaskOp, ty: BackVec, args: BackValId*)
-```
-
-- **Wire tags**: `VecMaskNot` (150, 2 slots), `VecMaskAnd` (151, 3 slots), `VecMaskOr` (152, 3 slots)
-- **Rust**: `builder.ins().icmp_imm(IntCC::Equal, mask_not, 0)` / `builder.ins().band(bv, mask)` / `builder.ins().bor(bv, mask)` — full codegen
-- **Encoder**: no branch
-- **Lowering**: exists (vector mask operations are produced)
-- **Complexity**: non-uniform arity — the encoder must dispatch on `cmd.op.kind` to select the right tag AND emit the right number of args
+| Area | Status | Notes |
+|------|--------|-------|
+| Binary encoder coverage | **Closed** | `back_command_binary.lua` now encodes atomics, rotate, vecmask, and errors loudly on unknown BackCmds. |
+| Atomic lowering | **Closed** | `code_to_back.lua` now lowers `CodeInstAtomic*` to `CmdAtomic*`; `tests/test_atomics.lua` passes end-to-end. |
+| Atomic ordering wire fidelity | **Closed for current schema** | `MoonCore.AtomicOrdering`/`BackAtomicOrdering` currently contain only `SeqCst`; the zero-slot wire encoding is lossless until weaker orderings are added. |
+| Intrinsic/rotate lowering | **Closed** | `CodeInstIntrinsic` now lowers to `CmdIntrinsic`, `CmdRotate`, `CmdFma`, or `CmdTrap`; executable JIT coverage exists. |
+| Vector reductions | **Closed for integer TailScalar subset** | `lower_to_back.lua` lowers supported contiguous integer reductions through vector accumulators, lane extraction, and scalar tail handling. |
+| Scalar kernel fragments | **Closed** | Synthetic `KernelBinding` values now infer their Code block from instruction results, block params, memory access facts, or value expressions. |
+| View return ABI | **Closed** | View results now use sret descriptor ABI and pass executable JIT coverage. |
+| Closures | **Closed for descriptor ABI** | Closure descriptors lower as `{ fn, ctx }`; closure calls load both words and emit indirect calls with a synthetic context-parameter signature. Captured closure returns fail loudly pending an ownership model. |
+| Handle types | **Closed/no Back object needed** | Handles lower through their declared scalar representation; typing opacity is enforced before backend lowering. |
+| Debug interpreter indirect calls | **Closed** | `debug_interpreter.lua` now resolves `CmdFuncAddr` values and executes `BackCallIndirect` through the same internal call path as direct calls. |
+| Hosted JIT disassembly | **Closed** | `hosted_jit.lua` now supports `getbytes`, `hexbytes`, `disasm`, and `peek`; verified through the standalone hosted binary. |
 
 ---
 
-## Layer 2: Wire Format Fidelity Gaps
+## Closed: Binary Encoder Gaps
 
-ASDL semantic fields that exist in the schema, survive lowering, but have no
-corresponding slot in the binary wire format. They are silently discarded.
+The following ASDL `Cmd` variants used to be silently dropped by `lua/moonlift/back_command_binary.lua`; they are now encoded:
 
-### Atomic Ordering
+- `CmdAtomicLoad` → `AtomicLoad` (112)
+- `CmdAtomicStore` → `AtomicStore` (113)
+- `CmdAtomicRmw` → `AtomicRmw` (114)
+- `CmdAtomicCas` → `AtomicCas` (115)
+- `CmdAtomicFence` → `Fence` (116)
+- `CmdRotate` → `Rotl` (63) / `Rotr` (64)
+- `CmdVecMask` → `VecMaskNot` (150) / `VecMaskAnd` (151) / `VecMaskOr` (152)
 
-- **ASDL**: Every atomic command carries `BackAtomicOrdering` (currently only `BackAtomicSeqCst`)
-- **Wire format**: Zero slots for ordering on `AtomicLoad`, `AtomicStore`, `AtomicRmw`, `AtomicCas`, `Fence`
-- **Rust**: Hardcodes Cranelift's default atomic semantics (implicitly seq_cst on x86)
-- **Cranelift capability**: `MemFlags` supports `set_readonly()`, `set_aligned()`, and ordering hints via `MemFlags::new()` with `Endianness` — but explicit relaxed/acquire/release require `MemFlags::set_atomic_ordering()` which is available in newer Cranelift
-- **Impact**: Even after fixing the encoder, the `ordering` field in the ASDL is informational-only; all atomics are seq_cst
-
----
-
-## Layer 3: Lowering Gaps
-
-Features described in `LANGUAGE_REFERENCE.md` that have no compilation path from
-`.mlua` source to `BackCmd` arrays. The Rust backend may or may not support the
-underlying Cranelift IR — these features simply never reach it.
-
-### Closures (`closure(i32): i32`)
-
-- **Lang ref**: §5.8 — closure types are first-class
-- **ASDL**: No `BackClosure` type, no wire tag, no schema definition
-- **Lowering**: `code_to_back.lua` / `lower_to_back.lua` have no closure handling
-- **Rust**: No Cranelift closure support (Cranelift doesn't have a closure primitive — closures require struct lowering of captured state + indirect call)
-- **Nature**: Design-level gap — closures require a compilation strategy (capture struct layout, thunk generation, indirect call dispatch)
-
-### Vector Reductions
-
-- **Lang ref**: §18.4 — vector reductions (sum, min, max, etc.)
-- **Lowering**: `lower_to_back.lua:631` — explicit error: `"vector reductions are not implemented"`
-- **Rust**: Cranelift does not have dedicated reduction instructions — reductions must be lowered to shuffle + pairwise operations
-- **Nature**: Implementation gap — requires a lowering strategy to decompose reductions into Cranelift vector ops
-
-### View Return ABI
-
-- **Lang ref**: §17 — views as return values from functions and regions
-- **Lowering**: `code_to_back.lua:646` — explicit error: `"view return ABI is not implemented below Code"`
-- **Nature**: ABI design gap — views are 3-element descriptors (data, len, stride); returning them requires a calling convention decision (sret pointer, multiple return registers, struct return)
-
-### Handle Types
-
-- **Lang ref**: §21.2 — `handle Voice : u32 invalid 0 end` memory convention
-- **Lowering**: Memory convention only — no `BackCmd` emitted, no wire tag
-- **Nature**: Design-level gap — handles are compile-time validity markers, not runtime objects; they may not need backend support
-
----
-
-## Layer 4: Tooling & Dead Path Gaps
-
-### Tape Compiler (DELETED — 2026-06-17)
-
-- **Was**: `src/lib.rs` `compile_tape()` returned hard error: `"tape compiler not yet migrated"`
-- **Was**: `lua/moonlift/tape_encode.lua` and `lua/moonlift/tape_exec.lua`
-- **Status**: Fully removed. Only the binary wire format remains.
-
-### Hosted JIT Disassembly
-
-- **File**: `lua/moonlift/hosted_jit.lua`
-- **Gap**: `Jit:peek()` errors: `"hosted_jit: disassembly/peek is not wired for hosted artifacts yet"`
-- **Note**: The cdylib path (`back_jit.lua`) has working `disasm()` via objdump
-- **Impact**: Low — disassembly is a debugging tool, not a compilation path
-
----
-
-## The Silent-Drop Bug
-
-The encoder's main dispatch loop has no `else` clause:
+The encoder now ends its `encode_body()` dispatch with:
 
 ```lua
-for _, cmd in ipairs(cmds) do
-    local k = cmd.kind
-    if k == "CmdCreateBlock" then ...
-    elseif k == "CmdSwitchToBlock" then ...
-    -- ... 50 branches ...
-    -- NO else: unrecognized commands silently skipped
-    end
+else
+    error("unrecognized BackCmd: " .. tostring(k))
 end
 ```
 
-This means any BackCmd variant without an encoder branch produces a shorter-but-structurally-valid
-wire buffer. The Rust decoder then fails when a later instruction references a value that was
-defined by the dropped command: `ctx.val() → "unknown value {id}"`.
-
-Adding `else error("unrecognized BackCmd: " .. k)` would make gaps immediately visible at encode
-time rather than as cryptic downstream failures.
+Future BackCmd/schema drift should fail at encode time rather than producing a shorter invalid wire buffer.
 
 ---
 
-## Test Coverage Mirage
+## Closed: Atomic Code→Back Lowering
 
-`tests/test_atomics.lua` verifies that `CmdAtomicLoad`/`CmdAtomicStore`/etc. are produced
-by lowering, then calls `jit():compile(program)` and asserts specific numeric results.
-However, the encoder silently drops all atomic commands, meaning the `compile()` call
-produces a function with undefined SSA values — the end-to-end assertion **never actually
-executes successfully**.
+`lua/moonlift/code_to_back.lua` now lowers:
 
-The test correctly checks abstraction-layer output (BackCmd production) but the pipeline
-integration test is dead code due to the encoder gap.
+- `CodeInstAtomicLoad` → `Back.CmdAtomicLoad`
+- `CodeInstAtomicStore` → `Back.CmdAtomicStore`
+- `CodeInstAtomicRmw` → `Back.CmdAtomicRmw`
+- `CodeInstAtomicCas` → `Back.CmdAtomicCas`
+- `CodeInstAtomicFence` → `Back.CmdAtomicFence`
+
+The lowering preserves `BackAtomicOrdering` in BackCmds and maps RMW ops explicitly:
+
+| Core op | Back op | Wire op_kind |
+|---------|---------|--------------|
+| `AtomicRmwAdd` | `BackAtomicRmwAdd` | 1 |
+| `AtomicRmwSub` | `BackAtomicRmwSub` | 2 |
+| `AtomicRmwAnd` | `BackAtomicRmwAnd` | 3 |
+| `AtomicRmwOr` | `BackAtomicRmwOr` | 4 |
+| `AtomicRmwXor` | `BackAtomicRmwXor` | 5 |
+| `AtomicRmwXchg` | `BackAtomicRmwXchg` | 6 |
+
+Validation:
+
+```sh
+luajit tests/test_atomics.lua
+```
+
+passes and verifies both BackCmd production and JIT execution.
 
 ---
 
-## Document-Vs-Code Discrepancies
+## Closed For Current Schema: Atomic Ordering Wire Fidelity
 
-### Splat Slot Count
+ASDL and Code→Back preserve atomic ordering. The binary wire format does not encode an ordering slot, but this is currently lossless because the only ordering variant is `SeqCst`.
 
-- **`BACK_WIRE_FORMAT.md`**: Splat has 3 slots `[dst, scalar_type, src]`
-- **`src/wire_tags.rs`**: Splat has 4 slots `[dst, scalar_type, lanes, src]`
-- **Encoder**: writes 4 slots
-- **Decoder**: reads 4 slots
-- **Verdict**: The doc is wrong. `TAG_SLOTS` in `wire_tags.rs` is the authoritative contract.
+- `MoonCore.AtomicOrdering = AtomicSeqCst`
+- `BackAtomicOrdering = BackAtomicSeqCst`
+- `CmdAtomicLoad/Store/Rmw/Cas/Fence` include ordering fields, all currently `SeqCst`
+- Wire tags 112–116 imply `SeqCst`
+
+If weaker orderings are added to the schemas later, the wire format and decoder must be extended at the same time rather than silently defaulting.
 
 ---
 
-## Development Trajectory Evidence
+## Closed: Intrinsic and Rotate Code→Back Lowering
 
-The gap pattern suggests this development history:
+`lua/moonlift/code_to_back.lua` now lowers `CodeInstIntrinsic`:
 
-1. **Wire format designed first** — all 111 tags, all slot layouts
-2. **Rust backend implemented** — all 111 tags get real Cranelift calls
-3. **Lua lowering built incrementally** — only what was needed for immediate features
-4. **Encoder built incrementally** — only what lowering produced
-5. **Atomics added to ASDL, lowering, validation, C backend** — but binary encoder never plumbed
-6. **Rotate, VecMask added to ASDL and Rust** — but lowering (for rotate) and encoder (for both) never completed
+- `IntrinsicPopcount/Clz/Ctz/Bswap/Sqrt/Abs/Floor/Ceil/TruncFloat/Round` → `Back.CmdIntrinsic`
+- `IntrinsicRotl/IntrinsicRotr` → `Back.CmdRotate`
+- `IntrinsicFma` → `Back.CmdFma`
+- `IntrinsicTrap` → `Back.CmdTrap`
 
-The ASDL schema is the "compiler model" — the single source of truth. Validation (`back_validate.lua`)
-already validates ALL variants including the encoder-gapped ones. The Rust backend already compiles
-ALL wire tags. The ONLY missing piece for the 7 encoder-gap variants is the Lua → binary encoder
-dispatch.
+`tests/test_code_to_back.lua` includes executable JIT coverage for popcount + rotl, verifying both `CmdIntrinsic` and `CmdRotate` production.
+
+---
+
+## Closed: Vector Reductions, Integer TailScalar Subset
+
+`lower_to_back.lua` now lowers supported vector reductions without adding Back ASDL or wire tags.
+
+Implemented subset:
+
+- contiguous integer/vector schedules with `TailScalar`
+- `add`, `mul`, `and`, `or`, `xor`, `min`, and `max`
+- vector accumulator block params initialized from reduction identities
+- vector contribution combines via `CmdVecBinary` or `CmdVecCompare` + `CmdVecSelect`
+- horizontal fold via `CmdVecExtractLane` and scalar combines
+- scalar tail/exit handoff with accumulator overrides
+
+Validation:
+
+```sh
+luajit tests/test_lower_to_back_vector_reductions.lua
+luajit tests/test_lower_to_back_kernel_vector.lua
+luajit tests/test_parse_kernels.lua
+```
+
+Remaining limitations:
+
+- closed forms remain a separate lowering strategy, not a vector-reduction path
+- `TailNone` still needs a divisibility proof before it should bypass scalar tail handling
+- float reductions remain blocked by missing Back vector float arithmetic/compare ops
+
+---
+
+## Closed: View Return ABI
+
+View returns now use an sret descriptor ABI.
+
+A returned view is written to the hidden result pointer as three 8-byte components:
+
+- offset 0: `data`
+- offset 8: `len`
+- offset 16: `stride`
+
+`CodeAggregateAbi.lowered_sig` treats single view results as sret. `code_to_back.lua` stores returned view components to the hidden result pointer and loads view components after sret calls. `tests/test_code_to_back.lua` includes executable JIT coverage for returning a view descriptor.
+
+---
+
+## Closed: Scalar Kernel Fragment Placement
+
+Scalar kernel lowering now places synthetic `KernelBinding` values back into Code blocks even when the binding is not a direct instruction result.
+
+Placement sources:
+
+- existing instruction-result value maps
+- loop/header block params used by affine/index expressions
+- memory access facts for `KernelExprLoad`
+- recursive value-expression operands for algebra/select/compare expressions
+
+Validation:
+
+```sh
+luajit tests/test_code_mem_facts.lua
+luajit tests/test_lower_to_back_kernel_scalar.lua
+```
+
+---
+
+## Closed: Closure Descriptor Lowering
+
+Closure values now use the existing aggregate/by-reference path rather than a new BackCmd or wire tag.
+
+Implemented behavior:
+
+- descriptor storage is `{ fn, ctx }`, two pointer-sized words
+- converted closure literals materialize helper function pointers and inline capture environments after the descriptor
+- `CodeCallClosure` lowers by loading `fn` and `ctx`, then emitting `BackCallIndirect`
+- synthetic Back signatures insert the context pointer after any hidden sret pointer
+- `CodeInstClosure` lowers explicit `{ fn, ctx }` descriptors
+- returning captured closure literals is rejected with a clear ownership-model error
+
+Validation:
+
+```sh
+luajit tests/test_closure_escape.lua
+luajit tests/test_code_to_back.lua
+```
+
+Remaining language-design boundary:
+
+- heap/arena ownership for captured environments that escape their defining frame is not a backend wire/codegen gap; captured closure returns fail loudly until that model exists
+
+---
+
+## Closed: Handle Types
+
+Handle types are backend-transparent values. They lower through their declared scalar representation and require no BackCmd or wire tag.
+
+Implemented behavior:
+
+- `THandle` maps to `CodeTyHandle(repr, source_ty)`
+- `CodeAggregateAbi.scalar(CodeTyHandle(...))` returns the scalar representation
+- layout and ABI classification use the handle representation size/alignment
+- invalid values, `repr(handle)`, and `Handle.from_repr(raw)` are checked before backend lowering
+- unsafe casts between handles and raw representation scalars are rejected by typechecking
+
+Validation:
+
+```sh
+luajit tests/test_handle_types.lua
+```
+
+---
+
+## Closed Tooling Gaps
+
+### Debug interpreter indirect calls
+
+`debug_interpreter.lua` now gives `CmdFuncAddr` a function-address value and resolves `BackCallIndirect` targets through the same internal call machinery as direct calls. It also binds callee entry params from call arguments and writes returned values back into the caller frame.
+
+Validation:
+
+```sh
+luajit tests/test_debug_interpreter.lua
+```
+
+### Hosted JIT disassembly
+
+`hosted_jit.lua` now mirrors the cdylib artifact helpers:
+
+- `Artifact:getbytes`
+- `Artifact:hexbytes`
+- `Artifact:writebytes`
+- `Artifact:disasm`
+- `Jit:peek`
+
+Validation:
+
+```sh
+cargo build --release
+target/release/moonlift /tmp/moonlift_hosted_peek_smoke.mlua
+```
+
+---
+
+## Removed: Tape Compiler Path
+
+The dead text-tape path has been deleted. The backend now uses only the binary wire format.
+
+Removed/cleaned:
+
+- `lua/moonlift/tape_encode.lua`
+- `lua/moonlift/tape_exec.lua`
+- `Jit::compile_tape`
+- `_host_compile` tape hook
+- tape FFI declaration/comments
+
+---
+
+## Closed: Wire Format Documentation Drift
+
+`BACK_WIRE_FORMAT.md` now documents the implemented `Splat` layout:
+
+- `Splat` has 4 slots: `[dst, scalar_type, lanes, src]`
+
+`src/wire_tags.rs` / `TAG_SLOTS` remains the authoritative implementation contract.

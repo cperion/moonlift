@@ -1,0 +1,199 @@
+{
+	"version": 1,
+	"workflowId": "wf-backend-gap",
+	"planId": "lowering",
+	"revision": 6,
+	"nextId": 13,
+	"createdAt": "2026-06-18T08:07:47.324Z",
+	"updatedAt": "2026-06-18T08:24:51.426Z",
+	"tasks": [
+		{
+			"id": "T001",
+			"title": "Add atomic conversion helpers",
+			"detail": "Near existing operator conversion helpers (after shift_op at lines 86-91), add core_to_back helpers for MoonCore.AtomicOrdering -> BackAtomicSeqCst and MoonCore.AtomicRmwOp -> BackAtomicRmwAdd/Sub/And/Or/Xor/Xchg. Helpers must call unsupported(...) for unknown variants, not silently default.",
+			"file": "lua/moonlift/code_to_back.lua",
+			"after": [],
+			"status": "done",
+			"order": 1,
+			"claimedBy": "worker-10137",
+			"evidence": "Added atomic_ordering() and atomic_rmw_op() helpers in lua/moonlift/code_to_back.lua after shift_op. Helpers map Core.AtomicSeqCst and Core.AtomicRmwAdd/Sub/And/Or/Xor/Xchg to Back equivalents and call unsupported(...) for unknown variants.",
+			"notes": [],
+			"createdAt": "2026-06-18T08:07:47.324Z",
+			"updatedAt": "2026-06-18T08:15:52.046Z"
+		},
+		{
+			"id": "T002",
+			"title": "Track atomic result types",
+			"detail": "In inst_dst_type at lines 311-339, extend the CodeInstLoad result-type handling so CodeInstAtomicLoad, CodeInstAtomicRmw, and CodeInstAtomicCas return k.dst, k.access.ty. AtomicStore and AtomicFence intentionally return nil,nil.",
+			"file": "lua/moonlift/code_to_back.lua",
+			"after": [
+				"T001"
+			],
+			"status": "done",
+			"order": 2,
+			"evidence": "Extended inst_dst_type() in lua/moonlift/code_to_back.lua so CodeInstAtomicLoad, CodeInstAtomicRmw, and CodeInstAtomicCas return k.dst, k.access.ty. AtomicStore/Fence intentionally remain nil-result.",
+			"notes": [],
+			"createdAt": "2026-06-18T08:07:47.324Z",
+			"updatedAt": "2026-06-18T08:15:52.046Z"
+		},
+		{
+			"id": "T003",
+			"title": "Lower atomic load and store",
+			"detail": "In inst(ctx,i), insert branches between CodeInstStore (ending line 583) and CodeInstCall (line 584). For CodeInstAtomicLoad/Store: require scalar(k.access.ty), build addr with addr_from_place(ctx,k.place,ctx.mem_backend_by_inst[i.id.text]), reuse memory_info(ctx,k.access,i.id), convert ordering, and emit Back.CmdAtomicLoad or Back.CmdAtomicStore with bid(...) values.",
+			"file": "lua/moonlift/code_to_back.lua",
+			"after": [
+				"T001",
+				"T002"
+			],
+			"status": "done",
+			"order": 3,
+			"evidence": "Added CodeInstAtomicLoad and CodeInstAtomicStore lowering branches in inst(ctx,i). They require scalar(k.access.ty), use addr_from_place(ctx,k.place,ctx.mem_backend_by_inst[i.id.text]), reuse memory_info(ctx,k.access,i.id), preserve ordering, and emit Back.CmdAtomicLoad/Store.",
+			"notes": [],
+			"createdAt": "2026-06-18T08:07:47.324Z",
+			"updatedAt": "2026-06-18T08:15:52.046Z"
+		},
+		{
+			"id": "T004",
+			"title": "Lower atomic rmw cas and fence",
+			"detail": "In the same insertion point, add CodeInstAtomicRmw, CodeInstAtomicCas, and CodeInstAtomicFence branches. RMW uses atomic_rmw_op(k.op), scalar(k.access.ty), bid(k.value); CAS uses bid(k.expected)/bid(k.replacement); Fence emits Back.CmdAtomicFence(atomic_ordering(k.ordering)). Use existing memory_info and addr_from_place patterns; do not special-case aggregate/view atomics.",
+			"file": "lua/moonlift/code_to_back.lua",
+			"after": [
+				"T003"
+			],
+			"status": "done",
+			"order": 4,
+			"evidence": "Added CodeInstAtomicRmw, CodeInstAtomicCas, and CodeInstAtomicFence lowering branches. RMW uses atomic_rmw_op(k.op); CAS uses expected/replacement; Fence emits Back.CmdAtomicFence(atomic_ordering(k.ordering)).",
+			"notes": [],
+			"createdAt": "2026-06-18T08:07:47.324Z",
+			"updatedAt": "2026-06-18T08:15:52.046Z"
+		},
+		{
+			"id": "T005",
+			"title": "Strengthen atomic test diagnostics",
+			"detail": "Keep the existing .mlua program and JIT assertions. Replace the single combined BackCmd assertion with per-command counts or a missing-command diagnostic so failures identify which CmdAtomic* variant was not produced. Store the JIT result in a local before asserting to improve failure messages.",
+			"file": "tests/test_atomics.lua",
+			"after": [
+				"T004"
+			],
+			"status": "done",
+			"order": 5,
+			"evidence": "Updated tests/test_atomics.lua diagnostics: counts each CmdAtomic* variant independently and stores JIT result in local got with assertion messages for returned value and cell[0].",
+			"notes": [],
+			"createdAt": "2026-06-18T08:07:47.324Z",
+			"updatedAt": "2026-06-18T08:15:52.046Z"
+		},
+		{
+			"id": "T006",
+			"title": "Run atomic and backend regression tests",
+			"detail": "Run at least: luajit tests/test_atomics.lua, luajit tests/test_back_add_i32.lua, luajit tests/test_back_object_emit.lua, and luajit tests/test_mlua_host_pipeline.lua after code changes. If release libmoonlift.so is stale, rebuild with cargo build --release or make first per AGENTS.md.",
+			"after": [
+				"T005"
+			],
+			"status": "done",
+			"order": 6,
+			"evidence": "Ran regression tests: luajit tests/test_atomics.lua, test_back_add_i32.lua, test_back_object_emit.lua, test_parse_typecheck.lua, and test_parse_kernels.lua all pass. Planned test_mlua_host_pipeline.lua is not present in this checkout.",
+			"notes": [],
+			"createdAt": "2026-06-18T08:07:47.324Z",
+			"updatedAt": "2026-06-18T08:15:52.046Z"
+		},
+		{
+			"id": "T007",
+			"title": "Update backend gap documentation",
+			"detail": "After atomic lowering passes, update BACKEND_GAPS.md to mark encoder gaps closed and atomic lowering no longer a remaining gap. Preserve separate notes for atomic ordering wire fidelity, vector reductions, view return ABI, closures/handles, and debug interpreter indirect call limitations.",
+			"file": "BACKEND_GAPS.md",
+			"after": [
+				"T006"
+			],
+			"status": "done",
+			"order": 7,
+			"evidence": "Rewrote BACKEND_GAPS.md to current status: encoder gaps closed, atomic lowering closed, atomics test passing; preserved open gaps for atomic ordering wire fidelity, rotate source lowering, vector reductions, view return ABI, closures/handles, interpreter indirect calls, hosted disassembly.",
+			"notes": [],
+			"createdAt": "2026-06-18T08:07:47.324Z",
+			"updatedAt": "2026-06-18T08:15:52.046Z"
+		},
+		{
+			"id": "T008",
+			"title": "Design vector reduction lowering",
+			"detail": "Blocked future work: lower_to_back.lua line 631 errors on KernelResultReduction/KernelResultClosedForm for vector schedules. Needs a design for decomposing vector accumulators to scalar results using extract lanes and pairwise scalar/vector ops, including op coverage and tail handling.",
+			"file": "lua/moonlift/lower_to_back.lua",
+			"after": [
+				"T007"
+			],
+			"status": "blocked",
+			"order": 8,
+			"blockedReason": "Requires a vector-reduction lowering design before safe implementation; current task prioritizes atomics.",
+			"notes": [],
+			"createdAt": "2026-06-18T08:07:47.324Z",
+			"updatedAt": "2026-06-18T08:07:47.324Z"
+		},
+		{
+			"id": "T009",
+			"title": "Design view return ABI",
+			"detail": "Blocked future work: code_to_back.lua line 646 errors for returning view values. Needs ABI decision for 3-component view descriptors: sret pointer versus multiple lowered return values, and consistency with CodeAggregateAbi.lowered_sig/call/return paths.",
+			"file": "lua/moonlift/code_to_back.lua",
+			"after": [
+				"T007"
+			],
+			"status": "done",
+			"order": 9,
+			"evidence": "Implemented view return ABI as sret descriptor lowering. CodeAggregateAbi.lowered_sig now treats single view results as sret and view size/align as 24/8. code_to_back.lua stores returned view components to hidden result pointer and loads view components after sret calls. tests/test_code_to_back.lua validates and JIT-executes a view-return function.",
+			"notes": [],
+			"createdAt": "2026-06-18T08:07:47.324Z",
+			"updatedAt": "2026-06-18T08:22:53.088Z"
+		},
+		{
+			"id": "T010",
+			"title": "Design debug interpreter indirect calls",
+			"detail": "Blocked future work: debug_interpreter.lua lines 1110-1115 zero-stub BackCallIndirect. Needs a representation for function address values (CmdFuncAddr currently no-ops) and call target lookup before implementing interpreter semantics.",
+			"file": "lua/moonlift/debug_interpreter.lua",
+			"after": [
+				"T007"
+			],
+			"status": "blocked",
+			"order": 10,
+			"blockedReason": "Requires an interpreter-level function-pointer representation/design before code edits.",
+			"notes": [],
+			"createdAt": "2026-06-18T08:07:47.324Z",
+			"updatedAt": "2026-06-18T08:07:47.324Z"
+		},
+		{
+			"id": "T011",
+			"title": "Lower CodeInstIntrinsic to BackCmds",
+			"detail": "Implemented CodeInstIntrinsic in lua/moonlift/code_to_back.lua: ordinary unary intrinsics lower to CmdIntrinsic; Rotl/Rotr lower to CmdRotate; Fma lowers to CmdFma; Trap lowers to CmdTrap. Added executable JIT coverage in tests/test_code_to_back.lua for popcount + rotl.",
+			"file": "lua/moonlift/code_to_back.lua",
+			"after": [],
+			"status": "done",
+			"order": 11,
+			"evidence": "Implemented CodeInstIntrinsic lowering in code_to_back.lua and added JIT test in tests/test_code_to_back.lua. test_code_to_back.lua passes.",
+			"notes": [],
+			"createdAt": "2026-06-18T08:22:53.088Z",
+			"updatedAt": "2026-06-18T08:22:53.088Z"
+		},
+		{
+			"id": "T012",
+			"title": "Complete lower_to_back CodeInst destination type tracking",
+			"detail": "Mirrored new CodeInst support in lower_to_back.lua note_inst_dst so CodeInstIntrinsic and atomic result-producing instructions are recorded with value types for fragment/kernel emission bookkeeping.",
+			"file": "lua/moonlift/lower_to_back.lua",
+			"after": [],
+			"status": "done",
+			"order": 12,
+			"evidence": "Updated lower_to_back.lua note_inst_dst: CodeInstIntrinsic uses k.ty; CodeInstAtomicLoad/Rmw/Cas use k.access.ty. Regression tests pass.",
+			"notes": [],
+			"createdAt": "2026-06-18T08:23:45.142Z",
+			"updatedAt": "2026-06-18T08:23:45.142Z"
+		},
+		{
+			"id": "T013",
+			"title": "Fix float abs intrinsic encoding",
+			"detail": "BackIntrinsicAbs was encoded as Iabs unconditionally. Since Core IntrinsicAbs is float-classed, update back_command_binary.lua to emit Fabs for BackF32/BackF64 and keep Iabs for any integer BackIntrinsicAbs use. Add JIT coverage for f64 abs.",
+			"file": "lua/moonlift/back_command_binary.lua",
+			"after": [],
+			"status": "done",
+			"order": 13,
+			"notes": [],
+			"createdAt": "2026-06-18T08:24:51.426Z",
+			"updatedAt": "2026-06-18T08:24:51.426Z",
+			"evidence": "Updated back_command_binary.lua CmdIntrinsic BackIntrinsicAbs branch to choose T.Fabs for BackF32/BackF64, otherwise T.Iabs. Added f64 abs executable test in tests/test_code_to_back.lua. Regression tests pass."
+		}
+	]
+}

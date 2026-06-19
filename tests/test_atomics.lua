@@ -27,21 +27,26 @@ local program = result.program
 local report = result.back_report
 assert(#report.issues == 0, report.issues[1] and report.issues[1].kind)
 
-local saw_load, saw_store, saw_rmw, saw_cas, saw_fence = false, false, false, false, false
+local counts = { load = 0, store = 0, rmw = 0, cas = 0, fence = 0 }
 for i = 1, #program.cmds do
     local cmd = program.cmds[i]
-    if pvm.classof(cmd) == B.CmdAtomicLoad then saw_load = true end
-    if pvm.classof(cmd) == B.CmdAtomicStore then saw_store = true end
-    if pvm.classof(cmd) == B.CmdAtomicRmw then saw_rmw = true end
-    if pvm.classof(cmd) == B.CmdAtomicCas then saw_cas = true end
-    if pvm.classof(cmd) == B.CmdAtomicFence then saw_fence = true end
+    if pvm.classof(cmd) == B.CmdAtomicLoad then counts.load = counts.load + 1 end
+    if pvm.classof(cmd) == B.CmdAtomicStore then counts.store = counts.store + 1 end
+    if pvm.classof(cmd) == B.CmdAtomicRmw then counts.rmw = counts.rmw + 1 end
+    if pvm.classof(cmd) == B.CmdAtomicCas then counts.cas = counts.cas + 1 end
+    if pvm.classof(cmd) == B.CmdAtomicFence then counts.fence = counts.fence + 1 end
 end
-assert(saw_load and saw_store and saw_rmw and saw_cas and saw_fence, "expected atomic BackCmds")
+assert(counts.load == 1, "expected one CmdAtomicLoad, saw " .. tostring(counts.load))
+assert(counts.store == 1, "expected one CmdAtomicStore, saw " .. tostring(counts.store))
+assert(counts.rmw == 1, "expected one CmdAtomicRmw, saw " .. tostring(counts.rmw))
+assert(counts.cas == 1, "expected one CmdAtomicCas, saw " .. tostring(counts.cas))
+assert(counts.fence == 1, "expected one CmdAtomicFence, saw " .. tostring(counts.fence))
 
 local artifact = jit_api.jit():compile(program)
 local atomic_demo = ffi.cast("int32_t (*)(int32_t*)", artifact:getpointer(B.BackFuncId("atomic_demo")))
 local cell = ffi.new("int32_t[1]", { 0 })
-assert(atomic_demo(cell) == 46)
-assert(cell[0] == 21)
+local got = atomic_demo(cell)
+assert(got == 46, "atomic_demo returned " .. tostring(got))
+assert(cell[0] == 21, "cell[0] was " .. tostring(cell[0]))
 artifact:free()
 print("ok")

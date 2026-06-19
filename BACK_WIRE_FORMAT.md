@@ -319,7 +319,7 @@ All: `[dst, ptr_type, id]`
 | 113 | `AtomicStore` | 4 | `[scalar_type, memflags, addr, value]` |
 | 114 | `AtomicRmw` | 6 | `[dst, scalar_type, op_kind, memflags, addr, value]` |
 | 115 | `AtomicCas` | 6 | `[dst, scalar_type, memflags, addr, expected, replacement]` |
-| 116 | `Fence` | 0 | — |
+| 116 | `Fence` | 0 | — (`SeqCst`; current ASDL has no weaker ordering variants) |
 | 117 | `Memcpy` | 3 | `[dst, src, len]` |
 | 118 | `Memset` | 3 | `[dst, byte, len]` |
 
@@ -334,7 +334,7 @@ All: `[dst, ptr_type, id]`
 
 | Tag | Name | Slots | Description |
 |-----|------|-------|-------------|
-| 130 | `Splat` | 3 | `[dst, scalar_type, src]` |
+| 130 | `Splat` | 4 | `[dst, scalar_type, lanes, src]` |
 | 131 | `InsertLane` | 4 | `[dst, vector, lane_value, lane_idx]` |
 | 132 | `ExtractLane` | 4 | `[dst, scalar_type, vector, lane_idx]` |
 | 133–138 | `VecIadd`/`VecIsub`/`VecImul`/`VecBand`/`VecBor`/`VecBxor` | 3 | `[dst, lhs, rhs]` |

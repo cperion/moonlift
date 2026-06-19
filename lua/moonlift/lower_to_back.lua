@@ -31,6 +31,7 @@ function M.Define(T)
     local CodeKernelPlan = require("moonlift.code_kernel_plan").Define(T)
     local CodeSchedulePlan = require("moonlift.code_schedule_plan").Define(T)
     local CodeLowerPlan = require("moonlift.code_lower_plan").Define(T)
+    local ReductionAlgebra = require("moonlift.reduction_algebra").Define(T)
 
     local api = {}
 
@@ -142,6 +143,21 @@ function M.Define(T)
         return id and ctx.value_types[id.text] or nil
     end
 
+    local function code_value(ctx, id)
+        local ov = id and ctx.value_overrides and ctx.value_overrides[id.text] or nil
+        if ov ~= nil then return ov.value, ov.ty end
+        return bid(id), value_ty(ctx, id)
+    end
+
+    local function with_value_overrides(ctx, overrides, fn)
+        local old = ctx.value_overrides
+        ctx.value_overrides = setmetatable(overrides or {}, { __index = old })
+        local results = { pcall(fn) }
+        ctx.value_overrides = old
+        if not results[1] then error(results[2], 0) end
+        return unpack(results, 2)
+    end
+
     local function int_op(op, ty)
         if op == "add" then return Back.BackIntAdd end
         if op == "sub" then return Back.BackIntSub end
@@ -171,6 +187,70 @@ function M.Define(T)
         if op == Core.CmpGt then return float and Back.BackFCmpGt or (unsigned and Back.BackUIcmpGt or Back.BackSIcmpGt) end
         if op == Core.CmpGe then return float and Back.BackFCmpGe or (unsigned and Back.BackUIcmpGe or Back.BackSIcmpGe) end
         error("lower_to_back: unsupported compare op", 3)
+    end
+
+    local function fresh(ctx, prefix)
+        ctx.next_tmp = (ctx.next_tmp or 0) + 1
+        return Back.BackValId((prefix or "semantic.tmp") .. "." .. tostring(ctx.next_tmp))
+    end
+
+    local function reduction_entry(reduction, ty)
+        local entry, why = ReductionAlgebra.entry(reduction.kind, ty or reduction.ty)
+        if entry == nil then error("lower_to_back: unsupported vector reduction " .. tostring(why), 3) end
+        return entry
+    end
+
+    local function emit_reduction_scalar_identity(ctx, entry)
+        local dst = fresh(ctx, "semantic.reduce.identity")
+        ctx.cmds[#ctx.cmds + 1] = Back.CmdConst(dst, entry.scalar, Back.BackLitInt(entry.identity_raw))
+        return dst
+    end
+
+    local function emit_reduction_vector_identity(ctx, entry, vec)
+        local scalar_id = emit_reduction_scalar_identity(ctx, entry)
+        local dst = fresh(ctx, "semantic.reduce.vec_identity")
+        ctx.cmds[#ctx.cmds + 1] = Back.CmdVecSplat(dst, vec, scalar_id)
+        return dst
+    end
+
+    local function emit_reduction_scalar_combine(ctx, entry, ty, lhs, rhs)
+        local dst = fresh(ctx, "semantic.reduce.scalar")
+        if entry.scalar_int_op ~= nil then
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdIntBinary(dst, entry.scalar_int_op, scalar(ty), Back.BackIntSemantics(Back.BackIntWrap, Back.BackIntMayLose), lhs, rhs)
+        elseif entry.scalar_bit_op ~= nil then
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdBitBinary(dst, entry.scalar_bit_op, scalar(ty), lhs, rhs)
+        elseif entry.scalar_compare ~= nil then
+            local cond = fresh(ctx, "semantic.reduce.cmp")
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdCompare(cond, entry.scalar_compare, shape(ty), lhs, rhs)
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdSelect(dst, shape(ty), cond, lhs, rhs)
+        else
+            error("lower_to_back: reduction has no scalar combiner " .. tostring(entry.name), 3)
+        end
+        return dst
+    end
+
+    local function emit_reduction_vector_combine(ctx, entry, vec, lhs, rhs)
+        local dst = fresh(ctx, "semantic.reduce.vector")
+        if entry.vector_op ~= nil then
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdVecBinary(dst, entry.vector_op, vec, lhs, rhs)
+        elseif entry.vector_compare ~= nil then
+            local mask = fresh(ctx, "semantic.reduce.vec_cmp")
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdVecCompare(mask, entry.vector_compare, vec, lhs, rhs)
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdVecSelect(dst, vec, mask, lhs, rhs)
+        else
+            error("lower_to_back: reduction has no vector combiner " .. tostring(entry.name), 3)
+        end
+        return dst
+    end
+
+    local function emit_reduction_horizontal_fold(ctx, entry, ty, base_scalar, vector_acc, lanes)
+        local acc = base_scalar
+        for lane = 0, lanes - 1 do
+            local lane_v = fresh(ctx, "semantic.reduce.lane")
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdVecExtractLane(lane_v, scalar(ty), vector_acc, lane)
+            acc = emit_reduction_scalar_combine(ctx, entry, ty, acc, lane_v)
+        end
+        return acc
     end
 
     local function cast_op_for(from_ty, to_ty)
@@ -223,9 +303,9 @@ function M.Define(T)
             ctx.cmds[#ctx.cmds + 1] = Back.CmdConst(v, scalar(expr.const.ty), back_lit)
             return v, expr.const.ty
         elseif cls == Value.ValueExprValue then
-            local ty = value_ty(ctx, expr.value)
+            local v, ty = code_value(ctx, expr.value)
             if ty == nil then error("lower_to_back: semantic expression references unknown value " .. expr.value.text, 3) end
-            return bid(expr.value), ty
+            return v, ty
         elseif cls == Value.ValueExprAdd or cls == Value.ValueExprSub or cls == Value.ValueExprMul or cls == Value.ValueExprDiv then
             local av, aty = lower_value_expr(ctx, expr.a)
             local bv, bty = lower_value_expr(ctx, expr.b)
@@ -398,7 +478,7 @@ function M.Define(T)
 
     local function lower_kernel_expr(ctx, expr)
         local cls = pvm.classof(expr)
-        if cls == Kernel.KernelExprValue then return bid(expr.value), value_ty(ctx, expr.value) end
+        if cls == Kernel.KernelExprValue then return code_value(ctx, expr.value) end
         if cls == Kernel.KernelExprKernelValue then
             local v = kernel_value_back(ctx, expr.value)
             return v, ctx.kernel_value_types and ctx.kernel_value_types[expr.value.text] or nil
@@ -424,6 +504,39 @@ function M.Define(T)
         note_value(ctx, ctx.kernel_value_code_id and ctx.kernel_value_code_id[binding.id.text], binding.ty)
     end
 
+    local function value_expr_block(ctx, expr)
+        local cls = pvm.classof(expr)
+        if cls == Value.ValueExprValue then return ctx.value_block and ctx.value_block[expr.value.text] end
+        if cls == Value.ValueExprAdd or cls == Value.ValueExprSub or cls == Value.ValueExprMul or cls == Value.ValueExprDiv or cls == Value.ValueExprCmp then
+            return value_expr_block(ctx, expr.a) or value_expr_block(ctx, expr.b)
+        end
+        if cls == Value.ValueExprSelect then return value_expr_block(ctx, expr.cond) or value_expr_block(ctx, expr.t) or value_expr_block(ctx, expr.f) end
+        if cls == Value.ValueExprAffine then
+            for _, term in ipairs(expr.affine.terms or {}) do
+                local block = ctx.value_block and ctx.value_block[term.value.text]
+                if block ~= nil then return block end
+            end
+        end
+        return nil
+    end
+
+    local function kernel_binding_block(ctx, binding)
+        local block = ctx.kernel_value_block and ctx.kernel_value_block[binding.id.text]
+        if block ~= nil then return block end
+        local ecls = pvm.classof(binding.expr)
+        if ecls == Kernel.KernelExprLoad then
+            local access = first_access(ctx, binding.expr.stream, false)
+            return access and access.block and access.block.block
+        elseif ecls == Kernel.KernelExprValue then
+            return ctx.value_block and ctx.value_block[binding.expr.value.text]
+        elseif ecls == Kernel.KernelExprKernelValue then
+            return ctx.kernel_value_block and ctx.kernel_value_block[binding.expr.value.text]
+        elseif ecls == Kernel.KernelExprAlgebra then
+            return value_expr_block(ctx, binding.expr.expr)
+        end
+        return nil
+    end
+
     local function emit_kernel_effect(ctx, effect)
         local cls = pvm.classof(effect)
         if cls == Kernel.KernelEffectStore then
@@ -444,10 +557,31 @@ function M.Define(T)
         end
     end
 
-    local function edge_args(ctx, edge_fact)
-        local args = {}
-        for _, arg in ipairs(edge_fact and edge_fact.args or {}) do args[#args + 1] = bid(arg.src) end
-        return args
+    local function edge_args(ctx, edge_fact, overrides)
+        return with_value_overrides(ctx, overrides, function()
+            local args = {}
+            for _, arg in ipairs(edge_fact and edge_fact.args or {}) do
+                local v = code_value(ctx, arg.src)
+                args[#args + 1] = v
+            end
+            return args
+        end)
+    end
+
+    local function reduction_effects(kplan)
+        local out = {}
+        for _, effect in ipairs(kplan.body.effects or {}) do
+            if pvm.classof(effect) == Kernel.KernelEffectFold then out[#out + 1] = effect.reduction end
+        end
+        return out
+    end
+
+    local function reduction_overrides(reductions, values)
+        local overrides = {}
+        for i, reduction in ipairs(reductions or {}) do
+            overrides[reduction.accumulator.text] = { value = values[i], ty = reduction.ty }
+        end
+        return overrides
     end
 
     local function emit_scalar_kernel_fragment(ctx, code_module, graph, flow, schedules, kernels, fragment)
@@ -468,7 +602,7 @@ function M.Define(T)
         for _, gb in ipairs(loop.body or {}) do body_set[gb.block.text] = true end
         local bindings_by_block, effects_by_block = {}, {}
         for _, binding in ipairs(kplan.body.bindings or {}) do
-            local block = ctx.kernel_value_block and ctx.kernel_value_block[binding.id.text]
+            local block = kernel_binding_block(ctx, binding)
             if block == nil then error("lower_to_back: cannot place KernelBinding " .. binding.id.text .. " in a Code block", 2) end
             bindings_by_block[block.text] = bindings_by_block[block.text] or {}
             bindings_by_block[block.text][#bindings_by_block[block.text] + 1] = binding
@@ -543,6 +677,19 @@ function M.Define(T)
         return nil
     end
 
+    local function vec_cmp_op(op, ty)
+        local cls = pvm.classof(ty)
+        if cls == Code.CodeTyFloat then error("lower_to_back: Back has no vector float compare", 3) end
+        local unsigned = ty == Code.CodeTyIndex or (cls == Code.CodeTyInt and ty.signedness == Code.CodeUnsigned) or ty == Code.CodeTyBool8
+        if op == Core.CmpEq then return Back.BackVecIcmpEq end
+        if op == Core.CmpNe then return Back.BackVecIcmpNe end
+        if op == Core.CmpLt then return unsigned and Back.BackVecUIcmpLt or Back.BackVecSIcmpLt end
+        if op == Core.CmpLe then return unsigned and Back.BackVecUIcmpLe or Back.BackVecSIcmpLe end
+        if op == Core.CmpGt then return unsigned and Back.BackVecUIcmpGt or Back.BackVecSIcmpGt end
+        if op == Core.CmpGe then return unsigned and Back.BackVecUIcmpGe or Back.BackVecSIcmpGe end
+        error("lower_to_back: unsupported vector compare op", 3)
+    end
+
     local lower_vector_kernel_expr
     local function lower_vector_value_expr(ctx, expr, vec, elem_ty)
         local cls = pvm.classof(expr)
@@ -576,6 +723,21 @@ function M.Define(T)
             ctx.next_tmp = (ctx.next_tmp or 0) + 1
             local dst = Back.BackValId("semantic.vec.bin." .. tostring(ctx.next_tmp))
             ctx.cmds[#ctx.cmds + 1] = Back.CmdVecBinary(dst, vec_int_op_for_value_expr(cls), vec, a, b)
+            return dst
+        elseif cls == Value.ValueExprCmp then
+            local a = lower_vector_value_expr(ctx, expr.a, vec, elem_ty)
+            local b = lower_vector_value_expr(ctx, expr.b, vec, elem_ty)
+            ctx.next_tmp = (ctx.next_tmp or 0) + 1
+            local dst = Back.BackValId("semantic.vec.cmp." .. tostring(ctx.next_tmp))
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdVecCompare(dst, vec_cmp_op(expr.op, expr.ty), vec, a, b)
+            return dst
+        elseif cls == Value.ValueExprSelect then
+            local cond = lower_vector_value_expr(ctx, expr.cond, vec, elem_ty)
+            local tv = lower_vector_value_expr(ctx, expr.t, vec, elem_ty)
+            local fv = lower_vector_value_expr(ctx, expr.f, vec, elem_ty)
+            ctx.next_tmp = (ctx.next_tmp or 0) + 1
+            local dst = Back.BackValId("semantic.vec.select." .. tostring(ctx.next_tmp))
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdVecSelect(dst, vec, cond, tv, fv)
             return dst
         end
         -- Non-vector algebra values become scalar splats only when they do not depend
@@ -628,7 +790,7 @@ function M.Define(T)
         if schedule == nil or pvm.classof(schedule.kind) ~= Schedule.ScheduleVector then error("lower_to_back: vector kernel strategy requires ScheduleVector", 2) end
         local vec, elem_ty, lanes = vector_for_lane_shape(schedule.kind.lanes)
         if schedule.kind.tail ~= Schedule.TailScalar and schedule.kind.tail ~= Schedule.TailNone then error("lower_to_back: vector kernel only implements TailScalar/TailNone", 2) end
-        if pvm.classof(kplan.body.result) == Kernel.KernelResultReduction or pvm.classof(kplan.body.result) == Kernel.KernelResultClosedForm then error("lower_to_back: vector reductions are not implemented", 2) end
+        if pvm.classof(kplan.body.result) == Kernel.KernelResultClosedForm then error("lower_to_back: vector closed forms are not implemented", 2) end
         local loop = graph_loop_by_id(graph)[kplan.subject.loop.text]
         if loop == nil or #(loop.latches or {}) ~= 1 or #(loop.exits or {}) ~= 1 then error("lower_to_back: vector kernel supports one loop/latch/exit", 2) end
         local loop_fact = nil
@@ -643,10 +805,51 @@ function M.Define(T)
         if body_successor == nil then error("lower_to_back: vector kernel cannot find scalar tail body successor", 2) end
         local scalar_cond = loop_fact.exits and loop_fact.exits[1] and loop_fact.exits[1].condition
         if scalar_cond == nil then error("lower_to_back: vector kernel requires scalar exit condition", 2) end
+        local reductions = reduction_effects(kplan)
+        local has_reductions = #reductions > 0
+        if has_reductions and schedule.kind.tail ~= Schedule.TailScalar then error("lower_to_back: vector reductions require TailScalar", 2) end
+        local counter = kplan.body.domain.counter
+        local counter_ty = value_ty(ctx, counter)
         local vector_block = Back.BackBlockId(header.text .. ":kernel_vector")
         local tail_check = Back.BackBlockId(header.text .. ":kernel_tail")
+        local vector_check = has_reductions and Back.BackBlockId(header.text .. ":kernel_vector_check") or nil
+        local vector_done = has_reductions and Back.BackBlockId(header.text .. ":kernel_vector_done") or nil
+        local tail_exit = has_reductions and Back.BackBlockId(header.text .. ":kernel_tail_exit") or nil
+        if has_reductions then
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdCreateBlock(vector_check)
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdCreateBlock(vector_done)
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdCreateBlock(tail_exit)
+        end
         ctx.cmds[#ctx.cmds + 1] = Back.CmdCreateBlock(vector_block)
         ctx.cmds[#ctx.cmds + 1] = Back.CmdCreateBlock(tail_check)
+
+        local vector_counter_param, vector_body_counter_param, vector_done_counter_param, tail_counter_param
+        local vector_acc_params, vector_body_acc_params, vector_done_acc_params, tail_acc_params = {}, {}, {}, {}
+        if has_reductions then
+            vector_counter_param = fresh(ctx, "semantic.vec.i")
+            vector_body_counter_param = fresh(ctx, "semantic.vec.body_i")
+            vector_done_counter_param = fresh(ctx, "semantic.vec.done_i")
+            tail_counter_param = fresh(ctx, "semantic.vec.tail_i")
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdAppendBlockParam(vector_check, vector_counter_param, shape(counter_ty))
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdAppendBlockParam(vector_block, vector_body_counter_param, shape(counter_ty))
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdAppendBlockParam(vector_done, vector_done_counter_param, shape(counter_ty))
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdAppendBlockParam(tail_check, tail_counter_param, shape(counter_ty))
+            for _, reduction in ipairs(reductions) do
+                local vcp = fresh(ctx, "semantic.vec.acc")
+                local vbp = fresh(ctx, "semantic.vec.body_acc")
+                local vdp = fresh(ctx, "semantic.vec.done_acc")
+                local tap = fresh(ctx, "semantic.vec.tail_acc")
+                vector_acc_params[#vector_acc_params + 1] = vcp
+                vector_body_acc_params[#vector_body_acc_params + 1] = vbp
+                vector_done_acc_params[#vector_done_acc_params + 1] = vdp
+                tail_acc_params[#tail_acc_params + 1] = tap
+                ctx.cmds[#ctx.cmds + 1] = Back.CmdAppendBlockParam(vector_check, vcp, Back.BackShapeVec(vec))
+                ctx.cmds[#ctx.cmds + 1] = Back.CmdAppendBlockParam(vector_block, vbp, Back.BackShapeVec(vec))
+                ctx.cmds[#ctx.cmds + 1] = Back.CmdAppendBlockParam(vector_done, vdp, Back.BackShapeVec(vec))
+                ctx.cmds[#ctx.cmds + 1] = Back.CmdAppendBlockParam(tail_check, tap, shape(reduction.ty))
+            end
+        end
+
         ctx.kernel_value_by_code = {}
         for _, binding in ipairs(kplan.body.bindings or {}) do
             ctx.kernel_binding_by_id[binding.id.text] = binding
@@ -673,12 +876,9 @@ function M.Define(T)
         end
 
         ctx.cmds[#ctx.cmds + 1] = Back.CmdSwitchToBlock(block_id(header))
-        -- Preserve original scalar exit condition for the tail path.
         local header_bindings = {}
         for _, binding in ipairs(kplan.body.bindings or {}) do if ctx.kernel_value_block[binding.id.text] == header then header_bindings[#header_bindings + 1] = binding end end
         for _, binding in ipairs(header_bindings) do bind_kernel_value(ctx, binding) end
-        local counter = kplan.body.domain.counter
-        local counter_ty = value_ty(ctx, counter)
         ctx.next_tmp = (ctx.next_tmp or 0) + 1
         local lane_const = Back.BackValId("semantic.vec.lanes." .. tostring(ctx.next_tmp))
         ctx.cmds[#ctx.cmds + 1] = Back.CmdConst(lane_const, scalar(counter_ty), Back.BackLitInt(tostring(lanes)))
@@ -688,30 +888,110 @@ function M.Define(T)
         if scalar(stop_ty) ~= scalar(counter_ty) then stop_v = ensure_value_ty(ctx, Back.BackValId("semantic.vec.stop_cast." .. tostring(ctx.next_tmp)), counter_ty, stop_v, stop_ty) end
         local vec_ok = Back.BackValId("semantic.vec.ok." .. tostring(ctx.next_tmp))
         ctx.cmds[#ctx.cmds + 1] = Back.CmdCompare(vec_ok, cmp_op(Core.CmpLe, counter_ty), shape(counter_ty), next_i, stop_v)
-        ctx.cmds[#ctx.cmds + 1] = Back.CmdBrIf(vec_ok, vector_block, {}, tail_check, {})
+        if has_reductions then
+            local init_args = { bid(counter) }
+            for _, reduction in ipairs(reductions) do init_args[#init_args + 1] = emit_reduction_vector_identity(ctx, reduction_entry(reduction, elem_ty), vec) end
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdJump(vector_check, init_args)
+        else
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdBrIf(vec_ok, vector_block, {}, tail_check, {})
+        end
+
+        ctx.vector_counter = kplan.body.domain.counter
+        if has_reductions then
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdSwitchToBlock(vector_check)
+            with_value_overrides(ctx, { [counter.text] = { value = vector_counter_param, ty = counter_ty } }, function()
+                local step = fresh(ctx, "semantic.vec.lanes")
+                ctx.cmds[#ctx.cmds + 1] = Back.CmdConst(step, scalar(counter_ty), Back.BackLitInt(tostring(lanes)))
+                local check_next_i = fresh(ctx, "semantic.vec.next_i")
+                ctx.cmds[#ctx.cmds + 1] = Back.CmdIntBinary(check_next_i, Back.BackIntAdd, scalar(counter_ty), Back.BackIntSemantics(Back.BackIntWrap, Back.BackIntMayLose), vector_counter_param, step)
+                local check_stop, check_stop_ty = lower_value_expr(ctx, Value.ValueExprValue(loop_fact.counted.stop))
+                if scalar(check_stop_ty) ~= scalar(counter_ty) then check_stop = ensure_value_ty(ctx, fresh(ctx, "semantic.vec.stop_cast"), counter_ty, check_stop, check_stop_ty) end
+                local check_ok = fresh(ctx, "semantic.vec.ok")
+                ctx.cmds[#ctx.cmds + 1] = Back.CmdCompare(check_ok, cmp_op(Core.CmpLe, counter_ty), shape(counter_ty), check_next_i, check_stop)
+                local body_args, done_args = { vector_counter_param }, { vector_counter_param }
+                for _, acc in ipairs(vector_acc_params) do body_args[#body_args + 1] = acc; done_args[#done_args + 1] = acc end
+                ctx.cmds[#ctx.cmds + 1] = Back.CmdBrIf(check_ok, vector_block, body_args, vector_done, done_args)
+            end)
+        end
 
         ctx.vector_value_by_kernel, ctx.vector_value_by_code = {}, {}
-        ctx.vector_counter = kplan.body.domain.counter
         ctx.cmds[#ctx.cmds + 1] = Back.CmdSwitchToBlock(vector_block)
-        for _, effect in ipairs(kplan.body.effects or {}) do
-            if pvm.classof(effect) == Kernel.KernelEffectStore then
-                local access, info = first_access(ctx, effect.dst, true)
-                local addr = address_for_access(ctx, effect.dst, access, info, Value.ValueExprValue(kplan.body.domain.counter))
-                local value = lower_vector_kernel_expr(ctx, effect.value, vec, elem_ty)
-                ctx.cmds[#ctx.cmds + 1] = Back.CmdStoreInfo(Back.BackShapeVec(vec), addr, value, memory_info_for(ctx, access, info, ":kernel_vec_store", (info.deref_bytes or 0) * vec.lanes))
-            elseif pvm.classof(effect) ~= Kernel.KernelEffectFold then
-                error("lower_to_back: unsupported vector KernelEffect", 2)
+        local body_overrides = has_reductions and { [counter.text] = { value = vector_body_counter_param, ty = counter_ty } } or nil
+        with_value_overrides(ctx, body_overrides, function()
+            for _, effect in ipairs(kplan.body.effects or {}) do
+                if pvm.classof(effect) == Kernel.KernelEffectStore then
+                    local access, info = first_access(ctx, effect.dst, true)
+                    local addr = address_for_access(ctx, effect.dst, access, info, Value.ValueExprValue(kplan.body.domain.counter))
+                    local value = lower_vector_kernel_expr(ctx, effect.value, vec, elem_ty)
+                    ctx.cmds[#ctx.cmds + 1] = Back.CmdStoreInfo(Back.BackShapeVec(vec), addr, value, memory_info_for(ctx, access, info, ":kernel_vec_store", (info.deref_bytes or 0) * vec.lanes))
+                elseif pvm.classof(effect) ~= Kernel.KernelEffectFold then
+                    error("lower_to_back: unsupported vector KernelEffect", 2)
+                end
             end
-        end
-        local jump_args = {}
+        end)
+
         local latch_fact = edge_facts[latch_edge.from.block.text .. "\0" .. latch_edge.to.block.text]
-        for _, arg in ipairs(latch_fact and latch_fact.args or {}) do
-            if arg.dst_param == counter then jump_args[#jump_args + 1] = next_i else jump_args[#jump_args + 1] = bid(arg.dst_param) end
+        if has_reductions then
+            local updated_vector_accs = {}
+            with_value_overrides(ctx, body_overrides, function()
+                for i, reduction in ipairs(reductions) do
+                    ctx.vector_value_by_kernel, ctx.vector_value_by_code = {}, {}
+                    local contribution = lower_vector_value_expr(ctx, reduction.contribution, vec, elem_ty)
+                    updated_vector_accs[i] = emit_reduction_vector_combine(ctx, reduction_entry(reduction, elem_ty), vec, vector_body_acc_params[i], contribution)
+                end
+            end)
+            local step = fresh(ctx, "semantic.vec.lanes")
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdConst(step, scalar(counter_ty), Back.BackLitInt(tostring(lanes)))
+            local body_next_i = fresh(ctx, "semantic.vec.next_i")
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdIntBinary(body_next_i, Back.BackIntAdd, scalar(counter_ty), Back.BackIntSemantics(Back.BackIntWrap, Back.BackIntMayLose), vector_body_counter_param, step)
+            local jump_args = { body_next_i }
+            for _, acc in ipairs(updated_vector_accs) do jump_args[#jump_args + 1] = acc end
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdJump(vector_check, jump_args)
+
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdSwitchToBlock(vector_done)
+            local folded = {}
+            for i, reduction in ipairs(reductions) do
+                folded[i] = emit_reduction_horizontal_fold(ctx, reduction_entry(reduction, elem_ty), reduction.ty, bid(reduction.accumulator), vector_done_acc_params[i], lanes)
+            end
+            local tail_args = { vector_done_counter_param }
+            for _, acc in ipairs(folded) do tail_args[#tail_args + 1] = acc end
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdJump(tail_check, tail_args)
+        else
+            local jump_args = {}
+            for _, arg in ipairs(latch_fact and latch_fact.args or {}) do
+                if arg.dst_param == counter then jump_args[#jump_args + 1] = next_i else jump_args[#jump_args + 1] = bid(arg.dst_param) end
+            end
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdJump(block_id(header), jump_args)
         end
-        ctx.cmds[#ctx.cmds + 1] = Back.CmdJump(block_id(header), jump_args)
 
         ctx.cmds[#ctx.cmds + 1] = Back.CmdSwitchToBlock(tail_check)
-        ctx.cmds[#ctx.cmds + 1] = Back.CmdBrIf(bid(scalar_cond), block_id(exit_edge.to.block), edge_args(ctx, edge_facts[exit_edge.from.block.text .. "\0" .. exit_edge.to.block.text]), block_id(body_successor), edge_args(ctx, edge_facts[exit_edge.from.block.text .. "\0" .. body_successor.text]))
+        local tail_overrides = {}
+        if has_reductions then
+            tail_overrides[counter.text] = { value = tail_counter_param, ty = counter_ty }
+            for key, value in pairs(reduction_overrides(reductions, tail_acc_params)) do tail_overrides[key] = value end
+            local stop_cur, stop_cur_ty = lower_value_expr(ctx, Value.ValueExprValue(loop_fact.counted.stop))
+            if scalar(stop_cur_ty) ~= scalar(counter_ty) then stop_cur = ensure_value_ty(ctx, fresh(ctx, "semantic.tail.stop_cast"), counter_ty, stop_cur, stop_cur_ty) end
+            scalar_cond = fresh(ctx, "semantic.tail.done")
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdCompare(scalar_cond, cmp_op(Core.CmpGe, counter_ty), shape(counter_ty), tail_counter_param, stop_cur)
+        end
+        local true_block = has_reductions and tail_exit or block_id(exit_edge.to.block)
+        local true_args = has_reductions and {} or edge_args(ctx, edge_facts[exit_edge.from.block.text .. "\0" .. exit_edge.to.block.text], tail_overrides)
+        ctx.cmds[#ctx.cmds + 1] = Back.CmdBrIf(bid(scalar_cond), true_block, true_args, block_id(body_successor), edge_args(ctx, edge_facts[exit_edge.from.block.text .. "\0" .. body_successor.text], tail_overrides))
+        if has_reductions then
+            local exit_block = nil
+            for _, block in ipairs(ctx.current_func.blocks or {}) do if block.id == exit_edge.to.block then exit_block = block end end
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdSwitchToBlock(tail_exit)
+            local term = exit_block and exit_block.term and exit_block.term.kind or nil
+            if pvm.classof(term) == Code.CodeTermJump then
+                local jump_fact = edge_facts[exit_block.id.text .. "\0" .. term.dest.text]
+                ctx.cmds[#ctx.cmds + 1] = Back.CmdJump(block_id(term.dest), edge_args(ctx, jump_fact, tail_overrides))
+            elseif pvm.classof(term) == Code.CodeTermReturn and #(term.values or {}) == 1 then
+                local v = with_value_overrides(ctx, tail_overrides, function() return code_value(ctx, term.values[1]) end)
+                ctx.cmds[#ctx.cmds + 1] = Back.CmdReturnValue(v)
+            else
+                error("lower_to_back: vector reduction tail exit cannot lower exit block " .. tostring(exit_edge.to.block.text), 2)
+            end
+        end
         for _, block in ipairs(ctx.current_func.blocks or {}) do
             if body_set[block.id.text] and block.id ~= header then
                 ctx.cmds[#ctx.cmds + 1] = Back.CmdSwitchToBlock(block_id(block.id))
@@ -808,15 +1088,16 @@ function M.Define(T)
         ctx.kernel_value_block = {}
         ctx.kernel_value_code_id = {}
         ctx.kernel_binding_by_id = {}
+        ctx.value_block = {}
         local function note_inst_dst(block, k)
             local cls = pvm.classof(k)
             local dst, ty = nil, nil
             if cls == Code.CodeInstConst then dst, ty = k.dst, k.const.ty
             elseif cls == Code.CodeInstAlias or cls == Code.CodeInstUnary or cls == Code.CodeInstBinary or cls == Code.CodeInstFloatBinary or cls == Code.CodeInstSelect then dst, ty = k.dst, k.ty
             elseif cls == Code.CodeInstCompare then dst, ty = k.dst, Code.CodeTyBool8
-            elseif cls == Code.CodeInstCast then dst, ty = k.dst, k.to
+            elseif cls == Code.CodeInstCast or cls == Code.CodeInstIntrinsic then dst, ty = k.dst, k.ty
             elseif cls == Code.CodeInstAddrOf or cls == Code.CodeInstGlobalRef or cls == Code.CodeInstPtrOffset then dst, ty = k.dst, k.ptr_ty
-            elseif cls == Code.CodeInstLoad then dst, ty = k.dst, k.access.ty
+            elseif cls == Code.CodeInstLoad or cls == Code.CodeInstAtomicLoad or cls == Code.CodeInstAtomicRmw or cls == Code.CodeInstAtomicCas then dst, ty = k.dst, k.access.ty
             elseif cls == Code.CodeInstViewMake then dst, ty = k.dst, Code.CodeTyView(k.elem_ty)
             elseif cls == Code.CodeInstViewData then
                 local vty = value_ty(ctx, k.view)
@@ -825,6 +1106,7 @@ function M.Define(T)
             elseif cls == Code.CodeInstViewLen or cls == Code.CodeInstViewStride then dst, ty = k.dst, Code.CodeTyIndex end
             if dst ~= nil and ty ~= nil then
                 note_value(ctx, dst, ty)
+                ctx.value_block[dst.text] = block.id
                 local kid = Kernel.KernelValueId("kval:" .. dst.text)
                 ctx.kernel_value_back[kid.text] = bid(dst)
                 ctx.kernel_value_types[kid.text] = ty
@@ -834,7 +1116,10 @@ function M.Define(T)
         end
         for _, param in ipairs(func.params or {}) do note_value(ctx, param.value, param.ty) end
         for _, b in ipairs(func.blocks or {}) do
-            for _, param in ipairs(b.params or {}) do note_value(ctx, param.value, param.ty) end
+            for _, param in ipairs(b.params or {}) do
+                note_value(ctx, param.value, param.ty)
+                ctx.value_block[param.value.text] = b.id
+            end
             for _, inst in ipairs(b.insts or {}) do note_inst_dst(b, inst.kind) end
         end
         ctx.cmds[#ctx.cmds + 1] = Back.CmdBeginFunc(func_id(func.id))
