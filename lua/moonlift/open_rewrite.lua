@@ -165,6 +165,7 @@ function M.Define(T)
         [Ty.TSlice] = function(self, set) local t = first_target(type_rule_target, set, self); if t then return pvm.once(t) end; return pvm.once(pvm.with(self, { elem = one(rewrite_type, self.elem, set) })) end,
         [Ty.TView] = function(self, set) local t = first_target(type_rule_target, set, self); if t then return pvm.once(t) end; return pvm.once(pvm.with(self, { elem = one(rewrite_type, self.elem, set) })) end,
         [Ty.TLease] = function(self, set) local t = first_target(type_rule_target, set, self); if t then return pvm.once(t) end; return pvm.once(pvm.with(self, { base = one(rewrite_type, self.base, set) })) end,
+        [Ty.TAccess] = function(self, set) local t = first_target(type_rule_target, set, self); if t then return pvm.once(t) end; return pvm.once(pvm.with(self, { base = one(rewrite_type, self.base, set) })) end,
         [Ty.THandle] = function(self, set) return pvm.once(first_target(type_rule_target, set, self) or self) end,
         [Ty.TFunc] = function(self, set) local t = first_target(type_rule_target, set, self); if t then return pvm.once(t) end; return pvm.once(pvm.with(self, { params = rewrite_types(self.params, set), result = one(rewrite_type, self.result, set) })) end,
         [Ty.TClosure] = function(self, set) local t = first_target(type_rule_target, set, self); if t then return pvm.once(t) end; return pvm.once(pvm.with(self, { params = rewrite_types(self.params, set), result = one(rewrite_type, self.result, set) })) end,

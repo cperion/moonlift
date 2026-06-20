@@ -211,6 +211,8 @@ function M.Define(T)
             return Code.CodeTyView(type_to_code(ty.elem, ctx))
         elseif cls == Ty.TLease then
             return Code.CodeTyLease(type_to_code(ty.base, ctx), ty)
+        elseif cls == Ty.TAccess then
+            return type_to_code(ty.base, ctx)
         elseif cls == Ty.THandle then
             local rcls = pvm.classof(ty.repr)
             if rcls == Ty.HandleReprScalar then

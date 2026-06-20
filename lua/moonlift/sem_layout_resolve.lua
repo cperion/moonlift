@@ -106,6 +106,7 @@ function M.Define(T)
         [Ty.TSlice] = function() return pvm.empty() end,
         [Ty.TView] = function() return pvm.empty() end,
         [Ty.TLease] = function() return pvm.empty() end,
+        [Ty.TAccess] = function() return pvm.empty() end,
         [Ty.THandle] = function() return pvm.empty() end,
         [Ty.TFunc] = function() return pvm.empty() end,
         [Ty.TClosure] = function() return pvm.empty() end,
@@ -139,6 +140,7 @@ function M.Define(T)
         if pvm.classof(ty) == Ty.TScalar then return H.HostRepScalar(ty.scalar) end
         if pvm.classof(ty) == Ty.TPtr then return H.HostRepPtr(ty.elem) end
         if pvm.classof(ty) == Ty.TView then return H.HostRepView(ty.elem) end
+        if pvm.classof(ty) == Ty.TAccess then return storage_for_type(ty.base) end
         return H.HostRepOpaque("sem_layout")
     end
 

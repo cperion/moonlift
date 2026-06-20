@@ -91,6 +91,7 @@ function M.Define(T)
         end
         if pvm.classof(ty) == Ty.TPtr then return H.HostRepPtr(ty.elem) end
         if pvm.classof(ty) == Ty.TView then return H.HostRepView(ty.elem) end
+        if pvm.classof(ty) == Ty.TAccess then return rep_from_type(ty.base) end
         return H.HostRepOpaque("type")
     end
 

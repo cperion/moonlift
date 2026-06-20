@@ -119,6 +119,8 @@ function M.Define(T)
             return Ty.TView(canonical_type(env, ty.elem))
         elseif cls == Ty.TLease then
             return Ty.TLease(canonical_type(env, ty.base), ty.origin)
+        elseif cls == Ty.TAccess then
+            return Ty.TAccess(ty.access, canonical_type(env, ty.base))
         elseif cls == Ty.TFunc or cls == Ty.TClosure then
             local params = {}
             for i = 1, #ty.params do params[i] = canonical_type(env, ty.params[i]) end
@@ -137,6 +139,7 @@ function M.Define(T)
     local function type_contains_lease(ty)
         local cls = pvm.classof(ty)
         if cls == Ty.TLease then return true end
+        if cls == Ty.TAccess then return type_contains_lease(ty.base) end
         if cls == Ty.TPtr or cls == Ty.TArray or cls == Ty.TSlice or cls == Ty.TView then return type_contains_lease(ty.elem) end
         if cls == Ty.TFunc or cls == Ty.TClosure then
             if type_contains_lease(ty.result) then return true end
@@ -147,11 +150,14 @@ function M.Define(T)
 
     local function lease_access_base(ty)
         if pvm.classof(ty) == Ty.TLease then return ty.base end
+        if pvm.classof(ty) == Ty.TAccess then return lease_access_base(ty.base) end
         return ty
     end
 
     local function arg_matches_param(expected, actual)
         if type_eq(expected, actual) then return true end
+        if pvm.classof(expected) == Ty.TAccess then return arg_matches_param(expected.base, actual) end
+        if pvm.classof(actual) == Ty.TAccess then return arg_matches_param(expected, actual.base) end
         if pvm.classof(expected) == Ty.TLease and pvm.classof(actual) == Ty.TLease and type_eq(expected.base, actual.base) then return true end
         if pvm.classof(expected) == Ty.TLease and type_eq(expected.base, actual) then return true end
         return false
@@ -330,6 +336,8 @@ function M.Define(T)
         elseif cls == Ty.TLease then
             check_type_policy(ty.base, issues, site)
             if pvm.classof(ty.base) ~= Ty.TPtr and pvm.classof(ty.base) ~= Ty.TView then issues[#issues + 1] = Tr.TypeIssueExpected((site or "type") .. " lease base", Ty.TPtr(Ty.TScalar(C.ScalarVoid)), ty.base) end
+        elseif cls == Ty.TAccess then
+            check_type_policy(ty.base, issues, site)
         elseif cls == Ty.THandle then
             if pvm.classof(ty.repr) ~= Ty.HandleReprScalar then issues[#issues + 1] = Tr.TypeIssueExpected((site or "type") .. " handle repr", Ty.THandle(ty.ref, Ty.HandleReprScalar(C.ScalarU32)), ty) end
         elseif cls == Ty.TFunc or cls == Ty.TClosure then

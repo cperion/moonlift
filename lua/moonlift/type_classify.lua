@@ -62,6 +62,9 @@ function M.Define(T)
         [Ty.TLease] = function(self)
             return pvm.once(Ty.TypeClassLease(self.base, self.origin))
         end,
+        [Ty.TAccess] = function(self)
+            return classify_type(self.base)
+        end,
         [Ty.THandle] = function(self)
             return pvm.once(Ty.TypeClassHandle(self.repr))
         end,

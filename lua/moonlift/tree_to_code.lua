@@ -89,6 +89,7 @@ function M.Define(T)
 
     local function source_access_base(ty)
         if pvm.classof(ty) == Ty.TLease then return ty.base end
+        if pvm.classof(ty) == Ty.TAccess then return source_access_base(ty.base) end
         return ty
     end
 
@@ -226,6 +227,7 @@ function M.Define(T)
         local cls = pvm.classof(base)
         if cls == Tr.IndexBaseExpr then
             local ty = expr_type(base.base)
+            ty = source_access_base(ty)
             local tcls = pvm.classof(ty)
             if tcls == Ty.TPtr or tcls == Ty.TArray or tcls == Ty.TSlice or tcls == Ty.TView then return ty.elem end
         elseif cls == Tr.IndexBasePlace then

@@ -16,12 +16,20 @@ module MoonType {
     LeaseOrigin = LeaseOriginUnknown
          | LeaseOriginParam(string name) unique
 
+    TypeAccess = TypeAccessNoAlias
+         | TypeAccessReadonly
+         | TypeAccessWriteonly
+         | TypeAccessNoEscape
+         | TypeAccessInvalidate
+         | TypeAccessPreserve
+
     Type = TScalar(MoonCore.Scalar scalar) unique
          | TPtr(MoonType.Type elem) unique
          | TArray(MoonType.ArrayLen count, MoonType.Type elem) unique
          | TSlice(MoonType.Type elem) unique
          | TView(MoonType.Type elem) unique
          | TLease(MoonType.Type base, MoonType.LeaseOrigin origin) unique
+         | TAccess(MoonType.TypeAccess access, MoonType.Type base) unique
          | THandle(MoonType.TypeRef ref, MoonType.HandleRepr repr) unique
          | TFunc(MoonType.Type* params, MoonType.Type result) unique
          | TClosure(MoonType.Type* params, MoonType.Type result) unique

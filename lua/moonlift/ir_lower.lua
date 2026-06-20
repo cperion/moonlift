@@ -89,6 +89,7 @@ local function moon_type_to_irt(T, ty)
     local Ty = T.MoonType; local cls = pvm.classof(ty)
     if cls == Ty.TScalar then return scalar_to_irt(ty.scalar) end
     if cls == Ty.TPtr or cls == Ty.TView then return IRT.PTR end
+    if cls == Ty.TAccess then return moon_type_to_irt(T, ty.base) end
     return IRT.PTR
 end
 

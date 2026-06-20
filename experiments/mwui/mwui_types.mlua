@@ -1,16 +1,12 @@
--- mwui_types.mlua — Moonlift WebUI type and protocol surface
+-- mwui_types.mlua -- Moonlift WebUI checked design header.
 --
--- Faithful transcription of moonlift_webui_blueprint.md §§8-10.
--- Structs, handles, regions, and public ABI functions — headers only, no bodies.
+-- This file is the WebUI type forest plus protocol tree, transcribed from
+-- moonlift_webui_blueprint.md using the discipline in THE_MOONLIFT_DESIGN_BIBLE:
+-- products first, protocols as region signatures, ABI boundaries as funcs.
 --
--- All user-declared type references use T.Name (dotted Lua path).
--- The parser evaluates these as Lua expressions — no hidden type namespace.
--- Built-in scalars (u8, i32, bool, ptr(T), view(T), index, etc.) stay as-is.
---
--- Sections:
---   T  — products (structs, handles)
---   R  — protocols (regions, externs)
---   F  — seals (public ABI funcs)
+-- Stored choices (`kind`, `state`, `op`, ids) are encoded facts.  The comment
+-- beside each one names the region family that owns the encoding.  Runtime
+-- identity is always a handle.  Temporary access is granted by region exits.
 
 local M = {
     T = {},
@@ -23,21 +19,17 @@ local R = M.R
 local F = M.F
 
 --------------------------------------------------------------------------------
--- §8  Compile-time handles  (template-local, never cross the wire)
+-- Compile-time identity: template-local, never sent on the wire.
 --------------------------------------------------------------------------------
 
-T.ViewNodeRef   = handle : u32 invalid 0 end
-T.FieldRef      = handle : u32 invalid 0 end
-T.HandlerRef    = handle : u32 invalid 0 end
-T.AttrRef       = handle : u32 invalid 0 end
-T.PropRef       = handle : u32 invalid 0 end
-T.StyleRef      = handle : u32 invalid 0 end
-T.FragmentRef   = handle : u32 invalid 0 end
-T.OutputRef     = handle : u32 invalid 0 end
-
---------------------------------------------------------------------------------
--- §8  Compile-time ViewPlan structs
---------------------------------------------------------------------------------
+T.ViewNodeRef = handle : u32 invalid 0 end
+T.FieldRef = handle : u32 invalid 0 end
+T.HandlerRef = handle : u32 invalid 0 end
+T.AttrRef = handle : u32 invalid 0 end
+T.PropRef = handle : u32 invalid 0 end
+T.StyleRef = handle : u32 invalid 0 end
+T.FragmentRef = handle : u32 invalid 0 end
+T.OutputRef = handle : u32 invalid 0 end
 
 T.ViewName = struct
     data: ptr(u8),
@@ -51,7 +43,7 @@ end
 
 T.ViewNodeSpec = struct
     ref: T.ViewNodeRef,
-    kind: u8,
+    kind: u8,             -- owner: generated component_mount/render dispatch
     tag: T.ViewName,
     first_child: u32,
     n_child: u32,
@@ -60,17 +52,17 @@ T.ViewNodeSpec = struct
 end
 
 T.ViewBindingSpec = struct
-    source_kind: u8,
+    source_kind: u8,      -- owner: generated render_delta
     field: T.FieldRef,
     expr_id: u32,
     node: T.ViewNodeRef,
-    target: u8,
+    target: u8,           -- owner: generated binding emitter
     target_id: u32,
 end
 
 T.ViewListenerSpec = struct
     node: T.ViewNodeRef,
-    event_kind: u8,
+    event_kind: u8,       -- owner: route materialization
     handler: T.HandlerRef,
 end
 
@@ -96,18 +88,18 @@ T.ViewPlan = struct
 end
 
 --------------------------------------------------------------------------------
--- §9.1  Runtime handles  (per-session, durable identity)
+-- Runtime identity: durable per-session handles.
 --------------------------------------------------------------------------------
 
-T.NodeId        = handle : u32 invalid 0 end
-T.ComponentRef  = handle : u64 invalid 0 end
-T.SessionRef    = handle : u64 invalid 0 end
-T.BindingRef    = handle : u32 invalid 0 end
-T.ListRef       = handle : u32 invalid 0 end
-T.TaskRef       = handle : u32 invalid 0 end
+T.NodeId = handle : u32 invalid 0 end
+T.ComponentRef = handle : u64 invalid 0 end
+T.SessionRef = handle : u64 invalid 0 end
+T.BindingRef = handle : u32 invalid 0 end
+T.ListRef = handle : u32 invalid 0 end
+T.TaskRef = handle : u32 invalid 0 end
 
 --------------------------------------------------------------------------------
--- §9.2  Transport products
+-- Transport products.
 --------------------------------------------------------------------------------
 
 T.Listener = struct
@@ -124,30 +116,34 @@ end
 
 T.Conn = struct
     fd: i32,
-    state: u8,
+    state: u8,            -- owner: conn_read/ws_handshake/session_on_bytes
     rx: T.RingBuf,
     tx: T.RingBuf,
     session: T.SessionRef,
 end
 
 T.WsMessage = struct
-    kind: u8,
-    payload: view(u8),
+    kind: u8,             -- owner: ws_decode
+    payload: readonly view(u8),
 end
 
 --------------------------------------------------------------------------------
--- §9.3  Event products
+-- Event products.
+--
+-- `event_decode` receives a `lease view(u8)` from the socket buffer.  This
+-- stored EventIn product carries only a readonly view because structs are
+-- durable products today; the lease boundary is the region signature.
 --------------------------------------------------------------------------------
 
 T.EventIn = struct
-    kind: u8,
+    kind: u8,             -- owner: route_event
     target: T.NodeId,
     n: i64,
-    text: view(u8),
+    text: readonly view(u8),
 end
 
 T.EventOwned = struct
-    kind: u8,
+    kind: u8,             -- owner: route_event_owned
     target: T.NodeId,
     n: i64,
     text: view(u8),
@@ -157,15 +153,15 @@ T.Event = struct
     kind: u8,
     target: T.NodeId,
     n: i64,
-    text: view(u8),
+    text: readonly view(u8),
 end
 
 --------------------------------------------------------------------------------
--- §9.4  Mutation products
+-- Mutation products.  Payload bytes are owned by MutBuf; Mut stores offsets.
 --------------------------------------------------------------------------------
 
 T.Mut = struct
-    op: u8,
+    op: u8,               -- owner: browser mutation applier / mut_* emitters
     node: T.NodeId,
     a: u32,
     b: u32,
@@ -181,12 +177,12 @@ T.MutBuf = struct
 end
 
 --------------------------------------------------------------------------------
--- §9.5  Routing products
+-- Routing products.
 --------------------------------------------------------------------------------
 
 T.Binding = struct
     node: T.NodeId,
-    event_kind: u8,
+    event_kind: u8,       -- owner: route_event
     component: T.ComponentRef,
     handler: T.HandlerRef,
 end
@@ -198,16 +194,16 @@ T.BindingTable = struct
 end
 
 --------------------------------------------------------------------------------
--- §9.6  Component store
+-- Component store.
 --------------------------------------------------------------------------------
 
 T.Component = struct
-    kind: u16,
-    state: u16,
+    kind: u16,            -- owner: generated component dispatch
+    state: u16,           -- owner: generated component_step family
     ctx: ptr(u8),
     root: T.NodeId,
-    node_base: u32,
-    dirty: u64,
+    node_base: u32,       -- NodeId = node_base + ViewNodeRef
+    dirty: u64,           -- owner: generated render_delta
     parent: T.ComponentRef,
     first_child: u32,
     n_child: index,
@@ -229,7 +225,7 @@ T.ComponentStore = struct
 end
 
 --------------------------------------------------------------------------------
--- §9.7  Dirty queue
+-- Dirty queue.  Render drains parent-before-child; child-to-parent is forbidden.
 --------------------------------------------------------------------------------
 
 T.DirtyItem = struct
@@ -244,7 +240,7 @@ T.DirtyQueue = struct
 end
 
 --------------------------------------------------------------------------------
--- §9.8  Keyed-list store
+-- Keyed-list store.
 --------------------------------------------------------------------------------
 
 T.ListSlot = struct
@@ -262,12 +258,12 @@ end
 
 T.ListItemSpec = struct
     key: u64,
-    kind: u16,
+    kind: u16,            -- owner: list_reconcile/component_mount dispatch
     data: ptr(u8),
 end
 
 --------------------------------------------------------------------------------
--- §9.9  Session / app products
+-- Session/app products.
 --------------------------------------------------------------------------------
 
 T.Arena = struct
@@ -278,10 +274,10 @@ T.Arena = struct
 end
 
 T.Task = struct
-    kind: u8,
+    kind: u8,             -- owner: task_poll
     tag: u32,
     owner: T.ComponentRef,
-    state: u8,
+    state: u8,            -- owner: task_poll
 end
 
 T.TaskStore = struct
@@ -316,15 +312,15 @@ T.App = struct
 end
 
 --------------------------------------------------------------------------------
--- §10.1  Transport
+-- Transport protocol leaves.
 --------------------------------------------------------------------------------
 
-R.os_accept     = extern os_accept(fd: i32): i32 end
-R.os_read       = extern os_read(fd: i32, buf: ptr(u8), n: index): i64 end
-R.os_write      = extern os_write(fd: i32, buf: ptr(u8), n: index): i64 end
-R.os_close      = extern os_close(fd: i32): i32 end
-R.os_poll_wait  = extern os_poll_wait(epfd: i32, out: ptr(u8), n: index, ms: i32): i32 end
-R.os_poll_add   = extern os_poll_add(epfd: i32, fd: i32, flags: u32): i32 end
+R.os_accept = extern os_accept(fd: i32): i32 as "os_accept" end
+R.os_read = extern os_read(fd: i32, buf: ptr(u8), n: index): i64 as "os_read" end
+R.os_write = extern os_write(fd: i32, buf: ptr(u8), n: index): i64 as "os_write" end
+R.os_close = extern os_close(fd: i32): i32 as "os_close" end
+R.os_poll_wait = extern os_poll_wait(epfd: i32, out: ptr(u8), n: index, ms: i32): i32 as "os_poll_wait" end
+R.os_poll_add = extern os_poll_add(epfd: i32, fd: i32, flags: u32): i32 as "os_poll_add" end
 
 R.ev_wait = region ev_wait(loop: ptr(T.EventLoop), timeout_ms: i32;
     readable(fd: i32)
@@ -334,14 +330,14 @@ R.ev_wait = region ev_wait(loop: ptr(T.EventLoop), timeout_ms: i32;
   | poll_failed(errno: i32))
 end
 
-R.conn_read = region conn_read(c: ptr(T.Conn);
-    data(bytes: view(u8))
+R.conn_read = region conn_read(invalidate c: ptr(T.Conn);
+    data(bytes: lease view(u8))
   | would_block
   | peer_closed
   | read_failed(errno: i32))
 end
 
-R.conn_write = region conn_write(c: ptr(T.Conn), bytes: view(u8);
+R.conn_write = region conn_write(invalidate c: ptr(T.Conn), bytes: view(u8);
     written
   | partial(wrote: index)
   | would_block
@@ -349,55 +345,55 @@ R.conn_write = region conn_write(c: ptr(T.Conn), bytes: view(u8);
   | write_failed(errno: i32))
 end
 
-R.rx_window = region rx_window(c: ptr(T.Conn);
-    window(bytes: view(u8))
+R.rx_window = region rx_window(readonly c: ptr(T.Conn);
+    window(bytes: lease view(u8))
   | empty)
 end
 
-R.rx_consume = region rx_consume(c: ptr(T.Conn), n: index;
+R.rx_consume = region rx_consume(invalidate c: ptr(T.Conn), n: index;
     consumed
   | out_of_range)
 end
 
-R.rx_compact = region rx_compact(c: ptr(T.Conn);
+R.rx_compact = region rx_compact(invalidate c: ptr(T.Conn);
     compacted
   | no_space
   | oom(needed: index))
 end
 
-R.conn_close = func conn_close(c: ptr(T.Conn)) end
+R.conn_close = func conn_close(invalidate c: ptr(T.Conn)) end
 
 --------------------------------------------------------------------------------
--- §10.2  WebSocket codec
+-- WebSocket codec.
 --------------------------------------------------------------------------------
 
-R.ws_handshake = region ws_handshake(c: ptr(T.Conn), req: view(u8);
+R.ws_handshake = region ws_handshake(c: ptr(T.Conn), req: lease view(u8);
     accept(resp: view(u8))
   | incomplete
   | bad_request(code: i32))
 end
 
-R.ws_decode = region ws_decode(rx: view(u8);
-    text(payload: view(u8), next: index)
-  | binary(payload: view(u8), next: index)
-  | continued(payload: view(u8), next: index)
-  | ping(payload: view(u8), next: index)
-  | pong(payload: view(u8), next: index)
-  | close(code: u16, reason: view(u8), next: index)
+R.ws_decode = region ws_decode(rx: lease view(u8);
+    text(payload: lease view(u8), next: index)
+  | binary(payload: lease view(u8), next: index)
+  | continued(payload: lease view(u8), next: index)
+  | ping(payload: lease view(u8), next: index)
+  | pong(payload: lease view(u8), next: index)
+  | close(code: u16, reason: lease view(u8), next: index)
   | incomplete
   | bad_frame(code: i32))
 end
 
-R.ws_encode = region ws_encode(out: ptr(T.MutBuf), opcode: u8, payload: view(u8);
+R.ws_encode = region ws_encode(invalidate out: ptr(T.MutBuf), opcode: u8, payload: view(u8);
     encoded
   | oom(needed: index))
 end
 
 --------------------------------------------------------------------------------
--- §10.3  Event decoding and routing
+-- Event decode, route, and dispatch.
 --------------------------------------------------------------------------------
 
-R.event_decode = region event_decode(payload: view(u8);
+R.event_decode = region event_decode(payload: lease view(u8);
     event(e: T.EventIn)
   | bad_event(code: i32))
 end
@@ -407,53 +403,26 @@ R.event_decode_owned = region event_decode_owned(payload: view(u8);
   | bad_event(code: i32))
 end
 
-R.route_event = region route_event(sess: ptr(T.Session), e: ptr(T.EventIn);
+R.route_event = region route_event(readonly sess: ptr(T.Session), e: ptr(T.EventIn);
     routed(component: T.ComponentRef, handler: T.HandlerRef)
   | no_listener(target: T.NodeId, kind: u8)
   | stale_component(component: T.ComponentRef))
 end
 
-R.route_event_owned = region route_event_owned(sess: ptr(T.Session), e: ptr(T.EventOwned);
+R.route_event_owned = region route_event_owned(readonly sess: ptr(T.Session), e: ptr(T.EventOwned);
     routed(component: T.ComponentRef, handler: T.HandlerRef)
   | no_listener(target: T.NodeId, kind: u8)
   | stale_component(component: T.ComponentRef))
 end
 
---------------------------------------------------------------------------------
--- §10.4  Component access
---------------------------------------------------------------------------------
-
-R.borrow_component = region borrow_component(sess: ptr(T.Session), c: T.ComponentRef;
-    borrowed(component: ptr(T.Component))
-  | stale(c: T.ComponentRef)
-  | missing(c: T.ComponentRef)
-  | unmounted(c: T.ComponentRef))
-end
-
-R.alloc_component = region alloc_component(sess: ptr(T.Session), kind: u16;
-    allocated(c: T.ComponentRef, component: ptr(T.Component))
-  | bad_kind(kind: u16)
-  | oom(needed: index))
-end
-
-R.retire_component = region retire_component(sess: ptr(T.Session), c: T.ComponentRef;
-    retired
-  | stale(c: T.ComponentRef)
-  | missing(c: T.ComponentRef))
-end
-
---------------------------------------------------------------------------------
--- §10.5  Behavior / render split
---------------------------------------------------------------------------------
-
-R.component_step = region component_step(self: ptr(T.Component),
+R.component_step = region component_step(invalidate self: lease ptr(T.Component),
                                           handler: T.HandlerRef,
                                           e: ptr(T.EventIn),
                                           dirty: ptr(T.DirtyQueue);
     handled
   | ignored
   | guard_blocked
-  | raised(kind: u16, payload: view(u8))
+  | raised(kind: u16, payload: lease view(u8))
   | spawned(task: T.Task)
   | bad_handler(handler: T.HandlerRef)
   | bad_state(state: u16)
@@ -461,7 +430,7 @@ R.component_step = region component_step(self: ptr(T.Component),
   | oom(needed: index))
 end
 
-R.component_step_owned = region component_step_owned(self: ptr(T.Component),
+R.component_step_owned = region component_step_owned(invalidate self: lease ptr(T.Component),
                                                       handler: T.HandlerRef,
                                                       e: ptr(T.EventOwned),
                                                       dirty: ptr(T.DirtyQueue);
@@ -476,21 +445,21 @@ R.component_step_owned = region component_step_owned(self: ptr(T.Component),
   | oom(needed: index))
 end
 
-R.dispatch_event = region dispatch_event(sess: ptr(T.Session), e: ptr(T.EventIn);
+R.dispatch_event = region dispatch_event(invalidate sess: ptr(T.Session), e: ptr(T.EventIn);
     dispatched
   | ignored
   | protocol_error(code: i32)
   | oom(needed: index))
 end
 
-R.dispatch_event_owned = region dispatch_event_owned(sess: ptr(T.Session), e: ptr(T.EventOwned);
+R.dispatch_event_owned = region dispatch_event_owned(invalidate sess: ptr(T.Session), e: ptr(T.EventOwned);
     dispatched
   | ignored
   | protocol_error(code: i32)
   | oom(needed: index))
 end
 
-R.render_dirty = region render_dirty(sess: ptr(T.Session), out: ptr(T.MutBuf);
+R.render_dirty = region render_dirty(invalidate sess: ptr(T.Session), invalidate out: ptr(T.MutBuf);
     rendered
   | component_gone(c: T.ComponentRef)
   | bad_binding(code: i32)
@@ -498,50 +467,71 @@ R.render_dirty = region render_dirty(sess: ptr(T.Session), out: ptr(T.MutBuf);
 end
 
 --------------------------------------------------------------------------------
--- §10.6  Mount / unmount / list
+-- Component access, mount, unmount, output, and keyed-list protocols.
 --------------------------------------------------------------------------------
 
-R.component_mount = region component_mount(self: ptr(T.Component),
+R.borrow_component = region borrow_component(sess: ptr(T.Session), c: T.ComponentRef;
+    borrowed(component: lease ptr(T.Component))
+  | stale(c: T.ComponentRef)
+  | missing(c: T.ComponentRef)
+  | unmounted(c: T.ComponentRef))
+end
+
+R.alloc_component = region alloc_component(invalidate sess: ptr(T.Session), kind: u16;
+    allocated(c: T.ComponentRef, component: lease ptr(T.Component))
+  | bad_kind(kind: u16)
+  | oom(needed: index))
+end
+
+R.retire_component = region retire_component(invalidate sess: ptr(T.Session), c: T.ComponentRef;
+    retired
+  | stale(c: T.ComponentRef)
+  | missing(c: T.ComponentRef))
+end
+
+R.component_mount = region component_mount(invalidate self: lease ptr(T.Component),
                                             parent_node: T.NodeId,
                                             sess: ptr(T.Session),
-                                            out: ptr(T.MutBuf);
+                                            invalidate out: ptr(T.MutBuf);
     mounted(root: T.NodeId)
   | bad_component(kind: u16)
   | oom(needed: index))
 end
 
-R.component_unmount = region component_unmount(sess: ptr(T.Session), c: T.ComponentRef, out: ptr(T.MutBuf);
+R.component_unmount = region component_unmount(invalidate sess: ptr(T.Session),
+                                                c: T.ComponentRef,
+                                                invalidate out: ptr(T.MutBuf);
     unmounted
   | stale(c: T.ComponentRef)
   | missing(c: T.ComponentRef)
   | oom(needed: index))
 end
 
-R.child_mount = region child_mount(parent: ptr(T.Component),
+R.child_mount = region child_mount(invalidate parent: lease ptr(T.Component),
                                     child_kind: u16,
                                     slot: T.NodeId,
                                     sess: ptr(T.Session),
-                                    out: ptr(T.MutBuf);
+                                    invalidate out: ptr(T.MutBuf);
     mounted(child: T.ComponentRef, root: T.NodeId)
   | bad_child_kind(child_kind: u16)
   | oom(needed: index))
 end
 
-R.child_update_prop = region child_update_prop(child: ptr(T.Component),
+R.child_update_prop = region child_update_prop(invalidate child: lease ptr(T.Component),
                                                 prop: T.FieldRef,
                                                 value: view(u8),
-                                                dirty: ptr(T.DirtyQueue);
+                                                invalidate dirty: ptr(T.DirtyQueue);
     updated
   | bad_prop(prop: T.FieldRef)
   | type_mismatch(prop: T.FieldRef)
   | oom(needed: index))
 end
 
-R.component_output_dispatch = region component_output_dispatch(sess: ptr(T.Session),
+R.component_output_dispatch = region component_output_dispatch(invalidate sess: ptr(T.Session),
                                                                 parent: T.ComponentRef,
                                                                 child: T.ComponentRef,
                                                                 output_kind: u16,
-                                                                payload: view(u8);
+                                                                payload: lease view(u8);
     delivered
   | parent_gone(parent: T.ComponentRef)
   | child_not_owned(child: T.ComponentRef)
@@ -549,11 +539,11 @@ R.component_output_dispatch = region component_output_dispatch(sess: ptr(T.Sessi
   | oom(needed: index))
 end
 
-R.list_reconcile = region list_reconcile(ls: ptr(T.ListState),
+R.list_reconcile = region list_reconcile(invalidate ls: ptr(T.ListState),
                                           parent: T.ComponentRef,
                                           new_items: view(T.ListItemSpec),
                                           sess: ptr(T.Session),
-                                          out: ptr(T.MutBuf);
+                                          invalidate out: ptr(T.MutBuf);
     reconciled
   | duplicate_key(key: u64)
   | kind_changed(key: u64, old_kind: u16, new_kind: u16)
@@ -561,65 +551,69 @@ R.list_reconcile = region list_reconcile(ls: ptr(T.ListState),
 end
 
 --------------------------------------------------------------------------------
--- §10.7  Context materialization
+-- Context materialization.  This is the breaker boundary for borrowed text.
 --------------------------------------------------------------------------------
 
-R.ctx_store_text = region ctx_store_text(arena: ptr(T.Arena),
-                                          field: ptr(u8),
-                                          src: view(u8);
+R.ctx_store_text = region ctx_store_text(invalidate arena: ptr(T.Arena),
+                                          field: ptr(view(u8)),
+                                          src: lease view(u8);
     stored
   | oom(needed: index))
 end
 
-R.ctx_store_owned_text = region ctx_store_owned_text(arena: ptr(T.Arena),
-                                                      field: ptr(u8),
+R.ctx_store_owned_text = region ctx_store_owned_text(invalidate arena: ptr(T.Arena),
+                                                      field: ptr(view(u8)),
                                                       src: view(u8);
     stored
   | oom(needed: index))
 end
 
-R.ctx_release = func ctx_release(arena: ptr(T.Arena), field: ptr(u8)) end
+R.ctx_release = func ctx_release(invalidate arena: ptr(T.Arena), field: ptr(view(u8))) end
 
 --------------------------------------------------------------------------------
--- §10.8  Mutation construction
+-- Mutation construction and flushing.
 --------------------------------------------------------------------------------
 
-R.mut_reserve = region mut_reserve(out: ptr(T.MutBuf), needed: index;
+R.mut_reserve = region mut_reserve(invalidate out: ptr(T.MutBuf), needed: index;
     ready
   | oom(needed: index))
 end
 
-R.mut_node = region mut_node(out: ptr(T.MutBuf), op: u8, node: T.NodeId, a: u32, b: u32;
+R.mut_node = region mut_node(invalidate out: ptr(T.MutBuf),
+                              op: u8,
+                              node: T.NodeId,
+                              a: u32,
+                              b: u32;
     emitted
   | oom(needed: index))
 end
 
-R.mut_text = region mut_text(out: ptr(T.MutBuf), op: u8, node: T.NodeId, text: view(u8);
+R.mut_text = region mut_text(invalidate out: ptr(T.MutBuf), op: u8, node: T.NodeId, text: view(u8);
     emitted
   | oom(needed: index))
 end
 
-R.mut_attr = region mut_attr(out: ptr(T.MutBuf), node: T.NodeId, attr_id: u32, value: view(u8);
+R.mut_attr = region mut_attr(invalidate out: ptr(T.MutBuf), node: T.NodeId, attr_id: u32, value: view(u8);
     emitted
   | oom(needed: index))
 end
 
-R.mut_prop = region mut_prop(out: ptr(T.MutBuf), node: T.NodeId, prop_id: u32, value: view(u8);
+R.mut_prop = region mut_prop(invalidate out: ptr(T.MutBuf), node: T.NodeId, prop_id: u32, value: view(u8);
     emitted
   | oom(needed: index))
 end
 
-R.mut_class = region mut_class(out: ptr(T.MutBuf), node: T.NodeId, class_id: u32, enabled: bool;
+R.mut_class = region mut_class(invalidate out: ptr(T.MutBuf), node: T.NodeId, class_id: u32, enabled: bool;
     emitted
   | oom(needed: index))
 end
 
-R.mut_style = region mut_style(out: ptr(T.MutBuf), node: T.NodeId, style_id: u32, value: view(u8);
+R.mut_style = region mut_style(invalidate out: ptr(T.MutBuf), node: T.NodeId, style_id: u32, value: view(u8);
     emitted
   | oom(needed: index))
 end
 
-R.mut_flush = region mut_flush(c: ptr(T.Conn), out: ptr(T.MutBuf);
+R.mut_flush = region mut_flush(invalidate c: ptr(T.Conn), invalidate out: ptr(T.MutBuf);
     flushed
   | would_block
   | peer_closed
@@ -627,23 +621,23 @@ R.mut_flush = region mut_flush(c: ptr(T.Conn), out: ptr(T.MutBuf);
 end
 
 --------------------------------------------------------------------------------
--- §10.9  Tasks and app runtime
+-- Tasks and session/app orchestration.
 --------------------------------------------------------------------------------
 
-R.task_spawn = region task_spawn(sess: ptr(T.Session), t: T.Task;
+R.task_spawn = region task_spawn(invalidate sess: ptr(T.Session), t: T.Task;
     spawned(task: T.TaskRef)
   | owner_gone(owner: T.ComponentRef)
   | oom(needed: index))
 end
 
-R.task_poll = region task_poll(sess: ptr(T.Session);
+R.task_poll = region task_poll(invalidate sess: ptr(T.Session);
     ready(e: T.EventOwned)
   | none
   | task_failed(task: T.TaskRef, code: i32)
   | owner_gone(owner: T.ComponentRef))
 end
 
-R.session_on_bytes = region session_on_bytes(sess: ptr(T.Session), bytes: view(u8);
+R.session_on_bytes = region session_on_bytes(invalidate sess: ptr(T.Session), bytes: lease view(u8);
     progressed
   | want_more
   | protocol_error(code: i32)
@@ -651,45 +645,45 @@ R.session_on_bytes = region session_on_bytes(sess: ptr(T.Session), bytes: view(u
   | oom(needed: index))
 end
 
-R.session_open = region session_open(app: ptr(T.App), c: T.Conn;
+R.session_open = region session_open(invalidate app: ptr(T.App), c: T.Conn;
     opened(s: T.SessionRef)
   | oom(needed: index))
 end
 
-R.session_close = region session_close(app: ptr(T.App), s: T.SessionRef;
+R.session_close = region session_close(invalidate app: ptr(T.App), s: T.SessionRef;
     closed
   | missing(s: T.SessionRef))
 end
 
-R.app_accept = region app_accept(app: ptr(T.App);
+R.app_accept = region app_accept(invalidate app: ptr(T.App);
     session(s: T.SessionRef)
   | again
   | accept_failed(errno: i32)
   | oom(needed: index))
 end
 
-R.app_run = region app_run(app: ptr(T.App);
+R.app_run = region app_run(invalidate app: ptr(T.App);
     stopped
   | poll_failed(errno: i32)
   | session_failed(sess: T.SessionRef, code: i32))
 end
 
-R.app_broadcast = region app_broadcast(app: ptr(T.App), e: ptr(T.EventOwned);
+R.app_broadcast = region app_broadcast(invalidate app: ptr(T.App), e: ptr(T.EventOwned);
     broadcasted
   | oom(needed: index))
 end
 
 --------------------------------------------------------------------------------
--- §10.10  Public ABI seals
+-- Public ABI seals.  Status codes are allowed only at this boundary.
 --------------------------------------------------------------------------------
 
-F.mwui_app_new       = func mwui_app_new(port: u16, root_component: u16, out_app: ptr(ptr(T.App))): i32 end
-F.mwui_app_run       = func mwui_app_run(app: ptr(T.App)): i32 end
-F.mwui_app_stop      = func mwui_app_stop(app: ptr(T.App)): i32 end
-F.mwui_app_close     = func mwui_app_close(app: ptr(T.App)): i32 end
-F.mwui_send          = func mwui_send(sess: T.SessionRef, kind: u8, target: T.NodeId, payload: view(u8)): i32 end
-F.mwui_broadcast     = func mwui_broadcast(app: ptr(T.App), kind: u8, payload: view(u8)): i32 end
+F.mwui_app_new = func mwui_app_new(port: u16, root_component: u16, out_app: ptr(ptr(T.App))): i32 end
+F.mwui_app_run = func mwui_app_run(app: ptr(T.App)): i32 end
+F.mwui_app_stop = func mwui_app_stop(app: ptr(T.App)): i32 end
+F.mwui_app_close = func mwui_app_close(app: ptr(T.App)): i32 end
+F.mwui_send = func mwui_send(sess: T.SessionRef, kind: u8, target: T.NodeId, payload: view(u8)): i32 end
+F.mwui_broadcast = func mwui_broadcast(app: ptr(T.App), kind: u8, payload: view(u8)): i32 end
 F.mwui_session_count = func mwui_session_count(app: ptr(T.App)): i32 end
-F.mwui_errmsg        = func mwui_errmsg(app: ptr(T.App)): ptr(u8) end
+F.mwui_errmsg = func mwui_errmsg(app: ptr(T.App)): ptr(u8) end
 
 return M

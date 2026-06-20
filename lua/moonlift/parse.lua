@@ -929,6 +929,21 @@ function Parser:parse_type()
     local O, Ty, C = self.O, self.Ty, self.C
     self:skip_nl()
 
+    local type_access = {
+        [TK.noalias_kw] = Ty.TypeAccessNoAlias,
+        [TK.readonly_kw] = Ty.TypeAccessReadonly,
+        [TK.writeonly_kw] = Ty.TypeAccessWriteonly,
+        [TK.noescape_kw] = Ty.TypeAccessNoEscape,
+        [TK.invalidate_kw] = Ty.TypeAccessInvalidate,
+        [TK.preserve_kw] = Ty.TypeAccessPreserve,
+    }
+    local access = type_access[self:kind()]
+    if access then
+        self.i = self.i + 1
+        self:skip_nl()
+        return Ty.TAccess(access, self:parse_type())
+    end
+
     -- Hole: @{type_value}
     if self:kind() == TK.hole then
         local id = self:text(); self.i = self.i + 1
@@ -1000,12 +1015,14 @@ function Parser:parse_type()
 
     local start_i = self.i
     local name = self:expect_name("expected type")
+    local after_name_i = self.i
     self:skip_nl()
     if name == "ptr" and self:accept(TK.lparen) then
         self:skip_nl(); local elem = self:parse_type(); self:skip_nl(); self:expect(TK.rparen)
         return Ty.TPtr(elem)
     end
 
+    self.i = after_name_i
     local expr = self:read_splice_expr_tail(start_i, name)
     return self:type_name(expr)
 end
@@ -1978,6 +1995,15 @@ function Parser:parse_param_list()
         end
         return true
     end
+    local function access_for_mod(mod)
+        if mod == TK.noalias_kw then return Ty.TypeAccessNoAlias end
+        if mod == TK.readonly_kw then return Ty.TypeAccessReadonly end
+        if mod == TK.writeonly_kw then return Ty.TypeAccessWriteonly end
+        if mod == TK.noescape_kw then return Ty.TypeAccessNoEscape end
+        if mod == TK.invalidate_kw then return Ty.TypeAccessInvalidate end
+        if mod == TK.preserve_kw then return Ty.TypeAccessPreserve end
+        return nil
+    end
     self:skip_nl()
     if self:kind() == TK.rparen then return params, contracts, syntax_items, saw_spread end
     while true do
@@ -1999,6 +2025,10 @@ function Parser:parse_param_list()
                 local ty = self:parse_type()
                 for i = 1, #mods do
                     if mods[i] == TK.noescape_kw then ty = Ty.TLease(ty, Ty.LeaseOriginUnknown) end
+                end
+                for i = 1, #mods do
+                    local access = access_for_mod(mods[i])
+                    if access then ty = Ty.TAccess(access, ty) end
                 end
                 append_param(Ty.Param(name, ty))
                 -- Convert modifiers to contracts
@@ -2193,13 +2223,22 @@ function Parser:cont_slots_from_protocol(protocol_ty, owner_name)
 end
 
 function Parser:parse_open_params(owner_name)
-    local O, B, C, S = self.O, self.B, self.C, self.S
+    local O, B, C, S, Ty = self.O, self.B, self.C, self.S, self.Ty
     local params, param_bindings, syntax_items = {}, {}, {}
     local saw_spread = false
     local function append_open_param(param)
         params[#params + 1] = param
         param_bindings[param.name] = B.Binding(C.Id("open-param:" .. owner_name .. ":" .. param.name), param.name, param.ty, B.BindingClassOpenParam(param))
         syntax_items[#syntax_items + 1] = S.SyntaxOpenParamItemOne(param.name, self:tree_type_item(param.ty))
+    end
+    local function access_for_mod(mod)
+        if mod == TK.noalias_kw then return Ty.TypeAccessNoAlias end
+        if mod == TK.readonly_kw then return Ty.TypeAccessReadonly end
+        if mod == TK.writeonly_kw then return Ty.TypeAccessWriteonly end
+        if mod == TK.noescape_kw then return Ty.TypeAccessNoEscape end
+        if mod == TK.invalidate_kw then return Ty.TypeAccessInvalidate end
+        if mod == TK.preserve_kw then return Ty.TypeAccessPreserve end
+        return nil
     end
     self:skip_nl()
     local function append_product_open_params(product_name)
@@ -2219,13 +2258,23 @@ function Parser:parse_open_params(owner_name)
                 syntax_items[#syntax_items + 1] = S.SyntaxOpenParamItemSpread(self:syntax_splice_id("open_param_list"))
                 saw_spread = true
             else
+                local mods = {}
+                while self:kind() == TK.noalias_kw or self:kind() == TK.readonly_kw or self:kind() == TK.writeonly_kw or self:kind() == TK.noescape_kw or self:kind() == TK.invalidate_kw or self:kind() == TK.preserve_kw do
+                    mods[#mods + 1] = self:kind()
+                    self.i = self.i + 1
+                    self:skip_nl()
+                end
                 local pname = self:expect_name("expected parameter name")
-                if self:kind() ~= TK.colon and append_product_open_params(pname) then
+                if self:kind() ~= TK.colon and #mods == 0 and append_product_open_params(pname) then
                     -- Product type in product-list position: expand its fields as open params.
                 else
                     self:skip_nl()
                     self:expect(TK.colon)
                     local ty = self:parse_type()
+                    for i = 1, #mods do
+                        local access = access_for_mod(mods[i])
+                        if access then ty = Ty.TAccess(access, ty) end
+                    end
                     local param = O.OpenParam("param:" .. owner_name .. ":" .. pname .. ":" .. tostring(#params + 1), pname, ty)
                     append_open_param(param)
                 end
@@ -3175,6 +3224,7 @@ function M.parse_module_document(T, src, opts)
     opts = opts or {}
     local pvm = require("moonlift.pvm")
     local Tr = T.MoonTree
+    local O = T.MoonOpen
     local scan = M.scan_document(src)
     local items, issues = {}, {}
     local protocol_types = opts.protocol_types or {}
@@ -3206,7 +3256,7 @@ function M.parse_module_document(T, src, opts)
         elseif parsed.kind == "extern" then
             items[#items + 1] = Tr.ItemExtern(parsed.value)
         elseif parsed.kind == "region" then
-            if parsed.value then items[#items + 1] = Tr.ItemRegionFrag(parsed.value) end
+            if parsed.value and pvm.classof(parsed.value) ~= O.RegionFragDecl then items[#items + 1] = Tr.ItemRegionFrag(parsed.value) end
         elseif parsed.kind == "expr" or parsed.kind == "expr_frag" then
             if parsed.value then items[#items + 1] = Tr.ItemExprFrag(parsed.value) end
         end

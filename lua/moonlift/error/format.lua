@@ -42,6 +42,18 @@ function M.type_name(ty)
             if ocls and ocls.kind == "LeaseOriginParam" then origin = "(" .. tostring(ty.origin.name) .. ")" end
             return "lease" .. origin .. " " .. M.type_name(ty.base)
         end
+        if cls.kind == "TAccess" then
+            local acls = ty.access and pvm.classof(ty.access)
+            local label = ({
+                TypeAccessNoAlias = "noalias",
+                TypeAccessReadonly = "readonly",
+                TypeAccessWriteonly = "writeonly",
+                TypeAccessNoEscape = "noescape",
+                TypeAccessInvalidate = "invalidate",
+                TypeAccessPreserve = "preserve",
+            })[acls and acls.kind] or tostring(ty.access)
+            return label .. " " .. M.type_name(ty.base)
+        end
         if cls.kind == "THandle" then
             local ref = ty.ref
             local rcls = ref and pvm.classof(ref)

@@ -65,6 +65,7 @@ function M.Define(T, cb)
         if cls == Ty.TSlice then return "slice(" .. type_key(ty.elem) .. ")" end
         if cls == Ty.TView then return "view(" .. type_key(ty.elem) .. ")" end
         if cls == Ty.TLease then return "lease(" .. type_key(ty.base) .. ")" end
+        if cls == Ty.TAccess then return "access(" .. class_name(ty.access) .. "," .. type_key(ty.base) .. ")" end
         if cls == Ty.THandle then return "handle(" .. class_name(ty.ref) .. ")" end
         if cls == Ty.TFunc or cls == Ty.TClosure then
             local parts = {}
@@ -90,6 +91,7 @@ function M.Define(T, cb)
     local function type_contains_lease(ty)
         local cls = pvm.classof(ty)
         if cls == Ty.TLease then return true end
+        if cls == Ty.TAccess then return type_contains_lease(ty.base) end
         if cls == Ty.TPtr then return type_contains_lease(ty.elem) end
         if cls == Ty.TArray then return type_contains_lease(ty.elem) end
         if cls == Ty.TSlice then return type_contains_lease(ty.elem) end

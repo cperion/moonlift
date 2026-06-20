@@ -82,7 +82,9 @@ function M.Define(T, base)
     end
 
     local function is_view_type(ty)
-        return ty ~= nil and pvm.classof(ty) == Ty.TView
+        if ty == nil then return false end
+        if pvm.classof(ty) == Ty.TAccess then return is_view_type(ty.base) end
+        return pvm.classof(ty) == Ty.TView
     end
 
     local function block_id(nonce, region_id, label)

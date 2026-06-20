@@ -271,6 +271,7 @@ function M.Define(T)
     local function host_rep_for_type(ty)
         if pvm.classof(ty) == Ty.TScalar then return Host.HostRepScalar(ty.scalar) end
         if pvm.classof(ty) == Ty.TPtr then return Host.HostRepPtr(ty.elem) end
+        if pvm.classof(ty) == Ty.TAccess then return host_rep_for_type(ty.base) end
         return Host.HostRepOpaque("c-field")
     end
 

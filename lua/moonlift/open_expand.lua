@@ -450,6 +450,7 @@ function M.Define(T, opts)
         [Ty.TSlice] = function(self, env) return pvm.once(pvm.with(self, { elem = one(expand_type, self.elem, env) })) end,
         [Ty.TView] = function(self, env) return pvm.once(pvm.with(self, { elem = one(expand_type, self.elem, env) })) end,
         [Ty.TLease] = function(self, env) return pvm.once(pvm.with(self, { base = one(expand_type, self.base, env) })) end,
+        [Ty.TAccess] = function(self, env) return pvm.once(pvm.with(self, { base = one(expand_type, self.base, env) })) end,
         [Ty.THandle] = function(self) return pvm.once(self) end,
         [Ty.TFunc] = function(self, env) return pvm.once(pvm.with(self, { params = expand_types(self.params, env), result = one(expand_type, self.result, env) })) end,
         [Ty.TClosure] = function(self, env) return pvm.once(pvm.with(self, { params = expand_types(self.params, env), result = one(expand_type, self.result, env) })) end,
