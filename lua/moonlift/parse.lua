@@ -613,6 +613,30 @@ function Parser:expect_string(msg)
     return ""
 end
 
+local expr_start = {
+    [TK.hole]=true, [TK.as_kw]=true,
+    [TK.int]=true, [TK.float]=true, [TK.string]=true,
+    [TK.true_kw]=true, [TK.false_kw]=true, [TK.nil_kw]=true,
+    [TK.name]=true, [TK.view_kw]=true, [TK.len_kw]=true,
+    [TK.sizeof_kw]=true, [TK.alignof_kw]=true, [TK.null_kw]=true,
+    [TK.is_null_kw]=true,
+    [TK.lparen]=true, [TK.minus]=true, [TK.not_kw]=true,
+    [TK.tilde]=true, [TK.star]=true, [TK.amp]=true,
+    [TK.lbrace]=true, [TK.lbrack]=true,
+    [TK.switch_kw]=true, [TK.emit_kw]=true, [TK.block_kw]=true,
+    [TK.region_kw]=true,
+}
+
+function Parser:starts_expr(offset)
+    return expr_start[self:kind(offset)] == true
+end
+
+function Parser:parse_optional_stmt_value()
+    self:skip_nl()
+    if self:starts_expr() then return self:parse_expr(0) end
+    return nil
+end
+
 -- Identifier keywords (can be used as field names etc.)
 local ident_kw = {
     [TK.func_kw]=true,
@@ -708,12 +732,18 @@ function Parser:read_splice_expr(msg)
     end
     local start_i = self.i
     local name = self:expect_name(msg)
+    return self:read_splice_expr_tail(start_i, name)
+end
+
+function Parser:read_splice_expr_tail(start_i, name)
     -- Consume postfix chains: .field, (args), [idx]
+    local stop_i = start_i
     while true do
         local k = self:kind()
         if k == TK.dot then
             self.i = self.i + 1
             self:expect_name("expected field name after '.'")
+            stop_i = self.i - 1
         elseif k == TK.lparen then
             self.i = self.i + 1; self:skip_nl()
             local depth = 1
@@ -723,6 +753,7 @@ function Parser:read_splice_expr(msg)
                 if depth > 0 then self.i = self.i + 1; self:skip_nl() end
             end
             if self:kind() == TK.rparen then self.i = self.i + 1 end
+            stop_i = self.i - 1
         elseif k == TK.lbrack then
             self.i = self.i + 1; self:skip_nl()
             local depth = 1
@@ -732,11 +763,11 @@ function Parser:read_splice_expr(msg)
                 if depth > 0 then self.i = self.i + 1; self:skip_nl() end
             end
             if self:kind() == TK.rbrack then self.i = self.i + 1 end
+            stop_i = self.i - 1
         else
             break
         end
     end
-    local stop_i = self.i - 1
     -- Reconstruct expression text from token byte positions.
     if start_i <= stop_i then
         local src = self.toks.src
@@ -896,6 +927,7 @@ end
 
 function Parser:parse_type()
     local O, Ty, C = self.O, self.Ty, self.C
+    self:skip_nl()
 
     -- Hole: @{type_value}
     if self:kind() == TK.hole then
@@ -916,6 +948,7 @@ function Parser:parse_type()
     end
 
     if self:accept(TK.view_kw) then
+        self:skip_nl()
         self:expect(TK.lparen); self:skip_nl(); local elem = self:parse_type(); self:skip_nl(); self:expect(TK.rparen)
         return Ty.TView(elem)
     end
@@ -933,6 +966,7 @@ function Parser:parse_type()
     end
 
     if self:accept(TK.handle_kw) then
+        self:skip_nl()
         self:expect(TK.lparen); self:skip_nl()
         local ref_name = self:expect_name("expected handle type name")
         local parts = { ref_name }
@@ -946,6 +980,7 @@ function Parser:parse_type()
     end
 
     if self:accept(TK.func_kw) then
+        self:skip_nl()
         local params, result = self:parse_callable_type()
         return Ty.TFunc(params, result)
     end
@@ -958,19 +993,20 @@ function Parser:parse_type()
 
     if self:kind() == TK.name and self:text() == "closure" then
         self.i = self.i + 1
+        self:skip_nl()
         local params, result = self:parse_callable_type()
         return Ty.TClosure(params, result)
     end
 
-    if self:kind() == TK.name and self:text() == "ptr" and self:kind(1) == TK.lparen then
-        self.i = self.i + 2  -- skip name + lparen
-        self:skip_nl()
-        local elem = self:parse_type()
-        self:skip_nl(); self:expect(TK.rparen)
+    local start_i = self.i
+    local name = self:expect_name("expected type")
+    self:skip_nl()
+    if name == "ptr" and self:accept(TK.lparen) then
+        self:skip_nl(); local elem = self:parse_type(); self:skip_nl(); self:expect(TK.rparen)
         return Ty.TPtr(elem)
     end
 
-    local expr = self:read_splice_expr("expected type")
+    local expr = self:read_splice_expr_tail(start_i, name)
     return self:type_name(expr)
 end
 
@@ -1090,6 +1126,7 @@ function Parser:nud()
         if self:kind() ~= TK.rbrace then
             while true do
                 local fname = self:expect_name("expected field name")
+                self:skip_nl()
                 self:expect(TK.eq, "expected '=' after field name")
                 fields[#fields + 1] = Tr.FieldInit(fname, self:parse_expr(0), 0)
                 self:skip_sep()
@@ -1222,6 +1259,7 @@ function Parser:led(k, left)
         if self:kind() ~= TK.rbrace then
             while true do
                 local fname = self:expect_name("expected field name")
+                self:skip_nl()
                 self:expect(TK.eq, "expected '=' after field name")
                 fields[#fields + 1] = Tr.FieldInit(fname, self:parse_expr(0), 0)
                 self:skip_sep()
@@ -1382,6 +1420,7 @@ function Parser:parse_switch_stmt()
             saw_syntax = true
         else
             self.i = self.i + 1  -- consume 'case'
+            self:skip_nl()
             if self:kind() == TK.dot then
                 local variant_name, binds = self:parse_variant_switch_case()
                 self:skip_nl()
@@ -1402,6 +1441,7 @@ function Parser:parse_switch_stmt()
         self:skip_nl()
     end
     self:expect(TK.default_kw, "expected default in switch")
+    self:skip_nl()
     self:expect(TK.then_kw, "expected then after default")
     local default_body, default_items, default_syntax = self:parse_stmt_items_until({ [TK.end_kw]=true })
     self:expect(TK.end_kw, "expected end after switch")
@@ -1425,6 +1465,7 @@ function Parser:parse_switch_expr()
             saw_syntax = true
         else
             self.i = self.i + 1
+            self:skip_nl()
             if self:kind() == TK.dot then
                 local variant_name, binds = self:parse_variant_switch_case()
                 self:skip_nl()
@@ -1447,6 +1488,7 @@ function Parser:parse_switch_expr()
         self:skip_nl()
     end
     self:expect(TK.default_kw, "expected default in switch")
+    self:skip_nl()
     self:expect(TK.then_kw, "expected then after default")
     local default_body, default_items, default_expr, default_expr_item, default_syntax = self:parse_expr_block_items({ [TK.end_kw]=true })
     self:expect(TK.end_kw, "expected end after switch")
@@ -1511,9 +1553,12 @@ end
 -- Block expression: block name(params = init): T body end
 function Parser:parse_control_expr_after_block()
     local Tr, S = self.Tr, self.S
+    self:skip_nl()
     local label_name = self:expect_name("expected block label")
     local label = Tr.BlockLabel(label_name)
+    self:skip_nl()
     local params, param_items, param_syntax = self:parse_block_params(true)
+    self:skip_nl()
     self:expect_result_marker("expected ':' for block expression result type")
     self:skip_nl()
     local result_ty = self:parse_type()
@@ -1530,13 +1575,16 @@ end
 -- Multi-block region expression: region: T entry ... end block ... end end
 function Parser:parse_multi_control_expr()
     local Tr, S = self.Tr, self.S
+    self:skip_nl()
     self:expect_result_marker("expected ':' after region")
     self:skip_nl()
     local result_ty = self:parse_type()
     self:skip_nl()
     if not (self:accept(TK.entry_kw) or self:accept(TK.block_kw)) then self:expect(TK.entry_kw, "expected entry block") end
+    self:skip_nl()
     local entry_label_name = self:expect_name("expected block label")
     local entry_label = Tr.BlockLabel(entry_label_name)
+    self:skip_nl()
     local entry_params, entry_param_items, entry_param_syntax = self:parse_block_params(true)
     local entry_body, entry_body_items, entry_body_syntax = self:parse_stmt_items_until({ [TK.end_kw]=true, [TK.block_kw]=true })
     if self:kind() == TK.end_kw then self.i = self.i + 1 end
@@ -1549,8 +1597,10 @@ function Parser:parse_multi_control_expr()
             block_syntax = true
         else
             self.i = self.i + 1
+            self:skip_nl()
             local label_name = self:expect_name("expected block label")
             local label = Tr.BlockLabel(label_name)
+            self:skip_nl()
             local params, param_items, param_syntax = self:parse_block_params(false)
             local body, body_items, body_syntax = self:parse_stmt_items_until({ [TK.end_kw]=true })
             self:expect(TK.end_kw)
@@ -1573,7 +1623,9 @@ end
 -- Control statement: block name(params = init) body end
 function Parser:parse_stmt_control_after_block()
     local Tr = self.Tr
+    self:skip_nl()
     local label = Tr.BlockLabel(self:expect_name("expected block label"))
+    self:skip_nl()
     local params = self:parse_block_params(true)
     local body = self:parse_stmt_until({ [TK.end_kw]=true })
     self:expect(TK.end_kw)
@@ -1599,6 +1651,7 @@ function Parser:parse_block_params(entry)
                 saw_spread = true
             else
                 local name = self:expect_name("expected block parameter")
+                self:skip_nl()
                 self:expect(TK.colon)
                 local ty = self:parse_type()
                 if entry then
@@ -1631,6 +1684,7 @@ function Parser:parse_jump_args()
         while true do
             self:skip_nl()
             local name = self:expect_name("expected jump arg name")
+            self:skip_nl()
             self:expect(TK.eq, "expected '=' in jump arg")
             args[#args + 1] = Tr.JumpArg(name, self:parse_expr(0))
             self:skip_nl()
@@ -1647,6 +1701,7 @@ end
 -- only an explicit @{...} target creates an open fragment slot.
 function Parser:parse_region_frag_ref(keyword)
     local O = self.O
+    self:skip_nl()
     local name
     if self:kind() == TK.hole then
         name = self:text(); self.i = self.i + 1
@@ -1661,6 +1716,7 @@ end
 
 function Parser:parse_expr_frag_ref()
     local O = self.O
+    self:skip_nl()
     local name
     if self:kind() == TK.hole then
         name = self:text(); self.i = self.i + 1
@@ -1699,7 +1755,9 @@ function Parser:parse_region_use_stmt(mode, keyword)
         self:skip_nl()
         while self:kind() ~= TK.rparen and self:kind() ~= TK.eof do
             local name = self:expect_name("expected continuation fill name")
+            self:skip_nl()
             self:expect(TK.eq, "expected '=' in continuation fill")
+            self:skip_nl()
             local label = self:expect_name("expected block label in continuation fill")
             if self.cont_env and self.cont_env[label] then
                 cont_fills[#cont_fills + 1] = O.ContBinding(name, O.ContTargetSlot(self.cont_env[label]))
@@ -1795,7 +1853,9 @@ function Parser:parse_stmt()
 
     if self:accept(TK.let_kw) or self:accept(TK.var_kw) then
         local is_var = self.toks.kind[self.i - 1] == TK.var_kw
+        self:skip_nl()
         local name = self:expect_name()
+        self:skip_nl()
         local ty
         if self:kind() == TK.colon then
             self.i = self.i + 1; ty = self:parse_type()
@@ -1819,20 +1879,22 @@ function Parser:parse_stmt()
     if self:accept(TK.switch_kw) then return self:parse_switch_stmt() end
 
     if self:accept(TK.return_kw) then
-        if self:kind() == TK.nl or self:kind() == TK.end_kw then return Tr.StmtReturnVoid(Tr.StmtSurface) end
-        local value = self:parse_expr(0)
+        local value = self:parse_optional_stmt_value()
+        if value == nil then return Tr.StmtReturnVoid(Tr.StmtSurface) end
         if self:is_syntax_expr(value) then return self.S.SyntaxStmtReturnValue(self:tree_expr_item(value)) end
         return Tr.StmtReturnValue(Tr.StmtSurface, value)
     end
     if self:accept(TK.yield_kw) then
-        if self:kind() == TK.nl or self:kind() == TK.end_kw then return Tr.StmtYieldVoid(Tr.StmtSurface) end
-        local value = self:parse_expr(0)
+        local value = self:parse_optional_stmt_value()
+        if value == nil then return Tr.StmtYieldVoid(Tr.StmtSurface) end
         if self:is_syntax_expr(value) then return self.S.SyntaxStmtYieldValue(self:tree_expr_item(value)) end
         return Tr.StmtYieldValue(Tr.StmtSurface, value)
     end
 
     if self:accept(TK.jump_kw) then
+        self:skip_nl()
         local name = self:expect_name()
+        self:skip_nl()
         local args = self:parse_jump_args()
         if self.cont_env and self.cont_env[name] then
             return Tr.StmtJumpCont(Tr.StmtSurface, self.cont_env[name], args)
@@ -1848,6 +1910,7 @@ function Parser:parse_stmt()
 
     -- Expression or assignment
     local e = self:parse_expr(0)
+    self:skip_nl()
     if self:accept(TK.eq) then
         return Tr.StmtSet(Tr.StmtSurface, self:expr_to_place(e), self:parse_expr(0))
     end
@@ -1931,6 +1994,7 @@ function Parser:parse_param_list()
             if self:kind() ~= TK.colon and #mods == 0 and append_product_params(name) then
                 -- Product type in product-list position: expand its fields as params.
             else
+                self:skip_nl()
                 self:expect(TK.colon, "expected ':' in parameter")
                 local ty = self:parse_type()
                 for i = 1, #mods do
@@ -1961,7 +2025,9 @@ end
 
 function Parser:parse_extern()
     local Tr, Ty, C = self.Tr, self.Ty, self.C
+    self:skip_nl()
     local name = self:name_or_hint_before_lparen("expected extern function name")
+    self:skip_nl()
     self:expect(TK.lparen); local params, _ = self:parse_param_list(); self:expect(TK.rparen)
     local result = Ty.TScalar(C.ScalarVoid)
     if self:accept_result_marker() then self:skip_nl(); result = self:parse_type() end
@@ -1983,6 +2049,7 @@ end
 
 function Parser:parse_func()
     local Tr, Ty, C, O, S = self.Tr, self.Ty, self.C, self.O, self.S
+    self:skip_nl()
     -- Impl from header: func @{header_ref} body ... end
     if self:kind() == TK.hole then
         local id = self:text(); self.i = self.i + 1
@@ -1994,9 +2061,12 @@ function Parser:parse_func()
         return { kind = "func_impl", body = body, slot = slot }
     end
     local name = self:name_or_hint_before_lparen("expected function name")
+    self:skip_nl()
     if self:accept(TK.colon) then
+        self:skip_nl()
         local method = self:expect_name("expected method name")
         name = name .. "_" .. method
+        self:skip_nl()
     end
     self:expect(TK.lparen); local params, contracts, param_items, param_spread = self:parse_param_list(); self:expect(TK.rparen)
     local result = Ty.TScalar(C.ScalarVoid)
@@ -2043,6 +2113,7 @@ function Parser:parse_cont_params(owner_name)
                     payload_spread = true
                 else
                     local pname = self:expect_name("expected continuation arg name")
+                    self:skip_nl()
                     self:expect(TK.colon)
                     local ty = self:parse_type()
                     params[#params + 1] = Tr.BlockParam(pname, ty)
@@ -2064,6 +2135,7 @@ function Parser:parse_cont_params(owner_name)
         else
             local name = self:expect_name("expected continuation parameter name")
             local params, param_items, payload_spread = {}, {}, false
+            self:skip_nl()
             if self:accept(TK.colon) then
                 self:issue("removed continuation syntax; use 'name(...)' or bare 'name'")
                 if self:kind() == TK.name or ident_kw[self:kind()] then self.i = self.i + 1 end
@@ -2151,6 +2223,7 @@ function Parser:parse_open_params(owner_name)
                 if self:kind() ~= TK.colon and append_product_open_params(pname) then
                     -- Product type in product-list position: expand its fields as open params.
                 else
+                    self:skip_nl()
                     self:expect(TK.colon)
                     local ty = self:parse_type()
                     local param = O.OpenParam("param:" .. owner_name .. ":" .. pname .. ":" .. tostring(#params + 1), pname, ty)
@@ -2208,10 +2281,12 @@ function Parser:parse_region_frag()
             blocks = blocks, slot = slot }
     end
     -- Name, hole, or Lua assignment-inferred name.
+    self:skip_nl()
     local name_ref = self:name_ref_or_hint_before_lparen("expected region fragment name")
     local pvm = require("moonlift.pvm")
     local name_key = pvm.classof(name_ref) == O.NameRefText and name_ref.text or ("__hole_" .. name_ref.slot.key)
 
+    self:skip_nl()
     self:expect(TK.lparen)
     local params, param_bindings, open_items, open_spread = self:parse_open_params(name_key)
     local cont_slots, slots, cont_items, cont_spread = {}, {}, {}, false
@@ -2270,8 +2345,10 @@ function Parser:parse_region_frag()
     if not (self:accept(TK.entry_kw) or self:accept(TK.block_kw)) then
         self:expect(TK.entry_kw, "expected entry block in region fragment")
     end
+    self:skip_nl()
     local entry_label_name = self:expect_name("expected entry label")
     local entry_label = Tr.BlockLabel(entry_label_name)
+    self:skip_nl()
     local entry_params, entry_param_items, entry_param_spread = self:parse_block_params(true)
     local body, body_items, body_spread = self:parse_stmt_items_until({ [TK.end_kw]=true, [TK.block_kw]=true })
     if self:kind() == TK.end_kw then self.i = self.i + 1 end
@@ -2284,8 +2361,10 @@ function Parser:parse_region_frag()
             block_spread = true
         else
             self.i = self.i + 1
+            self:skip_nl()
             local label_name = self:expect_name("expected fragment block label")
             local label = Tr.BlockLabel(label_name)
+            self:skip_nl()
             local block_params, block_param_items, block_param_spread = self:parse_block_params(false)
             local block_body, block_body_items, block_body_spread = self:parse_stmt_items_until({ [TK.end_kw]=true })
             self:expect(TK.end_kw)
@@ -2308,10 +2387,12 @@ end
 -- Expression fragment: expr name(params): T body end
 function Parser:parse_expr_frag()
     local O, B, C, S = self.O, self.B, self.C, self.S
+    self:skip_nl()
     local name_ref = self:name_ref_or_hint_before_lparen("expected expression fragment name")
     local pvm = require("moonlift.pvm")
     local name_key = pvm.classof(name_ref) == O.NameRefText and name_ref.text or ("__hole_" .. name_ref.slot.key)
 
+    self:skip_nl()
     self:expect(TK.lparen)
     local params, param_bindings, open_items, open_spread = self:parse_open_params(name_key)
     self:expect(TK.rparen)
@@ -2336,6 +2417,7 @@ end
 function Parser:parse_struct_island()
     local Tr, Ty, S = self.Tr, self.Ty, self.S
     local name
+    self:skip_nl()
     local next_is_field = (self:kind() == TK.name or ident_kw[self:kind()]) and self:kind(1) == TK.colon
     if self.name_hint and (self:kind() == TK.nl or self:kind() == TK.end_kw or next_is_field) then
         name = self.name_hint
@@ -2355,6 +2437,7 @@ function Parser:parse_struct_island()
             saw_spread = true
         else
             local fname = self:expect_field_name("expected field name")
+            self:skip_nl()
             self:expect(TK.colon, "expected ':' in field declaration")
             local ty = self:parse_type()
             fields[#fields + 1] = Ty.FieldDecl(fname, ty)
@@ -2392,6 +2475,7 @@ end
 function Parser:parse_union_island()
     local Tr, Ty, S = self.Tr, self.Ty, self.S
     local name
+    self:skip_nl()
     local k1 = self:kind(1)
     local first_is_name = (self:kind() == TK.name or ident_kw[self:kind()])
     local current_starts_variant = first_is_name and (k1 == TK.pipe or k1 == TK.lparen or k1 == TK.end_kw)
@@ -2427,6 +2511,7 @@ function Parser:parse_union_island()
                 elseif (self:kind() == TK.name or ident_kw[self:kind()]) and self:kind(1) == TK.colon then
                     while self:kind() ~= TK.rparen and self:kind() ~= TK.eof do
                         local fname = self:expect_field_name("expected variant field name")
+                        self:skip_nl()
                         self:expect(TK.colon)
                         local ty = self:parse_type()
                         fields[#fields + 1] = Ty.FieldDecl(fname, ty)
@@ -2475,11 +2560,13 @@ end
 function Parser:parse_handle_island()
     local Tr, Ty = self.Tr, self.Ty
     local name
+    self:skip_nl()
     if self.name_hint and (self:kind() == TK.colon or self:kind() == TK.invalid_kw or self:kind() == TK.end_kw) then
         name = self.name_hint
     else
         name = self:expect_name("expected handle name")
     end
+    self:skip_nl()
     self:expect_result_marker("expected ':' before handle representation")
     self:skip_nl()
     local repr = self:parse_handle_repr()

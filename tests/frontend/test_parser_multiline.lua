@@ -71,4 +71,67 @@ local contracty = P.parse_island(contract_scan, 1)
 assert(#contracty.issues == 0, contracty.issues[1] and contracty.issues[1].message)
 assert(#contracty.value.contracts == 1)
 
+local free_newline_src = [[
+func
+free_lines
+(
+): i32
+    var
+    x
+    :
+    i32
+    =
+    1
+    x
+    =
+    x
+    +
+    1
+    switch
+    x
+    do
+    case
+    1
+    then
+        return
+        10
+    default
+    then
+        return
+        x
+    end
+end
+]]
+local free = P.parse_module(free_newline_src)
+assert(#free.issues == 0, free.issues[1] and free.issues[1].message)
+
+local region_newline_src = [[
+region
+scan
+(
+;
+ok
+(
+v
+:
+i32
+)
+)
+entry
+start
+(
+)
+    jump
+    ok
+    (
+    v
+    =
+    1
+    )
+end
+end
+]]
+local region_free = P.parse_module(region_newline_src)
+assert(#region_free.issues == 0, region_free.issues[1] and region_free.issues[1].message)
+
 print("moonlift parser multiline ok")
