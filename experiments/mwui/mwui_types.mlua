@@ -6,7 +6,9 @@
 --
 -- Stored choices (`kind`, `state`, `op`, ids) are encoded facts.  The comment
 -- beside each one names the region family that owns the encoding.  Runtime
--- identity is always a handle.  Temporary access is granted by region exits.
+-- identity is a handle; handles that resolve to local memory declare their
+-- resolver domain and target product.  Temporary access is granted by region
+-- exits as leases, never by the handle itself.
 
 local M = {
     T = {},
@@ -19,7 +21,9 @@ local R = M.R
 local F = M.F
 
 --------------------------------------------------------------------------------
--- Compile-time identity: template-local, never sent on the wire.
+-- Compile-time identity: template-local, never sent on the wire.  These are
+-- nominal ids inside generated tables, so they intentionally carry no
+-- domain/target facts.
 --------------------------------------------------------------------------------
 
 T.ViewNodeRef = handle : u32 invalid 0 end
@@ -88,15 +92,24 @@ T.ViewPlan = struct
 end
 
 --------------------------------------------------------------------------------
--- Runtime identity: durable per-session handles.
+-- Runtime identity.  Domain is the public resolver product, not necessarily
+-- the physical field that stores the target.  `NodeId` names browser DOM
+-- identity, so it stays a bare handle: the browser owns the actual node.
 --------------------------------------------------------------------------------
 
 T.NodeId = handle : u32 invalid 0 end
-T.ComponentRef = handle : u64 invalid 0 end
-T.SessionRef = handle : u64 invalid 0 end
-T.BindingRef = handle : u32 invalid 0 end
-T.ListRef = handle : u32 invalid 0 end
-T.TaskRef = handle : u32 invalid 0 end
+T.ComponentRef = handle : u64 invalid 0
+    domain T.Session
+    target T.Component
+end
+T.SessionRef = handle : u64 invalid 0
+    domain T.App
+    target T.Session
+end
+T.TaskRef = handle : u32 invalid 0
+    domain T.Session
+    target T.Task
+end
 
 --------------------------------------------------------------------------------
 -- Transport products.
@@ -128,18 +141,15 @@ T.WsMessage = struct
 end
 
 --------------------------------------------------------------------------------
--- Event products.
---
--- `event_decode` receives a `lease view(u8)` from the socket buffer.  This
--- stored EventIn product carries only a readonly view because structs are
--- durable products today; the lease boundary is the region signature.
+-- Event products.  `EventIn` carries only durable metadata; the borrowed
+-- payload stays in continuation payloads until a dispatch wrapper projects it
+-- into the leaf-facing `Event`.
 --------------------------------------------------------------------------------
 
 T.EventIn = struct
     kind: u8,             -- owner: route_event
     target: T.NodeId,
     n: i64,
-    text: readonly view(u8),
 end
 
 T.EventOwned = struct
@@ -394,7 +404,7 @@ end
 --------------------------------------------------------------------------------
 
 R.event_decode = region event_decode(payload: lease view(u8);
-    event(e: T.EventIn)
+    event(e: T.EventIn, text: lease view(u8))
   | bad_event(code: i32))
 end
 
@@ -417,7 +427,7 @@ end
 
 R.component_step = region component_step(invalidate self: lease ptr(T.Component),
                                           handler: T.HandlerRef,
-                                          e: ptr(T.EventIn),
+                                          e: ptr(T.Event),
                                           dirty: ptr(T.DirtyQueue);
     handled
   | ignored
@@ -432,7 +442,7 @@ end
 
 R.component_step_owned = region component_step_owned(invalidate self: lease ptr(T.Component),
                                                       handler: T.HandlerRef,
-                                                      e: ptr(T.EventOwned),
+                                                      e: ptr(T.Event),
                                                       dirty: ptr(T.DirtyQueue);
     handled
   | ignored
@@ -445,7 +455,7 @@ R.component_step_owned = region component_step_owned(invalidate self: lease ptr(
   | oom(needed: index))
 end
 
-R.dispatch_event = region dispatch_event(invalidate sess: ptr(T.Session), e: ptr(T.EventIn);
+R.dispatch_event = region dispatch_event(invalidate sess: ptr(T.Session), e: ptr(T.EventIn), text: lease view(u8);
     dispatched
   | ignored
   | protocol_error(code: i32)
@@ -470,6 +480,12 @@ end
 -- Component access, mount, unmount, output, and keyed-list protocols.
 --------------------------------------------------------------------------------
 
+R.borrow_session = region borrow_session(app: ptr(T.App), s: T.SessionRef;
+    borrowed(session: lease ptr(T.Session))
+  | missing(s: T.SessionRef)
+  | closed(s: T.SessionRef))
+end
+
 R.borrow_component = region borrow_component(sess: ptr(T.Session), c: T.ComponentRef;
     borrowed(component: lease ptr(T.Component))
   | stale(c: T.ComponentRef)
@@ -487,6 +503,18 @@ R.retire_component = region retire_component(invalidate sess: ptr(T.Session), c:
     retired
   | stale(c: T.ComponentRef)
   | missing(c: T.ComponentRef))
+end
+
+R.borrow_task = region borrow_task(sess: ptr(T.Session), task: T.TaskRef;
+    borrowed(task: lease ptr(T.Task))
+  | missing(task: T.TaskRef)
+  | completed(task: T.TaskRef))
+end
+
+R.cancel_task = region cancel_task(invalidate sess: ptr(T.Session), task: T.TaskRef;
+    cancelled
+  | missing(task: T.TaskRef)
+  | completed(task: T.TaskRef))
 end
 
 R.component_mount = region component_mount(invalidate self: lease ptr(T.Component),

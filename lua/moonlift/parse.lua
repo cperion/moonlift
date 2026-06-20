@@ -886,6 +886,15 @@ function Parser:type_name(name)
     return Ty.TNamed(Ty.TypeRefPath(C.Path({ C.Name(name) })))
 end
 
+function Parser:type_ref_name(msg)
+    local C, Ty = self.C, self.Ty
+    local name = self:expect_name(msg or "expected type name")
+    while self:accept(TK.dot) do
+        name = name .. "." .. self:expect_name("expected type path segment")
+    end
+    return Ty.TypeRefPath(C.Path({ C.Name(name) }))
+end
+
 function Parser:parse_callable_type()
     local Ty = self.Ty
     self:expect(TK.lparen); self:skip_nl()
@@ -2668,10 +2677,24 @@ function Parser:parse_handle_island()
         end
     end
     self:skip_nl()
+    local facts = {}
+    while self:kind() == TK.name and (self:text() == "domain" or self:text() == "target") do
+        local fact_kind = self:text()
+        self.i = self.i + 1
+        self:skip_nl()
+        local ref = self:type_ref_name("expected handle " .. fact_kind .. " type")
+        if fact_kind == "domain" then
+            facts[#facts + 1] = Ty.HandleDomain(ref)
+        else
+            facts[#facts + 1] = Ty.HandleTarget(ref)
+        end
+        self:skip_nl()
+        if self:accept(TK.comma) then self:skip_nl() end
+    end
     self:expect(TK.end_kw, "expected end after handle")
     return {
         name = name,
-        decl = Tr.TypeDeclHandle(name, repr, invalid),
+        decl = Tr.TypeDeclHandle(name, repr, invalid, facts),
         protocol_variants = nil,
     }
 end
@@ -3243,20 +3266,22 @@ function M.parse_module_document(T, src, opts)
         protocol_types = parsed.protocol_types or protocol_types
         product_types = parsed.product_types or product_types
         if parsed.kind == "func" then
-            local func = parsed.value
-            local cls = pvm.classof(func)
-            if cls == Tr.FuncLocal then
-                func = Tr.FuncExport(func.name, func.params, func.result, func.body)
-            elseif cls == Tr.FuncLocalContract then
-                func = Tr.FuncExportContract(func.name, func.params, func.result, func.contracts, func.body)
+            if parsed.value and parsed.value.kind ~= "func_impl" then
+                local func = parsed.value
+                local cls = pvm.classof(func)
+                if cls == Tr.FuncLocal then
+                    func = Tr.FuncExport(func.name, func.params, func.result, func.body)
+                elseif cls == Tr.FuncLocalContract then
+                    func = Tr.FuncExportContract(func.name, func.params, func.result, func.contracts, func.body)
+                end
+                items[#items + 1] = Tr.ItemFunc(func)
             end
-            items[#items + 1] = Tr.ItemFunc(func)
         elseif parsed.kind == "struct" or parsed.kind == "union" or parsed.kind == "handle" then
             items[#items + 1] = Tr.ItemType(parsed.value.decl)
         elseif parsed.kind == "extern" then
             items[#items + 1] = Tr.ItemExtern(parsed.value)
         elseif parsed.kind == "region" then
-            if parsed.value and pvm.classof(parsed.value) ~= O.RegionFragDecl then items[#items + 1] = Tr.ItemRegionFrag(parsed.value) end
+            if parsed.value and parsed.value.kind ~= "region_impl" and pvm.classof(parsed.value) ~= O.RegionFragDecl then items[#items + 1] = Tr.ItemRegionFrag(parsed.value) end
         elseif parsed.kind == "expr" or parsed.kind == "expr_frag" then
             if parsed.value then items[#items + 1] = Tr.ItemExprFrag(parsed.value) end
         end

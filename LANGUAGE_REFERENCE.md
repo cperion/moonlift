@@ -82,6 +82,7 @@ Inside `.mlua`, Moonlift recognizes these hosted islands:
 
 - `struct ... end`
 - `union ... end`
+- `handle ... end`
 - `extern ... end`
 - `func ... end`
 - `region ... entry ... end ... end`
@@ -401,12 +402,13 @@ Complete list of reserved words in Moonlift object-language source:
 
 **Declaration / hosted-island keywords:**
 ```text
-func  struct  union  extern  region  expr
+func  struct  union  handle  extern  region  expr
 ```
 
 **Pointer and access modifiers:**
 ```text
-noalias  readonly  writeonly  requires
+noalias  readonly  writeonly  noescape  invalidate  preserve
+lease    requires
 bounds   window_bounds  disjoint  same_len
 ```
 
@@ -444,7 +446,7 @@ and may be used freely as identifiers:
 
 ```text
 for  while  loop  next  break  continue  over  range  zip  zip_eq
-fn  closure  ptr  slice  repr  packed
+fn  closure  ptr  slice  repr  packed  domain  target
 ```
 
 Sugar keywords (if added later) will be lowering-only and will not add new
@@ -506,9 +508,10 @@ Pointer operations:
 | Address-of | `&place` | Take address of a place |
 | Pointer add | `ptr + offset` | Add element offset to pointer |
 
-Pointer types do not carry mutability, nullability, or lifetime information at
-the type level. These properties are expressed through parameter modifiers and
-`requires` contracts.
+Plain pointer types do not carry mutability, nullability, ownership, or lifetime
+information by themselves. Access and lifetime facts are represented explicitly
+around the base type with access-qualified types and leases, or as `requires`
+contracts at ABI boundaries.
 
 ### 5.3 View types
 
@@ -555,7 +558,50 @@ checks are enabled) or undefined behavior (when checks are elided by facts).
 | `len(v)` | `index` | Number of elements in the view |
 | `v[i]` | `T` | Element at index `i` |
 
-### 5.4 Named types
+### 5.4 Access-qualified and lease types
+
+Access qualifiers are part of the source type surface and survive parsing as
+explicit ASDL:
+
+```text
+TAccess(TypeAccessReadonly, TView(TScalar(u8)))
+```
+
+Source syntax:
+
+```moonlift
+readonly view(u8)
+writeonly ptr(u8)
+noalias ptr(i32)
+noescape ptr(Node)
+invalidate ptr(Session)
+preserve ptr(Store)
+lease ptr(T)
+lease(owner) view(u8)
+```
+
+The access words are:
+
+| Qualifier | Meaning |
+|---|---|
+| `noalias` | This access path does not alias another relevant access path |
+| `readonly` | Memory reachable through the access path is only read |
+| `writeonly` | Memory reachable through the access path is only written |
+| `noescape` | The access path must not be retained beyond the current dynamic extent |
+| `invalidate` | The operation may move, free, compact, clear, or reuse reachable storage |
+| `preserve` | The operation may inspect/update metadata but preserves live leases |
+
+`lease T` is temporary access. A lease may appear in function, block, and
+continuation parameters, but it may not become durable data: no struct fields,
+statics, ordinary returns, or region-call result payloads. Use `emit` when a
+region carries leased access in a continuation payload.
+
+Parameter modifiers are parsed as access wrappers on the parameter type. For
+compatibility with the local borrow checker, `noescape p: ptr(T)` is represented
+as `TAccess(TypeAccessNoEscape, TLease(TPtr(T)))`: the `noescape` source fact is
+preserved and the existing lease discipline remains active.
+
+### 5.5 Named types
 
 Named types refer to declared structs, tagged unions, or qualified type paths:
 
@@ -568,7 +614,7 @@ MoonCore.Scalar   -- qualified named type path
 Named types are resolved during typechecking against the module's type
 declarations and imports. Unresolved names produce type errors.
 
-### 5.5 Struct types
+### 5.6 Struct types
 
 Declared via `struct ... end` islands in `.mlua` files:
 
@@ -590,7 +636,7 @@ Fields are product members: they coexist, so fields are comma-separated just
 like function parameters. Fields are laid out in declaration order with natural
 alignment.
 
-### 5.6 Tagged union types
+### 5.7 Tagged union types
 
 ```moonlift
 union Result ok(i32) | err(i32) end
@@ -611,7 +657,7 @@ means no payload. When a tagged union is used as a region result protocol
 (`region r(...): Scanner`), its variants become exits and named variant fields
 become continuation parameters. Protocol variants must use named fields.
 
-### 5.7 Array types
+### 5.8 Array types
 
 ```moonlift
 [T; N]       -- fixed-length array of T with N elements
@@ -629,7 +675,7 @@ runtime-sized descriptors (pointer + length + stride). Use arrays when the size
 is known at compile time and you want inline storage. Use views for
 runtime-sized or dynamically allocated sequences.
 
-### 5.8 Function and closure types (source syntax)
+### 5.9 Function and closure types (source syntax)
 
 In type position:
 
@@ -655,7 +701,7 @@ end
 
 The builder API uses `moon.func_type(params, result)` and `moon.closure_type(params, result)`.
 
-### 5.9 Source-level genericity
+### 5.10 Source-level genericity
 
 There is none. Use Lua to generate specialized concrete types/functions/fragments.
 
@@ -716,16 +762,21 @@ end
 ```text
 param      ::= modifier* name ":" type
 modifier   ::= "noalias" | "readonly" | "writeonly"
+             | "noescape" | "invalidate" | "preserve"
 ```
 
-Parameter modifiers become source contracts. They are consumed by the contract
-facts phase and used by vector safety and alias/proof decisions.
+Parameter modifiers are both source contracts and explicit type facts. The parser
+wraps the parameter type in `TAccess(...)`; the compatibility contract path still
+feeds alias, vector safety, and local invalidation checks.
 
 | Modifier | Meaning |
 |---|---|
 | `noalias` | This pointer does not alias any other pointer parameter |
 | `readonly` | Memory reachable through this pointer is only read, never written |
 | `writeonly` | Memory reachable through this pointer is only written, never read |
+| `noescape` | Access may be used by the callee but not retained |
+| `invalidate` | Callee may invalidate storage reachable through this parameter |
+| `preserve` | Callee preserves live leases associated with this parameter |
 
 Example:
 
@@ -739,7 +790,9 @@ end
 ```
 
 Modifiers can be combined. `noalias readonly xs: ptr(T)` means the pointer is
-both non-aliasing and the memory it points to is only read.
+both non-aliasing and the memory it points to is only read. Combined modifiers
+produce nested explicit access nodes, so the source facts remain visible to later
+phases.
 
 
 
@@ -747,7 +800,7 @@ both non-aliasing and the memory it points to is only read.
 
 ### 6.4 Type declarations
 
-In `.mlua` files, use `struct` and `union` islands. The name is optional when
+In `.mlua` files, use `struct`, `union`, and `handle` islands. The name is optional when
 assigned — inferred from the assignment target:
 
 ```moonlift
@@ -756,6 +809,11 @@ local Pair = struct left: i32, right: i32 end   -- same, name inferred
 
 union Result ok(i32) | err(string) | none end
 local Result = union ok(i32) | err(string) | none end  -- same, name inferred
+
+handle ComponentRef : u32 invalid 0
+    domain ComponentStore
+    target Component
+end
 
 -- Anonymous (auto-named)
 return struct x: f32, y: f32 end
@@ -794,6 +852,7 @@ region parse_point(p: ptr(u8), n: index; ParseExit)
 
 - `struct [Name] field: T, field: T end` (product fields use commas)
 - `union [Name] variant(...) | variant(...) end` (sum alternatives use `|`)
+- `handle [Name] : repr [invalid int] [domain Type] [target Type] end`
 - `extern [name](params...) [: T] [as "symbol"] end`
 - `func [name](params...) [: T] ... end`
 - `region [name](params; exit(payload...) | empty_exit) ... end`
@@ -1950,7 +2009,7 @@ end
 ```
 
 Expression fragments have:
-- A parameter list (no modifiers)
+- A parameter list using the same open-param grammar as region fragments
 - A single result type
 - A single expression body (no statements)
 
@@ -2028,6 +2087,8 @@ end
 | `noalias(x)` | pointer | This pointer does not alias any other pointer in the function |
 | `readonly(x)` | pointer/view | Memory reachable through this reference is only read |
 | `writeonly(x)` | pointer/view | Memory reachable through this reference is only written |
+| `invalidate(x)` | pointer/view | Operation may invalidate live leases from this store/access path |
+| `preserve(x)` | pointer/view | Operation preserves live leases from this store/access path |
 
 Contracts are not runtime checks — they are compile-time facts that enable
 optimizations (vectorization, alias analysis, bounds check elimination).
@@ -3565,7 +3626,10 @@ The convention is:
 
 ```text
 Products own bytes.
+Handles name durable identity.
+Handle facts name domain and target.
 Regions control access.
+Leases embody temporary access.
 Protocols name failure.
 ```
 
@@ -3579,11 +3643,14 @@ Design memory from the outside inward:
 
 1. Name the owner product.
 2. Decide whether access needs a stable handle.
-3. Name the access region.
-4. Name every failure or alternate outcome in the region protocol.
-5. Keep borrowed pointers/views inside the region extent or pass them into
+3. If the reference is a handle, declare its `domain Store` and `target Item`.
+4. Name the access region.
+5. Name every failure or alternate outcome in the region protocol.
+6. Put successful access in the continuation payload as `lease ptr(T)` or
+   `lease view(T)`.
+7. Keep borrowed pointers/views inside the region extent or pass them into
    sealed kernels.
-6. Name lifetime changes as `reset_*`, `publish_*`, `retire_*`, or `close_*`
+8. Name lifetime changes as `reset_*`, `publish_*`, `retire_*`, or `close_*`
    regions.
 
 Use the smallest model that fits:
@@ -3591,7 +3658,7 @@ Use the smallest model that fits:
 | Situation | Model |
 |---|---|
 | Same lifetime as parent | Field in the parent product |
-| Stable references, reuse, stale handles | `*Pool` / `*Store`, `*Ref`, `borrow_*` |
+| Stable references, reuse, stale handles | `handle Ref domain *Store target Item`, `borrow_*` / `resolve_*` |
 | Temporary frame/block memory | `*Scratch` / arena, `reset_*` |
 | Host buffer for one call | Boundary region with views/pointers |
 | Version becomes visible | `publish_*` |
@@ -3606,17 +3673,26 @@ reused by more than one region.
 
 Use a typed handle when a reference can outlive a raw pointer. A handle is a
 nominal, opaque scalar identity; the store owns location, liveness, generations,
-free lists, compaction, and destruction policy.
+free lists, compaction, and destruction policy. A handle declaration may carry
+explicit metadata tying that identity to its owning domain and logical target:
 
 ```moonlift
-handle Voice : u32 invalid 0 end
-
 struct VoicePool
     states: ptr(VoiceState),
     generations: ptr(u16),
     cap: index,
     active_count: index,
     free_head: u32,
+end
+
+struct VoiceState
+    phase: f32,
+    gain: f32,
+end
+
+handle Voice : u32 invalid 0
+    domain VoicePool
+    target VoiceState
 end
 
 region borrow_voice_state(pool: ptr(VoicePool), voice: Voice;
@@ -3630,6 +3706,26 @@ dereferenced or used for arithmetic, and it does not implicitly cast to its
 representation. Store implementations that must pack or unpack the scalar
 representation use the explicit trusted boundary operations `repr(handle_value)`
 and `Handle.from_repr(raw)`.
+
+`domain` and `target` are not dereference rules. They are ASDL facts on the
+handle declaration:
+
+```text
+TypeDeclHandle(
+  name = Voice,
+  repr = u32,
+  invalid = 0,
+  facts = {
+    HandleDomain(VoicePool),
+    HandleTarget(VoiceState),
+  })
+```
+
+The checker uses these facts at resolver signatures. A region that accepts a
+`Voice` and grants `lease ptr(VoiceState)` must also take access to the matching
+`VoicePool` domain. A region that accepts `Voice` and grants `lease ptr(Texture)`
+is rejected. The handle remains durable identity; only the successful
+continuation grants temporary memory access.
 
 A lease is the temporary access fact produced by the store. A lease may access
 memory, but it must not become durable identity: no storing it in long-lived

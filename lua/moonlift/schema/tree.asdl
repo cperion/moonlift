@@ -203,7 +203,7 @@ module MoonTree {
          | TypeDeclUnion(string name, MoonType.FieldDecl* fields) unique
          | TypeDeclEnumSugar(string name, MoonCore.Name* variants) unique
          | TypeDeclTaggedUnionSugar(string name, MoonType.VariantDecl* variants) unique
-         | TypeDeclHandle(string name, MoonType.HandleRepr repr, MoonType.HandleInvalid invalid) unique
+         | TypeDeclHandle(string name, MoonType.HandleRepr repr, MoonType.HandleInvalid invalid, MoonType.HandleFact* facts) unique
          | TypeDeclOpenStruct(MoonCore.TypeSym sym, MoonType.FieldDecl* fields) unique
          | TypeDeclOpenUnion(MoonCore.TypeSym sym, MoonType.FieldDecl* fields) unique
 

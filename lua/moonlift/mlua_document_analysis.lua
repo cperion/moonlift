@@ -429,11 +429,11 @@ function M.Define(T)
             elseif island.kind == "union" or island.kind == "handle" then
                 if parsed.value and parsed.value.decl then items[#items + 1] = Tr.ItemType(parsed.value.decl) end
             elseif island.kind == "func" then
-                if parsed.value then items[#items + 1] = Tr.ItemFunc(parsed.value) end
+                if parsed.value and parsed.value.kind ~= "func_impl" then items[#items + 1] = Tr.ItemFunc(parsed.value) end
             elseif island.kind == "extern" then
                 if parsed.value then items[#items + 1] = Tr.ItemExtern(parsed.value) end
             elseif island.kind == "region" then
-                if parsed.value then
+                if parsed.value and parsed.value.kind ~= "region_impl" then
                     local rcls = pvm.classof(parsed.value)
                     if rcls ~= O.RegionFragDecl then
                         items[#items + 1] = Tr.ItemRegionFrag(parsed.value)

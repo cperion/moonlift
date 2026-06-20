@@ -13,6 +13,9 @@ module MoonType {
     HandleInvalid = HandleInvalidNone
          | HandleInvalidInt(string raw) unique
 
+    HandleFact = HandleDomain(MoonType.TypeRef domain) unique
+         | HandleTarget(MoonType.TypeRef target) unique
+
     LeaseOrigin = LeaseOriginUnknown
          | LeaseOriginParam(string name) unique
 

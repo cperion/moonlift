@@ -25,6 +25,15 @@ assert(pvm.classof(parsed_handle.value.decl.repr) == Ty.HandleReprScalar)
 assert(parsed_handle.value.decl.repr.scalar == C.ScalarU32)
 assert(pvm.classof(parsed_handle.value.decl.invalid) == Ty.HandleInvalidInt)
 
+local parsed_handle_facts = P.parse_handle([[handle ComponentRef : u32 invalid 0
+    domain ComponentStore
+    target Component
+end]])
+assert(#parsed_handle_facts.issues == 0, parsed_handle_facts.issues[1] and parsed_handle_facts.issues[1].message)
+assert(#parsed_handle_facts.value.decl.facts == 2, "handle domain/target facts should be explicit ASDL")
+assert(pvm.classof(parsed_handle_facts.value.decl.facts[1]) == Ty.HandleDomain)
+assert(pvm.classof(parsed_handle_facts.value.decl.facts[2]) == Ty.HandleTarget)
+
 local lease_ty = P.parse_type("lease ptr(handle(Texture, u32))").value
 assert(pvm.classof(lease_ty) == Ty.TLease)
 assert(pvm.classof(lease_ty.base) == Ty.TPtr)
@@ -163,5 +172,72 @@ func ok_stable_update(s: ptr(Store), p: lease(s) ptr(i32)): void
 end
 ]])
 assert(#TC.check_module(lease_preserve_modifier.module).issues == 0, "preserve modifier marks non-invalidating store updates")
+
+local handle_region_ok = P.parse_module([[struct ComponentStore
+    x: i32
+end
+struct Component
+    x: i32
+end
+handle ComponentRef : u32 invalid 0
+    domain ComponentStore
+    target Component
+end
+region component_lookup(readonly store: ptr(ComponentStore), h: ComponentRef;
+    found(c: lease ptr(Component))
+  | missing)
+entry start()
+    jump missing()
+end
+end
+]])
+assert(#handle_region_ok.issues == 0, handle_region_ok.issues[1] and handle_region_ok.issues[1].message)
+assert(#TC.check_module(handle_region_ok.module).issues == 0, "handle target/domain should accept coherent lookup region")
+
+local handle_region_bad_target = P.parse_module([[struct ComponentStore
+    x: i32
+end
+struct Component
+    x: i32
+end
+struct Texture
+    x: i32
+end
+handle ComponentRef : u32 invalid 0
+    domain ComponentStore
+    target Component
+end
+region component_lookup(readonly store: ptr(ComponentStore), h: ComponentRef;
+    found(t: lease ptr(Texture))
+  | missing)
+entry start()
+    jump missing()
+end
+end
+]])
+assert(#TC.check_module(handle_region_bad_target.module).issues > 0, "handle target fact should reject leases to the wrong target")
+
+local handle_region_bad_domain = P.parse_module([[struct ComponentStore
+    x: i32
+end
+struct TextureStore
+    x: i32
+end
+struct Component
+    x: i32
+end
+handle ComponentRef : u32 invalid 0
+    domain ComponentStore
+    target Component
+end
+region component_lookup(readonly store: ptr(TextureStore), h: ComponentRef;
+    found(c: lease ptr(Component))
+  | missing)
+entry start()
+    jump missing()
+end
+end
+]])
+assert(#TC.check_module(handle_region_bad_domain.module).issues > 0, "handle domain fact should require access to the owning store domain")
 
 print("ok test_handle_types")

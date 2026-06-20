@@ -459,7 +459,7 @@ A guard is a Moonlift region whose continuation names become legal branch names.
 If the guard is:
 
 ```lua
-local can_submit = region(readonly self: ptr(Login_Context), e: ptr(EventIn);
+local can_submit = region(readonly self: ptr(Login_Context), e: ptr(Event);
     pass
   | empty_email
   | invalid_email
@@ -599,7 +599,7 @@ make_event_path(prov)  →  route_event_<prov>
                           component_step_<prov>
 ```
 
-The author writes one handler; the compiler emits the `_in` and `_owned` instances. `route_event` / `route_event_owned`, `component_step` / `component_step_owned`, and `raised` / `raised_owned` in §10 are the two monomorphic outputs of this single template, not independent declarations.
+The author writes one handler; the compiler emits the `_in` and `_owned` wrappers. `route_event` / `route_event_owned`, `dispatch_event` / `dispatch_event_owned`, `component_step` / `component_step_owned`, and `raised` / `raised_owned` in §10 are the two monomorphic outputs of this single template, not independent declarations. The component step receives a generated `Event` projection in both cases.
 
 ---
 
@@ -754,7 +754,6 @@ handle PropRef : u32 invalid 0 end
 handle StyleRef : u32 invalid 0 end
 handle FragmentRef : u32 invalid 0 end
 handle OutputRef : u32 invalid 0 end
-end
 ```
 
 If the hosted parser requires one handle island per declaration, split the declarations.
@@ -828,15 +827,24 @@ end
 
 ### 9.1 Handles
 
-Stable identity uses handles, not raw pointers.
+Stable identity uses handles, not raw pointers.  Handles that resolve to local
+memory declare the public resolver domain and the product granted by the
+successful resolver continuation.  `NodeId` is intentionally bare: it names a
+browser-owned DOM node, not a backend memory product.
 
 ```moonlift
 handle NodeId : u32 invalid 0 end
-handle ComponentRef : u64 invalid 0 end
-handle SessionRef : u64 invalid 0 end
-handle BindingRef : u32 invalid 0 end
-handle ListRef : u32 invalid 0 end
-handle TaskRef : u32 invalid 0 end
+handle ComponentRef : u64 invalid 0
+    domain Session
+    target Component
+end
+handle SessionRef : u64 invalid 0
+    domain App
+    target Session
+end
+handle TaskRef : u32 invalid 0
+    domain Session
+    target Task
 end
 ```
 
@@ -871,14 +879,13 @@ end
 
 ### 9.3 Event products
 
-`EventIn` and `EventOwned` are the dispatch-level products (they differ in text provenance). Behavior leaves never see them directly: the generated wrapper presents a provenance-agnostic **`Event`** whose `text` is `readonly view(u8)`, which a lease and an owned view both satisfy (§4.3, §6.6). So leaves are written once; only the wrapper and the store boundary are provenance-specific.
+`EventIn` and `EventOwned` are the dispatch-level products (they differ in text provenance). `EventIn` carries only durable metadata; the borrowed socket text stays in region payloads until the generated dispatch wrapper projects it into the leaf-facing `Event`. Behavior leaves never see `EventIn` or `EventOwned` directly: the generated wrapper presents a provenance-agnostic **`Event`** whose `text` is `readonly view(u8)`, which a lease and an owned view both satisfy (§4.3, §6.6). So leaves are written once; only the wrapper and the store boundary are provenance-specific.
 
 ```moonlift
 struct EventIn
     kind: u8              -- browser event kind; owner: route_event
     target: NodeId
     n: i64
-    text: lease view(u8)  -- socket/rx/ws lease, cannot escape dispatch
 end
 
 struct EventOwned
@@ -1156,7 +1163,7 @@ end
 
 ```moonlift
 region event_decode(payload: lease view(u8);
-    event(e: EventIn)
+    event(e: EventIn, text: lease view(u8))
   | bad_event(code: i32))
 end
 
@@ -1181,6 +1188,12 @@ end
 ### 10.4 Component access
 
 ```moonlift
+region borrow_session(app: ptr(App), s: SessionRef;
+    borrowed(session: lease ptr(Session))
+  | missing(s: SessionRef)
+  | closed(s: SessionRef))
+end
+
 region borrow_component(sess: ptr(Session), c: ComponentRef;
     borrowed(component: lease ptr(Component))
   | stale(c: ComponentRef)
@@ -1199,6 +1212,18 @@ region retire_component(invalidate sess: ptr(Session), c: ComponentRef;
   | stale(c: ComponentRef)
   | missing(c: ComponentRef))
 end
+
+region borrow_task(sess: ptr(Session), task: TaskRef;
+    borrowed(task: lease ptr(Task))
+  | missing(task: TaskRef)
+  | completed(task: TaskRef))
+end
+
+region cancel_task(invalidate sess: ptr(Session), task: TaskRef;
+    cancelled
+  | missing(task: TaskRef)
+  | completed(task: TaskRef))
+end
 ```
 
 ### 10.5 Behavior/render split
@@ -1206,7 +1231,7 @@ end
 ```moonlift
 region component_step(invalidate self: lease ptr(Component),
                       handler: HandlerRef,
-                      e: ptr(EventIn),
+                      e: ptr(Event),
                       dirty: ptr(DirtyQueue);
     handled
   | ignored
@@ -1221,7 +1246,7 @@ end
 
 region component_step_owned(invalidate self: lease ptr(Component),
                             handler: HandlerRef,
-                            e: ptr(EventOwned),
+                            e: ptr(Event),
                             dirty: ptr(DirtyQueue);
     handled
   | ignored
@@ -1234,7 +1259,7 @@ region component_step_owned(invalidate self: lease ptr(Component),
   | oom(needed: index))
 end
 
-region dispatch_event(invalidate sess: ptr(Session), e: ptr(EventIn);
+region dispatch_event(invalidate sess: ptr(Session), e: ptr(EventIn), text: lease view(u8);
     dispatched
   | ignored
   | protocol_error(code: i32)
@@ -1594,12 +1619,12 @@ mutation payloads are owned by MutBuf offsets
 ### 12.4 Memory
 
 ```text
-EventIn.text is a lease into rx/ws payload
-EventIn.text may not be stored directly into context
+event_decode returns EventIn metadata plus a text lease
+borrowed event text may not be stored directly into context
 ctx_store_text is the only borrowed-text materialization boundary
 conn_read/rx_consume/rx_compact invalidate rx leases
 ComponentRef/SessionRef/TaskRef are durable handles, never raw stable pointers
-borrow_component is the only handle-to-lease resolution boundary
+borrow_session/borrow_component/borrow_task are the handle-to-lease boundaries
 component_unmount/session_close retire handles and release arenas
 rendering never stores leases
 ```
@@ -1647,12 +1672,12 @@ GRANT
   conn_read → lease view(u8)
   rx_window → lease view(u8)
   ws_decode → lease payload
-  event_decode → EventIn.text lease
+  event_decode → EventIn metadata + text lease
 
 FORWARD
-  route_event
-  dispatch_event
-  component_step
+  route_event forwards metadata
+  dispatch_event forwards the text lease
+  component_step receives generated Event projection
   guard/action regions that only inspect the text
 
 DISCHARGE
@@ -1673,9 +1698,9 @@ Storing into component context is the breaker boundary.
 A borrowed event payload is like a database page borrow: valid only until the buffer moves. If a component needs to remember the value, it must copy it into owned context storage.
 
 ```text
-EventIn.text : lease view(u8)   -- streaming/borrowed
-ctx_store_text                  -- materialization
-Context.email : view(u8)        -- owned by Session.arena
+event_decode.text : lease view(u8)  -- streaming/borrowed payload
+ctx_store_text                     -- materialization
+Context.email : view(u8)           -- owned by Session.arena
 ```
 
 ---
@@ -1730,9 +1755,9 @@ The root event pipeline is:
 conn_read
   → rx_window
   → ws_decode
-  → event_decode
+  → event_decode (EventIn + text lease)
   → route_event
-  → dispatch_event
+  → dispatch_event (forwards text lease)
       → borrow_component
       → component_step_dispatch
       → DirtyQueue append
@@ -1917,7 +1942,7 @@ The blueprint is complete only if all of these are true:
 [ ] Guard/action exits are scoped inside their builder and avoid reserved names.
 [ ] Every durable runtime reference is a handle.
 [ ] Every handle-to-pointer conversion is a resolving region.
-[ ] EventIn payloads are leases and cannot be stored except via ctx_store_text.
+[ ] EventIn payload text is a lease payload, not a durable field, and cannot be stored except via ctx_store_text.
 [ ] Mutation payloads are owned by MutBuf offsets.
 [ ] NodeId = Component.node_base + ViewNodeRef; ViewNodeRef never crosses the wire.
 [ ] No binding edge targets an ancestor; render_dirty drains in bounded passes.
@@ -2019,4 +2044,3 @@ Context is where memory comes to rest.
 Dirty fields become mutation bytecode.
 The browser reflects; it does not decide.
 ```
-

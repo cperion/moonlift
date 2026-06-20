@@ -1032,11 +1032,14 @@ local function install(api, T)
     end
 
     ---Opaque handle type declaration.
-    ---@param spec table `{ name, repr = "u32", invalid = "0" }`.
+    ---@param spec table `{ name, repr = "u32", invalid = "0", domain?, target? }`.
     ---@return moonlift.ast.TypeDecl
     function api.handle(spec)
         local invalid = spec.invalid ~= nil and Ty.HandleInvalidInt(tostring(spec.invalid)) or Ty.HandleInvalidNone
-        return Tr.TypeDeclHandle(assert_name(spec.name, "handle"), handle_repr(spec.repr), invalid)
+        local facts = {}
+        if spec.domain ~= nil then facts[#facts + 1] = Ty.HandleDomain(Ty.TypeRefPath(as_path(spec.domain, "handle domain"))) end
+        if spec.target ~= nil then facts[#facts + 1] = Ty.HandleTarget(Ty.TypeRefPath(as_path(spec.target, "handle target"))) end
+        return Tr.TypeDeclHandle(assert_name(spec.name, "handle"), handle_repr(spec.repr), invalid, facts)
     end
 
     ---Wrap any item payload as a MoonTree.Item. Already wrapped items pass through.

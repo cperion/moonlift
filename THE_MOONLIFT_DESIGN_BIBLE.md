@@ -927,7 +927,7 @@ Run Chapter 4's three questions on every result-like, event-like, variant-like t
 
 ### Step 6 — Declare the type forest
 
-Write the structs, views, handles, leases, and boundary pointer shapes as compiling declarations — leaves first, aggregates after. Every kind-like field carries a comment naming its owner region. Every handle has a nominal declaration and an invalid value if the domain needs one. Every layout-sensitive product states its ABI intent. Nothing in the forest is a semantic union, and no stable association is a raw pointer by accident.
+Write the structs, views, handles, leases, and boundary pointer shapes as compiling declarations — leaves first, aggregates after. Every kind-like field carries a comment naming its owner region. Every handle has a nominal declaration, an invalid value if the domain needs one, and `domain`/`target` facts when it resolves through a store. Every layout-sensitive product states its ABI intent. Nothing in the forest is a semantic union, and no stable association is a raw pointer by accident.
 
 ### Step 7 — Declare the region tree, signatures only
 
@@ -943,7 +943,7 @@ Write the emit/fill plan: per parent, which child continuation goes to a local b
 
 ### Step 10 — Identify persistent state
 
-What survives across operations — stores, pools, registries, connection state, caches-at-phase-boundaries? Each is a product passed *explicitly* to the regions that touch it, mutated through their protocols, never a global, never a back door. For each persistent store, name the handles it resolves, the regions that grant leases, and the operations that may invalidate those leases. (This is the step that keeps Step 8's discipline honest at system scale.)
+What survives across operations — stores, pools, registries, connection state, caches-at-phase-boundaries? Each is a product passed *explicitly* to the regions that touch it, mutated through their protocols, never a global, never a back door. For each persistent store, declare the handles it resolves with `domain Store` and `target Item`, name the regions that grant leases, and name the operations that may invalidate those leases. (This is the step that keeps Step 8's discipline honest at system scale.)
 
 ### Step 11 — Find the families
 
@@ -981,13 +981,16 @@ The class sketch (Job, Deque, Worker, Sched; Sched ◆-owns workers and the job 
 ### V.3 The type forest (Steps 3, 5, 6, 10)
 
 ```moonlift
-handle JobRef : u32 invalid 0 end                  -- durable job identity; packing is store-private
-
 struct Job        fn: ptr(u8), arg: ptr(u8), state: u8, pad: u8, gen: u16 end
 struct JobPool    items: ptr(Job), cap: index, free_head: u32 end
 struct Deque      ring: ptr(u32), cap: index, head: u64, tail: u64 end
 struct Worker     id: i32, deque: Deque, rng: u64 end
 struct Sched      pool: JobPool, workers: ptr(Worker), n_workers: index, flags: u32 end
+
+handle JobRef : u32 invalid 0                     -- durable job identity; packing is store-private
+    domain JobPool
+    target Job
+end
 ```
 
 Ownership and access facts: *Sched owns the pool and the workers array; a JobRef is durable identity resolved by pool regions; the embedding host owns the Sched.* Encoding facts, each with a named owner: *`Job.state` is an observability encoding consumed only by `observe_job` — the lifecycle semantics live in the region, not the field (Ch. 16); `Sched.flags` bit 0 = draining, consumed only by `pop_local`.* Persistent state (Step 10): `Sched` itself — passed explicitly to every region that touches it. Capacities are conspicuously absent as runtime data in one sense and present in another: `cap` is a fact the machine carries, but *choosing* it is a build-time event (V.6).
@@ -1142,6 +1145,7 @@ Run this before bodies are written, and again before a design is declared done. 
 
 **Memory contracts**
 - [ ] Are durable references handles rather than raw pointers?
+- [ ] Does every store-resolved handle declare `domain Store` and `target Item`?
 - [ ] Does every store have named resolving regions that grant leases/views on successful exits?
 - [ ] Can leases escape through returns, stores, captures, or unqualified calls?
 - [ ] Are invalidating operations named, and are same-store live leases protected from them?
@@ -1181,6 +1185,7 @@ that carry data and control:
 ```text
 Stores own bytes.
 Handles name durable identity.
+Handle facts name domain and target.
 Regions grant access facts.
 Leases embody temporary access.
 Protocols name failure.
@@ -1188,9 +1193,11 @@ Protocols name failure.
 
 The older slogan still holds — products own bytes, regions control access — but
 first-class handles and leases make it executable instead of merely written in
-prose. A pointer is a location. A handle is a durable typed name. A lease is the
-short-lived access fact produced by resolving that name, or by crossing a
-boundary that grants a bounded pointer/view.
+prose. A pointer is a location. A handle is a durable typed name. `domain` and
+`target` facts say which store namespace owns that name and what logical product
+successful resolution may expose. A lease is the short-lived access fact produced
+by resolving that name, or by crossing a boundary that grants a bounded
+pointer/view.
 
 The central invariant:
 
@@ -1212,13 +1219,14 @@ Classify the lifetime shape before writing pointer fields:
 1. Name the owner product/store.
 2. Decide whether references must survive movement, reuse, serialization, or
    time. If yes, make them handles, not pointers.
-3. Name the access region that resolves the handle or boundary input.
-4. Name every failure or alternate outcome in the region protocol.
-5. Put the granted access in the successful continuation payload as
+3. If the reference is a handle, declare its `domain Store` and `target Item`.
+4. Name the access region that resolves the handle or boundary input.
+5. Name every failure or alternate outcome in the region protocol.
+6. Put the granted access in the successful continuation payload as
    `lease ptr(T)` or `lease view(T)`.
-6. Keep leases inside the dynamic extent that granted them, or pass them only to
+7. Keep leases inside the dynamic extent that granted them, or pass them only to
    callees whose signatures promise no escape.
-7. Name lifetime changes as `reset_*`, `publish_*`, `retire_*`, `destroy_*`, or
+8. Name lifetime changes as `reset_*`, `publish_*`, `retire_*`, `destroy_*`, or
    `close_*` regions, and declare whether they invalidate live leases.
 
 Use the smallest model that fits:
@@ -1247,16 +1255,19 @@ or a dense data-oriented layout. There is no special store keyword in the
 minimal model; the store's meaning is declared by the regions that operate on
 it.
 
-A handle is a nominal opaque scalar identity:
+A handle is a nominal opaque scalar identity plus optional store metadata:
 
 ```moonlift
-handle AudioBuffer : u32 invalid 0 end
-
 struct AudioBufferStore
     records: ptr(AudioBufferRecord),
     samples: ptr(f32),
     capacity: index,
     generation: u64,
+end
+
+handle AudioBuffer : u32 invalid 0
+    domain AudioBufferStore
+    target AudioBufferRecord
 end
 ```
 
@@ -1264,6 +1275,20 @@ A handle is copyable, comparable with the same handle type, storable, passable,
 and returnable. It is not dereferenceable, not indexable, not arithmetic, and
 not implicitly convertible to its representation. Packing index/generation bits
 is store-private machinery, not public language meaning.
+
+`domain` is the identity namespace: the store, pool, registry, or table that can
+validate the handle. `target` is the logical product a successful resolver may
+grant access to. These facts are explicit ASDL, not comments and not parser
+sugar:
+
+```text
+HandleDomain(AudioBufferStore)
+HandleTarget(AudioBufferRecord)
+```
+
+They still do not create an implicit dereference operation. The only way a
+handle becomes memory access is a resolver region whose successful continuation
+grants a lease.
 
 Access is a region whose protocol names stale, missing, free, rebuilding,
 unsupported-format, and any other cases the caller can actually act on:
@@ -1282,6 +1307,12 @@ payload states what is now known: the samples exist, have a shape, are valid for
 this access extent, and may be used according to the region's memory contract.
 The other exits are not errors in a side channel; they are the protocol of
 failed resolution.
+
+If a resolver accepts `AudioBuffer` but grants `lease ptr(TextureRecord)`, the
+signature is lying and should be rejected. If it grants access to
+`AudioBufferRecord` without also taking access to `AudioBufferStore`, the
+signature has lost its owner. The correct shape is handle + domain access in,
+lease to the declared target out.
 
 This is the data-oriented default: public APIs pass handles; stores keep the
 layout; resolving regions grant leases/views; hot kernels consume the resolved
@@ -1376,12 +1407,13 @@ region says what can happen and what access it invalidates.
 1. **Owners are products/stores.** Every memory object has exactly one owner product.
 2. **Shape comes first.** Classify the lifetime and access shape before writing pointer fields.
 3. **Handles are durable identity.** Stable references are typed handles, not raw pointers.
-4. **Leases are temporary access.** A lease may touch memory but may not escape the extent that granted it.
-5. **Access is a protocol.** Meaningful failure is not `nil`, `false`, or a status code.
-6. **Regions grant memory facts.** Bounds, provenance, liveness, and effects belong to named exits and signatures.
-7. **Raw pointers are boundary tools.** `ptr(T)` alone is an address; bounds require a view, lease, or explicit contract.
-8. **Invalidation is named.** Resource close, arena reset, publish, retire, destroy, compact, and generation bump are region/effect facts, not destructor folklore.
-9. **Kernels are seals.** Hot code receives already-borrowed leases/views/contracts and does not discover ownership.
+4. **Handle facts link identity to stores.** `domain` names the identity namespace; `target` names the logical product a resolver may grant.
+5. **Leases are temporary access.** A lease may touch memory but may not escape the extent that granted it.
+6. **Access is a protocol.** Meaningful failure is not `nil`, `false`, or a status code.
+7. **Regions grant memory facts.** Bounds, provenance, liveness, and effects belong to named exits and signatures.
+8. **Raw pointers are boundary tools.** `ptr(T)` alone is an address; bounds require a view, lease, or explicit contract.
+9. **Invalidation is named.** Resource close, arena reset, publish, retire, destroy, compact, and generation bump are region/effect facts, not destructor folklore.
+10. **Kernels are seals.** Hot code receives already-borrowed leases/views/contracts and does not discover ownership.
 
 ---
 

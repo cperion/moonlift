@@ -346,6 +346,34 @@ function M.Define(T)
         end
     end
 
+    local function type_ref_text(ref)
+        local cls = pvm.classof(ref)
+        if cls == Ty.TypeRefGlobal then return ref.type_name end
+        if cls == Ty.TypeRefLocal then return ref.sym and ref.sym.name or tostring(ref.sym) end
+        if cls == Ty.TypeRefPath and ref.path and #ref.path.parts > 0 then
+            local parts = {}
+            for i = 1, #ref.path.parts do parts[i] = ref.path.parts[i].text end
+            return table.concat(parts, ".")
+        end
+        return nil
+    end
+
+    local function type_ref_leaf(ref)
+        local text = type_ref_text(ref)
+        if text == nil then return nil end
+        return text:match("([^%.]+)$") or text
+    end
+
+    local function type_ref_matches_ty(ref, ty)
+        local cls = pvm.classof(ty)
+        local ty_ref = nil
+        if cls == Ty.TNamed then ty_ref = ty.ref
+        elseif cls == Ty.THandle then ty_ref = ty.ref end
+        if ty_ref == nil then return false end
+        local a, b = type_ref_leaf(ref), type_ref_leaf(ty_ref)
+        return a ~= nil and b ~= nil and a == b
+    end
+
     local function is_void_type(ty)
         return pvm.classof(ty) == Ty.TScalar and ty.scalar == C.ScalarVoid
     end
@@ -405,7 +433,14 @@ function M.Define(T)
         local defs = {}
         local function add_type_decl(t, mod_name)
             if pvm.classof(t) == Tr.TypeDeclHandle then
-                defs[t.name] = { name = t.name, ty = Ty.THandle(Ty.TypeRefGlobal(mod_name, t.name), t.repr), repr = t.repr, invalid = t.invalid }
+                local domain, target = nil, nil
+                for i = 1, #(t.facts or {}) do
+                    local fact = t.facts[i]
+                    local fcls = pvm.classof(fact)
+                    if fcls == Ty.HandleDomain then domain = fact.domain
+                    elseif fcls == Ty.HandleTarget then target = fact.target end
+                end
+                defs[t.name] = { name = t.name, ty = Ty.THandle(Ty.TypeRefGlobal(mod_name, t.name), t.repr), repr = t.repr, invalid = t.invalid, domain = domain, target = target }
             end
         end
         for i = 1, #module.items do
@@ -469,6 +504,68 @@ function M.Define(T)
     local function find_handle_def(ctx, name)
         local defs = rawget(ctx.env, "__handle_defs") or {}
         return defs[name]
+    end
+
+    local function find_handle_def_for_type(ctx, ty)
+        if pvm.classof(ty) ~= Ty.THandle then return nil end
+        local defs = rawget(ctx.env, "__handle_defs") or {}
+        local ref = ty.ref
+        local rcls = pvm.classof(ref)
+        if rcls == Ty.TypeRefGlobal then return defs[ref.type_name] end
+        if rcls == Ty.TypeRefLocal then return defs[ref.sym.name] end
+        if rcls == Ty.TypeRefPath and #ref.path.parts == 1 then return defs[type_ref_leaf(ref)] end
+        return nil
+    end
+
+    local function lease_target_type(ty)
+        local cls = pvm.classof(ty)
+        if cls == Ty.TAccess then return lease_target_type(ty.base) end
+        if cls ~= Ty.TLease then return nil end
+        local base = lease_access_base(ty.base)
+        local bcls = pvm.classof(base)
+        if bcls == Ty.TPtr or bcls == Ty.TView then return base.elem end
+        return nil
+    end
+
+    local function param_domain_matches(param_ty, domain_ref)
+        local base = lease_access_base(param_ty)
+        local cls = pvm.classof(base)
+        if cls ~= Ty.TPtr and cls ~= Ty.TView then return false end
+        return type_ref_matches_ty(domain_ref, base.elem)
+    end
+
+    local function check_handle_resolution_signature(ctx, params, payload_params, issues, site)
+        local handle_defs = {}
+        local has_domain_param = {}
+        local all_defs = rawget(ctx.env, "__handle_defs") or {}
+        for i = 1, #(params or {}) do
+            local pty = canonical_type(ctx.env, params[i].ty)
+            local def = find_handle_def_for_type(ctx, pty)
+            if def and def.target then handle_defs[#handle_defs + 1] = def end
+            for _, hdef in pairs(all_defs) do
+                if hdef.domain and param_domain_matches(pty, hdef.domain) then
+                    has_domain_param[type_ref_leaf(hdef.domain) or ""] = true
+                end
+            end
+        end
+        if #handle_defs == 0 then return end
+        for i = 1, #(payload_params or {}) do
+            local target_ty = lease_target_type(canonical_type(ctx.env, payload_params[i].ty))
+            if target_ty ~= nil then
+                local matched = nil
+                for j = 1, #handle_defs do
+                    if type_ref_matches_ty(handle_defs[j].target, target_ty) then
+                        matched = handle_defs[j]
+                        break
+                    end
+                end
+                if matched == nil then
+                    issues[#issues + 1] = Tr.TypeIssueExpected((site or "handle resolution") .. " handle target", Ty.THandle(handle_defs[1].ty.ref, handle_defs[1].repr), target_ty)
+                elseif matched.domain and not has_domain_param[type_ref_leaf(matched.domain) or ""] then
+                    issues[#issues + 1] = Tr.TypeIssueExpected((site or "handle resolution") .. " handle domain", Ty.TNamed(matched.domain), Ty.TScalar(C.ScalarRawPtr))
+                end
+            end
+        end
     end
 
     local function find_variant(ctx, type_name, variant_name)
@@ -1389,6 +1486,21 @@ function M.Define(T)
         if type_contains_lease(func.result) then issues[#issues + 1] = Tr.TypeIssueInvalidUnary("lease escape result", func.result) end
     end
 
+    local function check_region_frag_signature(frag, module_env, issues)
+        local ctx = Tr.TypeCheckEnv(module_env, Ty.TScalar(C.ScalarVoid), Tr.TypeYieldNone)
+        for i = 1, #(frag.params or {}) do
+            check_type_policy(frag.params[i].ty, issues, "region param " .. tostring(frag.params[i].name))
+        end
+        for i = 1, #(frag.conts or {}) do
+            local cont = frag.conts[i]
+            for j = 1, #(cont.params or {}) do
+                local param = cont.params[j]
+                check_type_policy(param.ty, issues, "continuation " .. tostring(cont.pretty_name) .. " param " .. tostring(param.name))
+            end
+            check_handle_resolution_signature(ctx, frag.params, cont.params, issues, "region " .. tostring(cont.pretty_name))
+        end
+    end
+
     local function canonical_func(self, module_env)
         return pvm.with(self, { params = canonical_params(module_env, self.params), result = canonical_type(module_env, self.result) })
     end
@@ -1477,7 +1589,11 @@ function M.Define(T)
         end,
         [Tr.ItemUseTypeDeclSlot] = function(self) return pvm.once(Tr.TypeItemResult({ self }, {})) end,
         [Tr.ItemUseItemsSlot] = function(self) return pvm.once(Tr.TypeItemResult({ self }, {})) end,
-        [Tr.ItemRegionFrag] = function() return pvm.once(Tr.TypeItemResult({}, {})) end,
+        [Tr.ItemRegionFrag] = function(self, module_env)
+            local issues = {}
+            check_region_frag_signature(self.frag, module_env, issues)
+            return pvm.once(Tr.TypeItemResult({}, issues))
+        end,
         [Tr.ItemExprFrag] = function() return pvm.once(Tr.TypeItemResult({}, {})) end,
         [Tr.ItemUseModule] = function(self)
             local r = pvm.one(type_module(self.module))
