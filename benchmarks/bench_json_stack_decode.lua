@@ -1,9 +1,9 @@
--- Benchmark: Moonlift JSON stack decoder vs pure-Lua JSON decoder.
+-- Benchmark: Moonlift JSON value-event decoder vs pure-Lua JSON decoder.
 --
 -- Parses a medium-sized JSON document many times, measuring throughput.
--- The Moonlift path uses the native-code decoder from the example .mlua,
--- compiled via Cranelift.  The Lua path is a hand-rolled recursive descent
--- decoder.  If lua-cjson is installed it is also benchmarked.
+-- The Moonlift path uses the Lua-free C backend blob from the example .mlua.
+-- The Lua path is a hand-rolled recursive descent decoder. If lua-cjson is
+-- installed it is also benchmarked.
 --
 -- Run:
 --   luajit benchmarks/bench_json_stack_decode.lua          # quick
@@ -70,48 +70,35 @@ ffi.cdef [[
 local C = ffi.C
 
 -- ---------------------------------------------------------------------------
--- Moonlift decoder: load and compile
+-- Moonlift C-backed .mlua JSON library: load and compile
 -- ---------------------------------------------------------------------------
 
-io.write("  Compiling Moonlift decoder ... ")
+local Host = require("moonlift.mlua_run")
+
+io.write("  Compiling Moonlift JSON library through C backend ... ")
 io.flush()
 local t_compile = os.clock()
 
-local ml_result = dofile("examples/json/json_lua_stack_decoder.lua")
+local ml_result = Host.dofile("examples/json/json_lua_stack_decoder.mlua")
 local compiled_module = ml_result.artifact
-local compiled = ml_result.fn
+local compiled = ml_result.value_fn
 
 print(string.format("%.3fs", os.clock() - t_compile))
 
 -- Verify it works on the benchmark input
 local json_p = ffi.cast("uint8_t *", JSON)
+local event_cap = JSON_LEN + 8
+local string_cap = JSON_LEN + 1
+local tags = ffi.new("int32_t[?]", event_cap)
+local aa = ffi.new("int32_t[?]", event_cap)
+local bb = ffi.new("int32_t[?]", event_cap)
+local nums = ffi.new("double[?]", event_cap)
+local strings = ffi.new("uint8_t[?]", string_cap)
+local meta = ffi.new("int32_t[2]")
 do
-    local L = C.luaL_newstate()
-    local buf = ffi.new("uint8_t[?]", JSON_LEN + 1)
-    local endpos = compiled(L, json_p, JSON_LEN, buf)
+    local endpos = compiled(json_p, JSON_LEN, tags, aa, bb, nums, event_cap, strings, string_cap, meta)
     assert(tonumber(endpos) == JSON_LEN, "Moonlift decoder failed on benchmark input: endpos=" .. tonumber(endpos))
-    C.lua_close(L)
-end
-
--- ---------------------------------------------------------------------------
--- Moonlift .mlua decoder (carrier bridge)
--- ---------------------------------------------------------------------------
-
-local Host = require("moonlift.mlua_run")
-local mlua_src = io.open("examples/json/json_lua_stack_decoder.mlua"):read("*a")
--- Strip the test section, return the artifact
-local cut = mlua_src:find("local L, parsed = decode_into_new_state")
-local mlua_bench_src = mlua_src:sub(1, cut - 1) .. "return compiled_module, compiled\n"
-local mlua_module, mlua_compiled = Host.loadstring(mlua_bench_src, "bench_mlua")()
-
--- Verify
-local mlua_json_p = ffi.cast("uint8_t *", JSON)
-do
-    local L = C.luaL_newstate()
-    local buf = ffi.new("uint8_t[?]", JSON_LEN + 1)
-    local endpos = mlua_compiled(L, mlua_json_p, JSON_LEN, buf)
-    assert(tonumber(endpos) == JSON_LEN, ".mlua decoder failed")
-    C.lua_close(L)
+    assert(tonumber(meta[0]) > 0, "Moonlift decoder emitted no events")
 end
 
 -- ---------------------------------------------------------------------------
@@ -295,23 +282,15 @@ print(string.format("bench_json_stack_decode  mode=%s  iters=%d  json_len=%d",
     mode, ITERS, JSON_LEN))
 print()
 
--- Moonlift benchmark
--- Reuse one lua_State. Creating/closing a Lua state per decode is several
--- microseconds of host-side overhead and completely drowns the native parser.
-local moonlift_L = C.luaL_newstate()
-local decode_buf = ffi.new("uint8_t[?]", JSON_LEN + 1)
-
 local function moonlift_decode()
-    local endpos = compiled(moonlift_L, json_p, JSON_LEN, decode_buf)
-    C.lua_settop(moonlift_L, 0)
+    local endpos = compiled(json_p, JSON_LEN, tags, aa, bb, nums, event_cap, strings, string_cap, meta)
     return endpos == JSON_LEN and 1 or 0
 end
 
 -- Cold start: first decode (no warmup)
 print("  Cold start (single decode, no warmup):")
-C.lua_settop(moonlift_L, 0)
 local t_cold_moon = os.clock()
-local r = compiled(moonlift_L, json_p, JSON_LEN, decode_buf)
+local r = compiled(json_p, JSON_LEN, tags, aa, bb, nums, event_cap, strings, string_cap, meta)
 local cold_moon = os.clock() - t_cold_moon
 print(string.format("    moonlift native:   %.6fs", cold_moon))
 print()
@@ -319,19 +298,21 @@ print()
 -- Warmup
 for _ = 1, math.max(1, math.floor(ITERS / 10)) do moonlift_decode() end
 
-local t_moonlift = bench("moonlift_json_stack", moonlift_decode, ITERS)
+local t_moonlift = bench("moonlift_json_events", moonlift_decode, ITERS)
 
--- .mlua decoder benchmark
--- Reuse the same lua_State as the .lua decoder (same externs, same ABI)
-local function mlua_decode()
-    local endpos = mlua_compiled(moonlift_L, json_p, JSON_LEN, decode_buf)
-    C.lua_settop(moonlift_L, 0)
-    return endpos == JSON_LEN and 1 or 0
+-- Full Lua projection benchmark. This is the fair comparison against decoders
+-- that return Lua object graphs; the raw event benchmark above measures the C
+-- API shape intended for WASM typed arrays and other zero-copy consumers.
+local projected_decoder = ml_result.new_decoder({ event_cap = event_cap, string_cap = string_cap })
+local function moonlift_project_decode()
+    local result, err = projected_decoder:decode_or_nil(JSON)
+    if err then error("Moonlift projected decode failed at " .. tostring(err.offset)) end
+    return #result.users + result.count
 end
 
-for _ = 1, math.max(1, math.floor(ITERS / 10)) do mlua_decode() end
+for _ = 1, math.max(1, math.floor(ITERS / 10)) do moonlift_project_decode() end
 
-local t_mlua = bench("moonlift_mlua", mlua_decode, ITERS)
+local t_moonlift_project = bench("moonlift_json_project_lua", moonlift_project_decode, ITERS)
 
 -- Generated Lua benchmark
 local gen_state = C.luaL_newstate()
@@ -393,12 +374,14 @@ else
 end
 
 print()
-print(string.format("  moonlift / lua speedup:    %.2fx", t_lua / t_moonlift))
-if t_cjson then print(string.format("  moonlift / cjson speedup:  %.2fx", t_cjson / t_moonlift)) end
-if t_dkjson then print(string.format("  moonlift / dkjson speedup: %.2fx", t_dkjson / t_moonlift)) end
+print(string.format("  moonlift events / lua speedup:       %.2fx", t_lua / t_moonlift))
+if t_cjson then print(string.format("  moonlift events / cjson speedup:     %.2fx", t_cjson / t_moonlift)) end
+if t_dkjson then print(string.format("  moonlift events / dkjson speedup:    %.2fx", t_dkjson / t_moonlift)) end
+print(string.format("  moonlift projected / lua speedup:    %.2fx", t_lua / t_moonlift_project))
+if t_cjson then print(string.format("  moonlift projected / cjson speedup:  %.2fx", t_cjson / t_moonlift_project)) end
+if t_dkjson then print(string.format("  moonlift projected / dkjson speedup: %.2fx", t_dkjson / t_moonlift_project)) end
 
 -- Cleanup
-C.lua_close(moonlift_L)
 C.lua_close(gen_state)
 compiled_module:free()
-mlua_module:free()
+projected_decoder:close()

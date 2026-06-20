@@ -90,7 +90,7 @@ function M.Define(T)
         end
 
         return E.Transition(before, event, after)
-    end, { args_cache = "last" })
+    end, { node_cache = "none", args_cache = "none" })
 
     local function apply_event(state, event)
         return pvm.one(apply_event_phase(event, state))

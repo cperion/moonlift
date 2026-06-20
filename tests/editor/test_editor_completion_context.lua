@@ -37,9 +37,10 @@ assert(Context.context(q(expose_brace - 1 + #"{ "), analysis) == E.CompletionExp
 assert(Context.context(q(expose_lua - 1 + #"lua"), analysis) == E.CompletionExposeTarget)
 
 Context.context_phase:reset()
-pvm.drain(Context.context_phase(q(#src), analysis))
-pvm.drain(Context.context_phase(q(#src), analysis))
+local end_query = q(#src)
+pvm.drain(Context.context_phase(end_query, analysis))
+pvm.drain(Context.context_phase(end_query, analysis))
 local report = pvm.report({ Context.context_phase })[1]
-assert(report.calls == 2 and report.hits == 1)
+assert(report.calls == 2 and report.hits == 0)
 
 print("moonlift editor completion context ok")

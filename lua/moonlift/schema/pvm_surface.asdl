@@ -9,7 +9,6 @@ module MoonPvmSurface {
          | ProducerOnce(MoonPvmSurface.Expr value) unique
          | ProducerConcat(MoonPvmSurface.Producer* parts) unique
          | ProducerCallPhase(string phase_name, MoonPvmSurface.Expr subject, MoonPvmSurface.Expr* args) unique
-         | ProducerChildren(string phase_name, MoonPvmSurface.Expr range) unique
          | ProducerLet(string name, MoonPvmSurface.Expr value, MoonPvmSurface.Producer body) unique
          | ProducerIf(MoonPvmSurface.Expr cond, MoonPvmSurface.Producer then_body, MoonPvmSurface.Producer else_body) unique
 

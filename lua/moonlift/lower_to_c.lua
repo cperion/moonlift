@@ -925,6 +925,7 @@ function M.Define(T)
         for i, l in ipairs(c_func.locals or {}) do mutable_func.locals[i] = l end
         prepare_func_ctx(ctx, code_func, mutable_func)
         local baseline_by_label = {}; for _, b in ipairs(baseline_blocks or {}) do baseline_by_label[b.label.text] = b end
+        local schedules_by_id = schedule_by_id(schedules)
         for _, fragment in ipairs(ordered_fragments_for_func(code_func, func_plan, graph_loops)) do
             local cls = pvm.classof(fragment.strategy)
             if cls == Lower.LowerStrategyCode then
@@ -932,8 +933,9 @@ function M.Define(T)
             elseif cls == Lower.LowerStrategyClosedForm then
                 emit_closed_form_fragment(ctx, graph, flow, kernels, fragment)
             elseif cls == Lower.LowerStrategyKernel then
-                local sched = schedule_by_id(schedules)[fragment.strategy.schedule.text]
-                if sched ~= nil and pvm.classof(sched.kind) == Schedule.ScheduleVector then emit_vector_kernel_fragment(ctx, graph, flow, kernels, schedules, fragment)
+                local sched = schedules_by_id[fragment.strategy.schedule.text]
+                if sched == nil then error("lower_to_c: kernel strategy references missing schedule " .. fragment.strategy.schedule.text, 2) end
+                if pvm.classof(sched.kind) == Schedule.ScheduleVector then emit_vector_kernel_fragment(ctx, graph, flow, kernels, schedules, fragment)
                 else emit_scalar_kernel_fragment(ctx, graph, flow, kernels, fragment) end
             else
                 error("lower_to_c: unsupported LowerStrategy for C emission " .. class_name(fragment.strategy), 2)

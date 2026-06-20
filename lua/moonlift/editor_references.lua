@@ -29,7 +29,7 @@ function M.Define(T)
         end
         if #ranges == 0 then return E.ReferenceMiss("references not found") end
         return E.ReferenceHit(pick.subject, ranges)
-    end, { args_cache = "full" })
+    end, { node_cache = "none", args_cache = "none" })
 
     local function references(query, analysis)
         return pvm.one(references_phase(query, analysis))

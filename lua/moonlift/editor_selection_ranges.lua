@@ -38,7 +38,7 @@ function M.Define(T)
             end
         end
         return E.SelectionRange(lookup.anchors[1].range, parents)
-    end, { args_cache = "full" })
+    end, { node_cache = "none", args_cache = "none" })
 
     local function selections(queries, analysis)
         local out = {}

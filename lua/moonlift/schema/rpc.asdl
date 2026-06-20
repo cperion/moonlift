@@ -1,22 +1,22 @@
 module MoonRpc {
-    JsonMember = (string key, MoonRpc.JsonValue value) unique
+    JsonMember = (string key, MoonRpc.JsonValue value)
 
     JsonValue = JsonNull
-         | JsonBool(boolean value) unique
-         | JsonNumber(string raw) unique
-         | JsonString(string value) unique
-         | JsonArray(MoonRpc.JsonValue* values) unique
-         | JsonObject(MoonRpc.JsonMember* members) unique
+         | JsonBool(boolean value)
+         | JsonNumber(string raw)
+         | JsonString(string value)
+         | JsonArray(MoonRpc.JsonValue* values)
+         | JsonObject(MoonRpc.JsonMember* members)
 
-    Incoming = RpcRequest(MoonEditor.RpcId id, string method, MoonRpc.JsonValue params) unique
-         | RpcIncomingNotification(string method, MoonRpc.JsonValue params) unique
-         | RpcInvalid(string reason) unique
+    Incoming = RpcRequest(MoonEditor.RpcId id, string method, MoonRpc.JsonValue params)
+         | RpcIncomingNotification(string method, MoonRpc.JsonValue params)
+         | RpcInvalid(string reason)
 
-    Outgoing = RpcResult(MoonEditor.RpcId id, MoonLsp.Payload payload) unique
-         | RpcError(MoonEditor.RpcId id, number code, string message) unique
-         | RpcOutgoingNotification(string method, MoonLsp.Payload payload) unique
+    Outgoing = RpcResult(MoonEditor.RpcId id, MoonLsp.Payload payload)
+         | RpcError(MoonEditor.RpcId id, number code, string message)
+         | RpcOutgoingNotification(string method, MoonLsp.Payload payload)
 
-    OutCommand = SendMessage(MoonRpc.Outgoing outgoing) unique
-         | LogMessage(string level, string message) unique
+    OutCommand = SendMessage(MoonRpc.Outgoing outgoing)
+         | LogMessage(string level, string message)
          | StopServer
 }

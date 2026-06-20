@@ -118,7 +118,7 @@ function M.Define(T)
                 elseif cls == Tr.ItemExtern then
                     local name = item.func.name or item.func.sym.name
                     local range = range_for(analysis, S.AnchorFunctionName, name)
-                    emit("tree.extern." .. name, ROOT, name, E.SymFunction, "extern function", range, range, E.SubjectTreeModule(analysis.parse.combined.module))
+                    emit("tree.extern." .. name, ROOT, name, E.SymFunction, "extern function", range, range, E.SubjectTreeExtern(item.func))
                 elseif cls == Tr.ItemConst then
                     local name = const_name(pvm, Tr, item.c)
                     local range = range_for(analysis, nil, name)

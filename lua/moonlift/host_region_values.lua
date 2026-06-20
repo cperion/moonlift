@@ -409,8 +409,6 @@ function M.Install(api, session)
     end
 
     api.EntryParamValue = EntryParamValue
-    -- note: EntryParamValue is kept for backward compat but entry_param was removed.
-    -- Use entry_params{} table builder instead.
     api.ContValue = ContValue
     api.BlockValue = BlockValue
     api.RegionFragValue = RegionFragValue

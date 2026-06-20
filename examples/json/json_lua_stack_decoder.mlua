@@ -1,219 +1,212 @@
--- Moonlift JSON Decoder → Lua stack values
+-- Moonlift JSON library showcase.
 --
--- This example parses JSON in native Moonlift code and constructs ordinary Lua
--- values by calling Lua C API extern symbols.  It is intentionally a
--- composition/metaprogramming showcase:
+-- This is intentionally a library-shaped .mlua artifact, not a benchmark body.
+-- Lua owns the ergonomic API and policy objects. Moonlift owns the byte parser,
+-- value construction, strict JSON grammar, and the C ABI boundary.
 --
---   * Source-level `extern` declarations describe the Lua C API boundary.
---   * Lua generates tiny switch-arm bodies for JSON literals; Moonlift parses
---     those snippets into real switch arms.
---   * @{literal_arms...} spreads those generated arms into the dispatcher.
---   * region fragments (`skip_ws`, `parse_string`, `parse_number`) are emitted
---     as zero-cost control-flow splices.
+-- Public Lua surface returned by this file:
+--   Json.decode(src)              -> Lua value, errors on invalid JSON
+--   Json.decode_or_nil(src)       -> value | nil, error
+--   Json.encode(value)            -> JSON string
+--   Json.valid(src)               -> boolean
+--   Json.new_decoder()            -> reusable decoder with retained buffers
+--   Json.value_fn                 -> canonical native value-event decoder
+--   Json.c_header                 -> standalone C API header
+--   Json.emcc_args                -> suggested Emscripten export flags
 --
--- Strings are fully unescaped: backslash escapes (\n, \t, etc.) and \uXXXX
--- codepoints (including UTF-16 surrogate pairs) are decoded to proper UTF-8.
+-- Native decoder convention:
+--   >= 0 => parsed byte count
+--   <  0 => invalid near one-based offset (-result)
 --
--- Run:
---   luajit run_mlua.lua examples/json/json_lua_stack_decoder.mlua
+-- The generated C has no Lua C API dependency. It is a caller-buffer API:
+-- source bytes in, value-event tags/slices/numbers/string bytes out.
 
 local ffi = require("ffi")
+local moon = require("moonlift")
 
-ffi.cdef [[
-    typedef struct lua_State lua_State;
-    lua_State* luaL_newstate(void);
-    void lua_close(lua_State *L);
-
-    /* Lua-side self-test helpers only.  The native Moonlift decoder calls
-       Lua C API functions through source-level `extern ... end` declarations
-       below, not through LuaJIT ffi.cdef. */
-    int lua_gettop(lua_State *L);
-    int lua_type(lua_State *L, int idx);
-    size_t lua_objlen(lua_State *L, int idx);
-    const char *lua_tolstring(lua_State *L, int idx, size_t *len);
-]]
-
-local voidp = moon.rawptr
-
--- ---------------------------------------------------------------------------
--- Extern imports used by generated native code
--- ---------------------------------------------------------------------------
-
-local lua_createtable = extern lua_createtable(L: @{voidp}, narr: i32, nrec: i32) end
-local lua_pushlstring = extern lua_pushlstring(L: @{voidp}, s: ptr(u8), len: index) end
-local lua_pushnumber = extern lua_pushnumber(L: @{voidp}, n: f64) end
-local lua_pushboolean = extern lua_pushboolean(L: @{voidp}, b: i32) end
-local lua_pushnil = extern lua_pushnil(L: @{voidp}) end
-local lua_settable = extern lua_settable(L: @{voidp}, idx: i32) end
-local lua_rawseti = extern lua_rawseti(L: @{voidp}, idx: i32, n: i32) end
-
--- ---------------------------------------------------------------------------
--- Region fragments
--- ---------------------------------------------------------------------------
-
-local skip_ws = region skip_ws(p: ptr(u8), n: i32, pos: i32; ok(i: i32))
+local skip_ws = region json_skip_ws(p: ptr(u8), n: i32, pos: i32; ok(i: i32))
 entry loop(i: i32 = pos)
     if i >= n then jump ok(i = i) end
     switch as(i32, p[i]) do
-    case 32 then jump loop(i = i + 1) -- space
-    case 10 then jump loop(i = i + 1) -- \n
-    case 13 then jump loop(i = i + 1) -- \r
-    case 9  then jump loop(i = i + 1) -- \t
+    case 32 then jump loop(i = i + 1)
+    case 10 then jump loop(i = i + 1)
+    case 13 then jump loop(i = i + 1)
+    case 9  then jump loop(i = i + 1)
     default then jump ok(i = i)
     end
     jump ok(i = i)
 end
 end
 
-local parse_string = region parse_json_string(
-    L: @{voidp}, p: ptr(u8), n: i32, pos: i32, buf: ptr(u8);
-    ok(next_i: i32) | err
+local parse_string_store = region json_parse_string_store(
+    p: ptr(u8), n: i32, pos: i32, out: ptr(u8), out_cap: i32, meta: ptr(i32);
+    ok(next_i: i32, off: i32, len: i32) | err(at: i32)
 )
 entry start()
-    if pos >= n then jump err() end
-    if as(i32, p[pos]) ~= 34 then jump err() end
-    jump copy(i = pos + 1, j = 0)
+    if pos >= n then jump err(at = pos + 1) end
+    if as(i32, p[pos]) ~= 34 then jump err(at = pos + 1) end
+    let base: i32 = meta[1]
+    jump copy(i = pos + 1, j = 0, base = base)
 end
-block copy(i: i32, j: i32)
-    if i >= n then jump err() end
+block copy(i: i32, j: i32, base: i32)
+    if i >= n then jump err(at = i + 1) end
     let c: i32 = as(i32, p[i])
     if c == 34 then
-        lua_pushlstring(L, buf, as(index, j))
-        jump ok(next_i = i + 1)
+        meta[1] = base + j
+        jump ok(next_i = i + 1, off = base, len = j)
     end
-    if c < 32 then jump err() end
-    if c == 92 then jump escaped(i = i + 1, j = j) end
-    buf[j] = as(u8, c)
-    jump copy(i = i + 1, j = j + 1)
+    if c < 32 then jump err(at = i + 1) end
+    if c == 92 then jump escaped(i = i + 1, j = j, base = base) end
+    if base + j >= out_cap then jump err(at = i + 1) end
+    out[base + j] = as(u8, c)
+    jump copy(i = i + 1, j = j + 1, base = base)
 end
-block escaped(i: i32, j: i32)
-    if i >= n then jump err() end
+block escaped(i: i32, j: i32, base: i32)
+    if i >= n then jump err(at = i + 1) end
+    if base + j >= out_cap then jump err(at = i + 1) end
     let c: i32 = as(i32, p[i])
     switch c do
-    case 34 then buf[j] = as(u8, 34); jump copy(i = i + 1, j = j + 1)
-    case 92 then buf[j] = as(u8, 92); jump copy(i = i + 1, j = j + 1)
-    case 47 then buf[j] = as(u8, 47); jump copy(i = i + 1, j = j + 1)
-    case 98 then buf[j] = as(u8, 8); jump copy(i = i + 1, j = j + 1)
-    case 102 then buf[j] = as(u8, 12); jump copy(i = i + 1, j = j + 1)
-    case 110 then buf[j] = as(u8, 10); jump copy(i = i + 1, j = j + 1)
-    case 114 then buf[j] = as(u8, 13); jump copy(i = i + 1, j = j + 1)
-    case 116 then buf[j] = as(u8, 9); jump copy(i = i + 1, j = j + 1)
-    case 117 then jump hex4(i = i + 1, j = j, cp = 0, left = 4)
-    default then jump err()
+    case 34 then out[base + j] = as(u8, 34); jump copy(i = i + 1, j = j + 1, base = base)
+    case 92 then out[base + j] = as(u8, 92); jump copy(i = i + 1, j = j + 1, base = base)
+    case 47 then out[base + j] = as(u8, 47); jump copy(i = i + 1, j = j + 1, base = base)
+    case 98 then out[base + j] = as(u8, 8); jump copy(i = i + 1, j = j + 1, base = base)
+    case 102 then out[base + j] = as(u8, 12); jump copy(i = i + 1, j = j + 1, base = base)
+    case 110 then out[base + j] = as(u8, 10); jump copy(i = i + 1, j = j + 1, base = base)
+    case 114 then out[base + j] = as(u8, 13); jump copy(i = i + 1, j = j + 1, base = base)
+    case 116 then out[base + j] = as(u8, 9); jump copy(i = i + 1, j = j + 1, base = base)
+    case 117 then jump hex4(i = i + 1, j = j, base = base, cp = 0, left = 4)
+    default then jump err(at = i + 1)
     end
-    jump err()
+    jump err(at = i + 1)
 end
-block hex4(i: i32, j: i32, cp: i32, left: i32)
-    if left == 0 then jump emit_codepoint(i = i, j = j, cp = cp) end
-    if i >= n then jump err() end
+block hex4(i: i32, j: i32, base: i32, cp: i32, left: i32)
+    if left == 0 then jump emit_codepoint(i = i, j = j, base = base, cp = cp) end
+    if i >= n then jump err(at = i + 1) end
     let c: i32 = as(i32, p[i])
-    if c >= 48 and c <= 57 then jump hex4(i = i + 1, j = j, cp = cp * 16 + (c - 48), left = left - 1) end
-    if c >= 65 and c <= 70 then jump hex4(i = i + 1, j = j, cp = cp * 16 + (c - 55), left = left - 1) end
-    if c >= 97 and c <= 102 then jump hex4(i = i + 1, j = j, cp = cp * 16 + (c - 87), left = left - 1) end
-    jump err()
+    if c >= 48 and c <= 57 then jump hex4(i = i + 1, j = j, base = base, cp = cp * 16 + (c - 48), left = left - 1) end
+    if c >= 65 and c <= 70 then jump hex4(i = i + 1, j = j, base = base, cp = cp * 16 + (c - 55), left = left - 1) end
+    if c >= 97 and c <= 102 then jump hex4(i = i + 1, j = j, base = base, cp = cp * 16 + (c - 87), left = left - 1) end
+    jump err(at = i + 1)
 end
-block emit_codepoint(i: i32, j: i32, cp: i32)
-    if cp >= 55296 and cp <= 56319 then jump expect_low(i = i, j = j, hi = cp) end
-    if cp >= 56320 and cp <= 57343 then jump err() end
+block emit_codepoint(i: i32, j: i32, base: i32, cp: i32)
+    if cp >= 55296 and cp <= 56319 then jump expect_low(i = i, j = j, base = base, hi = cp) end
+    if cp >= 56320 and cp <= 57343 then jump err(at = i + 1) end
     if cp < 128 then
-        buf[j] = as(u8, cp)
-        jump copy(i = i, j = j + 1)
+        if base + j >= out_cap then jump err(at = i + 1) end
+        out[base + j] = as(u8, cp)
+        jump copy(i = i, j = j + 1, base = base)
     end
     if cp < 2048 then
-        buf[j] = as(u8, 192 + (cp >> 6))
-        buf[j + 1] = as(u8, 128 + (cp & 63))
-        jump copy(i = i, j = j + 2)
+        if base + j + 1 >= out_cap then jump err(at = i + 1) end
+        out[base + j] = as(u8, 192 + (cp >> 6))
+        out[base + j + 1] = as(u8, 128 + (cp & 63))
+        jump copy(i = i, j = j + 2, base = base)
     end
-    buf[j] = as(u8, 224 + (cp >> 12))
-    buf[j + 1] = as(u8, 128 + ((cp >> 6) & 63))
-    buf[j + 2] = as(u8, 128 + (cp & 63))
-    jump copy(i = i, j = j + 3)
+    if base + j + 2 >= out_cap then jump err(at = i + 1) end
+    out[base + j] = as(u8, 224 + (cp >> 12))
+    out[base + j + 1] = as(u8, 128 + ((cp >> 6) & 63))
+    out[base + j + 2] = as(u8, 128 + (cp & 63))
+    jump copy(i = i, j = j + 3, base = base)
 end
-block expect_low(i: i32, j: i32, hi: i32)
-    if i + 1 >= n then jump err() end
-    if as(i32, p[i]) ~= 92 then jump err() end
-    if as(i32, p[i + 1]) ~= 117 then jump err() end
-    jump hex4_low(i = i + 2, j = j, hi = hi, cp = 0, left = 4)
+block expect_low(i: i32, j: i32, base: i32, hi: i32)
+    if i + 1 >= n then jump err(at = i + 1) end
+    if as(i32, p[i]) ~= 92 then jump err(at = i + 1) end
+    if as(i32, p[i + 1]) ~= 117 then jump err(at = i + 1) end
+    jump hex4_low(i = i + 2, j = j, base = base, hi = hi, cp = 0, left = 4)
 end
-block hex4_low(i: i32, j: i32, hi: i32, cp: i32, left: i32)
+block hex4_low(i: i32, j: i32, base: i32, hi: i32, cp: i32, left: i32)
     if left == 0 then
-        if cp < 56320 then jump err() end
-        if cp > 57343 then jump err() end
+        if cp < 56320 then jump err(at = i + 1) end
+        if cp > 57343 then jump err(at = i + 1) end
         let full: i32 = 65536 + (hi - 55296) * 1024 + (cp - 56320)
-        buf[j] = as(u8, 240 + (full >> 18))
-        buf[j + 1] = as(u8, 128 + ((full >> 12) & 63))
-        buf[j + 2] = as(u8, 128 + ((full >> 6) & 63))
-        buf[j + 3] = as(u8, 128 + (full & 63))
-        jump copy(i = i, j = j + 4)
+        if base + j + 3 >= out_cap then jump err(at = i + 1) end
+        out[base + j] = as(u8, 240 + (full >> 18))
+        out[base + j + 1] = as(u8, 128 + ((full >> 12) & 63))
+        out[base + j + 2] = as(u8, 128 + ((full >> 6) & 63))
+        out[base + j + 3] = as(u8, 128 + (full & 63))
+        jump copy(i = i, j = j + 4, base = base)
     end
-    if i >= n then jump err() end
+    if i >= n then jump err(at = i + 1) end
     let c: i32 = as(i32, p[i])
-    if c >= 48 and c <= 57 then jump hex4_low(i = i + 1, j = j, hi = hi, cp = cp * 16 + (c - 48), left = left - 1) end
-    if c >= 65 and c <= 70 then jump hex4_low(i = i + 1, j = j, hi = hi, cp = cp * 16 + (c - 55), left = left - 1) end
-    if c >= 97 and c <= 102 then jump hex4_low(i = i + 1, j = j, hi = hi, cp = cp * 16 + (c - 87), left = left - 1) end
-    jump err()
+    if c >= 48 and c <= 57 then jump hex4_low(i = i + 1, j = j, base = base, hi = hi, cp = cp * 16 + (c - 48), left = left - 1) end
+    if c >= 65 and c <= 70 then jump hex4_low(i = i + 1, j = j, base = base, hi = hi, cp = cp * 16 + (c - 55), left = left - 1) end
+    if c >= 97 and c <= 102 then jump hex4_low(i = i + 1, j = j, base = base, hi = hi, cp = cp * 16 + (c - 87), left = left - 1) end
+    jump err(at = i + 1)
 end
 end
 
-local parse_number = region parse_json_number(
-    L: @{voidp}, p: ptr(u8), n: i32, pos: i32;
-    ok(next_i: i32) | err
+local parse_number_value = region json_parse_number_value(
+    p: ptr(u8), n: i32, pos: i32;
+    ok(next_i: i32, value: f64) | err(at: i32)
 )
 entry start()
-    if pos >= n then jump err() end
+    if pos >= n then jump err(at = pos + 1) end
     let first: i32 = as(i32, p[pos])
-    if first == 45 then jump scan_int(i = pos + 1, neg = true, val = as(i64, 0)) end
-    if first < 48 then jump err() end
-    if first > 57 then jump err() end
-    if first == 48 then
-        if pos + 1 < n then
-            let d1: i32 = as(i32, p[pos + 1])
-            if d1 >= 48 and d1 <= 57 then jump err() end
-        end
-    end
-    jump scan_int(i = pos, neg = false, val = as(i64, 0))
+    if first == 45 then jump first_digit(i = pos + 1, neg = true) end
+    jump first_digit(i = pos, neg = false)
+end
+block first_digit(i: i32, neg: bool)
+    if i >= n then jump err(at = i + 1) end
+    let c: i32 = as(i32, p[i])
+    if c == 48 then jump after_zero(i = i + 1, neg = neg) end
+    if c >= 49 and c <= 57 then jump scan_int(i = i + 1, neg = neg, val = as(i64, c - 48)) end
+    jump err(at = i + 1)
+end
+block after_zero(i: i32, neg: bool)
+    if i >= n then jump finish(neg = neg, result = 0.0, end_i = i) end
+    let c: i32 = as(i32, p[i])
+    if c >= 48 and c <= 57 then jump err(at = i + 1) end
+    if c == 46 then jump frac_first(i = i + 1, neg = neg, int_part = 0.0) end
+    if c == 101 or c == 69 then jump exp_sign(i = i + 1, neg = neg, result = 0.0) end
+    jump finish(neg = neg, result = 0.0, end_i = i)
 end
 block scan_int(i: i32, neg: bool, val: i64)
     if i >= n then jump emit_int(neg = neg, val = val, end_i = i) end
     let c: i32 = as(i32, p[i])
-    if c < 48 then jump emit_int(neg = neg, val = val, end_i = i) end
-    if c > 57 then jump emit_int(neg = neg, val = val, end_i = i) end
-    jump scan_int(i = i + 1, neg = neg, val = val * 10 + as(i64, c - 48))
+    if c >= 48 and c <= 57 then jump scan_int(i = i + 1, neg = neg, val = val * 10 + as(i64, c - 48)) end
+    jump emit_int(neg = neg, val = val, end_i = i)
 end
 block emit_int(neg: bool, val: i64, end_i: i32)
     let fv: f64 = as(f64, val)
     if end_i >= n then jump finish(neg = neg, result = fv, end_i = end_i) end
     let c: i32 = as(i32, p[end_i])
-    if c == 46 then jump scan_frac(i = end_i + 1, neg = neg, int_part = fv, frac = 0.0, scale = 0.1) end
+    if c == 46 then jump frac_first(i = end_i + 1, neg = neg, int_part = fv) end
     if c == 101 or c == 69 then jump exp_sign(i = end_i + 1, neg = neg, result = fv) end
     jump finish(neg = neg, result = fv, end_i = end_i)
 end
-block scan_frac(i: i32, neg: bool, int_part: f64, frac: f64, scale: f64)
+block frac_first(i: i32, neg: bool, int_part: f64)
+    if i >= n then jump err(at = i + 1) end
+    let c: i32 = as(i32, p[i])
+    if c < 48 then jump err(at = i + 1) end
+    if c > 57 then jump err(at = i + 1) end
+    jump frac_tail(i = i + 1, neg = neg, int_part = int_part, frac = 0.1 * as(f64, c - 48), scale = 0.01)
+end
+block frac_tail(i: i32, neg: bool, int_part: f64, frac: f64, scale: f64)
     if i >= n then jump finish(neg = neg, result = int_part + frac, end_i = i) end
     let c: i32 = as(i32, p[i])
-    if c < 48 then
-        if c == 101 or c == 69 then jump exp_sign(i = i + 1, neg = neg, result = int_part + frac) end
-        jump finish(neg = neg, result = int_part + frac, end_i = i)
-    end
-    if c > 57 then
-        if c == 101 or c == 69 then jump exp_sign(i = i + 1, neg = neg, result = int_part + frac) end
-        jump finish(neg = neg, result = int_part + frac, end_i = i)
-    end
-    jump scan_frac(i = i + 1, neg = neg, int_part = int_part, frac = frac + scale * as(f64, c - 48), scale = scale * 0.1)
+    if c >= 48 and c <= 57 then jump frac_tail(i = i + 1, neg = neg, int_part = int_part, frac = frac + scale * as(f64, c - 48), scale = scale * 0.1) end
+    if c == 101 or c == 69 then jump exp_sign(i = i + 1, neg = neg, result = int_part + frac) end
+    jump finish(neg = neg, result = int_part + frac, end_i = i)
 end
 block exp_sign(i: i32, neg: bool, result: f64)
-    if i >= n then jump err() end
+    if i >= n then jump err(at = i + 1) end
     let c: i32 = as(i32, p[i])
-    if c == 43 then jump exp_digits(i = i + 1, neg = neg, result = result, exp = 0, neg_exp = false) end
-    if c == 45 then jump exp_digits(i = i + 1, neg = neg, result = result, exp = 0, neg_exp = true) end
-    jump exp_digits(i = i, neg = neg, result = result, exp = 0, neg_exp = false)
+    if c == 43 then jump exp_first(i = i + 1, neg = neg, result = result, exp = 0, neg_exp = false) end
+    if c == 45 then jump exp_first(i = i + 1, neg = neg, result = result, exp = 0, neg_exp = true) end
+    jump exp_first(i = i, neg = neg, result = result, exp = 0, neg_exp = false)
 end
-block exp_digits(i: i32, neg: bool, result: f64, exp: i32, neg_exp: bool)
+block exp_first(i: i32, neg: bool, result: f64, exp: i32, neg_exp: bool)
+    if i >= n then jump err(at = i + 1) end
+    let c: i32 = as(i32, p[i])
+    if c < 48 then jump err(at = i + 1) end
+    if c > 57 then jump err(at = i + 1) end
+    jump exp_tail(i = i + 1, neg = neg, result = result, exp = c - 48, neg_exp = neg_exp)
+end
+block exp_tail(i: i32, neg: bool, result: f64, exp: i32, neg_exp: bool)
     if i >= n then jump apply_exp(neg = neg, result = result, exp = exp, neg_exp = neg_exp, end_i = i) end
     let c: i32 = as(i32, p[i])
-    if c < 48 then jump apply_exp(neg = neg, result = result, exp = exp, neg_exp = neg_exp, end_i = i) end
-    if c > 57 then jump apply_exp(neg = neg, result = result, exp = exp, neg_exp = neg_exp, end_i = i) end
-    jump exp_digits(i = i + 1, neg = neg, result = result, exp = exp * 10 + (c - 48), neg_exp = neg_exp)
+    if c >= 48 and c <= 57 then jump exp_tail(i = i + 1, neg = neg, result = result, exp = exp * 10 + (c - 48), neg_exp = neg_exp) end
+    jump apply_exp(neg = neg, result = result, exp = exp, neg_exp = neg_exp, end_i = i)
 end
 block apply_exp(neg: bool, result: f64, exp: i32, neg_exp: bool, end_i: i32)
     if neg_exp then
@@ -225,293 +218,581 @@ block apply_exp(neg: bool, result: f64, exp: i32, neg_exp: bool, end_i: i32)
     end
 end
 block finish(neg: bool, result: f64, end_i: i32)
-    if neg then result = 0.0 - result end
-    lua_pushnumber(L, result)
-    jump ok(next_i = end_i)
+    if neg then jump ok(next_i = end_i, value = 0.0 - result) end
+    jump ok(next_i = end_i, value = result)
 end
 end
 
--- ---------------------------------------------------------------------------
--- Generated literal switch arms
--- ---------------------------------------------------------------------------
-
-local function byte_checks(text, push_src)
-    local bytes = { text:byte(1, #text) }
-    local lines = {}
-
-    lines[#lines + 1] = ("if i + %d > n then jump fail() end"):format(#bytes)
-    for off = 2, #bytes do
-        lines[#lines + 1] = ("if as(i32, p[i + %d]) ~= %d then jump fail() end"):format(off - 1, bytes[off])
-    end
-    lines[#lines + 1] = push_src
-    lines[#lines + 1] = ("jump done(next_i = i + %d)"):format(#bytes)
-
-    return table.concat(lines, "\n")
+local emit_value_event = region json_emit_value_event(tags: ptr(i32), a: ptr(i32), b: ptr(i32), nums: ptr(f64), cap: i32, meta: ptr(i32), tag: i32, aa: i32, bb: i32, num: f64;
+    emitted | err(at: i32))
+entry start()
+    if meta[0] >= cap then jump err(at = meta[0] + 1) end
+    tags[meta[0]] = tag
+    a[meta[0]] = aa
+    b[meta[0]] = bb
+    nums[meta[0]] = num
+    meta[0] = meta[0] + 1
+    jump emitted()
+end
 end
 
-local function literal_arm(text, push_src)
-    local bytes = { text:byte(1, #text) }
-    local body = moon.stmts(byte_checks(text, push_src))
-    return { raw_key = tostring(bytes[1]), body = body }
-end
-
-local literal_arms = {
-    literal_arm("true",  "lua_pushboolean(L, 1)"),
-    literal_arm("false", "lua_pushboolean(L, 0)"),
-    literal_arm("null",  "lua_pushnil(L)"),
-}
-
--- ---------------------------------------------------------------------------
--- Mutually-recursive parser functions
--- ---------------------------------------------------------------------------
-
-local parse_array = func(L: @{voidp}, p: ptr(u8), n: i32, pos: i32, buf: ptr(u8)): i32
+local parse_array_events = func(p: ptr(u8), n: i32, pos: i32, tags: ptr(i32), a: ptr(i32), b: ptr(i32), nums: ptr(f64), event_cap: i32, strbuf: ptr(u8), str_cap: i32, meta: ptr(i32)): i32
     return region: i32
     entry start()
-        lua_createtable(L, 16, 0)
+        emit @{emit_value_event}(tags, a, b, nums, event_cap, meta, 1, pos, 0, 0.0; emitted = marked, err = fail_at)
+    end
+    block marked()
         emit @{skip_ws}(p, n, pos + 1; ok = check_empty)
     end
     block check_empty(i: i32)
-        if i >= n then yield -1 end
-        if as(i32, p[i]) == 93 then yield i + 1 end
-        jump parse_elem(i = i, arr_idx = 1)
+        if i >= n then yield 0 - (i + 1) end
+        if as(i32, p[i]) == 93 then jump close_array(i = i) end
+        jump parse_elem(i = i)
     end
-    block parse_elem(i: i32, arr_idx: i32)
-        let next_i = parse_value(L, p, n, i, buf)
-        if next_i < 0 then yield -1 end
-        lua_rawseti(L, -2, arr_idx)
-        jump ws_after_elem(i = next_i, arr_idx = arr_idx + 1)
+    block parse_elem(i: i32)
+        let value_next_i: i32 = parse_value_events(p, n, i, tags, a, b, nums, event_cap, strbuf, str_cap, meta)
+        if value_next_i < 0 then yield value_next_i end
+        jump array_ws(i = value_next_i, mode = 0)
     end
-    block ws_after_elem(i: i32, arr_idx: i32)
-        if i >= n then yield -1 end
-        switch as(i32, p[i]) do
-        case 32 then jump ws_after_elem(i = i + 1, arr_idx = arr_idx)
-        case 10 then jump ws_after_elem(i = i + 1, arr_idx = arr_idx)
-        case 13 then jump ws_after_elem(i = i + 1, arr_idx = arr_idx)
-        case 9  then jump ws_after_elem(i = i + 1, arr_idx = arr_idx)
-        default then jump check_comma(i = i, arr_idx = arr_idx)
-        end
-        jump check_comma(i = i, arr_idx = arr_idx)
+    block array_ws(i: i32, mode: i32)
+        if i >= n then yield 0 - (i + 1) end
+        let c: i32 = as(i32, p[i])
+        if c == 32 then jump array_ws(i = i + 1, mode = mode) end
+        if c == 10 then jump array_ws(i = i + 1, mode = mode) end
+        if c == 13 then jump array_ws(i = i + 1, mode = mode) end
+        if c == 9 then jump array_ws(i = i + 1, mode = mode) end
+        if mode == 0 then jump check_comma(i = i) end
+        jump before_elem(i = i)
     end
-    block check_comma(i: i32, arr_idx: i32)
-        if i >= n then yield -1 end
-        let c = as(i32, p[i])
-        if c == 93 then yield i + 1 end
-        if c == 44 then jump ws_before_elem(i = i + 1, arr_idx = arr_idx) end
-        yield -1
+    block check_comma(i: i32)
+        if i >= n then yield 0 - (i + 1) end
+        let c: i32 = as(i32, p[i])
+        if c == 93 then jump close_array(i = i) end
+        if c == 44 then jump array_ws(i = i + 1, mode = 1) end
+        yield 0 - (i + 1)
     end
-    block ws_before_elem(i: i32, arr_idx: i32)
-        if i >= n then yield -1 end
-        switch as(i32, p[i]) do
-        case 32 then jump ws_before_elem(i = i + 1, arr_idx = arr_idx)
-        case 10 then jump ws_before_elem(i = i + 1, arr_idx = arr_idx)
-        case 13 then jump ws_before_elem(i = i + 1, arr_idx = arr_idx)
-        case 9  then jump ws_before_elem(i = i + 1, arr_idx = arr_idx)
-        default then jump parse_elem(i = i, arr_idx = arr_idx)
-        end
-        jump parse_elem(i = i, arr_idx = arr_idx)
+    block before_elem(i: i32)
+        if i >= n then yield 0 - (i + 1) end
+        if as(i32, p[i]) == 93 then yield 0 - (i + 1) end
+        jump parse_elem(i = i)
+    end
+    block close_array(i: i32)
+        if meta[0] >= event_cap then yield 0 - (i + 1) end
+        tags[meta[0]] = 2
+        a[meta[0]] = i
+        b[meta[0]] = 0
+        nums[meta[0]] = 0.0
+        meta[0] = meta[0] + 1
+        yield i + 1
+    end
+    block fail_at(at: i32)
+        yield 0 - at
     end
     end
 end
 
-local parse_object = func(L: @{voidp}, p: ptr(u8), n: i32, pos: i32, buf: ptr(u8)): i32
+local parse_object_events = func(p: ptr(u8), n: i32, pos: i32, tags: ptr(i32), a: ptr(i32), b: ptr(i32), nums: ptr(f64), event_cap: i32, strbuf: ptr(u8), str_cap: i32, meta: ptr(i32)): i32
     return region: i32
     entry start()
-        lua_createtable(L, 0, 16)
+        emit @{emit_value_event}(tags, a, b, nums, event_cap, meta, 3, pos, 0, 0.0; emitted = marked, err = fail_at)
+    end
+    block marked()
         emit @{skip_ws}(p, n, pos + 1; ok = check_empty)
     end
     block check_empty(i: i32)
-        if i >= n then yield -1 end
-        if as(i32, p[i]) == 125 then yield i + 1 end
+        if i >= n then yield 0 - (i + 1) end
+        if as(i32, p[i]) == 125 then jump close_object(i = i) end
         jump parse_key(i = i)
     end
     block parse_key(i: i32)
-        if as(i32, p[i]) ~= 34 then yield -1 end
-        emit @{parse_string}(L, p, n, i, buf; ok = check_colon, err = fail)
+        if i >= n then yield 0 - (i + 1) end
+        if as(i32, p[i]) ~= 34 then yield 0 - (i + 1) end
+        emit @{parse_string_store}(p, n, i, strbuf, str_cap, meta; ok = emit_key, err = fail_at)
     end
-    block check_colon(next_i: i32)
+    block emit_key(next_i: i32, off: i32, len: i32)
+        if meta[0] >= event_cap then yield 0 - (next_i + 1) end
+        tags[meta[0]] = 5
+        a[meta[0]] = off
+        b[meta[0]] = len
+        nums[meta[0]] = 0.0
+        meta[0] = meta[0] + 1
         emit @{skip_ws}(p, n, next_i; ok = check_colon_char)
     end
     block check_colon_char(i: i32)
-        if i >= n then yield -1 end
-        if as(i32, p[i]) ~= 58 then yield -1 end
+        if i >= n then yield 0 - (i + 1) end
+        if as(i32, p[i]) ~= 58 then yield 0 - (i + 1) end
         emit @{skip_ws}(p, n, i + 1; ok = parse_val)
     end
     block parse_val(i: i32)
-        let after_val = parse_value(L, p, n, i, buf)
-        if after_val < 0 then yield -1 end
-        lua_settable(L, -3) -- table[-3][key(-2)] = value(-1); pops key and value
-        emit @{skip_ws}(p, n, after_val; ok = check_comma)
+        let value_next_i: i32 = parse_value_events(p, n, i, tags, a, b, nums, event_cap, strbuf, str_cap, meta)
+        if value_next_i < 0 then yield value_next_i end
+        emit @{skip_ws}(p, n, value_next_i; ok = check_comma)
     end
     block check_comma(i: i32)
-        if i >= n then yield -1 end
-        let c = as(i32, p[i])
-        if c == 125 then yield i + 1 end
+        if i >= n then yield 0 - (i + 1) end
+        let c: i32 = as(i32, p[i])
+        if c == 125 then jump close_object(i = i) end
         if c == 44 then emit @{skip_ws}(p, n, i + 1; ok = parse_key) end
-        yield -1
+        yield 0 - (i + 1)
     end
-    block fail()
-        yield -1
+    block close_object(i: i32)
+        if meta[0] >= event_cap then yield 0 - (i + 1) end
+        tags[meta[0]] = 4
+        a[meta[0]] = i
+        b[meta[0]] = 0
+        nums[meta[0]] = 0.0
+        meta[0] = meta[0] + 1
+        yield i + 1
+    end
+    block fail_at(at: i32)
+        yield 0 - at
     end
     end
 end
 
-local parse_value = func(L: @{voidp}, p: ptr(u8), n: i32, pos: i32, buf: ptr(u8)): i32
+local parse_value_events = func(p: ptr(u8), n: i32, pos: i32, tags: ptr(i32), a: ptr(i32), b: ptr(i32), nums: ptr(f64), event_cap: i32, strbuf: ptr(u8), str_cap: i32, meta: ptr(i32)): i32
     return region: i32
     entry start()
         emit @{skip_ws}(p, n, pos; ok = dispatch)
     end
     block dispatch(i: i32)
-        if i >= n then yield -1 end
-        switch as(i32, p[i]) do
-        @{literal_arms...}
-        case 34 then emit @{parse_string}(L, p, n, i, buf; ok = done, err = fail)
-        case 91 then
-            let next_i = parse_array(L, p, n, i, buf)
-            if next_i < 0 then jump fail() end
-            jump done(next_i = next_i)
-        case 123 then
-            let next_i = parse_object(L, p, n, i, buf)
-            if next_i < 0 then jump fail() end
-            jump done(next_i = next_i)
-        default then
-            emit @{parse_number}(L, p, n, i; ok = done, err = fail)
+        if i >= n then yield 0 - (i + 1) end
+        let c: i32 = as(i32, p[i])
+        if c == 34 then emit @{parse_string_store}(p, n, i, strbuf, str_cap, meta; ok = emit_string, err = fail_at) end
+        if c == 91 then
+            let array_next_i: i32 = parse_array_events(p, n, i, tags, a, b, nums, event_cap, strbuf, str_cap, meta)
+            if array_next_i < 0 then yield array_next_i end
+            yield array_next_i
         end
-        jump fail()
+        if c == 123 then
+            let object_next_i: i32 = parse_object_events(p, n, i, tags, a, b, nums, event_cap, strbuf, str_cap, meta)
+            if object_next_i < 0 then yield object_next_i end
+            yield object_next_i
+        end
+        if c == 116 then jump lit_true(i = i) end
+        if c == 102 then jump lit_false(i = i) end
+        if c == 110 then jump lit_null(i = i) end
+        emit @{parse_number_value}(p, n, i; ok = emit_number, err = fail_at)
     end
-    block done(next_i: i32)
+    block emit_string(next_i: i32, off: i32, len: i32)
+        if meta[0] >= event_cap then yield 0 - (next_i + 1) end
+        tags[meta[0]] = 6
+        a[meta[0]] = off
+        b[meta[0]] = len
+        nums[meta[0]] = 0.0
+        meta[0] = meta[0] + 1
         yield next_i
     end
-    block fail()
-        yield -1
+    block emit_number(next_i: i32, value: f64)
+        if meta[0] >= event_cap then yield 0 - (next_i + 1) end
+        tags[meta[0]] = 7
+        a[meta[0]] = 0
+        b[meta[0]] = 0
+        nums[meta[0]] = value
+        meta[0] = meta[0] + 1
+        yield next_i
+    end
+    block lit_true(i: i32)
+        if i + 4 > n then jump fail_at(at = i + 1) end
+        if as(i32, p[i + 1]) ~= 114 then jump fail_at(at = i + 1) end
+        if as(i32, p[i + 2]) ~= 117 then jump fail_at(at = i + 1) end
+        if as(i32, p[i + 3]) ~= 101 then jump fail_at(at = i + 1) end
+        if meta[0] >= event_cap then yield 0 - (i + 1) end
+        tags[meta[0]] = 8
+        a[meta[0]] = 1
+        b[meta[0]] = 0
+        nums[meta[0]] = 0.0
+        meta[0] = meta[0] + 1
+        yield i + 4
+    end
+    block lit_false(i: i32)
+        if i + 5 > n then jump fail_at(at = i + 1) end
+        if as(i32, p[i + 1]) ~= 97 then jump fail_at(at = i + 1) end
+        if as(i32, p[i + 2]) ~= 108 then jump fail_at(at = i + 1) end
+        if as(i32, p[i + 3]) ~= 115 then jump fail_at(at = i + 1) end
+        if as(i32, p[i + 4]) ~= 101 then jump fail_at(at = i + 1) end
+        if meta[0] >= event_cap then yield 0 - (i + 1) end
+        tags[meta[0]] = 9
+        a[meta[0]] = 0
+        b[meta[0]] = 0
+        nums[meta[0]] = 0.0
+        meta[0] = meta[0] + 1
+        yield i + 5
+    end
+    block lit_null(i: i32)
+        if i + 4 > n then jump fail_at(at = i + 1) end
+        if as(i32, p[i + 1]) ~= 117 then jump fail_at(at = i + 1) end
+        if as(i32, p[i + 2]) ~= 108 then jump fail_at(at = i + 1) end
+        if as(i32, p[i + 3]) ~= 108 then jump fail_at(at = i + 1) end
+        if meta[0] >= event_cap then yield 0 - (i + 1) end
+        tags[meta[0]] = 10
+        a[meta[0]] = 0
+        b[meta[0]] = 0
+        nums[meta[0]] = 0.0
+        meta[0] = meta[0] + 1
+        yield i + 4
+    end
+    block fail_at(at: i32)
+        yield 0 - at
     end
     end
 end
 
-local decode_json_to_lua_stack = func(L: @{voidp}, p: ptr(u8), n: i32, buf: ptr(u8)): i32
+local json_decode_value_events = func(p: ptr(u8), n: i32, tags: ptr(i32), a: ptr(i32), b: ptr(i32), nums: ptr(f64), event_cap: i32, strbuf: ptr(u8), str_cap: i32, meta: ptr(i32)): i32
+    meta[0] = 0
+    meta[1] = 0
     return region: i32
     entry start()
-        let after_value = parse_value(L, p, n, 0, buf)
-        if after_value < 0 then yield -1 end
+        let after_value: i32 = parse_value_events(p, n, 0, tags, a, b, nums, event_cap, strbuf, str_cap, meta)
+        if after_value < 0 then yield after_value end
         emit @{skip_ws}(p, n, after_value; ok = finish)
     end
     block finish(i: i32)
         if i == n then yield i end
-        yield -1
+        yield 0 - (i + 1)
     end
     end
 end
 
--- ---------------------------------------------------------------------------
--- Execution test
--- ---------------------------------------------------------------------------
+local bundle = moon.bundle("json_library_showcase")
+bundle:pack(parse_array_events, parse_object_events, parse_value_events, json_decode_value_events)
+local c_blob = bundle:c_source({ module_name = "moonlift_json_showcase" })
 
-local module = moon.module("json_lua_stack_decoder")
-module:add_func(lua_createtable)
-module:add_func(lua_pushlstring)
-module:add_func(lua_pushnumber)
-module:add_func(lua_pushboolean)
-module:add_func(lua_pushnil)
-module:add_func(lua_settable)
-module:add_func(lua_rawseti)
-module:add_func(parse_array)
-module:add_func(parse_object)
-module:add_func(parse_value)
-module:add_func(decode_json_to_lua_stack)
-local compiled_module = module:compile()
-local compiled = compiled_module:get("decode_json_to_lua_stack")
-
-local function decode_into_new_state(json)
-    local C = ffi.C
-    local L = C.luaL_newstate()
-    local p = ffi.cast("uint8_t *", json)
-    local buf = ffi.new("uint8_t[?]", #json + 1)
-    local parsed_end = compiled(L, p, #json, buf)
-    return L, parsed_end
+local function compile_c_artifact()
+    local gcc = os.getenv("MOONLIFT_JSON_CC") or "gcc"
+    local ok, result = pcall(function()
+        return bundle:compile({
+            backend = "c",
+            runner = "shared",
+            cc = gcc,
+            cflags = "-std=c99 -O3 -fPIC -shared -Wno-int-to-pointer-cast -Wl,-z,noexecstack",
+            ldflags = "-lm",
+            module_name = "moonlift_json_showcase",
+        })
+    end)
+    if ok then return result, "gcc-o3" end
+    return bundle:compile({ backend = "c", runner = "libtcc", module_name = "moonlift_json_showcase" }), "libtcc", result
 end
 
-local function close(L) ffi.C.lua_close(L) end
+local artifact, c_backend, c_backend_fallback_reason = compile_c_artifact()
+local value_events_compiled = artifact:get("json_decode_value_events")
 
-local L, parsed = decode_into_new_state("[true,false,null,42]")
-assert(parsed == 20)
-assert(ffi.C.lua_gettop(L) == 1)
-assert(ffi.C.lua_type(L, 1) == 5)
-assert(ffi.C.lua_objlen(L, 1) == 4)
-close(L)
+local Json = {}
+Json.null = {}
 
-L, parsed = decode_into_new_state('"hello"')
-assert(parsed == 7)
-assert(ffi.C.lua_type(L, 1) == 4) -- LUA_TSTRING
-local lenp = ffi.new("size_t[1]")
-local s = ffi.C.lua_tolstring(L, 1, lenp)
-assert(tonumber(lenp[0]) == 5)
-assert(ffi.string(s, lenp[0]) == "hello")
-close(L)
+local array_mt = { __moonlift_json_shape = "array" }
+local object_mt = { __moonlift_json_shape = "object" }
+Json.array_mt = array_mt
+Json.object_mt = object_mt
 
+local Decoder = {}
+Decoder.__index = Decoder
 
-L, parsed = decode_into_new_state('{"a":1}')
-assert(parsed > 0)
-assert(ffi.C.lua_gettop(L) == 1)
-assert(ffi.C.lua_type(L, 1) == 5)
-close(L)
-
-
-L, parsed = decode_into_new_state('{"features":["Splices","Regions","ASDL"]}')
-assert(parsed > 0)
-assert(ffi.C.lua_gettop(L) == 1)
-assert(ffi.C.lua_type(L, 1) == 5)
-close(L)
-
-
-L, parsed = decode_into_new_state([[{"name":"Moonlift","fast":true,"version":2.0,"features":["Splices","Regions","ASDL"],"overhead":null}]])
-assert(parsed > 0)
-assert(ffi.C.lua_gettop(L) == 1)
-assert(ffi.C.lua_type(L, 1) == 5)
-close(L)
-
-for _, bad in ipairs({ "", "tru", "[1,]", "{", "+1", "01", '"unclosed' }) do
-    L, parsed = decode_into_new_state(bad)
-    assert(parsed < 0, "expected invalid JSON: " .. bad)
-    close(L)
+function Json.new_decoder(opts)
+    opts = opts or {}
+    local event_cap = opts.event_cap or 256
+    local string_cap = opts.string_cap or opts.buf_cap or 256
+    local self = {
+        closed = false,
+        event_cap = event_cap,
+        string_cap = string_cap,
+        tags = ffi.new("int32_t[?]", event_cap),
+        a = ffi.new("int32_t[?]", event_cap),
+        b = ffi.new("int32_t[?]", event_cap),
+        nums = ffi.new("double[?]", event_cap),
+        strings = ffi.new("uint8_t[?]", string_cap),
+        meta = ffi.new("int32_t[2]"),
+    }
+    return setmetatable(self, Decoder)
 end
 
--- Escape sequence tests
-L, parsed = decode_into_new_state('"he\\\\llo"')  -- JSON: "he\\llo" → he\llo
-assert(parsed > 0)
-s = ffi.C.lua_tolstring(L, 1, lenp)
-assert(ffi.string(s, tonumber(lenp[0])) == "he\\llo")
-close(L)
+function Decoder:close()
+    self.closed = true
+end
 
-L, parsed = decode_into_new_state('"line1\\nline2"')  -- JSON: "line1\nline2" → line1<newline>line2
-assert(parsed > 0)
-s = ffi.C.lua_tolstring(L, 1, lenp)
-assert(ffi.string(s, tonumber(lenp[0])) == "line1\nline2")
-close(L)
+function Decoder:ensure(n)
+    local need_events = n + 8
+    if need_events > self.event_cap then
+        self.event_cap = need_events
+        self.tags = ffi.new("int32_t[?]", self.event_cap)
+        self.a = ffi.new("int32_t[?]", self.event_cap)
+        self.b = ffi.new("int32_t[?]", self.event_cap)
+        self.nums = ffi.new("double[?]", self.event_cap)
+    end
+    local need_strings = n + 1
+    if need_strings > self.string_cap then
+        self.string_cap = need_strings
+        self.strings = ffi.new("uint8_t[?]", self.string_cap)
+    end
+end
 
-L, parsed = decode_into_new_state('"tab\\there"')  -- JSON: "tab\there" → tab<tab>here
-assert(parsed > 0)
-s = ffi.C.lua_tolstring(L, 1, lenp)
-assert(ffi.string(s, tonumber(lenp[0])) == "tab\there")
-close(L)
+local function string_from_store(decoder, off, n)
+    return ffi.string(decoder.strings + off, n)
+end
 
-L, parsed = decode_into_new_state('"quote\\"inside"')  -- JSON: "quote\"inside" → quote"inside
-assert(parsed > 0)
-s = ffi.C.lua_tolstring(L, 1, lenp)
-assert(ffi.string(s, tonumber(lenp[0])) == 'quote"inside')
-close(L)
+local function materialize_event(decoder, pos)
+    local tag = tonumber(decoder.tags[pos])
+    if tag == 1 then
+        local out = {}
+        local i = pos + 1
+        local n = 0
+        while tonumber(decoder.tags[i]) ~= 2 do
+            n = n + 1
+            out[n], i = materialize_event(decoder, i)
+        end
+        return setmetatable(out, array_mt), i + 1
+    end
+    if tag == 3 then
+        local out = {}
+        local i = pos + 1
+        while tonumber(decoder.tags[i]) ~= 4 do
+            assert(tonumber(decoder.tags[i]) == 5, "json value tape: expected object key")
+            local key = string_from_store(decoder, tonumber(decoder.a[i]), tonumber(decoder.b[i]))
+            local value
+            value, i = materialize_event(decoder, i + 1)
+            out[key] = value
+        end
+        return setmetatable(out, object_mt), i + 1
+    end
+    if tag == 6 then return string_from_store(decoder, tonumber(decoder.a[pos]), tonumber(decoder.b[pos])), pos + 1 end
+    if tag == 7 then return tonumber(decoder.nums[pos]), pos + 1 end
+    if tag == 8 then return true, pos + 1 end
+    if tag == 9 then return false, pos + 1 end
+    if tag == 10 then return Json.null, pos + 1 end
+    error("json value tape: unexpected tag " .. tostring(tag), 2)
+end
 
-L, parsed = decode_into_new_state('"\\u0041\\u0042\\u0043"')  -- JSON: "\u0041\u0042\u0043" → ABC
-assert(parsed > 0)
-s = ffi.C.lua_tolstring(L, 1, lenp)
-assert(ffi.string(s, tonumber(lenp[0])) == "ABC")
-close(L)
+function Decoder:decode_or_nil(src)
+    if self.closed then error("json decoder is closed", 2) end
+    self:ensure(#src)
+    local p = ffi.cast("uint8_t *", src)
+    local endpos = tonumber(value_events_compiled(
+        p, #src, self.tags, self.a, self.b, self.nums,
+        self.event_cap, self.strings, self.string_cap, self.meta
+    ))
+    if endpos < 0 then
+        return nil, { kind = "syntax", offset = -endpos }
+    end
+    local value, next_pos = materialize_event(self, 0)
+    assert(next_pos == tonumber(self.meta[0]), "json value tape: trailing events")
+    return value, nil
+end
 
-L, parsed = decode_into_new_state('"\\uD83D\\uDE00"')  -- surrogate pair: 😀
-assert(parsed > 0)
-s = ffi.C.lua_tolstring(L, 1, lenp)
-assert(tonumber(lenp[0]) == 4)  -- 4-byte UTF-8 for U+1F600
-assert(string.byte(ffi.string(s, 4), 1) == 0xF0)
-close(L)
+function Decoder:decode(src)
+    local value, err = self:decode_or_nil(src)
+    if err then error("json decode error at byte " .. tostring(err.offset), 2) end
+    return value
+end
 
-compiled_module:free()
-return "Moonlift Lua-stack JSON decoder ok"
+local default_decoder = Json.new_decoder()
+
+function Json.decode_or_nil(src)
+    return default_decoder:decode_or_nil(src)
+end
+
+function Json.decode(src)
+    return default_decoder:decode(src)
+end
+
+function Json.valid(src)
+    local value = Json.decode_or_nil(src)
+    return value ~= nil
+end
+
+function Json.array(values)
+    return setmetatable(values or {}, array_mt)
+end
+
+function Json.object(values)
+    return setmetatable(values or {}, object_mt)
+end
+
+local ESC = {
+    ['\\'] = '\\\\',
+    ['"'] = '\\"',
+    ['\b'] = '\\b',
+    ['\f'] = '\\f',
+    ['\n'] = '\\n',
+    ['\r'] = '\\r',
+    ['\t'] = '\\t',
+}
+
+local function encode_string(s)
+    return '"' .. tostring(s):gsub('[%z\1-\31\\"]', function(ch)
+        return ESC[ch] or string.format("\\u%04X", ch:byte())
+    end) .. '"'
+end
+
+local function is_array(t)
+    local n = 0
+    for k in pairs(t) do
+        if type(k) ~= "number" or k < 1 or k % 1 ~= 0 then return false, 0 end
+        if k > n then n = k end
+    end
+    for i = 1, n do if t[i] == nil then return false, 0 end end
+    return true, n
+end
+
+local function encode_value(v)
+    if v == Json.null or v == nil then return "null" end
+    local tv = type(v)
+    if tv == "boolean" then return v and "true" or "false" end
+    if tv == "number" then
+        if v ~= v or v == math.huge or v == -math.huge then error("json encode: non-finite number", 3) end
+        return string.format("%.17g", v)
+    end
+    if tv == "string" then return encode_string(v) end
+    if tv == "table" then
+        local mt = getmetatable(v)
+        local arr, n = is_array(v)
+        if mt == array_mt or (mt ~= object_mt and arr) then
+            local parts = {}
+            for i = 1, n do parts[i] = encode_value(v[i]) end
+            return "[" .. table.concat(parts, ",") .. "]"
+        end
+        local keys = {}
+        for k in pairs(v) do
+            if type(k) ~= "string" then error("json encode: object key is not a string", 3) end
+            keys[#keys + 1] = k
+        end
+        table.sort(keys)
+        local parts = {}
+        for i = 1, #keys do
+            local k = keys[i]
+            parts[i] = encode_string(k) .. ":" .. encode_value(v[k])
+        end
+        return "{" .. table.concat(parts, ",") .. "}"
+    end
+    error("json encode: unsupported " .. tv, 2)
+end
+
+function Json.encode(v)
+    return encode_value(v)
+end
+
+Json.tags = {
+    ARRAY_BEGIN = 1,
+    ARRAY_END = 2,
+    OBJECT_BEGIN = 3,
+    OBJECT_END = 4,
+    KEY = 5,
+    STRING = 6,
+    NUMBER = 7,
+    TRUE = 8,
+    FALSE = 9,
+    NULL = 10,
+}
+
+Json.c_api = {
+    decode = "json_decode_value_events",
+    meta_event_count = 0,
+    meta_string_count = 1,
+    tags = Json.tags,
+    typed_arrays = {
+        source = "Uint8Array",
+        tags = "Int32Array",
+        a = "Int32Array",
+        b = "Int32Array",
+        nums = "Float64Array",
+        strings = "Uint8Array",
+        meta = "Int32Array",
+    },
+    event_layout = {
+        "tags[i] is the event tag",
+        "a[i]/b[i] are string offset/length for KEY and STRING",
+        "nums[i] is the numeric value for NUMBER",
+        "meta[0] is event count",
+        "meta[1] is decoded string byte count",
+    },
+}
+
+Json.c_header = [[
+#ifndef MOONLIFT_JSON_SHOWCASE_H
+#define MOONLIFT_JSON_SHOWCASE_H
+
+#include <stdint.h>
+
+enum {
+    MOONLIFT_JSON_ARRAY_BEGIN = 1,
+    MOONLIFT_JSON_ARRAY_END = 2,
+    MOONLIFT_JSON_OBJECT_BEGIN = 3,
+    MOONLIFT_JSON_OBJECT_END = 4,
+    MOONLIFT_JSON_KEY = 5,
+    MOONLIFT_JSON_STRING = 6,
+    MOONLIFT_JSON_NUMBER = 7,
+    MOONLIFT_JSON_TRUE = 8,
+    MOONLIFT_JSON_FALSE = 9,
+    MOONLIFT_JSON_NULL = 10
+};
+
+int32_t json_decode_value_events(
+    uint8_t *p,
+    int32_t n,
+    int32_t *tags,
+    int32_t *a,
+    int32_t *b,
+    double *nums,
+    int32_t event_cap,
+    uint8_t *strbuf,
+    int32_t str_cap,
+    int32_t *meta
+);
+
+#endif
+]]
+
+Json.emcc_args = {
+    "-O3",
+    "-sMODULARIZE=1",
+    "-sEXPORTED_FUNCTIONS=['_json_decode_value_events']",
+    "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap']",
+}
+
+function Json.write_c(path)
+    local f = assert(io.open(path, "wb"))
+    f:write(c_blob)
+    f:close()
+    return path, #c_blob
+end
+
+function Json.write_header(path)
+    local f = assert(io.open(path, "wb"))
+    f:write(Json.c_header)
+    f:close()
+    return path, #Json.c_header
+end
+
+function Json.close()
+    default_decoder:close()
+    if artifact ~= nil then
+        artifact:free()
+        artifact = nil
+    end
+end
+
+Json.value_fn = value_events_compiled
+Json.artifact = artifact
+Json.c_blob = c_blob
+Json.c_backend = c_backend
+Json.c_backend_fallback_reason = c_backend_fallback_reason
+
+local decoded = Json.decode([[{"a":[1,true,null,"x"],"empty_object":{},"empty_array":[]}]])
+assert(getmetatable(decoded) == object_mt)
+assert(getmetatable(decoded.a) == array_mt)
+assert(decoded.a[3] == Json.null)
+assert(getmetatable(decoded.empty_object) == object_mt)
+assert(getmetatable(decoded.empty_array) == array_mt)
+assert(Json.encode(decoded) == [[{"a":[1,true,null,"x"],"empty_array":[],"empty_object":{}}]])
+
+local s = Json.decode('"line1\\nline2"')
+assert(s == "line1\nline2")
+
+local face = Json.decode('"\\uD83D\\uDE00"')
+assert(#face == 4 and face:byte(1) == 0xF0)
+
+for _, bad in ipairs({ "", "tru", "[1,]", "{", "+1", "01", "1.", "1e", '"unclosed' }) do
+    local value, err = Json.decode_or_nil(bad)
+    assert(value == nil and err and err.offset >= 1, "expected invalid JSON: " .. bad)
+end
+
+return Json

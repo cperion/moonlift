@@ -29,6 +29,7 @@ struct User
     active: bool32,
 end
 expose Users: view(User)
+extern touch(x: i32): i32 end
 func User:is_active(self: ptr(User)): bool
     return true
 end
@@ -67,6 +68,7 @@ func right(n: i32): i32
 end
 expr Use(): i32
     add(1, 2)
+    touch(3)
 end
 ]]
 local doc = S.DocumentSnapshot(uri, S.DocVersion(1), S.LangMlua, src)
@@ -161,6 +163,19 @@ local call_refs = Refs.references(E.ReferenceQuery(q_at_nth("add", 1), true), an
 assert(pvm.classof(call_refs) == E.ReferenceHit and #call_refs.ranges >= 2)
 local call_rename = Rename.rename(E.RenameQuery(q_at_nth("add", 2), "add_i32"), analysis)
 assert(pvm.classof(call_rename) == E.RenameOk and #call_rename.edits >= 2)
+
+local extern_facts_ok = false
+for i = 1, #facts do
+    if facts[i].id == E.SymbolId("tree.extern.touch") and pvm.classof(facts[i].subject) == E.SubjectTreeExtern then extern_facts_ok = true end
+end
+assert(extern_facts_ok)
+local extern_def = Def.definition(q_at_nth("touch", 2), analysis)
+assert(pvm.classof(extern_def) == E.DefinitionHit)
+assert(src:sub(extern_def.ranges[1].start_offset + 1, extern_def.ranges[1].stop_offset) == "touch")
+local extern_refs = Refs.references(E.ReferenceQuery(q_at_nth("touch", 1), true), analysis)
+assert(pvm.classof(extern_refs) == E.ReferenceHit and #extern_refs.ranges >= 2)
+local extern_highlights = Highlight.highlights(q_at_nth("touch", 2), analysis)
+assert(#extern_highlights >= 2)
 
 local local_def = Def.definition(q_at_nth("input_value", 2), analysis)
 assert(pvm.classof(local_def) == E.DefinitionHit)

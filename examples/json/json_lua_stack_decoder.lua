@@ -212,7 +212,10 @@ block apply_exp(neg: bool, result: f64, exp: i32, neg_exp: bool, end_i: i32)
     end
 end
 block finish(neg: bool, result: f64, end_i: i32)
-    if neg then result = 0.0 - result end
+    if neg then
+        lua_pushnumber(L, 0.0 - result)
+        jump ok(next_i = end_i)
+    end
     lua_pushnumber(L, result)
     jump ok(next_i = end_i)
 end

@@ -4,6 +4,7 @@ local pvm=require('moonlift.pvm'); local T=pvm.context(); require('moonlift.sche
 local Parse=require('moonlift.parse').Define(T)
 local Pipeline=require('moonlift.frontend_pipeline').Define(T)
 local CEmit=require('moonlift.c_emit').Define(T)
+local LowerToC=require('moonlift.lower_to_c').Define(T)
 local Back=T.MoonBack
 local Lower=T.MoonLower
 local Schedule=T.MoonSchedule
@@ -115,6 +116,18 @@ cc_run(add2_c, [[
 int32_t add2(void* dst, void* a, void* b, int32_t n);
 int main(){ int32_t a[7]={1,2,3,4,5,6,7}, b[7]={10,20,30,40,50,60,70}, dst[7]={0}; if(add2(dst,a,b,7)!=0) return 1; for(int i=0;i<7;i++) if(dst[i]!=a[i]+b[i]) return 2+i; return 0; }
 ]])
+do
+    local planned
+    for _, p in ipairs(add2_r.kernel_plan.plans or {}) do
+        if pvm.classof(p) == T.MoonKernel.KernelPlanned then planned = planned or p end
+    end
+    assert(planned ~= nil, 'add2 test needs planned kernel')
+    local first = add2_r.lower_plan.funcs[1].fragments[1]
+    local bad = Lower.LowerFragment(first.id, first.cover, Lower.LowerStrategyKernel(planned.id, Schedule.ScheduleId('schedule:missing')), first.proofs, first.issues)
+    local bad_lower = Lower.LowerModule(add2_r.lower_plan.module, add2_r.lower_plan.target, add2_r.lower_plan.kernels, add2_r.lower_plan.schedules, { Lower.LowerFuncPlan(add2_r.lower_plan.funcs[1].func, { bad }) }, add2_r.lower_plan.issues)
+    local ok, err = pcall(function() LowerToC.module(add2_r.code_module, bad_lower, { dialect = 'c11' }) end)
+    assert(not ok and tostring(err):find('missing schedule', 1, true), 'LowerToC must fail loud for dangling semantic schedules')
+end
 
 local view_sum_src=[[
 func view_sum(p: ptr(i32), n: index): i32

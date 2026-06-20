@@ -13,10 +13,6 @@ local Span = require("moonlift.error.span")
 
 local M = {}
 
--------------------------------------------------------------------------------
--- Catalog entry (kept for backward compatibility)
--------------------------------------------------------------------------------
-
 local Entry = {}
 Entry.__index = Entry
 

@@ -62,7 +62,7 @@ function M.Define(T)
             return E.CompletionExprPosition
         end
         return E.CompletionInvalid("no completion context")
-    end, { args_cache = "full" })
+    end, { node_cache = "none", args_cache = "none" })
 
     local function context(query, analysis)
         return pvm.one(context_phase(query, analysis))

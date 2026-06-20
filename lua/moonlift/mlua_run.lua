@@ -435,8 +435,4 @@ function M.eval(src, chunk_name, ...)
     return fn(...)
 end
 
-function M.current_runtime()
-    return nil  -- no runtime state in this simplified path
-end
-
 return M

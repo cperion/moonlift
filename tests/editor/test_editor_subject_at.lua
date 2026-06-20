@@ -78,6 +78,6 @@ Subject.subject_at_phase:reset()
 pvm.drain(Subject.subject_at_phase(query_at("User"), analysis))
 pvm.drain(Subject.subject_at_phase(query_at("User"), analysis))
 local report = pvm.report({ Subject.subject_at_phase })[1]
-assert(report.calls == 2 and report.hits == 1)
+assert(report.calls == 2 and report.hits == 0)
 
 print("moonlift editor subject at ok")

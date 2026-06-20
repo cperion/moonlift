@@ -82,10 +82,6 @@ function M.eval(src, chunk_name, ...)
     return _mlua_run.eval(src, chunk_name, ...)
 end
 
-function M.current_runtime()
-    return _mlua_run.current_runtime()
-end
-
 --- Load a .mlua module once and cache the result (like Lua require).
 --- Searches for `name.mlua` in the current directory and relative to
 --- the caller.

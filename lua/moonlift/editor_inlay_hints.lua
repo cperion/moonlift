@@ -92,7 +92,7 @@ function M.Define(T)
         end
         return pvm.seq(out)
         end,
-    }, { args_cache = "full" })
+    }, { node_cache = "none", args_cache = "none" })
 
     local function hints(query, analysis)
         return pvm.drain(hints_phase(query, analysis))

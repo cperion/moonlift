@@ -244,7 +244,7 @@ function M.Define(T)
             local r = assert(P.range_from_offsets(index, context.start_offset, context.stop_offset))
             return pvm.once(E.SignatureCall(context.callee, context.active_parameter, r))
         end,
-    }, { args_cache = "full" })
+    }, { node_cache = "none", args_cache = "none" })
 
     local signature_help_phase = pvm.phase("moonlift_editor_signature_help", {
         [E.PositionQuery] = function(query, analysis)
@@ -258,7 +258,7 @@ function M.Define(T)
             if not signatures or #signatures == 0 then return pvm.once(E.SignatureHelpMissing("unknown callee: " .. context.callee)) end
             return pvm.once(E.SignatureHelp(signatures, 0, context.active_parameter))
         end,
-    }, { args_cache = "full" })
+    }, { node_cache = "none", args_cache = "none" })
 
     local function context(query, analysis)
         return pvm.one(signature_context_phase(query, analysis))

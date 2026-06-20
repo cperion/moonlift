@@ -1,1308 +1,1100 @@
---[[
-    GEOLIFT_HEADER.mlua
-
-    Apache DataFusion-like geospatial engine design header for Moonlift.
-
-    Status:
-      Design-only header module. This file exports the product graph and
-      protocol graph. It intentionally contains no implementation bodies.
-
-    Doctrine:
-      - Declarations are the design.
-      - Products name facts that exist together.
-      - Protocols name choices consumed by control.
-      - Stored tags/kinds are encodings, not design.
-      - Every encoding has one owning consumer region.
-      - Arrow/GeoArrow are the memory layout.
-      - Moonlift emits C for portable AOT.
-      - C-to-WASM is performed by the user's chosen C toolchain, not by a
-        Moonlift WASM backend.
-
-    File shape:
-      local moon = require("moonlift")
-      local G = { T = {}, H = {}, R = {}, F = {}, X = {}, Const = {} }
-      ...
-      return G
-
-    Naming:
-      T.* = product / record declarations
-      H.* = handle declarations
-      R.* = region signature closures
-      F.* = function signature closures / ABI seals
-      X.* = extern C signatures
-      Const.* = Lua-side encoded-kind names for documentation and generators
-
-    Note:
-      This header uses Moonlift signature closures:
-          moon.func[[ name(params): ret ]]
-          moon.region[[ name(params; cont(payload) | cont2) ]]
-      Implementations attach bodies elsewhere.
---]]
+-- GEOLIFT_HEADER_DIRECT.mlua
+--
+-- Apache DataFusion-like geospatial engine design header for Moonlift.
+--
+-- This file is intentionally a header:
+--   - type declarations
+--   - handle declarations
+--   - region protocol declarations
+--   - function seal declarations
+--   - extern C declarations
+--
+-- No bodies live here.
+--
+-- Important correction:
+--   Moonlift emits C. That is all the AOT design needs to know.
+--   C-to-WASM is performed by the user's chosen C compiler/toolchain.
+--   Therefore this header does not contain CEmissionPolicy, WasmArtifact,
+--   WasmBackend, emit_wasm, or any similar policy layer.
+--
+-- Syntax:
+--   This file uses real hosted .mlua islands:
+--
+--       G.T.Point = struct
+--           x: f64
+--           y: f64
+--       end
+--
+--   not moon.struct[[...]] quoting.
+--
+-- Doctrine:
+--   products        = facts that exist together
+--   protocols      = choices consumed by control
+--   regions        = machines from input product to output protocol
+--   handles        = durable identity
+--   leases         = temporary access granted by resolving regions
+--   Arrow/GeoArrow = memory layout
+--   C emission     = portable AOT path
+--   Cranelift      = JIT path
+--
+-- Stored kind/tag bytes are encodings, not design.
+-- Each stored encoding has exactly one visit_* owner region.
 
 local moon = require("moonlift")
 
 local G = {
-    T = {},      -- product forest
+    T = {},      -- type/product forest
     H = {},      -- durable handles
-    R = {},      -- protocol/region forest
-    F = {},      -- ABI/function seals
+    R = {},      -- region/protocol forest
+    F = {},      -- function seals / ABI boundaries
     X = {},      -- extern C boundary declarations
-    Const = {},  -- Lua-side encoding documentation for factories/lints
+    Const = {},  -- Lua-side documentation for encoding ownership
 }
 
 --------------------------------------------------------------------------------
--- SECTION 0 — Encoding owners
+-- 0. Encoding ownership doctrine
 --------------------------------------------------------------------------------
--- The values below are not Moonlift runtime declarations. They document every
--- byte-sized kind field in this design and name the single owning consumer
--- region that gives the encoding semantic meaning.
+-- These are Lua-side facts for linting, documentation, and code generation.
+-- They are not runtime semantics.
 --
--- Rule:
---   A kind/tag field may be stored only when the choice is durable.
---   Its meaning belongs to one region named visit_*.
---   No other pass may switch on the numeric value directly.
+-- If a field is named kind/tag/encoding/layout/op, it must have one owner
+-- region. Everywhere else goes through that owner region's protocol.
 --------------------------------------------------------------------------------
 
 G.Const.encoding_owner = {
-    -- Type / schema world
     TypeKind              = "visit_type",
     ScalarKind            = "visit_scalar_type",
-    FieldEncodingKind     = "visit_field_encoding",
 
-    -- Source / query worlds
-    SurfacePlanKind       = "visit_surface_plan",
-    SurfaceExprKind       = "visit_surface_expr",
-    BoundPlanKind         = "visit_bound_plan",
-    BoundExprKind         = "visit_bound_expr",
-
-    -- Geospatial semantic world
+    SourceKind            = "visit_source",
+    ArrayKind             = "visit_array_record",
     GeoTypeKind           = "visit_geo_type",
     GeoEncodingKind       = "visit_geo_encoding",
     CoordLayoutKind       = "visit_coord_layout",
     EdgeModelKind         = "visit_edge_model",
+
+    SurfacePlanKind       = "visit_surface_plan",
+    SurfaceExprKind       = "visit_surface_expr",
+    BoundPlanKind         = "visit_bound_plan",
+    BoundExprKind         = "visit_bound_expr",
+    GeoLogicalPlanKind    = "visit_geo_logical_plan",
+    OptimizedPlanKind     = "visit_optimized_plan",
+    PhysicalOpKind        = "visit_physical_op",
+    ExprKind              = "visit_expr",
     GeoPredicateKind      = "visit_geo_predicate",
     GeoTransformKind      = "visit_geo_transform",
-    UnitKind              = "visit_unit",
 
-    -- Arrow/GeoArrow layout world
-    ArrayKind             = "visit_array_record",
-    GeoArrowLayoutKind    = "visit_geoarrow_layout",
-    OffsetWidthKind       = "visit_offset_width",
-
-    -- Optimizer / planner world
     RuleKind              = "visit_optimizer_rule",
     FactKind              = "visit_fact",
-    PhysicalOpKind        = "visit_physical_op",
     JoinKind              = "visit_join_kind",
     SpatialJoinKind       = "visit_spatial_join_strategy",
 
-    -- Kernel / artifact world
     KernelOpKind          = "visit_kernel_op",
     KernelArtifactKind    = "visit_kernel_artifact",
-    CEmissionKind         = "visit_c_emission_kind",
-    TargetAbiKind         = "visit_target_abi",
-    DeploymentKind        = "visit_deployment_profile",
-
-    -- Runtime world
-    StreamStateKind       = "visit_stream_state",
+    TargetKind            = "visit_target",
     MemoryPolicyKind      = "visit_memory_policy",
+    StreamStateKind       = "visit_stream_state",
 }
 
 --------------------------------------------------------------------------------
--- SECTION 1 — Foundational products
---------------------------------------------------------------------------------
--- These are leaf products. They deliberately avoid handles that are declared
--- later, so they can be used by handle targets and stores.
+-- 1. Foundational products
 --------------------------------------------------------------------------------
 
-G.T.ByteRange = moon.struct[[
-ByteRange
-    off: index,
+G.T.ByteRange = struct
+    off: index
     len: index
 end
-]]
 
-G.T.RowRange = moon.struct[[
-RowRange
-    start: index,
+G.T.RowRange = struct
+    start: index
     len: index
 end
-]]
 
-G.T.BoxXY = moon.struct[[
-BoxXY
-    xmin: f64,
-    ymin: f64,
-    xmax: f64,
+G.T.BoxXY = struct
+    xmin: f64
+    ymin: f64
+    xmax: f64
     ymax: f64
 end
-]]
 
-G.T.BoxXYZ = moon.struct[[
-BoxXYZ
-    xmin: f64,
-    ymin: f64,
-    zmin: f64,
-    xmax: f64,
-    ymax: f64,
+G.T.BoxXYZ = struct
+    xmin: f64
+    ymin: f64
+    zmin: f64
+    xmax: f64
+    ymax: f64
     zmax: f64
 end
-]]
 
-G.T.DiagnosticRecord = moon.struct[[
-DiagnosticRecord
-    code: i32,
-    primary_pos: index,
-    aux_pos: index,
-    message_symbol: u32
-end
-]]
-
-G.T.SymbolRecord = moon.struct[[
-SymbolRecord
-    hash: u64,
-    bytes_off: index,
+G.T.SymbolRecord = struct
+    hash: u64
+    bytes_off: index
     bytes_len: index
 end
-]]
 
-G.T.MetadataRecord = moon.struct[[
-MetadataRecord
-    keys: ptr(u32),
-    values: ptr(u32),
-    len: index,
+G.T.DiagnosticRecord = struct
+    code: i32
+    primary_pos: index
+    aux_pos: index
+    message: u32
+end
+
+G.T.MetadataRecord = struct
+    keys: ptr(u32)
+    values: ptr(u32)
+    len: index
     cap: index
 end
-]]
 
-G.T.UnitRecord = moon.struct[[
-UnitRecord
-    kind: u8,          -- owner: visit_unit
+G.T.UnitRecord = struct
+    kind: u8                 -- owner: visit_unit
     scale_to_meter: f64
 end
-]]
 
-G.T.EdgeModel = moon.struct[[
-EdgeModel
-    kind: u8           -- owner: visit_edge_model; planar/spherical/geodesic/etc.
+G.T.EdgeModel = struct
+    kind: u8                 -- owner: visit_edge_model
 end
-]]
 
-G.T.CrsRecord = moon.struct[[
-CrsRecord
-    auth_name_symbol: u32,
-    code_symbol: u32,
-    wkt_symbol: u32,
-    is_projected: bool,
+G.T.CrsRecord = struct
+    auth_name: u32
+    code: u32
+    wkt: u32
+    is_projected: bool
     is_geographic: bool
 end
-]]
 
-G.T.MemoryPolicy = moon.struct[[
-MemoryPolicy
-    kind: u8,          -- owner: visit_memory_policy
-    batch_size: index,
-    spill_threshold_bytes: index,
+G.T.Target = struct
+    kind: u8                 -- owner: visit_target
+    pointer_bits: u8
+    simd_features: u64
+    freestanding_c: bool
+    wasm_friendly_c: bool    -- means generated C avoids hostile constructs;
+                             -- the C-to-WASM compiler is outside Moonlift.
+end
+
+G.T.MemoryPolicy = struct
+    kind: u8                 -- owner: visit_memory_policy
+    batch_size: index
+    spill_threshold_bytes: index
     reserve_slack_bytes: index
 end
-]]
-
-G.T.TargetProfile = moon.struct[[
-TargetProfile
-    abi_kind: u8,          -- owner: visit_target_abi; c_abi/native_host/etc.
-    deployment_kind: u8,   -- owner: visit_deployment_profile; native/shared/web_c_profile/etc.
-    pointer_bits: u8,
-    simd_features: u64,
-    freestanding_c: bool,
-    wasm_friendly_c: bool, -- C emission constraint only; not a Moonlift WASM backend.
-    strict_aliasing_ok: bool,
-    emit_restrict: bool,
-    emit_assume: bool
-end
-]]
-
-G.T.CEmissionPolicy = moon.struct[[
-CEmissionPolicy
-    kind: u8,              -- owner: visit_c_emission_kind
-    target: TargetProfile,
-    include_runtime_helpers: bool,
-    expose_c_data_interface: bool,
-    single_translation_unit: bool,
-    no_libc: bool,
-    stable_symbol_prefix: u32
-end
-]]
 
 --------------------------------------------------------------------------------
--- SECTION 2 — Handle target records and handles
---------------------------------------------------------------------------------
--- Handles are durable identity. They may escape, be serialized, or survive
--- compaction. They do not grant memory access. Access is granted by regions
--- that return leases.
+-- 2. Records that handles point to
 --------------------------------------------------------------------------------
 
--- Schema/catalog targets ------------------------------------------------------
-
-G.T.TableRecord = moon.struct[[
-TableRecord
-    name_symbol: u32,
-    schema_slot: u32,
-    source_slot: u32,
-    stats_slot: u32
+G.T.TableRecord = struct
+    name: u32
+    schema: u32
+    source: u32
+    stats: u32
 end
-]]
 
-G.T.SchemaRecord = moon.struct[[
-SchemaRecord
-    fields_data: ptr(u32),
-    fields_len: index,
-    metadata_slot: u32
+G.T.SchemaRecord = struct
+    fields: ptr(u32)
+    fields_len: index
+    metadata: u32
 end
-]]
 
-G.T.FieldRecord = moon.struct[[
-FieldRecord
-    name_symbol: u32,
-    type_slot: u32,
-    nullable: bool,
-    metadata_slot: u32
+G.T.FieldRecord = struct
+    name: u32
+    type: u32
+    nullable: bool
+    metadata: u32
 end
-]]
 
-G.T.TypeRecord = moon.struct[[
-TypeRecord
-    kind: u8,              -- owner: visit_type
-    scalar_kind: u8,       -- owner: visit_scalar_type
-    child_type_slot: u32,
-    metadata_slot: u32
+G.T.TypeRecord = struct
+    kind: u8                 -- owner: visit_type
+    scalar_kind: u8          -- owner: visit_scalar_type
+    child_type: u32
+    metadata: u32
 end
-]]
 
-G.T.ColumnRecord = moon.struct[[
-ColumnRecord
-    table_slot: u32,
-    field_slot: u32,
+G.T.ColumnRecord = struct
+    table: u32
+    field: u32
     ordinal: index
 end
-]]
 
--- IR target records -----------------------------------------------------------
+G.T.SourceRecord = struct
+    kind: u8                 -- owner: visit_source
+    schema: u32
+    metadata: u32
+end
 
-G.T.SurfacePlanRecord = moon.struct[[
-SurfacePlanRecord
-    kind: u8,              -- owner: visit_surface_plan
+G.T.ArrayRecord = struct
+    kind: u8                 -- owner: visit_array_record
     payload_index: u32
-end
-]]
-
-G.T.SurfaceExprRecord = moon.struct[[
-SurfaceExprRecord
-    kind: u8,              -- owner: visit_surface_expr
-    payload_index: u32
-end
-]]
-
-G.T.BoundPlanRecord = moon.struct[[
-BoundPlanRecord
-    kind: u8,              -- owner: visit_bound_plan
-    payload_index: u32
-end
-]]
-
-G.T.BoundExprRecord = moon.struct[[
-BoundExprRecord
-    kind: u8,              -- owner: visit_bound_expr
-    payload_index: u32
-end
-]]
-
-G.T.GeoLogicalPlanRecord = moon.struct[[
-GeoLogicalPlanRecord
-    kind: u8,              -- owner: visit_geo_logical_plan
-    payload_index: u32
-end
-]]
-
-G.T.OptimizedPlanRecord = moon.struct[[
-OptimizedPlanRecord
-    kind: u8,              -- owner: visit_optimized_plan
-    payload_index: u32
-end
-]]
-
-G.T.PhysicalPlanRecord = moon.struct[[
-PhysicalPlanRecord
-    kind: u8,              -- owner: visit_physical_op
-    payload_index: u32
-end
-]]
-
-G.T.ExprRecord = moon.struct[[
-ExprRecord
-    kind: u8,              -- owner: visit_expr
-    payload_index: u32
-end
-]]
-
-G.T.GeoPredicateRecord = moon.struct[[
-GeoPredicateRecord
-    kind: u8,              -- owner: visit_geo_predicate
-    payload_index: u32
-end
-]]
-
-G.T.GeoTransformRecord = moon.struct[[
-GeoTransformRecord
-    kind: u8,              -- owner: visit_geo_transform
-    payload_index: u32
-end
-]]
-
-G.T.RuleRecord = moon.struct[[
-RuleRecord
-    kind: u8,              -- owner: visit_optimizer_rule
-    payload_index: u32
-end
-]]
-
-G.T.FactRecord = moon.struct[[
-FactRecord
-    kind: u8,              -- owner: visit_fact
-    payload_index: u32
-end
-]]
-
--- Runtime / artifact targets --------------------------------------------------
-
-G.T.SourceRecord = moon.struct[[
-SourceRecord
-    kind: u8,              -- owner: visit_source
-    schema_slot: u32,
-    metadata_slot: u32
-end
-]]
-
-G.T.ArrayRecord = moon.struct[[
-ArrayRecord
-    kind: u8,              -- owner: visit_array_record
-    payload_index: u32,
-    len: index,
+    len: index
     null_count: index
 end
-]]
 
-G.T.BatchRecord = moon.struct[[
-BatchRecord
-    schema_slot: u32,
-    columns_data: ptr(u32),
-    columns_len: index,
+G.T.BatchRecord = struct
+    schema: u32
+    columns: ptr(u32)
+    columns_len: index
     n_rows: index
 end
-]]
 
-G.T.StreamRecord = moon.struct[[
-StreamRecord
-    kind: u8,              -- owner: visit_stream_state
-    state_index: u32,
-    schema_slot: u32
-end
-]]
-
-G.T.KernelRecord = moon.struct[[
-KernelRecord
-    plan_slot: u32,
-    artifact_slot: u32,
-    symbol: u32,
-    generation: u64
-end
-]]
-
-G.T.KernelArtifactRecord = moon.struct[[
-KernelArtifactRecord
-    kind: u8,              -- owner: visit_kernel_artifact
-    bytes_off: index,
-    bytes_len: index,
-    c_source_slot: u32,
-    object_slot: u32
-end
-]]
-
-G.T.CSourceRecord = moon.struct[[
-CSourceRecord
-    symbol_prefix: u32,
-    bytes_off: index,
-    bytes_len: index,
-    policy_slot: u32
-end
-]]
-
-G.T.ObjectRecord = moon.struct[[
-ObjectRecord
-    format_kind: u8,
-    bytes_off: index,
-    bytes_len: index
-end
-]]
-
-G.T.OwnedBytesRecord = moon.struct[[
-OwnedBytesRecord
-    data: ptr(u8),
-    len: index,
-    cap: index,
-    owner_generation: u64
-end
-]]
-
-G.T.CrsTransformRecord = moon.struct[[
-CrsTransformRecord
-    raw: ptr(u8),
-    src: u32,
-    dst: u32,
-    owner_generation: u64
-end
-]]
-
-G.T.SpatialIndexRecord = moon.struct[[
-SpatialIndexRecord
-    kind: u8,              -- owner: visit_spatial_join_strategy / visit_spatial_index
-    source_slot: u32,
-    column_slot: u32,
+G.T.SurfacePlanRecord = struct
+    kind: u8                 -- owner: visit_surface_plan
     payload_index: u32
 end
-]]
 
--- Durable handle declarations -------------------------------------------------
-
-G.H.SymbolRef = moon.handle[[ SymbolRef : u32 invalid 0 target SymbolRecord end ]]
-G.H.MetadataRef = moon.handle[[ MetadataRef : u32 invalid 0 target MetadataRecord end ]]
-G.H.DiagnosticRef = moon.handle[[ DiagnosticRef : u32 invalid 0 target DiagnosticRecord end ]]
-G.H.UnitRef = moon.handle[[ UnitRef : u32 invalid 0 target UnitRecord end ]]
-G.H.CrsRef = moon.handle[[ CrsRef : u32 invalid 0 target CrsRecord end ]]
-
-G.H.TableRef = moon.handle[[ TableRef : u32 invalid 0 target TableRecord end ]]
-G.H.SchemaRef = moon.handle[[ SchemaRef : u32 invalid 0 target SchemaRecord end ]]
-G.H.FieldRef = moon.handle[[ FieldRef : u32 invalid 0 target FieldRecord end ]]
-G.H.TypeRef = moon.handle[[ TypeRef : u32 invalid 0 target TypeRecord end ]]
-G.H.ColumnRef = moon.handle[[ ColumnRef : u32 invalid 0 target ColumnRecord end ]]
-
-G.H.SurfacePlanRef = moon.handle[[ SurfacePlanRef : u32 invalid 0 target SurfacePlanRecord end ]]
-G.H.SurfaceExprRef = moon.handle[[ SurfaceExprRef : u32 invalid 0 target SurfaceExprRecord end ]]
-G.H.BoundPlanRef = moon.handle[[ BoundPlanRef : u32 invalid 0 target BoundPlanRecord end ]]
-G.H.BoundExprRef = moon.handle[[ BoundExprRef : u32 invalid 0 target BoundExprRecord end ]]
-G.H.GeoLogicalPlanRef = moon.handle[[ GeoLogicalPlanRef : u32 invalid 0 target GeoLogicalPlanRecord end ]]
-G.H.OptimizedPlanRef = moon.handle[[ OptimizedPlanRef : u32 invalid 0 target OptimizedPlanRecord end ]]
-G.H.PhysicalPlanRef = moon.handle[[ PhysicalPlanRef : u32 invalid 0 target PhysicalPlanRecord end ]]
-G.H.ExprRef = moon.handle[[ ExprRef : u32 invalid 0 target ExprRecord end ]]
-G.H.GeoPredicateRef = moon.handle[[ GeoPredicateRef : u32 invalid 0 target GeoPredicateRecord end ]]
-G.H.GeoTransformRef = moon.handle[[ GeoTransformRef : u32 invalid 0 target GeoTransformRecord end ]]
-G.H.RuleRef = moon.handle[[ RuleRef : u32 invalid 0 target RuleRecord end ]]
-G.H.FactRef = moon.handle[[ FactRef : u32 invalid 0 target FactRecord end ]]
-
-G.H.SourceRef = moon.handle[[ SourceRef : u32 invalid 0 target SourceRecord end ]]
-G.H.ArrayRef = moon.handle[[ ArrayRef : u32 invalid 0 target ArrayRecord end ]]
-G.H.BatchRef = moon.handle[[ BatchRef : u32 invalid 0 target BatchRecord end ]]
-G.H.StreamRef = moon.handle[[ StreamRef : u32 invalid 0 target StreamRecord end ]]
-G.H.KernelRef = moon.handle[[ KernelRef : u32 invalid 0 target KernelRecord end ]]
-G.H.KernelArtifactRef = moon.handle[[ KernelArtifactRef : u32 invalid 0 target KernelArtifactRecord end ]]
-G.H.CSourceRef = moon.handle[[ CSourceRef : u32 invalid 0 target CSourceRecord end ]]
-G.H.ObjectRef = moon.handle[[ ObjectRef : u32 invalid 0 target ObjectRecord end ]]
-G.H.OwnedBytesRef = moon.handle[[ OwnedBytesRef : u32 invalid 0 target OwnedBytesRecord end ]]
-G.H.CrsTransformRef = moon.handle[[ CrsTransformRef : u32 invalid 0 target CrsTransformRecord end ]]
-G.H.SpatialIndexRef = moon.handle[[ SpatialIndexRef : u32 invalid 0 target SpatialIndexRecord end ]]
-
---------------------------------------------------------------------------------
--- SECTION 3 — Stores and persistent engine products
---------------------------------------------------------------------------------
--- Stores own bytes. Handles name durable identity. Regions grant access facts.
---------------------------------------------------------------------------------
-
-G.T.SymbolStore = moon.struct[[
-SymbolStore
-    records: ptr(SymbolRecord),
-    records_len: index,
-    records_cap: index,
-    bytes: ptr(u8),
-    bytes_len: index,
-    bytes_cap: index,
-    generation: u64
-end
-]]
-
-G.T.CatalogStore = moon.struct[[
-CatalogStore
-    tables: ptr(TableRecord),
-    tables_len: index,
-    tables_cap: index,
-    generation: u64
-end
-]]
-
-G.T.SchemaStore = moon.struct[[
-SchemaStore
-    schemas: ptr(SchemaRecord),
-    schemas_len: index,
-    schemas_cap: index,
-    fields: ptr(FieldRecord),
-    fields_len: index,
-    fields_cap: index,
-    types: ptr(TypeRecord),
-    types_len: index,
-    types_cap: index,
-    columns: ptr(ColumnRecord),
-    columns_len: index,
-    columns_cap: index,
-    generation: u64
-end
-]]
-
-G.T.MetadataStore = moon.struct[[
-MetadataStore
-    records: ptr(MetadataRecord),
-    records_len: index,
-    records_cap: index,
-    generation: u64
-end
-]]
-
-G.T.CrsRegistry = moon.struct[[
-CrsRegistry
-    records: ptr(CrsRecord),
-    records_len: index,
-    records_cap: index,
-    generation: u64
-end
-]]
-
-G.T.SourceStore = moon.struct[[
-SourceStore
-    sources: ptr(SourceRecord),
-    sources_len: index,
-    sources_cap: index,
-    generation: u64
-end
-]]
-
-G.T.ArrayStore = moon.struct[[
-ArrayStore
-    arrays: ptr(ArrayRecord),
-    arrays_len: index,
-    arrays_cap: index,
-    batches: ptr(BatchRecord),
-    batches_len: index,
-    batches_cap: index,
-    generation: u64
-end
-]]
-
-G.T.PlanStore = moon.struct[[
-PlanStore
-    surface_plans: ptr(SurfacePlanRecord),
-    surface_plans_len: index,
-    surface_plans_cap: index,
-    surface_exprs: ptr(SurfaceExprRecord),
-    surface_exprs_len: index,
-    surface_exprs_cap: index,
-    bound_plans: ptr(BoundPlanRecord),
-    bound_plans_len: index,
-    bound_plans_cap: index,
-    bound_exprs: ptr(BoundExprRecord),
-    bound_exprs_len: index,
-    bound_exprs_cap: index,
-    geo_plans: ptr(GeoLogicalPlanRecord),
-    geo_plans_len: index,
-    geo_plans_cap: index,
-    optimized_plans: ptr(OptimizedPlanRecord),
-    optimized_plans_len: index,
-    optimized_plans_cap: index,
-    physical_plans: ptr(PhysicalPlanRecord),
-    physical_plans_len: index,
-    physical_plans_cap: index,
-    exprs: ptr(ExprRecord),
-    exprs_len: index,
-    exprs_cap: index,
-    generation: u64
-end
-]]
-
-G.T.FactStore = moon.struct[[
-FactStore
-    facts: ptr(FactRecord),
-    facts_len: index,
-    facts_cap: index,
-    generation: u64
-end
-]]
-
-G.T.KernelStore = moon.struct[[
-KernelStore
-    kernels: ptr(KernelRecord),
-    kernels_len: index,
-    kernels_cap: index,
-    artifacts: ptr(KernelArtifactRecord),
-    artifacts_len: index,
-    artifacts_cap: index,
-    c_sources: ptr(CSourceRecord),
-    c_sources_len: index,
-    c_sources_cap: index,
-    objects: ptr(ObjectRecord),
-    objects_len: index,
-    objects_cap: index,
-    generation: u64
-end
-]]
-
-G.T.StreamStore = moon.struct[[
-StreamStore
-    streams: ptr(StreamRecord),
-    streams_len: index,
-    streams_cap: index,
-    generation: u64
-end
-]]
-
-G.T.IndexStore = moon.struct[[
-IndexStore
-    indexes: ptr(SpatialIndexRecord),
-    indexes_len: index,
-    indexes_cap: index,
-    generation: u64
-end
-]]
-
-G.T.MemoryPool = moon.struct[[
-MemoryPool
-    arenas: ptr(u8),
-    arenas_len: index,
-    arenas_cap: index,
-    live_leases: index,
-    bytes_reserved: index,
-    bytes_committed: index,
-    generation: u64
-end
-]]
-
-G.T.GeoEngine = moon.struct[[
-GeoEngine
-    symbols: SymbolStore,
-    metadata: MetadataStore,
-    catalog: CatalogStore,
-    schemas: SchemaStore,
-    crs: CrsRegistry,
-    sources: SourceStore,
-    arrays: ArrayStore,
-    plans: PlanStore,
-    facts: FactStore,
-    kernels: KernelStore,
-    streams: StreamStore,
-    indexes: IndexStore,
-    memory: MemoryPool
-end
-]]
-
---------------------------------------------------------------------------------
--- SECTION 4 — Arrow and GeoArrow memory products
---------------------------------------------------------------------------------
--- Arrow/GeoArrow is the hot memory layout.
--- Kernels receive already-resolved leases/views over these products.
---------------------------------------------------------------------------------
-
-G.T.ArrowBitmap = moon.struct[[
-ArrowBitmap
-    data: ptr(u8),
-    len_bits: index
-end
-]]
-
-G.T.ArrowBuffer = moon.struct[[
-ArrowBuffer
-    data: ptr(u8),
-    len_bytes: index,
-    capacity_bytes: index
-end
-]]
-
-G.T.ArrowArrayHeader = moon.struct[[
-ArrowArrayHeader
-    len: index,
-    null_count: index,
-    offset: index,
-    validity: ptr(ArrowBitmap)
-end
-]]
-
-G.T.ArrowI32Offsets = moon.struct[[
-ArrowI32Offsets
-    data: ptr(i32),
-    len: index          -- convention: logical length + 1
-end
-]]
-
-G.T.ArrowI64Offsets = moon.struct[[
-ArrowI64Offsets
-    data: ptr(i64),
-    len: index          -- convention: logical length + 1
-end
-]]
-
-G.T.CoordXYSeparated = moon.struct[[
-CoordXYSeparated
-    x: view(f64),
-    y: view(f64)
-end
-]]
-
-G.T.CoordXYZSeparated = moon.struct[[
-CoordXYZSeparated
-    x: view(f64),
-    y: view(f64),
-    z: view(f64)
-end
-]]
-
-G.T.CoordXYInterleaved = moon.struct[[
-CoordXYInterleaved
-    xy: view(f64)       -- length is 2 * coordinate count
-end
-]]
-
-G.T.GeoTypeFact = moon.struct[[
-GeoTypeFact
-    geom_kind: u8,      -- owner: visit_geo_type
-    coord_layout: u8,   -- owner: visit_coord_layout
-    coord_dims: u8,
-    encoding: u8,       -- owner: visit_geo_encoding
-    crs: CrsRef,
-    edges: EdgeModel,
-    nullable: bool
-end
-]]
-
-G.T.GeoPointXYArray = moon.struct[[
-GeoPointXYArray
-    header: ArrowArrayHeader,
-    coords: CoordXYSeparated,
-    crs: CrsRef,
-    edges: EdgeModel
-end
-]]
-
-G.T.GeoLineStringXYArray = moon.struct[[
-GeoLineStringXYArray
-    header: ArrowArrayHeader,
-    geom_offsets: ArrowI32Offsets,
-    coords: CoordXYSeparated,
-    crs: CrsRef,
-    edges: EdgeModel
-end
-]]
-
-G.T.GeoPolygonXYArray = moon.struct[[
-GeoPolygonXYArray
-    header: ArrowArrayHeader,
-    polygon_offsets: ArrowI32Offsets,
-    ring_offsets: ArrowI32Offsets,
-    coords: CoordXYSeparated,
-    crs: CrsRef,
-    edges: EdgeModel
+G.T.SurfaceExprRecord = struct
+    kind: u8                 -- owner: visit_surface_expr
+    payload_index: u32
 end
-]]
 
-G.T.GeoMultiPolygonXYArray = moon.struct[[
-GeoMultiPolygonXYArray
-    header: ArrowArrayHeader,
-    multipolygon_offsets: ArrowI32Offsets,
-    polygon_offsets: ArrowI32Offsets,
-    ring_offsets: ArrowI32Offsets,
-    coords: CoordXYSeparated,
-    crs: CrsRef,
-    edges: EdgeModel
+G.T.BoundPlanRecord = struct
+    kind: u8                 -- owner: visit_bound_plan
+    payload_index: u32
 end
-]]
 
-G.T.GeoBoxXYArray = moon.struct[[
-GeoBoxXYArray
-    header: ArrowArrayHeader,
-    xmin: view(f64),
-    ymin: view(f64),
-    xmax: view(f64),
-    ymax: view(f64),
-    crs: CrsRef
+G.T.BoundExprRecord = struct
+    kind: u8                 -- owner: visit_bound_expr
+    payload_index: u32
 end
-]]
 
-G.T.WkbArray = moon.struct[[
-WkbArray
-    header: ArrowArrayHeader,
-    offsets: ArrowI32Offsets,
-    bytes: view(u8),
-    crs: CrsRef
+G.T.GeoLogicalPlanRecord = struct
+    kind: u8                 -- owner: visit_geo_logical_plan
+    payload_index: u32
 end
-]]
 
-G.T.WktArray = moon.struct[[
-WktArray
-    header: ArrowArrayHeader,
-    offsets: ArrowI32Offsets,
-    bytes: view(u8),
-    crs: CrsRef
+G.T.OptimizedPlanRecord = struct
+    kind: u8                 -- owner: visit_optimized_plan
+    payload_index: u32
 end
-]]
 
-G.T.RecordBatch = moon.struct[[
-RecordBatch
-    schema: SchemaRef,
-    columns: ptr(ArrayRef),
-    n_columns: index,
-    n_rows: index
+G.T.PhysicalPlanRecord = struct
+    kind: u8                 -- owner: visit_physical_op
+    payload_index: u32
 end
-]]
 
-G.T.ExternalArrowOwner = moon.struct[[
-ExternalArrowOwner
-    ctx: ptr(u8),
-    release: func(ptr(u8)): void,
-    retained_by_host: bool
+G.T.ExprRecord = struct
+    kind: u8                 -- owner: visit_expr
+    payload_index: u32
 end
-]]
-
-G.T.ImportedArrayRecord = moon.struct[[
-ImportedArrayRecord
-    owner_ctx: ptr(u8),
-    release: func(ptr(u8)): void,
-    array: ArrayRef
-end
-]]
-
---------------------------------------------------------------------------------
--- SECTION 5 — Query and compiler IR products
---------------------------------------------------------------------------------
--- Each IR is its own semantic world. The field names are chosen inside that
--- world, not as generic AST noise.
---------------------------------------------------------------------------------
-
-G.T.QueryText = moon.struct[[
-QueryText
-    data: ptr(u8),
-    len: index,
-    dialect: u8
-end
-]]
-
-G.T.QueryParams = moon.struct[[
-QueryParams
-    values: ptr(ArrayRef),
-    len: index
-end
-]]
-
-G.T.ProjectionSet = moon.struct[[
-ProjectionSet
-    columns: ptr(ColumnRef),
-    len: index
-end
-]]
-
-G.T.ColumnSet = moon.struct[[
-ColumnSet
-    columns: ptr(ColumnRef),
-    len: index
-end
-]]
-
-G.T.ExprList = moon.struct[[
-ExprList
-    exprs: ptr(ExprRef),
-    len: index
-end
-]]
-
-G.T.SymbolList = moon.struct[[
-SymbolList
-    symbols: ptr(SymbolRef),
-    len: index
-end
-]]
-
-G.T.RowGroupSet = moon.struct[[
-RowGroupSet
-    rows: ptr(u32),
-    len: index
-end
-]]
-
-G.T.LogicalScan = moon.struct[[
-LogicalScan
-    table: TableRef,
-    projection_slot: u32,
-    filters_slot: u32
-end
-]]
-
-G.T.LogicalFilter = moon.struct[[
-LogicalFilter
-    input: GeoLogicalPlanRef,
-    predicate: ExprRef
-end
-]]
-
-G.T.LogicalProject = moon.struct[[
-LogicalProject
-    input: GeoLogicalPlanRef,
-    exprs_slot: u32,
-    names_slot: u32
-end
-]]
-
-G.T.LogicalJoin = moon.struct[[
-LogicalJoin
-    left: GeoLogicalPlanRef,
-    right: GeoLogicalPlanRef,
-    predicate: ExprRef,
-    join_kind: u8       -- owner: visit_join_kind
-end
-]]
-
-G.T.LogicalGeoFilter = moon.struct[[
-LogicalGeoFilter
-    input: GeoLogicalPlanRef,
-    geom_column: ColumnRef,
-    predicate: GeoPredicateRef
-end
-]]
-
-G.T.LogicalGeoProject = moon.struct[[
-LogicalGeoProject
-    input: GeoLogicalPlanRef,
-    output_name: SymbolRef,
-    op: GeoTransformRef
-end
-]]
-
-G.T.GeoIntersects = moon.struct[[
-GeoIntersects
-    left: ExprRef,
-    right: ExprRef
-end
-]]
-
-G.T.GeoWithin = moon.struct[[
-GeoWithin
-    left: ExprRef,
-    right: ExprRef
-end
-]]
-
-G.T.GeoDWithin = moon.struct[[
-GeoDWithin
-    left: ExprRef,
-    right: ExprRef,
-    distance: f64,
-    units: UnitRef
-end
-]]
-
-G.T.GeoTransform = moon.struct[[
-GeoTransform
-    input: ExprRef,
-    src: CrsRef,
-    dst: CrsRef
-end
-]]
-
-G.T.GeoSimplify = moon.struct[[
-GeoSimplify
-    input: ExprRef,
-    tolerance: f64,
-    units: UnitRef,
-    preserve_topology: bool
-end
-]]
-
-G.T.GeoClip = moon.struct[[
-GeoClip
-    input: ExprRef,
-    bbox: BoxXY
-end
-]]
-
-G.T.GeoIntersection = moon.struct[[
-GeoIntersection
-    left: ExprRef,
-    right: ExprRef
-end
-]]
-
-G.T.GeoAsMvtGeom = moon.struct[[
-GeoAsMvtGeom
-    input: ExprRef,
-    tile: BoxXY,
-    extent: i32,
-    buffer: i32,
-    clip: bool
-end
-]]
-
---------------------------------------------------------------------------------
--- SECTION 6 — Fact products
---------------------------------------------------------------------------------
--- Facts are products, not comments. Optimizers consume them explicitly.
---------------------------------------------------------------------------------
-
-G.T.ArrowGeoFacts = moon.struct[[
-ArrowGeoFacts
-    schema: SchemaRef,
-    primary_geometry: ColumnRef,
-    geometry_columns: ptr(ColumnRef),
-    geometry_columns_len: index,
-    has_geoarrow_native: bool,
-    has_wkb_boundary: bool,
-    has_bbox_covering: bool,
-    has_row_group_bbox_stats: bool,
-    all_geometries_non_null: bool,
-    crs: CrsRef,
-    edges: EdgeModel
-end
-]]
-
-G.T.ColumnStats = moon.struct[[
-ColumnStats
-    column: ColumnRef,
-    null_count: index,
-    has_min_max: bool,
-    min_f64: f64,
-    max_f64: f64
-end
-]]
-
-G.T.GeoColumnStats = moon.struct[[
-GeoColumnStats
-    column: ColumnRef,
-    has_bbox: bool,
-    bbox: BoxXY,
-    crs: CrsRef
-end
-]]
-
-G.T.FactDelta = moon.struct[[
-FactDelta
-    facts: ptr(FactRef),
-    len: index
-end
-]]
-
-G.T.GeoParquetFacts = moon.struct[[
-GeoParquetFacts
-    source: SourceRef,
-    primary_column: ColumnRef,
-    metadata_slot: u32,
-    has_covering_bbox: bool,
-    bbox_column: ColumnRef,
-    native_geoarrow_encoding: bool,
-    crs: CrsRef
-end
-]]
-
---------------------------------------------------------------------------------
--- SECTION 7 — Physical plan and kernel products
---------------------------------------------------------------------------------
--- Physical plan: concrete operators.
--- Kernel plan: monomorphic memory machine description.
--- C artifacts: Moonlift C emission outputs. User toolchains may compile C to
--- WASM, but that compilation is outside this design.
---------------------------------------------------------------------------------
 
-G.T.PhysicalScan = moon.struct[[
-PhysicalScan
-    source: SourceRef,
-    projected_columns_slot: u32,
-    row_groups_slot: u32,
-    batch_size: index
+G.T.GeoPredicateRecord = struct
+    kind: u8                 -- owner: visit_geo_predicate
+    payload_index: u32
 end
-]]
 
-G.T.PhysicalFilter = moon.struct[[
-PhysicalFilter
-    input: PhysicalPlanRef,
-    predicate: ExprRef
+G.T.GeoTransformRecord = struct
+    kind: u8                 -- owner: visit_geo_transform
+    payload_index: u32
 end
-]]
 
-G.T.PhysicalProject = moon.struct[[
-PhysicalProject
-    input: PhysicalPlanRef,
-    exprs_slot: u32,
-    names_slot: u32
+G.T.RuleRecord = struct
+    kind: u8                 -- owner: visit_optimizer_rule
+    payload_index: u32
 end
-]]
 
-G.T.PhysicalSpatialJoin = moon.struct[[
-PhysicalSpatialJoin
-    left: PhysicalPlanRef,
-    right: PhysicalPlanRef,
-    strategy: u8,       -- owner: visit_spatial_join_strategy
-    predicate: GeoPredicateRef
+G.T.FactRecord = struct
+    kind: u8                 -- owner: visit_fact
+    payload_index: u32
 end
-]]
 
-G.T.PhysicalFusedGeoKernel = moon.struct[[
-PhysicalFusedGeoKernel
-    input: PhysicalPlanRef,
-    kernel: KernelRef,
-    input_layout: GeoTypeFact,
-    output_layout: GeoTypeFact
+G.T.StreamRecord = struct
+    kind: u8                 -- owner: visit_stream_state
+    state_index: u32
+    schema: u32
 end
-]]
 
-G.T.KernelPlan = moon.struct[[
-KernelPlan
-    op: u8,             -- owner: visit_kernel_op
-    geom_kind: u8,      -- owner: visit_geo_type
-    coord_layout: u8,   -- owner: visit_coord_layout
-    dims: u8,
-    null_policy: u8,
-    target: TargetProfile,
+G.T.KernelPlanRecord = struct
+    op: u8                   -- owner: visit_kernel_op
+    geom_kind: u8            -- owner: visit_geo_type
+    coord_layout: u8         -- owner: visit_coord_layout
+    dims: u8
+    null_policy: u8
+    target: Target
     memory_policy: MemoryPolicy
 end
-]]
 
-G.T.KernelSet = moon.struct[[
-KernelSet
-    kernels: ptr(KernelRef),
+G.T.KernelRecord = struct
+    plan: u32
+    artifact: u32
+    symbol: u32
+    generation: u64
+end
+
+G.T.KernelArtifactRecord = struct
+    kind: u8                 -- owner: visit_kernel_artifact
+    bytes_off: index
+    bytes_len: index
+    c_source: u32
+    object: u32
+end
+
+G.T.CSourceRecord = struct
+    symbol_prefix: u32
+    bytes_off: index
+    bytes_len: index
+end
+
+G.T.ObjectRecord = struct
+    format_kind: u8
+    bytes_off: index
+    bytes_len: index
+end
+
+G.T.SpatialIndexRecord = struct
+    kind: u8                 -- owner: visit_spatial_index
+    source: u32
+    column: u32
+    payload_index: u32
+end
+
+G.T.OwnedBytesRecord = struct
+    data: ptr(u8)
+    len: index
+    cap: index
+    generation: u64
+end
+
+G.T.CrsTransformRecord = struct
+    raw: ptr(u8)
+    src: u32
+    dst: u32
+    generation: u64
+end
+
+--------------------------------------------------------------------------------
+-- 3. Handles
+--------------------------------------------------------------------------------
+-- Handles are durable identity. They do not grant pointer access.
+-- Resolving regions grant leases.
+--------------------------------------------------------------------------------
+
+G.H.SymbolRef = handle : u32 invalid 0
+    target SymbolRecord
+end
+
+G.H.DiagnosticRef = handle : u32 invalid 0
+    target DiagnosticRecord
+end
+
+G.H.MetadataRef = handle : u32 invalid 0
+    target MetadataRecord
+end
+
+G.H.UnitRef = handle : u32 invalid 0
+    target UnitRecord
+end
+
+G.H.CrsRef = handle : u32 invalid 0
+    target CrsRecord
+end
+
+G.H.TableRef = handle : u32 invalid 0
+    target TableRecord
+end
+
+G.H.SchemaRef = handle : u32 invalid 0
+    target SchemaRecord
+end
+
+G.H.FieldRef = handle : u32 invalid 0
+    target FieldRecord
+end
+
+G.H.TypeRef = handle : u32 invalid 0
+    target TypeRecord
+end
+
+G.H.ColumnRef = handle : u32 invalid 0
+    target ColumnRecord
+end
+
+G.H.SourceRef = handle : u32 invalid 0
+    target SourceRecord
+end
+
+G.H.ArrayRef = handle : u32 invalid 0
+    target ArrayRecord
+end
+
+G.H.BatchRef = handle : u32 invalid 0
+    target BatchRecord
+end
+
+G.H.SurfacePlanRef = handle : u32 invalid 0
+    target SurfacePlanRecord
+end
+
+G.H.SurfaceExprRef = handle : u32 invalid 0
+    target SurfaceExprRecord
+end
+
+G.H.BoundPlanRef = handle : u32 invalid 0
+    target BoundPlanRecord
+end
+
+G.H.BoundExprRef = handle : u32 invalid 0
+    target BoundExprRecord
+end
+
+G.H.GeoLogicalPlanRef = handle : u32 invalid 0
+    target GeoLogicalPlanRecord
+end
+
+G.H.OptimizedPlanRef = handle : u32 invalid 0
+    target OptimizedPlanRecord
+end
+
+G.H.PhysicalPlanRef = handle : u32 invalid 0
+    target PhysicalPlanRecord
+end
+
+G.H.ExprRef = handle : u32 invalid 0
+    target ExprRecord
+end
+
+G.H.GeoPredicateRef = handle : u32 invalid 0
+    target GeoPredicateRecord
+end
+
+G.H.GeoTransformRef = handle : u32 invalid 0
+    target GeoTransformRecord
+end
+
+G.H.RuleRef = handle : u32 invalid 0
+    target RuleRecord
+end
+
+G.H.FactRef = handle : u32 invalid 0
+    target FactRecord
+end
+
+G.H.StreamRef = handle : u32 invalid 0
+    target StreamRecord
+end
+
+G.H.KernelPlanRef = handle : u32 invalid 0
+    target KernelPlanRecord
+end
+
+G.H.KernelRef = handle : u32 invalid 0
+    target KernelRecord
+end
+
+G.H.KernelArtifactRef = handle : u32 invalid 0
+    target KernelArtifactRecord
+end
+
+G.H.CSourceRef = handle : u32 invalid 0
+    target CSourceRecord
+end
+
+G.H.ObjectRef = handle : u32 invalid 0
+    target ObjectRecord
+end
+
+G.H.SpatialIndexRef = handle : u32 invalid 0
+    target SpatialIndexRecord
+end
+
+G.H.OwnedBytesRef = handle : u32 invalid 0
+    target OwnedBytesRecord
+end
+
+G.H.CrsTransformRef = handle : u32 invalid 0
+    target CrsTransformRecord
+end
+
+--------------------------------------------------------------------------------
+-- 4. Stores and engine product
+--------------------------------------------------------------------------------
+
+G.T.SymbolStore = struct
+    records: ptr(SymbolRecord)
+    records_len: index
+    records_cap: index
+    bytes: ptr(u8)
+    bytes_len: index
+    bytes_cap: index
+    generation: u64
+end
+
+G.T.MetadataStore = struct
+    records: ptr(MetadataRecord)
+    records_len: index
+    records_cap: index
+    generation: u64
+end
+
+G.T.CatalogStore = struct
+    tables: ptr(TableRecord)
+    tables_len: index
+    tables_cap: index
+    generation: u64
+end
+
+G.T.SchemaStore = struct
+    schemas: ptr(SchemaRecord)
+    schemas_len: index
+    schemas_cap: index
+    fields: ptr(FieldRecord)
+    fields_len: index
+    fields_cap: index
+    types: ptr(TypeRecord)
+    types_len: index
+    types_cap: index
+    columns: ptr(ColumnRecord)
+    columns_len: index
+    columns_cap: index
+    generation: u64
+end
+
+G.T.CrsRegistry = struct
+    records: ptr(CrsRecord)
+    records_len: index
+    records_cap: index
+    generation: u64
+end
+
+G.T.SourceStore = struct
+    sources: ptr(SourceRecord)
+    sources_len: index
+    sources_cap: index
+    generation: u64
+end
+
+G.T.ArrayStore = struct
+    arrays: ptr(ArrayRecord)
+    arrays_len: index
+    arrays_cap: index
+    batches: ptr(BatchRecord)
+    batches_len: index
+    batches_cap: index
+    generation: u64
+end
+
+G.T.PlanStore = struct
+    surface_plans: ptr(SurfacePlanRecord)
+    surface_plans_len: index
+    surface_plans_cap: index
+    surface_exprs: ptr(SurfaceExprRecord)
+    surface_exprs_len: index
+    surface_exprs_cap: index
+    bound_plans: ptr(BoundPlanRecord)
+    bound_plans_len: index
+    bound_plans_cap: index
+    bound_exprs: ptr(BoundExprRecord)
+    bound_exprs_len: index
+    bound_exprs_cap: index
+    geo_plans: ptr(GeoLogicalPlanRecord)
+    geo_plans_len: index
+    geo_plans_cap: index
+    optimized_plans: ptr(OptimizedPlanRecord)
+    optimized_plans_len: index
+    optimized_plans_cap: index
+    physical_plans: ptr(PhysicalPlanRecord)
+    physical_plans_len: index
+    physical_plans_cap: index
+    exprs: ptr(ExprRecord)
+    exprs_len: index
+    exprs_cap: index
+    generation: u64
+end
+
+G.T.FactStore = struct
+    facts: ptr(FactRecord)
+    facts_len: index
+    facts_cap: index
+    generation: u64
+end
+
+G.T.KernelStore = struct
+    kernel_plans: ptr(KernelPlanRecord)
+    kernel_plans_len: index
+    kernel_plans_cap: index
+    kernels: ptr(KernelRecord)
+    kernels_len: index
+    kernels_cap: index
+    artifacts: ptr(KernelArtifactRecord)
+    artifacts_len: index
+    artifacts_cap: index
+    c_sources: ptr(CSourceRecord)
+    c_sources_len: index
+    c_sources_cap: index
+    objects: ptr(ObjectRecord)
+    objects_len: index
+    objects_cap: index
+    generation: u64
+end
+
+G.T.StreamStore = struct
+    streams: ptr(StreamRecord)
+    streams_len: index
+    streams_cap: index
+    generation: u64
+end
+
+G.T.IndexStore = struct
+    indexes: ptr(SpatialIndexRecord)
+    indexes_len: index
+    indexes_cap: index
+    generation: u64
+end
+
+G.T.MemoryPool = struct
+    bytes: ptr(OwnedBytesRecord)
+    bytes_len: index
+    bytes_cap: index
+    live_leases: index
+    bytes_reserved: index
+    bytes_committed: index
+    generation: u64
+end
+
+G.T.GeoEngine = struct
+    symbols: SymbolStore
+    metadata: MetadataStore
+    catalog: CatalogStore
+    schemas: SchemaStore
+    crs: CrsRegistry
+    sources: SourceStore
+    arrays: ArrayStore
+    plans: PlanStore
+    facts: FactStore
+    kernels: KernelStore
+    streams: StreamStore
+    indexes: IndexStore
+    memory: MemoryPool
+end
+
+--------------------------------------------------------------------------------
+-- 5. Arrow and GeoArrow memory products
+--------------------------------------------------------------------------------
+-- Arrow/GeoArrow is the memory story.
+-- Kernels receive these layouts after validation and borrowing.
+--------------------------------------------------------------------------------
+
+G.T.ArrowBitmap = struct
+    data: ptr(u8)
+    len_bits: index
+end
+
+G.T.ArrowBuffer = struct
+    data: ptr(u8)
+    len_bytes: index
+    capacity_bytes: index
+end
+
+G.T.ArrowArrayHeader = struct
+    len: index
+    null_count: index
+    offset: index
+    validity: ptr(ArrowBitmap)
+end
+
+G.T.ArrowI32Offsets = struct
+    data: ptr(i32)
+    len: index             -- logical array length + 1
+end
+
+G.T.ArrowI64Offsets = struct
+    data: ptr(i64)
+    len: index             -- logical array length + 1
+end
+
+G.T.CoordXYSeparated = struct
+    x: view(f64)
+    y: view(f64)
+end
+
+G.T.CoordXYZSeparated = struct
+    x: view(f64)
+    y: view(f64)
+    z: view(f64)
+end
+
+G.T.CoordXYInterleaved = struct
+    xy: view(f64)          -- len = 2 * coordinate_count
+end
+
+G.T.GeoTypeFact = struct
+    geom_kind: u8          -- owner: visit_geo_type
+    coord_layout: u8       -- owner: visit_coord_layout
+    coord_dims: u8
+    encoding: u8           -- owner: visit_geo_encoding
+    crs: CrsRef
+    edges: EdgeModel
+    nullable: bool
+end
+
+G.T.GeoPointXYArray = struct
+    header: ArrowArrayHeader
+    coords: CoordXYSeparated
+    crs: CrsRef
+    edges: EdgeModel
+end
+
+G.T.GeoLineStringXYArray = struct
+    header: ArrowArrayHeader
+    geom_offsets: ArrowI32Offsets
+    coords: CoordXYSeparated
+    crs: CrsRef
+    edges: EdgeModel
+end
+
+G.T.GeoPolygonXYArray = struct
+    header: ArrowArrayHeader
+    polygon_offsets: ArrowI32Offsets
+    ring_offsets: ArrowI32Offsets
+    coords: CoordXYSeparated
+    crs: CrsRef
+    edges: EdgeModel
+end
+
+G.T.GeoMultiPolygonXYArray = struct
+    header: ArrowArrayHeader
+    multipolygon_offsets: ArrowI32Offsets
+    polygon_offsets: ArrowI32Offsets
+    ring_offsets: ArrowI32Offsets
+    coords: CoordXYSeparated
+    crs: CrsRef
+    edges: EdgeModel
+end
+
+G.T.GeoBoxXYArray = struct
+    header: ArrowArrayHeader
+    xmin: view(f64)
+    ymin: view(f64)
+    xmax: view(f64)
+    ymax: view(f64)
+    crs: CrsRef
+end
+
+G.T.WkbArray = struct
+    header: ArrowArrayHeader
+    offsets: ArrowI32Offsets
+    bytes: view(u8)
+    crs: CrsRef
+end
+
+G.T.WktArray = struct
+    header: ArrowArrayHeader
+    offsets: ArrowI32Offsets
+    bytes: view(u8)
+    crs: CrsRef
+end
+
+G.T.RecordBatch = struct
+    schema: SchemaRef
+    columns: ptr(ArrayRef)
+    n_columns: index
+    n_rows: index
+end
+
+G.T.ExternalArrowOwner = struct
+    ctx: ptr(u8)
+    release: func(ptr(u8)): void
+    retained_by_host: bool
+end
+
+G.T.ImportedArrayRecord = struct
+    owner_ctx: ptr(u8)
+    release: func(ptr(u8)): void
+    array: ArrayRef
+end
+
+--------------------------------------------------------------------------------
+-- 6. Query, fact, physical, and runtime products
+--------------------------------------------------------------------------------
+
+G.T.QueryText = struct
+    data: ptr(u8)
+    len: index
+    dialect: u8
+end
+
+G.T.QueryParams = struct
+    values: ptr(ArrayRef)
     len: index
 end
-]]
 
-G.T.KernelBuild = moon.struct[[
-KernelBuild
-    plan: KernelPlan,
-    c_source: CSourceRef,
+G.T.ProjectionSet = struct
+    columns: ptr(ColumnRef)
+    len: index
+end
+
+G.T.ColumnSet = struct
+    columns: ptr(ColumnRef)
+    len: index
+end
+
+G.T.ExprList = struct
+    exprs: ptr(ExprRef)
+    len: index
+end
+
+G.T.SymbolList = struct
+    symbols: ptr(SymbolRef)
+    len: index
+end
+
+G.T.RowGroupSet = struct
+    rows: ptr(u32)
+    len: index
+end
+
+G.T.LogicalScan = struct
+    table: TableRef
+    projection: u32
+    filters: u32
+end
+
+G.T.LogicalFilter = struct
+    input: GeoLogicalPlanRef
+    predicate: ExprRef
+end
+
+G.T.LogicalProject = struct
+    input: GeoLogicalPlanRef
+    exprs: u32
+    names: u32
+end
+
+G.T.LogicalJoin = struct
+    left: GeoLogicalPlanRef
+    right: GeoLogicalPlanRef
+    predicate: ExprRef
+    join_kind: u8           -- owner: visit_join_kind
+end
+
+G.T.LogicalGeoFilter = struct
+    input: GeoLogicalPlanRef
+    geom_column: ColumnRef
+    predicate: GeoPredicateRef
+end
+
+G.T.LogicalGeoProject = struct
+    input: GeoLogicalPlanRef
+    output_name: SymbolRef
+    op: GeoTransformRef
+end
+
+G.T.GeoIntersects = struct
+    left: ExprRef
+    right: ExprRef
+end
+
+G.T.GeoWithin = struct
+    left: ExprRef
+    right: ExprRef
+end
+
+G.T.GeoDWithin = struct
+    left: ExprRef
+    right: ExprRef
+    distance: f64
+    units: UnitRef
+end
+
+G.T.GeoTransform = struct
+    input: ExprRef
+    src: CrsRef
+    dst: CrsRef
+end
+
+G.T.GeoSimplify = struct
+    input: ExprRef
+    tolerance: f64
+    units: UnitRef
+    preserve_topology: bool
+end
+
+G.T.GeoClip = struct
+    input: ExprRef
+    bbox: BoxXY
+end
+
+G.T.GeoIntersection = struct
+    left: ExprRef
+    right: ExprRef
+end
+
+G.T.GeoAsMvtGeom = struct
+    input: ExprRef
+    tile: BoxXY
+    extent: i32
+    buffer: i32
+    clip: bool
+end
+
+G.T.ArrowGeoFacts = struct
+    schema: SchemaRef
+    primary_geometry: ColumnRef
+    geometry_columns: ptr(ColumnRef)
+    geometry_columns_len: index
+    has_geoarrow_native: bool
+    has_wkb_boundary: bool
+    has_bbox_covering: bool
+    has_row_group_bbox_stats: bool
+    all_geometries_non_null: bool
+    crs: CrsRef
+    edges: EdgeModel
+end
+
+G.T.ColumnStats = struct
+    column: ColumnRef
+    null_count: index
+    has_min_max: bool
+    min_f64: f64
+    max_f64: f64
+end
+
+G.T.GeoColumnStats = struct
+    column: ColumnRef
+    has_bbox: bool
+    bbox: BoxXY
+    crs: CrsRef
+end
+
+G.T.FactDelta = struct
+    facts: ptr(FactRef)
+    len: index
+end
+
+G.T.GeoParquetFacts = struct
+    source: SourceRef
+    primary_column: ColumnRef
+    metadata: MetadataRef
+    has_covering_bbox: bool
+    bbox_column: ColumnRef
+    native_geoarrow_encoding: bool
+    crs: CrsRef
+end
+
+G.T.PhysicalScan = struct
+    source: SourceRef
+    projected_columns: u32
+    row_groups: u32
+    batch_size: index
+end
+
+G.T.PhysicalFilter = struct
+    input: PhysicalPlanRef
+    predicate: ExprRef
+end
+
+G.T.PhysicalProject = struct
+    input: PhysicalPlanRef
+    exprs: u32
+    names: u32
+end
+
+G.T.PhysicalSpatialJoin = struct
+    left: PhysicalPlanRef
+    right: PhysicalPlanRef
+    strategy: u8            -- owner: visit_spatial_join_strategy
+    predicate: GeoPredicateRef
+end
+
+G.T.PhysicalFusedGeoKernel = struct
+    input: PhysicalPlanRef
+    kernel: KernelRef
+    input_layout: GeoTypeFact
+    output_layout: GeoTypeFact
+end
+
+G.T.KernelSet = struct
+    kernels: ptr(KernelRef)
+    len: index
+end
+
+G.T.KernelBuild = struct
+    plan: KernelPlanRecord
+    c_source: CSourceRef
     scratch_owner: ptr(u8)
 end
-]]
 
-G.T.CObjectBuild = moon.struct[[
-CObjectBuild
-    c_source: CSourceRef,
-    object: ObjectRef,
-    toolchain_name: SymbolRef
-end
-]]
-
---------------------------------------------------------------------------------
--- SECTION 8 — Runtime products
---------------------------------------------------------------------------------
-
-G.T.ExecCtx = moon.struct[[
-ExecCtx
-    engine: ptr(GeoEngine),
-    target: TargetProfile,
-    memory_policy: MemoryPolicy,
+G.T.ExecCtx = struct
+    engine: ptr(GeoEngine)
+    target: Target
+    memory_policy: MemoryPolicy
     cancelled: ptr(bool)
 end
-]]
 
-G.T.BatchStream = moon.struct[[
-BatchStream
-    state: StreamRef,
-    schema: SchemaRef,
+G.T.BatchStream = struct
+    state: StreamRef
+    schema: SchemaRef
     partition: index
 end
-]]
 
-G.T.Waiter = moon.struct[[
-Waiter
-    token: u64,
+G.T.Waiter = struct
+    token: u64
     wake_addr: ptr(u8)
 end
-]]
 
-G.T.OutputEstimate = moon.struct[[
-OutputEstimate
-    rows: index,
-    bytes: index,
-    offsets: index,
+G.T.OutputEstimate = struct
+    rows: index
+    bytes: index
+    offsets: index
     coords: index
 end
-]]
 
-G.T.BitmapBuilder = moon.struct[[
-BitmapBuilder
-    data: ptr(u8),
-    len_bits: index,
+G.T.BitmapBuilder = struct
+    data: ptr(u8)
+    len_bits: index
     cap_bits: index
 end
-]]
 
-G.T.I32Builder = moon.struct[[
-I32Builder
-    data: ptr(i32),
-    len: index,
+G.T.I32Builder = struct
+    data: ptr(i32)
+    len: index
     cap: index
 end
-]]
 
-G.T.F64Builder = moon.struct[[
-F64Builder
-    data: ptr(f64),
-    len: index,
+G.T.F64Builder = struct
+    data: ptr(f64)
+    len: index
     cap: index
 end
-]]
 
-G.T.LineStringBuilderXY = moon.struct[[
-LineStringBuilderXY
-    validity: BitmapBuilder,
-    geom_offsets: I32Builder,
-    x: F64Builder,
+G.T.LineStringBuilderXY = struct
+    validity: BitmapBuilder
+    geom_offsets: I32Builder
+    x: F64Builder
     y: F64Builder
 end
-]]
 
-G.T.PolygonBuilderXY = moon.struct[[
-PolygonBuilderXY
-    validity: BitmapBuilder,
-    polygon_offsets: I32Builder,
-    ring_offsets: I32Builder,
-    x: F64Builder,
+G.T.PolygonBuilderXY = struct
+    validity: BitmapBuilder
+    polygon_offsets: I32Builder
+    ring_offsets: I32Builder
+    x: F64Builder
     y: F64Builder
 end
-]]
 
-G.T.OutputBuilder = moon.struct[[
-OutputBuilder
-    kind: u8,          -- owner: visit_output_builder
-    rows: index,
+G.T.OutputBuilder = struct
+    kind: u8                -- owner: visit_output_builder
+    rows: index
     payload: ptr(u8)
 end
-]]
 
-G.T.OutputSlot = moon.struct[[
-OutputSlot
-    data: ptr(u8),
-    len: index,
+G.T.OutputSlot = struct
+    data: ptr(u8)
+    len: index
     cap: index
 end
-]]
 
 --------------------------------------------------------------------------------
--- SECTION 9 — Consumer regions for stored encodings
---------------------------------------------------------------------------------
--- These are not implementation details. They are the owning semantic points
--- for stored kind/tag fields. Everywhere else must go through these protocols.
+-- 7. Consumer regions for stored encodings
 --------------------------------------------------------------------------------
 
-G.R.visit_type = moon.region[[
-visit_type(types: ptr(SchemaStore), t: TypeRef;
+G.R.visit_type = region(types: ptr(SchemaStore), t: TypeRef;
     scalar(kind: u8)
   | list(child: TypeRef)
   | struct_type(fields: ptr(FieldRef), len: index)
   | dictionary(index_type: TypeRef, value_type: TypeRef)
   | extension(storage: TypeRef, metadata: MetadataRef)
   | invalid(t: TypeRef, code: i32))
-]]
+end
 
-G.R.visit_geo_type = moon.region[[
-visit_geo_type(fact: GeoTypeFact;
+G.R.visit_geo_type = region(fact: GeoTypeFact;
     point
   | linestring
   | polygon
@@ -1312,53 +1104,55 @@ visit_geo_type(fact: GeoTypeFact;
   | wkt
   | mixed
   | unsupported(kind: u8))
-]]
+end
 
-G.R.visit_geo_encoding = moon.region[[
-visit_geo_encoding(fact: GeoTypeFact;
+G.R.visit_geo_encoding = region(fact: GeoTypeFact;
     native_geoarrow
   | wkb_boundary
   | wkt_boundary
   | dense_union_mixed
   | unsupported(encoding: u8))
-]]
+end
 
-G.R.visit_coord_layout = moon.region[[
-visit_coord_layout(fact: GeoTypeFact;
+G.R.visit_coord_layout = region(fact: GeoTypeFact;
     separated_xy
   | separated_xyz
   | interleaved_xy
   | unsupported(layout: u8))
-]]
+end
 
-G.R.visit_edge_model = moon.region[[
-visit_edge_model(edges: EdgeModel;
+G.R.visit_edge_model = region(edges: EdgeModel;
     planar
   | spherical
   | geodesic
   | unsupported(kind: u8))
-]]
+end
 
-G.R.visit_surface_plan = moon.region[[
-visit_surface_plan(store: ptr(PlanStore), node: SurfacePlanRef;
+G.R.visit_target = region(target: Target;
+    native_c
+  | native_jit
+  | web_friendly_c
+  | embedded_c
+  | unsupported(kind: u8))
+end
+
+G.R.visit_surface_plan = region(store: ptr(PlanStore), node: SurfacePlanRef;
     scan(node: lease ptr(SurfacePlanRecord))
   | filter(node: lease ptr(SurfacePlanRecord))
   | project(node: lease ptr(SurfacePlanRecord))
   | join(node: lease ptr(SurfacePlanRecord))
   | invalid(node: SurfacePlanRef, code: i32))
-]]
+end
 
-G.R.visit_bound_plan = moon.region[[
-visit_bound_plan(store: ptr(PlanStore), node: BoundPlanRef;
+G.R.visit_bound_plan = region(store: ptr(PlanStore), node: BoundPlanRef;
     scan(node: lease ptr(BoundPlanRecord))
   | filter(node: lease ptr(BoundPlanRecord))
   | project(node: lease ptr(BoundPlanRecord))
   | join(node: lease ptr(BoundPlanRecord))
   | invalid(node: BoundPlanRef, code: i32))
-]]
+end
 
-G.R.visit_geo_logical_plan = moon.region[[
-visit_geo_logical_plan(store: ptr(PlanStore), node: GeoLogicalPlanRef;
+G.R.visit_geo_logical_plan = region(store: ptr(PlanStore), node: GeoLogicalPlanRef;
     scan(node: lease ptr(LogicalScan))
   | filter(node: lease ptr(LogicalFilter))
   | project(node: lease ptr(LogicalProject))
@@ -1366,38 +1160,34 @@ visit_geo_logical_plan(store: ptr(PlanStore), node: GeoLogicalPlanRef;
   | geo_filter(node: lease ptr(LogicalGeoFilter))
   | geo_project(node: lease ptr(LogicalGeoProject))
   | invalid(node: GeoLogicalPlanRef, code: i32))
-]]
+end
 
-G.R.visit_physical_op = moon.region[[
-visit_physical_op(store: ptr(PlanStore), node: PhysicalPlanRef;
+G.R.visit_physical_op = region(store: ptr(PlanStore), node: PhysicalPlanRef;
     scan(node: lease ptr(PhysicalScan))
   | filter(node: lease ptr(PhysicalFilter))
   | project(node: lease ptr(PhysicalProject))
   | spatial_join(node: lease ptr(PhysicalSpatialJoin))
   | fused_geo_kernel(node: lease ptr(PhysicalFusedGeoKernel))
   | invalid(node: PhysicalPlanRef, code: i32))
-]]
+end
 
-G.R.visit_geo_predicate = moon.region[[
-visit_geo_predicate(store: ptr(PlanStore), pred: GeoPredicateRef;
+G.R.visit_geo_predicate = region(store: ptr(PlanStore), pred: GeoPredicateRef;
     intersects(node: lease ptr(GeoIntersects))
   | within(node: lease ptr(GeoWithin))
   | dwithin(node: lease ptr(GeoDWithin))
   | invalid(pred: GeoPredicateRef, code: i32))
-]]
+end
 
-G.R.visit_geo_transform = moon.region[[
-visit_geo_transform(store: ptr(PlanStore), tr: GeoTransformRef;
+G.R.visit_geo_transform = region(store: ptr(PlanStore), tr: GeoTransformRef;
     transform(node: lease ptr(GeoTransform))
   | simplify(node: lease ptr(GeoSimplify))
   | clip(node: lease ptr(GeoClip))
   | intersection(node: lease ptr(GeoIntersection))
   | as_mvt_geom(node: lease ptr(GeoAsMvtGeom))
   | invalid(tr: GeoTransformRef, code: i32))
-]]
+end
 
-G.R.visit_kernel_op = moon.region[[
-visit_kernel_op(plan: KernelPlan;
+G.R.visit_kernel_op = region(plan: KernelPlanRecord;
     bbox_filter
   | exact_intersects
   | dwithin
@@ -1409,169 +1199,125 @@ visit_kernel_op(plan: KernelPlan;
   | encode_wkb
   | encode_mvt
   | unsupported(op: u8))
-]]
+end
 
-G.R.visit_kernel_artifact = moon.region[[
-visit_kernel_artifact(kernels: ptr(KernelStore), artifact: KernelArtifactRef;
+G.R.visit_kernel_artifact = region(kernels: ptr(KernelStore), artifact: KernelArtifactRef;
     c_source(src: lease ptr(CSourceRecord))
   | object(obj: lease ptr(ObjectRecord))
   | jit_pointer(addr: ptr(u8))
   | missing(artifact: KernelArtifactRef)
   | invalid(artifact: KernelArtifactRef, code: i32))
-]]
-
-G.R.visit_c_emission_kind = moon.region[[
-visit_c_emission_kind(policy: CEmissionPolicy;
-    single_translation_unit
-  | header_and_source
-  | freestanding_c
-  | hosted_c
-  | unsupported(kind: u8))
-]]
-
-G.R.visit_target_abi = moon.region[[
-visit_target_abi(target: TargetProfile;
-    c_abi
-  | lua_ffi_abi
-  | freestanding_c_abi
-  | unsupported(kind: u8))
-]]
-
-G.R.visit_deployment_profile = moon.region[[
-visit_deployment_profile(target: TargetProfile;
-    native_executable
-  | shared_library
-  | object_file
-  | web_c_profile       -- C intended to be accepted by external C-to-WASM toolchains.
-  | embedded_c_profile
-  | unsupported(kind: u8))
-]]
+end
 
 --------------------------------------------------------------------------------
--- SECTION 10 — Store access and memory protocol regions
+-- 8. Store access and memory protocol regions
 --------------------------------------------------------------------------------
 
-G.R.borrow_symbol = moon.region[[
-borrow_symbol(symbols: ptr(SymbolStore), s: SymbolRef;
+G.R.borrow_symbol = region(symbols: ptr(SymbolStore), s: SymbolRef;
     borrowed(sym: lease ptr(SymbolRecord))
   | stale(s: SymbolRef)
   | missing(s: SymbolRef))
-]]
+end
 
-G.R.borrow_table = moon.region[[
-borrow_table(cat: ptr(CatalogStore), table: TableRef;
+G.R.borrow_table = region(cat: ptr(CatalogStore), table: TableRef;
     borrowed(t: lease ptr(TableRecord))
   | stale(table: TableRef)
   | missing(table: TableRef))
-]]
+end
 
-G.R.borrow_schema = moon.region[[
-borrow_schema(schemas: ptr(SchemaStore), schema: SchemaRef;
+G.R.borrow_schema = region(schemas: ptr(SchemaStore), schema: SchemaRef;
     borrowed(s: lease ptr(SchemaRecord))
   | stale(schema: SchemaRef)
   | missing(schema: SchemaRef))
-]]
+end
 
-G.R.borrow_field = moon.region[[
-borrow_field(schemas: ptr(SchemaStore), field: FieldRef;
+G.R.borrow_field = region(schemas: ptr(SchemaStore), field: FieldRef;
     borrowed(f: lease ptr(FieldRecord))
   | stale(field: FieldRef)
   | missing(field: FieldRef))
-]]
+end
 
-G.R.borrow_array = moon.region[[
-borrow_array(arrays: ptr(ArrayStore), array: ArrayRef;
+G.R.borrow_array = region(arrays: ptr(ArrayStore), array: ArrayRef;
     borrowed(a: lease ptr(ArrayRecord))
   | stale(array: ArrayRef)
   | missing(array: ArrayRef)
   | rebuilding(array: ArrayRef))
-]]
+end
 
-G.R.borrow_batch = moon.region[[
-borrow_batch(arrays: ptr(ArrayStore), batch: BatchRef;
+G.R.borrow_batch = region(arrays: ptr(ArrayStore), batch: BatchRef;
     borrowed(b: lease ptr(RecordBatch))
   | stale(batch: BatchRef)
   | missing(batch: BatchRef)
   | rebuilding(batch: BatchRef))
-]]
+end
 
-G.R.borrow_kernel = moon.region[[
-borrow_kernel(kernels: ptr(KernelStore), kernel: KernelRef;
+G.R.borrow_kernel = region(kernels: ptr(KernelStore), kernel: KernelRef;
     borrowed(k: lease ptr(KernelRecord))
   | stale(kernel: KernelRef)
   | missing(kernel: KernelRef)
   | compiling(kernel: KernelRef))
-]]
+end
 
-G.R.borrow_spatial_index = moon.region[[
-borrow_spatial_index(indexes: ptr(IndexStore), idx: SpatialIndexRef;
+G.R.borrow_spatial_index = region(indexes: ptr(IndexStore), idx: SpatialIndexRef;
     borrowed(i: lease ptr(SpatialIndexRecord))
   | stale(idx: SpatialIndexRef)
   | missing(idx: SpatialIndexRef)
   | rebuilding(idx: SpatialIndexRef)
   | unsupported_index(kind: u8))
-]]
+end
 
-G.R.reserve_bytes = moon.region[[
-reserve_bytes(mem: ptr(MemoryPool), n: index;
+G.R.reserve_bytes = region(mem: ptr(MemoryPool), n: index;
     reserved(bytes: owned OwnedBytesRef, len: index)
   | memory_exhausted(needed: index)
   | invalid_request(code: i32))
-]]
+end
 
-G.R.reserve_output_builder = moon.region[[
-reserve_output_builder(mem: ptr(MemoryPool), estimate: OutputEstimate;
+G.R.reserve_output_builder = region(mem: ptr(MemoryPool), estimate: OutputEstimate;
     builder(builder: owned OutputBuilder)
   | memory_exhausted(needed: index)
   | estimate_invalid(code: i32))
-]]
+end
 
-G.R.finish_linestring_builder = moon.region[[
-finish_linestring_builder(mem: ptr(MemoryPool), b: owned LineStringBuilderXY;
+G.R.finish_linestring_builder = region(mem: ptr(MemoryPool), b: owned LineStringBuilderXY;
     array(array: ArrayRef)
   | empty
   | overflow(needed: index)
   | invalid_offsets(level: i32, pos: index))
-]]
+end
 
-G.R.finish_polygon_builder = moon.region[[
-finish_polygon_builder(mem: ptr(MemoryPool), b: owned PolygonBuilderXY;
+G.R.finish_polygon_builder = region(mem: ptr(MemoryPool), b: owned PolygonBuilderXY;
     array(array: ArrayRef)
   | empty
   | overflow(needed: index)
   | invalid_offsets(level: i32, pos: index))
-]]
+end
 
-G.R.reset_scratch = moon.region[[
-reset_scratch(mem: ptr(MemoryPool);
+G.R.reset_scratch = region(mem: ptr(MemoryPool);
     reset
   | live_leases(count: index)
   | invalid_state(code: i32))
-]]
+end
 
-G.R.close_imported_array = moon.region[[
-close_imported_array(arrays: ptr(ArrayStore), arr: owned ArrayRef;
+G.R.close_imported_array = region(arrays: ptr(ArrayStore), arr: owned ArrayRef;
     closed
   | already_closed
   | live_leases(count: index)
   | release_failed(code: i32))
-]]
+end
 
 --------------------------------------------------------------------------------
--- SECTION 11 — Arrow / GeoArrow validation and layout resolution
+-- 9. Arrow/GeoArrow validation and layout resolution
 --------------------------------------------------------------------------------
 
-G.R.validate_arrow_offsets_i32 = moon.region[[
-validate_arrow_offsets_i32(offsets: ArrowI32Offsets, values_len: index;
+G.R.validate_arrow_offsets_i32 = region(offsets: ArrowI32Offsets, values_len: index;
     ok
   | too_short
   | not_monotonic(pos: index)
   | out_of_bounds(pos: index, value: i32)
   | length_mismatch(expected: index, got: index))
-]]
+end
 
-G.R.validate_geoarrow_array = moon.region[[
-validate_geoarrow_array(arrays: ptr(ArrayStore), array: ArrayRef;
+G.R.validate_geoarrow_array = region(arrays: ptr(ArrayStore), array: ArrayRef;
     point_xy(a: lease ptr(GeoPointXYArray))
   | linestring_xy(a: lease ptr(GeoLineStringXYArray))
   | polygon_xy(a: lease ptr(GeoPolygonXYArray))
@@ -1584,10 +1330,9 @@ validate_geoarrow_array(arrays: ptr(ArrayStore), array: ArrayRef;
   | bad_validity(pos: index)
   | child_length_mismatch(expected: index, got: index)
   | unsupported_layout(code: i32))
-]]
+end
 
-G.R.borrow_geo_column = moon.region[[
-borrow_geo_column(batch: lease ptr(RecordBatch), column: ColumnRef;
+G.R.borrow_geo_column = region(batch: lease ptr(RecordBatch), column: ColumnRef;
     point_xy(a: lease ptr(GeoPointXYArray))
   | linestring_xy(a: lease ptr(GeoLineStringXYArray))
   | polygon_xy(a: lease ptr(GeoPolygonXYArray))
@@ -1598,215 +1343,192 @@ borrow_geo_column(batch: lease ptr(RecordBatch), column: ColumnRef;
   | null_only
   | not_geometry(column: ColumnRef)
   | malformed_layout(reason: DiagnosticRef))
-]]
+end
 
-G.R.derive_geoarrow_facts = moon.region[[
-derive_geoarrow_facts(engine: ptr(GeoEngine), source: SourceRef, schema: SchemaRef;
+G.R.derive_geoarrow_facts = region(engine: ptr(GeoEngine), source: SourceRef, schema: SchemaRef;
     facts(facts: ArrowGeoFacts)
   | no_geometry_column
   | invalid_geo_metadata(diag: DiagnosticRef)
   | unsupported_geoarrow_layout(column: ColumnRef, code: i32)
   | missing_crs(column: ColumnRef))
-]]
+end
 
-G.R.derive_geoparquet_facts = moon.region[[
-derive_geoparquet_facts(engine: ptr(GeoEngine), source: SourceRef;
+G.R.derive_geoparquet_facts = region(engine: ptr(GeoEngine), source: SourceRef;
     facts(facts: GeoParquetFacts)
   | missing_geo_metadata
   | invalid_geo_metadata(diag: DiagnosticRef)
   | unsupported_encoding(column: ColumnRef, code: i32)
   | covering_bbox_invalid(column: ColumnRef, diag: DiagnosticRef))
-]]
+end
 
 --------------------------------------------------------------------------------
--- SECTION 12 — Compiler pipeline regions
+-- 10. Compiler pipeline regions
 --------------------------------------------------------------------------------
--- This is the "program as compiler stack" core:
--- text/API -> surface -> bound -> geo semantic -> facts -> optimized -> physical
--- -> kernels -> C emission/JIT.
+-- The compiler stack:
+-- query -> surface -> bound -> geo logical -> facts -> optimized -> physical
+-- -> kernel set -> execution or C emission.
 --------------------------------------------------------------------------------
 
-G.R.parse_query = moon.region[[
-parse_query(text: QueryText;
+G.R.parse_query = region(text: QueryText;
     parsed(plan: SurfacePlanRef)
   | syntax(pos: index, code: i32)
   | unsupported_syntax(feature: i32))
-]]
+end
 
-G.R.bind_query = moon.region[[
-bind_query(engine: ptr(GeoEngine), surface: SurfacePlanRef;
+G.R.bind_query = region(engine: ptr(GeoEngine), surface: SurfacePlanRef;
     bound(plan: BoundPlanRef)
   | unknown_table(name: SymbolRef)
   | unknown_column(name: SymbolRef)
   | ambiguous_name(name: SymbolRef)
   | unknown_function(name: SymbolRef)
   | type_mismatch(expr: SurfaceExprRef, expected: TypeRef, got: TypeRef))
-]]
+end
 
-G.R.resolve_geo_semantics = moon.region[[
-resolve_geo_semantics(engine: ptr(GeoEngine), bound: BoundPlanRef;
+G.R.resolve_geo_semantics = region(engine: ptr(GeoEngine), bound: BoundPlanRef;
     resolved(plan: GeoLogicalPlanRef, facts: FactRef)
   | missing_crs(column: ColumnRef)
   | incompatible_crs(left: CrsRef, right: CrsRef)
   | unsupported_geometry(column: ColumnRef, geom: GeoTypeFact)
   | unsupported_edges(column: ColumnRef, edges: EdgeModel)
   | unsupported_function(fn: SymbolRef))
-]]
+end
 
-G.R.derive_arrow_geo_facts = moon.region[[
-derive_arrow_geo_facts(engine: ptr(GeoEngine), plan: GeoLogicalPlanRef;
+G.R.derive_arrow_geo_facts = region(engine: ptr(GeoEngine), plan: GeoLogicalPlanRef;
     facts(plan: GeoLogicalPlanRef, facts: FactRef)
   | invalid_geoarrow(column: ColumnRef, reason: DiagnosticRef)
   | invalid_geoparquet(source: SourceRef, reason: DiagnosticRef)
   | needs_scan_metadata(source: SourceRef))
-]]
+end
 
-G.R.optimize_geo_logical = moon.region[[
-optimize_geo_logical(engine: ptr(GeoEngine), plan: GeoLogicalPlanRef, facts: FactRef;
+G.R.optimize_geo_logical = region(engine: ptr(GeoEngine), plan: GeoLogicalPlanRef, facts: FactRef;
     optimized(plan: OptimizedPlanRef, facts: FactRef)
   | fixed(plan: GeoLogicalPlanRef, facts: FactRef)
   | rejected(rule: RuleRef, reason: DiagnosticRef)
   | needs_stats(column: ColumnRef))
-]]
+end
 
-G.R.choose_geo_physical = moon.region[[
-choose_geo_physical(engine: ptr(GeoEngine), plan: OptimizedPlanRef, facts: FactRef, target: TargetProfile;
+G.R.choose_geo_physical = region(engine: ptr(GeoEngine), plan: OptimizedPlanRef, facts: FactRef, target: Target;
     physical(plan: PhysicalPlanRef)
   | needs_index(column: ColumnRef, kind: u8)
   | no_supported_join(predicate: GeoPredicateRef)
   | no_supported_scan(source: SourceRef)
-  | no_supported_kernel(op: GeoTransformRef, layout: GeoTypeFact, target: TargetProfile))
-]]
+  | no_supported_kernel(op: GeoTransformRef, layout: GeoTypeFact, target: Target))
+end
 
-G.R.prepare_kernels = moon.region[[
-prepare_kernels(engine: ptr(GeoEngine), plan: PhysicalPlanRef, target: TargetProfile;
+G.R.prepare_kernels = region(engine: ptr(GeoEngine), plan: PhysicalPlanRef, target: Target;
     ready(plan: PhysicalPlanRef, kernels: KernelSet)
   | cache_hit(kernels: KernelSet)
-  | compile_failed(kernel: KernelPlan, diag: DiagnosticRef)
-  | target_unsupported(target: TargetProfile)
+  | compile_failed(kernel: KernelPlanRecord, diag: DiagnosticRef)
+  | target_unsupported(target: Target)
   | memory_exhausted(needed: index))
-]]
+end
 
-G.R.compile_query = moon.region[[
-compile_query(engine: ptr(GeoEngine), q: QueryText, target: TargetProfile;
+G.R.compile_query = region(engine: ptr(GeoEngine), q: QueryText, target: Target;
     executable(plan: PhysicalPlanRef, kernels: KernelSet)
   | syntax(pos: index, code: i32)
   | bind_failed(diag: DiagnosticRef)
   | geo_failed(diag: DiagnosticRef)
   | optimize_failed(diag: DiagnosticRef)
   | physical_failed(diag: DiagnosticRef)
-  | kernel_compile_failed(kernel: KernelPlan, diag: DiagnosticRef)
+  | kernel_compile_failed(kernel: KernelPlanRecord, diag: DiagnosticRef)
   | memory_exhausted(needed: index))
-]]
+end
 
 --------------------------------------------------------------------------------
--- SECTION 13 — Geo optimizer regions
+-- 11. Geo optimizer regions
 --------------------------------------------------------------------------------
 
-G.R.split_spatial_predicate = moon.region[[
-split_spatial_predicate(pred: GeoPredicateRef, facts: FactRef;
+G.R.split_spatial_predicate = region(pred: GeoPredicateRef, facts: FactRef;
     split(prefilter: GeoPredicateRef, exact: GeoPredicateRef)
   | already_bbox(pred: GeoPredicateRef)
   | cannot_split(reason: DiagnosticRef))
-]]
+end
 
-G.R.plan_geoparquet_pruning = moon.region[[
-plan_geoparquet_pruning(source: SourceRef, pred: GeoPredicateRef, facts: GeoParquetFacts;
+G.R.plan_geoparquet_pruning = region(source: SourceRef, pred: GeoPredicateRef, facts: GeoParquetFacts;
     pruned(row_groups: RowGroupSet)
   | no_covering
   | incompatible_crs(source: CrsRef, query: CrsRef)
   | unknown_bbox)
-]]
+end
 
-G.R.decide_wkb_decode = moon.region[[
-decide_wkb_decode(op: GeoTransformRef, wkb: WkbArray;
+G.R.decide_wkb_decode = region(op: GeoTransformRef, wkb: WkbArray;
     keep_serialized
   | decode_to_point_xy
   | decode_to_linestring_xy
   | decode_to_polygon_xy
   | decode_to_multipolygon_xy
   | unsupported_wkb_variant(code: i32))
-]]
+end
 
-G.R.prove_transform_fusion = moon.region[[
-prove_transform_fusion(op: GeoTransformRef, facts: FactRef;
-    fusible(kernel: KernelPlan)
+G.R.prove_transform_fusion = region(op: GeoTransformRef, facts: FactRef;
+    fusible(kernel: KernelPlanRecord)
   | tolerance_units_block
   | nonlinear_crs_block
   | topology_preserve_block
   | unsupported_edges(edges: EdgeModel))
-]]
+end
 
-G.R.narrow_mixed_geometry = moon.region[[
-narrow_mixed_geometry(array: ArrayRef, use: GeoTransformRef;
+G.R.narrow_mixed_geometry = region(array: ArrayRef, use: GeoTransformRef;
     narrowed(layout: GeoTypeFact)
   | keep_mixed(array: ArrayRef)
   | unsupported_mix(reason: DiagnosticRef))
-]]
+end
 
-G.R.prepare_constant_geometry = moon.region[[
-prepare_constant_geometry(mem: ptr(MemoryPool), geom: ExprRef;
+G.R.prepare_constant_geometry = region(mem: ptr(MemoryPool), geom: ExprRef;
     prepared(index: SpatialIndexRef)
   | unsupported_geometry(kind: GeoTypeFact)
   | memory_exhausted(needed: index))
-]]
+end
 
-G.R.apply_geo_rule = moon.region[[
-apply_geo_rule(engine: ptr(GeoEngine), rule: RuleRef, plan: GeoLogicalPlanRef, facts: FactRef;
+G.R.apply_geo_rule = region(engine: ptr(GeoEngine), rule: RuleRef, plan: GeoLogicalPlanRef, facts: FactRef;
     changed(plan: GeoLogicalPlanRef, facts: FactDelta)
   | unchanged(plan: GeoLogicalPlanRef, facts: FactRef)
   | rejected(rule: RuleRef, reason: DiagnosticRef)
   | needs_stats(column: ColumnRef))
-]]
+end
 
 --------------------------------------------------------------------------------
--- SECTION 14 — Physical planning regions
+-- 12. Physical planning regions
 --------------------------------------------------------------------------------
 
-G.R.choose_scan_operator = moon.region[[
-choose_scan_operator(engine: ptr(GeoEngine), source: SourceRef, facts: FactRef, target: TargetProfile;
+G.R.choose_scan_operator = region(engine: ptr(GeoEngine), source: SourceRef, facts: FactRef, target: Target;
     scan(op: PhysicalPlanRef)
   | unsupported_source(source: SourceRef)
   | needs_metadata(source: SourceRef)
   | memory_exhausted(needed: index))
-]]
+end
 
-G.R.choose_filter_operator = moon.region[[
-choose_filter_operator(engine: ptr(GeoEngine), input: PhysicalPlanRef, pred: ExprRef, target: TargetProfile;
+G.R.choose_filter_operator = region(engine: ptr(GeoEngine), input: PhysicalPlanRef, pred: ExprRef, target: Target;
     scalar_filter(op: PhysicalPlanRef)
   | geo_filter(op: PhysicalPlanRef)
   | fused_kernel(op: PhysicalPlanRef)
   | unsupported_predicate(pred: ExprRef))
-]]
+end
 
-G.R.choose_spatial_join_operator = moon.region[[
-choose_spatial_join_operator(engine: ptr(GeoEngine), left: PhysicalPlanRef, right: PhysicalPlanRef, pred: GeoPredicateRef, target: TargetProfile;
+G.R.choose_spatial_join_operator = region(engine: ptr(GeoEngine), left: PhysicalPlanRef, right: PhysicalPlanRef, pred: GeoPredicateRef, target: Target;
     nested_loop(op: PhysicalPlanRef)
   | indexed_join(op: PhysicalPlanRef, index: SpatialIndexRef)
   | partitioned_join(op: PhysicalPlanRef)
   | needs_index(column: ColumnRef, kind: u8)
   | unsupported_predicate(pred: GeoPredicateRef))
-]]
+end
 
-G.R.choose_kernel_plan = moon.region[[
-choose_kernel_plan(engine: ptr(GeoEngine), op: PhysicalPlanRef, target: TargetProfile;
-    kernel(plan: KernelPlan)
+G.R.choose_kernel_plan = region(engine: ptr(GeoEngine), op: PhysicalPlanRef, target: Target;
+    kernel(plan: KernelPlanRecord)
   | use_interpreter
   | unsupported_layout(layout: GeoTypeFact)
-  | unsupported_target(target: TargetProfile)
+  | unsupported_target(target: Target)
   | missing_fact(fact_kind: u8))
-]]
+end
 
 --------------------------------------------------------------------------------
--- SECTION 15 — Kernel signature families
+-- 13. Hot kernel region signatures
 --------------------------------------------------------------------------------
--- These are region signatures for monomorphic kernels.
--- Implementations should be generated by Lua factories, one concrete machine
--- per geometry/layout/target profile actually used.
+-- These are monomorphic kernel families. Lua factories should generate concrete
+-- variants from these shapes.
 --------------------------------------------------------------------------------
 
-G.R.kernel_bbox_filter_linestring_xy = moon.region[[
-kernel_bbox_filter_linestring_xy(
+G.R.kernel_bbox_filter_linestring_xy = region(
     readonly geom: lease ptr(GeoLineStringXYArray),
     bbox: BoxXY,
     writeonly out: lease ptr(BitmapBuilder);
@@ -1815,10 +1537,9 @@ kernel_bbox_filter_linestring_xy(
   | all_null
   | malformed_offsets(level: i32, pos: index)
   | overflow(needed: index))
-]]
+end
 
-G.R.kernel_bbox_filter_polygon_xy = moon.region[[
-kernel_bbox_filter_polygon_xy(
+G.R.kernel_bbox_filter_polygon_xy = region(
     readonly geom: lease ptr(GeoPolygonXYArray),
     bbox: BoxXY,
     writeonly out: lease ptr(BitmapBuilder);
@@ -1827,10 +1548,9 @@ kernel_bbox_filter_polygon_xy(
   | all_null
   | malformed_offsets(level: i32, pos: index)
   | overflow(needed: index))
-]]
+end
 
-G.R.kernel_exact_intersects_linestring_polygon_xy = moon.region[[
-kernel_exact_intersects_linestring_polygon_xy(
+G.R.kernel_exact_intersects_linestring_polygon_xy = region(
     readonly lines: lease ptr(GeoLineStringXYArray),
     readonly poly: lease ptr(GeoPolygonXYArray),
     writeonly out: lease ptr(BitmapBuilder);
@@ -1840,10 +1560,9 @@ kernel_exact_intersects_linestring_polygon_xy(
   | malformed_left(row: index, code: i32)
   | malformed_right(row: index, code: i32)
   | overflow(needed: index))
-]]
+end
 
-G.R.kernel_transform_linestring_xy = moon.region[[
-kernel_transform_linestring_xy(
+G.R.kernel_transform_linestring_xy = region(
     readonly geom: lease ptr(GeoLineStringXYArray),
     src: CrsRef,
     dst: CrsRef,
@@ -1853,10 +1572,9 @@ kernel_transform_linestring_xy(
   | unsupported_crs(src: CrsRef, dst: CrsRef)
   | malformed_offsets(level: i32, pos: index)
   | overflow(needed: index))
-]]
+end
 
-G.R.kernel_clip_linestring_xy = moon.region[[
-kernel_clip_linestring_xy(
+G.R.kernel_clip_linestring_xy = region(
     readonly geom: lease ptr(GeoLineStringXYArray),
     tile: BoxXY,
     writeonly out: lease ptr(LineStringBuilderXY);
@@ -1864,10 +1582,9 @@ kernel_clip_linestring_xy(
   | empty
   | malformed_offsets(level: i32, pos: index)
   | overflow(needed: index))
-]]
+end
 
-G.R.kernel_simplify_linestring_xy = moon.region[[
-kernel_simplify_linestring_xy(
+G.R.kernel_simplify_linestring_xy = region(
     readonly geom: lease ptr(GeoLineStringXYArray),
     tolerance: f64,
     writeonly out: lease ptr(LineStringBuilderXY);
@@ -1876,10 +1593,9 @@ kernel_simplify_linestring_xy(
   | invalid_tolerance(value: f64)
   | malformed_offsets(level: i32, pos: index)
   | overflow(needed: index))
-]]
+end
 
-G.R.kernel_transform_clip_simplify_linestring_xy = moon.region[[
-kernel_transform_clip_simplify_linestring_xy(
+G.R.kernel_transform_clip_simplify_linestring_xy = region(
     readonly geom: lease ptr(GeoLineStringXYArray),
     src: CrsRef,
     dst: CrsRef,
@@ -1892,10 +1608,9 @@ kernel_transform_clip_simplify_linestring_xy(
   | invalid_tolerance(value: f64)
   | malformed_offsets(level: i32, pos: index)
   | overflow(needed: index))
-]]
+end
 
-G.R.kernel_decode_wkb_to_linestring_xy = moon.region[[
-kernel_decode_wkb_to_linestring_xy(
+G.R.kernel_decode_wkb_to_linestring_xy = region(
     readonly wkb: lease ptr(WkbArray),
     writeonly out: lease ptr(LineStringBuilderXY);
     decoded(count: index)
@@ -1903,84 +1618,67 @@ kernel_decode_wkb_to_linestring_xy(
   | malformed_wkb(row: index, code: i32)
   | unsupported_wkb_type(row: index, type_id: i32)
   | overflow(needed: index))
-]]
+end
 
 --------------------------------------------------------------------------------
--- SECTION 16 — C emission and native/JIT artifact regions
+-- 14. C emission and JIT regions
 --------------------------------------------------------------------------------
--- Corrected design:
---   Moonlift emits C.
---   Moonlift may JIT through Cranelift.
---   Moonlift may emit object/shared artifacts if that backend exists.
---   Moonlift does NOT own a WASM backend here.
---   C-to-WASM is an external deployment step performed by the user's toolchain.
+-- No policy layer.
+-- No WASM backend.
+-- C emission returns CSourceRef.
+-- If a user wants WASM, their external C-to-WASM compiler consumes that C.
 --------------------------------------------------------------------------------
 
-G.R.emit_c_for_kernel = moon.region[[
-emit_c_for_kernel(engine: ptr(GeoEngine), plan: KernelPlan, policy: CEmissionPolicy;
+G.R.emit_c_for_kernel = region(engine: ptr(GeoEngine), plan: KernelPlanRecord;
     c_source(src: CSourceRef)
-  | unsupported_kernel(plan: KernelPlan)
-  | unsupported_target(target: TargetProfile)
+  | unsupported_kernel(plan: KernelPlanRecord)
+  | unsupported_target(target: Target)
   | emission_failed(diag: DiagnosticRef)
   | memory_exhausted(needed: index))
-]]
+end
 
-G.R.emit_c_for_plan = moon.region[[
-emit_c_for_plan(engine: ptr(GeoEngine), plan: PhysicalPlanRef, kernels: KernelSet, policy: CEmissionPolicy;
+G.R.emit_c_for_plan = region(engine: ptr(GeoEngine), plan: PhysicalPlanRef, kernels: KernelSet;
     c_source(src: CSourceRef)
-  | missing_kernel(kernel: KernelPlan)
+  | missing_kernel(kernel: KernelPlanRecord)
   | unsupported_operator(op: PhysicalPlanRef)
   | emission_failed(diag: DiagnosticRef)
   | memory_exhausted(needed: index))
-]]
+end
 
-G.R.compile_cranelift_kernel = moon.region[[
-compile_cranelift_kernel(engine: ptr(GeoEngine), plan: KernelPlan, target: TargetProfile;
+G.R.compile_cranelift_kernel = region(engine: ptr(GeoEngine), plan: KernelPlanRecord, target: Target;
     jit_kernel(kernel: KernelRef)
-  | unsupported_kernel(plan: KernelPlan)
-  | unsupported_target(target: TargetProfile)
+  | unsupported_kernel(plan: KernelPlanRecord)
+  | unsupported_target(target: Target)
   | compile_failed(diag: DiagnosticRef)
   | memory_exhausted(needed: index))
-]]
+end
 
-G.R.publish_kernel = moon.region[[
-publish_kernel(kernels: ptr(KernelStore), build: owned KernelBuild;
+G.R.publish_kernel = region(kernels: ptr(KernelStore), build: owned KernelBuild;
     published(kernel: KernelRef)
   | duplicate(existing: KernelRef)
   | invalid_artifact(diag: DiagnosticRef)
   | memory_exhausted(needed: index))
-]]
+end
 
-G.R.retire_kernel = moon.region[[
-retire_kernel(kernels: ptr(KernelStore), kernel: KernelRef;
+G.R.retire_kernel = region(kernels: ptr(KernelStore), kernel: KernelRef;
     retired
   | stale(kernel: KernelRef)
   | missing(kernel: KernelRef)
   | live_leases(count: index))
-]]
-
-G.R.package_c_for_external_toolchain = moon.region[[
-package_c_for_external_toolchain(engine: ptr(GeoEngine), src: CSourceRef, target: TargetProfile;
-    package(src: CSourceRef)
-  | not_c_source(src: CSourceRef)
-  | target_profile_incomplete(target: TargetProfile)
-  | unsupported_profile(target: TargetProfile))
-]]
+end
 
 --------------------------------------------------------------------------------
--- SECTION 17 — Runtime execution regions
+-- 15. Runtime execution regions
 --------------------------------------------------------------------------------
 
-G.R.open_execution = moon.region[[
-open_execution(engine: ptr(GeoEngine), plan: PhysicalPlanRef, kernels: KernelSet;
+G.R.open_execution = region(engine: ptr(GeoEngine), plan: PhysicalPlanRef, kernels: KernelSet;
     stream(stream: StreamRef)
-  | missing_kernel(kernel: KernelPlan)
+  | missing_kernel(kernel: KernelPlanRecord)
   | source_unavailable(source: SourceRef)
   | memory_exhausted(needed: index))
-]]
+end
 
-G.R.next_batch = moon.region[[
-next_batch(engine: ptr(GeoEngine), stream: StreamRef;
+G.R.next_batch = region(engine: ptr(GeoEngine), stream: StreamRef;
     batch(batch: lease ptr(RecordBatch))
   | end
   | blocked(waiter: ptr(Waiter))
@@ -1988,208 +1686,167 @@ next_batch(engine: ptr(GeoEngine), stream: StreamRef;
   | cancelled
   | source_failed(source: SourceRef, code: i32)
   | kernel_failed(kernel: KernelRef, code: i32))
-]]
+end
 
-G.R.execute_partition = moon.region[[
-execute_partition(exec: ptr(ExecCtx), part: PhysicalPlanRef;
+G.R.execute_partition = region(exec: ptr(ExecCtx), part: PhysicalPlanRef;
     batch(batch: BatchRef)
   | end
   | blocked(waiter: ptr(Waiter))
   | spilled(bytes: index)
   | cancelled
   | failed(code: i32))
-]]
+end
 
-G.R.run_scan = moon.region[[
-run_scan(exec: ptr(ExecCtx), op: lease ptr(PhysicalScan);
+G.R.run_scan = region(exec: ptr(ExecCtx), op: lease ptr(PhysicalScan);
     batch(batch: BatchRef)
   | end
   | source_failed(source: SourceRef, code: i32)
   | memory_exhausted(needed: index))
-]]
+end
 
-G.R.run_geo_filter = moon.region[[
-run_geo_filter(exec: ptr(ExecCtx), op: lease ptr(PhysicalFusedGeoKernel), input: lease ptr(RecordBatch);
+G.R.run_geo_filter = region(exec: ptr(ExecCtx), op: lease ptr(PhysicalFusedGeoKernel), input: lease ptr(RecordBatch);
     batch(batch: BatchRef)
   | empty
   | kernel_failed(kernel: KernelRef, code: i32)
   | malformed_input(row: index, code: i32)
   | memory_exhausted(needed: index))
-]]
+end
 
-G.R.request_output_slot = moon.region[[
-request_output_slot(mem: ptr(MemoryPool), estimate: OutputEstimate;
+G.R.request_output_slot = region(mem: ptr(MemoryPool), estimate: OutputEstimate;
     slot(slot: lease ptr(OutputSlot))
   | blocked(waiter: ptr(Waiter))
   | closed
   | memory_exhausted(needed: index))
-]]
+end
 
 --------------------------------------------------------------------------------
--- SECTION 18 — ABI seals
+-- 16. ABI seals
 --------------------------------------------------------------------------------
--- Functions are only used at true seals:
---   - C ABI entrypoints
---   - JIT callable boundaries
---   - exported native symbols
---   - integration tests
---
--- Internally, rich outcomes remain regions/protocols.
+-- Function seals collapse rich protocols into ABI-friendly status products.
+-- Internally, implementations should immediately emit the rich region version.
 --------------------------------------------------------------------------------
 
-G.T.CompileStatus = moon.struct[[
-CompileStatus
-    code: i32,
-    plan: PhysicalPlanRef,
-    kernel_count: index,
+G.T.CompileStatus = struct
+    code: i32
+    plan: PhysicalPlanRef
+    kernel_count: index
     diagnostic: DiagnosticRef
 end
-]]
 
-G.T.ExecStatus = moon.struct[[
-ExecStatus
-    code: i32,
-    batch: BatchRef,
+G.T.ExecStatus = struct
+    code: i32
+    batch: BatchRef
     diagnostic: DiagnosticRef
 end
-]]
 
-G.T.RecordBatchCAbi = moon.struct[[
-RecordBatchCAbi
-    schema_ptr: ptr(u8),
-    array_stream_ptr: ptr(u8),
+G.T.RecordBatchCAbi = struct
+    schema_ptr: ptr(u8)
+    array_stream_ptr: ptr(u8)
     release_ctx: ptr(u8)
 end
-]]
 
-G.F.geolift_compile_query = moon.func[[
-geolift_compile_query(
+G.F.geolift_compile_query = func(
     engine: ptr(GeoEngine),
     sql: ptr(u8),
     sql_len: index,
-    target: TargetProfile): CompileStatus
-]]
+    target: Target): CompileStatus
+end
 
-G.F.geolift_open_execution = moon.func[[
-geolift_open_execution(
+G.F.geolift_open_execution = func(
     engine: ptr(GeoEngine),
     plan: PhysicalPlanRef): ExecStatus
-]]
+end
 
-G.F.geolift_next_batch = moon.func[[
-geolift_next_batch(
+G.F.geolift_next_batch = func(
     engine: ptr(GeoEngine),
     stream: StreamRef,
     out: ptr(RecordBatchCAbi)): ExecStatus
-]]
+end
 
-G.F.geolift_release_batch = moon.func[[
-geolift_release_batch(
+G.F.geolift_release_batch = func(
     engine: ptr(GeoEngine),
     batch: BatchRef): ExecStatus
-]]
+end
 
-G.F.geolift_emit_c = moon.func[[
-geolift_emit_c(
+G.F.geolift_emit_c = func(
+    engine: ptr(GeoEngine),
+    plan: PhysicalPlanRef): CompileStatus
+end
+
+G.F.geolift_compile_jit = func(
     engine: ptr(GeoEngine),
     plan: PhysicalPlanRef,
-    policy: CEmissionPolicy): CompileStatus
-]]
-
-G.F.geolift_compile_jit = moon.func[[
-geolift_compile_jit(
-    engine: ptr(GeoEngine),
-    plan: PhysicalPlanRef,
-    target: TargetProfile): CompileStatus
-]]
+    target: Target): CompileStatus
+end
 
 --------------------------------------------------------------------------------
--- SECTION 19 — Extern C boundary declarations
+-- 17. Extern C declarations
 --------------------------------------------------------------------------------
--- Externs are intentionally thin. They must be wrapped by regions before
--- reaching the semantic core.
---------------------------------------------------------------------------------
-
-G.X.memcpy = moon.extern[[
-memcpy(dst: ptr(u8), src: ptr(u8), n: index): ptr(u8) as "memcpy" end
-]]
-
-G.X.memset = moon.extern[[
-memset(dst: ptr(u8), c: i32, n: index): ptr(u8) as "memset" end
-]]
-
-G.X.malloc = moon.extern[[
-malloc(n: index): ptr(u8) as "malloc" end
-]]
-
-G.X.free = moon.extern[[
-free(p: ptr(u8)) as "free" end
-]]
-
--- Optional CRS/projection boundary. Implementations may omit these externs
--- and provide a pure/native projection family instead.
-G.X.proj_create_crs_to_crs = moon.extern[[
-proj_create_crs_to_crs(ctx: ptr(u8), src: ptr(u8), dst: ptr(u8)): ptr(u8) as "proj_create_crs_to_crs" end
-]]
-
-G.X.proj_destroy = moon.extern[[
-proj_destroy(p: ptr(u8)) as "proj_destroy" end
-]]
-
---------------------------------------------------------------------------------
--- SECTION 20 — External boundary wrapper regions
+-- Thin extern declarations only. Wrap them in regions before semantic use.
 --------------------------------------------------------------------------------
 
-G.R.import_arrow_c_stream = moon.region[[
-import_arrow_c_stream(engine: ptr(GeoEngine), stream: ptr(u8);
+G.X.memcpy = extern(dst: ptr(u8), src: ptr(u8), n: index): ptr(u8) as "memcpy" end
+G.X.memset = extern(dst: ptr(u8), c: i32, n: index): ptr(u8) as "memset" end
+G.X.malloc = extern(n: index): ptr(u8) as "malloc" end
+G.X.free = extern(p: ptr(u8)) as "free" end
+
+-- Optional projection library boundary. Implementations may replace this with
+-- pure specialized projection kernels.
+G.X.proj_create_crs_to_crs = extern(ctx: ptr(u8), src: ptr(u8), dst: ptr(u8)): ptr(u8) as "proj_create_crs_to_crs" end
+G.X.proj_destroy = extern(p: ptr(u8)) as "proj_destroy" end
+
+--------------------------------------------------------------------------------
+-- 18. External boundary wrapper regions
+--------------------------------------------------------------------------------
+
+G.R.import_arrow_c_stream = region(engine: ptr(GeoEngine), stream: ptr(u8);
     imported(source: SourceRef)
   | invalid_c_abi(code: i32)
   | schema_unsupported(field: FieldRef)
   | release_missing
   | memory_exhausted(needed: index))
-]]
+end
 
-G.R.export_arrow_c_stream = moon.region[[
-export_arrow_c_stream(engine: ptr(GeoEngine), stream: StreamRef;
+G.R.export_arrow_c_stream = region(engine: ptr(GeoEngine), stream: StreamRef;
     exported(out: ptr(u8))
   | invalid_stream(stream: StreamRef)
   | schema_unsupported(schema: SchemaRef)
   | memory_exhausted(needed: index))
-]]
+end
 
-G.R.build_crs_transform = moon.region[[
-build_crs_transform(crs: ptr(CrsRegistry), src: CrsRef, dst: CrsRef;
+G.R.build_crs_transform = region(crs: ptr(CrsRegistry), src: CrsRef, dst: CrsRef;
     transform(t: owned CrsTransformRef)
   | unsupported_pair(src: CrsRef, dst: CrsRef)
   | external_failed(code: i32)
   | memory_exhausted(needed: index))
-]]
+end
 
-G.R.destroy_crs_transform = moon.region[[
-destroy_crs_transform(t: owned CrsTransformRef;
+G.R.destroy_crs_transform = region(t: owned CrsTransformRef;
     destroyed
   | invalid_transform(code: i32))
-]]
+end
 
 --------------------------------------------------------------------------------
--- SECTION 21 — Read-aloud architecture
+-- 19. Read-aloud architecture
 --------------------------------------------------------------------------------
--- A reviewer should be able to narrate this module:
+-- compile_query:
+--   parse -> bind -> geo semantic resolution -> Arrow/GeoArrow facts ->
+--   optimization -> physical planning -> kernel preparation.
 --
---   compile_query parses text, binds names, resolves geospatial semantics,
---   derives Arrow/GeoArrow facts, optimizes the logical plan, chooses a
---   physical plan, and prepares kernels.
+-- prepare_kernels:
+--   either cache hit, Cranelift JIT, or C emission.
 --
---   prepare_kernels either hits the cache, emits C, JIT-compiles with Cranelift,
---   or reports an explicit failure. It does not emit WASM. If the target profile
---   is web_c_profile, C emission follows stricter C rules so the user's external
---   C-to-WASM compiler can consume the generated C.
+-- emit_c_for_plan:
+--   returns CSourceRef. Nothing more. The user's C compiler may produce
+--   native objects, shared libraries, or WASM. That is outside this header.
 --
---   execution opens a stream and repeatedly asks next_batch. Batches are
---   borrowed leases over Arrow/GeoArrow layouts. Kernels never discover
---   ownership or schema; they receive resolved layout facts and leases.
+-- execution:
+--   open_execution returns a StreamRef. next_batch returns borrowed Arrow
+--   RecordBatch layouts or explicit execution outcomes.
 --
---   all stored kind fields are encodings with a named visit_* owner.
+-- hot kernels:
+--   receive validated leases over Arrow/GeoArrow layouts.
+--   no schema lookup, no ownership discovery, no random tag dispatch.
 --------------------------------------------------------------------------------
 
 return G

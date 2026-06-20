@@ -35,7 +35,7 @@ function M.Define(T)
             end
             return pvm.seq(out)
         end,
-    }, { args_cache = "full" })
+    }, { node_cache = "none", args_cache = "none" })
 
     local function highlights(query, analysis)
         return pvm.drain(highlight_phase(query, analysis))

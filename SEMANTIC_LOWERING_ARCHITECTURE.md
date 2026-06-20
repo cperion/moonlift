@@ -571,19 +571,15 @@ module MoonLower {
 
     LowerTarget = LowerTargetBack
         | LowerTargetC
-        | LowerTargetNamed(string name) unique
 
     LowerCover = LowerCoverFunction(MoonCode.CodeFuncId func) unique
         | LowerCoverLoop(MoonGraph.GraphLoopId loop) unique
         | LowerCoverBlock(MoonCode.CodeFuncId func, MoonCode.CodeBlockId block) unique
         | LowerCoverBlockRange(MoonCode.CodeFuncId func, MoonCode.CodeBlockId entry, MoonCode.CodeBlockId exit) unique
-        | LowerCoverInst(MoonCode.CodeFuncId func, MoonCode.CodeInstId inst) unique
 
     LowerStrategy = LowerStrategyCode(string reason) unique
         | LowerStrategyKernel(MoonKernel.KernelId kernel, MoonSchedule.ScheduleId schedule) unique
         | LowerStrategyClosedForm(MoonKernel.KernelId kernel, MoonValue.ClosedFormFact fact) unique
-        | LowerStrategyIntrinsic(string name, string reason) unique
-        | LowerStrategyCall(string reason) unique
 
     LowerFragment = (MoonLower.LowerFragmentId id,
                      MoonLower.LowerCover cover,
@@ -602,7 +598,6 @@ module MoonLower {
     LowerIssue = LowerIssueOverlap(MoonLower.LowerFragmentId a, MoonLower.LowerFragmentId b) unique
         | LowerIssueGap(MoonCode.CodeFuncId func, string reason) unique
         | LowerIssueFallback(MoonLower.LowerCover cover, string reason) unique
-        | LowerIssueFactLost(string fact_kind, string boundary, string reason) unique
 
     LowerModule = (MoonCode.CodeModuleId module,
                    MoonLower.LowerTarget target,
@@ -682,8 +677,6 @@ for func_plan in lower.funcs do
       emit_kernel_fragment(kernel, schedule, facts)
     elseif fragment.strategy == LowerStrategyClosedForm then
       emit_closed_form_return_or_value(kernel, closed_form, facts)
-    elseif fragment.strategy == LowerStrategyIntrinsic then
-      emit_intrinsic(fragment, facts)
     end
   end
   end BackFunc

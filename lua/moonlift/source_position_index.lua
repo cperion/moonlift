@@ -94,13 +94,18 @@ end
 
 function M.Define(T)
     local S = T.MoonSource
+    local index_cache = setmetatable({}, { __mode = "kv" })
 
     local build_index_phase = pvm.phase("moonlift_source_position_index", function(document)
         return S.PositionIndex(document, build_lines(S, document))
     end)
 
     local function build_index(document)
-        return pvm.one(build_index_phase(document))
+        local cached = index_cache[document]
+        if cached then return cached end
+        local index = pvm.one(build_index_phase:triplet_uncached(document))
+        index_cache[document] = index
+        return index
     end
 
     local function offset_to_pos(index, offset)

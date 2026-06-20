@@ -817,7 +817,7 @@ function M.Define(T)
         if schedule == nil or pvm.classof(schedule.kind) ~= Schedule.ScheduleVector then error("lower_to_back: vector kernel strategy requires ScheduleVector", 2) end
         local vec, elem_ty, lanes = vector_for_lane_shape(schedule.kind.lanes)
         if schedule.kind.tail ~= Schedule.TailScalar and schedule.kind.tail ~= Schedule.TailNone then error("lower_to_back: vector kernel only implements TailScalar/TailNone", 2) end
-        if pvm.classof(kplan.body.result) == Kernel.KernelResultClosedForm then error("lower_to_back: vector closed forms are not implemented", 2) end
+        if pvm.classof(kplan.body.result) == Kernel.KernelResultClosedForm then error("lower_to_back: invalid vector schedule for closed-form result", 2) end
         local loop = graph_loop_by_id(graph)[kplan.subject.loop.text]
         if loop == nil or #(loop.latches or {}) ~= 1 or #(loop.exits or {}) ~= 1 then error("lower_to_back: vector kernel supports one loop/latch/exit", 2) end
         local loop_fact = nil
@@ -1180,10 +1180,6 @@ function M.Define(T)
                 emit_closed_form_fragment(ctx, code_module, graph, flow, kernels, fragment)
             end)
             return
-        elseif cls == Lower.LowerStrategyIntrinsic then
-            error("lower_to_back: LowerStrategyIntrinsic has no Back emitter; planner must emit LowerStrategyCode/Call with explicit fallback or implement the intrinsic emitter", 2)
-        elseif cls == Lower.LowerStrategyCall then
-            error("lower_to_back: LowerStrategyCall has no Back emitter; planner must emit LowerStrategyCode with LowerIssueFallback or implement the call emitter", 2)
         end
         error("lower_to_back: unsupported LowerStrategy for Back emission", 2)
     end
@@ -1257,6 +1253,9 @@ function M.Define(T)
     end
 
     local function module(code_module, graph, flow, value, mem, effect, kernels, schedules, lower, opts)
+        if graph ~= nil and pvm.classof(graph) == Lower.LowerModule then
+            opts = flow or opts
+        end
         opts = opts or {}
         graph, flow, value, mem, effect, kernels, schedules, lower = normalize_args(code_module, graph, flow, value, mem, effect, kernels, schedules, lower)
         graph = graph or CodeGraph.graph(code_module)
@@ -1265,7 +1264,7 @@ function M.Define(T)
         mem = mem or CodeMemFacts.semantic_facts(code_module, graph, flow, value, nil)
         effect = effect or CodeEffectFacts.facts(code_module, graph, mem, nil)
         kernels = kernels or CodeKernelPlan.plan(code_module, graph, flow, value, mem, effect)
-        schedules = schedules or CodeSchedulePlan.plan(code_module, kernels, flow, value, mem, effect, nil)
+        schedules = schedules or CodeSchedulePlan.plan(code_module, kernels, flow, value, mem, effect, opts.target_model or opts.back_target_model)
         lower = lower or CodeLowerPlan.plan(code_module, graph, kernels, schedules, Lower.LowerTargetBack)
 
         local ctx = { cmds = {}, kernels = kernels, schedules = schedules, value_types = {}, next_tmp = 0, mem_access_by_id = {}, mem_backend_by_access = {}, schedule_by_id = {}, layout_env = opts.layout_env, target = opts.target }

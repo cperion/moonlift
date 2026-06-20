@@ -68,7 +68,7 @@ function M.Define(T)
         for i = 1, #all do if overlaps(all[i].range, query.range) then out[#out + 1] = all[i] end end
         return pvm.seq(out)
         end,
-    }, { args_cache = "full" })
+    }, { node_cache = "none", args_cache = "none" })
 
     local function tokens(analysis)
         return pvm.drain(tokens_phase(analysis))

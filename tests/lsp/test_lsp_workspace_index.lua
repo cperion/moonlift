@@ -61,6 +61,7 @@ end
 local input = table.concat({
     frame({ jsonrpc = "2.0", id = 1, method = "initialize", params = { rootUri = "file://" .. root } }),
     frame({ jsonrpc = "2.0", method = "initialized", params = {} }),
+    frame({ jsonrpc = "2.0", method = "textDocument/didOpen", params = { textDocument = { uri = helper_uri, languageId = "mlua", version = 1, text = helper_src } } }),
     frame({ jsonrpc = "2.0", method = "textDocument/didOpen", params = { textDocument = { uri = main_uri, languageId = "mlua", version = 1, text = main_src } } }),
     frame({ jsonrpc = "2.0", id = 2, method = "workspace/symbol", params = { query = "helper" } }),
     frame({ jsonrpc = "2.0", id = 3, method = "textDocument/definition", params = { textDocument = { uri = main_uri }, position = pos_of(main_src, "helper") } }),
@@ -88,10 +89,10 @@ end
 local by_id = {}
 for _, msg in ipairs(decode_frames(out:text())) do if msg.id then by_id[msg.id] = msg end end
 
-assert(#by_id[2].result >= 1, "workspace symbols should include disk .mlua files")
+assert(#by_id[2].result >= 1, "workspace symbols should include open .mlua files")
 assert(by_id[2].result[1].location.uri == helper_uri, "workspace symbol should point at helper file")
 
-assert(#by_id[3].result == 1, "definition should cross from open file to disk file")
+assert(#by_id[3].result == 1, "definition should cross between open files")
 assert(by_id[3].result[1].uri == helper_uri, "definition should target helper file")
 
 local saw_main_use, saw_helper_def = false, false
@@ -99,10 +100,10 @@ for _, loc in ipairs(by_id[4].result) do
     if loc.uri == main_uri then saw_main_use = true end
     if loc.uri == helper_uri then saw_helper_def = true end
 end
-assert(saw_main_use and saw_helper_def, "references should include open use and disk definition")
+assert(saw_main_use and saw_helper_def, "references should include open use and open definition")
 
 local changes = by_id[5].result.changes
-assert(changes[main_uri] and changes[helper_uri], "rename should edit both open and disk files")
+assert(changes[main_uri] and changes[helper_uri], "rename should edit both open files")
 assert(changes[main_uri][1].newText == "helper2")
 assert(changes[helper_uri][1].newText == "helper2")
 

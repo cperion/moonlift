@@ -293,7 +293,7 @@ function M.Define(T)
             for _, stream in ipairs(body and body.streams or {}) do
                 if stream.pattern ~= Mem.MemAccessContiguous then rejects[#rejects + 1] = reject_memory("vector emitter only supports contiguous streams") end
             end
-            if pvm.classof(result) == Kernel.KernelResultClosedForm then rejects[#rejects + 1] = reject_target("vector closed forms are not implemented") end
+            if pvm.classof(result) == Kernel.KernelResultClosedForm then rejects[#rejects + 1] = reject_target("closed-form results must use ScheduleClosedForm") end
             if pvm.classof(result) == Kernel.KernelResultReduction then
                 if sk ~= nil and sk.tail ~= Schedule.TailScalar then rejects[#rejects + 1] = reject_target("vector reductions require TailScalar") end
                 local ok, reason = ReductionAlgebra.vector_support(result.reduction, sk and sk.lanes and sk.lanes.elem_ty or nil)

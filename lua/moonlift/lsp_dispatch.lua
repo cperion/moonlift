@@ -53,13 +53,51 @@ function M.Define(T)
     local Bindings = BindingFacts.Define(T)
     local Adapt = AdaptMod.Define(T)
     local Caps = Capabilities.Define(T)
+    local analysis_cache = setmetatable({}, { __mode = "k" })
+    local diagnostic_analysis_cache = setmetatable({}, { __mode = "k" })
+    local diagnostics_disabled = os.getenv("MOONLIFT_LSP_DISABLE_DIAGNOSTICS") == "1"
+    local memlog = os.getenv("MOONLIFT_LSP_MEMLOG") == "1"
 
     local analyze_document_phase = pvm.phase("moonlift_lsp_analyze_document", function(doc)
-        return Analysis.analyze_document(doc)
+        return Analysis.analyze_document_light(doc)
     end)
 
+    local diagnostic_document_phase = pvm.phase("moonlift_lsp_diagnostic_document", function(doc)
+        return Analysis.analyze_document_full(doc)
+    end)
+
+    local function log_analysis(stage, mode, doc)
+        if memlog then
+            io.stderr:write(
+                "moonlift-lsp analyze ", stage,
+                " mode=", mode,
+                " uri=", doc.uri.text,
+                " version=", tostring(doc.version.value),
+                " bytes=", tostring(#doc.text),
+                " heap_kb=", tostring(math.floor(collectgarbage("count"))),
+                "\n"
+            )
+        end
+    end
+
     local function analyze_doc(doc)
-        return pvm.one(analyze_document_phase(doc))
+        local cached = analysis_cache[doc]
+        if cached then return cached end
+        log_analysis("begin", "light", doc)
+        local analysis = pvm.one(analyze_document_phase:triplet_uncached(doc))
+        log_analysis("end", "light", doc)
+        analysis_cache[doc] = analysis
+        return analysis
+    end
+
+    local function analyze_doc_diagnostic(doc)
+        local cached = diagnostic_analysis_cache[doc]
+        if cached then return cached end
+        log_analysis("begin", "diagnostic", doc)
+        local analysis = pvm.one(diagnostic_document_phase:triplet_uncached(doc))
+        log_analysis("end", "diagnostic", doc)
+        diagnostic_analysis_cache[doc] = analysis
+        return analysis
     end
 
     local function analyze_doc_safe(doc)
@@ -68,9 +106,15 @@ function M.Define(T)
         return nil, tostring(analysis)
     end
 
+    local function analyze_doc_diagnostic_safe(doc)
+        local ok, analysis = pcall(analyze_doc_diagnostic, doc)
+        if ok then return analysis end
+        return nil, tostring(analysis)
+    end
+
     local function workspace_analyses(state)
         local out = {}
-        for _, doc in ipairs(Workspace.documents(state)) do
+        for _, doc in ipairs(Workspace.open_documents(state)) do
             local analysis = analyze_doc_safe(doc)
             if analysis then out[#out + 1] = analysis end
         end
@@ -183,8 +227,17 @@ function M.Define(T)
         return result(id, fn(doc, analysis))
     end
 
+    local function with_doc_diagnostic(state, uri, id, empty_payload, fn)
+        local doc = Workspace.document_for_uri(state, uri)
+        if not doc then return result(id, empty_payload) end
+        local analysis = analyze_doc_diagnostic_safe(doc)
+        if not analysis then return result(id, empty_payload) end
+        return result(id, fn(doc, analysis))
+    end
+
     local function diagnostic_document_payload(doc)
-        local analysis = analyze_doc_safe(doc)
+        if diagnostics_disabled then return L.PayloadDiagnosticDocumentReport(empty_report()) end
+        local analysis = analyze_doc_diagnostic_safe(doc)
         if not analysis then return L.PayloadDiagnosticDocumentReport(empty_report()) end
         return L.PayloadDiagnosticDocumentReport(Adapt.diagnostic_document_report(Diag.diagnostics(analysis)))
     end
@@ -285,7 +338,7 @@ function M.Define(T)
                 return L.PayloadWorkspaceEdit(Adapt.workspace_edit(edits))
             end)
         elseif cls == E.ClientCodeAction then
-            out[#out + 1] = with_doc(state, event.query.range.uri, event.id, L.PayloadCodeActions({}), function(_, analysis)
+            out[#out + 1] = with_doc_diagnostic(state, event.query.range.uri, event.id, L.PayloadCodeActions({}), function(_, analysis)
                 return L.PayloadCodeActions(Adapt.code_actions(Actions.actions(event.query, analysis)))
             end)
         elseif cls == E.ClientFoldingRange then
@@ -306,7 +359,7 @@ function M.Define(T)
         end
 
         return out
-    end, { args_cache = "none" })
+    end, { node_cache = "none", args_cache = "none" })
 
     local function commands(transition)
         return pvm.one(dispatch_phase(transition))
@@ -314,6 +367,7 @@ function M.Define(T)
 
     return {
         analyze_document_phase = analyze_document_phase,
+        diagnostic_document_phase = diagnostic_document_phase,
         dispatch_phase = dispatch_phase,
         commands = commands,
     }

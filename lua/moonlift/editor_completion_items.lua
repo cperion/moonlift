@@ -151,14 +151,14 @@ function M.Define(T)
         end
         return pvm.seq(items)
         end,
-    }, { args_cache = "full" })
+    }, { node_cache = "none", args_cache = "none" })
 
     local completion_phase = pvm.phase("moonlift_editor_completion", {
         [E.PositionQuery] = function(position_query, analysis)
         local context = Context.context(position_query, analysis)
         return pvm.seq(pvm.drain(items_phase(E.CompletionQuery(position_query, context), analysis)))
         end,
-    }, { args_cache = "full" })
+    }, { node_cache = "none", args_cache = "none" })
 
     local function items(completion_query, analysis)
         return pvm.drain(items_phase(completion_query, analysis))

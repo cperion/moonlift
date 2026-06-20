@@ -21,6 +21,7 @@ struct User
     active: bool32,
 end
 expose Users: view(User)
+extern touch(x: i32): i32 end
 func User:is_active(self: ptr(User)): bool
     return true
 end
@@ -69,6 +70,10 @@ assert(h_expose.value:match("host expose"))
 
 local h_method = Hover.hover(query_at("User:is_active"), analysis)
 assert(h_method.value:match("accessor") or h_method.value:match("function"))
+
+local h_extern = Hover.hover(query_at("touch"), analysis)
+assert(h_extern.value:match("extern touch"))
+assert(h_extern.value:match("imported C/host function"))
 
 local h_region = Hover.hover(query_at("Done"), analysis)
 assert(h_region.value:match("region fragment"))
@@ -119,9 +124,10 @@ assert(pvm.classof(h_unresolved) == E.HoverInfo)
 assert(h_unresolved.value:match("unresolved binding"))
 
 Hover.hover_phase:reset()
-pvm.drain(Hover.hover_phase(query_at("User"), analysis))
-pvm.drain(Hover.hover_phase(query_at("User"), analysis))
+local user_query = query_at("User")
+pvm.drain(Hover.hover_phase(user_query, analysis))
+pvm.drain(Hover.hover_phase(user_query, analysis))
 local report = pvm.report({ Hover.hover_phase })[1]
-assert(report.calls == 2 and report.hits == 1)
+assert(report.calls == 2 and report.hits == 0)
 
 print("moonlift editor hover ok")

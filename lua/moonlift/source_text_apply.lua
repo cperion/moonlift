@@ -92,7 +92,7 @@ function M.Define(T)
         pieces[n] = document.text:sub(cursor + 1)
         local new_text = table.concat(pieces)
         return S.SourceApplyOk(S.DocumentSnapshot(document.uri, edit.version, document.language, new_text))
-    end, { args_cache = "full" })
+    end, { node_cache = "none", args_cache = "none" })
 
     local function apply(document, edit)
         return pvm.one(apply_phase(document, edit))

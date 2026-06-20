@@ -221,7 +221,94 @@ end
 
 `@{x}` splices a typed ASDL value — a type, a constant, a fragment — never a string. The parser sees a complete monomorphic program. Factories are not an implementation convenience; they are the design representation of a *family* of machines, and Book II will show that they quietly resolve one of Ousterhout's hardest trade-offs.
 
-### 3.6 Unified ASDL — one shape language for data and control
+### 3.6 LuaBridge — the dynamic host boundary
+
+Lua plays two roles in Moonlift, and confusing them is a design bug.
+
+```text
+Lua as staging language
+    builds declarations, factories, quotes, and modules
+
+LuaJIT as runtime object space
+    owns stack slots, Lua objects, registry references, and protected calls
+```
+
+The first role is beautiful Lua: callable tables, factories, splices, modules.
+The second role is a foreign runtime boundary. It must be treated like every
+other serious Moonlift boundary: with typed products, handles, ownership
+obligations, and named exits.
+
+That boundary is **LuaBridge**.
+
+```text
+lua_raw          raw extern pins, unsafe and internal
+lua_bridge_model typed boundary facts and protocol signatures
+lua_bridge       implementations that may touch lua_raw
+```
+
+The doctrine is simple:
+
+```text
+Raw Lua C API calls are allowed.
+Raw Lua C API calls are not the design.
+LuaBridge regions are the design.
+```
+
+LuaJIT owns Lua object memory. Moonlift owns registry-reference obligations.
+A stack index is borrowed position, not a durable value. A registry integer is
+an implementation field, not ownership. A Lua string pointer is borrowed memory,
+not a buffer. A protected-call status code is not the error model.
+
+The typed bridge names those facts:
+
+```moonlift
+handle LuaStateRef : u32 invalid 0
+    target LuaStateRecord
+end
+
+handle LuaRef : u32 invalid 0
+    target LuaRefRecord
+end
+
+struct LuaStackMark
+    top: i32,
+end
+
+struct LuaStackRange
+    first: i32,
+    count: i32,
+end
+```
+
+The key ownership type is:
+
+```moonlift
+owned LuaRef
+```
+
+`LuaRef` is durable identity for a Lua value retained in the registry.
+`owned LuaRef` is the exactly-once obligation to release or transfer that
+registry reference. If a bridge protocol accepts an owned ref and fails before
+proving discharge, the failure exit carries `ref: owned LuaRef` back to the
+caller. Error handling cannot erase cleanup authority.
+
+This is not extra ceremony. It is Moonlift applying its own law at the LuaJIT
+border:
+
+```text
+Lua stack effects are marked, restored, checked, or exposed as ranges.
+Lua calls are protected.
+Lua errors become typed continuations.
+Lua tables are imported by named semantic protocols.
+Lua userdata is decoded as controlled proxies or rejected as foreign.
+Only LuaBridge may normally use lua_raw.
+```
+
+So the host may remain poetic, but the runtime bridge must be explicit. Lua is
+where genericity lives; LuaBridge is where LuaJIT's dynamic runtime facts stop
+being ambient and become Moonlift facts.
+
+### 3.7 Unified ASDL — one shape language for data and control
 
 This is the unifying point: Moonlift is **ASDL generalized from data into
 control**.
@@ -1424,6 +1511,7 @@ region/function says what can happen, what access it invalidates, and whether an
 9. **Raw pointers are boundary tools.** `ptr(T)` alone is an address; bounds require a view, lease, or explicit contract.
 10. **Invalidation is named.** Resource close, arena reset, publish, retire, destroy, compact, and generation bump are region/effect facts, not destructor folklore.
 11. **Kernels are seals.** Hot code receives already-borrowed leases/views/contracts and does not discover ownership.
+12. **Foreign runtimes get bridges.** LuaJIT stack slots, registry refs, borrowed strings, protected calls, and userdata proxies cross through LuaBridge protocols, not ad hoc raw externs.
 
 ---
 
@@ -1441,16 +1529,17 @@ region/function says what can happen, what access it invalidates, and whether an
     seal with functions.             19. Handles may escape; leases may not.
  9. The protocol belongs to          20. Stores own bytes; regions grant access facts.
     the consumer.
-10. Deep region: small signature,
+10. Deep region: small signature,    21. Foreign runtime facts cross through typed bridges.
     large machine.
 ```
 
-And the five sentences that compress the books behind them:
+And the six sentences that compress the books behind them:
 
 > **Choice is control. Data is product.** *(the algebra)*
 > **Depth is a small protocol in front of a large machine.** *(Ousterhout, translated)*
 > **A region is a statechart whose final states are its signature.** *(UML, completed)*
 > **Stores own bytes; handles name durable identity; regions grant leases; protocols name failure.** *(memory)*
+> **Lua generates families; LuaBridge owns the LuaJIT boundary.** *(host discipline)*
 > **Design the two trees; the compiler checks them against each other; then implementation is transcription.** *(the method)*
 
 The architecture is not a diagram beside the system, a document above it, or a convention around it. The architecture is the product graph plus the protocol graph — and the implementation is the same graph, lowered to native code. That is the Moonlift method.

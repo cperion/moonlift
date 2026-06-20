@@ -256,6 +256,9 @@ end
 --    "full" (default) → retain the full arg history per node
 --    "last"           → retain only the latest arg tuple per node
 --    "none"           → do not memoize arg-keyed calls at all
+--  opts.node_cache controls whether the node-keyed phase result is retained:
+--    "full" (default) → retain node-keyed results
+--    "none"           → never retain results for this phase
 --
 --  Handlers receive a node and must return a triplet (g, p, c).
 --  Returning nil from a handler is an error.
@@ -383,6 +386,10 @@ function pvm.phase(name, handlers_or_fn, opts)
 	if args_cache_mode ~= "full" and args_cache_mode ~= "last" and args_cache_mode ~= "none" then
 		error("pvm.phase: opts.args_cache must be 'full', 'last', or 'none'", 2)
 	end
+	local node_cache_mode = opts.node_cache or "full"
+	if node_cache_mode ~= "full" and node_cache_mode ~= "none" then
+		error("pvm.phase: opts.node_cache must be 'full' or 'none'", 2)
+	end
 
 	local handlers_t = type(handlers_or_fn)
 	if handlers_t == "table" then
@@ -504,6 +511,10 @@ function pvm.phase(name, handlers_or_fn, opts)
 		stats.calls = stats.calls + 1
 		local cls, key = resolve_node(node)
 		local argc = select("#", ...)
+		if node_cache_mode == "none" then
+			local args = argc > 0 and pack_phase_args(argc, ...) or nil
+			return miss_triplet(node, cls, argc, args)
+		end
 
 		if argc == 0 then
 			local cache_t = resolve_cache_table(cls)
@@ -694,8 +705,11 @@ function pvm.phase(name, handlers_or_fn, opts)
 	end
 
 	-- inspect cached output for a node without populating
-	function boundary:cached(node, ...)
-		local cls, key = resolve_node(node)
+		function boundary:cached(node, ...)
+			if node_cache_mode == "none" then
+				return nil
+			end
+			local cls, key = resolve_node(node)
 		local argc = select("#", ...)
 		if argc == 0 then
 			local cache_t = peek_cache_table(cls)

@@ -152,33 +152,38 @@ return { parse_packet = parse_packet }
 
 ```lua
 -- Build switch arms from Lua data, spread into Moonlift source
-local function literal_arm(text, push_src)
+local function literal_arm(text, tag)
     local bytes = { text:byte(1, #text) }
     local lines = {}
     lines[#lines + 1] = ("if i + %d > n then jump fail() end"):format(#bytes)
     for off = 2, #bytes do
         lines[#lines + 1] = ("if as(i32, p[i + %d]) ~= %d then jump fail() end"):format(off - 1, bytes[off])
     end
-    lines[#lines + 1] = push_src
+    lines[#lines + 1] = "tags[meta[0]] = " .. tostring(tag)
+    lines[#lines + 1] = "a[meta[0]] = 0"
+    lines[#lines + 1] = "b[meta[0]] = 0"
+    lines[#lines + 1] = "nums[meta[0]] = 0.0"
+    lines[#lines + 1] = "meta[0] = meta[0] + 1"
     lines[#lines + 1] = ("jump done(next_i = i + %d)"):format(#bytes)
     return { raw_key = tostring(bytes[1]), body = moon.stmts(table.concat(lines, "\n")) }
 end
 
 local literal_arms = {
-    literal_arm("true",  "lua_pushboolean(L, 1)"),
-    literal_arm("false", "lua_pushboolean(L, 0)"),
-    literal_arm("null",  "lua_pushnil(L)"),
+    literal_arm("true",  8),
+    literal_arm("false", 9),
+    literal_arm("null",  10),
 }
 
 -- Bind values, then quote: moon.func { values } [[ source ]]
 local parse_value = moon.func { literal_arms = literal_arms } [[
-parse_value(L: ptr(u8), p: ptr(u8), n: i32, pos: i32, buf: ptr(u8)): i32
+parse_value(p: ptr(u8), n: i32, pos: i32, tags: ptr(i32), a: ptr(i32),
+            b: ptr(i32), nums: ptr(f64), meta: ptr(i32)): i32
     return region: i32
     entry start()
         switch as(i32, p[i]) do
         @{literal_arms...}
-        case 34 then emit parse_string(...)
-        default then emit parse_number(...)
+        case 34 then emit parse_string_event(...)
+        default then emit parse_number_event(...)
         end
     end
     ...
@@ -186,8 +191,10 @@ end
 ]]
 ```
 
-See `examples/json/json_lua_stack_decoder.lua` for a complete decoder that
-beats lua-cjson by 2.5×.
+See `examples/json/json_lua_stack_decoder.mlua` for the JSON showcase: a
+library-shaped decoder/encoder that emits a full C backend blob. Its canonical
+decode path builds a typed Moonlift value-event tape first, then projects that
+explicit value stream to Lua while preserving JSON null and array/object shape.
 
 ### Control: typed blocks, jumps, yields
 
@@ -257,14 +264,13 @@ backend coverage.
 target/release/moonlift examples/json/json_lua_stack_decoder.mlua
 ```
 
-### Run the same decoder from pure Lua
-
-```bash
-luajit examples/json/json_lua_stack_decoder.lua
-```
-
-Both produce identical output. The `.lua` version uses `moon.func[[]]` quotes
-and doesn't require the `.mlua` carrier pipeline.
+The JSON example returns a Lua library table with `decode`, `decode_or_nil`,
+`encode`, `valid`, `new_decoder`, `c_blob`, `c_header`, `c_api`, and
+`emcc_args`. Its native parser emits a Lua-free C API, prefers a GCC `-O3`
+shared artifact for local execution, and can be compiled for the browser with
+Emscripten. In WASM, the output buffers map directly to JS typed arrays:
+`Int32Array` for event tags/slices/meta, `Float64Array` for numbers, and
+`Uint8Array` for source and decoded string bytes.
 
 ### Compile to a native object file
 
@@ -855,13 +861,17 @@ benchmarks/run_vs_terra.sh          # Full suite
 benchmarks/run_vs_terra.sh quick    # Quick mode
 ```
 
-### JSON stack decoder benchmark
+### JSON value-event benchmark
 
-Moonlift's hosted JSON stack decoder parses JSON and builds Lua values directly
-through the Lua C API — no interpreter overhead in the parsing loop, no `strtod`,
-region fragments for zero-cost control-flow composition.
+Moonlift's hosted JSON showcase parses JSON in typed native kernels and
+materializes those kernels as a C backend blob. The canonical `.mlua` library
+constructs a Moonlift-owned value-event tape for `null`, booleans, numbers,
+strings, arrays, objects, and object keys. The raw benchmark measures that
+typed-array-shaped event API. A separate benchmark line measures full Lua object
+projection, which is the fair comparison against decoders that return Lua
+tables. The C blob itself has no Lua dependency.
 
-Benchmarked against **lua-cjson 2.1.0**, **dkjson**, and pure Lua on a realistic
+Benchmarked against **lua-cjson**, **dkjson**, and pure Lua on a realistic
 2.9 KB payload with 50 user records:
 
 ```bash
@@ -869,18 +879,9 @@ luajit benchmarks/bench_json_stack_decode.lua          # quick
 luajit benchmarks/bench_json_stack_decode.lua full     # full
 ```
 
-| Decoder | Time | Throughput |
-|---|---|---|
-| **moonlift_json_stack** | 0.109s | **268 MB/s** |
-| cjson_decode | 0.268s | 109 MB/s |
-| pure_lua_json | 0.505s | 58 MB/s |
-| dkjson_decode | 1.363s | 21 MB/s |
-
-The decoder is available in two forms:
-- `examples/json/json_lua_stack_decoder.mlua` — `.mlua` with `@{}` carrier closures
-- `examples/json/json_lua_stack_decoder.lua` — pure Lua using `moon.func[[]]` quotes
-
-Both produce identical native code and benchmark results.
+The JSON showcase lives in `examples/json/json_lua_stack_decoder.mlua` and
+exports the generated C source, a small C header, tag constants, and Emscripten
+export flags.
 
 ---
 
@@ -924,7 +925,7 @@ moonlift/
 ├── lib/                        Moonlift standard library
 │   └── region_compose.lua
 ├── examples/
-│   ├── json/                   JSON stack decoder (.mlua + .lua versions)
+│   ├── json/                   C-backed JSON library showcase + stack benchmark
 │   ├── protocols/              RESP parser example
 │   └── terra_vs_mlua/          Terra comparison
 ├── benchmarks/                 Performance benchmarks

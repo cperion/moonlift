@@ -4,7 +4,6 @@ local M = {}
 
 local BundleValue = {}
 BundleValue.__index = BundleValue
-local ModuleValue = BundleValue  -- internal alias for compat
 
 local CompiledModule = {}
 CompiledModule.__index = CompiledModule
@@ -622,7 +621,6 @@ function M.Install(api, session)
         return new_bundle(name)
     end
 
-    -- Internal alias for backward compat
     function api.module(name)
         return new_bundle(name)
     end
@@ -632,7 +630,6 @@ function M.Install(api, session)
     end
 
     api.BundleValue = BundleValue
-    api.ModuleValue = BundleValue  -- alias for compat
 end
 
 return M

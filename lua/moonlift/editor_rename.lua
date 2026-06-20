@@ -53,7 +53,7 @@ function M.Define(T)
             if not anchor then return pvm.once(E.PrepareRenameRejected("rename has no source anchor")) end
             return pvm.once(E.PrepareRenameOk(anchor.range, first_anchor_label(pick.anchors)))
         end,
-    }, { args_cache = "full" })
+    }, { node_cache = "none", args_cache = "none" })
 
     local rename_phase = pvm.phase("moonlift_editor_rename", {
         [E.RenameQuery] = function(query, analysis)
@@ -73,7 +73,7 @@ function M.Define(T)
             if #edits == 0 then return pvm.once(E.RenameRejected("rename has no covered edits")) end
             return pvm.once(E.RenameOk(edits))
         end,
-    }, { args_cache = "full" })
+    }, { node_cache = "none", args_cache = "none" })
 
     local function prepare_rename(query, analysis)
         return pvm.one(prepare_rename_phase(query, analysis))

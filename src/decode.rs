@@ -8,7 +8,6 @@ use cranelift_codegen::ir::{
     AbiParam, AtomicRmwOp, Block, BlockArg, InstBuilder, MemFlags, Signature,
     StackSlot, StackSlotData, StackSlotKind, TrapCode, Type, UserFuncName, Value, types,
 };
-use cranelift_codegen::Context;
 use cranelift_frontend::{FunctionBuilder, FunctionBuilderContext, Switch};
 use cranelift_module::{DataDescription, DataId, FuncId, Linkage, Module};
 use cranelift_codegen::ir::{FuncRef, GlobalValue};
@@ -92,7 +91,7 @@ fn bfc(b: &mut FunctionBuilder<'_>, cond: Value) -> Value {
 }
 
 struct ModuleHeader {
-    n_funcs: u32, decl_offset: usize, decl_len: usize,
+    decl_offset: usize, decl_len: usize,
     body_tbl_offset: usize, body_tbl_len: usize,
 }
 
@@ -100,12 +99,12 @@ fn read_header(buf: &[u8], pos: &mut usize) -> Result<ModuleHeader, MoonliftErro
     let magic = read_u32(buf, pos)?;
     if magic != 0x4D4C { return Err(MoonliftError(format!("bad magic {magic:#010x}"))); }
     let _ver = read_u32(buf, pos)?;
-    let n_funcs = read_u32(buf, pos)?;
+    let _n_funcs = read_u32(buf, pos)?;
     let doff = read_u32(buf, pos)? as usize;
     let dlen = read_u32(buf, pos)? as usize;
     let boff = read_u32(buf, pos)? as usize;
     let blen = read_u32(buf, pos)? as usize;
-    Ok(ModuleHeader { n_funcs, decl_offset: doff, decl_len: dlen, body_tbl_offset: boff, body_tbl_len: blen })
+    Ok(ModuleHeader { decl_offset: doff, decl_len: dlen, body_tbl_offset: boff, body_tbl_len: blen })
 }
 
 pub struct ModuleState {

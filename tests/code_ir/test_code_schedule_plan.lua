@@ -52,6 +52,23 @@ local saw_vector=false
 for _,s in ipairs(planned_for(copy_kernels,vector_schedules)) do if pvm.classof(s.kind)==Schedule.ScheduleVector then saw_vector=true; assert(pvm.classof(s.kind.lanes)==Schedule.LaneVector) end end
 assert(saw_vector,'vector target facts should select ScheduleVector for contiguous copy')
 
+local carry_code,carry_flow,carry_value,carry_mem,carry_effect,carry_kernels=lower([[
+func carry_store(noalias dst: ptr(i32), readonly src: ptr(i32), n: i32): i32
+ requires bounds(dst,n)
+ requires bounds(src,n)
+ requires disjoint(dst,src)
+ return block loop(i: i32 = 0, acc: i32 = 0): i32
+  if i >= n then yield acc end
+  dst[i] = src[i] + acc
+  jump loop(i = i + 1, acc = acc + 1)
+ end
+end
+]])
+local carry_schedules=CodeSchedulePlan.plan(carry_code,carry_kernels,carry_flow,carry_value,carry_mem,carry_effect,vector_target)
+local saw_carry_vector=false
+for _,s in ipairs(planned_for(carry_kernels,carry_schedules)) do if pvm.classof(s.kind)==Schedule.ScheduleVector then saw_carry_vector=true end end
+assert(not saw_carry_vector,'vector schedule must reject scalar loop-carried values in vector expressions')
+
 local unsafe_code,unsafe_flow,unsafe_value,unsafe_mem,unsafe_effect,unsafe_kernels=lower([[
 func raw_sum(p: ptr(i32), n: i32): i32
  return block loop(i: i32 = 0, acc: i32 = 0): i32

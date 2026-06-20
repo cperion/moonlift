@@ -100,7 +100,7 @@ function M.Define(T)
         return Schedule.ScheduleScalarIndex
     end
 
-    local function schedule_for_plan(plan, target)
+    local function schedule_for_plan(plan, target, flow)
         local kid = plan.id
         local rejected_alternatives = {}
         local vector_kind = vector_candidate_kind(plan, target)
@@ -142,7 +142,7 @@ function M.Define(T)
         local schedules = {}
         for _, kernel_plan in ipairs(kernels.plans or {}) do
             if pvm.classof(kernel_plan) == Kernel.KernelPlanned then
-                schedules[#schedules + 1] = schedule_for_plan(kernel_plan, target)
+                schedules[#schedules + 1] = schedule_for_plan(kernel_plan, target, flow)
             end
         end
         return Schedule.ScheduleModulePlan(module.id, Schedule.ScheduleTarget(target), schedules)

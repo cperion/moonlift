@@ -68,6 +68,10 @@ assert(saw_triad_vector,'loop-invariant scalar parameters should be splatted for
 local triad_lower=CodeLowerPlan.plan(triad_code,triad_graph,triad_kernels,triad_schedules,Lower.LowerTargetBack)
 assert_no('triad semantic validate',KernelValidate.validate(triad_code,triad_graph,triad_flow,triad_value,triad_mem,triad_effect,triad_kernels,triad_schedules,triad_lower).issues)
 assert_no('triad back',BackValidate.validate(LowerToBack.module(triad_code,triad_graph,triad_flow,triad_value,triad_mem,triad_effect,triad_kernels,triad_schedules,triad_lower)).issues)
+local direct_triad_program=LowerToBack.module(triad_code,triad_graph,triad_flow,triad_value,triad_mem,triad_effect,triad_kernels,nil,nil,{target_model=target})
+local direct_saw_vec=false
+for _,cmd in ipairs(direct_triad_program.cmds or {}) do if pvm.classof(cmd)==Back.CmdStoreInfo and pvm.classof(cmd.ty)==Back.BackShapeVec then direct_saw_vec=true end end
+assert(direct_saw_vec,'direct LowerToBack.module opts.target_model must reach scheduling')
 local schedules=CodeSchedulePlan.plan(code,kernels,flow,value,mem,effect,target)
 local saw_vector=false; for _,s in ipairs(schedules.schedules or {}) do if pvm.classof(s)==Schedule.SchedulePlanned and pvm.classof(s.kind)==Schedule.ScheduleVector then saw_vector=true end end; assert(saw_vector,'target vector facts should select ScheduleVector')
 local lower=CodeLowerPlan.plan(code,graph,kernels,schedules,Lower.LowerTargetBack)

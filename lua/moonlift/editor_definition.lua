@@ -34,7 +34,7 @@ function M.Define(T)
         end
         if #ranges == 0 then return E.DefinitionMiss("definition not found") end
         return E.DefinitionHit(pick.subject, ranges)
-    end, { args_cache = "full" })
+    end, { node_cache = "none", args_cache = "none" })
 
     local function definition(query, analysis)
         return pvm.one(definition_phase(query, analysis))

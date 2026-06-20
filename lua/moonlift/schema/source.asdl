@@ -8,7 +8,7 @@ module MoonSource {
          | LangLua
          | LangUnknown(string name) unique
 
-    DocumentSnapshot = (MoonSource.DocUri uri, MoonSource.DocVersion version, MoonSource.LanguageId language, string text) unique
+    DocumentSnapshot = (MoonSource.DocUri uri, MoonSource.DocVersion version, MoonSource.LanguageId language, string text)
 
     PositionEncoding = PosUtf8Bytes
          | PosUtf16CodeUnits
@@ -18,14 +18,14 @@ module MoonSource {
 
     SourceRange = (MoonSource.DocUri uri, number start_offset, number stop_offset, MoonSource.SourcePos start, MoonSource.SourcePos stop) unique
 
-    TextChange = ReplaceAll(string text) unique
-         | ReplaceRange(MoonSource.SourceRange range, string text) unique
+    TextChange = ReplaceAll(string text)
+         | ReplaceRange(MoonSource.SourceRange range, string text)
 
-    DocumentEdit = (MoonSource.DocUri uri, MoonSource.DocVersion version, MoonSource.TextChange* changes) unique
+    DocumentEdit = (MoonSource.DocUri uri, MoonSource.DocVersion version, MoonSource.TextChange* changes)
 
-    SourceSlice = (string text) unique
+    SourceSlice = (string text)
 
-    SourceOccurrence = (MoonSource.SourceSlice slice, MoonSource.SourceRange range) unique
+    SourceOccurrence = (MoonSource.SourceSlice slice, MoonSource.SourceRange range)
 
     AnchorId = (string text) unique
 
@@ -64,7 +64,7 @@ module MoonSource {
 
     SourceLineSpan = (number line, number start_offset, number stop_offset, number next_offset) unique
 
-    PositionIndex = (MoonSource.DocumentSnapshot document, MoonSource.SourceLineSpan* lines) unique
+    PositionIndex = (MoonSource.DocumentSnapshot document, MoonSource.SourceLineSpan* lines)
 
     SourceApplyIssue = SourceIssueWrongDocument(MoonSource.DocUri expected, MoonSource.DocUri actual) unique
          | SourceIssueStaleVersion(MoonSource.DocVersion expected_after, MoonSource.DocVersion actual) unique
@@ -72,8 +72,8 @@ module MoonSource {
          | SourceIssueOverlappingRanges(MoonSource.SourceRange previous, MoonSource.SourceRange current) unique
          | SourceIssueMixedReplaceAll
 
-    SourceApplyResult = SourceApplyOk(MoonSource.DocumentSnapshot document) unique
-         | SourceApplyRejected(MoonSource.DocumentSnapshot document, MoonSource.SourceApplyIssue* issues) unique
+    SourceApplyResult = SourceApplyOk(MoonSource.DocumentSnapshot document)
+         | SourceApplyRejected(MoonSource.DocumentSnapshot document, MoonSource.SourceApplyIssue* issues)
 
     SourcePositionResult = SourcePositionHit(MoonSource.SourcePos pos) unique
          | SourcePositionMiss(string reason) unique

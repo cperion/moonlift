@@ -94,8 +94,29 @@ function M.Define(T)
         local function scan_module(module)
             for i = 1, #(module and module.items or {}) do
                 local item = module.items[i]
-                if item.func then
-                    local name = item.func.name or (item.func.sym and item.func.sym.name)
+                if pvm.classof(item) == Tr.ItemFunc then
+                    local name = pvm.classof(item.func) == Tr.FuncOpen and item.func.sym.name or item.func.name
+                    if name == label or name == normalized then return item.func end
+                end
+            end
+            return nil
+        end
+        local found = scan_module(analysis.parse.combined.module)
+        if found then return found end
+        for i = 1, #(analysis.parse.islands or {}) do
+            found = scan_module(analysis.parse.islands[i].module)
+            if found then return found end
+        end
+        return nil
+    end
+
+    local function find_extern(analysis, label)
+        local normalized = tostring(label):gsub(":", "_")
+        local function scan_module(module)
+            for i = 1, #(module and module.items or {}) do
+                local item = module.items[i]
+                if pvm.classof(item) == Tr.ItemExtern then
+                    local name = pvm.classof(item.func) == Tr.ExternFuncOpen and item.func.sym.name or item.func.name
                     if name == label or name == normalized then return item.func end
                 end
             end
@@ -234,6 +255,8 @@ function M.Define(T)
             if expr_frag then return E.SubjectExprFrag(expr_frag) end
             local fn = find_func(analysis, anchor.label)
             if fn then return E.SubjectTreeFunc(fn) end
+            local ex = find_extern(analysis, anchor.label)
+            if ex then return E.SubjectTreeExtern(ex) end
             if anchor.kind == S.AnchorMethodName or anchor.kind == S.AnchorFunctionName then
                 return E.SubjectBuiltin("function " .. anchor.label)
             end
@@ -261,6 +284,8 @@ function M.Define(T)
             if tree_type and pvm.classof(tree_type) == Tr.TypeDeclHandle then return E.SubjectType(Ty.THandle(Ty.TypeRefPath(C.Path({ C.Name(tree_type.name) })), tree_type.repr)) end
             local fn = find_func(analysis, anchor.label)
             if fn then return E.SubjectTreeFunc(fn) end
+            local ex = find_extern(analysis, anchor.label)
+            if ex then return E.SubjectTreeExtern(ex) end
             local binding_subject = fact_subject_for_anchor(analysis, anchor, function(candidate)
                 return pvm.classof(candidate) == E.SubjectBinding
             end)
@@ -295,7 +320,7 @@ function M.Define(T)
         end
         local subject = subject_for_anchor(analysis, lookup.anchors[1], offset_hit.offset)
         return E.SubjectPick(query, lookup.anchors, subject)
-    end, { args_cache = "full" })
+    end, { node_cache = "none", args_cache = "none" })
 
     local function subject_at(query, analysis)
         return pvm.one(subject_at_phase(query, analysis))

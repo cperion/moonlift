@@ -20,8 +20,7 @@ function M.Define(T)
             Back.BackTargetCacheLineBytes(64),
             Back.BackTargetFeature(Back.BackFeatureSSE2),
             Back.BackTargetFeature(Back.BackFeaturePOPCNT),
-            -- TODO: add BackFeatureAVX2 + 8/4-lane shapes when Cranelift x64
-            -- backend supports >128-bit vectors (capped at ty.bits() <= 128).
+            -- Cranelift vector lowering is capped here to 128-bit shapes.
             Back.BackTargetSupportsShape(shape_scalar(Back.BackI32)),
             Back.BackTargetSupportsShape(shape_scalar(Back.BackI64)),
             Back.BackTargetSupportsShape(shape_scalar(Back.BackU32)),

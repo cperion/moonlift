@@ -11,17 +11,6 @@ local pvm = require("moonlift.pvm")
 
 local M = {}
 
-local function assert_no_cmd_trap(T, program, site)
-    local Back = T.MoonBack
-    for i = 1, #(program and program.cmds or {}) do
-        local cmd = program.cmds[i]
-        if cmd == Back.CmdTrap or pvm.classof(cmd) == Back.CmdTrap or cmd.kind == "CmdTrap" then
-            error((site or "frontend lowering") .. " produced CmdTrap at command #" .. tostring(i)
-                .. "; unsupported lowering must fail before native code emission", 3)
-        end
-    end
-end
-
 local function assert_no_c_phase_unreachable(root, site)
     local Coverage = require("moonlift.c_coverage")
     local phase_unreachable = {}
@@ -76,8 +65,6 @@ function M.Define(T)
     local KernelValidate = require("moonlift.kernel_validate").Define(T)
     local CodeLowerPlan = require("moonlift.code_lower_plan").Define(T)
     local CodeType = require("moonlift.code_type").Define(T)
-    local CodeToBack = require("moonlift.code_to_back").Define(T)
-    local CodeToC = require("moonlift.code_to_c").Define(T)
     local LowerToBack = require("moonlift.lower_to_back").Define(T)
     local LowerToC = require("moonlift.lower_to_c").Define(T)
     local Validate = require("moonlift.back_validate").Define(T)
@@ -404,7 +391,6 @@ function M.Define(T)
         lower_module_to_c = lower_module_to_c,
         parse_and_lower = parse_and_lower,
         parse_and_lower_c = parse_and_lower_c,
-        assert_no_cmd_trap = function(program, site) return assert_no_cmd_trap(T, program, site) end,
         assert_no_c_phase_unreachable = assert_no_c_phase_unreachable,
     }
 end

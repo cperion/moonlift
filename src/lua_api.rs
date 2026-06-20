@@ -40,17 +40,6 @@ pub extern "C" fn moonlift_scratch_raw(slot: i32, elem_size: i32, count: i32) ->
     })
 }
 
-// Legacy wrappers — delegate to scratch_raw for backward compat
-#[unsafe(no_mangle)]
-pub extern "C" fn moonlift_scratch_i32(slot: i32, count: i32) -> *mut i32 {
-    moonlift_scratch_raw(slot, 4, count).cast::<i32>()
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn moonlift_scratch_u8(slot: i32, count: i32) -> *mut u8 {
-    moonlift_scratch_raw(slot, 1, count)
-}
-
 pub extern "C" fn moonlift_alloc_i32(count: i32) -> *mut i32 {
     if count <= 0 {
         return std::ptr::null_mut();
@@ -82,6 +71,70 @@ pub extern "C" fn moonlift_lua_arg_lstring_len(l: *mut mlua::ffi::lua_State, idx
         let ptr = mlua::ffi::lua_tolstring(l, idx, &mut len);
         if ptr.is_null() { -1 } else { len as isize }
     }
+}
+
+pub extern "C" fn moonlift_lua_raw_gettop(l: *mut mlua::ffi::lua_State) -> c_int {
+    unsafe { mlua::ffi::lua_gettop(l) }
+}
+
+pub extern "C" fn moonlift_lua_raw_settop(l: *mut mlua::ffi::lua_State, idx: c_int) {
+    unsafe { mlua::ffi::lua_settop(l, idx) };
+}
+
+pub extern "C" fn moonlift_lua_raw_type(l: *mut mlua::ffi::lua_State, idx: c_int) -> c_int {
+    unsafe { mlua::ffi::lua_type(l, idx) }
+}
+
+pub extern "C" fn moonlift_lua_raw_tolstring(l: *mut mlua::ffi::lua_State, idx: c_int, len: *mut usize) -> *const u8 {
+    unsafe { mlua::ffi::lua_tolstring(l, idx, len).cast::<u8>() }
+}
+
+pub extern "C" fn moonlift_lua_raw_toboolean(l: *mut mlua::ffi::lua_State, idx: c_int) -> c_int {
+    unsafe { mlua::ffi::lua_toboolean(l, idx) }
+}
+
+pub extern "C" fn moonlift_lua_raw_tonumber(l: *mut mlua::ffi::lua_State, idx: c_int) -> f64 {
+    unsafe { mlua::ffi::lua_tonumber(l, idx) }
+}
+
+pub extern "C" fn moonlift_lua_raw_pushvalue(l: *mut mlua::ffi::lua_State, idx: c_int) {
+    unsafe { mlua::ffi::lua_pushvalue(l, idx) };
+}
+
+pub extern "C" fn moonlift_lua_raw_pushnil(l: *mut mlua::ffi::lua_State) {
+    unsafe { mlua::ffi::lua_pushnil(l) };
+}
+
+pub extern "C" fn moonlift_lua_raw_pushboolean(l: *mut mlua::ffi::lua_State, b: c_int) {
+    unsafe { mlua::ffi::lua_pushboolean(l, b) };
+}
+
+pub extern "C" fn moonlift_lua_raw_pushnumber(l: *mut mlua::ffi::lua_State, n: f64) {
+    unsafe { mlua::ffi::lua_pushnumber(l, n) };
+}
+
+pub extern "C" fn moonlift_lua_raw_pushlstring(l: *mut mlua::ffi::lua_State, s: *const c_char, len: usize) {
+    unsafe { mlua::ffi::lua_pushlstring_(l, s, len) };
+}
+
+pub extern "C" fn moonlift_lua_raw_rawgeti(l: *mut mlua::ffi::lua_State, idx: c_int, n: c_int) {
+    unsafe { mlua::ffi::lua_rawgeti_(l, idx, n) };
+}
+
+pub extern "C" fn moonlift_lua_raw_rawseti(l: *mut mlua::ffi::lua_State, idx: c_int, n: c_int) {
+    unsafe { mlua::ffi::lua_rawseti_(l, idx, n) };
+}
+
+pub extern "C" fn moonlift_lua_raw_lref(l: *mut mlua::ffi::lua_State, t: c_int) -> c_int {
+    unsafe { mlua::ffi::luaL_ref(l, t) }
+}
+
+pub extern "C" fn moonlift_lua_raw_lunref(l: *mut mlua::ffi::lua_State, t: c_int, r: c_int) {
+    unsafe { mlua::ffi::luaL_unref(l, t, r) };
+}
+
+pub extern "C" fn moonlift_lua_raw_pcall(l: *mut mlua::ffi::lua_State, nargs: c_int, nresults: c_int, errfunc: c_int) -> c_int {
+    unsafe { mlua::ffi::lua_pcall(l, nargs, nresults, errfunc) }
 }
 
 pub extern "C" fn moonlift_lua_settop(l: *mut mlua::ffi::lua_State, idx: c_int) -> c_int {
@@ -147,9 +200,24 @@ pub fn register_symbols(jit: &mut crate::Jit) {
     sym!("lua_settable", moonlift_lua_settable);
     sym!("lua_rawseti", moonlift_lua_rawseti);
 
+    sym!("moonlift_lua_raw_gettop", moonlift_lua_raw_gettop);
+    sym!("moonlift_lua_raw_settop", moonlift_lua_raw_settop);
+    sym!("moonlift_lua_raw_type", moonlift_lua_raw_type);
+    sym!("moonlift_lua_raw_tolstring", moonlift_lua_raw_tolstring);
+    sym!("moonlift_lua_raw_toboolean", moonlift_lua_raw_toboolean);
+    sym!("moonlift_lua_raw_tonumber", moonlift_lua_raw_tonumber);
+    sym!("moonlift_lua_raw_pushvalue", moonlift_lua_raw_pushvalue);
+    sym!("moonlift_lua_raw_pushnil", moonlift_lua_raw_pushnil);
+    sym!("moonlift_lua_raw_pushboolean", moonlift_lua_raw_pushboolean);
+    sym!("moonlift_lua_raw_pushnumber", moonlift_lua_raw_pushnumber);
+    sym!("moonlift_lua_raw_pushlstring", moonlift_lua_raw_pushlstring);
+    sym!("moonlift_lua_raw_rawgeti", moonlift_lua_raw_rawgeti);
+    sym!("moonlift_lua_raw_rawseti", moonlift_lua_raw_rawseti);
+    sym!("moonlift_lua_raw_lref", moonlift_lua_raw_lref);
+    sym!("moonlift_lua_raw_lunref", moonlift_lua_raw_lunref);
+    sym!("moonlift_lua_raw_pcall", moonlift_lua_raw_pcall);
+
     sym!("moonlift_scratch_raw", moonlift_scratch_raw);
-    sym!("moonlift_scratch_i32", moonlift_scratch_i32);
-    sym!("moonlift_scratch_u8", moonlift_scratch_u8);
     sym!("moonlift_alloc_i32", moonlift_alloc_i32);
     sym!("moonlift_free_i32", moonlift_free_i32);
     sym!("moonlift_lua_arg_lstring_ptr", moonlift_lua_arg_lstring_ptr);

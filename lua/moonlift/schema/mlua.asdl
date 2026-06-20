@@ -13,17 +13,17 @@ module MoonMlua {
          | IslandAnonymous
          | IslandMalformedName(string text) unique
 
-    IslandText = (MoonMlua.IslandKind kind, MoonMlua.IslandName name, MoonSource.SourceSlice source) unique
+    IslandText = (MoonMlua.IslandKind kind, MoonMlua.IslandName name, MoonSource.SourceSlice source)
 
-    Segment = LuaOpaque(MoonSource.SourceOccurrence occurrence) unique
-         | HostedIsland(MoonMlua.IslandText island, MoonSource.SourceRange range) unique
-         | MalformedIsland(MoonMlua.IslandKind kind, MoonSource.SourceOccurrence occurrence, string reason) unique
+    Segment = LuaOpaque(MoonSource.SourceOccurrence occurrence)
+         | HostedIsland(MoonMlua.IslandText island, MoonSource.SourceRange range)
+         | MalformedIsland(MoonMlua.IslandKind kind, MoonSource.SourceOccurrence occurrence, string reason)
 
-    DocumentParts = (MoonSource.DocumentSnapshot document, MoonMlua.Segment* segments, MoonSource.AnchorSet anchors) unique
+    DocumentParts = (MoonSource.DocumentSnapshot document, MoonMlua.Segment* segments, MoonSource.AnchorSet anchors)
 
-    IslandParse = (MoonMlua.IslandText island, MoonHost.HostDeclSet decls, MoonTree.Module module, MoonOpen.RegionFrag* region_frags, MoonOpen.ExprFrag* expr_frags, MoonParse.ParseIssue* issues, MoonSource.AnchorSet anchors) unique
+    IslandParse = (MoonMlua.IslandText island, MoonHost.HostDeclSet decls, MoonTree.Module module, MoonOpen.RegionFrag* region_frags, MoonOpen.ExprFrag* expr_frags, MoonParse.ParseIssue* issues, MoonSource.AnchorSet anchors)
 
-    DocumentParse = (MoonMlua.DocumentParts parts, MoonHost.MluaParseResult combined, MoonMlua.IslandParse* islands, MoonSource.AnchorSet anchors) unique
+    DocumentParse = (MoonMlua.DocumentParts parts, MoonHost.MluaParseResult combined, MoonMlua.IslandParse* islands, MoonSource.AnchorSet anchors)
 
-    DocumentAnalysis = (MoonMlua.DocumentParse parse, MoonHost.MluaHostPipelineResult host, MoonOpen.ValidationReport open_report, MoonTree.TypeIssue* type_issues, MoonTree.ControlFact* control_facts, MoonBack.BackValidationReport back_report, MoonSource.AnchorSet anchors) unique
+    DocumentAnalysis = (MoonMlua.DocumentParse parse, MoonHost.MluaHostPipelineResult host, MoonOpen.ValidationReport open_report, MoonTree.TypeIssue* type_issues, MoonTree.ControlFact* control_facts, MoonBack.BackValidationReport back_report, MoonSource.AnchorSet anchors)
 }

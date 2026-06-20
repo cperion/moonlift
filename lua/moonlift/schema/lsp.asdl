@@ -1,70 +1,70 @@
 module MoonLsp {
-    ProtocolPosition = (number line, number character) unique
+    ProtocolPosition = (number line, number character)
 
-    ProtocolRange = (MoonLsp.ProtocolPosition start, MoonLsp.ProtocolPosition stop) unique
+    ProtocolRange = (MoonLsp.ProtocolPosition start, MoonLsp.ProtocolPosition stop)
 
-    Location = (MoonSource.DocUri uri, MoonLsp.ProtocolRange range) unique
+    Location = (MoonSource.DocUri uri, MoonLsp.ProtocolRange range)
 
     InitializeResult = (string server_name, string position_encoding, string capabilities_json) unique
 
-    DiagnosticPayload = (MoonLsp.ProtocolRange range, number severity, string code, string message) unique
+    DiagnosticPayload = (MoonLsp.ProtocolRange range, number severity, string code, string message)
 
-    DiagnosticReport = (MoonSource.DocUri uri, MoonSource.DocVersion version, MoonLsp.DiagnosticPayload* diagnostics) unique
+    DiagnosticReport = (MoonSource.DocUri uri, MoonSource.DocVersion version, MoonLsp.DiagnosticPayload* diagnostics)
 
-    DiagnosticDocumentReport = (string kind, MoonLsp.DiagnosticPayload* items) unique
+    DiagnosticDocumentReport = (string kind, MoonLsp.DiagnosticPayload* items)
 
-    Hover = Hover(MoonEditor.MarkupKind kind, string value, MoonLsp.ProtocolRange range) unique
+    Hover = Hover(MoonEditor.MarkupKind kind, string value, MoonLsp.ProtocolRange range)
          | HoverNull
 
-    CompletionPayload = (string label, number kind, string detail, string documentation, string insert_text, number insert_text_format) unique
+    CompletionPayload = (string label, number kind, string detail, string documentation, string insert_text, number insert_text_format)
 
-    CompletionList = (boolean incomplete, MoonLsp.CompletionPayload* items) unique
+    CompletionList = (boolean incomplete, MoonLsp.CompletionPayload* items)
 
-    DocumentSymbolPayload = (string name, string detail, number kind, MoonLsp.ProtocolRange range, MoonLsp.ProtocolRange selection_range, MoonLsp.DocumentSymbolPayload* children) unique
+    DocumentSymbolPayload = (string name, string detail, number kind, MoonLsp.ProtocolRange range, MoonLsp.ProtocolRange selection_range, MoonLsp.DocumentSymbolPayload* children)
 
-    WorkspaceSymbolPayload = (string name, string detail, number kind, MoonLsp.Location location, string container_name) unique
+    WorkspaceSymbolPayload = (string name, string detail, number kind, MoonLsp.Location location, string container_name)
 
-    SignatureParameterPayload = (string label, string documentation) unique
+    SignatureParameterPayload = (string label, string documentation)
 
-    SignatureInformationPayload = (string label, string documentation, MoonLsp.SignatureParameterPayload* params) unique
+    SignatureInformationPayload = (string label, string documentation, MoonLsp.SignatureParameterPayload* params)
 
-    SignatureHelpPayload = (MoonLsp.SignatureInformationPayload* signatures, number active_signature, number active_parameter) unique
+    SignatureHelpPayload = (MoonLsp.SignatureInformationPayload* signatures, number active_signature, number active_parameter)
 
-    SemanticTokens = (number* data) unique
+    SemanticTokens = (number* data)
 
-    DocumentHighlightPayload = (MoonLsp.ProtocolRange range, number kind) unique
+    DocumentHighlightPayload = (MoonLsp.ProtocolRange range, number kind)
 
-    PrepareRenamePayload = (MoonLsp.ProtocolRange range, string placeholder) unique
+    PrepareRenamePayload = (MoonLsp.ProtocolRange range, string placeholder)
 
-    TextEditPayload = (MoonLsp.ProtocolRange range, string new_text) unique
+    TextEditPayload = (MoonLsp.ProtocolRange range, string new_text)
 
-    WorkspaceEditPayload = (MoonSource.DocUri uri, MoonLsp.TextEditPayload* edits) unique
+    WorkspaceEditPayload = (MoonSource.DocUri uri, MoonLsp.TextEditPayload* edits)
 
-    CodeActionPayload = (string title, string kind, MoonLsp.DiagnosticPayload* diagnostics, MoonLsp.WorkspaceEditPayload* edits) unique
+    CodeActionPayload = (string title, string kind, MoonLsp.DiagnosticPayload* diagnostics, MoonLsp.WorkspaceEditPayload* edits)
 
-    FoldingRangePayload = (number start_line, number start_character, number end_line, number end_character, string kind) unique
+    FoldingRangePayload = (number start_line, number start_character, number end_line, number end_character, string kind)
 
-    SelectionRangePayload = (MoonLsp.ProtocolRange range, MoonLsp.SelectionRangePayload* parents) unique
+    SelectionRangePayload = (MoonLsp.ProtocolRange range, MoonLsp.SelectionRangePayload* parents)
 
-    InlayHintPayload = (MoonLsp.ProtocolPosition position, string label, string kind) unique
+    InlayHintPayload = (MoonLsp.ProtocolPosition position, string label, string kind)
 
     Payload = PayloadNull
-         | PayloadInitialize(MoonLsp.InitializeResult result) unique
-         | PayloadDiagnostics(MoonLsp.DiagnosticReport report) unique
-         | PayloadDiagnosticDocumentReport(MoonLsp.DiagnosticDocumentReport report) unique
-         | PayloadHover(MoonLsp.Hover hover) unique
-         | PayloadCompletion(MoonLsp.CompletionList completion) unique
-         | PayloadDocumentSymbols(MoonLsp.DocumentSymbolPayload* symbols) unique
-         | PayloadWorkspaceSymbols(MoonLsp.WorkspaceSymbolPayload* symbols) unique
-         | PayloadSignatureHelp(MoonLsp.SignatureHelpPayload help) unique
-         | PayloadLocations(MoonLsp.Location* locations) unique
-         | PayloadDocumentHighlights(MoonLsp.DocumentHighlightPayload* highlights) unique
-         | PayloadPrepareRename(MoonLsp.PrepareRenamePayload result) unique
-         | PayloadSemanticTokens(MoonLsp.SemanticTokens tokens) unique
-         | PayloadWorkspaceEdit(MoonLsp.WorkspaceEditPayload* edits) unique
-         | PayloadCodeActions(MoonLsp.CodeActionPayload* actions) unique
-         | PayloadFoldingRanges(MoonLsp.FoldingRangePayload* ranges) unique
-         | PayloadSelectionRanges(MoonLsp.SelectionRangePayload* ranges) unique
-         | PayloadInlayHints(MoonLsp.InlayHintPayload* hints) unique
-         | PayloadError(string code, string message) unique
+         | PayloadInitialize(MoonLsp.InitializeResult result)
+         | PayloadDiagnostics(MoonLsp.DiagnosticReport report)
+         | PayloadDiagnosticDocumentReport(MoonLsp.DiagnosticDocumentReport report)
+         | PayloadHover(MoonLsp.Hover hover)
+         | PayloadCompletion(MoonLsp.CompletionList completion)
+         | PayloadDocumentSymbols(MoonLsp.DocumentSymbolPayload* symbols)
+         | PayloadWorkspaceSymbols(MoonLsp.WorkspaceSymbolPayload* symbols)
+         | PayloadSignatureHelp(MoonLsp.SignatureHelpPayload help)
+         | PayloadLocations(MoonLsp.Location* locations)
+         | PayloadDocumentHighlights(MoonLsp.DocumentHighlightPayload* highlights)
+         | PayloadPrepareRename(MoonLsp.PrepareRenamePayload result)
+         | PayloadSemanticTokens(MoonLsp.SemanticTokens tokens)
+         | PayloadWorkspaceEdit(MoonLsp.WorkspaceEditPayload* edits)
+         | PayloadCodeActions(MoonLsp.CodeActionPayload* actions)
+         | PayloadFoldingRanges(MoonLsp.FoldingRangePayload* ranges)
+         | PayloadSelectionRanges(MoonLsp.SelectionRangePayload* ranges)
+         | PayloadInlayHints(MoonLsp.InlayHintPayload* hints)
+         | PayloadError(string code, string message)
 }

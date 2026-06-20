@@ -107,6 +107,13 @@ local function func_name_and_parts(pvm, Tr, Ty, C, func)
     return "function", {}, Ty.TScalar(C.ScalarVoid)
 end
 
+local function extern_name_and_parts(pvm, Tr, Ty, C, func)
+    local cls = pvm.classof(func)
+    if cls == Tr.ExternFunc then return func.name, func.symbol, func.params, func.result end
+    if cls == Tr.ExternFuncOpen then return func.sym.name, func.sym.symbol, func.params, func.result end
+    return "extern", "extern", {}, Ty.TScalar(C.ScalarVoid)
+end
+
 local function binding_class_text(pvm, binding)
     local cls = binding and binding.class and pvm.classof(binding.class)
     if not cls then return "binding" end
@@ -234,6 +241,10 @@ function M.Define(T)
             local f = subject.func
             local name, params, result = func_name_and_parts(pvm, Tr, Ty, C, f)
             return E.HoverInfo(E.MarkupMarkdown, hover_doc("func " .. name .. "(" .. params_text(params) .. "): " .. Format.type_name(result), { "- params: " .. tostring(#params), "- boundary: sealed function call" }), range)
+        elseif cls == E.SubjectTreeExtern then
+            local f = subject.func
+            local name, symbol, params, result = extern_name_and_parts(pvm, Tr, Ty, C, f)
+            return E.HoverInfo(E.MarkupMarkdown, hover_doc("extern " .. name .. "(" .. params_text(params) .. "): " .. Format.type_name(result), { "- params: " .. tostring(#params), "- symbol: " .. tostring(symbol), "- boundary: imported C/host function" }), range)
         elseif cls == E.SubjectRegionFrag then
             local frag = subject.frag
             local conts = {}
@@ -268,12 +279,12 @@ function M.Define(T)
             return E.HoverInfo(E.MarkupMarkdown, subject.diagnostic.message, subject.diagnostic.range)
         end
         return E.HoverMissing("no hover for subject")
-    end, { args_cache = "full" })
+    end, { node_cache = "none", args_cache = "none" })
 
     local hover_phase = pvm.phase("moonlift_editor_hover", function(query, analysis)
         local pick = Subject.subject_at(query, analysis)
         return pvm.one(hover_from_pick_phase(pick, analysis))
-    end, { args_cache = "full" })
+    end, { node_cache = "none", args_cache = "none" })
 
     local function hover(query, analysis)
         return pvm.one(hover_phase(query, analysis))

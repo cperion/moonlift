@@ -94,8 +94,6 @@ function Lower:producer(region, block, env, producer, done_target)
         block:emit(frag, args, { done = done_target })
     elseif cls == S.ProducerConcat then
         self:concat(region, block, env, producer.parts, 1, done_target)
-    elseif cls == S.ProducerChildren then
-        error("ProducerChildren needs range iteration lowering; add it as hosted block/jump values, not text", 2)
     elseif cls == S.ProducerLet then
         local value = self:expr(env, producer.value)
         local local_env = {}

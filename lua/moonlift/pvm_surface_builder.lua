@@ -152,7 +152,6 @@ function M.Define(T)
         for i = 1, #args do out[i] = expr(args[i]) end
         return S.ProducerCallPhase(phase_name, expr(subject), out)
     end
-    function B.children(phase_name, range) return S.ProducerChildren(phase_name, expr(range)) end
     function B.let_(name, value, body) return S.ProducerLet(name, expr(value), producer(body)) end
     function B.if_(cond, then_body, else_body) return S.ProducerIf(expr(cond), producer(then_body), producer(else_body)) end
 

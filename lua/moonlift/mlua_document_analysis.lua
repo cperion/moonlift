@@ -75,6 +75,19 @@ function M.Define(T)
     local OpenV = OpenValidate.Define(T)
     local Pipeline = require("moonlift.frontend_pipeline").Define(T)
     local BackV = BackValidate.Define(T)
+    local analysis_trace = os.getenv("MOONLIFT_LSP_ANALYSIS_TRACE") == "1"
+
+    local function log_stage(stage, document)
+        if not analysis_trace then return end
+        io.stderr:write(
+            "moonlift-lsp document-analysis ",
+            stage,
+            " uri=", document.uri.text,
+            " bytes=", tostring(#document.text),
+            " heap_kb=", tostring(math.floor(collectgarbage("count"))),
+            "\n"
+        )
+    end
 
     local function range(index, start_offset, stop_offset)
         if start_offset < 0 then start_offset = 0 end
@@ -375,11 +388,18 @@ function M.Define(T)
         return Mlua.DocumentParts(document, segments, anchors)
     end
 
-    local function analyze_document(document)
+    local function analyze_document(document, opts)
+        opts = opts or {}
+        local full = opts.full ~= false
+        log_stage("index begin", document)
         local index = Pos.build_index(document)
+        log_stage("scan begin", document)
         local scan = Parse.scan_document(document.text)
+        log_stage("anchors begin islands=" .. tostring(#scan.islands), document)
         local anchors = build_anchors(document, scan, index)
+        log_stage("parts begin anchors=" .. tostring(#anchors.anchors), document)
         local parts = document_parts(document, scan, anchors)
+        log_stage("parse begin", document)
 
         -- Create collector for this analysis cycle
         local analysis_ctx = {
@@ -400,6 +420,9 @@ function M.Define(T)
         local protocol_types = {}
         local product_types = {}
         for i, island in ipairs(scan.islands) do
+            if analysis_trace and (i == 1 or i == #scan.islands or i % 50 == 0) then
+                log_stage("parse island " .. tostring(i) .. "/" .. tostring(#scan.islands) .. " kind=" .. tostring(island.kind), document)
+            end
             local src = document.text:sub(island.start, island.stop)
             local parsed = ParseApi.parse_island(scan, i, {
                 protocol_types = protocol_types,
@@ -463,6 +486,7 @@ function M.Define(T)
             island_parses[#island_parses + 1] = Mlua.IslandParse(island_text, decl_set, module, rfrags, efrags, parsed.issues, anchors)
         end
         collect_exposes(document, index, decls, nil)
+        log_stage("host validate begin items=" .. tostring(#items) .. " decls=" .. tostring(#decls), document)
 
         local combined = H.MluaParseResult(H.HostDeclSet(decls), Tr.Module(Tr.ModuleSurface, items), region_frags, expr_frags, issues)
         local parse = Mlua.DocumentParse(parts, combined, island_parses, anchors)
@@ -476,6 +500,7 @@ function M.Define(T)
         -- (for example packed(3)); publish validation diagnostics first and
         -- skip layout-derived hover facts until the source is corrected.
         if #host_report.issues == 0 then
+            log_stage("layout begin decls=" .. tostring(#combined.decls.decls), document)
             for i = 1, #combined.decls.decls do
                 local d = combined.decls.decls[i]
                 if pvm.classof(d) == H.HostDeclStruct then
@@ -487,6 +512,7 @@ function M.Define(T)
                 end
             end
         end
+        log_stage("pipeline begin full=" .. tostring(full) .. " items=" .. tostring(#combined.module.items), document)
         local host = H.MluaHostPipelineResult(combined, host_report, H.HostLayoutEnv(layouts))
 
         local open_report = O.ValidationReport({})
@@ -494,7 +520,7 @@ function M.Define(T)
         local checked_module = combined.module
         local type_issues = {}
         local result_or_err = nil
-        if #combined.module.items > 0 then
+        if full and #combined.module.items > 0 then
             local ok_tc, res = pcall(function()
                 local r = Pipeline.lower_module(combined.module, {
                     site = "mlua_document_analysis",
@@ -525,6 +551,7 @@ function M.Define(T)
         -- Get resolved issues from the collector and run cascade filter
         local resolved = collector:resolved_issues()
         local filtered = Errors.CascadeFilter.filter(resolved)
+        log_stage("done full=" .. tostring(full), document)
 
         -- Clear collector from session to avoid leaking between analyses
         if session then session:set_issue_collector(nil) end
@@ -535,8 +562,14 @@ function M.Define(T)
         return analysis
     end
 
+    local function analyze_document_light(document)
+        return analyze_document(document, { full = false })
+    end
+
     return {
         analyze_document = analyze_document,
+        analyze_document_full = analyze_document,
+        analyze_document_light = analyze_document_light,
         resolved_issues = M.resolved_issues,
     }
 end

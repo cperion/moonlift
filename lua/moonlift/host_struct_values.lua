@@ -404,8 +404,6 @@ function M.Install(api, session)
     end
 
     api.ExitProtocol = ExitProtocol
-
-    -- api.variants stays for backward compat — returns old format array
 end
 
 return M

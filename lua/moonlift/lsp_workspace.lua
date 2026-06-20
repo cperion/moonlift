@@ -98,13 +98,22 @@ function M.Define(T)
         return S.DocumentSnapshot(file.uri, file.version, file.language, text)
     end
 
-    local function documents(state)
+    local function open_documents(state)
         local docs, seen = {}, {}
         for i = 1, #state.open_docs do
             local doc = state.open_docs[i]
             docs[#docs + 1] = doc
             seen[uri_key(doc.uri)] = true
         end
+        return docs, seen
+    end
+
+    local function documents(state, opts)
+        opts = opts or {}
+        local docs, seen = open_documents(state)
+        if not opts.include_disk then return docs end
+        local max_disk = opts.max_disk or 32
+        local added_disk = 0
         for i = 1, #(state.index and state.index.files or {}) do
             local file = state.index.files[i]
             if file.origin == E.WorkspaceFileDisk and not seen[uri_key(file.uri)] then
@@ -112,6 +121,8 @@ function M.Define(T)
                 if text then
                     docs[#docs + 1] = S.DocumentSnapshot(file.uri, file.version, file.language, text)
                     seen[uri_key(file.uri)] = true
+                    added_disk = added_disk + 1
+                    if added_disk >= max_disk then break end
                 end
             end
         end
@@ -122,6 +133,7 @@ function M.Define(T)
         build_index = build_index,
         sync_after_event = sync_after_event,
         document_for_uri = document_for_uri,
+        open_documents = open_documents,
         documents = documents,
     }
 end

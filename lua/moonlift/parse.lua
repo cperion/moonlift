@@ -2190,7 +2190,13 @@ function Parser:parse_cont_params(owner_name)
             syntax_items[#syntax_items + 1] = S.SyntaxContItemSpread(self:syntax_splice_id("cont_slot_list"))
             saw_spread = true
         else
-            local name = self:expect_name("expected continuation parameter name")
+            local name
+            if self:kind() == TK.name or ident_kw[self:kind()] then
+                name = self:text()
+                self.i = self.i + 1
+            else
+                name = self:expect_name("expected continuation parameter name")
+            end
             local params, param_items, payload_spread = {}, {}, false
             self:skip_nl()
             if self:accept(TK.colon) then
@@ -2215,6 +2221,7 @@ function Parser:parse_cont_params(owner_name)
         else
             self:issue("expected '|' between continuation alternatives")
             if self:kind() == TK.comma or self:kind() == TK.semi then self.i = self.i + 1; self:skip_nl() end
+            if self:kind() ~= TK.rparen and self:kind() ~= TK.eof then self.i = self.i + 1 end
         end
     end
     return cont_slots, slots, syntax_items, saw_spread
@@ -2775,6 +2782,39 @@ end
 local moonlift_kw = {}
 for k, _ in pairs(keywords) do moonlift_kw[k] = true end
 
+local top_level_island_kw = {
+    [TK.func_kw] = true,
+    [TK.region_kw] = true,
+    [TK.expr_kw] = true,
+    [TK.struct_kw] = true,
+    [TK.union_kw] = true,
+    [TK.handle_kw] = true,
+    [TK.extern_kw] = true,
+}
+
+local function is_line_start_word(src, s)
+    local p = s - 1
+    while p >= 1 do
+        local c = byte(src, p)
+        if c == 32 or c == 9 or c == 13 then
+            p = p - 1
+        elseif c == 10 then
+            return true
+        else
+            return false
+        end
+    end
+    return true
+end
+
+local function previous_significant_token_kind(toks)
+    for i = toks.n, 1, -1 do
+        local k = toks.kind[i]
+        if k ~= TK.nl then return k end
+    end
+    return nil
+end
+
 -- Tokenize a single island from the original source, appending tokens to the
 -- shared token stream. Returns (first_tok, last_tok, stop_byte).
 local function tokenize_island(src, island_kind, start_byte, toks)
@@ -2804,6 +2844,7 @@ local function tokenize_island(src, island_kind, start_byte, toks)
     -- `block`/`yield`, so don't treat nested control keywords as island nesting.
     if island_kind == "struct" or island_kind == "union" or island_kind == "handle" or island_kind == "extern" then end_open = {} end
     local depth = 1
+    local paren_depth = 0
 
     while i <= n and depth > 0 do
         local b = byte(src, i)
@@ -2845,14 +2886,18 @@ local function tokenize_island(src, island_kind, start_byte, toks)
                 local c = byte(src, i)
                 if not is_alnum(c) then break end
                 i = i + 1
-            end
-            local text = sub(src, s, i - 1)
-            local kind = keywords[text] or TK.name
-            push_tok(toks, kind, text, s, i - 1, line, col)
-            col = col + (i - s)
-            if end_open[kind] then
-                depth = depth + 1
-            elseif kind == TK.end_kw then
+	            end
+	            local text = sub(src, s, i - 1)
+	            local kind = keywords[text] or TK.name
+	            if paren_depth == 0 and s ~= start_byte and top_level_island_kw[kind] and is_line_start_word(src, s) then
+	                return first_tok, toks.n, s - 1
+	            end
+	            local prev_kind = previous_significant_token_kind(toks)
+	            push_tok(toks, kind, text, s, i - 1, line, col)
+	            col = col + (i - s)
+	            if end_open[kind] and prev_kind ~= TK.pipe then
+	                depth = depth + 1
+	            elseif kind == TK.end_kw then
                 depth = depth - 1
                 if depth == 0 then
                     return first_tok, toks.n, i - 1
@@ -2929,6 +2974,11 @@ local function tokenize_island(src, island_kind, start_byte, toks)
                           ["^"]=TK.caret, ["~"]=TK.tilde })[ch]
             if k1 then
                 push_tok(toks, k1, ch, i, i, line, col)
+                if k1 == TK.lparen then
+                    paren_depth = paren_depth + 1
+                elseif k1 == TK.rparen and paren_depth > 0 then
+                    paren_depth = paren_depth - 1
+                end
             else
                 push_tok(toks, TK.invalid, ch, i, i, line, col)
                 push_lex_issue(toks, "invalid character " .. string.format("%q", ch), i, line, col)
