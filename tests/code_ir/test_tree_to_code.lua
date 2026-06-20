@@ -359,7 +359,7 @@ end
 
 func aggregate_array_view(p: ptr(i32), n: index): i32
     let pair: Pair = Pair{ x = 10, y = 20 }
-    let xs: [3]i32 = [1, 2, 3]
+    let xs: [i32; 3] = [1, 2, 3]
     let v: view(i32) = view(p, n)
     p[0] = 4
     return pair.x + xs[1] + as(i32, len(v)) + v[0] + as(i32, sizeof(Pair)) + as(i32, alignof(Pair))

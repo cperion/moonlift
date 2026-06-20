@@ -5,8 +5,8 @@ local R, H = B.R, B.H
 
 local op_forloop = R([[
 region op_forloop(]] .. H .. [[;
-                  next(frame: ptr(Frame), pc: index, base: index, top: index),
-                  do_jump(frame: ptr(Frame), pc: index, base: index, top: index),
+                  next(frame: ptr(Frame), pc: index, base: index, top: index) |
+                  do_jump(frame: ptr(Frame), pc: index, base: index, top: index) |
                   error(code: i32))
 entry start()
     let idx_slot: index = base + as(index, a)
@@ -46,7 +46,7 @@ end
 
 local op_forprep = R([[
 region op_forprep(]] .. H .. [[;
-                  do_jump(frame: ptr(Frame), pc: index, base: index, top: index),
+                  do_jump(frame: ptr(Frame), pc: index, base: index, top: index) |
                   error(code: i32))
 entry start()
     let init_slot: index = base + as(index, a)
@@ -93,7 +93,7 @@ end
 
 local op_tforloop = R([[
 region op_tforloop(]] .. H .. [[;
-                   next(frame: ptr(Frame), pc: index, base: index, top: index),
+                   next(frame: ptr(Frame), pc: index, base: index, top: index) |
                    do_jump(frame: ptr(Frame), pc: index, base: index, top: index))
 entry start()
     let var_val: Value = L.stack[base + as(index, a + 2)]

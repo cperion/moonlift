@@ -5,8 +5,8 @@ local R, H = B.R, B.H
 
 local op_closure = R([[
 region op_closure(]] .. H .. [[;
-                  next(frame: ptr(Frame), pc: index, base: index, top: index),
-                  error(code: i32),
+                  next(frame: ptr(Frame), pc: index, base: index, top: index) |
+                  error(code: i32) |
                   oom)
 entry start()
     let parent: ptr(LClosure) = as(ptr(LClosure), frame.closure.bits)
@@ -29,8 +29,8 @@ end
 
 local op_vararg = R([[
 region op_vararg(]] .. H .. [[;
-                 next(frame: ptr(Frame), pc: index, base: index, top: index),
-                 error(code: i32),
+                 next(frame: ptr(Frame), pc: index, base: index, top: index) |
+                 error(code: i32) |
                  oom)
 entry start()
     let cl: ptr(LClosure) = as(ptr(LClosure), frame.closure.bits)
@@ -72,8 +72,8 @@ end
 
 local op_getvarg = R([[
 region op_getvarg(]] .. H .. [[;
-                  next(frame: ptr(Frame), pc: index, base: index, top: index),
-                  error(code: i32),
+                  next(frame: ptr(Frame), pc: index, base: index, top: index) |
+                  error(code: i32) |
                   oom)
 entry start()
     jump error(code = @{ERR_RUNTIME})
@@ -83,7 +83,7 @@ end
 
 local op_varargprep = R([[
 region op_varargprep(]] .. H .. [[;
-                     next(frame: ptr(Frame), pc: index, base: index, top: index),
+                     next(frame: ptr(Frame), pc: index, base: index, top: index) |
                      oom)
 entry start()
     -- Incoming varargs are already explicit in the frame argument window;

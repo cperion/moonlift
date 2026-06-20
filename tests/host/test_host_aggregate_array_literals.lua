@@ -25,7 +25,7 @@ c_array:free()
 
 local empty_array = Host.eval [[
 return func empty_array_ok(): i32
-    let xs: [0]i32 = []
+    let xs: [i32; 0] = []
     return 7
 end
 ]]

@@ -21,7 +21,7 @@ check("modules load", type(vm.regions_value) == "table")
 -- 2. Raw struct allocation via moon.func
 -- Compile a function that uses struct literals and returns a tag
 local t1 = moon.func [[
-test_value_new() -> i32
+test_value_new(): i32
     let v: Value = { tag = 4, aux = 0, bits = as(u64, 42.0) }
     return as(i32, v.tag)
 end
@@ -32,7 +32,7 @@ c1:free()
 
 -- 3. Test raw_equal on numbers
 local t2 = moon.func [[
-test_raw_equal() -> i32
+test_raw_equal(): i32
     let a: Value = { tag = 4, aux = 0, bits = as(u64, 42.0) }
     let b: Value = { tag = 4, aux = 0, bits = as(u64, 42.0) }
     let c: Value = { tag = 4, aux = 0, bits = as(u64, 99.0) }
@@ -48,7 +48,7 @@ c2:free()
 
 -- 4. Test struct literal construction
 local t3 = moon.func [[
-test_frame_new() -> i32
+test_frame_new(): i32
     let f: Frame = {
         closure = { tag = 0, aux = 0, bits = 0 },
         base = 0, top = 0, pc = 0,
@@ -68,7 +68,7 @@ c3:free()
 
 -- 5. Build a simple Instr and verify field access
 local t4 = moon.func [[
-test_instr() -> i32
+test_instr(): i32
     let inst: Instr = { word = 1 }
     return as(i32, inst.word & 127)
 end
@@ -80,7 +80,7 @@ c4:free()
 -- 6. Build and run a minimal dispatch simulation
 -- Create a fake Code[], Instr[], and dispatch "by hand"
 local t5 = moon.func { OP_MOVE = moon.int(0) } [[
-test_switch() -> i32
+test_switch(): i32
     let inst: Instr = { word = as(u32, @{OP_MOVE}) | (as(u32, 1) << 7) | (as(u32, 2) << 16) }
     if (inst.word & 127) == @{OP_MOVE} then
         return 42
@@ -94,7 +94,7 @@ c5:free()
 
 -- 7. Scalar arithmetic sanity
 local t6 = moon.func [[
-test_scalar_arith() -> i32
+test_scalar_arith(): i32
     let a: i32 = 10
     let b: i32 = 20
     return a + b
@@ -106,7 +106,7 @@ c6:free()
 
 -- 8. Mutable binding sanity
 local t7 = moon.func [[
-test_mutable_store() -> i32
+test_mutable_store(): i32
     var x: i32 = 0
     x = 42
     return x
@@ -118,7 +118,7 @@ c7:free()
 
 -- 9. Test value truth logic (hardcoded inline)
 local t8 = moon.func [[
-test_truth() -> i32
+test_truth(): i32
     let nil_val: Value = { tag = 0, aux = 0, bits = 0 }
     let num_val: Value = { tag = 4, aux = 0, bits = as(u64, 1.0) }
     let false_val: Value = { tag = 1, aux = 0, bits = 0 }
@@ -139,7 +139,7 @@ c8:free()
 
 -- 10. Test the full LOADK + RETURN logic inline (no region emit)
 local t9 = moon.func { TAG_NUM = moon.int(const.Tag.NUM) } [[
-test_loadk_return() -> i32
+test_loadk_return(): i32
     -- Simulate LOADK/RETURN with a typed binding instead of array codegen.
     let r0: i64 = 42
     return as(i32, r0)

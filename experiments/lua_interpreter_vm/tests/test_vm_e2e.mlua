@@ -7,7 +7,7 @@ local vm = require("experiments.lua_interpreter_vm.src.init")
 local const = vm.const
 local ffi = require("ffi")
 
-extern func moonlift_scratch_raw(slot: i32, elem_size: i32, count: i32) -> ptr(u8)
+extern func moonlift_scratch_raw(slot: i32, elem_size: i32, count: i32): ptr(u8)
 
 -- Bundle API: add vm_resume as a named region, emit it by name
 local M = moon.bundle("VME2E")
@@ -32,8 +32,8 @@ local run_vm_wrapper = moon.func {
     vm_resume = vm.vm_loop.vm_resume,
     sys_realloc = vm.regions_allocator.sys_realloc,
 } [[
-run_vm(L: ptr(LuaThread), nargs: i32) -> i32
-    return region -> i32
+run_vm(L: ptr(LuaThread), nargs: i32): i32
+    return region: i32
     entry start()
         emit @{vm_resume}(L, nargs;
             ok = fin,
@@ -71,7 +71,7 @@ if ok then
     
     -- But first verify scratch_raw works
     local scratch_test = moon.func [[
-test_scratch_raw() -> i32
+test_scratch_raw(): i32
     let p: ptr(u8) = moonlift_scratch_raw(0, 4, 10)
     let xs: ptr(i32) = as(ptr(i32), p)
     xs[0] = 42

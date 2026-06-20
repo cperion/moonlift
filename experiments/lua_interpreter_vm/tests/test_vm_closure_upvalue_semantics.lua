@@ -117,8 +117,8 @@ local runner = moon.func {
     vm_resume = vm.vm_loop.vm_resume,
     sys_realloc = vm.regions_allocator.sys_realloc,
 } [[
-run(L: ptr(LuaThread)) -> i32
-    return region -> i32
+run(L: ptr(LuaThread)): i32
+    return region: i32
     entry start()
         emit @{vm_resume}(L, 0;
             ok = done,

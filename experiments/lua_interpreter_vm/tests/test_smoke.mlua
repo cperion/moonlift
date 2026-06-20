@@ -1,6 +1,6 @@
 -- VM end-to-end test: build Proto, run via vm_resume
 -- Uses Moonlift hosted island syntax for type-safe struct access
-return func test_vm() -> i32
+return func test_vm(): i32
     -- We can't dynamically allocate in Moonlift without a GC/allocator.
     -- Instead, we test the dispatch loop by setting up a minimal Proto
     -- as a compile-time constant and running it.

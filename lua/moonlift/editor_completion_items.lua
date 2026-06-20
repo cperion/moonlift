@@ -43,7 +43,6 @@ function M.Define(T)
             end
             add(items, E, "ptr", E.CompletionSnippet, "pointer type", "Pointer type", "ptr(${1:T})")
             add(items, E, "view", E.CompletionSnippet, "view type", "Moonlift zero-copy view type", "view(${1:T})")
-            add(items, E, "handle", E.CompletionSnippet, "explicit handle type", "Explicit handle type form for generated code", "handle(${1:Name}, ${2:u32})")
             add(items, E, "lease", E.CompletionSnippet, "lease access type", "Temporary no-escape access from a store", "lease(${1:store}) ptr(${2:T})")
             add(items, E, "noescape", E.CompletionKeyword, "noescape parameter", "Parameter modifier for non-retained pointer/view access")
             add(items, E, "readonly", E.CompletionKeyword, "readonly store parameter", "Reads and preserves live leases")

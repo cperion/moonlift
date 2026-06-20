@@ -8,10 +8,6 @@ local call_fp = func(fp: func(i32): i32, x: i32): i32
     return fp(x)
 end
 
-local call_fp_alias = func(fp: fn(i32): i32, x: i32): i32
-    return fp(x)
-end
-
 local call_fp_cast = func(raw: rawptr, x: i32): i32
     let fp: func(i32): i32 = as(func(i32): i32, raw)
     return fp(x)
@@ -20,6 +16,5 @@ end
 return {
     callee = callee,
     call_fp = call_fp,
-    call_fp_alias = call_fp_alias,
     call_fp_cast = call_fp_cast,
 }

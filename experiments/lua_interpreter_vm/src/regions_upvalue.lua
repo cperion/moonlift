@@ -12,7 +12,7 @@ I.SIZE_PTR = moon.int(8)
 
 local alloc_open_upvalue = host.region { TAG_NIL = I.TAG_NIL, SIZE_UPVAL = I.SIZE_UPVAL } [[
 region alloc_open_upvalue(L: ptr(LuaThread), stack_index: index, prev: ptr(UpVal), next_uv: ptr(UpVal);
-                          made(uv: ptr(UpVal)), oom)
+                          made(uv: ptr(UpVal)) | oom)
 entry start()
     emit alloc_bytes(L.global, as(index, @{SIZE_UPVAL}), as(u32, 8);
         ok = allocated,
@@ -46,7 +46,8 @@ end
 -- list is kept in descending stack_index order, so close_upvalues can stop as
 -- soon as it reaches a slot below the closing boundary.
 local find_upvalue = host.region { alloc_open_upvalue = alloc_open_upvalue } [[
-region find_upvalue(L: ptr(LuaThread), stack_index: index; found(uv: ptr(UpVal)), created(uv: ptr(UpVal)), oom)
+region find_upvalue(L: ptr(LuaThread), stack_index: index; found(uv: ptr(UpVal)) | created(uv: ptr(UpVal)) | oom)
+
 entry start()
     let head: ptr(UpVal) = L.open_upvals
     if head == nil then jump make_new(prev = as(ptr(UpVal), as(u64, 0)), next = head) end
@@ -74,7 +75,7 @@ end
 
 local capture_upvalue_slot = host.region { find_upvalue = find_upvalue } [[
 region capture_upvalue_slot(L: ptr(LuaThread), cl: ptr(LClosure), i: index, stack_index: index;
-                            done(cl: ptr(LClosure), i: index, uv: ptr(UpVal)), oom)
+                            done(cl: ptr(LClosure), i: index, uv: ptr(UpVal)) | oom)
 entry start()
     emit @{find_upvalue}(L, stack_index; found = got, created = got, oom = oom)
 end
@@ -86,7 +87,8 @@ end
 
 -- close_upvalues: close all upvalues at or above a stack index
 local close_upvalues = host.region [[
-region close_upvalues(L: ptr(LuaThread), from_stack_index: index; done, oom)
+region close_upvalues(L: ptr(LuaThread), from_stack_index: index; done | oom)
+
 entry start()
     jump scan(uv = L.open_upvals)
 end
@@ -108,7 +110,8 @@ end
 -- the current frame stack, otherwise the parent closure's upvalue object is
 -- shared.
 local make_lclosure = host.region { TAG_LCLOSURE = I.TAG_LCLOSURE, TAG_NIL = I.TAG_NIL, SIZE_LCLOSURE = I.SIZE_LCLOSURE, SIZE_PTR = I.SIZE_PTR } [[
-region make_lclosure(L: ptr(LuaThread), parent: ptr(LClosure), proto: ptr(Proto), env: ptr(Table), base: index; ok(cl: ptr(LClosure)), oom)
+region make_lclosure(L: ptr(LuaThread), parent: ptr(LClosure), proto: ptr(Proto), env: ptr(Table), base: index; ok(cl: ptr(LClosure)) | oom)
+
 entry start()
     if proto == nil then jump oom() end
     let up_bytes: index = proto.upvals_len * as(index, @{SIZE_PTR})

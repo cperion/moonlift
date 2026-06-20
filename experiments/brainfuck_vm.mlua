@@ -58,8 +58,8 @@ end
 -- ── The interpreter function ────────────────────────────────────
 -- Compose step into a loop. Seal with a function.
 
-local interpret = func(code: ptr(i32), jumps: ptr(i32), code_len: i32, data: ptr(i32), data_len: i32, fuel: i32) -> i32
-    return region -> i32
+local interpret = func(code: ptr(i32), jumps: ptr(i32), code_len: i32, data: ptr(i32), data_len: i32, fuel: i32): i32
+    return region: i32
     entry start()
         emit step(code, jumps, data, 0, 0, 0, fuel; next = loop, output = got_out, halt = done, oom = out_of_fuel)
     end

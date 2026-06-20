@@ -286,7 +286,7 @@ local function render_arithmetic_numeric_ok(op, strings, left, right)
   local block = fresh_block_name("rt_arith_ok")
   local lk, rk = block .. "_lk", block .. "_rk"
   return table.concat({
-    "block " .. block .. "() -> bool",
+    "block " .. block .. "(): bool",
     "    let " .. lk .. ": i64 = " .. render_numeric_kind_safe(strings, left),
     "    if " .. lk .. " == " .. i64_lit(0) .. " then yield false end",
     "    let " .. rk .. ": i64 = " .. render_numeric_kind_safe(strings, right),
@@ -339,7 +339,7 @@ local function render_cdata_access_ok(cdata_bank, cdata_value, scalar, type_id, 
   local idx = block .. "_idx"
   local cd = render_cdata_record(cdata_bank, idx)
   return table.concat({
-    "block " .. block .. "() -> bool",
+    "block " .. block .. "(): bool",
     "    if " .. cdata_value .. ".tag == " .. tag_lit("CDataTag") .. " then",
     "        if " .. cdata_value .. ".payload_i64 >= " .. i64_lit(0) .. " then",
     "            let " .. idx .. ": index = as(index, " .. cdata_value .. ".payload_i64)",
@@ -440,7 +440,7 @@ local function render_table_barrier_needed(tables, tablev, value)
   local idx = block .. "_idx"
   local tbl = tables .. "[" .. idx .. "]"
   return table.concat({
-    "block " .. block .. "() -> bool",
+    "block " .. block .. "(): bool",
     "    if " .. render_tag_compare(tablev, "TableTag") .. " then",
     "        if " .. tablev .. ".payload_i64 >= " .. i64_lit(0) .. " then",
     "            let " .. idx .. ": index = as(index, " .. tablev .. ".payload_i64)",
@@ -496,7 +496,7 @@ local function render_raw_get_let(dst, tables, tablev, key, indent)
   local loop = fresh_block_name(dst .. "_probe")
   local e = hptr .. "[as(index, " .. loop .. "_i)]"
   local prefix = loop .. "_entry"
-  lines[#lines + 1] = indent .. "                        let " .. loop .. "_hit: bool = block " .. loop .. "(" .. loop .. "_i: i64 = " .. i64_lit(0) .. ") -> bool"
+  lines[#lines + 1] = indent .. "                        let " .. loop .. "_hit: bool = block " .. loop .. "(" .. loop .. "_i: i64 = " .. i64_lit(0) .. "): bool"
   lines[#lines + 1] = indent .. "                            if " .. dst .. "_done then yield true end"
   lines[#lines + 1] = indent .. "                            if " .. loop .. "_i >= " .. tbl .. ".hash_capacity then yield false end"
   lines[#lines + 1] = indent .. "                            let " .. prefix .. "_state: i64 = " .. e .. ".state"
@@ -562,7 +562,7 @@ local function render_table_raw_set_can_write_let(dst, tables, tablev, key, inde
   local loop = fresh_block_name(prefix_base .. "_probe")
   local e = hptr .. "[as(index, " .. loop .. "_i)]"
   local prefix = loop .. "_entry"
-  lines[#lines + 1] = indent .. "                        " .. dst .. " = block " .. loop .. "(" .. loop .. "_i: i64 = " .. i64_lit(0) .. ") -> bool"
+  lines[#lines + 1] = indent .. "                        " .. dst .. " = block " .. loop .. "(" .. loop .. "_i: i64 = " .. i64_lit(0) .. "): bool"
   lines[#lines + 1] = indent .. "                            if " .. dst .. " then yield true end"
   lines[#lines + 1] = indent .. "                            if " .. loop .. "_i >= " .. tbl .. ".hash_capacity then yield false end"
   lines[#lines + 1] = indent .. "                            let " .. prefix .. "_state: i64 = " .. e .. ".state"
@@ -903,7 +903,7 @@ local function render_expr(e)
     local tidx = block .. "_table_idx"
     local tbl = tables .. "[" .. tidx .. "]"
     return table.concat({
-      "block " .. block .. "() -> bool",
+      "block " .. block .. "(): bool",
       "    if " .. render_is_string(v) .. " then yield true end",
       "    if " .. render_tag_compare(v, "TableTag") .. " then",
       "        if " .. v .. ".payload_i64 >= " .. i64_lit(0) .. " then",
@@ -1375,7 +1375,7 @@ local function render_op(op, indent)
     local update_loop = fresh_block_name(set_prefix .. "_update")
     local update_e = hptr .. "[as(index, " .. update_loop .. "_i)]"
     local update_prefix = update_loop .. "_entry"
-    lines[#lines + 1] = indent .. "                        hash_done = block " .. update_loop .. "(" .. update_loop .. "_i: i64 = " .. i64_lit(0) .. ") -> bool"
+    lines[#lines + 1] = indent .. "                        hash_done = block " .. update_loop .. "(" .. update_loop .. "_i: i64 = " .. i64_lit(0) .. "): bool"
     lines[#lines + 1] = indent .. "                            if hash_done then yield true end"
     lines[#lines + 1] = indent .. "                            if " .. update_loop .. "_i >= " .. tbl .. ".hash_capacity then yield false end"
     lines[#lines + 1] = indent .. "                            let " .. update_prefix .. "_state: i64 = " .. update_e .. ".state"
@@ -1394,7 +1394,7 @@ local function render_op(op, indent)
     local insert_e = hptr .. "[as(index, " .. insert_loop .. "_i)]"
     local insert_prefix = insert_loop .. "_entry"
     lines[#lines + 1] = indent .. "                        if not hash_done then"
-    lines[#lines + 1] = indent .. "                            hash_done = block " .. insert_loop .. "(" .. insert_loop .. "_i: i64 = " .. i64_lit(0) .. ") -> bool"
+    lines[#lines + 1] = indent .. "                            hash_done = block " .. insert_loop .. "(" .. insert_loop .. "_i: i64 = " .. i64_lit(0) .. "): bool"
     lines[#lines + 1] = indent .. "                                if hash_done then yield true end"
     lines[#lines + 1] = indent .. "                                if " .. insert_loop .. "_i >= " .. tbl .. ".hash_capacity then yield false end"
     lines[#lines + 1] = indent .. "                                let " .. insert_prefix .. "_state: i64 = " .. insert_e .. ".state"
@@ -1541,7 +1541,7 @@ end
 local function render_region_return(region, result_ty)
   local _by_key, entry, others = index_blocks(region)
   local lines = {}
-  lines[#lines + 1] = "    return region -> " .. result_ty
+  lines[#lines + 1] = "    return region: " .. result_ty
   for _, line in ipairs(render_region_block(entry, true, result_ty, region.params or {})) do lines[#lines + 1] = line end
   for _, block in ipairs(others) do
     for _, line in ipairs(render_region_block(block, false, result_ty)) do lines[#lines + 1] = line end
@@ -1564,7 +1564,7 @@ local function render_kernel(kernel, opts)
   lines[#lines + 1] = ObjectModel.TYPE_DECL
   lines[#lines + 1] = ""
   local result_ty = render_returns(kernel.returns)
-  lines[#lines + 1] = "local " .. name .. " = func(" .. table.concat(params, ", ") .. ") -> " .. result_ty
+  lines[#lines + 1] = "local " .. name .. " = func(" .. table.concat(params, ", ") .. "): " .. result_ty
   local blocks = kernel.body and kernel.body.blocks or {}
   if #blocks == 1 then
     local block = blocks[1]

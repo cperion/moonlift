@@ -16,8 +16,8 @@ for k, v in pairs(const.Abi) do I["ABI_" .. k] = moon.int(v) end
 
 local stack_check_lua_call = host.region [[
 region stack_check_lua_call(L: ptr(LuaThread), base: index, ncall: i32, topcall: index, maxstack: u16;
-                            ready(base: index, ncall: i32, topcall: index),
-                            overflow, oom)
+                            ready(base: index, ncall: i32, topcall: index) |
+                            overflow | oom)
 entry start()
     emit stack_check(L, base + as(index, maxstack);
         ok = ok_ready,
@@ -33,7 +33,7 @@ end
 
 local adjust_varargs_call = host.region [[
 region adjust_varargs_call(L: ptr(LuaThread), cl: ptr(LClosure), func_slot: index, ncall: i32, topcall: index;
-                            ready(base: index, ncall: i32, topcall: index), oom)
+                            ready(base: index, ncall: i32, topcall: index) | oom)
 entry start()
     emit adjust_varargs(L, cl, func_slot, ncall; ok = adjusted, oom = oom)
 end
@@ -45,7 +45,7 @@ end
 
 local get_call_metamethod_for_call = host.region { TM_CALL = I.TM_CALL } [[
 region get_call_metamethod_for_call(L: ptr(LuaThread), func_val: Value, ncall: i32, topcall: index;
-                                    found(mm: Value, ncall: i32, topcall: index), missing)
+                                    found(mm: Value, ncall: i32, topcall: index) | missing)
 entry start()
     emit get_metamethod(L.global, func_val, as(u8, @{TM_CALL}); found = got, missing = missing)
 end
@@ -57,7 +57,7 @@ end
 
 local stack_check_call_metamethod = host.region [[
 region stack_check_call_metamethod(L: ptr(LuaThread), func_slot: index, ncall: i32, mm: Value;
-                                   ready(ncall: i32, mm: Value), overflow, oom)
+                                   ready(ncall: i32, mm: Value) | overflow | oom)
 entry start()
     let needed: index = func_slot + as(index, ncall) + 2
     emit stack_check(L, needed;
@@ -85,11 +85,11 @@ local prepare_call = host.region {
 region prepare_call(L: ptr(LuaThread), func_slot: index, nargs: i32, wanted: i32,
                     resume: ResumeState,
                     result_base: index, call_top: index, yieldable: u8;
-                    enter_lua(child: ptr(Frame)),
-                    enter_native(cl: ptr(CClosure), ctx: NativeCallContext),
-                    returned(nres: i32),
-                    yielded(nres: i32),
-                    error(code: i32),
+                    enter_lua(child: ptr(Frame)) |
+                    enter_native(cl: ptr(CClosure), ctx: NativeCallContext) |
+                    returned(nres: i32) |
+                    yielded(nres: i32) |
+                    error(code: i32) |
                     oom)
 entry start()
     jump classify(func_val = L.stack[func_slot], ncall = nargs, topcall = call_top)
@@ -191,9 +191,9 @@ end
 -- try_call_metamethod: check if the value at func_slot has __call metamethod
 local try_call_metamethod = host.region { ERR_CALL = I.ERR_CALL } [[
 region try_call_metamethod(L: ptr(LuaThread), func_slot: index;
-                           replaced,
-                           not_callable,
-                           error(code: i32),
+                           replaced |
+                           not_callable |
+                           error(code: i32) |
                            oom)
 entry start()
     jump not_callable()
@@ -206,9 +206,9 @@ end
 -- this boundary. Native invocation goes through regions_native.invoke_native.
 local call_native = host.region { ERR_CALL = I.ERR_CALL, ABI_NATIVE_VERSION = I.ABI_NATIVE_VERSION, invoke_native = native_regions.invoke_native, resume_after_return = resume_regions.resume_after_return } [[
 region call_native(L: ptr(LuaThread), cl: ptr(CClosure), ctx: NativeCallContext;
-                   returned(frame: ptr(Frame), pc: index, base: index, top: index, nres: i32),
-                   yielded(nres: i32),
-                   error(code: i32),
+                   returned(frame: ptr(Frame), pc: index, base: index, top: index, nres: i32) |
+                   yielded(nres: i32) |
+                   error(code: i32) |
                    oom)
 entry start()
     if cl == nil then
@@ -306,10 +306,10 @@ end
 -- return metadata. The parent is resumed with its own frame state.
 local return_from_lua = host.region { ERR_RUNTIME = I.ERR_RUNTIME, resume_after_return = resume_regions.resume_after_return } [[
 region return_from_lua(L: ptr(LuaThread), frame: ptr(Frame), first_result: index, nres: i32;
-                       resume_parent(parent: ptr(Frame), pc: index, base: index, top: index),
-                       finished(nres: i32),
-                       yielded(nres: i32),
-                       error(code: i32),
+                       resume_parent(parent: ptr(Frame), pc: index, base: index, top: index) |
+                       finished(nres: i32) |
+                       yielded(nres: i32) |
+                       error(code: i32) |
                        oom)
 entry start()
     if L.frame_count == 0 then

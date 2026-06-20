@@ -34,12 +34,12 @@ assert(#parsed_handle_facts.value.decl.facts == 2, "handle domain/target facts s
 assert(pvm.classof(parsed_handle_facts.value.decl.facts[1]) == Ty.HandleDomain)
 assert(pvm.classof(parsed_handle_facts.value.decl.facts[2]) == Ty.HandleTarget)
 
-local lease_ty = P.parse_type("lease ptr(handle(Texture, u32))").value
+local lease_ty = P.parse_type("lease ptr(Texture)").value
 assert(pvm.classof(lease_ty) == Ty.TLease)
 assert(pvm.classof(lease_ty.base) == Ty.TPtr)
-assert(pvm.classof(lease_ty.base.elem) == Ty.THandle)
+assert(pvm.classof(lease_ty.base.elem) == Ty.TNamed)
 
-local handle_ty = lease_ty.base.elem
+local handle_ty = Ty.THandle(Ty.TypeRefPath(C.Path({ C.Name("Texture") })), parsed_handle.value.decl.repr)
 local layout = TypeLayout.result(handle_ty, Sem.LayoutEnv({}))
 assert(layout.layout.size == 4 and layout.layout.align == 4)
 assert(CodeType.code_type_key(CodeType.type_to_code(handle_ty, {})) == "handle_u32")
@@ -50,7 +50,8 @@ end
 ]])
 assert(#TC.check_module(bad_lease.module).issues > 0, "lease base must be ptr/view")
 
-local bad_cast = P.parse_module([[func bad_cast(t: handle(Texture, u32)): u32
+local bad_cast = P.parse_module([[handle Texture : u32 invalid 0 end
+func bad_cast(t: Texture): u32
     return as(u32, t)
 end
 ]])

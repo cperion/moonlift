@@ -17,8 +17,8 @@ assert(ffi.sizeof("LowerFrame") > 0, "LowerFrame missing from FFI schema")
 
 local compile_region = vm.regions_compiler.compile_lua_source_into
 local wrapper = moon.func { compile_lua_source_into = compile_region } [[
-compile_text(cu: ptr(CompileUnit), b: ptr(FuncBuilder), p: ptr(Proto), bytes: ptr(u8), n: index, code: ptr(Instr), locals: ptr(CompileLocal), workspace: ptr(u8), workspace_cap: index) -> i32
-    return region -> i32
+compile_text(cu: ptr(CompileUnit), b: ptr(FuncBuilder), p: ptr(Proto), bytes: ptr(u8), n: index, code: ptr(Instr), locals: ptr(CompileLocal), workspace: ptr(u8), workspace_cap: index): i32
+    return region: i32
     entry start()
         emit @{compile_lua_source_into}(cu, b, p, bytes, n, code, as(index, 32), locals, as(index, 16), workspace, workspace_cap;
             ok = ok,
@@ -53,8 +53,8 @@ local runner = moon.func {
     validate_proto = vm.validate.validate_proto,
     vm_resume = vm.vm_loop.vm_resume,
 } [[
-run_proto(L: ptr(LuaThread), p: ptr(Proto)) -> i32
-    return region -> i32
+run_proto(L: ptr(LuaThread), p: ptr(Proto)): i32
+    return region: i32
     entry start()
         emit @{validate_proto}(L, p; ok = valid, invalid = invalid, oom = oom_bad)
     end

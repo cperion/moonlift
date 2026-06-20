@@ -11,7 +11,8 @@ for k, v in pairs(const.Err) do I["ERR_" .. k] = moon.int(v) end
 
 -- value_truth: TAG_NIL or TAG_FALSE → falsey, else truthy
 local value_truth = host.region { TAG_NIL = I.TAG_NIL, TAG_FALSE = I.TAG_FALSE } [[
-region value_truth(v: Value; truthy, falsey)
+region value_truth(v: Value; truthy | falsey)
+
 entry start()
     if v.tag == @{TAG_NIL} or v.tag == @{TAG_FALSE} then
         jump falsey()
@@ -23,7 +24,8 @@ end
 
 -- value_as_integer: check TAG_INTEGER
 local value_as_integer = host.region { TAG_INTEGER = I.TAG_INTEGER } [[
-region value_as_integer(v: Value; integer(n: i64), not_integer)
+region value_as_integer(v: Value; integer(n: i64) | not_integer)
+
 entry start()
     if v.tag == @{TAG_INTEGER} then
         jump integer(n = as(i64, v.bits))
@@ -35,7 +37,8 @@ end
 
 -- value_as_float: check TAG_NUM
 local value_as_float = host.region { TAG_NUM = I.TAG_NUM } [[
-region value_as_float(v: Value; float(n: f64), not_float)
+region value_as_float(v: Value; float(n: f64) | not_float)
+
 entry start()
     if v.tag == @{TAG_NUM} then
         jump float(n = bitcast(f64, v.bits))
@@ -47,7 +50,8 @@ end
 
 -- value_to_number: dual-arm integer | float | not_number
 local value_to_number = host.region { TAG_INTEGER = I.TAG_INTEGER, TAG_NUM = I.TAG_NUM } [[
-region value_to_number(v: Value; integer(n: i64), float(n: f64), not_number)
+region value_to_number(v: Value; integer(n: i64) | float(n: f64) | not_number)
+
 entry start()
     if v.tag == @{TAG_INTEGER} then
         jump integer(n = as(i64, v.bits))
@@ -62,7 +66,8 @@ end
 
 -- value_as_string: check TAG_STR
 local value_as_string = host.region { TAG_STR = I.TAG_STR } [[
-region value_as_string(v: Value; string(s: ptr(String)), not_string)
+region value_as_string(v: Value; string(s: ptr(String)) | not_string)
+
 entry start()
     if v.tag == @{TAG_STR} then
         jump string(s = as(ptr(String), v.bits))
@@ -74,7 +79,8 @@ end
 
 -- value_to_string: accepts strings. Number formatting requires allocation, rejected explicitly.
 local value_to_string = host.region { TAG_STR = I.TAG_STR, ERR_RUNTIME = I.ERR_RUNTIME } [[
-region value_to_string(L: ptr(LuaThread), v: Value; string(s: ptr(String)), error(code: i32), oom)
+region value_to_string(L: ptr(LuaThread), v: Value; string(s: ptr(String)) | error(code: i32) | oom)
+
 entry start()
     if v.tag == @{TAG_STR} then
         jump string(s = as(ptr(String), v.bits))
@@ -86,7 +92,8 @@ end
 
 -- value_as_table: check TAG_TABLE
 local value_as_table = host.region { TAG_TABLE = I.TAG_TABLE } [[
-region value_as_table(v: Value; table(t: ptr(Table)), not_table)
+region value_as_table(v: Value; table(t: ptr(Table)) | not_table)
+
 entry start()
     if v.tag == @{TAG_TABLE} then
         jump table(t = as(ptr(Table), v.bits))
@@ -98,7 +105,8 @@ end
 
 -- value_as_function: check TAG_LCLOSURE or TAG_CCLOSURE
 local value_as_function = host.region { TAG_LCLOSURE = I.TAG_LCLOSURE, TAG_CCLOSURE = I.TAG_CCLOSURE } [[
-region value_as_function(v: Value; lua(cl: ptr(LClosure)), native(cl: ptr(CClosure)), not_function)
+region value_as_function(v: Value; lua(cl: ptr(LClosure)) | native(cl: ptr(CClosure)) | not_function)
+
 entry start()
     if v.tag == @{TAG_LCLOSURE} then
         jump lua(cl = as(ptr(LClosure), v.bits))
@@ -119,7 +127,8 @@ local value_raw_equal = host.region {
     TAG_INTEGER = I.TAG_INTEGER, TAG_NUM = I.TAG_NUM,
     TAG_STR = I.TAG_STR, TAG_LIGHTUD = I.TAG_LIGHTUD,
 } [[
-region value_raw_equal(a: Value, b: Value; equal, not_equal)
+region value_raw_equal(a: Value, b: Value; equal | not_equal)
+
 entry start()
     if a.tag == @{TAG_INTEGER} and b.tag == @{TAG_NUM} then
         if as(f64, as(i64, a.bits)) == bitcast(f64, b.bits) then jump equal() end
@@ -158,7 +167,8 @@ end
 
 -- value_equal: raw_equal, then primitive false for unequal values.
 local value_equal = host.region { ERR_RUNTIME = I.ERR_RUNTIME } [[
-region value_equal(L: ptr(LuaThread), a: Value, b: Value; result(is_equal: bool), call_mm(mm: Value), error(code: i32), oom)
+region value_equal(L: ptr(LuaThread), a: Value, b: Value; result(is_equal: bool) | call_mm(mm: Value) | error(code: i32) | oom)
+
 entry try_raw()
     emit value_raw_equal(a, b; equal = yes, not_equal = check_meta)
 end
@@ -176,7 +186,8 @@ local value_less_than = host.region {
     TAG_INTEGER = I.TAG_INTEGER, TAG_NUM = I.TAG_NUM,
     TAG_STR = I.TAG_STR, ERR_COMPARE = I.ERR_COMPARE,
 } [[
-region value_less_than(L: ptr(LuaThread), a: Value, b: Value; result(is_lt: bool), call_mm(mm: Value), error(code: i32), oom)
+region value_less_than(L: ptr(LuaThread), a: Value, b: Value; result(is_lt: bool) | call_mm(mm: Value) | error(code: i32) | oom)
+
 entry start()
     if a.tag == @{TAG_INTEGER} and b.tag == @{TAG_INTEGER} then
         jump result(is_lt = as(i64, a.bits) < as(i64, b.bits))
@@ -215,7 +226,8 @@ local value_less_equal = host.region {
     TAG_INTEGER = I.TAG_INTEGER, TAG_NUM = I.TAG_NUM,
     TAG_STR = I.TAG_STR, ERR_COMPARE = I.ERR_COMPARE,
 } [[
-region value_less_equal(L: ptr(LuaThread), a: Value, b: Value; result(is_le: bool), call_mm(mm: Value, fallback_lt: bool), error(code: i32), oom)
+region value_less_equal(L: ptr(LuaThread), a: Value, b: Value; result(is_le: bool) | call_mm(mm: Value, fallback_lt: bool) | error(code: i32) | oom)
+
 entry start()
     if a.tag == @{TAG_INTEGER} and b.tag == @{TAG_INTEGER} then
         jump result(is_le = as(i64, a.bits) <= as(i64, b.bits))
@@ -258,6 +270,7 @@ end
 -- Used by SETTABUP, SETTABLE, SETTI, SETFIELD, MMBINI, MMBINK.
 local resolve_rk = host.region [[
 region resolve_rk(L: ptr(LuaThread), base: index, k: u8, c: u16, constants: ptr(Value); value(v: Value))
+
 entry start()
     if k == 1 then
         jump value(v = constants[as(index, c)])

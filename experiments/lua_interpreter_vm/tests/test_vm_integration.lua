@@ -10,7 +10,7 @@ local const = vm.const
 -- Region: takes frames+stack directly, not through L.frames/L.stack
 local vm_run = moon.region [[
 region vm_run(stack: ptr(Value), code: ptr(Instr), consts: ptr(Value);
-              ok(nres: i32), err(code: i32))
+              ok(nres: i32) | err(code: i32))
 entry start()
     let word: u32 = code[0].word
     let op: u16 = as(u16, word & 127)
@@ -31,8 +31,8 @@ end
 
 -- Callable func that passes thread fields to the region
 local run_fn = moon.func { vm_run = vm_run } [[
-run(stack: ptr(Value), code: ptr(Instr), consts: ptr(Value)) -> i32
-    return region -> i32
+run(stack: ptr(Value), code: ptr(Instr), consts: ptr(Value)): i32
+    return region: i32
     entry start()
         emit @{vm_run}(stack, code, consts; ok = fin, err = err_exit)
     end

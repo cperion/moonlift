@@ -34,8 +34,8 @@ local callback = ffi.cast("uint64_t (*)(uint8_t*, uint64_t, uint64_t, uint64_t)"
     end)
 
 local probe = moon.func [[
-probe_allocator_hook(fp: ptr(u8)) -> i32
-    let realloc_fn: func(ptr(u8), index, index, index) -> u64 = as(func(ptr(u8), index, index, index) -> u64, fp)
+probe_allocator_hook(fp: ptr(u8)): i32
+    let realloc_fn: func(ptr(u8), index, index, index): u64 = as(func(ptr(u8), index, index, index): u64, fp)
     let bits: u64 = realloc_fn(as(ptr(u8), as(u64, 0)), as(index, 0), as(index, 16), as(index, 8))
     if bits == as(u64, 0) then return 0 end
     let ignored: u64 = realloc_fn(as(ptr(u8), bits), as(index, 16), as(index, 0), as(index, 8))

@@ -13,7 +13,7 @@ for k, v in pairs(const.Resume) do I["RESUME_" .. k] = moon.int(v) end
 -- build_error_object: construct a Value error from code
 local build_error_object = host.region { TAG_NIL = I.TAG_NIL, TAG_STR = I.TAG_STR, ERR_RUNTIME = I.ERR_RUNTIME } [[
 region build_error_object(L: ptr(LuaThread), code: i32, culprit: Value;
-                          built(err: Value), oom)
+                          built(err: Value) | oom)
 entry start()
     let err: Value = { tag = @{TAG_NIL}, aux = as(u32, code), bits = 0 }
     jump built(err = err)
@@ -25,8 +25,8 @@ end
 -- object, records explicit thread error state, then enters protected unwind.
 local raise_code_error = host.region { TAG_NIL = I.TAG_NIL } [[
 region raise_code_error(L: ptr(LuaThread), code: i32;
-                        caught(frame: ptr(Frame)),
-                        uncaught(code: i32),
+                        caught(frame: ptr(Frame)) |
+                        uncaught(code: i32) |
                         oom)
 entry start()
     let culprit: Value = { tag = @{TAG_NIL}, aux = 0, bits = 0 }
@@ -62,8 +62,8 @@ local tbc_close_chain = host.region {
     RESUME_TBC_CLOSE = I.RESUME_TBC_CLOSE,
 } [[
 region tbc_close_chain(L: ptr(LuaThread), level: index;
-                       done,
-                       error(code: i32),
+                       done |
+                       error(code: i32) |
                        oom)
 entry start()
     if L.tbc_head <= level then jump done() end
@@ -106,7 +106,8 @@ local tbc_get_close = host.region {
     TAG_TABLE = I.TAG_TABLE, TAG_STR = I.TAG_STR, TAG_NIL = I.TAG_NIL,
     TM_CLOSE = I.TM_CLOSE,
 } [[
-region tbc_get_close(obj: Value; found(mm: Value), missing)
+region tbc_get_close(obj: Value; found(mm: Value) | missing)
+
 entry start()
     if obj.tag == @{TAG_TABLE} then
         let t: ptr(Table) = as(ptr(Table), obj.bits)
@@ -134,7 +135,7 @@ end
 -- raise_error: drain TBC chain, unwind frames looking for ProtectedFrame
 local raise_error = host.region { ERR_RUNTIME = I.ERR_RUNTIME } [[
 region raise_error(L: ptr(LuaThread), err: Value;
-                   caught(frame: ptr(Frame)),
+                   caught(frame: ptr(Frame)) |
                    uncaught(code: i32))
 entry start()
     let pf: ptr(ProtectedFrame) = L.protected_top
@@ -191,7 +192,7 @@ end
 local enter_protected = host.region [[
 region enter_protected(L: ptr(LuaThread), frame_index: index, stack_top: index,
                        handler_slot: index, errfunc_slot: index;
-                       done(pf: ptr(ProtectedFrame)), oom)
+                       done(pf: ptr(ProtectedFrame)) | oom)
 entry start()
     -- ProtectedFrame storage must be allocated by the VM allocator. Host stack
     -- frames, setjmp, or PUC longjmp-style control are not part of this ABI.
@@ -203,6 +204,7 @@ end
 -- leave_protected: pop a ProtectedFrame
 local leave_protected = host.region [[
 region leave_protected(L: ptr(LuaThread), pf: ptr(ProtectedFrame); done)
+
 entry start()
     L.protected_top = pf.previous
     jump done()
@@ -213,8 +215,8 @@ end
 -- protected_call: implement pcall/xpcall
 local protected_call = host.region { ERR_RUNTIME = I.ERR_RUNTIME, TAG_NIL = I.TAG_NIL } [[
 region protected_call(L: ptr(LuaThread), func_slot: index, nargs: i32, wanted: i32, errfunc_slot: index;
-                      success(nres: i32),
-                      failure(err: Value),
+                      success(nres: i32) |
+                      failure(err: Value) |
                       oom)
 entry start()
     L.err_value = { tag = @{TAG_NIL}, aux = @{ERR_RUNTIME}, bits = 0 }

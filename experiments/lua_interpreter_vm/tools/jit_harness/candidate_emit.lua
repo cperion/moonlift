@@ -52,7 +52,7 @@ local function emit_header(candidate, kernel_name)
     -- Leading layout matches LuaThread through the fields touched by stencils.
     s[#s + 1] = "struct LuaThread gc_next: ptr(u8); gc_tt: u8; gc_marked: u8; status: u8; stack: ptr(Value); stack_size: index; top: index; frames: ptr(Frame); frame_count: index; frame_cap: index end"
     s[#s + 1] = ""
-    s[#s + 1] = "func stencil_" .. kernel_name .. "(L: ptr(LuaThread), frame: ptr(Frame), code: ptr(Instr), constants: ptr(Value), pc: index, base: index, top: index) -> index"
+    s[#s + 1] = "func stencil_" .. kernel_name .. "(L: ptr(LuaThread), frame: ptr(Frame), code: ptr(Instr), constants: ptr(Value), pc: index, base: index, top: index): index"
     return table.concat(s, "\n") .. "\n"
 end
 
@@ -770,10 +770,10 @@ function M.emit_candidate_kernel(candidate, config)
     local source
 
     if config.trivial then
-        source = "func stencil_" .. kernel_name .. "() -> i64\n    return 0\nend\n"
+        source = "func stencil_" .. kernel_name .. "(): i64\n    return 0\nend\n"
     elseif candidate.rewrite_kind or (candidate.lowering and candidate.lowering ~= "generic_opcode_sequence") then
         source = emit_rewrite_body(candidate, ops)
-        if not source then source = "func stencil_" .. kernel_name .. "() -> i64\n    return 0\nend\n" end
+        if not source then source = "func stencil_" .. kernel_name .. "(): i64\n    return 0\nend\n" end
     else
         local parts = { emit_header(candidate, kernel_name) }
         for i, op in ipairs(ops) do

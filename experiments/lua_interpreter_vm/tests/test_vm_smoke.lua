@@ -56,8 +56,8 @@ local di = vm.opcodes.dispatch_instruction
 local wrapper = moon.func { di = di } [[
 verify_di(L: ptr(LuaThread), frame: ptr(Frame),
           pc: index, base: index, top: index,
-          code: ptr(Instr), constants: ptr(Value)) -> i32
-    return region -> i32
+          code: ptr(Instr), constants: ptr(Value)): i32
+    return region: i32
     entry start()
         emit @{di}(L, frame, pc, base, top, code, constants;
             next = ok_n, do_jump = ok_j, resume_parent = ok_rp,
@@ -95,8 +95,8 @@ test_compile("dispatch_instruction", function() return wrapper end)
 -- Compile vm_resume wrapper  
 local vr = vm.vm_loop.vm_resume
 local wrapper2 = moon.func { vr = vr } [[
-verify_vr(L: ptr(LuaThread), nargs: i32) -> i32
-    return region -> i32
+verify_vr(L: ptr(LuaThread), nargs: i32): i32
+    return region: i32
     entry start()
         emit @{vr}(L, nargs; ok = r0, yielded = r1,
             runtime_error = re, oom = ro)

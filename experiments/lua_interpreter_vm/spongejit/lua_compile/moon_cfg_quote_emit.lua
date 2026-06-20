@@ -143,7 +143,7 @@ local function seq_value_at(seq, index)
   end
   if index >= 2 then
     return moon.expr{ idx = q_i64(index), seq = seq, fallback = nil_value(), inline = inline }[[
-      block seq_value_at() -> LuaRTValue
+      block seq_value_at(): LuaRTValue
         if as(i64, @{idx}) >= @{seq}.count then yield @{fallback} end
         if @{seq}.buffer == as(ptr(LuaRTValue), as(i64, 0)) then yield @{fallback} end
         yield @{inline}
@@ -151,7 +151,7 @@ local function seq_value_at(seq, index)
     ]]
   end
   return moon.expr{ idx = q_i64(index), seq = seq, fallback = nil_value(), inline = inline }[[
-    block seq_value_at() -> LuaRTValue
+    block seq_value_at(): LuaRTValue
       if as(i64, @{idx}) >= @{seq}.count then yield @{fallback} end
       yield @{inline}
     end
@@ -162,7 +162,7 @@ local function buffer_value_at(buffer, base, count, index)
   local idx = q_i64(index)
   local elem = buffer:index((base + idx):as(moon.index))
   return moon.expr{ idx = idx, buffer = buffer, count = count, fallback = nil_value(), elem = elem }[[
-    block buffer_value_at() -> LuaRTValue
+    block buffer_value_at(): LuaRTValue
       if as(i64, @{idx}) >= @{count} then yield @{fallback} end
       if @{buffer} == as(ptr(LuaRTValue), as(i64, 0)) then yield @{fallback} end
       yield @{elem}
@@ -179,7 +179,7 @@ end
 
 local function numeric_kind_safe(strings, value)
   return moon.expr{ strings = strings, v = value, int_tag = tag_value("IntegerTag"), float_tag = tag_value("FloatTag"), is_string = is_string_expr(value), dec_i = string_numeric_kind_value("DecimalInteger"), dec_f = string_numeric_kind_value("DecimalFloat") }[[
-    block rt_num_kind() -> i64
+    block rt_num_kind(): i64
       if @{v}.tag == @{int_tag} then yield as(i64, 1) end
       if @{v}.tag == @{float_tag} then yield as(i64, 2) end
       if @{is_string} then
@@ -196,7 +196,7 @@ end
 
 local function numeric_i64_safe(strings, value)
   return moon.expr{ strings = strings, v = value, int_tag = tag_value("IntegerTag"), is_string = is_string_expr(value), dec_i = string_numeric_kind_value("DecimalInteger") }[[
-    block rt_num_i64() -> i64
+    block rt_num_i64(): i64
       if @{v}.tag == @{int_tag} then yield @{v}.payload_i64 end
       if @{is_string} then
         if @{v}.payload_i64 >= as(i64, 0) then
@@ -211,7 +211,7 @@ end
 
 local function numeric_f64_safe(strings, value)
   return moon.expr{ strings = strings, v = value, int_tag = tag_value("IntegerTag"), float_tag = tag_value("FloatTag"), is_string = is_string_expr(value), dec_i = string_numeric_kind_value("DecimalInteger"), dec_f = string_numeric_kind_value("DecimalFloat") }[[
-    block rt_num_f64() -> f64
+    block rt_num_f64(): f64
       if @{v}.tag == @{int_tag} then yield as(f64, @{v}.payload_i64) end
       if @{v}.tag == @{float_tag} then yield @{v}.payload_f64 end
       if @{is_string} then
@@ -353,7 +353,7 @@ end
 
 local function table_barrier_needed_expr(tables, tablev, value)
   return moon.expr{ tables = tables, tv = tablev, v = value, table_tag = tag_value("TableTag"), black = gc_color_value("Black"), old = gc_generation_value("Old"), collect = collectable_expr(value) }[[
-    block rt_table_barrier_needed() -> bool
+    block rt_table_barrier_needed(): bool
       if @{tv}.tag == @{table_tag} then
         if @{tv}.payload_i64 >= as(i64, 0) then
           let idx: index = as(index, @{tv}.payload_i64)
@@ -371,7 +371,7 @@ end
 
 local function table_array_len_expr(tables, tablev)
   return moon.expr{ tables = tables, tv = tablev, table_tag = tag_value("TableTag") }[[
-    block rt_table_array_len() -> i64
+    block rt_table_array_len(): i64
       if @{tv}.tag == @{table_tag} then
         if @{tv}.payload_i64 >= as(i64, 0) then yield @{tables}[as(index, @{tv}.payload_i64)].array_len end
       end
@@ -382,7 +382,7 @@ end
 
 local function string_len_expr(strings, value)
   return moon.expr{ strings = strings, v = value, is_str = is_string_expr(value) }[[
-    block rt_string_len() -> i64
+    block rt_string_len(): i64
       if @{is_str} then
         if @{v}.payload_i64 < as(i64, 0) then yield as(i64, 0) - @{v}.payload_i64 end
         let idx: index = as(index, @{v}.payload_i64)
@@ -395,7 +395,7 @@ end
 
 local function len_no_meta_ok_expr(strings, tables, value)
   return moon.expr{ tables = tables, v = value, table_tag = tag_value("TableTag"), is_str = is_string_expr(value), no_meta = metatable_kind_value("NoMetatable") }[[
-    block rt_len_no_meta_ok() -> bool
+    block rt_len_no_meta_ok(): bool
       if @{is_str} then yield true end
       if @{v}.tag == @{table_tag} then
         if @{v}.payload_i64 >= as(i64, 0) then
@@ -410,7 +410,7 @@ end
 
 local function len_no_meta_expr(strings, tables, value)
   return moon.expr{ strings = strings, tables = tables, v = value, table_tag = tag_value("TableTag"), is_str = is_string_expr(value), no_meta = metatable_kind_value("NoMetatable"), int_tag = tag_value("IntegerTag") }[[
-    block rt_len_no_meta() -> i64
+    block rt_len_no_meta(): i64
       if @{is_str} then yield @{strings}[as(index, @{v}.payload_i64)].byte_len end
       if @{v}.tag == @{table_tag} then
         if @{v}.payload_i64 >= as(i64, 0) then
@@ -425,7 +425,7 @@ end
 
 local function concat2_expr(strings, left, right)
   return moon.expr{ strings = strings, l = left, r = right, is_l = is_string_expr(left), is_r = is_string_expr(right), tag = tag_value("LongStringTag"), nil_tag = tag_value("NilTag") }[[
-    block rt_concat2() -> LuaRTValue
+    block rt_concat2(): LuaRTValue
       if @{is_l} and @{is_r} then
         let llen: i64 = @{strings}[as(index, @{l}.payload_i64)].byte_len
         let rlen: i64 = @{strings}[as(index, @{r}.payload_i64)].byte_len
@@ -627,7 +627,7 @@ local function quote_runtime_expr(e, env)
   elseif c == CFG.RuntimeVarargGet then
     local src, key = value_to_expr(e.source, env), value_to_expr(e.key, env)
     return moon.expr{ src = src, key = key, nilv = nil_value(), int_tag = tag_value("IntegerTag") }[[
-      block rt_vararg_get() -> LuaRTValue
+      block rt_vararg_get(): LuaRTValue
         if @{key}.tag == @{int_tag} then
           if @{key}.payload_i64 >= as(i64, 1) then
             if @{key}.payload_i64 <= @{src}.count then

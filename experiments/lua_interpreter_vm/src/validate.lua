@@ -14,7 +14,7 @@ for k, v in pairs(const.TM) do I["TM_" .. k] = moon.int(v) end
 -- interpreter/JIT trust boundary; opcode handlers may assume these facts.
 local validate_proto = host.region(I) [[
 region validate_proto(L: ptr(LuaThread), p: ptr(Proto);
-                      ok, invalid(code: i32), oom)
+                      ok | invalid(code: i32) | oom)
 entry start()
     if p == nil then
         jump invalid(code = @{ERR_RUNTIME})

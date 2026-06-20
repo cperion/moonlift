@@ -24,7 +24,8 @@ end
 ]]
 
 local byte_is_name_start = host.region [[
-region byte_is_name_start(c: u8; yes, no)
+region byte_is_name_start(c: u8; yes | no)
+
 entry start()
     if c >= 65 and c <= 90 then jump yes() end
     if c >= 97 and c <= 122 then jump yes() end
@@ -35,7 +36,8 @@ end
 ]]
 
 local byte_is_name_continue = host.region [[
-region byte_is_name_continue(c: u8; yes, no)
+region byte_is_name_continue(c: u8; yes | no)
+
 entry start()
     if c >= 65 and c <= 90 then jump yes() end
     if c >= 97 and c <= 122 then jump yes() end
@@ -47,7 +49,8 @@ end
 ]]
 
 local byte_is_digit = host.region [[
-region byte_is_digit(c: u8; yes, no)
+region byte_is_digit(c: u8; yes | no)
+
 entry start()
     if c >= 48 and c <= 57 then jump yes() end
     jump no()
@@ -57,7 +60,7 @@ end
 
 local keyword_kind = host.region(V) [[
 region keyword_kind(bytes: ptr(u8), start: index, len: index;
-                    keyword(kind: u16), name)
+                    keyword(kind: u16) | name)
 entry check_len()
     if len == 2 then
         if bytes[start] == 105 and bytes[start + 1] == 102 then jump keyword(kind = as(u16, @{KW_IF})) end
@@ -100,8 +103,8 @@ end
 
 local lex_next = host.region(V) [[
 region lex_next(cu: ptr(CompileUnit);
-                token(tok: Token),
-                lexical_error(err: CompileError),
+                token(tok: Token) |
+                lexical_error(err: CompileError) |
                 oom)
 entry start()
     if cu.lexer.has_lookahead ~= 0 then

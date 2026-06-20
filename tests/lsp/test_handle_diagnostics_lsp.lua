@@ -97,7 +97,6 @@ assert(h.value:match("handle `Voice`"))
 assert(h.value:match("opaque durable identity"))
 
 local type_items = Items.items(E.CompletionQuery(query_at("slot"), E.CompletionTypePosition), analysis)
-assert(has(type_items, "handle"))
 assert(has(type_items, "lease"))
 assert(has(type_items, "noescape"))
 assert(has(type_items, "preserve"))

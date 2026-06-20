@@ -488,7 +488,7 @@ function Parser:skip_nl() while self:kind() == TK.nl do self.i = self.i + 1 end 
 function Parser:skip_sep() while self:kind() == TK.nl or self:kind() == TK.semi do self.i = self.i + 1 end end
 function Parser:accept(k) if self:kind() == k then self.i = self.i + 1; return true end; return false end
 function Parser:accept_text(k) if self:kind() == k then local t = self:text(); self.i = self.i + 1; return t end; return nil end
-function Parser:accept_result_marker() return self:accept(TK.colon) or self:accept(TK.arrow) end
+function Parser:accept_result_marker() return self:accept(TK.colon) end
 function Parser:expect_result_marker(msg)
     if self:accept_result_marker() then return true end
     self:issue(msg or ("expected ':' before result type, got " .. self:token_desc(0)))
@@ -966,11 +966,19 @@ function Parser:parse_type()
 
     if self:accept(TK.lbrack) then
         self:skip_nl()
-        local count = 0
-        if self:kind() == TK.int then count = tonumber(self:text()) or 0; self.i = self.i + 1
-        else self:issue("expected array length") end
-        self:skip_nl(); self:expect(TK.rbrack)
         local elem = self:parse_type()
+        self:skip_nl()
+        self:expect(TK.semi, "expected ';' between array element type and length")
+        self:skip_nl()
+        local count = 0
+        if self:kind() == TK.int then
+            local count_text = (self:text() or "0"):gsub("_", "")
+            count = tonumber(count_text) or 0
+            self.i = self.i + 1
+        else
+            self:issue("expected array length")
+        end
+        self:skip_nl(); self:expect(TK.rbrack, "expected ']' after array type")
         return Ty.TArray(Ty.ArrayLenConst(count), elem)
     end
 
@@ -997,18 +1005,19 @@ function Parser:parse_type()
         return Ty.TOwned(self:parse_type())
     end
 
-    if self:accept(TK.handle_kw) then
+    if self:kind() == TK.handle_kw then
+        self:issue("handle type syntax was removed; declare a handle and use its named type")
+        self.i = self.i + 1
         self:skip_nl()
-        self:expect(TK.lparen); self:skip_nl()
-        local ref_name = self:expect_name("expected handle type name")
-        local parts = { ref_name }
-        while self:accept(TK.dot) do parts[#parts + 1] = self:expect_name("expected handle type path segment") end
-        self:skip_nl(); self:expect(TK.comma, "expected ',' before handle representation")
-        self:skip_nl(); local repr = self:parse_handle_repr()
-        self:skip_nl(); self:expect(TK.rparen)
-        local path_parts = {}
-        for i = 1, #parts do path_parts[i] = C.Name(parts[i]) end
-        return Ty.THandle(Ty.TypeRefPath(C.Path(path_parts)), repr)
+        if self:accept(TK.lparen) then
+            local depth = 1
+            while depth > 0 and self:kind() ~= TK.eof do
+                if self:kind() == TK.lparen then depth = depth + 1
+                elseif self:kind() == TK.rparen then depth = depth - 1 end
+                self.i = self.i + 1
+            end
+        end
+        return Ty.TScalar(C.ScalarVoid)
     end
 
     if self:accept(TK.func_kw) then
@@ -1017,7 +1026,8 @@ function Parser:parse_type()
         return Ty.TFunc(params, result)
     end
 
-    if self:kind() == TK.name and self:text() == "fn" then
+    if self:kind() == TK.name and self:text() == "fn" and self:kind(1) == TK.lparen then
+        self:issue("function pointer type alias 'fn' was removed; use 'func'")
         self.i = self.i + 1
         local params, result = self:parse_callable_type()
         return Ty.TFunc(params, result)

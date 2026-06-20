@@ -37,7 +37,7 @@ local realloc_bytes = host.region({
     ALIGN_FRAME = I.ALIGN_FRAME,
 }) [[
 region realloc_bytes(G: ptr(GlobalState), old: ptr(u8), old_size: index, new_size: index, align: u32;
-                     ok(ptr: ptr(u8)), step_required, oom)
+                     ok(ptr: ptr(u8)) | step_required | oom)
 entry start()
     if G == nil then jump oom() end
     if G.allocator == nil then jump oom() end
@@ -48,7 +48,7 @@ entry start()
             jump step_required()
         end
     end
-    let realloc_fn: func(ptr(u8), index, index, index) -> u64 = as(func(ptr(u8), index, index, index) -> u64, G.allocator.realloc)
+    let realloc_fn: func(ptr(u8), index, index, index): u64 = as(func(ptr(u8), index, index, index): u64, G.allocator.realloc)
     let p_bits: u64 = realloc_fn(old, old_size, new_size, as(index, align))
     if new_size > as(index, 0) then
         if p_bits == as(u64, 0) then jump oom() end
@@ -66,7 +66,7 @@ end
 
 local alloc_bytes = host.region(I) [[
 region alloc_bytes(G: ptr(GlobalState), size: index, align: u32;
-                   ok(ptr: ptr(u8)), step_required, oom)
+                   ok(ptr: ptr(u8)) | step_required | oom)
 entry start()
     emit realloc_bytes(G, as(ptr(u8), as(u64, 0)), as(index, 0), size, align;
         ok = ok,
@@ -83,7 +83,7 @@ entry start()
     if G == nil then jump done() end
     if G.allocator == nil then jump done() end
     if G.allocator.realloc == nil then jump done() end
-    let realloc_fn: func(ptr(u8), index, index, index) -> u64 = as(func(ptr(u8), index, index, index) -> u64, G.allocator.realloc)
+    let realloc_fn: func(ptr(u8), index, index, index): u64 = as(func(ptr(u8), index, index, index): u64, G.allocator.realloc)
     let ignored: u64 = realloc_fn(ptr, size, as(index, 0), as(index, align))
     if G.totalbytes >= size then
         G.totalbytes = G.totalbytes - size
@@ -97,7 +97,7 @@ end
 
 local alloc_object = host.region(I) [[
 region alloc_object(G: ptr(GlobalState), size: index, tt: u8;
-                    ok(obj: ptr(GCHeader)), step_required, oom)
+                    ok(obj: ptr(GCHeader)) | step_required | oom)
 entry start()
     emit alloc_bytes(G, size, as(u32, 8);
         ok = allocated,
@@ -123,7 +123,7 @@ end
 
 local grow_value_array = host.region(I) [[
 region grow_value_array(L: ptr(LuaThread), needed: index;
-                        ok(data: ptr(Value), capacity: index), overflow, oom)
+                        ok(data: ptr(Value), capacity: index) | overflow | oom)
 entry start()
     if needed > @{MAX_STACK_SIZE} then jump overflow() end
     if needed <= L.stack_size then jump ok(data = L.stack, capacity = L.stack_size) end
@@ -150,7 +150,7 @@ end
 
 local grow_frame_array = host.region(I) [[
 region grow_frame_array(L: ptr(LuaThread), needed: index;
-                        ok(data: ptr(Frame), capacity: index), overflow, oom)
+                        ok(data: ptr(Frame), capacity: index) | overflow | oom)
 entry start()
     if needed > @{MAX_FRAMES} then jump overflow() end
     if needed <= L.frame_cap then jump ok(data = L.frames, capacity = L.frame_cap) end

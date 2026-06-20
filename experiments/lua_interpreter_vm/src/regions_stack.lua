@@ -15,7 +15,8 @@ local stack_check = host.region {
     MAX_STACK_SIZE = I.MAX_STACK_SIZE,
     ERR_STACK_OVERFLOW = I.ERR_STACK_OVERFLOW,
 } [[
-region stack_check(L: ptr(LuaThread), needed_top: index; ok, grown, overflow, oom)
+region stack_check(L: ptr(LuaThread), needed_top: index; ok | grown | overflow | oom)
+
 entry start()
     if needed_top <= L.stack_size then
         jump ok()
@@ -46,7 +47,7 @@ region frame_push(L: ptr(LuaThread), closure: Value, base: index, top: index,
                   result_base: index, call_top: index,
                   wanted: i32, resume: ResumeState,
                   yieldable: u8;
-                  ok(frame: ptr(Frame)), overflow, oom)
+                  ok(frame: ptr(Frame)) | overflow | oom)
 entry start()
     if L.frame_count >= L.frame_cap then
         emit grow_frame_array(L, L.frame_count + 1;
@@ -85,7 +86,8 @@ end
 
 -- frame_pop: remove the top frame
 local frame_pop = host.region [[
-region frame_pop(L: ptr(LuaThread); parent(frame: ptr(Frame)), empty)
+region frame_pop(L: ptr(LuaThread); parent(frame: ptr(Frame)) | empty)
+
 entry start()
     if L.frame_count == 0 then
         jump empty()
@@ -104,7 +106,8 @@ end
 -- The dst parameter is the call's explicit result base; callers must never
 -- substitute parent.base for a call destination.
 local adjust_results = host.region { TAG_NIL = I.TAG_NIL } [[
-region adjust_results(L: ptr(LuaThread), first_result: index, nactual: i32, wanted: i32, dst: index; done(nplaced: i32), oom)
+region adjust_results(L: ptr(LuaThread), first_result: index, nactual: i32, wanted: i32, dst: index; done(nplaced: i32) | oom)
+
 entry start()
     if wanted >= 0 then
         let n: i32 = nactual
@@ -134,7 +137,8 @@ end
 -- argument window. Fixed parameters occupy R[0..numparams-1]; extra arguments
 -- remain immediately after them and OP_VARARG copies from that range.
 local adjust_varargs = host.region { TAG_NIL = I.TAG_NIL } [[
-region adjust_varargs(L: ptr(LuaThread), cl: ptr(LClosure), func_slot: index, nargs: i32; ok(base: index), oom)
+region adjust_varargs(L: ptr(LuaThread), cl: ptr(LClosure), func_slot: index, nargs: i32; ok(base: index) | oom)
+
 entry start()
     let base: index = func_slot + 1
     let np: i32 = as(i32, cl.proto.numparams)

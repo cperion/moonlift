@@ -20,7 +20,8 @@ local table_raw_get = host.region {
     value_key_hash = key_regions.value_key_hash,
     node_key_equal = key_regions.node_key_equal,
 } [[
-region table_raw_get(t: ptr(Table), key: Value; hit(value: Value), miss)
+region table_raw_get(t: ptr(Table), key: Value; hit(value: Value) | miss)
+
 entry start()
     if t == nil then jump miss() end
     emit @{value_key_array_index}(key;
@@ -71,7 +72,7 @@ local table_raw_set = host.region {
     node_key_equal_in_chain = key_regions.node_key_equal_in_chain,
 } [[
 region table_raw_set(L: ptr(LuaThread), t: ptr(Table), key: Value, value: Value;
-                     stored, resized, error(code: i32), oom)
+                     stored | resized | error(code: i32) | oom)
 entry start()
     if t == nil then jump error(code = @{ERR_INDEX}) end
     emit @{value_key_array_index}(key;
@@ -162,7 +163,7 @@ end
 
 local table_raw_get_state = host.region { table_raw_get = table_raw_get } [[
 region table_raw_get_state(t: ptr(Table), key: Value, cur: Value, depth: u16;
-                           hit(cur: Value, depth: u16, value: Value),
+                           hit(cur: Value, depth: u16, value: Value) |
                            miss(cur: Value, depth: u16))
 entry start()
     emit @{table_raw_get}(t, key; hit = got, miss = no)
@@ -174,7 +175,7 @@ end
 
 local table_raw_set_state = host.region { table_raw_set = table_raw_set } [[
 region table_raw_set_state(L: ptr(LuaThread), t: ptr(Table), key: Value, value: Value, cur: Value;
-                           stored, resized(cur: Value), error(code: i32), oom)
+                           stored | resized(cur: Value) | error(code: i32) | oom)
 entry start()
     emit @{table_raw_set}(L, t, key, value; stored = stored, resized = grew, error = error, oom = oom)
 end
@@ -184,7 +185,7 @@ end
 
 local table_grow_for_key_state = host.region [[
 region table_grow_for_key_state(L: ptr(LuaThread), t: ptr(Table), key: Value, cur: Value;
-                                done(cur: Value), error(code: i32), oom)
+                                done(cur: Value) | error(code: i32) | oom)
 entry start()
     emit table_grow_for_key(L, t, key; done = grew, error = error, oom = oom)
 end
@@ -194,7 +195,7 @@ end
 
 local get_table_metamethod_state = host.region [[
 region get_table_metamethod_state(G: ptr(GlobalState), t: ptr(Table), event: u8, cur: Value, depth: u16;
-                                  found(cur: Value, depth: u16, mm: Value),
+                                  found(cur: Value, depth: u16, mm: Value) |
                                   missing(cur: Value, depth: u16))
 entry start()
     emit get_table_metamethod(G, t, event; found = got, missing = no)
@@ -212,10 +213,10 @@ local table_get = host.region {
     TM_INDEX = I.TM_INDEX,
 } [[
 region table_get(L: ptr(LuaThread), obj: Value, key: Value;
-                 value(v: Value),
-                 call_mm(mm: Value, self: Value, key: Value),
-                 type_error,
-                 loop_error,
+                 value(v: Value) |
+                 call_mm(mm: Value, self: Value, key: Value) |
+                 type_error |
+                 loop_error |
                  oom)
 entry start()
     if obj.tag ~= @{TAG_TABLE} then jump type_error() end
@@ -260,10 +261,10 @@ local table_set = host.region {
     TM_NEWINDEX = I.TM_NEWINDEX,
 } [[
 region table_set(L: ptr(LuaThread), obj: Value, key: Value, value: Value;
-                 stored,
-                 call_mm(mm: Value, self: Value, key: Value, value: Value),
-                 type_error,
-                 loop_error,
+                 stored |
+                 call_mm(mm: Value, self: Value, key: Value, value: Value) |
+                 type_error |
+                 loop_error |
                  oom)
 entry start()
     if obj.tag ~= @{TAG_TABLE} then jump type_error() end
@@ -338,8 +339,8 @@ local table_next = host.region {
     node_key_equal_with_bucket = key_regions.node_key_equal_with_bucket,
 } [[
 region table_next(L: ptr(LuaThread), t: ptr(Table), key: Value;
-                  pair(key: Value, value: Value),
-                  done,
+                  pair(key: Value, value: Value) |
+                  done |
                   invalid_key)
 entry start()
     if t == nil then
@@ -440,7 +441,7 @@ local table_resize = host.region {
     rehash_key_hash = key_regions.rehash_key_hash,
 } [[
 region table_resize(L: ptr(LuaThread), t: ptr(Table), new_array_len: index, new_hash_power: u32;
-                    done, oom)
+                    done | oom)
 entry start()
     if L == nil then jump oom() end
     if L.global == nil then jump oom() end
@@ -561,7 +562,7 @@ local table_grow_for_key = host.region {
     ERR_INDEX = I.ERR_INDEX,
 } [[
 region table_grow_for_key(L: ptr(LuaThread), t: ptr(Table), key: Value;
-                          done, error(code: i32), oom)
+                          done | error(code: i32) | oom)
 entry start()
     if t == nil then jump error(code = @{ERR_INDEX}) end
     jump choose_hash_power(power = as(u32, 2))
@@ -597,7 +598,7 @@ end
 
 local table_new = host.region { TAG_TABLE = I.TAG_TABLE, TAG_NIL = I.TAG_NIL, SIZE_TABLE = I.SIZE_TABLE, SIZE_VALUE = I.SIZE_VALUE, SIZE_NODE = I.SIZE_NODE } [[
 region table_new(L: ptr(LuaThread), array_len: index, hash_power: u32;
-                 ok(v: Value), oom)
+                 ok(v: Value) | oom)
 entry start()
     let hash_count: index = as(index, 1) << as(index, hash_power)
     let array_bytes: index = array_len * as(index, @{SIZE_VALUE})

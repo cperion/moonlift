@@ -210,7 +210,7 @@ end
 
 local op_newtable = R([[
 region op_newtable(]] .. H .. [[;
-                   next(frame: ptr(Frame), pc: index, base: index, top: index),
+                   next(frame: ptr(Frame), pc: index, base: index, top: index) |
                    oom)
 entry start()
     var arr: index = as(index, vb)
@@ -262,7 +262,7 @@ end
 
 local op_setlist = R([[
 region op_setlist(]] .. H .. [[;
-                  next(frame: ptr(Frame), pc: index, base: index, top: index),
+                  next(frame: ptr(Frame), pc: index, base: index, top: index) |
                   oom)
 entry start()
     jump prepare()

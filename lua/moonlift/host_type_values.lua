@@ -126,7 +126,7 @@ function M.Install(api, session)
             error("array expects a numeric count or expression value", 2)
         end
         local ev = as_type_value(elem, "array expects an element type")
-        return type_value(Ty.TArray(len, ev.ty), "[" .. count_src .. "]" .. ev.source_hint, { element = ev })
+        return type_value(Ty.TArray(len, ev.ty), "[" .. ev.source_hint .. "; " .. count_src .. "]", { element = ev })
     end
 
     function api.slice(elem)

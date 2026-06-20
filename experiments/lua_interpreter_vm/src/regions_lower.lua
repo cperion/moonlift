@@ -101,7 +101,7 @@ V.CHILD_TOTAL = moon.int(3072)
 
 local push_lower_frame = host.region(V) [[
 region push_lower_frame(cu: ptr(CompileUnit), frame: LowerFrame;
-                        ok, limit_error(err: CompileError), oom)
+                        ok | limit_error(err: CompileError) | oom)
 entry start()
     if cu.lower_frames.data == nil then jump out_of_mem() end
     let slot: index = cu.lower_frames.len + 1
@@ -119,7 +119,7 @@ end
 
 local pop_lower_frame = host.region(V) [[
 region pop_lower_frame(cu: ptr(CompileUnit);
-                       popped(frame: LowerFrame), semantic_error(err: CompileError))
+                       popped(frame: LowerFrame) | semantic_error(err: CompileError))
 entry start()
     if cu.lower_frames.len == 0 then emit @{source_error_at_current}(cu, @{PERR_INTERNAL_PHASE_ERROR}; error = bad) end
     let slot: index = cu.lower_frames.len
@@ -133,7 +133,7 @@ end
 
 local push_lower_scope = host.region(V) [[
 region push_lower_scope(cu: ptr(CompileUnit), scope: LowerScope;
-                        ok, limit_error(err: CompileError), oom)
+                        ok | limit_error(err: CompileError) | oom)
 entry start()
     if cu.lower_scopes.data == nil then jump out_of_mem() end
     let slot: index = cu.lower_scopes.len + 1
@@ -149,7 +149,7 @@ end
 
 local pop_lower_scope = host.region(V) [[
 region pop_lower_scope(cu: ptr(CompileUnit);
-                       popped(scope: LowerScope), semantic_error(err: CompileError))
+                       popped(scope: LowerScope) | semantic_error(err: CompileError))
 entry start()
     if cu.lower_scopes.len == 0 then emit @{source_error_at_current}(cu, @{PERR_INTERNAL_PHASE_ERROR}; error = bad) end
     let slot: index = cu.lower_scopes.len
@@ -163,7 +163,7 @@ end
 
 local push_patch = host.region(V) [[
 region push_patch(cu: ptr(CompileUnit), patch: PatchRec;
-                  ok(ref: index), oom)
+                  ok(ref: index) | oom)
 entry start()
     if cu.patches.data == nil then jump oom() end
     let ref: index = cu.patches.len + 1
@@ -177,7 +177,7 @@ end
 
 local patch_pending = host.region(V) [[
 region patch_pending(cu: ptr(CompileUnit), target_stmt: index;
-                     ok, limit_error(err: CompileError))
+                     ok | limit_error(err: CompileError))
 entry start()
     if cu.patches.len == 0 then jump ok() end
     jump scan(i = as(index, 1))
@@ -200,7 +200,7 @@ end
 
 local lower_compare_bool = host.region(V) [[
 region lower_compare_bool(cu: ptr(CompileUnit), op: u16, expect: u16, dst: u16, lhs: u16, rhs: u16;
-                          ok, limit_error(err: CompileError), oom)
+                          ok | limit_error(err: CompileError) | oom)
 entry start()
     emit @{emit_compare_jump_false}(cu, op, expect, lhs, rhs;
         emitted = got_false_jump, limit_error = too_big, oom = out_of_mem)
@@ -230,7 +230,7 @@ end
 
 local lower_binary_op = host.region(V) [[
 region lower_binary_op(cu: ptr(CompileUnit), op: u16, dst: u16, lhs: u16, rhs: u16;
-                       ok, semantic_error(err: CompileError), limit_error(err: CompileError), oom)
+                       ok | semantic_error(err: CompileError) | limit_error(err: CompileError) | oom)
 entry start()
     if op == @{TOK_PLUS} then emit @{emit_add}(cu, dst, lhs, rhs; ok = done, limit_error = too_big, oom = out_of_mem) end
     if op == @{TOK_MINUS} then emit @{emit_sub}(cu, dst, lhs, rhs; ok = done, limit_error = too_big, oom = out_of_mem) end
@@ -261,7 +261,7 @@ end
 
 local lower_unary_op = host.region(V) [[
 region lower_unary_op(cu: ptr(CompileUnit), op: u16, dst: u16, src: u16;
-                      ok, semantic_error(err: CompileError), limit_error(err: CompileError), oom)
+                      ok | semantic_error(err: CompileError) | limit_error(err: CompileError) | oom)
 entry start()
     if op == @{TOK_MINUS} then emit @{emit_unary_minus}(cu, dst, src; ok = done, limit_error = too_big, oom = out_of_mem) end
     if op == @{TOK_TILDE} then emit @{emit_bnot}(cu, dst, src; ok = done, limit_error = too_big, oom = out_of_mem) end
@@ -278,7 +278,7 @@ end
 
 local lower_expr = host.region(V) [[
 region lower_expr(cu: ptr(CompileUnit), expr_ref: index, target: u16;
-                  ok, semantic_error(err: CompileError), limit_error(err: CompileError), oom)
+                  ok | semantic_error(err: CompileError) | limit_error(err: CompileError) | oom)
 entry start()
     cu.lower_frames.len = 0
     if expr_ref == 0 then emit @{source_error_at_current}(cu, @{PERR_MALFORMED_HIR}; error = sem_bad) end
@@ -554,7 +554,7 @@ end
 
 local lower_stmt = host.region(V) [[
 region lower_stmt(cu: ptr(CompileUnit), stmt_ref: index;
-                  ok, returned, semantic_error(err: CompileError), limit_error(err: CompileError), oom)
+                  ok | returned | semantic_error(err: CompileError) | limit_error(err: CompileError) | oom)
 entry start()
     if stmt_ref == 0 or stmt_ref > cu.hir_stmts.len then emit @{source_error_at_current}(cu, @{PERR_MALFORMED_HIR}; error = sem_bad) end
     cu.lower_mark = stmt_ref
@@ -815,7 +815,7 @@ end
 
 local lower_block = host.region(V) [[
 region lower_block(cu: ptr(CompileUnit), block_ref: index;
-                   ok(returned: u8), semantic_error(err: CompileError), limit_error(err: CompileError), oom)
+                   ok(returned: u8) | semantic_error(err: CompileError) | limit_error(err: CompileError) | oom)
 entry start()
     if block_ref == 0 or block_ref > cu.hir_blocks.len then emit @{source_error_at_current}(cu, @{PERR_MALFORMED_HIR}; error = sem_bad) end
     let block_rec: HirBlock = cu.hir_blocks.data[block_ref]
@@ -857,7 +857,7 @@ end
 
 local close_lowered_function = host.region(V) [[
 region close_lowered_function(cu: ptr(CompileUnit);
-                              ok(proto: ptr(Proto)), oom)
+                              ok(proto: ptr(Proto)) | oom)
 entry start()
     emit @{close_func_builder}(cu; ok = closed, oom = out_of_mem)
 end
@@ -868,7 +868,7 @@ end
 
 local begin_child_builder = host.region(V) [[
 region begin_child_builder(cu: ptr(CompileUnit), function_ref: index;
-                           ok, semantic_error(err: CompileError), oom)
+                           ok | semantic_error(err: CompileError) | oom)
 entry start()
     if function_ref == 0 or function_ref > cu.hir_functions.len then emit @{source_error_at_current}(cu, @{PERR_MALFORMED_HIR}; error = sem_bad) end
     emit @{arena_alloc_bytes}(cu, as(index, @{CHILD_TOTAL}), as(u32, 8); ok = allocated, oom = out_of_mem)
@@ -919,7 +919,7 @@ end
 
 local add_function_captures = host.region(V) [[
 region add_function_captures(cu: ptr(CompileUnit), function_ref: index;
-                             ok, oom)
+                             ok | oom)
 entry start()
     let fn: HirFunction = cu.hir_functions.data[function_ref]
     if fn.captures_len == 0 then jump ok() end
@@ -941,7 +941,7 @@ end
 
 local finish_child_builder = host.region(V) [[
 region finish_child_builder(cu: ptr(CompileUnit), proto: ptr(Proto);
-                            ok, oom)
+                            ok | oom)
 entry start()
     let fn_ref: index = cu.current.firstlocal
     let parent: ptr(FuncBuilder) = cu.current.parent
@@ -959,7 +959,7 @@ end
 
 local lower_function = host.region(V) [[
 region lower_function(cu: ptr(CompileUnit), function_ref: index;
-                      ok(proto: ptr(Proto)), semantic_error(err: CompileError), limit_error(err: CompileError), oom)
+                      ok(proto: ptr(Proto)) | semantic_error(err: CompileError) | limit_error(err: CompileError) | oom)
 entry start()
     if function_ref == 0 then emit @{source_error_at_current}(cu, @{PERR_MALFORMED_HIR}; error = sem_bad) end
     if function_ref > cu.hir_functions.len then emit @{source_error_at_current}(cu, @{PERR_MALFORMED_HIR}; error = sem_bad) end
@@ -983,7 +983,7 @@ end
 
 local lower_hir_to_proto = host.region(V) [[
 region lower_hir_to_proto(cu: ptr(CompileUnit);
-                          ok(proto: ptr(Proto)), semantic_error(err: CompileError), limit_error(err: CompileError), oom)
+                          ok(proto: ptr(Proto)) | semantic_error(err: CompileError) | limit_error(err: CompileError) | oom)
 entry start()
     cu.phase = @{SOURCE_LOWER}
     cu.lower_frames.len = 0

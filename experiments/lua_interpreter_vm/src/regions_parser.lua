@@ -51,7 +51,7 @@ end
 
 local append_parse_node = host.region(V) [[
 region append_parse_node(cu: ptr(CompileUnit), node: ParseNode;
-                         ok(ref: index), oom)
+                         ok(ref: index) | oom)
 entry start()
     if cu.parse_nodes.data == nil then jump oom() end
     let ref: index = cu.parse_nodes.len + 1
@@ -65,7 +65,7 @@ end
 
 local append_parse_child = host.region(V) [[
 region append_parse_child(cu: ptr(CompileUnit), child_ref: index;
-                          ok(slot: index), oom)
+                          ok(slot: index) | oom)
 entry start()
     if cu.parse_children.data == nil then jump oom() end
     let slot: index = cu.parse_children.len + 1
@@ -79,7 +79,7 @@ end
 
 local append_parse_function = host.region(V) [[
 region append_parse_function(cu: ptr(CompileUnit), fn: ParseFunction;
-                             ok(ref: index), oom)
+                             ok(ref: index) | oom)
 entry start()
     if cu.parse_functions.data == nil then jump oom() end
     let ref: index = cu.parse_functions.len + 1
@@ -93,7 +93,7 @@ end
 
 local push_parse_frame = host.region(V) [[
 region push_parse_frame(cu: ptr(CompileUnit), frame: ParseFrame;
-                        ok, limit_error(err: CompileError), oom)
+                        ok | limit_error(err: CompileError) | oom)
 entry start()
     if cu.parse_frames.data == nil then jump out_of_mem() end
     let slot: index = cu.parse_frames.len + 1
@@ -111,7 +111,7 @@ end
 
 local pop_parse_frame = host.region(V) [[
 region pop_parse_frame(cu: ptr(CompileUnit);
-                       popped(frame: ParseFrame), syntax_error(err: CompileError))
+                       popped(frame: ParseFrame) | syntax_error(err: CompileError))
 entry start()
     if cu.parse_frames.len == 0 then
         emit source_error_at_current(cu, @{PERR_MALFORMED_PARSE_PRODUCT}; error = bad)
@@ -127,7 +127,7 @@ end
 
 local push_expr_op = host.region(V) [[
 region push_expr_op(cu: ptr(CompileUnit), op: ExprOpEntry;
-                    ok, limit_error(err: CompileError), oom)
+                    ok | limit_error(err: CompileError) | oom)
 entry start()
     if cu.expr_ops.data == nil then jump out_of_mem() end
     let slot: index = cu.expr_ops.len + 1
@@ -145,7 +145,7 @@ end
 
 local push_expr_val = host.region(V) [[
 region push_expr_val(cu: ptr(CompileUnit), val: ExprValEntry;
-                     ok, limit_error(err: CompileError), oom)
+                     ok | limit_error(err: CompileError) | oom)
 entry start()
     if cu.expr_vals.data == nil then jump out_of_mem() end
     let slot: index = cu.expr_vals.len + 1
@@ -163,7 +163,7 @@ end
 
 local reduce_expr_once = host.region(V) [[
 region reduce_expr_once(cu: ptr(CompileUnit);
-                        ok, syntax_error(err: CompileError), limit_error(err: CompileError), oom)
+                        ok | syntax_error(err: CompileError) | limit_error(err: CompileError) | oom)
 entry start()
     -- Reserved non-recursive reduction boundary for parser-owned expression
     -- stacks. Current statement/expression HIR construction is performed in
@@ -175,9 +175,9 @@ end
 
 local parse_source_to_products = host.region(V) [[
 region parse_source_to_products(cu: ptr(CompileUnit);
-                                ok,
-                                syntax_error(err: CompileError),
-                                limit_error(err: CompileError),
+                                ok |
+                                syntax_error(err: CompileError) |
+                                limit_error(err: CompileError) |
                                 oom)
 entry start()
     cu.phase = @{SOURCE_PARSE}
@@ -273,7 +273,7 @@ end
 
 local verify_parse_products = host.region(V) [[
 region verify_parse_products(cu: ptr(CompileUnit);
-                             ok, syntax_error(err: CompileError), limit_error(err: CompileError))
+                             ok | syntax_error(err: CompileError) | limit_error(err: CompileError))
 entry start()
     cu.phase = @{SOURCE_PARSE_VERIFY}
     if cu.root_parse_function == 0 then

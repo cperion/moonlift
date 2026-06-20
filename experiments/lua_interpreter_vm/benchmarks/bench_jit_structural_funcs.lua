@@ -29,8 +29,8 @@ local e = ffi.new("BenchJitEffect[1]")
 e[0].flags = base_flags
 
 local counted_loop = moon.func [[
-jit_bench_counted_loop(n: index) -> u64
-    return region -> u64
+jit_bench_counted_loop(n: index): u64
+    return region: u64
     entry start()
         jump loop(i = as(index, 0), acc = as(u64, 0))
     end
@@ -43,8 +43,8 @@ end
 ]]
 
 local aggregate_load_loop = moon.func [[
-jit_bench_aggregate_load(e: Effect, n: index) -> u64
-    return region -> u64
+jit_bench_aggregate_load(e: Effect, n: index): u64
+    return region: u64
     entry start()
         jump loop(i = as(index, 0), acc = as(u64, 0))
     end
@@ -72,8 +72,8 @@ local scalar_inline_loop = moon.func {
     B_CALL = moon.int(C.BoundaryReq.LUA_CALL),
     B_RET = moon.int(C.BoundaryReq.VM_RETURN),
 } [[
-jit_bench_scalar_inline(flags_in: u64, n: index) -> u64
-    return region -> u64
+jit_bench_scalar_inline(flags_in: u64, n: index): u64
+    return region: u64
     entry start()
         jump loop(i = as(index, 0), acc = as(u64, 0))
     end
@@ -108,8 +108,8 @@ local scalar_helper_loop = moon.func {
     proj = F.jit_effect_projection_flags,
     bound = F.jit_effect_boundary_flags,
 } [[
-jit_bench_scalar_helpers(flags_in: u64, n: index) -> u64
-    return region -> u64
+jit_bench_scalar_helpers(flags_in: u64, n: index): u64
+    return region: u64
     entry start()
         jump loop(i = as(index, 0), acc = as(u64, 0))
     end
@@ -128,8 +128,8 @@ local aggregate_helper_loop = moon.func {
     proj = F.jit_effect_projection_flags,
     bound = F.jit_effect_boundary_flags,
 } [[
-jit_bench_aggregate_helpers(e: Effect, n: index) -> u64
-    return region -> u64
+jit_bench_aggregate_helpers(e: Effect, n: index): u64
+    return region: u64
     entry start()
         jump loop(i = as(index, 0), acc = as(u64, 0))
     end
@@ -148,8 +148,8 @@ local aggregate_flag_call_loop = moon.func {
     has = F.jit_effect_has_flag,
     E_ALLOC = moon.int(C.Effect.MAY_ALLOC),
 } [[
-jit_bench_aggregate_flag_call(e: Effect, n: index) -> u64
-    return region -> u64
+jit_bench_aggregate_flag_call(e: Effect, n: index): u64
+    return region: u64
     entry start()
         jump loop(i = as(index, 0), acc = as(u64, 0))
     end

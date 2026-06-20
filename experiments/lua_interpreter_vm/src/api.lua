@@ -14,7 +14,7 @@ for k, v in pairs(const.Abi) do VALS["ABI_" .. k] = moon.int(v) end
 
 -- lua_type_api: return type code for value at index, or -1 for invalid indices.
 local lua_type_api = moon.func(VALS) [[
-lua_type_api(L: ptr(LuaThread), idx: i32) -> i32
+lua_type_api(L: ptr(LuaThread), idx: i32): i32
     if idx > 0 then
         let slot: index = as(index, idx - 1)
         if slot < L.top then return as(i32, L.stack[slot].tag) end
@@ -69,7 +69,7 @@ end
 
 -- lua_tolstring_api: direct string access only; coercive formatting belongs to value_to_string.
 local lua_tolstring_api = moon.func(VALS) [[
-lua_tolstring_api(L: ptr(LuaThread), idx: i32, len_out: ptr(index)) -> ptr(u8)
+lua_tolstring_api(L: ptr(LuaThread), idx: i32, len_out: ptr(index)): ptr(u8)
     if len_out ~= nil then len_out[0] = 0 end
     if idx > 0 then
         let slot: index = as(index, idx - 1)
@@ -99,26 +99,26 @@ end
 
 -- Explicit ABI/status accessors for the sealed host boundary.
 local lua_vm_abi_version_api = moon.func(VALS) [[
-lua_vm_abi_version_api() -> i32
+lua_vm_abi_version_api(): i32
     return @{ABI_VM_VERSION}
 end
 ]]
 
 local lua_native_abi_version_api = moon.func(VALS) [[
-lua_native_abi_version_api() -> i32
+lua_native_abi_version_api(): i32
     return @{ABI_NATIVE_VERSION}
 end
 ]]
 
 local lua_status_api = moon.func(VALS) [[
-lua_status_api(L: ptr(LuaThread)) -> i32
+lua_status_api(L: ptr(LuaThread)): i32
     if L == nil then return @{THREAD_RUNTIME_ERROR} end
     return as(i32, L.status)
 end
 ]]
 
 local lua_last_error_api = moon.func(VALS) [[
-lua_last_error_api(L: ptr(LuaThread)) -> i32
+lua_last_error_api(L: ptr(LuaThread)): i32
     if L == nil then return @{ERR_RUNTIME} end
     return L.last_error_code
 end
@@ -126,7 +126,7 @@ end
 
 -- lua_gettable_api: full table lookup may allocate/call metamethods, so reject at this sealed boundary.
 local lua_gettable_api = moon.func(VALS) [[
-lua_gettable_api(L: ptr(LuaThread), idx: i32) -> i32
+lua_gettable_api(L: ptr(LuaThread), idx: i32): i32
     L.status = @{THREAD_RUNTIME_ERROR}
     L.last_error_code = @{ERR_INDEX}
     return -1
@@ -151,7 +151,7 @@ end
 
 -- lua_pcall_api: protected frames require allocator support; report runtime error.
 local lua_pcall_api = moon.func(VALS) [[
-lua_pcall_api(L: ptr(LuaThread), nargs: i32, nresults: i32, errfunc: i32) -> i32
+lua_pcall_api(L: ptr(LuaThread), nargs: i32, nresults: i32, errfunc: i32): i32
     L.status = @{THREAD_RUNTIME_ERROR}
     L.last_error_code = @{ERR_RUNTIME}
     return @{ERR_RUNTIME}

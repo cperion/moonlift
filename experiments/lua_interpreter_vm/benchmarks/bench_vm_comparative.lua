@@ -185,8 +185,8 @@ local function reset(thread, stack, frames)
 end
 
 local runner_fn = moon.func { vm_resume = vm.vm_loop.vm_resume } [[
-run(L: ptr(LuaThread), nargs: i32) -> i32
-    return region -> i32
+run(L: ptr(LuaThread), nargs: i32): i32
+    return region: i32
     entry start()
         emit @{vm_resume}(L, nargs;
             ok = done,

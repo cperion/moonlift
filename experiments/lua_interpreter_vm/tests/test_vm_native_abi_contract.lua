@@ -13,8 +13,8 @@ typedef struct { uint8_t status; int32_t nresults; Value err; uint64_t stack_nee
 ]]
 
 local route = moon.func { decode = vm.regions_native.decode_native_result } [[
-route_native(result: ptr(NativeCallResult)) -> i32
-    return region -> i32
+route_native(result: ptr(NativeCallResult)): i32
+    return region: i32
     entry start()
         emit @{decode}(result;
             returned = returned, yielded = yielded, error = err,
@@ -60,7 +60,7 @@ local invoke_route = moon.func {
     invoke = vm.regions_native.invoke_native,
     sys_realloc = vm.regions_allocator.sys_realloc,
 } [[
-invoke_nil() -> i32
+invoke_nil(): i32
     let ctx: NativeCallContext = {
         func_slot = 0,
         nargs = 0,
@@ -77,7 +77,7 @@ invoke_nil() -> i32
             errfunc_slot = 0
         }
     }
-    return region -> i32
+    return region: i32
     entry start()
         emit @{invoke}(as(ptr(LuaThread), as(u64, 0)), as(ptr(CClosure), as(u64, 0)), ctx;
             returned = returned,

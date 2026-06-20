@@ -123,7 +123,7 @@ end
 
 local op_close = R([[
 region op_close(]] .. H .. [[;
-                next(frame: ptr(Frame), pc: index, base: index, top: index),
+                next(frame: ptr(Frame), pc: index, base: index, top: index) |
                 oom)
 entry start()
     let close_idx: index = base + as(index, a)
@@ -142,8 +142,8 @@ end
 
 local op_tbc = R([[
 region op_tbc(]] .. H .. [[;
-              next(frame: ptr(Frame), pc: index, base: index, top: index),
-              error(code: i32),
+              next(frame: ptr(Frame), pc: index, base: index, top: index) |
+              error(code: i32) |
               oom)
 entry start()
     L.tbc_head = base + as(index, a)
@@ -164,8 +164,8 @@ end
 
 local op_errnnil = R([[
 region op_errnnil(]] .. H .. [[;
-                  next(frame: ptr(Frame), pc: index, base: index, top: index),
-                  error(code: i32),
+                  next(frame: ptr(Frame), pc: index, base: index, top: index) |
+                  error(code: i32) |
                   oom)
 entry start()
     let val: Value = L.stack[base + as(index, a)]

@@ -48,8 +48,8 @@ struct LuaThread { GCHeader gc; uint8_t status; void* stack; uint64_t stack_size
 ]]
 
 local route_next = moon.func { table_next = vm.regions_table.table_next } [[
-route_next(t: ptr(Table), key: Value) -> i32
-    return region -> i32
+route_next(t: ptr(Table), key: Value): i32
+    return region: i32
     entry start()
         emit @{table_next}(as(ptr(LuaThread), as(u64, 0)), t, key;
             pair = got_pair,
@@ -136,8 +136,8 @@ check("table_next enters hash part", route_next(ht, vnil()) == 100)
 check("table_next validates absent key", route_next(ht, vint(99)) == -2)
 
 local route_set = moon.func { table_raw_set = vm.regions_table.table_raw_set } [[
-route_set(t: ptr(Table), key: Value, value: Value) -> i32
-    return region -> i32
+route_set(t: ptr(Table), key: Value, value: Value): i32
+    return region: i32
     entry start()
         emit @{table_raw_set}(as(ptr(LuaThread), as(u64, 0)), t, key, value;
             stored = stored,
@@ -169,8 +169,8 @@ check("table_raw_set inserts into existing hash capacity", route_set(ht2, vint(7
 check("table_raw_set updates existing hash key", route_set(ht2, vint(7), vint(88)) == 1 and ht2[0].node_count == 1)
 
 local route_get = moon.func { table_raw_get = vm.regions_table.table_raw_get } [[
-route_get(t: ptr(Table), key: Value) -> i32
-    return region -> i32
+route_get(t: ptr(Table), key: Value): i32
+    return region: i32
     entry start()
         emit @{table_raw_get}(t, key; hit = hit, miss = miss)
     end
@@ -209,8 +209,8 @@ local L = ffi.new("LuaThread[1]")
 L[0].global = G
 
 local route_resize = moon.func { table_resize = vm.regions_table.table_resize } [[
-route_resize(L: ptr(LuaThread), t: ptr(Table), array_len: index, hash_power: u32) -> i32
-    return region -> i32
+route_resize(L: ptr(LuaThread), t: ptr(Table), array_len: index, hash_power: u32): i32
+    return region: i32
     entry start()
         emit @{table_resize}(L, t, array_len, hash_power; done = done, oom = oom)
     end
@@ -231,8 +231,8 @@ check("table_resize rehashes existing hash entries", route_resize(L, rt, 4, 3) =
 check("table_resize moves canonical integral numeric key into array part", route_get(rt, vint(3)) == 30 and rt[0].array_len == 3)
 
 local route_grow = moon.func { table_grow_for_key = vm.regions_table.table_grow_for_key } [[
-route_grow(L: ptr(LuaThread), t: ptr(Table), key: Value) -> i32
-    return region -> i32
+route_grow(L: ptr(LuaThread), t: ptr(Table), key: Value): i32
+    return region: i32
     entry start()
         emit @{table_grow_for_key}(L, t, key; done = done, error = err, oom = oom)
     end
@@ -249,8 +249,8 @@ check("table_grow_for_key expands array capacity for integer key", route_grow(L,
 check("table_raw_set stores after explicit grow", route_set(gt, vint(5), vint(505)) == 1 and route_get(gt, vint(5)) == 505)
 
 local route_table_get = moon.func { table_get = vm.regions_table.table_get } [[
-route_table_get(L: ptr(LuaThread), obj: Value, key: Value) -> i32
-    return region -> i32
+route_table_get(L: ptr(LuaThread), obj: Value, key: Value): i32
+    return region: i32
     entry start()
         emit @{table_get}(L, obj, key;
             value = got_value,
@@ -273,8 +273,8 @@ end
 ]]:compile()
 
 local route_table_set = moon.func { table_set = vm.regions_table.table_set } [[
-route_table_set(L: ptr(LuaThread), obj: Value, key: Value, value: Value) -> i32
-    return region -> i32
+route_table_set(L: ptr(LuaThread), obj: Value, key: Value, value: Value): i32
+    return region: i32
     entry start()
         emit @{table_set}(L, obj, key, value;
             stored = stored,

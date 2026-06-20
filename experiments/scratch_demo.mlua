@@ -3,10 +3,10 @@
 local ffi = require("ffi")
 
 
-extern func moonlift_scratch_i32(slot: i32, count: i32) -> ptr(i32)
-extern func moonlift_scratch_raw(slot: i32, elem_size: i32, count: i32) -> ptr(u8)
+extern func moonlift_scratch_i32(slot: i32, count: i32): ptr(i32)
+extern func moonlift_scratch_raw(slot: i32, elem_size: i32, count: i32): ptr(u8)
 
-func test_scratch_raw() -> i32
+func test_scratch_raw(): i32
     -- Old API: scratch_i32(1, 100) → ptr(i32)
     let old_p: ptr(i32) = moonlift_scratch_i32(1, 100)
     old_p[0] = 42
@@ -26,7 +26,7 @@ func test_scratch_raw() -> i32
 end
 
 -- Test: slot auto-grow beyond old limit of 8
-func test_slot_grow() -> i32
+func test_slot_grow(): i32
     let raw: ptr(u8) = moonlift_scratch_raw(100, 8, 50)
     let p: ptr(i64) = as(ptr(i64), raw)
     p[0] = 42
@@ -40,7 +40,7 @@ func test_slot_grow() -> i32
 end
 
 -- Test: scratch reuse zeros old data
-func test_scratch_zeros() -> i32
+func test_scratch_zeros(): i32
     -- Allocate and write
     let raw: ptr(u8) = moonlift_scratch_raw(3, 4, 100)
     let p: ptr(i32) = as(ptr(i32), raw)

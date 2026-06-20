@@ -8,7 +8,7 @@
 -- ═══════════════════════════════════════════════
 -- 1. Single raw extern (Rust side)
 -- ═══════════════════════════════════════════════
--- extern func moonlift_scratch_raw(slot: i32, elem_size: i32, count: i32) -> ptr(u8)
+-- extern func moonlift_scratch_raw(slot: i32, elem_size: i32, count: i32): ptr(u8)
 --
 -- Implemented as:
 --   fn moonlift_scratch_raw(slot: i32, elem_size: i32, count: i32) -> *mut u8

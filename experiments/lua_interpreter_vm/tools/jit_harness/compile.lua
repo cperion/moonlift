@@ -86,8 +86,8 @@ local function init_real_compiler(config)
 
         local compile_region = vm.regions_compiler.compile_lua_source_into
         local wrapper = moon.func { compile_lua_source_into = compile_region } [[
-compile_text_for_jit_harness(cu: ptr(CompileUnit), b: ptr(FuncBuilder), p: ptr(Proto), bytes: ptr(u8), n: index, code: ptr(Instr), code_cap: index, locals: ptr(CompileLocal), locals_cap: index, workspace: ptr(u8), workspace_cap: index) -> i32
-    return region -> i32
+compile_text_for_jit_harness(cu: ptr(CompileUnit), b: ptr(FuncBuilder), p: ptr(Proto), bytes: ptr(u8), n: index, code: ptr(Instr), code_cap: index, locals: ptr(CompileLocal), locals_cap: index, workspace: ptr(u8), workspace_cap: index): i32
+    return region: i32
     entry start()
         emit @{compile_lua_source_into}(cu, b, p, bytes, n, code, code_cap, locals, locals_cap, workspace, workspace_cap;
             ok = ok,

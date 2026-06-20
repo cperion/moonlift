@@ -96,8 +96,8 @@ end
 -- EQK: R[A] == K[B]; k inverts skip
 local op_eqk = R([[
 region op_eqk(]] .. H .. [[;
-              next(frame: ptr(Frame), pc: index, base: index, top: index),
-              error(code: i32),
+              next(frame: ptr(Frame), pc: index, base: index, top: index) |
+              error(code: i32) |
               oom)
 entry start()
     let cl: ptr(LClosure) = as(ptr(LClosure), frame.closure.bits)
@@ -173,7 +173,7 @@ local op_gei = _cmp_imm_handler("op_gei", "value_less_equal", "is_le", true)
 -- TEST / TESTSET
 local op_test = R([[
 region op_test(]] .. H .. [[;
-               next(frame: ptr(Frame), pc: index, base: index, top: index),
+               next(frame: ptr(Frame), pc: index, base: index, top: index) |
                do_jump(frame: ptr(Frame), pc: index, base: index, top: index))
 entry start()
     let val: Value = L.stack[base + as(index, a)]
@@ -191,7 +191,7 @@ end
 
 local op_testset = R([[
 region op_testset(]] .. H .. [[;
-                  next(frame: ptr(Frame), pc: index, base: index, top: index),
+                  next(frame: ptr(Frame), pc: index, base: index, top: index) |
                   do_jump(frame: ptr(Frame), pc: index, base: index, top: index))
 entry start()
     let val: Value = L.stack[base + as(index, b)]

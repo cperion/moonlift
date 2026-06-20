@@ -695,16 +695,16 @@ region dispatch_instruction(
     cur_code: ptr(Instr),
     cur_consts: ptr(Value);
     next(frame: ptr(Frame), pc: index, base: index, top: index,
-               code: ptr(Instr), constants: ptr(Value)),
+               code: ptr(Instr), constants: ptr(Value)) |
     do_jump(frame: ptr(Frame), pc: index, base: index, top: index,
-                  code: ptr(Instr), constants: ptr(Value)),
+                  code: ptr(Instr), constants: ptr(Value)) |
     resume_parent(parent: ptr(Frame), pc: index, base: index, top: index,
-                        code: ptr(Instr), constants: ptr(Value)),
-    enter_lua(child: ptr(Frame)),
-    enter_native(cl: ptr(CClosure), ctx: NativeCallContext),
-    returned(nres: i32),
-    yielded(nres: i32),
-    error(code: i32),
+                        code: ptr(Instr), constants: ptr(Value)) |
+    enter_lua(child: ptr(Frame)) |
+    enter_native(cl: ptr(CClosure), ctx: NativeCallContext) |
+    returned(nres: i32) |
+    yielded(nres: i32) |
+    error(code: i32) |
     oom)
 entry decode()
     let ip: ptr(Instr) = cur_code + cur_pc

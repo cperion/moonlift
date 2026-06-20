@@ -7,8 +7,8 @@ local vm = require("experiments.lua_interpreter_vm.src.init")
 local const = vm.const
 
 local route = moon.func { decode = vm.regions_resume.decode_resume_kind } [[
-route_resume(kind: u16) -> i32
-    return region -> i32
+route_resume(kind: u16): i32
+    return region: i32
     entry start()
         let nilv: Value = { tag = 0, aux = 0, bits = 0 }
         let state: ResumeState = { kind = kind, a = 0, b = 0, c = 0, pc = 0, base = 0,

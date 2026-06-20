@@ -15,8 +15,8 @@ end
 print("=== VM string protocol checks ===\n")
 
 local hash_fn = moon.func { string_hash = vm.regions_string.string_hash } [[
-hash_bytes(bytes: ptr(u8), len: index) -> u32
-    return region -> u32
+hash_bytes(bytes: ptr(u8), len: index): u32
+    return region: u32
     entry start()
         emit @{string_hash}(bytes, len, as(u32, 0); done = done)
     end
@@ -34,8 +34,8 @@ local intern_probe = moon.func {
     string_intern = vm.regions_string.string_intern,
     sys_realloc = vm.regions_allocator.sys_realloc,
 } [[
-intern_probe(L: ptr(LuaThread), bytes: ptr(u8), len: index) -> i32
-    return region -> i32
+intern_probe(L: ptr(LuaThread), bytes: ptr(u8), len: index): i32
+    return region: i32
     entry start()
         emit @{string_intern}(L, bytes, len; found = found, created = created, oom = oom)
     end

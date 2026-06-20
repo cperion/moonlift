@@ -35,7 +35,7 @@ function M.generate_function(candidate)
     local holes = {}
     local src = {}
     src[#src + 1] = "-- generated StateOp stencil: " .. name
-    src[#src + 1] = "func " .. name .. "() -> i64"
+    src[#src + 1] = "func " .. name .. "(): i64"
     local emitted_return = false
     for _, op in ipairs(candidate.ops or {}) do
         local chunk = gen_op(op, holes)

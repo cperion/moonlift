@@ -36,7 +36,7 @@ local abi = moon.func {
     ABI_VM_VERSION = moon.int(const.Abi.VM_VERSION),
     ABI_NATIVE_VERSION = moon.int(const.Abi.NATIVE_VERSION),
 } [[
-abi_check(L: ptr(LuaThread)) -> i32
+abi_check(L: ptr(LuaThread)): i32
     let a: i32 = @{vm_abi}()
     let b: i32 = @{native_abi}()
     let s: i32 = @{status_api}(L)

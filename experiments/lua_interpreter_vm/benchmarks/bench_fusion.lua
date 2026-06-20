@@ -212,8 +212,8 @@ local function reset(t,s,f)
 end
 
 local runner = moon.func{vm_resume=vm.vm_loop.vm_resume}[[
-run(L:ptr(T),n:i32)->i32
-return region->i32
+run(L:ptr(T),n:i32): i32
+return region: i32
 entry start() emit@{vm_resume}(L,n;ok=d,yielded=y,runtime_error=e,oom=o) end
 block d(n:i32)return n end block y(n:i32)return-100-n end block e(c:i32)return-200-c end block o()return-999 end end
 end]]:compile()

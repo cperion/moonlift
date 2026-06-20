@@ -33,9 +33,9 @@ local vm_resume = host.region {
     THREAD_OOM = I.THREAD_OOM,
 } [[
 region vm_resume(L: ptr(LuaThread), nargs: i32;
-                 ok(nres: i32),
-                 yielded(nres: i32),
-                 runtime_error(code: i32),
+                 ok(nres: i32) |
+                 yielded(nres: i32) |
+                 runtime_error(code: i32) |
                  oom)
 entry start()
     if L.frame_count == 0 then
@@ -72,9 +72,9 @@ local vm_loop = host.region {
     ERR_BAD_OPCODE = I.ERR_BAD_OPCODE,
 } [[
 region vm_loop(L: ptr(LuaThread);
-               finished(nres: i32),
-               yielded(nres: i32),
-               error(code: i32),
+               finished(nres: i32) |
+               yielded(nres: i32) |
+               error(code: i32) |
                oom)
 entry start()
     if L.frame_count == 0 then

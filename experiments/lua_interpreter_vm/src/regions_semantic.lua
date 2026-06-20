@@ -25,7 +25,7 @@ for k, v in pairs(pconst.SymbolKind) do V["SYM_" .. k] = moon.int(v) end
 
 local append_scope = host.region(V) [[
 region append_scope(cu: ptr(CompileUnit), scope: ScopeRec;
-                    ok(ref: index), oom)
+                    ok(ref: index) | oom)
 entry start()
     if cu.scopes.data == nil then jump oom() end
     let ref: index = cu.scopes.len + 1
@@ -39,7 +39,7 @@ end
 
 local append_symbol = host.region(V) [[
 region append_symbol(cu: ptr(CompileUnit), sym: SymbolRec;
-                     ok(ref: index), oom)
+                     ok(ref: index) | oom)
 entry start()
     if cu.symbols.data == nil then jump oom() end
     let ref: index = cu.symbols.len + 1
@@ -53,7 +53,7 @@ end
 
 local append_capture = host.region(V) [[
 region append_capture(cu: ptr(CompileUnit), cap: CaptureRec;
-                      ok(ref: index), oom)
+                      ok(ref: index) | oom)
 entry start()
     if cu.captures.data == nil then jump oom() end
     let ref: index = cu.captures.len + 1
@@ -67,7 +67,7 @@ end
 
 local append_name_use = host.region(V) [[
 region append_name_use(cu: ptr(CompileUnit), use: NameUse;
-                       ok(ref: index), oom)
+                       ok(ref: index) | oom)
 entry start()
     if cu.name_uses.data == nil then jump oom() end
     let ref: index = cu.name_uses.len + 1
@@ -81,7 +81,7 @@ end
 
 local append_hir_function = host.region(V) [[
 region append_hir_function(cu: ptr(CompileUnit), fn: HirFunction;
-                           ok(ref: index), oom)
+                           ok(ref: index) | oom)
 entry start()
     if cu.hir_functions.data == nil then jump oom() end
     let ref: index = cu.hir_functions.len + 1
@@ -95,7 +95,7 @@ end
 
 local append_hir_block = host.region(V) [[
 region append_hir_block(cu: ptr(CompileUnit), block_rec: HirBlock;
-                        ok(ref: index), oom)
+                        ok(ref: index) | oom)
 entry start()
     if cu.hir_blocks.data == nil then jump oom() end
     let ref: index = cu.hir_blocks.len + 1
@@ -109,7 +109,7 @@ end
 
 local append_hir_stmt = host.region(V) [[
 region append_hir_stmt(cu: ptr(CompileUnit), stmt: HirStmt;
-                       ok(ref: index), oom)
+                       ok(ref: index) | oom)
 entry start()
     if cu.hir_stmts.data == nil then jump oom() end
     let ref: index = cu.hir_stmts.len + 1
@@ -123,7 +123,7 @@ end
 
 local append_hir_expr = host.region(V) [[
 region append_hir_expr(cu: ptr(CompileUnit), expr_rec: HirExpr;
-                       ok(ref: index), oom)
+                       ok(ref: index) | oom)
 entry start()
     if cu.hir_exprs.data == nil then jump oom() end
     let ref: index = cu.hir_exprs.len + 1
@@ -137,7 +137,7 @@ end
 
 local push_semantic_frame = host.region(V) [[
 region push_semantic_frame(cu: ptr(CompileUnit), frame: SemanticFrame;
-                           ok, limit_error(err: CompileError), oom)
+                           ok | limit_error(err: CompileError) | oom)
 entry start()
     if cu.semantic_frames.data == nil then jump out_of_mem() end
     let slot: index = cu.semantic_frames.len + 1
@@ -155,7 +155,7 @@ end
 
 local pop_semantic_frame = host.region(V) [[
 region pop_semantic_frame(cu: ptr(CompileUnit);
-                          popped(frame: SemanticFrame), semantic_error(err: CompileError))
+                          popped(frame: SemanticFrame) | semantic_error(err: CompileError))
 entry start()
     if cu.semantic_frames.len == 0 then
         emit @{source_error_at_current}(cu, @{PERR_INTERNAL_PHASE_ERROR}; error = bad)
@@ -171,7 +171,7 @@ end
 
 local token_node_at = host.region(V) [[
 region token_node_at(cu: ptr(CompileUnit), slot: index;
-                     ok(node: ParseNode), eof, semantic_error(err: CompileError))
+                     ok(node: ParseNode) | eof | semantic_error(err: CompileError))
 entry start()
     cu.semantic_mark = slot
     if slot > cu.parse_children.len then jump eof() end
@@ -186,7 +186,8 @@ end
 ]]
 
 local is_expr_terminator = host.region(V) [[
-region is_expr_terminator(kind: u16; yes, no)
+region is_expr_terminator(kind: u16; yes | no)
+
 entry start()
     if kind == @{TOK_EOF} then jump yes() end
     if kind == @{TOK_SEMI} then jump yes() end
@@ -203,7 +204,8 @@ end
 ]]
 
 local binary_precedence = host.region(V) [[
-region binary_precedence(kind: u16; op(prec: u8), not_op)
+region binary_precedence(kind: u16; op(prec: u8) | not_op)
+
 entry start()
     if kind == @{TOK_EQ} or kind == @{TOK_NE} or kind == @{TOK_LT} or kind == @{TOK_LE} or kind == @{TOK_GT} or kind == @{TOK_GE} then jump op(prec = as(u8, 3)) end
     if kind == @{TOK_PIPE} then jump op(prec = as(u8, 4)) end
@@ -224,7 +226,7 @@ end
 
 local sem_push_op = host.region(V) [[
 region sem_push_op(cu: ptr(CompileUnit), op: ExprOpEntry;
-                   ok, limit_error(err: CompileError), oom)
+                   ok | limit_error(err: CompileError) | oom)
 entry start()
     if cu.expr_ops.data == nil then jump out_of_mem() end
     let slot: index = cu.expr_ops.len + 1
@@ -242,7 +244,7 @@ end
 
 local sem_push_val = host.region(V) [[
 region sem_push_val(cu: ptr(CompileUnit), ref: index, span: SourceSpan;
-                    ok, limit_error(err: CompileError), oom)
+                    ok | limit_error(err: CompileError) | oom)
 entry start()
     if cu.expr_vals.data == nil then jump out_of_mem() end
     let slot: index = cu.expr_vals.len + 1
@@ -260,6 +262,7 @@ end
 
 local current_semantic_function = host.region(V) [[
 region current_semantic_function(cu: ptr(CompileUnit); ok(function_ref: index))
+
 entry start()
     if cu.semantic_frames.len == 0 then jump ok(function_ref = cu.root_hir_function) end
     let frame: SemanticFrame = cu.semantic_frames.data[cu.semantic_frames.len]
@@ -270,7 +273,7 @@ end
 
 local find_capture_for_symbol = host.region(V) [[
 region find_capture_for_symbol(cu: ptr(CompileUnit), function_ref: index, symbol_ref: index;
-                               found(ref: index), missing)
+                               found(ref: index) | missing)
 entry start()
     let fn: HirFunction = cu.hir_functions.data[function_ref]
     if fn.captures_len == 0 then jump missing() end
@@ -288,7 +291,7 @@ end
 
 local ensure_capture_for_symbol = host.region(V) [[
 region ensure_capture_for_symbol(cu: ptr(CompileUnit), function_ref: index, symbol_ref: index;
-                                 ok(ref: index), oom)
+                                 ok(ref: index) | oom)
 entry start()
     emit find_capture_for_symbol(cu, function_ref, symbol_ref; found = already, missing = make_new)
 end
@@ -315,7 +318,7 @@ end
 
 local resolve_name_symbol = host.region(V) [[
 region resolve_name_symbol(cu: ptr(CompileUnit), name_node: ParseNode;
-                           local_found(ref: index), upvalue_found(ref: index), missing, oom)
+                           local_found(ref: index) | upvalue_found(ref: index) | missing | oom)
 entry start()
     emit current_semantic_function(cu; ok = got_function)
 end
@@ -349,7 +352,7 @@ end
 
 local add_symbol_to_function_from_node = host.region(V) [[
 region add_symbol_to_function_from_node(cu: ptr(CompileUnit), name_node: ParseNode, scope_ref: index, owner_function: index, kind: u16;
-                                        ok(ref: index), semantic_error(err: CompileError), oom)
+                                        ok(ref: index) | semantic_error(err: CompileError) | oom)
 entry start()
     if owner_function == 0 or owner_function > cu.hir_functions.len then emit @{source_error_at_span}(cu, @{PERR_MALFORMED_HIR}, name_node.token, name_node.span; error = sem_bad) end
     let fn: HirFunction = cu.hir_functions.data[owner_function]
@@ -371,7 +374,7 @@ end
 
 local add_local_symbol_from_node = host.region(V) [[
 region add_local_symbol_from_node(cu: ptr(CompileUnit), name_node: ParseNode, scope_ref: index;
-                                  ok(ref: index), semantic_error(err: CompileError), oom)
+                                  ok(ref: index) | semantic_error(err: CompileError) | oom)
 entry start()
     emit current_semantic_function(cu; ok = got_function)
 end
@@ -388,7 +391,7 @@ end
 
 local append_integer_expr = host.region(V) [[
 region append_integer_expr(cu: ptr(CompileUnit), node: ParseNode;
-                           ok(ref: index), oom)
+                           ok(ref: index) | oom)
 entry start()
     let e: HirExpr = { kind = as(u16, @{HEXPR_INTEGER}), op = 0, flags = 0, reserved = 0, a = 0, b = 0, c = 0, next = 0, value = { tag = 0, aux = 0, bits = as(u64, node.c) }, span = node.span }
     emit append_hir_expr(cu, e; ok = made, oom = out_of_mem)
@@ -400,7 +403,7 @@ end
 
 local append_bool_expr = host.region(V) [[
 region append_bool_expr(cu: ptr(CompileUnit), node: ParseNode, bit: index;
-                        ok(ref: index), oom)
+                        ok(ref: index) | oom)
 entry start()
     let e: HirExpr = { kind = as(u16, @{HEXPR_BOOL}), op = 0, flags = 0, reserved = 0, a = bit, b = 0, c = 0, next = 0, value = { tag = 0, aux = 0, bits = as(u64, bit) }, span = node.span }
     emit append_hir_expr(cu, e; ok = made, oom = out_of_mem)
@@ -412,7 +415,7 @@ end
 
 local append_nil_expr = host.region(V) [[
 region append_nil_expr(cu: ptr(CompileUnit), node: ParseNode;
-                       ok(ref: index), oom)
+                       ok(ref: index) | oom)
 entry start()
     let e: HirExpr = { kind = as(u16, @{HEXPR_NIL}), op = 0, flags = 0, reserved = 0, a = 0, b = 0, c = 0, next = 0, value = { tag = 0, aux = 0, bits = 0 }, span = node.span }
     emit append_hir_expr(cu, e; ok = made, oom = out_of_mem)
@@ -424,7 +427,7 @@ end
 
 local append_string_expr = host.region(V) [[
 region append_string_expr(cu: ptr(CompileUnit), node: ParseNode;
-                          ok(ref: index), oom)
+                          ok(ref: index) | oom)
 entry start()
     -- String lowering needs durable string/constant storage. HIR records the
     -- stable source slice now; regions_lower rejects it until that storage
@@ -439,7 +442,7 @@ end
 
 local append_integer_const = host.region(V) [[
 region append_integer_const(cu: ptr(CompileUnit), span: SourceSpan, value: i64;
-                            ok(ref: index), oom)
+                            ok(ref: index) | oom)
 entry start()
     let e: HirExpr = { kind = as(u16, @{HEXPR_INTEGER}), op = 0, flags = 0, reserved = 0, a = 0, b = 0, c = 0, next = 0, value = { tag = 0, aux = 0, bits = as(u64, value) }, span = span }
     emit append_hir_expr(cu, e; ok = made, oom = out_of_mem)
@@ -451,7 +454,7 @@ end
 
 local append_local_expr = host.region(V) [[
 region append_local_expr(cu: ptr(CompileUnit), node: ParseNode, sym_ref: index;
-                         ok(ref: index), oom)
+                         ok(ref: index) | oom)
 entry start()
     let e: HirExpr = { kind = as(u16, @{HEXPR_LOCAL}), op = 0, flags = 0, reserved = 0, a = sym_ref, b = 0, c = 0, next = 0, value = { tag = 0, aux = 0, bits = 0 }, span = node.span }
     emit append_hir_expr(cu, e; ok = made, oom = out_of_mem)
@@ -463,7 +466,7 @@ end
 
 local append_global_expr = host.region(V) [[
 region append_global_expr(cu: ptr(CompileUnit), node: ParseNode;
-                          ok(ref: index), oom)
+                          ok(ref: index) | oom)
 entry start()
     let e: HirExpr = { kind = as(u16, @{HEXPR_GLOBAL}), op = 0, flags = 0, reserved = 0, a = node.a, b = node.b, c = 0, next = 0, value = { tag = 0, aux = 0, bits = as(u64, node.c) }, span = node.span }
     emit append_hir_expr(cu, e; ok = made, oom = out_of_mem)
@@ -475,7 +478,7 @@ end
 
 local append_upvalue_expr = host.region(V) [[
 region append_upvalue_expr(cu: ptr(CompileUnit), node: ParseNode, capture_ref: index;
-                           ok(ref: index), oom)
+                           ok(ref: index) | oom)
 entry start()
     let e: HirExpr = { kind = as(u16, @{HEXPR_UPVALUE}), op = 0, flags = 0, reserved = 0, a = capture_ref, b = 0, c = 0, next = 0, value = { tag = 0, aux = 0, bits = 0 }, span = node.span }
     emit append_hir_expr(cu, e; ok = made, oom = out_of_mem)
@@ -487,7 +490,7 @@ end
 
 local append_closure_expr = host.region(V) [[
 region append_closure_expr(cu: ptr(CompileUnit), function_ref: index, span: SourceSpan;
-                           ok(ref: index), oom)
+                           ok(ref: index) | oom)
 entry start()
     let e: HirExpr = { kind = as(u16, @{HEXPR_CLOSURE}), op = 0, flags = 0, reserved = 0, a = function_ref, b = 0, c = 0, next = 0, value = { tag = 0, aux = 0, bits = 0 }, span = span }
     emit append_hir_expr(cu, e; ok = made, oom = out_of_mem)
@@ -499,7 +502,7 @@ end
 
 local append_vararg_expr = host.region(V) [[
 region append_vararg_expr(cu: ptr(CompileUnit), node: ParseNode;
-                          ok(ref: index), semantic_error(err: CompileError), oom)
+                          ok(ref: index) | semantic_error(err: CompileError) | oom)
 entry start()
     emit current_semantic_function(cu; ok = got_function)
 end
@@ -516,7 +519,7 @@ end
 
 local append_table_expr = host.region(V) [[
 region append_table_expr(cu: ptr(CompileUnit), first_item: index, count: index, span: SourceSpan;
-                         ok(ref: index), oom)
+                         ok(ref: index) | oom)
 entry start()
     let e: HirExpr = { kind = as(u16, @{HEXPR_TABLE}), op = 0, flags = 0, reserved = 0, a = first_item, b = count, c = 0, next = 0, value = { tag = 0, aux = 0, bits = 0 }, span = span }
     emit append_hir_expr(cu, e; ok = made, oom = out_of_mem)
@@ -528,7 +531,7 @@ end
 
 local append_table_item_expr = host.region(V) [[
 region append_table_item_expr(cu: ptr(CompileUnit), key_ref: index, value_ref: index, array_index: index, is_array: u16, span: SourceSpan;
-                              ok(ref: index), oom)
+                              ok(ref: index) | oom)
 entry start()
     let e: HirExpr = { kind = as(u16, @{HEXPR_TABLE_ITEM}), op = 0, flags = is_array, reserved = 0, a = key_ref, b = value_ref, c = array_index, next = 0, value = { tag = 0, aux = 0, bits = 0 }, span = span }
     emit append_hir_expr(cu, e; ok = made, oom = out_of_mem)
@@ -540,7 +543,7 @@ end
 
 local append_index_expr = host.region(V) [[
 region append_index_expr(cu: ptr(CompileUnit), table_ref: index, key_ref: index, span: SourceSpan;
-                         ok(ref: index), oom)
+                         ok(ref: index) | oom)
 entry start()
     let e: HirExpr = { kind = as(u16, @{HEXPR_INDEX}), op = 0, flags = 0, reserved = 0, a = table_ref, b = key_ref, c = 0, next = 0, value = { tag = 0, aux = 0, bits = 0 }, span = span }
     emit append_hir_expr(cu, e; ok = made, oom = out_of_mem)
@@ -552,7 +555,7 @@ end
 
 local append_field_expr = host.region(V) [[
 region append_field_expr(cu: ptr(CompileUnit), table_ref: index, name_node: ParseNode, span: SourceSpan;
-                         ok(ref: index), oom)
+                         ok(ref: index) | oom)
 entry start()
     let e: HirExpr = { kind = as(u16, @{HEXPR_FIELD}), op = 0, flags = 0, reserved = 0, a = table_ref, b = name_node.a, c = name_node.b, next = 0, value = { tag = 0, aux = 0, bits = as(u64, name_node.c) }, span = span }
     emit append_hir_expr(cu, e; ok = made, oom = out_of_mem)
@@ -564,7 +567,7 @@ end
 
 local append_call_expr = host.region(V) [[
 region append_call_expr(cu: ptr(CompileUnit), callee_ref: index, first_arg: index, argc: index, span: SourceSpan;
-                        ok(ref: index), oom)
+                        ok(ref: index) | oom)
 entry start()
     let e: HirExpr = { kind = as(u16, @{HEXPR_CALL}), op = 0, flags = 0, reserved = 0, a = callee_ref, b = first_arg, c = argc, next = 0, value = { tag = 0, aux = 0, bits = 0 }, span = span }
     emit append_hir_expr(cu, e; ok = made, oom = out_of_mem)
@@ -576,7 +579,7 @@ end
 
 local append_method_call_expr = host.region(V) [[
 region append_method_call_expr(cu: ptr(CompileUnit), receiver_ref: index, name_node: ParseNode, first_arg: index, argc: index, span: SourceSpan;
-                               ok(ref: index), oom)
+                               ok(ref: index) | oom)
 entry start()
     let e: HirExpr = { kind = as(u16, @{HEXPR_METHOD_CALL}), op = 0, flags = as(u16, argc), reserved = 0, a = receiver_ref, b = name_node.a, c = name_node.b, next = first_arg, value = { tag = 0, aux = 0, bits = as(u64, name_node.c) }, span = span }
     emit append_hir_expr(cu, e; ok = made, oom = out_of_mem)
@@ -588,9 +591,9 @@ end
 
 local append_simple_value_expr = host.region(V) [[
 region append_simple_value_expr(cu: ptr(CompileUnit), slot: index;
-                                ok(expr_ref: index, next_slot: index),
-                                not_simple(node: ParseNode),
-                                semantic_error(err: CompileError),
+                                ok(expr_ref: index, next_slot: index) |
+                                not_simple(node: ParseNode) |
+                                semantic_error(err: CompileError) |
                                 oom)
 entry start()
     emit token_node_at(cu, slot; ok = value_token, eof = missing_expr, semantic_error = sem_bad)
@@ -633,7 +636,7 @@ end
 
 local reduce_hir_expr_once = host.region(V) [[
 region reduce_hir_expr_once(cu: ptr(CompileUnit);
-                            ok, semantic_error(err: CompileError), limit_error(err: CompileError), oom)
+                            ok | semantic_error(err: CompileError) | limit_error(err: CompileError) | oom)
 entry start()
     if cu.expr_ops.len == 0 then emit @{source_error_at_current}(cu, @{PERR_EXPECTED_EXPR}; error = sem_bad) end
     let op_slot: index = cu.expr_ops.len
@@ -678,9 +681,9 @@ end
 
 local build_hir_expr = host.region(V) [[
 region build_hir_expr(cu: ptr(CompileUnit), start_slot: index;
-                      parsed(expr_ref: index, next_slot: index),
-                      semantic_error(err: CompileError),
-                      limit_error(err: CompileError),
+                      parsed(expr_ref: index, next_slot: index) |
+                      semantic_error(err: CompileError) |
+                      limit_error(err: CompileError) |
                       oom)
 entry start()
     cu.expr_ops.len = 0
@@ -1010,7 +1013,7 @@ end
 -- token slot because Moonlift continuations here do not close over block params.
 local build_hir_expr_at = host.region(V) [[
 region build_hir_expr_at(cu: ptr(CompileUnit), start_slot: index;
-                         parsed(expr_ref: index, next_slot: index), semantic_error(err: CompileError), limit_error(err: CompileError), oom)
+                         parsed(expr_ref: index, next_slot: index) | semantic_error(err: CompileError) | limit_error(err: CompileError) | oom)
 entry start()
     cu.semantic_mark = start_slot
     emit build_hir_expr(cu, start_slot; parsed = done, semantic_error = sem_bad, limit_error = too_big, oom = out_of_mem)
@@ -1024,7 +1027,7 @@ end
 
 local resolve_name_use = host.region(V) [[
 region resolve_name_use(cu: ptr(CompileUnit), use_ref: index;
-                        ok, semantic_error(err: CompileError))
+                        ok | semantic_error(err: CompileError))
 entry start()
     jump ok()
 end
@@ -1033,7 +1036,7 @@ end
 
 local compute_capture = host.region(V) [[
 region compute_capture(cu: ptr(CompileUnit), symbol_ref: index, function_ref: index;
-                       ok(capture_ref: index), semantic_error(err: CompileError), oom)
+                       ok(capture_ref: index) | semantic_error(err: CompileError) | oom)
 entry start()
     let span: SourceSpan = { start = 0, len = 0, line = 1, col = 1 }
     let cap: CaptureRec = { symbol = symbol_ref, source_function = function_ref, through_parent = 0, reserved = 0, upvalue_index = 0, span = span }
@@ -1046,7 +1049,7 @@ end
 
 local build_hir_from_parse = host.region(V) [[
 region build_hir_from_parse(cu: ptr(CompileUnit);
-                            ok, semantic_error(err: CompileError), limit_error(err: CompileError), oom)
+                            ok | semantic_error(err: CompileError) | limit_error(err: CompileError) | oom)
 entry start()
     cu.phase = @{SOURCE_SEMANTIC}
     cu.root_hir_function = 0
@@ -1571,7 +1574,7 @@ end
 
 local verify_hir = host.region(V) [[
 region verify_hir(cu: ptr(CompileUnit);
-                  ok, semantic_error(err: CompileError), limit_error(err: CompileError))
+                  ok | semantic_error(err: CompileError) | limit_error(err: CompileError))
 entry start()
     cu.phase = @{SOURCE_HIR_VERIFY}
     if cu.root_hir_function == 0 then emit @{source_error_at_current}(cu, @{PERR_MALFORMED_HIR}; error = bad) end

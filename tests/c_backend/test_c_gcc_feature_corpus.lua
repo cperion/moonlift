@@ -114,7 +114,7 @@ struct Pair
     x: i32,
     y: i32,
 end
-func feature_array_agg() -> i32
+func feature_array_agg(): i32
     let p: Pair = Pair{ x = 10, y = 20 }
     return p.x + p.y + 12
 end
@@ -134,7 +134,7 @@ end
     {
         name = "views_strided_indexing",
         src = [[
-func feature_view(v: view(i32)) -> i32
+func feature_view(v: view(i32)): i32
     return v[2]
 end
 ]],

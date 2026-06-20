@@ -15,7 +15,8 @@ local value_key_hash = host.region {
     TAG_INTEGER = I.TAG_INTEGER,
     TAG_NUM = I.TAG_NUM,
 } [[
-region value_key_hash(v: Value; ok(hash: u32), invalid_key)
+region value_key_hash(v: Value; ok(hash: u32) | invalid_key)
+
 entry start()
     if v.tag == @{TAG_NIL} then jump invalid_key() end
     if v.tag == @{TAG_INTEGER} then
@@ -46,7 +47,8 @@ local value_key_equal = host.region {
     TAG_INTEGER = I.TAG_INTEGER,
     TAG_NUM = I.TAG_NUM,
 } [[
-region value_key_equal(a: Value, b: Value; yes, no)
+region value_key_equal(a: Value, b: Value; yes | no)
+
 entry start()
     if a.tag == @{TAG_NIL} or b.tag == @{TAG_NIL} then jump no() end
     if a.tag == @{TAG_INTEGER} and b.tag == @{TAG_INTEGER} then
@@ -80,8 +82,8 @@ local value_key_array_index = host.region {
     TAG_NUM = I.TAG_NUM,
 } [[
 region value_key_array_index(key: Value;
-                             index_key(idx: index),
-                             not_array,
+                             index_key(idx: index) |
+                             not_array |
                              invalid_key)
 entry start()
     if key.tag == @{TAG_INTEGER} then
@@ -102,7 +104,8 @@ end
 ]]
 
 local node_key_equal = host.region { value_key_equal = value_key_equal } [[
-region node_key_equal(n: ptr(Node), key: Value; yes(n: ptr(Node)), no(n: ptr(Node)))
+region node_key_equal(n: ptr(Node), key: Value; yes(n: ptr(Node)) | no(n: ptr(Node)))
+
 entry start()
     emit @{value_key_equal}(n.key, key; yes = is_equal, no = not_equal)
 end
@@ -113,7 +116,7 @@ end
 
 local node_key_equal_with_bucket = host.region { value_key_equal = value_key_equal } [[
 region node_key_equal_with_bucket(bucket: index, n: ptr(Node), key: Value;
-                                  yes(bucket: index, n: ptr(Node)),
+                                  yes(bucket: index, n: ptr(Node)) |
                                   no(bucket: index, n: ptr(Node)))
 entry start()
     emit @{value_key_equal}(n.key, key; yes = is_equal, no = not_equal)
@@ -125,7 +128,7 @@ end
 
 local node_key_equal_in_chain = host.region { value_key_equal = value_key_equal } [[
 region node_key_equal_in_chain(head: ptr(Node), n: ptr(Node), key: Value;
-                               yes(n: ptr(Node)),
+                               yes(n: ptr(Node)) |
                                no(head: ptr(Node), n: ptr(Node)))
 entry start()
     emit @{value_key_equal}(n.key, key; yes = is_equal, no = not_equal)
@@ -137,8 +140,8 @@ end
 
 local rehash_key_array_index = host.region { value_key_array_index = value_key_array_index } [[
 region rehash_key_array_index(i: index, n: ptr(Node), old_nodes: ptr(Node), old_mask: u32;
-                              index_key(i: index, n: ptr(Node), old_nodes: ptr(Node), old_mask: u32, idx: index),
-                              not_array(i: index, n: ptr(Node), old_nodes: ptr(Node), old_mask: u32),
+                              index_key(i: index, n: ptr(Node), old_nodes: ptr(Node), old_mask: u32, idx: index) |
+                              not_array(i: index, n: ptr(Node), old_nodes: ptr(Node), old_mask: u32) |
                               invalid_key(i: index, n: ptr(Node), old_nodes: ptr(Node), old_mask: u32))
 entry start()
     emit @{value_key_array_index}(n.key; index_key = yes, not_array = no, invalid_key = bad)
@@ -151,7 +154,7 @@ end
 
 local rehash_key_hash = host.region { value_key_hash = value_key_hash } [[
 region rehash_key_hash(i: index, n: ptr(Node), old_nodes: ptr(Node), old_mask: u32;
-                       ok(i: index, n: ptr(Node), old_nodes: ptr(Node), old_mask: u32, hash: u32),
+                       ok(i: index, n: ptr(Node), old_nodes: ptr(Node), old_mask: u32, hash: u32) |
                        invalid_key(i: index, n: ptr(Node), old_nodes: ptr(Node), old_mask: u32))
 entry start()
     emit @{value_key_hash}(n.key; ok = got_hash, invalid_key = bad)

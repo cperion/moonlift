@@ -28,8 +28,8 @@ end
 -- are allocated in one VM-owned block after the String header.
 local string_intern = host.region { TAG_STR = I.TAG_STR, SIZE_STRING = I.SIZE_STRING } [[
 region string_intern(L: ptr(LuaThread), bytes: ptr(u8), len: index;
-                     found(s: ptr(String)),
-                     created(s: ptr(String)),
+                     found(s: ptr(String)) |
+                     created(s: ptr(String)) |
                      oom)
 entry start()
     if L == nil then jump oom() end
@@ -104,9 +104,9 @@ end
 -- distinction instead of pretending primitive success.
 local string_concat_range = host.region { TAG_STR = I.TAG_STR, ERR_CONCAT = I.ERR_CONCAT, SIZE_STRING = I.SIZE_STRING } [[
 region string_concat_range(L: ptr(LuaThread), first: index, last: index;
-                           done(s: ptr(String)),
-                           call_mm(mm: Value),
-                           error(code: i32),
+                           done(s: ptr(String)) |
+                           call_mm(mm: Value) |
+                           error(code: i32) |
                            oom)
 entry start()
     jump measure(i = first, total = as(index, 0))

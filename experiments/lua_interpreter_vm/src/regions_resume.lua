@@ -11,26 +11,26 @@ for k, v in pairs(const.Resume) do I["RESUME_" .. k] = moon.int(v) end
 
 local decode_resume_kind = host.region(I) [[
 region decode_resume_kind(state: ResumeState;
-                          normal,
-                          tailcall,
-                          pcall,
-                          xpcall,
-                          gettable_mm,
-                          settable_mm,
-                          binop_mm,
-                          unop_mm,
-                          len_mm,
-                          concat_mm,
-                          eq_mm,
-                          lt_mm,
-                          le_mm,
-                          call_mm,
-                          tforloop_call,
-                          native_cont,
-                          tbc_close,
-                          finalizer_call,
-                          coroutine_resume,
-                          coroutine_yield,
+                          normal |
+                          tailcall |
+                          pcall |
+                          xpcall |
+                          gettable_mm |
+                          settable_mm |
+                          binop_mm |
+                          unop_mm |
+                          len_mm |
+                          concat_mm |
+                          eq_mm |
+                          lt_mm |
+                          le_mm |
+                          call_mm |
+                          tforloop_call |
+                          native_cont |
+                          tbc_close |
+                          finalizer_call |
+                          coroutine_resume |
+                          coroutine_yield |
                           unknown(kind: u16))
 entry start()
     switch state.kind do
@@ -79,20 +79,20 @@ local resume_after_return = host.region {
 } [[
 region resume_after_return(L: ptr(LuaThread), parent: ptr(Frame), first_result: index, nres: i32,
                            state: ResumeState;
-                           normal(parent: ptr(Frame), pc: index, base: index, top: index),
-                           resume_gettable_mm(parent: ptr(Frame), pc: index, base: index, top: index),
-                           resume_settable_mm(parent: ptr(Frame), pc: index, base: index, top: index),
-                           resume_binop_mm(parent: ptr(Frame), pc: index, base: index, top: index),
-                           resume_unop_mm(parent: ptr(Frame), pc: index, base: index, top: index),
-                           resume_compare_mm(parent: ptr(Frame), pc: index, base: index, top: index),
-                           resume_concat_mm(parent: ptr(Frame), pc: index, base: index, top: index),
-                           resume_tforloop(parent: ptr(Frame), pc: index, base: index, top: index),
-                           resume_tbc_close(parent: ptr(Frame), pc: index, base: index, top: index),
-                           pcall_success(parent: ptr(Frame), pc: index, base: index, top: index),
-                           pcall_failure(parent: ptr(Frame), pc: index, base: index, top: index),
-                           finished(nres: i32),
-                           yielded(nres: i32),
-                           error(code: i32),
+                           normal(parent: ptr(Frame), pc: index, base: index, top: index) |
+                           resume_gettable_mm(parent: ptr(Frame), pc: index, base: index, top: index) |
+                           resume_settable_mm(parent: ptr(Frame), pc: index, base: index, top: index) |
+                           resume_binop_mm(parent: ptr(Frame), pc: index, base: index, top: index) |
+                           resume_unop_mm(parent: ptr(Frame), pc: index, base: index, top: index) |
+                           resume_compare_mm(parent: ptr(Frame), pc: index, base: index, top: index) |
+                           resume_concat_mm(parent: ptr(Frame), pc: index, base: index, top: index) |
+                           resume_tforloop(parent: ptr(Frame), pc: index, base: index, top: index) |
+                           resume_tbc_close(parent: ptr(Frame), pc: index, base: index, top: index) |
+                           pcall_success(parent: ptr(Frame), pc: index, base: index, top: index) |
+                           pcall_failure(parent: ptr(Frame), pc: index, base: index, top: index) |
+                           finished(nres: i32) |
+                           yielded(nres: i32) |
+                           error(code: i32) |
                            oom)
 entry start()
     switch state.kind do

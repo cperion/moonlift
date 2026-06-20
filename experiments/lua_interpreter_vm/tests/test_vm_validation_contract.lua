@@ -36,8 +36,8 @@ local function set_AvBCk(i, op, a, vb, vc, k) i.word = bytecode.encode_AvBCk(op,
 local function set_AsC(i, op, a, b, sc, k) i.word = bytecode.encode_ABC(op, a, b, sc + bytecode.OFFSET_SC, k) end
 
 local validate = moon.func { validate_proto = vm.validate.validate_proto } [[
-validate_one(L: ptr(LuaThread), p: ptr(Proto)) -> i32
-    return region -> i32
+validate_one(L: ptr(LuaThread), p: ptr(Proto)): i32
+    return region: i32
     entry start()
         emit @{validate_proto}(L, p;
             ok = good,

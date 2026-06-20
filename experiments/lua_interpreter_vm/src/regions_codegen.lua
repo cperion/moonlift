@@ -44,7 +44,7 @@ end
 
 local instr_push = host.region(V) [[
 region instr_push(v: ptr(InstrVec), inst: Instr;
-                  ok(pc: index), oom)
+                  ok(pc: index) | oom)
 entry start()
     if v.len >= v.cap then jump oom() end
     let pc: index = v.len
@@ -57,7 +57,7 @@ end
 
 local emit_ABC = host.region(V) [[
 region emit_ABC(cu: ptr(CompileUnit), op: u16, a: u16, b: u16, c: u16, k: u8;
-                emitted(pc: index), limit_error(err: CompileError), oom)
+                emitted(pc: index) | limit_error(err: CompileError) | oom)
 entry start()
     let fs: ptr(FuncBuilder) = cu.current
     if fs.code.len >= fs.code.cap then jump oom() end
@@ -72,7 +72,7 @@ end
 
 local emit_AvBCk = host.region(V) [[
 region emit_AvBCk(cu: ptr(CompileUnit), op: u16, a: u16, vb: u16, vc: u16, k: u8;
-                  emitted(pc: index), limit_error(err: CompileError), oom)
+                  emitted(pc: index) | limit_error(err: CompileError) | oom)
 entry start()
     let fs: ptr(FuncBuilder) = cu.current
     if fs.code.len >= fs.code.cap then jump oom() end
@@ -87,7 +87,7 @@ end
 
 local emit_ABx = host.region(V) [[
 region emit_ABx(cu: ptr(CompileUnit), op: u16, a: u16, bx: u32;
-                emitted(pc: index), limit_error(err: CompileError), oom)
+                emitted(pc: index) | limit_error(err: CompileError) | oom)
 entry start()
     let fs: ptr(FuncBuilder) = cu.current
     if fs.code.len >= fs.code.cap then jump oom() end
@@ -102,7 +102,7 @@ end
 
 local emit_AsBx = host.region(V) [[
 region emit_AsBx(cu: ptr(CompileUnit), op: u16, a: u16, sbx: i32;
-                 emitted(pc: index), limit_error(err: CompileError), oom)
+                 emitted(pc: index) | limit_error(err: CompileError) | oom)
 entry start()
     let fs: ptr(FuncBuilder) = cu.current
     if fs.code.len >= fs.code.cap then jump oom() end
@@ -117,7 +117,7 @@ end
 
 local reserve_reg = host.region(V) [[
 region reserve_reg(cu: ptr(CompileUnit);
-                   reg(r: u16), limit_error(err: CompileError))
+                   reg(r: u16) | limit_error(err: CompileError))
 entry start()
     let fs: ptr(FuncBuilder) = cu.current
     if fs.freereg >= 255 then
@@ -136,7 +136,7 @@ end
 
 local ensure_stack_reg = host.region(V) [[
 region ensure_stack_reg(cu: ptr(CompileUnit), reg: u16;
-                        ok, limit_error(err: CompileError))
+                        ok | limit_error(err: CompileError))
 entry start()
     let fs: ptr(FuncBuilder) = cu.current
     if reg >= 255 then
@@ -155,6 +155,7 @@ end
 
 local mark_regs = host.region(V) [[
 region mark_regs(cu: ptr(CompileUnit); mark(r: u16))
+
 entry start()
     jump mark(r = cu.current.freereg)
 end
@@ -163,6 +164,7 @@ end
 
 local release_regs_to = host.region(V) [[
 region release_regs_to(cu: ptr(CompileUnit), mark: u16; ok)
+
 entry start()
     cu.current.freereg = mark
     jump ok()
@@ -172,7 +174,7 @@ end
 
 local arena_alloc_bytes = host.region(V) [[
 region arena_alloc_bytes(cu: ptr(CompileUnit), size: index, align: u32;
-                         ok(ptr: ptr(u8)), oom)
+                         ok(ptr: ptr(u8)) | oom)
 entry start()
     var pos: index = cu.arena.pos
     let mask: index = as(index, align) - 1
@@ -193,7 +195,7 @@ end
 
 local constant_push = host.region(V) [[
 region constant_push(cu: ptr(CompileUnit), value: Value;
-                     ok(idx: index), oom)
+                     ok(idx: index) | oom)
 entry start()
     let fs: ptr(FuncBuilder) = cu.current
     if fs.constants.data == nil then jump oom() end
@@ -208,7 +210,7 @@ end
 
 local upvaldesc_push = host.region(V) [[
 region upvaldesc_push(cu: ptr(CompileUnit), desc: UpValDesc;
-                      ok(idx: index), oom)
+                      ok(idx: index) | oom)
 entry start()
     let fs: ptr(FuncBuilder) = cu.current
     if fs.upvals.data == nil then jump oom() end
@@ -223,7 +225,7 @@ end
 
 local proto_ptr_push = host.region(V) [[
 region proto_ptr_push(cu: ptr(CompileUnit), proto: ptr(Proto);
-                      ok(idx: index), oom)
+                      ok(idx: index) | oom)
 entry start()
     let fs: ptr(FuncBuilder) = cu.current
     if fs.children.data == nil then jump oom() end
@@ -237,7 +239,8 @@ end
 ]]
 
 local ensure_env_upvalue = host.region(V) [[
-region ensure_env_upvalue(cu: ptr(CompileUnit); ok, oom)
+region ensure_env_upvalue(cu: ptr(CompileUnit); ok | oom)
+
 entry start()
     if cu.current.upvals.len > 0 then jump ok() end
     let desc: UpValDesc = { name = nil, instack = 1, index = 0 }
@@ -250,7 +253,7 @@ end
 
 local workspace_string_from_source = host.region(V) [[
 region workspace_string_from_source(cu: ptr(CompileUnit), start: index, len: index;
-                                    ok(str: ptr(String)), oom)
+                                    ok(str: ptr(String)) | oom)
 entry start()
     emit arena_alloc_bytes(cu, as(index, @{SIZE_STRING}) + len + 1, as(u32, 8);
         ok = allocated,
@@ -284,7 +287,7 @@ end
 
 local get_string_constant = host.region(V) [[
 region get_string_constant(cu: ptr(CompileUnit), start: index, len: index;
-                           ok(idx: index), oom)
+                           ok(idx: index) | oom)
 entry start()
     if cu.current.constants.len == 0 then jump missing() end
     jump scan(i = as(index, 0))
@@ -317,7 +320,7 @@ end
 
 local emit_loadk = host.region(V) [[
 region emit_loadk(cu: ptr(CompileUnit), dst: u16, const_idx: index;
-                  ok, limit_error(err: CompileError), oom)
+                  ok | limit_error(err: CompileError) | oom)
 entry start()
     emit emit_ABx(cu, as(u16, @{OP_LOADK}), dst, as(u32, const_idx);
         emitted = done_pc,
@@ -332,7 +335,7 @@ end
 
 local emit_getupval = host.region(V) [[
 region emit_getupval(cu: ptr(CompileUnit), dst: u16, upidx: u16;
-                     ok, limit_error(err: CompileError), oom)
+                     ok | limit_error(err: CompileError) | oom)
 entry start()
     emit emit_ABC(cu, as(u16, @{OP_GETUPVAL}), dst, upidx, as(u16, 0), as(u8, 0);
         emitted = done_pc,
@@ -347,7 +350,7 @@ end
 
 local emit_setupval = host.region(V) [[
 region emit_setupval(cu: ptr(CompileUnit), src: u16, upidx: u16;
-                     ok, limit_error(err: CompileError), oom)
+                     ok | limit_error(err: CompileError) | oom)
 entry start()
     emit emit_ABC(cu, as(u16, @{OP_SETUPVAL}), src, upidx, as(u16, 0), as(u8, 0);
         emitted = done_pc,
@@ -362,7 +365,7 @@ end
 
 local emit_gettabup = host.region(V) [[
 region emit_gettabup(cu: ptr(CompileUnit), dst: u16, upidx: u16, key_idx: index;
-                     ok, limit_error(err: CompileError), oom)
+                     ok | limit_error(err: CompileError) | oom)
 entry start()
     emit emit_ABC(cu, as(u16, @{OP_GETTABUP}), dst, upidx, as(u16, key_idx), as(u8, 0);
         emitted = done_pc,
@@ -377,7 +380,7 @@ end
 
 local emit_settabup = host.region(V) [[
 region emit_settabup(cu: ptr(CompileUnit), upidx: u16, key_idx: index, src: u16;
-                     ok, limit_error(err: CompileError), oom)
+                     ok | limit_error(err: CompileError) | oom)
 entry start()
     emit emit_ABC(cu, as(u16, @{OP_SETTABUP}), upidx, as(u16, key_idx), src, as(u8, 0);
         emitted = done_pc,
@@ -392,7 +395,7 @@ end
 
 local emit_gettable = host.region(V) [[
 region emit_gettable(cu: ptr(CompileUnit), dst: u16, table_reg: u16, key_reg: u16;
-                     ok, limit_error(err: CompileError), oom)
+                     ok | limit_error(err: CompileError) | oom)
 entry start()
     emit emit_ABC(cu, as(u16, @{OP_GETTABLE}), dst, table_reg, key_reg, as(u8, 0);
         emitted = done_pc,
@@ -407,7 +410,7 @@ end
 
 local emit_settable = host.region(V) [[
 region emit_settable(cu: ptr(CompileUnit), value_reg: u16, table_reg: u16, key_reg: u16;
-                     ok, limit_error(err: CompileError), oom)
+                     ok | limit_error(err: CompileError) | oom)
 entry start()
     emit emit_ABC(cu, as(u16, @{OP_SETTABLE}), value_reg, table_reg, key_reg, as(u8, 0);
         emitted = done_pc,
@@ -422,7 +425,7 @@ end
 
 local emit_getfield = host.region(V) [[
 region emit_getfield(cu: ptr(CompileUnit), dst: u16, table_reg: u16, key_idx: index;
-                     ok, limit_error(err: CompileError), oom)
+                     ok | limit_error(err: CompileError) | oom)
 entry start()
     emit emit_ABC(cu, as(u16, @{OP_GETFIELD}), dst, table_reg, as(u16, key_idx), as(u8, 0);
         emitted = done_pc,
@@ -437,7 +440,7 @@ end
 
 local emit_setfield = host.region(V) [[
 region emit_setfield(cu: ptr(CompileUnit), table_reg: u16, key_idx: index, value_reg: u16;
-                     ok, limit_error(err: CompileError), oom)
+                     ok | limit_error(err: CompileError) | oom)
 entry start()
     emit emit_ABC(cu, as(u16, @{OP_SETFIELD}), table_reg, as(u16, key_idx), value_reg, as(u8, 0);
         emitted = done_pc,
@@ -452,7 +455,7 @@ end
 
 local emit_load_integer = host.region(V) [[
 region emit_load_integer(cu: ptr(CompileUnit), dst: u16, n: i64;
-                         ok, limit_error(err: CompileError), oom)
+                         ok | limit_error(err: CompileError) | oom)
 entry start()
     emit emit_AsBx(cu, as(u16, @{OP_LOADI}), dst, as(i32, n);
         emitted = done_pc, limit_error = too_big, oom = out_of_mem)
@@ -471,7 +474,7 @@ end
 
 local emit_move = host.region(V) [[
 region emit_move(cu: ptr(CompileUnit), dst: u16, src: u16;
-                 ok, limit_error(err: CompileError), oom)
+                 ok | limit_error(err: CompileError) | oom)
 entry start()
     if dst == src then jump ok() end
     emit emit_ABC(cu, as(u16, @{OP_MOVE}), dst, src, as(u16, 0), as(u8, 0);
@@ -491,7 +494,7 @@ end
 
 local emit_load_false = host.region(V) [[
 region emit_load_false(cu: ptr(CompileUnit), dst: u16;
-                       ok, limit_error(err: CompileError), oom)
+                       ok | limit_error(err: CompileError) | oom)
 entry start()
     emit emit_ABC(cu, as(u16, @{OP_LOADFALSE}), dst, as(u16, 0), as(u16, 0), as(u8, 0);
         emitted = done_pc, limit_error = too_big, oom = out_of_mem)
@@ -504,7 +507,7 @@ end
 
 local emit_load_true = host.region(V) [[
 region emit_load_true(cu: ptr(CompileUnit), dst: u16;
-                      ok, limit_error(err: CompileError), oom)
+                      ok | limit_error(err: CompileError) | oom)
 entry start()
     emit emit_ABC(cu, as(u16, @{OP_LOADTRUE}), dst, as(u16, 0), as(u16, 0), as(u8, 0);
         emitted = done_pc, limit_error = too_big, oom = out_of_mem)
@@ -517,7 +520,7 @@ end
 
 local emit_load_nil = host.region(V) [[
 region emit_load_nil(cu: ptr(CompileUnit), dst: u16;
-                     ok, limit_error(err: CompileError), oom)
+                     ok | limit_error(err: CompileError) | oom)
 entry start()
     emit emit_ABC(cu, as(u16, @{OP_LOADNIL}), dst, as(u16, 0), as(u16, 0), as(u8, 0);
         emitted = done_pc, limit_error = too_big, oom = out_of_mem)
@@ -530,7 +533,7 @@ end
 
 local emit_binary_op = host.region(V) [[
 region emit_binary_op(cu: ptr(CompileUnit), op: u16, tm: u16, dst: u16, lhs: u16, rhs: u16;
-                      ok, limit_error(err: CompileError), oom)
+                      ok | limit_error(err: CompileError) | oom)
 entry start()
     let fs: ptr(FuncBuilder) = cu.current
     if fs.code.len + 1 >= fs.code.cap then jump oom() end
@@ -547,7 +550,7 @@ end
 
 local emit_add = host.region(V) [[
 region emit_add(cu: ptr(CompileUnit), dst: u16, lhs: u16, rhs: u16;
-                ok, limit_error(err: CompileError), oom)
+                ok | limit_error(err: CompileError) | oom)
 entry start()
     emit emit_binary_op(cu, as(u16, @{OP_ADD}), as(u16, @{TM_ADD}), dst, lhs, rhs;
         ok = done, limit_error = too_big, oom = out_of_mem)
@@ -560,7 +563,7 @@ end
 
 local emit_sub = host.region(V) [[
 region emit_sub(cu: ptr(CompileUnit), dst: u16, lhs: u16, rhs: u16;
-                ok, limit_error(err: CompileError), oom)
+                ok | limit_error(err: CompileError) | oom)
 entry start()
     emit emit_binary_op(cu, as(u16, @{OP_SUB}), as(u16, @{TM_SUB}), dst, lhs, rhs;
         ok = done, limit_error = too_big, oom = out_of_mem)
@@ -573,7 +576,7 @@ end
 
 local emit_mul = host.region(V) [[
 region emit_mul(cu: ptr(CompileUnit), dst: u16, lhs: u16, rhs: u16;
-                ok, limit_error(err: CompileError), oom)
+                ok | limit_error(err: CompileError) | oom)
 entry start()
     emit emit_binary_op(cu, as(u16, @{OP_MUL}), as(u16, @{TM_MUL}), dst, lhs, rhs;
         ok = done, limit_error = too_big, oom = out_of_mem)
@@ -586,7 +589,7 @@ end
 
 local emit_div = host.region(V) [[
 region emit_div(cu: ptr(CompileUnit), dst: u16, lhs: u16, rhs: u16;
-                ok, limit_error(err: CompileError), oom)
+                ok | limit_error(err: CompileError) | oom)
 entry start()
     emit emit_binary_op(cu, as(u16, @{OP_DIV}), as(u16, @{TM_DIV}), dst, lhs, rhs;
         ok = done, limit_error = too_big, oom = out_of_mem)
@@ -599,7 +602,7 @@ end
 
 local emit_mod = host.region(V) [[
 region emit_mod(cu: ptr(CompileUnit), dst: u16, lhs: u16, rhs: u16;
-                ok, limit_error(err: CompileError), oom)
+                ok | limit_error(err: CompileError) | oom)
 entry start()
     emit emit_binary_op(cu, as(u16, @{OP_MOD}), as(u16, @{TM_MOD}), dst, lhs, rhs;
         ok = done, limit_error = too_big, oom = out_of_mem)
@@ -612,7 +615,7 @@ end
 
 local emit_idiv = host.region(V) [[
 region emit_idiv(cu: ptr(CompileUnit), dst: u16, lhs: u16, rhs: u16;
-                 ok, limit_error(err: CompileError), oom)
+                 ok | limit_error(err: CompileError) | oom)
 entry start()
     emit emit_binary_op(cu, as(u16, @{OP_IDIV}), as(u16, @{TM_IDIV}), dst, lhs, rhs;
         ok = done, limit_error = too_big, oom = out_of_mem)
@@ -625,7 +628,7 @@ end
 
 local emit_pow = host.region(V) [[
 region emit_pow(cu: ptr(CompileUnit), dst: u16, lhs: u16, rhs: u16;
-               ok, limit_error(err: CompileError), oom)
+               ok | limit_error(err: CompileError) | oom)
 entry start()
     emit emit_binary_op(cu, as(u16, @{OP_POW}), as(u16, @{TM_POW}), dst, lhs, rhs;
         ok = done, limit_error = too_big, oom = out_of_mem)
@@ -638,7 +641,7 @@ end
 
 local emit_band = host.region(V) [[
 region emit_band(cu: ptr(CompileUnit), dst: u16, lhs: u16, rhs: u16;
-                 ok, limit_error(err: CompileError), oom)
+                 ok | limit_error(err: CompileError) | oom)
 entry start()
     emit emit_binary_op(cu, as(u16, @{OP_BAND}), as(u16, @{TM_BAND}), dst, lhs, rhs;
         ok = done, limit_error = too_big, oom = out_of_mem)
@@ -651,7 +654,7 @@ end
 
 local emit_bor = host.region(V) [[
 region emit_bor(cu: ptr(CompileUnit), dst: u16, lhs: u16, rhs: u16;
-                ok, limit_error(err: CompileError), oom)
+                ok | limit_error(err: CompileError) | oom)
 entry start()
     emit emit_binary_op(cu, as(u16, @{OP_BOR}), as(u16, @{TM_BOR}), dst, lhs, rhs;
         ok = done, limit_error = too_big, oom = out_of_mem)
@@ -664,7 +667,7 @@ end
 
 local emit_bxor = host.region(V) [[
 region emit_bxor(cu: ptr(CompileUnit), dst: u16, lhs: u16, rhs: u16;
-                 ok, limit_error(err: CompileError), oom)
+                 ok | limit_error(err: CompileError) | oom)
 entry start()
     emit emit_binary_op(cu, as(u16, @{OP_BXOR}), as(u16, @{TM_BXOR}), dst, lhs, rhs;
         ok = done, limit_error = too_big, oom = out_of_mem)
@@ -677,7 +680,7 @@ end
 
 local emit_shl = host.region(V) [[
 region emit_shl(cu: ptr(CompileUnit), dst: u16, lhs: u16, rhs: u16;
-                ok, limit_error(err: CompileError), oom)
+                ok | limit_error(err: CompileError) | oom)
 entry start()
     emit emit_binary_op(cu, as(u16, @{OP_SHL}), as(u16, @{TM_SHL}), dst, lhs, rhs;
         ok = done, limit_error = too_big, oom = out_of_mem)
@@ -690,7 +693,7 @@ end
 
 local emit_shr = host.region(V) [[
 region emit_shr(cu: ptr(CompileUnit), dst: u16, lhs: u16, rhs: u16;
-                ok, limit_error(err: CompileError), oom)
+                ok | limit_error(err: CompileError) | oom)
 entry start()
     emit emit_binary_op(cu, as(u16, @{OP_SHR}), as(u16, @{TM_SHR}), dst, lhs, rhs;
         ok = done, limit_error = too_big, oom = out_of_mem)
@@ -703,7 +706,7 @@ end
 
 local emit_unary_minus = host.region(V) [[
 region emit_unary_minus(cu: ptr(CompileUnit), dst: u16, src: u16;
-                        ok, limit_error(err: CompileError), oom)
+                        ok | limit_error(err: CompileError) | oom)
 entry start()
     if cu.current.code.len + 1 >= cu.current.code.cap then jump out_of_mem() end
     emit emit_ABC(cu, as(u16, @{OP_UNM}), dst, src, as(u16, 0), as(u8, 0);
@@ -721,7 +724,7 @@ end
 
 local emit_bnot = host.region(V) [[
 region emit_bnot(cu: ptr(CompileUnit), dst: u16, src: u16;
-                 ok, limit_error(err: CompileError), oom)
+                 ok | limit_error(err: CompileError) | oom)
 entry start()
     if cu.current.code.len + 1 >= cu.current.code.cap then jump out_of_mem() end
     emit emit_ABC(cu, as(u16, @{OP_BNOT}), dst, src, as(u16, 0), as(u8, 0);
@@ -739,7 +742,7 @@ end
 
 local emit_not = host.region(V) [[
 region emit_not(cu: ptr(CompileUnit), dst: u16, src: u16;
-                ok, limit_error(err: CompileError), oom)
+                ok | limit_error(err: CompileError) | oom)
 entry start()
     emit emit_ABC(cu, as(u16, @{OP_NOT}), dst, src, as(u16, 0), as(u8, 0);
         emitted = done_pc, limit_error = too_big, oom = out_of_mem)
@@ -752,7 +755,7 @@ end
 
 local emit_closure = host.region(V) [[
 region emit_closure(cu: ptr(CompileUnit), dst: u16, child_idx: index;
-                    ok, limit_error(err: CompileError), oom)
+                    ok | limit_error(err: CompileError) | oom)
 entry start()
     emit emit_ABx(cu, as(u16, @{OP_CLOSURE}), dst, as(u32, child_idx);
         emitted = done_pc, limit_error = too_big, oom = out_of_mem)
@@ -765,7 +768,7 @@ end
 
 local emit_call = host.region(V) [[
 region emit_call(cu: ptr(CompileUnit), func_reg: u16, nargs: u16, wanted: u16;
-                 ok, limit_error(err: CompileError), oom)
+                 ok | limit_error(err: CompileError) | oom)
 entry start()
     emit emit_ABC(cu, as(u16, @{OP_CALL}), func_reg, nargs + 1, wanted + 1, as(u8, 0);
         emitted = done_pc, limit_error = too_big, oom = out_of_mem)
@@ -778,7 +781,7 @@ end
 
 local emit_len = host.region(V) [[
 region emit_len(cu: ptr(CompileUnit), dst: u16, src: u16;
-                ok, limit_error(err: CompileError), oom)
+                ok | limit_error(err: CompileError) | oom)
 entry start()
     emit emit_ABC(cu, as(u16, @{OP_LEN}), dst, src, as(u16, 0), as(u8, 0);
         emitted = done_pc, limit_error = too_big, oom = out_of_mem)
@@ -791,7 +794,7 @@ end
 
 local emit_newtable = host.region(V) [[
 region emit_newtable(cu: ptr(CompileUnit), dst: u16, array_hint: u16;
-                     ok, limit_error(err: CompileError), oom)
+                     ok | limit_error(err: CompileError) | oom)
 entry start()
     var vb: u16 = array_hint
     if vb > 63 then vb = 63 end
@@ -806,7 +809,7 @@ end
 
 local emit_setlist = host.region(V) [[
 region emit_setlist(cu: ptr(CompileUnit), table_reg: u16, count: u16;
-                    ok, limit_error(err: CompileError), oom)
+                    ok | limit_error(err: CompileError) | oom)
 entry start()
     if count == 0 then jump ok() end
     emit ensure_stack_reg(cu, table_reg + count; ok = stack_ok, limit_error = too_big)
@@ -823,7 +826,7 @@ end
 
 local emit_return0 = host.region(V) [[
 region emit_return0(cu: ptr(CompileUnit);
-                    ok, limit_error(err: CompileError), oom)
+                    ok | limit_error(err: CompileError) | oom)
 entry start()
     emit emit_ABC(cu, as(u16, @{OP_RETURN0}), as(u16, 0), as(u16, 0), as(u16, 0), as(u8, 0);
         emitted = done_pc, limit_error = too_big, oom = out_of_mem)
@@ -836,7 +839,7 @@ end
 
 local emit_vararg = host.region(V) [[
 region emit_vararg(cu: ptr(CompileUnit), dst: u16, wanted: u16;
-                   ok, limit_error(err: CompileError), oom)
+                   ok | limit_error(err: CompileError) | oom)
 entry start()
     emit emit_ABC(cu, as(u16, @{OP_VARARG}), dst, wanted + 1, as(u16, 0), as(u8, 0);
         emitted = done_pc, limit_error = too_big, oom = out_of_mem)
@@ -849,7 +852,7 @@ end
 
 local emit_test_jump_false = host.region(V) [[
 region emit_test_jump_false(cu: ptr(CompileUnit), reg: u16;
-                            emitted(jmp_pc: index), limit_error(err: CompileError), oom)
+                            emitted(jmp_pc: index) | limit_error(err: CompileError) | oom)
 entry start()
     emit emit_ABC(cu, as(u16, @{OP_TEST}), reg, as(u16, 0), as(u16, 1), as(u8, 0);
         emitted = test_done, limit_error = too_big, oom = out_of_mem)
@@ -865,7 +868,7 @@ end
 
 local emit_compare_jump_false = host.region(V) [[
 region emit_compare_jump_false(cu: ptr(CompileUnit), op: u16, expect: u16, lhs: u16, rhs: u16;
-                                emitted(jmp_pc: index), limit_error(err: CompileError), oom)
+                                emitted(jmp_pc: index) | limit_error(err: CompileError) | oom)
 entry start()
     emit emit_ABC(cu, op, expect, lhs, rhs, as(u8, 0);
         emitted = cmp_done, limit_error = too_big, oom = out_of_mem)
@@ -881,7 +884,7 @@ end
 
 local emit_compare_bool = host.region(V) [[
 region emit_compare_bool(cu: ptr(CompileUnit), op: u16, expect: u16, dst: u16, lhs: u16, rhs: u16;
-                         ok, limit_error(err: CompileError), oom)
+                         ok | limit_error(err: CompileError) | oom)
 entry start()
     emit emit_compare_jump_false(cu, op, expect, lhs, rhs;
         emitted = got_false_jump, limit_error = too_big, oom = out_of_mem)
@@ -911,7 +914,7 @@ end
 
 local emit_jump_placeholder = host.region(V) [[
 region emit_jump_placeholder(cu: ptr(CompileUnit);
-                             emitted(pc: index), limit_error(err: CompileError), oom)
+                             emitted(pc: index) | limit_error(err: CompileError) | oom)
 entry start()
     let fs: ptr(FuncBuilder) = cu.current
     if fs.code.len >= fs.code.cap then jump out_of_mem() end
@@ -951,7 +954,7 @@ end
 
 local emit_jump_to_pc = host.region(V) [[
 region emit_jump_to_pc(cu: ptr(CompileUnit), target: index;
-                       ok, limit_error(err: CompileError), oom)
+                       ok | limit_error(err: CompileError) | oom)
 entry start()
     let fs: ptr(FuncBuilder) = cu.current
     if fs.code.len >= fs.code.cap then jump out_of_mem() end
@@ -969,7 +972,7 @@ end
 
 local emit_forprep_placeholder = host.region(V) [[
 region emit_forprep_placeholder(cu: ptr(CompileUnit), base_reg: u16;
-                                emitted(pc: index), limit_error(err: CompileError), oom)
+                                emitted(pc: index) | limit_error(err: CompileError) | oom)
 entry start()
     emit emit_ABx(cu, as(u16, @{OP_FORPREP}), base_reg, as(u32, 0);
         emitted = done_pc, limit_error = too_big, oom = out_of_mem)
@@ -982,7 +985,7 @@ end
 
 local emit_forloop_patch = host.region(V) [[
 region emit_forloop_patch(cu: ptr(CompileUnit), base_reg: u16, forprep_pc: index;
-                          ok, limit_error(err: CompileError), oom)
+                          ok | limit_error(err: CompileError) | oom)
 entry start()
     let loop_pc: index = cu.current.code.len
     let bx: u32 = as(u32, loop_pc - forprep_pc - 1)
@@ -998,7 +1001,7 @@ end
 
 local emit_return1 = host.region(V) [[
 region emit_return1(cu: ptr(CompileUnit), src: u16;
-                    ok, limit_error(err: CompileError), oom)
+                    ok | limit_error(err: CompileError) | oom)
 entry start()
     emit emit_ABC(cu, as(u16, @{OP_RETURN1}), src, as(u16, 0), as(u16, 0), as(u8, 0);
         emitted = done_pc, limit_error = too_big, oom = out_of_mem)
@@ -1017,7 +1020,7 @@ end
 
 local emit_return_n = host.region(V) [[
 region emit_return_n(cu: ptr(CompileUnit), first: u16, count: u16;
-                     ok, limit_error(err: CompileError), oom)
+                     ok | limit_error(err: CompileError) | oom)
 entry start()
     if count == 0 then emit emit_return0(cu; ok = done, limit_error = too_big, oom = out_of_mem) end
     if count == 1 then emit emit_return1(cu, first; ok = done, limit_error = too_big, oom = out_of_mem) end
@@ -1033,7 +1036,7 @@ end
 
 local add_local = host.region(V) [[
 region add_local(cu: ptr(CompileUnit), tok: Token, reg: u16;
-                 ok, limit_error(err: CompileError))
+                 ok | limit_error(err: CompileError))
 entry start()
     let fs: ptr(FuncBuilder) = cu.current
     if fs.locals_len >= fs.locals_cap then
@@ -1053,7 +1056,7 @@ end
 
 local same_name = host.region [[
 region same_name(bytes: ptr(u8), a_start: index, a_len: index, b_start: index, b_len: index;
-                 yes, no)
+                 yes | no)
 entry start()
     if a_len ~= b_len then jump no() end
     jump loop(i = as(index, 0))
@@ -1068,7 +1071,7 @@ end
 
 local resolve_local = host.region(V) [[
 region resolve_local(cu: ptr(CompileUnit), tok: Token;
-                     found(reg: u16), missing)
+                     found(reg: u16) | missing)
 entry start()
     let fs: ptr(FuncBuilder) = cu.current
     if fs.locals_len == 0 then jump missing() end
@@ -1096,7 +1099,7 @@ end
 
 local close_func_builder = host.region(V) [[
 region close_func_builder(cu: ptr(CompileUnit);
-                          ok(proto: ptr(Proto)), oom)
+                          ok(proto: ptr(Proto)) | oom)
 entry start()
     let fs: ptr(FuncBuilder) = cu.current
     let p: ptr(Proto) = fs.out_proto
