@@ -53,6 +53,7 @@ local TK = {
     is_null_kw = 163,
     trap_kw    = 164,
     lease_kw   = 165,
+    owned_kw   = 172,
     handle_kw  = 166,
     invalid_kw = 167,
     as_kw      = 170,
@@ -91,6 +92,7 @@ local keywords = {
     ["is_null"]    = TK.is_null_kw,
     ["trap"]       = TK.trap_kw,
     ["lease"]      = TK.lease_kw,
+    ["owned"]      = TK.owned_kw,
     ["handle"]     = TK.handle_kw,
     ["invalid"]    = TK.invalid_kw,
     ["as"]       = TK.as_kw,
@@ -653,6 +655,7 @@ local ident_kw = {
     [TK.noescape_kw]=true, [TK.invalidate_kw]=true, [TK.preserve_kw]=true,
     [TK.sizeof_kw]=true, [TK.alignof_kw]=true, [TK.null_kw]=true,
     [TK.is_null_kw]=true, [TK.trap_kw]=true, [TK.lease_kw]=true,
+    [TK.owned_kw]=true,
     [TK.handle_kw]=true, [TK.invalid_kw]=true,
     [TK.struct_kw]=true,
     [TK.union_kw]=true,
@@ -987,6 +990,11 @@ function Parser:parse_type()
             self:skip_nl()
         end
         return Ty.TLease(self:parse_type(), origin)
+    end
+
+    if self:accept(TK.owned_kw) then
+        self:skip_nl()
+        return Ty.TOwned(self:parse_type())
     end
 
     if self:accept(TK.handle_kw) then

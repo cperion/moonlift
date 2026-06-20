@@ -256,7 +256,7 @@ module MoonTree {
          | TypeYieldVoid
          | TypeYieldValue(MoonType.Type ty) unique
 
-    TypeCheckEnv = (MoonBind.Env env, MoonType.Type return_ty, MoonTree.TypeYieldMode yield) unique
+    TypeCheckEnv = (MoonBind.Env env, MoonType.Type return_ty, MoonTree.TypeYieldMode yield, MoonOpen.RegionFrag* region_frags) unique
 
     TypeViewResult = TypeViewResult(MoonTree.View view, MoonTree.TypeIssue* issues) unique
 

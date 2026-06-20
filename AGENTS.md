@@ -99,7 +99,9 @@ LuaCompile/SpongeJIT architecture discipline and retired-name guardrails.
 | Doc | Description |
 |-----|-------------|
 | `README.md` | Full project README with examples, benchmarks, philosophy |
-| `LANGUAGE_REFERENCE.md` | **Complete language reference** (3057 lines) — types, modules, functions, control regions, fragments, host decls, view ABI, vectorization, builder API, metaprogramming guide |
+| `LANGUAGE_REFERENCE.md` | **Complete language reference** — types, modules, functions, control regions, fragments, host decls, memory/resource model, view ABI, vectorization, builder API, metaprogramming guide |
+| `OWNED_CFG_DESIGN.md` | Final `owned T` CFG resource discipline — handles, leases, emit transfer, disallowed aggregates, diagnostics |
+| `CONVENTIONS.md` | Naming, file organization, headers vs implementations, handles, generations, stores, protocol naming |
 | `SOURCE_GRAMMAR.md` | Jump-first source grammar contract |
 | `PROTOCOL_SYNTAX.md` | Named protocol exits (tagged-union region exit protocols) |
 | `PVM_GUIDE.md` | Complete PVM guide — ASDL contexts, structural update, triplets |
@@ -107,12 +109,19 @@ LuaCompile/SpongeJIT architecture discipline and retired-name guardrails.
 
 ## Language cheatsheet
 
+Syntax mirrors Moonlift's two categories: commas separate product-shaped lists
+(fields, params, payload fields, fill maps), while `|` separates semantic
+alternatives (union variants and region continuation exits).
+
 ### Types
 
 ```
 Scalars:  void  bool  i8 i16 i32 i64  u8 u16 u32 u64  f32 f64  index
 Pointers: ptr(T)
 Views:    view(T)         -- (data, len, stride) descriptor
+Leases:   lease ptr(T)    -- temporary access fact; may not escape
+Owned:    owned HandleRef -- CFG discharge authority; no Drop, no inference
+Handles:  handle Name : u32 invalid 0 [domain Store] [target Item] end
 Structs:  struct Name f: T, ... end
 Unions:   union Name a(T) | b(T) end
 Func:     func(i32, i32): i32        -- function pointer type
@@ -156,8 +165,8 @@ end
 
 ```moonlift
 region scan(p: ptr(u8), n: i32, target: i32;
-            hit(pos: i32),
-            miss(pos: i32))
+            hit(pos: i32)
+          | miss(pos: i32))
 entry loop(i: i32 = 0)
     if i >= n then jump miss(pos = i) end
     if as(i32, p[i]) == target then jump hit(pos = i) end
@@ -168,6 +177,33 @@ end
 -- Use via emit (zero-cost CFG splice, not a call)
 emit scan(p, n, 65; hit = found, miss = not_found)
 ```
+
+### Handles, leases, owned
+
+```moonlift
+handle SessionRef : u64 invalid 0 end
+
+region close_session(app: ptr(App), s: owned SessionRef;
+            closed()
+          | missing(s: owned SessionRef))
+end
+
+region borrow_session(app: ptr(App), s: SessionRef;
+            borrowed(session: lease ptr(Session))
+          | stale()
+          | missing())
+end
+```
+
+Handles are copyable durable identity. Leases are temporary access granted by
+typed protocols. `owned T` is mandatory discharge authority carried through CFG:
+consume it, return/yield it, or transfer it to another `owned` parameter exactly
+once. `owned` does not grant access; use resolver regions for leases. `emit` is
+the region composition form that can carry owned continuation payloads.
+
+Rejected by design: `var owned T`, owned fields, owned aggregates,
+`owned ptr(T)`, `owned lease T`, passing `owned T` as plain `T`, and
+expression-style region calls whose continuation payload contains `owned`.
 
 ### Expression fragments
 
@@ -294,6 +330,10 @@ Explicit programming makes plain-text tooling powerful again.
 6. Every block path must terminate (jump/yield/return)
 7. No fallthrough in switch — every case is an independent branch
 8. Switch requires a default arm
+9. `owned T` must be discharged or transferred exactly once by typed CFG
+10. No owned aggregates, owned fields, `var owned T`, or `owned ptr(T)`
+11. Region calls cannot carry lease or owned continuation payloads; use `emit`
+12. Commas are for product-shaped lists; `|` is for semantic alternatives
 
 ## Key files
 

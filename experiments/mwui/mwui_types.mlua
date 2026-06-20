@@ -95,6 +95,8 @@ end
 -- Runtime identity.  Domain is the public resolver product, not necessarily
 -- the physical field that stores the target.  `NodeId` names browser DOM
 -- identity, so it stays a bare handle: the browser owns the actual node.
+-- Store-backed `Ref` handles are packed slot+generation values; packing is
+-- store-private and checked only by resolver regions.
 --------------------------------------------------------------------------------
 
 T.NodeId = handle : u32 invalid 0 end
@@ -290,10 +292,17 @@ T.Task = struct
     state: u8,            -- owner: task_poll
 end
 
+T.TaskSlot = struct
+    gen: u32,
+    live: bool32,
+    task: T.Task,
+end
+
 T.TaskStore = struct
-    data: ptr(T.Task),
+    slots: ptr(T.TaskSlot),
     n: index,
     cap: index,
+    free_head: u32,
 end
 
 T.Session = struct
@@ -308,6 +317,19 @@ T.Session = struct
     next_node: u32,
 end
 
+T.SessionSlot = struct
+    gen: u32,
+    live: bool32,
+    session: T.Session,
+end
+
+T.SessionStore = struct
+    slots: ptr(T.SessionSlot),
+    n: index,
+    cap: index,
+    free_head: u32,
+end
+
 T.EventLoop = struct
     fd: i32,
     timers: ptr(u8),
@@ -316,8 +338,7 @@ end
 T.App = struct
     listener: T.Listener,
     loop: T.EventLoop,
-    sessions: ptr(T.Session),
-    n_session: index,
+    sessions: T.SessionStore,
     root_kind: u16,
 end
 

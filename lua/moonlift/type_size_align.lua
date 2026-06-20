@@ -146,6 +146,9 @@ function M.Define(T)
         [Ty.TypeClassLease] = function(self, ty, env, target)
             return type_layout_result(self.base, env, target)
         end,
+        [Ty.TypeClassOwned] = function(self, ty, env, target)
+            return type_layout_result(self.base, env, target)
+        end,
         [Ty.TypeClassHandle] = function(self, ty, env, target)
             if pvm.classof(self.repr) == Ty.HandleReprScalar then
                 return scalar_layout(self.repr.scalar, target)

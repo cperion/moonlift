@@ -19,7 +19,7 @@ local ptr_instr = Ty.TPtr(instr_ty)
 local u16 = scalar(C.ScalarU16)
 local binding = B.Binding(C.Id("inst"), "inst", ptr_instr, B.BindingClassLocalValue)
 local env = B.Env("", { B.ValueEntry("inst", binding) }, {}, {})
-local ctx = Tr.TypeCheckEnv(env, scalar(C.ScalarI32), Tr.TypeYieldNone)
+local ctx = Tr.TypeCheckEnv(env, scalar(C.ScalarI32), Tr.TypeYieldNone, {})
 
 -- This shape occurs after a typed fragment body is copied into a caller and
 -- re-typechecked in an environment that does not carry the fragment's layout

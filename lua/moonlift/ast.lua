@@ -330,6 +330,14 @@ local function install(api, T)
         return Ty.TLease(as_type(base, "lease base type"), o)
     end
 
+    ---Owned obligation type.  The runtime representation is the wrapped type;
+    ---the wrapper is consumed by the typed CFG ownership checker.
+    ---@param base moonlift.ast.Type Owned resource handle/value type.
+    ---@return moonlift.ast.Type
+    function api.owned(base)
+        return Ty.TOwned(as_type(base, "owned base type"))
+    end
+
     local function handle_repr(repr)
         if repr == nil or repr == "u32" then return Ty.HandleReprScalar(C.ScalarU32) end
         local m = { i8=C.ScalarI8, i16=C.ScalarI16, i32=C.ScalarI32, i64=C.ScalarI64,

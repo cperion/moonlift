@@ -32,6 +32,7 @@ module MoonType {
          | TSlice(MoonType.Type elem) unique
          | TView(MoonType.Type elem) unique
          | TLease(MoonType.Type base, MoonType.LeaseOrigin origin) unique
+         | TOwned(MoonType.Type base) unique
          | TAccess(MoonType.TypeAccess access, MoonType.Type base) unique
          | THandle(MoonType.TypeRef ref, MoonType.HandleRepr repr) unique
          | TFunc(MoonType.Type* params, MoonType.Type result) unique
@@ -47,6 +48,7 @@ module MoonType {
          | TypeClassSlice(MoonType.Type elem) unique
          | TypeClassView(MoonType.Type elem) unique
          | TypeClassLease(MoonType.Type base, MoonType.LeaseOrigin origin) unique
+         | TypeClassOwned(MoonType.Type base) unique
          | TypeClassHandle(MoonType.HandleRepr repr) unique
          | TypeClassCallable(MoonType.Type* params, MoonType.Type result) unique
          | TypeClassClosure(MoonType.Type* params, MoonType.Type result) unique

@@ -28,7 +28,7 @@ ASDL.
 3.  [Files and execution surfaces](#3-files-and-execution-surfaces)
 4.  [Lexical rules](#4-lexical-rules)
 5.  [Type system](#5-type-system)
-6.  [Modules and items](#6-modules-and-items)
+6.  [Functions](#6-functions)
 7.  [Hosted declarations](#7-hosted-declarations)
 8.  [Statements](#8-statements)
 9.  [Expressions](#9-expressions)
@@ -37,7 +37,7 @@ ASDL.
 12. [Expression fragments](#12-expression-fragments)
 13. [Contracts](#13-contracts)
 14. [Lua splicing and antiquote](#14-lua-splicing-and-antiquote)
-15. [Quoting and table builder API reference](#15-lua-builder-api-reference)
+15. [Quoting and table builder API reference](#15-quoting-and-table-builder-api-reference)
 16. [Metaprogramming and composition guide](#16-metaprogramming-and-composition-guide)
 17. [View and host ABI semantics](#17-view-and-host-abi-semantics)
 18. [Vectorization and facts](#18-vectorization-and-facts)
@@ -171,10 +171,10 @@ let z: u8 = as(u8, wide_value)         -- truncation
 let p: f32 = as(f32, double_value)     -- f64 → f32 demotion
 ```
 
-`as(T, value)` is a semantic conversion request. It is not a generic call and
-not an explicit machine operation. The compiler chooses the concrete machine
-operation (extend, truncate, float conversion, or identity) from the source and
-target scalar types.
+`as(T, value)` is a semantic conversion request. It is not a generic call. The
+compiler chooses the concrete machine operation (extend, truncate, float
+conversion, pointer/function-pointer representation cast, or identity) from the
+source and target types.
 
 For representation-level code that must reinterpret bits without numeric
 conversion, use explicit same-width `bitcast(T, value)`:
@@ -184,8 +184,10 @@ let n: f64 = bitcast(f64, bits)
 let bits2: u64 = bitcast(u64, n)
 ```
 
-All combinations of supported scalar `as` conversions are defined. Invalid
-combinations (e.g. `as(ptr(u8), f64_value)`) are rejected at typecheck time.
+All combinations of supported scalar `as` conversions are defined. Pointer-like
+representation casts are explicit in the target type. Handle representation
+conversion is not done with `as`; use `repr(handle_value)` and
+`HandleType.from_repr(raw)` at trust boundaries.
 
 ### 2.3 Explicit ASDL meaning
 
@@ -408,7 +410,7 @@ func  struct  union  handle  extern  region  expr
 **Pointer and access modifiers:**
 ```text
 noalias  readonly  writeonly  noescape  invalidate  preserve
-lease    requires
+lease    owned     requires
 bounds   window_bounds  disjoint  same_len
 ```
 
@@ -421,6 +423,7 @@ block  entry  jump  yield  return  emit  call
 **Expression keywords:**
 ```text
 true  false  nil  and  or  not  as  len
+sizeof  alignof  null  is_null
 ```
 
 **Scalar type keywords (reserved in type position):**
@@ -432,7 +435,8 @@ f32  f64
 index
 ```
 
-`select(...)` is a recognized special call form, not a reserved word.
+`select(...)` and `bitcast(T, value)` are recognized special call forms, not
+reserved words.
 
 Intrinsic names such as `popcount`, `sqrt`, `trap`, and `assume` are ordinary
 callee names at the source parser level; intrinsic lowering is not part of the
@@ -601,7 +605,72 @@ compatibility with the local borrow checker, `noescape p: ptr(T)` is represented
 as `TAccess(TypeAccessNoEscape, TLease(TPtr(T)))`: the `noescape` source fact is
 preserved and the existing lease discipline remains active.
 
-### 5.5 Named types
+### 5.5 Owned types
+
+`owned T` is Moonlift's explicit resource-obligation type wrapper:
+
+```moonlift
+owned SessionRef
+owned FileRef
+owned TaskRef
+```
+
+ASDL:
+
+```text
+TOwned(Type base)
+```
+
+`owned T` means the current control path carries the authority to discharge or
+transfer one resource obligation. It is not a destructor, not a lifetime
+parameter, and not proof that no plain `T` values exist elsewhere. For handles,
+`SessionRef` remains copyable durable identity; `owned SessionRef` is the
+linear authority that must eventually be closed, retired, returned, yielded, or
+transferred to another `owned` parameter.
+
+Allowed transfers:
+
+| Position | Meaning |
+|---|---|
+| function argument to `owned T` parameter | callee consumes the obligation |
+| block / continuation argument to `owned T` parameter | next CFG state owns it |
+| `return` from a function returning `owned T` | caller receives the obligation |
+| `yield` from a region yielding `owned T` | region exit receives the obligation |
+| `let x: owned T = ...` | binds a new linear owner |
+
+Rejected uses:
+
+- dropping an owned value at `return`, `yield`, `trap`, or block end
+- using an owned binding after it has been moved
+- passing `owned T` to a plain `T` parameter
+- observing or copying an owned binding as ordinary data
+- `var owned T`
+- durable fields, statics, consts, arrays, or aggregate captures containing
+  `owned`
+- `owned lease T`, `lease owned T`, access-qualified owned pointers, and raw
+  owning pointer forms
+- expression-style region `call` when a continuation payload contains `owned`
+
+Non-consuming access to an owned resource is written as a protocol that returns
+the owner on every preserving continuation:
+
+```moonlift
+region borrow_owned_session(app: ptr(App), s: owned SessionRef;
+    borrowed(s: owned SessionRef, session: lease ptr(Session))
+  | missing(s: owned SessionRef))
+end
+```
+
+There is no implicit cleanup at scope exit. A close, retire, release, or cancel
+operation is an ordinary named function/region that accepts `owned T`; the typed
+CFG proves every path invokes such a protocol or transfers ownership onward.
+
+For `emit`, owned arguments move into the emitted region. If an emitted
+continuation preserves ownership, its payload must include the `owned` value and
+the filled target block/continuation must declare a matching `owned` parameter.
+Owned authority is never carried implicitly across the splice.
+
+### 5.6 Named types
 
 Named types refer to declared structs, tagged unions, or qualified type paths:
 
@@ -614,7 +683,7 @@ MoonCore.Scalar   -- qualified named type path
 Named types are resolved during typechecking against the module's type
 declarations and imports. Unresolved names produce type errors.
 
-### 5.6 Struct types
+### 5.7 Struct types
 
 Declared via `struct ... end` islands in `.mlua` files:
 
@@ -636,7 +705,7 @@ Fields are product members: they coexist, so fields are comma-separated just
 like function parameters. Fields are laid out in declaration order with natural
 alignment.
 
-### 5.7 Tagged union types
+### 5.8 Tagged union types
 
 ```moonlift
 union Result ok(i32) | err(i32) end
@@ -650,14 +719,46 @@ end
 
 Tagged unions carry an implicit discriminant tag followed by the variant
 payload. The tag is an integer starting from 0 in declaration order. Useful
-for explicit phase/result dispatch.
+for explicit phase/result dispatch and durable stored alternatives.
 
 Union variants are sum alternatives, so they are separated by `|`. A bare variant name
 means no payload. When a tagged union is used as a region result protocol
 (`region r(...): Scanner`), its variants become exits and named variant fields
 become continuation parameters. Protocol variants must use named fields.
 
-### 5.8 Array types
+Use tagged unions for alternatives that must be stored or passed as data. Use
+region continuation protocols for immediate control outcomes; they avoid boxing
+the choice into data and keep payload leases/owned obligations in control flow.
+
+Variant construction uses a qualified constructor expression:
+
+```moonlift
+let r: Result = Result.ok(42)
+let e: Result = Result.err(7)
+```
+
+For a variant with named fields, constructor arguments are positional in field
+declaration order. A bare variant takes no arguments.
+
+Variant switching uses dot-prefixed cases and optional payload bind names:
+
+```moonlift
+switch r do
+case .ok(value) then
+    return value
+case .err(code) then
+    return -code
+default then
+    return 0
+end
+```
+
+The default arm is still required. The payload bind names are local bindings
+inside that arm. The backend layout is a tag plus payload storage; the C backend
+exposes these as `__tag` and `__payload`, while the canonical source surface
+uses constructors and variant switch cases.
+
+### 5.9 Array types
 
 ```moonlift
 [T; N]       -- fixed-length array of T with N elements
@@ -666,6 +767,9 @@ become continuation parameters. Protocol variants must use named fields.
 Array types carry a compile-time constant length and an element type. They are
 value types — the array data is stored inline (not behind a pointer). Arrays are
 used with array literals and for struct fields that need inline storage.
+Array indexing uses the same `xs[i]` source form as pointer/view indexing. For
+an array value `[T; N]`, `xs[i]` has type `T`; when the array is addressable
+storage, the indexed element is an addressable place for assignment/address-of.
 
 In the type system, arrays are represented as `TArray(count, elem)`. The count
 can be a constant integer (`ArrayLenConst`) or a computed value (`ArrayLenExpr`).
@@ -675,7 +779,7 @@ runtime-sized descriptors (pointer + length + stride). Use arrays when the size
 is known at compile time and you want inline storage. Use views for
 runtime-sized or dynamically allocated sequences.
 
-### 5.9 Function and closure types (source syntax)
+### 5.10 Function and closure types (source syntax)
 
 In type position:
 
@@ -701,7 +805,15 @@ end
 
 The builder API uses `moon.func_type(params, result)` and `moon.closure_type(params, result)`.
 
-### 5.10 Source-level genericity
+Closure values are represented after closure conversion as a two-word
+descriptor `{ fn, ctx }`: a function pointer plus an environment pointer. The
+source-level closure expression is currently an ASDL/builder surface
+(`moon.closure(...)` / `ExprClosure`) rather than a dedicated object-language
+literal. Capturing closures may be passed or called after closure conversion;
+escaping captured environments are rejected unless the lowering path can prove a
+valid ownership model for the context.
+
+### 5.11 Source-level genericity
 
 There is none. Use Lua to generate specialized concrete types/functions/fragments.
 
@@ -768,6 +880,11 @@ modifier   ::= "noalias" | "readonly" | "writeonly"
 Parameter modifiers are both source contracts and explicit type facts. The parser
 wraps the parameter type in `TAccess(...)`; the compatibility contract path still
 feeds alias, vector safety, and local invalidation checks.
+When multiple modifiers are written, the ASDL keeps them as nested explicit
+facts in source order. Call compatibility strips/compares through access
+wrappers, so `readonly noalias ptr(T)` and `noalias readonly ptr(T)` describe
+the same callable data type plus the same two access facts even though the
+recorded source fact order remains available to later phases and diagnostics.
 
 | Modifier | Meaning |
 |---|---|
@@ -807,8 +924,8 @@ assigned — inferred from the assignment target:
 struct Pair left: i32, right: i32 end
 local Pair = struct left: i32, right: i32 end   -- same, name inferred
 
-union Result ok(i32) | err(string) | none end
-local Result = union ok(i32) | err(string) | none end  -- same, name inferred
+union Result ok(i32) | err(ptr(u8)) | none end
+local Result = union ok(i32) | err(ptr(u8)) | none end  -- same, name inferred
 
 handle ComponentRef : u32 invalid 0
     domain ComponentStore
@@ -1314,14 +1431,17 @@ expr ::= literal
 "hello\n"       -- C-style NUL-terminated ptr(u8) string
 true            -- bool literal
 false           -- bool literal
-nil             -- nil literal (typed as ptr(u8) null pointer in most contexts)
+nil             -- contextual nil literal; prefer null(ptr(T)) in new code
+null(ptr(T))    -- typed null pointer literal
 ```
 
 Numeric literals carry no inherent type. The type is determined by the
 expected type at the expression's position: a parameter typed `i32` gives an
 `i32` literal, a `let x: f64 = 42` produces `42.0`, etc. String literals have
 inherent type `ptr(u8)` and point at read-only static bytes with an added `\0`.
-When the expected type is ambiguous, use `as(T, literal)`.
+`nil` is accepted for legacy/contextual pointer-null sites, but exact source
+should use `null(ptr(T))`; `null(T)` is valid only when `T` is a pointer type.
+When a numeric literal's expected type is ambiguous, use `as(T, literal)`.
 
 ### 9.3 Name references
 
@@ -1412,9 +1532,8 @@ is the place type.
 as(target_type, expr)
 ```
 
-`as(T, value)` is the only source-level type conversion form. It is a semantic
-conversion request. The compiler chooses the concrete machine operation from
-the source and target scalar types:
+`as(T, value)` is the semantic source-level conversion form. The compiler
+chooses the concrete machine operation from the source and target types:
 
 | Source → Target | Machine operation |
 |---|---|
@@ -1426,11 +1545,15 @@ the source and target scalar types:
 | float → larger float | `fpromote` |
 | same-size int ↔ same-size int | `bitcast` (reinterpret bits) |
 | int ↔ float | numeric conversion (`as`) or explicit same-width reinterpret (`bitcast`) |
+| pointer ↔ pointer | pointer representation cast |
+| pointer ↔ function pointer | pointer representation cast |
 | same type | Identity (no-op) |
 
-All valid conversions between supported scalars are defined. Conversions
-between fundamentally incompatible types (e.g. `as(ptr(u8), f64_value)`) are
-rejected at typecheck time.
+All valid conversions between supported scalars are defined. Use
+`bitcast(T, value)` when the desired operation is explicitly same-width
+representation reinterpretation rather than semantic numeric conversion. Handle
+representation conversion is not done with `as`: use `repr(handle_value)` and
+`HandleType.from_repr(raw)` at explicit trust boundaries.
 
 Examples:
 
@@ -1893,6 +2016,8 @@ end
   Each continuation declares a name and typed parameters using the same
   protocol-variant style as named-field union variants. Continuation
   alternatives are separated by `|`. A bare continuation name means no payload.
+  Commas remain the product separator inside parameter and payload lists; `|`
+  is the semantic-or separator between alternatives.
 - **Body:** exactly one entry block and zero or more additional blocks. The
   body uses `jump cont_name(args...)` to exit through a continuation.
 
@@ -1939,8 +2064,9 @@ They differ only in the cost boundary and representation chosen by the frontend:
 
 A `call` must disappear during open/RNF expansion. Backend lowering sees only
 ordinary functions, calls, tagged-union constructors/switches, jumps, and traps.
-If a continuation payload contains a lease, the generated result type is
-rejected; use `emit` so temporary access stays in control flow.
+If a continuation payload contains a lease or `owned` value, the generated
+result type is rejected; use `emit` so temporary access and ownership
+obligations stay in control flow.
 
 ### 11.3 Continuation forwarding
 
@@ -2120,11 +2246,11 @@ Unlike the three-phase `.mlua` carrier model (parse → fill → expand), standa
 `moon.XXX[[]]` quotes evaluate `@{}` eagerly at quote time using an explicit
 values table (see §14.4).
 
-### 14.0 Type and fragment references without @{...}
+### 14.0 Type and fragment references without `@{...}`
 
-Same-file bare names (	exttt{Arena}, 	exttt{Pair}) in type position are resolved
+Same-file bare names (`Arena`, `Pair`) in type position are resolved
 by the typechecker from the module's own declarations.  They require no
-	exttt{@\{\}} syntax:
+`@{}` syntax:
 
 ```lua
 local Texture = handle Texture : u32 invalid 0 end
@@ -2134,11 +2260,11 @@ local load = func load(id: u32): ptr(Texture)   -- bare name, resolved at typech
 end
 ```
 
-Dotted names (	exttt{M.T.Arena}) in type position are cross-module Lua value
+Dotted names (`M.T.Arena`) in type position are cross-module Lua value
 references.  They create splice slots resolved through bindings, like any
-other 	exttt{@\{expr\}}.  They work in 	exttt{.mlua} files where the transform
+other `@{expr}`.  They work in `.mlua` files where the transform
 supplies bindings automatically, but in hosted code they require the binder
-path:\
+path:
 
 ```lua
 -- .mlua file (bindings automatic)
@@ -2150,8 +2276,7 @@ end
 moon.func { Arena = M.T.Arena } [[ func f(a: ptr(@{Arena})) ... end ]]
 ```
 
-Fragment references in 	exttt{emit} / 	exttt{call} positions always require
-	exttt{@\{expr\}}:\
+Fragment references in `emit` / `call` positions always require `@{expr}`:
 
 ```lua
 emit @{R.scan}(p, n; hit = found, miss = not_found)
@@ -2442,7 +2567,7 @@ as a **header** — declarations without implementations:
 -- types.lua — header module
 local moon = require("moonlift")
 return {
-    Vec3 = moon.struct[[ x: f32; y: f32; z: f32 end ]],
+    Vec3 = moon.struct[[ x: f32, y: f32, z: f32 end ]],
     load = moon.func[[ load(id: i32): ptr(Vec3) ]],
     mul  = moon.func{ T = moon.f32 }[[ mul(a: @{T}, b: @{T}): @{T} ]],
 }
@@ -2535,6 +2660,28 @@ expr:bxor(other)
 expr:shl(other)
 expr:ashr(other)
 expr:lshr(other)
+
+-- Comparisons (on expression values)
+expr:eq(other)          -- equality
+expr:ne(other)          -- inequality
+expr:lt(other)          -- less than
+expr:le(other)          -- less than or equal
+expr:gt(other)          -- greater than
+expr:ge(other)          -- greater than or equal
+
+-- Conversions and access (on expression values)
+expr:as(T)              -- semantic conversion to T
+expr:field("name", T?)  -- field access
+expr:index(i)           -- index access
+expr:select(a, b)       -- conditional value selection
+
+-- Other expression constructors
+moon.select(cond, a, b)        -- dataflow choice
+moon.load(addr, T)             -- load T from address
+moon.addr_of(place)            -- take address of place
+moon.len(view_expr)            -- view length
+moon.agg(ty, fields)           -- struct literal (aggregate)
+moon.array_expr(elem_ty, elems) -- array literal
 ```
 
 ### 15.8 Statements
@@ -2568,37 +2715,14 @@ moon.closure_type(params, result)
 ### 15.10 Structs and unions
 
 ```lua
-moon.struct[[Point x: i32; y: i32 end]]  -- returns StructValue
-moon.union[[ok(i32) | err(string) end]]  -- returns UnionValue
+moon.struct[[Point x: i32, y: i32 end]]  -- returns StructValue
+moon.union[[ok(i32) | err(ptr(u8)) end]]  -- returns UnionValue
 ```
 
 Structs and unions are already declarations (no body). They always return
 complete ASDL values, never closures.
 
--- Comparisons (on expression values)
-expr:eq(other)          -- equality
-expr:ne(other)          -- inequality
-expr:lt(other)          -- less than
-expr:le(other)          -- less than or equal
-expr:gt(other)          -- greater than
-expr:ge(other)          -- greater than or equal
-
--- Conversions and access (on expression values)
-expr:as(T)              -- semantic conversion to T
-expr:field("name", T?)  -- field access
-expr:index(i)           -- index access
-expr:select(a, b)       -- conditional value selection
-
--- Other expression constructors
-moon.select(cond, a, b)        -- dataflow choice
-moon.load(addr, T)             -- load T from address
-moon.addr_of(place)            -- take address of place
-moon.len(view_expr)            -- view length
-moon.agg(ty, fields)           -- struct literal (aggregate)
-moon.array_expr(elem_ty, elems) -- array literal
-```
-
-### 15.6 Modules and functions
+### 15.11 Modules and functions
 
 ```lua
 -- Module creation
@@ -2636,7 +2760,7 @@ Inside function bodies, parameter names are available as expression values
 through `fn:param("name")` and on builder-backed functions also via bare
 binding accessors where installed.
 
-### 15.7 Statement lists
+### 15.12 Statement lists
 
 `moon.stmts` constructs a `MoonTree.Stmt[]` value. Three forms:
 
@@ -2682,7 +2806,7 @@ local body = moon.stmts { cond = moon.expr [[x > 10]] } [[
 
 Use `moon.stmts { ... } [[ src ]]` instead of the retired `moon.stmts({...}, function(b) ... end)` pattern.
 
-### 15.8 Parameters, fields, variants, continuations, blocks, entry params
+### 15.13 Parameters, fields, variants, continuations, blocks, entry params
 
 Table builders for declaration-shaped things. Each returns an array of typed ASDL.
 
@@ -2727,7 +2851,7 @@ local entry_params = moon.entry_params {
 }
 ```
 
-### 15.9 Regions
+### 15.14 Regions
 
 Use `moon.region[[]]` to define a region fragment from Moonlift source:
 
@@ -2781,7 +2905,7 @@ end
 end
 ```
 
-### 15.10 Expression fragments
+### 15.15 Expression fragments
 
 ```lua
 -- Quote form
@@ -2792,7 +2916,7 @@ local inc = moon.expr_frag [[
 ]]
 ```
 
-### 15.11 Structs and unions
+### 15.16 Structs and unions
 
 ```lua
 -- Quote form
@@ -2804,7 +2928,7 @@ local Option = moon.union [[Option Some(i32) | None end]]
 -- return struct Point @{fields...} end
 ```
 
-### 15.12 Extern declarations
+### 15.17 Extern declarations
 
 ```lua
 local write = moon.extern [[
@@ -2812,7 +2936,7 @@ local write = moon.extern [[
 ]]
 ```
 
-### 15.13 Compilation and JIT
+### 15.18 Compilation and JIT
 
 ```lua
 -- Compile the module
@@ -2869,7 +2993,7 @@ Lua values. This enables a clean module boundary between headers and bodies:
 -- Products (structs, unions) and protocols (func, region signatures).
 local moon = require("moonlift")
 return {
-    Vec3 = moon.struct[[ x: f32; y: f32; z: f32 end ]],
+    Vec3 = moon.struct[[ x: f32, y: f32, z: f32 end ]],
     load = moon.func[[ load(id: i32): ptr(Vec3) ]],
     mul  = moon.func{ T = moon.i32 }[[ mul(a: @{T}, b: @{T}): @{T} ]],
 }
@@ -2940,7 +3064,7 @@ bodies, all checked against the same signatures at compile time:
 -- render.lua — product graph + protocol graph (the architecture)
 local moon = require("moonlift")
 return {
-    Mesh = moon.struct[[ verts: ptr(Vec3); count: i32 end ]],
+    Mesh = moon.struct[[ verts: ptr(Vec3), count: i32 end ]],
     render = moon.func[[ render(m: ptr(Mesh)) ]],
     load   = moon.func[[ load(path: ptr(u8)): ptr(Mesh) ]],
 }
@@ -3144,7 +3268,7 @@ for i = 1, 4 do
     body_src = body_src .. "let acc" .. i .. ": i32 = acc" .. (i - 1) .. " + " .. i .. "\n"
 end
 body_src = body_src .. "return acc4 + x\n"
-local body = moon.stmts([[@{body_src}]], { body_src = body_src })
+local body = moon.stmts { body_src = body_src } [[@{body_src}]]
 ```
 
 Or construct the params/body using the `.mlua` carrier model with `@{}` spread:
@@ -3256,7 +3380,7 @@ fragment:
 
 ```lua
 local function expect_byte(name, byte, code)
-    return moon.region [[
+    return moon.region { name = name, byte = byte, code = code } [[
         @{name}(p: ptr(u8), n: i32, pos: i32;
                 ok(next: i32) | err(pos: i32, code: i32))
         entry start()
@@ -3265,7 +3389,7 @@ local function expect_byte(name, byte, code)
             jump err(pos = pos, code = @{code})
         end
         end
-    ]], { name = name, byte = byte, code = code }
+    ]]
 end
 
 local expect_A = expect_byte("expect_A", 65, 10)
@@ -3584,7 +3708,7 @@ ERROR[E0301]: type mismatch
   = note: the initializer has type `ptr(u8)`, but the variable is declared as `i32`
 ```
 
-- Color is disabled by default; set `MOONLIGHT_COLOR=1` or `CLICOLOR_FORCE=1`
+- Color is disabled by default; set `MOONLIFT_COLOR=1` or `CLICOLOR_FORCE=1`
 - Notes use `= note:` prefix (in blue, if color enabled)
 - Suggestions use `= help:` prefix (in green)
 - Source context shows 3 lines before/after the error
@@ -3658,7 +3782,7 @@ Use the smallest model that fits:
 | Situation | Model |
 |---|---|
 | Same lifetime as parent | Field in the parent product |
-| Stable references, reuse, stale handles | `handle Ref domain *Store target Item`, `borrow_*` / `resolve_*` |
+| Stable references, reuse, stale handles | `handle Ref : u32 invalid 0 domain Store target Item`, `borrow_*` / `resolve_*` |
 | Temporary frame/block memory | `*Scratch` / arena, `reset_*` |
 | Host buffer for one call | Boundary region with views/pointers |
 | Version becomes visible | `publish_*` |
@@ -3706,6 +3830,13 @@ dereferenced or used for arithmetic, and it does not implicitly cast to its
 representation. Store implementations that must pack or unpack the scalar
 representation use the explicit trusted boundary operations `repr(handle_value)`
 and `Handle.from_repr(raw)`.
+
+For reusable store-backed references, the conventional representation is slot
+index plus generation. The store slot carries the generation and liveness bit;
+the resolver unpacks the handle, checks bounds, liveness, and generation, and
+routes old handles to `stale` instead of accidentally resolving them to a new
+occupant of the same slot. External or monotonic `Id` handles do not require a
+generation.
 
 `domain` and `target` are not dereference rules. They are ASDL facts on the
 handle declaration:

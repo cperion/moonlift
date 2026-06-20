@@ -48,6 +48,7 @@ local tables = {
         TNamed = supported("C_BACKEND_DESIGN.md §6", "Named aggregates/imported types lower through Sem.LayoutEnv-backed declarations."),
         THandle = supported("C_BACKEND_DESIGN.md §6", "Handles lower through their explicit representation type and layout-backed handle declarations."),
         TLease = supported("C_BACKEND_DESIGN.md §6", "Leases lower through their base type after ownership/borrow discipline is enforced before backend projection."),
+        TOwned = supported("OWNED_CFG_DESIGN.md", "Owned obligations lower through their base type after linear CFG discharge checking."),
         TAccess = supported("C_BACKEND_DESIGN.md §6", "Access-qualified types lower through their base type after frontend access facts are preserved in ASDL."),
         TSlot = phase_unreachable("C_BACKEND_DESIGN.md §6", "Open type slots are invalid after open expansion and typechecking."),
         TCType = supported("C_BACKEND_DESIGN.md §6", "Imported C type ids are preserved as exact CBackend named/imported types."),

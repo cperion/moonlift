@@ -832,6 +832,9 @@ memory declare the public resolver domain and the product granted by the
 successful resolver continuation.  `NodeId` is intentionally bare: it names a
 browser-owned DOM node, not a backend memory product.
 
+Store-backed `Ref` handles are packed slot+generation values.  The packing is a
+store-private trust boundary; public code only observes resolver continuations.
+
 ```moonlift
 handle NodeId : u32 invalid 0 end
 handle ComponentRef : u64 invalid 0
@@ -1029,10 +1032,17 @@ struct Task
     state: u8
 end
 
+struct TaskSlot
+    gen: u32
+    live: bool32
+    task: Task
+end
+
 struct TaskStore
-    data: ptr(Task)
+    slots: ptr(TaskSlot)
     n: index
     cap: index
+    free_head: u32
 end
 
 struct Session
@@ -1047,6 +1057,19 @@ struct Session
     next_node: u32
 end
 
+struct SessionSlot
+    gen: u32
+    live: bool32
+    session: Session
+end
+
+struct SessionStore
+    slots: ptr(SessionSlot)
+    n: index
+    cap: index
+    free_head: u32
+end
+
 struct EventLoop
     fd: i32
     timers: ptr(u8)
@@ -1055,8 +1078,7 @@ end
 struct App
     listener: Listener
     loop: EventLoop
-    sessions: ptr(Session)
-    n_session: index
+    sessions: SessionStore
     root_kind: u16
 end
 ```
@@ -1656,6 +1678,12 @@ Conn
 
 ComponentStore
   owns ComponentSlot[]
+
+SessionStore
+  owns SessionSlot[]
+
+TaskStore
+  owns TaskSlot[]
 
 Component
   owns generated context bytes indirectly through Session.arena

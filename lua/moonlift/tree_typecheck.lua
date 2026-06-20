@@ -75,11 +75,11 @@ function M.Define(T)
     end
 
     local function ctx_with_env(ctx, env)
-        return Tr.TypeCheckEnv(env, ctx.return_ty, ctx.yield)
+        return Tr.TypeCheckEnv(env, ctx.return_ty, ctx.yield, ctx.region_frags)
     end
 
     local function ctx_with_yield(ctx, yield)
-        return Tr.TypeCheckEnv(ctx.env, ctx.return_ty, yield)
+        return Tr.TypeCheckEnv(ctx.env, ctx.return_ty, yield, ctx.region_frags)
     end
 
     local function env_lookup_value(env, name)
@@ -119,6 +119,8 @@ function M.Define(T)
             return Ty.TView(canonical_type(env, ty.elem))
         elseif cls == Ty.TLease then
             return Ty.TLease(canonical_type(env, ty.base), ty.origin)
+        elseif cls == Ty.TOwned then
+            return Ty.TOwned(canonical_type(env, ty.base))
         elseif cls == Ty.TAccess then
             return Ty.TAccess(ty.access, canonical_type(env, ty.base))
         elseif cls == Ty.TFunc or cls == Ty.TClosure then
@@ -139,6 +141,7 @@ function M.Define(T)
     local function type_contains_lease(ty)
         local cls = pvm.classof(ty)
         if cls == Ty.TLease then return true end
+        if cls == Ty.TOwned then return type_contains_lease(ty.base) end
         if cls == Ty.TAccess then return type_contains_lease(ty.base) end
         if cls == Ty.TPtr or cls == Ty.TArray or cls == Ty.TSlice or cls == Ty.TView then return type_contains_lease(ty.elem) end
         if cls == Ty.TFunc or cls == Ty.TClosure then
@@ -146,6 +149,23 @@ function M.Define(T)
             for i = 1, #ty.params do if type_contains_lease(ty.params[i]) then return true end end
         end
         return false
+    end
+
+    local function type_contains_owned(ty)
+        local cls = pvm.classof(ty)
+        if cls == Ty.TOwned then return true end
+        if cls == Ty.TLease then return type_contains_owned(ty.base) end
+        if cls == Ty.TAccess then return type_contains_owned(ty.base) end
+        if cls == Ty.TPtr or cls == Ty.TArray or cls == Ty.TSlice or cls == Ty.TView then return type_contains_owned(ty.elem) end
+        if cls == Ty.TFunc or cls == Ty.TClosure then
+            if type_contains_owned(ty.result) then return true end
+            for i = 1, #ty.params do if type_contains_owned(ty.params[i]) then return true end end
+        end
+        return false
+    end
+
+    local function is_owned_type(ty)
+        return pvm.classof(ty) == Ty.TOwned
     end
 
     local function lease_access_base(ty)
@@ -156,6 +176,7 @@ function M.Define(T)
 
     local function arg_matches_param(expected, actual)
         if type_eq(expected, actual) then return true end
+        if is_owned_type(expected) or is_owned_type(actual) then return false end
         if pvm.classof(expected) == Ty.TAccess then return arg_matches_param(expected.base, actual) end
         if pvm.classof(actual) == Ty.TAccess then return arg_matches_param(expected, actual.base) end
         if pvm.classof(expected) == Ty.TLease and pvm.classof(actual) == Ty.TLease and type_eq(expected.base, actual.base) then return true end
@@ -336,8 +357,17 @@ function M.Define(T)
         elseif cls == Ty.TLease then
             check_type_policy(ty.base, issues, site)
             if pvm.classof(ty.base) ~= Ty.TPtr and pvm.classof(ty.base) ~= Ty.TView then issues[#issues + 1] = Tr.TypeIssueExpected((site or "type") .. " lease base", Ty.TPtr(Ty.TScalar(C.ScalarVoid)), ty.base) end
+            if type_contains_owned(ty.base) then issues[#issues + 1] = Tr.TypeIssueInvalidUnary("owned lease composition", ty) end
+        elseif cls == Ty.TOwned then
+            check_type_policy(ty.base, issues, site)
+            local bcls = pvm.classof(ty.base)
+            if bcls == Ty.TOwned or bcls == Ty.TLease or bcls == Ty.TAccess or bcls == Ty.TPtr or bcls == Ty.TView then
+                issues[#issues + 1] = Tr.TypeIssueInvalidUnary("owned invalid base", ty)
+            end
+            if type_contains_lease(ty.base) then issues[#issues + 1] = Tr.TypeIssueInvalidUnary("owned lease composition", ty) end
         elseif cls == Ty.TAccess then
             check_type_policy(ty.base, issues, site)
+            if type_contains_owned(ty.base) then issues[#issues + 1] = Tr.TypeIssueInvalidUnary("owned access composition", ty) end
         elseif cls == Ty.THandle then
             if pvm.classof(ty.repr) ~= Ty.HandleReprScalar then issues[#issues + 1] = Tr.TypeIssueExpected((site or "type") .. " handle repr", Ty.THandle(ty.ref, Ty.HandleReprScalar(C.ScalarU32)), ty) end
         elseif cls == Ty.TFunc or cls == Ty.TClosure then
@@ -356,6 +386,28 @@ function M.Define(T)
             return table.concat(parts, ".")
         end
         return nil
+    end
+
+    local function region_frag_name_text(frag)
+        if frag == nil then return nil end
+        local cls = pvm.classof(frag.name)
+        if cls == O.NameRefText then return frag.name.text end
+        return nil
+    end
+
+    local function lookup_region_frag_in_list(region_frags, ref)
+        if ref == nil then return nil end
+        local cls = pvm.classof(ref)
+        if cls ~= O.RegionFragRefName then return nil end
+        for i = 1, #(region_frags or {}) do
+            local frag = region_frags[i]
+            if region_frag_name_text(frag) == ref.name then return frag end
+        end
+        return nil
+    end
+
+    local function lookup_region_frag(ctx, ref)
+        return lookup_region_frag_in_list(ctx.region_frags, ref)
     end
 
     local function type_ref_leaf(ref)
@@ -995,6 +1047,7 @@ function M.Define(T)
                 if param_tys[i] ~= nil then
                     if not arg_matches_param(param_tys[i], arg.ty) then check_expected("call arg", param_tys[i], arg.ty, issues) end
                     if type_contains_lease(arg.ty) and not type_contains_lease(param_tys[i]) then issues[#issues + 1] = Tr.TypeIssueInvalidUnary("lease escape call", arg.ty) end
+                    if type_contains_owned(arg.ty) and not type_contains_owned(param_tys[i]) then issues[#issues + 1] = Tr.TypeIssueInvalidUnary("owned passed to non-owned parameter", arg.ty) end
                 end
             end
             local invalidated_lease = call_may_invalidate_while_lease_live(ctx, callee_r.expr, param_tys, typed_args)
@@ -1026,7 +1079,7 @@ function M.Define(T)
         end,
         [Tr.ExprArray] = function(self, ctx)
             local elems = {}; local issues = {}
-            for i = 1, #self.elems do local e = type_expr_expect(self.elems[i], ctx, self.elem_ty); elems[#elems + 1] = e.expr; append_all(issues, e.issues); check_expected("array elem", self.elem_ty, e.ty, issues) end
+            for i = 1, #self.elems do local e = type_expr_expect(self.elems[i], ctx, self.elem_ty); elems[#elems + 1] = e.expr; append_all(issues, e.issues); check_expected("array elem", self.elem_ty, e.ty, issues); if type_contains_owned(e.ty) then issues[#issues + 1] = Tr.TypeIssueInvalidUnary("owned captured in aggregate", e.ty) end end
             local ty = Ty.TArray(Ty.ArrayLenConst(#elems), self.elem_ty)
             return pvm.once(result_expr(Tr.ExprArray(Tr.ExprTyped(ty), self.elem_ty, elems), ty, issues))
         end,
@@ -1039,6 +1092,7 @@ function M.Define(T)
                     local ev = pvm.one(type_expr(fi.value, ctx))
                     append_all(issues, ev.issues)
                     if type_contains_lease(ev.ty) then issues[#issues + 1] = Tr.TypeIssueInvalidUnary("lease escape aggregate", ev.ty) end
+                    if type_contains_owned(ev.ty) then issues[#issues + 1] = Tr.TypeIssueInvalidUnary("owned captured in aggregate", ev.ty) end
                     field_exprs[j] = Tr.FieldInit(fi.name, ev.expr, fi.offset)
                 end
                 return pvm.once(result_expr(Tr.ExprAgg(Tr.ExprTyped(self.ty), self.ty, field_exprs), self.ty, issues))
@@ -1076,6 +1130,7 @@ function M.Define(T)
                         append_all(issues, ev.issues)
                         check_expected("struct field '" .. fi.name .. "'", decl.ty, ev.ty, issues)
                         if type_contains_lease(ev.ty) then issues[#issues + 1] = Tr.TypeIssueInvalidUnary("lease escape aggregate", ev.ty) end
+                        if type_contains_owned(ev.ty) then issues[#issues + 1] = Tr.TypeIssueInvalidUnary("owned captured in aggregate", ev.ty) end
                         field_exprs[j] = Tr.FieldInit(fi.name, ev.expr, decl.offset)
                     end
                 end
@@ -1096,6 +1151,7 @@ function M.Define(T)
                 local ev = type_expr_expect(self.elems[i], ctx, elem_ty)
                 append_all(issues, ev.issues)
                 check_expected("array elem", elem_ty, ev.ty, issues)
+                if type_contains_owned(ev.ty) then issues[#issues + 1] = Tr.TypeIssueInvalidUnary("owned captured in aggregate", ev.ty) end
                 checked[i] = ev.expr
             end
             local ty = Ty.TArray(Ty.ArrayLenConst(#self.elems), elem_ty)
@@ -1309,7 +1365,7 @@ function M.Define(T)
             local env = env_add_value(ctx.env, B.ValueEntry(binding.name, binding))
             return pvm.once(Tr.TypeStmtResult(ctx_with_env(ctx, env), { Tr.StmtVar(Tr.StmtSurface, binding, init.expr) }, issues))
         end,
-        [Tr.StmtSet] = function(self, ctx) local place = pvm.one(type_place(self.place, ctx)); local value = type_expr_expect(self.value, ctx, place.ty); local issues = {}; append_all(issues, place.issues); append_all(issues, value.issues); check_expected("set", place.ty, value.ty, issues); if type_contains_lease(value.ty) then issues[#issues + 1] = Tr.TypeIssueInvalidUnary("lease escape store", value.ty) end; return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtSet(Tr.StmtSurface, place.place, value.expr) }, issues)) end,
+        [Tr.StmtSet] = function(self, ctx) local place = pvm.one(type_place(self.place, ctx)); local value = type_expr_expect(self.value, ctx, place.ty); local issues = {}; append_all(issues, place.issues); append_all(issues, value.issues); check_expected("set", place.ty, value.ty, issues); if type_contains_lease(value.ty) then issues[#issues + 1] = Tr.TypeIssueInvalidUnary("lease escape store", value.ty) end; if type_contains_owned(value.ty) then issues[#issues + 1] = Tr.TypeIssueInvalidUnary("owned stored in durable field", value.ty) end; return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtSet(Tr.StmtSurface, place.place, value.expr) }, issues)) end,
         [Tr.StmtAtomicStore] = function(self, ctx)
             local addr = type_expr_expect(self.addr, ctx, Ty.TPtr(self.ty)); local value = type_expr_expect(self.value, ctx, self.ty); local issues = {}; append_all(issues, addr.issues); append_all(issues, value.issues)
             check_expected("atomic_store addr", Ty.TPtr(self.ty), addr.ty, issues); check_expected("atomic_store value", self.ty, value.ty, issues); check_atomic_value_type("atomic_store", self.ty, issues)
@@ -1359,7 +1415,31 @@ function M.Define(T)
             return pvm.once(Tr.TypeStmtResult(ctx, { Tr.StmtTrap(Tr.StmtSurface) }, {}))
         end,
         [Tr.StmtUseRegionSlot] = function(self, ctx) return pvm.once(Tr.TypeStmtResult(ctx, { pvm.with(self, { h = Tr.StmtSurface }) }, {})) end,
-        [Tr.StmtUseRegionFrag] = function(self, ctx) return pvm.once(Tr.TypeStmtResult(ctx, { pvm.with(self, { h = Tr.StmtSurface }) }, {})) end,
+        [Tr.StmtUseRegionFrag] = function(self, ctx)
+            local frag = lookup_region_frag(ctx, self.frag)
+            local issues, args = {}, {}
+            for i = 1, #(self.args or {}) do
+                local p = frag and frag.params and frag.params[i] or nil
+                local expected = p and p.ty or nil
+                local value = expected and type_expr_expect(self.args[i], ctx, expected) or pvm.one(type_expr(self.args[i], ctx))
+                args[#args + 1] = value.expr
+                append_all(issues, value.issues)
+                if expected ~= nil and not arg_matches_param(expected, value.ty) then check_expected("emit arg", expected, value.ty, issues) end
+                if expected ~= nil and type_contains_lease(value.ty) and not type_contains_lease(expected) then issues[#issues + 1] = Tr.TypeIssueInvalidUnary("lease escape call", value.ty) end
+                if expected ~= nil and type_contains_owned(value.ty) and not type_contains_owned(expected) then issues[#issues + 1] = Tr.TypeIssueInvalidUnary("owned passed to non-owned parameter", value.ty) end
+            end
+            if frag ~= nil and self.mode == Tr.RegionUseCall then
+                for i = 1, #(frag.conts or {}) do
+                    local cont = frag.conts[i]
+                    for j = 1, #(cont.params or {}) do
+                        local ty = cont.params[j].ty
+                        if type_contains_lease(ty) then issues[#issues + 1] = Tr.TypeIssueInvalidUnary("region call lease payload", ty) end
+                        if type_contains_owned(ty) then issues[#issues + 1] = Tr.TypeIssueInvalidUnary("owned region call payload", ty) end
+                    end
+                end
+            end
+            return pvm.once(Tr.TypeStmtResult(ctx, { pvm.with(self, { h = Tr.StmtSurface, args = args }) }, issues))
+        end,
     }, { args_cache = "last" })
 
     type_stmt_body = function(stmts, ctx)
@@ -1375,20 +1455,370 @@ function M.Define(T)
         return Tr.TypeStmtResult(current, out, issues)
     end
 
+    local function owned_issue(issues, op, ty)
+        issues[#issues + 1] = Tr.TypeIssueInvalidUnary(op, ty or void_ty())
+    end
+
+    local function binding_key(binding)
+        return binding and binding.id and (binding.id.text or binding.id.name or tostring(binding.id)) or nil
+    end
+
+    local function expr_ty(expr)
+        return expr and typed_expr_header_ty(expr.h) or void_ty()
+    end
+
+    local function place_ty(place)
+        return place and typed_place_header_ty(place.h) or void_ty()
+    end
+
+    local function state_new(bindings, region_frags)
+        local state = { live = {}, reachable = true, region_frags = region_frags or {} }
+        for i = 1, #(bindings or {}) do
+            local b = bindings[i].binding or bindings[i]
+            if is_owned_type(b.ty) then
+                local key = binding_key(b)
+                if key then state.live[key] = b end
+            end
+        end
+        return state
+    end
+
+    local function state_clone(state)
+        local live = {}
+        for k, v in pairs(state.live or {}) do live[k] = v end
+        return { live = live, reachable = state.reachable, region_frags = state.region_frags }
+    end
+
+    local function state_report_live(state, issues, op)
+        for _, b in pairs(state.live or {}) do owned_issue(issues, op, b.ty) end
+    end
+
+    local function state_same_live(a, b)
+        for k, _ in pairs(a.live or {}) do if not (b.live or {})[k] then return false end end
+        for k, _ in pairs(b.live or {}) do if not (a.live or {})[k] then return false end end
+        return true
+    end
+
+    local check_owned_expr
+    local check_owned_stmt_body
+
+    local function expr_binding(expr)
+        if not expr or pvm.classof(expr) ~= Tr.ExprRef then return nil end
+        if pvm.classof(expr.ref) == B.ValueRefBinding then return expr.ref.binding end
+        return nil
+    end
+
+    local function consume_binding(state, binding, issues)
+        local key = binding_key(binding)
+        if not key then return end
+        if state.live[key] == nil then owned_issue(issues, "owned use after move", binding.ty)
+        else state.live[key] = nil end
+    end
+
+    local function check_owned_exprs(exprs, state, issues, mode)
+        for i = 1, #(exprs or {}) do check_owned_expr(exprs[i], state, issues, mode or "observe") end
+    end
+
+    local function callable_param_tys(callee)
+        local ty = expr_ty(callee)
+        local cls = pvm.classof(ty)
+        if cls == Ty.TFunc or cls == Ty.TClosure then return ty.params or {} end
+        return {}
+    end
+
+    check_owned_expr = function(expr, state, issues, mode)
+        if not state.reachable or expr == nil then return end
+        mode = mode or "observe"
+        local cls = pvm.classof(expr)
+        local ty = expr_ty(expr)
+        if cls == Tr.ExprRef then
+            local binding = expr_binding(expr)
+            if binding and is_owned_type(binding.ty) then
+                if mode == "consume" then consume_binding(state, binding, issues)
+                else owned_issue(issues, "owned observed without transfer", binding.ty) end
+            end
+            return
+        elseif cls == Tr.ExprCall then
+            check_owned_expr(expr.callee, state, issues, "observe")
+            local params = callable_param_tys(expr.callee)
+            for i = 1, #(expr.args or {}) do
+                local pty = params[i]
+                if pty ~= nil and is_owned_type(pty) then
+                    check_owned_expr(expr.args[i], state, issues, "consume")
+                else
+                    if type_contains_owned(expr_ty(expr.args[i])) then owned_issue(issues, "owned passed to non-owned parameter", expr_ty(expr.args[i])) end
+                    check_owned_expr(expr.args[i], state, issues, "observe")
+                end
+            end
+            if is_owned_type(ty) and mode ~= "consume" then owned_issue(issues, "owned dropped", ty) end
+            return
+        elseif cls == Tr.ExprIf or cls == Tr.ExprSelect then
+            check_owned_expr(expr.cond, state, issues, "observe")
+            local a, b = state_clone(state), state_clone(state)
+            check_owned_expr(expr.then_expr, a, issues, mode)
+            check_owned_expr(expr.else_expr, b, issues, mode)
+            if a.reachable and b.reachable and not state_same_live(a, b) then owned_issue(issues, "owned branch mismatch", ty) end
+            if a.reachable and not b.reachable then state.live = a.live
+            elseif b.reachable and not a.reachable then state.live = b.live
+            elseif a.reachable and b.reachable then state.live = a.live
+            else state.reachable = false; state.live = {} end
+            return
+        elseif cls == Tr.ExprBlock then
+            local s = check_owned_stmt_body(expr.stmts or {}, state, issues, nil, nil)
+            check_owned_expr(expr.result, s, issues, mode)
+            return
+        elseif cls == Tr.ExprAgg or cls == Tr.ExprArray or cls == Tr.ExprCtor then
+            if type_contains_owned(ty) then owned_issue(issues, "owned captured in aggregate", ty) end
+            if cls == Tr.ExprAgg then
+                for i = 1, #(expr.fields or {}) do
+                    if type_contains_owned(expr_ty(expr.fields[i].value)) then owned_issue(issues, "owned captured in aggregate", expr_ty(expr.fields[i].value)) end
+                    check_owned_expr(expr.fields[i].value, state, issues, "observe")
+                end
+            else
+                check_owned_exprs(expr.elems or expr.args, state, issues, "observe")
+            end
+            return
+        elseif cls == Tr.ExprControl then
+            for i = 1, #(expr.region.entry.params or {}) do
+                local p = expr.region.entry.params[i]
+                if is_owned_type(p.ty) then check_owned_expr(p.init, state, issues, "consume")
+                else check_owned_expr(p.init, state, issues, "observe") end
+            end
+            if is_owned_type(ty) and mode ~= "consume" then owned_issue(issues, "owned dropped", ty) end
+            return
+        elseif cls == Tr.ExprDot or cls == Tr.ExprField then check_owned_expr(expr.base, state, issues, "observe")
+        elseif cls == Tr.ExprUnary or cls == Tr.ExprCast or cls == Tr.ExprMachineCast or cls == Tr.ExprDeref or cls == Tr.ExprLen or cls == Tr.ExprIsNull then check_owned_expr(expr.value, state, issues, "observe")
+        elseif cls == Tr.ExprBinary or cls == Tr.ExprCompare or cls == Tr.ExprLogic then check_owned_expr(expr.lhs, state, issues, "observe"); check_owned_expr(expr.rhs, state, issues, "observe")
+        elseif cls == Tr.ExprIntrinsic then check_owned_exprs(expr.args, state, issues, "observe")
+        elseif cls == Tr.ExprIndex then check_owned_expr(expr.index, state, issues, "observe")
+        elseif cls == Tr.ExprView then
+            local v = expr.view
+            if v then check_owned_expr(v.data, state, issues, "observe"); check_owned_expr(v.len, state, issues, "observe"); check_owned_expr(v.stride, state, issues, "observe") end
+        elseif cls == Tr.ExprLoad or cls == Tr.ExprAtomicLoad then check_owned_expr(expr.addr, state, issues, "observe")
+        elseif cls == Tr.ExprAtomicRmw then check_owned_expr(expr.addr, state, issues, "observe"); check_owned_expr(expr.value, state, issues, "observe")
+        elseif cls == Tr.ExprAtomicCas then check_owned_expr(expr.addr, state, issues, "observe"); check_owned_expr(expr.expected, state, issues, "observe"); check_owned_expr(expr.replacement, state, issues, "observe")
+        elseif cls == Tr.ExprUseExprFrag then check_owned_exprs(expr.args, state, issues, "observe")
+        end
+        if is_owned_type(ty) and mode ~= "consume" then owned_issue(issues, "owned dropped", ty) end
+    end
+
+    local function target_params(params)
+        local by_name = {}
+        for i = 1, #(params or {}) do by_name[params[i].name] = params[i].ty end
+        return by_name
+    end
+
+    local function check_jump_args(args, target, state, issues)
+        for i = 1, #(args or {}) do
+            local arg = args[i]
+            local pty = target and target[arg.name]
+            if pty ~= nil and is_owned_type(pty) then
+                check_owned_expr(arg.value, state, issues, "consume")
+            else
+                if type_contains_owned(expr_ty(arg.value)) then owned_issue(issues, "owned passed to non-owned parameter", expr_ty(arg.value)) end
+                check_owned_expr(arg.value, state, issues, "observe")
+            end
+        end
+        state_report_live(state, issues, "owned dropped")
+        state.live = {}
+        state.reachable = false
+    end
+
+    local function merge_branch_states(base, branches, issues, ty)
+        local merged, any = nil, false
+        for i = 1, #branches do
+            local s = branches[i]
+            if s.reachable then
+                if merged == nil then merged = s
+                elseif not state_same_live(merged, s) then owned_issue(issues, "owned branch mismatch", ty or void_ty()) end
+                any = true
+            end
+        end
+        if any and merged then base.live = merged.live; base.reachable = true else base.live = {}; base.reachable = false end
+    end
+
+    local function variant_bindings(binds)
+        local out = {}
+        for i = 1, #(binds or {}) do out[#out + 1] = B.Binding(C.Id("variant:" .. tostring(binds[i].name)), binds[i].name, binds[i].ty, B.BindingClassLocalValue) end
+        return out
+    end
+
+    local function cont_fill_target(stmt, name)
+        for i = 1, #(stmt.cont_fills or {}) do
+            if stmt.cont_fills[i].name == name then return stmt.cont_fills[i].target end
+        end
+        return nil
+    end
+
+    local function target_param_map(target, block_targets)
+        if target == nil then return nil end
+        local cls = pvm.classof(target)
+        if cls == O.ContTargetLabel then return block_targets and block_targets[target.label.name] end
+        if cls == O.ContTargetSlot then return target_params(target.slot.params) end
+        return nil
+    end
+
+    local function check_emit_owned_continuations(stmt, frag, block_targets, issues)
+        for i = 1, #(frag.conts or {}) do
+            local cont = frag.conts[i]
+            local target = cont_fill_target(stmt, cont.pretty_name)
+            local target_params_by_name = target_param_map(target, block_targets)
+            for j = 1, #(cont.params or {}) do
+                local param = cont.params[j]
+                if is_owned_type(param.ty) then
+                    local target_ty = target_params_by_name and target_params_by_name[param.name] or nil
+                    if target_ty == nil or not type_eq(target_ty, param.ty) then
+                        owned_issue(issues, "owned emit target mismatch", param.ty)
+                    end
+                end
+            end
+        end
+    end
+
+    local function check_owned_stmt(stmt, state, issues, block_targets, cont_targets)
+        if not state.reachable then return state end
+        local cls = pvm.classof(stmt)
+        if cls == Tr.StmtLet then
+            if is_owned_type(stmt.binding.ty) then
+                check_owned_expr(stmt.init, state, issues, "consume")
+                state.live[binding_key(stmt.binding)] = stmt.binding
+            else
+                if type_contains_owned(expr_ty(stmt.init)) then owned_issue(issues, "owned captured in aggregate", expr_ty(stmt.init)) end
+                check_owned_expr(stmt.init, state, issues, "observe")
+            end
+        elseif cls == Tr.StmtVar then
+            if type_contains_owned(stmt.binding.ty) then owned_issue(issues, "owned var cell unsupported", stmt.binding.ty) end
+            check_owned_expr(stmt.init, state, issues, "observe")
+        elseif cls == Tr.StmtSet then
+            if type_contains_owned(place_ty(stmt.place)) or type_contains_owned(expr_ty(stmt.value)) then owned_issue(issues, "owned stored in durable field", expr_ty(stmt.value)) end
+            check_owned_expr(stmt.value, state, issues, "observe")
+        elseif cls == Tr.StmtAtomicStore then
+            check_owned_expr(stmt.addr, state, issues, "observe"); check_owned_expr(stmt.value, state, issues, "observe")
+        elseif cls == Tr.StmtExpr then
+            check_owned_expr(stmt.expr, state, issues, "observe")
+        elseif cls == Tr.StmtAssert then
+            check_owned_expr(stmt.cond, state, issues, "observe")
+        elseif cls == Tr.StmtIf then
+            check_owned_expr(stmt.cond, state, issues, "observe")
+            local a = check_owned_stmt_body(stmt.then_body or {}, state_clone(state), issues, block_targets, cont_targets)
+            local b = check_owned_stmt_body(stmt.else_body or {}, state_clone(state), issues, block_targets, cont_targets)
+            merge_branch_states(state, { a, b }, issues, void_ty())
+        elseif cls == Tr.StmtSwitch then
+            check_owned_expr(stmt.value, state, issues, "observe")
+            local branches = {}
+            for i = 1, #(stmt.arms or {}) do branches[#branches + 1] = check_owned_stmt_body(stmt.arms[i].body or {}, state_clone(state), issues, block_targets, cont_targets) end
+            for i = 1, #(stmt.variant_arms or {}) do
+                local s = state_clone(state)
+                for _, b in ipairs(variant_bindings(stmt.variant_arms[i].binds)) do if is_owned_type(b.ty) then s.live[binding_key(b)] = b end end
+                branches[#branches + 1] = check_owned_stmt_body(stmt.variant_arms[i].body or {}, s, issues, block_targets, cont_targets)
+            end
+            branches[#branches + 1] = check_owned_stmt_body(stmt.default_body or {}, state_clone(state), issues, block_targets, cont_targets)
+            merge_branch_states(state, branches, issues, void_ty())
+        elseif cls == Tr.StmtJump then
+            check_jump_args(stmt.args, block_targets and block_targets[stmt.target.name], state, issues)
+        elseif cls == Tr.StmtJumpCont then
+            check_jump_args(stmt.args, target_params(stmt.slot.params), state, issues)
+        elseif cls == Tr.StmtYieldVoid or cls == Tr.StmtReturnVoid or cls == Tr.StmtTrap then
+            state_report_live(state, issues, "owned dropped")
+            state.live = {}
+            state.reachable = false
+        elseif cls == Tr.StmtYieldValue or cls == Tr.StmtReturnValue then
+            if is_owned_type(expr_ty(stmt.value)) then check_owned_expr(stmt.value, state, issues, "consume") else check_owned_expr(stmt.value, state, issues, "observe") end
+            state_report_live(state, issues, "owned dropped")
+            state.live = {}
+            state.reachable = false
+        elseif cls == Tr.StmtControl then
+            for i = 1, #(stmt.region.entry.params or {}) do
+                local p = stmt.region.entry.params[i]
+                if is_owned_type(p.ty) then check_owned_expr(p.init, state, issues, "consume")
+                else check_owned_expr(p.init, state, issues, "observe") end
+            end
+            -- Nested control ownership is checked on the typed region.
+        elseif cls == Tr.StmtUseRegionFrag then
+            local frag = lookup_region_frag_in_list(state.region_frags, stmt.frag)
+            for i = 1, #(stmt.args or {}) do
+                local p = frag and frag.params and frag.params[i] or nil
+                if p ~= nil and is_owned_type(p.ty) then
+                    check_owned_expr(stmt.args[i], state, issues, "consume")
+                else
+                    if type_contains_owned(expr_ty(stmt.args[i])) then owned_issue(issues, "owned region call payload", expr_ty(stmt.args[i])) end
+                    check_owned_expr(stmt.args[i], state, issues, "observe")
+                end
+            end
+            if frag ~= nil then
+                if stmt.mode == Tr.RegionUseCall then
+                    for i = 1, #(frag.conts or {}) do
+                        for j = 1, #(frag.conts[i].params or {}) do
+                            if type_contains_owned(frag.conts[i].params[j].ty) then owned_issue(issues, "owned region call payload", frag.conts[i].params[j].ty) end
+                        end
+                    end
+                else
+                    check_emit_owned_continuations(stmt, frag, block_targets, issues)
+                end
+            end
+            state_report_live(state, issues, "owned dropped")
+            state.live = {}
+            state.reachable = false
+        end
+        return state
+    end
+
+    check_owned_stmt_body = function(stmts, state, issues, block_targets, cont_targets)
+        for i = 1, #(stmts or {}) do check_owned_stmt(stmts[i], state, issues, block_targets, cont_targets) end
+        return state
+    end
+
+    local function check_owned_function(func_name, params, body, issues, region_frags)
+        local bindings = {}
+        for i = 1, #(params or {}) do bindings[#bindings + 1] = B.Binding(C.Id("arg:" .. tostring(func_name) .. ":" .. tostring(params[i].name)), params[i].name, params[i].ty, B.BindingClassArg(i - 1)) end
+        local state = check_owned_stmt_body(body or {}, state_new(bindings, region_frags), issues, nil, nil)
+        if state.reachable then state_report_live(state, issues, "owned dropped") end
+    end
+
+    local function block_param_target(params)
+        local map = {}
+        for i = 1, #(params or {}) do map[params[i].name] = params[i].ty end
+        return map
+    end
+
+    local function check_owned_control_region(region, issues, region_frags, entry_extra_bindings)
+        local block_targets = {}
+        block_targets[region.entry.label.name] = block_param_target(region.entry.params)
+        for i = 1, #(region.blocks or {}) do block_targets[region.blocks[i].label.name] = block_param_target(region.blocks[i].params) end
+        local function check_block(block, is_entry)
+            local bindings = block_param_bindings(region.region_id, block.label, block.params, is_entry)
+            if is_entry then append_all(bindings, entry_extra_bindings or {}) end
+            local state = check_owned_stmt_body(block.body or {}, state_new(bindings, region_frags), issues, block_targets, nil)
+            if state.reachable then state_report_live(state, issues, "owned dropped") end
+        end
+        check_block(region.entry, true)
+        for i = 1, #(region.blocks or {}) do check_block(region.blocks[i], false) end
+    end
+
     local function type_entry_block(region_id, block, ctx, yield_mode)
         local entry_params = {}
         local issues = {}
-        for i = 1, #block.params do local init = type_expr_expect(block.params[i].init, ctx, block.params[i].ty); entry_params[#entry_params + 1] = pvm.with(block.params[i], { init = init.expr }); append_all(issues, init.issues); check_expected("block param " .. block.params[i].name, block.params[i].ty, init.ty, issues) end
-        local block_env = env_with_block_params(ctx.env, region_id, block.label, block.params, true)
+        local params = {}
+        for i = 1, #block.params do
+            local p = pvm.with(block.params[i], { ty = canonical_type(ctx.env, block.params[i].ty) })
+            local init = type_expr_expect(block.params[i].init, ctx, p.ty)
+            params[i] = pvm.with(p, { init = init.expr })
+            append_all(issues, init.issues)
+            if not arg_matches_param(p.ty, init.ty) then check_expected("block param " .. block.params[i].name, p.ty, init.ty, issues) end
+        end
+        entry_params = params
+        local block_env = env_with_block_params(ctx.env, region_id, block.label, entry_params, true)
         local body = type_stmt_body(block.body, ctx_with_yield(ctx_with_env(ctx, block_env), yield_mode))
         append_all(issues, body.issues)
         return Tr.EntryControlBlock(block.label, entry_params, body.stmts), issues
     end
 
     local function type_control_block(region_id, block, ctx, yield_mode)
-        local block_env = env_with_block_params(ctx.env, region_id, block.label, block.params, false)
+        local params = {}
+        for i = 1, #block.params do params[i] = pvm.with(block.params[i], { ty = canonical_type(ctx.env, block.params[i].ty) }) end
+        local block_env = env_with_block_params(ctx.env, region_id, block.label, params, false)
         local body = type_stmt_body(block.body, ctx_with_yield(ctx_with_env(ctx, block_env), yield_mode))
-        return Tr.ControlBlock(block.label, block.params, body.stmts), body.issues
+        return Tr.ControlBlock(block.label, params, body.stmts), body.issues
     end
 
     local function validate_control(region)
@@ -1398,12 +1828,38 @@ function M.Define(T)
         return issues
     end
 
+    local function body_has_region_use(stmts)
+        for i = 1, #(stmts or {}) do
+            local stmt = stmts[i]
+            local cls = pvm.classof(stmt)
+            if cls == Tr.StmtUseRegionFrag then return true end
+            if cls == Tr.StmtIf and (body_has_region_use(stmt.then_body) or body_has_region_use(stmt.else_body)) then return true end
+            if cls == Tr.StmtSwitch then
+                for j = 1, #(stmt.arms or {}) do if body_has_region_use(stmt.arms[j].body) then return true end end
+                for j = 1, #(stmt.variant_arms or {}) do if body_has_region_use(stmt.variant_arms[j].body) then return true end end
+                if body_has_region_use(stmt.default_body) then return true end
+            end
+            if cls == Tr.StmtControl then
+                if body_has_region_use(stmt.region.entry.body) then return true end
+                for j = 1, #(stmt.region.blocks or {}) do if body_has_region_use(stmt.region.blocks[j].body) then return true end end
+            end
+        end
+        return false
+    end
+
+    local function region_has_region_use(region)
+        if body_has_region_use(region.entry.body) then return true end
+        for i = 1, #(region.blocks or {}) do if body_has_region_use(region.blocks[i].body) then return true end end
+        return false
+    end
+
     type_control_stmt_region = pvm.phase("moonlift_tree_typecheck_control_stmt_region", {
         [Tr.ControlStmtRegion] = function(self, ctx)
             local entry, issues = type_entry_block(self.region_id, self.entry, ctx, Tr.TypeYieldVoid)
             local blocks = {}
             for i = 1, #self.blocks do local b, bi = type_control_block(self.region_id, self.blocks[i], ctx, Tr.TypeYieldVoid); blocks[#blocks + 1] = b; append_all(issues, bi) end
-            local region = Tr.ControlStmtRegion(self.region_id, entry, blocks); append_all(issues, validate_control(region))
+            local region = Tr.ControlStmtRegion(self.region_id, entry, blocks); if not region_has_region_use(region) then append_all(issues, validate_control(region)) end
+            check_owned_control_region(region, issues, ctx.region_frags)
             return pvm.once(Tr.TypeControlStmtRegionResult(region, issues))
         end,
     }, { args_cache = "last" })
@@ -1414,7 +1870,8 @@ function M.Define(T)
             local entry, issues = type_entry_block(self.region_id, self.entry, ctx, Tr.TypeYieldValue(result_ty))
             local blocks = {}
             for i = 1, #self.blocks do local b, bi = type_control_block(self.region_id, self.blocks[i], ctx, Tr.TypeYieldValue(result_ty)); blocks[#blocks + 1] = b; append_all(issues, bi) end
-            local region = Tr.ControlExprRegion(self.region_id, result_ty, entry, blocks); append_all(issues, validate_control(region))
+            local region = Tr.ControlExprRegion(self.region_id, result_ty, entry, blocks); if not region_has_region_use(region) then append_all(issues, validate_control(region)) end
+            check_owned_control_region(region, issues, ctx.region_frags)
             return pvm.once(Tr.TypeControlExprRegionResult(region, issues))
         end,
     }, { args_cache = "last" })
@@ -1487,7 +1944,7 @@ function M.Define(T)
     end
 
     local function check_region_frag_signature(frag, module_env, issues)
-        local ctx = Tr.TypeCheckEnv(module_env, Ty.TScalar(C.ScalarVoid), Tr.TypeYieldNone)
+        local ctx = Tr.TypeCheckEnv(module_env, Ty.TScalar(C.ScalarVoid), Tr.TypeYieldNone, {})
         for i = 1, #(frag.params or {}) do
             check_type_policy(frag.params[i].ty, issues, "region param " .. tostring(frag.params[i].name))
         end
@@ -1505,48 +1962,75 @@ function M.Define(T)
         return pvm.with(self, { params = canonical_params(module_env, self.params), result = canonical_type(module_env, self.result) })
     end
 
-    local function type_plain_func(self, module_env)
+    local function canonical_block_params(module_env, params)
+        local out = {}
+        for i = 1, #(params or {}) do out[i] = pvm.with(params[i], { ty = canonical_type(module_env, params[i].ty) }) end
+        return out
+    end
+
+    local function canonical_entry_params(module_env, params)
+        local out = {}
+        for i = 1, #(params or {}) do out[i] = pvm.with(params[i], { ty = canonical_type(module_env, params[i].ty) }) end
+        return out
+    end
+
+    local function canonical_region_frag(module_env, frag)
+        local params = {}
+        for i = 1, #(frag.params or {}) do params[i] = pvm.with(frag.params[i], { ty = canonical_type(module_env, frag.params[i].ty) }) end
+        local conts = {}
+        for i = 1, #(frag.conts or {}) do conts[i] = pvm.with(frag.conts[i], { params = canonical_block_params(module_env, frag.conts[i].params) }) end
+        local entry = pvm.with(frag.entry, { params = canonical_entry_params(module_env, frag.entry.params) })
+        local blocks = {}
+        for i = 1, #(frag.blocks or {}) do blocks[i] = pvm.with(frag.blocks[i], { params = canonical_block_params(module_env, frag.blocks[i].params) }) end
+        return pvm.with(frag, { params = params, conts = conts, entry = entry, blocks = blocks })
+    end
+
+    local function type_plain_func(self, module_env, region_frags)
         local func = canonical_func(self, module_env)
-        local ctx = Tr.TypeCheckEnv(env_with_params(module_env, func.name, func.params), func.result, Tr.TypeYieldNone)
+        local ctx = Tr.TypeCheckEnv(env_with_params(module_env, func.name, func.params), func.result, Tr.TypeYieldNone, region_frags or {})
         local body = type_stmt_body(func.body, ctx)
         local issues = {}; check_func_types(func, issues); append_all(issues, body.issues)
+        check_owned_function(func.name, func.params, body.stmts, issues, ctx.region_frags)
         return Tr.TypeFuncResult(pvm.with(func, { body = body.stmts }), issues)
     end
 
-    local function type_contract_func(self, module_env)
+    local function type_contract_func(self, module_env, region_frags)
         local func = canonical_func(self, module_env)
-        local ctx = Tr.TypeCheckEnv(env_with_params(module_env, func.name, func.params), func.result, Tr.TypeYieldNone)
+        local ctx = Tr.TypeCheckEnv(env_with_params(module_env, func.name, func.params), func.result, Tr.TypeYieldNone, region_frags or {})
         local contracts, issues = type_contracts(func.contracts, ctx)
         check_func_types(func, issues)
         local body = type_stmt_body(func.body, ctx)
         append_all(issues, body.issues)
+        check_owned_function(func.name, func.params, body.stmts, issues, ctx.region_frags)
         return Tr.TypeFuncResult(pvm.with(func, { contracts = contracts, body = body.stmts }), issues)
     end
 
     type_func = pvm.phase("moonlift_tree_typecheck_func", {
-        [Tr.FuncLocal] = function(self, module_env) return pvm.once(type_plain_func(self, module_env)) end,
-        [Tr.FuncExport] = function(self, module_env) return pvm.once(type_plain_func(self, module_env)) end,
-        [Tr.FuncLocalContract] = function(self, module_env) return pvm.once(type_contract_func(self, module_env)) end,
-        [Tr.FuncExportContract] = function(self, module_env) return pvm.once(type_contract_func(self, module_env)) end,
-        [Tr.FuncOpen] = function(self, module_env) local ctx = Tr.TypeCheckEnv(module_env, self.result, Tr.TypeYieldNone); local body = type_stmt_body(self.body, ctx); return pvm.once(Tr.TypeFuncResult(pvm.with(self, { body = body.stmts }), body.issues)) end,
+        [Tr.FuncLocal] = function(self, module_env, region_frags) return pvm.once(type_plain_func(self, module_env, region_frags)) end,
+        [Tr.FuncExport] = function(self, module_env, region_frags) return pvm.once(type_plain_func(self, module_env, region_frags)) end,
+        [Tr.FuncLocalContract] = function(self, module_env, region_frags) return pvm.once(type_contract_func(self, module_env, region_frags)) end,
+        [Tr.FuncExportContract] = function(self, module_env, region_frags) return pvm.once(type_contract_func(self, module_env, region_frags)) end,
+        [Tr.FuncOpen] = function(self, module_env, region_frags) local ctx = Tr.TypeCheckEnv(module_env, self.result, Tr.TypeYieldNone, region_frags or {}); local body = type_stmt_body(self.body, ctx); local issues = {}; append_all(issues, body.issues); check_owned_function("<open>", {}, body.stmts, issues, ctx.region_frags); return pvm.once(Tr.TypeFuncResult(pvm.with(self, { body = body.stmts }), issues)) end,
     }, { args_cache = "last" })
 
     type_item = pvm.phase("moonlift_tree_typecheck_item", {
-        [Tr.ItemFunc] = function(self, module_env) local r = pvm.one(type_func(self.func, module_env)); return pvm.once(Tr.TypeItemResult({ Tr.ItemFunc(r.func) }, r.issues)) end,
-        [Tr.ItemConst] = function(self, module_env)
+        [Tr.ItemFunc] = function(self, module_env, region_frags) local r = pvm.one(type_func(self.func, module_env, region_frags or {})); return pvm.once(Tr.TypeItemResult({ Tr.ItemFunc(r.func) }, r.issues)) end,
+        [Tr.ItemConst] = function(self, module_env, region_frags)
             local ty = canonical_type(module_env, self.c.ty)
-            local ctx = Tr.TypeCheckEnv(module_env, ty, Tr.TypeYieldNone)
+            local ctx = Tr.TypeCheckEnv(module_env, ty, Tr.TypeYieldNone, region_frags or {})
             local value = pvm.one(type_expr(self.c.value, ctx))
             local issues = {}; check_type_policy(ty, issues, "const"); append_all(issues, value.issues); check_expected("const", ty, value.ty, issues)
             if type_contains_lease(ty) then issues[#issues + 1] = Tr.TypeIssueInvalidUnary("lease escape const", ty) end
+            if type_contains_owned(ty) then issues[#issues + 1] = Tr.TypeIssueInvalidUnary("owned stored in durable field", ty) end
             return pvm.once(Tr.TypeItemResult({ Tr.ItemConst(pvm.with(self.c, { ty = ty, value = value.expr })) }, issues))
         end,
-        [Tr.ItemStatic] = function(self, module_env)
+        [Tr.ItemStatic] = function(self, module_env, region_frags)
             local ty = canonical_type(module_env, self.s.ty)
-            local ctx = Tr.TypeCheckEnv(module_env, ty, Tr.TypeYieldNone)
+            local ctx = Tr.TypeCheckEnv(module_env, ty, Tr.TypeYieldNone, region_frags or {})
             local value = pvm.one(type_expr(self.s.value, ctx))
             local issues = {}; check_type_policy(ty, issues, "static"); append_all(issues, value.issues); check_expected("static", ty, value.ty, issues)
             if type_contains_lease(ty) then issues[#issues + 1] = Tr.TypeIssueInvalidUnary("lease escape static", ty) end
+            if type_contains_owned(ty) then issues[#issues + 1] = Tr.TypeIssueInvalidUnary("owned stored in durable field", ty) end
             return pvm.once(Tr.TypeItemResult({ Tr.ItemStatic(pvm.with(self.s, { ty = ty, value = value.expr })) }, issues))
         end,
         [Tr.ItemExtern] = function(self) local issues = {}; check_func_types(self.func, issues); return pvm.once(Tr.TypeItemResult({ self }, issues)) end,
@@ -1555,7 +2039,7 @@ function M.Define(T)
             local issues = {}
             local cls = pvm.classof(self.t)
             if cls == Tr.TypeDeclStruct or cls == Tr.TypeDeclUnion then
-                for i = 1, #self.t.fields do check_type_policy(self.t.fields[i].ty, issues, "field " .. self.t.fields[i].field_name); if type_contains_lease(self.t.fields[i].ty) then issues[#issues + 1] = Tr.TypeIssueInvalidUnary("lease escape field", self.t.fields[i].ty) end end
+                for i = 1, #self.t.fields do check_type_policy(self.t.fields[i].ty, issues, "field " .. self.t.fields[i].field_name); if type_contains_lease(self.t.fields[i].ty) then issues[#issues + 1] = Tr.TypeIssueInvalidUnary("lease escape field", self.t.fields[i].ty) end; if type_contains_owned(self.t.fields[i].ty) then issues[#issues + 1] = Tr.TypeIssueInvalidUnary("owned stored in durable field", self.t.fields[i].ty) end end
             elseif cls == Tr.TypeDeclEnumSugar then
                 local seen = {}
                 for i = 1, #self.t.variants do
@@ -1573,10 +2057,16 @@ function M.Define(T)
                     if type_contains_lease(v.payload) then
                         issues[#issues + 1] = Tr.TypeIssueInvalidUnary(is_region_call_result and "region call lease payload" or "lease escape variant field", v.payload)
                     end
+                    if type_contains_owned(v.payload) then
+                        issues[#issues + 1] = Tr.TypeIssueInvalidUnary(is_region_call_result and "owned region call payload" or "owned stored in durable field", v.payload)
+                    end
                     for j = 1, #(v.fields or {}) do
                         check_type_policy(v.fields[j].ty, issues, "variant field " .. v.fields[j].field_name)
                         if type_contains_lease(v.fields[j].ty) then
                             issues[#issues + 1] = Tr.TypeIssueInvalidUnary(is_region_call_result and "region call lease payload" or "lease escape variant field", v.fields[j].ty)
+                        end
+                        if type_contains_owned(v.fields[j].ty) then
+                            issues[#issues + 1] = Tr.TypeIssueInvalidUnary(is_region_call_result and "owned region call payload" or "owned stored in durable field", v.fields[j].ty)
                         end
                     end
                     if seen[name] then issues[#issues + 1] = Tr.TypeIssueDuplicateVariant(self.t.name, name) end
@@ -1589,9 +2079,38 @@ function M.Define(T)
         end,
         [Tr.ItemUseTypeDeclSlot] = function(self) return pvm.once(Tr.TypeItemResult({ self }, {})) end,
         [Tr.ItemUseItemsSlot] = function(self) return pvm.once(Tr.TypeItemResult({ self }, {})) end,
-        [Tr.ItemRegionFrag] = function(self, module_env)
+        [Tr.ItemRegionFrag] = function(self, module_env, region_frags)
             local issues = {}
             check_region_frag_signature(self.frag, module_env, issues)
+            local params = {}
+            for i = 1, #(self.frag.params or {}) do params[i] = Ty.Param(self.frag.params[i].name, canonical_type(module_env, self.frag.params[i].ty)) end
+            local ctx = Tr.TypeCheckEnv(env_with_params(module_env, "region:" .. tostring(region_frag_name_text(self.frag) or "?"), params), Ty.TScalar(C.ScalarVoid), Tr.TypeYieldNone, region_frags or {})
+            local entry = pvm.with(self.frag.entry, {
+                params = (function()
+                    local out = {}
+                    for i = 1, #(self.frag.entry.params or {}) do out[i] = pvm.with(self.frag.entry.params[i], { ty = canonical_type(module_env, self.frag.entry.params[i].ty) }) end
+                    return out
+                end)()
+            })
+            local runtime_bindings = {}
+            for i = 1, #params do
+                local frag_name = tostring(region_frag_name_text(self.frag) or "?")
+                local open_param = self.frag.params and self.frag.params[i] or nil
+                local class = open_param and B.BindingClassOpenParam(open_param) or B.BindingClassArg(i - 1)
+                local b = B.Binding(C.Id("open-param:" .. frag_name .. ":" .. params[i].name), params[i].name, params[i].ty, class)
+                runtime_bindings[#runtime_bindings + 1] = B.ValueEntry(params[i].name, b)
+            end
+            local region_id = "region-frag:" .. tostring(region_frag_name_text(self.frag) or "?")
+            local typed_entry, entry_issues = type_entry_block(region_id, entry, ctx, Tr.TypeYieldVoid)
+            append_all(issues, entry_issues)
+            local typed_blocks = {}
+            for i = 1, #(self.frag.blocks or {}) do
+                local b, bi = type_control_block(region_id, self.frag.blocks[i], ctx, Tr.TypeYieldVoid)
+                typed_blocks[#typed_blocks + 1] = b
+                append_all(issues, bi)
+            end
+            local typed_region = Tr.ControlStmtRegion(region_id, typed_entry, typed_blocks)
+            check_owned_control_region(typed_region, issues, region_frags or {}, runtime_bindings)
             return pvm.once(Tr.TypeItemResult({}, issues))
         end,
         [Tr.ItemExprFrag] = function() return pvm.once(Tr.TypeItemResult({}, {})) end,
@@ -1606,9 +2125,13 @@ function M.Define(T)
         local base_env = module_type_api.env(module, target)
         attach_semantic_defs(base_env, build_variant_defs(module, base_env.module_name), build_handle_defs(module, base_env.module_name), build_func_effect_defs(module))
         local module_env = merge_env_layouts(base_env, extra_layout_env)
+        local region_frags = {}
+        for i = 1, #(module.items or {}) do
+            if pvm.classof(module.items[i]) == Tr.ItemRegionFrag then region_frags[#region_frags + 1] = canonical_region_frag(module_env, module.items[i].frag) end
+        end
         local items = {}
         local issues = {}
-        for i = 1, #module.items do local r = pvm.one(type_item(module.items[i], module_env)); append_all(items, r.items); append_all(issues, r.issues) end
+        for i = 1, #module.items do local r = pvm.one(type_item(module.items[i], module_env, region_frags)); append_all(items, r.items); append_all(issues, r.issues) end
         return Tr.TypeModuleResult(Tr.Module(Tr.ModuleTyped(module_env.module_name), items), issues)
     end
 
@@ -1847,6 +2370,43 @@ local function explain_type_issue(issue, analysis)
                 { message = "`" .. ty .. "` is temporary access, not storable data" },
                 { message = "leases may appear in function/block/continuation parameters, not durable fields/results/statics" },
             }, { { message = "use a handle type for durable identity, or a plain pointer only at an unchecked ABI boundary" } })
+        elseif raw_op == "owned dropped" then
+            return report("owned obligation is not discharged", {
+                { message = "`" .. ty .. "` must be transferred to an owned parameter/result or consumed by a closing protocol" },
+                { message = "owned values do not have destructors and cannot silently fall out of scope" },
+            }, { { message = "jump/return/yield/pass the owner to an `owned` slot, or call the explicit close/retire region" } })
+        elseif raw_op == "owned use after move" then
+            return report("owned value used after transfer", {
+                { message = "`" .. ty .. "` was already consumed by an ownership transfer" },
+            }, { { message = "thread the returned/re-yielded owner forward if the protocol preserves the obligation" } })
+        elseif raw_op == "owned observed without transfer" or raw_op == "owned passed to non-owned parameter" then
+            return report("owned value used without an ownership contract", {
+                { message = "`" .. ty .. "` is linear authority and cannot be copied or borrowed as a plain value" },
+            }, { { message = "make the callee parameter `owned`, or use a protocol that returns the owner on every preserving edge" } })
+        elseif raw_op == "owned captured in aggregate" or raw_op == "owned stored in durable field" then
+            return report("owned value captured in durable storage", {
+                { message = "`" .. ty .. "` is a CFG obligation, not storable data" },
+            }, { { message = "store the plain handle separately and keep the owned obligation in control flow" } })
+        elseif raw_op == "owned branch mismatch" then
+            return report("branches leave different owned obligations live", {
+                { message = "all continuing paths must preserve the same live owned set" },
+            }, { { message = "move the transfer before the branch, or return/jump/yield on the consuming path" } })
+        elseif raw_op == "owned var cell unsupported" then
+            return report("owned values cannot live in mutable cells", {
+                { message = "`var owned T` needs explicit take/put semantics and is rejected" },
+            }, { { message = "use `let` ownership threading through CFG parameters" } })
+        elseif raw_op == "owned region call payload" then
+            return report("owned payload cannot use expression-style region call", {
+                { message = "`" .. ty .. "` cannot be packed into the generated region-call result aggregate" },
+            }, { { message = "use `emit`/explicit continuations so ownership stays in CFG" } })
+        elseif raw_op == "owned emit target mismatch" then
+            return report("owned continuation payload has no matching target parameter", {
+                { message = "`" .. ty .. "` must land in a target block/continuation parameter with the same owned type and name" },
+            }, { { message = "add the owned parameter to the filled target, or consume the owner inside the emitted fragment" } })
+        elseif raw_op == "owned lease composition" or raw_op == "owned access composition" or raw_op == "owned invalid base" then
+            return report("invalid owned type composition", {
+                { message = "`" .. ty .. "` mixes ownership authority with access modifiers or temporary leases" },
+            }, { { message = "own the durable handle/resource token; borrow access through a protocol that returns the owner" } })
         elseif raw_op == "handle cast" then
             return report("handle representation is opaque", {
                 { message = "handle `" .. ty .. "` is not its integer representation in safe casts" },

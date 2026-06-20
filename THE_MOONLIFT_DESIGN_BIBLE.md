@@ -1128,7 +1128,7 @@ Run this before bodies are written, and again before a design is declared done. 
 **Products**
 - [ ] Do all fields of each product genuinely coexist, usable without first choosing a branch?
 - [ ] No derived data stored beside source truth? No string keys as internal identity? Cross-references typed handles?
-- [ ] Ownership of every pointer/view boundary written down, or carried as a handle/lease fact? Units and invariants written where types can't carry them?
+- [ ] Ownership of every pointer/view/resource boundary written down, or carried as handle/lease/owned facts? Units and invariants written where types can't carry them?
 - [ ] Every kind/tag/status field annotated with its single owning consumer region?
 
 **Protocols**
@@ -1148,6 +1148,7 @@ Run this before bodies are written, and again before a design is declared done. 
 - [ ] Does every store-resolved handle declare `domain Store` and `target Item`?
 - [ ] Does every store have named resolving regions that grant leases/views on successful exits?
 - [ ] Can leases escape through returns, stores, captures, or unqualified calls?
+- [ ] Can any `owned T` fall out of CFG, enter a `var`, enter durable storage, or pass as plain `T`?
 - [ ] Are invalidating operations named, and are same-store live leases protected from them?
 - [ ] Are raw pointers confined to ABI boundaries, store internals, or hot kernels with explicit contracts?
 
@@ -1227,7 +1228,8 @@ Classify the lifetime shape before writing pointer fields:
 7. Keep leases inside the dynamic extent that granted them, or pass them only to
    callees whose signatures promise no escape.
 8. Name lifetime changes as `reset_*`, `publish_*`, `retire_*`, `destroy_*`, or
-   `close_*` regions, and declare whether they invalidate live leases.
+   `close_*` protocols. When a resource must be discharged, make the protocol
+   consume or return `owned T`, and declare whether it invalidates live leases.
 
 Use the smallest model that fits:
 
@@ -1240,7 +1242,7 @@ Use the smallest model that fits:
 | Hot internal access | `lease ptr(T)` / `lease view(T)` passed to a kernel or noescape callee |
 | Version becomes visible | `publish_*` region |
 | Old version is removed | `retire_*` region |
-| External resource released | `close_*` region |
+| External resource released | `close_*` protocol consuming `owned ResourceRef` |
 
 Inline region signatures are the default. Name separate request/result products
 only when those products are real values that are stored, passed around, or
@@ -1275,6 +1277,12 @@ A handle is copyable, comparable with the same handle type, storable, passable,
 and returnable. It is not dereferenceable, not indexable, not arithmetic, and
 not implicitly convertible to its representation. Packing index/generation bits
 is store-private machinery, not public language meaning.
+
+For reusable stores, use slot plus generation by default. The slot owns the live
+bit and current generation; the handle carries the generation it observed. A
+retired slot can be reused without turning old handles into accidental access to
+new products. `Id` handles for external or monotonic namespaces may stay bare,
+but the reason should be visible in the design header.
 
 `domain` is the identity namespace: the store, pool, registry, or table that can
 validate the handle. `target` is the logical product a successful resolver may
@@ -1400,7 +1408,8 @@ region reset_render_scratch(scratch: ptr(RenderScratch), shape: BlockShape;
 ```
 
 There are no semantic destructors. If ownership or lifetime changes, a named
-region says what can happen and what access it invalidates.
+region/function says what can happen, what access it invalidates, and whether an
+`owned` obligation is consumed or returned.
 
 ### Hard laws
 
@@ -1409,11 +1418,12 @@ region says what can happen and what access it invalidates.
 3. **Handles are durable identity.** Stable references are typed handles, not raw pointers.
 4. **Handle facts link identity to stores.** `domain` names the identity namespace; `target` names the logical product a resolver may grant.
 5. **Leases are temporary access.** A lease may touch memory but may not escape the extent that granted it.
-6. **Access is a protocol.** Meaningful failure is not `nil`, `false`, or a status code.
-7. **Regions grant memory facts.** Bounds, provenance, liveness, and effects belong to named exits and signatures.
-8. **Raw pointers are boundary tools.** `ptr(T)` alone is an address; bounds require a view, lease, or explicit contract.
-9. **Invalidation is named.** Resource close, arena reset, publish, retire, destroy, compact, and generation bump are region/effect facts, not destructor folklore.
-10. **Kernels are seals.** Hot code receives already-borrowed leases/views/contracts and does not discover ownership.
+6. **Owned values are discharge authority.** `owned T` must be consumed or transferred exactly once by typed CFG, with no Drop and no inference.
+7. **Access is a protocol.** Meaningful failure is not `nil`, `false`, or a status code.
+8. **Regions grant memory facts.** Bounds, provenance, liveness, ownership, and effects belong to named exits and signatures.
+9. **Raw pointers are boundary tools.** `ptr(T)` alone is an address; bounds require a view, lease, or explicit contract.
+10. **Invalidation is named.** Resource close, arena reset, publish, retire, destroy, compact, and generation bump are region/effect facts, not destructor folklore.
+11. **Kernels are seals.** Hot code receives already-borrowed leases/views/contracts and does not discover ownership.
 
 ---
 

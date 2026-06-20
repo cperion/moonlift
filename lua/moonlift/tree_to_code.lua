@@ -89,6 +89,7 @@ function M.Define(T)
 
     local function source_access_base(ty)
         if pvm.classof(ty) == Ty.TLease then return ty.base end
+        if pvm.classof(ty) == Ty.TOwned then return source_access_base(ty.base) end
         if pvm.classof(ty) == Ty.TAccess then return source_access_base(ty.base) end
         return ty
     end

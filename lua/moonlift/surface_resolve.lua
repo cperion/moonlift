@@ -73,6 +73,8 @@ function M.Define(T)
             return pvm.with(ty, { elem = resolve_type(ty.elem, ctx) })
         elseif cls == Ty.TLease then
             return pvm.with(ty, { base = resolve_type(ty.base, ctx) })
+        elseif cls == Ty.TOwned then
+            return pvm.with(ty, { base = resolve_type(ty.base, ctx) })
         elseif cls == Ty.TAccess then
             return pvm.with(ty, { base = resolve_type(ty.base, ctx) })
         elseif cls == Ty.TFunc or cls == Ty.TClosure then

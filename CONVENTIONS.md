@@ -216,6 +216,10 @@ mwui_send
 
 ## Continuations
 
+Keep the visual grammar meaningful: commas are for product-shaped lists, and
+`|` is for semantic alternatives. In a region signature, runtime params and
+payload fields are products; continuation exits are the protocol alternatives.
+
 Continuation names are outcomes, not status words.
 
 Prefer:
@@ -281,6 +285,87 @@ Rules:
 - Invalidating operations mark the owner parameter with `invalidate`.
 - Borrowed views are not stored except through a named materialization region.
 - Stable fields should use handles, not raw pointers.
+
+## Handle Representation
+
+Reusable store-backed `Ref` handles should carry a generation number.
+
+```text
+Ref handle = slot index + generation
+Store slot = generation + live bit + product
+```
+
+Without a generation, an old handle can accidentally resolve to a new occupant
+after a slot is retired and reused.  With a generation, the resolver can reject
+that old handle as `stale`.
+
+```moonlift
+struct ComponentSlot
+    gen: u32,
+    live: bool32,
+    component: Component,
+end
+
+struct ComponentStore
+    slots: ptr(ComponentSlot),
+    n: index,
+    cap: index,
+    free_head: u32,
+end
+```
+
+Resolver shape:
+
+```text
+unpack handle -> index, gen
+index out of range      -> missing
+slot not live           -> missing
+slot.gen != gen         -> stale
+otherwise               -> borrowed(lease ptr(slot.product))
+```
+
+Rules:
+
+- `Ref` plus reusable store means slot + generation.
+- `Id` for external identity does not require generation.
+- Monotonic never-reused handles may omit generation, but the reason should be
+  visible in the header or blueprint.
+- Handle packing and unpacking are store-private trust boundaries.
+- Public code should use resolver regions, not representation operations.
+
+## Owned Obligations
+
+Use `owned T` for resources that must be explicitly discharged or transferred.
+See `OWNED_CFG_DESIGN.md` for the full language design.
+
+Short rule:
+
+```text
+handle TRef    durable identity
+lease ptr(T)   temporary access
+owned TRef     mandatory discharge authority
+```
+
+`owned` does not grant access and does not create an implicit destructor.  The
+cleanup machine is a normal region, and the CFG checker must prove every path
+consumes or transfers the owned value.
+
+```moonlift
+region close_session(app: ptr(App), s: owned SessionRef;
+    closed
+  | missing(s: owned SessionRef))
+end
+```
+
+If an operation preserves the obligation, the continuation returns it:
+
+```moonlift
+region poll_task(task: owned TaskRef;
+    pending(task: owned TaskRef)
+  | completed
+  | failed(code: i32))
+end
+```
 
 ## Access Verbs
 

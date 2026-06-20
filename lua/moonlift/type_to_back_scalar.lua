@@ -59,6 +59,10 @@ function M.Define(T)
             local class = classify_api.classify(self.base)
             return type_to_back_scalar_result(class, self.base)
         end,
+        [Ty.TypeClassOwned] = function(self, ty)
+            local class = classify_api.classify(self.base)
+            return type_to_back_scalar_result(class, self.base)
+        end,
         [Ty.TypeClassHandle] = function(self, ty)
             if pvm.classof(self.repr) == Ty.HandleReprScalar then
                 local values = scalar_to_back:drain_uncached(self.repr.scalar)

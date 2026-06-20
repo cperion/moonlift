@@ -42,6 +42,10 @@ function M.Define(T)
             local base_class = classify_api.classify(self.base)
             return abi_class_from_type_class(base_class, self.base, env)
         end,
+        [Ty.TypeClassOwned] = function(self, ty, env)
+            local base_class = classify_api.classify(self.base)
+            return abi_class_from_type_class(base_class, self.base, env)
+        end,
         [Ty.TypeClassHandle] = function(self, ty)
             local r = scalar_api.result(ty)
             if pvm.classof(r) == Ty.TypeBackScalarKnown then return pvm.once(Ty.AbiDirect(r.scalar)) end

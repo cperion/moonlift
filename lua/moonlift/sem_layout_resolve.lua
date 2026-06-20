@@ -106,6 +106,7 @@ function M.Define(T)
         [Ty.TSlice] = function() return pvm.empty() end,
         [Ty.TView] = function() return pvm.empty() end,
         [Ty.TLease] = function() return pvm.empty() end,
+        [Ty.TOwned] = function() return pvm.empty() end,
         [Ty.TAccess] = function() return pvm.empty() end,
         [Ty.THandle] = function() return pvm.empty() end,
         [Ty.TFunc] = function() return pvm.empty() end,

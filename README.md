@@ -62,6 +62,7 @@ Moonlift takes a different approach:
 | **Control flow** | Typed blocks with explicit jump/yield/return. No hidden `next`, no implicit fallthrough. |
 | **Semantics** | Everything meaningful is represented as ASDL (Algebraic Semi-structured Data Language) values. No hidden state in strings, callbacks, or mutable tables. |
 | **Composability** | Region fragments with named continuation exits. Compose with `emit`. Dispatch with `switch`. |
+| **Resource discipline** | Handles are durable identity, leases are temporary access, and `owned T` is explicit CFG discharge authority. No hidden destructors. |
 | **Vectorization** | Explicit facts-based vectorization. No secret pattern matching on loop shapes. |
 | **Tooling** | Full LSP: diagnostics, completion, hover, go-to-definition, references, rename, semantic tokens, folding. |
 
@@ -292,6 +293,10 @@ Moonlift is small on purpose. The entire language fits in one statement:
 > Monomorphic typed data + typed regions + explicit continuation exits
 > + switch/emit/jump composition + semantic `as(T, value)` conversion.
 
+The syntax keeps Moonlift's two categories visible: commas separate
+product-shaped lists (fields, params, payload fields, fill maps), while `|`
+separates semantic alternatives (union variants and region continuation exits).
+
 ### Types
 
 ```
@@ -299,9 +304,25 @@ void  bool
 i8 i16 i32 i64    u8 u16 u32 u64
 f32 f64           index
 ptr(T)            view(T)
+lease ptr(T)      lease view(T)
+owned T
 ```
 
 No source-level generics. Lua generates monomorphic concrete types.
+
+Handles are nominal durable identities:
+
+```moonlift
+handle SessionRef : u64 invalid 0 end
+handle VoiceRef : u32 invalid 0 domain VoiceStore target VoiceState end
+```
+
+`lease ptr(T)` and `lease view(T)` are temporary access facts granted by
+typed protocols. `owned T` is mandatory discharge authority carried by CFG:
+it must be consumed, returned, yielded, or transferred to another `owned`
+parameter exactly once. It is not a destructor, not implicit access, and not
+durable storage; `var owned T`, owned fields, owned aggregates, and
+`owned ptr(T)` are rejected.
 
 ### Control flow
 
@@ -331,6 +352,25 @@ end
 ```
 
 Compose regions with `emit`. The caller decides what each exit means.
+
+`emit` is also the ownership-carrying composition form. If an emitted region
+returns ownership on a continuation, the filled target must declare a matching
+`owned` parameter:
+
+```moonlift
+region close_session(app: ptr(App), s: owned SessionRef;
+    closed()
+  | missing(s: owned SessionRef))
+end
+
+block retry(s: owned SessionRef)
+    emit close_session(app, s; closed = done, missing = retry)
+end
+```
+
+Expression-style region calls reject continuation payloads containing leases or
+`owned` values; use `emit` so the access or obligation stays in typed control
+flow.
 
 For higher-level composition, use the **region composition algebra** (`moonlift.region_compose`):
 
@@ -890,6 +930,8 @@ moonlift/
 ├── benchmarks/                 Performance benchmarks
 ├── tests/                      Lua test suite (~130+ tests)
 ├── LANGUAGE_REFERENCE.md       Complete language reference
+├── OWNED_CFG_DESIGN.md         Linear owned/handle/lease design
+├── CONVENTIONS.md              Naming and file organization conventions
 ├── PVM_GUIDE.md                PVM ASDL/phase framework guide
 ├── COMPILER_PATTERN.md         Interactive software as compilers
 ├── BACK_WIRE_FORMAT.md         Flatline v4 binary wire format
@@ -904,6 +946,8 @@ moonlift/
 | Document | Description |
 |---|---|
 | [`LANGUAGE_REFERENCE.md`](LANGUAGE_REFERENCE.md) | **Complete Moonlift language reference.** Types, modules, functions, control regions, fragments, quoting API, splicing, host declarations, view ABI, vectorization. |
+| [`OWNED_CFG_DESIGN.md`](OWNED_CFG_DESIGN.md) | **Owned CFG resource discipline.** Final rules for `owned T`, handles, leases, emit transfer, disallowed aggregates, and diagnostics. |
+| [`CONVENTIONS.md`](CONVENTIONS.md) | **Project conventions.** Naming, headers vs implementations, handles, generations, stores, and protocol naming. |
 | [`BACK_WIRE_FORMAT.md`](BACK_WIRE_FORMAT.md) | **Flatline v4 binary wire format.** The stable ABI between the Lua frontend and the Rust Cranelift backend. |
 | [`PVM_GUIDE.md`](PVM_GUIDE.md) | **Complete PVM guide.** ASDL contexts, structural update, recording-triplet phases, pull-driven evaluation, the triplet algebra. |
 | [`COMPILER_PATTERN.md`](COMPILER_PATTERN.md) | **Interactive software as compilers.** The philosophy behind Moonlift's architecture: ASDL as the input language, live compilation, memoized phase boundaries. |
