@@ -215,6 +215,30 @@ CONTROL GRAPH  what can happen
 
 LLPVM preserves that split.
 
+More precisely, LLPVM is the Bible's VM-stack lens made operational. The Bible
+gives the method; LLPVM gives the standard native substrate for systems whose
+VM layer must be portable, incremental, and bytecode-fed.
+
+```text
+Design Bible law                 LLPVM rule
+-----------------------------------------------------------------------
+Facts are products.              ABI, World, Op, Stream, Buffer, Report.
+Choices are protocols.           load/drain/apply/cache exits are regions.
+Regions join the two.            VM behavior is typed region machinery.
+Blocks are state products.       stream cursors, recordings, cache walks.
+Emits compose.                   VM internals compose with regions.
+Seal with functions.             C ABI exports are sealed status functions.
+Stores own bytes.                LlVm owns stores, buffers, cache, reports.
+Handles may escape.              Ll*Ref values cross ABI boundaries.
+Leases may not.                  resolver regions grant temporary access.
+Bytecode is a boundary product.  LLPV image is caller-owned immutable bytes.
+Serious systems are VM stacks.   LLPVM consumes one IR and emits another fact.
+```
+
+This mapping is not documentation sugar. It is a design constraint. If a new
+LLPVM subsystem cannot be placed in this table, it is probably smuggling a
+convention instead of declaring a product, protocol, or VM boundary.
+
 The type forest:
 
 ```text
@@ -271,7 +295,61 @@ llpvm_status llpvm_load_program(llpvm_vm_ref vm,
 
 # Part II - The Runtime Model
 
-## Chapter 5: Worlds And ABIs
+## Chapter 5: PVM-Style Type Authoring
+
+Free-form Moonlift source remains the base language. You can always write
+`struct`, `handle`, `region`, and `func` declarations directly when that is the
+clearest expression of a machine.
+
+LLPVM is the standard library answer for a narrower task:
+
+```text
+author a typed instruction language
+define worlds over that language
+feed the result to a bytecode VM
+retain/cache/incrementally re-run phases
+```
+
+For that task, type authoring should feel like PVM:
+
+```text
+declare a small world vocabulary
+declare variants/op kinds with payload products
+construct values through named builders/literals
+compose streams and phases over those worlds
+```
+
+PVM does this with an ASDL context:
+
+```lua
+local T = pvm.context():Define [[
+    module Expr {
+        Node = Int(number value) unique
+             | Add(Expr.Node left, Expr.Node right) unique
+    }
+]]
+```
+
+LLPVM does the same job for native bytecode-fed machines:
+
+```lua
+local Expr = vm.abi "Expr" {
+    Int = { value = ll.i64 },
+    Add = { left = ll.node, right = ll.node },
+}
+```
+
+The surface is different because the artifact is different. PVM authors
+interned Lua ASDL values consumed by Lua-hosted phases. LLPVM authors a dense
+instruction language and emits a borrowed image for the native VM. The design
+move is the same: author meaning as typed products first, then run machines over
+that meaning.
+
+Use free-form Moonlift for bespoke kernels and system internals. Use LLPVM when
+the thing you are designing is itself an operation language, compiler layer, or
+incremental VM stack.
+
+## Chapter 6: Worlds And ABIs
 
 An ABI is an operation language. A world is one semantic layer using an ABI.
 
@@ -302,7 +380,7 @@ Design law:
 If two streams cannot be mixed without a semantic conversion, they are different worlds.
 ```
 
-## Chapter 6: Ops
+## Chapter 7: Ops
 
 An op is a semantic row in a world:
 
@@ -328,7 +406,7 @@ local input = vm.seq(ExprWorld) {
 Native machine code should never have to parse arbitrary Lua tables. It should
 receive bytecode records or already-imported handles.
 
-## Chapter 7: Streams
+## Chapter 8: Streams
 
 A stream is a lazy pull machine represented by a handle.
 
@@ -360,7 +438,7 @@ end
 A buffer is the materialized fact produced by a full drain. Buffers are immutable
 once published.
 
-## Chapter 8: Phases, Recordings, And Cache
+## Chapter 9: Phases, Recordings, And Cache
 
 A phase is the memoization boundary:
 
@@ -391,7 +469,7 @@ Shared misses are explicit too: if two consumers request the same phase key
 while the first recording is live, they share the recording instead of launching
 duplicate work.
 
-## Chapter 9: Diagnostics
+## Chapter 10: Diagnostics
 
 Diagnostics are values, not host exceptions.
 
@@ -419,7 +497,7 @@ inside the VM must be observable as a status/diagnostic product.
 
 # Part III - Bytecode Boundary
 
-## Chapter 10: The Direct Borrowed Image
+## Chapter 11: The Direct Borrowed Image
 
 The normal host boundary is:
 
@@ -454,7 +532,7 @@ The caller must keep the image alive while derived handles are live.
 There is no copy API by default. If the caller wants copied bytes, the caller
 can copy them before calling load. The VM boundary remains borrow-only.
 
-## Chapter 11: LLPV Image Shape
+## Chapter 12: LLPV Image Shape
 
 The current image starts:
 
@@ -483,7 +561,7 @@ op id during every drain.
 The image is not a dump of C structs. It is a portable little-endian bytecode
 contract. C structs may be used inside the runtime after validation/import.
 
-## Chapter 12: Why Direct Builder Matters
+## Chapter 13: Why Direct Builder Matters
 
 The ASDL-first path is excellent for design and debugging, but expensive for a
 runtime API:
@@ -513,7 +591,7 @@ API and keeps the runtime artifact dense.
 
 # Part IV - Lua API
 
-## Chapter 13: No-Parens Authoring
+## Chapter 14: No-Parens Authoring
 
 LLPVM Lua authoring follows Moonlift's Lua-side taste:
 
@@ -541,7 +619,7 @@ local program = vm.program { input }
 Builders are syntax, not runtime semantics. The semantics are the bytecode image
 and native VM behavior.
 
-## Chapter 14: Runtime FFI Boundary
+## Chapter 15: Runtime FFI Boundary
 
 The runtime FFI wrapper must stay thin:
 
@@ -571,7 +649,7 @@ Bytecode image load = handle creation boundary
 
 # Part V - C Blob And ABI
 
-## Chapter 15: The C Blob Is The Runtime Product
+## Chapter 16: The C Blob Is The Runtime Product
 
 The target artifact is a small, portable C blob and header:
 
@@ -603,7 +681,7 @@ llpvm_status llpvm_report(llpvm_vm_ref vm, llpvm_report *out);
 The C API should not expose Lua, PVM triplets, ASDL objects, or implementation
 stores as public architecture. Handles are opaque integers with validation.
 
-## Chapter 16: Ownership At The ABI
+## Chapter 17: Ownership At The ABI
 
 Ownership laws:
 
@@ -625,7 +703,7 @@ load_program borrows bytes
 Honest borrowing forces the lifetime issue into the API instead of hiding it in
 allocator policy.
 
-## Chapter 17: WASM And Embedded
+## Chapter 18: WASM And Embedded
 
 The borrowed bytecode model maps well to WASM and embedded targets:
 
@@ -652,7 +730,7 @@ No runtime Lua dependency belongs in the blob.
 
 # Part VI - Designing Systems On LLPVM
 
-## Chapter 18: Compiler-Shaped Frontends
+## Chapter 19: Compiler-Shaped Frontends
 
 A system such as MLUI is not "just a layer over LLPVM." It is a compiler:
 
@@ -677,7 +755,7 @@ MLUI compiler API
 
 Keep richness above the boundary. Keep the boundary dense and borrow-only.
 
-## Chapter 19: When To Use LLPVM Directly
+## Chapter 20: When To Use LLPVM Directly
 
 Use LLPVM directly when your domain can be modeled as streams of ops:
 
@@ -695,7 +773,7 @@ document layout command streams
 Do not force LLPVM onto a domain whose core shape is not stream/phase/cache.
 Moonlift regions and ordinary C ABIs are enough for many kernels.
 
-## Chapter 20: Designing A New LLPVM Family
+## Chapter 21: Designing A New LLPVM Family
 
 Procedure:
 
@@ -719,7 +797,7 @@ until its runtime boundary is clearer.
 
 # Part VII - Anti-Patterns
 
-## Chapter 21: Red Flags
+## Chapter 22: Red Flags
 
 Avoid these:
 
@@ -739,7 +817,7 @@ payload parsing duplicated in every machine
 The hardest red flag is a convenient compatibility path. If the architecture is
 wrong, remove it. Compatibility is a product decision, not a design excuse.
 
-## Chapter 22: Review Checklist
+## Chapter 23: Review Checklist
 
 Before accepting an LLPVM change, check:
 
@@ -762,6 +840,7 @@ Does the benchmark measure real load/apply/drain work?
 # Final Doctrine Card
 
 ```text
+The Bible gives the method; LLPVM is its native VM substrate.
 PVM is the hosted compiler machine.
 LLPVM is the native bytecode-fed VM substrate.
 ASDL defines meaning; bytecode carries meaning.

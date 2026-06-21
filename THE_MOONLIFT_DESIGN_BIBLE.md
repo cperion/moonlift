@@ -169,6 +169,34 @@ instruction language before designing public APIs.
 
 Do not start with wrappers around objects. Find the VM stack first.
 
+### LLPVM as the canonical operational form
+
+LLPVM is not an exception to the method and not just an optimization project. It
+is the concrete low-level form of this chapter:
+
+```text
+Bible concept              LLPVM realization
+---------------------------------------------------------------
+type forest                ABI, World, Op, Stream, Buffer, Phase
+control graph              native regions over streams and stores
+instruction language       LLPV bytecode records
+machine boundary           borrowed immutable image
+environment/store product  LlVm
+durable identity           Ll*Ref handles
+temporary access           resolver regions and leases
+phase boundary             LlPhase + LlPhaseKey
+incremental state          Recording + CacheEntry
+materialized output        LlBuffer
+diagnostics                LlDiagnostic / llpvm_status at ABI seals
+portable artifact          C blob / header / WASM-compatible ABI
+```
+
+When the Bible says "find the VM stack", LLPVM is the standard answer for the
+layer that must become portable, incremental, and native. A higher-level system
+may still have its own rich compiler-shaped frontend, but if it needs a stable
+runtime boundary, the boundary should look like LLPVM: dense instruction image
+in, typed native machine, handles/streams/buffers/reports out.
+
 ---
 
 ## Chapter 2: What complexity is, and how explicitness attacks it
@@ -1126,6 +1154,14 @@ Run Chapter 4's three questions on every result-like, event-like, variant-like t
 ### Step 6 — Declare the type forest
 
 Write the structs, views, handles, leases, and boundary pointer shapes as compiling declarations — leaves first, aggregates after. Every kind-like field carries a comment naming its owner region. Every handle has a nominal declaration, an invalid value if the domain needs one, and `domain`/`target` facts when it resolves through a store. Every layout-sensitive product states its ABI intent. Nothing in the forest is a semantic union, and no stable association is a raw pointer by accident.
+
+If the forest is an instruction language rather than a one-off kernel data
+model, switch lenses: author it in the PVM style. In hosted/compiler work that
+may be an ASDL context. In portable native runtime work, the standard-library
+answer is LLPVM: define ABIs, worlds, op payload products, streams, and phases,
+then emit a borrowed bytecode image. Free-form Moonlift remains the language for
+bespoke declarations; LLPVM is the canonical type-authoring surface for typed VM
+stacks.
 
 ### Step 7 — Declare the region tree, signatures only
 

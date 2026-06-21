@@ -9,7 +9,7 @@ The C side is intentionally one generated include:
 Generate the combined blob and header with the artifact API:
 
 ```lua
-local build = require "experiments.llpvm.llpvm_build_c"
+local build = require "llpvm.native.build_c"
 build.write_artifact("llpvm_amalgam.c", { h_path = "llpvm_amalgam.h" })
 ```
 
@@ -17,7 +17,7 @@ or directly:
 
 ```lua
 local moon = require "moonlift"
-moon.emit_c_file_artifact("experiments/llpvm/llpvm_abi.mlua", {
+moon.emit_c_file_artifact("lua/llpvm/native/llpvm_abi.mlua", {
     name = "llpvm",
     combined_path = "llpvm_amalgam.c",
     h_path = "llpvm_amalgam.h",

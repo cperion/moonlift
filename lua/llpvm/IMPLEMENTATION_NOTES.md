@@ -8,12 +8,12 @@ quirks. They are not philosophy.
 Use the executed-module artifact path for LLPVM:
 
 ```lua
-moon.emit_c_file_artifact("experiments/llpvm/llpvm_abi.mlua", {
+moon.emit_c_file_artifact("lua/llpvm/native/llpvm_abi.mlua", {
     name = "llpvm",
     combined_path = "llpvm_amalgam.c",
     h_path = "llpvm_amalgam.h",
 })
-moon.bundle_file("experiments/llpvm/llpvm_abi.mlua", "llpvm"):emit_c_artifact()
+moon.bundle_file("lua/llpvm/native/llpvm_abi.mlua", "llpvm"):emit_c_artifact()
 ```
 
 Do not create ad hoc source-string C APIs for LLPVM modules. LLPVM uses
@@ -87,7 +87,7 @@ that correctly.
 
 ## Current Memory Support Quirk
 
-`llpvm_memory.mlua` and the support source embedded by `llpvm_build_c.lua`
+`llpvm_memory.mlua` and the support source embedded by `llpvm.native.build_c`
 currently use bootstrap extern pins:
 
 ```text

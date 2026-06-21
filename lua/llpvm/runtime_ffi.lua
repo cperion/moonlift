@@ -148,7 +148,7 @@ end
 
 function M.build(opts)
     opts = opts or {}
-    local Build = require("experiments.llpvm.llpvm_build_c")
+    local Build = require("llpvm.native.build_c")
     local base = opts.base or os.tmpname()
     local result = Build.build_shared {
         name = opts.name or "llpvm_runtime",
@@ -156,7 +156,7 @@ function M.build(opts)
         h_path = opts.h_path or (base .. ".h"),
         so_path = opts.so_path or (base .. ".so"),
         cc = opts.cc,
-        cflags = opts.cflags or "-O3 -std=c99 -fPIC -shared -Iexperiments/llpvm",
+        cflags = opts.cflags or "-O3 -std=c99 -fPIC -shared -Ilua/llpvm/native",
     }
     local runtime = M.load(result.so_path, opts)
     runtime.build = result

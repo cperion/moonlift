@@ -8,7 +8,7 @@
 --   luajit benchmarks/bench_llpvm_image_load.lua
 --   luajit benchmarks/bench_llpvm_image_load.lua full
 
-package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;experiments/llpvm/?.lua;experiments/llpvm/?.mlua;" .. package.path
+package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./lua/llpvm/native/?.lua;./lua/llpvm/native/?.mlua;" .. package.path
 
 local ffi = require("ffi")
 local bit = require("bit")

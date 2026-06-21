@@ -4620,6 +4620,13 @@ pvm_surface_schema_values.lua   schema value lowering
 pvm_surface_union_values.lua    union value lowering
 pvm_surface_cache_values.lua    cache value lowering
 
+-- LLPVM standard-library surface
+lua/llpvm/init.lua              Low-Level PVM Lua facade
+lua/llpvm/bytecode.lua          direct LLPV bytecode image builder
+lua/llpvm/runtime_ffi.lua       thin LuaJIT FFI wrapper over native LLPVM C blob
+lua/llpvm/native/*.mlua         native LLPVM products, regions, stores, phases, ABI seals
+lua/llpvm/native/build_c.lua    LLPVM C blob/header artifact builder
+
 -- LSP / Editor
 editor_diagnostic_facts.lua     diagnostic fact extraction
 editor_completion_items.lua     completion item generation

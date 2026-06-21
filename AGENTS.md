@@ -75,6 +75,9 @@ luajit benchmarks/bench_host_arena_native.lua            # Native host type acce
 
 - **`lua/moonlift/`** — compiler frontend: PVM/ASDL framework (~80+ modules),
   parser, typechecker, tree-to-back lowering, validation, LSP, linker
+- **`lua/llpvm/`** — official Low-Level PVM API surface: no-parens Lua
+  authoring, direct borrowed bytecode images, runtime FFI wrapper, and native
+  Moonlift/C blob implementation under `lua/llpvm/native/`
 - **`src/`** — Rust Cranelift backend: JIT (`lib.rs`), standalone binary
   (`main.rs`), object emission (`lib.rs`), host arena, FFI surface (`ffi.rs`)
 - **`lua/moonlift/pvm.lua`** — recording phase boundary: ASDL context, phases,
@@ -105,6 +108,7 @@ LuaCompile/SpongeJIT architecture discipline and retired-name guardrails.
 | `SOURCE_GRAMMAR.md` | Jump-first source grammar contract |
 | `PROTOCOL_SYNTAX.md` | Named protocol exits (tagged-union region exit protocols) |
 | `PVM_GUIDE.md` | Complete PVM guide — ASDL contexts, structural update, triplets |
+| `LLPVM_GUIDE.md` | Complete LLPVM guide — bytecode-fed native VM substrate, direct borrowed images, streams, phases, recordings, C blob ABI |
 | `COMPILER_PATTERN.md` | Interactive software as compilers philosophy |
 
 ## Language cheatsheet
@@ -343,6 +347,9 @@ Explicit programming makes plain-text tooling powerful again.
 | `run_mlua.lua` | `.mlua` runner (superseded by `moonlift` binary) |
 | `lsp.lua` | LSP server entry point |
 | `lua/moonlift/pvm.lua` | Phase Virtual Machine — recording triplet framework |
+| `lua/llpvm/init.lua` | Official LLPVM Lua API facade |
+| `lua/llpvm/native/llpvm_abi.mlua` | LLPVM native C ABI seals over typed regions |
+| `lua/llpvm/native/build_c.lua` | LLPVM C blob/header artifact builder |
 | `lua/moonlift/back_jit.lua` | Lua→Rust JIT FFI bridge |
 | `lua/moonlift/host.lua` | High-level Lua builder API |
 | `lua/moonlift/ast.lua` | Low-level ASDL node constructor API |

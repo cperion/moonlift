@@ -1,6 +1,6 @@
 # LLPVM Design
 
-Status: architectural design for `experiments/llpvm`.
+Status: official Moonlift API design for `lua/llpvm`.
 
 LLPVM means:
 
@@ -31,7 +31,7 @@ Lua no-parens authoring
 native Moonlift execution
 ```
 
-The project turns that shape into a real standard library experiment.
+LLPVM turns that shape into an official Moonlift standard-library API surface.
 
 ## Doctrine
 
@@ -58,18 +58,31 @@ and future language work:
 
 ```text
 Lua no-parens API
-    -> ASDL authored products
-    -> LLPVM worlds and streams
-    -> Moonlift machine regions
-    -> buffers / diagnostics / C ABI
+    -> PVM-style typed operation authoring
+    -> direct LLPV bytecode image
+    -> native Moonlift VM regions
+    -> handles / streams / buffers / diagnostics / C ABI
 ```
 
 It must not depend on `lua/ui`, MLUI, or the current Lua-hosted PVM triplet
-model. It may learn from them, but it owns its own ASDL.
+model. It may learn from them, but it owns its own operation-world authoring
+surface and bytecode boundary.
 
-## ASDL First
+## PVM-Style Type Authoring
 
-The first implementation artifact is the schema, not helper code.
+Free-form Moonlift remains valid and preferred for bespoke kernels, low-level
+stores, and system internals. LLPVM is the standard-library solution for a
+specific recurring job:
+
+```text
+define a typed instruction language
+define worlds over that language
+construct op streams with PVM-like builders
+load a borrowed image into a native VM
+apply phases and materialize buffers incrementally
+```
+
+The first design artifact is the operation-world schema, not helper code.
 
 Suggested Lua module:
 
@@ -95,8 +108,9 @@ LlPvm.Report
 LlPvm.Diagnostic
 ```
 
-Lua builders write the LLPV image directly. ASDL literals/FastBuilders remain
-available for schema design, tests, and debug tooling. Literals are constructors when the
+The normal Lua facade writes the LLPV image directly. ASDL literals and
+FastBuilders remain available for schema design, tests, and debug tooling, but
+they are not the hot runtime boundary. Literals are constructors when the
 language has the information required to construct the product directly. Do not
 invent parallel constructor APIs when the literal form is already the idiomatic
 Moonlift form.
@@ -477,7 +491,7 @@ The header declares the complete machine surface before implementations exist.
 Suggested header:
 
 ```text
-experiments/llpvm/llpvm_header.mlua
+lua/llpvm/native/llpvm_header.mlua
 ```
 
 ### VM Lifecycle
@@ -821,12 +835,16 @@ the architecture.
 Suggested public functions:
 
 ```c
-int llpvm_open(const LlVmConfig *config, LlVmHandle *out);
-int llpvm_close(LlVmHandle vm);
-int llpvm_load_program(LlVmHandle vm, const LlProgramView *program, LlProgramHandle *out);
-int llpvm_apply_phase(LlVmHandle vm, LlPhaseHandle phase, LlStreamHandle input, LlArgsHandle args, LlStreamHandle *out);
-int llpvm_drain(LlVmHandle vm, LlStreamHandle stream, LlBufferHandle *out);
-int llpvm_report(LlVmHandle vm, LlVmReport *out);
+llpvm_status llpvm_open(const llpvm_config *config, llpvm_vm_ref *out);
+llpvm_status llpvm_close(llpvm_vm_ref vm);
+llpvm_status llpvm_load_program(llpvm_vm_ref vm, const void *bytes,
+                                size_t len, llpvm_stream_ref *out_root);
+llpvm_status llpvm_apply_phase(llpvm_vm_ref vm, llpvm_phase_ref phase,
+                               llpvm_stream_ref input, llpvm_args_ref args,
+                               llpvm_stream_ref *out);
+llpvm_status llpvm_drain(llpvm_vm_ref vm, llpvm_stream_ref stream,
+                         llpvm_buffer_ref *out);
+llpvm_status llpvm_report(llpvm_vm_ref vm, llpvm_vm_report *out);
 ```
 
 The ABI must not expose internal pointers as durable identity. Handles are opaque
@@ -882,13 +900,12 @@ llpvm_status llpvm_load_program(
     llpvm_vm_ref vm,
     const uint8_t *bytes,
     ml_index len,
-    llpvm_program_ref *out);
+    llpvm_stream_ref *out_root);
 ```
 
 After this boundary, Lua should talk in native handles:
 
 ```text
-ProgramRef
 PhaseRef
 StreamRef
 ArgsRef
@@ -906,7 +923,7 @@ Suggested module:
 local ll = require "llpvm"
 ```
 
-The Lua API is no-parens and bytecode-shaped:
+The Lua API is no-parens and PVM-shaped, but its artifact is bytecode:
 
 ```lua
 local vm = ll.vm { cache_bytes = 64 * 1024 * 1024 }
@@ -954,8 +971,9 @@ local output_stream = lower {
 } (input)
 ```
 
-Lua constructs schemas, worlds, op constructors, and machine families. Moonlift
-owns execution, buffers, cache, and diagnostics. Note wasm is not planned yet its just an illustration.
+Lua constructs operation schemas, worlds, op constructors, streams, and machine
+families. The native VM owns execution, buffers, cache, and diagnostics. Note
+wasm is not planned yet its just an illustration.
 
 ### Implemented Lua Authoring Surface
 
@@ -1095,24 +1113,28 @@ plain rebuilds when the value is cheap or intentionally regenerated.
 Keep the folder flat:
 
 ```text
-experiments/llpvm/
-  design.md
-  llpvm_header.mlua
-  llpvm_memory.mlua
-  llpvm_symbol_store.mlua
-  llpvm_kernel_store.mlua
-  llpvm_schema.mlua
-  llpvm_op_store.mlua
-  llpvm_buffer_store.mlua
-  llpvm_stream.mlua
-  llpvm_args.mlua
-  llpvm_machine.mlua
-  llpvm_phase.mlua
-  llpvm_recording.mlua
-  llpvm_cache.mlua
-  llpvm_report.mlua
-  llpvm_abi.mlua
-  llpvm_build_c.lua
+lua/llpvm/
+  init.lua
+  asdl.lua
+  bytecode.lua
+  runtime_ffi.lua
+  README_C_API.md
+  IMPLEMENTATION_NOTES.md
+  DESIGN.md
+  native/
+    llpvm_header.mlua
+    llpvm_memory.mlua
+    llpvm_symbol_store.mlua
+    llpvm_kernel_store.mlua
+    llpvm_schema.mlua
+    llpvm_buffer_store.mlua
+    llpvm_args.mlua
+    llpvm_machine.mlua
+    llpvm_cache.mlua
+    llpvm_report.mlua
+    llpvm_image.mlua
+    llpvm_abi.mlua
+    build_c.lua
 ```
 
 Implementation rules:

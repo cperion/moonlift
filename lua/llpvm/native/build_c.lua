@@ -1,10 +1,10 @@
--- llpvm_build_c.lua -- Build the LLPVM C artifact through the executed .mlua API.
+-- llpvm.native.build_c -- Build the LLPVM C artifact through the executed .mlua API.
 --
 -- LLPVM modules use moon.require, so the C backend boundary is the artifact
 -- API. The artifact owns generated implementation C, generated header C, and
 -- explicit support C that can be written as one includable/compilable blob.
 
-package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;experiments/llpvm/?.lua;experiments/llpvm/?.mlua;" .. package.path
+package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./lua/llpvm/native/?.lua;./lua/llpvm/native/?.mlua;" .. package.path
 
 local moon = require("moonlift")
 
@@ -82,22 +82,31 @@ local function shell_quote(s)
     return "'" .. tostring(s):gsub("'", "'\\''") .. "'"
 end
 
+local function ensure_parent(path)
+    local dir = tostring(path):match("^(.*)/[^/]+$")
+    if dir and dir ~= "" then
+        os.execute("mkdir -p " .. shell_quote(dir))
+    end
+end
+
 function M.emit_artifact(opts)
     opts = opts or {}
     local emit_opts = {}
     for k, v in pairs(opts) do emit_opts[k] = v end
     emit_opts.site = emit_opts.site or "llpvm C blob"
     emit_opts.support_source = emit_opts.support_source or LLPVM_SUPPORT_SOURCE
-    return moon.emit_c_file_artifact("experiments/llpvm/llpvm_abi.mlua", opts.name or "llpvm", emit_opts)
+    return moon.emit_c_file_artifact("lua/llpvm/native/llpvm_abi.mlua", opts.name or "llpvm", emit_opts)
 end
 
 function M.write_artifact(path, opts)
-    path = path or "experiments/llpvm/llpvm_amalgam.c"
+    path = path or "target/llpvm/llpvm_amalgam.c"
     opts = opts or {}
     local artifact = M.emit_artifact(opts)
+    ensure_parent(path)
+    ensure_parent(opts.h_path or "target/llpvm/llpvm_amalgam.h")
     local write_opts = {
         combined_path = path,
-        h_path = opts.h_path or "experiments/llpvm/llpvm_amalgam.h",
+        h_path = opts.h_path or "target/llpvm/llpvm_amalgam.h",
     }
     artifact:write(write_opts)
     return artifact.combined, path, artifact
@@ -105,10 +114,11 @@ end
 
 function M.compile_object(opts)
     opts = opts or {}
-    local c_path = opts.c_path or "experiments/llpvm/llpvm_amalgam.c"
-    local o_path = opts.o_path or "experiments/llpvm/llpvm_amalgam.o"
+    local c_path = opts.c_path or "target/llpvm/llpvm_amalgam.c"
+    local o_path = opts.o_path or "target/llpvm/llpvm_amalgam.o"
     local cc = opts.cc or os.getenv("CC") or "gcc"
-    local cflags = opts.cflags or "-O3 -std=c99 -Iexperiments/llpvm"
+    local cflags = opts.cflags or "-O3 -std=c99 -Ilua/llpvm/native"
+    ensure_parent(o_path)
     local cmd1 = table.concat({ cc, cflags, "-c", shell_quote(c_path), "-o", shell_quote(o_path) }, " ")
     local ok1 = os.execute(cmd1)
     assert(ok1 == true or ok1 == 0, "C compile failed: " .. cmd1)
@@ -117,10 +127,11 @@ end
 
 function M.compile_shared(opts)
     opts = opts or {}
-    local c_path = opts.c_path or "experiments/llpvm/llpvm_amalgam.c"
-    local so_path = opts.so_path or "experiments/llpvm/llpvm_amalgam.so"
+    local c_path = opts.c_path or "target/llpvm/llpvm_amalgam.c"
+    local so_path = opts.so_path or "target/llpvm/llpvm_amalgam.so"
     local cc = opts.cc or os.getenv("CC") or "gcc"
-    local cflags = opts.cflags or "-O3 -std=c99 -fPIC -shared -Iexperiments/llpvm"
+    local cflags = opts.cflags or "-O3 -std=c99 -fPIC -shared -Ilua/llpvm/native"
+    ensure_parent(so_path)
     local cmd = table.concat({ cc, cflags, shell_quote(c_path), "-o", shell_quote(so_path) }, " ")
     local ok = os.execute(cmd)
     assert(ok == true or ok == 0, "C shared compile failed: " .. cmd)
@@ -141,7 +152,7 @@ function M.build(opts)
     end
     return {
         c_path = c_path,
-        h_path = opts.h_path or "experiments/llpvm/llpvm_amalgam.h",
+        h_path = opts.h_path or "target/llpvm/llpvm_amalgam.h",
         o_path = o_path,
         header_bytes = #(artifact.header or ""),
         bytes = #src,
@@ -159,7 +170,7 @@ function M.build_shared(opts)
     })
     return {
         c_path = c_path,
-        h_path = opts.h_path or "experiments/llpvm/llpvm_amalgam.h",
+        h_path = opts.h_path or "target/llpvm/llpvm_amalgam.h",
         so_path = so_path,
         header_bytes = #(artifact.header or ""),
         bytes = #src,

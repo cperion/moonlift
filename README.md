@@ -841,11 +841,22 @@ luajit lsp.lua
 
 ## Standard Library
 
-Moonlift's standard library lives under `lib/`:
+Moonlift has two standard-library surfaces:
+
+```text
+lib/          small source-level libraries and region combinators
+lua/llpvm/    official Low-Level PVM API for typed instruction languages
+```
 
 | Module | Description |
 |---|---|
 | `region_compose.lua` | **Region composition algebra.** PEG-style combinators (`seq`, `choice`, `star`, `plus`, `opt`, `pred`, `not_pred`) that generate native jump-first regions at Lua generation time. Exposed as `moonlift.region_compose` |
+| `llpvm` | **Low-Level PVM.** PVM-style type authoring for operation worlds plus direct borrowed bytecode images, native handles, streams, phases, recordings, cache, C blob/header emission, and LuaJIT FFI runtime loading. |
+
+Free-form Moonlift source is still the language: write `struct`, `handle`,
+`region`, and `func` directly for bespoke kernels and system internals. LLPVM is
+the standard-library solution when the task is to author a typed instruction
+language and feed it to an incremental bytecode VM.
 
 ---
 
@@ -916,6 +927,7 @@ moonlift/
 │   ├── editor_*                LSP features
 │   ├── lsp_*                   LSP protocol
 │   └── region_compose.lua      Region composition algebra
+├── lua/llpvm/                  Official Low-Level PVM API, bytecode builder, native C blob
 ├── src/                        Rust Cranelift backend + standalone binary
 │   ├── lib.rs                  Full Cranelift backend (JIT + object emission)
 │   ├── main.rs                 Standalone `moonlift` binary
@@ -1077,6 +1089,22 @@ explicit facts, not parser guesses about loop shapes.
 Parse → typecheck → lower → validate → emit. Each phase produces explicit
 facts, decisions, proofs, and rejects. Diagnostics are ASDL values consumed by
 tools and LSP features — not format strings rediscovered from raw text.
+
+### 5.5. Typed instruction languages use LLPVM
+
+Free-form Moonlift remains the base layer for native kernels. When the design
+task is "define a small typed operation language, stream it, phase it, cache it,
+and run it through a portable runtime", the standard answer is LLPVM:
+
+```text
+PVM-style authoring
+    -> operation worlds and streams
+    -> borrowed bytecode image
+    -> native VM / C blob
+```
+
+That keeps type authoring as rich as PVM while moving execution and ownership to
+a portable native substrate.
 
 ### 6. Monomorphic compilation
 

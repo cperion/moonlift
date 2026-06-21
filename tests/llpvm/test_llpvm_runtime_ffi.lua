@@ -1,4 +1,4 @@
-package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;experiments/llpvm/?.lua;experiments/llpvm/?.mlua;" .. package.path
+package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./lua/llpvm/native/?.lua;./lua/llpvm/native/?.mlua;" .. package.path
 
 local ll = require("llpvm")
 local Runtime = require("llpvm.runtime_ffi")

@@ -100,8 +100,8 @@ function M.require(name)
         "./experiments/mwui/?/init.mlua",
         "./experiments/mlui/?.mlua",
         "./experiments/mlui/?/init.mlua",
-        "./experiments/llpvm/?.mlua",
-        "./experiments/llpvm/?/init.mlua",
+        "./lua/llpvm/native/?.mlua",
+        "./lua/llpvm/native/?/init.mlua",
     }) do
         local path = template:gsub("%?", name)
         local f = io.open(path)
