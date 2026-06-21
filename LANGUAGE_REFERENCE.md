@@ -285,7 +285,76 @@ local result = moon.eval(src, ...)                 -- loadstring + immediate cal
 ```lua
 local obj_bytes = moon.emit_object(src, path, name)   -- emit .o bytes
 local so_bytes  = moon.emit_shared(src, path, name)   -- emit .so/.dylib bytes
+local artifact  = moon.emit_c_artifact(src, opts)      -- source/header/support/combined
+local artifact  = moon.emit_c_file_artifact(file, opts)
 ```
+
+The C backend returns an artifact, not a loose source string. The artifact is the
+ABI product: generated implementation C, generated header, explicit support
+source, and a combined translation unit suitable for one-file C or WASM builds.
+
+For `.mlua` modules, execute the file and emit from the resulting value graph:
+
+```lua
+local module = moon.loadfile("lib.mlua")()
+local artifact = module:emit_c_artifact { name = "lib" }
+
+-- Equivalent file facade:
+local artifact = moon.emit_c_file_artifact("lib.mlua", {
+    name = "lib",
+    combined_path = "lib.c",
+    h_path = "lib.h",
+})
+```
+
+Important C-emission distinctions:
+
+- `moon.emit_c_artifact(src, ...)` parses a self-contained Moonlift source
+  string and returns a C artifact.
+- `moon.emit_c_file_artifact(path, ...)` executes a hosted `.mlua` file, follows
+  `moon.require` dependencies, bundles returned Moonlift values, then returns a
+  C artifact table:
+  - `artifact.source`: generated Moonlift C translation unit.
+  - `artifact.header`: generated C header for the same unit.
+  - `artifact.support`: optional support source supplied through
+    `support_source` / `support_sources`.
+  - `artifact.combined`: `support .. source`, suitable for compiling as one C
+    file when support pins should be bundled into the blob.
+  - `artifact:write{ c_path=..., h_path=..., combined_path=... }`: write any
+    selected generated files.
+- `moon.bundle_file(path, name):emit_c_artifact(opts)` is the explicit form of
+  the same executed-module path.
+- `module:emit_c_artifact(opts)` is correct only when the loaded value is a real
+  `moon.module`/bundle object or otherwise preserves its dependency closure.
+
+`support_source` is deliberately explicit. The compiler can combine support
+code with the emitted source, but it does not infer semantics for arbitrary
+extern pins. Runtime support such as allocators, host tables, browser shims, or
+embedded platform hooks should be named support code passed to the artifact API.
+
+Hosted `.mlua` fragments that are returned as plain Lua tables must not depend
+on ambient Lua variables at C emission time. Any extern, function, region,
+struct, union, or expression fragment used by a packed item must be part of that
+item's recorded dependency closure or returned from a required module and packed
+by the bundle. Otherwise the C path may typecheck a fragment after its Lua
+environment is gone and report unresolved names.
+
+For C-bound modules, prefer:
+
+```lua
+local M = moon.module("lib")
+M:add_func(fn)
+M:add_region(region_frag)
+return M
+```
+
+or return a table whose packable values have no hidden Lua-local dependencies.
+
+C emission preserves handle source identity in MoonCode signatures even when
+different handles share the same C representation such as `u32`. `UserRef` and
+`FileRef` may both lower to `uint32_t`, but their generated internal signatures
+remain distinct so validation does not collapse protocols that happen to use the
+same raw representation.
 
 **Inside `.mlua` files**, the `moon` table provides `moon.require` and `moon.emit_object`.
 
@@ -561,6 +630,11 @@ checks are enabled) or undefined behavior (when checks are elided by facts).
 |---|---|---|
 | `len(v)` | `index` | Number of elements in the view |
 | `v[i]` | `T` | Element at index `i` |
+
+Views are not ordinary source structs. Do not write `v.len`, `v.data`, or
+`v.stride` in Moonlift source. Use `len(v)` and `v[i]`; when raw pointer access
+is required, pass the pointer as a separate `ptr(T)` parameter or store it in an
+explicit product that owns that ABI.
 
 ### 5.4 Access-qualified and lease types
 
@@ -3457,6 +3531,21 @@ via `@{expr}`:
 ```moonlift
 -- Inside .mlua, @{byte} splices the Lua number 65 into the expression position.
 ```
+
+Header constants should stay in Lua and be spliced at use sites:
+
+```lua
+local H = moon.require("my_header")
+```
+
+```moonlift
+if tag == as(u8, @{H.MY_TAG_DONE}) then jump done end
+return Status{ code = @{H.STATUS_OK}, detail = 0 }
+```
+
+Do not copy those constants into implementation files as disconnected numeric
+literals. The header remains the source of truth; the splice evaluates Lua at
+load time and inserts the literal into the Moonlift program.
 
 Use fragments with `emit`; do not generate call wrappers for zero-cost control
 composition:

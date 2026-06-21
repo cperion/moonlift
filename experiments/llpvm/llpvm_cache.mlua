@@ -1,0 +1,230 @@
+-- llpvm_cache.mlua -- Recording and cache store protocols.
+
+local H = moon.require("llpvm_header")
+local T = H.T
+local R = H.R
+local Mem = moon.require("llpvm_memory")
+local Buffers = moon.require("llpvm_buffer_store")
+local Machine = moon.require("llpvm_machine")
+
+local llpvm_recording_index = func(ref: T.LlRecordingRef): index
+    return as(index, repr(ref) - 1)
+end
+
+local llpvm_cache_index = func(ref: T.LlCacheEntryRef): index
+    return as(index, repr(ref) - 1)
+end
+
+local llpvm_recording_live = func(vm: ptr(T.LlVm), ref: T.LlRecordingRef): bool
+    if ref == LlRecordingRef.from_repr(0) then return false end
+    let idx: index = llpvm_recording_index(ref)
+    if idx >= vm.recordings.n then return false end
+    return vm.recordings.slots[idx].live
+end
+
+local llpvm_cache_live = func(vm: ptr(T.LlVm), ref: T.LlCacheEntryRef): bool
+    if ref == LlCacheEntryRef.from_repr(0) then return false end
+    let idx: index = llpvm_cache_index(ref)
+    if idx >= vm.cache.n then return false end
+    return vm.cache.slots[idx].live
+end
+
+local llpvm_key_equal = func(a: T.LlPhaseKey, b: T.LlPhaseKey): bool
+    if a.phase ~= b.phase then return false end
+    if a.input_identity ~= b.input_identity then return false end
+    if a.args ~= b.args then return false end
+    if a.input_world_generation ~= b.input_world_generation then return false end
+    if a.phase_generation ~= b.phase_generation then return false end
+    return true
+end
+
+local llpvm_grow_recording_slots = region grow_recording_slots(vm: ptr(T.LlVm), needed: index;
+    grown
+  | oom(needed: index))
+entry start()
+    let a: ptr(T.LlAllocator) = Mem.llpvm_get_alloc(vm)
+    emit @{Mem.llpvm_grow_elems}(a, &(vm.recordings.n), &(vm.recordings.cap), as(ptr(ptr(u8)), &(vm.recordings.slots)), sizeof(T.LlRecordingSlot), as(index, 8), needed;
+        grown = grown,
+        oom = oom)
+end
+end
+
+local llpvm_grow_cache_slots = region grow_cache_slots(vm: ptr(T.LlVm), needed: index;
+    grown
+  | oom(needed: index))
+entry start()
+    let a: ptr(T.LlAllocator) = Mem.llpvm_get_alloc(vm)
+    emit @{Mem.llpvm_grow_elems}(a, &(vm.cache.n), &(vm.cache.cap), as(ptr(ptr(u8)), &(vm.cache.slots)), sizeof(T.LlCacheEntrySlot), as(index, 8), needed;
+        grown = grown,
+        oom = oom)
+end
+end
+
+local ll_lookup_cache = region @{R.ll_lookup_cache}
+entry start()
+    jump scan(i = as(index, 0))
+end
+block scan(i: index)
+    if i >= vm.cache.n then jump miss end
+    let slot: T.LlCacheEntrySlot = vm.cache.slots[i]
+    if slot.live then
+        if llpvm_key_equal(slot.value.key, key) then
+            if slot.value.generation == key.phase_generation then
+                jump hit(cache_entry = LlCacheEntryRef.from_repr(as(u32, i + 1)))
+            end
+            jump stale(cache_entry = LlCacheEntryRef.from_repr(as(u32, i + 1)))
+        end
+    end
+    jump scan(i = i + 1)
+end
+end
+
+local ll_lookup_pending = region @{R.ll_lookup_pending}
+entry start()
+    jump scan(i = as(index, 0))
+end
+block scan(i: index)
+    if i >= vm.recordings.n then jump none end
+    let slot: T.LlRecordingSlot = vm.recordings.slots[i]
+    if slot.live then
+        if slot.value.state == as(u8, @{H.LL_RECORDING_OPEN}) then
+            if llpvm_key_equal(slot.value.key, key) then
+                jump pending(recording = LlRecordingRef.from_repr(as(u32, i + 1)))
+            end
+        end
+    end
+    jump scan(i = i + 1)
+end
+end
+
+local ll_start_recording = region @{R.ll_start_recording}
+entry start()
+    emit @{ll_lookup_pending}(vm, key;
+        pending = already_pending,
+        none = insert)
+end
+block insert()
+    emit @{llpvm_grow_recording_slots}(vm, as(index, 1);
+        grown = have_slot,
+        oom = oom)
+end
+block have_slot()
+    let s: T.LlStream = Buffers.llpvm_stream_value(vm, source)
+    emit @{Buffers.ll_buffer_open}(vm, s.world, as(index, 8);
+        buffer = make_recording,
+        invalid_world = bad_world,
+        memory_exhausted = oom)
+end
+block make_recording(buffer: T.LlBufferRef)
+    let idx: index = vm.recordings.n
+    let value: T.LlRecording = LlRecording{
+        key = key,
+        source = source,
+        buffer = buffer,
+        produced = 0,
+        readers = 0,
+        state = as(u8, @{H.LL_RECORDING_OPEN}),
+        commit_allowed = true,
+    }
+    vm.recordings.slots[idx] = LlRecordingSlot{ gen = as(u32, vm.recordings.generation), live = true, value = value }
+    let p_n: ptr(index) = &(vm.recordings.n)
+    p_n[0] = idx + 1
+    jump recording(recording = LlRecordingRef.from_repr(as(u32, idx + 1)))
+end
+block bad_world(world: T.LlWorldRef)
+    jump memory_exhausted(needed = 0)
+end
+block oom(needed: index)
+    jump memory_exhausted(needed = needed)
+end
+end
+
+local ll_advance_recording = region @{R.ll_advance_recording}
+entry start()
+    if not llpvm_recording_live(vm, recording) then jump exhausted_no_commit end
+    let ridx: index = llpvm_recording_index(recording)
+    let r: T.LlRecording = vm.recordings.slots[ridx].value
+    emit @{Buffers.ll_next_op}(vm, r.source;
+        op = got_op,
+        done = done,
+        blocked = done,
+        failed = failed)
+end
+block got_op(op: T.LlOpRef)
+    let ridx: index = llpvm_recording_index(recording)
+    let p: ptr(index) = &(vm.recordings.slots[ridx].value.produced)
+    p[0] = p[0] + 1
+    jump op(op = op)
+end
+block done()
+    jump exhausted_no_commit
+end
+end
+
+local ll_finish_recording = region @{R.ll_finish_recording}
+entry start()
+    if not llpvm_recording_live(vm, recording) then jump not_cacheable end
+    let ridx: index = llpvm_recording_index(recording)
+    let r: T.LlRecording = vm.recordings.slots[ridx].value
+    if not r.commit_allowed then jump discarded_partial(produced = r.produced) end
+    emit @{llpvm_grow_cache_slots}(vm, as(index, 1);
+        grown = install,
+        oom = fail_oom)
+end
+block install()
+    let ridx: index = llpvm_recording_index(recording)
+    let r: T.LlRecording = vm.recordings.slots[ridx].value
+    let cidx: index = vm.cache.n
+    let cache_value: T.LlCacheEntry = LlCacheEntry{
+        key = r.key,
+        buffer = r.buffer,
+        complete = true,
+        bytes = Buffers.llpvm_buffer_value(vm, r.buffer).bytes,
+        generation = r.key.phase_generation,
+    }
+    vm.cache.slots[cidx] = LlCacheEntrySlot{ gen = as(u32, vm.cache.generation), live = true, value = cache_value }
+    let p_cn: ptr(index) = &(vm.cache.n)
+    p_cn[0] = cidx + 1
+    let p_live: ptr(bool) = &(vm.recordings.slots[ridx].live)
+    p_live[0] = false
+    jump committed(cache_entry = LlCacheEntryRef.from_repr(as(u32, cidx + 1)))
+end
+block fail_oom(needed: index)
+    jump failed(diag = LlDiagnosticRef.from_repr(0))
+end
+end
+
+local ll_evict_phase = region @{R.ll_evict_phase}
+entry start()
+    if not Machine.llpvm_phase_live(vm, phase) then jump missing_phase(phase = phase) end
+    jump scan(i = as(index, 0), count = as(index, 0))
+end
+block scan(i: index, count: index)
+    if i >= vm.cache.n then jump evicted(count = count) end
+    let slot: T.LlCacheEntrySlot = vm.cache.slots[i]
+    if slot.live then
+        if slot.value.key.phase == phase then
+            let p_live: ptr(bool) = &(vm.cache.slots[i].live)
+            p_live[0] = false
+            jump scan(i = i + 1, count = count + 1)
+        end
+    end
+    jump scan(i = i + 1, count = count)
+end
+end
+
+return {
+    llpvm_recording_index = llpvm_recording_index,
+    llpvm_cache_index = llpvm_cache_index,
+    llpvm_recording_live = llpvm_recording_live,
+    llpvm_cache_live = llpvm_cache_live,
+    llpvm_key_equal = llpvm_key_equal,
+    llpvm_grow_recording_slots = llpvm_grow_recording_slots,
+    llpvm_grow_cache_slots = llpvm_grow_cache_slots,
+    ll_lookup_cache = ll_lookup_cache,
+    ll_lookup_pending = ll_lookup_pending,
+    ll_start_recording = ll_start_recording,
+    ll_advance_recording = ll_advance_recording,
+    ll_finish_recording = ll_finish_recording,
+    ll_evict_phase = ll_evict_phase,
+}

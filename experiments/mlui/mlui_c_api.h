@@ -250,9 +250,9 @@ typedef void (*mlui_free_fn)(void *ctx, void *ptr, size_t size, size_t align);
 
 typedef struct mlui_allocator {
     void *ctx;
-    mlui_alloc_fn alloc;
-    mlui_realloc_fn realloc;
-    mlui_free_fn free;
+    mlui_alloc_fn alloc_fn;
+    mlui_realloc_fn realloc_fn;
+    mlui_free_fn free_fn;
 } mlui_allocator;
 
 typedef struct mlui_kernel_config {

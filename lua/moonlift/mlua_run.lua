@@ -395,21 +395,51 @@ module_table_mt.__index = module_table_mt
 local function is_packable_value(v)
     if type(v) ~= "table" then return false end
     local kind = rawget(v, "kind")
-    return kind == "func" or kind == "region_frag" or kind == "expr_frag"
-        or kind == "struct" or kind == "union" or kind == "handle" or kind == "extern"
+    return kind == "func" or kind == "extern_func"
+        or kind == "region_frag" or kind == "expr_frag"
+        or kind == "struct" or kind == "union"
 end
 
-function module_table_mt:compile(opts)
+function module_table_mt:to_bundle(opts)
     local moon = require("moonlift")
     local name = (opts and opts.module_name) or rawget(self, "__moonlift_module_name") or "mlua_module"
     local bundle = moon.bundle(tostring(name):gsub("[^_%w]", "_"))
+    local dep_names = moon._mlua_cache_order or {}
+    for i = 1, #dep_names do
+        local dep = moon._mlua_cache[dep_names[i]]
+        if type(dep) == "table" then
+            local dep_keys = {}
+            for k, v in pairs(dep) do
+                if type(k) == "string" and is_packable_value(v) then dep_keys[#dep_keys + 1] = k end
+            end
+            table.sort(dep_keys)
+            for j = 1, #dep_keys do bundle:pack(dep[dep_keys[j]]) end
+        end
+    end
     local keys = {}
     for k, v in pairs(self) do
         if type(k) == "string" and is_packable_value(v) then keys[#keys + 1] = k end
     end
     table.sort(keys)
     for i = 1, #keys do bundle:pack(self[keys[i]]) end
-    return bundle:compile(opts)
+    return bundle
+end
+
+function module_table_mt:compile(opts)
+    return self:to_bundle(opts):compile(opts)
+end
+
+function module_table_mt:emit_c_artifact(opts)
+    return self:to_bundle(opts):emit_c_artifact(opts)
+end
+
+function module_table_mt:c_artifact(path_or_opts)
+    local opts = type(path_or_opts) == "table" and path_or_opts or nil
+    return self:to_bundle(opts):c_artifact(path_or_opts)
+end
+
+function module_table_mt:compile_c(opts)
+    return self:to_bundle(opts):compile_c(opts)
 end
 
 local function wrap_result(value, chunk_name)

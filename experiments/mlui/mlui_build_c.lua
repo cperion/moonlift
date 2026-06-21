@@ -1,67 +1,73 @@
--- mlui_build_c.lua — Build the MLUI C artifact.
+-- mlui_build_c.lua -- Build the MLUI C amalgam from the public file API.
 --
--- This is a build orchestrator.  It loads all MLUI modules and provides
--- hooks for C emission.  Full C backend emission requires moon.emit_c
--- which is not yet in the public API; this file documents the intent
--- and provides the module bundle that a build script would use.
+-- .mlua files are Lua programs that produce Moonlift values.  The build
+-- boundary is moon.emit_c_file, which executes the module, follows
+-- moon.require dependencies, bundles the resulting values, and emits C.
+
+package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;experiments/mlui/?.lua;experiments/mlui/?.mlua;" .. package.path
+
+local moon = require("moonlift")
 
 local M = {}
 
-local function find_mlui_files()
-    local dir = "experiments/mlui"
-    local names = {
-        "mlui_types.mlua", "mlui_memory.mlua", "mlui_kernel_store.mlua",
-        "mlui_resource_store.mlua", "mlui_program_validate.mlua",
-        "mlui_program_import.mlua", "mlui_compose_expand.mlua",
-        "mlui_style_resolve.mlua", "mlui_scene_lower.mlua",
-        "mlui_measure.mlua", "mlui_solve.mlua", "mlui_render_ops.mlua",
-        "mlui_runtime_report.mlua", "mlui_interact.mlua", "mlui_abi.mlua",
+local function shell_quote(s)
+    return "'" .. tostring(s):gsub("'", "'\\''") .. "'"
+end
+
+function M.emit_c_source(opts)
+    opts = opts or {}
+    local emit_opts = {}
+    for k, v in pairs(opts) do emit_opts[k] = v end
+    emit_opts.site = emit_opts.site or "mlui C amalgam"
+    return moon.emit_c_file("experiments/mlui/mlui_abi.mlua", nil, opts.name or "mlui", emit_opts)
+end
+
+function M.write_c(path, opts)
+    path = path or "experiments/mlui/mlui_amalgam.c"
+    local src = M.emit_c_source(opts)
+    local f = assert(io.open(path, "wb"))
+    f:write(src)
+    f:close()
+    return src, path
+end
+
+function M.compile_object(opts)
+    opts = opts or {}
+    local c_path = opts.c_path or "experiments/mlui/mlui_amalgam.c"
+    local o_path = opts.o_path or "experiments/mlui/mlui_amalgam.o"
+    local cc = opts.cc or os.getenv("CC") or "gcc"
+    local cflags = opts.cflags or "-O3 -std=c99 -Iexperiments/mlui"
+    local cmd = table.concat({
+        cc, cflags, "-c", shell_quote(c_path), "-o", shell_quote(o_path)
+    }, " ")
+    local ok = os.execute(cmd)
+    assert(ok == true or ok == 0, "C compile failed: " .. cmd)
+    return o_path
+end
+
+function M.build(opts)
+    opts = opts or {}
+    local src, c_path = M.write_c(opts.c_path, opts)
+    local o_path
+    if opts.compile ~= false then
+        o_path = M.compile_object({
+            c_path = c_path,
+            o_path = opts.o_path,
+            cc = opts.cc,
+            cflags = opts.cflags,
+        })
+    end
+    return {
+        c_path = c_path,
+        o_path = o_path,
+        bytes = #src,
     }
-    local files = {}
-    for _, name in ipairs(names) do
-        local path = dir .. "/" .. name
-        local f = io.open(path, "r")
-        if f then f:close(); files[#files + 1] = path end
-    end
-    return files
 end
 
--- Load all MLUI modules and return the ABI module table.
--- All modules must compile.
-function M.load_all()
-    local moon = require("moonlift")
-    local files = find_mlui_files()
-    -- Load in dependency order
-    local bundles = {}
-    for _, path in ipairs(files) do
-        local ch = moon.loadfile(path)
-        bundles[path] = ch()
-    end
-    return bundles
+if ... == nil then
+    local result = M.build({})
+    io.write(string.format("MLUI C: %s (%d bytes)\n", result.c_path, result.bytes))
+    if result.o_path then io.write("MLUI object: " .. result.o_path .. "\n") end
 end
-
--- Verify all modules load without error.
-function M.verify()
-    local ok, err = pcall(M.load_all)
-    if not ok then
-        return false, tostring(err)
-    end
-    return true, "all " .. #find_mlui_files() .. " modules load"
-end
-
--- Emit a C source blob for the MLUI kernel.
--- In the current API, this requires the internal C backend:
---   local CEmit = require("moonlift.c_emit")
---   local c_src = CEmit.Define(T).emit(program, opts)
--- For now, this is a documentation placeholder.
-function M.emit_c_source()
-    error("moon.emit_c is not in the public API yet. " ..
-          "Use the internal C backend via require('moonlift.c_emit') " ..
-          "once the MLUI program is compiled through the frontend pipeline.")
-end
-
--- Smoke test: verify all modules load.
-local ok, msg = M.verify()
-print("MLUI build: " .. msg)
 
 return M

@@ -305,7 +305,9 @@ block render_children_phase(has_push: bool)
 end
 block render_child_loop(idx: u32, end_i: u32, did_push: bool)
     if idx >= end_i then jump pop_phase(did_push = did_push) end
-    call mlui_render_node(kernel, as(index, idx), as(index, idx), idx, end_i, did_push;
+    let child_idx: u32 = kernel[0].scene.children[as(index, idx)]
+    call mlui_render_node(kernel, as(index, child_idx), as(index, child_idx),
+                         idx, end_i, did_push;
         done = child_done, oom = oom_exit)
 end
 block child_done(state_idx: u32, state_end: u32, state_did_push: bool)
@@ -325,6 +327,75 @@ block oom_exit(needed: index)
 end
 end
 
+local mlui_render_linear_node = region mlui_render_linear_node(kernel: ptr(T.UiKernel), i: index;
+    done(next: index) | oom(needed: index))
+entry start()
+    emit mlui_emit_box(kernel, i, i; done = text_phase, oom = oom_exit)
+end
+block text_phase()
+    emit mlui_emit_text(kernel, i; done = hit_phase, oom = oom_exit)
+end
+block hit_phase()
+    let sn: T.UiSolveNode = kernel[0].solve.nodes[i]
+    if sn.role ~= as(u8, 0) then
+        let op: T.UiViewOp = T.UiViewOp{
+            kind = as(u8, VIEW_HIT), id = sn.id, rect = sn.placed.content,
+            other_id = T.UiId.from_repr(0), first = 0, count = 0, axis = 0,
+            role = sn.role, policy = 0, cursor = 0, layer_kind = 0,
+            placement = 0, flags = 0, order = 0.0, dx = 0.0, dy = 0.0,
+            content_w = 0.0, content_h = 0.0}
+        emit mlui_write_op(kernel, op; written = wrap_phase, oom = oom_exit)
+    end
+    jump wrap_phase
+end
+block wrap_phase()
+    let sn: T.UiSolveNode = kernel[0].solve.nodes[i]
+    if sn.kind == as(u8, SOLVE_DRAG_SOURCE) then
+        let op: T.UiViewOp = T.UiViewOp{
+            kind = as(u8, VIEW_DRAG_SOURCE), id = sn.id, rect = sn.placed.content,
+            other_id = T.UiId.from_repr(0), first = 0, count = 0, axis = 0,
+            role = 0, policy = 0, cursor = 0, layer_kind = 0,
+            placement = 0, flags = 0, order = 0.0, dx = 0.0, dy = 0.0,
+            content_w = 0.0, content_h = 0.0}
+        emit mlui_write_op(kernel, op; written = wrap_written, oom = oom_exit)
+    end
+    if sn.kind == as(u8, SOLVE_DROP_TARGET) then
+        let op: T.UiViewOp = T.UiViewOp{
+            kind = as(u8, VIEW_DROP_TARGET), id = sn.id, rect = sn.placed.content,
+            other_id = T.UiId.from_repr(0), first = 0, count = 0, axis = 0,
+            role = 0, policy = 0, cursor = 0, layer_kind = 0,
+            placement = 0, flags = 0, order = 0.0, dx = 0.0, dy = 0.0,
+            content_w = 0.0, content_h = 0.0}
+        emit mlui_write_op(kernel, op; written = wrap_written, oom = oom_exit)
+    end
+    if sn.kind == as(u8, SOLVE_DROP_SLOT) then
+        let op: T.UiViewOp = T.UiViewOp{
+            kind = as(u8, VIEW_DROP_SLOT), id = sn.id, rect = sn.placed.content,
+            other_id = T.UiId.from_repr(0), first = 0, count = 0, axis = 0,
+            role = 0, policy = 0, cursor = 0, layer_kind = 0,
+            placement = 0, flags = 0, order = 0.0, dx = 0.0, dy = 0.0,
+            content_w = 0.0, content_h = 0.0}
+        emit mlui_write_op(kernel, op; written = wrap_written, oom = oom_exit)
+    end
+    emit mlui_emit_wrappers(kernel, i; done = pop_phase, oom = oom_exit)
+end
+block wrap_written()
+    emit mlui_emit_wrappers(kernel, i; done = pop_phase, oom = oom_exit)
+end
+block pop_phase(has_push: bool)
+    if has_push then
+        emit mlui_emit_pop_wrappers(kernel, i; done = node_done, oom = oom_exit)
+    end
+    jump node_done
+end
+block node_done()
+    jump done(next = i + 1)
+end
+block oom_exit(needed: index)
+    jump oom(needed = needed)
+end
+end
+
 --------------------------------------------------------------------------------
 -- R.ui_render_ops: entry point.
 --------------------------------------------------------------------------------
@@ -335,10 +406,16 @@ entry start()
     if kernel[0].solve.n_node ~= kernel[0].scene.n_node then
         jump decor_mismatch(at = kernel[0].solve.n_node)
     end
-    emit mlui_render_node(kernel, as(index, 0), as(index, 0), as(u32, 0), as(u32, 0), false;
-        done = all_done, oom = oom_exit)
+    jump render_loop(i = as(index, 0))
 end
-block all_done(state_idx: u32, state_end: u32, state_did_push: bool)
+block render_loop(i: index)
+    if i >= kernel[0].solve.n_node then jump all_done end
+    emit mlui_render_linear_node(kernel, i; done = node_done, oom = oom_exit)
+end
+block node_done(next: index)
+    jump render_loop(i = next)
+end
+block all_done()
     jump rendered(ops = as(ptr(T.UiViewBuffer), 0))
 end
 block oom_exit(needed: index)
@@ -411,6 +488,7 @@ return {
     mlui_emit_wrappers = mlui_emit_wrappers,
     mlui_emit_pop_wrappers = mlui_emit_pop_wrappers,
     mlui_render_node = mlui_render_node,
+    mlui_render_linear_node = mlui_render_linear_node,
     ui_visit_view_op = ui_visit_view_op,
     ui_visit_paint_program = ui_visit_paint_program,
     ui_render_ops = ui_render_ops,

@@ -26,7 +26,7 @@ local loaded = assert(moon.loadstring(src, "field_function_call_not_ctor.mlua"))
 assert(loaded.call_alloc ~= nil, "field function call should parse as a call")
 assert(loaded.make_some ~= nil, "declared union constructors should still parse")
 
-local c_src = moon.emit_c(src, nil, "field_function_call_not_ctor")
+local c_src = moon.emit_c_artifact(src, { name = "field_function_call_not_ctor" }).source
 assert(c_src:find("call_alloc", 1, true), "C emission should include field-call function")
 
 print("moonlift field function call not ctor ok")

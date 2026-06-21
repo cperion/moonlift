@@ -59,7 +59,7 @@ assert(Coverage.classification("MoonTree.Expr", "ExprCall").status == "supported
 assert(Coverage.classification("MoonTree.Stmt", "StmtControl").status == "supported", "coverage matrix should classify control statements")
 
 local CEmit = require("moonlift.c_emit").Define(T)
-local c_src = CEmit.emit(result.c_unit)
+local c_src = CEmit.emit_artifact(result.c_unit).source
 assert(c_src:match("int32_t add_i32%("), "expected add_i32 definition/prototype")
 assert(c_src:match("extern int32_t host_add7%("), "expected extern declaration")
 assert(c_src:match("switch %(v_pick_arg_pick_x%)"), "expected switch/goto lowering")

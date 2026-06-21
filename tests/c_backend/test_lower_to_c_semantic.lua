@@ -19,7 +19,7 @@ local function lower_c(src, target_model)
     assert_no('code', r.code_report.issues)
     assert_no('kernel validate', r.kernel_report.issues)
     assert_no('c validate', r.c_report.issues)
-    local c_src=CEmit.emit(r.c_unit, {dialect='c11'})
+    local c_src=CEmit.emit_artifact(r.c_unit, {dialect='c11'}).source
     assert(not c_src:find('semantic kernel structured C', 1, true), 'semantic C lowering must not use raw structured-kernel blocks')
     assert(not c_src:find('semantic closed-form structured C', 1, true), 'semantic C lowering must not use raw structured closed-form blocks')
     return c_src, r

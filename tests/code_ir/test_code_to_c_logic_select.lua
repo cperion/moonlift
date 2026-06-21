@@ -24,7 +24,7 @@ assert(result.code_module ~= nil and result.code_report ~= nil and #result.code_
 assert(#result.c_report.issues == 0, "C validation issues: " .. tostring(result.c_report.issues[1]))
 
 local CEmit = require("moonlift.c_emit").Define(T)
-local c_src = CEmit.emit(result.c_unit)
+local c_src = CEmit.emit_artifact(result.c_unit).source
 
 assert(c_src:match("logic_rhs"), "expected logic short-circuit rhs branch label")
 assert(c_src:match("logic_short"), "expected logic short-circuit branch label")

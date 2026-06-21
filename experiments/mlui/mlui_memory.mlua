@@ -19,22 +19,25 @@ local mlui_get_alloc = func(kernel: ptr(T.UiKernel)): ptr(T.UiAllocator)
     return as(ptr(T.UiAllocator), 0)
 end
 
-local mlui_alloc_bytes = func(alloc: ptr(T.UiAllocator), size: index, align: index): ptr(u8)
-    if alloc == as(ptr(T.UiAllocator), 0) then return default_malloc(size) end
-    return alloc.alloc(alloc.ctx, size, align)
+local mlui_alloc_bytes = func(a: ptr(T.UiAllocator), size: index, align: index): ptr(u8)
+    if a == as(ptr(T.UiAllocator), 0) then return default_malloc(size) end
+    let cb: func(ptr(u8), index, index): ptr(u8) = a[0].alloc_fn
+    return cb(a[0].ctx, size, align)
 end
 
-local mlui_realloc_bytes = func(alloc: ptr(T.UiAllocator), p: ptr(u8),
+local mlui_realloc_bytes = func(a: ptr(T.UiAllocator), p: ptr(u8),
                                  old_size: index, new_size: index,
                                  align: index): ptr(u8)
-    if alloc == as(ptr(T.UiAllocator), 0) then return default_realloc(p, new_size) end
-    return alloc.realloc(alloc.ctx, p, old_size, new_size, align)
+    if a == as(ptr(T.UiAllocator), 0) then return default_realloc(p, new_size) end
+    let cb: func(ptr(u8), ptr(u8), index, index, index): ptr(u8) = a[0].realloc_fn
+    return cb(a[0].ctx, p, old_size, new_size, align)
 end
 
-local mlui_free_bytes = func(alloc: ptr(T.UiAllocator), p: ptr(u8),
+local mlui_free_bytes = func(a: ptr(T.UiAllocator), p: ptr(u8),
                               size: index, align: index): void
-    if alloc == as(ptr(T.UiAllocator), 0) then default_free(p) return end
-    alloc.free(alloc.ctx, p, size, align)
+    if a == as(ptr(T.UiAllocator), 0) then default_free(p) return end
+    let cb: func(ptr(u8), ptr(u8), index, index) = a[0].free_fn
+    cb(a[0].ctx, p, size, align)
     return
 end
 

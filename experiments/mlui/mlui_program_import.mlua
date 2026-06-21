@@ -13,6 +13,8 @@ local R = H.R
 local F = H.F
 
 local Mem = moon.require("mlui_memory")
+local Validate = moon.require("mlui_program_validate")
+local Compose = moon.require("mlui_compose_expand")
 
 -- Auth opcode constants (mirrors mlui_c_api.h)
 local AUTH_EMPTY = 1
@@ -33,8 +35,8 @@ local AUTH_OVERLAY = 15
 local AUTH_MODAL = 16
 
 -- Handle packing
-local MLUI_SLOT_MASK = 0x00FFFFFF
-local MLUI_GEN_SHIFT = 24
+local MLUI_GEN_MASK = 0x000000FF
+local MLUI_SLOT_SHIFT = 8
 
 --------------------------------------------------------------------------------
 -- ui_visit_auth_node: decode UiAuthNode kind into a typed continuation.
@@ -194,7 +196,7 @@ block copy_style_tracks(i: index)
 end
 block import_loop(i: index)
     if i >= auth.n_node then
-        let ref_raw: u32 = (as(u32, 1) << MLUI_GEN_SHIFT)
+        let ref_raw: u32 = (as(u32, 1) & MLUI_GEN_MASK)
         jump imported(root = T.UiNodeRef.from_repr(ref_raw))
     end
     let node: T.UiAuthNode = kernel.auth.nodes[i]
@@ -285,7 +287,7 @@ local mlui_load_program = func @{F.mlui_load_program}
             yield T.UiStatus{code = 15, detail = 1, at = as(index, 0), needed = 0 }
         end
         -- First validate
-        emit ui_validate_program(kernel, program;
+        emit Validate.ui_validate_program(kernel, program;
             valid = prog_valid,
             invalid_header = bad_hdr,
             invalid_section = bad_sec,
@@ -316,7 +318,7 @@ local mlui_load_program = func @{F.mlui_load_program}
             if comp == as(ptr(T.UiComposeBuffer), 0) then
                 yield T.UiStatus{code = 16, detail = 5, at = as(index, 0), needed = 0 }
             end
-            emit ui_expand_compose(kernel, comp;
+            emit Compose.ui_expand_compose(kernel, comp;
                 expanded = comp_expanded,
                 invalid_compose = bad_cmp,
                 missing_child = miss_ch,

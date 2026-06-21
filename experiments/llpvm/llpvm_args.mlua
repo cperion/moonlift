@@ -1,0 +1,120 @@
+-- llpvm_args.mlua -- Interned argument vectors.
+
+local H = moon.require("llpvm_header")
+local T = H.T
+local R = H.R
+local Mem = moon.require("llpvm_memory")
+
+local llpvm_args_index = func(ref: T.LlArgsRef): index
+    return as(index, repr(ref) - 1)
+end
+
+local llpvm_args_live = func(vm: ptr(T.LlVm), ref: T.LlArgsRef): bool
+    if ref == LlArgsRef.from_repr(0) then return false end
+    let idx: index = llpvm_args_index(ref)
+    if idx >= vm.args.n then return false end
+    return vm.args.slots[idx].live
+end
+
+local llpvm_args_value = func(vm: ptr(T.LlVm), ref: T.LlArgsRef): T.LlArgs
+    return vm.args.slots[llpvm_args_index(ref)].value
+end
+
+local llpvm_hash_args = func(values: readonly view(T.LlArgValue)): u64
+    var h: u64 = 1469598103934665603
+    block loop(i: index = 0)
+        if i >= len(values) then return h end
+        let v: T.LlArgValue = values[i]
+        h = h ~ as(u64, v.kind)
+        h = h * 1099511628211
+        h = h ~ v.payload_u64
+        h = h * 1099511628211
+        h = h ~ as(u64, v.payload_ref)
+        h = h * 1099511628211
+        jump loop(i = i + 1)
+    end
+end
+
+local llpvm_args_equal = func(a: T.LlArgs, values: readonly view(T.LlArgValue)): bool
+    if a.n ~= len(values) then return false end
+    block loop(i: index = 0)
+        if i >= a.n then return true end
+        let av: T.LlArgValue = a.values[i]
+        let bv: T.LlArgValue = values[i]
+        if av.kind ~= bv.kind then return false end
+        if av.payload_u64 ~= bv.payload_u64 then return false end
+        if av.payload_ref ~= bv.payload_ref then return false end
+        jump loop(i = i + 1)
+    end
+end
+
+local llpvm_grow_args_slots = region grow_args_slots(vm: ptr(T.LlVm), needed: index;
+    grown
+  | oom(needed: index))
+entry start()
+    let a: ptr(T.LlAllocator) = Mem.llpvm_get_alloc(vm)
+    emit @{Mem.llpvm_grow_elems}(a, &(vm.args.n), &(vm.args.cap), as(ptr(ptr(u8)), &(vm.args.slots)), sizeof(T.LlArgsSlot), as(index, 8), needed;
+        grown = grown,
+        oom = oom)
+end
+end
+
+local ll_intern_args = region @{R.ll_intern_args}
+entry start()
+    if len(values) > 1024 then jump too_many_args(n = len(values)) end
+    let hash: u64 = llpvm_hash_args(values)
+    jump scan(i = as(index, 0), hash = hash)
+end
+block scan(i: index, hash: u64)
+    if i >= vm.args.n then jump insert(hash = hash) end
+    let slot: T.LlArgsSlot = vm.args.slots[i]
+    if slot.live then
+        if slot.value.hash == hash then
+            if llpvm_args_equal(slot.value, values) then
+                jump args(args = LlArgsRef.from_repr(as(u32, i + 1)))
+            end
+        end
+    end
+    jump scan(i = i + 1, hash = hash)
+end
+block insert(hash: u64)
+    emit @{llpvm_grow_args_slots}(vm, as(index, 1);
+        grown = have_slot,
+        oom = oom_slot)
+end
+block have_slot(hash: u64)
+    let bytes: index = len(values) * sizeof(T.LlArgValue)
+    let a: ptr(T.LlAllocator) = Mem.llpvm_get_alloc(vm)
+    let raw: ptr(u8) = Mem.llpvm_alloc_bytes(a, bytes, as(index, 8))
+    if len(values) > 0 then
+        if raw == as(ptr(u8), 0) then jump memory_exhausted(needed = bytes) end
+    end
+    jump copy_loop(hash = hash, raw = raw, dst = as(ptr(T.LlArgValue), raw), i = as(index, 0))
+end
+block copy_loop(hash: u64, raw: ptr(u8), dst: ptr(T.LlArgValue), i: index)
+    if i >= len(values) then jump copy_done(hash = hash, raw = raw) end
+    dst[i] = values[i]
+    jump copy_loop(hash = hash, raw = raw, dst = dst, i = i + 1)
+end
+block copy_done(hash: u64, raw: ptr(u8))
+    let idx: index = vm.args.n
+    let value: T.LlArgs = LlArgs{ hash = hash, values = as(ptr(T.LlArgValue), raw), n = len(values) }
+    vm.args.slots[idx] = LlArgsSlot{ gen = as(u32, vm.args.generation), live = true, value = value }
+    let p_n: ptr(index) = &(vm.args.n)
+    p_n[0] = idx + 1
+    jump args(args = LlArgsRef.from_repr(as(u32, idx + 1)))
+end
+block oom_slot(needed: index)
+    jump memory_exhausted(needed = needed)
+end
+end
+
+return {
+    llpvm_args_index = llpvm_args_index,
+    llpvm_args_live = llpvm_args_live,
+    llpvm_args_value = llpvm_args_value,
+    llpvm_hash_args = llpvm_hash_args,
+    llpvm_args_equal = llpvm_args_equal,
+    llpvm_grow_args_slots = llpvm_grow_args_slots,
+    ll_intern_args = ll_intern_args,
+}

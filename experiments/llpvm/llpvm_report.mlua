@@ -1,0 +1,62 @@
+-- llpvm_report.mlua -- Phase and VM reports.
+
+local H = moon.require("llpvm_header")
+local T = H.T
+local R = H.R
+local Machine = moon.require("llpvm_machine")
+
+local ll_report_phase = region @{R.ll_report_phase}
+entry start()
+    if not Machine.llpvm_phase_live(vm, phase) then jump missing_phase(phase = phase) end
+    let ph: T.LlPhase = Machine.llpvm_phase_value(vm, phase)
+    jump scan_cache(i = as(index, 0), bytes = as(index, 0))
+end
+block scan_cache(i: index, bytes: index)
+    if i >= vm.cache.n then jump build(bytes = bytes) end
+    let slot: T.LlCacheEntrySlot = vm.cache.slots[i]
+    if slot.live then
+        if slot.value.key.phase == phase then
+            jump scan_cache(i = i + 1, bytes = bytes + slot.value.bytes)
+        end
+    end
+    jump scan_cache(i = i + 1, bytes = bytes)
+end
+block build(bytes: index)
+    let ph: T.LlPhase = Machine.llpvm_phase_value(vm, phase)
+    let rep: T.LlPhaseReport = LlPhaseReport{
+        phase = phase,
+        calls = ph.stats.calls,
+        hits = ph.stats.hits,
+        shared_misses = ph.stats.shared_misses,
+        misses = ph.stats.misses,
+        commits = ph.stats.commits,
+        partial_discards = ph.stats.partial_discards,
+        evictions = ph.stats.evictions,
+        bytes_cached = bytes,
+    }
+    jump report(report = rep)
+end
+end
+
+local ll_report_vm = region @{R.ll_report_vm}
+entry start()
+    let rep: T.LlVmReport = LlVmReport{
+        abis = vm.abis.n,
+        worlds = vm.worlds.n,
+        ops = vm.ops.n,
+        buffers = vm.buffers.n,
+        streams = vm.streams.n,
+        machines = vm.machines.n,
+        phases = vm.phases.n,
+        recordings = vm.recordings.n,
+        cache_entries = vm.cache.n,
+        cache_bytes = vm.cache_bytes_live,
+    }
+    jump report(report = rep)
+end
+end
+
+return {
+    ll_report_phase = ll_report_phase,
+    ll_report_vm = ll_report_vm,
+}

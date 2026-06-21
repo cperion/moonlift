@@ -1,0 +1,204 @@
+-- llpvm_machine.mlua -- Machine and phase definitions.
+
+local H = moon.require("llpvm_header")
+local T = H.T
+local R = H.R
+local Mem = moon.require("llpvm_memory")
+local Schema = moon.require("llpvm_schema")
+local Buffers = moon.require("llpvm_buffer_store")
+local Args = moon.require("llpvm_args")
+
+local llpvm_machine_index = func(ref: T.LlMachineRef): index
+    return as(index, repr(ref) - 1)
+end
+
+local llpvm_phase_index = func(ref: T.LlPhaseRef): index
+    return as(index, repr(ref) - 1)
+end
+
+local llpvm_machine_live = func(vm: ptr(T.LlVm), ref: T.LlMachineRef): bool
+    if ref == LlMachineRef.from_repr(0) then return false end
+    let idx: index = llpvm_machine_index(ref)
+    if idx >= vm.machines.n then return false end
+    return vm.machines.slots[idx].live
+end
+
+local llpvm_phase_live = func(vm: ptr(T.LlVm), ref: T.LlPhaseRef): bool
+    if ref == LlPhaseRef.from_repr(0) then return false end
+    let idx: index = llpvm_phase_index(ref)
+    if idx >= vm.phases.n then return false end
+    return vm.phases.slots[idx].live
+end
+
+local llpvm_machine_value = func(vm: ptr(T.LlVm), ref: T.LlMachineRef): T.LlMachine
+    return vm.machines.slots[llpvm_machine_index(ref)].value
+end
+
+local llpvm_phase_value = func(vm: ptr(T.LlVm), ref: T.LlPhaseRef): T.LlPhase
+    return vm.phases.slots[llpvm_phase_index(ref)].value
+end
+
+local llpvm_grow_machine_slots = region grow_machine_slots(vm: ptr(T.LlVm), needed: index;
+    grown
+  | oom(needed: index))
+entry start()
+    let a: ptr(T.LlAllocator) = Mem.llpvm_get_alloc(vm)
+    emit @{Mem.llpvm_grow_elems}(a, &(vm.machines.n), &(vm.machines.cap), as(ptr(ptr(u8)), &(vm.machines.slots)), sizeof(T.LlMachineSlot), as(index, 8), needed;
+        grown = grown,
+        oom = oom)
+end
+end
+
+local llpvm_grow_phase_slots = region grow_phase_slots(vm: ptr(T.LlVm), needed: index;
+    grown
+  | oom(needed: index))
+entry start()
+    let a: ptr(T.LlAllocator) = Mem.llpvm_get_alloc(vm)
+    emit @{Mem.llpvm_grow_elems}(a, &(vm.phases.n), &(vm.phases.cap), as(ptr(ptr(u8)), &(vm.phases.slots)), sizeof(T.LlPhaseSlot), as(index, 8), needed;
+        grown = grown,
+        oom = oom)
+end
+end
+
+local ll_define_region_machine = region @{R.ll_define_region_machine}
+entry start()
+    if not Schema.llpvm_symbol_live(vm, name) then jump missing_region(entry_symbol = entry_symbol) end
+    if not Schema.llpvm_symbol_live(vm, entry_symbol) then jump missing_region(entry_symbol = entry_symbol) end
+    if not Schema.llpvm_world_live(vm, input) then jump world_mismatch end
+    if not Schema.llpvm_world_live(vm, output) then jump world_mismatch end
+    emit @{llpvm_grow_machine_slots}(vm, as(index, 1);
+        grown = insert,
+        oom = oom)
+end
+block insert()
+    let idx: index = vm.machines.n
+    let value: T.LlMachine = LlMachine{
+        kind = as(u8, @{H.LL_MACHINE_REGION}),
+        name = name,
+        input_world = input,
+        output_world = output,
+        entry_symbol = entry_symbol,
+        payload = 0,
+    }
+    vm.machines.slots[idx] = LlMachineSlot{ gen = as(u32, vm.machines.generation), live = true, value = value }
+    let p_n: ptr(index) = &(vm.machines.n)
+    p_n[0] = idx + 1
+    jump machine(machine = LlMachineRef.from_repr(as(u32, idx + 1)))
+end
+block oom(needed: index)
+    jump memory_exhausted(needed = needed)
+end
+end
+
+local ll_define_phase = region @{R.ll_define_phase}
+entry start()
+    if not Schema.llpvm_symbol_live(vm, name) then jump invalid_cache_policy end
+    if not Schema.llpvm_world_live(vm, input) then jump machine_world_mismatch(machine = machine) end
+    if not Schema.llpvm_world_live(vm, output) then jump machine_world_mismatch(machine = machine) end
+    if not llpvm_machine_live(vm, machine) then jump machine_world_mismatch(machine = machine) end
+    let m: T.LlMachine = llpvm_machine_value(vm, machine)
+    if m.input_world ~= input then jump machine_world_mismatch(machine = machine) end
+    if m.output_world ~= output then jump machine_world_mismatch(machine = machine) end
+    if cache_policy.mode > as(u8, @{H.LL_CACHE_RECORD_ONLY}) then jump invalid_cache_policy end
+    jump scan(i = as(index, 0))
+end
+block scan(i: index)
+    if i >= vm.phases.n then jump insert end
+    let slot: T.LlPhaseSlot = vm.phases.slots[i]
+    if slot.live then
+        if slot.value.name == name then jump duplicate_phase(name = name) end
+    end
+    jump scan(i = i + 1)
+end
+block insert()
+    emit @{llpvm_grow_phase_slots}(vm, as(index, 1);
+        grown = have_slot,
+        oom = oom)
+end
+block have_slot()
+    let idx: index = vm.phases.n
+    let stats: T.LlPhaseStats = LlPhaseStats{ calls = 0, hits = 0, shared_misses = 0, misses = 0, commits = 0, partial_discards = 0, evictions = 0 }
+    let value: T.LlPhase = LlPhase{
+        name = name,
+        input_world = input,
+        output_world = output,
+        machine = machine,
+        cache_policy = cache_policy,
+        generation = vm.phases.generation,
+        stats = stats,
+    }
+    vm.phases.slots[idx] = LlPhaseSlot{ gen = as(u32, vm.phases.generation), live = true, value = value }
+    let p_n: ptr(index) = &(vm.phases.n)
+    p_n[0] = idx + 1
+    jump phase(phase = LlPhaseRef.from_repr(as(u32, idx + 1)))
+end
+block oom(needed: index)
+    jump memory_exhausted(needed = needed)
+end
+end
+
+local ll_run_machine = region @{R.ll_run_machine}
+entry start()
+    if not llpvm_machine_live(vm, machine) then jump unsupported_machine(machine = machine) end
+    if not Buffers.llpvm_stream_live(vm, input) then jump wrong_input_world(expected = LlWorldRef.from_repr(0), got = LlWorldRef.from_repr(0)) end
+    let m: T.LlMachine = llpvm_machine_value(vm, machine)
+    let s: T.LlStream = Buffers.llpvm_stream_value(vm, input)
+    if s.world ~= m.input_world then jump wrong_input_world(expected = m.input_world, got = s.world) end
+    if m.input_world == m.output_world then jump output(stream = input) end
+    jump unsupported_machine(machine = machine)
+end
+end
+
+local ll_open_phase = region @{R.ll_open_phase}
+entry start()
+    if not llpvm_phase_live(vm, phase) then jump machine_failed(diag = LlDiagnosticRef.from_repr(0)) end
+    if not Buffers.llpvm_stream_live(vm, input) then jump wrong_input_world(expected = LlWorldRef.from_repr(0), got = LlWorldRef.from_repr(0)) end
+    if args ~= LlArgsRef.from_repr(0) then
+        if not Args.llpvm_args_live(vm, args) then jump machine_failed(diag = LlDiagnosticRef.from_repr(0)) end
+    end
+    let pidx: index = llpvm_phase_index(phase)
+    let ph: T.LlPhase = vm.phases.slots[pidx].value
+    let s: T.LlStream = Buffers.llpvm_stream_value(vm, input)
+    if s.world ~= ph.input_world then jump wrong_input_world(expected = ph.input_world, got = s.world) end
+    let p_calls: ptr(u64) = &(vm.phases.slots[pidx].value.stats.calls)
+    let p_misses: ptr(u64) = &(vm.phases.slots[pidx].value.stats.misses)
+    p_calls[0] = p_calls[0] + 1
+    p_misses[0] = p_misses[0] + 1
+    emit @{ll_run_machine}(vm, ph.machine, input, args;
+        output = run_output,
+        wrong_input_world = run_wrong_world,
+        unsupported_machine = unsupported,
+        failed = run_failed,
+        memory_exhausted = run_oom)
+end
+block run_output(stream: T.LlStreamRef)
+    jump uncached(stream = stream)
+end
+block run_wrong_world(expected: T.LlWorldRef, got: T.LlWorldRef)
+    jump wrong_input_world(expected = expected, got = got)
+end
+block run_failed(diag: T.LlDiagnosticRef)
+    jump machine_failed(diag = diag)
+end
+block run_oom(needed: index)
+    jump memory_exhausted(needed = needed)
+end
+block unsupported(machine: T.LlMachineRef)
+    jump machine_failed(diag = LlDiagnosticRef.from_repr(0))
+end
+end
+
+return {
+    llpvm_machine_index = llpvm_machine_index,
+    llpvm_phase_index = llpvm_phase_index,
+    llpvm_machine_live = llpvm_machine_live,
+    llpvm_phase_live = llpvm_phase_live,
+    llpvm_machine_value = llpvm_machine_value,
+    llpvm_phase_value = llpvm_phase_value,
+    llpvm_grow_machine_slots = llpvm_grow_machine_slots,
+    llpvm_grow_phase_slots = llpvm_grow_phase_slots,
+    ll_define_region_machine = ll_define_region_machine,
+    ll_define_phase = ll_define_phase,
+    ll_run_machine = ll_run_machine,
+    ll_open_phase = ll_open_phase,
+}

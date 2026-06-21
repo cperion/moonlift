@@ -75,7 +75,7 @@ assert(#result.c_unit.funcs == 8, "expected eight funcs")
 assert(#result.c_unit.externs == 1, "expected extern")
 
 local CEmit = require("moonlift.c_emit").Define(T)
-local c_src = CEmit.emit(result.c_unit)
+local c_src = CEmit.emit_artifact(result.c_unit).source
 assert(c_src:match("if_then"), "expected nonterminal if CFG labels")
 assert(c_src:match("switch %(v_classify_expr_arg_classify_expr_op%)") or c_src:match("switch %(v_classify_stmt_arg_classify_stmt_op%)"), "expected switch lowering")
 assert(c_src:match("switch_join"), "expected switch expression/statement join")

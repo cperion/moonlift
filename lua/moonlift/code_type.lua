@@ -140,6 +140,32 @@ function M.Define(T)
         return results
     end
 
+    local function moon_type_key(ty)
+        local cls = pvm.classof(ty)
+        if cls == Ty.THandle then
+            local ref = ty.ref
+            local rcls = pvm.classof(ref)
+            if rcls == Ty.TypeRefGlobal then return "handle_" .. sanitize(ref.module_name) .. "_" .. sanitize(ref.type_name) end
+            if rcls == Ty.TypeRefLocal then return "handle_local_" .. sanitize(ref.sym.key or ref.sym.name) end
+            if rcls == Ty.TypeRefPath then
+                local parts = {}
+                for i = 1, #ref.path.parts do parts[#parts + 1] = ref.path.parts[i].text end
+                return "handle_path_" .. sanitize(table.concat(parts, "_"))
+            end
+        elseif cls == Ty.TNamed then
+            local ref = ty.ref
+            local rcls = pvm.classof(ref)
+            if rcls == Ty.TypeRefGlobal then return "named_" .. sanitize(ref.module_name) .. "_" .. sanitize(ref.type_name) end
+            if rcls == Ty.TypeRefLocal then return "named_local_" .. sanitize(ref.sym.key or ref.sym.name) end
+            if rcls == Ty.TypeRefPath then
+                local parts = {}
+                for i = 1, #ref.path.parts do parts[#parts + 1] = ref.path.parts[i].text end
+                return "named_path_" .. sanitize(table.concat(parts, "_"))
+            end
+        end
+        return sanitize(class_name(ty))
+    end
+
     code_type_key = function(ty)
         if ty == Code.CodeTyVoid then return "void" end
         if ty == Code.CodeTyBool8 then return "bool8" end
@@ -153,7 +179,7 @@ function M.Define(T)
         if cls == Code.CodeTyArray then return "arr_" .. tostring(ty.count) .. "_" .. code_type_key(ty.elem) end
         if cls == Code.CodeTySlice then return "slice_" .. code_type_key(ty.elem) end
         if cls == Code.CodeTyView then return "view_" .. code_type_key(ty.elem) end
-        if cls == Code.CodeTyHandle then return "handle_" .. code_type_key(ty.repr) end
+        if cls == Code.CodeTyHandle then return "handle_" .. moon_type_key(ty.source_ty) .. "_" .. code_type_key(ty.repr) end
         if cls == Code.CodeTyLease then return "lease_" .. code_type_key(ty.base) end
         if cls == Code.CodeTyClosure then return "closure_" .. sanitize(ty.sig.text) end
         if cls == Code.CodeTyImportedC then return "ctype_" .. sanitize(ty.id.module_name) .. "_" .. sanitize(ty.id.spelling) end

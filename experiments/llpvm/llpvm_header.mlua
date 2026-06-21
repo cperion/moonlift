@@ -1,0 +1,890 @@
+-- llpvm_header.mlua -- Low-Level PVM product/protocol contract.
+--
+-- LLPVM is the Moonlift-native substrate for small typed PicoVMs: worlds,
+-- operation streams, machine phases, recordings, caches, and reports. This
+-- header names the whole semantic surface. Implementation files own the region
+-- bodies one machine at a time.
+
+local M = {
+    T = {},
+    R = {},
+    F = {},
+}
+
+local T = M.T
+local R = M.R
+local F = M.F
+
+--------------------------------------------------------------------------------
+-- Constants.
+--------------------------------------------------------------------------------
+
+M.LL_STATUS_OK = 0
+M.LL_STATUS_INVALID_CONFIG = 1
+M.LL_STATUS_STALE_HANDLE = 2
+M.LL_STATUS_MISSING_HANDLE = 3
+M.LL_STATUS_LIVE_LEASES = 4
+M.LL_STATUS_LIVE_RECORDINGS = 5
+M.LL_STATUS_WRONG_WORLD = 6
+M.LL_STATUS_INVALID_SCHEMA = 7
+M.LL_STATUS_INVALID_PAYLOAD = 8
+M.LL_STATUS_OOM = 9
+M.LL_STATUS_FAILED = 10
+M.LL_STATUS_UNSUPPORTED_IMAGE = 11
+
+M.LL_STREAM_EMPTY = 0
+M.LL_STREAM_ONCE = 1
+M.LL_STREAM_SEQ = 2
+M.LL_STREAM_CONCAT = 3
+M.LL_STREAM_RECORDING = 4
+M.LL_STREAM_PHASE_MAP = 5
+M.LL_STREAM_GENERATED = 6
+
+M.LL_MACHINE_REGION = 1
+M.LL_MACHINE_FUNCTION = 2
+M.LL_MACHINE_SPECIALIZED_INTERPRETER = 3
+M.LL_MACHINE_FUSED_STREAM_GRAPH = 4
+M.LL_MACHINE_NATIVE_INTRINSIC = 5
+
+M.LL_CACHE_NONE = 0
+M.LL_CACHE_FULL = 1
+M.LL_CACHE_RECORD_ONLY = 2
+
+M.LL_RECORDING_OPEN = 1
+M.LL_RECORDING_COMMITTED = 2
+M.LL_RECORDING_DISCARDED = 3
+M.LL_RECORDING_FAILED = 4
+
+--------------------------------------------------------------------------------
+-- Identity.
+--------------------------------------------------------------------------------
+
+T.LlVmRef = handle LlVmRef : u32 invalid 0
+    target T.LlVm
+end
+
+T.LlSymbolRef = handle LlSymbolRef : u32 invalid 0
+    domain T.LlVm
+    target T.LlSymbol
+end
+
+T.LlDiagnosticRef = handle LlDiagnosticRef : u32 invalid 0
+    domain T.LlVm
+    target T.LlDiagnostic
+end
+
+T.LlTypeRef = handle LlTypeRef : u32 invalid 0
+    domain T.LlVm
+    target T.LlType
+end
+
+T.LlOpSchemaRef = handle LlOpSchemaRef : u32 invalid 0
+    domain T.LlVm
+    target T.LlOpSchema
+end
+
+T.LlAbiRef = handle LlAbiRef : u32 invalid 0
+    domain T.LlVm
+    target T.LlAbi
+end
+
+T.LlWorldRef = handle LlWorldRef : u32 invalid 0
+    domain T.LlVm
+    target T.LlWorld
+end
+
+T.LlOpRef = handle LlOpRef : u32 invalid 0
+    domain T.LlVm
+    target T.LlOp
+end
+
+T.LlBufferRef = handle LlBufferRef : u32 invalid 0
+    domain T.LlVm
+    target T.LlBuffer
+end
+
+T.LlStreamRef = handle LlStreamRef : u32 invalid 0
+    domain T.LlVm
+    target T.LlStream
+end
+
+T.LlProgramRef = handle LlProgramRef : u32 invalid 0
+    domain T.LlVm
+    target T.LlProgram
+end
+
+T.LlArgsRef = handle LlArgsRef : u32 invalid 0
+    domain T.LlVm
+    target T.LlArgs
+end
+
+T.LlMachineRef = handle LlMachineRef : u32 invalid 0
+    domain T.LlVm
+    target T.LlMachine
+end
+
+T.LlPhaseRef = handle LlPhaseRef : u32 invalid 0
+    domain T.LlVm
+    target T.LlPhase
+end
+
+T.LlRecordingRef = handle LlRecordingRef : u32 invalid 0
+    domain T.LlVm
+    target T.LlRecording
+end
+
+T.LlCacheEntryRef = handle LlCacheEntryRef : u32 invalid 0
+    domain T.LlVm
+    target T.LlCacheEntry
+end
+
+--------------------------------------------------------------------------------
+-- Shared products.
+--------------------------------------------------------------------------------
+
+T.LlAllocator = struct
+    ctx: ptr(u8),
+    alloc_fn: func(ptr(u8), index, index): ptr(u8),
+    realloc_fn: func(ptr(u8), ptr(u8), index, index, index): ptr(u8),
+    free_fn: func(ptr(u8), ptr(u8), index, index),
+end
+
+T.LlVmConfig = struct
+    allocator: ptr(T.LlAllocator),
+    initial_symbol_cap: index,
+    initial_diagnostic_cap: index,
+    initial_type_cap: index,
+    initial_schema_cap: index,
+    initial_abi_cap: index,
+    initial_world_cap: index,
+    initial_op_cap: index,
+    initial_buffer_cap: index,
+    initial_stream_cap: index,
+    initial_program_cap: index,
+    initial_args_cap: index,
+    initial_machine_cap: index,
+    initial_phase_cap: index,
+    initial_recording_cap: index,
+    initial_cache_cap: index,
+    cache_bytes: index,
+    flags: u32,
+end
+
+T.LlStatus = struct
+    code: i32,
+    detail: i32,
+    at: index,
+    needed: index,
+end
+
+T.LlSymbol = struct
+    hash: u64,
+    bytes_off: index,
+    bytes_len: index,
+end
+
+T.LlByteArena = struct
+    data: ptr(u8),
+    n: index,
+    cap: index,
+end
+
+T.LlDiagnostic = struct
+    code: i32,
+    primary_pos: index,
+    secondary_pos: index,
+    message: T.LlSymbolRef,
+end
+
+T.LlType = struct
+    kind: u8,
+    flags: u8,
+    size: index,
+    align: index,
+    payload: u32,
+end
+
+T.LlOpFieldSchema = struct
+    name: T.LlSymbolRef,
+    type_ref: T.LlTypeRef,
+    offset: index,
+    flags: u32,
+end
+
+T.LlOpKindSchema = struct
+    name: T.LlSymbolRef,
+    kind: u16,
+    first_field: index,
+    field_count: index,
+    payload_size: index,
+    flags: u32,
+end
+
+T.LlOpSchema = struct
+    kinds: ptr(T.LlOpKindSchema),
+    kind_count: index,
+    fields: ptr(T.LlOpFieldSchema),
+    field_count: index,
+    generation: u64,
+end
+
+T.LlAbi = struct
+    name: T.LlSymbolRef,
+    version: u32,
+    op_schema: T.LlOpSchemaRef,
+    resource_schema: T.LlTypeRef,
+    generation: u64,
+end
+
+T.LlWorld = struct
+    name: T.LlSymbolRef,
+    abi: T.LlAbiRef,
+    generation: u64,
+end
+
+T.LlOp = struct
+    world: T.LlWorldRef,
+    kind: u16,
+    payload: u32,
+end
+
+T.LlBuffer = struct
+    world: T.LlWorldRef,
+    ops: ptr(T.LlOpRef),
+    n: index,
+    cap: index,
+    bytes: index,
+    sealed: bool,
+end
+
+T.LlStream = struct
+    world: T.LlWorldRef,
+    kind: u8,
+    payload: u32,
+    cursor: index,
+end
+
+T.LlProgram = struct
+    bytes: ptr(u8),
+    len: index,
+    root_payload: ptr(u8),
+    root_count: index,
+    world: T.LlWorldRef,
+    generation: u64,
+end
+
+T.LlArgValue = struct
+    kind: u8,
+    payload_u64: u64,
+    payload_ref: u32,
+end
+
+T.LlArgs = struct
+    hash: u64,
+    values: ptr(T.LlArgValue),
+    n: index,
+end
+
+T.LlMachine = struct
+    kind: u8,
+    name: T.LlSymbolRef,
+    input_world: T.LlWorldRef,
+    output_world: T.LlWorldRef,
+    entry_symbol: T.LlSymbolRef,
+    payload: u32,
+end
+
+T.LlCachePolicy = struct
+    mode: u8,
+    args_mode: u8,
+    commit_mode: u8,
+    retain_mode: u8,
+end
+
+T.LlPhaseStats = struct
+    calls: u64,
+    hits: u64,
+    shared_misses: u64,
+    misses: u64,
+    commits: u64,
+    partial_discards: u64,
+    evictions: u64,
+end
+
+T.LlPhase = struct
+    name: T.LlSymbolRef,
+    input_world: T.LlWorldRef,
+    output_world: T.LlWorldRef,
+    machine: T.LlMachineRef,
+    cache_policy: T.LlCachePolicy,
+    generation: u64,
+    stats: T.LlPhaseStats,
+end
+
+T.LlPhaseKey = struct
+    phase: T.LlPhaseRef,
+    input_identity: u64,
+    args: T.LlArgsRef,
+    input_world_generation: u64,
+    phase_generation: u64,
+end
+
+T.LlRecording = struct
+    key: T.LlPhaseKey,
+    source: T.LlStreamRef,
+    buffer: T.LlBufferRef,
+    produced: index,
+    readers: index,
+    state: u8,
+    commit_allowed: bool,
+end
+
+T.LlCacheEntry = struct
+    key: T.LlPhaseKey,
+    buffer: T.LlBufferRef,
+    complete: bool,
+    bytes: index,
+    generation: u64,
+end
+
+T.LlPhaseReport = struct
+    phase: T.LlPhaseRef,
+    calls: u64,
+    hits: u64,
+    shared_misses: u64,
+    misses: u64,
+    commits: u64,
+    partial_discards: u64,
+    evictions: u64,
+    bytes_cached: index,
+end
+
+T.LlVmReport = struct
+    abis: index,
+    worlds: index,
+    ops: index,
+    buffers: index,
+    streams: index,
+    machines: index,
+    phases: index,
+    recordings: index,
+    cache_entries: index,
+    cache_bytes: index,
+end
+
+--------------------------------------------------------------------------------
+-- Stores.
+--------------------------------------------------------------------------------
+
+T.LlSymbolSlot = struct
+    gen: u32,
+    live: bool,
+    value: T.LlSymbol,
+end
+
+T.LlDiagnosticSlot = struct
+    gen: u32,
+    live: bool,
+    value: T.LlDiagnostic,
+end
+
+T.LlTypeSlot = struct
+    gen: u32,
+    live: bool,
+    value: T.LlType,
+end
+
+T.LlOpSchemaSlot = struct
+    gen: u32,
+    live: bool,
+    value: T.LlOpSchema,
+end
+
+T.LlAbiSlot = struct
+    gen: u32,
+    live: bool,
+    value: T.LlAbi,
+end
+
+T.LlWorldSlot = struct
+    gen: u32,
+    live: bool,
+    value: T.LlWorld,
+end
+
+T.LlOpSlot = struct
+    gen: u32,
+    live: bool,
+    value: T.LlOp,
+end
+
+T.LlBufferSlot = struct
+    gen: u32,
+    live: bool,
+    value: T.LlBuffer,
+end
+
+T.LlStreamSlot = struct
+    gen: u32,
+    live: bool,
+    value: T.LlStream,
+end
+
+T.LlProgramSlot = struct
+    gen: u32,
+    live: bool,
+    value: T.LlProgram,
+end
+
+T.LlArgsSlot = struct
+    gen: u32,
+    live: bool,
+    value: T.LlArgs,
+end
+
+T.LlMachineSlot = struct
+    gen: u32,
+    live: bool,
+    value: T.LlMachine,
+end
+
+T.LlPhaseSlot = struct
+    gen: u32,
+    live: bool,
+    value: T.LlPhase,
+end
+
+T.LlRecordingSlot = struct
+    gen: u32,
+    live: bool,
+    value: T.LlRecording,
+end
+
+T.LlCacheEntrySlot = struct
+    gen: u32,
+    live: bool,
+    value: T.LlCacheEntry,
+end
+
+T.LlSymbolStore = struct
+    slots: ptr(T.LlSymbolSlot),
+    n: index,
+    cap: index,
+    free_head: u32,
+    generation: u64,
+end
+
+T.LlDiagnosticStore = struct
+    slots: ptr(T.LlDiagnosticSlot),
+    n: index,
+    cap: index,
+    free_head: u32,
+    generation: u64,
+end
+
+T.LlTypeStore = struct
+    slots: ptr(T.LlTypeSlot),
+    n: index,
+    cap: index,
+    free_head: u32,
+    generation: u64,
+end
+
+T.LlOpSchemaStore = struct
+    slots: ptr(T.LlOpSchemaSlot),
+    n: index,
+    cap: index,
+    free_head: u32,
+    generation: u64,
+end
+
+T.LlAbiStore = struct
+    slots: ptr(T.LlAbiSlot),
+    n: index,
+    cap: index,
+    free_head: u32,
+    generation: u64,
+end
+
+T.LlWorldStore = struct
+    slots: ptr(T.LlWorldSlot),
+    n: index,
+    cap: index,
+    free_head: u32,
+    generation: u64,
+end
+
+T.LlOpStore = struct
+    slots: ptr(T.LlOpSlot),
+    n: index,
+    cap: index,
+    free_head: u32,
+    generation: u64,
+end
+
+T.LlBufferStore = struct
+    slots: ptr(T.LlBufferSlot),
+    n: index,
+    cap: index,
+    free_head: u32,
+    generation: u64,
+end
+
+T.LlStreamStore = struct
+    slots: ptr(T.LlStreamSlot),
+    n: index,
+    cap: index,
+    free_head: u32,
+    generation: u64,
+end
+
+T.LlProgramStore = struct
+    slots: ptr(T.LlProgramSlot),
+    n: index,
+    cap: index,
+    free_head: u32,
+    generation: u64,
+end
+
+T.LlArgsStore = struct
+    slots: ptr(T.LlArgsSlot),
+    n: index,
+    cap: index,
+    free_head: u32,
+    generation: u64,
+end
+
+T.LlMachineStore = struct
+    slots: ptr(T.LlMachineSlot),
+    n: index,
+    cap: index,
+    free_head: u32,
+    generation: u64,
+end
+
+T.LlPhaseStore = struct
+    slots: ptr(T.LlPhaseSlot),
+    n: index,
+    cap: index,
+    free_head: u32,
+    generation: u64,
+end
+
+T.LlRecordingStore = struct
+    slots: ptr(T.LlRecordingSlot),
+    n: index,
+    cap: index,
+    free_head: u32,
+    generation: u64,
+end
+
+T.LlCacheStore = struct
+    slots: ptr(T.LlCacheEntrySlot),
+    n: index,
+    cap: index,
+    free_head: u32,
+    generation: u64,
+end
+
+T.LlMemoryPool = struct
+    allocator: ptr(T.LlAllocator),
+    bytes_live: index,
+    bytes_peak: index,
+    allocation_count: u64,
+end
+
+T.LlVm = struct
+    memory: T.LlMemoryPool,
+    bytes: T.LlByteArena,
+    symbols: T.LlSymbolStore,
+    diagnostics: T.LlDiagnosticStore,
+    types: T.LlTypeStore,
+    schemas: T.LlOpSchemaStore,
+    abis: T.LlAbiStore,
+    worlds: T.LlWorldStore,
+    ops: T.LlOpStore,
+    buffers: T.LlBufferStore,
+    streams: T.LlStreamStore,
+    programs: T.LlProgramStore,
+    args: T.LlArgsStore,
+    machines: T.LlMachineStore,
+    phases: T.LlPhaseStore,
+    recordings: T.LlRecordingStore,
+    cache: T.LlCacheStore,
+    live_leases: index,
+    cache_bytes_limit: index,
+    cache_bytes_live: index,
+    generation: u64,
+end
+
+--------------------------------------------------------------------------------
+-- Regions: lifecycle, symbols, diagnostics.
+--------------------------------------------------------------------------------
+
+R.ll_vm_open = region(config: T.LlVmConfig;
+    opened(vm: T.LlVmRef)
+  | invalid_config
+  | memory_exhausted(needed: index))
+end
+
+R.ll_vm_close = region(vm: T.LlVmRef;
+    closed
+  | live_leases(count: index)
+  | live_recordings(count: index))
+end
+
+R.ll_borrow_vm = region(vm: T.LlVmRef;
+    borrowed(vm: ptr(T.LlVm))
+  | stale(vm: T.LlVmRef)
+  | missing(vm: T.LlVmRef))
+end
+
+R.ll_intern_symbol = region(vm: ptr(T.LlVm), bytes: readonly view(u8);
+    symbol(symbol: T.LlSymbolRef)
+  | memory_exhausted(needed: index))
+end
+
+R.ll_make_diagnostic = region(vm: ptr(T.LlVm), code: i32, message: T.LlSymbolRef;
+    diagnostic(diag: T.LlDiagnosticRef)
+  | memory_exhausted(needed: index))
+end
+
+--------------------------------------------------------------------------------
+-- Regions: ABI, worlds, ops.
+--------------------------------------------------------------------------------
+
+R.ll_define_abi = region(
+    vm: ptr(T.LlVm),
+    name: T.LlSymbolRef,
+    version: u32,
+    op_schema: T.LlOpSchemaRef,
+    resource_schema: T.LlTypeRef;
+    abi(abi: T.LlAbiRef)
+  | duplicate_abi(name: T.LlSymbolRef)
+  | invalid_schema(schema: T.LlOpSchemaRef)
+  | memory_exhausted(needed: index))
+end
+
+R.ll_define_world = region(
+    vm: ptr(T.LlVm),
+    name: T.LlSymbolRef,
+    abi: T.LlAbiRef;
+    world(world: T.LlWorldRef)
+  | duplicate_world(name: T.LlSymbolRef)
+  | invalid_abi(abi: T.LlAbiRef)
+  | memory_exhausted(needed: index))
+end
+
+R.ll_make_op = region(
+    vm: ptr(T.LlVm),
+    world: T.LlWorldRef,
+    kind: u16,
+    payload: u32;
+    op(op: T.LlOpRef)
+  | invalid_world(world: T.LlWorldRef)
+  | invalid_kind(kind: u16)
+  | invalid_payload(kind: u16)
+  | memory_exhausted(needed: index))
+end
+
+--------------------------------------------------------------------------------
+-- Regions: buffers and streams.
+--------------------------------------------------------------------------------
+
+R.ll_buffer_open = region(vm: ptr(T.LlVm), world: T.LlWorldRef, capacity: index;
+    buffer(buffer: T.LlBufferRef)
+  | invalid_world(world: T.LlWorldRef)
+  | memory_exhausted(needed: index))
+end
+
+R.ll_buffer_push = region(vm: ptr(T.LlVm), buffer: T.LlBufferRef, op: T.LlOpRef;
+    pushed
+  | sealed(buffer: T.LlBufferRef)
+  | wrong_world(expected: T.LlWorldRef, got: T.LlWorldRef)
+  | memory_exhausted(needed: index))
+end
+
+R.ll_buffer_publish = region(vm: ptr(T.LlVm), buffer: T.LlBufferRef;
+    published(buffer: T.LlBufferRef)
+  | already_published(buffer: T.LlBufferRef)
+  | invalid_buffer(buffer: T.LlBufferRef))
+end
+
+R.ll_stream_empty = region(vm: ptr(T.LlVm), world: T.LlWorldRef;
+    stream(stream: T.LlStreamRef)
+  | invalid_world(world: T.LlWorldRef))
+end
+
+R.ll_stream_once = region(vm: ptr(T.LlVm), op: T.LlOpRef;
+    stream(stream: T.LlStreamRef)
+  | invalid_op(op: T.LlOpRef)
+  | memory_exhausted(needed: index))
+end
+
+R.ll_stream_seq = region(vm: ptr(T.LlVm), buffer: T.LlBufferRef;
+    stream(stream: T.LlStreamRef)
+  | invalid_buffer(buffer: T.LlBufferRef))
+end
+
+R.ll_stream_concat = region(vm: ptr(T.LlVm), parts: readonly view(T.LlStreamRef);
+    stream(stream: T.LlStreamRef)
+  | empty
+  | world_mismatch(expected: T.LlWorldRef, got: T.LlWorldRef)
+  | memory_exhausted(needed: index))
+end
+
+R.ll_next_op = region(vm: ptr(T.LlVm), stream: T.LlStreamRef;
+    op(op: T.LlOpRef)
+  | done
+  | blocked
+  | failed(diag: T.LlDiagnosticRef))
+end
+
+R.ll_drain_stream = region(vm: ptr(T.LlVm), stream: T.LlStreamRef;
+    drained(buffer: T.LlBufferRef)
+  | empty
+  | failed(diag: T.LlDiagnosticRef)
+  | memory_exhausted(needed: index))
+end
+
+R.ll_one_op = region(vm: ptr(T.LlVm), stream: T.LlStreamRef;
+    one(op: T.LlOpRef)
+  | empty
+  | more_than_one
+  | failed(diag: T.LlDiagnosticRef))
+end
+
+--------------------------------------------------------------------------------
+-- Regions: args, machines, phases.
+--------------------------------------------------------------------------------
+
+R.ll_intern_args = region(vm: ptr(T.LlVm), values: readonly view(T.LlArgValue);
+    args(args: T.LlArgsRef)
+  | unsupported_arg(kind: u8)
+  | too_many_args(n: index)
+  | memory_exhausted(needed: index))
+end
+
+R.ll_define_region_machine = region(
+    vm: ptr(T.LlVm),
+    name: T.LlSymbolRef,
+    input: T.LlWorldRef,
+    output: T.LlWorldRef,
+    entry_symbol: T.LlSymbolRef;
+    machine(machine: T.LlMachineRef)
+  | missing_region(entry_symbol: T.LlSymbolRef)
+  | signature_mismatch(entry_symbol: T.LlSymbolRef)
+  | world_mismatch
+  | memory_exhausted(needed: index))
+end
+
+R.ll_define_phase = region(
+    vm: ptr(T.LlVm),
+    name: T.LlSymbolRef,
+    input: T.LlWorldRef,
+    output: T.LlWorldRef,
+    machine: T.LlMachineRef,
+    cache_policy: T.LlCachePolicy;
+    phase(phase: T.LlPhaseRef)
+  | duplicate_phase(name: T.LlSymbolRef)
+  | machine_world_mismatch(machine: T.LlMachineRef)
+  | invalid_cache_policy
+  | memory_exhausted(needed: index))
+end
+
+R.ll_open_phase = region(
+    vm: ptr(T.LlVm),
+    phase: T.LlPhaseRef,
+    input: T.LlStreamRef,
+    args: T.LlArgsRef;
+    hit(stream: T.LlStreamRef)
+  | shared(stream: T.LlStreamRef, recording: T.LlRecordingRef)
+  | miss(stream: T.LlStreamRef, recording: T.LlRecordingRef)
+  | uncached(stream: T.LlStreamRef)
+  | wrong_input_world(expected: T.LlWorldRef, got: T.LlWorldRef)
+  | machine_failed(diag: T.LlDiagnosticRef)
+  | memory_exhausted(needed: index))
+end
+
+R.ll_run_machine = region(
+    vm: ptr(T.LlVm),
+    machine: T.LlMachineRef,
+    input: T.LlStreamRef,
+    args: T.LlArgsRef;
+    output(stream: T.LlStreamRef)
+  | wrong_input_world(expected: T.LlWorldRef, got: T.LlWorldRef)
+  | unsupported_machine(machine: T.LlMachineRef)
+  | failed(diag: T.LlDiagnosticRef)
+  | memory_exhausted(needed: index))
+end
+
+--------------------------------------------------------------------------------
+-- Regions: recording and cache.
+--------------------------------------------------------------------------------
+
+R.ll_start_recording = region(
+    vm: ptr(T.LlVm),
+    key: T.LlPhaseKey,
+    source: T.LlStreamRef;
+    recording(recording: T.LlRecordingRef)
+  | already_pending(recording: T.LlRecordingRef)
+  | memory_exhausted(needed: index))
+end
+
+R.ll_advance_recording = region(
+    vm: ptr(T.LlVm),
+    recording: T.LlRecordingRef;
+    op(op: T.LlOpRef)
+  | exhausted_commit(cache_entry: T.LlCacheEntryRef)
+  | exhausted_no_commit
+  | failed(diag: T.LlDiagnosticRef))
+end
+
+R.ll_finish_recording = region(
+    vm: ptr(T.LlVm),
+    recording: T.LlRecordingRef;
+    committed(cache_entry: T.LlCacheEntryRef)
+  | discarded_partial(produced: index)
+  | not_cacheable
+  | failed(diag: T.LlDiagnosticRef))
+end
+
+R.ll_lookup_cache = region(vm: ptr(T.LlVm), key: T.LlPhaseKey;
+    hit(cache_entry: T.LlCacheEntryRef)
+  | miss
+  | stale(cache_entry: T.LlCacheEntryRef))
+end
+
+R.ll_lookup_pending = region(vm: ptr(T.LlVm), key: T.LlPhaseKey;
+    pending(recording: T.LlRecordingRef)
+  | none)
+end
+
+R.ll_evict_phase = region(vm: ptr(T.LlVm), phase: T.LlPhaseRef;
+    evicted(count: index)
+  | live_recordings(count: index)
+  | missing_phase(phase: T.LlPhaseRef))
+end
+
+--------------------------------------------------------------------------------
+-- Regions: reports and ABI seals.
+--------------------------------------------------------------------------------
+
+R.ll_report_phase = region(vm: ptr(T.LlVm), phase: T.LlPhaseRef;
+    report(report: T.LlPhaseReport)
+  | missing_phase(phase: T.LlPhaseRef))
+end
+
+R.ll_report_vm = region(vm: ptr(T.LlVm);
+    report(report: T.LlVmReport))
+end
+
+F.llpvm_open = func(config: ptr(T.LlVmConfig), out: ptr(T.LlVmRef)): T.LlStatus end
+F.llpvm_close = func(vm: T.LlVmRef): T.LlStatus end
+F.llpvm_load_program = func(vm: T.LlVmRef, bytes: ptr(u8), len: index, out: ptr(T.LlStreamRef)): T.LlStatus end
+F.llpvm_apply_phase = func(vm: T.LlVmRef, phase: T.LlPhaseRef, input: T.LlStreamRef, args: T.LlArgsRef, out: ptr(T.LlStreamRef)): T.LlStatus end
+F.llpvm_drain = func(vm: T.LlVmRef, stream: T.LlStreamRef, out: ptr(T.LlBufferRef)): T.LlStatus end
+F.llpvm_drain_count = func(vm: T.LlVmRef, stream: T.LlStreamRef, out: ptr(index)): T.LlStatus end
+F.llpvm_report = func(vm: T.LlVmRef, out: ptr(T.LlVmReport)): T.LlStatus end
+
+return M

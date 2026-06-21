@@ -252,6 +252,11 @@ Use vague names only when the consumer truly does not distinguish further.
 
 A handle is durable identity.  It never grants memory access by itself.
 
+For C-bound code, distinct handle types must remain distinct in Moonlift even
+when they share the same raw C representation. `FooRef` and `BarRef` may both
+lower to `uint32_t`, but protocols and helper functions must keep their typed
+handle names in source instead of collapsing them to raw integers.
+
 Store-resolved handles declare their resolver facts:
 
 ```moonlift

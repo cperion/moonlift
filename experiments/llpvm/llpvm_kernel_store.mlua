@@ -1,0 +1,318 @@
+-- llpvm_kernel_store.mlua -- LlVm lifecycle and ABI shell.
+
+local H = moon.require("llpvm_header")
+local T = H.T
+local R = H.R
+local F = H.F
+local Mem = moon.require("llpvm_memory")
+
+local llpvm_vm_register = extern llpvm_vm_register(vm: ptr(T.LlVm)): T.LlVmRef end
+local llpvm_vm_get = extern llpvm_vm_get(vm: T.LlVmRef): ptr(T.LlVm) end
+local llpvm_vm_unregister = extern llpvm_vm_unregister(vm: T.LlVmRef): void end
+
+local status_ok = func(): T.LlStatus
+    return LlStatus{ code = 0, detail = 0, at = 0, needed = 0 }
+end
+
+local status_code = func(code: i32, detail: i32, at: index, needed: index): T.LlStatus
+    return LlStatus{ code = code, detail = detail, at = at, needed = needed }
+end
+
+local llpvm_store_empty_symbols = func(): T.LlSymbolStore
+    return LlSymbolStore{ slots = as(ptr(T.LlSymbolSlot), 0), n = 0, cap = 0, free_head = 0, generation = 1 }
+end
+
+local llpvm_store_empty_diagnostics = func(): T.LlDiagnosticStore
+    return LlDiagnosticStore{ slots = as(ptr(T.LlDiagnosticSlot), 0), n = 0, cap = 0, free_head = 0, generation = 1 }
+end
+
+local llpvm_store_empty_types = func(): T.LlTypeStore
+    return LlTypeStore{ slots = as(ptr(T.LlTypeSlot), 0), n = 0, cap = 0, free_head = 0, generation = 1 }
+end
+
+local llpvm_store_empty_schemas = func(): T.LlOpSchemaStore
+    return LlOpSchemaStore{ slots = as(ptr(T.LlOpSchemaSlot), 0), n = 0, cap = 0, free_head = 0, generation = 1 }
+end
+
+local llpvm_store_empty_abis = func(): T.LlAbiStore
+    return LlAbiStore{ slots = as(ptr(T.LlAbiSlot), 0), n = 0, cap = 0, free_head = 0, generation = 1 }
+end
+
+local llpvm_store_empty_worlds = func(): T.LlWorldStore
+    return LlWorldStore{ slots = as(ptr(T.LlWorldSlot), 0), n = 0, cap = 0, free_head = 0, generation = 1 }
+end
+
+local llpvm_store_empty_ops = func(): T.LlOpStore
+    return LlOpStore{ slots = as(ptr(T.LlOpSlot), 0), n = 0, cap = 0, free_head = 0, generation = 1 }
+end
+
+local llpvm_store_empty_buffers = func(): T.LlBufferStore
+    return LlBufferStore{ slots = as(ptr(T.LlBufferSlot), 0), n = 0, cap = 0, free_head = 0, generation = 1 }
+end
+
+local llpvm_store_empty_streams = func(): T.LlStreamStore
+    return LlStreamStore{ slots = as(ptr(T.LlStreamSlot), 0), n = 0, cap = 0, free_head = 0, generation = 1 }
+end
+
+local llpvm_store_empty_programs = func(): T.LlProgramStore
+    return LlProgramStore{ slots = as(ptr(T.LlProgramSlot), 0), n = 0, cap = 0, free_head = 0, generation = 1 }
+end
+
+local llpvm_store_empty_args = func(): T.LlArgsStore
+    return LlArgsStore{ slots = as(ptr(T.LlArgsSlot), 0), n = 0, cap = 0, free_head = 0, generation = 1 }
+end
+
+local llpvm_store_empty_machines = func(): T.LlMachineStore
+    return LlMachineStore{ slots = as(ptr(T.LlMachineSlot), 0), n = 0, cap = 0, free_head = 0, generation = 1 }
+end
+
+local llpvm_store_empty_phases = func(): T.LlPhaseStore
+    return LlPhaseStore{ slots = as(ptr(T.LlPhaseSlot), 0), n = 0, cap = 0, free_head = 0, generation = 1 }
+end
+
+local llpvm_store_empty_recordings = func(): T.LlRecordingStore
+    return LlRecordingStore{ slots = as(ptr(T.LlRecordingSlot), 0), n = 0, cap = 0, free_head = 0, generation = 1 }
+end
+
+local llpvm_store_empty_cache = func(): T.LlCacheStore
+    return LlCacheStore{ slots = as(ptr(T.LlCacheEntrySlot), 0), n = 0, cap = 0, free_head = 0, generation = 1 }
+end
+
+local llpvm_init_empty_vm = func(vm: ptr(T.LlVm), config: T.LlVmConfig): void
+    vm[0] = LlVm{
+        memory = LlMemoryPool{ allocator = config.allocator, bytes_live = 0, bytes_peak = 0, allocation_count = 0 },
+        bytes = LlByteArena{ data = as(ptr(u8), 0), n = 0, cap = 0 },
+        symbols = llpvm_store_empty_symbols(),
+        diagnostics = llpvm_store_empty_diagnostics(),
+        types = llpvm_store_empty_types(),
+        schemas = llpvm_store_empty_schemas(),
+        abis = llpvm_store_empty_abis(),
+        worlds = llpvm_store_empty_worlds(),
+        ops = llpvm_store_empty_ops(),
+        buffers = llpvm_store_empty_buffers(),
+        streams = llpvm_store_empty_streams(),
+        programs = @{llpvm_store_empty_programs}(),
+        args = llpvm_store_empty_args(),
+        machines = llpvm_store_empty_machines(),
+        phases = llpvm_store_empty_phases(),
+        recordings = llpvm_store_empty_recordings(),
+        cache = llpvm_store_empty_cache(),
+        live_leases = 0,
+        cache_bytes_limit = config.cache_bytes,
+        cache_bytes_live = 0,
+        generation = 1,
+    }
+    return
+end
+
+local llpvm_free_store_memory = func(vm: ptr(T.LlVm)): void
+    let a: ptr(T.LlAllocator) = Mem.llpvm_get_alloc(vm)
+    block free_buffers(i: index = 0)
+        if i >= vm.buffers.n then yield end
+        let slot: T.LlBufferSlot = vm.buffers.slots[i]
+        if slot.live then
+            let value: T.LlBuffer = slot.value
+            Mem.llpvm_free_bytes(a, as(ptr(u8), value.ops), value.cap * sizeof(T.LlOpRef), as(index, 8))
+        end
+        jump free_buffers(i = i + 1)
+    end
+    block free_args(i: index = 0)
+        if i >= vm.args.n then yield end
+        let slot: T.LlArgsSlot = vm.args.slots[i]
+        if slot.live then
+            let value: T.LlArgs = slot.value
+            Mem.llpvm_free_bytes(a, as(ptr(u8), value.values), value.n * sizeof(T.LlArgValue), as(index, 8))
+        end
+        jump free_args(i = i + 1)
+    end
+    block free_schemas(i: index = 0)
+        if i >= vm.schemas.n then yield end
+        let slot: T.LlOpSchemaSlot = vm.schemas.slots[i]
+        if slot.live then
+            let value: T.LlOpSchema = slot.value
+            Mem.llpvm_free_bytes(a, as(ptr(u8), value.kinds), value.kind_count * sizeof(T.LlOpKindSchema), as(index, 8))
+            Mem.llpvm_free_bytes(a, as(ptr(u8), value.fields), value.field_count * sizeof(T.LlOpFieldSchema), as(index, 8))
+        end
+        jump free_schemas(i = i + 1)
+    end
+    Mem.llpvm_free_bytes(a, vm.bytes.data, vm.bytes.cap, 1)
+    Mem.llpvm_free_bytes(a, as(ptr(u8), vm.symbols.slots), vm.symbols.cap * sizeof(T.LlSymbolSlot), as(index, 8))
+    Mem.llpvm_free_bytes(a, as(ptr(u8), vm.diagnostics.slots), vm.diagnostics.cap * sizeof(T.LlDiagnosticSlot), as(index, 8))
+    Mem.llpvm_free_bytes(a, as(ptr(u8), vm.types.slots), vm.types.cap * sizeof(T.LlTypeSlot), as(index, 8))
+    Mem.llpvm_free_bytes(a, as(ptr(u8), vm.schemas.slots), vm.schemas.cap * sizeof(T.LlOpSchemaSlot), as(index, 8))
+    Mem.llpvm_free_bytes(a, as(ptr(u8), vm.abis.slots), vm.abis.cap * sizeof(T.LlAbiSlot), as(index, 8))
+    Mem.llpvm_free_bytes(a, as(ptr(u8), vm.worlds.slots), vm.worlds.cap * sizeof(T.LlWorldSlot), as(index, 8))
+    Mem.llpvm_free_bytes(a, as(ptr(u8), vm.ops.slots), vm.ops.cap * sizeof(T.LlOpSlot), as(index, 8))
+    Mem.llpvm_free_bytes(a, as(ptr(u8), vm.buffers.slots), vm.buffers.cap * sizeof(T.LlBufferSlot), as(index, 8))
+    Mem.llpvm_free_bytes(a, as(ptr(u8), vm.streams.slots), vm.streams.cap * sizeof(T.LlStreamSlot), as(index, 8))
+    Mem.llpvm_free_bytes(a, as(ptr(u8), vm.programs.slots), vm.programs.cap * sizeof(T.LlProgramSlot), as(index, 8))
+    Mem.llpvm_free_bytes(a, as(ptr(u8), vm.args.slots), vm.args.cap * sizeof(T.LlArgsSlot), as(index, 8))
+    Mem.llpvm_free_bytes(a, as(ptr(u8), vm.machines.slots), vm.machines.cap * sizeof(T.LlMachineSlot), as(index, 8))
+    Mem.llpvm_free_bytes(a, as(ptr(u8), vm.phases.slots), vm.phases.cap * sizeof(T.LlPhaseSlot), as(index, 8))
+    Mem.llpvm_free_bytes(a, as(ptr(u8), vm.recordings.slots), vm.recordings.cap * sizeof(T.LlRecordingSlot), as(index, 8))
+    Mem.llpvm_free_bytes(a, as(ptr(u8), vm.cache.slots), vm.cache.cap * sizeof(T.LlCacheEntrySlot), as(index, 8))
+    return
+end
+
+local llpvm_reserve_image_load_stores = func(vm: ptr(T.LlVm), config: T.LlVmConfig): bool
+    let a: ptr(T.LlAllocator) = Mem.llpvm_get_alloc(vm)
+    if config.initial_abi_cap > 0 then
+        let abi_bytes: index = config.initial_abi_cap * sizeof(T.LlAbiSlot)
+        let abi_raw: ptr(u8) = Mem.llpvm_alloc_bytes(a, abi_bytes, as(index, 8))
+        if abi_raw == as(ptr(u8), 0) then return false end
+        Mem.llpvm_zero_bytes(abi_raw, abi_bytes)
+        vm.abis.slots = as(ptr(T.LlAbiSlot), abi_raw)
+        vm.abis.cap = config.initial_abi_cap
+    end
+    if config.initial_world_cap > 0 then
+        let world_bytes: index = config.initial_world_cap * sizeof(T.LlWorldSlot)
+        let world_raw: ptr(u8) = Mem.llpvm_alloc_bytes(a, world_bytes, as(index, 8))
+        if world_raw == as(ptr(u8), 0) then return false end
+        Mem.llpvm_zero_bytes(world_raw, world_bytes)
+        vm.worlds.slots = as(ptr(T.LlWorldSlot), world_raw)
+        vm.worlds.cap = config.initial_world_cap
+    end
+    if config.initial_stream_cap > 0 then
+        let stream_bytes: index = config.initial_stream_cap * sizeof(T.LlStreamSlot)
+        let stream_raw: ptr(u8) = Mem.llpvm_alloc_bytes(a, stream_bytes, as(index, 8))
+        if stream_raw == as(ptr(u8), 0) then return false end
+        Mem.llpvm_zero_bytes(stream_raw, stream_bytes)
+        vm.streams.slots = as(ptr(T.LlStreamSlot), stream_raw)
+        vm.streams.cap = config.initial_stream_cap
+    end
+    if config.initial_program_cap > 0 then
+        let program_bytes: index = config.initial_program_cap * sizeof(T.LlProgramSlot)
+        let program_raw: ptr(u8) = Mem.llpvm_alloc_bytes(a, program_bytes, as(index, 8))
+        if program_raw == as(ptr(u8), 0) then return false end
+        Mem.llpvm_zero_bytes(program_raw, program_bytes)
+        vm.programs.slots = as(ptr(T.LlProgramSlot), program_raw)
+        vm.programs.cap = config.initial_program_cap
+    end
+    return true
+end
+
+local ll_vm_open = region @{R.ll_vm_open}
+entry start()
+    if config.allocator ~= as(ptr(T.LlAllocator), 0) then
+        if config.allocator[0].alloc_fn == as(func(ptr(u8), index, index): ptr(u8), 0) then jump invalid_config end
+        if config.allocator[0].realloc_fn == as(func(ptr(u8), ptr(u8), index, index, index): ptr(u8), 0) then jump invalid_config end
+        if config.allocator[0].free_fn == as(func(ptr(u8), ptr(u8), index, index), 0) then jump invalid_config end
+    end
+    let raw: ptr(u8) = Mem.llpvm_alloc_bytes(config.allocator, sizeof(T.LlVm), as(index, 8))
+    if raw == as(ptr(u8), 0) then jump memory_exhausted(needed = sizeof(T.LlVm)) end
+    Mem.llpvm_zero_bytes(raw, sizeof(T.LlVm))
+    let vm_ptr: ptr(T.LlVm) = as(ptr(T.LlVm), raw)
+    llpvm_init_empty_vm(vm_ptr, config)
+    if not @{llpvm_reserve_image_load_stores}(vm_ptr, config) then
+        llpvm_free_store_memory(vm_ptr)
+        Mem.llpvm_free_bytes(config.allocator, raw, sizeof(T.LlVm), as(index, 8))
+        jump memory_exhausted(needed = sizeof(T.LlVm))
+    end
+    let ref: T.LlVmRef = llpvm_vm_register(vm_ptr)
+    if ref == LlVmRef.from_repr(0) then
+        Mem.llpvm_free_bytes(config.allocator, raw, sizeof(T.LlVm), as(index, 8))
+        jump memory_exhausted(needed = sizeof(T.LlVm))
+    end
+    jump opened(vm = ref)
+end
+end
+
+local ll_borrow_vm = region @{R.ll_borrow_vm}
+entry start()
+    if vm == LlVmRef.from_repr(0) then jump missing(vm = vm) end
+    let p: ptr(T.LlVm) = llpvm_vm_get(vm)
+    if p == as(ptr(T.LlVm), 0) then jump missing(vm = vm) end
+    jump borrowed(vm = p)
+end
+end
+
+local ll_vm_close = region @{R.ll_vm_close}
+entry start()
+    if vm == LlVmRef.from_repr(0) then jump closed end
+    let p: ptr(T.LlVm) = llpvm_vm_get(vm)
+    if p == as(ptr(T.LlVm), 0) then jump closed end
+    if p.live_leases > 0 then jump live_leases(count = p.live_leases) end
+    if p.recordings.n > 0 then jump live_recordings(count = p.recordings.n) end
+    let a: ptr(T.LlAllocator) = Mem.llpvm_get_alloc(p)
+    llpvm_free_store_memory(p)
+    llpvm_vm_unregister(vm)
+    Mem.llpvm_free_bytes(a, as(ptr(u8), p), sizeof(T.LlVm), as(index, 8))
+    jump closed
+end
+end
+
+local llpvm_open = func @{F.llpvm_open}
+    if config == as(ptr(T.LlVmConfig), 0) then
+        return status_code(@{H.LL_STATUS_INVALID_CONFIG}, 0, 0, 0)
+    end
+    if out == as(ptr(T.LlVmRef), 0) then
+        return status_code(@{H.LL_STATUS_INVALID_CONFIG}, 1, 0, 0)
+    end
+    return region: T.LlStatus
+    entry start()
+        emit @{ll_vm_open}(config[0];
+            opened = ok,
+            invalid_config = bad_config,
+            memory_exhausted = oom)
+    end
+    block ok(vm: T.LlVmRef)
+        out[0] = vm
+        yield status_ok()
+    end
+    block bad_config()
+        yield status_code(@{H.LL_STATUS_INVALID_CONFIG}, 0, 0, 0)
+    end
+    block oom(needed: index)
+        yield status_code(@{H.LL_STATUS_OOM}, 0, 0, needed)
+    end
+    end
+end
+
+local llpvm_close = func @{F.llpvm_close}
+    return region: T.LlStatus
+    entry start()
+        emit @{ll_vm_close}(vm;
+            closed = ok,
+            live_leases = leases,
+            live_recordings = recordings)
+    end
+    block ok()
+        yield status_ok()
+    end
+    block leases(count: index)
+        yield status_code(@{H.LL_STATUS_LIVE_LEASES}, 0, count, 0)
+    end
+    block recordings(count: index)
+        yield status_code(@{H.LL_STATUS_LIVE_RECORDINGS}, 0, count, 0)
+    end
+    end
+end
+
+return {
+    llpvm_vm_register = llpvm_vm_register,
+    llpvm_vm_get = llpvm_vm_get,
+    llpvm_vm_unregister = llpvm_vm_unregister,
+    llpvm_store_empty_symbols = llpvm_store_empty_symbols,
+    llpvm_store_empty_diagnostics = llpvm_store_empty_diagnostics,
+    llpvm_store_empty_types = llpvm_store_empty_types,
+    llpvm_store_empty_schemas = llpvm_store_empty_schemas,
+    llpvm_store_empty_abis = llpvm_store_empty_abis,
+    llpvm_store_empty_worlds = llpvm_store_empty_worlds,
+    llpvm_store_empty_ops = llpvm_store_empty_ops,
+    llpvm_store_empty_buffers = llpvm_store_empty_buffers,
+    llpvm_store_empty_streams = llpvm_store_empty_streams,
+    llpvm_store_empty_args = llpvm_store_empty_args,
+    llpvm_store_empty_machines = llpvm_store_empty_machines,
+    llpvm_store_empty_phases = llpvm_store_empty_phases,
+    llpvm_store_empty_recordings = llpvm_store_empty_recordings,
+    llpvm_store_empty_cache = llpvm_store_empty_cache,
+    llpvm_init_empty_vm = llpvm_init_empty_vm,
+    llpvm_free_store_memory = llpvm_free_store_memory,
+    ll_vm_open = ll_vm_open,
+    ll_borrow_vm = ll_borrow_vm,
+    ll_vm_close = ll_vm_close,
+    llpvm_open = llpvm_open,
+    llpvm_close = llpvm_close,
+    status_ok = status_ok,
+    status_code = status_code,
+}

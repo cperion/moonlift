@@ -97,6 +97,29 @@ function M.Define(T)
         return C.CBackendMemoryAccess(c_ty(ctx, access.ty), access.align, c_trap_mode(access.trap), access.volatile, access.ordering)
     end
 
+    local function is_pointer_c_ty(ty)
+        local cls = pvm.classof(ty)
+        return cls == C.CBackendDataPtr
+            or cls == C.CBackendCodePtr
+            or cls == C.CBackendImportedCodePtr
+            or cls == C.CBackendAbiHiddenOutPtr
+            or cls == C.CBackendSliceDescriptor
+            or cls == C.CBackendViewDescriptor
+            or cls == C.CBackendClosureDescriptor
+    end
+
+    local function is_zero_literal(lit)
+        local cls = pvm.classof(lit)
+        return cls == Core.LitInt and tostring(lit.raw) == "0"
+    end
+
+    local function is_nullish_const_atom(a)
+        local cls = pvm.classof(a)
+        if cls == C.CBackendAtomNull then return true end
+        if cls == C.CBackendAtomLiteral then return is_zero_literal(a.literal) end
+        return false
+    end
+
     local function field_name(field)
         local cls = pvm.classof(field)
         if cls == Sem.FieldByName or cls == Sem.FieldByOffset then return field.field_name end
@@ -213,8 +236,11 @@ function M.Define(T)
         local k = inst.kind
         local cls = pvm.classof(k)
         if cls == Code.CodeInstConst then
-            return { C.CBackendAssign(c_local_id(k.dst), C.CBackendRAtom(const_atom(ctx, k.const))) }
+            local a = const_atom(ctx, k.const)
+            ctx.const_atoms[k.dst.text] = a
+            return { C.CBackendAssign(c_local_id(k.dst), C.CBackendRAtom(a)) }
         elseif cls == Code.CodeInstAlias then
+            ctx.const_atoms[k.dst.text] = ctx.const_atoms[k.src.text]
             return { C.CBackendAssign(c_local_id(k.dst), C.CBackendRAtom(atom(k.src))) }
         elseif cls == Code.CodeInstUnary then
             local helper = add_helper(ctx, C.CBackendHelperUnary(k.op, c_ty(ctx, k.ty)))
@@ -228,7 +254,14 @@ function M.Define(T)
         elseif cls == Code.CodeInstCompare then
             return { C.CBackendAssign(c_local_id(k.dst), C.CBackendRCompare(k.op, c_ty(ctx, k.operand_ty), atom(k.lhs), atom(k.rhs))) }
         elseif cls == Code.CodeInstCast then
-            return { C.CBackendAssign(c_local_id(k.dst), C.CBackendRCast(k.op, c_ty(ctx, k.to), atom(k.value))) }
+            local to_ty = c_ty(ctx, k.to)
+            local source_const = ctx.const_atoms[k.value.text]
+            if is_pointer_c_ty(to_ty) and source_const ~= nil and is_nullish_const_atom(source_const) then
+                ctx.const_atoms[k.dst.text] = C.CBackendAtomNull(to_ty)
+                return { C.CBackendAssign(c_local_id(k.dst), C.CBackendRAtom(C.CBackendAtomNull(to_ty))) }
+            end
+            ctx.const_atoms[k.dst.text] = nil
+            return { C.CBackendAssign(c_local_id(k.dst), C.CBackendRCast(k.op, to_ty, atom(k.value))) }
         elseif cls == Code.CodeInstSelect then
             return { C.CBackendAssign(c_local_id(k.dst), C.CBackendRSelect(c_ty(ctx, k.ty), atom(k.cond), atom(k.then_value), atom(k.else_value))) }
         elseif cls == Code.CodeInstIntrinsic then
@@ -412,6 +445,7 @@ function M.Define(T)
     local function lower_func(ctx, func)
         ctx.param_values = {}
         ctx.value_types = {}
+        ctx.const_atoms = {}
         local params = {}
         for i = 1, #(func.params or {}) do
             ctx.param_values[func.params[i].value.text] = true

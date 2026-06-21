@@ -115,7 +115,7 @@ for i = 1, #atomic_helpers do
 end
 local atomic_use = C.CBackendHelperUse(H.helper_id(atomic_helpers[1]), atomic_helpers[1])
 local unit = C.CBackendUnit("helpers", CodeType.default_target({ dialect = "c11" }), {}, {}, {}, {}, { atomic_use }, {})
-assert(Emit.emit(unit):match("#include <stdatomic.h>"), "C11 atomic unit includes stdatomic")
+assert(Emit.emit_artifact(unit).source:match("#include <stdatomic.h>"), "C11 atomic unit includes stdatomic")
 
 local trap_use = C.CBackendHelperUse(H.helper_id(C.CBackendHelperTrap), C.CBackendHelperTrap)
 local trap_src = table.concat(H.emit_helper(trap_use), "\n")

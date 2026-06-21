@@ -13,6 +13,7 @@ local H = moon.require("mlui_types")
 local T = H.T
 local R = H.R
 local F = H.F
+local Mem = moon.require("mlui_memory")
 
 local RAW_INVALID = 0
 local RAW_POINTER_MOVED = 1
@@ -28,6 +29,27 @@ local RAW_FOCUS_MOVE = 10
 local RAW_FOCUS_LOST = 11
 local RAW_ACTIVATE_FOCUSED = 12
 local RAW_CANCEL_INTERACTION = 13
+
+local mlui_push_event = region mlui_push_event(kernel: ptr(T.UiKernel), ev: T.UiEvent;
+    pushed | oom(needed: index))
+entry start()
+    if kernel.events.n >= kernel.events.cap then
+        emit Mem.mlui_grow_events(kernel, as(index, 1);
+            grown = grow_ok, oom = oom_exit)
+    end
+    jump grow_ok
+end
+block grow_ok()
+    let p_en: ptr(index) = &(kernel.events.n)
+    let en: index = p_en[0]
+    kernel.events.events[en] = ev
+    p_en[0] = en + 1
+    jump pushed
+end
+block oom_exit(needed: index)
+    jump oom(needed = needed)
+end
+end
 
 --------------------------------------------------------------------------------
 -- ui_visit_raw_input: decode UiRawInput kind.
@@ -184,32 +206,6 @@ entry start()
         end
         jump stepped(events = as(ptr(T.UiEventBuffer), as(ptr(u8), kernel) + as(index, 0)))
     end
-    if kind == as(u8, RAW_POINTER_RELEASED) then
-        let pressed: T.UiId = model.pressed_id
-        let hover: T.UiId = report.hover_id
-        if pressed ~= T.UiId.from_repr(0) and pressed == hover then
-            let ev: T.UiEvent = T.UiEvent{
-                kind = 15, id = pressed, other = T.UiId.from_repr(0),
-                x = raw.x, y = raw.y, a = 0, text = view(as(ptr(u8), 0), as(index, 0))
-            }
-            let p_en: ptr(index) = &(kernel.events.n)
-            let en: index = p_en[0]
-            kernel.events.events[en] = ev
-            p_en[0] = en + 1
-        end
-        (*model).pressed_id = T.UiId.from_repr(0)
-        let cap: T.UiCapture = model.capture
-        if cap.kind ~= as(u8, 0) then
-            let clear_cap: T.UiCapture = T.UiCapture{
-                kind = 0,
-                id = T.UiId.from_repr(0),
-                start_x = 0.0,
-                start_y = 0.0
-            }
-            (*model).capture = clear_cap
-        end
-        jump stepped(events = as(ptr(T.UiEventBuffer), as(ptr(u8), kernel) + as(index, 0)))
-    end
     if kind == as(u8, RAW_KEY_PRESSED) then
         let k: u32 = raw.key
         if raw.mods == as(u32, 0) then
@@ -223,18 +219,50 @@ entry start()
                             x = 0.0, y = 0.0, a = 0,
                             text = view(as(ptr(u8), 0), as(index, 0))
                         }
-                        let p_en: ptr(index) = &(kernel.events.n)
-                        let en: index = p_en[0]
-                        kernel.events.events[en] = ev
-                        p_en[0] = en + 1
+                        emit mlui_push_event(kernel, ev; pushed = key_event_pushed, oom = oom_exit)
                     end
                 end
             end
         end
         jump stepped(events = as(ptr(T.UiEventBuffer), as(ptr(u8), kernel) + as(index, 0)))
     end
+    if kind == as(u8, RAW_POINTER_RELEASED) then
+        let pressed: T.UiId = model.pressed_id
+        let hover: T.UiId = report.hover_id
+        if pressed ~= T.UiId.from_repr(0) and pressed == hover then
+            let ev: T.UiEvent = T.UiEvent{
+                kind = 15, id = pressed, other = T.UiId.from_repr(0),
+                x = raw.x, y = raw.y, a = 0, text = view(as(ptr(u8), 0), as(index, 0))
+            }
+            emit mlui_push_event(kernel, ev; pushed = release_event_pushed, oom = oom_exit)
+        end
+        jump release_after_event
+    end
     -- For all other input kinds, emit the event buffer as-is
     jump stepped(events = as(ptr(T.UiEventBuffer), as(ptr(u8), kernel) + as(index, 0)))
+end
+block release_event_pushed()
+    jump release_after_event
+end
+block release_after_event()
+        (*model).pressed_id = T.UiId.from_repr(0)
+        let cap: T.UiCapture = model.capture
+        if cap.kind ~= as(u8, 0) then
+            let clear_cap: T.UiCapture = T.UiCapture{
+                kind = 0,
+                id = T.UiId.from_repr(0),
+                start_x = 0.0,
+                start_y = 0.0
+            }
+            (*model).capture = clear_cap
+        end
+        jump stepped(events = as(ptr(T.UiEventBuffer), as(ptr(u8), kernel) + as(index, 0)))
+end
+block key_event_pushed()
+    jump stepped(events = as(ptr(T.UiEventBuffer), as(ptr(u8), kernel) + as(index, 0)))
+end
+block oom_exit(needed: index)
+    jump oom(needed = needed)
 end
 end
 
@@ -327,6 +355,7 @@ return {
     ui_visit_raw_input = ui_visit_raw_input,
     ui_visit_event = ui_visit_event,
     ui_visit_key = ui_visit_key,
+    mlui_push_event = mlui_push_event,
     ui_interact_step = ui_interact_step,
     mlui_interact_step = mlui_interact_step,
     mlui_events = mlui_events,

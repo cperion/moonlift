@@ -43,7 +43,7 @@ local result = Pipeline.Define(T).parse_and_lower_c(src, { site = "test_c_gcc_ta
 assert(result.code_module ~= nil, "C pipeline should expose MoonCode module")
 assert(result.code_report ~= nil and #result.code_report.issues == 0, "Code validation issues: " .. tostring(#result.code_report.issues))
 assert(#result.c_report.issues == 0, "C validation issues: " .. tostring(#result.c_report.issues))
-local c_src = CEmit.Define(T).emit(result.c_unit) .. [[
+local c_src = CEmit.Define(T).emit_artifact(result.c_unit).source .. [[
 int main(void) {
     if (tag_stmt() != 33) return 102;
     if (tag_expr() != 44) return 103;

@@ -45,7 +45,7 @@ assert(result.code_module ~= nil, "C pipeline should expose MoonCode module")
 assert(result.code_report ~= nil and #result.code_report.issues == 0, "Code validation issues: " .. tostring(#result.code_report.issues))
 assert(#result.c_report.issues == 0, "C validation issues: " .. tostring(#result.c_report.issues))
 
-local c_src = CEmit.Define(T).emit(result.c_unit)
+local c_src = CEmit.Define(T).emit_artifact(result.c_unit).source
 assert(c_src:match("__tag"), "tagged union C should contain __tag field")
 assert(c_src:match("__payload"), "tagged union C should contain __payload field")
 assert(c_src:match("switch %("), "variant switch should lower through a C switch")

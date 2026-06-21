@@ -17,6 +17,9 @@ CCompiledModule.__index = CCompiledModule
 local CCompiledFunction = {}
 CCompiledFunction.__index = CCompiledFunction
 
+local CArtifact = {}
+CArtifact.__index = CArtifact
+
 local SourceAnalysis = require("moonlift.source_analysis")
 
 local scalar_ctype = {
@@ -402,6 +405,34 @@ local function command_exists(cmd)
     return exec_ok("command -v " .. shell_quote(word) .. " >/dev/null 2>&1")
 end
 
+local function write_text_file(path, text)
+    local f = assert(io.open(path, "wb"))
+    f:write(text or "")
+    f:close()
+end
+
+function CArtifact:write(opts)
+    opts = opts or {}
+    if type(opts) == "string" then opts = { c_path = opts } end
+    if opts.c_path or opts.source_path then write_text_file(opts.c_path or opts.source_path, self.source) end
+    if opts.h_path or opts.header_path then write_text_file(opts.h_path or opts.header_path, self.header) end
+    if opts.support_path then write_text_file(opts.support_path, self.support) end
+    if opts.combined_path or opts.single_path then write_text_file(opts.combined_path or opts.single_path, self.combined) end
+    return self
+end
+
+function CArtifact:source_text()
+    return self.source
+end
+
+function CArtifact:header_text()
+    return self.header
+end
+
+function CArtifact:combined_text()
+    return self.combined
+end
+
 local function choose_c_compiler(opts)
     opts = opts or {}
     local explicit = opts.cc or opts.compiler or os.getenv("MOONLIFT_C_CC")
@@ -459,16 +490,16 @@ function BundleValue:_lower_c_unit(opts)
     lower_opts.layout_env = opts.layout_env or self:layout_env()
     lower_opts.c_opts = opts
     local result = Pipeline.lower_module_to_c(self:to_asdl(), lower_opts)
-    if result.code_module == nil then error("bundle:emit_c lowering failed: MoonCode module was not produced", 2) end
+    if result.code_module == nil then error("bundle:emit_c_artifact lowering failed: MoonCode module was not produced", 2) end
     if result.code_report ~= nil and #result.code_report.issues ~= 0 then
         local msgs = {}
         for i = 1, #result.code_report.issues do msgs[#msgs + 1] = tostring(result.code_report.issues[i]) end
-        error("bundle:emit_c code validation failed: " .. table.concat(msgs, "\n"), 2)
+        error("bundle:emit_c_artifact code validation failed: " .. table.concat(msgs, "\n"), 2)
     end
     if #result.c_report.issues ~= 0 then
         local msgs = {}
         for i = 1, #result.c_report.issues do msgs[#msgs + 1] = tostring(result.c_report.issues[i]) end
-        error("bundle:emit_c validation failed: " .. table.concat(msgs, "\n"), 2)
+        error("bundle:emit_c_artifact validation failed: " .. table.concat(msgs, "\n"), 2)
     end
     return result.c_unit
 end
@@ -492,7 +523,8 @@ end
 
 function BundleValue:compile_c(opts)
     opts = opts or {}
-    local source = self:emit_c(opts)
+    local c_artifact = self:emit_c_artifact(opts)
+    local source = c_artifact.combined
     local runner = opts.runner or opts.c_runner or opts.backend
     local symbols = {}
     for name, ptr in pairs(self.extern_symbols or {}) do symbols[name] = ptr end
@@ -508,7 +540,7 @@ function BundleValue:compile_c(opts)
             libtcc_opts.host_symbols = libtcc_opts.host_symbols or symbols
             local session, err = CTcc.compile(source, libtcc_opts)
             if session then
-                return setmetatable({ module = self, backend = "c", runner = "libtcc", source = source, session = session, T = self.session.T, functions = {} }, CCompiledModule)
+                return setmetatable({ module = self, backend = "c", runner = "libtcc", source = source, c_artifact = c_artifact, session = session, T = self.session.T, functions = {} }, CCompiledModule)
             end
             if runner == "libtcc" or runner == "tcc" then error(err and err.message or "libtcc compile failed", 2) end
         elseif runner == "libtcc" or runner == "tcc" then
@@ -519,7 +551,7 @@ function BundleValue:compile_c(opts)
 
     local artifact = compile_shared_c_source(source, opts)
     local lib = ffi.load(artifact.so_path)
-    return setmetatable({ module = self, backend = "c", runner = "shared", source = source, shared = artifact, lib = lib, T = self.session.T, functions = {} }, CCompiledModule)
+    return setmetatable({ module = self, backend = "c", runner = "shared", source = source, c_artifact = c_artifact, shared = artifact, lib = lib, T = self.session.T, functions = {} }, CCompiledModule)
 end
 
 function BundleValue:emit_object(opts)
@@ -533,11 +565,13 @@ function BundleValue:emit_object(opts)
     return artifact
 end
 
-function BundleValue:emit_c(opts)
+function BundleValue:emit_c_artifact(opts)
     opts = opts or {}
     local unit = self:_lower_c_unit(opts)
     local CEmit = require("moonlift.c_emit").Define(self.session.T)
-    return CEmit.emit(unit, opts)
+    local artifact = CEmit.emit_artifact(unit, opts)
+    artifact.module = self
+    return setmetatable(artifact, CArtifact)
 end
 
 function BundleValue:jit(opts)
@@ -554,17 +588,14 @@ function BundleValue:object(path_or_opts)
     return artifact
 end
 
-function BundleValue:c_source(path_or_opts)
+function BundleValue:c_artifact(path_or_opts)
     local opts = path_or_opts or {}
     if type(path_or_opts) == "string" then opts = { c_path = path_or_opts } end
-    local source = self:emit_c(opts)
-    local path = opts.c_path or opts.source_path
-    if path then
-        local f = assert(io.open(path, "wb"))
-        f:write(source)
-        f:close()
+    local artifact = self:emit_c_artifact(opts)
+    if opts.c_path or opts.source_path or opts.h_path or opts.header_path or opts.support_path or opts.combined_path or opts.single_path then
+        artifact:write(opts)
     end
-    return source
+    return artifact
 end
 
 function BundleValue:library(path_or_opts)

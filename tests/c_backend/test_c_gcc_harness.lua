@@ -115,9 +115,12 @@ function M.compiler_mode(opts)
     return cc .. (is_tcc(cc) and " (tcc subprocess)" or " (subprocess)"), meta_or_err
 end
 
-function M.emit_c_source(src, opts)
+function M.emit_artifact_source(src, opts)
     opts = opts or {}
-    return moon.emit_c(src, opts.c_path, opts.name or "c_compiler_harness", opts.emit_opts or opts.c_opts or {})
+    local emit_opts = opts.emit_opts or opts.c_opts or {}
+    emit_opts.name = emit_opts.name or opts.name or "c_compiler_harness"
+    emit_opts.c_path = emit_opts.c_path or opts.c_path
+    return moon.emit_c_artifact(src, emit_opts).combined
 end
 
 function M.main_for_return(func_name, args, expected)
@@ -243,7 +246,7 @@ end
 
 function M.compile_run(src, opts)
     opts = opts or {}
-    local c_src = M.emit_c_source(src, opts)
+    local c_src = M.emit_artifact_source(src, opts)
     if opts.main then c_src = c_src .. "\n" .. opts.main .. "\n" end
 
     local libtcc_skip
@@ -289,7 +292,7 @@ end
 ]]
     local r1 = M.assert_return(src, "add_i32", { "20", "22" }, 42, { name = "c_compiler_harness_add" })
     local r2 = M.assert_return(src, "sum_to", { "10" }, 45, { name = "c_compiler_harness_sum" })
-    local c_src = M.emit_c_source(src, { name = "c_compiler_harness_shared" })
+    local c_src = M.emit_artifact_source(src, { name = "c_compiler_harness_shared" })
     local shared = M.compile_shared(c_src)
     if shared.cleanup then os.remove(shared.c_path); os.remove(shared.so_path) end
 

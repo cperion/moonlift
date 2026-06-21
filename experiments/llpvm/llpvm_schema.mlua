@@ -1,0 +1,240 @@
+-- llpvm_schema.mlua -- ABI, world, and op definition.
+
+local H = moon.require("llpvm_header")
+local T = H.T
+local R = H.R
+local Mem = moon.require("llpvm_memory")
+
+local llpvm_symbol_index = func(ref: T.LlSymbolRef): index
+    return as(index, repr(ref) - 1)
+end
+
+local llpvm_schema_index = func(ref: T.LlOpSchemaRef): index
+    return as(index, repr(ref) - 1)
+end
+
+local llpvm_type_index = func(ref: T.LlTypeRef): index
+    return as(index, repr(ref) - 1)
+end
+
+local llpvm_abi_index = func(ref: T.LlAbiRef): index
+    return as(index, repr(ref) - 1)
+end
+
+local llpvm_world_index = func(ref: T.LlWorldRef): index
+    return as(index, repr(ref) - 1)
+end
+
+local llpvm_symbol_live = func(vm: ptr(T.LlVm), ref: T.LlSymbolRef): bool
+    if ref == LlSymbolRef.from_repr(0) then return false end
+    let idx: index = llpvm_symbol_index(ref)
+    if idx >= vm.symbols.n then return false end
+    return vm.symbols.slots[idx].live
+end
+
+local llpvm_schema_live = func(vm: ptr(T.LlVm), ref: T.LlOpSchemaRef): bool
+    if ref == LlOpSchemaRef.from_repr(0) then return false end
+    let idx: index = llpvm_schema_index(ref)
+    if idx >= vm.schemas.n then return false end
+    return vm.schemas.slots[idx].live
+end
+
+local llpvm_type_live = func(vm: ptr(T.LlVm), ref: T.LlTypeRef): bool
+    if ref == LlTypeRef.from_repr(0) then return false end
+    let idx: index = llpvm_type_index(ref)
+    if idx >= vm.types.n then return false end
+    return vm.types.slots[idx].live
+end
+
+local llpvm_abi_live = func(vm: ptr(T.LlVm), ref: T.LlAbiRef): bool
+    if ref == LlAbiRef.from_repr(0) then return false end
+    let idx: index = llpvm_abi_index(ref)
+    if idx >= vm.abis.n then return false end
+    return vm.abis.slots[idx].live
+end
+
+local llpvm_world_live = func(vm: ptr(T.LlVm), ref: T.LlWorldRef): bool
+    if ref == LlWorldRef.from_repr(0) then return false end
+    let idx: index = llpvm_world_index(ref)
+    if idx >= vm.worlds.n then return false end
+    return vm.worlds.slots[idx].live
+end
+
+local llpvm_world_value = func(vm: ptr(T.LlVm), ref: T.LlWorldRef): T.LlWorld
+    return vm.worlds.slots[llpvm_world_index(ref)].value
+end
+
+local llpvm_abi_value = func(vm: ptr(T.LlVm), ref: T.LlAbiRef): T.LlAbi
+    return vm.abis.slots[llpvm_abi_index(ref)].value
+end
+
+local llpvm_schema_value = func(vm: ptr(T.LlVm), ref: T.LlOpSchemaRef): T.LlOpSchema
+    return vm.schemas.slots[llpvm_schema_index(ref)].value
+end
+
+local llpvm_grow_abi_slots = region grow_abi_slots(vm: ptr(T.LlVm), needed: index;
+    grown
+  | oom(needed: index))
+entry start()
+    let a: ptr(T.LlAllocator) = Mem.llpvm_get_alloc(vm)
+    emit @{Mem.llpvm_grow_elems}(a, &(vm.abis.n), &(vm.abis.cap), as(ptr(ptr(u8)), &(vm.abis.slots)), sizeof(T.LlAbiSlot), as(index, 8), needed;
+        grown = grown,
+        oom = oom)
+end
+end
+
+local llpvm_grow_world_slots = region grow_world_slots(vm: ptr(T.LlVm), needed: index;
+    grown
+  | oom(needed: index))
+entry start()
+    let a: ptr(T.LlAllocator) = Mem.llpvm_get_alloc(vm)
+    emit @{Mem.llpvm_grow_elems}(a, &(vm.worlds.n), &(vm.worlds.cap), as(ptr(ptr(u8)), &(vm.worlds.slots)), sizeof(T.LlWorldSlot), as(index, 8), needed;
+        grown = grown,
+        oom = oom)
+end
+end
+
+local llpvm_grow_op_slots = region grow_op_slots(vm: ptr(T.LlVm), needed: index;
+    grown
+  | oom(needed: index))
+entry start()
+    let a: ptr(T.LlAllocator) = Mem.llpvm_get_alloc(vm)
+    emit @{Mem.llpvm_grow_elems}(a, &(vm.ops.n), &(vm.ops.cap), as(ptr(ptr(u8)), &(vm.ops.slots)), sizeof(T.LlOpSlot), as(index, 8), needed;
+        grown = grown,
+        oom = oom)
+end
+end
+
+local ll_define_abi = region @{R.ll_define_abi}
+entry start()
+    if not llpvm_symbol_live(vm, name) then jump invalid_schema(schema = op_schema) end
+    if not llpvm_schema_live(vm, op_schema) then jump invalid_schema(schema = op_schema) end
+    if resource_schema ~= LlTypeRef.from_repr(0) then
+        if not llpvm_type_live(vm, resource_schema) then jump invalid_schema(schema = op_schema) end
+    end
+    jump scan(i = as(index, 0))
+end
+block scan(i: index)
+    if i >= vm.abis.n then jump insert end
+    let slot: T.LlAbiSlot = vm.abis.slots[i]
+    if slot.live then
+        if slot.value.name == name then jump duplicate_abi(name = name) end
+    end
+    jump scan(i = i + 1)
+end
+block insert()
+    emit @{llpvm_grow_abi_slots}(vm, as(index, 1);
+        grown = have_slot,
+        oom = oom)
+end
+block have_slot()
+    let idx: index = vm.abis.n
+    let value: T.LlAbi = LlAbi{
+        name = name,
+        version = version,
+        op_schema = op_schema,
+        resource_schema = resource_schema,
+        generation = vm.abis.generation,
+    }
+    vm.abis.slots[idx] = LlAbiSlot{ gen = as(u32, vm.abis.generation), live = true, value = value }
+    let p_n: ptr(index) = &(vm.abis.n)
+    p_n[0] = idx + 1
+    jump abi(abi = LlAbiRef.from_repr(as(u32, idx + 1)))
+end
+block oom(needed: index)
+    jump memory_exhausted(needed = needed)
+end
+end
+
+local ll_define_world = region @{R.ll_define_world}
+entry start()
+    if not llpvm_symbol_live(vm, name) then jump invalid_abi(abi = abi) end
+    if not llpvm_abi_live(vm, abi) then jump invalid_abi(abi = abi) end
+    jump scan(i = as(index, 0))
+end
+block scan(i: index)
+    if i >= vm.worlds.n then jump insert end
+    let slot: T.LlWorldSlot = vm.worlds.slots[i]
+    if slot.live then
+        if slot.value.name == name then jump duplicate_world(name = name) end
+    end
+    jump scan(i = i + 1)
+end
+block insert()
+    emit @{llpvm_grow_world_slots}(vm, as(index, 1);
+        grown = have_slot,
+        oom = oom)
+end
+block have_slot()
+    let idx: index = vm.worlds.n
+    let value: T.LlWorld = LlWorld{
+        name = name,
+        abi = abi,
+        generation = vm.worlds.generation,
+    }
+    vm.worlds.slots[idx] = LlWorldSlot{ gen = as(u32, vm.worlds.generation), live = true, value = value }
+    let p_n: ptr(index) = &(vm.worlds.n)
+    p_n[0] = idx + 1
+    jump world(world = LlWorldRef.from_repr(as(u32, idx + 1)))
+end
+block oom(needed: index)
+    jump memory_exhausted(needed = needed)
+end
+end
+
+local ll_schema_has_kind = func(schema: T.LlOpSchema, kind: u16): bool
+    block loop(i: index = 0)
+        if i >= schema.kind_count then return false end
+        if schema.kinds[i].kind == kind then return true end
+        jump loop(i = i + 1)
+    end
+end
+
+local ll_make_op = region @{R.ll_make_op}
+entry start()
+    if not llpvm_world_live(vm, world) then jump invalid_world(world = world) end
+    let w: T.LlWorld = llpvm_world_value(vm, world)
+    if not llpvm_abi_live(vm, w.abi) then jump invalid_world(world = world) end
+    let a: T.LlAbi = llpvm_abi_value(vm, w.abi)
+    if not llpvm_schema_live(vm, a.op_schema) then jump invalid_world(world = world) end
+    let schema: T.LlOpSchema = llpvm_schema_value(vm, a.op_schema)
+    if not ll_schema_has_kind(schema, kind) then jump invalid_kind(kind = kind) end
+    emit @{llpvm_grow_op_slots}(vm, as(index, 1);
+        grown = insert,
+        oom = oom)
+end
+block insert()
+    let idx: index = vm.ops.n
+    let value: T.LlOp = LlOp{ world = world, kind = kind, payload = payload }
+    vm.ops.slots[idx] = LlOpSlot{ gen = as(u32, vm.ops.generation), live = true, value = value }
+    let p_n: ptr(index) = &(vm.ops.n)
+    p_n[0] = idx + 1
+    jump op(op = LlOpRef.from_repr(as(u32, idx + 1)))
+end
+block oom(needed: index)
+    jump memory_exhausted(needed = needed)
+end
+end
+
+return {
+    llpvm_symbol_index = llpvm_symbol_index,
+    llpvm_schema_index = llpvm_schema_index,
+    llpvm_type_index = llpvm_type_index,
+    llpvm_abi_index = llpvm_abi_index,
+    llpvm_world_index = llpvm_world_index,
+    llpvm_symbol_live = llpvm_symbol_live,
+    llpvm_schema_live = llpvm_schema_live,
+    llpvm_type_live = llpvm_type_live,
+    llpvm_abi_live = llpvm_abi_live,
+    llpvm_world_live = llpvm_world_live,
+    llpvm_world_value = llpvm_world_value,
+    llpvm_abi_value = llpvm_abi_value,
+    llpvm_schema_value = llpvm_schema_value,
+    llpvm_grow_abi_slots = llpvm_grow_abi_slots,
+    llpvm_grow_world_slots = llpvm_grow_world_slots,
+    llpvm_grow_op_slots = llpvm_grow_op_slots,
+    ll_schema_has_kind = ll_schema_has_kind,
+    ll_define_abi = ll_define_abi,
+    ll_define_world = ll_define_world,
+    ll_make_op = ll_make_op,
+}

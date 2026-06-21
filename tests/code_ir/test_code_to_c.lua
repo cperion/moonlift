@@ -121,7 +121,7 @@ assert(saw_goto, "branch CodeTerm should lower to CBackendIfGoto")
 assert(saw_switch, "switch CodeTerm should lower to CBackendSwitchGoto")
 assert(saw_call, "calls should lower to CBackendCall")
 
-local src = CEmit.emit(unit)
+local src = CEmit.emit_artifact(unit).source
 assert(src:match("int32_t add1"), "emitted C contains add1")
 assert(src:match("extern int32_t host_add7"), "emitted C contains extern")
 assert(src:match("#include <stdatomic.h>"), "atomic Code instructions should request C11 atomics")
@@ -179,7 +179,7 @@ do
     )
     local atomic_unit = CodeToC.module(module, { dialect = "c11" })
     assert_no_issues("atomic local-place c", CValidate.validate(atomic_unit).issues)
-    local atomic_src = CEmit.emit(atomic_unit)
+    local atomic_src = CEmit.emit_artifact(atomic_unit).source
     assert(atomic_src:match("atomic_addr_inst_atomic_load_load"), "atomic load on a local place should declare an address scratch")
     assert(atomic_src:match("atomic_addr_inst_atomic_store_store"), "atomic store on a local place should declare an address scratch")
     assert(atomic_src:match("atomic_addr_inst_atomic_rmw_rmw"), "atomic rmw on a local place should declare an address scratch")

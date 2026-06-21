@@ -1,0 +1,153 @@
+-- llpvm_image.mlua -- Immutable LLPV program-image loading.
+
+local H = moon.require("llpvm_header")
+local T = H.T
+local Mem = moon.require("llpvm_memory")
+
+local TAG_STREAM_SEQ = 102
+
+local read_u32 = func(bytes: ptr(u8), at: index): u32
+    let b0: u32 = as(u32, bytes[at])
+    let b1: u32 = as(u32, bytes[at + 1])
+    let b2: u32 = as(u32, bytes[at + 2])
+    let b3: u32 = as(u32, bytes[at + 3])
+    return b0 | (b1 << 8) | (b2 << 16) | (b3 << 24)
+end
+
+local ensure_abi_cap = func(vm: ptr(T.LlVm), cap: index): bool
+    if vm.abis.cap >= cap then return true end
+    let a: ptr(T.LlAllocator) = Mem.llpvm_get_alloc(vm)
+    let old_bytes: index = vm.abis.cap * sizeof(T.LlAbiSlot)
+    let new_bytes: index = cap * sizeof(T.LlAbiSlot)
+    let raw: ptr(u8) = Mem.llpvm_realloc_bytes(a, as(ptr(u8), vm.abis.slots), old_bytes, new_bytes, as(index, 8))
+    if raw == as(ptr(u8), 0) then return false end
+    Mem.llpvm_zero_bytes(raw + old_bytes, new_bytes - old_bytes)
+    vm.abis.slots = as(ptr(T.LlAbiSlot), raw)
+    vm.abis.cap = cap
+    return true
+end
+
+local ensure_world_cap = func(vm: ptr(T.LlVm), cap: index): bool
+    if vm.worlds.cap >= cap then return true end
+    let a: ptr(T.LlAllocator) = Mem.llpvm_get_alloc(vm)
+    let old_bytes: index = vm.worlds.cap * sizeof(T.LlWorldSlot)
+    let new_bytes: index = cap * sizeof(T.LlWorldSlot)
+    let raw: ptr(u8) = Mem.llpvm_realloc_bytes(a, as(ptr(u8), vm.worlds.slots), old_bytes, new_bytes, as(index, 8))
+    if raw == as(ptr(u8), 0) then return false end
+    Mem.llpvm_zero_bytes(raw + old_bytes, new_bytes - old_bytes)
+    vm.worlds.slots = as(ptr(T.LlWorldSlot), raw)
+    vm.worlds.cap = cap
+    return true
+end
+
+local ensure_stream_cap = func(vm: ptr(T.LlVm), cap: index): bool
+    if vm.streams.cap >= cap then return true end
+    let a: ptr(T.LlAllocator) = Mem.llpvm_get_alloc(vm)
+    let old_bytes: index = vm.streams.cap * sizeof(T.LlStreamSlot)
+    let new_bytes: index = cap * sizeof(T.LlStreamSlot)
+    let raw: ptr(u8) = Mem.llpvm_realloc_bytes(a, as(ptr(u8), vm.streams.slots), old_bytes, new_bytes, as(index, 8))
+    if raw == as(ptr(u8), 0) then return false end
+    Mem.llpvm_zero_bytes(raw + old_bytes, new_bytes - old_bytes)
+    vm.streams.slots = as(ptr(T.LlStreamSlot), raw)
+    vm.streams.cap = cap
+    return true
+end
+
+local ensure_program_cap = func(vm: ptr(T.LlVm), cap: index): bool
+    if vm.programs.cap >= cap then return true end
+    let a: ptr(T.LlAllocator) = Mem.llpvm_get_alloc(vm)
+    let old_bytes: index = vm.programs.cap * sizeof(T.LlProgramSlot)
+    let new_bytes: index = cap * sizeof(T.LlProgramSlot)
+    let raw: ptr(u8) = Mem.llpvm_realloc_bytes(a, as(ptr(u8), vm.programs.slots), old_bytes, new_bytes, as(index, 8))
+    if raw == as(ptr(u8), 0) then return false end
+    Mem.llpvm_zero_bytes(raw + old_bytes, new_bytes - old_bytes)
+    vm.programs.slots = as(ptr(T.LlProgramSlot), raw)
+    vm.programs.cap = cap
+    return true
+end
+
+local ensure_default_world = func(vm: ptr(T.LlVm)): T.LlWorldRef
+    if vm.abis.n == 0 then
+        if not @{ensure_abi_cap}(vm, as(index, 1)) then return LlWorldRef.from_repr(0) end
+        let abi_value: T.LlAbi = LlAbi{
+            name = LlSymbolRef.from_repr(0),
+            version = 1,
+            op_schema = LlOpSchemaRef.from_repr(0),
+            resource_schema = LlTypeRef.from_repr(0),
+            generation = vm.abis.generation,
+        }
+        vm.abis.slots[0] = LlAbiSlot{ gen = as(u32, vm.abis.generation), live = true, value = abi_value }
+        vm.abis.n = 1
+    end
+    if vm.worlds.n == 0 then
+        if not @{ensure_world_cap}(vm, as(index, 1)) then return LlWorldRef.from_repr(0) end
+        let world_value: T.LlWorld = LlWorld{
+            name = LlSymbolRef.from_repr(0),
+            abi = LlAbiRef.from_repr(1),
+            generation = vm.worlds.generation,
+        }
+        vm.worlds.slots[0] = LlWorldSlot{ gen = as(u32, vm.worlds.generation), live = true, value = world_value }
+        vm.worlds.n = 1
+    end
+    return LlWorldRef.from_repr(1)
+end
+
+local insert_program_stream = func(vm: ptr(T.LlVm), image_bytes: ptr(u8), len: index, root_payload: ptr(u8), world: T.LlWorldRef): T.LlStreamRef
+    if not @{ensure_program_cap}(vm, vm.programs.n + 1) then return LlStreamRef.from_repr(0) end
+    if not @{ensure_stream_cap}(vm, vm.streams.n + 1) then return LlStreamRef.from_repr(0) end
+    let count: u32 = @{read_u32}(image_bytes, as(index, 12))
+    let pidx: index = vm.programs.n
+    let program: T.LlProgram = LlProgram{
+        bytes = image_bytes,
+        len = len,
+        root_payload = root_payload,
+        root_count = as(index, count),
+        world = world,
+        generation = vm.programs.generation,
+    }
+    vm.programs.slots[pidx] = LlProgramSlot{ gen = as(u32, vm.programs.generation), live = true, value = program }
+    vm.programs.n = pidx + 1
+    let sidx: index = vm.streams.n
+    let stream: T.LlStream = LlStream{
+        world = world,
+        kind = as(u8, @{H.LL_STREAM_GENERATED}),
+        payload = as(u32, pidx + 1),
+        cursor = 0,
+    }
+    vm.streams.slots[sidx] = LlStreamSlot{ gen = as(u32, vm.streams.generation), live = true, value = stream }
+    vm.streams.n = sidx + 1
+    return LlStreamRef.from_repr(as(u32, sidx + 1))
+end
+
+local ll_load_image = region load_image(vm: ptr(T.LlVm), image_bytes: ptr(u8), len: index;
+    loaded(root: T.LlStreamRef)
+  | malformed(at: index)
+  | unsupported(tag: u8, at: index)
+  | oom(needed: index))
+entry start()
+    if image_bytes == as(ptr(u8), 0) then jump malformed(at = as(index, 0)) end
+    if len < 20 then jump malformed(at = as(index, 0)) end
+    if image_bytes[0] ~= as(u8, 76) then jump malformed(at = as(index, 0)) end
+    if image_bytes[1] ~= as(u8, 76) then jump malformed(at = as(index, 1)) end
+    if image_bytes[2] ~= as(u8, 80) then jump malformed(at = as(index, 2)) end
+    if image_bytes[3] ~= as(u8, 86) then jump malformed(at = as(index, 3)) end
+    let version: u32 = @{read_u32}(image_bytes, as(index, 4))
+    if version ~= as(u32, 2) then jump malformed(at = as(index, 4)) end
+    let root_id: u32 = @{read_u32}(image_bytes, as(index, 8))
+    let root_count: u32 = @{read_u32}(image_bytes, as(index, 12))
+    let root_payload_offset: u32 = @{read_u32}(image_bytes, as(index, 16))
+    if root_id == 0 then jump malformed(at = as(index, 8)) end
+    if root_count == 0 then jump malformed(at = as(index, 12)) end
+    if as(index, root_payload_offset) + as(index, root_count) * as(index, 4) > len then jump malformed(at = as(index, 16)) end
+    let root_payload: ptr(u8) = image_bytes + as(index, root_payload_offset)
+    let world: T.LlWorldRef = @{ensure_default_world}(vm)
+    if world == LlWorldRef.from_repr(0) then jump oom(needed = sizeof(T.LlWorldSlot)) end
+    let stream: T.LlStreamRef = @{insert_program_stream}(vm, image_bytes, len, root_payload, world)
+    if stream == LlStreamRef.from_repr(0) then jump oom(needed = sizeof(T.LlProgramSlot)) end
+    jump loaded(root = stream)
+end
+end
+
+return {
+    ll_load_image = ll_load_image,
+}

@@ -9,6 +9,8 @@
 -- Object emission:
 --   moon.emit_object(src [, path [, name]])  — emit .o bytes (hosted pipeline)
 --   moon.emit_shared(src [, path [, name]])  — emit .so/.dylib (hosted pipeline)
+--   moon.emit_c_artifact(src [, opts])       — emit C/header/support artifact
+--   moon.emit_c_file_artifact(path [, opts]) — execute .mlua and emit bundled C artifact
 --
 -- Builder API (unchanged):
 --   moon.module("name"), moon.func(...), etc.
@@ -86,6 +88,7 @@ end
 --- Searches for `name.mlua` in the current directory and relative to
 --- the caller.
 M._mlua_cache = {}
+M._mlua_cache_order = {}
 function M.require(name)
     if M._mlua_cache[name] then return M._mlua_cache[name] end
     -- Search paths: same as Lua require patterns but for .mlua
@@ -97,6 +100,8 @@ function M.require(name)
         "./experiments/mwui/?/init.mlua",
         "./experiments/mlui/?.mlua",
         "./experiments/mlui/?/init.mlua",
+        "./experiments/llpvm/?.mlua",
+        "./experiments/llpvm/?/init.mlua",
     }) do
         local path = template:gsub("%?", name)
         local f = io.open(path)
@@ -104,6 +109,7 @@ function M.require(name)
             local ch = M.loadfile(path)
             local result = ch()
             M._mlua_cache[name] = result
+            M._mlua_cache_order[#M._mlua_cache_order + 1] = name
             return result
         end
         tried[#tried + 1] = path
@@ -187,33 +193,148 @@ function M.emit_shared(src, path, name, opts)
     return path
 end
 
-function M.emit_c(src, path, name, opts)
+function M.emit_c_artifact(src, path_or_opts, name, opts)
+    if type(src) == "string" and src:find("moon%.require", 1) then
+        error("moon.emit_c_artifact(src) accepts self-contained Moonlift source only; " ..
+              "for .mlua modules that use moon.require, use moon.emit_c_file_artifact(path, opts) " ..
+              "or moon.loadfile(path)():emit_c_artifact(opts)", 2)
+    end
     local pvm = require("moonlift.pvm")
     local A2 = require("moonlift.asdl")
     local Pipeline = require("moonlift.frontend_pipeline")
     local CEmit = require("moonlift.c_emit")
 
+    if type(path_or_opts) == "table" and opts == nil then
+        opts = path_or_opts
+        path_or_opts = nil
+    end
     opts = opts or {}
     local T = pvm.context(); A2.Define(T)
-    local pipeline_opts = { site = "emit_c", c_opts = opts, c_target = opts.c_target, target = opts.target, name = name or opts.name }
+    local pipeline_opts = { site = "emit_c_artifact", c_opts = opts, c_target = opts.c_target, target = opts.target, name = name or opts.name }
     local result = Pipeline.Define(T).parse_and_lower_c(src, pipeline_opts)
     if #result.c_report.issues ~= 0 then
         local msgs = {}
         for i = 1, #result.c_report.issues do msgs[#msgs + 1] = tostring(result.c_report.issues[i]) end
-        error("emit_c validation failed: " .. table.concat(msgs, "\n"), 2)
+        error("emit_c_artifact validation failed: " .. table.concat(msgs, "\n"), 2)
     end
-    local text = CEmit.Define(T).emit(result.c_unit, opts)
-    if path then
-        local f = assert(io.open(path, "wb"))
-        f:write(text)
-        f:close()
+    local artifact = CEmit.Define(T).emit_artifact(result.c_unit, opts)
+    function artifact:write(write_opts)
+        write_opts = write_opts or {}
+        if type(write_opts) == "string" then write_opts = { c_path = write_opts } end
+        local function write(path, text)
+            local f = assert(io.open(path, "wb"))
+            f:write(text or "")
+            f:close()
+        end
+        if write_opts.c_path or write_opts.source_path then write(write_opts.c_path or write_opts.source_path, self.source) end
+        if write_opts.h_path or write_opts.header_path then write(write_opts.h_path or write_opts.header_path, self.header) end
+        if write_opts.support_path then write(write_opts.support_path, self.support) end
+        if write_opts.combined_path or write_opts.single_path then write(write_opts.combined_path or write_opts.single_path, self.combined) end
+        return self
     end
-    return text
+    if path_or_opts then artifact:write(path_or_opts) end
+    if opts.c_path or opts.source_path or opts.h_path or opts.header_path or opts.support_path or opts.combined_path or opts.single_path then
+        artifact:write(opts)
+    end
+    return artifact
+end
+
+local function is_packable_result_value(v)
+    if type(v) ~= "table" then return false end
+    local kind = rawget(v, "kind") or rawget(v, "moonlift_quote_kind")
+    return kind == "func" or kind == "extern_func"
+        or kind == "region_frag" or kind == "expr_frag"
+        or kind == "struct" or kind == "union"
+end
+
+local function pack_result_values(bundle, result)
+    local packed = 0
+    if is_packable_result_value(result) then
+        bundle:pack(result)
+        return 1
+    end
+    if type(result) == "table" then
+        local keys = {}
+        for k, v in pairs(result) do
+            if type(k) == "string" and is_packable_result_value(v) then keys[#keys + 1] = k end
+        end
+        table.sort(keys)
+        for i = 1, #keys do
+            bundle:pack(result[keys[i]])
+            packed = packed + 1
+        end
+    end
+    return packed
+end
+
+local function bundle_from_loaded_result(result, name, opts)
+    opts = opts or {}
+    if type(result) == "table" and type(result.to_bundle) == "function" then
+        local bundle_opts = {}
+        for k, v in pairs(opts) do bundle_opts[k] = v end
+        bundle_opts.module_name = bundle_opts.module_name or name
+        return result:to_bundle(bundle_opts)
+    end
+
+    local bundle = M.bundle(tostring(name or "mlua_module"):gsub("[^_%w]", "_"))
+    if pack_result_values(bundle, result) > 0 then return bundle end
+    error("loaded .mlua file did not return packable Moonlift values", 3)
+end
+
+function M.bundle_file(file_path, name, opts)
+    local chunk = M.loadfile(file_path, opts)
+    local result = chunk()
+    name = name or tostring(file_path):match("([^/\\]+)%.mlua$") or "mlua_module"
+    local bundle = M.bundle(tostring(name):gsub("[^_%w]", "_"))
+
+    local dep_names = M._mlua_cache_order or {}
+    for i = 1, #dep_names do
+        pack_result_values(bundle, M._mlua_cache[dep_names[i]])
+    end
+    if pack_result_values(bundle, result) == 0 then
+        error("loaded .mlua file did not return packable Moonlift values", 2)
+    end
+    return bundle
+end
+
+function M.emit_c_file_artifact(file_path, name_or_opts, opts)
+    if type(name_or_opts) == "table" and opts == nil then
+        opts = name_or_opts
+        name_or_opts = nil
+    end
+    opts = opts or {}
+    local name = name_or_opts or opts.name
+    local bundle = M.bundle_file(file_path, name, opts)
+    local emit_opts = {}
+    for k, v in pairs(opts) do emit_opts[k] = v end
+    emit_opts.name = emit_opts.name or name
+    local artifact = bundle:emit_c_artifact(emit_opts)
+    if opts.c_path or opts.source_path or opts.h_path or opts.header_path or opts.support_path or opts.combined_path or opts.single_path then
+        artifact:write(opts)
+    end
+    return artifact
 end
 
 function M.compile_c(src, opts)
     opts = opts or {}
-    local c_src = M.emit_c(src, opts.c_path, opts.name or "moonlift_c", opts)
+    local artifact = M.emit_c_artifact(src, opts)
+    if opts.c_path or opts.source_path or opts.h_path or opts.header_path or opts.support_path or opts.combined_path or opts.single_path then
+        artifact:write(opts)
+    end
+    local c_src = artifact.combined
+    local CTcc = require("moonlift.c_tcc")
+    if opts.runner == "libtcc" or opts.use_libtcc or os.getenv("MOONLIFT_C_USE_LIBTCC") == "1" then
+        local session, err = CTcc.compile(c_src, opts.libtcc_opts or { libraries = { "m" } })
+        if not session then error(err and err.message or "libtcc compile failed", 2) end
+        return session, c_src
+    end
+    return c_src
+end
+
+function M.compile_c_file(file_path, opts)
+    opts = opts or {}
+    local artifact = M.emit_c_file_artifact(file_path, opts)
+    local c_src = artifact.combined
     local CTcc = require("moonlift.c_tcc")
     if opts.runner == "libtcc" or opts.use_libtcc or os.getenv("MOONLIFT_C_USE_LIBTCC") == "1" then
         local session, err = CTcc.compile(c_src, opts.libtcc_opts or { libraries = { "m" } })

@@ -70,7 +70,7 @@ if ok_jit then expected = jit_or_err else io.write("JIT unavailable; using liter
 
 local result = Pipeline.Define(T).parse_and_lower_c(src, { site = "test_c_semantic_equivalence" })
 assert(#result.c_report.issues == 0, "C validation issues: " .. tostring(result.c_report.issues[1]))
-local c_src = CEmit.Define(T).emit(result.c_unit)
+local c_src = CEmit.Define(T).emit_artifact(result.c_unit).source
 local main = string.format([[#include <stdio.h>
 int main(void) {
   if (add_i32(3, 4) != %d) return 10;

@@ -135,8 +135,7 @@ local mlui_frame = func @{F.mlui_frame}
             yield T.UiStatus{code = 0, detail = 0, at = as(index, 0), needed = 0 }
         end
         let raw_val: T.UiRawInput = raw[0]
-        emit Interact.ui_interact_step(kernel, as(ptr(T.UiModel), as(ptr(u8), kernel) + as(index, 0)),
-                                        as(ptr(T.UiReport), as(ptr(u8), 0)), raw_val;
+        emit Interact.ui_interact_step(kernel, &(kernel.model), &report, raw_val;
             stepped = done,
             stale_focus = stale_f,
             stale_capture = stale_c,

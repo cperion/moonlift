@@ -104,9 +104,9 @@ end
 
 T.UiAllocator = struct
     ctx: ptr(u8),
-    alloc: func(ptr(u8), index, index): ptr(u8),
-    realloc: func(ptr(u8), ptr(u8), index, index, index): ptr(u8),
-    free: func(ptr(u8), ptr(u8), index, index),
+    alloc_fn: func(ptr(u8), index, index): ptr(u8),
+    realloc_fn: func(ptr(u8), ptr(u8), index, index, index): ptr(u8),
+    free_fn: func(ptr(u8), ptr(u8), index, index),
 end
 
 T.UiKernelConfig = struct

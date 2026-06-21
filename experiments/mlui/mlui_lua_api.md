@@ -3,6 +3,13 @@
 Status: design specification for the Lua authoring surface above the Moonlift
 UI kernel.
 
+Concrete companion docs:
+
+- [`mlui_lua_api_reference.md`](mlui_lua_api_reference.md) documents the
+  current `require "mlui"` API.
+- [`mlui_usage_guide.md`](mlui_usage_guide.md) documents retained-kernel usage
+  and how to avoid full rebuild/load work every frame.
+
 This API follows the same decision as `chain.lua` and the MWUI blueprint:
 tree-shaped authoring is built with Lua callable tables and no parentheses.
 Moonlift owns the typed kernel protocols underneath.

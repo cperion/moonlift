@@ -1,0 +1,234 @@
+-- llpvm_abi.mlua -- C ABI seals over typed LLPVM regions.
+
+local H = moon.require("llpvm_header")
+local T = H.T
+local F = H.F
+local Kernel = moon.require("llpvm_kernel_store")
+local Machine = moon.require("llpvm_machine")
+local Buffers = moon.require("llpvm_buffer_store")
+local Report = moon.require("llpvm_report")
+local Image = moon.require("llpvm_image")
+
+local llpvm_load_program = func @{F.llpvm_load_program}
+    if out == as(ptr(T.LlStreamRef), 0) then
+        return Kernel.status_code(@{H.LL_STATUS_INVALID_CONFIG}, 1, 0, 0)
+    end
+    if bytes == as(ptr(u8), 0) then
+        return Kernel.status_code(@{H.LL_STATUS_INVALID_CONFIG}, 2, 0, 0)
+    end
+    return region: T.LlStatus
+    entry start()
+        emit @{Kernel.ll_borrow_vm}(vm;
+            borrowed = borrowed,
+            stale = stale,
+            missing = missing)
+    end
+    block borrowed(vm: ptr(T.LlVm))
+        emit @{Image.ll_load_image}(vm, bytes, len;
+            loaded = loaded,
+            malformed = malformed,
+            unsupported = unsupported,
+            oom = oom)
+    end
+    block loaded(root: T.LlStreamRef)
+        out[0] = root
+        yield Kernel.status_ok()
+    end
+    block malformed(at: index)
+        yield Kernel.status_code(@{H.LL_STATUS_INVALID_PAYLOAD}, 0, at, 0)
+    end
+    block unsupported(tag: u8, at: index)
+        yield Kernel.status_code(@{H.LL_STATUS_UNSUPPORTED_IMAGE}, as(i32, tag), at, 0)
+    end
+    block oom(needed: index)
+        yield Kernel.status_code(@{H.LL_STATUS_OOM}, 0, 0, needed)
+    end
+    block stale(vm: T.LlVmRef)
+        yield Kernel.status_code(@{H.LL_STATUS_STALE_HANDLE}, as(i32, repr(vm)), 0, 0)
+    end
+    block missing(vm: T.LlVmRef)
+        yield Kernel.status_code(@{H.LL_STATUS_MISSING_HANDLE}, as(i32, repr(vm)), 0, 0)
+    end
+    end
+end
+
+local llpvm_apply_phase = func @{F.llpvm_apply_phase}
+    if out == as(ptr(T.LlStreamRef), 0) then
+        return Kernel.status_code(@{H.LL_STATUS_INVALID_CONFIG}, 1, 0, 0)
+    end
+    return region: T.LlStatus
+    entry start()
+        emit @{Kernel.ll_borrow_vm}(vm;
+            borrowed = borrowed,
+            stale = stale,
+            missing = missing)
+    end
+    block borrowed(vm: ptr(T.LlVm))
+        emit @{Machine.ll_open_phase}(vm, phase, input, args;
+            hit = ok,
+            shared = shared,
+            miss = miss,
+            uncached = ok,
+            wrong_input_world = wrong_world,
+            machine_failed = failed,
+            memory_exhausted = oom)
+    end
+    block ok(stream: T.LlStreamRef)
+        out[0] = stream
+        yield Kernel.status_ok()
+    end
+    block shared(stream: T.LlStreamRef, recording: T.LlRecordingRef)
+        out[0] = stream
+        yield Kernel.status_ok()
+    end
+    block miss(stream: T.LlStreamRef, recording: T.LlRecordingRef)
+        out[0] = stream
+        yield Kernel.status_ok()
+    end
+    block wrong_world(expected: T.LlWorldRef, got: T.LlWorldRef)
+        yield Kernel.status_code(@{H.LL_STATUS_WRONG_WORLD}, as(i32, repr(got)), as(index, repr(expected)), 0)
+    end
+    block failed(diag: T.LlDiagnosticRef)
+        yield Kernel.status_code(@{H.LL_STATUS_FAILED}, as(i32, repr(diag)), 0, 0)
+    end
+    block oom(needed: index)
+        yield Kernel.status_code(@{H.LL_STATUS_OOM}, 0, 0, needed)
+    end
+    block stale(vm: T.LlVmRef)
+        yield Kernel.status_code(@{H.LL_STATUS_STALE_HANDLE}, as(i32, repr(vm)), 0, 0)
+    end
+    block missing(vm: T.LlVmRef)
+        yield Kernel.status_code(@{H.LL_STATUS_MISSING_HANDLE}, as(i32, repr(vm)), 0, 0)
+    end
+    end
+end
+
+local llpvm_drain = func @{F.llpvm_drain}
+    if out == as(ptr(T.LlBufferRef), 0) then
+        return Kernel.status_code(@{H.LL_STATUS_INVALID_CONFIG}, 1, 0, 0)
+    end
+    return region: T.LlStatus
+    entry start()
+        emit @{Kernel.ll_borrow_vm}(vm;
+            borrowed = borrowed,
+            stale = stale,
+            missing = missing)
+    end
+    block borrowed(vm: ptr(T.LlVm))
+        emit @{Buffers.ll_drain_stream}(vm, stream;
+            drained = ok,
+            empty = empty,
+            failed = failed,
+            memory_exhausted = oom)
+    end
+    block ok(buffer: T.LlBufferRef)
+        out[0] = buffer
+        yield Kernel.status_ok()
+    end
+    block empty()
+        out[0] = LlBufferRef.from_repr(0)
+        yield Kernel.status_ok()
+    end
+    block failed(diag: T.LlDiagnosticRef)
+        yield Kernel.status_code(@{H.LL_STATUS_FAILED}, as(i32, repr(diag)), 0, 0)
+    end
+    block oom(needed: index)
+        yield Kernel.status_code(@{H.LL_STATUS_OOM}, 0, 0, needed)
+    end
+    block stale(vm: T.LlVmRef)
+        yield Kernel.status_code(@{H.LL_STATUS_STALE_HANDLE}, as(i32, repr(vm)), 0, 0)
+    end
+    block missing(vm: T.LlVmRef)
+        yield Kernel.status_code(@{H.LL_STATUS_MISSING_HANDLE}, as(i32, repr(vm)), 0, 0)
+    end
+    end
+end
+
+local llpvm_drain_count = func @{F.llpvm_drain_count}
+    if out == as(ptr(index), 0) then
+        return Kernel.status_code(@{H.LL_STATUS_INVALID_CONFIG}, 1, 0, 0)
+    end
+    return region: T.LlStatus
+    entry start()
+        emit @{Kernel.ll_borrow_vm}(vm;
+            borrowed = count_borrowed,
+            stale = stale,
+            missing = missing)
+    end
+    block count_borrowed(vm: ptr(T.LlVm))
+        jump count_have_vm(pvm = vm)
+    end
+    block count_have_vm(pvm: ptr(T.LlVm))
+        if stream == LlStreamRef.from_repr(0) then jump empty end
+        let sidx: index = as(index, repr(stream) - 1)
+        if sidx >= pvm.streams.n then jump empty end
+        if not pvm.streams.slots[sidx].live then jump empty end
+        let s: T.LlStream = pvm.streams.slots[sidx].value
+        if s.kind == as(u8, @{H.LL_STREAM_GENERATED}) then jump generated(pvm = pvm, s = s) end
+        if s.kind == as(u8, @{H.LL_STREAM_EMPTY}) then jump empty end
+        if s.kind == as(u8, @{H.LL_STREAM_ONCE}) then jump one end
+        jump failed(diag = LlDiagnosticRef.from_repr(0))
+    end
+    block generated(pvm: ptr(T.LlVm), s: T.LlStream)
+        let pidx: index = as(index, s.payload - 1)
+        if pidx >= pvm.programs.n then jump failed(diag = LlDiagnosticRef.from_repr(0)) end
+        if not pvm.programs.slots[pidx].live then jump failed(diag = LlDiagnosticRef.from_repr(0)) end
+        let program: T.LlProgram = pvm.programs.slots[pidx].value
+        out[0] = program.root_count
+        yield Kernel.status_ok()
+    end
+    block one()
+        out[0] = as(index, 1)
+        yield Kernel.status_ok()
+    end
+    block empty()
+        out[0] = as(index, 0)
+        yield Kernel.status_ok()
+    end
+    block failed(diag: T.LlDiagnosticRef)
+        yield Kernel.status_code(@{H.LL_STATUS_FAILED}, as(i32, repr(diag)), 0, 0)
+    end
+    block stale(vm: T.LlVmRef)
+        yield Kernel.status_code(@{H.LL_STATUS_STALE_HANDLE}, as(i32, repr(vm)), 0, 0)
+    end
+    block missing(vm: T.LlVmRef)
+        yield Kernel.status_code(@{H.LL_STATUS_MISSING_HANDLE}, as(i32, repr(vm)), 0, 0)
+    end
+    end
+end
+
+local llpvm_report = func @{F.llpvm_report}
+    if out == as(ptr(T.LlVmReport), 0) then
+        return Kernel.status_code(@{H.LL_STATUS_INVALID_CONFIG}, 1, 0, 0)
+    end
+    return region: T.LlStatus
+    entry start()
+        emit @{Kernel.ll_borrow_vm}(vm;
+            borrowed = borrowed,
+            stale = stale,
+            missing = missing)
+    end
+    block borrowed(vm: ptr(T.LlVm))
+        emit @{Report.ll_report_vm}(vm;
+            report = ok)
+    end
+    block ok(report: T.LlVmReport)
+        out[0] = report
+        yield Kernel.status_ok()
+    end
+    block stale(vm: T.LlVmRef)
+        yield Kernel.status_code(@{H.LL_STATUS_STALE_HANDLE}, as(i32, repr(vm)), 0, 0)
+    end
+    block missing(vm: T.LlVmRef)
+        yield Kernel.status_code(@{H.LL_STATUS_MISSING_HANDLE}, as(i32, repr(vm)), 0, 0)
+    end
+    end
+end
+
+return {
+    llpvm_load_program = llpvm_load_program,
+    llpvm_apply_phase = llpvm_apply_phase,
+    llpvm_drain = llpvm_drain,
+    llpvm_drain_count = llpvm_drain_count,
+    llpvm_report = llpvm_report,
+}

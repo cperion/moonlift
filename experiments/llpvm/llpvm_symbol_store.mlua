@@ -1,0 +1,157 @@
+-- llpvm_symbol_store.mlua -- Interned symbols and diagnostics.
+
+local H = moon.require("llpvm_header")
+local T = H.T
+local R = H.R
+local Mem = moon.require("llpvm_memory")
+
+local llpvm_grow_byte_arena = region grow_byte_arena(vm: ptr(T.LlVm), needed: index;
+    grown
+  | oom(needed: index))
+entry start()
+    let n: index = vm.bytes.n
+    let cap: index = vm.bytes.cap
+    if cap >= n then
+        let avail: index = cap - n
+        if avail >= needed then jump grown end
+    end
+    let want: index = n + needed
+    var new_cap: index = cap * 2
+    if new_cap < 256 then new_cap = 256 end
+    if new_cap < want then new_cap = want end
+    let a: ptr(T.LlAllocator) = Mem.llpvm_get_alloc(vm)
+    let new_ptr: ptr(u8) = Mem.llpvm_realloc_bytes(a, vm.bytes.data, cap, new_cap, 1)
+    if new_ptr == as(ptr(u8), 0) then jump oom(needed = new_cap) end
+    Mem.llpvm_zero_bytes(new_ptr + cap, new_cap - cap)
+    let p_data: ptr(ptr(u8)) = &(vm.bytes.data)
+    let p_cap: ptr(index) = &(vm.bytes.cap)
+    p_data[0] = new_ptr
+    p_cap[0] = new_cap
+    jump grown
+end
+end
+
+local llpvm_grow_symbol_slots = region grow_symbol_slots(vm: ptr(T.LlVm), needed: index;
+    grown
+  | oom(needed: index))
+entry start()
+    let a: ptr(T.LlAllocator) = Mem.llpvm_get_alloc(vm)
+    let p_n: ptr(index) = &(vm.symbols.n)
+    let p_cap: ptr(index) = &(vm.symbols.cap)
+    let p_slots: ptr(ptr(u8)) = as(ptr(ptr(u8)), &(vm.symbols.slots))
+    emit @{Mem.llpvm_grow_elems}(a, p_n, p_cap, p_slots, sizeof(T.LlSymbolSlot), as(index, 8), needed;
+        grown = grown,
+        oom = oom)
+end
+end
+
+local llpvm_grow_diagnostic_slots = region grow_diagnostic_slots(vm: ptr(T.LlVm), needed: index;
+    grown
+  | oom(needed: index))
+entry start()
+    let a: ptr(T.LlAllocator) = Mem.llpvm_get_alloc(vm)
+    let p_n: ptr(index) = &(vm.diagnostics.n)
+    let p_cap: ptr(index) = &(vm.diagnostics.cap)
+    let p_slots: ptr(ptr(u8)) = as(ptr(ptr(u8)), &(vm.diagnostics.slots))
+    emit @{Mem.llpvm_grow_elems}(a, p_n, p_cap, p_slots, sizeof(T.LlDiagnosticSlot), as(index, 8), needed;
+        grown = grown,
+        oom = oom)
+end
+end
+
+local llpvm_symbol_bytes_equal = func(vm: ptr(T.LlVm), symbol: T.LlSymbol, bytes: readonly view(u8)): bool
+    let p: ptr(u8) = vm.bytes.data + symbol.bytes_off
+    if symbol.bytes_len ~= len(bytes) then return false end
+    block loop(i: index = 0)
+        if i >= symbol.bytes_len then return true end
+        if p[i] ~= bytes[i] then return false end
+        jump loop(i = i + 1)
+    end
+end
+
+local ll_intern_symbol = region @{R.ll_intern_symbol}
+entry start()
+    let hash: u64 = Mem.llpvm_hash_bytes(bytes)
+    jump scan(i = as(index, 0), hash = hash)
+end
+block scan(i: index, hash: u64)
+    if i >= vm.symbols.n then jump insert(hash = hash) end
+    let slot: T.LlSymbolSlot = vm.symbols.slots[i]
+    if slot.live then
+        if slot.value.hash == hash then
+            if llpvm_symbol_bytes_equal(vm, slot.value, bytes) then
+                let raw: u32 = as(u32, i + 1)
+                jump symbol(symbol = LlSymbolRef.from_repr(raw))
+            end
+        end
+    end
+    jump scan(i = i + 1, hash = hash)
+end
+block insert(hash: u64)
+    emit @{llpvm_grow_symbol_slots}(vm, as(index, 1);
+        grown = have_slot,
+        oom = oom_symbols)
+end
+block have_slot()
+    emit @{llpvm_grow_byte_arena}(vm, len(bytes);
+        grown = copy_bytes,
+        oom = oom_bytes)
+end
+block copy_bytes()
+    let off: index = vm.bytes.n
+    block copy_loop(i: index = 0)
+        if i >= len(bytes) then jump copy_done(off = off) end
+        vm.bytes.data[off + i] = bytes[i]
+        jump copy_loop(i = i + 1)
+    end
+end
+block copy_done(off: index)
+    let p_bn: ptr(index) = &(vm.bytes.n)
+    p_bn[0] = off + len(bytes)
+    let idx: index = vm.symbols.n
+    let sym: T.LlSymbol = LlSymbol{ hash = Mem.llpvm_hash_bytes(bytes), bytes_off = off, bytes_len = len(bytes) }
+    vm.symbols.slots[idx] = LlSymbolSlot{ gen = as(u32, vm.symbols.generation), live = true, value = sym }
+    let p_sn: ptr(index) = &(vm.symbols.n)
+    p_sn[0] = idx + 1
+    jump symbol(symbol = LlSymbolRef.from_repr(as(u32, idx + 1)))
+end
+block oom_symbols(needed: index)
+    jump memory_exhausted(needed = needed)
+end
+block oom_bytes(needed: index)
+    jump memory_exhausted(needed = needed)
+end
+end
+
+local ll_make_diagnostic = region @{R.ll_make_diagnostic}
+entry start()
+    emit @{llpvm_grow_diagnostic_slots}(vm, as(index, 1);
+        grown = insert,
+        oom = oom)
+end
+block insert()
+    let idx: index = vm.diagnostics.n
+    let diag: T.LlDiagnostic = LlDiagnostic{
+        code = code,
+        primary_pos = 0,
+        secondary_pos = 0,
+        message = message,
+    }
+    vm.diagnostics.slots[idx] = LlDiagnosticSlot{ gen = as(u32, vm.diagnostics.generation), live = true, value = diag }
+    let p_n: ptr(index) = &(vm.diagnostics.n)
+    p_n[0] = idx + 1
+    jump diagnostic(diag = LlDiagnosticRef.from_repr(as(u32, idx + 1)))
+end
+block oom(needed: index)
+    jump memory_exhausted(needed = needed)
+end
+end
+
+return {
+    llpvm_grow_byte_arena = llpvm_grow_byte_arena,
+    llpvm_grow_symbol_slots = llpvm_grow_symbol_slots,
+    llpvm_grow_diagnostic_slots = llpvm_grow_diagnostic_slots,
+    llpvm_symbol_bytes_equal = llpvm_symbol_bytes_equal,
+    ll_intern_symbol = ll_intern_symbol,
+    ll_make_diagnostic = ll_make_diagnostic,
+}

@@ -229,6 +229,24 @@ block walk(i: index,
             cursor_kind = cursor_kind, scroll_id = scroll_id)
     end
 
+    -- Structural end/pop operations are valid report input, but they do not
+    -- contribute new report rows in the current flat report model.
+    if kind == as(u8, VIEW_POP_SCROLL) or
+       kind == as(u8, VIEW_END_FOCUS_SCOPE) or
+       kind == as(u8, VIEW_END_LAYER) or
+       kind == as(u8, VIEW_POP_TX) or
+       kind == as(u8, VIEW_POP_CLIP) then
+        jump walk(i = i + 1,
+            tx_x = tx_x, tx_y = tx_y,
+            clip_x = clip_x, clip_y = clip_y, clip_w = clip_w, clip_h = clip_h,
+            n_hit = n_hit, n_focus = n_focus, n_scroll = n_scroll,
+            n_drag_src = n_drag_src, n_drop_tgt = n_drop_tgt, n_drop_slot = n_drop_slot,
+            n_hit_stack = n_hit_stack, n_layer = n_layer, n_overlay = n_overlay,
+            n_modal = n_modal, n_focus_scope = n_focus_scope,
+            hover_id = hover_id, cursor_id = cursor_id,
+            cursor_kind = cursor_kind, scroll_id = scroll_id)
+    end
+
     -- Drag source
     if kind == as(u8, VIEW_DRAG_SOURCE) then
         jump walk(i = i + 1,

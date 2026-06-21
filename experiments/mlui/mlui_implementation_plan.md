@@ -230,8 +230,8 @@ C backend usage patterns:
 
 ```lua
 local moon = require("moonlift")
-local c_src = moon.emit_c(src, "out.c", "mlui")
-local compiled = moon.compile_c(src, {
+local c_src = moon.emit_c_file("experiments/mlui/mlui_abi.mlua", "out.c", "mlui")
+local compiled = moon.compile_c_file("experiments/mlui/mlui_abi.mlua", {
     name = "mlui",
     runner = "shared",
     cc = "gcc",
@@ -1000,7 +1000,7 @@ Keep `mlui_c_api.h` synchronized with `mlui_types.mlua` and
 Implement `mlui_build_c.lua` later:
 
 - load MLUI module bundle;
-- emit C backend source with `moon.emit_c` or bundle `:emit_c`;
+- emit C backend source with executed-module `:emit_c` or `moon.emit_c_file`;
 - prepend/emit `mlui_c_api.h` declarations;
 - produce `mlui_amalgam.c`;
 - compile smoke:

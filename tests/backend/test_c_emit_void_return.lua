@@ -17,7 +17,7 @@ local zero = moon.loadstring(src, "test_c_emit_void_return.mlua")()
 local module = moon.module("test_c_emit_void_return")
 module:pack(zero)
 
-local c = module:c_source({ module_id = "test_c_emit_void_return", name = "test_c_emit_void_return" })
+local c = module:c_artifact({ module_id = "test_c_emit_void_return", name = "test_c_emit_void_return" }).source
 assert(c:find("block_zero_if_then", 1, true), "expected if-then block label in generated C")
 assert(c:find("block_zero_if_then.-return;", 1) ~= nil, "void return terminator must be emitted")
 

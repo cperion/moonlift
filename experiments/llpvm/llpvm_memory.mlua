@@ -1,0 +1,113 @@
+-- llpvm_memory.mlua -- Allocation and byte-buffer primitives for LLPVM.
+
+local H = moon.require("llpvm_header")
+local T = H.T
+
+local default_malloc = extern default_malloc(size: index): ptr(u8) end
+local default_realloc = extern default_realloc(ptr: ptr(u8), new_size: index): ptr(u8) end
+local default_free = extern default_free(ptr: ptr(u8)): void end
+
+local llpvm_get_alloc = func(vm: ptr(T.LlVm)): ptr(T.LlAllocator)
+    if vm == as(ptr(T.LlVm), 0) then return as(ptr(T.LlAllocator), 0) end
+    return vm.memory.allocator
+end
+
+local llpvm_alloc_bytes = func(a: ptr(T.LlAllocator), size: index, align: index): ptr(u8)
+    if size == 0 then return as(ptr(u8), 0) end
+    if a == as(ptr(T.LlAllocator), 0) then return default_malloc(size) end
+    let cb: func(ptr(u8), index, index): ptr(u8) = a[0].alloc_fn
+    return cb(a[0].ctx, size, align)
+end
+
+local llpvm_realloc_bytes = func(a: ptr(T.LlAllocator), p: ptr(u8),
+                                  old_size: index, new_size: index,
+                                  align: index): ptr(u8)
+    if new_size == 0 then return as(ptr(u8), 0) end
+    if a == as(ptr(T.LlAllocator), 0) then return default_realloc(p, new_size) end
+    let cb: func(ptr(u8), ptr(u8), index, index, index): ptr(u8) = a[0].realloc_fn
+    return cb(a[0].ctx, p, old_size, new_size, align)
+end
+
+local llpvm_free_bytes = func(a: ptr(T.LlAllocator), p: ptr(u8),
+                               size: index, align: index): void
+    if p == as(ptr(u8), 0) then return end
+    if a == as(ptr(T.LlAllocator), 0) then default_free(p) return end
+    let cb: func(ptr(u8), ptr(u8), index, index) = a[0].free_fn
+    cb(a[0].ctx, p, size, align)
+    return
+end
+
+local llpvm_zero_bytes = func(p: ptr(u8), n: index): void
+    if p == as(ptr(u8), 0) then return end
+    block loop(i: index = 0)
+        if i >= n then return end
+        p[i] = as(u8, 0)
+        jump loop(i = i + 1)
+    end
+end
+
+local llpvm_hash_bytes = func(bytes: readonly view(u8)): u64
+    var h: u64 = 1469598103934665603
+    block loop(i: index = 0)
+        if i >= len(bytes) then return h end
+        h = h ~ as(u64, bytes[i])
+        h = h * 1099511628211
+        jump loop(i = i + 1)
+    end
+end
+
+local llpvm_bytes_equal = func(a: ptr(u8), a_len: index, b: ptr(u8), b_len: index): bool
+    if a_len ~= b_len then return false end
+    block loop(i: index = 0)
+        if i >= a_len then return true end
+        if a[i] ~= b[i] then return false end
+        jump loop(i = i + 1)
+    end
+end
+
+local llpvm_grow_elems = region grow_elems(
+    allocator: ptr(T.LlAllocator),
+    p_count: ptr(index),
+    p_cap: ptr(index),
+    p_data: ptr(ptr(u8)),
+    elem_size: index,
+    align: index,
+    needed: index;
+    grown
+  | oom(needed: index))
+entry start()
+    let count: index = p_count[0]
+    let cap: index = p_cap[0]
+    if cap >= count then
+        let avail: index = cap - count
+        if avail >= needed then jump grown end
+    end
+    let want: index = count + needed
+    var new_cap: index = cap * 2
+    if new_cap < 8 then new_cap = 8 end
+    if new_cap < want then new_cap = want end
+    let old_ptr: ptr(u8) = p_data[0]
+    let old_bytes: index = cap * elem_size
+    let new_bytes: index = new_cap * elem_size
+    let new_ptr: ptr(u8) = llpvm_realloc_bytes(allocator, old_ptr, old_bytes, new_bytes, align)
+    if new_ptr == as(ptr(u8), 0) then jump oom(needed = new_bytes) end
+    llpvm_zero_bytes(new_ptr + old_bytes, new_bytes - old_bytes)
+    p_data[0] = new_ptr
+    p_cap[0] = new_cap
+    jump grown
+end
+end
+
+return {
+    default_malloc = default_malloc,
+    default_realloc = default_realloc,
+    default_free = default_free,
+    llpvm_get_alloc = llpvm_get_alloc,
+    llpvm_alloc_bytes = llpvm_alloc_bytes,
+    llpvm_realloc_bytes = llpvm_realloc_bytes,
+    llpvm_free_bytes = llpvm_free_bytes,
+    llpvm_zero_bytes = llpvm_zero_bytes,
+    llpvm_hash_bytes = llpvm_hash_bytes,
+    llpvm_bytes_equal = llpvm_bytes_equal,
+    llpvm_grow_elems = llpvm_grow_elems,
+}
