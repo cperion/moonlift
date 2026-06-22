@@ -8,6 +8,7 @@ hosted language:
 ```text
 Lua staging / metaprogramming
   + hosted declarations
+  + Lua-owned DSL declarations
   + monomorphic Moonlift object code
   + typed regions / emits / jumps
   + explicit host exposure facts
@@ -18,6 +19,12 @@ Lua is where genericity, templates, code generation, specialization, and
 dispatch-table construction live. Moonlift object code is the
 generated/authorable monomorphic language whose semantics are explicit in
 ASDL.
+
+The Lua-owned DSL (`require("moonlift.dsl")`) is a first-class alternative to
+`.mlua` hosted islands. It is the more solid and minimal surface when the code
+is primarily metaprogrammed: Lua itself parses products, protocols, bodies, and
+fill maps as values, so there is no textual antiquote carrier in the common
+path.
 
 ---
 
@@ -37,17 +44,18 @@ ASDL.
 12. [Expression fragments](#12-expression-fragments)
 13. [Contracts](#13-contracts)
 14. [Lua splicing and antiquote](#14-lua-splicing-and-antiquote)
-15. [Quoting and table builder API reference](#15-quoting-and-table-builder-api-reference)
-16. [Metaprogramming and composition guide](#16-metaprogramming-and-composition-guide)
-17. [View and host ABI semantics](#17-view-and-host-abi-semantics)
-18. [Vectorization and facts](#18-vectorization-and-facts)
-19. [Error and diagnostic model](#19-error-and-diagnostic-model)
-20. [Intrinsics](#20-intrinsics)
-21. [Memory Management Convention](#21-memory-management-convention)
-22. [Memory operations](#22-memory-operations)
-23. [Complete examples](#23-complete-examples)
-24. [Implementation/layer map](#24-implementationlayer-map)
-25. [Summary doctrine](#25-summary-doctrine)
+15. [Lua-owned DSL](#15-lua-owned-dsl)
+16. [Quoting and table builder API reference](#16-quoting-and-table-builder-api-reference)
+17. [Metaprogramming and composition guide](#17-metaprogramming-and-composition-guide)
+18. [View and host ABI semantics](#18-view-and-host-abi-semantics)
+19. [Vectorization and facts](#19-vectorization-and-facts)
+20. [Error and diagnostic model](#20-error-and-diagnostic-model)
+21. [Intrinsics](#21-intrinsics)
+22. [Memory Management Convention](#22-memory-management-convention)
+23. [Memory operations](#23-memory-operations)
+24. [Complete examples](#24-complete-examples)
+25. [Implementation/layer map](#25-implementationlayer-map)
+26. [Summary doctrine](#26-summary-doctrine)
 
 ---
 
@@ -91,7 +99,35 @@ Inside `.mlua`, Moonlift recognizes these hosted islands:
 These islands construct ASDL values and host facts. They are not source strings
 at runtime — the parser builds typed ASDL nodes directly.
 
-### 1.3 Moonlift object-code layer
+### 1.3 Lua-owned DSL layer
+
+The Lua-owned DSL is ordinary Lua executed under a DSL environment:
+
+```lua
+local dsl = require("moonlift.dsl")
+
+return module "Demo" {
+  fn .add
+    { a[i32], b[i32] }
+    [i32]
+    {
+      ret { a + b },
+    },
+}
+```
+
+In this layer:
+
+- `[]` carries evaluated Lua values, not splice holes.
+- `{}` is semantic structure: products, protocols, bodies, maps, and fragments.
+- Lua loops generate Moonlift structures directly.
+- The output is explicit `MoonSyntax`, `MoonTree`, and `MoonOpen` ASDL.
+
+This layer is a real alternative to `.mlua`, not a replacement for Moonlift
+semantics. Use `.mlua` when you want source-island authoring; use the DSL when
+you want minimal parser machinery and values-as-program-parts.
+
+### 1.4 Moonlift object-code layer
 
 Moonlift object code is the compiled low-level language:
 
@@ -253,7 +289,61 @@ end
 return add
 ```
 
-### 3.2 Parsing types from strings
+Equivalent Lua-owned DSL form:
+
+```lua
+-- file.mld.lua
+return module "Demo" {
+  fn .add
+    { a[i32], b[i32] }
+    [i32]
+    {
+      ret { a + b },
+    },
+}
+```
+
+The `.mlua` version uses hosted source islands. The DSL version uses Lua table
+shapes directly; `a[i32]` carries the actual Lua value `i32`.
+
+### 3.2 Lua-owned DSL files
+
+A `.mld.lua` file is ordinary Lua executed through `moonlift.dsl`.
+
+```lua
+local dsl = require("moonlift.dsl")
+local chunk = dsl.loadfile("file.mld.lua")
+local module = chunk()
+
+local tree_module = module:ast()
+local checked = module:typecheck()
+local lowered = module:lower()
+```
+
+Recommended module shape:
+
+```lua
+return module "Demo" {
+  struct .Pair {
+    left[i32],
+    right[i32],
+  },
+
+  fn .sum
+    { p[Pair] }
+    [i32]
+    {
+      ret { p.left + p.right },
+    },
+}
+```
+
+The DSL is the preferred hosted surface when you want to generate or slice
+program parts with Lua values rather than splice Lua values into Moonlift text.
+It is more minimal than `.mlua` because there is no antiquote parse/fill phase
+in the normal path.
+
+### 3.3 Parsing types from strings
 
 Individual type expressions can be parsed from strings:
 
@@ -265,7 +355,7 @@ local result = P.parse_type("ptr(i32)")
 -- result.value is a MoonType.TPtr(elem = MoonType.TScalar(ScalarI32))
 ```
 
-### 3.3 Unified module API
+### 3.4 Unified module API
 
 The primary entry point is `require("moonlift")`, which provides the full
 compilation pipeline alongside the builder API:
@@ -278,6 +368,17 @@ local chunk = moon.loadstring(src, name, opts)    -- compile and return callable
 local chunk = moon.loadfile(path, opts)            -- compile and return callable from file
 local result = moon.dofile(path, opts, ...)        -- load and execute
 local result = moon.eval(src, ...)                 -- loadstring + immediate call
+```
+
+**Lua-owned DSL pipeline:**
+
+```lua
+local dsl = require("moonlift.dsl")
+local module = dsl.loadfile("lib.mld.lua")()
+
+local checked = module:typecheck()
+local lowered = module:lower()
+local artifact = module:emit_c_artifact { name = "lib" }
 ```
 
 **Object emission:**
@@ -2334,6 +2435,25 @@ Unlike the three-phase `.mlua` carrier model (parse → fill → expand), standa
 `moon.XXX[[]]` quotes evaluate `@{}` eagerly at quote time using an explicit
 values table (see §14.4).
 
+The Lua-owned DSL is the alternative that removes this carrier entirely. In the
+DSL, Lua values are already values:
+
+```lua
+local T = i32
+
+return module "Demo" {
+  fn .id
+    { x[T] }
+    [T]
+    {
+      ret { x },
+    },
+}
+```
+
+No `@{T}` is needed because `x[T]` is normal Lua indexing and `T` has already
+been evaluated by Lua.
+
 ### 14.0 Type and fragment references without `@{...}`
 
 Same-file bare names (`Arena`, `Pair`) in type position are resolved
@@ -2456,6 +2576,61 @@ struct Buffer
 end
 ```
 
+Equivalent Lua-owned DSL patterns:
+
+```lua
+-- Spread generated params and body statements
+local params = product { a[i32], b[i32] }
+local body = stmts {
+  ret { a + b },
+}
+
+return module "Generated" {
+  fn .add
+    { spread(params) }
+    [i32]
+    {
+      spread(body),
+    },
+}
+```
+
+```lua
+-- Spread region params and continuations
+local rparams = product { n[i32] }
+local exits = {
+  done { v[i32] },
+}
+
+return module "GeneratedRegion" {
+  region .generated
+    { spread(rparams) }
+    { spread(exits) }
+    {
+      entry .start {} {
+        jump .done { v = n },
+      },
+    },
+}
+```
+
+```lua
+-- Direct Lua type values in []
+local T = i32
+
+return module "Exprs" {
+  expr_frag .inc
+    { x[T] }
+    [T]
+    {
+      x + 1
+    },
+}
+```
+
+In the DSL there are no `@{}` holes. Lua has already evaluated `params`,
+`body`, `T`, and `exits`; the DSL consumes those values by role.
+
 ### 14.3 Splicing semantics
 
 Splicing is checked against the expected syntactic role. Typed host values are
@@ -2509,7 +2684,184 @@ local body = moon.stmts [[ let y: i32 = x + 1; return y ]]
 
 ---
 
-## 15. Quoting and table builder API reference
+## 15. Lua-owned DSL
+
+The Lua-owned DSL is an authoring surface where ordinary Lua syntax constructs
+Moonlift ASDL directly. It is a first-class alternative to `.mlua` hosted
+islands and `moon.XXX[[]]` quotes.
+
+Use it when:
+
+- code is heavily generated by Lua loops or factories;
+- program slices such as params, fields, bodies, and protocols are reused;
+- you want direct Lua values in type/name/static slots;
+- you want to avoid textual antiquote and parser-carrier phases.
+
+Core doctrine:
+
+```text
+Lua parses mechanically.
+The DSL normalizes table/value shapes semantically.
+Moonlift receives explicit ASDL.
+```
+
+### 15.1 Surface channels
+
+```text
+.name   fixed grammar/name token
+[expr]  evaluated Lua value in a type/name/static slot
+{...}   semantic Moonlift structure
+()      ordinary Lua call / leaf computation
+```
+
+Canonical style keeps `{}` for real structure:
+
+```lua
+fn .add
+  { a[i32], b[i32] }  -- product
+  [i32]               -- evaluated type value
+  {
+    ret { a + b },    -- statement body
+  }
+```
+
+### 15.2 Complete example
+
+```lua
+return module "DslDemo" {
+  struct .Vec2 {
+    x[f32],
+    y[f32],
+  },
+
+  union .Result {
+    ok  { value[i32] },
+    err { code[i32] },
+    none,
+  },
+
+  region .scan
+    { p[ptr[u8]], n[index], target[i32] }
+    {
+      hit  { pos[index] },
+      miss,
+    }
+    {
+      entry .loop { i[index](0) } {
+        when { i:ge(n) } {
+          jump .miss { pos = i },
+        },
+
+        when { eq { as[i32](p[i]), target } } {
+          jump .hit { pos = i },
+        },
+
+        jump .loop {
+          i = i + 1,
+        },
+      },
+    },
+
+  fn .find_A
+    { p[ptr[u8]], n[index] }
+    [i32]
+    {
+      entry .start {} {
+        emit .scan { p, n, 65 } {
+          hit  = done,
+          miss = done,
+        },
+      },
+
+      block .done { pos[i32] } {
+        ret { pos },
+      },
+    },
+}
+```
+
+### 15.3 Natural program slicing
+
+The DSL naturally models slices of a Moonlift program because each part is an
+ordinary Lua value with a role.
+
+```lua
+local view_params = product {
+  data[ptr[u8]],
+  len[index],
+  stride[index],
+}
+
+local bounds_check = stmts {
+  when { i:ge(len) } {
+    trap(),
+  },
+}
+
+return module "Slices" {
+  struct .ViewU8 {
+    spread(view_params),
+  },
+
+  fn .get
+    { spread(view_params), i[index] }
+    [u8]
+    {
+      spread(bounds_check),
+      ret { data[i] },
+    },
+}
+```
+
+No parser sees `view_params` or `bounds_check` as text. Lua built arrays of DSL
+values; the normalizer consumes them as product and statement slices.
+
+This is the main advantage over textual `.mlua` splicing:
+
+```text
+.mlua: Lua values cross into parsed text through @{} holes.
+DSL:   Lua values are the syntax objects from the start.
+```
+
+### 15.4 Host-time generation
+
+```lua
+local function make_vec(n, T)
+  local fields = {}
+  for i = 1, n do
+    fields[#fields + 1] = N["x" .. i][T]
+  end
+
+  return struct["Vec" .. n] {
+    spread(fields),
+  }
+end
+
+return module "Vectors" {
+  make_vec(2, f32),
+  make_vec(3, f32),
+  make_vec(4, f32),
+}
+```
+
+Lua provides all genericity. Moonlift receives the monomorphic declarations.
+
+### 15.5 Operations
+
+DSL module/declaration values expose:
+
+```lua
+module:syntax()
+module:ast()
+module:typecheck(opts)
+module:lower(opts)
+module:compile(opts)
+module:emit_c_artifact(opts)
+```
+
+The full DSL reference lives in `lua/moonlift/dsl/LANGUAGE_REFERENCE.md`.
+
+## 16. Quoting and table builder API reference
 
 The unified `require("moonlift")` module exposes a small set of quoting forms
 that turn Moonlift source strings into live Lua values. The central abstraction
@@ -3087,7 +3439,7 @@ is undefined behavior.
 
 ---
 
-## 16. Metaprogramming and composition guide
+## 17. Metaprogramming and composition guide
 
 Moonlift metaprogramming has one coherent rule:
 
@@ -3674,7 +4026,7 @@ Prefer these instead:
 - `moon.expr[[]]` for generated expressions;
 - fragment factories + `emit` for reusable control;
 - modules/types/functions as explicit host values.
-## 17. View and host ABI semantics
+## 18. View and host ABI semantics
 
 ### 17.1 Canonical view descriptor
 
@@ -3883,7 +4235,7 @@ LuaBridge should use the typed protocol layer.
 
 ---
 
-## 18. Vectorization and facts
+## 19. Vectorization and facts
 
 Moonlift vectorization is fact-driven. The source language provides typed
 control and contracts; phases decide whether vectorization applies.
@@ -3957,7 +4309,7 @@ Vectorization produces explicit rejects for unsupported shapes, including:
 
 ---
 
-## 19. Error and diagnostic model
+## 20. Error and diagnostic model
 
 Moonlift errors are structured, typed, and span-resolved. Every error condition
 in every compiler phase produces a stable E0xxx error code through a
@@ -4032,7 +4384,7 @@ cause: `"unresolved name 'foo'"`, not the 47 type mismatches it causes.
 
 ---
 
-## 20. Intrinsics
+## 21. Intrinsics
 
 Intrinsic operations are currently a backend/builder API concern, not dedicated
 Moonlift source syntax. At the parser level names such as `popcount`, `sqrt`,
@@ -4041,7 +4393,7 @@ through the Lua builder/ASDL API or provide a normal function binding.
 
 ---
 
-## 21. Memory Management Convention
+## 22. Memory Management Convention
 
 Moonlift's raw pointer and view operations are intentionally low-level. They do
 not, by themselves, express ownership, lifetimes, cleanup, arena reset policy,
@@ -4261,7 +4613,7 @@ region close_synth_storage(synth: ptr(Synth);
 
 ---
 
-## 22. Memory operations
+## 23. Memory operations
 
 ### 22.1 Load and store
 
@@ -4355,7 +4707,7 @@ with `BackAtomicSeqCst` ordering and ordinary `BackMemoryInfo` facts.
 
 ---
 
-## 23. Complete examples
+## 24. Complete examples
 
 ### 23.1 Typed dispatch over bytes
 
@@ -4502,7 +4854,7 @@ end
 
 ---
 
-## 24. Implementation/layer map
+## 25. Implementation/layer map
 
 Important implementation homes (all under `lua/moonlift/`):
 
@@ -4721,7 +5073,7 @@ the complete API reference.
 
 ---
 
-## 25. Summary doctrine
+## 26. Summary doctrine
 
 Moonlift source is small on purpose:
 

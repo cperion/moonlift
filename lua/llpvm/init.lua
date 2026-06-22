@@ -560,7 +560,30 @@ function Vm:phase(name)
         spec = spec or {}
         local input = assert(spec.from or spec.input, "phase requires input/from world")
         local output = assert(spec.to or spec.output, "phase requires output/to world")
-        local machine = assert(spec.machine, "phase requires machine")
+        local machine = spec.machine
+        if machine == nil then
+            local entry = spec.entry or spec.entry_symbol or name
+            local machine_name = spec.machine_name or name
+            local machine_id = self.builder:machine(
+                machine_name,
+                id_of(input, "input world"),
+                id_of(output, "output world"),
+                entry
+            )
+            machine = {
+                vm = self,
+                id = machine_id,
+                name = machine_name,
+                input = input,
+                output = output,
+            }
+            self.machines[#self.machines + 1] = machine
+        else
+            assert(
+                machine.input == input and machine.output == output,
+                "phase machine input/output does not match phase from/to"
+            )
+        end
         local cache_id = self.builder:cache(spec.cache)
         local id = self.builder:phase(name, id_of(input, "input world"), id_of(output, "output world"), id_of(machine, "machine"), cache_id)
         local phase = setmetatable({ vm = self, id = id, name = name, input = input, output = output }, Phase)

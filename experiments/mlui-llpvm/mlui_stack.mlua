@@ -503,141 +503,80 @@ M.worlds.model         = M.Model:world "model"
 M.worlds.event         = M.Event:world "event"
 
 -- -----------------------------------------------------------------------------
--- Machines and cached phases.  This is where MLUI becomes naturally retained:
+-- Cached phases.  This is where MLUI becomes naturally retained:
 -- app/frontends may rebuild streams immediately; LLPVM phase keys reuse stable
 -- phase products when streams, explicit args, and resource generations match.
 -- -----------------------------------------------------------------------------
 
-M.machines = {}
 M.phases = {}
-
-M.machines.expand_compose = M.vm.machine "mlui_expand_compose" {
-    from = M.worlds.compose,
-    to = M.worlds.auth,
-    entry = "ui_expand_compose",
-}
-
-M.machines.validate_auth = M.vm.machine "mlui_validate_auth" {
-    from = M.worlds.auth,
-    to = M.worlds.auth_checked,
-    entry = "ui_validate_auth",
-}
-
-M.machines.import_auth = M.vm.machine "mlui_import_auth" {
-    from = M.worlds.auth_checked,
-    to = M.worlds.imported,
-    entry = "ui_import_auth",
-}
-
-M.machines.resolve_style = M.vm.machine "mlui_resolve_style" {
-    from = M.worlds.style,
-    to = M.worlds.style_resolved,
-    entry = "ui_resolve_style",
-}
-
-M.machines.lower_scene = M.vm.machine "mlui_lower_scene" {
-    from = M.worlds.imported,
-    to = M.worlds.scene,
-    entry = "ui_lower_scene",
-}
-
-M.machines.measure_scene = M.vm.machine "mlui_measure_scene" {
-    from = M.worlds.scene,
-    to = M.worlds.measure,
-    entry = "ui_measure_scene",
-}
-
-M.machines.solve_scene = M.vm.machine "mlui_solve_scene" {
-    from = M.worlds.measure,
-    to = M.worlds.solve,
-    entry = "ui_solve_scene",
-}
-
-M.machines.render_view = M.vm.machine "mlui_render_view" {
-    from = M.worlds.solve,
-    to = M.worlds.view,
-    entry = "ui_render_ops",
-}
-
-M.machines.build_report = M.vm.machine "mlui_build_report" {
-    from = M.worlds.view,
-    to = M.worlds.report,
-    entry = "ui_runtime_report",
-}
-
-M.machines.interact_step = M.vm.machine "mlui_interact_step" {
-    from = M.worlds.input,
-    to = M.worlds.event,
-    entry = "ui_interact_step",
-}
 
 M.phases.expand_compose = M.vm.phase "mlui_expand_compose" {
     from = M.worlds.compose,
     to = M.worlds.auth,
-    machine = M.machines.expand_compose,
+    entry = "ui_expand_compose",
     cache = "full",
 }
 
 M.phases.validate_auth = M.vm.phase "mlui_validate_auth" {
     from = M.worlds.auth,
     to = M.worlds.auth_checked,
-    machine = M.machines.validate_auth,
+    entry = "ui_validate_auth",
     cache = "record",
 }
 
 M.phases.import_auth = M.vm.phase "mlui_import_auth" {
     from = M.worlds.auth_checked,
     to = M.worlds.imported,
-    machine = M.machines.import_auth,
+    entry = "ui_import_auth",
     cache = "full",
 }
 
 M.phases.resolve_style = M.vm.phase "mlui_resolve_style" {
     from = M.worlds.style,
     to = M.worlds.style_resolved,
-    machine = M.machines.resolve_style,
+    entry = "ui_resolve_style",
     cache = "full",
 }
 
 M.phases.lower_scene = M.vm.phase "mlui_lower_scene" {
     from = M.worlds.imported,
     to = M.worlds.scene,
-    machine = M.machines.lower_scene,
+    entry = "ui_lower_scene",
     cache = "full",
 }
 
 M.phases.measure_scene = M.vm.phase "mlui_measure_scene" {
     from = M.worlds.scene,
     to = M.worlds.measure,
-    machine = M.machines.measure_scene,
+    entry = "ui_measure_scene",
     cache = "full",
 }
 
 M.phases.solve_scene = M.vm.phase "mlui_solve_scene" {
     from = M.worlds.measure,
     to = M.worlds.solve,
-    machine = M.machines.solve_scene,
+    entry = "ui_solve_scene",
     cache = "full",
 }
 
 M.phases.render_view = M.vm.phase "mlui_render_view" {
     from = M.worlds.solve,
     to = M.worlds.view,
-    machine = M.machines.render_view,
+    entry = "ui_render_ops",
     cache = "record",
 }
 
 M.phases.build_report = M.vm.phase "mlui_build_report" {
     from = M.worlds.view,
     to = M.worlds.report,
-    machine = M.machines.build_report,
+    entry = "ui_runtime_report",
     cache = "record",
 }
 
 M.phases.interact_step = M.vm.phase "mlui_interact_step" {
     from = M.worlds.input,
     to = M.worlds.event,
-    machine = M.machines.interact_step,
+    entry = "ui_interact_step",
     cache = nil,
 }
 

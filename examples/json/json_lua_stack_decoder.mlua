@@ -23,781 +23,1139 @@
 
 local ffi = require("ffi")
 local moon = require("moonlift")
+local dsl = require("moonlift.dsl")
 
-local skip_ws = region json_skip_ws(p: ptr(u8), n: i32, pos: i32; ok(i: i32))
-entry loop(i: i32 = pos)
-    if i >= n then jump ok(i = i) end
-    switch as(i32, p[i]) do
-    case 32 then jump loop(i = i + 1)
-    case 10 then jump loop(i = i + 1)
-    case 13 then jump loop(i = i + 1)
-    case 9  then jump loop(i = i + 1)
-    default then jump ok(i = i)
-    end
-    jump ok(i = i)
-end
-end
+local json_module = dsl.loadstring([[ 
+return module "json_library_showcase" {
+    region .json_skip_ws
+        { p [ptr [u8]], n [i32], pos [i32] }
+        { ok { i [i32] } }
+        {
+            entry .loop { i [i32](pos) } {
+                when { i:ge(n) } {
+                    jump .ok { i = i },
+                },
+                switch { as [i32] (p[i]) } {
+                    case_value(32) {
+                        jump .loop { i = i + 1 },
+                    },
+                    case_value(10) {
+                        jump .loop { i = i + 1 },
+                    },
+                    case_value(13) {
+                        jump .loop { i = i + 1 },
+                    },
+                    case_value(9) {
+                        jump .loop { i = i + 1 },
+                    },
+                    default {
+                        jump .ok { i = i },
+                    },
+                },
+            },
+        },
 
-local parse_string_store = region json_parse_string_store(
-    p: ptr(u8), n: i32, pos: i32, out: ptr(u8), out_cap: i32, meta: ptr(i32);
-    ok(next_i: i32, off: i32, len: i32) | err(at: i32)
-)
-entry start()
-    if pos >= n then jump err(at = pos + 1) end
-    if as(i32, p[pos]) ~= 34 then jump err(at = pos + 1) end
-    let base: i32 = meta[1]
-    jump copy(i = pos + 1, j = 0, base = base)
-end
-block copy(i: i32, j: i32, base: i32)
-    if i >= n then jump err(at = i + 1) end
-    let c: i32 = as(i32, p[i])
-    if c == 34 then
-        meta[1] = base + j
-        jump ok(next_i = i + 1, off = base, len = j)
-    end
-    if c < 32 then jump err(at = i + 1) end
-    if c == 92 then jump escaped(i = i + 1, j = j, base = base) end
-    if base + j >= out_cap then jump err(at = i + 1) end
-    out[base + j] = as(u8, c)
-    jump copy(i = i + 1, j = j + 1, base = base)
-end
-block escaped(i: i32, j: i32, base: i32)
-    if i >= n then jump err(at = i + 1) end
-    if base + j >= out_cap then jump err(at = i + 1) end
-    let c: i32 = as(i32, p[i])
-    switch c do
-    case 34 then out[base + j] = as(u8, 34); jump copy(i = i + 1, j = j + 1, base = base)
-    case 92 then out[base + j] = as(u8, 92); jump copy(i = i + 1, j = j + 1, base = base)
-    case 47 then out[base + j] = as(u8, 47); jump copy(i = i + 1, j = j + 1, base = base)
-    case 98 then out[base + j] = as(u8, 8); jump copy(i = i + 1, j = j + 1, base = base)
-    case 102 then out[base + j] = as(u8, 12); jump copy(i = i + 1, j = j + 1, base = base)
-    case 110 then out[base + j] = as(u8, 10); jump copy(i = i + 1, j = j + 1, base = base)
-    case 114 then out[base + j] = as(u8, 13); jump copy(i = i + 1, j = j + 1, base = base)
-    case 116 then out[base + j] = as(u8, 9); jump copy(i = i + 1, j = j + 1, base = base)
-    case 117 then jump hex4(i = i + 1, j = j, base = base, cp = 0, left = 4)
-    default then jump err(at = i + 1)
-    end
-    jump err(at = i + 1)
-end
-block hex4(i: i32, j: i32, base: i32, cp: i32, left: i32)
-    if left == 0 then jump emit_codepoint(i = i, j = j, base = base, cp = cp) end
-    if i >= n then jump err(at = i + 1) end
-    let c: i32 = as(i32, p[i])
-    if c >= 48 and c <= 57 then jump hex4(i = i + 1, j = j, base = base, cp = cp * 16 + (c - 48), left = left - 1) end
-    if c >= 65 and c <= 70 then jump hex4(i = i + 1, j = j, base = base, cp = cp * 16 + (c - 55), left = left - 1) end
-    if c >= 97 and c <= 102 then jump hex4(i = i + 1, j = j, base = base, cp = cp * 16 + (c - 87), left = left - 1) end
-    jump err(at = i + 1)
-end
-block emit_codepoint(i: i32, j: i32, base: i32, cp: i32)
-    if cp >= 55296 and cp <= 56319 then jump expect_low(i = i, j = j, base = base, hi = cp) end
-    if cp >= 56320 and cp <= 57343 then jump err(at = i + 1) end
-    if cp < 128 then
-        if base + j >= out_cap then jump err(at = i + 1) end
-        out[base + j] = as(u8, cp)
-        jump copy(i = i, j = j + 1, base = base)
-    end
-    if cp < 2048 then
-        if base + j + 1 >= out_cap then jump err(at = i + 1) end
-        out[base + j] = as(u8, 192 + (cp >> 6))
-        out[base + j + 1] = as(u8, 128 + (cp & 63))
-        jump copy(i = i, j = j + 2, base = base)
-    end
-    if base + j + 2 >= out_cap then jump err(at = i + 1) end
-    out[base + j] = as(u8, 224 + (cp >> 12))
-    out[base + j + 1] = as(u8, 128 + ((cp >> 6) & 63))
-    out[base + j + 2] = as(u8, 128 + (cp & 63))
-    jump copy(i = i, j = j + 3, base = base)
-end
-block expect_low(i: i32, j: i32, base: i32, hi: i32)
-    if i + 1 >= n then jump err(at = i + 1) end
-    if as(i32, p[i]) ~= 92 then jump err(at = i + 1) end
-    if as(i32, p[i + 1]) ~= 117 then jump err(at = i + 1) end
-    jump hex4_low(i = i + 2, j = j, base = base, hi = hi, cp = 0, left = 4)
-end
-block hex4_low(i: i32, j: i32, base: i32, hi: i32, cp: i32, left: i32)
-    if left == 0 then
-        if cp < 56320 then jump err(at = i + 1) end
-        if cp > 57343 then jump err(at = i + 1) end
-        let full: i32 = 65536 + (hi - 55296) * 1024 + (cp - 56320)
-        if base + j + 3 >= out_cap then jump err(at = i + 1) end
-        out[base + j] = as(u8, 240 + (full >> 18))
-        out[base + j + 1] = as(u8, 128 + ((full >> 12) & 63))
-        out[base + j + 2] = as(u8, 128 + ((full >> 6) & 63))
-        out[base + j + 3] = as(u8, 128 + (full & 63))
-        jump copy(i = i, j = j + 4, base = base)
-    end
-    if i >= n then jump err(at = i + 1) end
-    let c: i32 = as(i32, p[i])
-    if c >= 48 and c <= 57 then jump hex4_low(i = i + 1, j = j, base = base, hi = hi, cp = cp * 16 + (c - 48), left = left - 1) end
-    if c >= 65 and c <= 70 then jump hex4_low(i = i + 1, j = j, base = base, hi = hi, cp = cp * 16 + (c - 55), left = left - 1) end
-    if c >= 97 and c <= 102 then jump hex4_low(i = i + 1, j = j, base = base, hi = hi, cp = cp * 16 + (c - 87), left = left - 1) end
-    jump err(at = i + 1)
-end
-end
+    region .json_parse_string_store
+        { p [ptr [u8]], n [i32], pos [i32], out [ptr [u8]], out_cap [i32], meta [ptr [i32]] }
+        {
+            ok { next_i [i32], off [i32], len [i32] },
+            err { at [i32] },
+        }
+        {
+            entry .start { } {
+                when { pos:ge(n) } {
+                    jump .err { at = pos + 1 },
+                },
+                when { as [i32] (p[pos]):ne(34) } {
+                    jump .err { at = pos + 1 },
+                },
+                let .base [i32] { meta[1] },
+                jump .copy { i = pos + 1, j = 0, base = base },
+            },
 
-local parse_number_value = region json_parse_number_value(
-    p: ptr(u8), n: i32, pos: i32;
-    ok(next_i: i32, value: f64) | err(at: i32)
-)
-entry start()
-    if pos >= n then jump err(at = pos + 1) end
-    let first: i32 = as(i32, p[pos])
-    if first == 45 then jump first_digit(i = pos + 1, neg = true) end
-    jump first_digit(i = pos, neg = false)
-end
-block first_digit(i: i32, neg: bool)
-    if i >= n then jump err(at = i + 1) end
-    let c: i32 = as(i32, p[i])
-    if c == 48 then jump after_zero(i = i + 1, neg = neg) end
-    if c >= 49 and c <= 57 then jump scan_int(i = i + 1, neg = neg, val = as(i64, c - 48)) end
-    jump err(at = i + 1)
-end
-block after_zero(i: i32, neg: bool)
-    if i >= n then jump finish(neg = neg, result = 0.0, end_i = i) end
-    let c: i32 = as(i32, p[i])
-    if c >= 48 and c <= 57 then jump err(at = i + 1) end
-    if c == 46 then jump frac_first(i = i + 1, neg = neg, int_part = 0.0) end
-    if c == 101 or c == 69 then jump exp_sign(i = i + 1, neg = neg, result = 0.0) end
-    jump finish(neg = neg, result = 0.0, end_i = i)
-end
-block scan_int(i: i32, neg: bool, val: i64)
-    if i >= n then jump emit_int(neg = neg, val = val, end_i = i) end
-    let c: i32 = as(i32, p[i])
-    if c >= 48 and c <= 57 then jump scan_int(i = i + 1, neg = neg, val = val * 10 + as(i64, c - 48)) end
-    jump emit_int(neg = neg, val = val, end_i = i)
-end
-block emit_int(neg: bool, val: i64, end_i: i32)
-    let fv: f64 = as(f64, val)
-    if end_i >= n then jump finish(neg = neg, result = fv, end_i = end_i) end
-    let c: i32 = as(i32, p[end_i])
-    if c == 46 then jump frac_first(i = end_i + 1, neg = neg, int_part = fv) end
-    if c == 101 or c == 69 then jump exp_sign(i = end_i + 1, neg = neg, result = fv) end
-    jump finish(neg = neg, result = fv, end_i = end_i)
-end
-block frac_first(i: i32, neg: bool, int_part: f64)
-    if i >= n then jump err(at = i + 1) end
-    let c: i32 = as(i32, p[i])
-    if c < 48 then jump err(at = i + 1) end
-    if c > 57 then jump err(at = i + 1) end
-    jump frac_tail(i = i + 1, neg = neg, int_part = int_part, frac = 0.1 * as(f64, c - 48), scale = 0.01)
-end
-block frac_tail(i: i32, neg: bool, int_part: f64, frac: f64, scale: f64)
-    if i >= n then jump finish(neg = neg, result = int_part + frac, end_i = i) end
-    let c: i32 = as(i32, p[i])
-    if c >= 48 and c <= 57 then jump frac_tail(i = i + 1, neg = neg, int_part = int_part, frac = frac + scale * as(f64, c - 48), scale = scale * 0.1) end
-    if c == 101 or c == 69 then jump exp_sign(i = i + 1, neg = neg, result = int_part + frac) end
-    jump finish(neg = neg, result = int_part + frac, end_i = i)
-end
-block exp_sign(i: i32, neg: bool, result: f64)
-    if i >= n then jump err(at = i + 1) end
-    let c: i32 = as(i32, p[i])
-    if c == 43 then jump exp_first(i = i + 1, neg = neg, result = result, exp = 0, neg_exp = false) end
-    if c == 45 then jump exp_first(i = i + 1, neg = neg, result = result, exp = 0, neg_exp = true) end
-    jump exp_first(i = i, neg = neg, result = result, exp = 0, neg_exp = false)
-end
-block exp_first(i: i32, neg: bool, result: f64, exp: i32, neg_exp: bool)
-    if i >= n then jump err(at = i + 1) end
-    let c: i32 = as(i32, p[i])
-    if c < 48 then jump err(at = i + 1) end
-    if c > 57 then jump err(at = i + 1) end
-    jump exp_tail(i = i + 1, neg = neg, result = result, exp = c - 48, neg_exp = neg_exp)
-end
-block exp_tail(i: i32, neg: bool, result: f64, exp: i32, neg_exp: bool)
-    if i >= n then jump apply_exp(neg = neg, result = result, exp = exp, neg_exp = neg_exp, end_i = i) end
-    let c: i32 = as(i32, p[i])
-    if c >= 48 and c <= 57 then jump exp_tail(i = i + 1, neg = neg, result = result, exp = exp * 10 + (c - 48), neg_exp = neg_exp) end
-    jump apply_exp(neg = neg, result = result, exp = exp, neg_exp = neg_exp, end_i = i)
-end
-block apply_exp(neg: bool, result: f64, exp: i32, neg_exp: bool, end_i: i32)
-    if neg_exp then
-        if exp > 0 then jump apply_exp(neg = neg, result = result / 10.0, exp = exp - 1, neg_exp = true, end_i = end_i) end
-        jump finish(neg = neg, result = result, end_i = end_i)
-    else
-        if exp > 0 then jump apply_exp(neg = neg, result = result * 10.0, exp = exp - 1, neg_exp = false, end_i = end_i) end
-        jump finish(neg = neg, result = result, end_i = end_i)
-    end
-end
-block finish(neg: bool, result: f64, end_i: i32)
-    if neg then jump ok(next_i = end_i, value = 0.0 - result) end
-    jump ok(next_i = end_i, value = result)
-end
-end
+            block .copy { i [i32], j [i32], base [i32] } {
+                when { i:ge(n) } {
+                    jump .err { at = i + 1 },
+                },
+                let .c [i32] { as [i32] (p[i]) },
+                when { c:eq(34) } {
+                    set { meta[1], base + j },
+                    jump .ok { next_i = i + 1, off = base, len = j },
+                },
+                when { c:lt(32) } {
+                    jump .err { at = i + 1 },
+                },
+                when { c:eq(92) } {
+                    jump .escaped { i = i + 1, j = j, base = base },
+                },
+                when { (base + j):ge(out_cap) } {
+                    jump .err { at = i + 1 },
+                },
+                set { out[base + j], as [u8] (c) },
+                jump .copy { i = i + 1, j = j + 1, base = base },
+            },
 
-local emit_value_event = region json_emit_value_event(tags: ptr(i32), a: ptr(i32), b: ptr(i32), nums: ptr(f64), cap: i32, meta: ptr(i32), tag: i32, aa: i32, bb: i32, num: f64;
-    emitted | err(at: i32))
-entry start()
-    if meta[0] >= cap then jump err(at = meta[0] + 1) end
-    tags[meta[0]] = tag
-    a[meta[0]] = aa
-    b[meta[0]] = bb
-    nums[meta[0]] = num
-    meta[0] = meta[0] + 1
-    jump emitted()
-end
-end
+            block .escaped { i [i32], j [i32], base [i32] } {
+                when { i:ge(n) } {
+                    jump .err { at = i + 1 },
+                },
+                when { (base + j):ge(out_cap) } {
+                    jump .err { at = i + 1 },
+                },
+                let .c [i32] { as [i32] (p[i]) },
+                switch { c } {
+                    case_value(34) {
+                        set { out[base + j], as [u8] (34) },
+                        jump .copy { i = i + 1, j = j + 1, base = base },
+                    },
+                    case_value(92) {
+                        set { out[base + j], as [u8] (92) },
+                        jump .copy { i = i + 1, j = j + 1, base = base },
+                    },
+                    case_value(47) {
+                        set { out[base + j], as [u8] (47) },
+                        jump .copy { i = i + 1, j = j + 1, base = base },
+                    },
+                    case_value(98) {
+                        set { out[base + j], as [u8] (8) },
+                        jump .copy { i = i + 1, j = j + 1, base = base },
+                    },
+                    case_value(102) {
+                        set { out[base + j], as [u8] (12) },
+                        jump .copy { i = i + 1, j = j + 1, base = base },
+                    },
+                    case_value(110) {
+                        set { out[base + j], as [u8] (10) },
+                        jump .copy { i = i + 1, j = j + 1, base = base },
+                    },
+                    case_value(114) {
+                        set { out[base + j], as [u8] (13) },
+                        jump .copy { i = i + 1, j = j + 1, base = base },
+                    },
+                    case_value(116) {
+                        set { out[base + j], as [u8] (9) },
+                        jump .copy { i = i + 1, j = j + 1, base = base },
+                    },
+                    case_value(117) {
+                        jump .hex4 { i = i + 1, j = j, base = base, cp = 0, left = 4 },
+                    },
+                    default {
+                        jump .err { at = i + 1 },
+                    },
+                },
+                jump .err { at = i + 1 },
+            },
 
-local parse_array_events = func(p: ptr(u8), n: i32, pos: i32, tags: ptr(i32), a: ptr(i32), b: ptr(i32), nums: ptr(f64), event_cap: i32, strbuf: ptr(u8), str_cap: i32, meta: ptr(i32)): i32
-    return region: i32
-    entry start()
-        emit @{emit_value_event}(tags, a, b, nums, event_cap, meta, 1, pos, 0, 0.0; emitted = marked, err = fail_at)
-    end
-    block marked()
-        emit @{skip_ws}(p, n, pos + 1; ok = check_empty)
-    end
-    block check_empty(i: i32)
-        if i >= n then yield 0 - (i + 1) end
-        if as(i32, p[i]) == 93 then jump close_array(i = i) end
-        jump parse_elem(i = i)
-    end
-    block parse_elem(i: i32)
-        let value_next_i: i32 = parse_value_events(p, n, i, tags, a, b, nums, event_cap, strbuf, str_cap, meta)
-        if value_next_i < 0 then yield value_next_i end
-        jump array_ws(i = value_next_i, mode = 0)
-    end
-    block array_ws(i: i32, mode: i32)
-        if i >= n then yield 0 - (i + 1) end
-        let c: i32 = as(i32, p[i])
-        if c == 32 then jump array_ws(i = i + 1, mode = mode) end
-        if c == 10 then jump array_ws(i = i + 1, mode = mode) end
-        if c == 13 then jump array_ws(i = i + 1, mode = mode) end
-        if c == 9 then jump array_ws(i = i + 1, mode = mode) end
-        if mode == 0 then jump check_comma(i = i) end
-        jump before_elem(i = i)
-    end
-    block check_comma(i: i32)
-        if i >= n then yield 0 - (i + 1) end
-        let c: i32 = as(i32, p[i])
-        if c == 93 then jump close_array(i = i) end
-        if c == 44 then jump array_ws(i = i + 1, mode = 1) end
-        yield 0 - (i + 1)
-    end
-    block before_elem(i: i32)
-        if i >= n then yield 0 - (i + 1) end
-        if as(i32, p[i]) == 93 then yield 0 - (i + 1) end
-        jump parse_elem(i = i)
-    end
-    block close_array(i: i32)
-        if meta[0] >= event_cap then yield 0 - (i + 1) end
-        tags[meta[0]] = 2
-        a[meta[0]] = i
-        b[meta[0]] = 0
-        nums[meta[0]] = 0.0
-        meta[0] = meta[0] + 1
-        yield i + 1
-    end
-    block fail_at(at: i32)
-        yield 0 - at
-    end
-    end
-end
+            block .hex4 { i [i32], j [i32], base [i32], cp [i32], left [i32] } {
+                when { left:eq(0) } {
+                    jump .emit_codepoint { i = i, j = j, base = base, cp = cp },
+                },
+                when { i:ge(n) } {
+                    jump .err { at = i + 1 },
+                },
+                let .c [i32] { as [i32] (p[i]) },
+                when { And { c:ge(48), c:le(57) } } {
+                    jump .hex4 { i = i + 1, j = j, base = base, cp = cp * 16 + (c - 48), left = left - 1 },
+                },
+                when { And { c:ge(65), c:le(70) } } {
+                    jump .hex4 { i = i + 1, j = j, base = base, cp = cp * 16 + (c - 55), left = left - 1 },
+                },
+                when { And { c:ge(97), c:le(102) } } {
+                    jump .hex4 { i = i + 1, j = j, base = base, cp = cp * 16 + (c - 87), left = left - 1 },
+                },
+                jump .err { at = i + 1 },
+            },
 
-local parse_object_events = func(p: ptr(u8), n: i32, pos: i32, tags: ptr(i32), a: ptr(i32), b: ptr(i32), nums: ptr(f64), event_cap: i32, strbuf: ptr(u8), str_cap: i32, meta: ptr(i32)): i32
-    return region: i32
-    entry start()
-        emit @{emit_value_event}(tags, a, b, nums, event_cap, meta, 3, pos, 0, 0.0; emitted = marked, err = fail_at)
-    end
-    block marked()
-        emit @{skip_ws}(p, n, pos + 1; ok = check_empty)
-    end
-    block check_empty(i: i32)
-        if i >= n then yield 0 - (i + 1) end
-        if as(i32, p[i]) == 125 then jump close_object(i = i) end
-        jump parse_key(i = i)
-    end
-    block parse_key(i: i32)
-        if i >= n then yield 0 - (i + 1) end
-        if as(i32, p[i]) ~= 34 then yield 0 - (i + 1) end
-        emit @{parse_string_store}(p, n, i, strbuf, str_cap, meta; ok = emit_key, err = fail_at)
-    end
-    block emit_key(next_i: i32, off: i32, len: i32)
-        if meta[0] >= event_cap then yield 0 - (next_i + 1) end
-        tags[meta[0]] = 5
-        a[meta[0]] = off
-        b[meta[0]] = len
-        nums[meta[0]] = 0.0
-        meta[0] = meta[0] + 1
-        emit @{skip_ws}(p, n, next_i; ok = check_colon_char)
-    end
-    block check_colon_char(i: i32)
-        if i >= n then yield 0 - (i + 1) end
-        if as(i32, p[i]) ~= 58 then yield 0 - (i + 1) end
-        emit @{skip_ws}(p, n, i + 1; ok = parse_val)
-    end
-    block parse_val(i: i32)
-        let value_next_i: i32 = parse_value_events(p, n, i, tags, a, b, nums, event_cap, strbuf, str_cap, meta)
-        if value_next_i < 0 then yield value_next_i end
-        emit @{skip_ws}(p, n, value_next_i; ok = check_comma)
-    end
-    block check_comma(i: i32)
-        if i >= n then yield 0 - (i + 1) end
-        let c: i32 = as(i32, p[i])
-        if c == 125 then jump close_object(i = i) end
-        if c == 44 then emit @{skip_ws}(p, n, i + 1; ok = parse_key) end
-        yield 0 - (i + 1)
-    end
-    block close_object(i: i32)
-        if meta[0] >= event_cap then yield 0 - (i + 1) end
-        tags[meta[0]] = 4
-        a[meta[0]] = i
-        b[meta[0]] = 0
-        nums[meta[0]] = 0.0
-        meta[0] = meta[0] + 1
-        yield i + 1
-    end
-    block fail_at(at: i32)
-        yield 0 - at
-    end
-    end
-end
+            block .emit_codepoint { i [i32], j [i32], base [i32], cp [i32] } {
+                when { And { cp:ge(55296), cp:le(56319) } } {
+                    jump .expect_low { i = i, j = j, base = base, hi = cp },
+                },
+                when { And { cp:ge(56320), cp:le(57343) } } {
+                    jump .err { at = i + 1 },
+                },
+                when { cp:lt(128) } {
+                    when { (base + j):ge(out_cap) } {
+                        jump .err { at = i + 1 },
+                    },
+                    set { out[base + j], as [u8] (cp) },
+                    jump .copy { i = i, j = j + 1, base = base },
+                },
+                when { cp:lt(2048) } {
+                    when { (base + j + 1):ge(out_cap) } {
+                        jump .err { at = i + 1 },
+                    },
+                    set { out[base + j], as [u8] (192 + (cp >> 6)) },
+                    set { out[base + j + 1], as [u8] (128 + (cp & 63)) },
+                    jump .copy { i = i, j = j + 2, base = base },
+                },
+                when { (base + j + 2):ge(out_cap) } {
+                    jump .err { at = i + 1 },
+                },
+                set { out[base + j], as [u8] (224 + (cp >> 12)) },
+                set { out[base + j + 1], as [u8] (128 + ((cp >> 6) & 63)) },
+                set { out[base + j + 2], as [u8] (128 + (cp & 63)) },
+                jump .copy { i = i, j = j + 3, base = base },
+            },
 
-local parse_value_events = func(p: ptr(u8), n: i32, pos: i32, tags: ptr(i32), a: ptr(i32), b: ptr(i32), nums: ptr(f64), event_cap: i32, strbuf: ptr(u8), str_cap: i32, meta: ptr(i32)): i32
-    return region: i32
-    entry start()
-        emit @{skip_ws}(p, n, pos; ok = dispatch)
-    end
-    block dispatch(i: i32)
-        if i >= n then yield 0 - (i + 1) end
-        let c: i32 = as(i32, p[i])
-        if c == 34 then emit @{parse_string_store}(p, n, i, strbuf, str_cap, meta; ok = emit_string, err = fail_at) end
-        if c == 91 then
-            let array_next_i: i32 = parse_array_events(p, n, i, tags, a, b, nums, event_cap, strbuf, str_cap, meta)
-            if array_next_i < 0 then yield array_next_i end
-            yield array_next_i
-        end
-        if c == 123 then
-            let object_next_i: i32 = parse_object_events(p, n, i, tags, a, b, nums, event_cap, strbuf, str_cap, meta)
-            if object_next_i < 0 then yield object_next_i end
-            yield object_next_i
-        end
-        if c == 116 then jump lit_true(i = i) end
-        if c == 102 then jump lit_false(i = i) end
-        if c == 110 then jump lit_null(i = i) end
-        emit @{parse_number_value}(p, n, i; ok = emit_number, err = fail_at)
-    end
-    block emit_string(next_i: i32, off: i32, len: i32)
-        if meta[0] >= event_cap then yield 0 - (next_i + 1) end
-        tags[meta[0]] = 6
-        a[meta[0]] = off
-        b[meta[0]] = len
-        nums[meta[0]] = 0.0
-        meta[0] = meta[0] + 1
-        yield next_i
-    end
-    block emit_number(next_i: i32, value: f64)
-        if meta[0] >= event_cap then yield 0 - (next_i + 1) end
-        tags[meta[0]] = 7
-        a[meta[0]] = 0
-        b[meta[0]] = 0
-        nums[meta[0]] = value
-        meta[0] = meta[0] + 1
-        yield next_i
-    end
-    block lit_true(i: i32)
-        if i + 4 > n then jump fail_at(at = i + 1) end
-        if as(i32, p[i + 1]) ~= 114 then jump fail_at(at = i + 1) end
-        if as(i32, p[i + 2]) ~= 117 then jump fail_at(at = i + 1) end
-        if as(i32, p[i + 3]) ~= 101 then jump fail_at(at = i + 1) end
-        if meta[0] >= event_cap then yield 0 - (i + 1) end
-        tags[meta[0]] = 8
-        a[meta[0]] = 1
-        b[meta[0]] = 0
-        nums[meta[0]] = 0.0
-        meta[0] = meta[0] + 1
-        yield i + 4
-    end
-    block lit_false(i: i32)
-        if i + 5 > n then jump fail_at(at = i + 1) end
-        if as(i32, p[i + 1]) ~= 97 then jump fail_at(at = i + 1) end
-        if as(i32, p[i + 2]) ~= 108 then jump fail_at(at = i + 1) end
-        if as(i32, p[i + 3]) ~= 115 then jump fail_at(at = i + 1) end
-        if as(i32, p[i + 4]) ~= 101 then jump fail_at(at = i + 1) end
-        if meta[0] >= event_cap then yield 0 - (i + 1) end
-        tags[meta[0]] = 9
-        a[meta[0]] = 0
-        b[meta[0]] = 0
-        nums[meta[0]] = 0.0
-        meta[0] = meta[0] + 1
-        yield i + 5
-    end
-    block lit_null(i: i32)
-        if i + 4 > n then jump fail_at(at = i + 1) end
-        if as(i32, p[i + 1]) ~= 117 then jump fail_at(at = i + 1) end
-        if as(i32, p[i + 2]) ~= 108 then jump fail_at(at = i + 1) end
-        if as(i32, p[i + 3]) ~= 108 then jump fail_at(at = i + 1) end
-        if meta[0] >= event_cap then yield 0 - (i + 1) end
-        tags[meta[0]] = 10
-        a[meta[0]] = 0
-        b[meta[0]] = 0
-        nums[meta[0]] = 0.0
-        meta[0] = meta[0] + 1
-        yield i + 4
-    end
-    block fail_at(at: i32)
-        yield 0 - at
-    end
-    end
-end
+            block .expect_low { i [i32], j [i32], base [i32], hi [i32] } {
+                when { (i + 1):ge(n) } {
+                    jump .err { at = i + 1 },
+                },
+                when { as [i32] (p[i]):ne(92) } {
+                    jump .err { at = i + 1 },
+                },
+                when { as [i32] (p[i + 1]):ne(117) } {
+                    jump .err { at = i + 1 },
+                },
+                jump .hex4_low { i = i + 2, j = j, base = base, hi = hi, cp = 0, left = 4 },
+            },
 
-local json_decode_value_events = func(p: ptr(u8), n: i32, tags: ptr(i32), a: ptr(i32), b: ptr(i32), nums: ptr(f64), event_cap: i32, strbuf: ptr(u8), str_cap: i32, meta: ptr(i32)): i32
-    meta[0] = 0
-    meta[1] = 0
-    return region: i32
-    entry start()
-        let after_value: i32 = parse_value_events(p, n, 0, tags, a, b, nums, event_cap, strbuf, str_cap, meta)
-        if after_value < 0 then yield after_value end
-        emit @{skip_ws}(p, n, after_value; ok = finish)
-    end
-    block finish(i: i32)
-        if i == n then yield i end
-        yield 0 - (i + 1)
-    end
-    end
-end
+            block .hex4_low { i [i32], j [i32], base [i32], hi [i32], cp [i32], left [i32] } {
+                when { left:eq(0) } {
+                    when { cp:lt(56320) } {
+                        jump .err { at = i + 1 },
+                    },
+                    when { cp:gt(57343) } {
+                        jump .err { at = i + 1 },
+                    },
+                    let .full [i32] { 65536 + (hi - 55296) * 1024 + (cp - 56320) },
+                    when { (base + j + 3):ge(out_cap) } {
+                        jump .err { at = i + 1 },
+                    },
+                    set { out[base + j], as [u8] (240 + (full >> 18)) },
+                    set { out[base + j + 1], as [u8] (128 + ((full >> 12) & 63)) },
+                    set { out[base + j + 2], as [u8] (128 + ((full >> 6) & 63)) },
+                    set { out[base + j + 3], as [u8] (128 + (full & 63)) },
+                    jump .copy { i = i, j = j + 4, base = base },
+                },
+                when { i:ge(n) } {
+                    jump .err { at = i + 1 },
+                },
+                let .c [i32] { as [i32] (p[i]) },
+                when { And { c:ge(48), c:le(57) } } {
+                    jump .hex4_low { i = i + 1, j = j, base = base, hi = hi, cp = cp * 16 + (c - 48), left = left - 1 },
+                },
+                when { And { c:ge(65), c:le(70) } } {
+                    jump .hex4_low { i = i + 1, j = j, base = base, hi = hi, cp = cp * 16 + (c - 55), left = left - 1 },
+                },
+                when { And { c:ge(97), c:le(102) } } {
+                    jump .hex4_low { i = i + 1, j = j, base = base, hi = hi, cp = cp * 16 + (c - 87), left = left - 1 },
+                },
+                jump .err { at = i + 1 },
+            },
+        },
 
-local bundle = moon.bundle("json_library_showcase")
-bundle:pack(parse_array_events, parse_object_events, parse_value_events, json_decode_value_events)
-local c_blob = bundle:c_source({ module_name = "moonlift_json_showcase" })
+    fn .json_parse_number_value
+        { p [ptr [u8]], n [i32], pos [i32] }
+        [i32]
+        {
+            entry .start { } {
+                when { pos:ge(n) } {
+                    jump .err { at = pos + 1 },
+                },
+                let .first [i32] { as [i32] (p[pos]) },
+                when { first:eq(45) } {
+                    jump .first_digit { i = pos + 1, neg = true },
+                },
+                jump .first_digit { i = pos, neg = false },
+            },
+            block .first_digit { i [i32], neg [bool] } {
+                when { i:ge(n) } {
+                    jump .err { at = i + 1 },
+                },
+                let .c [i32] { as [i32] (p[i]) },
+                when { c:eq(48) } {
+                    jump .after_zero { i = i + 1, neg = neg },
+                },
+                when { And { c:ge(49), c:le(57) } } {
+                    jump .scan_int { i = i + 1, neg = neg, val = as [i64] (c - 48) },
+                },
+                jump .err { at = i + 1 },
+            },
+            block .after_zero { i [i32], neg [bool] } {
+                when { i:ge(n) } {
+                    jump .finish { neg = neg, result = 0.0, end_i = i },
+                },
+                let .c [i32] { as [i32] (p[i]) },
+                when { And { c:ge(48), c:le(57) } } {
+                    jump .err { at = i + 1 },
+                },
+                when { c:eq(46) } {
+                    jump .frac_first { i = i + 1, neg = neg, int_part = 0.0 },
+                },
+                when { Or { c:eq(101), c:eq(69) } } {
+                    jump .exp_sign { i = i + 1, neg = neg, result = 0.0 },
+                },
+                jump .finish { neg = neg, result = 0.0, end_i = i },
+            },
+            block .scan_int { i [i32], neg [bool], val [i64] } {
+                when { i:ge(n) } {
+                    jump .emit_int { neg = neg, val = val, end_i = i },
+                },
+                let .c [i32] { as [i32] (p[i]) },
+                when { And { c:ge(48), c:le(57) } } {
+                    jump .scan_int { i = i + 1, neg = neg, val = val * 10 + as [i64] (c - 48) },
+                },
+                jump .emit_int { neg = neg, val = val, end_i = i },
+            },
+            block .emit_int { neg [bool], val [i64], end_i [i32] } {
+                let .fv [f64] { as [f64] (val) },
+                when { end_i:ge(n) } {
+                    jump .finish { neg = neg, result = fv, end_i = end_i },
+                },
+                let .c [i32] { as [i32] (p[end_i]) },
+                when { c:eq(46) } {
+                    jump .frac_first { i = end_i + 1, neg = neg, int_part = fv },
+                },
+                when { Or { c:eq(101), c:eq(69) } } {
+                    jump .exp_sign { i = end_i + 1, neg = neg, result = fv },
+                },
+                jump .finish { neg = neg, result = fv, end_i = end_i },
+            },
+            block .frac_first { i [i32], neg [bool], int_part [f64] } {
+                when { i:ge(n) } {
+                    jump .err { at = i + 1 },
+                },
+                let .c [i32] { as [i32] (p[i]) },
+                when { c:lt(48) } {
+                    jump .err { at = i + 1 },
+                },
+                when { c:gt(57) } {
+                    jump .err { at = i + 1 },
+                },
+                jump .frac_tail { i = i + 1, neg = neg, int_part = int_part, frac = 0.1 * as [f64] (c - 48), scale = 0.01 },
+            },
+            block .frac_tail { i [i32], neg [bool], int_part [f64], frac [f64], scale [f64] } {
+                when { i:ge(n) } {
+                    jump .finish { neg = neg, result = int_part + frac, end_i = i },
+                },
+                let .c [i32] { as [i32] (p[i]) },
+                when { And { c:ge(48), c:le(57) } } {
+                    jump .frac_tail { i = i + 1, neg = neg, int_part = int_part, frac = frac + scale * as [f64] (c - 48), scale = scale * 0.1 },
+                },
+                when { Or { c:eq(101), c:eq(69) } } {
+                    jump .exp_sign { i = i + 1, neg = neg, result = int_part + frac },
+                },
+                jump .finish { neg = neg, result = int_part + frac, end_i = i },
+            },
+            block .exp_sign { i [i32], neg [bool], result [f64] } {
+                when { i:ge(n) } {
+                    jump .err { at = i + 1 },
+                },
+                let .c [i32] { as [i32] (p[i]) },
+                when { c:eq(43) } {
+                    jump .exp_first { i = i + 1, neg = neg, result = result, exp = 0, neg_exp = false },
+                },
+                when { c:eq(45) } {
+                    jump .exp_first { i = i + 1, neg = neg, result = result, exp = 0, neg_exp = true },
+                },
+                jump .exp_first { i = i, neg = neg, result = result, exp = 0, neg_exp = false },
+            },
+            block .exp_first { i [i32], neg [bool], result [f64], exp [i32], neg_exp [bool] } {
+                when { i:ge(n) } {
+                    jump .err { at = i + 1 },
+                },
+                let .c [i32] { as [i32] (p[i]) },
+                when { c:lt(48) } {
+                    jump .err { at = i + 1 },
+                },
+                when { c:gt(57) } {
+                    jump .err { at = i + 1 },
+                },
+                jump .exp_tail { i = i + 1, neg = neg, result = result, exp = c - 48, neg_exp = neg_exp },
+            },
+            block .exp_tail { i [i32], neg [bool], result [f64], exp [i32], neg_exp [bool] } {
+                when { i:ge(n) } {
+                    jump .apply_exp { neg = neg, result = result, exp = exp, neg_exp = neg_exp, end_i = i },
+                },
+                let .c [i32] { as [i32] (p[i]) },
+                when { And { c:ge(48), c:le(57) } } {
+                    jump .exp_tail { i = i + 1, neg = neg, result = result, exp = exp * 10 + (c - 48), neg_exp = neg_exp },
+                },
+                jump .apply_exp { neg = neg, result = result, exp = exp, neg_exp = neg_exp, end_i = i },
+            },
+            block .apply_exp { neg [bool], result [f64], exp [i32], neg_exp [bool], end_i [i32] } {
+                when { neg_exp } {
+                    when { exp:gt(0) } {
+                        jump .apply_exp { neg = neg, result = result / 10.0, exp = exp - 1, neg_exp = true, end_i = end_i },
+                    },
+                    jump .finish { neg = neg, result = result, end_i = end_i },
+                },
+                when { exp:gt(0) } {
+                    jump .apply_exp { neg = neg, result = result * 10.0, exp = exp - 1, neg_exp = false, end_i = end_i },
+                },
+                jump .finish { neg = neg, result = result, end_i = end_i },
+            },
+            block .finish { neg [bool], result [f64], end_i [i32] } {
+                when { neg } {
+                    jump .ok { next_i = end_i, value = 0.0 - result },
+                },
+                jump .ok { next_i = end_i, value = result },
+            },
+            block .ok { next_i [i32], value [f64] } {
+                yield { next_i },
+            },
+            block .err { at [i32] } {
+                yield { 0 - at },
+            },
+        },
 
-local function compile_artifact()
-    local backend = os.getenv("MOONLIFT_JSON_BACKEND") or "c"
-    if backend == "jit" or backend == "cranelift" then
-        return bundle:jit({ backend = "cranelift", module_name = "moonlift_json_showcase" }), "cranelift-jit"
-    end
-    local gcc = os.getenv("MOONLIFT_JSON_CC") or "gcc"
-    local ok, result = pcall(function()
-        return bundle:compile({
-            backend = "c",
-            runner = "shared",
-            cc = gcc,
-            cflags = "-std=c99 -O3 -fPIC -shared -Wno-int-to-pointer-cast -Wl,-z,noexecstack",
-            ldflags = "-lm",
-            module_name = "moonlift_json_showcase",
-        })
-    end)
-    if ok then return result, "gcc-o3" end
-    return bundle:compile({ backend = "c", runner = "libtcc", module_name = "moonlift_json_showcase" }), "libtcc", result
-end
+    region .json_emit_value_event
+        {
+            tags [ptr [i32]],
+            a [ptr [i32]],
+            b [ptr [i32]],
+            nums [ptr [f64]],
+            cap [i32],
+            meta [ptr [i32]],
+            tag [i32],
+            aa [i32],
+            bb [i32],
+            num [f64],
+        }
+        {
+            emitted {},
+            err { at [i32] },
+        }
+        {
+            entry .start { } {
+                when { meta[0]:ge(cap) } {
+                    jump .err { at = meta[0] + 1 },
+                },
+                set { tags[meta[0]], tag },
+                set { a[meta[0]], aa },
+                set { b[meta[0]], bb },
+                set { nums[meta[0]], num },
+                set { meta[0], meta[0] + 1 },
+                jump .emitted {},
+            },
+            block .emitted { } {
+                yield {},
+            },
+            block .err { at [i32] } {
+                yield { 0 - at },
+            },
+        },
 
-local artifact, c_backend, c_backend_fallback_reason = compile_artifact()
-local value_events_compiled = artifact:get("json_decode_value_events")
+    fn .json_parse_array_events
+        { p [ptr [u8]], n [i32], pos [i32], tags [ptr [i32]], a [ptr [i32]], b [ptr [i32]], nums [ptr [f64]], event_cap [i32], strbuf [ptr [u8]], str_cap [i32], meta [ptr [i32]] }
+        [i32]
+        {
+            entry .start { } {
+                emit .json_emit_value_event
+                    {
+                        tags, a, b, nums, event_cap, meta,
+                        tag = 1,
+                        aa = pos,
+                        bb = 0,
+                        num = 0.0,
+                    }
+                    { emitted = .marked, err = .fail_at },
+            },
+            block .marked { } {
+                emit .json_skip_ws { p, n, pos + 1 } { ok = .check_empty },
+            },
+            block .check_empty { i [i32] } {
+                when { i:ge(n) } {
+                    yield { 0 - (i + 1) },
+                },
+                when { as [i32] (p[i]):eq(93) } {
+                    jump .close_array { i = i },
+                },
+                jump .parse_elem { i = i },
+            },
+            block .parse_elem { i [i32] } {
+                let .value_next_i [i32] { json_parse_value_events(p, n, i, tags, a, b, nums, event_cap, strbuf, str_cap, meta) },
+                when { value_next_i:lt(0) } {
+                    yield { value_next_i },
+                },
+                jump .array_ws { i = value_next_i, mode = 0 },
+            },
+            block .array_ws { i [i32], mode [i32] } {
+                when { i:ge(n) } {
+                    yield { 0 - (i + 1) },
+                },
+                let .c [i32] { as [i32] (p[i]) },
+                when { c:eq(32) } {
+                    jump .array_ws { i = i + 1, mode = mode },
+                },
+                when { c:eq(10) } {
+                    jump .array_ws { i = i + 1, mode = mode },
+                },
+                when { c:eq(13) } {
+                    jump .array_ws { i = i + 1, mode = mode },
+                },
+                when { c:eq(9) } {
+                    jump .array_ws { i = i + 1, mode = mode },
+                },
+                when { mode:eq(0) } {
+                    jump .check_comma { i = i },
+                },
+                jump .before_elem { i = i },
+            },
+            block .check_comma { i [i32] } {
+                when { i:ge(n) } {
+                    yield { 0 - (i + 1) },
+                },
+                let .c [i32] { as [i32] (p[i]) },
+                when { c:eq(93) } {
+                    jump .close_array { i = i },
+                },
+                when { c:eq(44) } {
+                    jump .array_ws { i = i + 1, mode = 1 },
+                },
+                yield { 0 - (i + 1) },
+            },
+            block .before_elem { i [i32] } {
+                when { i:ge(n) } {
+                    yield { 0 - (i + 1) },
+                },
+                when { as [i32] (p[i]):ne(93) } {
+                    jump .parse_elem { i = i },
+                },
+                yield { 0 - (i + 1) },
+            },
+            block .close_array { i [i32] } {
+                when { meta[0]:ge(event_cap) } {
+                    yield { 0 - (i + 1) },
+                },
+                set { tags[meta[0]], 2 },
+                set { a[meta[0]], i },
+                set { b[meta[0]], 0 },
+                set { nums[meta[0]], 0.0 },
+                set { meta[0], meta[0] + 1 },
+                yield { i + 1 },
+            },
+            block .fail_at { at [i32] } {
+                yield { 0 - at },
+            },
+        },
 
-local Json = {}
-Json.null = {}
+    fn .json_parse_object_events
+        { p [ptr [u8]], n [i32], pos [i32], tags [ptr [i32]], a [ptr [i32]], b [ptr [i32]], nums [ptr [f64]], event_cap [i32], strbuf [ptr [u8]], str_cap [i32], meta [ptr [i32]] }
+        [i32]
+        {
+            entry .start { } {
+                emit .json_emit_value_event
+                    {
+                        tags, a, b, nums, event_cap, meta,
+                        tag = 3,
+                        aa = pos,
+                        bb = 0,
+                        num = 0.0,
+                    }
+                    { emitted = .marked, err = .fail_at },
+            },
+            block .marked { } {
+                emit .json_skip_ws { p, n, pos + 1 } { ok = .check_empty },
+            },
+            block .check_empty { i [i32] } {
+                when { i:ge(n) } {
+                    yield { 0 - (i + 1) },
+                },
+                when { as [i32] (p[i]):eq(125) } {
+                    jump .close_object { i = i },
+                },
+                jump .parse_key { i = i },
+            },
+            block .parse_key { i [i32] } {
+                when { i:ge(n) } {
+                    yield { 0 - (i + 1) },
+                },
+                when { as [i32] (p[i]):ne(34) } {
+                    yield { 0 - (i + 1) },
+                },
+                emit .json_parse_string_store { p, n, i, strbuf, str_cap, meta } { ok = .emit_key, err = .fail_at },
+            },
+            block .emit_key { next_i [i32], off [i32], len [i32] } {
+                when { meta[0]:ge(event_cap) } {
+                    yield { 0 - (next_i + 1) },
+                },
+                set { tags[meta[0]], 5 },
+                set { a[meta[0]], off },
+                set { b[meta[0]], len },
+                set { nums[meta[0]], 0.0 },
+                set { meta[0], meta[0] + 1 },
+                emit .json_skip_ws { p, n, next_i } { ok = .check_colon_char },
+            },
+            block .check_colon_char { i [i32] } {
+                when { i:ge(n) } {
+                    yield { 0 - (i + 1) },
+                },
+                when { as [i32] (p[i]):ne(58) } {
+                    yield { 0 - (i + 1) },
+                },
+                emit .json_skip_ws { p, n, i + 1 } { ok = .parse_val },
+            },
+            block .parse_val { i [i32] } {
+                let .value_next_i [i32] { json_parse_value_events(p, n, i, tags, a, b, nums, event_cap, strbuf, str_cap, meta) },
+                when { value_next_i:lt(0) } {
+                    yield { value_next_i },
+                },
+                emit .json_skip_ws { p, n, value_next_i } { ok = .check_comma },
+            },
+            block .check_comma { i [i32] } {
+                when { i:ge(n) } {
+                    yield { 0 - (i + 1) },
+                },
+                let .c [i32] { as [i32] (p[i]) },
+                when { c:eq(125) } {
+                    jump .close_object { i = i },
+                },
+                when { c:eq(44) } {
+                    emit .json_skip_ws { p, n, i + 1 } { ok = .parse_key },
+                },
+                yield { 0 - (i + 1) },
+            },
+            block .close_object { i [i32] } {
+                when { meta[0]:ge(event_cap) } {
+                    yield { 0 - (i + 1) },
+                },
+                set { tags[meta[0]], 4 },
+                set { a[meta[0]], i },
+                set { b[meta[0]], 0 },
+                set { nums[meta[0]], 0.0 },
+                set { meta[0], meta[0] + 1 },
+                yield { i + 1 },
+            },
+            block .fail_at { at [i32] } {
+                yield { 0 - at },
+            },
+        },
 
-local array_mt = { __moonlift_json_shape = "array" }
-local object_mt = { __moonlift_json_shape = "object" }
-Json.array_mt = array_mt
-Json.object_mt = object_mt
+    fn .json_parse_value_events
+        { p [ptr [u8]], n [i32], pos [i32], tags [ptr [i32]], a [ptr [i32]], b [ptr [i32]], nums [ptr [f64]], event_cap [i32], strbuf [ptr [u8]], str_cap [i32], meta [ptr [i32]] }
+        [i32]
+        {
+            entry .start { } {
+                emit .json_skip_ws { p, n, pos } { ok = .dispatch },
+            },
+            block .dispatch { i [i32] } {
+                when { i:ge(n) } {
+                    yield { 0 - (i + 1) },
+                },
+                let .c [i32] { as [i32] (p[i]) },
+                when { c:eq(34) } {
+                    emit .json_parse_string_store
+                        { p, n, i, strbuf, str_cap, meta }
+                        { ok = .emit_string, err = .fail_at },
+                },
+                when { c:eq(91) } {
+                    let .array_next_i [i32] { json_parse_array_events(p, n, i, tags, a, b, nums, event_cap, strbuf, str_cap, meta) },
+                    when { array_next_i:lt(0) } {
+                        yield { array_next_i },
+                    },
+                    yield { array_next_i },
+                },
+                when { c:eq(123) } {
+                    let .object_next_i [i32] { json_parse_object_events(p, n, i, tags, a, b, nums, event_cap, strbuf, str_cap, meta) },
+                    when { object_next_i:lt(0) } {
+                        yield { object_next_i },
+                    },
+                    yield { object_next_i },
+                },
+                when { c:eq(116) } {
+                    jump .lit_true { i = i },
+                },
+                when { c:eq(102) } {
+                    jump .lit_false { i = i },
+                },
+                when { c:eq(110) } {
+                    jump .lit_null { i = i },
+                },
+                let .number_next_i [i32] { json_parse_number_value(p, n, i) },
+                when { number_next_i:lt(0) } {
+                    yield { number_next_i },
+                },
+                yield { number_next_i },
+            },
+            block .emit_string { next_i [i32], off [i32], len [i32] } {
+                when { meta[0]:ge(event_cap) } {
+                    yield { 0 - (next_i + 1) },
+                },
+                set { tags[meta[0]], 6 },
+                set { a[meta[0]], off },
+                set { b[meta[0]], len },
+                set { nums[meta[0]], 0.0 },
+                set { meta[0], meta[0] + 1 },
+                yield { next_i },
+            },
+            block .emit_number { next_i [i32], value [f64] } {
+                when { meta[0]:ge(event_cap) } {
+                    yield { 0 - (next_i + 1) },
+                },
+                set { tags[meta[0]], 7 },
+                set { a[meta[0]], 0 },
+                set { b[meta[0]], 0 },
+                set { nums[meta[0]], value },
+                set { meta[0], meta[0] + 1 },
+                yield { next_i },
+            },
+            block .lit_true { i [i32] } {
+                when { (i + 4):gt(n) } {
+                    jump .fail_at { at = i + 1 },
+                },
+                when { as [i32] (p[i + 1]):ne(114) } {
+                    jump .fail_at { at = i + 1 },
+                },
+                when { as [i32] (p[i + 2]):ne(117) } {
+                    jump .fail_at { at = i + 1 },
+                },
+                when { as [i32] (p[i + 3]):ne(101) } {
+                    jump .fail_at { at = i + 1 },
+                },
+                when { meta[0]:ge(event_cap) } {
+                    yield { 0 - (i + 1) },
+                },
+                set { tags[meta[0]], 8 },
+                set { a[meta[0]], 1 },
+                set { b[meta[0]], 0 },
+                set { nums[meta[0]], 0.0 },
+                set { meta[0], meta[0] + 1 },
+                yield { i + 4 },
+            },
+            block .lit_false { i [i32] } {
+                when { (i + 5):gt(n) } {
+                    jump .fail_at { at = i + 1 },
+                },
+                when { as [i32] (p[i + 1]):ne(97) } {
+                    jump .fail_at { at = i + 1 },
+                },
+                when { as [i32] (p[i + 2]):ne(108) } {
+                    jump .fail_at { at = i + 1 },
+                },
+                when { as [i32] (p[i + 3]):ne(115) } {
+                    jump .fail_at { at = i + 1 },
+                },
+                when { as [i32] (p[i + 4]):ne(101) } {
+                    jump .fail_at { at = i + 1 },
+                },
+                when { meta[0]:ge(event_cap) } {
+                    yield { 0 - (i + 1) },
+                },
+                set { tags[meta[0]], 9 },
+                set { a[meta[0]], 0 },
+                set { b[meta[0]], 0 },
+                set { nums[meta[0]], 0.0 },
+                set { meta[0], meta[0] + 1 },
+                yield { i + 5 },
+            },
+            block .lit_null { i [i32] } {
+                when { (i + 4):gt(n) } {
+                    jump .fail_at { at = i + 1 },
+                },
+                when { as [i32] (p[i + 1]):ne(117) } {
+                    jump .fail_at { at = i + 1 },
+                },
+                when { as [i32] (p[i + 2]):ne(108) } {
+                    jump .fail_at { at = i + 1 },
+                },
+                when { as [i32] (p[i + 3]):ne(108) } {
+                    jump .fail_at { at = i + 1 },
+                },
+                when { meta[0]:ge(event_cap) } {
+                    yield { 0 - (i + 1) },
+                },
+                set { tags[meta[0]], 10 },
+                set { a[meta[0]], 0 },
+                set { b[meta[0]], 0 },
+                set { nums[meta[0]], 0.0 },
+                set { meta[0], meta[0] + 1 },
+                yield { i + 4 },
+            },
+            block .fail_at { at [i32] } {
+                yield { 0 - at },
+            },
+        },
 
-local Decoder = {}
-Decoder.__index = Decoder
-
-function Json.new_decoder(opts)
-    opts = opts or {}
-    local event_cap = opts.event_cap or 256
-    local string_cap = opts.string_cap or opts.buf_cap or 256
-    local self = {
-        closed = false,
-        event_cap = event_cap,
-        string_cap = string_cap,
-        tags = ffi.new("int32_t[?]", event_cap),
-        a = ffi.new("int32_t[?]", event_cap),
-        b = ffi.new("int32_t[?]", event_cap),
-        nums = ffi.new("double[?]", event_cap),
-        strings = ffi.new("uint8_t[?]", string_cap),
-        meta = ffi.new("int32_t[2]"),
-    }
-    return setmetatable(self, Decoder)
-end
-
-function Decoder:close()
-    self.closed = true
-end
-
-function Decoder:ensure(n)
-    local need_events = n + 8
-    if need_events > self.event_cap then
-        self.event_cap = need_events
-        self.tags = ffi.new("int32_t[?]", self.event_cap)
-        self.a = ffi.new("int32_t[?]", self.event_cap)
-        self.b = ffi.new("int32_t[?]", self.event_cap)
-        self.nums = ffi.new("double[?]", self.event_cap)
-    end
-    local need_strings = n + 1
-    if need_strings > self.string_cap then
-        self.string_cap = need_strings
-        self.strings = ffi.new("uint8_t[?]", self.string_cap)
-    end
-end
-
-local function string_from_store(decoder, off, n)
-    return ffi.string(decoder.strings + off, n)
-end
-
-local function materialize_event(decoder, pos)
-    local tag = tonumber(decoder.tags[pos])
-    if tag == 1 then
-        local out = {}
-        local i = pos + 1
-        local n = 0
-        while tonumber(decoder.tags[i]) ~= 2 do
-            n = n + 1
-            out[n], i = materialize_event(decoder, i)
-        end
-        return setmetatable(out, array_mt), i + 1
-    end
-    if tag == 3 then
-        local out = {}
-        local i = pos + 1
-        while tonumber(decoder.tags[i]) ~= 4 do
-            assert(tonumber(decoder.tags[i]) == 5, "json value tape: expected object key")
-            local key = string_from_store(decoder, tonumber(decoder.a[i]), tonumber(decoder.b[i]))
-            local value
-            value, i = materialize_event(decoder, i + 1)
-            out[key] = value
-        end
-        return setmetatable(out, object_mt), i + 1
-    end
-    if tag == 6 then return string_from_store(decoder, tonumber(decoder.a[pos]), tonumber(decoder.b[pos])), pos + 1 end
-    if tag == 7 then return tonumber(decoder.nums[pos]), pos + 1 end
-    if tag == 8 then return true, pos + 1 end
-    if tag == 9 then return false, pos + 1 end
-    if tag == 10 then return Json.null, pos + 1 end
-    error("json value tape: unexpected tag " .. tostring(tag), 2)
-end
-
-function Decoder:decode_or_nil(src)
-    if self.closed then error("json decoder is closed", 2) end
-    self:ensure(#src)
-    local p = ffi.cast("uint8_t *", src)
-    local endpos = tonumber(value_events_compiled(
-        p, #src, self.tags, self.a, self.b, self.nums,
-        self.event_cap, self.strings, self.string_cap, self.meta
-    ))
-    if endpos < 0 then
-        return nil, { kind = "syntax", offset = -endpos }
-    end
-    local value, next_pos = materialize_event(self, 0)
-    assert(next_pos == tonumber(self.meta[0]), "json value tape: trailing events")
-    return value, nil
-end
-
-function Decoder:decode(src)
-    local value, err = self:decode_or_nil(src)
-    if err then error("json decode error at byte " .. tostring(err.offset), 2) end
-    return value
-end
-
-local default_decoder = Json.new_decoder()
-
-function Json.decode_or_nil(src)
-    return default_decoder:decode_or_nil(src)
-end
-
-function Json.decode(src)
-    return default_decoder:decode(src)
-end
-
-function Json.valid(src)
-    local value = Json.decode_or_nil(src)
-    return value ~= nil
-end
-
-function Json.array(values)
-    return setmetatable(values or {}, array_mt)
-end
-
-function Json.object(values)
-    return setmetatable(values or {}, object_mt)
-end
-
-local ESC = {
-    ['\\'] = '\\\\',
-    ['"'] = '\\"',
-    ['\b'] = '\\b',
-    ['\f'] = '\\f',
-    ['\n'] = '\\n',
-    ['\r'] = '\\r',
-    ['\t'] = '\\t',
+    export_fn .json_decode_value_events
+        { p [ptr [u8]], n [i32], tags [ptr [i32]], a [ptr [i32]], b [ptr [i32]], nums [ptr [f64]], event_cap [i32], strbuf [ptr [u8]], str_cap [i32], meta [ptr [i32]] }
+        [i32]
+        {
+            entry .start { } {
+                set { meta[0], 0 },
+                set { meta[1], 0 },
+                let .after_value [i32] { json_parse_value_events(p, n, 0, tags, a, b, nums, event_cap, strbuf, str_cap, meta) },
+                when { after_value:lt(0) } {
+                    yield { after_value },
+                },
+                emit .json_skip_ws { p, n, after_value } { ok = .finish },
+            },
+            block .finish { i [i32] } {
+                when { i:eq(n) } {
+                    yield { i },
+                },
+                yield { 0 - (i + 1) },
+            },
+        },
 }
+]], "json_library_showcase_dsl")()
 
-local function encode_string(s)
-    return '"' .. tostring(s):gsub('[%z\1-\31\\"]', function(ch)
-        return ESC[ch] or string.format("\\u%04X", ch:byte())
-    end) .. '"'
+local module_defs = json_module.body or {}
+local bundle = moon.bundle("json_library_showcase")
+for i = 1, #module_defs do
+    bundle:pack(module_defs[i])
 end
 
-local function is_array(t)
-    local n = 0
-    for k in pairs(t) do
-        if type(k) ~= "number" or k < 1 or k % 1 ~= 0 then return false, 0 end
-        if k > n then n = k end
-    end
-    for i = 1, n do if t[i] == nil then return false, 0 end end
-    return true, n
-end
+local c_artifact = bundle:emit_c_artifact({ module_name = "moonlift_json_showcase" })
+local c_blob = c_artifact.combined
+local c_header = c_artifact.header
 
-local function encode_value(v)
-    if v == Json.null or v == nil then return "null" end
-    local tv = type(v)
-    if tv == "boolean" then return v and "true" or "false" end
-    if tv == "number" then
-        if v ~= v or v == math.huge or v == -math.huge then error("json encode: non-finite number", 3) end
-        return string.format("%.17g", v)
-    end
-    if tv == "string" then return encode_string(v) end
-    if tv == "table" then
-        local mt = getmetatable(v)
-        local arr, n = is_array(v)
-        if mt == array_mt or (mt ~= object_mt and arr) then
-            local parts = {}
-            for i = 1, n do parts[i] = encode_value(v[i]) end
-            return "[" .. table.concat(parts, ",") .. "]"
+local compiled_module
+local value_fn
+local c_backend
+do
+    local ok, compiled, backend
+    ok, compiled = pcall(function()
+        return bundle:compile({ backend = "c", runner = "libtcc", cflags = "-O3" })
+    end)
+    if ok and compiled then
+        backend = "libtcc"
+        compiled_module = compiled
+        value_fn = compiled_module:get("json_decode_value_events")
+        c_backend = backend
+    else
+        ok, compiled = pcall(function()
+            return bundle:compile({ backend = "c", runner = "shared", cflags = "-std=c99 -fPIC -shared -O3" })
+        end)
+        if ok and compiled then
+            backend = "gcc-o3"
+            compiled_module = compiled
+            value_fn = compiled_module:get("json_decode_value_events")
+            c_backend = backend
+        else
+            ok, compiled = pcall(function()
+                return bundle:compile({ backend = "cranelift-jit" })
+            end)
+            if not ok or not compiled then error("failed to compile json parser artifact", 2) end
+            backend = "cranelift-jit"
+            compiled_module = compiled
+            value_fn = compiled_module:get("json_decode_value_events")
+            c_backend = backend
         end
-        local keys = {}
-        for k in pairs(v) do
-            if type(k) ~= "string" then error("json encode: object key is not a string", 3) end
-            keys[#keys + 1] = k
-        end
-        table.sort(keys)
-        local parts = {}
-        for i = 1, #keys do
-            local k = keys[i]
-            parts[i] = encode_string(k) .. ":" .. encode_value(v[k])
-        end
-        return "{" .. table.concat(parts, ",") .. "}"
     end
-    error("json encode: unsupported " .. tv, 2)
 end
 
-function Json.encode(v)
-    return encode_value(v)
-end
-
-Json.tags = {
-    ARRAY_BEGIN = 1,
-    ARRAY_END = 2,
-    OBJECT_BEGIN = 3,
-    OBJECT_END = 4,
-    KEY = 5,
-    STRING = 6,
-    NUMBER = 7,
-    TRUE = 8,
-    FALSE = 9,
-    NULL = 10,
+local Json = {
+    tags = {
+        ARRAY_OPEN = 1,
+        ARRAY_CLOSE = 2,
+        OBJECT_OPEN = 3,
+        OBJECT_CLOSE = 4,
+        OBJECT_KEY = 5,
+        STRING = 6,
+        NUMBER = 7,
+        TRUE = 8,
+        FALSE = 9,
+        NULL = 10,
+    },
+    c_blob = c_blob,
+    c_header = c_header,
+    c_backend = c_backend,
 }
 
 Json.c_api = {
     backend = c_backend,
     decode = "json_decode_value_events",
-    meta_event_count = 0,
-    meta_string_count = 1,
-    tags = Json.tags,
     typed_arrays = {
-        source = "Uint8Array",
         tags = "Int32Array",
-        a = "Int32Array",
-        b = "Int32Array",
         nums = "Float64Array",
         strings = "Uint8Array",
-        meta = "Int32Array",
-    },
-    event_layout = {
-        "tags[i] is the event tag",
-        "a[i]/b[i] are string offset/length for KEY and STRING",
-        "nums[i] is the numeric value for NUMBER",
-        "meta[0] is event count",
-        "meta[1] is decoded string byte count",
     },
 }
-
-Json.c_header = [[
-#ifndef MOONLIFT_JSON_SHOWCASE_H
-#define MOONLIFT_JSON_SHOWCASE_H
-
-#include <stdint.h>
-
-enum {
-    MOONLIFT_JSON_ARRAY_BEGIN = 1,
-    MOONLIFT_JSON_ARRAY_END = 2,
-    MOONLIFT_JSON_OBJECT_BEGIN = 3,
-    MOONLIFT_JSON_OBJECT_END = 4,
-    MOONLIFT_JSON_KEY = 5,
-    MOONLIFT_JSON_STRING = 6,
-    MOONLIFT_JSON_NUMBER = 7,
-    MOONLIFT_JSON_TRUE = 8,
-    MOONLIFT_JSON_FALSE = 9,
-    MOONLIFT_JSON_NULL = 10
-};
-
-int32_t json_decode_value_events(
-    uint8_t *p,
-    int32_t n,
-    int32_t *tags,
-    int32_t *a,
-    int32_t *b,
-    double *nums,
-    int32_t event_cap,
-    uint8_t *strbuf,
-    int32_t str_cap,
-    int32_t *meta
-);
-
-#endif
-]]
 
 Json.emcc_args = {
     "-O3",
-    "-sMODULARIZE=1",
-    "-sEXPORTED_FUNCTIONS=['_json_decode_value_events']",
-    "-sEXPORTED_RUNTIME_METHODS=['ccall','cwrap']",
+    "-s", "EXPORTED_FUNCTIONS=['_json_decode_value_events']",
 }
 
-function Json.write_c(path)
-    local f = assert(io.open(path, "wb"))
-    f:write(c_blob)
-    f:close()
-    return path, #c_blob
+Json.object_mt = {}
+Json.array_mt = {}
+Json.null = {}
+Json.tags.NULL = 10
+
+local NULL_SENTINEL = Json.null
+
+local function new_decoder_state()
+    return {
+        event_cap = 2048,
+        str_cap = 1024,
+        tags = ffi.new("int32_t[2048]"),
+        a = ffi.new("int32_t[2048]"),
+        b = ffi.new("int32_t[2048]"),
+        nums = ffi.new("double[2048]"),
+        strbuf = ffi.new("uint8_t[1024]"),
+        meta = ffi.new("int32_t[2]"),
+    }
 end
 
-function Json.write_header(path)
-    local f = assert(io.open(path, "wb"))
-    f:write(Json.c_header)
-    f:close()
-    return path, #Json.c_header
-end
+local function ensure_state(state, n)
+    local need_events = n * 6 + 256
+    if state.event_cap < need_events then
+        local cap = state.event_cap
+        while cap < need_events do cap = cap * 2 end
+        state.event_cap = cap
+        state.tags = ffi.new("int32_t[?]", cap)
+        state.a = ffi.new("int32_t[?]", cap)
+        state.b = ffi.new("int32_t[?]", cap)
+        state.nums = ffi.new("double[?]", cap)
+    end
 
-function Json.close()
-    default_decoder:close()
-    if artifact ~= nil then
-        artifact:free()
-        artifact = nil
+    local need_str = n + 128
+    if state.str_cap < need_str then
+        local cap = state.str_cap
+        while cap < need_str do cap = cap * 2 end
+        state.str_cap = cap
+        state.strbuf = ffi.new("uint8_t[?]", cap)
     end
 end
 
-Json.value_fn = value_events_compiled
-Json.artifact = artifact
-Json.c_blob = c_blob
-Json.c_backend = c_backend
-Json.c_backend_fallback_reason = c_backend_fallback_reason
-
-local decoded = Json.decode([[{"a":[1,true,null,"x"],"empty_object":{},"empty_array":[]}]])
-assert(getmetatable(decoded) == object_mt)
-assert(getmetatable(decoded.a) == array_mt)
-assert(decoded.a[3] == Json.null)
-assert(getmetatable(decoded.empty_object) == object_mt)
-assert(getmetatable(decoded.empty_array) == array_mt)
-assert(Json.encode(decoded) == [[{"a":[1,true,null,"x"],"empty_array":[],"empty_object":{}}]])
-
-local s = Json.decode('"line1\\nline2"')
-assert(s == "line1\nline2")
-
-local face = Json.decode('"\\uD83D\\uDE00"')
-assert(#face == 4 and face:byte(1) == 0xF0)
-
-for _, bad in ipairs({ "", "tru", "[1,]", "{", "+1", "01", "1.", "1e", '"unclosed' }) do
-    local value, err = Json.decode_or_nil(bad)
-    assert(value == nil and err and err.offset >= 1, "expected invalid JSON: " .. bad)
+local function syntax_error(offset)
+    return nil, { kind = "syntax", offset = offset }
 end
+
+local function decode_events_to_value(state, event_count)
+    local stack = {}
+    local root
+
+    local function append_value(v)
+        local frame = stack[#stack]
+        if not frame then
+            root = v
+            return true
+        end
+        if frame.kind == "array" then
+            frame.value[#frame.value + 1] = v
+            return true
+        end
+        local key = frame.pending_key
+        frame.pending_key = nil
+        if key == nil then return false, { kind = "syntax", offset = 1 } end
+        frame.value[key] = v
+        return true
+    end
+
+    local function close_frame(kind)
+        local frame = table.remove(stack)
+        if not frame then return false, { kind = "syntax", offset = 1 } end
+        if frame.kind ~= kind then return false, { kind = "syntax", offset = 1 } end
+        local v = frame.value
+        local parent = stack[#stack]
+        if not parent then
+            root = v
+            return true
+        end
+        if parent.kind == "array" then
+            parent.value[#parent.value + 1] = v
+            return true
+        end
+        local key = frame.key
+        if key == nil then return false, { kind = "syntax", offset = 1 } end
+        parent.value[key] = v
+        return true
+    end
+
+    local function push_object()
+        local parent = stack[#stack]
+        local key
+        if parent and parent.kind == "object" and parent.pending_key ~= nil then
+            key = parent.pending_key
+            parent.pending_key = nil
+        end
+        stack[#stack + 1] = {
+            kind = "object",
+            value = setmetatable({}, Json.object_mt),
+            pending_key = nil,
+            key = key,
+        }
+    end
+
+    local function push_array()
+        local parent = stack[#stack]
+        local key
+        if parent and parent.kind == "object" and parent.pending_key ~= nil then
+            key = parent.pending_key
+            parent.pending_key = nil
+        end
+        stack[#stack + 1] = {
+            kind = "array",
+            value = setmetatable({}, Json.array_mt),
+            key = key,
+        }
+    end
+
+    for i = 0, event_count - 1 do
+        local tag = tonumber(state.tags[i])
+        if tag == Json.tags.ARRAY_OPEN then
+            push_array()
+        elseif tag == Json.tags.ARRAY_CLOSE then
+            local ok, err = close_frame("array")
+            if not ok then return nil, err end
+        elseif tag == Json.tags.OBJECT_OPEN then
+            push_object()
+        elseif tag == Json.tags.OBJECT_CLOSE then
+            local ok, err = close_frame("object")
+            if not ok then return nil, err end
+        elseif tag == Json.tags.OBJECT_KEY then
+            local parent = stack[#stack]
+            if not parent or parent.kind ~= "object" then return syntax_error(1) end
+            parent.pending_key = ffi.string(state.strbuf + tonumber(state.a[i]), tonumber(state.b[i]))
+        elseif tag == Json.tags.STRING then
+            local ok = append_value(ffi.string(state.strbuf + tonumber(state.a[i]), tonumber(state.b[i])))
+            if not ok then return syntax_error(1) end
+        elseif tag == Json.tags.NUMBER then
+            local ok = append_value(tonumber(state.nums[i]))
+            if not ok then return syntax_error(1) end
+        elseif tag == Json.tags.TRUE then
+            local ok = append_value(true)
+            if not ok then return syntax_error(1) end
+        elseif tag == Json.tags.FALSE then
+            local ok = append_value(false)
+            if not ok then return syntax_error(1) end
+        elseif tag == Json.tags.NULL then
+            local ok = append_value(NULL_SENTINEL)
+            if not ok then return syntax_error(1) end
+        else
+            return syntax_error(1)
+        end
+    end
+
+    if #stack ~= 0 then return syntax_error(1) end
+    return root
+end
+
+local function decode_with_state(state, src)
+    src = tostring(src)
+    local n = #src
+    if not value_fn then error("json parser was closed", 2) end
+    ensure_state(state, n)
+    local parsed = value_fn(
+        ffi.cast("uint8_t *", src),
+        n,
+        state.tags, state.a, state.b, state.nums,
+        state.event_cap,
+        state.strbuf, state.str_cap,
+        state.meta
+    )
+    if parsed < 0 then return syntax_error(-parsed) end
+    if parsed ~= n then return syntax_error(parsed) end
+    local count = tonumber(state.meta[0] or 0)
+    if count <= 0 then return syntax_error(parsed) end
+    return decode_events_to_value(state, count)
+end
+
+local shared_state = new_decoder_state()
+
+local function decode_or_nil(src)
+    return decode_with_state(shared_state, src)
+end
+
+local function decode(src)
+    local value, err = decode_or_nil(src)
+    if value ~= nil then return value end
+    error(("json decode failed at offset %d"):format(err and err.offset or 0), 2)
+end
+
+local function valid(src)
+    return decode_or_nil(src) ~= nil
+end
+
+local function json_string_escape(s)
+    local escapes = {
+        ["\\"] = "\\\\",
+        ["\""] = "\\\"",
+        ["\b"] = "\\b",
+        ["\f"] = "\\f",
+        ["\n"] = "\\n",
+        ["\r"] = "\\r",
+        ["\t"] = "\\t",
+    }
+    return "\"" .. s:gsub("[\\\"%c]", function(c)
+            if escapes[c] then return escapes[c] end
+            local byte = c:byte()
+            return string.format("\\u%04x", byte)
+        end) .. "\""
+end
+
+local function encode_value(v)
+    local tv = type(v)
+    if v == NULL_SENTINEL then return "null" end
+    if tv == "string" then return json_string_escape(v) end
+    if tv == "number" then return tostring(v) end
+    if tv == "boolean" then return v and "true" or "false" end
+    if tv == "nil" then return "null" end
+    if tv == "table" then
+        local mt = getmetatable(v)
+        if mt == Json.array_mt then
+            local out = {}
+            for i = 1, #v do out[i] = encode_value(v[i]) end
+            return "[" .. table.concat(out, ",") .. "]"
+        end
+        if mt == Json.object_mt then
+            local keys = {}
+            for k in pairs(v) do
+                keys[#keys + 1] = tostring(k)
+            end
+            table.sort(keys)
+            local out = {}
+            for i = 1, #keys do
+                local k = keys[i]
+                out[#out + 1] = json_string_escape(k) .. ":" .. encode_value(v[k])
+            end
+            return "{" .. table.concat(out, ",") .. "}"
+        end
+    end
+    error("cannot encode value for JSON", 2)
+end
+
+local function encode(v)
+    return encode_value(v)
+end
+
+local function write_file(path, text)
+    local f = assert(io.open(path, "wb"))
+    f:write(text or "")
+    f:close()
+    return path, #(text or "")
+end
+
+local function write_c(path)
+    return write_file(path, Json.c_blob)
+end
+
+local function write_header(path)
+    return write_file(path, Json.c_header)
+end
+
+local function new_decoder()
+    local state = new_decoder_state()
+    return {
+        decode = function(self, src)
+            local value, err = decode_with_state(state, src)
+            if value ~= nil then return value end
+            error(("json decode failed at offset %d"):format(err and err.offset or 0), 2)
+        end,
+        decode_or_nil = function(self, src)
+            return decode_with_state(state, src)
+        end,
+        close = function() end,
+    }
+end
+
+local function close()
+    if compiled_module and compiled_module.free then compiled_module:free() end
+    compiled_module = nil
+    value_fn = nil
+end
+
+Json.value_fn = value_fn
+Json.decode = decode
+Json.decode_or_nil = decode_or_nil
+Json.valid = valid
+Json.encode = encode
+Json.new_decoder = new_decoder
+Json.write_c = write_c
+Json.write_header = write_header
+Json.close = close
 
 return Json

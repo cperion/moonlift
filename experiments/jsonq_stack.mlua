@@ -10,8 +10,9 @@
 --   * semantic worlds
 --   * machine/cache wiring
 --
--- It does not contain region bodies.  Bodies live in machine files whose
--- names match the machines declared here.  This file is the architecture.
+-- It intentionally contains no region bodies, only architecture contracts.
+-- Bodies live in machine files referenced by phase `entry` symbols.
+-- This file is the architecture.
 
 local moon = require "moonlift"
 local ll = require "llpvm"
@@ -23,7 +24,6 @@ local M = {
     C = {},
     L = {},
     W = {},
-    Machine = {},
     Phase = {},
     Build = {},
 }
@@ -160,6 +160,24 @@ C.string_policy = {
     raw_escape_preserving = 3,
 }
 
+C.output_policy = {
+    json_stream = 1,           -- default: each output value is serialized as a JSON value stream
+    json_array = 2,            -- materialize a single JSON array result
+    json_lines = 3,            -- one JSON value per line
+    canonical_json = 4,        -- deterministic object/key/number/string serialization policy
+    pretty_json = 5,           -- human-facing formatting, never part of comparison semantics
+    row_binary = 6,            -- typed row buffer owned by ResultSink
+    row_csv = 7,               -- CSV row surface for host tools
+}
+
+C.result_format = {
+    json = 1,
+    jsonl = 2,
+    binary_rows = 3,
+    csv = 4,
+    count = 5,
+}
+
 C.index_mode = {
     exists = 1,
     equality = 2,
@@ -204,6 +222,35 @@ C.program_kind = {
 -- --------------------------------------------------------------------------
 -- Ref = backend-resolved durable identity.  Id = dense or external value that
 -- does not itself grant backend memory access.
+
+-- Mirrors of the LLPVM runtime handle surface.  These are not JsonQ domain
+-- handles; they name the standard borrowed-bytecode runtime beneath JsonQ.
+-- The domain convenience API below is explicit about being a wrapper over this
+-- runtime surface.
+T.LlpvmVmRef = handle LlpvmVmRef : u64 invalid 0
+    domain LlpvmRuntimeRegistry
+    target LlpvmVm
+end
+
+T.LlpvmStreamRef = handle LlpvmStreamRef : u64 invalid 0
+    domain LlpvmVm
+    target LlpvmStream
+end
+
+T.LlpvmPhaseRef = handle LlpvmPhaseRef : u64 invalid 0
+    domain LlpvmVm
+    target LlpvmPhase
+end
+
+T.LlpvmArgsRef = handle LlpvmArgsRef : u64 invalid 0
+    domain LlpvmVm
+    target LlpvmArgs
+end
+
+T.LlpvmBufferRef = handle LlpvmBufferRef : u64 invalid 0
+    domain LlpvmVm
+    target LlpvmBuffer
+end
 
 T.JsonqVmRef = handle JsonqVmRef : u64 invalid 0
     domain JsonqRuntimeRegistry
@@ -289,6 +336,69 @@ T.SlotHeader = struct SlotHeader
     gen: u32,
     live: bool,
     next_free: u32,
+end
+
+-- Standard LLPVM runtime boundary products.  They are intentionally small
+-- mirrors of the stdlib runtime surface so this stack can be driven either by
+-- generic llpvm_* calls or by JsonQ convenience calls.
+T.LlpvmConfig = struct LlpvmConfig
+    cache_bytes: index,
+    flags: u64,
+end
+
+T.LlpvmVm = struct LlpvmVm
+    registry_epoch: @{T.Epoch},
+    cache_bytes: index,
+    loaded_program_count: index,
+    live_stream_count: index,
+    live_buffer_count: index,
+end
+
+T.LlpvmVmSlot = struct LlpvmVmSlot
+    slot: @{T.SlotHeader},
+    vm: LlpvmVm,
+end
+
+T.LlpvmRuntimeRegistry = struct LlpvmRuntimeRegistry
+    slots: ptr(LlpvmVmSlot),
+    slot_count: index,
+    slot_cap: index,
+    free_head: u32,
+    registry_epoch: @{T.Epoch},
+end
+
+T.LlpvmStream = struct LlpvmStream
+    world_digest: @{T.Digest64},
+    image_epoch: @{T.Epoch},
+    root_op_count: index,
+end
+
+T.LlpvmPhase = struct LlpvmPhase
+    phase_digest: @{T.Digest64},
+    input_world_digest: @{T.Digest64},
+    output_world_digest: @{T.Digest64},
+end
+
+T.LlpvmArgs = struct LlpvmArgs
+    digest: @{T.Digest64},
+    reserved: u64,
+end
+
+T.LlpvmBuffer = struct LlpvmBuffer
+    data: ptr(u8),
+    len: index,
+    cap: index,
+    owner_epoch: @{T.Epoch},
+end
+
+T.LlpvmVmReport = struct LlpvmVmReport
+    abis: index,
+    worlds: index,
+    streams: index,
+    phases: index,
+    buffers: index,
+    cache_entries: index,
+    bytes_owned: index,
 end
 
 T.PolicyBundle = struct PolicyBundle
@@ -1154,6 +1264,44 @@ R.drain_result = region drain_result(
 -- C / FFI ABI seals
 -- --------------------------------------------------------------------------
 
+-- First-class LLPVM runtime surface.  JsonQ can be driven directly by these
+-- standard calls: load the LLPV program image, apply declared phases, drain
+-- streams, and inspect reports.  Domain-specific jsonq_* calls below are
+-- convenience seals over this lower runtime, not a replacement for it.
+F.llpvm_open = extern llpvm_open(
+    config: readonly ptr(LlpvmConfig),
+    out_vm: ptr(LlpvmVmRef)
+): i32 as "llpvm_open" end
+
+F.llpvm_close = extern llpvm_close(
+    vm: owned LlpvmVmRef
+): i32 as "llpvm_close" end
+
+F.llpvm_load_program = extern llpvm_load_program(
+    vm: LlpvmVmRef,
+    bytes: readonly view(u8),
+    out_root: ptr(LlpvmStreamRef)
+): i32 as "llpvm_load_program" end
+
+F.llpvm_apply_phase = extern llpvm_apply_phase(
+    vm: LlpvmVmRef,
+    phase: LlpvmPhaseRef,
+    input: LlpvmStreamRef,
+    args: LlpvmArgsRef,
+    out_stream: ptr(LlpvmStreamRef)
+): i32 as "llpvm_apply_phase" end
+
+F.llpvm_drain = extern llpvm_drain(
+    vm: LlpvmVmRef,
+    stream: LlpvmStreamRef,
+    out_buffer: ptr(LlpvmBufferRef)
+): i32 as "llpvm_drain" end
+
+F.llpvm_report = extern llpvm_report(
+    vm: LlpvmVmRef,
+    out_report: ptr(LlpvmVmReport)
+): i32 as "llpvm_report" end
+
 F.jsonq_open = extern jsonq_open(
     config: readonly ptr(JsonqConfig),
     out_vm: ptr(JsonqVmRef)
@@ -1180,6 +1328,8 @@ F.jsonq_load_collection = extern jsonq_load_collection(
 F.jsonq_snapshot_catalog = extern jsonq_snapshot_catalog(
     vm: JsonqVmRef,
     collection: JsonCollectionRef,
+    required_collection_epoch: @{T.Epoch},
+    required_policy_digest: @{T.Digest64},
     out_snapshot: ptr(CatalogSnapshotRef)
 ): i32 as "jsonq_snapshot_catalog" end
 
@@ -1202,6 +1352,7 @@ F.jsonq_compile = extern jsonq_compile(
 F.jsonq_plan = extern jsonq_plan(
     vm: JsonqVmRef,
     query_image: QueryImageRef,
+    snapshot: CatalogSnapshotRef,
     options: readonly ptr(JsonqPlanOptions),
     out_program: ptr(QueryProgramRef)
 ): i32 as "jsonq_plan" end
@@ -1398,6 +1549,8 @@ local SemParam = QuerySem "Param"
 local SemParamList = QuerySem "ParamList"
 local SemOrderKey = QuerySem "OrderKey"
 local SemOrderKeyList = QuerySem "OrderKeyList"
+local SemTarget = QuerySem "Target"
+local SemPlanningScope = QuerySem "PlanningScope"
 
 SemExprList.Nil = {}
 SemExprList.Cons = { head = SemExpr, tail = SemExprList }
@@ -1483,8 +1636,35 @@ SemCatalog.Snapshot = {
     collection_epoch = T.Epoch,
     catalog_epoch = T.Epoch,
     policy_digest = T.Digest64,
+    doc_count = moon.u64,
     digest = T.Digest64,
     indexes = SemIndexFactList,
+}
+
+SemTarget.Profile = {
+    pointer_bits = moon.u32,
+    endian = moon.u32,
+    simd_lanes = moon.u32,
+    cache_line_bytes = moon.u32,
+    allow_unaligned_loads = moon.bool,
+    wasm_safe = moon.bool,
+    digest = T.Digest64,
+}
+
+SemTarget.Default = {
+    digest = T.Digest64,
+}
+
+SemPlanningScope.Bind = {
+    catalog = SemCatalog,
+    target = SemTarget,
+    output_policy = T.OutputPolicy,
+    result_shape = T.ResultShape,
+    row_profile = T.RowProfileId,
+    planner_epoch = T.Epoch,
+    policy_digest = T.Digest64,
+    catalog_digest = T.Digest64,
+    target_digest = T.Digest64,
 }
 
 SemRoot.Checked = {
@@ -1492,8 +1672,20 @@ SemRoot.Checked = {
     facts = SemFactList,
     params = SemParamList,
     policy_digest = T.Digest64,
+    checked_digest = T.Digest64,
     result_shape = T.ResultShape,
     row_profile = T.RowProfileId,
+}
+
+-- PlanningSeed lives in the checked_query world.  It is the explicit bridge
+-- from the reusable checked query to the catalog/target-bound planning query.
+-- No planner input is carried as a hidden phase argument.
+SemRoot.PlanningSeed = {
+    checked = SemExpr,
+    facts = SemFactList,
+    params = SemParamList,
+    checked_digest = T.Digest64,
+    scope = SemPlanningScope,
 }
 
 SemRoot.Planning = {
@@ -1501,8 +1693,13 @@ SemRoot.Planning = {
     facts = SemFactList,
     params = SemParamList,
     catalog = SemCatalog,
+    target = SemTarget,
     policy_digest = T.Digest64,
+    checked_digest = T.Digest64,
+    catalog_digest = T.Digest64,
     target_digest = T.Digest64,
+    planning_digest = T.Digest64,
+    output_policy = T.OutputPolicy,
     result_shape = T.ResultShape,
     row_profile = T.RowProfileId,
 }
@@ -1603,8 +1800,10 @@ PlanRoot.Portable = {
     frame_count = moon.u32,
     result_shape = T.ResultShape,
     row_profile = T.RowProfileId,
+    output_policy = T.OutputPolicy,
     policy_digest = T.Digest64,
     target_digest = T.Digest64,
+    planning_digest = T.Digest64,
 }
 
 PlanRoot.CatalogBound = {
@@ -1615,8 +1814,11 @@ PlanRoot.CatalogBound = {
     frame_count = moon.u32,
     result_shape = T.ResultShape,
     row_profile = T.RowProfileId,
+    output_policy = T.OutputPolicy,
     policy_digest = T.Digest64,
     target_digest = T.Digest64,
+    catalog_digest = T.Digest64,
+    planning_digest = T.Digest64,
     collection = T.JsonCollectionRef,
 }
 
@@ -1717,8 +1919,11 @@ RunRoot.Program = {
     temp_count = moon.u32,
     result_shape = T.ResultShape,
     row_profile = T.RowProfileId,
+    output_policy = T.OutputPolicy,
     policy_digest = T.Digest64,
     target_digest = T.Digest64,
+    catalog_digest = T.Digest64,
+    planning_digest = T.Digest64,
 }
 
 RunRoot.Invalid = { diagnostic_count = moon.u32 }
@@ -1755,6 +1960,14 @@ CatalogIndex.Path = {
     selectivity_score = T.Score,
 }
 
+CatalogRoot.Request = {
+    collection = T.JsonCollectionRef,
+    required_collection_epoch = T.Epoch,
+    required_policy_digest = T.Digest64,
+    include_indexes = moon.bool,
+    request_epoch = T.Epoch,
+}
+
 CatalogRoot.Snapshot = {
     collection = CatalogCollection,
     indexes = CatalogIndexList,
@@ -1775,78 +1988,60 @@ M.W.checked_query      = QuerySem:world "checked_query"
 M.W.planning_query     = QuerySem:world "planning_query"
 M.W.planned_query      = QueryPlan:world "planned_query"
 M.W.executable_query   = QueryRun:world "executable_query"
+M.W.catalog_request    = JsonqCatalog:world "catalog_request"
 M.W.catalog_snapshot   = JsonqCatalog:world "catalog_snapshot"
 
 -- --------------------------------------------------------------------------
--- Machines and cache boundaries
+-- Cache boundaries
 -- --------------------------------------------------------------------------
 -- Native entry symbols are named here; implementations belong in matching
 -- machine files.  There are no side phase args: catalog/profile facts are
 -- represented inside planning_query.
 
-M.Machine.parse_query = vm.machine "parse_query" {
-    from = M.W.authored_query,
-    to = M.W.parsed_query,
-    entry = "jsonq_parse_query_machine",
-}
-
 M.Phase.parse_query = vm.phase "parse_query" {
     from = M.W.authored_query,
     to = M.W.parsed_query,
-    machine = M.Machine.parse_query,
+    entry = "jsonq_parse_query_machine",
     cache = "full",
-}
-
-M.Machine.check_query = vm.machine "check_query" {
-    from = M.W.parsed_query,
-    to = M.W.checked_query,
-    entry = "jsonq_check_query_machine",
 }
 
 M.Phase.check_query = vm.phase "check_query" {
     from = M.W.parsed_query,
     to = M.W.checked_query,
-    machine = M.Machine.check_query,
+    entry = "jsonq_check_query_machine",
     cache = "full",
 }
 
-M.Machine.plan_query = vm.machine "plan_query" {
-    from = M.W.planning_query,
-    to = M.W.planned_query,
-    entry = "jsonq_plan_query_machine",
+-- checked_query -> planning_query is a real semantic edge.  The consumed
+-- checked_query stream must include a SemRoot.PlanningSeed produced by the
+-- authoring helper below; that seed carries catalog, target, output, row,
+-- and epoch facts explicitly.
+M.Phase.bind_planning_query = vm.phase "bind_planning_query" {
+    from = M.W.checked_query,
+    to = M.W.planning_query,
+    entry = "jsonq_bind_planning_query_machine",
+    cache = "full",
 }
 
 M.Phase.plan_query = vm.phase "plan_query" {
     from = M.W.planning_query,
     to = M.W.planned_query,
-    machine = M.Machine.plan_query,
+    entry = "jsonq_plan_query_machine",
     cache = "full",
-}
-
-M.Machine.lower_query = vm.machine "lower_query" {
-    from = M.W.planned_query,
-    to = M.W.executable_query,
-    entry = "jsonq_lower_query_machine",
 }
 
 M.Phase.lower_query = vm.phase "lower_query" {
     from = M.W.planned_query,
     to = M.W.executable_query,
-    machine = M.Machine.lower_query,
+    entry = "jsonq_lower_query_machine",
     cache = "full",
 }
 
-M.Machine.snapshot_catalog = vm.machine "snapshot_catalog" {
-    from = M.W.catalog_snapshot,
+M.Phase.snapshot_catalog = vm.phase "snapshot_catalog" {
+    from = M.W.catalog_request,
     to = M.W.catalog_snapshot,
     entry = "jsonq_snapshot_catalog_machine",
-}
-
-M.Phase.snapshot_catalog = vm.phase "snapshot_catalog" {
-    from = M.W.catalog_snapshot,
-    to = M.W.catalog_snapshot,
-    machine = M.Machine.snapshot_catalog,
-    cache = "record",
+    cache = "full",
 }
 
 -- --------------------------------------------------------------------------
@@ -1868,11 +2063,107 @@ function M.Build.source_query(bytes, source_name, policy)
         duplicate_policy = policy and policy.duplicate_policy or C.duplicate_policy.preserve_all,
         number_policy = policy and policy.number_policy or C.number_policy.exact_decimal_compare,
         string_policy = policy and policy.string_policy or C.string_policy.utf8_exact,
-        output_policy = policy and policy.output_policy or 0,
+        output_policy = policy and policy.output_policy or C.output_policy.json_stream,
         max_depth = policy and policy.max_depth or 512,
         result_shape = policy and policy.result_shape or C.result_shape.json_values,
     }
     return W:once(W.Root.Query { source = source, options = options })
+end
+
+function M.Build.catalog_request(collection_ref, required_collection_epoch, required_policy_digest, include_indexes, request_epoch)
+    local W = M.W.catalog_request
+    return W:once(W.Root.Request {
+        collection = collection_ref,
+        required_collection_epoch = required_collection_epoch or 0,
+        required_policy_digest = required_policy_digest or 0,
+        include_indexes = include_indexes ~= false,
+        request_epoch = request_epoch or required_collection_epoch or 0,
+    })
+end
+
+local function build_sem_index_list(W, indexes)
+    local list = W.IndexFactList.Nil {}
+    if indexes then
+        for i = #indexes, 1, -1 do
+            local x = indexes[i]
+            local idx = W.IndexFact.PathIndex {
+                index = x.index or x.ref,
+                path = x.path,
+                mode = x.mode,
+                collection_epoch = x.collection_epoch,
+                index_epoch = x.index_epoch,
+                policy_digest = x.policy_digest,
+                estimated_rows = x.estimated_rows or 0,
+                selectivity_score = x.selectivity_score or 0,
+            }
+            list = W.IndexFactList.Cons { head = idx, tail = list }
+        end
+    end
+    return list
+end
+
+function M.Build.sem_catalog_snapshot(collection_ref, collection_epoch, catalog_epoch, policy_digest, doc_count, indexes, digest)
+    local W = M.W.checked_query
+    return W.Catalog.Snapshot {
+        collection = collection_ref,
+        collection_epoch = collection_epoch or 0,
+        catalog_epoch = catalog_epoch or collection_epoch or 0,
+        policy_digest = policy_digest or 0,
+        doc_count = doc_count or 0,
+        digest = digest or 0,
+        indexes = build_sem_index_list(W, indexes),
+    }
+end
+
+function M.Build.sem_target_profile(target)
+    local W = M.W.checked_query
+    if not target then
+        return W.Target.Default { digest = 0 }
+    end
+    return W.Target.Profile {
+        pointer_bits = target.pointer_bits or 64,
+        endian = target.endian or 1,
+        simd_lanes = target.simd_lanes or 1,
+        cache_line_bytes = target.cache_line_bytes or 64,
+        allow_unaligned_loads = target.allow_unaligned_loads ~= false,
+        wasm_safe = target.wasm_safe == true,
+        digest = target.digest or 0,
+    }
+end
+
+function M.Build.planning_query_seed(checked, catalog, target, options)
+    -- checked.expr, checked.facts, and checked.params are produced values in
+    -- M.W.checked_query.  catalog and target are copied into the same world so
+    -- bind_planning_query consumes one stream and has no semantic side input.
+    local W = M.W.checked_query
+    local sem_catalog = catalog and catalog.kind and catalog or M.Build.sem_catalog_snapshot(
+        catalog and catalog.collection or 0,
+        catalog and catalog.collection_epoch or 0,
+        catalog and catalog.catalog_epoch or 0,
+        catalog and catalog.policy_digest or checked.policy_digest or 0,
+        catalog and catalog.doc_count or 0,
+        catalog and catalog.indexes or nil,
+        catalog and catalog.digest or 0
+    )
+    local sem_target = target and target.kind and target or M.Build.sem_target_profile(target)
+    local scope = W.PlanningScope.Bind {
+        catalog = sem_catalog,
+        target = sem_target,
+        output_policy = options and options.output_policy or C.output_policy.json_stream,
+        result_shape = options and options.result_shape or checked.result_shape or C.result_shape.json_values,
+        row_profile = options and options.row_profile or checked.row_profile or 0,
+        planner_epoch = options and options.planner_epoch or 0,
+        policy_digest = options and options.policy_digest or checked.policy_digest or 0,
+        catalog_digest = catalog and catalog.digest or 0,
+        target_digest = target and target.digest or 0,
+    }
+    return W:once(W.Root.PlanningSeed {
+        checked = checked.expr,
+        facts = checked.facts,
+        params = checked.params,
+        checked_digest = checked.checked_digest or 0,
+        scope = scope,
+    })
 end
 
 function M.Build.catalog_snapshot(collection_ref, collection_epoch, policy_digest, doc_count, indexes, catalog_epoch, digest)
@@ -1906,6 +2197,13 @@ function M.Build.catalog_snapshot(collection_ref, collection_epoch, policy_diges
         catalog_epoch = catalog_epoch or collection_epoch,
         digest = digest or 0,
     })
+end
+
+function M.Build.checked_with_planning_seed(checked_stream, planning_seed_stream)
+    -- The bind_planning_query phase still consumes one checked_query stream.
+    -- This helper only constructs that stream explicitly from already-authored
+    -- checked-query products plus a PlanningSeed product in the same world.
+    return vm.concat { checked_stream, planning_seed_stream }
 end
 
 function M.Build.program_bytes(root_streams)

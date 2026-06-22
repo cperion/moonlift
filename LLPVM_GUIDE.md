@@ -83,16 +83,10 @@ local sum = expr.Node.Add { left = one, right = two }
 
 local input = expr:seq { one, two, sum }
 
-local lower_machine = vm.machine "lower_expr" {
-    from = expr,
-    to = back,
-    entry = "ll_lower_expr",
-}
-
 local lower = vm.phase "lower_expr" {
     from = expr,
     to = back,
-    machine = lower_machine,
+    entry = "ll_lower_expr",
     cache = "full",
 }
 
@@ -158,7 +152,13 @@ The VM methods are:
 vm.language "Name"
 vm.concat { stream_a, stream_b }
 vm.machine "name" { from = in_world, to = out_world, entry = "symbol" }
-vm.phase "name" { from = in_world, to = out_world, machine = machine, cache = "full" }
+vm.phase "name" {
+    from = in_world,
+    to = out_world,
+    machine = machine, -- optional
+    entry = "symbol",  -- optional when machine is not supplied
+    cache = "full",
+}
 vm.program { root_stream, other_root }
 vm.retain(value)
 vm.rebuild(function(vm) ... end)
@@ -359,7 +359,28 @@ machine.output
 
 A phase is a named memoization boundary over a machine.
 
+Most phases can skip explicit machine declarations; a phase-local machine is
+created from the phase world signatures.
+
 ```lua
+local lower = vm.phase "lower_expr" {
+    from = raw,
+    to = back,
+    entry = "ll_lower_expr",
+    cache = "full",
+}
+```
+
+Advanced users can bind an explicit machine when they want to share the machine
+object across places:
+
+```lua
+local machine = vm.machine "lower_expr" {
+    from = raw,
+    to = back,
+    entry = "ll_lower_expr",
+}
+
 local lower = vm.phase "lower_expr" {
     from = raw,
     to = back,

@@ -368,122 +368,67 @@ M.renderable_ui = M.Renderable:world "renderable_ui"
 M.reported_frame = M.Reported:world "reported_frame"
 M.handled_frame = M.Handled:world "handled_frame"
 
--- Machines.
-M.m_expand_ui = M.vm.machine "mlui_expand_ui" {
-    from = M.authored_ui,
-    to = M.expanded_ui,
-    entry = "ui_expand",
-}
-
-M.m_validate_ui = M.vm.machine "mlui_validate_ui" {
-    from = M.expanded_ui,
-    to = M.valid_ui,
-    entry = "ui_validate",
-}
-
-M.m_import_ui = M.vm.machine "mlui_import_ui" {
-    from = M.valid_ui,
-    to = M.imported_ui,
-    entry = "ui_import",
-}
-
-M.m_style_ui = M.vm.machine "mlui_style_ui" {
-    from = M.imported_ui,
-    to = M.styled_ui,
-    entry = "ui_style",
-}
-
-M.m_measure_ui = M.vm.machine "mlui_measure_ui" {
-    from = M.styled_ui,
-    to = M.measured_ui,
-    entry = "ui_measure",
-}
-
-M.m_layout_ui = M.vm.machine "mlui_layout_ui" {
-    from = M.measured_ui,
-    to = M.laid_out_ui,
-    entry = "ui_layout",
-}
-
-M.m_render_ui = M.vm.machine "mlui_render_ui" {
-    from = M.laid_out_ui,
-    to = M.renderable_ui,
-    entry = "ui_render",
-}
-
-M.m_report_frame = M.vm.machine "mlui_report_frame" {
-    from = M.renderable_ui,
-    to = M.reported_frame,
-    entry = "ui_report_frame",
-}
-
-M.m_handle_input = M.vm.machine "mlui_handle_input" {
-    from = M.reported_frame,
-    to = M.handled_frame,
-    entry = "ui_handle_input",
-}
-
--- Phases.
+-- Phases (machines are inferred).
 M.expand_ui = M.vm.phase "mlui_expand_ui" {
     from = M.authored_ui,
     to = M.expanded_ui,
-    machine = M.m_expand_ui,
+    entry = "ui_expand",
     cache = "full",
 }
 
 M.validate_ui = M.vm.phase "mlui_validate_ui" {
     from = M.expanded_ui,
     to = M.valid_ui,
-    machine = M.m_validate_ui,
+    entry = "ui_validate",
     cache = "record",
 }
 
 M.import_ui = M.vm.phase "mlui_import_ui" {
     from = M.valid_ui,
     to = M.imported_ui,
-    machine = M.m_import_ui,
+    entry = "ui_import",
     cache = "full",
 }
 
 M.style_ui = M.vm.phase "mlui_style_ui" {
     from = M.imported_ui,
     to = M.styled_ui,
-    machine = M.m_style_ui,
+    entry = "ui_style",
     cache = "full",
 }
 
 M.measure_ui = M.vm.phase "mlui_measure_ui" {
     from = M.styled_ui,
     to = M.measured_ui,
-    machine = M.m_measure_ui,
+    entry = "ui_measure",
     cache = "full",
 }
 
 M.layout_ui = M.vm.phase "mlui_layout_ui" {
     from = M.measured_ui,
     to = M.laid_out_ui,
-    machine = M.m_layout_ui,
+    entry = "ui_layout",
     cache = "full",
 }
 
 M.render_ui = M.vm.phase "mlui_render_ui" {
     from = M.laid_out_ui,
     to = M.renderable_ui,
-    machine = M.m_render_ui,
+    entry = "ui_render",
     cache = "record",
 }
 
 M.report_frame = M.vm.phase "mlui_report_frame" {
     from = M.renderable_ui,
     to = M.reported_frame,
-    machine = M.m_report_frame,
+    entry = "ui_report_frame",
     cache = "record",
 }
 
 M.handle_input = M.vm.phase "mlui_handle_input" {
     from = M.reported_frame,
     to = M.handled_frame,
-    machine = M.m_handle_input,
+    entry = "ui_handle_input",
     cache = nil,
 }
 

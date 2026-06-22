@@ -2299,6 +2299,7 @@ function Parser:parse_param_list()
                 end
             end
         end
+        self:skip_nl()
         if not self:accept(TK.comma) then break end
         self:skip_nl()
         if self:kind() == TK.rparen then break end
@@ -3037,6 +3038,19 @@ local function is_line_start_word(src, s)
     return true
 end
 
+local function skip_hspace(src, i)
+    local n = #src
+    while i <= n do
+        local c = byte(src, i)
+        if c == 32 or c == 9 or c == 13 then
+            i = i + 1
+        else
+            return i, c
+        end
+    end
+    return i, nil
+end
+
 local function previous_significant_token_kind(toks)
     for i = toks.n, 1, -1 do
         local k = toks.kind[i]
@@ -3348,6 +3362,15 @@ function M.scan_document(src)
                     end
                 end
                 if prev >= 0 then
+                    local after = i
+                    if src:sub(after, after):match("^[%s\r\t]") then
+                        after, _ = skip_hspace(src, after)
+                    end
+                    -- Field declarations like `expr =` in table constructors must not
+                    -- be mistaken for expression/function/region islands.
+                    if after <= n and byte(src, after) == 61 then
+                        goto continue_scan
+                    end
                     local first_tok, last_tok, stop_byte = tokenize_island(src, target_kind, s, toks)
                     local holes = {}
                     for hi = first_tok, last_tok do
@@ -3366,6 +3389,8 @@ function M.scan_document(src)
         else
             i = i + 1
         end
+
+        ::continue_scan::
     end
 
     return { src = src, toks = toks, islands = islands, splice_map = toks.splice_map, splice_spread = toks.splice_spread }

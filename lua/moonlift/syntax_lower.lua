@@ -15,6 +15,8 @@ function M.Define(T)
     local lower_stmt_items
     local lower_stmt_list
     local retarget_cont_jumps_stmts
+    local region_frag
+    local expr_frag
 
     local function path_text(path)
         local parts = {}
@@ -501,6 +503,10 @@ function M.Define(T)
                 end
                 return { Tr.ItemFunc(Tr.FuncExport(func.name, params, result, body)) }
             end
+        elseif cls == S.SyntaxItemRegionFrag then
+            return { Tr.ItemRegionFrag(region_frag(item.frag, env)) }
+        elseif cls == S.SyntaxItemExprFrag then
+            return { Tr.ItemExprFrag(expr_frag(item.frag, env)) }
         end
         error("unsupported syntax item " .. tostring(cls and cls.kind or cls), 2)
     end
@@ -527,7 +533,7 @@ function M.Define(T)
         error("unsupported syntax func " .. tostring(cls and cls.kind or cls), 2)
     end
 
-    local function region_frag(frag, env)
+    region_frag = function(frag, env)
         local owner = "region"
         if pvm.classof(frag.name) == O.NameRefText then owner = frag.name.text end
         local conts = lower_conts(frag.conts, env, owner)
@@ -544,7 +550,7 @@ function M.Define(T)
         return O.RegionFrag(frag.name, lower_open_params(frag.params, env, owner), conts, O.OpenSet({}, {}, {}, {}), entry, blocks)
     end
 
-    local function expr_frag(frag, env)
+    expr_frag = function(frag, env)
         local owner = "expr"
         if pvm.classof(frag.name) == O.NameRefText then owner = frag.name.text end
         return O.ExprFrag(frag.name, lower_open_params(frag.params, env, owner), O.OpenSet({}, {}, {}, {}), lower_expr(frag.body, env), lower_type(frag.result, env))

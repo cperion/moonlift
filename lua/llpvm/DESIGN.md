@@ -972,7 +972,7 @@ local input = ExprWorld:seq {
 local lower = vm.phase "lower_expr" {
     from = ExprWorld,
     to = BackWorld,
-    machine = make_lower_expr_machine(Expr, Back),
+    entry = "ll_lower_expr_machine",
     cache = "full",
 }
 
@@ -1075,8 +1075,25 @@ World:once(Value)
 World:seq { Value, Value }
 vm.concat { Stream, Stream }
 vm.machine "name" { from = InWorld, to = OutWorld, entry = "region_symbol" }
-vm.phase "name" { from = InWorld, to = OutWorld, machine = Machine, cache = "full" }
+vm.phase "name" {
+    from = InWorld,
+    to = OutWorld,
+    machine = Machine, -- optional
+    entry = "region_symbol", -- optional when machine omitted
+    cache = "full"
+}
 vm.program { RootStream, OtherRootStream }
+```
+
+Most phases can rely on phase-local machine creation:
+
+```lua
+vm.phase "name" {
+    from = InWorld,
+    to = OutWorld,
+    entry = "region_symbol",
+    cache = "full",
+}
 ```
 
 Phase values are callable:
