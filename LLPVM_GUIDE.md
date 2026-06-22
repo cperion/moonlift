@@ -2,7 +2,7 @@
 
 LLPVM is Moonlift's low-level PVM API surface: a Lua-authored, bytecode-fed VM
 substrate for typed operation languages, worlds, streams, phases, native
-execution, and small C/WASM/embedded boundaries.
+execution, and small C/FFI/embedded boundaries.
 
 The public authoring rule is:
 
@@ -14,6 +14,7 @@ Bytecode refs are internal encoder facts, not public API.
 ```
 
 ```lua
+local moon = require "moonlift"
 local ll = require "llpvm"
 ```
 
@@ -23,15 +24,6 @@ local ll = require "llpvm"
 ll.vm(config)          -- create an authoring VM
 ll.bytecode(program)   -- encode a Program proxy or ASDL Program
 ll.bytebuffer(bytes)   -- copy a Lua string into uint8_t[] for FFI
-
-ll.void ll.bool ll.i8 ll.i16 ll.i32 ll.i64
-ll.u8 ll.u16 ll.u32 ll.u64 ll.f32 ll.f64 ll.index
-
-ll.handle(name)
-ll.ptr(type)
-ll.view(type)
-ll.struct(name) { ... }
-ll.field(name, type)
 
 ll.symbol(value)
 ll.cache(mode)
@@ -65,7 +57,7 @@ local Expr = vm.language "Expr"
 local ExprNode = Expr "Node"
 
 ExprNode.Int = {
-    value = ll.i64,
+    value = moon.i64,
 }
 
 ExprNode.Add = {
@@ -77,7 +69,7 @@ local Back = vm.language "Back"
 local BackValue = Back "Value"
 
 BackValue.ConstI64 = {
-    value = ll.i64,
+    value = moon.i64,
 }
 
 BackValue.AddI64 = {}
@@ -104,7 +96,7 @@ local lower = vm.phase "lower_expr" {
     cache = "full",
 }
 
-local lowered = lower { target = "wasm32", opt = 3 } (input)
+local lowered = lower { target = "native", opt = 3 } (input)
 local program = vm.program { input, lowered }
 
 local bytes = program:bytecode()
@@ -125,7 +117,7 @@ LLPV bytecode image
 Native VM runtime
     Imports/borrows the image and creates opaque handles.
 
-C/WASM/FFI boundary
+C/FFI boundary
     Status-returning open/load/apply/drain/report functions.
 ```
 
@@ -182,7 +174,7 @@ constructors, not ABI records.
 local Expr = vm.language "Expr"
 local Node = Expr "Node"
 
-Node.Int = { value = ll.i64 }
+Node.Int = { value = moon.i64 }
 Node.Add = { left = Node, right = Node }
 ```
 
@@ -197,43 +189,24 @@ directly. No global erased node type exists.
 
 ## Type API
 
-Scalars:
+LLPVM does not define a parallel type language. Constructor schemas accept
+Moonlift type values. In `.mlua`, write real Moonlift declarations:
 
-```lua
-ll.void
-ll.bool
-ll.i8   ll.i16   ll.i32   ll.i64
-ll.u8   ll.u16   ll.u32   ll.u64
-ll.f32  ll.f64
-ll.index
-```
+```moonlift
+local Vec2 = struct Vec2
+    x: f32,
+    y: f32
+end
 
-Native-facing type forms:
-
-```lua
-local Entity = ll.handle "Entity"
-local I32Ptr = ll.ptr(ll.i32)
-local I32View = ll.view(ll.i32)
-```
-
-Structs:
-
-```lua
-local Vec2 = ll.struct "Vec2" {
-    x = ll.f32,
-    y = ll.f32,
+Node.Move = {
+    id = moon.u64,
+    pos = Vec2,
+    bytes = moon.view(moon.u8),
 }
 ```
 
-Named struct fields are sorted for stable bytecode output. Use explicit fields
-when generated code requires field order:
-
-```lua
-local Vec2 = ll.struct "Vec2" {
-    ll.field("x", ll.f32),
-    ll.field("y", ll.f32),
-}
-```
+LLPVM lowers those values into compact schema ids for bytecode validation and
+runtime dispatch.
 
 Language-local types are declared by calling the language table:
 
@@ -407,7 +380,7 @@ Phase values are callable:
 
 ```lua
 local output = lower(input)
-local output_with_args = lower { target = "wasm32", opt = 3 } (input)
+local output_with_args = lower { target = "native", opt = 3 } (input)
 ```
 
 Arguments may be named or positional. If an argument is a produced LLPVM value,

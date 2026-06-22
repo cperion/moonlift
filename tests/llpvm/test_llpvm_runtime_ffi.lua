@@ -1,5 +1,6 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./lua/llpvm/native/?.lua;./lua/llpvm/native/?.mlua;" .. package.path
 
+local moon = require("moonlift")
 local ll = require("llpvm")
 local Runtime = require("llpvm.runtime_ffi")
 
@@ -25,7 +26,7 @@ assert(out_buffer == 0, "empty drain returns invalid buffer")
 local authored = ll.vm {}
 local Expr = authored.language "Expr"
 local Node = Expr "Node"
-Node.Int = { value = ll.i64 }
+Node.Int = { value = moon.i64 }
 local ExprWorld = Expr:world()
 local input = ExprWorld:seq { ExprWorld.Node.Int { value = 1 } }
 local ok, err = pcall(function() vm:drain(input) end)

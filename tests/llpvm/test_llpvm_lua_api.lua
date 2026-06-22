@@ -1,5 +1,6 @@
 package.path = "./lua/?.lua;./lua/?/init.lua;" .. package.path
 
+local moon = require("moonlift")
 local ll = require("llpvm")
 assert(ll.T and ll.B, "llpvm exposes ASDL context and FastBuilders")
 
@@ -7,12 +8,12 @@ local vm = ll.vm { cache_bytes = 64 * 1024 }
 
 local Expr = vm.language "Expr"
 local ExprNode = Expr "Node"
-ExprNode.Int = { value = ll.i64 }
+ExprNode.Int = { value = moon.i64 }
 ExprNode.Add = { left = ExprNode, right = ExprNode }
 
 local Back = vm.language "Back"
 local BackValue = Back "Value"
-BackValue.ConstI64 = { value = ll.i64 }
+BackValue.ConstI64 = { value = moon.i64 }
 BackValue.AddI64 = {}
 
 local ExprWorld = Expr:world()
@@ -73,6 +74,7 @@ local ok_after_seal = pcall(function() ExprNode.Bad = {} end)
 assert(not ok_after_seal, "sealed languages reject new constructors")
 assert(ll.node == nil, "global erased node type is not part of the public API")
 assert(vm.abi == nil and vm.seq == nil, "old ABI-level constructor path is not exposed")
+assert(ll.i64 == nil and ll.u32 == nil and ll.struct == nil and ll.ptr == nil, "ll does not expose a parallel type API")
 
 local program = vm.program { input, mapped }
 assert(#vm.abis == 2, "program captures ABIs")
@@ -84,5 +86,15 @@ assert(program:bytecode():sub(1, 4) == "LLPV", "program proxy encodes to LLPVM b
 
 local direct = ll.B.LlPvm.Symbol { value = "direct-literal" }
 assert(ll.symbol(direct) ~= nil, "standard ASDL layer remains available")
+
+local Flat = vm.language "Flat"
+local FlatNode = Flat "Node"
+FlatNode.Pair = {
+    { name = "right", type = moon.i64 },
+    { name = "left", type = moon.i64 },
+}
+local FlatWorld = Flat:world()
+local pair = FlatWorld.Node.Pair { right = 7, left = 3 }
+assert(pair.payload[1] == 7 and pair.payload[2] == 3, "field list preserves source order")
 
 print("llpvm lua api ok")

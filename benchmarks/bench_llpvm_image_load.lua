@@ -10,6 +10,7 @@
 
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./lua/llpvm/native/?.lua;./lua/llpvm/native/?.mlua;" .. package.path
 
+local moon = require("moonlift")
 local ffi = require("ffi")
 local bit = require("bit")
 local ll = require("llpvm")
@@ -48,7 +49,7 @@ local function make_program(op_count)
     local vm = ll.vm {}
     local Expr = vm.language "Expr"
     local Node = Expr "Node"
-    Node.Int = { value = ll.i64 }
+    Node.Int = { value = moon.i64 }
     Node.Add = { left = Node, right = Node }
     local world = Expr:world()
     local ops = {}

@@ -1,12 +1,12 @@
 # MLUI as a Real LLPVM VM Stack — Full Spec Blueprint
 
 Status: blueprint v0.1  
-Target artifact: Moonlift-native MLUI kernel + LLPVM stack + C/WASM embedding profile  
+Target artifact: Moonlift-native MLUI kernel + LLPVM stack + C embedding profile  
 Primary rule: **MLUI is immediate-mode at the authoring layer and retained by construction at the LLPVM phase layer.**
 
-This document redesigns MLUI as a real LLPVM virtual-machine stack. It preserves the original `lua/ui` semantic richness: authored UI is not flattened into a widget-callback API, render ops are not confused with authored ops, text remains an explicit product boundary, backends stay op appliers/input producers, and the public C/WASM surface is a sealed ABI over stable rows and opaque handles.
+This document redesigns MLUI as a real LLPVM virtual-machine stack. It preserves the original `lua/ui` semantic richness: authored UI is not flattened into a widget-callback API, render ops are not confused with authored ops, text remains an explicit product boundary, backends stay op appliers/input producers, and the public C surface is a sealed ABI over stable rows and opaque handles.
 
-The separate `mlui_bytecode.md` and `mlui_c_api.h` files referenced by the uploaded design were not part of the uploaded file set available to this drafting pass. This blueprint therefore defines a coherent v1 row/ABI contract from the uploaded MLUI, LLPVM, Moonlift, and Design Bible documents. Numeric constants are specified here as v1 defaults, but the implementation rule is stronger: numeric constants must be generated from `mlui_stack.lua` or tested against it, never hand-maintained in divergent files.
+The separate `mlui_bytecode.md` and `mlui_c_api.h` files referenced by the uploaded design were not part of the uploaded file set available to this drafting pass. This blueprint therefore defines a coherent v1 row/ABI contract from the uploaded MLUI, LLPVM, Moonlift, and Design Bible documents. Numeric constants are specified here as v1 defaults, but the implementation rule is stronger: numeric constants must be generated from `mlui_stack.mlua` or tested against it, never hand-maintained in divergent files.
 
 ---
 
@@ -42,7 +42,7 @@ fresh authored stream each frame
 The canonical stack declaration is:
 
 ```text
-experiments/mlui/mlui_stack.lua
+experiments/mlui-llpvm/mlui_stack.mlua
 ```
 
 It declares:
@@ -56,28 +56,28 @@ worlds
 machines
 phases
 phase cache policies
-C/WASM ABI projection names
+C ABI projection names
 row-kind names
 validation tables
+Moonlift products/protocols/ABI seals
 ```
 
 Everything else is generated from or mechanically checked against it:
 
 ```text
-experiments/mlui/mlui_header.mlua       Moonlift product/protocol/header declarations
-experiments/mlui/mlui_types.mlua        temporary compatibility header if retained
-experiments/mlui/mlui_bytecode.md       generated readable bytecode contract
-experiments/mlui/mlui_c_api.h           generated public C declarations/constants
-experiments/mlui/mlui_wasm_abi.md       generated WASM typed-array profile
-experiments/mlui/mlui_build_c.lua       generated artifact builder
-experiments/mlui/mlui_opcode_tests.lua  generated constant equivalence tests
+experiments/mlui-llpvm/mlui_header.mlua         compatibility shim over mlui_stack.mlua
+experiments/mlui-llpvm/mlui_types.mlua          removed or compatibility alias only if retained
+experiments/mlui-llpvm/mlui_bytecode.md         generated readable bytecode contract
+experiments/mlui-llpvm/mlui_c_api.h             generated public C declarations/constants
+experiments/mlui-llpvm/mlui_build_c.lua         generated artifact builder
+experiments/mlui-llpvm/mlui_opcode_tests.lua    generated constant equivalence tests
 ```
 
 ### 2.2 Projection rule
 
 ```text
 LLPVM typed stream language is canonical.
-MLUI fast-row bytecode is a C/WASM-friendly projection.
+MLUI fast-row bytecode is a C-friendly projection.
 C helper builders are authoring convenience.
 Lua no-parens builders are authoring convenience.
 Native stores and buffers are runtime materialization.
@@ -134,10 +134,10 @@ UiKernel owns:
   native resource stores
   copied content bytes
   host resource handles
-  text layout records selected/materialized for C/WASM use
+  text layout records selected/materialized for C use
   persistent interaction model
   materialized frame buffers
-  C/WASM borrowed output lifetimes
+  C borrowed output lifetimes
 ```
 
 `UiKernel` may contain backing stores used by phase machines. It is not a parallel handwritten semantic cache architecture.
@@ -162,7 +162,7 @@ Borrowed text from a backend event is valid only for the dispatch that carries i
 
 ### 3.6 ABI law
 
-Status codes exist only at sealed C/WASM ABI boundaries. Internally, failures are typed continuations.
+Status codes exist only at sealed C ABI boundaries. Internally, failures are typed continuations.
 
 ---
 
@@ -171,7 +171,7 @@ Status codes exist only at sealed C/WASM ABI boundaries. Internally, failures ar
 ### 4.1 Layers
 
 ```text
-Lua authoring DSL / C builder / serialized tools / browser builder
+Lua authoring DSL / C builder / serialized tools
   -> typed MLUI LLPVM streams
   -> LLPV bytecode image or MLUI fast-row projection
   -> native load/import boundary
@@ -236,8 +236,8 @@ Core argument products:
 UiEnvArgs
   env_class: UiEnvClass
   viewport: UiViewport
-  device_scale: f32
   time_ms: u64
+  flags: u32
 
 UiThemeArgs
   theme_ref: UiThemeRef
@@ -280,7 +280,7 @@ UiReportArgs
 
 ## 5. LLPVM declaration blueprint
 
-`mlui_stack.lua` must be readable as the type forest and control graph.
+`mlui_stack.mlua` must be readable as the type forest and control graph.
 
 ```lua
 local ll = require "llpvm"
@@ -299,6 +299,7 @@ M.Style    = M.vm.language "MluiStyle"
 M.Resource = M.vm.language "MluiResource"
 M.Auth     = M.vm.language "MluiAuth"
 M.Compose  = M.vm.language "MluiCompose"
+M.Imported = M.vm.language "MluiImported"
 M.Scene    = M.vm.language "MluiScene"
 M.Measure  = M.vm.language "MluiMeasure"
 M.Solve    = M.vm.language "MluiSolve"
@@ -309,20 +310,23 @@ M.Event    = M.vm.language "MluiEvent"
 M.Model    = M.vm.language "MluiModel"
 
 -- Worlds.
-M.auth_world      = M.Auth:world "auth"
-M.compose_world   = M.Compose:world "compose"
-M.scene_world     = M.Scene:world "scene"
-M.measure_world   = M.Measure:world "measure"
-M.solve_world     = M.Solve:world "solve"
-M.view_world      = M.View:world "view"
-M.report_world    = M.Report:world "report"
-M.input_world     = M.Input:world "input"
-M.event_world     = M.Event:world "event"
-M.model_world     = M.Model:world "model"
-M.resource_world  = M.Resource:world "resource"
-M.style_world     = M.Style:world "style"
-M.theme_world     = M.Theme:world "theme"
-M.env_world       = M.Env:world "env"
+M.compose_world     = M.Compose:world "compose"
+M.auth_world        = M.Auth:world "auth"
+M.auth_checked_world = M.Auth:world "auth_checked"
+M.imported_world    = M.Imported:world "imported"
+M.resource_world    = M.Resource:world "resource"
+M.style_world       = M.Style:world "style"
+M.style_resolved_world = M.Style:world "style_resolved"
+M.theme_world       = M.Theme:world "theme"
+M.env_world         = M.Env:world "env"
+M.scene_world       = M.Scene:world "scene"
+M.measure_world     = M.Measure:world "measure"
+M.solve_world       = M.Solve:world "solve"
+M.view_world        = M.View:world "view"
+M.report_world      = M.Report:world "report"
+M.input_world       = M.Input:world "input"
+M.model_world       = M.Model:world "model"
+M.event_world       = M.Event:world "event"
 
 -- Machines.
 M.m_expand_compose = M.vm.machine "mlui_expand_compose" {
@@ -331,8 +335,26 @@ M.m_expand_compose = M.vm.machine "mlui_expand_compose" {
     entry = "ui_expand_compose",
 }
 
-M.m_lower_scene = M.vm.machine "mlui_lower_scene" {
+M.m_validate_auth = M.vm.machine "mlui_validate_auth" {
     from = M.auth_world,
+    to = M.auth_checked_world,
+    entry = "ui_validate_auth",
+}
+
+M.m_import_auth = M.vm.machine "mlui_import_auth" {
+    from = M.auth_checked_world,
+    to = M.imported_world,
+    entry = "ui_import_auth",
+}
+
+M.m_resolve_style = M.vm.machine "mlui_resolve_style" {
+    from = M.style_world,
+    to = M.style_resolved_world,
+    entry = "ui_resolve_style",
+}
+
+M.m_lower_scene = M.vm.machine "mlui_lower_scene" {
+    from = M.imported_world,
     to = M.scene_world,
     entry = "ui_lower_scene",
 }
@@ -375,8 +397,29 @@ M.expand_compose = M.vm.phase "mlui_expand_compose" {
     cache = "full",
 }
 
-M.lower_scene = M.vm.phase "mlui_lower_scene" {
+M.validate_auth = M.vm.phase "mlui_validate_auth" {
     from = M.auth_world,
+    to = M.auth_checked_world,
+    machine = M.m_validate_auth,
+    cache = "record",
+}
+
+M.import_auth = M.vm.phase "mlui_import_auth" {
+    from = M.auth_checked_world,
+    to = M.imported_world,
+    machine = M.m_import_auth,
+    cache = "full",
+}
+
+M.resolve_style = M.vm.phase "mlui_resolve_style" {
+    from = M.style_world,
+    to = M.style_resolved_world,
+    machine = M.m_resolve_style,
+    cache = "full",
+}
+
+M.lower_scene = M.vm.phase "mlui_lower_scene" {
+    from = M.imported_world,
     to = M.scene_world,
     machine = M.m_lower_scene,
     cache = "full",
@@ -549,7 +592,7 @@ typedef mlui_ref mlui_theme_ref;
 
 ## 7. Enumerations and bitsets
 
-Numeric values in this section are the v1 fast-row projection. They must be generated from `mlui_stack.lua`.
+Numeric values in this section are the v1 fast-row projection. They must be generated from `mlui_stack.mlua`.
 
 ### 7.1 ABI version and magic
 
@@ -680,30 +723,30 @@ This section names the semantic constructors. The row ABI may encode these with 
 
 ### 8.1 Core language
 
-```lua
-local Id        = ll.u64
-local Ref       = ll.u32
-local Epoch     = ll.u64
-local Flags     = ll.u32
-local Kind      = ll.u16
-local Index32   = ll.u32
+```moonlift
+local Id        = moon.u64
+local Ref       = moon.u32
+local Epoch     = moon.u64
+local Flags     = moon.u32
+local Kind      = moon.u16
+local Index32   = moon.u32
 
-local Vec2 = ll.struct "MluiCore.Vec2" {
-    ll.field("x", ll.f32),
-    ll.field("y", ll.f32),
-}
+local Vec2 = struct MluiCore_Vec2
+    x: f32,
+    y: f32
+end
 
-local Rect = ll.struct "MluiCore.Rect" {
-    ll.field("x", ll.f32),
-    ll.field("y", ll.f32),
-    ll.field("w", ll.f32),
-    ll.field("h", ll.f32),
-}
+local Rect = struct MluiCore_Rect
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32
+end
 
-local Range = ll.struct "MluiCore.Range" {
-    ll.field("first", ll.u32),
-    ll.field("count", ll.u32),
-}
+local Range = struct MluiCore_Range
+    first: u32,
+    count: u32
+end
 ```
 
 ### 8.2 Env language
@@ -1735,7 +1778,7 @@ MLUI supports two frontends:
 
 ```text
 1. Canonical LLPV image: portable LLPVM program bytes.
-2. MLUI fast-row profile: stable C/WASM row arrays generated from the same stack.
+2. MLUI fast-row profile: stable C row arrays generated from the same stack.
 ```
 
 Both must validate through the same semantic validation table and import into the same phase graph.
@@ -1967,13 +2010,15 @@ ui_font_register      -> owned UiFontRef
 ui_value_retain       -> owned UiValueRef
 ```
 
-Publish transfers owned obligation into durable kernel-visible identity:
+Publish transfers owned obligation into durable kernel-visible identity (the owned handle is consumed, returned non-owned on success):
 
 ```text
-owned UiContentRef -> ui_content_publish -> UiContentRef
-owned UiPaintRef   -> ui_paint_publish   -> UiPaintRef
-owned UiValueRef   -> ui_value_publish   -> UiValueRef
+owned UiContentRef -> ui_content_publish -> UiContentRef (non-owned)
+owned UiPaintRef   -> ui_paint_publish   -> UiPaintRef (non-owned)
+owned UiValueRef   -> ui_value_publish   -> UiValueRef (non-owned)
 ```
+
+Failure continuations (missing/stale) return the owned handle so the caller may retry or release.
 
 Release/close consumes the owned handle or returns it on failure.
 
@@ -1992,33 +2037,53 @@ Invalidation is expressed as phase args and resource epochs.
 
 ---
 
-## 12. Moonlift header blueprint
+## 12. Moonlift declaration blueprint
 
-The public Moonlift header is a declaration artifact. It contains products `T.*`, protocols `R.*`, and ABI seals `F.*`.
+The public Moonlift declaration surface lives in the canonical stack module. It contains products `T.*`, protocols `R.*`, ABI seals `F.*`, and the LLPVM machine definition. A separate `mlui_header.mlua` may exist only as a compatibility shim that imports the stack with `moon.require`.
 
-### 12.1 Header module layout
+### 12.1 Canonical module layout
 
 ```lua
 local moon = require "moonlift"
-local T = {}
-local R = {}
-local F = {}
+local ll = require "llpvm"
 
+local M = {
+    T = {},
+    R = {},
+    F = {},
+}
+
+M.vm = ll.vm { ... }
+
+local T = M.T
+local R = M.R
+local F = M.F
+
+-- LLPVM languages, worlds, machines, phases
 -- scalar aliases, structs, handles
--- regions
--- functions
+-- region protocols
+-- ABI function seals
 
-return { T = T, R = R, F = F }
+return M
 ```
 
-All public declarations live in the header. Implementation files import it:
+Implementation files import the stack directly:
 
 ```lua
-local H = moon.require("mlui_header") -- or temporary mlui_types
+local H = moon.require("mlui_stack")
 local T = H.T
 local R = H.R
 local F = H.F
 ```
+
+Compatibility-only imports may use:
+
+```lua
+local H = moon.require("mlui_header")
+```
+
+`mlui_header.mlua` must be a Moonlift-aware shim. It must not use plain Lua
+`dofile`, because `mlui_stack.mlua` contains Moonlift declarations.
 
 ### 12.2 Required region declarations
 
@@ -2034,13 +2099,18 @@ region ui_kernel_borrow(kernel: UiKernelRef;
   | missing(kernel: UiKernelRef)
   | stale(kernel: UiKernelRef)) end
 
+region ui_kernel_init_ptr(config: ptr(UiConfig);
+    created(ui: ptr(UiKernel))
+  | bad_argument(code: i32)
+  | oom(needed: index)) end
+
 region ui_kernel_close(kernel: owned UiKernelRef;
     closed
   | busy(kernel: owned UiKernelRef)
   | missing(kernel: owned UiKernelRef)
   | stale(kernel: owned UiKernelRef)) end
 
-region ui_validate_program(kernel: UiKernelRef, program: readonly ptr(UiProgram);
+region ui_validate_auth(ui: ptr(UiKernel), readonly program: ptr(UiProgram);
     valid(root_kind: u8, root_index: u32)
   | invalid_header(code: i32)
   | invalid_section(section: u8)
@@ -2052,7 +2122,7 @@ region ui_validate_program(kernel: UiKernelRef, program: readonly ptr(UiProgram)
   | unsupported_feature(flags: u64)
   | oom(needed: index)) end
 
-region ui_import_auth(kernel: UiKernelRef, program: readonly ptr(UiProgram), root_kind: u8, root_index: u32;
+region ui_import_auth(ui: ptr(UiKernel), readonly program: ptr(UiProgram), root_kind: u8, root_index: u32;
     imported(root: UiNodeRef)
   | invalid_child(parent: UiId, child_index: u32)
   | duplicate_id(id: UiId)
@@ -2060,34 +2130,34 @@ region ui_import_auth(kernel: UiKernelRef, program: readonly ptr(UiProgram), roo
   | unsupported_node(kind: u16)
   | oom(needed: index)) end
 
-region ui_expand_compose(kernel: UiKernelRef, compose: readonly view(UiComposeNode);
+region ui_expand_compose(ui: ptr(UiKernel), readonly compose: view(UiComposeNode);
     expanded(auth: UiAuthBuffer)
   | invalid_child(parent: UiId, child_index: u32)
   | unsupported_compose(kind: u16)
   | oom(needed: index)) end
 
-region ui_resolve_style(kernel: UiKernelRef, token_range: UiRange, env: UiEnvClass, state: UiStateFacts;
+region ui_resolve_style(ui: ptr(UiKernel), token_range: UiRange, env: UiEnvClass, state: UiStateFacts;
     resolved(layout: UiLayoutStyle, decor: UiDecorStyle, interact: UiInteractionStyle)
   | invalid_atom(kind: u16)
   | missing_theme(id: UiId)
   | missing_resource(section: u8, index_: u32)
   | oom(needed: index)) end
 
-region ui_lower_scene(kernel: UiKernelRef, root: UiNodeRef, env: UiEnvClass;
+region ui_lower_scene(ui: ptr(UiKernel), root: UiNodeRef, env: UiEnvClass;
     lowered(scene_epoch: UiEpoch)
   | missing_node(id: UiId)
   | duplicate_id(id: UiId)
   | unsupported_node(kind: u16)
   | oom(needed: index)) end
 
-region ui_measure_node(kernel: UiKernelRef, layout_index: u32, constraint: UiMeasureConstraint;
+region ui_measure_node(ui: ptr(UiKernel), layout_index: u32, constraint: UiMeasureConstraint;
     measured(size: UiIntrinsicSize, text_layout: UiTextLayoutRef)
   | missing_text(content: UiContentRef)
   | text_backend_error(code: i32)
   | unsupported_layout(kind: u16)
   | oom(needed: index)) end
 
-region ui_solve_scene(kernel: UiKernelRef, viewport: UiViewport;
+region ui_solve_scene(ui: ptr(UiKernel), viewport: UiViewport;
     solved(solve_epoch: UiEpoch)
   | missing_scene
   | missing_text(content: UiContentRef)
@@ -2095,7 +2165,7 @@ region ui_solve_scene(kernel: UiKernelRef, viewport: UiViewport;
   | unsupported_layout(kind: u16)
   | oom(needed: index)) end
 
-region ui_render_ops(kernel: UiKernelRef;
+region ui_render_ops(ui: ptr(UiKernel);
     rendered(view_epoch: UiEpoch)
   | missing_node(id: UiId)
   | missing_text(content: UiContentRef)
@@ -2103,13 +2173,13 @@ region ui_render_ops(kernel: UiKernelRef;
   | malformed_op(at: index, kind: u16)
   | oom(needed: index)) end
 
-region ui_runtime_report(kernel: UiKernelRef;
+region ui_runtime_report(ui: ptr(UiKernel);
     reported(report_epoch: UiEpoch)
   | malformed_op(at: index, kind: u16)
   | stack_unbalanced(stack: u8)
   | oom(needed: index)) end
 
-region ui_interact_step(kernel: UiKernelRef, raw: readonly view(UiRawInput);
+region ui_interact_step(ui: ptr(UiKernel), raw: readonly view(UiRawInput);
     stepped(event_count: index, model_epoch: UiEpoch)
   | malformed_raw(at: index, kind: u16)
   | stale_focus(id: UiId)
@@ -2177,6 +2247,17 @@ F.mlui_view_ops
 F.mlui_events
 F.mlui_report_get
 F.mlui_clear_events
+F.mlui_content_retain_copy
+F.mlui_content_release
+F.mlui_paint_retain
+F.mlui_paint_release
+F.mlui_image_register
+F.mlui_image_release
+F.mlui_font_register
+F.mlui_font_release
+F.mlui_value_set
+F.mlui_value_retain
+F.mlui_value_release
 ```
 
 ABI seals convert typed region exits to `mlui_status` exactly once and do not duplicate region logic.
@@ -2387,49 +2468,13 @@ mlui_kernel_close(ui);
 
 ---
 
-## 14. WASM ABI
+## 14. C To WebAssembly
 
-The WASM profile is the C profile expressed as linear-memory offsets and typed arrays.
-
-### 14.1 Pointer replacement
-
-```text
-native pointer T* -> u32 byte offset into wasm memory
-size_t           -> u32 for wasm32 profile
-const rows       -> offset + count
-borrowed output  -> offset + count valid until next frame/reset/clear/close
-```
-
-### 14.2 Typed arrays
-
-```text
-auth nodes      Int32Array / Float32Array lanes or packed DataView rows
-compose nodes   Int32Array lanes
-children        Uint32Array
-style tokens    Uint32Array + Float32Array lanes
-paint ops       Uint32Array + Float32Array lanes
-text bytes      Uint8Array
-view ops        Int32Array + Float32Array lanes
-events          Int32Array + Float32Array lanes
-report facts    Int32Array + Float32Array lanes
-meta            Uint32Array
-```
-
-### 14.3 WASM functions
-
-```c
-uint32_t mlui_wasm_abi_version(void);
-uint32_t mlui_wasm_kernel_init(uint32_t config_offset, uint32_t out_kernel_offset);
-uint32_t mlui_wasm_kernel_close(uint32_t kernel);
-uint32_t mlui_wasm_load_program(uint32_t kernel, uint32_t program_offset, uint32_t out_root_offset);
-uint32_t mlui_wasm_load_llpv_program(uint32_t kernel, uint32_t bytes_offset, uint32_t len, uint32_t out_root_offset);
-uint32_t mlui_wasm_frame(uint32_t kernel, uint32_t root, float width, float height, uint32_t raw_offset, uint32_t raw_count);
-uint32_t mlui_wasm_view_ops(uint32_t kernel, uint32_t out_offset_count);
-uint32_t mlui_wasm_events(uint32_t kernel, uint32_t out_offset_count);
-uint32_t mlui_wasm_report_get(uint32_t kernel, uint32_t out_offset);
-```
-
-The browser side is an op applier/input producer, not a DOM UI framework.
+MLUI does not define a separate WASM ABI. The generated artifact is ordinary C.
+If a user wants WebAssembly, they compile the emitted C with `emcc` or another
+C-to-WASM toolchain and design their own JavaScript binding layer around the C
+ABI. MLUI should not declare `mlui_wasm_*` functions, linear-memory offset
+protocols, or typed-array layouts as part of its own contract.
 
 ---
 
@@ -2629,10 +2674,10 @@ for op in UiViewBuffer:
 Flat folder, semantic machine names:
 
 ```text
-experiments/mlui/
-  mlui_stack.lua               -- canonical LLPVM stack declaration
-  mlui_header.mlua             -- generated/checked public Moonlift header
-  mlui_types.mlua              -- compatibility alias only if still needed
+experiments/mlui-llpvm/
+  mlui_stack.mlua              -- canonical LLPVM stack + Moonlift declarations
+  mlui_header.mlua             -- compatibility shim over mlui_stack.mlua
+  mlui_types.mlua              -- removed or compatibility alias only if needed
   mlui_memory.mlua             -- allocator, buffer growth, byte copy, resets
   mlui_kernel_store.mlua       -- kernel create/borrow/close
   mlui_resource_store.mlua     -- content/text/paint/image/font/value lifecycles
@@ -2649,7 +2694,6 @@ experiments/mlui/
   mlui_abi.mlua                -- public F.* seals only
   mlui_build_c.lua             -- emits generated C blob/header
   mlui_bytecode.md             -- generated documentation
-  mlui_wasm_abi.md             -- generated documentation
 ```
 
 No `utils.mlua`, `helpers.mlua`, `impl.mlua`, or fake deep folders.
@@ -2659,7 +2703,7 @@ No `utils.mlua`, `helpers.mlua`, `impl.mlua`, or fake deep folders.
 ## 20. Required implementation order
 
 ```text
-1. mlui_stack.lua and header generation/checking
+1. mlui_stack.mlua declaration and generated projection checking
 2. memory primitives and buffer growth
 3. kernel store and reset protocols
 4. handle store resolvers
@@ -2711,7 +2755,6 @@ test_mlui_interaction_text_input.lua
 test_mlui_interaction_drag_drop.lua
 test_mlui_resource_ownership_failures.lua
 test_mlui_generated_c_blob_gcc_o3.lua
-test_mlui_wasm_layout_offsets.lua
 ```
 
 Build checks:
@@ -2745,14 +2788,14 @@ Text layout is explicit and retained/materialized.
 Borrowed text never becomes durable without copying.
 Dynamic paint/value data must not masquerade as structure.
 Backends consume ops and produce raw input; they do not own UI semantics.
-Public ABI status codes exist only at sealed C/WASM boundaries.
+Public ABI status codes exist only at sealed C boundaries.
 LLPVM phases own semantic retention; no hidden Lua side tables.
 UiKernel owns stores/resources/model/materialized buffers; not a parallel cache universe.
 All kind decoding has one owning visitor/consumer region.
 The single-file C artifact exposes stable row buffers and opaque kernel handles.
 No C API depends on LuaJIT, FFI, Moonlift host objects, or Lua authoring tables.
 Lua no-parens authoring and C/LLPV bytecode authoring must produce equivalent VM input.
-Generated numeric constants must match `mlui_stack.lua`.
+Generated numeric constants must match `mlui_stack.mlua`.
 ```
 
 Forbidden shortcuts:
@@ -2778,8 +2821,8 @@ C ABI exposure of internal store layout
 MLUI is complete when:
 
 ```text
-1. `mlui_stack.lua` is the source of truth for languages/worlds/machines/phases.
-2. Every public `T.*`, `R.*`, and `F.*` declaration is generated from or checked against the stack/header.
+1. `mlui_stack.mlua` is the source of truth for languages/worlds/machines/phases and public `T/R/F` declarations.
+2. Every generated C/bytecode projection is generated from or checked against the stack.
 3. Every `R.*` region has a real Moonlift body.
 4. Every `F.*` ABI function has a real Moonlift body.
 5. C header and Moonlift ABI declarations agree.
@@ -2792,7 +2835,6 @@ MLUI is complete when:
 12. Interaction reducer behavior is tested for pointer/key/text/drag/scroll/focus.
 13. Resource ownership failures are tested.
 14. Generated single-file C artifact compiles with `gcc -O3`.
-15. WASM profile has checked offsets/strides and no raw native pointer assumptions.
 ```
 
 ---
@@ -2803,13 +2845,13 @@ MLUI is complete when:
 MLUI = LLPVM UI compiler stack
 
 Authoring:
-  Lua no-parens DSL, C builder, browser builder, serialized tools
+  Lua no-parens DSL, C builder, serialized tools
 
 Canonical representation:
-  typed LLPVM languages/worlds/streams/phases in mlui_stack.lua
+  typed LLPVM languages/worlds/streams/phases in mlui_stack.mlua
 
 Projection:
-  MLUI fast-row ABI for C/WASM/embedded hosts
+  MLUI fast-row ABI for C/embedded hosts
 
 Retention:
   LLPVM phase cache over explicit stream + args + resource epochs

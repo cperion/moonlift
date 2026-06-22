@@ -127,61 +127,73 @@ local function type_wrap(vm, kind, id, extra)
     return setmetatable(extra, Type)
 end
 
-local function scalar(name)
-    return setmetatable({ scalar = name }, {
-        __call = function(self, vm)
-            return vm:_scalar_type(self.scalar)
-        end,
-    })
-end
-
-M.void = scalar("void")
-M.bool = scalar("bool")
-M.i8 = scalar("i8")
-M.i16 = scalar("i16")
-M.i32 = scalar("i32")
-M.i64 = scalar("i64")
-M.u8 = scalar("u8")
-M.u16 = scalar("u16")
-M.u32 = scalar("u32")
-M.u64 = scalar("u64")
-M.f32 = scalar("f32")
-M.f64 = scalar("f64")
-M.index = scalar("index")
-
 local function is_type_decl(v)
     return getmetatable(unwrap(v)) == TypeDecl
 end
 
-local function resolve_type(vm, spec)
+local resolve_type
+
+local scalar_type_names = {
+    ["MoonCore.ScalarVoid"] = "void",
+    ["MoonCore.ScalarBool"] = "bool",
+    ["MoonCore.ScalarI8"] = "i8",
+    ["MoonCore.ScalarI16"] = "i16",
+    ["MoonCore.ScalarI32"] = "i32",
+    ["MoonCore.ScalarI64"] = "i64",
+    ["MoonCore.ScalarU8"] = "u8",
+    ["MoonCore.ScalarU16"] = "u16",
+    ["MoonCore.ScalarU32"] = "u32",
+    ["MoonCore.ScalarU64"] = "u64",
+    ["MoonCore.ScalarF32"] = "f32",
+    ["MoonCore.ScalarF64"] = "f64",
+    ["MoonCore.ScalarIndex"] = "index",
+}
+
+local function moonlift_type_name(v)
+    return tostring(v.source_hint or v.name or v)
+end
+
+local function lower_moonlift_type_value(vm, spec)
+    if type(spec) ~= "table" then return nil end
+    local as_type = spec.as_type_value or spec.as_moonlift_type
+    if type(as_type) ~= "function" then return nil end
+
+    if spec.fields then
+        local field_ids = {}
+        for i = 1, #spec.fields do
+            local f = spec.fields[i]
+            local ft = resolve_type(vm, vm:_lower_type_form(f.type))
+            field_ids[i] = vm.builder:field(f.name, ft.id)
+        end
+        return type_wrap(vm, "struct", vm.builder:struct(moonlift_type_name(spec), field_ids), { name = moonlift_type_name(spec) })
+    end
+
+    local ty = spec.as_moonlift_type and spec:as_moonlift_type() or spec:as_type_value():as_moonlift_type()
+    local cls = tostring(require("moonlift.pvm").classof(ty))
+    if cls == "Class(MoonType.TScalar)" then
+        return vm:_scalar_type(assert(scalar_type_names[tostring(ty.scalar)], "unsupported Moonlift scalar type: " .. tostring(ty.scalar)))
+    elseif cls == "Class(MoonType.TPtr)" then
+        local elem = lower_moonlift_type_value(vm, { as_moonlift_type = function() return ty.elem end })
+        return type_wrap(vm, "ptr", vm.builder:pointer(elem.id), { to = elem })
+    elseif cls == "Class(MoonType.TView)" then
+        local elem = lower_moonlift_type_value(vm, { as_moonlift_type = function() return ty.elem end })
+        return type_wrap(vm, "view", vm.builder:view(elem.id), { item = elem })
+    elseif cls == "Class(MoonType.TNamed)" then
+        return vm:_handle_type(moonlift_type_name(spec))
+    elseif cls == "Class(MoonType.THandle)" then
+        return vm:_handle_type(moonlift_type_name(spec))
+    end
+    error("unsupported Moonlift type for LLPVM schema: " .. tostring(ty), 3)
+end
+
+resolve_type = function(vm, spec)
     spec = unwrap(spec)
     if getmetatable(spec) == Type then return spec end
     if getmetatable(spec) == TypeDecl then return spec:resolved_type() end
-    if type(spec) == "table" and spec.scalar then return vm:_scalar_type(spec.scalar) end
+    local lowered = lower_moonlift_type_value(vm, spec)
+    if lowered then return lowered end
     if type(spec) == "table" and spec.id then return spec end
     error("LLPVM type expected", 3)
-end
-
-function M.handle(name)
-    return { __llpvm_type_form = "handle", name = tostring(name) }
-end
-
-function M.ptr(to)
-    return { __llpvm_type_form = "ptr", to = to }
-end
-
-function M.view(item)
-    return { __llpvm_type_form = "view", item = item }
-end
-
-function M.struct(name)
-    return function(fields)
-        return { __llpvm_type_form = "struct", name = tostring(name), fields = fields or {} }
-    end
-end
-
-function M.field(name, typ)
-    return { __llpvm_field = true, name = tostring(name), type = typ }
 end
 
 function M.symbol(v)
@@ -216,39 +228,10 @@ function Vm:_lower_type_form(spec)
     spec = unwrap(spec)
     if getmetatable(spec) == Type then return spec end
     if getmetatable(spec) == TypeDecl then return spec:resolved_type() end
-    if type(spec) == "table" and spec.scalar then return self:_scalar_type(spec.scalar) end
+    local lowered = lower_moonlift_type_value(self, spec)
+    if lowered then return lowered end
     if type(spec) ~= "table" then error("LLPVM type form expected", 3) end
-    if spec.__llpvm_type_form == "handle" then return self:_handle_type(spec.name) end
-    if spec.__llpvm_type_form == "ptr" then
-        local to = resolve_type(self, self:_lower_type_form(spec.to))
-        return type_wrap(self, "ptr", self.builder:pointer(to.id), { to = to })
-    end
-    if spec.__llpvm_type_form == "view" then
-        local item = resolve_type(self, self:_lower_type_form(spec.item))
-        return type_wrap(self, "view", self.builder:view(item.id), { item = item })
-    end
-    if spec.__llpvm_type_form == "struct" then
-        local field_ids = {}
-        local fields = spec.fields or {}
-        if is_array(fields) then
-            for i = 1, #fields do
-                local f = fields[i]
-                if type(f) == "table" and f.__llpvm_field then
-                    local ft = resolve_type(self, self:_lower_type_form(f.type))
-                    field_ids[i] = self.builder:field(f.name, ft.id)
-                else
-                    field_ids[i] = id_of(f, "field")
-                end
-            end
-        else
-            for i, k in ipairs(sorted_string_keys(fields)) do
-                local ft = resolve_type(self, self:_lower_type_form(fields[k]))
-                field_ids[i] = self.builder:field(k, ft.id)
-            end
-        end
-        return type_wrap(self, "struct", self.builder:struct(spec.name, field_ids), { name = spec.name })
-    end
-    error("unknown LLPVM type form", 3)
+    error("unknown LLPVM type form; use Moonlift type values", 3)
 end
 
 local function field_list(vm, fields)
@@ -257,7 +240,7 @@ local function field_list(vm, fields)
     if is_array(fields) then
         for i = 1, #fields do
             local f = fields[i]
-            assert(type(f) == "table" and f.__llpvm_field, "array payload schemas must contain ll.field values")
+            assert(type(f) == "table" and f.name ~= nil and f.type ~= nil, "array payload schemas must contain field values")
             out[i] = {
                 name = f.name,
                 spec = f.type,

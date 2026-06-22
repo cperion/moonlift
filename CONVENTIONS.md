@@ -110,6 +110,36 @@ local F = M.F
 return M
 ```
 
+For an LLPVM stack, the preferred contract may be one larger canonical machine
+definition file instead of a separate header.  This is appropriate when the
+same file owns the language declarations, type forest, worlds, machines, phase
+metadata, row profiles, constants, and public Moonlift `T/R/F` declarations.
+In that shape, the file should still expose the usual tables:
+
+```lua
+local M = {
+    T = {},
+    R = {},
+    F = {},
+}
+
+M.vm = ll.vm { ... }
+-- LLPVM languages/worlds/machines/phases
+-- Moonlift products/protocols/ABI seals
+
+return M
+```
+
+Keep compatibility headers thin and Moonlift-aware:
+
+```lua
+local M = moon.require("mlui_stack")
+return { T = M.T, R = M.R, F = M.F, stack = M }
+```
+
+Do not use plain Lua `dofile` to load `.mlua` modules that contain Moonlift
+declarations.  Use `moon.require`, `moon.loadfile`, or `moon.dofile`.
+
 ## Implementation Files
 
 `<subsystem>_<machine>.mlua` imports the header and implements one semantic
@@ -223,9 +253,11 @@ constructing a typed IR value.
 Good LLPVM style:
 
 ```lua
+local moon = require "moonlift"
+
 local Expr = vm.language "Expr"
 local Node = Expr "Node"
-Node.Int = { value = ll.i64 }
+Node.Int = { value = moon.i64 }
 Node.Add = { left = Node, right = Node }
 
 local raw = Expr:world()

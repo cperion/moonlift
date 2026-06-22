@@ -100,6 +100,8 @@ function M.require(name)
         "./experiments/mwui/?/init.mlua",
         "./experiments/mlui/?.mlua",
         "./experiments/mlui/?/init.mlua",
+        "./experiments/mlui-llpvm/?.mlua",
+        "./experiments/mlui-llpvm/?/init.mlua",
         "./lua/llpvm/native/?.mlua",
         "./lua/llpvm/native/?/init.mlua",
     }) do

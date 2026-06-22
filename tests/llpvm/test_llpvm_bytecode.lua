@@ -1,5 +1,6 @@
 package.path = "./lua/?.lua;./lua/?/init.lua;" .. package.path
 
+local moon = require("moonlift")
 package.loaded["llpvm"] = nil
 package.loaded["llpvm.bytecode"] = nil
 local standalone_bytecode = require("llpvm.bytecode")
@@ -10,12 +11,12 @@ local ll = require("llpvm")
 local vm = ll.vm {}
 local Expr = vm.language "Expr"
 local ExprNode = Expr "Node"
-ExprNode.Int = { value = ll.i64 }
+ExprNode.Int = { value = moon.i64 }
 ExprNode.Add = { left = ExprNode, right = ExprNode }
 
 local Back = vm.language "Back"
 local BackValue = Back "Value"
-BackValue.ConstI64 = { value = ll.i64 }
+BackValue.ConstI64 = { value = moon.i64 }
 local expr_world = Expr:world()
 local back_world = Back:world()
 local a = expr_world.Node.Int { value = 1 }

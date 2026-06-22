@@ -188,7 +188,7 @@ phase boundary             LlPhase + LlPhaseKey
 incremental state          Recording + CacheEntry
 materialized output        LlBuffer
 diagnostics                LlDiagnostic / llpvm_status at ABI seals
-portable artifact          C blob / header / WASM-compatible ABI
+portable artifact          C blob / header; WebAssembly is downstream C compilation
 ```
 
 When the Bible says "find the VM stack", LLPVM is the standard answer for the
@@ -1162,8 +1162,9 @@ answer is LLPVM: define languages as Lua type tables with named constructors,
 project them into worlds, build streams and phases, then emit a borrowed
 bytecode image. The image still contains ABI records, but ABI is the encoded
 boundary product, not the public authoring shape. Free-form Moonlift remains the
-language for bespoke declarations; LLPVM is the canonical type-authoring surface
-for typed VM stacks.
+language for native type declarations; LLPVM consumes those Moonlift type values
+while providing the canonical operation-language, world, stream, and phase
+surface for typed VM stacks.
 
 ### Step 7 — Declare the region tree, signatures only
 

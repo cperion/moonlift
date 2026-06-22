@@ -932,12 +932,12 @@ local vm = ll.vm { cache_bytes = 64 * 1024 * 1024 }
 
 local Expr = vm.language "Expr"
 local ExprNode = Expr "Node"
-ExprNode.Int = { value = ll.i64 }
+ExprNode.Int = { value = moon.i64 }
 ExprNode.Add = { left = ExprNode, right = ExprNode }
 
 local Back = vm.language "Back"
 local BackValue = Back "Value"
-BackValue.ConstI64 = { value = ll.i64 }
+BackValue.ConstI64 = { value = moon.i64 }
 BackValue.AddI64 = {}
 
 local ExprWorld = Expr:world()
@@ -971,13 +971,13 @@ With args:
 
 ```lua
 local output_stream = lower {
-    target = "wasm32",
+    target = "native",
     opt = 3,
 } (input)
 ```
 
 Lua constructs operation schemas, worlds, op constructors, streams, and machine
-families. The native VM owns execution, buffers, cache, and diagnostics. Note
+families. The native VM owns execution, buffers, cache, and diagnostics.
 wasm is not planned yet its just an illustration.
 
 ### Implemented Lua Authoring Surface
@@ -1004,7 +1004,7 @@ local vm = ll.vm { cache_bytes = 64 * 1024 * 1024 }
 
 local Expr = vm.language "Expr"
 local Node = Expr "Node"
-Node.Int = { value = ll.i64 }
+Node.Int = { value = moon.i64 }
 Node.Add = { left = Node, right = Node }
 
 local ExprWorld = Expr:world()
@@ -1019,24 +1019,27 @@ local input = ExprWorld:seq {
 }
 ```
 
-Available type helpers:
+Available type surface:
 
-```lua
-ll.void ll.bool
-ll.i8 ll.i16 ll.i32 ll.i64
-ll.u8 ll.u16 ll.u32 ll.u64
-ll.f32 ll.f64 ll.index
-ll.handle "NodeRef"
-ll.ptr(ll.i32)
-ll.view(ll.u8)
-ll.struct "Pair" { left = ll.i32, right = ll.i32 }
+```moonlift
+local Pair = struct Pair
+    left: i32,
+    right: i32
+end
+
+Node.Pair = {
+    value = Pair,
+    bytes = moon.view(moon.u8),
+}
 ```
+
+LLPVM consumes Moonlift type values and lowers them to schema ids. It does not
+own a second scalar/struct/pointer/view syntax.
 
 Available helpers:
 
 ```lua
 ll.symbol "name"
-ll.field("value", ll.i64)
 ll.cache "full"      -- also "none", "off", "record"
 ```
 
@@ -1057,7 +1060,7 @@ Phase values are callable:
 
 ```lua
 local output = lower(input)
-local output_with_args = lower { target = "wasm32", opt = 3 } (input)
+local output_with_args = lower { target = "native", opt = 3 } (input)
 ```
 
 Stream proxies expose host-side inspection helpers for locally knowable streams:
@@ -1163,7 +1166,7 @@ literal constructors
 C backend emission
 object emission
 Cranelift execution
-WASM-friendly C output
+C output suitable for downstream toolchains
 ```
 
 If the compiler hits parser, source-span, memory, duplicate-code, or backend
@@ -1195,5 +1198,5 @@ Recordings make lazy work shareable.
 Cache entries are explicit owned products.
 Lua authors families.
 Moonlift runs them.
-C/WASM receives a tight ABI shell.
+C receives a tight ABI shell.
 ```

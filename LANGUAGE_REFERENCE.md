@@ -4688,12 +4688,13 @@ language, installs named type tables, declares constructors on those tables, and
 then constructs values through world-projected callable constructor tables:
 
 ```lua
+local moon = require "moonlift"
 local ll = require "llpvm"
 local vm = ll.vm {}
 
 local Expr = vm.language "Expr"
 local Node = Expr "Node"
-Node.Int = { value = ll.i64 }
+Node.Int = { value = moon.i64 }
 Node.Add = { left = Node, right = Node }
 
 local raw = Expr:world()
@@ -4706,7 +4707,9 @@ local stream = raw:seq { one, two, sum }
 `ll.node`, public raw reference wrappers, ABI-level op constructors, and
 `vm.seq(world)` are not part of the facade. Typed payload references are emitted
 internally when a constructor field declared as a language-local type receives a
-produced value of that type. See `LLPVM_GUIDE.md` for the complete API reference.
+produced value of that type. LLPVM does not expose its own scalar/struct type
+API; constructor schemas consume Moonlift type values. See `LLPVM_GUIDE.md` for
+the complete API reference.
 
 ---
 
