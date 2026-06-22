@@ -1,6 +1,9 @@
 # MLUI Lua API Reference
 
-Status: reference for the current `require "mlui"` authoring API.
+Status: superseded by
+[`experiments/mlui-llpvm/mlui_llpvm_stack_blueprint.md`](../mlui-llpvm/mlui_llpvm_stack_blueprint.md).
+This file is retained as a historical reference for the pre-LLPVM
+`require "mlui"` authoring API. It is not the current API contract.
 
 The Lua API is a frontend compiler surface. It builds MLUI-owned ASDL values
 from `lua/mlui/asdl.lua`, then `ui.program(root)` compiles those values into a

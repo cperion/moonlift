@@ -1,11 +1,21 @@
 # MLUI Implementation Plan
 
+Status: superseded by
+[`experiments/mlui-llpvm/mlui_llpvm_stack_blueprint.md`](../mlui-llpvm/mlui_llpvm_stack_blueprint.md).
+This plan is retained only as historical implementation input. Do not execute
+its old `lower_scene` / `solve_scene` / `interact_step` checklist as the current
+architecture. Current MLUI implementation planning must follow the semantic
+domain-world pipeline:
+`authored_ui -> expanded_ui -> valid_ui -> imported_ui -> styled_ui ->
+measured_ui -> laid_out_ui -> renderable_ui -> reported_frame ->
+handled_frame`.
+
 Audience: a code agent that may be tempted to stop at declarations, mocks,
 test-only paths, or Lua-side substitutes.  Do not do that.
 
-Goal: implement the MLUI VM as a real Moonlift kernel with a portable
-`UiProgram` bytecode frontend, explicit stores, region bodies, C/WASM ABI seals,
-and no hidden Lua-only runtime path.
+Historical goal: implement the MLUI VM as a real Moonlift kernel with a portable
+`UiProgram` bytecode frontend, explicit stores, region bodies, C ABI seals, and
+no hidden Lua-only runtime path.
 
 This plan is mechanical on purpose.  Implement every region and ABI seal in the
 order below.  Do not claim completion because a declaration test passes.

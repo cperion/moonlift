@@ -1,7 +1,7 @@
 // MoonLift host binary — Terra-style hosted runtime.
 //
-// Self-contained: embeds all Lua compiler sources so no filesystem
-// access is needed at runtime (beyond the user's .mlua file).
+// Self-contained: embeds LuaJIT bytecode for Lua compiler modules so no
+// filesystem access is needed at runtime (beyond the user's .mlua file).
 //
 //   cargo run --bin moonlift -- path/to/file.mlua
 
@@ -113,9 +113,9 @@ fn init_lua(lua: &Lua) -> mlua::Result<()> {
     // Register all embedded Lua modules so require() finds them without disk I/O.
     let package = lua.globals().get::<mlua::Table>("package")?;
     let preload = package.get::<mlua::Table>("preload")?;
-    for (name, source) in embedded_hosted_lua::embedded_modules() {
+    for (name, chunk_bytes) in embedded_hosted_lua::embedded_modules() {
         let loader = lua.create_function(move |lua, ()| {
-            let chunk = lua.load(source).set_name(name).into_function()?;
+            let chunk = lua.load(chunk_bytes).set_name(name).into_function()?;
             let result: mlua::Value = chunk.call(())?;
             Ok(result)
         })?;

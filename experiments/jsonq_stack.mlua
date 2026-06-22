@@ -1,0 +1,1915 @@
+-- jsonq_stack.mlua
+-- Canonical Moonlift/LLPVM design contract for JsonQ.
+--
+-- This file is intentionally one large, grep-shaped stack definition.
+-- It owns:
+--   * public Moonlift type forest (T)
+--   * public region protocols (R)
+--   * C/FFI ABI seals (F)
+--   * LLPVM operation languages
+--   * semantic worlds
+--   * machine/cache wiring
+--
+-- It does not contain region bodies.  Bodies live in machine files whose
+-- names match the machines declared here.  This file is the architecture.
+
+local moon = require "moonlift"
+local ll = require "llpvm"
+
+local M = {
+    T = {},
+    R = {},
+    F = {},
+    C = {},
+    L = {},
+    W = {},
+    Machine = {},
+    Phase = {},
+    Build = {},
+}
+
+local T = M.T
+local R = M.R
+local F = M.F
+local C = M.C
+
+-- --------------------------------------------------------------------------
+-- Scalar aliases and constants
+-- --------------------------------------------------------------------------
+-- Aliases are Lua-level names for schema clarity.  They are not source-level
+-- generics or erased runtime types.
+
+T.Bool32             = moon.u32
+T.Tag8               = moon.u8
+T.SmallCount         = moon.u16
+T.Reg                = moon.u16
+T.FrameSlot          = moon.u16
+T.LabelId            = moon.u32
+T.BlockId            = moon.u32
+T.SymbolId           = moon.u32
+T.PathId             = moon.u32
+T.ConstId            = moon.u32
+T.BuiltinId          = moon.u32
+T.ParamId            = moon.u32
+T.RowProfileId       = moon.u32
+T.PolicyId           = moon.u32
+T.Digest64           = moon.u64
+T.Epoch              = moon.u64
+T.ByteOffset         = moon.index
+T.ByteLen            = moon.index
+T.NodeId             = moon.u32
+T.EntryId            = moon.u32
+T.SegmentId          = moon.u32
+T.PageId             = moon.u32
+T.Score              = moon.u32
+T.JsonqStatus        = moon.i32
+T.JsonqErrorCode     = moon.u32
+T.JsonqWarningCode   = moon.u32
+T.CompareOp          = moon.u8
+T.LogicOp            = moon.u8
+T.OrderDirection     = moon.u8
+T.PathStepKind       = moon.u8
+T.Cardinality        = moon.u8
+T.ValueClass         = moon.u8
+T.ResultShape        = moon.u8
+T.ResultFormat       = moon.u8
+T.MissingPolicy      = moon.u8
+T.DuplicatePolicy    = moon.u8
+T.NumberPolicy       = moon.u8
+T.StringPolicy       = moon.u8
+T.OutputPolicy       = moon.u8
+T.IndexMode          = moon.u8
+T.IndexKeyKind       = moon.u8
+T.WalkMode           = moon.u8
+T.JoinMode           = moon.u8
+T.AggregateOp        = moon.u8
+T.SortNulls          = moon.u8
+T.SortStability      = moon.u8
+T.ScanKind           = moon.u8
+T.TempKind           = moon.u8
+T.JsonNodeKind       = moon.u8
+T.RowKeyKind         = moon.u8
+T.ValueSlotKind      = moon.u8
+T.FrameKind          = moon.u8
+T.SinkKind           = moon.u8
+T.BufferKind         = moon.u8
+T.ProgramKind        = moon.u8
+T.CollectionKind     = moon.u8
+T.EncodingKind       = moon.u8
+
+C.dialect = {
+    jsonq = 1,
+    jq_filter_subset = 2,
+    sql_json_path = 3,
+}
+
+C.value_class = {
+    unknown = 0,
+    missing = 1,
+    null = 2,
+    bool = 3,
+    number = 4,
+    string = 5,
+    array = 6,
+    object = 7,
+    row = 8,
+    stream = 9,
+}
+
+C.cardinality = {
+    zero = 0,
+    zero_or_one = 1,
+    exactly_one = 2,
+    zero_or_more = 3,
+    one_or_more = 4,
+}
+
+C.result_shape = {
+    json_values = 1,
+    json_array = 2,
+    rows = 3,
+    scalar = 4,
+    count_only = 5,
+}
+
+C.missing_policy = {
+    strict = 1,
+    optional = 2,
+    jq_null = 3,
+    sql_null = 4,
+    exists_test = 5,
+}
+
+C.duplicate_policy = {
+    preserve_all = 1,
+    first = 2,
+    last = 3,
+    reject = 4,
+}
+
+C.number_policy = {
+    preserve_text = 1,
+    exact_decimal_compare = 2,
+    i64_checked = 3,
+    f64_checked = 4,
+}
+
+C.string_policy = {
+    utf8_exact = 1,
+    utf8_normalized = 2,
+    raw_escape_preserving = 3,
+}
+
+C.index_mode = {
+    exists = 1,
+    equality = 2,
+    range = 3,
+    covering_value = 4,
+    covering_row = 5,
+}
+
+C.compare_op = {
+    eq = 1,
+    ne = 2,
+    lt = 3,
+    le = 4,
+    gt = 5,
+    ge = 6,
+    same_type = 7,
+    contains = 8,
+    starts_with = 9,
+}
+
+C.walk_mode = {
+    children = 1,
+    descendants_preorder = 2,
+    descendants_postorder = 3,
+    leaves = 4,
+}
+
+C.path_step_kind = {
+    field = 1,
+    index = 2,
+    any_child = 3,
+    recursive = 4,
+}
+
+C.program_kind = {
+    portable = 1,
+    catalog_bound = 2,
+}
+
+-- --------------------------------------------------------------------------
+-- Stable backend handles
+-- --------------------------------------------------------------------------
+-- Ref = backend-resolved durable identity.  Id = dense or external value that
+-- does not itself grant backend memory access.
+
+T.JsonqVmRef = handle JsonqVmRef : u64 invalid 0
+    domain JsonqRuntimeRegistry
+    target JsonqVm
+end
+
+T.JsonDocRef = handle JsonDocRef : u64 invalid 0
+    domain JsonStore
+    target JsonImage
+end
+
+T.JsonCollectionRef = handle JsonCollectionRef : u64 invalid 0
+    domain JsonStore
+    target JsonCollection
+end
+
+T.CatalogSnapshotRef = handle CatalogSnapshotRef : u64 invalid 0
+    domain JsonStore
+    target CatalogSnapshot
+end
+
+T.PathIndexRef = handle PathIndexRef : u64 invalid 0
+    domain JsonStore
+    target PathIndex
+end
+
+T.QueryProgramRef = handle QueryProgramRef : u64 invalid 0
+    domain JsonqVm
+    target QueryProgram
+end
+
+T.QueryImageRef = handle QueryImageRef : u64 invalid 0
+    domain JsonqVm
+    target QueryImage
+end
+
+T.QueryResultRef = handle QueryResultRef : u64 invalid 0
+    domain JsonqVm
+    target ResultCursor
+end
+
+T.JsonqBufferRef = handle JsonqBufferRef : u64 invalid 0
+    domain JsonqVm
+    target JsonqBuffer
+end
+
+T.PreparedCacheRef = handle PreparedCacheRef : u64 invalid 0
+    domain JsonqVm
+    target PreparedCacheEntry
+end
+
+-- --------------------------------------------------------------------------
+-- Generic products
+-- --------------------------------------------------------------------------
+
+T.ByteRange = struct ByteRange
+    start: index,
+    len: index,
+end
+
+T.SourceSpan = struct SourceSpan
+    source: @{T.SymbolId},
+    start: index,
+    len: index,
+    line: index,
+    column: index,
+end
+
+T.ByteViewHeader = struct ByteViewHeader
+    data: ptr(u8),
+    len: index,
+    stride: index,
+end
+
+T.ArenaHeader = struct ArenaHeader
+    data: ptr(u8),
+    used: index,
+    cap: index,
+    epoch: @{T.Epoch},
+end
+
+T.SlotHeader = struct SlotHeader
+    gen: u32,
+    live: bool,
+    next_free: u32,
+end
+
+T.PolicyBundle = struct PolicyBundle
+    dialect: u32,
+    missing_policy: @{T.MissingPolicy},
+    duplicate_policy: @{T.DuplicatePolicy},
+    number_policy: @{T.NumberPolicy},
+    string_policy: @{T.StringPolicy},
+    output_policy: @{T.OutputPolicy},
+    max_depth: index,
+    max_result_bytes: index,
+    digest: @{T.Digest64},
+end
+
+T.TargetProfile = struct TargetProfile
+    pointer_bits: u32,
+    endian: u32,
+    simd_lanes: u32,
+    cache_line_bytes: u32,
+    allow_unaligned_loads: bool,
+    wasm_safe: bool,
+    digest: @{T.Digest64},
+end
+
+T.Diagnostic = struct Diagnostic
+    code: u32,
+    severity: u8,
+    primary: @{T.SourceSpan},
+    secondary: @{T.SourceSpan},
+    note_atom: @{T.SymbolId},
+    help_atom: @{T.SymbolId},
+end
+
+T.DiagnosticBuffer = struct DiagnosticBuffer
+    items: ptr(Diagnostic),
+    count: index,
+    cap: index,
+    suppressed_count: index,
+end
+
+-- --------------------------------------------------------------------------
+-- Symbol and path products
+-- --------------------------------------------------------------------------
+
+T.SymbolEntry = struct SymbolEntry
+    hash: u64,
+    bytes_start: index,
+    bytes_len: index,
+    decoded_start: index,
+    decoded_len: index,
+end
+
+T.SymbolStore = struct SymbolStore
+    entries: ptr(SymbolEntry),
+    entry_count: index,
+    entry_cap: index,
+    bytes: ptr(u8),
+    byte_count: index,
+    byte_cap: index,
+    epoch: @{T.Epoch},
+end
+
+T.PathStep = struct PathStep
+    kind: @{T.PathStepKind},
+    key: @{T.SymbolId},
+    index_value: i64,
+    flags: u32,
+end
+
+T.PathSpec = struct PathSpec
+    first_step: index,
+    step_count: index,
+    digest: @{T.Digest64},
+end
+
+T.PathStore = struct PathStore
+    paths: ptr(PathSpec),
+    path_count: index,
+    path_cap: index,
+    steps: ptr(PathStep),
+    step_count: index,
+    step_cap: index,
+    epoch: @{T.Epoch},
+end
+
+-- --------------------------------------------------------------------------
+-- JSON image and store products
+-- --------------------------------------------------------------------------
+
+T.JsonNode = struct JsonNode
+    kind: @{T.JsonNodeKind},        -- consumed only by visit_json
+    flags: u8,
+    first: u32,                     -- first child / entry / byte offset
+    count: u32,                     -- child count or byte length
+    aux: u32,                       -- atom id, number flags, side-table id
+    span_start: u32,
+    span_len: u32,
+end
+
+T.ObjectEntry = struct ObjectEntry
+    key: @{T.SymbolId},
+    value: @{T.NodeId},
+    key_span_start: u32,
+    key_span_len: u32,
+end
+
+T.ArrayEntry = struct ArrayEntry
+    value: @{T.NodeId},
+end
+
+T.NumberSlice = struct NumberSlice
+    bytes_start: u32,
+    bytes_len: u32,
+    flags: u32,
+end
+
+T.DecodedStringSlice = struct DecodedStringSlice
+    bytes_start: u32,
+    bytes_len: u32,
+    flags: u32,
+end
+
+T.ObjectSideIndex = struct ObjectSideIndex
+    first_sorted_entry: u32,
+    count: u32,
+    build_epoch: @{T.Epoch},
+end
+
+T.JsonImage = struct JsonImage
+    nodes: ptr(JsonNode),
+    node_count: index,
+    node_cap: index,
+    object_entries: ptr(ObjectEntry),
+    object_entry_count: index,
+    object_entry_cap: index,
+    array_entries: ptr(ArrayEntry),
+    array_entry_count: index,
+    array_entry_cap: index,
+    bytes: ptr(u8),
+    byte_count: index,
+    byte_cap: index,
+    side_indexes: ptr(ObjectSideIndex),
+    side_index_count: index,
+    side_index_cap: index,
+    root: @{T.NodeId},
+    image_epoch: @{T.Epoch},
+    policy_digest: @{T.Digest64},
+end
+
+T.JsonValueAddr = struct JsonValueAddr
+    doc: JsonDocRef,
+    node: @{T.NodeId},
+end
+
+T.JsonDocSlot = struct JsonDocSlot
+    slot: @{T.SlotHeader},
+    image: JsonImage,
+    source_name: @{T.SymbolId},
+    loaded_epoch: @{T.Epoch},
+end
+
+T.JsonCollection = struct JsonCollection
+    kind: @{T.CollectionKind},
+    docs: ptr(JsonDocRef),
+    doc_count: index,
+    doc_cap: index,
+    collection_epoch: @{T.Epoch},
+    policy_digest: @{T.Digest64},
+end
+
+T.JsonCollectionSlot = struct JsonCollectionSlot
+    slot: @{T.SlotHeader},
+    collection: JsonCollection,
+end
+
+-- --------------------------------------------------------------------------
+-- Index products
+-- --------------------------------------------------------------------------
+
+T.IndexKey = struct IndexKey
+    kind: @{T.IndexKeyKind},        -- consumed only by compare_index_key
+    flags: u8,
+    bool_value: bool,
+    i64_value: i64,
+    f64_value: f64,
+    atom: @{T.SymbolId},
+    bytes_start: u32,
+    bytes_len: u32,
+end
+
+T.IndexEntry = struct IndexEntry
+    key: IndexKey,
+    doc: JsonDocRef,
+    node: @{T.NodeId},
+    ordinal: u64,
+end
+
+T.IndexSegment = struct IndexSegment
+    segment_id: @{T.SegmentId},
+    entries: ptr(IndexEntry),
+    entry_count: index,
+    entry_cap: index,
+    min_key: IndexKey,
+    max_key: IndexKey,
+    source_epoch: @{T.Epoch},
+    live: bool,
+end
+
+T.PathIndex = struct PathIndex
+    path: @{T.PathId},
+    mode: @{T.IndexMode},
+    duplicate_policy: @{T.DuplicatePolicy},
+    number_policy: @{T.NumberPolicy},
+    string_policy: @{T.StringPolicy},
+    collection: JsonCollectionRef,
+    collection_epoch: @{T.Epoch},
+    segments: ptr(IndexSegment),
+    segment_count: index,
+    segment_cap: index,
+    index_epoch: @{T.Epoch},
+    digest: @{T.Digest64},
+end
+
+T.PathIndexSlot = struct PathIndexSlot
+    slot: @{T.SlotHeader},
+    index: PathIndex,
+end
+
+T.IndexCatalog = struct IndexCatalog
+    indexes: ptr(PathIndexSlot),
+    index_count: index,
+    index_cap: index,
+    free_head: u32,
+    catalog_epoch: @{T.Epoch},
+end
+
+T.CatalogIndexFact = struct CatalogIndexFact
+    index: PathIndexRef,
+    path: @{T.PathId},
+    mode: @{T.IndexMode},
+    collection_epoch: @{T.Epoch},
+    index_epoch: @{T.Epoch},
+    policy_digest: @{T.Digest64},
+    estimated_rows: u64,
+    selectivity_score: @{T.Score},
+end
+
+T.CatalogSnapshot = struct CatalogSnapshot
+    collection: JsonCollectionRef,
+    collection_epoch: @{T.Epoch},
+    catalog_epoch: @{T.Epoch},
+    policy_digest: @{T.Digest64},
+    facts: ptr(CatalogIndexFact),
+    fact_count: index,
+    fact_cap: index,
+    digest: @{T.Digest64},
+end
+
+T.CatalogSnapshotSlot = struct CatalogSnapshotSlot
+    slot: @{T.SlotHeader},
+    snapshot: CatalogSnapshot,
+end
+
+T.JsonStore = struct JsonStore
+    docs: ptr(JsonDocSlot),
+    doc_count: index,
+    doc_cap: index,
+    doc_free_head: u32,
+    collections: ptr(JsonCollectionSlot),
+    collection_count: index,
+    collection_cap: index,
+    collection_free_head: u32,
+    snapshots: ptr(CatalogSnapshotSlot),
+    snapshot_count: index,
+    snapshot_cap: index,
+    snapshot_free_head: u32,
+    symbols: SymbolStore,
+    paths: PathStore,
+    indexes: IndexCatalog,
+    store_epoch: @{T.Epoch},
+end
+
+-- --------------------------------------------------------------------------
+-- Query runtime products
+-- --------------------------------------------------------------------------
+
+T.QueryImage = struct QueryImage
+    bytes: ptr(u8),
+    byte_count: index,
+    root_stream_id: u32,
+    root_op_count: u32,
+    image_version: u32,
+    digest: @{T.Digest64},
+end
+
+T.ProgramGuard = struct ProgramGuard
+    kind: u8,
+    ref_raw: u64,
+    required_epoch: @{T.Epoch},
+    required_digest: @{T.Digest64},
+end
+
+T.InstructionBlock = struct InstructionBlock
+    first_instr: u32,
+    instr_count: u32,
+    first_const: u32,
+    const_count: u32,
+end
+
+T.QueryProgram = struct QueryProgram
+    kind: @{T.ProgramKind},
+    image: QueryImageRef,
+    block: InstructionBlock,
+    register_count: u32,
+    frame_count: u32,
+    temp_count: u32,
+    result_shape: @{T.ResultShape},
+    row_profile: @{T.RowProfileId},
+    policy_digest: @{T.Digest64},
+    target_digest: @{T.Digest64},
+    guards: ptr(ProgramGuard),
+    guard_count: index,
+    program_epoch: @{T.Epoch},
+end
+
+T.QueryProgramSlot = struct QueryProgramSlot
+    slot: @{T.SlotHeader},
+    program: QueryProgram,
+end
+
+T.TempValue = struct TempValue
+    kind: @{T.TempKind},
+    node: @{T.NodeId},
+    bytes_start: u32,
+    bytes_len: u32,
+    aux: u64,
+end
+
+T.ValueSlot = struct ValueSlot
+    kind: @{T.ValueSlotKind},       -- consumed only by visit_value_slot
+    doc: JsonDocRef,
+    node: @{T.NodeId},
+    temp: u32,
+    bool_value: bool,
+    i64_value: i64,
+    f64_value: f64,
+end
+
+T.QueryFrame = struct QueryFrame
+    kind: @{T.FrameKind},           -- consumed only by visit_frame
+    pc: u32,
+    image: ptr(JsonImage),
+    doc: JsonDocRef,
+    source: @{T.NodeId},
+    next_index: index,
+    end_index: index,
+    dst: @{T.Reg},
+    aux: u64,
+end
+
+T.RowKey = struct RowKey
+    kind: @{T.RowKeyKind},
+    atom: @{T.SymbolId},
+    index_value: i64,
+end
+
+T.ScalarAtom = struct ScalarAtom
+    value_class: @{T.ValueClass},
+    bool_value: bool,
+    i64_value: i64,
+    f64_value: f64,
+    atom: @{T.SymbolId},
+    bytes_start: u32,
+    bytes_len: u32,
+end
+
+T.JsonTreeRow = struct JsonTreeRow
+    doc: JsonDocRef,
+    value: @{T.NodeId},
+    parent: @{T.NodeId},
+    id: u64,
+    parent_id: u64,
+    key: RowKey,
+    path: @{T.PathId},
+    value_class: @{T.ValueClass},
+    atom: ScalarAtom,
+    depth: u32,
+    ordinal: u64,
+end
+
+T.RowProfileField = struct RowProfileField
+    name: @{T.SymbolId},
+    value_class: @{T.ValueClass},
+    nullable: bool,
+    path: @{T.PathId},
+end
+
+T.RowProfile = struct RowProfile
+    id: @{T.RowProfileId},
+    fields: ptr(RowProfileField),
+    field_count: index,
+    field_cap: index,
+    digest: @{T.Digest64},
+end
+
+T.JsonqBuffer = struct JsonqBuffer
+    kind: @{T.BufferKind},
+    data: ptr(u8),
+    len: index,
+    cap: index,
+    owner_epoch: @{T.Epoch},
+end
+
+T.ResultSink = struct ResultSink
+    kind: @{T.SinkKind},
+    shape: @{T.ResultShape},
+    format: @{T.ResultFormat},
+    row_profile: @{T.RowProfileId},
+    buffer: ptr(JsonqBuffer),
+    emitted_count: index,
+    byte_count: index,
+end
+
+T.ResultCursor = struct ResultCursor
+    program: QueryProgramRef,
+    collection: JsonCollectionRef,
+    doc: JsonDocRef,
+    sink: ResultSink,
+    next_result: index,
+    completed: bool,
+    result_epoch: @{T.Epoch},
+end
+
+T.ResultSlot = struct ResultSlot
+    slot: @{T.SlotHeader},
+    cursor: ResultCursor,
+end
+
+T.QueryScratch = struct QueryScratch
+    arena: ArenaHeader,
+    temps: ptr(TempValue),
+    temp_count: index,
+    temp_cap: index,
+end
+
+T.PreparedCacheKey = struct PreparedCacheKey
+    source_digest: @{T.Digest64},
+    policy_digest: @{T.Digest64},
+    catalog_digest: @{T.Digest64},
+    target_digest: @{T.Digest64},
+end
+
+T.PreparedCacheEntry = struct PreparedCacheEntry
+    key: PreparedCacheKey,
+    program: QueryProgramRef,
+    last_used_epoch: @{T.Epoch},
+    use_count: u64,
+end
+
+T.ProgramStore = struct ProgramStore
+    programs: ptr(QueryProgramSlot),
+    program_count: index,
+    program_cap: index,
+    program_free_head: u32,
+    results: ptr(ResultSlot),
+    result_count: index,
+    result_cap: index,
+    result_free_head: u32,
+    cache_entries: ptr(PreparedCacheEntry),
+    cache_count: index,
+    cache_cap: index,
+    program_epoch: @{T.Epoch},
+end
+
+T.JsonqVm = struct JsonqVm
+    json: JsonStore,
+    programs: ProgramStore,
+    diagnostics: DiagnosticBuffer,
+    scratch: QueryScratch,
+    default_policy: PolicyBundle,
+    target: TargetProfile,
+    vm_epoch: @{T.Epoch},
+end
+
+T.JsonqVmSlot = struct JsonqVmSlot
+    slot: @{T.SlotHeader},
+    vm: JsonqVm,
+end
+
+T.JsonqRuntimeRegistry = struct JsonqRuntimeRegistry
+    vms: ptr(JsonqVmSlot),
+    vm_count: index,
+    vm_cap: index,
+    vm_free_head: u32,
+    registry_epoch: @{T.Epoch},
+end
+
+-- --------------------------------------------------------------------------
+-- ABI request/option products
+-- --------------------------------------------------------------------------
+
+T.JsonqConfig = struct JsonqConfig
+    cache_bytes: index,
+    scratch_bytes: index,
+    max_depth: index,
+    max_result_bytes: index,
+    flags: u64,
+end
+
+T.JsonqParseOptions = struct JsonqParseOptions
+    policy: PolicyBundle,
+    source_name: @{T.SymbolId},
+    borrowed_input: bool,
+    collection_mode: @{T.CollectionKind},
+end
+
+T.JsonqPrepareOptions = struct JsonqPrepareOptions
+    policy: PolicyBundle,
+    target: TargetProfile,
+    result_shape: @{T.ResultShape},
+    row_profile: @{T.RowProfileId},
+end
+
+T.JsonqPlanOptions = struct JsonqPlanOptions
+    policy: PolicyBundle,
+    target: TargetProfile,
+    collection: JsonCollectionRef,
+    snapshot: CatalogSnapshotRef,
+    result_shape: @{T.ResultShape},
+end
+
+T.JsonqExecOptions = struct JsonqExecOptions
+    policy: PolicyBundle,
+    result_shape: @{T.ResultShape},
+    result_format: @{T.ResultFormat},
+    row_profile: @{T.RowProfileId},
+    max_result_bytes: index,
+end
+
+T.JsonqReport = struct JsonqReport
+    vm_epoch: @{T.Epoch},
+    store_epoch: @{T.Epoch},
+    program_epoch: @{T.Epoch},
+    live_docs: index,
+    live_collections: index,
+    live_indexes: index,
+    live_programs: index,
+    live_results: index,
+    diagnostic_count: index,
+    cache_entries: index,
+    bytes_owned: index,
+end
+
+-- --------------------------------------------------------------------------
+-- Access and memory protocols
+-- --------------------------------------------------------------------------
+
+R.borrow_vm = region borrow_vm(readonly registry: ptr(JsonqRuntimeRegistry), vm: JsonqVmRef;
+    borrowed(vm: lease(registry) ptr(JsonqVm))
+  | stale(vm: JsonqVmRef)
+  | missing(vm: JsonqVmRef)) end
+
+R.close_vm = region close_vm(invalidate registry: ptr(JsonqRuntimeRegistry), vm: owned JsonqVmRef;
+    closed
+  | stale(vm: owned JsonqVmRef)
+  | missing(vm: owned JsonqVmRef)) end
+
+R.borrow_doc = region borrow_doc(readonly store: ptr(JsonStore), doc: JsonDocRef;
+    borrowed(image: lease(store) ptr(JsonImage))
+  | stale(doc: JsonDocRef)
+  | missing(doc: JsonDocRef)) end
+
+R.borrow_collection = region borrow_collection(readonly store: ptr(JsonStore), collection: JsonCollectionRef;
+    borrowed(collection: lease(store) ptr(JsonCollection))
+  | stale(collection: JsonCollectionRef)
+  | missing(collection: JsonCollectionRef)) end
+
+R.borrow_catalog_snapshot = region borrow_catalog_snapshot(readonly store: ptr(JsonStore), snapshot: CatalogSnapshotRef;
+    borrowed(snapshot: lease(store) ptr(CatalogSnapshot))
+  | stale(snapshot: CatalogSnapshotRef)
+  | missing(snapshot: CatalogSnapshotRef)) end
+
+R.borrow_path_index = region borrow_path_index(readonly store: ptr(JsonStore), index: PathIndexRef;
+    borrowed(index: lease(store) ptr(PathIndex))
+  | stale(index: PathIndexRef)
+  | missing(index: PathIndexRef)
+  | wrong_collection(index: PathIndexRef, collection: JsonCollectionRef)) end
+
+R.borrow_program = region borrow_program(readonly vm: ptr(JsonqVm), program: QueryProgramRef;
+    borrowed(program: lease(vm) ptr(QueryProgram))
+  | stale(program: QueryProgramRef)
+  | missing(program: QueryProgramRef)) end
+
+R.borrow_result = region borrow_result(readonly vm: ptr(JsonqVm), result: QueryResultRef;
+    borrowed(result: lease(vm) ptr(ResultCursor))
+  | stale(result: QueryResultRef)
+  | missing(result: QueryResultRef)) end
+
+R.borrow_buffer = region borrow_buffer(readonly vm: ptr(JsonqVm), buffer: JsonqBufferRef;
+    borrowed(buffer: lease(vm) ptr(JsonqBuffer))
+  | stale(buffer: JsonqBufferRef)
+  | missing(buffer: JsonqBufferRef)) end
+
+R.reset_scratch = region reset_scratch(preserve vm: ptr(JsonqVm), needed: index;
+    reset(scratch: lease(vm) ptr(QueryScratch))
+  | too_large(needed: index)
+  | oom(needed: index)) end
+
+R.retire_doc = region retire_doc(invalidate store: ptr(JsonStore), doc: owned JsonDocRef;
+    retired
+  | stale(doc: owned JsonDocRef)
+  | missing(doc: owned JsonDocRef)) end
+
+R.retire_collection = region retire_collection(invalidate store: ptr(JsonStore), collection: owned JsonCollectionRef;
+    retired
+  | stale(collection: owned JsonCollectionRef)
+  | missing(collection: owned JsonCollectionRef)) end
+
+R.retire_path_index = region retire_path_index(invalidate store: ptr(JsonStore), index: owned PathIndexRef;
+    retired
+  | stale(index: owned PathIndexRef)
+  | missing(index: owned PathIndexRef)) end
+
+R.retire_program = region retire_program(invalidate vm: ptr(JsonqVm), program: owned QueryProgramRef;
+    retired
+  | stale(program: owned QueryProgramRef)
+  | missing(program: owned QueryProgramRef)) end
+
+-- --------------------------------------------------------------------------
+-- JSON image protocols
+-- --------------------------------------------------------------------------
+
+R.parse_json_document = region parse_json_document(
+    readonly input: view(u8),
+    preserve store: ptr(JsonStore),
+    policy: PolicyBundle;
+    loaded(doc: JsonDocRef)
+  | syntax(pos: index, code: u32)
+  | truncated(pos: index)
+  | depth_exceeded(pos: index, depth: index)
+  | invalid_utf8(pos: index)
+  | invalid_escape(pos: index)
+  | duplicate_key(pos: index, key: @{T.SymbolId})
+  | oom(needed: index)) end
+
+R.parse_json_collection = region parse_json_collection(
+    readonly input: view(u8),
+    preserve store: ptr(JsonStore),
+    policy: PolicyBundle;
+    loaded(collection: JsonCollectionRef)
+  | syntax(pos: index, code: u32)
+  | truncated(pos: index)
+  | depth_exceeded(pos: index, depth: index)
+  | invalid_utf8(pos: index)
+  | invalid_escape(pos: index)
+  | duplicate_key(pos: index, key: @{T.SymbolId})
+  | oom(needed: index)) end
+
+R.borrow_node = region borrow_node(readonly image: ptr(JsonImage), node: @{T.NodeId};
+    borrowed(node: lease(image) ptr(JsonNode))
+  | missing(node: @{T.NodeId})) end
+
+R.visit_json = region visit_json(readonly image: ptr(JsonImage), node: @{T.NodeId};
+    null
+  | bool_value(value: bool)
+  | number(bytes_start: index, bytes_len: index, flags: u32)
+  | string_value(bytes_start: index, bytes_len: index, flags: u32)
+  | array(first: index, count: index)
+  | object(first: index, count: index)
+  | invalid(node: @{T.NodeId})) end
+
+R.lookup_field = region lookup_field(
+    readonly image: ptr(JsonImage),
+    object: @{T.NodeId},
+    key: @{T.SymbolId},
+    policy: @{T.MissingPolicy};
+    found(value: @{T.NodeId})
+  | missing(key: @{T.SymbolId})
+  | duplicate(first: @{T.NodeId}, last: @{T.NodeId}, count: index)
+  | not_object(value: @{T.NodeId})
+  | invalid(value: @{T.NodeId})) end
+
+R.array_get = region array_get(readonly image: ptr(JsonImage), array: @{T.NodeId}, index_value: i64;
+    found(value: @{T.NodeId})
+  | out_of_range(index_value: i64)
+  | not_array(value: @{T.NodeId})
+  | invalid(value: @{T.NodeId})) end
+
+R.each_child = region each_child(readonly image: ptr(JsonImage), value: @{T.NodeId}, ordinal: index;
+    child(key: RowKey, value: @{T.NodeId}, next: index)
+  | done
+  | not_container(value: @{T.NodeId})
+  | invalid(value: @{T.NodeId})) end
+
+R.tree_step = region tree_step(readonly image: ptr(JsonImage), frame: ptr(QueryFrame), mode: @{T.WalkMode};
+    row(row: JsonTreeRow)
+  | descend(frame: QueryFrame)
+  | ascend(frame: QueryFrame)
+  | done
+  | invalid(value: @{T.NodeId})) end
+
+R.compare_json_number = region compare_json_number(
+    readonly a_image: ptr(JsonImage), a: NumberSlice,
+    readonly b_image: ptr(JsonImage), b: NumberSlice,
+    policy: @{T.NumberPolicy};
+    less
+  | equal
+  | greater
+  | invalid_number(pos: index)
+  | unsupported_precision) end
+
+R.compare_json_scalar = region compare_json_scalar(
+    readonly left_image: ptr(JsonImage), left: @{T.NodeId},
+    readonly right_image: ptr(JsonImage), right: @{T.NodeId},
+    op: @{T.CompareOp},
+    policy: PolicyBundle;
+    true_value
+  | false_value
+  | incomparable(left_class: @{T.ValueClass}, right_class: @{T.ValueClass})
+  | invalid(value: @{T.NodeId})) end
+
+R.encode_json_value = region encode_json_value(
+    readonly image: ptr(JsonImage),
+    value: @{T.NodeId},
+    preserve sink: ptr(ResultSink),
+    policy: PolicyBundle;
+    emitted
+  | unsupported_value(value: @{T.NodeId})
+  | depth_exceeded(depth: index)
+  | oom(needed: index)) end
+
+-- --------------------------------------------------------------------------
+-- Catalog and index protocols
+-- --------------------------------------------------------------------------
+
+R.snapshot_catalog = region snapshot_catalog(
+    preserve store: ptr(JsonStore),
+    collection: JsonCollectionRef,
+    policy: PolicyBundle;
+    snapshotted(snapshot: CatalogSnapshotRef)
+  | stale_collection(collection: JsonCollectionRef)
+  | missing_collection(collection: JsonCollectionRef)
+  | oom(needed: index)) end
+
+R.publish_path_index = region publish_path_index(
+    preserve store: ptr(JsonStore),
+    collection: JsonCollectionRef,
+    path: @{T.PathId},
+    mode: @{T.IndexMode},
+    policy: PolicyBundle;
+    published(index: PathIndexRef)
+  | stale_collection(collection: JsonCollectionRef)
+  | missing_collection(collection: JsonCollectionRef)
+  | unsupported_path(path: @{T.PathId})
+  | unsupported_key(kind: @{T.IndexKeyKind})
+  | oom(needed: index)) end
+
+R.scan_index_eq = region scan_index_eq(
+    readonly index: ptr(PathIndex),
+    key: IndexKey,
+    ordinal: index;
+    hit(doc: JsonDocRef, value: @{T.NodeId}, next: index)
+  | empty
+  | done
+  | bad_key(kind: @{T.IndexKeyKind})) end
+
+R.scan_index_range = region scan_index_range(
+    readonly index: ptr(PathIndex),
+    low: IndexKey,
+    high: IndexKey,
+    ordinal: index;
+    hit(doc: JsonDocRef, value: @{T.NodeId}, next: index)
+  | empty
+  | done
+  | bad_key(kind: @{T.IndexKeyKind})) end
+
+R.compare_index_key = region compare_index_key(left: IndexKey, right: IndexKey, policy: PolicyBundle;
+    less
+  | equal
+  | greater
+  | incomparable(left_kind: @{T.IndexKeyKind}, right_kind: @{T.IndexKeyKind})) end
+
+-- --------------------------------------------------------------------------
+-- Query image and execution protocols
+-- --------------------------------------------------------------------------
+
+R.import_query_image = region import_query_image(
+    preserve vm: ptr(JsonqVm),
+    readonly bytes: view(u8);
+    imported(image: QueryImageRef)
+  | bad_magic
+  | bad_version(version: u32)
+  | bad_record(offset: index, code: u32)
+  | oom(needed: index)) end
+
+R.load_query_program = region load_query_program(
+    preserve vm: ptr(JsonqVm),
+    image: QueryImageRef,
+    policy: PolicyBundle;
+    loaded(program: QueryProgramRef)
+  | bad_image(image: QueryImageRef)
+  | bad_program(code: u32)
+  | policy_mismatch(expected: @{T.Digest64}, actual: @{T.Digest64})
+  | oom(needed: index)) end
+
+R.validate_program_guards = region validate_program_guards(
+    readonly vm: ptr(JsonqVm),
+    readonly program: ptr(QueryProgram),
+    collection: JsonCollectionRef;
+    valid
+  | stale_catalog(have: @{T.Epoch}, need: @{T.Epoch})
+  | stale_index(index: PathIndexRef, have: @{T.Epoch}, need: @{T.Epoch})
+  | policy_mismatch(expected: @{T.Digest64}, actual: @{T.Digest64})
+  | wrong_collection(collection: JsonCollectionRef)) end
+
+R.execute_program = region execute_program(
+    preserve vm: ptr(JsonqVm),
+    program: QueryProgramRef,
+    collection: JsonCollectionRef,
+    options: JsonqExecOptions;
+    completed(result: QueryResultRef, count: index)
+  | yielded(result: QueryResultRef, count: index)
+  | stale_program(program: QueryProgramRef)
+  | stale_catalog(have: @{T.Epoch}, need: @{T.Epoch})
+  | stale_doc(doc: JsonDocRef)
+  | bad_program(code: u32, pc: u32)
+  | query_error(code: u32, pc: u32)
+  | oom(needed: index)) end
+
+R.execute_instruction = region execute_instruction(
+    preserve vm: ptr(JsonqVm),
+    preserve frame: ptr(QueryFrame),
+    pc: u32;
+    advanced(next: u32)
+  | yielded(next: u32)
+  | stopped
+  | failed(code: u32, pc: u32)
+  | oom(needed: index)) end
+
+R.emit_json = region emit_json(
+    preserve sink: ptr(ResultSink),
+    readonly image: ptr(JsonImage),
+    value: @{T.NodeId};
+    emitted
+  | unsupported_value(value: @{T.NodeId})
+  | oom(needed: index)) end
+
+R.emit_row = region emit_row(preserve sink: ptr(ResultSink), row: JsonTreeRow;
+    emitted
+  | row_profile_mismatch(expected: @{T.RowProfileId})
+  | oom(needed: index)) end
+
+R.drain_result = region drain_result(
+    preserve vm: ptr(JsonqVm),
+    result: QueryResultRef;
+    drained(buffer: JsonqBufferRef, completed: bool)
+  | empty(completed: bool)
+  | stale_result(result: QueryResultRef)
+  | missing_result(result: QueryResultRef)
+  | oom(needed: index)) end
+
+-- --------------------------------------------------------------------------
+-- C / FFI ABI seals
+-- --------------------------------------------------------------------------
+
+F.jsonq_open = extern jsonq_open(
+    config: readonly ptr(JsonqConfig),
+    out_vm: ptr(JsonqVmRef)
+): i32 as "jsonq_open" end
+
+F.jsonq_close = extern jsonq_close(
+    vm: owned JsonqVmRef
+): i32 as "jsonq_close" end
+
+F.jsonq_load_json = extern jsonq_load_json(
+    vm: JsonqVmRef,
+    bytes: readonly view(u8),
+    options: readonly ptr(JsonqParseOptions),
+    out_doc: ptr(JsonDocRef)
+): i32 as "jsonq_load_json" end
+
+F.jsonq_load_collection = extern jsonq_load_collection(
+    vm: JsonqVmRef,
+    bytes: readonly view(u8),
+    options: readonly ptr(JsonqParseOptions),
+    out_collection: ptr(JsonCollectionRef)
+): i32 as "jsonq_load_collection" end
+
+F.jsonq_snapshot_catalog = extern jsonq_snapshot_catalog(
+    vm: JsonqVmRef,
+    collection: JsonCollectionRef,
+    out_snapshot: ptr(CatalogSnapshotRef)
+): i32 as "jsonq_snapshot_catalog" end
+
+F.jsonq_create_path_index = extern jsonq_create_path_index(
+    vm: JsonqVmRef,
+    collection: JsonCollectionRef,
+    path_bytes: readonly view(u8),
+    mode: @{T.IndexMode},
+    options: readonly ptr(JsonqPlanOptions),
+    out_index: ptr(PathIndexRef)
+): i32 as "jsonq_create_path_index" end
+
+F.jsonq_compile = extern jsonq_compile(
+    vm: JsonqVmRef,
+    query_bytes: readonly view(u8),
+    options: readonly ptr(JsonqPrepareOptions),
+    out_image: ptr(QueryImageRef)
+): i32 as "jsonq_compile" end
+
+F.jsonq_plan = extern jsonq_plan(
+    vm: JsonqVmRef,
+    query_image: QueryImageRef,
+    options: readonly ptr(JsonqPlanOptions),
+    out_program: ptr(QueryProgramRef)
+): i32 as "jsonq_plan" end
+
+F.jsonq_execute = extern jsonq_execute(
+    vm: JsonqVmRef,
+    program: QueryProgramRef,
+    collection: JsonCollectionRef,
+    options: readonly ptr(JsonqExecOptions),
+    out_result: ptr(QueryResultRef)
+): i32 as "jsonq_execute" end
+
+F.jsonq_drain = extern jsonq_drain(
+    vm: JsonqVmRef,
+    result: QueryResultRef,
+    out_buffer: ptr(JsonqBufferRef)
+): i32 as "jsonq_drain" end
+
+F.jsonq_buffer_view = extern jsonq_buffer_view(
+    vm: JsonqVmRef,
+    buffer: JsonqBufferRef,
+    out_view: ptr(ByteViewHeader)
+): i32 as "jsonq_buffer_view" end
+
+F.jsonq_release_buffer = extern jsonq_release_buffer(
+    vm: JsonqVmRef,
+    buffer: owned JsonqBufferRef
+): i32 as "jsonq_release_buffer" end
+
+F.jsonq_report = extern jsonq_report(
+    vm: JsonqVmRef,
+    out_report: ptr(JsonqReport)
+): i32 as "jsonq_report" end
+
+-- --------------------------------------------------------------------------
+-- LLPVM operation languages
+-- --------------------------------------------------------------------------
+
+M.vm = ll.vm {
+    cache_bytes = 64 * 1024 * 1024,
+}
+
+local vm = M.vm
+
+-- Query source language -----------------------------------------------------
+local QuerySource = vm.language "JsonqQuerySource"
+M.L.QuerySource = QuerySource
+
+local SourceRoot = QuerySource "Root"
+local SourceUnit = QuerySource "Unit"
+local SourceOptions = QuerySource "Options"
+
+SourceUnit.Text = {
+    bytes = moon.view(moon.u8),
+    source_name = T.SymbolId,
+    query_epoch = T.Epoch,
+}
+
+SourceOptions.Policy = {
+    dialect = moon.u32,
+    missing_policy = T.MissingPolicy,
+    duplicate_policy = T.DuplicatePolicy,
+    number_policy = T.NumberPolicy,
+    string_policy = T.StringPolicy,
+    output_policy = T.OutputPolicy,
+    max_depth = moon.index,
+    result_shape = T.ResultShape,
+}
+
+SourceRoot.Query = {
+    source = SourceUnit,
+    options = SourceOptions,
+}
+
+SourceRoot.PathOnly = {
+    source = SourceUnit,
+    options = SourceOptions,
+}
+
+-- Parsed syntax language ----------------------------------------------------
+local QuerySyntax = vm.language "JsonqQuerySyntax"
+M.L.QuerySyntax = QuerySyntax
+
+local SyntaxRoot = QuerySyntax "Root"
+local SyntaxExpr = QuerySyntax "Expr"
+local SyntaxExprList = QuerySyntax "ExprList"
+local SyntaxArg = QuerySyntax "Arg"
+local SyntaxArgList = QuerySyntax "ArgList"
+local SyntaxObjectField = QuerySyntax "ObjectField"
+local SyntaxObjectFieldList = QuerySyntax "ObjectFieldList"
+local SyntaxPathStep = QuerySyntax "PathStep"
+local SyntaxPathStepList = QuerySyntax "PathStepList"
+local SyntaxOrderKey = QuerySyntax "OrderKey"
+local SyntaxOrderKeyList = QuerySyntax "OrderKeyList"
+local SyntaxBinding = QuerySyntax "Binding"
+local SyntaxBindingList = QuerySyntax "BindingList"
+
+SyntaxExprList.Nil = {}
+SyntaxExprList.Cons = { head = SyntaxExpr, tail = SyntaxExprList }
+
+SyntaxArg.Named = { name = T.SymbolId, value = SyntaxExpr, span = T.SourceSpan }
+SyntaxArg.Positional = { value = SyntaxExpr, span = T.SourceSpan }
+SyntaxArgList.Nil = {}
+SyntaxArgList.Cons = { head = SyntaxArg, tail = SyntaxArgList }
+
+SyntaxObjectField.Value = { key = T.SymbolId, value = SyntaxExpr, span = T.SourceSpan }
+SyntaxObjectField.Dynamic = { key = SyntaxExpr, value = SyntaxExpr, span = T.SourceSpan }
+SyntaxObjectField.Shorthand = { key = T.SymbolId, span = T.SourceSpan }
+SyntaxObjectFieldList.Nil = {}
+SyntaxObjectFieldList.Cons = { head = SyntaxObjectField, tail = SyntaxObjectFieldList }
+
+SyntaxPathStep.Field = { key = T.SymbolId, optional = moon.bool, span = T.SourceSpan }
+SyntaxPathStep.Index = { index = moon.i64, optional = moon.bool, span = T.SourceSpan }
+SyntaxPathStep.AnyChild = { optional = moon.bool, span = T.SourceSpan }
+SyntaxPathStep.Recursive = { span = T.SourceSpan }
+SyntaxPathStepList.Nil = {}
+SyntaxPathStepList.Cons = { head = SyntaxPathStep, tail = SyntaxPathStepList }
+
+SyntaxOrderKey.Key = {
+    expr = SyntaxExpr,
+    direction = T.OrderDirection,
+    nulls = T.SortNulls,
+    span = T.SourceSpan,
+}
+SyntaxOrderKeyList.Nil = {}
+SyntaxOrderKeyList.Cons = { head = SyntaxOrderKey, tail = SyntaxOrderKeyList }
+
+SyntaxBinding.Bind = { name = T.SymbolId, value = SyntaxExpr, span = T.SourceSpan }
+SyntaxBindingList.Nil = {}
+SyntaxBindingList.Cons = { head = SyntaxBinding, tail = SyntaxBindingList }
+
+SyntaxExpr.Identity = { span = T.SourceSpan }
+SyntaxExpr.RootValue = { span = T.SourceSpan }
+SyntaxExpr.Param = { name = T.SymbolId, span = T.SourceSpan }
+SyntaxExpr.Var = { name = T.SymbolId, span = T.SourceSpan }
+SyntaxExpr.LiteralNull = { span = T.SourceSpan }
+SyntaxExpr.LiteralBool = { value = moon.bool, span = T.SourceSpan }
+SyntaxExpr.LiteralNumber = { bytes = moon.view(moon.u8), span = T.SourceSpan }
+SyntaxExpr.LiteralString = { atom = T.SymbolId, span = T.SourceSpan }
+SyntaxExpr.Path = { base = SyntaxExpr, steps = SyntaxPathStepList, span = T.SourceSpan }
+SyntaxExpr.Field = { base = SyntaxExpr, key = T.SymbolId, optional = moon.bool, span = T.SourceSpan }
+SyntaxExpr.Index = { base = SyntaxExpr, index = moon.i64, optional = moon.bool, span = T.SourceSpan }
+SyntaxExpr.Iter = { base = SyntaxExpr, optional = moon.bool, span = T.SourceSpan }
+SyntaxExpr.Pipe = { left = SyntaxExpr, right = SyntaxExpr, span = T.SourceSpan }
+SyntaxExpr.Fanout = { left = SyntaxExpr, right = SyntaxExpr, span = T.SourceSpan }
+SyntaxExpr.Select = { input = SyntaxExpr, pred = SyntaxExpr, span = T.SourceSpan }
+SyntaxExpr.Compare = { op = T.CompareOp, left = SyntaxExpr, right = SyntaxExpr, span = T.SourceSpan }
+SyntaxExpr.Logic = { op = T.LogicOp, left = SyntaxExpr, right = SyntaxExpr, span = T.SourceSpan }
+SyntaxExpr.Not = { value = SyntaxExpr, span = T.SourceSpan }
+SyntaxExpr.Object = { fields = SyntaxObjectFieldList, span = T.SourceSpan }
+SyntaxExpr.Array = { values = SyntaxExprList, span = T.SourceSpan }
+SyntaxExpr.Collect = { value = SyntaxExpr, span = T.SourceSpan }
+SyntaxExpr.Call = { callee = T.SymbolId, args = SyntaxArgList, span = T.SourceSpan }
+SyntaxExpr.Let = { bindings = SyntaxBindingList, body = SyntaxExpr, span = T.SourceSpan }
+SyntaxExpr.EachRow = { base = SyntaxExpr, path = SyntaxPathStepList, span = T.SourceSpan }
+SyntaxExpr.TreeRow = { base = SyntaxExpr, path = SyntaxPathStepList, mode = T.WalkMode, span = T.SourceSpan }
+SyntaxExpr.Aggregate = { op = T.AggregateOp, value = SyntaxExpr, span = T.SourceSpan }
+SyntaxExpr.Sort = { input = SyntaxExpr, keys = SyntaxOrderKeyList, stability = T.SortStability, span = T.SourceSpan }
+SyntaxExpr.Limit = { input = SyntaxExpr, offset = SyntaxExpr, count = SyntaxExpr, span = T.SourceSpan }
+
+SyntaxRoot.Query = {
+    expr = SyntaxExpr,
+    options_digest = T.Digest64,
+    span = T.SourceSpan,
+}
+
+SyntaxRoot.Path = {
+    steps = SyntaxPathStepList,
+    span = T.SourceSpan,
+}
+
+SyntaxRoot.Invalid = {
+    diagnostic_count = moon.u32,
+}
+
+-- Checked semantic language -------------------------------------------------
+local QuerySem = vm.language "JsonqQuerySem"
+M.L.QuerySem = QuerySem
+
+local SemRoot = QuerySem "Root"
+local SemExpr = QuerySem "Expr"
+local SemExprList = QuerySem "ExprList"
+local SemObjectField = QuerySem "ObjectField"
+local SemObjectFieldList = QuerySem "ObjectFieldList"
+local SemPath = QuerySem "Path"
+local SemPathStep = QuerySem "PathStep"
+local SemPathStepList = QuerySem "PathStepList"
+local SemFact = QuerySem "Fact"
+local SemFactList = QuerySem "FactList"
+local SemCatalog = QuerySem "Catalog"
+local SemIndexFact = QuerySem "IndexFact"
+local SemIndexFactList = QuerySem "IndexFactList"
+local SemParam = QuerySem "Param"
+local SemParamList = QuerySem "ParamList"
+local SemOrderKey = QuerySem "OrderKey"
+local SemOrderKeyList = QuerySem "OrderKeyList"
+
+SemExprList.Nil = {}
+SemExprList.Cons = { head = SemExpr, tail = SemExprList }
+
+SemPathStep.Field = { key = T.SymbolId, span = T.SourceSpan }
+SemPathStep.Index = { index = moon.i64, span = T.SourceSpan }
+SemPathStep.AnyChild = { span = T.SourceSpan }
+SemPathStep.Recursive = { span = T.SourceSpan }
+SemPathStepList.Nil = {}
+SemPathStepList.Cons = { head = SemPathStep, tail = SemPathStepList }
+SemPath.Constant = { id = T.PathId, steps = SemPathStepList, digest = T.Digest64, span = T.SourceSpan }
+SemPath.Dynamic = { steps = SemPathStepList, digest = T.Digest64, span = T.SourceSpan }
+
+SemObjectField.Value = { key = T.SymbolId, value = SemExpr, span = T.SourceSpan }
+SemObjectField.Dynamic = { key = SemExpr, value = SemExpr, span = T.SourceSpan }
+SemObjectFieldList.Nil = {}
+SemObjectFieldList.Cons = { head = SemObjectField, tail = SemObjectFieldList }
+
+SemFact.Cardinality = { expr = SemExpr, cardinality = T.Cardinality, span = T.SourceSpan }
+SemFact.ValueClass = { expr = SemExpr, value_class = T.ValueClass, nullable = moon.bool, span = T.SourceSpan }
+SemFact.ConstantPath = { expr = SemExpr, path = SemPath, span = T.SourceSpan }
+SemFact.IndexablePredicate = { expr = SemExpr, path = SemPath, op = T.CompareOp, literal = SemExpr, span = T.SourceSpan }
+SemFact.RequiresMaterialization = { expr = SemExpr, reason = moon.u32, span = T.SourceSpan }
+SemFactList.Nil = {}
+SemFactList.Cons = { head = SemFact, tail = SemFactList }
+
+SemParam.Value = { id = T.ParamId, name = T.SymbolId, value_class = T.ValueClass, required = moon.bool, span = T.SourceSpan }
+SemParamList.Nil = {}
+SemParamList.Cons = { head = SemParam, tail = SemParamList }
+
+SemOrderKey.Key = {
+    expr = SemExpr,
+    direction = T.OrderDirection,
+    nulls = T.SortNulls,
+    value_class = T.ValueClass,
+    span = T.SourceSpan,
+}
+SemOrderKeyList.Nil = {}
+SemOrderKeyList.Cons = { head = SemOrderKey, tail = SemOrderKeyList }
+
+SemExpr.Identity = { cardinality = T.Cardinality, value_class = T.ValueClass, span = T.SourceSpan }
+SemExpr.RootValue = { cardinality = T.Cardinality, value_class = T.ValueClass, span = T.SourceSpan }
+SemExpr.Param = { id = T.ParamId, cardinality = T.Cardinality, value_class = T.ValueClass, span = T.SourceSpan }
+SemExpr.Var = { id = T.SymbolId, cardinality = T.Cardinality, value_class = T.ValueClass, span = T.SourceSpan }
+SemExpr.LiteralNull = { span = T.SourceSpan }
+SemExpr.LiteralBool = { value = moon.bool, span = T.SourceSpan }
+SemExpr.LiteralNumber = { atom = T.SymbolId, number_policy = T.NumberPolicy, span = T.SourceSpan }
+SemExpr.LiteralString = { atom = T.SymbolId, span = T.SourceSpan }
+SemExpr.Path = { base = SemExpr, path = SemPath, missing = T.MissingPolicy, cardinality = T.Cardinality, value_class = T.ValueClass, span = T.SourceSpan }
+SemExpr.Iter = { base = SemExpr, missing = T.MissingPolicy, cardinality = T.Cardinality, value_class = T.ValueClass, span = T.SourceSpan }
+SemExpr.Pipe = { left = SemExpr, right = SemExpr, cardinality = T.Cardinality, value_class = T.ValueClass, span = T.SourceSpan }
+SemExpr.Fanout = { left = SemExpr, right = SemExpr, cardinality = T.Cardinality, value_class = T.ValueClass, span = T.SourceSpan }
+SemExpr.Select = { input = SemExpr, pred = SemExpr, cardinality = T.Cardinality, span = T.SourceSpan }
+SemExpr.Compare = { op = T.CompareOp, left = SemExpr, right = SemExpr, span = T.SourceSpan }
+SemExpr.Logic = { op = T.LogicOp, left = SemExpr, right = SemExpr, span = T.SourceSpan }
+SemExpr.Not = { value = SemExpr, span = T.SourceSpan }
+SemExpr.Object = { fields = SemObjectFieldList, cardinality = T.Cardinality, span = T.SourceSpan }
+SemExpr.Array = { values = SemExprList, cardinality = T.Cardinality, span = T.SourceSpan }
+SemExpr.Collect = { value = SemExpr, cardinality = T.Cardinality, span = T.SourceSpan }
+SemExpr.Builtin = { builtin = T.BuiltinId, args = SemExprList, cardinality = T.Cardinality, value_class = T.ValueClass, span = T.SourceSpan }
+SemExpr.Let = { params = SemParamList, body = SemExpr, cardinality = T.Cardinality, span = T.SourceSpan }
+SemExpr.EachRow = { base = SemExpr, path = SemPath, row_profile = T.RowProfileId, span = T.SourceSpan }
+SemExpr.TreeRow = { base = SemExpr, path = SemPath, mode = T.WalkMode, row_profile = T.RowProfileId, span = T.SourceSpan }
+SemExpr.Aggregate = { op = T.AggregateOp, value = SemExpr, value_class = T.ValueClass, span = T.SourceSpan }
+SemExpr.Sort = { input = SemExpr, keys = SemOrderKeyList, stability = T.SortStability, span = T.SourceSpan }
+SemExpr.Limit = { input = SemExpr, offset = SemExpr, count = SemExpr, span = T.SourceSpan }
+
+SemIndexFact.PathIndex = {
+    index = T.PathIndexRef,
+    path = T.PathId,
+    mode = T.IndexMode,
+    collection_epoch = T.Epoch,
+    index_epoch = T.Epoch,
+    policy_digest = T.Digest64,
+    estimated_rows = moon.u64,
+    selectivity_score = T.Score,
+}
+SemIndexFactList.Nil = {}
+SemIndexFactList.Cons = { head = SemIndexFact, tail = SemIndexFactList }
+
+SemCatalog.Snapshot = {
+    collection = T.JsonCollectionRef,
+    collection_epoch = T.Epoch,
+    catalog_epoch = T.Epoch,
+    policy_digest = T.Digest64,
+    digest = T.Digest64,
+    indexes = SemIndexFactList,
+}
+
+SemRoot.Checked = {
+    expr = SemExpr,
+    facts = SemFactList,
+    params = SemParamList,
+    policy_digest = T.Digest64,
+    result_shape = T.ResultShape,
+    row_profile = T.RowProfileId,
+}
+
+SemRoot.Planning = {
+    checked = SemExpr,
+    facts = SemFactList,
+    params = SemParamList,
+    catalog = SemCatalog,
+    policy_digest = T.Digest64,
+    target_digest = T.Digest64,
+    result_shape = T.ResultShape,
+    row_profile = T.RowProfileId,
+}
+
+SemRoot.Invalid = { diagnostic_count = moon.u32 }
+
+-- Physical plan language ----------------------------------------------------
+local QueryPlan = vm.language "JsonqQueryPlan"
+M.L.QueryPlan = QueryPlan
+
+local PlanRoot = QueryPlan "Root"
+local PlanBlock = QueryPlan "Block"
+local PlanOp = QueryPlan "Op"
+local PlanOpList = QueryPlan "OpList"
+local PlanGuard = QueryPlan "Guard"
+local PlanGuardList = QueryPlan "GuardList"
+local PlanConst = QueryPlan "Const"
+local PlanConstList = QueryPlan "ConstList"
+local PlanPath = QueryPlan "Path"
+local PlanField = QueryPlan "Field"
+local PlanFieldList = QueryPlan "FieldList"
+local PlanSortKey = QueryPlan "SortKey"
+local PlanSortKeyList = QueryPlan "SortKeyList"
+
+PlanOpList.Nil = {}
+PlanOpList.Cons = { head = PlanOp, tail = PlanOpList }
+PlanGuardList.Nil = {}
+PlanGuardList.Cons = { head = PlanGuard, tail = PlanGuardList }
+PlanConstList.Nil = {}
+PlanConstList.Cons = { head = PlanConst, tail = PlanConstList }
+PlanFieldList.Nil = {}
+PlanFieldList.Cons = { head = PlanField, tail = PlanFieldList }
+PlanSortKeyList.Nil = {}
+PlanSortKeyList.Cons = { head = PlanSortKey, tail = PlanSortKeyList }
+
+PlanPath.Constant = { path = T.PathId, digest = T.Digest64 }
+PlanPath.Dynamic = { reg = T.Reg, digest = T.Digest64 }
+
+PlanConst.Null = {}
+PlanConst.Bool = { value = moon.bool }
+PlanConst.NumberText = { atom = T.SymbolId, policy = T.NumberPolicy }
+PlanConst.String = { atom = T.SymbolId }
+PlanConst.Path = { path = T.PathId }
+PlanConst.PolicyDigest = { digest = T.Digest64 }
+
+PlanGuard.CatalogEpoch = { collection = T.JsonCollectionRef, required = T.Epoch }
+PlanGuard.IndexEpoch = { index = T.PathIndexRef, required = T.Epoch }
+PlanGuard.PolicyDigest = { required = T.Digest64 }
+PlanGuard.TargetDigest = { required = T.Digest64 }
+PlanGuard.Collection = { collection = T.JsonCollectionRef }
+
+PlanField.Static = { key = T.SymbolId, src = T.Reg, value_class = T.ValueClass }
+PlanField.Dynamic = { key = T.Reg, src = T.Reg, value_class = T.ValueClass }
+
+PlanSortKey.Key = {
+    reg = T.Reg,
+    direction = T.OrderDirection,
+    nulls = T.SortNulls,
+    value_class = T.ValueClass,
+}
+
+PlanOp.ScanCollection = { dst = T.Reg, collection = T.JsonCollectionRef }
+PlanOp.ScanInput = { dst = T.Reg }
+PlanOp.IndexSeekEq = { dst = T.Reg, index = T.PathIndexRef, key = T.ConstId }
+PlanOp.IndexSeekRange = { dst = T.Reg, index = T.PathIndexRef, low = T.ConstId, high = T.ConstId }
+PlanOp.IndexExists = { dst = T.Reg, index = T.PathIndexRef }
+PlanOp.LoadConst = { dst = T.Reg, const_id = T.ConstId }
+PlanOp.LoadParam = { dst = T.Reg, param = T.ParamId }
+PlanOp.Move = { dst = T.Reg, src = T.Reg }
+PlanOp.GetPath = { dst = T.Reg, src = T.Reg, path = PlanPath, missing = T.MissingPolicy }
+PlanOp.GetField = { dst = T.Reg, src = T.Reg, key = T.SymbolId, missing = T.MissingPolicy }
+PlanOp.GetIndex = { dst = T.Reg, src = T.Reg, index_value = moon.i64, missing = T.MissingPolicy }
+PlanOp.Iter = { dst = T.Reg, src = T.Reg, missing = T.MissingPolicy, body = T.BlockId }
+PlanOp.TreeWalk = { dst = T.Reg, src = T.Reg, mode = T.WalkMode, body = T.BlockId }
+PlanOp.Compare = { dst = T.Reg, left = T.Reg, right = T.Reg, op = T.CompareOp }
+PlanOp.TypeTest = { dst = T.Reg, src = T.Reg, value_class = T.ValueClass }
+PlanOp.Filter = { pred = T.Reg, body = T.BlockId }
+PlanOp.ProjectObject = { dst = T.Reg, fields = PlanFieldList }
+PlanOp.ProjectArray = { dst = T.Reg, values = PlanOpList }
+PlanOp.Collect = { dst = T.Reg, src = T.Reg, body = T.BlockId }
+PlanOp.Aggregate = { dst = T.Reg, src = T.Reg, op = T.AggregateOp, body = T.BlockId }
+PlanOp.Sort = { src = T.Reg, keys = PlanSortKeyList, stability = T.SortStability, body = T.BlockId }
+PlanOp.Limit = { src = T.Reg, offset = T.Reg, count = T.Reg, body = T.BlockId }
+PlanOp.EmitJson = { src = T.Reg }
+PlanOp.EmitRow = { src = T.Reg, row_profile = T.RowProfileId }
+PlanOp.EmitScalar = { src = T.Reg }
+PlanOp.Stop = {}
+PlanOp.Error = { code = moon.u32, span = T.SourceSpan }
+
+PlanBlock.Linear = { id = T.BlockId, ops = PlanOpList }
+PlanBlock.WithConsts = { id = T.BlockId, consts = PlanConstList, ops = PlanOpList }
+
+PlanRoot.Portable = {
+    block = PlanBlock,
+    guards = PlanGuardList,
+    consts = PlanConstList,
+    register_count = moon.u32,
+    frame_count = moon.u32,
+    result_shape = T.ResultShape,
+    row_profile = T.RowProfileId,
+    policy_digest = T.Digest64,
+    target_digest = T.Digest64,
+}
+
+PlanRoot.CatalogBound = {
+    block = PlanBlock,
+    guards = PlanGuardList,
+    consts = PlanConstList,
+    register_count = moon.u32,
+    frame_count = moon.u32,
+    result_shape = T.ResultShape,
+    row_profile = T.RowProfileId,
+    policy_digest = T.Digest64,
+    target_digest = T.Digest64,
+    collection = T.JsonCollectionRef,
+}
+
+PlanRoot.Invalid = { diagnostic_count = moon.u32 }
+
+-- Runtime bytecode language -------------------------------------------------
+local QueryRun = vm.language "JsonqQueryRun"
+M.L.QueryRun = QueryRun
+
+local RunRoot = QueryRun "Root"
+local Instr = QueryRun "Instr"
+local InstrList = QueryRun "InstrList"
+local RunConst = QueryRun "Const"
+local RunConstList = QueryRun "ConstList"
+local RunGuard = QueryRun "Guard"
+local RunGuardList = QueryRun "GuardList"
+local RunRowField = QueryRun "RowField"
+local RunRowFieldList = QueryRun "RowFieldList"
+
+InstrList.Nil = {}
+InstrList.Cons = { head = Instr, tail = InstrList }
+RunConstList.Nil = {}
+RunConstList.Cons = { head = RunConst, tail = RunConstList }
+RunGuardList.Nil = {}
+RunGuardList.Cons = { head = RunGuard, tail = RunGuardList }
+RunRowFieldList.Nil = {}
+RunRowFieldList.Cons = { head = RunRowField, tail = RunRowFieldList }
+
+RunConst.Null = {}
+RunConst.Bool = { value = moon.bool }
+RunConst.NumberText = { atom = T.SymbolId, policy = T.NumberPolicy }
+RunConst.String = { atom = T.SymbolId }
+RunConst.Path = { path = T.PathId }
+RunConst.IndexKey = { key = T.ConstId, kind = T.IndexKeyKind }
+
+RunGuard.CatalogEpoch = { collection = T.JsonCollectionRef, required = T.Epoch }
+RunGuard.IndexEpoch = { index = T.PathIndexRef, required = T.Epoch }
+RunGuard.PolicyDigest = { required = T.Digest64 }
+RunGuard.TargetDigest = { required = T.Digest64 }
+
+RunRowField.Value = { name = T.SymbolId, src = T.Reg, value_class = T.ValueClass, nullable = moon.bool }
+
+Instr.ValidateCatalog = { collection = T.JsonCollectionRef, required = T.Epoch, fail = T.LabelId }
+Instr.ValidateIndex = { index = T.PathIndexRef, required = T.Epoch, fail = T.LabelId }
+Instr.ValidatePolicy = { required = T.Digest64, fail = T.LabelId }
+Instr.LoadRoot = { dst = T.Reg }
+Instr.LoadDoc = { dst = T.Reg, doc = T.JsonDocRef }
+Instr.LoadParam = { dst = T.Reg, param = T.ParamId }
+Instr.LoadConst = { dst = T.Reg, const_id = T.ConstId }
+Instr.Move = { dst = T.Reg, src = T.Reg }
+Instr.Field = { dst = T.Reg, src = T.Reg, key = T.SymbolId, missing = T.MissingPolicy, fail = T.LabelId }
+Instr.Index = { dst = T.Reg, src = T.Reg, index_value = moon.i64, missing = T.MissingPolicy, fail = T.LabelId }
+Instr.Path = { dst = T.Reg, src = T.Reg, path = T.PathId, missing = T.MissingPolicy, fail = T.LabelId }
+Instr.EachEnter = { src = T.Reg, dst = T.Reg, frame = T.FrameSlot, done = T.LabelId }
+Instr.EachNext = { frame = T.FrameSlot, body = T.LabelId, done = T.LabelId }
+Instr.TreeEnter = { src = T.Reg, dst = T.Reg, frame = T.FrameSlot, mode = T.WalkMode, done = T.LabelId }
+Instr.TreeNext = { frame = T.FrameSlot, body = T.LabelId, done = T.LabelId }
+Instr.IndexEqOpen = { frame = T.FrameSlot, index = T.PathIndexRef, key = T.ConstId, done = T.LabelId }
+Instr.IndexRangeOpen = { frame = T.FrameSlot, index = T.PathIndexRef, low = T.ConstId, high = T.ConstId, done = T.LabelId }
+Instr.IndexNext = { frame = T.FrameSlot, dst = T.Reg, body = T.LabelId, done = T.LabelId }
+Instr.Compare = { dst = T.Reg, left = T.Reg, right = T.Reg, op = T.CompareOp }
+Instr.TypeTest = { dst = T.Reg, src = T.Reg, value_class = T.ValueClass }
+Instr.Not = { dst = T.Reg, src = T.Reg }
+Instr.Jump = { target = T.LabelId }
+Instr.JumpIfFalse = { cond = T.Reg, target = T.LabelId }
+Instr.JumpIfMissing = { src = T.Reg, target = T.LabelId }
+Instr.Label = { id = T.LabelId }
+Instr.ObjectNew = { dst = T.Reg, field_count = moon.u32 }
+Instr.ObjectPutStatic = { object = T.Reg, key = T.SymbolId, value = T.Reg }
+Instr.ObjectPutDynamic = { object = T.Reg, key = T.Reg, value = T.Reg }
+Instr.ArrayNew = { dst = T.Reg }
+Instr.ArrayPush = { array = T.Reg, value = T.Reg }
+Instr.CollectStart = { frame = T.FrameSlot, dst = T.Reg }
+Instr.CollectPush = { frame = T.FrameSlot, value = T.Reg }
+Instr.CollectEnd = { frame = T.FrameSlot, dst = T.Reg }
+Instr.AggregateStart = { frame = T.FrameSlot, op = T.AggregateOp }
+Instr.AggregateStep = { frame = T.FrameSlot, value = T.Reg }
+Instr.AggregateEnd = { frame = T.FrameSlot, dst = T.Reg }
+Instr.SortStart = { frame = T.FrameSlot, stability = T.SortStability }
+Instr.SortPush = { frame = T.FrameSlot, value = T.Reg }
+Instr.SortDrain = { frame = T.FrameSlot, dst = T.Reg, body = T.LabelId, done = T.LabelId }
+Instr.LimitStart = { frame = T.FrameSlot, offset = T.Reg, count = T.Reg }
+Instr.LimitStep = { frame = T.FrameSlot, body = T.LabelId, done = T.LabelId }
+Instr.MakeRow = { dst = T.Reg, row_profile = T.RowProfileId, fields = RunRowFieldList }
+Instr.EmitJson = { src = T.Reg }
+Instr.EmitRow = { src = T.Reg, row_profile = T.RowProfileId }
+Instr.EmitScalar = { src = T.Reg }
+Instr.Error = { code = moon.u32 }
+Instr.Stop = {}
+
+RunRoot.Program = {
+    kind = T.ProgramKind,
+    guards = RunGuardList,
+    consts = RunConstList,
+    instructions = InstrList,
+    register_count = moon.u32,
+    frame_count = moon.u32,
+    temp_count = moon.u32,
+    result_shape = T.ResultShape,
+    row_profile = T.RowProfileId,
+    policy_digest = T.Digest64,
+    target_digest = T.Digest64,
+}
+
+RunRoot.Invalid = { diagnostic_count = moon.u32 }
+
+-- Catalog language ----------------------------------------------------------
+-- This language is used when a catalog/image snapshot itself must be recorded
+-- into an LLPV program.  The runtime store still owns actual JSON bytes.
+local JsonqCatalog = vm.language "JsonqCatalog"
+M.L.JsonqCatalog = JsonqCatalog
+
+local CatalogRoot = JsonqCatalog "Root"
+local CatalogCollection = JsonqCatalog "Collection"
+local CatalogIndex = JsonqCatalog "Index"
+local CatalogIndexList = JsonqCatalog "IndexList"
+
+CatalogIndexList.Nil = {}
+CatalogIndexList.Cons = { head = CatalogIndex, tail = CatalogIndexList }
+
+CatalogCollection.Collection = {
+    ref = T.JsonCollectionRef,
+    collection_epoch = T.Epoch,
+    policy_digest = T.Digest64,
+    doc_count = moon.u64,
+}
+
+CatalogIndex.Path = {
+    ref = T.PathIndexRef,
+    path = T.PathId,
+    mode = T.IndexMode,
+    collection_epoch = T.Epoch,
+    index_epoch = T.Epoch,
+    policy_digest = T.Digest64,
+    estimated_rows = moon.u64,
+    selectivity_score = T.Score,
+}
+
+CatalogRoot.Snapshot = {
+    collection = CatalogCollection,
+    indexes = CatalogIndexList,
+    catalog_epoch = T.Epoch,
+    digest = T.Digest64,
+}
+
+-- --------------------------------------------------------------------------
+-- Semantic worlds
+-- --------------------------------------------------------------------------
+-- These names are domain-state names.  They are cache claims, not delivery
+-- steps.  A transition is correct only if its input world contains every fact
+-- that can change the output product.
+
+M.W.authored_query     = QuerySource:world "authored_query"
+M.W.parsed_query       = QuerySyntax:world "parsed_query"
+M.W.checked_query      = QuerySem:world "checked_query"
+M.W.planning_query     = QuerySem:world "planning_query"
+M.W.planned_query      = QueryPlan:world "planned_query"
+M.W.executable_query   = QueryRun:world "executable_query"
+M.W.catalog_snapshot   = JsonqCatalog:world "catalog_snapshot"
+
+-- --------------------------------------------------------------------------
+-- Machines and cache boundaries
+-- --------------------------------------------------------------------------
+-- Native entry symbols are named here; implementations belong in matching
+-- machine files.  There are no side phase args: catalog/profile facts are
+-- represented inside planning_query.
+
+M.Machine.parse_query = vm.machine "parse_query" {
+    from = M.W.authored_query,
+    to = M.W.parsed_query,
+    entry = "jsonq_parse_query_machine",
+}
+
+M.Phase.parse_query = vm.phase "parse_query" {
+    from = M.W.authored_query,
+    to = M.W.parsed_query,
+    machine = M.Machine.parse_query,
+    cache = "full",
+}
+
+M.Machine.check_query = vm.machine "check_query" {
+    from = M.W.parsed_query,
+    to = M.W.checked_query,
+    entry = "jsonq_check_query_machine",
+}
+
+M.Phase.check_query = vm.phase "check_query" {
+    from = M.W.parsed_query,
+    to = M.W.checked_query,
+    machine = M.Machine.check_query,
+    cache = "full",
+}
+
+M.Machine.plan_query = vm.machine "plan_query" {
+    from = M.W.planning_query,
+    to = M.W.planned_query,
+    entry = "jsonq_plan_query_machine",
+}
+
+M.Phase.plan_query = vm.phase "plan_query" {
+    from = M.W.planning_query,
+    to = M.W.planned_query,
+    machine = M.Machine.plan_query,
+    cache = "full",
+}
+
+M.Machine.lower_query = vm.machine "lower_query" {
+    from = M.W.planned_query,
+    to = M.W.executable_query,
+    entry = "jsonq_lower_query_machine",
+}
+
+M.Phase.lower_query = vm.phase "lower_query" {
+    from = M.W.planned_query,
+    to = M.W.executable_query,
+    machine = M.Machine.lower_query,
+    cache = "full",
+}
+
+M.Machine.snapshot_catalog = vm.machine "snapshot_catalog" {
+    from = M.W.catalog_snapshot,
+    to = M.W.catalog_snapshot,
+    entry = "jsonq_snapshot_catalog_machine",
+}
+
+M.Phase.snapshot_catalog = vm.phase "snapshot_catalog" {
+    from = M.W.catalog_snapshot,
+    to = M.W.catalog_snapshot,
+    machine = M.Machine.snapshot_catalog,
+    cache = "record",
+}
+
+-- --------------------------------------------------------------------------
+-- Authoring helpers
+-- --------------------------------------------------------------------------
+-- These helpers build world values with visible constructors.  They are not
+-- hidden bytecode APIs and they never expose LLPV internal reference payloads.
+
+function M.Build.source_query(bytes, source_name, policy)
+    local W = M.W.authored_query
+    local source = W.Unit.Text {
+        bytes = bytes,
+        source_name = source_name or 0,
+        query_epoch = policy and policy.query_epoch or 0,
+    }
+    local options = W.Options.Policy {
+        dialect = policy and policy.dialect or C.dialect.jsonq,
+        missing_policy = policy and policy.missing_policy or C.missing_policy.strict,
+        duplicate_policy = policy and policy.duplicate_policy or C.duplicate_policy.preserve_all,
+        number_policy = policy and policy.number_policy or C.number_policy.exact_decimal_compare,
+        string_policy = policy and policy.string_policy or C.string_policy.utf8_exact,
+        output_policy = policy and policy.output_policy or 0,
+        max_depth = policy and policy.max_depth or 512,
+        result_shape = policy and policy.result_shape or C.result_shape.json_values,
+    }
+    return W:once(W.Root.Query { source = source, options = options })
+end
+
+function M.Build.catalog_snapshot(collection_ref, collection_epoch, policy_digest, doc_count, indexes, catalog_epoch, digest)
+    local W = M.W.catalog_snapshot
+    local collection = W.Collection.Collection {
+        ref = collection_ref,
+        collection_epoch = collection_epoch,
+        policy_digest = policy_digest,
+        doc_count = doc_count or 0,
+    }
+    local list = W.IndexList.Nil {}
+    if indexes then
+        for i = #indexes, 1, -1 do
+            local x = indexes[i]
+            local idx = W.Index.Path {
+                ref = x.ref,
+                path = x.path,
+                mode = x.mode,
+                collection_epoch = x.collection_epoch,
+                index_epoch = x.index_epoch,
+                policy_digest = x.policy_digest,
+                estimated_rows = x.estimated_rows or 0,
+                selectivity_score = x.selectivity_score or 0,
+            }
+            list = W.IndexList.Cons { head = idx, tail = list }
+        end
+    end
+    return W:once(W.Root.Snapshot {
+        collection = collection,
+        indexes = list,
+        catalog_epoch = catalog_epoch or collection_epoch,
+        digest = digest or 0,
+    })
+end
+
+function M.Build.program_bytes(root_streams)
+    return vm.program(root_streams):bytecode()
+end
+
+return M

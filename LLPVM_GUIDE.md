@@ -96,7 +96,7 @@ local lower = vm.phase "lower_expr" {
     cache = "full",
 }
 
-local lowered = lower { target = "native", opt = 3 } (input)
+local lowered = lower(input)
 local program = vm.program { input, lowered }
 
 local bytes = program:bytecode()
@@ -380,11 +380,12 @@ Phase values are callable:
 
 ```lua
 local output = lower(input)
-local output_with_args = lower { target = "native", opt = 3 } (input)
 ```
 
-Arguments may be named or positional. If an argument is a produced LLPVM value,
-the encoder emits an internal argument reference.
+If a phase needs target/profile facts, model those facts in the consumed world.
+For example, build a `targeted_expr` world whose root value carries `target`,
+`opt`, and the expression stream identity, then lower that world. Do not use
+side phase args as a semantic dependency channel.
 
 ## Programs
 
@@ -623,6 +624,7 @@ Every layer should answer:
 
 ```text
 What typed values does this world contain?
+What domain state does this world name?
 What constructors create those values?
 What streams are legal in this world?
 What machine consumes this world?
@@ -630,6 +632,19 @@ What world does it produce?
 What cache boundary makes sense?
 What bytecode image must the native VM borrow?
 ```
+
+The central rule:
+
+```text
+A phase consumes one world and produces one world.
+If it needs more than one thing, the input world is wrong.
+Make the needed things into a domain world.
+```
+
+Do not model this with side metadata such as `phase_inputs`. Name the semantic
+state instead. `styled_ui`, `laid_out_ui`, `reported_frame`, and
+`handled_frame` are good world names. `lower_scene_input` and
+`interact_step_input` are implementation-shaped names and should be redesigned.
 
 The useful sentence is:
 

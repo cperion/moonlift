@@ -13,7 +13,9 @@ The separate `mlui_bytecode.md` and `mlui_c_api.h` files referenced by the uploa
 ## 1. One-sentence machine statement
 
 ```text
-MLUI consumes authored UI streams, resource/version facts, viewport facts, and raw input streams; it produces retained phase products, ordered view op streams, runtime reports, semantic event streams, and the next interaction model by repeatedly applying cached LLPVM phases over typed UI worlds.
+MLUI consumes one semantic UI world at a time and produces the next semantic UI
+world: authored UI becomes expanded UI, validated UI, imported UI, styled UI,
+measured UI, laid-out UI, renderable UI, reported frame, and handled frame.
 ```
 
 The surface remains immediate:
@@ -22,13 +24,14 @@ The surface remains immediate:
 app state + model + input facts -> authored UI stream
 ```
 
-The runtime is retained because the authored streams are fed through LLPVM phases with explicit argument products and cache policies:
+The runtime is retained because authored streams are fed through LLPVM phases
+whose consumed worlds already contain the facts that affect meaning:
 
 ```text
 fresh authored stream each frame
   + stable semantic ids
-  + resource generations / epochs
-  + explicit phase args
+  + resource generations / epochs embedded in the relevant world
+  + viewport/input/model facts embedded before the phase that needs them
   + LLPVM phase cache
   = retained behavior without retained authoring objects
 ```
@@ -184,53 +187,103 @@ Lua authoring DSL / C builder / serialized tools
 ### 4.2 Canonical pipeline
 
 ```text
-MluiComposeWorld
-  -> mlui_expand_compose       cache = full
-  -> MluiAuthWorld
+authored_ui
+  -> expand_ui             cache = full
+  -> expanded_ui
 
-MluiAuthWorld
-  -> mlui_validate_auth        cache = record
-  -> mlui_import_auth          cache = full
-  -> MluiImportedAuthWorld
+expanded_ui
+  -> validate_ui           cache = record
+  -> valid_ui
 
-MluiImportedAuthWorld + MluiThemeWorld + MluiEnvWorld + UiModelFacts
-  -> mlui_lower_scene          cache = full
-  -> MluiSceneWorld
+valid_ui
+  -> import_ui             cache = full
+  -> imported_ui
 
-MluiSceneWorld + ResourceFacts + TextServiceFacts
-  -> mlui_measure_scene        cache = full
-  -> MluiMeasureWorld
+imported_ui
+  -> style_ui              cache = full
+  -> styled_ui
 
-MluiMeasureWorld + ViewportFacts + ScrollFacts
-  -> mlui_solve_scene          cache = full
-  -> MluiSolveWorld
+styled_ui
+  -> measure_ui            cache = full
+  -> measured_ui
 
-MluiSolveWorld + ResourceFacts + DecorFacts
-  -> mlui_render_view          cache = record
-  -> MluiViewWorld
+measured_ui
+  -> layout_ui             cache = full
+  -> laid_out_ui
 
-MluiViewWorld + UiModelFacts
-  -> mlui_build_report         cache = record
-  -> MluiReportWorld
+laid_out_ui
+  -> render_ui             cache = record
+  -> renderable_ui
 
-MluiReportWorld + MluiInputWorld + UiModel
-  -> mlui_interact_step        cache = nil, optionally record for replay
-  -> MluiEventWorld + next UiModel
+renderable_ui
+  -> report_frame          cache = record
+  -> reported_frame
+
+reported_frame
+  -> handle_input          cache = none, optionally record for replay
+  -> handled_frame
 ```
 
-### 4.3 Phase argument products
+### 4.3 Domain Worlds Carry Dependencies
 
-A phase key consists of:
+A phase consumes one world and produces one world. If a phase seems to need
+several streams or side facts, the input world is wrong. The needed values must
+be part of a domain world with a name that makes sense without mentioning the
+phase.
 
 ```text
-phase id
-input stream identity / recording
-explicit args product
-referenced resource generations
-runtime profile id
+Wrong:
+  imported_ui + style + env + model -> lower_scene -> scene
+
+Right:
+  imported_ui -> styled_ui -> measured_ui -> laid_out_ui
 ```
 
-Core argument products:
+World names answer "what domain thing exists now?" Phase names answer "what
+transformation happened?"
+
+Core domain-world facts:
+
+```text
+authored_ui
+  authored compose/auth nodes, stable ids, local state facts
+
+expanded_ui
+  canonical auth tree after compose expansion
+
+valid_ui
+  validated authored semantics, arity, ids, resource references
+
+imported_ui
+  imported node handles plus resource/model/theme/environment epochs required
+  to interpret the tree
+
+styled_ui
+  imported UI plus resolved style/decor/interaction facts
+
+measured_ui
+  styled UI plus intrinsic sizes and selected text layout refs
+
+laid_out_ui
+  measured UI plus viewport/scroll facts and final rects
+
+renderable_ui
+  laid-out UI plus ordered view ops and render/report stack facts
+
+reported_frame
+  renderable UI plus runtime report, hit/focus/scroll facts, current model,
+  raw input batch, and frame clock facts
+
+handled_frame
+  reported frame after input semantics: semantic events, next interaction
+  model, invalidation facts
+```
+
+Cache keys are derived from the consumed world identity/content plus the phase
+identity and runtime profile. Epochs and resource generations are values inside
+the consumed world; they are not side `phase_args`.
+
+Representative embedded products:
 
 ```text
 UiEnvArgs
@@ -291,172 +344,146 @@ M.vm = ll.vm {
     cache_bytes = 64 * 1024,
 }
 
--- Languages.
-M.Core     = M.vm.language "MluiCore"
-M.Env      = M.vm.language "MluiEnv"
-M.Theme    = M.vm.language "MluiTheme"
-M.Style    = M.vm.language "MluiStyle"
-M.Resource = M.vm.language "MluiResource"
-M.Auth     = M.vm.language "MluiAuth"
-M.Compose  = M.vm.language "MluiCompose"
-M.Imported = M.vm.language "MluiImported"
-M.Scene    = M.vm.language "MluiScene"
-M.Measure  = M.vm.language "MluiMeasure"
-M.Solve    = M.vm.language "MluiSolve"
-M.View     = M.vm.language "MluiView"
-M.Report   = M.vm.language "MluiReport"
-M.Input    = M.vm.language "MluiInput"
-M.Event    = M.vm.language "MluiEvent"
-M.Model    = M.vm.language "MluiModel"
+-- Languages. These name domain states, not implementation files.
+M.Authored   = M.vm.language "MluiAuthored"
+M.Expanded   = M.vm.language "MluiExpanded"
+M.Valid      = M.vm.language "MluiValid"
+M.Imported   = M.vm.language "MluiImported"
+M.Styled     = M.vm.language "MluiStyled"
+M.Measured   = M.vm.language "MluiMeasured"
+M.LaidOut    = M.vm.language "MluiLaidOut"
+M.Renderable = M.vm.language "MluiRenderable"
+M.Reported   = M.vm.language "MluiReported"
+M.Handled    = M.vm.language "MluiHandled"
 
 -- Worlds.
-M.compose_world     = M.Compose:world "compose"
-M.auth_world        = M.Auth:world "auth"
-M.auth_checked_world = M.Auth:world "auth_checked"
-M.imported_world    = M.Imported:world "imported"
-M.resource_world    = M.Resource:world "resource"
-M.style_world       = M.Style:world "style"
-M.style_resolved_world = M.Style:world "style_resolved"
-M.theme_world       = M.Theme:world "theme"
-M.env_world         = M.Env:world "env"
-M.scene_world       = M.Scene:world "scene"
-M.measure_world     = M.Measure:world "measure"
-M.solve_world       = M.Solve:world "solve"
-M.view_world        = M.View:world "view"
-M.report_world      = M.Report:world "report"
-M.input_world       = M.Input:world "input"
-M.model_world       = M.Model:world "model"
-M.event_world       = M.Event:world "event"
+M.authored_ui   = M.Authored:world "authored_ui"
+M.expanded_ui   = M.Expanded:world "expanded_ui"
+M.valid_ui      = M.Valid:world "valid_ui"
+M.imported_ui   = M.Imported:world "imported_ui"
+M.styled_ui     = M.Styled:world "styled_ui"
+M.measured_ui   = M.Measured:world "measured_ui"
+M.laid_out_ui   = M.LaidOut:world "laid_out_ui"
+M.renderable_ui = M.Renderable:world "renderable_ui"
+M.reported_frame = M.Reported:world "reported_frame"
+M.handled_frame = M.Handled:world "handled_frame"
 
 -- Machines.
-M.m_expand_compose = M.vm.machine "mlui_expand_compose" {
-    from = M.compose_world,
-    to = M.auth_world,
-    entry = "ui_expand_compose",
+M.m_expand_ui = M.vm.machine "mlui_expand_ui" {
+    from = M.authored_ui,
+    to = M.expanded_ui,
+    entry = "ui_expand",
 }
 
-M.m_validate_auth = M.vm.machine "mlui_validate_auth" {
-    from = M.auth_world,
-    to = M.auth_checked_world,
-    entry = "ui_validate_auth",
+M.m_validate_ui = M.vm.machine "mlui_validate_ui" {
+    from = M.expanded_ui,
+    to = M.valid_ui,
+    entry = "ui_validate",
 }
 
-M.m_import_auth = M.vm.machine "mlui_import_auth" {
-    from = M.auth_checked_world,
-    to = M.imported_world,
-    entry = "ui_import_auth",
+M.m_import_ui = M.vm.machine "mlui_import_ui" {
+    from = M.valid_ui,
+    to = M.imported_ui,
+    entry = "ui_import",
 }
 
-M.m_resolve_style = M.vm.machine "mlui_resolve_style" {
-    from = M.style_world,
-    to = M.style_resolved_world,
-    entry = "ui_resolve_style",
+M.m_style_ui = M.vm.machine "mlui_style_ui" {
+    from = M.imported_ui,
+    to = M.styled_ui,
+    entry = "ui_style",
 }
 
-M.m_lower_scene = M.vm.machine "mlui_lower_scene" {
-    from = M.imported_world,
-    to = M.scene_world,
-    entry = "ui_lower_scene",
+M.m_measure_ui = M.vm.machine "mlui_measure_ui" {
+    from = M.styled_ui,
+    to = M.measured_ui,
+    entry = "ui_measure",
 }
 
-M.m_measure_scene = M.vm.machine "mlui_measure_scene" {
-    from = M.scene_world,
-    to = M.measure_world,
-    entry = "ui_measure_scene",
+M.m_layout_ui = M.vm.machine "mlui_layout_ui" {
+    from = M.measured_ui,
+    to = M.laid_out_ui,
+    entry = "ui_layout",
 }
 
-M.m_solve_scene = M.vm.machine "mlui_solve_scene" {
-    from = M.measure_world,
-    to = M.solve_world,
-    entry = "ui_solve_scene",
+M.m_render_ui = M.vm.machine "mlui_render_ui" {
+    from = M.laid_out_ui,
+    to = M.renderable_ui,
+    entry = "ui_render",
 }
 
-M.m_render_view = M.vm.machine "mlui_render_view" {
-    from = M.solve_world,
-    to = M.view_world,
-    entry = "ui_render_ops",
+M.m_report_frame = M.vm.machine "mlui_report_frame" {
+    from = M.renderable_ui,
+    to = M.reported_frame,
+    entry = "ui_report_frame",
 }
 
-M.m_build_report = M.vm.machine "mlui_build_report" {
-    from = M.view_world,
-    to = M.report_world,
-    entry = "ui_runtime_report",
-}
-
-M.m_interact_step = M.vm.machine "mlui_interact_step" {
-    from = M.input_world,
-    to = M.event_world,
-    entry = "ui_interact_step",
+M.m_handle_input = M.vm.machine "mlui_handle_input" {
+    from = M.reported_frame,
+    to = M.handled_frame,
+    entry = "ui_handle_input",
 }
 
 -- Phases.
-M.expand_compose = M.vm.phase "mlui_expand_compose" {
-    from = M.compose_world,
-    to = M.auth_world,
-    machine = M.m_expand_compose,
+M.expand_ui = M.vm.phase "mlui_expand_ui" {
+    from = M.authored_ui,
+    to = M.expanded_ui,
+    machine = M.m_expand_ui,
     cache = "full",
 }
 
-M.validate_auth = M.vm.phase "mlui_validate_auth" {
-    from = M.auth_world,
-    to = M.auth_checked_world,
-    machine = M.m_validate_auth,
+M.validate_ui = M.vm.phase "mlui_validate_ui" {
+    from = M.expanded_ui,
+    to = M.valid_ui,
+    machine = M.m_validate_ui,
     cache = "record",
 }
 
-M.import_auth = M.vm.phase "mlui_import_auth" {
-    from = M.auth_checked_world,
-    to = M.imported_world,
-    machine = M.m_import_auth,
+M.import_ui = M.vm.phase "mlui_import_ui" {
+    from = M.valid_ui,
+    to = M.imported_ui,
+    machine = M.m_import_ui,
     cache = "full",
 }
 
-M.resolve_style = M.vm.phase "mlui_resolve_style" {
-    from = M.style_world,
-    to = M.style_resolved_world,
-    machine = M.m_resolve_style,
+M.style_ui = M.vm.phase "mlui_style_ui" {
+    from = M.imported_ui,
+    to = M.styled_ui,
+    machine = M.m_style_ui,
     cache = "full",
 }
 
-M.lower_scene = M.vm.phase "mlui_lower_scene" {
-    from = M.imported_world,
-    to = M.scene_world,
-    machine = M.m_lower_scene,
+M.measure_ui = M.vm.phase "mlui_measure_ui" {
+    from = M.styled_ui,
+    to = M.measured_ui,
+    machine = M.m_measure_ui,
     cache = "full",
 }
 
-M.measure_scene = M.vm.phase "mlui_measure_scene" {
-    from = M.scene_world,
-    to = M.measure_world,
-    machine = M.m_measure_scene,
+M.layout_ui = M.vm.phase "mlui_layout_ui" {
+    from = M.measured_ui,
+    to = M.laid_out_ui,
+    machine = M.m_layout_ui,
     cache = "full",
 }
 
-M.solve_scene = M.vm.phase "mlui_solve_scene" {
-    from = M.measure_world,
-    to = M.solve_world,
-    machine = M.m_solve_scene,
-    cache = "full",
-}
-
-M.render_view = M.vm.phase "mlui_render_view" {
-    from = M.solve_world,
-    to = M.view_world,
-    machine = M.m_render_view,
+M.render_ui = M.vm.phase "mlui_render_ui" {
+    from = M.laid_out_ui,
+    to = M.renderable_ui,
+    machine = M.m_render_ui,
     cache = "record",
 }
 
-M.build_report = M.vm.phase "mlui_build_report" {
-    from = M.view_world,
-    to = M.report_world,
-    machine = M.m_build_report,
+M.report_frame = M.vm.phase "mlui_report_frame" {
+    from = M.renderable_ui,
+    to = M.reported_frame,
+    machine = M.m_report_frame,
     cache = "record",
 }
 
-M.interact_step = M.vm.phase "mlui_interact_step" {
-    from = M.input_world,
-    to = M.event_world,
-    machine = M.m_interact_step,
+M.handle_input = M.vm.phase "mlui_handle_input" {
+    from = M.reported_frame,
+    to = M.handled_frame,
+    machine = M.m_handle_input,
     cache = nil,
 }
 
@@ -1032,7 +1059,7 @@ Slot: 0 or 1 child depending flags
 
 ### 8.7 Compose language
 
-Compose nouns are not Lua-only sugar. They validate and then expand through `ui_expand_compose`.
+Compose nouns are not Lua-only sugar. They validate and then expand through `ui_expand`.
 
 Constructors:
 
@@ -1909,7 +1936,7 @@ Validation must not import or mutate kernel state, except for temporary scratch 
 
 ### 10.4 Import rules
 
-`ui_import_auth` turns valid auth rows into imported node records:
+`ui_import` turns valid authored rows into imported node records:
 
 ```text
 allocate/import UiNodeRecord entries
@@ -2033,7 +2060,10 @@ caret/selection/composition  -> text edit/value epoch
 layout-affecting text change -> UiContentStore content epoch + text layout epoch
 ```
 
-Invalidation is expressed as phase args and resource epochs.
+Invalidation is expressed by the consumed domain world. Resource epochs,
+viewport facts, input batches, and model revisions are values inside the world
+that first needs them, so cache keys can be derived from one consumed product
+instead of side metadata.
 
 ---
 
@@ -2110,7 +2140,7 @@ region ui_kernel_close(kernel: owned UiKernelRef;
   | missing(kernel: owned UiKernelRef)
   | stale(kernel: owned UiKernelRef)) end
 
-region ui_validate_auth(ui: ptr(UiKernel), readonly program: ptr(UiProgram);
+region ui_validate(ui: ptr(UiKernel), readonly program: ptr(UiProgram);
     valid(root_kind: u8, root_index: u32)
   | invalid_header(code: i32)
   | invalid_section(section: u8)
@@ -2122,7 +2152,7 @@ region ui_validate_auth(ui: ptr(UiKernel), readonly program: ptr(UiProgram);
   | unsupported_feature(flags: u64)
   | oom(needed: index)) end
 
-region ui_import_auth(ui: ptr(UiKernel), readonly program: ptr(UiProgram), root_kind: u8, root_index: u32;
+region ui_import(ui: ptr(UiKernel), readonly program: ptr(UiProgram), root_kind: u8, root_index: u32;
     imported(root: UiNodeRef)
   | invalid_child(parent: UiId, child_index: u32)
   | duplicate_id(id: UiId)
@@ -2130,24 +2160,19 @@ region ui_import_auth(ui: ptr(UiKernel), readonly program: ptr(UiProgram), root_
   | unsupported_node(kind: u16)
   | oom(needed: index)) end
 
-region ui_expand_compose(ui: ptr(UiKernel), readonly compose: view(UiComposeNode);
+region ui_expand(ui: ptr(UiKernel), readonly compose: view(UiComposeNode);
     expanded(auth: UiAuthBuffer)
   | invalid_child(parent: UiId, child_index: u32)
   | unsupported_compose(kind: u16)
   | oom(needed: index)) end
 
-region ui_resolve_style(ui: ptr(UiKernel), token_range: UiRange, env: UiEnvClass, state: UiStateFacts;
-    resolved(layout: UiLayoutStyle, decor: UiDecorStyle, interact: UiInteractionStyle)
+region ui_style(ui: ptr(UiKernel), root: UiNodeRef, env: UiEnvClass;
+    styled(styled_epoch: UiEpoch)
+  | missing_node(id: UiId)
+  | unsupported_node(kind: u16)
   | invalid_atom(kind: u16)
   | missing_theme(id: UiId)
   | missing_resource(section: u8, index_: u32)
-  | oom(needed: index)) end
-
-region ui_lower_scene(ui: ptr(UiKernel), root: UiNodeRef, env: UiEnvClass;
-    lowered(scene_epoch: UiEpoch)
-  | missing_node(id: UiId)
-  | duplicate_id(id: UiId)
-  | unsupported_node(kind: u16)
   | oom(needed: index)) end
 
 region ui_measure_node(ui: ptr(UiKernel), layout_index: u32, constraint: UiMeasureConstraint;
@@ -2157,15 +2182,23 @@ region ui_measure_node(ui: ptr(UiKernel), layout_index: u32, constraint: UiMeasu
   | unsupported_layout(kind: u16)
   | oom(needed: index)) end
 
-region ui_solve_scene(ui: ptr(UiKernel), viewport: UiViewport;
-    solved(solve_epoch: UiEpoch)
+region ui_measure(ui: ptr(UiKernel), viewport: UiViewport;
+    measured(measured_epoch: UiEpoch)
   | missing_scene
   | missing_text(content: UiContentRef)
   | text_backend_error(code: i32)
   | unsupported_layout(kind: u16)
   | oom(needed: index)) end
 
-region ui_render_ops(ui: ptr(UiKernel);
+region ui_layout(ui: ptr(UiKernel), viewport: UiViewport;
+    laid_out(layout_epoch: UiEpoch)
+  | missing_scene
+  | missing_text(content: UiContentRef)
+  | text_backend_error(code: i32)
+  | unsupported_layout(kind: u16)
+  | oom(needed: index)) end
+
+region ui_render(ui: ptr(UiKernel);
     rendered(view_epoch: UiEpoch)
   | missing_node(id: UiId)
   | missing_text(content: UiContentRef)
@@ -2173,14 +2206,14 @@ region ui_render_ops(ui: ptr(UiKernel);
   | malformed_op(at: index, kind: u16)
   | oom(needed: index)) end
 
-region ui_runtime_report(ui: ptr(UiKernel);
+region ui_report_frame(ui: ptr(UiKernel);
     reported(report_epoch: UiEpoch)
   | malformed_op(at: index, kind: u16)
   | stack_unbalanced(stack: u8)
   | oom(needed: index)) end
 
-region ui_interact_step(ui: ptr(UiKernel), raw: readonly view(UiRawInput);
-    stepped(event_count: index, model_epoch: UiEpoch)
+region ui_handle_input(ui: ptr(UiKernel), raw: readonly view(UiRawInput);
+    handled(event_count: index, model_epoch: UiEpoch)
   | malformed_raw(at: index, kind: u16)
   | stale_focus(id: UiId)
   | stale_capture(id: UiId)
@@ -2235,14 +2268,14 @@ F.mlui_kernel_init
 F.mlui_kernel_init_ex
 F.mlui_kernel_close
 F.mlui_kernel_reset_frame
-F.mlui_import_auth_buffer
+F.mlui_import_buffer
 F.mlui_load_program
 F.mlui_load_llpv_program
 F.mlui_validate_program
-F.mlui_lower_solve_render
 F.mlui_frame
-F.mlui_runtime_report
-F.mlui_interact_step
+F.mlui_style_measure_layout_render
+F.mlui_report_frame
+F.mlui_handle_input
 F.mlui_view_ops
 F.mlui_events
 F.mlui_report_get
@@ -2333,17 +2366,17 @@ mlui_status mlui_load_llpv_program(mlui_kernel *ui,
                                    size_t len,
                                    mlui_node_ref *out_root);
 
-mlui_status mlui_import_auth_buffer(mlui_kernel *ui,
-                                    const mlui_auth_node *nodes,
-                                    size_t node_count,
-                                    const uint32_t *children,
-                                    size_t child_count,
-                                    mlui_node_ref *out_root);
+mlui_status mlui_import_buffer(mlui_kernel *ui,
+                               const mlui_auth_node *nodes,
+                               size_t node_count,
+                               const uint32_t *children,
+                               size_t child_count,
+                               mlui_node_ref *out_root);
 
-mlui_status mlui_lower_solve_render(mlui_kernel *ui,
-                                    mlui_node_ref root,
-                                    float width,
-                                    float height);
+mlui_status mlui_style_measure_layout_render(mlui_kernel *ui,
+                                             mlui_node_ref root,
+                                             float width,
+                                             float height);
 
 mlui_status mlui_frame(mlui_kernel *ui,
                        mlui_node_ref root,
@@ -2351,9 +2384,9 @@ mlui_status mlui_frame(mlui_kernel *ui,
                        float height,
                        const mlui_raw_input_buffer *raw);
 
-mlui_status mlui_runtime_report(mlui_kernel *ui);
-mlui_status mlui_interact_step(mlui_kernel *ui,
-                               const mlui_raw_input_buffer *raw);
+mlui_status mlui_report_frame(mlui_kernel *ui);
+mlui_status mlui_handle_input(mlui_kernel *ui,
+                              const mlui_raw_input_buffer *raw);
 
 mlui_status mlui_view_ops(mlui_kernel *ui,
                           const mlui_view_op **ops,
@@ -2430,7 +2463,7 @@ returned view/event pointers   borrowed until next frame/reset/clear/close
 returned report pointer        borrowed until next frame/reset/close
 UiProgram pointer sections     borrowed for call unless loaded through explicit copy API
 LLPV bytecode bytes            borrowed while native streams derived from them live, unless copy-load profile is used
-raw input text                 borrowed for mlui_frame/mlui_interact_step only
+raw input text                 borrowed for mlui_frame/mlui_handle_input only
 image/font host resources      host-owned opaque keys stored in MLUI records
 ```
 
@@ -2520,23 +2553,26 @@ paint-only
 interaction-only
 ```
 
-That declaration becomes phase args/resource epochs.
+That declaration determines which next domain world changes. A paint-only
+widget update should change the renderable/reported path without invalidating
+authored structure; a layout-affecting update must produce a new measured or
+laid-out world.
 
 ---
 
 ## 16. Frame algorithm
 
-`mlui_frame` composes the sealed runtime pipeline:
+`mlui_frame` composes the sealed runtime pipeline as a domain-world transform:
 
 ```text
 1. validate root ref
 2. reset frame events
-3. lower scene through LLPVM phase cache
-4. measure scene through LLPVM phase cache
-5. solve scene through LLPVM phase cache
-6. render view ops through LLPVM phase cache / recording
-7. build runtime report from the same view op stream
-8. if raw input exists, reduce input + report + model into events and next model
+3. style imported UI through LLPVM phase cache
+4. measure styled UI through LLPVM phase cache
+5. layout measured UI through LLPVM phase cache
+6. render laid-out UI into renderable UI through LLPVM phase cache / recording
+7. report the renderable frame from the same view op stream
+8. if raw input exists, handle input by transforming reported frame into handled frame
 9. return mlui_status
 ```
 
@@ -2546,23 +2582,26 @@ Pseudo-control:
 func mlui_frame(ui: ptr(UiKernel), root: UiNodeRef, width: f32, height: f32, raw: ptr(UiRawInputBuffer)): UiStatus
     return region: UiStatus
     entry start()
-        emit ui_reset_frame_events(ui; reset = lower, oom = oom_exit)
+        emit ui_reset_frame_events(ui; reset = style, oom = oom_exit)
     end
-    block lower()
-        emit ui_lower_scene(ui, root, env; lowered = solve, missing_node = missing_node, unsupported_node = unsupported_node, oom = oom_exit)
+    block style()
+        emit ui_style(ui, root, env; styled = measure, missing_node = missing_node, unsupported_node = unsupported_node, oom = oom_exit)
     end
-    block solve(scene_epoch: UiEpoch)
-        emit ui_solve_scene(ui, viewport; solved = render, missing_text = missing_text, text_backend_error = text_error, oom = oom_exit)
+    block measure(styled_epoch: UiEpoch)
+        emit ui_measure(ui, viewport; measured = layout, missing_text = missing_text, text_backend_error = text_error, oom = oom_exit)
     end
-    block render(solve_epoch: UiEpoch)
-        emit ui_render_ops(ui; rendered = report, decor_mismatch = decor_mismatch, malformed_op = malformed_op, oom = oom_exit)
+    block layout(measured_epoch: UiEpoch)
+        emit ui_layout(ui, viewport; laid_out = render, missing_text = missing_text, text_backend_error = text_error, oom = oom_exit)
+    end
+    block render(layout_epoch: UiEpoch)
+        emit ui_render(ui; rendered = report, decor_mismatch = decor_mismatch, malformed_op = malformed_op, oom = oom_exit)
     end
     block report(view_epoch: UiEpoch)
-        emit ui_runtime_report(ui; reported = interact_or_done, malformed_op = malformed_op, stack_unbalanced = stack_bad, oom = oom_exit)
+        emit ui_report_frame(ui; reported = handle_or_done, malformed_op = malformed_op, stack_unbalanced = stack_bad, oom = oom_exit)
     end
-    block interact_or_done(report_epoch: UiEpoch)
+    block handle_or_done(report_epoch: UiEpoch)
         if raw == as(ptr(UiRawInputBuffer), 0) then jump ok() end
-        emit ui_interact_step(ui, raw.view; stepped = ok, stale_focus = stale_focus, stale_capture = stale_capture, missing_scroll = missing_scroll, oom = oom_exit)
+        emit ui_handle_input(ui, raw.view; handled = ok, stale_focus = stale_focus, stale_capture = stale_capture, missing_scroll = missing_scroll, oom = oom_exit)
     end
     block ok()
         yield UiStatus(MLUI_OK, 0, 0, 0)
@@ -2576,7 +2615,9 @@ end
 
 ## 17. Interaction reducer spec
 
-`ui_interact_step` is a pure reducer over `UiRawInput`, `UiReport`, and `UiModel` except for writing the next model and appending events.
+`ui_handle_input` transforms a reported frame into a handled frame. Its consumed
+world contains the raw input batch, hit report, scroll/focus/capture model, and
+application-facing model revision required for the step.
 
 Rules:
 
@@ -2682,15 +2723,14 @@ experiments/mlui-llpvm/
   mlui_kernel_store.mlua       -- kernel create/borrow/close
   mlui_resource_store.mlua     -- content/text/paint/image/font/value lifecycles
   mlui_program_validate.mlua   -- fast-row + LLPV validation adapters
-  mlui_program_import.mlua     -- program/auth stream -> node/import world
-  mlui_compose_expand.mlua     -- compose -> auth
-  mlui_style_resolve.mlua      -- tokens -> layout/decor/interaction style
-  mlui_scene_lower.mlua        -- imported auth -> scene buffers
+  mlui_program_import.mlua     -- valid UI -> imported UI
+  mlui_expand.mlua             -- authored UI -> expanded UI
+  mlui_style.mlua              -- imported UI -> styled UI
   mlui_measure.mlua            -- intrinsic measurement + text layout selection
-  mlui_solve.mlua              -- layout placement
-  mlui_render_ops.mlua         -- solve/decor -> UiViewOp
-  mlui_runtime_report.mlua     -- UiViewOp -> UiReport
-  mlui_interact.mlua           -- raw input + report + model -> events
+  mlui_layout.mlua             -- measured UI -> laid-out UI
+  mlui_render.mlua             -- laid-out UI -> renderable UI
+  mlui_report_frame.mlua       -- renderable UI -> reported frame
+  mlui_handle_input.mlua       -- reported frame -> handled frame
   mlui_abi.mlua                -- public F.* seals only
   mlui_build_c.lua             -- emits generated C blob/header
   mlui_bytecode.md             -- generated documentation
@@ -2777,7 +2817,8 @@ Tests must assert behavior, not merely symbol existence.
 ## 22. Non-negotiable rules
 
 ```text
-The current lua/ui phase shape is the base.
+The current lua/ui richness is the source material; the phase shape is the
+semantic domain-world pipeline.
 MLUI is an LLPVM VM stack, not a widget callback framework.
 The native kernel is product/protocol typed, not callback typed.
 Auth/Layout/Decor/Solve/View/Report/Event are distinct products.
@@ -2854,13 +2895,15 @@ Projection:
   MLUI fast-row ABI for C/embedded hosts
 
 Retention:
-  LLPVM phase cache over explicit stream + args + resource epochs
+  LLPVM phase cache over semantic domain worlds
 
 Runtime ownership:
   UiKernel stores resources, interaction model, and borrowed output buffers
 
 Pipeline:
-  Compose -> Auth -> Scene -> Measure -> Solve -> View -> Report -> Event
+  authored_ui -> expanded_ui -> valid_ui -> imported_ui -> styled_ui
+      -> measured_ui -> laid_out_ui -> renderable_ui -> reported_frame
+      -> handled_frame
 
 Backends:
   draw View ops, measure text, register resources, produce RawInput

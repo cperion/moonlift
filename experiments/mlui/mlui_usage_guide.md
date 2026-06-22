@@ -1,7 +1,9 @@
 # MLUI Usage Guide
 
-Status: practical guide for using the Lua API without accidentally rebuilding
-the whole native UI machine every frame.
+Status: superseded by
+[`experiments/mlui-llpvm/mlui_llpvm_stack_blueprint.md`](../mlui-llpvm/mlui_llpvm_stack_blueprint.md).
+This file is retained as a historical guide for the pre-LLPVM Lua API. It is
+not the current usage contract.
 
 ## Mental Model
 

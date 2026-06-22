@@ -130,6 +130,28 @@ M.vm = ll.vm { ... }
 return M
 ```
 
+LLPVM worlds should be named as domain states, not as implementation-shaped
+inputs. A phase consumes one world and produces one world. If a phase seems to
+need several streams, resource epochs, environment facts, model facts, or input
+batches, make those facts part of a better semantic world.
+
+Good:
+
+```text
+authored_ui -> expand_ui -> expanded_ui
+styled_ui -> measure_ui -> measured_ui
+reported_frame -> handle_input -> handled_frame
+```
+
+Weak:
+
+```text
+lower_scene_input
+interact_step_input
+phase_args
+args_world
+```
+
 Keep compatibility headers thin and Moonlift-aware:
 
 ```lua

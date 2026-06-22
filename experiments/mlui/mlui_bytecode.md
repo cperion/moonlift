@@ -1,6 +1,11 @@
 # MLUI Bytecode
 
-Status: design specification for the portable MLUI VM program format.
+Status: superseded by
+[`experiments/mlui-llpvm/mlui_llpvm_stack_blueprint.md`](../mlui-llpvm/mlui_llpvm_stack_blueprint.md).
+This file is retained only as historical bytecode input from the pre-LLPVM
+iteration.
+
+Historical scope: design specification for the portable MLUI VM program format.
 
 MLUI bytecode is the frontend contract for Lua, C, generated tools, serialized
 assets, and browser builders. It is not a render stream and not a DOM. It is a
@@ -21,7 +26,7 @@ drawing/report construction and `UiEvent[]` for app/widget semantic updates.
 
 ## Format Level
 
-This document specifies the **row ABI**: the in-memory C/WASM contract used by
+This document specified the **row ABI**: the in-memory C contract used by
 frontends and by generated C. A serialized file format may wrap the same rows
 later, but must still decode to this shape before `mlui_load_program`.
 

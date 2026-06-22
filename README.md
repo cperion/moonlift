@@ -249,7 +249,7 @@ make
 ```
 
 Produces a fully static binary at `target/release/moonlift`:
-- Embeds the Moonlift Lua staging layer via `include_str!`
+- Embeds the Moonlift Lua staging layer as LuaJIT bytecode
 - Links vendored LuaJIT statically (from `.vendor/LuaJIT/`)
 - Links the Rust/Cranelift backend in-process
 - No runtime dependencies beyond libc
@@ -267,10 +267,9 @@ target/release/moonlift examples/json/json_lua_stack_decoder.mlua
 The JSON example returns a Lua library table with `decode`, `decode_or_nil`,
 `encode`, `valid`, `new_decoder`, `c_blob`, `c_header`, `c_api`, and
 `emcc_args`. Its native parser emits a Lua-free C API, prefers a GCC `-O3`
-shared artifact for local execution, and can be compiled for the browser with
-Emscripten. In WASM, the output buffers map directly to JS typed arrays:
-`Int32Array` for event tags/slices/meta, `Float64Array` for numbers, and
-`Uint8Array` for source and decoded string bytes.
+shared artifact for local execution, and can be compiled by external C-to-WASM
+toolchains such as Emscripten. JavaScript typed-array bindings are a host-side
+binding decision, not a Moonlift ABI claim.
 
 ### Compile to a native object file
 

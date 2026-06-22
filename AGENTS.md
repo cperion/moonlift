@@ -13,7 +13,7 @@ cargo build --release                   # produces target/release/libmoonlift.so
 
 `libmoonlift.so` is loaded by `lua/moonlift/back_jit.lua` via FFI. Build
 `--release` before running tests. The standalone `moonlift` binary embeds the
-compiler (195 Lua sources via `include_str!`) + vendored LuaJIT — zero runtime
+compiler (LuaJIT bytecode for the Lua staging layer) + vendored LuaJIT — zero runtime
 deps.
 
 ## Setup
@@ -86,8 +86,8 @@ luajit benchmarks/bench_host_arena_native.lua            # Native host type acce
 - **`lua/moonlift/host.lua`** — high-level Lua builder API
 - **`lua/moonlift/ast.lua`** — low-level ASDL node constructor API
 - **`lib/`** — standard library (`region_compose.lua` PEG combinators)
-- **`build.rs`** — generates `src/embedded_lua.rs` (all Lua sources via
-  `include_str!`)
+- **`build.rs`** — generates `src/embedded_hosted_lua.rs` (Lua modules
+  embedded mostly as LuaJIT bytecode)
 
 Compilation pipeline:
 `.mlua` → parse/scan_document → tree_typecheck → tree_to_back →

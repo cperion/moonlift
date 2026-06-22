@@ -169,6 +169,126 @@ instruction language before designing public APIs.
 
 Do not start with wrappers around objects. Find the VM stack first.
 
+Worlds are domain states, not phase plumbing. A phase consumes one world and
+produces one world. If a phase appears to need several streams, facts, stores,
+or arguments, the input world is probably named at the wrong semantic level.
+Create a domain world that contains the needed values instead of attaching a
+side table called "phase inputs".
+
+```text
+Bad center:
+  imported_ui + style + env + model -> lower_scene -> scene
+
+Better center:
+  imported_ui -> styled_ui -> measured_ui -> laid_out_ui
+```
+
+The naming rule is:
+
+```text
+World name = what domain thing exists now.
+Phase name = what transformation happened.
+```
+
+`interactive_frame` is a better world than `interact_step_input` because it
+names a UI state: reported frame facts plus current model plus raw input batch.
+`handled_frame` is better than `event_output` because it names the state after
+input semantics have been applied. Operational stores may still live in a
+kernel or VM object, but semantic dependencies that affect output must be values
+inside the consumed world.
+
+### Choosing worlds: the reuse frontier
+
+Once the data line is one world at a time, the whole design problem becomes:
+
+```text
+Where should the world boundaries be?
+```
+
+The answer is not chronology and not convenience. Choose worlds at **reuse
+frontiers**:
+
+```text
+A world should change exactly when the next reusable product must change.
+No sooner. No later.
+```
+
+This is why caching is not an optimization pasted onto LLPVM after the design.
+Caching is the instrument that reveals the design. The best world shape is the
+shape that maximizes correct reuse while keeping invalidation explainable.
+
+For every proposed world, ask:
+
+```text
+What product becomes reusable after this phase?
+What facts must change before that product is invalid?
+What facts may change while that product is still valid?
+What identity should remain stable across ordinary edits?
+Can two edits produce the same output but different world identities?
+Can one edit keep the same world identity but require different output?
+Who owns the epoch/generation facts that prove freshness?
+What smaller lanes inside the world allow partial reuse?
+```
+
+The two failure tests are decisive:
+
+```text
+False invalidation:
+  This world changed, but the next phase output would be identical.
+  The world contains too much, or its identity is too sensitive.
+
+Stale reuse:
+  This world stayed the same, but the next phase output must change.
+  The world is missing a dependency, epoch, or semantic fact.
+```
+
+Do not answer these tests with side arguments. If the fact changes meaning, it
+belongs in the consumed world. If the fact only selects an implementation
+profile that does not change semantics, it may live at the VM/runtime profile
+boundary. The distinction matters: a target ABI that changes integer width is a
+semantic input to lowering; a cache capacity knob is not.
+
+A world can be one semantic line without being one flat blob. It may contain
+lanes:
+
+```text
+styled_ui =
+    imported tree identity
+    resolved style stream
+    theme epoch
+    environment class
+    state facts
+    per-node style identities
+```
+
+The outer phase cache can reuse `styled_ui -> measured_ui`. Inside the phase,
+per-node lanes can reuse individual style or measure products. This is the
+Moonlift/PVM trick generalized: choose coarse worlds at semantic frontiers, and
+carry finer identities inside them where partial reuse matters.
+
+Worlds are too coarse when unrelated edits invalidate expensive downstream
+products. Worlds are too fine when a phase has to pretend it consumes several
+things. The right world is the product that a phase can consume alone and still
+produce a cacheable result whose invalidation rule fits in one sentence.
+
+For MLUI, the names are not decoration; they are cache claims:
+
+```text
+authored_ui     changes when authored structure changes
+expanded_ui     changes when composition/widget expansion changes
+valid_ui        changes when arity, ids, or references become invalid
+imported_ui     changes when durable imported node identity changes
+styled_ui       changes when theme/env/state/style meaning changes
+measured_ui     changes when intrinsic sizes or text metrics change
+laid_out_ui     changes when viewport/container/scroll placement changes
+renderable_ui   changes when draw/report ops change
+reported_frame  changes when hit/focus/scroll report facts change
+handled_frame   changes when raw input has been applied
+```
+
+If those invalidation sentences are wrong, the worlds are wrong. Fix the world
+shape before fixing any body.
+
 ### LLPVM as the canonical operational form
 
 LLPVM is not an exception to the method and not just an optimization project. It
@@ -1133,7 +1253,21 @@ Three plain-language lists: what arrives (bytes, handles, events, records), wher
 
 ### Step 3 — Harvest the products
 
-Cluster the facts that coexist: stored records, passed tuples, views, handles, leases, encodings, phase facts. Apply the five data rules: minimal coexistence (fields never read together are two products); facts not behavior; **no derived data in source** (a cache is a phase output, not a field — storing it beside the truth invites staleness); **structure over keys** (strings identify nothing internally; only genuinely user-authored or genuinely opaque text is a string); **cross-references are typed handles** (`PostId`, not `ptr(Post)`, when the reference must outlive a pointer's validity). Then run the memory triage: which products own storage, which values are durable identity, which values are temporary access, and which raw pointers exist only because an ABI boundary forced them. Write down the owner of every pointer/view boundary, then prefer region-granted leases where the type system can carry the access fact. Remember products hide in five places: struct, params, return, block state, continuation payload.
+Cluster the facts that coexist: stored records, passed tuples, views, handles,
+leases, encodings, phase facts, and candidate worlds. Apply the five data
+rules: minimal coexistence (fields never read together are two products); facts
+not behavior; **no derived data in source** (a cache is a phase output, not a
+field — storing it beside the truth invites staleness); **structure over keys**
+(strings identify nothing internally; only genuinely user-authored or genuinely
+opaque text is a string); **cross-references are typed handles** (`PostId`, not
+`ptr(Post)`, when the reference must outlive a pointer's validity). Then run the
+memory triage: which products own storage, which values are durable identity,
+which values are temporary access, and which raw pointers exist only because an
+ABI boundary forced them. Write down the owner of every pointer/view boundary,
+then prefer region-granted leases where the type system can carry the access
+fact. Remember products hide in five places: struct, params, return, block
+state, continuation payload. In incremental systems, products also hide as
+worlds: named semantic states whose identity decides what can be reused.
 
 Do not turn this into magic `memo func`.  A function signature says products in
 and products out; it does not say which memory was read, how pointer identity is
@@ -1155,6 +1289,12 @@ Run Chapter 4's three questions on every result-like, event-like, variant-like t
 
 Write the structs, views, handles, leases, and boundary pointer shapes as compiling declarations — leaves first, aggregates after. Every kind-like field carries a comment naming its owner region. Every handle has a nominal declaration, an invalid value if the domain needs one, and `domain`/`target` facts when it resolves through a store. Every layout-sensitive product states its ABI intent. Nothing in the forest is a semantic union, and no stable association is a raw pointer by accident.
 
+For repeated or incremental systems, worlds are part of this same type-forest
+work. They are not a separate planning layer after the products. A world is the
+typed product that stands at a reuse frontier: the semantic state a phase can
+consume alone, cache against, and transform into the next semantic state. To
+declare a world is to declare a cache identity and an invalidation contract.
+
 If the forest is an instruction language rather than a one-off kernel data
 model, switch lenses: author it in the PVM style. In hosted/compiler work that
 may be an ASDL context. In portable native runtime work, the standard-library
@@ -1164,7 +1304,42 @@ bytecode image. The image still contains ABI records, but ABI is the encoded
 boundary product, not the public authoring shape. Free-form Moonlift remains the
 language for native type declarations; LLPVM consumes those Moonlift type values
 while providing the canonical operation-language, world, stream, and phase
-surface for typed VM stacks.
+surface for typed VM stacks. Each phase consumes one semantic world and
+produces one semantic world; if the phase needs target facts, resource epochs,
+environment facts, or model state, those facts belong in the consumed world.
+
+For every repeated or incremental subsystem, write the world line before region
+bodies:
+
+```text
+world_a -> phase_a -> world_b -> phase_b -> world_c
+```
+
+Then interrogate each arrow as a cache boundary:
+
+```text
+What output product becomes reusable here?
+What exact facts invalidate it?
+What edits should leave it reusable?
+What identity will the cache key use?
+Which epochs/generations prove the product is fresh?
+Which lanes inside the world allow partial reuse?
+```
+
+The boundary is wrong if the phase wants several independent inputs. The fix is
+not a side `phase_args` product; the fix is a better input world. The boundary
+is also wrong if small unrelated edits blow away expensive downstream products.
+Split the world or add stable lanes inside it until the invalidation sentence is
+true.
+
+The review sentence for each world is:
+
+```text
+This world changes exactly when ______ can no longer be reused.
+```
+
+If that sentence cannot be completed, the world is not designed yet. It is only
+a step name. Keep editing the type forest until the sentence is true.
 
 ### Step 7 — Declare the region tree, signatures only
 
@@ -1180,11 +1355,11 @@ Write the emit/fill plan: per parent, which child continuation goes to a local b
 
 ### Step 10 — Identify persistent state
 
-What survives across operations — stores, pools, registries, connection state, caches-at-phase-boundaries? Each is a product passed *explicitly* to the regions that touch it, mutated through their protocols, never a global, never a back door. For each persistent store, declare the handles it resolves with `domain Store` and `target Item`, name the regions that grant leases, and name the operations that may invalidate those leases. For each cache, name the owner store, key product, value product, hit/miss/stale protocol, insertion protocol, and invalidation epoch. (This is the step that keeps Step 8's discipline honest at system scale.)
+What survives across operations — stores, pools, registries, connection state, caches-at-phase-boundaries? Each is a product passed *explicitly* to the regions that touch it, mutated through their protocols, never a global, never a back door. For each persistent store, declare the handles it resolves with `domain Store` and `target Item`, name the regions that grant leases, and name the operations that may invalidate those leases. For each cache, name the owner store, key product, value product, hit/miss/stale protocol, insertion protocol, and invalidation epoch. Then compare each cache key to the world it serves: if the key needs facts outside the consumed world, the world is missing dependencies; if the key includes facts that do not affect the value, the world identity is too broad or too noisy. (This is the step that keeps Step 8's discipline honest at system scale.)
 
 ### Step 11 — Find the families
 
-Where do N signatures differ in one type, one constant, one platform call? Each repetition axis is a factory parameter. Design the *family* signature for the class of uses (somewhat general-purpose); emit only the instances actually used (no speculative matrices); never let one instance's quirk into the family's parameters. Push genuine variation to build time; pull awkward cases down into the regions; let only per-call facts survive in input products. If the system is interactive or incremental, also layer it as a compiler — source ASDL, event ASDL, pure apply, memoized phases at *knowledge* boundaries, one executing loop. Memoize phase products, not arbitrary functions: the boundary should be where knowledge becomes reusable and where invalidation can be named.
+Where do N signatures differ in one type, one constant, one platform call? Each repetition axis is a factory parameter. Design the *family* signature for the class of uses (somewhat general-purpose); emit only the instances actually used (no speculative matrices); never let one instance's quirk into the family's parameters. Push genuine variation to build time; pull awkward cases down into the regions; let only per-call facts survive in input products. If the system is interactive or incremental, also layer it as a compiler — source ASDL, event ASDL, pure apply, memoized phases at reuse frontiers, one executing loop. Memoize phase products, not arbitrary functions: the boundary should be where knowledge becomes reusable and where invalidation can be named in one sentence.
 
 ### Step 12 — Review, then transcribe
 
@@ -1341,6 +1516,14 @@ The Moonlift-native anti-patterns, alongside Book II's red-flag concordance (Ch.
 
 **The step region.** Named after *when* it runs, not what it learns. Temporal decomposition; re-cut at knowledge boundaries (Ch. 6).
 
+**The noisy world.** A world identity changes for edits that do not affect the
+next reusable product. The cache misses are telling the truth: the world
+contains too much, has unstable identity, or lacks internal lanes.
+
+**The incomplete world.** A phase reads side state, upvalues, global stores, or
+extra args to produce correct output. The cache may hit when it should miss.
+Move the missing facts into the consumed world.
+
 **Hidden state.** A counter, a flag, a Lua upvalue mutated across jumps or shared between factory outputs. The block product is the complete state; everything else is a back door (Ch. 6).
 
 **The premature seal.** An internal function created "for tidiness," now squeezing four outcomes through one return. Compose with regions; seal only at ABIs (Ch. 3.4).
@@ -1367,6 +1550,14 @@ Run this before bodies are written, and again before a design is declared done. 
 - [ ] No derived data stored beside source truth? No string keys as internal identity? Cross-references typed handles?
 - [ ] Ownership of every pointer/view/resource boundary written down, or carried as handle/lease/owned facts? Units and invariants written where types can't carry them?
 - [ ] Every kind/tag/status field annotated with its single owning consumer region?
+
+**Worlds and reuse**
+- [ ] Is every repeated/incremental subsystem expressed as a world line: `world -> phase -> world`?
+- [ ] Can each world complete the sentence: "this world changes exactly when ______ can no longer be reused"?
+- [ ] For each phase cache, are all invalidating facts inside the consumed world, not hidden in side args, globals, Lua upvalues, or stores read by convention?
+- [ ] Does each world avoid false invalidation: ordinary edits that should reuse downstream products do not change the world identity?
+- [ ] Does each world avoid stale reuse: any edit that changes downstream output changes the consumed world identity or an epoch carried by it?
+- [ ] Are coarse worlds split, or given stable internal lanes, wherever partial reuse matters?
 
 **Protocols**
 - [ ] Is every "or" from the harvest a named continuation somewhere — including the embarrassing ones (truncated, already_closed, parked)?
@@ -1662,8 +1853,9 @@ region/function says what can happen, what access it invalidates, and whether an
 10. **Invalidation is named.** Resource close, arena reset, publish, retire, destroy, compact, and generation bump are region/effect facts, not destructor folklore.
 11. **Kernels are seals.** Hot code receives already-borrowed leases/views/contracts and does not discover ownership.
 12. **Foreign runtimes get bridges.** LuaJIT stack slots, registry refs, borrowed strings, protected calls, and userdata proxies cross through LuaBridge protocols, not ad hoc raw externs.
-13. **Repeated systems are VMs.** If a subsystem has repeated execution, retained state, diagnostics, incremental invalidation, or a performance boundary, name its instruction language and VM stack before designing public APIs.
-14. **Bytecode is a boundary product.** Dense borrowed images, streams, command buffers, and IR rows are first-class products; wrapper APIs are authoring conveniences around them, not the architecture.
+13. **Repeated systems are VMs.** If a subsystem has repeated execution, retained state, diagnostics, incremental invalidation, or a performance boundary, name its instruction language and VM stack before designing public APIs. Each phase should transform one semantic world into the next.
+14. **Worlds are reuse frontiers.** Choose world boundaries where a product becomes reusable and invalidation can be stated exactly. False invalidation means the world is too broad or too noisy; stale reuse means it is missing facts.
+15. **Bytecode is a boundary product.** Dense borrowed images, streams, command buffers, and IR rows are first-class products; wrapper APIs are authoring conveniences around them, not the architecture.
 
 ---
 
@@ -1684,13 +1876,15 @@ region/function says what can happen, what access it invalidates, and whether an
 10. Deep region: small signature,    21. Foreign runtime facts cross through typed bridges.
     large machine.
                                       22. Serious systems are stacks of VMs.
-                                      23. Bytecode is a boundary product.
+                                      23. Worlds are reuse frontiers.
+                                      24. Bytecode is a boundary product.
 ```
 
-And the six sentences that compress the books behind them:
+And the eight sentences that compress the books behind them:
 
 > **Choice is control. Data is product.** *(the algebra)*
 > **Find the VM stack; each layer consumes and produces an instruction language.** *(the operational lens)*
+> **Choose worlds at reuse frontiers; cache correctness reveals the right shape.** *(incrementality)*
 > **Depth is a small protocol in front of a large machine.** *(Ousterhout, translated)*
 > **A region is a statechart whose final states are its signature.** *(UML, completed)*
 > **Stores own bytes; handles name durable identity; regions grant leases; protocols name failure.** *(memory)*

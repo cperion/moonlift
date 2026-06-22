@@ -2722,10 +2722,11 @@ end
 ```
 
 The PVM `phase` abstraction is the Lua-hosted version of this rule: memoize
-phase outputs at knowledge boundaries, keyed by ASDL identity and explicit
-arguments.  Native systems should translate the same idea into named stores,
-handles, epochs, and regions.  Functions stay functions; caches are products
-owned by a store.
+phase outputs at knowledge boundaries, keyed by the semantic input identity and
+the phase identity. When a phase appears to need several inputs, make a better
+domain value that contains those facts. Native systems should translate the
+same idea into typed worlds, named stores, handles, epochs, and regions.
+Functions stay functions; caches are products owned by a store.
 
 ### 15.5 Values table as module — cross-function dependencies
 
@@ -4703,6 +4704,13 @@ local two = raw.Node.Int { value = 2 }
 local sum = raw.Node.Add { left = one, right = two }
 local stream = raw:seq { one, two, sum }
 ```
+
+LLPVM worlds should name semantic states, not phase plumbing. A phase consumes
+one world and produces one world; if it needs resource epochs, environment
+facts, target facts, model state, or input batches, those facts belong in the
+consumed world. `styled_ui -> layout_ui -> laid_out_ui` is the shape to prefer;
+`lower_scene_input` or a side `phase_inputs` table is a sign that the world was
+named too low.
 
 `ll.node`, public raw reference wrappers, ABI-level op constructors, and
 `vm.seq(world)` are not part of the facade. Typed payload references are emitted

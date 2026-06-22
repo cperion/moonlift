@@ -1,14 +1,20 @@
 # MLUI Lua Authoring API
 
-Status: design specification for the Lua authoring surface above the Moonlift
-UI kernel.
+Status: superseded by
+[`experiments/mlui-llpvm/mlui_llpvm_stack_blueprint.md`](../mlui-llpvm/mlui_llpvm_stack_blueprint.md)
+for current architecture. This file is retained as historical authoring-API
+input from the pre-LLPVM design. Current API work must feed the semantic
+domain-world pipeline, not the old lower/solve/interact split.
 
-Concrete companion docs:
+Historical scope: design specification for the Lua authoring surface above the
+Moonlift UI kernel.
 
-- [`mlui_lua_api_reference.md`](mlui_lua_api_reference.md) documents the
-  current `require "mlui"` API.
-- [`mlui_usage_guide.md`](mlui_usage_guide.md) documents retained-kernel usage
-  and how to avoid full rebuild/load work every frame.
+Historical companion docs:
+
+- [`mlui_lua_api_reference.md`](mlui_lua_api_reference.md) documents the old
+  `require "mlui"` API.
+- [`mlui_usage_guide.md`](mlui_usage_guide.md) documents the old retained-kernel
+  usage model.
 
 This API follows the same decision as `chain.lua` and the MWUI blueprint:
 tree-shaped authoring is built with Lua callable tables and no parentheses.
@@ -468,7 +474,7 @@ The convenience call may exist in Lua, but the architecture remains the typed
 protocol chain.  Failures are returned as typed diagnostics or edge status
 objects, not thrown from arbitrary phase internals.
 
-## C and WASM Facade
+## Historical C Boundary Sketch
 
 Compiled artifacts expose sealed ABI calls, not the Lua builder DSL:
 
@@ -482,15 +488,9 @@ mlui_status mlui_report_get(mlui_kernel *kernel, const mlui_report **report);
 mlui_status mlui_events(mlui_kernel *kernel, const mlui_event **events, size_t *n);
 ```
 
-In browser/WASM use, buffers map naturally to typed arrays:
-
-```text
-AuthBuffer      Int32Array / Float64Array lanes + Uint8Array bytes
-SolveBuffer     Int32Array / Float64Array lanes
-ViewOpBuffer    Int32Array / Float64Array lanes
-ReportBuffer    Int32Array / Float64Array lanes
-EventBuffer     Int32Array / Float64Array lanes
-```
+This old sketch mentioned browser typed arrays. That is not a current MLUI ABI
+claim. In the current design, emitted C may be compiled by external C-to-WASM
+toolchains, and JavaScript bindings are host-owned.
 
 The browser is an op applier and input producer.  It is not a hidden second UI
 object model.
@@ -587,5 +587,5 @@ Widgets return bundles and route typed events; no app callbacks.
 Composition nouns remain first-class ASDL.
 Kernel convenience APIs are facades over named Moonlift regions.
 Native ownership lives in UiKernel stores and owned Ui*Ref protocols.
-C/WASM exports expose typed buffers, not Lua authoring objects.
+C exports expose typed buffers, not Lua authoring objects.
 ```

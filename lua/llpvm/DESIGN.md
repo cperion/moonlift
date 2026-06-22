@@ -191,8 +191,15 @@ handle LlWorldRef : u32 invalid 0
 end
 ```
 
-Every stream, buffer, machine input, machine output, phase input, and phase
-output has a world. A cache key includes world generation.
+Every stream, buffer, machine input, and machine output has a world. A phase
+consumes exactly one input world and produces exactly one output world.
+
+If a machine seems to need several streams, resource epochs, environment facts,
+or model facts, the input world is named at the wrong semantic level. Make those
+facts part of the consumed domain world instead of adding a side `phase_inputs`
+table. Good world names describe what domain state exists now:
+`styled_ui`, `laid_out_ui`, `reported_frame`, `handled_frame`. Weak names
+describe plumbing: `lower_scene_input`, `interact_step_input`, `args_world`.
 
 ### Ops
 
@@ -277,7 +284,10 @@ There are no public triplets. The stream handle is the protocol object.
 
 ### Args
 
-Arguments are interned products and part of cache identity.
+Arguments are interned low-level transition products. They exist so the native
+runtime and bytecode format can encode a sealed call envelope, but they are not
+the semantic input model. If a value changes the meaning of a phase result,
+that value belongs in the consumed world.
 
 ```moonlift
 struct LlArgValue
@@ -368,7 +378,12 @@ handle LlPhaseRef : u32 invalid 0
 end
 ```
 
-The phase is the semantic memoization boundary.
+The phase is the semantic memoization boundary. Its cache key is derived from
+the consumed world identity/content, the phase identity, and the relevant
+runtime profile. A low-level `LlArgsRef` may still be present in the bytecode
+and ABI as an encoded call envelope, but it is not where semantic dependencies
+belong. If an argument changes the result meaning or invalidation behavior,
+put it in the input world.
 
 ### Cache Keys
 
@@ -382,7 +397,9 @@ struct LlPhaseKey
 end
 ```
 
-Pointer identity alone is not a semantic key.
+Pointer identity alone is not a semantic key. `args` is a low-level component of
+the encoded transition record; it must not be used as a dumping ground for
+world facts that should have been modeled as typed input values.
 
 ### Recordings
 
@@ -967,18 +984,24 @@ status:assert("llpvm_load_program")
 local output = runtime_vm:drain(root)
 ```
 
-With args:
+When a phase needs target/profile facts, build the input world that contains
+those facts instead of passing side args:
 
 ```lua
-local output_stream = lower {
-    target = "native",
-    opt = 3,
-} (input)
+local Targeted = vm.language "TargetedExpr"
+local TargetedRoot = Targeted "Root"
+TargetedRoot.Program = { target = moon.u32, opt = moon.u8, expr = ExprNode }
+
+local TargetedWorld = Targeted:world "targeted_expr"
+local targeted_input = TargetedWorld:seq {
+    TargetedWorld.Root.Program { target = TARGET_NATIVE, opt = 3, expr = sum },
+}
+
+local output_stream = lower_targeted(targeted_input)
 ```
 
 Lua constructs operation schemas, worlds, op constructors, streams, and machine
 families. The native VM owns execution, buffers, cache, and diagnostics.
-wasm is not planned yet its just an illustration.
 
 ### Implemented Lua Authoring Surface
 
@@ -1060,7 +1083,6 @@ Phase values are callable:
 
 ```lua
 local output = lower(input)
-local output_with_args = lower { target = "native", opt = 3 } (input)
 ```
 
 Stream proxies expose host-side inspection helpers for locally knowable streams:

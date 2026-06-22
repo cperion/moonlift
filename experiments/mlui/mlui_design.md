@@ -1,12 +1,21 @@
 # Moonlift UI Kernel Design
 
-Status: experiment design for translating `lua/ui` into a Moonlift-native UI
-kernel while preserving the existing Lua authoring taste.
+Status: superseded by
+[`experiments/mlui-llpvm/mlui_llpvm_stack_blueprint.md`](../mlui-llpvm/mlui_llpvm_stack_blueprint.md).
+This file is retained only as historical design input from the pre-LLPVM
+iteration. Do not use its phase names, dependency model, or ABI names as the
+current MLUI architecture. The current center is semantic domain worlds:
+`authored_ui -> expanded_ui -> valid_ui -> imported_ui -> styled_ui ->
+measured_ui -> laid_out_ui -> renderable_ui -> reported_frame ->
+handled_frame`.
+
+Historical scope: experiment design for translating `lua/ui` into a
+Moonlift-native UI kernel while preserving the existing Lua authoring taste.
 
 This is not a replacement for `lua/ui`.  The current Lua UI library is the seed:
 it is already compiler-shaped, ASDL-first, backend-independent, and tested.  The
 Moonlift version should make the same phase boundaries explicit as typed
-products and protocols so the hot kernel can become a C/Cranelift/WASM artifact.
+products and protocols so the hot kernel can become a native artifact.
 
 The native translation must not flatten the authored model into a poor widget
 API.  The richness of `lua/ui/asdl.lua` is part of the architecture.
@@ -152,7 +161,7 @@ mlui kernel
   lower / measure / solve / render / interact protocols
 
 backend bridge
-  SDL3, Love, embedded framebuffer, browser/WASM host
+  SDL3, Love, embedded framebuffer, or host binding
   consumes ViewOp buffers and supplies text/input/window resources
 
 application
@@ -235,7 +244,7 @@ only the ABI encoding of that richness:
 - `UiEvent`: semantic interaction event.
 
 Lua can continue to use recursive ASDL trees.  The native kernel boundary should
-prefer buffers because C/WASM/embedded targets want compact ABI surfaces:
+prefer buffers because C and embedded targets want compact ABI surfaces:
 
 ```text
 UiProgram/AuthBuffer -> SceneBuffer -> SolveBuffer -> ViewOpBuffer -> Report/EventBuffer
@@ -619,7 +628,7 @@ Widgets should declare whether their changing values are:
 
 That declaration drives invalidation and native buffer updates.
 
-## Public C/WASM Shape
+## Historical C Boundary Sketch
 
 The deployment target should be one tiny artifact:
 
@@ -631,16 +640,9 @@ int32_t mlui_runtime_report(...);
 int32_t mlui_interact_step(...);
 ```
 
-For WASM, the ABI maps naturally to typed arrays:
-
-```text
-nodes      Int32Array / Float64Array lanes
-decor      Int32Array / Float64Array lanes
-ops        Int32Array / Float64Array lanes
-text bytes Uint8Array
-events     Int32Array / Float64Array lanes
-meta       Int32Array
-```
+This old sketch mentioned browser typed arrays. That is not a current MLUI ABI
+claim. In the current design, emitted C may be compiled by external C-to-WASM
+toolchains, and JavaScript bindings are host-owned.
 
 The browser or embedded host is a small op applier, not a second UI framework.
 
@@ -760,21 +762,21 @@ resources, it registers typed handles or passes host callbacks.  If a backend
 needs to measure text, the C profile should expose a text-measure callback table
 rather than hardwire SDL, browser, or platform text into the core.
 
-WASM uses the same profile with linear-memory offsets instead of native pointers
-where needed.  The JS side views public rows through typed arrays and remains an
-op applier/input producer.
+External C-to-WASM toolchains may wrap the same C artifact, but JavaScript
+linear-memory and typed-array bindings are host-owned and not a current MLUI ABI.
 
 ## Non-Negotiable Rules
 
 ```text
-The current lua/ui phase shape is the base.
+The current lua/ui richness is source material; the current phase shape is the
+LLPVM semantic domain-world pipeline.
 The native kernel is product/protocol typed, not callback typed.
 Auth/Layout/Decor/Solve/View/Report/Event are distinct products.
 Render consumes Solve, never recomputes layout.
 Text layout is an explicit retained product.
 Dynamic paint/value data must not masquerade as structure.
 Backends consume ops and produce raw input; they do not own UI semantics.
-Public ABI status codes exist only at sealed C/WASM boundaries.
+Public ABI status codes exist only at sealed C boundaries.
 The single-file C artifact exposes stable row buffers and an opaque kernel, not
 Moonlift internals or Lua authoring objects.
 UiProgram is the portable frontend contract; Lua, C, and generated tools may all
