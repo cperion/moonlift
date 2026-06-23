@@ -1,7 +1,7 @@
 local moon = require("moonlift")
-moon.use()
+moon.family.use()
 
-return module "FunctorPlay" {
+return {
   const. Welcome [i32] (2026),
   const. One [i32] (1),
   const. Zero [i32] (0),

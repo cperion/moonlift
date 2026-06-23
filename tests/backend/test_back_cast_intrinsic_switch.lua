@@ -130,7 +130,7 @@ local report = validate.validate(program)
 assert(#report.issues == 0)
 
 local jit = jit_api.jit()
-local artifact = jit:compile(program)
+local artifact = jit:compile(jit_api.flatline.encode_back_program(program))
 
 local i32_to_f64 = ffi.cast("double (*)(int32_t)", artifact:getpointer(B2.BackFuncId("i32_to_f64")))
 assert(tonumber(i32_to_f64(-7)) == -7)

@@ -1,4 +1,6 @@
 local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
+local erased = require("moonlift.phase_erased_runtime")
 
 local M = {}
 
@@ -44,7 +46,7 @@ function M.Define(T)
     assert(B, "moonlift.back_validate.Define expects MoonBack/MoonBack in the context")
 
     local function append_address_base_uses(out, index, base)
-        local cls = pvm.classof(base)
+        local cls = schema.classof(base)
         if cls == B.BackAddrValue then
             out[#out + 1] = B.BackFactValueUse(index, base.value)
         elseif cls == B.BackAddrStack then
@@ -68,7 +70,7 @@ function M.Define(T)
     end
 
     local function shape_size_bytes(shape)
-        local cls = pvm.classof(shape)
+        local cls = schema.classof(shape)
         if cls == B.BackShapeScalar then return scalar_size_bytes(shape.scalar) end
         if cls == B.BackShapeVec then
             local elem = scalar_size_bytes(shape.vec.elem)
@@ -87,13 +89,13 @@ function M.Define(T)
     end
 
     local function alignment_bytes(alignment)
-        local cls = pvm.classof(alignment)
+        local cls = schema.classof(alignment)
         if cls == B.BackAlignKnown or cls == B.BackAlignAtLeast or cls == B.BackAlignAssumed then return alignment.bytes end
         return nil
     end
 
     local function dereference_bytes(deref)
-        local cls = pvm.classof(deref)
+        local cls = schema.classof(deref)
         if cls == B.BackDerefBytes or cls == B.BackDerefAssumed then return deref.bytes end
         return nil
     end
@@ -114,10 +116,10 @@ function M.Define(T)
         if deref ~= nil and access ~= nil and deref < access then
             add_issue(issues, B.BackIssueDereferenceTooSmall(index, deref, access))
         end
-        if pvm.classof(memory.trap) == B.BackNonTrapping and deref == nil then
+        if schema.classof(memory.trap) == B.BackNonTrapping and deref == nil then
             add_issue(issues, B.BackIssueNonTrappingWithoutDereference(index))
         end
-        if pvm.classof(memory.motion) == B.BackCanMove and pvm.classof(memory.trap) ~= B.BackNonTrapping then
+        if schema.classof(memory.motion) == B.BackCanMove and schema.classof(memory.trap) ~= B.BackNonTrapping then
             add_issue(issues, B.BackIssueCanMoveWithoutNonTrapping(index))
         end
     end
@@ -140,26 +142,44 @@ function M.Define(T)
     local call_target_facts
     local call_result_facts
 
-    call_target_facts = pvm.phase("moonlift_back_call_target_facts", {
-        [B.BackCallDirect] = function(self, index)
-            return pvm.once(B.BackFactFuncRef(index, self.func))
-        end,
-        [B.BackCallExtern] = function(self, index)
-            return pvm.once(B.BackFactExternRef(index, self.func))
-        end,
-        [B.BackCallIndirect] = function(self, index)
-            return pvm.once(B.BackFactValueUse(index, self.callee))
-        end,
-    })
+    function call_target_facts(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, B.BackCallDirect) then
+            return (function(self, index)
 
-    call_result_facts = pvm.phase("moonlift_back_call_result_facts", {
-        [B.BackCallStmt] = function()
-            return pvm.empty()
-        end,
-        [B.BackCallValue] = function(self, index)
-            return pvm.once(B.BackFactValueDef(index, self.dst))
-        end,
-    })
+            return erased.once(B.BackFactFuncRef(index, self.func))
+            end)(node, ...)
+        elseif schema.isa(node, B.BackCallExtern) then
+            return (function(self, index)
+
+            return erased.once(B.BackFactExternRef(index, self.func))
+            end)(node, ...)
+        elseif schema.isa(node, B.BackCallIndirect) then
+            return (function(self, index)
+
+            return erased.once(B.BackFactValueUse(index, self.callee))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_back_call_target_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
+
+    function call_result_facts(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, B.BackCallStmt) then
+            return (function()
+
+            return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, B.BackCallValue) then
+            return (function(self, index)
+
+            return erased.once(B.BackFactValueDef(index, self.dst))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_back_call_result_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
     local function body(index)
         return B.BackFactFunctionBodyCommand(index)
@@ -172,7 +192,7 @@ function M.Define(T)
     local function append_cmd_facts_flat(out, cmd, index)
         if cmd == B.CmdFinalizeModule then out[#out + 1] = B.BackFactFinalizeModule(index); return end
         if cmd == B.CmdReturnVoid or cmd == B.CmdTrap then out[#out + 1] = body(index); return end
-        local cls = pvm.classof(cmd)
+        local cls = schema.classof(cmd)
         if cls == B.CmdCreateSig then out[#out + 1] = B.BackFactCreateSig(index, cmd.sig); return end
         if cls == B.CmdDeclareData then out[#out + 1] = B.BackFactDeclareData(index, cmd.data); return end
         if cls == B.CmdDataInitZero or cls == B.CmdDataInit then out[#out + 1] = B.BackFactDataRef(index, cmd.data); return end
@@ -218,11 +238,11 @@ function M.Define(T)
         if cls == B.CmdVecExtractLane then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.value); out[#out + 1] = B.BackFactValueDef(index, cmd.dst); return end
         if cls == B.CmdCall then
             out[#out + 1] = body(index); out[#out + 1] = B.BackFactSigRef(index, cmd.sig)
-            local target_cls = pvm.classof(cmd.target)
+            local target_cls = schema.classof(cmd.target)
             if target_cls == B.BackCallDirect then out[#out + 1] = B.BackFactFuncRef(index, cmd.target.func)
             elseif target_cls == B.BackCallExtern then out[#out + 1] = B.BackFactExternRef(index, cmd.target.func)
             elseif target_cls == B.BackCallIndirect then out[#out + 1] = B.BackFactValueUse(index, cmd.target.callee) end
-            if cmd.result ~= B.BackCallStmt and pvm.classof(cmd.result) == B.BackCallValue then out[#out + 1] = B.BackFactValueDef(index, cmd.result.dst) end
+            if cmd.result ~= B.BackCallStmt and schema.classof(cmd.result) == B.BackCallValue then out[#out + 1] = B.BackFactValueDef(index, cmd.result.dst) end
             append_value_uses(out, B, index, cmd.args)
             return
         end
@@ -234,180 +254,282 @@ function M.Define(T)
         pvm.drain_into(g, p, c, out)
     end
 
-    cmd_facts = pvm.phase("moonlift_back_cmd_facts", {
-        [B.CmdCreateSig] = function(self, index)
-            return facts_triplet({ B.BackFactCreateSig(index, self.sig) })
-        end,
-        [B.CmdDeclareData] = function(self, index)
-            return facts_triplet({ B.BackFactDeclareData(index, self.data) })
-        end,
-        [B.CmdDataInitZero] = function(self, index)
-            return facts_triplet({ B.BackFactDataRef(index, self.data) })
-        end,
-        [B.CmdDataInit] = function(self, index)
-            return facts_triplet({ B.BackFactDataRef(index, self.data) })
-        end,
-        [B.CmdDeclareFunc] = function(self, index)
-            return facts_triplet({ B.BackFactDeclareFunc(index, self.func), B.BackFactSigRef(index, self.sig) })
-        end,
-        [B.CmdDeclareExtern] = function(self, index)
-            return facts_triplet({ B.BackFactDeclareExtern(index, self.func), B.BackFactSigRef(index, self.sig) })
-        end,
-        [B.CmdBeginFunc] = function(self, index)
-            return facts_triplet({ B.BackFactBeginFunc(index, self.func), B.BackFactFuncRef(index, self.func) })
-        end,
-        [B.CmdFinishFunc] = function(self, index)
-            return facts_triplet({ B.BackFactFinishFunc(index, self.func), B.BackFactFuncRef(index, self.func) })
-        end,
-        [B.CmdFinalizeModule] = function(_, index)
-            return facts_triplet({ B.BackFactFinalizeModule(index) })
-        end,
+    function cmd_facts(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, B.CmdCreateSig) then
+            return (function(self, index)
 
-        [B.CmdCreateBlock] = function(self, index)
+            return facts_triplet({ B.BackFactCreateSig(index, self.sig) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdDeclareData) then
+            return (function(self, index)
+
+            return facts_triplet({ B.BackFactDeclareData(index, self.data) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdDataInitZero) then
+            return (function(self, index)
+
+            return facts_triplet({ B.BackFactDataRef(index, self.data) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdDataInit) then
+            return (function(self, index)
+
+            return facts_triplet({ B.BackFactDataRef(index, self.data) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdDeclareFunc) then
+            return (function(self, index)
+
+            return facts_triplet({ B.BackFactDeclareFunc(index, self.func), B.BackFactSigRef(index, self.sig) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdDeclareExtern) then
+            return (function(self, index)
+
+            return facts_triplet({ B.BackFactDeclareExtern(index, self.func), B.BackFactSigRef(index, self.sig) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdBeginFunc) then
+            return (function(self, index)
+
+            return facts_triplet({ B.BackFactBeginFunc(index, self.func), B.BackFactFuncRef(index, self.func) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdFinishFunc) then
+            return (function(self, index)
+
+            return facts_triplet({ B.BackFactFinishFunc(index, self.func), B.BackFactFuncRef(index, self.func) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdFinalizeModule) then
+            return (function(_, index)
+
+            return facts_triplet({ B.BackFactFinalizeModule(index) })
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdCreateBlock) then
+            return (function(self, index)
+
             return facts_triplet({ body(index), B.BackFactCreateBlock(index, self.block) })
-        end,
-        [B.CmdSwitchToBlock] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdSwitchToBlock) then
+            return (function(self, index)
+
             return facts_triplet({ body(index), B.BackFactBlockRef(index, self.block) })
-        end,
-        [B.CmdSealBlock] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdSealBlock) then
+            return (function(self, index)
+
             return facts_triplet({ body(index), B.BackFactBlockRef(index, self.block) })
-        end,
-        [B.CmdBindEntryParams] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdBindEntryParams) then
+            return (function(self, index)
+
             local out = { body(index), B.BackFactBlockRef(index, self.block) }
             append_value_defs(out, B, index, self.values)
             return facts_triplet(out)
-        end,
-        [B.CmdAppendBlockParam] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdAppendBlockParam) then
+            return (function(self, index)
+
             return facts_triplet({ body(index), B.BackFactBlockRef(index, self.block), B.BackFactValueDef(index, self.value) })
-        end,
-        [B.CmdCreateStackSlot] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdCreateStackSlot) then
+            return (function(self, index)
+
             return facts_triplet({ body(index), B.BackFactStackSlotDef(index, self.slot) })
-        end,
-        [B.CmdAlias] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdAlias) then
+            return (function(self, index)
+
             return facts_triplet({ body(index), B.BackFactValueUse(index, self.src), B.BackFactValueDef(index, self.dst) })
-        end,
-        [B.CmdStackAddr] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdStackAddr) then
+            return (function(self, index)
+
             return facts_triplet({ body(index), B.BackFactStackSlotRef(index, self.slot), B.BackFactValueDef(index, self.dst) })
-        end,
-        [B.CmdDataAddr] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdDataAddr) then
+            return (function(self, index)
+
             return facts_triplet({ body(index), B.BackFactDataRef(index, self.data), B.BackFactValueDef(index, self.dst) })
-        end,
-        [B.CmdFuncAddr] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdFuncAddr) then
+            return (function(self, index)
+
             return facts_triplet({ body(index), B.BackFactFuncRef(index, self.func), B.BackFactValueDef(index, self.dst) })
-        end,
-        [B.CmdExternAddr] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdExternAddr) then
+            return (function(self, index)
+
             return facts_triplet({ body(index), B.BackFactExternRef(index, self.func), B.BackFactValueDef(index, self.dst) })
-        end,
-        [B.CmdConst] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdConst) then
+            return (function(self, index)
+
             return facts_triplet({ body(index), B.BackFactValueDef(index, self.dst) })
-        end,
-        [B.CmdUnary] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdUnary) then
+            return (function(self, index)
+
             return facts_triplet({ body(index), shape(index, self.ty, B.BackShapeRequiresScalar), B.BackFactValueUse(index, self.value), B.BackFactValueDef(index, self.dst) })
-        end,
-        [B.CmdIntrinsic] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdIntrinsic) then
+            return (function(self, index)
+
             local out = { body(index), shape(index, self.ty, B.BackShapeRequiresScalar), B.BackFactValueDef(index, self.dst) }
             append_value_uses(out, B, index, self.args)
             return facts_triplet(out)
-        end,
-        [B.CmdCompare] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdCompare) then
+            return (function(self, index)
+
             return facts_triplet({ body(index), shape(index, self.ty, B.BackShapeRequiresScalar), B.BackFactValueUse(index, self.lhs), B.BackFactValueUse(index, self.rhs), B.BackFactValueDef(index, self.dst) })
-        end,
-        [B.CmdCast] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdCast) then
+            return (function(self, index)
+
             return facts_triplet({ body(index), B.BackFactValueUse(index, self.value), B.BackFactValueDef(index, self.dst) })
-        end,
-        [B.CmdPtrOffset] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdPtrOffset) then
+            return (function(self, index)
+
             local out = { body(index), B.BackFactValueUse(index, self.index), B.BackFactValueDef(index, self.dst) }
             append_address_base_uses(out, index, self.base)
             return facts_triplet(out)
-        end,
-        [B.CmdLoadInfo] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdLoadInfo) then
+            return (function(self, index)
+
             local out = { body(index), shape(index, self.ty, B.BackShapeAllowsScalarOrVector), B.BackFactAccessDef(index, self.memory.access), B.BackFactValueDef(index, self.dst) }
             append_address_uses(out, index, self.addr)
             return facts_triplet(out)
-        end,
-        [B.CmdStoreInfo] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdStoreInfo) then
+            return (function(self, index)
+
             local out = { body(index), shape(index, self.ty, B.BackShapeAllowsScalarOrVector), B.BackFactAccessDef(index, self.memory.access), B.BackFactValueUse(index, self.value) }
             append_address_uses(out, index, self.addr)
             return facts_triplet(out)
-        end,
-        [B.CmdAtomicLoad] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdAtomicLoad) then
+            return (function(self, index)
+
             local out = { body(index), shape(index, B.BackShapeScalar(self.ty), B.BackShapeRequiresScalar), B.BackFactAccessDef(index, self.memory.access), B.BackFactValueDef(index, self.dst) }
             append_address_uses(out, index, self.addr)
             return facts_triplet(out)
-        end,
-        [B.CmdAtomicStore] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdAtomicStore) then
+            return (function(self, index)
+
             local out = { body(index), shape(index, B.BackShapeScalar(self.ty), B.BackShapeRequiresScalar), B.BackFactAccessDef(index, self.memory.access), B.BackFactValueUse(index, self.value) }
             append_address_uses(out, index, self.addr)
             return facts_triplet(out)
-        end,
-        [B.CmdAtomicRmw] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdAtomicRmw) then
+            return (function(self, index)
+
             local out = { body(index), shape(index, B.BackShapeScalar(self.ty), B.BackShapeRequiresScalar), B.BackFactAccessDef(index, self.memory.access), B.BackFactValueUse(index, self.value), B.BackFactValueDef(index, self.dst) }
             append_address_uses(out, index, self.addr)
             return facts_triplet(out)
-        end,
-        [B.CmdAtomicCas] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdAtomicCas) then
+            return (function(self, index)
+
             local out = { body(index), shape(index, B.BackShapeScalar(self.ty), B.BackShapeRequiresScalar), B.BackFactAccessDef(index, self.memory.access), B.BackFactValueUse(index, self.expected), B.BackFactValueUse(index, self.replacement), B.BackFactValueDef(index, self.dst) }
             append_address_uses(out, index, self.addr)
             return facts_triplet(out)
-        end,
-        [B.CmdAtomicFence] = function(_, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdAtomicFence) then
+            return (function(_, index)
+
             return facts_triplet({ body(index) })
-        end,
-        [B.CmdIntBinary] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdIntBinary) then
+            return (function(self, index)
+
             return facts_triplet({ body(index), B.BackFactValueUse(index, self.lhs), B.BackFactValueUse(index, self.rhs), B.BackFactValueDef(index, self.dst) })
-        end,
-        [B.CmdBitBinary] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdBitBinary) then
+            return (function(self, index)
+
             return facts_triplet({ body(index), B.BackFactValueUse(index, self.lhs), B.BackFactValueUse(index, self.rhs), B.BackFactValueDef(index, self.dst) })
-        end,
-        [B.CmdBitNot] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdBitNot) then
+            return (function(self, index)
+
             return facts_triplet({ body(index), B.BackFactValueUse(index, self.value), B.BackFactValueDef(index, self.dst) })
-        end,
-        [B.CmdShift] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdShift) then
+            return (function(self, index)
+
             return facts_triplet({ body(index), B.BackFactValueUse(index, self.lhs), B.BackFactValueUse(index, self.rhs), B.BackFactValueDef(index, self.dst) })
-        end,
-        [B.CmdRotate] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdRotate) then
+            return (function(self, index)
+
             return facts_triplet({ body(index), B.BackFactValueUse(index, self.lhs), B.BackFactValueUse(index, self.rhs), B.BackFactValueDef(index, self.dst) })
-        end,
-        [B.CmdFloatBinary] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdFloatBinary) then
+            return (function(self, index)
+
             return facts_triplet({ body(index), B.BackFactValueUse(index, self.lhs), B.BackFactValueUse(index, self.rhs), B.BackFactValueDef(index, self.dst) })
-        end,
-        [B.CmdMemcpy] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdMemcpy) then
+            return (function(self, index)
+
             return facts_triplet({ body(index), B.BackFactValueUse(index, self.dst), B.BackFactValueUse(index, self.src), B.BackFactValueUse(index, self.len) })
-        end,
-        [B.CmdMemset] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdMemset) then
+            return (function(self, index)
+
             return facts_triplet({ body(index), B.BackFactValueUse(index, self.dst), B.BackFactValueUse(index, self.byte), B.BackFactValueUse(index, self.len) })
-        end,
-        [B.CmdSelect] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdSelect) then
+            return (function(self, index)
+
             return facts_triplet({ body(index), shape(index, self.ty, B.BackShapeRequiresScalar), B.BackFactValueUse(index, self.cond), B.BackFactValueUse(index, self.then_value), B.BackFactValueUse(index, self.else_value), B.BackFactValueDef(index, self.dst) })
-        end,
-        [B.CmdFma] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdFma) then
+            return (function(self, index)
+
             return facts_triplet({ body(index), B.BackFactValueUse(index, self.a), B.BackFactValueUse(index, self.b), B.BackFactValueUse(index, self.c), B.BackFactValueDef(index, self.dst) })
-        end,
-        [B.CmdVecSplat] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdVecSplat) then
+            return (function(self, index)
+
             return facts_triplet({ body(index), B.BackFactValueUse(index, self.value), B.BackFactValueDef(index, self.dst) })
-        end,
-        [B.CmdVecBinary] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdVecBinary) then
+            return (function(self, index)
+
             return facts_triplet({ body(index), shape(index, B.BackShapeVec(self.ty), B.BackShapeRequiresVector), B.BackFactValueUse(index, self.lhs), B.BackFactValueUse(index, self.rhs), B.BackFactValueDef(index, self.dst) })
-        end,
-        [B.CmdVecCompare] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdVecCompare) then
+            return (function(self, index)
+
             return facts_triplet({ body(index), shape(index, B.BackShapeVec(self.ty), B.BackShapeRequiresVector), B.BackFactValueUse(index, self.lhs), B.BackFactValueUse(index, self.rhs), B.BackFactValueDef(index, self.dst) })
-        end,
-        [B.CmdVecSelect] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdVecSelect) then
+            return (function(self, index)
+
             return facts_triplet({ body(index), shape(index, B.BackShapeVec(self.ty), B.BackShapeRequiresVector), B.BackFactValueUse(index, self.mask), B.BackFactValueUse(index, self.then_value), B.BackFactValueUse(index, self.else_value), B.BackFactValueDef(index, self.dst) })
-        end,
-        [B.CmdVecMask] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdVecMask) then
+            return (function(self, index)
+
             local out = { body(index), shape(index, B.BackShapeVec(self.ty), B.BackShapeRequiresVector), B.BackFactValueDef(index, self.dst) }
             append_value_uses(out, B, index, self.args)
             return facts_triplet(out)
-        end,
-        [B.CmdVecInsertLane] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdVecInsertLane) then
+            return (function(self, index)
+
             return facts_triplet({ body(index), B.BackFactValueUse(index, self.value), B.BackFactValueUse(index, self.lane_value), B.BackFactValueDef(index, self.dst) })
-        end,
-        [B.CmdVecExtractLane] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdVecExtractLane) then
+            return (function(self, index)
+
             return facts_triplet({ body(index), B.BackFactValueUse(index, self.value), B.BackFactValueDef(index, self.dst) })
-        end,
-        [B.CmdCall] = function(self, index)
-            return pvm.concat_all({
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdCall) then
+            return (function(self, index)
+
+            return erased.concat_all({
                 { facts_triplet({ body(index), B.BackFactSigRef(index, self.sig) }) },
                 { call_target_facts(self.target, index) },
                 { call_result_facts(self.result, index) },
@@ -417,35 +539,50 @@ function M.Define(T)
                     return out
                 end)()) },
             })
-        end,
-        [B.CmdJump] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdJump) then
+            return (function(self, index)
+
             local out = { body(index), B.BackFactBlockRef(index, self.dest) }
             append_value_uses(out, B, index, self.args)
             return facts_triplet(out)
-        end,
-        [B.CmdBrIf] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdBrIf) then
+            return (function(self, index)
+
             local out = { body(index), B.BackFactValueUse(index, self.cond), B.BackFactBlockRef(index, self.then_block), B.BackFactBlockRef(index, self.else_block) }
             append_value_uses(out, B, index, self.then_args)
             append_value_uses(out, B, index, self.else_args)
             return facts_triplet(out)
-        end,
-        [B.CmdSwitchInt] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdSwitchInt) then
+            return (function(self, index)
+
             local out = { body(index), B.BackFactValueUse(index, self.value), B.BackFactBlockRef(index, self.default_dest) }
             for i = 1, #self.cases do
                 out[#out + 1] = B.BackFactBlockRef(index, self.cases[i].dest)
             end
             return facts_triplet(out)
-        end,
-        [B.CmdReturnVoid] = function(_, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdReturnVoid) then
+            return (function(_, index)
+
             return facts_triplet({ body(index) })
-        end,
-        [B.CmdReturnValue] = function(self, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdReturnValue) then
+            return (function(self, index)
+
             return facts_triplet({ body(index), B.BackFactValueUse(index, self.value) })
-        end,
-        [B.CmdTrap] = function(_, index)
+            end)(node, ...)
+        elseif schema.isa(node, B.CmdTrap) then
+            return (function(_, index)
+
             return facts_triplet({ body(index) })
-        end,
-    })
+            end)(node, ...)
+        else
+            error("erased phase moonlift_back_cmd_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
     local function validate_program_impl(program, use_flat, collector)
         local issues = {}
@@ -482,7 +619,7 @@ function M.Define(T)
 
         for i = 1, #facts do
             local fact = facts[i]
-            local cls = pvm.classof(fact)
+            local cls = schema.classof(fact)
 
             if cls == B.BackFactCreateSig then
                 note_unique(seen_sig, fact.sig, function() return B.BackIssueDuplicateSig(fact.index, fact.sig) end, issues)
@@ -556,7 +693,7 @@ function M.Define(T)
             elseif cls == B.BackFactAccessRef then
                 if active_func ~= nil and not has(seen_access, fact.access) then add_issue(issues, B.BackIssueMissingAccess(fact.index, fact.access)) end
             elseif cls == B.BackFactShapeUse then
-                local shape_cls = pvm.classof(fact.shape)
+                local shape_cls = schema.classof(fact.shape)
                 if fact.requirement == B.BackShapeRequiresScalar and shape_cls ~= B.BackShapeScalar then
                     add_issue(issues, B.BackIssueShapeRequiresScalar(fact.index, fact.shape))
                 elseif fact.requirement == B.BackShapeRequiresVector and shape_cls ~= B.BackShapeVec then
@@ -567,7 +704,7 @@ function M.Define(T)
 
         for index = 1, #cmds do
             local cmd = cmds[index]
-            local cls = pvm.classof(cmd)
+            local cls = schema.classof(cmd)
             if cls == B.CmdLoadInfo then
                 validate_memory_info(issues, index, cmd.ty, cmd.memory, B.BackAccessRead)
             elseif cls == B.CmdStoreInfo then
@@ -624,9 +761,9 @@ function M.Define(T)
         return B.BackValidationReport(issues)
     end
 
-    local validate_program = pvm.phase("moonlift_back_validate_program", function(program, collector)
+    local function validate_program(program, collector)
         return validate_program_impl(program, true, collector)
-    end)
+    end
 
     return {
         cmd_facts = cmd_facts,
@@ -648,7 +785,7 @@ function M.Define(T)
             return validate_program_impl(program, true, collector)
         end,
         validate = function(program, collector)
-            return pvm.one(validate_program(program, collector))
+            return validate_program(program, collector)
         end,
 
         validate_verify = function(program)
@@ -689,7 +826,7 @@ local function explain_back_issue(issue, analysis)
     local resolvers = require("moonlift.error.span_resolvers")
     local pvm = require("moonlift.pvm")
     local span = resolvers.backend_resolver(issue, analysis)
-    local cls = pvm.classof(issue)
+    local cls = schema.classof(issue)
     if not cls then return { code = "E9999", severity = "error", primary = { span = span, message = tostring(issue) } } end
     local kind = cls.kind
 

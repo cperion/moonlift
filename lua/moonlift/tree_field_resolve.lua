@@ -1,4 +1,6 @@
 local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
+local erased = require("moonlift.phase_erased_runtime")
 
 local M = {}
 
@@ -10,7 +12,7 @@ function M.Define(T)
     local C = T.MoonCore
 
     local function ty_from_rep(rep)
-        local cls = pvm.classof(rep)
+        local cls = schema.classof(rep)
         if cls == H.HostRepScalar then return Ty.TScalar(rep.scalar) end
         if cls == H.HostRepBool then return Ty.TScalar(C.ScalarBool) end
         if cls == H.HostRepPtr then return Ty.TPtr(rep.pointee) end
@@ -31,21 +33,31 @@ function M.Define(T)
         return Sem.FieldByOffset(field.name, field.offset, ty_from_rep(field.rep), field.rep)
     end
 
-    local phase = pvm.phase("moonlift_tree_field_resolve", {
-        [Tr.ExprDot] = function(self, layout)
+    local function phase(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Tr.ExprDot) then
+            return (function(self, layout)
+
             local field = find_field(layout, self.name)
-            if not field then return pvm.empty() end
-            return pvm.once(ref_for_field(field))
-        end,
-        [Tr.PlaceDot] = function(self, layout)
+            if not field then return erased.empty() end
+            return erased.once(ref_for_field(field))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.PlaceDot) then
+            return (function(self, layout)
+
             local field = find_field(layout, self.name)
-            if not field then return pvm.empty() end
-            return pvm.once(ref_for_field(field))
-        end,
-        [H.HostFieldLayout] = function(self)
-            return pvm.once(ref_for_field(self))
-        end,
-    }, { args_cache = "full" })
+            if not field then return erased.empty() end
+            return erased.once(ref_for_field(field))
+            end)(node, ...)
+        elseif schema.isa(node, H.HostFieldLayout) then
+            return (function(self)
+
+            return erased.once(ref_for_field(self))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_tree_field_resolve: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
     local function resolve(node, layout)
         local g, p, c = phase(node, layout)

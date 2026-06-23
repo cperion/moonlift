@@ -93,7 +93,7 @@ assert(#report.issues == 0)
 
 local jit = jit_api.jit()
 jit:symbol("host_add7", extern_cb)
-local artifact = jit:compile(program)
+local artifact = jit:compile(jit_api.flatline.encode_back_program(program))
 
 local call_host_add7 = ffi.cast("int32_t (*)(int32_t)", artifact:getpointer(B2.BackFuncId("call_host_add7")))
 assert(call_host_add7(35) == 42)

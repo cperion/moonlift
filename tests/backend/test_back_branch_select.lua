@@ -86,7 +86,7 @@ local report = validate.validate(program)
 assert(#report.issues == 0)
 
 local jit = jit_api.jit()
-local artifact = jit:compile(program)
+local artifact = jit:compile(jit_api.flatline.encode_back_program(program))
 
 local select_ptr = artifact:getpointer(B2.BackFuncId("select_abs_i32"))
 local select_abs_i32 = ffi.cast("int32_t (*)(int32_t)", select_ptr)

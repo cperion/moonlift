@@ -21,9 +21,11 @@ local TypeSpec = class("TypeSpec")
 local OpSpec = class("OpSpec")
 local WorldSpec = class("WorldSpec")
 local StreamSpec = class("StreamSpec")
-local ValueSpec = class("ValueSpec")
+local RecordSpec = class("RecordSpec")
 local MachineSpec = class("MachineSpec")
 local PhaseSpec = class("PhaseSpec")
+local TaskSpec = class("TaskSpec")
+local EventSpec = class("EventSpec")
 local Directive = class("Directive")
 local RootSpec = class("RootSpec")
 local ProgramImage = class("ProgramImage")
@@ -60,6 +62,11 @@ local function path_parts(v)
     if is(v, Ident) then return { v.name } end
     if is(v, Path) then return v.parts end
     if llb.is(v, "Name") or llb.is(v, "Symbol") then return { v.text } end
+    if llb.is(v, "Expr") and v.kind == "field" then
+        local parts = path_parts(v.base)
+        parts[#parts + 1] = v.field
+        return parts
+    end
     if type(v) == "string" then return { v } end
     die("path expected, got " .. llb.repr(v), llb.origin_of(v))
 end
@@ -112,7 +119,17 @@ end
 local function fields_from_table(t)
     local out = {}
     for _, v in ipairs(array_items(t or {})) do
-        if is(v, Field) then out[#out + 1] = v
+        local raw_name = type(v) == "table" and rawget(v, "name") or nil
+        local raw_type = type(v) == "table" and rawget(v, "type") or nil
+        local raw_base = type(v) == "table" and rawget(v, "base") or nil
+        local raw_index = type(v) == "table" and rawget(v, "index") or nil
+        if is(v, Field) and raw_name ~= nil and raw_type ~= nil then out[#out + 1] = v
+        elseif is(v, Field) and raw_base ~= nil and raw_index ~= nil then
+            out[#out + 1] = setmetatable({ name = ident_text(raw_base, "field name"), type = raw_index, origin = rawget(v, "origin") }, Field)
+        elseif llb.is(v, "Capture") then
+            out[#out + 1] = setmetatable({ name = ident_text(v.subject, "field name"), type = v.value, origin = v.origin }, Field)
+        elseif llb.is(v, "Expr") and v.kind == "index" then
+            out[#out + 1] = setmetatable({ name = ident_text(v.base, "field name"), type = v.index, origin = v.origin }, Field)
         elseif type(v) == "table" and v.name ~= nil and v.type ~= nil then out[#out + 1] = setmetatable(v, Field)
         else die("field list expects entries like name [Type]", llb.origin_of(v)) end
     end
@@ -127,6 +144,16 @@ function M.schema(t) return fragment("llpvm_decl", t) end
 function M.stream_items(t) return fragment("llpvm_stream_item", t) end
 M._ = llb.spread
 M.spread = llb.spread
+M.llpvm = llb.zone_head {
+    family = "moonlift",
+    member = "llpvm.dsl",
+    name = "llpvm",
+    role = "programs",
+}
+
+local function is_llpvm_zone(v)
+    return llb.is(v, "Zone") and (v.member == "llpvm.dsl" or v.name == "llpvm" or v.role == "llpvm")
+end
 
 local MachineLanguageFactory = {}
 local MachineLanguageStage = {}
@@ -150,7 +177,7 @@ local g = llb.grammar
 local ch = llb.channel
 local function slot_name(slot) return slot[g.name] { channel = ch.index_name } end
 local function slot_body(slot, role) return slot[role] { channel = ch.call_table } end
-local function slot_index_value(slot) return slot[g.value] { channel = ch.index_value } end
+local function slot_index_value(slot) return slot[g.value] { channels = { ch.index_value, ch.index_name, ch.index_type } } end
 local function slot_call_value(slot) return slot[g.value] { channels = { ch.call_none, ch.call_value, ch.call_table, ch.call_many } } end
 
 local function role_list(label, allowed)
@@ -171,29 +198,52 @@ local function role_list(label, allowed)
 end
 
 local LL = llb.define "LLPVMDsl" {
-    g.role .decls (role_list("program", { LangSpec = true, WorldSpec = true, StreamSpec = true, MachineSpec = true, PhaseSpec = true, RootSpec = true })),
+    g.role .decls (role_list("program", { LangSpec = true, WorldSpec = true, StreamSpec = true, MachineSpec = true, PhaseSpec = true, TaskSpec = true, RootSpec = true })),
     g.role .lang_body (role_list("language", { TypeSpec = true })),
     g.role .type_body (role_list("type", { OpSpec = true })),
     g.role .fields { kind = "array", algebra = "product", normalize = function(_, _, v) return fields_from_table(v) end },
-    g.role .stream_body (role_list("stream", { ValueSpec = true })),
+    g.role .stream_body (role_list("stream", { RecordSpec = true })),
     g.role .phase_body (role_list("phase", { Directive = true, Stage = true })),
+    g.role .task_body (role_list("task", { Directive = true, EventSpec = true })),
     g.role .root_body (role_list("root", nil)),
 
     g.trait .named { apply = function(_, head) head.lsp = head.lsp or { symbol = function(n) return { name = tostring(n.name), kind = head.name, origin = n.origin, node = n } end } end },
 
+    -- Declares an LLPVM program containing languages, worlds, streams, machines, phases, tasks, and roots.
     g.head .pvm { g.trait .named, slot_name(g.slot .name), slot_body(g.slot .body, g.decls), emit = function(n) return setmetatable({ name = ident_text(n.name, "program name"), body = n.body or {}, origin = n.origin }, ProgramSpec) end },
+    -- Declares an operation language namespace containing typed operation definitions.
     g.head .lang { g.trait .named, slot_name(g.slot .name), slot_body(g.slot .body, g.lang_body), emit = function(n) return setmetatable({ name = ident_text(n.name, "language name"), body = n.body or {}, origin = n.origin }, LangSpec) end },
+    -- Declares a named LLPVM type family containing operation constructors.
     g.head .type { g.trait .named, slot_name(g.slot .name), slot_body(g.slot .body, g.type_body), emit = function(n) return setmetatable({ name = ident_text(n.name, "type name"), body = n.body or {}, origin = n.origin }, TypeSpec) end },
+    -- Declares one operation constructor with product-shaped fields.
     g.head .op { g.trait .named, slot_name(g.slot .name), slot_body(g.slot .fields, g.fields), emit = function(n) return setmetatable({ name = ident_text(n.name, "op name"), fields = n.fields or {}, origin = n.origin }, OpSpec) end },
+    -- Declares a named world over a language value.
     g.head .world { g.trait .named, slot_name(g.slot .name), slot_index_value(g.slot .language), emit = function(n) return setmetatable({ name = ident_text(n.name, "world name"), language = n.language, origin = n.origin }, WorldSpec) end },
+    -- Declares a bytecode or fact stream attached to a world.
     g.head .stream { g.trait .named, slot_name(g.slot .name), slot_index_value(g.slot .world), slot_body(g.slot .body, g.stream_body), emit = function(n) return setmetatable({ name = ident_text(n.name, "stream name"), world = n.world, body = n.body or {}, origin = n.origin }, StreamSpec) end },
-    g.head .value { g.trait .named, slot_name(g.slot .name), slot_call_value(g.slot .expr), emit = function(n) return setmetatable({ name = ident_text(n.name, "value name"), expr = n.expr, origin = n.origin }, ValueSpec) end },
+    -- Declares a named stream record expression.
+    g.head .record { g.trait .named, slot_name(g.slot .name), slot_call_value(g.slot .expr), emit = function(n) return setmetatable({ name = ident_text(n.name, "record name"), expr = n.expr, origin = n.origin }, RecordSpec) end },
+    -- Declares a reusable machine made from phase directives and stages.
     g.head .machine { g.trait .named, slot_name(g.slot .name), slot_body(g.slot .body, g.phase_body), emit = function(n) return setmetatable({ name = ident_text(n.name, "machine name"), body = n.body or {}, origin = n.origin }, MachineSpec) end },
+    -- Declares a named phase body with input/output/cache/implementation directives.
     g.head .phase { g.trait .named, slot_name(g.slot .name), slot_body(g.slot .body, g.phase_body), emit = function(n) return setmetatable({ name = ident_text(n.name, "phase name"), body = n.body or {}, origin = n.origin }, PhaseSpec) end },
+    -- Declares a task protocol with input/output directives and emitted event payloads.
+    g.head .task { g.trait .named, slot_name(g.slot .name), slot_body(g.slot .body, g.task_body), emit = function(n) return setmetatable({ name = ident_text(n.name, "task name"), body = n.body or {}, origin = n.origin }, TaskSpec) end },
+    -- Declares one task event and its payload type.
+    g.head .event { g.trait .named, slot_name(g.slot .name), slot_index_value(g.slot .payload), emit = function(n) return setmetatable({ name = ident_text(n.name, "event name"), payload = n.payload, origin = n.origin }, EventSpec) end },
+    -- Marks the input world, value, or stream consumed by a phase or task.
+    g.head .input { slot_index_value(g.slot .value), emit = function(n) return setmetatable({ kind = "input", value = n.value, origin = n.origin }, Directive) end },
+    -- Marks the output world, value, or stream produced by a phase or task.
+    g.head .output { slot_index_value(g.slot .value), emit = function(n) return setmetatable({ kind = "output", value = n.value, origin = n.origin }, Directive) end },
+    -- Names the source world or stream for a root or phase edge.
     g.head .from { slot_name(g.slot .value), emit = function(n) return setmetatable({ kind = "from", value = n.value, origin = n.origin }, Directive) end },
+    -- Names the destination world or stream for a root or phase edge.
     g.head .to { slot_name(g.slot .value), emit = function(n) return setmetatable({ kind = "to", value = n.value, origin = n.origin }, Directive) end },
+    -- Names the entry phase or machine for a root/task execution surface.
     g.head .entry { slot_name(g.slot .value), emit = function(n) return setmetatable({ kind = "entry", value = n.value, origin = n.origin }, Directive) end },
+    -- Declares the cache policy or cache key for a phase.
     g.head .cache { slot_name(g.slot .value), emit = function(n) return setmetatable({ kind = "cache", value = n.value, origin = n.origin }, Directive) end },
+    -- Declares a root execution plan by composing directives and stages.
     g.head .root { slot_body(g.slot .body, g.root_body), emit = function(n) return setmetatable({ body = n.body or {}, origin = n.origin }, RootSpec) end },
 }
 
@@ -253,7 +303,7 @@ local function generated_value_head(type_name, op_name)
                     origin = llb.here("llpvm-value", { skip = 1 }),
                 }, Call),
                 origin = llb.here("llpvm-value", { skip = 1 }),
-            }, ValueSpec)
+            }, RecordSpec)
         end
     end
     return setmetatable({}, head)
@@ -326,7 +376,6 @@ function MachineLanguage:use(opts)
         strict_message = "unknown LLPVM machine DSL global ",
         override = opts.override ~= false,
         auto_names = opts.auto_names ~= false,
-        auto_name = ident,
         mode = opts.mode,
         requires = opts.requires or { "moonlift.types" },
         provides = opts.provides or { "llpvm.language." .. self.name },
@@ -354,13 +403,6 @@ function MachineLanguage:records(bytes) return M.records(bytes) end
 function MachineLanguage:validate(bytes) return M.validate(bytes) end
 function MachineLanguage:inspect(bytes) return M.inspect(bytes) end
 function MachineLanguage:describe() return { tag = "LLPVMMachineLanguage", name = self.name, ops = machine_op_defs(self) } end
-
-local ValueKeyword = {}
-ValueKeyword.__index = function(_, key)
-    if type(key) == "string" then return LL.exports.value[key] end
-    return setmetatable({ name = "value", type = key, origin = llb.here("llpvm-field", { skip = 1 }) }, Field)
-end
-ValueKeyword.__call = function(_, ...) return LL.exports.value(...) end
 
 local scalar_names = {
     void = "Void", bool = "Bool", i8 = "I8", i16 = "I16", i32 = "I32", i64 = "I64",
@@ -419,11 +461,12 @@ local function moonlift_type_value(v)
 end
 
 function Lower:resolve_type(ref, current_lang)
-    if is(ref, Ident) then
+    if is(ref, Ident) or llb.is(ref, "Name") or llb.is(ref, "Symbol") then
+        local name = ident_text(ref, "type reference")
         local by_lang = current_lang and self.types[current_lang]
-        if by_lang and by_lang[ref.name] then return by_lang[ref.name] end
-        for _, types in pairs(self.types) do if types[ref.name] then return types[ref.name] end end
-        die("unknown LLPVM type " .. ref.name, ref.origin)
+        if by_lang and by_lang[name] then return by_lang[name] end
+        for _, types in pairs(self.types) do if types[name] then return types[name] end end
+        die("unknown LLPVM type " .. name, llb.origin_of(ref))
     elseif is(ref, Path) then
         if #ref.parts == 2 and self.types[ref.parts[1]] and self.types[ref.parts[1]][ref.parts[2]] then return self.types[ref.parts[1]][ref.parts[2]] end
         die("unknown LLPVM type path " .. tostring(ref), ref.origin)
@@ -484,8 +527,16 @@ function Lower:payload_value(v)
         local val = self.values[v.name]
         if not val then die("unknown LLPVM value " .. v.name, v.origin) end
         return self.builder:ref_payload(val.id)
+    elseif llb.is(v, "Name") or llb.is(v, "Symbol") then
+        local name = ident_text(v, "value reference")
+        local val = self.values[name]
+        if not val then die("unknown LLPVM value " .. name, llb.origin_of(v)) end
+        return self.builder:ref_payload(val.id)
     end
     if is(v, Call) then
+        local val = self:constructor_call(v, self.current_world)
+        return self.builder:ref_payload(val.id)
+    elseif llb.is(v, "Expr") and v.kind == "call" then
         local val = self:constructor_call(v, self.current_world)
         return self.builder:ref_payload(val.id)
     end
@@ -502,7 +553,9 @@ local function validate_scalar(field, value)
 end
 
 function Lower:constructor_call(expr, world)
-    local parts = path_parts(expr.callee)
+    local callee = is(expr, Call) and expr.callee or (llb.is(expr, "Expr") and expr.kind == "call" and expr.callee)
+    local args = is(expr, Call) and expr.args or (llb.is(expr, "Expr") and expr.kind == "call" and expr.args) or {}
+    local parts = path_parts(callee)
     local type_name, op_name
     if #parts == 2 then type_name, op_name = parts[1], parts[2]
     elseif #parts == 3 then
@@ -515,7 +568,7 @@ function Lower:constructor_call(expr, world)
     if not type_def then die("world " .. world.name .. " has no type " .. type_name, expr.origin) end
     local op = self.op_defs[world.language .. "." .. type_name .. "." .. op_name]
     if not op then die("type " .. type_name .. " has no op " .. op_name, expr.origin) end
-    local payload = expr.args and expr.args[1] or {}
+    local payload = args and args[1] or {}
     assert(type(payload) == "table", "LLPVM constructor payload must be a table")
     local used, ids = {}, {}
     for i, field in ipairs(op.fields) do
@@ -557,9 +610,16 @@ function Lower:build_languages()
                 for _, op in ipairs(t.body or {}) do
                     local fields, field_ids = {}, {}
                     for i, f in ipairs(op.fields or {}) do
-                        local ft = self:resolve_type(f.type, decl.name)
-                        fields[i] = { name = f.name, type = ft }
-                        field_ids[i] = self.builder:field(f.name, ft.id)
+                        local field_name = rawget(f, "name")
+                        local field_type = rawget(f, "type")
+                        if (field_name == nil or field_type == nil) and rawget(f, "base") ~= nil and rawget(f, "index") ~= nil then
+                            field_name = ident_text(rawget(f, "base"), "field name")
+                            field_type = rawget(f, "index")
+                        end
+                        field_name = ident_text(field_name, "field name")
+                        local ft = self:resolve_type(field_type, decl.name)
+                        fields[i] = { name = field_name, type = ft }
+                        field_ids[i] = self.builder:field(field_name, ft.id)
                     end
                     local q = t.name .. "." .. op.name
                     local id = self.builder:op_kind(q, field_ids)
@@ -626,18 +686,21 @@ function Lower:build_streams()
 end
 
 function Lower:root_stream(item)
-    if is(item, Ident) then
-        local s = self.streams[item.name]
+    if is(item, Ident) or llb.is(item, "Name") or llb.is(item, "Symbol") then
+        local name = ident_text(item, "root reference")
+        local s = self.streams[name]
         if s then return s end
-        local v = self.values[item.name]
+        local v = self.values[name]
         if v then
-            return { name = item.name, world = v.world, id = self.builder:seq(v.world.id, { v.id }), ops = { v } }
+            return { name = name, world = v.world, id = self.builder:seq(v.world.id, { v.id }), ops = { v } }
         end
-        die("unknown root stream or value " .. item.name, item.origin)
-    elseif is(item, Call) then
-        local phase = self.phases[ident_text(item.callee, "phase reference")]
+        die("unknown root stream or value " .. name, llb.origin_of(item))
+    elseif is(item, Call) or (llb.is(item, "Expr") and item.kind == "call") then
+        local callee = is(item, Call) and item.callee or item.callee
+        local args = is(item, Call) and item.args or item.args
+        local phase = self.phases[ident_text(callee, "phase reference")]
         if not phase then die("unknown phase " .. tostring(item.callee), item.origin) end
-        local input = self:root_stream(item.args[1])
+        local input = self:root_stream(args[1])
         assert(input.world == phase.input, "phase input stream has wrong world")
         local args_id = self.builder:args({})
         return { name = phase.name .. "(" .. (input.name or "stream") .. ")", world = phase.output, id = self.builder:phase_map(phase.id, input.id, args_id), ops = {} }
@@ -671,16 +734,124 @@ function ProgramSpec:bytecode(opts) return self:lower(opts):bytecode() end
 function ProgramSpec:write(path, opts) return self:lower(opts):write(path) end
 function ProgramSpec:format(opts) return M.format(self, opts) end
 
+local function collect_programs(out, value)
+    if value == nil then return out end
+    if is(value, ProgramSpec) or is(value, ProgramImage) then
+        out[#out + 1] = value
+        return out
+    end
+    if llb.is(value, "Spread") then return collect_programs(out, value.value) end
+    if llb.is(value, "Fragment") then
+        for i = 1, #(value.items or {}) do collect_programs(out, value.items[i]) end
+        return out
+    end
+    if is_llpvm_zone(value) then
+        for i = 1, #(value.items or {}) do collect_programs(out, value.items[i]) end
+        return out
+    end
+    if llb.is(value, "Zone") then return out end
+    if llb.is(value, "FamilyBundle") then
+        for _, z in ipairs(value.zones or {}) do collect_programs(out, z) end
+        return out
+    end
+    if type(value) == "table" then
+        local body = rawget(value, "programs") or rawget(value, "body") or rawget(value, "items")
+        if body ~= nil and body ~= value then return collect_programs(out, body) end
+        for i = 1, #value do collect_programs(out, value[i]) end
+        for k, v in pairs(value) do
+            if type(k) ~= "number" then
+                if is(v, ProgramSpec) or is(v, ProgramImage) or is_llpvm_zone(v) or llb.is(v, "FamilyBundle") or llb.is(v, "Spread") then
+                    collect_programs(out, v)
+                end
+            end
+        end
+        return out
+    end
+    return out
+end
+
+function M.to_program(value)
+    if is(value, ProgramSpec) or is(value, ProgramImage) then return value end
+    local programs = collect_programs({}, value)
+    if #programs == 0 then return nil end
+    if #programs > 1 then die("LLPVM projection expected one program value, got " .. tostring(#programs), llb.origin_of(value)) end
+    return programs[1]
+end
+
+local function process_type_asdl(ref)
+    local asdl_mod = require("llpvm.asdl")
+    local T = asdl_mod.T.LlPvm
+    local ty = ref
+    if type(ref) == "table" then
+        local ok, c = pcall(function() return tostring(require("moonlift.pvm").classof(ref)) end)
+        if not ok or not c or not c:match("^Class%(MoonType%.") then ty = moonlift_type_value(ref) end
+    else
+        ty = moonlift_type_value(ref)
+    end
+    if ty then
+        if type(ty) == "table" and ty.scalar ~= nil then
+            local scalar_name = assert(scalar_type_names[tostring(ty.scalar)], "unsupported process scalar type")
+            return T.Scalar(T[assert(scalar_names[scalar_name])])
+        end
+        local pvm = require("moonlift.pvm")
+        local cls = tostring(pvm.classof(ty))
+        if cls == "Class(MoonType.TScalar)" then
+            local scalar_name = assert(scalar_type_names[tostring(ty.scalar)], "unsupported process scalar type")
+            return T.Scalar(T[assert(scalar_names[scalar_name])])
+        end
+    end
+    local name = ident_text(ref, "process type")
+    for fq, scalar_name in pairs(scalar_type_names) do
+        if name == fq or name:find(fq, 1, true) then
+            return T.Scalar(T[assert(scalar_names[scalar_name])])
+        end
+    end
+    local scalar = scalar_names[name]
+    if scalar then return T.Scalar(T[scalar]) end
+    return T.Handle(T.Symbol(name))
+end
+
+function TaskSpec:asdl()
+    local asdl_mod = require("llpvm.asdl")
+    local T = asdl_mod.T.LlPvm
+    local input, output, events = nil, nil, {}
+    for _, item in ipairs(self.body or {}) do
+        if is(item, Directive) and item.kind == "input" then input = process_type_asdl(item.value)
+        elseif is(item, Directive) and item.kind == "output" then output = process_type_asdl(item.value)
+        elseif is(item, EventSpec) then events[#events + 1] = T.TaskEventSpec(T.Symbol(item.name), process_type_asdl(item.payload))
+        end
+    end
+    return T.TaskSpec(T.Symbol(self.name), assert(input, "task requires input [T]"), assert(output, "task requires output [T]"), events)
+end
+
 local doc = llb.doc
 local function fmt_ref(v) if is(v, Ident) or is(v, Path) then return tostring(v) end; if llb.is(v, "Name") or llb.is(v, "Symbol") then return v.text end; return tostring(v) end
 local block
+local function fmt_type_ref(v)
+    if is(v, Ident) or is(v, Path) then return tostring(v) end
+    if llb.is(v, "Name") or llb.is(v, "Symbol") then
+        for fq, scalar_name in pairs(scalar_type_names) do
+            if tostring(v.text):find(fq, 1, true) then return scalar_name end
+        end
+        return v.text
+    end
+    if type(v) == "table" then
+        local ok, c = pcall(function() return tostring(require("moonlift.pvm").classof(v)) end)
+        if ok and c == "Class(MoonType.TScalar)" then return assert(scalar_type_names[tostring(v.scalar)], "unsupported scalar") end
+    end
+    local text = tostring(v)
+    for fq, scalar_name in pairs(scalar_type_names) do
+        if text:find(fq, 1, true) then return scalar_name end
+    end
+    return tostring(v)
+end
 local function fmt_value(v, f)
     if is(v, Ident) or is(v, Path) then return doc.text(tostring(v)) end
-    if is(v, Field) then return doc.group { v.name, " [", fmt_value(v.type, f), "]" } end
+    if is(v, Field) then return doc.group { v.name, " [", fmt_type_ref(v.type), "]" } end
     if is(v, Call) then return doc.group { fmt_value(v.callee, f), " ", block(v.args or {}, f, fmt_value) } end
     if type(v) == "table" then
         local ok, c = pcall(function() return tostring(require("moonlift.pvm").classof(v)) end)
-        if ok and c and c:match("^Class%(MoonType%.") then return doc.text(tostring(v)) end
+        if ok and c and c:match("^Class%(MoonType%.") then return doc.text(fmt_type_ref(v)) end
     end
     if type(v) == "table" then
         local keys, items = {}, {}
@@ -712,49 +883,76 @@ local function machine_definition_format_body(machine)
 end
 
 fmt_spec = function(v, f)
-    if is(v, MachineLanguage) then return doc.group { "language. ", v.name, " ", block(machine_definition_format_body(v), f, fmt_spec) } end
+    if is(v, MachineLanguage) then return doc.concat { "language. ", v.name, " ", block(machine_definition_format_body(v), f, fmt_spec) } end
     if is(v, ProgramSpec) and v.language then
         local def_body, machine_decl_count = machine_definition_format_body(v.language), #machine_decls(v.language)
         local program_body = {}
         for i = machine_decl_count + 1, #(v.body or {}) do program_body[#program_body + 1] = v.body[i] end
-        return doc.group { "language. ", v.name, " ", block(def_body, f, fmt_spec), " ", block(program_body, f, fmt_spec) }
+        return doc.concat { "language. ", v.name, " ", block(def_body, f, fmt_spec), " ", block(program_body, f, fmt_spec) }
     end
-    if is(v, ProgramSpec) then return doc.group { "pvm. ", v.name, " ", block(v.body, f, fmt_spec) } end
-    if is(v, LangSpec) then return doc.group { "lang. ", v.name, " ", block(v.body, f, fmt_spec) } end
-    if is(v, TypeSpec) then return doc.group { "type. ", v.name, " ", block(v.body, f, fmt_spec) } end
-    if is(v, OpSpec) then return doc.group { "op. ", v.name, " ", block(v.fields or {}, f, fmt_value) } end
+    if is(v, ProgramSpec) then return doc.concat { "pvm. ", v.name, " ", block(v.body, f, fmt_spec) } end
+    if is(v, LangSpec) then return doc.concat { "lang. ", v.name, " ", block(v.body, f, fmt_spec) } end
+    if is(v, TypeSpec) then return doc.concat { "type. ", v.name, " ", block(v.body, f, fmt_spec) } end
+    if is(v, OpSpec) then return doc.concat { "op. ", v.name, " ", block(v.fields or {}, f, fmt_value) } end
     if is(v, WorldSpec) then return doc.group { "world. ", v.name, " [", fmt_ref(v.language), "]" } end
     if is(v, StreamSpec) then return doc.group { fmt_ref(v.world), ". ", v.name, " ", block(v.body, f, fmt_spec) } end
-    if is(v, ValueSpec) then
+    if is(v, RecordSpec) then
         if is(v.expr, Call) then
             local parts = path_parts(v.expr.callee)
             local op_name = parts[#parts]
             return doc.group { op_name, ". ", v.name, " ", fmt_value((v.expr.args or {})[1] or {}, f) }
         end
-        return doc.group { "value. ", v.name, " (", fmt_value(v.expr, f), ")" }
+        return doc.group { "record. ", v.name, " (", fmt_value(v.expr, f), ")" }
     end
-    if is(v, MachineSpec) then return doc.group { "machine. ", v.name, " ", block(v.body, f, fmt_spec) } end
-    if is(v, PhaseSpec) then return doc.group { "phase. ", v.name, " ", block(v.body, f, fmt_spec) } end
+    if is(v, MachineSpec) then return doc.concat { "machine. ", v.name, " ", block(v.body, f, fmt_spec) } end
+    if is(v, PhaseSpec) then return doc.concat { "phase. ", v.name, " ", block(v.body, f, fmt_spec) } end
+    if is(v, TaskSpec) then return doc.concat { "task. ", v.name, " ", block(v.body, f, fmt_spec) } end
+    if is(v, EventSpec) then return doc.group { "event. ", v.name, " [", fmt_type_ref(v.payload), "]" } end
+    if is(v, Directive) and (v.kind == "input" or v.kind == "output") then return doc.group { v.kind, " [", fmt_type_ref(v.value), "]" } end
     if is(v, Directive) then return doc.group { v.kind, ". ", fmt_ref(v.value) } end
     if is(v, RootSpec) then return doc.group { "root ", block(v.body, f, fmt_value) } end
     return fmt_value(v, f)
 end
 function M.doc(value, opts) return fmt_spec(value, setmetatable({ opts = opts or {}, width = opts and opts.width or 100, indent_width = opts and opts.indent or 2, seen = {} }, llb.FormatContext)) end
 function M.format(value, opts) return llb.render(M.doc(value, opts or {}), opts or {}) end
-function M.file_text(value, opts) return table.concat({ 'local moon = require("moonlift")', 'local ll = require("llpvm")', 'moon.use()', 'll.use()', '', 'return ' .. M.format(value, opts), '' }, "\n") end
+function M.file_text(value, opts) return table.concat({ 'local moon = require("moonlift")', 'moon.family.use()', '', 'return ' .. M.format(value, opts), '' }, "\n") end
 
 function M.make_env(opts)
     opts = opts or {}
     local env = {}; for k, v in pairs(opts.base or opts.target or _G) do env[k] = v end
+    env.llpvm = M.llpvm
     env.language = machine_language_factory
-    for _, name in ipairs({ "lang", "type", "op", "world", "stream", "machine", "phase", "from", "to", "entry", "cache", "root" }) do env[name] = LL.exports[name] end
-    env.value = setmetatable({}, ValueKeyword)
+    for _, name in ipairs({ "pvm", "lang", "type", "op", "world", "stream", "record", "machine", "phase", "task", "event", "input", "output", "from", "to", "entry", "cache", "root" }) do env[name] = LL.exports[name] end
     env.schema, env.stream_items, env._, env.spread = M.schema, M.stream_items, llb.spread, llb.spread
     return env
 end
+
+local LLPVM_NAMESPACE_KEYS = {
+    "language", "pvm", "lang", "type", "op", "world", "stream", "record",
+    "machine", "phase", "task", "event", "input", "output", "from", "to",
+    "entry", "cache", "root", "schema", "stream_items", "_", "spread",
+}
+
+function M.namespace(opts)
+    local env = M.make_env { base = opts and opts.base or {} }
+    local exports = {}
+    for _, name in ipairs(LLPVM_NAMESPACE_KEYS) do exports[name] = env[name] end
+    return llb.namespace {
+        family = "moonlift",
+        member = "llpvm.dsl",
+        name = "llpvm",
+        exports = exports,
+        zone = M.llpvm,
+    }
+end
+
+function M.make_family_env(opts)
+    return { llpvm = M.namespace(opts) }
+end
+
 function M.use(opts)
     opts = opts or {}; local exports = M.make_env(opts)
-    return llb.use(LL, { scope = opts.scope or (opts.global == false and "env" or "permanent"), target = opts.target or _G, base = exports, exports = exports, lang_exports = false, helpers = false, strict = opts.strict, strict_message = "unknown LLPVM DSL global ", override = opts.override ~= false, auto_names = opts.auto_names ~= false, auto_name = ident, mode = opts.mode, requires = opts.requires or { "moonlift.types" }, provides = opts.provides or { "llpvm.dsl" } })
+    return llb.use(LL, { scope = opts.scope or (opts.global == false and "env" or "permanent"), target = opts.target or _G, base = exports, exports = exports, lang_exports = false, helpers = false, strict = opts.strict, strict_message = "unknown LLPVM DSL global ", override = opts.override ~= false, auto_names = opts.auto_names ~= false, mode = opts.mode, requires = opts.requires or { "moonlift.types" }, provides = opts.provides or { "llpvm.dsl" } })
 end
 function M.loadstring(src, name, opts)
     opts = opts or {}
@@ -767,6 +965,9 @@ function M.loadfile(path, opts) local f = assert(io.open(path, "rb")); local src
 function M.load(src, name, opts) return M.loadstring(src, name, opts)() end
 function M.describe(value)
     if is(value, MachineLanguage) then return value:describe() end
+    if is(value, ProgramSpec) then return { tag = "LLPVMProgram", name = value.name, declarations = #(value.body or {}) } end
+    if is(value, LangSpec) then return { tag = "LLPVMLanguage", name = value.name, types = #(value.body or {}) } end
+    if is(value, TaskSpec) then return { tag = "LLPVMTask", name = value.name, body = #(value.body or {}) } end
     return llb.describe(value or LL)
 end
 function M.describe_head(name) return LL:describe_head(name) end
@@ -910,5 +1111,6 @@ end
 
 M.Ident, M.Path, M.Field, M.Call = Ident, Path, Field, Call
 M.ProgramSpec, M.ProgramImage, M.MachineLanguage = ProgramSpec, ProgramImage, MachineLanguage
+M.TaskSpec, M.EventSpec = TaskSpec, EventSpec
 M.language = machine_language_factory
 return M

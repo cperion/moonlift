@@ -1,4 +1,5 @@
-local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
+local erased = require("moonlift.phase_erased_runtime")
 
 local M = {}
 
@@ -68,24 +69,70 @@ function M.Define(T)
         return known(align_up(offset, max_align), max_align)
     end
 
-    scalar_layout = pvm.phase("moonlift_type_scalar_mem_layout", {
-        [Core.ScalarVoid] = function() return pvm.once(known(0, 1)) end,
-        [Core.ScalarBool] = function() return pvm.once(known(1, 1)) end,
-        [Core.ScalarI8] = function() return pvm.once(known(1, 1)) end,
-        [Core.ScalarU8] = function() return pvm.once(known(1, 1)) end,
-        [Core.ScalarI16] = function() return pvm.once(known(2, 2)) end,
-        [Core.ScalarU16] = function() return pvm.once(known(2, 2)) end,
-        [Core.ScalarI32] = function() return pvm.once(known(4, 4)) end,
-        [Core.ScalarU32] = function() return pvm.once(known(4, 4)) end,
-        [Core.ScalarF32] = function() return pvm.once(known(4, 4)) end,
-        [Core.ScalarI64] = function() return pvm.once(known(8, 8)) end,
-        [Core.ScalarU64] = function() return pvm.once(known(8, 8)) end,
-        [Core.ScalarF64] = function() return pvm.once(known(8, 8)) end,
-        [Core.ScalarRawPtr] = function(_, target) return pvm.once(ptr_layout(target)) end,
-        [Core.ScalarIndex] = function(_, target) return pvm.once(index_layout(target)) end,
-    })
+    function scalar_layout(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Core.ScalarVoid) then
+            return (function()
+ return erased.once(known(0, 1))
+            end)(node, ...)
+        elseif schema.isa(node, Core.ScalarBool) then
+            return (function()
+ return erased.once(known(1, 1))
+            end)(node, ...)
+        elseif schema.isa(node, Core.ScalarI8) then
+            return (function()
+ return erased.once(known(1, 1))
+            end)(node, ...)
+        elseif schema.isa(node, Core.ScalarU8) then
+            return (function()
+ return erased.once(known(1, 1))
+            end)(node, ...)
+        elseif schema.isa(node, Core.ScalarI16) then
+            return (function()
+ return erased.once(known(2, 2))
+            end)(node, ...)
+        elseif schema.isa(node, Core.ScalarU16) then
+            return (function()
+ return erased.once(known(2, 2))
+            end)(node, ...)
+        elseif schema.isa(node, Core.ScalarI32) then
+            return (function()
+ return erased.once(known(4, 4))
+            end)(node, ...)
+        elseif schema.isa(node, Core.ScalarU32) then
+            return (function()
+ return erased.once(known(4, 4))
+            end)(node, ...)
+        elseif schema.isa(node, Core.ScalarF32) then
+            return (function()
+ return erased.once(known(4, 4))
+            end)(node, ...)
+        elseif schema.isa(node, Core.ScalarI64) then
+            return (function()
+ return erased.once(known(8, 8))
+            end)(node, ...)
+        elseif schema.isa(node, Core.ScalarU64) then
+            return (function()
+ return erased.once(known(8, 8))
+            end)(node, ...)
+        elseif schema.isa(node, Core.ScalarF64) then
+            return (function()
+ return erased.once(known(8, 8))
+            end)(node, ...)
+        elseif schema.isa(node, Core.ScalarRawPtr) then
+            return (function(_, target)
+ return erased.once(ptr_layout(target))
+            end)(node, ...)
+        elseif schema.isa(node, Core.ScalarIndex) then
+            return (function(_, target)
+ return erased.once(index_layout(target))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_type_scalar_mem_layout: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
-    named_layout_lookup = pvm.phase("moonlift_type_named_layout_lookup", function(env, module_name, type_name)
+    function named_layout_lookup(env, module_name, type_name)
         for i = 1, #env.layouts do
             local layout = env.layouts[i]
             if layout.module_name == module_name and layout.type_name == type_name then
@@ -93,10 +140,10 @@ function M.Define(T)
             end
         end
         return nil
-    end)
+    end
 
     function result_layout(result)
-        if result ~= nil and pvm.classof(result) == Ty.TypeMemLayoutKnown then
+        if result ~= nil and schema.classof(result) == Ty.TypeMemLayoutKnown then
             return result.layout
         end
         return nil
@@ -104,10 +151,10 @@ function M.Define(T)
 
     local function layout_for_named_ref(ref, env)
         env = env or Sem.LayoutEnv({})
-        local ref_cls = pvm.classof(ref)
+        local ref_cls = schema.classof(ref)
         for i = 1, #env.layouts do
             local layout = env.layouts[i]
-            local layout_cls = pvm.classof(layout)
+            local layout_cls = schema.classof(layout)
             if ref_cls == Ty.TypeRefGlobal and layout_cls == Sem.LayoutNamed
                 and layout.module_name == ref.module_name and layout.type_name == ref.type_name then
                 return layout
@@ -123,71 +170,99 @@ function M.Define(T)
         return nil
     end
 
-    class_layout = pvm.phase("moonlift_type_class_mem_layout", {
-        [Ty.TypeClassScalar] = function(self, ty, env, target)
+    function class_layout(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Ty.TypeClassScalar) then
+            return (function(self, ty, env, target)
+
             return scalar_layout(self.scalar, target)
-        end,
-        [Ty.TypeClassPointer] = function(self, ty, env, target)
-            return pvm.once(ptr_layout(target))
-        end,
-        [Ty.TypeClassCallable] = function(self, ty, env, target)
-            return pvm.once(ptr_layout(target))
-        end,
-        [Ty.TypeClassSlice] = function(self, ty, env, target)
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TypeClassPointer) then
+            return (function(self, ty, env, target)
+
+            return erased.once(ptr_layout(target))
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TypeClassCallable) then
+            return (function(self, ty, env, target)
+
+            return erased.once(ptr_layout(target))
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TypeClassSlice) then
+            return (function(self, ty, env, target)
+
             local ptr = raw_layout(ptr_layout(target))
             local index = raw_layout(index_layout(target))
-            return pvm.once(product_layout({ ptr, index }))
-        end,
-        [Ty.TypeClassView] = function(self, ty, env, target)
+            return erased.once(product_layout({ ptr, index }))
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TypeClassView) then
+            return (function(self, ty, env, target)
+
             local ptr = raw_layout(ptr_layout(target))
             local index = raw_layout(index_layout(target))
-            return pvm.once(product_layout({ ptr, index, index }))
-        end,
-        [Ty.TypeClassLease] = function(self, ty, env, target)
+            return erased.once(product_layout({ ptr, index, index }))
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TypeClassLease) then
+            return (function(self, ty, env, target)
+
             return type_layout_result(self.base, env, target)
-        end,
-        [Ty.TypeClassOwned] = function(self, ty, env, target)
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TypeClassOwned) then
+            return (function(self, ty, env, target)
+
             return type_layout_result(self.base, env, target)
-        end,
-        [Ty.TypeClassHandle] = function(self, ty, env, target)
-            if pvm.classof(self.repr) == Ty.HandleReprScalar then
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TypeClassHandle) then
+            return (function(self, ty, env, target)
+
+            if schema.classof(self.repr) == Ty.HandleReprScalar then
                 return scalar_layout(self.repr.scalar, target)
             end
-            return pvm.once(Ty.TypeMemLayoutUnknown(ty, self))
-        end,
-        [Ty.TypeClassClosure] = function(self, ty, env, target)
+            return erased.once(Ty.TypeMemLayoutUnknown(ty, self))
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TypeClassClosure) then
+            return (function(self, ty, env, target)
+
             local ptr = raw_layout(ptr_layout(target))
-            return pvm.once(product_layout({ ptr, ptr }))
-        end,
-        [Ty.TypeClassAggregate] = function(self, ty, env)
-            local layout = pvm.one(named_layout_lookup(env, self.module_name, self.type_name))
+            return erased.once(product_layout({ ptr, ptr }))
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TypeClassAggregate) then
+            return (function(self, ty, env)
+
+            local layout = named_layout_lookup(env, self.module_name, self.type_name)
             if layout == nil then
-                return pvm.once(Ty.TypeMemLayoutUnknown(ty, self))
+                return erased.once(Ty.TypeMemLayoutUnknown(ty, self))
             end
-            return pvm.once(Ty.TypeMemLayoutKnown(layout))
-        end,
-        [Ty.TypeClassArray] = function(self, ty, env, target)
-            local elem_result = pvm.one(type_layout_result(self.elem, env, target))
+            return erased.once(Ty.TypeMemLayoutKnown(layout))
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TypeClassArray) then
+            return (function(self, ty, env, target)
+
+            local elem_result = type_layout_result(self.elem, env, target)
             local elem_layout = result_layout(elem_result)
             if elem_layout == nil then
-                return pvm.once(Ty.TypeMemLayoutUnknown(ty, self))
+                return erased.once(Ty.TypeMemLayoutUnknown(ty, self))
             end
-            return pvm.once(known(elem_layout.size * self.count, elem_layout.align))
-        end,
-        [Ty.TypeClassUnknown] = function(self, ty)
-            return pvm.once(Ty.TypeMemLayoutUnknown(ty, self))
-        end,
-    })
+            return erased.once(known(elem_layout.size * self.count, elem_layout.align))
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TypeClassUnknown) then
+            return (function(self, ty)
 
-    type_layout_result = pvm.phase("moonlift_type_mem_layout_result", function(ty, env, target)
+            return erased.once(Ty.TypeMemLayoutUnknown(ty, self))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_type_class_mem_layout: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
+
+    function type_layout_result(ty, env, target)
         env = env or Sem.LayoutEnv({})
-        if pvm.classof(ty) == Ty.TNamed then
+        if schema.classof(ty) == Ty.TNamed then
             local layout = layout_for_named_ref(ty.ref, env)
             if layout ~= nil then return Ty.TypeMemLayoutKnown(Sem.MemLayout(layout.size, layout.align)) end
         end
         local class = classify_api.classify(ty)
-        return pvm.one(class_layout(class, ty, env, target))
-    end)
+        return erased.one(class_layout(class, ty, env, target))
+    end
 
     local api = {
         scalar_layout = scalar_layout,
@@ -195,7 +270,7 @@ function M.Define(T)
         class_layout = class_layout,
         type_layout_result = type_layout_result,
         result = function(ty, env, target)
-            return pvm.one(type_layout_result(ty, env or Sem.LayoutEnv({}), target))
+            return type_layout_result(ty, env or Sem.LayoutEnv({}), target)
         end,
     }
     T._moonlift_api_cache.type_size_align = api

@@ -7,6 +7,7 @@
 
 local llb = require("llb")
 local pvm = require("moonlift.pvm")
+local LlTask = require("llpvm.task")
 
 local M = {}
 
@@ -97,20 +98,29 @@ local function execute_plan(ctx, executor, plan, input, opts)
         output = nil,
         diagnostics = {},
         steps = {},
+        run = nil,
     }
+    local run_events = {}
+    local run_steps = {}
 
-    ctx:event("execute_start", { plan = plan, root = plan and plan.root and id_text(plan.root) or nil })
+    local function emit(kind, payload)
+        run_events[#run_events + 1] = LlTask.event(#run_events + 1, kind, payload)
+        return ctx:event(kind, payload)
+    end
+
+    emit("execute_start", { plan = plan, root = plan and plan.root and id_text(plan.root) or nil })
 
     local current = input
     for i = 1, #(plan.steps or {}) do
         local step = plan.steps[i]
         local phase_name = id_text(step.phase)
         local fn, kind, key = executor:resolve(step.impl)
-        ctx:event("step_start", { index = i, phase = phase_name, machine = id_text(step.machine), impl_kind = kind, impl_key = key, input = current, step = step })
+        emit("step_start", { index = i, phase = phase_name, machine = id_text(step.machine), impl_kind = kind, impl_key = key, input = current, step = step })
         if not fn then
             local d = { severity = "error", code = "E_MACHINE_UNBOUND", message = "no binding for " .. tostring(kind) .. " implementation '" .. tostring(key) .. "'", step = step }
             report.ok = false
             report.diagnostics[#report.diagnostics + 1] = d
+            run_steps[#run_steps + 1] = LlTask.step(i, phase_name, id_text(step.machine), "failed")
             ctx:diagnostic(d)
             break
         end
@@ -119,6 +129,7 @@ local function execute_plan(ctx, executor, plan, input, opts)
             local d = { severity = "error", code = "E_MACHINE_FAILED", message = tostring(a), step = step }
             report.ok = false
             report.diagnostics[#report.diagnostics + 1] = d
+            run_steps[#run_steps + 1] = LlTask.step(i, phase_name, id_text(step.machine), "failed")
             ctx:diagnostic(d)
             break
         end
@@ -127,11 +138,13 @@ local function execute_plan(ctx, executor, plan, input, opts)
         local step_report = { step = step, input = current, output = output }
         current = output
         report.steps[#report.steps + 1] = step_report
-        ctx:event("step_done", { index = i, phase = phase_name, output = output, diagnostics = diagnostics, step = step })
+        run_steps[#run_steps + 1] = LlTask.step(i, phase_name, id_text(step.machine), "done")
+        emit("step_done", { index = i, phase = phase_name, output = output, diagnostics = diagnostics, step = step })
     end
 
     report.output = current
-    ctx:event("execute_done", { ok = report.ok, output = report.output, diagnostics = report.diagnostics })
+    emit("execute_done", { ok = report.ok, output = report.output, diagnostics = report.diagnostics })
+    report.run = LlTask.run(plan and plan.root and id_text(plan.root) or "phase_execute", report.ok and "done" or "failed", run_events, run_steps)
     return report
 end
 

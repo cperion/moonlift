@@ -1,4 +1,5 @@
-local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
+local erased = require("moonlift.phase_erased_runtime")
 
 local M = {}
 
@@ -23,16 +24,34 @@ function M.Define(T)
 
     local function pack(g, p, c) return { g, p, c } end
 
-    module_name = pvm.phase("moonlift_tree_module_name", {
-        [Tr.ModuleTyped] = function(self) return pvm.once(self.module_name) end,
-        [Tr.ModuleSem] = function(self) return pvm.once(self.module_name) end,
-        [Tr.ModuleCode] = function(self) return pvm.once(self.module_name) end,
-        [Tr.ModuleOpen] = function(self)
-            if self.name ~= T.MoonOpen.ModuleNameOpen then return pvm.once(self.name.module_name) end
-            return pvm.once("")
-        end,
-        [Tr.ModuleSurface] = function() return pvm.once("") end,
-    })
+    function module_name(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Tr.ModuleTyped) then
+            return (function(self)
+ return erased.once(self.module_name)
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ModuleSem) then
+            return (function(self)
+ return erased.once(self.module_name)
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ModuleCode) then
+            return (function(self)
+ return erased.once(self.module_name)
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ModuleOpen) then
+            return (function(self)
+
+            if self.name ~= T.MoonOpen.ModuleNameOpen then return erased.once(self.name.module_name) end
+            return erased.once("")
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ModuleSurface) then
+            return (function()
+ return erased.once("")
+            end)(node, ...)
+        else
+            error("erased phase moonlift_tree_module_name: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
     local function params_type(params, result)
         local tys = {}
@@ -40,38 +59,112 @@ function M.Define(T)
         return Ty.TFunc(tys, result)
     end
 
-    func_entry = pvm.phase("moonlift_tree_func_value_entry", {
-        [Tr.FuncLocal] = function(self, mod_name) return pvm.once(B.ValueEntry(self.name, B.Binding(C.Id("func:" .. mod_name .. ":" .. self.name), self.name, params_type(self.params, self.result), B.BindingClassGlobalFunc(mod_name, self.name)))) end,
-        [Tr.FuncExport] = function(self, mod_name) return pvm.once(B.ValueEntry(self.name, B.Binding(C.Id("func:" .. mod_name .. ":" .. self.name), self.name, params_type(self.params, self.result), B.BindingClassGlobalFunc(mod_name, self.name)))) end,
-        [Tr.FuncLocalContract] = function(self, mod_name) return pvm.once(B.ValueEntry(self.name, B.Binding(C.Id("func:" .. mod_name .. ":" .. self.name), self.name, params_type(self.params, self.result), B.BindingClassGlobalFunc(mod_name, self.name)))) end,
-        [Tr.FuncExportContract] = function(self, mod_name) return pvm.once(B.ValueEntry(self.name, B.Binding(C.Id("func:" .. mod_name .. ":" .. self.name), self.name, params_type(self.params, self.result), B.BindingClassGlobalFunc(mod_name, self.name)))) end,
-        [Tr.FuncOpen] = function(self, mod_name) return pvm.once(B.ValueEntry(self.sym.name, B.Binding(C.Id("func:" .. self.sym.key), self.sym.name, Ty.TFunc({}, self.result), B.BindingClassOpenSym(C.OpenSym(C.SymKindFunc, self.sym.key, self.sym.name, ""))))) end,
-    }, { args_cache = "last" })
+    function func_entry(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Tr.FuncLocal) then
+            return (function(self, mod_name)
+ return erased.once(B.ValueEntry(self.name, B.Binding(C.Id("func:" .. mod_name .. ":" .. self.name), self.name, params_type(self.params, self.result), B.BindingClassGlobalFunc(mod_name, self.name))))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.FuncExport) then
+            return (function(self, mod_name)
+ return erased.once(B.ValueEntry(self.name, B.Binding(C.Id("func:" .. mod_name .. ":" .. self.name), self.name, params_type(self.params, self.result), B.BindingClassGlobalFunc(mod_name, self.name))))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.FuncLocalContract) then
+            return (function(self, mod_name)
+ return erased.once(B.ValueEntry(self.name, B.Binding(C.Id("func:" .. mod_name .. ":" .. self.name), self.name, params_type(self.params, self.result), B.BindingClassGlobalFunc(mod_name, self.name))))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.FuncExportContract) then
+            return (function(self, mod_name)
+ return erased.once(B.ValueEntry(self.name, B.Binding(C.Id("func:" .. mod_name .. ":" .. self.name), self.name, params_type(self.params, self.result), B.BindingClassGlobalFunc(mod_name, self.name))))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.FuncOpen) then
+            return (function(self, mod_name)
+ return erased.once(B.ValueEntry(self.sym.name, B.Binding(C.Id("func:" .. self.sym.key), self.sym.name, Ty.TFunc({}, self.result), B.BindingClassOpenSym(C.OpenSym(C.SymKindFunc, self.sym.key, self.sym.name, "")))))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_tree_func_value_entry: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
-    extern_entry = pvm.phase("moonlift_tree_extern_value_entry", {
-        [Tr.ExternFunc] = function(self) return pvm.once(B.ValueEntry(self.name, B.Binding(C.Id("extern:" .. self.name), self.name, params_type(self.params, self.result), B.BindingClassExtern(self.symbol)))) end,
-        [Tr.ExternFuncOpen] = function(self) return pvm.once(B.ValueEntry(self.sym.name, B.Binding(C.Id("extern:" .. self.sym.key), self.sym.name, Ty.TFunc({}, self.result), B.BindingClassOpenSym(C.OpenSym(C.SymKindExtern, self.sym.key, self.sym.name, self.sym.symbol))))) end,
-    })
+    function extern_entry(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Tr.ExternFunc) then
+            return (function(self)
+ return erased.once(B.ValueEntry(self.name, B.Binding(C.Id("extern:" .. self.name), self.name, params_type(self.params, self.result), B.BindingClassExtern(self.symbol))))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExternFuncOpen) then
+            return (function(self)
+ return erased.once(B.ValueEntry(self.sym.name, B.Binding(C.Id("extern:" .. self.sym.key), self.sym.name, Ty.TFunc({}, self.result), B.BindingClassOpenSym(C.OpenSym(C.SymKindExtern, self.sym.key, self.sym.name, self.sym.symbol)))))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_tree_extern_value_entry: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
-    const_entry = pvm.phase("moonlift_tree_const_value_entry", {
-        [Tr.ConstItem] = function(self, mod_name) return pvm.once(B.ValueEntry(self.name, B.Binding(C.Id("const:" .. mod_name .. ":" .. self.name), self.name, self.ty, B.BindingClassGlobalConst(mod_name, self.name)))) end,
-        [Tr.ConstItemOpen] = function(self) return pvm.once(B.ValueEntry(self.sym.name, B.Binding(C.Id("const:" .. self.sym.key), self.sym.name, self.ty, B.BindingClassOpenSym(C.OpenSym(C.SymKindConst, self.sym.key, self.sym.name, ""))))) end,
-    }, { args_cache = "last" })
+    function const_entry(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Tr.ConstItem) then
+            return (function(self, mod_name)
+ return erased.once(B.ValueEntry(self.name, B.Binding(C.Id("const:" .. mod_name .. ":" .. self.name), self.name, self.ty, B.BindingClassGlobalConst(mod_name, self.name))))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ConstItemOpen) then
+            return (function(self)
+ return erased.once(B.ValueEntry(self.sym.name, B.Binding(C.Id("const:" .. self.sym.key), self.sym.name, self.ty, B.BindingClassOpenSym(C.OpenSym(C.SymKindConst, self.sym.key, self.sym.name, "")))))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_tree_const_value_entry: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
-    static_entry = pvm.phase("moonlift_tree_static_value_entry", {
-        [Tr.StaticItem] = function(self, mod_name) return pvm.once(B.ValueEntry(self.name, B.Binding(C.Id("static:" .. mod_name .. ":" .. self.name), self.name, self.ty, B.BindingClassGlobalStatic(mod_name, self.name)))) end,
-        [Tr.StaticItemOpen] = function(self) return pvm.once(B.ValueEntry(self.sym.name, B.Binding(C.Id("static:" .. self.sym.key), self.sym.name, self.ty, B.BindingClassOpenSym(C.OpenSym(C.SymKindStatic, self.sym.key, self.sym.name, ""))))) end,
-    }, { args_cache = "last" })
+    function static_entry(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Tr.StaticItem) then
+            return (function(self, mod_name)
+ return erased.once(B.ValueEntry(self.name, B.Binding(C.Id("static:" .. mod_name .. ":" .. self.name), self.name, self.ty, B.BindingClassGlobalStatic(mod_name, self.name))))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.StaticItemOpen) then
+            return (function(self)
+ return erased.once(B.ValueEntry(self.sym.name, B.Binding(C.Id("static:" .. self.sym.key), self.sym.name, self.ty, B.BindingClassOpenSym(C.OpenSym(C.SymKindStatic, self.sym.key, self.sym.name, "")))))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_tree_static_value_entry: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
-    type_entry = pvm.phase("moonlift_tree_type_entry", {
-        [Tr.TypeDeclStruct] = function(self, mod_name) return pvm.once(B.TypeEntry(self.name, Ty.TNamed(Ty.TypeRefGlobal(mod_name, self.name)))) end,
-        [Tr.TypeDeclUnion] = function(self, mod_name) return pvm.once(B.TypeEntry(self.name, Ty.TNamed(Ty.TypeRefGlobal(mod_name, self.name)))) end,
-        [Tr.TypeDeclEnumSugar] = function(self, mod_name) return pvm.once(B.TypeEntry(self.name, Ty.TNamed(Ty.TypeRefGlobal(mod_name, self.name)))) end,
-        [Tr.TypeDeclTaggedUnionSugar] = function(self, mod_name) return pvm.once(B.TypeEntry(self.name, Ty.TNamed(Ty.TypeRefGlobal(mod_name, self.name)))) end,
-        [Tr.TypeDeclHandle] = function(self, mod_name) return pvm.once(B.TypeEntry(self.name, Ty.THandle(Ty.TypeRefGlobal(mod_name, self.name), self.repr))) end,
-        [Tr.TypeDeclOpenStruct] = function(self) return pvm.once(B.TypeEntry(self.sym.name, Ty.TNamed(Ty.TypeRefLocal(self.sym)))) end,
-        [Tr.TypeDeclOpenUnion] = function(self) return pvm.once(B.TypeEntry(self.sym.name, Ty.TNamed(Ty.TypeRefLocal(self.sym)))) end,
-    }, { args_cache = "last" })
+    function type_entry(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Tr.TypeDeclStruct) then
+            return (function(self, mod_name)
+ return erased.once(B.TypeEntry(self.name, Ty.TNamed(Ty.TypeRefGlobal(mod_name, self.name))))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.TypeDeclUnion) then
+            return (function(self, mod_name)
+ return erased.once(B.TypeEntry(self.name, Ty.TNamed(Ty.TypeRefGlobal(mod_name, self.name))))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.TypeDeclEnumSugar) then
+            return (function(self, mod_name)
+ return erased.once(B.TypeEntry(self.name, Ty.TNamed(Ty.TypeRefGlobal(mod_name, self.name))))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.TypeDeclTaggedUnionSugar) then
+            return (function(self, mod_name)
+ return erased.once(B.TypeEntry(self.name, Ty.TNamed(Ty.TypeRefGlobal(mod_name, self.name))))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.TypeDeclHandle) then
+            return (function(self, mod_name)
+ return erased.once(B.TypeEntry(self.name, Ty.THandle(Ty.TypeRefGlobal(mod_name, self.name), self.repr)))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.TypeDeclOpenStruct) then
+            return (function(self)
+ return erased.once(B.TypeEntry(self.sym.name, Ty.TNamed(Ty.TypeRefLocal(self.sym))))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.TypeDeclOpenUnion) then
+            return (function(self)
+ return erased.once(B.TypeEntry(self.sym.name, Ty.TNamed(Ty.TypeRefLocal(self.sym))))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_tree_type_entry: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
     local function align_up(x, a)
         if a <= 1 then return x end
@@ -86,7 +179,7 @@ function M.Define(T)
         for i = 1, #fields do
             local r = layout_api.result(fields[i].ty, env, target)
             local size, align = 0, 1
-            if pvm.classof(r) == Ty.TypeMemLayoutKnown then size, align = r.layout.size, r.layout.align end
+            if schema.classof(r) == Ty.TypeMemLayoutKnown then size, align = r.layout.size, r.layout.align end
             if is_union then
                 out[#out + 1] = Sem.FieldLayout(fields[i].field_name, 0, fields[i].ty)
                 if size > max_size then max_size = size end
@@ -102,26 +195,29 @@ function M.Define(T)
         return out, align_up(size, max_align), max_align
     end
 
-    item_layout = pvm.phase("moonlift_tree_item_layout", {
-        [Tr.ItemType] = function(self, mod_name, env, target)
+    function item_layout(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Tr.ItemType) then
+            return (function(self, mod_name, env, target)
+
             local t = self.t
-            local cls = pvm.classof(t)
+            local cls = schema.classof(t)
             if cls == Tr.TypeDeclStruct or cls == Tr.TypeDeclUnion then
                 local fields, size, align = field_layout(t.fields, env, cls == Tr.TypeDeclUnion, target)
-                return pvm.once(Sem.LayoutNamed(mod_name, t.name, fields, size, align))
+                return erased.once(Sem.LayoutNamed(mod_name, t.name, fields, size, align))
             end
             if cls == Tr.TypeDeclOpenStruct or cls == Tr.TypeDeclOpenUnion then
                 local fields, size, align = field_layout(t.fields, env, cls == Tr.TypeDeclOpenUnion, target)
-                return pvm.once(Sem.LayoutLocal(t.sym, fields, size, align))
+                return erased.once(Sem.LayoutLocal(t.sym, fields, size, align))
             end
             if cls == Tr.TypeDeclEnumSugar then
                 local tag_layout = layout_api.result(tag_ty(), env, target).layout
-                return pvm.once(Sem.LayoutNamed(mod_name, t.name, { Sem.FieldLayout("__tag", 0, tag_ty()) }, tag_layout.size, tag_layout.align))
+                return erased.once(Sem.LayoutNamed(mod_name, t.name, { Sem.FieldLayout("__tag", 0, tag_ty()) }, tag_layout.size, tag_layout.align))
             end
             if cls == Tr.TypeDeclHandle then
                 local repr_ty = Ty.THandle(Ty.TypeRefGlobal(mod_name, t.name), t.repr)
                 local layout = layout_api.result(repr_ty, env, target).layout
-                return pvm.once(Sem.LayoutNamed(mod_name, t.name, { Sem.FieldLayout("__handle", 0, repr_ty) }, layout.size, layout.align))
+                return erased.once(Sem.LayoutNamed(mod_name, t.name, { Sem.FieldLayout("__handle", 0, repr_ty) }, layout.size, layout.align))
             end
             if cls == Tr.TypeDeclTaggedUnionSugar then
                 local tag_layout = layout_api.result(tag_ty(), env, target).layout
@@ -134,7 +230,7 @@ function M.Define(T)
                         sz, al = fsz, fal
                     else
                         local r = layout_api.result(v.payload, env, target)
-                        local l = pvm.classof(r) == Ty.TypeMemLayoutKnown and r.layout or Sem.MemLayout(0, 1)
+                        local l = schema.classof(r) == Ty.TypeMemLayoutKnown and r.layout or Sem.MemLayout(0, 1)
                         sz, al = l.size, l.align
                     end
                     if sz > payload_size then payload_size = sz end
@@ -148,75 +244,155 @@ function M.Define(T)
                     size = payload_offset + payload_size
                     if payload_align > align then align = payload_align end
                 end
-                return pvm.once(Sem.LayoutNamed(mod_name, t.name, fields, align_up(size, align), align))
+                return erased.once(Sem.LayoutNamed(mod_name, t.name, fields, align_up(size, align), align))
             end
-            return pvm.empty()
-        end,
-        [Tr.ItemFunc] = function() return pvm.empty() end,
-        [Tr.ItemExtern] = function() return pvm.empty() end,
-        [Tr.ItemConst] = function() return pvm.empty() end,
-        [Tr.ItemStatic] = function() return pvm.empty() end,
-        [Tr.ItemImport] = function() return pvm.empty() end,
-        [Tr.ItemRegionFrag] = function() return pvm.empty() end,
-        [Tr.ItemExprFrag] = function() return pvm.empty() end,
-        [Tr.ItemUseTypeDeclSlot] = function() return pvm.empty() end,
-        [Tr.ItemUseItemsSlot] = function() return pvm.empty() end,
-        [Tr.ItemUseModule] = function(self, _, env, target)
-            local use_mod_name = pvm.one(module_name(self.module.h))
-            return pvm.children(function(item) return item_layout(item, use_mod_name, env, target) end, self.module.items)
-        end,
-        [Tr.ItemUseModuleSlot] = function() return pvm.empty() end,
-    }, { args_cache = "last" })
+            return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ItemFunc) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ItemExtern) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ItemConst) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ItemStatic) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ItemImport) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ItemRegionFrag) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ItemExprFrag) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ItemUseTypeDeclSlot) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ItemUseItemsSlot) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ItemUseModule) then
+            return (function(self, _, env, target)
 
-    item_env_entries = pvm.phase("moonlift_tree_item_env_entries", {
-        [Tr.ItemFunc] = function(self, mod_name) return func_entry(self.func, mod_name) end,
-        [Tr.ItemExtern] = function(self) return extern_entry(self.func) end,
-        [Tr.ItemConst] = function(self, mod_name) return const_entry(self.c, mod_name) end,
-        [Tr.ItemStatic] = function(self, mod_name) return static_entry(self.s, mod_name) end,
-        [Tr.ItemType] = function(self, mod_name) return type_entry(self.t, mod_name) end,
-        [Tr.ItemImport] = function() return pvm.empty() end,
-        [Tr.ItemRegionFrag] = function() return pvm.empty() end,
-        [Tr.ItemExprFrag] = function() return pvm.empty() end,
-        [Tr.ItemUseTypeDeclSlot] = function() return pvm.empty() end,
-        [Tr.ItemUseItemsSlot] = function() return pvm.empty() end,
-        [Tr.ItemUseModule] = function(self)
-            local use_mod_name = pvm.one(module_name(self.module.h))
-            return pvm.children(function(item) return item_env_entries(item, use_mod_name) end, self.module.items)
-        end,
-        [Tr.ItemUseModuleSlot] = function() return pvm.empty() end,
-    }, { args_cache = "last" })
+            local use_mod_name = erased.one(module_name(self.module.h))
+            return erased.children(function(item) return item_layout(item, use_mod_name, env, target) end, self.module.items)
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ItemUseModuleSlot) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        else
+            error("erased phase moonlift_tree_item_layout: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
-    module_env = pvm.phase("moonlift_tree_module_env", {
-        [Tr.Module] = function(module, target)
-            local mod_name = pvm.one(module_name(module.h))
+    function item_env_entries(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Tr.ItemFunc) then
+            return (function(self, mod_name)
+ return func_entry(self.func, mod_name)
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ItemExtern) then
+            return (function(self)
+ return extern_entry(self.func)
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ItemConst) then
+            return (function(self, mod_name)
+ return const_entry(self.c, mod_name)
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ItemStatic) then
+            return (function(self, mod_name)
+ return static_entry(self.s, mod_name)
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ItemType) then
+            return (function(self, mod_name)
+ return type_entry(self.t, mod_name)
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ItemImport) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ItemRegionFrag) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ItemExprFrag) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ItemUseTypeDeclSlot) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ItemUseItemsSlot) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ItemUseModule) then
+            return (function(self)
+
+            local use_mod_name = erased.one(module_name(self.module.h))
+            return erased.children(function(item) return item_env_entries(item, use_mod_name) end, self.module.items)
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ItemUseModuleSlot) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        else
+            error("erased phase moonlift_tree_item_env_entries: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
+
+    function module_env(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Tr.Module) then
+            return (function(module, target)
+
+            local mod_name = erased.one(module_name(module.h))
             local values = {}
             local types = {}
             local layouts = {}
             for i = 1, #module.items do
-                local entries = pvm.drain(item_env_entries(module.items[i], mod_name))
+                local entries = item_env_entries(module.items[i], mod_name)
                 for j = 1, #entries do
-                    if pvm.classof(entries[j]) == B.ValueEntry then values[#values + 1] = entries[j] end
-                    if pvm.classof(entries[j]) == B.TypeEntry then types[#types + 1] = entries[j] end
+                    if schema.classof(entries[j]) == B.ValueEntry then values[#values + 1] = entries[j] end
+                    if schema.classof(entries[j]) == B.TypeEntry then types[#types + 1] = entries[j] end
                 end
             end
             for _ = 1, math.max(1, #module.items) do
                 local pass_layouts = {}
                 local layout_env = Sem.LayoutEnv(layouts)
                 for i = 1, #module.items do
-                    local ls = pvm.drain(item_layout(module.items[i], mod_name, layout_env, target))
+                    local ls = item_layout(module.items[i], mod_name, layout_env, target)
                     for j = 1, #ls do pass_layouts[#pass_layouts + 1] = ls[j] end
                 end
                 layouts = pass_layouts
             end
-            return pvm.once(B.Env(mod_name, values, types, layouts))
-        end,
-    })
+            return erased.once(B.Env(mod_name, values, types, layouts))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_tree_module_env: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
     return {
         module_name = module_name,
         item_env_entries = item_env_entries,
         module_env = module_env,
-        env = function(module, target) return pvm.one(module_env(module, target)) end,
+        env = function(module, target) return erased.one(module_env(module, target)) end,
     }
 end
 

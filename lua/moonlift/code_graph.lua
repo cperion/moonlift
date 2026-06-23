@@ -1,4 +1,5 @@
-local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
+local erased = require("moonlift.phase_erased_runtime")
 
 local M = {}
 
@@ -32,7 +33,7 @@ function M.Define(T)
 
     local function add_place_uses(uses, place, ref, role)
         if place == nil then return end
-        local cls = pvm.classof(place)
+        local cls = schema.classof(place)
         if cls == Code.CodePlaceDeref then
             add_use(uses, place.addr, ref, nil, role .. ":deref.addr")
         elseif cls == Code.CodePlaceIndex then
@@ -56,7 +57,7 @@ function M.Define(T)
 
     local function append_inst_uses(func, block, inst, uses)
         local k = inst.kind
-        local cls = pvm.classof(k)
+        local cls = schema.classof(k)
         local ref = inst_ref(func, block, inst)
         if cls == Code.CodeInstAlias then
             add_use(uses, k.src, ref, nil, "alias.src")
@@ -101,7 +102,7 @@ function M.Define(T)
         elseif cls == Code.CodeInstVariantTag or cls == Code.CodeInstVariantPayload then
             add_use(uses, k.value, ref, nil, "variant.value")
         elseif cls == Code.CodeInstCall then
-            local tcls = pvm.classof(k.target)
+            local tcls = schema.classof(k.target)
             if tcls == Code.CodeCallIndirect then add_use(uses, k.target.callee, ref, nil, "call.callee") end
             if tcls == Code.CodeCallClosure then add_use(uses, k.target.closure, ref, nil, "call.closure") end
             for i, arg in ipairs(k.args or {}) do add_use(uses, arg, ref, nil, "call.arg" .. tostring(i)) end
@@ -123,7 +124,7 @@ function M.Define(T)
     local function append_term_uses(func, block, uses)
         local term = block.term and block.term.kind or nil
         local term_block = block_id(func, block)
-        local cls = pvm.classof(term)
+        local cls = schema.classof(term)
         if cls == Code.CodeTermBranch then
             add_use(uses, term.cond, nil, term_block, "branch.cond")
             for i, arg in ipairs(term.then_args or {}) do add_use(uses, arg, nil, term_block, "branch.then_arg" .. tostring(i)) end
@@ -150,7 +151,7 @@ function M.Define(T)
     local function append_edges(func, block_by_id, block, edges)
         local term = block.term and block.term.kind or nil
         local from = block_id(func, block)
-        local cls = pvm.classof(term)
+        local cls = schema.classof(term)
         local function add(dest, kind)
             if dest ~= nil and block_by_id[dest.text] ~= nil then
                 edges[#edges + 1] = Graph.GraphEdge(from, Graph.GraphBlockId(func.id, dest), kind)
@@ -258,9 +259,16 @@ function M.Define(T)
     api.inst_ref = inst_ref
     api.graph = graph
     api.module = graph
-    api.phase = pvm.phase("code_graph", {
-        [Code.CodeModule] = function(self) return pvm.once(graph(self)) end,
-    })
+    function api.phase(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Code.CodeModule) then
+            return (function(self)
+ return erased.once(graph(self))
+            end)(node, ...)
+        else
+            error("erased phase code_graph: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
     T._moonlift_api_cache.code_graph = api
     return api

@@ -287,4 +287,133 @@ M.Language = Lang
 M.T = T
 M.P = P
 
+-- Formatting ----------------------------------------------------------------
+
+local doc = llb.doc
+
+local function id_text(v)
+    if type(v) == "table" and v.value ~= nil then return tostring(v.value) end
+    if type(v) == "table" and v.text ~= nil then return tostring(v.text) end
+    return tostring(v)
+end
+
+local function type_ref_text(v)
+    local cls = pvm.classof(v)
+    if cls == P.TypeRefAny then return "any" end
+    if cls == P.TypeRefValue then return "value. " .. tostring(v.field_name) end
+    if cls == P.TypeRef then return tostring(v.module_name) .. "." .. tostring(v.type_name) end
+    return tostring(v)
+end
+
+local function cache_text(v)
+    if v == P.CacheIdentity then return "identity" end
+    if v == P.CacheNode then return "node" end
+    if v == P.CacheFull then return "full" end
+    if v == P.CacheNone then return "none" end
+    return tostring(v)
+end
+
+local function abi_text(v)
+    if v == P.MachineAbiStatusReturning then return "status_returning" end
+    if v == P.MachineAbiPure then return "pure" end
+    if v == P.MachineAbiProcess then return "process" end
+    if v == P.MachineAbiC then return "c" end
+    if v == P.MachineAbiCranelift then return "cranelift" end
+    return tostring(v)
+end
+
+local function record_doc(t)
+    local keys, parts = {}, {}
+    local n = #(t or {})
+    if n > 0 then
+        for i = 1, n do parts[i] = string.format("%q", tostring(t[i])) end
+        return doc.concat { "{", doc.indent({ doc.line(), doc.join(doc.concat { ",", doc.line() }, parts), "," }, 2), doc.line(), "}" }
+    end
+    for k in pairs(t or {}) do keys[#keys + 1] = k end
+    table.sort(keys)
+    for i, k in ipairs(keys) do
+        local v = t[k]
+        parts[i] = doc.group { tostring(k), " = ", type(v) == "string" and string.format("%q", v) or tostring(v) }
+    end
+    if #parts == 0 then return doc.text("{}") end
+    return doc.concat { "{", doc.indent({ doc.line(), doc.join(doc.concat { ",", doc.line() }, parts), "," }, 2), doc.line(), "}" }
+end
+
+local function body_block(items, f)
+    if #items == 0 then return doc.text("{}") end
+    local parts = {}
+    for i = 1, #items do parts[i] = M.format_doc(items[i], f) end
+    return doc.concat { "{", doc.indent({ doc.line(), doc.join(doc.concat { ",", doc.line() }, parts), "," }, f.indent_width or 2), doc.line(), "}" }
+end
+
+function M.format_doc(value, f)
+    f = getmetatable(f) == llb.FormatContext and f or setmetatable({ indent_width = 2, seen = {} }, llb.FormatContext)
+    local cls = type(value) == "table" and pvm.classof(value) or nil
+    if cls == P.Package then
+        local items = {}
+        for i = 1, #(value.worlds or {}) do items[#items + 1] = value.worlds[i] end
+        for i = 1, #(value.machines or {}) do items[#items + 1] = value.machines[i] end
+        for i = 1, #(value.phases or {}) do items[#items + 1] = value.phases[i] end
+        for i = 1, #(value.roots or {}) do items[#items + 1] = value.roots[i] end
+        return doc.concat { "package. ", id_text(value.id), " ", body_block(items, f) }
+    elseif cls == P.World then
+        return doc.group { "world. ", id_text(value.id), " [", type_ref_text(value.ty), "]" }
+    elseif cls == P.Machine then
+        local items = {
+            part("from", value.input),
+            part("to", value.output),
+            part("impl", value.impl),
+        }
+        if tostring(value.abi) ~= tostring(P.MachineAbiStatusReturning) then items[#items + 1] = part("abi", value.abi) end
+        if value.diagnostics then items[#items + 1] = part("diagnostics", value.diagnostics) end
+        if #(value.capabilities or {}) > 0 then items[#items + 1] = part("capabilities", value.capabilities) end
+        return doc.concat { "machine. ", id_text(value.id), " ", body_block(items, f) }
+    elseif cls == P.Phase then
+        local items = {
+            part("from", value.input),
+            part("to", value.output),
+            part("machine", value.machine),
+        }
+        if tostring(value.cache) ~= tostring(P.CacheIdentity) then items[#items + 1] = part("cache", value.cache) end
+        if value.deterministic == false then items[#items + 1] = part("deterministic", value.deterministic) end
+        if value.diagnostics then items[#items + 1] = part("diagnostics", value.diagnostics) end
+        return doc.concat { "phase. ", id_text(value.id), " ", body_block(items, f) }
+    elseif cls == P.Root then
+        return doc.concat { "root. ", id_text(value.id), " ", body_block({ part("from", value.input), part("to", value.output) }, f) }
+    end
+
+    if part_kind(value) == "from" then return doc.group { "from. ", id_text(value.value) } end
+    if part_kind(value) == "to" then return doc.group { "to. ", id_text(value.value) } end
+    if part_kind(value) == "diagnostics" then return doc.group { "diagnostics. ", id_text(value.value) } end
+    if part_kind(value) == "cache" then return doc.group { "cache. ", cache_text(value.value) } end
+    if part_kind(value) == "abi" then return doc.group { "abi. ", abi_text(value.value) } end
+    if part_kind(value) == "deterministic" then return doc.group { "deterministic ", tostring(value.value) } end
+    if part_kind(value) == "machine" then return doc.group { "machine. ", id_text(value.value) } end
+    if part_kind(value) == "capabilities" then return doc.group { "capabilities ", record_doc(value.value) } end
+    if part_kind(value) == "impl" then
+        local impl = value.value
+        local icls = pvm.classof(impl)
+        if icls == P.ImplMoonlift then return doc.group { "impl. moonlift ", record_doc { module = impl.module_name, func = impl.function_name } } end
+        if icls == P.ImplLua then return doc.group { "impl. lua ", record_doc { module = impl.module_name, func = impl.function_name } } end
+        if icls == P.ImplC then return doc.group { "impl. c ", record_doc { symbol = impl.symbol } } end
+        if icls == P.ImplCranelift then return doc.group { "impl. cranelift ", record_doc { symbol = impl.symbol } } end
+        if icls == P.ImplExternal then return doc.group { "impl. external ", record_doc { capability = impl.capability } } end
+    end
+    return doc.text(tostring(value))
+end
+
+function M.format(value, opts)
+    return llb.render(M.format_doc(value, setmetatable({ indent_width = opts and opts.indent or 2, seen = {} }, llb.FormatContext)), opts or {})
+end
+
+function M.file_text(value, opts)
+    return table.concat({
+        'local Phase = require("moonlift.phase_dsl")',
+        'Phase.use()',
+        '',
+        'return ' .. M.format(value, opts),
+        '',
+    }, "\n")
+end
+
 return M

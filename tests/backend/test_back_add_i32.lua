@@ -40,7 +40,7 @@ local report = validate.validate(moonlift_program)
 assert(#report.issues == 0)
 
 local jit = jit_api.jit()
-local artifact = jit:compile(moonlift_program)
+local artifact = jit:compile(jit_api.flatline.encode_back_program(moonlift_program))
 local ptr = artifact:getpointer(B2.BackFuncId("add_i32"))
 local add_i32 = ffi.cast("int32_t (*)(int32_t, int32_t)", ptr)
 assert(add_i32(20, 22) == 42)

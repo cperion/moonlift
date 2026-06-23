@@ -1,4 +1,6 @@
 local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
+local erased = require("moonlift.phase_erased_runtime")
 
 local M = {}
 
@@ -56,7 +58,7 @@ function M.Define(T)
 
     local function map_jump_args(xs, env, target)
         local out = {}
-        for i = 1, #xs do out[#out + 1] = pvm.with(xs[i], { value = one(resolve_expr, xs[i].value, env, target) }) end
+        for i = 1, #xs do out[#out + 1] = schema.with(xs[i], { value = one(resolve_expr, xs[i].value, env, target) }) end
         return out
     end
 
@@ -66,342 +68,798 @@ function M.Define(T)
         return out
     end
 
-    type_ref_layout = pvm.phase("moonlift_sem_type_ref_layout", {
-        [Ty.TypeRefGlobal] = function(ref, env)
+    function type_ref_layout(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Ty.TypeRefGlobal) then
+            return (function(ref, env)
+
             for i = 1, #env.layouts do
                 local layout = env.layouts[i]
-                if pvm.classof(layout) == Sem.LayoutNamed and layout.module_name == ref.module_name and layout.type_name == ref.type_name then
-                    return pvm.once(layout)
+                if schema.classof(layout) == Sem.LayoutNamed and layout.module_name == ref.module_name and layout.type_name == ref.type_name then
+                    return erased.once(layout)
                 end
             end
-            return pvm.empty()
-        end,
-        [Ty.TypeRefLocal] = function(ref, env)
+            return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TypeRefLocal) then
+            return (function(ref, env)
+
             for i = 1, #env.layouts do
                 local layout = env.layouts[i]
-                if pvm.classof(layout) == Sem.LayoutLocal and layout.sym == ref.sym then
-                    return pvm.once(layout)
+                if schema.classof(layout) == Sem.LayoutLocal and layout.sym == ref.sym then
+                    return erased.once(layout)
                 end
             end
-            return pvm.empty()
-        end,
-        [Ty.TypeRefPath] = function(ref, env)
+            return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TypeRefPath) then
+            return (function(ref, env)
+
             if #ref.path.parts == 1 then
                 local name = ref.path.parts[1].text
                 for i = 1, #env.layouts do
                     local layout = env.layouts[i]
-                    if pvm.classof(layout) == Sem.LayoutNamed and layout.type_name == name then return pvm.once(layout) end
+                    if schema.classof(layout) == Sem.LayoutNamed and layout.type_name == name then return erased.once(layout) end
                 end
             end
-            return pvm.empty()
-        end,
-        [Ty.TypeRefSlot] = function() return pvm.empty() end,
-    }, { args_cache = "last" })
+            return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TypeRefSlot) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        else
+            error("erased phase moonlift_sem_type_ref_layout: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
-    type_layout = pvm.phase("moonlift_sem_type_layout", {
-        [Ty.TNamed] = function(self, env, target) return type_ref_layout(self.ref, env) end,
-        [Ty.TScalar] = function() return pvm.empty() end,
-        [Ty.TPtr] = function() return pvm.empty() end,
-        [Ty.TArray] = function() return pvm.empty() end,
-        [Ty.TSlice] = function() return pvm.empty() end,
-        [Ty.TView] = function() return pvm.empty() end,
-        [Ty.TLease] = function() return pvm.empty() end,
-        [Ty.TOwned] = function() return pvm.empty() end,
-        [Ty.TAccess] = function() return pvm.empty() end,
-        [Ty.THandle] = function() return pvm.empty() end,
-        [Ty.TFunc] = function() return pvm.empty() end,
-        [Ty.TClosure] = function() return pvm.empty() end,
-        [Ty.TSlot] = function() return pvm.empty() end,
-        [Ty.TCType] = function() return pvm.empty() end,
-        [Ty.TCFuncPtr] = function() return pvm.empty() end,
-    }, { args_cache = "last" })
+    function type_layout(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Ty.TNamed) then
+            return (function(self, env, target)
+ return type_ref_layout(self.ref, env)
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TScalar) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TPtr) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TArray) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TSlice) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TView) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TLease) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TOwned) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TAccess) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, Ty.THandle) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TFunc) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TClosure) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TSlot) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TCType) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TCFuncPtr) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        else
+            error("erased phase moonlift_sem_type_layout: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
-    field_in_layout = pvm.phase("moonlift_sem_field_in_layout", {
-        [Sem.LayoutNamed] = function(layout, field_name)
+    function field_in_layout(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Sem.LayoutNamed) then
+            return (function(layout, field_name)
+
             for i = 1, #layout.fields do
                 local field = layout.fields[i]
                 if field.field_name == field_name then
-                    return pvm.once(field)
+                    return erased.once(field)
                 end
             end
-            return pvm.empty()
-        end,
-        [Sem.LayoutLocal] = function(layout, field_name)
+            return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, Sem.LayoutLocal) then
+            return (function(layout, field_name)
+
             for i = 1, #layout.fields do
                 local field = layout.fields[i]
                 if field.field_name == field_name then
-                    return pvm.once(field)
+                    return erased.once(field)
                 end
             end
-            return pvm.empty()
-        end,
-    }, { args_cache = "last" })
+            return erased.empty()
+            end)(node, ...)
+        else
+            error("erased phase moonlift_sem_field_in_layout: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
     local function storage_for_type(ty)
-        if pvm.classof(ty) == Ty.TScalar then return H.HostRepScalar(ty.scalar) end
-        if pvm.classof(ty) == Ty.TPtr then return H.HostRepPtr(ty.elem) end
-        if pvm.classof(ty) == Ty.TView then return H.HostRepView(ty.elem) end
-        if pvm.classof(ty) == Ty.TAccess then return storage_for_type(ty.base) end
+        if schema.classof(ty) == Ty.TScalar then return H.HostRepScalar(ty.scalar) end
+        if schema.classof(ty) == Ty.TPtr then return H.HostRepPtr(ty.elem) end
+        if schema.classof(ty) == Ty.TView then return H.HostRepView(ty.elem) end
+        if schema.classof(ty) == Ty.TAccess then return storage_for_type(ty.base) end
         return H.HostRepOpaque("sem_layout")
     end
 
     local function access_base_type(ty)
-        local cls = pvm.classof(ty)
+        local cls = schema.classof(ty)
         if cls == Ty.TAccess or cls == Ty.TLease then return access_base_type(ty.base) end
         return ty
     end
 
-    resolve_field_ref = pvm.phase("moonlift_sem_resolve_field_ref", {
-        [Sem.FieldByOffset] = function(field) return pvm.once(field) end,
-        [Sem.FieldByName] = function(field, base_ty, env)
+    function resolve_field_ref(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Sem.FieldByOffset) then
+            return (function(field)
+ return erased.once(field)
+            end)(node, ...)
+        elseif schema.isa(node, Sem.FieldByName) then
+            return (function(field, base_ty, env)
+
             local layout = maybe_one(type_layout(base_ty, env))
-            if layout == nil then return pvm.once(field) end
+            if layout == nil then return erased.once(field) end
             local resolved = maybe_one(field_in_layout(layout, field.field_name))
-            if resolved == nil then return pvm.once(field) end
-            return pvm.once(Sem.FieldByOffset(resolved.field_name, resolved.offset, resolved.ty, storage_for_type(resolved.ty)))
-        end,
-    }, { args_cache = "last" })
+            if resolved == nil then return erased.once(field) end
+            return erased.once(Sem.FieldByOffset(resolved.field_name, resolved.offset, resolved.ty, storage_for_type(resolved.ty)))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_sem_resolve_field_ref: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
     local function type_of_place(place)
         local h = place.h
-        local cls = pvm.classof(h)
+        local cls = schema.classof(h)
         if cls == Tr.PlaceTyped or cls == Tr.PlaceOpen then return h.ty end
         return nil
     end
 
-    resolve_index_base = pvm.phase("moonlift_sem_layout_index_base", {
-        [Tr.IndexBaseExpr] = function(self, env, target) return pvm.once(pvm.with(self, { base = one(resolve_expr, self.base, env, target) })) end,
-        [Tr.IndexBasePlace] = function(self, env, target) return pvm.once(pvm.with(self, { base = one(resolve_place, self.base, env, target) })) end,
-        [Tr.IndexBaseView] = function(self, env, target) return pvm.once(pvm.with(self, { view = one(resolve_view, self.view, env, target) })) end,
-    }, { args_cache = "last" })
+    function resolve_index_base(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Tr.IndexBaseExpr) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { base = one(resolve_expr, self.base, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.IndexBasePlace) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { base = one(resolve_place, self.base, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.IndexBaseView) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { view = one(resolve_view, self.view, env, target) }))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_sem_layout_index_base: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
-    resolve_place = pvm.phase("moonlift_sem_layout_place", {
-        [Tr.PlaceRef] = function(self) return pvm.once(self) end,
-        [Tr.PlaceDeref] = function(self, env, target) return pvm.once(pvm.with(self, { base = one(resolve_expr, self.base, env, target) })) end,
-        [Tr.PlaceDot] = function(self, env, target)
+    function resolve_place(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Tr.PlaceRef) then
+            return (function(self)
+ return erased.once(self)
+            end)(node, ...)
+        elseif schema.isa(node, Tr.PlaceDeref) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { base = one(resolve_expr, self.base, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.PlaceDot) then
+            return (function(self, env, target)
+
             local base = one(resolve_place, self.base, env, target)
             local base_ty = type_of_place(base)
             local lookup_ty = access_base_type(base_ty)
-            if lookup_ty ~= nil and pvm.classof(lookup_ty) == Ty.TPtr then lookup_ty = lookup_ty.elem end
+            if lookup_ty ~= nil and schema.classof(lookup_ty) == Ty.TPtr then lookup_ty = lookup_ty.elem end
             if lookup_ty ~= nil then
-                local field = pvm.one(resolve_field_ref(Sem.FieldByName(self.name, lookup_ty), lookup_ty, env))
-                if pvm.classof(field) == Sem.FieldByOffset then return pvm.once(Tr.PlaceField(Tr.PlaceTyped(field.ty), base, field)) end
+                local field = erased.one(resolve_field_ref(Sem.FieldByName(self.name, lookup_ty), lookup_ty, env))
+                if schema.classof(field) == Sem.FieldByOffset then return erased.once(Tr.PlaceField(Tr.PlaceTyped(field.ty), base, field)) end
             end
-            return pvm.once(pvm.with(self, { base = base }))
-        end,
-        [Tr.PlaceField] = function(self, env, target)
+            return erased.once(schema.with(self, { base = base }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.PlaceField) then
+            return (function(self, env, target)
+
             local base = one(resolve_place, self.base, env, target)
             local base_ty = type_of_place(base)
             base_ty = access_base_type(base_ty)
-            if base_ty ~= nil and pvm.classof(base_ty) == Ty.TPtr then base_ty = base_ty.elem end
+            if base_ty ~= nil and schema.classof(base_ty) == Ty.TPtr then base_ty = base_ty.elem end
             local field = self.field
-            if base_ty ~= nil then field = pvm.one(resolve_field_ref(self.field, base_ty, env)) end
-            return pvm.once(pvm.with(self, { base = base, field = field }))
-        end,
-        [Tr.PlaceIndex] = function(self, env, target) return pvm.once(pvm.with(self, { base = one(resolve_index_base, self.base, env, target), index = one(resolve_expr, self.index, env, target) })) end,
-        [Tr.PlaceSlotValue] = function(self) return pvm.once(self) end,
-    }, { args_cache = "last" })
+            if base_ty ~= nil then field = erased.one(resolve_field_ref(self.field, base_ty, env)) end
+            return erased.once(schema.with(self, { base = base, field = field }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.PlaceIndex) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { base = one(resolve_index_base, self.base, env, target), index = one(resolve_expr, self.index, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.PlaceSlotValue) then
+            return (function(self)
+ return erased.once(self)
+            end)(node, ...)
+        else
+            error("erased phase moonlift_sem_layout_place: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
-    resolve_view = pvm.phase("moonlift_sem_layout_view", {
-        [Tr.ViewFromExpr] = function(self, env, target) return pvm.once(pvm.with(self, { base = one(resolve_expr, self.base, env, target) })) end,
-        [Tr.ViewContiguous] = function(self, env, target) return pvm.once(pvm.with(self, { data = one(resolve_expr, self.data, env, target), len = one(resolve_expr, self.len, env, target) })) end,
-        [Tr.ViewStrided] = function(self, env, target) return pvm.once(pvm.with(self, { data = one(resolve_expr, self.data, env, target), len = one(resolve_expr, self.len, env, target), stride = one(resolve_expr, self.stride, env, target) })) end,
-        [Tr.ViewRestrided] = function(self, env, target) return pvm.once(pvm.with(self, { base = one(resolve_view, self.base, env, target), stride = one(resolve_expr, self.stride, env, target) })) end,
-        [Tr.ViewWindow] = function(self, env, target) return pvm.once(pvm.with(self, { base = one(resolve_view, self.base, env, target), start = one(resolve_expr, self.start, env, target), len = one(resolve_expr, self.len, env, target) })) end,
-        [Tr.ViewRowBase] = function(self, env, target) return pvm.once(pvm.with(self, { base = one(resolve_view, self.base, env, target), row_offset = one(resolve_expr, self.row_offset, env, target) })) end,
-        [Tr.ViewInterleaved] = function(self, env, target) return pvm.once(pvm.with(self, { data = one(resolve_expr, self.data, env, target), len = one(resolve_expr, self.len, env, target), stride = one(resolve_expr, self.stride, env, target), lane = one(resolve_expr, self.lane, env, target) })) end,
-        [Tr.ViewInterleavedView] = function(self, env, target) return pvm.once(pvm.with(self, { base = one(resolve_view, self.base, env, target), stride = one(resolve_expr, self.stride, env, target), lane = one(resolve_expr, self.lane, env, target) })) end,
-    }, { args_cache = "last" })
+    function resolve_view(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Tr.ViewFromExpr) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { base = one(resolve_expr, self.base, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ViewContiguous) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { data = one(resolve_expr, self.data, env, target), len = one(resolve_expr, self.len, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ViewStrided) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { data = one(resolve_expr, self.data, env, target), len = one(resolve_expr, self.len, env, target), stride = one(resolve_expr, self.stride, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ViewRestrided) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { base = one(resolve_view, self.base, env, target), stride = one(resolve_expr, self.stride, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ViewWindow) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { base = one(resolve_view, self.base, env, target), start = one(resolve_expr, self.start, env, target), len = one(resolve_expr, self.len, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ViewRowBase) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { base = one(resolve_view, self.base, env, target), row_offset = one(resolve_expr, self.row_offset, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ViewInterleaved) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { data = one(resolve_expr, self.data, env, target), len = one(resolve_expr, self.len, env, target), stride = one(resolve_expr, self.stride, env, target), lane = one(resolve_expr, self.lane, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ViewInterleavedView) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { base = one(resolve_view, self.base, env, target), stride = one(resolve_expr, self.stride, env, target), lane = one(resolve_expr, self.lane, env, target) }))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_sem_layout_view: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
-    resolve_domain = pvm.phase("moonlift_sem_layout_domain", {
-        [Tr.DomainRange] = function(self, env, target) return pvm.once(pvm.with(self, { stop = one(resolve_expr, self.stop, env, target) })) end,
-        [Tr.DomainRange2] = function(self, env, target) return pvm.once(pvm.with(self, { start = one(resolve_expr, self.start, env, target), stop = one(resolve_expr, self.stop, env, target) })) end,
-        [Tr.DomainZipEqValues] = function(self, env, target) return pvm.once(pvm.with(self, { values = map_exprs(self.values, env, target) })) end,
-        [Tr.DomainValue] = function(self, env, target) return pvm.once(pvm.with(self, { value = one(resolve_expr, self.value, env, target) })) end,
-        [Tr.DomainView] = function(self, env, target) return pvm.once(pvm.with(self, { view = one(resolve_view, self.view, env, target) })) end,
-        [Tr.DomainZipEqViews] = function(self, env, target) local views = {}; for i = 1, #self.views do views[#views + 1] = one(resolve_view, self.views[i], env, target) end; return pvm.once(pvm.with(self, { views = views })) end,
-        [Tr.DomainSlotValue] = function(self) return pvm.once(self) end,
-    }, { args_cache = "last" })
+    function resolve_domain(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Tr.DomainRange) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { stop = one(resolve_expr, self.stop, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.DomainRange2) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { start = one(resolve_expr, self.start, env, target), stop = one(resolve_expr, self.stop, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.DomainZipEqValues) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { values = map_exprs(self.values, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.DomainValue) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { value = one(resolve_expr, self.value, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.DomainView) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { view = one(resolve_view, self.view, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.DomainZipEqViews) then
+            return (function(self, env, target)
+ local views = {}; for i = 1, #self.views do views[#views + 1] = one(resolve_view, self.views[i], env, target) end; return erased.once(schema.with(self, { views = views }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.DomainSlotValue) then
+            return (function(self)
+ return erased.once(self)
+            end)(node, ...)
+        else
+            error("erased phase moonlift_sem_layout_domain: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
-    resolve_expr = pvm.phase("moonlift_sem_layout_expr", {
-        [Tr.ExprLit] = function(self) return pvm.once(self) end,
-        [Tr.ExprRef] = function(self) return pvm.once(self) end,
-        [Tr.ExprDot] = function(self, env, target)
+    function resolve_expr(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Tr.ExprLit) then
+            return (function(self)
+ return erased.once(self)
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprRef) then
+            return (function(self)
+ return erased.once(self)
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprDot) then
+            return (function(self, env, target)
+
             local base = one(resolve_expr, self.base, env, target)
             local h = base.h
             local base_ty = nil
-            local h_cls = pvm.classof(h)
+            local h_cls = schema.classof(h)
             if h_cls == Tr.ExprTyped or h_cls == Tr.ExprOpen then base_ty = h.ty end
             local lookup_ty = access_base_type(base_ty)
-            if lookup_ty ~= nil and pvm.classof(lookup_ty) == Ty.TPtr then lookup_ty = lookup_ty.elem end
+            if lookup_ty ~= nil and schema.classof(lookup_ty) == Ty.TPtr then lookup_ty = lookup_ty.elem end
             if lookup_ty ~= nil then
-                local field = pvm.one(resolve_field_ref(Sem.FieldByName(self.name, lookup_ty), lookup_ty, env))
-                if pvm.classof(field) == Sem.FieldByOffset then return pvm.once(Tr.ExprField(Tr.ExprTyped(field.ty), base, field)) end
+                local field = erased.one(resolve_field_ref(Sem.FieldByName(self.name, lookup_ty), lookup_ty, env))
+                if schema.classof(field) == Sem.FieldByOffset then return erased.once(Tr.ExprField(Tr.ExprTyped(field.ty), base, field)) end
             end
-            return pvm.once(pvm.with(self, { base = base }))
-        end,
-        [Tr.ExprUnary] = function(self, env, target) return pvm.once(pvm.with(self, { value = one(resolve_expr, self.value, env, target) })) end,
-        [Tr.ExprBinary] = function(self, env, target) return pvm.once(pvm.with(self, { lhs = one(resolve_expr, self.lhs, env, target), rhs = one(resolve_expr, self.rhs, env, target) })) end,
-        [Tr.ExprCompare] = function(self, env, target) return pvm.once(pvm.with(self, { lhs = one(resolve_expr, self.lhs, env, target), rhs = one(resolve_expr, self.rhs, env, target) })) end,
-        [Tr.ExprLogic] = function(self, env, target) return pvm.once(pvm.with(self, { lhs = one(resolve_expr, self.lhs, env, target), rhs = one(resolve_expr, self.rhs, env, target) })) end,
-        [Tr.ExprCast] = function(self, env, target) return pvm.once(pvm.with(self, { value = one(resolve_expr, self.value, env, target) })) end,
-        [Tr.ExprMachineCast] = function(self, env, target) return pvm.once(pvm.with(self, { value = one(resolve_expr, self.value, env, target) })) end,
-        [Tr.ExprIntrinsic] = function(self, env, target) return pvm.once(pvm.with(self, { args = map_exprs(self.args, env, target) })) end,
-        [Tr.ExprAddrOf] = function(self, env, target) return pvm.once(pvm.with(self, { place = one(resolve_place, self.place, env, target) })) end,
-        [Tr.ExprDeref] = function(self, env, target) return pvm.once(pvm.with(self, { value = one(resolve_expr, self.value, env, target) })) end,
-        [Tr.ExprCall] = function(self, env, target) return pvm.once(pvm.with(self, { callee = one(resolve_expr, self.callee, env, target), args = map_exprs(self.args, env, target) })) end,
-        [Tr.ExprLen] = function(self, env, target) return pvm.once(pvm.with(self, { value = one(resolve_expr, self.value, env, target) })) end,
-        [Tr.ExprField] = function(self, env, target)
+            return erased.once(schema.with(self, { base = base }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprUnary) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { value = one(resolve_expr, self.value, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprBinary) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { lhs = one(resolve_expr, self.lhs, env, target), rhs = one(resolve_expr, self.rhs, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprCompare) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { lhs = one(resolve_expr, self.lhs, env, target), rhs = one(resolve_expr, self.rhs, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprLogic) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { lhs = one(resolve_expr, self.lhs, env, target), rhs = one(resolve_expr, self.rhs, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprCast) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { value = one(resolve_expr, self.value, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprMachineCast) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { value = one(resolve_expr, self.value, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprIntrinsic) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { args = map_exprs(self.args, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprAddrOf) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { place = one(resolve_place, self.place, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprDeref) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { value = one(resolve_expr, self.value, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprCall) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { callee = one(resolve_expr, self.callee, env, target), args = map_exprs(self.args, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprLen) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { value = one(resolve_expr, self.value, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprField) then
+            return (function(self, env, target)
+
             local base = one(resolve_expr, self.base, env, target)
             local h = base.h
             local base_ty = nil
-            local h_cls = pvm.classof(h)
+            local h_cls = schema.classof(h)
             if h_cls == Tr.ExprTyped or h_cls == Tr.ExprOpen then base_ty = h.ty end
             base_ty = access_base_type(base_ty)
-            if base_ty ~= nil and pvm.classof(base_ty) == Ty.TPtr then base_ty = base_ty.elem end
+            if base_ty ~= nil and schema.classof(base_ty) == Ty.TPtr then base_ty = base_ty.elem end
             local field = self.field
-            if base_ty ~= nil then field = pvm.one(resolve_field_ref(self.field, base_ty, env)) end
-            return pvm.once(pvm.with(self, { base = base, field = field }))
-        end,
-        [Tr.ExprIndex] = function(self, env, target) return pvm.once(pvm.with(self, { base = one(resolve_index_base, self.base, env, target), index = one(resolve_expr, self.index, env, target) })) end,
-        [Tr.ExprAgg] = function(self, env, target) local fields = {}; for i = 1, #self.fields do fields[#fields + 1] = pvm.with(self.fields[i], { value = one(resolve_expr, self.fields[i].value, env, target) }) end; return pvm.once(pvm.with(self, { fields = fields })) end,
-        [Tr.ExprArray] = function(self, env, target) return pvm.once(pvm.with(self, { elems = map_exprs(self.elems, env, target) })) end,
-        [Tr.ExprIf] = function(self, env, target) return pvm.once(pvm.with(self, { cond = one(resolve_expr, self.cond, env, target), then_expr = one(resolve_expr, self.then_expr, env, target), else_expr = one(resolve_expr, self.else_expr, env, target) })) end,
-        [Tr.ExprSelect] = function(self, env, target) return pvm.once(pvm.with(self, { cond = one(resolve_expr, self.cond, env, target), then_expr = one(resolve_expr, self.then_expr, env, target), else_expr = one(resolve_expr, self.else_expr, env, target) })) end,
-        [Tr.ExprSwitch] = function(self, env, target) local arms = {}; for i = 1, #self.arms do arms[#arms + 1] = pvm.with(self.arms[i], { body = map_stmts(self.arms[i].body, env, target), result = one(resolve_expr, self.arms[i].result, env, target) }) end; local var_arms = {}; for i = 1, #(self.variant_arms or {}) do var_arms[#var_arms + 1] = pvm.with(self.variant_arms[i], { body = map_stmts(self.variant_arms[i].body, env, target), result = one(resolve_expr, self.variant_arms[i].result, env, target) }) end; return pvm.once(pvm.with(self, { value = one(resolve_expr, self.value, env, target), arms = arms, variant_arms = var_arms, default_body = map_stmts(self.default_body or {}, env, target), default_expr = one(resolve_expr, self.default_expr, env, target) })) end,
-        [Tr.ExprControl] = function(self, env, target) return pvm.once(pvm.with(self, { region = one(resolve_control_expr_region, self.region, env, target) })) end,
-        [Tr.ExprBlock] = function(self, env, target) return pvm.once(pvm.with(self, { stmts = map_stmts(self.stmts, env, target), result = one(resolve_expr, self.result, env, target) })) end,
-        [Tr.ExprClosure] = function(self, env, target) return pvm.once(pvm.with(self, { body = map_stmts(self.body, env, target) })) end,
-        [Tr.ExprView] = function(self, env, target) return pvm.once(pvm.with(self, { view = one(resolve_view, self.view, env, target) })) end,
-        [Tr.ExprLoad] = function(self, env, target) return pvm.once(pvm.with(self, { addr = one(resolve_expr, self.addr, env, target) })) end,
-        [Tr.ExprAtomicLoad] = function(self, env, target) return pvm.once(pvm.with(self, { addr = one(resolve_expr, self.addr, env, target) })) end,
-        [Tr.ExprAtomicRmw] = function(self, env, target) return pvm.once(pvm.with(self, { addr = one(resolve_expr, self.addr, env, target), value = one(resolve_expr, self.value, env, target) })) end,
-        [Tr.ExprAtomicCas] = function(self, env, target) return pvm.once(pvm.with(self, { addr = one(resolve_expr, self.addr, env, target), expected = one(resolve_expr, self.expected, env, target), replacement = one(resolve_expr, self.replacement, env, target) })) end,
-        [Tr.ExprSizeOf] = function(self, env, target)
+            if base_ty ~= nil then field = erased.one(resolve_field_ref(self.field, base_ty, env)) end
+            return erased.once(schema.with(self, { base = base, field = field }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprIndex) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { base = one(resolve_index_base, self.base, env, target), index = one(resolve_expr, self.index, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprAgg) then
+            return (function(self, env, target)
+ local fields = {}; for i = 1, #self.fields do fields[#fields + 1] = schema.with(self.fields[i], { value = one(resolve_expr, self.fields[i].value, env, target) }) end; return erased.once(schema.with(self, { fields = fields }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprArray) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { elems = map_exprs(self.elems, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprIf) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { cond = one(resolve_expr, self.cond, env, target), then_expr = one(resolve_expr, self.then_expr, env, target), else_expr = one(resolve_expr, self.else_expr, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprSelect) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { cond = one(resolve_expr, self.cond, env, target), then_expr = one(resolve_expr, self.then_expr, env, target), else_expr = one(resolve_expr, self.else_expr, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprSwitch) then
+            return (function(self, env, target)
+ local arms = {}; for i = 1, #self.arms do arms[#arms + 1] = schema.with(self.arms[i], { body = map_stmts(self.arms[i].body, env, target), result = one(resolve_expr, self.arms[i].result, env, target) }) end; local var_arms = {}; for i = 1, #(self.variant_arms or {}) do var_arms[#var_arms + 1] = schema.with(self.variant_arms[i], { body = map_stmts(self.variant_arms[i].body, env, target), result = one(resolve_expr, self.variant_arms[i].result, env, target) }) end; return erased.once(schema.with(self, { value = one(resolve_expr, self.value, env, target), arms = arms, variant_arms = var_arms, default_body = map_stmts(self.default_body or {}, env, target), default_expr = one(resolve_expr, self.default_expr, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprControl) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { region = one(resolve_control_expr_region, self.region, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprBlock) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { stmts = map_stmts(self.stmts, env, target), result = one(resolve_expr, self.result, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprClosure) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { body = map_stmts(self.body, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprView) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { view = one(resolve_view, self.view, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprLoad) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { addr = one(resolve_expr, self.addr, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprAtomicLoad) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { addr = one(resolve_expr, self.addr, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprAtomicRmw) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { addr = one(resolve_expr, self.addr, env, target), value = one(resolve_expr, self.value, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprAtomicCas) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { addr = one(resolve_expr, self.addr, env, target), expected = one(resolve_expr, self.expected, env, target), replacement = one(resolve_expr, self.replacement, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprSizeOf) then
+            return (function(self, env, target)
+
             local layout_api = require("moonlift.type_size_align").Define(T)
             local result = layout_api.result(self.ty, env, target)
-            if pvm.classof(result) == Ty.TypeMemLayoutKnown then
+            if schema.classof(result) == Ty.TypeMemLayoutKnown then
                 local size = tostring(result.layout.size)
-                return pvm.once(Tr.ExprLit(Tr.ExprTyped(index_ty()), C.LitInt(size)))
+                return erased.once(Tr.ExprLit(Tr.ExprTyped(index_ty()), C.LitInt(size)))
             end
-            return pvm.once(Tr.ExprLit(Tr.ExprTyped(index_ty()), C.LitInt("0")))
-        end,
-        [Tr.ExprAlignOf] = function(self, env, target)
+            return erased.once(Tr.ExprLit(Tr.ExprTyped(index_ty()), C.LitInt("0")))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprAlignOf) then
+            return (function(self, env, target)
+
             local layout_api = require("moonlift.type_size_align").Define(T)
             local result = layout_api.result(self.ty, env, target)
-            if pvm.classof(result) == Ty.TypeMemLayoutKnown then
+            if schema.classof(result) == Ty.TypeMemLayoutKnown then
                 local align = tostring(result.layout.align)
-                return pvm.once(Tr.ExprLit(Tr.ExprTyped(index_ty()), C.LitInt(align)))
+                return erased.once(Tr.ExprLit(Tr.ExprTyped(index_ty()), C.LitInt(align)))
             end
-            return pvm.once(Tr.ExprLit(Tr.ExprTyped(index_ty()), C.LitInt("1")))
-        end,
-        [Tr.ExprNull] = function(self) return pvm.once(self) end,
-        [Tr.ExprIsNull] = function(self, env, target) return pvm.once(pvm.with(self, { value = one(resolve_expr, self.value, env, target) })) end,
-        [Tr.ExprSlotValue] = function(self) return pvm.once(self) end,
-        [Tr.ExprUseExprFrag] = function(self, env, target) return pvm.once(pvm.with(self, { args = map_exprs(self.args, env, target) })) end,
-        [Tr.ExprCtor] = function(self, env, target) return pvm.once(pvm.with(self, { args = map_exprs(self.args, env, target) })) end,
-    }, { args_cache = "last" })
+            return erased.once(Tr.ExprLit(Tr.ExprTyped(index_ty()), C.LitInt("1")))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprNull) then
+            return (function(self)
+ return erased.once(self)
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprIsNull) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { value = one(resolve_expr, self.value, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprSlotValue) then
+            return (function(self)
+ return erased.once(self)
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprUseExprFrag) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { args = map_exprs(self.args, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprCtor) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { args = map_exprs(self.args, env, target) }))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_sem_layout_expr: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
     local function resolve_entry_block(block, env, target)
         local params = {}
-        for i = 1, #block.params do params[#params + 1] = pvm.with(block.params[i], { init = one(resolve_expr, block.params[i].init, env, target) }) end
-        return pvm.with(block, { params = params, body = map_stmts(block.body, env, target) })
+        for i = 1, #block.params do params[#params + 1] = schema.with(block.params[i], { init = one(resolve_expr, block.params[i].init, env, target) }) end
+        return schema.with(block, { params = params, body = map_stmts(block.body, env, target) })
     end
 
     local function resolve_control_block(block, env, target)
-        return pvm.with(block, { body = map_stmts(block.body, env, target) })
+        return schema.with(block, { body = map_stmts(block.body, env, target) })
     end
 
-    resolve_control_stmt_region = pvm.phase("moonlift_sem_layout_control_stmt_region", {
-        [Tr.ControlStmtRegion] = function(self, env, target)
+    function resolve_control_stmt_region(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Tr.ControlStmtRegion) then
+            return (function(self, env, target)
+
             local blocks = {}
             for i = 1, #self.blocks do blocks[#blocks + 1] = resolve_control_block(self.blocks[i], env, target) end
-            return pvm.once(pvm.with(self, { entry = resolve_entry_block(self.entry, env, target), blocks = blocks }))
-        end,
-    }, { args_cache = "last" })
+            return erased.once(schema.with(self, { entry = resolve_entry_block(self.entry, env, target), blocks = blocks }))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_sem_layout_control_stmt_region: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
-    resolve_control_expr_region = pvm.phase("moonlift_sem_layout_control_expr_region", {
-        [Tr.ControlExprRegion] = function(self, env, target)
+    function resolve_control_expr_region(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Tr.ControlExprRegion) then
+            return (function(self, env, target)
+
             local blocks = {}
             for i = 1, #self.blocks do blocks[#blocks + 1] = resolve_control_block(self.blocks[i], env, target) end
-            return pvm.once(pvm.with(self, { entry = resolve_entry_block(self.entry, env, target), blocks = blocks }))
-        end,
-    }, { args_cache = "last" })
+            return erased.once(schema.with(self, { entry = resolve_entry_block(self.entry, env, target), blocks = blocks }))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_sem_layout_control_expr_region: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
-    resolve_stmt = pvm.phase("moonlift_sem_layout_stmt", {
-        [Tr.StmtLet] = function(self, env, target) return pvm.once(pvm.with(self, { init = one(resolve_expr, self.init, env, target) })) end,
-        [Tr.StmtVar] = function(self, env, target) return pvm.once(pvm.with(self, { init = one(resolve_expr, self.init, env, target) })) end,
-        [Tr.StmtSet] = function(self, env, target) return pvm.once(pvm.with(self, { place = one(resolve_place, self.place, env, target), value = one(resolve_expr, self.value, env, target) })) end,
-        [Tr.StmtAtomicStore] = function(self, env, target) return pvm.once(pvm.with(self, { addr = one(resolve_expr, self.addr, env, target), value = one(resolve_expr, self.value, env, target) })) end,
-        [Tr.StmtAtomicFence] = function(self) return pvm.once(self) end,
-        [Tr.StmtExpr] = function(self, env, target) return pvm.once(pvm.with(self, { expr = one(resolve_expr, self.expr, env, target) })) end,
-        [Tr.StmtAssert] = function(self, env, target) return pvm.once(pvm.with(self, { cond = one(resolve_expr, self.cond, env, target) })) end,
-        [Tr.StmtIf] = function(self, env, target) return pvm.once(pvm.with(self, { cond = one(resolve_expr, self.cond, env, target), then_body = map_stmts(self.then_body, env, target), else_body = map_stmts(self.else_body, env, target) })) end,
-        [Tr.StmtSwitch] = function(self, env, target) local arms = {}; for i = 1, #self.arms do arms[#arms + 1] = pvm.with(self.arms[i], { body = map_stmts(self.arms[i].body, env, target) }) end; local var_arms = {}; for i = 1, #(self.variant_arms or {}) do var_arms[#var_arms + 1] = pvm.with(self.variant_arms[i], { body = map_stmts(self.variant_arms[i].body, env, target) }) end; return pvm.once(pvm.with(self, { value = one(resolve_expr, self.value, env, target), arms = arms, variant_arms = var_arms, default_body = map_stmts(self.default_body, env, target) })) end,
-        [Tr.StmtJump] = function(self, env, target) return pvm.once(pvm.with(self, { args = map_jump_args(self.args, env, target) })) end,
-        [Tr.StmtJumpCont] = function(self, env, target) return pvm.once(pvm.with(self, { args = map_jump_args(self.args, env, target) })) end,
-        [Tr.StmtYieldVoid] = function(self) return pvm.once(self) end,
-        [Tr.StmtYieldValue] = function(self, env, target) return pvm.once(pvm.with(self, { value = one(resolve_expr, self.value, env, target) })) end,
-        [Tr.StmtReturnVoid] = function(self) return pvm.once(self) end,
-        [Tr.StmtReturnValue] = function(self, env, target) return pvm.once(pvm.with(self, { value = one(resolve_expr, self.value, env, target) })) end,
-        [Tr.StmtControl] = function(self, env, target) return pvm.once(pvm.with(self, { region = one(resolve_control_stmt_region, self.region, env, target) })) end,
-        [Tr.StmtTrap] = function(self) return pvm.once(self) end,
-        [Tr.StmtUseRegionSlot] = function(self) return pvm.once(self) end,
-        [Tr.StmtUseRegionFrag] = function(self, env, target) return pvm.once(pvm.with(self, { args = map_exprs(self.args, env, target) })) end,
-    }, { args_cache = "last" })
+    function resolve_stmt(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Tr.StmtLet) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { init = one(resolve_expr, self.init, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.StmtVar) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { init = one(resolve_expr, self.init, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.StmtSet) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { place = one(resolve_place, self.place, env, target), value = one(resolve_expr, self.value, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.StmtAtomicStore) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { addr = one(resolve_expr, self.addr, env, target), value = one(resolve_expr, self.value, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.StmtAtomicFence) then
+            return (function(self)
+ return erased.once(self)
+            end)(node, ...)
+        elseif schema.isa(node, Tr.StmtExpr) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { expr = one(resolve_expr, self.expr, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.StmtAssert) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { cond = one(resolve_expr, self.cond, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.StmtIf) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { cond = one(resolve_expr, self.cond, env, target), then_body = map_stmts(self.then_body, env, target), else_body = map_stmts(self.else_body, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.StmtSwitch) then
+            return (function(self, env, target)
+ local arms = {}; for i = 1, #self.arms do arms[#arms + 1] = schema.with(self.arms[i], { body = map_stmts(self.arms[i].body, env, target) }) end; local var_arms = {}; for i = 1, #(self.variant_arms or {}) do var_arms[#var_arms + 1] = schema.with(self.variant_arms[i], { body = map_stmts(self.variant_arms[i].body, env, target) }) end; return erased.once(schema.with(self, { value = one(resolve_expr, self.value, env, target), arms = arms, variant_arms = var_arms, default_body = map_stmts(self.default_body, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.StmtJump) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { args = map_jump_args(self.args, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.StmtJumpCont) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { args = map_jump_args(self.args, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.StmtYieldVoid) then
+            return (function(self)
+ return erased.once(self)
+            end)(node, ...)
+        elseif schema.isa(node, Tr.StmtYieldValue) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { value = one(resolve_expr, self.value, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.StmtReturnVoid) then
+            return (function(self)
+ return erased.once(self)
+            end)(node, ...)
+        elseif schema.isa(node, Tr.StmtReturnValue) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { value = one(resolve_expr, self.value, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.StmtControl) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { region = one(resolve_control_stmt_region, self.region, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.StmtTrap) then
+            return (function(self)
+ return erased.once(self)
+            end)(node, ...)
+        elseif schema.isa(node, Tr.StmtUseRegionSlot) then
+            return (function(self)
+ return erased.once(self)
+            end)(node, ...)
+        elseif schema.isa(node, Tr.StmtUseRegionFrag) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { args = map_exprs(self.args, env, target) }))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_sem_layout_stmt: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
-    resolve_func = pvm.phase("moonlift_sem_layout_func", {
-        [Tr.FuncLocal] = function(self, env, target) return pvm.once(pvm.with(self, { body = map_stmts(self.body, env, target) })) end,
-        [Tr.FuncExport] = function(self, env, target) return pvm.once(pvm.with(self, { body = map_stmts(self.body, env, target) })) end,
-        [Tr.FuncLocalContract] = function(self, env, target) return pvm.once(pvm.with(self, { body = map_stmts(self.body, env, target) })) end,
-        [Tr.FuncExportContract] = function(self, env, target) return pvm.once(pvm.with(self, { body = map_stmts(self.body, env, target) })) end,
-        [Tr.FuncOpen] = function(self, env, target) return pvm.once(pvm.with(self, { body = map_stmts(self.body, env, target) })) end,
-    }, { args_cache = "last" })
+    function resolve_func(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Tr.FuncLocal) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { body = map_stmts(self.body, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.FuncExport) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { body = map_stmts(self.body, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.FuncLocalContract) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { body = map_stmts(self.body, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.FuncExportContract) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { body = map_stmts(self.body, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.FuncOpen) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { body = map_stmts(self.body, env, target) }))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_sem_layout_func: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
-    resolve_const = pvm.phase("moonlift_sem_layout_const", {
-        [Tr.ConstItem] = function(self, env, target) return pvm.once(pvm.with(self, { value = one(resolve_expr, self.value, env, target) })) end,
-        [Tr.ConstItemOpen] = function(self, env, target) return pvm.once(pvm.with(self, { value = one(resolve_expr, self.value, env, target) })) end,
-    }, { args_cache = "last" })
+    function resolve_const(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Tr.ConstItem) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { value = one(resolve_expr, self.value, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ConstItemOpen) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { value = one(resolve_expr, self.value, env, target) }))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_sem_layout_const: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
-    resolve_static = pvm.phase("moonlift_sem_layout_static", {
-        [Tr.StaticItem] = function(self, env, target) return pvm.once(pvm.with(self, { value = one(resolve_expr, self.value, env, target) })) end,
-        [Tr.StaticItemOpen] = function(self, env, target) return pvm.once(pvm.with(self, { value = one(resolve_expr, self.value, env, target) })) end,
-    }, { args_cache = "last" })
+    function resolve_static(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Tr.StaticItem) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { value = one(resolve_expr, self.value, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.StaticItemOpen) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { value = one(resolve_expr, self.value, env, target) }))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_sem_layout_static: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
-    resolve_type_decl = pvm.phase("moonlift_sem_layout_type_decl", {
-        [Tr.TypeDeclStruct] = function(self) return pvm.once(self) end,
-        [Tr.TypeDeclUnion] = function(self) return pvm.once(self) end,
-        [Tr.TypeDeclEnumSugar] = function(self) return pvm.once(self) end,
-        [Tr.TypeDeclTaggedUnionSugar] = function(self) return pvm.once(self) end,
-        [Tr.TypeDeclHandle] = function(self) return pvm.once(self) end,
-        [Tr.TypeDeclOpenStruct] = function(self) return pvm.once(self) end,
-        [Tr.TypeDeclOpenUnion] = function(self) return pvm.once(self) end,
-    })
+    function resolve_type_decl(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Tr.TypeDeclStruct) then
+            return (function(self)
+ return erased.once(self)
+            end)(node, ...)
+        elseif schema.isa(node, Tr.TypeDeclUnion) then
+            return (function(self)
+ return erased.once(self)
+            end)(node, ...)
+        elseif schema.isa(node, Tr.TypeDeclEnumSugar) then
+            return (function(self)
+ return erased.once(self)
+            end)(node, ...)
+        elseif schema.isa(node, Tr.TypeDeclTaggedUnionSugar) then
+            return (function(self)
+ return erased.once(self)
+            end)(node, ...)
+        elseif schema.isa(node, Tr.TypeDeclHandle) then
+            return (function(self)
+ return erased.once(self)
+            end)(node, ...)
+        elseif schema.isa(node, Tr.TypeDeclOpenStruct) then
+            return (function(self)
+ return erased.once(self)
+            end)(node, ...)
+        elseif schema.isa(node, Tr.TypeDeclOpenUnion) then
+            return (function(self)
+ return erased.once(self)
+            end)(node, ...)
+        else
+            error("erased phase moonlift_sem_layout_type_decl: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
-    resolve_item = pvm.phase("moonlift_sem_layout_item", {
-        [Tr.ItemFunc] = function(self, env, target) return pvm.once(pvm.with(self, { func = one(resolve_func, self.func, env, target) })) end,
-        [Tr.ItemExtern] = function(self) return pvm.once(self) end,
-        [Tr.ItemConst] = function(self, env, target) return pvm.once(pvm.with(self, { c = one(resolve_const, self.c, env, target) })) end,
-        [Tr.ItemStatic] = function(self, env, target) return pvm.once(pvm.with(self, { s = one(resolve_static, self.s, env, target) })) end,
-        [Tr.ItemImport] = function(self) return pvm.once(self) end,
-        [Tr.ItemType] = function(self, env, target) return pvm.once(pvm.with(self, { t = one(resolve_type_decl, self.t, env, target) })) end,
-        [Tr.ItemRegionFrag] = function(self) return pvm.once(self) end,
-        [Tr.ItemExprFrag] = function(self) return pvm.once(self) end,
-        [Tr.ItemUseTypeDeclSlot] = function(self) return pvm.once(self) end,
-        [Tr.ItemUseItemsSlot] = function(self) return pvm.once(self) end,
-        [Tr.ItemUseModule] = function(self, env, target) return pvm.once(pvm.with(self, { module = one(resolve_module, self.module, env, target) })) end,
-        [Tr.ItemUseModuleSlot] = function(self) return pvm.once(self) end,
-    }, { args_cache = "last" })
+    function resolve_item(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Tr.ItemFunc) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { func = one(resolve_func, self.func, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ItemExtern) then
+            return (function(self)
+ return erased.once(self)
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ItemConst) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { c = one(resolve_const, self.c, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ItemStatic) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { s = one(resolve_static, self.s, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ItemImport) then
+            return (function(self)
+ return erased.once(self)
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ItemType) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { t = one(resolve_type_decl, self.t, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ItemRegionFrag) then
+            return (function(self)
+ return erased.once(self)
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ItemExprFrag) then
+            return (function(self)
+ return erased.once(self)
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ItemUseTypeDeclSlot) then
+            return (function(self)
+ return erased.once(self)
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ItemUseItemsSlot) then
+            return (function(self)
+ return erased.once(self)
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ItemUseModule) then
+            return (function(self, env, target)
+ return erased.once(schema.with(self, { module = one(resolve_module, self.module, env, target) }))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ItemUseModuleSlot) then
+            return (function(self)
+ return erased.once(self)
+            end)(node, ...)
+        else
+            error("erased phase moonlift_sem_layout_item: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
-    resolve_module = pvm.phase("moonlift_sem_layout_module", {
-        [Tr.Module] = function(module, env, target)
+    function resolve_module(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Tr.Module) then
+            return (function(module, env, target)
+
             local resolved_env = env
             if resolved_env == nil or #resolved_env.layouts == 0 then
                 resolved_env = Sem.LayoutEnv(module_type_api.env(module, target).layouts)
             end
-            return pvm.once(pvm.with(module, { items = map_items(module.items, resolved_env, target) }))
-        end,
-    }, { args_cache = "last" })
+            return erased.once(schema.with(module, { items = map_items(module.items, resolved_env, target) }))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_sem_layout_module: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
     local function empty_env()
         return Sem.LayoutEnv({})
@@ -415,7 +873,7 @@ function M.Define(T)
         resolve_expr = resolve_expr,
         resolve_place = resolve_place,
         resolve_module = resolve_module,
-        field = function(field, base_ty, env) return pvm.one(resolve_field_ref(field, base_ty, env or empty_env())) end,
+        field = function(field, base_ty, env) return erased.one(resolve_field_ref(field, base_ty, env or empty_env())) end,
         expr = function(expr, env, target) return one(resolve_expr, expr, env or empty_env(), target) end,
         place = function(place, env, target) return one(resolve_place, place, env or empty_env(), target) end,
         module = function(module, env, target) return one(resolve_module, module, env, target) end,

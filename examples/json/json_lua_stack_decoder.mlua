@@ -26,7 +26,7 @@ local moon = require("moonlift")
 local dsl = require("moonlift.dsl")
 
 local json_module = dsl.loadstring([=[
-return module "json_library_showcase" {
+return unit. json_library_showcase {
     region. json_skip_ws
         { p [ptr [u8]], n [i32], pos [i32] }
         { ok { i [i32] } }

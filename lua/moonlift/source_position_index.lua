@@ -1,4 +1,4 @@
-local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
 
 local M = {}
 
@@ -96,14 +96,14 @@ function M.Define(T)
     local S = T.MoonSource
     local index_cache = setmetatable({}, { __mode = "kv" })
 
-    local build_index_phase = pvm.phase("moonlift_source_position_index", function(document)
+    local function build_index_phase(document)
         return S.PositionIndex(document, build_lines(S, document))
-    end)
+    end
 
     local function build_index(document)
         local cached = index_cache[document]
         if cached then return cached end
-        local index = pvm.one(build_index_phase:triplet_uncached(document))
+        local index = build_index_phase(document)
         index_cache[document] = index
         return index
     end
@@ -185,11 +185,11 @@ function M.Define(T)
 
     local function source_pos_to_offset(index, pos)
         local hit = byte_offset_at_byte_col(index, pos.line, pos.byte_col)
-        if pvm.classof(hit) ~= S.SourceOffsetHit then
+        if schema.classof(hit) ~= S.SourceOffsetHit then
             return hit
         end
         local round = offset_to_pos(index, hit.offset)
-        if pvm.classof(round) ~= S.SourcePositionHit then
+        if schema.classof(round) ~= S.SourcePositionHit then
             return S.SourceOffsetMiss(round.reason)
         end
         if round.pos.utf16_col ~= pos.utf16_col then
@@ -200,11 +200,11 @@ function M.Define(T)
 
     local function range_from_offsets(index, start_offset, stop_offset)
         local sr = offset_to_pos(index, start_offset)
-        if pvm.classof(sr) ~= S.SourcePositionHit then
+        if schema.classof(sr) ~= S.SourcePositionHit then
             return nil, sr.reason
         end
         local er = offset_to_pos(index, stop_offset)
-        if pvm.classof(er) ~= S.SourcePositionHit then
+        if schema.classof(er) ~= S.SourcePositionHit then
             return nil, er.reason
         end
         return S.SourceRange(index.document.uri, start_offset, stop_offset, sr.pos, er.pos)

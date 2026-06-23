@@ -70,9 +70,9 @@ local module = Tr.Module(Tr.ModuleSurface, {
 })
 
 local converted = ClosureConvert.Define(T).module(module)
-local program = Driver.lower_module(converted, { site = "test_closure_escape", context = T })
+local image = Driver.lower_module(converted, { site = "test_closure_escape", context = T })
 
-local artifact = Jit.Define(T).jit():compile(program)
+local artifact = Jit.Define(T).jit():compile(image)
 local store = ffi.cast("int32_t (*)()", artifact:getpointer(Back.BackFuncId("closure_store")))
 assert(store() == 42)
 local pass = ffi.cast("int32_t (*)()", artifact:getpointer(Back.BackFuncId("closure_pass")))

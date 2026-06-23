@@ -38,7 +38,7 @@ assert(payload:byte(3) == 0x00)
 assert(payload:byte(4) == 0x00)
 
 local jit = jit_api.jit()
-local artifact = jit:compile(program)
+local artifact = jit:compile(jit_api.flatline.encode_back_program(program))
 local f = ffi.cast("int32_t (*)()", artifact:getpointer(func))
 assert(f() == 7)
 artifact:free()

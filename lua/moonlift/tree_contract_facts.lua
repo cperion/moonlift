@@ -1,4 +1,5 @@
-local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
+local erased = require("moonlift.phase_erased_runtime")
 
 local M = {}
 
@@ -12,7 +13,7 @@ function M.Define(T)
     local function append_all(out, xs) for i = 1, #xs do out[#out + 1] = xs[i] end end
 
     local function expr_binding(expr)
-        if pvm.classof(expr) == Tr.ExprRef and pvm.classof(expr.ref) == B.ValueRefBinding then return expr.ref.binding end
+        if schema.classof(expr) == Tr.ExprRef and schema.classof(expr.ref) == B.ValueRefBinding then return expr.ref.binding end
         return nil
     end
 
@@ -20,72 +21,113 @@ function M.Define(T)
         return Tr.ContractFactRejected(Tr.TypeIssueUnresolvedValue(name or "<contract>"))
     end
 
-    contract_fact = pvm.phase("moonlift_tree_contract_fact", {
-        [Tr.ContractBounds] = function(self)
+    function contract_fact(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Tr.ContractBounds) then
+            return (function(self)
+
             local base, len = expr_binding(self.base), expr_binding(self.len)
-            if base == nil or len == nil then return pvm.once(reject("bounds")) end
-            return pvm.once(Tr.ContractFactBounds(base, len))
-        end,
-        [Tr.ContractWindowBounds] = function(self)
+            if base == nil or len == nil then return erased.once(reject("bounds")) end
+            return erased.once(Tr.ContractFactBounds(base, len))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ContractWindowBounds) then
+            return (function(self)
+
             local base = expr_binding(self.base)
-            if base == nil then return pvm.once(reject("window_bounds")) end
-            return pvm.once(Tr.ContractFactWindowBounds(base, self.base_len, self.start, self.len))
-        end,
-        [Tr.ContractDisjoint] = function(self)
+            if base == nil then return erased.once(reject("window_bounds")) end
+            return erased.once(Tr.ContractFactWindowBounds(base, self.base_len, self.start, self.len))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ContractDisjoint) then
+            return (function(self)
+
             local a, b = expr_binding(self.a), expr_binding(self.b)
-            if a == nil or b == nil then return pvm.once(reject("disjoint")) end
-            return pvm.once(Tr.ContractFactDisjoint(a, b))
-        end,
-        [Tr.ContractSameLen] = function(self)
+            if a == nil or b == nil then return erased.once(reject("disjoint")) end
+            return erased.once(Tr.ContractFactDisjoint(a, b))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ContractSameLen) then
+            return (function(self)
+
             local a, b = expr_binding(self.a), expr_binding(self.b)
-            if a == nil or b == nil then return pvm.once(reject("same_len")) end
-            return pvm.once(Tr.ContractFactSameLen(a, b))
-        end,
-        [Tr.ContractNoAlias] = function(self)
+            if a == nil or b == nil then return erased.once(reject("same_len")) end
+            return erased.once(Tr.ContractFactSameLen(a, b))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ContractNoAlias) then
+            return (function(self)
+
             local base = expr_binding(self.base)
-            if base == nil then return pvm.once(reject("noalias")) end
-            return pvm.once(Tr.ContractFactNoAlias(base))
-        end,
-        [Tr.ContractReadonly] = function(self)
+            if base == nil then return erased.once(reject("noalias")) end
+            return erased.once(Tr.ContractFactNoAlias(base))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ContractReadonly) then
+            return (function(self)
+
             local base = expr_binding(self.base)
-            if base == nil then return pvm.once(reject("readonly")) end
-            return pvm.once(Tr.ContractFactReadonly(base))
-        end,
-        [Tr.ContractWriteonly] = function(self)
+            if base == nil then return erased.once(reject("readonly")) end
+            return erased.once(Tr.ContractFactReadonly(base))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ContractWriteonly) then
+            return (function(self)
+
             local base = expr_binding(self.base)
-            if base == nil then return pvm.once(reject("writeonly")) end
-            return pvm.once(Tr.ContractFactWriteonly(base))
-        end,
-        [Tr.ContractInvalidate] = function(self)
+            if base == nil then return erased.once(reject("writeonly")) end
+            return erased.once(Tr.ContractFactWriteonly(base))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ContractInvalidate) then
+            return (function(self)
+
             local base = expr_binding(self.base)
-            if base == nil then return pvm.once(reject("invalidate")) end
-            return pvm.once(Tr.ContractFactInvalidate(base))
-        end,
-        [Tr.ContractPreserve] = function(self)
+            if base == nil then return erased.once(reject("invalidate")) end
+            return erased.once(Tr.ContractFactInvalidate(base))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ContractPreserve) then
+            return (function(self)
+
             local base = expr_binding(self.base)
-            if base == nil then return pvm.once(reject("preserve")) end
-            return pvm.once(Tr.ContractFactPreserve(base))
-        end,
-    })
+            if base == nil then return erased.once(reject("preserve")) end
+            return erased.once(Tr.ContractFactPreserve(base))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_tree_contract_fact: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
     local function facts_from_contracts(contracts)
         local facts = {}
-        for i = 1, #contracts do facts[#facts + 1] = pvm.one(contract_fact(contracts[i])) end
+        for i = 1, #contracts do facts[#facts + 1] = erased.one(contract_fact(contracts[i])) end
         return Tr.ContractFactSet(facts)
     end
 
-    func_facts = pvm.phase("moonlift_tree_func_contract_facts", {
-        [Tr.FuncLocal] = function() return pvm.once(Tr.ContractFactSet({})) end,
-        [Tr.FuncExport] = function() return pvm.once(Tr.ContractFactSet({})) end,
-        [Tr.FuncLocalContract] = function(self) return pvm.once(facts_from_contracts(self.contracts)) end,
-        [Tr.FuncExportContract] = function(self) return pvm.once(facts_from_contracts(self.contracts)) end,
-        [Tr.FuncOpen] = function() return pvm.once(Tr.ContractFactSet({})) end,
-    })
+    function func_facts(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Tr.FuncLocal) then
+            return (function()
+ return erased.once(Tr.ContractFactSet({}))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.FuncExport) then
+            return (function()
+ return erased.once(Tr.ContractFactSet({}))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.FuncLocalContract) then
+            return (function(self)
+ return erased.once(facts_from_contracts(self.contracts))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.FuncExportContract) then
+            return (function(self)
+ return erased.once(facts_from_contracts(self.contracts))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.FuncOpen) then
+            return (function()
+ return erased.once(Tr.ContractFactSet({}))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_tree_func_contract_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
     return {
         contract_fact = contract_fact,
         func_facts = func_facts,
-        facts = function(func) return pvm.one(func_facts(func)) end,
+        facts = function(func) return erased.one(func_facts(func)) end,
     }
 end
 

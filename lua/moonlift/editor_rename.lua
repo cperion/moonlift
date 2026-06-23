@@ -1,4 +1,5 @@
-local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
+local erased = require("moonlift.phase_erased_runtime")
 local SubjectAt = require("moonlift.editor_subject_at")
 local BindingFacts = require("moonlift.editor_binding_facts")
 
@@ -23,7 +24,7 @@ function M.Define(T)
     local Bindings = BindingFacts.Define(T)
 
     local function rename_subject_id(subject)
-        local cls = pvm.classof(subject)
+        local cls = schema.classof(subject)
         if cls == E.SubjectMissing or cls == E.SubjectKeyword or cls == E.SubjectDiagnostic then return nil end
         if cls == E.SubjectScalar or cls == E.SubjectBuiltin then return nil end
         return Bindings.subject_key(subject)
@@ -42,27 +43,36 @@ function M.Define(T)
         return ranges
     end
 
-    local prepare_rename_phase = pvm.phase("moonlift_editor_prepare_rename", {
-        [E.PositionQuery] = function(query, analysis)
+    local function prepare_rename_phase(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, E.PositionQuery) then
+            return (function(query, analysis)
+
             local pick = Subject.subject_at(query, analysis)
             local id = rename_subject_id(pick.subject)
-            if not id then return pvm.once(E.PrepareRenameRejected("subject cannot be renamed")) end
+            if not id then return erased.once(E.PrepareRenameRejected("subject cannot be renamed")) end
             local ranges = covered_ranges(id, analysis)
-            if #ranges == 0 then return pvm.once(E.PrepareRenameRejected("rename has no covered edits")) end
+            if #ranges == 0 then return erased.once(E.PrepareRenameRejected("rename has no covered edits")) end
             local anchor = pick.anchors[1]
-            if not anchor then return pvm.once(E.PrepareRenameRejected("rename has no source anchor")) end
-            return pvm.once(E.PrepareRenameOk(anchor.range, first_anchor_label(pick.anchors)))
-        end,
-    }, { node_cache = "none", args_cache = "none" })
+            if not anchor then return erased.once(E.PrepareRenameRejected("rename has no source anchor")) end
+            return erased.once(E.PrepareRenameOk(anchor.range, first_anchor_label(pick.anchors)))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_editor_prepare_rename: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
-    local rename_phase = pvm.phase("moonlift_editor_rename", {
-        [E.RenameQuery] = function(query, analysis)
-            if not valid_identifier(query.new_name) then return pvm.once(E.RenameRejected("invalid identifier")) end
-            local prepared = pvm.one(prepare_rename_phase(query.position, analysis))
-            if pvm.classof(prepared) ~= E.PrepareRenameOk then return pvm.once(E.RenameRejected(prepared.reason)) end
+    local function rename_phase(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, E.RenameQuery) then
+            return (function(query, analysis)
+
+            if not valid_identifier(query.new_name) then return erased.once(E.RenameRejected("invalid identifier")) end
+            local prepared = erased.one(prepare_rename_phase(query.position, analysis))
+            if schema.classof(prepared) ~= E.PrepareRenameOk then return erased.once(E.RenameRejected(prepared.reason)) end
             local pick = Subject.subject_at(query.position, analysis)
             local id = rename_subject_id(pick.subject)
-            if not id then return pvm.once(E.RenameRejected("unsupported rename subject")) end
+            if not id then return erased.once(E.RenameRejected("unsupported rename subject")) end
             local edits, seen = {}, {}
             local facts = Bindings.facts(analysis)
             for i = 1, #facts do
@@ -70,17 +80,20 @@ function M.Define(T)
                     add_unique(edits, seen, E, facts[i].anchor.range, query.new_name)
                 end
             end
-            if #edits == 0 then return pvm.once(E.RenameRejected("rename has no covered edits")) end
-            return pvm.once(E.RenameOk(edits))
-        end,
-    }, { node_cache = "none", args_cache = "none" })
+            if #edits == 0 then return erased.once(E.RenameRejected("rename has no covered edits")) end
+            return erased.once(E.RenameOk(edits))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_editor_rename: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
     local function prepare_rename(query, analysis)
-        return pvm.one(prepare_rename_phase(query, analysis))
+        return erased.one(prepare_rename_phase(query, analysis))
     end
 
     local function rename(query, analysis)
-        return pvm.one(rename_phase(query, analysis))
+        return erased.one(rename_phase(query, analysis))
     end
 
     return { prepare_rename_phase = prepare_rename_phase, rename_phase = rename_phase, prepare_rename = prepare_rename, rename = rename }

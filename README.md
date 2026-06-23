@@ -18,7 +18,7 @@ The `moonlift` binary is no longer built — Moonlift is a pure LuaJIT library.
 
 ```
 .lua source
-  → moon.use() injects DSL globals into _G
+  → moon.family.use() injects DSL globals into _G
   → Lua tables with typed constructors
   → MoonSchema-projected runtime values (interned, immutable, typed)
   → typecheck → lower → validate
@@ -81,9 +81,9 @@ metaprogramming, and who believe semantics should be data, not strings.
 
 ```lua
 local moon = require("moonlift")
-moon.use()                         -- inject DSL globals into _G through a managed use session
+moon.family.use()                         -- inject DSL globals into _G through a managed use session
 
-local m = module "Demo" {
+local decls = {
   struct. Point { x [f32], y [f32] },
 
   fn. add { a [i32], b [i32] } [i32] {
@@ -92,25 +92,65 @@ local m = module "Demo" {
 }
 
 -- Full pipeline
+local m = moon.unit("Demo", decls)
 m:lower()               -- lowered program
 m:compile()             -- JIT-compiled native code
 m:emit_c_artifact()     -- C/header/support artifact
+```
+
+`moon.family.use()` installs the whole Moonlift family: the LLB singleton
+substrate (`llb`, `N`, `_`, `spread`, process/origin helpers), Moonlift DSL
+heads, and LLPVM heads. LLB is the smallest family member and is included in all
+families so names and symbols compose consistently.
+
+Single-language Moonlift source returns a plain Lua table. Mixed-family source
+uses semantic zones:
+
+```lua
+local moon = require("moonlift")
+moon.family.use()
+
+return {
+  moonlift {
+    fn. add { a [i32], b [i32] } [i32] { ret (a + b) },
+  },
+
+  llpvm {
+    task. compile {
+      input [i32],
+      output [i32],
+      event. progress [i32],
+    },
+  },
+}
+```
+
+`moon.compile("Name", value)` projects only `moonlift` zones/declarations.
+LLPVM APIs project only `llpvm` zones/programs. Zones are ordinary values and
+semantic partitions, not lexical scopes.
+
+The family is also the tooling boundary:
+
+```lua
+print(moon.family.format(value))
+print(moon.family.diagnostics(value):render())
+local index = moon.family.index(value)
 ```
 
 ### Header / implementation split
 
 ```lua
 -- math_header.lua — signatures, no bodies
-require("moonlift").use()
+require("moonlift").family.use()
 return {
   fn. add { a [i32], b [i32] } [i32],
   fn. sub { a [i32], b [i32] } [i32],
 }
 
 -- math_impl.lua — fill the bodies
-require("moonlift").use()
+require("moonlift").family.use()
 local header = require("math_header")
-return module "Math" {
+return {
   header[1] { ret (a + b) },
   header[2] { ret (a - b) },
 }
@@ -164,11 +204,11 @@ just a Rust cdylib.
 ```lua
 -- Any LuaJIT process with lua/ on package.path and libmoonlift.so in system path
 local moon = require("moonlift")
-moon.use()
-local m = module "Demo" {
+moon.family.use()
+local decls = {
   fn. add { a [i32], b [i32] } [i32] { ret (a + b) },
 }
-print(m:compile().add(3, 4))  -- 7, running as native machine code
+print(moon.compile("Demo", decls).add(3, 4))  -- 7, running as native machine code
 ```
 
 ### C emission (optional)
@@ -317,15 +357,15 @@ emission leaves externs as normal linker imports.
 ## Authoring — the Lua-owned DSL
 
 All Moonlift is authored through the Lua-owned DSL (`require("moonlift")`).
-Once `moon.use()` is called, DSL names (fn, i32, struct, etc.) become
+Once `moon.family.use()` is called, DSL names (fn, i32, struct, etc.) become
 available as Lua globals. No separate parser, no textual antiquote, no string
 quotes. Values are values.
 
 ```lua
 local moon = require("moonlift")
-moon.use()
+moon.family.use()
 
-local m = module "Demo" {
+local decls = {
   struct. Point { x [f32], y [f32] },
 
   fn. add { a [i32], b [i32] } [i32] {
@@ -345,6 +385,7 @@ local m = module "Demo" {
 }
 
 -- Pipeline: syntax → ast → typecheck → lower → jit / object / c
+local m = moon.unit("Demo", decls)
 local lowered = m:lower()
 local compiled = m:compile()
 ```
@@ -378,7 +419,7 @@ return {
 
 -- math_impl.lua — fill bodies
 local header = require("math_header")
-return module "Math" {
+return {
   header[1] { ret (a + b) },
   header[2] { ret (a - b) },
 }
@@ -391,7 +432,7 @@ Program slicing is ordinary Lua table construction:
 ```lua
 local xy = product { x [f32], y [f32] }
 
-return module "M" {
+return {
   struct. Point { _(xy), z [f32] },
   fn. tag_of { p [Point] } [u8] { ret (p.tag) },
 }
@@ -441,11 +482,11 @@ local artifact = bundle:jit()  -- Cranelift JIT
 ### Single pipeline
 
 ```
-moon.use() DSL source (.lua)
+moon.family.use() DSL source (.lua)
   │
   ├─► Lua table normalization ──► ASDL
   ├─► fill/expand for quoted carriers, direct values for DSL
-  ├─► typecheck ──► typed + resolved module
+  ├─► typecheck ──► typed + resolved unit
   ├─► lower ──► flat BackCmd array
   ├─► validate ──► validation facts + rejects
   │
@@ -495,12 +536,13 @@ This is deliberately flat and verifiable. No nested IR, no hidden context.
 
 ```lua
 local moon = require("moonlift")
-moon.use()
+moon.family.use()
 
 -- Inline
-local m = module "Demo" {
+local decls = {
   fn. add { a [i32], b [i32] } [i32] { ret (a + b) },
 }
+local m = moon.unit("Demo", decls)
 
 -- From file
 local chunk = moon.loadfile("demo.lua")
@@ -509,16 +551,16 @@ local m = chunk()
 -- One-shot convenience
 local m = require("moonlift.dsl").load(src, "demo.lua")
 
--- Cross-file: call moon.use() at the top of each .lua file
--- require("moonlift").use(); local header = require("math_header")
+-- Cross-file: call moon.family.use() at the top of each .lua file
+-- require("moonlift").family.use(); local header = require("math_header")
 
 -- Compile: JIT, object, or shared library
-local jit = m:compile()                     -- Cranelift JIT
+local jit = moon.compile("Demo", decls)     -- Cranelift JIT
 local obj = m:lower()                       -- lowered program for object emission
 local art = m:emit_c_artifact { c_path = "out.c" }  -- C blob + header
 ```
 
-The linker path: `.lua` → moon.use() → DSL normalize → typecheck → lower → object → link plan → system linker → `.so`.
+The linker path: `.lua` → moon.family.use() → DSL normalize → typecheck → lower → object → link plan → system linker → `.so`.
 
 ---
 
@@ -532,14 +574,14 @@ Moonlift ships with a full Language Server Protocol implementation:
 | Completion | Context-aware, typed identifiers, fragments |
 | Hover | Type information, documentation |
 | Go to definition | Jump-first region/fragment navigation |
-| Find references | Cross-module reference resolution |
+| Find references | Cross-unit reference resolution |
 | Rename | Semantic rename across files |
 | Semantic tokens | Syntax highlighting for editors |
 | Signature help | Function/region continuation signatures |
 | Folding ranges | Block/region folding |
 | Code actions | Quick fixes for common issues |
 | Inlay hints | Type and parameter hints |
-| Document symbols | Module structure outline |
+| Document symbols | Unit structure outline |
 | Workspace apply | Multi-file editing support |
 
 ### Running the LSP
@@ -559,7 +601,7 @@ lib/          small source-level libraries and region combinators
 lua/llpvm/    official Low-Level PVM API for typed instruction languages
 ```
 
-| Module | Description |
+| Unit | Description |
 |---|---|
 | `region_compose.lua` | **Region composition algebra.** PEG-style combinators (`seq`, `choice`, `star`, `plus`, `opt`, `pred`, `not_pred`) that generate native jump-first regions at Lua generation time. Exposed as `moonlift.region_compose` |
 | `llpvm` | **Low-Level PVM.** PVM-style type authoring for operation worlds plus direct borrowed bytecode images, native handles, streams, phases, recordings, cache, C blob/header emission, and LuaJIT FFI runtime loading. |
@@ -627,7 +669,7 @@ moonlift/
 
 | Document | Description |
 |---|---|
-| [`docs/LANGUAGE_REFERENCE.md`](docs/LANGUAGE_REFERENCE.md) | **Complete Lua-owned DSL language reference.** Types, modules, functions, control regions, fragments, contracts, host declarations, view ABI, vectorization, and metaprogramming. |
+| [`docs/LANGUAGE_REFERENCE.md`](docs/LANGUAGE_REFERENCE.md) | **Complete Moonlift family language reference.** Moonlift core DSL, LLPVM family surface, LLB substrate, types, modules, functions, control regions, fragments, contracts, host declarations, view ABI, vectorization, and metaprogramming. |
 | [`docs/THE_MOONLIFT_DESIGN_BIBLE.md`](docs/THE_MOONLIFT_DESIGN_BIBLE.md) | **Design bible.** The authoritative design philosophy and architecture narrative. |
 | [`docs/LLB_GUIDE.md`](docs/LLB_GUIDE.md) | **LLB guide.** The standard Moonlift Lua Language Builder substrate: staged heads, fragments, formatting, use sessions, origins, and fragment algebra. |
 | [`docs/LLB_ATOM_PROTOCOL_MODEL.md`](docs/LLB_ATOM_PROTOCOL_MODEL.md) | **LLB atom/protocol model.** Definitive conceptual model for shape, channel, event, role, slot, head, fragment, origin, diagnostics, formatting, environment, phase, trait, and protocol atoms. |

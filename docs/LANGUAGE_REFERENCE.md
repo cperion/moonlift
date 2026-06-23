@@ -1,22 +1,752 @@
-# Moonlift Lua-Owned DSL Language Reference
+# Moonlift Family Language Reference
 
 ## Status
 
-This document describes the Lua-owned Moonlift DSL implemented by
-`require("moonlift.dsl")`.
+This document describes the complete `moonlift` LLB language family exposed by
+`require("moonlift")`.
 
-The DSL is ordinary Lua. Lua performs the mechanical parse, evaluates host-time
-expressions, and hands real Lua values to Moonlift DSL objects. Declaration and
-control heads are hosted by `lua/llb.lua`; the Moonlift DSL grammar then
-normalizes those values by role and emits explicit `MoonTree` and `MoonOpen`
-ASDL.
+The family contains:
+
+```text
+moonlift.dsl
+  Moonlift native-language heads, types, expressions, declarations, regions,
+  modules, diagnostics, formatting, LSP indexing, and compilation hooks.
+
+llpvm.dsl
+  Low-level PVM language heads for typed bytecode languages, worlds, streams,
+  records, machines, phases, tasks, and roots.
+
+llb
+  The shared language-workbench substrate: symbols, fragments, origins,
+  diagnostics, formatting, use sessions, language families, and processes.
+```
+
+The DSLs are ordinary Lua. Lua performs the mechanical parse, evaluates
+host-time expressions, and hands real Lua values to LLB objects. Declaration,
+control, LLPVM, and tooling heads are hosted by `lua/llb.lua`; each member
+language normalizes those values by role and emits explicit typed values.
+Moonlift core emits `MoonTree` and `MoonOpen` ASDL. LLPVM emits typed LLPVM
+program specs, bytecode images, and task/run records.
 
 There is no second source parser in the normal authoring path.
 This is the recommended path for new generated/metaprogrammed Moonlift code.
 
 ```text
-Lua syntax -> Lua values -> LLB role normalization -> Moonlift ASDL
+Lua syntax
+  -> Lua values
+  -> LLB family environment
+  -> member-language role normalization
+  -> Moonlift ASDL / LLPVM program specs / LLB process events
 ```
+
+## Family Model
+
+The authoring unit is the `moonlift` family, not a pile of manually stacked
+global tables.
+
+```lua
+local moon = require("moonlift")
+moon.family.use()
+```
+
+`moon.family.use()` installs the coherent authoring universe:
+
+```text
+Moonlift native language:
+  ml
+  moonlift
+
+LLPVM:
+  llpvm
+
+MoonSchema:
+  schema
+
+LLB:
+  _
+  spread
+  fragments
+  generic symbols
+  origins
+  diagnostics
+  formatter/process/environment machinery
+```
+
+Unknown identifiers in a managed family environment become generic
+`llb.Symbol` values. Member languages then consume symbols according to their
+roles. This is why `a [ml.i32]`, `llpvm.world. raw [Expr]`,
+`llpvm.record. one (...)`, and `ml.ret (a + b)` can coexist without a parser or
+textual quoting.
+
+### Namespace-first family surface
+
+Family members are exposed as first-class LLB namespace values, not as bags of
+bare globals. A namespace is still pleasant Lua field access, but it carries
+semantic ownership metadata for docs, completion, diagnostics, formatting, and
+zones.
+
+```lua
+ml.fn. add { a [ml.i32], b [ml.i32] } [ml.i32] {
+  ml.ret (a + b),
+}
+
+llpvm.task. compile {
+  llpvm.input [ml.i32],
+  llpvm.output [ml.i32],
+}
+
+schema. MoonEditor {
+  schema.product. DiagnosticFact {
+    message [schema.str],
+  },
+}
+```
+
+`ml` is the preferred short Moonlift namespace. `moonlift` is kept as the long
+alias and points at the same namespace value in family environments.
+
+Namespaces can also be called to create family zones:
+
+```lua
+return {
+  ml {
+    ml.fn. add { a [ml.i32], b [ml.i32] } [ml.i32] {
+      ml.ret (a + b),
+    },
+  },
+
+  llpvm {
+    llpvm.task. compile {
+      llpvm.input [ml.i32],
+      llpvm.output [ml.i32],
+    },
+  },
+
+  schema {
+    schema. Demo {
+      schema.product. Pair { left [MoonType.Type], right [MoonType.Type] },
+    },
+  },
+}
+```
+
+`schema. Name { ... }` uses the namespace default head and is equivalent to the
+explicit `schema.module. Name { ... }`.
+
+### Reduced family law
+
+A good Moonlift family is reduced: one semantic primitive has one owner, and
+other members reuse it instead of reimplementing it under a second surface.
+Overlap is a smell unless the second form is only syntax sugar that lowers to
+the owned primitive.
+
+This is stricter than name collision handling. Collision policy decides who may
+export a Lua name. Reduction decides who owns meaning.
+
+Current semantic ownership:
+
+```text
+llb             owns authoring substrate, namespaces, fragments, origins,
+                diagnostics, and family composition
+
+moonschema.dsl  owns schema modules, product/sum schema, schema identity,
+                and type-family semantics
+
+moonlift.dsl    owns native programs, native control, native type values,
+                resource discipline, and native compilation
+
+llpvm.dsl       owns bytecode programs, bytecode streams, process/task specs,
+                and PVM images
+```
+
+Current semantic reuse:
+
+```text
+moonlift.dsl    uses LLB authoring/provenance/diagnostics and the shared
+                type-family semantics
+
+moonschema.dsl  uses LLB authoring/provenance/diagnostics
+
+llpvm.dsl       uses LLB authoring/provenance/diagnostics, Moonlift native type
+                values, and MoonSchema type-family semantics
+```
+
+This is why `schema.product` / `schema.sum` are the family source of product and
+sum structure. LLPVM `lang` / `type` / `op` authoring belongs to bytecode/PVM
+programs, but any general product/sum/type-family meaning should be reused from
+MoonSchema, not reinvented inside LLPVM. Likewise, Moonlift native types are not
+schema modules: they are native type values that can appear as operands inside
+family DSLs.
+
+The family exposes this as data:
+
+```lua
+local reduction = require("moonlift").family.reduction()
+assert(reduction.owner["type-family"] == "moonschema.dsl")
+assert(#reduction.smells == 0)
+```
+
+`reduction.smells` reports duplicate semantic owners as
+`E_FAMILY_SEMANTIC_OVERLAP`. It also reports external semantic use as
+`W_FAMILY_SEMANTIC_EXTERNAL` when a member claims to reuse a primitive that no
+member in the family owns.
+
+The family has one collision policy. Important choices:
+
+```text
+process  belongs to LLB coroutine/process streams
+task     belongs to LLPVM typed process/task declarations
+record   belongs to LLPVM stream records
+value    is not a reserved family keyword; it is available as a user field/name
+moonlift is the long alias for ml
+schema   is the MoonSchema namespace, not LLPVM's internal schema directive
+```
+
+Prefer the family API for authored files and tools:
+
+```lua
+moon.family.use()
+moon.family.use { scope = "env", target = env, global = false }
+moon.family.load(src, name)
+moon.family.loadfile(path)
+```
+
+Member-level `moon.use()` and `ll.use()` are lower-level tools for tests or
+deliberately isolated member-language installs. Normal Moonlift-family source
+should use `moon.family.use()`.
+
+## Complete Family Keyword Inventory
+
+This is the authoritative ownership table for the family authoring surface.
+If a name appears in more than one member, the family policy decides the public
+binding. If a name is not listed here, it is user space and unknown lookups
+produce generic `llb.Symbol` values.
+
+### Moonlift namespace exports
+
+Moonlift native-language heads, type values, and helpers live under `ml` and
+the long alias `moonlift`.
+
+Compilation-unit and declaration heads:
+
+```text
+ml.unit
+ml.struct
+ml.union
+ml.handle
+ml.extern
+ml.const
+ml.static
+ml.fn
+ml.export_fn
+ml.region
+ml.expr_frag
+```
+
+Control and statement heads:
+
+```text
+ml.entry
+ml.block
+ml.jump
+ml.emit
+ml.ret
+ml.yield
+ml.when
+ml.switch
+ml.case
+ml.default
+ml.let
+ml.var
+ml.store
+ml.set
+ml.trap
+ml.assume
+ml.assert_
+ml.requires
+ml.afence
+```
+
+Type values and type constructors:
+
+```text
+ml.void ml.bool
+ml.i8 ml.i16 ml.i32 ml.i64
+ml.u8 ml.u16 ml.u32 ml.u64
+ml.f32 ml.f64
+ml.index ml.rawptr
+ml.ptr ml.view ml.slice ml.array
+ml.fnptr ml.closure
+ml.lease ml.owned
+ml.ro ml.wo ml.readonly ml.writeonly ml.noalias ml.noescape
+ml.preserve ml.invalidate
+```
+
+Expression and fact helpers:
+
+```text
+ml.as
+ml.bitcast
+ml.addr
+ml.deref
+ml.load
+ml.null
+ml.is_null
+ml.sizeof
+ml.alignof
+ml.select
+ml.eq ml.ne
+ml.And ml.Or ml.Not
+ml.aload
+ml.astore
+ml.acas
+ml.armw
+ml.ctor
+ml.bounds
+ml.window_bounds
+ml.disjoint
+ml.same_len
+```
+
+Fragment helpers:
+
+```text
+ml.product
+ml.stmts
+ml.decls
+ml._
+ml.spread
+```
+
+Name helpers:
+
+```text
+ml.N
+```
+
+### LLPVM namespace exports
+
+Whole-program and language definition heads:
+
+```text
+llpvm.pvm
+llpvm.language
+llpvm.lang
+llpvm.type
+llpvm.op
+llpvm.world
+llpvm.stream
+llpvm.record
+llpvm.machine
+llpvm.phase
+llpvm.task
+llpvm.root
+```
+
+Task and phase directive heads:
+
+```text
+llpvm.event
+llpvm.input
+llpvm.output
+llpvm.from
+llpvm.to
+llpvm.entry
+llpvm.cache
+```
+
+LLPVM helpers:
+
+```text
+llpvm._
+llpvm.spread
+```
+
+### Schema namespace exports
+
+MoonSchema defines product/sum/alias type families and the ASDL-shaped schema
+model used by the compiler itself.
+
+```text
+schema. Name { ... }          module declaration through the namespace default head
+schema.module. Name { ... }   explicit module declaration
+schema.product. Name { ... }  product type
+schema.sum. Name { ... }      sum type
+schema.alias. Name [Type]     type alias
+schema.field. name [Type]     escaped field declaration
+```
+
+Schema helpers:
+
+```text
+schema.str
+schema.bool
+schema.number
+schema.any
+schema.table_ty
+schema.function_ty
+schema.nil_ty
+schema.interned
+schema.unique
+schema.variant_unique
+schema.many
+schema.optional
+schema.ref
+schema.id
+schema.map
+```
+
+### LLB family helpers
+
+LLB is the substrate, so most LLB APIs are module functions rather than globals.
+The family-visible helpers are:
+
+```text
+_
+spread
+process
+origin helpers through explicit llb require
+diagnostic helpers through explicit llb require
+formatting through member/family format APIs
+```
+
+Use explicit `local llb = require("llb")` for grammar authoring,
+meta-protocol work, diagnostics, process definitions, and language-family
+construction.
+
+### Reserved and intentionally unreserved names
+
+Reserved by family policy:
+
+```text
+pvm lang language type op world stream record machine phase task event
+input output root ml moonlift llpvm schema
+```
+
+Shared by family policy:
+
+```text
+entry
+_
+spread
+```
+
+Intentionally not reserved:
+
+```text
+value
+process as an LLPVM head
+```
+
+`value` is ordinary user space. `process` is the LLB coroutine/process API, not
+an LLPVM declaration head.
+
+## Reference Notation
+
+Reference entries use this notation:
+
+```text
+head. name      dot-name slot through index:name
+head[name]      computed name/value slot through index:value
+head { ... }    body/product/protocol slot through call:table
+head (value)    expression/value slot through call:value
+head [Type]     type/value slot through index:type or index:value
+```
+
+Head tables below are written relative to their owning namespace. In family
+source, prefix Moonlift heads and type values with `ml.`, LLPVM heads with
+`llpvm.`, and schema heads/helpers with `schema.`. In member-only loaders such
+as `require("moonlift").use()` or `require("llpvm").use()`, those same heads may
+be installed bare for focused tests or isolated single-language files.
+
+All names in managed environments are generic `llb.Symbol` values until a role
+normalizes them.
+
+## Moonlift Core Head Reference
+
+### Units and declarations
+
+| Head | Shape | Meaning |
+|---|---|---|
+| `unit` | `unit. Name { decls... }` | Optional compilation-unit/artifact wrapper. Body is an ordered declaration list. |
+| `struct` | `struct. Name { fields... }` | Product data type declaration. |
+| `union` | `union. Name { variants... }` | Sum data type declaration. |
+| `handle` | `handle. Name { facts... }` | Durable external/resource identity type. |
+| `extern` | `extern. name { params... } [result] { attrs... }` | Foreign function declaration. Result is optional for void. |
+| `const` | `const. name [Type] { value }` | Typed constant declaration. |
+| `static` | `static. name [Type] { value }` | Typed static declaration. |
+| `fn` | `fn. name { params... } [result] { body... }` | Internal function. Result is optional for void. |
+| `export_fn` | `export_fn. name { params... } [result] { body... }` | Exported function. |
+| `region` | `region. name { params... } { exits... } { blocks... }` | Typed control fragment with named continuation protocol. |
+| `expr_frag` | `expr_frag. name { params... } [result] { expr }` | Reusable expression fragment declaration. |
+
+Declaration names are dot-headed:
+
+```lua
+fn. add
+struct. Point
+region. scan
+```
+
+Computed declaration names use brackets:
+
+```lua
+fn ["add_" .. suffix]
+struct [N["Vec" .. n]]
+```
+
+The canonical style is dot names for handwritten declarations.
+
+### Products, protocols, and fragments
+
+| Form | Shape | Meaning |
+|---|---|---|
+| typed field | `name [Type]` | Product item with name and type. |
+| initialized field | `name [Type](init)` | Product item with initial value, mainly block params. |
+| no-payload variant | `name` | Union/protocol alternative with no payload. |
+| payload variant | `name { fields... }` | Union/protocol alternative with payload product. |
+| product fragment | `product { fields... }` | Reusable field/product fragment. |
+| statement fragment | `stmts { statements... }` | Reusable statement fragment. |
+| declaration fragment | `decls { decls... }` | Reusable declaration fragment. |
+| splice | `_(fragment)` | Preferred structural splice marker. |
+| explicit splice | `spread(fragment)` | Explicit alias for `_`. |
+
+Fragment role must match the receiving context.
+
+### Statements and control
+
+| Head | Shape | Meaning |
+|---|---|---|
+| `ret` | `ret (expr)` / `ret ()` | Return from function. |
+| `yield` | `yield (expr)` / `yield ()` | Yield from region/control context. |
+| `when` | `when (cond) { body... }` | Conditional statement. |
+| `entry` | `entry. name { params... } { body... }` | Required region/function CFG entry block. |
+| `block` | `block. name { params... } { body... }` | Named CFG block. |
+| `jump` | `jump. target { fills... }` | Jump to block/continuation with named payload fills. |
+| `emit` | `emit. region { args... } { fills... }` | Inline/splice a region and map exits. |
+| `switch` | `switch (expr) { arms... }` | Multi-way branch. Requires default. |
+| `case` | `case (literal) { body... }` / `case. tag { binds... } { body... }` | Switch arm. |
+| `default` | `default { body... }` | Required fallback switch arm. |
+| `let` | `let. name [Type] { init }` | Immutable local binding. |
+| `var` | `var. name [Type] { init }` | Mutable local cell. |
+| `store` | `store (place, value)` | Store to place. |
+| `set` | `set (place, value)` | Alias-style assignment/store form. |
+| `trap` | `trap ()` | Trap/unreachable. |
+| `assume` | `assume (cond)` | Optimizer assumption. |
+| `assert_` | `assert_ (cond)` | Checked assertion. |
+| `requires` | `requires { contracts... }` | Function contract block, extracted during lowering. |
+
+No `for`, `while`, `break`, or `continue` exist in Moonlift core. Control is
+jump-first. Every block path must terminate with `jump`, `yield`, `ret`, or
+`trap`.
+
+### Type reference
+
+| Form | Meaning |
+|---|---|
+| `void` | No result. |
+| `bool` | Boolean scalar. |
+| `i8 i16 i32 i64` | Signed integer scalars. |
+| `u8 u16 u32 u64` | Unsigned integer scalars. |
+| `f32 f64` | Floating scalars. |
+| `index` | Target index-sized integer. |
+| `rawptr` | Opaque raw pointer. |
+| `ptr [T]` | Pointer to `T`. |
+| `view [T]` | View over `T`. |
+| `slice [T]` | Slice of `T`. |
+| `array [T][N]` | Fixed-size array. |
+| `fnptr [{ params... }] [result]` | Function pointer type. |
+| `closure [{ params... }] [result]` | Closure type. |
+| `lease [T]` / `lease(origin, T)` | Borrow/lease wrapper. |
+| `owned [Handle]` | Owned resource authority for a handle type. |
+| `ro [T]`, `readonly [T]` | Read-only access wrapper. |
+| `wo [T]`, `writeonly [T]` | Write-only access wrapper. |
+| `noalias [T]` | No-alias access wrapper. |
+| `noescape [T]` | No-escape access wrapper. |
+| `preserve [T]` | Preserve access wrapper. |
+| `invalidate [T]` | Invalidate access wrapper. |
+
+### Expression reference
+
+| Form | Meaning |
+|---|---|
+| literals | Numbers, booleans, nil, strings, and aggregate tables. |
+| `name` | Runtime/reference symbol normalized by semantic phases. |
+| `a + b`, `a - b`, `a * b`, `a / b`, `a % b`, `-a` | Arithmetic expression nodes. |
+| `x :eq (y)`, `x :ne (y)`, `x :lt (y)`, `x :le (y)`, `x :gt (y)`, `x :ge (y)` | Comparison methods. |
+| `eq(a, b)`, `ne(a, b)` | Comparison constructors. |
+| `And(a, b)`, `Or(a, b)`, `Not(a)` | Boolean constructors. |
+| `xs[i]` | Index expression/place. |
+| `point.x` | Field expression/place. |
+| `as [T] (x)` | Typed conversion. |
+| `bitcast [T] (x)` | Bit reinterpretation. |
+| `addr(place)` | Address of place. |
+| `deref(ptr)` | Dereference pointer. |
+| `load(ptr)` | Load through pointer. |
+| `null [T]` | Null pointer of type `T`. |
+| `is_null(p)` | Null check. |
+| `sizeof [T]` | Size of type. |
+| `alignof [T]` | Alignment of type. |
+| `select(cond, a, b)` | Select expression. |
+| `ctor("Type", "Variant", { payload... })` | Variant constructor expression. |
+| `aload(T, p)` | Atomic load. |
+| `astore(T, p, v)` | Atomic store statement/expression helper. |
+| `acas(T, p, expected, replacement)` | Atomic compare-and-swap. |
+| `armw(op, T, p, v)` | Atomic read-modify-write. |
+
+Lua `and`, `or`, `not`, `<`, `<=`, `>`, `>=`, `==`, and `~=` cannot be
+overloaded into expression trees. Use the listed constructors/methods.
+
+## LLPVM Head Reference
+
+LLPVM is the typed bytecode/program side of the family.
+
+| Head | Shape | Meaning |
+|---|---|---|
+| `pvm` | `pvm. Name { decls... }` | Whole LLPVM program. |
+| `language` | `language. Name { decls... }` | Reusable generated LLPVM machine-language object. |
+| `lang` | `lang. Name { types... }` | Language/schema declaration inside a program. |
+| `type` | `type. Name { ops... }` | Operation sum/type family. |
+| `op` | `op. Name { fields... }` | Operation constructor payload shape. |
+| `world` | `world. name [Lang]` | Named world backed by a language/schema. |
+| `stream` | `stream. name [world] { records... }` | Named stream of bytecode records. |
+| `record` | `record. name (OpValue)` | Named stream item. |
+| `machine` | `machine. name { directives... }` | Execution machine declaration. |
+| `phase` | `phase. name { directives... }` | Compiler/runtime phase declaration. |
+| `task` | `task. name { directives/events... }` | Typed process/task declaration. |
+| `event` | `event. name [Type]` | Task event payload declaration. |
+| `input` | `input [Type]` | Task input type. |
+| `output` | `output [Type]` | Task output type. |
+| `from` | `from. world` | Phase input world. |
+| `to` | `to. world` | Phase output world. |
+| `entry` | `entry. symbol` | Machine/phase entry symbol. |
+| `cache` | `cache. mode` | Cache policy directive. |
+| `root` | `root { roots... }` | Program root stream/record/phase references. |
+
+LLPVM records use generated language constructors:
+
+```lua
+record. one (Node.Int { value = 1 })
+record. add (Node.Add { left = one, right = two })
+```
+
+Typed task declarations are structural:
+
+```lua
+task. compile {
+  input [i32],
+  output [i32],
+  event. progress [i32],
+  event. diagnostic [i32],
+}
+```
+
+Task declarations and task runs lower to `LlPvm.TaskSpec` and
+`LlPvm.TaskRun`. Runtime streams still use LLB `process`.
+
+## LLB Substrate Reference
+
+LLB is documented in depth in `docs/LLB_GUIDE.md` and
+`docs/LLB_ATOM_PROTOCOL_MODEL.md`. This section lists the family-relevant API
+surface.
+
+### Family and environment API
+
+| API | Meaning |
+|---|---|
+| `llb.family. name { members... }` | Define a language family. |
+| `family.use { opts... }` | Install family exports into an environment. |
+| `family.env { opts... }` | Create isolated family environment. |
+| `family.load(src, name)` | Load source through family environment. |
+| `family.loadfile(path)` | Load file through family environment. |
+| `family.reduction()` | Inspect semantic owners, semantic reuse, and reduction smells. |
+| `family.prefer { name = member }` | Return family with collision preferences. |
+| `family.only { capabilities... }` | Project family by capabilities. |
+| `family.subtract "member"` | Remove a member. |
+| `family .. other` / `family + other` | Checked family composition. |
+| `family - "member"` | Family subtraction. |
+
+Family methods are dot-only. Do not use colon syntax.
+
+### Symbol, origin, and diagnostic API
+
+| API | Meaning |
+|---|---|
+| `llb.symbol(name)` | Generic authoring symbol. |
+| `llb.name(name)` | Generic name value. |
+| `llb.N.name`, `llb.N["name"]` | Name helper. |
+| `llb.here(kind)` | Capture current origin. |
+| `llb.at(origin, value)` | Attach/thread origin. |
+| `llb.origin_of(value)` | Inspect origin. |
+| `llb.provenance(value)` | Inspect provenance chain. |
+| `llb.diagnostic { ... }` | Build structured diagnostic. |
+| `llb.diagnostics()` | Build diagnostic bag. |
+| `llb.fail(message, spec)` | Raise structured grammar failure. |
+
+### Fragment and formatting API
+
+| API | Meaning |
+|---|---|
+| `llb.fragment(role, items, origin, opts)` | Build role-tagged fragment. |
+| `llb._(value)` | Preferred structural splice marker. |
+| `llb.spread(value)` | Explicit splice alias. |
+| `fragment_a .. fragment_b` | Product/list append. |
+| `fragment_a + fragment_b` | Sum/protocol choice. |
+| `sum_fragment * product_fragment` | Decorate alternatives. |
+| `llb.format(value, opts)` | Semantic formatting. |
+| `llb.render(doc, opts)` | Render LLB doc algebra. |
+
+### Process API
+
+| API | Meaning |
+|---|---|
+| `llb.process. name (function(ctx, ...) ... end)` | Define coroutine-backed event stream. |
+| `process:start(...)` | Start resumable process handle. |
+| `process(...)` | Iterate process events directly. |
+| `handle:events()` | Iterate emitted events. |
+| `handle:result()` | Final process result. |
+| `ctx. event_kind { payload... }` | Emit process event through dot head. |
+| `ctx:event(kind, payload)` | Emit process event dynamically. |
+| `ctx. error { ... }` | Emit diagnostic/error event. |
+| `ctx:consume(n)` | Account work budget. |
+| `ctx:cancelled()` | Check cancellation. |
+
+### Grammar/meta API
+
+| API | Meaning |
+|---|---|
+| `llb.define "Name" { ... }` | Define an LLB language. |
+| `llb.grammar.role. name { ... }` | Define a role. |
+| `llb.grammar.head. name { ... }` | Define a staged head. |
+| `llb.grammar.slot. name [role] { ... }` | Define a slot. |
+| `llb.grammar.trait. name { ... }` | Define reusable grammar behavior. |
+| `llb.channel.*` | Slot channel constants. |
+| `llb.protocol(name, spec)` | Define public protocol object. |
+| `llb.describe(value)` | Inspect a language value/object. |
+| `llb.describe_head(lang, name)` | Inspect head definition. |
+| `llb.describe_role(lang, name)` | Inspect role definition. |
+
+## Removed and Non-Syntax Forms
+
+These forms are not part of the language family:
+
+```text
+.mld.lua source files
+text parser/tokenizer authoring path
+LLPVM process. name declarations
+LLPVM value. name records
+string-name canonical declarations such as fn("add", ...)
+mutation-style ll.vm authoring
+implicit hidden language dependency installs
+angle-bracket type arguments
+Moonlift source generics
+for / while / break / continue in Moonlift control
+fallthrough switch cases
+```
+
+Lua strings remain ordinary Lua values where a head explicitly accepts a string
+or literal expressions. The canonical explicit artifact root is dot-headed:
+`unit. Demo { ... }`.
 
 For declaration/control heads, canonical formatting puts the dot on the keyword
 side (`fn. add`, `region. scan`, etc.)
@@ -175,65 +905,69 @@ or continuation maps. The shape is already present in the Lua value.
 
 ## Loading
 
-### Quick: `moon.use()` for plain `.lua` files
+### Quick: `moon.family.use()` for plain `.lua` files
 
-The simplest way to author Moonlift is to call `require("moonlift").use()` at
-the top of any `.lua` file. This injects all DSL names (`fn`, `i32`, `module`,
-`struct`, `region`, etc.) as Lua globals:
+The simplest way to author Moonlift-family code is to call
+`require("moonlift").family.use()` at the top of any `.lua` file. This injects
+the family namespace values as Lua globals:
 
 ```lua
 -- my_module.lua
 local moon = require("moonlift")
-moon.use()
+moon.family.use()
 
-return module "Demo" {
-  fn. add { a [i32], b [i32] } [i32] { ret (a + b) },
+return {
+  ml.fn. add { a [ml.i32], b [ml.i32] } [ml.i32] {
+    ml.ret (a + b),
+  },
 }
 ```
 
-For headers split across files, call `moon.use()` at the top of each `.lua`
-file:
+For headers split across files, call `moon.family.use()` at the top of each
+`.lua` file:
 
 ```lua
 -- math_header.lua
-require("moonlift").use()
-return { fn. add { a [i32], b [i32] } [i32] }
+require("moonlift").family.use()
+return { ml.fn. add { a [ml.i32], b [ml.i32] } [ml.i32] }
 
 -- math_impl.lua
-require("moonlift").use()
+require("moonlift").family.use()
 local header = require("math_header")
-return module "Math" { header[1] { ret (a + b) } }
+return { header[1] { ml.ret (a + b) } }
 ```
 
-### `dsl.loadstring()` — inline, isolated env
+### Family loading — inline, isolated env
 
-For programmatic use, `dsl.loadstring()` creates an isolated environment without
-touching `_G`:
+For programmatic use, `moon.family.load()` creates an isolated environment
+without touching `_G`:
 
 ```lua
-local dsl = require("moonlift.dsl")
+local moon = require("moonlift")
 
 -- One-shot: compile and execute
-local module = dsl.load([[return module "Demo" { ... }]], "demo.lua")
+local decls = moon.family.load([[return { ... }]], "demo.lua")
 
 -- From a file
-local chunk = dsl.loadfile("demo.lua")
-local module = chunk()
-
--- Module require: finds name.lua or name/init.lua, caches result
-local header = dsl.require("math_header")
+local chunk = moon.family.loadfile("demo.lua")
+local decls = chunk()
 
 -- Full pipeline
-module:ast()
-module:typecheck()
-module:lower()
-module:compile()
-module:emit_c_artifact()
+local unit_value = moon.unit("Demo", decls)
+unit_value:ast()
+unit_value:typecheck()
+unit_value:lower()
+unit_value:compile()
+unit_value:emit_c_artifact()
 ```
+
+`require("moonlift.dsl").load()` remains the Moonlift-core member loader. Use
+the family loader when code may use LLPVM heads, shared LLB helpers, or family
+collision policy.
 
 ### Package searcher integration
 
-Once loaded, the DSL auto-installs a Lua `package.searchers` entry so
+Once loaded, the Moonlift core DSL auto-installs a Lua `package.searchers` entry so
 plain `require("foo")` automatically finds `foo.lua` files:
 
 ```lua
@@ -255,7 +989,7 @@ return {
 
 -- math_impl.lua
 local header = require("math_header")
-return module "Math" {
+return {
   header[1] { ret (a + b) },
   header[2] { ret (a - b) },
 }
@@ -269,16 +1003,16 @@ dsl.loadstring(src, "demo", { strict = true })
 
 In strict mode, assignment to a previously unknown global is rejected.
 
-## Modules
+## Lua Modules and Moonlift Units
 
 ```lua
-return module "Demo" {
+return {
   declarations...
 }
 ```
 
-Module bodies are ordered declaration arrays. Record fields are reserved for
-attributes/options where a constructor documents them.
+The canonical Lua file returns a plain Lua table. That table is the Lua module
+value, and its array part is the ordered Moonlift declaration list.
 
 Supported declaration entries:
 
@@ -296,8 +1030,137 @@ expr_frag
 _(decls_fragment)
 ```
 
-In this Lua-owned DSL, module composition is done by Lua `require` and value
+In this Lua-owned DSL, source composition is done by Lua `require` and value
 splicing (`[]` / `_(...)`), not by a DSL `import` declaration.
+
+Moonlift creates a compilation unit when you explicitly project the Lua value:
+
+```lua
+local decls = require("math_impl")
+local native = require("moonlift").compile("Math", decls)
+```
+
+When the source file itself wants to carry artifact metadata, use `unit. Name`:
+
+```lua
+return unit. Math {
+  fn. add { a [i32], b [i32] } [i32] { ret (a + b) },
+}
+```
+
+## LLPVM Family Surface
+
+LLPVM is part of the Moonlift family because the bootstrap/compiler-runtime
+side needs a typed bytecode language with the same no-parser authoring model.
+The complete LLPVM reference is `docs/LLPVM_GUIDE.md`; this section defines the
+family-level shape.
+
+```lua
+llpvm.pvm. Expr {
+  llpvm.lang. Expr {
+    llpvm.type. Node {
+      llpvm.op. Int { value [ml.i64] },
+      llpvm.op. Add { left [Node], right [Node] },
+    },
+  },
+
+  llpvm.world. raw [Expr],
+
+  llpvm.stream. raw_items [raw] {
+    llpvm.record. one (Node.Int { value = 1 }),
+    llpvm.record. two (Node.Int { value = 2 }),
+    llpvm.record. add_node (Node.Add { left = one, right = two }),
+  },
+
+  llpvm.task. compile {
+    llpvm.input [ml.i32],
+    llpvm.output [ml.i32],
+    llpvm.event. progress [ml.i32],
+  },
+
+  llpvm.root {
+    raw_items,
+    add_node,
+  },
+}
+```
+
+LLPVM heads:
+
+```text
+pvm. Name { ... }          whole LLPVM program
+lang. Name { ... }         typed bytecode language/schema
+language. Name { ... }     reusable generated LLPVM language object
+type. Name { ... }         sum/type family in a bytecode language
+op. Name { fields }        operation constructor payload shape
+world. name [Lang]         named operation world
+stream. name [world] { ... } bytecode record stream
+record. name (OpValue)     named stream record
+machine. name { ... }      execution machine declaration
+phase. name { ... }        phase declaration
+task. name { ... }         typed process/task declaration
+event. name [Type]         task event payload
+input [Type]               task input type or phase input directive
+output [Type]              task output type or phase output directive
+from. world                phase input world
+to. world                  phase output world
+entry. symbol              phase entry symbol
+cache. mode                phase cache policy
+root { ... }               program roots
+```
+
+The hard naming rule is:
+
+```text
+record  is the LLPVM stream item head
+task    is the LLPVM typed process declaration head
+process is the LLB coroutine/process helper
+value   is ordinary user space
+```
+
+Use `task. compile { ... }` when progress/event structure is part of the typed
+compiler/runtime model. Use `llb.process. name(function(ctx, ...) ... end)` for
+the coroutine that actually streams events.
+
+Moonlift phase execution reports expose `LlPvm.TaskRun` records, so compiler
+progress, validation, source analysis, LSP indexing, and debugger stepping can
+share one typed run/event model.
+
+## LLB Family Surface
+
+LLB is not a separate syntax layer. It is the substrate that makes the family
+work.
+
+Family-visible LLB concepts:
+
+```text
+generic symbols       unknown identifiers in managed environments
+fragments             role-shaped reusable lists/products/sums
+_ / spread            structural splice markers
+origins/provenance    diagnostic blame across helpers/factories
+diagnostics           structured failures and notes
+formatting            semantic formatting of evaluated DSL values
+processes             coroutine-backed event streams
+families              dependency/collision/environment policy
+```
+
+Preferred family metaprogramming is fragment-shaped:
+
+```lua
+local xy = product {
+  x [f32],
+  y [f32],
+}
+
+struct. Point {
+  _(xy),
+  z [f32],
+}
+```
+
+Use functions when computing one value. Use fragments when composing
+role-shaped values. Use processes when work should stream events, diagnostics,
+progress, or debugger steps.
 
 ### Header / implementation split
 
@@ -332,7 +1195,7 @@ return {
 ```lua
 -- math_impl.lua
 local header = require("math_header")
-return module "Math" {
+return {
   header[1] { ret (a + b) },
   header[2] { ret (a - b) },
 }
@@ -1026,7 +1889,7 @@ local decls = decls {
   struct. B { y [i32] },
 }
 
-return module "M" {
+return {
   _(decls),
 }
 ```
@@ -1050,7 +1913,7 @@ local function make_vec(n, T)
   }
 end
 
-return module "Vectors" {
+return {
   make_vec(2, f32),
   make_vec(3, f32),
   make_vec(4, f32),
@@ -1142,10 +2005,10 @@ The result is a metaprogramming surface with no parser debt.
 
 ## Reflection And Methods
 
-DSL module/declaration values expose:
+DSL unit/declaration values expose:
 
 ```lua
-value:syntax()          -- MoonTree module for modules
+value:syntax()          -- MoonTree module for units
 value:ast()             -- lowered MoonTree item/module
 value:typecheck(opts)   -- tree typecheck result
 value:lower(opts)       -- frontend lower_module result
@@ -1181,7 +2044,7 @@ owned/lease violations
 ## Grammar Summary
 
 ```lua
-return module "Name" {
+return unit. Name {
   struct. Name {
     field [T],
   },
@@ -1243,9 +2106,9 @@ Canonical API:
 
 ```lua
 local moon = require("moonlift")
-moon.use()
+moon.family.use()
 
-local M = module "Demo" {
+local M = {
   fn. add { a [i32], b [i32] } [i32] {
     ret (a + b),
   },
@@ -1261,6 +2124,25 @@ local text = require("moonlift").format_file("demo.lua")
 require("moonlift").write_format_file("demo.lua")
 ```
 
+Family reference generation:
+
+```lua
+local moon = require("moonlift")
+
+local md = moon.markdown { title = "Moonlift Family Reference" }
+moon.write_markdown("docs/MOONLIFT_FAMILY_REFERENCE.md")
+```
+
+`moon.markdown` delegates to the Moonlift family. The family writes the common
+reference frame, then delegates to each language member. Moonlift and LLPVM own
+their semantic sections; plain LLB language metadata fills in the generated
+head, role, export, and pass tables.
+
+The generated reference always starts with the shared LLB syntax model. This is
+intentional: Moonlift-family languages all use the same Lua mechanics for dot
+heads, index/type slots, table/call slots, fragments, algebra, zones, origins,
+formatting, diagnostics, and indexing.
+
 CLI:
 
 ```sh
@@ -1273,11 +2155,11 @@ Canonical output includes the Moonlift prelude:
 
 ```lua
 local moon = require("moonlift")
-moon.use()
+moon.family.use()
 
-return module "Demo" {
-  fn. add { a [i32], b [i32] } [i32] {
-    ret (a + b),
+return {
+  ml.fn. add { a [ml.i32], b [ml.i32] } [ml.i32] {
+    ml.ret (a + b),
   },
 }
 ```
@@ -1303,33 +2185,35 @@ diagnostics point to the abstraction call site:
 
 ```lua
 local moon = require("moonlift")
-moon.use()
+moon.family.use()
 
 local function checked_add(name, origin)
   origin = origin or here("checked_add")
-  return fn:at(origin) [at_origin(origin, name)] {
-    a [i32],
-    b [i32],
-  } [i32] {
-    ret (a + b),
+  return ml.fn:at(origin) [at_origin(origin, name)] {
+    a [ml.i32],
+    b [ml.i32],
+  } [ml.i32] {
+    ml.ret (a + b),
   }
 end
 ```
 
-## `moon.use()` sessions
+## `moon.family.use()` sessions
 
-`moon.use()` is Moonlift's wrapper over `llb.use()`. Moonlift supplies the DSL
-exports (`fn`, `module`, `i32`, `ptr`, `ret`, etc.); LLB manages environment
-installation, auto-names, origin helpers, and cleanup.
+`moon.family.use()` is the Moonlift-family wrapper over LLB family use sessions.
+LLB supplies the shared substrate (`llb`, `_`, `spread`, process helpers,
+origin helpers, and generic symbols). Moonlift, LLPVM, and MoonSchema are
+installed as namespace values (`ml`/`moonlift`, `llpvm`, `schema`). LLB manages
+environment installation, auto-names, collision policy, and cleanup.
 
 Most authoring files ignore the return value:
 
 ```lua
-require("moonlift").use()
+require("moonlift").family.use()
 
-return module "Demo" {
-  fn. add { a [i32], b [i32] } [i32] {
-    ret (a + b),
+return {
+  ml.fn. add { a [ml.i32], b [ml.i32] } [ml.i32] {
+    ml.ret (a + b),
   },
 }
 ```
@@ -1337,24 +2221,80 @@ return module "Demo" {
 When explicit access is useful, use the returned session:
 
 ```lua
-local use = require("moonlift").use { scope = "env" }
+local use = require("moonlift").family.use { scope = "env" }
 local env = use.env
-local add_head = env.fn
+local add_head = env.ml.fn
 ```
 
 Scopes:
 
 ```lua
-require("moonlift").use()                       -- permanent global install
-local s = require("moonlift").use { scope = "scoped" }
-s:close()                                      -- remove what this session installed
-local isolated = require("moonlift").use { scope = "env" }
+require("moonlift").family.use()                       -- permanent global install
+local s = require("moonlift").family.use { scope = "scoped" }
+s:close()                                             -- remove what this session installed
+local isolated = require("moonlift").family.use { scope = "env" }
 ```
 
 Moonlift loaders and formatting use isolated `scope = "env"` sessions, so
 `moon.loadstring`, `moon.loadfile`, and `moon.format_file` do not mutate `_G`.
 
-`moon.use()` options are forwarded to LLB where possible:
+The family namespace values are callable zone heads:
+
+```lua
+return {
+  ml {
+    ml.fn. add { a [ml.i32], b [ml.i32] } [ml.i32] {
+      ml.ret (a + b),
+    },
+  },
+
+  llpvm {
+    llpvm.task. compile {
+      llpvm.input [ml.i32],
+      llpvm.output [ml.i32],
+      llpvm.event. progress [ml.i32],
+    },
+  },
+
+  schema {
+    schema. Demo {
+      schema.product. Pair { left [MoonType.Type], right [MoonType.Type] },
+    },
+  },
+}
+```
+
+Use `ml { ... }`, `llpvm { ... }`, and `schema { ... }` when one Lua value
+contains multiple family languages. `moonlift { ... }` is the long spelling of
+the `ml` zone. `moon.compile("Name", value)` recursively projects only Moonlift
+declarations; LLPVM APIs recursively project only LLPVM programs. Zones are
+semantic partitions over values. They do not create lexical environments; the
+namespace prefix is still the lexical ownership marker.
+
+The same family value is also the tooling boundary:
+
+```lua
+local value = moon.family.loadfile("program.lua")()
+
+print(moon.family.format(value))
+
+local diagnostics = moon.family.diagnostics(value)
+if diagnostics:has_errors() then
+  print(diagnostics:render())
+end
+
+local index = moon.family.index(value)
+
+local reduction = moon.family.reduction()
+assert(reduction.owner["type-family"] == "moonschema.dsl")
+```
+
+Formatting delegates each owned value to its member language. Diagnostics run
+Moonlift projection/syntax/typecheck and LLPVM projection/lowering/task checks.
+Indexing returns a family index with zone facts and member symbols. Reduction
+returns the semantic owner/reuse graph and any overlap/external-use smells.
+
+`moon.family.use()` options are forwarded to LLB where possible:
 
 ```lua
 require("moonlift").use {

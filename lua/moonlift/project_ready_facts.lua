@@ -1,4 +1,6 @@
 local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
+local erased = require("moonlift.phase_erased_runtime")
 
 local M = {}
 
@@ -11,24 +13,39 @@ function M.Define(T)
 
     local function pack(g, p, c) return { g, p, c } end
 
-    task_base_facts = pvm.phase("moonlift_project_task_base_facts", {
-        [P.Task] = function(task)
+    function task_base_facts(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, P.Task) then
+            return (function(task)
+
             local facts = { P.TaskDeclared(task.id) }
             if task.status == P.TaskDone then facts[#facts + 1] = P.TaskCompleted(task.id) end
-            if pvm.classof(task.status) == P.TaskDeferred then facts[#facts + 1] = P.TaskDeferredFact(task.id, task.status.reason) end
+            if schema.classof(task.status) == P.TaskDeferred then facts[#facts + 1] = P.TaskDeferredFact(task.id, task.status.reason) end
             for i = 1, #task.deps do facts[#facts + 1] = P.TaskDependsOn(task.id, task.deps[i]) end
-            return pvm.children(function(fact) return pvm.once(fact) end, facts)
-        end,
-    })
+            return erased.children(function(fact) return erased.once(fact) end, facts)
+            end)(node, ...)
+        else
+            error("erased phase moonlift_project_task_base_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
-    project_base_facts = pvm.phase("moonlift_project_base_facts", {
-        [P.Project] = function(project)
-            return pvm.children(task_base_facts, project.tasks)
-        end,
-    })
+    function project_base_facts(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, P.Project) then
+            return (function(project)
 
-    project_ready_facts = pvm.phase("moonlift_project_ready_facts", {
-        [P.Project] = function(project)
+            return erased.children(task_base_facts, project.tasks)
+            end)(node, ...)
+        else
+            error("erased phase moonlift_project_base_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
+
+    function project_ready_facts(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, P.Project) then
+            return (function(project)
+
             local declared = {}
             local done = {}
             local deferred = {}
@@ -36,7 +53,7 @@ function M.Define(T)
                 local task = project.tasks[i]
                 declared[task.id] = true
                 if task.status == P.TaskDone then done[task.id] = true end
-                if pvm.classof(task.status) == P.TaskDeferred then deferred[task.id] = true end
+                if schema.classof(task.status) == P.TaskDeferred then deferred[task.id] = true end
             end
             local facts = {}
             for i = 1, #project.tasks do
@@ -54,9 +71,12 @@ function M.Define(T)
                     end
                 end
             end
-            return pvm.children(function(fact) return pvm.once(fact) end, facts)
-        end,
-    })
+            return erased.children(function(fact) return erased.once(fact) end, facts)
+            end)(node, ...)
+        else
+            error("erased phase moonlift_project_ready_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
     return {
         task_base_facts = task_base_facts,

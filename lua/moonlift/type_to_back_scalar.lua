@@ -1,4 +1,5 @@
-local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
+local erased = require("moonlift.phase_erased_runtime")
 
 local M = {}
 
@@ -15,74 +16,148 @@ function M.Define(T)
 
     local classify_api = require("moonlift.type_classify").Define(T)
 
-    scalar_to_back = pvm.phase("moonlift_type_scalar_to_back", {
-        [Core.ScalarBool] = function() return pvm.once(Back.BackBool) end,
-        [Core.ScalarI8] = function() return pvm.once(Back.BackI8) end,
-        [Core.ScalarI16] = function() return pvm.once(Back.BackI16) end,
-        [Core.ScalarI32] = function() return pvm.once(Back.BackI32) end,
-        [Core.ScalarI64] = function() return pvm.once(Back.BackI64) end,
-        [Core.ScalarU8] = function() return pvm.once(Back.BackU8) end,
-        [Core.ScalarU16] = function() return pvm.once(Back.BackU16) end,
-        [Core.ScalarU32] = function() return pvm.once(Back.BackU32) end,
-        [Core.ScalarU64] = function() return pvm.once(Back.BackU64) end,
-        [Core.ScalarF32] = function() return pvm.once(Back.BackF32) end,
-        [Core.ScalarF64] = function() return pvm.once(Back.BackF64) end,
-        [Core.ScalarRawPtr] = function() return pvm.once(Back.BackPtr) end,
-        [Core.ScalarIndex] = function() return pvm.once(Back.BackIndex) end,
-        [Core.ScalarVoid] = function() return pvm.empty() end,
-    })
+    function scalar_to_back(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Core.ScalarBool) then
+            return (function()
+ return erased.once(Back.BackBool)
+            end)(node, ...)
+        elseif schema.isa(node, Core.ScalarI8) then
+            return (function()
+ return erased.once(Back.BackI8)
+            end)(node, ...)
+        elseif schema.isa(node, Core.ScalarI16) then
+            return (function()
+ return erased.once(Back.BackI16)
+            end)(node, ...)
+        elseif schema.isa(node, Core.ScalarI32) then
+            return (function()
+ return erased.once(Back.BackI32)
+            end)(node, ...)
+        elseif schema.isa(node, Core.ScalarI64) then
+            return (function()
+ return erased.once(Back.BackI64)
+            end)(node, ...)
+        elseif schema.isa(node, Core.ScalarU8) then
+            return (function()
+ return erased.once(Back.BackU8)
+            end)(node, ...)
+        elseif schema.isa(node, Core.ScalarU16) then
+            return (function()
+ return erased.once(Back.BackU16)
+            end)(node, ...)
+        elseif schema.isa(node, Core.ScalarU32) then
+            return (function()
+ return erased.once(Back.BackU32)
+            end)(node, ...)
+        elseif schema.isa(node, Core.ScalarU64) then
+            return (function()
+ return erased.once(Back.BackU64)
+            end)(node, ...)
+        elseif schema.isa(node, Core.ScalarF32) then
+            return (function()
+ return erased.once(Back.BackF32)
+            end)(node, ...)
+        elseif schema.isa(node, Core.ScalarF64) then
+            return (function()
+ return erased.once(Back.BackF64)
+            end)(node, ...)
+        elseif schema.isa(node, Core.ScalarRawPtr) then
+            return (function()
+ return erased.once(Back.BackPtr)
+            end)(node, ...)
+        elseif schema.isa(node, Core.ScalarIndex) then
+            return (function()
+ return erased.once(Back.BackIndex)
+            end)(node, ...)
+        elseif schema.isa(node, Core.ScalarVoid) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        else
+            error("erased phase moonlift_type_scalar_to_back: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
-    type_to_back_scalar_result = pvm.phase("moonlift_type_to_back_scalar_result", {
-        [Ty.TypeClassScalar] = function(self, ty)
-            local values = scalar_to_back:drain_uncached(self.scalar)
+    function type_to_back_scalar_result(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Ty.TypeClassScalar) then
+            return (function(self, ty)
+
+            local values = scalar_to_back(self.scalar)
             if #values == 0 then
-                return pvm.once(Ty.TypeBackScalarUnavailable(ty, self))
+                return erased.once(Ty.TypeBackScalarUnavailable(ty, self))
             end
-            return pvm.once(Ty.TypeBackScalarKnown(values[1]))
-        end,
-        [Ty.TypeClassPointer] = function(_, ty)
-            return pvm.once(Ty.TypeBackScalarKnown(Back.BackPtr))
-        end,
-        [Ty.TypeClassCallable] = function(_, ty)
-            return pvm.once(Ty.TypeBackScalarKnown(Back.BackPtr))
-        end,
-        [Ty.TypeClassArray] = function(self, ty)
-            return pvm.once(Ty.TypeBackScalarUnavailable(ty, self))
-        end,
-        [Ty.TypeClassSlice] = function(self, ty)
-            return pvm.once(Ty.TypeBackScalarUnavailable(ty, self))
-        end,
-        [Ty.TypeClassView] = function(self, ty)
-            return pvm.once(Ty.TypeBackScalarUnavailable(ty, self))
-        end,
-        [Ty.TypeClassLease] = function(self, ty)
+            return erased.once(Ty.TypeBackScalarKnown(values[1]))
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TypeClassPointer) then
+            return (function(_, ty)
+
+            return erased.once(Ty.TypeBackScalarKnown(Back.BackPtr))
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TypeClassCallable) then
+            return (function(_, ty)
+
+            return erased.once(Ty.TypeBackScalarKnown(Back.BackPtr))
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TypeClassArray) then
+            return (function(self, ty)
+
+            return erased.once(Ty.TypeBackScalarUnavailable(ty, self))
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TypeClassSlice) then
+            return (function(self, ty)
+
+            return erased.once(Ty.TypeBackScalarUnavailable(ty, self))
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TypeClassView) then
+            return (function(self, ty)
+
+            return erased.once(Ty.TypeBackScalarUnavailable(ty, self))
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TypeClassLease) then
+            return (function(self, ty)
+
             local class = classify_api.classify(self.base)
             return type_to_back_scalar_result(class, self.base)
-        end,
-        [Ty.TypeClassOwned] = function(self, ty)
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TypeClassOwned) then
+            return (function(self, ty)
+
             local class = classify_api.classify(self.base)
             return type_to_back_scalar_result(class, self.base)
-        end,
-        [Ty.TypeClassHandle] = function(self, ty)
-            if pvm.classof(self.repr) == Ty.HandleReprScalar then
-                local values = scalar_to_back:drain_uncached(self.repr.scalar)
-                if #values > 0 then return pvm.once(Ty.TypeBackScalarKnown(values[1])) end
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TypeClassHandle) then
+            return (function(self, ty)
+
+            if schema.classof(self.repr) == Ty.HandleReprScalar then
+                local values = scalar_to_back(self.repr.scalar)
+                if #values > 0 then return erased.once(Ty.TypeBackScalarKnown(values[1])) end
             end
-            return pvm.once(Ty.TypeBackScalarUnavailable(ty, self))
-        end,
-        [Ty.TypeClassClosure] = function()
+            return erased.once(Ty.TypeBackScalarUnavailable(ty, self))
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TypeClassClosure) then
+            return (function()
+
             -- Tree-to-back represents closure values as addresses of the
             -- two-word { fn, ctx } descriptor while preserving the source
             -- type as Ty.TClosure in semantic IR.
-            return pvm.once(Ty.TypeBackScalarKnown(Back.BackPtr))
-        end,
-        [Ty.TypeClassAggregate] = function(self, ty)
-            return pvm.once(Ty.TypeBackScalarUnavailable(ty, self))
-        end,
-        [Ty.TypeClassUnknown] = function(self, ty)
-            return pvm.once(Ty.TypeBackScalarUnavailable(ty, self))
-        end,
-    })
+            return erased.once(Ty.TypeBackScalarKnown(Back.BackPtr))
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TypeClassAggregate) then
+            return (function(self, ty)
+
+            return erased.once(Ty.TypeBackScalarUnavailable(ty, self))
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TypeClassUnknown) then
+            return (function(self, ty)
+
+            return erased.once(Ty.TypeBackScalarUnavailable(ty, self))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_type_to_back_scalar_result: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
     local api = {
         scalar_to_back = scalar_to_back,
@@ -91,7 +166,7 @@ function M.Define(T)
             return type_to_back_scalar_result(class, ty)
         end,
         result = function(ty)
-            return type_to_back_scalar_result:one_uncached(classify_api.classify(ty), ty)
+            return erased.one(type_to_back_scalar_result(classify_api.classify(ty), ty))
         end,
     }
     T._moonlift_api_cache.type_to_back_scalar = api

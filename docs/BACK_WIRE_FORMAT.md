@@ -9,6 +9,19 @@ bodies, and a body table maps function IDs to byte offsets. Function bodies are 
 streams of `(tag, slots...)` pairs — one tag per Cranelift IR operation, no sub-tag
 dispatch.
 
+Architecturally, Flatline is Moonlift's current LLPVM-style ABI for backend
+records. It is not a parser format and not a source language. It is a borrowed
+record image consumed by the native Cranelift host:
+
+```text
+MoonCompiler.CodeResult
+  -> MoonBack.Program
+  -> MoonCompiler.FlatlineImage
+  -> MoonCompiler.NativeArtifact | MoonCompiler.ObjectArtifact
+```
+
+That makes it the concrete native ABI half of the bootstrap split.
+
 ---
 
 ## 1. Header (28 bytes)

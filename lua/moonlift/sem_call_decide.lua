@@ -1,4 +1,5 @@
-local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
+local erased = require("moonlift.phase_erased_runtime")
 
 local M = {}
 
@@ -19,118 +20,271 @@ function M.Define(T)
 
     local function closure_or_indirect(callee, fn_ty)
         local class = classify_api.classify(fn_ty)
-        if pvm.classof(class) == Ty.TypeClassClosure then
+        if schema.classof(class) == Ty.TypeClassClosure then
             return { kind = "closure", closure = callee, fn_ty = fn_ty }
         end
         return { kind = "indirect", callee = callee, fn_ty = fn_ty }
     end
 
-    import_call_target = pvm.phase("moonlift_sem_import_call_target", {
-        [O.ImportGlobalFunc] = function(import, callee, fn_ty)
-            return pvm.once({ kind = "direct", module_name = import.module_name, item_name = import.item_name, fn_ty = fn_ty })
-        end,
-        [O.ImportExtern] = function(import, callee, fn_ty)
-            return pvm.once({ kind = "extern", symbol = import.symbol, fn_ty = fn_ty })
-        end,
-        [O.ImportValue] = function(_, callee, fn_ty)
-            return pvm.once(closure_or_indirect(callee, fn_ty))
-        end,
-        [O.ImportGlobalConst] = function(_, callee, fn_ty)
-            return pvm.once(closure_or_indirect(callee, fn_ty))
-        end,
-        [O.ImportGlobalStatic] = function(_, callee, fn_ty)
-            return pvm.once(closure_or_indirect(callee, fn_ty))
-        end,
-    }, { args_cache = "last" })
+    function import_call_target(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, O.ImportGlobalFunc) then
+            return (function(import, callee, fn_ty)
 
-    binding_class_call_target = pvm.phase("moonlift_sem_binding_class_call_target", {
-        [B.BindingClassGlobalFunc] = function(self, callee, fn_ty)
-            return pvm.once({ kind = "direct", module_name = self.module_name, item_name = self.item_name, fn_ty = fn_ty })
-        end,
-        [B.BindingClassExtern] = function(self, callee, fn_ty)
-            return pvm.once({ kind = "extern", symbol = self.symbol, fn_ty = fn_ty })
-        end,
-        [B.BindingClassOpenSym] = function(self, callee, fn_ty)
-            if pvm.classof(self.sym.kind) == C.SymKindFunc then
-                return pvm.once({ kind = "direct", module_name = "", item_name = self.sym.name, fn_ty = fn_ty })
+            return erased.once({ kind = "direct", module_name = import.module_name, item_name = import.item_name, fn_ty = fn_ty })
+            end)(node, ...)
+        elseif schema.isa(node, O.ImportExtern) then
+            return (function(import, callee, fn_ty)
+
+            return erased.once({ kind = "extern", symbol = import.symbol, fn_ty = fn_ty })
+            end)(node, ...)
+        elseif schema.isa(node, O.ImportValue) then
+            return (function(_, callee, fn_ty)
+
+            return erased.once(closure_or_indirect(callee, fn_ty))
+            end)(node, ...)
+        elseif schema.isa(node, O.ImportGlobalConst) then
+            return (function(_, callee, fn_ty)
+
+            return erased.once(closure_or_indirect(callee, fn_ty))
+            end)(node, ...)
+        elseif schema.isa(node, O.ImportGlobalStatic) then
+            return (function(_, callee, fn_ty)
+
+            return erased.once(closure_or_indirect(callee, fn_ty))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_sem_import_call_target: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
+
+    function binding_class_call_target(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, B.BindingClassGlobalFunc) then
+            return (function(self, callee, fn_ty)
+
+            return erased.once({ kind = "direct", module_name = self.module_name, item_name = self.item_name, fn_ty = fn_ty })
+            end)(node, ...)
+        elseif schema.isa(node, B.BindingClassExtern) then
+            return (function(self, callee, fn_ty)
+
+            return erased.once({ kind = "extern", symbol = self.symbol, fn_ty = fn_ty })
+            end)(node, ...)
+        elseif schema.isa(node, B.BindingClassOpenSym) then
+            return (function(self, callee, fn_ty)
+
+            if schema.classof(self.sym.kind) == C.SymKindFunc then
+                return erased.once({ kind = "direct", module_name = "", item_name = self.sym.name, fn_ty = fn_ty })
             end
-            return pvm.once({ kind = "extern", symbol = self.sym.symbol, fn_ty = fn_ty })
-        end,
-        [B.BindingClassImport] = function(self, callee, fn_ty)
+            return erased.once({ kind = "extern", symbol = self.sym.symbol, fn_ty = fn_ty })
+            end)(node, ...)
+        elseif schema.isa(node, B.BindingClassImport) then
+            return (function(self, callee, fn_ty)
+
             return import_call_target(self.import, callee, fn_ty)
-        end,
-        [B.BindingClassLocalValue] = function(_, callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
-        [B.BindingClassLocalCell] = function(_, callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
-        [B.BindingClassArg] = function(_, callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
-        [B.BindingClassEntryBlockParam] = function(_, callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
-        [B.BindingClassBlockParam] = function(_, callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
-        [B.BindingClassGlobalConst] = function(_, callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
-        [B.BindingClassGlobalStatic] = function(_, callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
-        [B.BindingClassOpenParam] = function(_, callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
-        [B.BindingClassOpenSym] = function(self, callee, fn_ty)
-            local kind_cls = pvm.classof(self.sym.kind)
+            end)(node, ...)
+        elseif schema.isa(node, B.BindingClassLocalValue) then
+            return (function(_, callee, fn_ty)
+ return erased.once(closure_or_indirect(callee, fn_ty))
+            end)(node, ...)
+        elseif schema.isa(node, B.BindingClassLocalCell) then
+            return (function(_, callee, fn_ty)
+ return erased.once(closure_or_indirect(callee, fn_ty))
+            end)(node, ...)
+        elseif schema.isa(node, B.BindingClassArg) then
+            return (function(_, callee, fn_ty)
+ return erased.once(closure_or_indirect(callee, fn_ty))
+            end)(node, ...)
+        elseif schema.isa(node, B.BindingClassEntryBlockParam) then
+            return (function(_, callee, fn_ty)
+ return erased.once(closure_or_indirect(callee, fn_ty))
+            end)(node, ...)
+        elseif schema.isa(node, B.BindingClassBlockParam) then
+            return (function(_, callee, fn_ty)
+ return erased.once(closure_or_indirect(callee, fn_ty))
+            end)(node, ...)
+        elseif schema.isa(node, B.BindingClassGlobalConst) then
+            return (function(_, callee, fn_ty)
+ return erased.once(closure_or_indirect(callee, fn_ty))
+            end)(node, ...)
+        elseif schema.isa(node, B.BindingClassGlobalStatic) then
+            return (function(_, callee, fn_ty)
+ return erased.once(closure_or_indirect(callee, fn_ty))
+            end)(node, ...)
+        elseif schema.isa(node, B.BindingClassOpenParam) then
+            return (function(_, callee, fn_ty)
+ return erased.once(closure_or_indirect(callee, fn_ty))
+            end)(node, ...)
+        elseif schema.isa(node, B.BindingClassOpenSym) then
+            return (function(self, callee, fn_ty)
+
+            local kind_cls = schema.classof(self.sym.kind)
             if kind_cls == C.SymKindFunc then
-                return pvm.once({ kind = "direct", module_name = "", func_name = self.sym.name, fn_ty = fn_ty })
+                return erased.once({ kind = "direct", module_name = "", func_name = self.sym.name, fn_ty = fn_ty })
             elseif kind_cls == C.SymKindExtern then
-                return pvm.once({ kind = "extern", symbol = self.sym.symbol, fn_ty = fn_ty })
+                return erased.once({ kind = "extern", symbol = self.sym.symbol, fn_ty = fn_ty })
             end
-            return pvm.once(closure_or_indirect(callee, fn_ty))
-        end,
-        [B.BindingClassOpenSlot] = function(self, callee, fn_ty)
-            if pvm.classof(self.slot) == O.SlotFunc then
-                return pvm.once({ kind = "unresolved", callee = callee })
-            end
-            return pvm.once(closure_or_indirect(callee, fn_ty))
-        end,
-    }, { args_cache = "last" })
+            return erased.once(closure_or_indirect(callee, fn_ty))
+            end)(node, ...)
+        elseif schema.isa(node, B.BindingClassOpenSlot) then
+            return (function(self, callee, fn_ty)
 
-    value_ref_call_target = pvm.phase("moonlift_sem_value_ref_call_target", {
-        [B.ValueRefBinding] = function(ref, callee, fn_ty)
+            if schema.classof(self.slot) == O.SlotFunc then
+                return erased.once({ kind = "unresolved", callee = callee })
+            end
+            return erased.once(closure_or_indirect(callee, fn_ty))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_sem_binding_class_call_target: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
+
+    function value_ref_call_target(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, B.ValueRefBinding) then
+            return (function(ref, callee, fn_ty)
+
             return binding_class_call_target(ref.binding.class, callee, fn_ty)
-        end,
-        [B.ValueRefHole] = function(_, callee) return pvm.once({ kind = "unresolved", callee = callee }) end,
-        [B.ValueRefName] = function(_, callee) return pvm.once({ kind = "unresolved", callee = callee }) end,
-        [B.ValueRefPath] = function(_, callee) return pvm.once({ kind = "unresolved", callee = callee }) end,
-    }, { args_cache = "last" })
+            end)(node, ...)
+        elseif schema.isa(node, B.ValueRefHole) then
+            return (function(_, callee)
+ return erased.once({ kind = "unresolved", callee = callee })
+            end)(node, ...)
+        elseif schema.isa(node, B.ValueRefName) then
+            return (function(_, callee)
+ return erased.once({ kind = "unresolved", callee = callee })
+            end)(node, ...)
+        elseif schema.isa(node, B.ValueRefPath) then
+            return (function(_, callee)
+ return erased.once({ kind = "unresolved", callee = callee })
+            end)(node, ...)
+        else
+            error("erased phase moonlift_sem_value_ref_call_target: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
-    callee_call_target = pvm.phase("moonlift_sem_call_decide", {
-        [Tr.ExprRef] = function(callee, fn_ty)
+    function callee_call_target(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Tr.ExprRef) then
+            return (function(callee, fn_ty)
+
             return value_ref_call_target(callee.ref, callee, fn_ty)
-        end,
-        [Tr.ExprLit] = function(callee) return pvm.once({ kind = "unresolved", callee = callee }) end,
-        [Tr.ExprDot] = function(callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
-        [Tr.ExprUnary] = function(callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
-        [Tr.ExprBinary] = function(callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
-        [Tr.ExprCompare] = function(callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
-        [Tr.ExprLogic] = function(callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
-        [Tr.ExprCast] = function(callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
-        [Tr.ExprMachineCast] = function(callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
-        [Tr.ExprIntrinsic] = function(callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
-        [Tr.ExprAddrOf] = function(callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
-        [Tr.ExprDeref] = function(callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
-        [Tr.ExprCall] = function(callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
-        [Tr.ExprField] = function(callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
-        [Tr.ExprIndex] = function(callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
-        [Tr.ExprAgg] = function(callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
-        [Tr.ExprArray] = function(callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
-        [Tr.ExprIf] = function(callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
-        [Tr.ExprSelect] = function(callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
-        [Tr.ExprSwitch] = function(callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
-        [Tr.ExprControl] = function(callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
-        [Tr.ExprBlock] = function(callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
-        [Tr.ExprClosure] = function(callee, fn_ty) return pvm.once({ kind = "closure", closure = callee, fn_ty = fn_ty }) end,
-        [Tr.ExprView] = function(callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
-        [Tr.ExprLoad] = function(callee, fn_ty) return pvm.once(closure_or_indirect(callee, fn_ty)) end,
-        [Tr.ExprSlotValue] = function(callee) return pvm.once({ kind = "unresolved", callee = callee }) end,
-        [Tr.ExprUseExprFrag] = function(callee) return pvm.once({ kind = "unresolved", callee = callee }) end,
-    }, { args_cache = "last" })
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprLit) then
+            return (function(callee)
+ return erased.once({ kind = "unresolved", callee = callee })
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprDot) then
+            return (function(callee, fn_ty)
+ return erased.once(closure_or_indirect(callee, fn_ty))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprUnary) then
+            return (function(callee, fn_ty)
+ return erased.once(closure_or_indirect(callee, fn_ty))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprBinary) then
+            return (function(callee, fn_ty)
+ return erased.once(closure_or_indirect(callee, fn_ty))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprCompare) then
+            return (function(callee, fn_ty)
+ return erased.once(closure_or_indirect(callee, fn_ty))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprLogic) then
+            return (function(callee, fn_ty)
+ return erased.once(closure_or_indirect(callee, fn_ty))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprCast) then
+            return (function(callee, fn_ty)
+ return erased.once(closure_or_indirect(callee, fn_ty))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprMachineCast) then
+            return (function(callee, fn_ty)
+ return erased.once(closure_or_indirect(callee, fn_ty))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprIntrinsic) then
+            return (function(callee, fn_ty)
+ return erased.once(closure_or_indirect(callee, fn_ty))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprAddrOf) then
+            return (function(callee, fn_ty)
+ return erased.once(closure_or_indirect(callee, fn_ty))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprDeref) then
+            return (function(callee, fn_ty)
+ return erased.once(closure_or_indirect(callee, fn_ty))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprCall) then
+            return (function(callee, fn_ty)
+ return erased.once(closure_or_indirect(callee, fn_ty))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprField) then
+            return (function(callee, fn_ty)
+ return erased.once(closure_or_indirect(callee, fn_ty))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprIndex) then
+            return (function(callee, fn_ty)
+ return erased.once(closure_or_indirect(callee, fn_ty))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprAgg) then
+            return (function(callee, fn_ty)
+ return erased.once(closure_or_indirect(callee, fn_ty))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprArray) then
+            return (function(callee, fn_ty)
+ return erased.once(closure_or_indirect(callee, fn_ty))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprIf) then
+            return (function(callee, fn_ty)
+ return erased.once(closure_or_indirect(callee, fn_ty))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprSelect) then
+            return (function(callee, fn_ty)
+ return erased.once(closure_or_indirect(callee, fn_ty))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprSwitch) then
+            return (function(callee, fn_ty)
+ return erased.once(closure_or_indirect(callee, fn_ty))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprControl) then
+            return (function(callee, fn_ty)
+ return erased.once(closure_or_indirect(callee, fn_ty))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprBlock) then
+            return (function(callee, fn_ty)
+ return erased.once(closure_or_indirect(callee, fn_ty))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprClosure) then
+            return (function(callee, fn_ty)
+ return erased.once({ kind = "closure", closure = callee, fn_ty = fn_ty })
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprView) then
+            return (function(callee, fn_ty)
+ return erased.once(closure_or_indirect(callee, fn_ty))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprLoad) then
+            return (function(callee, fn_ty)
+ return erased.once(closure_or_indirect(callee, fn_ty))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprSlotValue) then
+            return (function(callee)
+ return erased.once({ kind = "unresolved", callee = callee })
+            end)(node, ...)
+        elseif schema.isa(node, Tr.ExprUseExprFrag) then
+            return (function(callee)
+ return erased.once({ kind = "unresolved", callee = callee })
+            end)(node, ...)
+        else
+            error("erased phase moonlift_sem_call_decide: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
     return {
         import_call_target = import_call_target,
         binding_class_call_target = binding_class_call_target,
         value_ref_call_target = value_ref_call_target,
         callee_call_target = callee_call_target,
-        decide = function(callee, fn_ty) return pvm.one(callee_call_target(callee, fn_ty)) end,
+        decide = function(callee, fn_ty) return erased.one(callee_call_target(callee, fn_ty)) end,
     }
 end
 

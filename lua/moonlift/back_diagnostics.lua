@@ -13,7 +13,7 @@ function M.Define(T)
         local disassembly = {}
         if funcs ~= nil and #funcs > 0 then
             local jit = Jit.jit()
-            local artifact = jit:compile(program)
+            local artifact = jit:compile(Jit.flatline.encode_back_program(program))
             for i = 1, #funcs do
                 local func = funcs[i]
                 local bytes = opts.bytes or 256

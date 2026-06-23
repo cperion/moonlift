@@ -16,6 +16,7 @@ Role
 Slot
 Head
 Fragment
+Zone
 Origin
 Diagnostic
 Format
@@ -34,6 +35,7 @@ A Slot accepts or rejects Events.
 A Role normalizes Event values.
 A Head sequences Slots.
 A Fragment stores role-tagged reusable values.
+A Zone partitions multi-language family values.
 An Origin explains where construction happened.
 Diagnostics report failed Events with Slot/Role context.
 Format renders evaluated values.
@@ -413,6 +415,43 @@ struct. Point {
 
 `spread(value)` remains the explicit fallback.
 
+## Zone
+
+A zone is a first-class family partition:
+
+```lua
+return {
+  moonlift {
+    fn. add { a [i32], b [i32] } [i32] { ret (a + b) },
+  },
+
+  llpvm {
+    task. compile {
+      input [i32],
+      output [i32],
+      event. progress [i32],
+    },
+  },
+}
+```
+
+Zones carry `family`, `member`, `name`, `role`, `items`, `origin`, and optional
+metadata. They are values, not lexical scopes.
+
+Projection is language-owned: Moonlift consumes Moonlift zones and LLPVM
+consumes LLPVM zones. Same-language zones concatenate with `..`; mixed zones
+compose into a family bundle.
+
+Public API:
+
+```lua
+llb.zone_head { family = "moonlift", member = "moonlift.dsl", name = "moonlift", role = "decls" }
+llb.zone { family = "moonlift", member = "moonlift.dsl", name = "moonlift", role = "decls", items = { ... } }
+llb.family_bundle { family = "moonlift", zones = { ... } }
+llb.describe_zone(zone)
+llb.describe_family_bundle(bundle)
+```
+
 ## Origin
 
 An origin records where and why a value was created or consumed.
@@ -553,7 +592,7 @@ env       -- isolated environment, no global mutation
 API:
 
 ```lua
-local session = Lang:use {
+local session = Lang:family():use {
   scope = "env",
   base = "safe",
   strict = true,
@@ -563,6 +602,20 @@ local session = Lang:use {
 session.env
 session:close()
 ```
+
+`Lang:use`, `Lang:env`, `Lang:loadstring`, and `llb.use(Lang, opts)` are
+family delegation helpers. They do not create a language-only authoring world.
+
+Unknown identifiers are always generic LLB symbols:
+
+```text
+unknown Lua identifier -> llb.Symbol
+```
+
+This is a language-workbench invariant, not a per-language customization point.
+Family-compatible languages must normalize `llb.Symbol` / `llb.Name` at their
+semantic boundaries. Private name classes may exist as explicit helper values,
+but they are not the auto-name substrate.
 
 Inspection:
 
@@ -574,6 +627,49 @@ session:describe()
 ```
 
 Loaders, formatters, LSP, and tests should prefer `scope = "env"`.
+
+## Family
+
+Family is the unit of authoring coherence.
+
+The smallest family is the `llb` singleton. Every other family includes it and
+therefore shares the same `llb`, `N`, `_`, `spread`, process helpers, origin
+helpers, and generic symbol substrate.
+
+Every language belongs to a family. A single-language family is valid, but it is
+really `llb + language`. Language-level `use`, `env`, and loading delegate
+through that family.
+
+Families compose authoring universes:
+
+```text
+family .. family  -> checked composition
+family + family   -> checked composition
+family - member   -> remove a language/capability member
+family.only {...} -> projection
+family.prefer {...} -> collision preference overlay
+```
+
+Family methods use dot syntax only:
+
+```lua
+family.use { scope = "env" }
+family.only { "moonlift.types" }
+family.prefer { task = "llpvm.dsl" }
+```
+
+Family algebra operates on compatibility contracts:
+
+```text
+exports
+capabilities
+reserved names
+shared protocols
+symbol normalization
+format/process/diagnostic interop
+```
+
+It is not a table merge.
 
 ## Phase
 

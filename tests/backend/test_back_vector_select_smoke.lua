@@ -64,7 +64,7 @@ local report = validate.validate(program)
 assert(#report.issues == 0)
 
 local jit = jit_api.jit()
-local artifact = jit:compile(program)
+local artifact = jit:compile(jit_api.flatline.encode_back_program(program))
 
 local first_max_vec = ffi.cast("int32_t (*)(const int32_t*, const int32_t*)", artifact:getpointer(B2.BackFuncId("first_max_vec")))
 local xs = ffi.new("int32_t[4]", { 42, -1, 2, 3 })

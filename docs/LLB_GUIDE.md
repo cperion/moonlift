@@ -211,7 +211,7 @@ g.head. module {
   g.slot. name [g.string] { channel = llb.channel.call_value },
   g.slot. body [g.decls]  { channel = llb.channel.call_table },
   emit = function(n)
-    return { tag = "module", name = n.name, body = n.body, origin = n.origin }
+    return { tag = "unit", name = n.name, body = n.body, origin = n.origin }
   end,
 }
 
@@ -381,18 +381,22 @@ functions.
 LLB owns the generic environment lifecycle.
 
 ```lua
-local session = Lang:use {
+local session = Lang:family():use {
   scope = "permanent",
 }
 
 session:close()
 ```
 
-Equivalent:
+Language methods are delegation helpers:
 
 ```lua
-local session = llb.use(Lang, opts)
+local session = Lang:use(opts)      -- delegates to Lang:family():use(opts)
+local env = Lang:env(opts)          -- delegates to Lang:family():env(opts)
 ```
+
+`llb.use(Lang, opts)` is accepted as a compatibility spelling, but it still
+returns a family session. There is no separate language-only environment path.
 
 Scopes:
 
@@ -430,9 +434,6 @@ Lang:use {
   strict = true,
   override = false,
   auto_names = true,
-  auto_name = function(name, origin)
-    return llb.symbol(name, { origin = origin })
-  end,
   requires = { "moonlift.types" },
   provides = { "my.language" },
 }
@@ -442,10 +443,121 @@ Capabilities make language dependencies explicit. If one DSL depends on another,
 model that with `requires` and `provides` instead of silently installing hidden
 dependencies.
 
+Low-level stacking is valid for tests and tools:
+
 ```lua
 moon.use { scope = "env", target = env, global = false }
 ll.use   { scope = "env", target = env, global = false }
 ```
+
+But a coherent authoring surface should be a language family.
+
+## Language families
+
+A language is a grammar/protocol object. A family is the unit of authoring
+coherence.
+
+```text
+Language:
+  heads, roles, formatting, diagnostics, protocols
+
+Family:
+  multiple languages
+  one environment contract
+  one collision policy
+  one capability graph
+  one universal auto-name policy
+  one value interop story
+```
+
+Every LLB language belongs to a family. The smallest family contains exactly one
+member: `llb` itself. A single-language family is really `llb + language`.
+Language `use`, `env`, and `loadstring` delegate through that family.
+
+Use explicit multi-language families when languages are designed to be used
+together and their values are expected to cross boundaries.
+
+```lua
+local Family = llb.family. moonlift {
+  prefer = {
+    task = "llpvm.dsl",
+  },
+
+  {
+    name = "moonlift.dsl",
+    lang = Moon,
+    exports = moon_exports,
+    provides = { "moonlift.types", "moonlift.dsl" },
+  },
+
+  {
+    name = "llpvm.dsl",
+    lang = LLPVM,
+    exports = llpvm_exports,
+    requires = { "moonlift.types" },
+    provides = { "llpvm.dsl" },
+  },
+}
+```
+
+The family validates member requirements, composes exports, and rejects
+undeclared collisions. Same-object exports are accepted. Different objects with
+the same name require an explicit `prefer` entry.
+
+Unknown identifiers always become generic `llb.Symbol` values:
+
+```text
+Lua unknown identifier
+  -> llb.Symbol
+  -> role/head slot
+  -> language-specific semantic value
+```
+
+This is not configurable per language. Any LLB language that wants normal
+authoring must accept `llb.Symbol` / `llb.Name` at semantic boundaries. Private
+language name objects may exist as explicit helpers, but they are not the naming
+substrate.
+
+Public use is dot-style:
+
+```lua
+local session = moon.family.use {
+  scope = "env",
+  target = env,
+  global = false,
+}
+```
+
+Family methods are dot-only. Do not use colon syntax for family operations.
+
+```lua
+family.use { ... }
+family.env { ... }
+family.load(src, name)
+family.loadfile(path)
+family.prefer { task = "llpvm.dsl" }
+family.only { "moonlift.types" }
+family.subtract "llpvm.dsl"
+```
+
+The Moonlift family installs Moonlift DSL values and LLPVM DSL values together.
+Each member language consumes generic LLB symbols through its roles. That avoids
+order-dependent metatable stacking.
+
+Family algebra composes authoring universes:
+
+```lua
+local Full = MoonFamily .. LLPVMFamily
+local AlsoFull = MoonFamily + LLPVMFamily
+local Tooling = Full.prefer {
+  task = "llpvm.dsl",
+}
+local TypesOnly = Full.only { "moonlift.types" }
+local NoLLPVM = Full - "llpvm.dsl"
+```
+
+Composition checks capabilities, export collisions, shared naming, and declared
+preferences. Algebra operates on compatibility contracts, not just tables.
 
 Inspection:
 
@@ -472,9 +584,22 @@ llb.here(kind)
 llb.at(origin, value)
 llb.with_origin(origin, fn, ...)
 llb.origin_of(value)
+llb.source.leading_comment(origin)
 llb.provenance(value)
 llb.render_origin(origin)
 llb.render_provenance(value)
+```
+
+Origins capture the source line and, when source text is available, the
+contiguous Lua comment block immediately above that line. Generated references
+use this as declaration documentation. This keeps interface prose beside the
+head that owns it:
+
+```lua
+-- Defines a native function boundary.
+g.head. fn {
+  ...
+}
 ```
 
 Factory convention:
@@ -602,7 +727,8 @@ literal fallback
 ```
 
 The formatter operates on evaluated values. It is not a token-preserving Lua
-formatter. It will not preserve comments or arbitrary metaprogramming shape.
+formatter. Origin-leading comments may be surfaced as documentation, but the
+formatter will not preserve arbitrary comments or metaprogramming shape.
 
 Canonical dot style for Moonlift-family DSLs is:
 
@@ -706,9 +832,26 @@ Moonlift uses processes directly:
 ```lua
 moon.source(src, name, { eval = true })
 ll.validate(bytes)
-Pipeline.Define(T).lower_module_process(module, opts)
+require("moonlift.compiler_driver").lower_module(module, opts)
 Debugger.process(debugger, { "init", "start", "step" })
 ```
+
+LLB owns the coroutine/event mechanics. LLPVM owns typed process declarations and
+run records when the process becomes part of compiler/runtime architecture:
+
+```lua
+task. compile {
+  input [i32],
+  output [i32],
+  event. progress [i32],
+  event. diagnostic [i32],
+}
+```
+
+Moonlift phase execution reports expose `report.run` as an
+`LlPvm.TaskRun`, so progress tracking, validation, LSP indexing, source
+analysis, and debugger stepping can share one typed event/run model instead of
+ad hoc traces.
 
 The architectural rule:
 
@@ -899,7 +1042,7 @@ local Mini = llb.define "Mini" {
     g.slot. name [g.string] { channel = ch.call_value },
     g.slot. body [g.decls]  { channel = ch.call_table },
     emit = function(n)
-      return { tag = "module", name = n.name, body = n.body, origin = n.origin }
+      return { tag = "unit", name = n.name, body = n.body, origin = n.origin }
     end,
   },
 
@@ -928,9 +1071,6 @@ local function use(opts)
     target = opts and opts.target or _G,
     strict = opts and opts.strict,
     auto_names = true,
-    auto_name = function(name, origin)
-      return llb.symbol(name, { origin = origin })
-    end,
     provides = { "mini.dsl" },
   }
 end
@@ -950,12 +1090,102 @@ User code:
 local mini = require("mini")
 mini.use()
 
-return module "Demo" {
+return unit. Demo {
   fn. id { x [i32] } [i32] {
     ret (x),
   },
 }
 ```
+
+## Family zones
+
+Every LLB family includes the `llb` singleton member. It is the smallest family
+in the algebra and provides the shared substrate: `llb`, `N`, `_`, `spread`,
+process helpers, and origin helpers. Language families are built on top of it,
+so all family environments share `llb.Symbol` names and the same fragment/spread
+semantics.
+
+An LLB family can expose language zones as ordinary callable values:
+
+```lua
+return {
+  moonlift {
+    fn. add { a [i32], b [i32] } [i32] { ret (a + b) },
+  },
+
+  llpvm {
+    task. compile {
+      input [i32],
+      output [i32],
+      event. progress [i32],
+    },
+  },
+}
+```
+
+A zone is a value with `family`, `member`, `name`, `role`, and `items`.
+It is a semantic partition, not a lexical scope. Each language projects the
+zones it owns and ignores foreign zones.
+
+Same-language zones concatenate with `..`:
+
+```lua
+local a = moonlift { fn. one {} [i32] { ret (1) } }
+local b = moonlift { fn. two {} [i32] { ret (2) } }
+return a .. b
+```
+
+Different zones concatenate into a family bundle:
+
+```lua
+return moonlift { ... } .. llpvm { ... }
+```
+
+Public constructors:
+
+```lua
+llb.zone_head { family = "moonlift", member = "moonlift.dsl", name = "moonlift", role = "decls" }
+llb.zone { family = "moonlift", member = "moonlift.dsl", name = "moonlift", role = "decls", items = { ... } }
+llb.family_bundle { family = "moonlift", zones = { ... } }
+```
+
+Family tooling is also family-first:
+
+```lua
+local value = moon.family.loadfile("program.lua")()
+
+local text = moon.family.format(value)
+local diagnostics = moon.family.diagnostics(value)
+local index = moon.family.index(value)
+local reference = moon.family.markdown { title = "Moonlift Family Reference" }
+moon.family.write_markdown("docs/MOONLIFT_FAMILY_REFERENCE.md")
+```
+
+Members contribute formatting, diagnostics, index, and Markdown hooks. The
+family walks plain tables, zones, and bundles, delegates owned values to the
+right member, and preserves LLB origins for diagnostics. This is what makes
+cross-language family seams disappear at tooling boundaries.
+
+Family Markdown generation is introspection-first:
+
+- the family emits the overview, capabilities, collisions, shared names, zones,
+  and tool list
+- every generated family reference starts with the shared LLB syntax model:
+  dot heads, index/type slots, table/call slots, fragments, algebra, and zones
+- each member may provide a `markdown(member, opts, family)` hook
+- members without a custom hook fall back to `llb.markdown_language(lang)`
+- generated references are documentation views over the live language objects,
+  including origin-leading comments when available, not hand-maintained
+  duplicate specs
+
+Formatting defaults should be semantic and stable:
+
+- block heads use multiline bodies by default
+- dot heads use keyword-side dots, such as `fn. add`
+- product fields use `name [Type]`
+- zones preserve their language name, such as `moonlift { ... }`
+- family formatters delegate owned values instead of printing raw tables
+- raw Lua table addresses should never appear in formatter output
 
 ## Design checklist
 
@@ -986,7 +1216,7 @@ Environment:
 - Does `use()` expose the complete surface?
 - Are dependencies modeled with `requires`/`provides`?
 - Do tools use `scope = "env"`?
-- Are unknown names intentional through `auto_name`, or rejected through strict mode?
+- Are unknown names accepted as `llb.Symbol`, or rejected through strict mode?
 
 Diagnostics:
 

@@ -79,8 +79,22 @@ function M.Define(T)
         return 4
     end
 
+    local function diagnostic_context_frame(ctx)
+        return L.DiagnosticContextPayload(
+            tostring(ctx.label or "context"),
+            tostring(ctx.message or ""),
+            ctx.range and range(ctx.range) or nil
+        )
+    end
+
+    local function diagnostic_context(frames)
+        local out = {}
+        for i = 1, #(frames or {}) do out[i] = diagnostic_context_frame(frames[i]) end
+        return out
+    end
+
     local function diagnostic(d)
-        return L.DiagnosticPayload(range(d.range), diagnostic_severity(d.severity), d.code, d.message)
+        return L.DiagnosticPayload(range(d.range), diagnostic_severity(d.severity), d.code, d.message, diagnostic_context(d.context))
     end
 
     local function diagnostic_payloads(diagnostics)
@@ -106,7 +120,7 @@ function M.Define(T)
     end
 
     local function protocol_diagnostic(d)
-        return L.DiagnosticPayload(protocol_range(d.range or {}), d.severity or 1, tostring(d.code or "E9999"), tostring(d.message or ""))
+        return L.DiagnosticPayload(protocol_range(d.range or {}), d.severity or 1, tostring(d.code or "E9999"), tostring(d.message or ""), {})
     end
 
     local function protocol_diagnostic_payloads(diagnostics)

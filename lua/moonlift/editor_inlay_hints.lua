@@ -1,4 +1,5 @@
-local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
+local erased = require("moonlift.phase_erased_runtime")
 local PositionIndex = require("moonlift.source_position_index")
 local SignatureHelp = require("moonlift.editor_signature_help")
 
@@ -58,8 +59,11 @@ function M.Define(T)
     local P = PositionIndex.Define(T)
     local Sig = SignatureHelp.Define(T)
 
-    local hints_phase = pvm.phase("moonlift_editor_inlay_hints", {
-        [E.RangeQuery] = function(query, analysis)
+    local function hints_phase(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, E.RangeQuery) then
+            return (function(query, analysis)
+
         local doc = analysis.parse.parts.document
         local index = P.build_index(doc)
         local out = {}
@@ -71,15 +75,15 @@ function M.Define(T)
                     local close_i = find_matching_paren(doc.text, open_i)
                     if close_i then
                         local pos_hit = P.offset_to_pos(index, open_i)
-                        if pvm.classof(pos_hit) == S.SourcePositionHit then
+                        if schema.classof(pos_hit) == S.SourcePositionHit then
                             local help = Sig.help(E.PositionQuery(query.uri, query.version, pos_hit.pos), analysis)
-                            if pvm.classof(help) == E.SignatureHelp and #help.signatures > 0 then
+                            if schema.classof(help) == E.SignatureHelp and #help.signatures > 0 then
                                 local sig = help.signatures[help.active_signature + 1] or help.signatures[1]
                                 local starts = argument_starts(doc.text, open_i, close_i)
                                 local count = math.min(#starts, #sig.params)
                                 for j = 1, count do
                                     local ppos = P.offset_to_pos(index, starts[j] - 1)
-                                    if pvm.classof(ppos) == S.SourcePositionHit then
+                                    if schema.classof(ppos) == S.SourcePositionHit then
                                         local name = sig.params[j].label:match("^([_%a][_%w]*)%s*:") or sig.params[j].label:match("^([_%a][_%w]*)%s*=") or sig.params[j].label
                                         out[#out + 1] = E.InlayHint(ppos.pos, name .. ":", "parameter")
                                     end
@@ -90,12 +94,15 @@ function M.Define(T)
                 end
             end
         end
-        return pvm.seq(out)
-        end,
-    }, { node_cache = "none", args_cache = "none" })
+        return erased.seq(out)
+            end)(node, ...)
+        else
+            error("erased phase moonlift_editor_inlay_hints: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
     local function hints(query, analysis)
-        return pvm.drain(hints_phase(query, analysis))
+        return hints_phase(query, analysis)
     end
 
     return { hints_phase = hints_phase, hints = hints }

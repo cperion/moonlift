@@ -1,4 +1,5 @@
-local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
+local erased = require("moonlift.phase_erased_runtime")
 
 local M = {}
 
@@ -15,12 +16,12 @@ function M.Define(T)
         if kind == Link.LinkerLld then return "ld.lld" end
         if kind == Link.LinkerAr then return "ar" end
         if kind == Link.LinkerLibtool then return "libtool" end
-        if pvm.classof(kind) == Link.LinkerCustom then return kind.name end
+        if schema.classof(kind) == Link.LinkerCustom then return kind.name end
         return "cc"
     end
 
     local function append_input(args, input)
-        local cls = pvm.classof(input)
+        local cls = schema.classof(input)
         if cls == Link.LinkInputObject or cls == Link.LinkInputStaticArchive or cls == Link.LinkInputSharedLibrary then
             args[#args + 1] = input.path.text
         elseif cls == Link.LinkInputSystemLibrary then
@@ -36,7 +37,7 @@ function M.Define(T)
     end
 
     local function append_option(args, target, option)
-        local cls = pvm.classof(option)
+        local cls = schema.classof(option)
         if cls == Link.LinkOptRuntimePath then
             args[#args + 1] = "-Wl,-rpath," .. option.path.path.text
         elseif cls == Link.LinkOptEntry then
@@ -63,9 +64,9 @@ function M.Define(T)
     end
 
     local function add_export_args(args, plan)
-        if pvm.classof(plan.exports) == Link.LinkExportVersionScript then
+        if schema.classof(plan.exports) == Link.LinkExportVersionScript then
             args[#args + 1] = "-Wl,--version-script," .. plan.exports.path.text
-        elseif pvm.classof(plan.exports) == Link.LinkExportSymbols then
+        elseif schema.classof(plan.exports) == Link.LinkExportSymbols then
             for i = 1, #plan.exports.symbols do
                 if plan.target.platform == Link.LinkPlatformMacOS then
                     args[#args + 1] = "-Wl,-exported_symbol,_" .. plan.exports.symbols[i].name
@@ -103,9 +104,16 @@ function M.Define(T)
         return Link.LinkCommandPlan(plan, { Link.LinkCmdRun(Link.LinkTool(plan.tool.kind, Link.LinkPath(tool_path(plan.tool))), args, {}) })
     end
 
-    local phase = pvm.phase("moonlift_link_command_plan", {
-        [Link.LinkPlan] = function(self) return pvm.once(command_plan(self)) end,
-    })
+    local function phase(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Link.LinkPlan) then
+            return (function(self)
+ return erased.once(command_plan(self))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_link_command_plan: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
     return {
         phase = phase,

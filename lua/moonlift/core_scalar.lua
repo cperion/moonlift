@@ -1,4 +1,5 @@
-local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
+local erased = require("moonlift.phase_erased_runtime")
 
 local M = {}
 
@@ -9,51 +10,143 @@ function M.Define(T)
     local scalar_bits
     local scalar_info
 
-    scalar_family = pvm.phase("moonlift_core_scalar_family", {
-        [C.ScalarVoid] = function() return pvm.once(C.ScalarFamilyVoid) end,
-        [C.ScalarBool] = function() return pvm.once(C.ScalarFamilyBool) end,
-        [C.ScalarI8] = function() return pvm.once(C.ScalarFamilySignedInt) end,
-        [C.ScalarI16] = function() return pvm.once(C.ScalarFamilySignedInt) end,
-        [C.ScalarI32] = function() return pvm.once(C.ScalarFamilySignedInt) end,
-        [C.ScalarI64] = function() return pvm.once(C.ScalarFamilySignedInt) end,
-        [C.ScalarU8] = function() return pvm.once(C.ScalarFamilyUnsignedInt) end,
-        [C.ScalarU16] = function() return pvm.once(C.ScalarFamilyUnsignedInt) end,
-        [C.ScalarU32] = function() return pvm.once(C.ScalarFamilyUnsignedInt) end,
-        [C.ScalarU64] = function() return pvm.once(C.ScalarFamilyUnsignedInt) end,
-        [C.ScalarF32] = function() return pvm.once(C.ScalarFamilyFloat) end,
-        [C.ScalarF64] = function() return pvm.once(C.ScalarFamilyFloat) end,
-        [C.ScalarRawPtr] = function() return pvm.once(C.ScalarFamilyRawPtr) end,
-        [C.ScalarIndex] = function() return pvm.once(C.ScalarFamilyIndex) end,
-    })
+    function scalar_family(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, C.ScalarVoid) then
+            return (function()
+ return erased.once(C.ScalarFamilyVoid)
+            end)(node, ...)
+        elseif schema.isa(node, C.ScalarBool) then
+            return (function()
+ return erased.once(C.ScalarFamilyBool)
+            end)(node, ...)
+        elseif schema.isa(node, C.ScalarI8) then
+            return (function()
+ return erased.once(C.ScalarFamilySignedInt)
+            end)(node, ...)
+        elseif schema.isa(node, C.ScalarI16) then
+            return (function()
+ return erased.once(C.ScalarFamilySignedInt)
+            end)(node, ...)
+        elseif schema.isa(node, C.ScalarI32) then
+            return (function()
+ return erased.once(C.ScalarFamilySignedInt)
+            end)(node, ...)
+        elseif schema.isa(node, C.ScalarI64) then
+            return (function()
+ return erased.once(C.ScalarFamilySignedInt)
+            end)(node, ...)
+        elseif schema.isa(node, C.ScalarU8) then
+            return (function()
+ return erased.once(C.ScalarFamilyUnsignedInt)
+            end)(node, ...)
+        elseif schema.isa(node, C.ScalarU16) then
+            return (function()
+ return erased.once(C.ScalarFamilyUnsignedInt)
+            end)(node, ...)
+        elseif schema.isa(node, C.ScalarU32) then
+            return (function()
+ return erased.once(C.ScalarFamilyUnsignedInt)
+            end)(node, ...)
+        elseif schema.isa(node, C.ScalarU64) then
+            return (function()
+ return erased.once(C.ScalarFamilyUnsignedInt)
+            end)(node, ...)
+        elseif schema.isa(node, C.ScalarF32) then
+            return (function()
+ return erased.once(C.ScalarFamilyFloat)
+            end)(node, ...)
+        elseif schema.isa(node, C.ScalarF64) then
+            return (function()
+ return erased.once(C.ScalarFamilyFloat)
+            end)(node, ...)
+        elseif schema.isa(node, C.ScalarRawPtr) then
+            return (function()
+ return erased.once(C.ScalarFamilyRawPtr)
+            end)(node, ...)
+        elseif schema.isa(node, C.ScalarIndex) then
+            return (function()
+ return erased.once(C.ScalarFamilyIndex)
+            end)(node, ...)
+        else
+            error("erased phase moonlift_core_scalar_family: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
-    scalar_bits = pvm.phase("moonlift_core_scalar_bits", {
-        [C.ScalarVoid] = function() return pvm.once(C.ScalarBits(0)) end,
-        [C.ScalarBool] = function() return pvm.once(C.ScalarBits(1)) end,
-        [C.ScalarI8] = function() return pvm.once(C.ScalarBits(8)) end,
-        [C.ScalarU8] = function() return pvm.once(C.ScalarBits(8)) end,
-        [C.ScalarI16] = function() return pvm.once(C.ScalarBits(16)) end,
-        [C.ScalarU16] = function() return pvm.once(C.ScalarBits(16)) end,
-        [C.ScalarI32] = function() return pvm.once(C.ScalarBits(32)) end,
-        [C.ScalarU32] = function() return pvm.once(C.ScalarBits(32)) end,
-        [C.ScalarF32] = function() return pvm.once(C.ScalarBits(32)) end,
-        [C.ScalarI64] = function() return pvm.once(C.ScalarBits(64)) end,
-        [C.ScalarU64] = function() return pvm.once(C.ScalarBits(64)) end,
-        [C.ScalarF64] = function() return pvm.once(C.ScalarBits(64)) end,
-        [C.ScalarRawPtr] = function() return pvm.once(C.ScalarBits(64)) end,
-        [C.ScalarIndex] = function() return pvm.once(C.ScalarBits(64)) end,
-    })
+    function scalar_bits(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, C.ScalarVoid) then
+            return (function()
+ return erased.once(C.ScalarBits(0))
+            end)(node, ...)
+        elseif schema.isa(node, C.ScalarBool) then
+            return (function()
+ return erased.once(C.ScalarBits(1))
+            end)(node, ...)
+        elseif schema.isa(node, C.ScalarI8) then
+            return (function()
+ return erased.once(C.ScalarBits(8))
+            end)(node, ...)
+        elseif schema.isa(node, C.ScalarU8) then
+            return (function()
+ return erased.once(C.ScalarBits(8))
+            end)(node, ...)
+        elseif schema.isa(node, C.ScalarI16) then
+            return (function()
+ return erased.once(C.ScalarBits(16))
+            end)(node, ...)
+        elseif schema.isa(node, C.ScalarU16) then
+            return (function()
+ return erased.once(C.ScalarBits(16))
+            end)(node, ...)
+        elseif schema.isa(node, C.ScalarI32) then
+            return (function()
+ return erased.once(C.ScalarBits(32))
+            end)(node, ...)
+        elseif schema.isa(node, C.ScalarU32) then
+            return (function()
+ return erased.once(C.ScalarBits(32))
+            end)(node, ...)
+        elseif schema.isa(node, C.ScalarF32) then
+            return (function()
+ return erased.once(C.ScalarBits(32))
+            end)(node, ...)
+        elseif schema.isa(node, C.ScalarI64) then
+            return (function()
+ return erased.once(C.ScalarBits(64))
+            end)(node, ...)
+        elseif schema.isa(node, C.ScalarU64) then
+            return (function()
+ return erased.once(C.ScalarBits(64))
+            end)(node, ...)
+        elseif schema.isa(node, C.ScalarF64) then
+            return (function()
+ return erased.once(C.ScalarBits(64))
+            end)(node, ...)
+        elseif schema.isa(node, C.ScalarRawPtr) then
+            return (function()
+ return erased.once(C.ScalarBits(64))
+            end)(node, ...)
+        elseif schema.isa(node, C.ScalarIndex) then
+            return (function()
+ return erased.once(C.ScalarBits(64))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_core_scalar_bits: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
-    scalar_info = pvm.phase("moonlift_core_scalar_info", function(scalar)
-        return C.ScalarInfo(pvm.one(scalar_family(scalar)), pvm.one(scalar_bits(scalar)))
-    end)
+    function scalar_info(scalar)
+        return C.ScalarInfo(erased.one(scalar_family(scalar)), erased.one(scalar_bits(scalar)))
+    end
 
     return {
         scalar_family = scalar_family,
         scalar_bits = scalar_bits,
         scalar_info = scalar_info,
-        family = function(scalar) return pvm.one(scalar_family(scalar)) end,
-        bits = function(scalar) return pvm.one(scalar_bits(scalar)) end,
-        info = function(scalar) return pvm.one(scalar_info(scalar)) end,
+        family = function(scalar) return erased.one(scalar_family(scalar)) end,
+        bits = function(scalar) return erased.one(scalar_bits(scalar)) end,
+        info = function(scalar) return scalar_info(scalar) end,
     }
 end
 

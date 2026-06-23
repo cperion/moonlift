@@ -1,4 +1,4 @@
-local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
 local PositionIndex = require("moonlift.source_position_index")
 local AnchorIndex = require("moonlift.source_anchor_index")
 
@@ -19,11 +19,11 @@ function M.Define(T)
     local P = PositionIndex.Define(T)
     local AI = AnchorIndex.Define(T)
 
-    local context_phase = pvm.phase("moonlift_editor_completion_context", function(query, analysis)
+    local function context_phase(query, analysis)
         local doc = analysis.parse.parts.document
         local index = P.build_index(doc)
         local hit = P.source_pos_to_offset(index, query.pos)
-        if pvm.classof(hit) ~= S.SourceOffsetHit then
+        if schema.classof(hit) ~= S.SourceOffsetHit then
             return E.CompletionInvalid(hit.reason)
         end
         local offset = hit.offset
@@ -62,10 +62,10 @@ function M.Define(T)
             return E.CompletionExprPosition
         end
         return E.CompletionInvalid("no completion context")
-    end, { node_cache = "none", args_cache = "none" })
+    end
 
     local function context(query, analysis)
-        return pvm.one(context_phase(query, analysis))
+        return context_phase(query, analysis)
     end
 
     return {

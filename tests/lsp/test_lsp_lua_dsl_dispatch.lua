@@ -16,11 +16,11 @@ assert(Dispatch.document_events_process, "LSP exposes document process")
 
 local uri = S.DocUri("file:///lsp_lua_dsl_test.lua")
 local doc = S.DocumentSnapshot(uri, S.DocVersion(1), S.LangLua, [[
-require("moonlift").use()
+require("moonlift").family.use { scope = "env", target = getfenv(1), global = false, override = true }
 
-return module "LspSmoke" {
-  fn. add { a [i32], b [i32] } [i32] {
-    ret (a + b),
+return moonlift.unit. LspSmoke {
+  moonlift.fn. add { a [moonlift.i32], b [moonlift.i32] } [moonlift.i32] {
+    moonlift.ret (a + b),
   },
 }
 ]])
@@ -52,11 +52,11 @@ assert(saw_index and saw_symbol, "LSP document process yields index and symbol e
 
 local bad_uri = S.DocUri("file:///lsp_lua_dsl_bad.lua")
 local bad_doc = S.DocumentSnapshot(bad_uri, S.DocVersion(1), S.LangLua, [[
-require("moonlift").use()
+require("moonlift").family.use { scope = "env", target = getfenv(1), global = false, override = true }
 
-return module "Bad" {
-  fn. bad {} [i32] {
-    ret true,
+return moonlift.unit. Bad {
+  moonlift.fn. bad {} [moonlift.i32] {
+    moonlift.ret true,
   },
 }
 ]])

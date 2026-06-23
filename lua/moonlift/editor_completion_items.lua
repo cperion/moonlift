@@ -1,4 +1,5 @@
-local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
+local erased = require("moonlift.phase_erased_runtime")
 local CompletionContext = require("moonlift.editor_completion_context")
 local PositionIndex = require("moonlift.source_position_index")
 
@@ -31,7 +32,7 @@ function M.Define(T)
     local function add_tree_types(items, analysis)
         for i = 1, #(analysis.parse.combined.module.items or {}) do
             local item = analysis.parse.combined.module.items[i]
-            if pvm.classof(item) == Tr.ItemType and item.t and item.t.name then
+            if schema.classof(item) == Tr.ItemType and item.t and item.t.name then
                 add(items, E, item.t.name, E.CompletionClass, "Moonlift type", "Known Moonlift type")
             end
         end
@@ -57,7 +58,7 @@ function M.Define(T)
     local function completion_prefix(query, analysis)
         local doc = analysis.parse.parts.document
         local hit = P.source_pos_to_offset(P.build_index(doc), query.position.pos)
-        if pvm.classof(hit) ~= S.SourceOffsetHit then return "" end
+        if schema.classof(hit) ~= S.SourceOffsetHit then return "" end
         return line_prefix_at(doc.text, hit.offset)
     end
 
@@ -83,8 +84,11 @@ function M.Define(T)
         return true
     end
 
-    local items_phase = pvm.phase("moonlift_editor_completion_items", {
-        [E.CompletionQuery] = function(query, analysis)
+    local function items_phase(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, E.CompletionQuery) then
+            return (function(query, analysis)
+
         local items = {}
         local context = query.context
         if context == E.CompletionTopLevel then
@@ -108,7 +112,7 @@ function M.Define(T)
             add(items, E, "invalidate", E.CompletionKeyword, "invalidating store parameter", "May move/free/reuse storage and conflicts with live leases")
             for i = 1, #analysis.parse.combined.decls.decls do
                 local d = analysis.parse.combined.decls.decls[i]
-                if pvm.classof(d) == H.HostDeclStruct then
+                if schema.classof(d) == H.HostDeclStruct then
                     add(items, E, d.decl.name, E.CompletionStruct, "host struct", "Known host struct")
                 end
             end
@@ -118,7 +122,7 @@ function M.Define(T)
             add(items, E, "ptr", E.CompletionSnippet, "pointer exposure", "Expose a pointer", "ptr(${1:T})")
             for i = 1, #analysis.parse.combined.decls.decls do
                 local d = analysis.parse.combined.decls.decls[i]
-                if pvm.classof(d) == H.HostDeclStruct then
+                if schema.classof(d) == H.HostDeclStruct then
                     add(items, E, d.decl.name, E.CompletionStruct, "host struct", "Expose this host struct")
                 end
             end
@@ -149,23 +153,32 @@ function M.Define(T)
                 add_jump_targets(items, analysis)
             end
         end
-        return pvm.seq(items)
-        end,
-    }, { node_cache = "none", args_cache = "none" })
+        return erased.seq(items)
+            end)(node, ...)
+        else
+            error("erased phase moonlift_editor_completion_items: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
-    local completion_phase = pvm.phase("moonlift_editor_completion", {
-        [E.PositionQuery] = function(position_query, analysis)
+    local function completion_phase(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, E.PositionQuery) then
+            return (function(position_query, analysis)
+
         local context = Context.context(position_query, analysis)
-        return pvm.seq(pvm.drain(items_phase(E.CompletionQuery(position_query, context), analysis)))
-        end,
-    }, { node_cache = "none", args_cache = "none" })
+        return erased.seq(items_phase(E.CompletionQuery(position_query, context), analysis))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_editor_completion: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
     local function items(completion_query, analysis)
-        return pvm.drain(items_phase(completion_query, analysis))
+        return items_phase(completion_query, analysis)
     end
 
     local function complete(position_query, analysis)
-        return pvm.drain(completion_phase(position_query, analysis))
+        return completion_phase(position_query, analysis)
     end
 
     return {

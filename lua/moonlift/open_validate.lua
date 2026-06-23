@@ -1,4 +1,6 @@
 local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
+local erased = require("moonlift.phase_erased_runtime")
 
 local M = {}
 
@@ -9,48 +11,161 @@ function M.Define(T)
     local fact_issue
     local validate_facts
 
-    slot_issue = pvm.phase("moonlift_open_slot_issue", {
-        [O.SlotType] = function(self) return pvm.once(O.IssueUnfilledTypeSlot(self.slot)) end,
-        [O.SlotValue] = function(self) return pvm.once(O.IssueOpenSlot(self)) end,
-        [O.SlotExpr] = function(self) return pvm.once(O.IssueUnfilledExprSlot(self.slot)) end,
-        [O.SlotPlace] = function(self) return pvm.once(O.IssueUnfilledPlaceSlot(self.slot)) end,
-        [O.SlotDomain] = function(self) return pvm.once(O.IssueUnfilledDomainSlot(self.slot)) end,
-        [O.SlotRegion] = function(self) return pvm.once(O.IssueUnfilledRegionSlot(self.slot)) end,
-        [O.SlotCont] = function(self) return pvm.once(O.IssueUnfilledContSlot(self.slot)) end,
-        [O.SlotFunc] = function(self) return pvm.once(O.IssueUnfilledFuncSlot(self.slot)) end,
-        [O.SlotConst] = function(self) return pvm.once(O.IssueUnfilledConstSlot(self.slot)) end,
-        [O.SlotStatic] = function(self) return pvm.once(O.IssueUnfilledStaticSlot(self.slot)) end,
-        [O.SlotTypeDecl] = function(self) return pvm.once(O.IssueUnfilledTypeDeclSlot(self.slot)) end,
-        [O.SlotItems] = function(self) return pvm.once(O.IssueUnfilledItemsSlot(self.slot)) end,
-        [O.SlotModule] = function(self) return pvm.once(O.IssueUnfilledModuleSlot(self.slot)) end,
-        [O.SlotRegionFrag] = function(self) return pvm.once(O.IssueUnfilledRegionFragSlot(self.slot)) end,
-        [O.SlotExprFrag] = function(self) return pvm.once(O.IssueUnfilledExprFragSlot(self.slot)) end,
-        [O.SlotName] = function(self) return pvm.once(O.IssueUnfilledNameSlot(self.slot)) end,
-    })
+    function slot_issue(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, O.SlotType) then
+            return (function(self)
+ return erased.once(O.IssueUnfilledTypeSlot(self.slot))
+            end)(node, ...)
+        elseif schema.isa(node, O.SlotValue) then
+            return (function(self)
+ return erased.once(O.IssueOpenSlot(self))
+            end)(node, ...)
+        elseif schema.isa(node, O.SlotExpr) then
+            return (function(self)
+ return erased.once(O.IssueUnfilledExprSlot(self.slot))
+            end)(node, ...)
+        elseif schema.isa(node, O.SlotPlace) then
+            return (function(self)
+ return erased.once(O.IssueUnfilledPlaceSlot(self.slot))
+            end)(node, ...)
+        elseif schema.isa(node, O.SlotDomain) then
+            return (function(self)
+ return erased.once(O.IssueUnfilledDomainSlot(self.slot))
+            end)(node, ...)
+        elseif schema.isa(node, O.SlotRegion) then
+            return (function(self)
+ return erased.once(O.IssueUnfilledRegionSlot(self.slot))
+            end)(node, ...)
+        elseif schema.isa(node, O.SlotCont) then
+            return (function(self)
+ return erased.once(O.IssueUnfilledContSlot(self.slot))
+            end)(node, ...)
+        elseif schema.isa(node, O.SlotFunc) then
+            return (function(self)
+ return erased.once(O.IssueUnfilledFuncSlot(self.slot))
+            end)(node, ...)
+        elseif schema.isa(node, O.SlotConst) then
+            return (function(self)
+ return erased.once(O.IssueUnfilledConstSlot(self.slot))
+            end)(node, ...)
+        elseif schema.isa(node, O.SlotStatic) then
+            return (function(self)
+ return erased.once(O.IssueUnfilledStaticSlot(self.slot))
+            end)(node, ...)
+        elseif schema.isa(node, O.SlotTypeDecl) then
+            return (function(self)
+ return erased.once(O.IssueUnfilledTypeDeclSlot(self.slot))
+            end)(node, ...)
+        elseif schema.isa(node, O.SlotItems) then
+            return (function(self)
+ return erased.once(O.IssueUnfilledItemsSlot(self.slot))
+            end)(node, ...)
+        elseif schema.isa(node, O.SlotModule) then
+            return (function(self)
+ return erased.once(O.IssueUnfilledModuleSlot(self.slot))
+            end)(node, ...)
+        elseif schema.isa(node, O.SlotRegionFrag) then
+            return (function(self)
+ return erased.once(O.IssueUnfilledRegionFragSlot(self.slot))
+            end)(node, ...)
+        elseif schema.isa(node, O.SlotExprFrag) then
+            return (function(self)
+ return erased.once(O.IssueUnfilledExprFragSlot(self.slot))
+            end)(node, ...)
+        elseif schema.isa(node, O.SlotName) then
+            return (function(self)
+ return erased.once(O.IssueUnfilledNameSlot(self.slot))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_open_slot_issue: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
-    fact_issue = pvm.phase("moonlift_open_fact_issue", {
-        [O.MetaFactSlot] = function(self) return slot_issue(self.slot) end,
-        [O.MetaFactParamUse] = function() return pvm.empty() end,
-        [O.MetaFactValueImportUse] = function(self) return pvm.once(O.IssueGenericValueImport(self.import)) end,
-        [O.MetaFactLocalValue] = function() return pvm.empty() end,
-        [O.MetaFactLocalCell] = function() return pvm.empty() end,
-        [O.MetaFactBlockParam] = function() return pvm.empty() end,
-        [O.MetaFactEntryBlockParam] = function() return pvm.empty() end,
-        [O.MetaFactGlobalFunc] = function() return pvm.empty() end,
-        [O.MetaFactGlobalConst] = function() return pvm.empty() end,
-        [O.MetaFactGlobalStatic] = function() return pvm.empty() end,
-        [O.MetaFactExtern] = function() return pvm.empty() end,
-        [O.MetaFactExprFragUse] = function(self) return pvm.once(O.IssueUnexpandedExprFragUse(self.use_id)) end,
-        [O.MetaFactRegionFragUse] = function(self) return pvm.once(O.IssueUnexpandedRegionFragUse(self.use_id)) end,
-        [O.MetaFactRegionFragSlotUse] = function(self) return pvm.once(O.IssueUnfilledRegionFragSlot(self.slot)) end,
-        [O.MetaFactExprFragSlotUse] = function(self) return pvm.once(O.IssueUnfilledExprFragSlot(self.slot)) end,
-        [O.MetaFactModuleUse] = function(self) return pvm.once(O.IssueUnexpandedModuleUse(self.use_id)) end,
-        [O.MetaFactModuleSlotUse] = function() return pvm.empty() end,
-        [O.MetaFactOpenModuleName] = function() return pvm.once(O.IssueOpenModuleName) end,
-        [O.MetaFactLocalType] = function() return pvm.empty() end,
-    })
+    function fact_issue(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, O.MetaFactSlot) then
+            return (function(self)
+ return slot_issue(self.slot)
+            end)(node, ...)
+        elseif schema.isa(node, O.MetaFactParamUse) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, O.MetaFactValueImportUse) then
+            return (function(self)
+ return erased.once(O.IssueGenericValueImport(self.import))
+            end)(node, ...)
+        elseif schema.isa(node, O.MetaFactLocalValue) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, O.MetaFactLocalCell) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, O.MetaFactBlockParam) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, O.MetaFactEntryBlockParam) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, O.MetaFactGlobalFunc) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, O.MetaFactGlobalConst) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, O.MetaFactGlobalStatic) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, O.MetaFactExtern) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, O.MetaFactExprFragUse) then
+            return (function(self)
+ return erased.once(O.IssueUnexpandedExprFragUse(self.use_id))
+            end)(node, ...)
+        elseif schema.isa(node, O.MetaFactRegionFragUse) then
+            return (function(self)
+ return erased.once(O.IssueUnexpandedRegionFragUse(self.use_id))
+            end)(node, ...)
+        elseif schema.isa(node, O.MetaFactRegionFragSlotUse) then
+            return (function(self)
+ return erased.once(O.IssueUnfilledRegionFragSlot(self.slot))
+            end)(node, ...)
+        elseif schema.isa(node, O.MetaFactExprFragSlotUse) then
+            return (function(self)
+ return erased.once(O.IssueUnfilledExprFragSlot(self.slot))
+            end)(node, ...)
+        elseif schema.isa(node, O.MetaFactModuleUse) then
+            return (function(self)
+ return erased.once(O.IssueUnexpandedModuleUse(self.use_id))
+            end)(node, ...)
+        elseif schema.isa(node, O.MetaFactModuleSlotUse) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, O.MetaFactOpenModuleName) then
+            return (function()
+ return erased.once(O.IssueOpenModuleName)
+            end)(node, ...)
+        elseif schema.isa(node, O.MetaFactLocalType) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        else
+            error("erased phase moonlift_open_fact_issue: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
-    validate_facts = pvm.phase("moonlift_open_validate_facts", function(fact_set)
+    function validate_facts(fact_set)
         local issues = {}
         local seen = {}
         for i = 1, #fact_set.facts do
@@ -65,7 +180,7 @@ function M.Define(T)
             end
         end
         return O.ValidationReport(issues)
-    end)
+    end
 
     local function emit_open_issues(report, collector)
         if collector and report and report.issues then
@@ -80,7 +195,7 @@ function M.Define(T)
         fact_issue = fact_issue,
         validate_facts = validate_facts,
         validate = function(fact_set, collector)
-            local result = pvm.one(validate_facts(fact_set))
+            local result = validate_facts(fact_set)
             emit_open_issues(result, collector)
             return result
         end,
@@ -95,7 +210,7 @@ function M.explain_open_issue(issue, analysis)
     local resolvers = require("moonlift.error.span_resolvers")
     local pvm = require("moonlift.pvm")
     local span = resolvers.open_resolver(issue, analysis)
-    local cls = pvm.classof(issue)
+    local cls = schema.classof(issue)
     if not cls then
         return { code = "E9999", severity = "error", primary = { span = span, message = tostring(issue) } }
     end

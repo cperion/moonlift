@@ -40,16 +40,17 @@ end
 
 function M.compile_jit(module, opts)
     opts = opts or {}
-    local program = M.lower_module(module, opts)
+    local run_opts = {}
+    for k, v in pairs(opts) do run_opts[k] = v end
+    run_opts.root = "jit"
+    local descriptor = M.lower_module(module, run_opts)
     local T = opts.context
     if T == nil then
         local cls = pvm.classof(module)
         T = cls and rawget(cls, "__context")
     end
     T = T or pvm.context()
-    local jit = require("moonlift.back_jit").Define(T).jit()
-    for name, ptr in pairs(opts.symbols or {}) do jit:symbol(name, ptr) end
-    return jit:compile(program)
+    return require("moonlift.native_runtime").Define(T).wrap(descriptor)
 end
 
 return M

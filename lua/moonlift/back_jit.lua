@@ -97,11 +97,11 @@ local function format_hex_bytes(bytes, cols)
 end
 
 function M.Define(T, opts)
-    local Back = T.MoonBack or T.MoonBack
+    local Compiler = T.MoonCompiler
     local Core = T.MoonCore or T.MoonCore
-    assert(Back and Core, "moonlift.back_jit.Define expects MoonBack/MoonCore in the context")
+    assert(Compiler and Core, "moonlift.back_jit.Define expects MoonCompiler/MoonCore in the context")
     local lib = load_library(opts and opts.libpath or nil)
-    local binary_api = require("moonlift.back_command_binary").Define(T)
+    local flatline_api = require("moonlift.flatline").Define(T)
 
     local function id_text(node) return type(node) == "string" and node or node.text end
     local function last_error()
@@ -153,9 +153,10 @@ function M.Define(T, opts)
     function Jit:symbol(name, ptr)
         check_ok(lib.moonlift_jit_symbol(self._raw, cstring(name), ffi.cast("const void*", ptr)), "moonlift.back_jit jit:symbol")
     end
-    function Jit:compile(program)
-        assert(pvm.classof(program) == Back.BackProgram, "moonlift.back_jit compile expects MoonBack.BackProgram")
-        local payload = binary_api.encode(program)
+    function Jit:compile(image)
+        assert(pvm.classof(image) == Compiler.FlatlineImage, "moonlift.back_jit compile expects MoonCompiler.FlatlineImage")
+        flatline_api.assert_valid_image(image)
+        local payload = image.bytes
         local buf = ffi.new("uint8_t[?]", #payload)
         ffi.copy(buf, payload, #payload)
         local raw_artifact = check_ptr(lib.moonlift_jit_compile_binary(self._raw, buf, #payload), "moonlift.back_jit jit:compile_binary")
@@ -172,6 +173,7 @@ function M.Define(T, opts)
 
     return {
         lib = lib,
+        flatline = flatline_api,
         jit = function()
             local j = setmetatable({ _raw = check_ptr(lib.moonlift_jit_new(), "moonlift.back_jit jit_new") }, Jit)
             j:symbol("__ml_memcpy", ffi.cast("const void*", lib.__ml_memcpy))

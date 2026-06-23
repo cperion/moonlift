@@ -1,4 +1,5 @@
-local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
+local erased = require("moonlift.phase_erased_runtime")
 
 local M = {}
 
@@ -34,12 +35,15 @@ end
 function M.Define(T)
     local S = T.MoonSource
 
-    local build_index_phase = pvm.phase("moonlift_source_anchor_index", function(anchor_set)
+    local function build_index_phase(anchor_set)
         return S.AnchorIndex(anchor_set, sorted_copy(anchor_set.anchors))
-    end)
+    end
 
-    local lookup_phase = pvm.phase("moonlift_source_anchor_lookup", {
-        [S.AnchorQueryId] = function(query)
+    local function lookup_phase(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, S.AnchorQueryId) then
+            return (function(query)
+
             local out = {}
             for i = 1, #query.index.anchors do
                 local anchor = query.index.anchors[i]
@@ -47,9 +51,11 @@ function M.Define(T)
                     out[#out + 1] = anchor
                 end
             end
-            return pvm.once(S.AnchorLookup(out))
-        end,
-        [S.AnchorQueryPosition] = function(query)
+            return erased.once(S.AnchorLookup(out))
+            end)(node, ...)
+        elseif schema.isa(node, S.AnchorQueryPosition) then
+            return (function(query)
+
             local out = {}
             for i = 1, #query.index.anchors do
                 local anchor = query.index.anchors[i]
@@ -61,9 +67,11 @@ function M.Define(T)
                 end
             end
             table.sort(out, anchor_specificity)
-            return pvm.once(S.AnchorLookup(out))
-        end,
-        [S.AnchorQueryRange] = function(query)
+            return erased.once(S.AnchorLookup(out))
+            end)(node, ...)
+        elseif schema.isa(node, S.AnchorQueryRange) then
+            return (function(query)
+
             local out = {}
             local q = query.range
             for i = 1, #query.index.anchors do
@@ -74,16 +82,19 @@ function M.Define(T)
                 end
             end
             table.sort(out, anchor_specificity)
-            return pvm.once(S.AnchorLookup(out))
-        end,
-    })
+            return erased.once(S.AnchorLookup(out))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_source_anchor_lookup: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
     local function build_index(anchor_set)
-        return pvm.one(build_index_phase(anchor_set))
+        return build_index_phase(anchor_set)
     end
 
     local function lookup(query)
-        return pvm.one(lookup_phase(query))
+        return erased.one(lookup_phase(query))
     end
 
     local function lookup_by_id(index, id)

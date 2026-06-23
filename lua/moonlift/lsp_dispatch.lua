@@ -1,4 +1,4 @@
-local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
 local llb = require("llb")
 local AnalysisMod = require("moonlift.mlua_document_analysis")
 local WorkspaceMod = require("moonlift.lsp_workspace")
@@ -59,13 +59,13 @@ function M.Define(T)
     local diagnostics_disabled = os.getenv("MOONLIFT_LSP_DISABLE_DIAGNOSTICS") == "1"
     local memlog = os.getenv("MOONLIFT_LSP_MEMLOG") == "1"
 
-    local analyze_document_phase = pvm.phase("moonlift_lsp_analyze_document", function(doc)
+    local function analyze_document_phase(doc)
         return Analysis.analyze_document_light(doc)
-    end)
+    end
 
-    local diagnostic_document_phase = pvm.phase("moonlift_lsp_diagnostic_document", function(doc)
+    local function diagnostic_document_phase(doc)
         return Analysis.analyze_document_full(doc)
-    end)
+    end
 
     local function log_analysis(stage, mode, doc)
         if memlog then
@@ -85,7 +85,7 @@ function M.Define(T)
         local cached = analysis_cache[doc]
         if cached then return cached end
         log_analysis("begin", "light", doc)
-        local analysis = pvm.one(analyze_document_phase:triplet_uncached(doc))
+        local analysis = analyze_document_phase(doc)
         log_analysis("end", "light", doc)
         analysis_cache[doc] = analysis
         return analysis
@@ -95,7 +95,7 @@ function M.Define(T)
         local cached = diagnostic_analysis_cache[doc]
         if cached then return cached end
         log_analysis("begin", "diagnostic", doc)
-        local analysis = pvm.one(diagnostic_document_phase:triplet_uncached(doc))
+        local analysis = diagnostic_document_phase(doc)
         log_analysis("end", "diagnostic", doc)
         diagnostic_analysis_cache[doc] = analysis
         return analysis
@@ -250,7 +250,7 @@ function M.Define(T)
     local function subject_ids_at(query, analysis)
         local pick = Subject.subject_at(query, analysis)
         local label = pick and pick.anchors and pick.anchors[1] and pick.anchors[1].label or nil
-        local cls = pvm.classof(pick.subject)
+        local cls = schema.classof(pick.subject)
         if cls == E.SubjectKeyword or cls == E.SubjectDiagnostic then return {}, label end
         local id = cls ~= E.SubjectMissing and Bindings.subject_key(pick.subject) or nil
         if id then return { id }, label end
@@ -344,14 +344,14 @@ function M.Define(T)
         return L.PayloadDiagnosticDocumentReport(Adapt.diagnostic_document_report(diagnostics_from_process(doc)))
     end
 
-    local client_exit_class = pvm.classof(E.ClientExit)
+    local client_exit_class = schema.classof(E.ClientExit)
     local function is_bare(cls, event, variant, variant_class)
         return event == variant or (variant_class ~= false and cls == variant_class)
     end
 
-    local dispatch_phase = pvm.phase("moonlift_lsp_dispatch", function(tr)
+    local function dispatch_phase(tr)
         local event = tr.event
-        local cls = pvm.classof(event)
+        local cls = schema.classof(event)
         local state = tr.after
         local out = {}
 
@@ -381,7 +381,7 @@ function M.Define(T)
                 local ranges = #ids > 0 and workspace_definition_ranges(state, ids) or {}
                 if #ranges == 0 then
                     local def = Def.definition(event.query, analysis)
-                    ranges = pvm.classof(def) == E.DefinitionHit and def.ranges or {}
+                    ranges = schema.classof(def) == E.DefinitionHit and def.ranges or {}
                 end
                 return L.PayloadLocations(Adapt.locations(ranges))
             end)
@@ -391,7 +391,7 @@ function M.Define(T)
                 local ranges = #ids > 0 and workspace_ranges_for_subjects(state, ids, event.query.include_declaration, label) or {}
                 if #ranges == 0 then
                     local refs = Refs.references(event.query, analysis)
-                    ranges = pvm.classof(refs) == E.ReferenceHit and refs.ranges or {}
+                    ranges = schema.classof(refs) == E.ReferenceHit and refs.ranges or {}
                 end
                 return L.PayloadLocations(Adapt.locations(ranges))
             end)
@@ -412,7 +412,7 @@ function M.Define(T)
         elseif cls == E.ClientSignatureHelp then
             out[#out + 1] = with_doc(state, event.query.uri, event.id, L.PayloadNull, function(_, analysis)
                 local help = Sig.help(event.query, analysis)
-                if pvm.classof(help) == E.SignatureHelp then return L.PayloadSignatureHelp(Adapt.signature_help(help)) end
+                if schema.classof(help) == E.SignatureHelp then return L.PayloadSignatureHelp(Adapt.signature_help(help)) end
                 return L.PayloadNull
             end)
         elseif cls == E.ClientSemanticTokensFull then
@@ -426,7 +426,7 @@ function M.Define(T)
         elseif cls == E.ClientPrepareRename then
             out[#out + 1] = with_doc(state, event.query.uri, event.id, L.PayloadNull, function(_, analysis)
                 local prepared = Ren.prepare_rename(event.query, analysis)
-                if pvm.classof(prepared) == E.PrepareRenameOk then return L.PayloadPrepareRename(Adapt.prepare_rename(prepared)) end
+                if schema.classof(prepared) == E.PrepareRenameOk then return L.PayloadPrepareRename(Adapt.prepare_rename(prepared)) end
                 return L.PayloadNull
             end)
         elseif cls == E.ClientRename then
@@ -435,7 +435,7 @@ function M.Define(T)
                 local edits = #ids > 0 and workspace_rename_edits(state, ids, label, event.query.new_name) or {}
                 if #edits == 0 then
                     local rr = Ren.rename(event.query, analysis)
-                    edits = pvm.classof(rr) == E.RenameOk and rr.edits or {}
+                    edits = schema.classof(rr) == E.RenameOk and rr.edits or {}
                 end
                 return L.PayloadWorkspaceEdit(Adapt.workspace_edit(edits))
             end)
@@ -461,10 +461,10 @@ function M.Define(T)
         end
 
         return out
-    end, { node_cache = "none", args_cache = "none" })
+    end
 
     local function commands(transition)
-        return pvm.one(dispatch_phase(transition))
+        return dispatch_phase(transition)
     end
 
     return {

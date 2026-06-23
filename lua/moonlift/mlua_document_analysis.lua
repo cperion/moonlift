@@ -25,9 +25,9 @@ local function append_decl_items(out, value)
         return
     end
     if is_decl(value) then
-        if value.kind == "module" then
-            local module = value:syntax()
-            for i = 1, #module.items do out[#out + 1] = module.items[i] end
+        if value.kind == "unit" then
+            local unit_module = value:syntax()
+            for i = 1, #unit_module.items do out[#out + 1] = unit_module.items[i] end
         else
             out[#out + 1] = value:syntax_item()
         end
@@ -132,14 +132,8 @@ function M.Define(T)
         end
 
         local text = doc.text or ""
-        local pos = 1
-        while true do
-            local _, _, s, name, e = text:find("%f[%w_]module%f[^%w_]%s*['\"]()([^'\"]+)()", pos)
-            if not s then break end
-            out[#out + 1] = anchor(index, "module." .. name .. "." .. tostring(s), S.AnchorModuleName, name, s - 1, e - 2)
-            pos = e
-        end
 
+        add_dot_head_anchors(out, index, text, "unit", S.AnchorModuleName)
         add_dot_head_anchors(out, index, text, "fn", S.AnchorFunctionName)
         add_dot_head_anchors(out, index, text, "export_fn", S.AnchorFunctionName)
         add_dot_head_anchors(out, index, text, "extern", S.AnchorFunctionName)

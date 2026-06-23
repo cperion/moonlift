@@ -1,4 +1,5 @@
-local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
+local erased = require("moonlift.phase_erased_runtime")
 local PositionIndex = require("moonlift.source_position_index")
 
 local M = {}
@@ -18,19 +19,19 @@ local function find_anchor(anchor_set, kind, label)
 end
 
 local function func_name(pvm, Tr, func)
-    local cls = pvm.classof(func)
+    local cls = schema.classof(func)
     if cls == Tr.FuncOpen then return func.sym.name end
     return func.name
 end
 
 local function type_decl_name(pvm, Tr, decl)
-    local cls = pvm.classof(decl)
+    local cls = schema.classof(decl)
     if cls == Tr.TypeDeclOpenStruct or cls == Tr.TypeDeclOpenUnion then return decl.sym.name end
     return decl.name
 end
 
 local function const_name(pvm, Tr, item)
-    local cls = pvm.classof(item)
+    local cls = schema.classof(item)
     if cls == Tr.ConstItemOpen or cls == Tr.StaticItemOpen then return item.sym.name end
     return item.name
 end
@@ -56,8 +57,11 @@ function M.Define(T)
         return a and a.range or full_range(analysis)
     end
 
-    local symbol_facts_phase = pvm.phase("moonlift_editor_symbol_facts", {
-        [Mlua.DocumentAnalysis] = function(analysis)
+    local function symbol_facts_phase(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Mlua.DocumentAnalysis) then
+            return (function(analysis)
+
             local symbols = {}
             local seen = {}
             local function emit(id_text, parent, name, kind, detail, range, selection, subject)
@@ -69,7 +73,7 @@ function M.Define(T)
             for i = 1, #analysis.anchors.anchors do
                 local a = analysis.anchors.anchors[i]
                 if a.kind == S.AnchorModuleName then
-                    emit("tree.module." .. a.label, ROOT, a.label, E.SymModule, "Moonlift module", a.range, a.range, E.SubjectTreeModule(analysis.parse.combined.module))
+                    emit("tree.unit." .. a.label, ROOT, a.label, E.SymModule, "Moonlift unit", a.range, a.range, E.SubjectTreeModule(analysis.parse.combined.module))
                 elseif a.kind == S.AnchorContinuationName then
                     emit("control.label." .. a.id.text, ROOT, a.label, E.SymEvent, "control label", a.range, a.range, E.SubjectContinuation(a.id, Tr.BlockLabel(a.label)))
                 elseif a.kind == S.AnchorFunctionName then
@@ -83,7 +87,7 @@ function M.Define(T)
 
             for i = 1, #analysis.parse.combined.decls.decls do
                 local decl = analysis.parse.combined.decls.decls[i]
-                local cls = pvm.classof(decl)
+                local cls = schema.classof(decl)
                 if cls == H.HostDeclStruct then
                     local s = decl.decl
                     local range = range_for(analysis, S.AnchorStructName, s.name)
@@ -109,7 +113,7 @@ function M.Define(T)
 
             for i = 1, #analysis.parse.combined.module.items do
                 local item = analysis.parse.combined.module.items[i]
-                local cls = pvm.classof(item)
+                local cls = schema.classof(item)
                 if cls == Tr.ItemFunc then
                     local name = func_name(pvm, Tr, item.func)
                     local range = range_for(analysis, S.AnchorFunctionName, name)
@@ -158,12 +162,15 @@ function M.Define(T)
                 end
             end
 
-            return pvm.seq(symbols)
-        end,
-    })
+            return erased.seq(symbols)
+            end)(node, ...)
+        else
+            error("erased phase moonlift_editor_symbol_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
     local function symbols(analysis)
-        return pvm.drain(symbol_facts_phase(analysis))
+        return symbol_facts_phase(analysis)
     end
 
     local function symbol_tree(analysis)

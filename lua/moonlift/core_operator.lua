@@ -1,4 +1,5 @@
-local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
+local erased = require("moonlift.phase_erased_runtime")
 
 local M = {}
 
@@ -10,62 +11,183 @@ function M.Define(T)
     local cmp_class
     local intrinsic_class
 
-    unary_class = pvm.phase("moonlift_core_unary_op_class", {
-        [C.UnaryNeg] = function() return pvm.once(C.UnaryClassArithmetic) end,
-        [C.UnaryNot] = function() return pvm.once(C.UnaryClassLogical) end,
-        [C.UnaryBitNot] = function() return pvm.once(C.UnaryClassBitwise) end,
-    })
+    function unary_class(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, C.UnaryNeg) then
+            return (function()
+ return erased.once(C.UnaryClassArithmetic)
+            end)(node, ...)
+        elseif schema.isa(node, C.UnaryNot) then
+            return (function()
+ return erased.once(C.UnaryClassLogical)
+            end)(node, ...)
+        elseif schema.isa(node, C.UnaryBitNot) then
+            return (function()
+ return erased.once(C.UnaryClassBitwise)
+            end)(node, ...)
+        else
+            error("erased phase moonlift_core_unary_op_class: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
-    binary_class = pvm.phase("moonlift_core_binary_op_class", {
-        [C.BinAdd] = function() return pvm.once(C.BinaryClassArithmetic) end,
-        [C.BinSub] = function() return pvm.once(C.BinaryClassArithmetic) end,
-        [C.BinMul] = function() return pvm.once(C.BinaryClassArithmetic) end,
-        [C.BinDiv] = function() return pvm.once(C.BinaryClassDivision) end,
-        [C.BinRem] = function() return pvm.once(C.BinaryClassRemainder) end,
-        [C.BinBitAnd] = function() return pvm.once(C.BinaryClassBitwise) end,
-        [C.BinBitOr] = function() return pvm.once(C.BinaryClassBitwise) end,
-        [C.BinBitXor] = function() return pvm.once(C.BinaryClassBitwise) end,
-        [C.BinShl] = function() return pvm.once(C.BinaryClassShift) end,
-        [C.BinLShr] = function() return pvm.once(C.BinaryClassShift) end,
-        [C.BinAShr] = function() return pvm.once(C.BinaryClassShift) end,
-    })
+    function binary_class(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, C.BinAdd) then
+            return (function()
+ return erased.once(C.BinaryClassArithmetic)
+            end)(node, ...)
+        elseif schema.isa(node, C.BinSub) then
+            return (function()
+ return erased.once(C.BinaryClassArithmetic)
+            end)(node, ...)
+        elseif schema.isa(node, C.BinMul) then
+            return (function()
+ return erased.once(C.BinaryClassArithmetic)
+            end)(node, ...)
+        elseif schema.isa(node, C.BinDiv) then
+            return (function()
+ return erased.once(C.BinaryClassDivision)
+            end)(node, ...)
+        elseif schema.isa(node, C.BinRem) then
+            return (function()
+ return erased.once(C.BinaryClassRemainder)
+            end)(node, ...)
+        elseif schema.isa(node, C.BinBitAnd) then
+            return (function()
+ return erased.once(C.BinaryClassBitwise)
+            end)(node, ...)
+        elseif schema.isa(node, C.BinBitOr) then
+            return (function()
+ return erased.once(C.BinaryClassBitwise)
+            end)(node, ...)
+        elseif schema.isa(node, C.BinBitXor) then
+            return (function()
+ return erased.once(C.BinaryClassBitwise)
+            end)(node, ...)
+        elseif schema.isa(node, C.BinShl) then
+            return (function()
+ return erased.once(C.BinaryClassShift)
+            end)(node, ...)
+        elseif schema.isa(node, C.BinLShr) then
+            return (function()
+ return erased.once(C.BinaryClassShift)
+            end)(node, ...)
+        elseif schema.isa(node, C.BinAShr) then
+            return (function()
+ return erased.once(C.BinaryClassShift)
+            end)(node, ...)
+        else
+            error("erased phase moonlift_core_binary_op_class: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
-    cmp_class = pvm.phase("moonlift_core_cmp_op_class", {
-        [C.CmpEq] = function() return pvm.once(C.CmpClassEquality) end,
-        [C.CmpNe] = function() return pvm.once(C.CmpClassEquality) end,
-        [C.CmpLt] = function() return pvm.once(C.CmpClassOrdering) end,
-        [C.CmpLe] = function() return pvm.once(C.CmpClassOrdering) end,
-        [C.CmpGt] = function() return pvm.once(C.CmpClassOrdering) end,
-        [C.CmpGe] = function() return pvm.once(C.CmpClassOrdering) end,
-    })
+    function cmp_class(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, C.CmpEq) then
+            return (function()
+ return erased.once(C.CmpClassEquality)
+            end)(node, ...)
+        elseif schema.isa(node, C.CmpNe) then
+            return (function()
+ return erased.once(C.CmpClassEquality)
+            end)(node, ...)
+        elseif schema.isa(node, C.CmpLt) then
+            return (function()
+ return erased.once(C.CmpClassOrdering)
+            end)(node, ...)
+        elseif schema.isa(node, C.CmpLe) then
+            return (function()
+ return erased.once(C.CmpClassOrdering)
+            end)(node, ...)
+        elseif schema.isa(node, C.CmpGt) then
+            return (function()
+ return erased.once(C.CmpClassOrdering)
+            end)(node, ...)
+        elseif schema.isa(node, C.CmpGe) then
+            return (function()
+ return erased.once(C.CmpClassOrdering)
+            end)(node, ...)
+        else
+            error("erased phase moonlift_core_cmp_op_class: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
-    intrinsic_class = pvm.phase("moonlift_core_intrinsic_class", {
-        [C.IntrinsicPopcount] = function() return pvm.once(C.IntrinsicClassBit) end,
-        [C.IntrinsicClz] = function() return pvm.once(C.IntrinsicClassBit) end,
-        [C.IntrinsicCtz] = function() return pvm.once(C.IntrinsicClassBit) end,
-        [C.IntrinsicRotl] = function() return pvm.once(C.IntrinsicClassBit) end,
-        [C.IntrinsicRotr] = function() return pvm.once(C.IntrinsicClassBit) end,
-        [C.IntrinsicBswap] = function() return pvm.once(C.IntrinsicClassBit) end,
-        [C.IntrinsicFma] = function() return pvm.once(C.IntrinsicClassFused) end,
-        [C.IntrinsicSqrt] = function() return pvm.once(C.IntrinsicClassFloat) end,
-        [C.IntrinsicAbs] = function() return pvm.once(C.IntrinsicClassFloat) end,
-        [C.IntrinsicFloor] = function() return pvm.once(C.IntrinsicClassFloat) end,
-        [C.IntrinsicCeil] = function() return pvm.once(C.IntrinsicClassFloat) end,
-        [C.IntrinsicTruncFloat] = function() return pvm.once(C.IntrinsicClassFloat) end,
-        [C.IntrinsicRound] = function() return pvm.once(C.IntrinsicClassFloat) end,
-        [C.IntrinsicTrap] = function() return pvm.once(C.IntrinsicClassControl) end,
-        [C.IntrinsicAssume] = function() return pvm.once(C.IntrinsicClassControl) end,
-    })
+    function intrinsic_class(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, C.IntrinsicPopcount) then
+            return (function()
+ return erased.once(C.IntrinsicClassBit)
+            end)(node, ...)
+        elseif schema.isa(node, C.IntrinsicClz) then
+            return (function()
+ return erased.once(C.IntrinsicClassBit)
+            end)(node, ...)
+        elseif schema.isa(node, C.IntrinsicCtz) then
+            return (function()
+ return erased.once(C.IntrinsicClassBit)
+            end)(node, ...)
+        elseif schema.isa(node, C.IntrinsicRotl) then
+            return (function()
+ return erased.once(C.IntrinsicClassBit)
+            end)(node, ...)
+        elseif schema.isa(node, C.IntrinsicRotr) then
+            return (function()
+ return erased.once(C.IntrinsicClassBit)
+            end)(node, ...)
+        elseif schema.isa(node, C.IntrinsicBswap) then
+            return (function()
+ return erased.once(C.IntrinsicClassBit)
+            end)(node, ...)
+        elseif schema.isa(node, C.IntrinsicFma) then
+            return (function()
+ return erased.once(C.IntrinsicClassFused)
+            end)(node, ...)
+        elseif schema.isa(node, C.IntrinsicSqrt) then
+            return (function()
+ return erased.once(C.IntrinsicClassFloat)
+            end)(node, ...)
+        elseif schema.isa(node, C.IntrinsicAbs) then
+            return (function()
+ return erased.once(C.IntrinsicClassFloat)
+            end)(node, ...)
+        elseif schema.isa(node, C.IntrinsicFloor) then
+            return (function()
+ return erased.once(C.IntrinsicClassFloat)
+            end)(node, ...)
+        elseif schema.isa(node, C.IntrinsicCeil) then
+            return (function()
+ return erased.once(C.IntrinsicClassFloat)
+            end)(node, ...)
+        elseif schema.isa(node, C.IntrinsicTruncFloat) then
+            return (function()
+ return erased.once(C.IntrinsicClassFloat)
+            end)(node, ...)
+        elseif schema.isa(node, C.IntrinsicRound) then
+            return (function()
+ return erased.once(C.IntrinsicClassFloat)
+            end)(node, ...)
+        elseif schema.isa(node, C.IntrinsicTrap) then
+            return (function()
+ return erased.once(C.IntrinsicClassControl)
+            end)(node, ...)
+        elseif schema.isa(node, C.IntrinsicAssume) then
+            return (function()
+ return erased.once(C.IntrinsicClassControl)
+            end)(node, ...)
+        else
+            error("erased phase moonlift_core_intrinsic_class: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
     return {
         unary_class = unary_class,
         binary_class = binary_class,
         cmp_class = cmp_class,
         intrinsic_class = intrinsic_class,
-        unary = function(op) return pvm.one(unary_class(op)) end,
-        binary = function(op) return pvm.one(binary_class(op)) end,
-        cmp = function(op) return pvm.one(cmp_class(op)) end,
-        intrinsic = function(op) return pvm.one(intrinsic_class(op)) end,
+        unary = function(op) return erased.one(unary_class(op)) end,
+        binary = function(op) return erased.one(binary_class(op)) end,
+        cmp = function(op) return erased.one(cmp_class(op)) end,
+        intrinsic = function(op) return erased.one(intrinsic_class(op)) end,
     }
 end
 

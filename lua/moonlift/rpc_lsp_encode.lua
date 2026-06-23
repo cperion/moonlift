@@ -32,8 +32,28 @@ function M.Define(T)
         return "plaintext"
     end
 
+    local function diagnostic_message(message, context)
+        if not context or #context == 0 then return message end
+        local out = { tostring(message or ""), "\n  context:" }
+        for i = 1, #context do
+            local frame = context[i]
+            local label = tostring(frame.label or "context")
+            local text = tostring(frame.message or "")
+            if text ~= "" then
+                out[#out + 1] = "\n    - " .. label .. ": " .. text:gsub("\n", "\n      ")
+            end
+        end
+        return table.concat(out)
+    end
+
     local function diag_lua(d)
-        return { range = range_lua(d.range), severity = d.severity, code = d.code, source = "moonlift", message = d.message }
+        return {
+            range = range_lua(d.range),
+            severity = d.severity,
+            code = d.code,
+            source = "moonlift",
+            message = diagnostic_message(d.message, d.context),
+        }
     end
 
     local function hover_lua(h)

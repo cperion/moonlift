@@ -1,4 +1,6 @@
 local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
+local erased = require("moonlift.phase_erased_runtime")
 
 local M = {}
 
@@ -8,17 +10,42 @@ function M.Define(T)
     local mark_fact
     local decide_facts
 
-    mark_fact = pvm.phase("moonlift_bind_residence_mark_fact", {
-        [B.ResidenceFactBinding] = function() return pvm.empty() end,
-        [B.ResidenceFactAddressTaken] = function(self, state) state.address[self.binding] = true; return pvm.empty() end,
-        [B.ResidenceFactMutableCell] = function(self, state) state.mutable[self.binding] = true; return pvm.empty() end,
-        [B.ResidenceFactNonScalarAbi] = function(self, state) state.nonscalar[self.binding] = true; return pvm.empty() end,
-        [B.ResidenceFactMaterializedTemporary] = function(self, state) state.materialized[self.binding] = true; return pvm.empty() end,
-        [B.ResidenceFactBackendRequired] = function(self, state) state.backend[self.binding] = true; return pvm.empty() end,
-    }, { args_cache = "none" })
+    function mark_fact(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, B.ResidenceFactBinding) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, B.ResidenceFactAddressTaken) then
+            return (function(self, state)
+ state.address[self.binding] = true; return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, B.ResidenceFactMutableCell) then
+            return (function(self, state)
+ state.mutable[self.binding] = true; return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, B.ResidenceFactNonScalarAbi) then
+            return (function(self, state)
+ state.nonscalar[self.binding] = true; return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, B.ResidenceFactMaterializedTemporary) then
+            return (function(self, state)
+ state.materialized[self.binding] = true; return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, B.ResidenceFactBackendRequired) then
+            return (function(self, state)
+ state.backend[self.binding] = true; return erased.empty()
+            end)(node, ...)
+        else
+            error("erased phase moonlift_bind_residence_mark_fact: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
-    decide_facts = pvm.phase("moonlift_bind_residence_decide_facts", {
-        [B.ResidenceFactSet] = function(fact_set)
+    function decide_facts(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, B.ResidenceFactSet) then
+            return (function(fact_set)
+
             local state = {
                 bindings = {}, seen = {}, address = {}, mutable = {}, nonscalar = {}, materialized = {}, backend = {},
             }
@@ -48,14 +75,17 @@ function M.Define(T)
                     decisions[#decisions + 1] = B.ResidenceDecision(binding, B.ResidenceValue, B.ResidenceBecauseDefault)
                 end
             end
-            return pvm.once(B.ResidencePlan(decisions))
-        end,
-    })
+            return erased.once(B.ResidencePlan(decisions))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_bind_residence_decide_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
     return {
         mark_fact = mark_fact,
         decide_facts = decide_facts,
-        decide = function(facts) return pvm.one(decide_facts(facts)) end,
+        decide = function(facts) return erased.one(decide_facts(facts)) end,
     }
 end
 

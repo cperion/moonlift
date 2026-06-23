@@ -1,4 +1,4 @@
-local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
 local SubjectAt = require("moonlift.editor_subject_at")
 local BindingFacts = require("moonlift.editor_binding_facts")
 
@@ -17,9 +17,9 @@ function M.Define(T)
     local Subject = SubjectAt.Define(T)
     local Bindings = BindingFacts.Define(T)
 
-    local definition_phase = pvm.phase("moonlift_editor_definition", function(query, analysis)
+    local function definition_phase(query, analysis)
         local pick = Subject.subject_at(query, analysis)
-        local cls = pvm.classof(pick.subject)
+        local cls = schema.classof(pick.subject)
         if cls == E.SubjectMissing or cls == E.SubjectKeyword or cls == E.SubjectDiagnostic then
             return E.DefinitionMiss("subject has no definition")
         end
@@ -34,10 +34,10 @@ function M.Define(T)
         end
         if #ranges == 0 then return E.DefinitionMiss("definition not found") end
         return E.DefinitionHit(pick.subject, ranges)
-    end, { node_cache = "none", args_cache = "none" })
+    end
 
     local function definition(query, analysis)
-        return pvm.one(definition_phase(query, analysis))
+        return definition_phase(query, analysis)
     end
 
     return { definition_phase = definition_phase, definition = definition }

@@ -25,10 +25,10 @@ Minimal grammar example:
     g.scalar .i32,
     g.type_ctor .ptr { arity = 1 },
 
-    g.head .module {
+    g.head .unit {
       g.slot .name  [g.string],
       g.slot .decls [g.decls],
-      emit = function(n) return { tag = "module", name = n.name, decls = n.decls } end,
+      emit = function(n) return { tag = "unit", name = n.name, decls = n.decls } end,
     },
 
     g.head .fn {
@@ -45,10 +45,29 @@ Minimal grammar example:
 
 User DSL:
 
-  return module "Demo" {
+  return {
     fn. add { a [i32], b [i32] } [i32] { ret (a + b), },
   }
 ]]
+
+-- This file is intentionally a single-file workbench. The public model is
+-- small:
+--
+--   Lua values are the syntax tree.
+--   Metatables provide the authoring protocol.
+--   Roles give raw Lua shapes meaning.
+--   Families make many DSLs share one coherent environment.
+--
+-- The implementation is organized from low-level atoms upward:
+--
+--   utilities/source/diagnostics
+--   process/event streams
+--   symbols/expressions/captures
+--   fragments/zones
+--   grammar declarations
+--   staged head runtime
+--   environments/families
+--   analysis/formatting
 
 local llb = { _VERSION = "llb-0.4.0", VERSION = "llb-0.4.0" }
 
@@ -77,6 +96,10 @@ end
 -- ---------------------------------------------------------------------------
 -- Utilities
 -- ---------------------------------------------------------------------------
+--
+-- These helpers deliberately stay boring. LLB relies on ordinary Lua tables as
+-- semantic objects, so predictable shallow copying, array appending, sorting,
+-- and small predicates are enough for most of the framework.
 
 local NIL    = { __llb_tag = "Sentinel", name = "nil" }
 local UNIT   = { __llb_tag = "Sentinel", name = "unit" }
@@ -219,6 +242,10 @@ end
 -- ---------------------------------------------------------------------------
 -- Source inspection
 -- ---------------------------------------------------------------------------
+--
+-- LLB does not parse DSL source, but it still tracks source text for
+-- diagnostics. Source registration lets origins render useful excerpts even
+-- though construction happened through normal Lua evaluation.
 
 local source = { cache = {}, file_cache = {} }
 llb.source = source
@@ -277,6 +304,71 @@ function source.line(origin)
   return origin.text
 end
 
+local function trim_doc_line(s)
+  s = tostring(s or "")
+  s = s:gsub("^%s+", ""):gsub("%s+$", "")
+  return s
+end
+
+local function line_comment_text(line)
+  local text = line and line:match("^%s*%-%-%-?%s?(.*)$")
+  if text == nil then return nil end
+  if text:match("^%[=*%[") then return nil end
+  return text:gsub("%s+$", "")
+end
+
+local function long_comment_close(line)
+  return line and line:match("%](=*)%]%s*$")
+end
+
+local function long_comment_open(line)
+  return line and line:match("^%s*%-%-%[(=*)%[")
+end
+
+local function strip_long_comment(lines, first, last, eqs)
+  local out = {}
+  for i = first, last do out[#out + 1] = lines[i] or "" end
+  if #out == 0 then return nil end
+  out[1] = out[1]:gsub("^%s*%-%-%[" .. eqs .. "%[", "", 1)
+  out[#out] = out[#out]:gsub("%]" .. eqs .. "%]%s*$", "", 1)
+  while #out > 0 and trim_doc_line(out[1]) == "" do table.remove(out, 1) end
+  while #out > 0 and trim_doc_line(out[#out]) == "" do table.remove(out, #out) end
+  if #out == 0 then return nil end
+  return table.concat(out, "\n")
+end
+
+function source.leading_comment(origin)
+  if not origin or not origin.line or origin.line <= 1 then return nil end
+  local lines = source.lines(origin.source) or source.lines(origin.file)
+  if not lines then return nil end
+
+  local i = origin.line - 1
+  local collected = {}
+  while i >= 1 do
+    local text = line_comment_text(lines[i])
+    if text == nil then break end
+    collected[#collected + 1] = text
+    i = i - 1
+  end
+  if #collected > 0 then
+    local out = {}
+    for j = #collected, 1, -1 do out[#out + 1] = collected[j] end
+    while #out > 0 and trim_doc_line(out[1]) == "" do table.remove(out, 1) end
+    while #out > 0 and trim_doc_line(out[#out]) == "" do table.remove(out, #out) end
+    if #out > 0 then return table.concat(out, "\n") end
+  end
+
+  local close_eqs = long_comment_close(lines[origin.line - 1])
+  if not close_eqs then return nil end
+  for first = origin.line - 1, 1, -1 do
+    local open_eqs = long_comment_open(lines[first])
+    if open_eqs and open_eqs == close_eqs then
+      return strip_long_comment(lines, first, origin.line - 1, open_eqs)
+    end
+  end
+  return nil
+end
+
 function source.capture(kind, opts)
   opts = opts or {}
   if opts.origin then return opts.origin end
@@ -307,6 +399,7 @@ function source.capture(kind, opts)
     hint = opts.hint,
   }
   o.text = source.line(o)
+  o.leading_comment = source.leading_comment(o)
   return o
 end
 
@@ -415,6 +508,32 @@ function llb.render_provenance(value)
   return table.concat(out, "\n")
 end
 
+local function origin_comment_stack(origin)
+  local provenance = llb.provenance(origin)
+  local out, seen = {}, {}
+  for i = #provenance, 1, -1 do
+    local comment = provenance[i] and provenance[i].leading_comment
+    if comment and comment ~= "" and not seen[comment] then
+      seen[comment] = true
+      out[#out + 1] = comment
+    end
+  end
+  if #out == 0 and origin and origin.leading_comment and origin.leading_comment ~= "" then
+    out[#out + 1] = origin.leading_comment
+  end
+  return out
+end
+
+local function render_comment_stack(comments)
+  if #(comments or {}) == 0 then return nil end
+  if #comments == 1 then return "context: " .. tostring(comments[1]):gsub("\n", "\n         ") end
+  local out = { "context:" }
+  for i = 1, #comments do
+    out[#out + 1] = "  - " .. tostring(comments[i]):gsub("\n", "\n    ")
+  end
+  return table.concat(out, "\n")
+end
+
 llb.channel = {
   index_name = "index:name",
   index_type = "index:type",
@@ -479,6 +598,10 @@ llb.Event = Event
 -- ---------------------------------------------------------------------------
 -- Diagnostics
 -- ---------------------------------------------------------------------------
+--
+-- Diagnostics are structured values, not strings. A diagnostic can carry an
+-- origin, labels, notes, and event/head/slot/role context. That is what lets
+-- errors keep useful blame even when values were created through Lua helpers.
 
 local Diagnostic = {}
 Diagnostic.__index = Diagnostic
@@ -511,6 +634,10 @@ function Diagnostic:render(opts)
   head = head .. tostring(self.message)
   out[#out + 1] = head
   if self.primary then out[#out + 1] = source.render_excerpt(self.primary, opts.radius or 2, self.message) end
+  if self.primary then
+    local context = render_comment_stack(origin_comment_stack(self.primary))
+    if context then out[#out + 1] = context end
+  end
   for i = 1, #self.labels do
     local l = self.labels[i]
     out[#out + 1] = source.render_excerpt(l.origin or l.primary, opts.radius or 1, l.message)
@@ -569,18 +696,26 @@ end
 -- ---------------------------------------------------------------------------
 -- Processes: coroutine-backed resumable protocols
 -- ---------------------------------------------------------------------------
+--
+-- Processes are LLB's coroutine-shaped operation model. They turn long or
+-- inspectable work into event streams: source loading, validation, indexing,
+-- diagnostics, progress, bytecode inspection, debugger stepping, etc.
+--
+-- Inside a process, ctx. event_name { ... } yields a structured event. The
+-- payload is flattened onto the event so consumers do not need to unwrap
+-- nested tables for common fields.
 
 local Process, ProcessStage, ProcessHandle, ProcessContext = {}, {}, {}, {}
 Process.__index = Process
 ProcessHandle.__index = ProcessHandle
 
 local function process_event(ctx, kind, payload, origin)
-  ctx.index = (ctx.index or 0) + 1
+  ctx.seq = (ctx.seq or 0) + 1
   local ev = {
     __llb_tag = "ProcessEvent",
     process = ctx.process.name,
     kind = tostring(kind),
-    seq = ctx.index,
+    seq = ctx.seq,
     origin = origin or source.capture("process-event", { hint = kind, skip = 2 }),
   }
   if type(payload) == "table" then
@@ -661,7 +796,7 @@ local function process_context(handle)
     process = handle.process,
     handle = handle,
     diagnostics = handle.diagnostics,
-    index = 0,
+    seq = 0,
   }, ProcessContext)
 end
 
@@ -791,6 +926,10 @@ end
 -- ---------------------------------------------------------------------------
 -- Node helpers
 -- ---------------------------------------------------------------------------
+--
+-- Generic nodes are the default normalized AST form for languages that do not
+-- provide their own ASDL layer. Moonlift uses richer ASDL values, but the LLB
+-- core keeps this small node model for language authors and examples.
 
 local Node = {}
 Node.__index = Node
@@ -827,6 +966,15 @@ end
 -- ---------------------------------------------------------------------------
 -- Names, symbols, captures, expressions
 -- ---------------------------------------------------------------------------
+--
+-- This is the parserless core:
+--
+--   unknown_name        -> llb.Symbol
+--   x [T]               -> Capture(subject=x, value=T)
+--   a + b               -> Expr(kind="binop")
+--   obj.field / obj[i]  -> Expr field/index forms
+--
+-- Lua syntax does the tokenization and precedence. LLB only receives values.
 
 local Name = {}; Name.__index = Name
 function llb.name(text, opts)
@@ -923,6 +1071,15 @@ llb.N = setmetatable({ __llb_tag = "NameFactory" }, {
 -- ---------------------------------------------------------------------------
 -- Types and fragments
 -- ---------------------------------------------------------------------------
+--
+-- Fragments are reusable role-shaped values. They are the preferred
+-- metaprogramming unit because they keep role information attached to the
+-- generated items.
+--
+--   product { a [i32] } .. product { b [i32] }  -- append product/list roles
+--   conts { ok {} } + conts { err {} }          -- compose sum/protocol roles
+--
+-- The short splice marker _(...) is just llb.spread(...).
 
 local Type = {}; Type.__index = Type; Type.__tostring = function(self) return self.name or "<type>" end
 function llb.type(name, fields)
@@ -1137,10 +1294,148 @@ Fragment.__tostring = function(self) return "llb.fragment(" .. tostring(self.rol
 function Fragment:describe() return llb.describe_fragment(self) end
 function Fragment:format(opts) return llb.format(self, opts) end
 
+local Zone = {}; Zone.__index = Zone
+local FamilyBundle = {}; FamilyBundle.__index = FamilyBundle
+
+-- Zones are semantic partitions inside a family value. They are not scopes and
+-- do not mutate environments. They answer: "these items belong to this family
+-- member language."
+--
+--   moonlift { ... }  -> Zone(member="moonlift.dsl")
+--   llpvm    { ... }  -> Zone(member="llpvm.dsl")
+--
+-- Same-zone concatenation appends items. Mixed-zone concatenation creates a
+-- FamilyBundle.
+local function zone_items(value)
+  if value == nil then return {} end
+  if is_tag(value, "Fragment") then return array_copy(value.items or {}) end
+  if is_tag(value, "Spread") then return zone_items(value.value) end
+  if type(value) == "table" then return array_copy(value) end
+  return { value }
+end
+
+function llb.zone(spec)
+  spec = spec or {}
+  local items = zone_items(spec.items or spec.body or {})
+  local z = {
+    __llb_tag = "Zone",
+    family = tostring(spec.family or ""),
+    member = tostring(spec.member or spec.lang or spec.name or ""),
+    name = tostring(spec.name or spec.member or spec.lang or ""),
+    role = tostring(spec.role or "items"),
+    items = items,
+    metadata = spec.metadata,
+    origin = spec.origin or source.capture("zone", { hint = spec.name or spec.member or spec.lang }),
+  }
+  for i = 1, #items do z[i] = items[i] end
+  return setmetatable(z, Zone)
+end
+
+local ZoneHead = {}; ZoneHead.__index = ZoneHead
+
+function llb.zone_head(spec)
+  spec = shallow_copy(spec or {})
+  return setmetatable({
+    __llb_tag = "ZoneHead",
+    family = tostring(spec.family or ""),
+    member = tostring(spec.member or spec.lang or spec.name or ""),
+    name = tostring(spec.name or spec.member or spec.lang or ""),
+    role = tostring(spec.role or "items"),
+    metadata = spec.metadata,
+    origin = spec.origin or source.capture("zone-head", { hint = spec.name or spec.member or spec.lang }),
+  }, ZoneHead)
+end
+
+function ZoneHead:__call(body)
+  return llb.zone {
+    family = self.family,
+    member = self.member,
+    name = self.name,
+    role = self.role,
+    items = zone_items(body),
+    metadata = self.metadata,
+    origin = source.capture("zone", { hint = self.name }),
+  }
+end
+
+function llb.family_bundle(spec)
+  if type(spec) ~= "table" or spec.__llb_tag == "Zone" then spec = { zones = { spec } } end
+  local zones = {}
+  for i, z in ipairs(spec.zones or spec) do
+    if not is_tag(z, "Zone") then
+      llb.fail("family bundle expects LLB zones, got " .. repr(z), {
+        code = "E_FAMILY_BUNDLE_ZONE",
+        primary = origin_of(z),
+      }, 2)
+    end
+    zones[#zones + 1] = z
+  end
+  local b = {
+    __llb_tag = "FamilyBundle",
+    family = spec.family,
+    zones = zones,
+    origin = spec.origin or source.capture("family-bundle", { hint = spec.family or "bundle" }),
+  }
+  for i = 1, #zones do b[i] = zones[i] end
+  return setmetatable(b, FamilyBundle)
+end
+
+local function bundle_parts(v)
+  if is_tag(v, "Zone") then return { v } end
+  if is_tag(v, "FamilyBundle") then return array_copy(v.zones or {}) end
+  llb.fail("family-zone composition expects zones or bundles, got " .. repr(v), {
+    code = "E_ZONE_OPERATOR",
+    primary = origin_of(v),
+  }, 2)
+end
+
+local function same_zone(a, b)
+  return a.family == b.family and a.member == b.member and a.role == b.role and a.name == b.name
+end
+
+function llb.zone_concat(a, b)
+  local az, bz = bundle_parts(a), bundle_parts(b)
+  if #az == 1 and #bz == 1 and same_zone(az[1], bz[1]) then
+    local items = array_copy(az[1].items or {})
+    append(items, bz[1].items or {})
+    return llb.zone {
+      family = az[1].family,
+      member = az[1].member,
+      name = az[1].name,
+      role = az[1].role,
+      items = items,
+      metadata = az[1].metadata,
+      origin = origin_of(a) or az[1].origin,
+    }
+  end
+  local zones = {}
+  append(zones, az)
+  append(zones, bz)
+  local family = nil
+  for _, z in ipairs(zones) do
+    if family == nil then family = z.family
+    elseif z.family ~= family then family = "mixed" end
+  end
+  return llb.family_bundle { family = family, zones = zones, origin = origin_of(a) or origin_of(b) }
+end
+
+Zone.__concat = function(a, b) return llb.zone_concat(a, b) end
+FamilyBundle.__concat = function(a, b) return llb.zone_concat(a, b) end
+Zone.__len = function(self) return #(self.items or {}) end
+FamilyBundle.__len = function(self) return #(self.zones or {}) end
+Zone.__tostring = function(self) return "llb.zone(" .. tostring(self.name) .. ", " .. tostring(#(self.items or {})) .. ")" end
+FamilyBundle.__tostring = function(self) return "llb.family_bundle(" .. tostring(#(self.zones or {})) .. ")" end
+function Zone:describe() return llb.describe_zone(self) end
+function FamilyBundle:describe() return llb.describe_family_bundle(self) end
+
 local Protocol = {}
 Protocol.__index = Protocol
 llb.protocols = {}
 
+-- Protocols are public metadata for behavior families. They do not rely on Lua
+-- metatable inheritance, because Lua metamethods must live on the immediate
+-- metatable. A protocol manufactures/validates/describes those immediate
+-- metatables instead.
 local operator_metamethod = {
   concat = "__concat",
   choice = "__add",
@@ -1250,9 +1545,30 @@ function llb.expr_ctor(name)
   return setmetatable({ __llb_tag = "ExprCtor", name = tostring(name) }, ExprCtor)
 end
 
+local DEFAULT_EXPORTS = {
+  eq = function(a, b) return expr("binop", { op = "==", a = a, b = b }) end,
+  ne = function(a, b) return expr("binop", { op = "~=", a = a, b = b }) end,
+  And = function(a, b) return call_expr(llb.symbol("And"), pack(a, b)) end,
+  Or = function(a, b) return call_expr(llb.symbol("Or"), pack(a, b)) end,
+  Not = function(a) return call_expr(llb.symbol("Not"), pack(a)) end,
+  select = function(c, a, b) return call_expr(llb.symbol("select"), pack(c, a, b)) end,
+  as = llb.expr_ctor("as"),
+  bitcast = llb.expr_ctor("bitcast"),
+  null = llb.expr_ctor("null"),
+  sizeof = llb.expr_ctor("sizeof"),
+  alignof = llb.expr_ctor("alignof"),
+}
+
 -- ---------------------------------------------------------------------------
 -- Grammar bootstrap DSL
 -- ---------------------------------------------------------------------------
+--
+-- The grammar API is itself an LLB-style DSL. It builds declarations such as:
+--
+--   g.role .decls { kind = "array" }
+--   g.head .fn { g.slot .name [g.name], ... }
+--
+-- The declarations are later compiled by llb.define into runtime heads.
 
 local boot_node
 local RoleRef = {}; RoleRef.__index = RoleRef
@@ -1342,6 +1658,10 @@ llb.grammar = setmetatable({
 -- ---------------------------------------------------------------------------
 -- Normalization
 -- ---------------------------------------------------------------------------
+--
+-- Normalization is where raw Lua values become language meaning. Slots decide
+-- which channel they accept; roles decide how to interpret the value delivered
+-- through that channel. This is the central replacement for parser productions.
 
 local normalize_role, normalize_expr
 
@@ -1534,6 +1854,16 @@ function llb.is_complete(v) return not is_tag(v, "Stage") or #stage_missing_slot
 -- ---------------------------------------------------------------------------
 -- Runtime heads
 -- ---------------------------------------------------------------------------
+--
+-- Runtime heads are staged constructors. A head consumes Lua channels in order:
+--
+--   fn. add      -> index:name
+--   { ... }      -> call:table
+--   [i32]        -> index:type
+--
+-- When all required slots are filled, the head emits the normalized language
+-- value. If optional slots remain, the incomplete stage is intentionally useful
+-- for headers and progressive object construction.
 
 local RuntimeHead, RuntimeStage = {}, {}
 local function role_kind(lang, role) local s = lang.roles[role]; return (s and s.kind) or role end
@@ -1765,6 +2095,11 @@ local function runtime_head(lang, spec) return setmetatable({ __llb_tag = "Head"
 -- ---------------------------------------------------------------------------
 -- Context, scopes, passes, analysis
 -- ---------------------------------------------------------------------------
+--
+-- Context is the common object passed to checks and phases. It owns diagnostic
+-- collection, lexical scopes, symbol indexing, type hooks, and arbitrary phase
+-- data. Language-specific compilers can extend behavior through hooks instead
+-- of side channels.
 
 local Context = {}; Context.__index = Context
 function llb.context(lang, opts)
@@ -1843,6 +2178,15 @@ llb.Analysis = Analysis
 -- ---------------------------------------------------------------------------
 -- Language definition and loading
 -- ---------------------------------------------------------------------------
+--
+-- Important doctrine:
+--
+--   A Language is a grammar object.
+--   A Family is the authoring/runtime environment.
+--
+-- Even "one language" is used through a singleton family: llb + language. The
+-- llb singleton is always present, which makes symbols, origins, fragments,
+-- process helpers, and spread semantics shared across all family members.
 
 local Language = {}; Language.__index = Language
 local BASE_ENV = { assert = assert, error = error, ipairs = ipairs, next = next, pairs = pairs, pcall = pcall, xpcall = xpcall, print = print, select = select, tonumber = tonumber, tostring = tostring, type = type, unpack = unpack, math = math, string = string, table = table, coroutine = coroutine, require = require }
@@ -1861,6 +2205,10 @@ local PREV_NIL = {}
 local UseSession = {}
 UseSession.__index = UseSession
 llb.UseSession = UseSession
+
+local Family = {}
+Family.__index = Family
+llb.Family = Family
 
 local function name_map(t)
   return setmetatable(t or {}, { __call = function(map) return sorted_keys(map) end })
@@ -1945,6 +2293,73 @@ local function helper_exports()
   }
 end
 
+local Namespace = {}
+
+Namespace.__index = function(self, key)
+  local method = Namespace[key]
+  if method ~= nil then return method end
+  local default_head = rawget(self, "default_head")
+  if default_head ~= nil then return default_head[key] end
+  return nil
+end
+
+function llb.namespace(spec)
+  spec = spec or {}
+  local exports = shallow_copy(spec.exports or spec.items or {})
+  exports.__llb_tag = "Namespace"
+  exports.family = tostring(spec.family or "")
+  exports.member = tostring(spec.member or spec.lang or "")
+  exports.name = tostring(spec.name or spec.member or spec.lang or "namespace")
+  exports.origin = spec.origin or source.capture("namespace", { hint = exports.name })
+  exports.metadata = spec.metadata
+  exports.zone = spec.zone
+  exports.default_head = spec.default_head or spec.default or spec.module
+  return setmetatable(exports, Namespace)
+end
+
+function Namespace:__call(body)
+  if self.zone then return self.zone(body) end
+  llb.fail("namespace `" .. tostring(self.name) .. "` is not callable", {
+    code = "E_NAMESPACE_NOT_CALLABLE",
+    primary = self.origin,
+  }, 2)
+end
+
+function Namespace:describe()
+  return llb.describe_namespace(self)
+end
+
+local LLB_CORE_MEMBER = "llb"
+local llb_core_markdown
+
+-- The root family member. It is intentionally small: expose the llb singleton
+-- and the shared authoring substrate, but avoid stealing generic names such as
+-- "symbol" from member languages.
+local function llb_core_exports()
+  local exports = helper_exports()
+  exports.llb = llb
+  return exports
+end
+
+local function llb_core_member()
+  return {
+    name = LLB_CORE_MEMBER,
+    exports = llb_core_exports,
+    markdown = function(member, opts, family) return llb_core_markdown(member, opts, family) end,
+    provides = { "llb", "llb.core" },
+    semantics = {
+      owns = {
+        "authoring-substrate",
+        "diagnostics",
+        "family-composition",
+        "fragments",
+        "namespaces",
+        "origins",
+      },
+    },
+  }
+end
+
 local function old_index_value(old_index, target, key)
   if old_index == nil then return nil end
   if type(old_index) == "function" then return old_index(target, key) end
@@ -1959,6 +2374,9 @@ end
 
 function llb.make_env(lang, opts)
   opts = opts or {}
+  if is_tag(lang, "Language") then
+    return lang:family():env(opts)
+  end
   local env = llb.base_env(opts.base or "safe")
   if opts.lang_exports ~= false then copy_into(env, lang and lang.exports or {}) end
   if opts.helpers ~= false then copy_into(env, helper_exports()) end
@@ -1982,8 +2400,7 @@ local function install_auto_names(target, session, opts)
   mt.__index = function(t, key)
     if is_identifier(key) then
       local origin = source.capture("auto-name", { hint = key, skip = 1 })
-      local maker = opts.auto_name or (session.lang and session.lang.auto_name)
-      local value = maker and maker(key, origin) or llb.symbol(key, { origin = origin })
+      local value = llb.symbol(key, { origin = origin })
       rawset(t, key, value)
       session.auto_installed[key] = true
       session.auto_values[key] = value
@@ -2026,7 +2443,20 @@ function llb.install_env(env, target, opts, session)
 end
 
 function llb.use(lang, opts)
+  -- Direct llb.use(Language, ...) is accepted, but it is not a language-only
+  -- path. It delegates to the language's family so the llb root member is
+  -- always installed and symbol sharing remains coherent.
   opts = opts or {}
+  if is_tag(lang, "Language") then
+    local family_opts = opts
+    if opts.lang_exports == false and opts.exports ~= nil then
+      family_opts = shallow_copy(opts)
+      family_opts.member_exports = shallow_copy(opts.member_exports or {})
+      family_opts.member_exports[tostring(lang.name)] = opts.exports
+      family_opts.exports = nil
+    end
+    return Family.use(lang:family(), family_opts)
+  end
   local scope = opts.scope or (opts.global == false and "env" or "permanent")
   local env = llb.make_env(lang, opts)
   local target = opts.target or _G
@@ -2176,6 +2606,909 @@ function llb.with_use(lang, opts, fn)
   return a, b, c
 end
 
+local function family_member_exports(member, opts)
+  local member_name = tostring(member.name or (member.lang and member.lang.name) or "?")
+  if opts and opts.member_exports and opts.member_exports[member_name] ~= nil then
+    return shallow_copy(opts.member_exports[member_name])
+  end
+  local exports = member.exports
+  if type(exports) == "function" then return exports(opts or {}) end
+  if type(exports) == "table" then return shallow_copy(exports) end
+  return shallow_copy(member.lang and member.lang.exports or {})
+end
+
+local function family_member_from_language(lang)
+  return {
+    name = lang.name,
+    lang = lang,
+    exports = function() return lang.exports end,
+    provides = { lang.name },
+  }
+end
+
+local function family_of(value)
+  if is_tag(value, "Family") then return value end
+  if is_tag(value, "Language") then return value.__llb_family or llb.family(tostring(value.name), { family_member_from_language(value) }) end
+  llb.fail("family algebra expects a Family or Language, got " .. repr(value), { code = "E_FAMILY_OPERAND" }, 2)
+end
+
+local function family_spec_from(base, patch)
+  patch = patch or {}
+  local spec = {}
+  spec.members = patch.members or array_copy(base.members or {})
+  spec.collision = patch.collision or base.collision
+  spec.prefer = shallow_copy(base.preferences or {})
+  for k, v in pairs(patch.prefer or {}) do spec.prefer[k] = v end
+  spec.reserved = sorted_keys(base.reserved or {})
+  if patch.reserved then append(spec.reserved, patch.reserved) end
+  spec.shared = sorted_keys(base.shared or {})
+  if patch.shared then append(spec.shared, patch.shared) end
+  return spec
+end
+
+local function family_define(name, spec)
+  -- All families include the llb root member. family_define also deduplicates
+  -- members so composing families cannot accidentally install llb twice.
+  spec = spec or {}
+  local raw_members = {}
+  for i = 1, #(spec.members or spec) do
+    raw_members[#raw_members + 1] = spec.members and spec.members[i] or spec[i]
+  end
+  local members, seen = {}, {}
+  local function member_name(member)
+    return tostring(member.name or (member.lang and member.lang.name) or "?")
+  end
+  local function add_member(member)
+    local n = member_name(member)
+    if not seen[n] then
+      seen[n] = true
+      members[#members + 1] = member
+    end
+  end
+  if tostring(name) == LLB_CORE_MEMBER and #raw_members == 0 then
+    add_member(llb_core_member())
+  else
+    add_member(llb_core_member())
+    for i = 1, #raw_members do add_member(raw_members[i]) end
+  end
+  local provides = {}
+  local requires = {}
+  for _, member in ipairs(members) do
+    append(provides, member.provides or (member.lang and member.lang.provides) or {})
+    append(requires, member.requires or (member.lang and member.lang.requires) or {})
+  end
+  local family = setmetatable({
+    __llb_tag = "Family",
+    name = tostring(name),
+    members = members,
+    collision = spec.collision or "error",
+    preferences = spec.prefer or spec.collisions or {},
+    reserved = list_to_set(spec.reserved or {}),
+    shared = list_to_set(spec.shared or {}),
+    provides = provides,
+    requires = requires,
+  }, Family)
+  family.use = function(opts) return Family.use(family, opts) end
+  family.env = function(opts) return Family.env(family, opts) end
+  family.loadstring = function(src, chunkname, opts) return Family.loadstring(family, src, chunkname, opts) end
+  family.load = function(src, chunkname, opts) return Family.loadstring(family, src, chunkname, opts)() end
+  family.loadfile = function(path, opts) return Family.loadfile(family, path, opts) end
+  family.describe = function() return Family.describe(family) end
+  family.format = function(value, opts) return Family.format(family, value, opts) end
+  family.format_doc = function(value, opts) return Family.format_doc(family, value, opts) end
+  family.diagnostics = function(value, opts) return Family.diagnostics(family, value, opts) end
+  family.index = function(value, opts) return Family.index(family, value, opts) end
+  family.reduction = function() return Family.reduction(family) end
+  family.markdown = function(opts) return Family.markdown(family, opts) end
+  family.write_markdown = function(path, opts) return Family.write_markdown(family, path, opts) end
+  family.compose = function(other, opts) return Family.compose(family, other, opts) end
+  family.subtract = function(member_or_name, opts) return Family.subtract(family, member_or_name, opts) end
+  family.only = function(names, opts) return Family.only(family, names, opts) end
+  family.prefer = function(map, opts) return Family.prefer(family, map, opts) end
+  return family
+end
+
+llb.family = setmetatable({}, {
+  __call = function(_, name, spec) return family_define(name, spec) end,
+  __index = function(_, name) return function(spec) return family_define(name, spec) end end,
+})
+
+function llb.core_family()
+  return family_define(LLB_CORE_MEMBER, {})
+end
+
+function Family:compose_env(opts)
+  -- Compose all member exports into one environment while tracking ownership.
+  -- Collisions must be explicitly resolved with family.prefer unless both
+  -- members export the exact same object or one member only inherited the base.
+  opts = opts or {}
+  local base = llb.base_env(opts.base or opts.target or _G)
+  local env = shallow_copy(base)
+  local owners = {}
+  local member_caps = {}
+  local provided = {}
+  for _, member in ipairs(self.members or {}) do
+    for _, cap in ipairs(member.requires or {}) do
+      if not provided[tostring(cap)] then
+        llb.fail("family " .. self.name .. " member " .. tostring(member.name or "?") .. " requires missing capability " .. tostring(cap), {
+          code = "E_FAMILY_MISSING_MEMBER_CAPABILITY",
+          notes = { "Declare the required language earlier in the family or remove the incompatible member." },
+        }, 2)
+      end
+    end
+    local exports = family_member_exports(member, opts)
+    local member_name = tostring(member.name or (member.lang and member.lang.name) or "?")
+    member_caps[#member_caps + 1] = {
+      name = member_name,
+      provides = array_copy(member.provides or {}),
+      requires = array_copy(member.requires or {}),
+    }
+    for k, v in pairs(exports or {}) do
+      if k ~= "_G" then
+        local cur = rawget(env, k)
+        local base_v = rawget(base, k)
+        local owner = owners[k]
+        if owner ~= nil and v == base_v then
+          -- This member merely inherited the base binding. It does not
+          -- participate in family ownership or collision decisions.
+        elseif owner ~= nil and cur ~= v then
+          local preferred = self.preferences[k]
+          if preferred == member_name then
+            env[k] = v
+            owners[k] = member_name
+          elseif preferred == owner or cur == v then
+            -- keep current value
+          else
+            llb.fail("LLB family " .. self.name .. " export collision on `" .. tostring(k) .. "` between " .. tostring(owner) .. " and " .. member_name, {
+              code = "E_FAMILY_EXPORT_COLLISION",
+              notes = { "Declare family.prefer[`" .. tostring(k) .. "`] or make both languages export the same object." },
+            }, 2)
+          end
+        else
+          env[k] = v
+          if v ~= base_v then owners[k] = member_name end
+        end
+      end
+    end
+    for _, cap in ipairs(member.provides or {}) do provided[tostring(cap)] = true end
+  end
+  env._G = env
+  return env, member_caps
+end
+
+function Family:use(opts)
+  opts = opts or {}
+  local exports, member_caps = self:compose_env(opts)
+  copy_into(exports, opts.exports)
+  local session = llb.use(self, {
+    scope = opts.scope or (opts.global == false and "env" or "permanent"),
+    target = opts.target,
+    base = exports,
+    exports = exports,
+    lang_exports = false,
+    helpers = false,
+    global = opts.global,
+    strict = opts.strict,
+    strict_message = opts.strict_message or ("unknown " .. self.name .. " family global "),
+    override = opts.override,
+    auto_names = opts.auto_names ~= false,
+    mode = opts.mode,
+    provides = opts.provides or self.provides,
+    requires = opts.requires or {},
+    searcher = opts.searcher,
+  })
+  session.family = self
+  session.members = member_caps
+  return session
+end
+
+function Family:env(opts)
+  opts = shallow_copy(opts or {})
+  opts.scope = opts.scope or "env"
+  return Family.use(self, opts).env
+end
+
+function Family:loadstring(src, chunkname, opts)
+  local session = Family.use(self, { scope = "env", target = opts and opts.env or nil, global = false, strict = opts and opts.strict, auto_names = opts == nil or opts.auto_names ~= false, base = opts and opts.base, mode = opts and opts.mode, override = opts and opts.override })
+  return session:loadstring(src, chunkname or self.name)
+end
+
+function Family:load(src, chunkname, opts) return Family.loadstring(self, src, chunkname, opts)() end
+function Family:loadfile(path, opts)
+  local f, err = io.open(path, "rb")
+  if not f then error(err, 2) end
+  local src = f:read("*a") or ""
+  f:close()
+  return Family.loadstring(self, src, "@" .. path, opts)
+end
+
+local function family_member_name(member)
+  return tostring(member.name or (member.lang and member.lang.name) or "?")
+end
+
+function Family:member(name)
+  name = tostring(name)
+  for _, member in ipairs(self.members or {}) do
+    if family_member_name(member) == name then return member end
+  end
+  return nil
+end
+
+local function member_for_zone(family, zone)
+  if not is_tag(zone, "Zone") then return nil end
+  return Family.member(family, zone.member) or Family.member(family, zone.name)
+end
+
+local function is_array_table(t)
+  if type(t) ~= "table" then return false end
+  local n = #t
+  for k in pairs(t) do
+    if type(k) ~= "number" or k < 1 or k > n or k % 1 ~= 0 then return false end
+  end
+  return true
+end
+
+function Family:owned_zones(value, member_name, out)
+  -- Walk a family value and collect zones. This accepts ordinary Lua tables,
+  -- explicit Zone values, and FamilyBundle values because family authoring is
+  -- intentionally value-shaped rather than syntax-shaped.
+  out = out or {}
+  if value == nil then return out end
+  if is_tag(value, "Zone") then
+    if member_name == nil or value.member == member_name or value.name == member_name then out[#out + 1] = value end
+    return out
+  end
+  if is_tag(value, "FamilyBundle") then
+    for _, z in ipairs(value.zones or {}) do self:owned_zones(z, member_name, out) end
+    return out
+  end
+  if type(value) == "table" then
+    for i = 1, #value do self:owned_zones(value[i], member_name, out) end
+    for k, v in pairs(value) do if type(k) ~= "number" then self:owned_zones(v, member_name, out) end end
+  end
+  return out
+end
+
+local function indent_text(text, indent)
+  indent = indent or "  "
+  return tostring(text):gsub("\n", "\n" .. indent)
+end
+
+local function family_format_value(family, value, opts)
+  opts = opts or {}
+  if is_tag(value, "Zone") then
+    local member = member_for_zone(family, value)
+    local item_text = {}
+    for i, item in ipairs(value.items or {}) do
+      if member and type(member.format) == "function" then
+        item_text[i] = member.format(item, opts, family, value)
+      else
+        item_text[i] = family_format_value(family, item, opts)
+      end
+    end
+    if #item_text == 0 then return tostring(value.name) .. " {}" end
+    return tostring(value.name) .. " {\n  " .. indent_text(table.concat(item_text, ",\n"), "  ") .. ",\n}"
+  end
+  if is_tag(value, "FamilyBundle") then
+    local parts = {}
+    for i, z in ipairs(value.zones or {}) do parts[i] = family_format_value(family, z, opts) end
+    return "{\n  " .. indent_text(table.concat(parts, ",\n"), "  ") .. ",\n}"
+  end
+  for _, member in ipairs(family.members or {}) do
+    if type(member.match) == "function" and member.match(value, opts, family) and type(member.format) == "function" then
+      return member.format(value, opts, family)
+    end
+  end
+  if type(value) == "table" then
+    opts.__family_seen = opts.__family_seen or {}
+    if opts.__family_seen[value] then return "<cycle>" end
+    opts.__family_seen[value] = true
+    local parts = {}
+    for i = 1, #value do parts[#parts + 1] = family_format_value(family, value[i], opts) end
+    local keys = {}
+    for k in pairs(value) do if type(k) ~= "number" and tostring(k):sub(1, 2) ~= "__" then keys[#keys + 1] = k end end
+    table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+    for _, k in ipairs(keys) do
+      parts[#parts + 1] = tostring(k) .. " = " .. family_format_value(family, value[k], opts)
+    end
+    opts.__family_seen[value] = nil
+    if is_array_table(value) and #parts == 1 then return parts[1] end
+    if #parts == 0 then return "{}" end
+    return "{\n  " .. indent_text(table.concat(parts, ",\n"), "  ") .. ",\n}"
+  end
+  return llb.format(value, opts)
+end
+
+function Family:format_doc(value, opts)
+  return llb.doc.text(Family.format(self, value, opts))
+end
+
+function Family:format(value, opts)
+  -- Unified family formatting. The family walks the value and lets member
+  -- languages format values they own. This keeps cross-language files coherent
+  -- without forcing each language to know about every other language.
+  opts = opts or {}
+  local format_opts = shallow_copy(opts)
+  format_opts.__family_seen = nil
+  return family_format_value(self, value, format_opts)
+end
+
+local function add_family_error(bag, err, value, member_name)
+  if is_tag(err, "Diagnostic") then return bag:add(err) end
+  return bag:error {
+    code = "E_FAMILY_MEMBER_TOOL",
+    message = tostring(err),
+    primary = origin_of(value),
+    notes = member_name and { "while running family tooling for " .. tostring(member_name) } or nil,
+  }
+end
+
+function Family:diagnostics(value, opts)
+  -- Unified family diagnostics. Each member may contribute a diagnostics hook;
+  -- the family owns aggregation and error isolation so one broken member hook
+  -- becomes a diagnostic instead of killing all tooling.
+  opts = opts or {}
+  local bag = opts.diagnostics or llb.diagnostics()
+  for _, member in ipairs(self.members or {}) do
+    if type(member.diagnostics) == "function" then
+      local ok, result = pcall(member.diagnostics, value, bag, opts, self)
+      if not ok then add_family_error(bag, result, value, family_member_name(member)) end
+      if ok and type(result) == "table" and result ~= bag then
+        if is_tag(result, "DiagnosticBag") then for _, d in ipairs(result.items or {}) do bag:add(d) end
+        elseif is_tag(result, "Diagnostic") then bag:add(result)
+        elseif result.items then for _, d in ipairs(result.items or {}) do if is_tag(d, "Diagnostic") then bag:add(d) end end end
+      end
+    end
+  end
+  return bag
+end
+
+function Family:index(value, opts)
+  -- Unified family index. This is intentionally generic: zones are indexed at
+  -- the family layer, and member hooks contribute symbols/hovers/diagnostics.
+  opts = opts or {}
+  local index = {
+    __llb_tag = "FamilyIndex",
+    family = self.name,
+    zones = {},
+    symbols = {},
+    hovers = {},
+    diagnostics = {},
+  }
+  for _, z in ipairs(self:owned_zones(value)) do
+    index.zones[#index.zones + 1] = { name = z.name, member = z.member, role = z.role, count = #(z.items or {}) }
+  end
+  for _, member in ipairs(self.members or {}) do
+    if type(member.index) == "function" then
+      local ok, result = pcall(member.index, value, opts, self)
+      if ok and type(result) == "table" then
+        append(index.symbols, result.symbols or {})
+        append(index.hovers, result.hovers or {})
+        append(index.diagnostics, result.diagnostics or {})
+      elseif not ok then
+        index.diagnostics[#index.diagnostics + 1] = llb.diagnostic {
+          code = "E_FAMILY_INDEX",
+          message = tostring(result),
+          primary = origin_of(value),
+        }
+      end
+    end
+  end
+  return index
+end
+
+local function member_semantics(member)
+  return member.semantics or member.semantic or {}
+end
+
+local function semantic_list(member, field)
+  return array_copy(member_semantics(member)[field] or {})
+end
+
+function Family:reduction()
+  local owners, users, members = {}, {}, {}
+  for _, member in ipairs(self.members or {}) do
+    local name = family_member_name(member)
+    local owns = semantic_list(member, "owns")
+    local uses = semantic_list(member, "uses")
+    members[#members + 1] = {
+      name = name,
+      owns = owns,
+      uses = uses,
+      notes = array_copy(member_semantics(member).notes or {}),
+    }
+    for _, semantic in ipairs(owns) do
+      semantic = tostring(semantic)
+      owners[semantic] = owners[semantic] or {}
+      owners[semantic][#owners[semantic] + 1] = name
+    end
+    for _, semantic in ipairs(uses) do
+      semantic = tostring(semantic)
+      users[semantic] = users[semantic] or {}
+      users[semantic][#users[semantic] + 1] = name
+    end
+  end
+
+  local owner = {}
+  local smells = {}
+  for _, semantic in ipairs(sorted_keys(owners)) do
+    local semantic_owners = owners[semantic]
+    if #semantic_owners == 1 then
+      owner[semantic] = semantic_owners[1]
+    elseif #semantic_owners > 1 then
+      smells[#smells + 1] = {
+        code = "E_FAMILY_SEMANTIC_OVERLAP",
+        kind = "overlap",
+        semantic = semantic,
+        owners = array_copy(semantic_owners),
+        message = "semantic `" .. semantic .. "` has multiple owners: " .. table.concat(semantic_owners, ", "),
+      }
+    end
+  end
+  for _, semantic in ipairs(sorted_keys(users)) do
+    if owners[semantic] == nil then
+      smells[#smells + 1] = {
+        code = "W_FAMILY_SEMANTIC_EXTERNAL",
+        kind = "external",
+        semantic = semantic,
+        users = array_copy(users[semantic]),
+        message = "semantic `" .. semantic .. "` is used by " .. table.concat(users[semantic], ", ") .. " but has no owner in this family",
+      }
+    end
+  end
+
+  return {
+    tag = "FamilyReduction",
+    family = self.name,
+    members = members,
+    owner = owner,
+    owners = owners,
+    users = users,
+    smells = smells,
+  }
+end
+
+local function md_escape(s)
+  local escaped = tostring(s or ""):gsub("|", "\\|")
+  return escaped
+end
+
+local function md_header(level, text)
+  return string.rep("#", level) .. " " .. tostring(text)
+end
+
+local function sorted_pairs_keys(t)
+  local keys = {}
+  for k in pairs(t or {}) do keys[#keys + 1] = k end
+  table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+  return keys
+end
+
+local function markdown_list(title, xs, out)
+  out[#out + 1] = title
+  out[#out + 1] = ""
+  if #(xs or {}) == 0 then
+    out[#out + 1] = "- none"
+  else
+    for _, x in ipairs(xs or {}) do out[#out + 1] = "- `" .. md_escape(x) .. "`" end
+  end
+  out[#out + 1] = ""
+end
+
+local function append_family_reduction_markdown(family, out)
+  local reduction = Family.reduction(family)
+  out[#out + 1] = "## Reduced Family"
+  out[#out + 1] = ""
+  out[#out + 1] = "A reduced family has one owner for each semantic primitive. Other members reuse that primitive through explicit dependencies instead of reimplementing the same meaning under another surface."
+  out[#out + 1] = ""
+  out[#out + 1] = "### Semantic owners"
+  out[#out + 1] = ""
+  local owner_keys = sorted_keys(reduction.owners or {})
+  if #owner_keys == 0 then
+    out[#out + 1] = "- none"
+  else
+    for _, semantic in ipairs(owner_keys) do
+      out[#out + 1] = "- `" .. md_escape(semantic) .. "`: `" .. md_escape(table.concat(reduction.owners[semantic] or {}, "`, `")) .. "`"
+    end
+  end
+  out[#out + 1] = ""
+
+  out[#out + 1] = "### Semantic reuse"
+  out[#out + 1] = ""
+  local user_keys = sorted_keys(reduction.users or {})
+  if #user_keys == 0 then
+    out[#out + 1] = "- none"
+  else
+    for _, semantic in ipairs(user_keys) do
+      out[#out + 1] = "- `" .. md_escape(semantic) .. "` is used by `" .. md_escape(table.concat(reduction.users[semantic] or {}, "`, `")) .. "`"
+    end
+  end
+  out[#out + 1] = ""
+
+  out[#out + 1] = "### Reduction audit"
+  out[#out + 1] = ""
+  if #(reduction.smells or {}) == 0 then
+    out[#out + 1] = "- no semantic ownership overlaps"
+  else
+    for _, smell in ipairs(reduction.smells or {}) do
+      out[#out + 1] = "- `" .. md_escape(smell.code) .. "`: " .. md_escape(smell.message)
+    end
+  end
+  out[#out + 1] = ""
+end
+
+function llb_core_markdown(_, opts)
+  opts = opts or {}
+  local level = opts.level or 2
+  local out = {}
+  out[#out + 1] = md_header(level, "llb")
+  out[#out + 1] = ""
+  out[#out + 1] = "Shared Lua Language Builder substrate installed into every family environment."
+  out[#out + 1] = ""
+  out[#out + 1] = md_header(level + 1, "Core Exports")
+  out[#out + 1] = ""
+  out[#out + 1] = "- `llb`: the singleton workbench API for origins, diagnostics, fragments, families, formatting, and markdown."
+  out[#out + 1] = "- `_` / `spread`: splice a role-shaped fragment into a surrounding role."
+  out[#out + 1] = "- `N`: explicit generated-name factory for metaprogrammed symbols."
+  out[#out + 1] = "- `here`, `at_origin`, `with_origin`: provenance helpers for Lua factories."
+  out[#out + 1] = ""
+  out[#out + 1] = md_header(level + 1, "Grammar Bootstrap")
+  out[#out + 1] = ""
+  out[#out + 1] = "- `llb.grammar.role`: declares a named semantic role and its normalization contract."
+  out[#out + 1] = "- `llb.grammar.head`: declares a staged constructor head made from slots and traits."
+  out[#out + 1] = "- `llb.grammar.slot`: declares one consumed input position for a head."
+  out[#out + 1] = "- `llb.grammar.trait`: declares reusable behavior applied to heads."
+  out[#out + 1] = "- `llb.grammar.protocol`: declares a named protocol surface for language authors."
+  out[#out + 1] = "- `llb.grammar.scalar` and `llb.grammar.type_ctor`: declare type-like exports."
+  out[#out + 1] = "- `llb.grammar.helper`: exposes a named Lua helper into a language environment."
+  out[#out + 1] = "- `llb.grammar.pass` / `llb.grammar.phase`: declares semantic analysis passes."
+  out[#out + 1] = "- `llb.grammar.lsp`: declares language-server integration hooks."
+  out[#out + 1] = ""
+  return table.concat(out, "\n")
+end
+
+local function has_channel(slot, name)
+  for _, ch in ipairs((slot and slot.channels) or {}) do
+    if ch == name then return true end
+  end
+  return false
+end
+
+local function role_table_shape(role)
+  role = tostring(role or "")
+  if role == "params" or role == "fields" then return "{ name [Type], ... }" end
+  if role == "conts" or role == "variants" then return "{ ok { ... }, err { ... } }" end
+  if role == "decls" then return "{ decl, ... }" end
+  if role == "stmts" then return "{ stmt, ... }" end
+  if role:match("_body$") then return "{ ... }" end
+  return "{ ... }"
+end
+
+local function slot_syntax(slot)
+  if has_channel(slot, "index:name") then return ". name" end
+  if has_channel(slot, "index:type") then return " [Type]" end
+  if has_channel(slot, "index:value") then return " [value]" end
+  if has_channel(slot, "call:table") then return " " .. role_table_shape(slot.role) end
+  if has_channel(slot, "call:value") or has_channel(slot, "call:many") then return " (value)" end
+  if has_channel(slot, "call:none") then return " ()" end
+  return " <" .. tostring(slot.name or "slot") .. ">"
+end
+
+local function head_syntax(name, head)
+  local parts = { tostring(name) }
+  for _, slot in ipairs((head and head.slots) or {}) do
+    parts[#parts + 1] = slot_syntax(slot)
+  end
+  return table.concat(parts)
+end
+
+local function role_syntax(name, role)
+  local attrs = {}
+  if role.kind and role.kind ~= "" then attrs[#attrs + 1] = "kind = " .. string.format("%q", tostring(role.kind)) end
+  if role.algebra and role.algebra ~= "" then attrs[#attrs + 1] = "algebra = " .. string.format("%q", tostring(role.algebra)) end
+  if role.item_role and role.item_role ~= "" then attrs[#attrs + 1] = "item = " .. string.format("%q", tostring(role.item_role)) end
+  if role.payload_role and role.payload_role ~= "" then attrs[#attrs + 1] = "payload = " .. string.format("%q", tostring(role.payload_role)) end
+  if #attrs == 0 then return "role. " .. tostring(name) end
+  return "role. " .. tostring(name) .. " { " .. table.concat(attrs, ", ") .. " }"
+end
+
+local function slot_fact(slot)
+  local channels = table.concat(slot.channels or {}, ",")
+  local text = "`" .. md_escape(slot_syntax(slot)) .. "` -> `" .. md_escape(slot.name) .. "`"
+    .. " role=`" .. md_escape(slot.role) .. "`"
+  if channels ~= "" then text = text .. " channel=`" .. md_escape(channels) .. "`" end
+  if slot.optional then text = text .. " optional" end
+  return text
+end
+
+function llb.markdown_language(lang, opts)
+  opts = opts or {}
+  local out = {}
+  out[#out + 1] = md_header(opts.level or 2, opts.title or (lang and lang.name or "Language"))
+  out[#out + 1] = ""
+  if not is_tag(lang, "Language") then
+    out[#out + 1] = "No LLB language metadata is available."
+    out[#out + 1] = ""
+    return table.concat(out, "\n")
+  end
+
+  local exports = sorted_keys(lang.exports or {})
+  markdown_list("### Exports", exports, out)
+
+  out[#out + 1] = "### Roles"
+  out[#out + 1] = ""
+  local role_names = sorted_pairs_keys(lang.roles or {})
+  if #role_names > 0 then
+    out[#out + 1] = "```lua"
+    for _, name in ipairs(role_names) do
+      out[#out + 1] = role_syntax(name, llb.describe_role(lang, name) or {})
+    end
+    out[#out + 1] = "```"
+    out[#out + 1] = ""
+  end
+  for _, name in ipairs(role_names) do
+    local r = llb.describe_role(lang, name) or {}
+    local line = "- `" .. md_escape(name) .. "`"
+    local attrs = {}
+    if r.kind and r.kind ~= "" then attrs[#attrs + 1] = "kind=" .. tostring(r.kind) end
+    if r.algebra and r.algebra ~= "" then attrs[#attrs + 1] = "algebra=" .. tostring(r.algebra) end
+    if r.item_role and r.item_role ~= "" then attrs[#attrs + 1] = "item=" .. tostring(r.item_role) end
+    if r.payload_role and r.payload_role ~= "" then attrs[#attrs + 1] = "payload=" .. tostring(r.payload_role) end
+    if #attrs > 0 then line = line .. " — " .. table.concat(attrs, ", ") end
+    out[#out + 1] = line
+  end
+  if #role_names == 0 then out[#out + 1] = "- none" end
+  out[#out + 1] = ""
+
+  out[#out + 1] = "### Heads"
+  out[#out + 1] = ""
+  for _, name in ipairs(sorted_pairs_keys(lang.heads or {})) do
+	    local h = llb.describe_head(lang, name)
+	    out[#out + 1] = "#### `" .. md_escape(name) .. "`"
+	    out[#out + 1] = ""
+	    if h and h.documentation and h.documentation ~= "" then
+	      out[#out + 1] = h.documentation
+	      out[#out + 1] = ""
+	    end
+	    out[#out + 1] = "```lua"
+	    out[#out + 1] = head_syntax(name, h)
+	    out[#out + 1] = "```"
+    out[#out + 1] = ""
+    local slots = (h and h.slots) or {}
+    if #slots > 0 then
+      out[#out + 1] = "Slots:"
+      out[#out + 1] = ""
+      for _, slot in ipairs(slots) do
+        out[#out + 1] = "- " .. slot_fact(slot)
+      end
+    else
+      out[#out + 1] = "Slots: none"
+    end
+    if h and #(h.traits or {}) > 0 then
+      out[#out + 1] = ""
+      out[#out + 1] = "Traits: `" .. table.concat(h.traits, "`, `") .. "`"
+    end
+    out[#out + 1] = ""
+  end
+  if next(lang.heads or {}) == nil then
+    out[#out + 1] = "- none"
+    out[#out + 1] = ""
+  end
+
+  local passes = {}
+  for i = 1, #(lang.passes or {}) do passes[i] = lang.passes[i].name or ("pass" .. tostring(i)) end
+  markdown_list("### Passes", passes, out)
+  return table.concat(out, "\n")
+end
+
+function llb.markdown(value, opts)
+  opts = opts or {}
+  if is_tag(value, "Family") then return Family.markdown(value, opts) end
+  if is_tag(value, "Language") then return llb.markdown_language(value, opts) end
+  local desc = llb.describe(value)
+  return "```lua\n" .. repr(desc or value) .. "\n```\n"
+end
+
+local function member_tooling_names(member)
+  local xs = {}
+  for _, name in ipairs({ "format", "diagnostics", "index", "markdown", "match" }) do
+    if type(member[name]) == "function" then xs[#xs + 1] = name end
+  end
+  return xs
+end
+
+local function append_llb_syntax_primer(out)
+  out[#out + 1] = "## LLB Syntax Model"
+  out[#out + 1] = ""
+  out[#out + 1] = "All languages in this family are ordinary Lua values built through the shared LLB substrate. Lua provides the syntax; LLB gives that syntax language meaning through heads, roles, slots, fragments, origins, environments, and family zones."
+  out[#out + 1] = ""
+  out[#out + 1] = "Core forms:"
+  out[#out + 1] = ""
+  out[#out + 1] = "- `namespace.head. name` uses Lua field lookup through an LLB namespace to feed a name slot, for example `moonlift.fn. add` or `llpvm.task. compile`."
+  out[#out + 1] = "- `value [Type]` uses Lua indexing to attach a type or computed slot, for example `a [moonlift.i32]`."
+  out[#out + 1] = "- `head { ... }` uses Lua calls and tables to feed product, body, declaration, protocol, or record slots."
+  out[#out + 1] = "- `name = value` inside a table remains native Lua record syntax and is used for record/fill/map-shaped data."
+  out[#out + 1] = "- `_ (fragment)` splices a role-shaped fragment into the surrounding role."
+  out[#out + 1] = "- `left .. right` concatenates compatible product/list fragments or family zones."
+  out[#out + 1] = "- `left + right` composes compatible sum/protocol alternatives."
+  out[#out + 1] = "- `left * right` decorates sum/protocol alternatives with product-shaped payloads when the language role supports it."
+  out[#out + 1] = "- `moonlift { ... }`, `llpvm { ... }`, `asdl { ... }`, and similar forms call LLB namespace values to create family zones: explicit language scopes inside one Lua value."
+  out[#out + 1] = ""
+  out[#out + 1] = "In family environments, member DSLs are exposed through LLB namespace values. The namespace is a semantic owner, not just a Lua table: tools can describe it, document it, and use its call form for zones."
+  out[#out + 1] = ""
+  out[#out + 1] = "The dot belongs visually to the keyword side. Canonical LLB style is `moonlift.fn. add`, not `moonlift.fn .add`: the keyword/head is the syntactic operator, while the name stays clean."
+  out[#out + 1] = ""
+  out[#out + 1] = "There is no parser, tokenizer, antiquote layer, or string language hidden here. A source file evaluates as Lua; the resulting values already contain enough LLB metadata for diagnostics, formatting, indexing, documentation, and language-specific lowering."
+  out[#out + 1] = ""
+end
+
+function Family:markdown(opts)
+  opts = opts or {}
+  local out = {}
+  out[#out + 1] = md_header(1, opts.title or (self.name .. " Family Reference"))
+  out[#out + 1] = ""
+  out[#out + 1] = "Generated from LLB family introspection."
+  out[#out + 1] = ""
+  append_llb_syntax_primer(out)
+  out[#out + 1] = "## Family"
+  out[#out + 1] = ""
+  out[#out + 1] = "- Name: `" .. md_escape(self.name) .. "`"
+  out[#out + 1] = "- Collision policy: `" .. md_escape(self.collision or "error") .. "`"
+  out[#out + 1] = ""
+  markdown_list("### Provides", array_copy(self.provides or {}), out)
+  markdown_list("### Requires", array_copy(self.requires or {}), out)
+  markdown_list("### Shared names", sorted_keys(self.shared or {}), out)
+  markdown_list("### Reserved names", sorted_keys(self.reserved or {}), out)
+  append_family_reduction_markdown(self, out)
+
+  out[#out + 1] = "## Members"
+  out[#out + 1] = ""
+  out[#out + 1] = "```lua"
+  for _, member in ipairs(self.members or {}) do
+    out[#out + 1] = "member. " .. family_member_name(member) .. " {"
+    local provides = table.concat(member.provides or {}, ", ")
+    local requires = table.concat(member.requires or {}, ", ")
+    local tooling = table.concat(member_tooling_names(member), ", ")
+    local owns = table.concat(semantic_list(member, "owns"), ", ")
+    local uses = table.concat(semantic_list(member, "uses"), ", ")
+    if provides ~= "" then out[#out + 1] = "  provides { " .. provides .. " }" end
+    if requires ~= "" then out[#out + 1] = "  requires { " .. requires .. " }" end
+    if owns ~= "" then out[#out + 1] = "  owns { " .. owns .. " }" end
+    if uses ~= "" then out[#out + 1] = "  uses { " .. uses .. " }" end
+    if tooling ~= "" then out[#out + 1] = "  tooling { " .. tooling .. " }" end
+    out[#out + 1] = "}"
+  end
+  out[#out + 1] = "```"
+  out[#out + 1] = ""
+
+  out[#out + 1] = "## Zones"
+  out[#out + 1] = ""
+  out[#out + 1] = "Zones are semantic partitions inside family values. Each member may expose a zone head such as `moonlift { ... }` or `llpvm { ... }`."
+  out[#out + 1] = ""
+
+  out[#out + 1] = "## Tooling"
+  out[#out + 1] = ""
+  out[#out + 1] = "- `family.format(value, opts)`"
+  out[#out + 1] = "- `family.diagnostics(value, opts)`"
+  out[#out + 1] = "- `family.index(value, opts)`"
+  out[#out + 1] = "- `family.reduction()`"
+  out[#out + 1] = "- `family.markdown(opts)`"
+  out[#out + 1] = ""
+
+  out[#out + 1] = "## Member References"
+  out[#out + 1] = ""
+  for _, member in ipairs(self.members or {}) do
+    if type(member.markdown) == "function" then
+      local ok, text = pcall(member.markdown, member, opts, self)
+      if ok then out[#out + 1] = tostring(text)
+      else
+        out[#out + 1] = md_header(2, family_member_name(member))
+        out[#out + 1] = ""
+        out[#out + 1] = "Documentation hook failed: `" .. md_escape(text) .. "`"
+      end
+    elseif member.lang then
+      out[#out + 1] = llb.markdown_language(member.lang, { level = 2, title = family_member_name(member) })
+    else
+      out[#out + 1] = md_header(2, family_member_name(member))
+      out[#out + 1] = ""
+      out[#out + 1] = "No language metadata is available."
+      out[#out + 1] = ""
+    end
+  end
+  return table.concat(out, "\n")
+end
+
+function Family:write_markdown(path, opts)
+  local text = Family.markdown(self, opts)
+  local f = assert(io.open(path, "wb"))
+  f:write(text)
+  f:close()
+  return text
+end
+
+function Family:describe()
+  local members = {}
+  for i, member in ipairs(self.members or {}) do
+    members[i] = {
+      name = member.name or (member.lang and member.lang.name),
+      provides = array_copy(member.provides or {}),
+      requires = array_copy(member.requires or {}),
+      semantics = {
+        owns = semantic_list(member, "owns"),
+        uses = semantic_list(member, "uses"),
+        notes = array_copy(member_semantics(member).notes or {}),
+      },
+    }
+  end
+  return {
+    tag = "Family",
+    name = self.name,
+    members = members,
+    provides = array_copy(self.provides or {}),
+    requires = array_copy(self.requires or {}),
+    reserved = sorted_keys(self.reserved or {}),
+    shared = sorted_keys(self.shared or {}),
+    prefer = shallow_copy(self.preferences or {}),
+    reduction = Family.reduction(self),
+  }
+end
+
+function Family:compose(other, opts)
+  other = family_of(other)
+  opts = opts or {}
+  local members = array_copy(self.members or {})
+  append(members, other.members or {})
+  local spec = family_spec_from(self, { members = members, prefer = opts.prefer })
+  append(spec.reserved, sorted_keys(other.reserved or {}))
+  append(spec.shared, sorted_keys(other.shared or {}))
+  return family_define(opts.name or (self.name .. "+" .. other.name), spec)
+end
+
+function Family:subtract(member_or_name, opts)
+  opts = opts or {}
+  local remove = {}
+  if is_tag(member_or_name, "Family") then
+    for _, member in ipairs(member_or_name.members or {}) do remove[tostring(member.name or (member.lang and member.lang.name))] = true end
+  elseif is_tag(member_or_name, "Language") then
+    remove[tostring(member_or_name.name)] = true
+  else
+    remove[tostring(member_or_name)] = true
+  end
+  local members = {}
+  for _, member in ipairs(self.members or {}) do
+    local name = tostring(member.name or (member.lang and member.lang.name))
+    if not remove[name] then members[#members + 1] = member end
+  end
+  return family_define(opts.name or (self.name .. "-projected"), family_spec_from(self, { members = members }))
+end
+
+function Family:only(names, opts)
+  opts = opts or {}
+  local keep = list_to_set(names or {})
+  local members = {}
+  for _, member in ipairs(self.members or {}) do
+    local name = tostring(member.name or (member.lang and member.lang.name))
+    local yes = keep[name]
+    if not yes then
+      for _, cap in ipairs(member.provides or {}) do if keep[tostring(cap)] then yes = true end end
+    end
+    if yes then members[#members + 1] = member end
+  end
+  return family_define(opts.name or (self.name .. ".only"), family_spec_from(self, { members = members }))
+end
+
+function Family:prefer(map, opts)
+  opts = opts or {}
+  return family_define(opts.name or (self.name .. ".prefer"), family_spec_from(self, { prefer = map or {} }))
+end
+
+Family.__concat = function(a, b) return Family.compose(family_of(a), b) end
+Family.__add = Family.__concat
+Family.__sub = function(a, b) return Family.subtract(family_of(a), b) end
+Language.__concat = function(a, b) return Family.compose(family_of(a), b) end
+Language.__add = Language.__concat
+Language.__sub = function(a, b) return Family.subtract(family_of(a), b) end
+
 function Language:fragment(role, value)
   local spec = self.roles and self.roles[role] or {}
   return llb.fragment(role, normalize_role({ lang = self, origin = source.capture("fragment-normalize") }, role, value), source.capture("fragment"), {
@@ -2190,12 +3523,26 @@ function Language:env(opts)
   if opts.env then opts.exports = opts.env end
   opts.scope = opts.scope or "env"
   opts.auto_names = opts.auto_names ~= false
-  local session = llb.use(self, opts)
+  local session = Family.use(self:family(), opts)
   return session.env
 end
-function Language:use(opts) return llb.use(self, opts) end
-function Language:with_use(opts, fn) return llb.with_use(self, opts, fn) end
-function Language:loadstring(src, chunkname, opts) chunkname = chunkname or self.name; source.register(chunkname, src); local f, err = compile_lua(src, chunkname); if not f then error(err, 2) end; setfenv0(f, self:env(opts)); return f end
+function Language:family()
+  -- A language's family is not optional. It is the singleton family containing
+  -- the llb root member plus this language member.
+  if not self.__llb_family then self.__llb_family = family_define(self.name, { family_member_from_language(self) }) end
+  return self.__llb_family
+end
+function Language:use(opts) return Family.use(self:family(), opts or {}) end
+function Language:with_use(opts, fn)
+  opts = shallow_copy(opts or {})
+  opts.scope = opts.scope or "scoped"
+  local session = self:use(opts)
+  local ok, a, b, c = pcall(fn, session.env, session)
+  session:close()
+  if not ok then error(a, 0) end
+  return a, b, c
+end
+function Language:loadstring(src, chunkname, opts) return Family.loadstring(self:family(), src, chunkname or self.name, opts) end
 function Language:loadfile(path, opts) local f, err = io.open(path, "rb"); if not f then error(err, 2) end; local src = f:read("*a") or ""; f:close(); return self:loadstring(src, "@" .. path, opts) end
 function Language:analyze_string(src, chunkname, opts)
   opts = opts or {}; local bag = llb.diagnostics(); source.register(chunkname or self.name, src)
@@ -2266,6 +3613,7 @@ function llb.describe_head(lang, name)
       has_check = type(spec.check) == "function",
       has_format = type(spec.format) == "function",
       origin = spec.origin,
+      documentation = spec.origin and spec.origin.leading_comment or nil,
     }
   end
   return nil
@@ -2285,6 +3633,56 @@ function llb.describe_fragment(fragment_value)
   }
 end
 
+function llb.describe_zone(zone)
+  if not is_tag(zone, "Zone") then return nil end
+  return {
+    tag = "Zone",
+    family = zone.family,
+    member = zone.member,
+    name = zone.name,
+    role = zone.role,
+    count = #(zone.items or {}),
+    items = zone.items or {},
+    origin = zone.origin,
+    metadata = zone.metadata,
+  }
+end
+
+function llb.describe_family_bundle(bundle)
+  if not is_tag(bundle, "FamilyBundle") then return nil end
+  local zones = {}
+  for i, z in ipairs(bundle.zones or {}) do zones[i] = llb.describe_zone(z) end
+  return {
+    tag = "FamilyBundle",
+    family = bundle.family,
+    zones = zones,
+    count = #(bundle.zones or {}),
+    origin = bundle.origin,
+  }
+end
+
+function llb.describe_namespace(ns)
+  if not is_tag(ns, "Namespace") then return nil end
+  local exports = {}
+  for k, v in pairs(ns) do
+    if type(k) == "string" and k:sub(1, 2) ~= "__" and k ~= "family" and k ~= "member" and k ~= "name" and k ~= "origin" and k ~= "metadata" and k ~= "zone" and k ~= "default_head" then
+      exports[#exports + 1] = k
+    end
+  end
+  table.sort(exports)
+  return {
+    tag = "Namespace",
+    family = ns.family,
+    member = ns.member,
+    name = ns.name,
+    exports = exports,
+    callable = ns.zone ~= nil,
+    default_head = ns.default_head ~= nil,
+    origin = ns.origin,
+    metadata = ns.metadata,
+  }
+end
+
 function llb.describe(value)
   if is_tag(value, "Language") then
     local roles, heads, traits, protocols, passes = {}, {}, {}, {}, {}
@@ -2300,6 +3698,9 @@ function llb.describe(value)
   if is_tag(value, "Process") then return llb.describe_process(value) end
   if is_tag(value, "ProcessEvent") then return { tag = "ProcessEvent", process = value.process, kind = value.kind, seq = value.seq, origin = value.origin } end
   if is_tag(value, "Fragment") then return llb.describe_fragment(value) end
+  if is_tag(value, "Zone") then return llb.describe_zone(value) end
+  if is_tag(value, "FamilyBundle") then return llb.describe_family_bundle(value) end
+  if is_tag(value, "Namespace") then return llb.describe_namespace(value) end
   if is_tag(value, "Protocol") then return llb.describe_protocol(value) end
   if is_tag(value, "UseSession") and value.describe then return value:describe() end
   if is_tag(value, "Head") then return llb.describe_head(value.lang, value.spec and value.spec.name) end
@@ -2378,6 +3779,9 @@ local function trait_name(t)
 end
 
 local function define_language(name, decls)
+  -- llb.define compiles declarative grammar objects into a runtime Language.
+  -- Runtime heads are ordinary Lua values with metatables that consume
+  -- dot/index/call/table shapes through the slot machine above.
   local lang = setmetatable({ __llb_tag = "Language", name = tostring(name), roles = builtin_roles(), heads = {}, traits = {}, protocols = {}, exports = { N = llb.N, spread = llb.spread, _ = llb.spread }, passes = {}, lsp = {}, declarations = decls or {} }, Language)
   for i = 1, #(decls or {}) do
     local d = decls[i]
@@ -2392,17 +3796,7 @@ local function define_language(name, decls)
     elseif is_tag(d, "TypeSystemDecl") then lang.type_system = d.spec or {} end
   end
   for role in pairs(lang.roles) do if not lang.exports[role] then lang.exports[role] = function(tbl) return lang:fragment(role, tbl) end end end
-  lang.exports.eq = lang.exports.eq or function(a, b) return expr("binop", { op = "==", a = a, b = b }) end
-  lang.exports.ne = lang.exports.ne or function(a, b) return expr("binop", { op = "~=", a = a, b = b }) end
-  lang.exports.And = lang.exports.And or function(a, b) return call_expr(llb.symbol("And"), pack(a, b)) end
-  lang.exports.Or  = lang.exports.Or  or function(a, b) return call_expr(llb.symbol("Or"),  pack(a, b)) end
-  lang.exports.Not = lang.exports.Not or function(a) return call_expr(llb.symbol("Not"), pack(a)) end
-  lang.exports.select = lang.exports.select or function(c, a, b) return call_expr(llb.symbol("select"), pack(c, a, b)) end
-  lang.exports.as = lang.exports.as or llb.expr_ctor("as")
-  lang.exports.bitcast = lang.exports.bitcast or llb.expr_ctor("bitcast")
-  lang.exports.null = lang.exports.null or llb.expr_ctor("null")
-  lang.exports.sizeof = lang.exports.sizeof or llb.expr_ctor("sizeof")
-  lang.exports.alignof = lang.exports.alignof or llb.expr_ctor("alignof")
+  for k, v in pairs(DEFAULT_EXPORTS) do lang.exports[k] = lang.exports[k] or v end
   for i = 1, #(decls or {}) do
     local d = decls[i]
     if is_tag(d, "HeadDecl") then
@@ -2419,6 +3813,7 @@ local function define_language(name, decls)
     end
   end
   table.insert(lang.passes, 1, head_check_pass())
+  lang.__llb_family = family_define(lang.name, { family_member_from_language(lang) })
   return lang
 end
 function llb.define(name) return function(decls) return define_language(name, decls) end end
@@ -2427,6 +3822,12 @@ llb.Language = Language
 -- ---------------------------------------------------------------------------
 -- Formatting
 -- ---------------------------------------------------------------------------
+--
+-- Formatting is semantic, not source-preserving. LLB formats evaluated values:
+-- fragments, heads, expressions, tables, and language-specific nodes through
+-- hooks. Origin-leading comments may be surfaced as documentation, but exact
+-- original token layout is outside this layer; language formatters can add
+-- richer behavior on top.
 
 local doc = {}
 llb.doc = doc
@@ -2792,7 +4193,7 @@ function llb.example_language()
     g.scalar .void, g.scalar .i32, g.scalar .u8, g.scalar .bool,
     g.type_ctor .ptr { arity = 1 },
     g.type_ctor .array { arity = 2 },
-    g.head .module { g.slot .name [g.string], g.slot .decls [g.decls], emit = function(n) return { tag = "module", name = n.name, decls = n.decls } end },
+    g.head .unit { g.slot .name [g.string], g.slot .decls [g.decls], emit = function(n) return { tag = "unit", name = n.name, decls = n.decls } end },
     g.head .struct { g.slot .name [g.name], g.slot .fields [g.product], emit = function(n) return { tag = "struct", name = n.name.text, fields = n.fields } end },
     g.head .fn { g.slot .name [g.name], g.slot .params [g.product], g.slot .result [g.type] { optional = true }, g.slot .body [g.body], emit = function(n, lang) return { tag = "fn", name = n.name.text, params = n.params, result = n.result or lang.exports.void, body = n.body } end, lsp = { symbol = function(n) return { name = n.name, kind = "Function", origin = n.origin, node = n } end } },
     g.head .ret { g.slot .value [g.expr] { optional = true }, emit = function(n) return { tag = "ret", value = n.value } end },

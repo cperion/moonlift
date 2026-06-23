@@ -804,6 +804,9 @@ local function drain_recording_into(entry, start_i, out)
 end
 
 local function drain_generic(g, p, c)
+	if type(g) == "table" and p == nil and c == nil then
+		return copy_seq_array(g, 1, #g)
+	end
 	local result, n = {}, 0
 	while true do
 		local val
@@ -818,6 +821,9 @@ local function drain_generic(g, p, c)
 end
 
 local function drain_generic_into(g, p, c, out)
+	if type(g) == "table" and p == nil and c == nil then
+		return append_seq_array(out, g, 1, #g)
+	end
 	local n = #out
 	while true do
 		local val
@@ -874,6 +880,9 @@ function pvm.drain(g, p, c)
 	if g == nil then
 		return {}
 	end
+	if type(g) == "table" and p == nil and c == nil then
+		return copy_seq_array(g, 1, #g)
+	end
 	if g == seq_gen then
 		return copy_seq_array(p, c + 1, #p)
 	end
@@ -893,6 +902,9 @@ end
 function pvm.drain_into(g, p, c, out)
 	if g == nil then
 		return out
+	end
+	if type(g) == "table" and p == nil and c == nil then
+		return append_seq_array(out, g, 1, #g)
 	end
 	if g == seq_gen then
 		return append_seq_array(out, p, c + 1, #p)
@@ -996,6 +1008,15 @@ end
 function pvm.one(g, p, c)
 	if g == nil then
 		error("pvm.one: expected exactly 1 element, got 0", 2)
+	end
+	if type(g) == "table" and p == nil and c == nil then
+		if #g == 0 then
+			error("pvm.one: expected exactly 1 element, got 0", 2)
+		end
+		if #g ~= 1 then
+			error("pvm.one: expected exactly 1 element, got more", 2)
+		end
+		return g[1]
 	end
 	if g == seq_gen then
 		local i = c + 1
@@ -1204,10 +1225,25 @@ local function concat3_gen(s, phase)
 end
 
 function pvm.concat2(g1, p1, c1, g2, p2, c2)
+	if type(g1) == "table" and p1 == nil and c1 == nil then
+		g1, p1, c1 = pvm.seq(g1)
+	end
+	if type(g2) == "table" and p2 == nil and c2 == nil then
+		g2, p2, c2 = pvm.seq(g2)
+	end
 	return concat2_gen, { g1, p1, c1, g2, p2, c2 }, 1
 end
 
 function pvm.concat3(g1, p1, c1, g2, p2, c2, g3, p3, c3)
+	if type(g1) == "table" and p1 == nil and c1 == nil then
+		g1, p1, c1 = pvm.seq(g1)
+	end
+	if type(g2) == "table" and p2 == nil and c2 == nil then
+		g2, p2, c2 = pvm.seq(g2)
+	end
+	if type(g3) == "table" and p3 == nil and c3 == nil then
+		g3, p3, c3 = pvm.seq(g3)
+	end
 	return concat3_gen, { g1, p1, c1, g2, p2, c2, g3, p3, c3 }, 1
 end
 
@@ -1252,6 +1288,13 @@ local function concatn_gen(s, active)
 end
 
 function pvm.concat_all(trips)
+	for i = 1, #trips do
+		local trip = trips[i]
+		if type(trip[1]) == "table" and trip[2] == nil and trip[3] == nil then
+			local g, p, c = pvm.seq(trip[1])
+			trips[i] = { g, p, c }
+		end
+	end
 	local n = #trips
 	if n == 0 then
 		return pvm.empty()
@@ -1298,11 +1341,15 @@ local CHILDREN_C = 7
 
 local function children_gen(s, active)
 	while true do
-		local g = s[CHILDREN_G]
-		if g ~= nil then
-			local c, v = g(s[CHILDREN_P], s[CHILDREN_C])
-			if c ~= nil then
-				s[CHILDREN_C] = c
+			local g = s[CHILDREN_G]
+			if g ~= nil then
+				if type(g) == "table" and s[CHILDREN_P] == nil and s[CHILDREN_C] == nil then
+					g, s[CHILDREN_P], s[CHILDREN_C] = pvm.seq(g)
+					s[CHILDREN_G] = g
+				end
+				local c, v = g(s[CHILDREN_P], s[CHILDREN_C])
+				if c ~= nil then
+					s[CHILDREN_C] = c
 				return active, v
 			end
 			s[CHILDREN_G] = nil

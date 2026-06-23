@@ -66,6 +66,10 @@ local report = executor:run(planned.plan, { source = 20 })
 assert(report.ok)
 assert(report.output.code == 42)
 assert(#report.steps == 2)
+assert(report.run.status == "done")
+assert(report.run.task.value == "compile")
+assert(#report.run.events == 6)
+assert(#report.run.steps == 2)
 
 local seen = {}
 local handle = executor:process(planned.plan, { source = 1 })
@@ -79,5 +83,7 @@ assert(seen.execute_done == 1)
 local unbound = Execute.registry():run(planned.plan, { source = 1 })
 assert(not unbound.ok)
 assert(unbound.diagnostics[1].code == "E_MACHINE_UNBOUND")
+assert(unbound.run.status == "failed")
+assert(unbound.run.steps[1].status == "failed")
 
 io.write("moonlift phase_execute ok\n")

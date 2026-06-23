@@ -1,4 +1,5 @@
-local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
+local erased = require("moonlift.phase_erased_runtime")
 local PositionIndex = require("moonlift.source_position_index")
 local AnchorIndex = require("moonlift.source_anchor_index")
 local Format = require("moonlift.error.format")
@@ -18,7 +19,7 @@ local function trim(s)
 end
 
 local function class_name(node)
-    local cls = pvm.classof(node)
+    local cls = schema.classof(node)
     return cls and cls.kind or tostring(node)
 end
 
@@ -83,7 +84,7 @@ function M.Define(T)
     end
 
     local function func_parts(func)
-        local cls = pvm.classof(func)
+        local cls = schema.classof(func)
         if cls == Tr.FuncLocal or cls == Tr.FuncExport or cls == Tr.FuncLocalContract or cls == Tr.FuncExportContract then
             return func.name, func.params, func.result
         elseif cls == Tr.FuncOpen then
@@ -119,7 +120,7 @@ function M.Define(T)
     local function find_struct(analysis, name)
         for i = 1, #analysis.parse.combined.decls.decls do
             local d = analysis.parse.combined.decls.decls[i]
-            if pvm.classof(d) == H.HostDeclStruct and d.decl.name == name then return d.decl end
+            if schema.classof(d) == H.HostDeclStruct and d.decl.name == name then return d.decl end
         end
         return nil
     end
@@ -167,9 +168,9 @@ function M.Define(T)
         local catalog = {}
         for i = 1, #analysis.parse.combined.module.items do
             local item = analysis.parse.combined.module.items[i]
-            if pvm.classof(item) == Tr.ItemFunc then
+            if schema.classof(item) == Tr.ItemFunc then
                 add_func_signature(catalog, nil, item.func, "Moonlift function")
-            elseif pvm.classof(item) == Tr.ItemExtern then
+            elseif schema.classof(item) == Tr.ItemExtern then
                 local f = item.func
                 local name = f.name or (f.sym and f.sym.name) or "extern"
                 local params = f.params or {}
@@ -194,11 +195,11 @@ function M.Define(T)
         end
         for i = 1, #analysis.parse.combined.decls.decls do
             local d = analysis.parse.combined.decls.decls[i]
-            if pvm.classof(d) == H.HostDeclAccessor then
+            if schema.classof(d) == H.HostDeclAccessor then
                 local ac = d.decl
                 local name = ac.owner_name .. ":" .. ac.name
                 local aliases = { ac.name, ac.owner_name .. "." .. ac.name }
-                local cls = pvm.classof(ac)
+                local cls = schema.classof(ac)
                 if cls == H.HostAccessorMoonlift then
                     add_func_signature(catalog, aliases, ac.func, "Moonlift host accessor")
                     if catalog[ac.func.name] then catalog[name] = catalog[ac.func.name] end
@@ -220,15 +221,18 @@ function M.Define(T)
         return catalog
     end
 
-    local signature_context_phase = pvm.phase("moonlift_editor_signature_context", {
-        [E.PositionQuery] = function(query, analysis)
+    local function signature_context_phase(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, E.PositionQuery) then
+            return (function(query, analysis)
+
             local doc = analysis.parse.parts.document
             local index = P.build_index(doc)
             local hit = P.source_pos_to_offset(index, query.pos)
-            if pvm.classof(hit) ~= S.SourceOffsetHit then return pvm.once(E.SignatureNoCall(hit.reason)) end
+            if schema.classof(hit) ~= S.SourceOffsetHit then return erased.once(E.SignatureNoCall(hit.reason)) end
             local offset = hit.offset
             local context, reason = find_call_context(doc.text, offset)
-            if not context then return pvm.once(E.SignatureNoCall(reason)) end
+            if not context then return erased.once(E.SignatureNoCall(reason)) end
             local anchor_index = AI.build_index(analysis.anchors)
             local lookup = AI.lookup_by_position(anchor_index, query.uri, offset)
             local in_hosted_source = false
@@ -239,33 +243,42 @@ function M.Define(T)
                 end
             end
             if not in_hosted_source and not context.callee:match("^moonlift%.") then
-                return pvm.once(E.SignatureNoCall("not in Moonlift or builtin call context"))
+                return erased.once(E.SignatureNoCall("not in Moonlift or builtin call context"))
             end
             local r = assert(P.range_from_offsets(index, context.start_offset, context.stop_offset))
-            return pvm.once(E.SignatureCall(context.callee, context.active_parameter, r))
-        end,
-    }, { node_cache = "none", args_cache = "none" })
+            return erased.once(E.SignatureCall(context.callee, context.active_parameter, r))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_editor_signature_context: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
-    local signature_help_phase = pvm.phase("moonlift_editor_signature_help", {
-        [E.PositionQuery] = function(query, analysis)
-            local context = pvm.one(signature_context_phase(query, analysis))
-            if pvm.classof(context) ~= E.SignatureCall then return pvm.once(E.SignatureHelpMissing(context.reason)) end
+    local function signature_help_phase(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, E.PositionQuery) then
+            return (function(query, analysis)
+
+            local context = erased.one(signature_context_phase(query, analysis))
+            if schema.classof(context) ~= E.SignatureCall then return erased.once(E.SignatureHelpMissing(context.reason)) end
             local catalog = signature_catalog(analysis)
             local signatures = catalog[context.callee]
             if (not signatures or #signatures == 0) and context.callee:find(":", 1, true) then
                 signatures = catalog[context.callee:gsub("^.-:", "")]
             end
-            if not signatures or #signatures == 0 then return pvm.once(E.SignatureHelpMissing("unknown callee: " .. context.callee)) end
-            return pvm.once(E.SignatureHelp(signatures, 0, context.active_parameter))
-        end,
-    }, { node_cache = "none", args_cache = "none" })
+            if not signatures or #signatures == 0 then return erased.once(E.SignatureHelpMissing("unknown callee: " .. context.callee)) end
+            return erased.once(E.SignatureHelp(signatures, 0, context.active_parameter))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_editor_signature_help: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
     local function context(query, analysis)
-        return pvm.one(signature_context_phase(query, analysis))
+        return erased.one(signature_context_phase(query, analysis))
     end
 
     local function help(query, analysis)
-        return pvm.one(signature_help_phase(query, analysis))
+        return erased.one(signature_help_phase(query, analysis))
     end
 
     return {

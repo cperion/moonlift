@@ -1,4 +1,5 @@
-local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
+local erased = require("moonlift.phase_erased_runtime")
 
 local M = {}
 
@@ -8,8 +9,11 @@ function M.Define(T)
 
     local project_report
 
-    project_report = pvm.phase("moonlift_project_report", {
-        [P.Project] = function(project)
+    function project_report(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, P.Project) then
+            return (function(project)
+
             local facts = Facts.facts(project)
             local ready = {}
             local blocked = {}
@@ -21,7 +25,7 @@ function M.Define(T)
             local seen_deferred = {}
             for i = 1, #facts do
                 local fact = facts[i]
-                local cls = pvm.classof(fact)
+                local cls = schema.classof(fact)
                 if cls == P.TaskReady and not seen_ready[fact.id] then
                     seen_ready[fact.id] = true
                     ready[#ready + 1] = fact.id
@@ -36,13 +40,16 @@ function M.Define(T)
                     deferred[#deferred + 1] = fact.id
                 end
             end
-            return pvm.once(P.ProjectReport(facts, ready, blocked, done, deferred))
-        end,
-    })
+            return erased.once(P.ProjectReport(facts, ready, blocked, done, deferred))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_project_report: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
     return {
         project_report = project_report,
-        report = function(project) return pvm.one(project_report(project)) end,
+        report = function(project) return erased.one(project_report(project)) end,
     }
 end
 

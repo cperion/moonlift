@@ -60,7 +60,7 @@ local report = validate.validate(program)
 assert(#report.issues == 0)
 
 local jit = jit_api.jit()
-local artifact = jit:compile(program)
+local artifact = jit:compile(jit_api.flatline.encode_back_program(program))
 
 local first_plus_one_vec = ffi.cast("int32_t (*)(const int32_t*)", artifact:getpointer(B2.BackFuncId("first_plus_one_vec")))
 local xs = ffi.new("int32_t[4]", { 41, 1, 2, 3 })

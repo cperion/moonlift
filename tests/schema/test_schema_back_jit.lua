@@ -37,7 +37,7 @@ local program = B.BackProgram({
 
 local report = validate.validate(program)
 assert(#report.issues == 0)
-local artifact = jit_api.jit():compile(program)
+local artifact = jit_api.jit():compile(jit_api.flatline.encode_back_program(program))
 local add_i32 = ffi.cast("int32_t (*)(int32_t, int32_t)", artifact:getpointer(func))
 assert(add_i32(20, 22) == 42)
 assert(add_i32(-10, 3) == -7)

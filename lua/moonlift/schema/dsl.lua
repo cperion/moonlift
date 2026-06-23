@@ -29,6 +29,18 @@ local function tag(v)
     return type(v) == "table" and rawget(v, "__moonschema_tag") or nil
 end
 
+local function llb_path(v)
+    if llb.is(v, "Symbol") or llb.is(v, "Name") then return { v.text } end
+    if llb.is(v, "Expr") and v.kind == "field" and type(v.field) == "string" then
+        local path = llb_path(v.base)
+        if path then
+            path[#path + 1] = v.field
+            return path
+        end
+    end
+    return nil
+end
+
 local function copy_array(xs)
     local out = {}
     for i = 1, #(xs or {}) do out[i] = xs[i] end
@@ -60,7 +72,8 @@ end
 
 function M.type(name)
     if tag(name) == "Type" then return name end
-    if tag(name) == "TypeRef" then name = table.concat(name.path, ".") end
+    local path = llb_path(name)
+    if path then name = table.concat(path, ".") end
     if llb.is(name, "Symbol") then name = name.text end
     if llb.is(name, "Name") then name = name.text end
     if llb.is(name, "Type") then name = name.name end
@@ -237,24 +250,8 @@ end
 -- LLB authoring surface ------------------------------------------------------
 
 llb.register_type_like(function(v)
-    return tag(v) == "Type" or tag(v) == "TypeRef"
+    return tag(v) == "Type"
 end)
-
-local TypeRef = {}
-TypeRef.__index = function(self, key)
-    if type(key) ~= "string" then return rawget(TypeRef, key) end
-    local path = copy_array(rawget(self, "path"))
-    path[#path + 1] = key
-    return setmetatable({ __moonschema_tag = "TypeRef", path = path }, TypeRef)
-end
-
-local TypeHead = {}
-TypeHead.__index = function(_, key)
-    if type(key) ~= "string" then return nil end
-    return setmetatable({ __moonschema_tag = "TypeRef", path = { key } }, TypeRef)
-end
-
-local type_head = setmetatable({}, TypeHead)
 
 local TypeCtor = {}
 TypeCtor.__index = function(self, key)
@@ -288,10 +285,18 @@ local function field_from_capture(item)
     error("moonschema: expected field capture", 2)
 end
 
+local function field_from_index_expr(item)
+    if llb.is(item, "Expr") and item.kind == "index" and llb.is(item.base, "Symbol") and llb_path(item.index) then
+        return M.field(item.base.text, type_value(item.index))
+    end
+    return nil
+end
+
 local function normalize_body(tbl, allow_variants)
     local attrs, fields, variants, decls = {}, {}, {}, {}
     for i = 1, #(tbl or {}) do
         local item = tbl[i]
+        local indexed_field = field_from_index_expr(item)
         if tag(item) == "Attr" then
             attrs[#attrs + 1] = item
         elseif tag(item) == "Field" then
@@ -302,6 +307,8 @@ local function normalize_body(tbl, allow_variants)
             decls[#decls + 1] = item
         elseif llb.is(item, "Capture") then
             fields[#fields + 1] = field_from_capture(item)
+        elseif indexed_field then
+            fields[#fields + 1] = indexed_field
         elseif allow_variants and llb.is(item, "Symbol") then
             variants[#variants + 1] = M.variant(item.text, {})
         elseif allow_variants and llb.is(item, "Expr") and item.kind == "call" and llb.is(item.callee, "Symbol") then
@@ -348,6 +355,8 @@ local Lang = llb.define "MoonSchema" {
         end,
     },
 
+    -- Declares a MoonSchema module: the root namespace for ASDL products, sums,
+    -- and aliases.
     g.head .schema {
         g.slot .name [g.name],
         g.slot .decls [g.decls],
@@ -356,6 +365,7 @@ local Lang = llb.define "MoonSchema" {
         end,
     },
 
+    -- Declares a product type with named fields.
     g.head .product {
         g.slot .name [g.name],
         g.slot .body [g.product_body],
@@ -364,6 +374,7 @@ local Lang = llb.define "MoonSchema" {
         end,
     },
 
+    -- Declares a sum type with named variants.
     g.head .sum {
         g.slot .name [g.name],
         g.slot .body [g.sum_body],
@@ -372,17 +383,20 @@ local Lang = llb.define "MoonSchema" {
         end,
     },
 
+    -- Declares a type alias to another schema type path.
     g.head .alias {
         g.slot .name [g.name],
-        g.slot .target [g.schema_type] { channel = "index:type" },
+        g.slot .target [g.schema_type] { channels = { "index:type", "index:value" } },
         emit = function(n)
             return M.alias(n.name.text, n.target)
         end,
     },
 
+    -- Declares a field when the field name collides with a schema helper or Lua
+    -- reserved word.
     g.head .field {
         g.slot .name [g.name],
-        g.slot .target [g.schema_type] { channel = "index:type" },
+        g.slot .target [g.schema_type] { channels = { "index:type", "index:value" } },
         emit = function(n)
             return M.field(n.name.text, n.target)
         end,
@@ -392,7 +406,6 @@ local Lang = llb.define "MoonSchema" {
     g.helper .bool { value = M.type("boolean") },
     g.helper .number { value = M.type("number") },
     g.helper .any { value = M.type("any") },
-    g.helper .ty { value = type_head },
     g.helper .table_ty { value = M.type("table") },
     g.helper .function_ty { value = M.type("function") },
     g.helper .nil_ty { value = M.type("nil") },
@@ -426,6 +439,46 @@ end
 
 M.Language = Lang
 M.tag = tag
+M.moonschema = llb.zone_head { family = "moonlift", member = "moonschema.dsl", name = "schema", role = "decls" }
+
+function M.namespace(opts)
+    local env = Lang:env { base = opts and opts.base or nil }
+    return llb.namespace {
+        family = "moonlift",
+        member = "moonschema.dsl",
+        name = "schema",
+        zone = M.moonschema,
+        default_head = env.schema,
+        exports = {
+        module = env.schema,
+        product = env.product,
+        sum = env.sum,
+        alias = env.alias,
+        field = env.field,
+        str = env.str,
+        bool = env.bool,
+        number = env.number,
+        any = env.any,
+        table_ty = env.table_ty,
+        function_ty = env.function_ty,
+        nil_ty = env.nil_ty,
+        interned = env.interned,
+        unique = env.unique,
+        variant_unique = env.variant_unique,
+        many = env.many,
+        optional = env.optional,
+        ref = env.ref,
+        id = env.id,
+        map = env.map,
+        },
+    }
+end
+
+function M.make_family_env(opts)
+    return {
+        schema = M.namespace(opts),
+    }
+end
 
 -- Formatting ----------------------------------------------------------------
 
@@ -435,11 +488,11 @@ end
 
 local FIELD_CAPTURE_RESERVED = {
     schema = true, product = true, sum = true, alias = true, field = true,
-    str = true, bool = true, number = true, any = true, ty = true,
+    str = true, bool = true, number = true, any = true,
     table_ty = true, function_ty = true, nil_ty = true,
     interned = true, unique = true, variant_unique = true,
     many = true, optional = true, ref = true, id = true, map = true,
-    N = true, spread = true, _ = true, process = true, process_opts = true,
+    llb = true, N = true, spread = true, _ = true, process = true, process_opts = true,
     here = true, at_origin = true, with_origin = true,
     decls = true, product_body = true, sum_body = true, schema_type = true,
     name = true, expr = true, boolean = true, identity = true, module = true,
@@ -470,7 +523,7 @@ local function type_doc(ty, f)
         if ty.name == "nil" then return f:text("nil_ty") end
         return f:text(ty.name)
     elseif ty.kind == "name" then
-        return f:group { "ty. ", ty.name }
+        return f:text(ty.name)
     elseif ty.kind == "many" or ty.kind == "optional" or ty.kind == "ref" or ty.kind == "id" then
         return f:group { ty.kind, " [", type_doc(ty.elem, f), "]" }
     elseif ty.kind == "map" then

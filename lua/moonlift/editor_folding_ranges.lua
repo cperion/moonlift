@@ -1,4 +1,5 @@
-local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
+local erased = require("moonlift.phase_erased_runtime")
 local PositionIndex = require("moonlift.source_position_index")
 
 local M = {}
@@ -35,7 +36,7 @@ function M.Define(T)
                 stack[#stack] = nil
                 if open then
                     local r = P.range_from_offsets(index, open.offset, line.stop_offset)
-                    if pvm.classof(r) == S.SourceRange then add_unique(out, seen, r) end
+                    if schema.classof(r) == S.SourceRange then add_unique(out, seen, r) end
                 end
             elseif fold_open[word] then
                 stack[#stack + 1] = { word = word, offset = line.start_offset }
@@ -43,15 +44,18 @@ function M.Define(T)
         end
     end
 
-    local folding_phase = pvm.phase("moonlift_editor_folding_ranges", {
-        [Mlua.DocumentAnalysis] = function(analysis)
+    local function folding_phase(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Mlua.DocumentAnalysis) then
+            return (function(analysis)
+
         local out = {}
         local seen = {}
         for i = 1, #analysis.parse.parts.segments do
             local seg = analysis.parse.parts.segments[i]
-            if pvm.classof(seg) == Mlua.HostedIsland then
+            if schema.classof(seg) == Mlua.HostedIsland then
                 add_unique(out, seen, seg.range)
-            elseif pvm.classof(seg) == Mlua.LuaOpaque then
+            elseif schema.classof(seg) == Mlua.LuaOpaque then
                 local r = seg.occurrence.range
                 add_unique(out, seen, r)
             end
@@ -67,12 +71,15 @@ function M.Define(T)
             if a.range.start.line ~= b.range.start.line then return a.range.start.line < b.range.start.line end
             return a.range.start.utf16_col < b.range.start.utf16_col
         end)
-        return pvm.seq(out)
-        end,
-    })
+        return erased.seq(out)
+            end)(node, ...)
+        else
+            error("erased phase moonlift_editor_folding_ranges: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
     local function ranges(analysis)
-        return pvm.drain(folding_phase(analysis))
+        return folding_phase(analysis)
     end
 
     return { folding_phase = folding_phase, ranges = ranges }

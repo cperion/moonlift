@@ -76,6 +76,36 @@ function M.code_to_back(code_result, _step, call)
     return result.program
 end
 
+function M.back_to_flatline(program, _step, call)
+    local T = (call and call.opts and call.opts.context) or context_of(program)
+    local Flatline = require("moonlift.flatline").Define(T)
+    local image = Flatline.encode_back_program(program)
+    Flatline.assert_valid_image(image)
+    return image
+end
+
+function M.flatline_to_native(image, _step, call)
+    local T = (call and call.opts and call.opts.context) or context_of(image)
+    local opts = {}
+    if call and call.opts then
+        for k, v in pairs(call.opts) do opts[k] = v end
+    end
+    local Flatline = require("moonlift.flatline").Define(T)
+    Flatline.assert_valid_image(image)
+    return require("moonlift.native_runtime").Define(T).instantiate_flatline(image, opts)
+end
+
+function M.flatline_to_object(image, _step, call)
+    local T = (call and call.opts and call.opts.context) or context_of(image)
+    local opts = {}
+    if call and call.opts then
+        for k, v in pairs(call.opts) do opts[k] = v end
+    end
+    local Flatline = require("moonlift.flatline").Define(T)
+    Flatline.assert_valid_image(image)
+    return require("moonlift.back_object").Define(T).compile(image, { module_name = opts.name or opts.module_name or "moonlift_object", format = opts.object_format })
+end
+
 function M.code_to_c(code_result, _step, call)
     local T = (call and call.opts and call.opts.context) or context_of(code_result)
     local opts = {}

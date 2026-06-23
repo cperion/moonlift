@@ -1,8 +1,8 @@
 -- Public Moonlift Lua facade — DSL-only.
 --
 -- Entry API:
---   moon.loadstring(src [, name])  — compile DSL source and return a callable module
---   moon.loadfile(path)            — compile DSL file and return a callable module
+--   moon.loadstring(src [, name])  — compile DSL source and return a callable unit
+--   moon.loadfile(path)            — compile DSL file and return a callable unit
 --   moon.dofile(path, ...)         — load and immediately execute
 --   moon.eval(src, ...)            — loadstring + immediate call
 --   moon.format(value [, opts])    — canonical format for evaluated DSL values
@@ -32,8 +32,12 @@ M.phase_execute = require("moonlift.phase_execute")
 M.compiler_package = require("moonlift.compiler_package")
 M.compiler_model = require("moonlift.compiler_model")
 M.compiler_driver = require("moonlift.compiler_driver")
+M.flatline = require("moonlift.flatline")
+M.native_runtime = require("moonlift.native_runtime")
 M.ast = require("moonlift.ast")
 M.dsl = require("moonlift.dsl")
+M.moonlift = M.dsl.namespace()
+M.ml = M.dsl.namespace { name = "ml" }
 M.debugger_core = require("moonlift.debugger_core")
 M.back_program = require("moonlift.back_program")
 M.back_target_model = require("moonlift.back_target_model")
@@ -57,8 +61,435 @@ M.c_tcc = require("moonlift.c_tcc")
 
 M.lsp = require("moonlift.rpc_stdio_loop")
 
+local llb = require("llb")
+local llpvm_dsl = require("llpvm.dsl")
+local schema_dsl = require("moonlift.schema.dsl")
+M.schema_dsl = schema_dsl
+M.schema_namespace = schema_dsl.namespace()
+
+local function family_add_error(bag, err, value, code)
+    if llb.is(err, "Diagnostic") then return bag:add(err) end
+    return bag:error {
+        code = code or "E_FAMILY_TOOL",
+        message = tostring(err),
+        primary = llb.origin_of(value),
+    }
+end
+
+local function is_moonlift_decl(value)
+    local mt = type(value) == "table" and getmetatable(value) or nil
+    return mt and rawget(mt, "__dsl_class") == "Decl"
+end
+
+local function is_llpvm_value(value)
+    local mt = type(value) == "table" and getmetatable(value) or nil
+    return mt == llpvm_dsl.ProgramSpec or mt == llpvm_dsl.ProgramImage or mt == llpvm_dsl.TaskSpec
+end
+
+local function is_schema_value(value)
+    return schema_dsl.is_schema_value(value)
+end
+
+local function collect_schema_values(out, value, seen)
+    if type(value) ~= "table" then return out end
+    seen = seen or {}
+    if seen[value] then return out end
+    seen[value] = true
+    if is_schema_value(value) then
+        out[#out + 1] = value
+        return out
+    end
+    if llb.is(value, "Zone") then
+        if value.member == "moonschema.dsl" or value.name == "schema" or value.name == "moonschema" then
+            for _, item in ipairs(value.items or {}) do collect_schema_values(out, item, seen) end
+        end
+        return out
+    end
+    if llb.is(value, "FamilyBundle") then
+        for _, z in ipairs(value.zones or {}) do collect_schema_values(out, z, seen) end
+        return out
+    end
+    for i = 1, #value do collect_schema_values(out, value[i], seen) end
+    for k, v in pairs(value) do if type(k) ~= "number" then collect_schema_values(out, v, seen) end end
+    return out
+end
+
+local function collect_llpvm_values(out, value, seen)
+    if type(value) ~= "table" then return out end
+    seen = seen or {}
+    if seen[value] then return out end
+    seen[value] = true
+    if is_llpvm_value(value) then
+        out[#out + 1] = value
+        return out
+    end
+    if llb.is(value, "Zone") then
+        if value.member == "llpvm.dsl" or value.name == "llpvm" then
+            for _, item in ipairs(value.items or {}) do collect_llpvm_values(out, item, seen) end
+        end
+        return out
+    end
+    if llb.is(value, "FamilyBundle") then
+        for _, z in ipairs(value.zones or {}) do collect_llpvm_values(out, z, seen) end
+        return out
+    end
+    for i = 1, #value do collect_llpvm_values(out, value[i], seen) end
+    for k, v in pairs(value) do if type(k) ~= "number" then collect_llpvm_values(out, v, seen) end end
+    return out
+end
+
+local function moonlift_diagnostics(value, bag, opts, family)
+    local zones = family:owned_zones(value, "moonlift.dsl")
+    local targets = #zones > 0 and zones or { value }
+    for _, target in ipairs(targets) do
+        local ok, unit = pcall(M.dsl.to_unit, opts and opts.name or "FamilyDiagnostics", target)
+        if not ok then
+            family_add_error(bag, unit, target, "E_MOONLIFT_PROJECTION")
+        else
+            local ok_syntax, syntax_or_err = pcall(function() return unit:syntax() end)
+            if not ok_syntax then
+                family_add_error(bag, syntax_or_err, target, "E_MOONLIFT_SYNTAX")
+            else
+                local ok_type, report = pcall(function() return unit:typecheck() end)
+                if not ok_type then
+                    family_add_error(bag, report, target, "E_MOONLIFT_TYPECHECK")
+                elseif type(report) == "table" and report.issues then
+                    for i = 1, #report.issues do
+                        bag:error {
+                            code = "E_MOONLIFT_TYPECHECK",
+                            message = tostring(report.issues[i].message or report.issues[i]),
+                            primary = llb.origin_of(target),
+                        }
+                    end
+                end
+            end
+        end
+    end
+    return bag
+end
+
+local function moonlift_index(value, opts, family)
+    local out = { symbols = {}, hovers = {}, diagnostics = {} }
+    local zones = family:owned_zones(value, "moonlift.dsl")
+    local targets = #zones > 0 and zones or { value }
+    for _, target in ipairs(targets) do
+        local ok, unit = pcall(M.dsl.to_unit, opts and opts.name or "FamilyIndex", target)
+        if ok and type(unit) == "table" and unit.body then
+            for _, decl in ipairs(unit.body or {}) do
+                if type(decl) == "table" and decl.name then
+                    out.symbols[#out.symbols + 1] = {
+                        name = tostring(decl.name),
+                        kind = decl.kind or "moonlift",
+                        member = "moonlift.dsl",
+                        origin = llb.origin_of(decl),
+                    }
+                end
+            end
+        else
+            out.diagnostics[#out.diagnostics + 1] = llb.diagnostic {
+                code = "E_MOONLIFT_INDEX",
+                message = tostring(unit),
+                primary = llb.origin_of(target),
+            }
+        end
+    end
+    return out
+end
+
+local function llpvm_diagnostics(value, bag, opts, family)
+    local targets = collect_llpvm_values({}, value)
+    for _, target in ipairs(targets) do
+        local ok, projected = pcall(llpvm_dsl.to_program, target)
+        if not ok then
+            family_add_error(bag, projected, target, "E_LLPVM_PROJECTION")
+        elseif projected ~= nil then
+            local mt = type(projected) == "table" and getmetatable(projected) or nil
+            if mt == llpvm_dsl.ProgramSpec then
+                local ok_bytecode, bytes_or_err = pcall(function() return projected:bytecode() end)
+                if not ok_bytecode then
+                    family_add_error(bag, bytes_or_err, target, "E_LLPVM_LOWER")
+                else
+                    for ev in llpvm_dsl.validate(bytes_or_err) do
+                        if ev.kind == "diagnostic" then
+                            bag:add(ev.diagnostic or llb.diagnostic { code = ev.code, message = ev.message, primary = llb.origin_of(target) })
+                        end
+                    end
+                end
+            elseif mt == llpvm_dsl.TaskSpec then
+                local ok_task, err = pcall(function() return projected:asdl() end)
+                if not ok_task then family_add_error(bag, err, target, "E_LLPVM_TASK") end
+            end
+        end
+    end
+    return bag
+end
+
+local function llpvm_index(value, opts, family)
+    local out = { symbols = {}, hovers = {}, diagnostics = {} }
+    local function visit(item)
+        if type(item) == "table" and item.name then
+            out.symbols[#out.symbols + 1] = {
+                name = tostring(item.name),
+                kind = "llpvm",
+                member = "llpvm.dsl",
+                origin = llb.origin_of(item),
+            }
+        end
+        if type(item) == "table" then
+            for _, child in ipairs(item.body or {}) do visit(child) end
+        end
+    end
+    for _, item in ipairs(collect_llpvm_values({}, value)) do visit(item) end
+    return out
+end
+
+local function schema_diagnostics(value, bag, opts, family)
+    local targets = collect_schema_values({}, value)
+    if #targets == 0 then return bag end
+    local modules = {}
+    for _, target in ipairs(targets) do
+        if schema_dsl.is_schema_value(target, "Module") then modules[#modules + 1] = target end
+    end
+    if #modules > 0 then
+        local ok, err = pcall(function()
+            local T = opts and opts.context or M.pvm.context()
+            schema_dsl.to_asdl_schema(T, modules)
+        end)
+        if not ok then family_add_error(bag, err, value, "E_SCHEMA_PROJECTION") end
+    end
+    return bag
+end
+
+local function schema_index(value, opts, family)
+    local out = { symbols = {}, hovers = {}, diagnostics = {} }
+    local function visit(item, parent)
+        if schema_dsl.is_schema_value(item, "Module") then
+            out.symbols[#out.symbols + 1] = {
+                name = tostring(item.name),
+                kind = "schema",
+                member = "moonschema.dsl",
+                origin = llb.origin_of(item),
+            }
+            for _, decl in ipairs(item.decls or {}) do visit(decl, item.name) end
+        elseif schema_dsl.is_schema_value(item, "Decl") then
+            out.symbols[#out.symbols + 1] = {
+                name = tostring(item.name),
+                kind = tostring(item.kind or "schema"),
+                member = "moonschema.dsl",
+                origin = llb.origin_of(item),
+                parent = parent,
+            }
+        end
+    end
+    for _, item in ipairs(collect_schema_values({}, value)) do visit(item) end
+    return out
+end
+
+local function moonlift_markdown(member, opts, family)
+    return table.concat({
+        "## moonlift.dsl",
+        "",
+        "Moonlift is the typed native language member of the family. It owns functions, regions, types, resources, and native compilation projection.",
+        "",
+        "Family source uses the `ml` namespace value for Moonlift. `moonlift` is the long alias. Call `ml { ... }` when a family value contains Moonlift declarations.",
+        "",
+        "```lua",
+        "ml {",
+        "  ml.fn. add { a [ml.i32], b [ml.i32] } [ml.i32] {",
+        "    ml.ret (a + b),",
+        "  },",
+        "}",
+        "```",
+        "",
+        llb.markdown_language(member.lang, { level = 3, title = "Moonlift LLB Surface" }),
+    }, "\n")
+end
+
+local function llpvm_markdown(member, opts, family)
+    return table.concat({
+        "## llpvm.dsl",
+        "",
+        "LLPVM is the low-level process/bytecode VM member of the Moonlift family. It owns bytecode programs, task/process specs, validation, and inspection.",
+        "",
+        "Family source uses the `llpvm` namespace value. Call `llpvm { ... }` when a family value carries LLPVM programs next to Moonlift declarations.",
+        "",
+        "```lua",
+        "llpvm {",
+        "  llpvm.task. compile {",
+        "    llpvm.input [ml.i32],",
+        "    llpvm.output [ml.i32],",
+        "    llpvm.event. progress [ml.i32],",
+        "  },",
+        "}",
+        "```",
+        "",
+        llb.markdown_language(member.lang, { level = 3, title = "LLPVM LLB Surface" }),
+    }, "\n")
+end
+
+local function schema_markdown(member, opts, family)
+    return table.concat({
+        "## moonschema.dsl",
+        "",
+        "MoonSchema is the ASDL/schema member of the Moonlift family. It owns typed schema declarations used to define the compiler family itself.",
+        "",
+        "In the full Moonlift family, MoonSchema is exposed through the `schema` namespace value. Use `schema. Name { ... }` for modules, `schema.product`, `schema.sum`, `schema.alias`, `schema.field`, and schema helpers such as `schema.many`.",
+        "",
+        "```lua",
+        "schema {",
+        "  schema. Demo {",
+        "    schema.product. Pair { schema.interned, left [MoonType.Type], right [MoonType.Type] },",
+        "  },",
+        "}",
+        "```",
+        "",
+        llb.markdown_language(member.lang, { level = 3, title = "MoonSchema LLB Surface" }),
+    }, "\n")
+end
+
+M.family = llb.family. moonlift {
+    prefer = {
+        cache = "llpvm.dsl",
+        entry = "llpvm.dsl",
+        event = "llpvm.dsl",
+        from = "llpvm.dsl",
+        input = "llpvm.dsl",
+        lang = "llpvm.dsl",
+        language = "llpvm.dsl",
+        llpvm = "llpvm.dsl",
+        ml = "moonlift.dsl",
+        machine = "llpvm.dsl",
+        moonlift = "moonlift.dsl",
+        schema = "moonschema.dsl",
+        op = "llpvm.dsl",
+        output = "llpvm.dsl",
+        phase = "llpvm.dsl",
+        pvm = "llpvm.dsl",
+        record = "llpvm.dsl",
+        root = "llpvm.dsl",
+        stream = "llpvm.dsl",
+        task = "llpvm.dsl",
+        to = "llpvm.dsl",
+        type = "llpvm.dsl",
+        world = "llpvm.dsl",
+    },
+    shared = {
+        "origin",
+        "fragment",
+        "type_value",
+        "diagnostic",
+        "process",
+    },
+    reserved = {
+        "pvm",
+        "lang",
+        "type",
+        "op",
+        "world",
+        "stream",
+        "record",
+        "machine",
+        "phase",
+        "task",
+        "event",
+        "input",
+        "output",
+        "root",
+        "ml",
+        "moonlift",
+        "llpvm",
+        "schema",
+    },
+    {
+        name = "moonlift.dsl",
+        lang = M.dsl.language,
+        exports = function(opts) return M.dsl.make_family_env(opts) end,
+        match = is_moonlift_decl,
+        format = function(value, opts) return M.dsl.format(value, opts) end,
+        diagnostics = moonlift_diagnostics,
+        index = moonlift_index,
+        markdown = moonlift_markdown,
+        provides = { "moonlift.types", "moonlift.dsl" },
+        semantics = {
+            owns = {
+                "native-program",
+                "native-control",
+                "native-type-values",
+                "resource-discipline",
+                "native-compilation",
+            },
+            uses = {
+                "authoring-substrate",
+                "diagnostics",
+                "family-composition",
+                "fragments",
+                "namespaces",
+                "origins",
+                "type-family",
+            },
+        },
+    },
+    {
+        name = "moonschema.dsl",
+        lang = schema_dsl.Language,
+        exports = function(opts) return schema_dsl.make_family_env(opts) end,
+        match = is_schema_value,
+        format = function(value, opts) return schema_dsl.format(value, opts) end,
+        diagnostics = schema_diagnostics,
+        index = schema_index,
+        markdown = schema_markdown,
+        provides = { "moonschema.dsl", "moonlift.schema" },
+        semantics = {
+            owns = {
+                "schema-modules",
+                "type-family",
+                "product-sum-schema",
+                "schema-identity",
+            },
+            uses = {
+                "authoring-substrate",
+                "diagnostics",
+                "family-composition",
+                "fragments",
+                "namespaces",
+                "origins",
+            },
+        },
+    },
+    {
+        name = "llpvm.dsl",
+        lang = llpvm_dsl.meta_language,
+        exports = function(opts) return llpvm_dsl.make_family_env(opts) end,
+        match = is_llpvm_value,
+        format = function(value, opts) return llpvm_dsl.format(value, opts) end,
+        diagnostics = llpvm_diagnostics,
+        index = llpvm_index,
+        markdown = llpvm_markdown,
+        requires = { "moonlift.types", "moonlift.schema" },
+        provides = { "llpvm.dsl" },
+        semantics = {
+            owns = {
+                "bytecode-program",
+                "bytecode-stream",
+                "process-task",
+                "pvm-image",
+            },
+            uses = {
+                "authoring-substrate",
+                "diagnostics",
+                "family-composition",
+                "fragments",
+                "namespaces",
+                "origins",
+                "native-type-values",
+                "type-family",
+            },
+        },
+    },
+}
+
 --- Install Moonlift DSL globals into _G so plain .lua files can use
--- fn, i32, module, struct, region, etc. as unqualified names.
+-- fn, i32, unit, struct, region, etc. as unqualified names.
 -- Call this once at the top of any .lua file that authors Moonlift DSL.
 --
 --   require("moonlift").use()       -- injects DSL globals into _G
@@ -67,6 +498,14 @@ M.lsp = require("moonlift.rpc_stdio_loop")
 M.use = M.dsl.use
 M.process = M.dsl.process
 M.source = M.dsl.source
+
+function M.markdown(opts)
+    return M.family.markdown(opts)
+end
+
+function M.write_markdown(path, opts)
+    return M.family.write_markdown(path, opts)
+end
 
 --- Canonical formatting for evaluated Moonlift DSL values.
 
@@ -106,21 +545,58 @@ function M.eval(src, chunk_name, ...)
     return chunk(...)
 end
 
+local function module_ast_from(value, name)
+    local pvm = require("moonlift.pvm")
+    local ok, cls = pcall(pvm.classof, value)
+    if ok and cls and tostring(cls) == "Class(MoonTree.Module)" then return value end
+    if type(value) == "table" and type(value.ast) == "function" then return value:ast() end
+    if type(value) == "table" and rawget(value, "__module_ast") ~= nil then return rawget(value, "__module_ast") end
+    local projected = M.dsl.to_unit(name or "Unit", value)
+    if type(projected.ast) == "function" then return projected:ast() end
+    return projected
+end
+
+function M.unit(name, decls)
+    return M.dsl.unit(name, decls)
+end
+
+function M.compile(name_or_decls, decls_or_opts, maybe_opts)
+    local name, decls, opts
+    if type(name_or_decls) == "string" then
+        name = name_or_decls
+        decls = decls_or_opts
+        opts = maybe_opts or {}
+    else
+        decls = name_or_decls
+        opts = decls_or_opts or {}
+        name = opts.name or "Unit"
+    end
+    opts.name = opts.name or name
+    local module_ast = module_ast_from(decls, name)
+    if opts.context == nil then
+        local pvm = require("moonlift.pvm")
+        local A2 = require("moonlift.schema_projection")
+        local cls = pvm.classof(module_ast)
+        opts.context = (cls and rawget(cls, "__context")) or pvm.context()
+        if opts.context.MoonCompiler == nil then A2.Define(opts.context) end
+    end
+    return require("moonlift.compiler_driver").compile_jit(module_ast, opts)
+end
+
 --- Object/shared emission from a DSL declaration.
 
 function M.emit_object(decl, path, name)
     local pvm = require("moonlift.pvm")
     local A2 = require("moonlift.schema_projection")
     local Driver = require("moonlift.compiler_driver")
-    local Object = require("moonlift.back_object")
 
-    local T = pvm.context(); A2.Define(T)
-    local O = Object.Define(T)
-    local module_ast = rawget(decl, "__module_ast") or decl
-    local program = Driver.lower_module(module_ast, { site = "emit_object", context = T })
+    local module_ast = module_ast_from(decl, name or "moonlift_object")
+    local cls = pvm.classof(module_ast)
+    local T = (cls and rawget(cls, "__context")) or pvm.context()
+    if T.MoonCompiler == nil then A2.Define(T) end
     name = name or "moonlift_object"
-    local artifact = O.compile(program, { module_name = name })
-    local bytes = artifact:bytes()
+    local artifact = Driver.lower_module(module_ast, { site = "emit_object", root = "emit_object", context = T, name = name })
+    local bytes = artifact.bytes
     if path then
         local f = assert(io.open(path, "wb"))
         f:write(bytes)
@@ -133,27 +609,27 @@ function M.emit_shared(decl, path, name, opts)
     local pvm = require("moonlift.pvm")
     local A2 = require("moonlift.schema_projection")
     local Driver = require("moonlift.compiler_driver")
-    local Object = require("moonlift.back_object")
     local LinkTarget = require("moonlift.link_target_model")
     local LinkValidate = require("moonlift.link_plan_validate")
     local LinkCommand = require("moonlift.link_command_plan")
     local LinkExecute = require("moonlift.link_execute")
 
-    local T = pvm.context(); A2.Define(T)
+    local module_ast = module_ast_from(decl, name or "moonlift_shared")
+    local cls = pvm.classof(module_ast)
+    local T = (cls and rawget(cls, "__context")) or pvm.context()
+    if T.MoonCompiler == nil then A2.Define(T) end
     local Link = T.MoonLink
-    local O = Object.Define(T)
     local LT = LinkTarget.Define(T)
     local LV = LinkValidate.Define(T)
     local LC = LinkCommand.Define(T)
     local LE = LinkExecute.Define(T)
-    local module_ast = rawget(decl, "__module_ast") or decl
-    local program = Driver.lower_module(module_ast, { site = "emit_shared", context = T })
-
     name = name or "moonlift_shared"
     local keep_object = opts and opts.keep_object
     local object_path = keep_object or (os.tmpname() .. ".o")
-    local object = O.compile(program, { module_name = name })
-    object:write(object_path)
+    local object = Driver.lower_module(module_ast, { site = "emit_shared", root = "emit_object", context = T, name = name })
+    local out = assert(io.open(object_path, "wb"))
+    out:write(object.bytes)
+    out:close()
 
     local link_plan = Link.LinkPlan(
         LT.default_object(),
@@ -193,8 +669,10 @@ function M.emit_c_artifact(decl, path_or_opts, name, opts)
     local Driver = require("moonlift.compiler_driver")
     local CEmit = require("moonlift.c_emit")
 
-    local T = pvm.context(); A2.Define(T)
-    local module_ast = rawget(decl, "__module_ast") or decl
+    local module_ast = module_ast_from(decl, name or opts.name or "moonlift_c")
+    local cls = pvm.classof(module_ast)
+    local T = (cls and rawget(cls, "__context")) or pvm.context()
+    if T.MoonCompiler == nil then A2.Define(T) end
     local driver_opts = { site = "emit_c_artifact", root = "emit_c", context = T, c_opts = opts, c_target = opts.c_target, target = opts.target, name = name or opts.name }
     local c_unit = Driver.lower_module(module_ast, driver_opts)
     local artifact = CEmit.Define(T).emit_artifact(c_unit, opts)

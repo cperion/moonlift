@@ -110,7 +110,7 @@ local program = B2.BackProgram({
 local report = validate.validate(program)
 assert(#report.issues == 0)
 local jit = jit_api.jit()
-local artifact = jit:compile(program)
+local artifact = jit:compile(jit_api.flatline.encode_back_program(program))
 
 local call_indirect_inc = ffi.cast("int32_t (*)(int32_t)", artifact:getpointer(B2.BackFuncId("call_indirect_inc")))
 assert(call_indirect_inc(41) == 42)

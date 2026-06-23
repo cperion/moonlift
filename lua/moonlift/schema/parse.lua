@@ -6,8 +6,8 @@ return schema. MoonParse {
   sum. ParseResult {
     ParseResult {
       variant_unique,
-      field. module [ty. MoonTree.Module],
-      issues [many [ty. MoonParse.ParseIssue]],
+      field. module [MoonTree.Module],
+      issues [many [MoonParse.ParseIssue]],
     },
   },
 }

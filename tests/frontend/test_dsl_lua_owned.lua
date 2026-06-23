@@ -3,7 +3,7 @@ package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.p
 local dsl = require("moonlift.dsl")
 
 local src = [=[
-return module "DslSmoke" {
+return {
   struct. Vec2 {
     x [f32],
     y [f32],
@@ -153,11 +153,11 @@ return module "DslSmoke" {
 }
 ]=]
 
-local module = dsl.loadstring(src, "dsl-smoke")()
-assert(module:syntax(), "syntax() failed")
-assert(module:ast(), "ast() failed")
-assert(module:typecheck(), "typecheck() failed")
-assert(module:lower({ site = "test_dsl_lua_owned" }), "lower() failed")
+local unit_value = dsl.to_unit("DslSmoke", dsl.loadstring(src, "dsl-smoke")())
+assert(unit_value:syntax(), "syntax() failed")
+assert(unit_value:ast(), "ast() failed")
+assert(unit_value:typecheck(), "typecheck() failed")
+assert(unit_value:lower({ site = "test_dsl_lua_owned" }), "lower() failed")
 
 -- Test header / implementation split pattern
 local header = dsl.loadstring([[
@@ -171,11 +171,12 @@ assert(type(header[2]) == "table", "header fn. sub did not produce callable stag
 
 local impl = dsl.loadstring([[
 local header = ...
-return module "HeaderImpl" {
+return {
   header[1] { ret (a + b) },
   header[2] { ret (a - b) },
 }
 ]], "impl")(header)
+impl = dsl.to_unit("HeaderImpl", impl)
 assert(impl:syntax(), "header/impl syntax failed")
 assert(impl:ast(), "header/impl ast failed")
 assert(impl:typecheck(), "header/impl typecheck failed")
@@ -184,7 +185,7 @@ assert(impl:lower({ site = "test_dsl_header_impl" }), "header/impl lower failed"
 -- Test strict mode
 local strict_src = [=[
 accidental_global = 1
-return module "Strict" {}
+return {}
 ]=]
 
 local ok, err = pcall(function()

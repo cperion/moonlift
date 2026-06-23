@@ -1,4 +1,5 @@
-local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
+local erased = require("moonlift.phase_erased_runtime")
 
 local M = {}
 
@@ -16,69 +17,99 @@ function M.Define(T)
 
     local function known_layout(ty, env)
         local r = layout_api.result(ty, env or Sem.LayoutEnv({}))
-        if pvm.classof(r) == Ty.TypeMemLayoutKnown then return r.layout end
+        if schema.classof(r) == Ty.TypeMemLayoutKnown then return r.layout end
         return nil
     end
 
-    abi_class_from_type_class = pvm.phase("moonlift_type_abi_class_from_type_class", {
-        [Ty.TypeClassScalar] = function(self, ty)
-            local r = scalar_api.result(ty)
-            if pvm.classof(r) == Ty.TypeBackScalarKnown then
-                if r.scalar == Back.BackVoid then return pvm.once(Ty.AbiIgnore) end
-                return pvm.once(Ty.AbiDirect(r.scalar))
-            end
-            if self.scalar == T.MoonCore.ScalarVoid then return pvm.once(Ty.AbiIgnore) end
-            return pvm.once(Ty.AbiUnknown(self))
-        end,
-        [Ty.TypeClassPointer] = function() return pvm.once(Ty.AbiDirect(Back.BackPtr)) end,
-        [Ty.TypeClassCallable] = function() return pvm.once(Ty.AbiDirect(Back.BackPtr)) end,
-        [Ty.TypeClassSlice] = function(_, ty, env)
-            return pvm.once(Ty.AbiDescriptor(known_layout(ty, env) or Sem.MemLayout(16, 8)))
-        end,
-        [Ty.TypeClassView] = function(_, ty, env)
-            return pvm.once(Ty.AbiDescriptor(known_layout(ty, env) or Sem.MemLayout(24, 8)))
-        end,
-        [Ty.TypeClassLease] = function(self, ty, env)
-            local base_class = classify_api.classify(self.base)
-            return abi_class_from_type_class(base_class, self.base, env)
-        end,
-        [Ty.TypeClassOwned] = function(self, ty, env)
-            local base_class = classify_api.classify(self.base)
-            return abi_class_from_type_class(base_class, self.base, env)
-        end,
-        [Ty.TypeClassHandle] = function(self, ty)
-            local r = scalar_api.result(ty)
-            if pvm.classof(r) == Ty.TypeBackScalarKnown then return pvm.once(Ty.AbiDirect(r.scalar)) end
-            return pvm.once(Ty.AbiUnknown(self))
-        end,
-        [Ty.TypeClassClosure] = function(_, ty, env)
-            return pvm.once(Ty.AbiDescriptor(known_layout(ty, env) or Sem.MemLayout(16, 8)))
-        end,
-        [Ty.TypeClassArray] = function(_, ty, env)
-            local layout = known_layout(ty, env)
-            if layout == nil then return pvm.once(Ty.AbiUnknown(classify_api.classify(ty))) end
-            return pvm.once(Ty.AbiIndirect(layout))
-        end,
-        [Ty.TypeClassAggregate] = function(_, ty, env)
-            local layout = known_layout(ty, env)
-            if layout == nil then return pvm.once(Ty.AbiUnknown(classify_api.classify(ty))) end
-            return pvm.once(Ty.AbiIndirect(layout))
-        end,
-        [Ty.TypeClassUnknown] = function(self)
-            return pvm.once(Ty.AbiUnknown(self))
-        end,
-    }, { args_cache = "last" })
+    function abi_class_from_type_class(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Ty.TypeClassScalar) then
+            return (function(self, ty)
 
-    abi_decision = pvm.phase("moonlift_type_abi_decision", function(ty, env)
+            local r = scalar_api.result(ty)
+            if schema.classof(r) == Ty.TypeBackScalarKnown then
+                if r.scalar == Back.BackVoid then return erased.once(Ty.AbiIgnore) end
+                return erased.once(Ty.AbiDirect(r.scalar))
+            end
+            if self.scalar == T.MoonCore.ScalarVoid then return erased.once(Ty.AbiIgnore) end
+            return erased.once(Ty.AbiUnknown(self))
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TypeClassPointer) then
+            return (function()
+ return erased.once(Ty.AbiDirect(Back.BackPtr))
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TypeClassCallable) then
+            return (function()
+ return erased.once(Ty.AbiDirect(Back.BackPtr))
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TypeClassSlice) then
+            return (function(_, ty, env)
+
+            return erased.once(Ty.AbiDescriptor(known_layout(ty, env) or Sem.MemLayout(16, 8)))
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TypeClassView) then
+            return (function(_, ty, env)
+
+            return erased.once(Ty.AbiDescriptor(known_layout(ty, env) or Sem.MemLayout(24, 8)))
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TypeClassLease) then
+            return (function(self, ty, env)
+
+            local base_class = classify_api.classify(self.base)
+            return abi_class_from_type_class(base_class, self.base, env)
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TypeClassOwned) then
+            return (function(self, ty, env)
+
+            local base_class = classify_api.classify(self.base)
+            return abi_class_from_type_class(base_class, self.base, env)
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TypeClassHandle) then
+            return (function(self, ty)
+
+            local r = scalar_api.result(ty)
+            if schema.classof(r) == Ty.TypeBackScalarKnown then return erased.once(Ty.AbiDirect(r.scalar)) end
+            return erased.once(Ty.AbiUnknown(self))
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TypeClassClosure) then
+            return (function(_, ty, env)
+
+            return erased.once(Ty.AbiDescriptor(known_layout(ty, env) or Sem.MemLayout(16, 8)))
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TypeClassArray) then
+            return (function(_, ty, env)
+
+            local layout = known_layout(ty, env)
+            if layout == nil then return erased.once(Ty.AbiUnknown(classify_api.classify(ty))) end
+            return erased.once(Ty.AbiIndirect(layout))
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TypeClassAggregate) then
+            return (function(_, ty, env)
+
+            local layout = known_layout(ty, env)
+            if layout == nil then return erased.once(Ty.AbiUnknown(classify_api.classify(ty))) end
+            return erased.once(Ty.AbiIndirect(layout))
+            end)(node, ...)
+        elseif schema.isa(node, Ty.TypeClassUnknown) then
+            return (function(self)
+
+            return erased.once(Ty.AbiUnknown(self))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_type_abi_class_from_type_class: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
+
+    function abi_decision(ty, env)
         local class = classify_api.classify(ty)
-        local abi = pvm.one(abi_class_from_type_class(class, ty, env or Sem.LayoutEnv({})))
+        local abi = erased.one(abi_class_from_type_class(class, ty, env or Sem.LayoutEnv({})))
         return Ty.AbiDecision(ty, abi)
-    end, { args_cache = "last" })
+    end
 
     return {
         abi_class_from_type_class = abi_class_from_type_class,
         abi_decision = abi_decision,
-        decide = function(ty, env) return pvm.one(abi_decision(ty, env or Sem.LayoutEnv({}))) end,
+        decide = function(ty, env) return abi_decision(ty, env or Sem.LayoutEnv({})) end,
     }
 end
 

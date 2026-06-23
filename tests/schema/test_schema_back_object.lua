@@ -36,8 +36,8 @@ local program = B.BackProgram({
 
 local report = validate.validate(program)
 assert(#report.issues == 0)
-local artifact = object.compile(program, { module_name = "schema_back_object" })
-local bytes = artifact:bytes()
+local artifact = object.compile(object.flatline.encode_back_program(program), { module_name = "schema_back_object" })
+local bytes = artifact.bytes
 assert(type(bytes) == "string")
 assert(#bytes > 0)
 assert(bytes:find("add_i32", 1, true), "object should contain exported symbol text")

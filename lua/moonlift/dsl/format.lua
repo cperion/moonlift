@@ -486,8 +486,8 @@ end
 
 fmt_decl = function(x, f)
     local k = x.kind
-    if k == "module" then
-        return d.concat { "module ", string.format("%q", tostring(x.name)), " ", block(x.body or {}, f, fmt_decl) }
+    if k == "unit" then
+        return d.concat { "unit", dot_name(x.name), " ", block(x.body or {}, f, fmt_decl) }
     end
     if k == "struct" then return d.group { "struct", dot_name(x.name), " ", braced_product(x.body or {}, f, typed_name) } end
     if k == "union" then return d.group { "union", dot_name(x.name), " ", braced_product(x.body or {}, f, fmt_value) } end
@@ -547,7 +547,7 @@ function M.file_text(value, opts)
     local text = M.format(value, opts)
     return table.concat({
         "local moon = require(\"moonlift\")",
-        "moon.use()",
+        "moon.family.use()",
         "",
         "return " .. text,
         "",

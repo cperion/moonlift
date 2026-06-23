@@ -1,4 +1,4 @@
-local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
 local PositionIndex = require("moonlift.source_position_index")
 local AnchorIndex = require("moonlift.source_anchor_index")
 local BindingFacts = require("moonlift.editor_binding_facts")
@@ -39,7 +39,7 @@ function M.Define(T)
     local function find_struct(analysis, name)
         for i = 1, #analysis.parse.combined.decls.decls do
             local d = analysis.parse.combined.decls.decls[i]
-            if pvm.classof(d) == H.HostDeclStruct and d.decl.name == name then return d.decl end
+            if schema.classof(d) == H.HostDeclStruct and d.decl.name == name then return d.decl end
         end
         return nil
     end
@@ -48,7 +48,7 @@ function M.Define(T)
         local owner, field = nil, nil
         for i = 1, #analysis.parse.combined.decls.decls do
             local d = analysis.parse.combined.decls.decls[i]
-            if pvm.classof(d) == H.HostDeclStruct then
+            if schema.classof(d) == H.HostDeclStruct then
                 for j = 1, #d.decl.fields do
                     if d.decl.fields[j].name == field_name then
                         if field then return nil, nil end
@@ -63,7 +63,7 @@ function M.Define(T)
     local function find_expose(analysis, name)
         for i = 1, #analysis.parse.combined.decls.decls do
             local d = analysis.parse.combined.decls.decls[i]
-            if pvm.classof(d) == H.HostDeclExpose and d.decl.public_name == name then return d.decl end
+            if schema.classof(d) == H.HostDeclExpose and d.decl.public_name == name then return d.decl end
         end
         return nil
     end
@@ -72,7 +72,7 @@ function M.Define(T)
         local owner, name = tostring(label):match("^([_%a][_%w]*)%s*:%s*([_%a][_%w]*)$")
         for i = 1, #analysis.parse.combined.decls.decls do
             local d = analysis.parse.combined.decls.decls[i]
-            if pvm.classof(d) == H.HostDeclAccessor then
+            if schema.classof(d) == H.HostDeclAccessor then
                 local ac = d.decl
                 if owner and ac.owner_name == owner and ac.name == name then return ac end
                 if ac.name == label then return ac end
@@ -84,7 +84,7 @@ function M.Define(T)
     local function find_tree_type(analysis, label)
         for i = 1, #analysis.parse.combined.module.items do
             local item = analysis.parse.combined.module.items[i]
-            if pvm.classof(item) == Tr.ItemType and item.t and item.t.name == label then return item.t end
+            if schema.classof(item) == Tr.ItemType and item.t and item.t.name == label then return item.t end
         end
         return nil
     end
@@ -94,8 +94,8 @@ function M.Define(T)
         local function scan_module(module)
             for i = 1, #(module and module.items or {}) do
                 local item = module.items[i]
-                if pvm.classof(item) == Tr.ItemFunc then
-                    local name = pvm.classof(item.func) == Tr.FuncOpen and item.func.sym.name or item.func.name
+                if schema.classof(item) == Tr.ItemFunc then
+                    local name = schema.classof(item.func) == Tr.FuncOpen and item.func.sym.name or item.func.name
                     if name == label or name == normalized then return item.func end
                 end
             end
@@ -115,8 +115,8 @@ function M.Define(T)
         local function scan_module(module)
             for i = 1, #(module and module.items or {}) do
                 local item = module.items[i]
-                if pvm.classof(item) == Tr.ItemExtern then
-                    local name = pvm.classof(item.func) == Tr.ExternFuncOpen and item.func.sym.name or item.func.name
+                if schema.classof(item) == Tr.ItemExtern then
+                    local name = schema.classof(item.func) == Tr.ExternFuncOpen and item.func.sym.name or item.func.name
                     if name == label or name == normalized then return item.func end
                 end
             end
@@ -167,7 +167,7 @@ function M.Define(T)
                     local stop_hit = P.offset_to_pos(pos_index, proxy.stop_offset)
                     local range = S.SourceRange(doc.uri, proxy.start_offset, proxy.stop_offset, start_hit.pos, stop_hit.pos)
                     local origin = E.DiagFromTransport(ri.code or "E", tostring(ri.issue))
-                    local icls = pvm.classof(ri.issue)
+                    local icls = schema.classof(ri.issue)
                     if icls then
                         if tostring(icls.kind or ""):match("^TypeIssue") then origin = E.DiagFromType(ri.issue) end
                     end
@@ -181,7 +181,7 @@ function M.Define(T)
                     end)
                     if ok and report and report.primary and report.primary.message then message = report.primary.message end
                     if icls and icls.kind == "TypeIssueUnresolvedValue" then message = "unresolved binding `" .. tostring(ri.issue.name or "?") .. "`" end
-                    return E.DiagnosticFact(E.DiagnosticError, origin, ri.code or "E", message, range)
+                    return E.DiagnosticFact(E.DiagnosticError, origin, ri.code or "E", message, range, {})
                 end
             end
         end
@@ -213,7 +213,7 @@ function M.Define(T)
 
     local function continuation_subject_for_anchor(analysis, anchor)
         local subject = fact_subject_for_anchor(analysis, anchor, function(candidate)
-            return pvm.classof(candidate) == E.SubjectContinuation
+            return schema.classof(candidate) == E.SubjectContinuation
         end)
         if subject then return subject end
         local island = enclosing_island(analysis, anchor)
@@ -225,11 +225,11 @@ function M.Define(T)
             local decl = find_struct(analysis, anchor.label)
             if decl then return E.SubjectHostStruct(decl) end
             local tree_type = find_tree_type(analysis, anchor.label)
-            if tree_type and pvm.classof(tree_type) == Tr.TypeDeclHandle then return E.SubjectType(Ty.THandle(Ty.TypeRefPath(C.Path({ C.Name(tree_type.name) })), tree_type.repr)) end
+            if tree_type and schema.classof(tree_type) == Tr.TypeDeclHandle then return E.SubjectType(Ty.THandle(Ty.TypeRefPath(C.Path({ C.Name(tree_type.name) })), tree_type.repr)) end
             return E.SubjectType(Ty.TNamed(Ty.TypeRefGlobal("mlua", anchor.label)))
         elseif anchor.kind == S.AnchorFieldName then
             local exact = fact_subject_for_anchor(analysis, anchor, function(candidate)
-                return pvm.classof(candidate) == E.SubjectHostField
+                return schema.classof(candidate) == E.SubjectHostField
             end)
             if exact then return exact end
             local owner, field = find_field(analysis, anchor.label)
@@ -240,7 +240,7 @@ function M.Define(T)
             local decl = find_struct(analysis, anchor.label)
             if decl then return E.SubjectHostStruct(decl) end
             local tree_type = find_tree_type(analysis, anchor.label)
-            if tree_type and pvm.classof(tree_type) == Tr.TypeDeclHandle then return E.SubjectType(Ty.THandle(Ty.TypeRefPath(C.Path({ C.Name(tree_type.name) })), tree_type.repr)) end
+            if tree_type and schema.classof(tree_type) == Tr.TypeDeclHandle then return E.SubjectType(Ty.THandle(Ty.TypeRefPath(C.Path({ C.Name(tree_type.name) })), tree_type.repr)) end
         elseif anchor.kind == S.AnchorExposeName then
             local ex = find_expose(analysis, anchor.label)
             if ex then return E.SubjectHostExpose(ex) end
@@ -269,7 +269,7 @@ function M.Define(T)
             if frag then return E.SubjectExprFrag(frag) end
         elseif anchor.kind == S.AnchorParamName or anchor.kind == S.AnchorLocalName then
             return fact_subject_for_anchor(analysis, anchor, function(candidate)
-                return pvm.classof(candidate) == E.SubjectBinding
+                return schema.classof(candidate) == E.SubjectBinding
             end) or E.SubjectMissing("binding fact missing for " .. anchor.label)
         elseif anchor.kind == S.AnchorScalarType then
             local cname = scalar_names[anchor.label]
@@ -281,13 +281,13 @@ function M.Define(T)
             local decl = find_struct(analysis, anchor.label)
             if decl then return E.SubjectHostStruct(decl) end
             local tree_type = find_tree_type(analysis, anchor.label)
-            if tree_type and pvm.classof(tree_type) == Tr.TypeDeclHandle then return E.SubjectType(Ty.THandle(Ty.TypeRefPath(C.Path({ C.Name(tree_type.name) })), tree_type.repr)) end
+            if tree_type and schema.classof(tree_type) == Tr.TypeDeclHandle then return E.SubjectType(Ty.THandle(Ty.TypeRefPath(C.Path({ C.Name(tree_type.name) })), tree_type.repr)) end
             local fn = find_func(analysis, anchor.label)
             if fn then return E.SubjectTreeFunc(fn) end
             local ex = find_extern(analysis, anchor.label)
             if ex then return E.SubjectTreeExtern(ex) end
             local binding_subject = fact_subject_for_anchor(analysis, anchor, function(candidate)
-                return pvm.classof(candidate) == E.SubjectBinding
+                return schema.classof(candidate) == E.SubjectBinding
             end)
             if binding_subject then return binding_subject end
             local d = diagnostic_at(analysis, offset)
@@ -307,10 +307,10 @@ function M.Define(T)
         return E.SubjectMissing("no semantic subject for anchor " .. anchor.label)
     end
 
-    local subject_at_phase = pvm.phase("moonlift_editor_subject_at", function(query, analysis)
+    local function subject_at_phase(query, analysis)
         local index = P.build_index(analysis.parse.parts.document)
         local offset_hit = P.source_pos_to_offset(index, query.pos)
-        if pvm.classof(offset_hit) ~= S.SourceOffsetHit then
+        if schema.classof(offset_hit) ~= S.SourceOffsetHit then
             return E.SubjectPick(query, {}, E.SubjectMissing(offset_hit.reason))
         end
         local anchor_index = AI.build_index(analysis.anchors)
@@ -320,10 +320,10 @@ function M.Define(T)
         end
         local subject = subject_for_anchor(analysis, lookup.anchors[1], offset_hit.offset)
         return E.SubjectPick(query, lookup.anchors, subject)
-    end, { node_cache = "none", args_cache = "none" })
+    end
 
     local function subject_at(query, analysis)
-        return pvm.one(subject_at_phase(query, analysis))
+        return subject_at_phase(query, analysis)
     end
 
     return {

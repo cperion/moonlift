@@ -1,4 +1,5 @@
-local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
+local erased = require("moonlift.phase_erased_runtime")
 local SubjectAt = require("moonlift.editor_subject_at")
 local BindingFacts = require("moonlift.editor_binding_facts")
 
@@ -15,11 +16,14 @@ function M.Define(T)
     local Subject = SubjectAt.Define(T)
     local Bindings = BindingFacts.Define(T)
 
-    local highlight_phase = pvm.phase("moonlift_editor_document_highlight", {
-        [E.PositionQuery] = function(query, analysis)
+    local function highlight_phase(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, E.PositionQuery) then
+            return (function(query, analysis)
+
             local pick = Subject.subject_at(query, analysis)
             local id = Bindings.subject_key(pick.subject)
-            if not id then return pvm.empty() end
+            if not id then return erased.empty() end
             local out, seen = {}, {}
             local facts = Bindings.facts(analysis)
             for i = 1, #facts do
@@ -33,12 +37,15 @@ function M.Define(T)
                     end
                 end
             end
-            return pvm.seq(out)
-        end,
-    }, { node_cache = "none", args_cache = "none" })
+            return erased.seq(out)
+            end)(node, ...)
+        else
+            error("erased phase moonlift_editor_document_highlight: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
     local function highlights(query, analysis)
-        return pvm.drain(highlight_phase(query, analysis))
+        return highlight_phase(query, analysis)
     end
 
     return { highlight_phase = highlight_phase, highlights = highlights }

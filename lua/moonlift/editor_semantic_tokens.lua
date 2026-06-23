@@ -1,4 +1,5 @@
-local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
+local erased = require("moonlift.phase_erased_runtime")
 
 local M = {}
 
@@ -32,8 +33,11 @@ function M.Define(T)
         return nil, nil
     end
 
-    local tokens_phase = pvm.phase("moonlift_editor_semantic_tokens", {
-        [Mlua.DocumentAnalysis] = function(analysis)
+    local function tokens_phase(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Mlua.DocumentAnalysis) then
+            return (function(analysis)
+
         local out = {}
         for i = 1, #analysis.anchors.anchors do
             local a = analysis.anchors.anchors[i]
@@ -57,25 +61,34 @@ function M.Define(T)
                 last_uri, last_stop = uri, r.stop_offset
             end
         end
-        return pvm.seq(filtered)
-        end,
-    })
+        return erased.seq(filtered)
+            end)(node, ...)
+        else
+            error("erased phase moonlift_editor_semantic_tokens: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
-    local range_tokens_phase = pvm.phase("moonlift_editor_semantic_tokens_range", {
-        [E.RangeQuery] = function(query, analysis)
-        local all = pvm.drain(tokens_phase(analysis))
+    local function range_tokens_phase(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, E.RangeQuery) then
+            return (function(query, analysis)
+
+        local all = tokens_phase(analysis)
         local out = {}
         for i = 1, #all do if overlaps(all[i].range, query.range) then out[#out + 1] = all[i] end end
-        return pvm.seq(out)
-        end,
-    }, { node_cache = "none", args_cache = "none" })
+        return erased.seq(out)
+            end)(node, ...)
+        else
+            error("erased phase moonlift_editor_semantic_tokens_range: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
     local function tokens(analysis)
-        return pvm.drain(tokens_phase(analysis))
+        return tokens_phase(analysis)
     end
 
     local function range_tokens(query, analysis)
-        return pvm.drain(range_tokens_phase(query, analysis))
+        return range_tokens_phase(query, analysis)
     end
 
     return {

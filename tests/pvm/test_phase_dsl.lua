@@ -78,6 +78,12 @@ return package "moonlift.compiler" {
 
 assert(pvm.classof(pkg) == P.Package)
 assert(pkg.id.text == "moonlift.compiler")
+
+local formatted = PhaseDsl.format(pkg)
+assert(formatted:match("package%. moonlift%.compiler"), "phase formatter should print package head")
+assert(formatted:match("\n  world%. tree %[MoonTree%.Module%],"), "phase formatter should use multiline package bodies")
+assert(formatted:match("impl%. lua"), "phase formatter should print implementation directive")
+assert(not formatted:match("table: 0x"), "phase formatter should not leak raw Lua table addresses")
 assert(#pkg.worlds == 5)
 assert(#pkg.machines == 3)
 assert(#pkg.phases == 3)

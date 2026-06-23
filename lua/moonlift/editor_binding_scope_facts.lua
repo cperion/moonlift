@@ -1,4 +1,5 @@
-local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
+local erased = require("moonlift.phase_erased_runtime")
 local PositionIndex = require("moonlift.source_position_index")
 
 local M = {}
@@ -338,9 +339,9 @@ function M.Define(T)
             local key = scope.id.text .. ":" .. class_key_for_anchor(a)
             ordinal_by_key[key] = (ordinal_by_key[key] or 0) + 1
             local class = binding_class_for_anchor(scope, a, ordinal_by_key[key])
-            local start = binding_visible_start(text, a, pvm.classof(class))
+            local start = binding_visible_start(text, a, schema.classof(class))
             local stop = visible_stop_for_scope(scope)
-            if pvm.classof(class) == B.BindingClassContParam then stop = start end
+            if schema.classof(class) == B.BindingClassContParam then stop = start end
             local binding = B.Binding(C.Id("editor.binding." .. a.id.text), a.label, type_after_anchor(analysis, a), class)
             out[#out + 1] = E.ScopedBinding(binding, scope.id, make_range(index, start, stop), a)
         end
@@ -348,7 +349,7 @@ function M.Define(T)
     end
 
     local function binding_class_label(binding)
-        local cls = pvm.classof(binding.class)
+        local cls = schema.classof(binding.class)
         if cls == B.BindingClassBlockParam then return binding.class.block_name end
         if cls == B.BindingClassEntryBlockParam then return binding.class.block_name end
         if cls == B.BindingClassContParam then return binding.class.cont_name end
@@ -376,7 +377,7 @@ function M.Define(T)
         for i = 1, #scoped_bindings do
             local sb = scoped_bindings[i]
             local b = sb.binding
-            local cls = pvm.classof(b.class)
+            local cls = schema.classof(b.class)
             if b.name == anchor.label and (cls == B.BindingClassBlockParam or cls == B.BindingClassEntryBlockParam or cls == B.BindingClassContParam) and binding_class_label(b) == target_label then
                 local score = containing_scope_score(scopes_by_id, sb.scope.text, anchor.range.start_offset)
                 if score and (not best_score or score < best_score or (score == best_score and sb.anchor.range.start_offset > best.anchor.range.start_offset)) then
@@ -393,7 +394,7 @@ function M.Define(T)
         local best = nil
         for i = 1, #scoped_bindings do
             local sb = scoped_bindings[i]
-            if sb.binding.name == anchor.label and pvm.classof(sb.binding.class) ~= B.BindingClassContParam and strict_range_contains(sb.visible_range, anchor.range.start_offset) then
+            if sb.binding.name == anchor.label and schema.classof(sb.binding.class) ~= B.BindingClassContParam and strict_range_contains(sb.visible_range, anchor.range.start_offset) then
                 if not best or sb.anchor.range.start_offset > best.anchor.range.start_offset then best = sb end
             end
         end
@@ -420,18 +421,24 @@ function M.Define(T)
         return out
     end
 
-    local scope_report_phase = pvm.phase("moonlift_editor_binding_scope_report", {
-        [Mlua.DocumentAnalysis] = function(analysis)
+    local function scope_report_phase(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Mlua.DocumentAnalysis) then
+            return (function(analysis)
+
             local index = P.build_index(analysis.parse.parts.document)
             local scopes, scope_records = build_scopes(analysis, index)
             local bindings = build_bindings(analysis, index, scope_records)
             local resolutions = build_resolutions(analysis, scope_records, bindings)
-            return pvm.once(E.BindingScopeReport(scopes, bindings, resolutions))
-        end,
-    })
+            return erased.once(E.BindingScopeReport(scopes, bindings, resolutions))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_editor_binding_scope_report: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
     local function report(analysis)
-        return pvm.one(scope_report_phase(analysis))
+        return erased.one(scope_report_phase(analysis))
     end
 
     return {

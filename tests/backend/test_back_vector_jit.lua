@@ -37,7 +37,7 @@ local program=B.BackProgram({
 })
 local report=BackValidate.validate(program); assert(#report.issues==0)
 local wire=BackCommandBinary.encode(program); assert(type(wire)=='string' and #wire>32,'binary encoder produced wire payload')
-local jit=BackJit.jit(); local artifact=jit:compile(program); local cfn=ffi.cast('int32_t (*)(int32_t*, const int32_t*)', artifact:getpointer(fn))
+local jit=BackJit.jit(); local artifact=jit:compile(BackJit.flatline.encode_back_program(program)); local cfn=ffi.cast('int32_t (*)(int32_t*, const int32_t*)', artifact:getpointer(fn))
 local xs=ffi.new('int32_t[4]',{4,5,6,7}); local ys=ffi.new('int32_t[4]',{0,0,0,0})
 assert(cfn(ys,xs)==5); for i=0,3 do assert(ys[i]==xs[i]+1,'bad vector store lane '..i) end
 artifact:free()

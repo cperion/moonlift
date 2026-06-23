@@ -1,4 +1,4 @@
-local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
 local PositionIndex = require("moonlift.source_position_index")
 
 local M = {}
@@ -21,7 +21,7 @@ function M.Define(T)
     local S = T.MoonSource
     local P = PositionIndex.Define(T)
 
-    local apply_phase = pvm.phase("moonlift_source_text_apply", function(document, edit)
+    local function apply_phase(document, edit)
         local issues = {}
         if document.uri ~= edit.uri then
             append_issue(issues, S.SourceIssueWrongDocument(document.uri, edit.uri))
@@ -38,7 +38,7 @@ function M.Define(T)
             return S.SourceApplyOk(S.DocumentSnapshot(document.uri, edit.version, document.language, document.text))
         end
 
-        local first_cls = pvm.classof(changes[1])
+        local first_cls = schema.classof(changes[1])
         if first_cls == S.ReplaceAll then
             if #changes ~= 1 then
                 return S.SourceApplyRejected(document, { S.SourceIssueMixedReplaceAll })
@@ -50,7 +50,7 @@ function M.Define(T)
         local range_changes = copy_changes(changes)
         for i = 1, #range_changes do
             local ch = range_changes[i]
-            if pvm.classof(ch) ~= S.ReplaceRange then
+            if schema.classof(ch) ~= S.ReplaceRange then
                 return S.SourceApplyRejected(document, { S.SourceIssueMixedReplaceAll })
             end
             if ch.range.uri ~= document.uri then
@@ -92,10 +92,10 @@ function M.Define(T)
         pieces[n] = document.text:sub(cursor + 1)
         local new_text = table.concat(pieces)
         return S.SourceApplyOk(S.DocumentSnapshot(document.uri, edit.version, document.language, new_text))
-    end, { node_cache = "none", args_cache = "none" })
+    end
 
     local function apply(document, edit)
-        return pvm.one(apply_phase(document, edit))
+        return apply_phase(document, edit)
     end
 
     local function range(document, start_offset, stop_offset)
@@ -117,8 +117,8 @@ end
 -----------------------------------------------------------------------------
 
 function M.explain_source_issue(issue, analysis)
-    local pvm = require("moonlift.pvm")
-    local cls = pvm.classof(issue)
+    local schema = require("moonlift.schema_runtime")
+    local cls = schema.classof(issue)
     if not cls then
         return { code = "E9999", severity = "error", primary = { span = nil, message = tostring(issue) } }
     end

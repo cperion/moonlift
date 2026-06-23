@@ -1,4 +1,5 @@
-local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
+local erased = require("moonlift.phase_erased_runtime")
 local Symbols = require("moonlift.editor_symbol_facts")
 local BindingScopes = require("moonlift.editor_binding_scope_facts")
 
@@ -31,7 +32,7 @@ local function anchor_is_assignment_target(text, anchor)
 end
 
 local function subject_key(pvm, E, subject)
-    local cls = pvm.classof(subject)
+    local cls = schema.classof(subject)
     if cls == E.SubjectHostStruct then return "host.struct." .. subject.decl.name end
     if cls == E.SubjectHostField then return "host.field." .. subject.owner.name .. "." .. subject.field.name end
     if cls == E.SubjectHostExpose then return "host.expose." .. subject.decl.public_name end
@@ -62,7 +63,7 @@ function M.Define(T)
     local function find_struct(analysis, name)
         for i = 1, #analysis.parse.combined.decls.decls do
             local d = analysis.parse.combined.decls.decls[i]
-            if pvm.classof(d) == H.HostDeclStruct and d.decl.name == name then return d.decl end
+            if schema.classof(d) == H.HostDeclStruct and d.decl.name == name then return d.decl end
         end
         return nil
     end
@@ -71,7 +72,7 @@ function M.Define(T)
         local owner, field = nil, nil
         for i = 1, #analysis.parse.combined.decls.decls do
             local d = analysis.parse.combined.decls.decls[i]
-            if pvm.classof(d) == H.HostDeclStruct then
+            if schema.classof(d) == H.HostDeclStruct then
                 for j = 1, #d.decl.fields do
                     if d.decl.fields[j].name == name then
                         if field then return nil, nil end
@@ -87,7 +88,7 @@ function M.Define(T)
         local owner, name = tostring(label):match("^([_%a][_%w]*)%s*:%s*([_%a][_%w]*)$")
         for i = 1, #analysis.parse.combined.decls.decls do
             local d = analysis.parse.combined.decls.decls[i]
-            if pvm.classof(d) == H.HostDeclAccessor then
+            if schema.classof(d) == H.HostDeclAccessor then
                 local ac = d.decl
                 if owner and ac.owner_name == owner and ac.name == name then return ac end
                 if ac.name == label then return ac end
@@ -106,14 +107,14 @@ function M.Define(T)
     }
 
     local function tree_func_name(func)
-        local cls = pvm.classof(func)
+        local cls = schema.classof(func)
         if cls == Tr.FuncOpen then return func.sym.name end
         if cls == Tr.FuncLocal or cls == Tr.FuncExport or cls == Tr.FuncLocalContract or cls == Tr.FuncExportContract or cls == Tr.FuncDecl then return func.name end
         return nil
     end
 
     local function extern_func_name(func)
-        local cls = pvm.classof(func)
+        local cls = schema.classof(func)
         if cls == Tr.ExternFuncOpen then return func.sym.name end
         if cls == Tr.ExternFunc then return func.name end
         return nil
@@ -124,7 +125,7 @@ function M.Define(T)
         local function scan_module(module)
             for i = 1, #(module and module.items or {}) do
                 local item = module.items[i]
-                if pvm.classof(item) == Tr.ItemFunc then
+                if schema.classof(item) == Tr.ItemFunc then
                     local name = tree_func_name(item.func)
                     if name and (name == label or name == normalized) then return item.func end
                 end
@@ -145,7 +146,7 @@ function M.Define(T)
         local function scan_module(module)
             for i = 1, #(module and module.items or {}) do
                 local item = module.items[i]
-                if pvm.classof(item) == Tr.ItemExtern then
+                if schema.classof(item) == Tr.ItemExtern then
                     local name = extern_func_name(item.func)
                     if name and (name == label or name == normalized) then return item.func end
                 end
@@ -292,14 +293,17 @@ function M.Define(T)
         return best
     end
 
-    local binding_facts_phase = pvm.phase("moonlift_editor_binding_facts", {
-        [Mlua.DocumentAnalysis] = function(analysis)
+    local function binding_facts_phase(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Mlua.DocumentAnalysis) then
+            return (function(analysis)
+
         local facts = {}
         local scope_report = ScopeFacts.report(analysis)
         local resolved_by_range = {}
         for i = 1, #scope_report.resolutions do
             local res = scope_report.resolutions[i]
-            if pvm.classof(res) == E.BindingResolved then
+            if schema.classof(res) == E.BindingResolved then
                 local r = res.use.anchor.range
                 resolved_by_range[r.uri.text .. ":" .. r.start_offset .. ":" .. r.stop_offset] = res
             end
@@ -388,12 +392,15 @@ function M.Define(T)
                 facts[#facts + 1] = E.BindingFact(E.SymbolId(subject_key(pvm, E, subject)), E.BindingUse, subject, a)
             end
         end
-        return pvm.seq(facts)
-        end,
-    })
+        return erased.seq(facts)
+            end)(node, ...)
+        else
+            error("erased phase moonlift_editor_binding_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
     local function facts(analysis)
-        return pvm.drain(binding_facts_phase(analysis))
+        return binding_facts_phase(analysis)
     end
 
     return {

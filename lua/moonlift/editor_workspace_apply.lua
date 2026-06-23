@@ -1,4 +1,4 @@
-local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
 local SourceTextApply = require("moonlift.source_text_apply")
 
 local M = {}
@@ -29,7 +29,7 @@ function M.Define(T)
     end
 
     local function with_docs(state, docs)
-        return pvm.with(state, { open_docs = docs })
+        return schema.with(state, { open_docs = docs })
     end
 
     local function upsert_doc(state, document)
@@ -50,32 +50,32 @@ function M.Define(T)
         return with_docs(state, docs)
     end
 
-    local client_initialized_class = pvm.classof(E.ClientInitialized)
-    local client_exit_class = pvm.classof(E.ClientExit)
+    local client_initialized_class = schema.classof(E.ClientInitialized)
+    local client_exit_class = schema.classof(E.ClientExit)
     local function is_bare(cls, event, variant, variant_class)
         return event == variant or (variant_class ~= false and cls == variant_class)
     end
 
-    local apply_event_phase = pvm.phase("moonlift_editor_workspace_apply", function(event, state)
+    local function apply_event_phase(event, state)
         local before = state
-        local cls = pvm.classof(event)
+        local cls = schema.classof(event)
         local after = before
 
         if cls == E.ClientInitialize then
             after = E.WorkspaceState(E.ServerInitializing, event.roots, event.capabilities, before.open_docs, before.index)
         elseif is_bare(cls, event, E.ClientInitialized, client_initialized_class) then
-            after = pvm.with(before, { mode = E.ServerReady })
+            after = schema.with(before, { mode = E.ServerReady })
         elseif cls == E.ClientShutdown then
-            after = pvm.with(before, { mode = E.ServerShutdownRequested })
+            after = schema.with(before, { mode = E.ServerShutdownRequested })
         elseif is_bare(cls, event, E.ClientExit, client_exit_class) then
-            after = pvm.with(before, { mode = E.ServerStopped })
+            after = schema.with(before, { mode = E.ServerStopped })
         elseif cls == E.ClientDidOpen then
             after = upsert_doc(before, event.document)
         elseif cls == E.ClientDidChange then
             local _, doc = find_doc(before.open_docs, event.edit.uri)
             if doc then
                 local result = SourceApply.apply(doc, event.edit)
-                if pvm.classof(result) == T.MoonSource.SourceApplyOk then
+                if schema.classof(result) == T.MoonSource.SourceApplyOk then
                     after = upsert_doc(before, result.document)
                 end
             end
@@ -90,10 +90,10 @@ function M.Define(T)
         end
 
         return E.Transition(before, event, after)
-    end, { node_cache = "none", args_cache = "none" })
+    end
 
     local function apply_event(state, event)
-        return pvm.one(apply_event_phase(event, state))
+        return apply_event_phase(event, state)
     end
 
     return {

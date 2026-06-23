@@ -102,7 +102,7 @@ function M.Define(T)
             if r then
                 local code = d.code ~= nil and tostring(d.code) or "client"
                 local message = tostring(d.message or "")
-                out[#out + 1] = E.DiagnosticFact(severity(d.severity), E.DiagFromTransport(code, message), code, message, r)
+                out[#out + 1] = E.DiagnosticFact(severity(d.severity), E.DiagFromTransport(code, message), code, message, r, {})
             end
         end
         return out

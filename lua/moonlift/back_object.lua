@@ -43,10 +43,10 @@ local function cstring(text)
 end
 
 function M.Define(T, opts)
-    local Back = T.MoonBack or T.MoonBack
-    assert(Back, "moonlift.back_object.Define expects MoonBack/MoonBack in the context")
+    local Compiler = T.MoonCompiler
+    assert(Compiler, "moonlift.back_object.Define expects MoonCompiler in the context")
     local lib = load_library(opts and opts.libpath or nil)
-    local binary_api = require("moonlift.back_command_binary").Define(T)
+    local flatline_api = require("moonlift.flatline").Define(T)
 
     local function last_error()
         local p = lib.moonlift_last_error_message()
@@ -56,22 +56,18 @@ function M.Define(T, opts)
         if rc == 0 then error(context .. ": " .. last_error(), 3) end
     end
 
-    local ObjectArtifact = {}
-    ObjectArtifact.__index = ObjectArtifact
-    function ObjectArtifact:bytes()
-        return self._bytes
-    end
-    function ObjectArtifact:write(path)
+    local function write(artifact, path)
         local out = assert(io.open(path, "wb"))
-        out:write(self._bytes)
+        out:write(artifact.bytes)
         out:close()
         return path
     end
 
-    local function compile(program, compile_opts)
-        assert(pvm.classof(program) == Back.BackProgram, "moonlift.back_object compile expects MoonBack.BackProgram")
+    local function compile(image, compile_opts)
         compile_opts = compile_opts or {}
-        local payload = binary_api.encode(program)
+        assert(pvm.classof(image) == Compiler.FlatlineImage, "moonlift.back_object compile expects MoonCompiler.FlatlineImage")
+        flatline_api.assert_valid_image(image)
+        local payload = image.bytes
         local buf = ffi.new("uint8_t[?]", #payload)
         ffi.copy(buf, payload, #payload)
         local out = ffi.new("moonlift_bytes_t[1]")
@@ -81,12 +77,14 @@ function M.Define(T, opts)
         )
         local bytes = ffi.string(out[0].data, tonumber(out[0].len))
         lib.moonlift_bytes_free(out[0].data, out[0].len)
-        return setmetatable({ _bytes = bytes }, ObjectArtifact)
+        return Compiler.ObjectArtifact("cranelift-object", compile_opts.format or "native-object", compile_opts.module_name or "moonlift_object", image, bytes)
     end
 
     return {
         lib = lib,
+        flatline = flatline_api,
         compile = compile,
+        write = write,
     }
 end
 

@@ -1,4 +1,6 @@
 local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
+local erased = require("moonlift.phase_erased_runtime")
 
 local M = {}
 
@@ -20,30 +22,71 @@ function M.Define(T)
         return xs[1]
     end
 
-    header_type = pvm.phase("moonlift_tree_place_header_type", {
-        [Tr.PlaceSurface] = function() return pvm.empty() end,
-        [Tr.PlaceTyped] = function(self) return pvm.once(self.ty) end,
-        [Tr.PlaceOpen] = function(self) return pvm.once(self.ty) end,
-    })
+    function header_type(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Tr.PlaceSurface) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, Tr.PlaceTyped) then
+            return (function(self)
+ return erased.once(self.ty)
+            end)(node, ...)
+        elseif schema.isa(node, Tr.PlaceOpen) then
+            return (function(self)
+ return erased.once(self.ty)
+            end)(node, ...)
+        else
+            error("erased phase moonlift_tree_place_header_type: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
-    value_ref_type = pvm.phase("moonlift_tree_place_value_ref_type", {
-        [B.ValueRefBinding] = function(self) return pvm.once(self.binding.ty) end,
-        [B.ValueRefHole] = function(self)
-            local slot_cls = pvm.classof(self.slot)
-            if slot_cls == O.SlotFunc then return pvm.once(self.slot.slot.fn_ty) end
-            if slot_cls == O.SlotValue or slot_cls == O.SlotConst or slot_cls == O.SlotStatic then return pvm.once(self.slot.slot.ty) end
-            if slot_cls == O.SlotExpr or slot_cls == O.SlotPlace then return pvm.once(self.slot.slot.ty or nil) end
-            return pvm.empty()
-        end,
-        [B.ValueRefName] = function() return pvm.empty() end,
-        [B.ValueRefPath] = function() return pvm.empty() end,
-    })
+    function value_ref_type(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, B.ValueRefBinding) then
+            return (function(self)
+ return erased.once(self.binding.ty)
+            end)(node, ...)
+        elseif schema.isa(node, B.ValueRefHole) then
+            return (function(self)
 
-    index_base_elem_type = pvm.phase("moonlift_tree_index_base_elem_type", {
-        [Tr.IndexBaseExpr] = function() return pvm.empty() end,
-        [Tr.IndexBasePlace] = function(self) return pvm.once(self.elem) end,
-        [Tr.IndexBaseView] = function(self) return pvm.once(self.view.elem) end,
-    })
+            local slot_cls = schema.classof(self.slot)
+            if slot_cls == O.SlotFunc then return erased.once(self.slot.slot.fn_ty) end
+            if slot_cls == O.SlotValue or slot_cls == O.SlotConst or slot_cls == O.SlotStatic then return erased.once(self.slot.slot.ty) end
+            if slot_cls == O.SlotExpr or slot_cls == O.SlotPlace then return erased.once(self.slot.slot.ty or nil) end
+            return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, B.ValueRefName) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, B.ValueRefPath) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        else
+            error("erased phase moonlift_tree_place_value_ref_type: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
+
+    function index_base_elem_type(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Tr.IndexBaseExpr) then
+            return (function()
+ return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, Tr.IndexBasePlace) then
+            return (function(self)
+ return erased.once(self.elem)
+            end)(node, ...)
+        elseif schema.isa(node, Tr.IndexBaseView) then
+            return (function(self)
+ return erased.once(self.view.elem)
+            end)(node, ...)
+        else
+            error("erased phase moonlift_tree_index_base_elem_type: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
     local function header_or(h, fallback)
         local ty = first(header_type(h))
@@ -52,24 +95,44 @@ function M.Define(T)
         return pvm.empty()
     end
 
-    place_type = pvm.phase("moonlift_tree_place_type", {
-        [Tr.PlaceRef] = function(self)
+    function place_type(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Tr.PlaceRef) then
+            return (function(self)
+
             local ty = first(header_type(self.h)) or first(value_ref_type(self.ref))
-            if ty ~= nil then return pvm.once(ty) end
-            return pvm.empty()
-        end,
-        [Tr.PlaceDeref] = function(self)
+            if ty ~= nil then return erased.once(ty) end
+            return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, Tr.PlaceDeref) then
+            return (function(self)
+
             local ty = first(header_type(self.h))
-            if ty ~= nil then return pvm.once(ty) end
+            if ty ~= nil then return erased.once(ty) end
             local base_ty = expr_api.type(self.base)
-            if pvm.classof(base_ty) == Ty.TPtr then return pvm.once(base_ty.elem) end
-            return pvm.empty()
-        end,
-        [Tr.PlaceDot] = function(self) return header_or(self.h, first(place_type(self.base))) end,
-        [Tr.PlaceField] = function(self) return header_or(self.h, self.field.ty) end,
-        [Tr.PlaceIndex] = function(self) return header_or(self.h, first(index_base_elem_type(self.base))) end,
-        [Tr.PlaceSlotValue] = function(self) return header_or(self.h, self.slot.ty) end,
-    })
+            if schema.classof(base_ty) == Ty.TPtr then return erased.once(base_ty.elem) end
+            return erased.empty()
+            end)(node, ...)
+        elseif schema.isa(node, Tr.PlaceDot) then
+            return (function(self)
+ return header_or(self.h, first(place_type(self.base)))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.PlaceField) then
+            return (function(self)
+ return header_or(self.h, self.field.ty)
+            end)(node, ...)
+        elseif schema.isa(node, Tr.PlaceIndex) then
+            return (function(self)
+ return header_or(self.h, first(index_base_elem_type(self.base)))
+            end)(node, ...)
+        elseif schema.isa(node, Tr.PlaceSlotValue) then
+            return (function(self)
+ return header_or(self.h, self.slot.ty)
+            end)(node, ...)
+        else
+            error("erased phase moonlift_tree_place_type: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
     return {
         header_type = header_type,

@@ -3,10 +3,10 @@ S.use()
 
 return schema. MoonSchedule {
   product. ScheduleId { interned, text [str], },
-  product. ScheduleTarget { interned, target [ty. MoonBack.BackTargetModel], },
+  product. ScheduleTarget { interned, target [MoonBack.BackTargetModel], },
   sum. LaneShape {
     LaneScalar,
-    LaneVector { variant_unique, elem_ty [ty. MoonCode.CodeType], lanes [number], },
+    LaneVector { variant_unique, elem_ty [MoonCode.CodeType], lanes [number], },
   },
   sum. TailPlan { TailNone, TailScalar, TailMasked, TailPeel { variant_unique, elems [number], }, },
   sum. ScheduleKind {
@@ -14,17 +14,17 @@ return schema. MoonSchedule {
     ScheduleScalarPointer,
     ScheduleVector {
       variant_unique,
-      lanes [ty. MoonSchedule.LaneShape],
+      lanes [MoonSchedule.LaneShape],
       unroll [number],
       interleave [number],
-      tail [ty. MoonSchedule.TailPlan],
+      tail [MoonSchedule.TailPlan],
     },
     ScheduleClosedForm,
   },
   sum. ScheduleProof {
     ScheduleProofTarget { variant_unique, reason [str], },
-    ScheduleProofMemory { variant_unique, proof [ty. MoonMem.MemProof], },
-    ScheduleProofAlgebra { variant_unique, proof [ty. MoonValue.AlgebraProof], },
+    ScheduleProofMemory { variant_unique, proof [MoonMem.MemProof], },
+    ScheduleProofAlgebra { variant_unique, proof [MoonValue.AlgebraProof], },
     ScheduleProofProfit { variant_unique, reason [str], },
   },
   sum. ScheduleReject {
@@ -36,22 +36,22 @@ return schema. MoonSchedule {
   sum. KernelSchedule {
     ScheduleNoPlan {
       variant_unique,
-      kernel [ty. MoonKernel.KernelId],
-      rejects [many [ty. MoonSchedule.ScheduleReject]],
+      kernel [MoonKernel.KernelId],
+      rejects [many [MoonSchedule.ScheduleReject]],
     },
     SchedulePlanned {
       variant_unique,
-      field. id [ty. MoonSchedule.ScheduleId],
-      kernel [ty. MoonKernel.KernelId],
-      kind [ty. MoonSchedule.ScheduleKind],
-      proofs [many [ty. MoonSchedule.ScheduleProof]],
-      rejected_alternatives [many [ty. MoonSchedule.ScheduleReject]],
+      field. id [MoonSchedule.ScheduleId],
+      kernel [MoonKernel.KernelId],
+      kind [MoonSchedule.ScheduleKind],
+      proofs [many [MoonSchedule.ScheduleProof]],
+      rejected_alternatives [many [MoonSchedule.ScheduleReject]],
     },
   },
   product. ScheduleModulePlan {
     interned,
-    field. module [ty. MoonCode.CodeModuleId],
-    target [ty. MoonSchedule.ScheduleTarget],
-    schedules [many [ty. MoonSchedule.KernelSchedule]],
+    field. module [MoonCode.CodeModuleId],
+    target [MoonSchedule.ScheduleTarget],
+    schedules [many [MoonSchedule.KernelSchedule]],
   },
 }

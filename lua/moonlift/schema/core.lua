@@ -3,7 +3,7 @@ S.use()
 
 return schema. MoonCore {
   product. Name { interned, text [str], },
-  product. Path { interned, parts [many [ty. MoonCore.Name]], },
+  product. Path { interned, parts [many [MoonCore.Name]], },
   product. Id { interned, text [str], },
   product. ModuleId { interned, text [str], },
   product. ItemId { interned, text [str], },
@@ -38,8 +38,8 @@ return schema. MoonCore {
   product. ScalarBits { interned, bits [number], },
   product. ScalarInfo {
     interned,
-    family [ty. MoonCore.ScalarFamily],
-    bits [ty. MoonCore.ScalarBits],
+    family [MoonCore.ScalarFamily],
+    bits [MoonCore.ScalarBits],
   },
   sum. Literal {
     LitInt { variant_unique, raw [str], },
@@ -135,7 +135,7 @@ return schema. MoonCore {
   sum. SymKind { SymKindFunc, SymKindExtern, SymKindConst, SymKindStatic, SymKindType, },
   product. OpenSym {
     interned,
-    kind [ty. MoonCore.SymKind],
+    kind [MoonCore.SymKind],
     key [str],
     field. name [str],
     symbol [str],

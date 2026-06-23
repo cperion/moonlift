@@ -99,7 +99,7 @@ local build_source_context
 
 local function frag_ref(v, expr)
     local name
-    if is(v, Name) then name = v.name
+    if symbol_text(v, "fragment reference") then name = symbol_text(v, "fragment reference")
     elseif type(v) == "string" then name = v
     elseif is(v, Decl) and (v.kind == "region" or v.kind == "expr_frag") then name = v.name
     else name = tostring(v) end
@@ -114,7 +114,8 @@ end
 local function concrete_type(v)
     if is_member(Ty.Type, v) then return v end
     if is(v, Decl) and v.type_name then return Ty.TNamed(Ty.TypeRefPath(path(v.type_name))) end
-    if is(v, Name) then return Ty.TNamed(Ty.TypeRefPath(path(v.name))) end
+    local name = symbol_text(v, "type name")
+    if name then return Ty.TNamed(Ty.TypeRefPath(path(name))) end
     if type(v) == "string" then return Ty.TNamed(Ty.TypeRefPath(path(v))) end
     die("expected type value, got " .. tostring(v), 2)
 end
@@ -163,7 +164,7 @@ end
 tree_expr = function(v)
     if is(v, Expr) then return v:tree() end
     if is_member(Tr.Expr, v) then return v end
-    if llb.is(v, "Symbol") then return Tr.ExprRef(Tr.ExprSurface, B.ValueRefName(ident(v.text, "name"))) end
+    if llb.is(v, "Symbol") or llb.is(v, "Name") then return Tr.ExprRef(Tr.ExprSurface, B.ValueRefName(ident(v.text, "name"))) end
     if llb.is(v, "Expr") then
         local bin_map = { ["+"] = "add", ["-"] = "sub", ["*"] = "mul", ["/"] = "div", ["%"] = "rem" }
         local cmp_map = { ["=="] = "eq", ["~="] = "ne", ["<"] = "lt", ["<="] = "le", [">"] = "gt", [">="] = "ge" }
@@ -219,6 +220,14 @@ local function stmt_item(v)
     return Tr.StmtExpr(Tr.StmtSurface, tree_expr(v))
 end
 
+local function is_moonlift_zone(v)
+    return llb.is(v, "Zone") and (v.member == "moonlift.dsl" or v.name == "moonlift" or v.role == "moonlift")
+end
+
+local function is_foreign_zone(v)
+    return llb.is(v, "Zone") and not is_moonlift_zone(v)
+end
+
 local function typed_name(v, site)
     if is(v, TypedName) then return v end
     if llb.is(v, "Capture") then
@@ -227,10 +236,26 @@ local function typed_name(v, site)
             return setmetatable({ name = name, ty = v.value }, TypedName)
         end
     end
-    if type(v) == "table" and v.name ~= nil and (v.ty ~= nil or v.type ~= nil) then
-        return setmetatable({ name = ident(tostring(v.name), site or "name"), ty = v.ty or v.type, init = v.init }, TypedName)
+    local raw_name = type(v) == "table" and rawget(v, "name") or nil
+    local raw_ty = type(v) == "table" and (rawget(v, "ty") or rawget(v, "type")) or nil
+    if raw_name ~= nil and raw_ty ~= nil then
+        return setmetatable({ name = ident(symbol_text(raw_name, site or "name") or tostring(raw_name), site or "name"), ty = raw_ty, init = rawget(v, "init") }, TypedName)
     end
     return nil
+end
+
+local function payload_like(v, site)
+    if is(v, Payload) then return v.name, v.payload end
+    local raw_name = type(v) == "table" and rawget(v, "name") or nil
+    local raw_payload = type(v) == "table" and rawget(v, "payload") or nil
+    if raw_name ~= nil and raw_payload ~= nil then return tostring(raw_name), raw_payload end
+    if llb.is(v, "Expr") and v.kind == "call" then
+        local name = symbol_text(v.callee, site or "payload name")
+        local args = v.args or {}
+        local payload = args[1]
+        if name and type(payload) == "table" then return name, payload end
+    end
+    return nil, nil
 end
 
 function expand_array(t, role)
@@ -247,6 +272,17 @@ function expand_array(t, role)
             else
                 die("spread expects a fragment or array", 2)
             end
+        elseif role == "decl" and is_moonlift_zone(v) then
+            for j = 1, #(v.items or {}) do out[#out + 1] = v.items[j] end
+        elseif role == "decl" and llb.is(v, "FamilyBundle") then
+            for _, z in ipairs(v.zones or {}) do
+                if is_moonlift_zone(z) then
+                    for j = 1, #(z.items or {}) do out[#out + 1] = z.items[j] end
+                end
+            end
+        elseif role == "decl" and is_foreign_zone(v) then
+            -- Family zones are semantic partitions. Moonlift projection ignores
+            -- non-Moonlift zones instead of accepting their values by accident.
         elseif llb.is(v, "Fragment") and v.role == role then
             for j = 1, #v.items do out[#out + 1] = v.items[j] end
         else
@@ -343,6 +379,9 @@ end
 
 local function tree_place(v)
     if is_member(Tr.Place, v) then return v end
+    if llb.is(v, "Symbol") or llb.is(v, "Name") then return Tr.PlaceRef(Tr.PlaceSurface, B.ValueRefName(ident(v.text, "name"))) end
+    if llb.is(v, "Expr") and v.kind == "field" then return Tr.PlaceDot(Tr.PlaceSurface, tree_place(v.base), ident(v.field, "field")) end
+    if llb.is(v, "Expr") and v.kind == "index" then return Tr.PlaceIndex(Tr.PlaceSurface, Tr.IndexBaseExpr(tree_expr(v.base)), tree_expr(v.index)) end
     if is(v, Name) then return Tr.PlaceRef(Tr.PlaceSurface, B.ValueRefName(v.name)) end
     if is(v, Expr) and v.kind == "dot" then return Tr.PlaceDot(Tr.PlaceSurface, tree_place(v.base), v.field) end
     if is(v, Expr) and v.kind == "index" then return Tr.PlaceIndex(Tr.PlaceSurface, Tr.IndexBaseExpr(tree_expr(v.base)), tree_expr(v.index)) end
@@ -604,8 +643,9 @@ local function type_decl(name, body, union)
     if union then
         local vars = {}
         for i, v in ipairs(body or {}) do
-            if is(v, Payload) or (type(v) == "table" and v.name ~= nil and v.payload ~= nil) then vars[i] = Ty.VariantDecl(tostring(v.name), scalar_type("void"), field_items(v.payload))
-            elseif is(v, Name) then vars[i] = Ty.VariantDecl(v.name, scalar_type("void"), {})
+            local pname, payload = payload_like(v, "union alternative")
+            if pname then vars[i] = Ty.VariantDecl(pname, scalar_type("void"), field_items(payload))
+            elseif symbol_text(v, "union alternative") then vars[i] = Ty.VariantDecl(symbol_text(v, "union alternative"), scalar_type("void"), {})
             else die("union expects alternatives", 2) end
         end
         return Tr.TypeDeclTaggedUnionSugar(name, vars)
@@ -613,21 +653,71 @@ local function type_decl(name, body, union)
     return Tr.TypeDeclStruct(name, field_items(body))
 end
 
+local function collect_decls(out, value)
+    if value == nil then return out end
+    if llb.is(value, "Spread") then return collect_decls(out, value.value) end
+    if llb.is(value, "Fragment") then
+        if value.role ~= "decl" then die("expected declaration fragment, got " .. tostring(value.role), 2) end
+        for i = 1, #(value.items or {}) do collect_decls(out, value.items[i]) end
+        return out
+    end
+    if is_moonlift_zone(value) then
+        for i = 1, #(value.items or {}) do collect_decls(out, value.items[i]) end
+        return out
+    end
+    if is_foreign_zone(value) then return out end
+    if llb.is(value, "FamilyBundle") then
+        for _, z in ipairs(value.zones or {}) do collect_decls(out, z) end
+        return out
+    end
+    if is(value, Decl) and value.kind == "unit" then
+        for i = 1, #(value.body or {}) do collect_decls(out, value.body[i]) end
+        return out
+    end
+    if is(value, Decl) or is_member(Tr.Item, value) then
+        out[#out + 1] = value
+        return out
+    end
+    if is_member(Tr.Module, value) then
+        for i = 1, #(value.items or {}) do out[#out + 1] = value.items[i] end
+        return out
+    end
+    if type(value) == "table" then
+        local body = rawget(value, "decls") or rawget(value, "body") or rawget(value, "items")
+        if body ~= nil and body ~= value then return collect_decls(out, body) end
+        for i = 1, #value do collect_decls(out, value[i]) end
+        for k, v in pairs(value) do
+            if type(k) ~= "number" then
+                if is(v, Decl) or is_member(Tr.Item, v) or is_member(Tr.Module, v)
+                    or is_moonlift_zone(v) or llb.is(v, "FamilyBundle")
+                    or (llb.is(v, "Fragment") and v.role == "decl")
+                    or llb.is(v, "Spread")
+                then
+                    collect_decls(out, v)
+                end
+            end
+        end
+        return out
+    end
+    die("expected Moonlift declaration, declaration array, unit, or moonlift zone", 2)
+end
+
 function Decl:syntax()
-    if self.kind == "module" then
+    if self.kind == "unit" then
         local items = {}
-        for i, d in ipairs(expand_array(self.body, "decl")) do
+        local decls = collect_decls({}, self.body)
+        for i, d in ipairs(decls) do
             if is(d, Decl) then items[#items + 1] = d:syntax_item()
             elseif is_member(Tr.Item, d) then items[#items + 1] = d
-            else die("module body expects declarations", 2) end
+            else die("unit body expects declarations", 2) end
         end
         return Tr.Module(Tr.ModuleSurface, items)
     end
-    die("only modules have standalone syntax()", 2)
+    die("only units have standalone syntax()", 2)
 end
 
 local function module_ast_of(self)
-    if self.kind == "module" then return self:syntax() end
+    if self.kind == "unit" then return self:syntax() end
     return Tr.Module(Tr.ModuleSurface, { self:syntax_item() })
 end
 
@@ -729,8 +819,11 @@ function Decl:syntax_item()
         local conts = {}
         local cont_by_name = {}
         for i, c in ipairs(self.conts or {}) do
-            if is(c, Payload) or (type(c) == "table" and c.name ~= nil and c.payload ~= nil) then conts[i] = O.ContSlot("cont:" .. self.name .. ":" .. tostring(c.name) .. ":" .. tostring(i), tostring(c.name), block_param_items(c.payload))
-            elseif is(c, Name) then conts[i] = O.ContSlot("cont:" .. self.name .. ":" .. c.name .. ":" .. tostring(i), c.name, {})
+            local pname, payload = payload_like(c, "continuation name")
+            if pname then conts[i] = O.ContSlot("cont:" .. self.name .. ":" .. pname .. ":" .. tostring(i), pname, block_param_items(payload))
+            elseif symbol_text(c, "continuation name") then
+                local cname = symbol_text(c, "continuation name")
+                conts[i] = O.ContSlot("cont:" .. self.name .. ":" .. cname .. ":" .. tostring(i), cname, {})
             else die("region continuation expects named payload", 2) end
             cont_by_name[conts[i].pretty_name] = conts[i]
         end
@@ -750,7 +843,7 @@ function Decl:syntax_item()
 end
 
 function Decl:ast()
-    if self.kind == "module" then return module_ast_of(self) end
+    if self.kind == "unit" then return module_ast_of(self) end
     local items = module_ast_of(self).items
     return items[1]
 end
@@ -779,7 +872,7 @@ function c_artifact_mt:combined_text() return self.combined end
 
 local function add_lua_token_anchors(source, uri, anchors)
     local keyword = {
-        ["module"] = true, ["struct"] = true, ["union"] = true, ["region"] = true,
+        ["unit"] = true, ["struct"] = true, ["union"] = true, ["region"] = true,
         ["expr"] = true, ["const"] = true, ["static"] = true, ["extern"] = true,
         ["handle"] = true, ["let"] = true, ["var"] = true, ["return"] = true,
         ["if"] = true, ["then"] = true, ["elseif"] = true, ["else"] = true,
@@ -936,10 +1029,8 @@ end
 function Decl:compile(opts)
     opts = merge_source_ctx(opts, self)
     if opts.backend == "c" or opts.codegen == "c" then return self:emit_c_artifact(opts) end
-    local program = self:lower(opts)
-    local jit = require("moonlift.back_jit").Define(T).jit()
-    for name, ptr in pairs(opts.symbols or {}) do jit:symbol(name, ptr) end
-    return jit:compile(program)
+    opts.context = opts.context or T
+    return require("moonlift.compiler_driver").compile_jit(module_ast_of(self), opts)
 end
 
 function Decl:__tostring()
@@ -985,7 +1076,7 @@ end
 function TypeCtor:__call(a, b)
     local name = rawget(self, "name")
     if name == "lease" and b ~= nil then
-        return Ty.TLease(concrete_type(b), Ty.LeaseOriginParam(is(a, Name) and a.name or tostring(a)))
+        return Ty.TLease(concrete_type(b), Ty.LeaseOriginParam(symbol_text(a, "lease origin") or tostring(a)))
     end
     if name == "noalias" then return Tr.ContractNoAlias(tree_expr(a)) end
     if name == "readonly" then return Tr.ContractReadonly(tree_expr(a)) end
@@ -1046,8 +1137,9 @@ function M.switch(t)
         local stmt_arms, variant_arms, default_body = {}, {}, {}
         for _, arm in ipairs(arms or {}) do
             if is(arm, Case) then
-                if is(arm.key, Name) then
-                    variant_arms[#variant_arms + 1] = Tr.SwitchVariantStmtArm(arm.key.name, {}, tree_stmts(arm.body))
+                local variant_name = symbol_text(arm.key, "switch variant")
+                if variant_name then
+                    variant_arms[#variant_arms + 1] = Tr.SwitchVariantStmtArm(variant_name, {}, tree_stmts(arm.body))
                 else
                     stmt_arms[#stmt_arms + 1] = Tr.SwitchStmtArm(tostring(arm.key), tree_stmts(arm.body))
                 end
@@ -1196,13 +1288,15 @@ local MoonLLB = llb.define "MoonliftDSL" {
         end,
     },
 
-    g.head .module {
+    -- Declares a named Moonlift compilation unit containing public declarations.
+    g.head .unit {
         g.trait .declaration,
-        slot_string(g.slot .name),
+        slot_name(g.slot .name),
         slot_decls(g.slot .body),
-        emit = function(n) return setmetatable({ kind = "module", name = tostring(n.name), body = n.body or {} }, Decl) end,
+        emit = function(n) return setmetatable({ kind = "unit", name = llb_name_text(n.name, "unit name"), body = n.body or {} }, Decl) end,
     },
 
+    -- Declares a product type with named, typed fields and stable field order.
     g.head .struct {
         g.trait .declaration,
         slot_name(g.slot .name),
@@ -1213,6 +1307,7 @@ local MoonLLB = llb.define "MoonliftDSL" {
         end,
     },
 
+    -- Declares a sum type whose variants may carry typed product payloads.
     g.head .union {
         g.trait .declaration,
         slot_name(g.slot .name),
@@ -1223,6 +1318,7 @@ local MoonLLB = llb.define "MoonliftDSL" {
         end,
     },
 
+    -- Declares a native Moonlift function with typed parameters, an optional result type, and a statement body.
     g.head .fn {
         g.trait .declaration,
         slot_name(g.slot .name),
@@ -1234,6 +1330,7 @@ local MoonLLB = llb.define "MoonliftDSL" {
         end,
     },
 
+    -- Declares a native function that is exported across the generated module boundary.
     g.head .export_fn {
         g.trait .declaration,
         slot_name(g.slot .name),
@@ -1245,6 +1342,7 @@ local MoonLLB = llb.define "MoonliftDSL" {
         end,
     },
 
+    -- Declares an imported host or C function signature plus boundary options.
     g.head .extern {
         g.trait .declaration,
         slot_name(g.slot .name),
@@ -1256,6 +1354,7 @@ local MoonLLB = llb.define "MoonliftDSL" {
         end,
     },
 
+    -- Declares a nominal handle type for durable external or store-resolved identity.
     g.head .handle {
         g.trait .declaration,
         slot_name(g.slot .name),
@@ -1263,6 +1362,7 @@ local MoonLLB = llb.define "MoonliftDSL" {
         emit = function(n) return setmetatable({ kind = "handle", name = llb_name_text(n.name, "handle name"), opts = n.opts or {} }, Decl) end,
     },
 
+    -- Declares a typed compile-time constant value.
     g.head .const {
         g.trait .declaration,
         slot_name(g.slot .name),
@@ -1271,6 +1371,7 @@ local MoonLLB = llb.define "MoonliftDSL" {
         emit = function(n) return setmetatable({ kind = "const", name = llb_name_text(n.name, "const name"), ty = n.ty, value = n.value }, Decl) end,
     },
 
+    -- Declares a typed static data item emitted with the module.
     g.head .static {
         g.trait .declaration,
         slot_name(g.slot .name),
@@ -1279,12 +1380,14 @@ local MoonLLB = llb.define "MoonliftDSL" {
         emit = function(n) return setmetatable({ kind = "static", name = llb_name_text(n.name, "static name"), ty = n.ty, value = n.value }, Decl) end,
     },
 
+    -- Imports declarations or fragments produced by another Lua module or factory.
     g.head .import {
         g.trait .declaration,
         slot_value(g.slot .target),
         emit = function(n) return setmetatable({ kind = "import", name = n.target }, Decl) end,
     },
 
+    -- Declares a reusable expression fragment sealed by a result type.
     g.head .expr_frag {
         g.trait .declaration,
         slot_name(g.slot .name),
@@ -1296,6 +1399,7 @@ local MoonLLB = llb.define "MoonliftDSL" {
         end,
     },
 
+    -- Declares a typed control region whose exits are named continuation alternatives.
     g.head .region {
         g.trait .declaration,
         slot_name(g.slot .name),
@@ -1305,6 +1409,7 @@ local MoonLLB = llb.define "MoonliftDSL" {
         emit = function(n) return region_decl(llb_name_text(n.name, "region name"), n.params, n.conts, n.body) end,
     },
 
+    -- Declares a region entry block with typed block parameters and terminating statements.
     g.head .entry {
         g.trait .control_block,
         slot_name(g.slot .name),
@@ -1313,6 +1418,7 @@ local MoonLLB = llb.define "MoonliftDSL" {
         emit = function(n) return { kind = "entry_decl", name = llb_name_text(n.name, "entry name"), params = typed_items_from_llb(n.params or {}), body = n.body or {} } end,
     },
 
+    -- Declares an internal region block with typed parameters and terminating statements.
     g.head .block {
         g.trait .control_block,
         slot_name(g.slot .name),
@@ -1321,6 +1427,7 @@ local MoonLLB = llb.define "MoonliftDSL" {
         emit = function(n) return { kind = "block_decl", name = llb_name_text(n.name, "block name"), params = typed_items_from_llb(n.params or {}), body = n.body or {} } end,
     },
 
+    -- Transfers control to a named entry, block, or continuation with explicit argument fills.
     g.head .jump {
         g.trait .statement,
         slot_name(g.slot .target),
@@ -1328,6 +1435,7 @@ local MoonLLB = llb.define "MoonliftDSL" {
         emit = function(n) return setmetatable({ kind = "jump", target = llb_name_text(n.target, "jump target"), args = n.args or {} }, Stmt) end,
     },
 
+    -- Splices a region into the current CFG and binds its continuation exits to local targets.
     g.head .emit {
         g.trait .statement,
         slot_name(g.slot .target),
@@ -1336,12 +1444,13 @@ local MoonLLB = llb.define "MoonliftDSL" {
         emit = function(n)
             local conts = {}
             for cname, target in pairs(n.fills or {}) do
-                conts[#conts + 1] = O.ContBinding(cname, O.ContTargetLabel(Tr.BlockLabel(is(target, Name) and target.name or tostring(target))))
+                conts[#conts + 1] = O.ContBinding(cname, O.ContTargetLabel(Tr.BlockLabel(symbol_text(target, "emit continuation target") or tostring(target))))
             end
             return setmetatable({ kind = "emit", target = llb_name_text(n.target, "emit target"), args = n.args or {}, conts = conts }, Stmt)
         end,
     },
 
+    -- Binds an immutable typed local value initialized by an expression.
     g.head .let {
         g.trait .statement,
         slot_name(g.slot .name),
@@ -1350,6 +1459,7 @@ local MoonLLB = llb.define "MoonliftDSL" {
         emit = function(n) return setmetatable({ kind = "let", name = llb_name_text(n.name, "let name"), ty = n.ty, init = n.init }, Stmt) end,
     },
 
+    -- Binds a mutable typed local storage slot initialized by an expression.
     g.head .var {
         g.trait .statement,
         slot_name(g.slot .name),
@@ -1362,6 +1472,29 @@ local MoonLLB = llb.define "MoonliftDSL" {
 M.llb = llb
 M.language = MoonLLB
 M.process = llb.process
+M.moonlift = llb.zone_head {
+    family = "moonlift",
+    member = "moonlift.dsl",
+    name = "moonlift",
+    role = "decls",
+}
+
+function M.unit(name, decls)
+    if is(name, Decl) and name.kind == "unit" and decls == nil then return name end
+    return setmetatable({ kind = "unit", name = llb_name_text(name or "Unit", "unit name"), body = collect_decls({}, decls or {}) }, Decl)
+end
+
+function M.to_unit(name, value)
+    if value == nil then
+        value = name
+        name = "Unit"
+    end
+    if is(value, Decl) and value.kind == "unit" then return value end
+    if is_member(Tr.Module, value) then return value end
+    if is(value, Decl) then return M.unit(name or value.name or "Unit", { value }) end
+    local unit_name = name or (type(value) == "table" and rawget(value, "name")) or "Unit"
+    return M.unit(unit_name, collect_decls({}, value))
+end
 
 local _searcher_installed = false
 
@@ -1376,8 +1509,11 @@ local function make_env(opts)
     opts = opts or {}
     local env = {}
     for k, v in pairs(_G) do env[k] = v end
+    env.module = nil
+    env.value = nil
     ensure_searcher()
-    env.module, env.fn, env.export_fn = MoonLLB.exports.module, MoonLLB.exports.fn, MoonLLB.exports.export_fn
+    env.moonlift = M.moonlift
+    env.unit, env.fn, env.export_fn = MoonLLB.exports.unit, MoonLLB.exports.fn, MoonLLB.exports.export_fn
     env.extern, env.handle, env.const, env.static = MoonLLB.exports.extern, MoonLLB.exports.handle, MoonLLB.exports.const, MoonLLB.exports.static
     env.import, env.expr_frag = MoonLLB.exports.import, MoonLLB.exports.expr_frag
     env.struct, env.union, env.region = MoonLLB.exports.struct, MoonLLB.exports.union, MoonLLB.exports.region
@@ -1413,7 +1549,7 @@ local function make_env(opts)
     env.null = setmetatable({}, { __index = function(_, ty) return M.null(ty) end })
     env.sizeof = setmetatable({}, { __index = function(_, ty) return M.sizeof(ty) end })
     env.alignof = setmetatable({}, { __index = function(_, ty) return M.alignof(ty) end })
-    env.N = setmetatable({}, { __index = function(_, k) return name_token(k) end })
+    env.N = llb.N
     for n in pairs(scalar) do env[n] = scalar_type(n) end
     env.ptr = ctor("ptr", function(ty) return Ty.TPtr(concrete_type(ty)) end)
     env.view = ctor("view", function(ty) return Ty.TView(concrete_type(ty)) end)
@@ -1431,9 +1567,46 @@ local function make_env(opts)
     return env
 end
 
+M.make_env = make_env
+
+local MOONLIFT_NAMESPACE_KEYS = {
+    "unit", "fn", "export_fn", "extern", "handle", "const", "static",
+    "import", "expr_frag", "struct", "union", "region", "entry", "block",
+    "jump", "emit", "ret", "yield", "when", "If", "let", "var", "store",
+    "set", "trap", "assume", "assert_", "requires", "astore", "afence",
+    "aload", "armw", "acas", "switch", "case", "default", "bit", "product",
+    "stmts", "decls", "exprs", "conts", "variants", "spread", "_", "process",
+    "process_opts", "here", "at_origin", "with_origin", "eq", "ne", "lt", "le",
+    "gt", "ge", "And", "Or", "Not", "len", "select", "addr", "deref", "load",
+    "is_null", "ctor", "bounds", "disjoint", "same_len", "window_bounds", "as",
+    "bitcast", "null", "sizeof", "alignof", "N", "ptr", "view", "slice",
+    "array", "fnptr", "func_type", "closure", "closure_type", "lease", "owned",
+}
+
+function M.namespace(opts)
+    opts = opts or {}
+    local env = make_env(opts)
+    local exports = {}
+    for _, name in ipairs(MOONLIFT_NAMESPACE_KEYS) do exports[name] = env[name] end
+    for n in pairs(scalar) do exports[n] = env[n] end
+    for name in pairs(access) do exports[name] = env[name] end
+    return llb.namespace {
+        family = "moonlift",
+        member = "moonlift.dsl",
+        name = opts.name or "moonlift",
+        exports = exports,
+        zone = M.moonlift,
+    }
+end
+
+function M.make_family_env(opts)
+    local ns = M.namespace { name = "ml", base = opts and opts.base or nil }
+    return { ml = ns, moonlift = ns }
+end
+
 --- Install Moonlift DSL globals into _G so plain .lua files can use
--- fn, i32, module, struct, region, etc. as unqualified names.
--- Also enables auto-name-token generation for unknown identifiers (a, b, pos, etc.),
+-- fn, i32, unit, struct, region, etc. as unqualified names.
+-- Also enables generic LLB symbol generation for unknown identifiers (a, b, pos, etc.),
 -- which is the same behavior as the dsl.loadstring() isolated environment.
 -- Call this once at the top of any .lua file that authors Moonlift DSL.
 --

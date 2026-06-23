@@ -5,7 +5,8 @@
 -- from the document-analysis resolved issue side table instead of the old
 -- editor_diagnostic_facts path.
 
-local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
+local erased = require("moonlift.phase_erased_runtime")
 local PositionIndex = require("moonlift.source_position_index")
 local AnalysisStore = require("moonlift.mlua_document_analysis")
 
@@ -44,7 +45,7 @@ local function range_contains(outer, inner)
 end
 
 local function class_is(node, cls)
-    return pvm.classof(node) == cls
+    return schema.classof(node) == cls
 end
 
 function M.Define(T)
@@ -59,7 +60,7 @@ function M.Define(T)
         for i = 1, #analysis.parse.parts.segments do
             local seg = analysis.parse.parts.segments[i]
             if class_is(seg, Mlua.HostedIsland) and seg.island.kind == Mlua.IslandStruct then
-                if pvm.classof(seg.island.name) == Mlua.IslandNamed and seg.island.name.name == type_name then
+                if schema.classof(seg.island.name) == Mlua.IslandNamed and seg.island.name.name == type_name then
                     return seg.range
                 end
             end
@@ -106,7 +107,7 @@ function M.Define(T)
     end
 
     local function diagnostic_code_for_issue(issue, fallback)
-        local cls = pvm.classof(issue)
+        local cls = schema.classof(issue)
         if cls == H.HostIssueBareBoolInBoundaryStruct then return "host.bareBoolBoundary" end
         if cls == H.HostIssueInvalidPackedAlign then return "host.invalidPackedAlign" end
         if cls == H.HostIssueDuplicateField then return "host.duplicateField" end
@@ -129,14 +130,14 @@ function M.Define(T)
                     local start_offset = ri.span.start_offset or 0
                     local stop_offset = ri.span.end_offset or ri.span.stop_offset or start_offset
                     local range = assert(P.range_from_offsets(index, start_offset, stop_offset))
-                    local cls = pvm.classof(ri.issue)
+                    local cls = schema.classof(ri.issue)
                     local origin = E.DiagFromTransport(ri.code or "E", tostring(ri.issue))
                     if cls then
                         if tostring(cls.kind or ""):match("^HostIssue") then origin = E.DiagFromHost(ri.issue)
                         elseif tostring(cls.kind or ""):match("^TypeIssue") then origin = E.DiagFromType(ri.issue) end
                     end
                     local code = diagnostic_code_for_issue(ri.issue, ri.code or "E")
-                    local d = E.DiagnosticFact(E.DiagnosticError, origin, code, tostring(ri.issue), range)
+                    local d = E.DiagnosticFact(E.DiagnosticError, origin, code, tostring(ri.issue), range, {})
                     out[#out + 1] = d
                 end
             end
@@ -246,7 +247,7 @@ function M.Define(T)
     end
 
     local function origin_issue(origin)
-        local cls = pvm.classof(origin)
+        local cls = schema.classof(origin)
         if cls == E.DiagFromHost or cls == E.DiagFromType or cls == E.DiagFromParse or cls == E.DiagFromOpen or cls == E.DiagFromBack or cls == E.DiagFromSource then
             return origin.issue
         elseif cls == E.DiagFromBindingResolution then
@@ -255,14 +256,17 @@ function M.Define(T)
         return origin
     end
 
-    local code_actions_phase = pvm.phase("moonlift_editor_code_actions", {
-        [E.CodeActionQuery] = function(query, analysis)
+    local function code_actions_phase(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, E.CodeActionQuery) then
+            return (function(query, analysis)
+
             local out = {}
             local diagnostics = candidate_diagnostics(query, analysis)
             for i = 1, #diagnostics do
                 local d = diagnostics[i]
                 local issue = origin_issue(d.origin)
-                local cls = pvm.classof(issue)
+                local cls = schema.classof(issue)
                 local actions = {}
                 if cls == H.HostIssueBareBoolInBoundaryStruct then
                     actions = bool_storage_actions(d, issue, analysis)
@@ -277,12 +281,15 @@ function M.Define(T)
                 end
                 for j = 1, #actions do out[#out + 1] = actions[j] end
             end
-            return pvm.seq(out)
-        end,
-    }, { node_cache = "none", args_cache = "none" })
+            return erased.seq(out)
+            end)(node, ...)
+        else
+            error("erased phase moonlift_editor_code_actions: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
     local function actions(query, analysis)
-        return pvm.drain(code_actions_phase(query, analysis))
+        return code_actions_phase(query, analysis)
     end
 
     return { code_actions_phase = code_actions_phase, actions = actions }

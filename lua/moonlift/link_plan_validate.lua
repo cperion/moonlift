@@ -1,4 +1,5 @@
-local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
+local erased = require("moonlift.phase_erased_runtime")
 
 local M = {}
 
@@ -7,7 +8,7 @@ function M.Define(T)
     assert(Link, "moonlift.link_plan_validate.Define expects moonlift.schema_projection in the context")
 
     local function input_path(input)
-        local cls = pvm.classof(input)
+        local cls = schema.classof(input)
         if cls == Link.LinkInputObject or cls == Link.LinkInputStaticArchive or cls == Link.LinkInputSharedLibrary or cls == Link.LinkInputLibrarySearchPath or cls == Link.LinkInputLinkerScript then
             return input.path
         end
@@ -24,16 +25,23 @@ function M.Define(T)
                 local f = io.open(path.text, "rb")
                 if f then f:close() else issues[#issues + 1] = Link.LinkIssueMissingInput(path) end
             end
-            if pvm.classof(plan.inputs[i]) == Link.LinkInputFramework and plan.target.platform ~= Link.LinkPlatformMacOS then
+            if schema.classof(plan.inputs[i]) == Link.LinkInputFramework and plan.target.platform ~= Link.LinkPlatformMacOS then
                 issues[#issues + 1] = Link.LinkIssueUnsupportedInput(plan.inputs[i], "framework inputs are macOS-only")
             end
         end
         return Link.LinkReport(issues)
     end
 
-    local phase = pvm.phase("moonlift_link_plan_validate", {
-        [Link.LinkPlan] = function(self) return pvm.once(validate(self)) end,
-    })
+    local function phase(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Link.LinkPlan) then
+            return (function(self)
+ return erased.once(validate(self))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_link_plan_validate: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
     return {
         phase = phase,
@@ -46,8 +54,9 @@ end
 -----------------------------------------------------------------------------
 
 function M.explain_link_issue(issue, analysis)
-    local pvm = require("moonlift.pvm")
-    local cls = pvm.classof(issue)
+    local schema = require("moonlift.schema_runtime")
+local erased = require("moonlift.phase_erased_runtime")
+    local cls = schema.classof(issue)
     if not cls then return { code = "E9999", severity = "error", primary = { span = nil, message = tostring(issue) } } end
     local kind = cls.kind
 

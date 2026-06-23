@@ -1,4 +1,5 @@
-local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
+local erased = require("moonlift.phase_erased_runtime")
 
 local M = {}
 
@@ -29,7 +30,7 @@ function M.Define(T)
     local function execute(plan)
         for i = 1, #plan.commands do
             local cmd = plan.commands[i]
-            local cls = pvm.classof(cmd)
+            local cls = schema.classof(cmd)
             if cls == Link.LinkCmdWriteFile then
                 local f, err = io.open(cmd.path.text, "wb")
                 if not f then return Link.LinkFailed(Link.LinkReport({ Link.LinkIssueCommandFailed(i, 1, err or "write failed") })) end
@@ -47,9 +48,16 @@ function M.Define(T)
         return Link.LinkOk(plan.plan.output)
     end
 
-    local phase = pvm.phase("moonlift_link_execute", {
-        [Link.LinkCommandPlan] = function(self) return pvm.once(execute(self)) end,
-    })
+    local function phase(node, ...)
+        local cls = schema.classof(node)
+        if schema.isa(node, Link.LinkCommandPlan) then
+            return (function(self)
+ return erased.once(execute(self))
+            end)(node, ...)
+        else
+            error("erased phase moonlift_link_execute: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+        end
+    end
 
     return {
         phase = phase,

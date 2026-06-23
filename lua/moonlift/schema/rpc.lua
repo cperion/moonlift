@@ -2,31 +2,31 @@ local S = require("moonlift.schema.dsl")
 S.use()
 
 return schema. MoonRpc {
-  product. JsonMember { key [str], field. value [ty. MoonRpc.JsonValue], },
+  product. JsonMember { key [str], field. value [MoonRpc.JsonValue], },
   sum. JsonValue {
     JsonNull,
     JsonBool { field. value [bool], },
     JsonNumber { raw [str], },
     JsonString { field. value [str], },
-    JsonArray { values [many [ty. MoonRpc.JsonValue]], },
-    JsonObject { members [many [ty. MoonRpc.JsonMember]], },
+    JsonArray { values [many [MoonRpc.JsonValue]], },
+    JsonObject { members [many [MoonRpc.JsonMember]], },
   },
   sum. Incoming {
     RpcRequest {
-      field. id [ty. MoonEditor.RpcId],
+      field. id [MoonEditor.RpcId],
       method [str],
-      params [ty. MoonRpc.JsonValue],
+      params [MoonRpc.JsonValue],
     },
-    RpcIncomingNotification { method [str], params [ty. MoonRpc.JsonValue], },
+    RpcIncomingNotification { method [str], params [MoonRpc.JsonValue], },
     RpcInvalid { reason [str], },
   },
   sum. Outgoing {
-    RpcResult { field. id [ty. MoonEditor.RpcId], payload [ty. MoonLsp.Payload], },
-    RpcError { field. id [ty. MoonEditor.RpcId], code [number], message [str], },
-    RpcOutgoingNotification { method [str], payload [ty. MoonLsp.Payload], },
+    RpcResult { field. id [MoonEditor.RpcId], payload [MoonLsp.Payload], },
+    RpcError { field. id [MoonEditor.RpcId], code [number], message [str], },
+    RpcOutgoingNotification { method [str], payload [MoonLsp.Payload], },
   },
   sum. OutCommand {
-    SendMessage { outgoing [ty. MoonRpc.Outgoing], },
+    SendMessage { outgoing [MoonRpc.Outgoing], },
     LogMessage { level [str], message [str], },
     StopServer,
   },

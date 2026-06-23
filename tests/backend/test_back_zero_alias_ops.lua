@@ -123,7 +123,7 @@ local program = B2.BackProgram({
 local report = validate.validate(program)
 assert(#report.issues == 0)
 local jit = jit_api.jit()
-local artifact = jit:compile(program)
+local artifact = jit:compile(jit_api.flatline.encode_back_program(program))
 
 local get_zero = ffi.cast("int32_t (*)()", artifact:getpointer(B2.BackFuncId("get_zero")))
 assert(get_zero() == 0)

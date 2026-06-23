@@ -63,6 +63,94 @@ Cranelift backend
   Final native code generator for MoonBack programs.
 ```
 
+## Compiler ABI boundary
+
+The hosted compiler has one explicit shared code boundary:
+
+```text
+MoonTree.Module
+  -> MoonTree.TypeModuleResult
+  -> MoonCompiler.CodeResult
+  -> MoonBack.Program
+  -> MoonCompiler.FlatlineImage
+  -> MoonCompiler.NativeArtifact
+
+MoonTree.Module
+  -> MoonTree.TypeModuleResult
+  -> MoonCompiler.CodeResult
+  -> MoonC.CBackendUnit
+  -> C artifact
+```
+
+`MoonCompiler.CodeResult` is not a helper tuple. It is the persisted compiler
+ABI between semantic MoonTree and backend projections. It contains:
+
+```text
+module      : MoonCode.CodeModule
+contracts   : MoonCode.CodeFuncContractFact[]
+layout_env  : MoonSem.LayoutEnv
+```
+
+Back and C projection machines validate this value before consuming it. That
+means a future bootstrap runner can materialize, cache, inspect, serialize, or
+replay `CodeResult` without re-entering the source DSL or the typechecker.
+
+The native execution boundary is also explicit:
+
+```text
+MoonCompiler.FlatlineImage
+  -> MoonCompiler.NativeArtifact
+```
+
+`FlatlineImage` is deterministic and cacheable. `NativeArtifact` is a typed
+descriptor for a host-runtime resource. The actual Cranelift artifact pointer is
+not serialized into ASDL; it lives in the native runtime registry.
+
+The public roots are therefore:
+
+```text
+compile:
+  MoonTree.Module -> MoonCompiler.FlatlineImage
+
+jit:
+  MoonTree.Module -> MoonCompiler.NativeArtifact
+
+emit_object:
+  MoonTree.Module -> MoonCompiler.ObjectArtifact
+
+emit_c:
+  MoonTree.Module -> MoonC.CBackendUnit
+```
+
+## Back wire format as LLPVM ABI
+
+The current Cranelift back wire format is already an LLPVM-shaped ABI in
+practice:
+
+```text
+MoonBack.Program
+  -> MoonCompiler.FlatlineImage
+  -> native consumer
+  -> executable machine code
+```
+
+It is a borrowed, sectioned, flat command stream with explicit tags and scalar
+slots. That is the same architectural pattern as LLPVM bytecode images: a
+typed record language projected into a compact ABI consumed by a native engine.
+
+The bootstrap direction is therefore not to invent a separate Cranelift bridge.
+The correct split is:
+
+```text
+MoonCompiler.CodeResult
+  -> MoonBack.Program
+  -> MoonCompiler.FlatlineImage
+  -> MoonCompiler.NativeArtifact
+```
+
+Flatline is the concrete native ABI for backend records. LLPVM is the general
+machine substrate pattern for images, validation, inspection, and execution.
+
 ## Canonical schema source
 
 Schema files are Lua modules, not text grammar files.
@@ -572,10 +660,12 @@ Compiler phases are data.
 ```lua
 package "moonlift.compiler" {
   world. tree [MoonTree.Module]
-  world. checked [MoonTree.TypecheckResult]
-  world. code [MoonCode.CodeModule]
-  world. graph [MoonGraph.CodeGraph]
-  world. back [MoonBack.BackProgram]
+  world. checked [MoonTree.TypeModuleResult]
+  world. back_code [MoonCompiler.CodeResult]
+  world. back [MoonBack.Program]
+  world. flatline [MoonCompiler.FlatlineImage]
+  world. native [MoonCompiler.NativeArtifact]
+  world. object [MoonCompiler.ObjectArtifact]
   world. diag [MoonDiag.Report]
 
   phase. typecheck {
@@ -587,27 +677,64 @@ package "moonlift.compiler" {
     machine. moon_typecheck,
   },
 
-  phase. tree_to_code {
+  phase. checked_to_back_code {
     from. checked,
-    to. code,
+    to. back_code,
     diagnostics. diag,
     cache. identity,
     deterministic true,
-    machine. moon_tree_to_code,
+    machine. hosted_checked_to_back_code,
   },
 
-  phase. lower_to_back {
-    from. code,
+  phase. back_code_to_back {
+    from. back_code,
     to. back,
     diagnostics. diag,
     cache. identity,
     deterministic true,
-    machine. moon_lower_to_back,
+    machine. hosted_back_code_to_back,
+  },
+
+  phase. back_to_flatline {
+    from. back,
+    to. flatline,
+    diagnostics. diag,
+    cache. identity,
+    deterministic true,
+    machine. hosted_back_to_flatline,
+  },
+
+  phase. flatline_to_native {
+    from. flatline,
+    to. native,
+    diagnostics. diag,
+    cache. none,
+    deterministic false,
+    machine. hosted_flatline_to_native,
+  },
+
+  phase. flatline_to_object {
+    from. flatline,
+    to. object,
+    diagnostics. diag,
+    cache. none,
+    deterministic false,
+    machine. hosted_flatline_to_object,
   },
 
   root. compile {
     from. tree,
-    to. back,
+    to. flatline,
+  },
+
+  root. jit {
+    from. tree,
+    to. native,
+  },
+
+  root. emit_object {
+    from. tree,
+    to. object,
   },
 }
 ```
@@ -668,14 +795,22 @@ Moonlift-hosted bindings may resolve through `require(module)[function]`; C,
 Cranelift, and external bindings are explicit registry entries. The call
 boundary is one input world value to one output world value per step.
 
-A phase run emits process events:
+A phase run emits an `LlPvm.TaskRun`. Events are typed LLPVM task events,
+not compiler-private trace rows:
 
 ```text
-phase_start
-cache_hit | cache_miss
-diagnostic*
-output
-phase_done
+TaskRun {
+  process
+  status
+  events: [
+    phase_start
+    cache_hit | cache_miss
+    diagnostic*
+    output
+    phase_done
+  ]
+  steps: TaskStepRun[]
+}
 ```
 
 ## LLPVM compiler image
@@ -1322,13 +1457,20 @@ all root references resolve
 all projection-specific required facts are present
 ```
 
-Validation itself is process-shaped:
+Validation itself is process-shaped and can be summarized as an
+`LlPvm.TaskRun`:
 
 ```text
-validate_start
-record*
-diagnostic*
-validate_done
+TaskRun {
+  task = validate
+  status
+  events = [
+    validate_start
+    record*
+    diagnostic*
+    validate_done
+  ]
+}
 ```
 
 ## Bytecode ownership rule

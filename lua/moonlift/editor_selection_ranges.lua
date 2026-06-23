@@ -1,4 +1,4 @@
-local pvm = require("moonlift.pvm")
+local schema = require("moonlift.schema_runtime")
 local PositionIndex = require("moonlift.source_position_index")
 local AnchorIndex = require("moonlift.source_anchor_index")
 
@@ -19,10 +19,10 @@ function M.Define(T)
             and (outer.start_offset ~= inner.start_offset or outer.stop_offset ~= inner.stop_offset)
     end
 
-    local selection_phase = pvm.phase("moonlift_editor_selection_ranges", function(query, analysis)
+    local function selection_phase(query, analysis)
         local index = P.build_index(analysis.parse.parts.document)
         local hit = P.source_pos_to_offset(index, query.pos)
-        if pvm.classof(hit) ~= S.SourceOffsetHit then return E.SelectionRange(analysis.anchors.anchors[1].range, {}) end
+        if schema.classof(hit) ~= S.SourceOffsetHit then return E.SelectionRange(analysis.anchors.anchors[1].range, {}) end
         local anchor_index = AI.build_index(analysis.anchors)
         local lookup = AI.lookup_by_position(anchor_index, query.uri, hit.offset)
         if #lookup.anchors == 0 then return E.SelectionRange(analysis.anchors.anchors[1].range, {}) end
@@ -38,11 +38,11 @@ function M.Define(T)
             end
         end
         return E.SelectionRange(lookup.anchors[1].range, parents)
-    end, { node_cache = "none", args_cache = "none" })
+    end
 
     local function selections(queries, analysis)
         local out = {}
-        for i = 1, #queries do out[i] = pvm.one(selection_phase(queries[i], analysis)) end
+        for i = 1, #queries do out[i] = selection_phase(queries[i], analysis) end
         return out
     end
 

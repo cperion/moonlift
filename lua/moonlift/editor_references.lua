@@ -14,7 +14,7 @@ function M.Define(T)
     local Subject = SubjectAt.Define(T)
     local Bindings = BindingFacts.Define(T)
 
-    local references_phase = pvm.phase("moonlift_editor_references", function(query, analysis)
+    local function references_phase(query, analysis)
         local pick = Subject.subject_at(query.position, analysis)
         local id = Bindings.subject_key(pick.subject)
         if not id then return E.ReferenceMiss("unsupported reference subject") end
@@ -29,10 +29,10 @@ function M.Define(T)
         end
         if #ranges == 0 then return E.ReferenceMiss("references not found") end
         return E.ReferenceHit(pick.subject, ranges)
-    end, { node_cache = "none", args_cache = "none" })
+    end
 
     local function references(query, analysis)
-        return pvm.one(references_phase(query, analysis))
+        return references_phase(query, analysis)
     end
 
     return { references_phase = references_phase, references = references }

@@ -65,11 +65,11 @@ Depth must buy ownership or build isolation, not aesthetic grouping.
 ## Header Files
 
 `*_header.lua` is the system contract. It is ordinary Lua and calls
-`require("moonlift").use()` before authoring DSL declarations:
+`require("moonlift").family.use()` before authoring DSL declarations:
 
 ```lua
-require("moonlift").use()
-return module "Header" {
+require("moonlift").family.use()
+return unit. Header {
   struct. Foo { x [i32] },
   union. Bar { ok { v [i32] }, err },
   handle. SessionRef { invalid = 0 },
@@ -85,12 +85,12 @@ Headers are allowed to be rich.  They should declare products, durable identity,
 access protocols, machines, and ABI seals before implementation exists.
 
 The usual header shape is a `.lua` file returning public declarations plus the
-compiled module:
+compiled unit:
 
 ```lua
-require("moonlift").use()
+require("moonlift").family.use()
 
-local module = module "MwuiHeader" {
+local unit_value = unit. MwuiHeader {
     -- declarations
 }
 
@@ -109,7 +109,7 @@ stages via the same DSL:
 
 ```lua
 local header = require("mwui_header")
-require("moonlift").use()
+require("moonlift").family.use()
 
 -- implement: add entry/block/jump bodies to region declarations
 local impl = require("mwui_component_store")
@@ -157,9 +157,9 @@ machine or a small family of adjacent machines.
 
 ```lua
 local header = require("mwui_header")
-require("moonlift").use()
+require("moonlift").family.use()
 
-return module "Impl" {
+return unit. Impl {
   -- full region/fn with bodies go here
   region. borrow_component
     { ... }
