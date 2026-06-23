@@ -3,16 +3,14 @@
 -- Uses the anchor index (AnchorContinuationName anchors) to find
 -- which block label corresponds to a given source line.
 --
--- Defines via M.Define(T) pattern to access MoonSource schema types.
+-- Defines via bind_context(T) pattern to access MoonSource schema types.
 
 local pvm = require("moonlift.pvm")
 
-local M = {}
-
-function M.Define(T)
+local function bind_context(T)
     local S = T.MoonSource
-    local PositionIndex = require("moonlift.source_position_index").Define(T)
-    local AnchorIndex = require("moonlift.source_anchor_index").Define(T)
+    local PositionIndex = require("moonlift.source_position_index")(T)
+    local AnchorIndex = require("moonlift.source_anchor_index")(T)
 
     --- Resolve a source line to block label anchors.
     -- For DAP setBreakpoints: given a document URI and line number,
@@ -84,4 +82,4 @@ function M.Define(T)
     }
 end
 
-return M
+return bind_context

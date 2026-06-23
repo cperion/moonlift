@@ -190,23 +190,27 @@ return package "moonlift.compiler" {
 }
 ]]
 
-function M.Define(T)
+local function bind_context(T)
     T = T or pvm.context()
-    CompilerModel.Define(T)
-    PhaseDsl.Define(T)
+    CompilerModel(T)
+    PhaseDsl(T)
     local chunk = assert(PhaseDsl.loadstring(SOURCE, "moonlift.compiler_package.lua"))
     return chunk(), T
 end
 
 function M.package(T)
-    return M.Define(T)
+    return bind_context(T)
 end
 
 function M.plan(T, root)
-    local pkg = M.Define(T)
+    local pkg = bind_context(T)
     return PhasePlan.assert_plan(pkg, root or "compile")
 end
 
 M.source = SOURCE
 
-return M
+return setmetatable(M, {
+    __call = function(_, ...)
+        return bind_context(...)
+    end,
+})

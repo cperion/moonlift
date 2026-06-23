@@ -2,8 +2,6 @@ local schema = require("moonlift.schema_runtime")
 local PositionIndex = require("moonlift.source_position_index")
 local AnchorIndex = require("moonlift.source_anchor_index")
 
-local M = {}
-
 local function line_prefix_at(text, offset)
     local start = text:sub(1, offset):match(".*\n()") or 1
     return text:sub(start, offset)
@@ -13,11 +11,11 @@ local function previous_word(prefix)
     return prefix:match("([_%a][_%w]*)%s*$")
 end
 
-function M.Define(T)
+local function bind_context(T)
     local S = T.MoonSource
     local E = T.MoonEditor
-    local P = PositionIndex.Define(T)
-    local AI = AnchorIndex.Define(T)
+    local P = PositionIndex(T)
+    local AI = AnchorIndex(T)
 
     local function context_phase(query, analysis)
         local doc = analysis.parse.parts.document
@@ -74,4 +72,4 @@ function M.Define(T)
     }
 end
 
-return M
+return bind_context

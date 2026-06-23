@@ -53,7 +53,7 @@ local function first_number(s)
     return tonumber(tostring(s):match(":(%d+):")) or 1
 end
 
-function M.Define(T)
+local function bind_context(T)
     local S = T.MoonSource
     local Pm = T.MoonParse
     local Mlua = T.MoonMlua
@@ -61,8 +61,8 @@ function M.Define(T)
     local O = T.MoonOpen
     local Tr = T.MoonTree
     local B = T.MoonBack
-    local PositionIndex = require("moonlift.source_position_index").Define(T)
-    local Typecheck = require("moonlift.tree_typecheck").Define(T)
+    local PositionIndex = require("moonlift.source_position_index")(T)
+    local Typecheck = require("moonlift.tree_typecheck")(T)
 
     local function translate_asdl(v, seen)
         local tv = type(v)
@@ -225,4 +225,8 @@ function M.resolved_issues(analysis)
     return resolved_cache[analysis] or {}
 end
 
-return M
+return setmetatable(M, {
+    __call = function(_, ...)
+        return bind_context(...)
+    end,
+})

@@ -5,8 +5,6 @@
 local pvm = require("moonlift.pvm")
 local llb = require("llb")
 
-local M = {}
-
 local function progress(ctx, name, payload)
     if not ctx then return end
     payload = payload or {}
@@ -47,33 +45,33 @@ local function assert_no_c_phase_unreachable(root, site)
     end
 end
 
-function M.Define(T)
-    require("moonlift.compiler_model").Define(T)
-    local OpenFacts = require("moonlift.open_facts").Define(T)
-    local OpenValidate = require("moonlift.open_validate").Define(T)
-    local OpenExpand = require("moonlift.open_expand").Define(T)
-    local SurfaceResolve = require("moonlift.surface_resolve").Define(T)
-    local ClosureConvert = require("moonlift.closure_convert").Define(T)
-    local Typecheck = require("moonlift.tree_typecheck").Define(T)
-    local Layout = require("moonlift.sem_layout_resolve").Define(T)
-    local TreeToCode = require("moonlift.tree_to_code").Define(T)
-    local CodeValidate = require("moonlift.code_validate").Define(T)
-    local CodeGraph = require("moonlift.code_graph").Define(T)
-    local CodeFlowFacts = require("moonlift.code_flow_facts").Define(T)
-    local CodeValueFacts = require("moonlift.code_value_facts").Define(T)
-    local CodeMemFacts = require("moonlift.code_mem_facts").Define(T)
-    local CodeEffectFacts = require("moonlift.code_effect_facts").Define(T)
-    local CodeKernelPlan = require("moonlift.code_kernel_plan").Define(T)
-    local CodeSchedulePlan = require("moonlift.code_schedule_plan").Define(T)
-    local KernelValidate = require("moonlift.kernel_validate").Define(T)
-    local CodeLowerPlan = require("moonlift.code_lower_plan").Define(T)
-    local CodeType = require("moonlift.code_type").Define(T)
-    local LowerToBack = require("moonlift.lower_to_back").Define(T)
-    local LowerToC = require("moonlift.lower_to_c").Define(T)
-    local Validate = require("moonlift.back_validate").Define(T)
-    local CValidate = require("moonlift.c_validate").Define(T)
-    local BackTarget = require("moonlift.back_target_model").Define(T)
-    local CompilerAbi = require("moonlift.compiler_abi").Define(T)
+local function bind_context(T)
+    require("moonlift.compiler_model")(T)
+    local OpenFacts = require("moonlift.open_facts")(T)
+    local OpenValidate = require("moonlift.open_validate")(T)
+    local OpenExpand = require("moonlift.open_expand")(T)
+    local SurfaceResolve = require("moonlift.surface_resolve")(T)
+    local ClosureConvert = require("moonlift.closure_convert")(T)
+    local Typecheck = require("moonlift.tree_typecheck")(T)
+    local Layout = require("moonlift.sem_layout_resolve")(T)
+    local TreeToCode = require("moonlift.tree_to_code")(T)
+    local CodeValidate = require("moonlift.code_validate")(T)
+    local CodeGraph = require("moonlift.code_graph")(T)
+    local CodeFlowFacts = require("moonlift.code_flow_facts")(T)
+    local CodeValueFacts = require("moonlift.code_value_facts")(T)
+    local CodeMemFacts = require("moonlift.code_mem_facts")(T)
+    local CodeEffectFacts = require("moonlift.code_effect_facts")(T)
+    local CodeKernelPlan = require("moonlift.code_kernel_plan")(T)
+    local CodeSchedulePlan = require("moonlift.code_schedule_plan")(T)
+    local KernelValidate = require("moonlift.kernel_validate")(T)
+    local CodeLowerPlan = require("moonlift.code_lower_plan")(T)
+    local CodeType = require("moonlift.code_type")(T)
+    local LowerToBack = require("moonlift.lower_to_back")(T)
+    local LowerToC = require("moonlift.lower_to_c")(T)
+    local Validate = require("moonlift.back_validate")(T)
+    local CValidate = require("moonlift.c_validate")(T)
+    local BackTarget = require("moonlift.back_target_model")(T)
+    local CompilerAbi = require("moonlift.compiler_abi")(T)
     local Errors = require("moonlift.error")
     local function checked_to_code_result(checked, opts)
         opts = opts or {}
@@ -90,7 +88,7 @@ function M.Define(T)
         )
         local layout_env = opts.layout_env
         do
-            local ModuleType = require("moonlift.tree_module_type").Define(T)
+            local ModuleType = require("moonlift.tree_module_type")(T)
             local generated_env = ModuleType.env(checked.module, target)
             if layout_env == nil then
                 layout_env = T.MoonSem.LayoutEnv(generated_env.layouts)
@@ -306,4 +304,4 @@ function M.Define(T)
     }
 end
 
-return M
+return bind_context

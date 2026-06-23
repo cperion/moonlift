@@ -1,6 +1,4 @@
-local M = {}
-
-function M.Define(T)
+local function bind_context(T)
     local L = T.MoonLsp
 
     local capabilities_json = [[{"textDocumentSync":{"openClose":true,"change":1},"hoverProvider":true,"documentSymbolProvider":true,"diagnosticProvider":{"interFileDependencies":false,"workspaceDiagnostics":false},"completionProvider":{"triggerCharacters":[".",":","("," "]},"signatureHelpProvider":{"triggerCharacters":["(",","],"retriggerCharacters":[","]},"definitionProvider":true,"referencesProvider":true,"documentHighlightProvider":true,"renameProvider":{"prepareProvider":true},"codeActionProvider":true,"selectionRangeProvider":true,"positionEncoding":"utf-16"}]]
@@ -15,4 +13,4 @@ function M.Define(T)
     }
 end
 
-return M
+return bind_context

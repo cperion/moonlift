@@ -39,10 +39,10 @@ local source = f:read("*a")
 f:close()
 
 local T = pvm.context()
-A2.Define(T)
-local O = Object.Define(T)
+A2(T)
+local O = Object(T)
 local ok, lowered_or_err = pcall(function()
-    return Pipeline.Define(T).parse_and_lower(source, { site = "emit_object.lua" })
+    return Pipeline(T).parse_and_lower(source, { site = "emit_object.lua" })
 end)
 if not ok then io.stderr:write(tostring(lowered_or_err), "\n"); os.exit(1) end
 local program = lowered_or_err.program

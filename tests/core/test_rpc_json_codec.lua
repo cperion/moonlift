@@ -6,11 +6,11 @@ local DecodeMod = require("moonlift.rpc_json_decode")
 local EncodeMod = require("moonlift.rpc_json_encode")
 
 local T = pvm.context()
-A.Define(T)
+A(T)
 local R = T.MoonRpc
 local E = T.MoonEditor
-local Decode = DecodeMod.Define(T)
-local Encode = EncodeMod.Define(T)
+local Decode = DecodeMod(T)
+local Encode = EncodeMod(T)
 
 local req = Decode.decode_message([[{"jsonrpc":"2.0","id":"abc","method":"textDocument/hover","params":{"x":null}}]])
 assert(pvm.classof(req) == R.RpcRequest)

@@ -1,12 +1,47 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local pvm = require("moonlift.pvm")
+local function single(value) return { value } end
+local function as_list(values) return values end
+local function only(values)
+    if #values == 0 then error("phase output: expected exactly 1 value, got 0", 2) end
+    if #values ~= 1 then error("phase output: expected exactly 1 value, got more", 2) end
+    return values[1]
+end
+local function append_all(out, values)
+    for i = 1, #(values or {}) do out[#out + 1] = values[i] end
+    return out
+end
+local function concat_all(lists)
+    local out = {}
+    for i = 1, #(lists or {}) do append_all(out, lists[i]) end
+    return out
+end
+local function concat2(a, b)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    return out
+end
+local function concat3(a, b, c)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    append_all(out, c)
+    return out
+end
+local function flat_map(fn, values, n)
+    local out = {}
+    n = n or #(values or {})
+    for i = 1, n do append_all(out, fn(values[i])) end
+    return out
+end
 local A = require("moonlift.schema_projection")
 local Rewrite = require("moonlift.open_rewrite")
 
 local T = pvm.context()
-A.Define(T)
-local R = Rewrite.Define(T)
+A(T)
+local R = Rewrite(T)
 local C = T.MoonCore
 local Ty = T.MoonType
 local O = T.MoonOpen
@@ -53,8 +88,8 @@ assert(R.expr(Tr.ExprUnary(Tr.ExprTyped(i32), C.UnaryNeg, one), set) == Tr.ExprU
 assert(R.expr(Tr.ExprCast(Tr.ExprTyped(ptr_i32), C.SurfaceCast, ptr_i32, one), set) == Tr.ExprCast(Tr.ExprTyped(ptr_i32), C.SurfaceCast, ptr_i64, two))
 assert(R.expr(Tr.ExprRef(Tr.ExprTyped(ptr_i32), B.ValueRefBinding(binding_a)), set) == Tr.ExprRef(Tr.ExprTyped(ptr_i32), B.ValueRefBinding(binding_b)))
 assert(R.rewrite_place and R.type)
-assert(pvm.one(R.rewrite_place(place_a, set)) == place_b)
-assert(pvm.one(R.rewrite_domain(domain_a, set)) == domain_b)
+assert(only(R.rewrite_place(place_a, set)) == place_b)
+assert(only(R.rewrite_domain(domain_a, set)) == domain_b)
 
 local stmts = R.stmts({ stmt_one }, set)
 assert(#stmts == 2)

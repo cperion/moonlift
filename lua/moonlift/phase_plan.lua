@@ -28,7 +28,7 @@ local function phase_namespace(package)
     local ctx = cls and rawget(cls, "__context")
     if ctx and ctx.MoonPhase and ctx.MoonPhase.Plan then return ctx.MoonPhase end
     local T = pvm.context()
-    PhaseModel.Define(T)
+    PhaseModel(T)
     return T.MoonPhase
 end
 

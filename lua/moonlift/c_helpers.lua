@@ -1,13 +1,11 @@
 local pvm = require("moonlift.pvm")
 
-local M = {}
-
 local function class_name(x)
     local cls = pvm.classof(x) or x
     return tostring(cls):match("Class%((.-)%)") or tostring(cls)
 end
 
-function M.Define(T)
+local function bind_context(T)
     T._moonlift_api_cache = T._moonlift_api_cache or {}
     if T._moonlift_api_cache.c_helpers ~= nil then return T._moonlift_api_cache.c_helpers end
 
@@ -424,4 +422,4 @@ function M.Define(T)
     return api
 end
 
-return M
+return bind_context

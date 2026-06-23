@@ -4,15 +4,15 @@ local pvm = require("moonlift.pvm")
 local schema = require("moonlift.schema_projection")
 
 local T = pvm.context()
-schema.Define(T)
+schema(T)
 
 local S = T.MoonSource
 local E = T.MoonEditor
 local Mlua = T.MoonMlua
 
-local Analysis = require("moonlift.mlua_document_analysis").Define(T)
-local Symbols = require("moonlift.editor_symbol_facts").Define(T)
-local Diagnostics = require("moonlift.editor_diagnostic_facts").Define(T)
+local Analysis = require("moonlift.mlua_document_analysis")(T)
+local Symbols = require("moonlift.editor_symbol_facts")(T)
+local Diagnostics = require("moonlift.editor_diagnostic_facts")(T)
 
 local uri = S.DocUri("file:///editor_lua_dsl_test.lua")
 

@@ -36,12 +36,12 @@ local source = f:read("*a")
 f:close()
 
 local T = pvm.context()
-A2.Define(T)
-local O = Object.Define(T)
-local LT = LinkTarget.Define(T)
-local LV = LinkValidate.Define(T)
-local LC = LinkCommand.Define(T)
-local LE = LinkExecute.Define(T)
+A2(T)
+local O = Object(T)
+local LT = LinkTarget(T)
+local LV = LinkValidate(T)
+local LC = LinkCommand(T)
+local LE = LinkExecute(T)
 local Link = T.MoonLink
 
 local function issue_list(issues)
@@ -49,7 +49,7 @@ local function issue_list(issues)
 end
 
 local ok, lowered_or_err = pcall(function()
-    return Pipeline.Define(T).parse_and_lower(source, { site = "emit_shared.lua" })
+    return Pipeline(T).parse_and_lower(source, { site = "emit_shared.lua" })
 end)
 if not ok then io.stderr:write(tostring(lowered_or_err), "\n"); os.exit(1) end
 local program = lowered_or_err.program

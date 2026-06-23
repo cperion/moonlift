@@ -12,7 +12,7 @@ local Extract = require("back.dasm.phases.extract_facts")
 local LowerFacts = require("back.dasm.phases.lower_facts")
 
 local T = pvm.context()
-A2.Define(T)
+A2(T)
 Mx.set_context(T)
 
 local B = T.MoonBack

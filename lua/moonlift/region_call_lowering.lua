@@ -36,7 +36,7 @@ end
 
 function M.safe_name(s) return safe_name(s) end
 
-function M.Define(T, cb)
+local function bind_context(T, cb)
     cb = cb or {}
     local C = T.MoonCore
     local Ty = T.MoonType
@@ -417,4 +417,8 @@ function M.Define(T, cb)
     }
 end
 
-return M
+return setmetatable(M, {
+    __call = function(_, ...)
+        return bind_context(...)
+    end,
+})

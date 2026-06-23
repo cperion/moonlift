@@ -30,8 +30,6 @@ void __ml_free(void* ptr, size_t size, size_t align);
 void* __ml_realloc(void* ptr, size_t old_size, size_t new_size, size_t align);
 ]])
 
-local M = {}
-
 local function load_library(libpath)
     if libpath ~= nil then return ffi.load(libpath) end
     local ext, prefix
@@ -96,12 +94,12 @@ local function format_hex_bytes(bytes, cols)
     return table.concat(lines, "\n")
 end
 
-function M.Define(T, opts)
+local function bind_context(T, opts)
     local Compiler = T.MoonCompiler
     local Core = T.MoonCore or T.MoonCore
-    assert(Compiler and Core, "moonlift.back_jit.Define expects MoonCompiler/MoonCore in the context")
+    assert(Compiler and Core, "moonlift.back_jit(T) expects MoonCompiler/MoonCore in the context")
     local lib = load_library(opts and opts.libpath or nil)
-    local flatline_api = require("moonlift.flatline").Define(T)
+    local flatline_api = require("moonlift.flatline")(T)
 
     local function id_text(node) return type(node) == "string" and node or node.text end
     local function last_error()
@@ -187,4 +185,4 @@ function M.Define(T, opts)
     }
 end
 
-return M
+return bind_context

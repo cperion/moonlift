@@ -864,7 +864,7 @@ hosted Lua module.
 Current contract:
 
 1. every `lua/moonlift/schema/*.lua` loads as a MoonSchema module;
-2. `require("moonlift.schema_projection").Define(T)` defines all expected runtime modules;
+2. `require("moonlift.schema_projection")(T)` defines all expected runtime modules;
 3. docs and source references point at MoonSchema Lua modules, not schema text files;
 4. `MoonAsdl` names remain internal projection vocabulary only.
 

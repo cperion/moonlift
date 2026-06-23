@@ -2,11 +2,11 @@ package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.p
 
 local pvm = require("moonlift.pvm")
 local Schema = require("moonlift.schema")
-local T = pvm.context(); Schema.Define(T)
+local T = pvm.context(); Schema(T)
 
 local Core = T.MoonCore
 local C = T.MoonC
-local H = require("moonlift.c_helpers").Define(T)
+local H = require("moonlift.c_helpers")(T)
 
 local function exec_ok(cmd)
     local r = os.execute(cmd)

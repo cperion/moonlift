@@ -3,7 +3,7 @@ package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.p
 local pvm = require("moonlift.pvm")
 local Schema = require("moonlift.schema")
 local T = pvm.context()
-Schema.Define(T)
+Schema(T)
 
 local Core = T.MoonCore
 local Code = T.MoonCode

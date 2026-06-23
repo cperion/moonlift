@@ -18,7 +18,7 @@ local M = {}
 -- ── Context ─────────────────────────────────────────────────────────────────────
 
 local ctx = pvm.context()
-require("moonlift.schema_projection").Define(ctx)
+require("moonlift.schema_projection")(ctx)
 
 local A      = ctx.MoonAsdl
 local Ty     = ctx.MoonType

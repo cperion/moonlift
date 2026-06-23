@@ -4,7 +4,7 @@ local pvm = require("moonlift.pvm")
 local Schema = require("moonlift.schema")
 local Coverage = require("moonlift.c_coverage")
 
-local T = pvm.context(); Schema.Define(T)
+local T = pvm.context(); Schema(T)
 
 local VALID = Coverage.statuses()
 assert(VALID.supported and VALID.phase_unreachable and VALID.language_rejected, "missing final C coverage status")

@@ -7,8 +7,8 @@ local A2 = require("moonlift.schema_projection")
 local D = require("back.dasm")
 
 local T = pvm.context()
-A2.Define(T)
-local api = D.Define(T)
+A2(T)
+local api = D(T)
 
 local B = T.MoonBack
 local C = T.MoonCore

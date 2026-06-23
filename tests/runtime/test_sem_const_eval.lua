@@ -5,8 +5,8 @@ local A = require("moonlift.schema_projection")
 local Const = require("moonlift.sem_const_eval")
 
 local T = pvm.context()
-A.Define(T)
-local E = Const.Define(T)
+A(T)
+local E = Const(T)
 local C = T.MoonCore
 local Ty = T.MoonType
 local B = T.MoonBind

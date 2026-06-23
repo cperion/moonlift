@@ -1,13 +1,45 @@
 local schema = require("moonlift.schema_runtime")
-local erased = require("moonlift.phase_erased_runtime")
-
-local M = {}
+local function single(value) return { value } end
+local function as_list(values) return values end
+local function only(values)
+    if #values == 0 then error("phase output: expected exactly 1 value, got 0", 2) end
+    if #values ~= 1 then error("phase output: expected exactly 1 value, got more", 2) end
+    return values[1]
+end
+local function append_all(out, values)
+    for i = 1, #(values or {}) do out[#out + 1] = values[i] end
+    return out
+end
+local function concat_all(lists)
+    local out = {}
+    for i = 1, #(lists or {}) do append_all(out, lists[i]) end
+    return out
+end
+local function concat2(a, b)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    return out
+end
+local function concat3(a, b, c)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    append_all(out, c)
+    return out
+end
+local function flat_map(fn, values, n)
+    local out = {}
+    n = n or #(values or {})
+    for i = 1, n do append_all(out, fn(values[i])) end
+    return out
+end
 
 local function overlaps(a, b)
     return a.uri == b.uri and a.start_offset < b.stop_offset and b.start_offset < a.stop_offset
 end
 
-function M.Define(T)
+local function bind_context(T)
     local S = T.MoonSource
     local E = T.MoonEditor
     local Mlua = T.MoonMlua
@@ -61,10 +93,10 @@ function M.Define(T)
                 last_uri, last_stop = uri, r.stop_offset
             end
         end
-        return erased.seq(filtered)
+        return as_list(filtered)
             end)(node, ...)
         else
-            error("erased phase moonlift_editor_semantic_tokens: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_editor_semantic_tokens: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -76,10 +108,10 @@ function M.Define(T)
         local all = tokens_phase(analysis)
         local out = {}
         for i = 1, #all do if overlaps(all[i].range, query.range) then out[#out + 1] = all[i] end end
-        return erased.seq(out)
+        return as_list(out)
             end)(node, ...)
         else
-            error("erased phase moonlift_editor_semantic_tokens_range: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_editor_semantic_tokens_range: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -99,4 +131,4 @@ function M.Define(T)
     }
 end
 
-return M
+return bind_context

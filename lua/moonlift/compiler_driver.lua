@@ -20,7 +20,7 @@ function M.lower_module(module, opts)
     end
     T = T or pvm.context()
 
-    local package = CompilerPackage.Define(T)
+    local package = CompilerPackage(T)
     local planned = PhasePlan.assert_plan(package, opts.root or "compile")
     local executor = opts.executor or PhaseExecute.registry()
     local exec_opts = {}
@@ -50,7 +50,7 @@ function M.compile_jit(module, opts)
         T = cls and rawget(cls, "__context")
     end
     T = T or pvm.context()
-    return require("moonlift.native_runtime").Define(T).wrap(descriptor)
+    return require("moonlift.native_runtime")(T).wrap(descriptor)
 end
 
 return M

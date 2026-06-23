@@ -6,10 +6,10 @@ local PositionIndex = require("moonlift.source_position_index")
 local AnchorIndex = require("moonlift.source_anchor_index")
 
 local T = pvm.context()
-A.Define(T)
+A(T)
 local S = T.MoonSource
-local P = PositionIndex.Define(T)
-local AIndex = AnchorIndex.Define(T)
+local P = PositionIndex(T)
+local AIndex = AnchorIndex(T)
 
 local uri = S.DocUri("file:///anchors.mlua")
 local doc = S.DocumentSnapshot(uri, S.DocVersion(1), S.LangMlua, "struct User { id: i32 }")

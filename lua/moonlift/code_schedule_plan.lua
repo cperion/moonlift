@@ -1,7 +1,5 @@
 local pvm = require("moonlift.pvm")
 
-local M = {}
-
 local function sanitize(s)
     s = tostring(s or "x"):gsub("[^%w_]", "_")
     if s:match("^%d") then s = "_" .. s end
@@ -9,7 +7,7 @@ local function sanitize(s)
     return s
 end
 
-function M.Define(T)
+local function bind_context(T)
     T._moonlift_api_cache = T._moonlift_api_cache or {}
     if T._moonlift_api_cache.code_schedule_plan ~= nil then return T._moonlift_api_cache.code_schedule_plan end
 
@@ -17,13 +15,13 @@ function M.Define(T)
     local Code = T.MoonCode
     local Kernel = T.MoonKernel
     local Schedule = T.MoonSchedule
-    local CodeGraph = require("moonlift.code_graph").Define(T)
-    local CodeFlowFacts = require("moonlift.code_flow_facts").Define(T)
-    local CodeValueFacts = require("moonlift.code_value_facts").Define(T)
-    local CodeMemFacts = require("moonlift.code_mem_facts").Define(T)
-    local CodeEffectFacts = require("moonlift.code_effect_facts").Define(T)
-    local CodeKernelPlan = require("moonlift.code_kernel_plan").Define(T)
-    local KernelEmitSupport = require("moonlift.kernel_emit_support").Define(T)
+    local CodeGraph = require("moonlift.code_graph")(T)
+    local CodeFlowFacts = require("moonlift.code_flow_facts")(T)
+    local CodeValueFacts = require("moonlift.code_value_facts")(T)
+    local CodeMemFacts = require("moonlift.code_mem_facts")(T)
+    local CodeEffectFacts = require("moonlift.code_effect_facts")(T)
+    local CodeKernelPlan = require("moonlift.code_kernel_plan")(T)
+    local KernelEmitSupport = require("moonlift.kernel_emit_support")(T)
 
     local api = {}
 
@@ -155,4 +153,4 @@ function M.Define(T)
     return api
 end
 
-return M
+return bind_context

@@ -1,10 +1,43 @@
-local pvm = require("moonlift.pvm")
 local schema = require("moonlift.schema_runtime")
-local erased = require("moonlift.phase_erased_runtime")
+local function single(value) return { value } end
+local function as_list(values) return values end
+local function only(values)
+    if #values == 0 then error("phase output: expected exactly 1 value, got 0", 2) end
+    if #values ~= 1 then error("phase output: expected exactly 1 value, got more", 2) end
+    return values[1]
+end
+local function append_all(out, values)
+    for i = 1, #(values or {}) do out[#out + 1] = values[i] end
+    return out
+end
+local function concat_all(lists)
+    local out = {}
+    for i = 1, #(lists or {}) do append_all(out, lists[i]) end
+    return out
+end
+local function concat2(a, b)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    return out
+end
+local function concat3(a, b, c)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    append_all(out, c)
+    return out
+end
+local function flat_map(fn, values, n)
+    local out = {}
+    n = n or #(values or {})
+    for i = 1, n do append_all(out, fn(values[i])) end
+    return out
+end
 
 local M = {}
 
-function M.Define(T)
+local function bind_context(T)
     local O = T.MoonOpen
 
     local slot_issue
@@ -15,70 +48,70 @@ function M.Define(T)
         local cls = schema.classof(node)
         if schema.isa(node, O.SlotType) then
             return (function(self)
- return erased.once(O.IssueUnfilledTypeSlot(self.slot))
+ return single(O.IssueUnfilledTypeSlot(self.slot))
             end)(node, ...)
         elseif schema.isa(node, O.SlotValue) then
             return (function(self)
- return erased.once(O.IssueOpenSlot(self))
+ return single(O.IssueOpenSlot(self))
             end)(node, ...)
         elseif schema.isa(node, O.SlotExpr) then
             return (function(self)
- return erased.once(O.IssueUnfilledExprSlot(self.slot))
+ return single(O.IssueUnfilledExprSlot(self.slot))
             end)(node, ...)
         elseif schema.isa(node, O.SlotPlace) then
             return (function(self)
- return erased.once(O.IssueUnfilledPlaceSlot(self.slot))
+ return single(O.IssueUnfilledPlaceSlot(self.slot))
             end)(node, ...)
         elseif schema.isa(node, O.SlotDomain) then
             return (function(self)
- return erased.once(O.IssueUnfilledDomainSlot(self.slot))
+ return single(O.IssueUnfilledDomainSlot(self.slot))
             end)(node, ...)
         elseif schema.isa(node, O.SlotRegion) then
             return (function(self)
- return erased.once(O.IssueUnfilledRegionSlot(self.slot))
+ return single(O.IssueUnfilledRegionSlot(self.slot))
             end)(node, ...)
         elseif schema.isa(node, O.SlotCont) then
             return (function(self)
- return erased.once(O.IssueUnfilledContSlot(self.slot))
+ return single(O.IssueUnfilledContSlot(self.slot))
             end)(node, ...)
         elseif schema.isa(node, O.SlotFunc) then
             return (function(self)
- return erased.once(O.IssueUnfilledFuncSlot(self.slot))
+ return single(O.IssueUnfilledFuncSlot(self.slot))
             end)(node, ...)
         elseif schema.isa(node, O.SlotConst) then
             return (function(self)
- return erased.once(O.IssueUnfilledConstSlot(self.slot))
+ return single(O.IssueUnfilledConstSlot(self.slot))
             end)(node, ...)
         elseif schema.isa(node, O.SlotStatic) then
             return (function(self)
- return erased.once(O.IssueUnfilledStaticSlot(self.slot))
+ return single(O.IssueUnfilledStaticSlot(self.slot))
             end)(node, ...)
         elseif schema.isa(node, O.SlotTypeDecl) then
             return (function(self)
- return erased.once(O.IssueUnfilledTypeDeclSlot(self.slot))
+ return single(O.IssueUnfilledTypeDeclSlot(self.slot))
             end)(node, ...)
         elseif schema.isa(node, O.SlotItems) then
             return (function(self)
- return erased.once(O.IssueUnfilledItemsSlot(self.slot))
+ return single(O.IssueUnfilledItemsSlot(self.slot))
             end)(node, ...)
         elseif schema.isa(node, O.SlotModule) then
             return (function(self)
- return erased.once(O.IssueUnfilledModuleSlot(self.slot))
+ return single(O.IssueUnfilledModuleSlot(self.slot))
             end)(node, ...)
         elseif schema.isa(node, O.SlotRegionFrag) then
             return (function(self)
- return erased.once(O.IssueUnfilledRegionFragSlot(self.slot))
+ return single(O.IssueUnfilledRegionFragSlot(self.slot))
             end)(node, ...)
         elseif schema.isa(node, O.SlotExprFrag) then
             return (function(self)
- return erased.once(O.IssueUnfilledExprFragSlot(self.slot))
+ return single(O.IssueUnfilledExprFragSlot(self.slot))
             end)(node, ...)
         elseif schema.isa(node, O.SlotName) then
             return (function(self)
- return erased.once(O.IssueUnfilledNameSlot(self.slot))
+ return single(O.IssueUnfilledNameSlot(self.slot))
             end)(node, ...)
         else
-            error("erased phase moonlift_open_slot_issue: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_slot_issue: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -90,78 +123,78 @@ function M.Define(T)
             end)(node, ...)
         elseif schema.isa(node, O.MetaFactParamUse) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, O.MetaFactValueImportUse) then
             return (function(self)
- return erased.once(O.IssueGenericValueImport(self.import))
+ return single(O.IssueGenericValueImport(self.import))
             end)(node, ...)
         elseif schema.isa(node, O.MetaFactLocalValue) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, O.MetaFactLocalCell) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, O.MetaFactBlockParam) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, O.MetaFactEntryBlockParam) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, O.MetaFactGlobalFunc) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, O.MetaFactGlobalConst) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, O.MetaFactGlobalStatic) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, O.MetaFactExtern) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, O.MetaFactExprFragUse) then
             return (function(self)
- return erased.once(O.IssueUnexpandedExprFragUse(self.use_id))
+ return single(O.IssueUnexpandedExprFragUse(self.use_id))
             end)(node, ...)
         elseif schema.isa(node, O.MetaFactRegionFragUse) then
             return (function(self)
- return erased.once(O.IssueUnexpandedRegionFragUse(self.use_id))
+ return single(O.IssueUnexpandedRegionFragUse(self.use_id))
             end)(node, ...)
         elseif schema.isa(node, O.MetaFactRegionFragSlotUse) then
             return (function(self)
- return erased.once(O.IssueUnfilledRegionFragSlot(self.slot))
+ return single(O.IssueUnfilledRegionFragSlot(self.slot))
             end)(node, ...)
         elseif schema.isa(node, O.MetaFactExprFragSlotUse) then
             return (function(self)
- return erased.once(O.IssueUnfilledExprFragSlot(self.slot))
+ return single(O.IssueUnfilledExprFragSlot(self.slot))
             end)(node, ...)
         elseif schema.isa(node, O.MetaFactModuleUse) then
             return (function(self)
- return erased.once(O.IssueUnexpandedModuleUse(self.use_id))
+ return single(O.IssueUnexpandedModuleUse(self.use_id))
             end)(node, ...)
         elseif schema.isa(node, O.MetaFactModuleSlotUse) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, O.MetaFactOpenModuleName) then
             return (function()
- return erased.once(O.IssueOpenModuleName)
+ return single(O.IssueOpenModuleName)
             end)(node, ...)
         elseif schema.isa(node, O.MetaFactLocalType) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         else
-            error("erased phase moonlift_open_fact_issue: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_fact_issue: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -170,7 +203,7 @@ function M.Define(T)
         local seen = {}
         for i = 1, #fact_set.facts do
             local g, p, c = fact_issue(fact_set.facts[i])
-            local one = pvm.drain(g, p, c)
+            local one = g
             for j = 1, #one do
                 local issue = one[j]
                 if not seen[issue] then
@@ -208,7 +241,6 @@ end
 
 function M.explain_open_issue(issue, analysis)
     local resolvers = require("moonlift.error.span_resolvers")
-    local pvm = require("moonlift.pvm")
     local span = resolvers.open_resolver(issue, analysis)
     local cls = schema.classof(issue)
     if not cls then
@@ -306,4 +338,8 @@ function M.explain_open_issue(issue, analysis)
     end
 end
 
-return M
+return setmetatable(M, {
+    __call = function(_, ...)
+        return bind_context(...)
+    end,
+})

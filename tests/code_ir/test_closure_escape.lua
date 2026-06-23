@@ -8,7 +8,7 @@ local Driver = require("moonlift.compiler_driver")
 local Jit = require("moonlift.back_jit")
 
 local T = pvm.context()
-A2.Define(T)
+A2(T)
 local C, Ty, B, Sem, Tr, Back = T.MoonCore, T.MoonType, T.MoonBind, T.MoonSem, T.MoonTree, T.MoonBack
 local i32 = Ty.TScalar(C.ScalarI32)
 local closure_i32 = Ty.TClosure({ i32 }, i32)
@@ -69,10 +69,10 @@ local module = Tr.Module(Tr.ModuleSurface, {
     Tr.ItemFunc(return_func),
 })
 
-local converted = ClosureConvert.Define(T).module(module)
+local converted = ClosureConvert(T).module(module)
 local image = Driver.lower_module(converted, { site = "test_closure_escape", context = T })
 
-local artifact = Jit.Define(T).jit():compile(image)
+local artifact = Jit(T).jit():compile(image)
 local store = ffi.cast("int32_t (*)()", artifact:getpointer(Back.BackFuncId("closure_store")))
 assert(store() == 42)
 local pass = ffi.cast("int32_t (*)()", artifact:getpointer(Back.BackFuncId("closure_pass")))
@@ -86,7 +86,7 @@ local bad_capture_return = Tr.FuncExport("closure_bad_capture_return", {}, closu
     Tr.StmtReturnValue(Tr.StmtSurface, capture_closure),
 })
 local bad_module = Tr.Module(Tr.ModuleSurface, { Tr.ItemFunc(bad_capture_return) })
-local bad_converted = ClosureConvert.Define(T).module(bad_module)
+local bad_converted = ClosureConvert(T).module(bad_module)
 local ok, err = pcall(function()
     Driver.lower_module(bad_converted, { site = "test_closure_escape:bad_capture_return", context = T })
 end)

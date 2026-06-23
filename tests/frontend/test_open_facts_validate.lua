@@ -6,9 +6,9 @@ local Facts = require("moonlift.open_facts")
 local Validate = require("moonlift.open_validate")
 
 local T = pvm.context()
-A.Define(T)
-local F = Facts.Define(T)
-local V = Validate.Define(T)
+A(T)
+local F = Facts(T)
+local V = Validate(T)
 local C = T.MoonCore
 local Ty = T.MoonType
 local O = T.MoonOpen

@@ -8,7 +8,7 @@
 local pvm = require("moonlift.pvm")
 local M = {}
 
-function M.Define(T)
+local function bind_context(T)
     local CA = T.MoonCAst
     local MC = T.MoonC
     local Tr = T.MoonTree
@@ -2065,4 +2065,8 @@ function M.Define(T)
     return { lower = M.lower }
 end
 
-return M
+return setmetatable(M, {
+    __call = function(_, ...)
+        return bind_context(...)
+    end,
+})

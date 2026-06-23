@@ -2,14 +2,12 @@ local pvm = require("moonlift.pvm")
 local JsonDecode = require("moonlift.rpc_json_decode")
 local JsonEncode = require("moonlift.rpc_json_encode")
 
-local M = {}
-
-function M.Define(T)
+local function bind_context(T)
     local E = T.MoonEditor
     local R = T.MoonRpc
     local L = T.MoonLsp
-    local Decode = JsonDecode.Define(T)
-    local Encode = JsonEncode.Define(T)
+    local Decode = JsonDecode(T)
+    local Encode = JsonEncode(T)
 
     local function id_lua(id)
         local cls = pvm.classof(id)
@@ -230,4 +228,4 @@ function M.Define(T)
     }
 end
 
-return M
+return bind_context

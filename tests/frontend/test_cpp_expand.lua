@@ -4,11 +4,11 @@ local pvm = require("moonlift.pvm")
 local A = require("moonlift.schema_projection")
 
 local T = pvm.context()
-A.Define(T)
+A(T)
 
 local lexer = require("moonlift.c.c_lexer")
 local vfs = require("moonlift.c.vfs")
-local cpp = require("moonlift.c.cpp_expand").Define(T)
+local cpp = require("moonlift.c.cpp_expand")(T)
 
 -- ---------------------------------------------------------------------------
 -- Helper: lex, then expand, return { tokens, spans, issues }

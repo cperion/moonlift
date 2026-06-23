@@ -5,9 +5,9 @@ local Schema = require("moonlift.schema")
 local BackProgram = require("moonlift.back_program")
 
 local T = pvm.context()
-Schema.Define(T)
+Schema(T)
 local B = T.MoonBack
-local P = BackProgram.Define(T)
+local P = BackProgram(T)
 
 local a = B.CmdFinalizeModule
 local empty = P.empty()

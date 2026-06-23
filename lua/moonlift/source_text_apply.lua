@@ -17,9 +17,9 @@ local function sort_by_range_start(a, b)
     return a.range.start_offset < b.range.start_offset
 end
 
-function M.Define(T)
+local function bind_context(T)
     local S = T.MoonSource
-    local P = PositionIndex.Define(T)
+    local P = PositionIndex(T)
 
     local function apply_phase(document, edit)
         local issues = {}
@@ -160,4 +160,8 @@ function M.explain_source_issue(issue, analysis)
     end
 end
 
-return M
+return setmetatable(M, {
+    __call = function(_, ...)
+        return bind_context(...)
+    end,
+})

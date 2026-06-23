@@ -2,12 +2,12 @@ package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.p
 
 local pvm = require("moonlift.pvm")
 local Schema = require("moonlift.schema")
-local T = pvm.context(); Schema.Define(T)
+local T = pvm.context(); Schema(T)
 
 local Core = T.MoonCore
 local Ty = T.MoonType
 local Tr = T.MoonTree
-local Typecheck = require("moonlift.tree_typecheck").Define(T)
+local Typecheck = require("moonlift.tree_typecheck")(T)
 local Coverage = require("moonlift.c_coverage")
 
 local i32 = Ty.TScalar(Core.ScalarI32)

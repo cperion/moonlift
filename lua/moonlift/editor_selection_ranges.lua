@@ -2,13 +2,11 @@ local schema = require("moonlift.schema_runtime")
 local PositionIndex = require("moonlift.source_position_index")
 local AnchorIndex = require("moonlift.source_anchor_index")
 
-local M = {}
-
-function M.Define(T)
+local function bind_context(T)
     local S = T.MoonSource
     local E = T.MoonEditor
-    local P = PositionIndex.Define(T)
-    local AI = AnchorIndex.Define(T)
+    local P = PositionIndex(T)
+    local AI = AnchorIndex(T)
 
     local function range_key(r)
         return r.uri.text .. ":" .. tostring(r.start_offset) .. ":" .. tostring(r.stop_offset)
@@ -49,4 +47,4 @@ function M.Define(T)
     return { selection_phase = selection_phase, selections = selections }
 end
 
-return M
+return bind_context

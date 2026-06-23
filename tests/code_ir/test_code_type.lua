@@ -6,9 +6,9 @@ assert(package.loaded["moonlift.tree_to_c"] == nil)
 local pvm = require("moonlift.pvm")
 local Schema = require("moonlift.schema")
 local T = pvm.context()
-Schema.Define(T)
+Schema(T)
 
-local CodeType = require("moonlift.code_type").Define(T)
+local CodeType = require("moonlift.code_type")(T)
 assert(package.loaded["moonlift.type_to_c"] == nil)
 assert(package.loaded["moonlift.tree_to_c"] == nil)
 

@@ -5,9 +5,9 @@ local A = require("moonlift.schema_projection")
 local SourceApply = require("moonlift.source_text_apply")
 
 local T = pvm.context()
-A.Define(T)
+A(T)
 local S = T.MoonSource
-local Apply = SourceApply.Define(T)
+local Apply = SourceApply(T)
 
 local uri = S.DocUri("file:///edit.mlua")
 local other = S.DocUri("file:///other.mlua")

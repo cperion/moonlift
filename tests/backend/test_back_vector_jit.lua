@@ -2,10 +2,10 @@ package.path = './?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;' .. package.p
 
 local ffi=require('ffi')
 local pvm=require('moonlift.pvm')
-local T=pvm.context(); require('moonlift.schema').Define(T)
-local BackValidate=require('moonlift.back_validate').Define(T)
-local BackJit=require('moonlift.back_jit').Define(T)
-local BackCommandBinary=require('moonlift.back_command_binary').Define(T)
+local T=pvm.context(); require('moonlift.schema')(T)
+local BackValidate=require('moonlift.back_validate')(T)
+local BackJit=require('moonlift.back_jit')(T)
+local BackCommandBinary=require('moonlift.back_command_binary')(T)
 local C=T.MoonCore; local B=T.MoonBack
 local function sid(s) return B.BackSigId(s) end
 local function fid(s) return B.BackFuncId(s) end

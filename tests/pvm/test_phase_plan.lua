@@ -6,8 +6,8 @@ local PhaseDsl = require("moonlift.phase_dsl")
 local Plan = require("moonlift.phase_plan")
 
 local T = pvm.context()
-PhaseModel.Define(T)
-PhaseDsl.Define(T)
+PhaseModel(T)
+PhaseDsl(T)
 local P = T.MoonPhase
 
 local pkg = assert(PhaseDsl.loadstring([[

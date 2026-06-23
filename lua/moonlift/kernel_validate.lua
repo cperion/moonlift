@@ -1,8 +1,6 @@
 local pvm = require("moonlift.pvm")
 
-local M = {}
-
-function M.Define(T)
+local function bind_context(T)
     T._moonlift_api_cache = T._moonlift_api_cache or {}
     if T._moonlift_api_cache.kernel_validate ~= nil then return T._moonlift_api_cache.kernel_validate end
 
@@ -15,7 +13,7 @@ function M.Define(T)
     local Schedule = T.MoonSchedule
     local Lower = T.MoonLower
 
-    local KernelEmitSupport = require("moonlift.kernel_emit_support").Define(T)
+    local KernelEmitSupport = require("moonlift.kernel_emit_support")(T)
 
     local api = {}
 
@@ -261,4 +259,4 @@ function M.Define(T)
     return api
 end
 
-return M
+return bind_context

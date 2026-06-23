@@ -5,7 +5,7 @@ local A2 = require("moonlift.schema_projection")
 local ClosureConvert = require("moonlift.closure_convert")
 
 local T = pvm.context()
-A2.Define(T)
+A2(T)
 local C, Ty, B, Tr = T.MoonCore, T.MoonType, T.MoonBind, T.MoonTree
 local i32 = Ty.TScalar(C.ScalarI32)
 
@@ -39,7 +39,7 @@ local capture_main = Tr.FuncExport("closure_capture", {}, i32, {
 })
 
 local module = Tr.Module(Tr.ModuleSurface, { Tr.ItemFunc(main), Tr.ItemFunc(capture_main) })
-local converted = ClosureConvert.Define(T).module(module)
+local converted = ClosureConvert(T).module(module)
 assert(#converted.items == 4, "closure conversion should hoist two helpers")
 
 -- Verify hoisted helpers are properly named

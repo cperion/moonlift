@@ -1,7 +1,5 @@
 local pvm = require("moonlift.pvm")
 
-local M = {}
-
 local function sanitize(s)
     s = tostring(s or "x"):gsub("[^%w_]", "_")
     if s:match("^%d") then s = "_" .. s end
@@ -14,7 +12,7 @@ local function class_name(x)
     return tostring(cls):match("Class%((.-)%)") or tostring(cls)
 end
 
-function M.Define(T)
+local function bind_context(T)
     T._moonlift_api_cache = T._moonlift_api_cache or {}
     if T._moonlift_api_cache.code_to_c ~= nil then return T._moonlift_api_cache.code_to_c end
 
@@ -23,8 +21,8 @@ function M.Define(T)
     local Code = T.MoonCode
     local C = T.MoonC
 
-    local CodeType = require("moonlift.code_type").Define(T)
-    local CodeValidate = require("moonlift.code_validate").Define(T)
+    local CodeType = require("moonlift.code_type")(T)
+    local CodeValidate = require("moonlift.code_validate")(T)
 
     local api = {}
 
@@ -701,4 +699,4 @@ function M.Define(T)
     return api
 end
 
-return M
+return bind_context

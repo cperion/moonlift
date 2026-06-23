@@ -1,8 +1,6 @@
-local M = {}
-
-function M.Define(T)
+local function bind_context(T)
     local Back = T.MoonBack or T.MoonBack
-    assert(Back, "moonlift.back_program.Define expects MoonBack/MoonBack in the context")
+    assert(Back, "moonlift.back_program(T) expects MoonBack/MoonBack in the context")
 
     local api = {}
 
@@ -52,4 +50,4 @@ function M.Define(T)
     return api
 end
 
-return M
+return bind_context

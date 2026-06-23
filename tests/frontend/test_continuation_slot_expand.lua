@@ -10,13 +10,13 @@ local Driver = require("moonlift.compiler_driver")
 local Jit = require("moonlift.back_jit")
 
 local T = pvm.context()
-A2.Define(T)
+A2(T)
 
 local C, Ty, B, O, Tr = T.MoonCore, T.MoonType, T.MoonBind, T.MoonOpen, T.MoonTree
-local OF = OpenFacts.Define(T)
-local OV = OpenValidate.Define(T)
-local OE = OpenExpand.Define(T)
-local jit_api = Jit.Define(T)
+local OF = OpenFacts(T)
+local OV = OpenValidate(T)
+local OE = OpenExpand(T)
+local jit_api = Jit(T)
 
 local i32 = Ty.TScalar(C.ScalarI32)
 local hit_slot = O.ContSlot("test.hit", "hit", { Tr.BlockParam("pos", i32) })

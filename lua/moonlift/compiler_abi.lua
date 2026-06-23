@@ -6,15 +6,13 @@
 
 local pvm = require("moonlift.pvm")
 
-local M = {}
-
 local function class_name(v)
     local cls = pvm.classof(v)
     return cls and (tostring(cls):match("Class%((.-)%)") or tostring(cls)) or type(v)
 end
 
-function M.Define(T)
-    require("moonlift.compiler_model").Define(T)
+local function bind_context(T)
+    require("moonlift.compiler_model")(T)
 
     T._moonlift_api_cache = T._moonlift_api_cache or {}
     if T._moonlift_api_cache.compiler_abi ~= nil then return T._moonlift_api_cache.compiler_abi end
@@ -22,7 +20,7 @@ function M.Define(T)
     local Compiler = T.MoonCompiler
     local Code = T.MoonCode
     local Sem = T.MoonSem
-    local CodeValidate = require("moonlift.code_validate").Define(T)
+    local CodeValidate = require("moonlift.code_validate")(T)
 
     local api = {}
 
@@ -96,4 +94,4 @@ function M.Define(T)
     return api
 end
 
-return M
+return bind_context

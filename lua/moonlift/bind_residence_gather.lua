@@ -1,15 +1,46 @@
-local pvm = require("moonlift.pvm")
 local schema = require("moonlift.schema_runtime")
-local erased = require("moonlift.phase_erased_runtime")
+local function single(value) return { value } end
+local function as_list(values) return values end
+local function only(values)
+    if #values == 0 then error("phase output: expected exactly 1 value, got 0", 2) end
+    if #values ~= 1 then error("phase output: expected exactly 1 value, got more", 2) end
+    return values[1]
+end
+local function append_all(out, values)
+    for i = 1, #(values or {}) do out[#out + 1] = values[i] end
+    return out
+end
+local function concat_all(lists)
+    local out = {}
+    for i = 1, #(lists or {}) do append_all(out, lists[i]) end
+    return out
+end
+local function concat2(a, b)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    return out
+end
+local function concat3(a, b, c)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    append_all(out, c)
+    return out
+end
+local function flat_map(fn, values, n)
+    local out = {}
+    n = n or #(values or {})
+    for i = 1, n do append_all(out, fn(values[i])) end
+    return out
+end
 
-local M = {}
-
-function M.Define(T)
+local function bind_context(T)
     local Ty = T.MoonType
     local B = T.MoonBind
     local Tr = T.MoonTree
 
-    local scalar_api = require("moonlift.type_to_back_scalar").Define(T)
+    local scalar_api = require("moonlift.type_to_back_scalar")(T)
 
     local binding_facts
     local value_ref_facts
@@ -29,9 +60,9 @@ function M.Define(T)
     local item_facts
     local module_facts
 
-    local function pack(g, p, c) return { g, p, c } end
-    local function cat(trips) return pvm.concat_all(trips) end
-    local function each(phase, xs) return pvm.children(phase, xs) end
+    local function pack(values) return values end
+    local function cat(trips) return concat_all(trips) end
+    local function each(phase, xs) return flat_map(phase, xs) end
 
     function binding_facts(node, ...)
         local cls = schema.classof(node)
@@ -43,10 +74,10 @@ function M.Define(T)
             if schema.classof(scalar_result) == Ty.TypeBackScalarUnavailable then
                 facts[#facts + 1] = B.ResidenceFactNonScalarAbi(binding)
             end
-            return erased.children(function(fact) return erased.once(fact) end, facts)
+            return flat_map(function(fact) return single(fact) end, facts)
             end)(node, ...)
         else
-            error("erased phase moonlift_bind_residence_binding_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_bind_residence_binding_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -58,18 +89,18 @@ function M.Define(T)
             end)(node, ...)
         elseif schema.isa(node, B.ValueRefName) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, B.ValueRefPath) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, B.ValueRefHole) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         else
-            error("erased phase moonlift_bind_residence_value_ref_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_bind_residence_value_ref_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -79,7 +110,7 @@ function M.Define(T)
             return (function(self)
 
             if schema.classof(self.ref) == B.ValueRefBinding then
-                return cat({ pack(value_ref_facts(self.ref)), pack(erased.once(B.ResidenceFactAddressTaken(self.ref.binding))) })
+                return cat({ pack(value_ref_facts(self.ref)), pack(single(B.ResidenceFactAddressTaken(self.ref.binding))) })
             end
             return value_ref_facts(self.ref)
             end)(node, ...)
@@ -101,10 +132,10 @@ function M.Define(T)
             end)(node, ...)
         elseif schema.isa(node, Tr.PlaceSlotValue) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         else
-            error("erased phase moonlift_bind_residence_place_address_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_bind_residence_place_address_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -132,10 +163,10 @@ function M.Define(T)
             end)(node, ...)
         elseif schema.isa(node, Tr.PlaceSlotValue) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         else
-            error("erased phase moonlift_bind_residence_place_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_bind_residence_place_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -174,7 +205,7 @@ function M.Define(T)
  return cat({ pack(view_facts(self.base)), pack(expr_facts(self.stride)), pack(expr_facts(self.lane)) })
             end)(node, ...)
         else
-            error("erased phase moonlift_bind_residence_view_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_bind_residence_view_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -206,10 +237,10 @@ function M.Define(T)
             end)(node, ...)
         elseif schema.isa(node, Tr.DomainSlotValue) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         else
-            error("erased phase moonlift_bind_residence_domain_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_bind_residence_domain_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -228,7 +259,7 @@ function M.Define(T)
  return view_facts(self.view)
             end)(node, ...)
         else
-            error("erased phase moonlift_bind_residence_index_base_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_bind_residence_index_base_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -252,7 +283,7 @@ function M.Define(T)
             return cat(trips)
             end)(node, ...)
         else
-            error("erased phase moonlift_bind_residence_control_stmt_region_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_bind_residence_control_stmt_region_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -266,7 +297,7 @@ function M.Define(T)
             return cat(trips)
             end)(node, ...)
         else
-            error("erased phase moonlift_bind_residence_control_expr_region_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_bind_residence_control_expr_region_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -274,7 +305,7 @@ function M.Define(T)
         local cls = schema.classof(node)
         if schema.isa(node, Tr.ExprLit) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprRef) then
             return (function(self)
@@ -409,14 +440,14 @@ function M.Define(T)
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprSlotValue) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprUseExprFrag) then
             return (function(self)
  return each(expr_facts, self.args)
             end)(node, ...)
         else
-            error("erased phase moonlift_bind_residence_expr_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_bind_residence_expr_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -428,7 +459,7 @@ function M.Define(T)
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtVar) then
             return (function(self)
- return cat({ pack(binding_facts(self.binding)), pack(erased.once(B.ResidenceFactMutableCell(self.binding))), pack(expr_facts(self.init)) })
+ return cat({ pack(binding_facts(self.binding)), pack(single(B.ResidenceFactMutableCell(self.binding))), pack(expr_facts(self.init)) })
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtSet) then
             return (function(self)
@@ -440,7 +471,7 @@ function M.Define(T)
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtAtomicFence) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtExpr) then
             return (function(self)
@@ -478,7 +509,7 @@ function M.Define(T)
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtYieldVoid) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtYieldValue) then
             return (function(self)
@@ -486,7 +517,7 @@ function M.Define(T)
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtReturnVoid) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtReturnValue) then
             return (function(self)
@@ -498,14 +529,14 @@ function M.Define(T)
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtUseRegionSlot) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtUseRegionFrag) then
             return (function(self)
  return each(expr_facts, self.args)
             end)(node, ...)
         else
-            error("erased phase moonlift_bind_residence_stmt_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_bind_residence_stmt_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -532,7 +563,7 @@ function M.Define(T)
  return each(stmt_facts, self.body)
             end)(node, ...)
         else
-            error("erased phase moonlift_bind_residence_func_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_bind_residence_func_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -540,14 +571,14 @@ function M.Define(T)
         local cls = schema.classof(node)
         if schema.isa(node, Tr.ExternFunc) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.ExternFuncOpen) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         else
-            error("erased phase moonlift_bind_residence_extern_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_bind_residence_extern_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -562,7 +593,7 @@ function M.Define(T)
  return expr_facts(self.value)
             end)(node, ...)
         else
-            error("erased phase moonlift_bind_residence_const_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_bind_residence_const_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -577,7 +608,7 @@ function M.Define(T)
  return expr_facts(self.value)
             end)(node, ...)
         else
-            error("erased phase moonlift_bind_residence_static_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_bind_residence_static_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -601,27 +632,27 @@ function M.Define(T)
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemImport) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemType) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemRegionFrag) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemExprFrag) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemUseTypeDeclSlot) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemUseItemsSlot) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemUseModule) then
             return (function(self)
@@ -629,10 +660,10 @@ function M.Define(T)
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemUseModuleSlot) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         else
-            error("erased phase moonlift_bind_residence_item_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_bind_residence_item_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -643,12 +674,12 @@ function M.Define(T)
  return each(item_facts, module.items)
             end)(node, ...)
         else
-            error("erased phase moonlift_bind_residence_module_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_bind_residence_module_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
     local function fact_set(g, p, c)
-        return B.ResidenceFactSet(pvm.drain(g, p, c))
+        return B.ResidenceFactSet(g)
     end
 
     return {
@@ -663,4 +694,4 @@ function M.Define(T)
     }
 end
 
-return M
+return bind_context

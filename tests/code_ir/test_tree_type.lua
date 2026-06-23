@@ -8,11 +8,11 @@ local StmtType = require("moonlift.tree_stmt_type")
 local ModuleType = require("moonlift.tree_module_type")
 
 local T = pvm.context()
-A.Define(T)
-local E = ExprType.Define(T)
-local P = PlaceType.Define(T)
-local S = StmtType.Define(T)
-local M = ModuleType.Define(T)
+A(T)
+local E = ExprType(T)
+local P = PlaceType(T)
+local S = StmtType(T)
+local M = ModuleType(T)
 local C = T.MoonCore
 local Ty = T.MoonType
 local B = T.MoonBind

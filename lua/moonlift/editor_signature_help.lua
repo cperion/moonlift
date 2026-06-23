@@ -1,10 +1,42 @@
 local schema = require("moonlift.schema_runtime")
-local erased = require("moonlift.phase_erased_runtime")
+local function single(value) return { value } end
+local function as_list(values) return values end
+local function only(values)
+    if #values == 0 then error("phase output: expected exactly 1 value, got 0", 2) end
+    if #values ~= 1 then error("phase output: expected exactly 1 value, got more", 2) end
+    return values[1]
+end
+local function append_all(out, values)
+    for i = 1, #(values or {}) do out[#out + 1] = values[i] end
+    return out
+end
+local function concat_all(lists)
+    local out = {}
+    for i = 1, #(lists or {}) do append_all(out, lists[i]) end
+    return out
+end
+local function concat2(a, b)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    return out
+end
+local function concat3(a, b, c)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    append_all(out, c)
+    return out
+end
+local function flat_map(fn, values, n)
+    local out = {}
+    n = n or #(values or {})
+    for i = 1, n do append_all(out, fn(values[i])) end
+    return out
+end
 local PositionIndex = require("moonlift.source_position_index")
 local AnchorIndex = require("moonlift.source_anchor_index")
 local Format = require("moonlift.error.format")
-
-local M = {}
 
 local scalar_labels = {
     ScalarVoid = "void", ScalarBool = "bool",
@@ -61,7 +93,7 @@ local function find_call_context(text, offset)
     return { callee = callee, active_parameter = active, start_offset = start0, stop_offset = start0 + #callee }
 end
 
-function M.Define(T)
+local function bind_context(T)
     local S = T.MoonSource
     local E = T.MoonEditor
     local C = T.MoonCore
@@ -69,8 +101,8 @@ function M.Define(T)
     local H = T.MoonHost
     local Tr = T.MoonTree
     local Mlua = T.MoonMlua
-    local P = PositionIndex.Define(T)
-    local AI = AnchorIndex.Define(T)
+    local P = PositionIndex(T)
+    local AI = AnchorIndex(T)
 
     local function scalar_name(scalar)
         for k, v in pairs(C) do
@@ -229,10 +261,10 @@ function M.Define(T)
             local doc = analysis.parse.parts.document
             local index = P.build_index(doc)
             local hit = P.source_pos_to_offset(index, query.pos)
-            if schema.classof(hit) ~= S.SourceOffsetHit then return erased.once(E.SignatureNoCall(hit.reason)) end
+            if schema.classof(hit) ~= S.SourceOffsetHit then return single(E.SignatureNoCall(hit.reason)) end
             local offset = hit.offset
             local context, reason = find_call_context(doc.text, offset)
-            if not context then return erased.once(E.SignatureNoCall(reason)) end
+            if not context then return single(E.SignatureNoCall(reason)) end
             local anchor_index = AI.build_index(analysis.anchors)
             local lookup = AI.lookup_by_position(anchor_index, query.uri, offset)
             local in_hosted_source = false
@@ -243,13 +275,13 @@ function M.Define(T)
                 end
             end
             if not in_hosted_source and not context.callee:match("^moonlift%.") then
-                return erased.once(E.SignatureNoCall("not in Moonlift or builtin call context"))
+                return single(E.SignatureNoCall("not in Moonlift or builtin call context"))
             end
             local r = assert(P.range_from_offsets(index, context.start_offset, context.stop_offset))
-            return erased.once(E.SignatureCall(context.callee, context.active_parameter, r))
+            return single(E.SignatureCall(context.callee, context.active_parameter, r))
             end)(node, ...)
         else
-            error("erased phase moonlift_editor_signature_context: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_editor_signature_context: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -258,27 +290,27 @@ function M.Define(T)
         if schema.isa(node, E.PositionQuery) then
             return (function(query, analysis)
 
-            local context = erased.one(signature_context_phase(query, analysis))
-            if schema.classof(context) ~= E.SignatureCall then return erased.once(E.SignatureHelpMissing(context.reason)) end
+            local context = only(signature_context_phase(query, analysis))
+            if schema.classof(context) ~= E.SignatureCall then return single(E.SignatureHelpMissing(context.reason)) end
             local catalog = signature_catalog(analysis)
             local signatures = catalog[context.callee]
             if (not signatures or #signatures == 0) and context.callee:find(":", 1, true) then
                 signatures = catalog[context.callee:gsub("^.-:", "")]
             end
-            if not signatures or #signatures == 0 then return erased.once(E.SignatureHelpMissing("unknown callee: " .. context.callee)) end
-            return erased.once(E.SignatureHelp(signatures, 0, context.active_parameter))
+            if not signatures or #signatures == 0 then return single(E.SignatureHelpMissing("unknown callee: " .. context.callee)) end
+            return single(E.SignatureHelp(signatures, 0, context.active_parameter))
             end)(node, ...)
         else
-            error("erased phase moonlift_editor_signature_help: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_editor_signature_help: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
     local function context(query, analysis)
-        return erased.one(signature_context_phase(query, analysis))
+        return only(signature_context_phase(query, analysis))
     end
 
     local function help(query, analysis)
-        return erased.one(signature_help_phase(query, analysis))
+        return only(signature_help_phase(query, analysis))
     end
 
     return {
@@ -289,4 +321,4 @@ function M.Define(T)
     }
 end
 
-return M
+return bind_context

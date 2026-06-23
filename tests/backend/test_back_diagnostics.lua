@@ -5,9 +5,9 @@ local A = require("moonlift.schema_projection")
 local Diagnostics = require("moonlift.back_diagnostics")
 
 local T = pvm.context()
-A.Define(T)
+A(T)
 local B = T.MoonBack
-local D = Diagnostics.Define(T)
+local D = Diagnostics(T)
 
 local program = B.BackProgram({ B.CmdFinalizeModule })
 local report = D.diagnostics(program, nil, {})

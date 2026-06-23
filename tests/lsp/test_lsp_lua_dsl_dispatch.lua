@@ -4,14 +4,14 @@ local pvm = require("moonlift.pvm")
 local schema = require("moonlift.schema_projection")
 
 local T = pvm.context()
-schema.Define(T)
+schema(T)
 
 local S = T.MoonSource
 local E = T.MoonEditor
 local R = T.MoonRpc
 local L = T.MoonLsp
 
-local Dispatch = require("moonlift.lsp_dispatch").Define(T)
+local Dispatch = require("moonlift.lsp_dispatch")(T)
 assert(Dispatch.document_events_process, "LSP exposes document process")
 
 local uri = S.DocUri("file:///lsp_lua_dsl_test.lua")

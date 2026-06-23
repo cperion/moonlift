@@ -1,9 +1,41 @@
 local schema = require("moonlift.schema_runtime")
-local erased = require("moonlift.phase_erased_runtime")
+local function single(value) return { value } end
+local function as_list(values) return values end
+local function only(values)
+    if #values == 0 then error("phase output: expected exactly 1 value, got 0", 2) end
+    if #values ~= 1 then error("phase output: expected exactly 1 value, got more", 2) end
+    return values[1]
+end
+local function append_all(out, values)
+    for i = 1, #(values or {}) do out[#out + 1] = values[i] end
+    return out
+end
+local function concat_all(lists)
+    local out = {}
+    for i = 1, #(lists or {}) do append_all(out, lists[i]) end
+    return out
+end
+local function concat2(a, b)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    return out
+end
+local function concat3(a, b, c)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    append_all(out, c)
+    return out
+end
+local function flat_map(fn, values, n)
+    local out = {}
+    n = n or #(values or {})
+    for i = 1, n do append_all(out, fn(values[i])) end
+    return out
+end
 
-local M = {}
-
-function M.Define(T)
+local function bind_context(T)
     T._moonlift_api_cache = T._moonlift_api_cache or {}
     if T._moonlift_api_cache.type_to_back_scalar ~= nil then return T._moonlift_api_cache.type_to_back_scalar end
 
@@ -14,68 +46,68 @@ function M.Define(T)
     local scalar_to_back
     local type_to_back_scalar_result
 
-    local classify_api = require("moonlift.type_classify").Define(T)
+    local classify_api = require("moonlift.type_classify")(T)
 
     function scalar_to_back(node, ...)
         local cls = schema.classof(node)
         if schema.isa(node, Core.ScalarBool) then
             return (function()
- return erased.once(Back.BackBool)
+ return single(Back.BackBool)
             end)(node, ...)
         elseif schema.isa(node, Core.ScalarI8) then
             return (function()
- return erased.once(Back.BackI8)
+ return single(Back.BackI8)
             end)(node, ...)
         elseif schema.isa(node, Core.ScalarI16) then
             return (function()
- return erased.once(Back.BackI16)
+ return single(Back.BackI16)
             end)(node, ...)
         elseif schema.isa(node, Core.ScalarI32) then
             return (function()
- return erased.once(Back.BackI32)
+ return single(Back.BackI32)
             end)(node, ...)
         elseif schema.isa(node, Core.ScalarI64) then
             return (function()
- return erased.once(Back.BackI64)
+ return single(Back.BackI64)
             end)(node, ...)
         elseif schema.isa(node, Core.ScalarU8) then
             return (function()
- return erased.once(Back.BackU8)
+ return single(Back.BackU8)
             end)(node, ...)
         elseif schema.isa(node, Core.ScalarU16) then
             return (function()
- return erased.once(Back.BackU16)
+ return single(Back.BackU16)
             end)(node, ...)
         elseif schema.isa(node, Core.ScalarU32) then
             return (function()
- return erased.once(Back.BackU32)
+ return single(Back.BackU32)
             end)(node, ...)
         elseif schema.isa(node, Core.ScalarU64) then
             return (function()
- return erased.once(Back.BackU64)
+ return single(Back.BackU64)
             end)(node, ...)
         elseif schema.isa(node, Core.ScalarF32) then
             return (function()
- return erased.once(Back.BackF32)
+ return single(Back.BackF32)
             end)(node, ...)
         elseif schema.isa(node, Core.ScalarF64) then
             return (function()
- return erased.once(Back.BackF64)
+ return single(Back.BackF64)
             end)(node, ...)
         elseif schema.isa(node, Core.ScalarRawPtr) then
             return (function()
- return erased.once(Back.BackPtr)
+ return single(Back.BackPtr)
             end)(node, ...)
         elseif schema.isa(node, Core.ScalarIndex) then
             return (function()
- return erased.once(Back.BackIndex)
+ return single(Back.BackIndex)
             end)(node, ...)
         elseif schema.isa(node, Core.ScalarVoid) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         else
-            error("erased phase moonlift_type_scalar_to_back: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_type_scalar_to_back: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -86,34 +118,34 @@ function M.Define(T)
 
             local values = scalar_to_back(self.scalar)
             if #values == 0 then
-                return erased.once(Ty.TypeBackScalarUnavailable(ty, self))
+                return single(Ty.TypeBackScalarUnavailable(ty, self))
             end
-            return erased.once(Ty.TypeBackScalarKnown(values[1]))
+            return single(Ty.TypeBackScalarKnown(values[1]))
             end)(node, ...)
         elseif schema.isa(node, Ty.TypeClassPointer) then
             return (function(_, ty)
 
-            return erased.once(Ty.TypeBackScalarKnown(Back.BackPtr))
+            return single(Ty.TypeBackScalarKnown(Back.BackPtr))
             end)(node, ...)
         elseif schema.isa(node, Ty.TypeClassCallable) then
             return (function(_, ty)
 
-            return erased.once(Ty.TypeBackScalarKnown(Back.BackPtr))
+            return single(Ty.TypeBackScalarKnown(Back.BackPtr))
             end)(node, ...)
         elseif schema.isa(node, Ty.TypeClassArray) then
             return (function(self, ty)
 
-            return erased.once(Ty.TypeBackScalarUnavailable(ty, self))
+            return single(Ty.TypeBackScalarUnavailable(ty, self))
             end)(node, ...)
         elseif schema.isa(node, Ty.TypeClassSlice) then
             return (function(self, ty)
 
-            return erased.once(Ty.TypeBackScalarUnavailable(ty, self))
+            return single(Ty.TypeBackScalarUnavailable(ty, self))
             end)(node, ...)
         elseif schema.isa(node, Ty.TypeClassView) then
             return (function(self, ty)
 
-            return erased.once(Ty.TypeBackScalarUnavailable(ty, self))
+            return single(Ty.TypeBackScalarUnavailable(ty, self))
             end)(node, ...)
         elseif schema.isa(node, Ty.TypeClassLease) then
             return (function(self, ty)
@@ -132,9 +164,9 @@ function M.Define(T)
 
             if schema.classof(self.repr) == Ty.HandleReprScalar then
                 local values = scalar_to_back(self.repr.scalar)
-                if #values > 0 then return erased.once(Ty.TypeBackScalarKnown(values[1])) end
+                if #values > 0 then return single(Ty.TypeBackScalarKnown(values[1])) end
             end
-            return erased.once(Ty.TypeBackScalarUnavailable(ty, self))
+            return single(Ty.TypeBackScalarUnavailable(ty, self))
             end)(node, ...)
         elseif schema.isa(node, Ty.TypeClassClosure) then
             return (function()
@@ -142,20 +174,20 @@ function M.Define(T)
             -- Tree-to-back represents closure values as addresses of the
             -- two-word { fn, ctx } descriptor while preserving the source
             -- type as Ty.TClosure in semantic IR.
-            return erased.once(Ty.TypeBackScalarKnown(Back.BackPtr))
+            return single(Ty.TypeBackScalarKnown(Back.BackPtr))
             end)(node, ...)
         elseif schema.isa(node, Ty.TypeClassAggregate) then
             return (function(self, ty)
 
-            return erased.once(Ty.TypeBackScalarUnavailable(ty, self))
+            return single(Ty.TypeBackScalarUnavailable(ty, self))
             end)(node, ...)
         elseif schema.isa(node, Ty.TypeClassUnknown) then
             return (function(self, ty)
 
-            return erased.once(Ty.TypeBackScalarUnavailable(ty, self))
+            return single(Ty.TypeBackScalarUnavailable(ty, self))
             end)(node, ...)
         else
-            error("erased phase moonlift_type_to_back_scalar_result: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_type_to_back_scalar_result: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -166,11 +198,11 @@ function M.Define(T)
             return type_to_back_scalar_result(class, ty)
         end,
         result = function(ty)
-            return erased.one(type_to_back_scalar_result(classify_api.classify(ty), ty))
+            return only(type_to_back_scalar_result(classify_api.classify(ty), ty))
         end,
     }
     T._moonlift_api_cache.type_to_back_scalar = api
     return api
 end
 
-return M
+return bind_context

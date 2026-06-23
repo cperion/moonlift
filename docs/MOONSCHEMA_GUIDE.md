@@ -123,7 +123,7 @@ local pvm = require("moonlift.pvm")
 local Projection = require("moonlift.schema_projection")
 
 local T = pvm.context()
-Projection.Define(T)
+Projection(T)
 
 local Core = T.MoonCore
 local id = Core.Id("x")

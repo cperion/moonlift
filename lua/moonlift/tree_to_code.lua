@@ -1,7 +1,5 @@
 local pvm = require("moonlift.pvm")
 
-local M = {}
-
 local function sanitize(s)
     s = tostring(s or "x"):gsub("[^%w_]", "_")
     if s:match("^%d") then s = "_" .. s end
@@ -14,7 +12,7 @@ local function class_name(x)
     return tostring(cls):match("Class%((.-)%)") or tostring(cls)
 end
 
-function M.Define(T)
+local function bind_context(T)
     T._moonlift_api_cache = T._moonlift_api_cache or {}
     if T._moonlift_api_cache.tree_to_code ~= nil then return T._moonlift_api_cache.tree_to_code end
 
@@ -26,11 +24,11 @@ function M.Define(T)
     local Tr = T.MoonTree
     local Code = T.MoonCode
 
-    local CodeType = require("moonlift.code_type").Define(T)
-    local TypeSizeAlign = require("moonlift.type_size_align").Define(T)
-    local ModuleType = require("moonlift.tree_module_type").Define(T)
-    local ConstEval = require("moonlift.sem_const_eval").Define(T)
-    local TreeContractFacts = require("moonlift.tree_contract_facts").Define(T)
+    local CodeType = require("moonlift.code_type")(T)
+    local TypeSizeAlign = require("moonlift.type_size_align")(T)
+    local ModuleType = require("moonlift.tree_module_type")(T)
+    local ConstEval = require("moonlift.sem_const_eval")(T)
+    local TreeContractFacts = require("moonlift.tree_contract_facts")(T)
 
     local api = {}
 
@@ -1754,4 +1752,4 @@ function M.Define(T)
     return api
 end
 
-return M
+return bind_context

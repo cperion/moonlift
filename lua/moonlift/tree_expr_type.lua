@@ -1,10 +1,41 @@
-local pvm = require("moonlift.pvm")
 local schema = require("moonlift.schema_runtime")
-local erased = require("moonlift.phase_erased_runtime")
+local function single(value) return { value } end
+local function as_list(values) return values end
+local function only(values)
+    if #values == 0 then error("phase output: expected exactly 1 value, got 0", 2) end
+    if #values ~= 1 then error("phase output: expected exactly 1 value, got more", 2) end
+    return values[1]
+end
+local function append_all(out, values)
+    for i = 1, #(values or {}) do out[#out + 1] = values[i] end
+    return out
+end
+local function concat_all(lists)
+    local out = {}
+    for i = 1, #(lists or {}) do append_all(out, lists[i]) end
+    return out
+end
+local function concat2(a, b)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    return out
+end
+local function concat3(a, b, c)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    append_all(out, c)
+    return out
+end
+local function flat_map(fn, values, n)
+    local out = {}
+    n = n or #(values or {})
+    for i = 1, n do append_all(out, fn(values[i])) end
+    return out
+end
 
-local M = {}
-
-function M.Define(T)
+local function bind_context(T)
     T._moonlift_api_cache = T._moonlift_api_cache or {}
     if T._moonlift_api_cache.tree_expr_type ~= nil then return T._moonlift_api_cache.tree_expr_type end
 
@@ -21,7 +52,7 @@ function M.Define(T)
     local expr_type
 
     local function first(g, p, c)
-        local xs = pvm.drain(g, p, c)
+        local xs = g
         return xs[1]
     end
 
@@ -37,18 +68,18 @@ function M.Define(T)
         local cls = schema.classof(node)
         if schema.isa(node, Tr.ExprSurface) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprTyped) then
             return (function(self)
- return erased.once(self.ty)
+ return single(self.ty)
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprOpen) then
             return (function(self)
- return erased.once(self.ty)
+ return single(self.ty)
             end)(node, ...)
         else
-            error("erased phase moonlift_tree_expr_header_type: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_tree_expr_header_type: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -56,27 +87,27 @@ function M.Define(T)
         local cls = schema.classof(node)
         if schema.isa(node, B.ValueRefBinding) then
             return (function(self)
- return erased.once(self.binding.ty)
+ return single(self.binding.ty)
             end)(node, ...)
         elseif schema.isa(node, B.ValueRefHole) then
             return (function(self)
 
             local slot_cls = schema.classof(self.slot)
-            if slot_cls == O.SlotFunc then return erased.once(self.slot.slot.fn_ty) end
-            if slot_cls == O.SlotValue or slot_cls == O.SlotConst or slot_cls == O.SlotStatic then return erased.once(self.slot.slot.ty) end
-            if slot_cls == O.SlotExpr or slot_cls == O.SlotPlace then return erased.once(self.slot.slot.ty or nil) end
-            return erased.empty()
+            if slot_cls == O.SlotFunc then return single(self.slot.slot.fn_ty) end
+            if slot_cls == O.SlotValue or slot_cls == O.SlotConst or slot_cls == O.SlotStatic then return single(self.slot.slot.ty) end
+            if slot_cls == O.SlotExpr or slot_cls == O.SlotPlace then return single(self.slot.slot.ty or nil) end
+            return {}
             end)(node, ...)
         elseif schema.isa(node, B.ValueRefName) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, B.ValueRefPath) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         else
-            error("erased phase moonlift_tree_value_ref_type: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_tree_value_ref_type: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -86,9 +117,9 @@ function M.Define(T)
 
     local function header_or(h, fallback)
         local ty = first(header_type(h))
-        if ty ~= nil then return pvm.once(ty) end
-        if fallback ~= nil then return pvm.once(fallback) end
-        return pvm.empty()
+        if ty ~= nil then return single(ty) end
+        if fallback ~= nil then return single(fallback) end
+        return {}
     end
 
     local function index_base_elem(base)
@@ -114,8 +145,8 @@ function M.Define(T)
             return (function(self)
 
             local ty = first(header_type(self.h)) or first(value_ref_type(self.ref))
-            if ty ~= nil then return erased.once(ty) end
-            return erased.empty()
+            if ty ~= nil then return single(ty) end
+            return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprDot) then
             return (function(self)
@@ -139,11 +170,11 @@ function M.Define(T)
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprCast) then
             return (function(self)
- return erased.once(self.ty)
+ return single(self.ty)
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprMachineCast) then
             return (function(self)
- return erased.once(self.ty)
+ return single(self.ty)
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprIntrinsic) then
             return (function(self)
@@ -161,8 +192,8 @@ function M.Define(T)
             return (function(self)
 
             local ty = first(header_type(self.h))
-            if ty ~= nil then return erased.once(ty) end
-            return erased.empty()
+            if ty ~= nil then return single(ty) end
+            return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprLen) then
             return (function(self)
@@ -178,7 +209,7 @@ function M.Define(T)
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprAgg) then
             return (function(self)
- return erased.once(self.ty)
+ return single(self.ty)
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprArray) then
             return (function(self)
@@ -214,19 +245,19 @@ function M.Define(T)
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprLoad) then
             return (function(self)
- return erased.once(self.ty)
+ return single(self.ty)
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprAtomicLoad) then
             return (function(self)
- return erased.once(self.ty)
+ return single(self.ty)
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprAtomicRmw) then
             return (function(self)
- return erased.once(self.ty)
+ return single(self.ty)
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprAtomicCas) then
             return (function(self)
- return erased.once(self.ty)
+ return single(self.ty)
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprSlotValue) then
             return (function(self)
@@ -237,7 +268,7 @@ function M.Define(T)
  return header_or(self.h)
             end)(node, ...)
         else
-            error("erased phase moonlift_tree_expr_type: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_tree_expr_type: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -252,4 +283,4 @@ function M.Define(T)
     return api
 end
 
-return M
+return bind_context

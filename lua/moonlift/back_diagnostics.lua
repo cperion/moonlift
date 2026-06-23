@@ -1,11 +1,9 @@
-local M = {}
-
-function M.Define(T)
+local function bind_context(T)
     local Back = T.MoonBack
-    assert(Back, "moonlift.back_diagnostics.Define expects MoonBack in the context")
+    assert(Back, "moonlift.back_diagnostics(T) expects MoonBack in the context")
 
-    local Inspect = require("moonlift.back_inspect").Define(T)
-    local Jit = require("moonlift.back_jit").Define(T)
+    local Inspect = require("moonlift.back_inspect")(T)
+    local Jit = require("moonlift.back_jit")(T)
 
     local function diagnostics(program, _unused, funcs, opts)
         opts = opts or {}
@@ -29,4 +27,4 @@ function M.Define(T)
     return { diagnostics = diagnostics }
 end
 
-return M
+return bind_context

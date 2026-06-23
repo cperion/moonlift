@@ -6,8 +6,8 @@ local Phase = require("moonlift.phase_model")
 local Project = require("moonlift.project_asdl")
 
 local T = pvm.context()
-Phase.Define(T)
-Project.Define(T)
+Phase(T)
+Project(T)
 
 local Ph = T.MoonPhase
 local P = T.MoonProject

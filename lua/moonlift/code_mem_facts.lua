@@ -1,7 +1,5 @@
 local pvm = require("moonlift.pvm")
 
-local M = {}
-
 local function sanitize(s)
     s = tostring(s or "x"):gsub("[^%w_]", "_")
     if s:match("^%d") then s = "_" .. s end
@@ -9,7 +7,7 @@ local function sanitize(s)
     return s
 end
 
-function M.Define(T)
+local function bind_context(T)
     T._moonlift_api_cache = T._moonlift_api_cache or {}
     if T._moonlift_api_cache.code_mem_facts ~= nil then return T._moonlift_api_cache.code_mem_facts end
 
@@ -18,9 +16,9 @@ function M.Define(T)
     local Graph = T.MoonGraph
     local Flow = T.MoonFlow
     local Mem = T.MoonMem
-    local CodeGraph = require("moonlift.code_graph").Define(T)
-    local CodeFlowFacts = require("moonlift.code_flow_facts").Define(T)
-    local CodeValueFacts = require("moonlift.code_value_facts").Define(T)
+    local CodeGraph = require("moonlift.code_graph")(T)
+    local CodeFlowFacts = require("moonlift.code_flow_facts")(T)
+    local CodeValueFacts = require("moonlift.code_value_facts")(T)
 
     local api = {}
 
@@ -519,4 +517,4 @@ function M.Define(T)
     return api
 end
 
-return M
+return bind_context

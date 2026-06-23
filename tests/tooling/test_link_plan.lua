@@ -7,10 +7,10 @@ local LinkValidate = require("moonlift.link_plan_validate")
 local LinkCommand = require("moonlift.link_command_plan")
 
 local T = pvm.context()
-A2.Define(T)
-local LT = LinkTarget.Define(T)
-local LV = LinkValidate.Define(T)
-local LC = LinkCommand.Define(T)
+A2(T)
+local LT = LinkTarget(T)
+local LV = LinkValidate(T)
+local LC = LinkCommand(T)
 local L = T.MoonLink
 
 local obj = os.tmpname() .. ".o"

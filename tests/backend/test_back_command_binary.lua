@@ -7,11 +7,11 @@ local Binary = require("moonlift.back_command_binary")
 local J = require("moonlift.back_jit")
 
 local T = pvm.context()
-A.Define(T)
+A(T)
 local B = T.MoonBack
 local C = T.MoonCore
-local E = Binary.Define(T)
-local jit_api = J.Define(T)
+local E = Binary(T)
+local jit_api = J(T)
 
 local sig = B.BackSigId("sig")
 local func = B.BackFuncId("f")

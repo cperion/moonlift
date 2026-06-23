@@ -5,7 +5,7 @@ local CompilerPackage = require("moonlift.compiler_package")
 local Plan = require("moonlift.phase_plan")
 
 local T = pvm.context()
-local pkg = CompilerPackage.Define(T)
+local pkg = CompilerPackage(T)
 local P = T.MoonPhase
 
 assert(pvm.classof(pkg) == P.Package)

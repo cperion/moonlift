@@ -11,7 +11,7 @@ local schema = require("moonlift.schema_projection")
 local M = {}
 
 local T = pvm.context()
-schema.Define(T)
+schema(T)
 
 local C, Ty = T.MoonCore, T.MoonType
 local d = llb.doc

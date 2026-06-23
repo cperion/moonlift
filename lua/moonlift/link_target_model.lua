@@ -1,11 +1,9 @@
 local ffi = require("ffi")
 
-local M = {}
-
-function M.Define(T)
+local function bind_context(T)
     local Link = T.MoonLink
-    local BackTarget = require("moonlift.back_target_model").Define(T)
-    assert(Link, "moonlift.link_target_model.Define expects moonlift.schema_projection in the context")
+    local BackTarget = require("moonlift.back_target_model")(T)
+    assert(Link, "moonlift.link_target_model(T) expects moonlift.schema_projection in the context")
 
     local api = {}
 
@@ -49,4 +47,4 @@ function M.Define(T)
     return api
 end
 
-return M
+return bind_context

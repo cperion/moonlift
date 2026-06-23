@@ -14,8 +14,6 @@ int moonlift_object_compile_binary(const uint8_t* data, size_t len, const char* 
 void moonlift_bytes_free(uint8_t* data, size_t len);
 ]])
 
-local M = {}
-
 local function load_library(libpath)
     if libpath ~= nil then return ffi.load(libpath) end
     local ext, prefix
@@ -42,11 +40,11 @@ local function cstring(text)
     return ffi.new("char[?]", #text + 1, text)
 end
 
-function M.Define(T, opts)
+local function bind_context(T, opts)
     local Compiler = T.MoonCompiler
-    assert(Compiler, "moonlift.back_object.Define expects MoonCompiler in the context")
+    assert(Compiler, "moonlift.back_object(T) expects MoonCompiler in the context")
     local lib = load_library(opts and opts.libpath or nil)
-    local flatline_api = require("moonlift.flatline").Define(T)
+    local flatline_api = require("moonlift.flatline")(T)
 
     local function last_error()
         local p = lib.moonlift_last_error_message()
@@ -88,4 +86,4 @@ function M.Define(T, opts)
     }
 end
 
-return M
+return bind_context

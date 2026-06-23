@@ -1,9 +1,41 @@
 local schema = require("moonlift.schema_runtime")
-local erased = require("moonlift.phase_erased_runtime")
+local function single(value) return { value } end
+local function as_list(values) return values end
+local function only(values)
+    if #values == 0 then error("phase output: expected exactly 1 value, got 0", 2) end
+    if #values ~= 1 then error("phase output: expected exactly 1 value, got more", 2) end
+    return values[1]
+end
+local function append_all(out, values)
+    for i = 1, #(values or {}) do out[#out + 1] = values[i] end
+    return out
+end
+local function concat_all(lists)
+    local out = {}
+    for i = 1, #(lists or {}) do append_all(out, lists[i]) end
+    return out
+end
+local function concat2(a, b)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    return out
+end
+local function concat3(a, b, c)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    append_all(out, c)
+    return out
+end
+local function flat_map(fn, values, n)
+    local out = {}
+    n = n or #(values or {})
+    for i = 1, n do append_all(out, fn(values[i])) end
+    return out
+end
 
-local M = {}
-
-function M.Define(T)
+local function bind_context(T)
     T._moonlift_api_cache = T._moonlift_api_cache or {}
     if T._moonlift_api_cache.type_size_align ~= nil then return T._moonlift_api_cache.type_size_align end
 
@@ -11,7 +43,7 @@ function M.Define(T)
     local Ty = T.MoonType
     local Sem = T.MoonSem
 
-    local classify_api = require("moonlift.type_classify").Define(T)
+    local classify_api = require("moonlift.type_classify")(T)
 
     local scalar_layout
     local class_layout
@@ -73,62 +105,62 @@ function M.Define(T)
         local cls = schema.classof(node)
         if schema.isa(node, Core.ScalarVoid) then
             return (function()
- return erased.once(known(0, 1))
+ return single(known(0, 1))
             end)(node, ...)
         elseif schema.isa(node, Core.ScalarBool) then
             return (function()
- return erased.once(known(1, 1))
+ return single(known(1, 1))
             end)(node, ...)
         elseif schema.isa(node, Core.ScalarI8) then
             return (function()
- return erased.once(known(1, 1))
+ return single(known(1, 1))
             end)(node, ...)
         elseif schema.isa(node, Core.ScalarU8) then
             return (function()
- return erased.once(known(1, 1))
+ return single(known(1, 1))
             end)(node, ...)
         elseif schema.isa(node, Core.ScalarI16) then
             return (function()
- return erased.once(known(2, 2))
+ return single(known(2, 2))
             end)(node, ...)
         elseif schema.isa(node, Core.ScalarU16) then
             return (function()
- return erased.once(known(2, 2))
+ return single(known(2, 2))
             end)(node, ...)
         elseif schema.isa(node, Core.ScalarI32) then
             return (function()
- return erased.once(known(4, 4))
+ return single(known(4, 4))
             end)(node, ...)
         elseif schema.isa(node, Core.ScalarU32) then
             return (function()
- return erased.once(known(4, 4))
+ return single(known(4, 4))
             end)(node, ...)
         elseif schema.isa(node, Core.ScalarF32) then
             return (function()
- return erased.once(known(4, 4))
+ return single(known(4, 4))
             end)(node, ...)
         elseif schema.isa(node, Core.ScalarI64) then
             return (function()
- return erased.once(known(8, 8))
+ return single(known(8, 8))
             end)(node, ...)
         elseif schema.isa(node, Core.ScalarU64) then
             return (function()
- return erased.once(known(8, 8))
+ return single(known(8, 8))
             end)(node, ...)
         elseif schema.isa(node, Core.ScalarF64) then
             return (function()
- return erased.once(known(8, 8))
+ return single(known(8, 8))
             end)(node, ...)
         elseif schema.isa(node, Core.ScalarRawPtr) then
             return (function(_, target)
- return erased.once(ptr_layout(target))
+ return single(ptr_layout(target))
             end)(node, ...)
         elseif schema.isa(node, Core.ScalarIndex) then
             return (function(_, target)
- return erased.once(index_layout(target))
+ return single(index_layout(target))
             end)(node, ...)
         else
-            error("erased phase moonlift_type_scalar_mem_layout: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_type_scalar_mem_layout: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -180,26 +212,26 @@ function M.Define(T)
         elseif schema.isa(node, Ty.TypeClassPointer) then
             return (function(self, ty, env, target)
 
-            return erased.once(ptr_layout(target))
+            return single(ptr_layout(target))
             end)(node, ...)
         elseif schema.isa(node, Ty.TypeClassCallable) then
             return (function(self, ty, env, target)
 
-            return erased.once(ptr_layout(target))
+            return single(ptr_layout(target))
             end)(node, ...)
         elseif schema.isa(node, Ty.TypeClassSlice) then
             return (function(self, ty, env, target)
 
             local ptr = raw_layout(ptr_layout(target))
             local index = raw_layout(index_layout(target))
-            return erased.once(product_layout({ ptr, index }))
+            return single(product_layout({ ptr, index }))
             end)(node, ...)
         elseif schema.isa(node, Ty.TypeClassView) then
             return (function(self, ty, env, target)
 
             local ptr = raw_layout(ptr_layout(target))
             local index = raw_layout(index_layout(target))
-            return erased.once(product_layout({ ptr, index, index }))
+            return single(product_layout({ ptr, index, index }))
             end)(node, ...)
         elseif schema.isa(node, Ty.TypeClassLease) then
             return (function(self, ty, env, target)
@@ -217,22 +249,22 @@ function M.Define(T)
             if schema.classof(self.repr) == Ty.HandleReprScalar then
                 return scalar_layout(self.repr.scalar, target)
             end
-            return erased.once(Ty.TypeMemLayoutUnknown(ty, self))
+            return single(Ty.TypeMemLayoutUnknown(ty, self))
             end)(node, ...)
         elseif schema.isa(node, Ty.TypeClassClosure) then
             return (function(self, ty, env, target)
 
             local ptr = raw_layout(ptr_layout(target))
-            return erased.once(product_layout({ ptr, ptr }))
+            return single(product_layout({ ptr, ptr }))
             end)(node, ...)
         elseif schema.isa(node, Ty.TypeClassAggregate) then
             return (function(self, ty, env)
 
             local layout = named_layout_lookup(env, self.module_name, self.type_name)
             if layout == nil then
-                return erased.once(Ty.TypeMemLayoutUnknown(ty, self))
+                return single(Ty.TypeMemLayoutUnknown(ty, self))
             end
-            return erased.once(Ty.TypeMemLayoutKnown(layout))
+            return single(Ty.TypeMemLayoutKnown(layout))
             end)(node, ...)
         elseif schema.isa(node, Ty.TypeClassArray) then
             return (function(self, ty, env, target)
@@ -240,17 +272,17 @@ function M.Define(T)
             local elem_result = type_layout_result(self.elem, env, target)
             local elem_layout = result_layout(elem_result)
             if elem_layout == nil then
-                return erased.once(Ty.TypeMemLayoutUnknown(ty, self))
+                return single(Ty.TypeMemLayoutUnknown(ty, self))
             end
-            return erased.once(known(elem_layout.size * self.count, elem_layout.align))
+            return single(known(elem_layout.size * self.count, elem_layout.align))
             end)(node, ...)
         elseif schema.isa(node, Ty.TypeClassUnknown) then
             return (function(self, ty)
 
-            return erased.once(Ty.TypeMemLayoutUnknown(ty, self))
+            return single(Ty.TypeMemLayoutUnknown(ty, self))
             end)(node, ...)
         else
-            error("erased phase moonlift_type_class_mem_layout: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_type_class_mem_layout: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -261,7 +293,7 @@ function M.Define(T)
             if layout ~= nil then return Ty.TypeMemLayoutKnown(Sem.MemLayout(layout.size, layout.align)) end
         end
         local class = classify_api.classify(ty)
-        return erased.one(class_layout(class, ty, env, target))
+        return only(class_layout(class, ty, env, target))
     end
 
     local api = {
@@ -277,4 +309,4 @@ function M.Define(T)
     return api
 end
 
-return M
+return bind_context

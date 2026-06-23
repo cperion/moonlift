@@ -5,8 +5,8 @@ local A = require("moonlift.schema_projection")
 local Classify = require("moonlift.type_classify")
 
 local T = pvm.context()
-A.Define(T)
-local L = Classify.Define(T)
+A(T)
+local L = Classify(T)
 local C = T.MoonCore
 local Ty = T.MoonType
 local O = T.MoonOpen

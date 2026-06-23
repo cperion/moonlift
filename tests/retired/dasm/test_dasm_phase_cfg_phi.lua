@@ -8,7 +8,7 @@ local Select = require("back.dasm.phases.select_mir")
 local Mx = require("back.dasm.model")
 
 local T = pvm.context()
-A2.Define(T)
+A2(T)
 Mx.set_context(T)
 local D = T.MoonDasm
 local B = T.MoonBack

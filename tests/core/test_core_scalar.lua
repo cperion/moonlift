@@ -5,8 +5,8 @@ local A = require("moonlift.schema_projection")
 local CoreScalar = require("moonlift.core_scalar")
 
 local T = pvm.context()
-A.Define(T)
-local L = CoreScalar.Define(T)
+A(T)
+local L = CoreScalar(T)
 local C = T.MoonCore
 
 local function expect(scalar, family, bits)

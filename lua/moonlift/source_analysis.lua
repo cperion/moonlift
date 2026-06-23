@@ -17,7 +17,7 @@ end
 function M.build(T, parsed, src, origin, opts)
     opts = opts or {}
     local S = T.MoonSource
-    local PositionIndex = require("moonlift.source_position_index").Define(T)
+    local PositionIndex = require("moonlift.source_position_index")(T)
 
     local source_text = source_text_from_origin(src, origin)
     local uri = uri_from_origin(origin, opts.uri or opts.chunk_name or opts.name)

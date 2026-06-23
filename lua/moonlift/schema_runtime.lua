@@ -1,6 +1,6 @@
 -- Minimal MoonSchema runtime facade.
 --
--- Generated/erased phase code depends on this for schema value identity and
+-- Generated phase code depends on this for schema value identity and
 -- structural update instead of pulling in the legacy PVM phase/cache boundary.
 
 local M = {}
@@ -16,13 +16,7 @@ local function get_schema_context()
 end
 
 function M.context(opts)
-    local ctx = get_schema_context().NewContext(opts)
-    local orig = ctx.Define
-    function ctx:Define(text)
-        orig(self, text)
-        return self
-    end
-    return ctx
+    return get_schema_context().NewContext(opts)
 end
 
 function M.classof(node)

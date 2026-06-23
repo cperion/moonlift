@@ -1,10 +1,41 @@
-local pvm = require("moonlift.pvm")
 local schema = require("moonlift.schema_runtime")
-local erased = require("moonlift.phase_erased_runtime")
+local function single(value) return { value } end
+local function as_list(values) return values end
+local function only(values)
+    if #values == 0 then error("phase output: expected exactly 1 value, got 0", 2) end
+    if #values ~= 1 then error("phase output: expected exactly 1 value, got more", 2) end
+    return values[1]
+end
+local function append_all(out, values)
+    for i = 1, #(values or {}) do out[#out + 1] = values[i] end
+    return out
+end
+local function concat_all(lists)
+    local out = {}
+    for i = 1, #(lists or {}) do append_all(out, lists[i]) end
+    return out
+end
+local function concat2(a, b)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    return out
+end
+local function concat3(a, b, c)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    append_all(out, c)
+    return out
+end
+local function flat_map(fn, values, n)
+    local out = {}
+    n = n or #(values or {})
+    for i = 1, n do append_all(out, fn(values[i])) end
+    return out
+end
 
-local M = {}
-
-function M.Define(T)
+local function bind_context(T)
     local O = T.MoonOpen
     local B = T.MoonBind
     local Tr = T.MoonTree
@@ -45,10 +76,10 @@ function M.Define(T)
     local item_facts
     local module_facts
 
-    local function pack(g, p, c) return { g, p, c } end
-    local function cat(trips) return pvm.concat_all(trips) end
-    local function each(phase, xs) return pvm.children(phase, xs) end
-    local function slot(slot_node) return pvm.once(O.MetaFactSlot(slot_node)) end
+    local function pack(values) return values end
+    local function cat(trips) return concat_all(trips) end
+    local function each(phase, xs) return flat_map(phase, xs) end
+    local function slot(slot_node) return single(O.MetaFactSlot(slot_node)) end
     local function declared_cont_keys(conts)
         local out = {}
         for i = 1, #(conts or {}) do out[conts[i].key] = true end
@@ -56,7 +87,7 @@ function M.Define(T)
     end
 
     local function filter_template_facts(allowed_conts, g, p, c)
-        local facts = pvm.drain(g, p, c)
+        local facts = g
         local out = {}
         for i = 1, #facts do
             local cls = schema.classof(facts[i])
@@ -68,7 +99,7 @@ function M.Define(T)
                 out[#out + 1] = facts[i]
             end
         end
-        return pvm.children(function(fact) return pvm.once(fact) end, out)
+        return flat_map(function(fact) return single(fact) end, out)
     end
 
     function slot_fact(node, ...)
@@ -138,7 +169,7 @@ function M.Define(T)
  return slot(self)
             end)(node, ...)
         else
-            error("erased phase moonlift_open_slot_fact: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_slot_fact: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -146,26 +177,26 @@ function M.Define(T)
         local cls = schema.classof(node)
         if schema.isa(node, O.ImportValue) then
             return (function(self)
- return erased.once(O.MetaFactValueImportUse(self))
+ return single(O.MetaFactValueImportUse(self))
             end)(node, ...)
         elseif schema.isa(node, O.ImportGlobalFunc) then
             return (function(self)
- return erased.once(O.MetaFactGlobalFunc(self.module_name, self.item_name))
+ return single(O.MetaFactGlobalFunc(self.module_name, self.item_name))
             end)(node, ...)
         elseif schema.isa(node, O.ImportGlobalConst) then
             return (function(self)
- return erased.once(O.MetaFactGlobalConst(self.module_name, self.item_name))
+ return single(O.MetaFactGlobalConst(self.module_name, self.item_name))
             end)(node, ...)
         elseif schema.isa(node, O.ImportGlobalStatic) then
             return (function(self)
- return erased.once(O.MetaFactGlobalStatic(self.module_name, self.item_name))
+ return single(O.MetaFactGlobalStatic(self.module_name, self.item_name))
             end)(node, ...)
         elseif schema.isa(node, O.ImportExtern) then
             return (function(self)
- return erased.once(O.MetaFactExtern(self.symbol))
+ return single(O.MetaFactExtern(self.symbol))
             end)(node, ...)
         else
-            error("erased phase moonlift_open_value_import_fact: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_value_import_fact: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -180,7 +211,7 @@ function M.Define(T)
             })
             end)(node, ...)
         else
-            error("erased phase moonlift_open_set_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_set_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -188,18 +219,18 @@ function M.Define(T)
         local cls = schema.classof(node)
         if schema.isa(node, Tr.ExprSurface) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprTyped) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprOpen) then
             return (function(self)
  return open_set_facts(self.open)
             end)(node, ...)
         else
-            error("erased phase moonlift_open_expr_header_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_expr_header_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -207,18 +238,18 @@ function M.Define(T)
         local cls = schema.classof(node)
         if schema.isa(node, Tr.PlaceSurface) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.PlaceTyped) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.PlaceOpen) then
             return (function(self)
  return open_set_facts(self.open)
             end)(node, ...)
         else
-            error("erased phase moonlift_open_place_header_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_place_header_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -226,7 +257,7 @@ function M.Define(T)
         local cls = schema.classof(node)
         if schema.isa(node, Tr.StmtSurface) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtOpen) then
             return (function(self)
@@ -234,10 +265,10 @@ function M.Define(T)
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtFlow) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         else
-            error("erased phase moonlift_open_stmt_header_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_stmt_header_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -245,33 +276,33 @@ function M.Define(T)
         local cls = schema.classof(node)
         if schema.isa(node, Tr.ModuleSurface) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.ModuleTyped) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.ModuleOpen) then
             return (function(self)
 
             local name_trip
             if self.name == O.ModuleNameOpen then
-                name_trip = pack(erased.once(O.MetaFactOpenModuleName))
+                name_trip = pack(single(O.MetaFactOpenModuleName))
             else
-                name_trip = pack(erased.empty())
+                name_trip = pack({})
             end
             return cat({ name_trip, pack(open_set_facts(self.open)) })
             end)(node, ...)
         elseif schema.isa(node, Tr.ModuleSem) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.ModuleCode) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         else
-            error("erased phase moonlift_open_module_header_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_module_header_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -279,43 +310,43 @@ function M.Define(T)
         local cls = schema.classof(node)
         if schema.isa(node, B.BindingClassLocalValue) then
             return (function(_, binding)
- return erased.once(O.MetaFactLocalValue(binding.id.text, binding.name))
+ return single(O.MetaFactLocalValue(binding.id.text, binding.name))
             end)(node, ...)
         elseif schema.isa(node, B.BindingClassLocalCell) then
             return (function(_, binding)
- return erased.once(O.MetaFactLocalCell(binding.id.text, binding.name))
+ return single(O.MetaFactLocalCell(binding.id.text, binding.name))
             end)(node, ...)
         elseif schema.isa(node, B.BindingClassArg) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, B.BindingClassEntryBlockParam) then
             return (function(self, binding)
- return erased.once(O.MetaFactEntryBlockParam(self.region_id, self.block_name, self.index, binding.name))
+ return single(O.MetaFactEntryBlockParam(self.region_id, self.block_name, self.index, binding.name))
             end)(node, ...)
         elseif schema.isa(node, B.BindingClassBlockParam) then
             return (function(self, binding)
- return erased.once(O.MetaFactBlockParam(self.region_id, self.block_name, self.index, binding.name))
+ return single(O.MetaFactBlockParam(self.region_id, self.block_name, self.index, binding.name))
             end)(node, ...)
         elseif schema.isa(node, B.BindingClassGlobalFunc) then
             return (function(self)
- return erased.once(O.MetaFactGlobalFunc(self.module_name, self.item_name))
+ return single(O.MetaFactGlobalFunc(self.module_name, self.item_name))
             end)(node, ...)
         elseif schema.isa(node, B.BindingClassGlobalConst) then
             return (function(self)
- return erased.once(O.MetaFactGlobalConst(self.module_name, self.item_name))
+ return single(O.MetaFactGlobalConst(self.module_name, self.item_name))
             end)(node, ...)
         elseif schema.isa(node, B.BindingClassGlobalStatic) then
             return (function(self)
- return erased.once(O.MetaFactGlobalStatic(self.module_name, self.item_name))
+ return single(O.MetaFactGlobalStatic(self.module_name, self.item_name))
             end)(node, ...)
         elseif schema.isa(node, B.BindingClassExtern) then
             return (function(self)
- return erased.once(O.MetaFactExtern(self.symbol))
+ return single(O.MetaFactExtern(self.symbol))
             end)(node, ...)
         elseif schema.isa(node, B.BindingClassOpenParam) then
             return (function(self)
- return erased.once(O.MetaFactParamUse(self.param))
+ return single(O.MetaFactParamUse(self.param))
             end)(node, ...)
         elseif schema.isa(node, B.BindingClassImport) then
             return (function(self)
@@ -323,14 +354,14 @@ function M.Define(T)
             end)(node, ...)
         elseif schema.isa(node, B.BindingClassOpenSym) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, B.BindingClassOpenSlot) then
             return (function(self)
- return erased.once(O.MetaFactSlot(self.slot))
+ return single(O.MetaFactSlot(self.slot))
             end)(node, ...)
         else
-            error("erased phase moonlift_open_binding_class_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_binding_class_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -342,7 +373,7 @@ function M.Define(T)
             return binding_class_facts(binding.class, binding)
             end)(node, ...)
         else
-            error("erased phase moonlift_open_binding_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_binding_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -350,11 +381,11 @@ function M.Define(T)
         local cls = schema.classof(node)
         if schema.isa(node, B.ValueRefName) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, B.ValueRefPath) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, B.ValueRefBinding) then
             return (function(self)
@@ -362,10 +393,10 @@ function M.Define(T)
             end)(node, ...)
         elseif schema.isa(node, B.ValueRefHole) then
             return (function(self)
- return erased.once(O.MetaFactSlot(self.slot))
+ return single(O.MetaFactSlot(self.slot))
             end)(node, ...)
         else
-            error("erased phase moonlift_open_value_ref_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_value_ref_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -373,7 +404,7 @@ function M.Define(T)
         local cls = schema.classof(node)
         if schema.isa(node, O.SlotValueType) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, O.SlotValueExpr) then
             return (function(self)
@@ -393,11 +424,11 @@ function M.Define(T)
             end)(node, ...)
         elseif schema.isa(node, O.SlotValueCont) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, O.SlotValueContSlot) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, O.SlotValueFunc) then
             return (function(self)
@@ -433,10 +464,10 @@ function M.Define(T)
             end)(node, ...)
         elseif schema.isa(node, O.SlotValueName) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         else
-            error("erased phase moonlift_open_slot_value_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_slot_value_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -448,7 +479,7 @@ function M.Define(T)
             return slot_value_facts(binding.value)
             end)(node, ...)
         else
-            error("erased phase moonlift_open_slot_binding_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_slot_binding_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -461,10 +492,10 @@ function M.Define(T)
             -- not an unfilled template hole.  Missing continuation fills are
             -- still reported from the StmtJumpCont left after RNF when no route
             -- exists.
-            return erased.empty()
+            return {}
             end)(node, ...)
         else
-            error("erased phase moonlift_open_cont_binding_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_cont_binding_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -476,7 +507,7 @@ function M.Define(T)
             return each(slot_binding_facts, fills.bindings)
             end)(node, ...)
         else
-            error("erased phase moonlift_open_fill_set_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_fill_set_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -488,7 +519,7 @@ function M.Define(T)
             return expr_facts(init.value)
             end)(node, ...)
         else
-            error("erased phase moonlift_open_field_init_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_field_init_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -500,7 +531,7 @@ function M.Define(T)
             return each(stmt_facts, arm.body)
             end)(node, ...)
         else
-            error("erased phase moonlift_open_switch_stmt_arm_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_switch_stmt_arm_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -512,7 +543,7 @@ function M.Define(T)
             return each(stmt_facts, arm.body)
             end)(node, ...)
         else
-            error("erased phase moonlift_open_switch_variant_arm_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_switch_variant_arm_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -524,7 +555,7 @@ function M.Define(T)
             return cat({ pack(each(stmt_facts, arm.body)), pack(expr_facts(arm.result)) })
             end)(node, ...)
         else
-            error("erased phase moonlift_open_switch_expr_arm_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_switch_expr_arm_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -536,7 +567,7 @@ function M.Define(T)
             return cat({ pack(each(stmt_facts, arm.body)), pack(expr_facts(arm.result)) })
             end)(node, ...)
         else
-            error("erased phase moonlift_open_switch_variant_expr_arm_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_switch_variant_expr_arm_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -575,7 +606,7 @@ function M.Define(T)
  return cat({ pack(view_facts(self.base)), pack(expr_facts(self.stride)), pack(expr_facts(self.lane)) })
             end)(node, ...)
         else
-            error("erased phase moonlift_open_view_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_view_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -607,10 +638,10 @@ function M.Define(T)
             end)(node, ...)
         elseif schema.isa(node, Tr.DomainSlotValue) then
             return (function(self)
- return erased.once(O.MetaFactSlot(O.SlotDomain(self.slot)))
+ return single(O.MetaFactSlot(O.SlotDomain(self.slot)))
             end)(node, ...)
         else
-            error("erased phase moonlift_open_domain_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_domain_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -629,7 +660,7 @@ function M.Define(T)
  return view_facts(self.view)
             end)(node, ...)
         else
-            error("erased phase moonlift_open_index_base_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_index_base_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -657,10 +688,10 @@ function M.Define(T)
             end)(node, ...)
         elseif schema.isa(node, Tr.PlaceSlotValue) then
             return (function(self)
- return cat({ pack(place_header_facts(self.h)), pack(erased.once(O.MetaFactSlot(O.SlotPlace(self.slot)))) })
+ return cat({ pack(place_header_facts(self.h)), pack(single(O.MetaFactSlot(O.SlotPlace(self.slot)))) })
             end)(node, ...)
         else
-            error("erased phase moonlift_open_place_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_place_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -684,7 +715,7 @@ function M.Define(T)
             return cat(trips)
             end)(node, ...)
         else
-            error("erased phase moonlift_open_control_stmt_region_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_control_stmt_region_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -698,7 +729,7 @@ function M.Define(T)
             return cat(trips)
             end)(node, ...)
         else
-            error("erased phase moonlift_open_control_expr_region_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_control_expr_region_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -842,21 +873,21 @@ function M.Define(T)
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprSlotValue) then
             return (function(self)
- return cat({ pack(expr_header_facts(self.h)), pack(erased.once(O.MetaFactSlot(O.SlotExpr(self.slot)))) })
+ return cat({ pack(expr_header_facts(self.h)), pack(single(O.MetaFactSlot(O.SlotExpr(self.slot)))) })
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprUseExprFrag) then
             return (function(self)
 
             local ref_trip
             if schema.classof(self.frag) == O.ExprFragRefSlot then
-                ref_trip = pack(erased.once(O.MetaFactSlot(O.SlotExprFrag(self.frag.slot))))
+                ref_trip = pack(single(O.MetaFactSlot(O.SlotExprFrag(self.frag.slot))))
             else
-                ref_trip = pack(erased.empty())
+                ref_trip = pack({})
             end
-            return cat({ pack(expr_header_facts(self.h)), pack(erased.once(O.MetaFactExprFragUse(self.use_id))), ref_trip, pack(each(expr_facts, self.args)), pack(each(slot_binding_facts, self.fills)) })
+            return cat({ pack(expr_header_facts(self.h)), pack(single(O.MetaFactExprFragUse(self.use_id))), ref_trip, pack(each(expr_facts, self.args)), pack(each(slot_binding_facts, self.fills)) })
             end)(node, ...)
         else
-            error("erased phase moonlift_open_expr_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_expr_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -904,7 +935,7 @@ function M.Define(T)
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtJumpCont) then
             return (function(self)
- local trips = { pack(stmt_header_facts(self.h)), pack(erased.once(O.MetaFactSlot(O.SlotCont(self.slot)))) }; for i = 1, #self.args do trips[#trips + 1] = pack(expr_facts(self.args[i].value)) end; return cat(trips)
+ local trips = { pack(stmt_header_facts(self.h)), pack(single(O.MetaFactSlot(O.SlotCont(self.slot)))) }; for i = 1, #self.args do trips[#trips + 1] = pack(expr_facts(self.args[i].value)) end; return cat(trips)
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtYieldVoid) then
             return (function(self)
@@ -928,25 +959,25 @@ function M.Define(T)
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtUseRegionSlot) then
             return (function(self)
- return cat({ pack(stmt_header_facts(self.h)), pack(erased.once(O.MetaFactSlot(O.SlotRegion(self.slot)))) })
+ return cat({ pack(stmt_header_facts(self.h)), pack(single(O.MetaFactSlot(O.SlotRegion(self.slot)))) })
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtUseRegionFrag) then
             return (function(self)
 
             local ref_trip
             if schema.classof(self.frag) == O.RegionFragRefSlot then
-                ref_trip = pack(erased.once(O.MetaFactSlot(O.SlotRegionFrag(self.frag.slot))))
+                ref_trip = pack(single(O.MetaFactSlot(O.SlotRegionFrag(self.frag.slot))))
             else
-                ref_trip = pack(erased.empty())
+                ref_trip = pack({})
             end
-            return cat({ pack(stmt_header_facts(self.h)), pack(erased.once(O.MetaFactRegionFragUse(self.use_id))), ref_trip, pack(each(expr_facts, self.args)), pack(each(slot_binding_facts, self.fills)), pack(each(cont_binding_facts, self.cont_fills or {})) })
+            return cat({ pack(stmt_header_facts(self.h)), pack(single(O.MetaFactRegionFragUse(self.use_id))), ref_trip, pack(each(expr_facts, self.args)), pack(each(slot_binding_facts, self.fills)), pack(each(cont_binding_facts, self.cont_fills or {})) })
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtTrap) then
             return (function(self)
  return stmt_header_facts(self.h)
             end)(node, ...)
         else
-            error("erased phase moonlift_open_stmt_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_stmt_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -973,7 +1004,7 @@ function M.Define(T)
  return cat({ pack(open_set_facts(self.open)), pack(each(stmt_facts, self.body)) })
             end)(node, ...)
         else
-            error("erased phase moonlift_open_func_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_func_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -981,14 +1012,14 @@ function M.Define(T)
         local cls = schema.classof(node)
         if schema.isa(node, Tr.ExternFunc) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.ExternFuncOpen) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         else
-            error("erased phase moonlift_open_extern_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_extern_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -1003,7 +1034,7 @@ function M.Define(T)
  return cat({ pack(open_set_facts(self.open)), pack(expr_facts(self.value)) })
             end)(node, ...)
         else
-            error("erased phase moonlift_open_const_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_const_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -1018,7 +1049,7 @@ function M.Define(T)
  return cat({ pack(open_set_facts(self.open)), pack(expr_facts(self.value)) })
             end)(node, ...)
         else
-            error("erased phase moonlift_open_static_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_static_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -1026,34 +1057,34 @@ function M.Define(T)
         local cls = schema.classof(node)
         if schema.isa(node, Tr.TypeDeclStruct) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.TypeDeclUnion) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.TypeDeclEnumSugar) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.TypeDeclTaggedUnionSugar) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.TypeDeclHandle) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.TypeDeclOpenStruct) then
             return (function(self)
- return erased.once(O.MetaFactLocalType(self.sym))
+ return single(O.MetaFactLocalType(self.sym))
             end)(node, ...)
         elseif schema.isa(node, Tr.TypeDeclOpenUnion) then
             return (function(self)
- return erased.once(O.MetaFactLocalType(self.sym))
+ return single(O.MetaFactLocalType(self.sym))
             end)(node, ...)
         else
-            error("erased phase moonlift_open_type_decl_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_type_decl_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -1062,7 +1093,7 @@ function M.Define(T)
         if schema.isa(node, O.RegionFragDecl) then
             return (function(self)
 
-            return erased.empty()
+            return {}
             end)(node, ...)
         elseif schema.isa(node, O.RegionFrag) then
             return (function(self)
@@ -1075,7 +1106,7 @@ function M.Define(T)
             return cat(trips)
             end)(node, ...)
         else
-            error("erased phase moonlift_open_region_frag_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_region_frag_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -1087,7 +1118,7 @@ function M.Define(T)
             return cat({ pack(open_set_facts(self.open)), pack(filter_template_facts(nil, expr_facts(self.body))) })
             end)(node, ...)
         else
-            error("erased phase moonlift_open_expr_frag_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_expr_frag_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -1111,7 +1142,7 @@ function M.Define(T)
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemImport) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemType) then
             return (function(self)
@@ -1127,22 +1158,22 @@ function M.Define(T)
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemUseTypeDeclSlot) then
             return (function(self)
- return erased.once(O.MetaFactSlot(O.SlotTypeDecl(self.slot)))
+ return single(O.MetaFactSlot(O.SlotTypeDecl(self.slot)))
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemUseItemsSlot) then
             return (function(self)
- return erased.once(O.MetaFactSlot(O.SlotItems(self.slot)))
+ return single(O.MetaFactSlot(O.SlotItems(self.slot)))
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemUseModule) then
             return (function(self)
- return cat({ pack(erased.once(O.MetaFactModuleUse(self.use_id))), pack(module_facts(self.module)), pack(each(slot_binding_facts, self.fills)) })
+ return cat({ pack(single(O.MetaFactModuleUse(self.use_id))), pack(module_facts(self.module)), pack(each(slot_binding_facts, self.fills)) })
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemUseModuleSlot) then
             return (function(self)
- return cat({ pack(erased.once(O.MetaFactModuleSlotUse(self.use_id, self.slot))), pack(erased.once(O.MetaFactSlot(O.SlotModule(self.slot)))), pack(each(slot_binding_facts, self.fills)) })
+ return cat({ pack(single(O.MetaFactModuleSlotUse(self.use_id, self.slot))), pack(single(O.MetaFactSlot(O.SlotModule(self.slot)))), pack(each(slot_binding_facts, self.fills)) })
             end)(node, ...)
         else
-            error("erased phase moonlift_open_item_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_item_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -1154,12 +1185,12 @@ function M.Define(T)
             return cat({ pack(module_header_facts(module.h)), pack(each(item_facts, module.items)) })
             end)(node, ...)
         else
-            error("erased phase moonlift_open_module_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_module_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
     local function fact_set(g, p, c)
-        return O.MetaFactSet(pvm.drain(g, p, c))
+        return O.MetaFactSet(g)
     end
 
     return {
@@ -1189,4 +1220,4 @@ function M.Define(T)
     }
 end
 
-return M
+return bind_context

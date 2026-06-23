@@ -4,15 +4,15 @@ local pvm = require("moonlift.pvm")
 local A = require("moonlift.schema_projection")
 
 local T = pvm.context()
-A.Define(T)
+A(T)
 
 local Tr = T.MoonTree
 local lexer = require("moonlift.c.c_lexer")
-local cpp = require("moonlift.c.cpp_expand").Define(T)
+local cpp = require("moonlift.c.cpp_expand")(T)
 local vfs = require("moonlift.c.vfs")
-local c_parse = require("moonlift.c.c_parse").Define(T)
-local cimport_mod = require("moonlift.c.cimport").Define(T)
-local lower_mod = require("moonlift.c.lower_c").Define(T)
+local c_parse = require("moonlift.c.c_parse")(T)
+local cimport_mod = require("moonlift.c.cimport")(T)
+local lower_mod = require("moonlift.c.lower_c")(T)
 
 local function lex(src) return lexer.lex(src, "test.c") end
 

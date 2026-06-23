@@ -5,8 +5,8 @@ local A = require("moonlift.schema_projection")
 local Scalar = require("moonlift.type_to_back_scalar")
 
 local T = pvm.context()
-A.Define(T)
-local L = Scalar.Define(T)
+A(T)
+local L = Scalar(T)
 local C = T.MoonCore
 local Ty = T.MoonType
 local B = T.MoonBack

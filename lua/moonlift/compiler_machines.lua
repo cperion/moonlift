@@ -29,7 +29,7 @@ function M.typecheck_module(module, _step, call)
         for k, v in pairs(call.opts) do opts[k] = v end
     end
     opts.context = nil
-    local Pipeline = require("moonlift.frontend_pipeline").Define(T)
+    local Pipeline = require("moonlift.frontend_pipeline")(T)
     local handle = Pipeline.typecheck_module_process:start(module, opts)
     for _ in handle:events() do end
     return process_result_or_error(handle, "moonlift compiler machine typecheck_module failed")
@@ -42,7 +42,7 @@ function M.checked_to_back_code(checked, _step, call)
         for k, v in pairs(call.opts) do opts[k] = v end
     end
     opts.context = nil
-    local Pipeline = require("moonlift.frontend_pipeline").Define(T)
+    local Pipeline = require("moonlift.frontend_pipeline")(T)
     local handle = Pipeline.checked_to_code_process:start(checked, opts)
     for _ in handle:events() do end
     return process_result_or_error(handle, "moonlift compiler machine checked_to_back_code failed")
@@ -56,7 +56,7 @@ function M.checked_to_c_code(checked, _step, call)
     end
     opts.root = "emit_c"
     opts.context = nil
-    local Pipeline = require("moonlift.frontend_pipeline").Define(T)
+    local Pipeline = require("moonlift.frontend_pipeline")(T)
     local handle = Pipeline.checked_to_code_process:start(checked, opts)
     for _ in handle:events() do end
     return process_result_or_error(handle, "moonlift compiler machine checked_to_c_code failed")
@@ -69,7 +69,7 @@ function M.code_to_back(code_result, _step, call)
         for k, v in pairs(call.opts) do opts[k] = v end
     end
     opts.context = nil
-    local Pipeline = require("moonlift.frontend_pipeline").Define(T)
+    local Pipeline = require("moonlift.frontend_pipeline")(T)
     local handle = Pipeline.code_to_back_process:start(code_result, opts)
     for _ in handle:events() do end
     local result = process_result_or_error(handle, "moonlift compiler machine code_to_back failed")
@@ -78,7 +78,7 @@ end
 
 function M.back_to_flatline(program, _step, call)
     local T = (call and call.opts and call.opts.context) or context_of(program)
-    local Flatline = require("moonlift.flatline").Define(T)
+    local Flatline = require("moonlift.flatline")(T)
     local image = Flatline.encode_back_program(program)
     Flatline.assert_valid_image(image)
     return image
@@ -90,9 +90,9 @@ function M.flatline_to_native(image, _step, call)
     if call and call.opts then
         for k, v in pairs(call.opts) do opts[k] = v end
     end
-    local Flatline = require("moonlift.flatline").Define(T)
+    local Flatline = require("moonlift.flatline")(T)
     Flatline.assert_valid_image(image)
-    return require("moonlift.native_runtime").Define(T).instantiate_flatline(image, opts)
+    return require("moonlift.native_runtime")(T).instantiate_flatline(image, opts)
 end
 
 function M.flatline_to_object(image, _step, call)
@@ -101,9 +101,9 @@ function M.flatline_to_object(image, _step, call)
     if call and call.opts then
         for k, v in pairs(call.opts) do opts[k] = v end
     end
-    local Flatline = require("moonlift.flatline").Define(T)
+    local Flatline = require("moonlift.flatline")(T)
     Flatline.assert_valid_image(image)
-    return require("moonlift.back_object").Define(T).compile(image, { module_name = opts.name or opts.module_name or "moonlift_object", format = opts.object_format })
+    return require("moonlift.back_object")(T).compile(image, { module_name = opts.name or opts.module_name or "moonlift_object", format = opts.object_format })
 end
 
 function M.code_to_c(code_result, _step, call)
@@ -113,7 +113,7 @@ function M.code_to_c(code_result, _step, call)
         for k, v in pairs(call.opts) do opts[k] = v end
     end
     opts.context = nil
-    local Pipeline = require("moonlift.frontend_pipeline").Define(T)
+    local Pipeline = require("moonlift.frontend_pipeline")(T)
     local handle = Pipeline.code_to_c_process:start(code_result, opts)
     for _ in handle:events() do end
     local result = process_result_or_error(handle, "moonlift compiler machine code_to_c failed")

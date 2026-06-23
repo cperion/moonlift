@@ -1,16 +1,51 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
 local pvm = require("moonlift.pvm")
+local function single(value) return { value } end
+local function as_list(values) return values end
+local function only(values)
+    if #values == 0 then error("phase output: expected exactly 1 value, got 0", 2) end
+    if #values ~= 1 then error("phase output: expected exactly 1 value, got more", 2) end
+    return values[1]
+end
+local function append_all(out, values)
+    for i = 1, #(values or {}) do out[#out + 1] = values[i] end
+    return out
+end
+local function concat_all(lists)
+    local out = {}
+    for i = 1, #(lists or {}) do append_all(out, lists[i]) end
+    return out
+end
+local function concat2(a, b)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    return out
+end
+local function concat3(a, b, c)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    append_all(out, c)
+    return out
+end
+local function flat_map(fn, values, n)
+    local out = {}
+    n = n or #(values or {})
+    for i = 1, n do append_all(out, fn(values[i])) end
+    return out
+end
 local A = require("moonlift.schema_projection")
 local Expand = require("moonlift.open_expand")
 local Facts = require("moonlift.open_facts")
 local Validate = require("moonlift.open_validate")
 
 local T = pvm.context()
-A.Define(T)
-local E = Expand.Define(T)
-local F = Facts.Define(T)
-local V = Validate.Define(T)
+A(T)
+local E = Expand(T)
+local F = Facts(T)
+local V = Validate(T)
 local C = T.MoonCore
 local Ty = T.MoonType
 local O = T.MoonOpen
@@ -51,12 +86,12 @@ assert(#expanded_region == 2)
 assert(expanded_region[1] == Tr.StmtExpr(Tr.StmtSurface, lit("1")))
 assert(expanded_region[2] == Tr.StmtExpr(Tr.StmtSurface, lit("2")))
 
-local item_stream = pvm.drain(E.item_stream(Tr.ItemUseItemsSlot(items_slot), env))
+local item_stream = as_list(E.item_stream(Tr.ItemUseItemsSlot(items_slot), env))
 assert(#item_stream == 2)
 assert(item_stream[1] == Tr.ItemConst(Tr.ConstItem("a", i32, lit("3"))))
 assert(item_stream[2] == Tr.ItemConst(Tr.ConstItem("b", i32, lit("4"))))
 
-local module_items = pvm.drain(E.item_stream(Tr.ItemUseModuleSlot("use.mod", module_slot, {}), env))
+local module_items = as_list(E.item_stream(Tr.ItemUseModuleSlot("use.mod", module_slot, {}), env))
 assert(#module_items == 1)
 assert(module_items[1] == Tr.ItemConst(Tr.ConstItem("nested", i32, lit("5"))))
 

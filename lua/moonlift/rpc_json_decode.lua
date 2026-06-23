@@ -111,7 +111,7 @@ local function is_array(t)
     return true, n
 end
 
-function M.Define(T)
+local function bind_context(T)
     local R = T.MoonRpc
     local E = T.MoonEditor
 
@@ -174,4 +174,8 @@ function M.Define(T)
 end
 
 M.decode_lua = decode_lua
-return M
+return setmetatable(M, {
+    __call = function(_, ...)
+        return bind_context(...)
+    end,
+})

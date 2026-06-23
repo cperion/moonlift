@@ -1,7 +1,5 @@
 local pvm = require("moonlift.pvm")
 
-local M = {}
-
 local function sanitize(s)
     s = tostring(s or "x"):gsub("[^%w_]", "_")
     if s:match("^%d") then s = "_" .. s end
@@ -9,7 +7,7 @@ local function sanitize(s)
     return s
 end
 
-function M.Define(T)
+local function bind_context(T)
     T._moonlift_api_cache = T._moonlift_api_cache or {}
     if T._moonlift_api_cache.code_kernel_plan ~= nil then return T._moonlift_api_cache.code_kernel_plan end
 
@@ -21,11 +19,11 @@ function M.Define(T)
     local Mem = T.MoonMem
     local Effect = T.MoonEffect
     local Kernel = T.MoonKernel
-    local CodeGraph = require("moonlift.code_graph").Define(T)
-    local CodeFlowFacts = require("moonlift.code_flow_facts").Define(T)
-    local CodeValueFacts = require("moonlift.code_value_facts").Define(T)
-    local CodeMemFacts = require("moonlift.code_mem_facts").Define(T)
-    local CodeEffectFacts = require("moonlift.code_effect_facts").Define(T)
+    local CodeGraph = require("moonlift.code_graph")(T)
+    local CodeFlowFacts = require("moonlift.code_flow_facts")(T)
+    local CodeValueFacts = require("moonlift.code_value_facts")(T)
+    local CodeMemFacts = require("moonlift.code_mem_facts")(T)
+    local CodeEffectFacts = require("moonlift.code_effect_facts")(T)
 
     local api = {}
 
@@ -34,6 +32,20 @@ function M.Define(T)
         for _, fg in ipairs(graph and graph.funcs or {}) do
             for _, loop in ipairs(fg.loops or {}) do out[loop.id.text] = fg.func end
         end
+        return out
+    end
+
+    local function graph_loop_index(graph)
+        local out = {}
+        for _, fg in ipairs(graph and graph.funcs or {}) do
+            for _, loop in ipairs(fg.loops or {}) do out[loop.id.text] = loop end
+        end
+        return out
+    end
+
+    local function flow_edge_index(flow)
+        local out = {}
+        for _, fact in ipairs(flow and flow.edges or {}) do out[fact.edge.from.block.text .. "\0" .. fact.edge.to.block.text] = fact end
         return out
     end
 
@@ -218,7 +230,7 @@ function M.Define(T)
         return k.ty
     end
 
-    local function build_kernel_body(func, loop_blocks, value, mem, stream_by_access, rejects)
+    local function build_kernel_body(func, loop_blocks, value, mem, stream_by_access, reduction_backedges, rejects)
         local value_index = CodeValueFacts.expr_index(value)
         local access_by_id = {}
         for _, access in ipairs(mem and mem.accesses or {}) do access_by_id[access.id.text] = access end
@@ -253,6 +265,10 @@ function M.Define(T)
                         if dst ~= nil then
                             local expr = value_index.expr_by_value[dst.text]
                             if expr ~= nil then add_binding(dst, inst_result_ty(k), Kernel.KernelExprAlgebra(expr))
+                            elseif reduction_backedges and reduction_backedges[dst.text] then
+                                -- The loop-carried recurrence result is represented by
+                                -- KernelEffectFold; it does not need a second executable
+                                -- binding in the kernel body.
                             else rejects[#rejects + 1] = Kernel.KernelRejectUnsupportedExpr(dst, "loop-local value instruction lacks ValueExprFact") end
                         end
                     elseif cls == Code.CodeInstAtomicLoad or cls == Code.CodeInstAtomicStore or cls == Code.CodeInstAtomicRmw or cls == Code.CodeInstAtomicCas or cls == Code.CodeInstAtomicFence or cls == Code.CodeInstCall then
@@ -271,6 +287,8 @@ function M.Define(T)
         local funcs = {}
         for _, func in ipairs(module.funcs or {}) do funcs[func.id.text] = func end
         local loop_func = graph_loop_func(graph)
+        local graph_loops = graph_loop_index(graph)
+        local edge_facts = flow_edge_index(flow)
         local trip_counts = semantic_trip_counts(module, graph, flow)
 
         for _, loop in ipairs(flow and flow.loops or {}) do
@@ -289,12 +307,24 @@ function M.Define(T)
                 if func == nil then rejects[#rejects + 1] = Kernel.KernelRejectNoFacts(subject, "graph loop owner function is missing from CodeModule") end
                 local streams, stream_by_access = streams_for_accesses(func_id, loop.loop, loop_blocks, mem, rejects, proofs)
                 local effects = func and loop_effects(func, loop_blocks, effect, rejects, proofs) or {}
+                local reductions, closed_forms = reductions_for_domain(value, domain)
+                local reduction_backedges = {}
+                local graph_loop = graph_loops[loop.loop.text]
+                if graph_loop ~= nil then
+                    for _, latch in ipairs(graph_loop.latches or {}) do
+                        local fact = edge_facts[latch.from.block.text .. "\0" .. latch.to.block.text]
+                        for _, arg in ipairs(fact and fact.args or {}) do
+                            for _, reduction in ipairs(reductions or {}) do
+                                if arg.dst_param == reduction.accumulator then reduction_backedges[arg.src.text] = true end
+                            end
+                        end
+                    end
+                end
                 local body_bindings, body_effects = {}, {}
                 if func ~= nil then
-                    body_bindings, body_effects = build_kernel_body(func, loop_blocks, value, mem, stream_by_access, rejects)
+                    body_bindings, body_effects = build_kernel_body(func, loop_blocks, value, mem, stream_by_access, reduction_backedges, rejects)
                 end
                 for _, e in ipairs(body_effects or {}) do effects[#effects + 1] = e end
-                local reductions, closed_forms = reductions_for_domain(value, domain)
                 for _, reduction in ipairs(reductions) do
                     effects[#effects + 1] = Kernel.KernelEffectFold(reduction)
                     proofs[#proofs + 1] = Kernel.KernelProofValue(reduction.proof, "reduction fact justifies kernel fold")
@@ -352,4 +382,4 @@ function M.Define(T)
     return api
 end
 
-return M
+return bind_context

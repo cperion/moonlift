@@ -70,19 +70,25 @@ Generated dispatch shape:
 
 ```lua
 local schema = require("moonlift.schema_runtime")
-local erased = require("moonlift.phase_erased_runtime")
+
+local function single(value) return { value } end
+local function as_list(values) return values end
+local function only(values)
+  if #values ~= 1 then error("phase output: expected exactly 1 value", 2) end
+  return values[1]
+end
 
 local function phase(node, ...)
   local cls = schema.classof(node)
-  if cls == T.NodeA then
-    return erased.once(A(node.x))
-  elseif cls == T.NodeB then
-    return erased.seq(node.items)
+  if schema.isa(node, T.NodeA) then
+    return single(A(node.x))
+  elseif schema.isa(node, T.NodeB) then
+    return as_list(node.items)
   else
-    error("erased phase name: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+    error("phase name: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
   end
 end
 ```
 
 Dispatch phases return arrays. `pvm.drain(phase(...))` becomes `phase(...)`.
-`pvm.one(phase(...))` becomes `erased.one(phase(...))`.
+`pvm.one(phase(...))` becomes `only(phase(...))`.

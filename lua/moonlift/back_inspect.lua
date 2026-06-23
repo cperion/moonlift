@@ -1,8 +1,6 @@
-local M = {}
-
-function M.Define(T)
+local function bind_context(T)
     local Back = T.MoonBack
-    assert(Back, "moonlift.back_inspect.Define expects moonlift.schema_projection in the context")
+    assert(Back, "moonlift.back_inspect(T) expects moonlift.schema_projection in the context")
 
     local function sorted_counts(counts)
         local keys = {}
@@ -45,4 +43,4 @@ function M.Define(T)
     return { inspect = inspect }
 end
 
-return M
+return bind_context

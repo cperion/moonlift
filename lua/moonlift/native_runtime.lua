@@ -5,8 +5,6 @@
 
 local pvm = require("moonlift.pvm")
 
-local M = {}
-
 local seq = 0
 local entries = {}
 
@@ -15,8 +13,8 @@ local function next_id()
     return "native.artifact." .. tostring(seq)
 end
 
-function M.Define(T)
-    require("moonlift.compiler_model").Define(T)
+local function bind_context(T)
+    require("moonlift.compiler_model")(T)
 
     local Compiler = T.MoonCompiler
 
@@ -70,7 +68,7 @@ function M.Define(T)
 
     function api.instantiate_flatline(image, opts)
         opts = opts or {}
-        local jit = require("moonlift.back_jit").Define(T, opts.jit_opts).jit()
+        local jit = require("moonlift.back_jit")(T, opts.jit_opts).jit()
         for name, ptr in pairs(opts.symbols or {}) do jit:symbol(name, ptr) end
         local artifact = jit:compile(image)
         local id = next_id()
@@ -95,4 +93,4 @@ function M.Define(T)
     return api
 end
 
-return M
+return bind_context

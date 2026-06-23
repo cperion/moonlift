@@ -1,16 +1,48 @@
 local schema = require("moonlift.schema_runtime")
-local erased = require("moonlift.phase_erased_runtime")
+local function single(value) return { value } end
+local function as_list(values) return values end
+local function only(values)
+    if #values == 0 then error("phase output: expected exactly 1 value, got 0", 2) end
+    if #values ~= 1 then error("phase output: expected exactly 1 value, got more", 2) end
+    return values[1]
+end
+local function append_all(out, values)
+    for i = 1, #(values or {}) do out[#out + 1] = values[i] end
+    return out
+end
+local function concat_all(lists)
+    local out = {}
+    for i = 1, #(lists or {}) do append_all(out, lists[i]) end
+    return out
+end
+local function concat2(a, b)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    return out
+end
+local function concat3(a, b, c)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    append_all(out, c)
+    return out
+end
+local function flat_map(fn, values, n)
+    local out = {}
+    n = n or #(values or {})
+    for i = 1, n do append_all(out, fn(values[i])) end
+    return out
+end
 
-local M = {}
-
-function M.Define(T)
+local function bind_context(T)
     local Ty = T.MoonType
     local Back = T.MoonBack
     local Sem = T.MoonSem
 
-    local scalar_api = require("moonlift.type_to_back_scalar").Define(T)
-    local layout_api = require("moonlift.type_size_align").Define(T)
-    local classify_api = require("moonlift.type_classify").Define(T)
+    local scalar_api = require("moonlift.type_to_back_scalar")(T)
+    local layout_api = require("moonlift.type_size_align")(T)
+    local classify_api = require("moonlift.type_classify")(T)
 
     local abi_class_from_type_class
     local abi_decision
@@ -28,29 +60,29 @@ function M.Define(T)
 
             local r = scalar_api.result(ty)
             if schema.classof(r) == Ty.TypeBackScalarKnown then
-                if r.scalar == Back.BackVoid then return erased.once(Ty.AbiIgnore) end
-                return erased.once(Ty.AbiDirect(r.scalar))
+                if r.scalar == Back.BackVoid then return single(Ty.AbiIgnore) end
+                return single(Ty.AbiDirect(r.scalar))
             end
-            if self.scalar == T.MoonCore.ScalarVoid then return erased.once(Ty.AbiIgnore) end
-            return erased.once(Ty.AbiUnknown(self))
+            if self.scalar == T.MoonCore.ScalarVoid then return single(Ty.AbiIgnore) end
+            return single(Ty.AbiUnknown(self))
             end)(node, ...)
         elseif schema.isa(node, Ty.TypeClassPointer) then
             return (function()
- return erased.once(Ty.AbiDirect(Back.BackPtr))
+ return single(Ty.AbiDirect(Back.BackPtr))
             end)(node, ...)
         elseif schema.isa(node, Ty.TypeClassCallable) then
             return (function()
- return erased.once(Ty.AbiDirect(Back.BackPtr))
+ return single(Ty.AbiDirect(Back.BackPtr))
             end)(node, ...)
         elseif schema.isa(node, Ty.TypeClassSlice) then
             return (function(_, ty, env)
 
-            return erased.once(Ty.AbiDescriptor(known_layout(ty, env) or Sem.MemLayout(16, 8)))
+            return single(Ty.AbiDescriptor(known_layout(ty, env) or Sem.MemLayout(16, 8)))
             end)(node, ...)
         elseif schema.isa(node, Ty.TypeClassView) then
             return (function(_, ty, env)
 
-            return erased.once(Ty.AbiDescriptor(known_layout(ty, env) or Sem.MemLayout(24, 8)))
+            return single(Ty.AbiDescriptor(known_layout(ty, env) or Sem.MemLayout(24, 8)))
             end)(node, ...)
         elseif schema.isa(node, Ty.TypeClassLease) then
             return (function(self, ty, env)
@@ -68,41 +100,41 @@ function M.Define(T)
             return (function(self, ty)
 
             local r = scalar_api.result(ty)
-            if schema.classof(r) == Ty.TypeBackScalarKnown then return erased.once(Ty.AbiDirect(r.scalar)) end
-            return erased.once(Ty.AbiUnknown(self))
+            if schema.classof(r) == Ty.TypeBackScalarKnown then return single(Ty.AbiDirect(r.scalar)) end
+            return single(Ty.AbiUnknown(self))
             end)(node, ...)
         elseif schema.isa(node, Ty.TypeClassClosure) then
             return (function(_, ty, env)
 
-            return erased.once(Ty.AbiDescriptor(known_layout(ty, env) or Sem.MemLayout(16, 8)))
+            return single(Ty.AbiDescriptor(known_layout(ty, env) or Sem.MemLayout(16, 8)))
             end)(node, ...)
         elseif schema.isa(node, Ty.TypeClassArray) then
             return (function(_, ty, env)
 
             local layout = known_layout(ty, env)
-            if layout == nil then return erased.once(Ty.AbiUnknown(classify_api.classify(ty))) end
-            return erased.once(Ty.AbiIndirect(layout))
+            if layout == nil then return single(Ty.AbiUnknown(classify_api.classify(ty))) end
+            return single(Ty.AbiIndirect(layout))
             end)(node, ...)
         elseif schema.isa(node, Ty.TypeClassAggregate) then
             return (function(_, ty, env)
 
             local layout = known_layout(ty, env)
-            if layout == nil then return erased.once(Ty.AbiUnknown(classify_api.classify(ty))) end
-            return erased.once(Ty.AbiIndirect(layout))
+            if layout == nil then return single(Ty.AbiUnknown(classify_api.classify(ty))) end
+            return single(Ty.AbiIndirect(layout))
             end)(node, ...)
         elseif schema.isa(node, Ty.TypeClassUnknown) then
             return (function(self)
 
-            return erased.once(Ty.AbiUnknown(self))
+            return single(Ty.AbiUnknown(self))
             end)(node, ...)
         else
-            error("erased phase moonlift_type_abi_class_from_type_class: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_type_abi_class_from_type_class: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
     function abi_decision(ty, env)
         local class = classify_api.classify(ty)
-        local abi = erased.one(abi_class_from_type_class(class, ty, env or Sem.LayoutEnv({})))
+        local abi = only(abi_class_from_type_class(class, ty, env or Sem.LayoutEnv({})))
         return Ty.AbiDecision(ty, abi)
     end
 
@@ -113,4 +145,4 @@ function M.Define(T)
     }
 end
 
-return M
+return bind_context

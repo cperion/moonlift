@@ -2,8 +2,6 @@ local pvm = require("moonlift.pvm")
 local JsonDecode = require("moonlift.rpc_json_decode")
 local PositionIndex = require("moonlift.source_position_index")
 
-local M = {}
-
 local function uri_eq(a, b)
     return a == b or (a and b and a.text == b.text)
 end
@@ -22,12 +20,12 @@ local function language(S, lang)
     return S.LangUnknown(tostring(lang or ""))
 end
 
-function M.Define(T)
+local function bind_context(T)
     local S = T.MoonSource
     local E = T.MoonEditor
     local R = T.MoonRpc
-    local Decode = JsonDecode.Define(T)
-    local P = PositionIndex.Define(T)
+    local Decode = JsonDecode(T)
+    local P = PositionIndex(T)
 
     local function text_document_uri(params)
         return params and params.textDocument and params.textDocument.uri or params and params.uri or ""
@@ -183,4 +181,4 @@ function M.Define(T)
     return { decode = decode }
 end
 
-return M
+return bind_context

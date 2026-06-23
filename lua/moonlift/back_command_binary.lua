@@ -820,11 +820,15 @@ function M.encode(program)
     return table.concat(buf)
 end
 
-function M.Define(T)
+local function bind_context(T)
     local function encode(program)
         return M.encode(program)
     end
     return { encode = encode }
 end
 
-return M
+return setmetatable(M, {
+    __call = function(_, ...)
+        return bind_context(...)
+    end,
+})

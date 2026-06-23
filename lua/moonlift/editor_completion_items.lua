@@ -1,9 +1,41 @@
 local schema = require("moonlift.schema_runtime")
-local erased = require("moonlift.phase_erased_runtime")
+local function single(value) return { value } end
+local function as_list(values) return values end
+local function only(values)
+    if #values == 0 then error("phase output: expected exactly 1 value, got 0", 2) end
+    if #values ~= 1 then error("phase output: expected exactly 1 value, got more", 2) end
+    return values[1]
+end
+local function append_all(out, values)
+    for i = 1, #(values or {}) do out[#out + 1] = values[i] end
+    return out
+end
+local function concat_all(lists)
+    local out = {}
+    for i = 1, #(lists or {}) do append_all(out, lists[i]) end
+    return out
+end
+local function concat2(a, b)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    return out
+end
+local function concat3(a, b, c)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    append_all(out, c)
+    return out
+end
+local function flat_map(fn, values, n)
+    local out = {}
+    n = n or #(values or {})
+    for i = 1, n do append_all(out, fn(values[i])) end
+    return out
+end
 local CompletionContext = require("moonlift.editor_completion_context")
 local PositionIndex = require("moonlift.source_position_index")
-
-local M = {}
 
 local scalar_labels = {
     "void", "bool", "i8", "i16", "i32", "i64", "u8", "u16", "u32", "u64", "f32", "f64", "index", "rawptr",
@@ -16,13 +48,13 @@ local function add(out, E, label, kind, detail, documentation, insert_text, inse
     out[#out + 1] = E.CompletionItem(label, kind, detail or "", documentation or "", insert_text or label, insert_format)
 end
 
-function M.Define(T)
+local function bind_context(T)
     local S = T.MoonSource
     local E = T.MoonEditor
     local H = T.MoonHost
     local Tr = T.MoonTree
-    local Context = CompletionContext.Define(T)
-    local P = PositionIndex.Define(T)
+    local Context = CompletionContext(T)
+    local P = PositionIndex(T)
 
     local function line_prefix_at(text, offset)
         local start = text:sub(1, offset):match(".*\n()") or 1
@@ -153,10 +185,10 @@ function M.Define(T)
                 add_jump_targets(items, analysis)
             end
         end
-        return erased.seq(items)
+        return as_list(items)
             end)(node, ...)
         else
-            error("erased phase moonlift_editor_completion_items: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_editor_completion_items: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -166,10 +198,10 @@ function M.Define(T)
             return (function(position_query, analysis)
 
         local context = Context.context(position_query, analysis)
-        return erased.seq(items_phase(E.CompletionQuery(position_query, context), analysis))
+        return as_list(items_phase(E.CompletionQuery(position_query, context), analysis))
             end)(node, ...)
         else
-            error("erased phase moonlift_editor_completion: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_editor_completion: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -189,4 +221,4 @@ function M.Define(T)
     }
 end
 
-return M
+return bind_context

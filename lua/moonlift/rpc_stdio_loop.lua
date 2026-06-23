@@ -51,7 +51,7 @@ end
 
 function M.new_context()
     local T = pvm.context()
-    Asdl.Define(T)
+    Asdl(T)
     return T
 end
 
@@ -61,12 +61,12 @@ function M.run(opts)
     local output = opts.output or io.stdout
     local err = opts.err or io.stderr
     local T = opts.context or M.new_context()
-    local Json = JsonDecode.Define(T)
-    local Decode = LspDecode.Define(T)
-    local Encode = LspEncode.Define(T)
-    local WorkspaceApply = Workspace.Define(T)
-    local WorkspaceIndex = LspWorkspace.Define(T)
-    local Dispatch = LspDispatch.Define(T)
+    local Json = JsonDecode(T)
+    local Decode = LspDecode(T)
+    local Encode = LspEncode(T)
+    local WorkspaceApply = Workspace(T)
+    local WorkspaceIndex = LspWorkspace(T)
+    local Dispatch = LspDispatch(T)
     local E = T.MoonEditor
     local R = T.MoonRpc
     local memlog = os.getenv("MOONLIFT_LSP_MEMLOG") == "1"

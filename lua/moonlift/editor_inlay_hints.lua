@@ -1,9 +1,41 @@
 local schema = require("moonlift.schema_runtime")
-local erased = require("moonlift.phase_erased_runtime")
+local function single(value) return { value } end
+local function as_list(values) return values end
+local function only(values)
+    if #values == 0 then error("phase output: expected exactly 1 value, got 0", 2) end
+    if #values ~= 1 then error("phase output: expected exactly 1 value, got more", 2) end
+    return values[1]
+end
+local function append_all(out, values)
+    for i = 1, #(values or {}) do out[#out + 1] = values[i] end
+    return out
+end
+local function concat_all(lists)
+    local out = {}
+    for i = 1, #(lists or {}) do append_all(out, lists[i]) end
+    return out
+end
+local function concat2(a, b)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    return out
+end
+local function concat3(a, b, c)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    append_all(out, c)
+    return out
+end
+local function flat_map(fn, values, n)
+    local out = {}
+    n = n or #(values or {})
+    for i = 1, n do append_all(out, fn(values[i])) end
+    return out
+end
 local PositionIndex = require("moonlift.source_position_index")
 local SignatureHelp = require("moonlift.editor_signature_help")
-
-local M = {}
 
 local function uri_eq(a, b)
     return a == b or (a and b and a.text == b.text)
@@ -53,11 +85,11 @@ local function argument_starts(text, open_i, close_i)
     return out
 end
 
-function M.Define(T)
+local function bind_context(T)
     local S = T.MoonSource
     local E = T.MoonEditor
-    local P = PositionIndex.Define(T)
-    local Sig = SignatureHelp.Define(T)
+    local P = PositionIndex(T)
+    local Sig = SignatureHelp(T)
 
     local function hints_phase(node, ...)
         local cls = schema.classof(node)
@@ -94,10 +126,10 @@ function M.Define(T)
                 end
             end
         end
-        return erased.seq(out)
+        return as_list(out)
             end)(node, ...)
         else
-            error("erased phase moonlift_editor_inlay_hints: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_editor_inlay_hints: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -108,4 +140,4 @@ function M.Define(T)
     return { hints_phase = hints_phase, hints = hints }
 end
 
-return M
+return bind_context

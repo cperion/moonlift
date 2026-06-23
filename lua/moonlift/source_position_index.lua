@@ -1,7 +1,5 @@
 local schema = require("moonlift.schema_runtime")
 
-local M = {}
-
 local function utf8_char_len_and_cp(text, i, stop_i)
     local b1 = text:byte(i)
     if not b1 then return 0, nil end
@@ -92,7 +90,7 @@ local function build_lines(S, document)
     return lines
 end
 
-function M.Define(T)
+local function bind_context(T)
     local S = T.MoonSource
     local index_cache = setmetatable({}, { __mode = "kv" })
 
@@ -221,4 +219,4 @@ function M.Define(T)
     }
 end
 
-return M
+return bind_context

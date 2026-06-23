@@ -27,7 +27,7 @@ local checked = Machines.typecheck_module(module_ast, nil, { opts = { context = 
 
 local back_code = Machines.checked_to_back_code(checked, nil, { opts = { context = T, site = "test_compiler_code_result" } })
 assert(pvm.classof(back_code) == C.CodeResult)
-local abi = Abi.Define(T)
+local abi = Abi(T)
 local back_report = abi.validate_code_result(back_code)
 assert(#back_report.issues == 0)
 
@@ -35,7 +35,7 @@ local program = Machines.code_to_back(back_code, nil, { opts = { context = T, si
 assert(tostring(pvm.classof(program)):match("MoonBack%.BackProgram"))
 local image = Machines.back_to_flatline(program, nil, { opts = { context = T, site = "test_compiler_code_result" } })
 assert(pvm.classof(image) == C.FlatlineImage)
-local image_report = require("moonlift.flatline").Define(T).validate_image(image)
+local image_report = require("moonlift.flatline")(T).validate_image(image)
 assert(#image_report.issues == 0)
 
 local c_code = Machines.checked_to_c_code(checked, nil, { opts = { context = T, site = "test_compiler_code_result_c" } })

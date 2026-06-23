@@ -14,7 +14,7 @@ local SourceAnalysis = require("moonlift.source_analysis")
 local M = {}
 
 local T = pvm.context()
-schema.Define(T)
+schema(T)
 
 local C, Ty, B, Tr, O = T.MoonCore, T.MoonType, T.MoonBind, T.MoonTree, T.MoonOpen
 
@@ -723,7 +723,7 @@ end
 
 function Decl:typecheck(opts)
     opts = merge_source_ctx(opts, self)
-    local Typecheck = require("moonlift.tree_typecheck").Define(T)
+    local Typecheck = require("moonlift.tree_typecheck")(T)
     return Typecheck.check_module(module_ast_of(self), opts)
 end
 
@@ -1016,7 +1016,7 @@ function Decl:emit_c_artifact(opts)
     opts.context = opts.context or T
     opts.root = "emit_c"
     local c_unit = require("moonlift.compiler_driver").lower_module(module_ast_of(self), opts)
-    local artifact = require("moonlift.c_emit").Define(T).emit_artifact(c_unit, opts)
+    local artifact = require("moonlift.c_emit")(T).emit_artifact(c_unit, opts)
     artifact.dsl_module = self
     artifact.module = self
     artifact.unit = c_unit

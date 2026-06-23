@@ -5,8 +5,8 @@ local A = require("moonlift.schema_projection")
 local Control = require("moonlift.tree_control_facts")
 
 local T = pvm.context()
-A.Define(T)
-local Ctl = Control.Define(T)
+A(T)
+local Ctl = Control(T)
 local C = T.MoonCore
 local Ty = T.MoonType
 local Tr = T.MoonTree

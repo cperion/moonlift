@@ -3,8 +3,6 @@ local llb = require("llb")
 local SubjectAt = require("moonlift.editor_subject_at")
 local Format = require("moonlift.error.format")
 
-local M = {}
-
 local function scalar_name(C, scalar)
     return Format.scalar_name(scalar)
 end
@@ -182,14 +180,14 @@ local function host_struct_details(pvm, H, decl, layout)
     return details
 end
 
-function M.Define(T)
+local function bind_context(T)
     local E = T.MoonEditor
     local C = T.MoonCore
     local Ty = T.MoonType
     local Tr = T.MoonTree
     local O = T.MoonOpen
     local H = T.MoonHost
-    local Subject = SubjectAt.Define(T)
+    local Subject = SubjectAt(T)
 
     local function comment_context_for_pick(pick, analysis)
         if not pick or not pick.anchors or #pick.anchors == 0 then return nil end
@@ -323,4 +321,4 @@ function M.Define(T)
     }
 end
 
-return M
+return bind_context

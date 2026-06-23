@@ -8,9 +8,9 @@ local Driver = require("moonlift.compiler_driver")
 local Typecheck = require("moonlift.tree_typecheck")
 
 local T = pvm.context()
-A2.Define(T)
-local jit_api = J.Define(T)
-local TC = Typecheck.Define(T)
+A2(T)
+local jit_api = J(T)
+local TC = Typecheck(T)
 
 local C = T.MoonCore
 local Ty = T.MoonType

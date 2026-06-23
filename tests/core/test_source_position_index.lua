@@ -5,9 +5,9 @@ local A = require("moonlift.schema_projection")
 local PositionIndex = require("moonlift.source_position_index")
 
 local T = pvm.context()
-A.Define(T)
+A(T)
 local S = T.MoonSource
-local P = PositionIndex.Define(T)
+local P = PositionIndex(T)
 
 local function doc(text)
     return S.DocumentSnapshot(S.DocUri("file:///test.mlua"), S.DocVersion(1), S.LangMlua, text)

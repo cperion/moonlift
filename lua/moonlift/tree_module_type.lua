@@ -1,16 +1,48 @@
 local schema = require("moonlift.schema_runtime")
-local erased = require("moonlift.phase_erased_runtime")
+local function single(value) return { value } end
+local function as_list(values) return values end
+local function only(values)
+    if #values == 0 then error("phase output: expected exactly 1 value, got 0", 2) end
+    if #values ~= 1 then error("phase output: expected exactly 1 value, got more", 2) end
+    return values[1]
+end
+local function append_all(out, values)
+    for i = 1, #(values or {}) do out[#out + 1] = values[i] end
+    return out
+end
+local function concat_all(lists)
+    local out = {}
+    for i = 1, #(lists or {}) do append_all(out, lists[i]) end
+    return out
+end
+local function concat2(a, b)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    return out
+end
+local function concat3(a, b, c)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    append_all(out, c)
+    return out
+end
+local function flat_map(fn, values, n)
+    local out = {}
+    n = n or #(values or {})
+    for i = 1, n do append_all(out, fn(values[i])) end
+    return out
+end
 
-local M = {}
-
-function M.Define(T)
+local function bind_context(T)
     local C = T.MoonCore
     local Ty = T.MoonType
     local B = T.MoonBind
     local Sem = T.MoonSem
     local Tr = T.MoonTree
 
-    local layout_api = require("moonlift.type_size_align").Define(T)
+    local layout_api = require("moonlift.type_size_align")(T)
 
     local module_name
     local func_entry
@@ -28,28 +60,28 @@ function M.Define(T)
         local cls = schema.classof(node)
         if schema.isa(node, Tr.ModuleTyped) then
             return (function(self)
- return erased.once(self.module_name)
+ return single(self.module_name)
             end)(node, ...)
         elseif schema.isa(node, Tr.ModuleSem) then
             return (function(self)
- return erased.once(self.module_name)
+ return single(self.module_name)
             end)(node, ...)
         elseif schema.isa(node, Tr.ModuleCode) then
             return (function(self)
- return erased.once(self.module_name)
+ return single(self.module_name)
             end)(node, ...)
         elseif schema.isa(node, Tr.ModuleOpen) then
             return (function(self)
 
-            if self.name ~= T.MoonOpen.ModuleNameOpen then return erased.once(self.name.module_name) end
-            return erased.once("")
+            if self.name ~= T.MoonOpen.ModuleNameOpen then return single(self.name.module_name) end
+            return single("")
             end)(node, ...)
         elseif schema.isa(node, Tr.ModuleSurface) then
             return (function()
- return erased.once("")
+ return single("")
             end)(node, ...)
         else
-            error("erased phase moonlift_tree_module_name: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_tree_module_name: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -63,26 +95,26 @@ function M.Define(T)
         local cls = schema.classof(node)
         if schema.isa(node, Tr.FuncLocal) then
             return (function(self, mod_name)
- return erased.once(B.ValueEntry(self.name, B.Binding(C.Id("func:" .. mod_name .. ":" .. self.name), self.name, params_type(self.params, self.result), B.BindingClassGlobalFunc(mod_name, self.name))))
+ return single(B.ValueEntry(self.name, B.Binding(C.Id("func:" .. mod_name .. ":" .. self.name), self.name, params_type(self.params, self.result), B.BindingClassGlobalFunc(mod_name, self.name))))
             end)(node, ...)
         elseif schema.isa(node, Tr.FuncExport) then
             return (function(self, mod_name)
- return erased.once(B.ValueEntry(self.name, B.Binding(C.Id("func:" .. mod_name .. ":" .. self.name), self.name, params_type(self.params, self.result), B.BindingClassGlobalFunc(mod_name, self.name))))
+ return single(B.ValueEntry(self.name, B.Binding(C.Id("func:" .. mod_name .. ":" .. self.name), self.name, params_type(self.params, self.result), B.BindingClassGlobalFunc(mod_name, self.name))))
             end)(node, ...)
         elseif schema.isa(node, Tr.FuncLocalContract) then
             return (function(self, mod_name)
- return erased.once(B.ValueEntry(self.name, B.Binding(C.Id("func:" .. mod_name .. ":" .. self.name), self.name, params_type(self.params, self.result), B.BindingClassGlobalFunc(mod_name, self.name))))
+ return single(B.ValueEntry(self.name, B.Binding(C.Id("func:" .. mod_name .. ":" .. self.name), self.name, params_type(self.params, self.result), B.BindingClassGlobalFunc(mod_name, self.name))))
             end)(node, ...)
         elseif schema.isa(node, Tr.FuncExportContract) then
             return (function(self, mod_name)
- return erased.once(B.ValueEntry(self.name, B.Binding(C.Id("func:" .. mod_name .. ":" .. self.name), self.name, params_type(self.params, self.result), B.BindingClassGlobalFunc(mod_name, self.name))))
+ return single(B.ValueEntry(self.name, B.Binding(C.Id("func:" .. mod_name .. ":" .. self.name), self.name, params_type(self.params, self.result), B.BindingClassGlobalFunc(mod_name, self.name))))
             end)(node, ...)
         elseif schema.isa(node, Tr.FuncOpen) then
             return (function(self, mod_name)
- return erased.once(B.ValueEntry(self.sym.name, B.Binding(C.Id("func:" .. self.sym.key), self.sym.name, Ty.TFunc({}, self.result), B.BindingClassOpenSym(C.OpenSym(C.SymKindFunc, self.sym.key, self.sym.name, "")))))
+ return single(B.ValueEntry(self.sym.name, B.Binding(C.Id("func:" .. self.sym.key), self.sym.name, Ty.TFunc({}, self.result), B.BindingClassOpenSym(C.OpenSym(C.SymKindFunc, self.sym.key, self.sym.name, "")))))
             end)(node, ...)
         else
-            error("erased phase moonlift_tree_func_value_entry: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_tree_func_value_entry: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -90,14 +122,14 @@ function M.Define(T)
         local cls = schema.classof(node)
         if schema.isa(node, Tr.ExternFunc) then
             return (function(self)
- return erased.once(B.ValueEntry(self.name, B.Binding(C.Id("extern:" .. self.name), self.name, params_type(self.params, self.result), B.BindingClassExtern(self.symbol))))
+ return single(B.ValueEntry(self.name, B.Binding(C.Id("extern:" .. self.name), self.name, params_type(self.params, self.result), B.BindingClassExtern(self.symbol))))
             end)(node, ...)
         elseif schema.isa(node, Tr.ExternFuncOpen) then
             return (function(self)
- return erased.once(B.ValueEntry(self.sym.name, B.Binding(C.Id("extern:" .. self.sym.key), self.sym.name, Ty.TFunc({}, self.result), B.BindingClassOpenSym(C.OpenSym(C.SymKindExtern, self.sym.key, self.sym.name, self.sym.symbol)))))
+ return single(B.ValueEntry(self.sym.name, B.Binding(C.Id("extern:" .. self.sym.key), self.sym.name, Ty.TFunc({}, self.result), B.BindingClassOpenSym(C.OpenSym(C.SymKindExtern, self.sym.key, self.sym.name, self.sym.symbol)))))
             end)(node, ...)
         else
-            error("erased phase moonlift_tree_extern_value_entry: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_tree_extern_value_entry: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -105,14 +137,14 @@ function M.Define(T)
         local cls = schema.classof(node)
         if schema.isa(node, Tr.ConstItem) then
             return (function(self, mod_name)
- return erased.once(B.ValueEntry(self.name, B.Binding(C.Id("const:" .. mod_name .. ":" .. self.name), self.name, self.ty, B.BindingClassGlobalConst(mod_name, self.name))))
+ return single(B.ValueEntry(self.name, B.Binding(C.Id("const:" .. mod_name .. ":" .. self.name), self.name, self.ty, B.BindingClassGlobalConst(mod_name, self.name))))
             end)(node, ...)
         elseif schema.isa(node, Tr.ConstItemOpen) then
             return (function(self)
- return erased.once(B.ValueEntry(self.sym.name, B.Binding(C.Id("const:" .. self.sym.key), self.sym.name, self.ty, B.BindingClassOpenSym(C.OpenSym(C.SymKindConst, self.sym.key, self.sym.name, "")))))
+ return single(B.ValueEntry(self.sym.name, B.Binding(C.Id("const:" .. self.sym.key), self.sym.name, self.ty, B.BindingClassOpenSym(C.OpenSym(C.SymKindConst, self.sym.key, self.sym.name, "")))))
             end)(node, ...)
         else
-            error("erased phase moonlift_tree_const_value_entry: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_tree_const_value_entry: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -120,14 +152,14 @@ function M.Define(T)
         local cls = schema.classof(node)
         if schema.isa(node, Tr.StaticItem) then
             return (function(self, mod_name)
- return erased.once(B.ValueEntry(self.name, B.Binding(C.Id("static:" .. mod_name .. ":" .. self.name), self.name, self.ty, B.BindingClassGlobalStatic(mod_name, self.name))))
+ return single(B.ValueEntry(self.name, B.Binding(C.Id("static:" .. mod_name .. ":" .. self.name), self.name, self.ty, B.BindingClassGlobalStatic(mod_name, self.name))))
             end)(node, ...)
         elseif schema.isa(node, Tr.StaticItemOpen) then
             return (function(self)
- return erased.once(B.ValueEntry(self.sym.name, B.Binding(C.Id("static:" .. self.sym.key), self.sym.name, self.ty, B.BindingClassOpenSym(C.OpenSym(C.SymKindStatic, self.sym.key, self.sym.name, "")))))
+ return single(B.ValueEntry(self.sym.name, B.Binding(C.Id("static:" .. self.sym.key), self.sym.name, self.ty, B.BindingClassOpenSym(C.OpenSym(C.SymKindStatic, self.sym.key, self.sym.name, "")))))
             end)(node, ...)
         else
-            error("erased phase moonlift_tree_static_value_entry: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_tree_static_value_entry: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -135,34 +167,34 @@ function M.Define(T)
         local cls = schema.classof(node)
         if schema.isa(node, Tr.TypeDeclStruct) then
             return (function(self, mod_name)
- return erased.once(B.TypeEntry(self.name, Ty.TNamed(Ty.TypeRefGlobal(mod_name, self.name))))
+ return single(B.TypeEntry(self.name, Ty.TNamed(Ty.TypeRefGlobal(mod_name, self.name))))
             end)(node, ...)
         elseif schema.isa(node, Tr.TypeDeclUnion) then
             return (function(self, mod_name)
- return erased.once(B.TypeEntry(self.name, Ty.TNamed(Ty.TypeRefGlobal(mod_name, self.name))))
+ return single(B.TypeEntry(self.name, Ty.TNamed(Ty.TypeRefGlobal(mod_name, self.name))))
             end)(node, ...)
         elseif schema.isa(node, Tr.TypeDeclEnumSugar) then
             return (function(self, mod_name)
- return erased.once(B.TypeEntry(self.name, Ty.TNamed(Ty.TypeRefGlobal(mod_name, self.name))))
+ return single(B.TypeEntry(self.name, Ty.TNamed(Ty.TypeRefGlobal(mod_name, self.name))))
             end)(node, ...)
         elseif schema.isa(node, Tr.TypeDeclTaggedUnionSugar) then
             return (function(self, mod_name)
- return erased.once(B.TypeEntry(self.name, Ty.TNamed(Ty.TypeRefGlobal(mod_name, self.name))))
+ return single(B.TypeEntry(self.name, Ty.TNamed(Ty.TypeRefGlobal(mod_name, self.name))))
             end)(node, ...)
         elseif schema.isa(node, Tr.TypeDeclHandle) then
             return (function(self, mod_name)
- return erased.once(B.TypeEntry(self.name, Ty.THandle(Ty.TypeRefGlobal(mod_name, self.name), self.repr)))
+ return single(B.TypeEntry(self.name, Ty.THandle(Ty.TypeRefGlobal(mod_name, self.name), self.repr)))
             end)(node, ...)
         elseif schema.isa(node, Tr.TypeDeclOpenStruct) then
             return (function(self)
- return erased.once(B.TypeEntry(self.sym.name, Ty.TNamed(Ty.TypeRefLocal(self.sym))))
+ return single(B.TypeEntry(self.sym.name, Ty.TNamed(Ty.TypeRefLocal(self.sym))))
             end)(node, ...)
         elseif schema.isa(node, Tr.TypeDeclOpenUnion) then
             return (function(self)
- return erased.once(B.TypeEntry(self.sym.name, Ty.TNamed(Ty.TypeRefLocal(self.sym))))
+ return single(B.TypeEntry(self.sym.name, Ty.TNamed(Ty.TypeRefLocal(self.sym))))
             end)(node, ...)
         else
-            error("erased phase moonlift_tree_type_entry: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_tree_type_entry: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -204,20 +236,20 @@ function M.Define(T)
             local cls = schema.classof(t)
             if cls == Tr.TypeDeclStruct or cls == Tr.TypeDeclUnion then
                 local fields, size, align = field_layout(t.fields, env, cls == Tr.TypeDeclUnion, target)
-                return erased.once(Sem.LayoutNamed(mod_name, t.name, fields, size, align))
+                return single(Sem.LayoutNamed(mod_name, t.name, fields, size, align))
             end
             if cls == Tr.TypeDeclOpenStruct or cls == Tr.TypeDeclOpenUnion then
                 local fields, size, align = field_layout(t.fields, env, cls == Tr.TypeDeclOpenUnion, target)
-                return erased.once(Sem.LayoutLocal(t.sym, fields, size, align))
+                return single(Sem.LayoutLocal(t.sym, fields, size, align))
             end
             if cls == Tr.TypeDeclEnumSugar then
                 local tag_layout = layout_api.result(tag_ty(), env, target).layout
-                return erased.once(Sem.LayoutNamed(mod_name, t.name, { Sem.FieldLayout("__tag", 0, tag_ty()) }, tag_layout.size, tag_layout.align))
+                return single(Sem.LayoutNamed(mod_name, t.name, { Sem.FieldLayout("__tag", 0, tag_ty()) }, tag_layout.size, tag_layout.align))
             end
             if cls == Tr.TypeDeclHandle then
                 local repr_ty = Ty.THandle(Ty.TypeRefGlobal(mod_name, t.name), t.repr)
                 local layout = layout_api.result(repr_ty, env, target).layout
-                return erased.once(Sem.LayoutNamed(mod_name, t.name, { Sem.FieldLayout("__handle", 0, repr_ty) }, layout.size, layout.align))
+                return single(Sem.LayoutNamed(mod_name, t.name, { Sem.FieldLayout("__handle", 0, repr_ty) }, layout.size, layout.align))
             end
             if cls == Tr.TypeDeclTaggedUnionSugar then
                 local tag_layout = layout_api.result(tag_ty(), env, target).layout
@@ -244,58 +276,58 @@ function M.Define(T)
                     size = payload_offset + payload_size
                     if payload_align > align then align = payload_align end
                 end
-                return erased.once(Sem.LayoutNamed(mod_name, t.name, fields, align_up(size, align), align))
+                return single(Sem.LayoutNamed(mod_name, t.name, fields, align_up(size, align), align))
             end
-            return erased.empty()
+            return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemFunc) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemExtern) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemConst) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemStatic) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemImport) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemRegionFrag) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemExprFrag) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemUseTypeDeclSlot) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemUseItemsSlot) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemUseModule) then
             return (function(self, _, env, target)
 
-            local use_mod_name = erased.one(module_name(self.module.h))
-            return erased.children(function(item) return item_layout(item, use_mod_name, env, target) end, self.module.items)
+            local use_mod_name = only(module_name(self.module.h))
+            return flat_map(function(item) return item_layout(item, use_mod_name, env, target) end, self.module.items)
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemUseModuleSlot) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         else
-            error("erased phase moonlift_tree_item_layout: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_tree_item_layout: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -323,36 +355,36 @@ function M.Define(T)
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemImport) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemRegionFrag) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemExprFrag) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemUseTypeDeclSlot) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemUseItemsSlot) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemUseModule) then
             return (function(self)
 
-            local use_mod_name = erased.one(module_name(self.module.h))
-            return erased.children(function(item) return item_env_entries(item, use_mod_name) end, self.module.items)
+            local use_mod_name = only(module_name(self.module.h))
+            return flat_map(function(item) return item_env_entries(item, use_mod_name) end, self.module.items)
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemUseModuleSlot) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         else
-            error("erased phase moonlift_tree_item_env_entries: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_tree_item_env_entries: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -361,7 +393,7 @@ function M.Define(T)
         if schema.isa(node, Tr.Module) then
             return (function(module, target)
 
-            local mod_name = erased.one(module_name(module.h))
+            local mod_name = only(module_name(module.h))
             local values = {}
             local types = {}
             local layouts = {}
@@ -381,10 +413,10 @@ function M.Define(T)
                 end
                 layouts = pass_layouts
             end
-            return erased.once(B.Env(mod_name, values, types, layouts))
+            return single(B.Env(mod_name, values, types, layouts))
             end)(node, ...)
         else
-            error("erased phase moonlift_tree_module_env: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_tree_module_env: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -392,8 +424,8 @@ function M.Define(T)
         module_name = module_name,
         item_env_entries = item_env_entries,
         module_env = module_env,
-        env = function(module, target) return erased.one(module_env(module, target)) end,
+        env = function(module, target) return only(module_env(module, target)) end,
     }
 end
 
-return M
+return bind_context

@@ -6,7 +6,7 @@ local R = require("back.dasm.phases.regalloc_banked")
 local Mx = require("back.dasm.model")
 
 local T = pvm.context()
-A2.Define(T)
+A2(T)
 Mx.set_context(T)
 
 local B = T.MoonBack

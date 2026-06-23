@@ -5,9 +5,9 @@ local A2 = require("moonlift.schema_projection")
 local BackProgram = require("moonlift.back_program")
 
 local T = pvm.context()
-A2.Define(T)
+A2(T)
 local B = T.MoonBack
-local P = BackProgram.Define(T)
+local P = BackProgram(T)
 
 local a = B.CmdConst(B.BackValId("a"), B.BackI32, B.BackLitInt("1"))
 local b = B.CmdConst(B.BackValId("b"), B.BackI32, B.BackLitInt("2"))

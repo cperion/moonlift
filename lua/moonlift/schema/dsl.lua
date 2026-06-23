@@ -5,7 +5,7 @@
 
 local llb = require("llb")
 local Model = require("moonlift.schema_projection_model")
-local DefineSchema = require("moonlift.context_define_schema")
+local SchemaInstall = require("moonlift.context_define_schema")
 local pvm = require("moonlift.pvm")
 
 local M = {}
@@ -221,7 +221,7 @@ local function to_asdl_module(A, module)
 end
 
 function M.to_asdl_schema(T, modules)
-    Model.Define(T)
+    Model(T)
     local A = T.MoonAsdl
     local out = {}
     for i = 1, #(modules or {}) do out[#out + 1] = to_asdl_module(A, modules[i]) end
@@ -229,7 +229,7 @@ function M.to_asdl_schema(T, modules)
 end
 
 function M.define(T, modules)
-    return DefineSchema.define(T, M.to_asdl_schema(T, modules))
+    return SchemaInstall.define(T, M.to_asdl_schema(T, modules))
 end
 
 function M.describe(value)

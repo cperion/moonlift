@@ -1,16 +1,14 @@
 package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local pvm = require("moonlift.pvm")
 local Erase = require("moonlift.pvm_erase")
 
 local fixture = [[
 local pvm = require("moonlift.pvm")
 
-local M = {}
 local A = { kind = "A" }
 local B = { kind = "B" }
 
-function M.Define()
+local function bind_context()
     local scalar_phase = pvm.phase("fixture_scalar", function(node)
         if pvm.classof(node) == A then return node.value end
         return "miss"
@@ -55,23 +53,24 @@ function M.Define()
     }
 end
 
-return M
+return bind_context
 ]]
 
-local erased_source, report = Erase.transform_source(fixture, { path = "fixture.lua" })
+local phase_source, report = Erase.transform_source(fixture, { path = "fixture.lua" })
 
 assert(report.erased_count == 3, Erase.report_string(report))
 assert(report.rewritten_one_calls == 2, "expected pvm.one call rewrites")
 assert(report.rewritten_method_calls == 2, "expected uncached method rewrites")
-assert(not erased_source:match("moonlift%.pvm"), "erased fixture should not require moonlift.pvm")
-assert(not erased_source:match("pvm%."), "erased fixture should not reference pvm")
-assert(erased_source:match("local schema = require%(\"moonlift%.schema_runtime\"%)"), "erased fixture should use schema runtime")
-assert(erased_source:match("local erased = require%(\"moonlift%.phase_erased_runtime\"%)"), "erased fixture should use erased phase runtime")
-assert(erased_source:match("local function scalar_phase%(node%)"), "scalar phase should become a direct function")
-assert(erased_source:match("local function dispatch_phase%(node, %.%.%.%)"), "dispatch phase should become a direct dispatcher")
+assert(not phase_source:match("moonlift%.pvm"), "phase fixture should not require moonlift.pvm")
+assert(not phase_source:match("pvm%."), "phase fixture should not reference pvm")
+assert(not phase_source:match("moonlift%.phase_"), "phase fixture should not use a runtime shim")
+assert(phase_source:match("local schema = require%(\"moonlift%.schema_runtime\"%)"), "phase fixture should use schema runtime")
+assert(phase_source:match("local function single%(value%)"), "phase fixture should use local output helpers")
+assert(phase_source:match("local function scalar_phase%(node%)"), "scalar phase should become a direct function")
+assert(phase_source:match("local function dispatch_phase%(node, %.%.%.%)"), "dispatch phase should become a direct dispatcher")
 
-local chunk = assert(loadstring(erased_source, "@fixture_erased.lua"))
-local mod = chunk().Define()
+local chunk = assert(loadstring(phase_source, "@fixture_phase.lua"))
+local mod = chunk()()
 
 local function node(cls, value)
     return setmetatable({ value = value }, { __class = cls })
@@ -83,8 +82,6 @@ assert(mod.cached(a) == "ok")
 assert(mod.dispatch_one(a) == "ok")
 local many = mod.dispatch_many(a)
 assert(#many == 1 and many[1] == "ok")
-assert(#pvm.drain(many) == 1, "legacy pvm.drain should accept erased arrays during transition")
-assert(pvm.one(many) == "ok", "legacy pvm.one should accept erased arrays during transition")
 
 local moonlift_phase_refs = assert(io.popen("rg -n 'pvm\\.phase\\(' lua/moonlift --glob '!pvm.lua' --glob '!pvm_erase.lua'", "r"))
 local leaked = moonlift_phase_refs:read("*a") or ""

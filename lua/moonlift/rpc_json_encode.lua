@@ -43,8 +43,8 @@ local function encode_lua(v)
     error("json encode: unsupported " .. tv, 2)
 end
 
-function M.Define(T)
-    local DecodeT = Decode.Define(T)
+local function bind_context(T)
+    local DecodeT = Decode(T)
     return {
         JSON_NULL = M.JSON_NULL,
         encode_lua = encode_lua,
@@ -53,4 +53,8 @@ function M.Define(T)
 end
 
 M.encode_lua = encode_lua
-return M
+return setmetatable(M, {
+    __call = function(_, ...)
+        return bind_context(...)
+    end,
+})

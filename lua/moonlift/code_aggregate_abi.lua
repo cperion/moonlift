@@ -1,19 +1,17 @@
 local pvm = require("moonlift.pvm")
 
-local M = {}
-
 local function class_name(x)
     local cls = pvm.classof(x) or x
     return tostring(cls):match("Class%((.-)%)") or tostring(cls)
 end
 
-function M.Define(T)
+local function bind_context(T)
     T._moonlift_api_cache = T._moonlift_api_cache or {}
     if T._moonlift_api_cache.code_aggregate_abi ~= nil then return T._moonlift_api_cache.code_aggregate_abi end
 
     local Code = T.MoonCode
     local Back = T.MoonBack
-    local TypeSizeAlign = require("moonlift.type_size_align").Define(T)
+    local TypeSizeAlign = require("moonlift.type_size_align")(T)
 
     local api = {}
 
@@ -133,4 +131,4 @@ function M.Define(T)
     return api
 end
 
-return M
+return bind_context

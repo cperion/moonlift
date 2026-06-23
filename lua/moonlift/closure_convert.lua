@@ -1,8 +1,6 @@
 local pvm = require("moonlift.pvm")
 
-local M = {}
-
-function M.Define(T)
+local function bind_context(T)
     local C = T.MoonCore
     local Ty = T.MoonType
     local B = T.MoonBind
@@ -404,4 +402,4 @@ function M.Define(T)
     }
 end
 
-return M
+return bind_context

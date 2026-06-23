@@ -6,9 +6,9 @@ local Facts = require("moonlift.project_ready_facts")
 local Report = require("moonlift.project_report")
 
 local T = pvm.context()
-A.Define(T)
-local F = Facts.Define(T)
-local R = Report.Define(T)
+A(T)
+local F = Facts(T)
+local R = Report(T)
 local P = T.MoonProject
 
 local function id(text) return P.TaskId(text) end

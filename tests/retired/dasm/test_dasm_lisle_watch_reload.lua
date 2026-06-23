@@ -5,8 +5,8 @@ local A2 = require("moonlift.schema_projection")
 local dasm_init = require("back.dasm")
 
 local T = pvm.context()
-A2.Define(T)
-local api = dasm_init.Define(T)
+A2(T)
+local api = dasm_init(T)
 local jit = api.jit()
 
 assert(jit:watch_rules(true) == true)

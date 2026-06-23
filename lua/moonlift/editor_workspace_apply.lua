@@ -1,8 +1,6 @@
 local schema = require("moonlift.schema_runtime")
 local SourceTextApply = require("moonlift.source_text_apply")
 
-local M = {}
-
 local function copy_array(xs)
     local out = {}
     for i = 1, #xs do out[i] = xs[i] end
@@ -20,9 +18,9 @@ local function find_doc(docs, uri)
     return nil, nil
 end
 
-function M.Define(T)
+local function bind_context(T)
     local E = T.MoonEditor
-    local SourceApply = SourceTextApply.Define(T)
+    local SourceApply = SourceTextApply(T)
 
     local function initial_state()
         return E.WorkspaceState(E.ServerCreated, {}, {}, {}, E.WorkspaceIndex(0, {}))
@@ -104,4 +102,4 @@ function M.Define(T)
     }
 end
 
-return M
+return bind_context

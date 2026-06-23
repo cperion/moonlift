@@ -11,6 +11,7 @@ local SCHEMA_MODULES = {
     "core",
     "back",
     "c",
+    "luajit",
     "c_ast",
     "dasm",
     "link",
@@ -26,6 +27,7 @@ local SCHEMA_MODULES = {
     "mem",
     "effect",
     "kernel",
+    "stencil",
     "schedule",
     "lower",
     "compiler",
@@ -71,7 +73,7 @@ function M.schema(T)
     return Dsl.to_asdl_schema(T, M.load_modules())
 end
 
-function M.Define(T)
+local function bind_context(T)
     return Dsl.define(T, M.load_modules())
 end
 
@@ -80,4 +82,8 @@ M.use = Dsl.use
 M.define = Dsl.define
 M.to_asdl_schema = Dsl.to_asdl_schema
 
-return M
+return setmetatable(M, {
+    __call = function(_, ...)
+        return bind_context(...)
+    end,
+})

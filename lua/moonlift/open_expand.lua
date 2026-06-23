@@ -1,10 +1,41 @@
-local pvm = require("moonlift.pvm")
 local schema = require("moonlift.schema_runtime")
-local erased = require("moonlift.phase_erased_runtime")
+local function single(value) return { value } end
+local function as_list(values) return values end
+local function only(values)
+    if #values == 0 then error("phase output: expected exactly 1 value, got 0", 2) end
+    if #values ~= 1 then error("phase output: expected exactly 1 value, got more", 2) end
+    return values[1]
+end
+local function append_all(out, values)
+    for i = 1, #(values or {}) do out[#out + 1] = values[i] end
+    return out
+end
+local function concat_all(lists)
+    local out = {}
+    for i = 1, #(lists or {}) do append_all(out, lists[i]) end
+    return out
+end
+local function concat2(a, b)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    return out
+end
+local function concat3(a, b, c)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    append_all(out, c)
+    return out
+end
+local function flat_map(fn, values, n)
+    local out = {}
+    n = n or #(values or {})
+    for i = 1, n do append_all(out, fn(values[i])) end
+    return out
+end
 
-local M = {}
-
-function M.Define(T, opts)
+local function bind_context(T, opts)
     opts = opts or {}
     local Ty = T.MoonType
     local O = T.MoonOpen
@@ -59,7 +90,7 @@ function M.Define(T, opts)
     end
 
     local function one(phase, node, env)
-        return pvm.one(phase(node, env))
+        return only(phase(node, env))
     end
 
     local function maybe_expr_from_value_ref(ref, h, env)
@@ -110,7 +141,7 @@ function M.Define(T, opts)
         local out = {}
         for i = 1, #xs do
             local g, p, c = expand_stmt(xs[i], env)
-            pvm.drain_into(g, p, c, out)
+            append_all(out, g)
         end
         return out
     end
@@ -217,7 +248,7 @@ function M.Define(T, opts)
         local out = {}
         for i = 1, #xs do
             local g, p, c = expand_item(xs[i], env)
-            pvm.drain_into(g, p, c, out)
+            append_all(out, g)
         end
         return out
     end
@@ -291,116 +322,116 @@ function M.Define(T, opts)
             return (function(self, env)
 
             local v = slot_value(self, env)
-            if v == nil then return erased.empty() end
-            return erased.once(v)
+            if v == nil then return {} end
+            return single(v)
             end)(node, ...)
         elseif schema.isa(node, O.SlotValue) then
             return (function(self, env)
 
             local v = slot_value(self, env)
-            if v == nil then return erased.empty() end
-            return erased.once(v)
+            if v == nil then return {} end
+            return single(v)
             end)(node, ...)
         elseif schema.isa(node, O.SlotExpr) then
             return (function(self, env)
 
             local v = slot_value(self, env)
-            if v == nil then return erased.empty() end
-            return erased.once(v)
+            if v == nil then return {} end
+            return single(v)
             end)(node, ...)
         elseif schema.isa(node, O.SlotPlace) then
             return (function(self, env)
 
             local v = slot_value(self, env)
-            if v == nil then return erased.empty() end
-            return erased.once(v)
+            if v == nil then return {} end
+            return single(v)
             end)(node, ...)
         elseif schema.isa(node, O.SlotDomain) then
             return (function(self, env)
 
             local v = slot_value(self, env)
-            if v == nil then return erased.empty() end
-            return erased.once(v)
+            if v == nil then return {} end
+            return single(v)
             end)(node, ...)
         elseif schema.isa(node, O.SlotRegion) then
             return (function(self, env)
 
             local v = slot_value(self, env)
-            if v == nil then return erased.empty() end
-            return erased.once(v)
+            if v == nil then return {} end
+            return single(v)
             end)(node, ...)
         elseif schema.isa(node, O.SlotCont) then
             return (function(self, env)
 
             local v = slot_value(self, env)
-            if v == nil then return erased.empty() end
-            return erased.once(v)
+            if v == nil then return {} end
+            return single(v)
             end)(node, ...)
         elseif schema.isa(node, O.SlotFunc) then
             return (function(self, env)
 
             local v = slot_value(self, env)
-            if v == nil then return erased.empty() end
-            return erased.once(v)
+            if v == nil then return {} end
+            return single(v)
             end)(node, ...)
         elseif schema.isa(node, O.SlotConst) then
             return (function(self, env)
 
             local v = slot_value(self, env)
-            if v == nil then return erased.empty() end
-            return erased.once(v)
+            if v == nil then return {} end
+            return single(v)
             end)(node, ...)
         elseif schema.isa(node, O.SlotStatic) then
             return (function(self, env)
 
             local v = slot_value(self, env)
-            if v == nil then return erased.empty() end
-            return erased.once(v)
+            if v == nil then return {} end
+            return single(v)
             end)(node, ...)
         elseif schema.isa(node, O.SlotTypeDecl) then
             return (function(self, env)
 
             local v = slot_value(self, env)
-            if v == nil then return erased.empty() end
-            return erased.once(v)
+            if v == nil then return {} end
+            return single(v)
             end)(node, ...)
         elseif schema.isa(node, O.SlotItems) then
             return (function(self, env)
 
             local v = slot_value(self, env)
-            if v == nil then return erased.empty() end
-            return erased.once(v)
+            if v == nil then return {} end
+            return single(v)
             end)(node, ...)
         elseif schema.isa(node, O.SlotModule) then
             return (function(self, env)
 
             local v = slot_value(self, env)
-            if v == nil then return erased.empty() end
-            return erased.once(v)
+            if v == nil then return {} end
+            return single(v)
             end)(node, ...)
         elseif schema.isa(node, O.SlotRegionFrag) then
             return (function(self, env)
 
             local v = slot_value(self, env)
-            if v == nil then return erased.empty() end
-            return erased.once(v)
+            if v == nil then return {} end
+            return single(v)
             end)(node, ...)
         elseif schema.isa(node, O.SlotExprFrag) then
             return (function(self, env)
 
             local v = slot_value(self, env)
-            if v == nil then return erased.empty() end
-            return erased.once(v)
+            if v == nil then return {} end
+            return single(v)
             end)(node, ...)
         elseif schema.isa(node, O.SlotName) then
             return (function(self, env)
 
             local v = slot_value(self, env)
-            if v == nil then return erased.empty() end
-            return erased.once(v)
+            if v == nil then return {} end
+            return single(v)
             end)(node, ...)
         else
-            error("erased phase moonlift_open_lookup_slot_value: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_lookup_slot_value: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -484,19 +515,19 @@ function M.Define(T, opts)
         local cls = schema.classof(node)
         if schema.isa(node, O.NameRefText) then
             return (function(self)
- return erased.once(self)
+ return single(self)
             end)(node, ...)
         elseif schema.isa(node, O.NameRefSlot) then
             return (function(self, env)
 
             local values = lookup_slot_value(O.SlotName(self.slot), env)
             if #values == 1 and schema.classof(values[1]) == O.SlotValueName then
-                return erased.once(O.NameRefText(values[1].text))
+                return single(O.NameRefText(values[1].text))
             end
-            return erased.once(self)
+            return single(self)
             end)(node, ...)
         else
-            error("erased phase moonlift_open_expand_name_ref: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_expand_name_ref: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -504,15 +535,15 @@ function M.Define(T, opts)
         local cls = schema.classof(node)
         if schema.isa(node, Ty.TypeRefPath) then
             return (function(self)
- return erased.once(self)
+ return single(self)
             end)(node, ...)
         elseif schema.isa(node, Ty.TypeRefGlobal) then
             return (function(self)
- return erased.once(self)
+ return single(self)
             end)(node, ...)
         elseif schema.isa(node, Ty.TypeRefLocal) then
             return (function(self)
- return erased.once(self)
+ return single(self)
             end)(node, ...)
         elseif schema.isa(node, Ty.TypeRefSlot) then
             return (function(self, env)
@@ -522,13 +553,13 @@ function M.Define(T, opts)
                 local ty = one(expand_type, values[1].ty, env)
                 local cls = schema.classof(ty)
                 if cls == Ty.TNamed or cls == Ty.THandle then
-                    return erased.once(ty.ref)
+                    return single(ty.ref)
                 end
             end
-            return erased.once(self)
+            return single(self)
             end)(node, ...)
         else
-            error("erased phase moonlift_open_expand_type_ref: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_expand_type_ref: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -536,14 +567,14 @@ function M.Define(T, opts)
         local cls = schema.classof(node)
         if schema.isa(node, Ty.HandleDomain) then
             return (function(self, env)
- return erased.once(Ty.HandleDomain(one(expand_type_ref, self.domain, env)))
+ return single(Ty.HandleDomain(one(expand_type_ref, self.domain, env)))
             end)(node, ...)
         elseif schema.isa(node, Ty.HandleTarget) then
             return (function(self, env)
- return erased.once(Ty.HandleTarget(one(expand_type_ref, self.target, env)))
+ return single(Ty.HandleTarget(one(expand_type_ref, self.target, env)))
             end)(node, ...)
         else
-            error("erased phase moonlift_open_expand_handle_fact: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_expand_handle_fact: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -551,51 +582,51 @@ function M.Define(T, opts)
         local cls = schema.classof(node)
         if schema.isa(node, Ty.TScalar) then
             return (function(self)
- return erased.once(self)
+ return single(self)
             end)(node, ...)
         elseif schema.isa(node, Ty.TPtr) then
             return (function(self, env)
- return erased.once(schema.with(self, { elem = one(expand_type, self.elem, env) }))
+ return single(schema.with(self, { elem = one(expand_type, self.elem, env) }))
             end)(node, ...)
         elseif schema.isa(node, Ty.TArray) then
             return (function(self, env)
- return erased.once(schema.with(self, { elem = one(expand_type, self.elem, env) }))
+ return single(schema.with(self, { elem = one(expand_type, self.elem, env) }))
             end)(node, ...)
         elseif schema.isa(node, Ty.TSlice) then
             return (function(self, env)
- return erased.once(schema.with(self, { elem = one(expand_type, self.elem, env) }))
+ return single(schema.with(self, { elem = one(expand_type, self.elem, env) }))
             end)(node, ...)
         elseif schema.isa(node, Ty.TView) then
             return (function(self, env)
- return erased.once(schema.with(self, { elem = one(expand_type, self.elem, env) }))
+ return single(schema.with(self, { elem = one(expand_type, self.elem, env) }))
             end)(node, ...)
         elseif schema.isa(node, Ty.TLease) then
             return (function(self, env)
- return erased.once(schema.with(self, { base = one(expand_type, self.base, env) }))
+ return single(schema.with(self, { base = one(expand_type, self.base, env) }))
             end)(node, ...)
         elseif schema.isa(node, Ty.TOwned) then
             return (function(self, env)
- return erased.once(schema.with(self, { base = one(expand_type, self.base, env) }))
+ return single(schema.with(self, { base = one(expand_type, self.base, env) }))
             end)(node, ...)
         elseif schema.isa(node, Ty.TAccess) then
             return (function(self, env)
- return erased.once(schema.with(self, { base = one(expand_type, self.base, env) }))
+ return single(schema.with(self, { base = one(expand_type, self.base, env) }))
             end)(node, ...)
         elseif schema.isa(node, Ty.THandle) then
             return (function(self, env)
- return erased.once(schema.with(self, { ref = one(expand_type_ref, self.ref, env) }))
+ return single(schema.with(self, { ref = one(expand_type_ref, self.ref, env) }))
             end)(node, ...)
         elseif schema.isa(node, Ty.TFunc) then
             return (function(self, env)
- return erased.once(schema.with(self, { params = expand_types(self.params, env), result = one(expand_type, self.result, env) }))
+ return single(schema.with(self, { params = expand_types(self.params, env), result = one(expand_type, self.result, env) }))
             end)(node, ...)
         elseif schema.isa(node, Ty.TClosure) then
             return (function(self, env)
- return erased.once(schema.with(self, { params = expand_types(self.params, env), result = one(expand_type, self.result, env) }))
+ return single(schema.with(self, { params = expand_types(self.params, env), result = one(expand_type, self.result, env) }))
             end)(node, ...)
         elseif schema.isa(node, Ty.TNamed) then
             return (function(self)
- return erased.once(self)
+ return single(self)
             end)(node, ...)
         elseif schema.isa(node, Ty.TSlot) then
             return (function(self, env)
@@ -604,18 +635,18 @@ function M.Define(T, opts)
             if #values == 1 and schema.classof(values[1]) == O.SlotValueType then
                 return expand_type(values[1].ty, env)
             end
-            return erased.once(self)
+            return single(self)
             end)(node, ...)
         elseif schema.isa(node, Ty.TCType) then
             return (function(self)
- return erased.once(self)
+ return single(self)
             end)(node, ...)
         elseif schema.isa(node, Ty.TCFuncPtr) then
             return (function(self)
- return erased.once(self)
+ return single(self)
             end)(node, ...)
         else
-            error("erased phase moonlift_open_expand_type: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_expand_type: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -630,10 +661,10 @@ function M.Define(T, opts)
                     slots[#slots + 1] = open.slots[i]
                 end
             end
-            return erased.once(O.OpenSet(open.value_imports, open.type_imports, open.layouts, slots))
+            return single(O.OpenSet(open.value_imports, open.type_imports, open.layouts, slots))
             end)(node, ...)
         else
-            error("erased phase moonlift_open_expand_open_set: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_expand_open_set: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -641,22 +672,22 @@ function M.Define(T, opts)
         local cls = schema.classof(node)
         if schema.isa(node, Tr.ExprSurface) then
             return (function(self)
- return erased.once(self)
+ return single(self)
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprTyped) then
             return (function(self, env)
- return erased.once(schema.with(self, { ty = one(expand_type, self.ty, env) }))
+ return single(schema.with(self, { ty = one(expand_type, self.ty, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprOpen) then
             return (function(self, env)
 
             local ty = one(expand_type, self.ty, env)
             local open = one(expand_open_set, self.open, env)
-            if open_empty(open) then return erased.once(Tr.ExprTyped(ty)) end
-            return erased.once(Tr.ExprOpen(ty, open))
+            if open_empty(open) then return single(Tr.ExprTyped(ty)) end
+            return single(Tr.ExprOpen(ty, open))
             end)(node, ...)
         else
-            error("erased phase moonlift_open_expand_expr_header: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_expand_expr_header: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -664,22 +695,22 @@ function M.Define(T, opts)
         local cls = schema.classof(node)
         if schema.isa(node, Tr.PlaceSurface) then
             return (function(self)
- return erased.once(self)
+ return single(self)
             end)(node, ...)
         elseif schema.isa(node, Tr.PlaceTyped) then
             return (function(self, env)
- return erased.once(schema.with(self, { ty = one(expand_type, self.ty, env) }))
+ return single(schema.with(self, { ty = one(expand_type, self.ty, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.PlaceOpen) then
             return (function(self, env)
 
             local ty = one(expand_type, self.ty, env)
             local open = one(expand_open_set, self.open, env)
-            if open_empty(open) then return erased.once(Tr.PlaceTyped(ty)) end
-            return erased.once(Tr.PlaceOpen(ty, open))
+            if open_empty(open) then return single(Tr.PlaceTyped(ty)) end
+            return single(Tr.PlaceOpen(ty, open))
             end)(node, ...)
         else
-            error("erased phase moonlift_open_expand_place_header: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_expand_place_header: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -687,21 +718,21 @@ function M.Define(T, opts)
         local cls = schema.classof(node)
         if schema.isa(node, Tr.StmtSurface) then
             return (function(self)
- return erased.once(self)
+ return single(self)
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtOpen) then
             return (function(self, env)
 
             local open = one(expand_open_set, self.open, env)
-            if open_empty(open) then return erased.once(Tr.StmtSurface) end
-            return erased.once(Tr.StmtOpen(open))
+            if open_empty(open) then return single(Tr.StmtSurface) end
+            return single(Tr.StmtOpen(open))
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtFlow) then
             return (function(self)
- return erased.once(self)
+ return single(self)
             end)(node, ...)
         else
-            error("erased phase moonlift_open_expand_stmt_header: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_expand_stmt_header: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -709,31 +740,31 @@ function M.Define(T, opts)
         local cls = schema.classof(node)
         if schema.isa(node, Tr.ModuleSurface) then
             return (function(self)
- return erased.once(self)
+ return single(self)
             end)(node, ...)
         elseif schema.isa(node, Tr.ModuleTyped) then
             return (function(self)
- return erased.once(self)
+ return single(self)
             end)(node, ...)
         elseif schema.isa(node, Tr.ModuleOpen) then
             return (function(self, env)
 
             local open = one(expand_open_set, self.open, env)
             if self.name ~= O.ModuleNameOpen and open_empty(open) then
-                return erased.once(Tr.ModuleTyped(self.name.module_name))
+                return single(Tr.ModuleTyped(self.name.module_name))
             end
-            return erased.once(Tr.ModuleOpen(self.name, open))
+            return single(Tr.ModuleOpen(self.name, open))
             end)(node, ...)
         elseif schema.isa(node, Tr.ModuleSem) then
             return (function(self)
- return erased.once(self)
+ return single(self)
             end)(node, ...)
         elseif schema.isa(node, Tr.ModuleCode) then
             return (function(self)
- return erased.once(self)
+ return single(self)
             end)(node, ...)
         else
-            error("erased phase moonlift_open_expand_module_header: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_expand_module_header: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -746,10 +777,10 @@ function M.Define(T, opts)
             if schema.classof(class) == B.BindingClassOpenParam then
                 class = B.BindingClassOpenParam(schema.with(class.param, { ty = one(expand_type, class.param.ty, env) }))
             end
-            return erased.once(schema.with(self, { ty = one(expand_type, self.ty, env), class = class }))
+            return single(schema.with(self, { ty = one(expand_type, self.ty, env), class = class }))
             end)(node, ...)
         else
-            error("erased phase moonlift_open_expand_binding: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_expand_binding: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -763,7 +794,7 @@ function M.Define(T, opts)
                 local v = lookup_param_value(self.binding.class.param, env)
                 if v ~= schema.NIL then return expand_expr(v, env) end
             end
-            return erased.empty()
+            return {}
             end)(node, ...)
         elseif schema.isa(node, B.ValueRefHole) then
             return (function(self, h, env)
@@ -772,18 +803,18 @@ function M.Define(T, opts)
             if #values == 1 and schema.classof(values[1]) == O.SlotValueExpr then
                 return expand_expr(values[1].expr, env)
             end
-            return erased.empty()
+            return {}
             end)(node, ...)
         elseif schema.isa(node, B.ValueRefName) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, B.ValueRefPath) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         else
-            error("erased phase moonlift_open_expand_value_ref_expr: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_expand_value_ref_expr: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -791,22 +822,22 @@ function M.Define(T, opts)
         local cls = schema.classof(node)
         if schema.isa(node, B.ValueRefBinding) then
             return (function(self, env)
- return erased.once(schema.with(self, { binding = one(expand_binding, self.binding, env) }))
+ return single(schema.with(self, { binding = one(expand_binding, self.binding, env) }))
             end)(node, ...)
         elseif schema.isa(node, B.ValueRefName) then
             return (function(self)
- return erased.once(self)
+ return single(self)
             end)(node, ...)
         elseif schema.isa(node, B.ValueRefPath) then
             return (function(self)
- return erased.once(self)
+ return single(self)
             end)(node, ...)
         elseif schema.isa(node, B.ValueRefHole) then
             return (function(self)
- return erased.once(self)
+ return single(self)
             end)(node, ...)
         else
-            error("erased phase moonlift_open_expand_value_ref: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_expand_value_ref: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -814,38 +845,38 @@ function M.Define(T, opts)
         local cls = schema.classof(node)
         if schema.isa(node, Tr.ViewFromExpr) then
             return (function(self, env)
- return erased.once(schema.with(self, { base = one(expand_expr, self.base, env), elem = one(expand_type, self.elem, env) }))
+ return single(schema.with(self, { base = one(expand_expr, self.base, env), elem = one(expand_type, self.elem, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ViewContiguous) then
             return (function(self, env)
- return erased.once(schema.with(self, { data = one(expand_expr, self.data, env), elem = one(expand_type, self.elem, env), len = one(expand_expr, self.len, env) }))
+ return single(schema.with(self, { data = one(expand_expr, self.data, env), elem = one(expand_type, self.elem, env), len = one(expand_expr, self.len, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ViewStrided) then
             return (function(self, env)
- return erased.once(schema.with(self, { data = one(expand_expr, self.data, env), elem = one(expand_type, self.elem, env), len = one(expand_expr, self.len, env), stride = one(expand_expr, self.stride, env) }))
+ return single(schema.with(self, { data = one(expand_expr, self.data, env), elem = one(expand_type, self.elem, env), len = one(expand_expr, self.len, env), stride = one(expand_expr, self.stride, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ViewRestrided) then
             return (function(self, env)
- return erased.once(schema.with(self, { base = one(expand_view, self.base, env), elem = one(expand_type, self.elem, env), stride = one(expand_expr, self.stride, env) }))
+ return single(schema.with(self, { base = one(expand_view, self.base, env), elem = one(expand_type, self.elem, env), stride = one(expand_expr, self.stride, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ViewWindow) then
             return (function(self, env)
- return erased.once(schema.with(self, { base = one(expand_view, self.base, env), start = one(expand_expr, self.start, env), len = one(expand_expr, self.len, env) }))
+ return single(schema.with(self, { base = one(expand_view, self.base, env), start = one(expand_expr, self.start, env), len = one(expand_expr, self.len, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ViewRowBase) then
             return (function(self, env)
- return erased.once(schema.with(self, { base = one(expand_view, self.base, env), row_offset = one(expand_expr, self.row_offset, env), elem = one(expand_type, self.elem, env) }))
+ return single(schema.with(self, { base = one(expand_view, self.base, env), row_offset = one(expand_expr, self.row_offset, env), elem = one(expand_type, self.elem, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ViewInterleaved) then
             return (function(self, env)
- return erased.once(schema.with(self, { data = one(expand_expr, self.data, env), elem = one(expand_type, self.elem, env), len = one(expand_expr, self.len, env), stride = one(expand_expr, self.stride, env), lane = one(expand_expr, self.lane, env) }))
+ return single(schema.with(self, { data = one(expand_expr, self.data, env), elem = one(expand_type, self.elem, env), len = one(expand_expr, self.len, env), stride = one(expand_expr, self.stride, env), lane = one(expand_expr, self.lane, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ViewInterleavedView) then
             return (function(self, env)
- return erased.once(schema.with(self, { base = one(expand_view, self.base, env), elem = one(expand_type, self.elem, env), stride = one(expand_expr, self.stride, env), lane = one(expand_expr, self.lane, env) }))
+ return single(schema.with(self, { base = one(expand_view, self.base, env), elem = one(expand_type, self.elem, env), stride = one(expand_expr, self.stride, env), lane = one(expand_expr, self.lane, env) }))
             end)(node, ...)
         else
-            error("erased phase moonlift_open_expand_view: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_expand_view: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -853,30 +884,30 @@ function M.Define(T, opts)
         local cls = schema.classof(node)
         if schema.isa(node, Tr.DomainRange) then
             return (function(self, env)
- return erased.once(schema.with(self, { stop = one(expand_expr, self.stop, env) }))
+ return single(schema.with(self, { stop = one(expand_expr, self.stop, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.DomainRange2) then
             return (function(self, env)
- return erased.once(schema.with(self, { start = one(expand_expr, self.start, env), stop = one(expand_expr, self.stop, env) }))
+ return single(schema.with(self, { start = one(expand_expr, self.start, env), stop = one(expand_expr, self.stop, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.DomainZipEqValues) then
             return (function(self, env)
- return erased.once(schema.with(self, { values = expand_exprs(self.values, env) }))
+ return single(schema.with(self, { values = expand_exprs(self.values, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.DomainValue) then
             return (function(self, env)
- return erased.once(schema.with(self, { value = one(expand_expr, self.value, env) }))
+ return single(schema.with(self, { value = one(expand_expr, self.value, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.DomainView) then
             return (function(self, env)
- return erased.once(schema.with(self, { view = one(expand_view, self.view, env) }))
+ return single(schema.with(self, { view = one(expand_view, self.view, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.DomainZipEqViews) then
             return (function(self, env)
 
             local views = {}
             for i = 1, #self.views do views[#views + 1] = one(expand_view, self.views[i], env) end
-            return erased.once(schema.with(self, { views = views }))
+            return single(schema.with(self, { views = views }))
             end)(node, ...)
         elseif schema.isa(node, Tr.DomainSlotValue) then
             return (function(self, env)
@@ -885,10 +916,10 @@ function M.Define(T, opts)
             if #values == 1 and schema.classof(values[1]) == O.SlotValueDomain then
                 return expand_domain(values[1].domain, env)
             end
-            return erased.once(self)
+            return single(self)
             end)(node, ...)
         else
-            error("erased phase moonlift_open_expand_domain: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_expand_domain: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -896,18 +927,18 @@ function M.Define(T, opts)
         local cls = schema.classof(node)
         if schema.isa(node, Tr.IndexBaseExpr) then
             return (function(self, env)
- return erased.once(schema.with(self, { base = one(expand_expr, self.base, env) }))
+ return single(schema.with(self, { base = one(expand_expr, self.base, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.IndexBasePlace) then
             return (function(self, env)
- return erased.once(schema.with(self, { base = one(expand_place, self.base, env), elem = one(expand_type, self.elem, env) }))
+ return single(schema.with(self, { base = one(expand_place, self.base, env), elem = one(expand_type, self.elem, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.IndexBaseView) then
             return (function(self, env)
- return erased.once(schema.with(self, { view = one(expand_view, self.view, env) }))
+ return single(schema.with(self, { view = one(expand_view, self.view, env) }))
             end)(node, ...)
         else
-            error("erased phase moonlift_open_expand_index_base: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_expand_index_base: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -919,25 +950,25 @@ function M.Define(T, opts)
             local h = one(expand_place_header, self.h, env)
             local replacement = maybe_expr_from_value_ref(self.ref, h, env)
             if replacement ~= nil and schema.classof(replacement) == Tr.ExprRef then
-                return erased.once(Tr.PlaceRef(h, replacement.ref))
+                return single(Tr.PlaceRef(h, replacement.ref))
             end
-            return erased.once(schema.with(self, { h = h, ref = one(expand_value_ref, self.ref, env) }))
+            return single(schema.with(self, { h = h, ref = one(expand_value_ref, self.ref, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.PlaceDeref) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_place_header, self.h, env), base = one(expand_expr, self.base, env) }))
+ return single(schema.with(self, { h = one(expand_place_header, self.h, env), base = one(expand_expr, self.base, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.PlaceDot) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_place_header, self.h, env), base = one(expand_place, self.base, env) }))
+ return single(schema.with(self, { h = one(expand_place_header, self.h, env), base = one(expand_place, self.base, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.PlaceField) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_place_header, self.h, env), base = one(expand_place, self.base, env) }))
+ return single(schema.with(self, { h = one(expand_place_header, self.h, env), base = one(expand_place, self.base, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.PlaceIndex) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_place_header, self.h, env), base = one(expand_index_base, self.base, env), index = one(expand_expr, self.index, env) }))
+ return single(schema.with(self, { h = one(expand_place_header, self.h, env), base = one(expand_index_base, self.base, env), index = one(expand_expr, self.index, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.PlaceSlotValue) then
             return (function(self, env)
@@ -946,10 +977,10 @@ function M.Define(T, opts)
             if #values == 1 and schema.classof(values[1]) == O.SlotValuePlace then
                 return expand_place(values[1].place, env)
             end
-            return erased.once(schema.with(self, { h = one(expand_place_header, self.h, env) }))
+            return single(schema.with(self, { h = one(expand_place_header, self.h, env) }))
             end)(node, ...)
         else
-            error("erased phase moonlift_open_expand_place: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_expand_place: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -998,13 +1029,13 @@ function M.Define(T, opts)
     -- lowering is frontend-only and is collected here as generated ordinary
     -- Tree items which are then expanded through the same pipeline.
 
-    local RegionCall = require("moonlift.region_call_lowering").Define(T, {
+    local RegionCall = require("moonlift.region_call_lowering")(T, {
         expand_expr = function(expr, env) return one(expand_expr, expr, env) end,
         expand_stmt_header = function(h, env) return one(expand_stmt_header, h, env) end,
         lookup_region_frag_ref = lookup_region_frag_ref,
     })
 
-    local rnf = require("moonlift.region_normal_form").Define(T, {
+    local rnf = require("moonlift.region_normal_form")(T, {
         expand_type = function(ty, env) return one(expand_type, ty, env) end,
         expand_expr = function(expr, env) return one(expand_expr, expr, env) end,
         expand_stmt_header = function(h, env) return one(expand_stmt_header, h, env) end,
@@ -1025,10 +1056,10 @@ function M.Define(T, opts)
         if schema.isa(node, Tr.ControlStmtRegion) then
             return (function(self, env)
 
-            return erased.once(rnf.control_stmt_region(self, env))
+            return single(rnf.control_stmt_region(self, env))
             end)(node, ...)
         else
-            error("erased phase moonlift_open_expand_control_stmt_region: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_expand_control_stmt_region: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -1037,10 +1068,10 @@ function M.Define(T, opts)
         if schema.isa(node, Tr.ControlExprRegion) then
             return (function(self, env)
 
-            return erased.once(rnf.control_expr_region(self, env))
+            return single(rnf.control_expr_region(self, env))
             end)(node, ...)
         else
-            error("erased phase moonlift_open_expand_control_expr_region: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_expand_control_expr_region: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -1048,149 +1079,149 @@ function M.Define(T, opts)
         local cls = schema.classof(node)
         if schema.isa(node, Tr.ExprLit) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_expr_header, self.h, env) }))
+ return single(schema.with(self, { h = one(expand_expr_header, self.h, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprRef) then
             return (function(self, env)
 
             local replacement = maybe_expr_from_value_ref(self.ref, self.h, env)
-            if replacement ~= nil then return erased.once(replacement) end
-            return erased.once(schema.with(self, { h = one(expand_expr_header, self.h, env), ref = one(expand_value_ref, self.ref, env) }))
+            if replacement ~= nil then return single(replacement) end
+            return single(schema.with(self, { h = one(expand_expr_header, self.h, env), ref = one(expand_value_ref, self.ref, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprDot) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_expr_header, self.h, env), base = one(expand_expr, self.base, env) }))
+ return single(schema.with(self, { h = one(expand_expr_header, self.h, env), base = one(expand_expr, self.base, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprUnary) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_expr_header, self.h, env), value = one(expand_expr, self.value, env) }))
+ return single(schema.with(self, { h = one(expand_expr_header, self.h, env), value = one(expand_expr, self.value, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprBinary) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_expr_header, self.h, env), lhs = one(expand_expr, self.lhs, env), rhs = one(expand_expr, self.rhs, env) }))
+ return single(schema.with(self, { h = one(expand_expr_header, self.h, env), lhs = one(expand_expr, self.lhs, env), rhs = one(expand_expr, self.rhs, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprCompare) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_expr_header, self.h, env), lhs = one(expand_expr, self.lhs, env), rhs = one(expand_expr, self.rhs, env) }))
+ return single(schema.with(self, { h = one(expand_expr_header, self.h, env), lhs = one(expand_expr, self.lhs, env), rhs = one(expand_expr, self.rhs, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprLogic) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_expr_header, self.h, env), lhs = one(expand_expr, self.lhs, env), rhs = one(expand_expr, self.rhs, env) }))
+ return single(schema.with(self, { h = one(expand_expr_header, self.h, env), lhs = one(expand_expr, self.lhs, env), rhs = one(expand_expr, self.rhs, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprCast) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_expr_header, self.h, env), ty = one(expand_type, self.ty, env), value = one(expand_expr, self.value, env) }))
+ return single(schema.with(self, { h = one(expand_expr_header, self.h, env), ty = one(expand_type, self.ty, env), value = one(expand_expr, self.value, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprMachineCast) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_expr_header, self.h, env), ty = one(expand_type, self.ty, env), value = one(expand_expr, self.value, env) }))
+ return single(schema.with(self, { h = one(expand_expr_header, self.h, env), ty = one(expand_type, self.ty, env), value = one(expand_expr, self.value, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprIntrinsic) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_expr_header, self.h, env), args = expand_exprs(self.args, env) }))
+ return single(schema.with(self, { h = one(expand_expr_header, self.h, env), args = expand_exprs(self.args, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprAddrOf) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_expr_header, self.h, env), place = one(expand_place, self.place, env) }))
+ return single(schema.with(self, { h = one(expand_expr_header, self.h, env), place = one(expand_place, self.place, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprDeref) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_expr_header, self.h, env), value = one(expand_expr, self.value, env) }))
+ return single(schema.with(self, { h = one(expand_expr_header, self.h, env), value = one(expand_expr, self.value, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprCall) then
             return (function(self, env)
 
-            return erased.once(schema.with(self, { h = one(expand_expr_header, self.h, env), callee = one(expand_expr, self.callee, env), args = expand_exprs(self.args, env) }))
+            return single(schema.with(self, { h = one(expand_expr_header, self.h, env), callee = one(expand_expr, self.callee, env), args = expand_exprs(self.args, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprCtor) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_expr_header, self.h, env), args = expand_exprs(self.args, env) }))
+ return single(schema.with(self, { h = one(expand_expr_header, self.h, env), args = expand_exprs(self.args, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprNull) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_expr_header, self.h, env), elem = one(expand_type, self.elem, env) }))
+ return single(schema.with(self, { h = one(expand_expr_header, self.h, env), elem = one(expand_type, self.elem, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprLen) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_expr_header, self.h, env), value = one(expand_expr, self.value, env) }))
+ return single(schema.with(self, { h = one(expand_expr_header, self.h, env), value = one(expand_expr, self.value, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprField) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_expr_header, self.h, env), base = one(expand_expr, self.base, env) }))
+ return single(schema.with(self, { h = one(expand_expr_header, self.h, env), base = one(expand_expr, self.base, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprIndex) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_expr_header, self.h, env), base = one(expand_index_base, self.base, env), index = one(expand_expr, self.index, env) }))
+ return single(schema.with(self, { h = one(expand_expr_header, self.h, env), base = one(expand_index_base, self.base, env), index = one(expand_expr, self.index, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprAgg) then
             return (function(self, env)
 
             local fields = {}
             for i = 1, #self.fields do fields[#fields + 1] = schema.with(self.fields[i], { value = one(expand_expr, self.fields[i].value, env) }) end
-            return erased.once(schema.with(self, { h = one(expand_expr_header, self.h, env), ty = one(expand_type, self.ty, env), fields = fields }))
+            return single(schema.with(self, { h = one(expand_expr_header, self.h, env), ty = one(expand_type, self.ty, env), fields = fields }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprArray) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_expr_header, self.h, env), elem_ty = one(expand_type, self.elem_ty, env), elems = expand_exprs(self.elems, env) }))
+ return single(schema.with(self, { h = one(expand_expr_header, self.h, env), elem_ty = one(expand_type, self.elem_ty, env), elems = expand_exprs(self.elems, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprIf) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_expr_header, self.h, env), cond = one(expand_expr, self.cond, env), then_expr = one(expand_expr, self.then_expr, env), else_expr = one(expand_expr, self.else_expr, env) }))
+ return single(schema.with(self, { h = one(expand_expr_header, self.h, env), cond = one(expand_expr, self.cond, env), then_expr = one(expand_expr, self.then_expr, env), else_expr = one(expand_expr, self.else_expr, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprSelect) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_expr_header, self.h, env), cond = one(expand_expr, self.cond, env), then_expr = one(expand_expr, self.then_expr, env), else_expr = one(expand_expr, self.else_expr, env) }))
+ return single(schema.with(self, { h = one(expand_expr_header, self.h, env), cond = one(expand_expr, self.cond, env), then_expr = one(expand_expr, self.then_expr, env), else_expr = one(expand_expr, self.else_expr, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprSwitch) then
             return (function(self, env)
 
             local var_arms = {}
             for i = 1, #(self.variant_arms or {}) do var_arms[#var_arms + 1] = schema.with(self.variant_arms[i], { binds = self.variant_arms[i].binds, body = expand_stmts(self.variant_arms[i].body, env), result = one(expand_expr, self.variant_arms[i].result, env) }) end
-            return erased.once(schema.with(self, { h = one(expand_expr_header, self.h, env), value = one(expand_expr, self.value, env), arms = expand_switch_expr_arms(self.arms, env), variant_arms = var_arms, default_body = expand_stmts(self.default_body or {}, env), default_expr = one(expand_expr, self.default_expr, env) }))
+            return single(schema.with(self, { h = one(expand_expr_header, self.h, env), value = one(expand_expr, self.value, env), arms = expand_switch_expr_arms(self.arms, env), variant_arms = var_arms, default_body = expand_stmts(self.default_body or {}, env), default_expr = one(expand_expr, self.default_expr, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprControl) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_expr_header, self.h, env), region = one(expand_control_expr_region, self.region, env) }))
+ return single(schema.with(self, { h = one(expand_expr_header, self.h, env), region = one(expand_control_expr_region, self.region, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprBlock) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_expr_header, self.h, env), stmts = expand_stmts(self.stmts, env), result = one(expand_expr, self.result, env) }))
+ return single(schema.with(self, { h = one(expand_expr_header, self.h, env), stmts = expand_stmts(self.stmts, env), result = one(expand_expr, self.result, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprClosure) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_expr_header, self.h, env), params = expand_params(self.params, env), result = one(expand_type, self.result, env), body = expand_stmts(self.body, env) }))
+ return single(schema.with(self, { h = one(expand_expr_header, self.h, env), params = expand_params(self.params, env), result = one(expand_type, self.result, env), body = expand_stmts(self.body, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprView) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_expr_header, self.h, env), view = one(expand_view, self.view, env) }))
+ return single(schema.with(self, { h = one(expand_expr_header, self.h, env), view = one(expand_view, self.view, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprLoad) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_expr_header, self.h, env), ty = one(expand_type, self.ty, env), addr = one(expand_expr, self.addr, env) }))
+ return single(schema.with(self, { h = one(expand_expr_header, self.h, env), ty = one(expand_type, self.ty, env), addr = one(expand_expr, self.addr, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprSizeOf) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_expr_header, self.h, env), ty = one(expand_type, self.ty, env) }))
+ return single(schema.with(self, { h = one(expand_expr_header, self.h, env), ty = one(expand_type, self.ty, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprAlignOf) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_expr_header, self.h, env), ty = one(expand_type, self.ty, env) }))
+ return single(schema.with(self, { h = one(expand_expr_header, self.h, env), ty = one(expand_type, self.ty, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprIsNull) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_expr_header, self.h, env), value = one(expand_expr, self.value, env) }))
+ return single(schema.with(self, { h = one(expand_expr_header, self.h, env), value = one(expand_expr, self.value, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprAtomicLoad) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_expr_header, self.h, env), ty = one(expand_type, self.ty, env), addr = one(expand_expr, self.addr, env) }))
+ return single(schema.with(self, { h = one(expand_expr_header, self.h, env), ty = one(expand_type, self.ty, env), addr = one(expand_expr, self.addr, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprAtomicRmw) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_expr_header, self.h, env), ty = one(expand_type, self.ty, env), addr = one(expand_expr, self.addr, env), value = one(expand_expr, self.value, env) }))
+ return single(schema.with(self, { h = one(expand_expr_header, self.h, env), ty = one(expand_type, self.ty, env), addr = one(expand_expr, self.addr, env), value = one(expand_expr, self.value, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprAtomicCas) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_expr_header, self.h, env), ty = one(expand_type, self.ty, env), addr = one(expand_expr, self.addr, env), expected = one(expand_expr, self.expected, env), replacement = one(expand_expr, self.replacement, env) }))
+ return single(schema.with(self, { h = one(expand_expr_header, self.h, env), ty = one(expand_type, self.ty, env), addr = one(expand_expr, self.addr, env), expected = one(expand_expr, self.expected, env), replacement = one(expand_expr, self.replacement, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprSlotValue) then
             return (function(self, env)
@@ -1199,20 +1230,20 @@ function M.Define(T, opts)
             if #values == 1 and schema.classof(values[1]) == O.SlotValueExpr then
                 return expand_expr(values[1].expr, env)
             end
-            return erased.once(schema.with(self, { h = one(expand_expr_header, self.h, env) }))
+            return single(schema.with(self, { h = one(expand_expr_header, self.h, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprUseExprFrag) then
             return (function(self, env)
 
             local frag = lookup_expr_frag_ref(self.frag, env)
             if frag == schema.NIL then
-                return erased.once(schema.with(self, { h = one(expand_expr_header, self.h, env), args = expand_exprs(self.args, env) }))
+                return single(schema.with(self, { h = one(expand_expr_header, self.h, env), args = expand_exprs(self.args, env) }))
             end
             local local_env = env_with_fills_and_params(env, self.fills, frag_param_bindings(frag.params, self.args, env))
             return expand_expr(frag.body, local_env)
             end)(node, ...)
         else
-            error("erased phase moonlift_open_expand_expr: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_expand_expr: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -1220,46 +1251,46 @@ function M.Define(T, opts)
         local cls = schema.classof(node)
         if schema.isa(node, Tr.StmtLet) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_stmt_header, self.h, env), binding = one(expand_binding, self.binding, env), init = one(expand_expr, self.init, env) }))
+ return single(schema.with(self, { h = one(expand_stmt_header, self.h, env), binding = one(expand_binding, self.binding, env), init = one(expand_expr, self.init, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtVar) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_stmt_header, self.h, env), binding = one(expand_binding, self.binding, env), init = one(expand_expr, self.init, env) }))
+ return single(schema.with(self, { h = one(expand_stmt_header, self.h, env), binding = one(expand_binding, self.binding, env), init = one(expand_expr, self.init, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtSet) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_stmt_header, self.h, env), place = one(expand_place, self.place, env), value = one(expand_expr, self.value, env) }))
+ return single(schema.with(self, { h = one(expand_stmt_header, self.h, env), place = one(expand_place, self.place, env), value = one(expand_expr, self.value, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtAtomicStore) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_stmt_header, self.h, env), ty = one(expand_type, self.ty, env), addr = one(expand_expr, self.addr, env), value = one(expand_expr, self.value, env) }))
+ return single(schema.with(self, { h = one(expand_stmt_header, self.h, env), ty = one(expand_type, self.ty, env), addr = one(expand_expr, self.addr, env), value = one(expand_expr, self.value, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtAtomicFence) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_stmt_header, self.h, env) }))
+ return single(schema.with(self, { h = one(expand_stmt_header, self.h, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtExpr) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_stmt_header, self.h, env), expr = one(expand_expr, self.expr, env) }))
+ return single(schema.with(self, { h = one(expand_stmt_header, self.h, env), expr = one(expand_expr, self.expr, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtAssert) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_stmt_header, self.h, env), cond = one(expand_expr, self.cond, env) }))
+ return single(schema.with(self, { h = one(expand_stmt_header, self.h, env), cond = one(expand_expr, self.cond, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtIf) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_stmt_header, self.h, env), cond = one(expand_expr, self.cond, env), then_body = expand_stmts(self.then_body, env), else_body = expand_stmts(self.else_body, env) }))
+ return single(schema.with(self, { h = one(expand_stmt_header, self.h, env), cond = one(expand_expr, self.cond, env), then_body = expand_stmts(self.then_body, env), else_body = expand_stmts(self.else_body, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtSwitch) then
             return (function(self, env)
 
             local var_arms = {}
             for i = 1, #(self.variant_arms or {}) do var_arms[#var_arms + 1] = schema.with(self.variant_arms[i], { binds = self.variant_arms[i].binds, body = expand_stmts(self.variant_arms[i].body, env) }) end
-            return erased.once(schema.with(self, { h = one(expand_stmt_header, self.h, env), value = one(expand_expr, self.value, env), arms = expand_switch_stmt_arms(self.arms, env), variant_arms = var_arms, default_body = expand_stmts(self.default_body, env) }))
+            return single(schema.with(self, { h = one(expand_stmt_header, self.h, env), value = one(expand_expr, self.value, env), arms = expand_switch_stmt_arms(self.arms, env), variant_arms = var_arms, default_body = expand_stmts(self.default_body, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtJump) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_stmt_header, self.h, env), args = expand_jump_args(self.args, env) }))
+ return single(schema.with(self, { h = one(expand_stmt_header, self.h, env), args = expand_jump_args(self.args, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtJumpCont) then
             return (function(self, env)
@@ -1269,41 +1300,41 @@ function M.Define(T, opts)
             if target ~= nil then
                 local cls = schema.classof(target)
                 if cls == O.ContTargetLabel then
-                    return erased.once(Tr.StmtJump(one(expand_stmt_header, self.h, env), target.label, args))
+                    return single(Tr.StmtJump(one(expand_stmt_header, self.h, env), target.label, args))
                 elseif cls == O.ContTargetSlot then
-                    return erased.once(Tr.StmtJumpCont(one(expand_stmt_header, self.h, env), target.slot, args))
+                    return single(Tr.StmtJumpCont(one(expand_stmt_header, self.h, env), target.slot, args))
                 end
             end
-            return erased.once(schema.with(self, { h = one(expand_stmt_header, self.h, env), args = args }))
+            return single(schema.with(self, { h = one(expand_stmt_header, self.h, env), args = args }))
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtYieldVoid) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_stmt_header, self.h, env) }))
+ return single(schema.with(self, { h = one(expand_stmt_header, self.h, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtYieldValue) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_stmt_header, self.h, env), value = one(expand_expr, self.value, env) }))
+ return single(schema.with(self, { h = one(expand_stmt_header, self.h, env), value = one(expand_expr, self.value, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtReturnVoid) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_stmt_header, self.h, env) }))
+ return single(schema.with(self, { h = one(expand_stmt_header, self.h, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtReturnValue) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_stmt_header, self.h, env), value = one(expand_expr, self.value, env) }))
+ return single(schema.with(self, { h = one(expand_stmt_header, self.h, env), value = one(expand_expr, self.value, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtControl) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_stmt_header, self.h, env), region = one(expand_control_stmt_region, self.region, env) }))
+ return single(schema.with(self, { h = one(expand_stmt_header, self.h, env), region = one(expand_control_stmt_region, self.region, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtUseRegionSlot) then
             return (function(self, env)
 
             local values = lookup_slot_value(O.SlotRegion(self.slot), env)
             if #values == 1 and schema.classof(values[1]) == O.SlotValueRegion then
-                return erased.children(function(stmt) return expand_stmt(stmt, env) end, values[1].body)
+                return flat_map(function(stmt) return expand_stmt(stmt, env) end, values[1].body)
             end
-            return erased.once(schema.with(self, { h = one(expand_stmt_header, self.h, env) }))
+            return single(schema.with(self, { h = one(expand_stmt_header, self.h, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtUseRegionFrag) then
             return (function(self, env)
@@ -1326,14 +1357,14 @@ function M.Define(T, opts)
                 end
                 use_id = rewritten
             end
-            return erased.once(schema.with(self, { h = one(expand_stmt_header, self.h, env), use_id = use_id, frag = frag_ref, args = expand_exprs(self.args, env) }))
+            return single(schema.with(self, { h = one(expand_stmt_header, self.h, env), use_id = use_id, frag = frag_ref, args = expand_exprs(self.args, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtTrap) then
             return (function(self, env)
- return erased.once(schema.with(self, { h = one(expand_stmt_header, self.h, env) }))
+ return single(schema.with(self, { h = one(expand_stmt_header, self.h, env) }))
             end)(node, ...)
         else
-            error("erased phase moonlift_open_expand_stmt: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_expand_stmt: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -1342,36 +1373,36 @@ function M.Define(T, opts)
         if schema.isa(node, Tr.FuncLocal) then
             return (function(self, env)
 
-            return erased.once(schema.with(self, { params = expand_params(self.params, env), result = one(expand_type, self.result, env), body = expand_stmts(self.body, env) }))
+            return single(schema.with(self, { params = expand_params(self.params, env), result = one(expand_type, self.result, env), body = expand_stmts(self.body, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.FuncExport) then
             return (function(self, env)
 
-            return erased.once(schema.with(self, { params = expand_params(self.params, env), result = one(expand_type, self.result, env), body = expand_stmts(self.body, env) }))
+            return single(schema.with(self, { params = expand_params(self.params, env), result = one(expand_type, self.result, env), body = expand_stmts(self.body, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.FuncLocalContract) then
             return (function(self, env)
 
-            return erased.once(schema.with(self, { params = expand_params(self.params, env), result = one(expand_type, self.result, env), body = expand_stmts(self.body, env) }))
+            return single(schema.with(self, { params = expand_params(self.params, env), result = one(expand_type, self.result, env), body = expand_stmts(self.body, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.FuncExportContract) then
             return (function(self, env)
 
-            return erased.once(schema.with(self, { params = expand_params(self.params, env), result = one(expand_type, self.result, env), body = expand_stmts(self.body, env) }))
+            return single(schema.with(self, { params = expand_params(self.params, env), result = one(expand_type, self.result, env), body = expand_stmts(self.body, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.FuncDecl) then
             return (function(self, env)
 
-            return erased.once(schema.with(self, { params = expand_params(self.params, env), result = one(expand_type, self.result, env) }))
+            return single(schema.with(self, { params = expand_params(self.params, env), result = one(expand_type, self.result, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.FuncOpen) then
             return (function(self, env)
 
             local local_env = merge_fills(env, {})
-            return erased.once(schema.with(self, { open = one(expand_open_set, self.open, env), result = one(expand_type, self.result, env), body = expand_stmts(self.body, local_env) }))
+            return single(schema.with(self, { open = one(expand_open_set, self.open, env), result = one(expand_type, self.result, env), body = expand_stmts(self.body, local_env) }))
             end)(node, ...)
         else
-            error("erased phase moonlift_open_expand_func: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_expand_func: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -1380,14 +1411,14 @@ function M.Define(T, opts)
         if schema.isa(node, Tr.ExternFunc) then
             return (function(self, env)
 
-            return erased.once(schema.with(self, { params = expand_params(self.params, env), result = one(expand_type, self.result, env) }))
+            return single(schema.with(self, { params = expand_params(self.params, env), result = one(expand_type, self.result, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ExternFuncOpen) then
             return (function(self, env)
- return erased.once(schema.with(self, { result = one(expand_type, self.result, env) }))
+ return single(schema.with(self, { result = one(expand_type, self.result, env) }))
             end)(node, ...)
         else
-            error("erased phase moonlift_open_expand_extern: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_expand_extern: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -1395,14 +1426,14 @@ function M.Define(T, opts)
         local cls = schema.classof(node)
         if schema.isa(node, Tr.ConstItem) then
             return (function(self, env)
- return erased.once(schema.with(self, { ty = one(expand_type, self.ty, env), value = one(expand_expr, self.value, env) }))
+ return single(schema.with(self, { ty = one(expand_type, self.ty, env), value = one(expand_expr, self.value, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ConstItemOpen) then
             return (function(self, env)
- return erased.once(schema.with(self, { open = one(expand_open_set, self.open, env), ty = one(expand_type, self.ty, env), value = one(expand_expr, self.value, env) }))
+ return single(schema.with(self, { open = one(expand_open_set, self.open, env), ty = one(expand_type, self.ty, env), value = one(expand_expr, self.value, env) }))
             end)(node, ...)
         else
-            error("erased phase moonlift_open_expand_const: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_expand_const: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -1410,14 +1441,14 @@ function M.Define(T, opts)
         local cls = schema.classof(node)
         if schema.isa(node, Tr.StaticItem) then
             return (function(self, env)
- return erased.once(schema.with(self, { ty = one(expand_type, self.ty, env), value = one(expand_expr, self.value, env) }))
+ return single(schema.with(self, { ty = one(expand_type, self.ty, env), value = one(expand_expr, self.value, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.StaticItemOpen) then
             return (function(self, env)
- return erased.once(schema.with(self, { open = one(expand_open_set, self.open, env), ty = one(expand_type, self.ty, env), value = one(expand_expr, self.value, env) }))
+ return single(schema.with(self, { open = one(expand_open_set, self.open, env), ty = one(expand_type, self.ty, env), value = one(expand_expr, self.value, env) }))
             end)(node, ...)
         else
-            error("erased phase moonlift_open_expand_static: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_expand_static: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -1426,37 +1457,37 @@ function M.Define(T, opts)
         if schema.isa(node, Tr.TypeDeclStruct) then
             return (function(self, env)
 
-            return erased.once(schema.with(self, { fields = expand_fields(self.fields, env) }))
+            return single(schema.with(self, { fields = expand_fields(self.fields, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.TypeDeclUnion) then
             return (function(self, env)
 
-            return erased.once(schema.with(self, { fields = expand_fields(self.fields, env) }))
+            return single(schema.with(self, { fields = expand_fields(self.fields, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.TypeDeclEnumSugar) then
             return (function(self)
- return erased.once(self)
+ return single(self)
             end)(node, ...)
         elseif schema.isa(node, Tr.TypeDeclTaggedUnionSugar) then
             return (function(self, env)
- return erased.once(schema.with(self, { variants = expand_variants(self.variants, env) }))
+ return single(schema.with(self, { variants = expand_variants(self.variants, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.TypeDeclHandle) then
             return (function(self, env)
- return erased.once(schema.with(self, { facts = expand_handle_facts(self.facts, env) }))
+ return single(schema.with(self, { facts = expand_handle_facts(self.facts, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.TypeDeclOpenStruct) then
             return (function(self, env)
 
-            return erased.once(schema.with(self, { fields = expand_fields(self.fields, env) }))
+            return single(schema.with(self, { fields = expand_fields(self.fields, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.TypeDeclOpenUnion) then
             return (function(self, env)
 
-            return erased.once(schema.with(self, { fields = expand_fields(self.fields, env) }))
+            return single(schema.with(self, { fields = expand_fields(self.fields, env) }))
             end)(node, ...)
         else
-            error("erased phase moonlift_open_expand_type_decl: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_expand_type_decl: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -1511,60 +1542,60 @@ function M.Define(T, opts)
         local cls = schema.classof(node)
         if schema.isa(node, Tr.ItemFunc) then
             return (function(self, env)
- return erased.once(schema.with(self, { func = one(expand_func, self.func, env) }))
+ return single(schema.with(self, { func = one(expand_func, self.func, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemExtern) then
             return (function(self, env)
- return erased.once(schema.with(self, { func = one(expand_extern, self.func, env) }))
+ return single(schema.with(self, { func = one(expand_extern, self.func, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemConst) then
             return (function(self, env)
- return erased.once(schema.with(self, { c = one(expand_const, self.c, env) }))
+ return single(schema.with(self, { c = one(expand_const, self.c, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemStatic) then
             return (function(self, env)
- return erased.once(schema.with(self, { s = one(expand_static, self.s, env) }))
+ return single(schema.with(self, { s = one(expand_static, self.s, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemImport) then
             return (function(self)
- return erased.once(self)
+ return single(self)
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemType) then
             return (function(self, env)
- return erased.once(schema.with(self, { t = one(expand_type_decl, self.t, env) }))
+ return single(schema.with(self, { t = one(expand_type_decl, self.t, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemRegionFrag) then
             return (function(self, env)
- return erased.once(schema.with(self, { frag = expand_region_frag_node(self.frag, env) }))
+ return single(schema.with(self, { frag = expand_region_frag_node(self.frag, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemExprFrag) then
             return (function(self, env)
- return erased.once(schema.with(self, { frag = expand_expr_frag_node(self.frag, env) }))
+ return single(schema.with(self, { frag = expand_expr_frag_node(self.frag, env) }))
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemUseTypeDeclSlot) then
             return (function(self, env)
 
             local values = lookup_slot_value(O.SlotTypeDecl(self.slot), env)
             if #values == 1 and schema.classof(values[1]) == O.SlotValueTypeDecl then
-                return erased.once(Tr.ItemType(one(expand_type_decl, values[1].t, env)))
+                return single(Tr.ItemType(one(expand_type_decl, values[1].t, env)))
             end
-            return erased.once(self)
+            return single(self)
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemUseItemsSlot) then
             return (function(self, env)
 
             local values = lookup_slot_value(O.SlotItems(self.slot), env)
             if #values == 1 and schema.classof(values[1]) == O.SlotValueItems then
-                return erased.children(function(item) return expand_item(item, env) end, values[1].items)
+                return flat_map(function(item) return expand_item(item, env) end, values[1].items)
             end
-            return erased.once(self)
+            return single(self)
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemUseModule) then
             return (function(self, env)
 
             local local_env = merge_fills(env, self.fills)
             local module = one(expand_module, self.module, local_env)
-            return erased.children(function(item) return erased.once(item) end, module.items)
+            return flat_map(function(item) return single(item) end, module.items)
             end)(node, ...)
         elseif schema.isa(node, Tr.ItemUseModuleSlot) then
             return (function(self, env)
@@ -1573,12 +1604,12 @@ function M.Define(T, opts)
             if #values == 1 and schema.classof(values[1]) == O.SlotValueModule then
                 local local_env = merge_fills(env, self.fills)
                 local module = one(expand_module, values[1].module, local_env)
-                return erased.children(function(item) return erased.once(item) end, module.items)
+                return flat_map(function(item) return single(item) end, module.items)
             end
-            return erased.once(self)
+            return single(self)
             end)(node, ...)
         else
-            error("erased phase moonlift_open_expand_item: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_expand_item: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -1595,7 +1626,7 @@ function M.Define(T, opts)
                     RegionCall.mark_emitted(rec.key)
                     for j = 1, #rec.items do
                         local g, p, c = expand_item(rec.items[j], env)
-                        pvm.drain_into(g, p, c, out)
+                        append_all(out, g)
                     end
                 end
             end
@@ -1612,10 +1643,10 @@ function M.Define(T, opts)
             local module_env = env_with_module_frags(env, module.items)
             local items = expand_items(module.items, module_env)
             expand_pending_region_call_wrappers(items, module_env)
-            return erased.once(schema.with(module, { h = one(expand_module_header, module.h, module_env), items = items }))
+            return single(schema.with(module, { h = one(expand_module_header, module.h, module_env), items = items }))
             end)(node, ...)
         else
-            error("erased phase moonlift_open_expand_module: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_open_expand_module: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -1680,4 +1711,4 @@ function M.Define(T, opts)
     }
 end
 
-return M
+return bind_context

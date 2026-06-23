@@ -1,14 +1,12 @@
 local pvm = require("moonlift.pvm")
 
-local M = {}
-
-function M.Define(T)
+local function bind_context(T)
     T._moonlift_api_cache = T._moonlift_api_cache or {}
     if T._moonlift_api_cache.c_emit ~= nil then return T._moonlift_api_cache.c_emit end
 
     local Core = T.MoonCore
     local C = T.MoonC
-    local Helpers = require("moonlift.c_helpers").Define(T)
+    local Helpers = require("moonlift.c_helpers")(T)
 
     local function append_all(out, xs) for i = 1, #(xs or {}) do out[#out + 1] = xs[i] end end
     local function class_name(x)
@@ -689,4 +687,4 @@ function M.Define(T)
     return api
 end
 
-return M
+return bind_context

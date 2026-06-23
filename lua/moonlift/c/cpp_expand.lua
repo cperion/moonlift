@@ -2,7 +2,7 @@
 -- Takes tokens/spans from c_lexer, returns expanded token stream
 -- with no directive tokens and all macros expanded.
 --
--- Local module, not a PVM phase directly, but follows the Define(T) pattern
+-- Local module, not a PVM phase directly, but follows the bind_context(T) pattern
 -- for consistency with the rest of the C frontend.
 
 local pvm = require("moonlift.pvm")
@@ -1316,7 +1316,7 @@ end
 -- Public API
 -----------------------------------------------------------------------------
 
-function M.Define(T)
+local function bind_context(T)
     local CA = T.MoonCAst
     local Source = T.MoonSource
 
@@ -1353,4 +1353,8 @@ function M.Define(T)
     return { expand = M.expand }
 end
 
-return M
+return setmetatable(M, {
+    __call = function(_, ...)
+        return bind_context(...)
+    end,
+})

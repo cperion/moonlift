@@ -12,6 +12,44 @@
 
 local M = {}
 
+local PHASE_OUTPUT_HELPERS = [[
+local function single(value) return { value } end
+local function as_list(values) return values end
+local function only(values)
+    if #values == 0 then error("phase output: expected exactly 1 value, got 0", 2) end
+    if #values ~= 1 then error("phase output: expected exactly 1 value, got more", 2) end
+    return values[1]
+end
+local function append_all(out, values)
+    for i = 1, #(values or {}) do out[#out + 1] = values[i] end
+    return out
+end
+local function concat_all(lists)
+    local out = {}
+    for i = 1, #(lists or {}) do append_all(out, lists[i]) end
+    return out
+end
+local function concat2(a, b)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    return out
+end
+local function concat3(a, b, c)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    append_all(out, c)
+    return out
+end
+local function flat_map(fn, values, n)
+    local out = {}
+    n = n or #(values or {})
+    for i = 1, n do append_all(out, fn(values[i])) end
+    return out
+end
+]]
+
 local function read_file(path)
     local f = assert(io.open(path, "rb"))
     local s = f:read("*a") or ""
@@ -289,13 +327,13 @@ local function parse_function_expr(src)
 end
 
 local function rewrite_direct_body(body)
-    body = body:gsub("pvm%.once", "erased.once")
-    body = body:gsub("pvm%.empty", "erased.empty")
-    body = body:gsub("pvm%.seq", "erased.seq")
-    body = body:gsub("pvm%.children", "erased.children")
-    body = body:gsub("pvm%.concat_all", "erased.concat_all")
-    body = body:gsub("pvm%.concat3", "erased.concat3")
-    body = body:gsub("pvm%.concat2", "erased.concat2")
+    body = body:gsub("pvm%.empty%(%s*%)", "{}")
+    body = body:gsub("pvm%.once", "single")
+    body = body:gsub("pvm%.seq", "as_list")
+    body = body:gsub("pvm%.children", "flat_map")
+    body = body:gsub("pvm%.concat_all", "concat_all")
+    body = body:gsub("pvm%.concat3", "concat3")
+    body = body:gsub("pvm%.concat2", "concat2")
     return body
 end
 
@@ -443,7 +481,7 @@ local function direct_dispatch_text(phase)
         out[#out + 1] = indent .. "        end)(node, ...)"
     end
     out[#out + 1] = indent .. "    else"
-    out[#out + 1] = indent .. "        error(\"erased phase " .. tostring(phase.phase_name or phase.assignment.name) .. ": no handler for \" .. tostring(cls and cls.kind or type(node)), 2)"
+    out[#out + 1] = indent .. "        error(\"phase " .. tostring(phase.phase_name or phase.assignment.name) .. ": no handler for \" .. tostring(cls and cls.kind or type(node)), 2)"
     out[#out + 1] = indent .. "    end"
     out[#out + 1] = indent .. "end"
     return table.concat(out, "\n")
@@ -470,7 +508,7 @@ local function rewrite_pvm_terminal_calls(src, phase_names, report)
         local name = inner:match("^([_%a][_%w]*)%s*%(")
         if name and phase_names[name] then
             local output = phase_names[name]
-            local text = output == "many" and ("erased.one(" .. inner .. ")") or inner
+            local text = output == "many" and ("only(" .. inner .. ")") or inner
             ranges[#ranges + 1] = { start_pos = call_start, end_pos = close_i, text = text }
             report.rewritten_one_calls = report.rewritten_one_calls + 1
         else
@@ -478,7 +516,7 @@ local function rewrite_pvm_terminal_calls(src, phase_names, report)
             if method_name and phase_names[method_name] then
                 local output = phase_names[method_name]
                 local inner_text = method_name .. "(" .. args .. ")"
-                local text = output == "many" and ("erased.one(" .. inner_text .. ")") or inner_text
+                local text = output == "many" and ("only(" .. inner_text .. ")") or inner_text
                 ranges[#ranges + 1] = { start_pos = call_start, end_pos = close_i, text = text }
                 report.rewritten_one_calls = report.rewritten_one_calls + 1
             end
@@ -534,11 +572,11 @@ local function rewrite_phase_method_calls(src, phase_names, report)
                     local call = receiver .. "(" .. args .. ")"
                     local text = call
                     if method == "one_uncached" and output == "many" then
-                        text = "erased.one(" .. call .. ")"
+                        text = "only(" .. call .. ")"
                     elseif method == "drain_uncached" and output == "scalar" then
-                        text = "erased.once(" .. call .. ")"
+                        text = "single(" .. call .. ")"
                     elseif method == "triplet_uncached" and output == "scalar" then
-                        text = "erased.once(" .. call .. ")"
+                        text = "single(" .. call .. ")"
                     end
                     ranges[#ranges + 1] = { start_pos = receiver_start, end_pos = close_i, text = text }
                     report.rewritten_method_calls = (report.rewritten_method_calls or 0) + 1
@@ -618,20 +656,27 @@ function M.transform_source(src, opts)
     out = out:gsub("pvm%.context", "schema.context")
 
     local need_schema = out:match("schema%.") ~= nil
-    local need_erased = out:match("erased%.") ~= nil
-    if need_schema or need_erased then
+    local need_phase_output = out:match("%f[%w_]single%f[^%w_]%s*%(")
+        or out:match("%f[%w_]only%f[^%w_]%s*%(")
+        or out:match("%f[%w_]as_list%f[^%w_]%s*%(")
+        or out:match("%f[%w_]append_all%f[^%w_]%s*%(")
+        or out:match("%f[%w_]concat_all%f[^%w_]%s*%(")
+        or out:match("%f[%w_]concat2%f[^%w_]%s*%(")
+        or out:match("%f[%w_]concat3%f[^%w_]%s*%(")
+        or out:match("%f[%w_]flat_map%f[^%w_]%s*%(")
+    if need_schema or need_phase_output then
         local lines = {}
         if out:match("pvm%.") then lines[#lines + 1] = "local pvm = require(\"moonlift.pvm\")" end
         if need_schema then lines[#lines + 1] = "local schema = require(\"moonlift.schema_runtime\")" end
-        if need_erased then lines[#lines + 1] = "local erased = require(\"moonlift.phase_erased_runtime\")" end
+        if need_phase_output then lines[#lines + 1] = PHASE_OUTPUT_HELPERS:gsub("%s+$", "") end
         local replacement = table.concat(lines, "\n")
         local count = out:match("pvm%.") and 1 or nil
         out = out:gsub("local%s+pvm%s*=%s*require%(([\"'])moonlift%.pvm%1%)", replacement, count)
         if not out:match("moonlift%.schema_runtime") and need_schema then
             out = "local schema = require(\"moonlift.schema_runtime\")\n" .. out
         end
-        if not out:match("moonlift%.phase_erased_runtime") and need_erased then
-            out = "local erased = require(\"moonlift.phase_erased_runtime\")\n" .. out
+        if not out:match("local function single%(value%)") and need_phase_output then
+            out = PHASE_OUTPUT_HELPERS .. out
         end
     end
 

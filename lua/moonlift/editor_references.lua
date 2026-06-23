@@ -2,17 +2,15 @@ local pvm = require("moonlift.pvm")
 local SubjectAt = require("moonlift.editor_subject_at")
 local BindingFacts = require("moonlift.editor_binding_facts")
 
-local M = {}
-
 local function add_unique(out, seen, range)
     local key = range.uri.text .. ":" .. range.start_offset .. ":" .. range.stop_offset
     if not seen[key] then seen[key] = true; out[#out + 1] = range end
 end
 
-function M.Define(T)
+local function bind_context(T)
     local E = T.MoonEditor
-    local Subject = SubjectAt.Define(T)
-    local Bindings = BindingFacts.Define(T)
+    local Subject = SubjectAt(T)
+    local Bindings = BindingFacts(T)
 
     local function references_phase(query, analysis)
         local pick = Subject.subject_at(query.position, analysis)
@@ -38,4 +36,4 @@ function M.Define(T)
     return { references_phase = references_phase, references = references }
 end
 
-return M
+return bind_context

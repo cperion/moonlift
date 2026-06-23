@@ -6,9 +6,9 @@ local Switch = require("moonlift.sem_switch_decide")
 local Call = require("moonlift.sem_call_decide")
 
 local T = pvm.context()
-A.Define(T)
-local S = Switch.Define(T)
-local CallD = Call.Define(T)
+A(T)
+local S = Switch(T)
+local CallD = Call(T)
 local C = T.MoonCore
 local Ty = T.MoonType
 local O = T.MoonOpen

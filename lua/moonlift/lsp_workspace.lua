@@ -2,8 +2,6 @@ local pvm = require("moonlift.pvm")
 local Uri = require("moonlift.lsp_uri")
 local FileScan = require("moonlift.lsp_file_scan")
 
-local M = {}
-
 local function read_file(path)
     local f = io.open(path, "rb")
     if not f then return nil end
@@ -20,7 +18,7 @@ local function uri_key(uri)
     return Uri.uri_text(uri)
 end
 
-function M.Define(T)
+local function bind_context(T)
     local S = T.MoonSource
     local E = T.MoonEditor
 
@@ -138,4 +136,4 @@ function M.Define(T)
     }
 end
 
-return M
+return bind_context

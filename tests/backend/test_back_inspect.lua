@@ -5,9 +5,9 @@ local A2 = require("moonlift.schema_projection")
 local Inspect = require("moonlift.back_inspect")
 
 local T = pvm.context()
-A2.Define(T)
+A2(T)
 local B = T.MoonBack
-local I = Inspect.Define(T)
+local I = Inspect(T)
 
 local sig = B.BackSigId("sig")
 local func = B.BackFuncId("f")

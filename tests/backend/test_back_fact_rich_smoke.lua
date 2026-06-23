@@ -7,9 +7,9 @@ local J = require("moonlift.back_jit")
 local Validate = require("moonlift.back_validate")
 
 local T = pvm.context()
-A2.Define(T)
-local validate = Validate.Define(T)
-local jit_api = J.Define(T)
+A2(T)
+local validate = Validate(T)
+local jit_api = J(T)
 
 local C = T.MoonCore
 local B = T.MoonBack

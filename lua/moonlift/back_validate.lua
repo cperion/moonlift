@@ -1,8 +1,39 @@
-local pvm = require("moonlift.pvm")
 local schema = require("moonlift.schema_runtime")
-local erased = require("moonlift.phase_erased_runtime")
-
-local M = {}
+local function single(value) return { value } end
+local function as_list(values) return values end
+local function only(values)
+    if #values == 0 then error("phase output: expected exactly 1 value, got 0", 2) end
+    if #values ~= 1 then error("phase output: expected exactly 1 value, got more", 2) end
+    return values[1]
+end
+local function append_all(out, values)
+    for i = 1, #(values or {}) do out[#out + 1] = values[i] end
+    return out
+end
+local function concat_all(lists)
+    local out = {}
+    for i = 1, #(lists or {}) do append_all(out, lists[i]) end
+    return out
+end
+local function concat2(a, b)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    return out
+end
+local function concat3(a, b, c)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    append_all(out, c)
+    return out
+end
+local function flat_map(fn, values, n)
+    local out = {}
+    n = n or #(values or {})
+    for i = 1, n do append_all(out, fn(values[i])) end
+    return out
+end
 
 local function add_issue(issues, issue)
     issues[#issues + 1] = issue
@@ -22,11 +53,7 @@ local function has(seen, key)
 end
 
 local function facts_triplet(facts)
-    local trips = {}
-    for i = 1, #facts do
-        trips[i] = { pvm.once(facts[i]) }
-    end
-    return pvm.concat_all(trips)
+    return facts
 end
 
 local function append_value_uses(out, B, index, values)
@@ -41,9 +68,9 @@ local function append_value_defs(out, B, index, values)
     end
 end
 
-function M.Define(T)
+local function bind_context(T)
     local B = T.MoonBack or T.MoonBack
-    assert(B, "moonlift.back_validate.Define expects MoonBack/MoonBack in the context")
+    assert(B, "moonlift.back_validate(T) expects MoonBack/MoonBack in the context")
 
     local function append_address_base_uses(out, index, base)
         local cls = schema.classof(base)
@@ -147,20 +174,20 @@ function M.Define(T)
         if schema.isa(node, B.BackCallDirect) then
             return (function(self, index)
 
-            return erased.once(B.BackFactFuncRef(index, self.func))
+            return single(B.BackFactFuncRef(index, self.func))
             end)(node, ...)
         elseif schema.isa(node, B.BackCallExtern) then
             return (function(self, index)
 
-            return erased.once(B.BackFactExternRef(index, self.func))
+            return single(B.BackFactExternRef(index, self.func))
             end)(node, ...)
         elseif schema.isa(node, B.BackCallIndirect) then
             return (function(self, index)
 
-            return erased.once(B.BackFactValueUse(index, self.callee))
+            return single(B.BackFactValueUse(index, self.callee))
             end)(node, ...)
         else
-            error("erased phase moonlift_back_call_target_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_back_call_target_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -169,15 +196,15 @@ function M.Define(T)
         if schema.isa(node, B.BackCallStmt) then
             return (function()
 
-            return erased.empty()
+            return {}
             end)(node, ...)
         elseif schema.isa(node, B.BackCallValue) then
             return (function(self, index)
 
-            return erased.once(B.BackFactValueDef(index, self.dst))
+            return single(B.BackFactValueDef(index, self.dst))
             end)(node, ...)
         else
-            error("erased phase moonlift_back_call_result_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_back_call_result_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -251,7 +278,7 @@ function M.Define(T)
         if cls == B.CmdSwitchInt then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.value); out[#out + 1] = B.BackFactBlockRef(index, cmd.default_dest); for i = 1, #cmd.cases do out[#out + 1] = B.BackFactBlockRef(index, cmd.cases[i].dest) end; return end
         if cls == B.CmdReturnValue then out[#out + 1] = body(index); out[#out + 1] = B.BackFactValueUse(index, cmd.value); return end
         local g, p, c = cmd_facts(cmd, index)
-        pvm.drain_into(g, p, c, out)
+        append_all(out, g)
     end
 
     function cmd_facts(node, ...)
@@ -529,15 +556,15 @@ function M.Define(T)
         elseif schema.isa(node, B.CmdCall) then
             return (function(self, index)
 
-            return erased.concat_all({
-                { facts_triplet({ body(index), B.BackFactSigRef(index, self.sig) }) },
-                { call_target_facts(self.target, index) },
-                { call_result_facts(self.result, index) },
-                { facts_triplet((function()
+            return concat_all({
+                facts_triplet({ body(index), B.BackFactSigRef(index, self.sig) }),
+                call_target_facts(self.target, index),
+                call_result_facts(self.result, index),
+                facts_triplet((function()
                     local out = {}
                     append_value_uses(out, B, index, self.args)
                     return out
-                end)()) },
+                end)()),
             })
             end)(node, ...)
         elseif schema.isa(node, B.CmdJump) then
@@ -580,7 +607,7 @@ function M.Define(T)
             return facts_triplet({ body(index) })
             end)(node, ...)
         else
-            error("erased phase moonlift_back_cmd_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_back_cmd_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -602,7 +629,7 @@ function M.Define(T)
         else
             for i = 1, #cmds do
                 local g, p, c = cmd_facts(cmds[i], i)
-                pvm.drain_into(g, p, c, facts)
+                append_all(facts, g)
             end
         end
 
@@ -824,7 +851,6 @@ local Format = require("moonlift.error.format")
 
 local function explain_back_issue(issue, analysis)
     local resolvers = require("moonlift.error.span_resolvers")
-    local pvm = require("moonlift.pvm")
     local span = resolvers.backend_resolver(issue, analysis)
     local cls = schema.classof(issue)
     if not cls then return { code = "E9999", severity = "error", primary = { span = span, message = tostring(issue) } } end
@@ -1041,6 +1067,10 @@ local function explain_back_issue(issue, analysis)
     return { code = "E9999", severity = "error", primary = { span = span, message = kind or tostring(issue) } }
 end
 
-M.explain_back_issue = explain_back_issue
-
-return M
+return setmetatable({
+    explain_back_issue = explain_back_issue,
+}, {
+    __call = function(_, ...)
+        return bind_context(...)
+    end,
+})

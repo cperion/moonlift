@@ -12,8 +12,12 @@ function M.schema(T)
     return Schema.schema(T)
 end
 
-function M.Define(T)
-    return Schema.Define(T)
+local function bind_context(T)
+    return Schema(T)
 end
 
-return M
+return setmetatable(M, {
+    __call = function(_, ...)
+        return bind_context(...)
+    end,
+})

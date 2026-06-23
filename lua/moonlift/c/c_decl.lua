@@ -4,7 +4,7 @@
 
 local M = {}
 
-function M.Define(T)
+local function bind_context(T)
     local CA = T.MoonCAst
 
     ------------------------------------------------------------------------
@@ -912,4 +912,8 @@ function M.Define(T)
     return M
 end
 
-return M
+return setmetatable(M, {
+    __call = function(_, ...)
+        return bind_context(...)
+    end,
+})

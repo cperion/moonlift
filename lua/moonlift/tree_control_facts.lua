@@ -1,9 +1,41 @@
 local schema = require("moonlift.schema_runtime")
-local erased = require("moonlift.phase_erased_runtime")
+local function single(value) return { value } end
+local function as_list(values) return values end
+local function only(values)
+    if #values == 0 then error("phase output: expected exactly 1 value, got 0", 2) end
+    if #values ~= 1 then error("phase output: expected exactly 1 value, got more", 2) end
+    return values[1]
+end
+local function append_all(out, values)
+    for i = 1, #(values or {}) do out[#out + 1] = values[i] end
+    return out
+end
+local function concat_all(lists)
+    local out = {}
+    for i = 1, #(lists or {}) do append_all(out, lists[i]) end
+    return out
+end
+local function concat2(a, b)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    return out
+end
+local function concat3(a, b, c)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    append_all(out, c)
+    return out
+end
+local function flat_map(fn, values, n)
+    local out = {}
+    n = n or #(values or {})
+    for i = 1, n do append_all(out, fn(values[i])) end
+    return out
+end
 
-local M = {}
-
-function M.Define(T, opts)
+local function bind_context(T, opts)
     opts = opts or {}
     local Ty = T.MoonType
     local Tr = T.MoonTree
@@ -30,7 +62,7 @@ function M.Define(T, opts)
     end
 
     local function expr_ty(expr)
-        return erased.one(expr_type(expr.h))
+        return only(expr_type(expr.h))
     end
 
     local function named_type_name(ty)
@@ -45,7 +77,7 @@ function M.Define(T, opts)
 
     local function body_terminates(stmts)
         for i = 1, #stmts do
-            if erased.one(stmt_terminates(stmts[i])) then return true end
+            if only(stmt_terminates(stmts[i])) then return true end
         end
         return false
     end
@@ -54,18 +86,18 @@ function M.Define(T, opts)
         local cls = schema.classof(node)
         if schema.isa(node, Tr.ExprTyped) then
             return (function(self)
- return erased.once(self.ty)
+ return single(self.ty)
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprOpen) then
             return (function(self)
- return erased.once(self.ty)
+ return single(self.ty)
             end)(node, ...)
         elseif schema.isa(node, Tr.ExprSurface) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         else
-            error("erased phase moonlift_tree_control_expr_type: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_tree_control_expr_type: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -81,27 +113,27 @@ function M.Define(T, opts)
             if labels_equal(stmt.target, from_label) or labels_equal(stmt.target, entry_label) then
                 facts[#facts + 1] = Tr.ControlFactBackedge(region_id, from_label, stmt.target)
             end
-            return erased.children(function(fact) return erased.once(fact) end, facts)
+            return flat_map(function(fact) return single(fact) end, facts)
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtYieldVoid) then
             return (function(_, region_id, from_label)
 
-            return erased.once(Tr.ControlFactYieldVoid(region_id, from_label))
+            return single(Tr.ControlFactYieldVoid(region_id, from_label))
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtYieldValue) then
             return (function(stmt, region_id, from_label)
 
-            return erased.once(Tr.ControlFactYieldValue(region_id, from_label, expr_ty(stmt.value)))
+            return single(Tr.ControlFactYieldValue(region_id, from_label, expr_ty(stmt.value)))
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtReturnVoid) then
             return (function(_, region_id, from_label)
 
-            return erased.once(Tr.ControlFactReturn(region_id, from_label))
+            return single(Tr.ControlFactReturn(region_id, from_label))
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtReturnValue) then
             return (function(_, region_id, from_label)
 
-            return erased.once(Tr.ControlFactReturn(region_id, from_label))
+            return single(Tr.ControlFactReturn(region_id, from_label))
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtIf) then
             return (function(stmt, region_id, from_label, entry_label)
@@ -109,7 +141,7 @@ function M.Define(T, opts)
             local out = {}
             for i = 1, #stmt.then_body do append_all(out, stmt_facts(stmt.then_body[i], region_id, from_label, entry_label)) end
             for i = 1, #stmt.else_body do append_all(out, stmt_facts(stmt.else_body[i], region_id, from_label, entry_label)) end
-            return erased.children(function(fact) return erased.once(fact) end, out)
+            return flat_map(function(fact) return single(fact) end, out)
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtSwitch) then
             return (function(stmt, region_id, from_label, entry_label)
@@ -133,7 +165,7 @@ function M.Define(T, opts)
                 out[#out + 1] = Tr.ControlFactVariantSwitch(region_id, from_label, type_name or "", arm_facts, Tr.BlockLabel("variant:" .. from_label.name .. ":default"))
             end
             for i = 1, #stmt.default_body do append_all(out, stmt_facts(stmt.default_body[i], region_id, from_label, entry_label)) end
-            return erased.children(function(fact) return erased.once(fact) end, out)
+            return flat_map(function(fact) return single(fact) end, out)
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtControl) then
             return (function(stmt)
@@ -142,50 +174,50 @@ function M.Define(T, opts)
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtLet) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtVar) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtSet) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtAtomicStore) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtAtomicFence) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtExpr) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtAssert) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtJumpCont) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtUseRegionSlot) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtUseRegionFrag) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtTrap) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         else
-            error("erased phase moonlift_tree_control_stmt_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_tree_control_stmt_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -193,90 +225,90 @@ function M.Define(T, opts)
         local cls = schema.classof(node)
         if schema.isa(node, Tr.StmtJump) then
             return (function()
- return erased.once(true)
+ return single(true)
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtJumpCont) then
             return (function()
- return erased.once(true)
+ return single(true)
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtYieldVoid) then
             return (function()
- return erased.once(true)
+ return single(true)
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtYieldValue) then
             return (function()
- return erased.once(true)
+ return single(true)
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtReturnVoid) then
             return (function()
- return erased.once(true)
+ return single(true)
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtReturnValue) then
             return (function()
- return erased.once(true)
+ return single(true)
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtIf) then
             return (function(stmt)
- return erased.once(body_terminates(stmt.then_body) and body_terminates(stmt.else_body))
+ return single(body_terminates(stmt.then_body) and body_terminates(stmt.else_body))
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtSwitch) then
             return (function(stmt)
 
-            if not body_terminates(stmt.default_body) then return erased.once(false) end
+            if not body_terminates(stmt.default_body) then return single(false) end
             for i = 1, #stmt.arms do
-                if not body_terminates(stmt.arms[i].body) then return erased.once(false) end
+                if not body_terminates(stmt.arms[i].body) then return single(false) end
             end
             for i = 1, #(stmt.variant_arms or {}) do
-                if not body_terminates(stmt.variant_arms[i].body) then return erased.once(false) end
+                if not body_terminates(stmt.variant_arms[i].body) then return single(false) end
             end
-            return erased.once(true)
+            return single(true)
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtLet) then
             return (function()
- return erased.once(false)
+ return single(false)
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtVar) then
             return (function()
- return erased.once(false)
+ return single(false)
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtSet) then
             return (function()
- return erased.once(false)
+ return single(false)
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtAtomicStore) then
             return (function()
- return erased.once(false)
+ return single(false)
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtAtomicFence) then
             return (function()
- return erased.once(false)
+ return single(false)
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtExpr) then
             return (function()
- return erased.once(false)
+ return single(false)
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtAssert) then
             return (function()
- return erased.once(false)
+ return single(false)
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtControl) then
             return (function()
- return erased.once(false)
+ return single(false)
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtUseRegionSlot) then
             return (function()
- return erased.once(false)
+ return single(false)
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtUseRegionFrag) then
             return (function()
- return erased.once(false)
+ return single(false)
             end)(node, ...)
         elseif schema.isa(node, Tr.StmtTrap) then
             return (function()
- return erased.once(true)
+ return single(true)
             end)(node, ...)
         else
-            error("erased phase moonlift_tree_control_stmt_terminates: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_tree_control_stmt_terminates: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -310,15 +342,15 @@ function M.Define(T, opts)
         if schema.isa(node, Tr.ControlStmtRegion) then
             return (function(region)
 
-            return erased.children(function(fact) return erased.once(fact) end, facts_for(region.region_id, region.entry, region.blocks))
+            return flat_map(function(fact) return single(fact) end, facts_for(region.region_id, region.entry, region.blocks))
             end)(node, ...)
         elseif schema.isa(node, Tr.ControlExprRegion) then
             return (function(region)
 
-            return erased.children(function(fact) return erased.once(fact) end, facts_for(region.region_id, region.entry, region.blocks))
+            return flat_map(function(fact) return single(fact) end, facts_for(region.region_id, region.entry, region.blocks))
             end)(node, ...)
         else
-            error("erased phase moonlift_tree_control_region_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_tree_control_region_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -419,16 +451,16 @@ function M.Define(T, opts)
             return (function(region)
 
             local facts = region_facts(region)
-            return erased.once(decide_from_facts(region, facts))
+            return single(decide_from_facts(region, facts))
             end)(node, ...)
         elseif schema.isa(node, Tr.ControlExprRegion) then
             return (function(region)
 
             local facts = region_facts(region)
-            return erased.once(decide_from_facts(region, facts))
+            return single(decide_from_facts(region, facts))
             end)(node, ...)
         else
-            error("erased phase moonlift_tree_control_decide: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_tree_control_decide: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -438,8 +470,8 @@ function M.Define(T, opts)
         region_facts = region_facts,
         region_decide = region_decide,
         facts = function(region) return Tr.ControlFactSet(region_facts(region)) end,
-        decide = function(region) return erased.one(region_decide(region)) end,
+        decide = function(region) return only(region_decide(region)) end,
     }
 end
 
-return M
+return bind_context

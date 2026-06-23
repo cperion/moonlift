@@ -2,8 +2,6 @@ local schema = require("moonlift.schema_runtime")
 local SubjectAt = require("moonlift.editor_subject_at")
 local BindingFacts = require("moonlift.editor_binding_facts")
 
-local M = {}
-
 local function add_unique_range(out, seen, range)
     local key = range.uri.text .. ":" .. tostring(range.start_offset) .. ":" .. tostring(range.stop_offset)
     if not seen[key] then
@@ -12,10 +10,10 @@ local function add_unique_range(out, seen, range)
     end
 end
 
-function M.Define(T)
+local function bind_context(T)
     local E = T.MoonEditor
-    local Subject = SubjectAt.Define(T)
-    local Bindings = BindingFacts.Define(T)
+    local Subject = SubjectAt(T)
+    local Bindings = BindingFacts(T)
 
     local function definition_phase(query, analysis)
         local pick = Subject.subject_at(query, analysis)
@@ -43,4 +41,4 @@ function M.Define(T)
     return { definition_phase = definition_phase, definition = definition }
 end
 
-return M
+return bind_context

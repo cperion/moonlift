@@ -5,8 +5,8 @@ local A = require("moonlift.schema_projection")
 local Ops = require("moonlift.core_operator")
 
 local T = pvm.context()
-A.Define(T)
-local L = Ops.Define(T)
+A(T)
+local L = Ops(T)
 local C = T.MoonCore
 
 assert(L.unary(C.UnaryNeg) == C.UnaryClassArithmetic)

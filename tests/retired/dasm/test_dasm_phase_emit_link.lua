@@ -7,7 +7,7 @@ local L = require("back.dasm.phases.link_encode")
 local Mx = require("back.dasm.model")
 
 local T = pvm.context()
-A2.Define(T)
+A2(T)
 Mx.set_context(T)
 local D = T.MoonDasm
 

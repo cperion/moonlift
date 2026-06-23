@@ -7,10 +7,10 @@ local Decide = require("moonlift.bind_residence_decide")
 local Machine = require("moonlift.bind_machine_binding")
 
 local T = pvm.context()
-A.Define(T)
-local G = Gather.Define(T)
-local D = Decide.Define(T)
-local M = Machine.Define(T)
+A(T)
+local G = Gather(T)
+local D = Decide(T)
+local M = Machine(T)
 local C = T.MoonCore
 local Ty = T.MoonType
 local B = T.MoonBind

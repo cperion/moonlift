@@ -21,39 +21,37 @@ local BindingFacts = require("moonlift.editor_binding_facts")
 local AdaptMod = require("moonlift.lsp_payload_adapt")
 local Capabilities = require("moonlift.lsp_capabilities")
 
-local M = {}
-
 local function id_set(ids)
     local out = {}
     for i = 1, #(ids or {}) do out[ids[i]] = true end
     return out
 end
 
-function M.Define(T)
+local function bind_context(T)
     local S = T.MoonSource
     local E = T.MoonEditor
     local R = T.MoonRpc
     local L = T.MoonLsp
-    local Analysis = AnalysisMod.Define(T)
-    local Workspace = WorkspaceMod.Define(T)
-    local Sym = Symbols.Define(T)
-    local Hov = Hover.Define(T)
-    local Comp = Completion.Define(T)
-    local Sig = SignatureHelp.Define(T)
-    local Def = Definition.Define(T)
-    local Refs = References.Define(T)
-    local Ren = Rename.Define(T)
-    local High = Highlights.Define(T)
-    local Tok = SemanticTokens.Define(T)
-    local Fold = Folding.Define(T)
-    local Sel = Selection.Define(T)
-    local InlayHints = Inlay.Define(T)
-    local Actions = CodeActions.Define(T)
-    local Diag = Diagnostics.Define(T)
-    local Subject = SubjectAt.Define(T)
-    local Bindings = BindingFacts.Define(T)
-    local Adapt = AdaptMod.Define(T)
-    local Caps = Capabilities.Define(T)
+    local Analysis = AnalysisMod(T)
+    local Workspace = WorkspaceMod(T)
+    local Sym = Symbols(T)
+    local Hov = Hover(T)
+    local Comp = Completion(T)
+    local Sig = SignatureHelp(T)
+    local Def = Definition(T)
+    local Refs = References(T)
+    local Ren = Rename(T)
+    local High = Highlights(T)
+    local Tok = SemanticTokens(T)
+    local Fold = Folding(T)
+    local Sel = Selection(T)
+    local InlayHints = Inlay(T)
+    local Actions = CodeActions(T)
+    local Diag = Diagnostics(T)
+    local Subject = SubjectAt(T)
+    local Bindings = BindingFacts(T)
+    local Adapt = AdaptMod(T)
+    local Caps = Capabilities(T)
     local analysis_cache = setmetatable({}, { __mode = "k" })
     local diagnostic_analysis_cache = setmetatable({}, { __mode = "k" })
     local diagnostics_disabled = os.getenv("MOONLIFT_LSP_DISABLE_DIAGNOSTICS") == "1"
@@ -476,4 +474,4 @@ function M.Define(T)
     }
 end
 
-return M
+return bind_context

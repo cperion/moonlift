@@ -12,9 +12,13 @@ function M.schema(T)
     return S.to_asdl_schema(T, { phase_module() })
 end
 
-function M.Define(T)
+local function bind_context(T)
     if T.MoonPhase ~= nil then return T end
     return S.define(T, { phase_module() })
 end
 
-return M
+return setmetatable(M, {
+    __call = function(_, ...)
+        return bind_context(...)
+    end,
+})

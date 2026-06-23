@@ -1,8 +1,6 @@
 local pvm = require("moonlift.pvm")
 
-local M = {}
-
-function M.Define(T)
+local function bind_context(T)
     T._moonlift_api_cache = T._moonlift_api_cache or {}
     if T._moonlift_api_cache.type_func_abi_plan ~= nil then return T._moonlift_api_cache.type_func_abi_plan end
 
@@ -11,8 +9,8 @@ function M.Define(T)
     local B = T.MoonBind
     local Back = T.MoonBack
 
-    local scalar_api = require("moonlift.type_to_back_scalar").Define(T)
-    local classify_api = require("moonlift.type_classify").Define(T)
+    local scalar_api = require("moonlift.type_to_back_scalar")(T)
+    local classify_api = require("moonlift.type_classify")(T)
 
     local function arg_binding_for_param(func_name, param, index)
         return B.Binding(C.Id("arg:" .. func_name .. ":" .. param.name), param.name, param.ty, B.BindingClassArg(index - 1))
@@ -80,4 +78,4 @@ function M.Define(T)
     return api
 end
 
-return M
+return bind_context

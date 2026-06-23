@@ -1,8 +1,40 @@
 local schema = require("moonlift.schema_runtime")
-local erased = require("moonlift.phase_erased_runtime")
+local function single(value) return { value } end
+local function as_list(values) return values end
+local function only(values)
+    if #values == 0 then error("phase output: expected exactly 1 value, got 0", 2) end
+    if #values ~= 1 then error("phase output: expected exactly 1 value, got more", 2) end
+    return values[1]
+end
+local function append_all(out, values)
+    for i = 1, #(values or {}) do out[#out + 1] = values[i] end
+    return out
+end
+local function concat_all(lists)
+    local out = {}
+    for i = 1, #(lists or {}) do append_all(out, lists[i]) end
+    return out
+end
+local function concat2(a, b)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    return out
+end
+local function concat3(a, b, c)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    append_all(out, c)
+    return out
+end
+local function flat_map(fn, values, n)
+    local out = {}
+    n = n or #(values or {})
+    for i = 1, n do append_all(out, fn(values[i])) end
+    return out
+end
 local PositionIndex = require("moonlift.source_position_index")
-
-local M = {}
 
 local scalar_type_names = nil
 
@@ -164,14 +196,14 @@ local scope_open_words = {
     ["if"] = true, switch = true,
 }
 
-function M.Define(T)
+local function bind_context(T)
     local S = T.MoonSource
     local C = T.MoonCore
     local Ty = T.MoonType
     local B = T.MoonBind
     local E = T.MoonEditor
     local Mlua = T.MoonMlua
-    local P = PositionIndex.Define(T)
+    local P = PositionIndex(T)
 
     scalar_type_names = scalar_type_names or {
         void = C.ScalarVoid, bool = C.ScalarBool,
@@ -430,15 +462,15 @@ function M.Define(T)
             local scopes, scope_records = build_scopes(analysis, index)
             local bindings = build_bindings(analysis, index, scope_records)
             local resolutions = build_resolutions(analysis, scope_records, bindings)
-            return erased.once(E.BindingScopeReport(scopes, bindings, resolutions))
+            return single(E.BindingScopeReport(scopes, bindings, resolutions))
             end)(node, ...)
         else
-            error("erased phase moonlift_editor_binding_scope_report: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_editor_binding_scope_report: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
     local function report(analysis)
-        return erased.one(scope_report_phase(analysis))
+        return only(scope_report_phase(analysis))
     end
 
     return {
@@ -447,4 +479,4 @@ function M.Define(T)
     }
 end
 
-return M
+return bind_context

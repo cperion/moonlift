@@ -578,7 +578,7 @@ function M.compile(name_or_decls, decls_or_opts, maybe_opts)
         local A2 = require("moonlift.schema_projection")
         local cls = pvm.classof(module_ast)
         opts.context = (cls and rawget(cls, "__context")) or pvm.context()
-        if opts.context.MoonCompiler == nil then A2.Define(opts.context) end
+        if opts.context.MoonCompiler == nil then A2(opts.context) end
     end
     return require("moonlift.compiler_driver").compile_jit(module_ast, opts)
 end
@@ -593,7 +593,7 @@ function M.emit_object(decl, path, name)
     local module_ast = module_ast_from(decl, name or "moonlift_object")
     local cls = pvm.classof(module_ast)
     local T = (cls and rawget(cls, "__context")) or pvm.context()
-    if T.MoonCompiler == nil then A2.Define(T) end
+    if T.MoonCompiler == nil then A2(T) end
     name = name or "moonlift_object"
     local artifact = Driver.lower_module(module_ast, { site = "emit_object", root = "emit_object", context = T, name = name })
     local bytes = artifact.bytes
@@ -617,12 +617,12 @@ function M.emit_shared(decl, path, name, opts)
     local module_ast = module_ast_from(decl, name or "moonlift_shared")
     local cls = pvm.classof(module_ast)
     local T = (cls and rawget(cls, "__context")) or pvm.context()
-    if T.MoonCompiler == nil then A2.Define(T) end
+    if T.MoonCompiler == nil then A2(T) end
     local Link = T.MoonLink
-    local LT = LinkTarget.Define(T)
-    local LV = LinkValidate.Define(T)
-    local LC = LinkCommand.Define(T)
-    local LE = LinkExecute.Define(T)
+    local LT = LinkTarget(T)
+    local LV = LinkValidate(T)
+    local LC = LinkCommand(T)
+    local LE = LinkExecute(T)
     name = name or "moonlift_shared"
     local keep_object = opts and opts.keep_object
     local object_path = keep_object or (os.tmpname() .. ".o")
@@ -672,10 +672,10 @@ function M.emit_c_artifact(decl, path_or_opts, name, opts)
     local module_ast = module_ast_from(decl, name or opts.name or "moonlift_c")
     local cls = pvm.classof(module_ast)
     local T = (cls and rawget(cls, "__context")) or pvm.context()
-    if T.MoonCompiler == nil then A2.Define(T) end
+    if T.MoonCompiler == nil then A2(T) end
     local driver_opts = { site = "emit_c_artifact", root = "emit_c", context = T, c_opts = opts, c_target = opts.c_target, target = opts.target, name = name or opts.name }
     local c_unit = Driver.lower_module(module_ast, driver_opts)
-    local artifact = CEmit.Define(T).emit_artifact(c_unit, opts)
+    local artifact = CEmit(T).emit_artifact(c_unit, opts)
     function artifact:write(write_opts)
         write_opts = write_opts or {}
         if type(write_opts) == "string" then write_opts = { c_path = write_opts } end
@@ -717,8 +717,12 @@ function M.context(opts)
     return M.pvm.context(opts)
 end
 
-function M.Define(T)
-    return require("moonlift.schema_projection").Define(T)
+local function bind_context(T)
+    return require("moonlift.schema_projection")(T)
 end
 
-return M
+return setmetatable(M, {
+    __call = function(_, ...)
+        return bind_context(...)
+    end,
+})

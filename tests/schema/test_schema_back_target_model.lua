@@ -5,11 +5,11 @@ local Schema = require("moonlift.schema")
 local Target = require("moonlift.back_target_model")
 
 local T = pvm.context()
-Schema.Define(T)
+Schema(T)
 
 local B = T.MoonBack
 local H = T.MoonHost
-local api = Target.Define(T)
+local api = Target(T)
 
 local model = api.default_native()
 assert(pvm.classof(model) == B.BackTargetModel)

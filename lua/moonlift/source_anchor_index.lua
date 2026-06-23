@@ -1,7 +1,39 @@
 local schema = require("moonlift.schema_runtime")
-local erased = require("moonlift.phase_erased_runtime")
-
-local M = {}
+local function single(value) return { value } end
+local function as_list(values) return values end
+local function only(values)
+    if #values == 0 then error("phase output: expected exactly 1 value, got 0", 2) end
+    if #values ~= 1 then error("phase output: expected exactly 1 value, got more", 2) end
+    return values[1]
+end
+local function append_all(out, values)
+    for i = 1, #(values or {}) do out[#out + 1] = values[i] end
+    return out
+end
+local function concat_all(lists)
+    local out = {}
+    for i = 1, #(lists or {}) do append_all(out, lists[i]) end
+    return out
+end
+local function concat2(a, b)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    return out
+end
+local function concat3(a, b, c)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    append_all(out, c)
+    return out
+end
+local function flat_map(fn, values, n)
+    local out = {}
+    n = n or #(values or {})
+    for i = 1, n do append_all(out, fn(values[i])) end
+    return out
+end
 
 local function same_uri(a, b)
     return a == b or (a and b and a.text == b.text)
@@ -32,7 +64,7 @@ local function sorted_copy(anchors)
     return out
 end
 
-function M.Define(T)
+local function bind_context(T)
     local S = T.MoonSource
 
     local function build_index_phase(anchor_set)
@@ -51,7 +83,7 @@ function M.Define(T)
                     out[#out + 1] = anchor
                 end
             end
-            return erased.once(S.AnchorLookup(out))
+            return single(S.AnchorLookup(out))
             end)(node, ...)
         elseif schema.isa(node, S.AnchorQueryPosition) then
             return (function(query)
@@ -67,7 +99,7 @@ function M.Define(T)
                 end
             end
             table.sort(out, anchor_specificity)
-            return erased.once(S.AnchorLookup(out))
+            return single(S.AnchorLookup(out))
             end)(node, ...)
         elseif schema.isa(node, S.AnchorQueryRange) then
             return (function(query)
@@ -82,10 +114,10 @@ function M.Define(T)
                 end
             end
             table.sort(out, anchor_specificity)
-            return erased.once(S.AnchorLookup(out))
+            return single(S.AnchorLookup(out))
             end)(node, ...)
         else
-            error("erased phase moonlift_source_anchor_lookup: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_source_anchor_lookup: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -94,7 +126,7 @@ function M.Define(T)
     end
 
     local function lookup(query)
-        return erased.one(lookup_phase(query))
+        return only(lookup_phase(query))
     end
 
     local function lookup_by_id(index, id)
@@ -120,4 +152,4 @@ function M.Define(T)
     }
 end
 
-return M
+return bind_context

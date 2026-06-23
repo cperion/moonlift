@@ -1,9 +1,41 @@
 local schema = require("moonlift.schema_runtime")
-local erased = require("moonlift.phase_erased_runtime")
+local function single(value) return { value } end
+local function as_list(values) return values end
+local function only(values)
+    if #values == 0 then error("phase output: expected exactly 1 value, got 0", 2) end
+    if #values ~= 1 then error("phase output: expected exactly 1 value, got more", 2) end
+    return values[1]
+end
+local function append_all(out, values)
+    for i = 1, #(values or {}) do out[#out + 1] = values[i] end
+    return out
+end
+local function concat_all(lists)
+    local out = {}
+    for i = 1, #(lists or {}) do append_all(out, lists[i]) end
+    return out
+end
+local function concat2(a, b)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    return out
+end
+local function concat3(a, b, c)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    append_all(out, c)
+    return out
+end
+local function flat_map(fn, values, n)
+    local out = {}
+    n = n or #(values or {})
+    for i = 1, n do append_all(out, fn(values[i])) end
+    return out
+end
 
-local M = {}
-
-function M.Define(T)
+local function bind_context(T)
     T._moonlift_api_cache = T._moonlift_api_cache or {}
     if T._moonlift_api_cache.type_classify ~= nil then return T._moonlift_api_cache.type_classify end
 
@@ -18,20 +50,20 @@ function M.Define(T)
         if schema.isa(node, Ty.ArrayLenConst) then
             return (function(self)
 
-            return erased.once(self.count)
+            return single(self.count)
             end)(node, ...)
         elseif schema.isa(node, Ty.ArrayLenExpr) then
             return (function()
 
-            return erased.empty()
+            return {}
             end)(node, ...)
         elseif schema.isa(node, Ty.ArrayLenSlot) then
             return (function()
 
-            return erased.empty()
+            return {}
             end)(node, ...)
         else
-            error("erased phase moonlift_type_array_len_count: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_type_array_len_count: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -40,25 +72,25 @@ function M.Define(T)
         if schema.isa(node, Ty.TypeRefGlobal) then
             return (function(self)
 
-            return erased.once(Ty.TypeClassAggregate(self.module_name, self.type_name))
+            return single(Ty.TypeClassAggregate(self.module_name, self.type_name))
             end)(node, ...)
         elseif schema.isa(node, Ty.TypeRefPath) then
             return (function()
 
-            return erased.once(Ty.TypeClassUnknown)
+            return single(Ty.TypeClassUnknown)
             end)(node, ...)
         elseif schema.isa(node, Ty.TypeRefLocal) then
             return (function()
 
-            return erased.once(Ty.TypeClassUnknown)
+            return single(Ty.TypeClassUnknown)
             end)(node, ...)
         elseif schema.isa(node, Ty.TypeRefSlot) then
             return (function()
 
-            return erased.once(Ty.TypeClassUnknown)
+            return single(Ty.TypeClassUnknown)
             end)(node, ...)
         else
-            error("erased phase moonlift_type_ref_classify: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_type_ref_classify: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -67,41 +99,41 @@ function M.Define(T)
         if schema.isa(node, Ty.TScalar) then
             return (function(self)
 
-            return erased.once(Ty.TypeClassScalar(self.scalar))
+            return single(Ty.TypeClassScalar(self.scalar))
             end)(node, ...)
         elseif schema.isa(node, Ty.TPtr) then
             return (function(self)
 
-            return erased.once(Ty.TypeClassPointer(self.elem))
+            return single(Ty.TypeClassPointer(self.elem))
             end)(node, ...)
         elseif schema.isa(node, Ty.TArray) then
             return (function(self)
 
             local counts = array_len_count(self.count)
             if #counts == 0 then
-                return erased.once(Ty.TypeClassUnknown)
+                return single(Ty.TypeClassUnknown)
             end
-            return erased.once(Ty.TypeClassArray(self.elem, counts[1]))
+            return single(Ty.TypeClassArray(self.elem, counts[1]))
             end)(node, ...)
         elseif schema.isa(node, Ty.TSlice) then
             return (function(self)
 
-            return erased.once(Ty.TypeClassSlice(self.elem))
+            return single(Ty.TypeClassSlice(self.elem))
             end)(node, ...)
         elseif schema.isa(node, Ty.TView) then
             return (function(self)
 
-            return erased.once(Ty.TypeClassView(self.elem))
+            return single(Ty.TypeClassView(self.elem))
             end)(node, ...)
         elseif schema.isa(node, Ty.TLease) then
             return (function(self)
 
-            return erased.once(Ty.TypeClassLease(self.base, self.origin))
+            return single(Ty.TypeClassLease(self.base, self.origin))
             end)(node, ...)
         elseif schema.isa(node, Ty.TOwned) then
             return (function(self)
 
-            return erased.once(Ty.TypeClassOwned(self.base))
+            return single(Ty.TypeClassOwned(self.base))
             end)(node, ...)
         elseif schema.isa(node, Ty.TAccess) then
             return (function(self)
@@ -111,17 +143,17 @@ function M.Define(T)
         elseif schema.isa(node, Ty.THandle) then
             return (function(self)
 
-            return erased.once(Ty.TypeClassHandle(self.repr))
+            return single(Ty.TypeClassHandle(self.repr))
             end)(node, ...)
         elseif schema.isa(node, Ty.TFunc) then
             return (function(self)
 
-            return erased.once(Ty.TypeClassCallable(self.params, self.result))
+            return single(Ty.TypeClassCallable(self.params, self.result))
             end)(node, ...)
         elseif schema.isa(node, Ty.TClosure) then
             return (function(self)
 
-            return erased.once(Ty.TypeClassClosure(self.params, self.result))
+            return single(Ty.TypeClassClosure(self.params, self.result))
             end)(node, ...)
         elseif schema.isa(node, Ty.TNamed) then
             return (function(self)
@@ -131,20 +163,20 @@ function M.Define(T)
         elseif schema.isa(node, Ty.TSlot) then
             return (function()
 
-            return erased.once(Ty.TypeClassUnknown)
+            return single(Ty.TypeClassUnknown)
             end)(node, ...)
         elseif schema.isa(node, Ty.TCType) then
             return (function()
 
-            return erased.once(Ty.TypeClassUnknown)
+            return single(Ty.TypeClassUnknown)
             end)(node, ...)
         elseif schema.isa(node, Ty.TCFuncPtr) then
             return (function()
 
-            return erased.once(Ty.TypeClassUnknown)
+            return single(Ty.TypeClassUnknown)
             end)(node, ...)
         else
-            error("erased phase moonlift_type_classify: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_type_classify: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -153,11 +185,11 @@ function M.Define(T)
         classify_type_ref = classify_type_ref,
         classify_type = classify_type,
         classify = function(ty)
-            return erased.one(classify_type(ty))
+            return only(classify_type(ty))
         end,
     }
     T._moonlift_api_cache.type_classify = api
     return api
 end
 
-return M
+return bind_context

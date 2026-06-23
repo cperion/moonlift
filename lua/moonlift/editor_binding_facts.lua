@@ -1,5 +1,39 @@
 local schema = require("moonlift.schema_runtime")
-local erased = require("moonlift.phase_erased_runtime")
+local function single(value) return { value } end
+local function as_list(values) return values end
+local function only(values)
+    if #values == 0 then error("phase output: expected exactly 1 value, got 0", 2) end
+    if #values ~= 1 then error("phase output: expected exactly 1 value, got more", 2) end
+    return values[1]
+end
+local function append_all(out, values)
+    for i = 1, #(values or {}) do out[#out + 1] = values[i] end
+    return out
+end
+local function concat_all(lists)
+    local out = {}
+    for i = 1, #(lists or {}) do append_all(out, lists[i]) end
+    return out
+end
+local function concat2(a, b)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    return out
+end
+local function concat3(a, b, c)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    append_all(out, c)
+    return out
+end
+local function flat_map(fn, values, n)
+    local out = {}
+    n = n or #(values or {})
+    for i = 1, n do append_all(out, fn(values[i])) end
+    return out
+end
 local Symbols = require("moonlift.editor_symbol_facts")
 local BindingScopes = require("moonlift.editor_binding_scope_facts")
 
@@ -48,7 +82,7 @@ local function subject_key(pvm, E, subject)
     return nil
 end
 
-function M.Define(T)
+local function bind_context(T)
     local S = T.MoonSource
     local C = T.MoonCore
     local Ty = T.MoonType
@@ -57,8 +91,8 @@ function M.Define(T)
     local E = T.MoonEditor
     local H = T.MoonHost
     local Mlua = T.MoonMlua
-    local Sym = Symbols.Define(T)
-    local ScopeFacts = BindingScopes.Define(T)
+    local Sym = Symbols(T)
+    local ScopeFacts = BindingScopes(T)
 
     local function find_struct(analysis, name)
         for i = 1, #analysis.parse.combined.decls.decls do
@@ -392,10 +426,10 @@ function M.Define(T)
                 facts[#facts + 1] = E.BindingFact(E.SymbolId(subject_key(pvm, E, subject)), E.BindingUse, subject, a)
             end
         end
-        return erased.seq(facts)
+        return as_list(facts)
             end)(node, ...)
         else
-            error("erased phase moonlift_editor_binding_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_editor_binding_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -437,4 +471,8 @@ function M.explain_binding_issue(issue, analysis)
     }
 end
 
-return M
+return setmetatable(M, {
+    __call = function(_, ...)
+        return bind_context(...)
+    end,
+})

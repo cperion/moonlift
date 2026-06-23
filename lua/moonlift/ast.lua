@@ -10,7 +10,7 @@
 ---local pvm = require("moonlift.pvm")
 ---local schema = require("moonlift.schema_projection")
 ---local ast = require("moonlift.ast")
----local T = pvm.context(); schema.Define(T)
+---local T = pvm.context(); schema(T)
 ---local m = ast.new(T).module { ... }
 ---```
 ---
@@ -1118,18 +1118,21 @@ function M.new(T)
     return install({}, T)
 end
 
----Alias for `new(T)` kept near other Moonlift `Define(T)` modules.
+---Create a constructor API by calling the module as a namespace table.
 ---@param T table ASDL context containing the Moonlift schema.
 ---@return table api Constructor API.
-function M.Define(T)
+local function bind_context(T)
     return M.new(T)
 end
 
 local default_T = pvm.context()
-schema.Define(default_T)
+schema(default_T)
 local default_api = install(M, default_T)
 
 default_api.new = M.new
-default_api.Define = M.Define
 
-return default_api
+return setmetatable(default_api, {
+    __call = function(_, ...)
+        return bind_context(...)
+    end,
+})

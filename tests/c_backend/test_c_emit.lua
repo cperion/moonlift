@@ -2,14 +2,14 @@ package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.p
 
 local pvm = require("moonlift.pvm")
 local Schema = require("moonlift.schema")
-local T = pvm.context(); Schema.Define(T)
+local T = pvm.context(); Schema(T)
 
 local Core = T.MoonCore
 local C = T.MoonC
-local Emit = require("moonlift.c_emit").Define(T)
-local Validate = require("moonlift.c_validate").Define(T)
-local Helpers = require("moonlift.c_helpers").Define(T)
-local CodeType = require("moonlift.code_type").Define(T)
+local Emit = require("moonlift.c_emit")(T)
+local Validate = require("moonlift.c_validate")(T)
+local Helpers = require("moonlift.c_helpers")(T)
+local CodeType = require("moonlift.code_type")(T)
 
 local i32 = C.CBackendScalar(Core.ScalarI32)
 local target = CodeType.default_target({})

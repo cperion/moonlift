@@ -6,12 +6,12 @@ local Validate = require("moonlift.back_validate")
 local Object = require("moonlift.back_object")
 
 local T = pvm.context()
-Schema.Define(T)
+Schema(T)
 
 local C = T.MoonCore
 local B = T.MoonBack
-local validate = Validate.Define(T)
-local object = Object.Define(T)
+local validate = Validate(T)
+local object = Object(T)
 
 local sig = B.BackSigId("sig:add_i32")
 local func = B.BackFuncId("add_i32")

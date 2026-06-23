@@ -4,8 +4,6 @@ local AnchorIndex = require("moonlift.source_anchor_index")
 local BindingFacts = require("moonlift.editor_binding_facts")
 local AnalysisStore = require("moonlift.mlua_document_analysis")
 
-local M = {}
-
 local scalar_names = {
     void = "ScalarVoid",
     bool = "ScalarBool",
@@ -24,7 +22,7 @@ local function uri_eq(a, b)
     return a == b or (a and b and a.text == b.text)
 end
 
-function M.Define(T)
+local function bind_context(T)
     local S = T.MoonSource
     local E = T.MoonEditor
     local C = T.MoonCore
@@ -32,9 +30,9 @@ function M.Define(T)
     local Tr = T.MoonTree
     local H = T.MoonHost
     local Mlua = T.MoonMlua
-    local P = PositionIndex.Define(T)
-    local AI = AnchorIndex.Define(T)
-    local Bindings = BindingFacts.Define(T)
+    local P = PositionIndex(T)
+    local AI = AnchorIndex(T)
+    local Bindings = BindingFacts(T)
 
     local function find_struct(analysis, name)
         for i = 1, #analysis.parse.combined.decls.decls do
@@ -332,4 +330,4 @@ function M.Define(T)
     }
 end
 
-return M
+return bind_context

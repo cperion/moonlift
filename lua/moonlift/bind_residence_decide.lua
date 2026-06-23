@@ -1,10 +1,41 @@
-local pvm = require("moonlift.pvm")
 local schema = require("moonlift.schema_runtime")
-local erased = require("moonlift.phase_erased_runtime")
+local function single(value) return { value } end
+local function as_list(values) return values end
+local function only(values)
+    if #values == 0 then error("phase output: expected exactly 1 value, got 0", 2) end
+    if #values ~= 1 then error("phase output: expected exactly 1 value, got more", 2) end
+    return values[1]
+end
+local function append_all(out, values)
+    for i = 1, #(values or {}) do out[#out + 1] = values[i] end
+    return out
+end
+local function concat_all(lists)
+    local out = {}
+    for i = 1, #(lists or {}) do append_all(out, lists[i]) end
+    return out
+end
+local function concat2(a, b)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    return out
+end
+local function concat3(a, b, c)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    append_all(out, c)
+    return out
+end
+local function flat_map(fn, values, n)
+    local out = {}
+    n = n or #(values or {})
+    for i = 1, n do append_all(out, fn(values[i])) end
+    return out
+end
 
-local M = {}
-
-function M.Define(T)
+local function bind_context(T)
     local B = T.MoonBind
 
     local mark_fact
@@ -14,30 +45,30 @@ function M.Define(T)
         local cls = schema.classof(node)
         if schema.isa(node, B.ResidenceFactBinding) then
             return (function()
- return erased.empty()
+ return {}
             end)(node, ...)
         elseif schema.isa(node, B.ResidenceFactAddressTaken) then
             return (function(self, state)
- state.address[self.binding] = true; return erased.empty()
+ state.address[self.binding] = true; return {}
             end)(node, ...)
         elseif schema.isa(node, B.ResidenceFactMutableCell) then
             return (function(self, state)
- state.mutable[self.binding] = true; return erased.empty()
+ state.mutable[self.binding] = true; return {}
             end)(node, ...)
         elseif schema.isa(node, B.ResidenceFactNonScalarAbi) then
             return (function(self, state)
- state.nonscalar[self.binding] = true; return erased.empty()
+ state.nonscalar[self.binding] = true; return {}
             end)(node, ...)
         elseif schema.isa(node, B.ResidenceFactMaterializedTemporary) then
             return (function(self, state)
- state.materialized[self.binding] = true; return erased.empty()
+ state.materialized[self.binding] = true; return {}
             end)(node, ...)
         elseif schema.isa(node, B.ResidenceFactBackendRequired) then
             return (function(self, state)
- state.backend[self.binding] = true; return erased.empty()
+ state.backend[self.binding] = true; return {}
             end)(node, ...)
         else
-            error("erased phase moonlift_bind_residence_mark_fact: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_bind_residence_mark_fact: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -50,8 +81,7 @@ function M.Define(T)
                 bindings = {}, seen = {}, address = {}, mutable = {}, nonscalar = {}, materialized = {}, backend = {},
             }
             for i = 1, #fact_set.facts do
-                local g, p, c = mark_fact(fact_set.facts[i], state)
-                pvm.drain(g, p, c)
+                mark_fact(fact_set.facts[i], state)
                 local binding = fact_set.facts[i].binding
                 if binding and not state.seen[binding] then
                     state.seen[binding] = true
@@ -75,18 +105,18 @@ function M.Define(T)
                     decisions[#decisions + 1] = B.ResidenceDecision(binding, B.ResidenceValue, B.ResidenceBecauseDefault)
                 end
             end
-            return erased.once(B.ResidencePlan(decisions))
+            return single(B.ResidencePlan(decisions))
             end)(node, ...)
         else
-            error("erased phase moonlift_bind_residence_decide_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_bind_residence_decide_facts: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
     return {
         mark_fact = mark_fact,
         decide_facts = decide_facts,
-        decide = function(facts) return erased.one(decide_facts(facts)) end,
+        decide = function(facts) return only(decide_facts(facts)) end,
     }
 end
 
-return M
+return bind_context

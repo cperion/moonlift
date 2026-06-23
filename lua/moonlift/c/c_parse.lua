@@ -4,11 +4,11 @@
 
 local M = {}
 
-function M.Define(T)
+local function bind_context(T)
     local CA = T.MoonCAst
-    local c_decl = require("moonlift.c.c_decl").Define(T)
-    local c_expr = require("moonlift.c.c_expr").Define(T)
-    local c_stmt = require("moonlift.c.c_stmt").Define(T)
+    local c_decl = require("moonlift.c.c_decl")(T)
+    local c_expr = require("moonlift.c.c_expr")(T)
+    local c_stmt = require("moonlift.c.c_stmt")(T)
 
     -- Local helper: skip newlines in the parser state
     local function skip_newlines(p)
@@ -38,7 +38,7 @@ function M.Define(T)
 
         -- Ensure cross-references: statement parser needs expression and decl parsers,
         -- expression parser needs decl parser. These were already set up via imports
-        -- in the individual Define() calls. But we also need parse_type_name and
+        -- in the individual bind_context() calls. But we also need parse_type_name and
         -- parse_declaration on p for cross-module calls via p:method().
         -- These are already added by the loop above.
 
@@ -86,4 +86,8 @@ function M.Define(T)
     return M
 end
 
-return M
+return setmetatable(M, {
+    __call = function(_, ...)
+        return bind_context(...)
+    end,
+})

@@ -5,8 +5,8 @@ local A = require("moonlift.schema_projection")
 local Abi = require("moonlift.type_abi_classify")
 
 local T = pvm.context()
-A.Define(T)
-local L = Abi.Define(T)
+A(T)
+local L = Abi(T)
 local C = T.MoonCore
 local Ty = T.MoonType
 local B = T.MoonBack

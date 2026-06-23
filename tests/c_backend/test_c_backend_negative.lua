@@ -2,7 +2,7 @@ package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.p
 
 local pvm = require("moonlift.pvm")
 local Schema = require("moonlift.schema")
-local T = pvm.context(); Schema.Define(T)
+local T = pvm.context(); Schema(T)
 
 local Core = T.MoonCore
 local Ty = T.MoonType
@@ -10,9 +10,9 @@ local Tr = T.MoonTree
 local Open = T.MoonOpen
 local Bn = T.MoonBind
 local C = T.MoonC
-local CodeType = require("moonlift.code_type").Define(T)
-local Helpers = require("moonlift.c_helpers").Define(T)
-local Validate = require("moonlift.c_validate").Define(T)
+local CodeType = require("moonlift.code_type")(T)
+local Helpers = require("moonlift.c_helpers")(T)
+local Validate = require("moonlift.c_validate")(T)
 
 local i32_ty = Ty.TScalar(Core.ScalarI32)
 local cctx = { target = CodeType.default_target({}), layout_env = nil, diagnostics = {}, globals = {}, global_types = {}, global_ids = {}, env = {}, locals = {}, local_types = {}, local_storage = {}, helpers = {}, helpers_by_id = {}, helper_order = {}, sigs = {}, sig_order = {}, types = {}, type_decls_by_id = {} }

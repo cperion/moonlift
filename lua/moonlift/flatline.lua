@@ -23,15 +23,15 @@ local function u32le(bytes, offset)
     return a + b * 256 + c * 65536 + d * 16777216
 end
 
-function M.Define(T)
-    require("moonlift.compiler_model").Define(T)
+local function bind_context(T)
+    require("moonlift.compiler_model")(T)
 
     T._moonlift_api_cache = T._moonlift_api_cache or {}
     if T._moonlift_api_cache.flatline ~= nil then return T._moonlift_api_cache.flatline end
 
     local Compiler = T.MoonCompiler
     local Back = T.MoonBack
-    local Binary = require("moonlift.back_command_binary").Define(T)
+    local Binary = require("moonlift.back_command_binary")(T)
 
     local api = {}
 
@@ -121,4 +121,8 @@ function M.Define(T)
     return api
 end
 
-return M
+return setmetatable(M, {
+    __call = function(_, ...)
+        return bind_context(...)
+    end,
+})

@@ -5,8 +5,8 @@ local A = require("moonlift.schema_projection")
 local Layout = require("moonlift.sem_layout_resolve")
 
 local T = pvm.context()
-A.Define(T)
-local L = Layout.Define(T)
+A(T)
+local L = Layout(T)
 local C = T.MoonCore
 local Ty = T.MoonType
 local B = T.MoonBind

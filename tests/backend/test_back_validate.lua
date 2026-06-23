@@ -5,8 +5,8 @@ local A = require("moonlift.schema_projection")
 local V = require("moonlift.back_validate")
 
 local T = pvm.context()
-A.Define(T)
-local L = V.Define(T)
+A(T)
+local L = V(T)
 local C = T.MoonCore
 local B = T.MoonBack
 

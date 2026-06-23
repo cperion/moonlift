@@ -1,9 +1,41 @@
 local schema = require("moonlift.schema_runtime")
-local erased = require("moonlift.phase_erased_runtime")
+local function single(value) return { value } end
+local function as_list(values) return values end
+local function only(values)
+    if #values == 0 then error("phase output: expected exactly 1 value, got 0", 2) end
+    if #values ~= 1 then error("phase output: expected exactly 1 value, got more", 2) end
+    return values[1]
+end
+local function append_all(out, values)
+    for i = 1, #(values or {}) do out[#out + 1] = values[i] end
+    return out
+end
+local function concat_all(lists)
+    local out = {}
+    for i = 1, #(lists or {}) do append_all(out, lists[i]) end
+    return out
+end
+local function concat2(a, b)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    return out
+end
+local function concat3(a, b, c)
+    local out = {}
+    append_all(out, a)
+    append_all(out, b)
+    append_all(out, c)
+    return out
+end
+local function flat_map(fn, values, n)
+    local out = {}
+    n = n or #(values or {})
+    for i = 1, n do append_all(out, fn(values[i])) end
+    return out
+end
 local SubjectAt = require("moonlift.editor_subject_at")
 local BindingFacts = require("moonlift.editor_binding_facts")
-
-local M = {}
 
 local function highlight_kind(E, role)
     if role == E.BindingRead then return E.HighlightRead end
@@ -11,10 +43,10 @@ local function highlight_kind(E, role)
     return E.HighlightText
 end
 
-function M.Define(T)
+local function bind_context(T)
     local E = T.MoonEditor
-    local Subject = SubjectAt.Define(T)
-    local Bindings = BindingFacts.Define(T)
+    local Subject = SubjectAt(T)
+    local Bindings = BindingFacts(T)
 
     local function highlight_phase(node, ...)
         local cls = schema.classof(node)
@@ -23,7 +55,7 @@ function M.Define(T)
 
             local pick = Subject.subject_at(query, analysis)
             local id = Bindings.subject_key(pick.subject)
-            if not id then return erased.empty() end
+            if not id then return {} end
             local out, seen = {}, {}
             local facts = Bindings.facts(analysis)
             for i = 1, #facts do
@@ -37,10 +69,10 @@ function M.Define(T)
                     end
                 end
             end
-            return erased.seq(out)
+            return as_list(out)
             end)(node, ...)
         else
-            error("erased phase moonlift_editor_document_highlight: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
+            error("phase moonlift_editor_document_highlight: no handler for " .. tostring(cls and cls.kind or type(node)), 2)
         end
     end
 
@@ -51,4 +83,4 @@ function M.Define(T)
     return { highlight_phase = highlight_phase, highlights = highlights }
 end
 
-return M
+return bind_context

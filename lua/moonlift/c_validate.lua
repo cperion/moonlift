@@ -1,13 +1,11 @@
 local pvm = require("moonlift.pvm")
 
-local M = {}
-
-function M.Define(T)
+local function bind_context(T)
     T._moonlift_api_cache = T._moonlift_api_cache or {}
     if T._moonlift_api_cache.c_validate ~= nil then return T._moonlift_api_cache.c_validate end
 
     local C = T.MoonC
-    local Helpers = require("moonlift.c_helpers").Define(T)
+    local Helpers = require("moonlift.c_helpers")(T)
     local Coverage = require("moonlift.c_coverage")
 
     local function is_c_name(s)
@@ -416,4 +414,4 @@ function M.Define(T)
     return api
 end
 
-return M
+return bind_context

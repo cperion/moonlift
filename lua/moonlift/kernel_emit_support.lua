@@ -1,13 +1,11 @@
 local pvm = require("moonlift.pvm")
 
-local M = {}
-
 local function class_name(x)
     local cls = pvm.classof(x) or x
     return tostring(cls):match("Class%((.-)%)") or tostring(cls)
 end
 
-function M.Define(T)
+local function bind_context(T)
     T._moonlift_api_cache = T._moonlift_api_cache or {}
     if T._moonlift_api_cache.kernel_emit_support ~= nil then return T._moonlift_api_cache.kernel_emit_support end
 
@@ -18,7 +16,7 @@ function M.Define(T)
     local Mem = T.MoonMem
     local Kernel = T.MoonKernel
     local Schedule = T.MoonSchedule
-    local ReductionAlgebra = require("moonlift.reduction_algebra").Define(T)
+    local ReductionAlgebra = require("moonlift.reduction_algebra")(T)
 
     local api = {}
 
@@ -354,4 +352,4 @@ function M.Define(T)
     return api
 end
 
-return M
+return bind_context

@@ -722,7 +722,7 @@ function M.NewContext(opts)
         opts = opts,
     }, Context)
 
-    function ctx:Define()
+    function ctx:bind_context()
         error("ASDL text definitions have been removed; use MoonSchema values and context_define_schema.define", 2)
     end
 

@@ -8,7 +8,7 @@ local PhaseValidate = require("moonlift.phase_validate")
 local M = {}
 
 local function ensure(T)
-    PhaseModel.Define(T)
+    PhaseModel(T)
     return T.MoonPhase
 end
 
@@ -253,7 +253,7 @@ local Lang = llb.define "MoonPhaseDsl" {
     },
 }
 
-function M.Define(context)
+local function bind_context(context)
     P = ensure(context)
     return Lang:env { exports = { _T = context, _P = context.MoonPhase } }
 end
@@ -416,4 +416,8 @@ function M.file_text(value, opts)
     }, "\n")
 end
 
-return M
+return setmetatable(M, {
+    __call = function(_, ...)
+        return bind_context(...)
+    end,
+})

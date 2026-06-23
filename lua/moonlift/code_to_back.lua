@@ -1,13 +1,11 @@
 local pvm = require("moonlift.pvm")
 
-local M = {}
-
 local function class_name(x)
     local cls = pvm.classof(x) or x
     return tostring(cls):match("Class%((.-)%)") or tostring(cls)
 end
 
-function M.Define(T)
+local function bind_context(T)
     T._moonlift_api_cache = T._moonlift_api_cache or {}
     if T._moonlift_api_cache.code_to_back ~= nil then return T._moonlift_api_cache.code_to_back end
 
@@ -15,13 +13,13 @@ function M.Define(T)
     local Code = T.MoonCode
     local Back = T.MoonBack
     local Lower = T.MoonLower
-    local CodeValidate = require("moonlift.code_validate").Define(T)
-    local CodeGraph = require("moonlift.code_graph").Define(T)
-    local CodeFlowFacts = require("moonlift.code_flow_facts").Define(T)
-    local CodeValueFacts = require("moonlift.code_value_facts").Define(T)
-    local CodeMemFacts = require("moonlift.code_mem_facts").Define(T)
-    local CodeEffectFacts = require("moonlift.code_effect_facts").Define(T)
-    local CodeAggregateAbi = require("moonlift.code_aggregate_abi").Define(T)
+    local CodeValidate = require("moonlift.code_validate")(T)
+    local CodeGraph = require("moonlift.code_graph")(T)
+    local CodeFlowFacts = require("moonlift.code_flow_facts")(T)
+    local CodeValueFacts = require("moonlift.code_value_facts")(T)
+    local CodeMemFacts = require("moonlift.code_mem_facts")(T)
+    local CodeEffectFacts = require("moonlift.code_effect_facts")(T)
+    local CodeAggregateAbi = require("moonlift.code_aggregate_abi")(T)
 
     local api = {}
 
@@ -1241,4 +1239,4 @@ function M.Define(T)
     return api
 end
 
-return M
+return bind_context

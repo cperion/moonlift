@@ -4,14 +4,14 @@ assert(package.loaded["moonlift.type_to_c"] == nil)
 
 local pvm = require("moonlift.pvm")
 local Schema = require("moonlift.schema")
-local T = pvm.context(); Schema.Define(T)
+local T = pvm.context(); Schema(T)
 
 local Core = T.MoonCore
 local Ty = T.MoonType
 local Open = T.MoonOpen
 local C = T.MoonC
 local Code = T.MoonCode
-local api = require("moonlift.code_type").Define(T)
+local api = require("moonlift.code_type")(T)
 
 local all_scalars = {
     Core.ScalarVoid, Core.ScalarBool,

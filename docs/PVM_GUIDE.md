@@ -87,13 +87,10 @@ for repo-internal performance code, but they are not the primary app-facing API.
 ```lua
 local pvm = require("moonlift.pvm")
 
--- 1. Create a context and define types
-local T = pvm.context():Define [[
-    module Greet {
-        Lang = English | French | German
-        Message = (Greet.Lang lang, string name) unique
-    }
-]]
+-- 1. Create a context and install schema from Lua MoonSchema values.
+-- The old ASDL text block API is retired.
+local T = pvm.context()
+require("moonlift.schema")(T)
 
 -- 2. Construct canonical handle values
 local m1 = T.Greet.Message(T.Greet.English, "world")
@@ -145,15 +142,11 @@ your domain. Every type in a pvm system is an ASDL type.
 
 ### Defining types
 
+Schema is installed from Lua MoonSchema modules, not ASDL text blocks:
+
 ```lua
-local T = pvm.context():Define [[
-    module UI {
-        Node = Column(number spacing, UI.Node* children) unique
-             | Row(number spacing, UI.Node* children) unique
-             | Rect(string tag, number w, number h, number rgba8) unique
-             | Text(string tag, number font_id, number rgba8, string text) unique
-    }
-]]
+local T = pvm.context()
+require("moonlift.schema")(T)
 ```
 
 This defines:
@@ -221,7 +214,7 @@ All three produce the same canonical interned ASDL values.
 
 A variant with no fields is a singleton — one canonical handle value:
 ```lua
-T:Define [[ module View { Kind = Rect | Text | PushClip | PopClip } ]]
+-- Assume the View schema has been installed from MoonSchema Lua data.
 local K_RECT = T.View.Rect      -- singleton (no parens — it IS the value)
 local K_TEXT = T.View.Text      -- singleton
 assert(K_RECT ~= K_TEXT)        -- different singleton values
@@ -246,25 +239,18 @@ identity comparison, not a string comparison.
 
 Types reference other types by qualified name:
 ```lua
-T:Define [[
-    module App {
-        Track = (string name, number vol) unique
-        Widget = TrackRow(number index, App.Track track) unique
-               | Button(string tag, number w, number h) unique
-    }
-]]
+-- Schema references are authored in Lua MoonSchema data and installed into T.
 ```
 
 `App.Track` is referenced by `App.Widget.TrackRow`. The context resolves
-references at Define time.
+references when MoonSchema data is installed.
 
-### Multiple Define calls
+### Multiple schema installs
 
-You can call `:Define` multiple times on the same context:
+You can install multiple MoonSchema modules into the same context:
 ```lua
 local T = pvm.context()
-T:Define [[ module App { Track = (string name) unique } ]]
-T:Define [[ module UI  { Node = Rect(string tag) unique } ]]
+require("moonlift.schema")(T)
 -- Both App and UI are available on T
 ```
 
@@ -272,25 +258,11 @@ This lets you define layers in separate blocks or even separate files.
 
 ## Chapter 2.5: Control protocols — typing the control flow
 
-ASDL types describe data. The same syntax describes control flow.
+MoonSchema products and sums describe data. The same product/sum semantics
+describe control flow.
 
 ```lua
-T:Define [[
-    module App {
-        -- Data types (what things are)
-        Request = Get(string path)
-                | Post(string path, string* body)
-
-        -- Control protocols (what can happen next)
-        Handler = Success(string* body)
-                | NotFound
-                | Error(string code)
-
-        Parser = Int(string value)
-               | Float(string value)
-               | Error(string pos)
-    }
-]]
+-- Authored as MoonSchema Lua data and installed into T.
 ```
 
 The `|` operator means "or" in both contexts. In data types, it separates
@@ -1128,21 +1100,10 @@ flat type (Cmd). The rule from Chapter 10 confirms it.
 
 ## Chapter 14: Layer 1 — Widgets as ASDL Types
 
-Every widget is an ASDL type with `unique`:
+Every widget is a MoonSchema product/sum value with `unique` semantics:
 
 ```lua
-T:Define [[
-    module App {
-        Widget = TrackRow(number index, App.Track track,
-                          boolean selected, boolean hovered) unique
-               | Button(string tag, number w, number h,
-                        number bg, number fg, number font_id,
-                        string label, boolean hovered) unique
-               | Meter(string tag, number w, number h,
-                       number level) unique
-               | ... -- 11 widget types
-    }
-]]
+-- Authored as MoonSchema Lua data and installed into T.
 ```
 
 ### Immediate-mode authoring
@@ -1692,7 +1653,7 @@ Module.TypeName?                          -- optional
 ```lua
 -- ── Context and types ──────────────────────────────────────────────────
 pvm.context()                          → T (ASDL context)
-Schema.Define(T)                       -> T (MoonSchema projection)
+Schema(T)                              -> T (MoonSchema projection)
 T:Builders()                           → B (safe named-field builder namespace)
 T:FastBuilders()                       → F (trusted named-field builder namespace)
 

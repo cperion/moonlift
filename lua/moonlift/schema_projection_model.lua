@@ -6,8 +6,6 @@
 
 local schema_context = require("moonlift.schema_context")
 
-local M = {}
-
 local DEFINITIONS = {
     {
         name = "MoonAsdl.Schema",
@@ -136,10 +134,10 @@ local DEFINITIONS = {
     },
 }
 
-function M.Define(T)
+local function bind_context(T)
     if T.MoonAsdl ~= nil then return T end
     schema_context.define(T, DEFINITIONS)
     return T
 end
 
-return M
+return bind_context
