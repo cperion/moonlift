@@ -16,6 +16,28 @@ There is no second source parser in the normal authoring path.
 Lua syntax -> Lua values -> DSL role normalization -> Moonlift ASDL
 ```
 
+For declaration/control heads, keep dotted names (`fn .add`, `region .scan`, etc.)
+with a space before the name target:
+
+```text
+fn .add
+region .scan
+jump .done
+emit .scan
+```
+
+For single-expression/condition keyword-style forms, prefer parenthesized argument
+syntax to keep intent obvious:
+
+```text
+return (x)
+yield (x)
+when (cond) { ... }
+```
+
+Lua tokenization does not treat this as semantic syntax, but the visual rule keeps
+declaration/control heads and statement forms distinct from ordinary function calls.
+
 This is the central rule:
 
 ```text
@@ -47,7 +69,7 @@ fn .add
   { a [i32], b [i32] }
   [i32]
   {
-    ret { a + b },
+    ret(a + b),
   }
 ```
 
@@ -60,7 +82,7 @@ region .scan
   }
   {
     entry .loop { i [index](0) } {
-      when { i:ge(n) } {
+      when(i:ge(n)) {
         jump .miss { pos = i },
       },
 
@@ -105,7 +127,7 @@ String loading:
 local chunk = dsl.loadstring([[
 return module "Demo" {
   fn .id { x [i32] } [i32] {
-    ret { x },
+    ret(x),
   },
 }
 ]], "demo")
@@ -183,7 +205,7 @@ return module "DemoOps" {
     },
 
     block .done { x [i32] } {
-      ret { x },
+      ret(x),
     },
   },
 }
@@ -221,7 +243,7 @@ struct["Vec" .. n]
 Name tokens in DSL environments are created on demand:
 
 ```lua
-ret { acc + x }
+ret(acc + x)
 ```
 
 Here `acc` and `x` are name tokens resolved later by Moonlift semantic phases.
@@ -426,7 +448,7 @@ fn .add
   { a [i32], b [i32] }
   [i32]
   {
-    ret { a + b },
+    ret(a + b),
   }
 ```
 
@@ -437,7 +459,7 @@ export_fn .add
   { a [i32], b [i32] }
   [i32]
   {
-    ret { a + b },
+    ret(a + b),
   }
 ```
 
@@ -447,7 +469,7 @@ Void function:
 fn .touch
   { x [i32] }
   {
-    ret {},
+    ret(),
   }
 ```
 
@@ -460,8 +482,8 @@ fn .sum
   [i32]
   {
     entry .loop { i [i32](0), acc [i32](0) } {
-      when { i:ge(n) } {
-        ret { acc },
+      when(i:ge(n)) {
+        ret(acc),
       },
 
       jump .loop {
@@ -477,15 +499,15 @@ fn .sum
 Return:
 
 ```lua
-ret { value }
-ret {}
+ret(value)
+ret()
 ```
 
 Yield:
 
 ```lua
-yield { value }
-yield {}
+yield(value)
+yield()
 ```
 
 Local values:
@@ -498,14 +520,14 @@ var .i [index] { 0 }
 Assignment:
 
 ```lua
-store { dst[i], value }
-set { dst[i], value }
+store(dst[i], value)
+set(dst[i], value)
 ```
 
 Conditional:
 
 ```lua
-when { cond } {
+when(cond) {
   body...
 }
 ```
@@ -523,8 +545,8 @@ Trap and assumptions:
 
 ```lua
 trap()
-assume { cond }
-assert_ { cond }
+assume(cond)
+assert_(cond)
 ```
 
 ## Switch
@@ -532,13 +554,13 @@ assert_ { cond }
 Literal cases:
 
 ```lua
-switch { x } {
+switch(x) {
   case_value(0) {
-    ret { 1 },
+    ret(1),
   },
 
   default {
-    ret { 2 },
+    ret(2),
   },
 }
 ```
@@ -546,13 +568,13 @@ switch { x } {
 Variant-oriented cases use name-token cases:
 
 ```lua
-switch { r } {
+switch(r) {
   case .ok { value } {
-    ret { value },
+    ret(value),
   },
 
   default {
-    ret { 0 },
+    ret(0),
   },
 }
 ```
@@ -570,7 +592,7 @@ region .scan
   }
   {
     entry .loop { i [index](0) } {
-      when { i:ge(n) } {
+      when(i:ge(n)) {
         jump .miss { pos = i },
       },
 
@@ -620,7 +642,7 @@ fn .find
     },
 
     block .done { pos [i32] } {
-      ret { pos },
+      ret(pos),
     },
   }
 ```
@@ -674,17 +696,17 @@ be overloaded into expression trees:
 ```lua
 i:ge(n)
 i:lt(n)
-eq { a, b }
-ne { a, b }
+eq(a, b)
+ne(a, b)
 ```
 
 Boolean logic uses constructors because Lua `and`, `or`, and `not` cannot be
 overloaded:
 
 ```lua
-And { a, b }
-Or  { a, b }
-Not { a }
+And(a, b)
+Or(a, b)
+Not(a)
 ```
 
 Index and field:
@@ -740,7 +762,7 @@ Statement fragment:
 
 ```lua
 local done = stmts {
-  ret { 0 },
+  ret(0),
 }
 
 fn .f {} [i32] {
@@ -816,7 +838,7 @@ fn .first
   { spread(view_params) }
   [u8]
   {
-    ret { data[0] },
+    ret(data[0]),
   }
 ```
 
@@ -824,7 +846,7 @@ You can slice statement bodies:
 
 ```lua
 local bounds_check = stmts {
-  when { i:ge(len) } {
+  when(i:ge(len)) {
     trap(),
   },
 }
@@ -834,7 +856,7 @@ fn .get
   [u8]
   {
     spread(bounds_check),
-    ret { data[i] },
+    ret(data[i]),
   }
 ```
 
@@ -925,7 +947,7 @@ return module "Name" {
     { param [T] }
     [Result]
     {
-      ret { expr },
+      ret(expr),
     },
 
   region .name

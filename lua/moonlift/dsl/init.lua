@@ -294,16 +294,20 @@ function Name:le(r) return M.le(self, r) end
 function Name:lt(r) return M.lt(self, r) end
 function Name:eq(r) return M.eq(self, r) end
 function Name:ne(r) return M.ne(self, r) end
-function Name:land(r) return M.And { self, r } end
-function Name:lor(r) return M.Or { self, r } end
-function Name:lnot() return M.Not { self } end
+function Name:land(r) return M.And(self, r) end
+function Name:lor(r) return M.Or(self, r) end
+function Name:lnot() return M.Not(self) end
 function Name:addr() return M.addr(self) end
 function Name:deref() return M.deref(self) end
 function Name:load() return M.deref(self) end
 Name.__index = function(self, k)
     if Name[k] then return Name[k] end
     if type(k) == "string" then return setmetatable({ kind = "dot", base = self, field = ident(k, "field") }, Expr) end
-    return setmetatable({ name = self.name, ty = k }, TypedName)
+    local k_class = pvm.classof(k)
+    if type(k_class) == "table" and tostring(k_class):match("^Class%(%s*MoonType%.") then
+        return setmetatable({ name = self.name, ty = k }, TypedName)
+    end
+    return setmetatable({ kind = "index", base = self, index = k }, Expr)
 end
 
 function TypedName:__call(init)
@@ -330,9 +334,9 @@ function Expr:le(r) return M.le(self, r) end
 function Expr:lt(r) return M.lt(self, r) end
 function Expr:eq(r) return M.eq(self, r) end
 function Expr:ne(r) return M.ne(self, r) end
-function Expr:land(r) return M.And { self, r } end
-function Expr:lor(r) return M.Or { self, r } end
-function Expr:lnot() return M.Not { self } end
+function Expr:land(r) return M.And(self, r) end
+function Expr:lor(r) return M.Or(self, r) end
+function Expr:lnot() return M.Not(self) end
 function Expr:addr() return M.addr(self) end
 function Expr:deref() return M.deref(self) end
 function Expr:load() return M.deref(self) end
@@ -395,20 +399,17 @@ local function bin(name)
     return function(a, b) return setmetatable({ kind = "binary", op = name, lhs = a, rhs = b }, Expr) end
 end
 local function cmp(name)
-    return function(a, b)
-        if b == nil and type(a) == "table" then a, b = a[1], a[2] end
-        return setmetatable({ kind = "cmp", op = name, lhs = a, rhs = b }, Expr)
-    end
+    return function(a, b) return setmetatable({ kind = "cmp", op = name, lhs = a, rhs = b }, Expr) end
 end
 
 M.add, M.sub, M.mul, M.div, M.rem = bin("add"), bin("sub"), bin("mul"), bin("div"), bin("rem")
 M.band, M.bor, M.bxor, M.shl, M.shr = bin("band"), bin("bor"), bin("bxor"), bin("shl"), bin("lshr")
 M.eq, M.ne, M.lt, M.le, M.gt, M.ge = cmp("eq"), cmp("ne"), cmp("lt"), cmp("le"), cmp("gt"), cmp("ge")
 function M.neg(v) return setmetatable({ kind = "neg", value = v }, Expr) end
-function M.And(t) return setmetatable({ kind = "logic", op = "and", lhs = t[1], rhs = t[2] }, Expr) end
-function M.Or(t) return setmetatable({ kind = "logic", op = "or", lhs = t[1], rhs = t[2] }, Expr) end
-function M.Not(t) return setmetatable({ kind = "not", value = t[1] }, Expr) end
-function M.bnot(t) return setmetatable({ kind = "bitnot", value = t[1] }, Expr) end
+function M.And(a, b) return setmetatable({ kind = "logic", op = "and", lhs = a, rhs = b }, Expr) end
+function M.Or(a, b) return setmetatable({ kind = "logic", op = "or", lhs = a, rhs = b }, Expr) end
+function M.Not(v) return setmetatable({ kind = "not", value = v }, Expr) end
+function M.bnot(v) return setmetatable({ kind = "bitnot", value = v }, Expr) end
 function M.len(v) return setmetatable({ kind = "len", value = v }, Expr) end
 function M.select(c, a, b) return setmetatable({ kind = "select", cond = c, a = a, b = b }, Expr) end
 function M.as(ty) return function(v) return setmetatable({ kind = "cast", cast = C.SurfaceCast, ty = ty, value = v }, Expr) end end
@@ -460,15 +461,15 @@ end
 
 function Stmt:ast() return lower.stmt(self:syntax()) end
 
-function M.ret(t) return setmetatable({ kind = "ret", value = t and t[1] }, Stmt) end
-function M.yield(t) return setmetatable({ kind = "yield", value = t and t[1] }, Stmt) end
-function M.when(t) return function(b) return setmetatable({ kind = "when", cond = t[1], body = b or {} }, Stmt) end end
-function M.If(t) return function(b) return setmetatable({ kind = "if", cond = t[1], then_body = b or {} }, { __call = function(self, else_body) self.else_body = else_body or {}; return self end, __index = Stmt }) end end
-function M.store(t) return setmetatable({ kind = "set", place = t[1], value = t[2] or t.value }, Stmt) end
+function M.ret(t) return setmetatable({ kind = "ret", value = t }, Stmt) end
+function M.yield(t) return setmetatable({ kind = "yield", value = t }, Stmt) end
+function M.when(t) return function(b) return setmetatable({ kind = "when", cond = t, body = b or {} }, Stmt) end end
+function M.If(t) return function(b) return setmetatable({ kind = "if", cond = t, then_body = b or {} }, { __call = function(self, else_body) self.else_body = else_body or {}; return self end, __index = Stmt }) end end
+function M.store(place, value) return setmetatable({ kind = "set", place = place, value = value }, Stmt) end
 M.set = M.store
-function M.assert_(t) return setmetatable({ kind = "assert", cond = t[1] }, Stmt) end
+function M.assert_(t) return setmetatable({ kind = "assert", cond = t }, Stmt) end
 function M.trap() return setmetatable({ kind = "trap" }, Stmt) end
-function M.assume(t) return setmetatable({ kind = "assume", cond = t[1] }, Stmt) end
+function M.assume(t) return setmetatable({ kind = "assume", cond = t }, Stmt) end
 
 local function handle_repr(repr)
     if repr == nil then return Ty.HandleReprScalar(C.ScalarU32) end
@@ -573,6 +574,28 @@ function Decl:ast()
     return items[1]
 end
 
+local function write_text_file(path, text)
+    local f = assert(io.open(path, "wb"))
+    f:write(text or "")
+    f:close()
+end
+
+local c_artifact_mt = {}
+
+function c_artifact_mt:write(opts)
+    opts = opts or {}
+    if type(opts) == "string" then opts = { c_path = opts } end
+    if opts.c_path or opts.source_path then write_text_file(opts.c_path or opts.source_path, self.source) end
+    if opts.h_path or opts.header_path then write_text_file(opts.h_path or opts.header_path, self.header) end
+    if opts.support_path then write_text_file(opts.support_path, self.support) end
+    if opts.combined_path or opts.single_path then write_text_file(opts.combined_path or opts.single_path, self.combined) end
+    return self
+end
+
+function c_artifact_mt:source_text() return self.source end
+function c_artifact_mt:header_text() return self.header end
+function c_artifact_mt:combined_text() return self.combined end
+
 function Decl:lower(opts)
     opts = opts or {}
     local Pipeline = require("moonlift.frontend_pipeline").Define(T)
@@ -587,6 +610,11 @@ function Decl:emit_c_artifact(opts)
     local result = Pipeline.lower_module_to_c(module_ast_of(self), opts)
     local artifact = require("moonlift.c_emit").Define(T).emit_artifact(result.c_unit, opts)
     artifact.dsl_module = self
+    artifact.module = self
+    artifact.unit = result.c_unit
+    if getmetatable(artifact) == nil then
+        setmetatable(artifact, { __index = c_artifact_mt })
+    end
     return artifact
 end
 
@@ -611,7 +639,7 @@ Head.__index = function(self, k)
     local name = rawget(self, "name")
     if type(k) ~= "string" then
         if kind == "const" or kind == "static" then
-            return function(value) return setmetatable({ kind = kind, name = name, ty = k, value = value and value[1] or nil }, Decl) end
+            return function(value) return setmetatable({ kind = kind, name = name, ty = k, value = value }, Decl) end
         end
         return setmetatable({ kind = kind, name = is(k, Name) and k.name or nil, target = k }, Head)
     end
@@ -639,7 +667,7 @@ end
 local function typed_decl_stage(kind, name)
     return setmetatable({}, {
         __index = function(_, ty)
-            return function(value) return setmetatable({ kind = kind, name = name, ty = ty, value = value and value[1] or nil }, Decl) end
+            return function(value) return setmetatable({ kind = kind, name = name, ty = ty, value = value }, Decl) end
         end,
     })
 end
@@ -680,7 +708,7 @@ function Head:__call(t)
     if kind == "expr_frag" then
         return setmetatable({ params = t or {} }, {
             __index = function(_, result)
-                return function(body) return setmetatable({ kind = "expr_frag", name = name, params = t or {}, result = result, body = (body or {})[1] }, Decl) end
+                return function(body) return setmetatable({ kind = "expr_frag", name = name, params = t or {}, result = result, body = body }, Decl) end
             end,
         })
     end
@@ -736,7 +764,7 @@ local function name_head_stmt(kind)
         __index = function(_, k)
             return setmetatable({ name = ident(k, kind) }, {
                 __index = function(stage, ty)
-                    return function(init) return setmetatable({ kind = kind, name = stage.name, ty = ty, init = init and init[1] or nil }, Stmt) end
+                    return function(init) return setmetatable({ kind = kind, name = stage.name, ty = ty, init = init }, Stmt) end
                 end,
             })
         end,
@@ -767,7 +795,7 @@ function M.switch(t)
                 die("switch expects case/default arms", 2)
             end
         end
-        return setmetatable({ kind = "switch", value = t[1], arms = stmt_arms, variant_arms = variant_arms, default_body = default_body }, Stmt)
+        return setmetatable({ kind = "switch", value = t, arms = stmt_arms, variant_arms = variant_arms, default_body = default_body }, Stmt)
     end
 end
 
@@ -802,6 +830,16 @@ local function make_env(opts)
     env.store, env.set, env.trap, env.assume, env.assert_ = M.store, M.set, M.trap, M.assume, M.assert_
     env.switch, env.case, env.default = M.switch, head("case"), M.default
     env.case_value = M.case
+    env.bit = {
+        band = M.band,
+        bor = M.bor,
+        bxor = M.bxor,
+        bnot = M.bnot,
+        shl = M.shl,
+        shr = M.shr,
+        rshift = M.shr,
+        lshift = M.shl,
+    }
     env.product, env.stmts, env.decls, env.exprs, env.spread = M.product, M.stmts, M.decls, M.exprs, M.spread
     env.eq, env.ne, env.lt, env.le, env.gt, env.ge = M.eq, M.ne, M.lt, M.le, M.gt, M.ge
     env.And, env.Or, env.Not, env.len, env.select = M.And, M.Or, M.Not, M.len, M.select

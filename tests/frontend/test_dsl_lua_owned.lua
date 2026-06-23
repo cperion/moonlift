@@ -24,13 +24,13 @@ return module "DslSmoke" {
     [i32]
     { symbol = "host_add" },
 
-  const .answer [i32] { 42 },
-  static .zero [i32] { 0 },
+  const .answer [i32] (42),
+  static .zero [i32] (0),
 
   expr_frag .inc
-    { x[i32] }
+    ({ x[i32] })
     [i32]
-    { x + 1 },
+    (x + 1),
 
   region .scan
     { x[i32] }
@@ -56,13 +56,13 @@ return module "DslSmoke" {
       },
 
       block .done { pos[i32] } {
-        switch { pos } {
+      switch(pos) {
           case_value(0) {
-            ret { answer },
+            ret(answer),
           },
 
           default {
-            ret { as[i32](pos) },
+            ret(as[i32](pos)),
           },
         },
       },

@@ -25,17 +25,17 @@ local ffi = require("ffi")
 local moon = require("moonlift")
 local dsl = require("moonlift.dsl")
 
-local json_module = dsl.loadstring([[ 
+local json_module = dsl.loadstring([=[
 return module "json_library_showcase" {
     region .json_skip_ws
         { p [ptr [u8]], n [i32], pos [i32] }
         { ok { i [i32] } }
         {
             entry .loop { i [i32](pos) } {
-                when { i:ge(n) } {
+                when( i:ge(n) ) {
                     jump .ok { i = i },
                 },
-                switch { as [i32] (p[i]) } {
+                switch( as [i32] (p[i]) ) {
                     case_value(32) {
                         jump .loop { i = i + 1 },
                     },
@@ -58,15 +58,15 @@ return module "json_library_showcase" {
     region .json_parse_string_store
         { p [ptr [u8]], n [i32], pos [i32], out [ptr [u8]], out_cap [i32], meta [ptr [i32]] }
         {
-            ok { next_i [i32], off [i32], len [i32] },
+            ok { next_i [i32], off [i32], len_ [i32] },
             err { at [i32] },
         }
         {
             entry .start { } {
-                when { pos:ge(n) } {
+                when( pos:ge(n) ) {
                     jump .err { at = pos + 1 },
                 },
-                when { as [i32] (p[pos]):ne(34) } {
+                when( as [i32] (p[pos]):ne(34) ) {
                     jump .err { at = pos + 1 },
                 },
                 let .base [i32] { meta[1] },
@@ -74,66 +74,75 @@ return module "json_library_showcase" {
             },
 
             block .copy { i [i32], j [i32], base [i32] } {
-                when { i:ge(n) } {
+                when( i:ge(n) ) {
                     jump .err { at = i + 1 },
                 },
                 let .c [i32] { as [i32] (p[i]) },
-                when { c:eq(34) } {
-                    set { meta[1], base + j },
-                    jump .ok { next_i = i + 1, off = base, len = j },
+                when( c:eq(34) ) {
+                    set(meta[1], base + j ),
+                jump .ok { next_i = i + 1, off = base, len_ = j },
                 },
-                when { c:lt(32) } {
+                when( c:lt(32) ) {
                     jump .err { at = i + 1 },
                 },
-                when { c:eq(92) } {
+                when( c:eq(92) ) {
                     jump .escaped { i = i + 1, j = j, base = base },
                 },
-                when { (base + j):ge(out_cap) } {
+                when( (base + j):ge(out_cap) ) {
                     jump .err { at = i + 1 },
                 },
-                set { out[base + j], as [u8] (c) },
+                let .copy_out [i32] { base + j },
+                set(out[copy_out], as [u8] (c) ),
                 jump .copy { i = i + 1, j = j + 1, base = base },
             },
 
             block .escaped { i [i32], j [i32], base [i32] } {
-                when { i:ge(n) } {
+                when( i:ge(n) ) {
                     jump .err { at = i + 1 },
                 },
-                when { (base + j):ge(out_cap) } {
+                when( (base + j):ge(out_cap) ) {
                     jump .err { at = i + 1 },
                 },
                 let .c [i32] { as [i32] (p[i]) },
-                switch { c } {
+                switch( c ) {
                     case_value(34) {
-                        set { out[base + j], as [u8] (34) },
+                        let .esc_out [i32] { base + j },
+                        set(out[esc_out], as [u8] (34) ),
                         jump .copy { i = i + 1, j = j + 1, base = base },
                     },
                     case_value(92) {
-                        set { out[base + j], as [u8] (92) },
+                        let .esc_out [i32] { base + j },
+                        set(out[esc_out], as [u8] (92) ),
                         jump .copy { i = i + 1, j = j + 1, base = base },
                     },
                     case_value(47) {
-                        set { out[base + j], as [u8] (47) },
+                        let .esc_out [i32] { base + j },
+                        set(out[esc_out], as [u8] (47) ),
                         jump .copy { i = i + 1, j = j + 1, base = base },
                     },
                     case_value(98) {
-                        set { out[base + j], as [u8] (8) },
+                        let .esc_out [i32] { base + j },
+                        set(out[esc_out], as [u8] (8) ),
                         jump .copy { i = i + 1, j = j + 1, base = base },
                     },
                     case_value(102) {
-                        set { out[base + j], as [u8] (12) },
+                        let .esc_out [i32] { base + j },
+                        set(out[esc_out], as [u8] (12) ),
                         jump .copy { i = i + 1, j = j + 1, base = base },
                     },
                     case_value(110) {
-                        set { out[base + j], as [u8] (10) },
+                        let .esc_out [i32] { base + j },
+                        set(out[esc_out], as [u8] (10) ),
                         jump .copy { i = i + 1, j = j + 1, base = base },
                     },
                     case_value(114) {
-                        set { out[base + j], as [u8] (13) },
+                        let .esc_out [i32] { base + j },
+                        set(out[esc_out], as [u8] (13) ),
                         jump .copy { i = i + 1, j = j + 1, base = base },
                     },
                     case_value(116) {
-                        set { out[base + j], as [u8] (9) },
+                        let .esc_out [i32] { base + j },
+                        set(out[esc_out], as [u8] (9) ),
                         jump .copy { i = i + 1, j = j + 1, base = base },
                     },
                     case_value(117) {
@@ -147,98 +156,108 @@ return module "json_library_showcase" {
             },
 
             block .hex4 { i [i32], j [i32], base [i32], cp [i32], left [i32] } {
-                when { left:eq(0) } {
+                when( left:eq(0) ) {
                     jump .emit_codepoint { i = i, j = j, base = base, cp = cp },
                 },
-                when { i:ge(n) } {
+                when( i:ge(n) ) {
                     jump .err { at = i + 1 },
                 },
                 let .c [i32] { as [i32] (p[i]) },
-                when { And { c:ge(48), c:le(57) } } {
+                when(And(c:ge(48), c:le(57))) {
                     jump .hex4 { i = i + 1, j = j, base = base, cp = cp * 16 + (c - 48), left = left - 1 },
                 },
-                when { And { c:ge(65), c:le(70) } } {
+                when(And(c:ge(65), c:le(70))) {
                     jump .hex4 { i = i + 1, j = j, base = base, cp = cp * 16 + (c - 55), left = left - 1 },
                 },
-                when { And { c:ge(97), c:le(102) } } {
+                when(And(c:ge(97), c:le(102))) {
                     jump .hex4 { i = i + 1, j = j, base = base, cp = cp * 16 + (c - 87), left = left - 1 },
                 },
                 jump .err { at = i + 1 },
             },
 
             block .emit_codepoint { i [i32], j [i32], base [i32], cp [i32] } {
-                when { And { cp:ge(55296), cp:le(56319) } } {
+                when(And(cp:ge(55296), cp:le(56319))) {
                     jump .expect_low { i = i, j = j, base = base, hi = cp },
                 },
-                when { And { cp:ge(56320), cp:le(57343) } } {
+                when(And(cp:ge(56320), cp:le(57343))) {
                     jump .err { at = i + 1 },
                 },
-                when { cp:lt(128) } {
-                    when { (base + j):ge(out_cap) } {
+                when( cp:lt(128) ) {
+                    when( (base + j):ge(out_cap) ) {
                         jump .err { at = i + 1 },
                     },
-                    set { out[base + j], as [u8] (cp) },
+                    let .cp_out [i32] { base + j },
+                    set(out[cp_out], as [u8] (cp) ),
                     jump .copy { i = i, j = j + 1, base = base },
                 },
-                when { cp:lt(2048) } {
-                    when { (base + j + 1):ge(out_cap) } {
+                when( cp:lt(2048) ) {
+                    when( (base + j + 1):ge(out_cap) ) {
                         jump .err { at = i + 1 },
                     },
-                    set { out[base + j], as [u8] (192 + (cp >> 6)) },
-                    set { out[base + j + 1], as [u8] (128 + (cp & 63)) },
+                    let .cp_out0 [i32] { base + j },
+                    let .cp_out1 [i32] { base + j + 1 },
+                    set(out[cp_out0], as [u8] (192 + bit.rshift(cp, 6)) ),
+                    set(out[cp_out1], as [u8] (128 + bit.band(cp, 63)) ),
                     jump .copy { i = i, j = j + 2, base = base },
                 },
-                when { (base + j + 2):ge(out_cap) } {
+                when( (base + j + 2):ge(out_cap) ) {
                     jump .err { at = i + 1 },
                 },
-                set { out[base + j], as [u8] (224 + (cp >> 12)) },
-                set { out[base + j + 1], as [u8] (128 + ((cp >> 6) & 63)) },
-                set { out[base + j + 2], as [u8] (128 + (cp & 63)) },
+                    let .cp_out0 [i32] { base + j },
+                    let .cp_out1 [i32] { base + j + 1 },
+                    let .cp_out2 [i32] { base + j + 2 },
+                    set(out[cp_out0], as [u8] (224 + bit.rshift(cp, 12)) ),
+                    set(out[cp_out1], as [u8] (128 + bit.band(bit.rshift(cp, 6), 63)) ),
+                    set(out[cp_out2], as [u8] (128 + bit.band(cp, 63)) ),
                 jump .copy { i = i, j = j + 3, base = base },
-            },
+                },
 
             block .expect_low { i [i32], j [i32], base [i32], hi [i32] } {
-                when { (i + 1):ge(n) } {
+                when( (i + 1):ge(n) ) {
                     jump .err { at = i + 1 },
                 },
-                when { as [i32] (p[i]):ne(92) } {
+                when( as [i32] (p[i]):ne(92) ) {
                     jump .err { at = i + 1 },
                 },
-                when { as [i32] (p[i + 1]):ne(117) } {
+                when( as [i32] (p[i + 1]):ne(117) ) {
                     jump .err { at = i + 1 },
                 },
                 jump .hex4_low { i = i + 2, j = j, base = base, hi = hi, cp = 0, left = 4 },
             },
 
             block .hex4_low { i [i32], j [i32], base [i32], hi [i32], cp [i32], left [i32] } {
-                when { left:eq(0) } {
-                    when { cp:lt(56320) } {
+                when( left:eq(0) ) {
+                    when( cp:lt(56320) ) {
                         jump .err { at = i + 1 },
                     },
-                    when { cp:gt(57343) } {
+                    when( cp:gt(57343) ) {
                         jump .err { at = i + 1 },
                     },
                     let .full [i32] { 65536 + (hi - 55296) * 1024 + (cp - 56320) },
-                    when { (base + j + 3):ge(out_cap) } {
+                    when( (base + j + 3):ge(out_cap) ) {
                         jump .err { at = i + 1 },
                     },
-                    set { out[base + j], as [u8] (240 + (full >> 18)) },
-                    set { out[base + j + 1], as [u8] (128 + ((full >> 12) & 63)) },
-                    set { out[base + j + 2], as [u8] (128 + ((full >> 6) & 63)) },
-                    set { out[base + j + 3], as [u8] (128 + (full & 63)) },
+                    let .cp_out0 [i32] { base + j },
+                    let .cp_out1 [i32] { base + j + 1 },
+                    let .cp_out2 [i32] { base + j + 2 },
+                    let .cp_out3 [i32] { base + j + 3 },
+                    set(out[cp_out0], as [u8] (240 + bit.rshift(full, 18)) ),
+                    set(out[cp_out1], as [u8] (128 + bit.band(bit.rshift(full, 12), 63)) ),
+                    set(out[cp_out2], as [u8] (128 + bit.band(bit.rshift(full, 6), 63)) ),
+                    set(out[cp_out3], as [u8] (128 + bit.band(full, 63)) ),
                     jump .copy { i = i, j = j + 4, base = base },
                 },
-                when { i:ge(n) } {
+                when( i:ge(n) ) {
                     jump .err { at = i + 1 },
                 },
                 let .c [i32] { as [i32] (p[i]) },
-                when { And { c:ge(48), c:le(57) } } {
+                when(And(c:ge(48), c:le(57))) {
                     jump .hex4_low { i = i + 1, j = j, base = base, hi = hi, cp = cp * 16 + (c - 48), left = left - 1 },
                 },
-                when { And { c:ge(65), c:le(70) } } {
+                when(And(c:ge(65), c:le(70))) {
                     jump .hex4_low { i = i + 1, j = j, base = base, hi = hi, cp = cp * 16 + (c - 55), left = left - 1 },
                 },
-                when { And { c:ge(97), c:le(102) } } {
+                when(And(c:ge(97), c:le(102))) {
                     jump .hex4_low { i = i + 1, j = j, base = base, hi = hi, cp = cp * 16 + (c - 87), left = left - 1 },
                 },
                 jump .err { at = i + 1 },
@@ -250,153 +269,153 @@ return module "json_library_showcase" {
         [i32]
         {
             entry .start { } {
-                when { pos:ge(n) } {
+                when( pos:ge(n) ) {
                     jump .err { at = pos + 1 },
                 },
                 let .first [i32] { as [i32] (p[pos]) },
-                when { first:eq(45) } {
+                when( first:eq(45) ) {
                     jump .first_digit { i = pos + 1, neg = true },
                 },
                 jump .first_digit { i = pos, neg = false },
             },
             block .first_digit { i [i32], neg [bool] } {
-                when { i:ge(n) } {
+                when( i:ge(n) ) {
                     jump .err { at = i + 1 },
                 },
                 let .c [i32] { as [i32] (p[i]) },
-                when { c:eq(48) } {
+                when( c:eq(48) ) {
                     jump .after_zero { i = i + 1, neg = neg },
                 },
-                when { And { c:ge(49), c:le(57) } } {
+                when(And(c:ge(49), c:le(57))) {
                     jump .scan_int { i = i + 1, neg = neg, val = as [i64] (c - 48) },
                 },
                 jump .err { at = i + 1 },
             },
             block .after_zero { i [i32], neg [bool] } {
-                when { i:ge(n) } {
+                when( i:ge(n) ) {
                     jump .finish { neg = neg, result = 0.0, end_i = i },
                 },
                 let .c [i32] { as [i32] (p[i]) },
-                when { And { c:ge(48), c:le(57) } } {
+                when(And(c:ge(48), c:le(57))) {
                     jump .err { at = i + 1 },
                 },
-                when { c:eq(46) } {
+                when( c:eq(46) ) {
                     jump .frac_first { i = i + 1, neg = neg, int_part = 0.0 },
                 },
-                when { Or { c:eq(101), c:eq(69) } } {
+                when(Or(c:eq(101), c:eq(69))) {
                     jump .exp_sign { i = i + 1, neg = neg, result = 0.0 },
                 },
                 jump .finish { neg = neg, result = 0.0, end_i = i },
             },
             block .scan_int { i [i32], neg [bool], val [i64] } {
-                when { i:ge(n) } {
+                when( i:ge(n) ) {
                     jump .emit_int { neg = neg, val = val, end_i = i },
                 },
                 let .c [i32] { as [i32] (p[i]) },
-                when { And { c:ge(48), c:le(57) } } {
+                when(And(c:ge(48), c:le(57))) {
                     jump .scan_int { i = i + 1, neg = neg, val = val * 10 + as [i64] (c - 48) },
                 },
                 jump .emit_int { neg = neg, val = val, end_i = i },
             },
             block .emit_int { neg [bool], val [i64], end_i [i32] } {
                 let .fv [f64] { as [f64] (val) },
-                when { end_i:ge(n) } {
+                when( end_i:ge(n) ) {
                     jump .finish { neg = neg, result = fv, end_i = end_i },
                 },
                 let .c [i32] { as [i32] (p[end_i]) },
-                when { c:eq(46) } {
+                when( c:eq(46) ) {
                     jump .frac_first { i = end_i + 1, neg = neg, int_part = fv },
                 },
-                when { Or { c:eq(101), c:eq(69) } } {
+                when(Or(c:eq(101), c:eq(69))) {
                     jump .exp_sign { i = end_i + 1, neg = neg, result = fv },
                 },
                 jump .finish { neg = neg, result = fv, end_i = end_i },
             },
             block .frac_first { i [i32], neg [bool], int_part [f64] } {
-                when { i:ge(n) } {
+                when( i:ge(n) ) {
                     jump .err { at = i + 1 },
                 },
                 let .c [i32] { as [i32] (p[i]) },
-                when { c:lt(48) } {
+                when( c:lt(48) ) {
                     jump .err { at = i + 1 },
                 },
-                when { c:gt(57) } {
+                when( c:gt(57) ) {
                     jump .err { at = i + 1 },
                 },
                 jump .frac_tail { i = i + 1, neg = neg, int_part = int_part, frac = 0.1 * as [f64] (c - 48), scale = 0.01 },
             },
             block .frac_tail { i [i32], neg [bool], int_part [f64], frac [f64], scale [f64] } {
-                when { i:ge(n) } {
+                when( i:ge(n) ) {
                     jump .finish { neg = neg, result = int_part + frac, end_i = i },
                 },
                 let .c [i32] { as [i32] (p[i]) },
-                when { And { c:ge(48), c:le(57) } } {
+                when(And(c:ge(48), c:le(57))) {
                     jump .frac_tail { i = i + 1, neg = neg, int_part = int_part, frac = frac + scale * as [f64] (c - 48), scale = scale * 0.1 },
                 },
-                when { Or { c:eq(101), c:eq(69) } } {
+                when(Or(c:eq(101), c:eq(69))) {
                     jump .exp_sign { i = i + 1, neg = neg, result = int_part + frac },
                 },
                 jump .finish { neg = neg, result = int_part + frac, end_i = i },
             },
             block .exp_sign { i [i32], neg [bool], result [f64] } {
-                when { i:ge(n) } {
+                when( i:ge(n) ) {
                     jump .err { at = i + 1 },
                 },
                 let .c [i32] { as [i32] (p[i]) },
-                when { c:eq(43) } {
+                when( c:eq(43) ) {
                     jump .exp_first { i = i + 1, neg = neg, result = result, exp = 0, neg_exp = false },
                 },
-                when { c:eq(45) } {
+                when( c:eq(45) ) {
                     jump .exp_first { i = i + 1, neg = neg, result = result, exp = 0, neg_exp = true },
                 },
                 jump .exp_first { i = i, neg = neg, result = result, exp = 0, neg_exp = false },
             },
             block .exp_first { i [i32], neg [bool], result [f64], exp [i32], neg_exp [bool] } {
-                when { i:ge(n) } {
+                when( i:ge(n) ) {
                     jump .err { at = i + 1 },
                 },
                 let .c [i32] { as [i32] (p[i]) },
-                when { c:lt(48) } {
+                when( c:lt(48) ) {
                     jump .err { at = i + 1 },
                 },
-                when { c:gt(57) } {
+                when( c:gt(57) ) {
                     jump .err { at = i + 1 },
                 },
                 jump .exp_tail { i = i + 1, neg = neg, result = result, exp = c - 48, neg_exp = neg_exp },
             },
             block .exp_tail { i [i32], neg [bool], result [f64], exp [i32], neg_exp [bool] } {
-                when { i:ge(n) } {
+                when( i:ge(n) ) {
                     jump .apply_exp { neg = neg, result = result, exp = exp, neg_exp = neg_exp, end_i = i },
                 },
                 let .c [i32] { as [i32] (p[i]) },
-                when { And { c:ge(48), c:le(57) } } {
+                when(And(c:ge(48), c:le(57))) {
                     jump .exp_tail { i = i + 1, neg = neg, result = result, exp = exp * 10 + (c - 48), neg_exp = neg_exp },
                 },
                 jump .apply_exp { neg = neg, result = result, exp = exp, neg_exp = neg_exp, end_i = i },
             },
             block .apply_exp { neg [bool], result [f64], exp [i32], neg_exp [bool], end_i [i32] } {
-                when { neg_exp } {
-                    when { exp:gt(0) } {
+                when( neg_exp ) {
+                    when( exp:gt(0) ) {
                         jump .apply_exp { neg = neg, result = result / 10.0, exp = exp - 1, neg_exp = true, end_i = end_i },
                     },
                     jump .finish { neg = neg, result = result, end_i = end_i },
                 },
-                when { exp:gt(0) } {
+                when( exp:gt(0) ) {
                     jump .apply_exp { neg = neg, result = result * 10.0, exp = exp - 1, neg_exp = false, end_i = end_i },
                 },
                 jump .finish { neg = neg, result = result, end_i = end_i },
             },
             block .finish { neg [bool], result [f64], end_i [i32] } {
-                when { neg } {
+                when( neg ) {
                     jump .ok { next_i = end_i, value = 0.0 - result },
                 },
                 jump .ok { next_i = end_i, value = result },
             },
             block .ok { next_i [i32], value [f64] } {
-                yield { next_i },
+                yield( next_i ),
             },
             block .err { at [i32] } {
-                yield { 0 - at },
+                yield( 0 - at ),
             },
         },
 
@@ -419,21 +438,21 @@ return module "json_library_showcase" {
         }
         {
             entry .start { } {
-                when { meta[0]:ge(cap) } {
+                when( meta[0]:ge(cap) ) {
                     jump .err { at = meta[0] + 1 },
                 },
-                set { tags[meta[0]], tag },
-                set { a[meta[0]], aa },
-                set { b[meta[0]], bb },
-                set { nums[meta[0]], num },
-                set { meta[0], meta[0] + 1 },
+                set(tags[meta[0]], tag ),
+                set(a[meta[0]], aa ),
+                set(b[meta[0]], bb ),
+                set(nums[meta[0]], num ),
+                set(meta[0], meta[0] + 1 ),
                 jump .emitted {},
             },
             block .emitted { } {
-                yield {},
+                yield(),
             },
             block .err { at [i32] } {
-                yield { 0 - at },
+                yield( 0 - at ),
             },
         },
 
@@ -450,84 +469,84 @@ return module "json_library_showcase" {
                         bb = 0,
                         num = 0.0,
                     }
-                    { emitted = .marked, err = .fail_at },
+                { emitted = marked, err = fail_at },
             },
             block .marked { } {
-                emit .json_skip_ws { p, n, pos + 1 } { ok = .check_empty },
+                emit .json_skip_ws { p, n, pos + 1 } { ok = check_empty },
             },
             block .check_empty { i [i32] } {
-                when { i:ge(n) } {
-                    yield { 0 - (i + 1) },
+                when( i:ge(n) ) {
+                    yield( 0 - (i + 1) ),
                 },
-                when { as [i32] (p[i]):eq(93) } {
+                when( as [i32] (p[i]):eq(93) ) {
                     jump .close_array { i = i },
                 },
                 jump .parse_elem { i = i },
             },
             block .parse_elem { i [i32] } {
                 let .value_next_i [i32] { json_parse_value_events(p, n, i, tags, a, b, nums, event_cap, strbuf, str_cap, meta) },
-                when { value_next_i:lt(0) } {
-                    yield { value_next_i },
+                when( value_next_i:lt(0) ) {
+                    yield( value_next_i ),
                 },
                 jump .array_ws { i = value_next_i, mode = 0 },
             },
             block .array_ws { i [i32], mode [i32] } {
-                when { i:ge(n) } {
-                    yield { 0 - (i + 1) },
+                when( i:ge(n) ) {
+                    yield( 0 - (i + 1) ),
                 },
                 let .c [i32] { as [i32] (p[i]) },
-                when { c:eq(32) } {
+                when( c:eq(32) ) {
                     jump .array_ws { i = i + 1, mode = mode },
                 },
-                when { c:eq(10) } {
+                when( c:eq(10) ) {
                     jump .array_ws { i = i + 1, mode = mode },
                 },
-                when { c:eq(13) } {
+                when( c:eq(13) ) {
                     jump .array_ws { i = i + 1, mode = mode },
                 },
-                when { c:eq(9) } {
+                when( c:eq(9) ) {
                     jump .array_ws { i = i + 1, mode = mode },
                 },
-                when { mode:eq(0) } {
+                when( mode:eq(0) ) {
                     jump .check_comma { i = i },
                 },
                 jump .before_elem { i = i },
             },
             block .check_comma { i [i32] } {
-                when { i:ge(n) } {
-                    yield { 0 - (i + 1) },
+                when( i:ge(n) ) {
+                    yield( 0 - (i + 1) ),
                 },
                 let .c [i32] { as [i32] (p[i]) },
-                when { c:eq(93) } {
+                when( c:eq(93) ) {
                     jump .close_array { i = i },
                 },
-                when { c:eq(44) } {
+                when( c:eq(44) ) {
                     jump .array_ws { i = i + 1, mode = 1 },
                 },
-                yield { 0 - (i + 1) },
+                yield( 0 - (i + 1) ),
             },
             block .before_elem { i [i32] } {
-                when { i:ge(n) } {
-                    yield { 0 - (i + 1) },
+                when( i:ge(n) ) {
+                    yield( 0 - (i + 1) ),
                 },
-                when { as [i32] (p[i]):ne(93) } {
+                when( as [i32] (p[i]):ne(93) ) {
                     jump .parse_elem { i = i },
                 },
-                yield { 0 - (i + 1) },
+                yield( 0 - (i + 1) ),
             },
             block .close_array { i [i32] } {
-                when { meta[0]:ge(event_cap) } {
-                    yield { 0 - (i + 1) },
+                when( meta[0]:ge(event_cap) ) {
+                    yield( 0 - (i + 1) ),
                 },
-                set { tags[meta[0]], 2 },
-                set { a[meta[0]], i },
-                set { b[meta[0]], 0 },
-                set { nums[meta[0]], 0.0 },
-                set { meta[0], meta[0] + 1 },
-                yield { i + 1 },
+                set(tags[meta[0]], 2 ),
+                set(a[meta[0]], i ),
+                set(b[meta[0]], 0 ),
+                set(nums[meta[0]], 0.0 ),
+                set(meta[0], meta[0] + 1 ),
+                yield( i + 1 ),
             },
             block .fail_at { at [i32] } {
-                yield { 0 - at },
+                yield( 0 - at ),
             },
         },
 
@@ -544,82 +563,82 @@ return module "json_library_showcase" {
                         bb = 0,
                         num = 0.0,
                     }
-                    { emitted = .marked, err = .fail_at },
+                { emitted = marked, err = fail_at },
             },
             block .marked { } {
-                emit .json_skip_ws { p, n, pos + 1 } { ok = .check_empty },
+                emit .json_skip_ws { p, n, pos + 1 } { ok = check_empty },
             },
             block .check_empty { i [i32] } {
-                when { i:ge(n) } {
-                    yield { 0 - (i + 1) },
+                when( i:ge(n) ) {
+                    yield( 0 - (i + 1) ),
                 },
-                when { as [i32] (p[i]):eq(125) } {
+                when( as [i32] (p[i]):eq(125) ) {
                     jump .close_object { i = i },
                 },
                 jump .parse_key { i = i },
             },
             block .parse_key { i [i32] } {
-                when { i:ge(n) } {
-                    yield { 0 - (i + 1) },
+                when( i:ge(n) ) {
+                    yield( 0 - (i + 1) ),
                 },
-                when { as [i32] (p[i]):ne(34) } {
-                    yield { 0 - (i + 1) },
+                when( as [i32] (p[i]):ne(34) ) {
+                    yield( 0 - (i + 1) ),
                 },
-                emit .json_parse_string_store { p, n, i, strbuf, str_cap, meta } { ok = .emit_key, err = .fail_at },
+                emit .json_parse_string_store { p, n, i, strbuf, str_cap, meta } { ok = emit_key, err = fail_at },
             },
-            block .emit_key { next_i [i32], off [i32], len [i32] } {
-                when { meta[0]:ge(event_cap) } {
-                    yield { 0 - (next_i + 1) },
+            block .emit_key { next_i [i32], off [i32], len_ [i32] } {
+                when( meta[0]:ge(event_cap) ) {
+                    yield( 0 - (next_i + 1) ),
                 },
-                set { tags[meta[0]], 5 },
-                set { a[meta[0]], off },
-                set { b[meta[0]], len },
-                set { nums[meta[0]], 0.0 },
-                set { meta[0], meta[0] + 1 },
-                emit .json_skip_ws { p, n, next_i } { ok = .check_colon_char },
+                set(tags[meta[0]], 5 ),
+                set(a[meta[0]], off ),
+                set(b[meta[0]], len_ ),
+                set(nums[meta[0]], 0.0 ),
+                set(meta[0], meta[0] + 1 ),
+                emit .json_skip_ws { p, n, next_i } { ok = check_colon_char },
             },
             block .check_colon_char { i [i32] } {
-                when { i:ge(n) } {
-                    yield { 0 - (i + 1) },
+                when( i:ge(n) ) {
+                    yield( 0 - (i + 1) ),
                 },
-                when { as [i32] (p[i]):ne(58) } {
-                    yield { 0 - (i + 1) },
+                when( as [i32] (p[i]):ne(58) ) {
+                    yield( 0 - (i + 1) ),
                 },
-                emit .json_skip_ws { p, n, i + 1 } { ok = .parse_val },
+                emit .json_skip_ws { p, n, i + 1 } { ok = parse_val },
             },
             block .parse_val { i [i32] } {
                 let .value_next_i [i32] { json_parse_value_events(p, n, i, tags, a, b, nums, event_cap, strbuf, str_cap, meta) },
-                when { value_next_i:lt(0) } {
-                    yield { value_next_i },
+                when( value_next_i:lt(0) ) {
+                    yield( value_next_i ),
                 },
-                emit .json_skip_ws { p, n, value_next_i } { ok = .check_comma },
+                emit .json_skip_ws { p, n, value_next_i } { ok = check_comma },
             },
             block .check_comma { i [i32] } {
-                when { i:ge(n) } {
-                    yield { 0 - (i + 1) },
+                when( i:ge(n) ) {
+                    yield( 0 - (i + 1) ),
                 },
                 let .c [i32] { as [i32] (p[i]) },
-                when { c:eq(125) } {
+                when( c:eq(125) ) {
                     jump .close_object { i = i },
                 },
-                when { c:eq(44) } {
-                    emit .json_skip_ws { p, n, i + 1 } { ok = .parse_key },
+                when( c:eq(44) ) {
+                    emit .json_skip_ws { p, n, i + 1 } { ok = parse_key },
                 },
-                yield { 0 - (i + 1) },
+                yield( 0 - (i + 1) ),
             },
             block .close_object { i [i32] } {
-                when { meta[0]:ge(event_cap) } {
-                    yield { 0 - (i + 1) },
+                when( meta[0]:ge(event_cap) ) {
+                    yield( 0 - (i + 1) ),
                 },
-                set { tags[meta[0]], 4 },
-                set { a[meta[0]], i },
-                set { b[meta[0]], 0 },
-                set { nums[meta[0]], 0.0 },
-                set { meta[0], meta[0] + 1 },
-                yield { i + 1 },
+                set(tags[meta[0]], 4 ),
+                set(a[meta[0]], i ),
+                set(b[meta[0]], 0 ),
+                set(nums[meta[0]], 0.0 ),
+                set(meta[0], meta[0] + 1 ),
+                yield( i + 1 ),
             },
             block .fail_at { at [i32] } {
-                yield { 0 - at },
+                yield( 0 - at ),
             },
         },
 
@@ -628,143 +647,143 @@ return module "json_library_showcase" {
         [i32]
         {
             entry .start { } {
-                emit .json_skip_ws { p, n, pos } { ok = .dispatch },
+                emit .json_skip_ws { p, n, pos } { ok = dispatch },
             },
             block .dispatch { i [i32] } {
-                when { i:ge(n) } {
-                    yield { 0 - (i + 1) },
+                when( i:ge(n) ) {
+                    yield( 0 - (i + 1) ),
                 },
                 let .c [i32] { as [i32] (p[i]) },
-                when { c:eq(34) } {
+                when( c:eq(34) ) {
                     emit .json_parse_string_store
                         { p, n, i, strbuf, str_cap, meta }
-                        { ok = .emit_string, err = .fail_at },
+                    { ok = emit_string, err = fail_at },
                 },
-                when { c:eq(91) } {
+                when( c:eq(91) ) {
                     let .array_next_i [i32] { json_parse_array_events(p, n, i, tags, a, b, nums, event_cap, strbuf, str_cap, meta) },
-                    when { array_next_i:lt(0) } {
-                        yield { array_next_i },
+                    when( array_next_i:lt(0) ) {
+                        yield( array_next_i ),
                     },
-                    yield { array_next_i },
+                    yield( array_next_i ),
                 },
-                when { c:eq(123) } {
+                when( c:eq(123) ) {
                     let .object_next_i [i32] { json_parse_object_events(p, n, i, tags, a, b, nums, event_cap, strbuf, str_cap, meta) },
-                    when { object_next_i:lt(0) } {
-                        yield { object_next_i },
+                    when( object_next_i:lt(0) ) {
+                        yield( object_next_i ),
                     },
-                    yield { object_next_i },
+                    yield( object_next_i ),
                 },
-                when { c:eq(116) } {
+                when( c:eq(116) ) {
                     jump .lit_true { i = i },
                 },
-                when { c:eq(102) } {
+                when( c:eq(102) ) {
                     jump .lit_false { i = i },
                 },
-                when { c:eq(110) } {
+                when( c:eq(110) ) {
                     jump .lit_null { i = i },
                 },
                 let .number_next_i [i32] { json_parse_number_value(p, n, i) },
-                when { number_next_i:lt(0) } {
-                    yield { number_next_i },
+                when( number_next_i:lt(0) ) {
+                    yield( number_next_i ),
                 },
-                yield { number_next_i },
+                yield( number_next_i ),
             },
-            block .emit_string { next_i [i32], off [i32], len [i32] } {
-                when { meta[0]:ge(event_cap) } {
-                    yield { 0 - (next_i + 1) },
+            block .emit_string { next_i [i32], off [i32], len_ [i32] } {
+                when( meta[0]:ge(event_cap) ) {
+                    yield( 0 - (next_i + 1) ),
                 },
-                set { tags[meta[0]], 6 },
-                set { a[meta[0]], off },
-                set { b[meta[0]], len },
-                set { nums[meta[0]], 0.0 },
-                set { meta[0], meta[0] + 1 },
-                yield { next_i },
+                set(tags[meta[0]], 6 ),
+                set(a[meta[0]], off ),
+                set(b[meta[0]], len_ ),
+                set(nums[meta[0]], 0.0 ),
+                set(meta[0], meta[0] + 1 ),
+                yield( next_i ),
             },
             block .emit_number { next_i [i32], value [f64] } {
-                when { meta[0]:ge(event_cap) } {
-                    yield { 0 - (next_i + 1) },
+                when( meta[0]:ge(event_cap) ) {
+                    yield( 0 - (next_i + 1) ),
                 },
-                set { tags[meta[0]], 7 },
-                set { a[meta[0]], 0 },
-                set { b[meta[0]], 0 },
-                set { nums[meta[0]], value },
-                set { meta[0], meta[0] + 1 },
-                yield { next_i },
+                set(tags[meta[0]], 7 ),
+                set(a[meta[0]], 0 ),
+                set(b[meta[0]], 0 ),
+                set(nums[meta[0]], value ),
+                set(meta[0], meta[0] + 1 ),
+                yield( next_i ),
             },
             block .lit_true { i [i32] } {
-                when { (i + 4):gt(n) } {
+                when( (i + 4):gt(n) ) {
                     jump .fail_at { at = i + 1 },
                 },
-                when { as [i32] (p[i + 1]):ne(114) } {
+                when( as [i32] (p[i + 1]):ne(114) ) {
                     jump .fail_at { at = i + 1 },
                 },
-                when { as [i32] (p[i + 2]):ne(117) } {
+                when( as [i32] (p[i + 2]):ne(117) ) {
                     jump .fail_at { at = i + 1 },
                 },
-                when { as [i32] (p[i + 3]):ne(101) } {
+                when( as [i32] (p[i + 3]):ne(101) ) {
                     jump .fail_at { at = i + 1 },
                 },
-                when { meta[0]:ge(event_cap) } {
-                    yield { 0 - (i + 1) },
+                when( meta[0]:ge(event_cap) ) {
+                    yield( 0 - (i + 1) ),
                 },
-                set { tags[meta[0]], 8 },
-                set { a[meta[0]], 1 },
-                set { b[meta[0]], 0 },
-                set { nums[meta[0]], 0.0 },
-                set { meta[0], meta[0] + 1 },
-                yield { i + 4 },
+                set(tags[meta[0]], 8 ),
+                set(a[meta[0]], 1 ),
+                set(b[meta[0]], 0 ),
+                set(nums[meta[0]], 0.0 ),
+                set(meta[0], meta[0] + 1 ),
+                yield( i + 4 ),
             },
             block .lit_false { i [i32] } {
-                when { (i + 5):gt(n) } {
+                when( (i + 5):gt(n) ) {
                     jump .fail_at { at = i + 1 },
                 },
-                when { as [i32] (p[i + 1]):ne(97) } {
+                when( as [i32] (p[i + 1]):ne(97) ) {
                     jump .fail_at { at = i + 1 },
                 },
-                when { as [i32] (p[i + 2]):ne(108) } {
+                when( as [i32] (p[i + 2]):ne(108) ) {
                     jump .fail_at { at = i + 1 },
                 },
-                when { as [i32] (p[i + 3]):ne(115) } {
+                when( as [i32] (p[i + 3]):ne(115) ) {
                     jump .fail_at { at = i + 1 },
                 },
-                when { as [i32] (p[i + 4]):ne(101) } {
+                when( as [i32] (p[i + 4]):ne(101) ) {
                     jump .fail_at { at = i + 1 },
                 },
-                when { meta[0]:ge(event_cap) } {
-                    yield { 0 - (i + 1) },
+                when( meta[0]:ge(event_cap) ) {
+                    yield( 0 - (i + 1) ),
                 },
-                set { tags[meta[0]], 9 },
-                set { a[meta[0]], 0 },
-                set { b[meta[0]], 0 },
-                set { nums[meta[0]], 0.0 },
-                set { meta[0], meta[0] + 1 },
-                yield { i + 5 },
+                set(tags[meta[0]], 9 ),
+                set(a[meta[0]], 0 ),
+                set(b[meta[0]], 0 ),
+                set(nums[meta[0]], 0.0 ),
+                set(meta[0], meta[0] + 1 ),
+                yield( i + 5 ),
             },
             block .lit_null { i [i32] } {
-                when { (i + 4):gt(n) } {
+                when( (i + 4):gt(n) ) {
                     jump .fail_at { at = i + 1 },
                 },
-                when { as [i32] (p[i + 1]):ne(117) } {
+                when( as [i32] (p[i + 1]):ne(117) ) {
                     jump .fail_at { at = i + 1 },
                 },
-                when { as [i32] (p[i + 2]):ne(108) } {
+                when( as [i32] (p[i + 2]):ne(108) ) {
                     jump .fail_at { at = i + 1 },
                 },
-                when { as [i32] (p[i + 3]):ne(108) } {
+                when( as [i32] (p[i + 3]):ne(108) ) {
                     jump .fail_at { at = i + 1 },
                 },
-                when { meta[0]:ge(event_cap) } {
-                    yield { 0 - (i + 1) },
+                when( meta[0]:ge(event_cap) ) {
+                    yield( 0 - (i + 1) ),
                 },
-                set { tags[meta[0]], 10 },
-                set { a[meta[0]], 0 },
-                set { b[meta[0]], 0 },
-                set { nums[meta[0]], 0.0 },
-                set { meta[0], meta[0] + 1 },
-                yield { i + 4 },
+                set(tags[meta[0]], 10 ),
+                set(a[meta[0]], 0 ),
+                set(b[meta[0]], 0 ),
+                set(nums[meta[0]], 0.0 ),
+                set(meta[0], meta[0] + 1 ),
+                yield( i + 4 ),
             },
             block .fail_at { at [i32] } {
-                yield { 0 - at },
+                yield( 0 - at ),
             },
         },
 
@@ -773,68 +792,32 @@ return module "json_library_showcase" {
         [i32]
         {
             entry .start { } {
-                set { meta[0], 0 },
-                set { meta[1], 0 },
+                set(meta[0], 0 ),
+                set(meta[1], 0 ),
                 let .after_value [i32] { json_parse_value_events(p, n, 0, tags, a, b, nums, event_cap, strbuf, str_cap, meta) },
-                when { after_value:lt(0) } {
-                    yield { after_value },
+                when( after_value:lt(0) ) {
+                    yield( after_value ),
                 },
-                emit .json_skip_ws { p, n, after_value } { ok = .finish },
+                emit .json_skip_ws { p, n, after_value } { ok = finish },
             },
             block .finish { i [i32] } {
-                when { i:eq(n) } {
-                    yield { i },
+                when( i:eq(n) ) {
+                    yield( i ),
                 },
-                yield { 0 - (i + 1) },
+                yield( 0 - (i + 1) ),
             },
         },
 }
-]], "json_library_showcase_dsl")()
+]=], "json_library_showcase_dsl")()
 
-local module_defs = json_module.body or {}
-local bundle = moon.bundle("json_library_showcase")
-for i = 1, #module_defs do
-    bundle:pack(module_defs[i])
-end
-
-local c_artifact = bundle:emit_c_artifact({ module_name = "moonlift_json_showcase" })
+local c_artifact = json_module:emit_c_artifact({ module_name = "moonlift_json_showcase" })
 local c_blob = c_artifact.combined
 local c_header = c_artifact.header
 
-local compiled_module
+local compiled_module = json_module:compile()
 local value_fn
-local c_backend
-do
-    local ok, compiled, backend
-    ok, compiled = pcall(function()
-        return bundle:compile({ backend = "c", runner = "libtcc", cflags = "-O3" })
-    end)
-    if ok and compiled then
-        backend = "libtcc"
-        compiled_module = compiled
-        value_fn = compiled_module:get("json_decode_value_events")
-        c_backend = backend
-    else
-        ok, compiled = pcall(function()
-            return bundle:compile({ backend = "c", runner = "shared", cflags = "-std=c99 -fPIC -shared -O3" })
-        end)
-        if ok and compiled then
-            backend = "gcc-o3"
-            compiled_module = compiled
-            value_fn = compiled_module:get("json_decode_value_events")
-            c_backend = backend
-        else
-            ok, compiled = pcall(function()
-                return bundle:compile({ backend = "cranelift-jit" })
-            end)
-            if not ok or not compiled then error("failed to compile json parser artifact", 2) end
-            backend = "cranelift-jit"
-            compiled_module = compiled
-            value_fn = compiled_module:get("json_decode_value_events")
-            c_backend = backend
-        end
-    end
-end
+value_fn = compiled_module:get("json_decode_value_events")
+local c_backend = "cranelift-jit"
 
 local Json = {
     tags = {

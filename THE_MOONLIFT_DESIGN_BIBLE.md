@@ -62,6 +62,17 @@ region parse_number(p: ptr(u8), n: index, i: index;
     | err(pos: index, code: i32))
 ```
 
+Lua-owned DSL equivalent:
+
+```lua
+region .parse_number
+  { p [ptr [u8]], n [index], i [index] }
+  {
+    ok { value [f64], next [index] },
+    err { pos [index], code [i32] },
+  }
+```
+
 The semicolon is the most important character in the language. **Before it: the data flowing in. After it: the control flowing out.** Before it is a product list, so parameters are comma-separated; after it is a sum of exits, so alternatives are `|`-separated. Each exit payload is itself a product. The compiler checks the control graph the way it checks the data:
 
 ```text
@@ -356,6 +367,25 @@ region authenticate(creds: ptr(Credentials);
     | rate_limited(retry_after: i32))
 ```
 
+Lua-owned DSL equivalent (declarations):
+
+```lua
+local dsl = require("moonlift.dsl")
+return module "Auth" {
+  region .authenticate
+    { creds [ptr [Credentials]] }
+    {
+      success { user_id [u64] },
+      invalid,
+      locked { unlock_at [i64] },
+      rate_limited { retry_after [i32] },
+    }
+    {
+      entry .start {} {},
+    },
+}
+```
+
 Four outcomes, four payloads, and every caller is forced — typed, totally — to say what each one means locally. The signature has stopped lying. Multiply that by every decision point in a system and you have the explicit-programming bet: **most software complexity is hidden control, and a type system for control un-hides it.**
 
 One more Ousterhout idea frames the whole book: the distinction between **tactical** and **strategic** programming. Tactical programming optimizes for the next working feature; each shortcut adds a little complexity; the complexity compounds; velocity collapses. Strategic programming treats design as the primary deliverable and working code as its byproduct. The method in Book IV — *signatures before bodies, always* — is strategic programming made mechanical. You cannot tactically smuggle a design decision into a body you have not yet been allowed to write.
@@ -374,6 +404,27 @@ A product is a group of facts that coexist. Structs are products:
 struct Cursor   byte: index, line: index, column: index end
 struct Buffer   data: ptr(u8), len: index end
 struct SourceSpan  file_id: u32, start: index, len: index end
+```
+
+Lua-owned DSL equivalent:
+
+```lua
+return module "Positions" {
+  struct .Cursor {
+    byte [index],
+    line [index],
+    column [index],
+  },
+  struct .Buffer {
+    data [ptr [u8]],
+    len [index],
+  },
+  struct .SourceSpan {
+    file_id [u32],
+    start [index],
+    len [index],
+  },
+}
 ```
 
 But products hide in four other places, and a designer must see all five:
@@ -400,6 +451,24 @@ region recv_i32(ch: ptr(Channel);
     | parked(waiter: ptr(Waiter)))
 ```
 
+Lua-owned DSL equivalent:
+
+```lua
+return module "ProtocolRecv" {
+  region .recv_i32
+    { ch [ptr [Channel]] }
+    {
+      got { value [i32] },
+      empty,
+      closed,
+      parked { waiter [ptr [Waiter]] },
+    },
+    {
+      entry .start {} {},
+    },
+}
+```
+
 A protocol is not returned, not allocated, not a runtime object. It is a set of **control obligations** that the caller discharges at the emit site:
 
 ```moonlift
@@ -408,6 +477,22 @@ emit recv_i32(ch;
     empty  = try_other_work,
     closed = stop_worker,
     parked = suspend_task)
+```
+
+Lua-owned DSL equivalent (inside a function body):
+
+```lua
+fn .consume_recv
+  { ch [ptr [Channel]] }
+  [void]
+  {
+    emit .recv_i32 { ch } {
+      got    = handle_value,
+      empty  = try_other_work,
+      closed = stop_worker,
+      parked = suspend_task,
+    },
+  }
 ```
 
 Read that emit carefully, because the perspective shift is the whole paradigm. The caller is not inspecting a result. The caller is **wiring**: "here is what each of your exits means in my machine." The region selects exactly one exit at runtime; the wiring was checked at compile time; nothing was boxed, tagged, returned, or switched.
@@ -432,6 +517,17 @@ A function is a sealed region with one implicit continuation:
 
 ```moonlift
 func add(a: i32, b: i32): i32         -- region add(a: i32, b: i32; return(result: i32))
+```
+
+Lua-owned DSL equivalent:
+
+```lua
+fn .add
+  { a [i32], b [i32] }
+  [i32]
+  {
+    ret(a + b),
+  }
 ```
 
 Sealing buys an ABI: callable from Lua, C, other modules; a symbol; a recursion boundary. The recursion boundary matters mechanically: a function call gives you a stack frame for free. A recursive descent packaged as functions can call a child and resume in the parent because the call stack remembered the parent continuation. A flat region has no such frame; if you flatten recursive descent into one dispatcher, you must build the stack product yourself.
@@ -522,10 +618,44 @@ struct LuaStackRange
 end
 ```
 
+Lua-owned DSL equivalent:
+
+```lua
+handle .LuaStateRef {
+  invalid = 0,
+  target = "LuaStateRecord",
+}
+
+handle .LuaRef {
+  invalid = 0,
+  target = "LuaRefRecord",
+}
+
+struct .LuaStackMark {
+  top [i32],
+}
+
+struct .LuaStackRange {
+  first [i32],
+  count [i32],
+}
+```
+
 The key ownership type is:
 
 ```moonlift
 owned LuaRef
+```
+
+Lua-owned DSL type:
+
+```lua
+fn .consume_ref
+  { ref [owned [LuaRef]] }
+  [void]
+  {
+    ret(),
+  }
 ```
 
 `LuaRef` is durable identity for a Lua value retained in the registry.
@@ -586,6 +716,30 @@ end
 region parse_number(ParseInput; ParseExit)
 ```
 
+Lua-owned DSL equivalent:
+
+```lua
+return module "ParserShapes" {
+  struct .ParseInput {
+    p [ptr [u8]],
+    n [index],
+    i [index],
+  },
+  union .ParseExit {
+    ok { value [f64], next [index] },
+    syntax { pos [index], code [i32] },
+    truncated { pos [index] },
+  },
+  region .parse_number
+    { p [ptr [u8]], n [index], i [index] }
+    {
+      ok { value [f64], next [index] },
+      syntax { pos [index], code [i32] },
+      truncated { pos [index] },
+    }
+    { entry .start {} {} },
+}
+
 That last line is not a new abstraction layer. It is the same declaration graph
 written with names instead of anonymous lists:
 
@@ -594,6 +748,18 @@ region parse_number(p: ptr(u8), n: index, i: index;
     ok(value: f64, next: index)
   | syntax(pos: index, code: i32)
   | truncated(pos: index))
+```
+
+Lua-owned DSL equivalent signature form:
+
+```lua
+region .parse_number
+  { p [ptr [u8]], n [index], i [index] }
+  {
+    ok { value [f64], next [index] },
+    syntax { pos [index], code [i32] },
+    truncated { pos [index] },
+  }
 ```
 
 Statement boundaries are part of that explicitness. A newline in statement
@@ -685,6 +851,17 @@ region parse(...;
     | err(pos: index, code: i32))
 ```
 
+Lua-owned DSL equivalent:
+
+```lua
+region .parse
+  { input [ptr [TokenStream]], next [index] }
+  {
+    ok { value [f64], next [index] },
+    err { pos [index], code [i32] },
+  }
+```
+
 **Q2 — Does it genuinely need to be stored** — queued, pooled, serialized, kept in an array? Then store an **encoded fact** (a product carrying a kind byte and payload records) and name the **consuming region** that gives it meaning later:
 
 ```moonlift
@@ -699,6 +876,37 @@ region visit_expr(ast: ptr(Ast), e: ExprRef;     -- meaning: a protocol
     | name(e: ptr(NameExpr))
     | call(e: ptr(CallExpr))
     | invalid(code: i32))
+```
+
+Lua-owned DSL equivalent:
+
+```lua
+return module "ExprVisitation" {
+  struct .ExprRef {
+    kind [u8],
+    index [u32],
+  },
+  struct .IntLitExpr {
+    value [i64],
+  },
+  struct .NameExpr {
+    symbol [u32],
+  },
+  struct .CallExpr {
+    fn [ExprRef],
+    args_data [ptr [ExprRef]],
+    args_len [index],
+  },
+  region .visit_expr
+    { ast [ptr [Ast]], e [ExprRef] }
+    {
+      int_lit { e [ptr [IntLitExpr]] },
+      name { e [ptr [NameExpr]] },
+      call { e [ptr [CallExpr]] },
+      invalid { code [i32] },
+    }
+    { entry .start {} {} },
+}
 ```
 
 The kind byte is a fact, and facts are fine. The mistake is treating the tag *as the design*. The design is `visit_expr`. Events, AST nodes, render commands, wire messages — all stored as products, all *meant* by their consumers.
@@ -742,6 +950,17 @@ cost(R) = |input params| + |continuations| + Σ |payload fields| (+ invariants t
 region parse_value(L: ptr(lua_State), p: ptr(u8), n: index, i: index;
     ok(next: index)
     | err(pos: index, code: i32))
+```
+
+Lua-owned DSL equivalent:
+
+```lua
+region .parse_value
+  { L [ptr [lua_State]], p [ptr [u8]], n [index], i [index] }
+  {
+    ok { next [index] },
+    err { pos [index], code [i32] },
+  }
 ```
 
 Two continuations. Behind them: a complete recursive-descent JSON machine — strings, numbers, escapes, nesting — spliced flat. That is depth, and the protocol is where you read it.
@@ -789,6 +1008,12 @@ One of Ousterhout's most provocative chapters argues that exceptions are a dispr
 empty
 ```
 
+Lua-owned DSL is the continuation name:
+
+```lua
+empty
+```
+
 Nothing about `empty` is exceptional — it is one of the things `recv` *does*, listed beside `got` with equal typographic and semantic weight. A large fraction of what conventional code calls error handling is, in Moonlift, simply… continuations. The pejorative category dissolves.
 
 **Move 2 — Delete the continuation by strengthening the input.** The genuinely Ousterhoutian move is making the case *impossible*, and in Moonlift that is performed on the signature, visibly. An "index out of range" exit disappears when the parameter becomes a bounds-carrying `view(T)` and the loop is driven by its length. An `oom` on every node-allocation disappears when allocation is restructured: reserve once, up front —
@@ -798,6 +1023,18 @@ region reserve_bytes(arena: ptr(Arena), n: index;
     ok(p: ptr(u8), len: index)
     | oom
     | invalid(code: i32))
+```
+
+Lua-owned DSL equivalent:
+
+```lua
+region .reserve_bytes
+  { arena [ptr [Arena]], n [index] }
+  {
+    ok { p [ptr [u8]], len [index] },
+    oom,
+    invalid { code [i32] },
+  }
 ```
 
 — and every subsequent bump-allocation inside the reserved span is infallible, so dozens of downstream protocols each lose an exit. The same move applies to memory identity: a nullable pointer result disappears when the public value is a handle and the access operation is a resolving region whose successful exit grants a lease. Downstream code no longer checks "is this pointer stale?" because stale was one named continuation at the boundary, and the `borrowed` continuation carries the access fact. **Count your continuations; then go redesign your products until some of them die.** That sentence is "define errors out of existence" stated as a Moonlift design exercise, and the deletion is auditable in the diff: the signature literally gets shorter.
@@ -1001,6 +1238,37 @@ region parse_config(buf: ptr(Buffer), out: ptr(Config);
     truncated(pos: index))
 ```
 
+Lua-owned DSL equivalent:
+
+```lua
+return module "ParseConfig" {
+  struct .Buffer {
+    data [ptr [u8]],
+    len [index],
+  },
+  struct .Setting {
+    key_off [index],
+    key_len [index],
+    val_off [index],
+    val_len [index],
+  },
+  struct .Config {
+    items [ptr [Setting]],
+    len [index],
+    cap [index],
+  },
+  region .parse_config
+    { buf [ptr [Buffer]], out [ptr [Config]] }
+    {
+      done { count [index] },
+      syntax { pos [index], code [i32] },
+      empty,
+      truncated { pos [index] },
+    }
+    { entry .start {} {} },
+}
+```
+
 The class box said `parse() → Config`. The signature says what *actually* happens — four ways. This is the recurring experience of transcription: the diagram is a first draft that the type system interrogates.
 
 ---
@@ -1048,6 +1316,34 @@ region visit_shape(shapes: ptr(ShapeStore), s: ShapeRef;
     circle(c: ptr(CircleData)),
     polygon(p: ptr(PolygonData)),
     invalid(code: i32))
+```
+
+Lua-owned DSL equivalent:
+
+```lua
+return module "Shapes" {
+  struct .ShapeRef {
+    kind [u8],
+    index [u32],
+  },
+  struct .CircleData {
+    cx [f64],
+    cy [f64],
+    r [f64],
+  },
+  struct .PolygonData {
+    pts [ptr [Point]],
+    len [index],
+  },
+  region .visit_shape
+    { shapes [ptr [ShapeStore]], s [ShapeRef] }
+    {
+      circle { c [ptr [CircleData]] },
+      polygon { p [ptr [PolygonData]] },
+      invalid { code [i32] },
+    }
+    { entry .start {} {} },
+}
 ```
 
 Each "virtual method" is then a region that emits the visitor and supplies per-variant blocks — and notice what materialized that the class diagram structurally *could not draw*: the `invalid` exit. Vtable dispatch has no syntax for "the tag was garbage"; an explicit consumer must say what happens, so the unknown unknown becomes a declared continuation. Notice also what disappeared: the open-world problem. The protocol is closed and exhaustive; adding a variant is adding a continuation, and the compiler enumerates every consumer that must respond — the *expression problem*'s sharpest edge, converted into a worked checklist.
@@ -1118,10 +1414,43 @@ region steal(s: ptr(Sched), self_id: i32;
     | empty)
 ```
 
+Lua-owned DSL equivalent:
+
+```lua
+region .pop_local
+  { d [ptr [Deque]] }
+  {
+    got { job [JobRef] },
+    empty,
+    stop,
+  }
+
+region .steal
+  { s [ptr [Sched]], self_id [i32] }
+  {
+    stole { job [JobRef], victim [i32] },
+    empty,
+  }
+```
+
 ```moonlift
 emit pop_local(d; got = run_it, empty = try_steal, stop = drain)
 -- inside block try_steal():
 emit steal(s, id; stole = run_stolen, empty = park)
+```
+
+Lua-owned DSL equivalent:
+
+```lua
+emit .pop_local { d } {
+  got = run_it,
+  empty = try_steal,
+  stop = drain,
+}
+emit .steal { s, id } {
+  stole = run_stolen,
+  empty = park,
+}
 ```
 
 Two observations make the mapping more than mechanical. First, **the `alt` frame is the protocol** — in UML, branch guards are prose annotations ("[got job]") that no tool relates to anything; in the transcription, every guard became a *name with a typed payload*, and the compiler now enforces that every interaction at this point in the system handles every branch. The sequence diagram has stopped being a happy-path cartoon with optional sad-path footnotes. Second, the diagram's *call/return* metaphor was costing money the transcription refunds: these "calls" are emits — CFG splices — so the entire diagram compiles to one flat machine with internal branches, and the visual nesting of frames had zero runtime depth.
@@ -1174,6 +1503,30 @@ block running(job: JobRef, started_at: i64, retries: i32)
     ...
 end
 end
+```
+
+Lua-owned DSL equivalent:
+
+```lua
+region .job_lifecycle
+  { s [ptr [Sched]], job [JobRef] }
+  {
+    done { result [i64] },
+    failed { code [i32] },
+    cancelled,
+  }
+  {
+    entry .start { s [ptr [Sched]], job [JobRef] } {
+      jump .pending { job = job },
+    },
+    block .pending { job [JobRef] } {
+      jump .running { job = job },
+    },
+    block .running { job [JobRef], started_at [i64], retries [i32] } {
+      jump .cancelled {},
+    },
+  },
+}
 ```
 
 Read the equation it implies, because it is the Rosetta line between the two notations:
@@ -1405,6 +1758,47 @@ handle JobRef : u32 invalid 0                     -- durable job identity; packi
 end
 ```
 
+Lua-owned DSL equivalent:
+
+```lua
+return module "SchedulerModel" {
+  struct .Job {
+    fn [ptr [u8]],
+    arg [ptr [u8]],
+    state [u8],
+    pad [u8],
+    gen [u16],
+  },
+  struct .JobPool {
+    items [ptr [Job]],
+    cap [index],
+    free_head [u32],
+  },
+  struct .Deque {
+    ring [ptr [u32]],
+    cap [index],
+    head [u64],
+    tail [u64],
+  },
+  struct .Worker {
+    id [i32],
+    deque [Deque],
+    rng [u64],
+  },
+  struct .Sched {
+    pool [JobPool],
+    workers [ptr [Worker]],
+    n_workers [index],
+    flags [u32],
+  },
+  handle .JobRef {
+    invalid = 0,
+    domain = "JobPool",
+    target = "Job",
+  },
+}
+```
+
 Ownership and access facts: *Sched owns the pool and the workers array; a JobRef is durable identity resolved by pool regions; the embedding host owns the Sched.* Encoding facts, each with a named owner: *`Job.state` is an observability encoding consumed only by `observe_job` — the lifecycle semantics live in the region, not the field (Ch. 16); `Sched.flags` bit 0 = draining, consumed only by `pop_local`.* Persistent state (Step 10): `Sched` itself — passed explicitly to every region that touches it. Capacities are conspicuously absent as runtime data in one sense and present in another: `cap` is a fact the machine carries, but *choosing* it is a build-time event (V.6).
 
 ### V.4 The region tree, audited (Steps 4, 7)
@@ -1439,6 +1833,56 @@ region worker_loop(w: ptr(Worker), s: ptr(Sched);
     | aborted(code: i32))
 ```
 
+Lua-owned DSL equivalent:
+
+```lua
+region .submit
+  { s [ptr [Sched]], fn [ptr [u8]], arg [ptr [u8]] }
+  {
+    accepted { job [JobRef] },
+    full,
+    shutting_down,
+  }
+
+region .borrow_job
+  { s [ptr [Sched]], job [JobRef] }
+  {
+    borrowed { slot [lease [ptr [Job]] },
+    stale { job [JobRef] },
+    missing { job [JobRef] },
+  }
+
+region .pop_local
+  { w [ptr [Worker]], s [ptr [Sched]] }
+  {
+    got { job [JobRef] },
+    empty,
+    stop,
+  }
+
+region .steal
+  { s [ptr [Sched]], self_id [i32] }
+  {
+    stole { job [JobRef], victim [i32] },
+    empty,
+  }
+
+region .run_job
+  { s [ptr [Sched]], job [JobRef] }
+  {
+    done { result [i64] },
+    failed { code [i32] },
+    cancelled,
+  }
+
+region .worker_loop
+  { w [ptr [Worker]], s [ptr [Sched]] }
+  {
+    drained { ran [index] },
+    aborted { code [i32] },
+  }
+```
+
 Depth audit (Ch. 5): `worker_loop` is the deep module — two exits hiding the entire pop/steal/run/park machine; the host learns five words and gets a scheduler. Granularity audit (Ch. 5): `steal` does not expose *why* the victim was empty — no caller acts on it; collapsed. Memory audit (Ch. 22): `JobRef` is the durable identity, and `borrow_job` is the only region that turns it into a `lease ptr(Job)`; stale and missing are handled at the resolution boundary, not rediscovered by every job consumer. Errors-out-of-existence audit (Ch. 7): the pool is fixed-capacity by design, so allocation inside `run_job` has no `oom` exit anywhere — the only capacity exit in the system is `submit.full`, at the boundary, where the caller can actually do something (and choosing *unbounded* instead would be a legitimate second draft — Ch. 10's "design it twice" — trading the `full` exit away for an arena-reserve protocol at startup; the trade is visible as which signature carries which exit, which is exactly where such a trade should be visible). Read aloud (Step 7): "the worker loop repeatedly pops locally; when empty it steals; when it has a job it resolves the handle, runs it, and fills done, failed, or cancelled; it exits drained or aborted." Every word is a signature.
 
 ### V.5 States and wiring (Steps 8–9)
@@ -1466,6 +1910,49 @@ end
 end
 ```
 
+Lua-owned DSL equivalent:
+
+```lua
+region .worker_loop
+  { w [ptr [Worker]], s [ptr [Sched]] }
+  {
+    drained { ran [index] },
+    aborted { code [i32] },
+  }
+  {
+    entry .start {} {
+      jump .idle {
+        ran = 0,
+        spins = 0,
+      },
+    },
+    block .idle { ran [index], spins [index] } {
+      emit .pop_local { d = w.deque, s = s } {
+        got = work,
+        empty = hungry,
+        stop = finish,
+      },
+    },
+    block .hungry { ran [index], spins [index] } {
+      emit .steal { s = s, self_id = w.id } {
+        stole = work_stolen,
+        empty = park,
+      },
+    },
+    block .work { ran [index], spins [index], job [JobRef] } {
+      emit .run_job { s = s, job = job } {
+        done = bookkeep,
+        failed = bookkeep_failed,
+        cancelled = bookkeep,
+      },
+    },
+    block .finish { ran [index], spins [index] } {
+      jump .drained { ran = ran },
+    },
+  },
+}
+```
+
 Every block's parameter list is its whole state (Ch. 6's back-door rule): `ran` and `spins` ride the products; there is no worker-local mutable counter living off-tree. Fills are total at every emit; `aborted` is filled from exactly one place (a trap path in `run_job`'s wiring), and forwarding it upward cost one identifier. The UML sequence diagram of V.2 is now *checked source*; regenerate it from the emit/fill graph whenever a human wants the picture (Ch. 18).
 
 ### V.6 Seals and families (Steps 9, 11)
@@ -1475,6 +1962,24 @@ Seals — exactly where ABIs live, nowhere else:
 ```moonlift
 func sched_submit(s: ptr(Sched), fn: ptr(u8), arg: ptr(u8)): i32   -- 0/1/2 at FFI only
 func sched_worker_main(w: ptr(Worker), s: ptr(Sched)): i64         -- thread entry
+```
+
+Lua-owned DSL equivalent:
+
+```lua
+fn .sched_submit
+  { s [ptr [Sched]], fn [ptr [u8]], arg [ptr [u8]] }
+  [i32]
+  {
+    ret(0),
+  },
+
+fn .sched_worker_main
+  { w [ptr [Worker]], s [ptr [Sched]] }
+  [i64]
+  {
+    ret(0),
+  },
 ```
 
 Status codes appear *here and only here* (Ch. 7, move 4 territory): the seal is allowed to encode the protocol as an integer because the seal is the boundary; one line inside, it is continuations again. Families — the repetition axes found in Step 11:
@@ -1701,6 +2206,24 @@ handle AudioBuffer : u32 invalid 0
 end
 ```
 
+Lua-owned DSL equivalent:
+
+```lua
+return module "AudioBufferModel" {
+  struct .AudioBufferStore {
+    records [ptr [AudioBufferRecord]],
+    samples [ptr [f32]],
+    capacity [index],
+    generation [u64],
+  },
+  handle .AudioBuffer {
+    invalid = 0,
+    domain = "AudioBufferStore",
+    target = "AudioBufferRecord",
+  },
+}
+```
+
 A handle is copyable, comparable with the same handle type, storable, passable,
 and returnable. It is not dereferenceable, not indexable, not arithmetic, and
 not implicitly convertible to its representation. Packing index/generation bits
@@ -1736,6 +2259,19 @@ region borrow_audio_buffer(store: ptr(AudioBufferStore),
   | stale(buffer: AudioBuffer)
   | missing(buffer: AudioBuffer)
   | unsupported_format) end
+```
+
+Lua-owned DSL equivalent:
+
+```lua
+region .borrow_audio_buffer
+  { store [ptr [AudioBufferStore]], buffer [AudioBuffer] }
+  {
+    borrowed { samples [lease [view [f32]]] },
+    stale { buffer [AudioBuffer] },
+    missing { buffer [AudioBuffer] },
+    unsupported_format,
+  }
 ```
 
 The successful exit does not return "a pointer maybe." It grants a lease. The
@@ -1793,6 +2329,18 @@ func c_sum(readonly p: ptr(i32), n: index): i32
     requires bounds(p, n)
 ```
 
+Lua-owned DSL equivalent:
+
+```lua
+-- ABI-side bound contract
+fn .c_sum
+  { p [ptr [i32]], n [index] }
+  [i32]
+  {
+    ret(0),
+  },
+```
+
 That says: this C-shaped entry point promises a bounded object. Inside ordinary
 Moonlift design, prefer a handle-resolving region or a `view(T)`/lease when the
 shape is first-class.
@@ -1818,6 +2366,34 @@ func count_voices(readonly store: ptr(VoiceStore)): index
 func process_voice(state: lease ptr(VoiceState))
 ```
 
+Lua-owned DSL equivalent:
+
+```lua
+-- invalidate store: consumes a live lease from VoiceStore if active
+fn .destroy_voice
+  { store [ptr [VoiceStore]], voice [Voice] }
+  [void]
+  {
+    ret(),
+  },
+
+-- readonly access to count_voices
+fn .count_voices
+  { store [ptr [VoiceStore]] }
+  [index]
+  {
+    ret(0),
+  },
+
+-- lease-based state access
+fn .process_voice
+  { state [lease [ptr [VoiceState]]] }
+  [void]
+  {
+    ret(),
+  },
+```
+
 The rule is local and Moonlift-shaped: an invalidating operation cannot run while
 a lease from the same store is live. This is not a global Rust borrow checker.
 It is a checked dynamic extent attached to explicit regions and explicit store
@@ -1833,6 +2409,18 @@ region reset_render_scratch(scratch: ptr(RenderScratch), shape: BlockShape;
     reset
   | bad_buffer
   | wrong_thread) end
+```
+
+Lua-owned DSL equivalent:
+
+```lua
+region .reset_render_scratch
+  { scratch [ptr [RenderScratch]], shape [BlockShape] }
+  {
+    reset,
+    bad_buffer,
+    wrong_thread,
+  }
 ```
 
 There are no semantic destructors. If ownership or lifetime changes, a named

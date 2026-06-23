@@ -30,15 +30,15 @@ path.
 
 ## Table of Contents
 
-1.  [Language layers](#1-language-layers)
-2.  [Non-negotiable language rules](#2-non-negotiable-language-rules)
-3.  [Files and execution surfaces](#3-files-and-execution-surfaces)
-4.  [Lexical rules](#4-lexical-rules)
-5.  [Type system](#5-type-system)
-6.  [Functions](#6-functions)
-7.  [Hosted declarations](#7-hosted-declarations)
-8.  [Statements](#8-statements)
-9.  [Expressions](#9-expressions)
+1. [Language layers](#1-language-layers)
+2. [Non-negotiable language rules](#2-non-negotiable-language-rules)
+3. [Files and execution surfaces](#3-files-and-execution-surfaces)
+4. [Lexical rules](#4-lexical-rules)
+5. [Type system](#5-type-system)
+6. [Functions](#6-functions)
+7. [Hosted declarations](#7-hosted-declarations)
+8. [Statements](#8-statements)
+9. [Expressions](#9-expressions)
 10. [Control regions](#10-control-regions)
 11. [Region fragments and continuation protocols](#11-region-fragments-and-continuation-protocols)
 12. [Expression fragments](#12-expression-fragments)
@@ -111,7 +111,7 @@ return module "Demo" {
     { a[i32], b[i32] }
     [i32]
     {
-      ret { a + b },
+      ret(a + b),
     },
 }
 ```
@@ -295,10 +295,10 @@ Equivalent Lua-owned DSL form:
 -- file.mld.lua
 return module "Demo" {
   fn .add
-    { a[i32], b[i32] }
+    { a [i32], b [i32] }
     [i32]
     {
-      ret { a + b },
+      ret(a + b),
     },
 }
 ```
@@ -325,15 +325,15 @@ Recommended module shape:
 ```lua
 return module "Demo" {
   struct .Pair {
-    left[i32],
-    right[i32],
+    left [i32],
+    right [i32],
   },
 
   fn .sum
-    { p[Pair] }
+    { p [Pair] }
     [i32]
     {
-      ret { p.left + p.right },
+      ret(p.left + p.right),
     },
 }
 ```
@@ -573,11 +573,13 @@ Float literals support decimal notation with optional exponent (`1.5`, `2.0`,
 Complete list of reserved words in Moonlift object-language source:
 
 **Declaration / hosted-island keywords:**
+
 ```text
 func  struct  union  handle  extern  region  expr
 ```
 
 **Pointer and access modifiers:**
+
 ```text
 noalias  readonly  writeonly  noescape  invalidate  preserve
 lease    owned     requires
@@ -585,18 +587,21 @@ bounds   window_bounds  disjoint  same_len
 ```
 
 **Statement keywords:**
+
 ```text
 let  var  if  then  else  elseif  switch  case  default  do  end
 block  entry  jump  yield  return  emit  call
 ```
 
 **Expression keywords:**
+
 ```text
 true  false  nil  and  or  not  as  len
 sizeof  alignof  null  is_null
 ```
 
 **Scalar type keywords (reserved in type position):**
+
 ```text
 void  bool
 i8  i16  i32  i64
@@ -611,7 +616,6 @@ reserved words.
 Intrinsic names such as `popcount`, `sqrt`, `trap`, and `assume` are ordinary
 callee names at the source parser level; intrinsic lowering is not part of the
 current source parser.
-
 
 **Intentionally NOT reserved:**
 
@@ -670,8 +674,6 @@ ptr(i32)      -- pointer to one i32
 ```
 
 `ptr(T)` means a pointer to exactly one `T` value. There is no `ptr(void)`.
-
-
 
 Pointer operations:
 
@@ -1044,6 +1046,22 @@ func zero_buffer(dst: ptr(u8), n: index)
 end
 ```
 
+```lua
+-- DSL equivalent
+fn .zero_buffer
+  { dst[ptr[u8]], n[index] }
+  [void]
+  {
+    block .loop { i[index](0) } {
+      when(i:ge(n)) {
+        ret(),
+      },
+      jump .done {
+      },
+    },
+  }
+```
+
 ### 6.3 Parameters
 
 ```text
@@ -1086,10 +1104,6 @@ both non-aliasing and the memory it points to is only read. Combined modifiers
 produce nested explicit access nodes, so the source facts remain visible to later
 phases.
 
-
-
-
-
 ### 6.4 Type declarations
 
 In `.mlua` files, use `struct`, `union`, and `handle` islands. The name is optional when
@@ -1112,7 +1126,24 @@ return struct x: f32, y: f32 end
 return union ok(i32) | err(i32) end
 ```
 
+```lua
+-- DSL equivalents
+struct .Pair {
+  left[i32],
+  right[i32],
+}
 
+union .Result {
+  ok { code[i32] },
+  err { msg[ptr[u8]] },
+  none,
+}
+
+handle .ComponentRef : u32 invalid 0 {
+  domain ComponentStore,
+  target Component,
+}
+```
 
 ---
 
@@ -1140,6 +1171,42 @@ func length2(Point): i32
 end
 
 region parse_point(p: ptr(u8), n: index; ParseExit)
+```
+
+```lua
+-- DSL equivalent
+return module "Demo" {
+  struct .Point {
+    x[i32],
+    y[i32],
+  },
+  union .ParseExit {
+    ok { value[i32] },
+    err { code[i32] },
+  },
+  region .parse_point {
+    { p[ptr[u8]], n[index] },
+    { ParseExit },
+    {
+      entry .loop { i[index](0) } {
+        when(i:ge(n)) {
+          jump .err { code = -1 },
+        },
+
+        jump .ok {
+          value = as [i32] (p[i]),
+        },
+      },
+
+      block .ok { value[index] } {
+        ret(value),
+      },
+      block .err { code[index] } {
+        ret(code),
+      },
+    },
+  },
+}
 ```
 
 - `struct [Name] field: T, field: T end` (product fields use commas)
@@ -1334,6 +1401,18 @@ i = i + 1
 acc = acc + xs[i]
 ```
 
+```lua
+-- DSL equivalent
+let x [i32] { 42 }
+let name [ptr[u8]] { &buffer[0] }
+let sum [f64] { as [f64] (a) + as [f64] (b) }
+
+var i [index] { 0 }
+var acc [i32] { 0 }
+i = i + 1
+acc = acc + xs[i]
+```
+
 ### 8.3 Assignment
 
 ```moonlift
@@ -1364,6 +1443,11 @@ from being parsed as `x = value(callee)(arg)`. Multiline expressions are still
 written inside explicit delimiters such as call arguments, aggregate literals,
 or region/control-expression bodies, or across explicit infix operators such as
 `+`, `and`, and `==`.
+
+```lua
+-- DSL equivalent
+store(dst[i], value)
+```
 
 ### 8.4 If statement
 
@@ -1406,6 +1490,15 @@ Single-line forms are common in hosted islands:
 ```moonlift
 if i >= n then jump done() end
 if cond then jump loop(i = i + 1, acc = acc + 1) end
+```
+
+```lua
+-- DSL equivalent (if/else)
+If(cond1) {
+  jump .done { }
+}({
+  jump .fallback { }
+})
 ```
 
 ### 8.5 Switch statement
@@ -1457,6 +1550,18 @@ default then jump unknown()
 end
 ```
 
+```lua
+-- DSL equivalent
+switch opcode {
+  case_value(0) {
+    ret(0),
+  },
+  default {
+    ret(-1),
+  },
+}
+```
+
 Each arm is `{ raw_key, body }` where `body` is a statement list (`Stmt[]`)
 produced by `moon.stmts(...)`. String concatenation handles parametric
 bodies; the Lua `for` loop handles generation.
@@ -1502,6 +1607,32 @@ end
 end
 ```
 
+```lua
+-- DSL equivalent
+region parse_digit {
+  { p [ptr [u8]], n [i32], pos [i32] },
+  {
+    got_digit { next [i32], value [i32] },
+    bad { pos [i32], code [i32] },
+  },
+  {
+    entry .start {} {
+      emit parse_digit(p, n, 0) {
+        got_digit = got_digit,
+        bad = bad,
+      },
+    },
+
+    block .got_digit { next [i32], value [i32] } {
+      yield value,
+    },
+    block .bad { pos [i32], code [i32] } {
+      yield -1,
+    },
+  },
+}
+```
+
 ### 8.6.1 Call statement
 
 ```moonlift
@@ -1527,6 +1658,14 @@ region carries temporary access so that the lease stays in control flow.
 
 ```moonlift
 jump label(name = expr, name = expr, ...)
+```
+
+```lua
+-- DSL equivalent
+jump .loop {
+  i = i + 1,
+  acc = acc + xs[i],
+}
 ```
 
 Jump arguments are named, not positional. A jump terminates the current
@@ -1558,6 +1697,12 @@ yield expr      -- value yield
 - After a `yield`, execution continues at the point immediately after the
   enclosing `region: T ... end` or `block ... end` construct.
 
+```lua
+-- DSL equivalent
+yield()
+yield(result)
+```
+
 ### 8.9 Return statement
 
 ```moonlift
@@ -1573,12 +1718,23 @@ the function.
   result type.
 - Bare `return` requires the function to have `void` result type.
 
+```lua
+-- DSL equivalent
+ret()
+ret(result)
+```
+
 ### 8.10 Expression statement
 
 An expression can appear as a statement. This is mainly useful for:
 
 - Void function calls: `do_something(x, y)`
 - Discarded value expressions
+
+```lua
+-- DSL equivalent
+do_something(x, y)
+```
 
 ---
 
@@ -1648,6 +1804,11 @@ hiding outer bindings.
 ### 9.4 Function calls
 
 ```moonlift
+callee(arg1, arg2, arg3)
+```
+
+```lua
+-- DSL equivalent
 callee(arg1, arg2, arg3)
 ```
 
@@ -1753,6 +1914,13 @@ let byte: u8 = as(u8, word)         -- i32 → u8 (truncate)
 let bits: i32 = bitcast(i32, float_val) -- f32 bits → i32 bits
 ```
 
+```lua
+-- DSL equivalent
+let c [i32] { as [i32] (p[i]) }
+let x [f64] { as [f64] (count) }
+let bits [i32] { bitcast [i32] (float_val) }
+```
+
 ### 9.10 Select expression
 
 ```moonlift
@@ -1766,6 +1934,11 @@ the condition. Equivalent to C's ternary `cond ? a : b`.
 The condition must have type `bool`. Both branches must have the same type.
 Unlike `if` statements, `select` does not introduce new control blocks.
 
+```lua
+-- DSL equivalent
+select(cond, then_expr, else_expr)
+```
+
 ### 9.11 Len expression
 
 ```moonlift
@@ -1773,6 +1946,11 @@ len(view_expr)
 ```
 
 Returns the number of elements in a view, typed as `index`.
+
+```lua
+-- DSL equivalent
+len(view_expr)
+```
 
 ### 9.12 View construction
 
@@ -1878,6 +2056,13 @@ not expr     boolean not (expects bool, returns bool)
 ~ expr       bitwise not (integers only)
 ```
 
+```lua
+-- DSL equivalent
+neg(expr)
+Not(expr)
+bitnot(expr)
+```
+
 Negation on unsigned types is rejected. Negation on signed types is wrapping.
 Floating-point negation is IEEE 754 `fneg`.
 
@@ -1928,6 +2113,16 @@ Signed/unsigned comparison semantics depend on the operand types. `i32 < i32`
 uses signed comparison. `u32 < u32` uses unsigned comparison. Mixed-sign
 comparisons require explicit `as` conversions.
 
+```lua
+-- DSL equivalent
+eq(lhs, rhs)
+ne(lhs, rhs)
+lt(lhs, rhs)
+le(lhs, rhs)
+gt(lhs, rhs)
+ge(lhs, rhs)
+```
+
 Float comparisons follow IEEE 754: `NaN ~= NaN` is true, `NaN < x` and `NaN > x`
 are false.
 
@@ -1942,6 +2137,13 @@ Both operands must have type `bool`. `and` and `or` are short-circuiting:
 the right operand is evaluated only if needed.
 
 For dataflow choice without control flow, use `select(cond, a, b)`.
+
+```lua
+-- DSL equivalent
+And(cond1, cond2)
+Or(cond1, cond2)
+Not(cond1)
+```
 
 ### 9.20 Operator precedence
 
@@ -2231,6 +2433,7 @@ end
 ```
 
 The caller provides:
+
 1. Runtime arguments (positional, before the semicolon)
 2. Continuation mappings (named, after the semicolon)
 
@@ -2324,6 +2527,7 @@ end
 ```
 
 Expression fragments have:
+
 - A parameter list using the same open-param grammar as region fragments
 - A single result type
 - A single expression body (no statements)
@@ -2446,7 +2650,7 @@ return module "Demo" {
     { x[T] }
     [T]
     {
-      ret { x },
+      ret(x),
     },
 }
 ```
@@ -2582,7 +2786,7 @@ Equivalent Lua-owned DSL patterns:
 -- Spread generated params and body statements
 local params = product { a[i32], b[i32] }
 local body = stmts {
-  ret { a + b },
+  ret(a + b),
 }
 
 return module "Generated" {
@@ -2714,6 +2918,17 @@ Moonlift receives explicit ASDL.
 ()      ordinary Lua call / leaf computation
 ```
 
+For declaration/control keyword heads, keep a space before the name target so the
+keyword form stays visually separate from ordinary Lua calls:
+`fn .add`, `region .scan`, `jump .done`, `struct .Point`, `emit .scan`.
+
+For single-expression/condition forms, prefer explicit parentheses to distinguish
+statement/keyword forms from plain calls and to keep control shape obvious:
+`return (x)`, `yield (x)`, `when (cond) { ... }`.
+
+This project does not include a `while` keyword in the object-language; when
+modeling loop-like control, use a `when(...)` + `jump` sequence in the same style.
+
 Canonical style keeps `{}` for real structure:
 
 ```lua
@@ -2721,7 +2936,7 @@ fn .add
   { a[i32], b[i32] }  -- product
   [i32]               -- evaluated type value
   {
-    ret { a + b },    -- statement body
+    ret(a + b),    -- statement body
   }
 ```
 
@@ -2748,11 +2963,11 @@ return module "DslDemo" {
     }
     {
       entry .loop { i[index](0) } {
-        when { i:ge(n) } {
+        when(i:ge(n)) {
           jump .miss { pos = i },
         },
 
-        when { eq { as[i32](p[i]), target } } {
+        when(eq(as[i32](p[i]), target)) {
           jump .hit { pos = i },
         },
 
@@ -2774,7 +2989,7 @@ return module "DslDemo" {
       },
 
       block .done { pos[i32] } {
-        ret { pos },
+        ret(pos),
       },
     },
 }
@@ -2793,7 +3008,7 @@ local view_params = product {
 }
 
 local bounds_check = stmts {
-  when { i:ge(len) } {
+  when(i:ge(len)) {
     trap(),
   },
 }
@@ -2808,7 +3023,7 @@ return module "Slices" {
     [u8]
     {
       spread(bounds_check),
-      ret { data[i] },
+      ret(data[i]),
     },
 }
 ```
@@ -2921,6 +3136,7 @@ e.kind   -- "extern_func"
 ```
 
 A signature closure can be:
+
 - **Stored**: put it in a table, return it from a module, pass it to a function
 - **Compiled**: `h[[ return value ]]` returns a CallableFunc
 - **Specialized**: `h{ T = f64 }[[ return a ]]` overrides bindings, then compiles
@@ -3488,6 +3704,7 @@ local mul = types.mul{}[[ return a * b ]]
 ```
 
 The header closure can be:
+
 - **Stored in a table**, returned from a Lua module, passed to a function
 - **Compiled**: `h[[body]]` returns a CallableFunc that lazily compiles
 - **Specialized**: `h{ T = f64 }[[body]]` overrides type bindings before compiling
@@ -4026,6 +4243,7 @@ Prefer these instead:
 - `moon.expr[[]]` for generated expressions;
 - fragment factories + `emit` for reusable control;
 - modules/types/functions as explicit host values.
+
 ## 18. View and host ABI semantics
 
 ### 17.1 Canonical view descriptor
@@ -4268,6 +4486,7 @@ end
 ```
 
 The fact phase identifies:
+
 - `i` as the induction variable (monotonically incrementing by 1)
 - `n` as the trip count upper bound
 - `acc` as the reduction accumulator
@@ -4301,6 +4520,7 @@ facts, then produces a vector schedule:
 ### 18.5 Explicit rejects
 
 Vectorization produces explicit rejects for unsupported shapes, including:
+
 - Non-affine induction variables
 - Loop-carried dependencies that prevent vectorization
 - Memory access patterns that require gather/scatter on targets without support
@@ -4371,6 +4591,7 @@ ERROR[E0301]: type mismatch
 ### 19.4 LSP diagnostics
 
 Each ErrorReport maps to an LSP Diagnostic with:
+
 - Primary span → `range`
 - Secondary spans → `relatedInformation`
 - Notes and suggestions → concatenated in `message`

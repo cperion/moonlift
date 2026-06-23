@@ -166,11 +166,11 @@ return module "Demo" {
     }
     {
       entry .start {} {
-        when { pos:ge(n) } {
+        when(pos:ge(n)) {
           jump .err { pos = pos, code = 10 },
         },
 
-        when { eq { as [i32](p[pos]), 65 } } {
+        when(eq(as [i32](p[pos]), 65)) {
           jump .ok { next = pos + 1 },
         },
 
@@ -190,11 +190,11 @@ return module "Demo" {
       },
 
       block .got_byte { next [i32] } {
-        ret { 2000 },
+        ret(2000),
       },
 
       block .bad { pos [i32], code [i32] } {
-        ret { 0 - code },
+        ret(0 - code),
       },
     },
 }
@@ -727,15 +727,15 @@ return module "Demo" {
     hit { pos [i32] } | miss { pos [i32] }
   } {
     entry .loop { i [i32] = 0 } {
-      when { i >= n } { jump .miss { pos = i } },
-      when { as(i32, p[i]) == target } { jump .hit { pos = i } },
+      when(i >= n) { jump .miss { pos = i } },
+      when(as(i32, p[i]) == target) { jump .hit { pos = i } },
       jump .loop { i = i + 1 },
     },
   },
 
   fn .find_A { p [ptr(u8)], n [i32] } [i32] {
-    block .found { pos [i32] } { ret { pos } },
-    block .not_found { pos [i32] } { ret { -1 } },
+    block .found { pos [i32] } { ret(pos) },
+    block .not_found { pos [i32] } { ret(-1) },
     emit .scan { p, n, 65 } { hit = found, miss = not_found },
   },
 }
@@ -752,7 +752,7 @@ local fields = product { x [i32], y [i32], tag [u8] }
 return module "M" {
   struct .Point { spread(fields) },
   fn .tag_of { p [Point] } [u8] {
-    ret { p.tag },
+    ret(p.tag),
   },
 }
 ```
@@ -805,7 +805,7 @@ return module "Demo" {
     { spread(params) }
     [T]
     {
-      ret { a + b },
+      ret(a + b),
     },
 }
 ```
@@ -843,7 +843,7 @@ return module "DemoOps" {
 
   fn .read { p [ptr [u8]], n [i32] } [i32] {
     entry .start {} {
-      ret { as[i32](n) },
+      ret(as[i32](n)),
     },
   },
 }
