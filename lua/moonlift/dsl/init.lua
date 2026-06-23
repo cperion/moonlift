@@ -862,14 +862,21 @@ function Decl:lower(opts)
     opts = merge_source_ctx(opts, self)
     local Pipeline = require("moonlift.frontend_pipeline").Define(T)
     opts.site = opts.site or "moonlift.dsl"
-    return Pipeline.lower_module(module_ast_of(self), opts)
+    local handle = Pipeline.lower_module_process:start(module_ast_of(self), opts)
+    for _ in handle:events() do end
+    local result = handle:result()
+    if result == nil then error("moonlift.dsl lower failed", 2) end
+    return result
 end
 
 function Decl:emit_c_artifact(opts)
     opts = merge_source_ctx(opts, self)
     local Pipeline = require("moonlift.frontend_pipeline").Define(T)
     opts.site = opts.site or "moonlift.dsl c"
-    local result = Pipeline.lower_module_to_c(module_ast_of(self), opts)
+    local handle = Pipeline.lower_module_to_c_process:start(module_ast_of(self), opts)
+    for _ in handle:events() do end
+    local result = handle:result()
+    if result == nil then error("moonlift.dsl C lower failed", 2) end
     local artifact = require("moonlift.c_emit").Define(T).emit_artifact(result.c_unit, opts)
     artifact.dsl_module = self
     artifact.module = self
@@ -1059,22 +1066,101 @@ local function region_decl(name, params_, conts, body)
 end
 
 local g = llb.grammar
+local ch = llb.channel
+
+local function role_array(fragment_role, label)
+    return {
+        kind = "array",
+        normalize = function(_, ctx, v)
+            if llb.is(v, "Fragment") then
+                if v.role ~= fragment_role then
+                    llb.fail("expected " .. label .. " fragment, got " .. tostring(v.role), {
+                        code = "E_MOONLIFT_FRAGMENT_ROLE",
+                        primary = v.origin or (ctx and ctx.origin),
+                    })
+                end
+                return v.items or {}
+            end
+            if type(v) ~= "table" then
+                llb.fail("expected " .. label .. " table", {
+                    code = "E_MOONLIFT_EXPECTED_TABLE",
+                    primary = llb.origin_of(v) or (ctx and ctx.origin),
+                })
+            end
+            return expand_array(v, fragment_role)
+        end,
+    }
+end
+
+local function named_lsp(kind)
+    return function(n)
+        if n.name then
+            return { name = tostring(n.name), kind = kind, origin = n.origin, node = n }
+        end
+        return nil
+    end
+end
+
+local function slot_name(slot) return slot[g.name] { channel = ch.index_name } end
+local function slot_string(slot) return slot[g.string] { channel = ch.call_value } end
+local function slot_type(slot) return slot[g.type] { channel = ch.index_type } end
+local function slot_params(slot) return slot[g.params] { channel = ch.call_table } end
+local function slot_decls(slot) return slot[g.decls] { channel = ch.call_table } end
+local function slot_stmts(slot) return slot[g.stmts] { channel = ch.call_table } end
+local function slot_conts(slot) return slot[g.conts] { channel = ch.call_table } end
+local function slot_variants(slot) return slot[g.variants] { channel = ch.call_table } end
+local function slot_value(slot)
+    return slot[g.value] { channels = { ch.call_none, ch.call_value, ch.call_table, ch.call_many } }
+end
+local function slot_table_value(slot) return slot[g.value] { channel = ch.call_table } end
+
+local conts_role = role_array("conts", "continuation")
+conts_role.algebra = "sum"
+conts_role.payload_role = "product"
+
+local variants_role = role_array("variants", "variant")
+variants_role.algebra = "sum"
+variants_role.payload_role = "product"
+
 local MoonLLB = llb.define "MoonliftDSL" {
-    g.role .decls  { kind = "array" },
-    g.role .stmts  { kind = "array" },
-    g.role .params { kind = "array" },
-    g.role .conts  { kind = "array", algebra = "sum", payload_role = "product" },
+    g.role .decls  (role_array("decl", "declaration")),
+    g.role .stmts  (role_array("stmt", "statement")),
+    g.role .params (role_array("product", "product")),
+    g.role .conts  (conts_role),
+    g.role .variants (variants_role),
     g.role .value  { kind = "value" },
 
+    g.trait .declaration {
+        apply = function(_, head)
+            head.moonlift_category = "decl"
+            head.lsp = head.lsp or { symbol = named_lsp("Declaration") }
+        end,
+    },
+
+    g.trait .statement {
+        apply = function(_, head)
+            head.moonlift_category = "stmt"
+        end,
+    },
+
+    g.trait .control_block {
+        apply = function(_, head)
+            head.moonlift_category = "control"
+            head.lsp = head.lsp or { symbol = named_lsp("Block") }
+        end,
+    },
+
     g.head .module {
-        g.slot .name  [g.string],
-        g.slot .body  [g.decls],
+        g.trait .declaration,
+        slot_string(g.slot .name),
+        slot_decls(g.slot .body),
         emit = function(n) return setmetatable({ kind = "module", name = tostring(n.name), body = n.body or {} }, Decl) end,
     },
 
     g.head .struct {
-        g.slot .name   [g.name],
-        g.slot .fields [g.params],
+        g.trait .declaration,
+        slot_name(g.slot .name),
+        slot_params(g.slot .fields),
         emit = function(n)
             local name = llb_name_text(n.name, "struct name")
             return setmetatable({ kind = "struct", name = name, type_name = name, body = typed_items_from_llb(n.fields or {}) }, Decl)
@@ -1082,8 +1168,9 @@ local MoonLLB = llb.define "MoonliftDSL" {
     },
 
     g.head .union {
-        g.slot .name     [g.name],
-        g.slot .variants [g.value],
+        g.trait .declaration,
+        slot_name(g.slot .name),
+        slot_variants(g.slot .variants),
         emit = function(n)
             local name = llb_name_text(n.name, "union name")
             return setmetatable({ kind = "union", name = name, type_name = name, body = n.variants or {} }, Decl)
@@ -1091,102 +1178,115 @@ local MoonLLB = llb.define "MoonliftDSL" {
     },
 
     g.head .fn {
-        g.slot .name   [g.name],
-        g.slot .params [g.params],
-        g.slot .result [g.type] { optional = true },
-        g.slot .body   [g.stmts],
+        g.trait .declaration,
+        slot_name(g.slot .name),
+        slot_params(g.slot .params),
+        slot_type(g.slot .result) { optional = true },
+        slot_stmts(g.slot .body),
         emit = function(n)
             return setmetatable({ kind = "fn", name = llb_name_text(n.name, "function name"), params = typed_items_from_llb(n.params or {}), result = n.result, body = n.body or {} }, Decl)
         end,
     },
 
     g.head .export_fn {
-        g.slot .name   [g.name],
-        g.slot .params [g.params],
-        g.slot .result [g.type] { optional = true },
-        g.slot .body   [g.stmts],
+        g.trait .declaration,
+        slot_name(g.slot .name),
+        slot_params(g.slot .params),
+        slot_type(g.slot .result) { optional = true },
+        slot_stmts(g.slot .body),
         emit = function(n)
             return setmetatable({ kind = "export_fn", name = llb_name_text(n.name, "function name"), params = typed_items_from_llb(n.params or {}), result = n.result, body = n.body or {} }, Decl)
         end,
     },
 
     g.head .extern {
-        g.slot .name   [g.name],
-        g.slot .params [g.params],
-        g.slot .result [g.type] { optional = true },
-        g.slot .opts   [g.value],
+        g.trait .declaration,
+        slot_name(g.slot .name),
+        slot_params(g.slot .params),
+        slot_type(g.slot .result) { optional = true },
+        slot_table_value(g.slot .opts),
         emit = function(n)
             return setmetatable({ kind = "extern", name = llb_name_text(n.name, "extern name"), params = typed_items_from_llb(n.params or {}), result = n.result, opts = n.opts or {} }, Decl)
         end,
     },
 
     g.head .handle {
-        g.slot .name [g.name],
-        g.slot .opts [g.value],
+        g.trait .declaration,
+        slot_name(g.slot .name),
+        slot_table_value(g.slot .opts),
         emit = function(n) return setmetatable({ kind = "handle", name = llb_name_text(n.name, "handle name"), opts = n.opts or {} }, Decl) end,
     },
 
     g.head .const {
-        g.slot .name  [g.name],
-        g.slot .ty    [g.type],
-        g.slot .value [g.value],
+        g.trait .declaration,
+        slot_name(g.slot .name),
+        slot_type(g.slot .ty),
+        slot_value(g.slot .value),
         emit = function(n) return setmetatable({ kind = "const", name = llb_name_text(n.name, "const name"), ty = n.ty, value = n.value }, Decl) end,
     },
 
     g.head .static {
-        g.slot .name  [g.name],
-        g.slot .ty    [g.type],
-        g.slot .value [g.value],
+        g.trait .declaration,
+        slot_name(g.slot .name),
+        slot_type(g.slot .ty),
+        slot_value(g.slot .value),
         emit = function(n) return setmetatable({ kind = "static", name = llb_name_text(n.name, "static name"), ty = n.ty, value = n.value }, Decl) end,
     },
 
     g.head .import {
-        g.slot .target [g.value],
+        g.trait .declaration,
+        slot_value(g.slot .target),
         emit = function(n) return setmetatable({ kind = "import", name = n.target }, Decl) end,
     },
 
     g.head .expr_frag {
-        g.slot .name   [g.name],
-        g.slot .params [g.params],
-        g.slot .result [g.type],
-        g.slot .body   [g.value],
+        g.trait .declaration,
+        slot_name(g.slot .name),
+        slot_params(g.slot .params),
+        slot_type(g.slot .result),
+        slot_value(g.slot .body),
         emit = function(n)
             return setmetatable({ kind = "expr_frag", name = llb_name_text(n.name, "expr fragment name"), params = typed_items_from_llb(n.params or {}), result = n.result, body = n.body }, Decl)
         end,
     },
 
     g.head .region {
-        g.slot .name   [g.name],
-        g.slot .params [g.params],
-        g.slot .conts  [g.conts],
-        g.slot .body   [g.stmts],
+        g.trait .declaration,
+        slot_name(g.slot .name),
+        slot_params(g.slot .params),
+        slot_conts(g.slot .conts),
+        slot_stmts(g.slot .body),
         emit = function(n) return region_decl(llb_name_text(n.name, "region name"), n.params, n.conts, n.body) end,
     },
 
     g.head .entry {
-        g.slot .name   [g.name],
-        g.slot .params [g.params],
-        g.slot .body   [g.stmts],
+        g.trait .control_block,
+        slot_name(g.slot .name),
+        slot_params(g.slot .params),
+        slot_stmts(g.slot .body),
         emit = function(n) return { kind = "entry_decl", name = llb_name_text(n.name, "entry name"), params = typed_items_from_llb(n.params or {}), body = n.body or {} } end,
     },
 
     g.head .block {
-        g.slot .name   [g.name],
-        g.slot .params [g.params],
-        g.slot .body   [g.stmts],
+        g.trait .control_block,
+        slot_name(g.slot .name),
+        slot_params(g.slot .params),
+        slot_stmts(g.slot .body),
         emit = function(n) return { kind = "block_decl", name = llb_name_text(n.name, "block name"), params = typed_items_from_llb(n.params or {}), body = n.body or {} } end,
     },
 
     g.head .jump {
-        g.slot .target [g.name],
-        g.slot .args   [g.value],
+        g.trait .statement,
+        slot_name(g.slot .target),
+        slot_table_value(g.slot .args),
         emit = function(n) return setmetatable({ kind = "jump", target = llb_name_text(n.target, "jump target"), args = n.args or {} }, Stmt) end,
     },
 
     g.head .emit {
-        g.slot .target [g.name],
-        g.slot .args   [g.value],
-        g.slot .fills  [g.value],
+        g.trait .statement,
+        slot_name(g.slot .target),
+        slot_table_value(g.slot .args),
+        slot_table_value(g.slot .fills),
         emit = function(n)
             local conts = {}
             for cname, target in pairs(n.fills or {}) do
@@ -1197,22 +1297,25 @@ local MoonLLB = llb.define "MoonliftDSL" {
     },
 
     g.head .let {
-        g.slot .name [g.name],
-        g.slot .ty   [g.type],
-        g.slot .init [g.value],
+        g.trait .statement,
+        slot_name(g.slot .name),
+        slot_type(g.slot .ty),
+        slot_value(g.slot .init),
         emit = function(n) return setmetatable({ kind = "let", name = llb_name_text(n.name, "let name"), ty = n.ty, init = n.init }, Stmt) end,
     },
 
     g.head .var {
-        g.slot .name [g.name],
-        g.slot .ty   [g.type],
-        g.slot .init [g.value],
+        g.trait .statement,
+        slot_name(g.slot .name),
+        slot_type(g.slot .ty),
+        slot_value(g.slot .init),
         emit = function(n) return setmetatable({ kind = "var", name = llb_name_text(n.name, "var name"), ty = n.ty, init = n.init }, Stmt) end,
     },
 }
 
 M.llb = llb
 M.language = MoonLLB
+M.process = llb.process
 
 local _searcher_installed = false
 
@@ -1251,6 +1354,7 @@ local function make_env(opts)
         lshift = M.shl,
     }
     env.product, env.stmts, env.decls, env.exprs, env.conts, env.variants, env.spread, env._ = M.product, M.stmts, M.decls, M.exprs, M.conts, M.variants, M.spread, M._
+    env.process, env.process_opts = llb.process, llb.process_opts
     env.here, env.at_origin, env.with_origin = llb.here, llb.at, llb.with_origin
     env.eq, env.ne, env.lt, env.le, env.gt, env.ge = M.eq, M.ne, M.lt, M.le, M.gt, M.ge
     env.And, env.Or, env.Not, env.len, env.select = M.And, M.Or, M.Not, M.len, M.select
@@ -1304,20 +1408,25 @@ function M.use(opts)
         target = opts.target or _G,
         base = exports,
         exports = exports,
+        lang_exports = false,
         helpers = false,
         global = opts.global,
         strict = opts.strict,
+        strict_message = "unknown DSL global ",
         override = opts.override,
         auto_names = opts.auto_names ~= false,
         auto_name = name_token,
         searcher = opts.searcher,
+        mode = opts.mode,
+        provides = opts.provides or { "moonlift.types", "moonlift.dsl" },
+        requires = opts.requires,
     })
     if opts.searcher then M.install_searcher() end
     M._installed = true
     return session
 end
 
-function M.loadstring(src, chunk_name, opts)
+local function compile_source_chunk(src, chunk_name, opts, ctx)
     opts = opts or {}
     local loader = loadstring or load
     local session = M.use({
@@ -1332,6 +1441,13 @@ function M.loadstring(src, chunk_name, opts)
     local fn, err
     local source_name = chunk_name or "=(moonlift.dsl)"
     local source_ctx = build_source_context(source_name, src)
+    if ctx then
+        ctx. load {
+            language = "moonlift",
+            chunk = source_name,
+            bytes = #src,
+        }
+    end
     local function stamp(...)
         local n = select("#", ...)
         for i = 1, n do
@@ -1341,17 +1457,81 @@ function M.loadstring(src, chunk_name, opts)
     end
     if loadstring then
         fn, err = loader(src, source_name)
-        if not fn then die(err, 2) end
+        if not fn then
+            if ctx then
+                ctx. error {
+                    code = "E_MOONLIFT_DSL_LOAD",
+                    message = tostring(err),
+                    chunk = source_name,
+                }
+            end
+            die(err, 2)
+        end
         setfenv(fn, env)
     else
         fn, err = loader(src, source_name, "t", env)
-        if not fn then die(err, 2) end
+        if not fn then
+            if ctx then
+                ctx. error {
+                    code = "E_MOONLIFT_DSL_LOAD",
+                    message = tostring(err),
+                    chunk = source_name,
+                }
+            end
+            die(err, 2)
+        end
+    end
+    if ctx then
+        ctx. index {
+            language = "moonlift",
+            chunk = source_name,
+            session = session,
+            source = source_ctx,
+        }
     end
     return function(...)
+        if ctx then
+            ctx. eval {
+                language = "moonlift",
+                chunk = source_name,
+                argc = select("#", ...),
+            }
+        end
         local packed = { fn(...) }
         stamp(unpack(packed))
+        if ctx then
+            ctx. result {
+                language = "moonlift",
+                chunk = source_name,
+                count = #packed,
+            }
+        end
         return unpack(packed)
+    end, {
+        session = session,
+        source = source_ctx,
+        chunk = source_name,
+    }
+end
+
+M.source = llb.process. source (function(ctx, src, chunk_name, opts)
+    opts = opts or {}
+    local chunk, meta = compile_source_chunk(src, chunk_name, opts, ctx)
+    if opts.eval then
+        local args = opts.args or {}
+        return chunk(unpack(args, 1, args.n or #args))
     end
+    return {
+        chunk = chunk,
+        session = meta.session,
+        source = meta.source,
+        name = meta.chunk,
+    }
+end)
+
+function M.loadstring(src, chunk_name, opts)
+    local chunk = compile_source_chunk(src, chunk_name, opts, nil)
+    return chunk
 end
 
 function M.loadfile(path_, opts)
@@ -1424,6 +1604,9 @@ function M.install_searcher()
 end
 
 function M.make_env(opts) return make_env(opts) end
+function M.describe(value) return llb.describe(value or MoonLLB) end
+function M.describe_head(name) return MoonLLB:describe_head(name) end
+function M.describe_role(name) return MoonLLB:describe_role(name) end
 M.T = T
 
 function M.format(value, opts)

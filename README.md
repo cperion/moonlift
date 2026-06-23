@@ -630,6 +630,7 @@ moonlift/
 | [`docs/LANGUAGE_REFERENCE.md`](docs/LANGUAGE_REFERENCE.md) | **Complete Lua-owned DSL language reference.** Types, modules, functions, control regions, fragments, contracts, host declarations, view ABI, vectorization, and metaprogramming. |
 | [`docs/THE_MOONLIFT_DESIGN_BIBLE.md`](docs/THE_MOONLIFT_DESIGN_BIBLE.md) | **Design bible.** The authoritative design philosophy and architecture narrative. |
 | [`docs/LLB_GUIDE.md`](docs/LLB_GUIDE.md) | **LLB guide.** The standard Moonlift Lua Language Builder substrate: staged heads, fragments, formatting, use sessions, origins, and fragment algebra. |
+| [`docs/LLB_ATOM_PROTOCOL_MODEL.md`](docs/LLB_ATOM_PROTOCOL_MODEL.md) | **LLB atom/protocol model.** Definitive conceptual model for shape, channel, event, role, slot, head, fragment, origin, diagnostics, formatting, environment, phase, trait, and protocol atoms. |
 | [`docs/LLPVM_GUIDE.md`](docs/LLPVM_GUIDE.md) | **Complete LLPVM guide.** Low-level PVM doctrine, direct borrowed bytecode images, native VM handles, C blob ABI, phases, streams, recordings, and cache discipline. |
 | [`docs/PVM_GUIDE.md`](docs/PVM_GUIDE.md) | **Complete PVM guide.** ASDL contexts, structural update, recording-triplet phases, pull-driven evaluation, and triplet algebra. |
 | [`docs/OWNED_CFG_DESIGN.md`](docs/OWNED_CFG_DESIGN.md) | **Owned CFG resource discipline.** Final rules for `owned T`, handles, leases, emit transfer, disallowed aggregates, and diagnostics. |

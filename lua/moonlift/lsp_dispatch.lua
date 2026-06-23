@@ -1,4 +1,5 @@
 local pvm = require("moonlift.pvm")
+local llb = require("llb")
 local AnalysisMod = require("moonlift.mlua_document_analysis")
 local WorkspaceMod = require("moonlift.lsp_workspace")
 local Symbols = require("moonlift.editor_symbol_facts")
@@ -110,6 +111,109 @@ function M.Define(T)
         local ok, analysis = pcall(analyze_doc_diagnostic, doc)
         if ok then return analysis end
         return nil, tostring(analysis)
+    end
+
+    local document_events_process = llb.process. lsp_document (function(ctx, doc, opts)
+        opts = opts or {}
+        local mode = opts.mode or "light"
+        ctx. load {
+            language = "moonlift",
+            uri = doc.uri.text,
+            version = doc.version.value,
+            bytes = #(doc.text or ""),
+            mode = mode,
+        }
+
+        local analysis, err
+        if mode == "diagnostic" then
+            analysis, err = analyze_doc_diagnostic_safe(doc)
+        else
+            analysis, err = analyze_doc_safe(doc)
+        end
+        if not analysis then
+            ctx. error {
+                code = "E_LSP_ANALYSIS",
+                message = tostring(err),
+                uri = doc.uri.text,
+                version = doc.version.value,
+            }
+            return nil
+        end
+
+        ctx. index {
+            language = "moonlift",
+            uri = doc.uri.text,
+            version = doc.version.value,
+            mode = mode,
+            analysis = analysis,
+        }
+
+        if opts.symbols then
+            local symbols = Sym.symbols(analysis)
+            for i = 1, #symbols do
+                ctx. symbol {
+                    uri = doc.uri.text,
+                    version = doc.version.value,
+                    symbol = symbols[i],
+                }
+            end
+        end
+
+        if opts.hover then
+            ctx. hover {
+                uri = doc.uri.text,
+                version = doc.version.value,
+                query = opts.hover,
+                hover = Hov.hover(opts.hover, analysis),
+            }
+        end
+
+        if opts.diagnostics and not diagnostics_disabled then
+            local diagnostics = Diag.diagnostics(analysis)
+            for i = 1, #diagnostics do
+                ctx:event("diagnostic", {
+                    uri = doc.uri.text,
+                    version = doc.version.value,
+                    diagnostic = diagnostics[i],
+                })
+            end
+        end
+
+        return analysis
+    end)
+
+    local function collect_document_events(doc, opts)
+        local out = {}
+        local handle = document_events_process:start(doc, opts or {})
+        for ev in handle:events() do out[#out + 1] = ev end
+        return out, handle:result(), handle.diagnostics
+    end
+
+    local function document_symbols_from_process(doc)
+        local events = collect_document_events(doc, { symbols = true })
+        local symbols = {}
+        for i = 1, #events do
+            if events[i].kind == "symbol" then symbols[#symbols + 1] = events[i].symbol end
+        end
+        return symbols
+    end
+
+    local function hover_from_process(doc, query)
+        local events = collect_document_events(doc, { hover = query })
+        for i = 1, #events do
+            if events[i].kind == "hover" then return events[i].hover end
+        end
+        return nil
+    end
+
+    local function diagnostics_from_process(doc)
+        if diagnostics_disabled then return {} end
+        local events = collect_document_events(doc, { mode = "diagnostic", diagnostics = true })
+        local diagnostics = {}
+        for i = 1, #events do
+            if events[i].kind == "diagnostic" and events[i].diagnostic then diagnostics[#diagnostics + 1] = events[i].diagnostic end
+        end
+        return diagnostics
     end
 
     local function workspace_analyses(state)
@@ -237,9 +341,7 @@ function M.Define(T)
 
     local function diagnostic_document_payload(doc)
         if diagnostics_disabled then return L.PayloadDiagnosticDocumentReport(empty_report()) end
-        local analysis = analyze_doc_diagnostic_safe(doc)
-        if not analysis then return L.PayloadDiagnosticDocumentReport(empty_report()) end
-        return L.PayloadDiagnosticDocumentReport(Adapt.diagnostic_document_report(Diag.diagnostics(analysis)))
+        return L.PayloadDiagnosticDocumentReport(Adapt.diagnostic_document_report(diagnostics_from_process(doc)))
     end
 
     local client_exit_class = pvm.classof(E.ClientExit)
@@ -263,7 +365,7 @@ function M.Define(T)
             -- Pull diagnostics only.
         elseif cls == E.ClientHover then
             out[#out + 1] = with_doc(state, event.query.uri, event.id, L.PayloadHover(L.HoverNull), function(_, analysis)
-                return L.PayloadHover(Adapt.hover(Hov.hover(event.query, analysis)))
+                return L.PayloadHover(Adapt.hover(hover_from_process(_, event.query) or Hov.hover(event.query, analysis)))
             end)
         elseif cls == E.ClientCompletion then
             out[#out + 1] = with_doc(state, event.query.uri, event.id, L.PayloadCompletion(L.CompletionList(false, {})), function(_, analysis)
@@ -271,7 +373,7 @@ function M.Define(T)
             end)
         elseif cls == E.ClientDocumentSymbol then
             out[#out + 1] = with_doc(state, event.uri, event.id, L.PayloadDocumentSymbols({}), function(_, analysis)
-                return L.PayloadDocumentSymbols(Adapt.document_symbols(Sym.symbols(analysis)))
+                return L.PayloadDocumentSymbols(Adapt.document_symbols(document_symbols_from_process(_) or Sym.symbols(analysis)))
             end)
         elseif cls == E.ClientDefinition then
             out[#out + 1] = with_doc(state, event.query.uri, event.id, L.PayloadLocations({}), function(_, analysis)
@@ -368,6 +470,7 @@ function M.Define(T)
     return {
         analyze_document_phase = analyze_document_phase,
         diagnostic_document_phase = diagnostic_document_phase,
+        document_events_process = document_events_process,
         dispatch_phase = dispatch_phase,
         commands = commands,
     }

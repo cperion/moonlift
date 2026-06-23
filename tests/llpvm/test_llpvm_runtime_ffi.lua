@@ -1,56 +1,53 @@
-package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;./lua/llpvm/native/?.lua;./lua/llpvm/native/?.mlua;" .. package.path
+package.path = "./?.lua;./?/init.lua;./lua/?.lua;./lua/?/init.lua;" .. package.path
 
-local moon = require("moonlift")
 local ll = require("llpvm")
-local Runtime = require("llpvm.runtime_ffi")
 
-local rt = Runtime.build {
-    cleanup = true,
-}
+assert(package.loaded["llpvm.runtime_ffi"] == nil, "LLPVM tests do not use retired C/FFI runtime path")
 
-local vm = rt:open {
-    cache_bytes = 4096,
-}
+local spec = ll.load([[return language. RuntimeContract {
+  type. Node {
+    op. Int { value [i64] },
+    op. Add { left [Node], right [Node] },
+  },
 
-local report = vm:report()
-assert(report.streams == 0, "fresh VM report should have no streams")
+  lang. Back {
+    type. Value {
+      op. ConstI64 { value [i64] },
+    },
+  },
 
-local apply_status, out_stream = vm:apply_phase(0, 0, 0)
-assert(apply_status.code == 10, "empty phase apply currently reports failed")
-assert(out_stream == 0, "failed apply should not produce a stream")
+  world. raw,
+  world. lowered [Back],
 
-local drain_status, out_buffer = vm:drain(0)
-assert(drain_status.code == 0, "empty stream drain currently succeeds as empty")
-assert(out_buffer == 0, "empty drain returns invalid buffer")
+  phase. lower_expr {
+    from. raw,
+    to. lowered,
+    entry. ll_lower_expr,
+    cache. full,
+  },
+} {
+  raw. input {
+    Int. one { value = 1 },
+    Int. two { value = 2 },
+    Add. sum { left = one, right = two },
+  },
 
-local authored = ll.vm {}
-local Expr = authored.language "Expr"
-local Node = Expr "Node"
-Node.Int = { value = moon.i64 }
-local ExprWorld = Expr:world()
-local input = ExprWorld:seq { ExprWorld.Node.Int { value = 1 } }
-local ok, err = pcall(function() vm:drain(input) end)
-assert(not ok and tostring(err):match("authored Lua proxy"), "runtime must reject authored streams that were not loaded as bytecode")
+  root {
+    input,
+    lower_expr (input),
+  },
+}]], "runtime-contract")
 
-local image = authored.program { input }:bytecode()
-local ffi = require("ffi")
-local image_buf = ffi.new("uint8_t[?]", #image)
-ffi.copy(image_buf, image, #image)
-local load_status, loaded_stream = vm:load_program_buffer(image_buf, #image)
-assert(load_status.code == 0, "load_program imports bytecode image")
-assert(loaded_stream ~= 0, "load_program returns a native root stream")
+local image = spec:bytecode()
+assert(image:sub(1, 4) == "LLPV", "runtime contract produces LLPV image")
 
-local loaded_drain_status, loaded_buffer = vm:drain(loaded_stream)
-assert(loaded_drain_status.code == 0, "loaded stream drains successfully")
-assert(loaded_buffer ~= 0, "loaded stream drains to a native buffer")
+local buf, len = ll.bytebuffer(image)
+assert(len == #image, "bytebuffer reports exact image length")
+assert(buf ~= nil, "bytebuffer returns FFI buffer for Cranelift/runtime boundary")
 
-local loaded_report = vm:report()
-assert(loaded_report.abis >= 1, "loaded image creates ABI records")
-assert(loaded_report.worlds >= 1, "loaded image creates world records")
-assert(loaded_report.ops == 0, "loaded image keeps authored ops in immutable program image")
-assert(loaded_report.streams >= 1, "loaded image creates stream records")
+local lowered = spec:lower()
+assert(#lowered.root_ids == 2, "runtime image has explicit root streams")
+assert(#lowered.root_ops == 3, "runtime image exposes first-root op table")
+assert(lowered.lowering.phases.lower_expr ~= nil, "runtime image includes phase metadata")
 
-vm:close()
-rt:close()
-
-print("llpvm runtime ffi ok")
+print("llpvm runtime contract dsl ok")

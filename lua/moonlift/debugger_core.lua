@@ -3,6 +3,7 @@
 -- variable inspection, and coordination between the interpreter and DAP server.
 
 local pvm = require("moonlift.pvm")
+local llb = require("llb")
 local Interpreter = require("moonlift.debug_interpreter")
 
 local M = {}
@@ -326,5 +327,82 @@ end
 function Debugger:get_state()
     return self.state
 end
+
+local function yield_debug_event(ctx, debugger, kind, payload)
+    payload = payload or {}
+    payload.state = debugger:get_state()
+    payload.terminated = debugger:is_terminated()
+    payload.variables = debugger:get_variables()
+    payload.stack = debugger:stack_trace()
+    ctx:event(kind, payload)
+end
+
+function Debugger:process(commands)
+    return M.process:start(self, commands or {})
+end
+
+M.process = llb.process. debugger (function(ctx, debugger, commands)
+    commands = commands or { "init", "start" }
+    ctx. state {
+        state = debugger:get_state(),
+        terminated = debugger:is_terminated(),
+    }
+
+    for i = 1, #commands do
+        if ctx:cancelled() then
+            yield_debug_event(ctx, debugger, "cancelled", { command = commands[i] })
+            return {
+                state = debugger:get_state(),
+                terminated = debugger:is_terminated(),
+                cancelled = true,
+            }
+        end
+
+        local command = commands[i]
+        local op = type(command) == "table" and command.op or command
+        if op == "init" then
+            local ok, err = pcall(function() debugger:init() end)
+            if ok then yield_debug_event(ctx, debugger, "initialized", { command = command })
+            else ctx. error { code = "E_DEBUG_INIT", message = tostring(err), command = command } end
+        elseif op == "start" then
+            local block, err = debugger:start()
+            if block then yield_debug_event(ctx, debugger, "paused", { reason = "entry", block = block, command = command })
+            else ctx. error { code = "E_DEBUG_START", message = tostring(err), command = command } end
+        elseif op == "step" or op == "next" or op == "step_block" then
+            local block, err = debugger:step_block()
+            if block then yield_debug_event(ctx, debugger, "step", { block = block, command = command })
+            elseif debugger:is_terminated() then yield_debug_event(ctx, debugger, "terminated", { command = command })
+            else ctx. error { code = "E_DEBUG_STEP", message = tostring(err), command = command } end
+        elseif op == "continue" then
+            local result, err = debugger:continue()
+            if result then
+                local kind = result.type == "terminated" and "terminated" or "paused"
+                yield_debug_event(ctx, debugger, kind, { reason = result.type, result = result, command = command })
+            else
+                ctx. error { code = "E_DEBUG_CONTINUE", message = tostring(err), command = command }
+            end
+        elseif op == "pause" then
+            debugger:pause()
+            yield_debug_event(ctx, debugger, "paused", { reason = "pause", command = command })
+        elseif op == "breakpoint" then
+            local key = debugger:set_breakpoint(command.block or command.label, command)
+            yield_debug_event(ctx, debugger, "breakpoint", { key = key, command = command })
+        elseif op == "clear_breakpoint" then
+            debugger:clear_breakpoint(command.key)
+            yield_debug_event(ctx, debugger, "breakpoint_cleared", { key = command.key, command = command })
+        elseif op == "variables" then
+            yield_debug_event(ctx, debugger, "variables", { command = command })
+        elseif op == "stack" then
+            yield_debug_event(ctx, debugger, "stack", { command = command })
+        else
+            ctx. error { code = "E_DEBUG_COMMAND", message = "unknown debugger process command " .. tostring(op), command = command }
+        end
+    end
+
+    return {
+        state = debugger:get_state(),
+        terminated = debugger:is_terminated(),
+    }
+end)
 
 return M

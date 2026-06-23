@@ -37,6 +37,8 @@ M.pvm_surface_union_values = require("moonlift.pvm_surface_union_values")
 M.type_ref_classify_surface = require("moonlift.type_ref_classify_surface")
 M.ast = require("moonlift.ast")
 M.dsl = require("moonlift.dsl")
+M.frontend_pipeline = require("moonlift.frontend_pipeline")
+M.debugger_core = require("moonlift.debugger_core")
 M.back_program = require("moonlift.back_program")
 M.back_target_model = require("moonlift.back_target_model")
 M.back_inspect = require("moonlift.back_inspect")
@@ -67,6 +69,8 @@ M.lsp = require("moonlift.rpc_stdio_loop")
 --   fn. add { a [i32], b [i32] } [i32] { ret (a + b) }
 --   return add
 M.use = M.dsl.use
+M.process = M.dsl.process
+M.source = M.dsl.source
 
 --- Canonical formatting for evaluated Moonlift DSL values.
 
@@ -117,7 +121,11 @@ function M.emit_object(decl, path, name)
     local T = pvm.context(); A2.Define(T)
     local O = Object.Define(T)
     local module_ast = rawget(decl, "__module_ast") or decl
-    local result = Pipeline.Define(T).lower_module(module_ast, { site = "emit_object" })
+    local pipe = Pipeline.Define(T)
+    local handle = pipe.lower_module_process:start(module_ast, { site = "emit_object" })
+    for _ in handle:events() do end
+    local result = handle:result()
+    if result == nil then error("emit_object lowering failed", 2) end
     name = name or "moonlift_object"
     local artifact = O.compile(result.program, { module_name = name })
     local bytes = artifact:bytes()
@@ -147,7 +155,11 @@ function M.emit_shared(decl, path, name, opts)
     local LC = LinkCommand.Define(T)
     local LE = LinkExecute.Define(T)
     local module_ast = rawget(decl, "__module_ast") or decl
-    local result = Pipeline.Define(T).lower_module(module_ast, { site = "emit_shared" })
+    local pipe = Pipeline.Define(T)
+    local handle = pipe.lower_module_process:start(module_ast, { site = "emit_shared" })
+    for _ in handle:events() do end
+    local result = handle:result()
+    if result == nil then error("emit_shared lowering failed", 2) end
 
     name = name or "moonlift_shared"
     local keep_object = opts and opts.keep_object
@@ -196,7 +208,11 @@ function M.emit_c_artifact(decl, path_or_opts, name, opts)
     local T = pvm.context(); A2.Define(T)
     local module_ast = rawget(decl, "__module_ast") or decl
     local pipeline_opts = { site = "emit_c_artifact", c_opts = opts, c_target = opts.c_target, target = opts.target, name = name or opts.name }
-    local result = Pipeline.Define(T).lower_module_to_c(module_ast, pipeline_opts)
+    local pipe = Pipeline.Define(T)
+    local handle = pipe.lower_module_to_c_process:start(module_ast, pipeline_opts)
+    for _ in handle:events() do end
+    local result = handle:result()
+    if result == nil then error("emit_c_artifact lowering failed", 2) end
     if #result.c_report.issues ~= 0 then
         local msgs = {}
         for i = 1, #result.c_report.issues do msgs[#msgs + 1] = tostring(result.c_report.issues[i]) end
