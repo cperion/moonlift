@@ -32,7 +32,7 @@ local function find_command(root)
         first = false
         parts[#parts + 1] = "-name " .. shell_quote(name)
     end
-    parts[#parts + 1] = " \\) -prune -o -type f -name '*.mlua' -print 2>/dev/null"
+    parts[#parts + 1] = " \\) -prune -o -type f \\( -name '*.mlua' -o -name '*.mld.lua' \\) -print 2>/dev/null"
     return table.concat(parts)
 end
 

@@ -6,13 +6,13 @@ local suite = arg and arg[1] or "default"
 local suites = {
     default = {
         "asdl", "backend", "c_backend", "code_ir", "core", "debug",
-        "editor", "frontend", "host", "lisle", "lsp", "pvm", "runtime",
+        "editor", "frontend", "lisle", "lsp", "pvm", "runtime",
         "schema", "tooling",
     },
     optional = { "experiments", "ui", "retired" },
     all = {
         "asdl", "backend", "c_backend", "code_ir", "core", "debug",
-        "editor", "experiments", "frontend", "host", "lisle", "lsp",
+        "editor", "experiments", "frontend", "lisle", "lsp",
         "pvm", "retired", "runtime", "schema", "tooling", "ui",
     },
 }
@@ -61,7 +61,6 @@ for i = 1, #tests do
     else
         failed = failed + 1
         io.stderr:write("FAIL ", path, "\n")
-        break
     end
 end
 

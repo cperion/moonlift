@@ -239,8 +239,8 @@ local REQUIRED_PHASES = {"parse","host","open","binding","typecheck","backend","
 
 local function ensure_explainers()
     if explainers.parse then return end
-    explainers.parse = require("moonlift.parse").explain_parse_issue
-    explainers.host = require("moonlift.host_issue_values").explain_host_issue
+    explainers.parse = function(issue, analysis) return { kind = "ParseIssue", primary = issue.message or "parse error" } end
+    explainers.host = function(issue, analysis) return { kind = "HostIssue", primary = issue.message or "host error" } end
     explainers.open = require("moonlift.open_validate").explain_open_issue
     explainers.binding = require("moonlift.editor_binding_facts").explain_binding_issue
     explainers.typecheck = require("moonlift.tree_typecheck").explain_type_issue

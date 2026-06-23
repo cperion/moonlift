@@ -1,11 +1,6 @@
 -- moonlift/frontend_pipeline.lua
--- Batch compilation pipeline: parses, typechecks, lowers, and validates
--- a Moonlift source module using the Issue Stream collector.
---
--- For the standalone compiler path. Uses ThrowingCollector so that
--- the first semantic error produces a rich E0xxx formatted error
--- message and halts compilation — preserving the "fail fast" behavior
--- while using the same pipeline as the LSP.
+-- Compilation pipeline: typechecks, lowers, and validates a MoonTree module.
+-- The DSL produces closed MoonTree directly; no parse or open-module phase needed.
 
 local pvm = require("moonlift.pvm")
 
@@ -45,7 +40,6 @@ local function assert_no_c_phase_unreachable(root, site)
 end
 
 function M.Define(T)
-    local Parse = require("moonlift.parse").Define(T)
     local OpenFacts = require("moonlift.open_facts").Define(T)
     local OpenValidate = require("moonlift.open_validate").Define(T)
     local OpenExpand = require("moonlift.open_expand").Define(T)
@@ -77,8 +71,6 @@ function M.Define(T)
         local target_model = opts.target_model or opts.back_target_model or BackTarget.default_native()
         local target = opts.target or BackTarget.host_target(target_model)
 
-        -- Standalone callers get fail-fast diagnostics; LSP/document analysis
-        -- passes a CollectingCollector so all issues can be published.
         local analysis_ctx = opts.analysis_ctx or {}
         local collector = opts.collector or Errors.ThrowingCollector(
             Errors.SpanResolvers.RESOLVERS,
@@ -90,7 +82,6 @@ function M.Define(T)
         local expanded = OpenExpand.module(module, opts.expand_env)
         local surfaced = SurfaceResolve.module(expanded)
         local open_report = OpenValidate.validate(OpenFacts.facts_of_module(surfaced), collector)
-        -- ThrowingCollector throws on first issue — no assert_no_issues needed
 
         local closed = ClosureConvert.module(surfaced)
         local checked = Typecheck.check_module(closed, { collector = collector, layout_env = opts.layout_env })
@@ -140,9 +131,6 @@ function M.Define(T)
         local back_report = Validate.validate(program, collector)
 
         return {
-            expanded = expanded,
-            open_report = open_report,
-            closed = closed,
             checked = checked,
             resolved = resolved,
             code_module = code_module,
@@ -161,7 +149,6 @@ function M.Define(T)
             lower_plan = lower_plan,
             program = program,
             back_report = back_report,
-            provenance = nil,
         }
     end
 
@@ -229,9 +216,6 @@ function M.Define(T)
         local c_report = CValidate.validate(c_unit, collector)
 
         return {
-            expanded = expanded,
-            open_report = open_report,
-            closed = closed,
             checked = checked,
             resolved = resolved,
             code_module = code_module,
@@ -253,158 +237,9 @@ function M.Define(T)
         }
     end
 
-    local function parse_and_lower(src, opts)
-        opts = opts or {}
-        local site = opts.site or "frontend"
-        local analysis_ctx = opts.analysis_ctx or {}
-        analysis_ctx.source_text = analysis_ctx.source_text or src
-        analysis_ctx.uri = analysis_ctx.uri or opts.chunk_name or opts.name or "?"
-
-        -- Create ThrowingCollector for parse phase
-        local Errors = require("moonlift.error")
-        local collector = Errors.ThrowingCollector(
-            Errors.SpanResolvers.RESOLVERS,
-            analysis_ctx,
-            Errors.Catalog,
-            Errors.Terminal.render
-        )
-
-        local parsed = Parse.parse_module(src, { collector = collector })
-        -- ThrowingCollector throws on parse errors — no assert_no_issues needed
-
-        -- Build anchors from parse scan for precise span resolution
-        local S = T.MoonSource
-        local PositionIndex = require("moonlift.source_position_index").Define(T)
-        local doc = S.DocumentSnapshot(S.DocUri(analysis_ctx.uri or "?"), S.DocVersion(1), S.LangMoonlift, src)
-        local index = PositionIndex.build_index(doc)
-        local toks = parsed.scan.toks
-        local n = toks.n or 0
-        local anchors = {}
-        local counter = 0
-        local function aid(prefix) counter = counter + 1; return prefix .. "." .. counter end
-        local keyword_set = {
-            ["func"]=true,["region"]=true,["expr"]=true,["struct"]=true,["union"]=true,["handle"]=true,["extern"]=true,
-            ["entry"]=true,["block"]=true,["if"]=true,["then"]=true,["elseif"]=true,["else"]=true,
-            ["switch"]=true,["case"]=true,["default"]=true,["do"]=true,["end"]=true,
-            ["return"]=true,["yield"]=true,["jump"]=true,["emit"]=true,
-            ["let"]=true,["var"]=true,["as"]=true,["select"]=true,
-            ["assert"]=true,["len"]=true,["view"]=true,["lease"]=true,["invalid"]=true,
-            ["noescape"]=true,["invalidate"]=true,["preserve"]=true,
-            ["and"]=true,["or"]=true,["not"]=true,
-        }
-        local opaque_set = {
-            ["+"]=true,["-"]=true,["*"]=true,["/"]=true,["%"]=true,["="]=true,
-            ["=="]=true,["~="]=true,["<"]=true,["<="]=true,[">"]=true,[">="]=true,
-            ["&"]=true,["|"]=true,["^"]=true,["~"]=true,["<<"]=true,[">>"]=true,[">>>"]=true,
-            ["["]=true, ["]"]=true, ["("]=true, [")"]=true, ["."]=true, [","]=true, [":"]=true,
-        }
-        local function add_anchor(prefix, kind, label, start, stop)
-            local range = assert(PositionIndex.range_from_offsets(index, start, stop))
-            anchors[#anchors + 1] = S.AnchorSpan(S.AnchorId(aid(prefix)), kind, label, range)
-        end
-        local TK = require("moonlift.parse").TK
-        local function add_emit_use_anchor(i, start)
-            local j = i + 1
-            while toks.kind[j] == TK.nl do j = j + 1 end
-            if j > n then return end
-            local frag = (toks.kind[j] == TK.hole) and "nil" or tostring(toks.text[j] or "")
-            while j <= n and toks.kind[j] ~= TK.lparen do j = j + 1 end
-            if j > n then return end
-            local depth = 0
-            while j <= n do
-                if toks.kind[j] == TK.lparen then depth = depth + 1
-                elseif toks.kind[j] == TK.rparen then
-                    depth = depth - 1
-                    if depth == 0 then
-                        local after = j + 1
-                        local stop = toks.stop[j] or (toks.start[j] or start + 1)
-                        add_anchor("emit-use", S.AnchorOpaque("emit-use"), "emit." .. frag .. "." .. tostring(after), start, stop)
-                        return
-                    end
-                end
-                j = j + 1
-            end
-        end
-        local after_decl = nil
-        local def_next = nil
-        for i = 1, n do
-            local text = toks.text[i]
-            local start = (toks.start[i] or 1) - 1
-            local stop = toks.stop[i] or start
-            if text and text ~= "" then
-                if keyword_set[text] then
-                    add_anchor("kw", S.AnchorKeyword, text, start, stop)
-                    if text == "emit" then add_emit_use_anchor(i, start) end
-                    if text == "func" then after_decl = S.AnchorFunctionName
-                    elseif text == "region" then after_decl = S.AnchorRegionName
-                    elseif text == "expr" then after_decl = S.AnchorExprName
-                    elseif text == "struct" or text == "handle" then after_decl = S.AnchorStructName
-                    elseif text == "block" or text == "entry" then after_decl = S.AnchorContinuationName
-                    elseif text == "let" or text == "var" then def_next = S.AnchorLocalName
-                    end
-                elseif text:match("^[_%a][_%w]*$") then
-                    local nxt = toks.text[i + 1]
-                    local prv = toks.text[i - 1]
-                    local kind = S.AnchorBindingUse
-                    if after_decl then
-                        kind = after_decl
-                        after_decl = nil
-                    elseif def_next then
-                        kind = def_next
-                        def_next = nil
-                    elseif prv == "emit" or nxt == "(" then
-                        kind = S.AnchorFunctionUse
-                    end
-                    add_anchor("tok", kind, text, start, stop)
-                elseif opaque_set[text] then
-                    add_anchor("op", S.AnchorOpaque("operator"), text, start, stop)
-                end
-            end
-        end
-        analysis_ctx.anchors = anchors
-
-        local lower_opts = {}
-        for k, v in pairs(opts) do lower_opts[k] = v end
-        lower_opts.collector = collector
-        lower_opts.analysis_ctx = analysis_ctx
-        local result = lower_module(parsed.module, lower_opts)
-        result.parsed = parsed
-        return result
-    end
-
-    local function parse_and_lower_c(src, opts)
-        opts = opts or {}
-        local analysis_ctx = opts.analysis_ctx or {}
-        analysis_ctx.source_text = analysis_ctx.source_text or src
-        analysis_ctx.uri = analysis_ctx.uri or opts.chunk_name or opts.name or "?"
-
-        local collector = Errors.ThrowingCollector(
-            Errors.SpanResolvers.RESOLVERS,
-            analysis_ctx,
-            Errors.Catalog,
-            Errors.Terminal.render
-        )
-
-        local parsed = Parse.parse_module(src, { collector = collector })
-
-        -- Keep the same analysis context shape as parse_and_lower.  The C path
-        -- does not invoke MoonBack/provenance construction.
-        if analysis_ctx.anchors == nil then analysis_ctx.anchors = {} end
-
-        local c_opts = {}
-        for k, v in pairs(opts) do c_opts[k] = v end
-        c_opts.collector = collector
-        c_opts.analysis_ctx = analysis_ctx
-        local result = lower_module_to_c(parsed.module, c_opts)
-        result.parsed = parsed
-        return result
-    end
-
     return {
         lower_module = lower_module,
         lower_module_to_c = lower_module_to_c,
-        parse_and_lower = parse_and_lower,
-        parse_and_lower_c = parse_and_lower_c,
         assert_no_c_phase_unreachable = assert_no_c_phase_unreachable,
     }
 end

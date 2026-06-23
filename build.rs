@@ -83,15 +83,6 @@ fn build_luajit() -> PathBuf {
 
     println!("cargo:rustc-link-search={}", abs.display());
     println!("cargo:rustc-link-lib=static=luajit");
-    // Force static linking of luajit-5.1 specifically for the moonlift binary
-    // (mlua-sys emits a dynamic -lluajit-5.1; we override to static)
-    for bin in ["moonlift"] {
-        println!("cargo:rustc-link-arg-bin={bin}=-Wl,-Bstatic");
-        println!("cargo:rustc-link-arg-bin={bin}=-lluajit-5.1");
-        println!("cargo:rustc-link-arg-bin={bin}=-Wl,-Bdynamic");
-        // Export all symbols so dynamic C modules and LuaJIT FFI can find APIs.
-        println!("cargo:rustc-link-arg-bin={bin}=-Wl,--export-dynamic");
-    }
     abs
 }
 
@@ -145,12 +136,6 @@ fn main() {
     collect(lua_dir, lua_dir, "asdl", &mut asdl_modules);
     asdl_modules.sort_by(|a, b| a.0.cmp(&b.0));
     validate_schema_sources(&lua_modules, &asdl_modules);
-
-    let stdlib_dir = Path::new("stdlib");
-    if stdlib_dir.exists() {
-        collect(stdlib_dir, stdlib_dir.parent().unwrap(), "mlua", &mut lua_modules);
-        lua_modules.sort_by(|a, b| a.0.cmp(&b.0));
-    }
 
     let mut modules: Vec<(String, String, bool)> = Vec::new();
     for (name, path) in lua_modules {

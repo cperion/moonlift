@@ -4,17 +4,20 @@ Moonlift is a **typed, jump-first compiled language embedded in LuaJIT** that
 generates native code through Cranelift. Lua is the metaprogramming layer;
 Moonlift is the monomorphic native output.
 
+The authoring surface is the **DSL** (`require("moonlift.dsl")`). You write
+Moonlift declarations as ordinary Lua table expressions — no parser, no
+antiquotes, no string quoting. The DSL normalizes Lua tables into typed ASDL
+and feeds the same compilation pipeline.
+
 ## Build
 
 ```sh
-make                                    # produces fully static target/release/moonlift
-cargo build --release                   # produces target/release/libmoonlift.so plus binaries
+make                                    # produces target/release/libmoonlift.so
+cargo build --release                   # produces target/release/libmoonlift.so
 ```
 
 `libmoonlift.so` is loaded by `lua/moonlift/back_jit.lua` via FFI. Build
-`--release` before running tests. The standalone `moonlift` binary embeds the
-compiler (LuaJIT bytecode for the Lua staging layer) + vendored LuaJIT — zero runtime
-deps.
+`--release` before running tests.
 
 ## Setup
 
@@ -26,19 +29,24 @@ luajit -v                                # must have FFI support
 
 All scripts set `package.path` to include `./lua/?.lua`.
 
-## Run .mlua files
+## Run DSL files (.mld.lua)
 
 ```sh
-# Hosted pipeline (LuaJIT-mediated, default)
-target/release/moonlift file.mlua
-target/release/moonlift run --call main file.mlua
-
 # From Lua
 local moon = require("moonlift")
-moon.loadstring(src)            -- hosted JIT
-moon.loadfile(path)            -- hosted JIT
-moon.emit_object(src, path)    -- emit .o bytes
-moon.emit_shared(src, path)    -- emit .so/.dylib bytes
+local add_val = moon.loadstring([[
+    local add = fn("add", { a = i32, b = i32 }, i32)
+        return a + b
+    end
+    return add
+]], "demo.mld.lua")()
+local compiled = add_val:compile()
+print(compiled(3, 4))  -- 7
+
+# Cross-file require
+local dsl = require("moonlift.dsl")
+dsl.install_searcher()           -- so plain require() finds .mld.lua
+local header = require("math_header")  -- finds math_header.mld.lua
 
 # LSP
 luajit lsp.lua
@@ -46,7 +54,7 @@ luajit lsp.lua
 
 ## Test
 
-240+ tests under `tests/`, grouped by compiler boundary. No test framework —
+Tests under `tests/`, grouped by compiler boundary. No test framework —
 each is a standalone script, with `tests/run.lua` for suites:
 
 ```sh
@@ -55,54 +63,46 @@ luajit tests/run.lua frontend
 luajit tests/run.lua backend
 luajit tests/backend/test_back_add_i32.lua             # Cranelift JIT path
 luajit tests/backend/test_back_object_emit.lua          # Object file emission
-luajit tests/frontend/test_mlua_asdl_host_model.lua      # .mlua hosted island bridge
-luajit tests/frontend/test_parse_typecheck.lua           # Parse + typecheck pipeline
-luajit tests/frontend/test_parse_kernels.lua             # Jump-first kernel suite
+luajit tests/frontend/test_dsl_lua_owned.lua            # DSL integration test
 luajit tests/lsp/test_lsp_integrated.lua                 # Full LSP integration
 ```
 
 ## Benchmarks
 
 ```sh
-luajit benchmarks/bench_json_stack_decode.lua [full]   # JSON decoder benchmark
-luajit benchmarks/bench_compile_back_validate_ll.lua     # Compilation profiling
-benchmarks/run_vs_terra.sh [quick]                      # Compare with Terra
-luajit benchmarks/bench_host_arena_abi.lua               # Arena ABI performance
-luajit benchmarks/bench_host_arena_native.lua            # Native host type access
+luajit benchmarks/bench_llpvm_image_load.lua          # LLPVM image loading
 ```
 
 ## Architecture
 
-- **`lua/moonlift/`** — compiler frontend: PVM/ASDL framework (~80+ modules),
-  parser, typechecker, tree-to-back lowering, validation, LSP, linker
+- **`lua/moonlift/dsl/`** — DSL authoring surface: `fn`, `struct`, `region`, `emit`, `jump`,
+  etc. as Lua heads. Normalizes Lua tables → MoonSyntax ASDL → MoonTree ASDL.
+- **`lua/moonlift/`** — compiler pipeline: PVM/ASDL framework (~80+ modules),
+  typechecker, lowering, validation, LSP, linker
 - **`lua/llpvm/`** — official Low-Level PVM API surface: no-parens Lua
   authoring, direct borrowed bytecode images, runtime FFI wrapper, and native
   Moonlift/C blob implementation under `lua/llpvm/native/`
-- **`src/`** — Rust Cranelift backend: JIT (`lib.rs`), standalone binary
-  (`main.rs`), object emission (`lib.rs`), host arena, FFI surface (`ffi.rs`)
+- **`src/`** — Rust Cranelift backend: JIT (`lib.rs`), object emission (`lib.rs`),
+  FFI surface (`ffi.rs`)
 - **`lua/moonlift/pvm.lua`** — recording phase boundary: ASDL context, phases,
   triplets driving all compilation
 - **`lua/moonlift/back_jit.lua`** — Lua-side JIT bridge (loads libmoonlift.so)
-- **`lua/moonlift/host.lua`** — high-level Lua builder API
 - **`lua/moonlift/ast.lua`** — low-level ASDL node constructor API
 - **`lib/`** — standard library (`region_compose.lua` PEG combinators)
 - **`build.rs`** — generates `src/embedded_hosted_lua.rs` (Lua modules
-  embedded mostly as LuaJIT bytecode)
+  embedded as LuaJIT bytecode)
 
 Compilation pipeline:
-`.mlua` → parse/scan_document → tree_typecheck → tree_to_back →
+DSL tables → MoonSyntax ASDL (via `syntax_lower.lua`) → MoonTree ASDL →
+tree_typecheck → tree_to_code → code_* facts/kernel/schedule → lower_to_back →
 back_validate → back_jit / back_object / back_object + link_target
 
 ## Key documentation
 
-When working under `experiments/lua_interpreter_vm/spongejit/`, also read
-`experiments/lua_interpreter_vm/spongejit/AGENTS.md`. It contains the current
-LuaCompile/SpongeJIT architecture discipline and retired-name guardrails.
-
 | Doc | Description |
 |-----|-------------|
 | `README.md` | Full project README with examples, benchmarks, philosophy |
-| `LANGUAGE_REFERENCE.md` | **Complete language reference** — types, modules, functions, control regions, fragments, host decls, memory/resource model, view ABI, vectorization, builder API, metaprogramming guide |
+| `lua/moonlift/dsl/LANGUAGE_REFERENCE.md` | **Complete DSL reference** — types, modules, functions, control regions, fragments, host decls, memory/resource model, view ABI, vectorization, builder API, metaprogramming guide |
 | `OWNED_CFG_DESIGN.md` | Final `owned T` CFG resource discipline — handles, leases, emit transfer, disallowed aggregates, diagnostics |
 | `CONVENTIONS.md` | Naming, file organization, headers vs implementations, handles, generations, stores, protocol naming |
 | `SOURCE_GRAMMAR.md` | Jump-first source grammar contract |
@@ -110,176 +110,65 @@ LuaCompile/SpongeJIT architecture discipline and retired-name guardrails.
 | `PVM_GUIDE.md` | Complete PVM guide — ASDL contexts, structural update, triplets |
 | `LLPVM_GUIDE.md` | Complete LLPVM guide — bytecode-fed native VM substrate, direct borrowed images, streams, phases, recordings, C blob ABI |
 | `COMPILER_PATTERN.md` | Interactive software as compilers philosophy |
+| `THE_MOONLIFT_DESIGN_BIBLE.md` | Full design philosophy — dual trees, products/sums, DSL integration |
 
 ## Language cheatsheet
 
-Syntax mirrors Moonlift's two categories: commas separate product-shaped lists
-(fields, params, payload fields, fill maps), while `|` separates semantic
-alternatives (union variants and region continuation exits).
-
-### Types
+### Types (via DSL)
 
 ```
 Scalars:  void  bool  i8 i16 i32 i64  u8 u16 u32 u64  f32 f64  index
 Pointers: ptr(T)
-Views:    view(T)         -- (data, len, stride) descriptor
-Leases:   lease ptr(T)    -- temporary access fact; may not escape
-Owned:    owned HandleRef -- CFG discharge authority; no Drop, no inference
-Handles:  handle Name : u32 invalid 0 [domain Store] [target Item] end
-Structs:  struct Name f: T, ... end
-Unions:   union Name a(T) | b(T) end
-Func:     func(i32, i32): i32        -- function pointer type
-Closure:  closure(i32): i32          -- closure type (function + context)
+Views:    view(T)
+Leases:   lease ptr(T)
+Owned:    owned(Handle)
+Handles:  handle(Name, u64, 0)
+Structs:  struct(Name, { a = T1, b = T2 })
+Unions:   union(Name, { ok = T, err = T })
+Func:     func_type({ i32, i32 }, i32)
+Closure:  closure_type({ i32 }, i32)
 ```
 
 ### Functions
 
-```moonlift
-func add(a: i32, b: i32): i32
+```lua
+local add = fn("add", { a = i32, b = i32 }, i32)
     return a + b
 end
 ```
 
-Parameters may carry modifiers: `noalias readonly writeonly`.
+### Regions
 
-### Control — no for/while/break/continue
-
-Only `block`/`jump`/`yield`/`return`/`emit`/`switch`:
-
-```moonlift
--- Loop via typed block with jump
-block loop(i: index = 0, acc: i32 = 0)
-    if i >= n then yield acc end
-    jump loop(i = i + 1, acc = acc + xs[i])
-end
-
--- Multi-block region
-return region: i32
-entry start()
-    jump loop(i = 0, acc = 0)
-end
-block loop(i: index, acc: i32)
-    if i >= n then yield acc end
-    jump loop(i = i + 1, acc = acc + xs[i])
+```lua
+local scan = region("scan",
+    { p = ptr(u8), n = i32, target = i32 },
+    { hit = { pos = i32 }, miss = { pos = i32 } }
+)
+entry("loop", { i = i32(0) })
+    if i >= n then jump .miss { pos = i } end
+    if as(i32, p[i]) == target then jump .hit { pos = i } end
+    jump .loop { i = i + 1 }
 end
 end
 ```
 
-### Regions — typed control fragments
+### Emit (zero-cost CFG splice)
 
-```moonlift
-region scan(p: ptr(u8), n: i32, target: i32;
-            hit(pos: i32)
-          | miss(pos: i32))
-entry loop(i: i32 = 0)
-    if i >= n then jump miss(pos = i) end
-    if as(i32, p[i]) == target then jump hit(pos = i) end
-    jump loop(i = i + 1)
-end
-end
-
--- Use via emit (zero-cost CFG splice, not a call)
+```lua
 emit scan(p, n, 65; hit = found, miss = not_found)
 ```
 
-### Handles, leases, owned
-
-```moonlift
-handle SessionRef : u64 invalid 0 end
-
-region close_session(app: ptr(App), s: owned SessionRef;
-            closed()
-          | missing(s: owned SessionRef))
-end
-
-region borrow_session(app: ptr(App), s: SessionRef;
-            borrowed(session: lease ptr(Session))
-          | stale()
-          | missing())
-end
-```
-
-Handles are copyable durable identity. Leases are temporary access granted by
-typed protocols. `owned T` is mandatory discharge authority carried through CFG:
-consume it, return/yield it, or transfer it to another `owned` parameter exactly
-once. `owned` does not grant access; use resolver regions for leases. `emit` is
-the region composition form that can carry owned continuation payloads.
-
-Rejected by design: `var owned T`, owned fields, owned aggregates,
-`owned ptr(T)`, `owned lease T`, passing `owned T` as plain `T`, and
-expression-style region calls whose continuation payload contains `owned`.
-
-### Expression fragments
-
-```moonlift
-expr clamp(x: i32): i32
-    select(x < 0, 0, x)
-end
-
--- Use: let v = emit clamp(val)
-```
-
-### Bindings
-
-```moonlift
-let x: i32 = 42    -- immutable (SSA-like)
-var i: index = 0   -- mutable (stack-backed)
-```
-
-### Conversion
-
-```moonlift
-as(i32, u8_val)    -- only conversion form: extend/truncate/bitcast/fp convert
-```
-
-### Splices — `@{lua_expr}` embeds Lua values into Moonlift source
-
-Evaluated at `.mlua` load time:
-
-- Type position: `let x: @{T} = 0`
-- Fragment position: `emit @{frag}(args; ok = done)`
-- Name position: `region @{name}(...)` (must be whole token)
-- Expression: `if x > @{limit} then ...`
-- Spread: `@{list...}` expands a Lua array into a syntactic list
-
-### Extern imports
-
-```moonlift
-extern write(fd: i32, buf: ptr(u8), count: index): index end
-extern host_add7(x: i32): i32 as "host_add7_impl" end
-```
-
-### Hosted JIT: compile and call from Lua
+### Contracts
 
 ```lua
-local moon = require("moonlift")
-local add_val = moon.loadstring([[
-local add = func(a: i32, b: i32): i32
+local add_checked = fn("add_checked", { a = i32, b = i32 }, i32)
+    requires {
+        noalias(a),
+        noalias(b),
+    }
     return a + b
 end
-return add
-]], "demo.mlua")()
-local compiled = add_val:compile()
-print(compiled(3, 4))  -- 7, running as native machine code
-compiled:free()
 ```
-
-### Unified API — `require("moonlift")` module
-
-Hosted-Lua pipeline:
-
-- `moon.loadstring(src [, name [, opts]])` — compile and return chunk
-- `moon.loadfile(path [, opts])` — compile and return chunk from file
-- `moon.dofile(path [, opts, ...])` — compile, load, and call
-- `moon.eval(src, ...)` — shorthand: compile string, call immediately
-
-Object emission (hosted pipeline):
-
-- `moon.emit_object(src [, path [, name]])` — emit .o bytes
-- `moon.emit_shared(src [, path [, name]])` — emit .so/.dylib bytes
-
-Inside `.mlua` files, the `moon` table provides:
-`moon.require`, `moon.emit_object`, and hosted pipeline helpers.
 
 ## Design philosophy
 
@@ -290,7 +179,7 @@ Inside `.mlua` files, the `moon` table provides:
 - **Compose with regions, seal with functions**: `emit` is zero-cost CFG splicing
   (inline, no call overhead).
 - **Lua is metaprogramming**: generics, templates, codegen live in Lua. Moonlift
-  receives monomorphic result. No source-level generics (no angle brackets).
+  receives monomorphic result.
 - **ASDL is the architecture**: all meaningful compilation state is interned,
   immutable ASDL values. No hidden state in strings, callbacks, or side tables.
 - **PVM phases are auto-cached memoization boundaries**: edit one subtree, only
@@ -298,31 +187,6 @@ Inside `.mlua` files, the `moon` table provides:
 - **Flat backend commands**: compilation target is `BackCmd[]` — flat, verifiable,
   no nested IR trees.
 - **Fail fast, fail loud**: assertions at boundaries, no silent fallbacks.
-
-## Why Moonlift is grep-shaped
-
-Because control structure is syntactic, dumb text tools become smart:
-
-```bash
-rg '^region '           # API surface: every operation that exists
-rg '^\s*block '         # States: every state machine state
-rg '\bjump '            # Transitions: every CFG edge in the system
-rg '\bemit '            # Composition: who uses which region
-```
-
-Each answer is complete, not a heuristic. No hidden exception edges,
-no implicit async state machines, no callback conventions, no vtable
-dispatch. The control graph is in the source text, not behind compiler
-passes or runtime dispatch tables.
-
-This means you can:
-
-- Map error paths from source alone: `rg '\b(err|bad|fail|closed)\b'`
-- Trace composition: `rg 'emit read_loop'` finds every user of that region
-- Extract state machines: `rg '^\s*block '` lists all states with their params
-- Verify protocol completeness: every continuation at an `emit` site is named
-
-Explicit programming makes plain-text tooling powerful again.
 
 ## Non-negotiable rules
 
@@ -344,17 +208,17 @@ Explicit programming makes plain-text tooling powerful again.
 | File | Purpose |
 |------|---------|
 | `init.lua` | Package init — sets `package.path` and loads facade |
-| `run_mlua.lua` | `.mlua` runner (superseded by `moonlift` binary) |
 | `lsp.lua` | LSP server entry point |
+| `lua/moonlift/dsl/init.lua` | DSL authoring surface — Lua heads → MoonSyntax ASDL |
 | `lua/moonlift/pvm.lua` | Phase Virtual Machine — recording triplet framework |
 | `lua/llpvm/init.lua` | Official LLPVM Lua API facade |
 | `lua/llpvm/native/llpvm_abi.mlua` | LLPVM native C ABI seals over typed regions |
 | `lua/llpvm/native/build_c.lua` | LLPVM C blob/header artifact builder |
 | `lua/moonlift/back_jit.lua` | Lua→Rust JIT FFI bridge |
-| `lua/moonlift/host.lua` | High-level Lua builder API |
 | `lua/moonlift/ast.lua` | Low-level ASDL node constructor API |
+| `lua/moonlift/syntax_lower.lua` | MoonSyntax → MoonTree lowering |
+| `lua/moonlift/frontend_pipeline.lua` | Full lowering pipeline (typecheck→codegen) |
 | `src/lib.rs` | Full Cranelift backend (JIT + object emission) |
-| `src/main.rs` | Standalone `moonlift` binary (embeds Lua compiler) |
 | `src/ffi.rs` | C FFI exports for LuaJIT interop (binary wire format) |
 | `lua/moonlift/back_command_binary.lua` | Flatline v4 binary wire format encoder |
 | `BACK_WIRE_FORMAT.md` | Binary wire format specification (Flatline v4) |

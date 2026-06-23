@@ -1,8 +1,0 @@
--- Symbol/memory semantics test using Lua-first .mlua
--- (const and static are not available as .mlua syntax; use Lua values)
-
-local get_answer = func(): i32
-    return 42
-end
-
-return get_answer

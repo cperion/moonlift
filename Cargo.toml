@@ -8,11 +8,6 @@ name = "moonlift"
 path = "src/lib.rs"
 crate-type = ["rlib", "cdylib"]
 
-[[bin]]
-name = "moonlift"
-path = "src/main.rs"
-
-
 [dependencies]
 cranelift-codegen = { version = "0.131.0", default-features = true }
 cranelift-frontend = { version = "0.131.0", default-features = true }

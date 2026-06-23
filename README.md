@@ -14,8 +14,7 @@ products (data shapes) and sums (control alternatives). Lua arrays are
 products. Lua record tables are fill maps. `[]` is the type slot. `.name`
 is the declaration target. The design discipline became the syntax.
 
-The `moonlift` binary embeds the full compiler (Lua staging + Cranelift backend).
-Zero runtime dependencies — copy it anywhere.
+The `moonlift` binary is no longer built — Moonlift is a pure LuaJIT library.
 
 ```
 .mld.lua source
@@ -34,9 +33,7 @@ Zero runtime dependencies — copy it anywhere.
 - [At a Glance](#at-a-glance)
 - [Quick Start](#quick-start)
 - [The Language](#the-language)
-- [Metaprogramming Model](#metaprogramming-model)
-- [The `@{}` Bridge — Lua values in Moonlift](#the--bridge--lua-values-in-moonlift)
-- [Lua-Owned DSL](#lua-owned-dsl)
+- [Authoring — the Lua-owned DSL](#authoring--the-lua-owned-dsl)
 - [Compilation Pipeline](#compilation-pipeline)
 - [Artifact Emission](#artifact-emission)
 - [LSP & Editor Support](#lsp--editor-support)
@@ -163,17 +160,12 @@ Moonlift is a **LuaJIT library**. Any LuaJIT process is the runtime host.
 ### Build the library
 
 ```bash
-cargo build --release           # produces libmoonlift.so + moonlift binary
-# or minimal:
-cargo build --release --lib     # just libmoonlift.so
+cargo build --release --lib     # produces libmoonlift.so
 ```
 
 `libmoonlift.so` is the Cranelift JIT backend. LuaJIT loads it via FFI when
 you `require("moonlift")`. No vendored LuaJIT, no submodules, no make —
 just a Rust cdylib.
-
-The `moonlift` binary is an optional convenience that embeds LuaJIT statically
-for zero-dep standalone use. It is not required.
 
 ### Use it
 
@@ -204,8 +196,7 @@ Not needed for JIT compilation — only if you want the C artifact emitter.
 ```bash
 luajit tests/run.lua                              # Stable default suite
 luajit tests/backend/test_back_add_i32.lua          # Bare Cranelift JIT path
-luajit tests/frontend/test_mlua_asdl_host_model.lua  # .mlua hosted island bridge
-luajit tests/frontend/test_parse_typecheck.lua       # Parse + typecheck pipeline
+luajit tests/frontend/test_dsl_lua_owned.lua        # DSL integration test
 luajit tests/lsp/test_lsp_integrated.lua             # Full LSP integration
 ```
 
@@ -544,17 +535,6 @@ local art = m:emit_c_artifact { c_path = "out.c" }  -- C blob + header
 
 The linker path: `.mld.lua` → DSL normalize → typecheck → lower → object → link plan → system linker → `.so`.
 
-### Standalone binary (optional)
-
-```bash
-cargo build --release --bin moonlift    # needs vendored LuaJIT submodule
-target/release/moonlift run file.mld.lua
-```
-
-The binary is a self-contained convenience that embeds LuaJIT statically.
-Zero runtime dependencies. Not required — the library path works anywhere
-LuaJIT is already available.
-
 ---
 
 ## LSP & Editor Support
@@ -563,7 +543,7 @@ Moonlift ships with a full Language Server Protocol implementation:
 
 | Feature | Status |
 |---|---|
-| Diagnostics | Parse issues, type errors, control rejects, open slot issues |
+| Diagnostics | Type errors, control rejects, semantic issues |
 | Completion | Context-aware, typed identifiers, fragments |
 | Hover | Type information, documentation |
 | Go to definition | Jump-first region/fragment navigation |
@@ -608,37 +588,9 @@ language and feed it to an incremental bytecode VM.
 
 ## Benchmarks
 
-### Moonlift vs Terra
-
-The benchmark suite compares Moonlift's jump-first typed block/jump kernels
-against equivalent Terra kernels:
-
-```bash
-benchmarks/run_vs_terra.sh          # Full suite
-benchmarks/run_vs_terra.sh quick    # Quick mode
+```sh
+luajit benchmarks/bench_llpvm_image_load.lua          # LLPVM image loading benchmark
 ```
-
-### JSON value-event benchmark
-
-Moonlift's hosted JSON showcase parses JSON in typed native kernels and
-materializes those kernels as a C backend blob. The canonical library
-constructs a Moonlift-owned value-event tape for `null`, booleans, numbers,
-strings, arrays, objects, and object keys. The raw benchmark measures that
-typed-array-shaped event API. A separate benchmark line measures full Lua object
-projection, which is the fair comparison against decoders that return Lua
-tables. The C blob itself has no Lua dependency.
-
-Benchmarked against **lua-cjson**, **dkjson**, and pure Lua on a realistic
-2.9 KB payload with 50 user records:
-
-```bash
-luajit benchmarks/bench_json_stack_decode.lua          # quick
-luajit benchmarks/bench_json_stack_decode.lua full     # full
-```
-
-The JSON showcase lives in `examples/json/json_lua_stack_decoder.mlua` and
-exports the generated C source, a small C header, tag constants, and Emscripten
-export flags.
 
 ---
 
@@ -647,47 +599,34 @@ export flags.
 ```
 moonlift/
 ├── lua/moonlift/
-│   ├── host.lua                Unified moon.XXX quoting + table builder API
-│   ├── host_func_values.lua    Statement/params/values binders (internal)
-│   ├── host_region_values.lua  Region/cont/block builders (internal)
-│   ├── host_struct_values.lua  Struct/field/variant builders (internal)
-│   ├── host_type_values.lua    Type value constructors
-│   ├── host_expr_values.lua    Expression value constructors
-│   ├── host_splice.lua         Slot filling for all grammar positions
-│   ├── host_session.lua        Session management, T context
-│   ├── host_module_values.lua  Module builder + compilation
-│   ├── host_values.lua         Canonical value wrappers
+│   ├── dsl/                    DSL authoring surface
 │   ├── ast.lua                 Low-level ASDL node constructor API
-│   ├── parse.lua               Lexer + Pratt parser, all island kinds
-│   ├── open_expand.lua         Slot expansion (fill + resolve)
+│   ├── syntax_lower.lua        MoonSyntax → MoonTree lowering
 │   ├── pvm.lua                 PVM: ASDL context, phases, triplets
 │   ├── tree_typecheck.lua      Typecheck/name resolution
 │   ├── tree_to_code.lua        Tree → normalized MoonCode
 │   ├── code_to_back.lua        MoonCode → flat backend commands
 │   ├── lower_to_back.lua       Kernel/Code lowering → backend commands
+│   ├── frontend_pipeline.lua   Compilation pipeline orchestration
 │   ├── back_jit.lua            Lua→Rust JIT FFI bridge (Flatline wire format)
 │   ├── back_command_binary.lua Flatline v4 binary wire format encoder
 │   ├── back_object.lua         Object file emission
-│   ├── frontend_pipeline.lua   Compilation pipeline orchestration
 │   ├── schema/                 ASDL source of truth (MoonCore, MoonType, ...)
 │   ├── editor_*                LSP features
 │   ├── lsp_*                   LSP protocol
 │   └── region_compose.lua      Region composition algebra
 ├── lua/llpvm/                  Official Low-Level PVM API, bytecode builder, native C blob
-├── src/                        Rust Cranelift backend + standalone binary
+├── src/                        Rust Cranelift backend
 │   ├── lib.rs                  Full Cranelift backend (JIT + object emission)
-│   ├── main.rs                 Standalone `moonlift` binary
 │   ├── ffi.rs                  Lua FFI surface
-│   └── embedded_lua.rs         Auto-generated by build.rs
-├── build.rs                    Generates src/embedded_lua.rs at compile time
-├── lib/                        Moonlift standard library
-│   └── region_compose.lua
+│   └── embedded_hosted_lua.rs  Auto-generated by build.rs
+├── build.rs                    Generates src/embedded_hosted_lua.rs at compile time
 ├── examples/
 │   ├── json/                   C-backed JSON library showcase + stack benchmark
 │   ├── protocols/              RESP parser example
 │   └── terra_vs_mlua/          Terra comparison
 ├── benchmarks/                 Performance benchmarks
-├── tests/                      Lua test suite (~130+ tests)
+├── tests/                      Lua test suite (~100+ tests)
 ├── LANGUAGE_REFERENCE.md       Complete language reference
 ├── OWNED_CFG_DESIGN.md         Linear owned/handle/lease design
 ├── CONVENTIONS.md              Naming and file organization conventions
@@ -719,7 +658,7 @@ moonlift/
 
 ## Testing
 
-Moonlift has 240+ tests grouped by compiler boundary under `tests/`.
+Moonlift has 100+ tests grouped by compiler boundary under `tests/`.
 
 ```bash
 luajit tests/run.lua              # Stable default suite
@@ -728,11 +667,9 @@ luajit tests/run.lua backend
 luajit tests/run.lua all          # Includes optional/retired suites
 ```
 
-### Parser + typechecker
+### Typechecker
 
 ```bash
-luajit tests/frontend/test_parse_typecheck.lua
-luajit tests/frontend/test_parse_kernels.lua
 luajit tests/code_ir/test_tree_typecheck.lua
 ```
 
@@ -758,37 +695,10 @@ luajit tests/backend/test_back_shared_emit.lua
 luajit tests/tooling/test_link_plan.lua
 ```
 
-### Kernel lowering
-
-```bash
-luajit tests/code_ir/test_code_flow_facts.lua
-luajit tests/code_ir/test_code_mem_facts.lua
-luajit tests/code_ir/test_code_kernel_plan.lua
-luajit tests/code_ir/test_code_lower_plan.lua
-```
-
-### Metaprogramming and splice tests
-
-```bash
-luajit tests/frontend/test_spread_splice_lists.lua
-luajit tests/frontend/test_spread_splice_regions.lua
-luajit tests/host/test_host_metaprogramming_patterns.lua
-luajit tests/host/test_host_struct_values.lua
-luajit tests/host/test_host_stmt_list_builder.lua
-luajit tests/frontend/test_parse_spread_splice.lua
-luajit tests/frontend/test_region_frag_runtime_param_call.lua
-luajit tests/frontend/test_dsl_lua_owned.lua
-luajit tests/frontend/test_direct_mutual_recursion.lua
-luajit tests/host/test_host_extern_symbol.lua
-```
-
 ### DSL + integration tests
 
 ```bash
-luajit tests/frontend/test_mlua_splice_shapes.lua
-luajit tests/frontend/test_mlua_asdl_host_model.lua
-luajit tests/frontend/test_mlua_diagnostics.lua
-target/release/moonlift run examples/json/json_lua_stack_decoder.mlua
+luajit tests/frontend/test_dsl_lua_owned.lua
 ```
 
 ### LSP tests
