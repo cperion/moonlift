@@ -166,8 +166,8 @@ return {
   fn .sub { a [i32], b [i32] } [i32],
 }
 ]], "header")()
-assert(type(header[1]) == "function", "header fn .add did not produce body-closure")
-assert(type(header[2]) == "function", "header fn .sub did not produce body-closure")
+assert(type(header[1]) == "table", "header fn .add did not produce callable stage")
+assert(type(header[2]) == "table", "header fn .sub did not produce callable stage")
 
 local impl = dsl.loadstring([[
 local header = ...

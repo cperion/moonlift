@@ -9,8 +9,8 @@ it behind framework names or folder depth.
 Use lowercase words separated by `_`.
 
 ```text
-<subsystem>_header.mld.lua
-<subsystem>_<machine>.mld.lua
+<subsystem>_header.lua
+<subsystem>_<machine>.lua
 <subsystem>_build.lua
 <subsystem>_blueprint.md
 ```
@@ -18,15 +18,15 @@ Use lowercase words separated by `_`.
 Examples:
 
 ```text
-mwui_header.mld.lua
-mwui_component_store.mld.lua
-mwui_session_store.mld.lua
-mwui_transport.mld.lua
-mwui_event.mld.lua
-mwui_render.mld.lua
-mwui_mutation.mld.lua
-mwui_task.mld.lua
-mwui_app.mld.lua
+mwui_header.lua
+mwui_component_store.lua
+mwui_session_store.lua
+mwui_transport.lua
+mwui_event.lua
+mwui_render.lua
+mwui_mutation.lua
+mwui_task.lua
+mwui_app.lua
 mwui_build.lua
 mwui_blueprint.md
 ```
@@ -34,12 +34,12 @@ mwui_blueprint.md
 Avoid vague names:
 
 ```text
-core.mld.lua
-utils.mld.lua
-helpers.mld.lua
-manager.mld.lua
-impl.mld.lua
-runtime.mld.lua
+core.lua
+utils.lua
+helpers.lua
+manager.lua
+impl.lua
+runtime.lua
 ```
 
 If a file implements a machine, the filename should name that machine.
@@ -50,11 +50,11 @@ Prefer one flat folder per subsystem.
 
 ```text
 experiments/mwui/
-  mwui_header.mld.lua
-  mwui_component_store.mld.lua
-  mwui_event.mld.lua
-  mwui_render.mld.lua
-  mwui_app.mld.lua
+  mwui_header.lua
+  mwui_component_store.lua
+  mwui_event.lua
+  mwui_render.lua
+  mwui_app.lua
   mwui_build.lua
   mwui_blueprint.md
 ```
@@ -64,10 +64,11 @@ Depth must buy ownership or build isolation, not aesthetic grouping.
 
 ## Header Files
 
-`*_header.mld.lua` is the system contract.  It may contain DSL declarations:
+`*_header.lua` is the system contract. It is ordinary Lua and calls
+`require("moonlift").use()` before authoring DSL declarations:
 
 ```lua
-local dsl = require("moonlift.dsl")
+require("moonlift").use()
 return module "Header" {
   struct .Foo { x [i32] },
   union .Bar { ok { v [i32] }, err },
@@ -83,14 +84,15 @@ It should not contain bodies with entry/block/jump — those live in implementat
 Headers are allowed to be rich.  They should declare products, durable identity,
 access protocols, machines, and ABI seals before implementation exists.
 
-The usual header shape is a `.mld.lua` file returning a DSL chunk with
-public declarations table plus the compiled module:
+The usual header shape is a `.lua` file returning public declarations plus the
+compiled module:
 
 ```lua
-local dsl = require("moonlift.dsl")
+require("moonlift").use()
 
-local chunk = dsl.loadfile("mwui_header.mld.lua")
-local module = chunk()  -- module value with :syntax(), :ast(), :typecheck(), :lower()
+local module = module "MwuiHeader" {
+    -- declarations
+}
 
 local M = {
     T = {},   -- type declarations (structs, unions, handles)
@@ -102,16 +104,15 @@ local M = {
 return M
 ```
 
-Implementation files import the header and add region/function bodies via the
-same DSL:
+Implementation files import the header and complete region/function callable
+stages via the same DSL:
 
 ```lua
 local header = require("mwui_header")
-local dsl = require("moonlift.dsl")
+require("moonlift").use()
 
 -- implement: add entry/block/jump bodies to region declarations
-local chunk = dsl.loadfile("mwui_component_store.mld.lua")
-local impl = chunk()
+local impl = require("mwui_component_store")
 
 return {
     borrow_component = impl.borrow_component,
@@ -151,12 +152,12 @@ Load DSL modules with `dsl.loadstring`, `dsl.loadfile`, or standard `require`.
 
 ## Implementation Files
 
-`<subsystem>_<machine>.mld.lua` imports the header and implements one semantic
+`<subsystem>_<machine>.lua` imports the header and implements one semantic
 machine or a small family of adjacent machines.
 
 ```lua
 local header = require("mwui_header")
-local dsl = require("moonlift.dsl")
+require("moonlift").use()
 
 return module "Impl" {
   -- full region/fn with bodies go here
@@ -470,8 +471,8 @@ monomorphic native artifact.
 
 Authoring uses the Lua-owned DSL (`require("moonlift.dsl")`).  Every declaration
 is a Lua value; every type is a Lua value; every statement is a Lua value.
-Lua parses mechanically; the DSL normalizes semantically; Moonlift ASDL carries
-the meaning.
+Lua parses mechanically; LLB hosts declaration/control heads and role
+normalization; Moonlift ASDL carries the meaning.
 
 Use the DSL for:
 
@@ -487,7 +488,8 @@ a DSL value can carry the meaning.
 
 ## Grep Shape
 
-Conventions should make these queries complete against `.mld.lua` files:
+Conventions should make these queries complete against Moonlift-authored `.lua`
+files:
 
 ```sh
 rg 'region\s+\.borrow_'     # resolver regions

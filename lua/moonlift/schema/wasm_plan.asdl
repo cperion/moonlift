@@ -1,0 +1,56 @@
+module MoonWasmPlan {
+    Target = (MoonWasm.WasiTarget wasi, MoonWasm.PointerWidth pointer_width, MoonWasm.ModuleKind module_kind) unique
+
+    ImportPlan = (MoonWasm.Import* imports) unique
+
+    ExportPlan = (MoonWasm.Export* exports, MoonWasm.Start start) unique
+
+    DataPlan = (MoonWasm.DataSegment* data, MoonWasm.ElemSegment* elems) unique
+
+    MemoryPlan = (string memory_name, MoonWasm.Limits limits, boolean shared, MoonWasmPlan.AddressPlan* addresses) unique
+
+    AbiLowering = AbiDirect(MoonWasm.ValType* params, MoonWasm.ValType* results) unique
+         | AbiHiddenOutPtr(MoonWasm.ValType* params, MoonWasm.ValType out_ptr) unique
+         | AbiFlattened(MoonWasm.ValType* params, MoonWasm.ValType* results) unique
+         | AbiRejected(string reason) unique
+
+    ValueLocal = (MoonCode.CodeValueId value, string local_name, MoonWasm.ValType ty) unique
+
+    LocalPlan = (MoonWasm.Local* params, MoonWasm.Local* locals, MoonWasmPlan.ValueLocal* values) unique
+
+    SwitchCase = (string raw_key, MoonWasmPlan.StructuredNode body) unique
+
+    StructuredNode = NodeSeq(MoonWasmPlan.StructuredNode* nodes) unique
+         | NodeBlock(string label, MoonWasmPlan.StructuredNode body) unique
+         | NodeLoop(string label, MoonWasmPlan.StructuredNode body) unique
+         | NodeIf(MoonCode.CodeValueId cond, MoonWasmPlan.StructuredNode then_body, MoonWasmPlan.StructuredNode else_body) unique
+         | NodeSwitch(MoonCode.CodeValueId value, MoonWasmPlan.SwitchCase* cases, MoonWasmPlan.StructuredNode default_body) unique
+         | NodeCode(MoonCode.CodeBlockId block) unique
+         | NodeBreak(string label) unique
+         | NodeContinue(string label) unique
+         | NodeReturn(MoonCode.CodeValueId* values) unique
+
+    StateCase = (MoonCode.CodeBlockId block, number state, MoonWasm.Instr* body) unique
+
+    StateMachine = (MoonCode.CodeBlockId entry, MoonWasm.Local state_local, MoonWasmPlan.StateCase* cases) unique
+
+    ControlPlan = ControlStructured(MoonWasmPlan.StructuredNode root) unique
+         | ControlStateMachine(MoonWasmPlan.StateMachine machine) unique
+         | ControlRejected(string reason) unique
+
+    AddressPlan = AddressLinear(MoonCode.CodeValueId base, MoonCode.CodeValueId? index, number scale, number offset) unique
+         | AddressRejected(string reason) unique
+
+    DebugPlan = (MoonWasm.DebugInfo? debug) unique
+
+    FuncPlan = (MoonCode.CodeFuncId source_func, string source_name, string wasm_name, MoonWasmPlan.AbiLowering internal_abi, MoonWasmPlan.AbiLowering export_abi, MoonWasmPlan.LocalPlan locals, MoonWasmPlan.ControlPlan control, MoonWasmPlan.DebugPlan debug) unique
+
+    LoweringIssue = IssueUnsupportedType(string site, MoonType.Type ty) unique
+         | IssueUnsupportedAbi(string func_name, string reason) unique
+         | IssueUnsupportedControl(string func_name, string reason) unique
+         | IssueUnsupportedMemory(string site, string reason) unique
+         | IssueUnsupportedWasi(string site, string reason) unique
+         | IssueInvalidPlan(string site, string reason) unique
+
+    ModulePlan = (MoonWasmPlan.Target target, MoonWasmPlan.ImportPlan imports, MoonWasmPlan.MemoryPlan* memories, MoonWasmPlan.FuncPlan* funcs, MoonWasmPlan.ExportPlan exports, MoonWasmPlan.DataPlan data, MoonWasmPlan.LoweringIssue* issues) unique
+}

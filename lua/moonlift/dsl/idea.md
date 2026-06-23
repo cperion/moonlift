@@ -62,10 +62,11 @@ The API constructs explicit typed Moonlift values directly from Lua values.
 Recommended file extension:
 
 ```text
-.mld.lua
+.lua
 ```
 
-A `.mld.lua` file is ordinary Lua executed under a Moonlift DSL authoring environment.
+A Moonlift DSL file is ordinary Lua. Call `require("moonlift").use()` before
+using global DSL names.
 
 Example:
 
@@ -87,7 +88,7 @@ The implementation provides:
 ```lua
 local dsl = require "moonlift.dsl"
 
-local chunk = dsl.loadfile("demo.mld.lua")
+local chunk = dsl.loadfile("demo.lua")
 local module_value = chunk()
 
 local artifact = module_value:emit_c_artifact {

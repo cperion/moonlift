@@ -3,11 +3,11 @@
 -- This surface does not treat [] as textual splice syntax. Lua evaluates the
 -- bracket expression before this module sees it, so x[T] carries the actual
 -- Lua value T. Normalization then consumes those already-resolved values by
--- role and emits MoonSyntax/MoonTree ASDL directly.
+-- role and emits MoonTree/MoonOpen ASDL directly.
 
 local pvm = require("moonlift.pvm")
 local schema = require("moonlift.asdl")
-local SyntaxLower = require("moonlift.syntax_lower")
+local llb = require("llb")
 local ErrorSpan = require("moonlift.error.span")
 local SourceAnalysis = require("moonlift.source_analysis")
 
@@ -16,8 +16,7 @@ local M = {}
 local T = pvm.context()
 schema.Define(T)
 
-local C, Ty, B, Tr, O, S = T.MoonCore, T.MoonType, T.MoonBind, T.MoonTree, T.MoonOpen, T.MoonSyntax
-local lower = SyntaxLower.Define(T)
+local C, Ty, B, Tr, O = T.MoonCore, T.MoonType, T.MoonBind, T.MoonTree, T.MoonOpen
 
 local function class(name)
     local mt = { __dsl_class = name }
@@ -28,7 +27,6 @@ end
 local Name = class("Name")
 local TypedName = class("TypedName")
 local Payload = class("Payload")
-local Head = class("Head")
 local TypeCtor = class("TypeCtor")
 local Expr = class("Expr")
 local Stmt = class("Stmt")
@@ -71,6 +69,13 @@ local function is_member(sum, v)
     return cls == sum or (sum and sum.members and sum.members[cls]) or false
 end
 
+if not llb._moonlift_asdl_type_like then
+    llb._moonlift_asdl_type_like = true
+    llb.register_type_like(function(v)
+        return is_member(Ty.Type, v)
+    end)
+end
+
 local function name_token(s) return setmetatable({ name = ident(s, "name") }, Name) end
 
 local scalar = {
@@ -86,30 +91,27 @@ local merge_source_ctx
 local attach_source_context
 local build_source_context
 
-local function syn_name(v)
-    if is(v, Name) then return S.SyntaxNameText(v.name) end
-    if type(v) == "string" then return S.SyntaxNameText(ident(v, "name")) end
-    die("expected name", 2)
-end
-
 local function frag_ref(v, expr)
-    if is(v, Name) then return S.SyntaxFragRefPath(path(v.name)) end
-    if type(v) == "string" then return S.SyntaxFragRefPath(path(v)) end
-    if is(v, Decl) and (v.kind == "region" or v.kind == "expr_frag") then return S.SyntaxFragRefPath(path(v.name)) end
-    if expr and is_member(O.ExprFrag, v) then return S.SyntaxFragRefSplice(S.SpliceId("__dsl_expr_frag", "expr_frag")) end
-    if (not expr) and is_member(O.RegionFrag, v) then return S.SyntaxFragRefSplice(S.SpliceId("__dsl_region_frag", "region_frag")) end
-    return S.SyntaxFragRefPath(path(tostring(v)))
+    local name
+    if is(v, Name) then name = v.name
+    elseif type(v) == "string" then name = v
+    elseif is(v, Decl) and (v.kind == "region" or v.kind == "expr_frag") then name = v.name
+    else name = tostring(v) end
+    name = table.concat((function(p)
+        local out = {}
+        for i = 1, #p.parts do out[i] = p.parts[i].text end
+        return out
+    end)(path(name)), ".")
+    return expr and O.ExprFragRefName(name) or O.RegionFragRefName(name), name
 end
 
-local function syn_type(v)
-    if is_member(S.Type, v) then return v end
-    if is_member(Ty.Type, v) then return S.SyntaxTypeTree(v) end
-    if is(v, Decl) and v.type_name then return S.SyntaxTypeTree(Ty.TNamed(Ty.TypeRefPath(path(v.type_name)))) end
-    if type(v) == "string" then return S.SyntaxTypePath(path(v)) end
+local function concrete_type(v)
+    if is_member(Ty.Type, v) then return v end
+    if is(v, Decl) and v.type_name then return Ty.TNamed(Ty.TypeRefPath(path(v.type_name))) end
+    if is(v, Name) then return Ty.TNamed(Ty.TypeRefPath(path(v.name))) end
+    if type(v) == "string" then return Ty.TNamed(Ty.TypeRefPath(path(v))) end
     die("expected type value, got " .. tostring(v), 2)
 end
-
-local function concrete_type(v) return lower.type(syn_type(v)) end
 
 local function is_array_lit_table(v)
     if type(v) ~= "table" then return false end
@@ -174,21 +176,18 @@ tree_expr = function(v)
     die("expected expression value, got " .. tostring(v), 2)
 end
 
-local syn_expr
 local expand_array
 
-local function expr_item(v) return S.SyntaxExprItemOne(syn_expr(v)) end
 local function expr_items(t)
     local out = {}
-    for i, v in ipairs(expand_array(t or {}, "expr")) do out[i] = expr_item(v) end
+    for i, v in ipairs(expand_array(t or {}, "expr")) do out[i] = tree_expr(v) end
     return out
 end
 local function stmt_item(v)
     if is(v, Spread) then die("statement spread needs a statement fragment", 2) end
-    if is_member(S.Stmt, v) then return S.SyntaxStmtItemOne(v) end
-    if is(v, Stmt) then return S.SyntaxStmtItemOne(v:syntax()) end
-    if is_member(Tr.Stmt, v) then return S.SyntaxStmtItemOne(S.SyntaxStmtTree(v)) end
-    return S.SyntaxStmtItemOne(S.SyntaxStmtExpr(syn_expr(v)))
+    if is(v, Stmt) then return v:tree() end
+    if is_member(Tr.Stmt, v) then return v end
+    return Tr.StmtExpr(Tr.StmtSurface, tree_expr(v))
 end
 
 function expand_array(t, role)
@@ -218,8 +217,8 @@ local function param_items(t, open)
     local out = {}
     for i, v in ipairs(expand_array(t or {}, "product")) do
         if not is(v, TypedName) then die("parameter expects name [type]", 2) end
-        out[i] = open and S.SyntaxOpenParamItemOne(v.name, syn_type(v.ty))
-            or S.SyntaxParamItemOne(v.name, syn_type(v.ty))
+        out[i] = open and O.OpenParam("param:dsl:" .. v.name .. ":" .. tostring(i), v.name, concrete_type(v.ty))
+            or Ty.Param(v.name, concrete_type(v.ty))
     end
     return out
 end
@@ -228,7 +227,7 @@ local function field_items(t)
     local out = {}
     for i, v in ipairs(expand_array(t or {}, "product")) do
         if not is(v, TypedName) then die("field expects name [type]", 2) end
-        out[i] = S.SyntaxFieldItemOne(v.name, syn_type(v.ty))
+        out[i] = Ty.FieldDecl(v.name, concrete_type(v.ty))
     end
     return out
 end
@@ -237,7 +236,7 @@ local function block_param_items(t)
     local out = {}
     for i, v in ipairs(expand_array(t or {}, "product")) do
         if not is(v, TypedName) then die("block parameter expects name [type]", 2) end
-        out[i] = S.SyntaxBlockParamItemOne(v.name, syn_type(v.ty))
+        out[i] = Tr.BlockParam(v.name, concrete_type(v.ty))
     end
     return out
 end
@@ -246,7 +245,7 @@ local function entry_param_items(t)
     local out = {}
     for i, v in ipairs(expand_array(t or {}, "product")) do
         if not is(v, TypedName) then die("entry parameter expects name [type](init)", 2) end
-        out[i] = S.SyntaxEntryParamItemOne(v.name, syn_type(v.ty), syn_expr(v.init or 0))
+        out[i] = Tr.EntryBlockParam(v.name, concrete_type(v.ty), tree_expr(v.init or 0))
     end
     return out
 end
@@ -257,7 +256,7 @@ local function stmt_items(t)
     return out
 end
 
-local function tree_stmt(v) return lower.stmt(stmt_item(v).stmt) end
+local function tree_stmt(v) return stmt_item(v) end
 
 local function tree_stmts(t)
     local out = {}
@@ -288,15 +287,6 @@ local function tree_params(t)
     for i, v in ipairs(expand_array(t or {}, "product")) do
         if not is(v, TypedName) then die("parameter expects name [type]", 2) end
         out[i] = Ty.Param(v.name, concrete_type(v.ty))
-    end
-    return out
-end
-
-local function tree_fields(t)
-    local out = {}
-    for i, v in ipairs(expand_array(t or {}, "product")) do
-        if not is(v, TypedName) then die("field expects name [type]", 2) end
-        out[i] = Ty.FieldDecl(v.name, concrete_type(v.ty))
     end
     return out
 end
@@ -333,7 +323,7 @@ local function function_body_items(name, body)
         end
     end
     if entry == nil then die("function control body requires an entry block", 2) end
-    return { S.SyntaxStmtItemOne(S.SyntaxStmtTree(Tr.StmtControl(Tr.StmtSurface, Tr.ControlStmtRegion("dsl.func." .. tostring(name), entry, blocks)))) }
+    return { Tr.StmtControl(Tr.StmtSurface, Tr.ControlStmtRegion("dsl.func." .. tostring(name), entry, blocks)) }
 end
 
 function Name:__tostring() return self.name end
@@ -362,7 +352,7 @@ function Name:load() return M.deref(self) end
 Name.__index = function(self, k)
     if Name[k] then return Name[k] end
     if type(k) == "string" then return setmetatable({ kind = "dot", base = self, field = ident(k, "field") }, Expr) end
-    if is_member(Ty.Type, k) or is_member(S.Type, k) then
+    if is_member(Ty.Type, k) then
         return setmetatable({ name = self.name, ty = k }, TypedName)
     end
     return setmetatable({ kind = "index", base = self, index = k }, Expr)
@@ -425,7 +415,7 @@ function Expr:tree()
         for i = 1, #(self.args or {}) do args[i] = tree_expr(self.args[i]) end
         return Tr.ExprCall(Tr.ExprSurface, tree_expr(self.callee), args)
     end
-    if k == "cast" then return Tr.ExprCast(Tr.ExprSurface, self.cast, lower.type(syn_type(self.ty)), tree_expr(self.value)) end
+    if k == "cast" then return Tr.ExprCast(Tr.ExprSurface, self.cast, concrete_type(self.ty), tree_expr(self.value)) end
     if k == "len" then return Tr.ExprLen(Tr.ExprSurface, tree_expr(self.value)) end
     if k == "addr" then return Tr.ExprAddrOf(Tr.ExprSurface, tree_place(self.value)) end
     if k == "deref" then return Tr.ExprDeref(Tr.ExprSurface, tree_expr(self.value)) end
@@ -444,21 +434,15 @@ function Expr:tree()
         for i = 1, #(self.args or {}) do args[i] = tree_expr(self.args[i]) end
         return Tr.ExprCtor(Tr.ExprSurface, self.type_name, self.variant_name, args)
     end
-    if k == "emit_expr" then return lower.expr(S.SyntaxExprEmit(frag_ref(self.target, true), expr_items(self.args)), self.env) end
+    if k == "emit_expr" then
+        local ref, name = frag_ref(self.target, true)
+        return Tr.ExprUseExprFrag(Tr.ExprSurface, "emit.expr." .. name, ref, expr_items(self.args), {})
+    end
     if k == "select" then return Tr.ExprSelect(Tr.ExprSurface, tree_expr(self.cond), tree_expr(self.a), tree_expr(self.b)) end
     if k == "atomic_load" then return Tr.ExprAtomicLoad(Tr.ExprSurface, concrete_type(self.ty), tree_expr(self.addr), C.AtomicSeqCst) end
     if k == "atomic_rmw" then return Tr.ExprAtomicRmw(Tr.ExprSurface, assert(atomic_rmw_op[self.op], "unknown atomic rmw op: " .. tostring(self.op)), concrete_type(self.ty), tree_expr(self.addr), tree_expr(self.value), C.AtomicSeqCst) end
     if k == "atomic_cas" then return Tr.ExprAtomicCas(Tr.ExprSurface, concrete_type(self.ty), tree_expr(self.addr), tree_expr(self.expected), tree_expr(self.replacement), C.AtomicSeqCst) end
     die("unsupported expression kind " .. tostring(k), 2)
-end
-
-function Expr:syntax() return S.SyntaxExprTree(self:tree()) end
-
-syn_expr = function(v)
-    if is_member(S.Expr, v) then return v end
-    if is(v, Expr) then return v:syntax() end
-    if is_member(Tr.Expr, v) then return S.SyntaxExprTree(v) end
-    return S.SyntaxExprTree(tree_expr(v))
 end
 
 local function bin(name)
@@ -505,43 +489,42 @@ function M.window_bounds(base, base_len, start, len) return Tr.ContractWindowBou
 local bind_seq = 0
 local function binding(name, ty, class)
     bind_seq = bind_seq + 1
-    return B.Binding(C.Id("dsl:" .. name .. ":" .. bind_seq), name, lower.type(syn_type(ty)), class)
+    return B.Binding(C.Id("dsl:" .. name .. ":" .. bind_seq), name, concrete_type(ty), class)
 end
 
-function Stmt:syntax()
+function Stmt:tree()
     local k = self.kind
     if k == "ret" then
-        if self.value == nil then return S.SyntaxStmtTree(Tr.StmtReturnVoid(Tr.StmtSurface)) end
-        return S.SyntaxStmtReturnValue(syn_expr(self.value))
+        if self.value == nil then return Tr.StmtReturnVoid(Tr.StmtSurface) end
+        return Tr.StmtReturnValue(Tr.StmtSurface, tree_expr(self.value))
     end
     if k == "yield" then
-        if self.value == nil then return S.SyntaxStmtTree(Tr.StmtYieldVoid(Tr.StmtSurface)) end
-        return S.SyntaxStmtYieldValue(syn_expr(self.value))
+        if self.value == nil then return Tr.StmtYieldVoid(Tr.StmtSurface) end
+        return Tr.StmtYieldValue(Tr.StmtSurface, tree_expr(self.value))
     end
-    if k == "let" then return S.SyntaxStmtLet(binding(self.name, self.ty, B.BindingClassLocalValue), syn_expr(self.init)) end
-    if k == "var" then return S.SyntaxStmtVar(binding(self.name, self.ty, B.BindingClassLocalCell), syn_expr(self.init)) end
-    if k == "when" then return S.SyntaxStmtIf(syn_expr(self.cond), stmt_items(self.body), {}) end
-    if k == "if" then return S.SyntaxStmtIf(syn_expr(self.cond), stmt_items(self.then_body), stmt_items(self.else_body or {})) end
-    if k == "set" then return S.SyntaxStmtTree(Tr.StmtSet(Tr.StmtSurface, tree_place(self.place), tree_expr(self.value))) end
-    if k == "assert" then return S.SyntaxStmtTree(Tr.StmtAssert(Tr.StmtSurface, tree_expr(self.cond))) end
-    if k == "trap" then return S.SyntaxStmtTree(Tr.StmtTrap(Tr.StmtSurface)) end
-    if k == "assume" then return S.SyntaxStmtTree(Tr.StmtExpr(Tr.StmtSurface, Tr.ExprIntrinsic(Tr.ExprSurface, C.IntrinsicAssume, { tree_expr(self.cond) }))) end
+    if k == "let" then return Tr.StmtLet(Tr.StmtSurface, binding(self.name, self.ty, B.BindingClassLocalValue), tree_expr(self.init)) end
+    if k == "var" then return Tr.StmtVar(Tr.StmtSurface, binding(self.name, self.ty, B.BindingClassLocalCell), tree_expr(self.init)) end
+    if k == "when" then return Tr.StmtIf(Tr.StmtSurface, tree_expr(self.cond), stmt_items(self.body), {}) end
+    if k == "if" then return Tr.StmtIf(Tr.StmtSurface, tree_expr(self.cond), stmt_items(self.then_body), stmt_items(self.else_body or {})) end
+    if k == "set" then return Tr.StmtSet(Tr.StmtSurface, tree_place(self.place), tree_expr(self.value)) end
+    if k == "assert" then return Tr.StmtAssert(Tr.StmtSurface, tree_expr(self.cond)) end
+    if k == "trap" then return Tr.StmtTrap(Tr.StmtSurface) end
+    if k == "assume" then return Tr.StmtExpr(Tr.StmtSurface, Tr.ExprIntrinsic(Tr.ExprSurface, C.IntrinsicAssume, { tree_expr(self.cond) })) end
     if k == "jump" then
         local args = {}
         for name, value in pairs(self.args or {}) do args[#args + 1] = Tr.JumpArg(name, tree_expr(value)) end
-        return S.SyntaxStmtTree(Tr.StmtJump(Tr.StmtSurface, Tr.BlockLabel(self.target), args))
+        return Tr.StmtJump(Tr.StmtSurface, Tr.BlockLabel(self.target), args)
     end
     if k == "emit" then
-        return S.SyntaxStmtEmit(self.mode or Tr.RegionUseEmit, frag_ref(self.target, false), expr_items(self.args), self.conts or {})
+        local ref, name = frag_ref(self.target, false)
+        return Tr.StmtUseRegionFrag(Tr.StmtSurface, self.mode or Tr.RegionUseEmit, "emit." .. name, ref, expr_items(self.args), {}, self.conts or {})
     end
-    if k == "switch" then return S.SyntaxStmtTree(Tr.StmtSwitch(Tr.StmtSurface, tree_expr(self.value), self.arms or {}, self.variant_arms or {}, tree_stmts(self.default_body or {}))) end
-    if k == "atomic_store" then return S.SyntaxStmtTree(Tr.StmtAtomicStore(Tr.StmtSurface, concrete_type(self.ty), tree_expr(self.addr), tree_expr(self.value), C.AtomicSeqCst)) end
-    if k == "atomic_fence" then return S.SyntaxStmtTree(Tr.StmtAtomicFence(Tr.StmtSurface, C.AtomicSeqCst)) end
-    if k == "expr" then return S.SyntaxStmtExpr(syn_expr(self.expr)) end
+    if k == "switch" then return Tr.StmtSwitch(Tr.StmtSurface, tree_expr(self.value), self.arms or {}, self.variant_arms or {}, tree_stmts(self.default_body or {})) end
+    if k == "atomic_store" then return Tr.StmtAtomicStore(Tr.StmtSurface, concrete_type(self.ty), tree_expr(self.addr), tree_expr(self.value), C.AtomicSeqCst) end
+    if k == "atomic_fence" then return Tr.StmtAtomicFence(Tr.StmtSurface, C.AtomicSeqCst) end
+    if k == "expr" then return Tr.StmtExpr(Tr.StmtSurface, tree_expr(self.expr)) end
     die("unsupported statement kind " .. tostring(k), 2)
 end
-
-function Stmt:ast() return lower.stmt(self:syntax()) end
 
 function M.ret(t) return setmetatable({ kind = "ret", value = t }, Stmt) end
 function M.yield(t) return setmetatable({ kind = "yield", value = t }, Stmt) end
@@ -571,13 +554,13 @@ local function type_decl(name, body, union)
     if union then
         local vars = {}
         for i, v in ipairs(body or {}) do
-            if is(v, Payload) then vars[i] = S.SyntaxVariantItemOne(v.name, S.SyntaxTypeTree(scalar_type("void")), field_items(v.payload))
-            elseif is(v, Name) then vars[i] = S.SyntaxVariantItemOne(v.name, S.SyntaxTypeTree(scalar_type("void")), {})
+            if is(v, Payload) then vars[i] = Ty.VariantDecl(v.name, scalar_type("void"), field_items(v.payload))
+            elseif is(v, Name) then vars[i] = Ty.VariantDecl(v.name, scalar_type("void"), {})
             else die("union expects alternatives", 2) end
         end
-        return S.SyntaxTypeDeclUnion(S.SyntaxNameText(name), vars)
+        return Tr.TypeDeclTaggedUnionSugar(name, vars)
     end
-    return S.SyntaxTypeDeclStruct(S.SyntaxNameText(name), field_items(body))
+    return Tr.TypeDeclStruct(name, field_items(body))
 end
 
 function Decl:syntax()
@@ -585,18 +568,17 @@ function Decl:syntax()
         local items = {}
         for i, d in ipairs(expand_array(self.body, "decl")) do
             if is(d, Decl) then items[#items + 1] = d:syntax_item()
-            elseif is_member(S.Item, d) then items[#items + 1] = d
-            elseif is_member(Tr.Item, d) then items[#items + 1] = S.SyntaxItemTree(d)
+            elseif is_member(Tr.Item, d) then items[#items + 1] = d
             else die("module body expects declarations", 2) end
         end
-        return S.Module(items)
+        return Tr.Module(Tr.ModuleSurface, items)
     end
     die("only modules have standalone syntax()", 2)
 end
 
 local function module_ast_of(self)
-    if self.kind == "module" then return lower.module(self:syntax()) end
-    return lower.module(S.Module({ self:syntax_item() }))
+    if self.kind == "module" then return self:syntax() end
+    return Tr.Module(Tr.ModuleSurface, { self:syntax_item() })
 end
 
 function Decl:typecheck(opts)
@@ -605,16 +587,56 @@ function Decl:typecheck(opts)
     return Typecheck.check_module(module_ast_of(self), opts)
 end
 
+local function retarget_cont_jumps_stmt(stmt, cont_by_name)
+    local cls = pvm.classof(stmt)
+    if cls == Tr.StmtJump then
+        local slot = cont_by_name[stmt.target.name]
+        if slot then return Tr.StmtJumpCont(stmt.h, slot, stmt.args) end
+        return stmt
+    end
+    if cls == Tr.StmtIf then
+        local then_body, else_body = {}, {}
+        for i = 1, #stmt.then_body do then_body[i] = retarget_cont_jumps_stmt(stmt.then_body[i], cont_by_name) end
+        for i = 1, #stmt.else_body do else_body[i] = retarget_cont_jumps_stmt(stmt.else_body[i], cont_by_name) end
+        return pvm.with(stmt, { then_body = then_body, else_body = else_body })
+    end
+    if cls == Tr.StmtSwitch then
+        local arms, variant_arms, default_body = {}, {}, {}
+        for i = 1, #stmt.arms do
+            local body = {}
+            for j = 1, #stmt.arms[i].body do body[j] = retarget_cont_jumps_stmt(stmt.arms[i].body[j], cont_by_name) end
+            arms[i] = pvm.with(stmt.arms[i], { body = body })
+        end
+        for i = 1, #stmt.variant_arms do
+            local body = {}
+            for j = 1, #stmt.variant_arms[i].body do body[j] = retarget_cont_jumps_stmt(stmt.variant_arms[i].body[j], cont_by_name) end
+            variant_arms[i] = pvm.with(stmt.variant_arms[i], { body = body })
+        end
+        for i = 1, #stmt.default_body do default_body[i] = retarget_cont_jumps_stmt(stmt.default_body[i], cont_by_name) end
+        return pvm.with(stmt, { arms = arms, variant_arms = variant_arms, default_body = default_body })
+    end
+    return stmt
+end
+
+local function retarget_cont_jumps_stmts(stmts, cont_by_name)
+    local out = {}
+    for i = 1, #(stmts or {}) do out[i] = retarget_cont_jumps_stmt(stmts[i], cont_by_name) end
+    return out
+end
+
 function Decl:syntax_item()
-    if self.kind == "struct" then return S.SyntaxItemTypeDecl(type_decl(self.name, self.body, false)) end
-    if self.kind == "union" then return S.SyntaxItemTypeDecl(type_decl(self.name, self.body, true)) end
+    if self.kind == "struct" then return Tr.ItemType(type_decl(self.name, self.body, false)) end
+    if self.kind == "union" then return Tr.ItemType(type_decl(self.name, self.body, true)) end
     if self.kind == "fn" then
         local contracts, body = {}, {}
         for i, v in ipairs(self.body or {}) do
             if is(v, Requires) then for j = 1, #v.items do contracts[#contracts + 1] = v.items[j] end
             else body[#body + 1] = v end
         end
-        return S.SyntaxItemFunc(S.SyntaxFuncLocal(self.name, param_items(self.params), syn_type(self.result or scalar_type("void")), contracts, function_body_items(self.name, body)))
+        if #contracts > 0 then
+            return Tr.ItemFunc(Tr.FuncLocalContract(self.name, param_items(self.params), concrete_type(self.result or scalar_type("void")), contracts, function_body_items(self.name, body)))
+        end
+        return Tr.ItemFunc(Tr.FuncLocal(self.name, param_items(self.params), concrete_type(self.result or scalar_type("void")), function_body_items(self.name, body)))
     end
     if self.kind == "export_fn" then
         local contracts, body = {}, {}
@@ -622,42 +644,57 @@ function Decl:syntax_item()
             if is(v, Requires) then for j = 1, #v.items do contracts[#contracts + 1] = v.items[j] end
             else body[#body + 1] = v end
         end
-        return S.SyntaxItemFunc(S.SyntaxFuncExport(self.name, param_items(self.params), syn_type(self.result or scalar_type("void")), contracts, function_body_items(self.name, body)))
+        if #contracts > 0 then
+            return Tr.ItemFunc(Tr.FuncExportContract(self.name, param_items(self.params), concrete_type(self.result or scalar_type("void")), contracts, function_body_items(self.name, body)))
+        end
+        return Tr.ItemFunc(Tr.FuncExport(self.name, param_items(self.params), concrete_type(self.result or scalar_type("void")), function_body_items(self.name, body)))
     end
     if self.kind == "extern" then
-        return S.SyntaxItemTree(Tr.ItemExtern(Tr.ExternFunc(self.name, self.opts.symbol or self.name, tree_params(self.params), concrete_type(self.result or scalar_type("void")))))
+        return Tr.ItemExtern(Tr.ExternFunc(self.name, self.opts.symbol or self.name, tree_params(self.params), concrete_type(self.result or scalar_type("void"))))
     end
     if self.kind == "handle" then
         local facts = {}
         if self.opts.domain then facts[#facts + 1] = Ty.HandleDomain(Ty.TypeRefPath(path(self.opts.domain))) end
         if self.opts.target then facts[#facts + 1] = Ty.HandleTarget(Ty.TypeRefPath(path(self.opts.target))) end
-        return S.SyntaxItemTree(Tr.ItemType(Tr.TypeDeclHandle(self.name, handle_repr(self.repr or self.opts.repr), handle_invalid(self.opts.invalid), facts)))
+        return Tr.ItemType(Tr.TypeDeclHandle(self.name, handle_repr(self.repr or self.opts.repr), handle_invalid(self.opts.invalid), facts))
     end
     if self.kind == "const" then
-        return S.SyntaxItemTree(Tr.ItemConst(Tr.ConstItem(self.name, concrete_type(self.ty), tree_expr(self.value))))
+        return Tr.ItemConst(Tr.ConstItem(self.name, concrete_type(self.ty), tree_expr(self.value)))
     end
     if self.kind == "static" then
-        return S.SyntaxItemTree(Tr.ItemStatic(Tr.StaticItem(self.name, concrete_type(self.ty), tree_expr(self.value))))
+        return Tr.ItemStatic(Tr.StaticItem(self.name, concrete_type(self.ty), tree_expr(self.value)))
     end
     if self.kind == "import" then
-        return S.SyntaxItemTree(Tr.ItemImport(Tr.ImportItem(path(self.name))))
+        return Tr.ItemImport(Tr.ImportItem(path(self.name)))
     end
     if self.kind == "expr_frag" then
-        return S.SyntaxItemExprFrag(S.ExprFrag(O.NameRefText(self.name), param_items(self.params, true), syn_type(self.result), syn_expr(self.body)))
+        return Tr.ItemExprFrag(O.ExprFrag(O.NameRefText(self.name), param_items(self.params, true), O.OpenSet({}, {}, {}, {}), tree_expr(self.body), concrete_type(self.result)))
     end
     if self.kind == "region" then
         local entry = self.entry or { name = "entry", params = {}, body = {} }
         local blocks = {}
         for _, b in ipairs(self.blocks or {}) do
-            blocks[#blocks + 1] = S.SyntaxControlBlockItemOne(S.SyntaxNameText(b.name), block_param_items(b.params), stmt_items(b.body))
+            blocks[#blocks + 1] = Tr.ControlBlock(Tr.BlockLabel(b.name), block_param_items(b.params), stmt_items(b.body))
         end
         local conts = {}
+        local cont_by_name = {}
         for i, c in ipairs(self.conts or {}) do
-            if is(c, Payload) then conts[i] = S.SyntaxContItemOne(S.SyntaxNameText(c.name), block_param_items(c.payload))
-            elseif is(c, Name) then conts[i] = S.SyntaxContItemOne(S.SyntaxNameText(c.name), {})
+            if is(c, Payload) then conts[i] = O.ContSlot("cont:" .. self.name .. ":" .. c.name .. ":" .. tostring(i), c.name, block_param_items(c.payload))
+            elseif is(c, Name) then conts[i] = O.ContSlot("cont:" .. self.name .. ":" .. c.name .. ":" .. tostring(i), c.name, {})
             else die("region continuation expects named payload", 2) end
+            cont_by_name[conts[i].pretty_name] = conts[i]
         end
-        return S.SyntaxItemRegionFrag(S.RegionFrag(O.NameRefText(self.name), param_items(self.params, true), conts, S.SyntaxNameText(entry.name), entry_param_items(entry.params), stmt_items(entry.body), blocks))
+        local retargeted_blocks = {}
+        for i = 1, #blocks do
+            retargeted_blocks[i] = pvm.with(blocks[i], { body = retarget_cont_jumps_stmts(blocks[i].body, cont_by_name) })
+        end
+        return Tr.ItemRegionFrag(O.RegionFrag(
+            O.NameRefText(self.name),
+            param_items(self.params, true),
+            conts,
+            O.OpenSet({}, {}, {}, {}),
+            Tr.EntryControlBlock(Tr.BlockLabel(entry.name), entry_param_items(entry.params), retarget_cont_jumps_stmts(stmt_items(entry.body), cont_by_name)),
+            retargeted_blocks))
     end
     die("unsupported declaration kind " .. tostring(self.kind), 2)
 end
@@ -858,106 +895,6 @@ function Decl:__tostring()
     return "moonlift.dsl." .. tostring(self.kind) .. (self.name and "(" .. tostring(self.name) .. ")" or "")
 end
 
-local function head(kind, name) return setmetatable({ kind = kind, name = name }, Head) end
-
-Head.__index = function(self, k)
-    if Head[k] then return Head[k] end
-    local kind = rawget(self, "kind")
-    local name = rawget(self, "name")
-    if type(k) ~= "string" then
-        if kind == "const" or kind == "static" then
-            return function(value) return setmetatable({ kind = kind, name = name, ty = k, value = value }, Decl) end
-        end
-        return setmetatable({ kind = kind, name = is(k, Name) and k.name or nil, target = k }, Head)
-    end
-    return head(kind, ident(k, "head name"))
-end
-
-local function fn_stage(kind, name, params_)
-    return setmetatable({ params = params_ or {} }, {
-        __index = function(_, result)
-            return function(body) return setmetatable({ kind = kind, name = name, params = params_ or {}, result = result, body = body or {} }, Decl) end
-        end,
-        __call = function(_, body) return setmetatable({ kind = kind, name = name, params = params_ or {}, body = body or {} }, Decl) end,
-    })
-end
-
-local function extern_stage(name, params_)
-    return setmetatable({ params = params_ or {} }, {
-        __index = function(_, result)
-            return function(opts) return setmetatable({ kind = "extern", name = name, params = params_ or {}, result = result, opts = opts or {} }, Decl) end
-        end,
-        __call = function(_, opts) return setmetatable({ kind = "extern", name = name, params = params_ or {}, opts = opts or {} }, Decl) end,
-    })
-end
-
-local function typed_decl_stage(kind, name)
-    return setmetatable({}, {
-        __index = function(_, ty)
-            return function(value) return setmetatable({ kind = kind, name = name, ty = ty, value = value }, Decl) end
-        end,
-    })
-end
-
-function Head:__call(t)
-    local kind = rawget(self, "kind")
-    local name = rawget(self, "name")
-    if kind == "module" and name == nil then return head("module", tostring(t)) end
-    if kind == "module" then return setmetatable({ kind = "module", name = name, body = t or {} }, Decl) end
-    if kind == "struct" or kind == "union" then return setmetatable({ kind = kind, name = name, type_name = name, body = t or {} }, Decl) end
-    if kind == "fn" or kind == "export_fn" then return fn_stage(kind, name, t or {}) end
-    if kind == "region" then
-        if type(t) == "table" and (t.params or t.conts or t.body) then
-            local entry, blocks = nil, {}
-            for _, item in ipairs(t.body or {}) do
-                if type(item) == "table" and item.kind == "entry_decl" then entry = item
-                elseif type(item) == "table" and item.kind == "block_decl" then blocks[#blocks + 1] = item
-                else die("region body expects entry/block declarations", 2) end
-            end
-            return setmetatable({ kind = "region", name = name, params = t.params or {}, conts = t.conts or {}, entry = entry, blocks = blocks }, Decl)
-        end
-        return function(conts)
-            return function(body)
-                local entry, blocks = nil, {}
-                for _, item in ipairs(body or {}) do
-                    if type(item) == "table" and item.kind == "entry_decl" then entry = item
-                    elseif type(item) == "table" and item.kind == "block_decl" then blocks[#blocks + 1] = item
-                    else die("region body expects entry/block declarations", 2) end
-                end
-                return setmetatable({ kind = "region", name = name, params = t or {}, conts = conts or {}, entry = entry, blocks = blocks }, Decl)
-            end
-        end
-    end
-    if kind == "extern" then return extern_stage(name, t or {}) end
-    if kind == "handle" then return setmetatable({ kind = "handle", name = name, opts = t or {} }, Decl) end
-    if kind == "const" or kind == "static" then return typed_decl_stage(kind, name) end
-    if kind == "import" then return setmetatable({ kind = "import", name = t or name }, Decl) end
-    if kind == "expr_frag" then
-        return setmetatable({ params = t or {} }, {
-            __index = function(_, result)
-                return function(body) return setmetatable({ kind = "expr_frag", name = name, params = t or {}, result = result, body = body }, Decl) end
-            end,
-        })
-    end
-    if kind == "jump" then return setmetatable({ kind = "jump", target = name, args = t or {} }, Stmt) end
-    if kind == "emit" then
-        return setmetatable({ kind = "emit", target = rawget(self, "target") or name, args = t or {} }, {
-            __call = function(self, fills)
-                local conts = {}
-                for cname, target in pairs(fills or {}) do
-                    conts[#conts + 1] = O.ContBinding(cname, O.ContTargetLabel(Tr.BlockLabel(is(target, Name) and target.name or tostring(target))))
-                end
-                self.conts = conts
-                return setmetatable(self, Stmt)
-            end,
-            __index = Stmt,
-        })
-    end
-    if kind == "entry" then return function(body) return { kind = "entry_decl", name = name, params = t or {}, body = body or {} } end end
-    if kind == "block" then return function(body) return { kind = "block_decl", name = name, params = t or {}, body = body or {} } end end
-    die("unsupported head call " .. tostring(kind), 2)
-end
-
 local function ctor(name, fn)
     return setmetatable({ name = name, fn = fn }, TypeCtor)
 end
@@ -986,18 +923,6 @@ function M.spread(v) return setmetatable({ value = v }, Spread) end
 
 function Fragment:__len() return #(self.items or {}) end
 function Fragment:__tostring() return "moonlift.dsl.fragment(" .. tostring(self.role) .. ", " .. tostring(#(self.items or {})) .. ")" end
-
-local function name_head_stmt(kind)
-    return setmetatable({}, {
-        __index = function(_, k)
-            return setmetatable({ name = ident(k, kind) }, {
-                __index = function(stage, ty)
-                    return function(init) return setmetatable({ kind = kind, name = stage.name, ty = ty, init = init }, Stmt) end
-                end,
-            })
-        end,
-    })
-end
 
 local function case_literal(v)
     return setmetatable({ key = v }, {
@@ -1068,6 +993,195 @@ local function type_list(xs)
     return out
 end
 
+local function llb_name_text(v, site)
+    if llb.is(v, "Name") then return ident(v.text, site or "name") end
+    if is(v, Name) then return ident(v.name, site or "name") end
+    if type(v) == "string" then return ident(v, site or "name") end
+    die((site or "name") .. " expects a name, got " .. llb.repr(v), 2)
+end
+
+local function typed_items_from_llb(items)
+    local out = {}
+    for i, v in ipairs(items or {}) do
+        if is(v, TypedName) then
+            out[i] = v
+        elseif type(v) == "table" and v.name ~= nil and (v.ty ~= nil or v.type ~= nil) then
+            local init = v.init
+            if init == llb.NIL or init == llb.ABSENT then init = nil end
+            out[i] = setmetatable({ name = ident(tostring(v.name), "field"), ty = v.ty or v.type, init = init }, TypedName)
+        else
+            out[i] = v
+        end
+    end
+    return out
+end
+
+local function region_decl(name, params_, conts, body)
+    local entry, blocks = nil, {}
+    for _, item in ipairs(body or {}) do
+        if type(item) == "table" and item.kind == "entry_decl" then entry = item
+        elseif type(item) == "table" and item.kind == "block_decl" then blocks[#blocks + 1] = item
+        else die("region body expects entry/block declarations", 2) end
+    end
+    return setmetatable({ kind = "region", name = name, params = typed_items_from_llb(params_ or {}), conts = conts or {}, entry = entry, blocks = blocks }, Decl)
+end
+
+local g = llb.grammar
+local MoonLLB = llb.define "MoonliftDSL" {
+    g.role .decls  { kind = "array" },
+    g.role .stmts  { kind = "array" },
+    g.role .params { kind = "array" },
+    g.role .conts  { kind = "array" },
+    g.role .value  { kind = "value" },
+
+    g.head .module {
+        g.slot .name  [g.string],
+        g.slot .body  [g.decls],
+        emit = function(n) return setmetatable({ kind = "module", name = tostring(n.name), body = n.body or {} }, Decl) end,
+    },
+
+    g.head .struct {
+        g.slot .name   [g.name],
+        g.slot .fields [g.params],
+        emit = function(n)
+            local name = llb_name_text(n.name, "struct name")
+            return setmetatable({ kind = "struct", name = name, type_name = name, body = typed_items_from_llb(n.fields or {}) }, Decl)
+        end,
+    },
+
+    g.head .union {
+        g.slot .name     [g.name],
+        g.slot .variants [g.value],
+        emit = function(n)
+            local name = llb_name_text(n.name, "union name")
+            return setmetatable({ kind = "union", name = name, type_name = name, body = n.variants or {} }, Decl)
+        end,
+    },
+
+    g.head .fn {
+        g.slot .name   [g.name],
+        g.slot .params [g.params],
+        g.slot .result [g.type] { optional = true },
+        g.slot .body   [g.stmts],
+        emit = function(n)
+            return setmetatable({ kind = "fn", name = llb_name_text(n.name, "function name"), params = typed_items_from_llb(n.params or {}), result = n.result, body = n.body or {} }, Decl)
+        end,
+    },
+
+    g.head .export_fn {
+        g.slot .name   [g.name],
+        g.slot .params [g.params],
+        g.slot .result [g.type] { optional = true },
+        g.slot .body   [g.stmts],
+        emit = function(n)
+            return setmetatable({ kind = "export_fn", name = llb_name_text(n.name, "function name"), params = typed_items_from_llb(n.params or {}), result = n.result, body = n.body or {} }, Decl)
+        end,
+    },
+
+    g.head .extern {
+        g.slot .name   [g.name],
+        g.slot .params [g.params],
+        g.slot .result [g.type] { optional = true },
+        g.slot .opts   [g.value],
+        emit = function(n)
+            return setmetatable({ kind = "extern", name = llb_name_text(n.name, "extern name"), params = typed_items_from_llb(n.params or {}), result = n.result, opts = n.opts or {} }, Decl)
+        end,
+    },
+
+    g.head .handle {
+        g.slot .name [g.name],
+        g.slot .opts [g.value],
+        emit = function(n) return setmetatable({ kind = "handle", name = llb_name_text(n.name, "handle name"), opts = n.opts or {} }, Decl) end,
+    },
+
+    g.head .const {
+        g.slot .name  [g.name],
+        g.slot .ty    [g.type],
+        g.slot .value [g.value],
+        emit = function(n) return setmetatable({ kind = "const", name = llb_name_text(n.name, "const name"), ty = n.ty, value = n.value }, Decl) end,
+    },
+
+    g.head .static {
+        g.slot .name  [g.name],
+        g.slot .ty    [g.type],
+        g.slot .value [g.value],
+        emit = function(n) return setmetatable({ kind = "static", name = llb_name_text(n.name, "static name"), ty = n.ty, value = n.value }, Decl) end,
+    },
+
+    g.head .import {
+        g.slot .target [g.value],
+        emit = function(n) return setmetatable({ kind = "import", name = n.target }, Decl) end,
+    },
+
+    g.head .expr_frag {
+        g.slot .name   [g.name],
+        g.slot .params [g.params],
+        g.slot .result [g.type],
+        g.slot .body   [g.value],
+        emit = function(n)
+            return setmetatable({ kind = "expr_frag", name = llb_name_text(n.name, "expr fragment name"), params = typed_items_from_llb(n.params or {}), result = n.result, body = n.body }, Decl)
+        end,
+    },
+
+    g.head .region {
+        g.slot .name   [g.name],
+        g.slot .params [g.params],
+        g.slot .conts  [g.conts],
+        g.slot .body   [g.stmts],
+        emit = function(n) return region_decl(llb_name_text(n.name, "region name"), n.params, n.conts, n.body) end,
+    },
+
+    g.head .entry {
+        g.slot .name   [g.name],
+        g.slot .params [g.params],
+        g.slot .body   [g.stmts],
+        emit = function(n) return { kind = "entry_decl", name = llb_name_text(n.name, "entry name"), params = typed_items_from_llb(n.params or {}), body = n.body or {} } end,
+    },
+
+    g.head .block {
+        g.slot .name   [g.name],
+        g.slot .params [g.params],
+        g.slot .body   [g.stmts],
+        emit = function(n) return { kind = "block_decl", name = llb_name_text(n.name, "block name"), params = typed_items_from_llb(n.params or {}), body = n.body or {} } end,
+    },
+
+    g.head .jump {
+        g.slot .target [g.name],
+        g.slot .args   [g.value],
+        emit = function(n) return setmetatable({ kind = "jump", target = llb_name_text(n.target, "jump target"), args = n.args or {} }, Stmt) end,
+    },
+
+    g.head .emit {
+        g.slot .target [g.name],
+        g.slot .args   [g.value],
+        g.slot .fills  [g.value],
+        emit = function(n)
+            local conts = {}
+            for cname, target in pairs(n.fills or {}) do
+                conts[#conts + 1] = O.ContBinding(cname, O.ContTargetLabel(Tr.BlockLabel(is(target, Name) and target.name or tostring(target))))
+            end
+            return setmetatable({ kind = "emit", target = llb_name_text(n.target, "emit target"), args = n.args or {}, conts = conts }, Stmt)
+        end,
+    },
+
+    g.head .let {
+        g.slot .name [g.name],
+        g.slot .ty   [g.type],
+        g.slot .init [g.value],
+        emit = function(n) return setmetatable({ kind = "let", name = llb_name_text(n.name, "let name"), ty = n.ty, init = n.init }, Stmt) end,
+    },
+
+    g.head .var {
+        g.slot .name [g.name],
+        g.slot .ty   [g.type],
+        g.slot .init [g.value],
+        emit = function(n) return setmetatable({ kind = "var", name = llb_name_text(n.name, "var name"), ty = n.ty, init = n.init }, Stmt) end,
+    },
+}
+
+M.llb = llb
+M.language = MoonLLB
+
 local _searcher_installed = false
 
 local function ensure_searcher()
@@ -1082,13 +1196,13 @@ local function make_env(opts)
     local env = {}
     for k, v in pairs(_G) do env[k] = v end
     ensure_searcher()
-    env.module, env.fn, env.export_fn = head("module"), head("fn"), head("export_fn")
-    env.extern, env.handle, env.const, env.static = head("extern"), head("handle"), head("const"), head("static")
-    env.import, env.expr_frag = head("import"), head("expr_frag")
-    env.struct, env.union, env.region = head("struct"), head("union"), head("region")
-    env.entry, env.block, env.jump, env.emit = head("entry"), head("block"), head("jump"), head("emit")
+    env.module, env.fn, env.export_fn = MoonLLB.exports.module, MoonLLB.exports.fn, MoonLLB.exports.export_fn
+    env.extern, env.handle, env.const, env.static = MoonLLB.exports.extern, MoonLLB.exports.handle, MoonLLB.exports.const, MoonLLB.exports.static
+    env.import, env.expr_frag = MoonLLB.exports.import, MoonLLB.exports.expr_frag
+    env.struct, env.union, env.region = MoonLLB.exports.struct, MoonLLB.exports.union, MoonLLB.exports.region
+    env.entry, env.block, env.jump, env.emit = MoonLLB.exports.entry, MoonLLB.exports.block, MoonLLB.exports.jump, MoonLLB.exports.emit
     env.ret, env.yield, env.when, env.If = M.ret, M.yield, M.when, M.If
-    env.let, env.var = name_head_stmt("let"), name_head_stmt("var")
+    env.let, env.var = MoonLLB.exports.let, MoonLLB.exports.var
     env.store, env.set, env.trap, env.assume, env.assert_ = M.store, M.set, M.trap, M.assume, M.assert_
     env.requires = M.requires
     env.astore, env.afence = M.astore, M.afence
@@ -1118,16 +1232,16 @@ local function make_env(opts)
     env.alignof = setmetatable({}, { __index = function(_, ty) return M.alignof(ty) end })
     env.N = setmetatable({}, { __index = function(_, k) return name_token(k) end })
     for n in pairs(scalar) do env[n] = scalar_type(n) end
-    env.ptr = ctor("ptr", function(ty) return S.SyntaxTypePtr(syn_type(ty)) end)
-    env.view = ctor("view", function(ty) return S.SyntaxTypeView(syn_type(ty)) end)
-    env.slice = ctor("slice", function(ty) return S.SyntaxTypeSlice(syn_type(ty)) end)
+    env.ptr = ctor("ptr", function(ty) return Ty.TPtr(concrete_type(ty)) end)
+    env.view = ctor("view", function(ty) return Ty.TView(concrete_type(ty)) end)
+    env.slice = ctor("slice", function(ty) return Ty.TSlice(concrete_type(ty)) end)
     env.array = ctor("array", function(ty) return ctor("array_len", function(n) return Ty.TArray(Ty.ArrayLenConst(tonumber(n)), concrete_type(ty)) end) end)
     env.fnptr = ctor("fnptr", function(params_) return ctor("fnptr_result", function(result) return Ty.TFunc(type_list(params_), concrete_type(result)) end) end)
     env.func_type = env.fnptr
     env.closure = ctor("closure", function(params_) return ctor("closure_result", function(result) return Ty.TClosure(type_list(params_), concrete_type(result)) end) end)
     env.closure_type = env.closure
-    env.lease = ctor("lease", function(ty) return S.SyntaxTypeLease(syn_type(ty)) end)
-    env.owned = ctor("owned", function(ty) return Ty.TOwned(lower.type(syn_type(ty))) end)
+    env.lease = ctor("lease", function(ty) return Ty.TLease(concrete_type(ty), Ty.LeaseOriginUnknown) end)
+    env.owned = ctor("owned", function(ty) return Ty.TOwned(concrete_type(ty)) end)
     for name, access_kind in pairs(access) do
         env[name] = ctor(name, function(ty) return Ty.TAccess(access_kind, concrete_type(ty)) end)
     end
@@ -1302,6 +1416,5 @@ end
 
 function M.make_env(opts) return make_env(opts) end
 M.T = T
-M.lower = lower
 
 return M

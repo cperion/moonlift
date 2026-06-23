@@ -61,7 +61,7 @@ Moonlift takes a different approach:
 | Concern | Moonlift's answer |
 |---|---|
 | **Metaprogramming** | LuaJIT Lua. Real genericity lives in Lua, not in template syntax. |
-| **Authoring** | Lua-owned DSL (`require("moonlift.dsl")`). Lua parses the shape, Moonlift normalizes to ASDL. Header/impl split via body-closures. |
+| **Authoring** | Lua-owned DSL (`require("moonlift.dsl")`). Lua parses the shape, LLB hosts declaration/control heads, and Moonlift normalizes to ASDL. Header/impl split via callable stages. |
 | **Native performance** | Cranelift JIT + object emission. Same backend tier as wasmtime. |
 | **Control flow** | Typed blocks with explicit jump/yield/return. No hidden `next`, no implicit fallthrough. |
 | **Semantics** | Everything meaningful is represented as ASDL (Algebraic Semi-structured Data Language) values. No hidden state in strings, callbacks, or mutable tables. |
@@ -364,10 +364,10 @@ The DSL assigns meaning to Lua table shapes:
 
 ### Header / implementation split
 
-`fn` and `region` declarations are **curried**. Supplying params and result
-does not create the declaration — it returns a **body-closure**, a Lua
-function waiting for the body. Export it from a header file, call it with a
-body in an implementation file:
+`fn` and `region` declaration chains are **curried**. Supplying params and
+result does not create the final declaration; it returns a **callable LLB
+stage** waiting for the body. Export it from a header file, call it with a body
+in an implementation file:
 
 ```lua
 -- math_header.lua — declare signatures
@@ -586,7 +586,6 @@ moonlift/
 ├── lua/moonlift/
 │   ├── dsl/                    DSL authoring surface
 │   ├── ast.lua                 Low-level ASDL node constructor API
-│   ├── syntax_lower.lua        MoonSyntax → MoonTree lowering
 │   ├── pvm.lua                 PVM: ASDL context, phases, triplets
 │   ├── tree_typecheck.lua      Typecheck/name resolution
 │   ├── tree_to_code.lua        Tree → normalized MoonCode

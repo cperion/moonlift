@@ -1,0 +1,170 @@
+module MoonWasm {
+    WasiTarget = WasiPreview1
+         | WasiPreview2
+         | WasiComponent
+
+    PointerWidth = Wasm32
+         | Wasm64
+
+    ModuleKind = WasmCommand
+         | WasmReactor
+         | WasmLibrary
+
+    ValType = I32
+         | I64
+         | F32
+         | F64
+         | V128
+         | RefExtern
+         | RefFunc
+
+    GlobalMutability = GlobalConst
+         | GlobalVar
+
+    Limits = (number min, number? max) unique
+
+    FuncType = (MoonWasm.ValType* params, MoonWasm.ValType* results) unique
+
+    Local = (string name, MoonWasm.ValType ty) unique
+
+    Global = (string name, MoonWasm.ValType ty, MoonWasm.GlobalMutability mut, MoonWasm.Instr* init) unique
+
+    Memory = (string name, MoonWasm.Limits limits, boolean shared) unique
+
+    Table = (string name, MoonWasm.ValType elem_ty, MoonWasm.Limits limits) unique
+
+    Import = ImportFunc(string module, string name, string local_name, MoonWasm.FuncType ty) unique
+         | ImportMemory(string module, string name, string local_name, MoonWasm.Limits limits) unique
+         | ImportGlobal(string module, string name, string local_name, MoonWasm.ValType ty, MoonWasm.GlobalMutability mut) unique
+         | ImportTable(string module, string name, string local_name, MoonWasm.ValType elem_ty, MoonWasm.Limits limits) unique
+
+    Export = ExportFunc(string name, string func_name) unique
+         | ExportMemory(string name, string memory_name) unique
+         | ExportGlobal(string name, string global_name) unique
+         | ExportTable(string name, string table_name) unique
+
+    DataMode = DataActive(string memory_name, MoonWasm.Instr* offset) unique
+         | DataPassive
+
+    DataSegment = (string id, MoonWasm.DataMode mode, string bytes) unique
+
+    ElemMode = ElemActive(string table_name, MoonWasm.Instr* offset) unique
+         | ElemPassive
+         | ElemDeclarative
+
+    ElemSegment = (string id, MoonWasm.ElemMode mode, string* funcs) unique
+
+    MemArg = (number align, number offset) unique
+
+    BlockType = (MoonWasm.ValType* params, MoonWasm.ValType* results) unique
+
+    NumericOp = I32Eqz
+         | I32Eq | I32Ne | I32LtS | I32LtU | I32GtS | I32GtU | I32LeS | I32LeU | I32GeS | I32GeU
+         | I64Eqz
+         | I64Eq | I64Ne | I64LtS | I64LtU | I64GtS | I64GtU | I64LeS | I64LeU | I64GeS | I64GeU
+         | F32Eq | F32Ne | F32Lt | F32Gt | F32Le | F32Ge
+         | F64Eq | F64Ne | F64Lt | F64Gt | F64Le | F64Ge
+         | I32Clz | I32Ctz | I32Popcnt
+         | I64Clz | I64Ctz | I64Popcnt
+         | I32Add | I32Sub | I32Mul | I32DivS | I32DivU | I32RemS | I32RemU
+         | I32And | I32Or | I32Xor | I32Shl | I32ShrS | I32ShrU | I32Rotl | I32Rotr
+         | I64Add | I64Sub | I64Mul | I64DivS | I64DivU | I64RemS | I64RemU
+         | I64And | I64Or | I64Xor | I64Shl | I64ShrS | I64ShrU | I64Rotl | I64Rotr
+         | F32Abs | F32Neg | F32Ceil | F32Floor | F32Trunc | F32Nearest | F32Sqrt
+         | F32Add | F32Sub | F32Mul | F32Div | F32Min | F32Max | F32Copysign
+         | F64Abs | F64Neg | F64Ceil | F64Floor | F64Trunc | F64Nearest | F64Sqrt
+         | F64Add | F64Sub | F64Mul | F64Div | F64Min | F64Max | F64Copysign
+         | I32WrapI64
+         | I32TruncF32S | I32TruncF32U | I32TruncF64S | I32TruncF64U
+         | I64ExtendI32S | I64ExtendI32U
+         | I64TruncF32S | I64TruncF32U | I64TruncF64S | I64TruncF64U
+         | F32ConvertI32S | F32ConvertI32U | F32ConvertI64S | F32ConvertI64U | F32DemoteF64
+         | F64ConvertI32S | F64ConvertI32U | F64ConvertI64S | F64ConvertI64U | F64PromoteF32
+         | I32ReinterpretF32 | I64ReinterpretF64 | F32ReinterpretI32 | F64ReinterpretI64
+
+    Instr = Nop
+         | Drop
+         | Select(MoonWasm.ValType? ty) unique
+         | Unreachable
+         | Block(string label, MoonWasm.BlockType ty, MoonWasm.Instr* body) unique
+         | Loop(string label, MoonWasm.BlockType ty, MoonWasm.Instr* body) unique
+         | If(MoonWasm.BlockType ty, MoonWasm.Instr* then_body, MoonWasm.Instr* else_body) unique
+         | Br(string label) unique
+         | BrIf(string label) unique
+         | BrTable(string* labels, string default_label) unique
+         | Return
+         | Call(string func_name) unique
+         | CallIndirect(string table_name, MoonWasm.FuncType ty) unique
+         | LocalGet(string name) unique
+         | LocalSet(string name) unique
+         | LocalTee(string name) unique
+         | GlobalGet(string name) unique
+         | GlobalSet(string name) unique
+         | I32Const(number value) unique
+         | I64Const(string value) unique
+         | F32Const(string value) unique
+         | F64Const(string value) unique
+         | I32Load(MoonWasm.MemArg mem) unique
+         | I64Load(MoonWasm.MemArg mem) unique
+         | F32Load(MoonWasm.MemArg mem) unique
+         | F64Load(MoonWasm.MemArg mem) unique
+         | I32Load8S(MoonWasm.MemArg mem) unique
+         | I32Load8U(MoonWasm.MemArg mem) unique
+         | I32Load16S(MoonWasm.MemArg mem) unique
+         | I32Load16U(MoonWasm.MemArg mem) unique
+         | I64Load8S(MoonWasm.MemArg mem) unique
+         | I64Load8U(MoonWasm.MemArg mem) unique
+         | I64Load16S(MoonWasm.MemArg mem) unique
+         | I64Load16U(MoonWasm.MemArg mem) unique
+         | I64Load32S(MoonWasm.MemArg mem) unique
+         | I64Load32U(MoonWasm.MemArg mem) unique
+         | I32Store(MoonWasm.MemArg mem) unique
+         | I64Store(MoonWasm.MemArg mem) unique
+         | F32Store(MoonWasm.MemArg mem) unique
+         | F64Store(MoonWasm.MemArg mem) unique
+         | I32Store8(MoonWasm.MemArg mem) unique
+         | I32Store16(MoonWasm.MemArg mem) unique
+         | I64Store8(MoonWasm.MemArg mem) unique
+         | I64Store16(MoonWasm.MemArg mem) unique
+         | I64Store32(MoonWasm.MemArg mem) unique
+         | MemorySize(string memory_name) unique
+         | MemoryGrow(string memory_name) unique
+         | MemoryCopy(string dst_memory, string src_memory) unique
+         | MemoryFill(string memory_name) unique
+         | MemoryInit(string memory_name, string data_id) unique
+         | DataDrop(string data_id) unique
+         | Numeric(MoonWasm.NumericOp op) unique
+
+    FuncKind = FuncInternal
+         | FuncWasiImport
+         | FuncAdapter
+         | FuncExported
+
+    SourceLoc = (string uri, number start_offset, number stop_offset) unique
+
+    DebugInfo = (string source_name, MoonWasm.SourceLoc* locations) unique
+
+    Func = (string name, MoonWasm.FuncKind kind, MoonWasm.FuncType ty, MoonWasm.Local* locals, MoonWasm.Instr* body, MoonWasm.DebugInfo? debug) unique
+
+    Start = NoStart
+         | StartFunc(string func_name) unique
+
+    ModuleMetadata = (string name, MoonWasm.PointerWidth pointer_width, MoonWasm.ModuleKind kind) unique
+
+    Module = (MoonWasm.WasiTarget target, MoonWasm.Import* imports, MoonWasm.Memory* memories, MoonWasm.Table* tables, MoonWasm.Global* globals, MoonWasm.Func* funcs, MoonWasm.Export* exports, MoonWasm.DataSegment* data, MoonWasm.ElemSegment* elems, MoonWasm.Start start, MoonWasm.ModuleMetadata meta) unique
+
+    ValidationIssue = IssueUnknownLocal(string func_name, string local_name) unique
+         | IssueUnknownGlobal(string name) unique
+         | IssueUnknownFunc(string name) unique
+         | IssueUnknownMemory(string name) unique
+         | IssueUnknownTable(string name) unique
+         | IssueUnknownData(string id) unique
+         | IssueDuplicateName(string namespace, string name) unique
+         | IssueBadBranchLabel(string func_name, string label) unique
+         | IssueStackMismatch(string func_name, string reason) unique
+         | IssueFuncTypeMismatch(string func_name, string reason) unique
+         | IssueInvalidWasiImport(string module, string name) unique
+         | IssueInvalidExport(string name, string reason) unique
+
+    ValidationReport = (MoonWasm.ValidationIssue* issues) unique
+}

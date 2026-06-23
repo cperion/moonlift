@@ -6,15 +6,16 @@ This document describes the Lua-owned Moonlift DSL implemented by
 `require("moonlift.dsl")`.
 
 The DSL is ordinary Lua. Lua performs the mechanical parse, evaluates host-time
-expressions, and hands real Lua values to Moonlift DSL objects. The DSL then
-normalizes those values by role and emits explicit `MoonSyntax`, `MoonTree`,
-and `MoonOpen` ASDL.
+expressions, and hands real Lua values to Moonlift DSL objects. Declaration and
+control heads are hosted by `lua/llb.lua`; the Moonlift DSL grammar then
+normalizes those values by role and emits explicit `MoonTree` and `MoonOpen`
+ASDL.
 
 There is no second source parser in the normal authoring path.
 This is the recommended path for new generated/metaprogrammed Moonlift code.
 
 ```text
-Lua syntax -> Lua values -> DSL role normalization -> Moonlift ASDL
+Lua syntax -> Lua values -> LLB role normalization -> Moonlift ASDL
 ```
 
 For declaration/control heads, keep dotted names (`fn .add`, `region .scan`, etc.)
@@ -299,14 +300,15 @@ splicing (`[]` / `spread(...)`), not by a DSL `import` declaration.
 ### Header / implementation split
 
 The DSL's `fn` and `region` declaration chains are **curried**: supplying
-params and result does not create the declaration — it returns a **body-closure**,
-a Lua function waiting for the body. This is the header.
+params and result does not create the final declaration. It returns a
+**callable LLB stage** waiting for the body. This is the header.
 
 ```lua
 fn .add { a [i32], b [i32] } [i32]
 ```
 
-The line above does not produce a function. It produces a callable Lua value.
+The line above does not produce a final declaration. It produces a callable Lua
+stage table.
 Call it with a body table to produce the full declaration:
 
 ```lua
@@ -346,11 +348,11 @@ return {
 
 What this unlocks:
 - **Contract-first design**: sign the protocol before any implementation
-- **Signature reuse**: same body-closure can be implemented differently per target
-- **Factories**: generate body-closures from parameters; fill bodies later
-- **Library mode**: modules export body-closures for callers to wire up
+- **Signature reuse**: same callable stage can be implemented differently per target
+- **Factories**: generate callable stages from parameters; fill bodies later
+- **Library mode**: modules export callable stages for callers to wire up
 
-The body-closure is an ordinary Lua value — storable, passable, exportable.
+The callable stage is an ordinary Lua value — storable, passable, exportable.
 No textual import directives. No parser. No antiquote.
 
 ## Names
@@ -1137,7 +1139,7 @@ The result is a metaprogramming surface with no parser debt.
 DSL module/declaration values expose:
 
 ```lua
-value:syntax()          -- MoonSyntax module for modules
+value:syntax()          -- MoonTree module for modules
 value:ast()             -- lowered MoonTree item/module
 value:typecheck(opts)   -- tree typecheck result
 value:lower(opts)       -- frontend lower_module result
