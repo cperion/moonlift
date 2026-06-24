@@ -874,6 +874,7 @@ local function bind_context(T)
                         captures[#captures + 1] = field
                     end
                 end
+                ctx.closure_value_has_captures[k.dst.text] = #captures > 0
                 if fn == nil then error("code_to_back: closure aggregate missing __moon_fn", 3) end
                 store_scalar_at_offset(ctx, addr, 0, bid(fn), Code.CodeTyCodePtr(k.ty.sig), "closure_fn")
                 store_scalar_at_offset(ctx, addr, 8, closure_env_ptr(ctx, addr, #captures > 0), Code.CodeTyDataPtr(nil), "closure_ctx")
@@ -1070,6 +1071,9 @@ local function bind_context(T)
             if #k.values == 0 then ctx.cmds[#ctx.cmds + 1] = Back.CmdReturnVoid
             else
                 local rty = ctx.value_types[k.values[1].text]
+                if pvm.classof(rty) == Code.CodeTyClosure and ctx.closure_value_has_captures[k.values[1].text] then
+                    error("code_to_back: returning captured closure descriptors requires a closure environment ownership model", 3)
+                end
                 if ctx.current_return_sret ~= nil and is_view_ty(rty) then
                     store_view_components_to_addr(ctx, ctx.current_return_sret, k.values[1], rty, "code_to_back.view_return")
                     ctx.cmds[#ctx.cmds + 1] = Back.CmdReturnVoid
@@ -1078,9 +1082,6 @@ local function bind_context(T)
                 elseif ctx.current_return_sret ~= nil and is_byref_aggregate_ty(rty) then
                     local src = aggregate_addr_for_value(ctx, k.values[1], rty)
                     if src == nil then error("code_to_back: aggregate return value has no address " .. k.values[1].text, 3) end
-                    if pvm.classof(rty) == Code.CodeTyClosure and (ctx.aggregate_value_size[k.values[1].text] or 16) > 16 then
-                        error("code_to_back: returning captured closure descriptors requires a closure environment ownership model", 3)
-                    end
                     local size = aggregate_size_align(ctx, rty)
                     local len = const_index(ctx, size)
                     ctx.cmds[#ctx.cmds + 1] = Back.CmdMemcpy(ctx.current_return_sret, src, len)
@@ -1102,6 +1103,7 @@ local function bind_context(T)
         ctx.aggregate_local_addr = {}
         ctx.aggregate_value_addr = {}
         ctx.aggregate_value_size = {}
+        ctx.closure_value_has_captures = {}
         ctx.local_stack_slots = {}
         local fsig = ctx.sigs[f.sig.text]
         local fabi = ctx.sig_abi_by_sig and ctx.sig_abi_by_sig[f.sig.text] or (fsig and sig_abi(ctx, fsig))
@@ -1110,6 +1112,10 @@ local function bind_context(T)
         for i = 1, #(f.blocks or {}) do
             ctx.block_params[f.blocks[i].id.text] = f.blocks[i].params or {}
             for j = 1, #(f.blocks[i].params or {}) do note_value(ctx, f.blocks[i].params[j].value, f.blocks[i].params[j].ty) end
+            for j = 1, #(f.blocks[i].insts or {}) do
+                local dst, ty = inst_dst_type(ctx, f.blocks[i].insts[j].kind)
+                note_value(ctx, dst, ty)
+            end
         end
         ctx.cmds[#ctx.cmds + 1] = Back.CmdBeginFunc(func_id(f.id))
         materialize_addressed_locals(ctx, f.locals, true)
@@ -1158,7 +1164,7 @@ local function bind_context(T)
     local function make_ctx(code_module, opts)
         opts = opts or {}
         local _, _, value, mem, effect = build_fact_context(code_module, opts)
-        local ctx = { cmds = {}, sigs = {}, sig_abi_by_sig = {}, next_tmp = 0, mem_backend_by_inst = {}, value_int_semantics_by_value = {}, value_float_mode_by_value = {}, value_expr_by_value = {}, effect_by_inst = {}, readonly_inst = {}, aggregate_local_addr = {}, aggregate_value_addr = {}, aggregate_value_size = {}, local_stack_slots = {}, layout_env = opts.layout_env, target = opts.target }
+        local ctx = { cmds = {}, sigs = {}, sig_abi_by_sig = {}, next_tmp = 0, mem_backend_by_inst = {}, value_int_semantics_by_value = {}, value_float_mode_by_value = {}, value_expr_by_value = {}, effect_by_inst = {}, readonly_inst = {}, aggregate_local_addr = {}, aggregate_value_addr = {}, aggregate_value_size = {}, closure_value_has_captures = {}, local_stack_slots = {}, layout_env = opts.layout_env, target = opts.target }
         for i = 1, #(code_module.sigs or {}) do ctx.sigs[code_module.sigs[i].id.text] = code_module.sigs[i] end
         local backend_by_access, object_by_access, readonly_objects = {}, {}, {}
         for _, info in ipairs(mem and mem.backend_info or {}) do backend_by_access[info.access.text] = info end
@@ -1268,6 +1274,7 @@ local function bind_context(T)
         ctx.aggregate_local_addr = {}
         ctx.aggregate_value_addr = {}
         ctx.aggregate_value_size = {}
+        ctx.closure_value_has_captures = {}
         ctx.local_stack_slots = {}
         local f, blocks = blocks_for_cover(code_module, graph or opts.graph or CodeGraph.graph(code_module), cover)
         local fsig = ctx.sigs[f.sig.text]

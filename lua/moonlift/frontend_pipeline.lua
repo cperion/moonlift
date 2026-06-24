@@ -231,64 +231,91 @@ local function bind_context(T)
         return checked
     end
 
+    local function process_event_sink(ctx, events)
+        return setmetatable({}, {
+            __index = function(_, key)
+                return function(payload)
+                    events[#events + 1] = ctx:make_event(key, payload)
+                end
+            end,
+        })
+    end
+
     local typecheck_module_process = llb.process. moonlift_typecheck_module (function(ctx, module, opts)
         opts = opts or {}
+        local events = {}
         local run_opts = {}
         for k, v in pairs(opts) do run_opts[k] = v end
-        run_opts.process_ctx = ctx
-        ctx. start { target = "checked", site = run_opts.site or "frontend" }
+        run_opts.process_ctx = process_event_sink(ctx, events)
+        events[#events + 1] = ctx:make_event("start", { target = "checked", site = run_opts.site or "frontend" })
         local ok, result = pcall(typecheck_module, module, run_opts)
         if not ok then
-            ctx. error { code = "E_MOONLIFT_TYPECHECK", message = tostring(result), target = "checked" }
-            return nil
+            local ev = ctx:diagnostic_event { severity = "error", code = "E_MOONLIFT_TYPECHECK", message = tostring(result), target = "checked" }
+            ev.target = "checked"
+            events[#events + 1] = ev
+            return llb.stream.raw(llb.stream.from.array(events))
         end
-        ctx. done { target = "checked", result = result }
-        return result
+        events[#events + 1] = ctx:make_event("done", { target = "checked", result = result })
+        events[#events + 1] = ctx:make_event("result", { result = result })
+        return llb.stream.raw(llb.stream.from.array(events))
     end)
 
     local checked_to_code_process = llb.process. moonlift_checked_to_code (function(ctx, checked, opts)
         opts = opts or {}
+        local events = {}
         local run_opts = {}
         for k, v in pairs(opts) do run_opts[k] = v end
-        run_opts.process_ctx = ctx
-        ctx. start { target = run_opts.root == "emit_c" and "c_code" or "back_code", site = run_opts.site or "frontend" }
+        run_opts.process_ctx = process_event_sink(ctx, events)
+        local target = run_opts.root == "emit_c" and "c_code" or "back_code"
+        events[#events + 1] = ctx:make_event("start", { target = target, site = run_opts.site or "frontend" })
         local ok, result = pcall(checked_to_code_result, checked, run_opts)
         if not ok then
-            ctx. error { code = "E_MOONLIFT_CHECKED_TO_CODE", message = tostring(result), target = run_opts.root == "emit_c" and "c_code" or "back_code" }
-            return nil
+            local ev = ctx:diagnostic_event { severity = "error", code = "E_MOONLIFT_CHECKED_TO_CODE", message = tostring(result), target = target }
+            ev.target = target
+            events[#events + 1] = ev
+            return llb.stream.raw(llb.stream.from.array(events))
         end
-        ctx. done { target = run_opts.root == "emit_c" and "c_code" or "back_code", result = result }
-        return result
+        events[#events + 1] = ctx:make_event("done", { target = target, result = result })
+        events[#events + 1] = ctx:make_event("result", { result = result })
+        return llb.stream.raw(llb.stream.from.array(events))
     end)
 
     local code_to_back_process = llb.process. moonlift_code_to_back (function(ctx, code_result, opts)
         opts = opts or {}
+        local events = {}
         local run_opts = {}
         for k, v in pairs(opts) do run_opts[k] = v end
-        run_opts.process_ctx = ctx
-        ctx. start { target = "back", site = run_opts.site or "frontend" }
+        run_opts.process_ctx = process_event_sink(ctx, events)
+        events[#events + 1] = ctx:make_event("start", { target = "back", site = run_opts.site or "frontend" })
         local ok, result = pcall(code_result_to_back, code_result, run_opts)
         if not ok then
-            ctx. error { code = "E_MOONLIFT_CODE_TO_BACK", message = tostring(result), target = "back" }
-            return nil
+            local ev = ctx:diagnostic_event { severity = "error", code = "E_MOONLIFT_CODE_TO_BACK", message = tostring(result), target = "back" }
+            ev.target = "back"
+            events[#events + 1] = ev
+            return llb.stream.raw(llb.stream.from.array(events))
         end
-        ctx. done { target = "back", result = result }
-        return result
+        events[#events + 1] = ctx:make_event("done", { target = "back", result = result })
+        events[#events + 1] = ctx:make_event("result", { result = result })
+        return llb.stream.raw(llb.stream.from.array(events))
     end)
 
     local code_to_c_process = llb.process. moonlift_code_to_c (function(ctx, code_result, opts)
         opts = opts or {}
+        local events = {}
         local run_opts = {}
         for k, v in pairs(opts) do run_opts[k] = v end
-        run_opts.process_ctx = ctx
-        ctx. start { target = "c", site = run_opts.site or "C frontend" }
+        run_opts.process_ctx = process_event_sink(ctx, events)
+        events[#events + 1] = ctx:make_event("start", { target = "c", site = run_opts.site or "C frontend" })
         local ok, result = pcall(code_result_to_c, code_result, run_opts)
         if not ok then
-            ctx. error { code = "E_MOONLIFT_CODE_TO_C", message = tostring(result), target = "c" }
-            return nil
+            local ev = ctx:diagnostic_event { severity = "error", code = "E_MOONLIFT_CODE_TO_C", message = tostring(result), target = "c" }
+            ev.target = "c"
+            events[#events + 1] = ev
+            return llb.stream.raw(llb.stream.from.array(events))
         end
-        ctx. done { target = "c", result = result }
-        return result
+        events[#events + 1] = ctx:make_event("done", { target = "c", result = result })
+        events[#events + 1] = ctx:make_event("result", { result = result })
+        return llb.stream.raw(llb.stream.from.array(events))
     end)
 
 

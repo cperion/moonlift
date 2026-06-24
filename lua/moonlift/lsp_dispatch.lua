@@ -113,71 +113,101 @@ local function bind_context(T)
 
     local document_events_process = llb.process. lsp_document (function(ctx, doc, opts)
         opts = opts or {}
-        local mode = opts.mode or "light"
-        ctx. load {
-            language = "moonlift",
-            uri = doc.uri.text,
-            version = doc.version.value,
-            bytes = #(doc.text or ""),
-            mode = mode,
-        }
-
-        local analysis, err
-        if mode == "diagnostic" then
-            analysis, err = analyze_doc_diagnostic_safe(doc)
-        else
-            analysis, err = analyze_doc_safe(doc)
-        end
-        if not analysis then
-            ctx. error {
-                code = "E_LSP_ANALYSIS",
-                message = tostring(err),
-                uri = doc.uri.text,
-                version = doc.version.value,
-            }
-            return nil
-        end
-
-        ctx. index {
-            language = "moonlift",
-            uri = doc.uri.text,
-            version = doc.version.value,
-            mode = mode,
-            analysis = analysis,
-        }
-
-        if opts.symbols then
-            local symbols = Sym.symbols(analysis)
-            for i = 1, #symbols do
-                ctx. symbol {
-                    uri = doc.uri.text,
-                    version = doc.version.value,
-                    symbol = symbols[i],
-                }
-            end
-        end
-
-        if opts.hover then
-            ctx. hover {
-                uri = doc.uri.text,
-                version = doc.version.value,
-                query = opts.hover,
-                hover = Hov.hover(opts.hover, analysis),
-            }
-        end
-
-        if opts.diagnostics and not diagnostics_disabled then
-            local diagnostics = Diag.diagnostics(analysis)
-            for i = 1, #diagnostics do
-                ctx:event("diagnostic", {
-                    uri = doc.uri.text,
-                    version = doc.version.value,
-                    diagnostic = diagnostics[i],
+        local function gen(param, state)
+            local doc0, opts0, mode = param.doc, param.opts, param.mode
+            local uri, version = doc0.uri.text, doc0.version.value
+            if state.phase == "load" then
+                state.phase = "analyze"
+                return state, param.ctx:make_event("load", {
+                    language = "moonlift",
+                    uri = uri,
+                    version = version,
+                    bytes = #(doc0.text or ""),
+                    mode = mode,
                 })
             end
-        end
 
-        return analysis
+            if state.phase == "analyze" then
+                local analysis, err
+                if mode == "diagnostic" then
+                    analysis, err = analyze_doc_diagnostic_safe(doc0)
+                else
+                    analysis, err = analyze_doc_safe(doc0)
+                end
+                if not analysis then
+                    state.phase = "done"
+                    return state, param.ctx:make_event("error", {
+                        code = "E_LSP_ANALYSIS",
+                        message = tostring(err),
+                        uri = uri,
+                        version = version,
+                    })
+                end
+                state.analysis = analysis
+                state.phase = "symbols"
+                return state, param.ctx:make_event("index", {
+                    language = "moonlift",
+                    uri = uri,
+                    version = version,
+                    mode = mode,
+                    analysis = analysis,
+                })
+            end
+
+            if state.phase == "symbols" then
+                if opts0.symbols then
+                    state.symbols = state.symbols or Sym.symbols(state.analysis)
+                    state.symbol_index = state.symbol_index or 1
+                    local symbol = state.symbols[state.symbol_index]
+                    if symbol ~= nil then
+                        state.symbol_index = state.symbol_index + 1
+                        return state, param.ctx:make_event("symbol", {
+                            uri = uri,
+                            version = version,
+                            symbol = symbol,
+                        })
+                    end
+                end
+                state.phase = "hover"
+            end
+
+            if state.phase == "hover" then
+                state.phase = "diagnostics"
+                if opts0.hover then
+                    return state, param.ctx:make_event("hover", {
+                        uri = uri,
+                        version = version,
+                        query = opts0.hover,
+                        hover = Hov.hover(opts0.hover, state.analysis),
+                    })
+                end
+            end
+
+            if state.phase == "diagnostics" then
+                if opts0.diagnostics and not diagnostics_disabled then
+                    state.diagnostics = state.diagnostics or Diag.diagnostics(state.analysis)
+                    state.diagnostic_index = state.diagnostic_index or 1
+                    local diagnostic = state.diagnostics[state.diagnostic_index]
+                    if diagnostic ~= nil then
+                        state.diagnostic_index = state.diagnostic_index + 1
+                        return state, param.ctx:make_event("diagnostic", {
+                            uri = uri,
+                            version = version,
+                            diagnostic = diagnostic,
+                        })
+                    end
+                end
+                state.phase = "result"
+            end
+
+            if state.phase == "result" then
+                state.phase = "done"
+                return state, param.ctx:make_event("result", { result = state.analysis })
+            end
+
+            return nil
+        end
+        return gen, { ctx = ctx, doc = doc, opts = opts, mode = opts.mode or "light" }, { phase = "load" }
     end)
 
     local function collect_document_events(doc, opts)

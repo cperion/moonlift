@@ -215,6 +215,17 @@ end
 local function normalize_stream_record_item(item)
     if is(item, RecordSpec) then return item end
     local parts, args = expr_call_path(item)
+    if parts and #parts == 2 then
+        return setmetatable({
+            name = tostring(parts[2]),
+            expr = setmetatable({
+                callee = make_path({ parts[1], parts[2] }),
+                args = { args[1] or {} },
+                origin = llb.origin_of(item),
+            }, Call),
+            origin = llb.origin_of(item),
+        }, RecordSpec)
+    end
     if parts and #parts == 3 then
         return setmetatable({
             name = tostring(parts[3]),
@@ -229,6 +240,18 @@ local function normalize_stream_record_item(item)
     return item
 end
 
+local function normalize_stream_body(t, origin)
+    local out = {}
+    for _, item in ipairs(array_items(t or {})) do
+        item = normalize_stream_record_item(item)
+        if not is(item, RecordSpec) then
+            die("stream received invalid item " .. tostring(cls(item) or llb.tagof(item) or type(item)), llb.origin_of(item) or origin)
+        end
+        out[#out + 1] = item
+    end
+    return out
+end
+
 local LL = llb.define "LLPVMDsl" {
     g.role .decls (role_list("program", { LangSpec = true, WorldSpec = true, StreamSpec = true, MachineSpec = true, PhaseSpec = true, TaskSpec = true, RootSpec = true })),
     g.role .lang_body (role_list("language", { TypeSpec = true })),
@@ -238,15 +261,7 @@ local LL = llb.define "LLPVMDsl" {
         kind = "array",
         algebra = "list",
         normalize = function(_, ctx, v)
-            local out = {}
-            for _, item in ipairs(array_items(v)) do
-                item = normalize_stream_record_item(item)
-                if not is(item, RecordSpec) then
-                    die("stream received invalid item " .. tostring(cls(item) or llb.tagof(item) or type(item)), llb.origin_of(item) or (ctx and ctx.origin))
-                end
-                out[#out + 1] = item
-            end
-            return out
+            return normalize_stream_body(v, ctx and ctx.origin)
         end,
     },
     g.role .phase_body (role_list("phase", { Directive = true, Stage = true })),
@@ -323,7 +338,7 @@ local function complete_machine_decl(self, item)
         return setmetatable({
             name = tostring(parts[2]),
             world = ident(parts[1], llb.origin_of(item)),
-            body = array_items(args[1] or {}),
+            body = normalize_stream_body(args[1] or {}, llb.origin_of(item)),
             origin = llb.origin_of(item),
         }, StreamSpec)
     end
@@ -932,16 +947,25 @@ local function fmt_value(v, f)
     if is(v, Ident) or is(v, Path) then return doc.text(tostring(v)) end
     if is(v, Field) then return doc.group { v.name, " [", fmt_type_ref(v.type), "]" } end
     if is(v, Call) then return doc.group { fmt_value(v.callee, f), " ", block(v.args or {}, f, fmt_value) } end
+    if llb.is(v, "Name") or llb.is(v, "Symbol") then return doc.text(v.text) end
+    if llb.is(v, "Head") and v.spec and v.spec.name then return doc.text(v.spec.name) end
     if type(v) == "table" then
         local ok, c = pcall(function() return tostring(require("moonlift.pvm").classof(v)) end)
         if ok and c and c:match("^Class%(MoonType%.") then return doc.text(fmt_type_ref(v)) end
     end
     if type(v) == "table" then
+        f.seen = f.seen or {}
+        if f.seen[v] then return doc.text("<cycle>") end
+        f.seen[v] = true
         local keys, items = {}, {}
-        for k in pairs(v) do if type(k) ~= "number" then keys[#keys + 1] = k end end
+        for k in pairs(v) do
+            if type(k) ~= "number" and k ~= "origin" and k ~= "__llb_tag" then keys[#keys + 1] = k end
+        end
         table.sort(keys)
         for i, k in ipairs(keys) do items[i] = doc.group { tostring(k), " = ", fmt_value(v[k], f) } end
-        return block(items, f, function(x) return x end)
+        local out = block(items, f, function(x) return x end)
+        f.seen[v] = nil
+        return out
     end
     if type(v) == "string" then return doc.text(string.format("%q", v)) end
     return doc.text(tostring(v))
@@ -970,7 +994,9 @@ fmt_spec = function(v, f)
     if is(v, ProgramSpec) and v.language then
         local def_body, machine_decl_count = machine_definition_format_body(v.language), #machine_decls(v.language)
         local program_body = {}
-        for i = machine_decl_count + 1, #(v.body or {}) do program_body[#program_body + 1] = v.body[i] end
+        for i = machine_decl_count + 1, #(v.body or {}) do
+            program_body[#program_body + 1] = complete_machine_decl(v.language, v.body[i]) or v.body[i]
+        end
         return doc.concat { "language. ", v.name, " ", block(def_body, f, fmt_spec), " ", block(program_body, f, fmt_spec) }
     end
     if is(v, ProgramSpec) then return doc.concat { "pvm. ", v.name, " ", block(v.body, f, fmt_spec) } end
@@ -982,7 +1008,7 @@ fmt_spec = function(v, f)
     if is(v, RecordSpec) then
         if is(v.expr, Call) then
             local parts = path_parts(v.expr.callee)
-            local op_name = parts[#parts]
+            local op_name = (#parts == 2 and parts[2] == v.name) and parts[1] or parts[#parts]
             return doc.group { op_name, ". ", v.name, " ", fmt_value((v.expr.args or {})[1] or {}, f) }
         end
         return doc.group { "record. ", v.name, " (", fmt_value(v.expr, f), ")" }
@@ -998,7 +1024,7 @@ fmt_spec = function(v, f)
 end
 function M.doc(value, opts) return fmt_spec(value, setmetatable({ opts = opts or {}, width = opts and opts.width or 100, indent_width = opts and opts.indent or 2, seen = {} }, llb.FormatContext)) end
 function M.format(value, opts) return llb.render(M.doc(value, opts or {}), opts or {}) end
-function M.file_text(value, opts) return table.concat({ 'local moon = require("moonlift")', 'moon.family.use()', '', 'return ' .. M.format(value, opts), '' }, "\n") end
+function M.file_text(value, opts) return table.concat({ 'local ll = require("llpvm")', 'll.use()', '', 'return ' .. M.format(value, opts), '' }, "\n") end
 
 function M.make_env(opts)
     opts = opts or {}
@@ -1068,85 +1094,116 @@ end
 
 M.records = llb.process. records (function(ctx, bytes)
     assert(type(bytes) == "string", "llpvm.records expects a byte string")
-    if #bytes < 20 then
-        ctx. error {
-            code = "E_LLPVM_SHORT_IMAGE",
-            message = "LLPVM image is shorter than the 20-byte header",
-            bytes = #bytes,
+    local function diagnostic_event(param, code, message, extra)
+        local ev = param.ctx:diagnostic_event {
+            severity = "error",
+            code = code,
+            message = message,
         }
-        return { records = 0, bytes = #bytes }
-    end
-
-    local magic = bytes:sub(1, 4)
-    local version = u32(bytes, 5)
-    local root_stream_id = u32(bytes, 9)
-    local root_op_count = u32(bytes, 13)
-    local root_op_table_offset = u32(bytes, 17)
-
-    ctx. header {
-        magic = magic,
-        version = version,
-        root_stream_id = root_stream_id,
-        root_op_count = root_op_count,
-        root_op_table_offset = root_op_table_offset,
-        bytes = #bytes,
-    }
-
-    if magic ~= "LLPV" then
-        ctx. error {
-            code = "E_LLPVM_BAD_MAGIC",
-            message = "LLPVM image has bad magic",
-            magic = magic,
-        }
-        return { records = 0, bytes = #bytes }
-    end
-
-    local table_start = root_op_table_offset + 1
-    for i = 1, root_op_count do
-        ctx. root_op {
-            index = i,
-            id = u32(bytes, table_start + (i - 1) * 4),
-            offset = table_start + (i - 1) * 4,
-        }
-    end
-
-    local offset = table_start + root_op_count * 4
-    local count = 0
-    while offset <= #bytes do
-        if offset + 4 > #bytes then
-            ctx. error {
-                code = "E_LLPVM_TRUNCATED_RECORD_HEADER",
-                message = "LLPVM record header is truncated",
-                offset = offset,
-            }
-            break
+        if extra then
+            for k, v in pairs(extra) do ev[k] = v end
         end
-        local tag = bytes:byte(offset)
-        local payload_bytes = u32(bytes, offset + 1)
-        local payload_offset = offset + 5
-        local next_offset = payload_offset + payload_bytes
-        if next_offset - 1 > #bytes then
-            ctx. error {
-                code = "E_LLPVM_TRUNCATED_RECORD_PAYLOAD",
-                message = "LLPVM record payload is truncated",
+        return ev
+    end
+
+    local function gen(param, state)
+        local phase = state.phase
+        local bytes0 = param.bytes
+        if phase == "start" then
+            if #bytes0 < 20 then
+                return { phase = "result", count = 0 }, diagnostic_event(param, "E_LLPVM_SHORT_IMAGE", "LLPVM image is shorter than the 20-byte header", { bytes = #bytes0 })
+            end
+            local magic = bytes0:sub(1, 4)
+            local version = u32(bytes0, 5)
+            local root_stream_id = u32(bytes0, 9)
+            local root_op_count = u32(bytes0, 13)
+            local root_op_table_offset = u32(bytes0, 17)
+            return {
+                phase = magic == "LLPV" and "root_op" or "bad_magic",
+                root_op_index = 1,
+                root_op_count = root_op_count,
+                root_op_table_offset = root_op_table_offset,
+                table_start = root_op_table_offset + 1,
+                offset = root_op_table_offset + 1 + root_op_count * 4,
+                count = 0,
+                magic = magic,
+            }, param.ctx:make_event("header", {
+                magic = magic,
+                version = version,
+                root_stream_id = root_stream_id,
+                root_op_count = root_op_count,
+                root_op_table_offset = root_op_table_offset,
+                bytes = #bytes0,
+            })
+        end
+
+        if phase == "bad_magic" then
+            return { phase = "result", count = 0 }, diagnostic_event(param, "E_LLPVM_BAD_MAGIC", "LLPVM image has bad magic", { magic = state.magic })
+        end
+
+        if phase == "root_op" then
+            local i = state.root_op_index
+            if i <= state.root_op_count then
+                local next_state = {}
+                for k, v in pairs(state) do next_state[k] = v end
+                next_state.root_op_index = i + 1
+                return next_state, param.ctx:make_event("root_op", {
+                    index = i,
+                    id = u32(bytes0, state.table_start + (i - 1) * 4),
+                    offset = state.table_start + (i - 1) * 4,
+                })
+            end
+            local next_state = {}
+            for k, v in pairs(state) do next_state[k] = v end
+            next_state.phase = "record"
+            state = next_state
+            phase = "record"
+        end
+
+        if phase == "record" then
+            local offset = state.offset
+            if offset > #bytes0 then
+                return { phase = "done", count = state.count }, param.ctx:make_event("result", { result = { records = state.count, bytes = #bytes0 } })
+            end
+            if offset + 4 > #bytes0 then
+                return { phase = "result", count = state.count }, diagnostic_event(param, "E_LLPVM_TRUNCATED_RECORD_HEADER", "LLPVM record header is truncated", { offset = offset })
+            end
+            local tag = bytes0:byte(offset)
+            local payload_bytes = u32(bytes0, offset + 1)
+            local payload_offset = offset + 5
+            local next_offset = payload_offset + payload_bytes
+            if next_offset - 1 > #bytes0 then
+                return { phase = "result", count = state.count }, diagnostic_event(param, "E_LLPVM_TRUNCATED_RECORD_PAYLOAD", "LLPVM record payload is truncated", {
+                    offset = offset,
+                    tag = tag,
+                    payload_bytes = payload_bytes,
+                })
+            end
+            local count = state.count + 1
+            local next_state = {}
+            for k, v in pairs(state) do next_state[k] = v end
+            next_state.offset = next_offset
+            next_state.count = count
+            return next_state, param.ctx:make_event("record", {
+                index = count,
                 offset = offset,
                 tag = tag,
+                tag_name = tag_names[tag],
+                payload_offset = payload_offset,
                 payload_bytes = payload_bytes,
-            }
-            break
+            })
         end
-        count = count + 1
-        ctx. record {
-            index = count,
-            offset = offset,
-            tag = tag,
-            tag_name = tag_names[tag],
-            payload_offset = payload_offset,
-            payload_bytes = payload_bytes,
-        }
-        offset = next_offset
+
+        if phase == "result" then
+            return { phase = "done", count = state.count or 0 }, param.ctx:make_event("result", { result = { records = state.count or 0, bytes = #bytes0 } })
+        end
+
+        if phase == "done" then
+            return nil
+        end
+        return nil
     end
-    return { records = count, bytes = #bytes }
+    return gen, { ctx = ctx, bytes = bytes }, { phase = "start" }
 end)
 
 local function clean_event_payload(ev)
@@ -1158,32 +1215,40 @@ local function clean_event_payload(ev)
 end
 
 M.validate = llb.process. validate (function(ctx, bytes)
-    local valid = true
-    local records = 0
-    local root_ops = 0
-    for ev in M.records(bytes) do
-        if ev.kind == "diagnostic" then
-            valid = false
-            ctx:event("diagnostic", clean_event_payload(ev))
-        elseif ev.kind == "header" then
-            if ev.magic ~= "LLPV" then valid = false end
-            ctx:event("header", clean_event_payload(ev))
-        elseif ev.kind == "root_op" then
-            root_ops = root_ops + 1
-            ctx:event("root_op", clean_event_payload(ev))
-        elseif ev.kind == "record" then
-            records = records + 1
-            ctx:event("record", clean_event_payload(ev))
-        else
-            ctx:event(ev.kind, clean_event_payload(ev))
+    local handle = M.records:start(bytes)
+    local upstream, up_param, up_state = llb.stream.raw(handle:stream())
+    local function gen(param, state)
+        if state.done then return nil end
+        local r = { upstream(up_param, state.up_state) }
+        if r[1] == nil then
+            state.done = true
+            return state, param.ctx:make_event("result", { result = {
+                valid = state.valid,
+                records = state.records,
+                root_ops = state.root_ops,
+                bytes = type(param.bytes) == "string" and #param.bytes or 0,
+            } })
         end
+        state.up_state = r[1]
+        local ev = r[2]
+        local payload = clean_event_payload(ev)
+        if ev.kind == "diagnostic" then
+            state.valid = false
+            local out = payload.diagnostic and param.ctx:diagnostic_event(payload.diagnostic) or param.ctx:make_event("diagnostic", payload)
+            for k, v in pairs(payload) do
+                if k ~= "diagnostic" then out[k] = v end
+            end
+            return state, out
+        elseif ev.kind == "header" then
+            if ev.magic ~= "LLPV" then state.valid = false end
+        elseif ev.kind == "root_op" then
+            state.root_ops = state.root_ops + 1
+        elseif ev.kind == "record" then
+            state.records = state.records + 1
+        end
+        return state, param.ctx:make_event(ev.kind, payload)
     end
-    return {
-        valid = valid,
-        records = records,
-        root_ops = root_ops,
-        bytes = type(bytes) == "string" and #bytes or 0,
-    }
+    return gen, { ctx = ctx, bytes = bytes }, { up_state = up_state, valid = true, records = 0, root_ops = 0 }
 end)
 
 function M.inspect(bytes)

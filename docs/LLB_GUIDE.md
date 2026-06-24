@@ -92,6 +92,12 @@ workbench machinery declared by LLB grammars: stream plans, role normalizers,
 future staged head machines, fragment expanders, family projectors, diagnostics,
 indexing, formatting, and environment installers.
 
+The stream architecture is documented in
+[`LLB_STREAM_WORKBENCH_DESIGN.md`](LLB_STREAM_WORKBENCH_DESIGN.md). This is the
+architectural rule for new LLB work: streams are demand boundaries, and arrays,
+trees, reports, indexes, diagnostic lists, or backend buffers are explicit
+materializing sinks.
+
 ## Surfaces
 
 LLB has three public surfaces.
@@ -721,7 +727,7 @@ Use `llb.fail(message, spec)` at hard grammar boundaries. Use process diagnostic
 for streamed analysis where the caller should continue receiving events.
 
 ```lua
-ctx. error {
+return next_state, ctx:diagnostic {
   code = "E_BAD_RECORD",
   message = "record is truncated",
   offset = offset,
@@ -815,6 +821,11 @@ object.owner
 
 LLB processes are `gen,param,state` event streams.
 
+A process is pull-driven. The consumer asks for the next event; the generator
+computes only enough work to produce that event. Do not prebuild an event array
+unless the process is explicitly wrapping a materializing boundary such as a
+whole backend call.
+
 ```lua
 local records = llb.process. records (function(ctx, bytes)
   local function gen(param, state)
@@ -874,15 +885,20 @@ h:cancel()
 Context API:
 
 ```lua
-ctx. load { uri = uri }
-ctx. index { analysis = analysis }
-ctx. symbol { symbol = fact }
-ctx:event("diagnostic", { diagnostic = fact })
-ctx. step { pc = pc }
+ctx:make_event("load", { uri = uri })       -- construct event
+ctx:event("index", { analysis = analysis }) -- construct event dynamically
+ctx:diagnostic { ... }                      -- construct diagnostic event
 ctx:consume(1)
 ctx:cancelled()
 ctx:here("event")
 ctx:at(value, origin)
+```
+
+These helpers return events. They do not yield and they do not enqueue. A
+generator must return the event explicitly:
+
+```lua
+return next_state, ctx:make_event("step", { pc = pc })
 ```
 
 Use processes for:
@@ -1045,16 +1061,43 @@ Use processes for this:
 
 ```lua
 local document = llb.process. document (function(ctx, src, uri)
-  ctx. load { uri = uri, bytes = #src }
-  local ast = load_ast(src, uri)
-  ctx. index { ast = ast }
-  for _, sym in ipairs(symbols(ast)) do
-    ctx. symbol { symbol = sym }
+  local function gen(param, state)
+    if state.phase == "load" then
+      state.phase = "index"
+      return state, ctx:make_event("load", { uri = uri, bytes = #src })
+    end
+    if state.phase == "index" then
+      state.ast = load_ast(src, uri)
+      state.symbols = symbols(state.ast)
+      state.i = 1
+      state.phase = "symbols"
+      return state, ctx:make_event("index", { ast = state.ast })
+    end
+    if state.phase == "symbols" then
+      local sym = state.symbols[state.i]
+      if sym then
+        state.i = state.i + 1
+        return state, ctx:make_event("symbol", { symbol = sym })
+      end
+      state.diagnostics = diagnostics(state.ast)
+      state.i = 1
+      state.phase = "diagnostics"
+    end
+    if state.phase == "diagnostics" then
+      local d = state.diagnostics[state.i]
+      if d then
+        state.i = state.i + 1
+        return state, ctx:diagnostic(d)
+      end
+      state.phase = "result"
+    end
+    if state.phase == "result" then
+      state.phase = "done"
+      return state, ctx:make_event("result", { result = state.ast })
+    end
+    return nil
   end
-  for _, d in ipairs(diagnostics(ast)) do
-    ctx:event("diagnostic", { diagnostic = d })
-  end
-  return ast
+  return gen, {}, { phase = "load" }
 end)
 ```
 

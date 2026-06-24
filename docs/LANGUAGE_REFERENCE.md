@@ -733,11 +733,22 @@ Family methods are dot-only. Do not use colon syntax.
 | `process(...)` | Iterate process events directly. |
 | `handle:events()` | Iterate emitted events. |
 | `handle:result()` | Final process result. |
-| `ctx. event_kind { payload... }` | Emit process event through dot head. |
-| `ctx:event(kind, payload)` | Emit process event dynamically. |
-| `ctx. error { ... }` | Emit diagnostic/error event. |
+| `ctx:make_event(kind, payload)` | Construct process event. |
+| `ctx:event(kind, payload)` | Construct process event dynamically. |
+| `ctx:diagnostic { ... }` | Construct diagnostic/error event and record it in the handle diagnostics bag. |
 | `ctx:consume(n)` | Account work budget. |
 | `ctx:cancelled()` | Check cancellation. |
+
+Process helpers return events. They do not yield and do not enqueue. The
+generator returns the event explicitly:
+
+```lua
+return next_state, ctx:make_event("record", payload)
+```
+
+LLB streams are demand boundaries. A process should compute only the next
+semantic event unless it is explicitly wrapping a materializing sink such as a
+complete report, backend command buffer, or user-requested collection.
 
 ### Grammar/meta API
 
@@ -1451,7 +1462,7 @@ _ / spread            structural splice markers
 origins/provenance    diagnostic blame across helpers/factories
 diagnostics           structured failures and notes
 formatting            semantic formatting of evaluated DSL values
-processes             GPS-backed event streams
+processes             GPS-backed demand streams
 families              dependency/collision/environment policy
 ```
 
@@ -1471,7 +1482,9 @@ struct. Point {
 
 Use functions when computing one value. Use fragments when composing
 role-shaped values. Use processes when work should stream events, diagnostics,
-progress, or debugger steps.
+progress, or debugger steps. Materialized arrays, trees, reports, indexes, and
+diagnostic lists are explicit sinks over streams, not the default hidden
+representation of work.
 
 ### Header / implementation split
 

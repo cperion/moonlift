@@ -1582,10 +1582,7 @@ end
 ProcessContextMethods.emit = ProcessContextMethods.make_event
 
 function ProcessContextMethods:event(kind, payload)
-  local ev = process_event(self, kind, payload, origin_of(payload))
-  self.pending = self.pending or {}
-  self.pending[#self.pending + 1] = ev
-  return ev
+  return process_event(self, kind, payload, origin_of(payload))
 end
 
 function ProcessContextMethods:diagnostic_event(spec)
@@ -1596,10 +1593,7 @@ function ProcessContextMethods:diagnostic_event(spec)
 end
 
 function ProcessContextMethods:diagnostic(spec)
-  local ev = self:diagnostic_event(spec)
-  self.pending = self.pending or {}
-  self.pending[#self.pending + 1] = ev
-  return ev
+  return self:diagnostic_event(spec)
 end
 
 function ProcessContextMethods:here(kind)
@@ -1657,7 +1651,6 @@ local function process_context(handle)
     handle = handle,
     diagnostics = handle.diagnostics,
     seq = 0,
-    pending = {},
   }, ProcessContext)
 end
 
@@ -1712,12 +1705,10 @@ local function process_stream_raw(h, ctx, opts)
     local compiled = (opts.codegen == false) and stream.fuse(first) or stream.compile(first, opts.stream or opts)
     gen, param, state = stream.raw(compiled)
   elseif type(first) ~= "function" and not is_tag(first, "Stream") and not stream._is_source(first) then
-    local events = {}
-    append(events, ctx.pending or {})
-    if first ~= nil then
-      events[#events + 1] = process_event(ctx, "result", { result = first }, origin_of(first))
-    end
-    gen, param, state = stream.raw(stream.from.array(events))
+    llb.fail("process " .. tostring(p.name) .. " stream factory must return gen,param,state, Stream, StreamSource, or StreamPlan", {
+      code = "E_PROCESS_STREAM",
+      primary = p.origin,
+    }, 2)
   else
     gen, param, state = stream.raw(unpack(made, 1, made.n))
   end

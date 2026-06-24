@@ -227,9 +227,53 @@ local function validate_package(ctx, package)
     return report
 end
 
+local function collecting_context(ctx, events)
+    return setmetatable({}, {
+        __index = function(_, key)
+            if key == "event" then
+                return function(_, kind, payload)
+                    local ev = ctx:make_event(kind, payload)
+                    events[#events + 1] = ev
+                    return ev
+                end
+            end
+            if key == "diagnostic" then
+                return function(_, spec)
+                    local ev = ctx:diagnostic_event(spec)
+                    events[#events + 1] = ev
+                    return ev
+                end
+            end
+            return function(_, payload)
+                local ev = ctx:make_event(key, payload)
+                events[#events + 1] = ev
+                return ev
+            end
+        end,
+    })
+end
+
+local function materialized_event_stream(ctx, fn)
+    local function gen(param, state)
+        if state == nil then
+            local events = {}
+            local report = param.fn(collecting_context(param.ctx, events))
+            events[#events + 1] = param.ctx:make_event("result", { result = report })
+            state = { events = events, index = 1 }
+        end
+        local ev = state.events[state.index]
+        if ev == nil then return nil end
+        state.index = state.index + 1
+        return state, ev
+    end
+    return gen, { ctx = ctx, fn = fn }, nil
+end
+
 M.process = llb.process.phase_validate {
     stream = function(ctx, package)
-        return validate_package(ctx, package)
+        return materialized_event_stream(ctx, function(event_ctx)
+            return validate_package(event_ctx, package)
+        end)
     end,
 }
 

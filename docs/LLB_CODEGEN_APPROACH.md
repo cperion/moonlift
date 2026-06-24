@@ -15,6 +15,18 @@ reflective LLB runtime defines the semantics
 compiled LLB runtime specializes those semantics
 ```
 
+The architectural substrate is the stream workbench model in
+[`LLB_STREAM_WORKBENCH_DESIGN.md`](LLB_STREAM_WORKBENCH_DESIGN.md):
+
+```text
+streams are demand boundaries
+materialized IR/report/index/diagnostic arrays are explicit sinks
+```
+
+Codegen therefore compiles stream graphs. It should not bake in eager
+intermediate representations unless the generated sink is explicitly the
+consumer's requested artifact.
+
 Fast paths are allowed to be small, direct, and allocation-light. Error paths
 must replay through the reflective runtime so diagnostics keep the same semantic
 context: language, head, slot, role, event, origin, comments, and related notes.
@@ -49,6 +61,11 @@ gen(param, state) -> next_state, payload...
 A stream stores the generator, parameter object, and current state. This makes
 processes and tooling pipelines compatible with direct LuaJIT-friendly
 generators instead of requiring coroutine resume/yield for every event.
+
+The consumer controls progress. A generated stream computes only the next
+payload required by the downstream sink, which lets tooling short-circuit,
+fusion remove intermediate arrays, and diagnostics stop after the first hard
+failure when that is the requested sink.
 
 The public surface is split between live streams and declarative stream specs:
 

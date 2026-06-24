@@ -1681,7 +1681,11 @@ function M.use(opts)
     return session
 end
 
-local function compile_source_chunk(src, chunk_name, opts, ctx)
+local function emit_process_event(ctx, events, kind, payload)
+    if ctx and events then events[#events + 1] = ctx:make_event(kind, payload) end
+end
+
+local function compile_source_chunk(src, chunk_name, opts, ctx, events)
     opts = opts or {}
     local loader = loadstring or load
     local session = M.use({
@@ -1696,13 +1700,11 @@ local function compile_source_chunk(src, chunk_name, opts, ctx)
     local fn, err
     local source_name = chunk_name or "=(moonlift.dsl)"
     local source_ctx = build_source_context(source_name, src)
-    if ctx then
-        ctx. load {
-            language = "moonlift",
-            chunk = source_name,
-            bytes = #src,
-        }
-    end
+    emit_process_event(ctx, events, "load", {
+        language = "moonlift",
+        chunk = source_name,
+        bytes = #src,
+    })
     local function stamp(...)
         local n = select("#", ...)
         for i = 1, n do
@@ -1713,54 +1715,46 @@ local function compile_source_chunk(src, chunk_name, opts, ctx)
     if loadstring then
         fn, err = loader(src, source_name)
         if not fn then
-            if ctx then
-                ctx. error {
-                    code = "E_MOONLIFT_DSL_LOAD",
-                    message = tostring(err),
-                    chunk = source_name,
-                }
-            end
+            emit_process_event(ctx, events, "error", {
+                code = "E_MOONLIFT_DSL_LOAD",
+                message = tostring(err),
+                chunk = source_name,
+            })
             die(err, 2)
         end
         setfenv(fn, env)
     else
         fn, err = loader(src, source_name, "t", env)
         if not fn then
-            if ctx then
-                ctx. error {
-                    code = "E_MOONLIFT_DSL_LOAD",
-                    message = tostring(err),
-                    chunk = source_name,
-                }
-            end
+            emit_process_event(ctx, events, "error", {
+                code = "E_MOONLIFT_DSL_LOAD",
+                message = tostring(err),
+                chunk = source_name,
+            })
             die(err, 2)
         end
     end
-    if ctx then
-        ctx. index {
+    emit_process_event(ctx, events, "index", {
+        language = "moonlift",
+        chunk = source_name,
+        session = session,
+        source = source_ctx,
+    })
+    return function(...)
+        emit_process_event(ctx, events, "eval", {
             language = "moonlift",
             chunk = source_name,
-            session = session,
-            source = source_ctx,
-        }
-    end
-    return function(...)
-        if ctx then
-            ctx. eval {
-                language = "moonlift",
-                chunk = source_name,
-                argc = select("#", ...),
-            }
-        end
+            argc = select("#", ...),
+        })
         local packed = { fn(...) }
         stamp(unpack(packed))
-        if ctx then
-            ctx. result {
-                language = "moonlift",
-                chunk = source_name,
-                count = #packed,
-            }
-        end
+        emit_process_event(ctx, events, "result", {
+            language = "moonlift",
+            chunk = source_name,
+            count = #packed,
+            values = packed,
+            result = packed[1],
+        })
         return unpack(packed)
     end, {
         session = session,
@@ -1771,17 +1765,20 @@ end
 
 M.source = llb.process. source (function(ctx, src, chunk_name, opts)
     opts = opts or {}
-    local chunk, meta = compile_source_chunk(src, chunk_name, opts, ctx)
+    local events = {}
+    local chunk, meta = compile_source_chunk(src, chunk_name, opts, ctx, events)
     if opts.eval then
         local args = opts.args or {}
-        return chunk(unpack(args, 1, args.n or #args))
+        chunk(unpack(args, 1, args.n or #args))
+        return llb.stream.raw(llb.stream.from.array(events))
     end
-    return {
+    events[#events + 1] = ctx:make_event("result", { result = {
         chunk = chunk,
         session = meta.session,
         source = meta.source,
         name = meta.chunk,
-    }
+    } })
+    return llb.stream.raw(llb.stream.from.array(events))
 end)
 
 function M.loadstring(src, chunk_name, opts)

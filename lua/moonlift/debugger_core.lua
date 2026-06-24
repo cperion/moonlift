@@ -328,13 +328,13 @@ function Debugger:get_state()
     return self.state
 end
 
-local function yield_debug_event(ctx, debugger, kind, payload)
+local function make_debug_event(ctx, debugger, kind, payload)
     payload = payload or {}
     payload.state = debugger:get_state()
     payload.terminated = debugger:is_terminated()
     payload.variables = debugger:get_variables()
     payload.stack = debugger:stack_trace()
-    ctx:event(kind, payload)
+    return ctx:make_event(kind, payload)
 end
 
 function Debugger:process(commands)
@@ -343,66 +343,85 @@ end
 
 M.process = llb.process. debugger (function(ctx, debugger, commands)
     commands = commands or { "init", "start" }
-    ctx. state {
-        state = debugger:get_state(),
-        terminated = debugger:is_terminated(),
-    }
-
-    for i = 1, #commands do
-        if ctx:cancelled() then
-            yield_debug_event(ctx, debugger, "cancelled", { command = commands[i] })
-            return {
-                state = debugger:get_state(),
-                terminated = debugger:is_terminated(),
-                cancelled = true,
-            }
-        end
-
-        local command = commands[i]
+    local function command_event(param, command)
+        local debugger0 = param.debugger
         local op = type(command) == "table" and command.op or command
         if op == "init" then
-            local ok, err = pcall(function() debugger:init() end)
-            if ok then yield_debug_event(ctx, debugger, "initialized", { command = command })
-            else ctx. error { code = "E_DEBUG_INIT", message = tostring(err), command = command } end
+            local ok, err = pcall(function() debugger0:init() end)
+            if ok then return make_debug_event(param.ctx, debugger0, "initialized", { command = command }) end
+            return param.ctx:make_event("error", { code = "E_DEBUG_INIT", message = tostring(err), command = command })
         elseif op == "start" then
-            local block, err = debugger:start()
-            if block then yield_debug_event(ctx, debugger, "paused", { reason = "entry", block = block, command = command })
-            else ctx. error { code = "E_DEBUG_START", message = tostring(err), command = command } end
+            local block, err = debugger0:start()
+            if block then return make_debug_event(param.ctx, debugger0, "paused", { reason = "entry", block = block, command = command }) end
+            return param.ctx:make_event("error", { code = "E_DEBUG_START", message = tostring(err), command = command })
         elseif op == "step" or op == "next" or op == "step_block" then
-            local block, err = debugger:step_block()
-            if block then yield_debug_event(ctx, debugger, "step", { block = block, command = command })
-            elseif debugger:is_terminated() then yield_debug_event(ctx, debugger, "terminated", { command = command })
-            else ctx. error { code = "E_DEBUG_STEP", message = tostring(err), command = command } end
+            local block, err = debugger0:step_block()
+            if block then return make_debug_event(param.ctx, debugger0, "step", { block = block, command = command }) end
+            if debugger0:is_terminated() then return make_debug_event(param.ctx, debugger0, "terminated", { command = command }) end
+            return param.ctx:make_event("error", { code = "E_DEBUG_STEP", message = tostring(err), command = command })
         elseif op == "continue" then
-            local result, err = debugger:continue()
+            local result, err = debugger0:continue()
             if result then
                 local kind = result.type == "terminated" and "terminated" or "paused"
-                yield_debug_event(ctx, debugger, kind, { reason = result.type, result = result, command = command })
-            else
-                ctx. error { code = "E_DEBUG_CONTINUE", message = tostring(err), command = command }
+                return make_debug_event(param.ctx, debugger0, kind, { reason = result.type, result = result, command = command })
             end
+            return param.ctx:make_event("error", { code = "E_DEBUG_CONTINUE", message = tostring(err), command = command })
         elseif op == "pause" then
-            debugger:pause()
-            yield_debug_event(ctx, debugger, "paused", { reason = "pause", command = command })
+            debugger0:pause()
+            return make_debug_event(param.ctx, debugger0, "paused", { reason = "pause", command = command })
         elseif op == "breakpoint" then
-            local key = debugger:set_breakpoint(command.block or command.label, command)
-            yield_debug_event(ctx, debugger, "breakpoint", { key = key, command = command })
+            local key = debugger0:set_breakpoint(command.block or command.label, command)
+            return make_debug_event(param.ctx, debugger0, "breakpoint", { key = key, command = command })
         elseif op == "clear_breakpoint" then
-            debugger:clear_breakpoint(command.key)
-            yield_debug_event(ctx, debugger, "breakpoint_cleared", { key = command.key, command = command })
+            debugger0:clear_breakpoint(command.key)
+            return make_debug_event(param.ctx, debugger0, "breakpoint_cleared", { key = command.key, command = command })
         elseif op == "variables" then
-            yield_debug_event(ctx, debugger, "variables", { command = command })
+            return make_debug_event(param.ctx, debugger0, "variables", { command = command })
         elseif op == "stack" then
-            yield_debug_event(ctx, debugger, "stack", { command = command })
-        else
-            ctx. error { code = "E_DEBUG_COMMAND", message = "unknown debugger process command " .. tostring(op), command = command }
+            return make_debug_event(param.ctx, debugger0, "stack", { command = command })
         end
+        return param.ctx:make_event("error", { code = "E_DEBUG_COMMAND", message = "unknown debugger process command " .. tostring(op), command = command })
     end
 
-    return {
-        state = debugger:get_state(),
-        terminated = debugger:is_terminated(),
-    }
+    local function gen(param, state)
+        if state.phase == "state" then
+            state.phase = "command"
+            return state, param.ctx:make_event("state", {
+                state = param.debugger:get_state(),
+                terminated = param.debugger:is_terminated(),
+            })
+        end
+        if state.phase == "command" then
+            local command = param.commands[state.index]
+            if command == nil then
+                state.phase = "result"
+            elseif param.ctx:cancelled() then
+                state.phase = "cancelled_result"
+                return state, make_debug_event(param.ctx, param.debugger, "cancelled", { command = command })
+            else
+                state.index = state.index + 1
+                return state, command_event(param, command)
+            end
+        end
+        if state.phase == "cancelled_result" then
+            state.phase = "done"
+            return state, param.ctx:make_event("result", { result = {
+                state = param.debugger:get_state(),
+                terminated = param.debugger:is_terminated(),
+                cancelled = true,
+            } })
+        end
+        if state.phase == "result" then
+            state.phase = "done"
+            return state, param.ctx:make_event("result", { result = {
+                state = param.debugger:get_state(),
+                terminated = param.debugger:is_terminated(),
+            } })
+        end
+        return nil
+    end
+
+    return gen, { ctx = ctx, debugger = debugger, commands = commands }, { phase = "state", index = 1 }
 end)
 
 return M
