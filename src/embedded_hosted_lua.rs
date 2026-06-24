@@ -212,6 +212,7 @@ pub fn embedded_modules() -> Vec<(&'static str, &'static [u8])> {
         ("moonlift.source_map", include_bytes!(concat!(env!("OUT_DIR"), "/embedded_lua_bytecode/moonlift_source_map.ljbc")).as_slice()),
         ("moonlift.source_position_index", include_bytes!(concat!(env!("OUT_DIR"), "/embedded_lua_bytecode/moonlift_source_position_index.ljbc")).as_slice()),
         ("moonlift.source_text_apply", include_bytes!(concat!(env!("OUT_DIR"), "/embedded_lua_bytecode/moonlift_source_text_apply.ljbc")).as_slice()),
+        ("moonlift.stencil_bank", include_bytes!(concat!(env!("OUT_DIR"), "/embedded_lua_bytecode/moonlift_stencil_bank.ljbc")).as_slice()),
         ("moonlift.stencil_c", include_bytes!(concat!(env!("OUT_DIR"), "/embedded_lua_bytecode/moonlift_stencil_c.ljbc")).as_slice()),
         ("moonlift.surface_resolve", include_bytes!(concat!(env!("OUT_DIR"), "/embedded_lua_bytecode/moonlift_surface_resolve.ljbc")).as_slice()),
         ("moonlift.tree_contract_facts", include_bytes!(concat!(env!("OUT_DIR"), "/embedded_lua_bytecode/moonlift_tree_contract_facts.ljbc")).as_slice()),

@@ -201,6 +201,34 @@ local function bind_context(T)
         return vty and vty.elem or nil
     end
 
+    local function slice_elem_type(fctx, ctx, site, slice)
+        local sty = value_type(fctx, ctx, slice)
+        local cls = pvm.classof(sty)
+        if cls == Code.CodeTyLease then
+            sty = sty.base
+            cls = pvm.classof(sty)
+        end
+        if sty ~= nil and cls ~= Code.CodeTySlice then
+            add_issue(ctx, Code.CodeIssueTypeMismatch(site, Code.CodeTySlice(Code.CodeTyVoid), sty))
+            return nil
+        end
+        return sty and sty.elem or nil
+    end
+
+    local function byte_span_type(fctx, ctx, site, span)
+        local sty = value_type(fctx, ctx, span)
+        local cls = pvm.classof(sty)
+        if cls == Code.CodeTyLease then
+            sty = sty.base
+            cls = pvm.classof(sty)
+        end
+        if sty ~= nil and sty ~= Code.CodeTyByteSpan and cls ~= Code.CodeTyByteSpan then
+            add_issue(ctx, Code.CodeIssueTypeMismatch(site, Code.CodeTyByteSpan, sty))
+            return false
+        end
+        return true
+    end
+
     local place_type
     place_type = function(ctx, fctx, place, site)
         local cls = pvm.classof(place)
@@ -358,6 +386,14 @@ local function bind_context(T)
             return kind.dst, Code.CodeTyDataPtr(elem)
         elseif cls == Code.CodeInstViewLen then return kind.dst, Code.CodeTyIndex
         elseif cls == Code.CodeInstViewStride then return kind.dst, Code.CodeTyIndex
+        elseif cls == Code.CodeInstSliceMake then return kind.dst, Code.CodeTySlice(kind.elem_ty)
+        elseif cls == Code.CodeInstSliceData then
+            local elem = slice_elem_type(fctx, ctx, "slice.data", kind.slice)
+            return kind.dst, Code.CodeTyDataPtr(elem)
+        elseif cls == Code.CodeInstSliceLen then return kind.dst, Code.CodeTyIndex
+        elseif cls == Code.CodeInstByteSpanMake then return kind.dst, Code.CodeTyByteSpan
+        elseif cls == Code.CodeInstByteSpanData then return kind.dst, Code.CodeTyDataPtr(Code.CodeTyInt(8, Code.CodeUnsigned))
+        elseif cls == Code.CodeInstByteSpanLen then return kind.dst, Code.CodeTyIndex
         elseif cls == Code.CodeInstClosure then return kind.dst, kind.ty
         elseif cls == Code.CodeInstVariantCtor then return kind.dst, kind.ty
         elseif cls == Code.CodeInstVariantTag then return kind.dst, kind.tag_ty
@@ -479,6 +515,36 @@ local function bind_context(T)
             if elem ~= nil then type_uses_code_sig(Code.CodeTyDataPtr(elem), ctx) end
         elseif cls == Code.CodeInstViewLen or cls == Code.CodeInstViewStride then
             view_elem_type(fctx, ctx, site .. ":view", k.view)
+        elseif cls == Code.CodeInstSliceMake then
+            type_uses_code_sig(k.elem_ty, ctx)
+            local expected_data_ty = Code.CodeTyDataPtr(k.elem_ty)
+            local dty = value_type(fctx, ctx, k.data)
+            if dty ~= nil and pvm.classof(dty) ~= Code.CodeTyDataPtr then
+                add_issue(ctx, Code.CodeIssueTypeMismatch(site .. ":slice.data", Code.CodeTyDataPtr(nil), dty))
+            elseif dty ~= nil and dty.pointee ~= nil then
+                expect_type(ctx, site .. ":slice.data", expected_data_ty, dty)
+            end
+            local lty = value_type(fctx, ctx, k.len)
+            if lty ~= nil and not is_integer_like(lty) then add_issue(ctx, Code.CodeIssueTypeMismatch(site .. ":slice.len", Code.CodeTyIndex, lty)) end
+        elseif cls == Code.CodeInstSliceData then
+            local elem = slice_elem_type(fctx, ctx, site .. ":slice.data", k.slice)
+            if elem ~= nil then type_uses_code_sig(Code.CodeTyDataPtr(elem), ctx) end
+        elseif cls == Code.CodeInstSliceLen then
+            slice_elem_type(fctx, ctx, site .. ":slice", k.slice)
+        elseif cls == Code.CodeInstByteSpanMake then
+            local expected_data_ty = Code.CodeTyDataPtr(Code.CodeTyInt(8, Code.CodeUnsigned))
+            local dty = value_type(fctx, ctx, k.data)
+            if dty ~= nil and pvm.classof(dty) ~= Code.CodeTyDataPtr then
+                add_issue(ctx, Code.CodeIssueTypeMismatch(site .. ":bytespan.data", Code.CodeTyDataPtr(nil), dty))
+            elseif dty ~= nil and dty.pointee ~= nil then
+                expect_type(ctx, site .. ":bytespan.data", expected_data_ty, dty)
+            end
+            local lty = value_type(fctx, ctx, k.len)
+            if lty ~= nil and not is_integer_like(lty) then add_issue(ctx, Code.CodeIssueTypeMismatch(site .. ":bytespan.len", Code.CodeTyIndex, lty)) end
+        elseif cls == Code.CodeInstByteSpanData then
+            byte_span_type(fctx, ctx, site .. ":bytespan.data", k.span)
+        elseif cls == Code.CodeInstByteSpanLen then
+            byte_span_type(fctx, ctx, site .. ":bytespan", k.span)
         elseif cls == Code.CodeInstClosure then
             check_sig_ref(ctx, k.sig)
             if pvm.classof(k.ty) ~= Code.CodeTyClosure then add_issue(ctx, Code.CodeIssueTypeMismatch(site .. ":closure", Code.CodeTyClosure(k.sig), k.ty))

@@ -144,6 +144,26 @@ local function bind_context(T)
         return Code.CodeTyDataPtr(view_elem_type(ctx, id))
     end
 
+    local function slice_type(ctx, id)
+        local ty = ctx.value_types and id and ctx.value_types[id.text] or nil
+        if pvm.classof(ty) == Code.CodeTyLease then ty = ty.base end
+        return ty
+    end
+
+    local function slice_elem_type(ctx, id)
+        local ty = slice_type(ctx, id)
+        if pvm.classof(ty) == Code.CodeTySlice then return ty.elem end
+        return nil
+    end
+
+    local function slice_data_type(ctx, id)
+        return Code.CodeTyDataPtr(slice_elem_type(ctx, id))
+    end
+
+    local function byte_ty()
+        return Code.CodeTyInt(8, Code.CodeUnsigned)
+    end
+
     local function const_atom(ctx, const)
         local cls = pvm.classof(const)
         if cls == Code.CodeConstLiteral then return C.CBackendAtomLiteral(c_ty(ctx, const.ty), const.literal) end
@@ -302,6 +322,24 @@ local function bind_context(T)
             return { C.CBackendPlaceLoad(c_local_id(k.dst), C.CBackendPlaceField(C.CBackendPlaceLocal(c_local_id(k.view), c_ty(ctx, view_type(ctx, k.view))), C.CBackendName("len"), C.CBackendIndex, 0, nil, nil)) }
         elseif cls == Code.CodeInstViewStride then
             return { C.CBackendPlaceLoad(c_local_id(k.dst), C.CBackendPlaceField(C.CBackendPlaceLocal(c_local_id(k.view), c_ty(ctx, view_type(ctx, k.view))), C.CBackendName("stride"), C.CBackendIndex, 0, nil, nil)) }
+        elseif cls == Code.CodeInstSliceMake then
+            return { C.CBackendAggregateInit(C.CBackendPlaceLocal(c_local_id(k.dst), c_ty(ctx, Code.CodeTySlice(k.elem_ty))), c_ty(ctx, Code.CodeTySlice(k.elem_ty)), {
+                C.CBackendAggregateFieldInit(C.CBackendName("data"), atom(k.data), 0),
+                C.CBackendAggregateFieldInit(C.CBackendName("len"), atom(k.len), nil),
+            }) }
+        elseif cls == Code.CodeInstSliceData then
+            return { C.CBackendPlaceLoad(c_local_id(k.dst), C.CBackendPlaceField(C.CBackendPlaceLocal(c_local_id(k.slice), c_ty(ctx, slice_type(ctx, k.slice))), C.CBackendName("data"), c_ty(ctx, slice_data_type(ctx, k.slice)), 0, nil, nil)) }
+        elseif cls == Code.CodeInstSliceLen then
+            return { C.CBackendPlaceLoad(c_local_id(k.dst), C.CBackendPlaceField(C.CBackendPlaceLocal(c_local_id(k.slice), c_ty(ctx, slice_type(ctx, k.slice))), C.CBackendName("len"), C.CBackendIndex, 0, nil, nil)) }
+        elseif cls == Code.CodeInstByteSpanMake then
+            return { C.CBackendAggregateInit(C.CBackendPlaceLocal(c_local_id(k.dst), c_ty(ctx, Code.CodeTyByteSpan)), c_ty(ctx, Code.CodeTyByteSpan), {
+                C.CBackendAggregateFieldInit(C.CBackendName("data"), atom(k.data), 0),
+                C.CBackendAggregateFieldInit(C.CBackendName("len"), atom(k.len), nil),
+            }) }
+        elseif cls == Code.CodeInstByteSpanData then
+            return { C.CBackendPlaceLoad(c_local_id(k.dst), C.CBackendPlaceField(C.CBackendPlaceLocal(c_local_id(k.span), c_ty(ctx, Code.CodeTyByteSpan)), C.CBackendName("data"), c_ty(ctx, Code.CodeTyDataPtr(byte_ty())), 0, nil, nil)) }
+        elseif cls == Code.CodeInstByteSpanLen then
+            return { C.CBackendPlaceLoad(c_local_id(k.dst), C.CBackendPlaceField(C.CBackendPlaceLocal(c_local_id(k.span), c_ty(ctx, Code.CodeTyByteSpan)), C.CBackendName("len"), C.CBackendIndex, 0, nil, nil)) }
         elseif cls == Code.CodeInstClosure then
             return { C.CBackendAggregateInit(C.CBackendPlaceLocal(c_local_id(k.dst), c_ty(ctx, k.ty)), c_ty(ctx, k.ty), {
                 C.CBackendAggregateFieldInit(C.CBackendName("fn"), atom(k.fn), 0),
@@ -414,6 +452,12 @@ local function bind_context(T)
                 elseif cls == Code.CodeInstViewMake then add(k.dst, Code.CodeTyView(k.elem_ty))
                 elseif cls == Code.CodeInstViewData then add(k.dst, view_data_type(ctx, k.view))
                 elseif cls == Code.CodeInstViewLen or cls == Code.CodeInstViewStride then add(k.dst, Code.CodeTyIndex)
+                elseif cls == Code.CodeInstSliceMake then add(k.dst, Code.CodeTySlice(k.elem_ty))
+                elseif cls == Code.CodeInstSliceData then add(k.dst, slice_data_type(ctx, k.slice))
+                elseif cls == Code.CodeInstSliceLen then add(k.dst, Code.CodeTyIndex)
+                elseif cls == Code.CodeInstByteSpanMake then add(k.dst, Code.CodeTyByteSpan)
+                elseif cls == Code.CodeInstByteSpanData then add(k.dst, Code.CodeTyDataPtr(byte_ty()))
+                elseif cls == Code.CodeInstByteSpanLen then add(k.dst, Code.CodeTyIndex)
                 elseif cls == Code.CodeInstVariantTag then add(k.dst, k.tag_ty)
                 elseif cls == Code.CodeInstVariantPayload then if k.variant.payload_ty ~= nil then add(k.dst, k.variant.payload_ty) end
                 elseif cls == Code.CodeInstAtomicCas then

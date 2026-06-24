@@ -126,6 +126,16 @@ local function bind_context(T)
             add_use(uses, k.stride, ref, nil, "view.stride")
         elseif cls == Code.CodeInstViewData or cls == Code.CodeInstViewLen or cls == Code.CodeInstViewStride then
             add_use(uses, k.view, ref, nil, "view")
+        elseif cls == Code.CodeInstSliceMake then
+            add_use(uses, k.data, ref, nil, "slice.data")
+            add_use(uses, k.len, ref, nil, "slice.len")
+        elseif cls == Code.CodeInstSliceData or cls == Code.CodeInstSliceLen then
+            add_use(uses, k.slice, ref, nil, "slice")
+        elseif cls == Code.CodeInstByteSpanMake then
+            add_use(uses, k.data, ref, nil, "bytespan.data")
+            add_use(uses, k.len, ref, nil, "bytespan.len")
+        elseif cls == Code.CodeInstByteSpanData or cls == Code.CodeInstByteSpanLen then
+            add_use(uses, k.span, ref, nil, "bytespan")
         elseif cls == Code.CodeInstClosure then
             add_use(uses, k.fn, ref, nil, "closure.fn")
             add_use(uses, k.ctx, ref, nil, "closure.ctx")

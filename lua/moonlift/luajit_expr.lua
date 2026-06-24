@@ -105,6 +105,37 @@ local function bind_context(T)
         return LJ.LJExprProjectField(value_expr(view), field, physical(ctx, ty), true), ty
     end
 
+    local function slice_type(ctx, slice)
+        local ty = value_type(ctx, slice)
+        if pvm.classof(ty) == Code.CodeTyLease then ty = ty.base end
+        if pvm.classof(ty) ~= Code.CodeTySlice then
+            error("luajit_expr: expected slice type for " .. tostring(slice.text), 3)
+        end
+        return ty
+    end
+
+    local function slice_field_type(ctx, slice, field)
+        local sty = slice_type(ctx, slice)
+        if field == "data" then return Code.CodeTyDataPtr(sty.elem) end
+        if field == "len" then return Code.CodeTyIndex end
+        error("luajit_expr: unknown slice field " .. tostring(field), 3)
+    end
+
+    local function project_slice_field(ctx, slice, field)
+        local ty = slice_field_type(ctx, slice, field)
+        return LJ.LJExprProjectField(value_expr(slice), field, physical(ctx, ty), true), ty
+    end
+
+    local function byte_ty()
+        return Code.CodeTyInt(8, Code.CodeUnsigned)
+    end
+
+    local function project_bytespan_field(ctx, span, field)
+        local ty = field == "data" and Code.CodeTyDataPtr(byte_ty()) or Code.CodeTyIndex
+        if field ~= "data" and field ~= "len" then error("luajit_expr: unknown byte span field " .. tostring(field), 3) end
+        return LJ.LJExprProjectField(value_expr(span), field, physical(ctx, ty), true), ty
+    end
+
     local function expr_list(ids)
         local out = {}
         for i = 1, #(ids or {}) do out[i] = value_expr(ids[i]) end
@@ -169,6 +200,25 @@ local function bind_context(T)
             return project_view_field(ctx, k.view, "len")
         elseif cls == Code.CodeInstViewStride then
             return project_view_field(ctx, k.view, "stride")
+        elseif cls == Code.CodeInstSliceMake then
+            local ty = Code.CodeTySlice(k.elem_ty)
+            return LJ.LJExprRecord(physical(ctx, ty), {
+                LJ.LJFieldExpr("data", value_expr(k.data)),
+                LJ.LJFieldExpr("len", value_expr(k.len)),
+            }), ty
+        elseif cls == Code.CodeInstSliceData then
+            return project_slice_field(ctx, k.slice, "data")
+        elseif cls == Code.CodeInstSliceLen then
+            return project_slice_field(ctx, k.slice, "len")
+        elseif cls == Code.CodeInstByteSpanMake then
+            return LJ.LJExprRecord(physical(ctx, Code.CodeTyByteSpan), {
+                LJ.LJFieldExpr("data", value_expr(k.data)),
+                LJ.LJFieldExpr("len", value_expr(k.len)),
+            }), Code.CodeTyByteSpan
+        elseif cls == Code.CodeInstByteSpanData then
+            return project_bytespan_field(ctx, k.span, "data")
+        elseif cls == Code.CodeInstByteSpanLen then
+            return project_bytespan_field(ctx, k.span, "len")
         elseif cls == Code.CodeInstClosure then
             return LJ.LJExprClosure(physical(ctx, k.ty), value_expr(k.fn), value_expr(k.ctx), LJ.LJFuncSigId(k.sig.text)), k.ty
         elseif cls == Code.CodeInstVariantCtor then

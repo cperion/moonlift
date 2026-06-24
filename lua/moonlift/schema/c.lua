@@ -94,6 +94,7 @@ return schema. MoonC {
     CBackendNamed { variant_unique, field. id [MoonC.CTypeId], },
     CBackendArray { variant_unique, elem [MoonC.CBackendType], count [number], },
     CBackendSliceDescriptor { variant_unique, elem [MoonC.CBackendType], },
+    CBackendByteSpanDescriptor,
     CBackendViewDescriptor { variant_unique, elem [MoonC.CBackendType], },
     CBackendClosureDescriptor {
       variant_unique,

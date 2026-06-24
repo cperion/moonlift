@@ -98,6 +98,12 @@ local function bind_context(T)
         if cls == Code.CodeInstViewMake then return Code.CodeTyView(k.elem_ty) end
         if cls == Code.CodeInstViewLen or cls == Code.CodeInstViewStride then return Code.CodeTyIndex end
         if cls == Code.CodeInstViewData then return Code.CodeTyDataPtr(nil) end
+        if cls == Code.CodeInstSliceMake then return Code.CodeTySlice(k.elem_ty) end
+        if cls == Code.CodeInstSliceLen then return Code.CodeTyIndex end
+        if cls == Code.CodeInstSliceData then return Code.CodeTyDataPtr(nil) end
+        if cls == Code.CodeInstByteSpanMake then return Code.CodeTyByteSpan end
+        if cls == Code.CodeInstByteSpanLen then return Code.CodeTyIndex end
+        if cls == Code.CodeInstByteSpanData then return Code.CodeTyDataPtr(Code.CodeTyInt(8, Code.CodeUnsigned)) end
         if cls == Code.CodeInstAddrOf or cls == Code.CodeInstGlobalRef or cls == Code.CodeInstPtrOffset then return k.ptr_ty end
         if cls == Code.CodeInstVariantTag then return k.tag_ty end
         if cls == Code.CodeInstVariantPayload then return k.variant.payload_ty or Code.CodeTyVoid end
@@ -208,6 +214,12 @@ local function bind_context(T)
     local function mem_access_index(mem)
         local out = {}
         for _, access in ipairs(mem and mem.accesses or {}) do out[access.id.text] = access end
+        return out
+    end
+
+    local function mem_object_index(mem)
+        local out = {}
+        for _, object in ipairs(mem and mem.objects or {}) do out[object.id.text] = object end
         return out
     end
 
@@ -381,6 +393,58 @@ local function bind_context(T)
         return nil
     end
 
+    local function mem_stride_const(stride)
+        local cls = pvm.classof(stride)
+        if stride == Mem.MemStrideUnit then return 1 end
+        if cls == Mem.MemStrideConstElems then return stride.elems end
+        return nil
+    end
+
+    local function extent_len(extent)
+        if pvm.classof(extent) == Mem.MemExtentElements then return extent.len end
+        return nil
+    end
+
+    local function pattern_topology(pattern)
+        local cls = pvm.classof(pattern)
+        if pattern == Mem.MemAccessContiguous then return Stencil.StencilTopologyContiguous(1) end
+        if cls == Mem.MemAccessStrided then return Stencil.StencilTopologyContiguous(pattern.stride_elems) end
+        return nil
+    end
+
+    local function stream_topology(ctx, stream)
+        local object = ctx.mem_objects and stream and ctx.mem_objects[stream.object.text] or nil
+        if object ~= nil then
+            local provenance = object.provenance
+            local pcls = pvm.classof(provenance)
+            if object.kind == Mem.MemObjectView and pcls == Mem.MemProvView then
+                if provenance.stride == nil then return nil end
+                return Stencil.StencilTopologyViewDescriptor(
+                    provenance.view,
+                    provenance.data,
+                    extent_len(object.extent) or provenance.len,
+                    provenance.stride,
+                    mem_stride_const(object.stride)
+                )
+            end
+            if object.kind == Mem.MemObjectSlice and pcls == Mem.MemProvSlice then
+                return Stencil.StencilTopologySliceDescriptor(
+                    provenance.slice,
+                    provenance.data,
+                    extent_len(object.extent) or provenance.len
+                )
+            end
+            if object.kind == Mem.MemObjectByteSpan and pcls == Mem.MemProvByteSpan then
+                return Stencil.StencilTopologyByteSpanDescriptor(
+                    provenance.span,
+                    provenance.data,
+                    extent_len(object.extent) or provenance.len
+                )
+            end
+        end
+        return pattern_topology(stream and stream.pattern)
+    end
+
     local function binding_index(body)
         local out = {}
         for _, binding in ipairs(body and body.bindings or {}) do out[binding.id.text] = binding end
@@ -449,12 +513,19 @@ local function bind_context(T)
     end
 
     local function stream_selection_fact(ctx, stream)
+        local topology = stream_topology(ctx, stream)
+        if topology == nil then return nil end
         local base = stream_base_value(stream)
+        local tcls = pvm.classof(topology)
+        if tcls == Stencil.StencilTopologyViewDescriptor or tcls == Stencil.StencilTopologySliceDescriptor or tcls == Stencil.StencilTopologyByteSpanDescriptor then
+            base = topology.data
+        end
         if base == nil then return nil end
         return {
             base = base,
             base_expr = value_id_expr(ctx, base),
             elem_ty = stream.elem_ty,
+            topology = topology,
         }
     end
 
@@ -467,6 +538,7 @@ local function bind_context(T)
             class.src = fact.base
             class.src_expr = fact.base_expr
             class.elem_ty = fact.elem_ty
+            class.src_topology = fact.topology
             class.index_primary = expr_is_primary(index, loop_fact)
             if not class.index_primary then
                 local idx = index_stream_for(index, bindings)
@@ -477,6 +549,7 @@ local function bind_context(T)
                             base = idx_fact.base,
                             base_expr = idx_fact.base_expr,
                             elem_ty = idx_fact.elem_ty,
+                            topology = idx_fact.topology,
                             index_primary = expr_is_primary(idx.index, loop_fact),
                         }
                     end
@@ -486,6 +559,7 @@ local function bind_context(T)
             class[prefix .. "_base"] = fact.base
             class[prefix .. "_expr"] = fact.base_expr
             class[prefix .. "_ty"] = fact.elem_ty
+            class[prefix .. "_topology"] = fact.topology
             class[prefix .. "_index_primary"] = expr_is_primary(index, loop_fact)
         end
         return class
@@ -538,6 +612,7 @@ local function bind_context(T)
         if store == nil then return nil, store_reason end
         local dst_base = stream_base_value(store.dst)
         if dst_base == nil then return nil, "store destination stream has no value base" end
+        local dst_fact = stream_selection_fact(ctx, store.dst)
         local bindings = binding_index(plan.body)
         local classified, reason = classify_store_expr(store.value, bindings)
         if classified == nil then return nil, reason end
@@ -551,6 +626,7 @@ local function bind_context(T)
             dst_elem_ty = store.dst.elem_ty,
             dst = dst_base,
             dst_expr = dst_expr,
+            dst_topology = dst_fact and dst_fact.topology or nil,
             start = loop_fact.counted.start,
             stop = loop_fact.counted.stop,
             start_expr = start_expr,
@@ -573,6 +649,19 @@ local function bind_context(T)
         return { selection = stencil_plan.selection }, nil
     end
 
+    local function stencil_args(ctx, artifact, args)
+        local out = {}
+        for i = 1, #(args or {}) do out[i] = args[i] end
+        local desc = artifact and artifact.instance and artifact.instance.descriptor or nil
+        for _, access in ipairs(desc and desc.accesses or {}) do
+            local top = access.topology
+            if pvm.classof(top) == Stencil.StencilTopologyViewDescriptor and top.stride_const == nil then
+                out[#out + 1] = value_id_expr(ctx, top.stride)
+            end
+        end
+        return out
+    end
+
     local function lower_kernel_stencil_store(ctx, func, plan, graph_loop, loop_fact, opts)
         if opts.stencil_store_artifact_for == nil then return nil, "no store stencil artifact provider" end
         local planned, reason = stencil_store_plan(ctx, func, plan, graph_loop, loop_fact)
@@ -581,7 +670,7 @@ local function bind_context(T)
         local artifact = opts.stencil_store_artifact_for(func, selection.vocab, selection.op, plan, selection.info)
         if artifact == nil then return nil, "store stencil artifact provider did not select an artifact" end
         local id = LJ.LJMachineId("machine:" .. sanitize(func.name) .. ":stencil_store:" .. sanitize(loop_fact.loop.text))
-        return LJ.LJMachine(id, LJ.LJMachineStencilEffect(artifact, selection.args), nil, LJ.LJStateScalar, LJ.LJTraceHot), nil
+        return LJ.LJMachine(id, LJ.LJMachineStencilEffect(artifact, stencil_args(ctx, artifact, selection.args)), nil, LJ.LJStateScalar, LJ.LJTraceHot), nil
     end
 
     local function select_reduction_artifact(opts, func, vocab, op, reduction, plan, info)
@@ -641,7 +730,7 @@ local function bind_context(T)
         local artifact = select_reduction_artifact(opts, func, selection.vocab, selection.op, reduction, plan, selection.info)
         if artifact == nil then return nil, "reduction stencil artifact provider did not select an artifact" end
         local id = LJ.LJMachineId("machine:" .. sanitize(func.name) .. ":stencil_reduce:" .. sanitize(loop_fact.loop.text))
-        return LJ.LJMachine(id, LJ.LJMachineStencilCall(artifact, selection.args, physical(ctx, reduction.ty)), physical(ctx, reduction.ty), LJ.LJStateScalar, LJ.LJTraceHot), nil
+        return LJ.LJMachine(id, LJ.LJMachineStencilCall(artifact, stencil_args(ctx, artifact, selection.args), physical(ctx, reduction.ty)), physical(ctx, reduction.ty), LJ.LJStateScalar, LJ.LJTraceHot), nil
     end
 
     local function single_effect(body, wanted)
@@ -674,6 +763,7 @@ local function bind_context(T)
         if not function_returns_reduction(func, graph_loop, reduction) then return nil, "function return is not the scan final value" end
         local dst_base = stream_base_value(effect.dst)
         if dst_base == nil then return nil, "scan destination stream has no value base" end
+        local dst_fact = stream_selection_fact(ctx, effect.dst)
         local bindings = binding_index(plan.body)
         local class, class_reason = enriched_class_for_expr(ctx, Kernel.KernelExprAlgebra(reduction.contribution), loop_fact, bindings, dst_base, effect.dst.elem_ty)
         if class == nil then return nil, class_reason end
@@ -685,6 +775,7 @@ local function bind_context(T)
             result_ty = reduction.ty,
             dst = dst_base,
             dst_expr = value_id_expr(ctx, dst_base),
+            dst_topology = dst_fact and dst_fact.topology or nil,
             start = loop_fact.counted.start,
             stop = loop_fact.counted.stop,
             start_expr = start_expr,
@@ -728,6 +819,7 @@ local function bind_context(T)
         if effect == nil then return nil, effect_reason end
         local dst_base = stream_base_value(effect.dst)
         if dst_base == nil then return nil, "partition destination stream has no value base" end
+        local dst_fact = stream_selection_fact(ctx, effect.dst)
         local bindings = binding_index(plan.body)
         local class, class_reason = enriched_class_for_expr(ctx, effect.src, loop_fact, bindings, dst_base, effect.dst.elem_ty)
         if class == nil then return nil, class_reason end
@@ -737,6 +829,7 @@ local function bind_context(T)
             dst_elem_ty = effect.dst.elem_ty,
             dst = dst_base,
             dst_expr = value_id_expr(ctx, dst_base),
+            dst_topology = dst_fact and dst_fact.topology or nil,
             start = loop_fact.counted.start,
             stop = loop_fact.counted.stop,
             start_expr = value_id_expr(ctx, loop_fact.counted.start),
@@ -755,6 +848,7 @@ local function bind_context(T)
         if effect == nil then return nil, effect_reason end
         local dst_base = stream_base_value(effect.dst)
         if dst_base == nil then return nil, "copy destination stream has no value base" end
+        local dst_fact = stream_selection_fact(ctx, effect.dst)
         local bindings = binding_index(plan.body)
         local class, class_reason = enriched_class_for_expr(ctx, effect.src, loop_fact, bindings, dst_base, effect.dst.elem_ty)
         if class == nil then return nil, class_reason end
@@ -764,6 +858,7 @@ local function bind_context(T)
             dst_elem_ty = effect.dst.elem_ty,
             dst = dst_base,
             dst_expr = value_id_expr(ctx, dst_base),
+            dst_topology = dst_fact and dst_fact.topology or nil,
             start = loop_fact.counted.start,
             stop = loop_fact.counted.stop,
             start_expr = value_id_expr(ctx, loop_fact.counted.start),
@@ -802,9 +897,9 @@ local function bind_context(T)
         local id = LJ.LJMachineId("machine:" .. sanitize(func.name) .. ":stencil_skeleton:" .. sanitize(loop_fact.loop.text))
         if planned.result_ty ~= nil then
             local result_ty = physical(ctx, planned.result_ty)
-            return LJ.LJMachine(id, LJ.LJMachineStencilCall(artifact, selection.args, result_ty), result_ty, LJ.LJStateScalar, LJ.LJTraceHot), nil
+            return LJ.LJMachine(id, LJ.LJMachineStencilCall(artifact, stencil_args(ctx, artifact, selection.args), result_ty), result_ty, LJ.LJStateScalar, LJ.LJTraceHot), nil
         end
-        return LJ.LJMachine(id, LJ.LJMachineStencilEffect(artifact, selection.args), nil, LJ.LJStateScalar, LJ.LJTraceHot), nil
+        return LJ.LJMachine(id, LJ.LJMachineStencilEffect(artifact, stencil_args(ctx, artifact, selection.args)), nil, LJ.LJStateScalar, LJ.LJTraceHot), nil
     end
 
     local function counted_positive(ctx, loop_fact)
@@ -894,6 +989,7 @@ local function bind_context(T)
     local function lower_func(module_ctx, func, kernel, graph_loops, flow_loops, loop_func, opts)
         local ctx = {
             code_sigs = module_ctx.code_sigs,
+            mem_objects = module_ctx.mem_objects,
             value_types = {},
             defs = value_defs(func),
         }
@@ -975,7 +1071,7 @@ local function bind_context(T)
         local graph, flow, value, mem, effect, kernel = build_kernel(module, opts)
         local graph_loops, loop_func = graph_loop_index(graph)
         local flow_loops = flow_loop_index(flow)
-        local module_ctx = { code_sigs = code_sigs(module) }
+        local module_ctx = { code_sigs = code_sigs(module), mem_objects = mem_object_index(mem) }
         local funcs = {}
         for i, func in ipairs(module.funcs or {}) do funcs[i] = lower_func(module_ctx, func, kernel, graph_loops, flow_loops, loop_func, opts) end
         return LJ.LJModule(module.id, funcs, {}, {}, {}), {

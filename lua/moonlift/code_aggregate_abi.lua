@@ -47,13 +47,28 @@ local function bind_context(T)
         return pvm.classof(ty) == Code.CodeTyView and ty.elem or nil
     end
 
+    local function is_slice(ty)
+        return pvm.classof(ty) == Code.CodeTySlice or (pvm.classof(ty) == Code.CodeTyLease and is_slice(ty.base))
+    end
+
+    local function slice_elem(ty)
+        if pvm.classof(ty) == Code.CodeTyLease then ty = ty.base end
+        return pvm.classof(ty) == Code.CodeTySlice and ty.elem or nil
+    end
+
+    local function is_byte_span(ty)
+        return ty == Code.CodeTyByteSpan or pvm.classof(ty) == Code.CodeTyByteSpan or (pvm.classof(ty) == Code.CodeTyLease and is_byte_span(ty.base))
+    end
+
     local function is_aggregate(ty)
         local cls = pvm.classof(ty)
-        return cls == Code.CodeTyNamed or cls == Code.CodeTyArray or cls == Code.CodeTySlice or cls == Code.CodeTyClosure
+        return cls == Code.CodeTyNamed or cls == Code.CodeTyArray or cls == Code.CodeTyClosure
     end
 
     local function component_scalars(ty)
         if is_view(ty) then return { Back.BackPtr, Back.BackIndex, Back.BackIndex } end
+        if is_slice(ty) then return { Back.BackPtr, Back.BackIndex } end
+        if is_byte_span(ty) then return { Back.BackPtr, Back.BackIndex } end
         if is_aggregate(ty) then return { Back.BackPtr } end
         local s = scalar(ty)
         if s == nil then error("code_aggregate_abi: unsupported Code type " .. class_name(ty), 3) end
@@ -61,7 +76,7 @@ local function bind_context(T)
     end
 
     local function lowered_sig(sig)
-        local sret = (#(sig.results or {}) == 1 and (is_aggregate(sig.results[1]) or is_view(sig.results[1])))
+        local sret = (#(sig.results or {}) == 1 and is_aggregate(sig.results[1]))
         local params, results = {}, {}
         if sret then params[#params + 1] = Back.BackPtr end
         for i = 1, #(sig.params or {}) do
@@ -86,6 +101,8 @@ local function bind_context(T)
 
     local function size_align(ctx, ty)
         if is_view(ty) then return 24, 8 end
+        if is_slice(ty) then return 16, 8 end
+        if is_byte_span(ty) then return 16, 8 end
         if pvm.classof(ty) == Code.CodeTyClosure then return 16, 8 end
         if pvm.classof(ty) == Code.CodeTyArray then
             local elem_size, elem_align = size_align(ctx, ty.elem)
@@ -113,10 +130,13 @@ local function bind_context(T)
     api.scalar = scalar
     api.is_view = is_view
     api.view_elem = view_elem
+    api.is_slice = is_slice
+    api.slice_elem = slice_elem
+    api.is_byte_span = is_byte_span
     api.is_aggregate = is_aggregate
     api.component_scalars = component_scalars
     api.param_back_scalar = function(ty)
-        if is_view(ty) then return nil end
+        if is_view(ty) or is_slice(ty) or is_byte_span(ty) then return nil end
         if is_aggregate(ty) then return Back.BackPtr end
         return scalar(ty)
     end

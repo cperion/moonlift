@@ -334,12 +334,12 @@ local function bind_context(T)
             return Back.BackAddress(Back.BackAddrData(data_id(place.data)), zero(ctx), Back.BackProvData(data_id(place.data)), Back.BackPtrInBounds("data"))
         elseif cls == Code.CodePlaceLocal then
             local ty_cls = pvm.classof(place.ty)
-            if CodeAggregateAbi.is_view(place.ty) then
+            if CodeAggregateAbi.is_view(place.ty) or CodeAggregateAbi.is_slice(place.ty) or CodeAggregateAbi.is_byte_span(place.ty) then
                 local stack = ctx.local_stack_slots and ctx.local_stack_slots[place.local_id.text]
-                if stack == nil then error("code_to_back: view local has no materialized descriptor " .. place.local_id.text, 3) end
+                if stack == nil then error("code_to_back: descriptor local has no materialized storage " .. place.local_id.text, 3) end
                 return Back.BackAddress(Back.BackAddrStack(stack.slot), zero(ctx), Back.BackProvStack(stack.slot), back_bounds(info))
             end
-            if ty_cls == Code.CodeTyNamed or ty_cls == Code.CodeTyArray or ty_cls == Code.CodeTySlice or ty_cls == Code.CodeTyClosure then
+            if ty_cls == Code.CodeTyNamed or ty_cls == Code.CodeTyArray or ty_cls == Code.CodeTyClosure then
                 local addr = ctx.aggregate_local_addr and ctx.aggregate_local_addr[place.local_id.text]
                 if addr == nil then error("code_to_back: aggregate local has no materialized address " .. place.local_id.text, 3) end
                 return Back.BackAddress(Back.BackAddrValue(addr), zero(ctx), Back.BackProvUnknown, back_bounds(info))
@@ -408,6 +408,16 @@ local function bind_context(T)
             return k.dst, Code.CodeTyDataPtr(pvm.classof(vty) == Code.CodeTyView and vty.elem or nil)
         end
         if cls == Code.CodeInstViewLen or cls == Code.CodeInstViewStride then return k.dst, Code.CodeTyIndex end
+        if cls == Code.CodeInstSliceMake then return k.dst, Code.CodeTySlice(k.elem_ty) end
+        if cls == Code.CodeInstSliceData then
+            local sty = ctx.value_types and ctx.value_types[k.slice.text] or nil
+            if pvm.classof(sty) == Code.CodeTyLease then sty = sty.base end
+            return k.dst, Code.CodeTyDataPtr(pvm.classof(sty) == Code.CodeTySlice and sty.elem or nil)
+        end
+        if cls == Code.CodeInstSliceLen then return k.dst, Code.CodeTyIndex end
+        if cls == Code.CodeInstByteSpanMake then return k.dst, Code.CodeTyByteSpan end
+        if cls == Code.CodeInstByteSpanData then return k.dst, Code.CodeTyDataPtr(Code.CodeTyInt(8, Code.CodeUnsigned)) end
+        if cls == Code.CodeInstByteSpanLen then return k.dst, Code.CodeTyIndex end
         if cls == Code.CodeInstCall then
             local sig = k.sig and ctx.sigs[k.sig.text] or nil
             if sig and sig.results[1] then return k.dst, sig.results[1] end
@@ -419,9 +429,21 @@ local function bind_context(T)
         return Back.BackValId(view.text .. ":view_" .. field)
     end
 
+    local function slice_component_id(slice, field)
+        return Back.BackValId(slice.text .. ":slice_" .. field)
+    end
+
+    local function bytespan_component_id(span, field)
+        return Back.BackValId(span.text .. ":bytespan_" .. field)
+    end
+
     local function is_view_ty(ty) return CodeAggregateAbi.is_view(ty) end
 
     local function view_elem(ty) return CodeAggregateAbi.view_elem(ty) end
+
+    local function is_slice_ty(ty) return CodeAggregateAbi.is_slice(ty) end
+
+    local function slice_elem(ty) return CodeAggregateAbi.slice_elem(ty) end
 
     local function is_byref_aggregate_ty(ty) return CodeAggregateAbi.is_aggregate(ty) end
 
@@ -448,6 +470,8 @@ local function bind_context(T)
 
     local function component_values(id, ty)
         if is_view_ty(ty) then return { view_component_id(id, "data"), view_component_id(id, "len"), view_component_id(id, "stride") } end
+        if is_slice_ty(ty) then return { slice_component_id(id, "data"), slice_component_id(id, "len") } end
+        if CodeAggregateAbi.is_byte_span(ty) then return { bytespan_component_id(id, "data"), bytespan_component_id(id, "len") } end
         return { bid(id) }
     end
 
@@ -470,6 +494,8 @@ local function bind_context(T)
 
     local function code_size_align(ctx, ty)
         if is_view_ty(ty) then return aggregate_size_align(ctx, ty) end
+        if is_slice_ty(ty) then return aggregate_size_align(ctx, ty) end
+        if CodeAggregateAbi.is_byte_span(ty) then return aggregate_size_align(ctx, ty) end
         if CodeAggregateAbi.is_aggregate(ty) then return aggregate_size_align(ctx, ty) end
         local s = scalar(ty); if s == nil then unsupported(ty) end
         return scalar_size_align(s)
@@ -515,7 +541,7 @@ local function bind_context(T)
     local function materialize_addressed_locals(ctx, locals, emit)
         ctx.local_stack_slots = ctx.local_stack_slots or {}
         for _, local_ in ipairs(locals or {}) do
-            if is_view_ty(local_.ty) then
+            if is_view_ty(local_.ty) or is_slice_ty(local_.ty) or CodeAggregateAbi.is_byte_span(local_.ty) then
                 create_local_stack_slot(ctx, local_, nil, emit)
             elseif local_.residence == Code.CodeResidenceAddressed and not CodeAggregateAbi.is_aggregate(local_.ty) then
                 create_local_stack_slot(ctx, local_, nil, emit)
@@ -600,6 +626,34 @@ local function bind_context(T)
             store_scalar_at_offset(ctx, dst_base, (dst_offset or 0), vals[1], Code.CodeTyDataPtr(view_elem(ty)), tag or "view_store_data")
             store_scalar_at_offset(ctx, dst_base, (dst_offset or 0) + 8, vals[2], Code.CodeTyIndex, tag or "view_store_len")
             store_scalar_at_offset(ctx, dst_base, (dst_offset or 0) + 16, vals[3], Code.CodeTyIndex, tag or "view_store_stride")
+        elseif is_slice_ty(ty) then
+            local vals
+            if value ~= nil then
+                vals = component_values(value, ty)
+            else
+                vals = {
+                    tmp or Back.BackValId((tag or "slice_copy") .. ".data." .. tostring(ctx.next_tmp or 0)),
+                    Back.BackValId((tag or "slice_copy") .. ".len." .. tostring(ctx.next_tmp or 0)),
+                }
+                load_scalar_at_offset(ctx, vals[1], src_base, src_offset or 0, Code.CodeTyDataPtr(slice_elem(ty)), tag or "slice_copy_data")
+                load_scalar_at_offset(ctx, vals[2], src_base, (src_offset or 0) + 8, Code.CodeTyIndex, tag or "slice_copy_len")
+            end
+            store_scalar_at_offset(ctx, dst_base, dst_offset or 0, vals[1], Code.CodeTyDataPtr(slice_elem(ty)), tag or "slice_store_data")
+            store_scalar_at_offset(ctx, dst_base, (dst_offset or 0) + 8, vals[2], Code.CodeTyIndex, tag or "slice_store_len")
+        elseif CodeAggregateAbi.is_byte_span(ty) then
+            local vals
+            if value ~= nil then
+                vals = component_values(value, ty)
+            else
+                vals = {
+                    tmp or Back.BackValId((tag or "bytespan_copy") .. ".data." .. tostring(ctx.next_tmp or 0)),
+                    Back.BackValId((tag or "bytespan_copy") .. ".len." .. tostring(ctx.next_tmp or 0)),
+                }
+                load_scalar_at_offset(ctx, vals[1], src_base, src_offset or 0, Code.CodeTyDataPtr(Code.CodeTyInt(8, Code.CodeUnsigned)), tag or "bytespan_copy_data")
+                load_scalar_at_offset(ctx, vals[2], src_base, (src_offset or 0) + 8, Code.CodeTyIndex, tag or "bytespan_copy_len")
+            end
+            store_scalar_at_offset(ctx, dst_base, dst_offset or 0, vals[1], Code.CodeTyDataPtr(Code.CodeTyInt(8, Code.CodeUnsigned)), tag or "bytespan_store_data")
+            store_scalar_at_offset(ctx, dst_base, (dst_offset or 0) + 8, vals[2], Code.CodeTyIndex, tag or "bytespan_store_len")
         elseif is_byref_aggregate_ty(ty) then
             local source = src_base
             if source == nil then
@@ -751,6 +805,20 @@ local function bind_context(T)
             ctx.cmds[#ctx.cmds + 1] = Back.CmdAlias(bid(k.dst), view_component_id(k.view, "len"))
         elseif cls == Code.CodeInstViewStride then
             ctx.cmds[#ctx.cmds + 1] = Back.CmdAlias(bid(k.dst), view_component_id(k.view, "stride"))
+        elseif cls == Code.CodeInstSliceMake then
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdAlias(slice_component_id(k.dst, "data"), bid(k.data))
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdAlias(slice_component_id(k.dst, "len"), bid(k.len))
+        elseif cls == Code.CodeInstSliceData then
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdAlias(bid(k.dst), slice_component_id(k.slice, "data"))
+        elseif cls == Code.CodeInstSliceLen then
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdAlias(bid(k.dst), slice_component_id(k.slice, "len"))
+        elseif cls == Code.CodeInstByteSpanMake then
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdAlias(Back.BackValId(k.dst.text .. ":bytespan_data"), bid(k.data))
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdAlias(Back.BackValId(k.dst.text .. ":bytespan_len"), bid(k.len))
+        elseif cls == Code.CodeInstByteSpanData then
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdAlias(bid(k.dst), Back.BackValId(k.span.text .. ":bytespan_data"))
+        elseif cls == Code.CodeInstByteSpanLen then
+            ctx.cmds[#ctx.cmds + 1] = Back.CmdAlias(bid(k.dst), Back.BackValId(k.span.text .. ":bytespan_len"))
         elseif cls == Code.CodeInstLoad then
             local addr = addr_from_place(ctx, k.place, ctx.mem_backend_by_inst[i.id.text])
             if is_byref_aggregate_ty(k.access.ty) then
@@ -770,6 +838,25 @@ local function bind_context(T)
                 ctx.cmds[#ctx.cmds + 1] = Back.CmdLoadInfo(vals[1], shape(data_ty), data_addr, data_mem)
                 ctx.cmds[#ctx.cmds + 1] = Back.CmdLoadInfo(vals[2], shape(Code.CodeTyIndex), len_addr, len_mem)
                 ctx.cmds[#ctx.cmds + 1] = Back.CmdLoadInfo(vals[3], shape(Code.CodeTyIndex), stride_addr, stride_mem)
+            elseif is_slice_ty(k.access.ty) then
+                local elem = slice_elem(k.access.ty)
+                local data_ty = Code.CodeTyDataPtr(elem)
+                local vals = component_values(k.dst, k.access.ty)
+                local data_addr = address_at_const_offset(ctx, addr, 0)
+                local len_addr = address_at_const_offset(ctx, addr, 8)
+                local data_mem = component_memory_info(ctx, k.access, i.id, "slice_data")
+                local len_mem = component_memory_info(ctx, k.access, i.id, "slice_len")
+                ctx.cmds[#ctx.cmds + 1] = Back.CmdLoadInfo(vals[1], shape(data_ty), data_addr, data_mem)
+                ctx.cmds[#ctx.cmds + 1] = Back.CmdLoadInfo(vals[2], shape(Code.CodeTyIndex), len_addr, len_mem)
+            elseif k.access.ty == Code.CodeTyByteSpan or pvm.classof(k.access.ty) == Code.CodeTyByteSpan then
+                local data_ty = Code.CodeTyDataPtr(Code.CodeTyInt(8, Code.CodeUnsigned))
+                local vals = component_values(k.dst, k.access.ty)
+                local data_addr = address_at_const_offset(ctx, addr, 0)
+                local len_addr = address_at_const_offset(ctx, addr, 8)
+                local data_mem = component_memory_info(ctx, k.access, i.id, "bytespan_data")
+                local len_mem = component_memory_info(ctx, k.access, i.id, "bytespan_len")
+                ctx.cmds[#ctx.cmds + 1] = Back.CmdLoadInfo(vals[1], shape(data_ty), data_addr, data_mem)
+                ctx.cmds[#ctx.cmds + 1] = Back.CmdLoadInfo(vals[2], shape(Code.CodeTyIndex), len_addr, len_mem)
             else
                 ctx.cmds[#ctx.cmds + 1] = Back.CmdLoadInfo(bid(k.dst), shape(k.access.ty), addr, memory_info(ctx, k.access, i.id))
             end
@@ -865,6 +952,25 @@ local function bind_context(T)
                 ctx.cmds[#ctx.cmds + 1] = Back.CmdStoreInfo(shape(data_ty), data_addr, vals[1], data_mem)
                 ctx.cmds[#ctx.cmds + 1] = Back.CmdStoreInfo(shape(Code.CodeTyIndex), len_addr, vals[2], len_mem)
                 ctx.cmds[#ctx.cmds + 1] = Back.CmdStoreInfo(shape(Code.CodeTyIndex), stride_addr, vals[3], stride_mem)
+            elseif is_slice_ty(k.access.ty) then
+                local elem = slice_elem(k.access.ty)
+                local data_ty = Code.CodeTyDataPtr(elem)
+                local vals = component_values(k.value, k.access.ty)
+                local data_addr = address_at_const_offset(ctx, addr, 0)
+                local len_addr = address_at_const_offset(ctx, addr, 8)
+                local data_mem = component_memory_info(ctx, k.access, i.id, "slice_data")
+                local len_mem = component_memory_info(ctx, k.access, i.id, "slice_len")
+                ctx.cmds[#ctx.cmds + 1] = Back.CmdStoreInfo(shape(data_ty), data_addr, vals[1], data_mem)
+                ctx.cmds[#ctx.cmds + 1] = Back.CmdStoreInfo(shape(Code.CodeTyIndex), len_addr, vals[2], len_mem)
+            elseif k.access.ty == Code.CodeTyByteSpan or pvm.classof(k.access.ty) == Code.CodeTyByteSpan then
+                local data_ty = Code.CodeTyDataPtr(Code.CodeTyInt(8, Code.CodeUnsigned))
+                local vals = component_values(k.value, k.access.ty)
+                local data_addr = address_at_const_offset(ctx, addr, 0)
+                local len_addr = address_at_const_offset(ctx, addr, 8)
+                local data_mem = component_memory_info(ctx, k.access, i.id, "bytespan_data")
+                local len_mem = component_memory_info(ctx, k.access, i.id, "bytespan_len")
+                ctx.cmds[#ctx.cmds + 1] = Back.CmdStoreInfo(shape(data_ty), data_addr, vals[1], data_mem)
+                ctx.cmds[#ctx.cmds + 1] = Back.CmdStoreInfo(shape(Code.CodeTyIndex), len_addr, vals[2], len_mem)
             else
                 ctx.cmds[#ctx.cmds + 1] = Back.CmdStoreInfo(shape(k.access.ty), addr, bid(k.value), memory_info(ctx, k.access, i.id))
             end

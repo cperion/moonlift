@@ -47,8 +47,15 @@ local function bind_context(T)
         return pvm.classof(ty) == Code.CodeTyView and ty.elem or nil
     end
 
+    local function slice_elem_ty(ty)
+        ty = unwrap_lease(ty)
+        return pvm.classof(ty) == Code.CodeTySlice and ty.elem or nil
+    end
+
     local function object_elem_ty(ty)
-        return pointee_ty(ty) or view_elem_ty(ty) or unwrap_lease(ty)
+        ty = unwrap_lease(ty)
+        if ty == Code.CodeTyByteSpan or pvm.classof(ty) == Code.CodeTyByteSpan then return Code.CodeTyInt(8, Code.CodeUnsigned) end
+        return pointee_ty(ty) or view_elem_ty(ty) or slice_elem_ty(ty) or ty
     end
 
     local function storage_extent(ty, size, reason)
@@ -195,10 +202,10 @@ local function bind_context(T)
             return id and object_by_key[id.text] or nil
         end
 
-        local function object_proves_access_safety(id)
-            local fact = object_fact(id)
-            if fact == nil then return false, "access object is unknown" end
-            local extent_cls = pvm.classof(fact.extent)
+            local function object_proves_access_safety(id)
+                local fact = object_fact(id)
+                if fact == nil then return false, "access object is unknown" end
+                local extent_cls = pvm.classof(fact.extent)
             local kind = fact.kind
             if kind == Mem.MemObjectLocal or kind == Mem.MemObjectGlobal or kind == Mem.MemObjectData then
                 return true, "direct local/global/data object access"
@@ -211,6 +218,12 @@ local function bind_context(T)
             end
             if kind == Mem.MemObjectView and extent_cls ~= Mem.MemExtentUnknown then
                 return true, "view descriptor length proves object extent"
+            end
+            if kind == Mem.MemObjectSlice and extent_cls ~= Mem.MemExtentUnknown then
+                return true, "slice descriptor length proves object extent"
+            end
+            if kind == Mem.MemObjectByteSpan and extent_cls ~= Mem.MemExtentUnknown then
+                return true, "byte span descriptor length proves object extent"
             end
             if kind == Mem.MemObjectDerived and extent_cls ~= Mem.MemExtentUnknown then
                 return true, "derived object has explicit bounded extent"
@@ -238,6 +251,15 @@ local function bind_context(T)
             local readonly_objects, writeonly_objects = {}, {}
             local consts = const_values(func)
             local scaled_index_stride = {}
+            local same_store = {}
+
+            local function mark_same_store(a, b)
+                if a == nil or b == nil then return end
+                same_store[a.text] = same_store[a.text] or {}
+                same_store[b.text] = same_store[b.text] or {}
+                same_store[a.text][b.text] = b
+                same_store[b.text][a.text] = a
+            end
 
             local function extent_for_value(value, ty)
                 local bounds = value and cidx.bounds[func.id.text .. "\0" .. value.text]
@@ -249,16 +271,23 @@ local function bind_context(T)
                     return Mem.MemExtentElements(len, object_elem_ty(ty) or Code.CodeTyVoid, bounds and "CodeContractBounds extent" or "CodeContractWindowBounds base extent"), contract
                 end
                 if view_elem_ty(ty) ~= nil then return Mem.MemExtentUnknown("view extent requires descriptor length or contract"), nil end
+                if slice_elem_ty(ty) ~= nil then return Mem.MemExtentUnknown("slice extent requires descriptor length or contract"), nil end
+                if ty == Code.CodeTyByteSpan or pvm.classof(ty) == Code.CodeTyByteSpan then return Mem.MemExtentUnknown("byte span extent requires descriptor length or contract"), nil end
                 return Mem.MemExtentUnknown("raw pointer parameter has no extent without contract or object provenance"), nil
             end
 
             for _, param in ipairs(func.params or {}) do
                 local ty = unwrap_lease(param.ty)
-                if pvm.classof(param.ty) == Code.CodeTyLease or pvm.classof(ty) == Code.CodeTyDataPtr or pvm.classof(ty) == Code.CodeTyView then
+                if pvm.classof(param.ty) == Code.CodeTyLease or pvm.classof(ty) == Code.CodeTyDataPtr or pvm.classof(ty) == Code.CodeTyView or pvm.classof(ty) == Code.CodeTySlice or ty == Code.CodeTyByteSpan or pvm.classof(ty) == Code.CodeTyByteSpan then
                     local extent, contract = extent_for_value(param.value, ty)
                     local id = object_id(func.name, pvm.classof(param.ty) == Code.CodeTyLease and "lease_param" or "param", param.value.text)
                     value_object[param.value.text] = id
-                    add_object(Mem.MemObjectFact(id, func.id, pvm.classof(param.ty) == Code.CodeTyLease and Mem.MemObjectLease or (contract and Mem.MemObjectContract or (pvm.classof(ty) == Code.CodeTyView and Mem.MemObjectView or Mem.MemObjectParam)), contract and Mem.MemProvContract(contract) or Mem.MemProvValue(param.value), object_elem_ty(ty), extent, pvm.classof(ty) == Code.CodeTyView and Mem.MemStrideUnknown("view parameter stride requires descriptor stride fact") or Mem.MemStrideUnit))
+                    local object_kind = pvm.classof(param.ty) == Code.CodeTyLease and Mem.MemObjectLease
+                        or (contract and Mem.MemObjectContract
+                            or (pvm.classof(ty) == Code.CodeTyView and Mem.MemObjectView
+                                or (pvm.classof(ty) == Code.CodeTySlice and Mem.MemObjectSlice
+                                    or ((ty == Code.CodeTyByteSpan or pvm.classof(ty) == Code.CodeTyByteSpan) and Mem.MemObjectByteSpan or Mem.MemObjectParam))))
+                    add_object(Mem.MemObjectFact(id, func.id, object_kind, contract and Mem.MemProvContract(contract) or Mem.MemProvValue(param.value), object_elem_ty(ty), extent, pvm.classof(ty) == Code.CodeTyView and Mem.MemStrideUnknown("view parameter stride requires descriptor stride fact") or Mem.MemStrideUnit))
                     if pvm.classof(param.ty) == Code.CodeTyLease then
                         local proof = Mem.MemProofObject(id, "CodeTyLease parameter grants an explicit memory lease")
                         proofs[#proofs + 1] = proof
@@ -353,11 +382,44 @@ local function bind_context(T)
                         local id = object_id(func.name, "view", k.dst.text)
                         value_object[k.dst.text] = id
                         add_object(Mem.MemObjectFact(id, func.id, Mem.MemObjectView, Mem.MemProvView(k.dst, k.data, k.len, k.stride), k.elem_ty, Mem.MemExtentElements(k.len, k.elem_ty, "CodeInstViewMake explicit length"), stride_from_value(k.stride, consts)))
+                        local parent = object_for_value(value_object, k.data)
+                        if parent ~= nil then
+                            local proof = Mem.MemProofObject(id, "CodeInstViewMake descriptor shares backing store with its data object")
+                            proofs[#proofs + 1] = proof
+                            relations[#relations + 1] = Mem.MemObjectSameStore(id, parent, proof)
+                            mark_same_store(id, parent)
+                        end
                     elseif cls == Code.CodeInstViewData then
                         value_object[k.dst.text] = value_object[k.view.text]
                     elseif cls == Code.CodeInstViewStride then
                         local stride = object_stride_const(value_object[k.view.text])
                         if stride ~= nil then consts[k.dst.text] = stride end
+                    elseif cls == Code.CodeInstSliceMake then
+                        local id = object_id(func.name, "slice", k.dst.text)
+                        value_object[k.dst.text] = id
+                        add_object(Mem.MemObjectFact(id, func.id, Mem.MemObjectSlice, Mem.MemProvSlice(k.dst, k.data, k.len), k.elem_ty, Mem.MemExtentElements(k.len, k.elem_ty, "CodeInstSliceMake explicit length"), Mem.MemStrideUnit))
+                        local parent = object_for_value(value_object, k.data)
+                        if parent ~= nil then
+                            local proof = Mem.MemProofObject(id, "CodeInstSliceMake descriptor shares backing store with its data object")
+                            proofs[#proofs + 1] = proof
+                            relations[#relations + 1] = Mem.MemObjectSameStore(id, parent, proof)
+                            mark_same_store(id, parent)
+                        end
+                    elseif cls == Code.CodeInstSliceData then
+                        value_object[k.dst.text] = value_object[k.slice.text]
+                    elseif cls == Code.CodeInstByteSpanMake then
+                        local id = object_id(func.name, "bytespan", k.dst.text)
+                        value_object[k.dst.text] = id
+                        add_object(Mem.MemObjectFact(id, func.id, Mem.MemObjectByteSpan, Mem.MemProvByteSpan(k.dst, k.data, k.len), Code.CodeTyInt(8, Code.CodeUnsigned), Mem.MemExtentElements(k.len, Code.CodeTyInt(8, Code.CodeUnsigned), "CodeInstByteSpanMake explicit byte length"), Mem.MemStrideUnit))
+                        local parent = object_for_value(value_object, k.data)
+                        if parent ~= nil then
+                            local proof = Mem.MemProofObject(id, "CodeInstByteSpanMake descriptor shares backing store with its data object")
+                            proofs[#proofs + 1] = proof
+                            relations[#relations + 1] = Mem.MemObjectSameStore(id, parent, proof)
+                            mark_same_store(id, parent)
+                        end
+                    elseif cls == Code.CodeInstByteSpanData then
+                        value_object[k.dst.text] = value_object[k.span.text]
                     elseif cls == Code.CodeInstLoad then
                         if pvm.classof(k.place) == Code.CodePlaceLocal and local_value_object[k.place.local_id.text] then value_object[k.dst.text] = local_value_object[k.place.local_id.text] end
                     elseif cls == Code.CodeInstStore then
@@ -470,7 +532,20 @@ local function bind_context(T)
             local function object_pair_safe(a, b)
                 if a.object == nil or b.object == nil then return false, nil end
                 if a.object == b.object and a.index_key ~= nil and a.index_key == b.index_key then return true, "same object and same per-iteration index do not carry dependence across iterations" end
-                if a.object ~= b.object and disjoint[a.object.text .. "\0" .. b.object.text] then return true, "objects are disjoint by contract" end
+                local function disjoint_through_same_store(x, y)
+                    if disjoint[x.text .. "\0" .. y.text] then return true end
+                    for _, sx in pairs(same_store[x.text] or {}) do
+                        if disjoint[sx.text .. "\0" .. y.text] then return true end
+                        for _, sy in pairs(same_store[y.text] or {}) do
+                            if disjoint[sx.text .. "\0" .. sy.text] then return true end
+                        end
+                    end
+                    for _, sy in pairs(same_store[y.text] or {}) do
+                        if disjoint[x.text .. "\0" .. sy.text] then return true end
+                    end
+                    return false
+                end
+                if a.object ~= b.object and disjoint_through_same_store(a.object, b.object) then return true, "objects are disjoint by contract through same-store relation" end
                 if a.object ~= b.object and (noalias_objects[a.object.text] or noalias_objects[b.object.text]) then return true, "noalias contract separates one object from the other" end
                 if a.object ~= b.object and readonly_objects[a.object.text] and readonly_objects[b.object.text] then return true, "read-only objects do not create loop-carried dependence" end
                 if a.object ~= b.object and ((readonly_objects[a.object.text] and writeonly_objects[b.object.text]) or (writeonly_objects[a.object.text] and readonly_objects[b.object.text])) then

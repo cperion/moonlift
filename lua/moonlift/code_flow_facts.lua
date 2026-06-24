@@ -103,6 +103,16 @@ local function bind_context(T)
                         ty = Code.CodeTyDataPtr(pvm.classof(vty) == Code.CodeTyView and vty.elem or nil)
                     end
                     if cls == Code.CodeInstViewLen or cls == Code.CodeInstViewStride then ty = Code.CodeTyIndex end
+                    if cls == Code.CodeInstSliceMake then ty = Code.CodeTySlice(k.elem_ty) end
+                    if cls == Code.CodeInstSliceData then
+                        local sty = types[k.slice.text]
+                        if pvm.classof(sty) == Code.CodeTyLease then sty = sty.base end
+                        ty = Code.CodeTyDataPtr(pvm.classof(sty) == Code.CodeTySlice and sty.elem or nil)
+                    end
+                    if cls == Code.CodeInstSliceLen then ty = Code.CodeTyIndex end
+                    if cls == Code.CodeInstByteSpanMake then ty = Code.CodeTyByteSpan end
+                    if cls == Code.CodeInstByteSpanData then ty = Code.CodeTyDataPtr(Code.CodeTyInt(8, Code.CodeUnsigned)) end
+                    if cls == Code.CodeInstByteSpanLen then ty = Code.CodeTyIndex end
                     if cls == Code.CodeInstLoad then ty = k.access.ty end
                     defs[k.dst.text] = { cls = cls, inst = inst }
                     types[k.dst.text] = ty

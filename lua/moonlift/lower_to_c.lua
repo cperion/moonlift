@@ -93,6 +93,17 @@ local function bind_context(T)
     local function view_data_type(ctx, id)
         return Code.CodeTyDataPtr(view_elem_type(ctx, id))
     end
+    local function slice_elem_type(ctx, id)
+        local ty = view_type(ctx, id)
+        if pvm.classof(ty) == Code.CodeTySlice then return ty.elem end
+        return nil
+    end
+    local function slice_data_type(ctx, id)
+        return Code.CodeTyDataPtr(slice_elem_type(ctx, id))
+    end
+    local function byte_ty()
+        return Code.CodeTyInt(8, Code.CodeUnsigned)
+    end
 
     local function tmp(ctx, prefix, ty)
         ctx.next_tmp = ctx.next_tmp + 1
@@ -794,7 +805,7 @@ local function bind_context(T)
             emitted[dst.text] = true
             note_value(ctx, dst, ty)
             local vty = view_type(ctx, view)
-            if vty == nil then error("lower_to_c: semantic view projection references unknown view " .. tostring(view.text), 3) end
+            if vty == nil then error("lower_to_c: semantic descriptor projection references unknown value " .. tostring(view.text), 3) end
             ctx.stmts[#ctx.stmts + 1] = C.CBackendPlaceLoad(cid(dst), C.CBackendPlaceField(C.CBackendPlaceLocal(cid(view), c_ty(ctx, vty)), C.CBackendName(field), c_ty(ctx, ty), 0, nil, nil))
         end
 
@@ -811,7 +822,20 @@ local function bind_context(T)
                             len = ref(k.len, Code.CodeTyIndex),
                             stride = ref(k.stride, Code.CodeTyIndex),
                         }
-                    elseif cls == Code.CodeInstAlias and pvm.classof(value_ty(ctx, k.dst)) == Code.CodeTyView then
+                    elseif cls == Code.CodeInstSliceMake then
+                        local sty = Code.CodeTySlice(k.elem_ty)
+                        note_value(ctx, k.dst, sty)
+                        components[k.dst.text] = {
+                            data = ref(k.data, Code.CodeTyDataPtr(k.elem_ty)),
+                            len = ref(k.len, Code.CodeTyIndex),
+                        }
+                    elseif cls == Code.CodeInstByteSpanMake then
+                        note_value(ctx, k.dst, Code.CodeTyByteSpan)
+                        components[k.dst.text] = {
+                            data = ref(k.data, Code.CodeTyDataPtr(byte_ty())),
+                            len = ref(k.len, Code.CodeTyIndex),
+                        }
+                    elseif cls == Code.CodeInstAlias and (pvm.classof(value_ty(ctx, k.dst)) == Code.CodeTyView or pvm.classof(value_ty(ctx, k.dst)) == Code.CodeTySlice or value_ty(ctx, k.dst) == Code.CodeTyByteSpan or pvm.classof(value_ty(ctx, k.dst)) == Code.CodeTyByteSpan) then
                         local src = resolve_view(k.src)
                         if src ~= nil then aliases[k.dst.text] = src end
                         if src ~= nil and components[src.text] ~= nil then components[k.dst.text] = components[src.text] end
@@ -837,6 +861,22 @@ local function bind_context(T)
                         local src = component(k.view, "stride")
                         if src ~= nil then emit_assign_once(k.dst, src)
                         else emit_field_load(k.dst, resolve_view(k.view), "stride", Code.CodeTyIndex) end
+                    elseif cls == Code.CodeInstSliceData then
+                        local src = component(k.slice, "data")
+                        if src ~= nil then emit_assign_once(k.dst, src)
+                        else emit_field_load(k.dst, resolve_view(k.slice), "data", slice_data_type(ctx, k.slice)) end
+                    elseif cls == Code.CodeInstSliceLen then
+                        local src = component(k.slice, "len")
+                        if src ~= nil then emit_assign_once(k.dst, src)
+                        else emit_field_load(k.dst, resolve_view(k.slice), "len", Code.CodeTyIndex) end
+                    elseif cls == Code.CodeInstByteSpanData then
+                        local src = component(k.span, "data")
+                        if src ~= nil then emit_assign_once(k.dst, src)
+                        else emit_field_load(k.dst, resolve_view(k.span), "data", Code.CodeTyDataPtr(byte_ty())) end
+                    elseif cls == Code.CodeInstByteSpanLen then
+                        local src = component(k.span, "len")
+                        if src ~= nil then emit_assign_once(k.dst, src)
+                        else emit_field_load(k.dst, resolve_view(k.span), "len", Code.CodeTyIndex) end
                     end
                 end
             end
@@ -894,6 +934,12 @@ local function bind_context(T)
             elseif cls == Code.CodeInstViewMake then dst, ty = k.dst, Code.CodeTyView(k.elem_ty)
             elseif cls == Code.CodeInstViewData then dst, ty = k.dst, Code.CodeTyDataPtr(nil)
             elseif cls == Code.CodeInstViewLen or cls == Code.CodeInstViewStride then dst, ty = k.dst, Code.CodeTyIndex
+            elseif cls == Code.CodeInstSliceMake then dst, ty = k.dst, Code.CodeTySlice(k.elem_ty)
+            elseif cls == Code.CodeInstSliceData then dst, ty = k.dst, Code.CodeTyDataPtr(nil)
+            elseif cls == Code.CodeInstSliceLen then dst, ty = k.dst, Code.CodeTyIndex
+            elseif cls == Code.CodeInstByteSpanMake then dst, ty = k.dst, Code.CodeTyByteSpan
+            elseif cls == Code.CodeInstByteSpanData then dst, ty = k.dst, Code.CodeTyDataPtr(byte_ty())
+            elseif cls == Code.CodeInstByteSpanLen then dst, ty = k.dst, Code.CodeTyIndex
             elseif cls == Code.CodeInstCall then dst = k.dst end
             if dst ~= nil and ty ~= nil then
                 note_value(ctx, dst, ty)

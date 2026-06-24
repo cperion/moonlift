@@ -49,10 +49,20 @@ assert(cls(f_stmt.expr) == LJ.LJExprFloatBinary)
 assert(f_stmt.ty.register == LJ.LJRegLuaNumber)
 
 local ptr_i32 = Code.CodeTyDataPtr(i32)
+local u8 = Code.CodeTyInt(8, Code.CodeUnsigned)
+local ptr_u8 = Code.CodeTyDataPtr(u8)
 local view_ty = Code.CodeTyView(i32)
+local slice_ty = Code.CodeTySlice(i32)
 local view = Code.CodeValueId("v:view")
 ctx.value_types[view.text] = view_ty
+local slice = Code.CodeValueId("v:slice")
+ctx.value_types[slice.text] = slice_ty
+local bytespan = Code.CodeValueId("v:bytespan")
+ctx.value_types[bytespan.text] = Code.CodeTyByteSpan
 local data_dst = Code.CodeValueId("v:data")
+ctx.value_types[data_dst.text] = ptr_i32
+local byte_data = Code.CodeValueId("v:byte_data")
+ctx.value_types[byte_data.text] = ptr_u8
 local data_stmt = Expr.inst_to_stmt(ctx, Code.CodeInst(
     Code.CodeInstId("inst:view_data"),
     Code.CodeInstViewData(data_dst, view),
@@ -73,6 +83,26 @@ local mk_stmt = Expr.inst_to_stmt(ctx, Code.CodeInst(
 assert(cls(mk_stmt.expr) == LJ.LJExprRecord)
 assert(#mk_stmt.expr.fields == 3)
 assert(ctx.value_types[mk_dst.text] == view_ty)
+
+local slice_dst = Code.CodeValueId("v:made_slice")
+local slice_stmt = Expr.inst_to_stmt(ctx, Code.CodeInst(
+    Code.CodeInstId("inst:slice_make"),
+    Code.CodeInstSliceMake(slice_dst, i32, data_dst, Code.CodeValueId("v:len")),
+    origin
+))
+assert(cls(slice_stmt.expr) == LJ.LJExprRecord)
+assert(#slice_stmt.expr.fields == 2)
+assert(ctx.value_types[slice_dst.text] == slice_ty)
+
+local bytespan_dst = Code.CodeValueId("v:made_bytespan")
+local bytespan_stmt = Expr.inst_to_stmt(ctx, Code.CodeInst(
+    Code.CodeInstId("inst:bytespan_make"),
+    Code.CodeInstByteSpanMake(bytespan_dst, byte_data, Code.CodeValueId("v:len")),
+    origin
+))
+assert(cls(bytespan_stmt.expr) == LJ.LJExprRecord)
+assert(#bytespan_stmt.expr.fields == 2)
+assert(ctx.value_types[bytespan_dst.text] == Code.CodeTyByteSpan)
 
 local bool = Code.CodeTyBool8
 local sig = Code.CodeSig(Code.CodeSigId("sig:add"), { i32, i32 }, { i32 })
@@ -115,6 +145,12 @@ local coverage = {
     { Code.CodeInstViewData(Code.CodeValueId("v:vdata"), view), LJ.LJExprProjectField },
     { Code.CodeInstViewLen(Code.CodeValueId("v:vlen"), view), LJ.LJExprProjectField },
     { Code.CodeInstViewStride(Code.CodeValueId("v:vstride"), view), LJ.LJExprProjectField },
+    { Code.CodeInstSliceMake(Code.CodeValueId("v:slice2"), i32, data_dst, Code.CodeValueId("v:len")), LJ.LJExprRecord },
+    { Code.CodeInstSliceData(Code.CodeValueId("v:sdata"), slice), LJ.LJExprProjectField },
+    { Code.CodeInstSliceLen(Code.CodeValueId("v:slen"), slice), LJ.LJExprProjectField },
+    { Code.CodeInstByteSpanMake(Code.CodeValueId("v:bytespan2"), byte_data, Code.CodeValueId("v:len")), LJ.LJExprRecord },
+    { Code.CodeInstByteSpanData(Code.CodeValueId("v:bdata"), bytespan), LJ.LJExprProjectField },
+    { Code.CodeInstByteSpanLen(Code.CodeValueId("v:blen"), bytespan), LJ.LJExprProjectField },
     { Code.CodeInstClosure(Code.CodeValueId("v:closure"), Code.CodeTyClosure(sig.id), Code.CodeValueId("v:fn"), Code.CodeValueId("v:ctx"), sig.id), LJ.LJExprClosure },
     { Code.CodeInstVariantCtor(Code.CodeValueId("v:variant"), named_ty, variant, a), LJ.LJExprVariantCtor },
     { Code.CodeInstVariantTag(Code.CodeValueId("v:tag"), i32, Code.CodeValueId("v:variant")), LJ.LJExprVariantTag },

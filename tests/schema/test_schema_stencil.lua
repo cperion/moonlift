@@ -32,15 +32,37 @@ local reduction = Value.ReductionFact(
     Value.AlgebraProofFlow(domain, "test reduction")
 )
 local proof = Kernel.KernelProofValue(reduction.proof, "test proof")
-local instance = Stencil.StencilInstance(
-    Stencil.StencilInstanceId("stencil:reduce_array:i32:add"),
-    Stencil.StencilReduceArray,
-    Stencil.StencilShapeReduceArray(i32, i32, Value.ReductionAdd, sem, nil, init, 1),
+local descriptor = Stencil.StencilDescriptor(
+    Stencil.StencilReduce,
+    Stencil.StencilDomainRange1D(Code.CodeTyIndex, nil, nil, 1, Stencil.StencilDomainForward),
+    {
+        Stencil.StencilAccess(
+            "xs",
+            Stencil.StencilAccessRead,
+            i32,
+            Stencil.StencilTopologyContiguous(1)
+        ),
+        Stencil.StencilAccess(
+            "acc",
+            Stencil.StencilAccessReduce,
+            i32,
+            Stencil.StencilTopologyScalar(init)
+        ),
+    },
+    nil,
+    Stencil.StencilReducer(Value.ReductionAdd, i32, init, sem, nil),
+    Stencil.StencilSkeletonReduce,
+    Stencil.StencilMemorySemantics(nil, nil, nil),
+    i32,
     {
         Stencil.StencilParamType("elem_ty", i32),
         Stencil.StencilParamReduction("reduction", Value.ReductionAdd),
         Stencil.StencilParamNumber("stride", 1),
-    },
+    }
+)
+local instance = Stencil.StencilInstance(
+    Stencil.StencilInstanceId("stencil:reduce_array:i32:add"),
+    descriptor,
     Stencil.StencilAbi({ Code.CodeTyDataPtr(i32), i32, i32, i32 }, i32),
     { proof }
 )
@@ -51,44 +73,44 @@ local artifact = Stencil.StencilArtifact(
     "int32_t ml_stencil_reduce_array_i32_add_s1(const int32_t *, int32_t, int32_t, int32_t);"
 )
 
-assert(instance.vocab == Stencil.StencilReduceArray)
-assert(pvm.classof(instance.shape) == Stencil.StencilShapeReduceArray)
+assert(instance.descriptor.vocab == Stencil.StencilReduce)
+assert(pvm.classof(instance.descriptor.domain) == Stencil.StencilDomainRange1D)
+assert(instance.descriptor.accesses[1].role == Stencil.StencilAccessRead)
+assert(instance.descriptor.accesses[2].role == Stencil.StencilAccessReduce)
+assert(pvm.classof(instance.descriptor.reducer) == Stencil.StencilReducer)
+assert(instance.descriptor.skeleton == Stencil.StencilSkeletonReduce)
 assert(artifact.provider == Stencil.StencilProviderC)
 assert(artifact.instance == instance)
 
-local map_shape = Stencil.StencilShapeMapArray(i32, i32, Stencil.StencilUnaryNeg, 1)
-local zip_shape = Stencil.StencilShapeZipMapArray(i32, i32, i32, Stencil.StencilBinaryAdd, 1)
-local scan_shape = Stencil.StencilShapeScanArray(i32, i32, Value.ReductionAdd, sem, nil, init, Stencil.StencilScanInclusive, 1)
-local copy_shape = Stencil.StencilShapeCopyArray(i32, Stencil.StencilCopyNoOverlap, 1)
-local fill_shape = Stencil.StencilShapeFillArray(i32, init, 1)
 local pred = Stencil.StencilPredEqConst(init)
-local find_shape = Stencil.StencilShapeFindArray(i32, pred, 1)
-local partition_shape = Stencil.StencilShapePartitionArray(i32, Stencil.StencilPredNonZero, Stencil.StencilPartitionStable, 1)
-local cast_shape = Stencil.StencilShapeCastArray(i32, Code.CodeTyFloat(64), Core.MachineCastSToF, 1)
-local compare_shape = Stencil.StencilShapeCompareArray(i32, Code.CodeTyBool8, pred, 1)
-local zip_compare_shape = Stencil.StencilShapeZipCompareArray(i32, i32, Code.CodeTyBool8, Core.CmpLt, 1)
-local gather_shape = Stencil.StencilShapeGatherArray(i32, i32, 1)
-local scatter_shape = Stencil.StencilShapeScatterArray(i32, i32, Stencil.StencilScatterUniqueIndices, 1)
-local in_place_shape = Stencil.StencilShapeInPlaceMapArray(i32, Stencil.StencilUnaryNeg, 1)
-local count_shape = Stencil.StencilShapeCountArray(i32, pred, 1)
-local map_reduce_shape = Stencil.StencilShapeMapReduceArray(i32, i32, i32, Stencil.StencilUnaryNeg, Value.ReductionAdd, sem, nil, init, 1)
-local zip_reduce_shape = Stencil.StencilShapeZipReduceArray(i32, i32, i32, i32, Stencil.StencilBinaryAdd, Value.ReductionAdd, sem, nil, init, 1)
+local op = Stencil.StencilOpUnary(Stencil.StencilUnaryNeg, i32)
+local zip_op = Stencil.StencilOpBinary(Stencil.StencilBinaryAdd, i32)
+local cast_op = Stencil.StencilOpCast(Core.MachineCastSToF, i32, Code.CodeTyFloat(64))
+local pred_op = Stencil.StencilOpPredicate(pred, Code.CodeTyBool8)
+local cmp_op = Stencil.StencilOpCompare(Core.CmpLt, Code.CodeTyBool8)
+local indexed = Stencil.StencilTopologyIndexed(i32, 1)
+local slice_topology = Stencil.StencilTopologySliceDescriptor(
+    Code.CodeValueId("v:slice"),
+    Code.CodeValueId("v:slice_data"),
+    Code.CodeValueId("v:slice_len")
+)
+local view_topology = Stencil.StencilTopologyViewDescriptor(
+    Code.CodeValueId("v:view"),
+    Code.CodeValueId("v:view_data"),
+    Code.CodeValueId("v:view_len"),
+    Code.CodeValueId("v:view_stride"),
+    2
+)
 
-assert(map_shape.op == Stencil.StencilUnaryNeg)
-assert(zip_shape.op == Stencil.StencilBinaryAdd)
-assert(pvm.classof(scan_shape) == Stencil.StencilShapeScanArray)
-assert(pvm.classof(copy_shape) == Stencil.StencilShapeCopyArray)
-assert(pvm.classof(fill_shape) == Stencil.StencilShapeFillArray)
-assert(pvm.classof(find_shape.pred) == Stencil.StencilPredEqConst)
-assert(partition_shape.pred == Stencil.StencilPredNonZero)
-assert(cast_shape.op == Core.MachineCastSToF)
-assert(compare_shape.result_ty == Code.CodeTyBool8)
-assert(zip_compare_shape.cmp == Core.CmpLt)
-assert(pvm.classof(gather_shape) == Stencil.StencilShapeGatherArray)
-assert(scatter_shape.conflicts == Stencil.StencilScatterUniqueIndices)
-assert(in_place_shape.op == Stencil.StencilUnaryNeg)
-assert(pvm.classof(count_shape.pred) == Stencil.StencilPredEqConst)
-assert(map_reduce_shape.reduction == Value.ReductionAdd)
-assert(zip_reduce_shape.op == Stencil.StencilBinaryAdd)
+assert(op.op == Stencil.StencilUnaryNeg and op.result_ty == i32)
+assert(zip_op.op == Stencil.StencilBinaryAdd and zip_op.result_ty == i32)
+assert(cast_op.op == Core.MachineCastSToF)
+assert(pred_op.result_ty == Code.CodeTyBool8)
+assert(cmp_op.cmp == Core.CmpLt)
+assert(indexed.index_ty == i32)
+assert(slice_topology.len == Code.CodeValueId("v:slice_len"))
+assert(view_topology.stride == Code.CodeValueId("v:view_stride"))
+assert(view_topology.stride_const == 2)
+assert(pvm.classof(pred) == Stencil.StencilPredEqConst)
 
 io.write("moonlift schema_stencil ok\n")

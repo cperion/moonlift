@@ -145,7 +145,7 @@ for _, ty in ipairs(int_types) do
     for _, reduction in ipairs(reductions) do
         local selection, err = Rules.select_reduce(reduce_ctx(reduction, ty))
         assert(selection ~= nil, "expected integer reduction selection: " .. tostring(err))
-        assert(selection.vocab == Stencil.StencilReduceArray, "expected reduce-array stencil")
+        assert(selection.vocab == Stencil.StencilReduce, "expected reduce-array stencil")
         supported = supported + 1
     end
 end
@@ -154,7 +154,7 @@ for _, ty in ipairs(float_types) do
     for _, reduction in ipairs({ Value.ReductionAdd, Value.ReductionMul, Value.ReductionMin, Value.ReductionMax }) do
         local selection, err = Rules.select_reduce(reduce_ctx(reduction, ty))
         assert(selection ~= nil, "expected float reduction selection: " .. tostring(err))
-        assert(selection.vocab == Stencil.StencilReduceArray, "expected reduce-array stencil")
+        assert(selection.vocab == Stencil.StencilReduce, "expected reduce-array stencil")
         supported = supported + 1
     end
     for _, reduction in ipairs({ Value.ReductionAnd, Value.ReductionOr, Value.ReductionXor }) do
@@ -184,13 +184,13 @@ for _, ty in ipairs(scalar_tys) do
     local fill = clone(store_base_ctx)
     fill.dst_elem_ty = ty
     fill.class = { kind = "fill", value = fake_value, value_expr = fake_expr }
-    cases[#cases + 1] = { ctx = fill, vocab = Stencil.StencilFillArray }
+    cases[#cases + 1] = { ctx = fill, vocab = Stencil.StencilFill }
 
     local copy = clone(store_base_ctx)
     copy.dst_elem_ty = ty
     copy.class = { kind = "load", index_primary = true, src = "src", src_expr = fake_expr, elem_ty = ty }
     copy.copy_semantics = Stencil.StencilCopyMemMove
-    cases[#cases + 1] = { ctx = copy, vocab = Stencil.StencilCopyArray }
+    cases[#cases + 1] = { ctx = copy, vocab = Stencil.StencilCopy }
 
     local gather = clone(store_base_ctx)
     gather.dst_elem_ty = ty
@@ -202,14 +202,14 @@ for _, ty in ipairs(scalar_tys) do
         elem_ty = ty,
         index_stream = { base = "idx", base_expr = fake_expr, elem_ty = i32, index_primary = true },
     }
-    cases[#cases + 1] = { ctx = gather, vocab = Stencil.StencilGatherArray }
+    cases[#cases + 1] = { ctx = gather, vocab = Stencil.StencilGather }
 
     local scatter = clone(store_base_ctx)
     scatter.dst_elem_ty = ty
     scatter.store_index_primary = false
     scatter.store_index_stream = { base = "idx", base_expr = fake_expr, elem_ty = i32, index_primary = true }
     scatter.class = { kind = "load", index_primary = true, src = "src", src_expr = fake_expr, elem_ty = ty }
-    cases[#cases + 1] = { ctx = scatter, vocab = Stencil.StencilScatterArray }
+    cases[#cases + 1] = { ctx = scatter, vocab = Stencil.StencilScatter }
 
     local in_place = clone(store_base_ctx)
     in_place.dst_elem_ty = ty
@@ -223,7 +223,7 @@ for _, ty in ipairs(scalar_tys) do
         same_src_dst_ty = true,
         op = Stencil.StencilUnaryIdentity,
     }
-    cases[#cases + 1] = { ctx = in_place, vocab = Stencil.StencilInPlaceMapArray }
+    cases[#cases + 1] = { ctx = in_place, vocab = Stencil.StencilInPlaceMap }
 
     local map = clone(store_base_ctx)
     map.dst_elem_ty = ty
@@ -236,7 +236,7 @@ for _, ty in ipairs(scalar_tys) do
         result_ty = ty,
         op = Stencil.StencilUnaryIdentity,
     }
-    cases[#cases + 1] = { ctx = map, vocab = Stencil.StencilMapArray }
+    cases[#cases + 1] = { ctx = map, vocab = Stencil.StencilMap }
 
     local cast = clone(store_base_ctx)
     cast.dst_elem_ty = ty
@@ -249,7 +249,7 @@ for _, ty in ipairs(scalar_tys) do
         result_ty = ty,
         op = Core.MachineCastIdentity,
     }
-    cases[#cases + 1] = { ctx = cast, vocab = Stencil.StencilCastArray }
+    cases[#cases + 1] = { ctx = cast, vocab = Stencil.StencilCast }
 
     local compare = clone(store_base_ctx)
     compare.dst_elem_ty = Code.CodeTyBool8
@@ -262,7 +262,7 @@ for _, ty in ipairs(scalar_tys) do
         result_ty = Code.CodeTyBool8,
         pred = Stencil.StencilPredNonZero,
     }
-    cases[#cases + 1] = { ctx = compare, vocab = Stencil.StencilCompareArray }
+    cases[#cases + 1] = { ctx = compare, vocab = Stencil.StencilCompare }
 
     local zip_map = clone(store_base_ctx)
     zip_map.dst_elem_ty = ty
@@ -279,7 +279,7 @@ for _, ty in ipairs(scalar_tys) do
         result_ty = ty,
         op = Stencil.StencilBinaryAdd,
     }
-    cases[#cases + 1] = { ctx = zip_map, vocab = Stencil.StencilZipMapArray }
+    cases[#cases + 1] = { ctx = zip_map, vocab = Stencil.StencilZipMap }
 
     local zip_compare = clone(store_base_ctx)
     zip_compare.dst_elem_ty = Code.CodeTyBool8
@@ -295,7 +295,7 @@ for _, ty in ipairs(scalar_tys) do
         rhs_ty = ty,
         cmp = Core.CmpEq,
     }
-    cases[#cases + 1] = { ctx = zip_compare, vocab = Stencil.StencilZipCompareArray }
+    cases[#cases + 1] = { ctx = zip_compare, vocab = Stencil.StencilZipCompare }
 
     for _, case in ipairs(cases) do
         local selection, err = Rules.select_store(case.ctx)
@@ -319,7 +319,7 @@ do
     scan.class = { kind = "load", index_primary = true, src = "src", src_expr = fake_expr, elem_ty = i32 }
     local selection, err = Rules.select_scan(scan)
     assert(selection ~= nil, "expected scan stencil selection: " .. tostring(err))
-    assert(selection.vocab == Stencil.StencilScanArray, "expected scan-array stencil")
+    assert(selection.vocab == Stencil.StencilScan, "expected scan-array stencil")
 end
 
 do
@@ -329,7 +329,7 @@ do
     find.class = { kind = "load", index_primary = true, src = "src", src_expr = fake_expr, elem_ty = i32 }
     local selection, err = Rules.select_find(find)
     assert(selection ~= nil, "expected find stencil selection: " .. tostring(err))
-    assert(selection.vocab == Stencil.StencilFindArray, "expected find-array stencil")
+    assert(selection.vocab == Stencil.StencilFind, "expected find-array stencil")
 end
 
 do
@@ -340,7 +340,7 @@ do
     partition.class = { kind = "load", index_primary = true, src = "src", src_expr = fake_expr, elem_ty = i32 }
     local selection, err = Rules.select_partition(partition)
     assert(selection ~= nil, "expected partition stencil selection: " .. tostring(err))
-    assert(selection.vocab == Stencil.StencilPartitionArray, "expected partition-array stencil")
+    assert(selection.vocab == Stencil.StencilPartition, "expected partition-array stencil")
 end
 
 local pointer_copy = {}
@@ -370,7 +370,7 @@ do
         selection_ctx = ready_store,
     }
     assert(plan ~= nil, "expected store stencil plan: " .. tostring(err))
-    assert(plan.selection.vocab == Stencil.StencilCopyArray, "store plan should carry selected stencil")
+    assert(plan.selection.vocab == Stencil.StencilCopy, "store plan should carry selected stencil")
 
     local rejected = Rules.plan_store {
         planned = true,
@@ -417,7 +417,7 @@ for _, ty in ipairs(int_types) do
         }
         local map_selection, map_err = Rules.select_reduce(map_ctx)
         assert(map_selection ~= nil, "expected integer map-reduce selection: " .. tostring(map_err))
-        assert(map_selection.vocab == Stencil.StencilMapReduceArray, "expected map-reduce stencil")
+        assert(map_selection.vocab == Stencil.StencilMapReduce, "expected map-reduce stencil")
         higher_reduce_shape_cells = higher_reduce_shape_cells + 1
 
         local zip_ctx = reduce_ctx(reduction, ty)
@@ -436,7 +436,7 @@ for _, ty in ipairs(int_types) do
         }
         local zip_selection, zip_err = Rules.select_reduce(zip_ctx)
         assert(zip_selection ~= nil, "expected integer zip-reduce selection: " .. tostring(zip_err))
-        assert(zip_selection.vocab == Stencil.StencilZipReduceArray, "expected zip-reduce stencil")
+        assert(zip_selection.vocab == Stencil.StencilZipReduce, "expected zip-reduce stencil")
         higher_reduce_shape_cells = higher_reduce_shape_cells + 1
     end
 end
@@ -455,7 +455,7 @@ for _, ty in ipairs(float_types) do
         }
         local map_selection, map_err = Rules.select_reduce(map_ctx)
         assert(map_selection ~= nil, "expected float map-reduce selection: " .. tostring(map_err))
-        assert(map_selection.vocab == Stencil.StencilMapReduceArray, "expected map-reduce stencil")
+        assert(map_selection.vocab == Stencil.StencilMapReduce, "expected map-reduce stencil")
         higher_reduce_shape_cells = higher_reduce_shape_cells + 1
 
         local zip_ctx = reduce_ctx(reduction, ty)
@@ -474,7 +474,7 @@ for _, ty in ipairs(float_types) do
         }
         local zip_selection, zip_err = Rules.select_reduce(zip_ctx)
         assert(zip_selection ~= nil, "expected float zip-reduce selection: " .. tostring(zip_err))
-        assert(zip_selection.vocab == Stencil.StencilZipReduceArray, "expected zip-reduce stencil")
+        assert(zip_selection.vocab == Stencil.StencilZipReduce, "expected zip-reduce stencil")
         higher_reduce_shape_cells = higher_reduce_shape_cells + 1
     end
 end
@@ -494,7 +494,7 @@ for _, ty in ipairs(scalar_tys) do
     }
     local selection, err = Rules.select_reduce(count_ctx)
     assert(selection ~= nil, "expected count selection: " .. tostring(err))
-    assert(selection.vocab == Stencil.StencilCountArray, "expected count stencil")
+    assert(selection.vocab == Stencil.StencilCount, "expected count stencil")
 end
 
 do
@@ -510,7 +510,7 @@ do
     }
     assert(plan ~= nil, "expected reduction stencil plan: " .. tostring(err))
     assert(plan.reduction == "reduction", "reduce plan should preserve reduction payload")
-    assert(plan.selection.vocab == Stencil.StencilReduceArray, "reduce plan should carry selected stencil")
+    assert(plan.selection.vocab == Stencil.StencilReduce, "reduce plan should carry selected stencil")
 
     local rejected = Rules.plan_reduce {
         planned = true,

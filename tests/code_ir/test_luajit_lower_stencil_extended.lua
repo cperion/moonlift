@@ -36,20 +36,20 @@ local function term(id, kind) return Code.CodeTerm(Code.CodeTermId("term:" .. id
 local function place(base, index, ty) return Code.CodePlaceIndex(Code.CodePlaceDeref(base, ty, bytes(ty)), index, ty, bytes(ty)) end
 
 local function store_provider(func, vocab, op, plan, info)
-    if vocab == Stencil.StencilCastArray then return StencilC.cast_array_artifact(op, info) end
-    if vocab == Stencil.StencilCompareArray then return StencilC.compare_array_artifact(op, info) end
-    if vocab == Stencil.StencilZipCompareArray then return StencilC.zip_compare_array_artifact(op, info) end
-    if vocab == Stencil.StencilGatherArray then return StencilC.gather_array_artifact(info) end
-    if vocab == Stencil.StencilScatterArray then return StencilC.scatter_array_artifact(info) end
-    if vocab == Stencil.StencilInPlaceMapArray then return StencilC.in_place_map_array_artifact(op, info) end
+    if vocab == Stencil.StencilCast then return StencilC.cast_array_artifact(op, info) end
+    if vocab == Stencil.StencilCompare then return StencilC.compare_array_artifact(op, info) end
+    if vocab == Stencil.StencilZipCompare then return StencilC.zip_compare_array_artifact(op, info) end
+    if vocab == Stencil.StencilGather then return StencilC.gather_array_artifact(info) end
+    if vocab == Stencil.StencilScatter then return StencilC.scatter_array_artifact(info) end
+    if vocab == Stencil.StencilInPlaceMap then return StencilC.in_place_map_array_artifact(op, info) end
     error("unexpected store stencil vocab " .. tostring(vocab))
 end
 
 local function reduce_provider(func, vocab, op, reduction, plan, info)
-    if vocab == Stencil.StencilCountArray then return StencilC.count_array_artifact(op, info) end
-    if vocab == Stencil.StencilMapReduceArray then return StencilC.map_reduce_array_artifact(op, reduction, plan, info) end
-    if vocab == Stencil.StencilZipReduceArray then return StencilC.zip_reduce_array_artifact(op, reduction, plan, info) end
-    if vocab == Stencil.StencilReduceArray then return StencilC.reduce_array_artifact(reduction, plan, info) end
+    if vocab == Stencil.StencilCount then return StencilC.count_array_artifact(op, info) end
+    if vocab == Stencil.StencilMapReduce then return StencilC.map_reduce_array_artifact(op, reduction, plan, info) end
+    if vocab == Stencil.StencilZipReduce then return StencilC.zip_reduce_array_artifact(op, reduction, plan, info) end
+    if vocab == Stencil.StencilReduce then return StencilC.reduce_array_artifact(reduction, plan, info) end
     error("unexpected reduction stencil vocab " .. tostring(vocab))
 end
 
@@ -71,7 +71,7 @@ local function compile_module(module, contracts, opts)
     })
     assert(#rejects == 0, opts.name .. " rejected: " .. tostring(rejects[1] and rejects[1].reason))
     assert(#artifacts == 1, opts.name .. " should select one artifact")
-    assert(artifacts[1].instance.vocab == opts.vocab, opts.name .. " selected wrong vocab")
+    assert(artifacts[1].instance.descriptor.vocab == opts.vocab, opts.name .. " selected wrong vocab")
     assert(pvm.classof(lj_module.funcs[1].machines[1].kind) == (opts.reduce and LJ.LJMachineStencilCall or LJ.LJMachineStencilEffect), opts.name .. " should lower through stencil machine")
     local build, build_err, csrc = StencilC.compile_artifacts(artifacts, { stem = "test_luajit_lower_stencil_extended_" .. opts.name })
     assert(build ~= nil, tostring(build_err) .. "\n" .. tostring(csrc))
@@ -199,55 +199,55 @@ local out_f64 = ffi.new("double[5]")
 
 do
     local module, contracts, name = store_case("cast", f64)
-    compile_module(module, contracts, { name = name, store = true, vocab = Stencil.StencilCastArray })(out_f64, xs, ys, idx, n)
+    compile_module(module, contracts, { name = name, store = true, vocab = Stencil.StencilCast })(out_f64, xs, ys, idx, n)
     assert(out_f64[0] == 1 and out_f64[1] == -2 and out_f64[2] == 5 and out_f64[3] == 0 and out_f64[4] == 3, "lower cast")
 end
 
 do
     local module, contracts, name = store_case("compare", bool8)
-    compile_module(module, contracts, { name = name, store = true, vocab = Stencil.StencilCompareArray })(out_bool, xs, ys, idx, n)
+    compile_module(module, contracts, { name = name, store = true, vocab = Stencil.StencilCompare })(out_bool, xs, ys, idx, n)
     assert(out_bool[0] == 1 and out_bool[1] == 0 and out_bool[2] == 1 and out_bool[3] == 0 and out_bool[4] == 1, "lower compare")
 end
 
 do
     local module, contracts, name = store_case("zip_compare", bool8)
-    compile_module(module, contracts, { name = name, store = true, vocab = Stencil.StencilZipCompareArray })(out_bool, xs, ys, idx, n)
+    compile_module(module, contracts, { name = name, store = true, vocab = Stencil.StencilZipCompare })(out_bool, xs, ys, idx, n)
     assert(out_bool[0] == 1 and out_bool[1] == 1 and out_bool[2] == 1 and out_bool[3] == 1 and out_bool[4] == 1, "lower zip compare")
 end
 
 do
     local module, contracts, name = store_case("gather", i32)
-    compile_module(module, contracts, { name = name, store = true, vocab = Stencil.StencilGatherArray })(out_i32, xs, ys, idx, n)
+    compile_module(module, contracts, { name = name, store = true, vocab = Stencil.StencilGather })(out_i32, xs, ys, idx, n)
     assert(out_i32[0] == 5 and out_i32[1] == 1 and out_i32[2] == 3 and out_i32[3] == -2 and out_i32[4] == 0, "lower gather")
 end
 
 do
     local module, contracts, name = store_case("scatter", i32)
     for i = 0, n - 1 do out_i32[i] = 0 end
-    compile_module(module, contracts, { name = name, store = true, vocab = Stencil.StencilScatterArray })(out_i32, xs, ys, idx, n)
+    compile_module(module, contracts, { name = name, store = true, vocab = Stencil.StencilScatter })(out_i32, xs, ys, idx, n)
     assert(out_i32[0] == -2 and out_i32[1] == 0 and out_i32[2] == 1 and out_i32[3] == 3 and out_i32[4] == 5, "lower scatter")
 end
 
 do
     local module, contracts, name = store_case("in_place_map", i32)
     local inplace = ffi.new("int32_t[5]", { 1, -2, 5, 0, 3 })
-    compile_module(module, contracts, { name = name, store = true, vocab = Stencil.StencilInPlaceMapArray })(inplace, n)
+    compile_module(module, contracts, { name = name, store = true, vocab = Stencil.StencilInPlaceMap })(inplace, n)
     assert(inplace[0] == -1 and inplace[1] == 2 and inplace[2] == -5 and inplace[3] == 0 and inplace[4] == -3, "lower in-place map")
 end
 
 do
     local module, contracts, name = reduction_case("count")
-    assert(compile_module(module, contracts, { name = name, reduce = true, vocab = Stencil.StencilCountArray })(xs, n) == 3, "lower count")
+    assert(compile_module(module, contracts, { name = name, reduce = true, vocab = Stencil.StencilCount })(xs, n) == 3, "lower count")
 end
 
 do
     local module, contracts, name = reduction_case("map_reduce")
-    assert(compile_module(module, contracts, { name = name, reduce = true, vocab = Stencil.StencilMapReduceArray })(xs, n) == -7, "lower map reduce")
+    assert(compile_module(module, contracts, { name = name, reduce = true, vocab = Stencil.StencilMapReduce })(xs, n) == -7, "lower map reduce")
 end
 
 do
     local module, contracts, name = reduction_case("zip_reduce")
-    assert(compile_module(module, contracts, { name = name, reduce = true, vocab = Stencil.StencilZipReduceArray })(xs, ys, n) == 157, "lower zip reduce")
+    assert(compile_module(module, contracts, { name = name, reduce = true, vocab = Stencil.StencilZipReduce })(xs, ys, n) == 157, "lower zip reduce")
 end
 
 io.write("moonlift luajit_lower_stencil_extended ok\n")

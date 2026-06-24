@@ -53,23 +53,23 @@ local function sanitize(s)
 end
 
 local function artifact_for(vocab, op, reduction, info)
-    if vocab == Stencil.StencilCopyArray then return StencilC.copy_array_artifact(info) end
-    if vocab == Stencil.StencilFillArray then return StencilC.fill_array_artifact(info) end
-    if vocab == Stencil.StencilMapArray then return StencilC.map_array_artifact(op, info) end
-    if vocab == Stencil.StencilZipMapArray then return StencilC.zip_map_array_artifact(op, info) end
-    if vocab == Stencil.StencilCastArray then return StencilC.cast_array_artifact(op, info) end
-    if vocab == Stencil.StencilCompareArray then return StencilC.compare_array_artifact(op, info) end
-    if vocab == Stencil.StencilZipCompareArray then return StencilC.zip_compare_array_artifact(op, info) end
-    if vocab == Stencil.StencilGatherArray then return StencilC.gather_array_artifact(info) end
-    if vocab == Stencil.StencilScatterArray then return StencilC.scatter_array_artifact(info) end
-    if vocab == Stencil.StencilInPlaceMapArray then return StencilC.in_place_map_array_artifact(op, info) end
-    if vocab == Stencil.StencilScanArray then return StencilC.scan_array_artifact(reduction, nil, info) end
-    if vocab == Stencil.StencilFindArray then return StencilC.find_array_artifact(op, info) end
-    if vocab == Stencil.StencilPartitionArray then return StencilC.partition_array_artifact(op, info) end
-    if vocab == Stencil.StencilReduceArray then return StencilC.reduce_array_artifact(reduction, nil, info) end
-    if vocab == Stencil.StencilCountArray then return StencilC.count_array_artifact(op, info) end
-    if vocab == Stencil.StencilMapReduceArray then return StencilC.map_reduce_array_artifact(op, reduction, nil, info) end
-    if vocab == Stencil.StencilZipReduceArray then return StencilC.zip_reduce_array_artifact(op, reduction, nil, info) end
+    if vocab == Stencil.StencilCopy then return StencilC.copy_array_artifact(info) end
+    if vocab == Stencil.StencilFill then return StencilC.fill_array_artifact(info) end
+    if vocab == Stencil.StencilMap then return StencilC.map_array_artifact(op, info) end
+    if vocab == Stencil.StencilZipMap then return StencilC.zip_map_array_artifact(op, info) end
+    if vocab == Stencil.StencilCast then return StencilC.cast_array_artifact(op, info) end
+    if vocab == Stencil.StencilCompare then return StencilC.compare_array_artifact(op, info) end
+    if vocab == Stencil.StencilZipCompare then return StencilC.zip_compare_array_artifact(op, info) end
+    if vocab == Stencil.StencilGather then return StencilC.gather_array_artifact(info) end
+    if vocab == Stencil.StencilScatter then return StencilC.scatter_array_artifact(info) end
+    if vocab == Stencil.StencilInPlaceMap then return StencilC.in_place_map_array_artifact(op, info) end
+    if vocab == Stencil.StencilScan then return StencilC.scan_array_artifact(reduction, nil, info) end
+    if vocab == Stencil.StencilFind then return StencilC.find_array_artifact(op, info) end
+    if vocab == Stencil.StencilPartition then return StencilC.partition_array_artifact(op, info) end
+    if vocab == Stencil.StencilReduce then return StencilC.reduce_array_artifact(reduction, nil, info) end
+    if vocab == Stencil.StencilCount then return StencilC.count_array_artifact(op, info) end
+    if vocab == Stencil.StencilMapReduce then return StencilC.map_reduce_array_artifact(op, reduction, nil, info) end
+    if vocab == Stencil.StencilZipReduce then return StencilC.zip_reduce_array_artifact(op, reduction, nil, info) end
     error("unsupported benchmark vocab " .. tostring(vocab), 3)
 end
 
@@ -343,24 +343,24 @@ local function build_partition_case()
 end
 
 local expected_vocab = {
-    copy = Stencil.StencilCopyArray,
-    copy_memmove = Stencil.StencilCopyArray,
-    find = Stencil.StencilFindArray,
-    partition = Stencil.StencilPartitionArray,
-    fill = Stencil.StencilFillArray,
-    map = Stencil.StencilMapArray,
-    zip_map = Stencil.StencilZipMapArray,
-    cast = Stencil.StencilCastArray,
-    compare = Stencil.StencilCompareArray,
-    zip_compare = Stencil.StencilZipCompareArray,
-    gather = Stencil.StencilGatherArray,
-    scatter = Stencil.StencilScatterArray,
-    in_place_map = Stencil.StencilInPlaceMapArray,
-    scan = Stencil.StencilScanArray,
-    reduce = Stencil.StencilReduceArray,
-    count = Stencil.StencilCountArray,
-    map_reduce = Stencil.StencilMapReduceArray,
-    zip_reduce = Stencil.StencilZipReduceArray,
+    copy = Stencil.StencilCopy,
+    copy_memmove = Stencil.StencilCopy,
+    find = Stencil.StencilFind,
+    partition = Stencil.StencilPartition,
+    fill = Stencil.StencilFill,
+    map = Stencil.StencilMap,
+    zip_map = Stencil.StencilZipMap,
+    cast = Stencil.StencilCast,
+    compare = Stencil.StencilCompare,
+    zip_compare = Stencil.StencilZipCompare,
+    gather = Stencil.StencilGather,
+    scatter = Stencil.StencilScatter,
+    in_place_map = Stencil.StencilInPlaceMap,
+    scan = Stencil.StencilScan,
+    reduce = Stencil.StencilReduce,
+    count = Stencil.StencilCount,
+    map_reduce = Stencil.StencilMapReduce,
+    zip_reduce = Stencil.StencilZipReduce,
 }
 
 local function compile_case(kind, is_reduce, dst_ty)

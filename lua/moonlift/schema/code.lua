@@ -39,6 +39,7 @@ return schema. MoonCode {
     CodeTyArray { variant_unique, elem [MoonCode.CodeType], count [number], },
     CodeTySlice { variant_unique, elem [MoonCode.CodeType], },
     CodeTyView { variant_unique, elem [MoonCode.CodeType], },
+    CodeTyByteSpan,
     CodeTyHandle { variant_unique, repr [MoonCode.CodeType], source_ty [MoonType.Type], },
     CodeTyLease { variant_unique, base [MoonCode.CodeType], source_ty [MoonType.Type], },
     CodeTyClosure { variant_unique, sig [MoonCode.CodeSigId], },
@@ -354,6 +355,39 @@ return schema. MoonCode {
       variant_unique,
       dst [MoonCode.CodeValueId],
       view [MoonCode.CodeValueId],
+    },
+    CodeInstSliceMake {
+      variant_unique,
+      dst [MoonCode.CodeValueId],
+      elem_ty [MoonCode.CodeType],
+      data [MoonCode.CodeValueId],
+      len [MoonCode.CodeValueId],
+    },
+    CodeInstSliceData {
+      variant_unique,
+      dst [MoonCode.CodeValueId],
+      slice [MoonCode.CodeValueId],
+    },
+    CodeInstSliceLen {
+      variant_unique,
+      dst [MoonCode.CodeValueId],
+      slice [MoonCode.CodeValueId],
+    },
+    CodeInstByteSpanMake {
+      variant_unique,
+      dst [MoonCode.CodeValueId],
+      data [MoonCode.CodeValueId],
+      len [MoonCode.CodeValueId],
+    },
+    CodeInstByteSpanData {
+      variant_unique,
+      dst [MoonCode.CodeValueId],
+      span [MoonCode.CodeValueId],
+    },
+    CodeInstByteSpanLen {
+      variant_unique,
+      dst [MoonCode.CodeValueId],
+      span [MoonCode.CodeValueId],
     },
     CodeInstClosure {
       variant_unique,

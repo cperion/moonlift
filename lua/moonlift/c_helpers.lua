@@ -66,6 +66,7 @@ local function bind_context(T)
         if cls == C.CBackendNamed then return (ty.id.module_name .. "_" .. ty.id.spelling):gsub("[^%w_]", "_") end
         if cls == C.CBackendArray then return "arr" .. tostring(ty.count) .. "_" .. type_suffix(ty.elem) end
         if cls == C.CBackendSliceDescriptor then return "slice_" .. type_suffix(ty.elem) end
+        if cls == C.CBackendByteSpanDescriptor or ty == C.CBackendByteSpanDescriptor then return "bytespan" end
         if cls == C.CBackendViewDescriptor then return "view_" .. type_suffix(ty.elem) end
         if cls == C.CBackendClosureDescriptor then return "closure_" .. ty.sig.text:gsub("[^%w_]", "_") end
         if cls == C.CBackendAbiHiddenOutPtr then return "out_" .. type_suffix(ty.result) end
@@ -264,7 +265,7 @@ local function bind_context(T)
         if cls == C.CBackendCodePtr then return "void (*)(void)" end
         if cls == C.CBackendNamed then return (ty.id.module_name .. "_" .. ty.id.spelling):gsub("[^%w_]", "_") end
         if cls == C.CBackendArray then return fallback_emit_type(ty.elem) end
-        if cls == C.CBackendSliceDescriptor or cls == C.CBackendViewDescriptor or cls == C.CBackendClosureDescriptor then return "void*" end
+        if cls == C.CBackendSliceDescriptor or cls == C.CBackendByteSpanDescriptor or cls == C.CBackendViewDescriptor or cls == C.CBackendClosureDescriptor then return "void*" end
         if cls == C.CBackendAbiHiddenOutPtr then return fallback_emit_type(C.CBackendDataPtr(ty.result)) end
         if cls == C.CBackendImportedCodePtr then return "void (*)(void)" end
         return "intptr_t"

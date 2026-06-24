@@ -177,6 +177,7 @@ local function bind_context(T)
         if cls == Code.CodeTyArray then return "arr_" .. tostring(ty.count) .. "_" .. code_type_key(ty.elem) end
         if cls == Code.CodeTySlice then return "slice_" .. code_type_key(ty.elem) end
         if cls == Code.CodeTyView then return "view_" .. code_type_key(ty.elem) end
+        if cls == Code.CodeTyByteSpan or ty == Code.CodeTyByteSpan then return "bytespan" end
         if cls == Code.CodeTyHandle then return "handle_" .. moon_type_key(ty.source_ty) .. "_" .. code_type_key(ty.repr) end
         if cls == Code.CodeTyLease then return "lease_" .. code_type_key(ty.base) end
         if cls == Code.CodeTyClosure then return "closure_" .. sanitize(ty.sig.text) end
@@ -333,6 +334,7 @@ local function bind_context(T)
         if cls == Code.CodeTyNamed then return C.CBackendNamed(C.CTypeId(ty.module_name, ty.type_name)) end
         if cls == Code.CodeTyArray then return C.CBackendArray(code_type_to_c(ty.elem, ctx), ty.count) end
         if cls == Code.CodeTySlice then return C.CBackendSliceDescriptor(code_type_to_c(ty.elem, ctx)) end
+        if cls == Code.CodeTyByteSpan or ty == Code.CodeTyByteSpan then return C.CBackendByteSpanDescriptor end
         if cls == Code.CodeTyView then return C.CBackendViewDescriptor(code_type_to_c(ty.elem, ctx)) end
         if cls == Code.CodeTyHandle then return code_type_to_c(ty.repr, ctx) end
         if cls == Code.CodeTyLease then return code_type_to_c(ty.base, ctx) end

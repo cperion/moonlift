@@ -50,8 +50,18 @@ local function bind_context(T)
         return Back.BackValId(view.text .. ":view_" .. field)
     end
 
+    local function slice_component_id(slice, field)
+        return Back.BackValId(slice.text .. ":slice_" .. field)
+    end
+
+    local function bytespan_component_id(span, field)
+        return Back.BackValId(span.text .. ":bytespan_" .. field)
+    end
+
     local function component_values(id, ty)
         if CodeAggregateAbi.is_view(ty) then return { view_component_id(id, "data"), view_component_id(id, "len"), view_component_id(id, "stride") } end
+        if CodeAggregateAbi.is_slice(ty) then return { slice_component_id(id, "data"), slice_component_id(id, "len") } end
+        if CodeAggregateAbi.is_byte_span(ty) then return { bytespan_component_id(id, "data"), bytespan_component_id(id, "len") } end
         return { bid(id) }
     end
 
@@ -1092,14 +1102,15 @@ local function bind_context(T)
         local components_by_value = {}
         local overrides = {}
 
-        local function view_ty(id)
+        local function descriptor_ty(id)
             local ty = value_ty(ctx, id)
             if pvm.classof(ty) == Code.CodeTyLease then ty = ty.base end
-            return pvm.classof(ty) == Code.CodeTyView and ty or nil
+            local cls = pvm.classof(ty)
+            return (cls == Code.CodeTyView or cls == Code.CodeTySlice or ty == Code.CodeTyByteSpan or cls == Code.CodeTyByteSpan) and ty or nil
         end
 
         local function component_ty(ty, field)
-            if field == "data" then return Code.CodeTyDataPtr(ty.elem) end
+            if field == "data" then return Code.CodeTyDataPtr((ty == Code.CodeTyByteSpan or pvm.classof(ty) == Code.CodeTyByteSpan) and Code.CodeTyInt(8, Code.CodeUnsigned) or ty.elem) end
             return Code.CodeTyIndex
         end
 
@@ -1110,14 +1121,15 @@ local function bind_context(T)
         end
 
         local function default_components(id)
-            local ty = view_ty(id)
+            local ty = descriptor_ty(id)
             if ty == nil then return nil end
             local vals = component_values(id, ty)
-            return {
-                data = { value = vals[1], ty = Code.CodeTyDataPtr(ty.elem) },
+            local comps = {
+                data = { value = vals[1], ty = Code.CodeTyDataPtr((ty == Code.CodeTyByteSpan or pvm.classof(ty) == Code.CodeTyByteSpan) and Code.CodeTyInt(8, Code.CodeUnsigned) or ty.elem) },
                 len = { value = vals[2], ty = Code.CodeTyIndex },
-                stride = { value = vals[3], ty = Code.CodeTyIndex },
             }
+            if pvm.classof(ty) == Code.CodeTyView then comps.stride = { value = vals[3], ty = Code.CodeTyIndex } end
+            return comps
         end
 
         local function components(id)
@@ -1140,10 +1152,20 @@ local function bind_context(T)
                         len = value_ref(k.len, Code.CodeTyIndex),
                         stride = value_ref(k.stride, Code.CodeTyIndex),
                     }
-                elseif cls == Code.CodeInstAlias and view_ty(k.dst) ~= nil then
+                elseif cls == Code.CodeInstSliceMake then
+                    components_by_value[k.dst.text] = {
+                        data = value_ref(k.data, Code.CodeTyDataPtr(k.elem_ty)),
+                        len = value_ref(k.len, Code.CodeTyIndex),
+                    }
+                elseif cls == Code.CodeInstByteSpanMake then
+                    components_by_value[k.dst.text] = {
+                        data = value_ref(k.data, Code.CodeTyDataPtr(Code.CodeTyInt(8, Code.CodeUnsigned))),
+                        len = value_ref(k.len, Code.CodeTyIndex),
+                    }
+                elseif cls == Code.CodeInstAlias and descriptor_ty(k.dst) ~= nil then
                     local comps = components(k.src)
                     if comps ~= nil then components_by_value[k.dst.text] = comps end
-                elseif cls == Code.CodeInstLoad and pvm.classof(k.access.ty) == Code.CodeTyView then
+                elseif cls == Code.CodeInstLoad and (pvm.classof(k.access.ty) == Code.CodeTyView or pvm.classof(k.access.ty) == Code.CodeTySlice or k.access.ty == Code.CodeTyByteSpan or pvm.classof(k.access.ty) == Code.CodeTyByteSpan) then
                     -- A descriptor load defines fresh components through real memory loads in
                     -- generic Code emission.  Semantic fragments cannot assume those loads
                     -- exist once the block is replaced.
@@ -1151,7 +1173,11 @@ local function bind_context(T)
                 elseif covered[block.id.text] then
                     if cls == Code.CodeInstViewData then set_projection(k.dst, k.view, "data")
                     elseif cls == Code.CodeInstViewLen then set_projection(k.dst, k.view, "len")
-                    elseif cls == Code.CodeInstViewStride then set_projection(k.dst, k.view, "stride") end
+                    elseif cls == Code.CodeInstViewStride then set_projection(k.dst, k.view, "stride")
+                    elseif cls == Code.CodeInstSliceData then set_projection(k.dst, k.slice, "data")
+                    elseif cls == Code.CodeInstSliceLen then set_projection(k.dst, k.slice, "len")
+                    elseif cls == Code.CodeInstByteSpanData then set_projection(k.dst, k.span, "data")
+                    elseif cls == Code.CodeInstByteSpanLen then set_projection(k.dst, k.span, "len") end
                 end
             end
         end
@@ -1211,7 +1237,16 @@ local function bind_context(T)
                 local vty = value_ty(ctx, k.view)
                 if pvm.classof(vty) == Code.CodeTyLease then vty = vty.base end
                 dst, ty = k.dst, Code.CodeTyDataPtr(pvm.classof(vty) == Code.CodeTyView and vty.elem or nil)
-            elseif cls == Code.CodeInstViewLen or cls == Code.CodeInstViewStride then dst, ty = k.dst, Code.CodeTyIndex end
+            elseif cls == Code.CodeInstViewLen or cls == Code.CodeInstViewStride then dst, ty = k.dst, Code.CodeTyIndex
+            elseif cls == Code.CodeInstSliceMake then dst, ty = k.dst, Code.CodeTySlice(k.elem_ty)
+            elseif cls == Code.CodeInstSliceData then
+                local sty = value_ty(ctx, k.slice)
+                if pvm.classof(sty) == Code.CodeTyLease then sty = sty.base end
+                dst, ty = k.dst, Code.CodeTyDataPtr(pvm.classof(sty) == Code.CodeTySlice and sty.elem or nil)
+            elseif cls == Code.CodeInstSliceLen then dst, ty = k.dst, Code.CodeTyIndex
+            elseif cls == Code.CodeInstByteSpanMake then dst, ty = k.dst, Code.CodeTyByteSpan
+            elseif cls == Code.CodeInstByteSpanData then dst, ty = k.dst, Code.CodeTyDataPtr(Code.CodeTyInt(8, Code.CodeUnsigned))
+            elseif cls == Code.CodeInstByteSpanLen then dst, ty = k.dst, Code.CodeTyIndex end
             if dst ~= nil and ty ~= nil then
                 note_value(ctx, dst, ty)
                 ctx.value_block[dst.text] = block.id

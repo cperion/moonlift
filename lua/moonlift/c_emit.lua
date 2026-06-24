@@ -26,6 +26,7 @@ local function bind_context(T)
     end
 
     local function descriptor_type_name(kind, ty)
+        if kind == "bytespan" then return "ml_bytespan" end
         local elem = ty and ty.elem and sanitize(tostring(pvm.classof(ty.elem) and pvm.classof(ty.elem).kind or ty.elem)) or "any"
         if ty and ty.elem then
             local ecls = pvm.classof(ty.elem)
@@ -65,6 +66,7 @@ local function bind_context(T)
         if cls == C.CBackendNamed then return (ty.id.module_name .. "_" .. ty.id.spelling):gsub("[^%w_]", "_") end
         if cls == C.CBackendArray then return emit_type(ty.elem) end
         if cls == C.CBackendSliceDescriptor then return descriptor_type_name("slice", ty) end
+        if cls == C.CBackendByteSpanDescriptor or ty == C.CBackendByteSpanDescriptor then return "ml_bytespan" end
         if cls == C.CBackendViewDescriptor then return descriptor_type_name("view", ty) end
         if cls == C.CBackendClosureDescriptor then return closure_type_name(ty) end
         if cls == C.CBackendAbiHiddenOutPtr then return emit_type(C.CBackendDataPtr(ty.result)) end
@@ -189,6 +191,7 @@ local function bind_context(T)
             elseif cls == C.CBackendDataPtr and ty.pointee ~= nil then visit_ty(ty.pointee)
             elseif cls == C.CBackendAbiHiddenOutPtr then visit_ty(ty.result)
             elseif cls == C.CBackendSliceDescriptor then add_descriptor("slice", ty); visit_ty(ty.elem)
+            elseif cls == C.CBackendByteSpanDescriptor or ty == C.CBackendByteSpanDescriptor then add_descriptor("bytespan", ty)
             elseif cls == C.CBackendViewDescriptor then add_descriptor("view", ty); visit_ty(ty.elem) end
         end
         for i = 1, #(unit.sigs or {}) do
@@ -212,6 +215,8 @@ local function bind_context(T)
             local d = descriptor_types[name]
             if d.kind == "slice" then
                 out[#out + 1] = "struct " .. name .. " { " .. emit_type(C.CBackendDataPtr(d.ty.elem)) .. " data; ml_index len; };"
+            elseif d.kind == "bytespan" then
+                out[#out + 1] = "struct " .. name .. " { uint8_t* data; ml_index len; };"
             else
                 out[#out + 1] = "struct " .. name .. " { " .. emit_type(C.CBackendDataPtr(d.ty.elem)) .. " data; ml_index len; ml_index stride; };"
             end
@@ -442,7 +447,7 @@ local function bind_context(T)
         out[#out + 1] = emit_type(sig.result) .. " " .. f.name.text .. "(" .. func_params(f.params) .. ") {"
         local function needs_compound_decl_only(ty)
             local cls = pvm.classof(ty)
-            return cls == C.CBackendArray or cls == C.CBackendSliceDescriptor or cls == C.CBackendViewDescriptor or cls == C.CBackendClosureDescriptor or cls == C.CBackendNamed
+            return cls == C.CBackendArray or cls == C.CBackendSliceDescriptor or cls == C.CBackendByteSpanDescriptor or cls == C.CBackendViewDescriptor or cls == C.CBackendClosureDescriptor or cls == C.CBackendNamed
         end
         local function emit_local_decl(local_id, ty)
             if needs_compound_decl_only(ty) then

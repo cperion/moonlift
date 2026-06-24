@@ -99,23 +99,23 @@ local function bind_context(T)
     impl.zip_compare_class = function(fields) return with_class_kind("zip_compare", fields) end
     impl.pred_const = function(fields) return predicate_from_cmp_const(fields.op, fields.value, fields.const_on_left) end
     impl.index_stream = function(fields) return fields end
-    impl.store_fill = function(fields) return with_selection_kind("fill", Stencil.StencilFillArray, fields) end
-    impl.store_copy = function(fields) return with_selection_kind("copy", Stencil.StencilCopyArray, fields) end
-    impl.store_gather = function(fields) return with_selection_kind("gather", Stencil.StencilGatherArray, fields) end
-    impl.store_scatter = function(fields) return with_selection_kind("scatter", Stencil.StencilScatterArray, fields) end
-    impl.store_in_place_map = function(fields) return with_selection_kind("in_place_map", Stencil.StencilInPlaceMapArray, fields) end
-    impl.store_map = function(fields) return with_selection_kind("map", Stencil.StencilMapArray, fields) end
-    impl.store_cast = function(fields) return with_selection_kind("cast", Stencil.StencilCastArray, fields) end
-    impl.store_compare = function(fields) return with_selection_kind("compare", Stencil.StencilCompareArray, fields) end
-    impl.store_zip_map = function(fields) return with_selection_kind("zip_map", Stencil.StencilZipMapArray, fields) end
-    impl.store_zip_compare = function(fields) return with_selection_kind("zip_compare", Stencil.StencilZipCompareArray, fields) end
-    impl.scan_array = function(fields) return with_selection_kind("scan", Stencil.StencilScanArray, fields) end
-    impl.find_array = function(fields) return with_selection_kind("find", Stencil.StencilFindArray, fields) end
-    impl.partition_array = function(fields) return with_selection_kind("partition", Stencil.StencilPartitionArray, fields) end
-    impl.reduce_array = function(fields) return with_selection_kind("reduce", Stencil.StencilReduceArray, fields) end
-    impl.reduce_map = function(fields) return with_selection_kind("map_reduce", Stencil.StencilMapReduceArray, fields) end
-    impl.reduce_zip = function(fields) return with_selection_kind("zip_reduce", Stencil.StencilZipReduceArray, fields) end
-    impl.reduce_count = function(fields) return with_selection_kind("count", Stencil.StencilCountArray, fields) end
+    impl.store_fill = function(fields) return with_selection_kind("fill", Stencil.StencilFill, fields) end
+    impl.store_copy = function(fields) return with_selection_kind("copy", Stencil.StencilCopy, fields) end
+    impl.store_gather = function(fields) return with_selection_kind("gather", Stencil.StencilGather, fields) end
+    impl.store_scatter = function(fields) return with_selection_kind("scatter", Stencil.StencilScatter, fields) end
+    impl.store_in_place_map = function(fields) return with_selection_kind("in_place_map", Stencil.StencilInPlaceMap, fields) end
+    impl.store_map = function(fields) return with_selection_kind("map", Stencil.StencilMap, fields) end
+    impl.store_cast = function(fields) return with_selection_kind("cast", Stencil.StencilCast, fields) end
+    impl.store_compare = function(fields) return with_selection_kind("compare", Stencil.StencilCompare, fields) end
+    impl.store_zip_map = function(fields) return with_selection_kind("zip_map", Stencil.StencilZipMap, fields) end
+    impl.store_zip_compare = function(fields) return with_selection_kind("zip_compare", Stencil.StencilZipCompare, fields) end
+    impl.scan_array = function(fields) return with_selection_kind("scan", Stencil.StencilScan, fields) end
+    impl.find_array = function(fields) return with_selection_kind("find", Stencil.StencilFind, fields) end
+    impl.partition_array = function(fields) return with_selection_kind("partition", Stencil.StencilPartition, fields) end
+    impl.reduce_array = function(fields) return with_selection_kind("reduce", Stencil.StencilReduce, fields) end
+    impl.reduce_map = function(fields) return with_selection_kind("map_reduce", Stencil.StencilMapReduce, fields) end
+    impl.reduce_zip = function(fields) return with_selection_kind("zip_reduce", Stencil.StencilZipReduce, fields) end
+    impl.reduce_count = function(fields) return with_selection_kind("count", Stencil.StencilCount, fields) end
     impl.store_stencil_plan = function(fields) return fields end
     impl.reduce_stencil_plan = function(fields) return fields end
 
@@ -448,6 +448,7 @@ local function bind_context(T)
             start = P. ctx.start,
             stop = P. ctx.stop,
             value = P. ctx.class.value,
+            dst_topology = P. ctx.dst_topology,
           },
           args = { P. ctx.dst_expr, P. ctx.start_expr, P. ctx.stop_expr, P. ctx.class.value_expr },
         },
@@ -477,6 +478,8 @@ local function bind_context(T)
             stop = P. ctx.stop,
             src = P. ctx.class.src,
             semantics = P. ctx.copy_semantics,
+            dst_topology = P. ctx.dst_topology,
+            src_topology = P. ctx.class.src_topology,
           },
           args = { P. ctx.dst_expr, P. ctx.class.src_expr, P. ctx.start_expr, P. ctx.stop_expr },
         },
@@ -518,6 +521,8 @@ local function bind_context(T)
             mode = P. ctx.mode,
             dst = P. ctx.dst,
             array = P. ctx.class.src,
+            dst_topology = P. ctx.dst_topology,
+            array_topology = P. ctx.class.src_topology,
           },
           args = { P. ctx.dst_expr, P. ctx.class.src_expr, P. ctx.start_expr, P. ctx.stop_expr, P. ctx.init_expr },
         },
@@ -552,6 +557,7 @@ local function bind_context(T)
             elem_ty = P. ctx.class.elem_ty,
             array = P. ctx.class.src,
             pred = P. ctx.pred,
+            array_topology = P. ctx.class.src_topology,
           },
           args = { P. ctx.class.src_expr, P. ctx.start_expr, P. ctx.stop_expr },
         },
@@ -590,6 +596,8 @@ local function bind_context(T)
             array = P. ctx.class.src,
             pred = P. ctx.pred,
             semantics = P. ctx.semantics,
+            dst_topology = P. ctx.dst_topology,
+            array_topology = P. ctx.class.src_topology,
           },
           args = { P. ctx.dst_expr, P. ctx.class.src_expr, P. ctx.start_expr, P. ctx.stop_expr },
         },
@@ -622,6 +630,9 @@ local function bind_context(T)
             src = P. ctx.class.src,
             index = P. ctx.class.index_stream.base,
             index_ty = P. ctx.class.index_stream.elem_ty,
+            dst_topology = P. ctx.dst_topology,
+            src_topology = P. ctx.class.src_topology,
+            index_topology = P. ctx.class.index_stream.topology,
           },
           args = { P. ctx.dst_expr, P. ctx.class.src_expr, P. ctx.class.index_stream.base_expr, P. ctx.start_expr, P. ctx.stop_expr },
         },
@@ -655,6 +666,9 @@ local function bind_context(T)
             index = P. ctx.store_index_stream.base,
             index_ty = P. ctx.store_index_stream.elem_ty,
             conflicts = P. ctx.scatter_conflicts,
+            dst_topology = P. ctx.dst_topology,
+            src_topology = P. ctx.class.src_topology,
+            index_topology = P. ctx.store_index_stream.topology,
           },
           args = { P. ctx.dst_expr, P. ctx.class.src_expr, P. ctx.store_index_stream.base_expr, P. ctx.start_expr, P. ctx.stop_expr },
         },
@@ -686,6 +700,8 @@ local function bind_context(T)
             start = P. ctx.start,
             stop = P. ctx.stop,
             src = P. ctx.class.src,
+            dst_topology = P. ctx.dst_topology,
+            src_topology = P. ctx.class.src_topology,
           },
           args = { P. ctx.dst_expr, P. ctx.start_expr, P. ctx.stop_expr },
         },
@@ -717,6 +733,8 @@ local function bind_context(T)
             start = P. ctx.start,
             stop = P. ctx.stop,
             src = P. ctx.class.src,
+            dst_topology = P. ctx.dst_topology,
+            src_topology = P. ctx.class.src_topology,
           },
           args = { P. ctx.dst_expr, P. ctx.class.src_expr, P. ctx.start_expr, P. ctx.stop_expr },
         },
@@ -749,6 +767,8 @@ local function bind_context(T)
             src = P. ctx.class.src,
             src_ty = P. ctx.class.src_ty,
             dst_ty = P. ctx.class.result_ty,
+            dst_topology = P. ctx.dst_topology,
+            src_topology = P. ctx.class.src_topology,
           },
           args = { P. ctx.dst_expr, P. ctx.class.src_expr, P. ctx.start_expr, P. ctx.stop_expr },
         },
@@ -780,6 +800,8 @@ local function bind_context(T)
             stop = P. ctx.stop,
             src = P. ctx.class.src,
             pred = P. ctx.class.pred,
+            dst_topology = P. ctx.dst_topology,
+            src_topology = P. ctx.class.src_topology,
           },
           args = { P. ctx.dst_expr, P. ctx.class.src_expr, P. ctx.start_expr, P. ctx.stop_expr },
         },
@@ -818,6 +840,9 @@ local function bind_context(T)
             rhs = P. ctx.class.rhs_base,
             lhs_ty = P. ctx.class.lhs_ty,
             rhs_ty = P. ctx.class.rhs_ty,
+            dst_topology = P. ctx.dst_topology,
+            lhs_topology = P. ctx.class.lhs_topology,
+            rhs_topology = P. ctx.class.rhs_topology,
           },
           args = { P. ctx.dst_expr, P. ctx.class.lhs_expr, P. ctx.class.rhs_expr, P. ctx.start_expr, P. ctx.stop_expr },
         },
@@ -853,6 +878,9 @@ local function bind_context(T)
             rhs = P. ctx.class.rhs_base,
             lhs_ty = P. ctx.class.lhs_ty,
             rhs_ty = P. ctx.class.rhs_ty,
+            dst_topology = P. ctx.dst_topology,
+            lhs_topology = P. ctx.class.lhs_topology,
+            rhs_topology = P. ctx.class.rhs_topology,
           },
           args = { P. ctx.dst_expr, P. ctx.class.lhs_expr, P. ctx.class.rhs_expr, P. ctx.start_expr, P. ctx.stop_expr },
         },
@@ -888,6 +916,7 @@ local function bind_context(T)
             init = P. ctx.init,
             array = P. ctx.class.src,
             elem_ty = P. ctx.class.elem_ty,
+            array_topology = P. ctx.class.src_topology,
           },
           args = { P. ctx.class.src_expr, P. ctx.start_expr, P. ctx.stop_expr, P. ctx.init_expr },
         },
@@ -917,6 +946,7 @@ local function bind_context(T)
             array = P. ctx.class.src,
             elem_ty = P. ctx.class.elem_ty,
             mapped_ty = P. ctx.class.result_ty,
+            array_topology = P. ctx.class.src_topology,
           },
           args = { P. ctx.class.src_expr, P. ctx.start_expr, P. ctx.stop_expr, P. ctx.init_expr },
         },
@@ -952,6 +982,8 @@ local function bind_context(T)
             lhs_ty = P. ctx.class.lhs_ty,
             rhs_ty = P. ctx.class.rhs_ty,
             mapped_ty = P. ctx.class.result_ty,
+            lhs_topology = P. ctx.class.lhs_topology,
+            rhs_topology = P. ctx.class.rhs_topology,
           },
           args = { P. ctx.class.lhs_expr, P. ctx.class.rhs_expr, P. ctx.start_expr, P. ctx.stop_expr, P. ctx.init_expr },
         },
@@ -981,6 +1013,7 @@ local function bind_context(T)
             array = P. ctx.class.src,
             elem_ty = P. ctx.class.elem_ty,
             pred = P. ctx.class.pred,
+            array_topology = P. ctx.class.src_topology,
           },
           args = { P. ctx.class.src_expr, P. ctx.start_expr, P. ctx.stop_expr },
         },

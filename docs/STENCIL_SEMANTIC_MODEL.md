@@ -134,6 +134,181 @@ segmented domains
 masked domains
 ```
 
+## Family Expansion Choice
+
+The current array stencil backend is treated as one completed projection of the
+normalized model, not as the whole stencil family.
+
+```text
+array stencils =
+  range1d domain
+  + contiguous/indexed/in-place array topology
+  + current apply/reduce/scan/copy/find/partition skeletons
+```
+
+New stencil families must extend the normalized axes first. They should not add
+parallel vocabulary for the same semantics just because the storage container
+changes.
+
+For example:
+
+```text
+views/slices       = range1d domain + descriptor-backed strided topology
+byte spans         = range1d domain + byte-addressed topology + cast/reinterpret operator
+2D tiles/images    = tile2d domain + row/column/tiled topology
+AoS field arrays   = range1d domain + field-projection topology
+segmented data     = segmented domain + existing apply/reduce/scan skeletons
+masked data        = masked domain + existing access roles and predicates
+```
+
+The rule is:
+
+```text
+grow domains, topologies, operators, skeletons, and memory semantics;
+do not grow duplicate language families for reducible cases.
+```
+
+This keeps the Moonlift family reduced. A new concrete stencil name is allowed
+only when it classifies a genuinely new combination of normalized semantics or a
+backend-relevant specialization of one. It is not allowed just to spell product
+and sum semantics twice.
+
+## Family Implementation Checklist
+
+Use this checklist bottom-up. A family is not done when one example lowers; it
+is done when its descriptor semantics, lowerer selection, artifact generation,
+diagnostics, and measurement gate all agree.
+
+```text
+[x] range1d arrays
+    domain:      range1d
+    topology:    contiguous, indexed, in_place, scalar
+    skeletons:   apply, copy, reduce, scan, find, partition
+    vocabulary:  18/18 LuaJIT C stencil cells
+    gate:        bench_luajit_lower_stencil_matrix.lua full
+
+[x] descriptor-backed views
+    domain:      range1d
+    topology:    strided descriptor data/len/stride
+    skeletons:   apply, copy, reduce, scan, find, partition
+    first proof:  same skeletons as arrays with non-unit stride and view bounds
+    gate:        code_ir view copy proves dynamic runtime stride lowering;
+                 stencil_c all-shapes compiles array + dynamic-view variants
+                 for the full 18-cell vocabulary without symbol collisions;
+                 array quick matrix remains 18/18 measured.
+    status:      view descriptor topology is typed and carried through
+                 Llisle selection into descriptors; CodeInstViewMake emits
+                 MemObjectSameStore for its backing data; dynamic stride
+                 is part of artifact ABI and C address generation.
+
+[x] descriptor-backed slices
+    domain:      range1d
+    topology:    descriptor data/len
+    skeletons:   same as views where contiguous slice access is legal
+    first proof:  first-class Code IR slice projection, not reuse of view
+    gate:        code_ir slice copy proves CodeInstSliceMake +
+                 CodeInstSliceData lowering into StencilTopologySliceDescriptor;
+                 stencil_c all-shapes compiles array + dynamic-view +
+                 dynamic-slice variants for the full 18-cell vocabulary
+                 without symbol collisions.
+    status:      slice descriptors are typed as data,len across LuaJIT
+                 physical types and Back ABI components; CodeInstSliceMake
+                 emits MemObjectSameStore for its backing data.
+
+[x] byte spans
+    domain:      range1d
+    topology:    byte-addressed span
+    operators:   copy, memmove, fill, find/search, compare, count
+    first proof:  memcpy/memmove/fill/search over u8-compatible spans
+    gate:        code_ir byte span copy proves CodeInstByteSpanMake +
+                 CodeInstByteSpanData lowering into
+                 StencilTopologyByteSpanDescriptor; stencil_c byte-span
+                 artifacts compile and execute copy, memmove, fill, find,
+                 compare, and count over u8-compatible spans.
+    status:      byte spans are explicit Code/Mem/Stencil descriptors,
+                 not slice[u8] aliases; Back and LuaJIT ABI lower them as
+                 data,len components, while memory facts keep the element
+                 type fixed to u8 and the descriptor length as byte length.
+
+[ ] AoS / struct-field projections
+    domain:      range1d
+    topology:    field projection over contiguous records
+    skeletons:   apply, reduce, scan, find, partition where field access is pure
+    first proof:  map/reduce one field without materializing SoA
+    gate:        compare AoS field loop against hand-written C
+
+[ ] SoA / multi-buffer records
+    domain:      range1d
+    topology:    synchronized named component buffers
+    skeletons:   zip_map, zip_reduce, compare, partition
+    first proof:  record-like zip semantics without inventing a second product model
+    gate:        compare multi-buffer lowering against hand-written C
+
+[ ] 2D row-major surfaces
+    domain:      tile2d or range2d
+    topology:    row stride, width, height, element size
+    skeletons:   apply, copy, reduce, find
+    first proof:  image-style map/copy/reduce over row-strided storage
+    gate:        compare tiled/row loops against hand-written C
+
+[ ] tiled domains
+    domain:      tile2d / blocked range_nd
+    topology:    tile-local contiguous or row-major storage
+    skeletons:   apply, reduce, scan where legal
+    first proof:  same semantics as range2d with explicit tile traversal order
+    gate:        compare tile sizes against direct C and keep best selection facts
+
+[ ] segmented domains
+    domain:      segmented range
+    topology:    segment offsets + contiguous/indexed payload
+    skeletons:   segmented reduce, segmented scan, segmented map
+    first proof:  segment boundaries are domain semantics, not predicates in loops
+    gate:        compare against direct segmented C kernels
+
+[ ] masked domains
+    domain:      range1d + mask or explicit masked domain
+    topology:    mask stream plus payload topology
+    skeletons:   apply, reduce, count, find, partition
+    first proof:  mask is traversal/domain semantics, not a duplicate predicate op
+    gate:        compare mask density cases against direct C
+
+[ ] generated ranges
+    domain:      generated/virtual range
+    topology:    scalar or generated value, no required payload load
+    skeletons:   apply, reduce, scan
+    first proof:  reductions over generated affine/range values
+    gate:        compare closed-form, generated-loop, and C loop paths
+
+[ ] windows / stencils in the numeric sense
+    domain:      range1d/range2d with neighborhood
+    topology:    windowed access around each domain point
+    skeletons:   apply, reduce-local, convolution-like map
+    first proof:  neighborhood semantics live in topology, not custom loop names
+    gate:        compare direct C window loops and boundary modes
+
+[ ] sparse indexed data
+    domain:      index stream or compressed segment domain
+    topology:    gather/scatter over index/value buffers
+    skeletons:   apply, reduce, scatter with conflict semantics
+    first proof:  conflicts and ordering are memory semantics
+    gate:        compare CSR/COO-shaped C kernels where applicable
+```
+
+Every unchecked family must land by extending normalized schema first. The
+minimum completion gate for each family is:
+
+```text
+1. ASDL descriptor shape exists.
+2. Kernel/MoonCode facts can express the family without backend guessing.
+3. Llisle selector classifies the family from facts.
+4. StencilC or copy-patch artifact generation consumes the descriptor.
+5. Diagnostics explain rejection in terms of the normalized axes.
+6. Benchmarks compare lowered output against direct C/GCC baselines.
+```
+
+The step-by-step workflow for implementing these families lives in
+`docs/STENCIL_FAMILY_IMPLEMENTATION_GUIDE.md`.
+
 ## Domain
 
 A domain is the logical iteration space.

@@ -52,6 +52,7 @@ local function bind_context(T)
         if cls == Code.CodeTyNamed then return "named_" .. sanitize(ty.module_name) .. "_" .. sanitize(ty.type_name) end
         if cls == Code.CodeTyArray then return "array_" .. tostring(ty.count) .. "_" .. code_type_key(ty.elem) end
         if cls == Code.CodeTySlice then return "slice_" .. code_type_key(ty.elem) end
+        if cls == Code.CodeTyByteSpan or ty == Code.CodeTyByteSpan then return "bytespan" end
         if cls == Code.CodeTyView then return "view_" .. code_type_key(ty.elem) end
         if cls == Code.CodeTyHandle then return "handle_" .. code_type_key(ty.repr) end
         if cls == Code.CodeTyLease then return "lease_" .. code_type_key(ty.base) end
@@ -214,6 +215,12 @@ local function bind_context(T)
                 LJ.LJCField("len", scalar_ctype(Back.BackIndex), nil, nil, nil),
             })
         end
+        if cls == Code.CodeTyByteSpan or ty == Code.CodeTyByteSpan then
+            return descriptor_struct(ctx, "bytespan", ty, {
+                LJ.LJCField("data", LJ.LJCTypePointer(scalar_ctype(Back.BackU8), true), nil, nil, nil),
+                LJ.LJCField("len", scalar_ctype(Back.BackIndex), nil, nil, nil),
+            })
+        end
         if cls == Code.CodeTyView then
             local elem = physical_type(ty.elem, ctx)
             return descriptor_struct(ctx, "view", ty, {
@@ -258,6 +265,12 @@ local function bind_context(T)
         if cls == Code.CodeTySlice then
             local elem = physical_type(ty.elem, ctx)
             local data = LJ.LJCField("data", LJ.LJCTypePointer(elem.storage, true), nil, nil, nil)
+            local len = LJ.LJCField("len", scalar_ctype(Back.BackIndex), nil, nil, nil)
+            local cty = ctype_for_code_type(ty, ctx)
+            return LJ.LJPhysicalType(ty, LJ.LJRegTuple({ data, len }), cty, cty)
+        end
+        if cls == Code.CodeTyByteSpan or ty == Code.CodeTyByteSpan then
+            local data = LJ.LJCField("data", LJ.LJCTypePointer(scalar_ctype(Back.BackU8), true), nil, nil, nil)
             local len = LJ.LJCField("len", scalar_ctype(Back.BackIndex), nil, nil, nil)
             local cty = ctype_for_code_type(ty, ctx)
             return LJ.LJPhysicalType(ty, LJ.LJRegTuple({ data, len }), cty, cty)

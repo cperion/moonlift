@@ -122,10 +122,10 @@ local function build_case(case)
 end
 
 local function select_artifact(func, vocab, op, plan, info)
-    if vocab == Stencil.StencilCopyArray then return StencilC.copy_array_artifact(info) end
-    if vocab == Stencil.StencilFillArray then return StencilC.fill_array_artifact(info) end
-    if vocab == Stencil.StencilMapArray then return StencilC.map_array_artifact(op, info) end
-    if vocab == Stencil.StencilZipMapArray then return StencilC.zip_map_array_artifact(op, info) end
+    if vocab == Stencil.StencilCopy then return StencilC.copy_array_artifact(info) end
+    if vocab == Stencil.StencilFill then return StencilC.fill_array_artifact(info) end
+    if vocab == Stencil.StencilMap then return StencilC.map_array_artifact(op, info) end
+    if vocab == Stencil.StencilZipMap then return StencilC.zip_map_array_artifact(op, info) end
     error("unexpected store stencil vocab " .. tostring(vocab))
 end
 
