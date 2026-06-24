@@ -90,9 +90,15 @@ local function bind_context(T)
         return fact
     end
 
+    local function contract_facts(contracts)
+        if contracts == nil then return {} end
+        if pvm.classof(contracts) == Code.CodeContractFactSet then return contracts.facts or {} end
+        return contracts
+    end
+
     local function contract_index(contracts)
         local idx = { bounds = {}, window = {}, same_len = {}, disjoint = {}, noalias = {}, readonly = {}, writeonly = {}, by_func = {} }
-        for _, f in ipairs(contracts and contracts.facts or {}) do
+        for _, f in ipairs(contract_facts(contracts)) do
             idx.by_func[f.func.text] = idx.by_func[f.func.text] or {}
             idx.by_func[f.func.text][#idx.by_func[f.func.text] + 1] = f
             local k = f.fact

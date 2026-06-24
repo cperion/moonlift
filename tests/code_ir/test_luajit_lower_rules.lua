@@ -21,7 +21,6 @@ local function base()
         returns_reduction = false,
         returns_void = false,
         stencil_reduce_ready = false,
-        vector_reduce_ready = false,
         single_store = false,
         store_dst_base = false,
         stencil_store_ready = false,
@@ -35,20 +34,9 @@ do
     c.result_reduction = true
     c.returns_reduction = true
     c.stencil_reduce_ready = true
-    c.vector_reduce_ready = true
     local selection, err = Rules.select(c)
     assert(selection ~= nil, tostring(err))
-    assert(selection.kind == "stencil_reduce", "stencil reduce must win over vector reduce")
-end
-
-do
-    local c = base()
-    c.result_reduction = true
-    c.returns_reduction = true
-    c.vector_reduce_ready = true
-    local selection, err = Rules.select(c)
-    assert(selection ~= nil, tostring(err))
-    assert(selection.kind == "vector_reduce", "vector reduce should select when stencil reduce is unavailable")
+    assert(selection.kind == "stencil_reduce", "stencil reduce is the canonical reduction lowering")
 end
 
 do
@@ -83,7 +71,6 @@ do
     c.result_reduction = true
     c.returns_reduction = true
     c.stencil_reduce_ready = false
-    c.vector_reduce_ready = false
     local selection = Rules.select(c)
     assert(selection == nil, "no strategy should select when no ready lowering fact is present")
 end

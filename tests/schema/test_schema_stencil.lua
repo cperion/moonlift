@@ -33,6 +33,33 @@ local reduction = Value.ReductionFact(
     Value.AlgebraProofFlow(domain, "test reduction")
 )
 local proof = Kernel.KernelProofValue(reduction.proof, "test proof")
+local compiler = Stencil.StencilCompilerPolicy(
+    Stencil.StencilCompilerGcc,
+    Stencil.StencilOptO3,
+    Stencil.StencilMachineNative,
+    { "-fno-builtin" }
+)
+local vector_facts = Stencil.StencilVectorizationFacts(
+    {
+        Stencil.StencilAccessVectorFact(
+            "xs",
+            Stencil.StencilAliasUnknown,
+            Stencil.StencilAlignmentKnown(4),
+            true,
+            true
+        ),
+        Stencil.StencilAccessVectorFact(
+            "acc",
+            Stencil.StencilAliasNoAlias,
+            Stencil.StencilAlignmentUnknown,
+            false,
+            false
+        ),
+    },
+    Stencil.StencilTripCountDynamic,
+    Stencil.StencilArithmeticVectorFact(true, sem, nil)
+)
+local schedule = Stencil.StencilScheduleAutoVector(compiler, vector_facts)
 local descriptor = Stencil.StencilDescriptor(
     Stencil.StencilReduce,
     Stencil.StencilDomainRange1D(Code.CodeTyIndex, nil, nil, 1, Stencil.StencilDomainForward),
@@ -64,6 +91,7 @@ local descriptor = Stencil.StencilDescriptor(
 local instance = Stencil.StencilInstance(
     Stencil.StencilInstanceId("stencil:reduce_array:i32:add"),
     descriptor,
+    schedule,
     Stencil.StencilAbi({ Code.CodeTyDataPtr(i32), i32, i32, i32 }, i32),
     { proof }
 )
@@ -80,6 +108,13 @@ assert(instance.descriptor.accesses[1].role == Stencil.StencilAccessRead)
 assert(instance.descriptor.accesses[2].role == Stencil.StencilAccessReduce)
 assert(pvm.classof(instance.descriptor.reducer) == Stencil.StencilReducer)
 assert(instance.descriptor.skeleton == Stencil.StencilSkeletonReduce)
+assert(pvm.classof(instance.schedule) == Stencil.StencilScheduleAutoVector)
+assert(instance.schedule.compiler.compiler == Stencil.StencilCompilerGcc)
+assert(instance.schedule.compiler.opt_level == Stencil.StencilOptO3)
+assert(instance.schedule.compiler.machine == Stencil.StencilMachineNative)
+assert(instance.schedule.facts.access_facts[1].access_name == "xs")
+assert(pvm.classof(instance.schedule.facts.access_facts[1].alignment) == Stencil.StencilAlignmentKnown)
+assert(instance.schedule.facts.arithmetic.int_semantics == sem)
 assert(artifact.provider == Stencil.StencilProviderC)
 assert(artifact.instance == instance)
 

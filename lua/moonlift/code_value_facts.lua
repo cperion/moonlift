@@ -161,7 +161,20 @@ local function bind_context(T)
         return ReductionAlgebra.binary_reduction_kind(op, is_float)
     end
 
+    local function canonical_value(value, aliases)
+        local seen = {}
+        while value ~= nil and aliases ~= nil and aliases[value.text] ~= nil and not seen[value.text] do
+            seen[value.text] = true
+            value = aliases[value.text]
+        end
+        return value
+    end
+
     local function same_value(a, b) return a ~= nil and b ~= nil and a == b end
+
+    local function same_canonical_value(a, b, aliases)
+        return same_value(canonical_value(a, aliases), canonical_value(b, aliases))
+    end
 
     local function resolve_def(defs, id)
         local seen = {}
@@ -173,7 +186,7 @@ local function bind_context(T)
         return def
     end
 
-    local function select_minmax_reduction(param, def, defs)
+    local function select_minmax_reduction(param, def, defs, aliases)
         if def == nil or def.cls ~= Code.CodeInstSelect then return nil end
         local k = def.kind
         local cdef = k.cond and defs[k.cond.text] or nil
@@ -181,12 +194,35 @@ local function bind_context(T)
         local cmp = cdef.kind
         local lhs, rhs = cmp.lhs, cmp.rhs
         if not ((same_value(k.then_value, lhs) and same_value(k.else_value, rhs)) or (same_value(k.then_value, rhs) and same_value(k.else_value, lhs))) then return nil end
-        if not (same_value(lhs, param.value) or same_value(rhs, param.value)) then return nil end
-        local contribution = same_value(lhs, param.value) and rhs or lhs
+        if not (same_canonical_value(lhs, param.value, aliases) or same_canonical_value(rhs, param.value, aliases)) then return nil end
+        local contribution = same_canonical_value(lhs, param.value, aliases) and rhs or lhs
         local true_value_is_lhs = same_value(k.then_value, lhs)
         local rkind = ReductionAlgebra.select_minmax_kind(cmp.op, true_value_is_lhs)
         if rkind == nil then return nil end
         return rkind, contribution, k.ty or cmp.operand_ty, nil, nil
+    end
+
+    local function loop_body_aliases(graph_loop, flow, latch)
+        local loop_blocks = {}
+        for _, block in ipairs(graph_loop and graph_loop.body or {}) do loop_blocks[block.block.text] = true end
+        local aliases = {}
+        local changed = true
+        while changed do
+            changed = false
+            for _, fact in ipairs(flow and flow.edges or {}) do
+                local edge = fact.edge
+                if edge ~= latch and loop_blocks[edge.from.block.text] and loop_blocks[edge.to.block.text] then
+                    for _, arg in ipairs(fact.args or {}) do
+                        local src = canonical_value(arg.src, aliases)
+                        if src ~= nil and aliases[arg.dst_param.text] ~= src then
+                            aliases[arg.dst_param.text] = src
+                            changed = true
+                        end
+                    end
+                end
+            end
+        end
+        return aliases
     end
 
     local function detect_reductions(module, graph, flow, exprs_by_func)
@@ -205,6 +241,7 @@ local function bind_context(T)
                 local header = blocks[graph_loop.header.block.text]
                 local latch = graph_loop.latches[1]
                 local latch_fact = edge_facts[latch.from.block.text .. "\0" .. latch.to.block.text]
+                local aliases = loop_body_aliases(graph_loop, flow, latch)
                 local defs = value_defs(func)
                 local exprs = exprs_by_func[func.id.text] or {}
                 local primary = {}
@@ -221,7 +258,7 @@ local function bind_context(T)
                         if def ~= nil and (def.cls == Code.CodeInstBinary or def.cls == Code.CodeInstFloatBinary) then
                             recurrence_cls = def.cls
                             local k = def.kind
-                            if k.lhs == param.value then contribution = k.rhs elseif k.rhs == param.value then contribution = k.lhs end
+                            if same_canonical_value(k.lhs, param.value, aliases) then contribution = k.rhs elseif same_canonical_value(k.rhs, param.value, aliases) then contribution = k.lhs end
                             local is_float = def.cls == Code.CodeInstFloatBinary
                             rkind = contribution and reduction_kind_for(k.op, is_float) or nil
                             rty = k.ty
@@ -229,9 +266,10 @@ local function bind_context(T)
                             float_mode = (def.cls == Code.CodeInstFloatBinary) and k.mode or nil
                         elseif def ~= nil and def.cls == Code.CodeInstSelect then
                             recurrence_cls = def.cls
-                            rkind, contribution, rty, int_sem, float_mode = select_minmax_reduction(param, def, defs)
+                            rkind, contribution, rty, int_sem, float_mode = select_minmax_reduction(param, def, defs, aliases)
                         end
                         if rkind ~= nil and contribution ~= nil then
+                            local canonical_contribution = canonical_value(contribution, aliases)
                             local domain = Flow.FlowDomainLoop(loop_fact.loop)
                             local proof = Value.AlgebraProofFlow(domain, "loop-carried accumulator recurrence")
                             local reduction = Value.ReductionFact(
@@ -240,14 +278,14 @@ local function bind_context(T)
                                 param.value,
                                 rkind,
                                 expr_for(exprs, init),
-                                expr_for(exprs, contribution),
+                                expr_for(exprs, canonical_contribution),
                                 rty,
                                 int_sem,
                                 float_mode,
                                 proof
                             )
                             reductions[#reductions + 1] = reduction
-                            if rkind == Value.ReductionAdd and recurrence_cls == Code.CodeInstBinary and primary[contribution.text] and loop_fact.counted ~= nil and loop_fact.counted.stop_exclusive then
+                            if rkind == Value.ReductionAdd and recurrence_cls == Code.CodeInstBinary and primary[canonical_contribution.text] and loop_fact.counted ~= nil and loop_fact.counted.stop_exclusive then
                                 local closed_expr = arithmetic_series_expr(
                                     expr_for(exprs, init),
                                     expr_for(exprs, loop_fact.counted.start),

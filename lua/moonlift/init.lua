@@ -12,6 +12,7 @@
 --   moon.emit_object(decl [, path [, name]])
 --   moon.emit_shared(decl [, path [, name [, opts]]])
 --   moon.emit_c_artifact(decl [, opts])
+--   moon.emit_luajit_artifact(decl [, path_or_opts [, name [, opts]]])
 --
 -- Low-level modules are exposed for direct use.
 
@@ -808,6 +809,108 @@ function M.emit_c_artifact(decl, path_or_opts, name, opts)
     if path_or_opts then artifact:write(path_or_opts) end
     if opts.c_path or opts.source_path or opts.h_path or opts.header_path or opts.support_path or opts.combined_path or opts.single_path then
         artifact:write(opts)
+    end
+    return artifact
+end
+
+function M.emit_luajit_artifact(decl, path_or_opts, name, opts)
+    if type(path_or_opts) == "table" and opts == nil then
+        opts = path_or_opts
+        path_or_opts = nil
+    end
+    opts = opts or {}
+    local path = path_or_opts or opts.path
+    name = name or opts.name or "moonlift_luajit"
+
+    local function sanitize(s)
+        s = tostring(s or "x"):gsub("[^%w_]", "_")
+        if s == "" then s = "x" end
+        if s:match("^%d") then s = "_" .. s end
+        return s
+    end
+
+    local pvm = require("moonlift.pvm")
+    local A2 = require("moonlift.schema_projection")
+    local module_ast = module_ast_from(decl, name)
+    local cls = pvm.classof(module_ast)
+    local T = (cls and rawget(cls, "__context")) or pvm.context()
+    if T.MoonCompiler == nil or T.MoonLuaJIT == nil or T.MoonStencil == nil then A2(T) end
+
+    local Pipeline = require("moonlift.frontend_pipeline")(T)
+    local Backend = require("moonlift.luajit_backend")(T)
+    local checked = Pipeline.typecheck_module(module_ast, {
+        context = T,
+        site = "emit_luajit_artifact:typecheck",
+        name = name,
+    })
+    local code_result = Pipeline.checked_to_code_result(checked, {
+        context = T,
+        site = "emit_luajit_artifact:code",
+        name = name,
+    })
+
+    local lj_module, facts, artifacts, rejects = Backend.lower_module(code_result.module, {
+        contracts = code_result.contracts,
+        graph = opts.graph,
+        flow = opts.flow,
+        value = opts.value,
+        mem = opts.mem,
+        effect = opts.effect,
+        kernel = opts.kernel,
+        collect_rejects = opts.collect_rejects,
+    })
+    if opts.reject_on_stencil_rejects ~= false and rejects and #rejects > 0 then
+        error("emit_luajit_artifact rejected module: " .. tostring(rejects[1].reason or rejects[1]), 2)
+    end
+
+    local bank = opts.bank
+    if bank == nil and #(artifacts or {}) > 0 then
+        local bank_opts = opts.bank_opts or {}
+        bank_opts.stem = bank_opts.stem or opts.stem or sanitize(name)
+        bank_opts.dir = bank_opts.dir or opts.bank_dir
+        bank_opts.preamble = bank_opts.preamble or opts.preamble
+        bank_opts.cc = bank_opts.cc or opts.cc
+        bank_opts.cflags = bank_opts.cflags or opts.cflags
+        bank_opts.arch = bank_opts.arch or opts.arch
+        bank_opts.os = bank_opts.os or opts.os
+        bank_opts.abi = bank_opts.abi or opts.abi
+        bank_opts.pointer_bits = bank_opts.pointer_bits or opts.pointer_bits
+        bank_opts.endian = bank_opts.endian or opts.endian
+        bank = assert(Backend.build_binary_bank(artifacts, bank_opts))
+    end
+
+    local source, err = Backend.emit_lua_artifact(lj_module, artifacts, {
+        bank = bank,
+        path = path,
+        chunk_name = opts.chunk_name or name,
+        patch_values = opts.patch_values,
+    })
+    if source == nil then error(err or "emit_luajit_artifact failed", 2) end
+
+    local artifact = {
+        kind = "LuaJITSourceArtifact",
+        source = source,
+        path = path,
+        name = name,
+        unit = module_ast,
+        checked = checked,
+        code_result = code_result,
+        lj_module = lj_module,
+        facts = facts,
+        artifacts = artifacts,
+        rejects = rejects,
+        bank = bank,
+    }
+    function artifact:write(write_path)
+        write_path = write_path or self.path
+        assert(write_path, "emit_luajit_artifact artifact:write requires a path")
+        local dir = tostring(write_path):match("^(.*)/[^/]+$")
+        if dir ~= nil and dir ~= "" then os.execute("mkdir -p '" .. dir:gsub("'", "'\\''") .. "'") end
+        local f = assert(io.open(write_path, "wb"))
+        f:write(self.source)
+        f:close()
+        self.path = write_path
+        return self
     end
     return artifact
 end

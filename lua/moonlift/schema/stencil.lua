@@ -239,6 +239,102 @@ return schema. MoonStencil {
     scatter [optional [MoonStencil.StencilScatterConflictSemantics]],
   },
 
+  sum. StencilCompiler {
+    StencilCompilerGcc,
+    StencilCompilerClang,
+    StencilCompilerSystemC,
+  },
+
+  sum. StencilOptLevel {
+    StencilOptO0,
+    StencilOptO1,
+    StencilOptO2,
+    StencilOptO3,
+    StencilOptOs,
+    StencilOptOz,
+  },
+
+  sum. StencilMachineTarget {
+    StencilMachineNative,
+    StencilMachineBaseline,
+    StencilMachineNamed {
+      variant_unique,
+      field. name [str],
+    },
+  },
+
+  product. StencilCompilerPolicy {
+    interned,
+    compiler [MoonStencil.StencilCompiler],
+    opt_level [MoonStencil.StencilOptLevel],
+    machine [MoonStencil.StencilMachineTarget],
+    flags [many [str]],
+  },
+
+  sum. StencilAliasFact {
+    StencilAliasUnknown,
+    StencilAliasNoAlias,
+    StencilAliasMayAlias,
+  },
+
+  sum. StencilAlignmentFact {
+    StencilAlignmentUnknown,
+    StencilAlignmentKnown {
+      variant_unique,
+      bytes [number],
+    },
+  },
+
+  sum. StencilTripCountFact {
+    StencilTripCountUnknown,
+    StencilTripCountDynamic,
+    StencilTripCountMultipleOf {
+      variant_unique,
+      factor [number],
+    },
+  },
+
+  product. StencilAccessVectorFact {
+    interned,
+    access_name [str],
+    field. alias [MoonStencil.StencilAliasFact],
+    alignment [MoonStencil.StencilAlignmentFact],
+    readonly [bool],
+    unit_stride [bool],
+  },
+
+  product. StencilArithmeticVectorFact {
+    interned,
+    reduction_reassociable [bool],
+    int_semantics [optional [MoonCode.CodeIntSemantics]],
+    float_mode [optional [MoonCode.CodeFloatMode]],
+  },
+
+  product. StencilVectorizationFacts {
+    interned,
+    access_facts [many [MoonStencil.StencilAccessVectorFact]],
+    trip_count [MoonStencil.StencilTripCountFact],
+    arithmetic [MoonStencil.StencilArithmeticVectorFact],
+  },
+
+  sum. StencilSchedule {
+    StencilScheduleScalar {
+      variant_unique,
+      compiler [MoonStencil.StencilCompilerPolicy],
+    },
+    StencilScheduleAutoVector {
+      variant_unique,
+      compiler [MoonStencil.StencilCompilerPolicy],
+      facts [MoonStencil.StencilVectorizationFacts],
+    },
+    StencilScheduleUnrolled {
+      variant_unique,
+      factor [number],
+      compiler [MoonStencil.StencilCompilerPolicy],
+      facts [MoonStencil.StencilVectorizationFacts],
+    },
+  },
+
   product. StencilDescriptor {
     interned,
     vocab [MoonStencil.StencilVocab],
@@ -300,6 +396,7 @@ return schema. MoonStencil {
     interned,
     field. id [MoonStencil.StencilInstanceId],
     descriptor [MoonStencil.StencilDescriptor],
+    schedule [MoonStencil.StencilSchedule],
     abi [MoonStencil.StencilAbi],
     proofs [many [MoonKernel.KernelProof]],
   },

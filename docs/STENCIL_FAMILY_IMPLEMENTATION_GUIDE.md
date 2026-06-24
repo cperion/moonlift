@@ -88,11 +88,14 @@ zip_reduce
 
 Important properties of the completed reference:
 
-- `StencilInstance` carries `descriptor`, not old `vocab`, `shape`, or `params`.
+- `StencilInstance` carries `descriptor`, `schedule`, ABI, and proofs, not old
+  public `vocab`, `shape`, or `params`.
 - `StencilShape*` is not schema API anymore.
 - The C emitter may use private Lua records as an implementation convenience,
   but the ASDL contract is the descriptor.
 - `stencil_c.lua` constructs `StencilDescriptor` for every artifact.
+- The selected schedule is the concrete machine-facing vectorization policy;
+  descriptors stay semantic.
 - Lowering coverage is measured as a whole vocabulary, not isolated examples.
 
 Validation commands:
@@ -257,6 +260,7 @@ emission code compact. That private projection must not become schema API.
 Required artifact properties:
 
 - descriptor is the source of truth;
+- schedule is explicit on the `StencilInstance`;
 - ABI follows from descriptor accesses and result semantics;
 - symbol names are deterministic;
 - rejection happens before code emission when a descriptor is unsupported;
@@ -317,8 +321,10 @@ A family is complete only when all of these are true:
 [ ] MoonKernel carries the semantic skeleton
 [ ] Llisle selects or rejects the family with semantic reasons
 [ ] artifact generation consumes descriptors
+[ ] every executable instance has an explicit schedule
 [ ] generated code is compared with direct C/GCC baselines
 [ ] lowered path is compared with raw artifact path
+[ ] real DSL/frontend-shaped programs reach the same selected artifacts
 [ ] tests cover every vocabulary cell claimed for the family
 [ ] docs list the family as complete in STENCIL_SEMANTIC_MODEL.md
 ```
@@ -504,5 +510,5 @@ Not allowed:
 - claiming completion before matrix coverage.
 
 The array yank removed `StencilShape*` from schema API and made
-`StencilInstance.descriptor` the contract. Future family work should follow the
-same standard.
+`StencilInstance.descriptor` plus `StencilInstance.schedule` the contract.
+Future family work should follow the same standard.

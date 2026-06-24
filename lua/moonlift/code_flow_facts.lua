@@ -171,14 +171,28 @@ local function bind_context(T)
         return nil
     end
 
-    local function induction_step(param_value, back_value, defs)
+    local function canonical_value(value, aliases)
+        local seen = {}
+        while value ~= nil and aliases ~= nil and aliases[value.text] ~= nil and not seen[value.text] do
+            seen[value.text] = true
+            value = aliases[value.text]
+        end
+        return value
+    end
+
+    local function same_canonical_value(a, b, aliases)
+        a, b = canonical_value(a, aliases), canonical_value(b, aliases)
+        return a ~= nil and b ~= nil and a == b
+    end
+
+    local function induction_step(param_value, back_value, defs, aliases)
         local def = back_value and defs[back_value.text] or nil
         if def == nil or def.cls ~= Code.CodeInstBinary then return nil, "backedge value is not a binary recurrence" end
         if def.op == Core.BinAdd then
-            if def.lhs == param_value then return def.rhs, nil end
-            if def.rhs == param_value then return def.lhs, nil end
+            if same_canonical_value(def.lhs, param_value, aliases) then return def.rhs, nil end
+            if same_canonical_value(def.rhs, param_value, aliases) then return def.lhs, nil end
         elseif def.op == Core.BinSub then
-            if def.lhs == param_value then return def.rhs, "subtraction induction records positive step magnitude; signed direction is not represented yet" end
+            if same_canonical_value(def.lhs, param_value, aliases) then return def.rhs, "subtraction induction records positive step magnitude; signed direction is not represented yet" end
         end
         return nil, "binary recurrence does not reference the header parameter"
     end
@@ -221,12 +235,32 @@ local function bind_context(T)
                 cond = cond or edge_condition(block_by_id, exit_edge)
             end
         end
+        local loop_blocks = {}
+        for _, block in ipairs(graph_loop.body or {}) do loop_blocks[block.block.text] = true end
+        local aliases = {}
+        local changed = true
+        while changed do
+            changed = false
+            for _, fact in ipairs(edge_facts or {}) do
+                local edge = fact.edge
+                if edge ~= latch and loop_blocks[edge.from.block.text] and loop_blocks[edge.to.block.text] then
+                    for _, arg in ipairs(fact.args or {}) do
+                        local src = canonical_value(arg.src, aliases)
+                        if src ~= nil and aliases[arg.dst_param.text] ~= src then
+                            aliases[arg.dst_param.text] = src
+                            changed = true
+                        end
+                    end
+                end
+            end
+        end
+
         local counted = nil
         for _, param in ipairs(header_block.params or {}) do
             local init = incoming_arg_for(edge_facts, graph_loop.header.block, param, latch.from.block)
             local back = backedge_arg_for(latch_fact, param)
             if init ~= nil and back ~= nil then
-                local step, note = induction_step(param.value, back, defs)
+                local step, note = induction_step(param.value, back, defs, aliases)
                 if step ~= nil then
                     local stop, exclusive = compare_stop(cond, param.value, defs)
                     local range = Flow.FlowRangeUnknown(param.value)

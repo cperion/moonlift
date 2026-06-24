@@ -15,6 +15,7 @@ local Kernel = T.MoonKernel
 
 local Lower = require("moonlift.luajit_lower")(T)
 local Emit = require("moonlift.luajit_emit")(T)
+local Backend = require("moonlift.luajit_backend")(T)
 
 local origin = Code.CodeOriginGenerated("test_luajit_lower")
 local i32 = Code.CodeTyInt(32, Code.CodeSigned)
@@ -125,7 +126,7 @@ local contracts = Code.CodeContractFactSet(module.id, {
 })
 
 local rejects = {}
-local lj_module, facts = Lower.lower_module(module, { contracts = contracts, collect_rejects = rejects })
+local lj_module, facts, artifacts = Backend.lower_module(module, { contracts = contracts, collect_rejects = rejects })
 assert(#rejects == 0, rejects[1] and rejects[1].reason or "unexpected LuaJIT lower reject")
 assert(#facts.value.reductions == 1, "CodeValueFacts should derive one reduction")
 
@@ -137,10 +138,17 @@ assert(kplan ~= nil, "CodeKernelPlan should produce a planned loop kernel")
 
 local fn = lj_module.funcs[1]
 assert(pvm.classof(fn.body) == LJ.LJBodyMachine, "kernel reduction should lower to a LuaJIT machine body")
-assert(pvm.classof(fn.machines[1].kind) == LJ.LJMachineVectorReduceArray, "planned reduction should lower to LJMachineVectorReduceArray")
+assert(pvm.classof(fn.machines[1].kind) == LJ.LJMachineStencilCall, "planned reduction should lower to a stencil call")
+assert(#artifacts == 1, "planned reduction should produce one C stencil artifact")
 
-local compiled, err, src = Emit.compile_module(lj_module, { chunk_name = "test_luajit_lower" })
-assert(compiled ~= nil, tostring(err) .. "\n" .. tostring(src))
+local bank, bank_err = Backend.build_binary_bank(artifacts, { stem = "test_luajit_lower" })
+assert(bank ~= nil, tostring(bank_err))
+local compiled_result, compile_err, compile_src = Backend.compile_lj_module(lj_module, artifacts, {
+    bank = bank,
+    chunk_name = "test_luajit_lower",
+})
+assert(compiled_result ~= nil, tostring(compile_err) .. "\n" .. tostring(compile_src))
+local compiled = compiled_result.module
 
 local count = 257
 local arr = ffi.new("int32_t[?]", count)

@@ -11,6 +11,7 @@ Schema(T)
 local Core = T.MoonCore
 local Code = T.MoonCode
 local LJ = T.MoonLuaJIT
+local Stencil = T.MoonStencil
 local Value = T.MoonValue
 
 local Lower = require("moonlift.luajit_lower")(T)
@@ -218,7 +219,7 @@ local function assert_same_result(case, got, expected, label)
     end
 end
 
-local function compile_with_stencil(case, values, ctype, stem)
+local function compile_with_stencil(case, values, ctype, stem, expected_values)
     local xs = ffi.new(ctype .. "[?]", #values)
     for i = 1, #values do xs[i - 1] = values[i] end
     local module, contracts = build_case(case)
@@ -235,6 +236,7 @@ local function compile_with_stencil(case, values, ctype, stem)
     assert(#rejects == 0, case.name .. " rejected through stencil: " .. tostring(rejects[1] and rejects[1].reason))
     assert(#facts.value.reductions == 1 and facts.value.reductions[1].kind == case.reduction, case.name .. " should derive expected ReductionKind")
     assert(#artifacts == 1, case.name .. " should collect one stencil artifact")
+    assert(pvm.classof(artifacts[1].instance.schedule) == Stencil.StencilScheduleAutoVector, case.name .. " should carry an auto-vector stencil schedule")
     assert(pvm.classof(lj_module.funcs[1].machines[1].kind) == LJ.LJMachineStencilCall, case.name .. " should emit LJMachineStencilCall")
     local build, build_err = StencilBinary.compile(T, artifacts, { stem = stem or ("test_luajit_lower_reductions_" .. case.name) })
     assert(build ~= nil, tostring(build_err))
@@ -243,36 +245,25 @@ local function compile_with_stencil(case, values, ctype, stem)
         stencil_symbols = build.symbols,
     })
     assert(compiled ~= nil, tostring(err) .. "\n" .. tostring(src))
-    assert_same_result(case, compiled[case.name](xs, #values), reduce_expect(case, values), case.name)
+    assert_same_result(case, compiled[case.name](xs, #values), reduce_expect(case, expected_values or values), case.name)
 end
 
-for _, tcase in ipairs(type_cases) do
-    local ty = ty_for_case(tcase)
-    local xs = ffi.new(tcase.ctype .. "[?]", #tcase.values)
-    for i = 1, #tcase.values do xs[i - 1] = tcase.values[i] end
-    for _, rcase in ipairs(reductions) do
-        local case = {
-            name = "reduce_" .. rcase.suffix .. "_" .. tcase.suffix,
-            ty = ty,
-            bits = tcase.bits,
-            signed = tcase.signed,
-            reduction = rcase.reduction,
-            op = rcase.op,
-            init = rcase.init or rcase.init_for(tcase),
-        }
-        local module, contracts = build_case(case)
-        local rejects = {}
-        local lj_module, facts = Lower.lower_module(module, { contracts = contracts, collect_rejects = rejects })
-        assert(#rejects == 0, case.name .. " rejected: " .. tostring(rejects[1] and rejects[1].reason))
-        assert(#facts.value.reductions == 1 and facts.value.reductions[1].kind == case.reduction, case.name .. " should derive expected ReductionKind")
-        assert(pvm.classof(lj_module.funcs[1].body) == LJ.LJBodyMachine, case.name .. " should lower through machine body")
-        assert(pvm.classof(lj_module.funcs[1].machines[1].kind) == LJ.LJMachineVectorReduceArray, case.name .. " should lower to vector reduce")
-        local compiled, err, src = Emit.compile_module(lj_module, { chunk_name = "test_luajit_lower_reductions_" .. case.name })
-        assert(compiled ~= nil, tostring(err) .. "\n" .. tostring(src))
-        local got = compiled[case.name](xs, #tcase.values)
-        local expected = reduce_expect(case, tcase.values)
-        assert_same_result(case, got, expected, case.name)
-    end
+do
+    local tcase = type_cases[5]
+    local case = {
+        name = "reduce_without_stencil_provider_rejects",
+        ty = ty_for_case(tcase),
+        bits = tcase.bits,
+        signed = tcase.signed,
+        reduction = Value.ReductionAdd,
+        op = Core.BinAdd,
+        init = "0",
+    }
+    local module, contracts = build_case(case)
+    local rejects = {}
+    Lower.lower_module(module, { contracts = contracts, collect_rejects = rejects })
+    assert(#rejects == 1, "canonical reduction lowering should require a stencil provider")
+    assert(tostring(rejects[1].reason):match("stencil") or tostring(rejects[1].reason):match("select_kernel_lowering"), "unexpected missing-provider reject: " .. tostring(rejects[1].reason))
 end
 
 for _, tcase in ipairs(stencil_type_cases) do
@@ -294,6 +285,7 @@ end
 
 do
     local tcase = type_cases[6]
+    local values = tcase.values
     local case = {
         name = "reduce_stride2_add_u32",
         ty = Code.CodeTyInt(32, Code.CodeUnsigned),
@@ -304,51 +296,8 @@ do
         init = "0",
         step = 2,
     }
-    local values = tcase.values
-    local xs = ffi.new("uint32_t[?]", #values)
-    for i = 1, #values do xs[i - 1] = values[i] end
-    local module, contracts = build_case(case)
-    local rejects = {}
-    local lj_module = Lower.lower_module(module, { contracts = contracts, collect_rejects = rejects })
-    assert(#rejects == 0, case.name .. " rejected: " .. tostring(rejects[1] and rejects[1].reason))
-    local compiled, err, src = Emit.compile_module(lj_module, { chunk_name = "test_luajit_lower_reductions_stride2" })
-    assert(compiled ~= nil, tostring(err) .. "\n" .. tostring(src))
     local selected = { values[1], values[3], values[5] }
-    assert_same_result(case, compiled[case.name](xs, #values), reduce_expect(case, selected), case.name)
-end
-
-do
-    local case = {
-        name = "reject_add_i64",
-        ty = i64,
-        bits = 64,
-        signed = true,
-        reduction = Value.ReductionAdd,
-        op = Core.BinAdd,
-        init = "0",
-    }
-    local module, contracts = build_case(case)
-    local rejects = {}
-    Lower.lower_module(module, { contracts = contracts, collect_rejects = rejects })
-    assert(#rejects == 1, "i64 vector reduce should be rejected by the low LuaJIT reducer")
-    assert(tostring(rejects[1].reason):match("8/16/32"), "unexpected i64 reject reason: " .. tostring(rejects[1].reason))
-end
-
-do
-    local module, contracts = build_case({
-        name = "reject_add_f64",
-        ty = f64,
-        bits = 64,
-        signed = true,
-        float = true,
-        reduction = Value.ReductionAdd,
-        op = Core.BinAdd,
-        init = "0",
-    })
-    local rejects = {}
-    Lower.lower_module(module, { contracts = contracts, collect_rejects = rejects })
-    assert(#rejects == 1, "f64 vector reduce should be rejected by the low LuaJIT reducer")
-    assert(tostring(rejects[1].reason):match("8/16/32"), "unexpected f64 reject reason: " .. tostring(rejects[1].reason))
+    compile_with_stencil(case, values, "uint32_t", "test_luajit_lower_reductions_stride2", selected)
 end
 
 io.write("moonlift luajit_lower_reductions ok\n")

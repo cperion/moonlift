@@ -1,85 +1,91 @@
-local moon = require("moonlift")
-moon.family.use()
-
-return {
+return unit. Demo {
   const. Welcome [i32] (2026),
   const. One [i32] (1),
   const. Zero [i32] (0),
-  const. MaxSafeSteps [i32] (32),
-  struct. Pair { head [i32], tail [i32] },
-  union. Trail { . found { value [i32] }, none },
-  union. SignedMagnitude { . positive { magnitude [i32] }, . negative { magnitude [i32] }, zero },
-  handle. TrailRef { invalid = 0 },
-  expr_frag. inc { x [i32] } [i32] (x + 1),
-  expr_frag. abs_i32 { x [i32] } [i32] (select ( x :lt (0), 0 - x, x )),
-  expr_frag. clamp_nonneg { x [i32], lo [i32], hi [i32] } [i32] (select (
-    x :lt (lo),
-    lo,
-    select ( x :gt (hi), hi, x )
-  )),
-  region. sum_trail { n [i32] } { . found { total [i32] }, none } {
-    entry. start {} { when (n :lt (0)) { jump. none {}, }, jump. walk { i = 0, sum = 0 }, },
-    block. walk { sum [i32], i [i32] } {
-      when (i :gt (n)) { jump. found { total = sum }, },
-      jump. walk { i = i + 1, sum = sum + i },
-    },
+
+  struct. Pair {
+    head [i32],
+    tail [i32],
   },
-  region. bounded_sum { n [i32], max_steps [i32] } { . done { total [i32], steps [i32] } } {
-    entry. start {} { emit. sum_trail { select ( max_steps :lt (n), max_steps, n ) } {}, },
-    block. found { total [i32] } {
-      jump. done {
-        steps = select (
-          select ( max_steps :lt (n), max_steps, n ) :gt (0),
-          select ( max_steps :lt (n), max_steps, n ),
-          0
-        ),
-        total = total
+
+  union. Result {
+    ok { value [i32] },
+    err { code [i32] },
+    none,
+  },
+
+  handle. SessionRef {
+    invalid = 0,
+  },
+
+  expr_frag. inc { x [i32] } [i32] (x + 1),
+  expr_frag. abs_i32 { x [i32] } [i32] (select (x :lt (0), 0 - x, x)),
+
+  fn. add { a [i32], b [i32] } [i32] {
+    ret (a + b),
+  },
+
+  fn. abs_value { x [i32] } [i32] {
+    ret (select (x :lt (0), 0 - x, x)),
+  },
+
+  region. hit_or_miss
+    { x [i32] }
+    {
+      hit { pos [i32] },
+      miss,
+    }
+    {
+      entry. start {} {
+        when (x :gt (0)) {
+          jump. hit { pos = x },
+        },
+
+        jump. miss {},
       },
     },
-    block. none {} { jump. done { steps = 0, total = 0 }, },
-  },
-  region. classify_sign { x [i32] } {
-    . positive { magnitude [i32] },
-    . negative { magnitude [i32] },
-    zero
-  } {
+
+  fn. region_demo { x [i32] } [i32] {
     entry. start {} {
-      when (x :gt (0)) { jump. positive { magnitude = x }, },
-      when (x :lt (0)) { jump. negative { magnitude = 0 - x }, },
-      jump. zero {},
+      emit. hit_or_miss { x } {
+        hit = done,
+        miss = zero,
+      },
+    },
+
+    block. done { pos [i32] } {
+      ret (pos),
+    },
+
+    block. zero {} {
+      ret (0),
     },
   },
-  fn. triangular { n [i32] } [i32] {
-    entry. start {} { emit. sum_trail { n } {}, },
-    block. found { total [i32] } { ret (total), },
-    block. none {} { ret (0), },
-  },
-  fn. safe_triangular { n [i32], cap [i32] } [i32] {
-    entry. start {} { emit. bounded_sum { n, select ( cap :lt (n), cap, n ) } {}, },
-    block. done { total [i32], steps [i32] } { ret (total), },
-  },
-  fn. sum_via_lookup { n [i32] } [i32] {
-    entry. start {} { emit. sum_trail { n } {}, },
-    block. done { total [i32] } { ret (total), },
-    block. none {} { ret (0), },
-  },
-  fn. signed_magnitude { x [i32] } [i32] {
-    entry. start {} { emit. classify_sign { x } {}, },
-    block. pos { magnitude [i32] } { ret (magnitude), },
-    block. neg { magnitude [i32] } { ret (0 - magnitude), },
-    block. zero {} { ret (0), },
-  },
-  fn. alternating_sum { n [i32] } [i32] {
-    entry. start {} { jump. loop { acc = 0, i = 0, sign = 1 }, },
-    block. loop { acc [i32], i [i32], sign [i32] } {
-      when (i :ge (n)) { ret (acc), },
-      jump. loop { acc = select ( sign :gt (0), acc + i, acc - i ), i = i + 1, sign = 0 - sign },
+
+  fn. sum_i32 { xs [ptr [i32]], n [i32] } [i32] {
+    requires { bounds(xs, n), readonly(xs) },
+
+    entry. start {} {
+      jump. loop { i = 0, acc = 0 },
     },
-  },
-  fn. trail_powered_pair { n [i32] } [i32] {
-    entry. start {} { emit. sum_trail { n } {}, },
-    block. plus_one { total [i32] } { ret (total + 1), },
-    block. none {} { emit. bounded_sum { 0, MaxSafeSteps } {}, },
-    block. zero_done { total [i32], steps [i32] } { ret (total), },
+
+    block. loop { i [i32], acc [i32] } {
+      when (i :lt (n)) {
+        jump. body { i = i, acc = acc },
+      },
+
+      jump. done { acc = acc },
+    },
+
+    block. body { i [i32], acc [i32] } {
+      jump. loop {
+        i = i + 1,
+        acc = acc + xs[i],
+      },
+    },
+
+    block. done { acc [i32] } {
+      ret (acc),
+    },
   },
 }

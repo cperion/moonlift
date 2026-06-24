@@ -10,7 +10,6 @@ local Core = T.MoonCore
 local Code = T.MoonCode
 local Back = T.MoonBack
 local LJ = T.MoonLuaJIT
-local Value = T.MoonValue
 
 assert(LJ ~= nil, "MoonLuaJIT namespace should be installed")
 
@@ -45,7 +44,6 @@ local source_id = LJ.LJMachineId("m:source")
 local map_id = LJ.LJMachineId("m:map")
 local filter_id = LJ.LJMachineId("m:filter")
 local fold_id = LJ.LJMachineId("m:fold")
-local vec_id = LJ.LJMachineId("m:vec")
 
 local zero = LJ.LJExprLiteral(Core.LitInt("0"), i32_ty)
 local one = LJ.LJExprLiteral(Core.LitInt("1"), i32_ty)
@@ -83,14 +81,6 @@ local fold = LJ.LJMachine(
     LJ.LJStateUpstream(filter_id),
     LJ.LJTraceFusePreferred
 )
-local vec = LJ.LJMachine(
-    vec_id,
-    LJ.LJMachineVectorReduceArray(items, zero, LJ.LJExprValue(n), one, i32_ty, i32_ty, Value.ReductionAdd, wrap_sem, zero, 8, 1),
-    i32_ty,
-    LJ.LJStateScalar,
-    LJ.LJTraceHot
-)
-
 local func = LJ.LJFunc(
     LJ.LJFuncId("fn:sum_positive_i32"),
     nil,
@@ -104,14 +94,13 @@ local func = LJ.LJFunc(
         LJ.LJCDeclTypedef(LJ.LJTypeId("ml_i32"), "ml_i32", i32_c),
         LJ.LJCDeclRaw("typedef int32_t ml_i32;", "stable FFI spelling for generated code"),
     },
-    { source, map, filter, fold, vec },
+    { source, map, filter, fold },
     LJ.LJBodyMachine(fold_id, LJ.LJTerminalFold(zero, sum_step)),
     LJ.LJTraceHot
 )
 local module = LJ.LJModule(nil, { func }, { sig }, {}, {})
 
 assert(module.funcs[1].machines[4].kind.input == filter_id, "fold should consume filter machine")
-assert(module.funcs[1].machines[5].kind.reduction == Value.ReductionAdd, "vector reduce carries reduction semantics for trace fallback")
 assert(module.funcs[1].body.machine == fold_id, "function body should expose terminal machine")
 assert(module.funcs[1].cdefs[1].ty == i32_c, "cdefs should carry FFI C physical type")
 assert(void_c == LJ.LJCTypeVoid, "void C type singleton should be available")

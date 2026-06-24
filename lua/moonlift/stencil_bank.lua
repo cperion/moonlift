@@ -94,11 +94,60 @@ local function number_map_literal(values)
     return table.concat(out, " ")
 end
 
+local function target_guard_source(target)
+    target = target or {}
+    local arch = target.arch or "unknown"
+    local os_name = target.os or "unknown"
+    local abi = target.abi or "c"
+    local pointer_bits = target.pointer_bits or 0
+    local endian = target.endian or "unknown"
+    return table.concat({
+        "local __ml_stencil_target = {",
+        "  arch = " .. lua_string(arch) .. ",",
+        "  os = " .. lua_string(os_name) .. ",",
+        "  abi = " .. lua_string(abi) .. ",",
+        "  pointer_bits = " .. tostring(pointer_bits) .. ",",
+        "  endian = " .. lua_string(endian) .. ",",
+        "}",
+        "local function __ml_check_stencil_target()",
+        "  local runtime_pointer_bits = ffi.abi('64bit') and 64 or 32",
+        "  local runtime_endian = ffi.abi('le') and 'little' or 'big'",
+        "  if ffi.arch ~= __ml_stencil_target.arch or ffi.os ~= __ml_stencil_target.os or runtime_pointer_bits ~= __ml_stencil_target.pointer_bits or runtime_endian ~= __ml_stencil_target.endian then",
+        "    error('moonlift luajit artifact target mismatch: built for '",
+        "      .. __ml_stencil_target.os .. '/' .. __ml_stencil_target.arch .. '/' .. tostring(__ml_stencil_target.pointer_bits) .. '/' .. __ml_stencil_target.endian",
+        "      .. ', loaded on '",
+        "      .. tostring(ffi.os) .. '/' .. tostring(ffi.arch) .. '/' .. tostring(runtime_pointer_bits) .. '/' .. tostring(runtime_endian), 0)",
+        "  end",
+        "end",
+        "__ml_check_stencil_target()",
+    }, "\n")
+end
+
 local function symbol_ordinal(symbol)
     symbol = tostring(symbol or "")
     return tonumber(symbol:match("[Pp][Aa][Tt][Cc][Hh]_?(%d+)$"))
         or tonumber(symbol:match("[Hh][Oo][Ll][Ee]_?(%d+)$"))
         or tonumber(symbol:match("__ml_patch_?(%d+)$"))
+end
+
+local runtime_symbol_cdef_done = false
+
+local function runtime_symbol_value(symbol)
+    symbol = tostring(symbol or "")
+    if symbol ~= "memmove" and symbol ~= "memcpy" and symbol ~= "memset" then return nil end
+    local ffi = require("ffi")
+    if not runtime_symbol_cdef_done then
+        pcall(ffi.cdef, [[
+typedef unsigned long size_t;
+void *memmove(void *dst, const void *src, size_t n);
+void *memcpy(void *dst, const void *src, size_t n);
+void *memset(void *dst, int c, size_t n);
+]])
+        runtime_symbol_cdef_done = true
+    end
+    local ok, fn = pcall(function() return ffi.C[symbol] end)
+    if not ok or fn == nil then return nil end
+    return tonumber(ffi.cast("uintptr_t", fn))
 end
 
 local function patch_value(record, values)
@@ -109,6 +158,10 @@ local function patch_value(record, values)
         return v
     end
     if record.symbol ~= nil and values ~= nil and values[record.symbol] ~= nil then return values[record.symbol] end
+    if record.symbol ~= nil then
+        local value = runtime_symbol_value(record.symbol)
+        if value ~= nil then return value end
+    end
     if record.symbol ~= nil then
         error("stencil_bank: missing patch symbol " .. tostring(record.symbol), 4)
     end
@@ -224,7 +277,7 @@ local function bind_context(T)
             opts.arch or ffi.arch,
             opts.os or ffi.os,
             opts.abi or "c",
-            opts.pointer_bits or ffi.abi("64bit") and 64 or 32,
+            opts.pointer_bits or (ffi.abi("64bit") and 64 or 32),
             opts.endian or (ffi.abi("le") and "little" or "big")
         )
     end
@@ -282,7 +335,7 @@ local function bind_context(T)
         local source = StencilC.source(artifacts, { preamble = opts.preamble })
         write_file(c_path, source)
         local cc = opts.cc or os.getenv("CC") or "gcc"
-        local cflags = opts.cflags or "-std=c99 -O3 -march=native -fno-tree-vectorize -ffunction-sections -fno-pic -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables -c"
+        local cflags = opts.cflags or "-std=c99 -O3 -march=native -fno-tree-vectorize -fno-builtin -fno-builtin-memmove -fno-builtin-memcpy -fno-builtin-memset -ffunction-sections -fno-pic -fno-stack-protector -fno-asynchronous-unwind-tables -fno-unwind-tables -c"
         local cmd = table.concat({ shell_quote(cc), cflags, shell_quote(c_path), "-o", shell_quote(o_path) }, " ")
         local ok = os.execute(cmd)
         if not (ok == true or ok == 0) then return nil, "stencil_bank: binary bank object build failed: " .. cmd, source end
@@ -419,10 +472,20 @@ local function bind_context(T)
         out[#out + 1] = "typedef unsigned long uintptr_t;"
         out[#out + 1] = "void *mmap(void *addr, size_t length, int prot, int flags, int fd, intptr_t offset);"
         out[#out + 1] = "int mprotect(void *addr, size_t len, int prot);"
+        out[#out + 1] = "void *memmove(void *dst, const void *src, size_t n);"
+        out[#out + 1] = "void *memcpy(void *dst, const void *src, size_t n);"
+        out[#out + 1] = "void *memset(void *dst, int c, size_t n);"
         out[#out + 1] = "]])"
         if bank.preamble ~= nil and bank.preamble ~= "" then
             out[#out + 1] = "pcall(ffi.cdef, " .. lua_string(bank.preamble) .. ")"
         end
+        out[#out + 1] = target_guard_source(bank.target)
+        out[#out + 1] = "local function __ml_runtime_symbol(name)"
+        out[#out + 1] = "  if name ~= 'memmove' and name ~= 'memcpy' and name ~= 'memset' then return nil end"
+        out[#out + 1] = "  local ok, fn = pcall(function() return ffi.C[name] end)"
+        out[#out + 1] = "  if not ok or fn == nil then return nil end"
+        out[#out + 1] = "  return tonumber(ffi.cast('uintptr_t', fn))"
+        out[#out + 1] = "end"
         out[#out + 1] = "local PROT_READ, PROT_WRITE, PROT_EXEC = 1, 2, 4"
         out[#out + 1] = "local MAP_PRIVATE, MAP_ANON = 2, 32"
         out[#out + 1] = "local MAP_FAILED = ffi.cast('void *', -1)"
@@ -437,6 +500,7 @@ local function bind_context(T)
         out[#out + 1] = "    local v = r.value"
         out[#out + 1] = "    if v == nil and r.ordinal then v = values[r.ordinal] end"
         out[#out + 1] = "    if v == nil and r.symbol then v = values[r.symbol] end"
+        out[#out + 1] = "    if v == nil and r.symbol then v = __ml_runtime_symbol(r.symbol) end"
         out[#out + 1] = "    if v == nil and (r.ordinal or r.symbol) then error('moonlift artifact: missing patch value for '..tostring(r.symbol or r.ordinal)) end"
         out[#out + 1] = "    v = v or 0"
         out[#out + 1] = "    local addend = r.addend or 0"

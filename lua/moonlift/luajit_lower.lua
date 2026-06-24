@@ -223,23 +223,6 @@ local function bind_context(T)
         return out
     end
 
-    local function is_luajit_scalar_reduction(kind)
-        return kind == Value.ReductionAdd
-            or kind == Value.ReductionMul
-            or kind == Value.ReductionAnd
-            or kind == Value.ReductionOr
-            or kind == Value.ReductionXor
-            or kind == Value.ReductionMin
-            or kind == Value.ReductionMax
-    end
-
-    local function is_float_stencil_reduction(kind)
-        return kind == Value.ReductionAdd
-            or kind == Value.ReductionMul
-            or kind == Value.ReductionMin
-            or kind == Value.ReductionMax
-    end
-
     local function const_int_value(ctx, id)
         local def = ctx.defs and id and ctx.defs[id.text] or nil
         local k = def and def.kind
@@ -264,6 +247,66 @@ local function bind_context(T)
         return nil
     end
 
+    local function same_value_id(a, b)
+        return a ~= nil and b ~= nil and a.text == b.text
+    end
+
+    local function term_successors(term)
+        local k = term and term.kind
+        local cls = pvm.classof(k)
+        local out = {}
+        if cls == Code.CodeTermJump then
+            out[#out + 1] = { dest = k.dest, args = k.args or {} }
+        elseif cls == Code.CodeTermBranch then
+            out[#out + 1] = { dest = k.then_dest, args = k.then_args or {} }
+            out[#out + 1] = { dest = k.else_dest, args = k.else_args or {} }
+        elseif cls == Code.CodeTermSwitch then
+            for _, case in ipairs(k.cases or {}) do out[#out + 1] = { dest = case.dest, args = case.args or {} } end
+            out[#out + 1] = { dest = k.default_dest, args = k.default_args or {} }
+        elseif cls == Code.CodeTermVariantSwitch then
+            for _, case in ipairs(k.cases or {}) do out[#out + 1] = { dest = case.dest, args = case.args or {} } end
+            out[#out + 1] = { dest = k.default_dest, args = k.default_args or {} }
+        end
+        return out
+    end
+
+    local function forwarded_value_to_block(block, args, value)
+        for i, param in ipairs(block.params or {}) do
+            if same_value_id(args[i], value) then return param.value end
+        end
+        return value
+    end
+
+    local function reaches_return_with_value(blocks, block, value, seen)
+        if block == nil then return false end
+        local key = block.id.text .. "\0" .. (value and value.text or "")
+        seen = seen or {}
+        if seen[key] then return false end
+        seen[key] = true
+        local term = block.term and block.term.kind or nil
+        if pvm.classof(term) == Code.CodeTermReturn then
+            return #(term.values or {}) == 1 and same_value_id(term.values[1], value)
+        end
+        for _, succ in ipairs(term_successors(block.term)) do
+            local dest = blocks[succ.dest.text]
+            if reaches_return_with_value(blocks, dest, forwarded_value_to_block(dest or {}, succ.args, value), seen) then return true end
+        end
+        return false
+    end
+
+    local function reaches_void_return(blocks, block, seen)
+        if block == nil then return false end
+        seen = seen or {}
+        if seen[block.id.text] then return false end
+        seen[block.id.text] = true
+        local term = block.term and block.term.kind or nil
+        if pvm.classof(term) == Code.CodeTermReturn then return #(term.values or {}) == 0 end
+        for _, succ in ipairs(term_successors(block.term)) do
+            if reaches_void_return(blocks, blocks[succ.dest.text], seen) then return true end
+        end
+        return false
+    end
+
     local function function_returns_reduction(func, graph_loop, reduction)
         if graph_loop == nil or #(graph_loop.exits or {}) ~= 1 then return false end
         local blocks = block_index(func)
@@ -272,111 +315,16 @@ local function bind_context(T)
         local exit = blocks[edge.to.block.text]
         if from == nil or exit == nil then return false end
         local ret = exit.term and exit.term.kind or nil
-        if pvm.classof(ret) ~= Code.CodeTermReturn or #(ret.values or {}) ~= 1 then return false end
-        if ret.values[1] == reduction.accumulator then return true end
-        for i, param in ipairs(exit.params or {}) do
-            if ret.values[1] == param.value then
-                local args = term_args_to_dest(from.term, exit.id)
-                return args ~= nil and args[i] == reduction.accumulator
-            end
-        end
-        return false
-    end
-
-    local function find_load_inst(func, loop_fact, value)
-        local loop_blocks = {}
-        for _, gb in ipairs(loop_fact and loop_fact.body_blocks or {}) do loop_blocks[gb.block.text] = true end
-        for _, block in ipairs(func.blocks or {}) do
-            if loop_blocks[block.id.text] then
-                for _, inst in ipairs(block.insts or {}) do
-                    local k = inst.kind
-                    if pvm.classof(k) == Code.CodeInstLoad and k.dst == value then return block, inst, k end
+        if pvm.classof(ret) == Code.CodeTermReturn and #(ret.values or {}) == 1 then
+            if same_value_id(ret.values[1], reduction.accumulator) then return true end
+            for i, param in ipairs(exit.params or {}) do
+                if same_value_id(ret.values[1], param.value) then
+                    local args = term_args_to_dest(from.term, exit.id)
+                    return args ~= nil and same_value_id(args[i], reduction.accumulator)
                 end
             end
         end
-        return nil, nil, nil
-    end
-
-    local function stream_has_load_access(kernel, load_inst)
-        local accesses = mem_access_index(kernel.mem)
-        for _, plan in ipairs(kernel.plans or {}) do
-            if pvm.classof(plan) == Kernel.KernelPlanned then
-                for _, stream in ipairs(plan.body.streams or {}) do
-                    for _, aid in ipairs(stream.accesses or {}) do
-                        local access = accesses[aid.text]
-                        if access ~= nil and access.inst == load_inst.id then return true end
-                    end
-                end
-            end
-        end
-        return false
-    end
-
-    local function vector_reduce_plan(ctx, func, plan, graph_loop, loop_fact, kernel)
-        if pvm.classof(plan) ~= Kernel.KernelPlanned then return nil, "kernel is not planned" end
-        local result = plan.body.result
-        if pvm.classof(result) ~= Kernel.KernelResultReduction then return nil, "kernel result is not a reduction" end
-        local reduction = result.reduction
-        if not function_returns_reduction(func, graph_loop, reduction) then return nil, "function return is not the kernel reduction" end
-        if not is_luajit_scalar_reduction(reduction.kind) then return nil, "LuaJIT vector reduce currently supports add/mul/min/max/bitwise reductions only" end
-        local ty_cls = pvm.classof(reduction.ty)
-        local fallback_supported = ty_cls == Code.CodeTyInt and (reduction.ty.bits == 8 or reduction.ty.bits == 16 or reduction.ty.bits == 32)
-        if ty_cls ~= Code.CodeTyInt and ty_cls ~= Code.CodeTyFloat then return nil, "LuaJIT vector reduce supports scalar integer/float reductions only" end
-        if ty_cls == Code.CodeTyFloat and not is_float_stencil_reduction(reduction.kind) then return nil, "LuaJIT float vector reduce supports add/mul/min/max only" end
-        if not fallback_supported then return nil, "LuaJIT vector reduce scalar fallback currently supports 8/16/32-bit integer reductions only" end
-        if ty_cls == Code.CodeTyInt and (reduction.kind == Value.ReductionAdd or reduction.kind == Value.ReductionMul) and (reduction.int_semantics == nil or reduction.int_semantics.overflow ~= Code.CodeIntWrap) then
-            return nil, "LuaJIT vector reduce add/mul requires wrapping integer semantics"
-        end
-        local contrib = reduction.contribution
-        if pvm.classof(contrib) ~= Value.ValueExprValue then return nil, "reduction contribution is not a single Code value" end
-        local _, load_inst, load = find_load_inst(func, loop_fact, contrib.value)
-        if load == nil then return nil, "reduction contribution is not a loop-local load" end
-        if not stream_has_load_access(kernel, load_inst) then return nil, "load is not part of a planned kernel stream" end
-        local place = load.place
-        if pvm.classof(place) ~= Code.CodePlaceIndex then return nil, "load is not indexed array access" end
-        local base = place.base
-        if pvm.classof(base) ~= Code.CodePlaceDeref then return nil, "indexed load base is not a data pointer dereference" end
-        local found_induction = false
-        for _, induction in ipairs(loop_fact.inductions or {}) do
-            if place.index == induction.value and induction.kind == Flow.FlowPrimaryInduction then found_induction = true end
-        end
-        if not found_induction then return nil, "indexed load is not driven by the primary induction" end
-        if loop_fact.counted == nil then return nil, "loop is not counted" end
-        local step_num = const_int_value(ctx, loop_fact.counted.step)
-        if step_num == nil or step_num <= 0 then return nil, "LuaJIT vector reduce scalar fallback requires a positive constant step" end
-        return {
-            reduction = reduction,
-            load_inst = load_inst,
-            load = load,
-            base = base,
-            step_num = step_num,
-        }, nil
-    end
-
-    local function lower_kernel_vector_reduce(ctx, func, plan, graph_loop, loop_fact, kernel, opts)
-        local ready, reason = vector_reduce_plan(ctx, func, plan, graph_loop, loop_fact, kernel)
-        if ready == nil then return nil, reason end
-        local reduction, load, base = ready.reduction, ready.load, ready.base
-        local id = LJ.LJMachineId("machine:" .. sanitize(func.name) .. ":vreduce:" .. sanitize(loop_fact.loop.text))
-        return LJ.LJMachine(
-            id,
-            LJ.LJMachineVectorReduceArray(
-                vid(base.addr),
-                value_id_expr(ctx, loop_fact.counted.start),
-                value_id_expr(ctx, loop_fact.counted.stop),
-                value_id_expr(ctx, loop_fact.counted.step),
-                physical(ctx, load.access.ty),
-                physical(ctx, reduction.ty),
-                reduction.kind,
-                reduction.int_semantics,
-                value_expr(ctx, reduction.init),
-                opts.vector_lanes or 8,
-                opts.vector_unroll or 1
-            ),
-            physical(ctx, reduction.ty),
-            LJ.LJStateScalar,
-            LJ.LJTraceHot
-        ), nil
+        return reaches_return_with_value(blocks, exit, reduction.accumulator)
     end
 
     local function function_returns_void_from_loop(func, graph_loop)
@@ -384,7 +332,7 @@ local function bind_context(T)
         local blocks = block_index(func)
         local exit = blocks[graph_loop.exits[1].to.block.text]
         local ret = exit and exit.term and exit.term.kind or nil
-        return pvm.classof(ret) == Code.CodeTermReturn and #(ret.values or {}) == 0
+        return pvm.classof(ret) == Code.CodeTermReturn and #(ret.values or {}) == 0 or reaches_void_return(blocks, exit)
     end
 
     local function stream_base_value(stream)
@@ -504,12 +452,95 @@ local function bind_context(T)
         return nil
     end
 
-    local function expr_is_value(expr, id)
-        return id ~= nil and pvm.classof(expr) == Value.ValueExprValue and expr.value == id
+    local function loop_aliases(ctx, graph_loop)
+        if graph_loop == nil then return nil end
+        ctx.loop_alias_cache = ctx.loop_alias_cache or {}
+        if ctx.loop_alias_cache[graph_loop.id.text] ~= nil then return ctx.loop_alias_cache[graph_loop.id.text] end
+        local loop_blocks = {}
+        for _, block in ipairs(graph_loop.body or {}) do loop_blocks[block.block.text] = true end
+        local latch = graph_loop.latches and graph_loop.latches[1] or nil
+        local aliases = {}
+        local function canonical(value)
+            local seen = {}
+            while value ~= nil and aliases[value.text] ~= nil and not seen[value.text] do
+                seen[value.text] = true
+                value = aliases[value.text]
+            end
+            return value
+        end
+        local changed = true
+        while changed do
+            changed = false
+            for _, fact in ipairs(ctx.flow and ctx.flow.edges or {}) do
+                local edge = fact.edge
+                if edge ~= latch and loop_blocks[edge.from.block.text] and loop_blocks[edge.to.block.text] then
+                    for _, arg in ipairs(fact.args or {}) do
+                        local src = canonical(arg.src)
+                        if src ~= nil and aliases[arg.dst_param.text] ~= src then
+                            aliases[arg.dst_param.text] = src
+                            changed = true
+                        end
+                    end
+                end
+            end
+        end
+        ctx.loop_alias_cache[graph_loop.id.text] = aliases
+        return aliases
     end
 
-    local function expr_is_primary(expr, loop_fact)
-        return expr_is_value(expr, primary_induction(loop_fact))
+    local function canonical_loop_value(ctx, graph_loop, value)
+        local aliases = loop_aliases(ctx, graph_loop)
+        local seen = {}
+        while value ~= nil and aliases ~= nil and aliases[value.text] ~= nil and not seen[value.text] do
+            seen[value.text] = true
+            value = aliases[value.text]
+        end
+        return value
+    end
+
+    local function same_loop_value(ctx, graph_loop, a, b)
+        a = canonical_loop_value(ctx, graph_loop, a)
+        b = canonical_loop_value(ctx, graph_loop, b)
+        return a ~= nil and b ~= nil and a.text == b.text
+    end
+
+    local function expr_is_int_const(expr, raw)
+        return pvm.classof(expr) == Value.ValueExprConst
+            and pvm.classof(expr.const) == Code.CodeConstLiteral
+            and pvm.classof(expr.const.literal) == Core.LitInt
+            and tonumber(expr.const.literal.raw) == raw
+    end
+
+    local function bound_algebra_expr(bindings, value)
+        local binding = value and bindings and bindings["kval:" .. value.text] or nil
+        if binding ~= nil and pvm.classof(binding.expr) == Kernel.KernelExprAlgebra then return binding.expr.expr end
+        return nil
+    end
+
+    local expr_is_primary
+    expr_is_primary = function(ctx, expr, graph_loop, loop_fact, bindings, seen)
+        local primary = primary_induction(loop_fact)
+        if primary == nil or expr == nil then return false end
+        seen = seen or {}
+        if seen[expr] then return false end
+        seen[expr] = true
+        local cls = pvm.classof(expr)
+        if cls == Value.ValueExprValue then
+            if same_loop_value(ctx, graph_loop, expr.value, primary) then return true end
+            return expr_is_primary(ctx, bound_algebra_expr(bindings, expr.value), graph_loop, loop_fact, bindings, seen)
+        end
+        if cls == Value.ValueExprCast or cls == Value.ValueExprUnary then
+            return expr_is_primary(ctx, expr.value, graph_loop, loop_fact, bindings, seen)
+        end
+        if cls == Value.ValueExprMul then
+            return (expr_is_int_const(expr.a, 1) and expr_is_primary(ctx, expr.b, graph_loop, loop_fact, bindings, seen))
+                or (expr_is_int_const(expr.b, 1) and expr_is_primary(ctx, expr.a, graph_loop, loop_fact, bindings, seen))
+        end
+        if cls == Value.ValueExprAdd then
+            return (expr_is_int_const(expr.a, 0) and expr_is_primary(ctx, expr.b, graph_loop, loop_fact, bindings, seen))
+                or (expr_is_int_const(expr.b, 0) and expr_is_primary(ctx, expr.a, graph_loop, loop_fact, bindings, seen))
+        end
+        return false
     end
 
     local function is_zero_const(expr)
@@ -566,7 +597,7 @@ local function bind_context(T)
         }
     end
 
-    local function enrich_stream_class(ctx, class, loop_fact, bindings, prefix)
+    local function enrich_stream_class(ctx, class, graph_loop, loop_fact, bindings, prefix)
         local stream = class[prefix]
         local index = class[prefix .. "_index"] or class.index
         local fact = stream_selection_fact(ctx, stream)
@@ -576,7 +607,7 @@ local function bind_context(T)
             class.src_expr = fact.base_expr
             class.elem_ty = fact.elem_ty
             class.src_topology = fact.topology
-            class.index_primary = expr_is_primary(index, loop_fact)
+            class.index_primary = expr_is_primary(ctx, index, graph_loop, loop_fact, bindings)
             if not class.index_primary then
                 local idx = index_stream_for(index, bindings)
                 if idx ~= nil then
@@ -587,7 +618,7 @@ local function bind_context(T)
                             base_expr = idx_fact.base_expr,
                             elem_ty = idx_fact.elem_ty,
                             topology = idx_fact.topology,
-                            index_primary = expr_is_primary(idx.index, loop_fact),
+                            index_primary = expr_is_primary(ctx, idx.index, graph_loop, loop_fact, bindings),
                         }
                     end
                 end
@@ -597,22 +628,22 @@ local function bind_context(T)
             class[prefix .. "_expr"] = fact.base_expr
             class[prefix .. "_ty"] = fact.elem_ty
             class[prefix .. "_topology"] = fact.topology
-            class[prefix .. "_index_primary"] = expr_is_primary(index, loop_fact)
+            class[prefix .. "_index_primary"] = expr_is_primary(ctx, index, graph_loop, loop_fact, bindings)
         end
         return class
     end
 
-    local function enrich_stencil_class(ctx, class, loop_fact, bindings, dst_base, dst_ty)
+    local function enrich_stencil_class(ctx, class, graph_loop, loop_fact, bindings, dst_base, dst_ty)
         if class.kind == "load" or class.kind == "map" or class.kind == "cast" or class.kind == "compare" then
-            local ok, err = enrich_stream_class(ctx, class, loop_fact, bindings, "stream")
+            local ok, err = enrich_stream_class(ctx, class, graph_loop, loop_fact, bindings, "stream")
             if not ok then return nil, err end
             if class.kind == "map" then
                 class.same_src_dst_ty = class.src == dst_base and same_code_type(class.elem_ty, dst_ty)
             end
         elseif class.kind == "zip_map" or class.kind == "zip_compare" then
-            local ok, err = enrich_stream_class(ctx, class, loop_fact, bindings, "lhs")
+            local ok, err = enrich_stream_class(ctx, class, graph_loop, loop_fact, bindings, "lhs")
             if not ok then return nil, err end
-            ok, err = enrich_stream_class(ctx, class, loop_fact, bindings, "rhs")
+            ok, err = enrich_stream_class(ctx, class, graph_loop, loop_fact, bindings, "rhs")
             if not ok then return nil, err end
         elseif class.kind == "fill" then
             class.value_expr = value_expr(ctx, class.value)
@@ -620,13 +651,13 @@ local function bind_context(T)
         return class
     end
 
-    local function enriched_class_for_expr(ctx, expr, loop_fact, bindings, dst_base, dst_ty)
+    local function enriched_class_for_expr(ctx, expr, graph_loop, loop_fact, bindings, dst_base, dst_ty)
         local classified, reason = classify_store_expr(expr, bindings)
         if classified == nil then return nil, reason end
-        return enrich_stencil_class(ctx, classified, loop_fact, bindings, dst_base, dst_ty)
+        return enrich_stencil_class(ctx, classified, graph_loop, loop_fact, bindings, dst_base, dst_ty)
     end
 
-    local function index_stream_selection_fact(ctx, expr, loop_fact, bindings)
+    local function index_stream_selection_fact(ctx, expr, graph_loop, loop_fact, bindings)
         local idx = index_stream_for(expr, bindings)
         if idx == nil then return nil end
         local fact = stream_selection_fact(ctx, idx.stream)
@@ -635,7 +666,7 @@ local function bind_context(T)
             base = fact.base,
             base_expr = fact.base_expr,
             elem_ty = fact.elem_ty,
-            index_primary = expr_is_primary(idx.index, loop_fact),
+            index_primary = expr_is_primary(ctx, idx.index, graph_loop, loop_fact, bindings),
         }
     end
 
@@ -655,8 +686,8 @@ local function bind_context(T)
         if classified == nil then return nil, reason end
         local start_expr, stop_expr = value_id_expr(ctx, loop_fact.counted.start), value_id_expr(ctx, loop_fact.counted.stop)
         local dst_expr = value_id_expr(ctx, dst_base)
-        local store_index_is_primary = expr_is_primary(store.index, loop_fact)
-        local class, class_reason = enrich_stencil_class(ctx, classified, loop_fact, bindings, dst_base, store.dst.elem_ty)
+        local store_index_is_primary = expr_is_primary(ctx, store.index, graph_loop, loop_fact, bindings)
+        local class, class_reason = enrich_stencil_class(ctx, classified, graph_loop, loop_fact, bindings, dst_base, store.dst.elem_ty)
         if class == nil then return nil, class_reason end
         local selection_ctx = {
             step_num = step_num,
@@ -669,7 +700,7 @@ local function bind_context(T)
             start_expr = start_expr,
             stop_expr = stop_expr,
             store_index_primary = store_index_is_primary,
-            store_index_stream = store_index_is_primary and nil or index_stream_selection_fact(ctx, store.index, loop_fact, bindings),
+            store_index_stream = store_index_is_primary and nil or index_stream_selection_fact(ctx, store.index, graph_loop, loop_fact, bindings),
             scatter_conflicts = Stencil.StencilScatterUniqueIndices,
             class = class,
         }
@@ -735,7 +766,7 @@ local function bind_context(T)
         if classified == nil then return nil, reason end
         local start_expr, stop_expr = value_id_expr(ctx, loop_fact.counted.start), value_id_expr(ctx, loop_fact.counted.stop)
         local init_expr = value_expr(ctx, reduction.init)
-        local class, class_reason = enrich_stencil_class(ctx, classified, loop_fact, binding_index(plan.body), nil, nil)
+        local class, class_reason = enrich_stencil_class(ctx, classified, graph_loop, loop_fact, binding_index(plan.body), nil, nil)
         if class == nil then return nil, class_reason end
         local i32 = Code.CodeTyInt(32, Code.CodeSigned)
         local selection_ctx = {
@@ -809,7 +840,7 @@ local function bind_context(T)
         if dst_base == nil then return nil, "scan destination stream has no value base" end
         local dst_fact = stream_selection_fact(ctx, effect.dst)
         local bindings = binding_index(plan.body)
-        local class, class_reason = enriched_class_for_expr(ctx, Kernel.KernelExprAlgebra(reduction.contribution), loop_fact, bindings, dst_base, effect.dst.elem_ty)
+        local class, class_reason = enriched_class_for_expr(ctx, Kernel.KernelExprAlgebra(reduction.contribution), graph_loop, loop_fact, bindings, dst_base, effect.dst.elem_ty)
         if class == nil then return nil, class_reason end
         local start_expr, stop_expr = value_id_expr(ctx, loop_fact.counted.start), value_id_expr(ctx, loop_fact.counted.stop)
         local step_num = const_int_value(ctx, loop_fact.counted.step)
@@ -824,7 +855,7 @@ local function bind_context(T)
             stop = loop_fact.counted.stop,
             start_expr = start_expr,
             stop_expr = stop_expr,
-            store_index_primary = expr_is_primary(effect.index, loop_fact),
+            store_index_primary = expr_is_primary(ctx, effect.index, graph_loop, loop_fact, bindings),
             reduction = reduction,
             reduction_kind = reduction.kind,
             init = reduction.init,
@@ -841,7 +872,7 @@ local function bind_context(T)
         if pvm.classof(result) ~= Kernel.KernelResultFind then return nil, "kernel result is not find" end
         if graph_loop == nil then return nil, "find skeleton requires a graph loop" end
         local bindings = binding_index(plan.body)
-        local class, class_reason = enriched_class_for_expr(ctx, result.src, loop_fact, bindings, nil, nil)
+        local class, class_reason = enriched_class_for_expr(ctx, result.src, graph_loop, loop_fact, bindings, nil, nil)
         if class == nil then return nil, class_reason end
         local step_num = const_int_value(ctx, loop_fact.counted.step)
         local selection, select_reason = StencilRules.select_find {
@@ -865,7 +896,7 @@ local function bind_context(T)
         if dst_base == nil then return nil, "partition destination stream has no value base" end
         local dst_fact = stream_selection_fact(ctx, effect.dst)
         local bindings = binding_index(plan.body)
-        local class, class_reason = enriched_class_for_expr(ctx, effect.src, loop_fact, bindings, dst_base, effect.dst.elem_ty)
+        local class, class_reason = enriched_class_for_expr(ctx, effect.src, graph_loop, loop_fact, bindings, dst_base, effect.dst.elem_ty)
         if class == nil then return nil, class_reason end
         local step_num = const_int_value(ctx, loop_fact.counted.step)
         local selection, select_reason = StencilRules.select_partition {
@@ -894,7 +925,7 @@ local function bind_context(T)
         if dst_base == nil then return nil, "copy destination stream has no value base" end
         local dst_fact = stream_selection_fact(ctx, effect.dst)
         local bindings = binding_index(plan.body)
-        local class, class_reason = enriched_class_for_expr(ctx, effect.src, loop_fact, bindings, dst_base, effect.dst.elem_ty)
+        local class, class_reason = enriched_class_for_expr(ctx, effect.src, graph_loop, loop_fact, bindings, dst_base, effect.dst.elem_ty)
         if class == nil then return nil, class_reason end
         local step_num = const_int_value(ctx, loop_fact.counted.step)
         local selection, select_reason = StencilRules.select_store {
@@ -969,13 +1000,6 @@ local function bind_context(T)
             ready, stencil_reduce_reason = stencil_reduce_plan(ctx, func, plan, graph_loop, loop_fact)
             stencil_reduce_ready = ready ~= nil
         end
-        local vector_ready = false
-        local vector_reason = nil
-        if planned then
-            local ready
-            ready, vector_reason = vector_reduce_plan(ctx, func, plan, graph_loop, loop_fact, kernel)
-            vector_ready = ready ~= nil
-        end
         local stencil_store_ready = false
         local stencil_store_reason = nil
         if planned then
@@ -1018,8 +1042,6 @@ local function bind_context(T)
             stencil_store_reject = stencil_store_reason,
             stencil_skeleton_ready = stencil_skeleton_ready,
             stencil_skeleton_reject = stencil_skeleton_reason,
-            vector_reduce_ready = vector_ready,
-            vector_reject = vector_reason,
             store_reject = store_reason,
         }
     end
@@ -1035,6 +1057,7 @@ local function bind_context(T)
             code_sigs = module_ctx.code_sigs,
             mem_objects = module_ctx.mem_objects,
             mem_accesses = module_ctx.mem_accesses,
+            flow = module_ctx.flow,
             value_types = {},
             defs = value_defs(func),
         }
@@ -1067,7 +1090,7 @@ local function bind_context(T)
                 local selection, reason = LowerRules.select(candidate)
                 if selection == nil then
                     if candidate.result_reduction then
-                        reason = candidate.vector_reject or candidate.stencil_reduce_reject or reason
+                        reason = candidate.stencil_reduce_reject or reason
                     elseif candidate.stencil_skeleton_reject then
                         reason = candidate.stencil_skeleton_reject
                     elseif candidate.single_store then
@@ -1078,8 +1101,6 @@ local function bind_context(T)
                 if selection ~= nil then
                     if selection.kind == "stencil_reduce" then
                         machine, reason = lower_kernel_stencil_reduce(ctx, func, plan, graph_loop, loop_fact, opts)
-                    elseif selection.kind == "vector_reduce" then
-                        machine, reason = lower_kernel_vector_reduce(ctx, func, plan, graph_loop, loop_fact, kernel, opts)
                     elseif selection.kind == "stencil_store" then
                         machine, reason = lower_kernel_stencil_store(ctx, func, plan, graph_loop, loop_fact, opts)
                     elseif selection.kind == "stencil_skeleton" then
@@ -1116,7 +1137,7 @@ local function bind_context(T)
         local graph, flow, value, mem, effect, kernel = build_kernel(module, opts)
         local graph_loops, loop_func = graph_loop_index(graph)
         local flow_loops = flow_loop_index(flow)
-        local module_ctx = { code_sigs = code_sigs(module), mem_objects = mem_object_index(mem), mem_accesses = mem_access_index(mem) }
+        local module_ctx = { code_sigs = code_sigs(module), mem_objects = mem_object_index(mem), mem_accesses = mem_access_index(mem), flow = flow }
         local funcs = {}
         for i, func in ipairs(module.funcs or {}) do funcs[i] = lower_func(module_ctx, func, kernel, graph_loops, flow_loops, loop_func, opts) end
         return LJ.LJModule(module.id, funcs, {}, {}, {}), {

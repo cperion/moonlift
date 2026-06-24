@@ -1336,11 +1336,13 @@ it does not own the stencil decision matrix.
 
 The next LuaJIT lowering layer is also Llisle-owned. `luajit_lower` adapts
 kernel plans, flow facts, provider availability, return-shape checks, counted
-loop facts, and pure stencil/vector readiness into a
+loop facts, and scheduled stencil readiness into a
 `LuaJITKernelLoweringCandidate`. Llisle then selects the concrete lowering
-strategy by cost: ready stencil reductions, ready vector reductions, then ready
-stencil stores. Lua builds only the selected machine; it no longer owns a
-procedural trial ladder.
+strategy by cost across selected stencil reductions, skeletons, and stores. Lua
+builds only the selected machine; it no longer owns a procedural trial ladder
+or a separate vector-reduction path. Vectorization is carried by the selected
+`MoonStencil.StencilInstance.schedule` and realized by the C stencil compiler
+policy.
 
 The stencil layer is performance-gated as a vocabulary, not as isolated
 examples. Run `luajit benchmarks/bench_luajit_stencil_matrix.lua full` to
@@ -2787,3 +2789,49 @@ Moonlift metaprogramming helper should normally be a fragment with an explicit
 role. This preserves role information, enables early diagnostics, keeps
 composition readable, and lets formatting/rendering recover canonical DSL
 structure after evaluation.
+
+## LuaJIT copy-and-patch artifact emission
+
+Moonlift can emit a self-contained LuaJIT source artifact that embeds selected native stencil bytes and installs them with copy-and-patch at load time.
+
+```lua
+local moon = require("moonlift")
+moon.use { scope = "env" }
+
+local sum_i32 = fn. sum_i32 { xs [ptr [i32]], n [i32] } [i32] {
+  requires { bounds(xs, n), readonly(xs) },
+
+  entry. start {} { jump. loop { i = 0, acc = 0 }, },
+
+  block. loop { i [i32], acc [i32] } {
+    when (i :lt (n)) {
+      jump. body { i = i, acc = acc },
+    },
+
+    jump. done { acc = acc },
+  },
+
+  block. body { i [i32], acc [i32] } {
+    jump. loop { i = i + 1, acc = acc + xs[i] },
+  },
+
+  block. done { acc [i32] } {
+    ret(acc),
+  },
+}
+
+local artifact = moon.emit_luajit_artifact(sum_i32, {
+  path = "target/artifacts/sum_i32.lua",
+  name = "SumI32",
+  stem = "sum_i32",
+})
+```
+
+The emitted `.lua` file contains residual LuaJIT wrapper code plus embedded native stencil byte strings. Loading the file checks the runtime target, copies the embedded stencil bytes to executable memory, patches relocation holes, casts the installed addresses to FFI function pointers, and returns the generated module table.
+
+```lua
+local mod = assert(loadfile("target/artifacts/sum_i32.lua"))()
+print(mod.sum_i32(xs, n))
+```
+
+This path uses the same Moonlift frontend and MoonStencil schedule/artifact selection as the normal compiler. The LuaJIT copy-and-patch backend only realizes already-selected `StencilArtifact` values; it does not re-lower loops or keep a separate vector/reduction machine.

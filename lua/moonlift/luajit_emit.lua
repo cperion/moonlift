@@ -406,7 +406,7 @@ local function bind_context(T)
         return nil
     end
 
-    local function vector_reduce_support(kind, sem, elem_ty, result_ty)
+    local function fold_reduce_support(kind, sem, elem_ty, result_ty)
         local elem_reg = trace_int_reg(elem_ty)
         local result_reg = trace_int_reg(result_ty)
         if elem_reg == nil or result_reg == nil then
@@ -427,7 +427,7 @@ local function bind_context(T)
         return true, nil
     end
 
-    local function emit_trace_vector_reduce_array(out, n, prefix, arr, start_expr, stop_expr, step_expr, init, lanes, result_name, item_id, reduction, result_ty)
+    local function emit_trace_fold_reduce_array(out, n, prefix, arr, start_expr, stop_expr, step_expr, init, lanes, result_name, item_id, reduction, result_ty)
         local reg = trace_int_reg(result_ty)
         lanes = tonumber(lanes) or 8
         if lanes < 1 then error("luajit_emit: vector reduce lanes must be >= 1", 3) end
@@ -508,7 +508,7 @@ local function bind_context(T)
                 or k.step.op == Core.BinBitXor and Value.ReductionXor
             ) or nil
             local support_ok = false
-            if sem_ok and reduction ~= nil then support_ok = vector_reduce_support(reduction, k.step.semantics, k.step.ty, k.step.ty) end
+            if sem_ok and reduction ~= nil then support_ok = fold_reduce_support(reduction, k.step.semantics, k.step.ty, k.step.ty) end
             local function is_value(e, id)
                 return pvm.classof(e) == LJ.LJExprValue and e.value == id
             end
@@ -519,7 +519,7 @@ local function bind_context(T)
                 local prefix = sanitize(m.id.text)
                 local arr = id_name(source_kind.array)
                 local acc = id_name(k.acc)
-                emit_trace_vector_reduce_array(out, n, prefix, arr, "0", expr(source_kind.length), "1", k.init, 8, acc, k.item, reduction, k.step.ty)
+                emit_trace_fold_reduce_array(out, n, prefix, arr, "0", expr(source_kind.length), "1", k.init, 8, acc, k.item, reduction, k.step.ty)
                 body_cb(n, acc)
                 return
             end
@@ -535,19 +535,6 @@ local function bind_context(T)
             body_cb(n, one)
         elseif cls == LJ.LJMachineEmpty then
             return
-        elseif cls == LJ.LJMachineVectorReduceArray then
-            local ok, reason = vector_reduce_support(k.reduction, k.semantics, k.elem_ty, k.result_ty)
-            if not ok then
-                error("luajit_emit: unsupported vector reduce: " .. tostring(reason), 3)
-            end
-            local arr = id_name(k.array)
-            local start = expr(k.start)
-            local stop = expr(k.stop)
-            local step = expr(k.step)
-            local result_name = "__vreduce_" .. sanitize(m.id.text)
-            local item_id = LJ.LJValueId("__vreduce_item_" .. sanitize(m.id.text))
-            emit_trace_vector_reduce_array(out, n, sanitize(m.id.text), arr, start, stop, step, k.init, k.lanes, result_name, item_id, k.reduction, k.result_ty)
-            body_cb(n, result_name)
         elseif cls == LJ.LJMachineStencilCall then
             local symbol = k.artifact.symbol.text
             line(out, n, "if __moonlift_luajit_stencil_symbols[" .. lua_string(symbol) .. "] == nil then error(" .. lua_string("missing MoonStencil symbol " .. symbol) .. ", 0) end")
@@ -592,7 +579,7 @@ local function bind_context(T)
                 line(out, n, "return")
                 return
             end
-            if m ~= nil and (mcls == LJ.LJMachineFold or mcls == LJ.LJMachineVectorReduceArray) and term.default == nil then
+            if m ~= nil and mcls == LJ.LJMachineFold and term.default == nil then
                 emit_machine_loop(out, n, machines, body.machine, "__terminal_item", function(inner_n, item)
                     line(out, inner_n, "return " .. item)
                 end)

@@ -14,7 +14,6 @@ local function bind_context(T)
     local selection = llb.symbol("selection")
     local kernel_lowering = llb.symbol("kernel_lowering")
     local stencil_reduce = llb.symbol("stencil_reduce")
-    local vector_reduce = llb.symbol("vector_reduce")
     local stencil_store = llb.symbol("stencil_store")
     local stencil_skeleton = llb.symbol("stencil_skeleton")
     local function build_kernel_lowering(fields) return fields end
@@ -48,20 +47,6 @@ local function bind_context(T)
     cost (0),
     run {
       ret { selection = kernel_lowering { kind = stencil_reduce } },
-    },
-  },
-
-  rule. vector_reduce {
-    llisle.select_kernel_lowering { candidate = P. candidate },
-    when {
-      (P. candidate.loop_plan :eq (true))
-        * (P. candidate.owns_loop :eq (true))
-        * (P. candidate.planned :eq (true))
-        * (P. candidate.vector_reduce_ready :eq (true)),
-    },
-    cost (10),
-    run {
-      ret { selection = kernel_lowering { kind = vector_reduce } },
     },
   },
 

@@ -338,7 +338,7 @@ local function bind_context(T)
     end
 
     local function shaped(name, role, ty, topology, stride)
-        return Stencil.StencilAccess(name, role, ty, topology or Stencil.StencilTopologyContiguous(tonumber(stride) or 1))
+        return Stencil.StencilAccess(name, role, ty, topology or Stencil.StencilTopologyContiguous(1))
     end
 
     local function indexed(name, role, ty, index_ty, stride)
@@ -357,8 +357,77 @@ local function bind_context(T)
         return Stencil.StencilDescriptor(vocab, domain(stride), accesses, operator, reducer, skeleton, mem or memory(), result_ty, params or {})
     end
 
+    local function default_compiler_policy()
+        return Stencil.StencilCompilerPolicy(Stencil.StencilCompilerGcc, Stencil.StencilOptO3, Stencil.StencilMachineNative, {})
+    end
+
+    local function topology_unit_stride(topology)
+        local cls = pvm.classof(topology)
+        if cls == Stencil.StencilTopologyFieldProjection then return topology_unit_stride(topology.parent) end
+        if cls == Stencil.StencilTopologyContiguous or cls == Stencil.StencilTopologyIndexed or cls == Stencil.StencilTopologyInPlace then return tonumber(topology.stride) == 1 end
+        if cls == Stencil.StencilTopologySliceDescriptor or cls == Stencil.StencilTopologyByteSpanDescriptor then return true end
+        if cls == Stencil.StencilTopologyViewDescriptor then return topology.stride_const == 1 end
+        return false
+    end
+
+    local function access_vector_fact(access)
+        return Stencil.StencilAccessVectorFact(
+            access.name,
+            Stencil.StencilAliasUnknown,
+            Stencil.StencilAlignmentUnknown,
+            access.role == Stencil.StencilAccessRead,
+            topology_unit_stride(access.topology)
+        )
+    end
+
+    local function reduction_reassociable(reducer)
+        if reducer == nil then return true end
+        if reducer.float_mode == Code.CodeFloatStrict then return false end
+        if reducer.float_mode ~= nil then return true end
+        return true
+    end
+
+    local function vectorization_facts(desc)
+        local access_facts = {}
+        for i, access in ipairs(desc.accesses or {}) do access_facts[i] = access_vector_fact(access) end
+        local reducer = desc.reducer
+        return Stencil.StencilVectorizationFacts(
+            access_facts,
+            Stencil.StencilTripCountDynamic,
+            Stencil.StencilArithmeticVectorFact(
+                reduction_reassociable(reducer),
+                reducer and reducer.int_semantics or nil,
+                reducer and reducer.float_mode or nil
+            )
+        )
+    end
+
+    local function auto_vector_vocab(vocab)
+        return vocab == Stencil.StencilReduce
+            or vocab == Stencil.StencilMap
+            or vocab == Stencil.StencilZipMap
+            or vocab == Stencil.StencilScan
+            or vocab == Stencil.StencilCopy
+            or vocab == Stencil.StencilFill
+            or vocab == Stencil.StencilCast
+            or vocab == Stencil.StencilCompare
+            or vocab == Stencil.StencilZipCompare
+            or vocab == Stencil.StencilGather
+            or vocab == Stencil.StencilScatter
+            or vocab == Stencil.StencilInPlaceMap
+            or vocab == Stencil.StencilCount
+            or vocab == Stencil.StencilMapReduce
+            or vocab == Stencil.StencilZipReduce
+    end
+
+    local function schedule_for_descriptor(desc)
+        local policy = default_compiler_policy()
+        if auto_vector_vocab(desc.vocab) then return Stencil.StencilScheduleAutoVector(policy, vectorization_facts(desc)) end
+        return Stencil.StencilScheduleScalar(policy)
+    end
+
     local function instance(id, desc, abi, proofs)
-        return Stencil.StencilInstance(id, desc, abi, proofs or {})
+        return Stencil.StencilInstance(id, desc, schedule_for_descriptor(desc), abi, proofs or {})
     end
 
     local function topology_has_dynamic_stride(topology)
@@ -490,6 +559,7 @@ local function bind_context(T)
             instance = Stencil.StencilInstance(
                 Stencil.StencilInstanceId(instance.id.text .. suffix),
                 instance.descriptor,
+                instance.schedule,
                 instance.abi,
                 instance.proofs
             )
@@ -1033,6 +1103,12 @@ local function bind_context(T)
         return 1
     end
 
+    local function domain_stride(desc)
+        local dom = desc and desc.domain
+        if pvm.classof(dom) == Stencil.StencilDomainRange1D then return tonumber(dom.step) or 1 end
+        return 1
+    end
+
     local function indexed_ty(access)
         local top = access.topology
         if pvm.classof(top) ~= Stencil.StencilTopologyIndexed then
@@ -1064,89 +1140,89 @@ local function bind_context(T)
         if vocab == Stencil.StencilReduce then
             local xs = access_named(desc, "xs")
             local red = assert(desc.reducer, "stencil_c: reduce descriptor missing reducer")
-            return local_shape("reduce_array", { elem_ty = xs.ty, result_ty = red.result_ty, reduction = red.reduction, int_semantics = red.int_semantics, float_mode = red.float_mode, init = red.init, stride = topology_stride(xs) })
+            return local_shape("reduce_array", { elem_ty = xs.ty, result_ty = red.result_ty, reduction = red.reduction, int_semantics = red.int_semantics, float_mode = red.float_mode, init = red.init, stride = domain_stride(desc) })
         end
         if vocab == Stencil.StencilMap then
             local dst, xs = access_named(desc, "dst"), access_named(desc, "xs")
             local op = expect_operator(desc, Stencil.StencilOpUnary)
-            return local_shape("map_array", { elem_ty = xs.ty, result_ty = dst.ty, op = op.op, stride = topology_stride(xs) })
+            return local_shape("map_array", { elem_ty = xs.ty, result_ty = dst.ty, op = op.op, stride = domain_stride(desc) })
         end
         if vocab == Stencil.StencilZipMap then
             local dst, lhs, rhs = access_named(desc, "dst"), access_named(desc, "lhs"), access_named(desc, "rhs")
             local op = expect_operator(desc, Stencil.StencilOpBinary)
-            return local_shape("zip_map_array", { lhs_ty = lhs.ty, rhs_ty = rhs.ty, result_ty = dst.ty, op = op.op, stride = topology_stride(lhs) })
+            return local_shape("zip_map_array", { lhs_ty = lhs.ty, rhs_ty = rhs.ty, result_ty = dst.ty, op = op.op, stride = domain_stride(desc) })
         end
         if vocab == Stencil.StencilScan then
             local dst, xs = access_named(desc, "dst"), access_named(desc, "xs")
             local red = assert(desc.reducer, "stencil_c: scan descriptor missing reducer")
             local sk = expect_skeleton(desc, Stencil.StencilSkeletonScan)
-            return local_shape("scan_array", { elem_ty = xs.ty, result_ty = dst.ty, reduction = red.reduction, int_semantics = red.int_semantics, float_mode = red.float_mode, init = red.init, mode = sk.mode, stride = topology_stride(xs) })
+            return local_shape("scan_array", { elem_ty = xs.ty, result_ty = dst.ty, reduction = red.reduction, int_semantics = red.int_semantics, float_mode = red.float_mode, init = red.init, mode = sk.mode, stride = domain_stride(desc) })
         end
         if vocab == Stencil.StencilCopy then
             local src = access_named(desc, "src")
             local sk = expect_skeleton(desc, Stencil.StencilSkeletonCopy)
-            return local_shape("copy_array", { elem_ty = src.ty, semantics = sk.semantics, stride = topology_stride(src) })
+            return local_shape("copy_array", { elem_ty = src.ty, semantics = sk.semantics, stride = domain_stride(desc) })
         end
         if vocab == Stencil.StencilFill then
             local dst = access_named(desc, "dst")
             local op = expect_operator(desc, Stencil.StencilOpFill)
-            return local_shape("fill_array", { elem_ty = dst.ty, value = op.value, stride = topology_stride(dst) })
+            return local_shape("fill_array", { elem_ty = dst.ty, value = op.value, stride = domain_stride(desc) })
         end
         if vocab == Stencil.StencilFind then
             local xs = access_named(desc, "xs")
             local op = expect_operator(desc, Stencil.StencilOpPredicate)
-            return local_shape("find_array", { elem_ty = xs.ty, pred = op.pred, stride = topology_stride(xs) })
+            return local_shape("find_array", { elem_ty = xs.ty, pred = op.pred, stride = domain_stride(desc) })
         end
         if vocab == Stencil.StencilPartition then
             local xs = access_named(desc, "xs")
             local op = expect_operator(desc, Stencil.StencilOpPredicate)
             local sk = expect_skeleton(desc, Stencil.StencilSkeletonPartition)
-            return local_shape("partition_array", { elem_ty = xs.ty, pred = op.pred, semantics = sk.semantics, stride = topology_stride(xs) })
+            return local_shape("partition_array", { elem_ty = xs.ty, pred = op.pred, semantics = sk.semantics, stride = domain_stride(desc) })
         end
         if vocab == Stencil.StencilCast then
             local xs = access_named(desc, "xs")
             local op = expect_operator(desc, Stencil.StencilOpCast)
-            return local_shape("cast_array", { src_ty = op.from, dst_ty = op.to, op = op.op, stride = topology_stride(xs) })
+            return local_shape("cast_array", { src_ty = op.from, dst_ty = op.to, op = op.op, stride = domain_stride(desc) })
         end
         if vocab == Stencil.StencilCompare then
             local xs = access_named(desc, "xs")
             local op = expect_operator(desc, Stencil.StencilOpPredicate)
-            return local_shape("compare_array", { elem_ty = xs.ty, result_ty = op.result_ty, pred = op.pred, stride = topology_stride(xs) })
+            return local_shape("compare_array", { elem_ty = xs.ty, result_ty = op.result_ty, pred = op.pred, stride = domain_stride(desc) })
         end
         if vocab == Stencil.StencilZipCompare then
             local lhs, rhs = access_named(desc, "lhs"), access_named(desc, "rhs")
             local op = expect_operator(desc, Stencil.StencilOpCompare)
-            return local_shape("zip_compare_array", { lhs_ty = lhs.ty, rhs_ty = rhs.ty, result_ty = op.result_ty, cmp = op.cmp, stride = topology_stride(lhs) })
+            return local_shape("zip_compare_array", { lhs_ty = lhs.ty, rhs_ty = rhs.ty, result_ty = op.result_ty, cmp = op.cmp, stride = domain_stride(desc) })
         end
         if vocab == Stencil.StencilGather then
             local src = access_named(desc, "src")
-            return local_shape("gather_array", { elem_ty = src.ty, index_ty = indexed_ty(src), stride = topology_stride(src) })
+            return local_shape("gather_array", { elem_ty = src.ty, index_ty = indexed_ty(src), stride = domain_stride(desc) })
         end
         if vocab == Stencil.StencilScatter then
             local dst = access_named(desc, "dst")
-            return local_shape("scatter_array", { elem_ty = dst.ty, index_ty = indexed_ty(dst), conflicts = desc.memory.scatter, stride = topology_stride(dst) })
+            return local_shape("scatter_array", { elem_ty = dst.ty, index_ty = indexed_ty(dst), conflicts = desc.memory.scatter, stride = domain_stride(desc) })
         end
         if vocab == Stencil.StencilInPlaceMap then
             local xs = access_named(desc, "xs")
             local op = expect_operator(desc, Stencil.StencilOpUnary)
-            return local_shape("in_place_map_array", { elem_ty = xs.ty, op = op.op, stride = topology_stride(xs) })
+            return local_shape("in_place_map_array", { elem_ty = xs.ty, op = op.op, stride = domain_stride(desc) })
         end
         if vocab == Stencil.StencilCount then
             local xs = access_named(desc, "xs")
             local op = expect_operator(desc, Stencil.StencilOpPredicate)
-            return local_shape("count_array", { elem_ty = xs.ty, pred = op.pred, stride = topology_stride(xs) })
+            return local_shape("count_array", { elem_ty = xs.ty, pred = op.pred, stride = domain_stride(desc) })
         end
         if vocab == Stencil.StencilMapReduce then
             local xs = access_named(desc, "xs")
             local op = expect_operator(desc, Stencil.StencilOpUnary)
             local red = assert(desc.reducer, "stencil_c: map_reduce descriptor missing reducer")
-            return local_shape("map_reduce_array", { elem_ty = xs.ty, mapped_ty = op.result_ty, result_ty = red.result_ty, op = op.op, reduction = red.reduction, int_semantics = red.int_semantics, float_mode = red.float_mode, init = red.init, stride = topology_stride(xs) })
+            return local_shape("map_reduce_array", { elem_ty = xs.ty, mapped_ty = op.result_ty, result_ty = red.result_ty, op = op.op, reduction = red.reduction, int_semantics = red.int_semantics, float_mode = red.float_mode, init = red.init, stride = domain_stride(desc) })
         end
         if vocab == Stencil.StencilZipReduce then
             local lhs, rhs = access_named(desc, "lhs"), access_named(desc, "rhs")
             local op = expect_operator(desc, Stencil.StencilOpBinary)
             local red = assert(desc.reducer, "stencil_c: zip_reduce descriptor missing reducer")
-            return local_shape("zip_reduce_array", { lhs_ty = lhs.ty, rhs_ty = rhs.ty, mapped_ty = op.result_ty, result_ty = red.result_ty, op = op.op, reduction = red.reduction, int_semantics = red.int_semantics, float_mode = red.float_mode, init = red.init, stride = topology_stride(lhs) })
+            return local_shape("zip_reduce_array", { lhs_ty = lhs.ty, rhs_ty = rhs.ty, mapped_ty = op.result_ty, result_ty = red.result_ty, op = op.op, reduction = red.reduction, int_semantics = red.int_semantics, float_mode = red.float_mode, init = red.init, stride = domain_stride(desc) })
         end
         error("stencil_c: unsupported stencil descriptor", 3)
     end
@@ -1293,9 +1369,7 @@ local function bind_context(T)
         local has_dynamic_stride = #dynamic_stride_accesses(desc) ~= 0
         local lines = {}
         lines[#lines + 1] = "void " .. artifact.symbol.text .. "(" .. table.concat(source_params(artifact, { et .. " *dst", "const " .. et .. " *src", "int32_t start", "int32_t stop" }), ", ") .. ") {"
-        if shape.semantics == Stencil.StencilCopyMemMove and stride == 1 and not has_dynamic_stride then
-            lines[#lines + 1] = "    if (stop > start) memmove(dst + start, src + start, (size_t)(stop - start) * sizeof(" .. et .. "));"
-        elseif shape.semantics == Stencil.StencilCopyMayOverlapBackward then
+        if shape.semantics == Stencil.StencilCopyMayOverlapBackward then
             lines[#lines + 1] = "    for (int32_t i = stop - 1; i >= start; i -= " .. tostring(stride) .. ") " .. access_ref(dst_access, "dst", "i") .. " = " .. access_ref(src_access, "src", "i") .. ";"
         elseif shape.semantics == Stencil.StencilCopyMemMove then
             lines[#lines + 1] = "    if ((uintptr_t)dst <= (uintptr_t)src) {"
